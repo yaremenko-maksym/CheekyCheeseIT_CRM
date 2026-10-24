@@ -131,6 +131,10 @@ interface FakeOpts {
   status?: string
   /** `LIFETIME` makes `rollWindow` return null whatever the clock says. */
   window?: 'DAY' | 'MONTH' | 'LIFETIME'
+  /** The meter's reset instant. Default is far future, so no roll is due. */
+  resetsAt?: Date
+  /** The window start the meter row carries. */
+  windowStartedAt?: Date
   /** Rows returned by the reservation -> meter peek. `[]` = no such reservation. */
   peek?: unknown[]
   /** Rows returned by the locked-meter select. `[]` = no meter row. */
@@ -161,9 +165,10 @@ function fakeMeterDb(opts: FakeOpts = {}) {
   const meter = {
     id: FAKE_METER_ID,
     window,
-    windowStartedAt: window === 'LIFETIME' ? null : new Date('2026-01-01T00:00:00Z'),
-    // Far in the future, so no window roll is due and `rollWindow` returns null.
-    resetsAt: window === 'LIFETIME' ? null : new Date('2099-01-01T00:00:00Z'),
+    windowStartedAt:
+      window === 'LIFETIME' ? null : (opts.windowStartedAt ?? new Date('2026-01-01T00:00:00Z')),
+    // Far in the future by default, so no window roll is due and `rollWindow` returns null.
+    resetsAt: window === 'LIFETIME' ? null : (opts.resetsAt ?? new Date('2099-01-01T00:00:00Z')),
   }
   const reservation = {
     id: FAKE_RESERVATION_ID,
@@ -188,6 +193,7 @@ function fakeMeterDb(opts: FakeOpts = {}) {
 
   const lockModes: string[] = []
   const projections: unknown[] = []
+  const payloads: unknown[] = []
   const readable = (rows: unknown[]) => {
     const p = Promise.resolve(rows) as Promise<unknown[]> & {
       for: (mode: string) => Promise<unknown[]>
@@ -219,13 +225,18 @@ function fakeMeterDb(opts: FakeOpts = {}) {
           }),
     update: () => {
       writes.push('update')
-      return { set: () => ({ where: () => writable([meter]) }) }
+      return {
+        set: (payload: unknown) => {
+          payloads.push(payload)
+          return { where: () => writable([meter]) }
+        },
+      }
     },
   }
   const db = {
     transaction: (run: (t: typeof tx) => Promise<unknown>) => run(tx),
   } as unknown as MeterDb
-  return { db, writes, lockModes, projections }
+  return { db, writes, lockModes, projections, payloads }
 }
 
 const claimOf = (unit: 'REQUEST' | 'RECORD' = 'REQUEST') => ({
@@ -523,6 +534,59 @@ describe('reconcile — the branches a unit double can see', () => {
    * a `Stryker disable next-line` inside a method chain is ignored both on its own line and as a
    * trailing comment, so a suppression there would have been a comment with no effect.
    */
+  /**
+   * THE WINDOW ROLL, at unit scope and by value. This exists because of what it replaced: the
+   * decision `if (next === null) return meter` carried a `Stryker disable` for one round, and the
+   * directive blanket-covered the arm six other tests already kill. Removing it left exactly one
+   * live mutant — forcing the decision TRUE, so a due window never rolls — and the honest answer
+   * to a live mutant is an assertion, not the directive back.
+   *
+   * What makes it assertable here, where the settlement payloads are not: `rollWindow` is pure and
+   * returns plain Dates, so the roll's payload is three values a double can read — `used` back to
+   * zero and the two new bounds. The expected instants are the calendar arithmetic from the
+   * fixture's own anchor, written out: a MONTH meter whose reset fell due on 2026-03-31 rolls into
+   * the window starting there and ending on 2026-04-30.
+   *
+   * The reconcile is a no-op, deliberately: it returns before the apply block, so this covers the
+   * roll without touching the settlement payloads whose mutants a double cannot distinguish.
+   */
+  it('a due window rolls: used back to zero and the bounds advanced, by value', async () => {
+    const { db, writes, payloads } = fakeMeterDb({
+      status: 'USED',
+      window: 'MONTH',
+      windowStartedAt: new Date('2026-02-28T00:00:00Z'),
+      resetsAt: new Date('2026-03-31T00:00:00Z'),
+      clockRows: [{ now: new Date('2026-04-02T09:00:00Z') }],
+    })
+    await expect(
+      createAccountMeter(db, { ...valid(), windows: { REQUEST: 'MONTH' } }).reconcile(
+        claimOf(),
+        'USED',
+      ),
+    ).resolves.toBeUndefined()
+
+    // Exactly one statement: the roll. The no-op settles nothing.
+    expect(writes).toEqual(['update'])
+    expect(payloads).toHaveLength(1)
+    expect(payloads[0]).toMatchObject({
+      used: 0,
+      windowStartedAt: new Date('2026-03-31T00:00:00Z'),
+      resetsAt: new Date('2026-04-30T00:00:00Z'),
+    })
+  })
+
+  it('a window that is not due is left alone — no statement at all', async () => {
+    const { db, writes, payloads } = fakeMeterDb({ status: 'USED', window: 'MONTH' })
+    await expect(
+      createAccountMeter(db, { ...valid(), windows: { REQUEST: 'MONTH' } }).reconcile(
+        claimOf(),
+        'USED',
+      ),
+    ).resolves.toBeUndefined()
+    expect(writes).toEqual([])
+    expect(payloads).toEqual([])
+  })
+
   it('the peek reads only the meter id, and both row locks are FOR UPDATE', async () => {
     const { db, lockModes, projections } = fakeMeterDb({ status: 'USED' })
     await expect(

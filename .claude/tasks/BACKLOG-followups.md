@@ -4718,12 +4718,22 @@ each agent write under a per-agent subdirectory so a plain basename is safe agai
 **Check on closing:** two agents of one session, each told to write a PR body "to the scratchpad",
 produce two files that cannot collide — verified by running it, not by reading the brief.
 
-## 308. The account meter's spend record depends on four things no code does yet (2026-10-24)
+## 308. The account meter's spend record depends on six things no code does yet (2026-10-24)
 
-Four findings from the three review axes on the shared account-meter reservation store. None could be
+Findings from the three review axes on the shared account-meter reservation store. None could be
 closed inside the store: each needs either the port the collection loop sees, or a worker that claims a
 run under a lease — and neither exists. They are one entry because they share that cause, and because
 closing any one of them alone still leaves the meter's `used` unable to mean what a reader assumes.
+
+**THE OPEN OWNER IS PLAN TASK 2.5, AND IT IS STILL OPEN.** Several bullets below name a role —
+"whoever claims a run under a lease" — and that role is Task 2.5 of the vacancy-sourcing plan, which
+owns the run registry, the collection cadence and durable work ownership, and which is not
+implemented: no registry or run-worker file exists under the job-sourcing directory, and the service's
+registry is still the in-process map holding the legacy provider contract. Registration was
+deliberately cut from the manifest task on the same grounds — nothing in production builds a
+`CollectionContext`, so there is nothing for a registered adapter to be handed. Written out here
+because the task files that say so are gitignored, and an address a reader cannot open is not a
+destination.
 
 - **A reservation can be handed to two live executors of one attempt, and the second charge is
   silently dropped.** The store reuses a reservation that is still in the RESERVED state, reading that
@@ -4732,8 +4742,10 @@ closing any one of them alone still leaves the meter's `used` unable to mean wha
   reservation between them; two of them each sent a real request of cost 2 and the meter recorded 2.
   The second settlement was a no-op, so the second worker believed it had been charged. N overlapping
   executors cost N times the amount and are charged once — the overspend direction. The store now
-  carries this as a stated CALLER precondition (at most one live executor per attempt identity) with a
-  characterisation test, because it cannot be enforced from inside: the distinguishing fact would have
+  carries this as a stated CALLER precondition (at most one live executor per attempt identity), with
+  a characterisation test named "TWO live executors of one attempt SHARE a reservation — the
+  precondition, measured" in the store's integration spec: whoever fixes this will see THAT test fail,
+  which is the signal to delete it and assert the fix. It cannot be enforced from inside: the distinguishing fact would have
   to arrive through the collection context, which carries no owner token, and whose fencing epoch is
   written by no code in the repository — the column defaults to 1 and the lease recovery that would
   advance it is unimplemented. So folding the epoch into the reservation key would separate nothing
@@ -4776,8 +4788,46 @@ closing any one of them alone still leaves the meter's `used` unable to mean wha
   zone of the task that introduced the ceiling, so the correction travels with the port change in
   the first item above rather than on its own.
 
+- **Nothing proves a quota key reaches the redaction list.** The credential reader returns the key
+  together with the list to append to the collection context's `secrets`, and that return value is
+  where every assertion stops — because no code builds a collection context, there is no end-to-end
+  path from the reader to a redacted report. The consequence is concrete: a caller that takes the key
+  and ignores the `secrets` list passes every test in the credential spec and leaks the key into
+  whatever it logs or reports. This belongs to the step that CONSTRUCTS the context, which is Task 2.5
+  above and not the adapter task — the adapter task's own text names `secrets` only as a port, so
+  pointing the deferral there, as an earlier edition of the credential spec's comment did, named an
+  owner that did not hold the item.
+
 **Check on closing:** two concurrent executors of one attempt each sending a real request are charged
 twice, not once; a worker killed between sending and settling leaves cost held rather than released;
 a per-record source that returns 3 records against a worst case of 50 is charged 3; a recovery
-process can name and settle the reservations of an attempt whose worker died; and the port's comment
-names both refusal shapes, so a loop built from it handles the throw as well as the `null`.
+process can name and settle the reservations of an attempt whose worker died; the port's comment
+names both refusal shapes, so a loop built from it handles the throw as well as the `null`; and a
+configured quota key is provably absent from a report the collection loop produced, asserted on the
+report rather than on the reader's return value.
+
+## 312. A Stryker directive inside a method chain is silently not honoured (2026-10-24)
+
+**Open** — a tooling fact with no mechanism behind it, so it will be rediscovered unless it is written
+down. Number 312 because 308 is the entry above, and 309 through 311 were taken by branches and
+sessions in flight on the same day.
+
+A `// Stryker disable next-line <mutator>` comment suppresses the mutants of the statement below it.
+Placed inside a multi-line method chain — above a chained call, or trailing the line before it — it
+suppresses nothing: the mutant survives and the gate's `ignored` count does not move. Measured twice
+independently on the same day: once by the author of the code, by arithmetic on the gate's own
+`ignored` count across two placements, and once by a reviewer in an isolated Stryker sandbox, where
+the identical directive above a single-line statement did remove its mutants.
+
+Why it matters more than an ordinary tooling quirk: the failure is **silent in the direction of a
+false red**, and the natural response to a survivor you believe you have suppressed is to suppress it
+harder, or to excuse it in prose. The honest answers are to assert the line, or to restructure so the
+directive sits above a statement rather than inside a chain.
+
+Worth holding beside its opposite. This quirk fails toward a red gate, so it costs time and hides
+nothing. A suppression whose stated reason has gone stale — because a test was later added that does
+cover the line — fails the other way, toward green, and hides live signal. Both are about
+suppressions and they point in opposite directions, so a review of one is not a review of the other.
+
+**Check on closing:** place such a directive inside a chain and confirm the gate's `ignored` count
+moves. If the count is unchanged, the directive is decoration and the line is still gated.

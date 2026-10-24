@@ -37,8 +37,15 @@ describe('readQuotaCredential', () => {
    * `secrets`") is met on the reader's contract only.
    *
    * Consequence to carry forward: a caller that takes `apiKey` and ignores `secrets` would pass
-   * every test in this file and leak the key into reports. The task that builds the context owns
-   * closing that — Task 3.5b, tracked as BACKLOG-followups 308 alongside the port items.
+   * every test in this file and leak the key into reports.
+   *
+   * OWNER, corrected (R2-SPEC-M-1): the step that CONSTRUCTS the context, which is plan Task 2.5 —
+   * not the adapter task, whose own text names `secrets` only as a port and therefore never held
+   * this item. Tracked as BACKLOG-followups 308, "The account meter's spend record depends on six
+   * things no code does yet", in the bullet beginning "Nothing proves a quota key reaches the
+   * redaction list". An earlier edition of this comment named the adapter task, which was a
+   * deferral to a destination that did not contain the item — the habit that prevents it is to open
+   * the destination and find the item there before committing a sentence that says "tracked as".
    */
   it.each([
     ['jooble', 'JOOBLE_API_KEY'],
