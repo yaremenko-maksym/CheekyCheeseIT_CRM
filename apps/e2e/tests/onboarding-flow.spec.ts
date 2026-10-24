@@ -284,9 +284,9 @@ test.describe('Onboarding flow', () => {
   // /project renders an empty <main> and never reaches /onboarding. Kept as a visible
   // `fixme` (listed as skipped in every run) rather than deleted or loosened — remove
   // the `.fixme` when the fix task lands.
-  // Tracked in .claude/tasks/BACKLOG-followups.md as the «unboarded JUNIOR at `/` crashes (React #185)»
-  // entry. Master cited it as #324, but #324 on origin/main (0326b52a4) is a different item (Flow Gate) —
-  // correct this id when the entry lands. (A gitignored .blocked.md is NOT a durable owner.)
+  // Tracked in .claude/tasks/BACKLOG-followups.md as «An unboarded JUNIOR crashes the production build»
+  // (referenced by title: the entry number has been renumbered repeatedly). A gitignored .blocked.md is NOT
+  // a durable owner.
   test.fixme('JUNIOR: unboarded user → onboarding wizard → dashboard', async ({ page }) => {
     await mockAuthAs(page, USERS.junior)
     await mockOnboardingApi(page, { initialStatus: statusUnboarded('JUNIOR') })

@@ -746,9 +746,9 @@ test.describe('RBAC — onboarding gate', () => {
   // /project, no redirect). Kept as a visible `fixme` (reported as skipped on every run)
   // rather than deleted or loosened; remove `.fixme` when the product fix lands.
   // Same defect is fixme'd in onboarding-flow.spec.ts.
-  // Tracked in .claude/tasks/BACKLOG-followups.md as the «unboarded JUNIOR at `/` crashes (React #185)»
-  // entry. Master cited it as #324, but #324 on origin/main (0326b52a4) is a different item (Flow Gate) —
-  // correct this id when the entry lands. (A gitignored .blocked.md is NOT a durable owner.)
+  // Tracked in .claude/tasks/BACKLOG-followups.md as «An unboarded JUNIOR crashes the production build»
+  // (referenced by title: the entry number has been renumbered repeatedly). A gitignored .blocked.md is NOT
+  // a durable owner.
   test.fixme('Unboarded JUNIOR: редиректится в wizard', async ({ asJuniorPage: page }) => {
     await mockUnboardedStatus(page, {
       ...STATUS_UNBOARDED,
