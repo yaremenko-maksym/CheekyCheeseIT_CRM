@@ -163,12 +163,17 @@ describe('multipart salary — Drizzle schema contract', () => {
 
     // One declaration, and no bare re-statement of the list anywhere else in the
     // file. `%s` placeholders are the uses; they carry no list of their own.
-    // Counted per LINE and by MEMBERSHIP, not by matching one exact spelling:
-    // `'MANUAL', 'CRON', 'ADJUSTED'` as a literal regex would miss a copy that
-    // reordered the values or spaced them differently, which is the same copy
-    // with different whitespace. A line naming two or more of the origins is a
-    // re-statement of the list however it is written — except the declaration
-    // itself, which is the one copy allowed.
+    //
+    // WHAT THIS CHECKS, exactly: a single LINE that mentions two or more of the
+    // origins in single quotes is treated as a re-statement — except the
+    // declaration itself, which is the one copy allowed. That is wider than the
+    // literal regex it replaces (`'MANUAL', 'CRON', 'ADJUSTED'`, which a
+    // reordering or a different gap between values walked straight past) and it
+    // is NOT "however it is written", which an earlier edition of this comment
+    // claimed. These shapes still pass: one origin per line in a vertical list,
+    // double-quoted or curly-quoted values, and lowercase values. A guard whose
+    // comment promises more than it checks is worse than one that states its
+    // limits, so the limits are stated.
     const lines = MULTIPART_SALARY_PREPARE_DDL.split('\n')
     const namesTwoOrMoreOrigins = (line: string): boolean =>
       salaryOriginSchema.options.filter((o) => line.includes(`'${o}'`)).length >= 2
