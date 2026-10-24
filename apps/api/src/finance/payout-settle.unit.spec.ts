@@ -1176,6 +1176,64 @@ describe('applyPayoutPaidCascade — date-override audit trail (SR-809-L-3)', ()
     expect(metadata['txDateAfter']).toBe('2026-06-10')
   })
 
+  // SR-809-H-1 at THIS call site. The date written here is the one
+  // `invoice-creation.service` stamps onto the invoice, so the bound matters on a
+  // legal document. These pin that the policy call passes the actor's role and
+  // the EXECUTED flow — without them the mutation gate leaves `flow: 'EXECUTED'`
+  // and the whole options object alive, nothing having observed the difference
+  // between an EXECUTED flow and no flow at all.
+  it('refuses a future payment date — by the time this cascade runs the payment has happened', async () => {
+    const h = build()
+    const tomorrow = new Date(NOW.getTime() + 86_400_000).toISOString().slice(0, 10)
+    await expectApiError(
+      h.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN, { txDate: tomorrow }),
+      'FINANCE_TX_DATE_IN_FUTURE',
+      HttpStatus.BAD_REQUEST,
+    )
+    expect(h.labels()).toContain('tx-rollback')
+  })
+
+  it('refuses a far backdate with no reason, and records the reason when one is given', async () => {
+    const farPast = new Date(NOW.getTime() - 200 * 86_400_000).toISOString().slice(0, 10)
+    const source = [
+      {
+        id: PAYOUT_ROW_ID,
+        txDate: new Date(`${farPast}T00:00:00.000Z`),
+        createdAt: new Date(`${farPast}T00:00:00.000Z`),
+      },
+    ]
+
+    const refused = build({ payoutSource: source })
+    await expectApiError(
+      refused.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN, { txDate: farPast }),
+      'FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED',
+      HttpStatus.BAD_REQUEST,
+    )
+
+    const allowed = build({ payoutSource: source })
+    await allowed.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN, {
+      txDate: farPast,
+      backdateReason: '  settled offline in Q1  ',
+    })
+    const metadata = allowed.one('insert transaction_audit_log').values!['metadata'] as Record<
+      string,
+      unknown
+    >
+    // SR-809-L-3: trimmed, so the trail never stores padding as content.
+    expect(metadata['backdateReason']).toBe('settled offline in Q1')
+    expect(metadata['txDateAfter']).toBe(farPast)
+  })
+
+  it('writes no backdateReason key for an in-window date — there was no exemption to justify', async () => {
+    const h = build()
+    await h.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN, { txDate: '2026-06-10' })
+    const metadata = h.one('insert transaction_audit_log').values!['metadata'] as Record<
+      string,
+      unknown
+    >
+    expect(metadata).not.toHaveProperty('backdateReason')
+  })
+
   it('writes neither key when no date was supplied — there was no override to record', async () => {
     const h = build()
     await h.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN)

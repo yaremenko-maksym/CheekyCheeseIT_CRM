@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   MAX_TRANSACTION_BUSINESS_YEAR,
   MIN_TRANSACTION_BUSINESS_YEAR,
+  transactionBusinessDateFields,
   transactionBusinessDateSchema,
 } from './finance/validation'
 
@@ -59,5 +60,40 @@ describe('transactionBusinessDateSchema — sane year window (SR-809-L-2)', () =
 
   it('still accepts an ordinary real day inside the window', () => {
     expect(transactionBusinessDateSchema.safeParse('2026-10-05').success).toBe(true)
+  })
+})
+
+/**
+ * SR-809-H-1 / owner decision D-2 — `backdateReason` is the transport for the
+ * justification the server-side policy demands when an ADMIN/ACCOUNTANT dates a
+ * row beyond the 31-day window. It ships as ONE spread with `txDate` so a writer
+ * cannot accept the date while lacking the channel for its justification.
+ *
+ * Whether a reason is REQUIRED depends on the caller's role, which a schema
+ * cannot see — that lives in `transaction-date-policy.ts`. What belongs here is
+ * only the shape: optional, trimmed, and bounded so a free-text field cannot be
+ * used to write unbounded data into the audit log.
+ */
+describe('transactionBusinessDateFields.backdateReason', () => {
+  const schema = transactionBusinessDateFields.backdateReason
+
+  it('is optional and nullable — most rows need no justification at all', () => {
+    expect(schema.safeParse(undefined).success).toBe(true)
+    expect(schema.safeParse(null).success).toBe(true)
+  })
+
+  it('trims, so the audit log never stores padding as content', () => {
+    const result = schema.safeParse('   settled offline   ')
+    expect(result.success).toBe(true)
+    expect(result.data).toBe('settled offline')
+  })
+
+  it('accepts a reason at the length limit and rejects the first character past it', () => {
+    expect(schema.safeParse('x'.repeat(500)).success).toBe(true)
+    expect(schema.safeParse('x'.repeat(501)).success).toBe(false)
+  })
+
+  it('accepts an ordinary short reason — the bound is a ceiling, not a floor', () => {
+    expect(schema.safeParse('late invoice').success).toBe(true)
   })
 })

@@ -29,7 +29,8 @@
  * `PaySalaryDialog.test.tsx`). Only the API boundary is mocked.
  */
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
@@ -588,6 +589,55 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
     expect(payload['amount']).toBeUndefined()
     expect(payload['exchangeRate']).toBeUndefined()
     expect(payload['rate']).toBeUndefined()
+  })
+
+  // CR-809-H-1 = SR-809-M-2 — the picker's upper bound is `max(kyivToday(),
+  // sourceDate)`, mirroring the service. These two cases pin WHICH of the two the
+  // clamp picks, by opening the calendar and asking whether a specific day is
+  // selectable. Asserting the rendered default value cannot distinguish them:
+  // the default is `minDate` either way.
+  //
+  // The clock is frozen because both cases turn on where the source date sits
+  // relative to "today". `vi.setSystemTime` only (no `useFakeTimers`), so Radix
+  // Popover's real rAF positioning and userEvent's internals are untouched —
+  // the same arrangement `date-picker.test.tsx` documents.
+  describe('date picker upper bound (CR-809-H-1)', () => {
+    const FROZEN_TODAY = new Date(2026, 5, 15, 12, 0, 0) // 15 June 2026
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('a PAST-dated source still allows settling as of today', async () => {
+      vi.setSystemTime(FROZEN_TODAY)
+      const user = userEvent.setup({ delay: null })
+      renderDialog(TX) // createdAt 2026-06-01, i.e. before the frozen today
+      await screen.findByTestId('settle-senior-account-company')
+
+      await user.click(screen.getByTestId('settle-senior-txdate'))
+      // The settle dialog is ITSELF role="dialog", so scope to the calendar
+      // grid the popover renders — otherwise the query is ambiguous.
+      const panel = within(await screen.findByRole('grid'))
+      // maxDate must be TODAY here, not the source date — a clamp that always
+      // returned the source date would grey today out and strand the operator
+      // on a day they cannot record.
+      expect(panel.getByRole('button', { name: /, 15-е червня 2026/ })).not.toBeDisabled()
+    })
+
+    it('a FUTURE-dated source can still be settled on its own day — the lock-out case', async () => {
+      vi.setSystemTime(FROZEN_TODAY)
+      const user = userEvent.setup({ delay: null })
+      // Source dated 10 days AFTER the frozen today. Before this fix `maxDate`
+      // was a bare `kyivToday()`, so max < min and the calendar offered NOTHING.
+      renderDialog({ ...(TX as object), txDate: '2026-06-25T00:00:00.000Z' })
+      await screen.findByTestId('settle-senior-account-company')
+
+      await user.click(screen.getByTestId('settle-senior-txdate'))
+      // The settle dialog is ITSELF role="dialog", so scope to the calendar
+      // grid the popover renders — otherwise the query is ambiguous.
+      const panel = within(await screen.findByRole('grid'))
+      expect(panel.getByRole('button', { name: /, 25-е червня 2026/ })).not.toBeDisabled()
+    })
   })
 
   it('date picker: renders for a SENIOR settle and sends the source business date', async () => {

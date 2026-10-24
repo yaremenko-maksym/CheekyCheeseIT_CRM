@@ -271,6 +271,32 @@ describe('PayoutRequestService.createPayoutRequest', () => {
     expect(s.findPayoutRequest).not.toHaveBeenCalled()
   })
 
+  // SR-809-H-1 Scenario 3, at THIS call site. The chosen date lands on the
+  // PAYOUT row, and `invoice-creation.service` stamps the invoice from it — a
+  // legal document — so an unbounded client value was printable as fact. Pins
+  // that the policy call passes the caller's role and the EXECUTED flow: without
+  // it the mutation gate leaves `flow: 'EXECUTED'` and the whole options object
+  // alive, nothing having observed the difference between EXECUTED and no flow.
+  it('refuses a future payout date — the work it settles has already been delivered', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-25T12:00:00.000Z'))
+    const s = setup({ rows: [income({ txDate: new Date('2026-03-10T08:00:00.000Z') })] })
+    expect(await codeOf(s.svc.createPayoutRequest(['tx-1'], user('SENIOR'), '2026-03-26'))).toBe(
+      'FINANCE_TX_DATE_IN_FUTURE',
+    )
+    expect(s.insert).not.toHaveBeenCalled()
+  })
+
+  it('refuses a payout date older than the backdating window — a SENIOR is never exempt', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-25T12:00:00.000Z'))
+    const s = setup({ rows: [income({ txDate: new Date('2025-11-01T08:00:00.000Z') })] })
+    expect(await codeOf(s.svc.createPayoutRequest(['tx-1'], user('SENIOR'), '2025-12-01'))).toBe(
+      'FINANCE_TX_DATE_TOO_OLD',
+    )
+    expect(s.insert).not.toHaveBeenCalled()
+  })
+
   it('refuses a payout date before the latest source income date, allows the same day', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-12T12:00:00.000Z'))

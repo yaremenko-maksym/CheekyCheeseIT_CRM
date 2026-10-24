@@ -202,7 +202,10 @@ export function SettleSeniorPayoutDialog({
   // fall BELOW `settleMinDate` whenever the source row was future-dated, and a
   // picker with `min > max` offers no selectable day at all — which is how a
   // future-dated source became unsettleable through the UI.
+  // Stryker disable next-line StringLiteral: the `tx == null` fallback is never READ. The component returns before rendering anything when `tx` is null (pinned by "renders nothing and does not throw when tx is null"), so no bound, default or payload can observe which empty-ish string sits here.
+  // Stryker disable next-line MethodExpression: `.slice(0,10)` matters only in a REAL browser in a non-UTC local timezone — DatePickerField's `parseISO` reads a date-only string as LOCAL midnight (the operator's own calendar day) while a full ISO instant anchors to UTC. This project's test environment is TZ=UTC-pinned, where "local" IS "UTC", so the two collapse to the same calendar day for every time-of-day and no test run under the mandated TZ can observe the difference. Identical reasoning to the documented suppression on the `value={txDate}` slice below.
   const settleMinDate = tx ? (tx.txDate ?? tx.createdAt).slice(0, 10) : ''
+  // Stryker disable next-line EqualityOperator: PROVABLY equivalent mutant (`>` to `>=`), not an untested bound. The two differ in which BRANCH is taken only when `settleMinDate === kyivToday()`, and in that case both branches yield the same string, because the comparison that selected them established the operands are equal. Which of the two values the clamp picks IS tested, both ways, by "date picker upper bound (CR-809-H-1)" — it opens the calendar and asserts selectability for a past-dated and a future-dated source. Mirrors the same documented equivalence on `latestAllowed` in pending-settlement.service.ts.
   const maxSettleDate = settleMinDate > kyivToday() ? settleMinDate : kyivToday()
 
   const rateDateParam = txDate.replace(/-/g, '')

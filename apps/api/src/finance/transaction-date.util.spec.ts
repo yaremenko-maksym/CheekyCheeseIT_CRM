@@ -1,4 +1,5 @@
 import { HttpException, HttpStatus } from '@nestjs/common'
+import { MAX_TRANSACTION_BUSINESS_YEAR, MIN_TRANSACTION_BUSINESS_YEAR } from '@crm/shared'
 import { describe, expect, it } from 'vitest'
 import {
   formatTransactionBusinessDate,
@@ -83,6 +84,27 @@ describe('resolveTransactionDate', () => {
   it('rejects a year outside the storable window as a 400', () => {
     expect(() => parseTransactionBusinessDate('0000-01-01')).toThrow(HttpException)
     expect(() => parseTransactionBusinessDate('9999-12-31')).toThrow(HttpException)
+  })
+
+  // Both window edges are INCLUSIVE, and both are asserted here rather than only
+  // on the shared Zod schema: this is the API's own second enforcement point, and
+  // a `>=`/`<=` slip at either edge would silently reject a legal business day.
+  it('accepts both inclusive edges of the storable year window', () => {
+    expect(
+      parseTransactionBusinessDate(`${MIN_TRANSACTION_BUSINESS_YEAR}-01-01`).toISOString(),
+    ).toBe(`${MIN_TRANSACTION_BUSINESS_YEAR}-01-01T00:00:00.000Z`)
+    expect(
+      parseTransactionBusinessDate(`${MAX_TRANSACTION_BUSINESS_YEAR}-12-31`).toISOString(),
+    ).toBe(`${MAX_TRANSACTION_BUSINESS_YEAR}-12-31T00:00:00.000Z`)
+  })
+
+  it('rejects the first year beyond each edge', () => {
+    expect(() =>
+      parseTransactionBusinessDate(`${MIN_TRANSACTION_BUSINESS_YEAR - 1}-12-31`),
+    ).toThrow(HttpException)
+    expect(() =>
+      parseTransactionBusinessDate(`${MAX_TRANSACTION_BUSINESS_YEAR + 1}-01-01`),
+    ).toThrow(HttpException)
   })
 
   it('keeps future-date policy outside the timestamp resolver', () => {

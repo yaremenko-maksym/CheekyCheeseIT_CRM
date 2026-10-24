@@ -419,6 +419,7 @@ export class PendingSettlementService {
       // the source's own day when that day is still ahead of today — and never
       // later than both. `kyivToday()` is the same business-day clock the
       // pickers and the NBU rate day use.
+      // Stryker disable next-line EqualityOperator: PROVABLY equivalent mutant, not an untested guard. Mutating `>` to `>=` changes which BRANCH is taken only in the `sourceBusinessDate === kyivToday()` case — and in that case the two branches return the same string, because the comparison that selected them established the operands are equal. Verified exhaustively over the three orderings (src > today, src === today, src < today): the returned value is identical for all three, so no test can distinguish the mutant. The bound itself IS tested four ways in pending-settlement.spec.ts ("business-date upper bound").
       const latestAllowed = sourceBusinessDate > kyivToday() ? sourceBusinessDate : kyivToday()
       if (selectedDateStr > latestAllowed) {
         throw apiError('FINANCE_TX_DATE_IN_FUTURE', HttpStatus.BAD_REQUEST)
