@@ -663,8 +663,8 @@ ownership. Also reopen if `apps/api` moves to `module: node16`.
 
 ## Decomposition of Task 2.5
 
-Nine tasks plus one external prerequisite. T8 was added in review round 1 to store the host-level
-state, and T1b in round 3 to correct T1's account key. T1's and T2's sections are left exactly as
+Ten tasks plus one external prerequisite. Three were added in review: T8 in round 1 to store the
+host-level state, T1b in round 3 to correct T1's account key, and T9 in round 4 for the ADMIN exits. T1's and T2's sections are left exactly as
 dispatched. Files are named by module and symbol. Path fragments are
 given only where a file does not exist yet. "Real-Postgres" means an integration spec against a
 scratch database, never `crm_db` (`live-db-access.md`), and **run as `crm_app`** wherever the claim
@@ -684,6 +684,9 @@ T2 registry ──► T4 due policy ──┬───────────�
                                 └──► T8
 T2 ────────────────────────────────────────────────────► T7 context + worker
 T3 ────────────────────────────────────────────────────► T7
+T8 ────────────────────────────────────────────────────► T7
+T3 ────────────────────────────────────────────────────► T9 ADMIN controls
+T8 ────────────────────────────────────────────────────► T9
 T7 ──┬──► T5 cron
      └──► T6 transport wiring
 T0 (backlog 318, parallel PR — external) ──────────────► T6
@@ -691,19 +694,20 @@ T0 (backlog 318, parallel PR — external) ────────────�
 
 **Self-check: each task's "Depends on" line against the arrows.**
 
-| Task | Its "Depends on" line                                | Arrows into it       |
-| ---- | ---------------------------------------------------- | -------------------- |
-| T1   | nothing                                              | none                 |
-| T2   | nothing                                              | none                 |
-| T1b  | T1                                                   | T1 → T1b             |
-| T4   | T2 (sequencing only: both edit `JobSourcingService`) | T2 → T4              |
-| T8   | T1b, T4                                              | T1b → T8, T4 → T8    |
-| T3   | T1, T1b, T4, T8                                      | T1, T1b, T4, T8 → T3 |
-| T7   | T2, T3                                               | T2 → T7, T3 → T7     |
-| T5   | T7                                                   | T7 → T5              |
-| T6   | T0, T7                                               | T0 → T6, T7 → T6     |
+| Task | Its "Depends on" line                                | Arrows into it            |
+| ---- | ---------------------------------------------------- | ------------------------- |
+| T1   | nothing                                              | none                      |
+| T2   | nothing                                              | none                      |
+| T1b  | T1                                                   | T1 → T1b                  |
+| T4   | T2 (sequencing only: both edit `JobSourcingService`) | T2 → T4                   |
+| T8   | T1b, T4                                              | T1b → T8, T4 → T8         |
+| T3   | T1, T1b, T4, T8                                      | T1, T1b, T4, T8 → T3      |
+| T7   | T2, T3, T8                                           | T2 → T7, T3 → T7, T8 → T7 |
+| T9   | T3, T8                                               | T3 → T9, T8 → T9          |
+| T5   | T7                                                   | T7 → T5                   |
+| T6   | T0, T7                                               | T0 → T6, T7 → T6          |
 
-Thirteen arrows and thirteen dependency entries, one for one.
+Sixteen arrows and sixteen dependency entries, one for one.
 
 - **Wave 1, in parallel:** T1 and T2. Their file sets are disjoint: the run-table schema plus a
   migration, versus the registry plus `JobSourcingService`'s `providers` map and constructor.
@@ -716,13 +720,16 @@ Thirteen arrows and thirteen dependency entries, one for one.
 - **Wave 3:** T8. It is the third migration, so it lands after T1b (all three append to
   `deploy.yml`'s ordered list), and it extends T4's due predicate.
 - **Wave 4:** T3, which needs T1's and T1b's indexes, T4's due predicate and T8's host state.
-- **Wave 5:** T7, which needs T2's registry and T3's ledger.
+- **Wave 5, in parallel:** T7, which needs T2's registry, T3's ledger and T8's host reads, and T9,
+  which needs T3 and T8. Their file sets are disjoint: the runtime module, the service and the
+  adapters, versus the controller plus one ledger function and one host-state function.
 - **Wave 6, in parallel:** T5 and T6. Their file sets are disjoint: the cron file, versus `http/`,
   the context builder's `fetchText` and adapter host lists. **T6 also waits for T0** (backlog 318).
   Constraint (a): no `transportOptionsFor` wiring before 318 is fixed.
 - **Not parallel:** T2 with T4 (both edit `JobSourcingService`); T1, T1b and T8 with each other
-  (three migrations, one file list); T3 with T7 (T7 consumes the ledger's interface); and T2 with
-  T5 (both edit `JobSourcingModule`).
+  (three migrations, one file list); T3 with T7 or T9 (both consume the ledger's interface); T2 with
+  T5 (both edit `JobSourcingModule`); and T7 with T6 (both edit `buildCollectionContext`'s
+  `fetchText`, so T6 follows T7).
 - **May start before the owner answers the A-versus-B question:** T1, T1b, T2, T4 and T8 (see
   "Autonomy classification").
 
@@ -1218,6 +1225,43 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
 - **Real-Postgres:** not needed for the transport. Run one end-to-end run per raised-cap source
   (Greenhouse, Ashby, Arbeitnow) against a fixture server.
 - **Model:** opus, high (security surface). **security-reviewer mandatory.**
+
+### T9 — ADMIN controls for excluded sources (round 4, CR-M-15)
+
+A source at the failure cap is never claimed, so a successful run cannot clear it, and a ban pause
+lifts only on expiry. Both therefore need an administrative exit. Without one, an implementer would
+add a back door or leave capped sources dead. Both are state changes on paid sources, so they are
+**ADMIN only**.
+
+- **Files:** `JobSourcingController`, with new endpoints under the existing job-sourcing route;
+  calls into the ledger (`resetFailures`) and into T8's host-state module (`clearHostPause`); the
+  store operation for a precise `UNCERTAIN` settle (a thin call into `reconcile`'s arithmetic).
+- **Endpoints:**
+  - `GET` excluded sources, each with its reason (failure cap with `last_error_code`, host pause
+    with `paused_until`, refusal reason) and every open `UNCERTAIN` hold with its age;
+  - `POST` reset the failure cap of one source;
+  - `POST` clear the pause of one host;
+  - `POST` settle one `UNCERTAIN` reservation with an observed provider figure.
+- **RBAC:** `@Roles('ADMIN')` **and** a role check in the service body. `RolesGuard` is a no-op on a
+  handler without `@Roles` (the `security-review` skill, "no-op RolesGuard"), so the decorator alone is not trusted.
+- **Writes, through the ledger and host-state functions only.** Locks follow the global order:
+  source, then host.
+  - `resetFailures` sets `consecutive_failures = 0` and `cooldown_until = NULL`, and appends a
+    RESET entry with the actor to `admin_state_history`. That entry also stops the checkpoint copy
+    ("Crash resume").
+  - `clearHostPause` sets `paused_until = NULL` and records the actor and reason in an audit row
+    T9 defines.
+  - An ADMIN `enabled` toggle clears neither, as T8 states.
+- **Depends on:** T3 (`resetFailures`, the ledger), T8 (`clearHostPause`).
+- **AC:** (1) each endpoint answers 403 to every non-ADMIN role, tested against the real backend,
+  not a mocked E2E; (2) a reset makes a capped source claimable at the next tick, and writes one
+  `admin_state_history` entry naming the actor; (3) after a reset, the predecessor's checkpoint is
+  not copied; (4) a clear makes a paused host's sources due at the next tick, and is recorded with
+  the actor; (5) the `UNCERTAIN` settle accepts an observed figure within the reservation, refuses
+  one above it, and refuses a second, different figure (first conversion wins); (6) the `GET`
+  listing includes a capped source, a paused host and an `UNCERTAIN` hold seeded for the test.
+- **Real-Postgres:** AC 2–5 against a scratch database, as `crm_app`; AC 1 against the running API.
+- **Model:** opus (RBAC on paid sources). **security-reviewer mandatory.**
 
 ### Constraint ledger: every appended constraint in exactly one task
 
