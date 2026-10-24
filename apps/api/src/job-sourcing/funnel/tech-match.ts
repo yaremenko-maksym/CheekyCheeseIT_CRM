@@ -127,6 +127,7 @@ export type TechMatchResult = TechMatchReady | TechMatchReadinessIssue
 // Reading the posting text
 // ---------------------------------------------------------------------------
 
+/** Cannot occur inside a token, so no keyword phrase can span it. */
 const SEGMENT_BREAK = '|'
 
 const NEGATORS: ReadonlySet<string> = new Set([
@@ -139,7 +140,9 @@ const NEGATORS: ReadonlySet<string> = new Set([
   'never',
   'nor',
 ])
+/** A negator up to this many tokens before the keyword negates it ("no experience with Java"). */
 const NEGATOR_WINDOW = 3
+/** "<keyword> … not required": the `not` may sit up to this many tokens after the keyword. */
 const TRAILING_NEGATION_WINDOW = 4
 const TRAILING_NEGATION_FOLLOWERS: ReadonlySet<string> = new Set([
   'required',
@@ -149,16 +152,17 @@ const TRAILING_NEGATION_FOLLOWERS: ReadonlySet<string> = new Set([
   'expected',
 ])
 
-const OPTIONAL_PHRASES: readonly (readonly string[])[] = [
-  ['nice', 'to', 'have'],
-  ['good', 'to', 'have'],
-  ['would', 'be', 'nice'],
-  ['a', 'plus'],
-  ['bonus'],
-  ['optional'],
-  ['advantage'],
-  ['desirable'],
-  ['preferred'],
+/** Token phrases (space-joined) that make a sentence or a heading optional. */
+const OPTIONAL_PHRASES: readonly string[] = [
+  'nice to have',
+  'good to have',
+  'would be nice',
+  'a plus',
+  'bonus',
+  'optional',
+  'advantage',
+  'desirable',
+  'preferred',
 ]
 
 const REQUIREMENT_MARKERS: ReadonlySet<string> = new Set([
@@ -176,80 +180,77 @@ interface BodySegment {
   text: string
   tokens: string[]
   optional: boolean
-  /** Index of this segment's first token in the joined body token list. */
-  start: number
 }
 
-function containsAnyPhrase(tokens: readonly string[], phrases: readonly (readonly string[])[]) {
-  return phrases.some((phrase) => {
-    for (let i = 0; i + phrase.length <= tokens.length; i += 1) {
-      if (phrase.every((word, j) => tokens[i + j] === word)) return true
-    }
-    return false
-  })
+function hasOptionalPhrase(tokens: readonly string[]): boolean {
+  const joined = ` ${tokens.join(' ')} `
+  return OPTIONAL_PHRASES.some((phrase) => joined.includes(` ${phrase} `))
 }
 
 function isHeadingLine(line: string, tokenCount: number): boolean {
-  if (/^#{1,6}\s/.test(line) || /^\*\*[^*]+\*\*:?$/.test(line)) return true
+  if (/^#{1,6}\s/.test(line) || /^\*\*[^*]+\*\*$/.test(line)) return true
   return line.endsWith(':') && tokenCount <= MAX_HEADING_TOKENS
+}
+
+interface BodyReading {
+  segments: BodySegment[]
+  /** Every segment's tokens, each followed by SEGMENT_BREAK. */
+  tokens: string[]
+  /** For every entry of `tokens`, the segment it belongs to. */
+  owner: BodySegment[]
+  /** Local token offset of the segment start inside `tokens`, per segment. */
+  startOf: Map<BodySegment, number>
 }
 
 /**
  * Cut the body into sentences, tracking the optional/required section a heading
- * opens. Tokenised once: the joined token list (segments separated by a token no
- * keyword can contain) is what `stackKeywordHits` scans.
+ * opens, and tokenise each sentence once.
  */
-function segmentBody(body: string | null): { segments: BodySegment[]; tokens: string[] } {
+function readBody(body: string | null): BodyReading {
   const segments: BodySegment[] = []
   const tokens: string[] = []
+  const owner: BodySegment[] = []
+  const startOf = new Map<BodySegment, number>()
   let sectionOptional = false
 
-  for (const rawLine of (body ?? '').split(/\r?\n/)) {
+  const lines = body === null ? [] : body.split(/\r?\n/)
+  for (const rawLine of lines) {
     const line = rawLine.trim()
-    if (line.length === 0) continue
     const lineTokens = stackTokens(line)
     if (isHeadingLine(line, lineTokens.length)) {
-      sectionOptional = containsAnyPhrase(lineTokens, OPTIONAL_PHRASES)
+      sectionOptional = hasOptionalPhrase(lineTokens)
       continue
     }
-    for (const sentence of line.split(/(?<=[.!?;])\s+/)) {
+    for (const sentence of line.split(/(?<=[.!?;])\s/)) {
       const sentenceTokens = stackTokens(sentence)
-      if (sentenceTokens.length === 0) continue
-      if (tokens.length > 0) tokens.push(SEGMENT_BREAK)
-      segments.push({
+      const segment: BodySegment = {
         text: sentence.trim(),
         tokens: sentenceTokens,
-        optional: sectionOptional || containsAnyPhrase(sentenceTokens, OPTIONAL_PHRASES),
-        start: tokens.length,
-      })
-      tokens.push(...sentenceTokens)
+        optional: sectionOptional || hasOptionalPhrase(sentenceTokens),
+      }
+      segments.push(segment)
+      startOf.set(segment, tokens.length)
+      for (const token of [...sentenceTokens, SEGMENT_BREAK]) {
+        tokens.push(token)
+        owner.push(segment)
+      }
     }
   }
-  return { segments, tokens }
+  return { segments, tokens, owner, startOf }
 }
 
 function isNegatedAt(segmentTokens: readonly string[], local: number): boolean {
-  for (let i = Math.max(0, local - NEGATOR_WINDOW); i < local; i += 1) {
-    if (NEGATORS.has(segmentTokens[i] ?? '')) return true
-  }
-  const end = Math.min(segmentTokens.length - 1, local + TRAILING_NEGATION_WINDOW)
-  for (let i = local + 1; i < end; i += 1) {
-    if (segmentTokens[i] === 'not' && TRAILING_NEGATION_FOLLOWERS.has(segmentTokens[i + 1] ?? '')) {
+  const before = segmentTokens.slice(Math.max(0, local - NEGATOR_WINDOW), local)
+  if (before.some((token) => NEGATORS.has(token))) return true
+  for (let i = local + 1; i <= local + TRAILING_NEGATION_WINDOW; i += 1) {
+    if (
+      segmentTokens[i] === 'not' &&
+      TRAILING_NEGATION_FOLLOWERS.has(String(segmentTokens[i + 1]))
+    ) {
       return true
     }
   }
   return false
-}
-
-function segmentIndexOf(segments: readonly BodySegment[], tokenIndex: number): number {
-  let low = 0
-  let high = segments.length - 1
-  while (low < high) {
-    const mid = (low + high + 1) >> 1
-    if ((segments[mid]?.start ?? 0) <= tokenIndex) low = mid
-    else high = mid - 1
-  }
-  return low
 }
 
 const STRENGTH_RANK: Readonly<Record<MentionStrength, number>> = {
@@ -259,88 +260,95 @@ const STRENGTH_RANK: Readonly<Record<MentionStrength, number>> = {
 }
 const SOURCE_ORDER: readonly MentionSource[] = ['TITLE', 'TAG', 'BODY']
 
-// ---------------------------------------------------------------------------
-// Matching
-// ---------------------------------------------------------------------------
+interface Mention {
+  strength: MentionStrength
+  source: MentionSource
+  excerpt: string | null
+}
+
+/** The strongest mentions win; ties keep every source that reached that strength. */
+function bestEvidence(keyword: string, mentions: readonly Mention[]): KeywordEvidence {
+  const best = mentions.reduce((a, m) =>
+    STRENGTH_RANK[m.strength] > STRENGTH_RANK[a.strength] ? m : a,
+  )
+  const winners = mentions.filter((m) => m.strength === best.strength)
+  return {
+    keyword,
+    strength: best.strength,
+    sources: SOURCE_ORDER.filter((source) => winners.some((m) => m.source === source)),
+    excerpt: winners.find((m) => m.source === 'BODY')?.excerpt ?? null,
+  }
+}
 
 interface PostingReading {
-  hits: ReturnType<typeof stackKeywordHits>
   evidence: Map<string, KeywordEvidence>
   tags: boolean
   requirements: boolean
 }
 
-/** Tokenise the posting ONCE and read the strength of every keyword in `union`. */
+/** Tokenise the posting ONCE and read the strongest mention of every keyword in `union`. */
 function readPosting(posting: TechMatchPosting, union: readonly string[]): PostingReading {
-  const titleTokens = stackTokens(posting.title)
-  const surface: string[] = [...titleTokens]
-  const surfaceSource: MentionSource[] = titleTokens.map(() => 'TITLE')
+  const mentions = new Map<string, Mention[]>()
+  const record = (keyword: string, mention: Mention) => {
+    mentions.set(keyword, [...(mentions.get(keyword) ?? []), mention])
+  }
+
+  // Title and tags are structured surfaces: always CORE, ambiguous aliases such as `go` count.
+  for (const keyword of stackKeywordHits(union, stackTokens(posting.title), []).keys()) {
+    record(keyword, { strength: 'CORE', source: 'TITLE', excerpt: null })
+  }
   let tags = false
   for (const tag of posting.tags) {
     const tagTokens = stackTokens(tag)
-    if (tagTokens.length === 0) continue
-    tags = true
-    surface.push(SEGMENT_BREAK, ...tagTokens)
-    surfaceSource.push('TAG', ...tagTokens.map((): MentionSource => 'TAG'))
+    tags = tags || tagTokens.length > 0
+    for (const keyword of stackKeywordHits(union, tagTokens, []).keys()) {
+      record(keyword, { strength: 'CORE', source: 'TAG', excerpt: null })
+    }
   }
-  const { segments, tokens: bodyTokens } = segmentBody(posting.body)
-  const requirements = segments.some((s) => s.tokens.some((t) => REQUIREMENT_MARKERS.has(t)))
 
-  const hits = stackKeywordHits(union, surface, bodyTokens)
-  const evidence = new Map<string, KeywordEvidence>()
-  for (const [keyword, hit] of hits) {
-    let best = -1
-    let sources = new Set<MentionSource>()
-    let excerpt: string | null = null
-    const consider = (strength: MentionStrength, source: MentionSource, text: string | null) => {
-      const rank = STRENGTH_RANK[strength]
-      if (rank < best) return
-      if (rank > best) {
-        best = rank
-        sources = new Set()
-        excerpt = null
-      }
-      sources.add(source)
-      if (source === 'BODY' && excerpt === null) excerpt = text
-    }
-    for (const index of hit.titleIndexes) {
-      consider('CORE', surfaceSource[index] ?? 'TITLE', null)
-    }
+  const body = readBody(posting.body)
+  for (const [keyword, hit] of stackKeywordHits(union, [], body.tokens)) {
     for (const index of hit.bodyIndexes) {
-      const segment = segments[segmentIndexOf(segments, index)]
-      if (!segment) continue
-      const negated = isNegatedAt(segment.tokens, index - segment.start)
-      const strength = negated ? 'NEGATED' : segment.optional ? 'OPTIONAL' : 'CORE'
-      consider(strength, 'BODY', segment.text.slice(0, MAX_EVIDENCE_EXCERPT_CHARS))
+      const segment = body.owner[index]
+      const start = segment === undefined ? undefined : body.startOf.get(segment)
+      // Stryker disable next-line ConditionalExpression: `owner` has one entry per token, so an index returned by the matcher always has a segment; the guard exists only for noUncheckedIndexedAccess
+      if (segment === undefined || start === undefined) continue
+      const negated = isNegatedAt(segment.tokens, index - start)
+      record(keyword, {
+        strength: negated ? 'NEGATED' : segment.optional ? 'OPTIONAL' : 'CORE',
+        source: 'BODY',
+        excerpt: segment.text.slice(0, MAX_EVIDENCE_EXCERPT_CHARS),
+      })
     }
-    const winner = (Object.keys(STRENGTH_RANK) as MentionStrength[]).find(
-      (s) => STRENGTH_RANK[s] === best,
-    )
-    if (winner === undefined) continue
-    evidence.set(keyword, {
-      keyword,
-      strength: winner,
-      sources: SOURCE_ORDER.filter((s) => sources.has(s)),
-      excerpt,
-    })
   }
-  return { hits, evidence, tags, requirements }
+
+  const evidence = new Map<string, KeywordEvidence>()
+  for (const [keyword, list] of mentions) evidence.set(keyword, bestEvidence(keyword, list))
+  return {
+    evidence,
+    tags,
+    requirements: body.segments.some((s) => s.tokens.some((t) => REQUIREMENT_MARKERS.has(t))),
+  }
 }
+
+// ---------------------------------------------------------------------------
+// Matching
+// ---------------------------------------------------------------------------
 
 function findDuplicates(ids: readonly string[]): string[] {
   const seen = new Set<string>()
-  const dup = new Set<string>()
+  const duplicated = new Set<string>()
   for (const id of ids) {
-    if (seen.has(id)) dup.add(id)
+    if (seen.has(id)) duplicated.add(id)
     seen.add(id)
   }
-  return [...dup]
+  return [...duplicated]
 }
 
-export function matchTech(input: TechMatchInput): TechMatchResult {
-  const { posting, rosterSeniorIds, profiles, exclusions } = input
-
-  // Readiness: a roster senior without a profile must not read as "no match".
+function readinessIssues(
+  rosterSeniorIds: readonly string[],
+  profiles: readonly SeniorTechProfile[],
+): TechMatchReadinessIssue['issues'] {
   const profileIds = profiles.map((p) => p.seniorId)
   const have = new Set(profileIds)
   const missing = [...new Set(rosterSeniorIds)].filter((id) => !have.has(id))
@@ -348,90 +356,101 @@ export function matchTech(input: TechMatchInput): TechMatchResult {
   const issues: TechMatchReadinessIssue['issues'] = []
   if (missing.length > 0) issues.push({ code: 'MISSING_ROSTER_PROFILES', seniorIds: missing })
   if (duplicated.length > 0) issues.push({ code: 'DUPLICATE_PROFILES', seniorIds: duplicated })
-  if (issues.length > 0) return { status: 'READINESS_ISSUE', issues }
+  return issues
+}
 
-  const rosterSet = new Set(rosterSeniorIds)
-  const globalKeyword = exclusions.filter((e) => e.scope === 'GLOBAL' && e.kind === 'KEYWORD')
-  const ignoredExclusionIds = exclusions
-    .filter((e) => e.scope === 'GLOBAL' && e.kind === 'COMPANY')
-    .flatMap((e) => (e.id === null ? [] : [e.id]))
+type Outcome =
+  | { kind: 'DONE'; disposition: SeniorDisposition }
+  | { kind: 'MATCHABLE'; seniorId: string; keywords: string[] }
 
-  // 1. exclusions, 2. access — before any text is read.
-  const seniors: SeniorDisposition[] = []
-  const matchable: { seniorId: string; keywords: string[] }[] = []
-  for (const profile of profiles) {
+/** Steps 1 and 2 — exclusions, then access — before any posting text is read. */
+function classify(input: TechMatchInput, globalKeyword: readonly JobExclusionDto[]): Outcome[] {
+  const rosterSet = new Set(input.rosterSeniorIds)
+  const outcomes: Outcome[] = []
+  for (const profile of input.profiles) {
     if (!rosterSet.has(profile.seniorId)) continue
-    const own = exclusions.filter((e) => e.scope === 'SENIOR' && e.seniorId === profile.seniorId)
+    const own = input.exclusions.filter(
+      (e) => e.scope === 'SENIOR' && e.seniorId === profile.seniorId,
+    )
     const excluded =
-      findMatchingExclusion(posting, globalKeyword) ?? findMatchingExclusion(posting, own)
+      findMatchingExclusion(input.posting, [...globalKeyword]) ??
+      findMatchingExclusion(input.posting, own)
     if (excluded) {
-      seniors.push({
-        seniorId: profile.seniorId,
-        disposition: 'EXCLUDED',
-        exclusionId: excluded.id,
-        exclusionKind: excluded.kind,
-        exclusionScope: excluded.scope,
+      outcomes.push({
+        kind: 'DONE',
+        disposition: {
+          seniorId: profile.seniorId,
+          disposition: 'EXCLUDED',
+          exclusionId: excluded.id,
+          exclusionKind: excluded.kind,
+          exclusionScope: excluded.scope,
+        },
       })
     } else if (profile.teamIds.length === 0) {
-      seniors.push({ seniorId: profile.seniorId, disposition: 'NO_TEAM_ACCESS' })
+      outcomes.push({
+        kind: 'DONE',
+        disposition: { seniorId: profile.seniorId, disposition: 'NO_TEAM_ACCESS' },
+      })
     } else {
-      matchable.push({
+      outcomes.push({
+        kind: 'MATCHABLE',
         seniorId: profile.seniorId,
         keywords: canonicalStackKeywords(profile.techStack),
       })
-      seniors.push({
-        seniorId: profile.seniorId,
-        disposition: 'MATCHABLE',
-        profileKeywordCount: 0,
-        matches: [],
-        negated: [],
-        coreMatchCount: 0,
-        optionalMatchCount: 0,
-        coreMismatch: false,
-      })
     }
   }
+  return outcomes
+}
+
+function seniorMatch(
+  seniorId: string,
+  keywords: readonly string[],
+  evidence: ReadonlyMap<string, KeywordEvidence>,
+  lowInformation: boolean,
+): SeniorDisposition {
+  const found = keywords.flatMap((k) => evidence.get(k) ?? [])
+  const matches = found.filter((e) => e.strength !== 'NEGATED')
+  const coreMatchCount = matches.filter((e) => e.strength === 'CORE').length
+  return {
+    seniorId,
+    disposition: 'MATCHABLE',
+    profileKeywordCount: keywords.length,
+    matches,
+    negated: found.filter((e) => e.strength === 'NEGATED'),
+    coreMatchCount,
+    optionalMatchCount: matches.length - coreMatchCount,
+    coreMismatch: keywords.length > 0 && coreMatchCount === 0 && !lowInformation,
+  }
+}
+
+export function matchTech(input: TechMatchInput): TechMatchResult {
+  // Readiness: a roster senior without a profile must not read as "no match".
+  const issues = readinessIssues(input.rosterSeniorIds, input.profiles)
+  if (issues.length > 0) return { status: 'READINESS_ISSUE', issues }
+
+  const globalKeyword = input.exclusions.filter((e) => e.scope === 'GLOBAL' && e.kind === 'KEYWORD')
+  const ignoredExclusionIds = input.exclusions
+    .filter((e) => e.scope === 'GLOBAL' && e.kind === 'COMPANY')
+    .flatMap((e) => (e.id === null ? [] : [e.id]))
+
+  const outcomes = classify(input, globalKeyword)
+  const matchable = outcomes.flatMap((o) => (o.kind === 'MATCHABLE' ? [o] : []))
 
   // 3. matching over the distinct complete union of the matchable profiles.
   const union = [...new Set(matchable.flatMap((m) => m.keywords))]
-  const reading = readPosting(posting, union)
-  const keywordHit = reading.hits.size > 0
+  const reading = readPosting(input.posting, union)
+  const keywordHit = reading.evidence.size > 0
   const lowInformation =
     matchable.length > 0 && !keywordHit && !reading.tags && !reading.requirements
 
-  const holders = new Map<string, string[]>()
-  for (const m of matchable) {
-    for (const k of m.keywords) holders.set(k, [...(holders.get(k) ?? []), m.seniorId])
-  }
   const rosterMatches: RosterKeywordMatch[] = []
   const rosterNegated: RosterKeywordMatch[] = []
   for (const keyword of union) {
     const ev = reading.evidence.get(keyword)
     if (!ev) continue
-    const entry = { ...ev, seniorIds: holders.get(keyword) ?? [] }
-    if (ev.strength === 'NEGATED') rosterNegated.push(entry)
-    else rosterMatches.push(entry)
+    const seniorIds = matchable.filter((m) => m.keywords.includes(keyword)).map((m) => m.seniorId)
+    ;(ev.strength === 'NEGATED' ? rosterNegated : rosterMatches).push({ ...ev, seniorIds })
   }
-
-  const filled = seniors.map((s): SeniorDisposition => {
-    if (s.disposition !== 'MATCHABLE') return s
-    const keywords = matchable.find((m) => m.seniorId === s.seniorId)?.keywords ?? []
-    const evs = keywords.flatMap((k) => {
-      const ev = reading.evidence.get(k)
-      return ev ? [ev] : []
-    })
-    const matches = evs.filter((e) => e.strength !== 'NEGATED')
-    const coreMatchCount = matches.filter((e) => e.strength === 'CORE').length
-    return {
-      ...s,
-      profileKeywordCount: keywords.length,
-      matches,
-      negated: evs.filter((e) => e.strength === 'NEGATED'),
-      coreMatchCount,
-      optionalMatchCount: matches.length - coreMatchCount,
-      coreMismatch: keywords.length > 0 && coreMatchCount === 0 && !lowInformation,
-    }
-  })
 
   return {
     status: 'READY',
@@ -439,7 +458,11 @@ export function matchTech(input: TechMatchInput): TechMatchResult {
     rosterUnionSize: union.length,
     rosterMatches,
     rosterNegated,
-    seniors: filled,
+    seniors: outcomes.map((o) =>
+      o.kind === 'DONE'
+        ? o.disposition
+        : seniorMatch(o.seniorId, o.keywords, reading.evidence, lowInformation),
+    ),
     evidenceSurfaces: {
       tags: reading.tags,
       requirements: reading.requirements,

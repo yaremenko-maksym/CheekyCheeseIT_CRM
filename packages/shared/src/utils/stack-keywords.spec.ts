@@ -727,6 +727,17 @@ describe('stackKeywordHits — uncapped union matching over pre-tokenised text',
     }
   })
 
+  it('lists indexes in ascending order even when spellings are found out of order', () => {
+    const hit = hitsFor(['kubernetes'], '', 'k8s and kubernetes and k8s').get('kubernetes')
+    expect(hit?.bodyIndexes).toEqual([0, 2, 4])
+    const inTitle = hitsFor(['kubernetes'], 'k8s kubernetes', '').get('kubernetes')
+    expect(inTitle?.titleIndexes).toEqual([0, 1])
+  })
+
+  it('reports a start once when several spellings begin at the same token', () => {
+    expect(hitsFor(['dotnet'], '', 'we run .NET Core').get('dotnet')?.bodyIndexes).toEqual([2])
+  })
+
   it('collapses a repeated canonical in the input to one entry', () => {
     expect(hitsFor(['python', 'python'], '', 'python').size).toBe(1)
   })

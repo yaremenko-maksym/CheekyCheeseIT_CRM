@@ -564,19 +564,19 @@ export function stackKeywordHits(
   const hits = new Map<string, StackKeywordHit>()
 
   for (const canonical of canonicals) {
-    if (hits.has(canonical)) continue
-    const hit: StackKeywordHit = { titleIndexes: [], bodyIndexes: [] }
+    const title = new Set<number>()
+    const body = new Set<number>()
     for (const spelling of spellingsOf(canonical)) {
-      const needle = spelling.split(' ').filter(Boolean)
-      collectPhraseStarts(titleTokens, titleIndex, needle, hit.titleIndexes)
-      if (!AMBIGUOUS_ALIASES.has(spelling)) {
-        collectPhraseStarts(bodyTokens, bodyIndex, needle, hit.bodyIndexes)
-      }
+      const needle = spelling.split(' ')
+      for (const start of phraseStarts(titleTokens, titleIndex, needle)) title.add(start)
+      if (AMBIGUOUS_ALIASES.has(spelling)) continue
+      for (const start of phraseStarts(bodyTokens, bodyIndex, needle)) body.add(start)
     }
-    if (hit.titleIndexes.length > 0 || hit.bodyIndexes.length > 0) {
-      hit.titleIndexes.sort((a, b) => a - b)
-      hit.bodyIndexes.sort((a, b) => a - b)
-      hits.set(canonical, hit)
+    if (title.size > 0 || body.size > 0) {
+      hits.set(canonical, {
+        titleIndexes: [...title].sort((a, b) => a - b),
+        bodyIndexes: [...body].sort((a, b) => a - b),
+      })
     }
   }
   return hits
@@ -585,32 +585,20 @@ export function stackKeywordHits(
 function indexByFirstToken(tokens: readonly string[]): Map<string, number[]> {
   const index = new Map<string, number[]>()
   tokens.forEach((token, position) => {
-    const list = index.get(token)
-    if (list) list.push(position)
-    else index.set(token, [position])
+    index.set(token, [...(index.get(token) ?? []), position])
   })
   return index
 }
 
-function collectPhraseStarts(
+/** Start positions where `needle` (a normalised phrase, already split) occurs as whole tokens. */
+function phraseStarts(
   tokens: readonly string[],
   index: ReadonlyMap<string, number[]>,
   needle: readonly string[],
-  out: number[],
-): void {
-  const first = needle[0]
-  if (first === undefined) return
-  for (const start of index.get(first) ?? []) {
-    if (start + needle.length > tokens.length) continue
-    let hit = true
-    for (let j = 1; j < needle.length; j += 1) {
-      if (tokens[start + j] !== needle[j]) {
-        hit = false
-        break
-      }
-    }
-    if (hit && !out.includes(start)) out.push(start)
-  }
+): number[] {
+  // Stryker disable next-line StringLiteral: a spelling is never empty, so the fallback key is never looked up in a way a test could see
+  const candidates = index.get(needle[0] ?? '') ?? []
+  return candidates.filter((start) => needle.every((word, j) => tokens[start + j] === word))
 }
 
 /** Exported for tests + docs: the alias families this build folds. */

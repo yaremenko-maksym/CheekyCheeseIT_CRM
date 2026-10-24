@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { JobExclusionDto } from '@crm/shared'
 import {
@@ -8,12 +10,15 @@ import {
   type TechMatchPosting,
   type TechMatchReady,
 } from './tech-match'
-import {
-  TECHWORD_POSTING_BODY,
-  TECHWORD_SENIOR_IDS,
-  TECHWORD_TEAM_ID,
-  techwordProfiles,
-} from './__fixtures__/techword'
+
+/** The open r4 "techword" case, named in the repo (plan r5 C-25). */
+const TECHWORD = JSON.parse(
+  readFileSync(join(__dirname, '__fixtures__', 'techword.json'), 'utf8'),
+) as {
+  profiles: SeniorTechProfile[]
+  postingBody: string
+  expectedMatches: string[]
+}
 
 const A = '11111111-1111-4111-8111-111111111111'
 const B = '22222222-2222-4222-8222-222222222222'
@@ -73,26 +78,23 @@ const matched = (r: TechMatchReady, id: string) => {
 const kw = (r: TechMatchReady) => r.rosterMatches.map((m) => m.keyword).sort()
 
 describe('union beyond 60 — the techword fixture', () => {
-  const r = run({ title: 'Engineer', body: TECHWORD_POSTING_BODY }, techwordProfiles())
+  const r = run({ title: 'Engineer', body: TECHWORD.postingBody }, TECHWORD.profiles)
+  const ids = TECHWORD.profiles.map((p) => p.seniorId)
 
   it('keeps the whole 150-keyword union, not 60', () => {
+    expect(TECHWORD.profiles.map((p) => p.techStack.length)).toEqual([50, 50, 50])
     expect(r.rosterUnionSize).toBe(150)
   })
 
   it('finds techword149, techword0 and techword75, one per profile', () => {
-    expect(kw(r)).toEqual(['techword0', 'techword149', 'techword75'])
-    expect(matched(r, TECHWORD_SENIOR_IDS[0]).matches.map((m) => m.keyword)).toEqual(['techword0'])
-    expect(matched(r, TECHWORD_SENIOR_IDS[1]).matches.map((m) => m.keyword)).toEqual(['techword75'])
-    expect(matched(r, TECHWORD_SENIOR_IDS[2]).matches.map((m) => m.keyword)).toEqual([
-      'techword149',
-    ])
-    expect(TECHWORD_TEAM_ID).toMatch(/f1$/)
+    expect(kw(r)).toEqual(TECHWORD.expectedMatches)
+    expect(matched(r, ids[0] ?? '').matches.map((m) => m.keyword)).toEqual(['techword0'])
+    expect(matched(r, ids[1] ?? '').matches.map((m) => m.keyword)).toEqual(['techword75'])
+    expect(matched(r, ids[2] ?? '').matches.map((m) => m.keyword)).toEqual(['techword149'])
   })
 
   it('records which seniors hold each roster keyword', () => {
-    expect(r.rosterMatches.find((m) => m.keyword === 'techword75')?.seniorIds).toEqual([
-      TECHWORD_SENIOR_IDS[1],
-    ])
+    expect(r.rosterMatches.find((m) => m.keyword === 'techword75')?.seniorIds).toEqual([ids[1]])
   })
 })
 
@@ -242,6 +244,213 @@ describe('negation, optional, core', () => {
   })
 })
 
+describe('context cues, one by one', () => {
+  const strengthOf = (body: string, stack = ['java']) => {
+    const r = run({ body }, [profile(A, stack)])
+    const found = [...r.rosterMatches, ...r.rosterNegated]
+    return found[0]?.strength ?? 'NONE'
+  }
+
+  it.each(['no', 'not', 'without', 'excluding', 'except', 'non', 'never', 'nor'])(
+    'the negator "%s" negates the keyword after it',
+    (word) => {
+      expect(strengthOf(`${word} Java`)).toBe('NEGATED')
+    },
+  )
+
+  it.each(['required', 'needed', 'necessary', 'mandatory', 'expected'])(
+    '"Java is not %s" negates',
+    (word) => {
+      expect(strengthOf(`Java is not ${word}`)).toBe('NEGATED')
+    },
+  )
+
+  it.each([
+    'nice to have',
+    'good to have',
+    'would be nice',
+    'a plus',
+    'bonus',
+    'optional',
+    'advantage',
+    'desirable',
+    'preferred',
+  ])('the sentence cue "%s" makes OPTIONAL', (phrase) => {
+    expect(strengthOf(`Java, ${phrase}`)).toBe('OPTIONAL')
+  })
+
+  it.each([
+    'nice to have',
+    'good to have',
+    'would be nice',
+    'a plus',
+    'bonus',
+    'optional',
+    'advantage',
+    'desirable',
+    'preferred',
+  ])('a heading "%s:" opens an optional section', (phrase) => {
+    expect(strengthOf(`${phrase}:\nJava`)).toBe('OPTIONAL')
+  })
+
+  it.each(['requirements', 'requirement', 'qualifications', 'skills', 'stack', 'proficiency'])(
+    'the marker "%s" counts as a requirements statement',
+    (word) => {
+      const r = run({ body: `${word} wanted` }, [profile(A, ['python'])])
+      expect(r.evidenceSurfaces.requirements).toBe(true)
+      expect(r.lowInformation).toBe(false)
+    },
+  )
+
+  it('a negator 3 tokens before the keyword negates, 4 tokens before does not', () => {
+    expect(strengthOf('no good strong Java')).toBe('NEGATED')
+    expect(strengthOf('no very good strong Java')).toBe('CORE')
+  })
+
+  it('a trailing "not required" up to 4 tokens after negates, 5 does not', () => {
+    expect(strengthOf('Java a b c not required')).toBe('NEGATED')
+    expect(strengthOf('Java a b c d not required')).toBe('CORE')
+    expect(strengthOf('Java not')).toBe('CORE')
+  })
+
+  it('a keyword that is itself a negator word is not negated by itself', () => {
+    expect(strengthOf('nor', ['nor'])).toBe('CORE')
+  })
+
+  it('a negation does not leak into the next sentence', () => {
+    expect(strengthOf('We have no budget. Java')).toBe('CORE')
+  })
+
+  it.each(['.', '!', '?', ';'])('a "%s" ends a sentence, so optionality stays in it', (mark) => {
+    const r = run({ body: `Java is a plus${mark} Rust` }, [profile(A, ['java', 'rust'])])
+    expect(Object.fromEntries(r.rosterMatches.map((m) => [m.keyword, m.strength]))).toEqual({
+      java: 'OPTIONAL',
+      rust: 'CORE',
+    })
+  })
+
+  it('trims the excerpt after splitting on several spaces', () => {
+    const r = run({ body: 'Go on.   Strong Rust.' }, [profile(A, ['rust'])])
+    expect(r.rosterMatches[0]?.excerpt).toBe('Strong Rust.')
+  })
+
+  it('a heading of 8 tokens opens a section, one of 9 is plain text', () => {
+    expect(strengthOf('nice to have a b c d e:\nJava')).toBe('OPTIONAL')
+    expect(strengthOf('nice to have a b c d e f:\nJava')).toBe('CORE')
+  })
+
+  it('a heading with surrounding spaces is still a heading', () => {
+    expect(strengthOf('  Nice to have:   \nJava')).toBe('OPTIONAL')
+  })
+
+  it('a section runs to the next heading, not to the end of the line count', () => {
+    expect(strengthOf('Nice to have:\nPython\nMust have:\nJava', ['java'])).toBe('CORE')
+  })
+
+  it('# headings need a space and at most 6 hashes, and only at the line start', () => {
+    expect(strengthOf('## nice to have\nJava')).toBe('OPTIONAL')
+    expect(strengthOf('#nice to have\nJava')).toBe('CORE')
+    expect(strengthOf('####### nice to have\nJava')).toBe('CORE')
+    expect(strengthOf('We love ## nice to have\nJava')).toBe('CORE')
+  })
+
+  it('a whole-line bold phrase is a heading, bold inside a sentence is not', () => {
+    expect(strengthOf('**Nice to have**\nJava')).toBe('OPTIONAL')
+    expect(strengthOf('**Nice to have**:\nJava')).toBe('OPTIONAL')
+    expect(strengthOf('Use **Java**')).toBe('CORE')
+    expect(strengthOf('**Java** developers wanted')).toBe('CORE')
+  })
+
+  it('a null body and an empty body read as no body', () => {
+    expect(strengthOf('')).toBe('NONE')
+    const r = run({ body: null }, [profile(A, ['stryker'])])
+    expect(r.rosterMatches).toEqual([])
+  })
+
+  it('tags are CORE and ambiguous aliases count in them', () => {
+    const r = run({ tags: ['Go'] }, [profile(A, ['golang'])])
+    expect(r.rosterMatches[0]).toMatchObject({ strength: 'CORE', sources: ['TAG'] })
+  })
+
+  it('blank tags are not evidence, a real tag is', () => {
+    expect(run({ tags: ['', '  '] }, [profile(A, ['rust'])]).evidenceSurfaces.tags).toBe(false)
+    expect(run({ tags: ['', 'remote'] }, [profile(A, ['rust'])]).evidenceSurfaces.tags).toBe(true)
+    expect(run({ tags: ['remote'] }, [profile(A, ['rust'])]).evidenceSurfaces.tags).toBe(true)
+  })
+
+  it('lists title, tag and body sources in that order when all reach the same strength', () => {
+    const r = run({ title: 'Java', tags: ['Java'], body: 'Java' }, [profile(A, ['java'])])
+    expect(r.rosterMatches[0]?.sources).toEqual(['TITLE', 'TAG', 'BODY'])
+  })
+
+  it('the winning mention supplies the strength, the sources and the excerpt', () => {
+    const optionalOverNegated = run({ body: 'No Java.\nJava is a plus.' }, [profile(A, ['java'])])
+    expect(optionalOverNegated.rosterMatches[0]).toMatchObject({
+      strength: 'OPTIONAL',
+      excerpt: 'Java is a plus.',
+    })
+    expect(optionalOverNegated.rosterNegated).toEqual([])
+    const coreOverBoth = run({ body: 'No Java.\nJava is a plus.\nStrong Java.' }, [
+      profile(A, ['java']),
+    ])
+    expect(coreOverBoth.rosterMatches[0]).toMatchObject({
+      strength: 'CORE',
+      excerpt: 'Strong Java.',
+    })
+    const negatedOnly = run({ body: 'No Java. Not Java either.' }, [profile(A, ['java'])])
+    expect(negatedOnly.rosterNegated[0]).toMatchObject({
+      strength: 'NEGATED',
+      excerpt: 'No Java.',
+    })
+  })
+
+  it('a title mention carries no excerpt', () => {
+    const r = run({ title: 'Java Developer' }, [profile(A, ['java'])])
+    expect(r.rosterMatches[0]?.excerpt).toBeNull()
+  })
+
+  it('reports all three counts correctly for a mixed profile', () => {
+    const body = 'Requirements: Python, Rust.\nGo is a plus.\nNo Java.'
+    const r = run({ body }, [profile(A, ['python', 'rust', 'golang', 'java', 'cobol'])])
+    const s = matched(r, A)
+    expect(s.profileKeywordCount).toBe(5)
+    expect(s.coreMatchCount).toBe(2)
+    expect(s.optionalMatchCount).toBe(0)
+    expect(s.negated.map((e) => e.keyword)).toEqual(['java'])
+    const r2 = run({ title: 'Go', body: 'Requirements: Python.\nRust is a plus.\nNo Java.' }, [
+      profile(A, ['python', 'rust', 'golang', 'java']),
+    ])
+    const s2 = matched(r2, A)
+    expect(s2.matches.map((e) => e.keyword)).toEqual(['python', 'rust', 'golang'])
+    expect(s2.coreMatchCount).toBe(2)
+    expect(s2.optionalMatchCount).toBe(1)
+    expect(s2.negated.map((e) => e.keyword)).toEqual(['java'])
+    expect(r2.rosterNegated.map((e) => e.keyword)).toEqual(['java'])
+  })
+
+  it('coreMismatch: only a stated stack with no core hit', () => {
+    const stated = 'Requirements: Python.'
+    expect(matched(run({ body: stated }, [profile(A, ['rust'])]), A).coreMismatch).toBe(true)
+    expect(matched(run({ body: stated }, [profile(A, ['python'])]), A).coreMismatch).toBe(false)
+    expect(matched(run({ body: stated }, [profile(A, [])]), A).coreMismatch).toBe(false)
+    expect(matched(run({ body: 'We are great.' }, [profile(A, ['rust'])]), A).coreMismatch).toBe(
+      false,
+    )
+  })
+
+  it('reports every evidence surface together', () => {
+    const r = run({ title: 'Rust', tags: ['x'], body: 'Skills' }, [profile(A, ['rust'])])
+    expect(r.evidenceSurfaces).toEqual({ tags: true, requirements: true, keywordHit: true })
+    expect(r.lowInformation).toBe(false)
+  })
+
+  it('two matchable seniors who share a keyword list both as holders', () => {
+    const r = run({ body: 'rust' }, [profile(A, ['rust']), profile(B, ['go', 'rust'])])
+    expect(r.rosterMatches[0]?.seniorIds).toEqual([A, B])
+    expect(r.rosterUnionSize).toBe(2)
+  })
+})
+
 describe('evidence completeness replaces the 200-character cliff', () => {
   const stackProfile = [profile(A, ['python'])]
   const filler = (n: number) => 'x'.repeat(n)
@@ -382,6 +591,43 @@ describe('exclusions run before matching', () => {
     expect(noId.ignoredExclusionIds).toEqual([])
   })
 
+  it('lists only the unused GLOBAL company exclusions as ignored', () => {
+    const globalCompany = exclusion({
+      scope: 'GLOBAL',
+      seniorId: null,
+      id: '55555555-5555-4555-8555-555555555555',
+    })
+    const globalKeyword = exclusion({
+      scope: 'GLOBAL',
+      seniorId: null,
+      kind: 'KEYWORD',
+      value: 'cobol',
+      normalizedValue: 'cobol',
+      id: '66666666-6666-4666-8666-666666666666',
+    })
+    const own = exclusion({ seniorId: B, value: 'Other', normalizedValue: 'other' })
+    const r = run({ body: 'python' }, [profile(A, ['python'])], [globalCompany, globalKeyword, own])
+    expect(r.ignoredExclusionIds).toEqual(['55555555-5555-4555-8555-555555555555'])
+  })
+
+  it('reports the GLOBAL exclusion when a global and a personal one both match', () => {
+    const globalKw = exclusion({
+      scope: 'GLOBAL',
+      seniorId: null,
+      kind: 'KEYWORD',
+      value: 'engineer',
+      normalizedValue: 'engineer',
+      id: '66666666-6666-4666-8666-666666666666',
+    })
+    const r = run({}, [profile(A, ['python'])], [exclusion({}), globalKw])
+    expect(r.seniors[0]).toMatchObject({
+      disposition: 'EXCLUDED',
+      exclusionScope: 'GLOBAL',
+      exclusionKind: 'KEYWORD',
+      exclusionId: '66666666-6666-4666-8666-666666666666',
+    })
+  })
+
   it('exclusion wins over missing team access', () => {
     const r = run({}, [profile(A, ['python'], [])], [exclusion({})])
     expect(r.seniors[0]?.disposition).toBe('EXCLUDED')
@@ -423,6 +669,19 @@ describe('readiness', () => {
     })
   })
 
+  it('a profile repeated three times is reported once', () => {
+    const result = matchTech({
+      posting: posting(),
+      rosterSeniorIds: [A],
+      profiles: [profile(A, []), profile(A, []), profile(A, [])],
+      exclusions: [],
+    })
+    expect(result).toEqual({
+      status: 'READINESS_ISSUE',
+      issues: [{ code: 'DUPLICATE_PROFILES', seniorIds: [A] }],
+    })
+  })
+
   it('duplicate profiles are a typed issue, reported together with missing ones', () => {
     const result = matchTech({
       posting: posting(),
@@ -451,7 +710,7 @@ describe('throughput guard', () => {
         20_000,
       )
     const started = performance.now()
-    for (let i = 0; i < 20; i += 1) run({ body }, techwordProfiles())
+    for (let i = 0; i < 20; i += 1) run({ body }, TECHWORD.profiles)
     const perRun = (performance.now() - started) / 20
     expect(perRun).toBeLessThan(100)
   })
