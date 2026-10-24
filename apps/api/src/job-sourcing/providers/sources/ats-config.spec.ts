@@ -3,7 +3,7 @@ import { ZodError } from 'zod'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import { readProvenance } from '../../../test/fixture-provenance'
 import { sourceFixtureText } from '../../../test/source-fixtures'
-import { ownershipCountOf } from '../manifest'
+import { ownershipCountOf } from '../manifest.ownership'
 import { UnvalidatedConfigError } from '../reporting-provider'
 import {
   ASHBY_KIND,

@@ -8,7 +8,16 @@ import {
   type JobSourceType,
 } from '@crm/shared'
 import { PERMISSIONS, provenanceSchema, type Provenance } from '../../test/fixture-provenance'
+import {
+  type OwnershipCount,
+  type OwnershipEvidence,
+  ownershipCountOf,
+  ownershipEvidenceOf,
+} from './manifest.ownership'
 import type { ReportingJobSourceProvider } from './reporting-provider'
+
+export type { OwnershipCount, OwnershipEvidence } from './manifest.ownership'
+export { ownershipCountOf, ownershipEvidenceOf } from './manifest.ownership'
 
 /**
  * The typed source manifest (r5 Task 3.7): ONE entry per seeded source/config, one explicit
@@ -102,8 +111,6 @@ export const READY_PERMISSIONS: ReadonlySet<Permission> = new Set([
   'PUBLIC_FEED',
   'PUBLIC_API_DOCUMENTED',
 ])
-
-export type OwnershipEvidence = 'PAYLOAD_FIELD' | 'TEXT_FULL' | 'TEXT_PARTIAL'
 
 /** Strongest first. Only the first two let a manifest call an employer verified. */
 export const OWNERSHIP_STRENGTH: readonly OwnershipEvidence[] = [
@@ -250,32 +257,6 @@ export function evidenceKindOf(p: Provenance): EvidenceKind {
     p.notes.startsWith('SENTINEL:') ||
     p.trimmedBy.startsWith('none: written by hand')
   return sentinel ? 'SENTINEL' : 'CAPTURE'
-}
-
-const OWNERSHIP_TOKEN = /EVIDENCE: (PAYLOAD_FIELD|TEXT_FULL|TEXT_PARTIAL)/
-
-export function ownershipEvidenceOf(notes: string): OwnershipEvidence | null {
-  return (OWNERSHIP_TOKEN.exec(notes)?.[1] as OwnershipEvidence | undefined) ?? null
-}
-
-export interface OwnershipCount {
-  readonly matched: number
-  readonly total: number
-}
-
-/**
- * The count a provenance file states for its ownership claim: "87 of the 90 postings", "34 of 34
- * jobs", "all 12 postings". `null` when the sentence is none of those: an unparsed count is
- * unknown, never zero. The adapter specs read this instead of keeping their own copy of the figure
- * (all three of Lever's had drifted once).
- */
-export function ownershipCountOf(notes: string): OwnershipCount | null {
-  const ownership = notes.slice(notes.indexOf('OWNERSHIP') === -1 ? 0 : notes.indexOf('OWNERSHIP'))
-  const ofTotal = /(\d+) of (?:the )?(\d+) (?:postings|jobs)\b/.exec(ownership)
-  if (ofTotal) return { matched: Number(ofTotal[1]), total: Number(ofTotal[2]) }
-  const all = /\ball (\d+) (?:postings|jobs)\b/.exec(ownership)
-  if (all) return { matched: Number(all[1]), total: Number(all[1]) }
-  return null
 }
 
 export interface FixtureRecord {

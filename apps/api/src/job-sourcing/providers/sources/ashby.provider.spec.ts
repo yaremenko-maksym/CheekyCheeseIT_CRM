@@ -6,7 +6,7 @@ import { readProvenance } from '../../../test/fixture-provenance'
 import { sourceFixture, sourceFixtureText } from '../../../test/source-fixtures'
 import { ORIGINAL_LIMITS } from '../../normalize/observation'
 import { ASHBY_LIMITS, ashbyProvider, remoteFromAshbyWorkplace } from './ashby.provider'
-import { ownershipCountOf } from '../manifest'
+import { ownershipCountOf } from '../manifest.ownership'
 import { boardVerdictOf } from './ats-config'
 
 /**
