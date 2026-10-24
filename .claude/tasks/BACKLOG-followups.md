@@ -4116,6 +4116,39 @@ Sum: 4+8+1+8+5+6+11+2+7+2+4+8+4+2+3 = **75**.
 
 **Check on closing:** every task and backlog entry above is closed or carries a recorded decision.
 
+### Progress, 2026-10-24 — 23 of the 52 task-bound identifiers closed on `main`
+
+The map above assigns every identifier a destination; this says which destinations have landed. The
+arithmetic is the point, so it is reconciled rather than asserted, and it is derived from merged PRs
+rather than from anyone's recollection:
+
+| Destination                        | PR          | ids | state                            |
+| ---------------------------------- | ----------- | --- | -------------------------------- |
+| `retro-mr-matcher-access`          | #1094       | 4   | merged                           |
+| `retro-mr-webhook-ingest`          | #1097       | 8   | merged                           |
+| `retro-mr-en-catalog`              | #1091       | 1   | merged                           |
+| `retro-salary-form-defaults`       | #1093       | 5   | merged                           |
+| `retro-txdate-reporting`           | #1108       | 2   | merged                           |
+| carried by the collaborator's #868 | #868        | 3   | merged — see the note below      |
+| `retro-salary-ledger-integrity`    | #1102       | 8   | open, `BLOCK`, 13-finding round  |
+| `retro-txdate-policy`              | in progress | 9   | branch `fix/retro-txdate-policy` |
+| `retro-business-day-clock`         | not started | 6   | waits on txdate-policy           |
+| `retro-manual-ddl-coverage`        | not started | 6   | —                                |
+
+Closed: 4 + 8 + 1 + 5 + 2 + 3 = **23**. In flight or pending: 8 + 9 + 6 + 6 = **29**. Sum **52**, which
+matches the task-bound total in the map above (the remaining 23 of the 75 are the 18 deferred to
+backlog 280-283 and the 5 already closed).
+
+**The three ids carried by #868** are `SR-809-M-1` = `CR-809-M-1` (the "payment cannot predate its
+source" check applying only when `txDate` is supplied) and `CR-867-M-1` (`periodToDates` building
+local-midnight keys). The map's header says open PRs #868/#869 were deliberately not counted as
+fixes, which was correct when written — **#868 merged 2026-10-23T20:17:53Z**, so they count now. The
+two task files record the scope change; this row is what keeps the sum reconcilable across it.
+
+**Not a closure:** `retro-txdate-policy`'s and `retro-business-day-clock`'s counts here are 9 and 6,
+not the map's 11 and 7, for exactly that reason. If you reconcile against the map without reading this
+paragraph the sum will look wrong by 3.
+
 ## 280. Meeting-recorder transcripts are kept forever and outlive their interview (2026-10-22)
 
 `MeetingRecorderRetentionCronService` purges only webhook receipts. `interview_recordings.snapshot`
@@ -4546,6 +4579,13 @@ so neither the agent that made it nor the only party the rule names as the fallb
 it genuinely falls to the owner. **Measured scale at the time of writing: 16 such checkouts across two
 sessions' scratchpads**, most from reviews closed hours earlier.
 
+**The app's own cleanup cannot reach these (measured 2026-10-24).** The obvious alternative to an
+owner-run command is the desktop app's "Clean up inactive sessions" facility. It qualifies sessions by
+**no activity for at least 30, 60 or 90 days** — those are the only accepted values — so a tree
+stranded today is outside its reach by design, and will stay so for a month. It also cleans
+_session_ worktrees, not the scratchpad checkouts reviewers create. So the escape route is closed from
+a third end as well, and "just use the app's cleanup" is not an answer to this entry.
+
 A related sharp edge found in the same attempt: passing the path through a shell variable gets
 `WORKTREE-OPAQUE` instead, because the hook cannot expand it and refuses rather than guess. That is
 right, and it means any batch cleanup must expand each path to a literal first — which is also why a
@@ -4815,6 +4855,100 @@ each agent write under a per-agent subdirectory so a plain basename is safe agai
 **Check on closing:** two agents of one session, each told to write a PR body "to the scratchpad",
 produce two files that cannot collide — verified by running it, not by reading the brief.
 
+## 308. The account meter's spend record depends on six things no code does yet (2026-10-24)
+
+Findings from the three review axes on the shared account-meter reservation store. None could be
+closed inside the store: each needs either the port the collection loop sees, or a worker that claims a
+run under a lease — and neither exists. They are one entry because they share that cause, and because
+closing any one of them alone still leaves the meter's `used` unable to mean what a reader assumes.
+
+**THE OPEN OWNER IS PLAN TASK 2.5, AND IT IS STILL OPEN.** Several bullets below name a role —
+"whoever claims a run under a lease" — and that role is Task 2.5 of the vacancy-sourcing plan, which
+owns the run registry, the collection cadence and durable work ownership, and which is not
+implemented: no registry or run-worker file exists under the job-sourcing directory, and the service's
+registry is still the in-process map holding the legacy provider contract. Registration was
+deliberately cut from the manifest task on the same grounds — nothing in production builds a
+`CollectionContext`, so there is nothing for a registered adapter to be handed. Written out here
+because the task files that say so are gitignored, and an address a reader cannot open is not a
+destination.
+
+- **A reservation can be handed to two live executors of one attempt, and the second charge is
+  silently dropped.** The store reuses a reservation that is still in the RESERVED state, reading that
+  state as "the request never left". RESERVED is equally the state of a live worker about to send, and
+  the store holds no evidence of which. Measured: six concurrent executors of one attempt received one
+  reservation between them; two of them each sent a real request of cost 2 and the meter recorded 2.
+  The second settlement was a no-op, so the second worker believed it had been charged. N overlapping
+  executors cost N times the amount and are charged once — the overspend direction. The store now
+  carries this as a stated CALLER precondition (at most one live executor per attempt identity), with
+  a characterisation test named "TWO live executors of one attempt SHARE a reservation — the
+  precondition, measured" in the store's integration spec: whoever fixes this will see THAT test fail,
+  which is the signal to delete it and assert the fix. It cannot be enforced from inside: the distinguishing fact would have
+  to arrive through the collection context, which carries no owner token, and whose fencing epoch is
+  written by no code in the repository — the column defaults to 1 and the lease recovery that would
+  advance it is unimplemented. So folding the epoch into the reservation key would separate nothing
+  while making the file look fenced. **Whoever claims a run under a lease owns establishing the
+  exclusivity and asserting it there.**
+
+- **Nothing can record that a request left, so "release only provably unsent cost" has no caller that
+  can honour it.** The store exposes a way to mark a reservation sent; the port the collection loop
+  actually sees exposes only reserve and reconcile, and nothing in the repository builds that context
+  yet. So in production the sent state is never recorded. Measured: a reservation whose request
+  physically left, released because the send was never recorded, took the meter from a hold of 4 to all
+  zeroes with 4 units really spent. What protects the loop today is that the JSON page collector marks
+  the outcome uncertain _before_ it fetches — not the store's guard. Either the transport calls the
+  mark at the moment the request leaves, with its transaction committed first, or the sent state is
+  formally retired with a reason. Deciding it by silence is the one option not available.
+  OWNER: the quota-adapter task, plan Task 3.5b — it is the first task with a transport that
+  actually sends, and its own text carries the item. Named here because the task file that
+  says so is gitignored.
+
+- **Settlement charges the full reserved worst case, with no path to correct the row.** Reconciliation
+  carries no actual cost, so a source billed per returned record is charged its whole page every time:
+  a call returning 3 records against a worst case of 50 burns 50 credits in the ledger. Safe for
+  overspend and wrong for accounting — on a money-denominated monthly meter the drift is permanent and
+  compounding, because a second settlement is a no-op and the used amount is already written. Until the
+  port can carry the incurred cost, `used` is an upper bound on spend rather than spend, and nothing
+  downstream may report it to the owner as money actually billed. The store's docblock says so now.
+  OWNER: the quota-adapter task, plan Task 3.5b — it is the first task with a source whose real
+  cost differs from its reservation, and its own text carries the port change. Named here
+  because the task file that says so is gitignored.
+
+- **A crashed worker strands a reservation that nobody can classify or settle.** The plan's lease
+  recovery is the named owner, but its text speaks only of uncertain reservations, and a crash mostly
+  strands a RESERVED one: the settlement runs in a `finally` that a crash never reaches. With no record
+  of the send, a stranded RESERVED row whose request was already in flight cannot be told from one that
+  never left — so the safe reading (hold as uncertain unless provably unsent) is the only sound one,
+  and it is not what "reschedule uncertain reservations" describes. The store also exposes no way to
+  enumerate or settle a dead attempt's rows, so the recovery has no entry point to call.
+
+- **The port's own comment describes a refusal shape that is no longer the only one.** The
+  collection-loop-facing meter port documents its reservation call as returning `null` when the
+  budget refuses — "a COST_STOP, not an error". Since the per-unit sanity ceiling was added, the
+  store has a second refusal shape: an amount above the ceiling THROWS rather than returning
+  `null`, because a cost estimate that large is a defect and not a budget condition. A loop author
+  reading the port's comment would handle only the `null` and meet an uncatchable throw. The store's
+  own class docblock now states both shapes; the port's comment is in a provider base, outside the
+  zone of the task that introduced the ceiling, so the correction travels with the port change in
+  the first item above rather than on its own.
+
+- **Nothing proves a quota key reaches the redaction list.** The credential reader returns the key
+  together with the list to append to the collection context's `secrets`, and that return value is
+  where every assertion stops — because no code builds a collection context, there is no end-to-end
+  path from the reader to a redacted report. The consequence is concrete: a caller that takes the key
+  and ignores the `secrets` list passes every test in the credential spec and leaks the key into
+  whatever it logs or reports. This belongs to the step that CONSTRUCTS the context, which is Task 2.5
+  above and not the adapter task — the adapter task's own text names `secrets` only as a port, so
+  pointing the deferral there, as an earlier edition of the credential spec's comment did, named an
+  owner that did not hold the item.
+
+**Check on closing:** two concurrent executors of one attempt each sending a real request are charged
+twice, not once; a worker killed between sending and settling leaves cost held rather than released;
+a per-record source that returns 3 records against a worst case of 50 is charged 3; a recovery
+process can name and settle the reservations of an attempt whose worker died; the port's comment
+names both refusal shapes, so a loop built from it handles the throw as well as the `null`; and a
+configured quota key is provably absent from a report the collection loop produced, asserted on the
+report rather than on the reader's return value.
+
 ## 311. Flow Gate: three matcher and classifier gaps found by using it (2026-10-24)
 
 All three surfaced while putting real PRs through the gate on the day it became required. None is a
@@ -4929,6 +5063,43 @@ a ref, the push would have succeeded.
 **Check on closing:** a non-isolated agent that runs `git checkout <rev>` in the session working
 directory is refused, and its own scratch-path checkout still succeeds.
 
+## 313. The mutation gate reads a mutant killed only by rejection tests as surviving (2026-10-24)
+
+**Open** — a tool fact with no mechanism behind it, measured independently twice. 313 was free when
+taken and nothing has claimed it since; its sibling entry on the chain-directive quirk had to be
+renumbered to 315, so the two no longer sit next to each other in the file.
+
+Stryker's per-test attribution does not select a test whose assertion is on a **rejection** — that
+the call under test throws, or that a promise rejects. A mutant whose only killers are such tests is
+therefore reported as `Survived` while the suite does kill it: hand-mutate the line and the named
+tests fail, every time. Found by the author of an account-meter store and confirmed by a reviewer,
+which is the only reason anyone believed it rather than suppressing harder.
+
+Two instances, with their numbers, so a later reader can re-run them rather than trust this entry.
+Both are in the store's settlement path, and both were measured by applying the mutation by hand and
+running the unit suite:
+
+- the meter-lock `catch` that converts only a not-found error into a foreign-reservation refusal,
+  forced always-true: **2 unit tests fail** ("an error that merely LOOKS like METER_NOT_FOUND ..."
+  and "a plain failure inside the meter lock ..."), both of which assert on a rejection;
+- the no-op arm of the settlement state machine, forced always-true: **2 unit tests fail**, the two
+  refused-transition cases, which assert on a rejection for the same reason.
+
+Why it costs more than the chain-directive quirk of entry 315: that one fails toward a red gate and
+merely wastes time, while this one invites the wrong repair. The natural response to a survivor you
+cannot explain is a suppression, and a suppression here hides a line the tests were already
+guarding — so the gate stops watching a line that was never unwatched, and the file now tells the
+next reader not to look.
+
+The honest handling is a suppression whose reason carries **the measurement** — which mutation, which
+tests fail, how many — so a later reader can re-run it instead of trusting it, and can delete the
+directive the day the tool is fixed. Both suppressions in the account-meter store that cite this
+quirk are written that way.
+
+**Check on closing:** hand-mutate a line whose only coverage is a rejection assertion and compare the
+suite's result with the gate's report. If they agree, the quirk is gone and every suppression citing
+it can be deleted.
+
 ## 314. Readiness is stated in two places, and nothing reconciles them (2026-10-24)
 
 **Open.** Introduced with the first four JSON source adapters, deliberately, as the lesser of two evils.
@@ -4948,3 +5119,73 @@ that exists, the enforcement is a spec per adapter that someone has to remember 
 **Check on closing:** flip a provenance `permission` to UNCLEAR for a source that also has a readiness
 constant, and the build fails rather than the entry quietly staying ready. If the only thing that fails is
 one hand-written spec, the reconciliation does not exist yet.
+
+## 315. A Stryker directive inside a method chain is silently not honoured (2026-10-24)
+
+**Open** — a tooling fact with no mechanism behind it, so it will be rediscovered unless it is written
+down. Renumbered from 312 to 315 before merge: another session's entry 312 reached `main` first, and
+by the cross-session protocol the second to merge renumbers. 313 is the entry below, and 314 is
+claimed by a branch in flight.
+
+A `// Stryker disable next-line <mutator>` comment suppresses the mutants of the statement below it.
+Placed inside a multi-line method chain — above a chained call, or trailing the line before it — it
+suppresses nothing: the mutant survives and the gate's `ignored` count does not move. Measured twice
+independently on the same day: once by the author of the code, by arithmetic on the gate's own
+`ignored` count across two placements, and once by a reviewer in an isolated Stryker sandbox, where
+the identical directive above a single-line statement did remove its mutants.
+
+Why it matters more than an ordinary tooling quirk: the failure is **silent in the direction of a
+false red**, and the natural response to a survivor you believe you have suppressed is to suppress it
+harder, or to excuse it in prose. The honest answers are to assert the line, or to restructure so the
+directive sits above a statement rather than inside a chain.
+
+Worth holding beside its opposite. This quirk fails toward a red gate, so it costs time and hides
+nothing. A suppression whose stated reason has gone stale — because a test was later added that does
+cover the line — fails the other way, toward green, and hides live signal. Both are about
+suppressions and they point in opposite directions, so a review of one is not a review of the other.
+
+**Check on closing:** place such a directive inside a chain and confirm the gate's `ignored` count
+moves. If the count is unchanged, the directive is decoration and the line is still gated.
+
+## 316. `.mjs` is formatted by nothing: outside lint-staged AND outside the CI formatting gate (2026-10-24)
+
+Surfaced by the architect while writing PR #1116, reported as "`lint-staged` globs do not cover
+`scripts/**/*.mjs`, so the pre-commit hook never formatted them and the CI prettier gate would have
+failed". **The first half is right and the second half is wrong**, and the correction is the finding:
+nothing would have failed.
+
+Measured on `origin/main`:
+
+```
+# the pre-commit side — no glob matches scripts/architect/flow-gate.mjs
+python3 -c "import json,fnmatch;d=json.load(open('package.json'));print([k for k in d['lint-staged'] if fnmatch.fnmatch('scripts/architect/flow-gate.mjs',k)])"
+
+# the CI side — the file-type filter in check-no-skip-hooks.yml
+git show origin/main:.github/workflows/check-no-skip-hooks.yml | grep -E "grep -E '\\\\."
+```
+
+`lint-staged` declares seven globs, all under `apps/`, `packages/` or the repo root, and **none
+matches**. The CI gate collects PR-changed files through
+`grep -E '\.(ts|tsx|js|jsx|json|md|yml|yaml)$'` — and `\.js$` does **not** match `.mjs`, because the
+dot is followed by `mjs`. So `.mjs` is outside both.
+
+**Why the wrong half matters more than the right half.** "The hook misses it but CI catches it" is a
+gap with a loud failure at the end, and it needs no action beyond widening a glob. "Neither checks it"
+is silence: the extension the project uses for its own gate scripts — `scripts/architect/flow-gate.mjs`
+is 43k and is what decides whether code may enter `main` — is formatted by nobody, and a reader
+reviewing a diff in it cannot tell formatting noise from intent. The author reports having run prettier
+by hand and the files being clean, which is true and is also the point: it held because someone
+remembered.
+
+This is also a second instance of the shape in `verification-integrity.md`: a gate reported as covering
+something it does not. The author inferred CI coverage from the existence of a formatting gate rather
+than from its file filter.
+
+**Candidate fix, both ends, because fixing one reinstates the asymmetry:** add a `lint-staged` glob for
+`scripts/**/*.{mjs,cjs,js}` (and `.claude/**` / `.github/**` scripts if they are formatted at all — not
+checked here), and add `mjs|cjs` to the CI filter's alternation. Decide deliberately whether `.claude/`
+and `.github/` shell and JS are in scope; this entry measured only `.mjs`.
+
+**Check on closing:** a deliberately mis-formatted `scripts/**/*.mjs` committed with hooks active is
+either reformatted by the pre-commit hook or fails the CI formatting gate — today it does neither, and
+that is the assertion to re-run.
