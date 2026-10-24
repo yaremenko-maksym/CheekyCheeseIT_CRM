@@ -156,15 +156,41 @@ describe('fixture provenance', () => {
 })
 
 /**
- * E-mail addresses anywhere under `__fixtures__/` and `__raw-captures__/`, raw captures and scripts included, `.gz`
- * decompressed. The allow-list is per FILE and per ADDRESS: the redaction placeholder, and the
- * published role mailboxes of a third-party terms page kept as evidence of a verdict. A new
- * address in an allow-listed file fails, as does any address in any other file.
+ * LITERAL and OBFUSCATED e-mail addresses in the files under `sources/__fixtures__/` and
+ * `sources/__raw-captures__/`, raw captures and scripts included, `.gz` decompressed. The allow-list
+ * is per FILE and per ADDRESS (an obfuscated one is listed by its whitespace-collapsed text): the
+ * redaction placeholder, and the published role mailboxes kept as evidence. A new address in an
+ * allow-listed file fails, as does any address in any other file.
+ *
+ * WHAT IS MATCHED: `local@domain.tld`; the bracket and paren forms `[at]` and `(at)` (spaces around
+ * them allowed); the entities `&#64;`, `&#x40;`, `&commat;`; and `(dot)` / `[dot]` between domain labels.
+ * Hacker News commenters obfuscate precisely to defeat a scanner, so the literal form alone is not enough.
+ *
+ * WHAT IS NOT COVERED (a scan that reads nothing passes like one that finds nothing, so the limits
+ * are stated): the spelled-out form `x at y dot z` (none exists in the tree today); a JSON `\u0040`
+ * escape; any compression but `.gz` (a `.br` or `.zst` capture would pass unseen; none exists); and
+ * every directory outside the two roots above, e.g. `job-sourcing/__fixtures__` and
+ * `meeting-recorder/__fixtures__`. The last was grepped for literal addresses by hand and found clean.
  */
-const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
+const AT = String.raw`(?:\s*(?:\[at\]|\(at\))\s*|&#64;|&#x40;|&commat;)`
+const DOT = String.raw`(?:\.|\s*(?:\[dot\]|\(dot\))\s*)`
+const LABEL = String.raw`[A-Za-z0-9-]+`
+const LITERAL_EMAIL = String.raw`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`
+const OBFUSCATED_EMAIL = String.raw`[A-Za-z0-9._%+-]+${AT}${LABEL}(?:${DOT}${LABEL})*`
+const EMAIL = new RegExp(`${LITERAL_EMAIL}|${OBFUSCATED_EMAIL}`, 'gi')
 const PLACEHOLDER = 'redacted@example.invalid'
 const PUBLISHED_CONTACTS: Record<string, string[]> = {
   'workingnomads/terms.html.txt': ['hello@workingnomads.com', 'report@workingnomads.com'],
+  // Obfuscated, all published role mailboxes of an employer or a platform (checked by reading the context):
+  // an employer's contact line in a job post.
+  'hn-hiring/thread-2026-10.json': ['jobs[at]openeducation.foundation'],
+  // Remotive's own contact for API questions, quoted in its feed.
+  'remotive/software-dev.json': ['hello(at)remotive(dot)io'],
+  '__raw-captures__/3.2/an-p1.raw.gz': [
+    'contact (at) coni-partner.com', // the generic contact line of an employer's imprint block
+    'hr.dataprivacy(at)doctolib.com', // an employer's data-protection contact in its job ad
+    'security [at] perk', // a platform's published security contact ("security [at] perk .com")
+  ],
 }
 
 function walk(dir: string): string[] {
@@ -174,6 +200,9 @@ function walk(dir: string): string[] {
   })
 }
 
+// DO NOT replace the derivation below with the literal '__raw-captures__/'. Deriving the prefix from
+// RAW_ROOT is why narrowing RAW_ROOT to one task directory also breaks the raw-capture pin and the
+// label round trip, not only the guard test; a literal would let the round trip pass under narrowing.
 // A label is a path relative to `__fixtures__`, or relative to this directory when it starts with
 // `__raw-captures__/`. One pair of functions, so a label and its file cannot be resolved differently.
 const RAW_LABEL_PREFIX = `${basename(RAW_ROOT)}/`
@@ -184,10 +213,10 @@ const pathOfLabel = (label: string) =>
 function addressesIn(path: string): string[] {
   const raw = readFileSync(path)
   const text = (path.endsWith('.gz') ? gunzipSync(raw) : raw).toString('utf8')
-  return [...new Set(text.match(EMAIL) ?? [])].sort()
+  return [...new Set((text.match(EMAIL) ?? []).map((a) => a.replace(/\s+/g, ' ')))].sort()
 }
 
-describe('no personal e-mail address anywhere under __fixtures__ or __raw-captures__', () => {
+describe('no e-mail address, literal or obfuscated, in the two scanned roots except the allow-listed ones', () => {
   const files = [...walk(ROOT), ...walk(RAW_ROOT)]
   const rel = files.map(labelOf)
 
@@ -206,6 +235,16 @@ describe('no personal e-mail address anywhere under __fixtures__ or __raw-captur
     // computed identically and nothing else in this file would notice. (Checked by hand once with a
     // `__raw-captures__/3.4/hn-probe.raw` file: both the offender scan and the hn- check failed.)
     expect(basename(RAW_ROOT)).toBe('__raw-captures__')
+  })
+
+  it('every task directory under __raw-captures__ is reached by the scan', () => {
+    // The property that matters, listed from the literal path without reading RAW_ROOT: a later
+    // `3.4` directory the walk misses fails here.
+    const taskDirs = readdirSync(join(__dirname, '__raw-captures__'))
+    expect(taskDirs).toContain('3.2')
+    for (const dir of taskDirs) {
+      expect(rel.some((f) => f.startsWith(`__raw-captures__/${dir}/`))).toBe(true)
+    }
   })
 
   it('a label resolves to the file it names, in either root (the allow-list path)', () => {
@@ -234,7 +273,9 @@ describe('no personal e-mail address anywhere under __fixtures__ or __raw-captur
   it('every allow-listed file exists and still carries exactly the addresses listed for it', () => {
     for (const [name, expected] of Object.entries(PUBLISHED_CONTACTS)) {
       expect(rel).toContain(name)
-      expect(addressesIn(pathOfLabel(name))).toEqual([...expected].sort())
+      expect(addressesIn(pathOfLabel(name)).filter((a) => a !== PLACEHOLDER)).toEqual(
+        [...expected].sort(),
+      )
     }
   })
 
