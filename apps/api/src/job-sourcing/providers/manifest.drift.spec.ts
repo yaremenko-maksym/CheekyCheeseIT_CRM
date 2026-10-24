@@ -196,12 +196,8 @@ describe('the generated seed delta', () => {
   it('blocks the types that are not ready, so a seeded row of one is not left a candidate', () => {
     const blocked = seedRowsOf(manifest).typeBlocks.map((b) => b.type)
     expect(blocked).toEqual([
-      'REMOTIVE_API',
       'WORKINGNOMADS_API',
-      'JOBGETHER_API',
-      'HN_HIRING',
       'ASHBY_ATS',
-      'SMARTRECRUITERS_ATS',
       'JOOBLE_API',
       'JSEARCH_API',
       'THEIRSTACK_API',

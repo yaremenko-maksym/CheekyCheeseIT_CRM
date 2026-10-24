@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import { sourceFixture, sourceProvenance } from '../../../test/source-fixtures'
 import { PG_INT_MAX } from '../api-json.provider'
+import { MAX_RESPONSE_BYTES_CEILING } from '../../http/bounded-fetch'
 import { UnvalidatedConfigError } from '../reporting-provider'
 import { ORIGINAL_LIMITS } from '../../normalize/observation'
 import {
   currentThreadId,
   headerOf,
   hnHiringProvider,
+  HN_MAX_BYTES,
   HN_MAX_COMMENTS,
   hasRoleSignal,
   isMultiRole,
@@ -696,12 +698,13 @@ describe('config errors fail before any network call', () => {
   })
 })
 
-describe('the BLOCKED state', () => {
-  it('the provider declares itself blocked, UNCLEAR, with both facts - and every provenance agrees', () => {
-    expect(HN_SOURCE_STATUS.blocked).toBe(true)
+describe('the owner-accepted risk (decision of 2026-10-24): not blocked, still UNCLEAR', () => {
+  it('the provider declares itself not blocked but UNCLEAR, as an accepted risk - and every provenance still says UNCLEAR', () => {
+    expect(HN_SOURCE_STATUS.blocked).toBe(false)
     expect(HN_SOURCE_STATUS.permission).toBe('UNCLEAR')
     expect(HN_SOURCE_STATUS.reason).toContain('forbid scraping')
-    expect(HN_SOURCE_STATUS.reason).toContain('owner decision')
+    expect(HN_SOURCE_STATUS.reason).toContain('owner accepted the risk on 2026-10-24')
+    expect(HN_SOURCE_STATUS.reason).toContain('not a documented permission')
     for (const name of ['search', 'thread-2026-10', 'thread-2026-09', 'thread-2019-05']) {
       const p = sourceProvenance('hn-hiring', name) as { permission: string; notes: string }
       expect(p.permission).toBe(HN_SOURCE_STATUS.permission)
@@ -709,8 +712,54 @@ describe('the BLOCKED state', () => {
         'data mining, robots, scraping or similar data gathering or extraction methods',
       )
       expect(p.notes).toContain('public, unauthenticated, documented endpoint')
-      expect(p.notes).toContain('unanswered')
     }
+  })
+})
+
+describe('the declared per-source byte cap (4 MiB)', () => {
+  const MAX_THREAD_MEASURED = 1_402_131
+  const DEFAULT_CAP = 2 * 1024 * 1024
+  /** The October thread padded to exactly `bytes` of JSON text. */
+  const threadOfBytes = (bytes: number) => {
+    const make = (pad: string) => JSON.stringify({ ...octThread(), pad })
+    return make('x'.repeat(bytes - Buffer.byteLength(make(''))))
+  }
+  const walkRaw = async (threadText: string) => {
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: JSON.stringify(search()) }, { bodyText: threadText }],
+    })
+    const batch = await hnHiringProvider.collectReport(cfg(), f.ctx)
+    return { batch, f }
+  }
+
+  it('declares 4 MiB: pinned as a literal, under the shared ceiling, above the largest thread captured', () => {
+    expect(HN_MAX_BYTES).toBe(4_194_304)
+    expect(HN_MAX_BYTES).toBeLessThanOrEqual(MAX_RESPONSE_BYTES_CEILING)
+    expect(HN_MAX_BYTES).toBeGreaterThan(MAX_THREAD_MEASURED)
+    expect(HN_MAX_BYTES).toBeGreaterThan(DEFAULT_CAP)
+  })
+
+  it('both requests (search and thread) carry the cap', async () => {
+    const { f } = await walk(search(), octThread())
+    expect(f.sent.map((r) => r.maxBytes)).toEqual([4_194_304, 4_194_304])
+  })
+
+  it('a thread past the old 2 MiB default but within the cap is collected', async () => {
+    const { batch } = await walkRaw(threadOfBytes(DEFAULT_CAP + 1))
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.counts.normalized).toBe(OCT_IDS.length)
+  })
+
+  it('a thread of exactly the cap is read; one byte more is PAYLOAD_TOO_LARGE with nothing kept', async () => {
+    const at = threadOfBytes(HN_MAX_BYTES)
+    expect(Buffer.byteLength(at)).toBe(HN_MAX_BYTES)
+    expect((await walkRaw(at)).batch.outcome).toBe('SUCCEEDED')
+    const { batch } = await walkRaw(threadOfBytes(HN_MAX_BYTES + 1))
+    // The search step succeeded, so the run is PARTIAL; the thread step kept nothing.
+    expect(batch.outcome).toBe('PARTIAL')
+    expect(batch.requests.at(-1)?.error?.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(batch.counts.normalized).toBe(0)
   })
 })
 

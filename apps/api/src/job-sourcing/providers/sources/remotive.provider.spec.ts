@@ -331,12 +331,13 @@ describe('config is refused before any network call', () => {
   })
 })
 
-describe('the BLOCKED state (SPEC-M-1)', () => {
-  it('the provider declares itself blocked, UNCLEAR, with the robots.txt reason - and the provenance agrees', () => {
-    expect(REMOTIVE_SOURCE_STATUS.blocked).toBe(true)
+describe('the owner-accepted risk (decision of 2026-10-24): not blocked, still UNCLEAR', () => {
+  it('the provider declares itself not blocked but UNCLEAR, with the robots.txt reason - and the provenance still says UNCLEAR', () => {
+    expect(REMOTIVE_SOURCE_STATUS.blocked).toBe(false)
     expect(REMOTIVE_SOURCE_STATUS.permission).toBe('UNCLEAR')
     expect(REMOTIVE_SOURCE_STATUS.reason).toContain('robots.txt Disallow: /api/*')
-    expect(REMOTIVE_SOURCE_STATUS.reason).toContain('owner decision')
+    expect(REMOTIVE_SOURCE_STATUS.reason).toContain('documented API takes priority')
+    expect(REMOTIVE_SOURCE_STATUS.reason).toContain('not a documented permission')
     expect(
       (sourceProvenance('remotive', 'software-dev') as { permission: string }).permission,
     ).toBe(REMOTIVE_SOURCE_STATUS.permission)

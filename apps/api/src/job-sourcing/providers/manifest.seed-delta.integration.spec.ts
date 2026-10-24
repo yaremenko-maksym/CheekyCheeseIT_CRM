@@ -174,6 +174,30 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     })
   })
 
+  it('the sources the owner decided on (2026-10-24) are CANDIDATE rows with no reason, still disabled; Muse stays BLOCKED', async () => {
+    await applySeedThenDelta()
+    const seen: Array<[string, unknown, unknown, unknown]> = []
+    for (const id of [
+      'hn-hiring.thread.latest',
+      'remotive.api.software-dev',
+      'remotive.api.devops',
+      'remotive.api.data',
+      'jobgether.api.jobs',
+      'muse.api.software-engineering-senior',
+    ]) {
+      const row = await byManifestId(id)
+      seen.push([id, row?.['readiness'], row?.['readiness_reason'] === null, row?.['enabled']])
+    }
+    expect(seen).toEqual([
+      ['hn-hiring.thread.latest', 'CANDIDATE', true, false],
+      ['remotive.api.software-dev', 'CANDIDATE', true, false],
+      ['remotive.api.devops', 'CANDIDATE', true, false],
+      ['remotive.api.data', 'CANDIDATE', true, false],
+      ['jobgether.api.jobs', 'CANDIDATE', true, false],
+      ['muse.api.software-engineering-senior', 'BLOCKED', false, false],
+    ])
+  })
+
   it('no row the delta wrote is enabled, and no meter row was created', async () => {
     const meters = (await rowsOf('SELECT * FROM job_account_meters')).length
     await applySeedThenDelta()
@@ -250,12 +274,12 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
   it('an admin-set VERIFIED survives a CANDIDATE claim, but never a BLOCKED one', async () => {
     await client.query(LEGACY_SEED)
     await client.query(
-      `UPDATE job_sources SET readiness = 'VERIFIED' WHERE type IN ('REMOTEOK_API', 'REMOTIVE_API')`,
+      `UPDATE job_sources SET readiness = 'VERIFIED' WHERE type IN ('REMOTEOK_API', 'JSEARCH_API')`,
     )
     await client.query(delta())
     const readiness = async (id: string) => (await byManifestId(id))!['readiness']
     expect(await readiness('remoteok.api.latest')).toBe('VERIFIED') // manifest: CANDIDATE
-    expect(await readiness('remotive.api.devops')).toBe('BLOCKED') // manifest: BLOCKED wins
+    expect(await readiness('jsearch.rapidapi.backend')).toBe('BLOCKED') // manifest: BLOCKED wins (key required)
   })
 
   it('a config revision raises config_version, replaces the config, and keeps the admin state', async () => {
