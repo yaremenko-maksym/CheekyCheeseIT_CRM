@@ -4116,26 +4116,26 @@ Sum: 4+8+1+8+5+6+11+2+7+2+4+8+4+2+3 = **75**.
 
 **Check on closing:** every task and backlog entry above is closed or carries a recorded decision.
 
-### Progress, 2026-10-24 — 23 of the 52 task-bound identifiers closed on `main`
+### Progress, 2026-10-24 — all 52 task-bound identifiers closed on `main`
 
 The map above assigns every identifier a destination; this says which destinations have landed. The
 arithmetic is the point, so it is reconciled rather than asserted, and it is derived from merged PRs
 rather than from anyone's recollection:
 
-| Destination                        | PR          | ids | state                       |
-| ---------------------------------- | ----------- | --- | --------------------------- |
-| `retro-mr-matcher-access`          | #1094       | 4   | merged                      |
-| `retro-mr-webhook-ingest`          | #1097       | 8   | merged                      |
-| `retro-mr-en-catalog`              | #1091       | 1   | merged                      |
-| `retro-salary-form-defaults`       | #1093       | 5   | merged                      |
-| `retro-txdate-reporting`           | #1108       | 2   | merged                      |
-| carried by the collaborator's #868 | #868        | 3   | merged — see the note below |
-| `retro-salary-ledger-integrity`    | #1102       | 8   | merged                      |
-| `retro-txdate-policy`              | #1113       | 9   | merged                      |
-| `retro-business-day-clock`         | #1133       | 6   | in review                   |
-| `retro-manual-ddl-coverage`        | not started | 6   | —                           |
+| Destination                        | PR    | ids | state                       |
+| ---------------------------------- | ----- | --- | --------------------------- |
+| `retro-mr-matcher-access`          | #1094 | 4   | merged                      |
+| `retro-mr-webhook-ingest`          | #1097 | 8   | merged                      |
+| `retro-mr-en-catalog`              | #1091 | 1   | merged                      |
+| `retro-salary-form-defaults`       | #1093 | 5   | merged                      |
+| `retro-txdate-reporting`           | #1108 | 2   | merged                      |
+| carried by the collaborator's #868 | #868  | 3   | merged — see the note below |
+| `retro-salary-ledger-integrity`    | #1102 | 8   | merged                      |
+| `retro-txdate-policy`              | #1113 | 9   | merged                      |
+| `retro-business-day-clock`         | #1133 | 6   | merged                      |
+| `retro-manual-ddl-coverage`        | #1137 | 6   | merged                      |
 
-Closed: 4 + 8 + 1 + 5 + 2 + 3 = **23**. In flight or pending: 8 + 9 + 6 + 6 = **29**. Sum **52**, which
+Closed: 4 + 8 + 1 + 5 + 2 + 3 + 8 + 9 + 6 + 6 = **52**. In flight or pending: **0**. Sum **52**, which
 matches the task-bound total in the map above (the remaining 23 of the 75 are the 18 deferred to
 backlog 280-283 and the 5 already closed).
 
@@ -4148,6 +4148,10 @@ two task files record the scope change; this row is what keeps the sum reconcila
 **Not a closure:** `retro-txdate-policy`'s and `retro-business-day-clock`'s counts here are 9 and 6,
 not the map's 11 and 7, for exactly that reason. If you reconcile against the map without reading this
 paragraph the sum will look wrong by 3.
+
+**Closed by a decision, not by a code change.** `CR-795-M-6` (the multipart-salary ACTIVATE SQL re-runs on every deploy) counts as closed because the owner decided on 2026-10-24 to keep it re-runnable instead of making it a one-shot: a re-run is cheap and self-heals if a restore or a bad replay ever re-creates the retired unique index, whereas a one-shot marker would stop that for good. The reasoning is backed by two executed assertions in `manual-ddl-replay-salary.integration.spec.ts` (a second ACTIVATE is a no-op; ACTIVATE removes a re-created retired index) — see PR #1137.
+
+**What this cycle left open, all tracked.** The 18 identifiers deferred to backlog 280-283 stay open as recorded decisions; they are not counted as closed. The follow-ups found while closing these tasks are in the backlog entry titled "The accountant and senior-stats month windows are still UTC while the graph buckets by Kyiv month; three non-UTC test failures are invisible to CI" (cited by title — the numbering in this file has moved repeatedly) and in the entry that carries the transaction-date policy's unwired writers.
 
 ## 280. Meeting-recorder transcripts are kept forever and outlive their interview (2026-10-22)
 
