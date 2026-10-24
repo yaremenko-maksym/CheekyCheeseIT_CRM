@@ -898,7 +898,9 @@ test.describe('AC8 — JUNIOR legend persona form has no prefill (defaults=null)
 // ---------------------------------------------------------------------------
 
 test.describe('AC3 — JUNIOR sidebar nav', () => {
-  test('JUNIOR desktop nav has exactly 5 items', async ({ asJunior: page }) => {
+  test('JUNIOR desktop nav has exactly 6 items (5 role items + «Чекають рішення»)', async ({
+    asJunior: page,
+  }) => {
     await mockJuniorProjectsAndLegend(page)
 
     await page.goto('/project')
@@ -907,8 +909,11 @@ test.describe('AC3 — JUNIOR sidebar nav', () => {
     const nav = page.getByTestId('junior-nav')
     await expect(nav).toBeVisible()
 
+    // The pending-decisions screen (/pending) is available to ALL roles, so the
+    // JUNIOR nav is the 5 role items plus «Чекають рішення».
     const navLinks = nav.getByRole('link')
-    await expect(navLinks).toHaveCount(5)
+    await expect(navLinks).toHaveCount(6)
+    await expect(nav.locator('a[href="/pending"]')).toBeVisible()
   })
 
   test('JUNIOR nav contains Мій проєкт, Легенда, Фінанси, Документи, Профіль', async ({

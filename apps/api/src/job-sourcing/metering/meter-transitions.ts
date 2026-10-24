@@ -53,6 +53,31 @@ export function planSettlement(
   }
 }
 
+/**
+ * What the cost a caller says was ACTUALLY incurred means for a settlement, as a pure decision.
+ * `null` = acceptable. The two faults are different defects and are named apart:
+ *
+ * - `EXCEEDS_RESERVATION`: more than was reserved. The bound is the reservation, never the
+ *   caller's say-so, and it is refused rather than clamped: a clamp would write a ledger that
+ *   claims less than the provider charged and nobody would see the difference.
+ * - `CONTRADICTS_SETTLEMENT`: the reservation already settled (a no-op), at a different amount.
+ *   The first conversion wins and is final, so a second claim that disagrees is refused rather
+ *   than silently dropped — a worker that is told "fine" believes a figure the ledger does not hold.
+ */
+export type IncurredFault = 'EXCEEDS_RESERVATION' | 'CONTRADICTS_SETTLEMENT'
+
+export function incurredFault(
+  plan: SettlementPlan['kind'],
+  incurred: number | undefined,
+  reserved: number,
+  recorded: number,
+): IncurredFault | null {
+  if (incurred === undefined) return null
+  if (plan === 'noop') return incurred === recorded ? null : 'CONTRADICTS_SETTLEMENT'
+  if (plan === 'apply' && incurred > reserved) return 'EXCEEDS_RESERVATION'
+  return null
+}
+
 export function planMarkSent(from: JobMeterReservationStatus): 'apply' | 'noop' | 'illegal' {
   if (from === 'RESERVED') return 'apply'
   if (from === 'SENT') return 'noop'

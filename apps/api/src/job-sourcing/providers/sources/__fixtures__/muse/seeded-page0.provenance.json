@@ -1,0 +1,12 @@
+{
+  "url": "https://www.themuse.com/api/public/jobs?page=0&category=Software%20Engineering&level=Senior%20Level",
+  "fetchedAt": "2026-10-24T03:20:43.000Z",
+  "httpStatus": 200,
+  "rawSha256": "3f93c95effb5cc0d5c9a04ab54bf387da3cc90b4a1ef3f22a332dd1153a98e04",
+  "fileSha256": "a21045dfab639469fcb5b84a6b054546961cbe462ed826c89fe7be71495a89c5",
+  "trimmedBy": "node trim-muse-captures.mjs (JSON.parse, whole-record selection by id, regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify); never a byte cut",
+  "termsUrl": "https://www.themuse.com/developers/api/v2/terms",
+  "termsCheckedAt": "2026-10-24T03:30:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "The seeded config (category \"Software Engineering\", level \"Senior Level\") page 0: 20 results, page_count 1792, total 35825; kept 6 whole records and left the envelope (page, page_count, items_per_page, total, took, timed_out, aggregations) as received. PAGES ARE 0-BASED (page=0 answers \"page\": 0). The category filter is not a partition: records tagged Software Engineering include a recruiter and civil-engineering roles. publication_date is a zoned UTC instant (2026-10-01T22:29:21Z). locations[] carry display names only (\"New York, NY\", \"Sofia, Bulgaria\"); no country code. refs.landing_page is the posting on themuse.com, and no separate application URL exists in the response. X-RateLimit-Limit 500 / Remaining 499 / Reset 3600 were returned without a key. Terms (https://www.themuse.com/developers/api/v2/terms, read 2026-10-24): section 2.2 requires the app to be REGISTERED through the developer portal before it accesses the API; section 3.1 grants a limited, revocable right to use Muse Content \"to the extent needed to format and display Muse Content through the Apps\"; section 3.4 requires displayed content to link back to www.themuse.com; section 3.3(g) forbids cloning Muse Content; section 4.3(d) forbids scraping the website; section 4.2 forbids exceeding rate limits (500 requests/hour without a key, 3600 with one, per the developer page). Nothing in the terms addresses storing postings in an applicant-tracking database, and no registered app exists for this CRM, so permission to ingest is UNCLEAR. robots.txt (User-agent *) does not disallow /api/public/. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure)."
+}

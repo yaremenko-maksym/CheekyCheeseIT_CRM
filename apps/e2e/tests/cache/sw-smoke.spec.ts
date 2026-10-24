@@ -147,7 +147,8 @@ test.describe('SW Smoke — registration and cache creation', () => {
 
     expect(swInfo).not.toBeNull()
     // SW is scoped to the root (/) — covers all app routes.
-    expect(swInfo!.scope).toContain('localhost:3000')
+    // Scope is the app origin the page was served from (:3000 in CI, a scratch port locally).
+    expect(swInfo!.scope).toBe(`${new URL(page.url()).origin}/`)
     // Script is the generated sw.js from vite-plugin-pwa.
     expect(swInfo!.scriptURL).toContain('sw.js')
   })

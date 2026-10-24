@@ -5278,6 +5278,67 @@ and `.github/` shell and JS are in scope; this entry measured only `.mjs`.
 either reformatted by the pre-commit hook or fails the CI formatting gate — today it does neither, and
 that is the assertion to re-run.
 
+## 317. The integration-run model is a dichotomy; reality has a third case that reports a confident pass (2026-10-24)
+
+`isIntegrationRun` in `apps/api/vitest.config.mts` is
+`process.argv.some((arg) => arg.includes('integration.spec'))`. When it is false,
+`INTEGRATION_SPEC_EXCLUDE_GLOB` removes every `*.integration.spec.ts` **from discovery** — the files
+are never parsed, so the summary reports no skip count.
+
+**A correction to this entry's own first draft, measured independently by two reviewers.** It said
+"nothing is reported as skipped", which overstated it: a generic `console.warn` does fire once at
+config load. It fires on **every** unit run, says nothing about the files the user named, and the
+run summary still shows no skip count — so the defect stands and the sentence did not. Recorded
+because an entry about a misleading instrument should not itself overstate its evidence.
+
+**None of that is new or undocumented.** It is stated in the config, in spec-file headers
+(`transactions.drop-self-feeds.spec.ts`, `job-sourcing-budget-race.integration.spec.ts`), in
+`.claude/rules/common/mutation-gate-integration-specs.md`, and `task-integration-db-guard-any-run.md`
+is a whole task about one of its consequences. **The gap is that every one of those describes a
+dichotomy** — an _unfiltered_ run (specs excluded) versus a run _filtered on `integration.spec`_
+(specs run, guard attached, `fileParallelism: false`). The task file's own verification list has
+exactly those two cases plus a variant of the second.
+
+**The third case is the dangerous one and nothing names it:** a run filtered by a path that does not
+contain the substring. You intended an integration run, your filter matches the files you want, and
+they are excluded anyway — and the run exits 0 with a count of whatever else matched.
+
+**Measured instance (PR #1102, round 1).** Filter `src/finance/salary-month-gap` matched two files, a
+unit spec and an integration spec. The integration spec was dropped from discovery, the run printed
+`Test Files 1 passed` where two matched, and the body reported "gap suite 40 passed" — a **true count
+of the wrong file**. The two new integration cases had never executed. CI, which runs the filtered
+`integration.spec` form, failed them. The body and CI disagreed for a whole review round, and the
+author found it by finally reading `Test Files 1 passed` rather than the pass count.
+
+**Why this is worse than an ordinary missing warning.** The other two cases announce themselves: the
+unfiltered run visibly skips, the properly filtered run visibly runs. The third produces a green
+number with no symptom. "0 passed" and "nothing ran" are distinguishable in this repo's rules;
+"40 passed" and "40 passed of the files you did not ask about" are not.
+
+**A second hazard in the same predicate, found by a reviewer hitting it by accident.** Because the
+check is `argv.some(...)`, `vitest run integration.spec <other-path>` **ORs** the filters: it runs every
+integration spec in the repository rather than the intersection. One reviewer did this unintentionally
+and wrote to a scratch database for ~100 s before killing the run by PID. So the predicate has two
+failure modes in opposite directions — a filter without the substring runs too few files and says
+nothing, and a filter with it runs far too many.
+
+**Candidates, cheapest first:**
+
+1. Make the exclusion loud when a filter was supplied: if `argv` carries a positional filter, no
+   element contains `integration.spec`, and the filter would otherwise match an excluded file, print
+   one line naming the excluded files. The data is available at config time.
+2. Reconcile counts rather than trusting them: teach whoever runs a narrowed suite to compare
+   `Test Files N passed` against the number of files the filter matches (`vitest --list` or a glob).
+   Procedural, and it is what actually caught this one.
+3. Widen the predicate so an explicit path to an `*.integration.spec.ts` file counts as an
+   integration run. Attractive and the riskiest of the three: it silently attaches the DB guard and
+   `fileParallelism: false` to runs that do not have them today, so it needs the same scrutiny as
+   `task-integration-db-guard-any-run` and probably belongs with it.
+
+**Check on closing:** a run filtered by a path that matches an `*.integration.spec.ts` file either
+executes it or says in one line that it did not — and in neither case does it exit 0 having silently
+counted only the other files the filter matched.
+
 ## 318. A hostile JSON body stalls the event loop before the byte cap can refuse it, once a per-source cap is raised (2026-10-24)
 
 **Open** — found by the security review of the ATS A adapters (SR-M-1); the fix belongs to the shared
@@ -5321,6 +5382,20 @@ and the 10 MiB is not reachable.
 **Check on closing:** parse a 10 MiB `[0,0,…]` body through the shared bounded-JSON reader under a
 10 MiB limit and a 200,000-node limit. Today it takes about 1.6 s and +310 MB before refusing; closed
 means it is refused in single-digit milliseconds without allocating the parsed tree.
+
+**Sequencing constraint, added 2026-10-24 — this entry must close before the transport is wired.**
+Plan Task 2.5 builds the production `CollectionContext` and must call `transportOptionsFor` for an
+adapter's declared cap to reach the transport at all. The moment it does, Greenhouse and Ashby's
+declared **10 MiB** becomes live and this entry's window opens for two real sources at five times the
+shared default. So: **fix this entry, then wire the transport.** If anyone wires first, that is a
+decision to be stated and justified, not a step to be taken quietly.
+
+Measured independently on 2026-10-24 by the security axis of PR #1119, **on Node v20.15.1 rather than
+the pinned 22**, so the figures are indicative and not the pin's behaviour: 3.56M `{}` elements in a
+10.2 MB body took ~679 ms and ~291 MB, synchronously on the event loop. A `[0,0,…]` body of similar
+size took ~66 ms — that run **did not reproduce** the ~1.6 s figure recorded above for the array shape.
+Both measurements are kept rather than reconciled, because which one is right is itself unresolved, and
+a single averaged number would hide that.
 
 ## 319. An adapter's declared byte cap cannot reach the transport, so a source whose pages exceed the transport's default is refused before its own cap is consulted (2026-10-24)
 
@@ -5399,3 +5474,216 @@ add it to the right list. Owner: the next task that touches either spec (Task 3.
 **Check on closing:** `grep -rn "provenanceSchema" apps/api/src` finds exactly one definition, and
 adding a provider directory with a fixture and no provenance file fails a spec without anyone editing
 a list.
+
+## 322. A stranded worktree's documented destination is an agent who is refused the same command (2026-10-24)
+
+`agent-isolation.md` rule 6 says: "Your own — remove it, a foreign one — report to the orchestrator."
+`pre:bash:cross-agent-blast` says the same thing in its own refusal text: "Чужой стух? Не трогай: сообщи
+оркестратору, он видит всех агентов, а ты — нет." Both name the orchestrator as the party who resolves it.
+
+**Measured: the orchestrator is refused that command too.** On PR #1120 the code reviewer finished, reported
+its checkout clean, and said plainly that `git worktree remove` had been refused as `WORKTREE-UNRECORDED` and
+that it had not bypassed the hook — exactly the behaviour the rule asks for. The orchestrator then ran the
+removal itself, from its own worktree, with a fully expanded literal path and no variable anywhere in the
+command, and was refused `WORKTREE-REMOVE`: the path is not recorded against the orchestrator either, because
+the hook's record is written only to the agent that created the worktree.
+
+So the escalation path terminates nowhere. The reviewer is right not to remove it, the orchestrator cannot, and
+the rule's sentence describes a handoff that no code permits. **This is a rule naming a destination that cannot
+act** — the same defect class as a deferral pointing at a file nobody tracks, one level up: the destination
+exists as a role rather than as a file, and is equally unable to receive the item.
+
+**What the orchestrator genuinely does and does not know.** It knows the agent is finished (its task notified
+completion) and that the tree is clean (checked by `--git-dir`/`--work-tree`, which the hook does not intercept).
+It does not know this from seeing the agent, which the hook correctly assumes; it knows it because the agent
+reported and then stopped. That distinction is why extending the hook's trust to "any orchestrator" would be
+wrong, and why the fix belongs in the record rather than in the predicate.
+
+**Candidate answers, in increasing cost:**
+
+1. **Record the dispatching session alongside the creating agent.** `git worktree add` under a session's
+   scratchpad already identifies the session in the path; writing `<session_id> <path>` next to
+   `<agent_id> <path>` would let the orchestrator of that session remove what its own children stranded,
+   while a sibling agent stays refused. This keeps the predicate's shape and only widens the ledger.
+2. **A `--released` handshake.** An agent that finishes with a checkout it cannot remove writes one line
+   releasing it; the hook then permits removal by anyone in that session. More faithful (the agent asserts it is
+   done rather than the orchestrator inferring it) and more machinery.
+3. **Let the harness remove the scratchpad.** The session scratchpad is the harness's to clean, and a worktree
+   inside it is only awkward because the main checkout holds a `.git/worktrees/<name>` administrative entry
+   pointing into it. A `git worktree prune` on the main checkout after the session ends would collect them,
+   and nothing in the rules says who runs it.
+
+Until one of them lands, the correct behaviour for both agent and orchestrator is what happened here: leave it,
+record it, and let the owner sweep — which is a running cost of roughly one stranded checkout per review round,
+tracked in `.claude/tasks/SWEEP-stranded-checkouts-2026-10-24.md` (untracked file; its count was 15 before this
+one).
+
+**Check on closing:** an agent that creates a worktree in its session scratchpad and exits without removing it
+leaves a tree that the dispatching orchestrator can remove in one command, while an agent of a different session
+is still refused the same path.
+
+## 323. Four small findings from the PR #1119 review rounds, each too small for its own entry (2026-10-24)
+
+Three review axes passed PR #1119 (Task 3.5b, quota-metered adapters) and raised sixteen identifiers. The
+MED ones were fixed in the PR. These four are what is left: none blocks, each is checkable, and each would
+otherwise live only in a review thread that nobody re-reads.
+
+**`observedAt` is validated by shape and never read.** The TheirStack billing observation carries an
+`observedAt` instant checked only against a format regex, so `2026-13-45T99:99:99.000Z` is accepted. The
+field is recorded and no code consumes it. Two honest answers: validate it as a date, or drop it and let
+the record say when the smoke happened in prose. **Check on closing:** an impossible calendar date is
+refused, or the field no longer exists.
+
+**`accept-language` is on the JSON header allowlist with no caller.** Measured at the time: every `headers`
+literal across the five quota adapters and the five JSON providers on main sends only `accept` —
+plus `content-type`, `authorization` and the RapidAPI pair where a scheme needs them. The allowlist's own
+comment justifies itself as "what the adapters were MEASURED to send", and this member was not. It is the
+same no-user problem that removed `from`, and the exact-set test pins it either way, so the test passing is
+not evidence that it is used. **Check on closing:** the allowlist contains no member that no caller sends,
+asserted by a search over the callers rather than by the allowlist's own test.
+
+**A mutation-gate tool failure is reported without naming the mutant.** Runs on this branch report 712
+mutants, 711 killed, 0 survived and **1 tool failure**, and the tool failure is attributed to a module-load
+quirk in `muse.provider.ts`. A tool failure is neither a pass nor a survivor — a distinction this project
+has already paid for once, by counting `[Survived]` mentions in a log instead of reading the gate's own
+classification. The figure is only trustworthy if the one failure is named and shown to sit outside the
+code whose mutants matter, in this case the secret-redaction floor and the billing derivation. **Check on
+closing:** the gate's own output names the failing mutant, or the count is reported as 711 of 711 with the
+twelfth excluded for a stated reason.
+
+**The 8-character secret floor in `env.ts` is a boot-time refusal.** A key shorter than eight characters
+stops the process rather than being rejected at use. That is the right direction and it is currently
+unreachable, because no provider key is provisioned and none may be — so there is no deployed short key to
+break. It becomes real the day the owner provisions one, and a provider that issues a short key would
+present as a boot failure rather than as a configuration error. **Check on closing:** a short key produces
+a message naming the variable and the floor, at whatever point it is rejected.
+
+## 324. Flow Gate's MISSING bucket means two different things, and its legend asserts the wrong one (2026-10-24)
+
+A step's status can be `done`, `STALE`, `MISSING` or `n/a`. Measured on PR #1119 within one hour, the same
+`MISSING` was printed for two unrelated situations:
+
+| What was true                                   | What the gate printed |
+| ----------------------------------------------- | --------------------- |
+| no spec review existed at all (verdict count 0) | `Spec-Review          | MISSING | no "Spec Review: PASS" review`    |
+| a spec review existed and said `ISSUES`         | `Spec-Review          | MISSING | the latest verdict … is negative` |
+
+The detail text does distinguish them. The **status does not**, and the gate's own explanatory section in
+the same output says: "unlike **MISSING**, which is a step nobody has looked at yet." That sentence is false
+in the second case — someone looked and rejected it.
+
+**Why it matters rather than being cosmetic.** The two call for opposite actions. "Nobody looked" means
+dispatch the axis. "Reviewed and rejected" means address the findings, and dispatching a fresh reviewer
+instead invites it to re-derive what the first one already said. The orchestrator read this exact line on
+#1119, concluded no spec review had ever run, and was right — but only because it separately counted the
+verdicts and got zero. The status alone did not support the conclusion it appeared to support.
+
+**Candidate answers:** a distinct status for a negative standing verdict (`REJECTED` reads naturally beside
+`STALE`), or, at minimum, correcting the legend so it stops claiming something the classifier does not
+guarantee. The first is better; the second is nearly free and removes the false sentence.
+
+**Check on closing:** a PR whose only spec review is negative prints a status distinguishable from a PR with
+no spec review at all, and no explanatory text claims MISSING implies nobody looked.
+
+Related: entry 311 (three other matcher and classifier gaps found by using the gate).
+
+## 325. The critical-path zone list omits secret handling and committed personal data, so Security-Review reads n/a where the axis finds real defects (2026-10-24)
+
+`contracts.md` §2.1 is the canonical list that makes `security-reviewer` mandatory, and Flow Gate implements
+it faithfully. Verbatim, the five zones are auth/sessions/JWT/OAuth; finance/calculation logic/split
+math/rates; RBAC/role visibility/data masking; wallets/transactions/company-account (USDT); Drizzle
+migrations/new tables.
+
+**Two PRs on 2026-10-24 printed `Security-Review | n/a` while carrying a real security surface:**
+
+- **PR #1119** handles five providers' **API keys** and the redactor that keeps them out of logs, traces and
+  errors. The axis was dispatched on the orchestrator's judgment, not by rule, and returned two MED
+  findings — including the one that mattered most, verified by running it: that the exception `withSecrets`
+  raises _about_ a too-short secret does not itself leak the secret, checked through `.message`, `.stack`,
+  `JSON.stringify` and `util.inspect` with `showHidden`.
+- **PR #1120** commits captured third-party pages as fixtures. An earlier head of it had to have 462
+  e-mail addresses removed. A later change moved the capture directory, which would silently have dropped
+  those files out of a personal-data scan had the executor not noticed unasked.
+
+Neither surface is named by the list. "Data masking" is the nearest member and is about role visibility,
+not about what lands in the repository or what leaves it in a request header.
+
+**So the gate is correct and the list is incomplete** — which is the worse failure of the two, because a
+faithful implementation of an incomplete rule reads as an authoritative `n/a`. Both dispatches happened
+because someone remembered, which is the mechanism this project replaces with gates everywhere else.
+
+**Candidate members, phrased as behaviour rather than as file paths:** code that places a credential in an
+outbound request or formats one for a log; code that commits or relocates captured third-party content; and
+code that defines or relaxes a redaction boundary.
+
+**Check on closing:** a diff that adds a credential to an outbound request header, and a diff that commits a
+captured third-party page, each make Security-Review required rather than `n/a`.
+
+## 326. In zsh a variable named `path` is tied to `$PATH`, and clobbering it destroys the shell's commands (2026-10-24)
+
+`verification-integrity.md` already records that this environment's Bash tool runs **zsh**, and names the
+`${VAR}:path` modifier trap. This is a second, independent zsh trap in the same family, measured on
+2026-10-24 while verifying PR #1120.
+
+`path` is one of zsh's special parameters: it is an array **tied to `PATH`**. So an ordinary-looking
+assignment inside a loop —
+
+```sh
+for f in a b; do path="some/relative/dir/$f"; ...; done
+```
+
+— replaces the command search path with one relative directory, and every subsequent command in that shell
+fails with `command not found`, including `git`, `grep` and `wc`.
+
+**Why it belongs with the swallowed-failure family rather than being a curiosity.** The failure arrives in a
+shape that reads as a clean negative. In the measured case the loop printed field labels with empty values
+and the commands' `command not found` lines appeared **before** the loop's own `echo` header, because the
+command substitutions ran first in the environment that had just been destroyed. A field reading
+`email-shaped strings: ` next to a label is one glance away from being read as zero. "Nothing matched" and
+"nothing could run" were again indistinguishable at the consumer.
+
+**The cure is a naming rule, not vigilance:** never name a shell variable `path`, `cdpath`, `fpath`,
+`manpath`, `PATH` or `PROMPT`. For a file being examined in a loop, `blob`, `file` or `target` all work.
+
+**Check on closing:** `grep -nE '(^|[^A-Za-z_])path=' ` over `scripts/`, `.claude/hooks/` and
+`.github/workflows/` finds no assignment to a bare `path` in a zsh-executed context.
+
+## 327. An unboarded JUNIOR crashes the production build on `/` (React #185) — and the two tests for it are `fixme` (2026-10-24)
+
+Found while gating the 54 previously ungated E2E specs (PR #1121). **A product defect, deliberately
+not edited around:** the author left two tests as `test.fixme` rather than making them pass, which is
+the right call and the reason this entry exists.
+
+**Symptoms as reported.** An unboarded JUNIOR landing on `/` crashes the **production build** with
+React error #185, "Maximum update depth exceeded" — a render loop, not a blank screen. It reproduces
+on the real stack, not only under mocks: seed user `ivan.petrenko` gets an empty `<main>` on
+`/project` and never reaches `/onboarding`. Under mocks, 13 of 15 cases in the affected spec fail.
+
+**Suspected cause, and it is a hypothesis rather than a diagnosis:** the JUNIOR redirect in
+`index.tsx` racing the onboarding gate in `route.tsx`. React #185 is minified, so reproduce in a
+production build and get the real component stack before changing anything — `diagnosing-bugs`
+applies and its gate is "no red command, no hypotheses".
+
+**The part that makes this urgent rather than merely open: the defect is invisible in CI.** Both
+tests are `test.fixme`, so they report as skipped on every run. Un-skipping them is part of the fix,
+not a follow-up — without that there is nothing to confirm a fix against.
+
+- `onboarding-flow.spec.ts` › "JUNIOR: unboarded user …"
+- `onboarding-regression-pr110.spec.ts` › "Unboarded JUNIOR: …"
+
+**Why this is in the backlog and not only in a task file — a lesson worth more than the bug.** The
+reporter wrote its notes to `.claude/tasks/<task>.blocked.md`, and the spec reviewer filed it as a
+finding because that path is **gitignored**: the notes live in one worktree and die with it. I then
+wrote a task file for the fix and it had the identical defect, for the identical reason. **A follow-up
+recorded in a gitignored path is not recorded.** `BACKLOG-followups.md` is committed and is the only
+durable home in this repository; every `.blocked.md` any agent writes has this property, and the rule
+that tells agents to write one does not say so.
+
+**Also worth checking when this is fixed:** seed senior B (`dmytro.marchenko`) is deliberately not
+onboarded, so the unboarded path is reachable for more than one role and may have more than one entry
+point. State whether any other role is affected rather than fixing only the JUNIOR route.
+
+**Check on closing:** an unboarded JUNIOR reaches `/onboarding` from `/` and from `/project` without
+a render loop in a production build; both `fixme` markers are gone and both tests are green twice; and
+a test fails if the race returns, since a redirect race fixed by reordering two effects is the kind of
+fix that comes back silently.

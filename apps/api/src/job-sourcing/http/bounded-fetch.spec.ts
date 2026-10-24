@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { __resetThrottleForTests, boundedFetchText } from './bounded-fetch'
-import { SourceBlockedError, SourceRateLimitedError } from './source-errors'
+import {
+  __resetThrottleForTests,
+  boundedFetchText,
+  DEFAULT_MAX_BYTES,
+  MAX_RESPONSE_BYTES_CEILING,
+  transportOptionsFor,
+} from './bounded-fetch'
+import {
+  SourceBlockedError,
+  SourcePayloadTooLargeError,
+  SourceRateLimitedError,
+} from './source-errors'
 
 const hosts = ['api.example.test']
 const resp = (body: string, init: ResponseInit & { url?: string } = {}) => {
@@ -755,5 +765,105 @@ describe('boundedFetchText — mutation-gate hardening', () => {
     expect(limited.name).toBe('SourceRateLimitedError')
     expect(limited.message).toContain('h.test')
     expect(limited.message).toContain('429')
+  })
+})
+
+/**
+ * Task 3.5b: the per-request byte cap (`FetchRequest.maxBytes`). A resource bound, so every case
+ * comes in pairs - AT the cap accepted, one byte PAST it refused - on BOTH refusal paths (the
+ * declared `content-length` and the streamed body), and every refusal is asserted to return
+ * nothing. Sizes are literals.
+ */
+describe('a request-declared byte cap', () => {
+  const U = 'https://api.example.test/x'
+  const o = { allowedHosts: hosts, minGapMs: 0 }
+  const stub = (body: string, headers: Record<string, string> = {}) =>
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(resp(body, { status: 200, url: U, headers })),
+    )
+  const via = (request: Parameters<typeof transportOptionsFor>[0]) =>
+    boundedFetchText(U, { ...o, ...transportOptionsFor(request) })
+
+  it('the transport default is 2 MiB and the ceiling 10 MiB', () => {
+    expect(DEFAULT_MAX_BYTES).toBe(2_097_152)
+    expect(MAX_RESPONSE_BYTES_CEILING).toBe(10_485_760)
+  })
+
+  it('a body AT the declared cap (3000 of 3000) is accepted whole', async () => {
+    stub('x'.repeat(3000))
+    await expect(via({ url: U, maxBytes: 3000 })).resolves.toBe('x'.repeat(3000))
+  })
+
+  it('a body past the default but AT a larger declared cap is accepted whole (2 MiB + 1)', async () => {
+    const size = DEFAULT_MAX_BYTES + 1
+    stub('x'.repeat(size))
+    expect((await via({ url: U, maxBytes: size })).length).toBe(2_097_153)
+  })
+
+  it('one byte PAST the declared cap (3001 of 3000) is refused as PAYLOAD_TOO_LARGE and nothing is returned', async () => {
+    stub('x'.repeat(3001))
+    const outcome = await via({ url: U, maxBytes: 3000 }).then(
+      (text) => `returned ${text.length} bytes`,
+      (e: unknown) => e,
+    )
+    expect(outcome).toBeInstanceOf(SourcePayloadTooLargeError)
+    expect((outcome as SourcePayloadTooLargeError).maxBytes).toBe(3000)
+    expect((outcome as SourcePayloadTooLargeError).host).toBe('api.example.test')
+    expect((outcome as Error).message).toBe(
+      'api.example.test response too large: exceeded 3000 bytes',
+    )
+  })
+
+  it('a declared content-length AT the cap passes the pre-check; one PAST it is refused', async () => {
+    stub('x', { 'content-length': '3000' })
+    await expect(via({ url: U, maxBytes: 3000 })).resolves.toBe('x')
+    stub('x', { 'content-length': '3001' })
+    const error = await via({ url: U, maxBytes: 3000 }).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(SourcePayloadTooLargeError)
+    expect((error as Error).message).toBe(
+      'api.example.test response too large: content-length 3001 > 3000',
+    )
+  })
+
+  it('a request that declares no cap is still bounded at 2 MiB: AT accepted, one byte PAST refused', async () => {
+    stub('x'.repeat(DEFAULT_MAX_BYTES))
+    expect((await via({ url: U })).length).toBe(2_097_152)
+    stub('x'.repeat(DEFAULT_MAX_BYTES + 1))
+    await expect(via({ url: U })).rejects.toBeInstanceOf(SourcePayloadTooLargeError)
+  })
+
+  it('a declared cap ABOVE the ceiling is refused before any request; the ceiling itself is accepted', async () => {
+    const f = vi.fn().mockResolvedValue(resp('x', { status: 200, url: U }))
+    vi.stubGlobal('fetch', f)
+    await expect(via({ url: U, maxBytes: MAX_RESPONSE_BYTES_CEILING + 1 })).rejects.toThrow(
+      'invalid maxBytes: 10485761 (must be 1..10485760)',
+    )
+    expect(f).not.toHaveBeenCalled()
+    await expect(via({ url: U, maxBytes: MAX_RESPONSE_BYTES_CEILING })).resolves.toBe('x')
+  })
+
+  it('a body larger than the default but within a declared 8 MB cap is accepted (the Greenhouse case)', async () => {
+    stub('x'.repeat(8_000_000))
+    expect((await via({ url: U, maxBytes: 8_000_000 })).length).toBe(8_000_000)
+  })
+})
+
+describe('transportOptionsFor', () => {
+  it('passes the cap through when declared, and nothing when not', () => {
+    expect(transportOptionsFor({ url: 'https://a.test/x', maxBytes: 5 })).toEqual({ maxBytes: 5 })
+    expect(Object.keys(transportOptionsFor({ url: 'https://a.test/x' }))).toEqual([])
+  })
+
+  it('carries method, headers (copied) and body as they were', () => {
+    const headers = { accept: 'application/json' }
+    const out = transportOptionsFor({
+      url: 'https://a.test/x',
+      method: 'POST',
+      body: '{}',
+      headers,
+    })
+    expect(out).toEqual({ method: 'POST', body: '{}', headers: { accept: 'application/json' } })
+    expect(out.headers).not.toBe(headers)
   })
 })

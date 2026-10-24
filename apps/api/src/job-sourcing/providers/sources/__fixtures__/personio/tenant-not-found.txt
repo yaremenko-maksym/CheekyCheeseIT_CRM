@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>Page Not Found</title>
+  <link rel="icon" href="https://assets.cdn.personio.de/rebrand/favicon.svg" type="image/svg+xml">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, Helvetica, sans-serif;
+      color: #1a1a2e;
+      background: #fff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .banner {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 1rem;
+      font-size: clamp(4rem, 10vw, 7rem);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: #1a1a2e;
+      text-decoration: none;
+      user-select: none;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 1.5rem;
+      text-align: center;
+    }
+
+    h2 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      color: #1a1a2e;
+      margin-bottom: 1.75rem;
+    }
+
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      color: #2c268a;
+      text-decoration: none;
+      font-size: 0.95rem;
+      font-weight: 500;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      transition: background 0.15s;
+    }
+
+    .back-link:hover {
+      background: #f0effa;
+    }
+
+    .back-link svg {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    footer {
+      border-top: 1px solid #e5e7eb;
+      padding: 1.25rem 1.5rem;
+      text-align: center;
+      font-size: 0.8rem;
+      color: #9ca3af;
+    }
+  </style>
+</head>
+<body>
+  <a href="https://personio.com" class="banner">404</a>
+  <main>
+    <h2>This career page does not exist</h2>
+    <a href="https://personio.com" class="back-link">
+      <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M8.842 5.758a.625.625 0 0 0-.884 0L4.158 9.558a.625.625 0 0 0 0 .884l3.8 3.8a.625.625 0 0 0 .884-.884L6.109 10.625H15.4a.625.625 0 1 0 0-1.25H6.109l2.733-2.733a.625.625 0 0 0 0-.884Z" fill="currentColor"/>
+      </svg>
+      Go to personio.com
+    </a>
+  </main>
+  <footer>Career Page</footer>
+</body>
+</html>
