@@ -11,6 +11,7 @@
 import { ForbiddenException } from '@nestjs/common'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { getTableName } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
 import { COMPANY_ACCOUNT_RECEIVER } from '@crm/shared'
 import { AdminIncomeService } from './admin-income.service'
@@ -67,6 +68,7 @@ function project(overrides: Record<string, unknown> = {}) {
 interface Harness {
   svc: AdminIncomeService
   inserted: Array<Record<string, unknown>>
+  auditInserts: Array<Record<string, unknown>>
   projectsFindFirst: ReturnType<typeof vi.fn>
   usersFindFirst: ReturnType<typeof vi.fn>
   txFindFirst: ReturnType<typeof vi.fn>
@@ -89,10 +91,19 @@ function make(
   } = {},
 ): Harness {
   const inserted: Array<Record<string, unknown>> = []
+  // SR-809-L-3: audit rows are kept APART from ledger rows. The mock used to
+  // ignore the table argument, so a transaction_audit_log insert landed in
+  // `inserted` next to the transaction it describes — which both hid the audit
+  // write from assertions and quietly polluted every exact-row expectation.
+  const auditInserts: Array<Record<string, unknown>> = []
   const userQueue = [...(opts.users ?? [])]
   const dbtx = {
-    insert: () => ({
+    insert: (table: unknown) => ({
       values: (row: Record<string, unknown>) => {
+        if (getTableName(table as never) === 'transaction_audit_log') {
+          auditInserts.push(row)
+          return { returning: async () => [row] }
+        }
         const withId = { id: 'new-tx-id', ...row }
         inserted.push(withId)
         return { returning: async () => [withId] }
@@ -126,6 +137,7 @@ function make(
   return {
     svc,
     inserted,
+    auditInserts,
     projectsFindFirst,
     usersFindFirst,
     txFindFirst,
@@ -290,6 +302,71 @@ describe('AdminIncomeService.createAdminIncome', () => {
         ADMIN,
       )
       expect(assertBindableMock).not.toHaveBeenCalled()
+    })
+  })
+
+  // SR-809-H-1 / owner decision D-2, at THIS call site. The policy itself is
+  // covered exhaustively in transaction-date-policy.spec.ts; what these pin is
+  // that `createAdminIncome` actually passes the caller's role and the EXECUTED
+  // flow, and records the justification. Without them the mutation gate leaves
+  // `flow: 'EXECUTED'` and the whole options object alive: nothing observed the
+  // difference between an EXECUTED flow and no flow at all.
+  describe('transaction-date policy (SR-809-H-1)', () => {
+    const base = {
+      projectId: PROJECT_ID,
+      amount: 10,
+      currency: 'EUR' as const,
+      receiptExternalUrl: 'https://x.io/r',
+    }
+    const dayOffset = (days: number) =>
+      new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10)
+
+    it('refuses a future date — an income records money already received', async () => {
+      const h = make()
+      await expect(
+        h.svc.createAdminIncome({ ...base, txDate: dayOffset(1) }, ADMIN),
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_TX_DATE_IN_FUTURE', statusCode: 400 },
+      })
+      expect(h.inserted).toHaveLength(0)
+    })
+
+    it('refuses a far backdate with no reason, and accepts it with one', async () => {
+      const refused = make()
+      await expect(
+        refused.svc.createAdminIncome({ ...base, txDate: dayOffset(-200) }, ADMIN),
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED', statusCode: 400 },
+      })
+      expect(refused.inserted).toHaveLength(0)
+
+      const allowed = make()
+      await allowed.svc.createAdminIncome(
+        { ...base, txDate: dayOffset(-200), backdateReason: 'ledger import' },
+        ADMIN,
+      )
+      expect(allowed.inserted).toHaveLength(1)
+    })
+
+    it('records the justification on the audit trail for an out-of-window backdate only', async () => {
+      const backdated = make()
+      await backdated.svc.createAdminIncome(
+        { ...base, txDate: dayOffset(-200), backdateReason: '  ledger import  ' },
+        ADMIN,
+      )
+      expect(backdated.auditInserts).toEqual([
+        {
+          actorId: ADMIN.id,
+          targetId: 'new-tx-id',
+          action: 'TX_DATE_BACKDATED',
+          metadata: { txDate: dayOffset(-200), backdateReason: 'ledger import' },
+        },
+      ])
+
+      // An ordinary in-window date had no exemption to justify, so nothing is written.
+      const ordinary = make()
+      await ordinary.svc.createAdminIncome({ ...base, txDate: dayOffset(-3) }, ADMIN)
+      expect(ordinary.auditInserts).toEqual([])
     })
   })
 
@@ -667,6 +744,22 @@ describe('AdminIncomeService.declareUsdtProjectIncome', () => {
       const [, params] = bookObligationsMock.mock.calls[0] as unknown as [unknown, { txDate: Date }]
       expect(params.txDate).toBe(h.inserted[0]!['txDate'])
       expect((params.txDate as Date).toISOString().slice(0, 10)).toBe('2020-01-15')
+      // SR-809-L-3: and the reason that made this backdate legal is on the trail.
+      expect(h.auditInserts).toEqual([
+        {
+          actorId: ADMIN.id,
+          targetId: 'new-tx-id',
+          action: 'TX_DATE_BACKDATED',
+          metadata: { txDate: '2020-01-15', backdateReason: 'historical ledger import' },
+        },
+      ])
+    })
+
+    it('writes no audit row for an in-window date — there was no exemption to justify', async () => {
+      const h = withParties()
+      const recent = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10)
+      await h.svc.declareUsdtProjectIncome({ ...base, txDate: recent }, ADMIN)
+      expect(h.auditInserts).toEqual([])
     })
 
     it('refuses the same far-backdated income when the ADMIN gives no reason (SR-809-H-1 / D-2)', async () => {

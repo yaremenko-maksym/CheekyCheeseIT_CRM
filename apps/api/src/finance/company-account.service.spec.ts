@@ -338,7 +338,73 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
     expect(dto.amountUsdt).toBe(500)
   })
 
+  // SR-809-H-1 Scenario 4: the deposit is credited off a VERIFIED on-chain
+  // transfer, yet its ledger date used to be whatever the SENIOR/DROP typed,
+  // with no bound at all. Pins that the policy call passes the EXECUTED flow —
+  // without this the mutation gate leaves `flow: 'EXECUTED'` and the options
+  // object alive, nothing having observed the difference.
+  it('refuses a future company-deposit date — the transfer is already on the chain', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-20T12:00:00.000Z'))
+    try {
+      const insertValues = vi.fn()
+      const db = makeDb({ insert: vi.fn(() => ({ values: insertValues })) })
+      const etherscan = {
+        verifyDeposit: vi.fn().mockResolvedValue({
+          found: true,
+          toMatches: true,
+          fromAddress: SENDER_WALLET,
+          confirmed: true,
+          confirmations: 12,
+          amountUsdt: 500,
+        }),
+      }
+      const svc = makeService(db, etherscan)
+
+      await expect(
+        svc.submitDeposit({ txHashOrLink: '0x' + 'f'.repeat(64), txDate: '2026-10-21' }, SENIOR),
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_TX_DATE_IN_FUTURE', statusCode: 400 },
+      })
+      expect(insertValues).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('refuses a company-deposit date older than the backdating window for a self-service role', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-20T12:00:00.000Z'))
+    try {
+      const insertValues = vi.fn()
+      const db = makeDb({ insert: vi.fn(() => ({ values: insertValues })) })
+      const etherscan = {
+        verifyDeposit: vi.fn().mockResolvedValue({
+          found: true,
+          toMatches: true,
+          fromAddress: SENDER_WALLET,
+          confirmed: true,
+          confirmations: 12,
+          amountUsdt: 500,
+        }),
+      }
+      const svc = makeService(db, etherscan)
+
+      // A SENIOR is never exempt under D-2, so there is no reason that helps.
+      await expect(
+        svc.submitDeposit({ txHashOrLink: '0x' + 'f'.repeat(64), txDate: '2026-01-15' }, SENIOR),
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_TX_DATE_TOO_OLD', statusCode: 400 },
+      })
+      expect(insertValues).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('stores an explicitly selected company-deposit business date', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-20T12:00:00.000Z'))
     const insertValues = vi.fn(() => ({
       returning: () =>
         Promise.resolve([
@@ -368,6 +434,7 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
       .map((call) => call[0] as Record<string, unknown>)
       .find((row) => row['type'] === 'COMPANY_DEPOSIT')
     expect((depositWrite?.['txDate'] as Date).toISOString().slice(0, 10)).toBe('2026-10-04')
+    vi.useRealTimers()
   })
 
   // ── Recorded sender (task-onchain-payment-integrity) ──────────────────────
@@ -1088,6 +1155,55 @@ describe('CompanyAccountService.createDividend — backdate reason audit trail (
     const auditRows = () => inserts.filter((i) => i.table === 'transaction_audit_log')
     return { db, inserts, auditRows }
   }
+
+  // Pins that `createDividend` passes the EXECUTED flow, not merely *a* policy
+  // call: without this the mutation gate leaves `flow: 'EXECUTED'` and the whole
+  // options object alive, because nothing observed the difference between an
+  // EXECUTED flow and no flow at all.
+  it('refuses a future dividend date — the money has already moved', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    try {
+      const { db, inserts } = makeAuditDb({})
+      const svc = makeService(db)
+      const tomorrow = new Date(NOW.getTime() + 86_400_000).toISOString().slice(0, 10)
+
+      await expect(
+        svc.createDividend(
+          {
+            amount: 100,
+            txDate: tomorrow,
+            backdateReason: 'anything',
+            receiptExternalUrl: RECEIPT,
+          },
+          ADMIN,
+        ),
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_TX_DATE_IN_FUTURE', statusCode: 400 },
+      })
+      expect(inserts).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('refuses a far-backdated dividend when the ADMIN gives no reason', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    try {
+      const { db, inserts } = makeAuditDb({})
+      const svc = makeService(db)
+
+      await expect(
+        svc.createDividend({ amount: 100, txDate: FAR_PAST, receiptExternalUrl: RECEIPT }, ADMIN),
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED', statusCode: 400 },
+      })
+      expect(inserts).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 
   it('writes the reason to the audit log when an ADMIN dates a dividend outside the window', async () => {
     vi.useFakeTimers()
