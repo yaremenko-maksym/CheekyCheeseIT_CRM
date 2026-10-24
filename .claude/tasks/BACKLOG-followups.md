@@ -5687,3 +5687,57 @@ point. State whether any other role is affected rather than fixing only the JUNI
 a render loop in a production build; both `fixme` markers are gone and both tests are green twice; and
 a test fails if the race returns, since a redirect race fixed by reordering two effects is the kind of
 fix that comes back silently.
+
+## 328. Deferred non-blocking items from the PR #1119 / #1120 / #1122 review rounds (2026-10-24)
+
+These are LOW items the review axes raised on the three Task-3.x adapter PRs and that I (Master) chose not to
+hold a merge for. Each is a sentence or a bounded, non-urgent fix; each has a verification condition so a
+reader can tell whether it is still live. Grouped because none is worth its own heading and the shared
+context is that all three adapter PRs are blocked, unkeyed, and inert in production.
+
+**From #1119 (TheirStack quota adapter):**
+
+- **The `BillingObservation` docblock's worked example writes "limit 100, reserve 25"**, where `limit`
+  elsewhere in that block means the configured `L` (25 there). A reader can take `L` as 100 and compute
+  `N = 1` instead of 38. The next sentence defines `B` and `L`, so it is ambiguous rather than wrong.
+  **Check:** the example names `B` (account budget) and `L` (reservation) by the same symbols the formula
+  uses.
+- **A stale round-labelled line** ("Item 10") in the PR body carried the pre-correction 304-hazard wording;
+  it is superseded by the round-7 entry and round-labelled, so it was left. **Check:** if that body is ever
+  consolidated, the superseded line is removed rather than read as current.
+
+**From #1122 (ATS-B adapters):**
+
+- **Workable's `robots.txt` carries `Content-Signal: ai-train=no`.** The vacancy text this adapter collects
+  must never be used to train or fine-tune a model in the inference layer. This binds `@crm/inference`, not
+  the adapter, and there is nothing to enforce in #1122. **Check:** the inference layer's data-source policy
+  names Workable-sourced text as train-excluded before any such text reaches a training or fine-tuning path.
+- **The report redactor over-matches on English words**, rewriting prose like "token from" or a company
+  name containing "Token" to `[REDACTED]`. It touches only reports, errors and invalid-sample messages,
+  never stored vacancies, and leaks nothing — it destroys prose. It is shared code outside #1122's diff.
+  **Check:** the redactor keys on a secret _value_ registered for redaction, not on a word.
+- **The shared report redactor misses unregistered credentials** in `Bearer: x`, `X-…-Token: x` and
+  `Token=x` shapes. Existing shared code, not introduced by #1122. **Check:** a credential in those shapes,
+  not separately registered, is redacted from a report.
+- **Recruitee's `description` and `requirements` are joined with no separator**, and Workable's `sameName`
+  uses a locale-default `localeCompare`. Both LOW, both cosmetic. **Check:** the joined text has a boundary;
+  the comparison uses a fixed locale.
+- **Copyright of committed third-party job text and XML** in a public repo is a question for the legal
+  agent, not a code fix. **Check:** legal has given a disposition on committing captured vacancy text as
+  fixtures.
+
+**From #1120 (free-JSON-B adapters), carried from earlier rounds and not re-raised as blockers:**
+
+- **The personal-data scan reads addresses and profile links, not names.** Named individuals in free text
+  (for example a managing director beside an Impressum address, or a first name beside a redacted profile
+  link) are outside it by construction, and the spec header now says so. **Check:** the header's NOT COVERED
+  list still names "personal names in free text".
+- **The profile-link test covers `/in/` paths only** — a `/pub/` profile, `lnkd.in`, or a non-LinkedIn
+  profile URL would pass. None is in the corpus. **Check:** either the test covers those forms, or the
+  header lists them as not covered.
+
+**The one that is not mine and not deferrable the same way:** the convergent integration-run defect is
+already tracked as entry **317** ("The integration-run model is a dichotomy; reality has a third case that
+reports a confident pass"), filed by a parallel session. The security axis found the same thing on #1119
+independently; #1119 closed its instance by recording an actual filtered run with the executed count. No new
+entry — 317 holds it, and this line exists so the #1119 provenance points at it.
