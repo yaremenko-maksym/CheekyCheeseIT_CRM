@@ -4968,3 +4968,46 @@ a ref, the push would have succeeded.
 
 **Check on closing:** a non-isolated agent that runs `git checkout <rev>` in the session working
 directory is refused, and its own scratch-path checkout still succeeds.
+
+## 313. `.mjs` is formatted by nothing: outside lint-staged AND outside the CI formatting gate (2026-10-24)
+
+Surfaced by the architect while writing PR #1116, reported as "`lint-staged` globs do not cover
+`scripts/**/*.mjs`, so the pre-commit hook never formatted them and the CI prettier gate would have
+failed". **The first half is right and the second half is wrong**, and the correction is the finding:
+nothing would have failed.
+
+Measured on `origin/main`:
+
+```
+# the pre-commit side — no glob matches scripts/architect/flow-gate.mjs
+python3 -c "import json,fnmatch;d=json.load(open('package.json'));print([k for k in d['lint-staged'] if fnmatch.fnmatch('scripts/architect/flow-gate.mjs',k)])"
+
+# the CI side — the file-type filter in check-no-skip-hooks.yml
+git show origin/main:.github/workflows/check-no-skip-hooks.yml | grep -E "grep -E '\\\\."
+```
+
+`lint-staged` declares seven globs, all under `apps/`, `packages/` or the repo root, and **none
+matches**. The CI gate collects PR-changed files through
+`grep -E '\.(ts|tsx|js|jsx|json|md|yml|yaml)$'` — and `\.js$` does **not** match `.mjs`, because the
+dot is followed by `mjs`. So `.mjs` is outside both.
+
+**Why the wrong half matters more than the right half.** "The hook misses it but CI catches it" is a
+gap with a loud failure at the end, and it needs no action beyond widening a glob. "Neither checks it"
+is silence: the extension the project uses for its own gate scripts — `scripts/architect/flow-gate.mjs`
+is 43k and is what decides whether code may enter `main` — is formatted by nobody, and a reader
+reviewing a diff in it cannot tell formatting noise from intent. The author reports having run prettier
+by hand and the files being clean, which is true and is also the point: it held because someone
+remembered.
+
+This is also a second instance of the shape in `verification-integrity.md`: a gate reported as covering
+something it does not. The author inferred CI coverage from the existence of a formatting gate rather
+than from its file filter.
+
+**Candidate fix, both ends, because fixing one reinstates the asymmetry:** add a `lint-staged` glob for
+`scripts/**/*.{mjs,cjs,js}` (and `.claude/**` / `.github/**` scripts if they are formatted at all — not
+checked here), and add `mjs|cjs` to the CI filter's alternation. Decide deliberately whether `.claude/`
+and `.github/` shell and JS are in scope; this entry measured only `.mjs`.
+
+**Check on closing:** a deliberately mis-formatted `scripts/**/*.mjs` committed with hooks active is
+either reformatted by the pre-commit hook or fails the CI formatting gate — today it does neither, and
+that is the assertion to re-run.
