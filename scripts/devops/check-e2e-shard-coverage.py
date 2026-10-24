@@ -81,8 +81,6 @@ KNOWN_UNSHARDED = {
     # --- dashboard ---
     # --- documents ---
     # --- drop suite ---
-    "tests/drop-add-senior.spec.ts",              # debt: not gated, migrate to drop shard later
-    "tests/drop-create.spec.ts",                  # debt: not gated, migrate to drop shard later
     "tests/drop-income-ui.spec.ts",               # debt: not gated, migrate to drop shard later
     "tests/drop-senior-readonly.spec.ts",         # debt: not gated, migrate to drop shard later
     # --- 12 files GATED 2026-08-18 (PR #573, backlog item 139) — moved out of

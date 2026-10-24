@@ -29,18 +29,22 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
     await expect(page.getByTestId('users-create-drop-button')).toHaveCount(0)
   })
 
-  test('non-ADMIN does not see the «Добавить» button (access denied page)', async ({
+  test('non-ADMIN never reaches /users — route guard sends SENIOR home, no create button', async ({
     asSenior: page,
   }) => {
     await page.goto('/users')
-    // SENIOR lands on the access-denied notice — neither button surfaces.
-    await expect(page.getByText(/доступ лише для адміністратора/i)).toBeVisible()
+    // `/users` is ADMIN-only in route-access (layout-level guard): SENIOR is
+    // redirected to their home before the page's in-page notice can render.
+    await expect(page).not.toHaveURL(/\/users/, { timeout: 8_000 })
     await expect(page.getByTestId('users-create-button')).toHaveCount(0)
   })
 
   test('DROP role is selectable in the role picker', async ({ asAdmin: page }) => {
     const uk = await loadMessages('uk')
     await page.goto('/users')
+    // Wait for the list to settle: a click on «Добавить» before the page has
+    // finished loading can be lost (dialog never opens) — flaked 1 in 3.
+    await expect(page.getByTestId('users-list')).toBeVisible()
     await page.getByTestId('users-create-button').click()
     const dialog = page.getByTestId('user-dialog')
     await expect(dialog).toBeVisible()
@@ -53,6 +57,9 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
   }) => {
     const uk = await loadMessages('uk')
     await page.goto('/users')
+    // Wait for the list to settle: a click on «Добавить» before the page has
+    // finished loading can be lost (dialog never opens) — flaked 1 in 3.
+    await expect(page.getByTestId('users-list')).toBeVisible()
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
     await page.getByRole('option', { name: assertInCatalog(uk, 'Дроп') }).click()
@@ -169,6 +176,9 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
   test('switching to Bank UAH (ФОП) reveals UA-IBAN + РНОКПП fields', async ({ asAdmin: page }) => {
     const uk = await loadMessages('uk')
     await page.goto('/users')
+    // Wait for the list to settle: a click on «Добавить» before the page has
+    // finished loading can be lost (dialog never opens) — flaked 1 in 3.
+    await expect(page.getByTestId('users-list')).toBeVisible()
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
     await page.getByRole('option', { name: assertInCatalog(uk, 'Дроп') }).click()
