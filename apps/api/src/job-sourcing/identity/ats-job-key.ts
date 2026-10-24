@@ -96,6 +96,7 @@ function hosted(host: string, path: string, query: URLSearchParams): AtsJobKey |
     if (
       GH_EMBED_PATH.test(path) &&
       board !== null &&
+      // Stryker disable next-line ConditionalExpression: a null token coerces to "null", which DIGITS_ONLY rejects anyway; the check is for the type
       token !== null &&
       NAME_ONLY.test(board) &&
       DIGITS_ONLY.test(token)
@@ -146,6 +147,7 @@ export function atsJobKey(raw: string | null | undefined): AtsJobKey | null {
   // tuple, so the two can never collide.
   // A vendor host is never an "employer host": a URL it rejected stays rejected.
   const jid = searchParams.get('gh_jid')
+  // Stryker disable next-line ConditionalExpression: a null jid coerces to "null", which DIGITS_ONLY rejects anyway; the check is for the type
   return jid !== null &&
     DIGITS_ONLY.test(jid) &&
     hostname.includes('.') &&

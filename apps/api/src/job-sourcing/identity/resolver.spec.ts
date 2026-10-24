@@ -562,6 +562,15 @@ describe('ordering and bookkeeping', () => {
     expect(clusterRecords([s1, t1]).map((c) => c.memberIds)).toEqual([['S', 't']])
   })
 
+  it('revoked pairs are compared as pairs, not as concatenated text', () => {
+    const ab = rec('ab', { nativeId: 'same' })
+    const c = rec('c', { nativeId: 'same' })
+    // ['a','bc'] and ['ab','c'] would both read "abc" if the pair were joined without a separator.
+    expect(
+      clusterRecords([ab, c], { revokedPairs: [['a', 'bc']] }).map((x) => x.memberIds),
+    ).toEqual([['ab', 'c']])
+  })
+
   it('assessWithRevocations: order-insensitive, exact evidence, others unaffected', () => {
     const a = rec('a', { nativeId: 'same' })
     const b = rec('b', { nativeId: 'same' })
