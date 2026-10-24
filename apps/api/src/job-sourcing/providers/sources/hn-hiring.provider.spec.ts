@@ -757,7 +757,7 @@ describe('resuming at the thread step from a stored checkpoint', () => {
     })
     const batch = await hnHiringProvider.collectReport(cfg(), f.ctx)
     expect(f.sent).toHaveLength(0)
-    expect(batch.requests[0]?.error).toBeTruthy()
+    expect(batch.requests[0]?.error?.message).toContain('the thread cursor is not a story id')
   })
 
   it('a 15-digit id is accepted', async () => {

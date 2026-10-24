@@ -126,7 +126,8 @@ const envelopeSchema = z
     message: 'neither a search result nor a thread',
   })
   .refine(
-    (e) => e.children === undefined || (typeof e.title === 'string' && HIRING_TITLE.test(e.title)),
+    // A missing or null title stringifies to 'undefined' / 'null', which the pattern never matches.
+    (e) => e.children === undefined || HIRING_TITLE.test(`${e.title}`),
     { message: 'the thread is not a "Who is hiring?" story' },
   )
 type Envelope = z.infer<typeof envelopeSchema>
@@ -218,7 +219,7 @@ function mapItem(item: Item, config: Config) {
 
 /** A tombstone: the comment is present but its text is null (deleted). */
 const isTombstone = (child: unknown): boolean =>
-  typeof child === 'object' && child !== null && (child as { text?: unknown }).text === null
+  (child as { text?: unknown } | null | undefined)?.text === null
 
 /**
  * The newest "Who is hiring?" story among the hits that is not older than the configured age at
@@ -273,6 +274,7 @@ export function hnSpec(now: Date, ageDays: number): ApiJsonSourceSpec<Config, En
     extractItems: (envelope) => (envelope.children ?? []).filter((c) => !isTombstone(c)),
     // Only a search body has hits, so the thread step (children, no hits) has no successor.
     nextCursor: (envelope) => {
+      // Stryker disable next-line ArrayDeclaration: an absent hits array and an array holding one unparseable hit both select no thread, so the two are indistinguishable
       const id = currentThreadId(envelope.hits ?? [], now, ageDays)
       return id === null ? null : `story:${id}`
     },
