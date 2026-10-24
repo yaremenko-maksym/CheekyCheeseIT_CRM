@@ -1,0 +1,12 @@
+{
+  "url": "https://theirstack.com/en/docs/api-reference/jobs/search_jobs_v1",
+  "fetchedAt": "1970-01-01T00:00:00.000Z",
+  "httpStatus": 0,
+  "rawSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "fileSha256": "fc727ff6d8f9316020b735be7e90f8d9980be50508418920b7a3eb5f93fc3158",
+  "trimmedBy": "none: written by hand from https://theirstack.com/en/docs/api-reference/jobs/search_jobs_v1 (read 2026-10-24); no request was made and no script produced it",
+  "termsUrl": "https://theirstack.com/en/docs/api-reference/jobs/search_jobs_v1",
+  "termsCheckedAt": "1970-01-01T00:00:00.000Z",
+  "permission": "KEY_REQUIRED",
+  "notes": "SENTINEL: fetchedAt and termsCheckedAt are 1970-01-01T00:00:00.000Z because NOTHING WAS FETCHED and NO TERMS WERE READ; a consumer must read an epoch as \"never\", not as a date. The documentation named in trimmedBy was read on 2026-10-24. UNIT EXAMPLE ONLY, NOT A CAPTURE. httpStatus 0 and rawSha256 = sha256 of the empty string say that no bytes were received: no request was sent, because no key is provisioned and none may be. Source of the field names: the reference lists id, job_title, url, final_url, source_url, date_posted, discovered_at, company, company_domain, remote, hybrid, location, country_code, seniority, employment_statuses and description under `data`, and total_results under `metadata`. Billing, quoted: the endpoint \"consumes 1 API credit for each job returned in the response\". The reference names `url`, `final_url` and `source_url` without describing them; the adapter reads url as the posting and final_url as the application URL by inference. No terms page was read. Every value in the file is invented. The adapter stays BLOCKED until the owner runs a controlled authenticated smoke and a real response replaces this file."
+}

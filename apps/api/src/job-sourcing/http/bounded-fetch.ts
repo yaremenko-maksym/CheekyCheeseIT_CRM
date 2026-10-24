@@ -1,13 +1,25 @@
-import { SourceBlockedError, SourceRateLimitedError } from './source-errors'
+import type { FetchRequest } from '../providers/reporting-provider'
+import {
+  SourceBlockedError,
+  SourcePayloadTooLargeError,
+  SourceRateLimitedError,
+} from './source-errors'
 
 export const DEFAULT_USER_AGENT =
   'CheekyCheeseIT-CRM/1.0 (job sourcing; +https://cheekycheese.tech)'
 
-const DEFAULT_MAX_BYTES = 2 * 1024 * 1024
+/** What a request gets when it declares no cap of its own. Not raised: it protects every source. */
+export const DEFAULT_MAX_BYTES = 2 * 1024 * 1024
 const DEFAULT_TIMEOUT_MS = 15_000
 const DEFAULT_MIN_GAP_MS = 1000
 /** Hard ceilings: a provider cannot opt out of the safety limits. */
-const MAX_BYTES_CEILING = 10 * 1024 * 1024
+/**
+ * The most any one request may declare (10 MiB). Exported so a cap can be refused at config time,
+ * before a request is built, rather than only at fetch time. A source whose body is larger than
+ * this (one real Ashby board measured 13.9 MB) stays refused: that is a decision about the source,
+ * not a number to raise here.
+ */
+export const MAX_RESPONSE_BYTES_CEILING = 10 * 1024 * 1024
 const TIMEOUT_MS_CEILING = 60_000
 const MAX_REDIRECTS = 3
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
@@ -21,12 +33,28 @@ export interface BoundedFetchOptions {
   method?: 'GET' | 'POST'
   headers?: Record<string, string>
   body?: string
-  /** Default 2 MiB, ceiling 10 MiB. */
+  /** Default 2 MiB (`DEFAULT_MAX_BYTES`), ceiling 10 MiB (`MAX_RESPONSE_BYTES_CEILING`). */
   maxBytes?: number
   /** Default 15 000 ms, ceiling 60 000 ms; bounds the body stream too. */
   timeoutMs?: number
   /** Per-host spacing between requests, default 1000 ms. */
   minGapMs?: number
+}
+
+/**
+ * The transport options a port-level `FetchRequest` carries. The one place a request's own byte cap
+ * becomes `BoundedFetchOptions.maxBytes`: present, it is passed through (and validated against the
+ * ceiling by `boundedFetchText`); absent, NOTHING is passed and the 2 MiB default applies.
+ */
+export function transportOptionsFor(
+  request: FetchRequest,
+): Pick<BoundedFetchOptions, 'method' | 'headers' | 'body' | 'maxBytes'> {
+  return {
+    ...(request.method !== undefined && { method: request.method }),
+    ...(request.headers !== undefined && { headers: { ...request.headers } }),
+    ...(request.body !== undefined && { body: request.body }),
+    ...(request.maxBytes !== undefined && { maxBytes: request.maxBytes }),
+  }
 }
 
 const lastRequestAt = new Map<string, number>()
@@ -128,7 +156,7 @@ export async function boundedFetchText(url: string, opts: BoundedFetchOptions): 
   assertValidAllowedHosts(opts.allowedHosts)
   const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
-  assertWithinCeiling('maxBytes', maxBytes, MAX_BYTES_CEILING)
+  assertWithinCeiling('maxBytes', maxBytes, MAX_RESPONSE_BYTES_CEILING)
   assertWithinCeiling('timeoutMs', timeoutMs, TIMEOUT_MS_CEILING)
   const minGapMs = opts.minGapMs ?? DEFAULT_MIN_GAP_MS
 
@@ -209,7 +237,11 @@ export async function boundedFetchText(url: string, opts: BoundedFetchOptions): 
       const declared = Number(response.headers.get('content-length'))
       if (Number.isFinite(declared) && declared > maxBytes) {
         await response.body?.cancel()
-        throw new Error(`${host} response too large: content-length ${declared} > ${maxBytes}`)
+        throw new SourcePayloadTooLargeError(
+          host,
+          maxBytes,
+          `content-length ${declared} > ${maxBytes}`,
+        )
       }
 
       if (!response.body) return ''
@@ -226,7 +258,7 @@ export async function boundedFetchText(url: string, opts: BoundedFetchOptions): 
           if (received > maxBytes) {
             // Stop pulling bytes immediately — do not finish the download.
             await reader.cancel()
-            throw new Error(`${host} response too large: exceeded ${maxBytes} bytes`)
+            throw new SourcePayloadTooLargeError(host, maxBytes, `exceeded ${maxBytes} bytes`)
           }
           chunks.push(value)
         }

@@ -1,0 +1,4 @@
+User-agent: LinkedInBot
+Allow: /v1/companies/
+User-agent: *
+Disallow: /
