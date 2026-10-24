@@ -43,6 +43,40 @@ import { resolveTransactionDate } from './transaction-date.util'
  * testable without faking global time.
  */
 
+/**
+ * ⚠ THIS POLICY IS NOT YET UNIVERSAL. Read this before assuming a transaction's
+ * business date is bounded.
+ *
+ * Adding a writer? Call this function. Four existing writers still call the
+ * unguarded `resolveTransactionDate` directly, so their dates are bounded by
+ * nothing but the shared calendar/year schema:
+ *
+ *   - `transaction-entry.service.ts` — `createExpense`, `createSalary`,
+ *     `createAdminTransfer`
+ *   - `salary-payment.service.ts`    — `paySalary`
+ *
+ * Why they are not wired yet (a seam problem, not a design one): both specs mock
+ * the `transaction-date.util` MODULE (`vi.mock('./transaction-date.util')`), so
+ * moving the seam to this module means rewriting them — including replacing
+ * time-relative fixtures with pinned clocks. `createSalary` is additionally the
+ * only `PLANNED` flow in the codebase and needs its own future-date case.
+ * Tracked as a follow-up task; do not infer from this module's existence that
+ * every writer is covered.
+ *
+ * Covered today (9 call sites): `createSeniorIncome`, `createDropIncome`,
+ * `createAdminIncome`, `declareUsdtProjectIncome`, `createPayoutRequest`,
+ * `confirmPayout`, `applyPayoutPaidCascade` (both `payPayoutRequest` and
+ * `manualConfirmPayout`), `submitDeposit`, `createDividend`.
+ *
+ * ── THE ON-CHAIN CLAUSE OF D-2 IS NOT MET ───────────────────────────────────
+ * D-2 says an on-chain-verified flow should take its date FROM the verified
+ * block timestamp, not merely have a client-supplied date bounded.
+ * `payPayoutRequest` and `submitDeposit` are BOUNDED here but still persist the
+ * client's value: `DepositVerification` exposes no timestamp and the Etherscan
+ * adapter makes no `eth_getBlockByNumber` call. The bound is the floor, not the
+ * finished article.
+ */
+
 /** Owner decision D-2: how far back a non-privileged role may date a row. */
 export const BACKDATE_LIMIT_DAYS = 31
 
