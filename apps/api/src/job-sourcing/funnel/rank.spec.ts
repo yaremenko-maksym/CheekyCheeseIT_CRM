@@ -137,9 +137,18 @@ describe('rankScore: cap, rounding, clamp, monotonicity', () => {
     expect(rankScore(input({ matchCount: 2, unknownSeniority: true })).score).toBe(105)
   })
 
-  it('eligibility gates are not penalties: the input has no such field and no flag changes the score', () => {
-    const base = rankScore(input({ matchCount: 3 })).score
-    expect(base).toBe(130)
+  it('eligibility gates are not penalties: an eligibility field on the input changes nothing', () => {
+    const plain = input({ matchCount: 3, ageDays: 2 })
+    for (const extra of [
+      { eligibility: 'EXCLUDED' },
+      { eligibility: 'GATED', gate: 'REGION' },
+      { restricted: true, excluded: true },
+    ]) {
+      expect(rankScore({ ...plain, ...extra } as RankInput)).toEqual(rankScore(plain))
+    }
+  })
+
+  it('the penalty table is exactly the three unknowns', () => {
     expect(Object.keys(RANK_DEFAULTS.penalties).sort()).toEqual([
       'unknownRemote',
       'unknownSeniority',
@@ -195,17 +204,12 @@ describe('rankScore: dates', () => {
     expect(r.score).toBe(100)
   })
 
-  it('an update date is not an input: only published/first-seen decide the age', () => {
-    expect(Object.keys(input()).sort()).toEqual([
-      'evaluationTime',
-      'firstSeenAt',
-      'firstSeenKind',
-      'matchCount',
-      'trustedPublishedAt',
-      'unknownRemote',
-      'unknownSeniority',
-      'unknownStack',
-    ])
+  it('an update date is not an input: the score ignores any updatedAt', () => {
+    const plain = input({ ageDays: 7 })
+    const later = new Date(NOW.getTime() - 1000)
+    const earlier = new Date(NOW.getTime() - 60 * DAY)
+    expect(rankScore({ ...plain, updatedAt: later } as RankInput)).toEqual(rankScore(plain))
+    expect(rankScore({ ...plain, updatedAt: earlier } as RankInput)).toEqual(rankScore(plain))
   })
 
   it('INITIAL_SWEEP with no trusted date: freshness 0 and an unknown-date warning', () => {
@@ -234,6 +238,48 @@ describe('rankScore: dates', () => {
   })
 })
 
+describe('rankScore: invalid dates never produce NaN (CR-M-1)', () => {
+  const bad = new Date('nope')
+  it('invalid evaluation time: freshness 0, unknown-date warning, matches still count', () => {
+    const r = rankScore(input({ evaluationTime: bad, matchCount: 3 }))
+    expect(r).toEqual({ score: 30, warnings: ['UNKNOWN_DATE'] })
+  })
+  it('invalid evaluation time with a published date: still no NaN, no FUTURE_DATE', () => {
+    const r = rankScore(input({ evaluationTime: bad, trustedPublishedAt: daysAgo(1) }))
+    expect(r).toEqual({ score: 0, warnings: ['UNKNOWN_DATE'] })
+  })
+  it('invalid first-seen without a published date: freshness 0 and a warning', () => {
+    const r = rankScore(input({ trustedPublishedAt: null, firstSeenAt: bad, matchCount: 2 }))
+    expect(r).toEqual({ score: 20, warnings: ['UNKNOWN_DATE'] })
+  })
+  it('invalid first-seen is harmless when the published date is usable', () => {
+    const r = rankScore(input({ firstSeenAt: bad, ageDays: 7 }))
+    expect(r).toEqual({ score: 37, warnings: [] })
+  })
+  it('the score is always a finite integer in [0, 1000]', () => {
+    for (const evaluationTime of [NOW, bad]) {
+      for (const firstSeenAt of [daysAgo(3), bad]) {
+        for (const trustedPublishedAt of [null, daysAgo(2), bad]) {
+          const s = rankScore(
+            input({ evaluationTime, firstSeenAt, trustedPublishedAt, matchCount: 4 }),
+          ).score
+          expect(Number.isInteger(s) && s >= 0 && s <= 1000).toBe(true)
+        }
+      }
+    }
+  })
+  it('compareRanked stays a total order with invalid dates (they sort as oldest)', () => {
+    const row = (seen: Date, id: string) => ({ score: 5, firstSeenAt: seen, opportunityId: id })
+    const rows = [row(bad, 'b'), row(new Date('2026-10-01T00:00:00Z'), 'a'), row(bad, 'a')]
+    const sorted = [...rows]
+      .sort(compareRanked)
+      .map((r) => `${Number.isNaN(r.firstSeenAt.getTime()) ? 'bad' : 'ok'}${r.opportunityId}`)
+    expect(sorted).toEqual(['oka', 'badb', 'bada'])
+    expect(compareRanked(row(bad, 'a'), row(bad, 'a'))).toBe(0)
+    expect(Number.isNaN(compareRanked(row(bad, 'a'), row(new Date(0), 'a')))).toBe(false)
+  })
+})
+
 describe('scopedMatchCount', () => {
   const counts = { authorizedTeam: 3, studio: 8 }
   it('HR uses the authorized team count', () => {
@@ -241,6 +287,11 @@ describe('scopedMatchCount', () => {
   })
   it('ADMIN uses the studio count', () => {
     expect(scopedMatchCount('ADMIN', counts)).toBe(8)
+  })
+  it('any other role fails closed to 0, whatever the counts', () => {
+    for (const role of ['SENIOR', 'JUNIOR', 'ACCOUNTANT', '', 'hr', 'admin']) {
+      expect(scopedMatchCount(role, counts), role).toBe(0)
+    }
   })
   it('feeds the score: same posting ranks differently per scope', () => {
     const hr = rankScore(input({ matchCount: scopedMatchCount('HR', counts) })).score

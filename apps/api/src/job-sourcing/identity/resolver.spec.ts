@@ -662,6 +662,156 @@ describe('ordering and bookkeeping', () => {
   })
 })
 
+describe('fix round 1: bounds, typed refusals, greedy order, symbols', () => {
+  it('normalizeTitle keeps C++, C#, F# and .NET distinct from C and NET', () => {
+    const t = (x: string) => normalizeTitle(x)
+    expect(t('C++ Engineer')).toBe('cplusplus engineer')
+    expect(t('C# Engineer')).toBe('csharp engineer')
+    expect(t('F# Engineer')).toBe('fsharp engineer')
+    expect(t('.NET Engineer')).toBe('dotnet engineer')
+    expect(t('Senior .NET/C# Dev')).toBe('senior dotnet csharp dev')
+    expect(new Set([t('C Engineer'), t('C++ Engineer'), t('C# Engineer')]).size).toBe(3)
+    expect(t('Engineer (C++)')).toBe('engineer cplusplus')
+    expect(t('Node.js Engineer')).toBe('node js engineer')
+    expect(t('Abc# Engineer')).toBe('abc engineer')
+  })
+
+  it('C++ and C# roles at one company are distinct, not candidates', () => {
+    expect(
+      assess(rec('a', { title: 'C++ Engineer' }), rec('b', { title: 'C# Engineer' })).decision,
+    ).toBe('DISTINCT')
+    expect(
+      assess(rec('a', { title: 'C Engineer' }), rec('b', { title: 'C++ Engineer' })).decision,
+    ).toBe('DISTINCT')
+  })
+
+  it('an empty-string native id never associates', () => {
+    const a = rec('a', { nativeId: '', company: 'A', title: 'T1' })
+    const b = rec('b', { nativeId: '', company: 'B', title: 'T2' })
+    expect(assess(a, b).decision).toBe('DISTINCT')
+  })
+
+  it('fields of exactly MAX_FIELD_CHARS are compared; one more is unknown, never truncated (SR-M-4)', () => {
+    expect(MAX_FIELD_CHARS).toBe(256)
+    const long = (n: number, tail: string) => 'x'.repeat(n - tail.length) + tail
+    const at = (field: 'company' | 'title' | 'location' | 'department', n: number, tail: string) =>
+      rec(tail, { [field]: long(n, tail) })
+    // 256: compared as ordinary values, so a differing tail is a real difference
+    expect(assess(at('company', 256, 'a'), at('company', 256, 'b')).decision).toBe('DISTINCT')
+    expect(assess(at('title', 256, 'a'), at('title', 256, 'b')).decision).toBe('DISTINCT')
+    expect(assess(at('location', 256, 'a'), at('location', 256, 'b')).decision).toBe('DISTINCT')
+    expect(assess(at('department', 256, 'a'), at('department', 256, 'b')).decision).toBe('DISTINCT')
+    // 257: unknown. Company/title unknown = never a positive match; location/department unknown = compatible
+    for (const field of ['company', 'title'] as const) {
+      const r = assess(at(field, 257, 'a'), at(field, 257, 'b'))
+      expect(r.decision, field).toBe('DISTINCT')
+      expect(r.evidence, field).toEqual([`FIELD_TOO_LONG:a:${field}`, `FIELD_TOO_LONG:b:${field}`])
+    }
+    for (const field of ['location', 'department'] as const) {
+      const r = assess(at(field, 257, 'a'), at(field, 257, 'b'))
+      expect(r.decision, field).toBe('CANDIDATE')
+      expect(r.evidence, field).toEqual([`FIELD_TOO_LONG:a:${field}`, `FIELD_TOO_LONG:b:${field}`])
+    }
+  })
+
+  it('two long texts sharing a 256-char prefix do not look equal', () => {
+    const prefix = 'p'.repeat(256)
+    const a = rec('a', { postingUrl: GH(5), company: prefix + 'one', title: 'Same' })
+    const b = rec('b', { nativeId: 'x', postingUrl: GH(5), company: prefix + 'two', title: 'Same' })
+    const r = assess(a, b)
+    // company is unknown on both sides, the title agrees positively: association on the title alone
+    expect(r.rule).toBe('ATS_JOB_KEY')
+    expect(r.evidence).toContain('FIELD_TOO_LONG:a:company')
+    // with no other positive field, nothing associates
+    const c = rec('c', { postingUrl: GH(5), company: prefix + 'one', title: '' })
+    const d = rec('d', { nativeId: 'y', postingUrl: GH(5), company: prefix + 'two', title: '' })
+    expect(assess(c, d).rule).toBe('ATS_JOB_KEY_UNCORROBORATED')
+  })
+
+  it('clusterRecords refuses more than MAX_CLUSTER_RECORDS, typed, and accepts exactly the cap', () => {
+    expect(MAX_CLUSTER_RECORDS).toBe(500)
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        rec(`r${String(i).padStart(4, '0')}`, { nativeId: `n${i}`, company: `C${i}` }),
+      )
+    expect(clusterRecords(many(501))).toEqual({
+      ok: false,
+      reason: 'TOO_MANY_RECORDS',
+      detail: ['501'],
+    })
+    const ok = clusterRecords(many(500))
+    expect(ok.ok).toBe(true)
+    expect(ok.ok ? ok.clusters.length : -1).toBe(500)
+  })
+
+  it('clusterRecords refuses duplicate ids, naming each once, sorted', () => {
+    const r = clusterRecords([rec('b'), rec('a'), rec('b'), rec('b'), rec('a'), rec('c')])
+    expect(r).toEqual({ ok: false, reason: 'DUPLICATE_RECORD_IDS', detail: ['a', 'b'] })
+  })
+
+  // SR-M-3. A~H by native id, A~B by ATS key + equal title, H and B are NOT associated.
+  // Expected: no cluster ever holds a non-associated pair; the grouping may depend on ids (the
+  // documented bound) but never on input order; nothing is lost.
+  const triple = (hId: string, aId: string, bId: string) => ({
+    h: rec(hId, { nativeId: 'shared', company: 'Acme', title: 'Staff Engineer' }),
+    a: rec(aId, { nativeId: 'shared', postingUrl: GH(9), company: 'Acme', title: 'Eng' }),
+    b: rec(bId, { nativeId: 'other', postingUrl: GH(9), company: null, title: 'Eng' }),
+  })
+
+  it('greedy order: H first claims A, B is left alone', () => {
+    const { h, a, b } = triple('a1', 'a2', 'a3')
+    expect(assess(h, a).decision).toBe('ASSOCIATE')
+    expect(assess(a, b).decision).toBe('ASSOCIATE')
+    expect(assess(h, b).decision).not.toBe('ASSOCIATE')
+    expect(cl([b, a, h]).map((c) => c.memberIds)).toEqual([['a1', 'a2'], ['a3']])
+  })
+
+  it('greedy order: A and B sort first, H is left alone (the documented bound)', () => {
+    const { h, a, b } = triple('a3', 'a1', 'a2')
+    expect(cl([h, b, a]).map((c) => c.memberIds)).toEqual([['a1', 'a2'], ['a3']])
+  })
+
+  it('in every id arrangement no cluster holds a non-associated pair and no record is lost', () => {
+    const ids = [
+      ['a1', 'a2', 'a3'],
+      ['a1', 'a3', 'a2'],
+      ['a2', 'a1', 'a3'],
+      ['a2', 'a3', 'a1'],
+      ['a3', 'a1', 'a2'],
+      ['a3', 'a2', 'a1'],
+    ] as const
+    for (const [x, y, z] of ids) {
+      const { h, a, b } = triple(x, y, z)
+      const byId = new Map([h, a, b].map((r) => [r.id, r]))
+      const clusters = cl([h, a, b])
+      expect(clusters.flatMap((c) => c.memberIds).sort()).toEqual(['a1', 'a2', 'a3'])
+      const bad = clusters.flatMap((c) =>
+        c.memberIds.flatMap((p) =>
+          c.memberIds
+            .filter(
+              (q) =>
+                p < q &&
+                assess(byId.get(p) as ResolverRecord, byId.get(q) as ResolverRecord).decision !==
+                  'ASSOCIATE',
+            )
+            .map((q) => `${p}-${q}`),
+        ),
+      )
+      expect(bad).toEqual([])
+    }
+  })
+
+  it('the SR-H-1 probe cannot pull itself into a victim cluster, whatever the ids', () => {
+    const victim = rec('v', {
+      postingUrl: GH(100),
+      company: 'Victim Corp',
+      title: 'Staff Engineer',
+    })
+    const probe = rec('a', { nativeId: 'x', postingUrl: GH(100), company: null, title: '---' })
+    expect(cl([victim, probe]).map((c) => c.memberIds)).toEqual([['a'], ['v']])
+  })
+})
+
 describe('split recovery', () => {
   const a = rec('a', { postingUrl: GH(1) })
   const b = rec('b', { nativeId: 'b', postingUrl: GH(1) })
