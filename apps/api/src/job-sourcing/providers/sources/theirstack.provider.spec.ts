@@ -27,7 +27,7 @@ const NOW = new Date('2026-10-24T04:00:00Z')
 const KEY = 'tsk_0000fake0000fake0000fake0000fake'
 const SEEDED = { limit: 25, seniority: ['senior'] }
 /**
- * An observation that PROVES per-record billing, hand-written: asked for 25, got 7, and the balance
+ * An observation that SUPPORTS per-record billing (evidence, not proof), hand-written: asked for 25, got 7, and the balance
  * fell from 1000 to 993. (Invented for this unit test; the real one is the owner's smoke.)
  */
 const SUPPORTING = {
@@ -525,6 +525,29 @@ describe('billing is not trusted until it has been observed (SR-M-1)', () => {
     expect(m.settled).toEqual([{ id: 'res-1', resolution: 'USED' }])
   })
 
+  it('a flat charge of 5 that met the observation: a 2-record page settles at 2 while 5 was really spent', async () => {
+    const REALLY_CHARGED_PER_REQUEST = 5 // the account's true flat charge: a literal, not computed
+    const flatObservation = {
+      observedAt: '2026-10-24T09:00:00.000Z',
+      requestedLimit: 25,
+      jobsReturned: 5,
+      creditBalanceBefore: 1000,
+      creditBalanceAfter: 995,
+    }
+    const wrong = await runWith(
+      createTheirStackProvider({ credential: READY, billingObservation: flatObservation }),
+    )
+    const settledAt = wrong.m.settled[0]?.incurred
+    expect(settledAt).toBe(2)
+    expect(settledAt).toBeLessThan(REALLY_CHARGED_PER_REQUEST) // the under-count
+
+    // Without the observation the SAME page is charged whole: no incurred amount, so the store
+    // takes the full 25-credit reservation, which is not below what was spent. If the route did not
+    // exist (the observation refused) the first assertion above would fail: this is its contrast.
+    const unverified = await runWith(createTheirStackProvider({ credential: READY }))
+    expect(unverified.m.settled).toEqual([{ id: 'res-1', resolution: 'USED' }])
+  })
+
   it('a malformed observation fails when the provider is built, not mid-run', () => {
     expect(() =>
       createTheirStackProvider({ credential: READY, billingObservation: { jobsReturned: 7 } }),
@@ -585,9 +608,9 @@ describe('billingSupportedBy', () => {
   })
 
   it('KNOWN RESIDUAL: a flat charge of 5 per request that happened to meet 5 returned jobs is indistinguishable, so it is supported', () => {
-    // Documents the route to an under-count (see `billingObservationSchema`): this record is what a
-    // flat 5-credit-per-request account would also write down. Verifying on it attaches the actual
-    // cost, and a later 2-record page then settles at 2 while 5 was really spent.
+    // PREDICATE ONLY - this is green whether or not the under-count exists, so it pins nothing
+    // about money. The route itself is pinned by 'a flat charge of 5 that met the observation'
+    // below (and end to end in the integration spec).
     expect(
       billingSupportedBy(obs({ requestedLimit: 25, jobsReturned: 5, creditBalanceAfter: 995 })),
     ).toBe(true)

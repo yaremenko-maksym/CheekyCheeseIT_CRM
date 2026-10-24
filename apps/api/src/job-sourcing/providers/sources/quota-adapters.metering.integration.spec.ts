@@ -117,15 +117,16 @@ const theirstackJobs = (n: number, from = 1) =>
 const theirstackBody = (n: number, from = 1): FakeResponse => ({
   bodyText: JSON.stringify({ data: theirstackJobs(n, from) }),
 })
-// The reading is attached (the evidence proves per-record billing) except where SR-M-1 says otherwise.
-const PROVEN = {
+// The reading is attached (the evidence SUPPORTS per-record billing; it is evidence, not proof)
+// except where SR-M-1 says otherwise.
+const SUPPORTING = {
   observedAt: '2026-10-24T09:00:00.000Z',
   requestedLimit: 25,
   jobsReturned: 7,
   creditBalanceBefore: 1000,
   creditBalanceAfter: 993,
 }
-const ts = createTheirStackProvider({ credential: READY, billingObservation: PROVEN })
+const ts = createTheirStackProvider({ credential: READY, billingObservation: SUPPORTING })
 const tsUnverified = createTheirStackProvider({ credential: READY })
 const tsConfig = (extra: Record<string, unknown> = {}) =>
   ts.parseConfig({ configVersion: 1, limit: 25, seniority: ['senior'], ...extra })
@@ -334,6 +335,61 @@ describe.skipIf(!hasDatabaseUrl())('quota adapters against the real account mete
       const sent = await runs(ts, account, 8)
       expect(sent).toBe(8)
       expect(await counters(meter)).toEqual({ used: 8, reserved: 0, uncertain: 0 })
+    })
+
+    /**
+     * THE UNDER-COUNT ROUTE, end to end (round 5). The account REALLY charges a flat F = 5 credits
+     * per request (modelled here as a literal, independent of anything the provider computes). The
+     * smoke happened to see exactly 5 jobs come back, so its record is consistent with per-record
+     * billing and the provider treats the source as verified. Every later page returns 2 records:
+     * the provider settles it at 2 while 5 was spent, and the freed room is re-reservable.
+     *
+     * What its green would look like if the route did not exist: with the observation refused (the
+     * unverified provider) the same 8 runs stop at 4 pages and record 100, never fewer than the real
+     * spend - the sibling assertion below. Here the meter records 16 against a real 40.
+     */
+    describe('a flat charge F that met the observation: verified in error', () => {
+      const FLAT = 5
+      const FLAT_OBSERVATION = {
+        observedAt: '2026-10-24T09:00:00.000Z',
+        requestedLimit: 25,
+        jobsReturned: FLAT,
+        creditBalanceBefore: 1000,
+        creditBalanceAfter: 1000 - FLAT,
+      }
+      const twoRecordRuns = async (provider: typeof ts, account: string, n: number) => {
+        let sent = 0
+        for (let i = 0; i < n; i += 1) {
+          const { f, ctx } = await metered(account, 'RECORD', [theirstackBody(2, 2000 + i)])
+          await provider.collectReport(provider.parseConfig({ configVersion: 1, limit: 25 }), ctx)
+          sent += f.sent.length
+        }
+        return sent
+      }
+
+      it('UNDER-COUNTS: 8 pages of 2 records record 16 credits while 8 x 5 = 40 were really spent', async () => {
+        const account = nextAccount()
+        const meter = await newMeter({ accountKey: account, unit: 'RECORD', limit: 100 })
+        const wronglyVerified = createTheirStackProvider({
+          credential: READY,
+          billingObservation: FLAT_OBSERVATION,
+        })
+        const sent = await twoRecordRuns(wronglyVerified, account, 8)
+        expect(sent).toBe(8)
+        const { used } = await counters(meter)
+        expect(used).toBe(16)
+        expect(used).toBeLessThan(sent * FLAT)
+      })
+
+      it('the same account, UNVERIFIED, records at least what was really spent (worst case, 25 a page)', async () => {
+        const account = nextAccount()
+        const meter = await newMeter({ accountKey: account, unit: 'RECORD', limit: 100 })
+        const sent = await twoRecordRuns(tsUnverified, account, 8)
+        expect(sent).toBe(4)
+        const { used } = await counters(meter)
+        expect(used).toBe(100)
+        expect(used).toBeGreaterThanOrEqual(sent * FLAT)
+      })
     })
   })
 

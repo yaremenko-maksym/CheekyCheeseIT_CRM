@@ -30,8 +30,10 @@ import { requireApiKey, withSecrets } from './quota-provider'
  * - BILLING IS PER RETURNED RECORD. The reference says the endpoint "consumes 1 API credit for each
  *   job returned in the response" and lists no per-request charge. So the meter unit is `RECORD`,
  *   not `REQUEST`, and the two never share a counter. A page is RESERVED at its worst case, `limit`
- *   credits, before the request leaves; WITH NO billing observation (the state today) the
- *   response settles at the whole reservation, so a short or empty page frees nothing. ONLY once a
+ *   credits, before the request leaves; WITH NO billing observation (the state today) a page
+ *   whose request LEFT settles at the whole reservation, so a short or empty one frees nothing; a
+ *   page whose request never left (a FAILING cache read or `markSent`; a 304 did leave and settles whole) is RELEASED, charged
+ *   nothing, and frees all of it. ONLY once a
  *   `billingObservation` supports per-record billing does the response settle at the number of
  *   jobs it carried (`data.length`) and free the rest (see `billingObservationSchema` for what
  *   that does and does not guarantee). A request that timed out after it left holds the whole
@@ -39,7 +41,8 @@ import { requireApiKey, withSecrets } from './quota-provider'
  * - `limit` is 1..50 here (the plan's bound; the reference gives a minimum of 1 and no maximum).
  *   Every credit is real money, so the reservation is also capped by the account's meter.
  * - AT LEAST ONE POSTED-DATE FILTER IS REQUIRED by the API; `posted_at_max_age_days` is always sent,
- *   so a config can never produce a request the API refuses for that reason.
+ *   so a config cannot produce a request that lacks one (the requirement is as the published
+ *   reference states it; no response has been seen).
  * - `include_total_results` is never sent ("significantly slows down responses"), so the end of the
  *   inventory is a page shorter than `limit`.
  * - PAGES ARE 0-BASED on the wire (`page` minimum 0, default 0) and 1-based in the loop.
@@ -148,7 +151,7 @@ function makeSpec(
       // Settling below the reservation FREES budget that may have been really spent (SR-M-1:
       // measured, a limit of 100 reserved at 10 a page and settled at 1 permitted 91 pages, 910
       // worst-case credits), so the reading is attached only once the billing basis has been
-      // observed. Until then every page is charged its worst case. Once attached, the meter is only as
+      // observed. Until then every page whose request left is charged its worst case. Once attached, the meter is only as
       // accurate as the observation (see `billingObservationSchema`).
       ...(billingVerified && { incurredAmount: theirstackIncurredCredits }),
     },
@@ -224,9 +227,16 @@ function makeSpec(
  *   else spending the account's credits.
  * - A run that returned nothing cannot tell anything, so it does not verify.
  *
- * THE MONEY DIRECTION, BRANCH BY BRANCH (it is not one direction):
- * - UNVERIFIED (no observation, or one that does not support per-record billing): every page is
- *   charged its worst case, `limit` credits. That over-counts and frees nothing.
+ * THE MONEY DIRECTION, BRANCH BY BRANCH (it is not one direction), and EVERY branch below also
+ * depends on what TheirStack really charges, which nobody has observed:
+ * - UNVERIFIED (no observation, or one that does not support per-record billing), page whose request
+ *   LEFT: charged its worst case, `limit` credits, and frees nothing. That over-counts ONLY IF the
+ *   published statement is true (one credit per returned job, so a page costs at most `limit`). If
+ *   the real charge were a flat `F` larger than `limit`, even this branch under-counts. So "the
+ *   worst case" is the safe reading of the published statement, not a measured ceiling.
+ * - UNVERIFIED, page whose request NEVER LEFT (a failing cache read or `markSent`): RELEASED, charged
+ *   nothing, the whole reservation freed. Correct, because nothing was spent.
+ * - Any page whose request left and whose outcome is unknown (timeout): held UNCERTAIN whole.
  * - VERIFIED, and the evidence is right: pages settle at `data.length`, which is the real charge.
  * - VERIFIED IN ERROR (the residuals above): the adapter attaches an actual cost and the difference
  *   is freed for re-reservation, so the meter UNDER-counts. Route: the true charge is a flat `F`
@@ -236,9 +246,16 @@ function makeSpec(
  *   NOT close this: `data.length` is always inside them. They stop an out-of-range reading from
  *   being believed, and raising the threshold can only move a source toward the worst case;
  *   neither makes a wrongly verified source safe.
- * So the worst-case guarantee holds only while the source is unverified. Verifying a source is a
- * decision to trust the observation with money, not a formality. (This meter's unit is `RECORD`,
- * credits.)
+ *   HOW BAD (measured by security review, for a configured `limit` >= F): full pages settle at
+ *   `limit` (an over-count) and the run ends on the first short page, so the under-count is at most
+ *   `F - 1` credits per collection attempt. Real, repeated every attempt, and not a multiple of the
+ *   budget. For a configured `limit` BELOW F that bound does not apply (`requestedLimit` in the
+ *   observation is independent of the configured `limit`): every full page then settles at `limit`
+ *   and under-counts by `F - limit`, for up to `maxPages` (at most 5) pages per attempt - derived by
+ *   reading, not measured.
+ * "Worst case per page" is therefore a statement about the unverified branch, conditional on the
+ * published billing statement. Verifying a source is a decision to trust the observation with money,
+ * not a formality. (This meter's unit is `RECORD`, credits.)
  *
  * It lives beside the adapter that bills; the registration task persists it (in the source's
  * provenance) and passes it here. NO OBSERVATION IS COMMITTED TODAY, so the source is unverified.
@@ -275,8 +292,8 @@ export interface TheirStackOptions {
    * attached only if it supports per-record billing (evidence, not proof: an observation that is
    * wrong in the ways `billingObservationSchema` lists makes the meter under-count). There is no
    * flag to set: the reading follows the evidence, because a freed difference is re-reservable
-   * within the window and an unverified reading turns a hard budget into a multiple of it
-   * (measured 9.1x).
+   * within the window and an unverified reading turns a budget that the worst-case reading respects into a
+   * multiple of it (measured 9.1x).
    */
   billingObservation?: unknown
 }
