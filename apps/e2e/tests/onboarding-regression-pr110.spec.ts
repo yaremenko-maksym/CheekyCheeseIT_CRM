@@ -359,6 +359,9 @@ const test = base.extend<RegressionFixtures>({
 // а не 400 из-за UUID валидации в Zod.
 // ===========================================================================
 
+// CRM root, anchored on the WHOLE url (a bare `/\/?$/` matches EVERY url, so it asserted nothing).
+const CRM_ROOT = /^https?:\/\/[^/]+\/?(\?.*)?$/
+
 test.describe('Regression #1 — onboarding/status 200 (admin UUID fix)', () => {
   test('SENIOR: /onboarding загружается без 400, wizard виден', async ({ asSeniorPage: page }) => {
     const failedResponses: { url: string; status: number }[] = []
@@ -420,7 +423,7 @@ test.describe('Regression #1 — onboarding/status 200 (admin UUID fix)', () => 
     await page.goto('/')
 
     await expect(page).not.toHaveURL(/\/onboarding/, { timeout: 3000 })
-    await expect(page).toHaveURL(/\/?$/, { timeout: 5000 })
+    await expect(page).toHaveURL(CRM_ROOT, { timeout: 5000 })
   })
 })
 
@@ -618,7 +621,7 @@ test.describe('Regression #4 — wallet addresses valid ETH format', () => {
     expect(ADMIN_V4_UUID).not.toBe('00000000-0000-0000-0000-000000000002')
 
     await page.goto('/')
-    await expect(page).toHaveURL(/\/?$/, { timeout: 5000 })
+    await expect(page).toHaveURL(CRM_ROOT, { timeout: 5000 })
   })
 })
 
@@ -648,7 +651,7 @@ test.describe('Sign flow — happy path (regression guard for full wizard)', () 
     await expect(page.getByTestId('accept-tos-button')).toBeEnabled()
     await page.getByTestId('accept-tos-button').click()
 
-    await expect(page).toHaveURL(/\/?$/, { timeout: 8000 })
+    await expect(page).toHaveURL(CRM_ROOT, { timeout: 8000 })
   })
 
   test('HR: complete wizard → /', async ({ page }) => {
@@ -670,7 +673,7 @@ test.describe('Sign flow — happy path (regression guard for full wizard)', () 
     await page.getByTestId('accept-tos-checkbox').check()
     await page.getByTestId('accept-tos-button').click()
 
-    await expect(page).toHaveURL(/\/?$/, { timeout: 8000 })
+    await expect(page).toHaveURL(CRM_ROOT, { timeout: 8000 })
   })
 
   test('Sign button disabled пока checkbox не отмечен (A3-4 model)', async ({
@@ -724,7 +727,7 @@ test.describe('RBAC — onboarding gate', () => {
 
     await page.goto('/')
     await expect(page).not.toHaveURL(/\/onboarding/, { timeout: 3000 })
-    await expect(page).toHaveURL(/\/?$/, { timeout: 5000 })
+    await expect(page).toHaveURL(CRM_ROOT, { timeout: 5000 })
   })
 
   test('Onboarded SENIOR: повторный вход → НЕ в wizard (idempotent)', async ({
@@ -733,7 +736,7 @@ test.describe('RBAC — onboarding gate', () => {
     // mockAuthAs зарегистрировал fully-onboarded status — не переопределяем
     await page.goto('/')
     await expect(page).not.toHaveURL(/\/onboarding/, { timeout: 3000 })
-    await expect(page).toHaveURL(/\/?$/, { timeout: 5000 })
+    await expect(page).toHaveURL(CRM_ROOT, { timeout: 5000 })
   })
 
   // PRODUCT DEFECT, not a stale spec: an unboarded JUNIOR landing on `/` crashes the app in
