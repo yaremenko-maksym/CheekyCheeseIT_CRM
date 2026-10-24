@@ -346,7 +346,7 @@ function DropIncomesTable() {
                 {incomes.map((income) => (
                   <TableRow key={income.id} data-testid={`drop-income-row-${income.id}`}>
                     <TableCell className="text-xs text-muted-foreground tabular-nums">
-                      {formatDate(income.createdAt, locale, 'shortYY')}
+                      {formatDate(income.txDate ?? income.createdAt, locale, 'shortYY')}
                     </TableCell>
                     <TableCell className="text-sm">{income.companyName}</TableCell>
                     <TableCell className="text-sm font-semibold tabular-nums">
@@ -459,7 +459,7 @@ function DropPaymentsHistory({
                   data-testid={`drop-payment-row-${p.id}`}
                 >
                   <span className="text-xs text-muted-foreground tabular-nums">
-                    {formatDate(p.createdAt, locale, 'shortYY')}
+                    {formatDate(p.txDate ?? p.createdAt, locale, 'shortYY')}
                   </span>
                   <span className="text-sm font-semibold tabular-nums">
                     {fmtUsd(p.amount, locale)}

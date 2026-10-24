@@ -371,68 +371,28 @@ describe('getDropSelfIncomes — status filter', () => {
   })
 })
 
-describe('getDropSelfIncomes — date-window filter', () => {
-  const rows = [
-    income({
-      id: '00000000-0000-4000-8000-000000000010',
-      createdAt: new Date('2026-05-01T00:00:00Z'),
-    }),
-    income({
-      id: '00000000-0000-4000-8000-000000000011',
-      createdAt: new Date('2026-06-15T00:00:00Z'),
-    }),
-    income({
-      id: '00000000-0000-4000-8000-000000000012',
-      createdAt: new Date('2026-07-01T00:00:00Z'),
-    }),
-  ]
-
-  it('from bound (inclusive lower)', async () => {
-    const svc = makeSvc(rows)
-    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q({ from: '2026-06-01' }))
-    expect(res.total).toBe(2)
-  })
-
-  it('to bound (excludes later)', async () => {
-    const svc = makeSvc(rows)
-    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q({ to: '2026-06-30' }))
-    expect(res.total).toBe(2)
-  })
-
-  it('from + to window', async () => {
-    const svc = makeSvc(rows)
-    const res = await svc.getDropSelfIncomes(
-      user('DROP', DROP_ID),
-      q({ from: '2026-06-01', to: '2026-06-30' }),
-    )
-    expect(res.total).toBe(1)
-    expect(res.items[0]!.id).toBe('00000000-0000-4000-8000-000000000011')
-  })
-
-  it('to bound includes incomes at noon on the last day (non-midnight timestamps)', async () => {
-    // Regression for MED review finding code-review-2: Date.parse('YYYY-MM-DD')
-    // returns midnight UTC, so incomes at 12:00 on the `to` day were previously
-    // dropped. The fix adds 86_399_999 ms to cover the full calendar day.
-    const noonOnToDay = new Date('2026-06-15T12:30:00Z') // same day as rows[1]
-    const rowsWithNoon = [
-      income({
-        id: '00000000-0000-4000-8000-000000000020',
-        createdAt: new Date('2026-05-01T00:00:00Z'),
-      }),
-      income({
-        id: '00000000-0000-4000-8000-000000000021',
-        createdAt: noonOnToDay,
-      }),
-    ]
-    const svc = makeSvc(rowsWithNoon)
-    const res = await svc.getDropSelfIncomes(
-      user('DROP', DROP_ID),
-      q({ to: '2026-06-15' }), // last day is 2026-06-15 — noon must be INCLUDED
-    )
-    expect(res.total).toBe(2)
-    expect(res.items.some((i) => i.id === '00000000-0000-4000-8000-000000000021')).toBe(true)
-  })
-})
+/**
+ * CR-809-M-6 — the from/to window used to be asserted here, through a stub
+ * whose `findMany` ignores its `where` argument. That worked while the window
+ * was a JS filter applied to the rows the stub returned; the window is now part
+ * of the SQL predicate, so a stub that ignores `where` structurally cannot
+ * observe it — every case would return every canned row and "pass" by being
+ * blind. Keeping them would have been worse than deleting them: four green
+ * tests asserting a filter that no longer runs.
+ *
+ * The coverage moved, it was not dropped:
+ *   - the predicate itself (which column, which comparison, which bound values,
+ *     and that an absent `from`/`to` binds nothing) — `drop-self.service.spec.ts`,
+ *     via the compiled SQL text and params;
+ *   - the inclusive EDGES, including the 23:59:59.999 extension of the `to` day
+ *     that MED review finding code-review-2 added, and the business-date key
+ *     itself — `drop-self-business-date.integration.spec.ts`, against real
+ *     Postgres, which is where a boundary belongs: it is a property of the
+ *     comparison the database performs, not of a JS `<=`.
+ *
+ * The status filter and pagination below still run in memory and are still
+ * asserted here.
+ */
 
 describe('getDropSelfIncomes — pagination', () => {
   const rows = Array.from({ length: 25 }, (_, i) =>
