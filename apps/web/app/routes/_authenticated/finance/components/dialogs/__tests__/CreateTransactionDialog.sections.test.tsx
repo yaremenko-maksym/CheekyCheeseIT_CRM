@@ -347,7 +347,12 @@ describe('TransferSwapField', () => {
 
   it('the sender card, the arrow and the receiver card all swap the direction', () => {
     const props = renderField()
-    for (const button of screen.getAllByRole('button')) fireEvent.click(button)
+    const [senderCard, swapButton, receiverCard] = screen.getAllByRole('button')
+    // These cards sit inside a form: the swap action must never submit it.
+    for (const button of [senderCard, swapButton, receiverCard]) {
+      expect(button).toHaveAttribute('type', 'button')
+      fireEvent.click(button!)
+    }
     expect(props.swapTransfer).toHaveBeenCalledTimes(3)
   })
 
