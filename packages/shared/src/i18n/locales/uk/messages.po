@@ -11653,6 +11653,11 @@ msgstr "Дата транзакції не може бути в майбутнь
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.DATE_YEAR_OUT_OF_RANGE"
+msgstr "Рік дати транзакції поза допустимим діапазоном"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DISPLAY_NAME_MIN"
 msgstr "Ім’я — мінімум 2 символи"
 

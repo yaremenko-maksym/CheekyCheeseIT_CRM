@@ -12,6 +12,7 @@ import {
   settleSeniorPayoutSchema,
   updateProjectFinanceSettingsSchema,
 } from './payout'
+import { MAX_TRANSACTION_BUSINESS_YEAR } from './validation'
 
 const UUID = 'a0000000-0000-4000-8000-000000000001'
 const UUID2 = 'a0000000-0000-4000-8000-000000000002'
@@ -181,7 +182,11 @@ describe('settleSeniorPayoutSchema', () => {
       currency: 'USD',
       receiptExternalUrl: PLAIN_LINK,
     }
-    expect(issues(parse({ ...base, txDate: '2999-01-01' }))).toEqual([
+    // SR-809-L-2: the future date has to sit INSIDE the sane year window
+    // (`MAX_TRANSACTION_BUSINESS_YEAR`), otherwise the window refine fires too
+    // and this test stops being about the future bound specifically. Year 2999
+    // used to pass the window because there was no window.
+    expect(issues(parse({ ...base, txDate: `${MAX_TRANSACTION_BUSINESS_YEAR}-01-01` }))).toEqual([
       { code: 'custom', message: 'zod.DATE_NOT_IN_FUTURE', path: ['txDate'] },
     ])
     expect(parse({ ...base, txDate: '2020-01-01' }).success).toBe(true)

@@ -11653,6 +11653,11 @@ msgstr "The transaction date cannot be in the future"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.DATE_YEAR_OUT_OF_RANGE"
+msgstr "The transaction date year is outside the allowed range"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DISPLAY_NAME_MIN"
 msgstr "Name — at least 2 characters"
 
