@@ -112,6 +112,7 @@ type Envelope = z.infer<typeof envelopeSchema>
 export function theirstackIncurredCredits(bodyText: string): number | null {
   // The bounded parse, so a hostile body cannot make the cost reading the expensive part.
   const parsed = parseBoundedJson(bodyText, DEFAULT_JSON_LIMITS)
+  // Stryker disable next-line ConditionalExpression: equivalent - a refused parse carries no `value`, so reading past this line yields undefined, which the Array.isArray check below refuses exactly as `return null` does
   if (!parsed.ok) return null
   const data = (parsed.value as { data?: unknown } | null)?.data
   return Array.isArray(data) ? data.length : null

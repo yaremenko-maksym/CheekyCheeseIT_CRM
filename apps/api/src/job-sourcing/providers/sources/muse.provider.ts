@@ -81,12 +81,11 @@ const configSchema = baseSourceConfigSchema
 type Config = z.infer<typeof configSchema>
 
 const namedSchema = z.object({ name: boundedString(ORIGINAL_LIMITS.tag) })
-const namedList = (max: number) =>
-  z
-    .array(namedSchema)
-    .max(max)
-    .nullish()
-    .transform((v) => v ?? [])
+const namedList = (max: number) => z.array(namedSchema).max(max).nullish()
+
+/** The names in a list that may be absent: an absent list has no names. */
+const namesOf = (list: Array<{ name: string }> | null | undefined): string[] =>
+  list?.map((entry) => entry.name) ?? []
 
 const itemSchema = z.object({
   id: positiveSafeInt(),
@@ -150,11 +149,11 @@ export const museSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     url: item.refs.landing_page,
     title: item.name,
     companyName: item.company.name,
-    location: item.locations.map((l) => l.name).join('; '),
+    location: namesOf(item.locations).join('; '),
     description: item.contents,
-    remote: item.locations.some((l) => l.name === MUSE_REMOTE_LOCATION) ? true : null,
-    seniorityHint: item.levels.map((l) => l.name).join(', '),
-    tags: item.categories.map((c) => c.name),
+    remote: namesOf(item.locations).includes(MUSE_REMOTE_LOCATION) ? true : null,
+    seniorityHint: namesOf(item.levels).join(', '),
+    tags: namesOf(item.categories),
     dates: [{ raw: item.publication_date, contract: 'ISO_ZONED', semantics: 'PUBLISHED' }],
   }),
   scopeOf: (config) => ({

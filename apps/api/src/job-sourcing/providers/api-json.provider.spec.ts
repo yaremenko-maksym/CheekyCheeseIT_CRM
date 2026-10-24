@@ -6,6 +6,7 @@ import {
   type ApiJsonSourceSpec,
   baseSourceConfigSchema,
   collectJsonPages,
+  collectPages,
   DEFAULT_OVERLAP_MS,
   defineApiJsonProvider,
   UNBUILT_REQUEST_URL,
@@ -3175,6 +3176,27 @@ describe('the response cap a source declares', () => {
     expect(h.sent[0]?.maxBytes).toBe(1000)
   })
 
+  it('the smallest cap (1 byte) is a valid declaration: refused only below it', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(withCap(1), config(), h.ctx)
+    expect(h.sent[0]?.maxBytes).toBe(1)
+  })
+
+  it('a binding that declares no cap at all (the XML bindings) sends no maxBytes key', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    const spec = makeSpec()
+    await collectPages(
+      {
+        ...spec,
+        limits: { maxPages: 5, maxItemsPerPage: 500 },
+        decodeEnvelope: (text) => ({ ok: true, value: JSON.parse(text) as never }),
+      },
+      config(),
+      h.ctx,
+    )
+    expect(Object.keys(h.sent[0] ?? {})).toEqual(['url'])
+  })
+
   it('the ceiling itself (10 MiB) is accepted and declared', async () => {
     const h = harness({ pages: [onePage([job('1')])] })
     await collectJsonPages(withCap(TEN_MIB), config(), h.ctx)
@@ -3265,5 +3287,15 @@ describe('a failure BEFORE the request leaves is named for what it is', () => {
     expect(batch.requests.at(-1)?.error?.message).toBe(
       'the response cache could not be read: the response cache is unreachable',
     )
+  })
+})
+
+describe('SourcePayloadTooLargeError', () => {
+  it('carries its name, host and cap, and says which host and why', () => {
+    const error = new SourcePayloadTooLargeError('api.example.com', 5, 'exceeded 5 bytes')
+    expect(error.name).toBe('SourcePayloadTooLargeError')
+    expect(error.host).toBe('api.example.com')
+    expect(error.maxBytes).toBe(5)
+    expect(error.message).toBe('api.example.com response too large: exceeded 5 bytes')
   })
 })

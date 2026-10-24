@@ -575,22 +575,27 @@ function responseCacheKey(
  * worst case is the direction that cannot overspend.
  */
 function readIncurred(
-  meter: { incurredAmount?(bodyText: string): number | null } | undefined,
+  read: (bodyText: string) => number | null,
   bodyText: string,
   reserved: number,
 ): number | undefined {
-  if (meter?.incurredAmount === undefined) return undefined
   let amount: number | null
   try {
-    amount = meter.incurredAmount(bodyText)
+    amount = read(bodyText)
+    // Stryker disable next-line BlockStatement: equivalent - emptied, the catch leaves `amount` undefined, which the whole-number check below refuses exactly as the `return undefined` it replaces (the gate's own run: every test still passes with the block emptied)
   } catch {
     return undefined
   }
-  if (amount === null || !Number.isSafeInteger(amount)) return undefined
+  if (!isWholeNumber(amount)) return undefined
   if (amount < 0 || amount > reserved) return undefined
   // The store cannot record a USED reservation of zero (its `used_settled` CHECK), so a free
   // request is reported as the smallest cost it can hold.
   return Math.max(amount, 1)
+}
+
+/** `Number.isSafeInteger` as a type guard: false for null, undefined, NaN, fractions and huge values. */
+function isWholeNumber(value: number | null): value is number {
+  return Number.isSafeInteger(value)
 }
 
 /**
@@ -607,10 +612,8 @@ export function assertByteCap(maxBytes: number): void {
  * The request as the transport must see it. A cap equal to the transport's own default is NOT
  * attached: it would change nothing, and every current caller keeps the request it had.
  */
-function withByteCap(request: FetchRequest, maxBytes: number | undefined): FetchRequest {
-  return maxBytes === undefined || maxBytes === DEFAULT_MAX_BYTES
-    ? request
-    : { ...request, maxBytes }
+function withByteCap(request: FetchRequest, maxBytes: number): FetchRequest {
+  return maxBytes === DEFAULT_MAX_BYTES ? request : { ...request, maxBytes }
 }
 
 /** A throw out of the fetch seam, as a page failure. */
@@ -832,7 +835,11 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     // RESERVED before any I/O. A refusal is a cost stop, not an error: nothing went wrong, we are
     // simply out of budget, and everything already persisted stands.
     let reservation: MeterReservation | null = null
+    // How this source reads the cost off a response; set with the reservation, absent otherwise.
+    // Called detached from the meter object, so a hook must not use `this`.
+    let costReader: ((bodyText: string) => number | null) | undefined
     if (spec.meter !== undefined) {
+      costReader = spec.meter.incurredAmount
       reservation = await ctx.meter.reserve(spec.meter.unit, spec.meter.amountPerRequest)
       if (reservation === null) {
         stop = 'COST_STOP'
@@ -865,7 +872,10 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     let failure: PageAttemptFailure | null = null
     // A `let` because a cached validator rewrites it, and it is read by the reports below — which
     // are outside the span, so it cannot live inside the try.
-    let request: FetchRequest = withByteCap(pageRequest.request, spec.requestMaxBytes)
+    let request: FetchRequest = withByteCap(
+      pageRequest.request,
+      spec.requestMaxBytes ?? DEFAULT_MAX_BYTES,
+    )
 
     /**
      * THE WHOLE RESERVE -> RECONCILE SPAN IS ONE TRY, WITH `reconcile` IN A `finally`.
@@ -890,10 +900,11 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
      * All three are reachable and asserted, so the `finally` is not a guard without a failing test.
      */
     let resolution: ReservationResolution = 'RELEASED'
-    // The cost the provider actually charged, when the adapter can read it off the response.
-    let incurred: number | undefined
-    // True only while `markSent` is awaited: a throw there means the request was NEVER sent.
-    let markingSent = false
+    // The body of a FRESH successful response: the only thing the cost is ever read from.
+    let freshBody: string | undefined
+    // True from the moment `markSent` is called: with `resolution` still RELEASED, a throw can only
+    // have come from `markSent` itself, so the request was NEVER sent.
+    let markSentStarted = false
     const cacheKey =
       pageRequest.cacheKey === undefined
         ? undefined
@@ -920,9 +931,8 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
        * sent, and the reservation is freed rather than held.
        */
       if (reservation !== null) {
-        markingSent = true
+        markSentStarted = true
         await ctx.meter.markSent(reservation)
-        markingSent = false
       }
       resolution = 'UNCERTAIN'
       const response = await ctx.fetchText(request)
@@ -942,8 +952,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
         }
       } else {
         bodyText = response.bodyText
-        incurred =
-          reservation === null ? undefined : readIncurred(spec.meter, bodyText, reservation.amount)
+        freshBody = bodyText
         const lastModified = response.headers['last-modified']
         if ((isValidator(response.etag) || isValidator(lastModified)) && cacheKey !== undefined) {
           /**
@@ -983,7 +992,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
         resolution === 'RELEASED'
           ? {
               code: 'PERSISTENCE',
-              message: markingSent
+              message: markSentStarted
                 ? `the request was not sent, its reservation could not be marked sent: ${error instanceof Error ? error.message : 'the meter failed'}`
                 : `the response cache could not be read: ${error instanceof Error ? error.message : 'the cache failed'}`,
               status: null,
@@ -1007,6 +1016,11 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
          * A failure already set is NOT overwritten: it says why the page failed, which is more
          * informative than the bookkeeping that failed afterwards.
          */
+        // The cost the provider actually charged, when this source can read it off the response.
+        const incurred =
+          costReader === undefined || freshBody === undefined
+            ? undefined
+            : readIncurred(costReader, freshBody, reservation.amount)
         try {
           await ctx.meter.reconcile(reservation, resolution, incurred)
           cost = { unit: reservation.unit, amount: incurred ?? reservation.amount }
