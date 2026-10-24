@@ -19,6 +19,7 @@ import {
 import { OnChainClaimService } from './onchain-claim.service'
 import { PayoutRequestReadService } from './payout-request-read.service'
 import { applyDropProjectPayout } from './payout-settlement-drop.util'
+import { backdateAuditRow } from './transaction-date-audit.util'
 import { resolveTransactionDateWithPolicy } from './transaction-date-policy'
 import { formatTransactionBusinessDate } from './transaction-date.util'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
@@ -751,6 +752,23 @@ export class PayoutSettlementService {
             ...dateOverrideAudit,
           },
         })
+
+        // CR-M-1: the reason also lives in the PAYOUT_SETTLED metadata above, but
+        // every other writer records an out-of-window backdate as its OWN
+        // TX_DATE_BACKDATED row, so a search on that action must find cascade
+        // backdates too. Same transaction as the row it justifies; the payout_requests
+        // claim at the top of this flow admits exactly one caller, so it is written
+        // once per settlement.
+        if (dateDecision?.backdateReason) {
+          await dbtx.insert(transactionAuditLog).values(
+            backdateAuditRow({
+              targetId: payoutRow.id,
+              actor: currentUser,
+              txDate: dateDecision.txDate,
+              backdateReason: dateDecision.backdateReason,
+            }),
+          )
+        }
 
         // Drop role - phase 2 (AC3): drop-project routing + pending IOUs
         // (senior + drop) — extracted to payout-settlement-drop.util.ts. Runs in

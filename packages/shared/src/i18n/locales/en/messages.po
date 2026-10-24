@@ -2739,22 +2739,22 @@ msgstr "The sender must be an admin"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED"
-msgstr "Backdating this far requires a reason, which is written to the audit log"
+msgstr "This date is too far back and needs a documented reason — it can't be recorded from this screen"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_DATE_IN_FUTURE"
-msgstr "The transaction date can't be in the future for an operation that already happened"
+msgstr "A completed operation can't have a future date"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_DATE_INVALID"
-msgstr "The transaction date is not a valid storable calendar date"
+msgstr "The transaction date isn't a valid date"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_DATE_TOO_OLD"
-msgstr "The transaction date is backdated beyond the allowed window — ask an admin to record it"
+msgstr "This date is too far in the past — ask an admin to record it"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
@@ -11687,7 +11687,7 @@ msgstr "The transaction date cannot be in the future"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DATE_YEAR_OUT_OF_RANGE"
-msgstr "The transaction date year is outside the allowed range"
+msgstr "Enter a year between 2020 and 2100"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

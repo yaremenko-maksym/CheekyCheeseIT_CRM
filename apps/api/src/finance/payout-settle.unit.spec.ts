@@ -1215,13 +1215,21 @@ describe('applyPayoutPaidCascade — date-override audit trail (SR-809-L-3)', ()
       txDate: farPast,
       backdateReason: '  settled offline in Q1  ',
     })
-    const metadata = allowed.one('insert transaction_audit_log').values!['metadata'] as Record<
-      string,
-      unknown
-    >
+    const auditRows = allowed.find('insert transaction_audit_log').map((c) => c.values!)
+    const settled = auditRows.find((v) => v['action'] === 'PAYOUT_SETTLED')!
+    const metadata = settled['metadata'] as Record<string, unknown>
     // SR-809-L-3: trimmed, so the trail never stores padding as content.
     expect(metadata['backdateReason']).toBe('settled offline in Q1')
     expect(metadata['txDateAfter']).toBe(farPast)
+
+    // CR-M-1: the cascade also writes the dedicated row every other writer does,
+    // exactly once, targeting the PAYOUT row it justifies.
+    const backdated = auditRows.filter((v) => v['action'] === 'TX_DATE_BACKDATED')
+    expect(backdated).toHaveLength(1)
+    expect(backdated[0]).toMatchObject({
+      targetId: PAYOUT_ROW_ID,
+      metadata: { txDate: farPast, backdateReason: 'settled offline in Q1' },
+    })
   })
 
   it('writes no backdateReason key for an in-window date — there was no exemption to justify', async () => {
@@ -1232,6 +1240,8 @@ describe('applyPayoutPaidCascade — date-override audit trail (SR-809-L-3)', ()
       unknown
     >
     expect(metadata).not.toHaveProperty('backdateReason')
+    // ...and no dedicated TX_DATE_BACKDATED row either (the `one` above already
+    // proves PAYOUT_SETTLED is the only audit insert).
   })
 
   it('writes neither key when no date was supplied — there was no override to record', async () => {

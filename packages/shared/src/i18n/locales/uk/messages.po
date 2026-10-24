@@ -2739,22 +2739,22 @@ msgstr "Відправник має бути адміністратором"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED"
-msgstr "Щоб задати таку давню дату, вкажіть причину — її буде записано в журнал аудиту"
+msgstr "Дата надто далеко в минулому, і для неї потрібна причина — з цього екрана таку дату внести не можна"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_DATE_IN_FUTURE"
-msgstr "Дата транзакції не може бути в майбутньому для вже виконаної операції"
+msgstr "Для виконаної операції дата не може бути в майбутньому"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_DATE_INVALID"
-msgstr "Некоректна дата транзакції"
+msgstr "Вкажіть коректну дату транзакції — такої дати не існує"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_DATE_TOO_OLD"
-msgstr "Дата транзакції задавнена понад дозволений період — зверніться до адміністратора"
+msgstr "Дата транзакції надто давня — таку операцію може внести лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
@@ -11687,7 +11687,7 @@ msgstr "Дата транзакції не може бути в майбутнь
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DATE_YEAR_OUT_OF_RANGE"
-msgstr "Рік дати транзакції поза допустимим діапазоном"
+msgstr "Вкажіть рік від 2020 до 2100"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

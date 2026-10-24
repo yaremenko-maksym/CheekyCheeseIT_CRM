@@ -332,19 +332,20 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_TX_DATE_INVALID: /* i18n */ {
       id: 'api-error.FINANCE_TX_DATE_INVALID',
-      message: 'Некоректна дата транзакції',
+      message: 'Вкажіть коректну дату транзакції — такої дати не існує',
     },
     FINANCE_TX_DATE_IN_FUTURE: /* i18n */ {
       id: 'api-error.FINANCE_TX_DATE_IN_FUTURE',
-      message: 'Дата транзакції не може бути в майбутньому для вже виконаної операції',
+      message: 'Для виконаної операції дата не може бути в майбутньому',
     },
     FINANCE_TX_DATE_TOO_OLD: /* i18n */ {
       id: 'api-error.FINANCE_TX_DATE_TOO_OLD',
-      message: 'Дата транзакції задавнена понад дозволений період — зверніться до адміністратора',
+      message: 'Дата транзакції надто давня — таку операцію може внести лише адміністратор',
     },
     FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED: /* i18n */ {
       id: 'api-error.FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED',
-      message: 'Щоб задати таку давню дату, вкажіть причину — її буде записано в журнал аудиту',
+      message:
+        'Дата надто далеко в минулому, і для неї потрібна причина — з цього екрана таку дату внести не можна',
     },
     FINANCE_PAYOUT_SINGLE_PROJECT_ONLY: /* i18n */ {
       id: 'api-error.FINANCE_PAYOUT_SINGLE_PROJECT_ONLY',
