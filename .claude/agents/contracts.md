@@ -281,6 +281,21 @@ count.
 - A verdict is a line of its own. Markdown decoration is tolerated. The first marker of a kind in a
   body is that body's verdict; a verdict quoted in the middle of a sentence does not count.
 - For each kind, the **latest** counting verdict decides.
+- **A verdict is pinned to the commit it was given on.** A positive verdict on a commit that is not
+  the head reads `STALE`, which fails the step and reads differently from `MISSING`: the remedy is a
+  fresh pass on the new code, not a first pass. A **review** carries its commit in `commit_id`,
+  which GitHub records. A **PR comment** does not, so a comment-borne verdict must name it in a
+  second line `Commit: <sha>` (7-40 hex, abbreviations resolved against the PR's commits) — a
+  comment without that line is `STALE`, and the check says so rather than guessing from timestamps.
+  No commit date is consulted anywhere: a committer date is set by whoever makes the commit.
+- **Two kinds of follow-up commit keep a verdict standing**, so that currency costs no review
+  round: one whose every changed path ends in `.md`, and a merge from the base branch that leaves
+  every file the PR owns byte-identical. "Owns" is the union of the PR's changed-file set now and
+  at the reviewed commit, so a file reverted after the verdict still counts. Resolving a conflict
+  in a file the PR changed is therefore **not** exempt.
+- Anything the check cannot measure is `STALE`, never fresh: a review with no `commit_id`, a
+  reviewed commit no longer in the PR (force-push or rebase), a head missing from the listed
+  commits, and a drift measurement that failed or was too large to list.
 - A dismissed positive verdict does not count. A negative one counts even if dismissed. Pending
   reviews are ignored.
 - Verdicts count only from `OWNER` / `MEMBER` / `COLLABORATOR` associations, positive and negative
@@ -299,11 +314,16 @@ self-review counts.
 
 **Known limitations (accepted with the lite model):**
 
-1. **A verdict survives later pushes.** It is not bound to the head sha. The flow expects a delta
-   re-review after a fix push, and the gate does not enforce one.
+1. **A comment-borne verdict is only as good as its own `Commit:` line.** The line is the
+   reviewer's attributable statement, at the same trust level as the verdict itself — which the
+   threat model above already accepts — and unlike a date it cannot be set as a side-effect of
+   committing. An agent that would rather not carry a sha can post a **COMMENT review** instead of
+   a comment: a review records `commit_id` itself and needs no line.
 2. **No re-run on review.** There is no `pull_request_review` trigger, because that event runs the
    PR's own copy of the workflow. After a review lands, re-run the check with a PR-body edit or a
-   label change.
+   label change. Verdict pinning makes this **more frequent, not newly necessary**: the manual
+   re-run was always needed for a verdict to be seen at all, and it is now needed once per
+   review-invalidating push rather than once per PR.
 3. **Stale red run vs auto-merge.** `auto-merge-on-label.yml` fails fast on a failing required
    check. If `merge-approved` is applied while the previous Flow Gate run is red, auto-merge can
    read that run before the label-triggered run has started. It then posts its "did not complete"

@@ -1064,7 +1064,10 @@ const uiCmp = (base, paths, over = {}) => cmp(base, paths, { ownedAt: [UI, UI_SP
 test('a comment-borne verdict naming the head is done', () => {
   const r = ev(
     uiPr({
-      comments: [cm(`QA Verdict: PASS\nCommit: ${HEAD}`), cm(`Design Review: PASS\nCommit: ${HEAD}`)],
+      comments: [
+        cm(`QA Verdict: PASS\nCommit: ${HEAD}`),
+        cm(`Design Review: PASS\nCommit: ${HEAD}`),
+      ],
     }),
   )
   assert.equal(status(r, 'QA'), 'satisfied')
@@ -1196,8 +1199,15 @@ test('comparePlan is capped, and an unmeasured sha then fails closed', () => {
   const reviews = [rv('Spec Review: PASS')]
   for (let i = 0; i < MAX_COMPARES + 3; i++) {
     const sha = (i + 10).toString(16).padStart(2, '0').repeat(20)
-    commits.push(commit(`wip: ${i}`, { sha, committedAt: `2026-10-21T${String(i).padStart(2, '0')}:00:00Z` }))
-    reviews.push(rv('Verdict: APPROVE', { commit_id: sha, at: `2026-10-22T${String(i).padStart(2, '0')}:00:00Z` }))
+    commits.push(
+      commit(`wip: ${i}`, { sha, committedAt: `2026-10-21T${String(i).padStart(2, '0')}:00:00Z` }),
+    )
+    reviews.push(
+      rv('Verdict: APPROVE', {
+        commit_id: sha,
+        at: `2026-10-22T${String(i).padStart(2, '0')}:00:00Z`,
+      }),
+    )
   }
   commits.push(
     commit('feat: last\n\nac_verified: 1', { sha: HEAD, committedAt: '2026-10-23T00:00:00Z' }),

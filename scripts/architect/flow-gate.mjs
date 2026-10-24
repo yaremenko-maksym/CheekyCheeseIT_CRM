@@ -468,22 +468,21 @@ export function referenceSha(item, ctx) {
 export function verdictFreshness(item, ctx) {
   const ref = referenceSha(item, ctx)
   if (ref.problem) return { fresh: false, why: ref.problem, fix: ref.fix }
-  const how = item.fromComment ? ' (stated by the comment\'s own `Commit:` line)' : ''
+  const how = item.fromComment ? " (stated by the comment's own `Commit:` line)" : ''
   // Sound for both channels because `ref.sha` is now always STATED — a server-recorded
   // `commit_id`, or a sha the verdict's author wrote down — and never derived from a date or any
   // other field the PR author sets in passing. The equality is the same one the review path uses.
   if (ref.sha === ctx.headSha) return { fresh: true }
   const where = `it was given on ${short(ref.sha)}, not on the head ${short(ctx.headSha)}`
   if (!ctx.shas.has(ref.sha))
-    return { fresh: false, why: `${where}, which is no longer part of the PR (force-push or rebase)${how}` }
+    return {
+      fresh: false,
+      why: `${where}, which is no longer part of the PR (force-push or rebase)${how}`,
+    }
   const m = ctx.compares.find((c) => c.base === ref.sha)
   if (!m || m.unavailable || !Array.isArray(m.paths) || !Array.isArray(m.ownedAt))
     return { fresh: false, why: `${where}, and the drift between them could not be measured${how}` }
-  if (
-    m.truncated ||
-    m.paths.length >= MAX_COMPARE_FILES ||
-    m.ownedAt.length >= MAX_COMPARE_FILES
-  )
+  if (m.truncated || m.paths.length >= MAX_COMPARE_FILES || m.ownedAt.length >= MAX_COMPARE_FILES)
     return {
       fresh: false,
       why: `${where}, and the drift between them was too large to list in full${how}`,
@@ -503,7 +502,10 @@ export function verdictFreshness(item, ctx) {
     }
   const nonDoc = drifted.filter((p) => !isDoc(p))
   if (nonDoc.length === 0)
-    return { fresh: true, note: `given on ${short(ref.sha)}; docs-only since (${drifted.join(', ')})` }
+    return {
+      fresh: true,
+      note: `given on ${short(ref.sha)}; docs-only since (${drifted.join(', ')})`,
+    }
   return {
     fresh: false,
     why: `${where}, and ${nonDoc.length} file(s) this PR owns changed since: ${nonDoc.slice(0, 5).join(', ')}${nonDoc.length > 5 ? ', …' : ''}${how}`,
@@ -536,7 +538,8 @@ const verdictStep = (key, kind, sources, agent, required, whenText) => ({
         stale: true,
         why: `the standing \`${MARKERS[kind].prefix}:\` verdict (by @${v.item.author}, ${v.item.at}) no longer describes the head — ${f.why}`,
         fix:
-          f.fix ?? `Get a fresh \`${MARKERS[kind].prefix}: ${MARKERS[kind].pos[0]}\` on the current head`,
+          f.fix ??
+          `Get a fresh \`${MARKERS[kind].prefix}: ${MARKERS[kind].pos[0]}\` on the current head`,
       }
     }
     if (v.state === 'neg')
@@ -875,7 +878,7 @@ export function render(result, pr) {
         '',
         `A **STALE** step was reviewed and then the code changed, so the verdict describes a commit that is not the head (\`${short(pr.headSha)}\`). It needs **a fresh pass on the new code** — unlike **MISSING**, which is a step nobody has looked at yet.`,
         '',
-        "Two kinds of follow-up commit do NOT make a verdict stale: one whose every changed path ends in `.md`, and a merge from the base branch that leaves every file this PR owns untouched. Keeping a branch current therefore costs no review round; resolving a conflict in a file the PR changed does.",
+        'Two kinds of follow-up commit do NOT make a verdict stale: one whose every changed path ends in `.md`, and a merge from the base branch that leaves every file this PR owns untouched. Keeping a branch current therefore costs no review round; resolving a conflict in a file the PR changed does.',
       )
     }
   }
