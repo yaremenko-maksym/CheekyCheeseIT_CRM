@@ -122,6 +122,9 @@ export function museScopeQuery(config: Pick<Config, 'category' | 'level' | 'loca
   })
 }
 
+/** The one definition of identity, used by the spec's `nativeIdOf` AND by the mapping. */
+const museNativeId = (item: Item): string => String(item.id)
+
 export const museSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
   type: 'MUSE_API',
   adapterVersion: MUSE_ADAPTER_VERSION,
@@ -140,10 +143,10 @@ export const museSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
   extractItems: (envelope) => envelope.results,
   // `at.page` is the page just fetched (1-based), so `page_count` pages exist while it is below it.
   nextCursor: (envelope, at) => (at.page < envelope.page_count ? `page:${at.page + 1}` : null),
-  nativeIdOf: (item) => String(item.id),
+  nativeIdOf: museNativeId,
   mapItem: (item, config) => ({
     namespace: config.namespace,
-    nativeId: String(item.id),
+    nativeId: museNativeId(item),
     url: item.refs.landing_page,
     title: item.name,
     companyName: item.company.name,

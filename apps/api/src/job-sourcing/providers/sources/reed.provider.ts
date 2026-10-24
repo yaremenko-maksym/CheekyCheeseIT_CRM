@@ -91,8 +91,11 @@ export function reedLocation(locationName: string | null): string {
 
 /** `Authorization: Basic <base64("<key>:")>` - the key is the username, the password is empty. */
 export function reedBasicAuth(apiKey: string): string {
-  return `Basic ${Buffer.from(`${apiKey}:`, 'utf8').toString('base64')}`
+  return `Basic ${Buffer.from(`${apiKey}:`).toString('base64')}`
 }
+
+/** The one definition of identity, used by the spec's `nativeIdOf` AND by the mapping. */
+const reedNativeId = (item: Item): string => String(item.jobId)
 
 function makeSpec(apiKey: string, config: Config): ApiJsonSourceSpec<Config, Envelope, Item> {
   return {
@@ -122,10 +125,10 @@ function makeSpec(apiKey: string, config: Config): ApiJsonSourceSpec<Config, Env
       if (total != null && seen >= total) return null
       return `page:${at.page + 1}`
     },
-    nativeIdOf: (item) => String(item.jobId),
+    nativeIdOf: reedNativeId,
     mapItem: (item, c) => ({
       namespace: c.namespace,
-      nativeId: String(item.jobId),
+      nativeId: reedNativeId(item),
       url: item.jobUrl,
       title: item.jobTitle,
       companyName: item.employerName,

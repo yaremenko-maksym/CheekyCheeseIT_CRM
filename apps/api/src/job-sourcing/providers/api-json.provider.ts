@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
 import type { JobMeterUnit, JobSourceType } from '@crm/shared'
 import { z, type ZodType } from 'zod'
+import { DEFAULT_MAX_BYTES, MAX_RESPONSE_BYTES_CEILING } from '../http/bounded-fetch'
+import { SourcePayloadTooLargeError } from '../http/source-errors'
 import { canonicalNativeId } from '../normalize/identity-key'
 import {
   buildSourceObservation,
@@ -250,6 +252,12 @@ export interface PagedSourceSpec<TConfig extends SourceConfigFields, TEnvelope, 
   scopeOf(config: TConfig, now: Date): SourceCoverageScope
   /** Required here and resolved by each binding: a loop-level default would be one no binding used. */
   readonly limits: PageLimits
+  /**
+   * The response cap every request of this source declares to the transport (`FetchRequest.maxBytes`).
+   * Absent, nothing is declared and the transport's 2 MiB default applies. A separate field from
+   * `limits`, whose byte bound belongs to the decoding binding, not to the loop.
+   */
+  readonly requestMaxBytes?: number
   /**
    * What one page costs. Reserved BEFORE any I/O, per the store's reservation ordering.
    *
@@ -569,9 +577,9 @@ function responseCacheKey(
 function readIncurred(
   meter: { incurredAmount?(bodyText: string): number | null } | undefined,
   bodyText: string,
-  reservation: MeterReservation | null,
+  reserved: number,
 ): number | undefined {
-  if (meter?.incurredAmount === undefined || reservation === null) return undefined
+  if (meter?.incurredAmount === undefined) return undefined
   let amount: number | null
   try {
     amount = meter.incurredAmount(bodyText)
@@ -579,10 +587,43 @@ function readIncurred(
     return undefined
   }
   if (amount === null || !Number.isSafeInteger(amount)) return undefined
-  if (amount < 0 || amount > reservation.amount) return undefined
+  if (amount < 0 || amount > reserved) return undefined
   // The store cannot record a USED reservation of zero (its `used_settled` CHECK), so a free
   // request is reported as the smallest cost it can hold.
   return Math.max(amount, 1)
+}
+
+/**
+ * A source's declared response cap must be a whole number of bytes the transport will accept:
+ * refused here, with nothing yet reserved or sent, rather than discovered as a failed fetch.
+ */
+export function assertByteCap(maxBytes: number): void {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_RESPONSE_BYTES_CEILING) {
+    throw new Error(`invalid maxBytes: ${maxBytes} (must be 1..${MAX_RESPONSE_BYTES_CEILING})`)
+  }
+}
+
+/**
+ * The request as the transport must see it. A cap equal to the transport's own default is NOT
+ * attached: it would change nothing, and every current caller keeps the request it had.
+ */
+function withByteCap(request: FetchRequest, maxBytes: number | undefined): FetchRequest {
+  return maxBytes === undefined || maxBytes === DEFAULT_MAX_BYTES
+    ? request
+    : { ...request, maxBytes }
+}
+
+/** A throw out of the fetch seam, as a page failure. */
+function failureOfThrown(error: unknown, aborted: boolean): PageAttemptFailure {
+  // The transport refused the body at its cap and kept none of it: say so, not "network".
+  if (error instanceof SourcePayloadTooLargeError) {
+    return { code: 'PAYLOAD_TOO_LARGE', message: error.message, status: null }
+  }
+  return {
+    code: aborted ? 'CANCELLED' : 'TRANSIENT_NETWORK',
+    message: error instanceof Error ? error.message : 'the request failed',
+    status: null,
+  }
 }
 
 /** HTTP status -> our typed code. Classified from the STATUS, never from the body text. */
@@ -824,7 +865,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     let failure: PageAttemptFailure | null = null
     // A `let` because a cached validator rewrites it, and it is read by the reports below — which
     // are outside the span, so it cannot live inside the try.
-    let request: FetchRequest = pageRequest.request
+    let request: FetchRequest = withByteCap(pageRequest.request, spec.requestMaxBytes)
 
     /**
      * THE WHOLE RESERVE -> RECONCILE SPAN IS ONE TRY, WITH `reconcile` IN A `finally`.
@@ -866,8 +907,8 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
       const cached = Object.keys(validators).length > 0 ? stored : null
       if (cached !== null) {
         request = {
-          ...pageRequest.request,
-          headers: { ...pageRequest.request.headers, ...validators },
+          ...request,
+          headers: { ...request.headers, ...validators },
         }
       }
 
@@ -901,7 +942,8 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
         }
       } else {
         bodyText = response.bodyText
-        incurred = readIncurred(spec.meter, bodyText, reservation)
+        incurred =
+          reservation === null ? undefined : readIncurred(spec.meter, bodyText, reservation.amount)
         const lastModified = response.headers['last-modified']
         if ((isValidator(response.etag) || isValidator(lastModified)) && cacheKey !== undefined) {
           /**
@@ -946,11 +988,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
                 : `the response cache could not be read: ${error instanceof Error ? error.message : 'the cache failed'}`,
               status: null,
             }
-          : {
-              code: ctx.signal.aborted ? 'CANCELLED' : 'TRANSIENT_NETWORK',
-              message: error instanceof Error ? error.message : 'the request failed',
-              status: null,
-            }
+          : failureOfThrown(error, ctx.signal.aborted)
     } finally {
       if (reservation !== null) {
         /**
@@ -971,7 +1009,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
          */
         try {
           await ctx.meter.reconcile(reservation, resolution, incurred)
-          if (incurred !== undefined && cost !== null) cost = { ...cost, amount: incurred }
+          cost = { unit: reservation.unit, amount: incurred ?? reservation.amount }
         } catch (error) {
           failure ??= {
             code: 'PERSISTENCE',
@@ -1237,10 +1275,13 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
   ctx: CollectionContext,
 ): Promise<CollectionBatch> {
   const limits: ApiJsonLimits = { ...DEFAULT_API_JSON_LIMITS, ...spec.limits }
+  // At config time - before the checkpoint is read, a reservation is taken or a request is built.
+  assertByteCap(limits.maxBytes)
   return collectPages(
     {
       ...spec,
       limits,
+      requestMaxBytes: limits.maxBytes,
       decodeEnvelope: (bodyText) => decodeJsonEnvelope(bodyText, spec.envelopeSchema, limits),
     },
     config,

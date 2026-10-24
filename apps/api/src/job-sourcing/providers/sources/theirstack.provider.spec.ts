@@ -394,3 +394,69 @@ describe('the BLOCKED state', () => {
     expect(prov.notes).toContain('1 API credit for each job returned')
   })
 })
+
+/** Survivors of the mutation gate, each turned into the assertion that kills it. */
+describe('what a reviewer would otherwise have to take on trust', () => {
+  it('declares its source type', () => {
+    expect(provider().type).toBe('THEIRSTACK_API')
+  })
+
+  it('scopes the run: its filters and the posted-date window it asked for (7 days to now)', async () => {
+    const { batch } = await run([body([])])
+    expect(batch.scope).toEqual({
+      namespace: 'theirstack',
+      query: '{"seniority":["senior"],"workplaceTypes":["remote"]}',
+      configVersion: 1,
+      window: {
+        from: new Date('2026-10-17T04:00:00.000Z'),
+        to: new Date('2026-10-24T04:00:00.000Z'),
+      },
+    })
+  })
+
+  it('a longer age is a longer window (30 days back)', async () => {
+    const p = provider()
+    const { batch } = await run([body([])], { p, config: cfg({ maxAgeDays: 30 }, p) })
+    expect(batch.scope.window?.from).toEqual(new Date('2026-09-24T04:00:00.000Z'))
+  })
+
+  it('the next page cursor names the next page (a full page capped at 1: resume at page 2)', async () => {
+    const { batch } = await run([body(jobs(25))])
+    expect(batch.checkpoint?.position).toEqual({ kind: 'CURSOR', page: 1, cursor: 'page:2' })
+  })
+
+  it('the description is TEXT, not HTML: markup in it is kept as written', async () => {
+    const withMarkup = job(1, { description: 'Line one <b>not html</b>' })
+    const { batch } = await run([body([withMarkup])])
+    const markdown = batch.observations[0]?.normalized.descriptionMd ?? ''
+    // As HTML the <b> would become bold markdown (**); as text it is just characters.
+    expect(markdown).toContain('not html')
+    expect(markdown).not.toContain('**')
+  })
+
+  it('refusal reasons are the intended ones', () => {
+    const reason = (extra: Record<string, unknown>) => {
+      try {
+        provider().parseConfig({ configVersion: 1, ...extra })
+      } catch (e) {
+        return e instanceof Error ? e.message : String(e)
+      }
+      return ''
+    }
+    expect(reason({ query: 'x' })).toContain(
+      'TheirStack filters live in seniority / workplaceTypes',
+    )
+    expect(reason({ window: { from: '2026-10-01', to: '2026-10-02' } })).toContain(
+      'TheirStack takes maxAgeDays, not a window',
+    )
+  })
+
+  it('an error that quotes the bare key (no scheme word near it) is redacted by the adapter alone', async () => {
+    const { batch } = await run([{ throws: new Error(`credential ${KEY} rejected`) }])
+    expect(batch.requests[0]?.error?.message).toBe('credential [REDACTED] rejected')
+  })
+
+  it('a body too deep to read is no cost reading: the whole reservation is charged', () => {
+    expect(theirstackIncurredCredits(`${'['.repeat(100)}${']'.repeat(100)}`)).toBeNull()
+  })
+})

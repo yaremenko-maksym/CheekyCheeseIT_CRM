@@ -382,3 +382,50 @@ describe('the BLOCKED state', () => {
     expect(prov.notes).toContain('31/02/2026')
   })
 })
+
+/** Survivors of the mutation gate, each turned into the assertion that kills it. */
+describe('what a reviewer would otherwise have to take on trust', () => {
+  it('declares its source type', () => {
+    expect(provider().type).toBe('REED_API')
+  })
+
+  it('scopes the run by its search', async () => {
+    const { batch } = await run([body([], 0)])
+    expect(batch.scope).toEqual({
+      namespace: 'reed',
+      query: '{"keywords":"senior developer","locationName":"remote"}',
+      configVersion: 1,
+      window: null,
+    })
+  })
+
+  it('the next page cursor names the next page (a full page capped at 1: resume at page 2)', async () => {
+    const { batch } = await run([body(jobs(100), 999)])
+    expect(batch.checkpoint?.position).toEqual({ kind: 'CURSOR', page: 1, cursor: 'page:2' })
+  })
+
+  it('a total of null is no total: a full page continues', async () => {
+    const p = provider()
+    const take2 = p.parseConfig({ configVersion: 1, ...SEEDED, resultsToTake: 2, maxPages: 5 })
+    const nulls = (results: unknown[]): FakeResponse => ({
+      bodyText: JSON.stringify({ results, totalResults: null }),
+    })
+    const { f } = await run([nulls(jobs(2)), nulls([])], { p, config: take2 })
+    expect(f.sent).toHaveLength(2)
+  })
+
+  it('refusal reasons are the intended ones', () => {
+    const reason = (extra: Record<string, unknown>) => {
+      try {
+        provider().parseConfig({ configVersion: 1, ...SEEDED, ...extra })
+      } catch (e) {
+        return e instanceof Error ? e.message : String(e)
+      }
+      return ''
+    }
+    expect(reason({ query: 'x' })).toContain('Reed search text lives in keywords / locationName')
+    expect(reason({ window: { from: '2026-10-01', to: '2026-10-02' } })).toContain(
+      'Reed has no date window',
+    )
+  })
+})

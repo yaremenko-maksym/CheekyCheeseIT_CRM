@@ -374,3 +374,25 @@ describe('the BLOCKED state', () => {
     expect(high.notes).toContain('NOT an empty result list')
   })
 })
+
+/** Survivors of the mutation gate, each turned into the assertion that kills it. */
+describe('lists the posting carries', () => {
+  it('several levels are joined with a comma and a space', async () => {
+    const job = { ...page0().results[0], levels: [{ name: 'Mid Level' }, { name: 'Senior Level' }] }
+    const { batch } = await run([body({ ...page0(), page_count: 1, results: [job] })])
+    expect(batch.observations[0]?.normalized.seniorityHint).toBe('Mid Level, Senior Level')
+  })
+
+  it.each([
+    ['levels', 'seniorityHint', null],
+    ['locations', 'location', null],
+    ['categories', 'tags', []],
+  ] as const)(
+    'a posting whose %s is null maps %s to its empty value',
+    async (key, field, empty) => {
+      const job = { ...page0().results[0], [key]: null }
+      const { batch } = await run([body({ ...page0(), page_count: 1, results: [job] })])
+      expect(batch.observations[0]?.normalized[field]).toEqual(empty)
+    },
+  )
+})

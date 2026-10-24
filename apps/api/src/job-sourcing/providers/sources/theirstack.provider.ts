@@ -7,6 +7,7 @@ import {
   collectJsonPages,
   definePagedProvider,
 } from '../api-json.provider'
+import { DEFAULT_JSON_LIMITS, parseBoundedJson } from '../bounded-json'
 import type { ReportingJobSourceProvider, Validated } from '../reporting-provider'
 import {
   boundedString,
@@ -109,15 +110,15 @@ type Envelope = z.infer<typeof envelopeSchema>
  * that lets the count be read, which the loop treats as "charge the whole reservation".
  */
 export function theirstackIncurredCredits(bodyText: string): number | null {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(bodyText)
-  } catch {
-    return null
-  }
-  const data = (parsed as { data?: unknown } | null)?.data
+  // The bounded parse, so a hostile body cannot make the cost reading the expensive part.
+  const parsed = parseBoundedJson(bodyText, DEFAULT_JSON_LIMITS)
+  if (!parsed.ok) return null
+  const data = (parsed.value as { data?: unknown } | null)?.data
   return Array.isArray(data) ? data.length : null
 }
+
+/** The one definition of identity, used by the spec's `nativeIdOf` AND by the mapping. */
+const theirstackNativeId = (item: Item): string => String(item.id)
 
 function makeSpec(apiKey: string, config: Config): ApiJsonSourceSpec<Config, Envelope, Item> {
   return {
@@ -145,7 +146,8 @@ function makeSpec(apiKey: string, config: Config): ApiJsonSourceSpec<Config, Env
           limit: c.limit,
           posted_at_max_age_days: c.maxAgeDays,
           workplace_types_or: c.workplaceTypes,
-          ...(c.seniority !== undefined && { job_seniority_or: c.seniority }),
+          // An undefined seniority is dropped by JSON.stringify: no key is sent for it.
+          job_seniority_or: c.seniority,
         }),
       },
     }),
@@ -153,10 +155,10 @@ function makeSpec(apiKey: string, config: Config): ApiJsonSourceSpec<Config, Env
     // A page shorter than the limit is the last one; a full page may have another behind it.
     nextCursor: (envelope, at) =>
       envelope.data.length >= config.limit ? `page:${at.page + 1}` : null,
-    nativeIdOf: (item) => String(item.id),
+    nativeIdOf: theirstackNativeId,
     mapItem: (item, c) => ({
       namespace: c.namespace,
-      nativeId: String(item.id),
+      nativeId: theirstackNativeId(item),
       url: item.url,
       title: item.job_title,
       companyName: item.company,

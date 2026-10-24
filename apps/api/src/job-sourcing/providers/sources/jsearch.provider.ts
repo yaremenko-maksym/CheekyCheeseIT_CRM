@@ -93,6 +93,9 @@ function locationText(item: Item): string {
     .join(', ')
 }
 
+/** The one definition of identity, used by the spec's `nativeIdOf` AND by the mapping. */
+const jsearchNativeId = (item: Item): string => item.job_id
+
 function makeSpec(apiKey: string, meter: MeterOption): ApiJsonSourceSpec<Config, Envelope, Item> {
   return {
     type: 'JSEARCH_API',
@@ -123,10 +126,10 @@ function makeSpec(apiKey: string, meter: MeterOption): ApiJsonSourceSpec<Config,
     extractItems: (envelope) => envelope.data,
     // An empty page is the only end marker the listing gives.
     nextCursor: (envelope, at) => (envelope.data.length === 0 ? null : `page:${at.page + 1}`),
-    nativeIdOf: (item) => item.job_id,
+    nativeIdOf: jsearchNativeId,
     mapItem: (item, config) => ({
       namespace: config.namespace,
-      nativeId: item.job_id,
+      nativeId: jsearchNativeId(item),
       url: item.job_apply_link,
       title: item.job_title,
       companyName: item.employer_name,

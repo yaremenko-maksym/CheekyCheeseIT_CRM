@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 import {
   AccountMeterError,
@@ -748,5 +749,54 @@ describe('reconcile — the incurred cost', () => {
     const { db, writes } = fakeMeterDb({ status: 'USED', amount: 50, usedAmount: 7 })
     await createAccountMeter(db, recordBinding()).reconcile(claim(), 'USED')
     expect(writes).toEqual([])
+  })
+})
+
+/**
+ * The arithmetic of a settlement is SQL, evaluated by Postgres, so its VALUES are the integration
+ * spec's. What a unit double can still see is the statement and its parameters, rendered by
+ * Drizzle's own dialect: which column is touched, with which operator, and with WHICH number.
+ */
+describe('reconcile - the statement that converts the cost', () => {
+  const claim = () => ({ id: FAKE_RESERVATION_ID, unit: 'RECORD' as const, amount: 50 })
+  const recordBinding = (): AccountMeterBinding => ({ ...valid(), windows: { RECORD: 'MONTH' } })
+  const render = (fragment: unknown) =>
+    new PgDialect().sqlToQuery(fragment as Parameters<PgDialect['sqlToQuery']>[0])
+
+  it('adds the INCURRED cost to used and frees the whole STORED amount from reserved', async () => {
+    const { db, payloads } = fakeMeterDb({ amount: 50 })
+    await createAccountMeter(db, recordBinding()).reconcile(claim(), 'USED', 7)
+    const meterUpdate = payloads[0] as Record<string, unknown>
+    expect(render(meterUpdate['used'])).toMatchObject({
+      sql: '"job_account_meters"."used" + $1',
+      params: [7],
+    })
+    expect(render(meterUpdate['reserved'])).toMatchObject({
+      sql: '"job_account_meters"."reserved" - $1',
+      params: [50],
+    })
+  })
+
+  it('without an incurred cost it adds the whole stored amount', async () => {
+    const { db, payloads } = fakeMeterDb({ amount: 50 })
+    await createAccountMeter(db, recordBinding()).reconcile(claim(), 'USED')
+    expect(render((payloads[0] as Record<string, unknown>)['used'])).toMatchObject({
+      sql: '"job_account_meters"."used" + $1',
+      params: [50],
+    })
+  })
+
+  it('an uncertain hold is freed from uncertain, and the incurred cost is added to used', async () => {
+    const { db, payloads } = fakeMeterDb({ status: 'UNCERTAIN', amount: 50 })
+    await createAccountMeter(db, recordBinding()).reconcile(claim(), 'USED', 12)
+    const meterUpdate = payloads[0] as Record<string, unknown>
+    expect(render(meterUpdate['uncertain'])).toMatchObject({
+      sql: '"job_account_meters"."uncertain" - $1',
+      params: [50],
+    })
+    expect(render(meterUpdate['used'])).toMatchObject({
+      sql: '"job_account_meters"."used" + $1',
+      params: [12],
+    })
   })
 })

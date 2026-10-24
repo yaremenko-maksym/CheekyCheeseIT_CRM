@@ -320,3 +320,57 @@ describe('the BLOCKED state', () => {
     expect(prov.notes).toContain('num_pages')
   })
 })
+
+/** Survivors of the mutation gate, each turned into the assertion that kills it. */
+describe('what a reviewer would otherwise have to take on trust', () => {
+  it('declares its source type', () => {
+    expect(provider().type).toBe('JSEARCH_API')
+  })
+
+  it('scopes the run by its search, date filter and remote flag', async () => {
+    const { batch } = await run([body([])])
+    expect(batch.scope).toEqual({
+      namespace: 'jsearch',
+      query: '{"query":"senior backend developer remote","datePosted":"week","remoteOnly":true}',
+      configVersion: 1,
+      window: null,
+    })
+  })
+
+  it('the next page cursor names the next page (capped at 1: resume at page 2)', async () => {
+    const { batch } = await run([body([job('a')])])
+    expect(batch.checkpoint?.position).toEqual({ kind: 'CURSOR', page: 1, cursor: 'page:2' })
+  })
+
+  it('empty and missing location parts are skipped, in order: a blank country leaves the state', async () => {
+    const blank = job('a', { job_city: null, job_state: 'Mazowieckie', job_country: '' })
+    const { batch } = await run([body([blank])])
+    expect(byId(batch, 'a')?.normalized.location).toBe('Mazowieckie')
+    const empties = job('b', { job_city: '', job_state: 'Silesia', job_country: 'PL' })
+    const two = await run([body([empties])])
+    expect(byId(two.batch, 'b')?.normalized.location).toBe('Silesia, PL')
+  })
+
+  it('the description is TEXT, not HTML: markup in it is kept as written', async () => {
+    const withMarkup = job('a', { job_description: 'Line one <b>not html</b>' })
+    const { batch } = await run([body([withMarkup])])
+    const markdown = batch.observations[0]?.normalized.descriptionMd ?? ''
+    // As HTML the <b> would become bold markdown (**); as text it is just characters.
+    expect(markdown).toContain('not html')
+    expect(markdown).not.toContain('**')
+  })
+
+  it('refusal reasons are the intended ones', () => {
+    const reason = (extra: Record<string, unknown>) => {
+      try {
+        provider().parseConfig({ configVersion: 1, ...SEEDED, ...extra })
+      } catch (e) {
+        return e instanceof Error ? e.message : String(e)
+      }
+      return ''
+    }
+    expect(reason({ window: { from: '2026-10-01', to: '2026-10-02' } })).toContain(
+      'JSearch takes datePosted, not a window',
+    )
+  })
+})

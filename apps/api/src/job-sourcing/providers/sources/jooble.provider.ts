@@ -90,7 +90,8 @@ type Envelope = z.infer<typeof envelopeSchema>
 /** The provider's posting id as text, or `null` when it cannot be trusted as an identity. */
 export function joobleNativeId(id: Item['id']): string | null {
   if (typeof id === 'string') return id.trim().length > 0 ? id : null
-  return typeof id === 'number' && Number.isSafeInteger(id) ? String(id) : null
+  // `isSafeInteger` is false for null, undefined, fractions and numbers past 2^53 alike.
+  return Number.isSafeInteger(id) ? String(id) : null
 }
 
 function makeSpec(apiKey: string, meter: MeterOption): ApiJsonSourceSpec<Config, Envelope, Item> {
@@ -107,9 +108,10 @@ function makeSpec(apiKey: string, meter: MeterOption): ApiJsonSourceSpec<Config,
         url: `${ENDPOINT}${encodeURIComponent(apiKey)}`,
         method: 'POST',
         headers: { accept: 'application/json', 'content-type': 'application/json' },
+        // An undefined location is dropped by JSON.stringify: no key is sent for it.
         body: JSON.stringify({
           keywords: config.keywords,
-          ...(config.location !== undefined && { location: config.location }),
+          location: config.location,
           page: at.page,
         }),
       },

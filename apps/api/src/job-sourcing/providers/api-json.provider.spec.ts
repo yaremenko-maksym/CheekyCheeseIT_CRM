@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { AdapterIdentityCollisionError } from './api-json.provider'
+import { SourcePayloadTooLargeError } from '../http/source-errors'
 import {
   type ApiJsonSourceSpec,
   baseSourceConfigSchema,
@@ -3133,5 +3134,136 @@ describe('settling at the cost actually incurred', () => {
     const batch = await collectJsonPages(makeSpec({ meter: metered(() => 7) }), config(), h.ctx)
 
     expect(batch.requests[0]?.cost).toEqual({ unit: 'RECORD', amount: 50 })
+  })
+})
+
+/**
+ * Task 3.5b: the byte cap an adapter declares reaches the transport on the request, and a refusal
+ * at that cap is a PAYLOAD_TOO_LARGE that keeps nothing.
+ */
+describe('the response cap a source declares', () => {
+  const TEN_MIB = 10 * 1024 * 1024
+  const withCap = (maxBytes: number) => makeSpec({ limits: { maxPages: 5, maxBytes } })
+  const metered = { unit: 'REQUEST' as const, amountPerRequest: 1 }
+
+  it('a source that declares no cap sends requests with no maxBytes at all', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+    expect(Object.keys(h.sent[0] ?? {})).toEqual(['url'])
+  })
+
+  it('a cap equal to the transport default (2 MiB) is not attached: nothing changes for it', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(withCap(2_097_152), config(), h.ctx)
+    expect(h.sent[0]).toEqual({ url: 'https://api.example.com/jobs?page=1' })
+  })
+
+  it('a larger cap (8 000 000) is declared on every request of the attempt', async () => {
+    const h = harness({
+      pages: [
+        { body: { jobs: [job('1')], next: 'c2' } },
+        { body: { jobs: [job('2')], next: null } },
+      ],
+    })
+    await collectJsonPages(withCap(8_000_000), config(), h.ctx)
+    expect(h.sent.map((r) => r.maxBytes)).toEqual([8_000_000, 8_000_000])
+  })
+
+  it('a smaller cap (1000) is declared too, so the transport can stop early', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(withCap(1000), config(), h.ctx)
+    expect(h.sent[0]?.maxBytes).toBe(1000)
+  })
+
+  it('the ceiling itself (10 MiB) is accepted and declared', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(withCap(TEN_MIB), config(), h.ctx)
+    expect(h.sent[0]?.maxBytes).toBe(10_485_760)
+  })
+
+  it.each([
+    ['one byte past the ceiling', TEN_MIB + 1],
+    ['zero', 0],
+    ['negative', -1],
+    ['a fraction', 1.5],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])(
+    '%s is refused at config time: no checkpoint read, no reservation, no request',
+    async (_l, bad) => {
+      const h = harness({ pages: [onePage([job('1')])] })
+      await expect(
+        collectJsonPages(
+          makeSpec({ meter: metered, limits: { maxPages: 5, maxBytes: bad } }),
+          config(),
+          h.ctx,
+        ),
+      ).rejects.toThrow(/invalid maxBytes/)
+      expect(h.calls).toEqual([])
+      expect(h.sent).toEqual([])
+    },
+  )
+
+  it('names the bound in the refusal', async () => {
+    const h = harness({ pages: [] })
+    await expect(collectJsonPages(withCap(TEN_MIB + 1), config(), h.ctx)).rejects.toThrow(
+      'invalid maxBytes: 10485761 (must be 1..10485760)',
+    )
+  })
+
+  it('a transport refusal at the cap is PAYLOAD_TOO_LARGE, keeps no observation, and holds the cost UNCERTAIN', async () => {
+    const h = harness({
+      pages: [
+        {
+          throws: new SourcePayloadTooLargeError(
+            'api.example.com',
+            8_000_000,
+            'exceeded 8000000 bytes',
+          ),
+        },
+      ],
+    })
+    const batch = await collectJsonPages(
+      makeSpec({ meter: metered, limits: { maxPages: 5, maxBytes: 8_000_000 } }),
+      config(),
+      h.ctx,
+    )
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.observations).toEqual([])
+    expect(batch.counts.raw).toBe(0)
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'PAYLOAD_TOO_LARGE',
+      message: 'api.example.com response too large: exceeded 8000000 bytes',
+    })
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'UNCERTAIN' }])
+  })
+
+  it('an ordinary network failure is still TRANSIENT_NETWORK, not PAYLOAD_TOO_LARGE', async () => {
+    const h = harness({ pages: [{ throws: new Error('socket hang up') }] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+    expect(batch.requests.at(-1)?.error?.code).toBe('TRANSIENT_NETWORK')
+  })
+
+  it('a decoded body past the declared cap is refused as PAYLOAD_TOO_LARGE; at the cap it is parsed', async () => {
+    const text = JSON.stringify({ jobs: [], next: null })
+    const bytes = new TextEncoder().encode(text).length
+    const at = harness({ pages: [{ bodyText: text }] })
+    expect((await collectJsonPages(withCap(bytes), config(), at.ctx)).outcome).toBe('SUCCEEDED')
+    const past = harness({ pages: [{ bodyText: text }] })
+    const batch = await collectJsonPages(withCap(bytes - 1), config(), past.ctx)
+    expect(batch.requests.at(-1)?.error?.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(batch.observations).toEqual([])
+  })
+})
+
+describe('a failure BEFORE the request leaves is named for what it is', () => {
+  const metered = { unit: 'REQUEST' as const, amountPerRequest: 1 }
+
+  it('a cache that cannot be read is reported as the cache, not as an unsent request', async () => {
+    const h = harness({ pages: [onePage([job('1')])], cacheGetThrows: true })
+    const batch = await collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx)
+    expect(batch.requests.at(-1)?.error?.message).toBe(
+      'the response cache could not be read: the response cache is unreachable',
+    )
   })
 })

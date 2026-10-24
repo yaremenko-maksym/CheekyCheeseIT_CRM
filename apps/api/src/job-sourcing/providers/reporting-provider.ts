@@ -1267,6 +1267,12 @@ export interface FetchRequest {
   method?: 'GET' | 'POST'
   body?: string
   headers?: Readonly<Record<string, string>>
+  /**
+   * The most response bytes this request may be answered with. Absent, the transport's default
+   * (2 MiB) applies; present, the transport honours it up to its own ceiling (10 MiB). A response
+   * past it is REFUSED (`PAYLOAD_TOO_LARGE`), never truncated: nothing partial reaches a parser.
+   */
+  maxBytes?: number
 }
 
 export interface MeterReservation {

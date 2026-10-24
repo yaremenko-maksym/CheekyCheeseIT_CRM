@@ -472,3 +472,91 @@ describe('the BLOCKED state', () => {
     expect(prov.notes).toContain('UNIT EXAMPLE ONLY, NOT A CAPTURE')
   })
 })
+
+/** Survivors of the mutation gate, each turned into the assertion that kills it. */
+describe('what a reviewer would otherwise have to take on trust', () => {
+  it('declares its source type', () => {
+    expect(provider().type).toBe('JOOBLE_API')
+  })
+
+  it('scopes the run by its search: namespace, query, version, no window', async () => {
+    const { batch } = await run([body({ totalCount: 0, jobs: [] })])
+    expect(batch.scope).toEqual({
+      namespace: 'jooble',
+      query: '{"keywords":"senior developer","location":"remote"}',
+      configVersion: 1,
+      window: null,
+    })
+  })
+
+  it('the next page cursor names the next page (capped at 1: resume at page 2)', async () => {
+    const { batch } = await run([body({ totalCount: 99, jobs: [example().jobs[0]] })])
+    expect(batch.checkpoint?.position).toEqual({ kind: 'CURSOR', page: 1, cursor: 'page:2' })
+  })
+
+  it('3 jobs of a total of 3 stop the walk; 3 of 4 do not', async () => {
+    const p = provider()
+    const three = example().jobs
+    const done = await run([body({ totalCount: 3, jobs: three })], {
+      p,
+      config: cfg({ maxPages: 5 }, p),
+    })
+    expect(done.f.sent).toHaveLength(1)
+    const more = await run(
+      [body({ totalCount: 4, jobs: three }), body({ totalCount: 4, jobs: [] })],
+      { p, config: cfg({ maxPages: 5 }, p) },
+    )
+    expect(more.f.sent).toHaveLength(2)
+  })
+
+  it('a total of null is no total: a non-empty page continues', async () => {
+    const p = provider()
+    const { f } = await run(
+      [body({ totalCount: null, jobs: [example().jobs[0]] }), body({ totalCount: null, jobs: [] })],
+      { p, config: cfg({ maxPages: 5 }, p) },
+    )
+    expect(f.sent).toHaveLength(2)
+  })
+
+  it('the second page is 2 of the total: 1 job a page, 3 pages for a total of 3', async () => {
+    const p = provider()
+    const one = (n: number) =>
+      body({
+        totalCount: 3,
+        jobs: [{ ...example().jobs[0], id: n, link: `https://jooble.org/desc/${n}` }],
+      })
+    const { f } = await run([one(1), one(2), one(3), one(4)], {
+      p,
+      config: cfg({ maxPages: 5 }, p),
+    })
+    expect(f.sent).toHaveLength(3)
+  })
+
+  it('an id of exactly 100 characters is kept; 101 makes the job invalid', async () => {
+    const long = (n: number) => ({ ...example().jobs[0], id: 'i'.repeat(n) })
+    const ok = await run([body({ totalCount: 1, jobs: [long(100)] })])
+    expect(ok.batch.counts.normalized).toBe(1)
+    const bad = await run([body({ totalCount: 1, jobs: [long(101)] })])
+    expect(bad.batch.counts.invalid).toBe(1)
+  })
+
+  it('refusal reasons are the intended ones', () => {
+    const reason = (extra: Record<string, unknown>) => {
+      try {
+        provider().parseConfig({ configVersion: 1, ...SEEDED, ...extra })
+      } catch (e) {
+        return e instanceof Error ? e.message : String(e)
+      }
+      return ''
+    }
+    expect(reason({ query: 'x' })).toContain('Jooble search text lives in keywords / location')
+    expect(reason({ window: { from: '2026-10-01', to: '2026-10-02' } })).toContain(
+      'Jooble has no date window',
+    )
+  })
+
+  it('an error that quotes the bare key (no scheme word near it) is redacted by the adapter alone', async () => {
+    const { batch } = await run([{ throws: new Error(`credential ${KEY} rejected`) }])
+    expect(batch.requests[0]?.error?.message).toBe('credential [REDACTED] rejected')
+  })
+})
