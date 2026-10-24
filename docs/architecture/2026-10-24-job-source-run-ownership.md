@@ -244,19 +244,36 @@ replay or `UNCERTAIN`). It does not evaluate readiness through `readinessAt`, co
 our writes, and it does not keep `job_sources` state (last success versus last non-empty). All of
 that is hand-written under either option.
 
-**Bounded review of the new dependency.** 7 new packages (`pg-boss`, `cron-parser`, `luxon`,
-`rrule-temporal`, `temporal-spec`, `serialize-error` with `non-error` and `type-fest`, plus the
-non-optional peer `@opentelemetry/api`). `pg` is already present. All are MIT, and none has an
-install script. Release cadence is high (14 releases between 2026-09-17 and 2026-10-13) and there is one
+**Bounded review of the new dependency.** pg-boss's dependency tree has nine names: `pg`,
+`cron-parser`, `luxon`, `rrule-temporal`, `temporal-spec`, `serialize-error`, `non-error`,
+`type-fest` and the peer `@opentelemetry/api`. Counted against `pnpm-lock.yaml` on `origin/main`,
+**7 packages are new**: `pg-boss`, `cron-parser`, `rrule-temporal`, `temporal-spec`,
+`serialize-error`, `non-error` and `type-fest` 5. `type-fest` 5 would sit beside the already-locked
+`0.16.0`. Two names are not new:
+
+- `pg` and `luxon` 3.7.2 are already locked.
+- The peer `@opentelemetry/api` is not installed automatically. The lockfile is version 5.4
+  (pnpm 7), there is no `.npmrc` turning on `auto-install-peers`, and the peer has no
+  `peerDependenciesMeta` marking it optional. So it would be an **eighth** explicit addition, or a
+  standing peer warning.
+
+To re-derive this, run
+`git show origin/main:pnpm-lock.yaml | grep -n -E '^  /(luxon|type-fest|@opentelemetry/api|pg-boss|cron-parser|rrule-temporal|temporal-spec|serialize-error|non-error)/'`.
+On `d0f876f33` it prints only `/luxon/3.7.2` and `/type-fest/0.16.0`. All the packages are MIT,
+and the `pg-boss` tarball has no install hook (research file). Release cadence is high (14 releases between 2026-09-17 and 2026-10-13) and there is one
 maintainer. That makes the upgrade policy an exact pin, a Renovate ignore, and a reviewed bump with
 its migration file. The package would need its own row in `version-pins.md`.
 
 **Strongest argument for B.** Claim, expiry, retry with backoff, singleton enforcement and attempt
-fencing are battle-tested, years-old code paths with a large user base. Phase 3's worst defects were
-exactly this kind of lifecycle arithmetic, written by us. Upstream's own attempt fence exists
-because of issue #925, a stale-settle defect of the same shape we guard against. When the fix landed
-was not established. That cuts both ways: the library is maintained, and its long history did not
-prevent this defect.
+fencing are battle-tested, years-old code paths with a large user base. The brief says that
+"four of this phase's hardest defects were in hand-rolled lifecycle arithmetic" (Task 2.5 brief),
+and that arithmetic was written by us. Upstream's own attempt fence exists because of
+[issue #925](https://github.com/timgit/pg-boss/issues/925), a stale `complete()` settling a newer
+attempt, which is the same shape of defect we guard against. The issue was opened 2026-09-23 and
+closed 2026-09-24 (GitHub API, retrieved 2026-10-24), so the fix came after 12.30.0 (2026-09-03).
+That cuts both ways. The library is actively maintained. But a stale-settle defect lived in its
+12.x claim path until a month before this ADR, which weakens "battle-tested" for exactly the
+property we need.
 
 ## Decision
 
@@ -288,11 +305,14 @@ migration on each schema-version bump (six in 40 days), an unproven ESM-in-Commo
 (**confidence MED**; needs a spike), and two leases that must agree. Option B is shallower than it
 looks. Its interface is larger than the part of the problem it solves.
 
-**The rejected option's strongest argument, stated fully.** The defects that hurt phase 3 were in
-hand-rolled lifecycle arithmetic. pg-boss's claim, expiry, retry and singleton paths have years of
-production use behind them, and adopting it would take that arithmetic out of our hands. **Answer:**
-under the plan's requirement to keep the epoch, the arithmetic that actually failed in phase 3
-(epoch, reservation states, lease versus write ordering) stays ours under either option. Option A
+**The rejected option's strongest argument, stated fully.** The brief records that "four of this
+phase's hardest defects were in hand-rolled lifecycle arithmetic". pg-boss's claim, expiry, retry
+and singleton paths have years of production use behind them, and adopting it would take that
+arithmetic out of our hands. **Answer:** the brief does not list those four defects, so this ADR
+does not claim to know which arithmetic they were. What the brief does name is the lifecycle
+arithmetic this task must still write. Its facts 3 and 4 are an inert fencing epoch and two
+executors sharing one reservation. Under the plan's requirement to keep the epoch, both stay ours
+under either option: pg-boss fences only its own job row (Option B). Option A
 limits that risk by **locality** instead: one module is the only writer of the ownership columns
 (enforced by a grep gate in its task), and every transition has a real-Postgres multi-worker case.
 That is the verification bar the brief sets anyway.
@@ -304,9 +324,11 @@ ownership. Also reopen if `apps/api` moves to `module: node16`.
 ### Autonomy classification (`autonomy-levels.md`)
 
 - **The choice of A over B is A2.** The ADR is reversible (one PR), but redoing an implemented
-  ledger is expensive. The **owner** confirms, in the phase's decision brief. Only T3 (the
-  ledger) and T7 (which consumes it) depend on the choice. T1, T2, T4, T5 and T6 are the same under
-  both options, so they can start before the owner answers.
+  ledger is expensive. The **owner** confirms, in the phase's decision brief.
+  **Before the owner answers, T1, T2, T4 and T8 can start.** None of them consumes the ledger, and
+  each is needed under either option. T3 is the ledger itself. T7 consumes it. T5 and T6 depend on
+  T7, and under B T5's cron would call `send` instead of the ledger. So T3, T7, T5 and T6 all wait
+  for the answer.
 - **T1's migration** (two partial unique indexes and an `account_key` column) is a Drizzle migration
   in a critical-path zone. It goes through the normal full pipeline with a mandatory
   security-reviewer. It changes no privilege.
