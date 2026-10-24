@@ -302,13 +302,25 @@ describe('ExistingSalaryParts (SR-795-M-1)', () => {
   // the validation rather than two independent facts. The assertion is on the
   // emitted characters, which is the thing that was wrong; a layout gap is not
   // a separator.
-  it('separates status from origin with a real character, not only spacing', async () => {
+  it('divides every field with a real character, not only spacing', async () => {
+    vi.stubEnv('TZ', 'UTC')
     getSalaryPartsMock.mockResolvedValue({
       receiverId: RECEIVER,
       month: '2026-09',
       parts: [
         {
           id: 'p1',
+          amount: 1000,
+          currency: 'USD',
+          status: 'PENDING',
+          salaryOrigin: 'MANUAL',
+          txDate: '2026-09-30T00:00:00.000Z',
+          notes: null,
+        },
+        // A legacy row with no business date — the separator lives inside the
+        // date's guard, so this must not open with a dangling `·`.
+        {
+          id: 'p2',
           amount: 1000,
           currency: 'USD',
           status: 'PENDING',
@@ -321,11 +333,22 @@ describe('ExistingSalaryParts (SR-795-M-1)', () => {
 
     renderPanel()
 
-    const row = await screen.findByTestId('create-transaction-existing-salary-part')
-    const text = (row.textContent ?? '').replace(/\s+/g, ' ')
-    expect(text).toContain('Очікує валідації·вручну')
-    // The two labels must never run together again.
-    expect(text).not.toContain('Очікує валідаціївручну')
+    const rows = await screen.findAllByTestId('create-transaction-existing-salary-part')
+    const dated = (rows[0]!.textContent ?? '').replace(/\s+/g, ' ')
+    const dateless = (rows[1]!.textContent ?? '').replace(/\s+/g, ' ')
+
+    // The WHOLE emitted row, asserted exactly: this pins all three seams at
+    // once, so removing any one separator fails it. The rendered text is the
+    // artifact that was wrong — layout spacing is invisible to it, which is why
+    // the assertion is on characters and not on classes.
+    expect(dated).toBe('30.09.26·1 000,00 USD·Очікує валідації·вручну')
+    expect(dateless).toBe('1 000,00 USD·Очікує валідації·вручну')
+
+    // The three collisions this replaces, named so they cannot come back
+    // unnoticed: a date fused to an amount reads as one wrong number.
+    expect(dated).not.toContain('30.09.261')
+    expect(dated).not.toContain('USDОчікує')
+    expect(dated).not.toContain('Очікує валідаціївручну')
   })
 
   it('reads a legacy NULL origin as automatic, the way every server predicate does', async () => {
