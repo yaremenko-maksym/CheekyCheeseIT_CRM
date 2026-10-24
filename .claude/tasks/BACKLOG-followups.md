@@ -5855,3 +5855,156 @@ range from dev servers so the origins never collide.
 **Check on closing:** a QA pass on a reused profile either reports zero service-worker registrations
 before its first assertion, or states that it unregistered them — and never reports a render without
 one of those two.
+
+## 332. Deferred non-blocking items from the PR #1119 / #1120 / #1122 review rounds (2026-10-24)
+
+These are LOW items the review axes raised on the three Task-3.x adapter PRs and that I (Master) chose not to
+hold a merge for. Each is a sentence or a bounded, non-urgent fix; each has a verification condition so a
+reader can tell whether it is still live. Grouped because none is worth its own heading and the shared
+context is that all three adapter PRs are blocked, unkeyed, and inert in production.
+
+**From #1119 (TheirStack quota adapter):**
+
+- **The `BillingObservation` docblock's worked example writes "limit 100, reserve 25"**, where `limit`
+  elsewhere in that block means the configured `L` (25 there). A reader can take `L` as 100 and compute
+  `N = 1` instead of 38. The next sentence defines `B` and `L`, so it is ambiguous rather than wrong.
+  **Check:** the example names `B` (account budget) and `L` (reservation) by the same symbols the formula
+  uses.
+- **A stale round-labelled line** ("Item 10") in the PR body carried the pre-correction 304-hazard wording;
+  it is superseded by the round-7 entry and round-labelled, so it was left. **Check:** if that body is ever
+  consolidated, the superseded line is removed rather than read as current.
+
+**From #1122 (ATS-B adapters):**
+
+- **Workable's `robots.txt` carries `Content-Signal: ai-train=no`.** The vacancy text this adapter collects
+  must never be used to train or fine-tune a model in the inference layer. This binds `@crm/inference`, not
+  the adapter, and there is nothing to enforce in #1122. **Check:** the inference layer's data-source policy
+  names Workable-sourced text as train-excluded before any such text reaches a training or fine-tuning path.
+- **The report redactor over-matches on English words**, rewriting prose like "token from" or a company
+  name containing "Token" to `[REDACTED]`. It touches only reports, errors and invalid-sample messages,
+  never stored vacancies, and leaks nothing — it destroys prose. It is shared code outside #1122's diff.
+  **Check:** the redactor keys on a secret _value_ registered for redaction, not on a word.
+- **The shared report redactor misses unregistered credentials** in `Bearer: x`, `X-…-Token: x` and
+  `Token=x` shapes. Existing shared code, not introduced by #1122. **Check:** a credential in those shapes,
+  not separately registered, is redacted from a report.
+- **Recruitee's `description` and `requirements` are joined with no separator**, and Workable's `sameName`
+  uses a locale-default `localeCompare`. Both LOW, both cosmetic. **Check:** the joined text has a boundary;
+  the comparison uses a fixed locale.
+- **Copyright of committed third-party job text and XML** in a public repo is a question for the legal
+  agent, not a code fix. **Check:** legal has given a disposition on committing captured vacancy text as
+  fixtures.
+
+**From #1120 (free-JSON-B adapters), carried from earlier rounds and not re-raised as blockers:**
+
+- **The personal-data scan reads addresses and profile links, not names.** Named individuals in free text
+  (for example a managing director beside an Impressum address, or a first name beside a redacted profile
+  link) are outside it by construction, and the spec header now says so. **Check:** the header's NOT COVERED
+  list still names "personal names in free text".
+- **The profile-link test covers `/in/` paths only** — a `/pub/` profile, `lnkd.in`, or a non-LinkedIn
+  profile URL would pass. None is in the corpus. **Check:** either the test covers those forms, or the
+  header lists them as not covered.
+
+**A durability gap the spec axis raised on #1122, recorded here because it outlives that PR.** Two
+decisions made during these rounds live only in gitignored task files, where a PR reader and the repo's own
+history cannot see them: the loosening of Task 3.4's "`ats-config.ts` additive only" to "behaviour-preserving
+extension", and the closure of the Recruitee-deadline manifest finding by deferral to Task 3.7. The
+adapter-level fact is durable — `RECRUITEE_TOKEN_DEADLINE` is an exported constant the adapter enforces — but
+**the manifest's obligation to import and assert against it lives only in the untracked 3.7 brief.** If that
+brief is lost or reworded, nothing in the repository records that Task 3.7 must derive readiness from the
+date rather than re-type it. **Check:** Task 3.7's PR, when it lands, carries that requirement in a tracked
+file (its own code, a spec, or an ADR), not only in `.claude/tasks/`.
+
+**The one that is not mine and not deferrable the same way:** the convergent integration-run defect is
+already tracked as entry **317** ("The integration-run model is a dichotomy; reality has a third case that
+reports a confident pass"), filed by a parallel session. The security axis found the same thing on #1119
+independently; #1119 closed its instance by recording an actual filtered run with the executed count. No new
+entry — 317 holds it, and this line exists so the #1119 provenance points at it.
+
+## 333. Two follow-ups from PR #1122's round-2 review — the next layer of the SmartRecruiters dormancy guard (2026-10-24)
+
+Both found by the code axis on PR #1122 at `b747340c`, both correctly judged non-blocking there, both the
+_next_ layer of a guard that is sound for every path reachable today. Recorded so they are not lost when
+that PR merges.
+
+- **`createSmartRecruitersProvider(bounds, { liveDespiteRobots: true })` is a public export.** The provider
+  is dormant by construction — the live loop (`collectSmartRecruiters`) is unexported, and the only route to
+  it is the `liveDespiteRobots === true` option, which parsed config cannot supply, so the default export
+  and every config refuse. But a **future non-spec caller** could arm the factory directly, and every
+  current test would stay green, because the dormancy specs exercise the default export rather than forbid
+  the armed one outside tests. The fix the reviewer proposed is a **source-scan test that no non-spec file
+  contains `liveDespiteRobots`**. This belongs with registration — the first place such a caller could
+  appear is plan Task 2.5 / Task 3.7 — and SmartRecruiters is `BLOCKED(robots)` with no authentic capture,
+  so there is nothing to register today. **Check:** a test fails if any non-spec file references
+  `liveDespiteRobots`, added no later than the change that first registers a phase-3 adapter.
+- **The Personio host-declaration assertion compares two copies of the same template**, so it catches drift
+  between the declared host and the request but not a mistake shared by both. The real protection is the
+  slug-and-`tld` validation (`board` a single DNS label, `tld` limited to `de`/`com`), which is tested
+  against hostile spellings. **Check:** the host assertion derives the expected host from something other
+  than the same template the code uses, or the review note explains why the slug/tld validation makes that
+  unnecessary.
+
+Both are on the SmartRecruiters path, which cannot run in production until registration (Task 2.5) exists —
+the same keystone every phase-3 adapter waits on.
+
+## 334. The privacy scan's own controls are unguarded by CI, so a later loosening would be caught by nothing (2026-10-24)
+
+Raised by the spec axis on PR #1120 at `abc12d1b` as outside its own axis, and it is right that it needs a
+home rather than a verdict.
+
+`fixture-provenance.spec.ts` carries the personal-data scan for the job-source fixtures: a decode-first
+`@`-token check, a decode-first `linkedin.com/in/` check with 13 planted-form controls, a whole-value
+`isPlaceholder`, a root guard and a recommitted-raw guard. Those controls are real — during PR #1120 they
+found two named individuals' e-mail addresses and three personal profile slugs that four hand-written scans
+had missed, and one control (`/in&#x2Fbob`) exposed a genuine greedy-hex bug that read `&#x2Fb` as U+02FB.
+
+**The gap: nothing mechanically proves the controls still bite.** The mutation gate loads spec files in its
+dry run but does **not mutate them**, so a 0-survivor gate result says nothing about whether the scan's
+regexes still catch anything. The only evidence they work is a **hand-mutation the author performed once**
+— reverting the slug class to ASCII and making the entity read greedy, observing four controls fail, then
+restoring the file. That is good practice and it is **not re-runnable by anyone**, so it does not survive
+into the future. A later simplification of the scan — widening `isPlaceholder`, shortening the decode
+rounds, narrowing the slug class back to ASCII — would pass CI green.
+
+This is the same shape as the defect the whole PR was about, one level up: a property established by an act
+rather than by an instrument.
+
+**Candidate answers, in increasing cost:**
+
+1. **Mutation-test the scan helpers by moving them out of the spec.** If `decodeDelimiters`, `PROFILE_LINK`
+   and `isPlaceholder` lived in `src/test/` as a module rather than inside the spec file, the gate would
+   mutate them and the 13 controls would become the thing that kills those mutants. Cheapest real fix, and
+   it uses machinery that already exists.
+2. **A meta-test that mutates the scan in-process** — apply a known loosening to a copy of the pattern and
+   assert the control fails. Self-contained but writes a mutation harness by hand.
+3. **Leave it and rely on review.** This is the status quo and is what the twelve rounds of #1120 show does
+   not reliably hold.
+
+**Check on closing:** a loosening of the slug class, the decode-round cap or `isPlaceholder` fails a check
+in CI without anyone re-reading the spec.
+
+Related: entry 332 (the scan reads delimiters and addresses, not names in free text), and the #1120 history
+for what the controls caught.
+
+## 335. Two instrument-honesty gaps in the fixture privacy scan, deferred from PR #1120's final axes (2026-10-24)
+
+Both raised at PR #1120's merged head (`4db0cd92`), both MED, both about what the scan _says_ it covers versus
+what it covers, neither exposed data. Deferred rather than held for a fourteenth round: the source is blocked
+and inert, three independent decode-first sweeps found no personal data in the tree, and each item is a
+one-sentence or one-line change with no behavioural effect.
+
+**The `@`-token scan cannot see a Cloudflare `data-cfemail` token, and the header does not say so (RM-SR-M-1).**
+`an-terms.html` holds two such tokens; they XOR-decode to `contact@arbeitnow.com`, a role mailbox on
+Arbeitnow's own terms page — not personal data, which is why this does not block. But the token is
+XOR-obfuscated hex with no literal `@`, so the scan is blind to it: it would stay green if such a token held a
+_personal_ address. The security axis checked the whole tree (2,539 files) and found no other `data-cfemail`
+token. **Fix:** add `data-cfemail` / Cloudflare-email-protection to the spec header's NOT-COVERED list, or
+decode the token in `hitsOf`. **Check on closing:** a planted `data-cfemail` token encoding a non-role address
+either fails the scan or is named in the NOT-COVERED list.
+
+**A decode-ceiling comment in `fixture-provenance.spec.ts` is one very long line (RM-CR-M-1).** Prettier
+accepts it, so it is cosmetic; wrap it when the file is next touched. No check on closing beyond "prettier
+still passes".
+
+These join 334 (the scan's controls are not mutation-tested) as the standing instrument-limit set for the
+fixture privacy scan: the scan is a denylist of encodings and its honest boundary is the header's NOT-COVERED
+list, so that list is the thing to keep accurate as encodings are found.
