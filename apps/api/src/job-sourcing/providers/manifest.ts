@@ -498,7 +498,7 @@ function checkAuth(def: TypeDefinition, permissions: readonly Permission[]): voi
       `${def.type}: auth ${def.auth} against provenance permissions ${permissions.join(',') || 'none'}`,
     )
   }
-  const deadlineAuth = (def.deadlines ?? []).some((d) => d.kind === 'AUTH_REQUIRED_FROM')
+  const deadlineAuth = def.deadlines?.some((d) => d.kind === 'AUTH_REQUIRED_FROM') === true
   if (deadlineAuth !== (def.auth === 'EMPLOYER_TOKEN_FROM_DEADLINE')) {
     throw new ManifestError(
       'DEADLINE_DISAGREES',
@@ -559,12 +559,12 @@ function checkQuota(types: readonly ManifestType[], entries: readonly ManifestEn
   for (const [account, q] of accounts) {
     const owners = types.filter((t) => t.quota?.account === account)
     if (q.limit === null || q.window !== 'MONTH') continue
-    const perMonth = entries
-      .filter((e) => owners.some((t) => t.type === e.type))
-      .reduce((sum, e) => {
-        const perRun = owners.find((o) => o.type === e.type)?.requestsPerRun ?? 1
-        return sum + Math.floor(MONTH_HOURS / e.intervalHours) * perRun
-      }, 0)
+    // The requests one run of each owning type sends; an entry of any other type is not this account's.
+    const perRun = new Map(owners.map((o) => [o.type, o.requestsPerRun]))
+    const perMonth = entries.reduce((sum, e) => {
+      const n = perRun.get(e.type)
+      return n === undefined ? sum : sum + Math.floor(MONTH_HOURS / e.intervalHours) * n
+    }, 0)
     if (q.unit === 'REQUEST' && perMonth > q.limit) {
       throw new ManifestError(
         'QUOTA_INCONSISTENT',
@@ -581,18 +581,21 @@ function checkCadence(def: TypeDefinition, e: EntryDefinition): void {
       `${e.id}: intervalHours ${e.intervalHours} is not a positive integer`,
     )
   }
-  if (def.minIntervalHoursFloor !== undefined && e.intervalHours < def.minIntervalHoursFloor) {
+  const floor = def.minIntervalHoursFloor ?? 0
+  if (e.intervalHours < floor) {
     throw new ManifestError(
       'CADENCE_INVALID',
-      `${e.id}: ${e.intervalHours} h is under the ${def.minIntervalHoursFloor} h the provider's terms allow`,
+      `${e.id}: ${e.intervalHours} h is under the ${floor} h the provider's terms allow`,
     )
   }
-  if (e.budget !== undefined && e.budget.window === 'MONTH') {
-    const runs = Math.floor(MONTH_HOURS / e.intervalHours)
+  if (e.budget !== undefined) {
+    // The schedule has to fit the entry's OWN budget in the window the budget is counted over.
+    const unit = e.budget.window === 'DAY' ? 'day' : 'month'
+    const runs = Math.floor((e.budget.window === 'DAY' ? 24 : MONTH_HOURS) / e.intervalHours)
     if (runs > e.budget.limit) {
       throw new ManifestError(
         'CADENCE_INVALID',
-        `${e.id}: ${runs} scheduled runs a month exceed its own budget of ${e.budget.limit}`,
+        `${e.id}: ${runs} scheduled runs a ${unit} exceed its own budget of ${e.budget.limit}`,
       )
     }
   }
@@ -666,11 +669,8 @@ export function buildManifest(input: BuildInput): Manifest {
     seenTypes.add(def.type)
     const type = def.type as JobSourceType
 
-    const implemented = def.disposition.kind === 'IMPLEMENTED'
     const reporting =
-      implemented &&
-      def.disposition.kind === 'IMPLEMENTED' &&
-      def.disposition.contract === 'REPORTING'
+      def.disposition.kind === 'IMPLEMENTED' && def.disposition.contract === 'REPORTING'
     const adapter = input.adapters.get(type)
     if (reporting && adapter === undefined) {
       throw new ManifestError(
