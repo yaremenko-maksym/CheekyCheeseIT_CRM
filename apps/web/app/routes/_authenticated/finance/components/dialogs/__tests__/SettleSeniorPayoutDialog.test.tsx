@@ -294,7 +294,7 @@ describe('SettleSeniorPayoutDialog — reused for DROP_PENDING_PAYOUT (settle-dr
     // deliberately not UTC-pinned). Midday UTC is the same calendar day in
     // Kyiv (15:00), UTC and Los Angeles (05:00); the shared fixture's
     // T00:00Z would read 31.05.26 west of UTC.
-    renderDialog({ ...TX, createdAt: '2026-06-01T12:00:00.000Z' })
+    renderDialog({ ...(TX as object), createdAt: '2026-06-01T12:00:00.000Z' })
     expect(screen.getByText('01.06.26')).toBeInTheDocument()
   })
 

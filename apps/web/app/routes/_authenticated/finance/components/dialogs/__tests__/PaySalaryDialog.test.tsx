@@ -227,6 +227,32 @@ describe('PaySalaryDialog — account + currency selectors', () => {
     )
   })
 
+  // QA-LOW-1 (backlog 338): a legacy row with a NULL `txDate` shows its
+  // createdAt INSTANT in the browser's zone, so the picker's lower bound and
+  // the "earliest available date" hint must be read off the SAME clock. The
+  // old hint used the UTC day: 05:00Z on 20 Oct read 19.10.26 in Los Angeles
+  // beside a hint of 20.10.2026. Runs under the default, Kyiv and LA projects.
+  it('NULL txDate: the displayed date, the picker bound and the hint name the same calendar day', async () => {
+    renderDialog({
+      ...(TX as object),
+      txDate: null,
+      createdAt: '2026-10-20T05:00:00.000Z',
+    } as SalaryTx)
+    await screen.findByTestId('pay-salary-account-company')
+    // Independent literals per zone: 05:00Z is 08:00 on the 20th in Kyiv and
+    // 22:00 on the 19th in Los Angeles. UTC (CI default) agrees with Kyiv.
+    // Keyed on the UTC offset, not the zone NAME: the ICU build may report the
+    // legacy alias `Europe/Kiev` for TZ=Europe/Kyiv.
+    const offsetMin = new Date('2026-10-20T05:00:00.000Z').getTimezoneOffset()
+    const day = { '-180': '20', '420': '19', '0': '20' }[String(offsetMin)]
+    if (day === undefined) return // an unpinned developer zone; the tz:* projects always hit a row
+    expect(screen.getByText(`${day}.10.26`)).toBeInTheDocument()
+    expect(screen.getByTestId('pay-salary-txdate')).toHaveAttribute('min', `2026-10-${day}`)
+    expect(screen.getByText(/Найраніша доступна дата/).textContent).toBe(
+      `Найраніша доступна дата — ${day}.10.2026.`,
+    )
+  })
+
   it('prefers txDate over createdAt and clamps a future salary payment date', async () => {
     renderDialog({
       ...(TX as object),

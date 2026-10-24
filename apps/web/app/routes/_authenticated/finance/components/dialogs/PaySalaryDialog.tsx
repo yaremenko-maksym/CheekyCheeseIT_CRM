@@ -29,7 +29,7 @@ import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { api } from '@/lib/axios'
 import { parseStrictAmount } from '@/lib/utils'
 import { financeApi } from '../../api'
-import { formatTxOrCreated } from '../../utils/tx-date'
+import { formatTxOrCreated, txDisplayDay } from '../../utils/tx-date'
 import { convertAmount, fmtAmount, type ExchangeRates } from '../../constants'
 import { FundingSourceFields, COMPANY_ACCOUNT_VALUE, type Currency } from './FundingSourceFields'
 import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
@@ -76,9 +76,10 @@ export function PaySalaryDialog({
   // SERVER prices by (backlog 148), or this pre-fills the amount from a rate
   // a stale-by-up-to-3-hours cache thinks is still "today's".
   const todayKey = kyivToday()
-  const sourceDateKey = tx
-    ? new Date(tx.txDate ?? tx.createdAt).toISOString().slice(0, 10)
-    : todayKey
+  // The same day the «Дата» row below displays (`txDisplayDay` mirrors
+  // `formatTxOrCreated`), so the picker bound and the hint never disagree with
+  // it - for a legacy NULL-`txDate` row the UTC day was a day off west of UTC.
+  const sourceDateKey = tx ? txDisplayDay(tx.txDate, tx.createdAt) : todayKey
 
   useEffect(() => {
     const today = kyivToday()
