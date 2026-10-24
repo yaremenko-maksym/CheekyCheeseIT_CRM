@@ -585,6 +585,7 @@ export function stackKeywordHits(
 function indexByFirstToken(tokens: readonly string[]): Map<string, number[]> {
   const index = new Map<string, number[]>()
   tokens.forEach((token, position) => {
+    // Stryker disable next-line ArrayDeclaration: a junk first entry is a string, never an in-range start, and `phraseStarts` rejects it because tokens[junk + j] is undefined
     index.set(token, [...(index.get(token) ?? []), position])
   })
   return index
@@ -596,7 +597,7 @@ function phraseStarts(
   index: ReadonlyMap<string, number[]>,
   needle: readonly string[],
 ): number[] {
-  // Stryker disable next-line StringLiteral: a spelling is never empty, so the fallback key is never looked up in a way a test could see
+  // Stryker disable next-line StringLiteral,ArrayDeclaration: a spelling is never empty, and a junk candidate is a string that fails the token comparison
   const candidates = index.get(needle[0] ?? '') ?? []
   return candidates.filter((start) => needle.every((word, j) => tokens[start + j] === word))
 }

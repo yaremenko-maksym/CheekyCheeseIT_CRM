@@ -128,6 +128,7 @@ export type TechMatchResult = TechMatchReady | TechMatchReadinessIssue
 // ---------------------------------------------------------------------------
 
 /** Cannot occur inside a token, so no keyword phrase can span it. */
+// Stryker disable next-line StringLiteral: an empty-string break is just as unmatchable by a non-empty token phrase, so no output differs
 const SEGMENT_BREAK = '|'
 
 const NEGATORS: ReadonlySet<string> = new Set([
@@ -196,10 +197,8 @@ interface BodyReading {
   segments: BodySegment[]
   /** Every segment's tokens, each followed by SEGMENT_BREAK. */
   tokens: string[]
-  /** For every entry of `tokens`, the segment it belongs to. */
-  owner: BodySegment[]
-  /** Local token offset of the segment start inside `tokens`, per segment. */
-  startOf: Map<BodySegment, number>
+  /** For every entry of `tokens`, the segment it belongs to and where that segment starts in `tokens`. */
+  owner: { segment: BodySegment; start: number }[]
 }
 
 /**
@@ -208,9 +207,9 @@ interface BodyReading {
  */
 function readBody(body: string | null): BodyReading {
   const segments: BodySegment[] = []
+  // Stryker disable next-line ArrayDeclaration: a junk first token only shifts every start by one and never equals a keyword token, so no observable output changes
   const tokens: string[] = []
-  const owner: BodySegment[] = []
-  const startOf = new Map<BodySegment, number>()
+  const owner: BodyReading['owner'] = []
   let sectionOptional = false
 
   const lines = body === null ? [] : body.split(/\r?\n/)
@@ -229,19 +228,20 @@ function readBody(body: string | null): BodyReading {
         optional: sectionOptional || hasOptionalPhrase(sentenceTokens),
       }
       segments.push(segment)
-      startOf.set(segment, tokens.length)
+      const owned = { segment, start: tokens.length }
       for (const token of [...sentenceTokens, SEGMENT_BREAK]) {
         tokens.push(token)
-        owner.push(segment)
+        owner.push(owned)
       }
     }
   }
-  return { segments, tokens, owner, startOf }
+  return { segments, tokens, owner }
 }
 
 function isNegatedAt(segmentTokens: readonly string[], local: number): boolean {
   const before = segmentTokens.slice(Math.max(0, local - NEGATOR_WINDOW), local)
   if (before.some((token) => NEGATORS.has(token))) return true
+  // Stryker disable next-line ArithmeticOperator: starting one token earlier only adds the pair (token before the keyword = `not`, keyword = a follower word), and that `not` is already caught by the leading check above
   for (let i = local + 1; i <= local + TRAILING_NEGATION_WINDOW; i += 1) {
     if (
       segmentTokens[i] === 'not' &&
@@ -268,9 +268,10 @@ interface Mention {
 
 /** The strongest mentions win; ties keep every source that reached that strength. */
 function bestEvidence(keyword: string, mentions: readonly Mention[]): KeywordEvidence {
-  const best = mentions.reduce((a, m) =>
-    STRENGTH_RANK[m.strength] > STRENGTH_RANK[a.strength] ? m : a,
-  )
+  const rank = (m: Mention) => STRENGTH_RANK[m.strength]
+  // Stryker disable next-line EqualityOperator: on a tie both mentions have the same strength, and only `best.strength` is read
+  const higher = (a: Mention, b: Mention) => (rank(b) > rank(a) ? b : a)
+  const best = mentions.reduce(higher)
   const winners = mentions.filter((m) => m.strength === best.strength)
   return {
     keyword,
@@ -294,6 +295,8 @@ function readPosting(posting: TechMatchPosting, union: readonly string[]): Posti
   }
 
   // Title and tags are structured surfaces: always CORE, ambiguous aliases such as `go` count.
+  // The empty token list passed as the "other" surface below can be mutated to a junk token; no keyword equals it, so nothing observable changes.
+  // Stryker disable next-line ArrayDeclaration: see the comment above
   for (const keyword of stackKeywordHits(union, stackTokens(posting.title), []).keys()) {
     record(keyword, { strength: 'CORE', source: 'TITLE', excerpt: null })
   }
@@ -301,18 +304,20 @@ function readPosting(posting: TechMatchPosting, union: readonly string[]): Posti
   for (const tag of posting.tags) {
     const tagTokens = stackTokens(tag)
     tags = tags || tagTokens.length > 0
+    // Stryker disable next-line ArrayDeclaration: junk "other surface" token, see above
     for (const keyword of stackKeywordHits(union, tagTokens, []).keys()) {
       record(keyword, { strength: 'CORE', source: 'TAG', excerpt: null })
     }
   }
 
   const body = readBody(posting.body)
+  // Stryker disable next-line ArrayDeclaration: junk "other surface" token, see above
   for (const [keyword, hit] of stackKeywordHits(union, [], body.tokens)) {
     for (const index of hit.bodyIndexes) {
-      const segment = body.owner[index]
-      const start = segment === undefined ? undefined : body.startOf.get(segment)
+      const owned = body.owner[index]
       // Stryker disable next-line ConditionalExpression: `owner` has one entry per token, so an index returned by the matcher always has a segment; the guard exists only for noUncheckedIndexedAccess
-      if (segment === undefined || start === undefined) continue
+      if (owned === undefined) continue
+      const { segment, start } = owned
       const negated = isNegatedAt(segment.tokens, index - start)
       record(keyword, {
         strength: negated ? 'NEGATED' : segment.optional ? 'OPTIONAL' : 'CORE',

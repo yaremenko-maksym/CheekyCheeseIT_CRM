@@ -78,15 +78,16 @@ const matched = (r: TechMatchReady, id: string) => {
 const kw = (r: TechMatchReady) => r.rosterMatches.map((m) => m.keyword).sort()
 
 describe('union beyond 60 — the techword fixture', () => {
-  const r = run({ title: 'Engineer', body: TECHWORD.postingBody }, TECHWORD.profiles)
+  const result = () => run({ title: 'Engineer', body: TECHWORD.postingBody }, TECHWORD.profiles)
   const ids = TECHWORD.profiles.map((p) => p.seniorId)
 
   it('keeps the whole 150-keyword union, not 60', () => {
     expect(TECHWORD.profiles.map((p) => p.techStack.length)).toEqual([50, 50, 50])
-    expect(r.rosterUnionSize).toBe(150)
+    expect(result().rosterUnionSize).toBe(150)
   })
 
   it('finds techword149, techword0 and techword75, one per profile', () => {
+    const r = result()
     expect(kw(r)).toEqual(TECHWORD.expectedMatches)
     expect(matched(r, ids[0] ?? '').matches.map((m) => m.keyword)).toEqual(['techword0'])
     expect(matched(r, ids[1] ?? '').matches.map((m) => m.keyword)).toEqual(['techword75'])
@@ -94,7 +95,9 @@ describe('union beyond 60 — the techword fixture', () => {
   })
 
   it('records which seniors hold each roster keyword', () => {
-    expect(r.rosterMatches.find((m) => m.keyword === 'techword75')?.seniorIds).toEqual([ids[1]])
+    expect(result().rosterMatches.find((m) => m.keyword === 'techword75')?.seniorIds).toEqual([
+      ids[1],
+    ])
   })
 })
 
@@ -311,6 +314,16 @@ describe('context cues, one by one', () => {
     expect(strengthOf('Java a b c not required')).toBe('NEGATED')
     expect(strengthOf('Java a b c d not required')).toBe('CORE')
     expect(strengthOf('Java not')).toBe('CORE')
+  })
+
+  it('a follower word without a "not" before it negates nothing', () => {
+    expect(strengthOf('Java is strictly required')).toBe('CORE')
+    expect(strengthOf('Java is a must, needed')).toBe('CORE')
+  })
+
+  it('a title mention and a body mention both carry the excerpt of the body one', () => {
+    const r = run({ title: 'Java', body: 'Java' }, [profile(A, ['java'])])
+    expect(r.rosterMatches[0]).toMatchObject({ sources: ['TITLE', 'BODY'], excerpt: 'Java' })
   })
 
   it('a keyword that is itself a negator word is not negated by itself', () => {
@@ -589,6 +602,24 @@ describe('exclusions run before matching', () => {
     expect(r.ignoredExclusionIds).toEqual(['55555555-5555-4555-8555-555555555555'])
     const noId = run({ body: 'python' }, [profile(A, ['python'])], [{ ...g, id: null }])
     expect(noId.ignoredExclusionIds).toEqual([])
+  })
+
+  it('a malformed GLOBAL company exclusion that carries a senior id still does not apply', () => {
+    const odd = exclusion({ scope: 'GLOBAL', seniorId: A })
+    const r = run({ body: 'python' }, [profile(A, ['python'])], [odd])
+    expect(r.matchableSeniorIds).toEqual([A])
+  })
+
+  it("a senior's KEYWORD exclusion is not promoted to a global one", () => {
+    const mine = exclusion({
+      seniorId: B,
+      kind: 'KEYWORD',
+      value: 'engineer',
+      normalizedValue: 'engineer',
+    })
+    const r = run({ body: 'python' }, [profile(A, ['python']), profile(B, ['python'])], [mine])
+    expect(r.matchableSeniorIds).toEqual([A])
+    expect(r.seniors.map((s) => s.disposition)).toEqual(['MATCHABLE', 'EXCLUDED'])
   })
 
   it('lists only the unused GLOBAL company exclusions as ignored', () => {
