@@ -421,21 +421,34 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
       expect(confirmed['createdBy']).toBe(accountantUser.id)
     })
 
+    // SR-809-H-1: the clock is pinned beside the fixture dates. These three
+    // tests are about the LOWER bound (a confirmation cannot predate its PAYOUT
+    // row), and they used to run against real time with May-2026 literals — so
+    // once the 31-day backdating window existed they started failing for an
+    // unrelated reason (the window), and would have drifted in and out of
+    // passing as the calendar moved. Pinning keeps each one testing the bound it
+    // was written for, permanently.
     it('stores the selected business date on both PAYOUT and PAYOUT_CONFIRMED', async () => {
-      const { svc, state } = makeService({
-        payoutRow: makePayoutRow({ txDate: new Date('2026-05-01T00:00:00.000Z') }),
-      })
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-05-05T12:00:00.000Z'))
+      try {
+        const { svc, state } = makeService({
+          payoutRow: makePayoutRow({ txDate: new Date('2026-05-01T00:00:00.000Z') }),
+        })
 
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
-        method: 'CASH',
-        txDate: '2026-05-04',
-      })
+        await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+          method: 'CASH',
+          txDate: '2026-05-04',
+        })
 
-      expect((state.updates[0]!.set['txDate'] as Date).toISOString().slice(0, 10)).toBe(
-        '2026-05-04',
-      )
-      expect((state.inserts[0]!['txDate'] as Date).toISOString().slice(0, 10)).toBe('2026-05-04')
-      expect(state.updates[0]!.set['txDate']).toBe(state.inserts[0]!['txDate'])
+        expect((state.updates[0]!.set['txDate'] as Date).toISOString().slice(0, 10)).toBe(
+          '2026-05-04',
+        )
+        expect((state.inserts[0]!['txDate'] as Date).toISOString().slice(0, 10)).toBe('2026-05-04')
+        expect(state.updates[0]!.set['txDate']).toBe(state.inserts[0]!['txDate'])
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('rejects an omitted confirmation date when today is before the PAYOUT business date', async () => {
@@ -459,37 +472,49 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
     })
 
     it('rejects a selected date before the PAYOUT business date', async () => {
-      const { svc, state } = makeService({
-        payoutRow: makePayoutRow({ txDate: new Date('2026-05-03T00:00:00.000Z') }),
-      })
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-05-05T12:00:00.000Z'))
+      try {
+        const { svc, state } = makeService({
+          payoutRow: makePayoutRow({ txDate: new Date('2026-05-03T00:00:00.000Z') }),
+        })
 
-      await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
-          method: 'CASH',
-          txDate: '2026-05-02',
-        }),
-      ).rejects.toMatchObject({
-        response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', statusCode: 400 },
-      })
-      expect(state.updates).toHaveLength(0)
-      expect(state.inserts).toHaveLength(0)
+        await expect(
+          svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+            method: 'CASH',
+            txDate: '2026-05-02',
+          }),
+        ).rejects.toMatchObject({
+          response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', statusCode: 400 },
+        })
+        expect(state.updates).toHaveLength(0)
+        expect(state.inserts).toHaveLength(0)
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('accepts a selected date equal to the PAYOUT business date', async () => {
-      const { svc, state } = makeService({
-        payoutRow: makePayoutRow({
-          txDate: new Date('2026-05-03T00:00:00.000Z'),
-          createdAt: new Date('2026-05-05T10:00:00.000Z'),
-        }),
-      })
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-05-05T12:00:00.000Z'))
+      try {
+        const { svc, state } = makeService({
+          payoutRow: makePayoutRow({
+            txDate: new Date('2026-05-03T00:00:00.000Z'),
+            createdAt: new Date('2026-05-05T10:00:00.000Z'),
+          }),
+        })
 
-      await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
-          method: 'CASH',
-          txDate: '2026-05-03',
-        }),
-      ).resolves.toBeDefined()
-      expect(state.updates).not.toHaveLength(0)
+        await expect(
+          svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+            method: 'CASH',
+            txDate: '2026-05-03',
+          }),
+        ).resolves.toBeDefined()
+        expect(state.updates).not.toHaveLength(0)
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('selecting Kostya credits Kostya, not Maksym', async () => {

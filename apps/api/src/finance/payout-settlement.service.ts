@@ -19,7 +19,8 @@ import {
 import { OnChainClaimService } from './onchain-claim.service'
 import { PayoutRequestReadService } from './payout-request-read.service'
 import { applyDropProjectPayout } from './payout-settlement-drop.util'
-import { formatTransactionBusinessDate, resolveTransactionDate } from './transaction-date.util'
+import { resolveTransactionDateWithPolicy } from './transaction-date-policy'
+import { formatTransactionBusinessDate } from './transaction-date.util'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
 
 // Phase 8 v2 — payout → company wallet. Marker persisted in
@@ -267,7 +268,14 @@ export class PayoutSettlementService {
     requestId: string,
     method: ManualPayoutMethod,
     currentUser: SessionUser,
-    options: { note?: string | null; txHash?: string | null; txDate?: string | null } = {},
+    options: {
+      note?: string | null
+      txHash?: string | null
+      txDate?: string | null
+      // SR-809-H-1 / D-2: travels with txDate. ADMIN/ACCOUNTANT may exceed the
+      // backdating window with a stated reason, recorded in the audit metadata.
+      backdateReason?: string | null
+    } = {},
   ) {
     // RBAC: ADMIN/ACCOUNTANT only (NOT SENIOR/DROP). Real 403 enforced here AND
     // by the controller RolesGuard (defense-in-depth).
@@ -366,6 +374,7 @@ export class PayoutSettlementService {
       needsReuseGuard,
       null,
       options.txDate,
+      options.backdateReason,
     )
   }
 
@@ -401,6 +410,10 @@ export class PayoutSettlementService {
     // audit data, never a gate.
     onChainFromAddress: string | null = null,
     txDate?: string | null,
+    // SR-809-H-1 / D-2. Only the manual-confirm entry point can supply one: the
+    // on-chain `payPayoutRequest` path is SENIOR/DROP, and neither role is
+    // exempt from the backdating window, so a reason there could never apply.
+    backdateReason?: string | null,
   ) {
     const requestId = req.id
 
@@ -490,7 +503,19 @@ export class PayoutSettlementService {
             throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
           }
         }
-        const paymentTxDate = txDate ? resolveTransactionDate(txDate) : undefined
+        // SR-809-H-1 Scenario 3 / owner decision D-2: this is the date that ends
+        // up on the PAYOUT row, and `invoice-creation.service` stamps the invoice
+        // from it — a legal document. EXECUTED: the payment has happened by the
+        // time this cascade runs, so the date is never ahead of today, and a
+        // self-service role cannot reach back past the window.
+        const dateDecision = txDate
+          ? resolveTransactionDateWithPolicy(txDate, {
+              role: currentUser.role,
+              flow: 'EXECUTED',
+              backdateReason,
+            })
+          : undefined
+        const paymentTxDate = dateDecision?.txDate
 
         // SR-809-L-3: the audit trail used to carry the NEW date only, while the
         // PAYOUT row's own date is overwritten at pay time — so the override was
@@ -505,6 +530,12 @@ export class PayoutSettlementService {
                   ? formatTransactionBusinessDate(payoutSourceTxDate)
                   : null,
                 txDateAfter: formatTransactionBusinessDate(paymentTxDate),
+                // SR-809-L-3 / D-2: present only when the policy actually
+                // consumed a reason — i.e. an ADMIN/ACCOUNTANT dated this
+                // payment beyond the backdating window.
+                ...(dateDecision?.backdateReason
+                  ? { backdateReason: dateDecision.backdateReason }
+                  : {}),
               }
 
         // ── SECURITY (LOW #6, defense-in-depth): in-transaction txHash-reuse guard.

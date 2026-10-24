@@ -7,7 +7,9 @@ import { zodErrorBadRequest } from '../common/zod-error-exception'
 import { DatabaseService } from '../database/database.service'
 import { payoutRequests, transactionAuditLog, transactions, users } from '../database/schema'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
-import { formatTransactionBusinessDate, resolveTransactionDate } from './transaction-date.util'
+import { backdateAuditRow } from './transaction-date-audit.util'
+import { resolveTransactionDateWithPolicy } from './transaction-date-policy'
+import { formatTransactionBusinessDate } from './transaction-date.util'
 import { assertTransactionWritable } from './transaction-visibility.util'
 
 /**
@@ -190,7 +192,15 @@ export class PayoutConfirmationService {
     payoutTxId: string,
     recipientAdminId: string,
     currentUser: SessionUser,
-    options: { method?: 'CRYPTO' | 'CASH'; txHash?: string | null; txDate?: string | null } = {},
+    options: {
+      method?: 'CRYPTO' | 'CASH'
+      txHash?: string | null
+      txDate?: string | null
+      // SR-809-H-1 / D-2: travels with txDate. ADMIN/ACCOUNTANT (the only roles
+      // this method admits) may exceed the backdating window with a stated
+      // reason, which is recorded on the audit trail below.
+      backdateReason?: string | null
+    } = {},
     readBack: (id: string) => Promise<T>,
   ): Promise<{ payout: T; confirmed: T | null }> {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
@@ -226,7 +236,16 @@ export class PayoutConfirmationService {
     // the same instant. Omitting the date means "now", and that effective
     // date is still subject to the source lower bound.
     const now = new Date()
-    const confirmationTxDate = resolveTransactionDate(options.txDate, now)
+    // SR-809-H-1 / owner decision D-2: the chosen date also passes the shared
+    // server-side policy. EXECUTED — a confirmation records a payment that has
+    // already happened, so it is never dated ahead of today.
+    const dateDecision = resolveTransactionDateWithPolicy(options.txDate, {
+      role: currentUser.role,
+      flow: 'EXECUTED',
+      backdateReason: options.backdateReason,
+      now,
+    })
+    const confirmationTxDate = dateDecision.txDate
     const payoutSourceDate = formatTransactionBusinessDate(payoutTx.txDate ?? payoutTx.createdAt)
     if (formatTransactionBusinessDate(confirmationTxDate) < payoutSourceDate) {
       throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
@@ -286,6 +305,21 @@ export class PayoutConfirmationService {
         // The row was already confirmed by a concurrent call — bail out before
         // inserting a PAYOUT_CONFIRMED so no double credit occurs.
         throw apiError('FINANCE_PAYOUT_NOT_PENDING_PAYMENT', HttpStatus.BAD_REQUEST)
+      }
+
+      // SR-809-L-3 / D-2: an out-of-window backdate carries its justification on
+      // the audit trail, written after the claim succeeded so a losing concurrent
+      // caller records nothing, and inside this transaction so the reason cannot
+      // commit without the date it justifies.
+      if (dateDecision.backdateReason) {
+        await dbtx.insert(transactionAuditLog).values(
+          backdateAuditRow({
+            targetId: payoutTxId,
+            actor: currentUser,
+            txDate: confirmationTxDate,
+            backdateReason: dateDecision.backdateReason,
+          }),
+        )
       }
 
       // BIZ-02 cross-path (HIGH): when this PAYOUT is linked to a payout_request,

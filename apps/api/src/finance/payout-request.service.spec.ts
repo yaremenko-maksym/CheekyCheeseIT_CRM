@@ -8,7 +8,7 @@
 import { ForbiddenException, HttpException } from '@nestjs/common'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
 import type { NbuCurrencyService } from './nbu-currency.service'
@@ -124,6 +124,14 @@ async function codeOf(p: Promise<unknown>): Promise<string | undefined> {
 }
 
 describe('PayoutRequestService.createPayoutRequest', () => {
+  // SR-809-H-1: several tests below pin the clock beside their fixture dates
+  // (see the comment on the happy path). Restoring real timers here rather than
+  // in each body keeps the long test bodies readable, and is a no-op for the
+  // tests that never fake time.
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('rejects every role except SENIOR and DROP before touching anything', async () => {
     for (const role of ['ADMIN', 'ACCOUNTANT', 'JUNIOR', 'HR'] as const) {
       const s = setup()
@@ -135,7 +143,15 @@ describe('PayoutRequestService.createPayoutRequest', () => {
     }
   })
 
+  // SR-809-H-1: the clock is pinned beside the fixture dates. These tests are
+  // about the "a payout cannot predate its income" bound, and they ran against
+  // real time with March-2026 literals — so once the 31-day backdating window
+  // existed a SENIOR fixture failed for an unrelated reason (the window), and
+  // would otherwise have drifted in and out of passing as the calendar moved.
+  // Pinning keeps each one testing the bound it was written for, permanently.
   it('SENIOR happy path: shares, writes and read-back', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-25T12:00:00.000Z'))
     const s = setup({ rows: [income({ amount: '1000', seniorSharePercent: 26 })] })
     const out = await s.svc.createPayoutRequest(['tx-1'], user('SENIOR', 'sen-1'), '2026-03-20')
 
@@ -256,6 +272,8 @@ describe('PayoutRequestService.createPayoutRequest', () => {
   })
 
   it('refuses a payout date before the latest source income date, allows the same day', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-12T12:00:00.000Z'))
     const before = setup({ rows: [income({ txDate: new Date('2026-03-10T08:00:00.000Z') })] })
     expect(
       await codeOf(before.svc.createPayoutRequest(['tx-1'], user('SENIOR'), '2026-03-09')),
@@ -267,6 +285,8 @@ describe('PayoutRequestService.createPayoutRequest', () => {
   })
 
   it('uses the latest of several source dates and falls back to createdAt without txDate', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-18T12:00:00.000Z'))
     const s = setup({
       rows: [
         income({ id: 'a', txDate: new Date('2026-03-01T00:00:00.000Z') }),
