@@ -30,9 +30,11 @@ import { boundedString, dateRaw, optionalString, positiveSafeInt, urlString } fr
  * !! THE 10 MiB IS A CLAIM ABOUT THIS FILE'S BODY DECODER ONLY. The fetch port in
  * `CollectionContext.fetchText` takes a `FetchRequest` with no byte-cap field, and the transport
  * (`http/bounded-fetch.ts`) defaults to 2 MiB per response, so a real Greenhouse board is refused
- * at the transport unless the source's cap reaches it. OWNER: PR #1119 (Task 3.5b) adds an additive
- * `maxBytes?` to `FetchRequest`, honoured by `bounded-fetch`, built from these measurements; this
- * cap becomes effective when that lands. Until then it is a declaration, not a guarantee.
+ * at the transport unless the source's cap reaches it. OWNER: `.claude/tasks/task-3.5b-quota-adapters.md`,
+ * section "Inherited from the review of 3.5a", the per-request byte-cap item (an additive
+ * `maxBytes?` on `FetchRequest`, honoured by `bounded-fetch`, built from these measurements);
+ * status: in flight in PR #1119. This cap becomes effective when that lands. Until then it is a
+ * declaration, not a guarantee.
  *
  * - NAMESPACE `greenhouse:{token}`: a board is the scope, so the same job seen on two runs keeps
  *   one identity. `id` is the native id.

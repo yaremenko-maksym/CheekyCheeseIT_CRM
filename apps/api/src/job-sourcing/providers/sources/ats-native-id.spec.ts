@@ -16,6 +16,8 @@ import { leverProvider, leverSpec } from './lever.provider'
 
 interface Row {
   name: string
+  /** The fixture the row's items come from, under `__fixtures__/<name>/`. */
+  fixture: string
   spec: {
     itemSchema: ZodType<unknown>
     nativeIdOf: (item: never, config: never) => string | null
@@ -34,6 +36,7 @@ const jobs = (provider: string, name: string): unknown[] => {
 const rows: Row[] = [
   {
     name: 'greenhouse',
+    fixture: 'airbnb-board',
     spec: greenhouseSpec as Row['spec'],
     config: greenhouseProvider.parseConfig({ configVersion: 1, board: 'airbnb' }),
     rawItem: jobs('greenhouse', 'airbnb-board')[0],
@@ -41,6 +44,7 @@ const rows: Row[] = [
   },
   {
     name: 'lever',
+    fixture: 'spotify-page1',
     spec: leverSpec as Row['spec'],
     config: leverProvider.parseConfig({ configVersion: 1, board: 'spotify' }),
     rawItem: jobs('lever', 'spotify-page1')[0],
@@ -48,6 +52,7 @@ const rows: Row[] = [
   },
   {
     name: 'ashby',
+    fixture: 'linear-board',
     spec: ashbySpec as Row['spec'],
     config: ashbyProvider.parseConfig({ configVersion: 1, board: 'linear' }),
     rawItem: jobs('ashby', 'linear-board')[0],
@@ -64,13 +69,7 @@ describe('nativeIdOf is the provider id, and the same field mapItem keys identit
 
   it('the next posting gives a different id (the id is not a constant)', () => {
     for (const row of rows) {
-      const fixture =
-        row.name === 'greenhouse'
-          ? 'airbnb-board'
-          : row.name === 'lever'
-            ? 'spotify-page1'
-            : 'linear-board'
-      const second = row.spec.itemSchema.parse(jobs(row.name, fixture)[1]) as never
+      const second = row.spec.itemSchema.parse(jobs(row.name, row.fixture)[1]) as never
       expect(row.spec.nativeIdOf(second, row.config as never)).not.toBe(row.expected)
     }
   })

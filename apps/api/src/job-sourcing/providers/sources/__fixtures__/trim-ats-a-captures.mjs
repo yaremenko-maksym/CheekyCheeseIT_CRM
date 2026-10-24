@@ -107,21 +107,21 @@ for (const b of [
     'airbnb',
     [8102684, 7789554, 8303135],
     '191 jobs captured, 3 kept: a plain city (Bangalore), a Legal job in Tokyo, and a Paris job whose location.name has a trailing space and whose first_published equals updated_at. Two e-mail addresses per body were redacted. Whole response 2.7 MB',
-    'OWNERSHIP VERIFIED from the payload: company_name is "Airbnb" on 191 of 191 jobs and absolute_url hosts are careers.airbnb.com with gh_jid.',
+    'OWNERSHIP VERIFIED, EVIDENCE: PAYLOAD_FIELD (the per-job company_name): it is "Airbnb" on 191 of 191 jobs and absolute_url hosts are careers.airbnb.com with gh_jid.',
   ),
   ghBoard(
     'stripe-board',
     'stripe',
     [7984866, 7994330, 7557403, 8260980],
     '720 jobs captured, 4 kept: two multi-location strings ("US-Chicago, US-New York", "Seattle, New York, San Francisco"), a single city, and one with first_published equal to updated_at. Whole response 5.6 MB, 69,266 JSON nodes',
-    'OWNERSHIP VERIFIED from the payload: company_name is "Stripe" on 720 of 720 jobs; absolute_url is a company-hosted page (https://stripe.com/jobs/search?gh_jid=N) where gh_jid is the only identity in the URL.',
+    'OWNERSHIP VERIFIED, EVIDENCE: PAYLOAD_FIELD (the per-job company_name): it is "Stripe" on 720 of 720 jobs; absolute_url is a company-hosted page (https://stripe.com/jobs/search?gh_jid=N) where gh_jid is the only identity in the URL.',
   ),
   ghBoard(
     'cloudflare-board',
     'cloudflare',
     [7421718, 8288769],
     '453 jobs captured, 2 kept: 7421718 carries a body that its author escaped TWICE (the visible text "&lt; 60% travel" arrives as "&amp;lt; 60% travel"), and 8288769 has location.name "Hybrid" (a workplace type in the location field). Whole response 8.0 MB, 28,539 JSON nodes',
-    'OWNERSHIP VERIFIED from the payload: company_name is "Cloudflare" on 453 of 453 jobs; absolute_url is boards.greenhouse.io/cloudflare/jobs/N?gh_jid=N.',
+    'OWNERSHIP VERIFIED, EVIDENCE: PAYLOAD_FIELD (the per-job company_name): it is "Cloudflare" on 453 of 453 jobs; absolute_url is boards.greenhouse.io/cloudflare/jobs/N?gh_jid=N.',
   ),
 ]) {
   await emit(
@@ -172,7 +172,7 @@ for (const p of [
       'cf13d272-92ac-407d-89bf-7f20d20f7961',
       '4e4ab485-06f1-46b1-88e0-44f3fda4b62a',
     ],
-    'First page of the spotify site: a FULL page of 50 postings (so a next page is requested), 6 kept: workplaceType remote, hybrid (x3, two of them with two allLocations) and onsite. OWNERSHIP: the postings introduce "Spotify" in their text (71 of the 90 on the board; 309 of 309 for palantir); hostedUrl is jobs.lever.co/spotify/<uuid>.',
+    'First page of the spotify site: a FULL page of 50 postings (so a next page is requested), 6 kept: workplaceType remote, hybrid (x3, two of them with two allLocations) and onsite. OWNERSHIP, EVIDENCE: TEXT_PARTIAL (no employer field in the payload; the posting text names the employer): 87 of the 90 postings on the board name Spotify somewhere (title, description, lists or closing text), 71 of them in the main description alone. The 3 that name it nowhere are the Ringer posting (1f56d4be-..., whose own text names The Ringer, a Spotify-owned podcast company) and two postings whose main description is empty (9f66e598-..., 9fd98cde-...), all three kept in these fixtures; the board is Spotify\'s by its URL (jobs.lever.co/spotify/<uuid>), not by those three. palantir was read once and 309 of 309 postings named Palantir, but that read is UNCAPTURED: no capture of it is committed, so treat that figure as unverified. The fixtures keep 6 of the 90, so the 87 cannot be re-derived from them.',
   ),
   lvPage(
     'spotify-page2',
@@ -201,14 +201,14 @@ for (const p of [
       '0e1585af-dc06-4cc7-93a9-cae389ace737',
       '7c10202a-fb19-4566-9efe-c248ed4e320c',
     ],
-    'EU deployment (api.eu.lever.co): the whole siteimprove site is 12 postings, 3 kept (one with salaryRange, one remote). The same slug on the GLOBAL host answers 404, measured the same day, so region is part of a board\'s identity. hostedUrl is jobs.eu.lever.co/siteimprove/<uuid>. OWNERSHIP: 11 of 12 postings name Siteimprove in their text.',
+    'EU deployment (api.eu.lever.co): the whole siteimprove site is 12 postings, 3 kept (one with salaryRange, one remote). The same slug on the GLOBAL host answers 404, measured the same day, so region is part of a board\'s identity. hostedUrl is jobs.eu.lever.co/siteimprove/<uuid>. OWNERSHIP, EVIDENCE: TEXT_FULL (no employer field in the payload): all 12 postings name Siteimprove somewhere in their text (11 in the main description). The fixtures keep 3 of the 12.',
   ),
   lvPage(
     'quantco-trailing-hyphen-board',
     'lvp-quantco-',
     'https://api.lever.co/v0/postings/quantco-?mode=json&limit=50&skip=0',
     ['f41c0733-033e-431e-8feb-3b044874308d', '3e18574e-ab5a-46a2-8714-a0221fb937e7'],
-    'A real Lever site whose NAME ENDS IN A HYPHEN: quantco- answers 200, quantco answers 404 (measured). 14 postings captured, 2 kept (onsite and hybrid). OWNERSHIP: 11 of 14 postings name QuantCo in their text.',
+    'A real Lever site whose NAME ENDS IN A HYPHEN: quantco- answers 200, quantco answers 404 (measured). 14 postings captured, 2 kept (onsite and hybrid). OWNERSHIP, EVIDENCE: TEXT_FULL (no employer field in the payload): all 14 postings name QuantCo somewhere in their text (11 in the main description). The fixtures keep 2 of the 14.',
   ),
 ]) {
   await emit(
@@ -240,7 +240,7 @@ await emit(
 // ------------------------------------------------------------------- Ashby
 const AS_TERMS = 'https://developers.ashbyhq.com/docs/public-job-posting-api'
 const asNotes = (extra) =>
-  `PERMISSION IS UNCLEAR, NOT DOCUMENTED-PUBLIC: the endpoint is documented without credentials, but https://api.ashbyhq.com/robots.txt answers HTTP 401, so this host states no robots verdict and the permission field must not read stronger than that. ${extra} Documented (${AS_TERMS}): a public endpoint with no credentials in the example; the page states no rate limit or terms of use. robots.txt: https://api.ashbyhq.com/robots.txt answers HTTP 401, so NO robots verdict exists for the API host (recorded as such, not as permission). The payload carries NO employer name; employer evidence is the posting text naming the employer. includeCompensation=true was requested; every job carries a compensation object, empty tiers where the employer published none. isListed was true on every one of 1,612 postings across 10 non-empty boards, so no unlisted posting was ever captured. ${REDACTION}`
+  `PERMISSION IS UNCLEAR, NOT DOCUMENTED-PUBLIC: the endpoint is documented without credentials, but https://api.ashbyhq.com/robots.txt answers HTTP 401, so this host states no robots verdict and the permission field must not read stronger than that. ${extra} Documented (${AS_TERMS}): a public endpoint with no credentials in the example; the page states no rate limit or terms of use. robots.txt: https://api.ashbyhq.com/robots.txt answers HTTP 401, so NO robots verdict exists for the API host (recorded as such, not as permission). The payload carries NO employer name; employer evidence is the posting text naming the employer. includeCompensation=true was requested; every job carries a compensation object, empty tiers where the employer published none. isListed was true on every one of 1,612 postings across 10 non-empty boards, so no unlisted posting was ever captured. DECISION AND COST: publishedAt is documented as the last publish and is read as PUBLISHED; the content hash covers PUBLISHED, so an Ashby re-publish with identical content changes contentHash (reading it as UPDATED would keep the hash stable but leave Ashby vacancies without a publication date). ${REDACTION}`
 for (const p of [
   {
     name: 'linear-board',
@@ -253,7 +253,7 @@ for (const p of [
       'aa0673c5-9e06-42f8-a720-6c2e43930c5a',
     ],
     captured:
-      '34 jobs captured (0.46 MB), 4 kept: Remote with one location, Remote with a secondary location, Hybrid (isRemote is true for it, as documented), and a title with a trailing space. OWNERSHIP: descriptionPlain names Linear in 34 of 34 jobs ("At Linear, we\'re building ..."); jobUrl is jobs.ashbyhq.com/linear/<uuid>.',
+      '34 jobs captured (0.46 MB), 4 kept: Remote with one location, Remote with a secondary location, Hybrid (isRemote is true for it, as documented), and a title with a trailing space. OWNERSHIP, EVIDENCE: TEXT_FULL (no employer field in the payload): descriptionPlain names Linear in 34 of 34 jobs ("At Linear, we\'re building ..."); jobUrl is jobs.ashbyhq.com/linear/<uuid>.',
   },
   {
     name: 'supabase-board',
@@ -266,7 +266,7 @@ for (const p of [
       'e4e3ccb7-7b7d-42a2-be0f-26cbb5ae4abd',
     ],
     captured:
-      '59 jobs captured (0.82 MB), 4 kept: workplaceType null with isRemote null, a job with a published compensation tier ("$200K – $270K • Offers Equity"), a job with two secondary locations, and a Remote one. OWNERSHIP: descriptionPlain names Supabase in 59 of 59 jobs ("ABOUT SUPABASE: Supabase is the Postgres development platform ...").',
+      '59 jobs captured (0.82 MB), 4 kept: workplaceType null with isRemote null, a job with a published compensation tier ("$200K – $270K • Offers Equity"), a job with two secondary locations, and a Remote one. OWNERSHIP, EVIDENCE: TEXT_FULL (no employer field in the payload): descriptionPlain names Supabase in 59 of 59 jobs ("ABOUT SUPABASE: Supabase is the Postgres development platform ...").',
   },
 ]) {
   await emit(

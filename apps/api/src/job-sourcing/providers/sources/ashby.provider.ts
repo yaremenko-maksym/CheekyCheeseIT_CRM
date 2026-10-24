@@ -16,7 +16,8 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  * plan's ceiling for a per-source cap, and the openai board - the only one past it - fails as
  * `PAYLOAD_TOO_LARGE` FOR THAT BOARD, which is the honest answer (a bigger cap is a measurement, not
  * an edit). As for Greenhouse, the same caveat holds: this is the body decoder's cap, and the fetch
- * port carries no per-request byte cap yet; the owner is PR #1119 (Task 3.5b), see
+ * port carries no per-request byte cap yet; the owner is `.claude/tasks/task-3.5b-quota-adapters.md`
+ * ("Inherited from the review of 3.5a", the byte-cap item; in flight in PR #1119), see
  * `GREENHOUSE_LIMITS`.
  *
  * - NAMESPACE `ashby:{board}`; `id` (a UUID) is the native id. Ashby treats the board name as

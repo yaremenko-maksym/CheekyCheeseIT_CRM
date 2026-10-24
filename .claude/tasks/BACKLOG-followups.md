@@ -5278,13 +5278,14 @@ and `.github/` shell and JS are in scope; this entry measured only `.mjs`.
 either reformatted by the pre-commit hook or fails the CI formatting gate — today it does neither, and
 that is the assertion to re-run.
 
-## 317. A hostile JSON body stalls the event loop before the byte cap can refuse it, once a per-source cap is raised (2026-10-24)
+## 318. A hostile JSON body stalls the event loop before the byte cap can refuse it, once a per-source cap is raised (2026-10-24)
 
 **Open** — found by the security review of the ATS A adapters (SR-M-1); the fix belongs to the shared
 bounded-JSON reader, not to the adapters, so this entry is the deliverable and the next task to touch
 that reader owns the repair. Number chosen by measurement: the highest `## NNN.` heading across all
-573 fetched `origin` refs was 316 (on main), so 317 was the next free one; if another branch has
-claimed it since, renumber at merge.
+574 fetched `origin` refs was 317 (a different entry, on `origin/docs/integration-run-third-case`;
+this one first took 317 when 316 was the highest and was renumbered), so 318 was the next free one.
+If another branch has claimed it since, renumber at merge.
 
 The reader bounds a body in this order: bytes, then nesting depth (a pre-parse scan of the raw text),
 then `JSON.parse`, then a node count after parsing. A body inside the byte cap and inside the depth
@@ -5313,9 +5314,9 @@ nodes slightly (strings with commas), which is the safe direction for a refusal.
 
 Until it is fixed, the exposure is bounded by who can choose the body: the three public ATS
 providers, reached only through a manifest the owner enables source by source, and not before the
-transport carries a per-source byte cap at all (PR #1119, Task 3.5b, additive `maxBytes?` on
-`FetchRequest`) — until then the transport refuses anything over 2 MiB and the 10 MiB is not
-reachable.
+transport carries a per-source byte cap at all (the additive `maxBytes?` on `FetchRequest`, owned by
+`task-3.5b-quota-adapters.md`, section "Inherited from the review of 3.5a", in flight in PR #1119) —
+until then the transport refuses anything over 2 MiB and the 10 MiB is not reachable.
 
 **Check on closing:** parse a 10 MiB `[0,0,…]` body through the shared bounded-JSON reader under a
 10 MiB limit and a 200,000-node limit. Today it takes about 1.6 s and +310 MB before refusing; closed
