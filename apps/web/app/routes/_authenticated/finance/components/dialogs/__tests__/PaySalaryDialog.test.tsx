@@ -227,30 +227,28 @@ describe('PaySalaryDialog — account + currency selectors', () => {
     )
   })
 
-  // QA-LOW-1 (backlog 338): a legacy row with a NULL `txDate` shows its
-  // createdAt INSTANT in the browser's zone, so the picker's lower bound and
-  // the "earliest available date" hint must be read off the SAME clock. The
-  // old hint used the UTC day: 05:00Z on 20 Oct read 19.10.26 in Los Angeles
-  // beside a hint of 20.10.2026. Runs under the default, Kyiv and LA projects.
-  it('NULL txDate: the displayed date, the picker bound and the hint name the same calendar day', async () => {
+  // QA-MED-1 (backlog 338, QA-LOW-1 attempt backed out): the picker `min`, the
+  // hint and the default pay date must equal the SERVER floor. The API
+  // (`SalaryPaymentService`) rejects a payment dated before the UTC day of
+  // `txDate ?? createdAt` with FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION, so for a
+  // legacy NULL-`txDate` row created 2026-10-20 05:00Z the floor is 20 Oct in
+  // EVERY zone. The date CELL deliberately shows the browser-zone instant
+  // (19.10.26 in Los Angeles) - that one may differ; the bound must not.
+  // Runs under the default, Kyiv and Los Angeles projects.
+  it('NULL txDate: picker min, hint and default date equal the server floor (UTC day) in any zone', async () => {
     renderDialog({
       ...(TX as object),
       txDate: null,
       createdAt: '2026-10-20T05:00:00.000Z',
     } as SalaryTx)
     await screen.findByTestId('pay-salary-account-company')
-    // Independent literals per zone: 05:00Z is 08:00 on the 20th in Kyiv and
-    // 22:00 on the 19th in Los Angeles. UTC (CI default) agrees with Kyiv.
-    // Keyed on the UTC offset, not the zone NAME: the ICU build may report the
-    // legacy alias `Europe/Kiev` for TZ=Europe/Kyiv.
-    const offsetMin = new Date('2026-10-20T05:00:00.000Z').getTimezoneOffset()
-    const day = { '-180': '20', '420': '19', '0': '20' }[String(offsetMin)]
-    if (day === undefined) return // an unpinned developer zone; the tz:* projects always hit a row
-    expect(screen.getByText(`${day}.10.26`)).toBeInTheDocument()
-    expect(screen.getByTestId('pay-salary-txdate')).toHaveAttribute('min', `2026-10-${day}`)
+    const picker = screen.getByTestId('pay-salary-txdate')
+    expect(picker).toHaveAttribute('min', '2026-10-20')
     expect(screen.getByText(/Найраніша доступна дата/).textContent).toBe(
-      `Найраніша доступна дата — ${day}.10.2026.`,
+      'Найраніша доступна дата — 20.10.2026.',
     )
+    // The default is max(today, floor); the floor is in the past, so it is today.
+    expect((picker as HTMLInputElement).value >= '2026-10-20').toBe(true)
   })
 
   it('prefers txDate over createdAt and clamps a future salary payment date', async () => {

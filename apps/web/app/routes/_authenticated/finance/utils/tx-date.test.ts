@@ -1,28 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatTxOrCreated, txDisplayDay } from './tx-date'
-
-describe('txDisplayDay', () => {
-  it('a set txDate names its UTC day in any zone, ignoring createdAt', () => {
-    expect(txDisplayDay('2026-07-31T00:00:00.000Z', '2026-08-05T10:00:00.000Z')).toBe('2026-07-31')
-    expect(txDisplayDay(new Date('2026-01-01T00:00:00.000Z'), '2026-08-05T10:00:00.000Z')).toBe(
-      '2026-01-01',
-    )
-  })
-
-  it('a null/undefined txDate names the createdAt day in the host zone, zero-padded', () => {
-    // 23:30Z on 31 Jul: 31 Jul in Los Angeles, 1 Aug in Kyiv, 31 Jul in UTC.
-    // 05:00Z on 5 Jan: 4 Jan in Los Angeles (single-digit month AND day, so the padding shows).
-    const offset = new Date('2026-07-31T23:30:00.000Z').getTimezoneOffset()
-    const want = {
-      '-180': ['2026-08-01', '2026-01-05'],
-      '420': ['2026-07-31', '2026-01-04'],
-      '0': ['2026-07-31', '2026-01-05'],
-    }[String(offset)]
-    if (want === undefined) return // an unpinned developer zone; the tz:* projects always hit a row
-    expect(txDisplayDay(null, '2026-07-31T23:30:00.000Z')).toBe(want[0])
-    expect(txDisplayDay(undefined, '2026-01-05T05:00:00.000Z')).toBe(want[1])
-  })
-})
+import { formatTxOrCreated } from './tx-date'
 
 // Run under TZ=America/Los_Angeles and TZ=Europe/Kyiv.
 describe('formatTxOrCreated', () => {
