@@ -25,6 +25,7 @@ CRM for recruiting workspaces (outsource/outstaffing company: AI, EdTech, E-Comm
 - **Why a rule says what it says** (incidents, precedents, rejected alternatives) → `docs/architecture/rules-rationale/<rule>.md` (NOT auto-loaded — read on demand)
 - Light vs full development track → `.claude/rules/common/light-track.md`
 - **How much human a decision needs** (A1 decide yourself / A2 accumulate / A3 stop) → `.claude/rules/common/autonomy-levels.md` + `.claude/skills/decision-frontier/`
+- **Token economy (mandatory for ALL agents: terse narration, bounded reads, bulk output to a file, code-restraint ladder)** → `.claude/rules/common/token-economy.md` + skill `token-economy`
 - What to do with context at a phase boundary (continue / clear / handoff / subagent / compact) → `.claude/rules/common/phase-boundaries.md`
 - Actions only the owner can perform (and how to kill them) → `docs/runbooks/human-only.md`
 - Deliberately rejected requests (so they are not reconsidered again) → `.out-of-scope/README.md`
