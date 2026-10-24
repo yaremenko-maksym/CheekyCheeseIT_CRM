@@ -1,0 +1,12 @@
+{
+  "url": "https://boards-api.greenhouse.io/v1/boards/stripe/jobs?content=true",
+  "fetchedAt": "2026-10-24T02:07:50.000Z",
+  "httpStatus": 200,
+  "rawSha256": "58fae6bcfdbc9bf934f43c8947ce491a124459298b837977364ddf418b532d2a",
+  "fileSha256": "ba997add66cc72e9b54d1591e1ab48582e1171048d52c6f1470dd3616d5f7aa9",
+  "trimmedBy": "node trim-ats-a-captures.mjs (JSON.parse, whole-record selection by job id (meta.total rewritten to the kept count so the envelope stays self-consistent), regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify, prettier); never a byte cut",
+  "termsUrl": "https://docs.greenhouse.io/job-board.html",
+  "termsCheckedAt": "2026-10-24T03:30:00.000Z",
+  "permission": "PUBLIC_API_DOCUMENTED",
+  "notes": "720 jobs captured, 4 kept: two multi-location strings (\"US-Chicago, US-New York\", \"Seattle, New York, San Francisco\"), a single city, and one with first_published equal to updated_at. Whole response 5.6 MB, 69,266 JSON nodes. OWNERSHIP VERIFIED, EVIDENCE: PAYLOAD_FIELD (the per-job company_name): it is \"Stripe\" on 720 of 720 jobs; absolute_url is a company-hosted page (https://stripe.com/jobs/search?gh_jid=N) where gh_jid is the only identity in the URL. Documented (https://docs.greenhouse.io/job-board.html): GET endpoints need no authentication (\"Job Board data is publicly available\"); only the application POST needs Basic auth. robots.txt of boards-api.greenhouse.io: User-agent * / Disallow: /embed/ only, so /v1/boards/{token}/jobs is allowed. The docs state no rate limit or terms of use. Job content is HTML-escaped by Greenhouse (entities) and the adapter decodes it once. company_name and first_published appear on every job of this response although the docs show them only in the single-job example. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure)."
+}

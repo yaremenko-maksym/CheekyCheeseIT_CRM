@@ -144,6 +144,7 @@ export type QuarantineReason =
   | 'MISSING_COMPANY'
   | 'INVALID_RECORD'
   | 'INVALID_ADAPTER_VERSION'
+  | 'NOT_AN_OPEN_VACANCY'
 
 export type ObservationResult =
   { ok: true; observation: SourceObservation } | { ok: false; reason: QuarantineReason }
@@ -169,6 +170,15 @@ export interface RawObservationFields {
   applicationUrl?: string | null
   dates?: Array<Omit<DateInput, 'raw'> & { raw: DateInput['raw'] }>
   adapterVersion: string
+  /**
+   * Set by an adapter that read the SOURCE'S OWN statement that this posting is not an open
+   * vacancy (Ashby's `isListed: false`: reachable by direct link only). The builder quarantines it
+   * with `NOT_AN_OPEN_VACANCY` instead of building an observation, so the exclusion is counted as
+   * `quarantined` with its real reason rather than as `invalid` (schema drift) or under a reason
+   * that is untrue of it (`MISSING_COMPANY`). An adapter bug still outranks it: a bad adapter
+   * version is reported first.
+   */
+  notOpenVacancy?: true
   /** Accepted so adapters can pass it through; deliberately never read by anything that hashes. */
   fetch?: { fetchedAt?: Date; requestId?: string }
 }
@@ -243,6 +253,7 @@ export function buildSourceObservation(
   if (adapterVersion.length === 0 || adapterVersion.length > MAX_VERSION_CHARS) {
     return quarantine('INVALID_ADAPTER_VERSION')
   }
+  if (raw.notOpenVacancy === true) return quarantine('NOT_AN_OPEN_VACANCY')
 
   const identity = buildIdentity({
     provider: raw.provider,
