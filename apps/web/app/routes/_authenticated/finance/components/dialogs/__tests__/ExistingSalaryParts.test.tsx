@@ -10,7 +10,7 @@
  * given an answer, not how the answer is fetched; the endpoint's own behaviour
  * is pinned against a real database in `salary-month-gap.integration.spec.ts`.
  */
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
@@ -75,13 +75,17 @@ describe('ExistingSalaryParts (SR-795-M-1)', () => {
 
     const rows = await screen.findAllByTestId('create-transaction-existing-salary-part')
     expect(rows).toHaveLength(2)
-    expect(rows[0]).toHaveTextContent('1 500')
-    expect(rows[0]).toHaveTextContent('USD')
+    // COPY-M-2: formatted through the shared `formatMoney` in the active (uk)
+    // locale, which forces exactly two decimals and joins amount + currency —
+    // "1 500,00 USD", not "1 500 USD". Whitespace normalised because uk groups
+    // with a narrow no-break space.
+    const amount0 = (rows[0]!.textContent ?? '').replace(/\s+/g, ' ')
+    expect(amount0).toContain('1 500,00 USD')
     // The localized status wording the finance table uses, not the raw code.
     expect(rows[0]).toHaveTextContent('Оплачено')
     expect(rows[1]).toHaveTextContent('Очікує валідації')
-    expect(rows[1]).toHaveTextContent('250,5')
-    expect(rows[1]).toHaveTextContent('EUR')
+    const amount1 = (rows[1]!.textContent ?? '').replace(/\s+/g, ' ')
+    expect(amount1).toContain('250,50 EUR')
     expect(getSalaryPartsMock).toHaveBeenCalledWith(RECEIVER, '2026-09')
   })
 
@@ -189,32 +193,44 @@ describe('ExistingSalaryParts (SR-795-M-1)', () => {
     await screen.findByTestId('create-transaction-existing-salary-parts')
   })
 
-  it('counts the parts in the heading — singular for one, the number for more', async () => {
-    const part = (id: string) => ({
-      id,
+  // COPY-H-1 — Ukrainian is a one/few/many language, so a 1-vs-everything-else
+  // branch is grammatically wrong for 2–4 and for 5+. These counts are chosen
+  // to hit every form, INCLUDING the ones only correct under proper CLDR rules:
+  //   1  → one   "1 частина"   (and the trap: 21 is ALSO one, "21 частина")
+  //   2  → few   "2 частини"
+  //   5  → many  "5 частин"
+  //   21 → one   "21 частина"  — the old branch would have shown "21 частини"
+  // The heading also names the STATE ("Вже внесено за цей місяць" — already
+  // recorded, COPY-M-1), not just a bare count.
+  it.each([
+    [1, '1 частина зарплати'],
+    [2, '2 частини зарплати'],
+    [5, '5 частин зарплати'],
+    [21, '21 частина зарплати'],
+  ])('uk heading: %i parts → the right plural form', async (count, expectedCount) => {
+    const parts = Array.from({ length: count }, (_, i) => ({
+      id: `p${i}`,
       amount: 10,
       currency: 'USD' as const,
       status: 'PENDING' as const,
       salaryOrigin: 'MANUAL' as const,
       txDate: null,
       notes: null,
-    })
+    }))
+    getSalaryPartsMock.mockResolvedValue({ receiverId: RECEIVER, month: '2026-09', parts })
 
-    getSalaryPartsMock.mockResolvedValue({
-      receiverId: RECEIVER,
-      month: '2026-09',
-      parts: [part('p1')],
-    })
-    renderPanel()
-    expect(await screen.findByText('Цей місяць уже має 1 частину зарплати')).toBeInTheDocument()
-
-    getSalaryPartsMock.mockResolvedValue({
-      receiverId: RECEIVER,
-      month: '2026-09',
-      parts: [part('p1'), part('p2'), part('p3')],
-    })
-    renderPanel()
-    expect(await screen.findByText('Цей місяць уже має 3 частини зарплати')).toBeInTheDocument()
+    const { unmount } = renderPanel()
+    const panel = await screen.findByTestId('create-transaction-existing-salary-parts')
+    // The heading text is split across nodes by `Trans` + `Plural`, so read the
+    // whole heading and normalise whitespace rather than match a single node.
+    const heading = (
+      within(panel).getByTestId('create-transaction-existing-salary-parts-heading').textContent ??
+      ''
+    )
+      .replace(/\s+/g, ' ')
+      .trim()
+    expect(heading).toBe(`Вже внесено за цей місяць: ${expectedCount}`)
+    unmount()
   })
 
   it('formats the amount for a reader — grouped, and never more than two decimals', async () => {
@@ -295,5 +311,99 @@ describe('ExistingSalaryParts (SR-795-M-1)', () => {
     const row = await screen.findByTestId('create-transaction-existing-salary-part')
     expect(row).toHaveTextContent('автоматично')
     expect(row).not.toHaveTextContent('вручну')
+  })
+
+  // QA-LOW-2 — the panel exists so an operator can RECOGNISE a part they already
+  // recorded before creating a duplicate; QA found two parts in one month
+  // differed only by the origin label. The business date is what distinguishes
+  // them, formatted with the same locale-aware `formatDate`/`shortYY` the finance
+  // table's date column uses. A legacy row may carry no date — then it is simply
+  // omitted, never rendered as "Invalid Date".
+  it('shows each part its business date (shortYY), and omits it when absent', async () => {
+    getSalaryPartsMock.mockResolvedValue({
+      receiverId: RECEIVER,
+      month: '2026-09',
+      parts: [
+        {
+          id: 'p1',
+          amount: 1000,
+          currency: 'USD',
+          status: 'PENDING',
+          salaryOrigin: 'MANUAL',
+          txDate: '2026-09-30T00:00:00.000Z',
+          notes: null,
+        },
+        {
+          id: 'p2',
+          amount: 1000,
+          currency: 'USD',
+          status: 'PENDING',
+          salaryOrigin: 'MANUAL',
+          txDate: null,
+          notes: null,
+        },
+      ],
+    })
+
+    renderPanel()
+
+    const rows = await screen.findAllByTestId('create-transaction-existing-salary-part')
+    // uk shortYY: day.month.2-digit-year, UTC.
+    expect(rows[0]).toHaveTextContent('30.09.26')
+    // The dateless row renders without a date and without "Invalid Date".
+    expect(rows[1]).not.toHaveTextContent('30.09.26')
+    expect(rows[1]).not.toHaveTextContent(/invalid/i)
+  })
+
+  // COPY-M-2 — the whole point of the finding is that the en screen must NOT
+  // show Ukrainian separators. Every other case loads uk, so a hardcoded
+  // 'uk-UA' would pass them all; this one loads en and asserts the en forms, so
+  // the two together prove the formatter follows the active locale rather than a
+  // literal. It also exercises the en plural ("other") and the en heading.
+  it('en locale: en number separators, the en heading, and the en plural form', async () => {
+    await loadCatalog('en')
+    getSalaryPartsMock.mockResolvedValue({
+      receiverId: RECEIVER,
+      month: '2026-09',
+      parts: [
+        {
+          id: 'p1',
+          amount: 1234.5,
+          currency: 'USD',
+          status: 'PENDING',
+          salaryOrigin: 'MANUAL',
+          txDate: null,
+          notes: null,
+        },
+        {
+          id: 'p2',
+          amount: 2,
+          currency: 'USD',
+          status: 'PENDING',
+          salaryOrigin: 'MANUAL',
+          txDate: null,
+          notes: null,
+        },
+      ],
+    })
+
+    const panel = await (async () => {
+      renderPanel()
+      return screen.findByTestId('create-transaction-existing-salary-parts')
+    })()
+
+    const heading = (
+      within(panel).getByTestId('create-transaction-existing-salary-parts-heading').textContent ??
+      ''
+    )
+      .replace(/\s+/g, ' ')
+      .trim()
+    expect(heading).toBe('Already recorded for this month: 2 salary parts')
+
+    const rows = await screen.findAllByTestId('create-transaction-existing-salary-part')
+    const amount = (rows[0]!.textContent ?? '').replace(/\s+/g, ' ')
+    // en: comma thousands, dot decimal — "1,234.50 USD", the opposite of uk.
+    expect(amount).toContain('1,234.50 USD')
+    expect(amount).not.toContain('1 234,50')
   })
 })

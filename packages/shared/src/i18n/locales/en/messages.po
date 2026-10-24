@@ -7092,6 +7092,11 @@ msgstr "Create"
 msgid "Назад до списку"
 msgstr "Back to the list"
 
+#. placeholder {0}: parts.length
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
+msgid "Вже внесено за цей місяць: {0, plural, one {# частина зарплати} few {# частини зарплати} many {# частин зарплати} other {# частини зарплати}}"
+msgstr "Already recorded for this month: {0, plural, one {# salary part} other {# salary parts}}"
+
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
@@ -7851,10 +7856,6 @@ msgstr "Log in as"
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 msgid "Сума всіх виплат за весь час"
 msgstr "All-time total of payouts"
-
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
-msgid "Цей місяць уже має 1 частину зарплати"
-msgstr "This month already has 1 salary part"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Стандартно"
@@ -8753,11 +8754,6 @@ msgstr "This link doesn't work. Open the link from the latest email — if there
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Почніть вводити технологію…"
 msgstr "Start typing a technology…"
-
-#. placeholder {0}: parts.length
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
-msgid "Цей місяць уже має {0} частини зарплати"
-msgstr "This month already has {0} salary parts"
 
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 msgid "Не вдалося скопіювати — скопіюйте вручну"
