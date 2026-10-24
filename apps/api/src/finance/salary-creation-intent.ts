@@ -43,6 +43,36 @@ export function buildSalaryCreationIntent(data: {
  * `reason` and `existingTransactionId` ride along as extra fields, and the
  * legacy case gets its own English fallback `message` for logs.
  */
+/**
+ * SR-795-L-2 (task-retro-salary-ledger-integrity). `uq_transactions_salary_
+ * idempotency_key` carries no `deleted_at` term, so a soft-deleted manual part
+ * keeps owning its key — and the replay lookup reads the RAW table, by design
+ * (a deleted part must not be re-created behind an admin's back). The two
+ * together produced a wrong-success: a retry got HTTP 200 naming a transaction
+ * that every list endpoint and the balance pipeline filter out, so the operator
+ * was told "saved" about a row that is not there.
+ *
+ * Refusing is the honest answer, and the alternative is worse: re-issuing a
+ * spent key would let a stale client resurrect a part an admin had just removed.
+ * A deletion is an audit event. The operator's route forward is a fresh
+ * submission, which carries a fresh key.
+ */
+export function assertSalaryReplayTargetLive(
+  existing: Pick<typeof transactions.$inferSelect, 'id' | 'deletedAt'>,
+): void {
+  if (existing.deletedAt === null || existing.deletedAt === undefined) return
+
+  const envelope = apiError('FINANCE_SALARY_IDEMPOTENCY_CONFLICT', HttpStatus.CONFLICT)
+  throw new HttpException(
+    {
+      ...(envelope.getResponse() as Record<string, unknown>),
+      reason: 'DELETED_PART',
+      existingTransactionId: existing.id,
+    },
+    HttpStatus.CONFLICT,
+  )
+}
+
 export function assertSalaryCreationIntent(
   existing: Pick<typeof transactions.$inferSelect, 'id' | 'salaryCreationIntent'>,
   expected: SalaryCreationIntent,

@@ -200,6 +200,22 @@ export async function mockFinanceRoutes(page: Page, user: MockUser) {
     jsonOk(r, { id: r.request().url().split('/').at(-1) }),
   )
   await page.route(new RegExp(`${API_RE}/finance/junior-payments(\\?.*)?$`), (r) => jsonOk(r, []))
+  // SR-795-M-1: the create-transaction dialog's existing-salary-parts panel
+  // fetches this as soon as a SALARY receiver and month are set. Unstubbed it
+  // was the ONE unmocked call in a fully-mocked dialog, so it reached the real
+  // backend without a session, returned 401, and the axios interceptor
+  // navigated the page to /login mid-test — `E2E (finance)` failed on an
+  // `amount-currency-amount-input` fill whose dialog had been replaced by the
+  // login screen. Identical failure mode to the senior-summary comment above.
+  // Empty list = the common case (a month with no parts), and the panel renders
+  // nothing, so no existing spec's layout moves.
+  await page.route(new RegExp(`${API_RE}/finance/salary-parts(\\?.*)?$`), (r) =>
+    jsonOk(r, {
+      receiverId: '00000000-0000-4000-8000-000000000000',
+      month: '2026-01',
+      parts: [],
+    }),
+  )
   await page.route(new RegExp(`${API_RE}/finance/invoices(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? jsonOk(r, { id: 'inv-new', status: 'DRAFT' }, 201)

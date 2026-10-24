@@ -305,17 +305,33 @@ describe('createMonthlySalaries — MED-1: an archived JUNIOR gets no salary eit
 
 describe('createSalary — AC2: an archived receiver is refused', () => {
   function makeSalaryService(receiver: unknown, onInsert?: () => never) {
+    // SR-795-M-1: the manual salary write now opens a transaction and claims
+    // the receiver/month cron marker inside it before inserting the row. The
+    // marker insert is allowed to succeed here so "the INSERT was reached"
+    // still means the SALARY insert, not the marker.
+    const insertInTx = vi.fn((table: unknown) => {
+      if (table === salaryMonthInitializations) {
+        return {
+          values: () => ({
+            onConflictDoNothing: () => ({ returning: async () => [{ id: 'marker-1' }] }),
+          }),
+        }
+      }
+      return (
+        onInsert ??
+        (() => {
+          throw new Error('INSERT REACHED')
+        })
+      )()
+    })
     const db = {
       db: {
         query: {
           transactions: { findFirst: vi.fn().mockResolvedValue(undefined) },
           users: { findFirst: vi.fn().mockResolvedValue(receiver) },
         },
-        insert:
-          onInsert ??
-          vi.fn(() => {
-            throw new Error('INSERT REACHED')
-          }),
+        transaction: (cb: (tx: unknown) => Promise<unknown>) => cb({ insert: insertInTx }),
+        insert: insertInTx,
       },
     } as never
     return makeTransactionsService({ db })
@@ -350,8 +366,16 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
     const transactionsFindFirst = vi.fn(() => Promise.resolve(replayRows.shift()))
     const usersFindFirst = vi.fn().mockResolvedValue(ACTIVE_HR)
     const insertValues: Record<string, unknown>[] = []
-    const insert = vi.fn(() => ({
+    const markerClaims: Record<string, unknown>[] = []
+    // SR-795-M-1: marker claim and row insert share one transaction.
+    const insert = vi.fn((table: unknown) => ({
       values: (values: Record<string, unknown>) => {
+        if (table === salaryMonthInitializations) {
+          markerClaims.push(values)
+          return {
+            onConflictDoNothing: () => ({ returning: async () => [{ id: 'marker-1' }] }),
+          }
+        }
         insertValues.push(values)
         return {
           returning: async () => {
@@ -367,6 +391,7 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
           transactions: { findFirst: transactionsFindFirst },
           users: { findFirst: usersFindFirst },
         },
+        transaction: (cb: (tx: unknown) => Promise<unknown>) => cb({ insert }),
         insert,
       },
     } as never
@@ -385,6 +410,7 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
       usersFindFirst,
       insert,
       insertValues,
+      markerClaims,
       findOne,
       afterTransactionCreated,
     }

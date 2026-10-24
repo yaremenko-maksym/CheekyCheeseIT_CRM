@@ -9,6 +9,7 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
+import { salaryPartsResponseSchema } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { ROLES_KEY } from '../common/decorators/roles.decorator'
@@ -28,6 +29,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { ZodExceptionFilter } from '../zod-exception.filter'
 import { previousSalaryMonthKey } from './salary-month.util'
 
 /**
@@ -201,8 +203,14 @@ const TARGET_MONTH = '2099-11'
 // company-wide backfill for HR_AUDIT_PROOF's (receiver, month) pair,
 // independent of this file's OWN test execution order.
 const AUDIT_MONTH = '2099-10'
-const TX_HR_COVERED_SALARY = 'f3000000-0000-4000-cc00-000000000001'
-const TX_HR_SOFT_DELETED_SALARY = 'f3000000-0000-4000-cc00-000000000002'
+// The variant nibble (first of the 4th group) must be 8/9/a/b for an RFC-4122
+// UUID, and these fixtures carried `c`. Postgres's `uuid` type accepts the
+// looser form, so nothing noticed until `salaryPartsResponseSchema` — whose
+// `id` is `z.string().uuid()`, and zod 4 checks version AND variant — parsed a
+// response built from them. The DTO is right: every real row's id comes from
+// `gen_random_uuid()`. It is the fixture that was invalid by construction.
+const TX_HR_COVERED_SALARY = 'f3000000-0000-4000-8c00-000000000001'
+const TX_HR_SOFT_DELETED_SALARY = 'f3000000-0000-4000-8c00-000000000002'
 const TEST_TX_IDS = [TX_HR_COVERED_SALARY, TX_HR_SOFT_DELETED_SALARY]
 
 // `NbuCurrencyService` is a REAL constructor dependency of
@@ -322,6 +330,13 @@ describe.skipIf(!hasDatabaseUrl())(
 
       app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
       await app.register(cookie, { secret: 'salary-month-gap-integration-cookie-secret' })
+      // `main.ts` registers this filter on the real app, so a controller's
+      // `schema.parse()` rejection reaches a client as 400. Without it here a
+      // ZodError escapes as 500 and a test asserting 400 would be asserting the
+      // harness's gap instead of the product's contract — which is why the two
+      // sibling specs that exercise a rejected DTO register it too
+      // (company-account.rbac, transactions.create-accountant.rbac).
+      app.useGlobalFilters(new ZodExceptionFilter())
       app.setGlobalPrefix('api')
       await app.init()
       await app.getHttpAdapter().getInstance().ready()
@@ -484,6 +499,63 @@ describe.skipIf(!hasDatabaseUrl())(
         cookies: { jwt: tokenFor(ACCOUNTANT) },
       })
       expect(res.statusCode).toBe(200)
+    })
+
+    // ── GET /salary-parts (SR-795-M-1, owner decision D-3) ─────────────────
+    //
+    // The read the create dialog makes before an operator submits. Half of why
+    // the double-salary defect was reachable is that nothing told them a part
+    // for this person and month already existed.
+    it('RBAC parts: SENIOR → 403', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/finance/salary-parts?receiverId=${HR_COVERED.id}&month=${TARGET_MONTH}`,
+        cookies: { jwt: tokenFor(SENIOR) },
+      })
+      expect(res.statusCode).toBe(403)
+    })
+
+    it('RBAC parts: ACCOUNTANT → 200 (the pair that may create a salary may also look)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/finance/salary-parts?receiverId=${HR_COVERED.id}&month=${TARGET_MONTH}`,
+        cookies: { jwt: tokenFor(ACCOUNTANT) },
+      })
+      expect(res.statusCode).toBe(200)
+    })
+
+    it('lists the live part for that receiver/month and hides a soft-deleted one', async () => {
+      const covered = await app.inject({
+        method: 'GET',
+        url: `/api/finance/salary-parts?receiverId=${HR_COVERED.id}&month=${TARGET_MONTH}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(covered.statusCode).toBe(200)
+      const body = salaryPartsResponseSchema.parse(covered.json())
+      expect(body).toMatchObject({ receiverId: HR_COVERED.id, month: TARGET_MONTH })
+      expect(body.parts).toHaveLength(1)
+      expect(body.parts[0]).toMatchObject({ amount: 1600, currency: 'USD', status: 'PENDING' })
+      // The seeded row predates salary_origin, i.e. a legacy row: NULL, which
+      // the UI reads as automatic — the same way every server predicate does.
+      expect(body.parts[0]!.salaryOrigin).toBeNull()
+
+      // HR_SOFT_DELETED's part exists in the raw table and is deleted. A deleted
+      // part is not an obligation and must not be shown as one.
+      const deleted = await app.inject({
+        method: 'GET',
+        url: `/api/finance/salary-parts?receiverId=${HR_SOFT_DELETED.id}&month=${TARGET_MONTH}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(salaryPartsResponseSchema.parse(deleted.json()).parts).toEqual([])
+    })
+
+    it('rejects a malformed month before reading anything', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/finance/salary-parts?receiverId=${HR_COVERED.id}&month=2026-13`,
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(res.statusCode).toBe(400)
     })
 
     // ── RBAC: backfill (ADMIN only — narrower than the report) ─────────────
@@ -690,6 +762,14 @@ describe('salary-month-gap — SHIPPING route carries the RBAC gate (production 
     const roles = reflector.get<string[]>(
       ROLES_KEY,
       FinanceSummaryController.prototype.getSalaryMonthGap,
+    )
+    expect(roles).toEqual(['ADMIN', 'ACCOUNTANT'])
+  })
+
+  it('getSalaryParts handler ships @Roles(ADMIN, ACCOUNTANT) — SR-795-M-1', () => {
+    const roles = reflector.get<string[]>(
+      ROLES_KEY,
+      FinanceSummaryController.prototype.getSalaryParts,
     )
     expect(roles).toEqual(['ADMIN', 'ACCOUNTANT'])
   })

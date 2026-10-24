@@ -14,6 +14,7 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { COMPANY_ACCOUNT_LABEL } from '@crm/shared'
+import { salaryMonthInitializations } from '../database/schema'
 import { TransactionEntryService } from './transaction-entry.service'
 
 const assertBindableMock = vi.hoisted(() => vi.fn())
@@ -58,6 +59,9 @@ interface Harness {
   svc: TransactionEntryService
   inserted: Array<Record<string, unknown>>
   txInserted: Array<Record<string, unknown>>
+  markerClaims: Array<Record<string, unknown>>
+  readonly markerConflictArgs: Record<string, unknown> | undefined
+  readonly markerReturningProjection: Record<string, unknown> | undefined
   usersFindFirst: ReturnType<typeof vi.fn>
   txFindFirst: ReturnType<typeof vi.fn>
   transaction: ReturnType<typeof vi.fn>
@@ -71,18 +75,45 @@ function make(
     users?: Array<Record<string, unknown> | undefined>
     txLookups?: Array<Record<string, unknown> | undefined>
     insertError?: unknown
+    /** SR-795-M-1: false = the month marker was already taken (cron or a sibling part). */
+    markerClaimed?: boolean
   } = {},
 ): Harness {
   const inserted: Array<Record<string, unknown>> = []
   const txInserted: Array<Record<string, unknown>> = []
+  const markerClaims: Array<Record<string, unknown>> = []
+  let markerConflictArgs: Record<string, unknown> | undefined
+  let markerReturningProjection: Record<string, unknown> | undefined
   const userQueue = [...(opts.users ?? [])]
   const lookupQueue = [...(opts.txLookups ?? [])]
   const dbtx = {
-    insert: () => ({
+    insert: (table: unknown) => ({
       values: (row: Record<string, unknown>) => {
+        // SR-795-M-1: the manual salary write claims the receiver/month cron
+        // marker in the same transaction as the row, so this double has to
+        // tell the two inserts apart by table identity.
+        if (table === salaryMonthInitializations) {
+          markerClaims.push(row)
+          return {
+            onConflictDoNothing: (args: Record<string, unknown>) => {
+              markerConflictArgs = args
+              return {
+                returning: async (projection?: Record<string, unknown>) => {
+                  markerReturningProjection = projection
+                  return opts.markerClaimed === false ? [] : [{ id: 'marker-1' }]
+                },
+              }
+            },
+          }
+        }
         const withId = { id: 'new-tx-id', ...row }
-        txInserted.push(withId)
-        return { returning: async () => [withId] }
+        return {
+          returning: async () => {
+            if (opts.insertError) throw opts.insertError
+            txInserted.push(withId)
+            return [withId]
+          },
+        }
       },
     }),
   }
@@ -113,6 +144,13 @@ function make(
     svc,
     inserted,
     txInserted,
+    markerClaims,
+    get markerConflictArgs() {
+      return markerConflictArgs
+    },
+    get markerReturningProjection() {
+      return markerReturningProjection
+    },
     usersFindFirst,
     txFindFirst,
     transaction,
@@ -426,7 +464,9 @@ describe('TransactionEntryService.createSalary', () => {
       txDate: TX_DATE,
       createdBy: ADMIN.id,
     }
-    expect(h.inserted).toEqual([{ id: 'new-tx-id', ...expected }])
+    // SR-795-M-1: the row is written inside the transaction that claims the
+    // month marker, so it lands in the in-transaction insert log.
+    expect(h.txInserted).toEqual([{ id: 'new-tx-id', ...expected }])
     expect(h.lifecycle.afterTransactionCreated).toHaveBeenCalledWith(
       'new-tx-id',
       { id: 'new-tx-id', ...expected },
@@ -437,7 +477,7 @@ describe('TransactionEntryService.createSalary', () => {
   it('keeps the supplied currency and defaults absent notes to null', async () => {
     const h = make({ users: [employee] })
     await h.svc.createSalary({ ...base, currency: 'UAH' }, ADMIN)
-    expect(h.inserted[0]).toMatchObject({ currency: 'UAH', notes: null })
+    expect(h.txInserted[0]).toMatchObject({ currency: 'UAH', notes: null })
   })
 
   describe('concurrent idempotency race', () => {
@@ -474,6 +514,102 @@ describe('TransactionEntryService.createSalary', () => {
       const boom = new Error('boom')
       const h = make({ users: [employee], insertError: boom })
       await expect(h.svc.createSalary(base, ADMIN)).rejects.toBe(boom)
+    })
+  })
+
+  // SR-795-M-1 / owner decision D-3 (task-retro-salary-ledger-integrity). A
+  // manual part used to leave `salary_month_initializations` alone, so a month
+  // recorded by hand stayed unclaimed and the next cron run — or an ADMIN
+  // pressing Backfill — minted a SECOND payable salary for the same person and
+  // month. Manual QA measured it on a real stack. Under D-3 the first part
+  // recorded for a receiver/month claims the marker, whoever recorded it.
+  describe('claims the month marker (SR-795-M-1)', () => {
+    it('claims receiver/month in the same transaction as the row, attributing the real operator', async () => {
+      const h = make({ users: [employee] })
+      await h.svc.createSalary(base, ADMIN)
+
+      expect(h.transaction).toHaveBeenCalledTimes(1)
+      expect(h.markerClaims).toEqual([
+        { receiverId: 'recv-1', salaryMonth: '2026-09', initializedBy: ADMIN.id },
+      ])
+      expect(h.markerConflictArgs).toEqual({
+        target: [salaryMonthInitializations.receiverId, salaryMonthInitializations.salaryMonth],
+      })
+      // The id is what tells a claim from a no-op, so the projection asking for
+      // it is load-bearing: an empty `returning()` would make `claimed[0]`
+      // undefined-shaped and the branch below it unreadable.
+      expect(h.markerReturningProjection).toEqual({ id: salaryMonthInitializations.id })
+      expect(h.txInserted).toHaveLength(1)
+      // CR-M-3: "one transaction was opened and both writes happened" does not
+      // say they happened in the SAME one — moving the row insert back onto the
+      // pool would satisfy every assertion above. The harness logs pool-level
+      // inserts separately, so an empty pool log is what actually pins it.
+      expect(h.inserted).toHaveLength(0)
+    })
+
+    it('attributes the marker to the impersonator, not the impersonated admin', async () => {
+      const h = make({ users: [employee] })
+      await h.svc.createSalary(base, { ...ADMIN, impersonatorId: 'real-admin' })
+
+      expect(h.markerClaims[0]).toMatchObject({ initializedBy: 'real-admin' })
+    })
+
+    it('still records the part when the month was already claimed (cron or a sibling part)', async () => {
+      const h = make({ users: [employee], markerClaimed: false })
+      await expect(h.svc.createSalary(base, ADMIN)).resolves.toEqual({ id: 'new-tx-id' })
+
+      expect(h.markerClaims).toHaveLength(1)
+      expect(h.txInserted).toHaveLength(1)
+      expect(h.lifecycle.afterTransactionCreated).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  // SR-795-L-2. The idempotency index has no `deleted_at` term and the replay
+  // lookup reads the raw table on purpose, so a deleted part kept answering
+  // retries with HTTP 200 and its own id — a transaction every list endpoint
+  // hides. The operator was told "saved" about a row that is not there.
+  describe('a replay that lands on a soft-deleted part (SR-795-L-2)', () => {
+    const DELETED = {
+      id: 'tx-gone',
+      deletedAt: new Date('2026-10-20T10:00:00Z'),
+      salaryCreationIntent: BASE_INTENT,
+    }
+
+    it('refuses on the pre-insert lookup instead of reporting success', async () => {
+      const h = make({ txLookups: [DELETED] })
+
+      await expect(h.svc.createSalary(base, ADMIN)).rejects.toMatchObject({
+        response: {
+          code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
+          reason: 'DELETED_PART',
+          existingTransactionId: 'tx-gone',
+        },
+      })
+      expect(h.txInserted).toHaveLength(0)
+      expect(h.markerClaims).toHaveLength(0)
+    })
+
+    it('refuses on the conflict-recovery lookup too', async () => {
+      const h = make({
+        users: [employee],
+        txLookups: [undefined, DELETED],
+        insertError: Object.assign(new Error('dup'), {
+          code: '23505',
+          constraint: 'uq_transactions_salary_idempotency_key',
+        }),
+      })
+
+      await expect(h.svc.createSalary(base, ADMIN)).rejects.toMatchObject({
+        response: { reason: 'DELETED_PART', existingTransactionId: 'tx-gone' },
+      })
+      expect(h.lifecycle.afterTransactionCreated).not.toHaveBeenCalled()
+    })
+
+    it('a live row with the same key still replays as before', async () => {
+      const h = make({
+        txLookups: [{ id: 'old-salary', deletedAt: null, salaryCreationIntent: BASE_INTENT }],
+      })
+      await expect(h.svc.createSalary(base, ADMIN)).resolves.toEqual({ id: 'old-salary' })
     })
   })
 })

@@ -314,9 +314,17 @@ describe('adminUpdateTransaction — multipart salary marker migration', () => {
     expect(compileWhere(markerDeleteWhere[0]).params).toEqual(['emp-1', '2026-01'])
   })
 
-  it('moving a MANUAL salary part never changes cron initialization markers', async () => {
+  // SR-795-M-1 / owner decision D-3 (task-retro-salary-ledger-integrity).
+  // Until this task a MANUAL part owned no marker, so moving one was required
+  // to leave every marker alone — that is what PR #868 pinned here. D-3 makes
+  // the FIRST manual part of a receiver/month claim the marker, so the move has
+  // to carry the marker across or the source month stays claimed with no salary
+  // in it and cron skips it forever. What a manual part still never does is
+  // change its own origin: its idempotency key and persisted creation intent
+  // describe a manual request, and moving its month does not retract that.
+  it('moving a MANUAL salary part migrates the marker but never reclassifies the row', async () => {
     const { svc, markerInsertValues, markerDeleteWhere, oldEvidenceWhere, reclassificationValues } =
-      makeSalaryMoveSvc({ ...automaticSalary, salaryOrigin: 'MANUAL' })
+      makeSalaryMoveSvc({ ...automaticSalary, salaryOrigin: 'MANUAL' }, { targetClaimed: false })
 
     await svc.adminUpdateTransaction(
       automaticSalary.id,
@@ -324,10 +332,55 @@ describe('adminUpdateTransaction — multipart salary marker migration', () => {
       admin('real-admin'),
     )
 
-    expect(markerInsertValues).toHaveLength(0)
-    expect(markerDeleteWhere).toHaveLength(0)
-    expect(oldEvidenceWhere).toHaveLength(0)
+    expect(markerInsertValues).toEqual([
+      { receiverId: 'emp-1', salaryMonth: '2026-02', initializedBy: 'real-admin' },
+    ])
+    expect(oldEvidenceWhere).toHaveLength(1)
+    expect(markerDeleteWhere).toHaveLength(1)
+    expect(compileWhere(markerDeleteWhere[0]).params).toEqual(['emp-1', '2026-01'])
+    // The destination month was free, so there is nothing to reclassify for
+    // ANY origin here; the MANUAL-specific guarantee is the next case.
     expect(reclassificationValues).toHaveLength(0)
+  })
+
+  it('a MANUAL part moved into an already-claimed month keeps MANUAL (never ADJUSTED)', async () => {
+    const { svc, markerInsertValues, reclassificationValues } = makeSalaryMoveSvc(
+      { ...automaticSalary, salaryOrigin: 'MANUAL' },
+      { targetClaimed: true },
+    )
+
+    await svc.adminUpdateTransaction(
+      automaticSalary.id,
+      { salaryMonth: '2026-02' },
+      admin('real-admin'),
+    )
+
+    expect(markerInsertValues).toHaveLength(1)
+    // A CRON row in this exact situation IS reclassified (the case above this
+    // describe block asserts that), which is what makes the emptiness here a
+    // statement about MANUAL rather than about the branch being unreachable.
+    expect(reclassificationValues).toHaveLength(0)
+  })
+
+  it('a MANUAL part keeps the source marker when a sibling part still accounts for the month', async () => {
+    const { svc, markerDeleteWhere, oldEvidenceWhere } = makeSalaryMoveSvc(
+      { ...automaticSalary, salaryOrigin: 'MANUAL' },
+      { targetClaimed: false, oldAutomaticEvidence: true },
+    )
+
+    await svc.adminUpdateTransaction(
+      automaticSalary.id,
+      { salaryMonth: '2026-02' },
+      admin('real-admin'),
+    )
+
+    expect(oldEvidenceWhere).toHaveLength(1)
+    // CR-795-M-7: the evidence predicate now binds MANUAL as well as CRON, so a
+    // manual sibling left behind in 2026-01 holds that month's marker.
+    expect(compileWhere(oldEvidenceWhere[0]).params).toEqual(
+      expect.arrayContaining(['SALARY', 'emp-1', '2026-01', 'MANUAL', 'CRON']),
+    )
+    expect(markerDeleteWhere).toHaveLength(0)
   })
 
   it('moving an ADJUSTED salary part never changes cron initialization markers', async () => {

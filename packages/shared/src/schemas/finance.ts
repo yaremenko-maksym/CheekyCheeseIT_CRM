@@ -14,6 +14,10 @@ export {
   salaryFundingSourceSchema,
   COMPANY_ACCOUNT_RECEIVER,
   manualPayoutMethodSchema,
+  salaryOriginSchema,
+  AUTOMATIC_SALARY_ORIGINS,
+  isAutomaticSalaryOrigin,
+  accountsForSalaryMonth,
 } from './finance/enums'
 export type {
   TransactionType,
@@ -23,6 +27,7 @@ export type {
   DropSharePercentSource,
   SalaryFundingSource,
   ManualPayoutMethod,
+  SalaryOrigin,
 } from './finance/enums'
 export {
   MAX_TRANSACTION_AMOUNT,
@@ -70,6 +75,9 @@ export {
   salaryMonthGapReceiverSchema,
   salaryMonthGapReportSchema,
   salaryMonthBackfillSchema,
+  salaryPartsQuerySchema,
+  salaryPartSchema,
+  salaryPartsResponseSchema,
 } from './finance/income'
 export type {
   CreateAdminIncomeDto,
@@ -90,6 +98,9 @@ export type {
   SalaryMonthGapReceiverDto,
   SalaryMonthGapReportDto,
   SalaryMonthBackfillDto,
+  SalaryPartsQuery,
+  SalaryPartDto,
+  SalaryPartsResponseDto,
 } from './finance/income'
 export {
   createPayoutRequestSchema,

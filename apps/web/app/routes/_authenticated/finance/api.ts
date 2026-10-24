@@ -2,6 +2,7 @@ import { api } from '@/lib/axios'
 import {
   cascadeEditPreviewResponseSchema,
   incomeComplianceOverviewSchema,
+  salaryPartsResponseSchema,
   type IncomeComplianceOverviewDto,
 } from '@crm/shared'
 import type {
@@ -71,6 +72,19 @@ export const financeApi = {
 
   createSalary: (data: CreateSalaryDto) =>
     api.post<TransactionDto>('/transactions/salary', data).then((r) => r.data),
+
+  /**
+   * SR-795-M-1 / owner decision D-3. What the ledger ALREADY carries for one
+   * receiver and month, read before the operator submits a new part. Several
+   * parts per employee/month are legal by design, so the server cannot refuse a
+   * second one — which is why the operator has to be able to see the first.
+   * Parsed through the shared schema: an unexpected shape is a failure here,
+   * not a silently blank banner.
+   */
+  getSalaryParts: (receiverId: string, month: string) =>
+    api
+      .get<unknown>('/finance/salary-parts', { params: { receiverId, month } })
+      .then((r) => salaryPartsResponseSchema.parse(r.data)),
 
   createAdminTransfer: (data: CreateAdminTransferDto) =>
     api.post<TransactionDto>('/transactions/admin-transfer', data).then((r) => r.data),

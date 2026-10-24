@@ -1,3 +1,5 @@
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 
 import type { DatabaseService } from '../database/database.service'
@@ -9,11 +11,21 @@ type TransactionRow = {
   currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
 }
 
-function makeDb(rows: TransactionRow[]): DatabaseService['db'] {
+// SR-795-L-3: the legacy single-part projection takes the FIRST row of this
+// query, so the query must impose an order. The harness therefore refuses to
+// answer an unordered read — `where` is no longer terminal — which is what
+// makes "no ORDER BY" a test failure rather than a silent dependence on
+// Postgres's physical row order.
+function makeDb(rows: TransactionRow[], capture?: { orderBy?: unknown[] }): DatabaseService['db'] {
   return {
     select: () => ({
       from: () => ({
-        where: async () => rows,
+        where: () => ({
+          orderBy: async (...clauses: unknown[]) => {
+            if (capture) capture.orderBy = clauses
+            return rows
+          },
+        }),
       }),
     }),
   } as unknown as DatabaseService['db']
@@ -280,5 +292,43 @@ describe('getOwnSalaryStatus', () => {
         lockedAmount: 0.3,
       })
     })
+  })
+})
+
+// SR-795-L-3 (task-retro-salary-ledger-integrity). `mySalaryState` is the
+// byte-compatible single-part field a stale browser bundle still parses. PR #795
+// removed the `.limit(1)` that used to make the read deterministic and replaced
+// it with `validRows[0]`, so WHICH of an employee's salary parts their own page
+// showed came down to whatever order Postgres happened to return — it can change
+// after a VACUUM or an UPDATE with no data change at all. The oldest part is the
+// representative one, matching the order the prepare migration's DISTINCT ON
+// backfill uses to pick a month's authoritative row.
+describe('getOwnSalaryStates — deterministic legacy projection (SR-795-L-3)', () => {
+  it('orders the read by created_at then id, ascending', async () => {
+    const capture: { orderBy?: unknown[] } = {}
+    await getOwnSalaryStates(
+      makeDb([row('100', 'PENDING')], capture),
+      USER_ID,
+      SALARY_MONTH,
+      AWAITING_CREATION,
+    )
+
+    const dialect = new PgDialect()
+    expect(capture.orderBy).toHaveLength(2)
+    expect(capture.orderBy!.map((clause) => dialect.sqlToQuery(clause as SQL).sql)).toEqual([
+      '"non_deleted_transactions"."created_at" asc',
+      '"non_deleted_transactions"."id" asc',
+    ])
+  })
+
+  it('reports the first ordered row as the legacy single part', async () => {
+    const { legacy } = await getOwnSalaryStates(
+      makeDb([row('100', 'PENDING', 'EUR'), row('900', 'PAID', 'USD')]),
+      USER_ID,
+      SALARY_MONTH,
+      AWAITING_CREATION,
+    )
+
+    expect(legacy).toEqual({ state: 'EXISTS', amount: 100, currency: 'EUR', status: 'PENDING' })
   })
 })

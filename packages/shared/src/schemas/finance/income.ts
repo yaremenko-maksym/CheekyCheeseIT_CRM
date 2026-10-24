@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { withMoneyFloor } from '../money'
-import { COMPANY_ACCOUNT_RECEIVER, salaryFundingSourceSchema } from './enums'
+import { COMPANY_ACCOUNT_RECEIVER, salaryFundingSourceSchema, salaryOriginSchema } from './enums'
 import {
   MAX_TRANSACTION_AMOUNT,
   mandatoryReceiptRefine,
@@ -477,3 +477,45 @@ export const salaryMonthBackfillSchema = z.object({
   month: salaryMonthField('month must be YYYY-MM'),
 })
 export type SalaryMonthBackfillDto = z.infer<typeof salaryMonthBackfillSchema>
+
+// ---------------------------------------------------------------------------
+// Existing salary parts for one receiver/month (SR-795-M-1, owner decision D-3)
+// ---------------------------------------------------------------------------
+//
+// GET /api/finance/salary-parts?receiverId=…&month=YYYY-MM — ADMIN + ACCOUNTANT,
+// the same pair that may create a salary. The second half of D-3: before an
+// operator submits a salary part, the dialog shows what is already on the ledger
+// for that person and month.
+//
+// Why a dedicated endpoint rather than a filter on the transactions list: the
+// list is viewer-masked and paginated, and the question here is narrow and
+// pre-submit. It answers with exactly what an operator needs to recognise a
+// duplicate — the figure, its state, and whether it was theirs or the cron's.
+// Nothing viewer-sensitive is added: both roles already see these rows in the
+// finance table.
+export const salaryPartsQuerySchema = z.object({
+  receiverId: z.string().uuid(),
+  month: salaryMonthField('month must be YYYY-MM'),
+})
+export type SalaryPartsQuery = z.infer<typeof salaryPartsQuerySchema>
+
+export const salaryPartSchema = z.object({
+  id: z.string().uuid(),
+  amount: z.number(),
+  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+  status: z.enum(['PENDING', 'PAID', 'LOCKED']),
+  // NULL for a legacy row written before the column existed — the UI reads that
+  // as "automatic", the same way every predicate on the server does.
+  salaryOrigin: salaryOriginSchema.nullable(),
+  // ISO string, like `transactionSchema.txDate` — the same `mapTx` convention.
+  txDate: z.string().datetime().nullable(),
+  notes: z.string().nullable(),
+})
+export type SalaryPartDto = z.infer<typeof salaryPartSchema>
+
+export const salaryPartsResponseSchema = z.object({
+  receiverId: z.string().uuid(),
+  month: salaryMonthField("Expected 'YYYY-MM' format"),
+  parts: z.array(salaryPartSchema),
+})
+export type SalaryPartsResponseDto = z.infer<typeof salaryPartsResponseSchema>

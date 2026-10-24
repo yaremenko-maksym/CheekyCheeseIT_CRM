@@ -83,8 +83,12 @@ function makeService(data: StubData = {}): TransactionsService {
           if (table === visibleProjects) {
             return { where: () => ({ orderBy: () => Promise.resolve(data.projects ?? []) }) }
           }
+          // SR-795-L-3: the salary-status read now ends in `.orderBy()` too
+          // (the legacy single-part projection takes the first row, so the
+          // query has to impose an order). Both chains therefore look alike —
+          // the table identity above is what still keeps them apart.
           return {
-            where: () => Promise.resolve(data.salaryRows ?? []),
+            where: () => ({ orderBy: () => Promise.resolve(data.salaryRows ?? []) }),
           }
         },
       }),

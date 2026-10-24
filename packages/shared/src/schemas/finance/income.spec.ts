@@ -14,6 +14,9 @@ import {
   createSeniorIncomeSchema,
   createUsdtIncomeSchema,
   paySalarySchema,
+  salaryPartSchema,
+  salaryPartsQuerySchema,
+  salaryPartsResponseSchema,
   updateDropIncomeSchema,
   updateSeniorIncomeSchema,
   validateTransactionSchema,
@@ -232,5 +235,142 @@ describe('paySalarySchema.paidAmount / txHash', () => {
   it('caps txHash at 255 characters', () => {
     expect(maxLength(paySalarySchema.shape.txHash, 255)).toEqual([])
     expect(paySalarySchema.shape.txHash.safeParse(null).success).toBe(true)
+  })
+})
+
+/**
+ * SR-795-M-1 / owner decision D-3 — the read behind the create dialog's
+ * "this month already has N parts" panel. These three schemas shipped with no
+ * spec at all, which the mutation gate reported as survivors rather than as an
+ * opinion: every bound below was mutable without a test noticing.
+ *
+ * Literals are hand-written, never derived from the schema under test.
+ */
+describe('salary-parts schemas (SR-795-M-1)', () => {
+  const PART = {
+    id: UUID,
+    amount: 1500,
+    currency: 'USD' as const,
+    status: 'PENDING' as const,
+    salaryOrigin: 'MANUAL' as const,
+    txDate: '2026-09-30T00:00:00.000Z',
+    notes: 'part 1',
+  }
+
+  describe('salaryPartsQuerySchema', () => {
+    it('requires both a uuid receiver and a well-formed month', () => {
+      expect(salaryPartsQuerySchema.safeParse({ receiverId: UUID, month: '2026-09' }).success).toBe(
+        true,
+      )
+      expect(salaryPartsQuerySchema.safeParse({ month: '2026-09' }).success).toBe(false)
+      expect(salaryPartsQuerySchema.safeParse({ receiverId: UUID }).success).toBe(false)
+    })
+
+    it('rejects a receiver that is not a uuid', () => {
+      expect(
+        salaryPartsQuerySchema.safeParse({ receiverId: 'recv-1', month: '2026-09' }).success,
+      ).toBe(false)
+    })
+
+    it('rejects an impossible month — the server would otherwise read a month nothing writes', () => {
+      for (const month of ['2026-13', '2026-00', '2026-9', '202609', '2026-09-01', '']) {
+        expect(salaryPartsQuerySchema.safeParse({ receiverId: UUID, month }).success).toBe(false)
+      }
+      for (const month of ['2026-01', '2026-12']) {
+        expect(salaryPartsQuerySchema.safeParse({ receiverId: UUID, month }).success).toBe(true)
+      }
+    })
+
+    it('says WHICH month shape it wanted — the message is what a 400 carries', () => {
+      const r = salaryPartsQuerySchema.safeParse({ receiverId: UUID, month: '2026-13' })
+      expect(r.success).toBe(false)
+      expect(r.error?.issues[0]?.message).toBe('month must be YYYY-MM')
+    })
+  })
+
+  describe('salaryPartSchema', () => {
+    it('accepts the shape the endpoint actually returns', () => {
+      expect(salaryPartSchema.safeParse(PART).success).toBe(true)
+    })
+
+    it('allows a legacy NULL origin but no value outside the union', () => {
+      expect(salaryPartSchema.safeParse({ ...PART, salaryOrigin: null }).success).toBe(true)
+      expect(salaryPartSchema.safeParse({ ...PART, salaryOrigin: 'CRON' }).success).toBe(true)
+      expect(salaryPartSchema.safeParse({ ...PART, salaryOrigin: 'ADJUSTED' }).success).toBe(true)
+      expect(salaryPartSchema.safeParse({ ...PART, salaryOrigin: 'Manual' }).success).toBe(false)
+      expect(salaryPartSchema.safeParse({ ...PART, salaryOrigin: 'LEGACY' }).success).toBe(false)
+    })
+
+    it('admits only the three states an operator weighs a new part against', () => {
+      for (const status of ['PENDING', 'PAID', 'LOCKED']) {
+        expect(salaryPartSchema.safeParse({ ...PART, status }).success).toBe(true)
+      }
+      // A cancelled or rejected row is not an obligation; the service filters
+      // them out, and the DTO refuses them if one ever slipped through.
+      for (const status of ['CANCELLED', 'REJECTED', 'VALIDATED', 'pending']) {
+        expect(salaryPartSchema.safeParse({ ...PART, status }).success).toBe(false)
+      }
+    })
+
+    it('admits every currency a salary can be nominated in, and nothing else', () => {
+      // Written out one by one: a single 'USD' case leaves the other three
+      // literals free to change into anything, and a salary part really can be
+      // in EUR or UAH (the panel showed 1 234,5 EUR on a real stack).
+      for (const currency of CURRENCIES) {
+        expect(salaryPartSchema.safeParse({ ...PART, currency }).success).toBe(true)
+      }
+      for (const currency of ['GBP', 'usd', '', 'BTC']) {
+        expect(salaryPartSchema.safeParse({ ...PART, currency }).success).toBe(false)
+      }
+    })
+
+    it('keeps amount a number and txDate an ISO datetime or null', () => {
+      expect(salaryPartSchema.safeParse({ ...PART, amount: '1500' }).success).toBe(false)
+      expect(salaryPartSchema.safeParse({ ...PART, txDate: null }).success).toBe(true)
+      expect(salaryPartSchema.safeParse({ ...PART, txDate: '2026-09-30' }).success).toBe(false)
+    })
+
+    it('requires an id that is a uuid, and notes that may be null', () => {
+      expect(salaryPartSchema.safeParse({ ...PART, id: 'tx-1' }).success).toBe(false)
+      expect(salaryPartSchema.safeParse({ ...PART, notes: null }).success).toBe(true)
+    })
+  })
+
+  describe('salaryPartsResponseSchema', () => {
+    it('carries the receiver and month back, with the parts list', () => {
+      const parsed = salaryPartsResponseSchema.parse({
+        receiverId: UUID,
+        month: '2026-09',
+        parts: [PART],
+      })
+      expect(parsed.parts).toHaveLength(1)
+      expect(parsed.parts[0]?.amount).toBe(1500)
+      expect(parsed.receiverId).toBe(UUID)
+      expect(parsed.month).toBe('2026-09')
+    })
+
+    it('accepts an empty list — a month with no parts is the normal case', () => {
+      expect(
+        salaryPartsResponseSchema.safeParse({ receiverId: UUID, month: '2026-09', parts: [] })
+          .success,
+      ).toBe(true)
+    })
+
+    it('refuses a malformed month and a malformed part on the way out, not only in', () => {
+      const badMonth = salaryPartsResponseSchema.safeParse({
+        receiverId: UUID,
+        month: '2026-13',
+        parts: [],
+      })
+      expect(badMonth.success).toBe(false)
+      expect(badMonth.error?.issues[0]?.message).toBe("Expected 'YYYY-MM' format")
+      expect(
+        salaryPartsResponseSchema.safeParse({
+          receiverId: UUID,
+          month: '2026-09',
+          parts: [{ ...PART, status: 'CANCELLED' }],
+        }).success,
+      ).toBe(false)
+    })
   })
 })
