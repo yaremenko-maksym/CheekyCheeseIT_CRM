@@ -1,0 +1,12 @@
+{
+  "url": "https://api.smartrecruiters.com/robots.txt",
+  "fetchedAt": "2026-10-24T05:11:03.052Z",
+  "httpStatus": 200,
+  "rawSha256": "834faf99999604ead9af2c371e8e41a914b67fecd52e51c3e1125595c28564ec",
+  "fileSha256": "834faf99999604ead9af2c371e8e41a914b67fecd52e51c3e1125595c28564ec",
+  "trimmedBy": "none: the body is stored exactly as received (it is not JSON or not worth re-serialising, hence the extension)",
+  "termsUrl": "https://developers.smartrecruiters.com/docs/endpoints",
+  "termsCheckedAt": "2026-10-24T05:20:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "PERMISSION IS UNCLEAR, AND NO API CAPTURE WAS TAKEN. The robots.txt of api.smartrecruiters.com is \"User-agent: LinkedInBot / Allow: /v1/companies/ / User-agent: * / Disallow: /\": the Posting API path is allowed for one named crawler and DISALLOWED for every other agent, including this collector. The developer documentation (https://developers.smartrecruiters.com/docs/endpoints) calls the Posting API \"public\" and shows unauthenticated example requests, but states no terms of use and no rate limit, and the two statements conflict. The brief for this task says to stop when a path that is needed is disallowed, so no GET was sent to api.smartrecruiters.com other than this robots.txt. The adapter is written against the documented schema and tested on payloads built in its spec from that schema (the official examples on the documentation page are not valid JSON: missing commas, unterminated strings), and it must stay disabled until the owner decides."
+}

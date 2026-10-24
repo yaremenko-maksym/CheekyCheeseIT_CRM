@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<workzag-jobs>
+
+<position>
+    <id>2630474</id>
+    <subcompany>Westwing Group SE</subcompany>
+    <office>Munich Office</office>
+    <department>Technology</department>
+    <recruitingCategory>Leadership</recruitingCategory>
+    <name>Team Lead Mobile (m/f/d)</name>
+    <jobDescriptions></jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <keywords>Team Lead,Mobile,iOS,Android,Technology</keywords>
+    <occupation>general_and_other_it_software</occupation>
+    <occupationCategory>it_software</occupationCategory>
+    <createdAt>2026-05-11T13:18:11+00:00</createdAt>
+</position>
+
+<position>
+    <id>2702093</id>
+    <subcompany>Westwing Sp. z o.o</subcompany>
+    <office>Robakowo Warehouse ELC5</office>
+    <department>Operations</department>
+    <recruitingCategory>Experienced</recruitingCategory>
+    <name>Operations Manager (m/f/d)</name>
+    <jobDescriptions></jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <yearsOfExperience>2-5</yearsOfExperience>
+    <occupation>general_and_other_logistics_and_transportation</occupation>
+    <occupationCategory>logistics_and_transportation</occupationCategory>
+    <createdAt>2026-07-07T10:00:07+00:00</createdAt>
+</position>
+
+</workzag-jobs>

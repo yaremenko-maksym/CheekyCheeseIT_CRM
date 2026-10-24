@@ -85,7 +85,7 @@ async function emitVerbatim(provider, name, ext, rawFile, meta) {
 // ------------------------------------------------------------------ Workable
 const WK_TERMS = 'https://help.workable.com/hc/en-us/articles/115012771647'
 const WK_COMMON =
-  'ENDPOINT: the documented public form is https://www.workable.com/api/accounts/{subdomain}?details=true (Workable help center, which gives no field list, no rate limit and no terms for it); it answers HTTP 302 to https://apply.workable.com/api/v1/widget/accounts/{subdomain}?details=true (measured 2026-10-24, Location header), which is the address captured here and the only one the adapter calls, so no redirect is ever followed. The sibling https://apply.workable.com/api/v1/accounts/{subdomain} is the career-page account document (id, uid, logo, languages, details.overview) and carries no jobs. robots.txt: apply.workable.com is "User-agent: * / Disallow:" (empty, so nothing is disallowed) with "Content-Signal: search=yes, ai-input=yes, ai-train=no"; www.workable.com disallows only /user_password_resets, /admin, /auth/google and /j/ and carries the same content signal. Workable\'s terms (https://www.workable.com/terms, 2026-03-02) are written for customers; they contain no clause on automated access to public job data. The authenticated API https://{subdomain}.workable.com/spi/v3/ (bearer token) is a separate integration and was not called. The widget lists jobs only for accounts that publish them there: of 40 well-known accounts probed, 36 answered 200 with "jobs":[] (Hotjar, Deel, Typeform, Wise...), so an empty list is not a dead board.'
+  'ENDPOINT: the documented public form is https://www.workable.com/api/accounts/{subdomain}?details=true (Workable help center, which gives no field list, no rate limit and no terms for it); it answers HTTP 302 to https://apply.workable.com/api/v1/widget/accounts/{subdomain}?details=true (measured 2026-10-24, Location header), which is the address captured here and the only one the adapter calls, so no redirect is ever followed. The sibling https://apply.workable.com/api/v1/accounts/{subdomain} is the career-page account document (id, uid, logo, languages, details.overview) and carries no jobs. robots.txt: apply.workable.com is "User-agent: * / Disallow:" (empty, so nothing is disallowed) with "Content-Signal: search=yes, ai-input=yes, ai-train=no"; www.workable.com disallows only /user_password_resets, /admin, /auth/google and /j/ and carries the same content signal. Workable\'s terms (https://www.workable.com/terms, 2026-03-02) are written for customers; they contain no clause on automated access to public job data. The authenticated API https://{subdomain}.workable.com/spi/v3/ (bearer token) is a separate integration and was not called. The widget lists jobs only for accounts that publish them there: of 37 account slugs probed on 2026-10-24, 3 listed jobs (huggingface, hirefellows, flosum), 27 answered 200 with "jobs":[] (Hotjar, Deel, Typeform, Wise...) and 7 answered 404, so an empty list is common and is not a dead board.'
 const WK_ENVELOPE =
   'Envelope: {name, description, jobs[]}; name is the account (employer) name as Workable holds it.'
 const WK = { termsUrl: WK_TERMS, permission: 'PUBLIC_API_DOCUMENTED' }
@@ -169,7 +169,7 @@ await emitJson(
   {
     ...RT,
     notes: rtNotes(
-      'bunq: 21 offers captured (620,703 bytes; all published, all hybrid), 3 kept whole. Every offer carries company_name "bunq", which is the ownership evidence (EVIDENCE: PAYLOAD_FIELD). careers_url is on the employer\'s own domain (careers.bunq.com/o/{slug}), not on recruitee.com, so the canonical posting URL must be taken from the data. mailbox_email (job.xxxxx@bunq.recruitee.com) is an address and was replaced.',
+      'bunq: 21 offers captured (620,703 bytes; all published, all hybrid), 3 kept whole. Every offer carries company_name "bunq", which is the ownership evidence (EVIDENCE: PAYLOAD_FIELD). careers_url is on the employer\'s own domain (careers.bunq.com/o/{slug}), not on recruitee.com, so the canonical posting URL must be taken from the data. mailbox_email (a per-offer job.<code> mailbox on bunq.recruitee.com) is an address and was replaced.',
     ),
   },
 )
@@ -228,7 +228,29 @@ await emitVerbatim('personio', 'personio-en', 'xml', 'pe-personio-en', {
     'The personio tenant (language=en): 1 position (id 1834171), stored exactly as received. It has an additionalOffices block, an apostrophe written as &#039; and an ampersand written as &amp; in a subcompany, and CDATA job descriptions. OWNERSHIP VERIFIED, EVIDENCE: PAYLOAD_FIELD (subcompany "Personio SE & Co. KG").',
   ),
 })
-await emitXml('westwing-en', 'pe-westwing-en', [], {
+await emitXml('westwing-en', 'pe-westwing-en', [2630474, 2703051, 2435528, 1968758, 2702093], {
   ...PE,
-  notes: peNotes('placeholder'),
+  notes: peNotes(
+    'Westwing (language=en): 61 positions captured (674,732 bytes), 5 kept whole: a plain permanent full-time position (2630474), a fixed_term one (2703051), a freelance one with schedule full-or-part-time (2435528), a working_student part-time one (1968758) and one with NO <keywords> element (2702093; 60 of the 61 have one). OWNERSHIP VERIFIED, EVIDENCE: PAYLOAD_FIELD (subcompany "Westwing Group SE" on every kept position). No recruiter name or address is in the feed; an address in a description would have been replaced.',
+  ),
+})
+await emitXml('westwing-de', 'pe-westwing-de', [2630474, 2702093], {
+  ...PE,
+  notes: peNotes(
+    'Westwing (language=de): the SAME 61 positions with the SAME ids as language=en, but the German document carries no <jobDescriptions> content (~700 bytes per position against ~10,000), so the language parameter changes the text and not the identity; 2 kept (the same ids as the first and last of the English fixture). OWNERSHIP VERIFIED, EVIDENCE: PAYLOAD_FIELD (subcompany "Westwing Group SE").',
+  ),
+})
+await emitVerbatim('personio', 'tenant-not-found', 'txt', 'pe-not-found', {
+  ...PE,
+  notes: peNotes(
+    'A company that does not exist (or has not switched the XML feed on - the two are not distinguishable from outside) answers HTTP 404 with an HTML "Page Not Found" page (2,472 bytes, content-type text/html), stored exactly as received but as .txt: it is evidence of the status and the page, and an HTML file in a fixture directory would be rewritten by the mutation tooling. The tenant is deliberately fictitious. The fixture is the 404 BODY; the adapter never reads it.',
+  ),
+})
+
+// ------------------------------------------------------------- SmartRecruiters
+await emitVerbatim('smartrecruiters', 'api-robots', 'txt', 'sr-robots', {
+  termsUrl: 'https://developers.smartrecruiters.com/docs/endpoints',
+  permission: 'UNCLEAR',
+  notes:
+    'PERMISSION IS UNCLEAR, AND NO API CAPTURE WAS TAKEN. The robots.txt of api.smartrecruiters.com is "User-agent: LinkedInBot / Allow: /v1/companies/ / User-agent: * / Disallow: /": the Posting API path is allowed for one named crawler and DISALLOWED for every other agent, including this collector. The developer documentation (https://developers.smartrecruiters.com/docs/endpoints) calls the Posting API "public" and shows unauthenticated example requests, but states no terms of use and no rate limit, and the two statements conflict. The brief for this task says to stop when a path that is needed is disallowed, so no GET was sent to api.smartrecruiters.com other than this robots.txt. The adapter is written against the documented schema and tested on payloads built in its spec from that schema (the official examples on the documentation page are not valid JSON: missing commas, unterminated strings), and it must stay disabled until the owner decides.',
 })
