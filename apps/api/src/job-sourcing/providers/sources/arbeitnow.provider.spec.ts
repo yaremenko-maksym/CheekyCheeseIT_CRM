@@ -192,9 +192,9 @@ describe('mapping the authentic capture', () => {
 
 describe('the byte cap is not raised and the page is not cut (the reason this source is blocked)', () => {
   const capture = (name: string) =>
-    gunzipSync(
-      readFileSync(join(__dirname, '__fixtures__', 'raw-captures-3.2', `${name}.raw.gz`)),
-    ).toString('utf8')
+    gunzipSync(readFileSync(join(__dirname, '__raw-captures__', '3.2', `${name}.raw.gz`))).toString(
+      'utf8',
+    )
 
   /** "Nothing kept" is four claims: no observation, all counts zero, no checkpoint, one request. */
   function expectNothingKept(batch: Batch, f: Awaited<ReturnType<typeof run>>['f']) {

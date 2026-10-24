@@ -30,6 +30,8 @@ import { WORKINGNOMADS_SOURCE_STATUS } from './workingnomads.provider'
  */
 
 const ROOT = join(__dirname, '__fixtures__')
+// Evidence, not fixtures: kept outside __fixtures__ so the shared walk does not count it as a provider.
+const RAW_ROOT = join(__dirname, '__raw-captures__', '3.2')
 
 type Permission =
   'PUBLIC_API_DOCUMENTED' | 'PUBLIC_FEED' | 'UNCLEAR' | 'PROHIBITED' | 'KEY_REQUIRED'
@@ -132,7 +134,7 @@ describe('fixture provenance', () => {
   it.each(RAW_CAPTURES)(
     '%s/%s: the committed raw capture %s hashes to the recorded rawSha256',
     (provider, name, rawFile) => {
-      const raw = readFileSync(join(ROOT, 'raw-captures-3.2', rawFile))
+      const raw = readFileSync(join(RAW_ROOT, rawFile))
       const bytes = rawFile.endsWith('.gz') ? gunzipSync(raw) : raw
       expect(sha256(bytes)).toBe(provenanceOf(provider, name).rawSha256)
     },
@@ -177,22 +179,23 @@ function addressesIn(path: string): string[] {
 }
 
 describe('no personal e-mail address anywhere under __fixtures__', () => {
-  const files = walk(ROOT)
-  const rel = files.map((f) => relative(ROOT, f))
+  const files = [...walk(ROOT), ...walk(RAW_ROOT)]
+  const labelOf = (f: string) => relative(f.startsWith(RAW_ROOT) ? __dirname : ROOT, f)
+  const rel = files.map(labelOf)
 
   it('scans the whole tree: every provider directory, the raw captures and the scripts', () => {
     // A scanner that only saw a subset would pass the checks below too, so the scope is asserted.
     expect(rel.length).toBeGreaterThan(70)
-    for (const dir of [...Object.keys(FIXTURES), 'workingnomads', 'raw-captures-3.2']) {
+    for (const dir of [...Object.keys(FIXTURES), 'workingnomads', '__raw-captures__/3.2']) {
       expect(rel.some((f) => f.startsWith(`${dir}/`))).toBe(true)
     }
     expect(rel).toContain('trim-captures-3.2.mjs')
-    expect(rel).toContain('raw-captures-3.2/an-p1.raw.gz')
+    expect(rel).toContain('__raw-captures__/3.2/an-p1.raw.gz')
   })
 
   it('finds no address except the placeholder and the allow-listed published contacts', () => {
     const offenders = files.flatMap((file) => {
-      const name = relative(ROOT, file)
+      const name = labelOf(file)
       const allowed = new Set([PLACEHOLDER, ...(PUBLISHED_CONTACTS[name] ?? [])])
       return addressesIn(file)
         .filter((a) => !allowed.has(a))
@@ -209,7 +212,7 @@ describe('no personal e-mail address anywhere under __fixtures__', () => {
   })
 
   it("the raw Hacker News thread captures are not committed (they hold commenters' addresses)", () => {
-    expect(rel.filter((f) => /^raw-captures-3\.2\/hn-/.test(f))).toEqual([])
+    expect(rel.filter((f) => /^__raw-captures__\/3\.2\/hn-/.test(f))).toEqual([])
   })
 })
 

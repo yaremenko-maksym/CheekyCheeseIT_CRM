@@ -1,11 +1,11 @@
-// Builds the Task 3.2 fixtures from the raw captures committed in ./raw-captures-3.2 (gzip over
+// Builds the Task 3.2 fixtures from the raw captures committed in ../__raw-captures__/3.2 (gzip over
 // 300 KB, lossless). Parser-based end to end: JSON.parse -> select WHOLE records by identity ->
 // redact personal data inside string values -> JSON.stringify -> prettier. Never a byte cut.
 // Usage: node trim-captures-3.2.mjs <termsCheckedAt-ISO>   (the committed fixtures used 2026-10-24T03:00:00.000Z;
 // a different value rewrites `termsCheckedAt` in every provenance file it regenerates).
 // `termsCheckedAt` is ONE value for every file: the DATE (2026-10-24) is when the terms were read, the time of day is a
 // single stand-in, not a per-file clock reading.
-// A section whose raw capture is not in raw-captures-3.2/ is SKIPPED, not failed: only the Arbeitnow and
+// A section whose raw capture is not in __raw-captures__/3.2/ is SKIPPED, not failed: only the Arbeitnow and
 // Jobgether captures are kept (no personal data); the Hacker News and Working Nomads ones are not.
 // `rawSha256` is the sha256 of the bytes as RECEIVED (the decompressed capture).
 //
@@ -15,7 +15,7 @@
 // repository (PR #1120): the trimmed fixtures were redacted and scanned, the raw directory sat
 // outside every check. `fixture-provenance.spec.ts` now scans the whole tree and fails on any
 // address. Consequently the three hn-hiring thread fixtures below are NOT reproducible from the
-// repository: capture the threads again into raw-captures-3.2/ (locally, uncommitted), run this
+// repository: capture the threads again into __raw-captures__/3.2/ (locally, uncommitted), run this
 // script, and delete the raw files before committing. Their provenance files record the hashes.
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
@@ -26,7 +26,7 @@ import * as prettier from 'prettier'
 
 const [termsCheckedAt] = process.argv.slice(2)
 const here = dirname(fileURLToPath(import.meta.url))
-const rawDir = join(here, 'raw-captures-3.2')
+const rawDir = join(here, '..', '__raw-captures__', '3.2')
 const sha = (b) => createHash('sha256').update(b).digest('hex')
 
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
