@@ -322,6 +322,7 @@ describe('job_collection_runs (AC2)', () => {
         'outcome',
         'coverage',
         'owner_token',
+        'account_key',
         'fencing_epoch',
         'lease_expires_at',
         'checkpoint',
@@ -360,6 +361,26 @@ describe('job_collection_runs (AC2)', () => {
     ])
     // Terminal runs are history; only STARTED rows contend for the slot.
     expect(render(i.config.where)).toContain('STARTED')
+  })
+
+  it('carries the account key every run contends on: a NOT NULL uuid with no default (2.5 T1)', () => {
+    const c = col(jobCollectionRuns, 'account_key')
+    expect(c.notNull).toBe(true)
+    expect(c.getSQLType()).toBe('uuid')
+    // No default: a key the database invented would be one no other run shares,
+    // and the per-account slot would then lock nothing. The writer must name it.
+    expect(c.hasDefault).toBe(false)
+  })
+
+  it.each([
+    ['uq_job_collection_runs_one_started_per_source', ['source_id']],
+    ['uq_job_collection_runs_one_started_per_account', ['account_key']],
+  ])('%s: one STARTED run per key, terminal runs never contend (2.5 T1)', (name, cols) => {
+    const i = idx(jobCollectionRuns, name)
+    expect(i.config.unique).toBe(true)
+    // The key ALONE — no config_version: a config bump must not open a second slot.
+    expect(idxCols(jobCollectionRuns, name)).toEqual(cols)
+    expect(render(i.config.where)).toBe(`"job_collection_runs"."outcome" = 'STARTED'`)
   })
 
   it('carries the fencing epoch and a lease while it is running', () => {

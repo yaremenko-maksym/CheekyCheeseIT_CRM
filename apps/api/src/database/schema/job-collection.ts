@@ -158,8 +158,10 @@ export const jobCollectionRuns = pgTable(
     /**
      * The source's config version at the moment the run started. A bump
      * INVALIDATES the checkpoint: a checkpoint belongs to the config it was
-     * taken under, and the partial UNIQUE below is scoped by this column, so a
-     * run under a new config does not contend with a stale running one.
+     * taken under. `uq_job_collection_runs_running_owner` is scoped by this
+     * column, but since Task 2.5 T1 `uq_job_collection_runs_one_started_per_source`
+     * is not: a run under a new config DOES contend with a still-running one,
+     * which has to end (or be recovered) first.
      */
     configVersion: integer('config_version').notNull(),
     /** The config itself, snapshotted — a later edit must not rewrite history. */
@@ -176,6 +178,23 @@ export const jobCollectionRuns = pgTable(
     coverage: jobCollectionCoverageEnum('coverage').notNull().default('PARTIAL'),
     /** Who holds the run. Present exactly while the run is STARTED. */
     ownerToken: text('owner_token'),
+    /**
+     * The paid account this run spends against (Task 2.5 T1): the source's
+     * `account_meter_id`, or the source's own id when it has no meter. It is
+     * what `uq_job_collection_runs_one_started_per_account` keys on, so two
+     * sources that share one account cannot fetch at the same time.
+     *
+     * NO DEFAULT, on purpose: a key the database invented would be shared by no
+     * other run, and the per-account slot would then lock nothing.
+     *
+     * WORKER OBLIGATION the database cannot see (a CHECK reads only its own
+     * row; there is no FK, since the key names either a meter or a source):
+     * the writer derives the key from `job_sources` at claim time, under the
+     * claim's row locks. A writer that passed the source id for a metered
+     * source would get a per-source lock only. The run ledger (Task 2.5 T3) is
+     * the only intended writer.
+     */
+    accountKey: uuid('account_key').notNull(),
     /**
      * Monotonic fencing epoch. WORKER OBLIGATION: a worker writes only while its
      * epoch is still the greatest for this source, so a process that resumes
@@ -251,6 +270,21 @@ export const jobCollectionRuns = pgTable(
      */
     uniqueIndex('uq_job_collection_runs_running_owner')
       .on(t.sourceId, t.configVersion)
+      .where(sql`${t.outcome} = 'STARTED'`),
+    /**
+     * Task 2.5 T1 — ONE ACTIVE FETCH PER SOURCE, whatever its config version.
+     * The index above is per (source, config), so a config bump would let a
+     * second STARTED run coexist with the first; this one closes that. The
+     * index above stays: it is subsumed, not contradicted, and dropping it is
+     * not this task's call. The run ledger checks the same rule under row
+     * locks; this is the backstop that holds when a writer does not.
+     */
+    uniqueIndex('uq_job_collection_runs_one_started_per_source')
+      .on(t.sourceId)
+      .where(sql`${t.outcome} = 'STARTED'`),
+    /** Task 2.5 T1 — ONE ACTIVE FETCH PER ACCOUNT (see `accountKey`). */
+    uniqueIndex('uq_job_collection_runs_one_started_per_account')
+      .on(t.accountKey)
       .where(sql`${t.outcome} = 'STARTED'`),
     index('idx_job_collection_runs_source_started').on(t.sourceId, t.startedAt.desc()),
     // FK child index: the RESTRICT probe on cycle close, and the cycle fan-out.
