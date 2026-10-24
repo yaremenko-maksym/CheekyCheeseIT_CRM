@@ -5277,3 +5277,46 @@ and `.github/` shell and JS are in scope; this entry measured only `.mjs`.
 **Check on closing:** a deliberately mis-formatted `scripts/**/*.mjs` committed with hooks active is
 either reformatted by the pre-commit hook or fails the CI formatting gate — today it does neither, and
 that is the assertion to re-run.
+
+## 317. A hostile JSON body stalls the event loop before the byte cap can refuse it, once a per-source cap is raised (2026-10-24)
+
+**Open** — found by the security review of the ATS A adapters (SR-M-1); the fix belongs to the shared
+bounded-JSON reader, not to the adapters, so this entry is the deliverable and the next task to touch
+that reader owns the repair. Number chosen by measurement: the highest `## NNN.` heading across all
+573 fetched `origin` refs was 316 (on main), so 317 was the next free one; if another branch has
+claimed it since, renumber at merge.
+
+The reader bounds a body in this order: bytes, then nesting depth (a pre-parse scan of the raw text),
+then `JSON.parse`, then a node count after parsing. A body inside the byte cap and inside the depth
+limit is therefore parsed in full before the node count can refuse it. At the default 2 MiB that is
+cheap. The Greenhouse and Ashby adapters declare a **10 MiB** response cap (the plan's ceiling for a
+per-source cap, justified by three measured real boards of 2.7, 5.6 and 8.0 MB and an Ashby board of
+13.9 MB), and at that size the order matters.
+
+Measured by feeding the reader a hostile 10 MiB body that fits the cap and the depth limit:
+
+- 10 MiB of `[0,0,0,…]` parses in **1.6 s** at about **+310 MB RSS**, synchronously, so nothing else
+  on the event loop runs meanwhile; the node-count limit then refuses it, after the cost is paid;
+- 10 MiB of `[{},{},{},…]` parses in **2.8 s**;
+- for contrast, a deeply nested body and a body one byte over the cap are both refused in about
+  **2 ms**, because those two bounds fire before parsing — the bound that is missing is the one
+  that matters for a flat body.
+
+Compare the legitimate case: the real 8.0 MB Cloudflare board parses in 51 ms at +26 MB, so the
+hostile cost is two orders of magnitude above the honest one, which is the room a pre-parse bound
+has to work in.
+
+Suggested cure (the reviewer's): count the commas of the raw text inside the existing depth-scan
+pass and refuse a body whose element count already exceeds the node limit, so the flat case is
+refused for the price of one scan, like the depth case is. A count of separators over-estimates
+nodes slightly (strings with commas), which is the safe direction for a refusal.
+
+Until it is fixed, the exposure is bounded by who can choose the body: the three public ATS
+providers, reached only through a manifest the owner enables source by source, and not before the
+transport carries a per-source byte cap at all (PR #1119, Task 3.5b, additive `maxBytes?` on
+`FetchRequest`) — until then the transport refuses anything over 2 MiB and the 10 MiB is not
+reachable.
+
+**Check on closing:** parse a 10 MiB `[0,0,…]` body through the shared bounded-JSON reader under a
+10 MiB limit and a 200,000-node limit. Today it takes about 1.6 s and +310 MB before refusing; closed
+means it is refused in single-digit milliseconds without allocating the parsed tree.
