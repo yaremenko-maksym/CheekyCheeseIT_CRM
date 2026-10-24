@@ -1,0 +1,12 @@
+{
+  "url": "https://himalayas.app/jobs/api?limit=20&cursor=<nextCursor of browse-page1>",
+  "fetchedAt": "2026-10-23T19:59:00.000Z",
+  "httpStatus": 200,
+  "rawSha256": "b1647ea710316d25ac7b7421b67dce29047e403b19f856c53b3d40cba99b252e",
+  "fileSha256": "50fbe79f66853409dd8d65e09687b3e5c5a39eec516091c13706045ec0cdc8e6",
+  "trimmedBy": "node trim-captures.mjs (JSON.parse, whole-record selection by position in the 20-job page, regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify); never a byte cut",
+  "termsUrl": "https://himalayas.app/terms#api",
+  "termsCheckedAt": "2026-10-23T20:10:00.000Z",
+  "permission": "PUBLIC_API_DOCUMENTED",
+  "notes": "Browse endpoint, second page (cursor taken from page 1 unchanged): 20 jobs captured, 3 kept; nextCursor retained as received. Terms (API Users clause): every Apply must use applicationLink; show a visible Himalayas credit/link; show jobs only on sites you operate (no passing to other boards/aggregators); cache; remove expired jobs. Clause 30A exempts use of the public API in line with its documentation and rate limits. robots.txt allows /jobs/api (only ?page= HTML listings are disallowed). Data is cached server-side and refreshed every 24 h. Observed drift from the documented schema: locationRestrictions are plain strings (documented as {alpha2,name,slug} objects) and timezoneRestrictions are numbers (documented as strings). E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure)."
+}

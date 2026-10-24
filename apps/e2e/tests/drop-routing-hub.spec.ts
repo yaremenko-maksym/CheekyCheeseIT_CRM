@@ -97,6 +97,7 @@ const DROP_ALL_INCOMES = {
       amount: 5000,
       currency: 'USDT',
       createdAt: '2026-05-10T10:00:00.000Z',
+      txDate: null,
       status: 'pending' as const,
       model: 'declared' as const,
     },
@@ -106,6 +107,7 @@ const DROP_ALL_INCOMES = {
       amount: 3000,
       currency: 'USDT',
       createdAt: '2026-05-15T12:00:00.000Z',
+      txDate: null,
       status: 'validated' as const,
       model: 'declared' as const,
     },
@@ -115,6 +117,7 @@ const DROP_ALL_INCOMES = {
       amount: 2000,
       currency: 'USD',
       createdAt: '2026-04-01T08:00:00.000Z',
+      txDate: null,
       status: 'paid' as const,
       model: 'declared' as const,
     },
@@ -133,6 +136,7 @@ const DROP_PAYMENTS = [
     txHash: '0xabc123def456',
     status: 'confirmed' as const,
     createdAt: '2026-05-20T14:00:00.000Z',
+    txDate: null,
   },
 ]
 

@@ -1,0 +1,12 @@
+{
+  "url": "https://jobicy.com/api/jobs?count=100&industry=engineering&geo=europe",
+  "fetchedAt": "2026-10-23T20:00:08.000Z",
+  "httpStatus": 200,
+  "rawSha256": "540d2fe7e6bab5fe15f453f71564c922fd4abd08350fda3988cdf3aced7fcbcc",
+  "fileSha256": "fa672f6396589868856099e2666dbe3649a31433622aafb81d1b8e2ed261792a",
+  "trimmedBy": "node trim-captures.mjs (JSON.parse, whole-record selection by id (jobCount rewritten from 100 to the kept 4 so the envelope stays self-consistent), regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify); never a byte cut",
+  "termsUrl": "https://jobicy.com/jobs-rss-feed",
+  "termsCheckedAt": "2026-10-23T20:10:00.000Z",
+  "permission": "PUBLIC_API_DOCUMENTED",
+  "notes": "The seeded config query (count=100, industry=engineering, geo=europe) returned HTTP 200: 100 jobs, hasMore true, a 119-character nextCursor. Terms (Fair use section): free for commercial use without approval; clearly credit Jobicy as the source with a direct link; application buttons must go to the listing url from the feed; do not present listings as your own postings. robots.txt (User-agent *) does not disallow /api/jobs. Public feed covers the last 7 days with a 3-hour publication delay. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure)."
+}

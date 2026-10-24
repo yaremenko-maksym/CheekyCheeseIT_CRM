@@ -130,3 +130,15 @@ describe('getAccountantSummary — RBAC guard (AC3)', () => {
     })
   })
 })
+
+/**
+ * CR-809-H-2 (the `paidThisMonth` business-date window) is NOT asserted here.
+ *
+ * `summary.service.spec.ts` already pins the EXACT compiled SQL of all six
+ * aggregate fragments plus their bound params under a frozen clock — a stronger
+ * assertion than anything this file could add, in the spec that owns the
+ * service. It is also what caught this change: the fragment expectation went red
+ * the moment the window column moved, which is the blast-radius check working
+ * rather than a test that had to be written for it. Duplicating it here would
+ * have meant two places to update for one fact.
+ */

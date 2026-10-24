@@ -1,0 +1,12 @@
+{
+  "url": "https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss",
+  "fetchedAt": "2026-10-23T20:03:09Z",
+  "httpStatus": 200,
+  "rawSha256": "0eeeaf4402d579cc8f7598d917a2f701a3ceefad66b32a2f3ddf412d652aaf94",
+  "fileSha256": "224accf46f1cd63380281d6c14755e3f610cffa07ef87053200282ee6bf7ac53",
+  "trimmedBy": "python3 -I apps/api/src/job-sourcing/providers/sources/__fixtures__/trim-rss-items.py wwr/category-devops.trimmed.xml wwr/category-devops.empty.xml \"\" (an empty guid list keeps zero items: the channel header and the closing tags are copied verbatim; applied to the committed trimmed fixture, itself a verbatim cut of the raw capture). Re-runnable.",
+  "termsUrl": "https://weworkremotely.com/remote-job-rss-feed",
+  "termsCheckedAt": "2026-10-23",
+  "permission": "UNCLEAR",
+  "notes": "DERIVED, not a capture: a valid feed (full channel header, valid envelope) with zero items, made by removing the one kept item of the real devops capture. Used to assert that an empty valid feed is a success with zero entries. rawSha256 here is the sha256 of the committed trimmed fixture it was cut from, not of a server response. Recorded as UNCLEAR, not PUBLIC_FEED, because the Terms of Use were NEVER READ. Evidence for: robots.txt allows /, and a search-engine excerpt of the feed page (not the page itself) says the only ask is attribution. Evidence against: a third-party summary says the terms limit use to alerts/research/internal tools rather than aggregators (unverified). Nothing here clears the source. termsCheckedAt is the date the terms were attempted and refused, not a date they were read. The owner must read the terms before this source is enabled."
+}
