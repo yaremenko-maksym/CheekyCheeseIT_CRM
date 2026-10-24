@@ -554,6 +554,44 @@ describe('the pre-parse node bound', () => {
     })
   })
 
+  /**
+   * The early exit changes no RESULT: the final post-loop check would name the same reason, only
+   * after reading the whole body. So the result cannot pin it and the cost has to be pinned
+   * directly, by counting the characters the scan reads. A deliberate implementation-coupled pin
+   * (`charCodeAt` is the scan's only reader), the cheapest deterministic form of "stops early".
+   */
+  describe('how much of the text the scan reads', () => {
+    const reads = (text: string, l: JsonLimits): number => {
+      const spy = vi.spyOn(String.prototype, 'charCodeAt')
+      try {
+        parseBoundedJson(text, l)
+        return spy.mock.calls.length
+      } finally {
+        spy.mockRestore()
+      }
+    }
+
+    it('reads each character of a clean document exactly once', () => {
+      // 11 characters. A loop bound one too far reads a 12th, past the end.
+      const text = '{"a":[1,2]}'
+      expect(text).toHaveLength(11)
+      expect(reads(text, limits())).toBe(11)
+    })
+
+    it('stops at the comma that crosses the node limit', () => {
+      // [0,0,0,... : the estimate is 2 after the opening and grows by one per comma, so maxNodes 10
+      // is crossed by the 9th comma (estimate 11), at index 18: nineteen characters read.
+      const text = '[' + '0,'.repeat(5_000) + '0]'
+      expect(reads(text, limits({ maxBytes: 100_000, maxNodes: 10 }))).toBe(19)
+    })
+
+    it('stops at the opening that crosses the node limit', () => {
+      // maxNodes 10 is crossed by the 10th opening (estimate 11): ten characters read.
+      const text = '['.repeat(5_000)
+      expect(reads(text, limits({ maxBytes: 100_000, maxDepth: 100_000, maxNodes: 10 }))).toBe(10)
+    })
+  })
+
   it('refuses at the opening bracket that crosses the limit, not only at commas', () => {
     // [[[ : three nodes by openings alone, no comma anywhere.
     const parse = vi.spyOn(JSON, 'parse')
