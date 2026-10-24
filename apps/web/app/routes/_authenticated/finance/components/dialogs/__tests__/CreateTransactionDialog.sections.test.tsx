@@ -351,6 +351,18 @@ describe('TransferSwapField', () => {
     expect(props.swapTransfer).toHaveBeenCalledTimes(3)
   })
 
+  it('renders fixed outgoing direction as non-interactive cards without swap hints', () => {
+    renderField({ swapTransfer: undefined })
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    expect(screen.getByText('Alice Admin')).toBeInTheDocument()
+    expect(screen.getByText('Bob Admin')).toBeInTheDocument()
+    expect(screen.queryByTitle(SWAP_TITLE)).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Поміняти напрямок')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Натисніть на картки або стрілку, щоб змінити напрямок'),
+    ).not.toBeInTheDocument()
+  })
+
   it('has the swap hint titles and caption', () => {
     renderField()
     expect(screen.getAllByTitle(SWAP_TITLE)).toHaveLength(2)
