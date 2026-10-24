@@ -3,12 +3,13 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { jobSourceTypeSchema } from '@crm/shared'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../test/fake-collection-context'
 import { FIXTURE_ROOT } from '../../test/fixture-provenance'
 import {
   type BuildInput,
   buildManifest,
+  type Manifest,
   ManifestError,
   type ManifestErrorCode,
   ownershipCountOf,
@@ -39,9 +40,55 @@ const real = (): BuildInput => ({
   adapters: MANIFEST_VALIDATION_ADAPTERS,
   fixtureRoot: FIXTURE_ROOT,
 })
-const manifest = buildManifest(real())
+/**
+ * Built in a hook, not at import: a build that throws at import fails the FILE to load, which a
+ * mutation run reads as "no test failed" and so counts a mutant that breaks the build as survived.
+ * In a hook it fails every test below it, which is what killing a mutant looks like.
+ */
+let manifest: Manifest
+beforeAll(() => {
+  manifest = buildManifest(real())
+})
 const entry = (id: string) => manifest.entries.find((e) => e.id === id)!
 const type = (t: string) => manifest.types.find((x) => x.type === t)!
+
+/** Written out, not derived: the 34 stable ids, in manifest order (types by schema order). */
+const ENTRY_IDS = [
+  'remoteok.api.latest',
+  'remotive.api.software-dev',
+  'remotive.api.devops',
+  'remotive.api.data',
+  'himalayas.api.browse',
+  'jobicy.api.engineering-europe',
+  'arbeitnow.api.feed',
+  'jobgether.api.jobs',
+  'hn-hiring.thread.latest',
+  'greenhouse.board.stripe',
+  'greenhouse.board.airbnb',
+  'greenhouse.board.cloudflare',
+  'lever.board.spotify',
+  'lever.board.eu.siteimprove',
+  'lever.board.quantco-',
+  'ashby.board.linear',
+  'ashby.board.supabase',
+  'workable.board.huggingface',
+  'workable.board.hirefellows',
+  'recruitee.board.bunq',
+  'personio.board.westwing',
+  'personio.board.personio',
+  'jooble.api.senior-developer-remote',
+  'jsearch.rapidapi.backend',
+  'jsearch.rapidapi.frontend',
+  'jsearch.rapidapi.ai-engineer',
+  'theirstack.api.senior',
+  'muse.api.software-engineering-senior',
+  'reed.api.senior-developer-remote',
+  'djinni.rss.python',
+  'djinni.rss.rust',
+  'wwr.rss.all-jobs',
+  'wwr.rss.devops',
+  'euremotejobs.rss.feed',
+]
 
 const trees: string[] = []
 afterEach(() => {
@@ -205,9 +252,9 @@ describe('unknown providers', () => {
 })
 
 describe('identity and config', () => {
-  it('the manifest holds 34 entries with 34 distinct ids', () => {
-    expect(manifest.entries).toHaveLength(34)
-    expect(new Set(manifest.entries.map((e) => e.id)).size).toBe(34)
+  it('the manifest holds these 34 entries, in this order, each id once', () => {
+    expect(manifest.entries.map((e) => e.id)).toEqual(ENTRY_IDS)
+    expect(new Set(ENTRY_IDS).size).toBe(34)
   })
 
   it('a duplicate id is refused', () => {
@@ -257,9 +304,10 @@ describe('identity and config', () => {
     expect(withId('a'.repeat(23))().entries.some((e) => e.id === 'a'.repeat(23))).toBe(true)
   })
 
-  it.each(manifest.entries.map((e) => [e.id, e] as const))(
+  it.each(ENTRY_IDS)(
     "%s: the adapter's OWN parseConfig accepts the stored config plus its version",
-    (_id, e) => {
+    (id) => {
+      const e = entry(id)
       const parsed = MANIFEST_VALIDATION_ADAPTERS.get(e.type)!.parseConfig({
         ...e.config,
         configVersion: e.configVersion,

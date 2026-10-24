@@ -16,19 +16,22 @@ import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
 import { MANIFEST_DEFINITIONS } from './manifest.definitions'
 import { generateSeedDelta, seedDeltaLocations } from './manifest.seed-sql'
 
-const DRIZZLE_ROOT = join(__dirname, '..', '..', '..', 'drizzle')
-
-function main(): void {
+/** Writes the delta under `drizzleRoot` and returns the path it wrote. */
+export function writeSeedDelta(drizzleRoot: string): string {
   const manifest = buildManifest({
     definitions: MANIFEST_DEFINITIONS,
     adapters: MANIFEST_VALIDATION_ADAPTERS,
     fixtureRoot: FIXTURE_ROOT,
   })
-  const { manual, staged } = seedDeltaLocations(DRIZZLE_ROOT)
+  const { manual, staged } = seedDeltaLocations(drizzleRoot)
   const target = existsSync(manual) ? manual : staged
   mkdirSync(dirname(target), { recursive: true })
   writeFileSync(target, generateSeedDelta(manifest), 'utf8')
-  process.stdout.write(`wrote ${target}\n`)
+  return target
 }
 
-main()
+// Stryker disable next-line all: the command-line entry. It cannot run under a test (it would execute on import and rewrite the committed file); `writeSeedDelta`, the whole of what it does, is tested directly, and the generate script's wiring is asserted by manifest.drift.spec.ts
+if (require.main === module) {
+  // Stryker disable next-line all: the status line and the drizzle root of the command-line entry above; same reason
+  process.stdout.write(`wrote ${writeSeedDelta(join(__dirname, '..', '..', '..', 'drizzle'))}\n`)
+}

@@ -1,8 +1,18 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { FIXTURE_ROOT } from '../../test/fixture-provenance'
-import { buildManifest } from './manifest'
+import { buildManifest, type Manifest } from './manifest'
+import { writeSeedDelta } from './manifest.generate'
 import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
 import { MANIFEST_DEFINITIONS } from './manifest.definitions'
 import {
@@ -27,10 +37,15 @@ const DRIZZLE = join(__dirname, '..', '..', '..', 'drizzle')
 const providerFiles = readdirSync(SOURCES).filter((f) => f.endsWith('.provider.ts'))
 const text = (f: string) => readFileSync(join(SOURCES, f), 'utf8')
 
-const manifest = buildManifest({
-  definitions: MANIFEST_DEFINITIONS,
-  adapters: MANIFEST_VALIDATION_ADAPTERS,
-  fixtureRoot: FIXTURE_ROOT,
+// Built in a hook so that a build which throws FAILS tests instead of failing the file to load
+// (see manifest.spec.ts for why a mutation run needs that).
+let manifest: Manifest
+beforeAll(() => {
+  manifest = buildManifest({
+    definitions: MANIFEST_DEFINITIONS,
+    adapters: MANIFEST_VALIDATION_ADAPTERS,
+    fixtureRoot: FIXTURE_ROOT,
+  })
 })
 
 describe('every adapter in the tree is accounted for', () => {
@@ -174,5 +189,38 @@ describe('the generated seed delta', () => {
       'WWR_RSS',
       'EUREMOTEJOBS_RSS',
     ])
+  })
+})
+
+describe('the generator writes the delta where the file already is', () => {
+  const roots: string[] = []
+  afterEach(() => {
+    for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true })
+  })
+  const tmpRoot = () => {
+    const r = mkdtempSync(join(tmpdir(), 'manifest-drizzle-'))
+    roots.push(r)
+    return r
+  }
+
+  it('creates manual-staged/ and writes there while the file has not been moved', () => {
+    const root = tmpRoot()
+    const written = writeSeedDelta(root)
+    const { manual, staged } = seedDeltaLocations(root)
+    expect(written).toBe(staged)
+    expect(existsSync(manual)).toBe(false)
+    expect(readFileSync(staged, 'utf8')).toBe(
+      readFileSync(seedDeltaLocations(DRIZZLE).staged, 'utf8'),
+    )
+  })
+
+  it('writes to manual/ once DevOps has moved the file there, and leaves manual-staged/ alone', () => {
+    const root = tmpRoot()
+    const { manual, staged } = seedDeltaLocations(root)
+    mkdirSync(join(root, 'manual'))
+    writeFileSync(manual, 'stale')
+    expect(writeSeedDelta(root)).toBe(manual)
+    expect(readFileSync(manual, 'utf8')).not.toBe('stale')
+    expect(existsSync(staged)).toBe(false)
   })
 })
