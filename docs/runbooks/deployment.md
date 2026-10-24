@@ -634,22 +634,26 @@ the prod image of the API or create a separate migrate container in `docker-comp
 ### 5.1 Database roles in the deploy: apply order and how the `crm_app` credential reaches the VPS
 
 **Apply order inside the "Pull, up, migrate, health-check via SSH" step** (positions count distinct
-manual files in textual order, which is execution order; all 52 run in that one step):
+manual files in textual order, which is execution order; 62 distinct files run in that one step,
+derived from the script on 2026-10-25 with the wiring guard's own `applied_commands()`; re-derive
+rather than trust the numbers, they shift whenever a file is added above):
 
 | Position | File                                                   | Why it sits there                                                                                                         |
 | -------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
 | 1        | `2026-10-18_db_roles.sql`                              | Roles first: the grants file and the append-only triggers file need them                                                  |
-| 47       | `2026-10-04_multiple_salary_transactions_prepare.sql`  | Creates `salary_month_initializations`; must precede the grants. Back-compat                                              |
-| 48       | `2026-10-17_job_opportunities_store.sql`               | Creates the job-store tables                                                                                              |
-| 49       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                   |
-| 50       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                         |
-| 51       | `2026-10-18_db_privileges_check.sql`                   | First run: before the container swap, so a drift fails while the old API serves                                           |
-| 52       | `2026-10-04_multiple_salary_transactions_activate.sql` | Breaking half, must follow the swap and the health gate; creates no relation                                              |
+| 51       | `2026-10-04_multiple_salary_transactions_prepare.sql`  | Creates `salary_month_initializations`; must precede the grants. Back-compat                                              |
+| 52       | `2026-10-17_job_opportunities_store.sql`               | Creates the job-store tables                                                                                              |
+| 55       | `2026-10-24_job_run_single_flight.sql`                 | Needs `job_collection_runs` and `job_account_meters` (position 52); before the grants and both checks. One transaction    |
+| 56       | `2026-10-24_job_sources_manifest_delta.sql`            | Writes `job_sources` columns position 52 adds, so AFTER it (not after the 2026-10-05 seed); TEMP tables. One transaction  |
+| 57       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                   |
+| 58       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                         |
+| 61       | `2026-10-18_db_privileges_check.sql`                   | First run: before the container swap, so a drift fails while the old API serves                                           |
+| 62       | `2026-10-04_multiple_salary_transactions_activate.sql` | Breaking half, must follow the swap and the health gate; creates no relation                                              |
 | (end)    | `2026-10-18_db_privileges_check.sql` (second run)      | The last database step, after the post-cutover `drop_cascade_origin` marker re-run, so the END state is what is validated |
 
 Two invariants, both enforced by `scripts/devops/check-prod-ddl-wiring.py` (it derives the apply order
 from `deploy.yml` and reads each file's SQL, with no list of file names): a file whose first
-application comes after position 49 may not create a table, view, materialized view or sequence
+application comes after the grants may not create a table, view, materialized view or sequence
 (`GRANTS-AFTER-CREATORS`), and the privileges check must be the last file psql applies
 (`CHECK-LAST`). The `drop_cascade_origin` marker is re-applied at the very end as a post-cutover
 sweep; its `CREATE TABLE IF NOT EXISTS` already ran at its first application far above the grants, so
@@ -1057,7 +1061,6 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-10-05_vacancy_sources_seed.sql \
     apps/api/drizzle/manual/2026-10-07_meeting_recorder_integration.sql \
     apps/api/drizzle/manual/2026-10-10_salary_creation_intent.sql \
-
     apps/api/drizzle/manual/2026-10-08_meeting_recorder_media.sql \
     apps/api/drizzle/manual/2026-10-17_job_opportunities_store.sql \
     apps/api/drizzle/manual/2026-10-17_job_opportunities_store_indexes.sql \
@@ -1069,6 +1072,8 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-10-21_job_queue_reason_redacted.sql \
     apps/api/drizzle/manual/2026-10-22_job_queue_redaction_callable.sql \
     apps/api/drizzle/manual/2026-10-22_interviews_call_meet_code.sql \
+    apps/api/drizzle/manual/2026-10-24_job_run_single_flight.sql \
+    apps/api/drizzle/manual/2026-10-24_job_sources_manifest_delta.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \
@@ -1175,6 +1180,79 @@ What follows from that:
   should happen before it.
 - Order: SSH rollback of the image, then (b), then (c), then the revert in `main`. If (b) returns
   rows, do not run (c); the cron stays broken until those rows are resolved by a human.
+
+### Job-sourcing migrations (backlog 337): when a deploy fails on them, and what a rollback does
+
+Two files run on every deploy right after `2026-10-17_job_opportunities_store.sql` and before the
+grants (§5.1, positions 55 and 56), each with `psql -v ON_ERROR_STOP=1 --single-transaction`, so a
+failure in either rolls that file back completely and stops the deploy BEFORE the container swap: the
+old API keeps serving. `scripts/devops/check-prod-ddl-wiring.py` fails CI if either apply line loses
+`--single-transaction`, because each file's header carries the apply line it requires.
+
+**`2026-10-24_job_sources_manifest_delta.sql` — "manifest entries with no job_sources row".** The
+deploy log shows
+
+```
+ERROR:  manifest entries with no job_sources row (an unmanaged row with the same (type, config) already exists; claim or retire it by hand): <manifest id>[, <manifest id> ...]
+```
+
+It means someone created a `job_sources` row by hand with the same `(type, config)` as a manifest
+entry, so the delta's insert for that entry was skipped (`ON CONFLICT DO NOTHING`) and its
+verification refused to leave the gap silent. The transaction rolled back: nothing of the delta was
+applied. **The collision is permanent: every deploy fails on this step until the row is dealt with**,
+which is the deliberate trade (a loud stop over a silently missing source).
+
+1. Take each manifest id from the message and find its `type` and `config` in the delta file
+   (one JSON line per id, `"manifest_id":"<id>"`).
+2. Find the colliding row (read-only; production commands are the owner's, through `ssh crm-vps`):
+
+   ```sql
+   SELECT id, type, config, enabled, manifest_id, readiness, created_at
+     FROM job_sources
+    WHERE manifest_id IS NULL AND type = '<type>' AND config = '<config json>'::jsonb;
+   ```
+
+3. Decide, per row (an owner decision about production data, never automatic): **claim** it (set
+   `manifest_id` and the entry's `namespace`, `manifest_version`, `policy_version`,
+   `config_version`, `readiness`, `readiness_reason` from the file, in one transaction) if it IS
+   that source; or **retire** it (change its `config` or remove it) if it is not. Then re-run the
+   deploy; the delta is idempotent and picks up from there.
+
+**`2026-10-24_job_run_single_flight.sql` — apply-once, re-run on every deploy.** The file is
+designed to be applied once; the deploy re-runs it because it re-runs every file. On a converged
+database a re-run executes no DDL and takes no lock that conflicts with reads or writes, only a
+momentary `ACCESS SHARE` on `job_collection_runs` for catalog introspection. What a re-run CAN hit:
+that `ACCESS SHARE` queues behind a pending `ACCESS EXCLUSIVE` request from another session (a
+`VACUUM FULL`, an `ALTER`, a `TRUNCATE` on that table). It then waits `lock_timeout` (10 s) and
+fails the step with a lock-timeout error. Nothing was changed; wait for the other session to finish
+and re-run the deploy.
+
+If its final check refuses, the log shows
+`job_collection_runs single flight is NOT in the intended state: <problems> — ...`. It means an
+object of one of the file's names exists with another shape (a hand-made or stale index or CHECK),
+and the file does not drop what it cannot attribute. The message itself carries the manual step;
+for the CHECK it is
+
+```sql
+ALTER TABLE job_collection_runs DROP CONSTRAINT ck_job_collection_runs_account_key_format;
+```
+
+then re-run the deploy (or the file, with `psql -v ON_ERROR_STOP=1 --single-transaction`). For a
+wrong-shape index, inspect it first (it may be someone's diagnostic object), then drop it by name.
+A refusal naming sources or accounts that "already hold more than one STARTED run" means live
+collection state: which run should end is a production-data decision, not a deploy fix.
+
+**What a rollback to an older image does with them.** Both are additive: a NOT NULL column with a
+format CHECK and two partial unique indexes on `job_collection_runs`, and `job_sources` rows that
+are all `enabled = false` plus manifest metadata on existing rows. A rollback leaves them in place
+(the schema is not rolled back, see above), and an older image does not read them. The single-flight
+column is NOT NULL without a default: an image that INSERTs into `job_collection_runs` without
+`account_key` would fail, but no production code writes that table before Task 2.5 T3, so no image
+older than these files does. The rollback-depth floor moves to the commit that moved these files into
+`manual/`: both are hard-required, so the `build` job refuses an older `image_tag` before anything
+reaches the VPS (the `deploy` job runs `deploy-stack-on-vps.sh` from `main`, which hard-requires
+both files, so a target without them would otherwise fail on the VPS). Older images remain reachable
+through the "Emergency SSH path" below, which applies no DDL.
 
 ### After a rollback — the mandatory next step: a revert in `main`
 
