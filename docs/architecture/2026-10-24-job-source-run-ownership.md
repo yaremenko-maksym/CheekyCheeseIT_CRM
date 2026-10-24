@@ -46,11 +46,11 @@ neither. That is why every adapter's declared `maxBytes` is inert today (backlog
 
 ### F3 — The ownership columns exist, and nothing writes them
 
-| Table                 | Ownership columns                                                                   | Uniqueness the database enforces                                                                                                                 |
-| --------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `job_collection_runs` | `owner_token` (bounded text), `fencing_epoch` (bigint, default 1, `> 0`), `lease_expires_at` | `uq_job_collection_runs_running_owner`: one `STARTED` row per **(source_id, config_version)**; `uq_job_collection_runs_attempt`: (source_id, attempt_id) |
-| `job_dirty_work`      | `claim_owner`, `claimed_at`, `lease_expires_at`, `fencing_epoch`, `retry_count`     | `uq_job_dirty_work_entity_target`; a CHECK pairs `CLAIMED` with owner + lease                                                                    |
-| `job_sources`         | none: `next_attempt_at`, `cooldown_until`, `consecutive_failures`, `last_attempt_at`, `last_success_at`, `last_nonempty_at`, `readiness`, `admin_state`, `account_meter_id` | —                                                                                                                                                |
+| Table                 | Ownership columns                                                                                                                                                           | Uniqueness the database enforces                                                                                                                         |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `job_collection_runs` | `owner_token` (bounded text), `fencing_epoch` (bigint, default 1, `> 0`), `lease_expires_at`                                                                                | `uq_job_collection_runs_running_owner`: one `STARTED` row per **(source_id, config_version)**; `uq_job_collection_runs_attempt`: (source_id, attempt_id) |
+| `job_dirty_work`      | `claim_owner`, `claimed_at`, `lease_expires_at`, `fencing_epoch`, `retry_count`                                                                                             | `uq_job_dirty_work_entity_target`; a CHECK pairs `CLAIMED` with owner + lease                                                                            |
+| `job_sources`         | none: `next_attempt_at`, `cooldown_until`, `consecutive_failures`, `last_attempt_at`, `last_success_at`, `last_nonempty_at`, `readiness`, `admin_state`, `account_meter_id` | —                                                                                                                                                        |
 
 `ck_job_collection_runs_running_has_lease` makes a `STARTED` run require an owner token and a lease.
 The schema comment on `fencing_epoch` calls monotonicity a worker obligation: "a worker writes only
@@ -93,7 +93,7 @@ From ADR `2026-10-17-db-least-privilege-roles.md` and its generated SQL (`2026-1
 - The API connects as `crm_app`. That role is `NOSUPERUSER NOCREATEDB NOCREATEROLE` and has `CONNECT`
   on the database. `REVOKE ALL ON DATABASE … FROM PUBLIC` leaves it **no `CREATE` on the database**, so
   it cannot `CREATE SCHEMA`. On `public` it has `USAGE` only (`REVOKE CREATE ON SCHEMA public FROM
-  PUBLIC`).
+PUBLIC`).
 - Table privileges are **per relation, generated from a manifest** (`privilege-classes.ts`). No default
   privilege on `TABLES` is granted.
 - `deploy.yml` applies the DDL as the migration role (`crm_user`, a superuser on production) with
@@ -127,13 +127,13 @@ One module, the **run ledger** (working name `JobRunLedger`), is the only writer
 columns. Its interface is five operations. Every one of them is a short transaction, and none holds
 a lock across network I/O.
 
-| Operation                       | What it does, in one transaction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `claimDue(limit, owner, now)`   | `SELECT … FROM job_sources WHERE <due> ORDER BY next_attempt_at FOR UPDATE SKIP LOCKED LIMIT n`. For each row it locks the account's `job_account_meters` row (`FOR UPDATE`, when `account_meter_id` is set), then checks that no `STARTED` run exists for the source (any `config_version`) or the account. It then inserts or re-claims the `job_collection_runs` row with a fresh `owner_token`, `fencing_epoch = max(epoch for this source) + 1` and `lease_expires_at = now() + L`. It **commits before any I/O**. |
-| `heartbeat(run, owner, epoch)`  | `UPDATE … SET lease_expires_at = now() + L WHERE id = $run AND owner_token = $owner AND fencing_epoch = $epoch AND outcome = 'STARTED' AND lease_expires_at > now()`. If zero rows change, the worker is fenced out: abort the `AbortSignal` and stop.                                                                                                                                                                                                                                                                                                |
-| `assertOwned(tx, run, owner, epoch)` | `SELECT 1 FROM job_collection_runs WHERE <same predicate> FOR UPDATE`, called **first inside every page write** (`checkpoints.savePage`) and inside the meter's `reserve` and `markSent`. If no row comes back, the transaction rolls back and the worker raises `RUN_FENCED`.                                                                                                                                                                                                                                                                      |
-| `finish(run, owner, epoch, outcome)` | The terminal transition under the same predicate. It writes `job_sources` state (`last_attempt_at`, `last_success_at`, `last_nonempty_at`, `next_attempt_at`, `cooldown_until`, `consecutive_failures`) in the same transaction.                                                                                                                                                                                                                                                                                                          |
-| `recoverExpired(now)`           | For each `STARTED` run with `lease_expires_at < now()` (`FOR UPDATE SKIP LOCKED`), it moves that attempt's `SENT` reservations to `UNCERTAIN` and leaves `RESERVED` ones for the replay walk. It then either re-queues the source (`next_attempt_at = now()`) and marks the run `FAILED` with `LEASE_EXPIRED`, or re-claims it under a new epoch.                                                                                                                                                                       |
+| Operation                            | What it does, in one transaction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claimDue(limit, owner, now)`        | `SELECT … FROM job_sources WHERE <due> ORDER BY next_attempt_at FOR UPDATE SKIP LOCKED LIMIT n`. For each row it locks the account's `job_account_meters` row (`FOR UPDATE`, when `account_meter_id` is set), then checks that no `STARTED` run exists for the source (any `config_version`) or the account. It then inserts or re-claims the `job_collection_runs` row with a fresh `owner_token`, `fencing_epoch = max(epoch for this source) + 1` and `lease_expires_at = now() + L`. It **commits before any I/O**. |
+| `heartbeat(run, owner, epoch)`       | `UPDATE … SET lease_expires_at = now() + L WHERE id = $run AND owner_token = $owner AND fencing_epoch = $epoch AND outcome = 'STARTED' AND lease_expires_at > now()`. If zero rows change, the worker is fenced out: abort the `AbortSignal` and stop.                                                                                                                                                                                                                                                                  |
+| `assertOwned(tx, run, owner, epoch)` | `SELECT 1 FROM job_collection_runs WHERE <same predicate> FOR UPDATE`, called **first inside every page write** (`checkpoints.savePage`) and inside the meter's `reserve` and `markSent`. If no row comes back, the transaction rolls back and the worker raises `RUN_FENCED`.                                                                                                                                                                                                                                          |
+| `finish(run, owner, epoch, outcome)` | The terminal transition under the same predicate. It writes `job_sources` state (`last_attempt_at`, `last_success_at`, `last_nonempty_at`, `next_attempt_at`, `cooldown_until`, `consecutive_failures`) in the same transaction.                                                                                                                                                                                                                                                                                        |
+| `recoverExpired(now)`                | For each `STARTED` run with `lease_expires_at < now()` (`FOR UPDATE SKIP LOCKED`), it moves that attempt's `SENT` reservations to `UNCERTAIN` and leaves `RESERVED` ones for the replay walk. It then either re-queues the source (`next_attempt_at = now()`) and marks the run `FAILED` with `LEASE_EXPIRED`, or re-claims it under a new epoch.                                                                                                                                                                       |
 
 **Why this makes F4 false.** The meter binding gains `ownerToken` and calls `assertOwned` inside its
 own transaction. A second live executor of the same `attemptId` holds a different token, or the
@@ -248,17 +248,17 @@ for every transition. `pg-boss` is not adopted.**
 The deletion test asks: if we delete pg-boss from Option B, what complexity has to reappear in our
 code?
 
-| Concern                                                 | A writes it | B: pg-boss gives it   | B: we still write it                       |
-| ------------------------------------------------------- | ----------- | --------------------- | ------------------------------------------ |
-| Claim with `SKIP LOCKED`                                | yes (precedent F6) | yes             | —                                          |
-| Lease expiry detection                                  | yes         | yes                   | **and ours** (our lease fences our writes) |
-| Retry and backoff                                       | yes, small  | yes                   | cooldown and cadence anyway                |
-| One active run per source / per account                 | yes, plus 2 indexes | singleton plus group concurrency | the DB backstop is still advisable |
-| Owner token and epoch fencing **our** page and meter writes | yes     | **no** (it fences only its own row) | **yes, all of it**             |
-| Recovery of `RESERVED`/`SENT` reservations              | yes         | no                    | yes                                        |
-| Due time, readiness, cooldown, ban pause, `min_interval_hours` | yes  | no                    | yes                                        |
-| Its own schema, grants, catalog check, migration per bump | —         | —                     | **new, permanent**                         |
-| Two leases that must agree (theirs and ours)            | —           | —                     | **new**                                    |
+| Concern                                                        | A writes it         | B: pg-boss gives it                 | B: we still write it                       |
+| -------------------------------------------------------------- | ------------------- | ----------------------------------- | ------------------------------------------ |
+| Claim with `SKIP LOCKED`                                       | yes (precedent F6)  | yes                                 | —                                          |
+| Lease expiry detection                                         | yes                 | yes                                 | **and ours** (our lease fences our writes) |
+| Retry and backoff                                              | yes, small          | yes                                 | cooldown and cadence anyway                |
+| One active run per source / per account                        | yes, plus 2 indexes | singleton plus group concurrency    | the DB backstop is still advisable         |
+| Owner token and epoch fencing **our** page and meter writes    | yes                 | **no** (it fences only its own row) | **yes, all of it**                         |
+| Recovery of `RESERVED`/`SENT` reservations                     | yes                 | no                                  | yes                                        |
+| Due time, readiness, cooldown, ban pause, `min_interval_hours` | yes                 | no                                  | yes                                        |
+| Its own schema, grants, catalog check, migration per bump      | —                   | —                                   | **new, permanent**                         |
+| Two leases that must agree (theirs and ours)                   | —                   | —                                   | **new**                                    |
 
 The hard part of Task 2.5 is fencing our own writes and recovering our own reservations, and pg-boss
 does not provide it (**confidence HIGH**: read from its shipped SQL, F-research "Ownership
@@ -494,24 +494,24 @@ before `JSON.parse` is entered (its own spec).
 
 ### Constraint ledger: every appended constraint in exactly one task
 
-| Constraint (source)                                                     | Task |
-| ----------------------------------------------------------------------- | ---- |
-| 318 before transport wiring (PR #1119 security axis)                    | T6 gate (T0) |
-| `readinessAt`, not the stored column (PR #1132 SPEC-L-2 / SR-M-2)       | T4   |
-| `allowedHosts` + `maxBytes` reaches fetch (PR #1138 SR-M-2)             | T6   |
-| Transient memory: per-run deadline (PR #1138 SR-M-1)                    | T7   |
-| Transient memory: pre-parse node bound decision (PR #1138 SR-M-1)       | T6   |
-| Free-plan meters, TheirStack 200 RECORD/month                           | T7   |
-| Cross-run stop-on-ban (PR #1139 SR-M-2)                                 | T4   |
-| Rates the manifest cannot enforce (PR #1139 SR-L-3)                     | T4   |
-| Evidence is not permission (PR #1139)                                   | T2   |
-| `Object.freeze` of the SmartRecruiters decision (#1139 delta LOW 1)      | T2   |
-| 404 policy with retry policy (#1139 delta LOW 2)                        | T6   |
-| Backlog 319 (`transportOptionsFor` in `fetchText`)                      | T6   |
-| One live executor per attempt; replace the SR-H-1 case                   | T3   |
-| `RESERVED`/`SENT` recovery with an entry point                          | T3   |
-| `markSent` call site (already on the port, 3.5b): no `fetchText` outside the loop | T7 |
-| Registry seam, legacy map fate                                          | T2   |
+| Constraint (source)                                                               | Task         |
+| --------------------------------------------------------------------------------- | ------------ |
+| 318 before transport wiring (PR #1119 security axis)                              | T6 gate (T0) |
+| `readinessAt`, not the stored column (PR #1132 SPEC-L-2 / SR-M-2)                 | T4           |
+| `allowedHosts` + `maxBytes` reaches fetch (PR #1138 SR-M-2)                       | T6           |
+| Transient memory: per-run deadline (PR #1138 SR-M-1)                              | T7           |
+| Transient memory: pre-parse node bound decision (PR #1138 SR-M-1)                 | T6           |
+| Free-plan meters, TheirStack 200 RECORD/month                                     | T7           |
+| Cross-run stop-on-ban (PR #1139 SR-M-2)                                           | T4           |
+| Rates the manifest cannot enforce (PR #1139 SR-L-3)                               | T4           |
+| Evidence is not permission (PR #1139)                                             | T2           |
+| `Object.freeze` of the SmartRecruiters decision (#1139 delta LOW 1)               | T2           |
+| 404 policy with retry policy (#1139 delta LOW 2)                                  | T6           |
+| Backlog 319 (`transportOptionsFor` in `fetchText`)                                | T6           |
+| One live executor per attempt; replace the SR-H-1 case                            | T3           |
+| `RESERVED`/`SENT` recovery with an entry point                                    | T3           |
+| `markSent` call site (already on the port, 3.5b): no `fetchText` outside the loop | T7           |
+| Registry seam, legacy map fate                                                    | T2           |
 
 The transient-memory finding is one review item with two separable halves: the deadline and the
 parse bound. Each half lands in exactly one task. The brief's note says the two LOW items should

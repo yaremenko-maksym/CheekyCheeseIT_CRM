@@ -81,7 +81,7 @@ Unless marked otherwise, each fact was read from the published tarball `pg-boss@
   land on a newer attempt. Upstream's comment calls this "The attempt fence". The fence is reset by
   the public `restore()`. Source: `dist/plans.js` (`attemptFence`).
 - The fence applies **only to pg-boss's own job row**. No API hands a caller a token that can be
-  checked inside another table's transaction. A caller *could* read `pgboss.job` inside its own
+  checked inside another table's transaction. A caller _could_ read `pgboss.job` inside its own
   transaction, but that is a join into a third-party schema whose shape changes with each schema
   version. This is an inference from the API surface, not a documented guarantee.
 - Heartbeats: `heartbeatSeconds` per queue or job, refreshed by `touch`. Expiry and missed heartbeats
