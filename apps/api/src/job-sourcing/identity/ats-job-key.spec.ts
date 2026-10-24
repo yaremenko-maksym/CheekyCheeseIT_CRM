@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { atsJobKey, type AtsJobKey } from './ats-job-key'
+import { ATS_KEY_VERSION, atsJobKey, type AtsJobKey } from './ats-job-key'
 
 const k = (url: string | null | undefined): AtsJobKey | null => atsJobKey(url)
 const sig = (url: string) => {
@@ -352,5 +352,9 @@ describe('atsJobKey: key stability and separation', () => {
     expect(k('https://boards.eu.greenhouse.io/acme/jobs/1')?.key).toBe(
       k('https://job-boards.eu.greenhouse.io/acme/jobs/1')?.key,
     )
+  })
+
+  it('exports the key layout version', () => {
+    expect(ATS_KEY_VERSION).toBe('ats1')
   })
 })

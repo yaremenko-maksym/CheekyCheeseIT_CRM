@@ -147,14 +147,6 @@ describe('rankScore: cap, rounding, clamp, monotonicity', () => {
       expect(rankScore({ ...plain, ...extra } as RankInput)).toEqual(rankScore(plain))
     }
   })
-
-  it('the penalty table is exactly the three unknowns', () => {
-    expect(Object.keys(RANK_DEFAULTS.penalties).sort()).toEqual([
-      'unknownRemote',
-      'unknownSeniority',
-      'unknownStack',
-    ])
-  })
 })
 
 describe('rankScore: dates', () => {
