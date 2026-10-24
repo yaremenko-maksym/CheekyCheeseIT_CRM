@@ -527,13 +527,44 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   line in `deploy.yml`'s ordered list (a DevOps-zone line, so the dispatch names it); the privileges
   manifest (`privilege-classes.ts`, a class for the new table); a per-type host-rate declaration in
   the manifest (`hostRate: { perMinute, perDay }`, a new manifest field); a new
-  `job-sourcing/scheduling/host-state.ts` (`recordHostBan`, `claimHostSlot`, `hostOpenPredicate`).
+  `job-sourcing/scheduling/host-state.ts` (`recordHostBan`, `claimHostSlot`, `hostOpenPredicate`);
+  the seed-delta generator `manifest.seed-sql.ts` (a new generated delta file for the backfill).
 - **Who writes and who reads.** The ledger's `finish` (T3) calls `recordHostBan` in its terminal
-  transaction on `ACCESS_POLICY` / `RATE_LIMIT`. The ledger's `claimDue` (T3) calls
-  `claimHostSlot` under `FOR UPDATE` on the host row, and that refuses a claim inside the per-minute
-  gap or over the daily count. The daily count is computed from `job_collection_runs.started_at`
-  for the host's sources in the trailing 24 h, so no counter can drift. T4's `dueSourcesPredicate`
-  is extended with `hostOpenPredicate`. Only this module writes `job_source_hosts`.
+  transaction when the run's **error code** (a `COLLECTION_ERROR_CODES` value, not a run outcome)
+  is `ACCESS_POLICY` or `RATE_LIMIT`. The run's outcome is then `FAILED` or `PARTIAL`. The ledger's
+  `claimDue` (T3) calls `claimHostSlot`, which refuses a claim inside the per-minute gap or over the
+  daily count. The daily count is computed from `job_collection_runs.started_at` for the host's
+  sources in the trailing 24 h, so no counter can drift. T4's `dueSourcesPredicate` is extended
+  with `hostOpenPredicate`. Only this module writes `job_source_hosts`.
+- **(a) How `host_key` is derived and backfilled.** The value is the request host the adapter
+  contacts. The manifest gains a per-type `requestHost(config)` function, for example
+  `api.smartrecruiters.com` for every SmartRecruiters board and `remotive.com` for every Remotive
+  category, so sources that share a host share a key. DOU's legacy entry gets `jobs.dou.ua`, so the ban
+  rule is uniform.
+  - The column is added **nullable**, because a migration cannot run manifest code. The backfill is
+    a **new generated seed-delta file**, produced by `manifest.seed-sql.ts` in the same style as
+    Task 3.7's: one dollar-quoted `jsonb` literal read through `jsonb_to_recordset`, then
+    `UPDATE job_sources SET host_key = … WHERE manifest_id = … AND host_key IS NULL`. It is
+    idempotent and never overwrites a value. It is applied by `deploy.yml` after the migration.
+  - A row with no `manifest_id` (an unclaimed legacy row) keeps `host_key = NULL`.
+    `hostOpenPredicate` treats `NULL` as **not due**, so the gap fails closed rather than escaping
+    the host rules.
+  - The manifest's drift test asserts that every manifest entry yields a non-empty host and that the
+    generated delta sets it.
+- **(b) How the host row exists before it is locked.** `claimHostSlot` runs inside `claimDue`'s
+  transaction and does two statements. First,
+  `INSERT INTO job_source_hosts (host_key) VALUES ($1) ON CONFLICT (host_key) DO NOTHING`. Then
+  `SELECT … FROM job_source_hosts WHERE host_key = $1 FOR UPDATE`. The seed delta also inserts a row
+  for every manifest host, but correctness does not rest on the seed. This is race-free under
+  `READ COMMITTED`, and the reason is specific. A second claimer's conflicting insert waits on the
+  first transaction's uncommitted index entry, then does nothing. Its `SELECT … FOR UPDATE` takes a
+  new snapshot, so it finds the committed row and blocks on the first claimer's lock until that
+  transaction ends. Exactly one row exists either way, and the two claims serialize on it. The
+  per-minute check reads `last_claimed_at` under that lock and writes it in the same transaction.
+- **(c) `started_at` and re-claims.** A recovered run is never re-claimed (T3, Option A): the next
+  claim inserts a new row whose `started_at` is its own claim time, and no code updates
+  `started_at`. So each claim is counted exactly once in the trailing-24 h count. A run that fails
+  before sending still counts, which over-counts in the safe direction.
 - **Carries:** **cross-run stop-on-ban** (PR #1139 SR-M-2): a ban from a host pauses every source
   on that host until `paused_until`. The rule is "use it until banned, never evade": an ADMIN enable
   does not clear it, and only expiry or an explicit recorded ADMIN action does. **Rates the manifest
@@ -547,10 +578,18 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   in the same minute produce at most 2 claims in that minute, and the third is claimed after the
   gap; (4) a fifth Remotive claim inside 24 h is refused, and so is a manual run once the 4 are
   used; (5) `min_interval_hours` below the floor runs at the floor; (6) the catalog check passes and
-  `crm_app` holds only the manifest-declared privileges on the new table.
+  `crm_app` holds only the manifest-declared privileges on the new table; (7) after the seed delta,
+  every manifest-owned `job_sources` row has the `host_key` its manifest entry yields, and a second
+  application changes no row; (8) a source with `host_key IS NULL` is never due; (9) two claimers on
+  a host that has no `job_source_hosts` row yet leave exactly one row, and their claims serialize
+  (the second sees the first's `last_claimed_at`); (10) a recovered run followed by a new claim
+  counts as two in the 24 h count, and the recovered row's `started_at` is unchanged.
 - **Real-Postgres:** concurrent claimers for two sources on one host (the per-minute gap holds under
   a race, because both lock the host row); the 24-hour count at the limit and one past it; the ban
-  written by `finish` and read by the due query in the next tick. Run as `crm_app`.
+  written by `finish` and read by the due query in the next tick. One case per item (a)–(c): the
+  generated delta applied twice to a seeded database (backfill and idempotence, AC 7); two
+  concurrent `claimHostSlot` calls on a missing host row (AC 9); a crash, recovery and a new claim,
+  then the count (AC 10). Run as `crm_app`.
 - **Model:** opus (Drizzle migration). **security-reviewer mandatory.**
 
 ### T7 — production `CollectionContext` builder and run worker
