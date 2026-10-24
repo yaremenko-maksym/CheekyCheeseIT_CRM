@@ -17,6 +17,13 @@ const render = (...args: Parameters<typeof dueSourcesPredicate>) =>
 describe('dueSourcesPredicate (rendered)', () => {
   it('a scheduled predicate carries every scalar term, on the database clock', () => {
     const { sql, params } = render('SCHEDULED')
+    // Terms are joined with ` and ` and wrapped as one group.
+    expect(sql).toMatch(
+      /^\("job_sources"\."enabled" = \$1 and "job_sources"\."admin_state" = \$2 and "job_sources"\."manifest_id" is not null and \(/,
+    )
+    expect(sql).toMatch(
+      / and "job_sources"\."next_attempt_at" <= clock_timestamp\(\) \+ \$6 \* interval '1 millisecond'\)$/,
+    )
     expect(sql).toContain('"job_sources"."enabled" = $')
     expect(sql).toContain('"job_sources"."admin_state" = $')
     expect(sql).toContain('"job_sources"."manifest_id" is not null')
@@ -49,7 +56,12 @@ describe('dueSourcesPredicate (rendered)', () => {
     expect(() => render('MANUAL', { maxConsecutiveFailures: 99 })).toThrow(RangeError)
     expect(() => render('SCHEDULED', { maxConsecutiveFailures: 0 })).toThrow(RangeError)
     expect(() => render('SCHEDULED', { maxConsecutiveFailures: Number.NaN })).toThrow(RangeError)
-    expect(() => render('SCHEDULED', { cadenceSlackMs: 600_001 })).toThrow(RangeError)
+    expect(() => render('SCHEDULED', { cadenceSlackMs: 600_001 })).toThrow(
+      'invalid cadence slack: 600001',
+    )
+    expect(() => render('SCHEDULED', { maxConsecutiveFailures: 6 })).toThrow(
+      'invalid failure cap: 6',
+    )
     expect(() => render('SCHEDULED', { cadenceSlackMs: Number.NaN })).toThrow(RangeError)
     expect(() => render('SCHEDULED', { cadenceSlackMs: -1 })).toThrow(RangeError)
     expect(() =>
