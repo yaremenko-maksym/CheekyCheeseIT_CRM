@@ -8,6 +8,8 @@ import {
   canonicalAuthorityPolicyVersion,
   chooseCanonical,
   clusterRecords,
+  MAX_CLUSTER_RECORDS,
+  MAX_FIELD_CHARS,
   normalizeCompanyName,
   normalizeTitle,
   type FieldClaim,
@@ -32,6 +34,13 @@ function rec(id: string, over: Partial<ResolverRecord> = {}): ResolverRecord {
     applicationUrlVerified: false,
     ...over,
   }
+}
+
+/** Clusters of a call that must succeed. */
+function cl(records: ResolverRecord[], options?: Parameters<typeof clusterRecords>[1]) {
+  const r = clusterRecords(records, options)
+  if (!r.ok) throw new Error(`clusterRecords refused: ${r.reason}`)
+  return r.clusters
 }
 
 describe('normalizers', () => {
@@ -90,7 +99,7 @@ describe('assess: native identity and ATS keys', () => {
     })
     const r = assess(a, b)
     expect(r).toMatchObject({ decision: 'ASSOCIATE', rule: 'ATS_JOB_KEY' })
-    expect(r.evidence).toContain('ATS_KEY:["ats1","greenhouse","ATS_HOSTED","acme","100"]')
+    expect(r.evidence).toContain('ATS_KEY:["ats1","greenhouse","ATS_HOSTED","us:acme","100"]')
   })
 
   it('an UNVERIFIED application URL is not identity (poisoned / tracking / unverified)', () => {
@@ -157,20 +166,48 @@ describe('assess: native identity and ATS keys', () => {
     expect(r.evidence).toContain('TITLE_MISMATCH')
   })
 
-  it('a missing company or title on one side is not a contradiction', () => {
+  it('a missing company or title on one side is not a contradiction while the other field agrees', () => {
     const a = rec('a', { postingUrl: GH(100) })
-    const b = rec('b', { nativeId: 'x', postingUrl: GH(100), company: null, title: '' })
-    expect(assess(a, b).decision).toBe('ASSOCIATE')
+    expect(
+      assess(a, rec('b', { nativeId: 'x', postingUrl: GH(100), company: null })).decision,
+    ).toBe('ASSOCIATE')
+    expect(assess(a, rec('c', { nativeId: 'y', postingUrl: GH(100), title: '' })).decision).toBe(
+      'ASSOCIATE',
+    )
   })
 
-  it('employer-host gh_jid is weak unless the application URL is verified', () => {
+  it('employer-host gh_jid is never strong identity, verified or not (SR-M-2)', () => {
     const url = 'https://careers.acme.example/roles?gh_jid=77'
     const a = rec('a', { applicationUrl: url, applicationUrlVerified: false })
     const b = rec('b', { nativeId: 'x', applicationUrl: url, applicationUrlVerified: false })
     expect(assess(a, b).decision).toBe('CANDIDATE') // same company/title/city only
     const av = { ...a, applicationUrlVerified: true }
     const bv = { ...b, applicationUrlVerified: true }
-    expect(assess(av, bv).decision).toBe('ASSOCIATE')
+    expect(assess(av, bv)).toMatchObject({ decision: 'CANDIDATE', rule: 'COMPANY_TITLE' })
+    // and with contradicting companies it is not even a candidate
+    expect(assess(av, { ...bv, company: 'Globex' }).decision).toBe('DISTINCT')
+  })
+
+  it('a board URL and an employer gh_jid URL for the same number do not associate (precision over recall)', () => {
+    const board = rec('a', { postingUrl: GH(77) })
+    const employer = rec('b', {
+      nativeId: 'x',
+      applicationUrl: 'https://careers.acme.example/r?gh_jid=77',
+      applicationUrlVerified: true,
+    })
+    expect(assess(board, employer).rule).toBe('COMPANY_TITLE')
+  })
+
+  it('an employer gh_jid verified apply URL beside an ATS posting URL is not an APPLY_URL_CONFLICT', () => {
+    const r = rec('a', {
+      postingUrl: GH(1),
+      applicationUrl: 'https://careers.acme.example/r?gh_jid=2',
+      applicationUrlVerified: true,
+    })
+    const other = rec('b', { nativeId: 'x', postingUrl: GH(1) })
+    const res = assess(r, other)
+    expect(res.rule).toBe('ATS_JOB_KEY')
+    expect(res.evidence.some((e) => e.startsWith('APPLY_URL_CONFLICT'))).toBe(false)
   })
 })
 
@@ -319,7 +356,7 @@ describe('assess: exact evidence and strong-key policy', () => {
     expect(assess(a, b)).toEqual({
       decision: 'ASSOCIATE',
       rule: 'ATS_JOB_KEY',
-      evidence: ['ATS_KEY:["ats1","greenhouse","ATS_HOSTED","acme","7"]'],
+      evidence: ['ATS_KEY:["ats1","greenhouse","ATS_HOSTED","us:acme","7"]'],
       revision: IDENTITY_RULES_VERSION,
     })
   })
@@ -333,7 +370,7 @@ describe('assess: exact evidence and strong-key policy', () => {
       title: 'Data Analyst',
     })
     expect(assess(a, b).evidence).toEqual([
-      'ATS_KEY:["ats1","greenhouse","ATS_HOSTED","acme","7"]',
+      'ATS_KEY:["ats1","greenhouse","ATS_HOSTED","us:acme","7"]',
       'COMPANY_MISMATCH',
       'TITLE_MISMATCH',
     ])
@@ -343,23 +380,60 @@ describe('assess: exact evidence and strong-key policy', () => {
     const a = rec('a', { postingUrl: GH(7) })
     expect(
       assess(a, rec('b', { nativeId: 'x', postingUrl: GH(7), company: 'Globex' })).evidence,
-    ).toEqual(['ATS_KEY:["ats1","greenhouse","ATS_HOSTED","acme","7"]', 'COMPANY_MISMATCH'])
+    ).toEqual(['ATS_KEY:["ats1","greenhouse","ATS_HOSTED","us:acme","7"]', 'COMPANY_MISMATCH'])
     expect(
       assess(a, rec('c', { nativeId: 'y', postingUrl: GH(7), title: 'Data Analyst' })).evidence,
-    ).toEqual(['ATS_KEY:["ats1","greenhouse","ATS_HOSTED","acme","7"]', 'TITLE_MISMATCH'])
+    ).toEqual(['ATS_KEY:["ats1","greenhouse","ATS_HOSTED","us:acme","7"]', 'TITLE_MISMATCH'])
   })
 
-  it('one side missing company/title is no contradiction, in either direction', () => {
-    const a = rec('a', { postingUrl: GH(7) })
-    const gaps = [{ company: null }, { title: '' }, { title: '---' }]
-    for (const gap of gaps) {
-      expect(assess(a, rec('b', { nativeId: 'x', postingUrl: GH(7), ...gap })).decision).toBe(
-        'ASSOCIATE',
-      )
-      expect(assess(rec('b', { nativeId: 'x', postingUrl: GH(7), ...gap }), a).decision).toBe(
-        'ASSOCIATE',
-      )
+  it('an unknown side is not an agreement: blank company AND title never associate onto an ATS key (SR-H-1)', () => {
+    const victim = rec('victim', {
+      postingUrl: GH(100),
+      company: 'Victim Corp',
+      title: 'Staff Engineer',
+    })
+    for (const probe of [
+      { company: null, title: '---' },
+      { company: null, title: '' },
+      { company: '   ', title: '!!!' },
+    ]) {
+      const viaPosting = rec('p', { nativeId: 'x', postingUrl: GH(100), ...probe })
+      const viaApply = rec('q', {
+        nativeId: 'y',
+        applicationUrl: GH(100),
+        applicationUrlVerified: true,
+        ...probe,
+      })
+      for (const r of [
+        assess(victim, viaPosting),
+        assess(viaPosting, victim),
+        assess(victim, viaApply),
+      ]) {
+        expect(r).toMatchObject({ decision: 'CANDIDATE', rule: 'ATS_JOB_KEY_UNCORROBORATED' })
+        expect(r.evidence).toContain('NO_POSITIVE_MATCH')
+      }
     }
+  })
+
+  it('one positively equal field is enough; the other may be unknown, in either direction', () => {
+    const a = rec('a', { postingUrl: GH(7) })
+    const companyOnly = { title: '' }
+    const titleOnly = { company: null }
+    for (const gap of [companyOnly, titleOnly, { title: '---' }]) {
+      const b = rec('b', { nativeId: 'x', postingUrl: GH(7), ...gap })
+      expect(assess(a, b).decision).toBe('ASSOCIATE')
+      expect(assess(b, a).decision).toBe('ASSOCIATE')
+    }
+  })
+
+  it('a contradiction still wins over a positive match on the other field', () => {
+    const a = rec('a', { postingUrl: GH(7) })
+    expect(
+      assess(a, rec('b', { nativeId: 'x', postingUrl: GH(7), company: 'Globex' })).decision,
+    ).toBe('CANDIDATE')
+    expect(
+      assess(a, rec('c', { nativeId: 'y', postingUrl: GH(7), title: 'Data Analyst' })).decision,
+    ).toBe('CANDIDATE')
   })
 
   it('distinct ATS ids are flagged only when BOTH sides carry a key', () => {
@@ -458,14 +532,14 @@ describe('canAttach and clusterRecords: every-member check', () => {
   })
 
   it('clusterRecords splits the contradictory chain and loses no record', () => {
-    const clusters = clusterRecords([c, b, a])
+    const clusters = cl([c, b, a])
     expect(clusters.map((x) => x.memberIds)).toEqual([['a', 'b'], ['c']])
     expect(clusters.flatMap((x) => x.memberIds).sort()).toEqual(['a', 'b', 'c'])
   })
 
   it('clusterRecords is independent of input order', () => {
-    const forward = clusterRecords([a, b, c])
-    const backward = clusterRecords([c, b, a])
+    const forward = cl([a, b, c])
+    const backward = cl([c, b, a])
     expect(backward).toEqual(forward)
   })
 
@@ -473,14 +547,14 @@ describe('canAttach and clusterRecords: every-member check', () => {
     const x = rec('x')
     const y = rec('y') // same company/title/city => CANDIDATE only
     const z = rec('z', { company: 'Other' })
-    expect(clusterRecords([x, y, z]).map((cl) => cl.memberIds)).toEqual([['x'], ['y'], ['z']])
+    expect(cl([x, y, z]).map((cl) => cl.memberIds)).toEqual([['x'], ['y'], ['z']])
   })
 
   it('cluster associations form a clique: n members => n(n-1)/2 associations', () => {
     const d = rec('d', { nativeId: 'zz', postingUrl: GH(1) })
-    const [cl] = clusterRecords([a, b, d])
-    expect(cl.memberIds).toEqual(['a', 'b', 'd'])
-    expect(cl.associations).toHaveLength(3)
+    const [first] = cl([a, b, d])
+    expect(first?.memberIds).toEqual(['a', 'b', 'd'])
+    expect(first?.associations).toHaveLength(3)
   })
 })
 
@@ -552,23 +626,23 @@ describe('ordering and bookkeeping', () => {
 
   it('clusterRecords orders clusters and members by id for a shuffled input', () => {
     const r = (id: string, nativeId: string) => rec(id, { nativeId })
-    const out = clusterRecords([r('d', 'x'), r('b', 'y'), r('c', 'x'), r('a', 'y'), r('e', 'z')])
+    const out = cl([r('d', 'x'), r('b', 'y'), r('c', 'x'), r('a', 'y'), r('e', 'z')])
     expect(out.map((c) => c.memberIds)).toEqual([['a', 'b'], ['c', 'd'], ['e']])
   })
 
   it('works without options and with ids that look like the old default (S, t)', () => {
     const s1 = rec('S', { nativeId: 'same' })
     const t1 = rec('t', { nativeId: 'same' })
-    expect(clusterRecords([s1, t1]).map((c) => c.memberIds)).toEqual([['S', 't']])
+    expect(cl([s1, t1]).map((c) => c.memberIds)).toEqual([['S', 't']])
   })
 
   it('revoked pairs are compared as pairs, not as concatenated text', () => {
     const ab = rec('ab', { nativeId: 'same' })
     const c = rec('c', { nativeId: 'same' })
     // ['a','bc'] and ['ab','c'] would both read "abc" if the pair were joined without a separator.
-    expect(
-      clusterRecords([ab, c], { revokedPairs: [['a', 'bc']] }).map((x) => x.memberIds),
-    ).toEqual([['ab', 'c']])
+    expect(cl([ab, c], { revokedPairs: [['a', 'bc']] }).map((x) => x.memberIds)).toEqual([
+      ['ab', 'c'],
+    ])
   })
 
   it('assessWithRevocations: order-insensitive, exact evidence, others unaffected', () => {
@@ -594,9 +668,9 @@ describe('split recovery', () => {
   const c = rec('c', { nativeId: 'c', postingUrl: GH(1) })
 
   it('a revoked pair is never re-associated; every record and payload id survives', () => {
-    const before = clusterRecords([a, b, c])
+    const before = cl([a, b, c])
     expect(before.map((x) => x.memberIds)).toEqual([['a', 'b', 'c']])
-    const after = clusterRecords([a, b, c], { revokedPairs: [['b', 'a']] })
+    const after = cl([a, b, c], { revokedPairs: [['b', 'a']] })
     expect(after.map((x) => x.memberIds)).toEqual([['a', 'c'], ['b']])
     expect(after.flatMap((x) => x.memberIds).sort()).toEqual(['a', 'b', 'c'])
   })
@@ -604,17 +678,15 @@ describe('split recovery', () => {
   it('revocation overrides even a NATIVE_ID association', () => {
     const p = rec('p', { nativeId: 'same' })
     const q = rec('q', { nativeId: 'same' })
-    expect(clusterRecords([p, q]).map((x) => x.memberIds)).toEqual([['p', 'q']])
-    expect(clusterRecords([p, q], { revokedPairs: [['p', 'q']] }).map((x) => x.memberIds)).toEqual([
+    expect(cl([p, q]).map((x) => x.memberIds)).toEqual([['p', 'q']])
+    expect(cl([p, q], { revokedPairs: [['p', 'q']] }).map((x) => x.memberIds)).toEqual([
       ['p'],
       ['q'],
     ])
   })
 
   it('an unrelated revocation changes nothing', () => {
-    expect(clusterRecords([a, b, c], { revokedPairs: [['x', 'y']] })).toEqual(
-      clusterRecords([a, b, c]),
-    )
+    expect(cl([a, b, c], { revokedPairs: [['x', 'y']] })).toEqual(cl([a, b, c]))
   })
 })
 
@@ -702,17 +774,36 @@ describe('chooseCanonical: authority policy', () => {
     expect(chooseCanonical([...claims].reverse())).toEqual(chooseCanonical(claims))
   })
 
-  it('array values compare by content', () => {
+  it('array values compare by content, order-insensitively', () => {
     const r = chooseCanonical([
-      claim({ sourceRecordId: 'a', value: ['ts', 'go'] }),
-      claim({ sourceRecordId: 'b', value: ['ts', 'go'] }),
-    ])
-    expect(r).toMatchObject({ status: 'CHOSEN', value: ['ts', 'go'] })
-    const conflict = chooseCanonical([
       claim({ sourceRecordId: 'a', value: ['ts', 'go'] }),
       claim({ sourceRecordId: 'b', value: ['go', 'ts'] }),
     ])
+    expect(r).toMatchObject({ status: 'CHOSEN', winnerId: 'a' })
+    const conflict = chooseCanonical([
+      claim({ sourceRecordId: 'a', value: ['ts', 'go'] }),
+      claim({ sourceRecordId: 'b', value: ['ts', 'rust'] }),
+    ])
     expect(conflict.status).toBe('UNKNOWN')
+    expect(
+      chooseCanonical([
+        claim({ sourceRecordId: 'a', value: ['x'] }),
+        claim({ sourceRecordId: 'b', value: 'x' }),
+      ]).status,
+    ).toBe('UNKNOWN')
+  })
+
+  it('a neutral claim carries no information: a restrictive aggregator claim still stands (CR-M-4)', () => {
+    const r = chooseCanonical([
+      claim({ sourceRecordId: 'e', authority: 'EMPLOYER_ATS', value: 'anywhere' }),
+      claim({
+        sourceRecordId: 'g',
+        authority: 'AGGREGATOR',
+        value: 'EU only',
+        stance: 'RESTRICTIVE',
+      }),
+    ])
+    expect(r).toMatchObject({ value: 'EU only', winnerId: 'g', rule: 'RESTRICTION' })
   })
 
   it('an explicit restriction dominates a permissive claim, even from a higher authority', () => {

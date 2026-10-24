@@ -30,6 +30,7 @@ export type AssessRule =
   | 'NATIVE_ID'
   | 'ATS_JOB_KEY'
   | 'ATS_JOB_KEY_CONTRADICTED'
+  | 'ATS_JOB_KEY_UNCORROBORATED'
   | 'COMPANY_TITLE'
   | 'NO_SHARED_IDENTITY'
   | 'REVOKED'
@@ -55,26 +56,39 @@ export function normalizeCompanyName(name: string | null | undefined): string | 
   return n.length > 0 ? n : null
 }
 
+/**
+ * Lowercase, punctuation to spaces, whitespace collapsed. The symbol-bearing technology names are
+ * spelled out first so "C++", "C#", "F#" and ".NET" stay distinct from "C" and "NET".
+ */
 export function normalizeTitle(title: string): string {
   return title
     .normalize('NFKC')
     .toLowerCase()
+    .replace(/\bc\+\+/g, 'cplusplus')
+    .replace(/\bc#/g, 'csharp')
+    .replace(/\bf#/g, 'fsharp')
+    .replace(/(^|[^\p{L}\p{N}])\.net\b/gu, '$1dotnet')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
 }
 
 const squash = (s: string) => s.replace(/ /g, '')
 
+/** Longest company/title/location/department compared. Longer = unknown, never truncated. */
+export const MAX_FIELD_CHARS = 256
+
 /** Strong ATS keys of one record plus evidence about why some were discarded. */
 function strongKeys(r: ResolverRecord): { keys: AtsJobKey[]; evidence: string[] } {
   const posting = atsJobKey(r.postingUrl)
   const apply = atsJobKey(r.applicationUrl)
   const evidence: string[] = []
+  // Only a key issued by the ATS vendor's own host is identity. A `gh_jid` on an employer page is
+  // a parameter anyone can append, on a posting URL or a verified apply URL alike.
   const postingStrong = posting?.scope === 'ATS_HOSTED' ? posting : null
-  const applyStrong = r.applicationUrlVerified ? apply : null
+  const applyStrong = r.applicationUrlVerified && apply?.scope === 'ATS_HOSTED' ? apply : null
   if (apply !== null && !r.applicationUrlVerified) evidence.push(`APPLY_URL_UNVERIFIED:${r.id}`)
   if (postingStrong !== null && applyStrong !== null && postingStrong.key !== applyStrong.key) {
-    // The record contradicts itself: trust neither URL.
+    // The record names two different ATS jobs: trust neither URL.
     return { keys: [], evidence: [`APPLY_URL_CONFLICT:${r.id}`] }
   }
   return { keys: [postingStrong, applyStrong].filter((k): k is AtsJobKey => k !== null), evidence }
@@ -88,15 +102,29 @@ const base = (decision: Decision, rule: AssessRule, evidence: string[]): Assessm
 })
 
 /** Unknown on either side is compatible; two known values must be equal. */
-const compatible = (a: string | null, b: string | null, norm: (s: string) => string) =>
-  a === null || b === null || norm(a) === '' || norm(b) === '' || norm(a) === norm(b)
+const compatible = (a: string | null, b: string | null) => {
+  const na = a === null ? '' : normalizeTitle(a)
+  const nb = b === null ? '' : normalizeTitle(b)
+  return na === '' || nb === '' || na === nb
+}
 
-export function assess(x: ResolverRecord, y: ResolverRecord): Assessment {
-  // Every field below is symmetric in (a, b) by construction, which the symmetry test pins.
-  const [a, b] = [x, y]
+/** A field over the cap is unknown (never truncated: two long strings sharing a prefix must not meet). */
+function bounded(
+  value: string | null,
+  field: string,
+  id: string,
+  evidence: string[],
+): string | null {
+  if (value === null || value.length <= MAX_FIELD_CHARS) return value
+  evidence.push(`FIELD_TOO_LONG:${id}:${field}`)
+  return null
+}
 
+export function assess(a: ResolverRecord, b: ResolverRecord): Assessment {
+  // `a` and `b` are interchangeable in everything below, which the symmetry test pins.
   if (
     a.nativeId !== null &&
+    a.nativeId !== '' &&
     a.nativeId === b.nativeId &&
     a.provider === b.provider &&
     a.namespace === b.namespace
@@ -106,33 +134,44 @@ export function assess(x: ResolverRecord, y: ResolverRecord): Assessment {
 
   const ka = strongKeys(a)
   const kb = strongKeys(b)
-  const evidence = [...ka.evidence, ...kb.evidence].sort()
+  const evidence = [...ka.evidence, ...kb.evidence]
   const shared = ka.keys.find((k) => kb.keys.some((o) => o.key === k.key))
 
-  const companyA = normalizeCompanyName(a.company)
-  const companyB = normalizeCompanyName(b.company)
+  const companyA = normalizeCompanyName(bounded(a.company, 'company', a.id, evidence))
+  const companyB = normalizeCompanyName(bounded(b.company, 'company', b.id, evidence))
+  const titleA = squash(normalizeTitle(bounded(a.title, 'title', a.id, evidence) ?? ''))
+  const titleB = squash(normalizeTitle(bounded(b.title, 'title', b.id, evidence) ?? ''))
+  const locationA = bounded(a.location, 'location', a.id, evidence)
+  const locationB = bounded(b.location, 'location', b.id, evidence)
+  const departmentA = bounded(a.department, 'department', a.id, evidence)
+  const departmentB = bounded(b.department, 'department', b.id, evidence)
+  evidence.sort()
+
+  const companyEqual = companyA !== null && companyA === companyB
   const companyMismatch = companyA !== null && companyB !== null && companyA !== companyB
-  const titleA = squash(normalizeTitle(a.title))
-  const titleB = squash(normalizeTitle(b.title))
+  const titleEqual = titleA !== '' && titleA === titleB
   const titleMismatch = titleA !== '' && titleB !== '' && titleA !== titleB
 
   if (shared !== undefined) {
     const found = [...evidence, `ATS_KEY:${shared.key}`]
     if (companyMismatch) found.push('COMPANY_MISMATCH')
     if (titleMismatch) found.push('TITLE_MISMATCH')
-    return companyMismatch || titleMismatch
-      ? base('CANDIDATE', 'ATS_JOB_KEY_CONTRADICTED', found)
-      : base('ASSOCIATE', 'ATS_JOB_KEY', found)
+    if (companyMismatch || titleMismatch)
+      return base('CANDIDATE', 'ATS_JOB_KEY_CONTRADICTED', found)
+    // An unknown side is not an agreement: a blank company and title would otherwise match ANY
+    // record onto someone else's ATS key (SR-H-1). At least one field must positively agree.
+    if (!companyEqual && !titleEqual) {
+      return base('CANDIDATE', 'ATS_JOB_KEY_UNCORROBORATED', [...found, 'NO_POSITIVE_MATCH'])
+    }
+    return base('ASSOCIATE', 'ATS_JOB_KEY', found)
   }
 
   const distinctIds = ka.keys.length > 0 && kb.keys.length > 0
   if (
-    companyA !== null &&
-    companyA === companyB &&
-    titleA !== '' &&
-    titleA === titleB &&
-    compatible(a.location, b.location, normalizeTitle) &&
-    compatible(a.department, b.department, normalizeTitle)
+    companyEqual &&
+    titleEqual &&
+    compatible(locationA, locationB) &&
+    compatible(departmentA, departmentB)
   ) {
     return base(
       'CANDIDATE',
@@ -233,15 +272,39 @@ export interface Cluster {
   associations: Association[]
 }
 
+/** Pairwise assessment is quadratic; a call over more records than this is refused, not truncated. */
+export const MAX_CLUSTER_RECORDS = 500
+
+export type ClusterResult =
+  | { ok: true; clusters: Cluster[] }
+  | { ok: false; reason: 'TOO_MANY_RECORDS' | 'DUPLICATE_RECORD_IDS'; detail: string[] }
+
 /**
  * Deterministic greedy clustering, independent of input order (records are processed by id).
  * Re-running with `revokedPairs` is the split-recovery path: payloads and history are untouched,
  * only the grouping changes, and no record is ever dropped.
+ *
+ * Association is not transitive, so the result can depend on the ids (never on the input order):
+ * if A~H and A~B but H and B are not associated, whichever of H/B sorts first claims A and the
+ * other stays alone. That is the precision-first bound: no cluster ever holds a pair the rules do
+ * not associate, at the price of some missed recall.
+ *
+ * Refusals are typed, never silent: more than MAX_CLUSTER_RECORDS records, or two records with the
+ * same id (detail lists the offending ids, sorted).
  */
 export function clusterRecords(
   records: readonly ResolverRecord[],
   options: ResolveOptions = {},
-): Cluster[] {
+): ClusterResult {
+  if (records.length > MAX_CLUSTER_RECORDS) {
+    return { ok: false, reason: 'TOO_MANY_RECORDS', detail: [String(records.length)] }
+  }
+  const seen = new Set<string>()
+  const duplicated = new Set<string>()
+  for (const r of records) (seen.has(r.id) ? duplicated : seen).add(r.id)
+  if (duplicated.size > 0) {
+    return { ok: false, reason: 'DUPLICATE_RECORD_IDS', detail: [...duplicated].sort() }
+  }
   const revoked = revocationSet(options.revokedPairs)
   const ordered = [...records].sort(byId)
   const groups: { members: ResolverRecord[]; associations: Association[] }[] = []
@@ -258,10 +321,13 @@ export function clusterRecords(
     }
     if (!placed) groups.push({ members: [rec], associations: [] })
   }
-  return groups.map((g) => ({
-    memberIds: g.members.map((m) => m.id),
-    associations: g.associations,
-  }))
+  return {
+    ok: true,
+    clusters: groups.map((g) => ({
+      memberIds: g.members.map((m) => m.id),
+      associations: g.associations,
+    })),
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -307,14 +373,16 @@ export type CanonicalChoice =
       policyVersion: string
     }
 
-const valueKey = (v: ClaimValue) => JSON.stringify(v)
+/** Array claims are sets: the same members in another order are the same value. */
+const valueKey = (v: ClaimValue) => JSON.stringify(typeof v === 'object' ? [...v].sort() : v)
 
 export function chooseCanonical(claims: readonly FieldClaim[]): CanonicalChoice {
   const policyVersion = canonicalAuthorityPolicyVersion
   if (claims.length === 0)
     return { status: 'UNKNOWN', reason: 'NO_CLAIMS', candidates: [], policyVersion }
 
-  // Only an EXPLICIT restriction dominates: an inferred one is a guess and does not.
+  // Only an EXPLICIT restriction dominates: an inferred one is a guess and does not. A neutral
+  // (no-stance) claim carries no information, so it neither blocks nor weakens a restriction.
   const restrictive = claims.filter(
     (c) => c.stance === 'RESTRICTIVE' && c.authority !== 'INFERENCE',
   )

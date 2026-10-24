@@ -60,34 +60,45 @@ export interface RankResult {
 
 const isValidDate = (d: Date | null): d is Date => d !== null && !Number.isNaN(d.getTime())
 
-/** HR sees matches against the teams they are authorized for; ADMIN against the whole studio. */
+/**
+ * HR sees matches against the teams they are authorized for; ADMIN against the whole studio. Any
+ * other role fails closed: it has no scope here, so it scores no matches.
+ */
 export function scopedMatchCount(
-  role: 'HR' | 'ADMIN',
+  role: string,
   counts: { authorizedTeam: number; studio: number },
 ): number {
-  return role === 'HR' ? counts.authorizedTeam : counts.studio
+  if (role === 'HR') return counts.authorizedTeam
+  return role === 'ADMIN' ? counts.studio : 0
 }
 
 export function rankScore(input: RankInput, config: RankConfig = RANK_DEFAULTS): RankResult {
   const warnings: RankWarning[] = []
   const evaluatedAt = input.evaluationTime.getTime()
+  const firstSeenAt = input.firstSeenAt.getTime()
+  // An invalid evaluation time makes every age unknowable; it must not leak NaN into a score.
+  const evaluationValid = Number.isFinite(evaluatedAt)
 
-  let usePublished = isValidDate(input.trustedPublishedAt)
-  if (usePublished && input.trustedPublishedAt!.getTime() > evaluatedAt) {
-    usePublished = false
-    warnings.push('FUTURE_DATE')
+  let publishedAt: number | null = null
+  const published = input.trustedPublishedAt
+  if (evaluationValid && isValidDate(published)) {
+    if (published.getTime() > evaluatedAt) warnings.push('FUTURE_DATE')
+    else publishedAt = published.getTime()
   }
 
   // A first-seen time recorded during the initial sweep says when WE first looked, not when the
-  // posting appeared, so it cannot stand in for the age: freshness is dropped instead.
-  const sweepUnknown = !usePublished && input.firstSeenKind === 'INITIAL_SWEEP'
-  if (sweepUnknown) warnings.push('UNKNOWN_DATE')
+  // posting appeared, so it cannot stand in for the age; an invalid one cannot either. A trusted
+  // published date keeps its real age in both cases.
+  const referenceAt =
+    publishedAt ??
+    (input.firstSeenKind === 'NORMAL' && Number.isFinite(firstSeenAt) ? firstSeenAt : null)
 
   let freshness = 0
-  if (!sweepUnknown) {
-    const reference = usePublished ? input.trustedPublishedAt! : input.firstSeenAt
-    const age = Math.max(0, (evaluatedAt - reference.getTime()) / MS_PER_DAY)
+  if (evaluationValid && referenceAt !== null) {
+    const age = Math.max(0, (evaluatedAt - referenceAt) / MS_PER_DAY)
     freshness = config.freshnessWeight * Math.exp(-age / config.decayDays)
+  } else {
+    warnings.push('UNKNOWN_DATE')
   }
 
   const matches = Number.isFinite(input.matchCount) ? Math.max(0, Math.trunc(input.matchCount)) : 0
@@ -110,10 +121,14 @@ export interface RankedRow {
   opportunityId: string
 }
 
+/** An invalid date sorts as the oldest possible, so the order stays total. */
+const timeOf = (d: Date) => (Number.isNaN(d.getTime()) ? Number.NEGATIVE_INFINITY : d.getTime())
+
 /** Descending (score, firstSeenAt, opportunityId): the total order generation pagination relies on. */
 export function compareRanked(a: RankedRow, b: RankedRow): number {
   if (a.score !== b.score) return b.score - a.score
-  const seen = b.firstSeenAt.getTime() - a.firstSeenAt.getTime()
-  if (seen !== 0) return seen
+  const ta = timeOf(a.firstSeenAt)
+  const tb = timeOf(b.firstSeenAt)
+  if (ta !== tb) return ta < tb ? 1 : -1
   return (a.opportunityId < b.opportunityId ? 1 : 0) - (a.opportunityId > b.opportunityId ? 1 : 0)
 }

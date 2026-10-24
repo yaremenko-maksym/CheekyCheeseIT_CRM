@@ -34,11 +34,13 @@ export interface AtsJobKey {
 }
 
 const GH_HOST = /^(?:job-)?boards\.(?:eu\.)?greenhouse\.io$/
+const GH_EU_HOST = /^(?:job-)?boards\.eu\./
 const GH_PATH = /^\/([a-z0-9][a-z0-9_-]*)\/jobs\/([0-9]+)(?:\/|$)/i
 const GH_EMBED_PATH = /^\/embed\/job_app\/?$/
 const NAME_ONLY = /^[a-z0-9][a-z0-9_-]*$/i
 const DIGITS_ONLY = /^[0-9]+$/
 const LEVER_HOST = /^jobs\.(?:eu\.)?lever\.co$/
+const LEVER_EU_HOST = /^jobs\.eu\./
 const LEVER_PATH =
   /^\/([a-z0-9][a-z0-9_-]*)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/apply)?\/?$/i
 const ASHBY_HOST = /^jobs\.ashbyhq\.com$/
@@ -50,7 +52,7 @@ const SR_HOST = /^(?:jobs|careers)\.smartrecruiters\.com$/
 const SR_PATH = /^\/([a-z0-9][a-z0-9_-]*)\/([0-9]+)(?:-[^/]*)?\/?$/i
 const RECRUITEE_HOST = /^(?!www\.)([a-z0-9][a-z0-9_-]*)\.recruitee\.com$/
 const RECRUITEE_PATH = /^\/o\/([a-z0-9][a-z0-9-]*)(?:\/|$)/i
-const PERSONIO_HOST = /^([a-z0-9][a-z0-9_-]*)\.jobs\.personio\.(?:de|com)$/
+const PERSONIO_HOST = /^([a-z0-9][a-z0-9_-]*)\.jobs\.personio\.(de|com)$/
 const PERSONIO_PATH = /^\/job\/([0-9]+)\/?$/
 
 const VENDOR_HOSTS = [
@@ -87,10 +89,15 @@ function make(
   }
 }
 
+/**
+ * Vendors that run separate regional deployments get the region in the namespace: the same slug on
+ * the EU and the US deployment is two different companies' boards until proven otherwise.
+ */
 function hosted(host: string, path: string, query: URLSearchParams): AtsJobKey | null {
   if (GH_HOST.test(host)) {
+    const region = GH_EU_HOST.test(host) ? 'eu' : 'us'
     const m = groups(GH_PATH, path)
-    if (m !== null) return make('greenhouse', m[0], m[1], 'ATS_HOSTED')
+    if (m !== null) return make('greenhouse', `${region}:${m[0]}`, m[1], 'ATS_HOSTED')
     const board = query.get('for')
     const token = query.get('token')
     if (
@@ -101,13 +108,14 @@ function hosted(host: string, path: string, query: URLSearchParams): AtsJobKey |
       NAME_ONLY.test(board) &&
       DIGITS_ONLY.test(token)
     ) {
-      return make('greenhouse', board, token, 'ATS_HOSTED')
+      return make('greenhouse', `${region}:${board}`, token, 'ATS_HOSTED')
     }
     return null
   }
   if (LEVER_HOST.test(host)) {
     const m = groups(LEVER_PATH, path)
-    return m === null ? null : make('lever', m[0], m[1].toLowerCase(), 'ATS_HOSTED')
+    const region = LEVER_EU_HOST.test(host) ? 'eu' : 'us'
+    return m === null ? null : make('lever', `${region}:${m[0]}`, m[1].toLowerCase(), 'ATS_HOSTED')
   }
   if (ASHBY_HOST.test(host)) {
     const m = groups(ASHBY_PATH, path)
@@ -129,7 +137,7 @@ function hosted(host: string, path: string, query: URLSearchParams): AtsJobKey |
   const personio = groups(PERSONIO_HOST, host)
   if (personio !== null) {
     const m = groups(PERSONIO_PATH, path)
-    return m === null ? null : make('personio', personio[0], m[0], 'ATS_HOSTED')
+    return m === null ? null : make('personio', `${personio[1]}:${personio[0]}`, m[0], 'ATS_HOSTED')
   }
   return null
 }
