@@ -40,6 +40,8 @@ import {
   createPayoutRequestViaAPI,
   payPayoutRequestViaAPI,
   listTransactionsByProjectViaAPI,
+  ensureCompanyWalletViaAPI,
+  onboardDropViaAPI,
 } from './fixtures'
 
 const REAL_API = `${REAL_API_BASE}/api`
@@ -53,6 +55,7 @@ test.describe('0 PAYOUT_ADMIN after payout — both cascade branches (Variant-A 
     const suffix = uniqueSuffix()
 
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await ensureCompanyWalletViaAPI(page)
     const { projectId } = await createSeniorProjectViaAPI(page, {
       seniorEmail: SEED_EMAILS.seniorA,
       name: `No-Split Senior ${suffix}`,
@@ -102,10 +105,13 @@ test.describe('0 PAYOUT_ADMIN after payout — both cascade branches (Variant-A 
     const dropEmail = `drop-no-split-${suffix}@cheekycheese.dev`
 
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await ensureCompanyWalletViaAPI(page)
     const { dropId } = await createDropViaAPI(page, {
       email: dropEmail,
       displayName: `Drop No Split ${suffix}`,
     })
+    await onboardDropViaAPI(page, { dropId: dropId, dropEmail: dropEmail })
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
 
     try {
       const { projectId } = await createDropProjectViaAPI(page, {

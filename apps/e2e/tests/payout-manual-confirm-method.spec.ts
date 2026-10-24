@@ -36,6 +36,8 @@ import {
   createSeniorIncomeViaAPI,
   validateTransactionViaAPI,
   findPendingPayoutsForProjectViaAPI,
+  ensureCompanyWalletViaAPI,
+  createPayoutRequestViaAPI,
 } from './fixtures'
 
 const REAL_API = `${REAL_API_BASE}/api`
@@ -51,6 +53,8 @@ async function plantPendingSeniorPayout(
   const suffix = uniqueSuffix()
 
   await loginViaApi(page, SEED_ADMIN_EMAIL)
+  // The dev seed leaves the company wallet unset; creating a payout request needs it.
+  await ensureCompanyWalletViaAPI(page)
   const { projectId } = await createSeniorProjectViaAPI(page, {
     seniorEmail: SEED_EMAILS.seniorA,
     name: `Confirm Method ${suffix}`,
@@ -61,6 +65,11 @@ async function plantPendingSeniorPayout(
 
   await loginViaApi(page, SEED_EMAILS.accountant)
   await validateTransactionViaAPI(page, txId)
+
+  // feat/finance-payout-flow (#7): validate only flips the income to VALIDATED —
+  // the SENIOR creates the payout request, which plants the PENDING_PAYMENT PAYOUT.
+  await loginViaApi(page, SEED_EMAILS.seniorA)
+  await createPayoutRequestViaAPI(page, [txId])
 
   await loginViaApi(page, SEED_ADMIN_EMAIL)
   const pending = await findPendingPayoutsForProjectViaAPI(page, projectId)

@@ -32,6 +32,7 @@ import {
   createPayoutRequestViaAPI,
   payPayoutRequestViaAPI,
   listTransactionsByProjectViaAPI,
+  ensureCompanyWalletViaAPI,
 } from './fixtures'
 
 const REAL_API = `${REAL_API_BASE}/api`
@@ -60,6 +61,7 @@ test.describe('Aggregate invoice — 1 per PAYOUT', () => {
     const suffix = uniqueSuffix()
 
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await ensureCompanyWalletViaAPI(page)
     const { projectId } = await createSeniorProjectViaAPI(page, {
       seniorEmail: SEED_EMAILS.seniorA,
       name: `Aggregate Single ${suffix}`,
@@ -112,6 +114,7 @@ test.describe('Aggregate invoice — 1 per PAYOUT', () => {
     const suffix = uniqueSuffix()
 
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await ensureCompanyWalletViaAPI(page)
     const projA = await createSeniorProjectViaAPI(page, {
       seniorEmail: SEED_EMAILS.seniorA,
       name: `Aggregate Multi A ${suffix}`,

@@ -33,6 +33,7 @@ import {
   validateTransactionViaAPI,
   createPayoutRequestViaAPI,
   listTransactionsByProjectViaAPI,
+  ensureCompanyWalletViaAPI,
 } from './fixtures'
 
 const REAL_API = `${REAL_API_BASE}/api`
@@ -48,6 +49,7 @@ test.describe('Senior payout — no duplicate payout_request regression (#7)', (
     const suffix = uniqueSuffix()
 
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await ensureCompanyWalletViaAPI(page)
     const { projectId } = await createSeniorProjectViaAPI(page, {
       seniorEmail: SEED_EMAILS.seniorA,
       name: `NoDup A ${suffix}`,
@@ -104,6 +106,7 @@ test.describe('Senior payout — no duplicate payout_request regression (#7)', (
     const suffix = uniqueSuffix()
 
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await ensureCompanyWalletViaAPI(page)
     const { projectId } = await createSeniorProjectViaAPI(page, {
       seniorEmail: SEED_EMAILS.seniorA,
       name: `NoDup B ${suffix}`,
@@ -139,6 +142,7 @@ test.describe('Senior payout — no duplicate payout_request regression (#7)', (
     const suffix = uniqueSuffix()
 
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await ensureCompanyWalletViaAPI(page)
     const { projectId } = await createSeniorProjectViaAPI(page, {
       seniorEmail: SEED_EMAILS.seniorA,
       name: `NoDup C ${suffix}`,

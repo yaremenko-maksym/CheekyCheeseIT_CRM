@@ -45,6 +45,8 @@ import {
   findPendingPayoutsForProjectViaAPI,
   listTransactionsByProjectViaAPI,
   confirmPayoutViaAPI,
+  ensureCompanyWalletViaAPI,
+  onboardDropViaAPI,
 } from './fixtures'
 
 function uniqueSuffix(): string {
@@ -61,11 +63,14 @@ test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
 
     // ── Project A — Phase 2 cascade ───────────────────────────────────
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await ensureCompanyWalletViaAPI(page)
     const { dropId: dropIdA } = await createDropViaAPI(page, {
       email: dropAEmail,
       displayName: `Drop Regression A ${suffix}`,
       dropSharePercent: 5,
     })
+    await onboardDropViaAPI(page, { dropId: dropIdA, dropEmail: dropAEmail })
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
 
     let dropIdB: string | null = null
 
@@ -133,11 +138,13 @@ test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
         displayName: `Drop Regression B ${suffix}`,
         dropSharePercent: 5,
       })
+      await onboardDropViaAPI(page, { dropId: dropIdBLocal, dropEmail: dropBEmail })
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
       dropIdB = dropIdBLocal
 
       const { projectId: projectIdB } = await createDropProjectViaAPI(page, {
         dropId: dropIdBLocal,
-        seniorEmail: SEED_EMAILS.seniorB,
+        seniorEmail: SEED_EMAILS.seniorC,
         rate: 5000,
         currency: 'USDT',
       })
