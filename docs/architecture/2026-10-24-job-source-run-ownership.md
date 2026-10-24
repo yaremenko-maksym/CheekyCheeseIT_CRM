@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed (skeleton — sections are filled one push at a time).
+**Proposed (2026-10-24).** Waiting for the owner to confirm the choice of A over B (A2, see
+"Autonomy classification"). Companion research file: `2026-10-24-pg-boss-research.md`.
 
 ## Context — the measured facts
 
@@ -519,16 +520,68 @@ backlog entry, if Master writes one, should point here rather than duplicate the
 
 ## What this ADR does not decide
 
-_Pending._
+- **The numeric values** of the lease length `L`, the heartbeat interval, the pool size `N`, the
+  per-run deadline, and the backoff cap. The plan freezes them after MP-05 measurements. This ADR
+  fixes only that they are config values with ceilings.
+- **Whether T0's fix makes a pre-parse node bound unnecessary.** T6 records that decision.
+- **The 404 and retry policy itself.** T6 decides it. This ADR says only that it is decided
+  together with status propagation.
+- **The worker topology** (in-process, or a separate `crm_collector` process). The ledger works in
+  either. The least-privilege ADR already reserves `crm_collector`.
+- **`job_dirty_work` claims** (recompute, Phase 4). They use the same columns and the same pattern
+  would apply, but this ADR covers collection runs only.
+- **pg-boss for other workloads.** See "When to reopen".
 
 ## Rollback
 
-_Pending._
+This PR is documentation only.
+
+- **To undo the ADR:** run `git revert <merge sha>` on `main`. Afterwards, the two files under
+  `docs/architecture/` are gone and nothing else has changed. To verify, run
+  `git show --stat <revert sha>`. It lists exactly `2026-10-24-job-source-run-ownership.md` and
+  `2026-10-24-pg-boss-research.md`.
+- **If the owner picks B later:** supersede this ADR with a new one. Only T3 and T7 change. T1's
+  indexes remain a valid backstop under B. B's production DDL path is the five steps in
+  "Option B", and choosing it is an A3 decision.
+- **Per-task rollback** belongs to each task's PR. T1's migration is additive: dropping the two
+  indexes and the column restores today's schema, through the same `deploy.yml` path.
 
 ## Verification
 
-_Pending._
+This one command confirms that what the ADR claims about the repository is still true:
+
+```bash
+git grep -n -e 'new Map<JobSourceType, JobSourceProvider>' -e 'CALLER PRECONDITION, not a guarantee' -e 'const ctx: CollectionContext = {' -e "@Cron('0 5" -e 'fencingEpoch: 1' -e "'owner_token'" -e "'lease_expires_at'" origin/main -- apps/api/src ':!*.spec.ts'
+```
+
+F1–F4 and F7 still hold exactly when its output shows all of these:
+
+- the `providers` map in `job-sourcing.service.ts`;
+- the precondition in `account-meter.store.ts`;
+- `const ctx: CollectionContext` only under `src/test/`;
+- `@Cron('0 5 * * *')` with no `timeZone`;
+- `owner_token` and `lease_expires_at` only in the schema file.
+
+When Task 2.5 lands, the map and the precondition disappear, and a `CollectionContext` producer
+appears outside `src/test/`. That change is the expected signal that "Context" has become history.
+
+For F5: `grep -n "REVOKE CREATE ON SCHEMA public FROM PUBLIC"
+apps/api/drizzle/manual/2026-10-18_db_roles.sql` returns one line for as long as the least-privilege
+regime stands. For the pg-boss facts, see the research file's "Shelf life".
 
 ## Sources
 
-_Pending._
+- Plan r5, "Task 2.5: Registry, cadence, durable work ownership, cron":
+  `docs/superpowers/plans/2026-10-10-vacancy-sourcing-plan.r5.md`.
+- The Task 2.5 brief and its "Added 2026-10-24" sections (Master's task file, gitignored), read
+  2026-10-24.
+- Code facts F1–F4, F6 and F7: `origin/main` at `d0f876f33`, with symbols as named in each fact.
+- F3 schema: the Drizzle files `job-collection.ts` and `job-sourcing.ts`, plus a read-only `psql`
+  session on the scratch database `crm_scratch_manifest37`. The local `crm_db` held no tables
+  (measured; see Context).
+- F5: `docs/architecture/2026-10-17-db-least-privilege-roles.md` and the manual SQL files
+  `2026-10-18_db_roles.sql`, `2026-10-18_db_grants.sql` and `2026-10-18_db_privileges_check.sql`.
+- Option B: `docs/architecture/2026-10-24-pg-boss-research.md`. Its sources are the npm registry and
+  the `pg-boss@12.38.0` tarball, both read 2026-10-24, and
+  [pgboss.io/api/constructor](https://pgboss.io/api/constructor), retrieved 2026-10-24.
+- Method: the skills `codebase-design` (deletion test, design it twice) and `external-research`.
