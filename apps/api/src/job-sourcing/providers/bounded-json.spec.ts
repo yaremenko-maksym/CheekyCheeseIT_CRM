@@ -463,11 +463,37 @@ describe('the pre-parse node bound', () => {
     expect(parseBoundedJson('[1,,', limits())).toMatchObject({ ok: false, reason: 'NOT_JSON' })
   })
 
-  it('reports TOO_DEEP, not TOO_MANY_NODES, when a body breaks both', () => {
-    const text = `${'['.repeat(10)}${'1,'.repeat(50)}1${']'.repeat(10)}`
-    expect(parseBoundedJson(text, limits({ maxDepth: 5, maxNodes: 20 }))).toMatchObject({
-      ok: false,
+  it('names whichever bound a body breaks FIRST in the text when it breaks both', () => {
+    // Deep before wide: the sixth opening bracket trips depth 5 long before 20 nodes accrue.
+    const deepFirst = `${'['.repeat(10)}${'1,'.repeat(50)}1${']'.repeat(10)}`
+    expect(parseBoundedJson(deepFirst, limits({ maxDepth: 5, maxNodes: 20 }))).toMatchObject({
       reason: 'TOO_DEEP',
     })
+    // Wide before deep: 20 nodes are exceeded by the commas, before any nesting begins.
+    const wideFirst = `[${'1,'.repeat(50)}${'['.repeat(10)}1${']'.repeat(10)}]`
+    expect(parseBoundedJson(wideFirst, limits({ maxDepth: 5, maxNodes: 20 }))).toMatchObject({
+      reason: 'TOO_MANY_NODES',
+    })
+  })
+
+  it('refuses a scalar root against a zero node limit', () => {
+    expect(parseBoundedJson('1', limits({ maxNodes: 0 }))).toMatchObject({
+      ok: false,
+      reason: 'TOO_MANY_NODES',
+    })
+    expect(parseBoundedJson('1', limits({ maxNodes: 1 }))).toMatchObject({ ok: true })
+  })
+
+  it('refuses at the opening bracket that crosses the limit, not only at commas', () => {
+    // [[[ : three nodes by openings alone, no comma anywhere.
+    const parse = vi.spyOn(JSON, 'parse')
+    try {
+      expect(parseBoundedJson('[[[]]]', limits({ maxNodes: 2 }))).toMatchObject({
+        reason: 'TOO_MANY_NODES',
+      })
+      expect(parse).not.toHaveBeenCalled()
+    } finally {
+      parse.mockRestore()
+    }
   })
 })
