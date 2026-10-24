@@ -356,9 +356,9 @@ export function CreateTransactionDialog({
   const salaryTargets = allUsers.filter((u) =>
     (SALARY_ELIGIBLE_ROLES as ReadonlyArray<string>).includes(u.role),
   )
-  // ADMIN_TRANSFER parties must BOTH be ADMIN. The accountant is never a
-  // transfer party, so the sender/receiver pools are the same admin list for
-  // both roles; for ADMIN we still exclude self from the receiver pool.
+  // ADMIN_TRANSFER parties must BOTH be ADMIN. An ADMIN can only send from
+  // their own account (enforced by the API); ACCOUNTANT can record either
+  // direction between two admins. Exclude self from the ADMIN receiver pool.
   const adminTargets = isAdmin ? adminUsers.filter((u) => u.id !== user?.id) : adminUsers
 
   // DIVIDEND receiver pool — any ADMIN partner; defaults to the calling admin.
@@ -369,7 +369,9 @@ export function CreateTransactionDialog({
   // Default the transfer sender to self for ADMIN; for ACCOUNTANT (not a party)
   // default to the first admin so the transfer always has two ADMIN endpoints.
   const defaultTransferSenderId = isAdmin ? (user?.id ?? '') : (adminUsers[0]?.id ?? '')
-  const effectiveTransferSenderId = transferSenderId || defaultTransferSenderId
+  const effectiveTransferSenderId = isAdmin
+    ? defaultTransferSenderId
+    : transferSenderId || defaultTransferSenderId
   const transferReceiverId =
     receiverId || adminTargets.find((u) => u.id !== effectiveTransferSenderId)?.id || ''
   const transferSender = adminUsers.find((u) => u.id === effectiveTransferSenderId)
@@ -657,7 +659,7 @@ export function CreateTransactionDialog({
             <TransferSwapField
               transferSender={transferSender}
               transferReceiver={transferReceiver}
-              swapTransfer={swapTransfer}
+              swapTransfer={isAccountant ? swapTransfer : undefined}
             />
           )}
 
