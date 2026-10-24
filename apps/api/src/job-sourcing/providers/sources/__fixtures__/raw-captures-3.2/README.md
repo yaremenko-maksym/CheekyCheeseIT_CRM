@@ -29,3 +29,10 @@ were, by mistake, and were removed: `fixture-provenance.spec.ts` now scans the w
   adapter uses them as the posting account (`HN @<handle>`).
 - `termsCheckedAt` is one value across every provenance file: the date (2026-10-24) is when the
   terms were read, the time of day is a single stand-in.
+- Re-derivability: only the four Jobgether provenance files are proven against `trim-captures-3.2.mjs`
+  by a run (their raw captures are committed, and re-running the script leaves them byte for byte
+  unchanged). The four HN notes and the Working Nomads note are produced by the script only when
+  their raw captures are present, which they are not, so those five were patched by hand to match
+  the script's text; script and JSON agree by reading, not by a run.
+- Who read the third-party terms: an AI coding agent (the Working Nomads page also by a reviewing
+  agent). This is not legal advice, and no review by a lawyer or the owner is recorded here.
