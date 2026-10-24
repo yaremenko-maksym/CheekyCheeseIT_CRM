@@ -11,7 +11,7 @@ import { assertProjectActive } from '../projects/project-status.util'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
 import { resolveSeniorShare } from './senior-share-resolver'
 import { resolveDropShare } from './drop-share-resolver'
-import { resolveTransactionDate } from './transaction-date.util'
+import { resolveTransactionDateWithPolicy } from './transaction-date-policy'
 import { findActiveTeamsForUser } from './active-teams.util'
 import { assertReceiptDocumentBindable } from './receipt.util'
 
@@ -51,6 +51,11 @@ export class SeniorDropIncomeService {
       receiptExternalUrl?: string | null | undefined
       notes?: string | null | undefined
       txDate?: string | null | undefined
+      // SR-809-H-1 / D-2: travels with txDate (see transactionBusinessDateFields
+      // in @crm/shared). Only an ADMIN/ACCOUNTANT backdating beyond the 31-day
+      // window can consume it; for the self-service roles this endpoint serves,
+      // the policy refuses such a date outright and the field is inert.
+      backdateReason?: string | null | undefined
     },
     currentUser: SessionUser,
   ) {
@@ -179,7 +184,17 @@ export class SeniorDropIncomeService {
           receiptDocumentId: data.receiptDocumentId ?? null,
           receiptExternalUrl: data.receiptExternalUrl ?? null,
           notes: data.notes ?? null,
-          txDate: resolveTransactionDate(data.txDate),
+          // SR-809-H-1 / owner decision D-2: ONE server-side policy decides
+          // whether this date is allowed at all. EXECUTED — an income records
+          // money already received, so it may be backdated inside the window
+          // but never moved into the future. Scenario 1 of the finding is a
+          // SENIOR declaring a missed month late: that is now refused past the
+          // window instead of silently restating a reported month.
+          txDate: resolveTransactionDateWithPolicy(data.txDate, {
+            role: currentUser.role,
+            flow: 'EXECUTED',
+            backdateReason: data.backdateReason,
+          }).txDate,
           createdBy: currentUser.id,
         })
         .returning()
@@ -230,6 +245,11 @@ export class SeniorDropIncomeService {
       receiptExternalUrl?: string | null | undefined
       notes?: string | null | undefined
       txDate?: string | null | undefined
+      // SR-809-H-1 / D-2: travels with txDate (see transactionBusinessDateFields
+      // in @crm/shared). Only an ADMIN/ACCOUNTANT backdating beyond the 31-day
+      // window can consume it; for the self-service roles this endpoint serves,
+      // the policy refuses such a date outright and the field is inert.
+      backdateReason?: string | null | undefined
     },
     currentUser: SessionUser,
   ) {
@@ -330,7 +350,17 @@ export class SeniorDropIncomeService {
           receiptDocumentId: data.receiptDocumentId ?? null,
           receiptExternalUrl: data.receiptExternalUrl ?? null,
           notes: data.notes ?? null,
-          txDate: resolveTransactionDate(data.txDate),
+          // SR-809-H-1 / owner decision D-2: ONE server-side policy decides
+          // whether this date is allowed at all. EXECUTED — an income records
+          // money already received, so it may be backdated inside the window
+          // but never moved into the future. Scenario 1 of the finding is a
+          // SENIOR declaring a missed month late: that is now refused past the
+          // window instead of silently restating a reported month.
+          txDate: resolveTransactionDateWithPolicy(data.txDate, {
+            role: currentUser.role,
+            flow: 'EXECUTED',
+            backdateReason: data.backdateReason,
+          }).txDate,
           createdBy: currentUser.id,
         })
         .returning()

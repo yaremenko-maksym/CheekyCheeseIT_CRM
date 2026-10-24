@@ -31,6 +31,7 @@ export {
   // one definition, two enforcement points, so they cannot drift.
   MIN_TRANSACTION_BUSINESS_YEAR,
   MAX_TRANSACTION_BUSINESS_YEAR,
+  transactionBusinessDateFields,
   transactionAmountError,
   BLOCKCHAIN_EXPLORER_HOSTS,
   isExplorerUrl,

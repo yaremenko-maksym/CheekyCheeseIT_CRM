@@ -7,13 +7,14 @@ import {
   mandatoryReceiptRefine,
   receiptFields,
   refineCompanyAccountUsdt,
+  transactionBusinessDateFields,
   transactionBusinessDateSchema,
 } from './validation'
 
 // Create payout request (senior bundles their VALIDATED incomes)
 export const createPayoutRequestSchema = z.object({
   transactionIds: z.array(z.string().uuid()).min(1),
-  txDate: transactionBusinessDateSchema.optional().nullable(),
+  ...transactionBusinessDateFields,
 })
 export type CreatePayoutRequestDto = z.infer<typeof createPayoutRequestSchema>
 
@@ -38,7 +39,7 @@ export const payPayoutRequestSchema = z
   .object({
     txHash: z.string().max(255).optional(),
     simulateResult: z.enum(['success', 'error']).optional(),
-    txDate: transactionBusinessDateSchema.optional().nullable(),
+    ...transactionBusinessDateFields,
   })
   .superRefine((data, ctx) => {
     if (data.simulateResult === undefined) {
@@ -78,7 +79,7 @@ export type ReleaseOnChainHashDto = z.infer<typeof releaseOnChainHashSchema>
 export const manualConfirmPayoutSchema = z.object({
   method: manualPayoutMethodSchema,
   note: z.string().max(1000).optional().nullable(),
-  txDate: transactionBusinessDateSchema.optional().nullable(),
+  ...transactionBusinessDateFields,
   // HIGH-1 (security-review PR #438): the format is now validated at the write
   // boundary. A supplied txHash MUST contain a real on-chain hash (bare or as
   // an explorer link) — previously any string ≥10 chars was accepted verbatim,
@@ -136,7 +137,7 @@ export const confirmPayoutSchema = z
     recipientAdminId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
     method: payoutMethodSchema.default('CRYPTO'),
     txHash: z.string().max(255).optional().nullable(),
-    txDate: transactionBusinessDateSchema.optional().nullable(),
+    ...transactionBusinessDateFields,
   })
   .superRefine((data, ctx) => {
     if (data.method === 'CRYPTO') {

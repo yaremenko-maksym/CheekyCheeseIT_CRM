@@ -40,6 +40,23 @@ export const transactionBusinessDateSchema = z
   .refine(isRealCalendarDate, { message: 'zod.DATE_FORMAT_YYYYMMDD' })
   .refine(isWithinBusinessYearWindow, { message: 'zod.DATE_YEAR_OUT_OF_RANGE' })
 
+/**
+ * SR-809-H-1 / owner decision D-2 — the operator-chosen business date and the
+ * reason that may be required to justify it, as ONE spread so a writer cannot
+ * accept the date while silently lacking the channel for its justification.
+ *
+ * `backdateReason` is optional here because it is conditionally required: the
+ * server-side policy (`transaction-date-policy.ts`) demands it only when an
+ * ADMIN/ACCOUNTANT dates a row beyond the 31-day backdating window, and ignores
+ * it otherwise. That condition depends on the caller's role and so cannot be
+ * expressed in this schema — which is exactly why the requirement is enforced
+ * server-side and this field is merely the transport for it.
+ */
+export const transactionBusinessDateFields = {
+  txDate: transactionBusinessDateSchema.optional().nullable(),
+  backdateReason: z.string().trim().max(500).optional().nullable(),
+}
+
 // ---------------------------------------------------------------------------
 // Create / Update schemas
 // ---------------------------------------------------------------------------
