@@ -4219,6 +4219,37 @@ cache key **from the request** rather than from a list of fields someone must ke
 the coverage floors are derived from `git ls-files` instead of a typed number. A claim that cannot
 drift out of step needs no reader to re-check it.
 
+### The same shape in this file's own numbering (2026-10-24)
+
+**Measured.** Three unmerged branches each appended after the then-highest entry, 306, and **two
+different findings were both numbered 307** — one on `docs/backlog-301-instances`, one on
+`feature/r5-3.6-rss-adapters` — because two sessions read "the highest is 306" at the same moment. A
+third branch's 308 avoided it only by accident: that agent had been told 307 was taken by information
+the other session could not have had.
+
+**The hazard is the resolution, not the collision.** Both appends land at the end of the same file, so
+git conflicts — and the tempting resolution, keeping both sides, yields a file with two entries
+numbered 307 and **no conflict markers left to notice**. One of the two branches carries seven
+in-code `[[307]]`-style pointers, so a silent concatenation would leave some of them citing the other
+session's entry. Whoever hits that conflict renumbers; they do not concatenate.
+
+**Why it belongs in this entry rather than its own.** A hand-assigned sequential number in an
+append-only file shared by concurrent writers is an enumeration maintained by care, which cannot be
+re-derived and drifts the moment two people hold it — this entry's case exactly.
+
+**What actually closed it, and what only looked like a cure.** The obvious candidate is a
+collision-proof identifier: a date-plus-slug heading (`2026-10-24-scratchpad-flat-directory`) turns a
+simultaneous append into a textual conflict in two places rather than a number race. That is a
+**trade, not a cure**, and this entry is the wrong place to overstate it: it moves the collision to
+two sessions choosing the same slug on the same day — less likely, not impossible — and it costs the
+ability to order entries by eye. What genuinely closed the hazard in the measured case was something
+else: **both sides removed their pointers' dependency on the identifier**, citing each entry by its
+title instead of its number. After that a renumber costs one heading per side and the merge order
+stops mattering for correctness, whatever the identifier scheme is. That is `doc-durability.md`'s own
+rule — a symbol rather than a coordinate — applied one layer up, to the address of a record rather
+than to a line in a file. Changing the file's heading convention remains a larger decision than any
+one PR and is not taken here.
+
 **Check on closing:** a sentence in a long-lived document that enumerates fields, versions or
 behaviours is either generated from the source, or carries the command that re-derives it. An
 enumeration maintained by hand is a future true-but-incomplete claim.
@@ -4493,6 +4524,37 @@ escalation path.
 later call regardless of how the `add` was composed or whether its working directory changed, while a
 sibling's path stays refused — both arms asserted by the hook's own tests.
 
+### A second, measured cause: the macOS `/tmp` symlink (2026-10-24)
+
+Ownership also fails to record when the path is **correct, literal and the agent's own**. Measured:
+`/tmp` on macOS is a symlink to `private/tmp` (`ls -ld /tmp` → `/tmp -> private/tmp`). The harness
+issues the scratchpad to an agent as a `/private/tmp/...` path, so `git worktree add` is called with
+`/private/tmp/...`, while the hook's recorded scratchpad root is the `/tmp/...` spelling. The two name
+the same directory and do not match as strings, so nothing is recorded and the later
+`git worktree remove` is refused with `WORKTREE-REMOVE` — on a tree the agent demonstrably created.
+
+An agent that did everything the rule asks (literal path, own identifier in the name, inside its own
+scratchpad) still cannot clean up after itself. The affected agent declined to force past the guard,
+which is correct — "this looks abandoned" is not an observation it can make — so the refusal is working
+as designed on the removal side while the recording side is the defect.
+
+**The escape route is closed from both ends, measured 2026-10-24.** The rule's answer to a tree you
+cannot remove is "report it to the orchestrator, who sees all agents". The orchestrator is refused
+too, by `WORKTREE-REMOVE`: the path is not _its_ worktree either, and the refusal is correct as a rule.
+Tried from the orchestrator with the literal path, after the creating agent had already been refused —
+so neither the agent that made it nor the only party the rule names as the fallback can clear it, and
+it genuinely falls to the owner. **Measured scale at the time of writing: 16 such checkouts across two
+sessions' scratchpads**, most from reviews closed hours earlier.
+
+A related sharp edge found in the same attempt: passing the path through a shell variable gets
+`WORKTREE-OPAQUE` instead, because the hook cannot expand it and refuses rather than guess. That is
+right, and it means any batch cleanup must expand each path to a literal first — which is also why a
+loop over `git worktree list` cannot be the fix.
+
+**Check on closing:** an agent creates a worktree at the `/private/tmp/...` path the harness issued it
+and then removes it, with no intervening step. Both commands succeed. And a tree whose creator is gone
+can be cleared by _someone_ without forcing past the guard.
+
 ## 301. A verification can be real but less precise than the claim it supports (2026-10-23)
 
 `verification-integrity.md` distinguishes "did not look" from "looked and found nothing". The retro-PR
@@ -4519,6 +4581,48 @@ compare full shas (`git rev-parse HEAD` against `git ls-remote origin <branch> |
 **Check on closing:** take a report carrying a `Pushed:` line and run `git cat-file -t <sha>` on the
 exact string it published. It resolves, or the line was never checkable.
 
+### Two further instances, both within hours of the entry being written (2026-10-24)
+
+The entry above was written from an agent's report. Both people who then read it committed the same
+class — which is the argument for the mechanical cure rather than the attentive one.
+
+**Instance 2 — the orchestrator, against another session's branch.** Printed a head sha truncated to
+nine characters for a status line, then typed a full forty-character sha into
+`gh pr merge --match-head-commit`. GitHub refused: _"Head branch was modified."_ Measured afterwards —
+real head `a0a1d3410216dcd6d6044b12a2ed4f7047239dd1`, asserted
+`a0a1d3410b65ba54eb4cd59f26ad7e0ee1ea2b1b`; nine characters shared, the rest invented. Nothing about
+the branch had moved. The branch's own session first explained the refusal as a race with a PR-body
+edit (a body edit does re-trigger Flow Gate), and then **withdrew that explanation**: it had a true
+fact that fitted the symptom and offered the fit as the finding, without asking the one question that
+settles it — _what sha did you pass?_
+
+**Instance 3 — a sample asserted as a census.** A session briefed a devops agent that `zod` was
+declared in **three** manifests (`apps/api`, `apps/web`, `packages/shared`), stated as a measured fact.
+It is **five**: `apps/landing` and `packages/inference` also resolved the vulnerable entry. Three
+places had been looked at; the look was reported as the count. The agent exceeded its brief and found
+the other two, which is the only reason the advisory fix was not a _failed_ fix — a bump touching only
+the obvious three leaves the gate red and looks like a bad patch rather than an incomplete search.
+
+**What the three have in common, and the precision the cure needs.** Not carelessness: in each case a
+real observation was made and then restated at a width it did not cover — twelve characters published
+as forty, nine as forty, three manifests as "three manifests". Procedural rules in this repo are
+observable only through an assertion a reader can re-run, and in instance 2 the published claim had no
+re-runnable assertion beside it: the forty characters came from fingers, the nine from a command. So
+the repair is a **substitution, not a discipline** — pass the thing the command printed
+(`--match-head-commit "$(git ls-remote origin <branch> | cut -f1)"`), and for a count, publish the
+command that produced it (`git grep -l '"zod"' -- '**/package.json'`) rather than the number alone.
+"Be more careful" does not close any of the three; printing the instrument's own output closes all of
+them.
+
+**Instance 5 — a restoration verified against memory (2026-10-24).** After the scratchpad-filename collision recorded
+in this file (the entry headed "The session scratchpad is one flat shared directory"), the agent that had overwritten another PR's body rebuilt it and declared it restored — having
+verified by grepping for two strings it remembered writing, finding them, and stopping there. Two
+lines added earlier by someone else were still missing and would have failed the Flow Gate again. The
+shape is this entry's exactly, applied to a recovery rather than a measurement: a sample (what I
+remember putting in) asserted as a census (the document is whole). The cure is the same substitution —
+verify a restoration against the artifact's required contents, not against recall; for a PR body, the
+Flow Gate's own step list is that contract and it is machine-readable.
+
 ## 302. Truncating a command's output hides what the command was run to find (2026-10-23)
 
 `pre:bash:swallowed-failure` catches a discarded stderr piped into a counter. It does not catch the
@@ -4541,6 +4645,22 @@ output. The hook half is optional; the rule half is the point.
 
 **Check on closing:** a merge with conflicts in two files, read the way the rule prescribes, reports
 both.
+
+### Instance 2 — truncation plus an anchor that could never match (2026-10-24)
+
+A PR body carried "E2E 866 passed, 0 failed". It was false, and the author diagnosed its own
+instrument rather than its memory. **Two faults compounded:** the run was captured through
+`| tail -40`, so only forty lines ever existed to search; and the search was
+`grep '^\s+[0-9]+ failed'`, which cannot match Playwright's summary line because ANSI escapes
+(`ESC[1A ESC[2K`) precede the whitespace. The absent match was read as zero failures — a count offered
+as proof of an absence with no proof the input was read, which is `verification-integrity.md`'s form 1
+reached by a different route.
+
+Re-measured properly (full stdout to a file, ANSI stripped, pattern unanchored, reconciled against
+`--list`): **866 passed · 238 failed · 26 skipped · 13 did not run = 1143**, matching the chromium
+total exactly. The reconciliation against a known total is what turned a plausible number into a
+checkable one, and it is the cheap habit worth copying: a count that does not have to add up to
+anything is a count nobody can falsify.
 
 ## 303. User-facing error text left over from the retro-PR wave (2026-10-23)
 
@@ -4617,3 +4737,56 @@ entry instead of a finding.
 
 **Check on closing:** a quadratic scan with a 64-character step is caught by something, and a failing
 `timing_specs` job reaches a human within a day without anybody thinking to look.
+
+## 307. The session scratchpad is one flat shared directory, so a plain filename is everybody's (2026-10-24)
+
+**Measured, in another session, 2026-10-24.** Two agents of the same session each wrote their PR
+description to `pr-body.md` in the shared session scratchpad. The second `gh pr edit --body-file` then
+published **one PR's description onto the other PR**. It was noticed and rebuilt, but the rebuild was
+itself incomplete (recorded as instance 5 of entry 301).
+
+**Why no existing rule covers it.** `agent-isolation.md` learned this exact lesson for _worktrees_ —
+the session scratchpad is shared by every agent of a session, so a scratch path proves nothing about
+whose it is, and the cure there was a path derived from the agent's own identifier plus a record of
+ownership. Nothing says the same for _files_. The hook enforces the worktree half; the file half is
+unwritten, and the orchestrator-written briefs in this repo routinely tell agents to "write the body
+to the scratchpad first" (the write-then-post pattern from `dev-flow-resilience`) without saying where.
+
+**Why it is worse than a lost file.** A clobbered scratch file is cheap; a clobbered _published_
+artifact is not. The failure surfaces as a PR whose description belongs to a different change — which
+a reviewer may read as the author's claim about the diff in front of them, and which the Flow Gate
+will judge on step lines that were never written for that PR.
+
+**Candidates.** Brief agents to derive scratch filenames from their own identifier (the convention
+`agent-isolation.md` already uses for trees), or have the write-then-post guidance in
+`dev-flow-resilience` name the file rather than the directory, or — cheapest and mechanical — have
+each agent write under a per-agent subdirectory so a plain basename is safe again.
+
+**Check on closing:** two agents of one session, each told to write a PR body "to the scratchpad",
+produce two files that cannot collide — verified by running it, not by reading the brief.
+
+## 311. Flow Gate: three matcher and classifier gaps found by using it (2026-10-24)
+
+All three surfaced while putting real PRs through the gate on the day it became required. None is a
+false pass — each is a false FAIL, which is the cheaper direction, but each costs a review round and
+teaches the author to distrust the gate.
+
+- **A bolded step line is invisible.** `**Task:**` / `**Plan:**` do not match; the line must be plain
+  at line start. Markdown bolding is the obvious way to write a labelled line in a PR body, so this
+  will recur. The matcher tolerates a `- ` / `* ` bullet but not emphasis.
+- **A vitest setup file is not a test file.** A PR whose only code hunk was `apps/web/app/test/setup.ts`
+  reported `Tests: MISSING`. The file is listed in `setupFiles` of `apps/web/vitest.config.ts`, so it
+  is test infrastructure by definition, and the author had to add a `Skip-Tests:` line for a change
+  that is nothing but tests.
+- **`Skip-Task:` silently waives `Spec-Review` too.** Spec-Review is required only when a `Task:` line
+  is declared, so skipping Task removes the spec axis with no second reason and no visible trace — the
+  gate's own table then reads `n/a` rather than `SKIPPED`, which is the one place a reader would look.
+  One recorded skip quietly buys two.
+
+**Candidates:** tolerate `**` and other emphasis around a step key; treat files under a package's
+`test/` directory (or any file named in a vitest `setupFiles`) as test files; and make `Spec-Review`
+read `SKIPPED (no Task declared)` rather than `n/a`, or require its own skip line when Task is skipped.
+
+**Check on closing:** a PR body with `**Task:**` passes the Task row; a PR whose only code change is a
+vitest setup file does not report `Tests: MISSING`; and a `Skip-Task:` PR shows Spec-Review as skipped
+with a reason rather than as not applicable.

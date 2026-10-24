@@ -1,5 +1,18 @@
 /**
- * AC3 — the API stays responsive WHILE a resume is being typeset.
+ * AC3 (timing half) — the API stays responsive WHILE a resume is being typeset.
+ *
+ * MOVED 2026-10-23 to `*.timing.spec.ts`: this file compares wall-clock round-trip times between
+ * the real implementation and the forbidden one, and a ratio of two measurements taken at
+ * different moments does not survive machine contention (CI: 197.17 vs a 211.51 threshold on a PR
+ * that touched no `apps/` file; backlog 278). It is excluded from the default `vitest run` and
+ * runs in the dedicated `Timing specs` CI job, alone on its runner:
+ *
+ *   TIMING_SPECS=1 pnpm --filter @crm/api exec vitest run
+ *
+ * Thresholds are unchanged. The deterministic half of the same guarantee (event-loop turns during
+ * a child process, no in-process mammoth call) is `resume-offload-structure.spec.ts` and gates
+ * every push.
+ *
  *
  * ==========================================================================
  * WHAT IS MEASURED, AND WHY THAT DISTINCTION IS THE WHOLE TEST
@@ -266,12 +279,9 @@ describe('worstOf — regression for the CI spread-overflow (PR #600 flake)', ()
   })
 })
 
-// Event-loop latency assertions are load-sensitive: on a machine shared with other
-// agents/dev servers they flake the local pre-push. They stay in CI (GitHub Actions
-// sets CI=true), which is the authoritative gate. Local runs skip them.
-const SKIP_LOCAL_PERF = process.env['CI'] !== 'true'
-
-describe.skipIf(SKIP_LOCAL_PERF)('AC3 — API responsiveness during a resume render', () => {
+// Opt-in perf characterisations below still need RESUME_PERF=1; the rest always run when this
+// file is selected (TIMING_SPECS=1), locally or in CI.
+describe('AC3 — API responsiveness during a resume render', () => {
   /**
    * THE AC3 GATE, expressed as a COMPARISON so it cannot flake with the
    * machine.
