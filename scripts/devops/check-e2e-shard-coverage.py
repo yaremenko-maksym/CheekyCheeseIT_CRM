@@ -77,6 +77,19 @@ EXCLUDED_DIRS: set[str] = set()
 # deferral is precisely how 54 specs went unrun. An exemption is for a spec that
 # CANNOT be gated (and says what blocks it), never for one nobody has got round to.
 # To remove an entry: add the file (or its directory) to a shard in ci.yml AND delete it here.
+#
+# WHAT THIS CHECK CAN AND CANNOT DO — read before trusting the word "exempted":
+#   * It is LEXICAL. It catches the old boilerplate ("debt: … migrate … later", a bare "todo",
+#     an empty string, anything under MIN_REASON_CHARS). That is a real gain: 54 exemptions
+#     hid behind exactly that wording.
+#   * It does NOT judge substance. Measured on eight reasons it ACCEPTS 36 repeated "x"
+#     characters and "this spec is not worth running in the pipeline at all", and REJECTS a
+#     legitimate reason that happens to contain the word "migrate". Whether a reason names a
+#     real blocker is still decided by the human reviewing this file.
+#   * It does not stop a spec being "covered" and useless: a gated spec that skips every test
+#     (conditional `test.skip`, `test.fixme`) counts as sharded. Skips are visible in the run
+#     report, not here.
+#   * An exemption pointing at a file that no longer exists only WARNS (ghost_debt below).
 # ---------------------------------------------------------------------------
 KNOWN_UNSHARDED: dict[str, str] = {}
 

@@ -250,18 +250,23 @@ test.describe('AC3 — Manual payout confirmation: ADMIN / ACCOUNTANT only', () 
     await expect(asDrop.getByTestId(`confirm-payout-button-${PAYOUT_TX_ID}`)).toHaveCount(0)
   })
 
-  for (const [label, fixtureName] of [
-    ['JUNIOR', 'asJunior'],
-    ['HR', 'asHr'],
-  ] as const) {
-    test(`${label} does NOT see the confirm-payout button`, async ({ asJunior, asHr }) => {
-      const page = fixtureName === 'asJunior' ? asJunior : asHr
-      await mockPayoutDetailRoutes(page)
-      await page.goto('/finance')
-      await expect(page.getByTestId('finance-page')).toBeVisible()
-      await expect(page.getByTestId(`confirm-payout-button-${PAYOUT_TX_ID}`)).toHaveCount(0)
-    })
+  // One test per role, each requesting ONLY its own fixture. Requesting two role fixtures in a
+  // single test instantiates both on the same `page` and the last `mockAuthAs` wins — a combined
+  // JUNIOR/HR loop here ran as HR and asserted nothing about JUNIOR.
+  async function expectNoConfirmPayoutButton(page: Page) {
+    await mockPayoutDetailRoutes(page)
+    await page.goto('/finance')
+    await expect(page.getByTestId('finance-page')).toBeVisible()
+    await expect(page.getByTestId(`confirm-payout-button-${PAYOUT_TX_ID}`)).toHaveCount(0)
   }
+
+  test('JUNIOR does NOT see the confirm-payout button', async ({ asJunior }) => {
+    await expectNoConfirmPayoutButton(asJunior)
+  })
+
+  test('HR does NOT see the confirm-payout button', async ({ asHr }) => {
+    await expectNoConfirmPayoutButton(asHr)
+  })
 })
 
 // ---------------------------------------------------------------------------

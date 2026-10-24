@@ -274,7 +274,8 @@ test.describe('Flow E3 — DocumentDetailDialog layout', () => {
 
     // «Имя файла» row deliberately removed in PR #56 final UT AC5 — must
     // NOT appear anywhere inside the dialog.
-    await expect(dialog.getByText('Имя файла')).not.toBeVisible()
+    // ru/uk/en spellings — the Russian-only literal passed vacuously once the UI went uk.
+    await expect(dialog.getByText(/Имя файла|Ім.я файлу|File name/i)).not.toBeVisible()
   })
 })
 
@@ -379,9 +380,9 @@ test.describe('Flow E4 — InvoiceDetailDialog signature cards', () => {
 
     // No column header «Хэш» anywhere in the dialog (the table had
     // «Сторона / Подписант / Дата / Метод / Хэш PDF» — removed).
-    await expect(dialog.getByRole('columnheader', { name: /Хэш/i })).not.toBeVisible()
+    await expect(dialog.getByRole('columnheader', { name: /Хэш|Хеш|Hash/i })).not.toBeVisible()
     // Also assert the helper text is absent (defensive: «Хэш PDF (8)» is
     // the only place "Хэш" appears in the legacy table head).
-    await expect(dialog.locator('th', { hasText: 'Хэш' })).not.toBeVisible()
+    await expect(dialog.locator('th', { hasText: /Хэш|Хеш|Hash/i })).not.toBeVisible()
   })
 })

@@ -1,5 +1,5 @@
 /**
- * drop-dashboard-hub.spec.ts — E2E coverage for Drop phase 2+3 surfaces.
+ * drop-routing-hub.spec.ts — E2E coverage for Drop phase 2+3 surfaces.
  *
  * PR #189 adds two new DROP-only pages:
  *   1. /routing  — old URL, now permanently redirects to /crm (root).

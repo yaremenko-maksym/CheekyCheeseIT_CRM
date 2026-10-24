@@ -25,7 +25,18 @@
  */
 
 import { test, expect, REAL_API_BASE } from './fixtures'
-import { loginViaApi, SEED_ADMIN_EMAIL } from './fixtures'
+import {
+  loginViaApi,
+  SEED_ADMIN_EMAIL,
+  SEED_EMAILS,
+  createSeniorProjectViaAPI,
+  createSeniorIncomeViaAPI,
+  validateTransactionViaAPI,
+  createPayoutRequestViaAPI,
+  payPayoutRequestViaAPI,
+  listTransactionsByProjectViaAPI,
+  ensureCompanyWalletViaAPI,
+} from './fixtures'
 
 const REAL_API = `${REAL_API_BASE}/api`
 
@@ -91,29 +102,41 @@ test.describe('Invoice public verify endpoint — real API', () => {
     page,
     browser,
   }) => {
-    // Try to resolve a real signed invoice from the seed DB. If none exist
-    // we accept the test as "passed at structural level" — the 404 shape is
-    // covered above and the structural fields don't apply to a missing row.
+    // The seed has NO SIGNED invoice, so this test used to skip itself on every run (a gated
+    // spec that always skips is a check that does not exist). Plant one: SENIOR_INCOME →
+    // validated → payout requested + paid (the PAYOUT row is the invoice's transaction) →
+    // the counterparty SENIOR signs it.
+    const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
     await loginViaApi(page, SEED_ADMIN_EMAIL)
-    const invoicesRes = await page.request.get(`${REAL_API}/invoices?status=SIGNED`)
-    if (invoicesRes.status() !== 200) {
-      test.skip(
-        true,
-        `Could not list invoices to pick a SIGNED one (status=${invoicesRes.status()})`,
+    await ensureCompanyWalletViaAPI(page)
+    const { projectId } = await createSeniorProjectViaAPI(page, {
+      seniorEmail: SEED_EMAILS.seniorA,
+      name: `Verify Signed ${suffix}`,
+    })
+    let txId = ''
+    try {
+      await loginViaApi(page, SEED_EMAILS.seniorA)
+      const income = await createSeniorIncomeViaAPI(page, { projectId, amount: 1000 })
+      await loginViaApi(page, SEED_EMAILS.accountant)
+      await validateTransactionViaAPI(page, income.txId)
+      await loginViaApi(page, SEED_EMAILS.seniorA)
+      const { payoutRequestId } = await createPayoutRequestViaAPI(page, [income.txId])
+      await payPayoutRequestViaAPI(page, payoutRequestId)
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+      const payout = (await listTransactionsByProjectViaAPI(page, projectId)).find(
+        (t) => t.type === 'PAYOUT',
       )
-      return
-    }
-    const invoices = (await invoicesRes.json()) as Array<{
-      transactionId?: string
-      status?: string
-    }>
-    const signed = invoices.find((i) => i.status === 'SIGNED' && i.transactionId)
-    if (!signed?.transactionId) {
-      test.skip(true, 'No SIGNED invoices in seed DB — structural shape covered by 404 probe')
-      return
+      expect(payout, 'cascade must produce the PAYOUT row').toBeTruthy()
+      txId = payout!.id
+      await loginViaApi(page, SEED_EMAILS.seniorA)
+      const signRes = await page.request.post(`${REAL_API}/invoices/${txId}/sign`, { data: {} })
+      expect(signRes.status(), 'counterparty sign must succeed').toBeLessThan(400)
+    } catch (e) {
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
+      await page.request.delete(`${REAL_API}/projects/${projectId}`).catch(() => undefined)
+      throw e
     }
 
-    const txId = signed.transactionId
     const ctx = await browser.newContext()
     try {
       const res = await ctx.request.get(`${REAL_API}/invoices/verify/${txId}`)
@@ -147,6 +170,8 @@ test.describe('Invoice public verify endpoint — real API', () => {
       }
     } finally {
       await ctx.close()
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
+      await page.request.delete(`${REAL_API}/projects/${projectId}`).catch(() => undefined)
     }
   })
 })

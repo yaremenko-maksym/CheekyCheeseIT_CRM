@@ -1709,7 +1709,7 @@ jobs:
         if: always() && steps.scope.outputs.code == 'true'
         run: docker rm -f s3-stand || true
 
-  # Aggregate status of all 8 E2E shards into one PR-level check.
+  # Aggregate status of every E2E matrix leg (11 at the time of writing: ten Playwright legs + landing) into one PR-level check.
   # (auth-nav, team-users, projects, finance, misc, drop-finance,
   # drop-lifecycle, landing — count corrected 2026-08-18, PR #573 backlog
   # item 139 wiring; this comment already read "5" before that change, so

@@ -112,10 +112,12 @@ test.describe('Manual confirmPayout — method=CASH vs method=CRYPTO', () => {
       const txs = (await txsRes.json()) as Array<Record<string, unknown>>
       const confirmed = txs.find((t) => t['type'] === 'PAYOUT_CONFIRMED')
       expect(confirmed, 'expected PAYOUT_CONFIRMED row after confirm-payout').toBeTruthy()
-      // The chosen method is persisted in the confirmation note
-      // («… (method=CRYPTO)») — there is no payment_method column on a
-      // transaction row (payout-confirmation.service builds the note).
-      expect(confirmed!['notes']).toContain('method=CRYPTO')
+      // The chosen method is persisted ONLY in the free-text confirmation note
+      // («… (method=CRYPTO)») — there is no payment_method column on a transaction row, so this
+      // couples the spec to the wording payout-confirmation.service builds. It is the sole
+      // observable record of the method; the hash assertions below are the behavioural check
+      // (CRYPTO stores the hash, CASH stores none). If the note format changes, change both.
+      expect(String(confirmed!['notes'])).toMatch(/\bmethod=CRYPTO\b/)
 
       // txHash recorded on the confirmed row OR the PAYOUT row.
       const hashField =
@@ -144,7 +146,7 @@ test.describe('Manual confirmPayout — method=CASH vs method=CRYPTO', () => {
       expect(confirmed).toBeTruthy()
       const payoutRowRes = await page.request.get(`${REAL_API}/transactions/${payoutTxId}`)
       const payoutRow = (await payoutRowRes.json()) as Record<string, unknown>
-      expect(confirmed!['notes']).toContain('method=CASH')
+      expect(String(confirmed!['notes'])).toMatch(/\bmethod=CASH\b/)
       // CASH records no on-chain hash.
       expect(payoutRow['txHash'] ?? null).toBeNull()
     } finally {

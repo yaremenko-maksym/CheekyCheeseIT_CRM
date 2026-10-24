@@ -262,25 +262,17 @@ test.describe('RBAC #1 — SENIOR does not see JUNIOR identity on project detail
     await page.goto(`/projects/${PROJECT_WITH_JUNIOR.id}`)
     await expect(page.getByText(PROJECT_WITH_JUNIOR.companyName)).toBeVisible()
 
-    // Navigate to members tab
-    const membersTab = page.getByRole('button', { name: /Состав/i })
-    const hasMembersTab = await membersTab.isVisible()
-    test.skip(!hasMembersTab, 'project detail did not render the «Состав» tab in this build')
-    await membersTab.click()
+    // Navigate to the members tab («Склад», testid `tab-members`). The old spec looked for a
+    // Russian «Состав» button that the product does not have, so it skipped on EVERY run and
+    // had never executed — the tab and the card are asserted, not used as a skip condition.
+    await page.getByTestId('tab-members').click()
 
     const effectiveTeamCard = page.getByTestId('effective-team-card')
-    const hasEffectiveTeamCard = await effectiveTeamCard.isVisible()
-    test.skip(
-      !hasEffectiveTeamCard,
-      'members tab did not render effective-team-card — this test has never actually run, see PR note',
-    )
+    await expect(effectiveTeamCard).toBeVisible()
 
     // Effective team card should show senior but NOT junior link.
     //
-    // Unconditional now — the card's presence is asserted instead of being used
-    // as an `if` (task-lint-teeth). Previously the whole check sat behind
-    // `if (await effectiveTeamCard.isVisible())`, so a page that failed to
-    // render the card reported PASS having verified nothing.
+    // Unconditional — the card's presence is asserted above (task-lint-teeth).
     //
     // SCOPE NOTE — deliberately card-scoped, not page-wide. A page-wide
     // `getByText(junior.displayName)` DOES fail here, because this spec's mock
