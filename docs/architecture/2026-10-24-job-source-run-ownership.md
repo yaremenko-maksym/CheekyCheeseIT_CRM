@@ -283,8 +283,9 @@ ownership. Also reopen if `apps/api` moves to `module: node16`.
 ### Autonomy classification (`autonomy-levels.md`)
 
 - **The choice of A over B is A2.** The ADR is reversible (one PR), but redoing an implemented
-  ledger is expensive. The **owner** confirms, in the phase's decision brief. Nothing in the
-  decomposition blocks on it except T3. T1, T2, T5 and T6 are identical under both options.
+  ledger is expensive. The **owner** confirms, in the phase's decision brief. Only T3 (the
+  ledger) and T7 (which consumes it) depend on the choice. T1, T2, T4, T5 and T6 are the same under
+  both options, so they can start before the owner answers.
 - **T1's migration** (two partial unique indexes and an `account_key` column) is a Drizzle migration
   in a critical-path zone. It goes through the normal full pipeline with a mandatory
   security-reviewer. It changes no privilege.
@@ -308,7 +309,213 @@ ownership. Also reopen if `apps/api` moves to `module: node16`.
 
 ## Decomposition of Task 2.5
 
-_Pending._
+Seven tasks plus one external prerequisite. Files are named by module and symbol. Path fragments are
+given only where a file does not exist yet. "Real-Postgres" means an integration spec against a
+scratch database, never `crm_db` (`live-db-access.md`), and **run as `crm_app`** wherever the claim
+is about privileges. That matches the least-privilege ADR's finding that specs run as `crm_user`
+prove nothing about `crm_app`.
+
+### Order and parallelism
+
+```
+T0 (backlog 318, parallel PR — external) ─────────────────────────────┐
+T1 migration ──┐                                                       │
+T4 due policy ─┼─► T3 run ledger ─► T7 context builder + run worker ─┬─► T6 transport wiring
+T2 registry ───┘                                                     └─► T5 cron
+```
+
+- **Wave 1, in parallel:** T1, T2, T4. Their file sets are disjoint: schema plus migration, registry
+  plus service map, and a new due-policy module.
+- **Wave 2:** T3, which needs T1's indexes and T4's due predicate.
+- **Wave 3:** T7, which needs T2's registry and T3's ledger.
+- **Wave 4, in parallel:** T5 and T6. Their file sets are disjoint: the cron file, versus `http/`,
+  the context builder's `fetchText` and adapter host lists. **T6 also waits for T0** (backlog 318).
+  Constraint (a): no `transportOptionsFor` wiring before 318 is fixed.
+- **Not parallel:** T3 with T7 (T7 consumes the ledger's interface), and T2 with T5 (both edit
+  `JobSourcingModule`).
+
+### T0 — backlog 318: parse-order fix in the shared bounded-JSON reader (prerequisite, not part of 2.5)
+
+Being closed by a parallel PR. Listed only as T6's gate. **Verification that it is done:** entry 318
+is marked closed in `BACKLOG-followups.md` on `origin/main`, and the reader refuses an over-cap body
+before `JSON.parse` is entered (its own spec).
+
+### T1 — ownership indexes (migration)
+
+- **Files:** the Drizzle schema (`job-collection.ts`, `jobCollectionRuns`); a new
+  `apps/api/drizzle/manual/<date>_job_run_single_flight.sql`; the ordered file list in `deploy.yml`
+  (a DevOps-zone line, so the dispatch names it); the privileges manifest, if the new column needs a
+  grant class entry.
+- **Change:** add `account_key uuid NOT NULL` to `job_collection_runs`. It is backfilled from
+  `job_sources.account_meter_id`, or from `source_id` when that is null. No production code writes runs yet (F3), so the backfill is expected to touch no rows; the migration must still handle rows rather than assume none.
+  Add a partial unique index on `(source_id) WHERE outcome = 'STARTED'` and another on
+  `(account_key) WHERE outcome = 'STARTED'`. Keep `uq_job_collection_runs_running_owner`.
+- **Depends on:** nothing.
+- **AC:** (1) both indexes exist after the migration; (2) a second `STARTED` row for the same source
+  under a different `config_version` is refused with 23505; (3) a second `STARTED` row for a
+  different source sharing one meter is refused; (4) a terminal row does not contend; (5) the
+  catalog check still passes, and `crm_app` gets no new privilege.
+- **Real-Postgres:** the three refusals, each in its own transaction, plus the catalog check run as
+  the migration role.
+- **Model:** opus (Drizzle migration). **security-reviewer mandatory.**
+
+### T2 — registry seam
+
+- **Files:** `JobSourcingService` (its `providers` map and constructor); a new
+  `job-sourcing/registry/` module (`JobSourceRegistry`, `LegacyDouAdapter`); `JobSourcingModule`; the
+  manifest consumer of activation; the `*_OWNER_DECISION` constants in `providers/owner-decisions.ts`.
+- **Carries:** one adapter per type, with duplicates rejected **at startup** (throw). DOU stays
+  wrapped in an explicit legacy adapter (plan A1h / C-20). There is one registry, and the
+  `providers` map is deleted rather than kept beside it. There are no optional constructor arguments
+  that change the production pipeline. **Only readiness-approved adapters register for
+  activation.** **Evidence is not permission** (PR #1139): a source permitted by owner decision but
+  with no captured payload registers as not verified and is not activated by `enabled` alone.
+  **`SMARTRECRUITERS_OWNER_DECISION` is `Object.freeze`d** (#1139 delta LOW 1), and so are its four siblings (HN, Remotive, Jobgether, Workable; none is frozen on `d0f876f33`), so a mutated
+  decision cannot leave an adapter armed.
+- **Depends on:** nothing.
+- **AC:** (1) a duplicate type throws at module init; (2) DOU's golden outcomes are unchanged
+  (`dou-golden` specs pass untouched); (3) an unverified-evidence source is reported
+  `NOT_VERIFIED` and is never returned by the activation query; (4) mutating the frozen decision
+  throws in strict mode; (5) `grep` shows no `new Map<JobSourceType` left in the service.
+- **Real-Postgres:** none needed beyond the existing DOU integration spec, which must stay green.
+- **Model:** sonnet, medium.
+
+### T3 — run ledger (the core of this ADR)
+
+- **Files:** a new `job-sourcing/ownership/` module (`JobRunLedger`: `claimDue`, `heartbeat`,
+  `assertOwned`, `finish`, `recoverExpired`); `createAccountMeter` and `AccountMeterBinding` (they
+  gain `ownerToken` and call `assertOwned` inside `reserve` and `markSent`); the 3.5a integration
+  spec's characterisation case (AutoTest zone; Master assigns that edit).
+- **Carries:** `FOR UPDATE SKIP LOCKED` claim; owner token and epoch committed before I/O; epoch =
+  max for the source + 1; heartbeats for the same owner and epoch only; epoch verified in every page
+  write and meter call; one active fetch per source and per account (claim check, plus T1's
+  backstop); no lock held across I/O; **lease recovery moves `SENT` → `UNCERTAIN`, leaves
+  `RESERVED` to the now-sound replay walk, and re-queues the source**, with `recoverExpired` as the
+  named entry point (called by T5's tick and at worker start). `finish` writes the `job_sources`
+  state: attempts persist on empty and on error, `last_success_at` ≠ `last_nonempty_at`, and DOU's
+  legacy `lastCollectedAt` semantics are preserved. Bounded attempts: `consecutive_failures`
+  drives a capped backoff.
+- **Depends on:** T1 (indexes), T4 (the due predicate `claimDue` filters on).
+- **AC:** (1) the SR-H-1 characterisation case **fails first** and is then replaced by an assertion
+  that a second executor's `reserve`/`markSent` is refused with `RUN_FENCED` and that spend equals
+  charge; (2) a stale owner's `savePage` after recovery is refused, and the successor's pages are
+  intact; (3) a `markSent`/recovery race ends in exactly one of {`SENT`→`UNCERTAIN`, `markSent`
+  refused}, never in a request that is sent and released; (4) heartbeat with a wrong epoch changes
+  nothing; (5) the epoch strictly increases across re-claims of one source; (6) a grep gate: no file
+  outside the ledger writes `owner_token`, `fencing_epoch` or `lease_expires_at`.
+- **Real-Postgres:** N concurrent claimers (N ≥ 4, two pools, the "replica" case) against one due
+  source get exactly one claim. Also: a crash after a page is persisted (kill between `savePage` and
+  `finish`, then recover); stale-owner writes; manual run overlapping a scheduled one; bounded
+  attempts at the limit and one past it. All run as `crm_app`.
+- **Model:** opus, high. **security-reviewer mandatory** (meter, money-adjacent).
+
+### T4 — due policy (pure, plus one query)
+
+- **Files:** a new `job-sourcing/scheduling/` module (`isDue`, `dueSourcesPredicate`,
+  `hostPauseOf`); the `onlyTypes`/`excludeTypes` options and `sourceAcceptsTrigger` (moved, not
+  rewritten).
+- **Carries:** due = persisted `next_attempt_at` / `cooldown_until` + enabled + **readiness from
+  `readinessAt(subject, clock)`, never the stored `job_sources.readiness` column** (PR #1132
+  SPEC-L-2 / SR-M-2) + trigger policy. Manual runs skip cadence but not cooldown, entitlement, cost,
+  or a current owner. `enabled` is administrative permission. Pause, health, reason and state
+  history are separate, and an ADMIN enable never clears an unresolved policy or credential block.
+  **Cross-run stop-on-ban** (PR #1139 SR-M-2): `ACCESS_POLICY` / `RATE_LIMIT` from a host pauses
+  every source on that host until a recorded time ("use it until banned, never evade"). **Rates the
+  manifest cannot enforce** (#1139 SR-L-3): Remotive's documented daily and per-minute limits and an
+  admin-edited `min_interval_hours` are bound by the manifest's ceiling, so a DB value below the
+  floor is clamped and reported.
+- **Depends on:** nothing.
+- **AC:** (1) a seeded `CANDIDATE` source past `RECRUITEE_TOKEN_DEADLINE` is not due even though its
+  stored column still says `CANDIDATE`; (2) a 403 on board A makes board B (same host) not due;
+  (3) `min_interval_hours` below the manifest floor runs at the floor; (4) a manual run under
+  cooldown or cost block is refused with a reason; (5) the legacy 10-minute early-due slack never
+  overrides quota or cooldown.
+- **Real-Postgres:** the due query over a seeded mix (enabled/disabled, paused, cooled down,
+  deadline-crossed), compared against the pure `isDue` over the same rows.
+- **Model:** sonnet, medium.
+
+### T7 — production `CollectionContext` builder and run worker
+
+- **Files:** a new `job-sourcing/runtime/` module (`buildCollectionContext`, `JobRunWorker`);
+  `JobSourcingService.collectSource` / `collectAll` (they route reporting adapters through the
+  worker; DOU stays on the legacy path); `quota-credentials` (it feeds `secrets`).
+- **Carries:** every port backed in production: `run` with the ledger's owner and epoch, `meter` =
+  `createAccountMeter` bound with the owner token, `checkpoints.savePage` calling `assertOwned`
+  first in its transaction, `cache`, `secrets`, `signal` aborted by a failed heartbeat, and
+  **the per-run `deadline`** (#1138 SR-M-1 makes this task its owner). `fetchText` uses
+  `boundedFetchText` **at default caps only**, because transport options are T6's job and arrive
+  after T0. **Free-plan meters** (owner-verified): TheirStack is bound with unit `RECORD`, limit 200,
+  calendar-month window. **Bounded worker pool** (size `N` from config, with a ceiling). One
+  source's failure never blocks another. **Run telemetry persists even if the DTO fails.** Empty
+  and partial runs record honestly.
+- **Depends on:** T2, T3.
+- **AC:** (1) `grep` finds a `CollectionContext` producer outside `src/test/`; (2) a reporting
+  adapter runs end to end against a local fixture server; (3) a TheirStack run that would exceed
+  200 records stops with `COST_STOP`; (4) a throwing source leaves the others' runs `SUCCEEDED`;
+  (5) a DTO serialization failure still leaves the run row terminal with its counts.
+- **Real-Postgres:** two workers on one source, one wins, using the ledger rather than a mock; an
+  empty run and a partial run; a deadline overrun stops before the next subrequest.
+- **Model:** opus, high (cross-zone, meter).
+
+### T5 — cron: enqueue only
+
+- **Files:** `JobSourcingCronService`; `JobSourcingModule`.
+- **Carries:** the existing `@Cron('0 5 * * *')` and a new 02:30 HTML schedule, **both with
+  `timeZone: 'Europe/Kyiv'`** (F7: today there is none). Handlers only enqueue (create the cycle and
+  call `recoverExpired`, then `claimDue` through the worker), and keep the try/catch-never-rethrow
+  convention (C-23). DST and restarts are repaired by due-work reconciliation and idempotent claims.
+- **Depends on:** T7.
+- **AC:** (1) both decorators carry the zone; (2) a handler that throws inside does not rethrow;
+  (3) two ticks in one minute create no second claim.
+- **Real-Postgres:** a DST-shift catch-up case (clock injected) and a double tick.
+- **Model:** sonnet, low–medium.
+
+### T6 — transport wiring (after T0)
+
+- **Files:** `transportOptionsFor` and `boundedFetchText` in `http/bounded-fetch.ts`;
+  `buildCollectionContext`'s `fetchText`; each reporting adapter's declaration (`allowedHosts`).
+- **Carries:** **backlog 319**: `fetchText` calls `transportOptionsFor`, so declared `maxBytes`
+  reach the transport. **`allowedHosts`** (PR #1138 SR-M-2): Arbeitnow pinned to exactly
+  `www.arbeitnow.com`, and the equivalent pinned host for every other adapter (none declares one
+  today), with a test proving `maxBytes` reaches the fetch call. The **pre-parse node bound
+  decision** (#1138 SR-M-1): record whether T0's fix suffices for the worst-case transient memory
+  per page, or add the cheap pre-parse bound to the shared bounded-JSON reader. **404 and status
+  policy** (#1139 delta LOW 2): the transport surfaces the HTTP status, so an adapter's "a detail 404
+  is an answer" path is reachable, decided together with the retry policy.
+- **Depends on:** T0 (gate), T7.
+- **AC:** (1) a spy shows each adapter's declared `maxBytes` and `allowedHosts` arrive at the fetch;
+  (2) a redirect or request to an unlisted host is refused; (3) a body one byte over the cap is
+  refused before parse, and one at the cap is accepted; (4) a detail 404 is classified as the
+  adapter's answer, not `TRANSIENT_NETWORK`.
+- **Real-Postgres:** not needed for the transport. Run one end-to-end run per raised-cap source
+  (Greenhouse, Ashby, Arbeitnow) against a fixture server.
+- **Model:** opus, high (security surface). **security-reviewer mandatory.**
+
+### Constraint ledger: every appended constraint in exactly one task
+
+| Constraint (source)                                                     | Task |
+| ----------------------------------------------------------------------- | ---- |
+| 318 before transport wiring (PR #1119 security axis)                    | T6 gate (T0) |
+| `readinessAt`, not the stored column (PR #1132 SPEC-L-2 / SR-M-2)       | T4   |
+| `allowedHosts` + `maxBytes` reaches fetch (PR #1138 SR-M-2)             | T6   |
+| Transient memory: per-run deadline (PR #1138 SR-M-1)                    | T7   |
+| Transient memory: pre-parse node bound decision (PR #1138 SR-M-1)       | T6   |
+| Free-plan meters, TheirStack 200 RECORD/month                           | T7   |
+| Cross-run stop-on-ban (PR #1139 SR-M-2)                                 | T4   |
+| Rates the manifest cannot enforce (PR #1139 SR-L-3)                     | T4   |
+| Evidence is not permission (PR #1139)                                   | T2   |
+| `Object.freeze` of the SmartRecruiters decision (#1139 delta LOW 1)      | T2   |
+| 404 policy with retry policy (#1139 delta LOW 2)                        | T6   |
+| Backlog 319 (`transportOptionsFor` in `fetchText`)                      | T6   |
+| One live executor per attempt; replace the SR-H-1 case                   | T3   |
+| `RESERVED`/`SENT` recovery with an entry point                          | T3   |
+| `markSent` call site (already on the port, 3.5b): no `fetchText` outside the loop | T7 |
+| Registry seam, legacy map fate                                          | T2   |
+
+The transient-memory finding is one review item with two separable halves: the deadline and the
+parse bound. Each half lands in exactly one task. The brief's note says the two LOW items should
+also be "recorded in backlog in the docs follow-up". This ADR assigns them to tasks instead, so the
+backlog entry, if Master writes one, should point here rather than duplicate them.
 
 ## What this ADR does not decide
 
