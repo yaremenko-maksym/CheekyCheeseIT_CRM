@@ -5277,3 +5277,51 @@ and `.github/` shell and JS are in scope; this entry measured only `.mjs`.
 **Check on closing:** a deliberately mis-formatted `scripts/**/*.mjs` committed with hooks active is
 either reformatted by the pre-commit hook or fails the CI formatting gate — today it does neither, and
 that is the assertion to re-run.
+
+## 317. The integration-run model is a dichotomy; reality has a third case that reports a confident pass (2026-10-24)
+
+`isIntegrationRun` in `apps/api/vitest.config.mts` is
+`process.argv.some((arg) => arg.includes('integration.spec'))`. When it is false,
+`INTEGRATION_SPEC_EXCLUDE_GLOB` removes every `*.integration.spec.ts` **from discovery** — the files
+are never parsed, so nothing is reported as skipped.
+
+**None of that is new or undocumented.** It is stated in the config, in spec-file headers
+(`transactions.drop-self-feeds.spec.ts`, `job-sourcing-budget-race.integration.spec.ts`), in
+`.claude/rules/common/mutation-gate-integration-specs.md`, and `task-integration-db-guard-any-run.md`
+is a whole task about one of its consequences. **The gap is that every one of those describes a
+dichotomy** — an _unfiltered_ run (specs excluded) versus a run _filtered on `integration.spec`_
+(specs run, guard attached, `fileParallelism: false`). The task file's own verification list has
+exactly those two cases plus a variant of the second.
+
+**The third case is the dangerous one and nothing names it:** a run filtered by a path that does not
+contain the substring. You intended an integration run, your filter matches the files you want, and
+they are excluded anyway — and the run exits 0 with a count of whatever else matched.
+
+**Measured instance (PR #1102, round 1).** Filter `src/finance/salary-month-gap` matched two files, a
+unit spec and an integration spec. The integration spec was dropped from discovery, the run printed
+`Test Files 1 passed` where two matched, and the body reported "gap suite 40 passed" — a **true count
+of the wrong file**. The two new integration cases had never executed. CI, which runs the filtered
+`integration.spec` form, failed them. The body and CI disagreed for a whole review round, and the
+author found it by finally reading `Test Files 1 passed` rather than the pass count.
+
+**Why this is worse than an ordinary missing warning.** The other two cases announce themselves: the
+unfiltered run visibly skips, the properly filtered run visibly runs. The third produces a green
+number with no symptom. "0 passed" and "nothing ran" are distinguishable in this repo's rules;
+"40 passed" and "40 passed of the files you did not ask about" are not.
+
+**Candidates, cheapest first:**
+
+1. Make the exclusion loud when a filter was supplied: if `argv` carries a positional filter, no
+   element contains `integration.spec`, and the filter would otherwise match an excluded file, print
+   one line naming the excluded files. The data is available at config time.
+2. Reconcile counts rather than trusting them: teach whoever runs a narrowed suite to compare
+   `Test Files N passed` against the number of files the filter matches (`vitest --list` or a glob).
+   Procedural, and it is what actually caught this one.
+3. Widen the predicate so an explicit path to an `*.integration.spec.ts` file counts as an
+   integration run. Attractive and the riskiest of the three: it silently attaches the DB guard and
+   `fileParallelism: false` to runs that do not have them today, so it needs the same scrutiny as
+   `task-integration-db-guard-any-run` and probably belongs with it.
+
+**Check on closing:** a run filtered by a path that matches an `*.integration.spec.ts` file either
+executes it or says in one line that it did not — and in neither case does it exit 0 having silently
+counted only the other files the filter matched.
