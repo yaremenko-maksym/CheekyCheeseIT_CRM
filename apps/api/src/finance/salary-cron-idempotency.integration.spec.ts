@@ -24,7 +24,11 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  *
  * Asserts against REAL PostgreSQL (crm_qa scratch — NEVER crm_db):
  *   1. Manual same-month salary parts can coexist.
- *   2. Cron still creates exactly one automatic component per receiver/month.
+ *   2. Cron creates at most one automatic component per receiver/month — and
+ *      NONE at all once the month is claimed, which since owner decision D-3
+ *      (SR-795-M-1) a manual part does too. Before D-3 cron added its own row
+ *      regardless, which is how one person and one month ended up with two
+ *      independently payable salaries.
  *   3. Legacy NULL-origin rows are adopted without duplication.
  *   4. Re-running / concurrent cron calls remain idempotent.
  *   5. The durable marker prevents deleted automatic history from resurrecting.
