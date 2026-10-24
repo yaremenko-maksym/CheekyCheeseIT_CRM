@@ -3,6 +3,8 @@
 // redact personal data inside string values -> JSON.stringify -> prettier. Never a byte cut.
 // Usage: node trim-captures-3.2.mjs <termsCheckedAt-ISO>   (the committed fixtures used 2026-10-24T03:00:00.000Z;
 // a different value rewrites `termsCheckedAt` in every provenance file it regenerates).
+// `termsCheckedAt` is ONE value for every file: the DATE (2026-10-24) is when the terms were read, the time of day is a
+// single stand-in, not a per-file clock reading.
 // A section whose raw capture is not in raw-captures-3.2/ is SKIPPED, not failed: only the Arbeitnow and
 // Jobgether captures are kept (no personal data); the Hacker News and Working Nomads ones are not.
 // `rawSha256` is the sha256 of the bytes as RECEIVED (the decompressed capture).
@@ -11,7 +13,7 @@
 // script says the same of its captures). The first version of this directory committed the three
 // Hacker News thread captures, which hold 462 other people's e-mail addresses, to a public
 // repository (PR #1120): the trimmed fixtures were redacted and scanned, the raw directory sat
-// outside every check. `fixture-pii-scan.spec.ts` now scans the whole tree and fails on any
+// outside every check. `fixture-provenance.spec.ts` now scans the whole tree and fails on any
 // address. Consequently the three hn-hiring thread fixtures below are NOT reproducible from the
 // repository: capture the threads again into raw-captures-3.2/ (locally, uncommitted), run this
 // script, and delete the raw files before committing. Their provenance files record the hashes.
@@ -100,8 +102,10 @@ const byIds = (ids, key) => (arr) => ids.map((id) => arr.find((x) => String(x[ke
 
 // ---- Arbeitnow ----
 const AN_TERMS = 'https://www.arbeitnow.com/terms'
+const UNV_AN =
+  ' UNVERIFIABLE FROM THIS REPOSITORY (measured 2026-10-24, evidence not committed): that per_page, limit, page_size, size and perPage are ignored (the five responses were not kept), and the sizes of pages 10 (1510962 bytes), 20 (923504) and the emptiness of page 40; only pages 1, 2 and the empty page 100 are committed.'
 const anNotes = (extra) =>
-  `${extra} Terms section 11 (API): "You also agree to providing a link back to Arbeitnow.com on your platform. We may revoke the permission to use API at any time." The API envelope itself says: "This is a free public API for jobs, please do not abuse. I would appreciate linking back to the site." robots.txt (User-agent *) has an empty Disallow, plus Disallow: /*?__hstc. BLOCKED ON THE BYTE CAP: live page 1 is 4209793 bytes decoded (2 MiB cap = 2097152), page 2 is 2311796; the page size is not selectable (per_page, limit, page_size, size and perPage were tried and ignored; each returned the same ~1.83 MB gzip body); pages 10 and 20 fit (1510962, 923504). Pages are 300/300/250/150 items and \`links.last\` is always null. ${REDACTION}`
+  `${extra} Terms section 11 (API): "You also agree to providing a link back to Arbeitnow.com on your platform. We may revoke the permission to use API at any time." The API envelope itself says: "This is a free public API for jobs, please do not abuse. I would appreciate linking back to the site." robots.txt (User-agent *) has an empty Disallow, plus Disallow: /*?__hstc. BLOCKED ON THE BYTE CAP: live page 1 is 4209793 bytes decoded (2 MiB cap = 2097152), page 2 is 2311796; the page size is not selectable (per_page, limit, page_size, size and perPage were tried and ignored; each returned the same ~1.83 MB gzip body); pages 10 and 20 fit (1510962, 923504). Pages are 300/300/250/150 items and \`links.last\` is always null.${UNV_AN} ${REDACTION}`
 await emit(
   'arbeitnow',
   'page-1',
@@ -137,8 +141,10 @@ await emit(
 
 // ---- Jobgether ----
 const JG_TERMS = 'https://jobgether.com/terms-of-use'
+const UNV_JG =
+  ' UNVERIFIABLE FROM THIS REPOSITORY (read 2026-10-24, not committed): the OpenAPI limits `limit` <= 25 and `page` capped at 10, and the llms.txt statements about versioning; the OpenAPI document itself was not kept. The 25-per-page figure is also visible in every committed page (pagination.limit 25), the cap of 10 only in the OpenAPI text and in page 10 still saying hasMore: true.'
 const jgNotes = (extra) =>
-  `${extra} CONTRADICTORY, hence UNCLEAR. Terms of use (read 2026-10-24, last updated 7 September 2026) clause 4.5: "refrain from accessing the Platform or extracting its content by automated means (bots, scrapers, crawlers)" and "from using Platform content to train, fine-tune or operate machine-learning models"; section 9: "All acts of extraction, data mining, scraping and similar acts ... are strictly prohibited." Against that, the API itself is documented as public, unauthenticated and "intended for AI agents/assistants" (https://jobgether.com/llms.txt, https://jobgether.com/openapi.json, https://jobgether.com/astroapi/ai/jobs/docs). robots.txt Allows /astroapi/ai/jobs.json (with a query) and Disallows /*?* elsewhere, sets Crawl-delay: 2 and Content-Signal: search=yes, ai-input=yes, ai-train=no. UNVERIFIABLE FROM THIS REPOSITORY: the terms page returned HTTP 403 to this honest user agent, so the clause text was read through a separate fetch tool on 2026-10-24 and no capture of it is committed; re-read https://jobgether.com/terms-of-use before relying on the quote. Rate limit header: ratelimit-policy "ai-jobs";q=60;w=60. The listing carries NO description; no detail endpoint is documented. No personal data: company names and job titles only.`
+  `${extra} CONTRADICTORY, hence UNCLEAR. Terms of use (read 2026-10-24, last updated 7 September 2026) clause 4.5: "refrain from accessing the Platform or extracting its content by automated means (bots, scrapers, crawlers)" and "from using Platform content to train, fine-tune or operate machine-learning models"; section 9: "All acts of extraction, data mining, scraping and similar acts ... are strictly prohibited." Against that, the API itself is documented as public, unauthenticated and "intended for AI agents/assistants" (https://jobgether.com/llms.txt, https://jobgether.com/openapi.json, https://jobgether.com/astroapi/ai/jobs/docs). robots.txt Allows /astroapi/ai/jobs.json (with a query) and Disallows /*?* elsewhere, sets Crawl-delay: 2 and Content-Signal: search=yes, ai-input=yes, ai-train=no. UNVERIFIABLE FROM THIS REPOSITORY: the terms page returned HTTP 403 to this honest user agent, so the clause text was read through a separate fetch tool on 2026-10-24 and no capture of it is committed; re-read https://jobgether.com/terms-of-use before relying on the quote. Rate limit header: ratelimit-policy "ai-jobs";q=60;w=60. The listing carries NO description; no detail endpoint is documented. No personal data: company names and job titles only.${UNV_JG}`
 await emit(
   'jobgether',
   'page-1',
@@ -197,7 +203,7 @@ await emit(
     termsUrl: JG_TERMS,
     permission: 'UNCLEAR',
     notes: jgNotes(
-      'The SUPERSEDED path /astroapi/ai/jobs (the OpenAPI names it as the live deprecation example): same shape plus a deprecation object {deprecated, message, successor, since, sunset} and the Deprecation / Sunset / Link: rel="successor-version" headers (Deprecation: @1787875200, Sunset: Mon, 28 Sep 2026 00:00:00 GMT). 10 jobs captured, 3 kept; the exact request URL was not recorded and is reconstructed from the OpenAPI text and limit 10.',
+      'The SUPERSEDED path /astroapi/ai/jobs (the OpenAPI names it as the live deprecation example): same shape plus a deprecation object {deprecated, message, successor, since, sunset} and the Deprecation / Sunset / Link: rel="successor-version" headers (Deprecation: @1787875200, Sunset: Mon, 28 Sep 2026 00:00:00 GMT). 10 jobs captured, 3 kept; the exact request URL was not recorded and is reconstructed from the OpenAPI text and limit 10. ROBOTS: that URL (/astroapi/ai/jobs?limit=10) has a query string and is NOT the path robots.txt Allows (/astroapi/ai/jobs.json?*); Disallow: /*?* covers it, so this one capture was taken from a robots-disallowed URL. It is kept as the only authentic example of the deprecation object; the owner decides whether it stays (the second such capture in this phase, after Remotive).',
     ),
   },
 )
@@ -224,7 +230,7 @@ if (wnTerms !== null) {
         termsCheckedAt,
         permission: 'UNCLEAR',
         notes:
-          'The artifact is the TERMS page, not a vacancy fixture: the plan blocks this source until documented/approved use, and "public JSON is not permission". The Terms of Service (headings 1-11: acceptance, user content, subscriptions, termination, liability, final provisions) contain no clause on automated access, scraping, an API or reuse of job listings either way; the only mention of automation is "We do not use automated decision-making tools". robots.txt (User-agent *) has an empty Disallow, i.e. allows everything. The site footer links "API" to /api/exposed_jobs/ - which is the JSON endpoint itself, not a documentation or terms page (a GET of it, kept out of the repository, answered 200 application/json, allow: GET, HEAD, OPTIONS, 189828 bytes, a bare array of listings with url/title/description). A link labelled API is a hint of intent, not a grant: no terms govern its use, so the owner must decide or ask the site.',
+          'The artifact is the TERMS page, not a vacancy fixture: the plan blocks this source until documented/approved use, and "public JSON is not permission". The Terms of Service (headings 1-11: acceptance, user content, subscriptions, termination, liability, final provisions) contain no clause on automated access, scraping, an API or reuse of job listings either way; the only mention of automation is "We do not use automated decision-making tools". robots.txt (User-agent *) has an empty Disallow, i.e. allows everything. The site footer links "API" to /api/exposed_jobs/ - which is the JSON endpoint itself, not a documentation or terms page (a GET of it, kept out of the repository, answered 200 application/json, allow: GET, HEAD, OPTIONS, 189828 bytes, a bare array of listings with url/title/description). A link labelled API is a hint of intent, not a grant: no terms govern its use, so the owner must decide or ask the site. Clauses that bear on the owner\'s question although none addresses automation: 2.2 grants only "a limited, non-exclusive, non-transferable right to access and use the Platform and its functionalities for their intended purpose"; 3.1(b) forbids "Resell, sublicense, or otherwise commercially exploit the Service"; 3.1(d) forbids "Access or use the Service to build a competitive product or service". Whether feeding listings into a recruiting CRM falls under "intended purpose", "commercially exploit" or "competitive product" is a reading of those clauses, not something the page settles.',
       }),
       join(dir, 'terms.provenance.json'),
     ),
@@ -233,8 +239,10 @@ if (wnTerms !== null) {
 
 // ---- Hacker News (Algolia) ----
 const HN_TERMS = 'https://www.ycombinator.com/legal/'
+const UNV_HN =
+  ' UNVERIFIABLE FROM THIS REPOSITORY: that none of the 1331 top-level comments in the three threads read (816 + 266 + 249) was deleted; those captures were removed because they held commenters\' e-mail addresses.'
 const hnNotes = (extra) =>
-  `${extra} UNCLEAR: the Y Combinator terms (https://www.ycombinator.com/legal/, "Site") say "you will not engage in or use any data mining, robots, scraping or similar data gathering or extraction methods", while the HN Search API on Algolia (https://hn.algolia.com/api) is a public, unauthenticated, documented endpoint. No capture of the terms page is committed; the quote was read at that URL on 2026-10-24 and is unverifiable from this repository. Whether that API counts as "the Site" is a question for the owner, which was put to him and is unanswered, so the source stays blocked. robots.txt of news.ycombinator.com sets Crawl-delay: 30 and does not disallow /item; hn.algolia.com serves no robots.txt (404). Employers are NOT given by the API: a comment is free text whose first paragraph is a header, so every observation is tagged employer-unverified. ${REDACTION}`
+  `${extra} UNCLEAR: the Y Combinator terms (https://www.ycombinator.com/legal/, "Site") say "you will not engage in or use any data mining, robots, scraping or similar data gathering or extraction methods", while the HN Search API on Algolia (https://hn.algolia.com/api) is a public, unauthenticated, documented endpoint. No capture of the terms page is committed; the quote was read at that URL on 2026-10-24 and is unverifiable from this repository. Whether that API counts as "the Site" is a question for the owner, which was put to him and is unanswered, so the source stays blocked. robots.txt of news.ycombinator.com sets Crawl-delay: 30 and does not disallow /item; hn.algolia.com serves no robots.txt (404). ${UNV_HN} Employers are NOT given by the API: a comment is free text whose first paragraph is a header, so every observation is tagged employer-unverified. ${REDACTION}`
 await emit(
   'hn-hiring',
   'search',

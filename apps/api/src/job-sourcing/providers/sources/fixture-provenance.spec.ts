@@ -4,6 +4,11 @@ import { join, relative } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
+import { ARBEITNOW_SOURCE_STATUS } from './arbeitnow.provider'
+import { HN_SOURCE_STATUS } from './hn-hiring.provider'
+import { JOBGETHER_SOURCE_STATUS } from './jobgether.provider'
+import { REMOTIVE_SOURCE_STATUS } from './remotive.provider'
+import { WORKINGNOMADS_SOURCE_STATUS } from './workingnomads.provider'
 
 /**
  * The provenance contract of the phase-3 fixtures (`phase3-common.md`): Task 3.7 builds the
@@ -17,6 +22,11 @@ import { z } from 'zod'
  *
  * ADDING A SOURCE: append ONE row to `FIXTURES` (provider -> fixture name -> permission). There
  * is no global count to edit.
+ *
+ * HAND-OFF (Task 3.2 -> the ATS task, PR #1117): `apps/api/src/test/fixture-provenance.ts` plus
+ * `fixture-provenance.all.spec.ts` (one shared reader walking every `__fixtures__` directory) is
+ * not on `origin/main` yet. WHOEVER MERGES SECOND adopts that helper and moves the `FIXTURES` rows,
+ * the raw-capture hash rows and the e-mail scan below into it, rather than keeping two readers.
  */
 
 const ROOT = join(__dirname, '__fixtures__')
@@ -200,5 +210,46 @@ describe('no personal e-mail address anywhere under __fixtures__', () => {
 
   it("the raw Hacker News thread captures are not committed (they hold commenters' addresses)", () => {
     expect(rel.filter((f) => /^raw-captures-3\.2\/hn-/.test(f))).toEqual([])
+  })
+})
+
+/**
+ * A source can be PERMITTED and still BLOCKED: Arbeitnow's permission is PUBLIC_API_DOCUMENTED, but
+ * its page does not fit the byte cap. Task 3.7 must not read readiness from `permission` alone, and
+ * this table is what proves the two are different things: it compares what `permission` ALONE
+ * would imply with what each source's own status constant says, and names the disagreement.
+ */
+const permissionImpliesReady = (permission: Permission) =>
+  permission === 'PUBLIC_API_DOCUMENTED' || permission === 'PUBLIC_FEED'
+
+const STATUSES: Array<[provider: string, name: string, blocked: boolean]> = [
+  ['arbeitnow', 'page-1', ARBEITNOW_SOURCE_STATUS.blocked],
+  ['jobgether', 'page-1', JOBGETHER_SOURCE_STATUS.blocked],
+  ['hn-hiring', 'search', HN_SOURCE_STATUS.blocked],
+  ['remotive', 'software-dev', REMOTIVE_SOURCE_STATUS.blocked],
+  ['workingnomads', 'terms', WORKINGNOMADS_SOURCE_STATUS.blocked],
+]
+
+describe('readiness is not derivable from permission alone', () => {
+  it('every Task 3.2 source and Remotive is blocked', () => {
+    expect(STATUSES.filter(([, , blocked]) => !blocked)).toEqual([])
+  })
+
+  it('exactly one blocked source is nevertheless permitted by its provenance: Arbeitnow', () => {
+    const permittedButBlocked = STATUSES.filter(([provider, name, blocked]) => {
+      const permission = provenanceSchema.parse(
+        JSON.parse(readFileSync(join(ROOT, provider, `${name}.provenance.json`), 'utf8')),
+      ).permission
+      return permissionImpliesReady(permission) && blocked
+    }).map(([provider]) => provider)
+    expect(permittedButBlocked).toEqual(['arbeitnow'])
+  })
+
+  it('permissionImpliesReady itself: only the two permitted values', () => {
+    expect(
+      (
+        ['PUBLIC_API_DOCUMENTED', 'PUBLIC_FEED', 'UNCLEAR', 'PROHIBITED', 'KEY_REQUIRED'] as const
+      ).map(permissionImpliesReady),
+    ).toEqual([true, true, false, false, false])
   })
 })

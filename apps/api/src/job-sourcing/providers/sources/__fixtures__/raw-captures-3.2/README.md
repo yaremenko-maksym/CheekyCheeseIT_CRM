@@ -15,3 +15,17 @@ were, by mistake, and were removed: `fixture-provenance.spec.ts` now scans the w
 `fixture-provenance.spec.ts` checks that the sha256 of each retained raw capture equals the
 `rawSha256` of the fixture built from it. Rebuild: `node ../trim-captures-3.2.mjs 2026-10-24T03:00:00.000Z`
 (the argument is `termsCheckedAt`); sections whose raw capture is absent are skipped.
+
+## Privacy record
+
+- The raw Hacker News thread captures (462 unique commenter e-mail addresses) were committed to
+  this PR by mistake and removed in a later commit. **The blobs stay reachable through the PR's
+  refs (`refs/pull/<n>/head`) and any fork or clone made meanwhile until the platform purges
+  them. Purging is the repository owner's action (GitHub support); no commit on this branch can
+  do it.** A squash merge keeps them out of `main`.
+- The guard is `fixture-provenance.spec.ts`: it walks the whole `__fixtures__` tree and fails on
+  any e-mail address not on its per-file allow-list.
+- HN author handles are kept verbatim in the trimmed fixtures: they are public pseudonyms and the
+  adapter uses them as the posting account (`HN @<handle>`).
+- `termsCheckedAt` is one value across every provenance file: the date (2026-10-24) is when the
+  terms were read, the time of day is a single stand-in.

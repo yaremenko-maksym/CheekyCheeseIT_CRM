@@ -15,7 +15,7 @@ import { boundedString, dateRaw, optionalString, optionalStringArray, urlString 
  * documented (terms section 11), but the feed does not fit the shared 2 MiB JSON byte cap: live
  * page 1 measured 4 209 793 bytes DECODED and page 2 measured 2 311 796, against 2 097 152. The
  * page size cannot be chosen (`per_page`, `limit`, `page_size`, `size` and `perPage` were all tried
- * and all returned the same ~1.83 MB gzip body), pages are 300 items long, and the newest items are
+ * and all returned the same ~1.83 MB gzip body) (UNVERIFIABLE FROM THIS REPOSITORY: those five responses were not kept), pages are 300 items long, and the newest items are
  * on the pages that are too big. The shared cap protects every source and is not raised here, and
  * a page is not cut to fit: it fails as `PAYLOAD_TOO_LARGE`, which is what this adapter does with
  * the authentic capture (asserted in the spec). Whoever lifts the block needs either a smaller
