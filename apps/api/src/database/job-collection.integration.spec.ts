@@ -114,20 +114,38 @@ async function newMeter(
   return rows[0].id as string
 }
 
-/** A STARTED run needs an owner and a lease; this is the valid shape. */
+/**
+ * A STARTED run needs an owner and a lease; this is the valid shape. The
+ * account key defaults to the source id — what the run ledger derives for a
+ * source with no meter (Task 2.5 T1), which every `newSource()` here is.
+ */
 async function startRun(
   sourceId: string,
   cycleId: string,
-  opts: { configVersion?: number; attemptId?: string } = {},
+  opts: { configVersion?: number; attemptId?: string; accountKey?: string } = {},
 ) {
   return q(
     `INSERT INTO job_collection_runs
        (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
-        owner_token, lease_expires_at)
-     VALUES ($1, $2, $3, $4, 'v1', 'SCHEDULED', $5, now() + interval '5 min') RETURNING id`,
-    [sourceId, cycleId, opts.attemptId ?? nextTag(), opts.configVersion ?? 1, `owner-${nextTag()}`],
+        owner_token, lease_expires_at, account_key)
+     VALUES ($1, $2, $3, $4, 'v1', 'SCHEDULED', $5, now() + interval '5 min', $6) RETURNING id`,
+    [
+      sourceId,
+      cycleId,
+      opts.attemptId ?? nextTag(),
+      opts.configVersion ?? 1,
+      `owner-${nextTag()}`,
+      opts.accountKey ?? sourceId,
+    ],
   )
 }
+
+/** Every unique index that refuses a second STARTED run of one source today. */
+const ONE_STARTED_PER_SOURCE_GUARDS = [
+  'uq_job_collection_runs_running_owner',
+  'uq_job_collection_runs_one_started_per_source',
+  'uq_job_collection_runs_one_started_per_account',
+]
 
 describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres catalog)', () => {
   beforeAll(async () => {
@@ -498,8 +516,8 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
       const r = await rejected(
         `INSERT INTO job_collection_runs
            (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
-            owner_token, lease_expires_at)
-         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'o', now())`,
+            owner_token, lease_expires_at, account_key)
+         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'o', now(), $1)`,
         [source, cycle, attempt],
       )
       expect(r.code).toBe(UNIQUE_VIOLATION)
@@ -513,12 +531,15 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
       const second = await rejected(
         `INSERT INTO job_collection_runs
            (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
-            owner_token, lease_expires_at)
-         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'other-owner', now() + interval '5 min')`,
+            owner_token, lease_expires_at, account_key)
+         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'other-owner', now() + interval '5 min', $1)`,
         [source, cycle, nextTag()],
       )
       expect(second.code).toBe(UNIQUE_VIOLATION)
-      expect(second.constraint).toBe('uq_job_collection_runs_running_owner')
+      // Same source, same config, same account: since Task 2.5 T1 three partial
+      // unique indexes cover this row, and which one Postgres reports first is
+      // its index order, not a property of the schema. The refusal is the claim.
+      expect(ONE_STARTED_PER_SOURCE_GUARDS).toContain(second.constraint)
 
       // Terminal runs are history, not contenders: the slot reopens.
       await q(`UPDATE job_collection_runs SET outcome = 'FAILED', ended_at = now() WHERE id = $1`, [
@@ -527,14 +548,87 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
       await startRun(source, cycle)
     })
 
-    it('scopes the running-owner slot BY config version: a new config may start at once', async () => {
+    // Task 2.5 T1 REVERSES the case this replaces ("scopes the running-owner slot
+    // BY config version: a new config may start at once"). That was deliberate
+    // before T1, and it meant "one active fetch per source" was not enforced by
+    // the database (ADR 2026-10-24-job-source-run-ownership.md, fact F3).
+    it('refuses a second STARTED run of one source under a NEW config version (2.5 T1 AC2)', async () => {
       const source = await newSource()
       const cycle = await newCycle()
       await startRun(source, cycle, { configVersion: 1 })
-      // A config bump invalidates the old checkpoint, so the new-config run is
-      // not the same work and does not wait for the stale one.
-      const { rows } = await startRun(source, cycle, { configVersion: 2 })
+      // A different account key too, so neither the per-(source, config) index
+      // nor the per-account one can be what refuses it: only the per-source one.
+      const r = await rejected(
+        `INSERT INTO job_collection_runs
+           (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
+            owner_token, lease_expires_at, account_key)
+         VALUES ($1, $2, $3, 2, 'v1', 'SCHEDULED', 'owner-cfg2', now() + interval '5 min',
+                 gen_random_uuid())`,
+        [source, cycle, nextTag()],
+      )
+      expect(r).toEqual({
+        code: UNIQUE_VIOLATION,
+        constraint: 'uq_job_collection_runs_one_started_per_source',
+      })
+    })
+
+    it('refuses a STARTED run of a second source that shares the account (2.5 T1 AC3)', async () => {
+      const cycle = await newCycle()
+      const meter = await newMeter()
+      const a = await newSource()
+      const b = await newSource()
+      await q(`UPDATE job_sources SET account_meter_id = $1 WHERE id = ANY($2::uuid[])`, [
+        meter,
+        [a, b],
+      ])
+      await startRun(a, cycle, { accountKey: meter })
+      const r = await rejected(
+        `INSERT INTO job_collection_runs
+           (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
+            owner_token, lease_expires_at, account_key)
+         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'owner-b', now() + interval '5 min', $4)`,
+        [b, cycle, nextTag(), meter],
+      )
+      expect(r).toEqual({
+        code: UNIQUE_VIOLATION,
+        constraint: 'uq_job_collection_runs_one_started_per_account',
+      })
+    })
+
+    it('lets terminal runs of one source and one account accumulate without contending (2.5 T1 AC4)', async () => {
+      const cycle = await newCycle()
+      const meter = await newMeter()
+      const a = await newSource()
+      const b = await newSource()
+      const running = await startRun(a, cycle, { accountKey: meter })
+      // History beside a live run: same source, same account, both terminal.
+      const { rows: history } = await q(
+        `INSERT INTO job_collection_runs
+           (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
+            outcome, owner_token, ended_at, account_key)
+         VALUES ($1, $3, $4, 1, 'v1', 'SCHEDULED', 'FAILED', 'old-a', now(), $5),
+                ($2, $3, $6, 1, 'v1', 'SCHEDULED', 'SUCCEEDED', 'old-b', now(), $5)
+         RETURNING id`,
+        [a, b, cycle, nextTag(), meter, nextTag()],
+      )
+      expect(history).toHaveLength(2)
+      // And the account's slot reopens once the live run ends.
+      await q(`UPDATE job_collection_runs SET outcome = 'FAILED', ended_at = now() WHERE id = $1`, [
+        running.rows[0].id,
+      ])
+      const { rows } = await startRun(b, cycle, { accountKey: meter })
       expect(rows).toHaveLength(1)
+    })
+
+    it('refuses a run with no account key (2.5 T1)', async () => {
+      const r = await rejected(
+        `INSERT INTO job_collection_runs
+           (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
+            owner_token, lease_expires_at)
+         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'owner', now() + interval '5 min')`,
+        [await newSource(), await newCycle(), nextTag()],
+      )
+      expect(r.code).toBe(NOT_NULL_VIOLATION)
     })
 
     it('keeps workflow state independent per source: two sources run at once', async () => {
@@ -557,8 +651,8 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
       const cycle = await newCycle()
       const unowned = await rejected(
         `INSERT INTO job_collection_runs
-           (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger)
-         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED')`,
+           (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, account_key)
+         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', $1)`,
         [source, cycle, nextTag()],
       )
       expect(unowned.constraint).toBe('ck_job_collection_runs_running_has_lease')
@@ -1217,8 +1311,8 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
       const attempt = await rejected(
         `INSERT INTO job_collection_runs
            (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
-            owner_token, lease_expires_at)
-         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'owner', now() + interval '5 min')`,
+            owner_token, lease_expires_at, account_key)
+         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'owner', now() + interval '5 min', $1)`,
         [source, cycle, over],
       )
       expect(attempt.constraint).toBe('ck_job_collection_runs_attempt_id_bounded')
@@ -1381,8 +1475,8 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
       const r = await rejected(
         `INSERT INTO job_collection_runs
            (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
-            owner_token, lease_expires_at)
-         VALUES ($1, $2, $3, 1, 'v1', 'MANUAL', 'owner', now() + interval '5 min')`,
+            owner_token, lease_expires_at, account_key)
+         VALUES ($1, $2, $3, 1, 'v1', 'MANUAL', 'owner', now() + interval '5 min', $1)`,
         [source, cycle, nextTag()],
       )
       expect(r.code).toBe(FK_VIOLATION)
@@ -1425,8 +1519,8 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
         await b.query('BEGIN')
         const insert = `INSERT INTO job_collection_runs
              (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
-              owner_token, lease_expires_at)
-           VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', $4, now() + interval '5 min')`
+              owner_token, lease_expires_at, account_key)
+           VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', $4, now() + interval '5 min', $1)`
         await a.query(insert, [source, cycle, nextTag(), 'owner-a'])
 
         // B's INSERT blocks on the partial unique index until A resolves. Start
@@ -1435,7 +1529,7 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
         await a.query('COMMIT')
         const loser = await bInsert
         expect(loser.code).toBe(UNIQUE_VIOLATION)
-        expect(loser.constraint).toBe('uq_job_collection_runs_running_owner')
+        expect(ONE_STARTED_PER_SOURCE_GUARDS).toContain(loser.constraint)
         await b.query('ROLLBACK')
 
         const { rows } = await q(

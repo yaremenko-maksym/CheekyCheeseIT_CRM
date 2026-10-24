@@ -233,7 +233,11 @@ BEGIN
   END LOOP;
 
   IF cardinality(problems) > 0 THEN
-    RAISE EXCEPTION 'job_collection_runs single flight is NOT in the intended state: % — re-run this file',
+    -- A re-run repairs an INVALID or missing index. It does NOT repair a VALID index of the
+    -- right name and the wrong shape (section 3 sweeps invalid ones only, and IF NOT EXISTS
+    -- skips by name): that one has to be dropped by hand first, deliberately — it may be
+    -- someone's diagnostic index, and this file does not drop what it cannot attribute.
+    RAISE EXCEPTION 'job_collection_runs single flight is NOT in the intended state: % — if the index is missing or INVALID, re-run this file; if an index of that NAME exists with another shape, drop it, then re-run',
       array_to_string(problems, '; ');
   END IF;
 END $$;
