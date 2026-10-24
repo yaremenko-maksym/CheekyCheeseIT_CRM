@@ -19,6 +19,7 @@ import type {
 } from '../providers/reporting-provider'
 import { rollWindow } from './meter-window'
 import {
+  incurredFault,
   isInCurrentWindow,
   planMarkSent,
   planSettlement,
@@ -96,25 +97,20 @@ import {
  *
  *   THE ORDERING THIS RESTS ON, as a contract (SR-M-1 / SPEC-H-1): "provably unsent" is only
  *   provable if `markSent` has COMMITTED before the request is written to the socket. Nothing in
- *   this file can enforce that, and nothing calls `markSent` yet — `CollectionContext.meter`, the
- *   port the collection loop actually sees, carries only `reserve` and `reconcile`, so in
- *   production SENT is never recorded today. Measured consequence (security review of PR #1103):
- *   a reservation whose request physically left, released because `markSent` never committed,
- *   took the meter from `{reserved 4}` to all zeroes with 4 units really spent. What protects the
- *   loop today is not this guard but `collectJsonPages`, which sets `resolution = 'UNCERTAIN'`
- *   BEFORE calling `fetchText`. Wiring `markSent` into the transport, or formally retiring the
- *   SENT bullet, is owned by the adapter task (its "Inherited from the review of 3.5a" section
- *   holds it) and tracked as BACKLOG-followups 308, in the bullet beginning "Nothing can record
- *   that a request left". Named by its opening words rather than by an ordinal: bullets have been
- *   added to that entry since, and an ordinal would now point at the wrong one.
+ *   this file can enforce that ordering, so it is enforced where the request is sent: `markSent`
+ *   is part of `CollectionContext.meter`, and `collectJsonPages` awaits it immediately before
+ *   `fetchText` (r5 Task 3.5b, closing BACKLOG-followups 308's "Nothing can record that a
+ *   request left"). A `markSent` that rejects means the request is NOT sent. What remains
+ *   outside this store's reach is a caller that bypasses the loop and calls `fetchText` itself.
  * - Exactly-once conversion. A second USED is a no-op; every other move out of a settled state is
- *   refused (`ILLEGAL_TRANSITION`). The amount converted is the STORED one, never the caller's.
- *   `used` is therefore an UPPER BOUND ON spend, not spend: the full reserved worst case is
- *   converted, because `reconcile` carries no actual cost, and once written there is no path to
- *   correct the row. Safe for overspend and wrong for accounting — nothing downstream may report
- *   `used` to the owner as money actually billed. Widening the port to carry the incurred cost is
- *   owned by the adapter task and tracked as BACKLOG-followups 308, in the bullet beginning
- *   "Settlement charges the full reserved worst case".
+ *   refused (`ILLEGAL_TRANSITION`). The hold is released by the STORED amount, never the
+ *   caller's. What is converted into `used` is the cost the caller reports as INCURRED
+ *   (`reconcile`'s third argument, USED only), or the whole reservation when none is reported.
+ *   The incurred cost is bounded by the reservation: more is `AMOUNT_MISMATCH`, refused rather
+ *   than clamped, and a second USED that disagrees with the amount already recorded is
+ *   `AMOUNT_MISMATCH` too, not a silent no-op. Zero is legal. A source that reports no cost
+ *   (every flat per-request source) is still charged its worst case, so `used` stays an UPPER
+ *   BOUND for those, and exact only where an adapter supplies the incurred cost.
  * - Window rollover. A meter row is reset in place, lazily, under the same lock, by the first
  *   operation at or after `resets_at`: `used` returns to 0; outstanding `reserved` / `uncertain`
  *   stay, because they are holds of the window they were taken in. When such a reservation later
@@ -209,11 +205,11 @@ export interface AccountMeterBinding {
   runId: string | null
 }
 
-/** The port the collection loop sees, plus the transport's own claim that a request left. */
-export interface AccountMeter extends Readonly<CollectionContext['meter']> {
-  /** RESERVED -> SENT, when the request leaves the process. Idempotent on SENT. */
-  markSent(reservation: MeterReservation): Promise<void>
-}
+/**
+ * The port the collection loop sees, whole: `markSent` is part of `CollectionContext.meter`
+ * (the loop calls it as the request leaves), so this store implements the port and nothing more.
+ */
+export type AccountMeter = Readonly<CollectionContext['meter']>
 
 export type MeterDb = NodePgDatabase<typeof schema>
 
@@ -520,8 +516,25 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
   async function reconcile(
     claim: MeterReservation,
     resolution: ReservationResolution,
+    incurred?: number,
   ): Promise<void> {
     const window = claimedWindow(claim)
+    if (incurred !== undefined) {
+      // Before any query: a cost that is not a whole non-negative number, or that accompanies a
+      // resolution which has no known cost to report, is a defect in the caller.
+      if (!Number.isSafeInteger(incurred) || incurred < 0) {
+        throw new AccountMeterError(
+          'INVALID_AMOUNT',
+          'the incurred cost must be a whole number of units, zero or more',
+        )
+      }
+      if (resolution !== 'USED') {
+        throw new AccountMeterError(
+          'INVALID_AMOUNT',
+          `an incurred cost belongs to a USED settlement, not ${resolution}`,
+        )
+      }
+    }
     await db.transaction(async (tx) => {
       const { meter, row } = await lockOwned(tx, claim, window)
       const plan = planSettlement(
@@ -529,6 +542,19 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
         resolution,
         isInCurrentWindow(meter.windowStartedAt, row.reservedAt),
       )
+      const fault = incurredFault(plan.kind, incurred, row.amount, row.usedAmount)
+      if (fault === 'EXCEEDS_RESERVATION') {
+        throw new AccountMeterError(
+          'AMOUNT_MISMATCH',
+          `the incurred cost ${incurred} exceeds the reserved ${row.amount}`,
+        )
+      }
+      if (fault === 'CONTRADICTS_SETTLEMENT') {
+        throw new AccountMeterError(
+          'AMOUNT_MISMATCH',
+          `the reservation already settled at ${row.usedAmount}, not ${incurred}`,
+        )
+      }
       // Same measured case as the meter-lock catch above: applying this mutant by hand fails 2
       // unit tests (the two refused-transition cases), because a no-op that always returns stops
       // them throwing. The gate does not select them for the same reason — they assert on a
@@ -549,8 +575,11 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
       // Stryker disable next-line ConditionalExpression: forcing it true fails 18 of 48 integration tests and 0 of the unit suite
       if (plan.kind === 'illegal') throw illegal(row.status, resolution)
 
-      // The STORED amount, never the caller's claim.
+      // The STORED amount releases the hold, never the caller's claim. What is CONVERTED is the
+      // cost actually incurred when the caller reported one (already bounded by `amount` above),
+      // else the whole reservation.
       const amount = row.amount
+      const converted = incurred ?? amount
       const hold =
         plan.releaseFrom === 'uncertain' ? jobAccountMeters.uncertain : jobAccountMeters.reserved
 
@@ -561,7 +590,7 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
           ...(plan.addUncertain
             ? { uncertain: sql`${jobAccountMeters.uncertain} + ${amount}` }
             : {}),
-          ...(plan.addUsed ? { used: sql`${jobAccountMeters.used} + ${amount}` } : {}),
+          ...(plan.addUsed ? { used: sql`${jobAccountMeters.used} + ${converted}` } : {}),
           updatedAt: sql`now()`,
         })
         .where(eq(jobAccountMeters.id, meter.id))
@@ -572,7 +601,7 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
           status: resolution,
           ...(plan.stampSent ? { sentAt: row.sentAt ?? sql`now()` } : {}),
           ...(plan.stampSettled ? { settledAt: sql`now()` } : {}),
-          ...(plan.recordUsed ? { usedAmount: amount } : {}),
+          ...(plan.recordUsed ? { usedAmount: converted } : {}),
         })
         .where(eq(jobAccountMeterReservations.id, row.id))
     })

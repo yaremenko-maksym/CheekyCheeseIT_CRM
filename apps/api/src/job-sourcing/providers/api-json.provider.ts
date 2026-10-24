@@ -250,8 +250,21 @@ export interface PagedSourceSpec<TConfig extends SourceConfigFields, TEnvelope, 
   scopeOf(config: TConfig, now: Date): SourceCoverageScope
   /** Required here and resolved by each binding: a loop-level default would be one no binding used. */
   readonly limits: PageLimits
-  /** What one page costs. Reserved BEFORE any I/O, per the store's reservation ordering. */
-  readonly meter?: { unit: JobMeterUnit; amountPerRequest: number }
+  /**
+   * What one page costs. Reserved BEFORE any I/O, per the store's reservation ordering.
+   *
+   * `amountPerRequest` is the WORST CASE. A source whose real cost differs from it (credits per
+   * returned record) also supplies `incurredAmount`: given the body of a successful page, the cost
+   * the provider actually charged, or `null` when it cannot tell. The loop settles with that amount
+   * when it lies in `0..amountPerRequest`; absent, `null`, non-integer or past the reservation, the
+   * full reservation is charged — the direction that cannot overspend. It must not throw (a throw
+   * is treated as `null`).
+   */
+  readonly meter?: {
+    unit: JobMeterUnit
+    amountPerRequest: number
+    incurredAmount?(bodyText: string): number | null
+  }
   readonly overlapMs?: number
 }
 
@@ -545,6 +558,29 @@ function responseCacheKey(
   return JSON.stringify([slot, digest])
 }
 
+/**
+ * The cost an adapter read off a successful response, or `undefined` for "charge the whole
+ * reservation". Only an integer in `0..reserved` is believed: a cost past the reservation is
+ * drift in the adapter's reading, and settling it at face value would either be refused by the
+ * store (leaving the hold unresolved) or, worse, understate what the page was reserved at. The
+ * worst case is the direction that cannot overspend.
+ */
+function readIncurred(
+  meter: { incurredAmount?(bodyText: string): number | null } | undefined,
+  bodyText: string,
+  reservation: MeterReservation | null,
+): number | undefined {
+  if (meter?.incurredAmount === undefined || reservation === null) return undefined
+  let amount: number | null
+  try {
+    amount = meter.incurredAmount(bodyText)
+  } catch {
+    return undefined
+  }
+  if (amount === null || !Number.isSafeInteger(amount)) return undefined
+  return amount >= 0 && amount <= reservation.amount ? amount : undefined
+}
+
 /** HTTP status -> our typed code. Classified from the STATUS, never from the body text. */
 function classifyStatus(status: number): CollectionErrorCode | null {
   if (status >= 200 && status < 300) return null
@@ -774,8 +810,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
       }
     }
 
-    const cost =
-      reservation === null ? null : { unit: reservation.unit, amount: reservation.amount }
+    let cost = reservation === null ? null : { unit: reservation.unit, amount: reservation.amount }
 
     // The failure paths below deliberately do NOT assign this: `failure !== null` short-circuits
     // before anything parses the body, so no test can observe what it holds on those paths.
@@ -810,6 +845,10 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
      * All three are reachable and asserted, so the `finally` is not a guard without a failing test.
      */
     let resolution: ReservationResolution = 'RELEASED'
+    // The cost the provider actually charged, when the adapter can read it off the response.
+    let incurred: number | undefined
+    // True only while `markSent` is awaited: a throw there means the request was NEVER sent.
+    let markingSent = false
     const cacheKey =
       pageRequest.cacheKey === undefined
         ? undefined
@@ -828,6 +867,18 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
         }
       }
 
+      /**
+       * SENT is recorded BEFORE the request leaves, and awaited: the store releases only cost it
+       * can prove unsent, and "provably unsent" means this write COMMITTED first. It sits after
+       * the cache read (which can still fail without anything having left) and before the
+       * `UNCERTAIN` assignment, so a `markSent` that fails leaves `RELEASED` — the request is not
+       * sent, and the reservation is freed rather than held.
+       */
+      if (reservation !== null) {
+        markingSent = true
+        await ctx.meter.markSent(reservation)
+        markingSent = false
+      }
       resolution = 'UNCERTAIN'
       const response = await ctx.fetchText(request)
       resolution = 'USED'
@@ -846,6 +897,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
         }
       } else {
         bodyText = response.bodyText
+        incurred = readIncurred(spec.meter, bodyText, reservation)
         const lastModified = response.headers['last-modified']
         if ((isValidator(response.etag) || isValidator(lastModified)) && cacheKey !== undefined) {
           /**
@@ -885,7 +937,9 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
         resolution === 'RELEASED'
           ? {
               code: 'PERSISTENCE',
-              message: `the response cache could not be read: ${error instanceof Error ? error.message : 'the cache failed'}`,
+              message: markingSent
+                ? `the request was not sent, its reservation could not be marked sent: ${error instanceof Error ? error.message : 'the meter failed'}`
+                : `the response cache could not be read: ${error instanceof Error ? error.message : 'the cache failed'}`,
               status: null,
             }
           : {
@@ -912,7 +966,8 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
          * informative than the bookkeeping that failed afterwards.
          */
         try {
-          await ctx.meter.reconcile(reservation, resolution)
+          await ctx.meter.reconcile(reservation, resolution, incurred)
+          if (incurred !== undefined && cost !== null) cost = { ...cost, amount: incurred }
         } catch (error) {
           failure ??= {
             code: 'PERSISTENCE',
