@@ -40,6 +40,8 @@ import {
   createPayoutRequestViaAPI,
   payPayoutRequestViaAPI,
   listTransactionsByProjectViaAPI,
+  ensureCompanyWalletViaAPI,
+  onboardDropViaAPI,
 } from './fixtures'
 
 const REAL_API = `${REAL_API_BASE}/api`
@@ -53,6 +55,7 @@ test.describe('0 PAYOUT_ADMIN after payout — both cascade branches (Variant-A 
     const suffix = uniqueSuffix()
 
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await ensureCompanyWalletViaAPI(page)
     const { projectId } = await createSeniorProjectViaAPI(page, {
       seniorEmail: SEED_EMAILS.seniorA,
       name: `No-Split Senior ${suffix}`,
@@ -102,10 +105,13 @@ test.describe('0 PAYOUT_ADMIN after payout — both cascade branches (Variant-A 
     const dropEmail = `drop-no-split-${suffix}@cheekycheese.dev`
 
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await ensureCompanyWalletViaAPI(page)
     const { dropId } = await createDropViaAPI(page, {
       email: dropEmail,
       displayName: `Drop No Split ${suffix}`,
     })
+    await onboardDropViaAPI(page, { dropId: dropId, dropEmail: dropEmail })
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
 
     try {
       const { projectId } = await createDropProjectViaAPI(page, {
@@ -117,10 +123,13 @@ test.describe('0 PAYOUT_ADMIN after payout — both cascade branches (Variant-A 
       const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 1000 })
 
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
-      expect(payoutRequestId).toBeTruthy()
+      await validateTransactionViaAPI(page, txId)
 
+      // Validate only flips the income to VALIDATED (task-drop-payout-company-account);
+      // the DROP bundles it into a payout_request themselves, then pays it.
       await loginViaApi(page, dropEmail)
+      const { payoutRequestId } = await createPayoutRequestViaAPI(page, [txId])
+      expect(payoutRequestId).toBeTruthy()
       await payPayoutRequestViaAPI(page, payoutRequestId!)
 
       // After Variant-A: no PAYOUT_ADMIN rows on drop-project payout.

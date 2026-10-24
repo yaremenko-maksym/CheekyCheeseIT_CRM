@@ -28,6 +28,7 @@ import {
   createPayoutRequestViaAPI,
   payPayoutRequestViaAPI,
   listTransactionsByProjectViaAPI,
+  ensureCompanyWalletViaAPI,
 } from './fixtures'
 
 const REAL_API = `${REAL_API_BASE}/api`
@@ -43,6 +44,7 @@ test.describe('Phase 2 PAYOUT cascade → aggregate invoice integration', () => 
     const suffix = uniqueSuffix()
 
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await ensureCompanyWalletViaAPI(page)
     const { projectId } = await createSeniorProjectViaAPI(page, {
       seniorEmail: SEED_EMAILS.seniorA,
       name: `Cascade Invoice ${suffix}`,

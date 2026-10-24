@@ -39,6 +39,7 @@ import {
   findPendingPayoutsForProjectViaAPI,
   listTransactionsByProjectViaAPI,
   getTransactionViaAPI,
+  ensureCompanyWalletViaAPI,
 } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
@@ -57,6 +58,7 @@ test.describe('Senior confirm-payout — manual confirmation (AC3)', () => {
 
     // ── Setup ────────────────────────────────────────────────────────────
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await ensureCompanyWalletViaAPI(page)
     const { projectId, seniorId } = await createSeniorProjectViaAPI(page, {
       seniorEmail: SEED_EMAILS.seniorA,
       name: `Senior Confirm Project ${suffix}`,

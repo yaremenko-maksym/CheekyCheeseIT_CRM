@@ -69,7 +69,7 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
     // to capture the regression where a future refactor inverts the
     // default — clicking the label should never leave the dialog in a
     // broken state.
-    await dialog.getByText(assertInCatalog(uk, 'Створити свою команду')).click({ force: true })
+    await dialog.getByText(assertInCatalog(uk, 'Створити свою команду')).click()
 
     await expect(dialog.getByTestId(`user-dialog-hr-chip-${USERS.hr.id}`)).toBeVisible()
     // Drop-team selector must not surface.
@@ -103,11 +103,16 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
     await page.getByTestId('user-dialog-role-trigger').click()
     await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
+    // A3-3: legalFullName is required for contract-eligible roles (SENIOR included).
+    await page.getByTestId('user-dialog-legal-full-name').fill('Сеніор Тестовий Іванович')
+
     // SENIOR is USDT-only — fill the wallet so the shared refine passes.
     await page.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
 
-    // Submit without touching the team-mode radio: the default is CREATE_NEW.
-    await page.getByTestId('user-dialog-submit').click()
+    // Create mode is a 3-step wizard: step 1 «Далі» (wizard-next-btn) submits
+    // POST /api/users (`user-dialog-submit` only exists in edit mode). Submit
+    // without touching the team-mode radio: the default is CREATE_NEW.
+    await page.getByTestId('wizard-next-btn').click()
 
     const req = await postReq
     const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>

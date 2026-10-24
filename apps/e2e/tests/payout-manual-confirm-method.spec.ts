@@ -36,6 +36,8 @@ import {
   createSeniorIncomeViaAPI,
   validateTransactionViaAPI,
   findPendingPayoutsForProjectViaAPI,
+  ensureCompanyWalletViaAPI,
+  createPayoutRequestViaAPI,
 } from './fixtures'
 
 const REAL_API = `${REAL_API_BASE}/api`
@@ -51,6 +53,8 @@ async function plantPendingSeniorPayout(
   const suffix = uniqueSuffix()
 
   await loginViaApi(page, SEED_ADMIN_EMAIL)
+  // The dev seed leaves the company wallet unset; creating a payout request needs it.
+  await ensureCompanyWalletViaAPI(page)
   const { projectId } = await createSeniorProjectViaAPI(page, {
     seniorEmail: SEED_EMAILS.seniorA,
     name: `Confirm Method ${suffix}`,
@@ -61,6 +65,11 @@ async function plantPendingSeniorPayout(
 
   await loginViaApi(page, SEED_EMAILS.accountant)
   await validateTransactionViaAPI(page, txId)
+
+  // feat/finance-payout-flow (#7): validate only flips the income to VALIDATED —
+  // the SENIOR creates the payout request, which plants the PENDING_PAYMENT PAYOUT.
+  await loginViaApi(page, SEED_EMAILS.seniorA)
+  await createPayoutRequestViaAPI(page, [txId])
 
   await loginViaApi(page, SEED_ADMIN_EMAIL)
   const pending = await findPendingPayoutsForProjectViaAPI(page, projectId)
@@ -103,12 +112,12 @@ test.describe('Manual confirmPayout — method=CASH vs method=CRYPTO', () => {
       const txs = (await txsRes.json()) as Array<Record<string, unknown>>
       const confirmed = txs.find((t) => t['type'] === 'PAYOUT_CONFIRMED')
       expect(confirmed, 'expected PAYOUT_CONFIRMED row after confirm-payout').toBeTruthy()
-      // payment_method exposed on the row OR on the parent PAYOUT — accept
-      // either; the load-bearing assertion is that CRYPTO was recorded.
-      const methodField =
-        (confirmed!['paymentMethod'] as string | undefined) ??
-        (payoutRow['paymentMethod'] as string | undefined)
-      expect(methodField).toBe('CRYPTO')
+      // The chosen method is persisted ONLY in the free-text confirmation note
+      // («… (method=CRYPTO)») — there is no payment_method column on a transaction row, so this
+      // couples the spec to the wording payout-confirmation.service builds. It is the sole
+      // observable record of the method; the hash assertions below are the behavioural check
+      // (CRYPTO stores the hash, CASH stores none). If the note format changes, change both.
+      expect(String(confirmed!['notes'])).toMatch(/\bmethod=CRYPTO\b/)
 
       // txHash recorded on the confirmed row OR the PAYOUT row.
       const hashField =
@@ -137,10 +146,9 @@ test.describe('Manual confirmPayout — method=CASH vs method=CRYPTO', () => {
       expect(confirmed).toBeTruthy()
       const payoutRowRes = await page.request.get(`${REAL_API}/transactions/${payoutTxId}`)
       const payoutRow = (await payoutRowRes.json()) as Record<string, unknown>
-      const methodField =
-        (confirmed!['paymentMethod'] as string | undefined) ??
-        (payoutRow['paymentMethod'] as string | undefined)
-      expect(methodField).toBe('CASH')
+      expect(String(confirmed!['notes'])).toMatch(/\bmethod=CASH\b/)
+      // CASH records no on-chain hash.
+      expect(payoutRow['txHash'] ?? null).toBeNull()
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await page.request.delete(`${REAL_API}/projects/${projectId}`).catch(() => undefined)

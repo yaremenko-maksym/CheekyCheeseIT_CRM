@@ -1235,7 +1235,7 @@ jobs:
             # file directs this shard ("где живёт профиль"), same mocked-auth
             # pattern as the other three files here (`mockAuthAs`, no live
             # backend calls).
-            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/locale-switcher.spec.ts tests/hr-create-senior.spec.ts
+            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/locale-switcher.spec.ts tests/hr-create-senior.spec.ts tests/team-share-override.spec.ts tests/hr-dashboard.spec.ts tests/rbac-senior-junior.spec.ts tests/senior-create-default.spec.ts tests/senior-teamless.spec.ts tests/junior-hub.spec.ts
           - name: projects
             # tests/project-status-filter-ui.spec.ts (task-project-status-filter-ui,
             # PR #646, feat/project-status-filter-ui, not yet merged as of this line
@@ -1290,7 +1290,7 @@ jobs:
             # misc's 5:31-6:28) for exactly the class of spec (live-backend) that
             # costs more per test than a mocked one — same tradeoff already made for
             # pending.spec.ts above, just without the domain match.
-            files: tests/projects.spec.ts tests/projects-senior-share-override.spec.ts tests/drop-attach-project.spec.ts tests/project-status-filter-ui.spec.ts tests/pending.spec.ts tests/notification-settings.spec.ts
+            files: tests/projects.spec.ts tests/projects-senior-share-override.spec.ts tests/drop-attach-project.spec.ts tests/project-status-filter-ui.spec.ts tests/pending.spec.ts tests/notification-settings.spec.ts tests/project-credentials.spec.ts
           - name: finance
             # company-share-cta.spec.ts (task-company-share-cta, PR #445): CTA
             # strip + two-step payout modal for the senior's company-share
@@ -1300,7 +1300,7 @@ jobs:
             # is consistently one of the shorter E2E shards (misc/team-users
             # are the longest), so the ~19 extra (fast, mocked) tests here are
             # unlikely to make it the new critical-path leg.
-            files: tests/finance.spec.ts tests/finance-senior-flow.spec.ts tests/company-share-cta.spec.ts
+            files: tests/finance.spec.ts tests/finance-senior-flow.spec.ts tests/company-share-cta.spec.ts tests/finance-funding-source.spec.ts tests/finance-senior-payment-flow.spec.ts tests/finance-smoke-regressions.spec.ts tests/accountant-dashboard.spec.ts tests/phase8-payout-company.spec.ts
           - name: misc
             # tests/job-sourcing-mobile.spec.ts (task-job-sourcing-slice1, PR #493): the "Подбор
             # вакансий" modal on the kanban — same screen/mock-stack shape as
@@ -1309,7 +1309,7 @@ jobs:
             # heaviest shard by both file count (16 specs) and wall time (~4:53 of a 15-minute
             # job timeout on a recent main run, gh run 31194170529) but has ample headroom —
             # 11 fast mocked tests do not meaningfully move that number.
-            files: tests/interviews.spec.ts tests/job-sourcing-mobile.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/vacancies.spec.ts tests/crm
+            files: tests/interviews.spec.ts tests/job-sourcing-mobile.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/vacancies.spec.ts tests/crm tests/dashboard-russian-strings.spec.ts tests/polish-regressions.spec.ts tests/senior-archive-regression.spec.ts tests/onboarding-regression-pr110.spec.ts tests/ui-invariants-pr56.spec.ts tests/onboarding-flow.spec.ts tests/admin-templates.spec.ts
           - name: meeting-recorder
             # The Meeting Recorder flow is a self-contained mocked-browser suite
             # spanning admin connection setup, unmatched-recording linking and
@@ -1373,7 +1373,7 @@ jobs:
             # in parallel, so overall E2E wall time = slowest shard) — two
             # more direct-API tests (a handful of REST calls each, no UI)
             # have no realistic way to close a ~150-200s gap.
-            files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts tests/drop-share-usdt-income.spec.ts tests/drop-share-usdt-gates.spec.ts tests/project-payment-type-and-drop-share.spec.ts tests/drop-share-slider.spec.ts tests/transaction-receipts.spec.ts tests/drop-payout-currency.spec.ts tests/drop-backend-rbac-api.spec.ts tests/drop-confirm-payout-edges.spec.ts tests/drop-confirm-payout.spec.ts tests/drop-confirm-payout-rbac.spec.ts tests/drop-junior-unlock.spec.ts tests/drop-distribution.spec.ts tests/drop-distribution-edge.spec.ts tests/project-draft-status.spec.ts
+            files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts tests/drop-share-usdt-income.spec.ts tests/drop-share-usdt-gates.spec.ts tests/project-payment-type-and-drop-share.spec.ts tests/drop-share-slider.spec.ts tests/transaction-receipts.spec.ts tests/drop-payout-currency.spec.ts tests/drop-backend-rbac-api.spec.ts tests/drop-confirm-payout-edges.spec.ts tests/drop-confirm-payout.spec.ts tests/drop-confirm-payout-rbac.spec.ts tests/drop-junior-unlock.spec.ts tests/drop-distribution.spec.ts tests/drop-distribution-edge.spec.ts tests/project-draft-status.spec.ts tests/drop-income-ui.spec.ts
           - name: drop-lifecycle
             # New shard, 2026-08-18 (PR #573, backlog item 139) — the
             # team-lifecycle half of the same 12-file KNOWN_UNSHARDED sweep
@@ -1384,7 +1384,20 @@ jobs:
             # duplicate-email validation and multi-HR handling for a DROP
             # team, so a separate shard also groups them by what they
             # actually test, not just by filename prefix.
-            files: tests/drop-archive-real.spec.ts tests/drop-archive-user-real.spec.ts tests/drop-archive-impact-contract.spec.ts tests/drop-project-create.spec.ts tests/drop-duplicate-email.spec.ts tests/drop-multi-hr.spec.ts tests/interviews-drop-team-board.spec.ts
+            files: tests/drop-archive-real.spec.ts tests/drop-archive-user-real.spec.ts tests/drop-archive-impact-contract.spec.ts tests/drop-project-create.spec.ts tests/drop-duplicate-email.spec.ts tests/drop-multi-hr.spec.ts tests/interviews-drop-team-board.spec.ts tests/drop-archive-cascade.spec.ts tests/drop-create-ui-regressions.spec.ts tests/drop-junior-rbac.spec.ts tests/drop-rotate-senior.spec.ts tests/drop-routing-hub.spec.ts tests/drop-rbac.spec.ts tests/drop-route-guards.spec.ts tests/drop-findings-pr198.spec.ts tests/drop-create.spec.ts tests/drop-add-senior.spec.ts tests/drop-senior-readonly.spec.ts
+          # `docs-money`: documents + invoices + payout specs gated in the
+          # gate-ungated-e2e-specs task. Small mocked/real-API specs (~50 s together) grouped in ONE
+          # leg so they do not each pay a full runner set-up (checkout + install + build + seed).
+          - name: docs-money
+            files: tests/documents-pr1.spec.ts tests/documents-pr3.spec.ts tests/invoice-public-verify.spec.ts tests/invoices-signing-flow.spec.ts tests/invoice-aggregate.spec.ts tests/invoice-signing-real.spec.ts tests/payout-admin-projectid-regression.spec.ts tests/payout-auto-cascade-invoice.spec.ts tests/payout-manual-confirm-method.spec.ts tests/phase2-auto-distribution-regression.spec.ts tests/senior-confirm-payout.spec.ts tests/senior-payout-no-dup.spec.ts tests/senior-project-distribution-regression.spec.ts
+          # `cache`: the Service-Worker / cache-integration project (Playwright project
+          # `cache`, serviceWorkers:'allow'). The default `chromium` project blocks service
+          # workers and `testIgnore`s tests/cache/, so these specs need their own leg
+          # (run step below passes `--project=cache`). Same stack as the other shards:
+          # production build served by `vite preview` + the real API. The directory-prefix
+          # token lets the shard-coverage guard cover every spec under tests/cache/.
+          - name: cache
+            files: tests/cache/
           # task-landing-e2e-in-ci.md Part 2. Different stack shape than every
           # other leg above (no apps/web dev server; apps/landing prerender +
           # `vite preview` instead — see the matrix.shard.name == 'landing'
@@ -1667,6 +1680,8 @@ jobs:
         run: |
           if [ "${{ matrix.shard.name }}" = "landing" ]; then
             pnpm --filter @crm/e2e exec playwright test --project=landing
+          elif [ "${{ matrix.shard.name }}" = "cache" ]; then
+            pnpm --filter @crm/e2e exec playwright test --project=cache
           else
             pnpm --filter @crm/e2e exec playwright test $SHARD_FILES
           fi
@@ -1694,10 +1709,10 @@ jobs:
         if: always() && steps.scope.outputs.code == 'true'
         run: docker rm -f s3-stand || true
 
-  # Aggregate status of all 8 E2E shards into one PR-level check.
-  # (auth-nav, team-users, projects, finance, misc, drop-finance,
-  # drop-lifecycle, landing — count corrected 2026-08-18, PR #573 backlog
-  # item 139 wiring; this comment already read "5" before that change, so
+  # Aggregate status of every E2E matrix leg (11 at the time of writing: ten Playwright legs + landing) into one PR-level check.
+  # (auth-nav, team-users, projects, finance, misc, meeting-recorder,
+  # drop-finance, drop-lifecycle, docs-money, cache, landing — recounted
+  # from the matrix; earlier counts here went stale ("5", then 8) so
   # do not trust it blindly next time either — recount matrix.shard entries
   # above instead of copying the number forward.)
   # Branch protection / auto-merge depend on this single job rather than
@@ -1712,7 +1727,7 @@ jobs:
         env:
           E2E_RESULT: ${{ needs.e2e.result }}
         run: |
-          echo "All 8 shards aggregate result: $E2E_RESULT"
+          echo "All shards aggregate result: $E2E_RESULT"
           if [ "$E2E_RESULT" != "success" ]; then
             echo "::error::E2E shards failed (result=$E2E_RESULT). See individual shard logs above."
             exit 1

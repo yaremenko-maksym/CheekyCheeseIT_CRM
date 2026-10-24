@@ -4,7 +4,8 @@ E2E Shard Coverage Guard — FM-5 fix.
 
 Verifies that every apps/e2e/tests/**/*.spec.ts is either:
   (a) listed in a shard in .github/workflows/ci.yml, OR
-  (b) explicitly listed in KNOWN_UNSHARDED below (with a debt marker).
+  (b) explicitly listed in KNOWN_UNSHARDED below WITH A REASON that is not a deferral
+      ("later", "todo", "debt" ... are rejected).
 
 Fails with a clear error listing uncovered files + instructions.
 
@@ -60,102 +61,57 @@ CI_YML = os.path.join(REPO_ROOT, ".github", "workflows", "ci.yml")
 EXCLUDED_DIRS: set[str] = set()
 
 # ---------------------------------------------------------------------------
-# KNOWN_UNSHARDED — explicit debt list.
-# Each entry is a path relative to apps/e2e/ (same convention as ci.yml shards).
-# To remove debt: add the file to a shard in ci.yml AND remove from this list.
-# To add new debt: add entry here with a comment "# debt: <reason>"
+# KNOWN_UNSHARDED — specs deliberately NOT gated by any shard, each with a REASON.
+#
+# Empty since 2026-10-24: the 54 specs that used to sit here under
+# "debt: ... migrate to <shard> later" were run, fixed or deleted, and gated (task
+# gate-ungated-e2e-specs). An ungated spec is a check that silently does not exist —
+# one of them (finance-smoke-regressions) had been red against main for weeks and
+# nobody could see it because nothing ran it.
+#
+# A path -> reason mapping, not a bare set, so a new exemption must say WHY:
+#   "tests/some.spec.ts": "needs a Redis flush the shared CI stack cannot give it (<link>)",
+# A reason must be a real, checkable justification. It is rejected (guard goes RED) when
+# it is shorter than MIN_REASON_CHARS or when it merely defers the work — "later", "todo",
+# "tbd", "someday", "eventually", "for now", "debt", "not gated", "migrate" — because
+# deferral is precisely how 54 specs went unrun. An exemption is for a spec that
+# CANNOT be gated (and says what blocks it), never for one nobody has got round to.
+# To remove an entry: add the file (or its directory) to a shard in ci.yml AND delete it here.
+#
+# WHAT THIS CHECK CAN AND CANNOT DO — read before trusting the word "exempted":
+#   * It is LEXICAL. It catches the old boilerplate ("debt: … migrate … later", a bare "todo",
+#     an empty string, anything under MIN_REASON_CHARS). That is a real gain: 54 exemptions
+#     hid behind exactly that wording.
+#   * It does NOT judge substance. Measured on eight reasons it ACCEPTS 36 repeated "x"
+#     characters and "this spec is not worth running in the pipeline at all", and REJECTS a
+#     legitimate reason that happens to contain the word "migrate". Whether a reason names a
+#     real blocker is still decided by the human reviewing this file.
+#   * It does not stop a spec being "covered" and useless: a gated spec that skips every test
+#     (conditional `test.skip`, `test.fixme`) counts as sharded. Skips are visible in the run
+#     report, not here.
+#   * An exemption pointing at a file that no longer exists only WARNS (ghost_debt below).
 # ---------------------------------------------------------------------------
-KNOWN_UNSHARDED = {
-    # --- cache/ suite ---
-    "tests/cache/anti-stale.spec.ts",             # debt: cache tests not in any shard, migrate later
-    "tests/cache/api-cache.spec.ts",              # debt: cache tests not in any shard, migrate later
-    "tests/cache/logout-clear.spec.ts",           # debt: cache tests not in any shard, migrate later
-    "tests/cache/media-cache.spec.ts",            # debt: cache tests not in any shard, migrate later
-    "tests/cache/no-store.spec.ts",               # debt: cache tests not in any shard, migrate later
-    "tests/cache/sw-smoke.spec.ts",               # debt: cache tests not in any shard, migrate later
-    # --- landing/ suite: see EXCLUDED_DIRS above (structural, not debt) ---
-    # --- accountant ---
-    "tests/accountant-dashboard.spec.ts",         # debt: not gated, migrate to accountant shard later
-    # --- admin ---
-    "tests/admin-templates.spec.ts",              # debt: not gated, migrate to misc shard later
-    # --- dashboard ---
-    "tests/dashboard-russian-strings.spec.ts",    # debt: not gated, migrate to misc shard later
-    # --- documents ---
-    "tests/documents-pr1.spec.ts",                # debt: not gated, migrate to documents shard later
-    "tests/documents-pr3.spec.ts",                # debt: not gated, migrate to documents shard later
-    # --- drop suite ---
-    "tests/drop-add-senior.spec.ts",              # debt: not gated, migrate to drop shard later
-    "tests/drop-archive-cascade.spec.ts",         # debt: not gated, migrate to drop shard later
-    "tests/drop-balances-panel.spec.ts",          # debt: not gated, migrate to drop shard later
-    "tests/drop-create-ui-regressions.spec.ts",   # debt: not gated, migrate to drop shard later
-    "tests/drop-create.spec.ts",                  # debt: not gated, migrate to drop shard later
-    "tests/drop-findings-pr198.spec.ts",          # debt: not gated, migrate to drop shard later
-    "tests/drop-income-ui.spec.ts",               # debt: not gated, migrate to drop shard later
-    "tests/drop-junior-rbac.spec.ts",             # debt: not gated, migrate to drop shard later
-    "tests/drop-rbac.spec.ts",                    # debt: not gated, migrate to drop shard later
-    "tests/drop-rotate-senior.spec.ts",           # debt: not gated, migrate to drop shard later
-    "tests/drop-route-guards.spec.ts",            # debt: not gated, migrate to drop shard later
-    "tests/drop-routing-hub.spec.ts",             # debt: not gated, migrate to drop shard later
-    "tests/drop-senior-readonly.spec.ts",         # debt: not gated, migrate to drop shard later
-    # --- 12 files GATED 2026-08-18 (PR #573, backlog item 139) — moved out of
-    # this debt list into the `drop-finance` (6) / `drop-lifecycle` (6) shards
-    # in ci.yml: drop-confirm-payout-edges, drop-confirm-payout,
-    # drop-confirm-payout-rbac, drop-junior-unlock, drop-distribution,
-    # drop-distribution-edge, drop-archive-real, drop-archive-user-real,
-    # drop-archive-impact-contract, drop-project-create, drop-duplicate-email,
-    # drop-multi-hr.
-    # --- money-path (FM-5 complete): all 3 specs now gated in drop-finance shard.
-    # company-account throttle is env-relaxable via RelaxableThrottle (#275/#277).
-    # THROTTLE_RELAXED=true + THROTTLER_LIMIT=2000 set in E2E job env (#276).
-    # pending-settlement, drop-role-end-to-end, rbac-matrix-smoke → drop-finance shard.
-    # drop-share-slider.spec.ts: gated in drop-finance shard (task-drop-share-slider-shard,
-    # closes PR #376 MED-1 coverage gap).
-    # --- finance extras ---
-    "tests/finance-funding-source.spec.ts",       # debt: not gated, migrate to finance shard later
-    "tests/finance-payout-simulate.spec.ts",      # debt: not gated, migrate to finance shard later
-    "tests/finance-senior-payment-flow.spec.ts",  # debt: not gated, migrate to finance shard later
-    "tests/finance-smoke-regressions.spec.ts",    # debt: not gated, migrate to finance shard later
-    # --- hr ---
-    "tests/hr-dashboard.spec.ts",                 # debt: not gated, migrate to team-users shard later
-    # --- invoices ---
-    "tests/invoice-aggregate.spec.ts",            # debt: not gated, migrate to invoices shard later
-    "tests/invoice-public-verify.spec.ts",        # debt: not gated, migrate to invoices shard later
-    "tests/invoice-real-contract-number.spec.ts", # debt: not gated, migrate to invoices shard later
-    "tests/invoice-signing-real.spec.ts",         # debt: not gated, migrate to invoices shard later
-    "tests/invoices-signing-flow.spec.ts",        # debt: not gated, migrate to invoices shard later
-    # --- junior ---
-    "tests/junior-hub.spec.ts",                   # debt: not gated, migrate to misc shard later
-    # --- legend ---
-    "tests/legend.spec.ts",                       # debt: not gated, migrate to misc shard later
-    # --- onboarding ---
-    "tests/onboarding-flow.spec.ts",              # debt: not gated, migrate to misc shard later
-    "tests/onboarding-regression-pr110.spec.ts",  # debt: not gated, migrate to misc shard later
-    # --- payout ---
-    "tests/payout-admin-projectid-regression.spec.ts", # debt: not gated, migrate to finance shard later
-    "tests/payout-auto-cascade-invoice.spec.ts",  # debt: not gated, migrate to finance shard later
-    "tests/payout-manual-confirm-method.spec.ts", # debt: not gated, migrate to finance shard later
-    # --- phase ---
-    "tests/phase2-auto-distribution-regression.spec.ts", # debt: not gated, migrate to finance shard later
-    "tests/phase8-payout-company.spec.ts",        # debt: not gated, migrate to finance shard later
-    # --- polish ---
-    "tests/polish-regressions.spec.ts",           # debt: not gated, migrate to misc shard later
-    # --- project ---
-    "tests/project-credentials.spec.ts",          # debt: not gated, migrate to projects shard later
-    # --- rbac ---
-    "tests/rbac-senior-junior.spec.ts",           # debt: not gated, migrate to team-users shard later
-    # --- senior ---
-    "tests/senior-archive-regression.spec.ts",    # debt: not gated, migrate to misc shard later
-    "tests/senior-confirm-payout.spec.ts",        # debt: not gated, migrate to finance shard later
-    "tests/senior-create-default.spec.ts",        # debt: not gated, migrate to team-users shard later
-    "tests/senior-payout-no-dup.spec.ts",         # debt: not gated, migrate to finance shard later
-    "tests/senior-project-distribution-regression.spec.ts", # debt: not gated, migrate to projects shard later
-    "tests/senior-teamless.spec.ts",              # debt: not gated, migrate to team-users shard later
-    # --- team share ---
-    "tests/team-share-override.spec.ts",          # debt: not gated, migrate to team-users shard later
-    # --- ui ---
-    "tests/ui-invariants-pr56.spec.ts",           # debt: not gated, migrate to misc shard later
+KNOWN_UNSHARDED: dict[str, str] = {}
 
-}
+MIN_REASON_CHARS = 20
+# Words that make a reason a deferral rather than a justification.
+DEFERRAL_PATTERN = re.compile(
+    r"\b(later|todo|tbd|someday|eventually|for now|debt|not gated|migrate|backlog|follow[- ]?up)\b",
+    re.IGNORECASE,
+)
+
+
+def bad_exemption_reasons(known: dict) -> list:
+    """Return (path, why) for every KNOWN_UNSHARDED entry whose reason is not a justification."""
+    bad = []
+    for path, reason in sorted(known.items()):
+        text = (reason or "").strip()
+        if len(text) < MIN_REASON_CHARS:
+            bad.append((path, "reason is shorter than {} characters".format(MIN_REASON_CHARS)))
+        elif DEFERRAL_PATTERN.search(text):
+            bad.append((path, "reason only defers the work ({!r})".format(DEFERRAL_PATTERN.search(text).group(0))))
+    return bad
+
 
 # ---------------------------------------------------------------------------
 # PENDING_SHARD_FILES — explicit "wired ahead of merge" acknowledgment.
@@ -254,9 +210,9 @@ def main():
         if any(spec.startswith(prefix) for prefix in EXCLUDED_DIRS)
     }
 
-    accounted = sharded_specs | KNOWN_UNSHARDED | excluded_specs
+    accounted = sharded_specs | set(KNOWN_UNSHARDED) | excluded_specs
 
-    ghost_debt = sorted(KNOWN_UNSHARDED - all_specs)
+    ghost_debt = sorted(set(KNOWN_UNSHARDED) - all_specs)
     uncovered = sorted(all_specs - accounted)
 
     # Reverse-direction check: exact *.spec.ts tokens named in a shard's
@@ -298,6 +254,17 @@ def main():
 
     failed = False
 
+    bad_reasons = bad_exemption_reasons(KNOWN_UNSHARDED)
+    if bad_reasons:
+        failed = True
+        print()
+        print("FAIL: KNOWN_UNSHARDED exemptions without a real reason:")
+        for path, why in bad_reasons:
+            print("  {} -- {}".format(path, why))
+        print()
+        print("An exemption must say what BLOCKS gating the spec (>= {} chars, no".format(MIN_REASON_CHARS))
+        print("'later' / 'todo' / 'debt' / 'migrate' ...). Otherwise gate the spec in a shard.")
+
     if ghost_shard_files:
         failed = True
         print()
@@ -327,16 +294,17 @@ def main():
         print("Fix options:")
         print("  1. Add the file to an existing shard in .github/workflows/ci.yml")
         print("  2. Add a new shard for it in the e2e matrix")
-        print("  3. Add it to KNOWN_UNSHARDED in scripts/devops/check-e2e-shard-coverage.py")
-        print("     with # debt: <reason>")
+        print("  3. Only if it CANNOT be gated: add it to KNOWN_UNSHARDED in")
+        print("     scripts/devops/check-e2e-shard-coverage.py with a reason naming what blocks it")
+        print("     (a reason that only defers the work -- 'later', 'todo', 'debt' -- is rejected)")
         print()
-        print("Rule: every spec must be either gated in CI or explicitly acknowledged as debt.")
+        print("Rule: every spec must be either gated in CI or exempted with a real, non-deferral reason.")
 
     if failed:
         return 1
 
     print()
-    print("OK: All spec files are either sharded in CI or explicitly listed as debt,")
+    print("OK: All spec files are either sharded in CI or exempted with a real reason,")
     print("and every shard `files:` entry points at a real (or pending-acknowledged) file.")
     return 0
 

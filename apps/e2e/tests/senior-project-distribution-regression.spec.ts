@@ -43,6 +43,7 @@ import {
   createPayoutRequestViaAPI,
   payPayoutRequestViaAPI,
   listPayoutRequestTransactionsViaAPI,
+  ensureCompanyWalletViaAPI,
 } from './fixtures'
 
 function uniqueSuffix(): string {
@@ -59,6 +60,7 @@ test.describe('Senior-project distribution regression — real API (AC7)', () =>
 
     // 1) Provision a fresh senior-project (no dropId).
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await ensureCompanyWalletViaAPI(page)
     const { projectId } = await createSeniorProjectViaAPI(page, {
       seniorEmail: SEED_EMAILS.seniorA,
       name: `Senior Regression Project ${suffix}`,
@@ -137,6 +139,7 @@ test.describe('Senior-project distribution regression — real API (AC7)', () =>
     // project has no `dropId` on the DTO.
     const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await ensureCompanyWalletViaAPI(page)
     const { projectId } = await createSeniorProjectViaAPI(page, {
       seniorEmail: SEED_EMAILS.seniorA,
       name: `Senior UI Regression ${suffix}`,
