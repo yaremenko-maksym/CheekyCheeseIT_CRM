@@ -399,24 +399,23 @@ describe('settleSeniorPayoutSchema — txDate (owner addendum, 2026-08)', () => 
     expect(settleSeniorPayoutSchema.safeParse({ ...base, txDate: kyivToday() }).success).toBe(true)
   })
 
-  it('rejects a future date, on the txDate field, with the "future" code', () => {
-    // "Tomorrow" relative to the KYIV calendar day the schema itself uses —
-    // plain calendar-day arithmetic (no timezone involved once we already
-    // have a YYYY-MM-DD string), so this stays correct regardless of when
-    // the suite actually runs.
+  // SR-809-M-2 = CR-809-H-1: this schema USED to reject any date after
+  // `kyivToday()` outright. That is unsatisfiable for an obligation whose source
+  // row is itself dated in the future: the service separately requires
+  // `selected >= sourceDate`, so min > max and the operator was locked out of
+  // settling at all — with an empty date picker and no way forward.
+  //
+  // A Zod schema cannot see the source row, so it cannot compute the real bound.
+  // The upper bound therefore moved to `PendingSettlementService`, which knows
+  // the source and enforces `selected <= max(kyivToday(), sourceDate)`.
+  it('accepts a future date — the real upper bound needs the source row and lives in the service', () => {
+    // "Tomorrow" relative to the KYIV calendar day — plain calendar-day
+    // arithmetic (no timezone involved once we already have a YYYY-MM-DD
+    // string), so this stays correct regardless of when the suite actually runs.
     const tomorrow = new Date(Date.parse(`${kyivToday()}T00:00:00Z`) + 24 * 60 * 60 * 1000)
       .toISOString()
       .slice(0, 10)
-    const result = settleSeniorPayoutSchema.safeParse({ ...base, txDate: tomorrow })
-    expect(result.success).toBe(false)
-    if (result.success) return
-    // Precise issue shape — not just success:false — so a mutant that
-    // still adds SOME issue (e.g. via a malformed addIssue call) but with
-    // the WRONG path/message is caught too.
-    const issue = result.error.issues.find((i) => i.path.join('.') === 'txDate')
-    expect(issue).toBeTruthy()
-    expect(issue?.message).toBe('zod.DATE_NOT_IN_FUTURE')
-    expect(issue?.code).toBe('custom')
+    expect(settleSeniorPayoutSchema.safeParse({ ...base, txDate: tomorrow }).success).toBe(true)
   })
 
   it('rejects a malformed (non-digit) date string, with the regex-format message', () => {

@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { kyivToday } from '../../utils/kyiv-day'
 import { withSalaryFloor } from '../money'
 import { manualPayoutMethodSchema, salaryFundingSourceSchema } from './enums'
 import { transactionSchema } from './transaction'
@@ -427,17 +426,16 @@ export const settleSeniorPayoutSchema = z
       d.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : (d.currency ?? 'USDT'),
     ),
   )
-  .superRefine((data, ctx) => {
-    // Stryker disable next-line ConditionalExpression: equivalent mutant - txDate null, undefined or '' compared with > against a YYYY-MM-DD string is already false, so the early return is redundant
-    if (!data.txDate) return
-    if (data.txDate > kyivToday()) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['txDate'],
-        message: 'zod.DATE_NOT_IN_FUTURE',
-      })
-    }
-  })
+// SR-809-M-2 = CR-809-H-1: an absolute `txDate > kyivToday()` refine USED to
+// stand here. Together with the service's lower bound (`selected >= sourceDate`)
+// it formed an unsatisfiable range for any obligation whose source row was
+// itself future-dated: min > max, so the date picker rendered empty and the
+// obligation could not be settled by anyone. A Zod schema cannot see the source
+// row, so it cannot compute the bound that is actually wanted —
+// `selected <= max(kyivToday(), sourceDate)` — and that bound therefore lives in
+// `PendingSettlementService`, where the source IS known, and is tested there.
+// The role/flow-independent part (a real calendar day inside the sane year
+// window) stays in `transactionBusinessDateSchema` above.
 export type SettleSeniorPayoutDto = z.infer<typeof settleSeniorPayoutSchema>
 
 // Response after a successful settle: returns the updated obligation snapshot

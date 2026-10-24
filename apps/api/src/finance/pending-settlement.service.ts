@@ -39,6 +39,7 @@ import { forwardRef, HttpStatus, Inject, Injectable, Logger } from '@nestjs/comm
 import { and, eq, inArray } from 'drizzle-orm'
 import {
   COMPANY_ACCOUNT_LABEL,
+  kyivToday,
   MAX_TRANSACTION_AMOUNT,
   receiptMandatoryError,
   selfPayError,
@@ -406,6 +407,21 @@ export class PendingSettlementService {
         .slice(0, 10)
       if (selectedDateStr < sourceBusinessDate) {
         throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
+      }
+      // SR-809-M-2 = CR-809-H-1: the upper bound. It USED to be an absolute
+      // "not after kyivToday()" in `settleSeniorPayoutSchema`, which combined
+      // with the lower bound above into an unsatisfiable range whenever the
+      // SOURCE row was itself future-dated — min > max, so the obligation could
+      // not be settled by anyone, with an empty date picker and no way out.
+      //
+      // A Zod schema cannot see the source row, so it cannot compute this. Here
+      // the source IS known: a settlement may be recorded as of today, or as of
+      // the source's own day when that day is still ahead of today — and never
+      // later than both. `kyivToday()` is the same business-day clock the
+      // pickers and the NBU rate day use.
+      const latestAllowed = sourceBusinessDate > kyivToday() ? sourceBusinessDate : kyivToday()
+      if (selectedDateStr > latestAllowed) {
+        throw apiError('FINANCE_TX_DATE_IN_FUTURE', HttpStatus.BAD_REQUEST)
       }
       // This path historically stores an explicitly selected settlement day at
       // UTC midnight, including when the operator selects today. Keep that
