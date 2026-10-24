@@ -6,7 +6,7 @@ import { apiError } from '../common/api-error'
 import { zodErrorBadRequest } from '../common/zod-error-exception'
 import { DatabaseService } from '../database/database.service'
 import { isUniqueViolation } from '../database/pg-errors'
-import { projects, transactions, users } from '../database/schema'
+import { projects, transactionAuditLog, transactions, users } from '../database/schema'
 import { assertProjectActive } from '../projects/project-status.util'
 import { bookCompanyObligations } from './company-obligations.util'
 import { resolveDropShare } from './drop-share-resolver'
@@ -14,7 +14,8 @@ import { consumeTxHash, settlementConsumesTransfer } from './onchain-tx'
 import { OnChainClaimService } from './onchain-claim.service'
 import { assertReceiptDocumentBindable } from './receipt.util'
 import { resolveSeniorShareSnapshot } from './senior-share-snapshot.util'
-import { resolveTransactionDate } from './transaction-date.util'
+import { backdateAuditRow } from './transaction-date-audit.util'
+import { resolveTransactionDateWithPolicy } from './transaction-date-policy'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
 
 /**
@@ -42,6 +43,10 @@ export class AdminIncomeService {
       receiptExternalUrl?: string | null | undefined
       notes?: string | null | undefined
       txDate?: string | null | undefined
+      // SR-809-H-1 / D-2: travels with txDate. Consumed only when an
+      // ADMIN/ACCOUNTANT dates this row beyond the 31-day window, and then
+      // written to the audit log next to the row it justifies.
+      backdateReason?: string | null | undefined
       // task-admin-income-unified: REPLACES the old `fundingSource` toggle.
       // Same contract as `declareUsdtProjectIncome`'s `receiverId` — an active
       // ADMIN's uuid credits THAT admin personally; the COMPANY_ACCOUNT_RECEIVER
@@ -208,6 +213,18 @@ export class AdminIncomeService {
     // (`settlementConsumesTransfer`): recording ≠ spending.
     const onChainTxHash = extractOnChainTxHash(data.receiptExternalUrl)
 
+    // SR-809-H-1 / owner decision D-2: ONE server-side policy decides whether
+    // this business date is allowed at all, BEFORE a transaction is opened —
+    // EXECUTED, because an income records money already received, so it may be
+    // backdated inside the window but never dated into the future. An
+    // ADMIN/ACCOUNTANT may exceed the window only with a reason, which comes
+    // back here and is written to the audit log alongside the row.
+    const dateDecision = resolveTransactionDateWithPolicy(data.txDate, {
+      role: currentUser.role,
+      flow: 'EXECUTED',
+      backdateReason: data.backdateReason,
+    })
+
     let tx: typeof transactions.$inferSelect
     try {
       tx = await this.db.db.transaction(async (dbtx) => {
@@ -227,10 +244,25 @@ export class AdminIncomeService {
             txHash: onChainTxHash,
             notes: data.notes ?? null,
             fundingSource,
-            txDate: resolveTransactionDate(data.txDate),
+            txDate: dateDecision.txDate,
             createdBy: currentUser.id,
           })
           .returning()
+
+        // SR-809-L-3 / D-2: the justification for an out-of-window backdate is
+        // written in the SAME transaction as the row it describes, so the two
+        // cannot come apart. Non-null only when the policy actually consumed a
+        // reason — an ordinary in-window date writes nothing.
+        if (dateDecision.backdateReason) {
+          await dbtx.insert(transactionAuditLog).values(
+            backdateAuditRow({
+              targetId: inserted!.id,
+              actor: currentUser,
+              txDate: dateDecision.txDate,
+              backdateReason: dateDecision.backdateReason,
+            }),
+          )
+        }
 
         if (settlementConsumesTransfer({ kind: 'ADMIN_INCOME', fundingSource })) {
           const claim = await consumeTxHash(dbtx, {
@@ -306,6 +338,10 @@ export class AdminIncomeService {
       receiptExternalUrl?: string | null | undefined
       notes?: string | null | undefined
       txDate?: string | null | undefined
+      // SR-809-H-1 / D-2: travels with txDate. Consumed only when an
+      // ADMIN/ACCOUNTANT dates this row beyond the 31-day window, and then
+      // written to the audit log next to the row it justifies.
+      backdateReason?: string | null | undefined
     },
     currentUser: SessionUser,
   ) {
@@ -411,6 +447,18 @@ export class AdminIncomeService {
         )
       : null
 
+    // SR-809-H-1 / owner decision D-2: ONE server-side policy decides whether
+    // this business date is allowed at all, BEFORE a transaction is opened —
+    // EXECUTED, because an income records money already received, so it may be
+    // backdated inside the window but never dated into the future. An
+    // ADMIN/ACCOUNTANT may exceed the window only with a reason, which comes
+    // back here and is written to the audit log alongside the row.
+    const dateDecision = resolveTransactionDateWithPolicy(data.txDate, {
+      role: currentUser.role,
+      flow: 'EXECUTED',
+      backdateReason: data.backdateReason,
+    })
+
     let txId: string
     try {
       txId = await this.db.db.transaction(async (dbtx) => {
@@ -439,10 +487,23 @@ export class AdminIncomeService {
             // registry claim below has a visible counterpart on the ledger.
             txHash: extractOnChainTxHash(data.receiptExternalUrl) ?? null,
             notes: data.notes ?? null,
-            txDate: resolveTransactionDate(data.txDate),
+            txDate: dateDecision.txDate,
             createdBy: currentUser.id,
           })
           .returning()
+
+        // SR-809-L-3 / D-2 — same rule as createAdminIncome above: the
+        // justification for an out-of-window backdate commits with the row.
+        if (dateDecision.backdateReason) {
+          await dbtx.insert(transactionAuditLog).values(
+            backdateAuditRow({
+              targetId: tx!.id,
+              actor: currentUser,
+              txDate: dateDecision.txDate,
+              backdateReason: dateDecision.backdateReason,
+            }),
+          )
+        }
 
         // ── MED-1 (security-review PR #438): ADMIN_INCOME is the THIRD term
         // `computeCompanyAccountBalanceFromLedger` credits (alongside

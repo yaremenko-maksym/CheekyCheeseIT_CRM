@@ -657,10 +657,40 @@ describe('AdminIncomeService.declareUsdtProjectIncome', () => {
 
     it('books the income row own txDate as the obligation date', async () => {
       const h = withParties()
-      await h.svc.declareUsdtProjectIncome({ ...base, txDate: '2020-01-15' }, ADMIN)
+      // SR-809-H-1 / D-2: 2020 is far outside the 31-day backdating window, so
+      // an ADMIN now has to say WHY. The reason is what makes this legal; the
+      // date itself is still honoured exactly as before.
+      await h.svc.declareUsdtProjectIncome(
+        { ...base, txDate: '2020-01-15', backdateReason: 'historical ledger import' },
+        ADMIN,
+      )
       const [, params] = bookObligationsMock.mock.calls[0] as unknown as [unknown, { txDate: Date }]
       expect(params.txDate).toBe(h.inserted[0]!['txDate'])
       expect((params.txDate as Date).toISOString().slice(0, 10)).toBe('2020-01-15')
+    })
+
+    it('refuses the same far-backdated income when the ADMIN gives no reason (SR-809-H-1 / D-2)', async () => {
+      const h = withParties()
+      await expect(
+        h.svc.declareUsdtProjectIncome({ ...base, txDate: '2020-01-15' }, ADMIN),
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED', statusCode: 400 },
+      })
+      expect(h.inserted).toHaveLength(0)
+    })
+
+    it('refuses a future income date outright — a reason does not make money arrive tomorrow', async () => {
+      const h = withParties()
+      const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
+      await expect(
+        h.svc.declareUsdtProjectIncome(
+          { ...base, txDate: tomorrow, backdateReason: 'anything' },
+          ADMIN,
+        ),
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_TX_DATE_IN_FUTURE', statusCode: 400 },
+      })
+      expect(h.inserted).toHaveLength(0)
     })
 
     it('a party whose share snapshot cannot be resolved is not booked', async () => {
