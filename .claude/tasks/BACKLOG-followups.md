@@ -5399,3 +5399,50 @@ add it to the right list. Owner: the next task that touches either spec (Task 3.
 **Check on closing:** `grep -rn "provenanceSchema" apps/api/src` finds exactly one definition, and
 adding a provider directory with a fixture and no provenance file fails a spec without anyone editing
 a list.
+
+## 322. A stranded worktree's documented destination is an agent who is refused the same command (2026-10-24)
+
+`agent-isolation.md` rule 6 says: "Your own — remove it, a foreign one — report to the orchestrator."
+`pre:bash:cross-agent-blast` says the same thing in its own refusal text: "Чужой стух? Не трогай: сообщи
+оркестратору, он видит всех агентов, а ты — нет." Both name the orchestrator as the party who resolves it.
+
+**Measured: the orchestrator is refused that command too.** On PR #1120 the code reviewer finished, reported
+its checkout clean, and said plainly that `git worktree remove` had been refused as `WORKTREE-UNRECORDED` and
+that it had not bypassed the hook — exactly the behaviour the rule asks for. The orchestrator then ran the
+removal itself, from its own worktree, with a fully expanded literal path and no variable anywhere in the
+command, and was refused `WORKTREE-REMOVE`: the path is not recorded against the orchestrator either, because
+the hook's record is written only to the agent that created the worktree.
+
+So the escalation path terminates nowhere. The reviewer is right not to remove it, the orchestrator cannot, and
+the rule's sentence describes a handoff that no code permits. **This is a rule naming a destination that cannot
+act** — the same defect class as a deferral pointing at a file nobody tracks, one level up: the destination
+exists as a role rather than as a file, and is equally unable to receive the item.
+
+**What the orchestrator genuinely does and does not know.** It knows the agent is finished (its task notified
+completion) and that the tree is clean (checked by `--git-dir`/`--work-tree`, which the hook does not intercept).
+It does not know this from seeing the agent, which the hook correctly assumes; it knows it because the agent
+reported and then stopped. That distinction is why extending the hook's trust to "any orchestrator" would be
+wrong, and why the fix belongs in the record rather than in the predicate.
+
+**Candidate answers, in increasing cost:**
+
+1. **Record the dispatching session alongside the creating agent.** `git worktree add` under a session's
+   scratchpad already identifies the session in the path; writing `<session_id> <path>` next to
+   `<agent_id> <path>` would let the orchestrator of that session remove what its own children stranded,
+   while a sibling agent stays refused. This keeps the predicate's shape and only widens the ledger.
+2. **A `--released` handshake.** An agent that finishes with a checkout it cannot remove writes one line
+   releasing it; the hook then permits removal by anyone in that session. More faithful (the agent asserts it is
+   done rather than the orchestrator inferring it) and more machinery.
+3. **Let the harness remove the scratchpad.** The session scratchpad is the harness's to clean, and a worktree
+   inside it is only awkward because the main checkout holds a `.git/worktrees/<name>` administrative entry
+   pointing into it. A `git worktree prune` on the main checkout after the session ends would collect them,
+   and nothing in the rules says who runs it.
+
+Until one of them lands, the correct behaviour for both agent and orchestrator is what happened here: leave it,
+record it, and let the owner sweep — which is a running cost of roughly one stranded checkout per review round,
+tracked in `.claude/tasks/SWEEP-stranded-checkouts-2026-10-24.md` (untracked file; its count was 15 before this
+one).
+
+**Check on closing:** an agent that creates a worktree in its session scratchpad and exits without removing it
+leaves a tree that the dispatching orchestrator can remove in one command, while an agent of a different session
+is still refused the same path.
