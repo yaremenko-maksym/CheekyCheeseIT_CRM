@@ -5338,3 +5338,43 @@ nothing, and a filter with it runs far too many.
 **Check on closing:** a run filtered by a path that matches an `*.integration.spec.ts` file either
 executes it or says in one line that it did not — and in neither case does it exit 0 having silently
 counted only the other files the filter matched.
+
+## 318. An unboarded JUNIOR crashes the production build on `/` (React #185) — and the two tests for it are `fixme` (2026-10-24)
+
+Found while gating the 54 previously ungated E2E specs (PR #1121). **A product defect, deliberately
+not edited around:** the author left two tests as `test.fixme` rather than making them pass, which is
+the right call and the reason this entry exists.
+
+**Symptoms as reported.** An unboarded JUNIOR landing on `/` crashes the **production build** with
+React error #185, "Maximum update depth exceeded" — a render loop, not a blank screen. It reproduces
+on the real stack, not only under mocks: seed user `ivan.petrenko` gets an empty `<main>` on
+`/project` and never reaches `/onboarding`. Under mocks, 13 of 15 cases in the affected spec fail.
+
+**Suspected cause, and it is a hypothesis rather than a diagnosis:** the JUNIOR redirect in
+`index.tsx` racing the onboarding gate in `route.tsx`. React #185 is minified, so reproduce in a
+production build and get the real component stack before changing anything — `diagnosing-bugs`
+applies and its gate is "no red command, no hypotheses".
+
+**The part that makes this urgent rather than merely open: the defect is invisible in CI.** Both
+tests are `test.fixme`, so they report as skipped on every run. Un-skipping them is part of the fix,
+not a follow-up — without that there is nothing to confirm a fix against.
+
+- `onboarding-flow.spec.ts` › "JUNIOR: unboarded user …"
+- `onboarding-regression-pr110.spec.ts` › "Unboarded JUNIOR: …"
+
+**Why this is in the backlog and not only in a task file — a lesson worth more than the bug.** The
+reporter wrote its notes to `.claude/tasks/<task>.blocked.md`, and the spec reviewer filed it as a
+finding because that path is **gitignored**: the notes live in one worktree and die with it. I then
+wrote a task file for the fix and it had the identical defect, for the identical reason. **A follow-up
+recorded in a gitignored path is not recorded.** `BACKLOG-followups.md` is committed and is the only
+durable home in this repository; every `.blocked.md` any agent writes has this property, and the rule
+that tells agents to write one does not say so.
+
+**Also worth checking when this is fixed:** seed senior B (`dmytro.marchenko`) is deliberately not
+onboarded, so the unboarded path is reachable for more than one role and may have more than one entry
+point. State whether any other role is affected rather than fixing only the JUNIOR route.
+
+**Check on closing:** an unboarded JUNIOR reaches `/onboarding` from `/` and from `/project` without
+a render loop in a production build; both `fixme` markers are gone and both tests are green twice; and
+a test fails if the race returns, since a redirect race fixed by reordering two effects is the kind of
+fix that comes back silently.
