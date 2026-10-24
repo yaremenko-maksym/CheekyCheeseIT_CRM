@@ -39,8 +39,9 @@
 import { test, expect, API_GLOB, API_RE } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
-// CRM root, anchored — matches `/` (and `/`) but NOT `/team` etc.
-const CRM_ROOT = /\/?$/
+// CRM root, anchored on the WHOLE url — matches `/` (and `/?x`) but NOT `/team` etc.
+// (a bare `/\/?$/` matches EVERY url, so it asserted nothing).
+const CRM_ROOT = /^https?:\/\/[^/]+\/?(\?.*)?$/
 
 // ── Fixture data for DROP-specific API endpoints ───────────────────────────────
 

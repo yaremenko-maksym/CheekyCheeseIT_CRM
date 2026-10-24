@@ -21,8 +21,9 @@
 
 import { test, expect } from './fixtures'
 
-// CRM root, anchored — matches `/` (and `/`) but NOT `/team` etc.
-const CRM_ROOT = /\/?$/
+// CRM root, anchored on the WHOLE url — matches `/` (and `/?x`) but NOT `/team` etc.
+// (a bare `/\/?$/` matches EVERY url, so it asserted nothing).
+const CRM_ROOT = /^https?:\/\/[^/]+\/?(\?.*)?$/
 
 test.describe('Drop RBAC visibility — AC8 (phase 3 update)', () => {
   test('sidebar has exactly 5 items for DROP: Дашборд / Финансы / Команда / Документы / Профиль', async ({
@@ -30,7 +31,7 @@ test.describe('Drop RBAC visibility — AC8 (phase 3 update)', () => {
   }) => {
     // Navigate to DROP home (dashboard hub at the CRM root /crm).
     await page.goto('/')
-    await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
+    await expect(page.getByTestId('drop-dashboard-hub')).toBeVisible({ timeout: 8_000 })
 
     // Scope to the drop-nav testid (data-testid="drop-nav" in nav-sidebar.tsx).
     const nav = page.getByTestId('drop-nav')
@@ -61,7 +62,7 @@ test.describe('Drop RBAC visibility — AC8 (phase 3 update)', () => {
     // /crm is DROP home; index.tsx renders DropDashboard (role-branch) — no redirect loop.
     await page.goto('/')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
-    await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
+    await expect(page.getByTestId('drop-dashboard-hub')).toBeVisible({ timeout: 8_000 })
   })
 
   test('/users denies DROP access — redirects to /', async ({ asDrop: page }) => {

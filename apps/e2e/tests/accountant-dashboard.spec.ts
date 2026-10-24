@@ -17,8 +17,9 @@
 import { test, expect, API_RE } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
-// CRM root, anchored — matches `/` (and `/`) but NOT `/team` etc.
-const CRM_ROOT = /\/?$/
+// CRM root, anchored on the WHOLE url — matches `/` (and `/?x`) but NOT `/team` etc.
+// (a bare `/\/?$/` matches EVERY url, so it asserted nothing).
+const CRM_ROOT = /^https?:\/\/[^/]+\/?(\?.*)?$/
 
 // ── A. Dispatch + hub render ─────────────────────────────────────────────────
 
@@ -37,7 +38,7 @@ test.describe('A. ACCOUNTANT dashboard dispatch', () => {
     )
 
     // DROP hub testid must NOT appear for ACCOUNTANT.
-    await expect(page.getByTestId('drop-routing-hub')).toHaveCount(0)
+    await expect(page.getByTestId('drop-dashboard-hub')).toHaveCount(0)
   })
 })
 

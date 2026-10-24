@@ -156,7 +156,7 @@ test.describe('Finding 1 — DROP documents page access (PR #198)', () => {
     // nav-sidebar builds items via navRolesFor('/documents') — DROP is now
     // included in route-access.ts → link appears in drop-nav.
     await page.goto('/')
-    await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
+    await expect(page.getByTestId('drop-dashboard-hub')).toBeVisible({ timeout: 8_000 })
 
     const nav = page.getByTestId('drop-nav')
     await expect(nav).toBeVisible()
