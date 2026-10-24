@@ -25,9 +25,9 @@
 // The step table is STEPS below; the contract is `.claude/agents/contracts.md` §4.1.
 //
 // A verdict is pinned to the commit it was given on: a positive verdict on an older commit reads
-// STALE, not `done`, unless everything that landed since is markdown or belongs to files this PR
-// does not own. See "Verdict freshness" below — that section carries the reasoning, the two
-// exemptions and what was rejected.
+// STALE, not `done`, unless everything that landed since is an INERT path (`isInertDoc` — an
+// allowlist, not "it ends in .md") or belongs to files this PR does not own. See "Verdict
+// freshness" below — that section carries the reasoning, the two exemptions and what was rejected.
 //
 // The decision is a pure function (`evaluate`); the CLI only reads a JSON file and prints.
 // Tests: scripts/architect/flow-gate.test.mjs. Wiring: .github/workflows/flow-gate.yml.
@@ -124,22 +124,50 @@ export const isCopy = matcher(COPY_GLOBS)
 /** Documentation is markdown — nothing else, wherever it lives. */
 export const isDoc = (p) => p.endsWith('.md')
 /**
- * Markdown a FOLLOW-UP commit may change without invalidating a verdict (`verdictFreshness`).
- * Narrower than `isDoc` on purpose, and the narrowing is a security decision (SR-M-2): markdown
- * under `.claude/**` is an agent's instructions, which this repository executes as behaviour, so a
- * follow-up commit that rewrote one would otherwise merge on the back of a critical-path review
- * that never saw it. `.github/**` is excluded on the same ground, not by analogy: the `Skip-*`
- * block in `.github/pull_request_template.md` decides whether a skip line counts at all — this
- * gate's own test reads that file — so it is gate configuration written in markdown.
+ * A path a FOLLOW-UP commit may change without invalidating a verdict (`verdictFreshness`).
  *
- * Exempt: `docs/**` and the repository root. Everything else goes through a fresh review pass.
- * Erring strict here costs one review round on an unusual path; erring loose costs the hole.
+ * Named for the property, not the file type: the question is never "is this a document" but
+ * "**can changing this change behaviour**". In this repository most markdown can. `CLAUDE.md` is
+ * loaded into every session; `CONTEXT.md` is the glossary review findings are judged against;
+ * `.claude/rules/common/*.md` are auto-loaded; `.claude/agents/*.md`, `skills/**`, `agents/**` and
+ * `docs/superpowers/**` are agent prompts; `docs/runbooks/**` are procedures agents follow;
+ * `docs/architecture/rules-rationale/**` is read on demand to decide what a live rule means; and
+ * `.github/pull_request_template.md` decides whether a `Skip-*` line counts at all — this gate's
+ * own test reads that file. Instructions-as-behaviour is the norm here, not the exception.
  *
- * This does NOT touch `isDocsOnly`, the pre-existing WHOLE-PR docs exemption — that one is judged
- * by the reviewers the flow already requires for the diff in front of them, rather than inherited
- * from a verdict on different code.
+ * SO THIS IS AN ALLOWLIST, AND THE REASON IS THE ASYMMETRY OF BEING WRONG (SR-M-3):
+ *   - a missing DENYLIST entry silently exempts behaviour from review — nobody finds out;
+ *   - a missing ALLOWLIST entry costs one unnecessary review round — the author sees it at once
+ *     and says so.
+ * One failure mode is silent and unbounded, the other loud and cheap. When a rule's two error
+ * directions are that unequal, the rule goes the way where mistakes announce themselves. The first
+ * edition of this function was a denylist and exempted `CLAUDE.md`; the inventory that followed
+ * found `agents/**`, `skills/**`, `hooks/**` and `docs/superpowers/**` at the repository root too,
+ * none of which a denylist would plausibly have enumerated.
+ *
+ * Inert, verified against `git ls-tree -r --name-only origin/main` on 2026-10-24 (438 `.md` files):
+ *   - `docs/architecture/<YYYY-MM-DD>-*.md` — a DATED record of a decision already taken (ADR,
+ *     deliverable, RCA). All 42 flat files there are dated, and requiring the date is what keeps
+ *     `rules-rationale/**` and `ecc-reference/**` (upstream `RULES`/`AGENTS` copies an architect
+ *     reads before adapting a pattern) out by construction rather than by a subtracted clause.
+ *   - `docs/business/**` — product and process documentation.
+ *   - `README.md` at the repository root, and nowhere else.
+ *
+ * `docs/business/**` is the one judgement call in that list and the weakest member: it is read when
+ * the NEXT task is written, not consumed by an agent executing this one. If it proves wrong, the
+ * cost is a documentation change merging without a second look, not code. Everything else — every
+ * root-level instruction file, all of `.claude/**`, `docs/runbooks/**`, `docs/design/**`,
+ * `docs/legal/**` — takes a fresh review pass.
+ *
+ * This does NOT touch `isDocsOnly`, the pre-existing WHOLE-PR docs exemption, which still goes by
+ * extension alone. That is not an inconsistency: there the reviewers the flow requires are looking
+ * at the diff in front of them, where here the verdict is inherited from a review of other code.
  */
-export const isExemptDoc = (p) => isDoc(p) && (p.startsWith('docs/') || !p.includes('/'))
+export const isInertDoc = (p) =>
+  isDoc(p) &&
+  (/^docs\/architecture\/\d{4}-\d{2}-\d{2}-[^/]+\.md$/.test(p) ||
+    p.startsWith('docs/business/') ||
+    p === 'README.md')
 // `__test-helpers__/` is a tracked test-support directory (15 files under apps/api on 2026-10-21);
 // `__mocks__/` is deliberately absent — no such directory exists in the repo.
 export const isTestFile = (p) =>
@@ -400,7 +428,7 @@ export function standingVerdict(items, kind) {
 //     altered none of the PR's own 14 files"). The union is what makes `own` correct: a file
 //     reverted after the verdict is gone from the net diff and must still count — SEC-2 below.
 //   * a path in the drift AND in `own` that is exempt documentation is the gate's docs-only rule
-//     applied to a follow-up commit. `isExemptDoc`, NOT `isDoc`: markdown that an agent reads as
+//     applied to a follow-up commit. `isInertDoc`, NOT `isDoc`: markdown that an agent reads as
 //     instructions is not prose — SR-M-2, stated there.
 //
 // So a verdict stands iff every drifted path the PR owns is exempt documentation. The dangerous
@@ -543,7 +571,7 @@ export function verdictFreshness(item, ctx) {
       fresh: true,
       note: `given on ${short(ref.sha)}; everything since touches base-branch files only, none this PR owns`,
     }
-  const nonDoc = drifted.filter((p) => !isExemptDoc(p))
+  const nonDoc = drifted.filter((p) => !isInertDoc(p))
   if (nonDoc.length === 0)
     return {
       fresh: true,
@@ -921,7 +949,9 @@ export function render(result, pr) {
         '',
         `A **STALE** step was reviewed and then the code changed, so the verdict describes a commit that is not the head (\`${short(pr.headSha)}\`). It needs **a fresh pass on the new code** — unlike **MISSING**, which is a step nobody has looked at yet.`,
         '',
-        'Two kinds of follow-up commit do NOT make a verdict stale: one whose every changed path ends in `.md`, and a merge from the base branch that leaves every file this PR owns untouched. Keeping a branch current therefore costs no review round; resolving a conflict in a file the PR changed does.',
+        'Two kinds of follow-up commit do NOT make a verdict stale: one touching only **inert** paths — a dated `docs/architecture/<date>-*.md` record, `docs/business/**`, or the root `README.md` — and a merge from the base branch that leaves every file this PR owns untouched. Keeping a branch current therefore costs no review round; resolving a conflict in a file the PR changed does.',
+        '',
+        'Other markdown is NOT inert: `CLAUDE.md`, `CONTEXT.md`, `.claude/**`, `docs/runbooks/**`, `docs/architecture/rules-rationale/**` and the vendored agent prompts are read as behaviour here, so changing one asks for a fresh pass like any other change.',
       )
     }
   }

@@ -23,10 +23,12 @@ name: Flow Gate
 # so any GitHub user can comment.
 #
 # A verdict IS bound to the commit it was given on (since 2026-10-24): a positive verdict on a
-# commit that is not the head reads STALE unless everything that landed since is markdown, or
-# belongs to files the PR does not own (a merge from the base branch). The judgement needs one
-# `compare` per reviewed commit, which is why the fetch happens in two passes — the gate names the
-# shas, this workflow measures them. The reasoning is in flow-gate.mjs, "Verdict freshness".
+# commit that is not the head reads STALE unless everything that landed since sits on an INERT path
+# (`isInertDoc` — an allowlist of paths whose change cannot change behaviour, NOT "it ends in .md":
+# `CLAUDE.md` and `.claude/**` are instructions here) or belongs to files the PR does not own (a
+# merge from the base branch). The judgement needs two `compare` reads per reviewed commit, which is
+# why the fetch happens in two passes — the gate names the shas, this workflow measures them. The
+# reasoning is in flow-gate.mjs, "Verdict freshness" and `isInertDoc`.
 #
 # TRIGGERS: `pull_request_target` only — it runs the BASE branch's copy of this file, so a PR cannot
 # edit the gate that judges it. There is deliberately no `pull_request_review` trigger: that event

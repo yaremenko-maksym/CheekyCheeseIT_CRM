@@ -24,7 +24,7 @@ import {
   comparePlan,
   statedCommit,
   isDoc,
-  isExemptDoc,
+  isInertDoc,
   MAX_COMPARES,
   MAX_COMPARE_FILES,
 } from './flow-gate.mjs'
@@ -1323,21 +1323,123 @@ test('SR-M-2: `.github/**` markdown is gate configuration, so it is not exempt e
   assert.equal(status(r, 'Review'), 'stale')
 })
 
-test('isExemptDoc: docs/** and the root are exempt; instructions-as-behaviour is not', () => {
-  for (const p of ['docs/a.md', 'docs/architecture/adr.md', 'README.md', 'CONTEXT.md'])
-    assert.equal(isExemptDoc(p), true, p)
+test('SR-M-3: isInertDoc is an ALLOWLIST — every instruction file is excluded', () => {
+  // A denylist exempted `CLAUDE.md`, the file loaded into every session. The asymmetry of being
+  // wrong is the argument: a missing denylist entry silently exempts behaviour, a missing allowlist
+  // entry costs one review round and the author says so. Paths below are real, from
+  // `git ls-tree -r --name-only origin/main` on 2026-10-24.
   for (const p of [
-    '.claude/agents/coder.md',
-    '.claude/rules/common/git-policy.md',
-    '.github/pull_request_template.md',
-    'apps/api/README.md',
-    'docs/a.ts',
+    'docs/architecture/2026-10-20-xml-parser-dependency-review.md',
+    'docs/architecture/2026-05-23-dev-flow-rca.md',
+    'docs/business/overview.md',
+    'docs/business/modules/finance.md',
+    'README.md',
   ])
-    assert.equal(isExemptDoc(p), false, p)
-  // The WHOLE-PR docs exemption is untouched: it is judged by the reviewers the flow requires for
-  // the diff in front of them, not inherited from a verdict on different code.
+    assert.equal(isInertDoc(p), true, p)
+  for (const p of [
+    // root-level instruction files — the defect the first edition had
+    'CLAUDE.md',
+    'AGENTS.md',
+    'CONTEXT.md',
+    'GEMINI.md',
+    // auto-loaded rules and agent prompts
+    '.claude/rules/common/git-policy.md',
+    '.claude/agents/coder.md',
+    '.claude/RULES.md',
+    // read on demand to decide what a LIVE rule means
+    'docs/architecture/rules-rationale/verification-integrity.md',
+    // upstream rule/agent copies an architect reads before adapting a pattern
+    'docs/architecture/ecc-reference/RULES.upstream.md',
+    // procedures agents follow
+    'docs/runbooks/human-only.md',
+    // vendored agent prompts, at the repository root — a denylist would not have named these
+    'agents/code-reviewer.md',
+    'skills/ecc/common/testing.md',
+    'docs/superpowers/writing-plans.md',
+    'hooks/COEXISTENCE.md',
+    // gate configuration that happens to be markdown
+    '.github/pull_request_template.md',
+    // deliberately-rejected requests, read to avoid redoing them
+    '.out-of-scope/README.md',
+    // not in the allowlist: an undated architecture file, and docs outside the two subtrees
+    'docs/architecture/notes.md',
+    'docs/runbooks/README.md',
+    'docs/design/x.md',
+    'docs/legal/contract.md',
+    'docs/README.md',
+    'apps/api/README.md',
+    // not markdown at all
+    'docs/business/x.ts',
+  ])
+    assert.equal(isInertDoc(p), false, p)
+})
+
+test('SR-M-3: a follow-up commit touching only CLAUDE.md makes the verdict STALE', () => {
+  // The predicate having the right truth value and the gate honouring it are different claims.
+  const r = ev(
+    good({
+      files: [API, API_SPEC, 'CLAUDE.md'],
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits('docs: tighten a CLAUDE.md pointer\n\nac_verified: 1'),
+      compares: [cmp(OLD, ['CLAUDE.md'], { ownedAt: [API, API_SPEC, 'CLAUDE.md'] })],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.ok(failureFor(r, 'Review').includes('CLAUDE.md'), failureFor(r, 'Review'))
+})
+
+test('SR-M-3: a follow-up commit touching only a dated ADR keeps the verdict', () => {
+  const ADR = 'docs/architecture/2026-10-24-flow-gate-verdict-staleness.md'
+  const r = ev(
+    good({
+      files: [API, API_SPEC, ADR],
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [ADR], { ownedAt: [API, API_SPEC, ADR] })],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'satisfied')
+  assert.match(r.steps.find((s) => s.key === 'Review').detail, /docs-only/)
+})
+
+test('SR-M-3: the allowlist is checked against the tree, not invented', () => {
+  // Every path the allowlist claims is inert must exist in the repository, and the two excluded
+  // subtrees under docs/architecture must still be there — otherwise the dated-file rule is
+  // guarding nothing and the next reader cannot tell.
+  const here = dirname(fileURLToPath(import.meta.url))
+  const ls = spawnSync('git', ['ls-tree', '-r', '--name-only', 'origin/main'], {
+    cwd: join(here, '..', '..'),
+    encoding: 'utf8',
+  })
+  assert.equal(ls.status, 0, ls.stderr)
+  const tracked = new Set(ls.stdout.split('\n'))
+  const md = [...tracked].filter(isDoc)
+  assert.ok(md.length > 100, `expected the repo's markdown corpus, got ${md.length}`)
+  for (const p of ['CLAUDE.md', 'CONTEXT.md', 'README.md', 'docs/business/overview.md'])
+    assert.ok(tracked.has(p), `${p} is gone — revisit the allowlist`)
+  assert.ok(
+    md.some((p) => p.startsWith('docs/architecture/rules-rationale/')),
+    'rules-rationale is gone — the dated-file rule may no longer be excluding anything',
+  )
+  assert.ok(
+    md.some((p) => /^docs\/architecture\/\d{4}-\d{2}-\d{2}-/.test(p)),
+    'no dated architecture record — the allowlist exempts nothing',
+  )
+  // The inert set must stay a small minority of the corpus: if a change ever makes most of the
+  // repository's markdown exempt, the allowlist has drifted back into a denylist.
+  const inert = md.filter(isInertDoc)
+  assert.ok(
+    inert.length > 0 && inert.length < md.length / 2,
+    `${inert.length} of ${md.length} markdown files are inert — too many for an allowlist`,
+  )
+})
+
+test('the WHOLE-PR docs exemption is deliberately NOT narrowed', () => {
+  // `isDocsOnly` still goes by extension alone: there the reviewers the flow requires are looking
+  // at the diff in front of them, where `isInertDoc` inherits a verdict given on other code.
   assert.equal(isDoc('.claude/rules/common/git-policy.md'), true)
   assert.equal(ev(bare(['.claude/rules/x.md'])).docsOnly, true)
+  assert.equal(ev(bare(['CLAUDE.md'])).docsOnly, true)
 })
 
 // --- CR-M-1: for a review, `commit_id` is the only thing read ----------------------------------

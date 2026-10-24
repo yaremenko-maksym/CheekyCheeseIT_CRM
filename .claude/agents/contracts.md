@@ -289,10 +289,20 @@ count.
   comment without that line is `STALE`, and the check says so rather than guessing from timestamps.
   No commit date is consulted anywhere: a committer date is set by whoever makes the commit.
 - **Two kinds of follow-up commit keep a verdict standing**, so that currency costs no review
-  round: one whose every changed path ends in `.md`, and a merge from the base branch that leaves
-  every file the PR owns byte-identical. "Owns" is the union of the PR's changed-file set now and
-  at the reviewed commit, so a file reverted after the verdict still counts. Resolving a conflict
-  in a file the PR changed is therefore **not** exempt.
+  round: one that touches only **inert** paths, and a merge from the base branch that leaves every
+  file the PR owns byte-identical. "Owns" is the union of the PR's changed-file set now and at the
+  reviewed commit, so a file reverted after the verdict still counts. Resolving a conflict in a file
+  the PR changed is therefore **not** exempt.
+- **Inert is an allowlist, not "it ends in `.md`"** (`isInertDoc`): dated records under
+  `docs/architecture/` (`<YYYY-MM-DD>-*.md`), `docs/business/**`, and the root `README.md`.
+  Everything else markdown takes a fresh pass — `CLAUDE.md`, `CONTEXT.md` and `AGENTS.md`, all of
+  `.claude/**`, `docs/runbooks/**`, `docs/architecture/rules-rationale/**`, the vendored
+  `agents/**` / `skills/**` / `docs/superpowers/**`, and `.github/pull_request_template.md` — because
+  in this repository an agent reads those as behaviour. The direction is chosen for the asymmetry of
+  being wrong: a missing allowlist entry costs one review round and the author says so, while a
+  missing denylist entry silently exempts behaviour from review. The pre-existing **whole-PR**
+  docs-only exemption still goes by extension alone, and that is deliberate — there the required
+  reviewers are looking at the diff itself.
 - Anything the check cannot measure is `STALE`, never fresh: a review with no `commit_id`, a
   reviewed commit no longer in the PR (force-push or rebase), a head missing from the listed
   commits, and a drift measurement that failed or was too large to list.
