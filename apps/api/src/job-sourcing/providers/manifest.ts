@@ -14,6 +14,14 @@ import {
   ownershipCountOf,
   ownershipEvidenceOf,
 } from './manifest.ownership'
+import {
+  type BanScope,
+  type HostKeyOf,
+  type HostRate,
+  MAX_FLOOR_HOURS,
+  hostRateProblem,
+  isValidHostKey,
+} from './manifest.hosts'
 import { isWellFormedDecision, liftsUnclear, type OwnerDecision } from './owner-decisions'
 import type { ReportingJobSourceProvider } from './reporting-provider'
 
@@ -78,6 +86,9 @@ export type ManifestErrorCode =
   | 'REASON_TOO_LONG'
   | 'DEADLINE_DISAGREES'
   | 'OWNER_DECISION_INVALID'
+  | 'HOST_KEY_MISSING'
+  | 'HOST_KEY_INVALID'
+  | 'HOST_RATE_INVALID'
 
 /** Every refusal the manifest makes carries a code a test can assert on, not a message to match. */
 export class ManifestError extends Error {
@@ -232,6 +243,16 @@ export interface TypeDefinition {
   readonly requestsPerRun?: number
   readonly quota?: QuotaDeclaration
   /**
+   * Task 2.5 T8 (`manifest.hosts.ts`): the scope this provider bans or rate-limits at, from the
+   * adapter-parsed config. REQUIRED for a reporting type; every entry's key is checked against the
+   * database's own pattern at build.
+   */
+  readonly hostKey?: HostKeyOf
+  /** What a 403 bans (`HOST` when absent, Master's decision A1). 429 and 451 always ban the host. */
+  readonly banScope?: BanScope
+  /** A provider rate the cadence cannot express. `perDay` needs `requestsPerRun` of 1. */
+  readonly hostRate?: HostRate
+  /**
    * Owner decisions about this source (`owner-decisions.ts`), recorded BESIDE the provenance, which
    * keeps saying what the terms say. An `ACCEPT_RISK` decision for this type's `endpointVariant`
    * lifts an `UNCLEAR` permission and nothing else.
@@ -375,6 +396,8 @@ export interface ManifestEntry {
   readonly policyVersion: number
   /** The adapter's own parse of `config` + `configVersion`: where `namespace` comes from. */
   readonly namespace: string
+  /** Task 2.5 T8: `hostKey(parsed config)`, what the seed delta writes to `job_sources.host_key`. */
+  readonly hostKey: string
   readonly legacySeed: boolean
   readonly intervalHours: number
   readonly budget: BudgetDeclaration | null
@@ -409,6 +432,9 @@ export interface ManifestType {
   /** Requests one scheduled run may send: the multiplier the quota arithmetic needs. */
   readonly requestsPerRun: number
   readonly quota: QuotaDeclaration | null
+  readonly minIntervalHoursFloor: number
+  readonly banScope: BanScope
+  readonly hostRate: HostRate | null
   readonly status: { readonly symbol: string; readonly value: StatusConstant } | null
   readonly blockers: readonly Blocker[]
   readonly deadlines: readonly PolicyDeadline[]
@@ -598,6 +624,23 @@ function checkQuota(types: readonly ManifestType[], entries: readonly ManifestEn
   }
 }
 
+/** Task 2.5 T8: a reporting type names its host scope, and a rate it declares is usable. */
+function checkHostDeclaration(def: TypeDefinition): void {
+  if (def.hostKey === undefined) {
+    throw new ManifestError('HOST_KEY_MISSING', `${def.type} declares no hostKey`)
+  }
+  const floor = def.minIntervalHoursFloor ?? 0
+  if (!Number.isInteger(floor) || floor < 0 || floor > MAX_FLOOR_HOURS) {
+    throw new ManifestError(
+      'CADENCE_INVALID',
+      `${def.type}: minIntervalHoursFloor ${floor} is not an integer from 0 to ${MAX_FLOOR_HOURS}`,
+    )
+  }
+  if (def.hostRate === undefined) return
+  const problem = hostRateProblem(def.hostRate, def.requestsPerRun ?? 1)
+  if (problem !== null) throw new ManifestError('HOST_RATE_INVALID', `${def.type}: ${problem}`)
+}
+
 function checkCadence(def: TypeDefinition, e: EntryDefinition): void {
   if (!Number.isInteger(e.intervalHours) || e.intervalHours < 1) {
     throw new ManifestError(
@@ -722,6 +765,7 @@ export function buildManifest(input: BuildInput): Manifest {
     const permission = weakest(PERMISSION_STRENGTH, permissions) ?? null
     checkAuth(def, permissions)
     checkAttribution(def, fixtures)
+    if (reporting) checkHostDeclaration(def)
 
     const ownerDecisions = def.ownerDecisions ?? []
     for (const d of ownerDecisions) {
@@ -795,6 +839,9 @@ export function buildManifest(input: BuildInput): Manifest {
       scopeKind: def.scopeKind,
       requestsPerRun: def.requestsPerRun ?? 1,
       quota: def.quota ?? null,
+      minIntervalHoursFloor: def.minIntervalHoursFloor ?? 0,
+      banScope: def.banScope ?? 'HOST',
+      hostRate: def.hostRate ?? null,
       status: def.status ?? null,
       blockers,
       deadlines: def.deadlines ?? [],
@@ -833,15 +880,23 @@ export function buildManifest(input: BuildInput): Manifest {
         )
       configKeys.add(key)
       const configVersion = e.configVersion ?? 1
-      let namespace: string
+      let parsed: { namespace: string } & Record<string, unknown>
       try {
         // The adapter's OWN instance method, on the config as the adapter will receive it.
-        const parsed = adapter!.parseConfig({ ...config, configVersion }) as { namespace: string }
-        namespace = parsed.namespace
+        parsed = adapter!.parseConfig({ ...config, configVersion }) as unknown as typeof parsed
       } catch (err) {
         throw new ManifestError(
           'CONFIG_REJECTED',
           `${e.id}: ${(err as Error).message.slice(0, 300)}`,
+        )
+      }
+      const namespace = parsed.namespace
+      // A reporting type always declares `hostKey` (checkHostDeclaration above).
+      const hostKey = def.hostKey!(parsed)
+      if (!isValidHostKey(hostKey)) {
+        throw new ManifestError(
+          'HOST_KEY_INVALID',
+          `${e.id}: host key ${JSON.stringify(hostKey)} is not a lowercase host name`,
         )
       }
       entries.push({
@@ -852,6 +907,7 @@ export function buildManifest(input: BuildInput): Manifest {
         manifestVersion: 1,
         policyVersion: 1,
         namespace,
+        hostKey,
         legacySeed: e.legacySeed === true,
         intervalHours: e.intervalHours,
         budget: e.budget ?? null,

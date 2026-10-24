@@ -3,6 +3,7 @@ import { type SQL, eq, inArray, isNotNull, lt, or, sql } from 'drizzle-orm'
 import type { DatabaseService } from '../../database/database.service'
 import { type JobSource, jobSources } from '../../database/schema'
 import { MAX_CONSECUTIVE_FAILURES, isValidCadenceSlackMs, isValidFailureCap } from './due-policy'
+import { hostOpenPredicate } from './host-state'
 
 /**
  * The scalar terms of the due predicate, in SQL (r5 Task 2.5 T4; ADR "The due predicate").
@@ -15,8 +16,11 @@ import { MAX_CONSECUTIVE_FAILURES, isValidCadenceSlackMs, isValidFailureCap } fr
  *  - readiness. It is the manifest's `readinessAt(subject, clock)` plus the payload flag,
  *    TypeScript, and the stored `job_sources.readiness` column is never read. Callers run `isDue`
  *    over the rows this returns.
- *  - the host term (T8) and the "already running" term (T3), which need columns and tables that
- *    other tasks create. `isDue` takes both as inputs.
+ *  - the "already running" term (T3), which needs the run ledger. `isDue` takes it as an input.
+ *
+ * The host term (T8) IS here: `hostOpenPredicate`, which refuses a NULL `host_key` first and then a
+ * host whose ban pause has not expired. DOU keeps a NULL key and is never due to the ledger: it is
+ * collected by the legacy path, which its LEGACY kind selects explicitly.
  *
  * `findDueSources` is therefore a PRE-filter: every row `isDue` accepts is in its result, and
  * `isDue` makes the final call. An invalid option (a cap above the ceiling, a slack above its
@@ -46,6 +50,8 @@ export function dueSourcesPredicate(
       sql`${jobSources.cooldownUntil} IS NULL`,
       sql`${jobSources.cooldownUntil} <= clock_timestamp()`,
     ) as SQL,
+    // T8: a source with no host key, or on a paused host, is never due -- a manual trigger included.
+    hostOpenPredicate(),
   ]
   // The cadence term, and the ONLY term a manual trigger drops. A NULL next_attempt_at is not due.
   if (trigger !== 'MANUAL') {

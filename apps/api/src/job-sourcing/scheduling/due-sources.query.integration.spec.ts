@@ -100,6 +100,8 @@ describe.skipIf(!hasDatabaseUrl())('due query vs pure isDue over a seeded mix (T
         nextAttemptAt: PAST(),
         cooldownUntil: null,
         consecutiveFailures: 0,
+        // T8: a source with no host key is never due; every row here has one, on an unpaused host.
+        hostKey: 't4-due.t4spec.test',
         ...s.row,
       })
     }
