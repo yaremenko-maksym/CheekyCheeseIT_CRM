@@ -108,11 +108,9 @@ const envelopeSchema = z.object({
 type Envelope = z.infer<typeof envelopeSchema>
 
 /** Names compared the way a person reads them: case and runs of whitespace do not matter. */
+const squash = (name: string) => name.trim().replace(/\s+/g, ' ')
 const sameName = (a: string, b: string) =>
-  a
-    .trim()
-    .replace(/\s+/g, ' ')
-    .localeCompare(b.trim().replace(/\s+/g, ' '), undefined, { sensitivity: 'accent' }) === 0
+  squash(a).localeCompare(squash(b), undefined, { sensitivity: 'accent' }) === 0
 
 function locationOf(item: Item): string | null {
   const places = [
