@@ -587,6 +587,8 @@ describe('billingProvenBy', () => {
     ['a missing field', { ...PROVEN, observedAt: undefined }],
     ['an unknown field', { ...PROVEN, note: 'x' }],
     ['a date without milliseconds', { ...PROVEN, observedAt: '2026-10-24T09:00:00Z' }],
+    ['a date with text before it', { ...PROVEN, observedAt: 'on 2026-10-24T09:00:00.000Z' }],
+    ['a date with text after it', { ...PROVEN, observedAt: '2026-10-24T09:00:00.000Z!' }],
     ['a limit of 0', { ...PROVEN, requestedLimit: 0 }],
     ['a limit of 51', { ...PROVEN, requestedLimit: 51 }],
     ['a fractional balance', { ...PROVEN, creditBalanceBefore: 1000.5 }],
