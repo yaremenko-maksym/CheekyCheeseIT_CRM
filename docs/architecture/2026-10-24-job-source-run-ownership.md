@@ -369,8 +369,8 @@ inserted: a singleton or policy conflict, or a throttle. Checking means three th
 active job returns `null` and leaves exactly one job. A `send` that throws is an enqueue failure of
 that source alone; it must not abort the cycle (C-23).
 
-**What pg-boss does not give.** It does not recover our meter reservations (`RESERVED`/`SENT` →
-replay or `UNCERTAIN`). It does not evaluate readiness through `readinessAt`, cooldown, cadence,
+**What pg-boss does not give.** It does not recover our meter reservations (`RESERVED → RELEASED`,
+`SENT → UNCERTAIN`), and it does not resolve `UNCERTAIN` holds. It does not evaluate readiness through `readinessAt`, cooldown, cadence,
 `min_interval_hours`, or the host-level stop-on-ban across sources. It provides no epoch check on
 our writes, and it does not keep `job_sources` state (last success versus last non-empty). All of
 that is hand-written under either option.
@@ -593,10 +593,12 @@ before `JSON.parse` is entered (its own spec).
 ### T3 — run ledger (the core of this ADR)
 
 - **Files:** a new `job-sourcing/ownership/` module (`JobRunLedger`: `claimDue`, `heartbeat`,
-  `assertOwned`, `finish`, `recoverExpired`); `createAccountMeter` and `AccountMeterBinding` (they
-  gain `ownerToken` and call `assertOwned` inside `reserve`, `markSent` **and `reconcile`**). The
-  third matters: a fenced-out executor's `reconcile` must not settle or release a row that recovery
-  has already settled. Also the 3.5a integration spec's characterisation case (AutoTest zone; Master
+  `assertOwned`, `finish`, `recoverExpired`, `settleStaleUncertain`); `createAccountMeter` and
+  `AccountMeterBinding`. They gain `ownerToken` and call `assertOwned` inside `reserve`, `markSent`
+  **and `reconcile`**, after the meter lock and before the reservation lock. The third matters: a
+  fenced-out executor's `reconcile` must not settle or release a row that recovery has already
+  settled. `reserve` writes `run_id` from the asserted run row, not from `binding.runId`. A new
+  store function `recoverRun(tx, runId)` reuses `planSettlement` and `lockMeter` (Option A). Also the 3.5a integration spec's characterisation case (AutoTest zone; Master
   assigns that edit). Also `COLLECTION_ERROR_CODES` in `providers/reporting-provider.ts`.
 - **New error codes (one owner).** `COLLECTION_ERROR_CODES` is a closed list in `apps/api`, not in
   `packages/shared`, and `job_collection_runs.error_code` is checked only for its `UPPER_SNAKE`
@@ -604,14 +606,29 @@ before `JSON.parse` is entered (its own spec).
   `LEASE_EXPIRED` and `NOT_MARKED_SENT`.** T3 raises the first two. `NOT_MARKED_SENT` is raised by
   T7's send-permit guard, but T3 adds it too, so that only one task touches the closed list. T7 adds
   no code to it.
-- **Carries:** `FOR UPDATE SKIP LOCKED` claim; owner token and epoch committed before I/O; epoch =
-  max for the source + 1; heartbeats for the same owner and epoch only; epoch verified in every page
-  write and meter call; one active fetch per source and per account (claim check, plus T1's
-  backstop); no lock held across I/O; **lease recovery moves `SENT` → `UNCERTAIN` and
-  `RESERVED` → `RELEASED` under the run-row lock, ends the run `FAILED` with error code
-  `LEASE_EXPIRED`, and re-queues the source**. `recoverExpired` is the named entry point (called by
-  T5's tick and at worker start). A recovered run is never re-claimed; the next claim inserts a new
-  row, and `started_at` is never updated (see Option A). `finish` writes the `job_sources`
+- **Carries:** the rules Option A states for every operation: `READ COMMITTED` pinned, the DB
+  clock with `clock_timestamp()` in lease predicates, the single lock order, and one source per
+  claim transaction. Also:
+  - **Claim:** `FOR UPDATE SKIP LOCKED`; owner token and epoch committed before I/O; epoch = max for
+    the source + 1; the claim-time re-checks (readiness, a NULL meter for a metered type);
+  - **Ownership checks:** heartbeats for the same owner and epoch only; the epoch verified in every
+    page write and meter call;
+  - **Single flight:** one active fetch per source and per account, by T1's source index and T1b's
+    account index (a 23505 skips the source);
+  - no lock held across I/O.
+
+  **Lease recovery is `recoverRun`:** `SENT` → `UNCERTAIN` and `RESERVED` → `RELEASED`; the run ends
+  `FAILED` with error code `LEASE_EXPIRED`; `consecutive_failures` is incremented, and the source is
+  re-queued after a capped backoff. `recoverExpired` is the named entry point, called by T5's tick
+  and at worker start. A recovered run is never re-claimed: the next claim inserts a new row, and
+  `started_at` is never updated.
+
+  **Crash resume:** the new row copies its predecessor's checkpoint under the source lock, so a crash
+  re-pays at most the page in flight. **Failure cap:** a source at `MAX_CONSECUTIVE_FAILURES` stops
+  being due.
+
+  **`UNCERTAIN` resolver:** `settleStaleUncertain` (entry point: T5's tick), plus the store
+  operation an ADMIN settle action calls. All of these are specified in Option A. `finish` writes the `job_sources`
   state: attempts persist on empty and on error, `last_success_at` ≠ `last_nonempty_at`, and DOU's
   legacy `lastCollectedAt` semantics are preserved. Bounded attempts: `consecutive_failures`
   drives a capped backoff. `finish` calls T8's `recordHostBan` in the same transaction when the
@@ -619,23 +636,46 @@ before `JSON.parse` is entered (its own spec).
   `RATE_LIMIT`. The run **outcome** is `FAILED` or `PARTIAL` (enum `job_collection_outcome`:
   `STARTED`, `PARTIAL`, `SUCCEEDED`, `FAILED`, `CANCELLED`). Also, `claimDue` calls T8's `claimHostSlot` before it
   inserts the run. Both are calls into T8's module; the policy and its acceptance criteria are T8's.
-- **Depends on:** T1 (indexes), T4 (the due predicate `claimDue` filters on), T8 (host state).
+
+- **Depends on:** T1 (source index), T1b (corrected account index), T4 (the due predicate
+  `claimDue` filters on), T8 (host state).
 - **AC:** (1) the SR-H-1 characterisation case **fails first** and is then replaced by an assertion
   that a second executor's `reserve`/`markSent` is refused with `RUN_FENCED` and that spend equals
   charge; (2) a stale owner's `savePage` after recovery is refused, and the successor's pages are
   intact; (3) a `markSent`/recovery race ends in exactly one of {`SENT`→`UNCERTAIN`, `markSent`
   refused}, never in a request that is sent and released; (4) heartbeat with a wrong epoch changes
   nothing; (5) the epoch strictly increases across successive runs of one source; (6) a grep gate:
-  no file outside the ledger writes `owner_token`, `fencing_epoch` or `lease_expires_at`; (7) a
+  no file outside the ledger writes `owner_token`, `fencing_epoch`, `lease_expires_at` or
+  `started_at`; (7) a
   fenced-out executor's `reconcile` is refused with `RUN_FENCED` and leaves the row as recovery set
   it; (8) after recovery the expired run is `FAILED` / `LEASE_EXPIRED`, its `RESERVED` rows are
   `RELEASED` and its `SENT` rows `UNCERTAIN`, and the next claim is a different row whose
   `started_at` is later than the recovered run's; (9) `RUN_FENCED`, `LEASE_EXPIRED` and
-  `NOT_MARKED_SENT` are members of `COLLECTION_ERROR_CODES`.
+  `NOT_MARKED_SENT` are members of `COLLECTION_ERROR_CODES`; (10) **crash resume:** a run that
+  crashes after page `k` is durable is followed by a run that starts at page `k + 1`. The fixture
+  server sees each of pages `1..k` exactly once, and page `k + 1` at most twice. The meter's `used`
+  plus `uncertain` equals the pages the fixture server actually served times the per-page cost;
+  (11) **failure cap:** after `MAX_CONSECUTIVE_FAILURES` consecutive recoveries, the source is not
+  claimed by a scheduled or a manual trigger, until a successful run or a recorded ADMIN reset;
+  (12) **`recoverRun` counters:** for a run holding one `RESERVED` and one `SENT` reservation of
+  amount `a`, recovery lowers `reserved` by `2a` and raises `uncertain` by `a`, with `used`
+  unchanged; (13) **`settleStaleUncertain`:** an `UNCERTAIN` hold older than `UNCERTAIN_MAX_AGE`
+  becomes `USED` at the full amount and is never `RELEASED`, and a hold from a past window does not
+  raise the current window's `used`; (14) a claim refuses a metered type with a NULL
+  `account_meter_id` and a source whose `readinessAt` blocks it, and neither consumes a slot.
 - **Real-Postgres:** N concurrent claimers (N ≥ 4, two pools, the "replica" case) against one due
-  source get exactly one claim. Also: a crash after a page is persisted (kill between `savePage` and
-  `finish`, then recover); stale-owner writes; manual run overlapping a scheduled one; bounded
-  attempts at the limit and one past it. All run as `crm_app`.
+  source get exactly one claim. Also:
+  - a crash after page `k` is persisted (kill between `savePage` and `finish`, then recover and
+    re-claim), asserting the **request count at the fixture server** (AC 10), not only row states;
+  - `MAX_CONSECUTIVE_FAILURES` recoveries in a row, then a scheduled and a manual claim (AC 11);
+  - `recoverRun` with counter values (AC 12);
+  - stale-owner writes; a manual run overlapping a scheduled one; bounded attempts at the limit and
+    one past it;
+  - two claim loops and one `recoverExpired` running concurrently for 1,000 iterations, with **no
+    deadlock** (the lock order).
+
+  All run as `crm_app`.
+
 - **Model:** opus, high. **security-reviewer mandatory** (meter, money-adjacent).
 
 ### T4 — due policy (pure, plus one query)
