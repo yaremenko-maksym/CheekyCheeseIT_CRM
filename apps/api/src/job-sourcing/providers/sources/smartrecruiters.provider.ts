@@ -681,6 +681,7 @@ function refuseDisallowedHost(config: Config, ctx: CollectionContext): Collectio
       pagesCompleted: 0,
       counts: emptyCounts(),
       scope: scopeOf(config),
+      // Stryker disable next-line BooleanLiteral: this batch is FAILED, and a non-SUCCEEDED attempt has PARTIAL coverage whatever `resumed` says (`deriveCoverage`), so the flag cannot be seen in the result.
       resumed: false,
     },
     requests: [
