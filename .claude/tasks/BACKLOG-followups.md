@@ -5745,6 +5745,27 @@ are under `.claude/tasks/`, which is **gitignored** and dies with the worktree. 
 3. **CR-809-M-5 is untouched:** whether the NBU rate day should follow the picked settle date or stay
    on the booking day is a product decision never taken; the rate day currently follows the picker.
 
+**Scoped by the security review of #1113 (2026-10-24), which changes what the remainder must do.**
+Two facts, and the first is reassurance rather than work:
+
+- **The four unwired writers are not a hole today.** All four are privilege-gated — `createExpense`,
+  `createSalary` and `createAdminTransfer` require ADMIN or ACCOUNTANT, `paySalary` requires ADMIN —
+  the year/calendar schema floor still applies, and none of them is invoice-facing. No unprivileged
+  role can inject a date through them. That is why shipping 9 of 13 was defensible rather than
+  reckless: the gap is bounded by the role gate, not merely documented.
+- **But wiring the policy is not sufficient.** The residual at those four is that ADMIN/ACCOUNTANT can
+  still **future-date EXECUTED rows** and **backdate out of window without an audit reason**. So the
+  remainder must do three things, not one: route the four through the shared policy, _block future
+  dates on EXECUTED rows there_, and _capture the audit reason_ on an out-of-window backdate.
+- **AC 2 likewise needs more than the bound.** A bounded-but-client-chosen date on a verified transfer
+  **can misstate the on-chain settlement date on an invoice**, which is a legal document. Closing it
+  means adding the `eth_getBlockByNumber` lookup so the date comes from the verified block, not
+  tightening the bound further.
+
+A fourth, cosmetic: `createSeniorIncome` and `createDropIncome` plumb a `backdateReason` the policy can
+never consume for SENIOR/DROP — dead transport for something nothing reads. (#1113 removes it; noted
+here in case it reappears when the four writers are wired.)
+
 **Check on closing:** all 13 writers resolve their date through the one shared policy (grep the call
 sites); the on-chain flows take their date from the block timestamp, not the client; and the
 `⚠ NOT YET UNIVERSAL` block in `transaction-date-policy.ts` is gone because it has become universal.
