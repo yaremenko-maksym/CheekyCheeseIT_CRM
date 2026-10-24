@@ -636,9 +636,9 @@ ownership. Also reopen if `apps/api` moves to `module: node16`.
 - **The choice of A over B is A2.** The ADR is reversible (one PR), but redoing an implemented
   ledger is expensive. The **owner** confirms, in the phase's decision brief.
   **Before the owner answers, T1, T1b, T2, T4 and T8 can start.** None of them consumes the ledger, and
-  each is needed under either option. T3 is the ledger itself. T7 consumes it. T5 and T6 depend on
-  T7, and under B T5's cron would call `send` instead of the ledger. So T3, T7, T5 and T6 all wait
-  for the answer.
+  each is needed under either option. T3 is the ledger itself. T7 and T9 consume it. T5 and T6 depend on
+  T7, and under B T5's cron would call `send` instead of the ledger. So T3, T7, T9, T5 and T6 all
+  wait for the answer.
 - **T1's migration** (two partial unique indexes and an `account_key` column) is a Drizzle migration
   in a critical-path zone. It goes through the normal full pipeline with a mandatory
   security-reviewer. It changes no privilege. So do **T1b** (the account-key correction) and **T8**
@@ -1265,39 +1265,50 @@ add a back door or leave capped sources dead. Both are state changes on paid sou
 
 ### Constraint ledger: every appended constraint in exactly one task
 
-| Constraint (source)                                                                                                    | Task         |
-| ---------------------------------------------------------------------------------------------------------------------- | ------------ |
-| 318 before transport wiring (PR #1119 security axis)                                                                   | T6 gate (T0) |
-| `readinessAt`, not the stored column (PR #1132 SPEC-L-2 / SR-M-2)                                                      | T4           |
-| `allowedHosts` + `maxBytes` reaches fetch (PR #1138 SR-M-2)                                                            | T6           |
-| Transient memory: per-run deadline (PR #1138 SR-M-1)                                                                   | T7           |
-| Transient memory: pre-parse node bound decision (PR #1138 SR-M-1)                                                      | T6           |
-| Free-plan meters, TheirStack 200 RECORD/month                                                                          | T7           |
-| Cross-run stop-on-ban (PR #1139 SR-M-2); storage, writer call and reader predicate                                     | T8           |
-| Rates the manifest cannot enforce (PR #1139 SR-L-3): Remotive per-minute and daily, `min_interval_hours` floor         | T8           |
-| Evidence is not permission (PR #1139)                                                                                  | T2           |
-| `Object.freeze` of the SmartRecruiters decision and its four siblings (#1139 delta LOW 1)                              | T2           |
-| 404 policy with retry policy (#1139 delta LOW 2)                                                                       | T6           |
-| Backlog 319 (`transportOptionsFor` in `fetchText`)                                                                     | T6           |
-| One live executor per attempt; replace the SR-H-1 case                                                                 | T3           |
-| `RESERVED`/`SENT` recovery with an entry point                                                                         | T3           |
-| `markSent` fires when every request leaves (brief): send-permit guard, SmartRecruiters call site, `RUN_FENCED` mid-run | T7           |
-| Registry seam, legacy map fate (brief)                                                                                 | T2           |
-| Production `CollectionContext` builder with the 3.5a meter as `meter` (brief)                                          | T7           |
+| Constraint (source)                                                                                                                      | Task         |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| 318 before transport wiring (PR #1119 security axis)                                                                                     | T6 gate (T0) |
+| `readinessAt`, not the stored column (PR #1132 SPEC-L-2 / SR-M-2)                                                                        | T4           |
+| `allowedHosts` + `maxBytes` reaches fetch (PR #1138 SR-M-2)                                                                              | T6           |
+| Transient memory: per-run deadline (PR #1138 SR-M-1)                                                                                     | T7           |
+| Transient memory: pre-parse node bound decision (PR #1138 SR-M-1)                                                                        | T6           |
+| Free-plan meters, TheirStack 200 RECORD/month                                                                                            | T7           |
+| Cross-run stop-on-ban (PR #1139 SR-M-2), storage and claim half: pause storage, duration, claim-time refusal                             | T8           |
+| Cross-run stop-on-ban (PR #1139 SR-M-2), in-flight half: ban at observation, pause check per request and per heartbeat (round 4, SR-H-3) | T7           |
+| Rates the manifest cannot enforce (PR #1139 SR-L-3): Remotive per-minute and daily, `min_interval_hours` floor                           | T8           |
+| Evidence is not permission (PR #1139)                                                                                                    | T2           |
+| `Object.freeze` of the SmartRecruiters decision and its four siblings (#1139 delta LOW 1)                                                | T2           |
+| 404 policy with retry policy (#1139 delta LOW 2)                                                                                         | T6           |
+| Backlog 319 (`transportOptionsFor` in `fetchText`)                                                                                       | T6           |
+| One live executor per attempt; replace the SR-H-1 case                                                                                   | T3           |
+| `RESERVED`/`SENT` recovery with an entry point                                                                                           | T3           |
+| `markSent` fires when every request leaves (brief): send-permit guard, SmartRecruiters call site, `RUN_FENCED` mid-run                   | T7           |
+| Registry seam, legacy map fate (brief)                                                                                                   | T2           |
+| Production `CollectionContext` builder with the 3.5a meter as `meter` (brief)                                                            | T7           |
+| ADMIN-only exits from the failure cap and the host pause; "ADMIN enable never clears an unresolved block" (plan; round 4, CR-M-15)       | T9           |
 
-The transient-memory finding is one review item with two separable halves: the deadline and the
-parse bound. Each half lands in exactly one task. The brief's note says the two LOW items should
+Two review items have two separable halves, and each half lands in exactly one task. The
+transient-memory finding splits into the deadline (T7) and the parse bound (T6). Cross-run
+stop-on-ban splits into storage and claim (T8) and runs in flight (T7). The brief's note says the two LOW items should
 also be "recorded in backlog in the docs follow-up". This ADR assigns them to tasks instead, so the
 backlog entry, if Master writes one, should point here rather than duplicate them.
 
 ## What this ADR does not decide
 
-- **The numeric values** of the lease length `L`, the heartbeat interval, the pool size `N`, the
-  per-run deadline, the backoff cap, `MAX_CONSECUTIVE_FAILURES` and `UNCERTAIN_MAX_AGE`. The plan
-  freezes them after MP-05 measurements. This ADR fixes only that they are config values with
-  ceilings, and that `L` exceeds the per-request timeout plus the pool's acquire timeout.
-- **The operator surface for `UNCERTAIN` holds** (how an ADMIN sees and settles one with a provider
-  figure). This ADR fixes the store operation and the automatic age rule, not the UI.
+- **The numeric values of most constants.** These are the lease length `L`, the heartbeat interval
+  `H`, the pool size `N`, the per-run deadline, the backoff cap, `MAX_CONSECUTIVE_FAILURES`,
+  `UNCERTAIN_MAX_AGE`, `CHECKPOINT_MAX_AGE`, `REFUSAL_RECHECK` and `MAX_CLAIM_SCAN`. The plan
+  freezes them after MP-05 measurements. This ADR fixes only their relations:
+  - each is a config value with a ceiling;
+  - `H ≤ L / 3`, and a page-write transaction ends within `H`;
+  - `L` exceeds the per-request timeout plus the pool's acquire timeout;
+  - `UNCERTAIN_MAX_AGE` is at least 7 days;
+  - `CHECKPOINT_MAX_AGE` is at most the cadence plus the backoff ceiling.
+
+  The host-ban pause **is** decided here: at least 24 hours, at most 30 days (T8).
+
+- **The UI for ADMIN controls.** T9 builds the endpoints and their RBAC; any screen over them is a
+  separate, design-gated task.
 - **A lint ban on direct HTTP in adapters (follow-up, round 3, SR-L-5).** T7's send-permit guard
   works in-process, on calls that go through the production `CollectionContext`. An adapter that
   bypassed the context, calling `fetch` or an HTTP client directly, would send requests that no
@@ -1328,13 +1339,17 @@ This PR is documentation only.
   `docs/architecture/` are gone and nothing else has changed. To verify, run
   `git show --stat <revert sha>`. It lists exactly `2026-10-24-job-source-run-ownership.md` and
   `2026-10-24-pg-boss-research.md`.
-- **If the owner picks B later:** supersede this ADR with a new one. T3 and T7 change, and so does T5 (its cron would call `send`). T1's
-  indexes remain a valid backstop under B. B's production DDL path is the five steps in
+- **If the owner picks B later:** supersede this ADR with a new one. **Kept unchanged:** T1, T1b,
+  T2, T4 and T8. These are the tasks "Autonomy classification" lets start before the answer, and
+  each is needed under either option. The indexes remain a valid backstop, and the registry, the due
+  policy and the host state are pg-boss-independent. T6's transport wiring is also unchanged in
+  substance. **Changed:** T3 and T7, which are built on the ledger; T9, which calls ledger
+  functions; and T5, whose cron would call `send`. B's production DDL path is the five steps in
   "Option B", and choosing it is an A3 decision.
 - **Per-task rollback** belongs to each task's PR. T1's migration is additive: dropping the two
   indexes and the column restores today's schema, through the same `deploy.yml` path. T1b reverts by
   restoring T1's column type and backfill. T8 reverts by dropping `job_source_hosts` and
-  `job_sources.host_key`.
+  `job_sources.host_key`. T9 adds no DDL; its audit rows, if a table, revert with T9's own PR.
 
 ## Verification
 
@@ -1358,7 +1373,20 @@ appears outside `src/test/`. That change is the expected signal that "Context" h
 For F5: `grep -c '^REVOKE CREATE ON SCHEMA public FROM PUBLIC'
 apps/api/drizzle/manual/2026-10-18_db_roles.sql` prints `1` for as long as the least-privilege
 regime stands. The pattern is anchored to the start of the line: unanchored, the same text also
-matches a comment above the statement, and the grep returns two lines. For the pg-boss facts, see the research file's "Shelf life".
+matches a comment above the statement, and the grep returns two lines.
+
+For T1b's facts (round 4, CR-L-5), run:
+
+```bash
+git grep -n -e "accountKey: text('account_key')" -e "uq_job_account_meters_identity" -e "accountMeterId: uuid('account_meter_id')" -e "JOB_PUBLIC_ID_PATTERN = " origin/main -- apps/api/src/database/schema
+```
+
+The output shows four things. A meter's `account_key` is `text`. A meter row is unique per
+`(accountKey, unit, window)`, so one account has several rows. `job_sources.account_meter_id` is a
+`uuid` naming **one** row. And the meter-key pattern starts with `[a-z0-9]` and never admits `#`. If
+those four lines change, re-check T1b's key and its `'#source:'` prefix.
+
+For the pg-boss facts, see the research file's "Shelf life".
 
 ## Sources
 
