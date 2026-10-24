@@ -46,6 +46,7 @@ import {
   listTransactionsByProjectViaAPI,
   confirmPayoutViaAPI,
   ensureCompanyWalletViaAPI,
+  createPayoutRequestViaAPI,
   onboardDropViaAPI,
 } from './fixtures'
 
@@ -90,7 +91,12 @@ test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
       })
 
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payoutRequestId: payoutReqIdA } = await validateTransactionViaAPI(page, incomeTxIdA)
+      await validateTransactionViaAPI(page, incomeTxIdA)
+
+      // Validate only flips the income to VALIDATED (task-drop-payout-company-account);
+      // the DROP bundles it into a payout_request themselves.
+      await loginViaApi(page, dropAEmail)
+      const { payoutRequestId: payoutReqIdA } = await createPayoutRequestViaAPI(page, [incomeTxIdA])
       expect(payoutReqIdA).toBeTruthy()
 
       // DROP pays → cascade books a DROP_PENDING_PAYOUT COMPANY debt (no
@@ -158,6 +164,11 @@ test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
 
       await loginViaApi(page, SEED_EMAILS.accountant)
       await validateTransactionViaAPI(page, incomeTxIdB)
+
+      // Validate only flips the income to VALIDATED — the DROP creates the
+      // payout_request, which plants the PENDING_PAYMENT PAYOUT.
+      await loginViaApi(page, dropBEmail)
+      await createPayoutRequestViaAPI(page, [incomeTxIdB])
 
       // ADMIN confirms-payout → Maksym. Phase 2 cascade does NOT fire.
       await loginViaApi(page, SEED_ADMIN_EMAIL)

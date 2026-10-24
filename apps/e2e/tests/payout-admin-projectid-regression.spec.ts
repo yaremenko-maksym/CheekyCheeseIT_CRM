@@ -123,10 +123,13 @@ test.describe('0 PAYOUT_ADMIN after payout — both cascade branches (Variant-A 
       const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 1000 })
 
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
-      expect(payoutRequestId).toBeTruthy()
+      await validateTransactionViaAPI(page, txId)
 
+      // Validate only flips the income to VALIDATED (task-drop-payout-company-account);
+      // the DROP bundles it into a payout_request themselves, then pays it.
       await loginViaApi(page, dropEmail)
+      const { payoutRequestId } = await createPayoutRequestViaAPI(page, [txId])
+      expect(payoutRequestId).toBeTruthy()
       await payPayoutRequestViaAPI(page, payoutRequestId!)
 
       // After Variant-A: no PAYOUT_ADMIN rows on drop-project payout.

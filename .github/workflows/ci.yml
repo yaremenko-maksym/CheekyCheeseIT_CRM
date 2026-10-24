@@ -1400,7 +1400,9 @@ jobs:
           - name: documents
             files: tests/documents-pr1.spec.ts tests/documents-pr3.spec.ts
           - name: invoices
-            files: tests/invoice-public-verify.spec.ts
+            files: tests/invoice-public-verify.spec.ts tests/invoices-signing-flow.spec.ts tests/invoice-aggregate.spec.ts tests/invoice-signing-real.spec.ts
+          - name: payouts
+            files: tests/payout-admin-projectid-regression.spec.ts tests/payout-auto-cascade-invoice.spec.ts tests/payout-manual-confirm-method.spec.ts tests/phase2-auto-distribution-regression.spec.ts tests/senior-confirm-payout.spec.ts tests/senior-payout-no-dup.spec.ts tests/senior-project-distribution-regression.spec.ts
           - name: landing
             files: tests/landing/
     services:

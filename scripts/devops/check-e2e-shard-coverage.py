@@ -98,10 +98,6 @@ KNOWN_UNSHARDED = {
     # --- hr ---
     "tests/hr-dashboard.spec.ts",                 # debt: not gated, migrate to team-users shard later
     # --- invoices ---
-    "tests/invoice-aggregate.spec.ts",            # debt: not gated, migrate to invoices shard later
-    "tests/invoice-real-contract-number.spec.ts", # debt: not gated, migrate to invoices shard later
-    "tests/invoice-signing-real.spec.ts",         # debt: not gated, migrate to invoices shard later
-    "tests/invoices-signing-flow.spec.ts",        # debt: not gated, migrate to invoices shard later
     # --- junior ---
     "tests/junior-hub.spec.ts",                   # debt: not gated, migrate to misc shard later
     # --- legend ---
@@ -109,21 +105,14 @@ KNOWN_UNSHARDED = {
     # --- onboarding ---
     "tests/onboarding-flow.spec.ts",              # debt: not gated, migrate to misc shard later
     # --- payout ---
-    "tests/payout-admin-projectid-regression.spec.ts", # debt: not gated, migrate to finance shard later
-    "tests/payout-auto-cascade-invoice.spec.ts",  # debt: not gated, migrate to finance shard later
-    "tests/payout-manual-confirm-method.spec.ts", # debt: not gated, migrate to finance shard later
     # --- phase ---
-    "tests/phase2-auto-distribution-regression.spec.ts", # debt: not gated, migrate to finance shard later
     "tests/phase8-payout-company.spec.ts",        # debt: not gated, migrate to finance shard later
     # --- polish ---
     # --- project ---
     # --- rbac ---
     "tests/rbac-senior-junior.spec.ts",           # debt: not gated, migrate to team-users shard later
     # --- senior ---
-    "tests/senior-confirm-payout.spec.ts",        # debt: not gated, migrate to finance shard later
     "tests/senior-create-default.spec.ts",        # debt: not gated, migrate to team-users shard later
-    "tests/senior-payout-no-dup.spec.ts",         # debt: not gated, migrate to finance shard later
-    "tests/senior-project-distribution-regression.spec.ts", # debt: not gated, migrate to projects shard later
     "tests/senior-teamless.spec.ts",              # debt: not gated, migrate to team-users shard later
     # --- team share ---
     # --- ui ---
