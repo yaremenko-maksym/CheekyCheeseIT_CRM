@@ -18,6 +18,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SessionUser } from '@crm/shared'
+import { kyivToday } from '@crm/shared'
 import { pendingObligations, transactions } from '../database/schema'
 import { PendingSettlementService } from './pending-settlement.service'
 import type { InvoicesService } from '../invoices/invoices.service'
@@ -2107,5 +2108,68 @@ describe('PendingSettlementService.listCompanyObligations', () => {
     await expect(svc.listCompanyObligations(juniorUser)).rejects.toMatchObject({
       response: { code: 'FINANCE_COMPANY_OBLIGATIONS_LIST_FORBIDDEN', statusCode: 403 },
     })
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SR-809-M-2 = CR-809-H-1 — the settle upper bound.
+//
+// PR #809 put an absolute "not after kyivToday()" bound in
+// `settleSeniorPayoutSchema` while the service separately requires
+// `selected >= sourceDate`. For an obligation whose SOURCE row is dated in the
+// future those two are unsatisfiable together: min > max, the picker renders
+// empty, and the obligation cannot be settled by anyone through the UI.
+//
+// The bound that is actually wanted needs the source row, so it belongs here,
+// not in a Zod schema: `selected <= max(kyivToday(), sourceDate)`.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('settleByCompany — business-date upper bound (SR-809-M-2 / CR-809-H-1)', () => {
+  const kyivDayOffset = (days: number) =>
+    new Date(Date.parse(`${kyivToday()}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10)
+
+  const settleFunding = (txDate: string) => ({
+    fundingSource: 'ADMIN_PERSONAL' as const,
+    payerAdminId: ADMIN_PAYER_ID,
+    receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
+    txDate,
+  })
+
+  const withSourceDate = (txDate: Date) =>
+    makeService({
+      sourceTxs: new Map([[SOURCE_TX_ID, makeSourceTx({ txDate })]]),
+    })
+
+  it('a future-dated source row can still be settled at its own date — no lock-out', async () => {
+    const future = kyivDayOffset(10)
+    const { svc } = withSourceDate(new Date(`${future}T00:00:00Z`))
+    await expect(
+      svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, settleFunding(future)),
+    ).resolves.toBeDefined()
+  })
+
+  it('rejects a date later than BOTH today and the source date', async () => {
+    const { svc } = withSourceDate(new Date('2026-05-30T00:00:00Z'))
+    await expect(
+      svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, settleFunding(kyivDayOffset(1))),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_TX_DATE_IN_FUTURE', statusCode: 400 },
+    })
+  })
+
+  it('rejects a date beyond a future source date too — the bound is the max, not "anything goes"', async () => {
+    const future = kyivDayOffset(10)
+    const { svc } = withSourceDate(new Date(`${future}T00:00:00Z`))
+    await expect(
+      svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, settleFunding(kyivDayOffset(11))),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_TX_DATE_IN_FUTURE', statusCode: 400 },
+    })
+  })
+
+  it('today is still accepted when the source row is in the past', async () => {
+    const { svc } = withSourceDate(new Date('2026-05-30T00:00:00Z'))
+    await expect(
+      svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, settleFunding(kyivToday())),
+    ).resolves.toBeDefined()
   })
 })

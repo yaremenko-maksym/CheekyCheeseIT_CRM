@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { withMoneyFloor } from '../money'
-import { mandatoryReceiptRefine, receiptFields, transactionBusinessDateSchema } from './validation'
+import { mandatoryReceiptRefine, receiptFields, transactionBusinessDateFields } from './validation'
 
 // ---------------------------------------------------------------------------
 // Company Account (USDT) — task-company-account-backend
@@ -54,7 +54,7 @@ export type UpdateRequisitesDto = z.infer<typeof updateRequisitesSchema>
 // while the service does the strict extraction/validation.
 export const createCompanyDepositSchema = z.object({
   txHashOrLink: z.string().min(10, 'zod.TX_HASH_MIN_LENGTH').max(500),
-  txDate: transactionBusinessDateSchema.optional().nullable(),
+  ...transactionBusinessDateFields,
 })
 export type CreateCompanyDepositDto = z.infer<typeof createCompanyDepositSchema>
 
@@ -111,7 +111,7 @@ export const createDividendSchema = z
     amount: withMoneyFloor(z.number().positive()),
     adminId: z.string().uuid().optional(),
     idempotencyKey: z.string().uuid(),
-    txDate: transactionBusinessDateSchema.optional().nullable(),
+    ...transactionBusinessDateFields,
     // task-receipts-backend (#9): a dividend is a USDT withdrawal from the company
     // account → receipt MANDATORY and explorer-only (no currency field: always USDT).
     ...receiptFields,

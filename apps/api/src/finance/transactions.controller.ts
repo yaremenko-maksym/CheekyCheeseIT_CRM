@@ -37,6 +37,7 @@ import {
   paySalarySchema,
   restoreTransactionSchema,
   salaryMonthGapQuerySchema,
+  salaryPartsQuerySchema,
   salaryMonthBackfillSchema,
   updateProjectFinanceSettingsSchema,
   updateDropIncomeSchema,
@@ -227,6 +228,12 @@ export class TransactionsController {
       method: data.method,
       ...(data.txHash !== undefined && data.txHash !== null ? { txHash: data.txHash } : {}),
       ...(data.txDate !== undefined && data.txDate !== null ? { txDate: data.txDate } : {}),
+      // SR-809-H-1 / D-2: the reason travels with the date. Same conditional
+      // spread shape as its neighbours — exactOptionalPropertyTypes refuses an
+      // explicit `undefined` on an optional property.
+      ...(data.backdateReason !== undefined && data.backdateReason !== null
+        ? { backdateReason: data.backdateReason }
+        : {}),
     })
   }
 
@@ -455,6 +462,12 @@ export class PayoutRequestsController {
       ...(data.note !== undefined && data.note !== null ? { note: data.note } : {}),
       ...(data.txHash !== undefined && data.txHash !== null ? { txHash: data.txHash } : {}),
       ...(data.txDate !== undefined && data.txDate !== null ? { txDate: data.txDate } : {}),
+      // SR-809-H-1 / D-2: the reason travels with the date. Same conditional
+      // spread shape as its neighbours — exactOptionalPropertyTypes refuses an
+      // explicit `undefined` on an optional property.
+      ...(data.backdateReason !== undefined && data.backdateReason !== null
+        ? { backdateReason: data.backdateReason }
+        : {}),
     })
   }
 }
@@ -575,6 +588,20 @@ export class FinanceSummaryController {
   // above (ACCOUNTANT can SEE the gap; only ADMIN closes it) — same
   // requirement `paySalary` in this controller already enforces for the
   // adjacent "move money on a SALARY row" action.
+  // SR-795-M-1 / owner decision D-3. What an operator could not see is half of
+  // why the double-salary defect was reachable: nothing told them another part
+  // for this person and month already existed. GET
+  // /api/finance/salary-parts?receiverId=…&month=YYYY-MM — ADMIN + ACCOUNTANT,
+  // the same pair `createSalary` admits, with the role check also in the service
+  // body (the project's standing pattern: `@Roles` is the guard layer, never the
+  // only layer). Read-only and narrow; both roles already see these rows in the
+  // finance table.
+  @Get('salary-parts')
+  @Roles('ADMIN', 'ACCOUNTANT')
+  getSalaryParts(@CurrentUser() user: SessionUser, @Query() query: unknown) {
+    return this.svc.getSalaryParts(user, salaryPartsQuerySchema.parse(query ?? {}))
+  }
+
   @Post('salary-month-backfill')
   @Roles('ADMIN')
   backfillSalaryMonth(@CurrentUser() user: SessionUser, @Body() body: unknown) {

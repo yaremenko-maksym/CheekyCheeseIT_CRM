@@ -304,6 +304,187 @@ describe('getSalaryMonthGapReport — RBAC guard', () => {
   })
 })
 
+// SR-M-3. The reviewer measured this: deleting the service-body role check in
+// `getSalaryParts` left the whole suite green, because the only thing testing
+// it was an HTTP test that the `@Roles` guard answers first. That is the
+// project's standing trap in miniature — `RolesGuard` is a no-op on a method
+// with no `@Roles`, so the service body is where the real check lives, and a
+// second layer nobody can break is a layer that survives only until someone
+// tidies it away. Called directly here, with no guard in front.
+describe('getSalaryParts — RBAC lives in the service body too (SR-M-3)', () => {
+  const QUERY = { receiverId: '11111111-1111-4111-8111-111111111111', month: MONTH }
+  const forbiddenRoles: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'DROP']
+
+  for (const role of forbiddenRoles) {
+    it(`throws 403 for ${role}, before any DB access`, async () => {
+      const throwingDb = {
+        db: {
+          select: () => {
+            throw new Error('DB must not be read for a forbidden role')
+          },
+        },
+      }
+      const svc = makeTransactionsService({ db: throwingDb as never })
+      await expect(svc.getSalaryParts(user(role), QUERY)).rejects.toMatchObject({
+        response: { code: 'FINANCE_SALARY_MONTH_GAP_FORBIDDEN', statusCode: 403 },
+      })
+    })
+  }
+
+  // The permitted pair, so the four refusals above are a statement about the
+  // role check and not about a method that refuses everyone.
+  for (const role of ['ADMIN', 'ACCOUNTANT'] as const) {
+    it(`reads for ${role}`, async () => {
+      const rows = [
+        {
+          id: '22222222-2222-4222-8222-000000000001',
+          amount: '1500.000000',
+          currency: 'USD',
+          status: 'PENDING',
+          salaryOrigin: 'MANUAL',
+          txDate: null,
+          notes: null,
+        },
+      ]
+      const db = {
+        db: {
+          select: () => ({
+            from: () => ({ where: () => ({ orderBy: async () => rows }) }),
+          }),
+        },
+      }
+      const svc = makeTransactionsService({ db: db as never })
+      await expect(svc.getSalaryParts(user(role), QUERY)).resolves.toMatchObject({
+        receiverId: QUERY.receiverId,
+        month: MONTH,
+        parts: [{ amount: 1500, currency: 'USD', status: 'PENDING', salaryOrigin: 'MANUAL' }],
+      })
+    })
+  }
+
+  // The projection, the predicate and the order are what make the answer the
+  // right rows at all, and a stub that ignores them cannot notice if they go
+  // missing — the mutation gate emptied each to `{}` / `''` with every test
+  // still green. Captured and asserted, the way the month-edit evidence query
+  // is pinned in transactions.finance-audit.spec.ts.
+  it('reads exactly the seven DTO columns, for this receiver and month, oldest first', async () => {
+    const cap: { projection?: Record<string, unknown>; where?: unknown; orderBy?: unknown[] } = {}
+    const db = {
+      db: {
+        select: (projection: Record<string, unknown>) => {
+          cap.projection = projection
+          return {
+            from: () => ({
+              where: (w: unknown) => {
+                cap.where = w
+                return {
+                  orderBy: async (...clauses: unknown[]) => {
+                    cap.orderBy = clauses
+                    return []
+                  },
+                }
+              },
+            }),
+          }
+        },
+      },
+    }
+    const svc = makeTransactionsService({ db: db as never })
+    await svc.getSalaryParts(user('ADMIN'), QUERY)
+
+    expect(Object.keys(cap.projection ?? {}).sort()).toEqual([
+      'amount',
+      'currency',
+      'id',
+      'notes',
+      'salaryOrigin',
+      'status',
+      'txDate',
+    ])
+    expect(compileWhere(cap.where).params).toEqual(['SALARY', QUERY.receiverId, MONTH])
+    expect((cap.orderBy ?? []).map((c) => compileWhere(c).sql)).toEqual([
+      '"non_deleted_transactions"."created_at" asc',
+      '"non_deleted_transactions"."id" asc',
+    ])
+  })
+
+  it('keeps all three obligation states, not only PENDING, and carries notes through', async () => {
+    // One row per admitted status: a filter arm mutated away drops exactly its
+    // own status, which a PENDING-only fixture could never show.
+    const rows = (['PENDING', 'PAID', 'LOCKED'] as const).map((status, i) => ({
+      id: `22222222-2222-4222-8222-00000000000${i + 1}`,
+      amount: `${(i + 1) * 100}.000000`,
+      currency: 'USD',
+      status,
+      salaryOrigin: 'MANUAL',
+      txDate: new Date('2026-09-30T00:00:00.000Z'),
+      notes: `note ${status}`,
+    }))
+    const db = {
+      db: { select: () => ({ from: () => ({ where: () => ({ orderBy: async () => rows }) }) }) },
+    }
+    const svc = makeTransactionsService({ db: db as never })
+
+    const result = await svc.getSalaryParts(user('ADMIN'), QUERY)
+
+    expect(result.parts.map((p) => p.status)).toEqual(['PENDING', 'PAID', 'LOCKED'])
+    expect(result.parts.map((p) => p.notes)).toEqual(['note PENDING', 'note PAID', 'note LOCKED'])
+    expect(result.parts.map((p) => p.amount)).toEqual([100, 200, 300])
+    // A Date must leave as an ISO string, never as an instance.
+    expect(result.parts[0]?.txDate).toBe('2026-09-30T00:00:00.000Z')
+  })
+
+  it('normalises an absent origin and absent notes to null', async () => {
+    const rows = [
+      {
+        id: '22222222-2222-4222-8222-000000000009',
+        amount: '10.000000',
+        currency: 'USD',
+        status: 'PENDING',
+        salaryOrigin: null,
+        txDate: null,
+        notes: null,
+      },
+    ]
+    const db = {
+      db: { select: () => ({ from: () => ({ where: () => ({ orderBy: async () => rows }) }) }) },
+    }
+    const svc = makeTransactionsService({ db: db as never })
+    const result = await svc.getSalaryParts(user('ADMIN'), QUERY)
+    expect(result.parts[0]).toMatchObject({ salaryOrigin: null, notes: null, txDate: null })
+  })
+
+  it('drops a part whose status is not an obligation an operator weighs', async () => {
+    const rows = [
+      {
+        id: '22222222-2222-4222-8222-000000000001',
+        amount: '1500.000000',
+        currency: 'USD',
+        status: 'PENDING',
+        salaryOrigin: 'MANUAL',
+        txDate: null,
+        notes: null,
+      },
+      {
+        id: '22222222-2222-4222-8222-000000000002',
+        amount: '900.000000',
+        currency: 'USD',
+        status: 'CANCELLED',
+        salaryOrigin: 'MANUAL',
+        txDate: null,
+        notes: null,
+      },
+    ]
+    const db = {
+      db: { select: () => ({ from: () => ({ where: () => ({ orderBy: async () => rows }) }) }) },
+    }
+    const svc = makeTransactionsService({ db: db as never })
+    const result = await svc.getSalaryParts(user('ADMIN'), QUERY)
+    expect(result.parts).toHaveLength(1)
+    expect(result.parts[0]?.status).toBe('PENDING')
+  })
+})
+
 describe('backfillSalaryMonth — RBAC guard (ADMIN only, narrower than the report)', () => {
   const forbiddenRoles: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'DROP', 'ACCOUNTANT']
 

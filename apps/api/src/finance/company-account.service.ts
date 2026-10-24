@@ -39,7 +39,8 @@ import {
 } from './onchain-tx'
 import { toDepositDto } from './company-account-mapper.util'
 import { assertFoundAndVisible } from './transaction-visibility.util'
-import { resolveTransactionDate } from './transaction-date.util'
+import { backdateAuditRow } from './transaction-date-audit.util'
+import { resolveTransactionDateWithPolicy } from './transaction-date-policy'
 
 /**
  * task-company-account-backend — the shared company USDT account.
@@ -287,7 +288,10 @@ export class CompanyAccountService {
    * credit (exchange withdrawals show the exchange's wallet).
    */
   async submitDeposit(
-    input: { txHashOrLink: string; txDate?: string | null | undefined },
+    input: {
+      txHashOrLink: string
+      txDate?: string | null | undefined
+    },
     currentUser: SessionUser,
   ): Promise<CompanyDepositDto> {
     if (currentUser.role !== 'SENIOR' && currentUser.role !== 'DROP') {
@@ -353,6 +357,30 @@ export class CompanyAccountService {
     // on the company wallet — so there is nothing to compare it to and no
     // tolerance to remove here. The deposit's protections are the recipient
     // match, the confirmation threshold, and the consumed-hash registry.
+    // SR-809-H-1 Scenario 4 / owner decision D-2: `submitDeposit` is credited off
+    // a VERIFIED on-chain transfer, yet the ledger date used to be whatever the
+    // SENIOR/DROP typed, with no bound at all — not even the lower bound the
+    // payout flows got. EXECUTED: the transfer is on the chain, so its date
+    // cannot be in the future, and a self-service role cannot reach back past
+    // the window.
+    //
+    // D-2 also says an on-chain-verified flow should take its date FROM the
+    // block timestamp rather than merely bounding the client's value. That needs
+    // a block-timestamp lookup the Etherscan adapter does not expose yet, so it
+    // is NOT done here — see the PR body. This bound is the floor, not the
+    // finished article.
+    //
+    // No `backdateReason` is passed ON PURPOSE, and no audit row is written for
+    // one: the guard above admits only SENIOR and DROP, and neither is exempt
+    // from the window under D-2, so a reason could never be consumed here. The
+    // same reasoning as `createPayoutRequest`. `createDividend` below is the
+    // ADMIN-only path where the exemption IS reachable, and that one does record
+    // its justification.
+    const dateDecision = resolveTransactionDateWithPolicy(input.txDate, {
+      role: currentUser.role,
+      flow: 'EXECUTED',
+    })
+
     const verifiedAmount = verification.amountUsdt ?? 0
     const credited = verification.toMatches && verification.confirmed && verifiedAmount > 0
     const amount = credited ? verifiedAmount : 0
@@ -382,7 +410,7 @@ export class CompanyAccountService {
             receiverLabel: COMPANY_ACCOUNT_LABEL,
             txHash,
             txFromAddress: onChainFromAddress,
-            txDate: resolveTransactionDate(input.txDate),
+            txDate: dateDecision.txDate,
             createdBy: currentUser.id,
           })
           .returning()
@@ -625,6 +653,8 @@ export class CompanyAccountService {
       receiptDocumentId?: string | null | undefined
       receiptExternalUrl?: string | null | undefined
       txDate?: string | null | undefined
+      // SR-809-H-1 / D-2: travels with txDate (transactionBusinessDateFields).
+      backdateReason?: string | null | undefined
     },
     currentUser: SessionUser,
   ): Promise<{ id: string; amount: number; receiverId: string }> {
@@ -720,6 +750,15 @@ export class CompanyAccountService {
       throw apiError('FINANCE_DIVIDEND_RECEIVER_ARCHIVED', HttpStatus.BAD_REQUEST)
     }
 
+    // SR-809-H-1 / owner decision D-2: a dividend pays money out that has
+    // already moved, so EXECUTED — no future date. An ADMIN may reach further
+    // back than the window only with a reason, recorded below with the row.
+    const dateDecision = resolveTransactionDateWithPolicy(input.txDate, {
+      role: currentUser.role,
+      flow: 'EXECUTED',
+      backdateReason: input.backdateReason,
+    })
+
     // MED (TOCTOU + overdraw): gate-read + debit-write serialized under the
     // shared company-account advisory lock. Acquire the lock FIRST, then re-read
     // the live ledger balance INSIDE the transaction and refuse to drive the
@@ -748,7 +787,7 @@ export class CompanyAccountService {
             // receiptDocumentId is always null here).
             receiptDocumentId: input.receiptDocumentId ?? null,
             receiptExternalUrl: input.receiptExternalUrl ?? null,
-            txDate: resolveTransactionDate(input.txDate),
+            txDate: dateDecision.txDate,
             // BIZ-19: persist the key so the unique index enforces idempotency
             // as a DB-level backstop (concurrent races that bypass the SELECT above).
             idempotencyKey: input.idempotencyKey ?? null,
@@ -776,6 +815,31 @@ export class CompanyAccountService {
         }
         throw err
       }
+
+      // SR-809-L-3 / owner decision D-2: "ADMIN/ACCOUNTANT may go beyond the
+      // 31-day limit ONLY with a mandatory reason written to the audit log".
+      // Without this the reason was collected and validated and then dropped —
+      // the rule would look enforced while leaving nothing an auditor could
+      // read, which is worse than not asking for it.
+      //
+      // Placement mirrors `payout-confirmation.service`'s shape: inside the
+      // transaction, on the path that ACTUALLY performed the write (there, after
+      // the conditional claim returned rows; here, after a successful fresh
+      // insert). That is what keeps it off BOTH idempotent replay paths — the
+      // early select returns before this transaction opens, and the 23505 branch
+      // returns from inside the `catch` above — so one backdate is recorded
+      // exactly once rather than once per retry.
+      if (dateDecision.backdateReason) {
+        await dbtx.insert(transactionAuditLog).values(
+          backdateAuditRow({
+            targetId: row!.id,
+            actor: currentUser,
+            txDate: dateDecision.txDate,
+            backdateReason: dateDecision.backdateReason,
+          }),
+        )
+      }
+
       return row!
     })
 

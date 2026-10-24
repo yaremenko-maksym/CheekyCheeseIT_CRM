@@ -14,6 +14,10 @@ export {
   salaryFundingSourceSchema,
   COMPANY_ACCOUNT_RECEIVER,
   manualPayoutMethodSchema,
+  salaryOriginSchema,
+  AUTOMATIC_SALARY_ORIGINS,
+  isAutomaticSalaryOrigin,
+  accountsForSalaryMonth,
 } from './finance/enums'
 export type {
   TransactionType,
@@ -23,9 +27,16 @@ export type {
   DropSharePercentSource,
   SalaryFundingSource,
   ManualPayoutMethod,
+  SalaryOrigin,
 } from './finance/enums'
 export {
   MAX_TRANSACTION_AMOUNT,
+  // SR-809-L-2: the sane business-year window. Exported because the API's
+  // `parseTransactionBusinessDate` enforces the SAME bounds as the Zod schema —
+  // one definition, two enforcement points, so they cannot drift.
+  MIN_TRANSACTION_BUSINESS_YEAR,
+  MAX_TRANSACTION_BUSINESS_YEAR,
+  transactionBusinessDateFields,
   transactionAmountError,
   BLOCKCHAIN_EXPLORER_HOSTS,
   isExplorerUrl,
@@ -70,6 +81,9 @@ export {
   salaryMonthGapReceiverSchema,
   salaryMonthGapReportSchema,
   salaryMonthBackfillSchema,
+  salaryPartsQuerySchema,
+  salaryPartSchema,
+  salaryPartsResponseSchema,
 } from './finance/income'
 export type {
   CreateAdminIncomeDto,
@@ -90,6 +104,9 @@ export type {
   SalaryMonthGapReceiverDto,
   SalaryMonthGapReportDto,
   SalaryMonthBackfillDto,
+  SalaryPartsQuery,
+  SalaryPartDto,
+  SalaryPartsResponseDto,
 } from './finance/income'
 export {
   createPayoutRequestSchema,

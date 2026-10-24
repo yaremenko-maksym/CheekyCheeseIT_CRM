@@ -11,13 +11,17 @@ import { apiError } from '../common/api-error'
 import { zodErrorBadRequest } from '../common/zod-error-exception'
 import { DatabaseService } from '../database/database.service'
 import { uniqueViolationConstraint } from '../database/pg-errors'
-import { transactions, users } from '../database/schema'
+import { salaryMonthInitializations, transactions, users } from '../database/schema'
 import {
   computeCompanyAccountBalanceFromLedger,
   lockCompanyAccount,
 } from './company-account-balance'
 import { assertReceiptDocumentBindable } from './receipt.util'
-import { assertSalaryCreationIntent, buildSalaryCreationIntent } from './salary-creation-intent'
+import {
+  assertSalaryCreationIntent,
+  assertSalaryReplayTargetLive,
+  buildSalaryCreationIntent,
+} from './salary-creation-intent'
 import { resolveTransactionDate } from './transaction-date.util'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
 
@@ -174,6 +178,9 @@ export class TransactionEntryService {
       ),
     })
     if (replay) {
+      // SR-795-L-2: the key may belong to a part that has since been deleted.
+      // Answering 200 with its id names a row every read path hides.
+      assertSalaryReplayTargetLive(replay)
       // SR-795-M-2 (PR #868): a replay is honoured only for the same request.
       assertSalaryCreationIntent(replay, creationIntent)
       return { id: replay.id }
@@ -250,31 +257,87 @@ export class TransactionEntryService {
       'USDT' | 'USD' | 'EUR' | 'UAH'
 
     // A SALARY transaction is one concrete salary part. Operators may record
-    // several parts for the same employee/month; only the automatic monthly
-    // component is idempotent (via salary_month_initializations).
+    // several parts for the same employee/month; the AUTOMATIC monthly
+    // component is the one that is idempotent, and `salary_month_initializations`
+    // is what makes it so.
+    //
+    // SR-795-M-1 / owner decision D-3: claiming that marker is no longer the
+    // cron's exclusive business. The first part recorded for a receiver/month
+    // claims it, whoever records it — so when an operator enters the month's
+    // salary by hand (a newly configured employee, or any month the cron has not
+    // reached), the cron on the 1st and the Backfill button both see the month
+    // as accounted for and skip it. Before this, both minted a SECOND payable
+    // salary for the same person and month, with nothing in the UI or the API
+    // mentioning the first one; manual QA measured it on a real stack.
+    //
+    // Claimed for EVERY receiver, not only the cron-eligible ones. Re-deriving
+    // "is this receiver cron-eligible" here would be a third copy of the
+    // predicate the gap resolver and the cron closure already share (the defect
+    // CR-795-M-7 is about), and for a receiver the cron never visits — SENIOR,
+    // DROP — the marker is simply a row nothing reads.
+    //
+    // Note what claiming does NOT do: a later DELETE of this part does not
+    // release the marker, so the month stays accounted for and nobody is paid
+    // for it until a replacement part is recorded. That is the same rule
+    // already in force for an automatic row (see `createMonthlySalaries` and
+    // the month-edit evidence query, both of which count soft-deleted rows on
+    // purpose): deleting a salary is an audit event, not permission for cron to
+    // resurrect it. Releasing on delete for MANUAL parts only would make the
+    // two origins follow opposite rules on one table and reopen a narrower form
+    // of the double payment this task fixes. Owner-ratified on PR #1102
+    // (SPEC-L-1) rather than assumed — it is a money path, and the cost of
+    // being wrong is a month nobody is paid for.
+    //
+    // The rule is "a delete is not a release", NOT "the marker is never
+    // released": `admin-edit.service` DOES release it on a salary-month change,
+    // and only when no remaining row still accounts for the old month
+    // (`oldMonthEvidence`). That release is bookkeeping for a month that
+    // genuinely no longer has a part — the opposite situation from a delete,
+    // where the part's absence is itself the audit record.
+    //
+    // Both writes share ONE transaction: a claimed marker with no salary row
+    // behind it would suppress the month's automatic accrual for nothing.
     let tx: typeof transactions.$inferSelect
     try {
-      const [created] = await this.db.db
-        .insert(transactions)
-        .values({
-          type: 'SALARY' as const,
-          status: 'PENDING' as const,
-          amount: String(data.amount),
-          currency,
-          senderId: null,
-          senderLabel: 'CheekyCheeseIT',
-          receiverId: data.receiverId,
-          salaryMonth: data.salaryMonth,
-          salaryOrigin: 'MANUAL',
-          salaryCreationIntent: creationIntent,
-          idempotencyKey: data.idempotencyKey,
-          notes: data.notes ?? null,
-          fundingSource: null,
-          txDate: resolveTransactionDate(data.txDate),
-          createdBy: currentUser.id,
-        })
-        .returning()
-      tx = created!
+      tx = await this.db.db.transaction(async (dbtx) => {
+        await dbtx
+          .insert(salaryMonthInitializations)
+          .values({
+            receiverId: data.receiverId,
+            salaryMonth: data.salaryMonth,
+            // Mirrors adminDeleteTransaction / createMonthlySalaries: under
+            // impersonation the REAL operator is recorded, never the target.
+            initializedBy: currentUser.impersonatorId ?? currentUser.id,
+          })
+          .onConflictDoNothing({
+            target: [salaryMonthInitializations.receiverId, salaryMonthInitializations.salaryMonth],
+          })
+          .returning({ id: salaryMonthInitializations.id })
+
+        // An already-claimed month is the normal multipart case (cron ran, or
+        // this is the second part): nothing to do, the part is still recorded.
+        const [created] = await dbtx
+          .insert(transactions)
+          .values({
+            type: 'SALARY' as const,
+            status: 'PENDING' as const,
+            amount: String(data.amount),
+            currency,
+            senderId: null,
+            senderLabel: 'CheekyCheeseIT',
+            receiverId: data.receiverId,
+            salaryMonth: data.salaryMonth,
+            salaryOrigin: 'MANUAL',
+            salaryCreationIntent: creationIntent,
+            idempotencyKey: data.idempotencyKey,
+            notes: data.notes ?? null,
+            fundingSource: null,
+            txDate: resolveTransactionDate(data.txDate),
+            createdBy: currentUser.id,
+          })
+          .returning()
+        return created!
+      })
     } catch (err) {
       if (uniqueViolationConstraint(err) === 'uq_transactions_salary_idempotency_key') {
         const committed = await this.db.db.query.transactions.findFirst({
@@ -284,6 +347,8 @@ export class TransactionEntryService {
           ),
         })
         if (committed) {
+          // SR-795-L-2 — same reasoning as the pre-insert lookup above.
+          assertSalaryReplayTargetLive(committed)
           assertSalaryCreationIntent(committed, creationIntent)
           return { id: committed.id }
         }

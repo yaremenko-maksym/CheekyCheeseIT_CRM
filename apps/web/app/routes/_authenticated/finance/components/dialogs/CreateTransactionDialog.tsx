@@ -45,6 +45,7 @@ import { ObligationPreviewBanner } from './create-transaction/ObligationPreviewB
 import { ReceiptField } from './create-transaction/ReceiptField'
 import { ProjectSelectSection } from './create-transaction/ProjectSelectSection'
 import { renderFundingSourceToggle } from './create-transaction/renderFundingSourceToggle'
+import { ExistingSalaryParts } from './create-transaction/ExistingSalaryParts'
 import { SalaryFields } from './create-transaction/SalaryFields'
 import { TransferSwapField } from './create-transaction/TransferSwapField'
 import { TypeSelector } from './create-transaction/TypeSelector'
@@ -607,6 +608,14 @@ export function CreateTransactionDialog({
               salaryMonth={salaryMonth}
               setSalaryMonth={setSalaryMonth}
             />
+          )}
+
+          {/* SR-795-M-1 / owner decision D-3: what this receiver/month already
+              carries, read before the operator submits. Several parts per month
+              are legal, so the server cannot refuse a second one — seeing the
+              first is what keeps an accidental one from being entered. */}
+          {type === 'SALARY' && (
+            <ExistingSalaryParts receiverId={receiverId} salaryMonth={salaryMonth} />
           )}
 
           {/* Funding source selector — EXPENSE only (task-admin-income-unified

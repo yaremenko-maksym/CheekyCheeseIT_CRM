@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { withMoneyFloor } from '../money'
-import { COMPANY_ACCOUNT_RECEIVER, salaryFundingSourceSchema } from './enums'
+import { COMPANY_ACCOUNT_RECEIVER, salaryFundingSourceSchema, salaryOriginSchema } from './enums'
 import {
   MAX_TRANSACTION_AMOUNT,
   mandatoryReceiptRefine,
@@ -10,7 +10,7 @@ import {
   refineAdminIncomeCompanyAccountUsdt,
   refineCompanyAccountUsdt,
   transactionAmountError,
-  transactionBusinessDateSchema,
+  transactionBusinessDateFields,
 } from './validation'
 
 // ADMIN_INCOME — admin declares project income for a project they own (or, for
@@ -35,7 +35,7 @@ export const createAdminIncomeSchema = z
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
-    txDate: transactionBusinessDateSchema.optional().nullable(),
+    ...transactionBusinessDateFields,
     // Stryker disable next-line ArrayDeclaration: this array literal is evaluated ONCE at module-import time (schema construction), before any test's per-test coverage window opens, so Stryker's vitest-runner falls back to a single whole-suite run for this "static" mutant and reports 0 tests completed. Verified independently outside Stryker's sandbox (plain node, this repo's exact zod@4.3.6): `z.union([])` throws synchronously inside `new ZodUnion` the instant the module is imported — every test file importing anything from finance.ts would fail to even load. Not an equivalent mutant (it is a real, severe regression); real behavioural tests already exist accepting a UUID and the COMPANY_ACCOUNT sentinel for this exact field (createAdminIncomeSchema.spec.ts) — they just cannot register as "covering" a construction-time literal, a tool blind spot for module-scope Zod unions.
     receiverId: z.union([z.string().uuid(), z.literal(COMPANY_ACCOUNT_RECEIVER)]).optional(),
     // security-review (PR #522, MED-1): `receiverId` REPLACED `fundingSource` on
@@ -100,7 +100,7 @@ export const createUsdtIncomeSchema = z
     // literal → the mandatory refine below requires a blockchain-explorer link.
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
-    txDate: transactionBusinessDateSchema.optional().nullable(),
+    ...transactionBusinessDateFields,
   })
   .superRefine(mandatoryReceiptRefine(() => 'USDT'))
 export type CreateUsdtIncomeDto = z.infer<typeof createUsdtIncomeSchema>
@@ -126,7 +126,7 @@ export const createSeniorIncomeSchema = z
     idempotencyKey: z.string().uuid(),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
-    txDate: transactionBusinessDateSchema.optional().nullable(),
+    ...transactionBusinessDateFields,
   })
   // task-receipts-backend: receipt MANDATORY + currency-aware (USDT → explorer-only).
   .superRefine(mandatoryReceiptRefine((d) => d.currency))
@@ -156,7 +156,7 @@ export const createDropIncomeSchema = z
     idempotencyKey: z.string().uuid(),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
-    txDate: transactionBusinessDateSchema.optional().nullable(),
+    ...transactionBusinessDateFields,
   })
   // task-receipts-backend: receipt MANDATORY + currency-aware (USDT → explorer-only).
   .superRefine(mandatoryReceiptRefine((d) => d.currency))
@@ -202,7 +202,7 @@ export const createExpenseSchema = z
     category: z.string().min(1).max(255),
     notes: z.string().max(1000).optional().nullable(),
     ...receiptFields,
-    txDate: transactionBusinessDateSchema.optional().nullable(),
+    ...transactionBusinessDateFields,
     // Reuse salaryFundingSourceSchema — only COMPANY_ACCOUNT is meaningful here.
     // Optional → legacy expense (no company routing, no balance impact).
     fundingSource: salaryFundingSourceSchema.optional(),
@@ -245,7 +245,7 @@ export const createSalarySchema = z.object({
   // distinguish from an intentional second, identical salary part.
   idempotencyKey: z.string().uuid(),
   notes: z.string().max(1000).optional().nullable(),
-  txDate: transactionBusinessDateSchema.optional().nullable(),
+  ...transactionBusinessDateFields,
 })
 export type CreateSalaryDto = z.infer<typeof createSalarySchema>
 
@@ -263,7 +263,7 @@ export const createAdminTransferSchema = z
     // an omitted currency is treated as USDT.
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
-    txDate: transactionBusinessDateSchema.optional().nullable(),
+    ...transactionBusinessDateFields,
   })
   .superRefine(mandatoryReceiptRefine((d) => d.currency))
 export type CreateAdminTransferDto = z.infer<typeof createAdminTransferSchema>
@@ -384,7 +384,7 @@ export const paySalarySchema = z
         if (message) ctx.addIssue({ code: 'custom', message })
       })
       .optional(),
-    txDate: transactionBusinessDateSchema.optional().nullable(),
+    ...transactionBusinessDateFields,
     txHash: z.string().max(255).optional().nullable(),
     // task-receipts-backend (#7): pay-time proof is now MANDATORY. Effective
     // currency = USDT for COMPANY_ACCOUNT (USDT-only) → explorer-only; else the
@@ -477,3 +477,45 @@ export const salaryMonthBackfillSchema = z.object({
   month: salaryMonthField('month must be YYYY-MM'),
 })
 export type SalaryMonthBackfillDto = z.infer<typeof salaryMonthBackfillSchema>
+
+// ---------------------------------------------------------------------------
+// Existing salary parts for one receiver/month (SR-795-M-1, owner decision D-3)
+// ---------------------------------------------------------------------------
+//
+// GET /api/finance/salary-parts?receiverId=…&month=YYYY-MM — ADMIN + ACCOUNTANT,
+// the same pair that may create a salary. The second half of D-3: before an
+// operator submits a salary part, the dialog shows what is already on the ledger
+// for that person and month.
+//
+// Why a dedicated endpoint rather than a filter on the transactions list: the
+// list is viewer-masked and paginated, and the question here is narrow and
+// pre-submit. It answers with exactly what an operator needs to recognise a
+// duplicate — the figure, its state, and whether it was theirs or the cron's.
+// Nothing viewer-sensitive is added: both roles already see these rows in the
+// finance table.
+export const salaryPartsQuerySchema = z.object({
+  receiverId: z.string().uuid(),
+  month: salaryMonthField('month must be YYYY-MM'),
+})
+export type SalaryPartsQuery = z.infer<typeof salaryPartsQuerySchema>
+
+export const salaryPartSchema = z.object({
+  id: z.string().uuid(),
+  amount: z.number(),
+  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+  status: z.enum(['PENDING', 'PAID', 'LOCKED']),
+  // NULL for a legacy row written before the column existed — the UI reads that
+  // as "automatic", the same way every predicate on the server does.
+  salaryOrigin: salaryOriginSchema.nullable(),
+  // ISO string, like `transactionSchema.txDate` — the same `mapTx` convention.
+  txDate: z.string().datetime().nullable(),
+  notes: z.string().nullable(),
+})
+export type SalaryPartDto = z.infer<typeof salaryPartSchema>
+
+export const salaryPartsResponseSchema = z.object({
+  receiverId: z.string().uuid(),
+  month: salaryMonthField("Expected 'YYYY-MM' format"),
+  parts: z.array(salaryPartSchema),
+})
+export type SalaryPartsResponseDto = z.infer<typeof salaryPartsResponseSchema>

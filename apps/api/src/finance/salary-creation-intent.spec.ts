@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { HttpStatus } from '@nestjs/common'
+import { HttpException, HttpStatus } from '@nestjs/common'
 import {
   assertSalaryCreationIntent,
+  assertSalaryReplayTargetLive,
   buildSalaryCreationIntent,
   type SalaryCreationIntent,
 } from './salary-creation-intent'
@@ -148,5 +149,40 @@ describe('assertSalaryCreationIntent', () => {
     expect(
       (thrown as { response: { existingTransactionId: string } }).response.existingTransactionId,
     ).toBe('tx-other')
+  })
+})
+
+/**
+ * SR-795-L-2 (task-retro-salary-ledger-integrity). The idempotency index carries
+ * no `deleted_at` term, so a soft-deleted manual part keeps owning its key. The
+ * replay path read the raw table and answered a retry with that deleted row's
+ * id and HTTP 200 — a success naming a transaction every list endpoint and the
+ * balance pipeline hide, so the operator is told "saved" about nothing.
+ *
+ * It is refused instead of being allowed to mint a fresh row: a deletion is an
+ * audit event, and silently re-issuing a spent key would let a stale client
+ * resurrect a part an admin had just removed. The operator's route forward is a
+ * new submission, which carries a new key.
+ */
+describe('assertSalaryReplayTargetLive (SR-795-L-2)', () => {
+  it('passes a live row through untouched', () => {
+    expect(() => assertSalaryReplayTargetLive({ id: 'tx-1', deletedAt: null })).not.toThrow()
+  })
+
+  it('refuses a soft-deleted row with 409 and a reason of its own', () => {
+    let thrown: unknown
+    try {
+      assertSalaryReplayTargetLive({ id: 'tx-gone', deletedAt: new Date('2026-10-20T10:00:00Z') })
+    } catch (err: unknown) {
+      thrown = err
+    }
+
+    expect(thrown).toBeInstanceOf(HttpException)
+    expect((thrown as HttpException).getStatus()).toBe(HttpStatus.CONFLICT)
+    expect((thrown as HttpException).getResponse()).toMatchObject({
+      code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
+      reason: 'DELETED_PART',
+      existingTransactionId: 'tx-gone',
+    })
   })
 })

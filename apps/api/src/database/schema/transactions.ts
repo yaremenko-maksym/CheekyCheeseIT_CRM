@@ -17,6 +17,7 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
+import { salaryOriginSchema, type SalaryOrigin } from '@crm/shared'
 import { documents, invoiceSignatures } from './documents'
 import { currencyEnum, transactionStatusEnum, transactionTypeEnum } from './enums'
 import { payoutRequests } from './finance'
@@ -467,7 +468,12 @@ export const transactions = pgTable(
     salaryMonth: varchar('salary_month', { length: 7 }),
     // A SALARY row is one concrete salary part. Manual and cron-created parts
     // may coexist for the same employee/month; NULL identifies legacy rows.
-    salaryOrigin: varchar('salary_origin', { length: 8 }),
+    // CR-795-L-2: the value domain is `SalaryOrigin` in `@crm/shared` (MANUAL |
+    // CRON | ADJUSTED) and is enforced in Postgres by
+    // `ck_transactions_salary_origin_domain` below. `.$type` does not narrow
+    // what the DB accepts — the CHECK does; this only stops the TS side from
+    // comparing the column against a literal that is not in the union.
+    salaryOrigin: varchar('salary_origin', { length: 8 }).$type<SalaryOrigin>(),
     // Immutable meaning of a manual salary idempotency key. Historical rows
     // remain NULL and are treated as unverifiable legacy retries.
     salaryCreationIntent: jsonb('salary_creation_intent').$type<{
@@ -598,6 +604,21 @@ export const transactions = pgTable(
     check(
       'ck_transactions_manual_salary_idempotency_key',
       sql`${t.type} <> 'SALARY' OR ${t.salaryOrigin} IS DISTINCT FROM 'MANUAL' OR ${t.idempotencyKey} IS NOT NULL`,
+    ),
+    // SR-795-L-3 — value domain for salary_origin. `varchar(8)` accepted any
+    // 8-character string, so a typo ('Manual', 'cron') would be stored and then
+    // silently fall out of the automatic-component predicate: the row would be
+    // invisible to cron idempotency and to the gap report at once. NULL stays
+    // legal (legacy rows written before the column existed). The literal list
+    // is generated from `salaryOriginSchema.options`, so the constraint cannot
+    // drift from the TS union it mirrors.
+    check(
+      'ck_transactions_salary_origin_domain',
+      sql.raw(
+        `salary_origin IS NULL OR salary_origin IN (${salaryOriginSchema.options
+          .map((o) => `'${o}'`)
+          .join(', ')})`,
+      ),
     ),
     // security-review round 2 (PR #517, MED-F) — structural race guard for the
     // admin-income-drop-backfill apply script. See the doc comment on

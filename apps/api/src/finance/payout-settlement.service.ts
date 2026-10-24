@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto'
 import { ForbiddenException, HttpStatus, Injectable, Logger } from '@nestjs/common'
-import { and, eq, ne, or } from 'drizzle-orm'
+import { and, eq, isNull, ne, or } from 'drizzle-orm'
 import type { ManualPayoutMethod, SessionUser } from '@crm/shared'
 import { extractOnChainTxHash } from '@crm/shared'
 import { apiError } from '../common/api-error'
@@ -19,7 +19,9 @@ import {
 import { OnChainClaimService } from './onchain-claim.service'
 import { PayoutRequestReadService } from './payout-request-read.service'
 import { applyDropProjectPayout } from './payout-settlement-drop.util'
-import { resolveTransactionDate } from './transaction-date.util'
+import { backdateAuditRow } from './transaction-date-audit.util'
+import { resolveTransactionDateWithPolicy } from './transaction-date-policy'
+import { formatTransactionBusinessDate } from './transaction-date.util'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
 
 // Phase 8 v2 — payout → company wallet. Marker persisted in
@@ -267,7 +269,14 @@ export class PayoutSettlementService {
     requestId: string,
     method: ManualPayoutMethod,
     currentUser: SessionUser,
-    options: { note?: string | null; txHash?: string | null; txDate?: string | null } = {},
+    options: {
+      note?: string | null
+      txHash?: string | null
+      txDate?: string | null
+      // SR-809-H-1 / D-2: travels with txDate. ADMIN/ACCOUNTANT may exceed the
+      // backdating window with a stated reason, recorded in the audit metadata.
+      backdateReason?: string | null
+    } = {},
   ) {
     // RBAC: ADMIN/ACCOUNTANT only (NOT SENIOR/DROP). Real 403 enforced here AND
     // by the controller RolesGuard (defense-in-depth).
@@ -366,6 +375,7 @@ export class PayoutSettlementService {
       needsReuseGuard,
       null,
       options.txDate,
+      options.backdateReason,
     )
   }
 
@@ -401,6 +411,10 @@ export class PayoutSettlementService {
     // audit data, never a gate.
     onChainFromAddress: string | null = null,
     txDate?: string | null,
+    // SR-809-H-1 / D-2. Only the manual-confirm entry point can supply one: the
+    // on-chain `payPayoutRequest` path is SENIOR/DROP, and neither role is
+    // exempt from the backdating window, so a reason there could never apply.
+    backdateReason?: string | null,
   ) {
     const requestId = req.id
 
@@ -451,19 +465,38 @@ export class PayoutSettlementService {
         // The payment date may be backdated, but never before the PAYOUT row
         // being settled. Validate inside the same transaction as the status
         // claim so no concurrent edit can make the decision stale.
-        const [payoutSource] = await dbtx
-          .select({
-            id: transactions.id,
-            txDate: transactions.txDate,
-            createdAt: transactions.createdAt,
-          })
-          .from(transactions)
-          .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')))
-          .limit(1)
-        if (!payoutSource) {
-          throw apiError('FINANCE_PAYOUT_TRANSACTION_NOT_FOUND_FOR_REQUEST', HttpStatus.BAD_REQUEST)
-        }
+        //
+        // SR-809-M-3 = CR-809-L-3: this lookup runs ONLY when a date was actually
+        // supplied. Its whole purpose is to find the lower bound, so with no date
+        // there is nothing to bound — and #809's unconditional throw made every
+        // payout request without a PAYOUT row (legacy data, a half-failed create)
+        // permanently unpayable, including through `manualConfirmPayout`, which
+        // IS the ADMIN/ACCOUNTANT recovery path. `isNull(deletedAt)` stops a
+        // soft-deleted row from governing the bound of a live payment.
+        let payoutSourceTxDate: Date | null = null
         if (txDate) {
+          const [payoutSource] = await dbtx
+            .select({
+              id: transactions.id,
+              txDate: transactions.txDate,
+              createdAt: transactions.createdAt,
+            })
+            .from(transactions)
+            .where(
+              and(
+                eq(transactions.payoutRequestId, requestId),
+                eq(transactions.type, 'PAYOUT'),
+                isNull(transactions.deletedAt),
+              ),
+            )
+            .limit(1)
+          if (!payoutSource) {
+            throw apiError(
+              'FINANCE_PAYOUT_TRANSACTION_NOT_FOUND_FOR_REQUEST',
+              HttpStatus.BAD_REQUEST,
+            )
+          }
+          payoutSourceTxDate = payoutSource.txDate
           const sourceDate = (payoutSource.txDate ?? payoutSource.createdAt)
             .toISOString()
             .slice(0, 10)
@@ -471,7 +504,48 @@ export class PayoutSettlementService {
             throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
           }
         }
-        const paymentTxDate = txDate ? resolveTransactionDate(txDate) : undefined
+        // SR-809-H-1 Scenario 3 / owner decision D-2: this is the date that ends
+        // up on the PAYOUT row, and `invoice-creation.service` stamps the invoice
+        // from it — a legal document. EXECUTED: the payment has happened by the
+        // time this cascade runs, so the date is never ahead of today, and a
+        // self-service role cannot reach back past the window.
+        const dateDecision = txDate
+          ? resolveTransactionDateWithPolicy(txDate, {
+              role: currentUser.role,
+              flow: 'EXECUTED',
+              backdateReason,
+            })
+          : undefined
+        const paymentTxDate = dateDecision?.txDate
+
+        // SR-809-L-3: the audit trail used to carry the NEW date only, while the
+        // PAYOUT row's own date is overwritten at pay time — so the override was
+        // not reconstructable from the trail. Record both ends of it. `null` means
+        // "the row carried no business date before", which is different from
+        // "no override happened" (then neither key is written at all).
+        //
+        // Discriminated on `dateDecision` itself rather than on `paymentTxDate`,
+        // which is derived from it: "was a date decided" is the actual question,
+        // and asking it directly lets the compiler narrow the type, so the
+        // optional chaining this used to need on `backdateReason` is gone. That
+        // `?.` was dead either way — inside this branch a decision provably
+        // exists — and dead defensiveness is worse than none: it reads as if the
+        // undefined case were reachable and nothing can test that it is not.
+        const dateOverrideAudit =
+          dateDecision === undefined
+            ? {}
+            : {
+                txDateBefore: payoutSourceTxDate
+                  ? formatTransactionBusinessDate(payoutSourceTxDate)
+                  : null,
+                txDateAfter: formatTransactionBusinessDate(dateDecision.txDate),
+                // SR-809-L-3 / D-2: present only when the policy actually
+                // consumed a reason — i.e. an ADMIN/ACCOUNTANT dated this
+                // payment beyond the backdating window.
+                ...(dateDecision.backdateReason
+                  ? { backdateReason: dateDecision.backdateReason }
+                  : {}),
+              }
 
         // ── SECURITY (LOW #6, defense-in-depth): in-transaction txHash-reuse guard.
         // For the manual COMPANY_ACCOUNT path the on-chain hash credits the company
@@ -675,8 +749,26 @@ export class PayoutSettlementService {
             payableAmount: req.payableAmount,
             ...(auditNote ? { note: auditNote } : {}),
             ...(txDate ? { txDate } : {}),
+            ...dateOverrideAudit,
           },
         })
+
+        // CR-M-1: the reason also lives in the PAYOUT_SETTLED metadata above, but
+        // every other writer records an out-of-window backdate as its OWN
+        // TX_DATE_BACKDATED row, so a search on that action must find cascade
+        // backdates too. Same transaction as the row it justifies; the payout_requests
+        // claim at the top of this flow admits exactly one caller, so it is written
+        // once per settlement.
+        if (dateDecision?.backdateReason) {
+          await dbtx.insert(transactionAuditLog).values(
+            backdateAuditRow({
+              targetId: payoutRow.id,
+              actor: currentUser,
+              txDate: dateDecision.txDate,
+              backdateReason: dateDecision.backdateReason,
+            }),
+          )
+        }
 
         // Drop role - phase 2 (AC3): drop-project routing + pending IOUs
         // (senior + drop) — extracted to payout-settlement-drop.util.ts. Runs in

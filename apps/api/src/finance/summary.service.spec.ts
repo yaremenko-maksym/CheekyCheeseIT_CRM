@@ -287,9 +287,10 @@ function makeDb(data: DbData = {}) {
         }
         if (table === nonDeletedTransactions) {
           return {
+            // SR-795-L-3: the salary-status read ends in `.orderBy()` now.
             where: (w: unknown) => {
               cap.salaryWhere = w
-              return Promise.resolve(data.salaryRows ?? [])
+              return { orderBy: () => Promise.resolve(data.salaryRows ?? []) }
             },
           }
         }

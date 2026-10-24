@@ -2738,6 +2738,26 @@ msgstr "The sender must be an admin"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED"
+msgstr "This date is too far back and needs a documented reason — it can't be recorded from this screen"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_IN_FUTURE"
+msgstr "A completed operation can't have a future date"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_INVALID"
+msgstr "The transaction date isn't a valid date"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_TOO_OLD"
+msgstr "This date is too far in the past — ask an admin to record it"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_HASH_ALREADY_CONSUMED"
 msgstr "This transaction hash has already been used for a payout or a company account deposit"
 
@@ -7092,6 +7112,11 @@ msgstr "Create"
 msgid "Назад до списку"
 msgstr "Back to the list"
 
+#. placeholder {0}: parts.length
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
+msgid "Вже внесено за цей місяць: {0, plural, one {# частина зарплати} few {# частини зарплати} many {# частин зарплати} other {# частини зарплати}}"
+msgstr "Already recorded for this month: {0, plural, one {# salary part} other {# salary parts}}"
+
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
@@ -8746,6 +8771,10 @@ msgstr "Current avatar"
 msgid "Посилання не працює. Відкрийте посилання з останнього листа, а якщо його немає — попросіть адміністратора надіслати запрошення ще раз."
 msgstr "This link doesn't work. Open the link from the latest email — if there isn't one, ask an admin to resend the invitation."
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
+msgid "Внесено вручну"
+msgstr "Entered manually"
+
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Почніть вводити технологію…"
 msgstr "Start typing a technology…"
@@ -10017,6 +10046,10 @@ msgstr "over {count, plural, one {# month} other {# months}}"
 #: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Технології"
 msgstr "Tech stack"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
+msgid "Внесено автоматично"
+msgstr "Entered automatically"
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "За ім’ям"
@@ -11650,6 +11683,11 @@ msgstr "The date must be in YYYY-MM-DD format"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DATE_NOT_IN_FUTURE"
 msgstr "The transaction date cannot be in the future"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.DATE_YEAR_OUT_OF_RANGE"
+msgstr "Enter a year between 2020 and 2100"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

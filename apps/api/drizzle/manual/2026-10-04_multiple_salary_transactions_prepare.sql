@@ -73,6 +73,63 @@ BEGIN
 END
 $$;
 
+-- SR-795-L-3 (task-retro-salary-ledger-integrity, 2026-10-24). Value domain for
+-- salary_origin. The column shipped as a bare varchar(8), which accepts any
+-- 8-character string: a stored 'Manual' or 'cron' satisfies neither the
+-- automatic-component predicate nor the month-accounting one, so the row goes
+-- invisible to cron idempotency AND to the gap report at the same time, silently.
+-- Mirrors `ck_transactions_salary_origin_domain` in schema.ts; the list is the
+-- `SalaryOrigin` union in @crm/shared. NULL stays legal (rows written before the
+-- column existed). Added pre-swap on purpose: the previous API image writes only
+-- MANUAL and CRON, both inside the domain.
+-- CR-M-2: the domain list is written ONCE, in `v_domain` below, and both the
+-- constraint and its validation precondition are built from it. An earlier
+-- edition of this file hand-typed the three values twice — the same
+-- one-predicate-many-copies defect CR-795-M-7 is about, reappearing in SQL,
+-- where the two copies could drift apart with nothing to notice. SQL cannot
+-- import the TypeScript union, so `multiple-salary-transactions-schema.spec.ts`
+-- reconciles this literal against `salaryOriginSchema.options` and asserts the
+-- file contains exactly one copy of it.
+DO $$
+DECLARE
+  v_domain text := '''MANUAL'', ''CRON'', ''ADJUSTED''';
+  v_clean boolean;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'ck_transactions_salary_origin_domain'
+      AND conrelid = 'transactions'::regclass
+  ) THEN
+    EXECUTE format(
+      'ALTER TABLE transactions
+         ADD CONSTRAINT ck_transactions_salary_origin_domain
+         CHECK (salary_origin IS NULL OR salary_origin IN (%s)) NOT VALID',
+      v_domain
+    );
+  END IF;
+
+  -- NOT VALID for the same reason as the CHECK above: an environment that
+  -- somehow holds an out-of-domain value must not turn this deploy into a
+  -- failed one. PostgreSQL enforces the CHECK on every new and updated row
+  -- regardless, so the defect cannot spread; validate as soon as the table is
+  -- clean. The precondition is the constraint's own predicate, negated, built
+  -- from the same `v_domain` — so the two can never disagree about what the
+  -- domain is.
+  EXECUTE format(
+    'SELECT NOT EXISTS (
+       SELECT 1 FROM transactions
+        WHERE salary_origin IS NOT NULL AND salary_origin NOT IN (%s))',
+    v_domain
+  ) INTO STRICT v_clean;
+
+  IF v_clean THEN
+    ALTER TABLE transactions
+      VALIDATE CONSTRAINT ck_transactions_salary_origin_domain;
+  END IF;
+END
+$$;
+
 -- IF NOT EXISTS is name-based. Fail loud if a pre-existing index with this
 -- name does not actually enforce the contract this rollout relies on.
 DO $$
@@ -152,12 +209,21 @@ FROM (
   WHERE type = 'SALARY'
     AND salary_month IS NOT NULL
     AND receiver_id IS NOT NULL
-    -- First rollout: every historical row has NULL origin, so all legacy
-    -- months are adopted. Later deploys must NOT let a newly-created MANUAL
-    -- part claim the cron marker. CRON is included defensively so a missing
-    -- marker can be repaired without treating manual salary parts as evidence
-    -- that monthly automatic accrual already ran.
-    AND (salary_origin IS NULL OR salary_origin = 'CRON')
+    -- SR-795-M-1 / owner decision D-3 (2026-10-24) REVERSED the rule that used
+    -- to live on this line. It read `AND (salary_origin IS NULL OR salary_origin
+    -- = 'CRON')`, on the reasoning that a manual part must never claim the cron
+    -- marker — and that is exactly the hole the retro review measured: a month
+    -- whose only salary is manual stays markerless, so the next cron run (or an
+    -- ADMIN pressing Backfill) mints a SECOND payable salary for the same
+    -- person and month, with nothing in the UI or the API saying so.
+    --
+    -- Under D-3 the first part recorded for a receiver/month owns the month,
+    -- whoever recorded it, which is also what the pre-multipart unique index
+    -- meant. So every origin is adopted here EXCEPT ADJUSTED: an ADJUSTED row
+    -- was reclassified precisely because another row already held that month,
+    -- and letting it claim a marker on replay would hand it a slot it lost.
+    -- `IS DISTINCT FROM` rather than `<>` because NULL (legacy) must pass.
+    AND salary_origin IS DISTINCT FROM 'ADJUSTED'
   ORDER BY receiver_id, salary_month, created_at ASC, id ASC
 ) AS legacy
 ON CONFLICT (receiver_id, salary_month) DO NOTHING;

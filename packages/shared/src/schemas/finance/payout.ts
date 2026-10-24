@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { kyivToday } from '../../utils/kyiv-day'
 import { withSalaryFloor } from '../money'
 import { manualPayoutMethodSchema, salaryFundingSourceSchema } from './enums'
 import { transactionSchema } from './transaction'
@@ -8,13 +7,14 @@ import {
   mandatoryReceiptRefine,
   receiptFields,
   refineCompanyAccountUsdt,
+  transactionBusinessDateFields,
   transactionBusinessDateSchema,
 } from './validation'
 
 // Create payout request (senior bundles their VALIDATED incomes)
 export const createPayoutRequestSchema = z.object({
   transactionIds: z.array(z.string().uuid()).min(1),
-  txDate: transactionBusinessDateSchema.optional().nullable(),
+  ...transactionBusinessDateFields,
 })
 export type CreatePayoutRequestDto = z.infer<typeof createPayoutRequestSchema>
 
@@ -39,7 +39,7 @@ export const payPayoutRequestSchema = z
   .object({
     txHash: z.string().max(255).optional(),
     simulateResult: z.enum(['success', 'error']).optional(),
-    txDate: transactionBusinessDateSchema.optional().nullable(),
+    ...transactionBusinessDateFields,
   })
   .superRefine((data, ctx) => {
     if (data.simulateResult === undefined) {
@@ -79,7 +79,7 @@ export type ReleaseOnChainHashDto = z.infer<typeof releaseOnChainHashSchema>
 export const manualConfirmPayoutSchema = z.object({
   method: manualPayoutMethodSchema,
   note: z.string().max(1000).optional().nullable(),
-  txDate: transactionBusinessDateSchema.optional().nullable(),
+  ...transactionBusinessDateFields,
   // HIGH-1 (security-review PR #438): the format is now validated at the write
   // boundary. A supplied txHash MUST contain a real on-chain hash (bare or as
   // an explorer link) — previously any string ≥10 chars was accepted verbatim,
@@ -137,7 +137,7 @@ export const confirmPayoutSchema = z
     recipientAdminId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
     method: payoutMethodSchema.default('CRYPTO'),
     txHash: z.string().max(255).optional().nullable(),
-    txDate: transactionBusinessDateSchema.optional().nullable(),
+    ...transactionBusinessDateFields,
   })
   .superRefine((data, ctx) => {
     if (data.method === 'CRYPTO') {
@@ -427,17 +427,16 @@ export const settleSeniorPayoutSchema = z
       d.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : (d.currency ?? 'USDT'),
     ),
   )
-  .superRefine((data, ctx) => {
-    // Stryker disable next-line ConditionalExpression: equivalent mutant - txDate null, undefined or '' compared with > against a YYYY-MM-DD string is already false, so the early return is redundant
-    if (!data.txDate) return
-    if (data.txDate > kyivToday()) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['txDate'],
-        message: 'zod.DATE_NOT_IN_FUTURE',
-      })
-    }
-  })
+// SR-809-M-2 = CR-809-H-1: an absolute `txDate > kyivToday()` refine USED to
+// stand here. Together with the service's lower bound (`selected >= sourceDate`)
+// it formed an unsatisfiable range for any obligation whose source row was
+// itself future-dated: min > max, so the date picker rendered empty and the
+// obligation could not be settled by anyone. A Zod schema cannot see the source
+// row, so it cannot compute the bound that is actually wanted —
+// `selected <= max(kyivToday(), sourceDate)` — and that bound therefore lives in
+// `PendingSettlementService`, where the source IS known, and is tested there.
+// The role/flow-independent part (a real calendar day inside the sane year
+// window) stays in `transactionBusinessDateSchema` above.
 export type SettleSeniorPayoutDto = z.infer<typeof settleSeniorPayoutSchema>
 
 // Response after a successful settle: returns the updated obligation snapshot

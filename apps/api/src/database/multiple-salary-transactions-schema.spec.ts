@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PgDialect, getTableConfig } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
+import { salaryOriginSchema } from '@crm/shared'
 
 import { salaryMonthInitializations, transactions, users } from './schema'
 
@@ -11,6 +12,13 @@ const LEGACY_AUDIT_DDL = readFileSync(
 )
 const SALARY_CREATION_INTENT_DDL = readFileSync(
   join(import.meta.dirname, '../../drizzle/manual/2026-10-10_salary_creation_intent.sql'),
+  'utf8',
+)
+const MULTIPART_SALARY_PREPARE_DDL = readFileSync(
+  join(
+    import.meta.dirname,
+    '../../drizzle/manual/2026-10-04_multiple_salary_transactions_prepare.sql',
+  ),
   'utf8',
 )
 
@@ -115,6 +123,85 @@ describe('multipart salary — Drizzle schema contract', () => {
     expect(normalize(new PgDialect().sqlToQuery(check!.value).sql)).toBe(
       "type <> 'salary' or salary_origin is distinct from 'manual' or idempotency_key is not null",
     )
+  })
+
+  // SR-795-L-3 (task-retro-salary-ledger-integrity). `varchar(8)` accepted any
+  // 8-character string: a stored 'Manual' or 'cron' would fall out of the
+  // automatic-component predicate AND out of the month-accounting one, making
+  // the row invisible to cron idempotency and to the gap report at once, with
+  // no error anywhere. The CHECK is the only layer that can refuse it — `.$type`
+  // constrains TypeScript, not Postgres.
+  it('confines salary_origin to the shared SalaryOrigin domain, in the schema and in the replayed DDL', () => {
+    const check = getTableConfig(transactions).checks.find(
+      (c) => c.name === 'ck_transactions_salary_origin_domain',
+    )
+    expect(check).toBeDefined()
+    expect(normalize(new PgDialect().sqlToQuery(check!.value).sql)).toBe(
+      "salary_origin is null or salary_origin in ('manual', 'cron', 'adjusted')",
+    )
+
+    // Same constraint, same name, in the migration the deploy actually applies —
+    // and added through a name-guarded DO block, because this file is replayed
+    // on every deploy (see its header).
+    expect(MULTIPART_SALARY_PREPARE_DDL).toContain('ck_transactions_salary_origin_domain')
+    expect(MULTIPART_SALARY_PREPARE_DDL).toMatch(
+      /CHECK \(salary_origin IS NULL OR salary_origin IN \(%s\)\) NOT VALID/,
+    )
+  })
+
+  // CR-M-2. SQL cannot import the TypeScript union, so the one thing that can
+  // keep them together is arithmetic: the DDL states the domain ONCE, and this
+  // reconciles that single copy against `salaryOriginSchema.options`. A second
+  // hand-typed copy — the defect this replaces, where the constraint and its
+  // validation precondition each spelled the list out and could drift — fails
+  // the count, not somebody's attention.
+  it('states the salary_origin domain exactly once in the DDL, and it matches the union', () => {
+    const expectedList = salaryOriginSchema.options.map((o) => `''${o}''`).join(', ')
+    expect(expectedList).toBe("''MANUAL'', ''CRON'', ''ADJUSTED''")
+
+    expect(MULTIPART_SALARY_PREPARE_DDL).toContain(`v_domain text := '${expectedList}';`)
+
+    // One declaration, and no bare re-statement of the list anywhere else in the
+    // file. `%s` placeholders are the uses; they carry no list of their own.
+    //
+    // WHAT THIS CHECKS, exactly: a single LINE that mentions two or more of the
+    // origins in single quotes is treated as a re-statement — except the
+    // declaration itself, which is the one copy allowed. That is wider than the
+    // literal regex it replaces (`'MANUAL', 'CRON', 'ADJUSTED'`, which a
+    // reordering or a different gap between values walked straight past) and it
+    // is NOT "however it is written", which an earlier edition of this comment
+    // claimed. These shapes still pass: one origin per line in a vertical list,
+    // double-quoted or curly-quoted values, and lowercase values. A guard whose
+    // comment promises more than it checks is worse than one that states its
+    // limits, so the limits are stated.
+    const lines = MULTIPART_SALARY_PREPARE_DDL.split('\n')
+    const namesTwoOrMoreOrigins = (line: string): boolean =>
+      salaryOriginSchema.options.filter((o) => line.includes(`'${o}'`)).length >= 2
+    const restatements = lines.filter(
+      (line) => namesTwoOrMoreOrigins(line) && !line.includes('v_domain text :='),
+    )
+    expect(restatements).toEqual([])
+
+    const declarations = lines.filter((line) => line.includes('v_domain text :='))
+    expect(declarations).toHaveLength(1)
+  })
+
+  // SR-795-M-1 / owner decision D-3. The marker backfill originally adopted only
+  // legacy/CRON rows, on the reasoning that a manual part must never claim the
+  // cron marker. D-3 reverses that: the first manual part of a receiver/month
+  // claims it. Without this half of the change, every manual part created before
+  // the fix keeps its month markerless, and the next cron run or Backfill press
+  // still mints the second payable salary the finding is about.
+  it('adopts every existing salary month as initialized, manual parts included', () => {
+    const backfill = MULTIPART_SALARY_PREPARE_DDL.slice(
+      MULTIPART_SALARY_PREPARE_DDL.indexOf('INSERT INTO salary_month_initializations'),
+    )
+    expect(backfill).toContain("WHERE type = 'SALARY'")
+    expect(backfill).not.toMatch(/AND \(salary_origin IS NULL OR salary_origin = 'CRON'\)/)
+    // An ADJUSTED row accounts for no month (it was reclassified because another
+    // row already held one), so it must not be able to claim a marker on replay.
+    expect(backfill).toMatch(/salary_origin IS DISTINCT FROM 'ADJUSTED'/)
+    expect(backfill).toContain('ON CONFLICT (receiver_id, salary_month) DO NOTHING')
   })
 
   it('declares the durable cron-initialization table exactly', () => {

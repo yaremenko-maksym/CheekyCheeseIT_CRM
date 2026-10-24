@@ -527,6 +527,41 @@ describe.each(KINDS)('$name — shared guards and write path', (k) => {
     )
   })
 
+  // SR-809-H-1 Scenario 1, named verbatim in the retro review: "a SENIOR/DROP
+  // who missed September declares the income in October with txDate=2026-09-15".
+  // `getIncomeComplianceOverview` buckets on `txDate ?? createdAt`, so the
+  // project silently reads as "received" for a month that was already reported,
+  // and nothing but `createdAt` records that it was a late declaration.
+  //
+  // Owner decision D-2: a self-service role may backdate at most 31 days. NOW is
+  // 2026-03-10 here, so the window reaches back to 2026-02-07.
+  it('refuses a self-service backdate beyond the 31-day window (SR-809-H-1)', async () => {
+    const h = build({ project: k.project, user: k.user })
+    await expect(call(h, k, payload({ txDate: '2026-01-01' }))).rejects.toMatchObject({
+      response: { code: 'FINANCE_TX_DATE_TOO_OLD', statusCode: 400 },
+    })
+    expect(h.values).not.toHaveBeenCalled()
+  })
+
+  it('accepts the oldest day still inside the window — the boundary is inclusive', async () => {
+    const h = build({ project: k.project, user: k.user })
+    await call(h, k, payload({ txDate: '2026-02-07' }))
+    expect((h.values.mock.calls[0]![0] as Record<string, unknown>)['txDate']).toEqual(
+      new Date('2026-02-07T00:00:00.000Z'),
+    )
+  })
+
+  // SR-809-H-1 Scenario 3: a received income is not a planned row, so its date
+  // cannot be ahead of today. Unbounded future dates are how a year-9999 row
+  // reached the ledger and the invoice footer.
+  it('refuses a future date on an income, which records something that already happened', async () => {
+    const h = build({ project: k.project, user: k.user })
+    await expect(call(h, k, payload({ txDate: '2026-03-11' }))).rejects.toMatchObject({
+      response: { code: 'FINANCE_TX_DATE_IN_FUTURE', statusCode: 400 },
+    })
+    expect(h.values).not.toHaveBeenCalled()
+  })
+
   // ── Post-insert: lifecycle hook + read-back facade ─────────────────────
   it('after the insert: lifecycle.afterTransactionCreated(created.id, created, actor), THEN findOne(created.id, actor); returns the facade result', async () => {
     const h = build({ project: k.project, user: k.user })
