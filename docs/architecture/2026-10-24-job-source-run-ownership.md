@@ -299,9 +299,10 @@ s.next_attempt_at FOR UPDATE SKIP LOCKED LIMIT 1`.
 2. **Gate, on the locked row** (round 5, SR-H-5). Each check below is a refusal with a recorded
    reason, never an exception:
    - the `manifest_id` resolves to a manifest entry (`MANIFEST_ENTRY_MISSING`);
-   - **the registry says the type is activatable at the database clock.** That is T2's activation
-     check, the same one the activation query uses, so an owner decision without captured evidence
-     stays refused even when `enabled` is true (`NOT_ACTIVATABLE`);
+   - **the registry says the adapter's kind is `REPORTING` and the type is activatable at the
+     database clock.** That is T2's activation check, the same one the activation query uses, so an
+     owner decision without captured evidence stays refused even when `enabled` is true, and a
+     `LEGACY` type such as DOU is refused explicitly (`NOT_ACTIVATABLE`; round 6, SR-M-23);
    - `readinessAt(entry, DB clock)` permits a run (`READINESS_BLOCKED`);
    - **the adapter declares a non-empty `allowedHosts`** (`TRANSPORT_NOT_WIRED`; round 5, SR-M-16). No
      adapter declares one until T6 lands, so no reporting source can be claimed before the transport
@@ -353,10 +354,16 @@ cooldown, the cap and a running run all refuse a manual run too. `enabled` alone
 source claimable (CONTRA-3): `admin_state` and T2's activation check must both agree.
 
 **DOU, the one live source, stays on the legacy path, entirely outside the ledger** (round 5,
-SR-M-17, CONTRA-4). DOU implements the legacy `JobSourceProvider` contract. Its `job_sources` row
-keeps `host_key = NULL`, so it is never due, never claimed and never recovered. The legacy cron path
-(`collectAll` → `collectSource` → `provider.collect`) runs it exactly as today, from the 05:00
-handler. So the host-pause rule, the failure cap and the ledger do **not** apply to DOU. That is the
+SR-M-17, CONTRA-4). DOU implements the legacy `JobSourceProvider` contract, and the registry gives
+its adapter the kind `LEGACY`.
+
+**The allow is that kind, stated explicitly** (round 6, SR-M-23). The legacy path runs only `LEGACY`
+adapters and throws otherwise, and the ledger claims only `REPORTING` ones. DOU's `job_sources` row
+also keeps `host_key = NULL`, a second, redundant exclusion that is not the allow. DOU is never due
+to the ledger, never claimed and never recovered.
+
+The legacy cron path (`collectAll` → `collectSource` → `provider.collect`) runs it exactly as today,
+from the 05:00 handler (T7, "One routing"). So the host-pause rule, the failure cap and the ledger do **not** apply to DOU. That is the
 explicit exception, and the earlier "uniform ban rule" wording is withdrawn. **What the owner
 loses:** DOU keeps today's per-run stop behaviour and no cross-run pause. That is acceptable for one
 public RSS feed, and it guarantees the only live feed cannot be capped out by a ledger it does not
@@ -421,8 +428,15 @@ capped source leaves the cap only through T9's recorded reset.
     the host, and a parsed `Retry-After`. It is capped at `HOST_BAN_PAUSE_MAX` (30 days).
   - `Retry-After` is parsed as finite and non-negative, in both its seconds and HTTP-date forms, and
     capped. Anything else is ignored.
-- **The refused run sends nothing more.** After a refusal, T7's production context refuses every
-  further `fetchText` of that run, in process and before any I/O, whatever the adapter does next.
+- **The refused run sends nothing more, and pays for nothing more** (round 6, SR-M-20). After a
+  refusal, T7's production context latches closed. It then refuses every further `meter.reserve`,
+  `meter.markSent` and `fetchText` of that run, in process and before any transaction or I/O,
+  whatever the adapter does next.
+
+  Latching `reserve` and `markSent`, not only `fetchText`, is what keeps a looping adapter from
+  committing a `SENT` row that the end-of-run settlement would then charge as `USED`. **What the owner
+  pays in the worst case:** the one refused request, at its full reservation, and nothing after it.
+
 - **No other run can be in flight on a banned host.** At most one run is active per host
   (`HOST_BUSY`), adapters issue their subrequests one at a time, and only that run's transport can
   write the host's ban. So when a refusal arrives, the only request in flight on the host is the
@@ -646,7 +660,7 @@ arithmetic this task must still write. Its facts 3 and 4 are an inert fencing ep
 executors sharing one reservation. Under the plan's requirement to keep the epoch, both stay ours
 under either option: pg-boss fences only its own job row (Option B). Option A
 limits that risk by **locality** instead: one module is the only writer of the ownership columns
-(enforced by the write gate, T3 AC 6), and every transition has a real-Postgres multi-worker case.
+(enforced by the write gate, T3 AC 7), and every transition has a real-Postgres multi-worker case.
 That is the verification bar the brief sets anyway.
 
 **When to reopen.** If a later task needs features pg-boss does well and we lack (DAG flows, cron
@@ -851,7 +865,7 @@ Each is run against real Postgres, as `crm_app`.
     functions, `settleRunReservations` and `lockAccountMeters`;
   - `COLLECTION_ERROR_CODES` in `providers/reporting-provider.ts`;
   - the 3.5a characterisation case (AutoTest zone; Master assigns that edit);
-  - the aging helpers in `src/test/`.
+  - the aging helper `ageRun` in `src/test/` (it reuses T8's `ageHostPause`).
 - **New codes (one owner).**
   - T3 adds `RUN_FENCED`, `LEASE_EXPIRED` and `NOT_MARKED_SENT` to
     `COLLECTION_ERROR_CODES`, in one edit. T7 raises `NOT_MARKED_SENT` but does
@@ -926,7 +940,7 @@ Each is run against real Postgres, as `crm_app`.
       - a recovered run followed by a new claim counts twice in the host's 24 h count.
   17. `claimSource` returns a refusal within its `lock_timeout` while a `finish` holds the source row
       (round 5, SR-L-16).
-  18. DOU is never claimed: its `host_key` is NULL.
+  18. DOU is never claimed: the claim refuses its `LEGACY` kind (`NOT_ACTIVATABLE`), independently of its NULL `host_key`.
 - **Real-Postgres:** every AC above runs against a scratch database, as `crm_app`. Time is moved by
   the aging helpers, never by an injected clock. AC 6, 10, 12 and 16 are multi-connection cases,
   and AC 10 and 12 assert request counts at a fixture server.
@@ -984,7 +998,10 @@ the storage is this separate task.
     function (see (a));
   - a new `job-sourcing/scheduling/host-state.ts`, with `recordHostBan`, `claimHostSlot`,
     and `hostOpenPredicate`;
-  - the seed-delta generator `manifest.seed-sql.ts`.
+  - the seed-delta generator `manifest.seed-sql.ts`;
+  - the test helper **`ageHostPause`** in `src/test/`, which T8's specs use to move time (round 6,
+    CR-M-19). T8 runs before T3, so T8 creates the helper, and T3 reuses it alongside its own
+    `ageRun`. T8's other specs seed `started_at` rows directly and need no other helper.
 - **`pause_source_id` is a plain `uuid` column with no foreign key** (round 5, SR-M-10 item 4).
   `recordHostBan` therefore takes no lock on `job_sources`, and the lock order holds.
 - **`recordHostBan(hostKey, reason, sourceId, retryAfter?)`** (round 5, CR-L-6, CONTRA-1, SR-M-14):
@@ -1074,8 +1091,8 @@ UPDATE`. Under `READ COMMITTED`, a second claimer's conflicting insert waits on 
 ### T7 — production `CollectionContext` builder and run worker
 
 - **Files:** a new `job-sourcing/runtime/` module (`buildCollectionContext`, `JobRunWorker`);
-  `JobSourcingService.collectSource` / `collectAll` (they route reporting adapters through the
-  worker; DOU stays on the legacy path); `quota-credentials` (it feeds `secrets`); the
+  `JobSourcingService.collectSource` / `collectAll`, which **stay the legacy path** and gain an
+  assertion that the adapter's kind is `LEGACY`; `quota-credentials` (it feeds `secrets`); the
   SmartRecruiters adapter's detail-request path; the `markSent` failure branch of
   `collectJsonPages` in `api-json.provider.ts`; the production `fetchText` and `markSent` wrappers,
   which carry the in-flight stop-on-ban.
@@ -1100,11 +1117,23 @@ UPDATE`. Under `READ COMMITTED`, a second claimer's conflicting insert waits on 
     and `SourceRateLimitedError` (429), **before** it rethrows to the adapter. 451 follows in T6.
     It imports these classes from `http/source-errors.ts`, not the unrelated class of the same name
     in the WorkingNomads adapter;
-  - after a refusal, the context refuses every further `fetchText` of that run, in process and
-    before any I/O.
+  - after a refusal, the context latches closed and refuses every further `meter.reserve`,
+    `meter.markSent` and `fetchText` of that run, in process and before any transaction or I/O
+    (round 6, SR-M-20). The worst case the owner pays is the one refused request.
 
   There is no database read of the pause during a run: one run per host makes it redundant (Option
   A, round-5 deletions).
+
+- **One routing** (round 6, SR-M-23). There are two paths, chosen by the registry's adapter
+  **kind**, never by a NULL column:
+  - **`LEGACY`** (DOU only) runs through `collectAll` → `collectSource` → `provider.collect`, called by
+    the 05:00 handler and by the existing manual `collect` route. That path asserts `LEGACY`, and
+    throws before any request otherwise.
+  - **`REPORTING`** runs only through the ledger: `claimDue` / `claimSource` → `JobRunWorker`. The
+    claim refuses any type whose kind is not `REPORTING` (`NOT_ACTIVATABLE`).
+
+  No other code path runs a reporting adapter. DOU's NULL `host_key` remains as a second, redundant
+  exclusion; it is not the allow.
 
 - **Worker start:** the worker calls `recoverExpired` once at start, before it claims anything.
 - **Carries:** every port backed in production:
@@ -1124,28 +1153,45 @@ UPDATE`. Under `READ COMMITTED`, a second claimer's conflicting insert waits on 
     source's failure never blocks another. **Run telemetry persists even if the DTO fails.** Empty
     and partial runs record honestly.
 - **Depends on:** T2, T3, T8 (T8's `recordHostBan`).
-- **AC:** (1) `grep` finds a `CollectionContext` producer outside `src/test/`; (2) a reporting
-  adapter runs end to end against a local fixture server; (3) a TheirStack run that would exceed
-  200 records stops with `COST_STOP`; (4) a throwing source leaves the others' runs `SUCCEEDED`;
-  (5) a DTO serialization failure still leaves the run row terminal with its counts; (6) in a
-  metered production context, `fetchText` called without a preceding committed `markSent` throws
-  `NOT_MARKED_SENT`, and the fixture server records zero requests; (7) every SmartRecruiters detail
-  request has a reservation in `SENT` or later before the fixture server sees it; (8) a `markSent`
-  refused with `RUN_FENCED` sends nothing, stops the run, and is reported as `RUN_FENCED`; (9) **every** metered
-  reporting adapter, run once through the production context against a fixture server, completes
-  without `NOT_MARKED_SENT`. One parametrised test, failing on the first adapter that reaches
-  `fetchText` without a committed `markSent`. **AC 6 and AC 9 are the enforcing instruments.** A
-  grep cannot tell whether a call site is preceded by an awaited `markSent`. The list of
-  `ctx.fetchText(` call sites outside `src/test/` (two on `d0f876f33`) is a reading aid for the
-  reviewer, not a gate. 10. **Stop-on-ban:** a fixture server answers one request with 403 (and, in a second case, 429).
-  The host's `paused_until` is written before the adapter sees the error, and the fixture server
-  receives **zero further requests from that run**, even from an adapter written to keep going. 11. A source on the paused host is refused at claim until the pause expires (`HOST_PAUSED`). 12. A `fetchText` refused after a ban leaves its reservation `RELEASED`, never `SENT`. 13. The meter binding's account key equals the run row's `account_key`, and building a binding with
-  a window from another account is refused, even when the source's `account_meter_id` changed
-  after the claim. 14. A heartbeat queued behind a page write lands before the lease expires, with a page write held
-  to its `H` budget. 15. **DOU is untouched** (round 5, SR-M-17): the golden DOU specs pass unchanged; the 05:00
-  handler still collects DOU through the legacy path; DOU never gets a `job_collection_runs`
-  row from the ledger. 16. At worker start, an expired run left by a previous process is recovered before the first
-  claim.
+- **AC:**
+  1. `grep` finds a `CollectionContext` producer outside `src/test/`.
+  2. A reporting adapter runs end to end against a local fixture server.
+  3. A TheirStack run that would exceed 200 records stops with `COST_STOP`.
+  4. A throwing source leaves the other sources' runs `SUCCEEDED`.
+  5. A DTO serialization failure still leaves the run row terminal, with its counts.
+  6. In a metered production context, `fetchText` called without a preceding committed `markSent`
+     throws `NOT_MARKED_SENT`, and the fixture server records zero requests.
+  7. Every SmartRecruiters detail request has a reservation in `SENT` or later before the fixture
+     server sees it.
+  8. A `markSent` refused with `RUN_FENCED` sends nothing, stops the run, and is reported as
+     `RUN_FENCED`.
+  9. **Every** metered reporting adapter, run once through the production context against a
+     fixture server, completes without `NOT_MARKED_SENT`. This is one parametrised test, failing on
+     the first adapter that reaches `fetchText` without a committed `markSent`. **AC 6 and AC 9 are
+     the enforcing instruments**, because a grep cannot tell whether a call site is preceded by an
+     awaited `markSent`. The list of `ctx.fetchText(` call sites outside `src/test/` (two on
+     `d0f876f33`) is a reading aid for the reviewer, not a gate.
+  10. **Stop-on-ban.** A fixture server answers one request with 403, and in a second case with 429.
+      The host's `paused_until` is written before the adapter sees the error, and the fixture server
+      receives **zero further requests from that run**, even from an adapter written to keep going.
+  11. A source on the paused host is refused at claim until the pause expires (`HOST_PAUSED`).
+  12. **After a ban, at most the refused request's reservation is `USED`, and no other reservation
+      of the run is `SENT` or `USED`** (round 6, SR-M-20). An adapter written to keep going still
+      gets every `reserve` and `markSent` refused before its transaction.
+  13. The meter binding's account key equals the run row's `account_key`. Building a binding with a
+      window from another account is refused, even when the source's `account_meter_id` changed
+      after the claim.
+  14. A heartbeat queued behind a page write lands before the lease expires, with the page write held
+      to its `H` budget.
+  15. **DOU is untouched** (round 5, SR-M-17). The golden DOU specs pass unchanged, the 05:00 handler
+      still collects DOU through the legacy path, and DOU never gets a `job_collection_runs` row from
+      the ledger.
+  16. At worker start, an expired run left by a previous process is recovered before the first
+      claim.
+  17. **One routing** (round 6, SR-M-23). The legacy path, called with a `REPORTING` type, throws
+      before any request. The ledger path, offered a `LEGACY` type, refuses it (`NOT_ACTIVATABLE`).
+      DOU is collected only because its kind is `LEGACY`; a `NULL` `host_key` is not what lets it
+      through.
 - **Real-Postgres:**
   - two workers on one source: one wins, using the ledger rather than a mock;
   - an empty run and a partial run;
