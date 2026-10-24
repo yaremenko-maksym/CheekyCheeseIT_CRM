@@ -39,7 +39,8 @@ import {
 import { JOB_PUBLIC_ID_PATTERN } from './schema/job-patterns'
 
 /**
- * The staged (or, once DevOps moves it, the wired) forward DDL of Task 2.5 T1 + T1b.
+ * The wired forward DDL of Task 2.5 T1 + T1b (moved from `manual-staged/` by backlog 337;
+ * the fallback stays for a checkout that predates the move).
  * It carries the account-key CHECK as SQL text, i.e. a hard-coded COPY of the two
  * patterns the Drizzle declaration builds from constants — read here so a drift between
  * the copy and the constants fails a unit spec, not only the integration catalog diff.
