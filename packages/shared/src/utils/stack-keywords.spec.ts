@@ -753,6 +753,14 @@ describe('stackKeywordHits — uncapped union matching over pre-tokenised text',
     },
   )
 
+  it('handles 100k repeated tokens in well under a second (no quadratic copying)', () => {
+    const body = Array.from({ length: 100_000 }, () => 'java')
+    const started = performance.now()
+    const hit = stackKeywordHits(['java'], [], body).get('java')
+    expect(performance.now() - started).toBeLessThan(1000)
+    expect(hit?.bodyIndexes).toHaveLength(100_000)
+  })
+
   it('collapses a repeated canonical in the input to one entry', () => {
     expect(hitsFor(['python', 'python'], '', 'python').size).toBe(1)
   })

@@ -1,5 +1,6 @@
 import type { JobExclusionDto } from '@crm/shared'
 import { canonicalStackKeywords, stackKeywordHits, stackTokens } from '@crm/shared'
+import { MAX_DESCRIPTION_CHARS } from '../html-to-markdown'
 import { findMatchingExclusion, type FilterablePosting } from '../filtering'
 
 /**
@@ -16,10 +17,18 @@ import { findMatchingExclusion, type FilterablePosting } from '../filtering'
  * an explanation line. That includes a posting whose stack is unknown: an
  * excluded company is excluded, it is not "low information, send to triage".
  *
+ * WHO MAY SEE WHAT. The per-senior list holds matchable seniors only. Who was
+ * excluded, by which exclusion, who lacks team access and which exclusions were
+ * ignored live under `audit`, which a viewer-facing caller must never pass on:
+ * `forViewer` returns the shape without it, for the given seniors only.
+ *
  * CAPS (C-25): each profile keeps the shared `MAX_STACK_KEYWORDS` /
  * `MAX_STACK_KEYWORD_CHARS` ceilings through `canonicalStackKeywords`. The
  * roster union of several profiles is the distinct COMPLETE union and is NOT
  * re-capped, which is why the matching goes through `stackKeywordHits`.
+ *
+ * INPUT BOUNDS. The posting is cut to the limits below BEFORE it is tokenised,
+ * and every cut sets `inputTruncated` — never a silent truncation.
  *
  * EVIDENCE COMPLETENESS (A1f) replaces the old 200-character cliff. Whether a
  * posting is "low information" depends on which evidence SURFACES it carries
@@ -28,10 +37,12 @@ import { findMatchingExclusion, type FilterablePosting } from '../filtering'
  * complete, a 20 000-character marketing page is not.
  *
  * CONTEXT. A mention is CORE unless its sentence is an optional statement ("nice
- * to have", "bonus", a section headed so) or it is negated ("no Java", "Java is
- * not required"). The cue lists are English only; text in another language is
- * simply read as CORE, which is the stricter reading for a match and never
- * hides a posting.
+ * to have", "bonus", a section headed so) or its own clause negates it ("no
+ * Java", "Java is not required"). A negation never crosses a clause boundary
+ * (comma, colon, semicolon, full stop, newline, bullet). The cue lists are
+ * English only; text in another language (for example Ukrainian "без Java") is
+ * read as CORE. That is a documented fail-open: it can show a posting that
+ * explicitly excludes a technology, it never hides one.
  */
 
 /** Strength of the best mention of one keyword in the posting. */
@@ -40,6 +51,20 @@ export type MentionSource = 'TITLE' | 'TAG' | 'BODY'
 
 /** Longest body excerpt carried as evidence. */
 export const MAX_EVIDENCE_EXCERPT_CHARS = 160
+
+/** The description cap of the normalizer (`html-to-markdown`): nothing longer is ever stored. */
+export const MAX_BODY_CHARS = MAX_DESCRIPTION_CHARS
+/** Title cap of the normalizer (500). */
+export const MAX_TITLE_CHARS = 500
+/** Tag caps of the normalizer (50 tags of 60 characters). */
+export const MAX_TAGS = 50
+export const MAX_TAG_CHARS = 60
+/**
+ * Body tokens read per posting. Ordinary prose is ~6 characters per token, so a
+ * full 20 000-character description is ~3 500 tokens; 8 000 is only reached by
+ * token spam, which is exactly what the bound is for.
+ */
+export const MAX_BODY_TOKENS = 8_000
 
 export interface SeniorTechProfile {
   seniorId: string
@@ -75,30 +100,34 @@ export interface RosterKeywordMatch extends KeywordEvidence {
   seniorIds: string[]
 }
 
-export type SeniorDisposition =
-  | {
-      seniorId: string
-      disposition: 'EXCLUDED'
-      exclusionId: string | null
-      exclusionKind: JobExclusionDto['kind']
-      exclusionScope: JobExclusionDto['scope']
-    }
-  | { seniorId: string; disposition: 'NO_TEAM_ACCESS' }
-  | {
-      seniorId: string
-      disposition: 'MATCHABLE'
-      /** Distinct canonical keywords of the profile after the per-profile caps. */
-      profileKeywordCount: number
-      /** CORE and OPTIONAL mentions, in profile order. */
-      matches: KeywordEvidence[]
-      negated: KeywordEvidence[]
-      coreMatchCount: number
-      optionalMatchCount: number
-      /** Recomputable, never stored: the posting states its requirements and none of this stack is core in it. */
-      coreMismatch: boolean
-    }
+export interface SeniorMatch {
+  seniorId: string
+  /** Distinct canonical keywords of the profile after the per-profile caps. */
+  keywords: string[]
+  profileKeywordCount: number
+  /** CORE and OPTIONAL mentions, in profile order. */
+  matches: KeywordEvidence[]
+  negated: KeywordEvidence[]
+  coreMatchCount: number
+  optionalMatchCount: number
+  /** Recomputable, never stored: the posting states its requirements and none of this stack is core in it. */
+  coreMismatch: boolean
+}
 
-export interface TechMatchReady {
+/** Staff-only account of why seniors are absent from `seniors`. Never pass it to a viewer. */
+export interface TechMatchAudit {
+  excluded: {
+    seniorId: string
+    exclusionId: string | null
+    exclusionKind: JobExclusionDto['kind']
+    exclusionScope: JobExclusionDto['scope']
+  }[]
+  noTeamAccess: string[]
+  /** Global COMPANY exclusions are unused by decision A1g; their ids are listed instead of silently dropped. */
+  ignoredExclusionIds: string[]
+}
+
+export interface TechMatchView {
   status: 'READY'
   /** Matchable seniors only. */
   matchableSeniorIds: string[]
@@ -106,12 +135,16 @@ export interface TechMatchReady {
   rosterUnionSize: number
   rosterMatches: RosterKeywordMatch[]
   rosterNegated: RosterKeywordMatch[]
-  seniors: SeniorDisposition[]
+  seniors: SeniorMatch[]
   evidenceSurfaces: { tags: boolean; requirements: boolean; keywordHit: boolean }
   /** Not enough evidence to judge, and somebody could still be offered it: a triage candidate. */
   lowInformation: boolean
-  /** Global COMPANY exclusions are unused by decision A1g; their ids are listed instead of silently dropped. */
-  ignoredExclusionIds: string[]
+  /** The posting was cut to the input bounds before it was read. */
+  inputTruncated: boolean
+}
+
+export interface TechMatchReady extends TechMatchView {
+  audit: TechMatchAudit
 }
 
 export type ReadinessIssueCode = 'MISSING_ROSTER_PROFILES' | 'DUPLICATE_PROFILES'
@@ -131,13 +164,16 @@ export type TechMatchResult = TechMatchReady | TechMatchReadinessIssue
 // Stryker disable next-line StringLiteral: an empty-string break is just as unmatchable by a non-empty token phrase, so no output differs
 const SEGMENT_BREAK = '|'
 
+/**
+ * `non` is deliberately not here: "non-trivial Python" is a requirement, not a
+ * negation. A negator only reaches tokens of its own clause.
+ */
 const NEGATORS: ReadonlySet<string> = new Set([
   'no',
   'not',
   'without',
   'excluding',
   'except',
-  'non',
   'never',
   'nor',
 ])
@@ -175,11 +211,18 @@ const REQUIREMENT_MARKERS: ReadonlySet<string> = new Set([
   'proficiency',
 ])
 
-const MAX_HEADING_TOKENS = 8
+const MAX_HEADING_WORDS = 8
 
-interface BodySegment {
-  text: string
+/** Clause boundaries inside a sentence: comma / colon followed by a space, or a bullet glyph. */
+const CLAUSE_BOUNDARY = /[,:]\s|\s[•·▪●]\s/
+/** Sentence boundaries inside a line. */
+const SENTENCE_BOUNDARY = /(?<=[.!?;])\s/
+
+interface BodyClause {
+  /** The whole sentence the clause belongs to: what an excerpt shows. */
+  sentence: string
   tokens: string[]
+  /** Optionality is a property of the sentence or section, shared by its clauses. */
   optional: boolean
 }
 
@@ -188,64 +231,83 @@ function hasOptionalPhrase(tokens: readonly string[]): boolean {
   return OPTIONAL_PHRASES.some((phrase) => joined.includes(` ${phrase} `))
 }
 
-function isHeadingLine(line: string, tokenCount: number): boolean {
+function hasRequirementMarker(tokens: readonly string[]): boolean {
+  return tokens.some((token) => REQUIREMENT_MARKERS.has(token))
+}
+
+function isHeadingLine(line: string): boolean {
   if (/^#{1,6}\s/.test(line) || /^\*\*[^*]+\*\*$/.test(line)) return true
-  return line.endsWith(':') && tokenCount <= MAX_HEADING_TOKENS
+  return line.endsWith(':') && line.split(/\s+/).length <= MAX_HEADING_WORDS
 }
 
 interface BodyReading {
-  segments: BodySegment[]
-  /** Every segment's tokens, each followed by SEGMENT_BREAK. */
+  clauses: BodyClause[]
+  /** Every clause's tokens, each followed by SEGMENT_BREAK. */
   tokens: string[]
-  /** For every entry of `tokens`, the segment it belongs to and where that segment starts in `tokens`. */
-  owner: { segment: BodySegment; start: number }[]
+  /** For every entry of `tokens`, the clause it belongs to and where that clause starts in `tokens`. */
+  owner: { clause: BodyClause; start: number }[]
+  /** A heading or a sentence names the stack ("Requirements:", "Skills"). */
+  requirements: boolean
+  truncated: boolean
 }
 
 /**
- * Cut the body into sentences, tracking the optional/required section a heading
- * opens, and tokenise each sentence once.
+ * Cut the body into sentences and clauses, tracking the optional/required
+ * section a heading opens. Every character is tokenised once: a heading line as
+ * a whole, any other line clause by clause.
  */
 function readBody(body: string | null): BodyReading {
-  const segments: BodySegment[] = []
+  const clauses: BodyClause[] = []
   // Stryker disable next-line ArrayDeclaration: a junk first token only shifts every start by one and never equals a keyword token, so no observable output changes
   const tokens: string[] = []
   const owner: BodyReading['owner'] = []
   let sectionOptional = false
+  let requirements = false
+  let truncated = body !== null && body.length > MAX_BODY_CHARS
+  let budget = MAX_BODY_TOKENS
 
-  const lines = body === null ? [] : body.split(/\r?\n/)
+  const lines = body === null ? [] : body.slice(0, MAX_BODY_CHARS).split(/\r?\n/)
   for (const rawLine of lines) {
     const line = rawLine.trim()
-    const lineTokens = stackTokens(line)
-    if (isHeadingLine(line, lineTokens.length)) {
-      sectionOptional = hasOptionalPhrase(lineTokens)
+    if (isHeadingLine(line)) {
+      const headingTokens = stackTokens(line)
+      sectionOptional = hasOptionalPhrase(headingTokens)
+      requirements = requirements || hasRequirementMarker(headingTokens)
       continue
     }
-    for (const sentence of line.split(/(?<=[.!?;])\s/)) {
-      const sentenceTokens = stackTokens(sentence)
-      const segment: BodySegment = {
-        text: sentence.trim(),
-        tokens: sentenceTokens,
-        optional: sectionOptional || hasOptionalPhrase(sentenceTokens),
-      }
-      segments.push(segment)
-      const owned = { segment, start: tokens.length }
-      for (const token of [...sentenceTokens, SEGMENT_BREAK]) {
-        tokens.push(token)
+    for (const sentence of line.split(SENTENCE_BOUNDARY)) {
+      const clauseTokens = sentence.split(CLAUSE_BOUNDARY).map((part) => stackTokens(part))
+      const optional = sectionOptional || clauseTokens.some(hasOptionalPhrase)
+      for (const part of clauseTokens) {
+        if (part.length > budget) {
+          part.length = budget
+          truncated = true
+        }
+        budget -= part.length
+        requirements = requirements || hasRequirementMarker(part)
+        const clause: BodyClause = { sentence: sentence.trim(), tokens: part, optional }
+        clauses.push(clause)
+        const owned = { clause, start: tokens.length }
+        for (const token of part) {
+          tokens.push(token)
+          owner.push(owned)
+        }
+        tokens.push(SEGMENT_BREAK)
         owner.push(owned)
       }
     }
   }
-  return { segments, tokens, owner }
+  return { clauses, tokens, owner, requirements, truncated }
 }
 
-function isNegatedAt(segmentTokens: readonly string[], local: number): boolean {
-  const before = segmentTokens.slice(Math.max(0, local - NEGATOR_WINDOW), local)
+/** Is the keyword at `local` negated by a cue inside its own clause? */
+function isNegatedAt(clauseTokens: readonly string[], local: number): boolean {
+  const before = clauseTokens.slice(Math.max(0, local - NEGATOR_WINDOW), local)
   if (before.some((token) => NEGATORS.has(token))) return true
-  // Stryker disable next-line ArithmeticOperator: starting one token earlier only adds the pair (token before the keyword = `not`, keyword = a follower word), and that `not` is already caught by the leading check above
-  for (let i = local + 1; i <= local + TRAILING_NEGATION_WINDOW; i += 1) {
+  for (let distance = 1; distance <= TRAILING_NEGATION_WINDOW; distance += 1) {
     if (
-      segmentTokens[i] === 'not' &&
-      TRAILING_NEGATION_FOLLOWERS.has(String(segmentTokens[i + 1]))
+      clauseTokens[local + distance] === 'not' &&
+      TRAILING_NEGATION_FOLLOWERS.has(String(clauseTokens[local + distance + 1]))
     ) {
       return true
     }
@@ -253,29 +315,24 @@ function isNegatedAt(segmentTokens: readonly string[], local: number): boolean {
   return false
 }
 
-const STRENGTH_RANK: Readonly<Record<MentionStrength, number>> = {
-  CORE: 2,
-  OPTIONAL: 1,
-  NEGATED: 0,
-}
 const SOURCE_ORDER: readonly MentionSource[] = ['TITLE', 'TAG', 'BODY']
 
 interface Mention {
-  strength: MentionStrength
   source: MentionSource
   excerpt: string | null
 }
 
-/** The strongest mentions win; ties keep every source that reached that strength. */
-function bestEvidence(keyword: string, mentions: readonly Mention[]): KeywordEvidence {
-  const rank = (m: Mention) => STRENGTH_RANK[m.strength]
-  // Stryker disable next-line EqualityOperator: on a tie both mentions have the same strength, and only `best.strength` is read
-  const higher = (a: Mention, b: Mention) => (rank(b) > rank(a) ? b : a)
-  const best = mentions.reduce(higher)
-  const winners = mentions.filter((m) => m.strength === best.strength)
+/** Every mention of one keyword, grouped by its strength. */
+type Buckets = Record<MentionStrength, Mention[]>
+
+/** The strongest bucket wins; its mentions supply the sources and the excerpt. */
+function bestEvidence(keyword: string, buckets: Buckets): KeywordEvidence {
+  const strength: MentionStrength =
+    buckets.CORE.length > 0 ? 'CORE' : buckets.OPTIONAL.length > 0 ? 'OPTIONAL' : 'NEGATED'
+  const winners = buckets[strength]
   return {
     keyword,
-    strength: best.strength,
+    strength,
     sources: SOURCE_ORDER.filter((source) => winners.some((m) => m.source === source)),
     excerpt: winners.find((m) => m.source === 'BODY')?.excerpt ?? null,
   }
@@ -285,54 +342,72 @@ interface PostingReading {
   evidence: Map<string, KeywordEvidence>
   tags: boolean
   requirements: boolean
+  inputTruncated: boolean
 }
 
-/** Tokenise the posting ONCE and read the strongest mention of every keyword in `union`. */
+/**
+ * Tokenise the posting ONCE (title, each tag, the body) and read the strongest
+ * mention of every keyword in `union`, after cutting it to the input bounds.
+ */
 function readPosting(posting: TechMatchPosting, union: readonly string[]): PostingReading {
-  const mentions = new Map<string, Mention[]>()
-  const record = (keyword: string, mention: Mention) => {
-    mentions.set(keyword, [...(mentions.get(keyword) ?? []), mention])
+  const surface: string[] = []
+  const surfaceSource: MentionSource[] = []
+  const addSurface = (tokens: readonly string[], source: MentionSource) => {
+    for (const token of tokens) {
+      surface.push(token)
+      surfaceSource.push(source)
+    }
+    surface.push(SEGMENT_BREAK)
+    surfaceSource.push(source)
   }
 
   // Title and tags are structured surfaces: always CORE, ambiguous aliases such as `go` count.
-  // The empty token list passed as the "other" surface below can be mutated to a junk token; no keyword equals it, so nothing observable changes.
-  // Stryker disable next-line ArrayDeclaration: see the comment above
-  for (const keyword of stackKeywordHits(union, stackTokens(posting.title), []).keys()) {
-    record(keyword, { strength: 'CORE', source: 'TITLE', excerpt: null })
-  }
+  addSurface(stackTokens(posting.title.slice(0, MAX_TITLE_CHARS)), 'TITLE')
   let tags = false
-  for (const tag of posting.tags) {
-    const tagTokens = stackTokens(tag)
+  for (const tag of posting.tags.slice(0, MAX_TAGS)) {
+    const tagTokens = stackTokens(tag.slice(0, MAX_TAG_CHARS))
     tags = tags || tagTokens.length > 0
-    // Stryker disable next-line ArrayDeclaration: junk "other surface" token, see above
-    for (const keyword of stackKeywordHits(union, tagTokens, []).keys()) {
-      record(keyword, { strength: 'CORE', source: 'TAG', excerpt: null })
+    addSurface(tagTokens, 'TAG')
+  }
+  const body = readBody(posting.body)
+
+  const buckets = new Map<string, Buckets>()
+  const record = (keyword: string, strength: MentionStrength, mention: Mention) => {
+    let entry = buckets.get(keyword)
+    if (entry === undefined) {
+      entry = { CORE: [], OPTIONAL: [], NEGATED: [] }
+      buckets.set(keyword, entry)
     }
+    entry[strength].push(mention)
   }
 
-  const body = readBody(posting.body)
-  // Stryker disable next-line ArrayDeclaration: junk "other surface" token, see above
-  for (const [keyword, hit] of stackKeywordHits(union, [], body.tokens)) {
+  for (const [keyword, hit] of stackKeywordHits(union, surface, body.tokens)) {
+    for (const index of hit.titleIndexes) {
+      // `surfaceSource` has one entry per surface token, and the matcher only returns token indexes.
+      record(keyword, 'CORE', { source: surfaceSource[index] as MentionSource, excerpt: null })
+    }
     for (const index of hit.bodyIndexes) {
-      const owned = body.owner[index]
-      // Stryker disable next-line ConditionalExpression: `owner` has one entry per token, so an index returned by the matcher always has a segment; the guard exists only for noUncheckedIndexedAccess
-      if (owned === undefined) continue
-      const { segment, start } = owned
-      const negated = isNegatedAt(segment.tokens, index - start)
-      record(keyword, {
-        strength: negated ? 'NEGATED' : segment.optional ? 'OPTIONAL' : 'CORE',
+      // `owner` has one entry per body token, and the matcher only returns token indexes.
+      const { clause, start } = body.owner[index] as BodyReading['owner'][number]
+      const negated = isNegatedAt(clause.tokens, index - start)
+      record(keyword, negated ? 'NEGATED' : clause.optional ? 'OPTIONAL' : 'CORE', {
         source: 'BODY',
-        excerpt: segment.text.slice(0, MAX_EVIDENCE_EXCERPT_CHARS),
+        excerpt: clause.sentence.slice(0, MAX_EVIDENCE_EXCERPT_CHARS),
       })
     }
   }
 
   const evidence = new Map<string, KeywordEvidence>()
-  for (const [keyword, list] of mentions) evidence.set(keyword, bestEvidence(keyword, list))
+  for (const [keyword, entry] of buckets) evidence.set(keyword, bestEvidence(keyword, entry))
   return {
     evidence,
     tags,
-    requirements: body.segments.some((s) => s.tokens.some((t) => REQUIREMENT_MARKERS.has(t))),
+    requirements: body.requirements,
+    inputTruncated:
+      body.truncated ||
+      posting.title.length > MAX_TITLE_CHARS ||
+      posting.tags.length > MAX_TAGS ||
+      posting.tags.some((tag) => tag.length > MAX_TAG_CHARS),
   }
 }
 
@@ -364,61 +439,55 @@ function readinessIssues(
   return issues
 }
 
-type Outcome =
-  | { kind: 'DONE'; disposition: SeniorDisposition }
-  | { kind: 'MATCHABLE'; seniorId: string; keywords: string[] }
+interface Classified {
+  matchable: { seniorId: string; keywords: string[] }[]
+  audit: Omit<TechMatchAudit, 'ignoredExclusionIds'>
+}
 
 /** Steps 1 and 2 — exclusions, then access — before any posting text is read. */
-function classify(input: TechMatchInput, globalKeyword: readonly JobExclusionDto[]): Outcome[] {
+function classify(input: TechMatchInput): Classified {
   const rosterSet = new Set(input.rosterSeniorIds)
-  const outcomes: Outcome[] = []
+  const globalKeyword = input.exclusions.filter((e) => e.scope === 'GLOBAL' && e.kind === 'KEYWORD')
+  // The global verdict depends on the posting only, so it is decided once for the roster.
+  const globalHit = findMatchingExclusion(input.posting, globalKeyword)
+  const result: Classified = { matchable: [], audit: { excluded: [], noTeamAccess: [] } }
   for (const profile of input.profiles) {
     if (!rosterSet.has(profile.seniorId)) continue
     const own = input.exclusions.filter(
       (e) => e.scope === 'SENIOR' && e.seniorId === profile.seniorId,
     )
-    const excluded =
-      findMatchingExclusion(input.posting, [...globalKeyword]) ??
-      findMatchingExclusion(input.posting, own)
+    const excluded = globalHit ?? findMatchingExclusion(input.posting, own)
     if (excluded) {
-      outcomes.push({
-        kind: 'DONE',
-        disposition: {
-          seniorId: profile.seniorId,
-          disposition: 'EXCLUDED',
-          exclusionId: excluded.id,
-          exclusionKind: excluded.kind,
-          exclusionScope: excluded.scope,
-        },
+      result.audit.excluded.push({
+        seniorId: profile.seniorId,
+        exclusionId: excluded.id,
+        exclusionKind: excluded.kind,
+        exclusionScope: excluded.scope,
       })
     } else if (profile.teamIds.length === 0) {
-      outcomes.push({
-        kind: 'DONE',
-        disposition: { seniorId: profile.seniorId, disposition: 'NO_TEAM_ACCESS' },
-      })
+      result.audit.noTeamAccess.push(profile.seniorId)
     } else {
-      outcomes.push({
-        kind: 'MATCHABLE',
+      result.matchable.push({
         seniorId: profile.seniorId,
         keywords: canonicalStackKeywords(profile.techStack),
       })
     }
   }
-  return outcomes
+  return result
 }
 
 function seniorMatch(
   seniorId: string,
-  keywords: readonly string[],
+  keywords: string[],
   evidence: ReadonlyMap<string, KeywordEvidence>,
   lowInformation: boolean,
-): SeniorDisposition {
+): SeniorMatch {
   const found = keywords.flatMap((k) => evidence.get(k) ?? [])
   const matches = found.filter((e) => e.strength !== 'NEGATED')
   const coreMatchCount = matches.filter((e) => e.strength === 'CORE').length
   return {
     seniorId,
-    disposition: 'MATCHABLE',
+    keywords,
     profileKeywordCount: keywords.length,
     matches,
     negated: found.filter((e) => e.strength === 'NEGATED'),
@@ -433,13 +502,11 @@ export function matchTech(input: TechMatchInput): TechMatchResult {
   const issues = readinessIssues(input.rosterSeniorIds, input.profiles)
   if (issues.length > 0) return { status: 'READINESS_ISSUE', issues }
 
-  const globalKeyword = input.exclusions.filter((e) => e.scope === 'GLOBAL' && e.kind === 'KEYWORD')
   const ignoredExclusionIds = input.exclusions
     .filter((e) => e.scope === 'GLOBAL' && e.kind === 'COMPANY')
     .flatMap((e) => (e.id === null ? [] : [e.id]))
 
-  const outcomes = classify(input, globalKeyword)
-  const matchable = outcomes.flatMap((o) => (o.kind === 'MATCHABLE' ? [o] : []))
+  const { matchable, audit } = classify(input)
 
   // 3. matching over the distinct complete union of the matchable profiles.
   const union = [...new Set(matchable.flatMap((m) => m.keywords))]
@@ -463,10 +530,8 @@ export function matchTech(input: TechMatchInput): TechMatchResult {
     rosterUnionSize: union.length,
     rosterMatches,
     rosterNegated,
-    seniors: outcomes.map((o) =>
-      o.kind === 'DONE'
-        ? o.disposition
-        : seniorMatch(o.seniorId, o.keywords, reading.evidence, lowInformation),
+    seniors: matchable.map((m) =>
+      seniorMatch(m.seniorId, m.keywords, reading.evidence, lowInformation),
     ),
     evidenceSurfaces: {
       tags: reading.tags,
@@ -474,6 +539,43 @@ export function matchTech(input: TechMatchInput): TechMatchResult {
       keywordHit,
     },
     lowInformation,
-    ignoredExclusionIds,
+    inputTruncated: reading.inputTruncated,
+    audit: { ...audit, ignoredExclusionIds },
+  }
+}
+
+/**
+ * The result as a viewer may see it: only the given seniors, no `audit`, and
+ * every aggregate recomputed from those seniors alone — so neither an excluded
+ * senior, an exclusion, nor another senior's keywords can be read off it.
+ */
+export function forViewer(
+  result: TechMatchReady,
+  scope: { visibleSeniorIds: readonly string[] },
+): TechMatchView {
+  const visible = new Set(scope.visibleSeniorIds)
+  const seniors = result.seniors.filter((s) => visible.has(s.seniorId))
+  const narrow = (list: readonly RosterKeywordMatch[]): RosterKeywordMatch[] =>
+    list
+      .map((m) => ({ ...m, seniorIds: m.seniorIds.filter((id) => visible.has(id)) }))
+      .filter((m) => m.seniorIds.length > 0)
+  const rosterMatches = narrow(result.rosterMatches)
+  const rosterNegated = narrow(result.rosterNegated)
+  const { tags, requirements } = result.evidenceSurfaces
+  const keywordHit = rosterMatches.length + rosterNegated.length > 0
+  const lowInformation = seniors.length > 0 && !keywordHit && !tags && !requirements
+  return {
+    status: 'READY',
+    matchableSeniorIds: seniors.map((s) => s.seniorId),
+    rosterUnionSize: new Set(seniors.flatMap((s) => s.keywords)).size,
+    rosterMatches,
+    rosterNegated,
+    seniors: seniors.map((s) => ({
+      ...s,
+      coreMismatch: s.profileKeywordCount > 0 && s.coreMatchCount === 0 && !lowInformation,
+    })),
+    evidenceSurfaces: { tags, requirements, keywordHit },
+    lowInformation,
+    inputTruncated: result.inputTruncated,
   }
 }
