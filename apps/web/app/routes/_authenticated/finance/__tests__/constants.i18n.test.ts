@@ -84,6 +84,12 @@ describe('activeLocale() fallback (LogicalOperator mutant)', () => {
     expect(fmtYyyymmdd('20260115')).toBe('15.01.26')
   })
 
+  it('fmtYyyymmdd renders the NBU date-only value as that same calendar day in any host zone (UTC-negative regression)', () => {
+    // Date-only -> UTC-midnight; the instant format ('shortYY') showed 31/12/25 under
+    // TZ=America/Los_Angeles. Run this file under that TZ to see it red before the fix.
+    expect(fmtYyyymmdd('20260101')).toBe('01.01.26')
+  })
+
   it('fmtYyyymmdd uses en-GB formatting once en is activated', async () => {
     await loadCatalog('en')
     // en-GB pins day/month/year with '/' separators — distinct from uk-UA's

@@ -5,7 +5,8 @@ import { Plus, Wallet } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { TransactionDto, TransactionStatus } from '@crm/shared'
-import { formatDate, formatMonthLabel } from '@crm/shared'
+import { formatMonthLabel } from '@crm/shared'
+import { formatTxOrCreated } from './utils/tx-date'
 import { useLocale } from '@/lib/i18n'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
@@ -295,11 +296,7 @@ function FinancePage() {
                               {formatMonthLabel(salaryTx.salaryMonth, locale)}
                             </td>
                             <td className="py-3 px-4 text-xs text-muted-foreground">
-                              {formatDate(
-                                salaryTx.txDate ?? salaryTx.createdAt,
-                                locale,
-                                'shortYYUtc',
-                              )}
+                              {formatTxOrCreated(salaryTx.txDate, salaryTx.createdAt, locale)}
                             </td>
                             <td className="py-3 px-4">
                               <span
@@ -387,11 +384,7 @@ function FinancePage() {
                                 {formatMonthLabel(salaryTx.salaryMonth, locale)}
                               </td>
                               <td className="py-3 px-4 text-xs text-muted-foreground">
-                                {formatDate(
-                                  salaryTx.txDate ?? salaryTx.createdAt,
-                                  locale,
-                                  'shortYYUtc',
-                                )}
+                                {formatTxOrCreated(salaryTx.txDate, salaryTx.createdAt, locale)}
                               </td>
                               <td className="py-3 px-4">
                                 <span

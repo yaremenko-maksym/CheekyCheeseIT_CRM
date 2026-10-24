@@ -358,7 +358,7 @@ describe('TransactionRow — date column (mutation-gate coverage)', () => {
   })
 
   it('falls back to createdAt when txDate is null', () => {
-    renderRow(makeTx({ txDate: null, createdAt: '2026-03-05T00:00:00.000Z' }))
+    renderRow(makeTx({ txDate: null, createdAt: '2026-03-05T12:00:00.000Z' }))
     expect(screen.getByText('05.03.26')).toBeInTheDocument()
   })
 })

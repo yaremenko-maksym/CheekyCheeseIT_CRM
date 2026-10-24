@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { financeApi } from '../../api'
+import { formatTxOrCreated } from '../../utils/tx-date'
 import { fmtAmount, STATUS_COLORS, STATUS_LABEL_MESSAGES } from '../../constants'
 import {
   buildPreviewRows,
@@ -131,7 +132,7 @@ function ProjectRow({
             onChange={() => onToggleTx(tx.id)}
             disabled={disabled}
             className="h-4 w-4 shrink-0 accent-primary"
-            aria-label={t`Дохід від ${formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYYUtc')}`}
+            aria-label={t`Дохід від ${formatTxOrCreated(tx.txDate, tx.createdAt, locale)}`}
             data-testid={`company-share-income-checkbox-${tx.id}`}
           />
           <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
@@ -139,7 +140,7 @@ function ProjectRow({
               className="min-w-0 truncate text-xs text-muted-foreground"
               data-testid={`company-share-income-date-${tx.id}`}
             >
-              <Trans>Дохід від {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYYUtc')}</Trans>
+              <Trans>Дохід від {formatTxOrCreated(tx.txDate, tx.createdAt, locale)}</Trans>
             </span>
             <span className="shrink-0 tabular-nums text-xs">
               {fmtAmount(tx.amount, tx.currency)}

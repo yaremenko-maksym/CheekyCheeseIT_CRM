@@ -29,6 +29,7 @@ import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { api } from '@/lib/axios'
 import { parseStrictAmount } from '@/lib/utils'
 import { financeApi } from '../../api'
+import { formatTxOrCreated } from '../../utils/tx-date'
 import { convertAmount, fmtAmount, type ExchangeRates } from '../../constants'
 import { FundingSourceFields, COMPANY_ACCOUNT_VALUE, type Currency } from './FundingSourceFields'
 import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
@@ -301,7 +302,7 @@ export function PaySalaryDialog({
                 <Trans>Дата</Trans>
               </span>
               <span className="font-medium text-right">
-                {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYYUtc')}
+                {formatTxOrCreated(tx.txDate, tx.createdAt, locale)}
               </span>
             </div>
           </div>

@@ -15,7 +15,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useLingui } from '@lingui/react/macro'
 import { msg } from '@lingui/core/macro'
 import type { MessageDescriptor } from '@lingui/core'
-import { formatNumber, formatDate } from '@crm/shared'
+import { formatNumber } from '@crm/shared'
+import { formatTxOrCreated } from '../utils/tx-date'
 import { periodToDates, type Period } from '../utils/period'
 import { useLocale } from '@/lib/i18n'
 import type { DropIncomeDto, DropIncomeStatus, DropPaymentDto, Locale } from '@crm/shared'
@@ -314,7 +315,7 @@ function DropIncomesTable() {
                 {incomes.map((income) => (
                   <TableRow key={income.id} data-testid={`drop-income-row-${income.id}`}>
                     <TableCell className="text-xs text-muted-foreground tabular-nums">
-                      {formatDate(income.txDate ?? income.createdAt, locale, 'shortYYUtc')}
+                      {formatTxOrCreated(income.txDate, income.createdAt, locale)}
                     </TableCell>
                     <TableCell className="text-sm">{income.companyName}</TableCell>
                     <TableCell className="text-sm font-semibold tabular-nums">
@@ -427,7 +428,7 @@ function DropPaymentsHistory({
                   data-testid={`drop-payment-row-${p.id}`}
                 >
                   <span className="text-xs text-muted-foreground tabular-nums">
-                    {formatDate(p.txDate ?? p.createdAt, locale, 'shortYYUtc')}
+                    {formatTxOrCreated(p.txDate, p.createdAt, locale)}
                   </span>
                   <span className="text-sm font-semibold tabular-nums">
                     {fmtUsd(p.amount, locale)}

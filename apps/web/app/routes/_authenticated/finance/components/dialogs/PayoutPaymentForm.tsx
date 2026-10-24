@@ -26,6 +26,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { fmtAmount, STATUS_COLORS, STATUS_LABEL_MESSAGES } from '../../constants'
+import { formatTxOrCreated } from '../../utils/tx-date'
 import {
   isBundledIncomeTransaction,
   isPayoutObligationTransaction,
@@ -237,7 +238,7 @@ export function PayoutPaymentForm({
                         <p className="text-muted-foreground">
                           <Trans>
                             #{tx.id.slice(0, 6)} від{' '}
-                            {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYYUtc')}
+                            {formatTxOrCreated(tx.txDate, tx.createdAt, locale)}
                           </Trans>
                         </p>
                       </div>
@@ -316,7 +317,7 @@ export function PayoutPaymentForm({
                         <p className="text-muted-foreground">
                           <Trans>
                             {tx.projectName ?? '—'} · #{tx.id.slice(0, 6)} від{' '}
-                            {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYYUtc')}
+                            {formatTxOrCreated(tx.txDate, tx.createdAt, locale)}
                           </Trans>
                         </p>
                       </div>

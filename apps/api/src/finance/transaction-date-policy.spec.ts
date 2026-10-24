@@ -220,6 +220,21 @@ describe('resolveTransactionDateWithPolicy — the business day is the Kyiv day'
     ).not.toThrow()
   })
 
+  it('an OMITTED date inside the Kyiv-ahead window resolves to the Kyiv day, not the UTC day', () => {
+    // 21:30Z on 14 Jul: still 14 Jul in UTC, already 15 Jul in Kyiv. The stored
+    // business date is the date-only value of the KYIV day (UTC midnight of 15 Jul),
+    // never the current instant (which would read back as 14 Jul).
+    for (const role of ['ADMIN', 'ACCOUNTANT', 'SENIOR', 'DROP'] as const) {
+      const result = resolveTransactionDateWithPolicy(undefined, {
+        role,
+        flow: 'EXECUTED',
+        now: INSIDE_THE_WINDOW,
+      })
+      expect(result.txDate.toISOString()).toBe('2026-07-15T00:00:00.000Z')
+      expect(result.backdateReason).toBeNull()
+    }
+  })
+
   it('still refuses the day after the Kyiv today', () => {
     const err = thrownFrom(() =>
       resolveTransactionDateWithPolicy('2026-07-16', {

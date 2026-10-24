@@ -446,9 +446,15 @@ export class SummaryService {
         // 30 Sep belongs to September in the monthly graph (which has always
         // bucketed on `txDate ?? createdAt` — see `getSummary` above), so it
         // must not be counted by THIS tile as October money: that disagreement
-        // between two numbers on one screen is the defect. `coalesce` matches
-        // the monthly graph's `tx.txDate ?? tx.createdAt` exactly, including
-        // for the NULL-txDate rows that predate #809.
+        // between two numbers on one screen is the defect. `coalesce` uses the
+        // same `txDate ?? createdAt` source as the monthly graph, but the
+        // windows are NOT identical for NULL-txDate rows: the graph now buckets
+        // their `createdAt` by the KYIV month, while this KPI window (and the
+        // senior-stats ones) still starts at a UTC month boundary, so a
+        // NULL-txDate row created in the first 2-3 hours of a Kyiv month can sit
+        // in a different month here. Moving these windows to Kyiv bucketing is a
+        // tracked follow-up (holdings/debt accounting surface), deliberately not
+        // done in the business-day-clock PR.
         //
         // Index note: the only date index on `transactions` is
         // `idx_transactions_active_created_at (created_at) WHERE deleted_at IS

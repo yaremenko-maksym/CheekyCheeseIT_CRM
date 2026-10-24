@@ -396,14 +396,15 @@ export function fmtRate(currency: string, rates: ExchangeRates | undefined): str
  * `fmtDate` used to. Used to show the operator WHICH day's rate was actually
  * applied (`ExchangeRates.rateDate`) when it differs from the requested date
  * (a holiday/weekend fallback). Delegates directly to `@crm/shared`'s
- * `formatDate` with the 'shortYY' style — the exact 2-digit-year shape
- * (`31.07.26`) `fmtDate` rendered, which `SettleSeniorPayoutDialog.test.tsx`
+ * `formatDate` with the 'shortYYUtc' style (the NBU `rateDate` is a DATE-ONLY
+ * value, so it must not shift to the previous day in a UTC-negative browser) — the
+ * exact 2-digit-year shape (`31.07.26`) `fmtDate` rendered, which `SettleSeniorPayoutDialog.test.tsx`
  * pins verbatim.
  */
 export function fmtYyyymmdd(yyyymmdd: string) {
   return formatDate(
     `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`,
     activeLocale(),
-    'shortYY',
+    'shortYYUtc',
   )
 }

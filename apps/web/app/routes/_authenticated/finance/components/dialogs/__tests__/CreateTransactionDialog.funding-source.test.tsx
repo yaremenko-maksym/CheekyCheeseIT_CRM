@@ -136,6 +136,21 @@ describe('CreateTransactionDialog — SALARY no longer has a funding selector', 
     }
   })
 
+  it('derives the default salary month from the KYIV clock, not the UTC/browser one', () => {
+    vi.useFakeTimers()
+    // 22:30Z on 31 Oct is already 1 Nov in Kyiv (UTC+2), so "previous month" is October,
+    // whereas the UTC / Los Angeles day (31 Oct) would give September.
+    vi.setSystemTime(new Date('2026-10-31T22:30:00Z'))
+
+    try {
+      renderDialog()
+      clickTypeCard('create-transaction-type-salary')
+      expect(screen.getByTestId('create-transaction-salary-month')).toHaveValue('2026-10')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('zero-pads a single-digit previous salary month', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-15T12:00:00Z'))

@@ -22,7 +22,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { toast } from 'sonner'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { PayoutRequestDto, TransactionDto } from '@crm/shared'
+import { kyivToday, type PayoutRequestDto, type TransactionDto } from '@crm/shared'
 
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
@@ -113,7 +113,7 @@ function makeTx(overrides: Partial<TransactionDto> = {}): TransactionDto {
     validatedBy: 'accountant-1',
     validatedAt: '2026-07-01T00:00:00.000Z',
     createdBy: 'senior-1',
-    createdAt: '2026-07-01T00:00:00.000Z',
+    createdAt: '2026-07-01T12:00:00.000Z',
     updatedAt: '2026-07-01T00:00:00.000Z',
     ...overrides,
   }
@@ -198,8 +198,8 @@ describe('CompanySharePayoutModal — step 1 selection (AC2)', () => {
 
     renderModal({ validatedTxs: [oldTx], preselectedTxIds: [oldTx.id] })
 
-    const now = new Date()
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    // The default is the KYIV business day (the server's clock), never the browser-local day.
+    const today = kyivToday()
     fireEvent.click(screen.getByTestId('company-share-create-payout'))
     await waitFor(() =>
       expect(createPayoutRequestMock).toHaveBeenLastCalledWith({
@@ -209,10 +209,10 @@ describe('CompanySharePayoutModal — step 1 selection (AC2)', () => {
     )
   })
 
-  it('zero-pads a single-digit local month and day in the default payout date', async () => {
+  it('zero-pads a single-digit month and day in the default payout date', async () => {
     vi.useFakeTimers()
     try {
-      vi.setSystemTime(new Date(2026, 2, 4, 12, 0, 0))
+      vi.setSystemTime(new Date(Date.UTC(2026, 2, 4, 12, 0, 0)))
       const oldTx = makeTx({
         id: 'old-date-padding',
         txDate: '2020-01-01T00:00:00.000Z',
@@ -226,6 +226,30 @@ describe('CompanySharePayoutModal — step 1 selection (AC2)', () => {
       expect(createPayoutRequestMock).toHaveBeenCalledWith({
         transactionIds: [oldTx.id],
         txDate: '2026-03-04',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('defaults to the KYIV day, not the UTC day, in the 21:00-24:00 UTC window', async () => {
+    vi.useFakeTimers()
+    try {
+      // 22:30Z on 31 Oct = 00:30 on 1 Nov in Kyiv (UTC+2): the business day is already Nov 1.
+      vi.setSystemTime(new Date(Date.UTC(2026, 9, 31, 22, 30, 0)))
+      const oldTx = makeTx({
+        id: 'old-date-kyiv-ahead',
+        txDate: '2020-01-01T00:00:00.000Z',
+        createdAt: '2020-01-01T00:00:00.000Z',
+      })
+      createPayoutRequestMock.mockResolvedValue(makePayout())
+      getPayoutRequestMock.mockResolvedValue(makePayout())
+      renderModal({ validatedTxs: [oldTx], preselectedTxIds: [oldTx.id] })
+      fireEvent.click(screen.getByTestId('company-share-create-payout'))
+      await vi.runAllTimersAsync()
+      expect(createPayoutRequestMock).toHaveBeenCalledWith({
+        transactionIds: [oldTx.id],
+        txDate: '2026-11-01',
       })
     } finally {
       vi.useRealTimers()
