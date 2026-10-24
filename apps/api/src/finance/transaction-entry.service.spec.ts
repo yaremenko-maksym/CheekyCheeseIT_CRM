@@ -61,6 +61,7 @@ interface Harness {
   txInserted: Array<Record<string, unknown>>
   markerClaims: Array<Record<string, unknown>>
   readonly markerConflictArgs: Record<string, unknown> | undefined
+  readonly markerReturningProjection: Record<string, unknown> | undefined
   usersFindFirst: ReturnType<typeof vi.fn>
   txFindFirst: ReturnType<typeof vi.fn>
   transaction: ReturnType<typeof vi.fn>
@@ -82,6 +83,7 @@ function make(
   const txInserted: Array<Record<string, unknown>> = []
   const markerClaims: Array<Record<string, unknown>> = []
   let markerConflictArgs: Record<string, unknown> | undefined
+  let markerReturningProjection: Record<string, unknown> | undefined
   const userQueue = [...(opts.users ?? [])]
   const lookupQueue = [...(opts.txLookups ?? [])]
   const dbtx = {
@@ -96,7 +98,10 @@ function make(
             onConflictDoNothing: (args: Record<string, unknown>) => {
               markerConflictArgs = args
               return {
-                returning: async () => (opts.markerClaimed === false ? [] : [{ id: 'marker-1' }]),
+                returning: async (projection?: Record<string, unknown>) => {
+                  markerReturningProjection = projection
+                  return opts.markerClaimed === false ? [] : [{ id: 'marker-1' }]
+                },
               }
             },
           }
@@ -142,6 +147,9 @@ function make(
     markerClaims,
     get markerConflictArgs() {
       return markerConflictArgs
+    },
+    get markerReturningProjection() {
+      return markerReturningProjection
     },
     usersFindFirst,
     txFindFirst,
@@ -527,6 +535,10 @@ describe('TransactionEntryService.createSalary', () => {
       expect(h.markerConflictArgs).toEqual({
         target: [salaryMonthInitializations.receiverId, salaryMonthInitializations.salaryMonth],
       })
+      // The id is what tells a claim from a no-op, so the projection asking for
+      // it is load-bearing: an empty `returning()` would make `claimed[0]`
+      // undefined-shaped and the branch below it unreadable.
+      expect(h.markerReturningProjection).toEqual({ id: salaryMonthInitializations.id })
       expect(h.txInserted).toHaveLength(1)
       // CR-M-3: "one transaction was opened and both writes happened" does not
       // say they happened in the SAME one — moving the row insert back onto the

@@ -24,7 +24,7 @@ export function ExistingSalaryParts({
 }) {
   const { i18n } = useLingui()
   const enabled = receiverId !== '' && /^\d{4}-(0[1-9]|1[0-2])$/.test(salaryMonth)
-  const { data, isLoading } = useQuery({
+  const { data } = useQuery({
     queryKey: ['finance', 'salary-parts', receiverId, salaryMonth],
     queryFn: () => financeApi.getSalaryParts(receiverId, salaryMonth),
     enabled,
@@ -33,7 +33,12 @@ export function ExistingSalaryParts({
     staleTime: 0,
   })
 
-  if (!enabled || isLoading) return null
+  // One guard, not three conditions. A disabled query and an in-flight one both
+  // leave `data` undefined, so `!enabled` and `isLoading` were each already
+  // answered by the empty list below — the mutation gate found both arms
+  // unobservable, which is what "redundant" means when it is measured rather
+  // than argued. Removed rather than suppressed: a condition no test can break
+  // is a condition that is not doing anything.
   const parts = data?.parts ?? []
   if (parts.length === 0) return null
 

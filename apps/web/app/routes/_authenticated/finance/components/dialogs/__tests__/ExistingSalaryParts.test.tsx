@@ -87,10 +87,23 @@ describe('ExistingSalaryParts (SR-795-M-1)', () => {
 
   it('says nothing at all when the month is empty — an empty month is the normal case', async () => {
     getSalaryPartsMock.mockResolvedValue({ receiverId: RECEIVER, month: '2026-09', parts: [] })
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 
-    renderPanel()
+    render(
+      <QueryClientProvider client={qc}>
+        <ExistingSalaryParts receiverId={RECEIVER} salaryMonth="2026-09" />
+      </QueryClientProvider>,
+      { wrapper: I18nTestProvider },
+    )
 
-    await waitFor(() => expect(getSalaryPartsMock).toHaveBeenCalled())
+    // Waiting for the query to SETTLE, not merely to be issued: asserting while
+    // it is still in flight observes the loading path and says nothing about
+    // the empty-list one, which is the guard this case is here for.
+    await waitFor(() =>
+      expect(qc.getQueryState(['finance', 'salary-parts', RECEIVER, '2026-09'])?.status).toBe(
+        'success',
+      ),
+    )
     expect(screen.queryByTestId('create-transaction-existing-salary-parts')).toBeNull()
   })
 

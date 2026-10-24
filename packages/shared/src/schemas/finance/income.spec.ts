@@ -280,6 +280,12 @@ describe('salary-parts schemas (SR-795-M-1)', () => {
         expect(salaryPartsQuerySchema.safeParse({ receiverId: UUID, month }).success).toBe(true)
       }
     })
+
+    it('says WHICH month shape it wanted — the message is what a 400 carries', () => {
+      const r = salaryPartsQuerySchema.safeParse({ receiverId: UUID, month: '2026-13' })
+      expect(r.success).toBe(false)
+      expect(r.error?.issues[0]?.message).toBe('month must be YYYY-MM')
+    })
   })
 
   describe('salaryPartSchema', () => {
@@ -303,6 +309,18 @@ describe('salary-parts schemas (SR-795-M-1)', () => {
       // them out, and the DTO refuses them if one ever slipped through.
       for (const status of ['CANCELLED', 'REJECTED', 'VALIDATED', 'pending']) {
         expect(salaryPartSchema.safeParse({ ...PART, status }).success).toBe(false)
+      }
+    })
+
+    it('admits every currency a salary can be nominated in, and nothing else', () => {
+      // Written out one by one: a single 'USD' case leaves the other three
+      // literals free to change into anything, and a salary part really can be
+      // in EUR or UAH (the panel showed 1 234,5 EUR on a real stack).
+      for (const currency of CURRENCIES) {
+        expect(salaryPartSchema.safeParse({ ...PART, currency }).success).toBe(true)
+      }
+      for (const currency of ['GBP', 'usd', '', 'BTC']) {
+        expect(salaryPartSchema.safeParse({ ...PART, currency }).success).toBe(false)
       }
     })
 
@@ -339,10 +357,13 @@ describe('salary-parts schemas (SR-795-M-1)', () => {
     })
 
     it('refuses a malformed month and a malformed part on the way out, not only in', () => {
-      expect(
-        salaryPartsResponseSchema.safeParse({ receiverId: UUID, month: '2026-13', parts: [] })
-          .success,
-      ).toBe(false)
+      const badMonth = salaryPartsResponseSchema.safeParse({
+        receiverId: UUID,
+        month: '2026-13',
+        parts: [],
+      })
+      expect(badMonth.success).toBe(false)
+      expect(badMonth.error?.issues[0]?.message).toBe("Expected 'YYYY-MM' format")
       expect(
         salaryPartsResponseSchema.safeParse({
           receiverId: UUID,
