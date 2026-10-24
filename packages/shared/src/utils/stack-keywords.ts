@@ -395,7 +395,8 @@ export function canonicalStackKeyword(raw: string | null | undefined): string {
  * exactly that: deleting such an entry changed nothing).
  */
 function spellingsOf(canonical: string): string[] {
-  const aliases = ALIAS_FAMILIES[canonical]
+  // Own properties only: `canonical` is user data, and `ALIAS_FAMILIES['constructor']` is a function.
+  const aliases = Object.hasOwn(ALIAS_FAMILIES, canonical) ? ALIAS_FAMILIES[canonical] : undefined
   if (!aliases) return [canonical]
   const out = [canonical]
   for (const alias of aliases) {

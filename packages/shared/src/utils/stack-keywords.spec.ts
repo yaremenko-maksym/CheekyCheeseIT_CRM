@@ -738,6 +738,21 @@ describe('stackKeywordHits — uncapped union matching over pre-tokenised text',
     expect(hitsFor(['dotnet'], '', 'we run .NET Core').get('dotnet')?.bodyIndexes).toEqual([2])
   })
 
+  it.each(['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty', 'prototype'])(
+    'a keyword named "%s" neither throws nor matches by inheritance (SR-H-1)',
+    (name) => {
+      const canonical = canonicalStackKeyword(name)
+      expect(() => hitsFor([canonical], '', 'plain text')).not.toThrow()
+      expect(hitsFor([canonical], '', 'plain text').size).toBe(0)
+      expect(hitsFor([canonical], '', `we use ${name} daily`).get(canonical)?.bodyIndexes).toEqual([
+        2,
+      ])
+      expect(() => textMentionsStackKeyword(canonical, { title: '', body: 'x' })).not.toThrow()
+      expect(stackMatchScore({ title: 'x', body: 'y' }, [name]).matched).toEqual([])
+      expect(({} as Record<string, unknown>)['polluted']).toBeUndefined()
+    },
+  )
+
   it('collapses a repeated canonical in the input to one entry', () => {
     expect(hitsFor(['python', 'python'], '', 'python').size).toBe(1)
   })
