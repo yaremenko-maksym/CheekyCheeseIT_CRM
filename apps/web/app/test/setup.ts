@@ -34,6 +34,10 @@ i18n.activate('uk')
  * Vitest reports an unhandled rejection (exit code 1 with every test green).
  * Attaching a no-op catch first reproduces the browser behaviour; no product
  * code is involved.
+ *
+ * Remove when: a later happy-dom marks the rejection handled itself, or motion-dom
+ * stops calling `cancel()` on unmount. `animation-cancel-shim.test.ts` pins the
+ * contract; delete this block together with that test.
  */
 const animationProto = (
   globalThis as { Animation?: { prototype: { cancel: () => void; finished?: Promise<unknown> } } }
