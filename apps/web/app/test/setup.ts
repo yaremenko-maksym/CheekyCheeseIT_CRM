@@ -25,3 +25,23 @@ import { i18n } from '@lingui/core'
  */
 i18n.load('uk', {})
 i18n.activate('uk')
+
+/**
+ * happy-dom 21 (GHSA-834v-8h66-3h79 bump). `Animation.cancel()` rejects the
+ * animation's `finished` promise with an `AbortError` but, unlike a browser,
+ * does not mark that rejection handled. motion-dom calls `cancel()` through
+ * `NativeAnimation.stop()` on unmount, so nothing ever attaches a catch and
+ * Vitest reports an unhandled rejection (exit code 1 with every test green).
+ * Attaching a no-op catch first reproduces the browser behaviour; no product
+ * code is involved.
+ */
+const animationProto = (
+  globalThis as { Animation?: { prototype: { cancel: () => void; finished?: Promise<unknown> } } }
+).Animation?.prototype
+if (animationProto) {
+  const originalCancel = animationProto.cancel
+  animationProto.cancel = function cancel(this: { finished?: Promise<unknown> }) {
+    this.finished?.catch(() => undefined)
+    return originalCancel.call(this)
+  }
+}
