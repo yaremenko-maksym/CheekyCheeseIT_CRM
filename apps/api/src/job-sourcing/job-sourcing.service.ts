@@ -57,6 +57,7 @@ import {
 import { toSafeFailureMessage } from './safe-failure-message'
 import type { NormalizedPosting } from './job-source.provider'
 import { JobSourceRegistry } from './registry/job-source-registry'
+import { type TypeFilter, sourceAcceptsTrigger, typePassesFilter } from './scheduling/due-policy'
 import { resolveRegistry } from './registry/production-registry'
 
 /**
@@ -147,21 +148,6 @@ export type BudgetedSource = Pick<JobSource, 'id' | 'type'> & {
   budgetWindow?: 'DAY' | 'MONTH' | null
   budgetUsed?: number | null
   budgetWindowStartedAt?: Date | null
-}
-
-/**
- * Whether a source configured as `mode` may be collected by `trigger`.
- *
- * Exported and pure so the rule is testable on its own: it is the whole of §5,
- * and a mistake here is either a wasted paid quota (scheduled collection of a
- * manual-only source) or a source that never runs at all.
- */
-export function sourceAcceptsTrigger(
-  mode: JobSourceTriggerMode,
-  trigger: JobSourceTriggerMode,
-): boolean {
-  if (mode === 'BOTH') return true
-  return mode === trigger
 }
 
 @Injectable()
@@ -966,9 +952,20 @@ export class JobSourcingService {
     return this.collectAll('MANUAL')
   }
 
-  async collectAll(trigger: JobSourceTriggerMode = 'SCHEDULED'): Promise<JobCollectionRunDto> {
+  /**
+   * `filter` (Task 2.5 T4) narrows the run to a type set: `onlyTypes` runs nothing outside the set,
+   * `excludeTypes` runs nothing inside it. Each of the two daily schedules selects its own types.
+   * Absent = every type, which is what the existing callers get.
+   */
+  async collectAll(
+    trigger: JobSourceTriggerMode = 'SCHEDULED',
+    filter: TypeFilter = {},
+  ): Promise<JobCollectionRunDto> {
     const all = await this.db.db.select().from(jobSources).where(eq(jobSources.enabled, true))
-    const sources = all.filter((source) => sourceAcceptsTrigger(source.triggerMode, trigger))
+    const sources = all.filter(
+      (source) =>
+        sourceAcceptsTrigger(source.triggerMode, trigger) && typePassesFilter(source.type, filter),
+    )
 
     const results: JobCollectionResultDto[] = []
     const failures: JobCollectionFailureDto[] = []
