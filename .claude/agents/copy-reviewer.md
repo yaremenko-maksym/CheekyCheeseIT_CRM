@@ -92,7 +92,14 @@ The first line of the PR comment — the verdict, so that Master sees it without
 
 ```
 Copy Review: PASS | ISSUES | BLOCK
+Commit: <the head sha you read>
 ```
+
+**The `Commit:` line names the code you judged.** A PR comment carries no sha of its own, so
+`Flow Gate` reads this line and treats a comment-borne verdict without it as `STALE`
+(`contracts.md` §4.1). Take the sha **before** you start reading — `gh pr view <N> --json
+headRefOid -q .headRefOid` — so it names what you actually saw rather than whatever landed while
+you worked.
 
 - **PASS** — it works; minor taste remarks move out separately and mark as optional.
 - **ISSUES** — there are defects, fix before merge.

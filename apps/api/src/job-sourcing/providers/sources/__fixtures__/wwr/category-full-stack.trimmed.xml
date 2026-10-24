@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss">
+  <channel>
+    <title>We Work Remotely: Full-Stack Programming Jobs</title>
+    <link>https://weworkremotely.com/categories/remote-full-stack-programming-jobs.rss</link>
+    <description>We Work Remotely: Full-Stack Programming Jobs</description>
+    <language>en-US</language>
+    <ttl>60</ttl>
+    <item>
+      <media:content url="https://wwr-pro.s3.amazonaws.com/logos/0171/6591/logo.gif" type="image/png"/>
+      <title>Askable: Software Engineer, AI Coding Tasks (Contract) </title>
+      <region>Anywhere in the World</region>
+      <country></country>
+      <state>Queensland</state>
+      <skills>C++, Java, Python, TypeScript, Go, and Rust</skills>
+      <category>Full-Stack Programming</category>
+      <type>Contract</type>
+      <description>&lt;img src="https://we-work-remotely.imgix.net/logos/0171/6591/logo.gif?ixlib=rails-4.0.0&amp;w=50&amp;h=50&amp;dpr=2&amp;fit=fill&amp;auto=compress" /&gt;
+
+&lt;p&gt;
+  &lt;strong&gt;Headquarters:&lt;/strong&gt; Australia 
+    &lt;br /&gt;&lt;strong&gt;URL:&lt;/strong&gt; &lt;a href="https://www.askablelabs.com/"&gt;https://www.askablelabs.com/&lt;/a&gt;
+&lt;/p&gt;
+
+&lt;p&gt;We're looking for experienced software engineers to build AI coding tasks from a codebase they know well. US$1,000 per task, and you can do as many tasks as you want.&lt;/p&gt;
+&lt;p&gt;You turn a real change from a repository you know into a task that today's best AI coding models struggle with: hard for the models, but fair for a skilled engineer. Your tasks are used to measure and train AI coding models.&lt;/p&gt;
+&lt;p&gt;Remote, any location. US$1,000 per task that passes review. Minimum of one task a week, about 10 hours a week.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;How it works&lt;/strong&gt;&lt;/p&gt;
+&lt;ol class="iiilu2 iiil4m iiimkb"&gt;
+&lt;li&gt;&lt;strong&gt;Apply. &lt;/strong&gt;Complete a short screener interview and upload your resume.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Propose.&lt;/strong&gt; Once you're selected, pick a change from a repository you know and submit a short proposal. We approve it or suggest a better candidate.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Build.&lt;/strong&gt; In our platform, set up the repository as it was before the change, then write the brief, the correct solution and the grading checks.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Stress-test. &lt;/strong&gt;Try lazy, incorrect and shortcut solutions and make sure your checks catch them.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Model testing.&lt;/strong&gt; Run your task against leading AI models until strong models often fail but a skilled engineer can clearly solve it.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Review.&lt;/strong&gt; A reviewer checks your task and you revise it. Most tasks take more than one round.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Next task.&lt;/strong&gt; Once your task is accepted, start another.&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;&lt;strong&gt;Requirements&lt;/strong&gt;&lt;/p&gt;
+&lt;ul class="iiilu2 iiil4n iiimkb"&gt;
+&lt;li&gt;2+ years of professional software engineering&lt;/li&gt;
+&lt;li&gt;Code merged into a public open-source repository, ideally one you know well. A private codebase you own may also qualify (not employer or client code)&lt;/li&gt;
+&lt;li&gt;Strong in at least one of Python, TypeScript, Go, Rust, Java or C++&lt;/li&gt;
+&lt;li&gt;Solid with Docker, Linux, Git and automated testing&lt;/li&gt;
+&lt;li&gt;Regular use of an AI coding tool&lt;/li&gt;
+&lt;li&gt;Experience writing tests, rubrics or evaluation criteria, ideally for AI models&lt;/li&gt;
+&lt;li&gt;You can explain a change clearly and concisely, in your own words&lt;/li&gt;
+&lt;li&gt;At least 10 hours a week, starting now&lt;/li&gt;
+&lt;li&gt;A secure personal or work computer (no public or shared machines)&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;&lt;strong&gt;Nice to have&lt;/strong&gt;&lt;/p&gt;
+&lt;ul class="iiilu2 iiil4n iiimkb"&gt;
+&lt;li&gt;Deep expertise in one area, such as databases, compilers, distributed systems, security or infrastructure&lt;/li&gt;
+&lt;li&gt;Experience building agent tasks or RL environments&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;&lt;strong&gt;Terms&lt;/strong&gt;&lt;/p&gt;
+&lt;ul class="iiilu2 iiil4n iiimkb"&gt;
+&lt;li&gt;US$1,000 for each task that passes our quality review, paid directly to you&lt;/li&gt;
+&lt;li&gt;Once your proposal is qualified, you sign Askable's contract and accept its terms&lt;/li&gt;
+&lt;li&gt;The work is used for AI training. The change and your solution must be your own, and you must be free to license them to us&lt;/li&gt;
+&lt;li&gt;Don't publish the work anywhere: no public pull request or public fork&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Apply at https://www.askable.com/experts/roles/senior-software-engineer&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/askable-software-engineer-ai-coding-tasks-contract"&gt;https://weworkremotely.com/remote-jobs/askable-software-engineer-ai-coding-tasks-contract&lt;/a&gt;&lt;/p&gt;
+</description>
+      <pubDate>Fri, 16 Oct 2026 00:50:53 +0000</pubDate>
+      <expires_at>Sun, 15 Nov 2026 00:50:53 +0000</expires_at>
+      <guid>https://weworkremotely.com/remote-jobs/askable-software-engineer-ai-coding-tasks-contract</guid>
+      <link>https://weworkremotely.com/remote-jobs/askable-software-engineer-ai-coding-tasks-contract</link>
+    </item>
+    <item>
+      <title>ZoomInfo Technologies LLC: Director, Applied AI</title>
+      <region>Anywhere in the World</region>
+      <country>🇺🇸 United States of America</country>
+      <state></state>
+      <skills></skills>
+      <category>Full-Stack Programming</category>
+      <type>Full-Time</type>
+      <description>
+
+&lt;p&gt;
+  &lt;strong&gt;Headquarters:&lt;/strong&gt; Bethesda, Maryland, United States; Remote-US-MA; Remote-US-MD; Remote-US-WA; Vancouver, Washington, United States; Waltham, Massachusetts, United States
+&lt;/p&gt;
+
+&lt;div class="content-intro"&gt;&lt;p&gt;ZoomInfo is where careers accelerate. We move fast, think boldly, and empower you to do the best work of your life. You’ll be surrounded by teammates who care deeply, challenge each other, and celebrate wins. With tools that amplify your impact and a culture that backs your ambition, you won’t just contribute. You’ll make things happen–fast.&lt;/p&gt;&lt;/div&gt;&lt;div&gt;
+&lt;p class="markdown-p"&gt;You'll lead the team that builds the intelligence every ZoomInfo AI agent reasons over — what's true about companies and the people in them, how they relate, and what they're buying. This role owns the B2B data graph strategy end to end, blending classical machine learning and data science with LLM and agentic systems, and treating evaluation and inference cost as core disciplines. You'll set the technical bar for a team of senior engineers while staying close to the code, shipping alongside the people you lead.&lt;/p&gt;
+&lt;p class="markdown-p"&gt;&lt;strong class="markdown-strong"&gt;What You'll Do&lt;/strong&gt;&lt;/p&gt;
+&lt;ul class="markdown-ul"&gt;
+&lt;li class="markdown-li"&gt;You will ship code alongside your team, prototype alone to prove or kill an idea, and review code as a peer, setting how the team uses agentic coding tools with precise specifications and rigorous review.&lt;/li&gt;
+&lt;li class="markdown-li"&gt;You will own delivery end-to-end, from problem framing through serving and on-call, including long-tail graph coverage and user memory for agents that separates user-supplied context from system-of-record data.&lt;/li&gt;
+&lt;li class="markdown-li"&gt;You will choose the right method for each problem — classical machine learning, language models, or code — for challenges like sparse-company revenue estimation, entity resolution, and semantic intent modeling, deciding on measured evidence and stopping work that won't pay off.&lt;/li&gt;
+&lt;li class="markdown-li"&gt;You will define what it takes to claim an agent's output is correct, not just that its run completed, building the evaluation datasets, regression gates, and experiment designs that back those claims.&lt;/li&gt;
+&lt;li class="markdown-li"&gt;You will own inference cost, latency, and capacity, including build-versus-buy and distillation decisions, since a model too expensive to run everywhere isn't a result.&lt;/li&gt;
+&lt;li class="markdown-li"&gt;You will hire and grow machine learning engineers, data scientists, and research engineers, developing senior engineers into technical leaders.&lt;/li&gt;
+&lt;li class="markdown-li"&gt;You will work across product, platform, security, and legal, and present results and their limits to executives, including when a system isn't good enough to launch.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p class="markdown-p"&gt;&lt;strong class="markdown-strong"&gt;What You Bring&lt;/strong&gt;&lt;/p&gt;
+&lt;p class="markdown-p"&gt;&lt;em class="markdown-em"&gt;Must-Have:&lt;/em&gt;&lt;/p&gt;
+&lt;ul class="markdown-ul"&gt;
+&lt;li class="markdown-li"&gt;You have significant experience building production machine learning systems and leading the engineers who build them by shipping alongside them — demonstrated capability matters more than years.&lt;/li&gt;
+&lt;li class="markdown-li"&gt;You have a track record of hiring and developing senior machine learning engineers and data scientists against a high bar.&lt;/li&gt;
+&lt;li class="markdown-li"&gt;You stay hands-on today: shipping code, building prototypes independently, and using agentic coding tools daily with rigorous review.&lt;/li&gt;
+&lt;li class="markdown-li"&gt;You bring deep classical machine learning and data science expertise (supervised learning, feature engineering, statistical inference and experiment design, strong SQL) alongside production LLM and agentic systems, with the judgment to choose between them, including setting an evaluation bar with leakage-safe validation, calibration, and validated LLM judges.&lt;/li&gt;
+&lt;li class="markdown-li"&gt;You have a record of cost and capacity decisions for model serving, such as moving a workload from a hosted model to a distilled or self-hosted one, with the savings measured, and you report results to executives with their limits stated, including recommending against a launch.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p class="markdown-p"&gt;&lt;em class="markdown-em"&gt;Preferred:&lt;/em&gt;&lt;/p&gt;
+&lt;ul class="markdown-ul"&gt;
+&lt;li class="markdown-li"&gt;You bring entrepreneurial experience — founding a company, or taking a product from inception to paying customers as a founding or early engineer.&lt;/li&gt;
+&lt;li class="markdown-li"&gt;You have experience in propensity modeling, ranking and retrieval, clustering, or entity resolution at scale.&lt;/li&gt;
+&lt;li class="markdown-li"&gt;You have worked on web-scale language processing over multilingual, noisy text, knowledge graphs, or user memory for agents.&lt;/li&gt;
+&lt;li class="markdown-li"&gt;You have experience with post-training and distillation, open-weight model serving, or AI governance and safety practices (ISO/IEC 42001, NIST AI RMF).&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p class="markdown-p"&gt;&amp;nbsp;&lt;/p&gt;
+&lt;p class="markdown-p"&gt;#LI-hybrid&lt;/p&gt;
+&lt;p class="markdown-p"&gt;#LI-VC1&lt;/p&gt;
+&lt;/div&gt;&lt;div class="content-pay-transparency"&gt;&lt;div class="pay-input"&gt;&lt;div class="description"&gt;&lt;p&gt;Actual compensation offered will be based on factors such as the candidate’s work location, qualifications, skills, experience and/or training. Your recruiter can share more information about the specific salary range for your desired work location during the hiring process. We want our employees and their families to thrive.&lt;/p&gt;
+&lt;p&gt;In addition to comprehensive benefits we offer holistic mind, body and lifestyle programs designed for overall well-being. Learn more about ZoomInfo benefits &lt;a class="c-link" href="https://www.zoominfo.com/careers#benefits"&gt;here&lt;/a&gt;.&lt;/p&gt;&lt;/div&gt;&lt;div class="title"&gt;Below is the US base salary for this position. Additional compensation such as Bonus, Commission, Equity and other benefits may also apply.&lt;/div&gt;&lt;div class="pay-range"&gt;&lt;span&gt;$233,100&lt;/span&gt;&lt;span class="divider"&gt;—&lt;/span&gt;&lt;span&gt;$366,300 USD&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class="content-conclusion"&gt;&lt;p&gt;&lt;strong&gt;About us:&lt;/strong&gt;&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;ZoomInfo (NASDAQ: GTM) is the Go-To-Market Intelligence Platform that empowers businesses to grow faster with AI-ready insights, trusted data, and advanced automation. Its solutions provide more than 35,000 companies worldwide with a complete view of their customers, making every seller their best seller.&lt;/p&gt;
+&lt;p&gt;ZoomInfo is committed to protecting your privacy when you apply for jobs with us. Please review our Job Applicant &lt;a href="https://drive.google.com/file/d/1yiG-k0YX_sW10PiJk_xliDc3W-veJCrK/view?usp=drive_link"&gt;Privacy Notice&lt;/a&gt; for more details on how we handle your personal information.&lt;/p&gt;
+&lt;p&gt;ZoomInfo may use a software-based assessment as part of the recruitment process. More information about this tool, including the results of the most recent bias audit, is available &lt;a href="https://www.zoominfo.com/legal/nyc-local-law-144-notice"&gt;here&lt;/a&gt;.&lt;/p&gt;
+&lt;p&gt;ZoomInfo is proud to be an equal opportunity employer, hiring based on qualifications, merit, and business needs, and does not discriminate based on protected status. We welcome all applicants and are committed to providing equal employment opportunities regardless of sex, race, age, color, national origin, sexual orientation, gender identity, marital status, disability status, religion, protected military or veteran status, medical condition, or any other characteristic protected by applicable law. We also consider qualified candidates with criminal histories in accordance with legal requirements.&lt;/p&gt;
+&lt;p&gt;For Massachusetts Applicants: It is unlawful in Massachusetts to require or administer a lie detector test as a condition of employment or continued employment. An employer who violates this law shall be subject to criminal penalties and civil liability. ZoomInfo does not administer lie detector tests to applicants in any location.&lt;/p&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/zoominfo-technologies-llc-director-applied-ai"&gt;https://weworkremotely.com/remote-jobs/zoominfo-technologies-llc-director-applied-ai&lt;/a&gt;&lt;/p&gt;
+</description>
+      <pubDate>Tue, 29 Sep 2026 07:30:41 +0000</pubDate>
+      <expires_at>Thu, 29 Oct 2026 07:30:41 +0000</expires_at>
+      <guid>https://weworkremotely.com/remote-jobs/zoominfo-technologies-llc-director-applied-ai</guid>
+      <link>https://weworkremotely.com/remote-jobs/zoominfo-technologies-llc-director-applied-ai</link>
+    </item>
+    <item>
+      <media:content url="https://wwr-pro.s3.amazonaws.com/logos/0161/6774/logo.gif" type="image/png"/>
+      <title>Yooli: FULL TIME: Software Engineer Position - React and Rest</title>
+      <region>Anywhere in the World</region>
+      <country></country>
+      <state>Telangana</state>
+      <skills></skills>
+      <category>Full-Stack Programming</category>
+      <type>Full-Time</type>
+      <description>&lt;img src="https://we-work-remotely.imgix.net/logos/0161/6774/logo.gif?ixlib=rails-4.0.0&amp;w=50&amp;h=50&amp;dpr=2&amp;fit=fill&amp;auto=compress" /&gt;
+
+&lt;p&gt;
+  &lt;strong&gt;Headquarters:&lt;/strong&gt; Australia
+    &lt;br /&gt;&lt;strong&gt;URL:&lt;/strong&gt; &lt;a href="http://yooli.co"&gt;http://yooli.co&lt;/a&gt;
+&lt;/p&gt;
+
+&lt;div&gt;&lt;strong&gt;Job description&lt;/strong&gt;&lt;/div&gt;
+&lt;ul&gt;
+&lt;li&gt;We are seeking a highly skilled &lt;strong&gt;Senior Software Engineer&lt;/strong&gt; to join our team and contribute to the transformative tech evolution in healthcare.&amp;nbsp;&lt;/li&gt;
+&lt;li&gt;This critical role involves developing, integrating, and optimising our backend and database systems.&amp;nbsp;&lt;/li&gt;
+&lt;li&gt;You will work closely with our Chief Engineer and CTO to build and refine our software solutions, ensuring they remain at the cutting edge of innovation.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;div&gt;&amp;nbsp;&lt;/div&gt;
+&lt;div&gt;&lt;strong&gt;Your Role:&lt;/strong&gt;&lt;/div&gt;
+&lt;ul&gt;
+&lt;li&gt;Develop and maintain robust backend services using &lt;strong&gt;NestJS&lt;/strong&gt; and &lt;strong&gt;Node.js&lt;/strong&gt;, ensuring top-tier performance and security.&lt;/li&gt;
+&lt;li&gt;Design and manage efficient &lt;strong&gt;REST API&lt;/strong&gt; endpoints to optimise interactions with our SQL database.&lt;/li&gt;
+&lt;li&gt;Collaborate with cross-functional teams to define, design, and deploy new features, focusing on backend logic and database performance.&lt;/li&gt;
+&lt;li&gt;Ensure the scalability, security, and responsiveness of backend services.&lt;/li&gt;
+&lt;li&gt;Uphold rigorous data protection standards and implement industry-leading security measures.&lt;/li&gt;
+&lt;li&gt;Participate in code reviews to uphold high coding standards and foster continuous improvement within the development team.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;div&gt;&amp;nbsp;&lt;/div&gt;
+&lt;div&gt;&lt;strong&gt;What Youll Bring:&lt;/strong&gt;&lt;/div&gt;
+&lt;div&gt;&lt;strong&gt;Essential Skills &amp;amp; Experience:&lt;/strong&gt;&lt;/div&gt;
+&lt;ul&gt;
+&lt;li&gt;At least &lt;strong&gt;7 years of experience&lt;/strong&gt; with:&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;React&lt;/strong&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;React Vite&lt;/strong&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;REST API development&lt;/strong&gt;&lt;/li&gt;
+&lt;li&gt;Strong knowledge and hands-on experience with &lt;strong&gt;SQL&lt;/strong&gt;.&lt;/li&gt;
+&lt;li&gt;Proficiency in &lt;strong&gt;Prisma&lt;/strong&gt; for database management.&lt;/li&gt;
+&lt;li&gt;A minimum of &lt;strong&gt;5 years of experience&lt;/strong&gt; in &lt;strong&gt;REST API development&lt;/strong&gt; using the &lt;strong&gt;NestJS framework&lt;/strong&gt;.&lt;/li&gt;
+&lt;li&gt;Expertise in backend development, specifically with &lt;strong&gt;NestJS&lt;/strong&gt;, &lt;strong&gt;Node.js&lt;/strong&gt;, &lt;strong&gt;REST APIs&lt;/strong&gt;, and &lt;strong&gt;PostgreSQL&lt;/strong&gt;.&lt;/li&gt;
+&lt;li&gt;Experience in developing single-page applications using &lt;strong&gt;ReactJS&lt;/strong&gt;.&lt;/li&gt;
+&lt;li&gt;Strong understanding of &lt;strong&gt;TypeScript&lt;/strong&gt; and &lt;strong&gt;Object-Oriented Programming (OOP)&lt;/strong&gt; principles.&lt;/li&gt;
+&lt;li&gt;Solid grasp of commonly used &lt;strong&gt;data structures&lt;/strong&gt;.&lt;/li&gt;
+&lt;li&gt;Proven experience with &lt;strong&gt;cloud hosting services&lt;/strong&gt; (preferably AWS) and integrating them into development workflows.&lt;/li&gt;
+&lt;li&gt;Exceptional problem-solving skills and meticulous attention to detail.&lt;/li&gt;
+&lt;li&gt;A proven ability to thrive in collaborative, remote work environments, showcasing excellent communication skills and a commitment to team success.&lt;/li&gt;
+&lt;li&gt;A portfolio demonstrating relevant projects.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;div&gt;&amp;nbsp;&lt;/div&gt;
+&lt;div&gt;&lt;strong&gt;Nice-to-Haves:&lt;/strong&gt;&lt;/div&gt;
+&lt;ul&gt;
+&lt;li&gt;Experience with &lt;strong&gt;CI/CD pipelines&lt;/strong&gt; and version control systems like &lt;strong&gt;Git&lt;/strong&gt;.&lt;/li&gt;
+&lt;li&gt;Familiarity with &lt;strong&gt;agile development methodologies&lt;/strong&gt; and project management tools.&lt;/li&gt;
+&lt;li&gt;Knowledge of &lt;strong&gt;Redux&lt;/strong&gt; for state management.&lt;/li&gt;
+&lt;li&gt;A degree in &lt;strong&gt;Computer Science&lt;/strong&gt; or a related field.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/yooli-full-time-software-engineer-position-react-and-rest-1"&gt;https://weworkremotely.com/remote-jobs/yooli-full-time-software-engineer-position-react-and-rest-1&lt;/a&gt;&lt;/p&gt;
+</description>
+      <pubDate>Wed, 05 Aug 2026 05:52:46 +0000</pubDate>
+      <expires_at>Tue, 03 Nov 2026 05:52:46 +0000</expires_at>
+      <guid>https://weworkremotely.com/remote-jobs/yooli-full-time-software-engineer-position-react-and-rest-1</guid>
+      <link>https://weworkremotely.com/remote-jobs/yooli-full-time-software-engineer-position-react-and-rest-1</link>
+    </item>
+  </channel>
+</rss>

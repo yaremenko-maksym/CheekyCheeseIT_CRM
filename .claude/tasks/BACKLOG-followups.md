@@ -4116,6 +4116,39 @@ Sum: 4+8+1+8+5+6+11+2+7+2+4+8+4+2+3 = **75**.
 
 **Check on closing:** every task and backlog entry above is closed or carries a recorded decision.
 
+### Progress, 2026-10-24 — 23 of the 52 task-bound identifiers closed on `main`
+
+The map above assigns every identifier a destination; this says which destinations have landed. The
+arithmetic is the point, so it is reconciled rather than asserted, and it is derived from merged PRs
+rather than from anyone's recollection:
+
+| Destination                        | PR          | ids | state                            |
+| ---------------------------------- | ----------- | --- | -------------------------------- |
+| `retro-mr-matcher-access`          | #1094       | 4   | merged                           |
+| `retro-mr-webhook-ingest`          | #1097       | 8   | merged                           |
+| `retro-mr-en-catalog`              | #1091       | 1   | merged                           |
+| `retro-salary-form-defaults`       | #1093       | 5   | merged                           |
+| `retro-txdate-reporting`           | #1108       | 2   | merged                           |
+| carried by the collaborator's #868 | #868        | 3   | merged — see the note below      |
+| `retro-salary-ledger-integrity`    | #1102       | 8   | open, `BLOCK`, 13-finding round  |
+| `retro-txdate-policy`              | in progress | 9   | branch `fix/retro-txdate-policy` |
+| `retro-business-day-clock`         | not started | 6   | waits on txdate-policy           |
+| `retro-manual-ddl-coverage`        | not started | 6   | —                                |
+
+Closed: 4 + 8 + 1 + 5 + 2 + 3 = **23**. In flight or pending: 8 + 9 + 6 + 6 = **29**. Sum **52**, which
+matches the task-bound total in the map above (the remaining 23 of the 75 are the 18 deferred to
+backlog 280-283 and the 5 already closed).
+
+**The three ids carried by #868** are `SR-809-M-1` = `CR-809-M-1` (the "payment cannot predate its
+source" check applying only when `txDate` is supplied) and `CR-867-M-1` (`periodToDates` building
+local-midnight keys). The map's header says open PRs #868/#869 were deliberately not counted as
+fixes, which was correct when written — **#868 merged 2026-10-23T20:17:53Z**, so they count now. The
+two task files record the scope change; this row is what keeps the sum reconcilable across it.
+
+**Not a closure:** `retro-txdate-policy`'s and `retro-business-day-clock`'s counts here are 9 and 6,
+not the map's 11 and 7, for exactly that reason. If you reconcile against the map without reading this
+paragraph the sum will look wrong by 3.
+
 ## 280. Meeting-recorder transcripts are kept forever and outlive their interview (2026-10-22)
 
 `MeetingRecorderRetentionCronService` purges only webhook receipts. `interview_recordings.snapshot`
@@ -4546,10 +4579,34 @@ so neither the agent that made it nor the only party the rule names as the fallb
 it genuinely falls to the owner. **Measured scale at the time of writing: 16 such checkouts across two
 sessions' scratchpads**, most from reviews closed hours earlier.
 
+**The app's own cleanup cannot reach these (measured 2026-10-24).** The obvious alternative to an
+owner-run command is the desktop app's "Clean up inactive sessions" facility. It qualifies sessions by
+**no activity for at least 30, 60 or 90 days** — those are the only accepted values — so a tree
+stranded today is outside its reach by design, and will stay so for a month. It also cleans
+_session_ worktrees, not the scratchpad checkouts reviewers create. So the escape route is closed from
+a third end as well, and "just use the app's cleanup" is not an answer to this entry.
+
 A related sharp edge found in the same attempt: passing the path through a shell variable gets
 `WORKTREE-OPAQUE` instead, because the hook cannot expand it and refuses rather than guess. That is
 right, and it means any batch cleanup must expand each path to a literal first — which is also why a
 loop over `git worktree list` cannot be the fix.
+
+**It is a leak with a rate, not a backlog of 16 (re-measured 2026-10-24, ~50 minutes later).** The
+count went 16 -> 19 in that window, and the three new ones are exactly the three reviewer checkouts
+dispatched in it: one per review that needed to run something. So the number in the paragraph above is
+not a quantity to clear once; it is a reading of a meter. Whatever the figure says when you read this,
+it is wrong and it is larger.
+
+That changes the priority rather than the diagnosis. A fixed backlog of stranded trees is housekeeping
+the owner can do when convenient; a leak of one tree per review is a cost on every review this repo
+runs, and the registered-worktree total is already 81. Re-measure before acting, reading the producer
+into a variable first so that an unread list cannot pass for an empty one:
+
+```
+wt=$(git -C <main repo> worktree list --porcelain)
+printf '%s' "$wt" | grep -c '^worktree '                    # total registered
+printf '%s' "$wt" | grep '^worktree ' | grep -c 'claude-501' # in session scratchpads
+```
 
 **Check on closing:** an agent creates a worktree at the `/private/tmp/...` path the harness issued it
 and then removes it, with no intervening step. Both commands succeed. And a tree whose creator is gone
@@ -4662,6 +4719,39 @@ total exactly. The reconciliation against a known total is what turned a plausib
 checkable one, and it is the cheap habit worth copying: a count that does not have to add up to
 anything is a count nobody can falsify.
 
+### Instance 3 — a red step retried until green, with its reason truncated away (2026-10-24)
+
+Reported verbatim by the agent on PR #1110, and it is worth preserving in its own words because the
+honesty is what makes it usable: _"The first `git push` failed in the husky pre-push script (code 1),
+and I did not capture why. A second attempt piped through `head` and its result was unclear, so I
+discarded it. The third, redirected to a file, passed and pushed."_
+
+Three separate failures of instrumentation in one sequence, and only the third attempt was
+instrumented well enough to be believed:
+
+1. **A red step whose reason was never captured.** A pre-push failure is the gate doing its job; a
+   pre-push failure nobody read is indistinguishable from flake, and the only available response to
+   it is to try again. That is the habit every other gate in this repo depends on people not having.
+2. **`| head` on the diagnostic output**, which is this entry's own defect: the reason was probably in
+   the lines that truncation discarded.
+3. **An "unclear" result discarded rather than resolved.** Discarding an inconclusive measurement and
+   re-running is the same move as re-running red until green; it differs only in that nobody can
+   later tell it happened.
+
+The agent reports no hook was bypassed, and the final push is independently checkable
+(`git ls-remote origin` matched local HEAD), so the work itself is sound. **The defect is that
+red -> red -> green across three attempts is on the record with no explanation, and that is exactly the
+shape an intermittent gate failure and a real one share.** Nothing here distinguishes them.
+
+**What would have cost one command:** `git push > /tmp/push.log 2>&1 || tail -50 /tmp/push.log` on the
+FIRST attempt — redirect before you need it, not after two attempts have already failed. The agent
+arrived at this form by the third try; the point of writing it down is that it is available on the
+first.
+
+**Check on closing:** a pre-push failure in any agent's report is accompanied by the reason, or by a
+statement that the reason could not be obtained and why. A report that says a push failed and later
+succeeded, with nothing in between, is incomplete on its face.
+
 ## 303. User-facing error text left over from the retro-PR wave (2026-10-23)
 
 Five findings from reviews and QA that were deliberately not fixed in their PRs, because each touches a
@@ -4765,6 +4855,127 @@ each agent write under a per-agent subdirectory so a plain basename is safe agai
 **Check on closing:** two agents of one session, each told to write a PR body "to the scratchpad",
 produce two files that cannot collide — verified by running it, not by reading the brief.
 
+## 308. The account meter's spend record depends on six things no code does yet (2026-10-24)
+
+Findings from the three review axes on the shared account-meter reservation store. None could be
+closed inside the store: each needs either the port the collection loop sees, or a worker that claims a
+run under a lease — and neither exists. They are one entry because they share that cause, and because
+closing any one of them alone still leaves the meter's `used` unable to mean what a reader assumes.
+
+**THE OPEN OWNER IS PLAN TASK 2.5, AND IT IS STILL OPEN.** Several bullets below name a role —
+"whoever claims a run under a lease" — and that role is Task 2.5 of the vacancy-sourcing plan, which
+owns the run registry, the collection cadence and durable work ownership, and which is not
+implemented: no registry or run-worker file exists under the job-sourcing directory, and the service's
+registry is still the in-process map holding the legacy provider contract. Registration was
+deliberately cut from the manifest task on the same grounds — nothing in production builds a
+`CollectionContext`, so there is nothing for a registered adapter to be handed. Written out here
+because the task files that say so are gitignored, and an address a reader cannot open is not a
+destination.
+
+- **A reservation can be handed to two live executors of one attempt, and the second charge is
+  silently dropped.** The store reuses a reservation that is still in the RESERVED state, reading that
+  state as "the request never left". RESERVED is equally the state of a live worker about to send, and
+  the store holds no evidence of which. Measured: six concurrent executors of one attempt received one
+  reservation between them; two of them each sent a real request of cost 2 and the meter recorded 2.
+  The second settlement was a no-op, so the second worker believed it had been charged. N overlapping
+  executors cost N times the amount and are charged once — the overspend direction. The store now
+  carries this as a stated CALLER precondition (at most one live executor per attempt identity), with
+  a characterisation test named "TWO live executors of one attempt SHARE a reservation — the
+  precondition, measured" in the store's integration spec: whoever fixes this will see THAT test fail,
+  which is the signal to delete it and assert the fix. It cannot be enforced from inside: the distinguishing fact would have
+  to arrive through the collection context, which carries no owner token, and whose fencing epoch is
+  written by no code in the repository — the column defaults to 1 and the lease recovery that would
+  advance it is unimplemented. So folding the epoch into the reservation key would separate nothing
+  while making the file look fenced. **Whoever claims a run under a lease owns establishing the
+  exclusivity and asserting it there.**
+
+- **Nothing can record that a request left, so "release only provably unsent cost" has no caller that
+  can honour it.** The store exposes a way to mark a reservation sent; the port the collection loop
+  actually sees exposes only reserve and reconcile, and nothing in the repository builds that context
+  yet. So in production the sent state is never recorded. Measured: a reservation whose request
+  physically left, released because the send was never recorded, took the meter from a hold of 4 to all
+  zeroes with 4 units really spent. What protects the loop today is that the JSON page collector marks
+  the outcome uncertain _before_ it fetches — not the store's guard. Either the transport calls the
+  mark at the moment the request leaves, with its transaction committed first, or the sent state is
+  formally retired with a reason. Deciding it by silence is the one option not available.
+  OWNER: the quota-adapter task, plan Task 3.5b — it is the first task with a transport that
+  actually sends, and its own text carries the item. Named here because the task file that
+  says so is gitignored.
+
+- **Settlement charges the full reserved worst case, with no path to correct the row.** Reconciliation
+  carries no actual cost, so a source billed per returned record is charged its whole page every time:
+  a call returning 3 records against a worst case of 50 burns 50 credits in the ledger. Safe for
+  overspend and wrong for accounting — on a money-denominated monthly meter the drift is permanent and
+  compounding, because a second settlement is a no-op and the used amount is already written. Until the
+  port can carry the incurred cost, `used` is an upper bound on spend rather than spend, and nothing
+  downstream may report it to the owner as money actually billed. The store's docblock says so now.
+  OWNER: the quota-adapter task, plan Task 3.5b — it is the first task with a source whose real
+  cost differs from its reservation, and its own text carries the port change. Named here
+  because the task file that says so is gitignored.
+
+- **A crashed worker strands a reservation that nobody can classify or settle.** The plan's lease
+  recovery is the named owner, but its text speaks only of uncertain reservations, and a crash mostly
+  strands a RESERVED one: the settlement runs in a `finally` that a crash never reaches. With no record
+  of the send, a stranded RESERVED row whose request was already in flight cannot be told from one that
+  never left — so the safe reading (hold as uncertain unless provably unsent) is the only sound one,
+  and it is not what "reschedule uncertain reservations" describes. The store also exposes no way to
+  enumerate or settle a dead attempt's rows, so the recovery has no entry point to call.
+
+- **The port's own comment describes a refusal shape that is no longer the only one.** The
+  collection-loop-facing meter port documents its reservation call as returning `null` when the
+  budget refuses — "a COST_STOP, not an error". Since the per-unit sanity ceiling was added, the
+  store has a second refusal shape: an amount above the ceiling THROWS rather than returning
+  `null`, because a cost estimate that large is a defect and not a budget condition. A loop author
+  reading the port's comment would handle only the `null` and meet an uncatchable throw. The store's
+  own class docblock now states both shapes; the port's comment is in a provider base, outside the
+  zone of the task that introduced the ceiling, so the correction travels with the port change in
+  the first item above rather than on its own.
+
+- **Nothing proves a quota key reaches the redaction list.** The credential reader returns the key
+  together with the list to append to the collection context's `secrets`, and that return value is
+  where every assertion stops — because no code builds a collection context, there is no end-to-end
+  path from the reader to a redacted report. The consequence is concrete: a caller that takes the key
+  and ignores the `secrets` list passes every test in the credential spec and leaks the key into
+  whatever it logs or reports. This belongs to the step that CONSTRUCTS the context, which is Task 2.5
+  above and not the adapter task — the adapter task's own text names `secrets` only as a port, so
+  pointing the deferral there, as an earlier edition of the credential spec's comment did, named an
+  owner that did not hold the item.
+
+**Check on closing:** two concurrent executors of one attempt each sending a real request are charged
+twice, not once; a worker killed between sending and settling leaves cost held rather than released;
+a per-record source that returns 3 records against a worst case of 50 is charged 3; a recovery
+process can name and settle the reservations of an attempt whose worker died; the port's comment
+names both refusal shapes, so a loop built from it handles the throw as well as the `null`; and a
+configured quota key is provably absent from a report the collection loop produced, asserted on the
+report rather than on the reader's return value.
+
+## 309. A posting whose employer is withheld at the source has nowhere to live (2026-10-24)
+
+**Open.** Found while reviewing the RSS adapters of r5 Task 3.6; it is the reason two of the three
+sources yield nothing.
+
+An observation with no employer is quarantined `MISSING_COMPANY`, a rule introduced with the shared
+observation identity seam. That rule reads every empty employer as a defect. **Djinni's feed carries
+no employer field at all** — the site withholds it until a candidate applies — so a correct adapter
+over a healthy feed produces zero stored rows, and the source is worthless rather than partial.
+
+"Withheld at the source" is a third value, distinct from "present" and from "we failed to parse it",
+and the ingestion contract cannot express it. Settle, before writing code: what deduplication does
+when one of two sources naming the same posting discloses the employer; what a per-senior company
+exclusion means against an unknown employer, since an excluded company can arrive anonymously; and
+whether an anonymous posting is worth a SENIOR's attention at all. The last is the owner's call.
+
+**Second, separate requirement, same area:** the shared feed reader exposes only the common
+RSS/Atom fields, so a feed's namespaced extension elements are parsed but unreachable by an adapter.
+EU Remote Jobs' employer IS in its feed, as `job_listing:company`, and is lost to this; We Work
+Remotely's region, country, type, skills and expiry are lost to the same gap, which is why the
+enrichment item of that task shipped undone. An extension slot stays untrusted input: the port's
+existing bounds on element count, depth and value length apply to it unchanged.
+
+**Check on closing:** a Djinni-shaped item that is quarantined today produces a stored posting whose
+employer is explicitly unknown; an EU Remote Jobs item produces an employer read from its namespaced
+element; and no new bound ships with only a refusal-side test.
+
 ## 311. Flow Gate: three matcher and classifier gaps found by using it (2026-10-24)
 
 All three surfaced while putting real PRs through the gate on the day it became required. None is a
@@ -4790,3 +5001,689 @@ read `SKIPPED (no Task declared)` rather than `n/a`, or require its own skip lin
 **Check on closing:** a PR body with `**Task:**` passes the Task row; a PR whose only code change is a
 vitest setup file does not report `Tests: MISSING`; and a `Skip-Task:` PR shows Spec-Review as skipped
 with a reason rather than as not applicable.
+
+### A fourth gap, and it is not a matcher gap: a verdict is not pinned to the commit it was given on (2026-10-24)
+
+Separated from the three above because they are cosmetic and this one defeats the gate's purpose.
+Measured by reading the gate, not inferred:
+
+```
+git show origin/main:scripts/architect/flow-gate.mjs | grep -nE 'commit_id|head_sha|latest'
+```
+
+`latest` is selected by `ts(it.at)` among trusted-association markers. **`commit_id` and `head_sha`
+do not appear in the file at all.** So a positive verdict stays positive across any number of
+subsequent commits, and the gate reports the step `done`.
+
+**The reviewed code and the merged code can therefore be different code, with nothing in the gate's
+output distinguishing them.** This is the same shape as the defect the Flow Gate was built to close:
+the gate exists because five PRs merged with no review, and this hole lets a PR merge with a review
+of something else. Narrower, and not hypothetical — observed on PR #1110, where `Verdict: APPROVE`
+and `Spec Review: PASS` were given on `abc3fa24c`, and a further commit followed. The gate would
+have passed it on those verdicts; it was caught by hand, which is exactly the attentiveness a gate
+exists to replace.
+
+**What makes it fixable:** a GitHub review object carries `commit_id`, the commit it was submitted
+against. A PR comment does not, so comment-borne verdicts have only `created_at` and are strictly
+weaker — a fix must say what it does about them rather than treating them as always fresh.
+
+**The trade to get right, and the reason this is not a one-line change.** If any follow-up commit
+invalidates a verdict, then every PR-body edit forces a fresh review round, and a gate that expensive
+is one people route around — worse than the hole. A docs-only exemption (every changed path ends in
+`.md`) is the obvious relief and is consistent with the gate's existing docs-only rule. There is also
+a reporting choice worth making deliberately: `MISSING` is strictest, but a distinct `STALE` status
+tells the author whether they need to run a reviewer or get a fresh pass, and those are different
+remedies.
+
+### It happened in production while the fix was in review (measured 2026-10-24)
+
+Not a hypothetical any more. **PR #1103 merged at 02:25:44Z carrying stale verdicts on all three
+axes**, hours after this gap was written up and while the fix for it (#1116) was under review. The
+fix's own blast-radius run had named #1103 as the one PR that would newly block — and it merged
+before the fix did.
+
+Measured, and the arithmetic matters because the raw diff grossly overstates it:
+
+|                                                            | files | lines        |
+| ---------------------------------------------------------- | ----- | ------------ |
+| diff from the code/security verdict sha to the merged head | 53    | +6544 / −207 |
+| of those, files the PR itself **owns**                     | 4     | +462 / −28   |
+| same, measured from the spec `PASS` sha                    | 2     | +184 / −25   |
+
+The 53-file figure is almost all base-branch movement — the branch merged `main` in between, which
+brought three other PRs with it. **Quoting it as "merged without review" would be false**, and it is
+the trap entry 301 describes: a real measurement, less precise than the claim it would support. The
+honest number is the intersection of the drift with the PR's own net diff, which is exactly the
+quantity #1116's rule computes (`drift ∩ P`) — the entry and the fix agree on what to measure.
+
+What actually merged unreviewed: `account-meter.store.ts` and two of its spec files, **+462 lines of a
+metering and quota store**, after `Verdict: APPROVE` and `Security Review: APPROVE` were both given on
+`36c209006` and the head moved on. The spec `PASS` on `d1c2f578a` was stale too, by 184 lines of the
+store itself. The PR had a `Security Review: BLOCK` earlier in its history, so this is not a surface
+nobody worried about.
+
+**The step this rests on, made explicit because it is the one that could be wrong.** "Merged on stale
+verdicts" is only true if no fresh verdict landed between the last one and the merge. The full review
+list (`--paginate`, so not a truncated page) ends at `Spec Review: PASS` at **00:52:25Z**; the merge is
+at **02:25:44Z**. Nothing was submitted in that hour and a half, and the latest verdict on each axis
+sits on a sha that is not the merged head: code and security on `36c209006`, spec on `d1c2f578a`, head
+`f8afb7ab7`. Without that check the claim would rest on a snapshot taken earlier, which is a different
+and weaker statement.
+
+Reconstruct it with:
+
+```
+gh api repos/<owner>/<repo>/pulls/1103/reviews --paginate \
+  --jq '.[] | select(.body | test("^(Verdict|Spec Review|Security Review):")) | "\(.commit_id[0:9]) \(.body | split("\n")[0])"'
+gh pr view 1103 --json headRefOid,mergedAt
+# then intersect: git diff --name-only <base>...<head>  vs  git diff --name-only <verdict sha> <head>
+```
+
+**The decisive fact, which is stronger than "the verdicts were stale".** The `Flow Gate` check run on
+the merged head concluded **`success` at 02:14:04Z**, eleven minutes before the 02:25:44Z merge:
+
+```
+gh api repos/<owner>/<repo>/commits/f8afb7ab7/check-runs --jq '.check_runs[] | select(.name=="Flow Gate") | "\(.conclusion) \(.completed_at)"'
+```
+
+So the gate did not merely fail to notice. **It affirmatively certified every step as `done` for a head
+whose code and security verdicts had been given three commits earlier.** A gate that stays silent is a
+gap; a gate that returns a positive answer about something it did not measure is a false statement,
+and it is the shape `verification-integrity.md` is built around — an instrument reporting a result when
+it had not looked at the thing it was reporting on.
+
+**Why this belongs in the entry rather than only in #1116's body:** it answers the objection that
+head-pinning is ceremony. The gate reported every step `done` for this PR, and every step was `done` —
+for code that is not what merged.
+
+**Check on closing:** a PR with a positive review verdict on an older sha does NOT report that step
+`done`; the same PR with only a subsequent docs commit still does; and the gate still fails closed on
+a truncated or failed API fetch.
+
+## 312. A read-only reviewer can check out a PR inside the orchestrator's own working directory (2026-10-24)
+
+`agent-isolation.md` says a read-only reviewer is deliberately NOT forced a worktree, and the dispatch
+gate passes it silently, on the sound grounds that it reads a diff rather than a tree. Rule 4 then
+tells it to make its own checkout if it needs to run something, and `pre:bash:cross-agent-blast`
+refuses it a _foreign_ tree. **Nothing covers the session's own directory**, which is the one tree it
+shares with the orchestrator — so the protection is complete against siblings and absent against the
+parent.
+
+**Observed, from the reflog rather than inferred.** A reviewer on PR #1102 made its own checkout as the
+rule prescribes, and also ran a checkout in the session working directory:
+
+```
+e445077d8 checkout: moving from docs/worktree-leak-rate to refs/pr/1102
+```
+
+The orchestrator was left on a detached HEAD at someone else's PR head, with no error and no notice.
+It then appended to a long-lived file and committed. Measured consequence:
+
+|                                                  | lines |
+| ------------------------------------------------ | ----- |
+| the file on the orchestrator's branch            | 4842  |
+| the file at the PR head it was silently moved to | 4792  |
+| the resulting commit                             | 4829  |
+
+The commit was a clean `+37` on the wrong base. Pushed to the branch, it would have **reverted two
+earlier entries** — `grep -c` for each returned 0 in that commit — while reporting "1 file changed, 37
+insertions(+)" and nothing else. This is `verification-integrity.md`'s silent-revert hazard reached
+without staging anything stale: the base itself moved underfoot.
+
+**Why `git add` by name did not help, and what did.** The staged set was correct and the diffstat was
+correct; both describe the change relative to a HEAD that was not the intended one. What caught it was
+`git push` failing with "You are not currently on a branch" — luck, in that the detachment happened to
+block the one command that would have done damage. Had the reviewer checked out a _branch_ instead of
+a ref, the push would have succeeded.
+
+**Candidate answers, in increasing cost:**
+
+1. Extend `pre:bash:cross-agent-blast` to refuse `git checkout` / `switch` / `reset` with a revision
+   argument when the agent is non-isolated and the target tree is the session working directory. Cheap
+   and precise; it does not restrict an agent's own scratch checkout, which is what the rule wants it
+   to use.
+2. Have write-capable commands assert the branch first. The orchestrator's own discipline already
+   requires `git branch --show-current` before a write operation (`session_ops_lessons_2026_06_15`);
+   this incident is what that line is for, and it was not run.
+3. Dispatch reviewers with `isolation="worktree"` after all, which the rule rejects on cost grounds —
+   and that reasoning still holds, so this is the fallback, not the fix.
+
+**Check on closing:** a non-isolated agent that runs `git checkout <rev>` in the session working
+directory is refused, and its own scratch-path checkout still succeeds.
+
+## 313. The mutation gate reads a mutant killed only by rejection tests as surviving (2026-10-24)
+
+**Open** — a tool fact with no mechanism behind it, measured independently twice. 313 was free when
+taken and nothing has claimed it since; its sibling entry on the chain-directive quirk had to be
+renumbered to 315, so the two no longer sit next to each other in the file.
+
+Stryker's per-test attribution does not select a test whose assertion is on a **rejection** — that
+the call under test throws, or that a promise rejects. A mutant whose only killers are such tests is
+therefore reported as `Survived` while the suite does kill it: hand-mutate the line and the named
+tests fail, every time. Found by the author of an account-meter store and confirmed by a reviewer,
+which is the only reason anyone believed it rather than suppressing harder.
+
+Two instances, with their numbers, so a later reader can re-run them rather than trust this entry.
+Both are in the store's settlement path, and both were measured by applying the mutation by hand and
+running the unit suite:
+
+- the meter-lock `catch` that converts only a not-found error into a foreign-reservation refusal,
+  forced always-true: **2 unit tests fail** ("an error that merely LOOKS like METER_NOT_FOUND ..."
+  and "a plain failure inside the meter lock ..."), both of which assert on a rejection;
+- the no-op arm of the settlement state machine, forced always-true: **2 unit tests fail**, the two
+  refused-transition cases, which assert on a rejection for the same reason.
+
+Why it costs more than the chain-directive quirk of entry 315: that one fails toward a red gate and
+merely wastes time, while this one invites the wrong repair. The natural response to a survivor you
+cannot explain is a suppression, and a suppression here hides a line the tests were already
+guarding — so the gate stops watching a line that was never unwatched, and the file now tells the
+next reader not to look.
+
+The honest handling is a suppression whose reason carries **the measurement** — which mutation, which
+tests fail, how many — so a later reader can re-run it instead of trusting it, and can delete the
+directive the day the tool is fixed. Both suppressions in the account-meter store that cite this
+quirk are written that way.
+
+**Check on closing:** hand-mutate a line whose only coverage is a rejection assertion and compare the
+suite's result with the gate's report. If they agree, the quirk is gone and every suppression citing
+it can be deleted.
+
+## 314. Readiness is stated in two places, and nothing reconciles them (2026-10-24)
+
+**Open.** Introduced with the first four JSON source adapters, deliberately, as the lesser of two evils.
+
+A source's readiness — whether we are permitted to collect from it — is recorded in its fixture's provenance
+file, as the `permission` field with its evidence. One adapter now also carries a readiness constant in its
+provider module, because a provider that reads as fully live while a JSON field alone calls it blocked is a
+source that goes live by omission.
+
+Two statements of one fact are only safe while something reconciles them. Today one spec asserts that the
+constant's permission equals the provenance's, which covers that pair and nothing else: a second adapter
+adding its own constant inherits no such check, and the fields the provenance has no counterpart for are
+pinned by literals rather than derived. The manifest task is where the reconciliation belongs — it must fail
+the manifest build when a constant and its provenance disagree, rather than preferring either — and until
+that exists, the enforcement is a spec per adapter that someone has to remember to write.
+
+**Check on closing:** flip a provenance `permission` to UNCLEAR for a source that also has a readiness
+constant, and the build fails rather than the entry quietly staying ready. If the only thing that fails is
+one hand-written spec, the reconciliation does not exist yet.
+
+## 315. A Stryker directive inside a method chain is silently not honoured (2026-10-24)
+
+**Open** — a tooling fact with no mechanism behind it, so it will be rediscovered unless it is written
+down. Renumbered from 312 to 315 before merge: another session's entry 312 reached `main` first, and
+by the cross-session protocol the second to merge renumbers. 313 is the entry below, and 314 is
+claimed by a branch in flight.
+
+A `// Stryker disable next-line <mutator>` comment suppresses the mutants of the statement below it.
+Placed inside a multi-line method chain — above a chained call, or trailing the line before it — it
+suppresses nothing: the mutant survives and the gate's `ignored` count does not move. Measured twice
+independently on the same day: once by the author of the code, by arithmetic on the gate's own
+`ignored` count across two placements, and once by a reviewer in an isolated Stryker sandbox, where
+the identical directive above a single-line statement did remove its mutants.
+
+Why it matters more than an ordinary tooling quirk: the failure is **silent in the direction of a
+false red**, and the natural response to a survivor you believe you have suppressed is to suppress it
+harder, or to excuse it in prose. The honest answers are to assert the line, or to restructure so the
+directive sits above a statement rather than inside a chain.
+
+Worth holding beside its opposite. This quirk fails toward a red gate, so it costs time and hides
+nothing. A suppression whose stated reason has gone stale — because a test was later added that does
+cover the line — fails the other way, toward green, and hides live signal. Both are about
+suppressions and they point in opposite directions, so a review of one is not a review of the other.
+
+**Check on closing:** place such a directive inside a chain and confirm the gate's `ignored` count
+moves. If the count is unchanged, the directive is decoration and the line is still gated.
+
+## 316. `.mjs` is formatted by nothing: outside lint-staged AND outside the CI formatting gate (2026-10-24)
+
+Surfaced by the architect while writing PR #1116, reported as "`lint-staged` globs do not cover
+`scripts/**/*.mjs`, so the pre-commit hook never formatted them and the CI prettier gate would have
+failed". **The first half is right and the second half is wrong**, and the correction is the finding:
+nothing would have failed.
+
+Measured on `origin/main`:
+
+```
+# the pre-commit side — no glob matches scripts/architect/flow-gate.mjs
+python3 -c "import json,fnmatch;d=json.load(open('package.json'));print([k for k in d['lint-staged'] if fnmatch.fnmatch('scripts/architect/flow-gate.mjs',k)])"
+
+# the CI side — the file-type filter in check-no-skip-hooks.yml
+git show origin/main:.github/workflows/check-no-skip-hooks.yml | grep -E "grep -E '\\\\."
+```
+
+`lint-staged` declares seven globs, all under `apps/`, `packages/` or the repo root, and **none
+matches**. The CI gate collects PR-changed files through
+`grep -E '\.(ts|tsx|js|jsx|json|md|yml|yaml)$'` — and `\.js$` does **not** match `.mjs`, because the
+dot is followed by `mjs`. So `.mjs` is outside both.
+
+**Why the wrong half matters more than the right half.** "The hook misses it but CI catches it" is a
+gap with a loud failure at the end, and it needs no action beyond widening a glob. "Neither checks it"
+is silence: the extension the project uses for its own gate scripts — `scripts/architect/flow-gate.mjs`
+is 43k and is what decides whether code may enter `main` — is formatted by nobody, and a reader
+reviewing a diff in it cannot tell formatting noise from intent. The author reports having run prettier
+by hand and the files being clean, which is true and is also the point: it held because someone
+remembered.
+
+This is also a second instance of the shape in `verification-integrity.md`: a gate reported as covering
+something it does not. The author inferred CI coverage from the existence of a formatting gate rather
+than from its file filter.
+
+**Candidate fix, both ends, because fixing one reinstates the asymmetry:** add a `lint-staged` glob for
+`scripts/**/*.{mjs,cjs,js}` (and `.claude/**` / `.github/**` scripts if they are formatted at all — not
+checked here), and add `mjs|cjs` to the CI filter's alternation. Decide deliberately whether `.claude/`
+and `.github/` shell and JS are in scope; this entry measured only `.mjs`.
+
+**Check on closing:** a deliberately mis-formatted `scripts/**/*.mjs` committed with hooks active is
+either reformatted by the pre-commit hook or fails the CI formatting gate — today it does neither, and
+that is the assertion to re-run.
+
+## 317. The integration-run model is a dichotomy; reality has a third case that reports a confident pass (2026-10-24)
+
+`isIntegrationRun` in `apps/api/vitest.config.mts` is
+`process.argv.some((arg) => arg.includes('integration.spec'))`. When it is false,
+`INTEGRATION_SPEC_EXCLUDE_GLOB` removes every `*.integration.spec.ts` **from discovery** — the files
+are never parsed, so the summary reports no skip count.
+
+**A correction to this entry's own first draft, measured independently by two reviewers.** It said
+"nothing is reported as skipped", which overstated it: a generic `console.warn` does fire once at
+config load. It fires on **every** unit run, says nothing about the files the user named, and the
+run summary still shows no skip count — so the defect stands and the sentence did not. Recorded
+because an entry about a misleading instrument should not itself overstate its evidence.
+
+**None of that is new or undocumented.** It is stated in the config, in spec-file headers
+(`transactions.drop-self-feeds.spec.ts`, `job-sourcing-budget-race.integration.spec.ts`), in
+`.claude/rules/common/mutation-gate-integration-specs.md`, and `task-integration-db-guard-any-run.md`
+is a whole task about one of its consequences. **The gap is that every one of those describes a
+dichotomy** — an _unfiltered_ run (specs excluded) versus a run _filtered on `integration.spec`_
+(specs run, guard attached, `fileParallelism: false`). The task file's own verification list has
+exactly those two cases plus a variant of the second.
+
+**The third case is the dangerous one and nothing names it:** a run filtered by a path that does not
+contain the substring. You intended an integration run, your filter matches the files you want, and
+they are excluded anyway — and the run exits 0 with a count of whatever else matched.
+
+**Measured instance (PR #1102, round 1).** Filter `src/finance/salary-month-gap` matched two files, a
+unit spec and an integration spec. The integration spec was dropped from discovery, the run printed
+`Test Files 1 passed` where two matched, and the body reported "gap suite 40 passed" — a **true count
+of the wrong file**. The two new integration cases had never executed. CI, which runs the filtered
+`integration.spec` form, failed them. The body and CI disagreed for a whole review round, and the
+author found it by finally reading `Test Files 1 passed` rather than the pass count.
+
+**Why this is worse than an ordinary missing warning.** The other two cases announce themselves: the
+unfiltered run visibly skips, the properly filtered run visibly runs. The third produces a green
+number with no symptom. "0 passed" and "nothing ran" are distinguishable in this repo's rules;
+"40 passed" and "40 passed of the files you did not ask about" are not.
+
+**A second hazard in the same predicate, found by a reviewer hitting it by accident.** Because the
+check is `argv.some(...)`, `vitest run integration.spec <other-path>` **ORs** the filters: it runs every
+integration spec in the repository rather than the intersection. One reviewer did this unintentionally
+and wrote to a scratch database for ~100 s before killing the run by PID. So the predicate has two
+failure modes in opposite directions — a filter without the substring runs too few files and says
+nothing, and a filter with it runs far too many.
+
+**Candidates, cheapest first:**
+
+1. Make the exclusion loud when a filter was supplied: if `argv` carries a positional filter, no
+   element contains `integration.spec`, and the filter would otherwise match an excluded file, print
+   one line naming the excluded files. The data is available at config time.
+2. Reconcile counts rather than trusting them: teach whoever runs a narrowed suite to compare
+   `Test Files N passed` against the number of files the filter matches (`vitest --list` or a glob).
+   Procedural, and it is what actually caught this one.
+3. Widen the predicate so an explicit path to an `*.integration.spec.ts` file counts as an
+   integration run. Attractive and the riskiest of the three: it silently attaches the DB guard and
+   `fileParallelism: false` to runs that do not have them today, so it needs the same scrutiny as
+   `task-integration-db-guard-any-run` and probably belongs with it.
+
+**Check on closing:** a run filtered by a path that matches an `*.integration.spec.ts` file either
+executes it or says in one line that it did not — and in neither case does it exit 0 having silently
+counted only the other files the filter matched.
+
+## 318. A hostile JSON body stalls the event loop before the byte cap can refuse it, once a per-source cap is raised (2026-10-24)
+
+**Open** — found by the security review of the ATS A adapters (SR-M-1); the fix belongs to the shared
+bounded-JSON reader, not to the adapters, so this entry is the deliverable and the next task to touch
+that reader owns the repair. Number chosen by measurement: the highest `## NNN.` heading across all
+574 fetched `origin` refs was 317 (a different entry, on `origin/docs/integration-run-third-case`;
+this one first took 317 when 316 was the highest and was renumbered), so 318 was the next free one.
+If another branch has claimed it since, renumber at merge.
+
+The reader bounds a body in this order: bytes, then nesting depth (a pre-parse scan of the raw text),
+then `JSON.parse`, then a node count after parsing. A body inside the byte cap and inside the depth
+limit is therefore parsed in full before the node count can refuse it. At the default 2 MiB that is
+cheap. The Greenhouse and Ashby adapters declare a **10 MiB** response cap (the plan's ceiling for a
+per-source cap, justified by three measured real boards of 2.7, 5.6 and 8.0 MB and an Ashby board of
+13.9 MB), and at that size the order matters.
+
+Measured by feeding the reader a hostile 10 MiB body that fits the cap and the depth limit:
+
+- 10 MiB of `[0,0,0,…]` parses in **1.6 s** at about **+310 MB RSS**, synchronously, so nothing else
+  on the event loop runs meanwhile; the node-count limit then refuses it, after the cost is paid;
+- 10 MiB of `[{},{},{},…]` parses in **2.8 s**;
+- for contrast, a deeply nested body and a body one byte over the cap are both refused in about
+  **2 ms**, because those two bounds fire before parsing — the bound that is missing is the one
+  that matters for a flat body.
+
+Compare the legitimate case: the real 8.0 MB Cloudflare board parses in 51 ms at +26 MB, so the
+hostile cost is two orders of magnitude above the honest one, which is the room a pre-parse bound
+has to work in.
+
+Suggested cure (the reviewer's): count the commas of the raw text inside the existing depth-scan
+pass and refuse a body whose element count already exceeds the node limit, so the flat case is
+refused for the price of one scan, like the depth case is. A count of separators over-estimates
+nodes slightly (strings with commas), which is the safe direction for a refusal.
+
+Until it is fixed, the exposure is bounded by who can choose the body: the three public ATS
+providers, reached only through a manifest the owner enables source by source, and not before the
+transport carries a per-source byte cap at all (the entry titled "An adapter's declared byte cap
+cannot reach the transport …", number 319) — until then the transport refuses anything over 2 MiB
+and the 10 MiB is not reachable.
+
+**Check on closing:** parse a 10 MiB `[0,0,…]` body through the shared bounded-JSON reader under a
+10 MiB limit and a 200,000-node limit. Today it takes about 1.6 s and +310 MB before refusing; closed
+means it is refused in single-digit milliseconds without allocating the parsed tree.
+
+**Sequencing constraint, added 2026-10-24 — this entry must close before the transport is wired.**
+Plan Task 2.5 builds the production `CollectionContext` and must call `transportOptionsFor` for an
+adapter's declared cap to reach the transport at all. The moment it does, Greenhouse and Ashby's
+declared **10 MiB** becomes live and this entry's window opens for two real sources at five times the
+shared default. So: **fix this entry, then wire the transport.** If anyone wires first, that is a
+decision to be stated and justified, not a step to be taken quietly.
+
+Measured independently on 2026-10-24 by the security axis of PR #1119, **on Node v20.15.1 rather than
+the pinned 22**, so the figures are indicative and not the pin's behaviour: 3.56M `{}` elements in a
+10.2 MB body took ~679 ms and ~291 MB, synchronously on the event loop. A `[0,0,…]` body of similar
+size took ~66 ms — that run **did not reproduce** the ~1.6 s figure recorded above for the array shape.
+Both measurements are kept rather than reconciled, because which one is right is itself unresolved, and
+a single averaged number would hide that.
+
+## 319. An adapter's declared byte cap cannot reach the transport, so a source whose pages exceed the transport's default is refused before its own cap is consulted (2026-10-24)
+
+**Open** — found while measuring the ATS A adapters; the work belongs to the task that owns the quota
+adapters (Task 3.5b), whose adapters are the next to need a cap above the default. Distinct from entry
+318: that one is the event-loop cost of parsing a large body and only exists once this one is fixed;
+this one is why a large body never arrives at all today.
+
+An adapter can declare its own response cap (`limits.maxBytes` on the JSON spec, up to the plan's
+10 MiB ceiling), and the body decoder honours it. But the request an adapter hands to the loop,
+`FetchRequest`, carries no per-request cap, and the transport (`http/bounded-fetch.ts`) applies its
+own default of 2 MiB per response (ceiling 10 MiB, reachable only through its `maxBytes` option,
+which nothing can set per request). So a source whose single response is larger than 2 MiB is refused
+by the transport before the adapter's own cap is ever consulted, and the adapter's declaration is
+inert. The plan already asks for the missing mechanism: Task 2.2's text says "per-source byte caps
+from MP-02 within the 10 MiB ceiling or list-plus-detail mode", and that task is marked landed
+without it.
+
+Four measured cases, so this is not hypothetical (all 2026-10-24, single GET each):
+
+- Greenhouse `content=true` list: airbnb **2.7 MB**, stripe **5.6 MB**, cloudflare **8.0 MB**: every
+  board measured is over the default;
+- Ashby job board: one board at **13.9 MB** (past even the 10 MiB ceiling, which is the honest
+  `PAYLOAD_TOO_LARGE` for that board), three others at 2.6-3.0 MB;
+- Arbeitnow page 1: **4,209,793 bytes**, with `per_page`, `limit`, `page_size`, `size` and `perPage`
+  all ignored by the provider, so the page size cannot be lowered to fit.
+
+The shape of the fix (not a decision): an additive optional `maxBytes?` on `FetchRequest`, honoured by
+`bounded-fetch` when present, still bounded at the default when absent and refused when above the
+hard ceiling; each adapter then passes its own declared cap into the request it builds, instead of
+repeating a literal.
+
+**Check on closing:** fetch a response of 3 MiB through the transport with the adapter's declared cap
+at 10 MiB and see it delivered; fetch the same with no declared cap and see it refused at 2 MiB;
+declare 11 MiB and see the declaration refused. Today the first is refused.
+
+## 320. A board carrying a permanent unlisted posting never reaches the full-inventory claim, so absence-based closure never fires for it (2026-10-24)
+
+**Open** — a consequence of quarantining Ashby `isListed: false` postings, which is the right
+treatment and the plan's; it currently belongs to nobody. Owner to be named by whoever owns the
+disappeared-postings sweep (the consumer of the coverage claim).
+
+The base derives a batch's coverage from its counts, and any quarantined item makes the coverage
+`PARTIAL` instead of `FULL_INVENTORY`. In the code comments of the lifecycle work `FULL_INVENTORY` is
+the closure signal: only a complete inventory entitles the collector to treat a posting that is no
+longer listed as gone. An Ashby board that permanently carries one unlisted posting (documented as
+reachable by direct link only) will therefore be `PARTIAL` on every run, and none of its vacancies
+will ever be closed by absence. Measured behaviour, pinned by a test in the Ashby spec: a board of one
+listed posting is `SUCCEEDED` with coverage `FULL_INVENTORY`; the same board plus one unlisted posting
+is `SUCCEEDED` with coverage `PARTIAL`.
+
+Not observed in practice yet: none of 10 non-empty Ashby boards (1,612 postings) held an unlisted
+posting, so the public listing appears to omit them and the case may never occur. If it does, the
+options are a base-level adapter exclusion that is counted but does not weaken the claim, or accepting
+`PARTIAL` for such a board. That choice belongs to the owner of the sweep.
+
+**Check on closing:** a board with one deliberately unlisted posting is collected twice, and the
+postings that disappeared between the runs are either closed (exclusion kept out of the coverage
+claim) or the loss of closure is documented as accepted.
+
+## 321. The Task 3.1 provenance specs list four providers by name and keep their own copy of the schema; consolidate onto the shared helper (2026-10-24)
+
+**Open** — raised by the spec review of the ATS A adapters. The ATS A change added one shared
+provenance schema and reader (`src/test/fixture-provenance.ts`) and a spec that walks every directory
+under `__fixtures__` (`fixture-provenance.all.spec.ts`), which already covers the RSS captures that
+had no hash check. It left Task 3.1's two older specs alone, to avoid conflicting with work in flight:
+`fixture-provenance.spec.ts` still enumerates four providers by name and carries its own copy of the
+schema with slightly different rules (status 200 required, raw and file hashes required to differ),
+and `native-id.spec.ts` keeps its own table next to the new `ats-native-id.spec.ts`.
+
+Two schemas and two provider lists describing one contract is a seam that will rot: a field added to
+one is silently absent from the other, and a new provider is protected only if somebody remembers to
+add it to the right list. Owner: the next task that touches either spec (Task 3.7 reads every
+`*.provenance.json`, so it is the natural one).
+
+**Check on closing:** `grep -rn "provenanceSchema" apps/api/src` finds exactly one definition, and
+adding a provider directory with a fixture and no provenance file fails a spec without anyone editing
+a list.
+
+## 322. A stranded worktree's documented destination is an agent who is refused the same command (2026-10-24)
+
+`agent-isolation.md` rule 6 says: "Your own — remove it, a foreign one — report to the orchestrator."
+`pre:bash:cross-agent-blast` says the same thing in its own refusal text: "Чужой стух? Не трогай: сообщи
+оркестратору, он видит всех агентов, а ты — нет." Both name the orchestrator as the party who resolves it.
+
+**Measured: the orchestrator is refused that command too.** On PR #1120 the code reviewer finished, reported
+its checkout clean, and said plainly that `git worktree remove` had been refused as `WORKTREE-UNRECORDED` and
+that it had not bypassed the hook — exactly the behaviour the rule asks for. The orchestrator then ran the
+removal itself, from its own worktree, with a fully expanded literal path and no variable anywhere in the
+command, and was refused `WORKTREE-REMOVE`: the path is not recorded against the orchestrator either, because
+the hook's record is written only to the agent that created the worktree.
+
+So the escalation path terminates nowhere. The reviewer is right not to remove it, the orchestrator cannot, and
+the rule's sentence describes a handoff that no code permits. **This is a rule naming a destination that cannot
+act** — the same defect class as a deferral pointing at a file nobody tracks, one level up: the destination
+exists as a role rather than as a file, and is equally unable to receive the item.
+
+**What the orchestrator genuinely does and does not know.** It knows the agent is finished (its task notified
+completion) and that the tree is clean (checked by `--git-dir`/`--work-tree`, which the hook does not intercept).
+It does not know this from seeing the agent, which the hook correctly assumes; it knows it because the agent
+reported and then stopped. That distinction is why extending the hook's trust to "any orchestrator" would be
+wrong, and why the fix belongs in the record rather than in the predicate.
+
+**Candidate answers, in increasing cost:**
+
+1. **Record the dispatching session alongside the creating agent.** `git worktree add` under a session's
+   scratchpad already identifies the session in the path; writing `<session_id> <path>` next to
+   `<agent_id> <path>` would let the orchestrator of that session remove what its own children stranded,
+   while a sibling agent stays refused. This keeps the predicate's shape and only widens the ledger.
+2. **A `--released` handshake.** An agent that finishes with a checkout it cannot remove writes one line
+   releasing it; the hook then permits removal by anyone in that session. More faithful (the agent asserts it is
+   done rather than the orchestrator inferring it) and more machinery.
+3. **Let the harness remove the scratchpad.** The session scratchpad is the harness's to clean, and a worktree
+   inside it is only awkward because the main checkout holds a `.git/worktrees/<name>` administrative entry
+   pointing into it. A `git worktree prune` on the main checkout after the session ends would collect them,
+   and nothing in the rules says who runs it.
+
+Until one of them lands, the correct behaviour for both agent and orchestrator is what happened here: leave it,
+record it, and let the owner sweep — which is a running cost of roughly one stranded checkout per review round,
+tracked in `.claude/tasks/SWEEP-stranded-checkouts-2026-10-24.md` (untracked file; its count was 15 before this
+one).
+
+**Check on closing:** an agent that creates a worktree in its session scratchpad and exits without removing it
+leaves a tree that the dispatching orchestrator can remove in one command, while an agent of a different session
+is still refused the same path.
+
+## 323. Four small findings from the PR #1119 review rounds, each too small for its own entry (2026-10-24)
+
+Three review axes passed PR #1119 (Task 3.5b, quota-metered adapters) and raised sixteen identifiers. The
+MED ones were fixed in the PR. These four are what is left: none blocks, each is checkable, and each would
+otherwise live only in a review thread that nobody re-reads.
+
+**`observedAt` is validated by shape and never read.** The TheirStack billing observation carries an
+`observedAt` instant checked only against a format regex, so `2026-13-45T99:99:99.000Z` is accepted. The
+field is recorded and no code consumes it. Two honest answers: validate it as a date, or drop it and let
+the record say when the smoke happened in prose. **Check on closing:** an impossible calendar date is
+refused, or the field no longer exists.
+
+**`accept-language` is on the JSON header allowlist with no caller.** Measured at the time: every `headers`
+literal across the five quota adapters and the five JSON providers on main sends only `accept` —
+plus `content-type`, `authorization` and the RapidAPI pair where a scheme needs them. The allowlist's own
+comment justifies itself as "what the adapters were MEASURED to send", and this member was not. It is the
+same no-user problem that removed `from`, and the exact-set test pins it either way, so the test passing is
+not evidence that it is used. **Check on closing:** the allowlist contains no member that no caller sends,
+asserted by a search over the callers rather than by the allowlist's own test.
+
+**A mutation-gate tool failure is reported without naming the mutant.** Runs on this branch report 712
+mutants, 711 killed, 0 survived and **1 tool failure**, and the tool failure is attributed to a module-load
+quirk in `muse.provider.ts`. A tool failure is neither a pass nor a survivor — a distinction this project
+has already paid for once, by counting `[Survived]` mentions in a log instead of reading the gate's own
+classification. The figure is only trustworthy if the one failure is named and shown to sit outside the
+code whose mutants matter, in this case the secret-redaction floor and the billing derivation. **Check on
+closing:** the gate's own output names the failing mutant, or the count is reported as 711 of 711 with the
+twelfth excluded for a stated reason.
+
+**The 8-character secret floor in `env.ts` is a boot-time refusal.** A key shorter than eight characters
+stops the process rather than being rejected at use. That is the right direction and it is currently
+unreachable, because no provider key is provisioned and none may be — so there is no deployed short key to
+break. It becomes real the day the owner provisions one, and a provider that issues a short key would
+present as a boot failure rather than as a configuration error. **Check on closing:** a short key produces
+a message naming the variable and the floor, at whatever point it is rejected.
+
+## 324. Flow Gate's MISSING bucket means two different things, and its legend asserts the wrong one (2026-10-24)
+
+A step's status can be `done`, `STALE`, `MISSING` or `n/a`. Measured on PR #1119 within one hour, the same
+`MISSING` was printed for two unrelated situations:
+
+| What was true                                   | What the gate printed |
+| ----------------------------------------------- | --------------------- |
+| no spec review existed at all (verdict count 0) | `Spec-Review          | MISSING | no "Spec Review: PASS" review`    |
+| a spec review existed and said `ISSUES`         | `Spec-Review          | MISSING | the latest verdict … is negative` |
+
+The detail text does distinguish them. The **status does not**, and the gate's own explanatory section in
+the same output says: "unlike **MISSING**, which is a step nobody has looked at yet." That sentence is false
+in the second case — someone looked and rejected it.
+
+**Why it matters rather than being cosmetic.** The two call for opposite actions. "Nobody looked" means
+dispatch the axis. "Reviewed and rejected" means address the findings, and dispatching a fresh reviewer
+instead invites it to re-derive what the first one already said. The orchestrator read this exact line on
+#1119, concluded no spec review had ever run, and was right — but only because it separately counted the
+verdicts and got zero. The status alone did not support the conclusion it appeared to support.
+
+**Candidate answers:** a distinct status for a negative standing verdict (`REJECTED` reads naturally beside
+`STALE`), or, at minimum, correcting the legend so it stops claiming something the classifier does not
+guarantee. The first is better; the second is nearly free and removes the false sentence.
+
+**Check on closing:** a PR whose only spec review is negative prints a status distinguishable from a PR with
+no spec review at all, and no explanatory text claims MISSING implies nobody looked.
+
+Related: entry 311 (three other matcher and classifier gaps found by using the gate).
+
+## 325. The critical-path zone list omits secret handling and committed personal data, so Security-Review reads n/a where the axis finds real defects (2026-10-24)
+
+`contracts.md` §2.1 is the canonical list that makes `security-reviewer` mandatory, and Flow Gate implements
+it faithfully. Verbatim, the five zones are auth/sessions/JWT/OAuth; finance/calculation logic/split
+math/rates; RBAC/role visibility/data masking; wallets/transactions/company-account (USDT); Drizzle
+migrations/new tables.
+
+**Two PRs on 2026-10-24 printed `Security-Review | n/a` while carrying a real security surface:**
+
+- **PR #1119** handles five providers' **API keys** and the redactor that keeps them out of logs, traces and
+  errors. The axis was dispatched on the orchestrator's judgment, not by rule, and returned two MED
+  findings — including the one that mattered most, verified by running it: that the exception `withSecrets`
+  raises _about_ a too-short secret does not itself leak the secret, checked through `.message`, `.stack`,
+  `JSON.stringify` and `util.inspect` with `showHidden`.
+- **PR #1120** commits captured third-party pages as fixtures. An earlier head of it had to have 462
+  e-mail addresses removed. A later change moved the capture directory, which would silently have dropped
+  those files out of a personal-data scan had the executor not noticed unasked.
+
+Neither surface is named by the list. "Data masking" is the nearest member and is about role visibility,
+not about what lands in the repository or what leaves it in a request header.
+
+**So the gate is correct and the list is incomplete** — which is the worse failure of the two, because a
+faithful implementation of an incomplete rule reads as an authoritative `n/a`. Both dispatches happened
+because someone remembered, which is the mechanism this project replaces with gates everywhere else.
+
+**Candidate members, phrased as behaviour rather than as file paths:** code that places a credential in an
+outbound request or formats one for a log; code that commits or relocates captured third-party content; and
+code that defines or relaxes a redaction boundary.
+
+**Check on closing:** a diff that adds a credential to an outbound request header, and a diff that commits a
+captured third-party page, each make Security-Review required rather than `n/a`.
+
+## 326. In zsh a variable named `path` is tied to `$PATH`, and clobbering it destroys the shell's commands (2026-10-24)
+
+`verification-integrity.md` already records that this environment's Bash tool runs **zsh**, and names the
+`${VAR}:path` modifier trap. This is a second, independent zsh trap in the same family, measured on
+2026-10-24 while verifying PR #1120.
+
+`path` is one of zsh's special parameters: it is an array **tied to `PATH`**. So an ordinary-looking
+assignment inside a loop —
+
+```sh
+for f in a b; do path="some/relative/dir/$f"; ...; done
+```
+
+— replaces the command search path with one relative directory, and every subsequent command in that shell
+fails with `command not found`, including `git`, `grep` and `wc`.
+
+**Why it belongs with the swallowed-failure family rather than being a curiosity.** The failure arrives in a
+shape that reads as a clean negative. In the measured case the loop printed field labels with empty values
+and the commands' `command not found` lines appeared **before** the loop's own `echo` header, because the
+command substitutions ran first in the environment that had just been destroyed. A field reading
+`email-shaped strings: ` next to a label is one glance away from being read as zero. "Nothing matched" and
+"nothing could run" were again indistinguishable at the consumer.
+
+**The cure is a naming rule, not vigilance:** never name a shell variable `path`, `cdpath`, `fpath`,
+`manpath`, `PATH` or `PROMPT`. For a file being examined in a loop, `blob`, `file` or `target` all work.
+
+**Check on closing:** `grep -nE '(^|[^A-Za-z_])path=' ` over `scripts/`, `.claude/hooks/` and
+`.github/workflows/` finds no assignment to a bare `path` in a zsh-executed context.
+
+## 327. An unboarded JUNIOR crashes the production build on `/` (React #185) — and the two tests for it are `fixme` (2026-10-24)
+
+Found while gating the 54 previously ungated E2E specs (PR #1121). **A product defect, deliberately
+not edited around:** the author left two tests as `test.fixme` rather than making them pass, which is
+the right call and the reason this entry exists.
+
+**Symptoms as reported.** An unboarded JUNIOR landing on `/` crashes the **production build** with
+React error #185, "Maximum update depth exceeded" — a render loop, not a blank screen. It reproduces
+on the real stack, not only under mocks: seed user `ivan.petrenko` gets an empty `<main>` on
+`/project` and never reaches `/onboarding`. Under mocks, 13 of 15 cases in the affected spec fail.
+
+**Suspected cause, and it is a hypothesis rather than a diagnosis:** the JUNIOR redirect in
+`index.tsx` racing the onboarding gate in `route.tsx`. React #185 is minified, so reproduce in a
+production build and get the real component stack before changing anything — `diagnosing-bugs`
+applies and its gate is "no red command, no hypotheses".
+
+**The part that makes this urgent rather than merely open: the defect is invisible in CI.** Both
+tests are `test.fixme`, so they report as skipped on every run. Un-skipping them is part of the fix,
+not a follow-up — without that there is nothing to confirm a fix against.
+
+- `onboarding-flow.spec.ts` › "JUNIOR: unboarded user …"
+- `onboarding-regression-pr110.spec.ts` › "Unboarded JUNIOR: …"
+
+**Why this is in the backlog and not only in a task file — a lesson worth more than the bug.** The
+reporter wrote its notes to `.claude/tasks/<task>.blocked.md`, and the spec reviewer filed it as a
+finding because that path is **gitignored**: the notes live in one worktree and die with it. I then
+wrote a task file for the fix and it had the identical defect, for the identical reason. **A follow-up
+recorded in a gitignored path is not recorded.** `BACKLOG-followups.md` is committed and is the only
+durable home in this repository; every `.blocked.md` any agent writes has this property, and the rule
+that tells agents to write one does not say so.
+
+**Also worth checking when this is fixed:** seed senior B (`dmytro.marchenko`) is deliberately not
+onboarded, so the unboarded path is reachable for more than one role and may have more than one entry
+point. State whether any other role is affected rather than fixing only the JUNIOR route.
+
+**Check on closing:** an unboarded JUNIOR reaches `/onboarding` from `/` and from `/project` without
+a render loop in a production build; both `fixme` markers are gone and both tests are green twice; and
+a test fails if the race returns, since a redirect race fixed by reordering two effects is the kind of
+fix that comes back silently.

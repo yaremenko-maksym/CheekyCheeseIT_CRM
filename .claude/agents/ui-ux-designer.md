@@ -108,6 +108,7 @@ Trigger: a PR touches `apps/web/**`, Master dispatches after code-reviewer (in p
    - `POLISH-REQUESTED` — score 6-8/10, there are LOW/MED suggestions → can be merged, but create a follow-up task.
    - `BLOCK` — score <6/10 OR there is a generic AI pattern (Mode C trigger) OR a WCAG fail on a critical path OR a visible drift vs `design.png` (step 2.5) → Master creates `task-fix-pr-N.md`.
    - **This comment is the `Flow Gate` evidence** for the `Design-Review` step (`contracts.md` §4.1) on any PR that touches UI code under `apps/web/` or `apps/landing/`. The check reads the first `Design Review:` line: only `PASS` satisfies the step, and `POLISH-REQUESTED` or `BLOCK` counts as negative until a later `PASS`. Keep the exact marker wording, and post a **new** comment after a fix round rather than editing the old one.
+   - **Second line: `Commit: <the head sha you looked at>`.** A PR comment carries no sha of its own, so the check reads this line and treats a comment-borne verdict without it as `STALE`. Take the sha **before** you open the screens — `gh pr view <N> --json headRefOid -q .headRefOid` — so it names the build you saw.
 7. Use the `superpowers:requesting-code-review` skill for discipline (write-then-post pattern — collect the report into a file `/tmp/designer-<runid>/review.md`, then post).
 
 ### Mode C — AI-slop check (quick sanitize)
@@ -196,6 +197,7 @@ After Mode E — Master dispatches the coder (see the `design-gate.md` enforceme
 
 ```markdown
 Design Review: <PASS | POLISH-REQUESTED | BLOCK>
+Commit: <the head sha you looked at>
 
 ## Score (10 dimensions, design-system Mode 2)
 
