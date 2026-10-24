@@ -1,0 +1,35 @@
+{
+  "results": [
+    {
+      "jobId": 50123001,
+      "employerId": 9001,
+      "employerName": "Example Software Ltd",
+      "jobTitle": "Senior Developer",
+      "locationName": "London",
+      "minimumSalary": 70000,
+      "maximumSalary": 85000,
+      "currency": "GBP",
+      "expirationDate": "20/11/2026",
+      "date": "20/10/2026",
+      "jobDescription": "Join our engineering team in central London...",
+      "applications": 12,
+      "jobUrl": "https://www.reed.co.uk/jobs/senior-developer/50123001"
+    },
+    {
+      "jobId": 50123002,
+      "employerId": 9002,
+      "employerName": "Example Digital",
+      "jobTitle": "Lead Engineer",
+      "locationName": "Manchester",
+      "minimumSalary": null,
+      "maximumSalary": null,
+      "currency": "GBP",
+      "expirationDate": "31/02/2026",
+      "date": "31/02/2026",
+      "jobDescription": "A date that does not exist, to prove it is refused.",
+      "applications": 0,
+      "jobUrl": "https://www.reed.co.uk/jobs/lead-engineer/50123002"
+    }
+  ],
+  "totalResults": 2
+}

@@ -1,0 +1,12 @@
+{
+  "url": "https://jooble.org/api/about",
+  "fetchedAt": "2026-10-24T03:45:00.000Z",
+  "httpStatus": 0,
+  "rawSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "fileSha256": "a7b809de0dc9ff37f4e87419347b4af0310b4d1e6626cc00da41bc68d695ea92",
+  "trimmedBy": "none: written by hand from the public descriptions at https://publicapis.io/jooble-api/ and https://jobspipe.dev/blog/jooble-api.md (read 2026-10-24); Jooble's own documentation is behind the key-request form on https://jooble.org/api/about; no request was made and no script produced it",
+  "termsUrl": "https://jooble.org/info/terms",
+  "termsCheckedAt": "2026-10-24T03:45:00.000Z",
+  "permission": "KEY_REQUIRED",
+  "notes": "UNIT EXAMPLE ONLY, NOT A CAPTURE. httpStatus 0 and rawSha256 = sha256 of the empty string say that no bytes were received: no request was sent, because no key is provisioned and none may be. Source of the field names: the descriptions list title, location, snippet, salary, source, type, link and updated, and mention company; `id` is not described anywhere that could be read. The second job carries an id past 2^53 on purpose (the JSON parse rounds it, so the adapter must not use it as an identity); the third has no id and no company. Billing: \"usage limits [are] set per key\" and higher volumes are \"arranged with Jooble directly\" - no number was found, and the old \"500 lifetime\" figure was not confirmed. Every value in the file is invented. The adapter stays BLOCKED until the owner runs a controlled authenticated smoke and a real response replaces this file."
+}
