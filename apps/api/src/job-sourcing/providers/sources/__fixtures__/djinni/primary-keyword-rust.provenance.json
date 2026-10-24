@@ -1,0 +1,12 @@
+{
+  "url": "https://djinni.co/jobs/rss/?primary_keyword=Rust",
+  "fetchedAt": "2026-10-23T20:00:38Z",
+  "httpStatus": 200,
+  "rawSha256": "9b4c6cde525fffd40499ebda17467e19ed98c33d1f59cef5397ae3ed02130ec2",
+  "fileSha256": "9b4c6cde525fffd40499ebda17467e19ed98c33d1f59cef5397ae3ed02130ec2",
+  "trimmedBy": "none: the complete response, byte for byte (8 of 8 items)",
+  "termsUrl": "https://guide.djinni.co/terms-of-use",
+  "termsCheckedAt": "2026-10-23",
+  "permission": "UNCLEAR",
+  "notes": "No employer field: every item has only title, link, description (entity-escaped HTML), pubDate, guid and two category elements (the second is empty on every item). Item counts measured 2026-10-23T19:58Z-20:07Z: no filter 100 (pubDate span 6.9 h, peak 32 items in one hour); exp_level=3y 100 (span 28.1 h, peak 14/h); primary_keyword=Python 100 (the cap; oldest 24 days back); Node.js 43; C++ 59; Golang 27; Rust 8; Python+exp_level=5y 28; Rust+exp_level=5y 2; \"ASIC / Chip Design\" 0 (a valid empty feed). The historical note that Djinni returns 1-2 items is NOT reproduced for the unfiltered feed (100) but is true of narrow filters. Unknown filter values (primary_keyword=NoSuchKeywordZZ, exp_level=bogus) returned a body byte-identical to the unfiltered feed (sha256 4697214590f522f5871e64df2e5ef74599feb5b9cd77cb29719b8eb0a0ecfe56), so a misspelt filter silently widens to the whole board; the config enum exists for that reason. Permission: robots.txt (fetched 2026-10-23) disallows /jobs2, /q, /developers, /free-jobs, /set_lang and not /jobs/rss/, which the public /jobs/ page itself links as its RSS feed. The only terms text reachable by an honest client is the commercial guide at the termsUrl (success-fee pricing); it says nothing about automated access, and the binding legal Terms of Use were not located. Recorded as UNCLEAR, not PUBLIC_FEED, because the binding legal Terms of Use were NEVER READ (not located). Evidence for: robots.txt does not disallow /jobs/rss/, and the public /jobs/ page itself links the feed as its RSS feed. Evidence against: none found - the only reachable terms text is a commercial success-fee guide that is silent on automated access, which is an absence of evidence and not a clearance. termsCheckedAt is the date the search was made, not a date terms were read. The owner must confirm before the source is enabled."
+}

@@ -1,0 +1,12 @@
+{
+  "url": "https://euremotejobs.com/jobs/feed/",
+  "fetchedAt": "2026-10-23T19:58:25Z",
+  "httpStatus": 200,
+  "rawSha256": "cac7d69ac4bd095448044e6dfd72f7a5968ccfe4e66eafee0ff98e42e6969676",
+  "fileSha256": "cac7d69ac4bd095448044e6dfd72f7a5968ccfe4e66eafee0ff98e42e6969676",
+  "trimmedBy": "none: the complete response, byte for byte (0 items)",
+  "termsUrl": "https://euremotejobs.com/robots.txt",
+  "termsCheckedAt": "2026-10-23",
+  "permission": "UNCLEAR",
+  "notes": "THE SEEDED ENDPOINT IS NOT A JOB FEED. https://euremotejobs.com/jobs/feed/ is a WordPress comments feed: channel title \"Comments on: Work From Home Jobs\", lastBuildDate 2025-11-05, zero items, 729 bytes (content-type application/rss+xml). The WP Job Manager job feed (?feed=job_feed, the documented one) answered HTTP 401 with a WordPress error body (\"Not available\"), i.e. it is switched off or restricted; it was not retried or worked around. /feed/?post_type=job_listing is a 301 to /jobs/. robots.txt (fetched 2026-10-23) disallows only search-parameter URLs, WooCommerce paths and four named bots. No terms page was read. So no authentic job_listing item exists to capture: the namespaced job_listing:* fields come from the plugin source, not from a capture (see the spec)."
+}

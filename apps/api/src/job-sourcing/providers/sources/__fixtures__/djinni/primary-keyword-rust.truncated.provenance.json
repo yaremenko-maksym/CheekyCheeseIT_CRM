@@ -1,0 +1,12 @@
+{
+  "url": "https://djinni.co/jobs/rss/?primary_keyword=Rust",
+  "fetchedAt": "2026-10-23T20:00:38Z",
+  "httpStatus": 200,
+  "rawSha256": "9b4c6cde525fffd40499ebda17467e19ed98c33d1f59cef5397ae3ed02130ec2",
+  "fileSha256": "04fe595fa006b4656d65dd5d961fbdff6ac5de4f8b02178dd79627010418f0c1",
+  "trimmedBy": "python3 -I apps/api/src/job-sourcing/providers/sources/__fixtures__/trim-rss-items.py djinni/primary-keyword-rust.xml djinni/primary-keyword-rust.truncated.xml @truncate:3 (expat finds the end of the 3rd </item>; the bytes after it, including </channel></rss>, are dropped)",
+  "termsUrl": "https://guide.djinni.co/terms-of-use",
+  "termsCheckedAt": "2026-10-23",
+  "permission": "UNCLEAR",
+  "notes": "DERIVED, not a capture: an interrupted transfer of the Rust feed. Used only to assert that a truncated envelope is reported as drift. Permission: robots.txt (fetched 2026-10-23) disallows /jobs2, /q, /developers, /free-jobs, /set_lang and not /jobs/rss/, which the public /jobs/ page itself links as its RSS feed. The only terms text reachable by an honest client is the commercial guide at the termsUrl (success-fee pricing); it says nothing about automated access, and the binding legal Terms of Use were not located. Recorded as UNCLEAR, not PUBLIC_FEED, because the binding legal Terms of Use were NEVER READ (not located). Evidence for: robots.txt does not disallow /jobs/rss/, and the public /jobs/ page itself links the feed as its RSS feed. Evidence against: none found - the only reachable terms text is a commercial success-fee guide that is silent on automated access, which is an absence of evidence and not a clearance. termsCheckedAt is the date the search was made, not a date terms were read. The owner must confirm before the source is enabled."
+}
