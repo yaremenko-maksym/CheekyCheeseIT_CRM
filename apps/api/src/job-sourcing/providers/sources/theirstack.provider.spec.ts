@@ -556,16 +556,27 @@ describe('billingProvenBy', () => {
     expect(billingProvenBy(PROVEN)).toBe(true)
   })
 
-  it('AT the edges: 1 returned of 2 asked proves; the whole limit (2 of 2) cannot tell per-record from per-limit', () => {
+  it('AT the edges: 2 of 3 proves; 1 of 3 is ambiguous with a flat charge of 1; the whole limit (3 of 3) cannot tell per-record from per-limit', () => {
     expect(
-      billingProvenBy(obs({ requestedLimit: 2, jobsReturned: 1, creditBalanceAfter: 999 })),
+      billingProvenBy(obs({ requestedLimit: 3, jobsReturned: 2, creditBalanceAfter: 998 })),
     ).toBe(true)
+    // One returned and one credit spent is exactly what a flat per-request charge of 1 also looks
+    // like, so it proves nothing. (The money direction is safe either way: unproven = worst case.)
     expect(
-      billingProvenBy(obs({ requestedLimit: 2, jobsReturned: 2, creditBalanceAfter: 998 })),
+      billingProvenBy(obs({ requestedLimit: 3, jobsReturned: 1, creditBalanceAfter: 999 })),
+    ).toBe(false)
+    expect(
+      billingProvenBy(obs({ requestedLimit: 3, jobsReturned: 3, creditBalanceAfter: 997 })),
     ).toBe(false)
     // one past: more returned than asked is not a billing observation either
     expect(
-      billingProvenBy(obs({ requestedLimit: 2, jobsReturned: 3, creditBalanceAfter: 997 })),
+      billingProvenBy(obs({ requestedLimit: 3, jobsReturned: 4, creditBalanceAfter: 996 })),
+    ).toBe(false)
+  })
+
+  it('a flat charge of 1 per request is told apart from per-record only once 2+ jobs came back', () => {
+    expect(
+      billingProvenBy(obs({ requestedLimit: 25, jobsReturned: 2, creditBalanceAfter: 999 })),
     ).toBe(false)
   })
 

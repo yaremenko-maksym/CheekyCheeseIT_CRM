@@ -207,10 +207,20 @@ function makeSpec(
  *   that one request, read from its account (HOW it is read - dashboard or API - is not known to
  *   this code, which is why the fields are plain numbers).
  *
- * Verified means the three agree the way per-record billing predicts and per-request or
- * per-`limit` billing does not: `0 < jobsReturned < requestedLimit` and the balance fell by exactly
- * `jobsReturned`. A run that returned the full `limit` cannot tell per-record from per-`limit`, and
- * one that returned nothing cannot tell anything, so neither verifies.
+ * Verified means the record is CONSISTENT WITH per-record billing and with neither of the two
+ * alternatives it can actually separate it from: `2 <= jobsReturned < requestedLimit` and the
+ * balance fell by exactly `jobsReturned`.
+ * - It rules out billing per `limit` (the drop would be `requestedLimit`, not `jobsReturned`), which
+ *   is why a run that returned the whole `limit` verifies nothing.
+ * - It rules out a flat charge of ONE credit per request only from 2 returned jobs up: at exactly
+ *   one job and a drop of one, per-record and flat-1 look the same, so that does not verify.
+ * - It does NOT rule out every alternative. A flat charge that happens to equal `jobsReturned`, or
+ *   other spend on the account between the two balance reads, would also pass. One observation is
+ *   evidence, not proof; the smoke should ask for a `limit` of at least 3 and be run with nothing
+ *   else spending the account's credits.
+ * - A run that returned nothing cannot tell anything, so it does not verify.
+ * If the evidence is wrong, the cost direction is the safe one: an unverified source is charged its
+ * worst case per page, which over-counts and never frees budget.
  *
  * It lives beside the adapter that bills; the registration task persists it (in the source's
  * provenance) and passes it here. NO OBSERVATION IS COMMITTED TODAY, so the source is unverified.
@@ -230,7 +240,7 @@ export type BillingObservation = z.infer<typeof billingObservationSchema>
 export function billingProvenBy(raw: unknown): boolean {
   const o = billingObservationSchema.parse(raw)
   return (
-    o.jobsReturned >= 1 &&
+    o.jobsReturned >= 2 &&
     o.jobsReturned < o.requestedLimit &&
     o.creditBalanceBefore - o.creditBalanceAfter === o.jobsReturned
   )
