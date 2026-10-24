@@ -95,6 +95,20 @@ const PART_3_MIGRATION = '2026-10-21_job_queue_reason_redacted.sql'
  * `job-queue-append-only.integration.spec.ts`.
  */
 const PART_4_MIGRATION = '2026-10-22_job_queue_redaction_callable.sql'
+/**
+ * r5 Task 2.5 T1. `job_collection_runs.account_key` and the two single-flight indexes
+ * (`uq_job_collection_runs_one_started_per_{source,account}`) are declared in Drizzle,
+ * so the `db:push` reference carries them, and production gets them ONLY through this
+ * file. It is therefore part of every forward path below — applied after parts 1 and 2,
+ * as `deploy.yml` will apply it — and on a fresh store it is a REAL upgrade: parts 1 and
+ * 2 create `job_collection_runs` without the column, and this file adds it.
+ */
+const PART_5_MIGRATION = '2026-10-24_job_run_single_flight.sql'
+/** The indexes PART_5 creates; the reference counts them beside part 2's own. */
+const PART_5_INDEXES = [
+  'uq_job_collection_runs_one_started_per_account',
+  'uq_job_collection_runs_one_started_per_source',
+] as const
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
 const SCHEMA = 'ddl_job_opportunities_store'
 /** Its own schema, so the migration path cannot disturb the fresh-path comparison. */
@@ -476,7 +490,12 @@ async function applyParts(client: PoolClient, parts: readonly string[]): Promise
   }
 }
 
-const applyBothParts = (client: PoolClient): Promise<void> => applyParts(client, [PART_1, PART_2])
+/**
+ * The full forward path for the store as `deploy.yml` applies it. The name predates
+ * PART_5 (Task 2.5 T1); it is kept so the history of the tests that call it reads on.
+ */
+const applyBothParts = (client: PoolClient): Promise<void> =>
+  applyParts(client, [PART_1, PART_2, PART_5_MIGRATION])
 const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 
 /**
@@ -632,7 +651,11 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         .map((r) => r['name']),
     )
     const standaloneIndexes = reference.indexes.filter((r) => !constraintBacked.has(r['name']))
-    expect(standaloneIndexes).toHaveLength(EXPECTED.indexes)
+    // Part 2's 44 plus the two Task 2.5 T1 adds through PART_5.
+    expect(standaloneIndexes).toHaveLength(EXPECTED.indexes + PART_5_INDEXES.length)
+    expect(standaloneIndexes.map((r) => r['name'])).toEqual(
+      expect.arrayContaining([...PART_5_INDEXES]),
+    )
   })
 
   it('creates NOTHING beyond the Drizzle set — the other direction (CR-L-5)', async () => {
@@ -701,6 +724,24 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
 
     expect(sweepNames.slice().sort()).toEqual(created.slice().sort())
     expect(finalNames.slice().sort()).toEqual(created.slice().sort())
+  })
+
+  it('keeps the three copies of the T1 index-name list in agreement (2.5 T1, same as SR-M-6)', () => {
+    // PART_5 repeats part 2's device on a smaller scale: the creates, the sweep's
+    // `ARRAY[…]` and the final check's `VALUES` each name its indexes, for the same
+    // reason (every statement independently applicable), so the same drift is possible.
+    const sql = readPart(PART_5_MIGRATION)
+    const created = [
+      ...sql.matchAll(/^CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "([a-z_0-9]+)"/gm),
+    ].map((m) => m[1]!)
+    const sweepArray = /ARRAY\[([\s\S]*?)\]\)/.exec(sql)?.[1] ?? ''
+    const sweepNames = [...sweepArray.matchAll(/'([a-z_0-9]+)'/g)].map((m) => m[1]!)
+    const finalNames = [...sql.matchAll(/\('(uq_[a-z_0-9]+)', '[a-z_]+'\)/g)].map((m) => m[1]!)
+
+    // Sizes first, so a regex that matched nothing fails here, not as two equal empties.
+    for (const list of [created, sweepNames, finalNames]) {
+      expect(list.slice().sort()).toEqual([...PART_5_INDEXES])
+    }
   })
 
   it('creates every enum type the Drizzle schema declares for the store, value order included', () => {
@@ -1049,7 +1090,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
 
     beforeAll(async () => {
       await buildPreStoreStub(client, MIGRATION_SCHEMA)
-      await applyParts(client, [PART_1, PART_2])
+      await applyParts(client, [PART_1, PART_2, PART_5_MIGRATION])
       beforeMigration = await readCatalog(client, MIGRATION_SCHEMA)
       await applyParts(client, [PART_3_MIGRATION])
       // r5 Task 1.4b-iii — the ONE pre-change state this spec can rebuild without git

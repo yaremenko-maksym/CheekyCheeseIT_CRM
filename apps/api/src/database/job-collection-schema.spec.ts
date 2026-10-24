@@ -370,6 +370,9 @@ describe('job_collection_runs (AC2)', () => {
     // No default: a key the database invented would be one no other run shares,
     // and the per-account slot would then lock nothing. The writer must name it.
     expect(c.hasDefault).toBe(false)
+    // LAST, where the forward DDL's `ADD COLUMN` puts it — the forward-DDL spec
+    // compares column order between that path and `db:push`.
+    expect(names(jobCollectionRuns).at(-1)).toBe('account_key')
   })
 
   it.each([

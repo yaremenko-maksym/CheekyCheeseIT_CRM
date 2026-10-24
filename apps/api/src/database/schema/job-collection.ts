@@ -179,23 +179,6 @@ export const jobCollectionRuns = pgTable(
     /** Who holds the run. Present exactly while the run is STARTED. */
     ownerToken: text('owner_token'),
     /**
-     * The paid account this run spends against (Task 2.5 T1): the source's
-     * `account_meter_id`, or the source's own id when it has no meter. It is
-     * what `uq_job_collection_runs_one_started_per_account` keys on, so two
-     * sources that share one account cannot fetch at the same time.
-     *
-     * NO DEFAULT, on purpose: a key the database invented would be shared by no
-     * other run, and the per-account slot would then lock nothing.
-     *
-     * WORKER OBLIGATION the database cannot see (a CHECK reads only its own
-     * row; there is no FK, since the key names either a meter or a source):
-     * the writer derives the key from `job_sources` at claim time, under the
-     * claim's row locks. A writer that passed the source id for a metered
-     * source would get a per-source lock only. The run ledger (Task 2.5 T3) is
-     * the only intended writer.
-     */
-    accountKey: uuid('account_key').notNull(),
-    /**
      * Monotonic fencing epoch. WORKER OBLIGATION: a worker writes only while its
      * epoch is still the greatest for this source, so a process that resumes
      * after a lease expiry cannot overwrite its successor's work. The database
@@ -228,6 +211,29 @@ export const jobCollectionRuns = pgTable(
     endedAt: timestamp('ended_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    /**
+     * The paid account this run spends against (Task 2.5 T1): the source's
+     * `account_meter_id`, or the source's own id when it has no meter. It is
+     * what `uq_job_collection_runs_one_started_per_account` keys on, so two
+     * sources that share one account cannot fetch at the same time.
+     *
+     * LAST on purpose: production gets this column from
+     * `2026-10-24_job_run_single_flight.sql` (`ALTER TABLE … ADD COLUMN`, which
+     * appends), and `job-opportunities-store-forward-ddl.integration.spec.ts`
+     * compares column ORDER between that path and `db:push`. Declared anywhere
+     * else, the two catalogs would disagree on position.
+     *
+     * NO DEFAULT, on purpose: a key the database invented would be shared by no
+     * other run, and the per-account slot would then lock nothing.
+     *
+     * WORKER OBLIGATION the database cannot see (a CHECK reads only its own
+     * row; there is no FK, since the key names either a meter or a source):
+     * the writer derives the key from `job_sources` at claim time, under the
+     * claim's row locks. A writer that passed the source id for a metered
+     * source would get a per-source lock only. The run ledger (Task 2.5 T3) is
+     * the only intended writer.
+     */
+    accountKey: uuid('account_key').notNull(),
   },
   (t) => [
     foreignKey({
