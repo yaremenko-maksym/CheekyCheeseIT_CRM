@@ -9,6 +9,7 @@
  */
 
 import { test, expect, USERS, TEAMS, PROJECTS, buildAdminViewingUser, API_RE } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // ---------------------------------------------------------------------------
 // Fixture: senior-team with junior member derived from project
@@ -204,12 +205,14 @@ test.describe('RBAC #1 — SENIOR does not see JUNIOR identity on team page', ()
     await page.goto(`/team/${TEAM_WITH_JUNIOR.id}`)
     await expect(page.getByRole('heading', { name: TEAM_WITH_JUNIOR.name })).toBeVisible()
 
-    // SENIOR should see HR, SENIOR, ACCOUNTANT members — but NOT JUNIOR
-    await expect(page.getByText(USERS.hr.displayName)).toBeVisible()
-    await expect(page.getByText(USERS.senior.displayName)).toBeVisible()
+    // SENIOR should see HR, SENIOR, ACCOUNTANT members — but NOT JUNIOR.
+    // Scoped to <main>: the SENIOR's own name also renders in the header identity chip.
+    const main = page.locator('main')
+    await expect(main.getByText(USERS.hr.displayName).first()).toBeVisible()
+    await expect(main.getByText(USERS.senior.displayName).first()).toBeVisible()
     // Junior identity must be hidden
-    await expect(page.getByText(USERS.junior.displayName)).not.toBeVisible()
-    await expect(page.getByText(USERS.junior.email)).not.toBeVisible()
+    await expect(main.getByText(USERS.junior.displayName)).toHaveCount(0)
+    await expect(main.getByText(USERS.junior.email)).toHaveCount(0)
   })
 
   test('SENIOR does not see «Активные проекты» section at all (task-senior-ui-followups §3b)', async ({
@@ -232,7 +235,8 @@ test.describe('RBAC #1 — SENIOR does not see JUNIOR identity on team page', ()
 
     // «Активные проекты» section must not be visible for SENIOR at all.
     // This also guarantees junior identity is never leaked via that section.
-    await expect(page.getByText('Активные проекты')).toHaveCount(0)
+    const uk = await loadMessages('uk')
+    await expect(page.getByText(assertInCatalog(uk, 'Активні проєкти'))).toHaveCount(0)
 
     // Junior name must NOT appear anywhere on the page for SENIOR
     await expect(page.getByText(USERS.junior.displayName)).not.toBeVisible()
@@ -391,8 +395,9 @@ test.describe('Regression — ADMIN and HR still see JUNIOR identity (not broken
     })
 
     await page.goto(`/team/${TEAM_WITH_JUNIOR.id}`)
+    const uk = await loadMessages('uk')
     const main = page.locator('main')
-    await expect(main.getByText('Активные проекты')).toBeVisible()
+    await expect(main.getByText(assertInCatalog(uk, 'Активні проєкти'))).toBeVisible()
     // Scope to main to avoid strict-mode violation: junior name may appear
     // in both members list and active-projects slot → use first() to pick one.
     await expect(main.getByText(USERS.junior.displayName).first()).toBeVisible()

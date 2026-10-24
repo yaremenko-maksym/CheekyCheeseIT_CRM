@@ -99,7 +99,6 @@ KNOWN_UNSHARDED = {
     # --- junior ---
     "tests/junior-hub.spec.ts",                   # debt: not gated, migrate to misc shard later
     # --- legend ---
-    "tests/legend.spec.ts",                       # debt: not gated, migrate to misc shard later
     # --- onboarding ---
     "tests/onboarding-flow.spec.ts",              # debt: not gated, migrate to misc shard later
     # --- payout ---
@@ -108,7 +107,6 @@ KNOWN_UNSHARDED = {
     # --- polish ---
     # --- project ---
     # --- rbac ---
-    "tests/rbac-senior-junior.spec.ts",           # debt: not gated, migrate to team-users shard later
     # --- senior ---
     "tests/senior-create-default.spec.ts",        # debt: not gated, migrate to team-users shard later
     "tests/senior-teamless.spec.ts",              # debt: not gated, migrate to team-users shard later
