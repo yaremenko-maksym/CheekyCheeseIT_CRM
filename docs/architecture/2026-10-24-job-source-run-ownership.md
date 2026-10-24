@@ -239,11 +239,72 @@ prevent this defect.
 
 ## Decision
 
-_Pending._
+**Option A: hand-written claims, in one run-ledger module, with a real multi-worker Postgres spec
+for every transition. `pg-boss` is not adopted.**
+
+### The comparison ("design it twice")
+
+The deletion test asks: if we delete pg-boss from Option B, what complexity has to reappear in our
+code?
+
+| Concern                                                 | A writes it | B: pg-boss gives it   | B: we still write it                       |
+| ------------------------------------------------------- | ----------- | --------------------- | ------------------------------------------ |
+| Claim with `SKIP LOCKED`                                | yes (precedent F6) | yes             | —                                          |
+| Lease expiry detection                                  | yes         | yes                   | **and ours** (our lease fences our writes) |
+| Retry and backoff                                       | yes, small  | yes                   | cooldown and cadence anyway                |
+| One active run per source / per account                 | yes, plus 2 indexes | singleton plus group concurrency | the DB backstop is still advisable |
+| Owner token and epoch fencing **our** page and meter writes | yes     | **no** (it fences only its own row) | **yes, all of it**             |
+| Recovery of `RESERVED`/`SENT` reservations              | yes         | no                    | yes                                        |
+| Due time, readiness, cooldown, ban pause, `min_interval_hours` | yes  | no                    | yes                                        |
+| Its own schema, grants, catalog check, migration per bump | —         | —                     | **new, permanent**                         |
+| Two leases that must agree (theirs and ours)            | —           | —                     | **new**                                    |
+
+The hard part of Task 2.5 is fencing our own writes and recovering our own reservations, and pg-boss
+does not provide it (**confidence HIGH**: read from its shipped SQL, F-research "Ownership
+semantics"). What it removes is the part the repository already has a working precedent for (F6).
+What it adds is permanent: a second schema under the least-privilege regime, a deploy-applied
+migration on each schema-version bump (six in 40 days), an unproven ESM-in-CommonJS load
+(**confidence MED**; needs a spike), and two leases that must agree. Option B is shallower than it
+looks. Its interface is larger than the part of the problem it solves.
+
+**The rejected option's strongest argument, stated fully.** The defects that hurt phase 3 were in
+hand-rolled lifecycle arithmetic. pg-boss's claim, expiry, retry and singleton paths have years of
+production use behind them, and adopting it would take that arithmetic out of our hands. **Answer:**
+under the plan's requirement to keep the epoch, the arithmetic that actually failed in phase 3
+(epoch, reservation states, lease versus write ordering) stays ours under either option. Option A
+limits that risk by **locality** instead: one module is the only writer of the ownership columns
+(enforced by a grep gate in its task), and every transition has a real-Postgres multi-worker case.
+That is the verification bar the brief sets anyway.
+
+**When to reopen.** If a later task needs features pg-boss does well and we lack (DAG flows, cron
+with rrule, dead-letter queues across many job types), reopen it for that work, not for run
+ownership. Also reopen if `apps/api` moves to `module: node16`.
+
+### Autonomy classification (`autonomy-levels.md`)
+
+- **The choice of A over B is A2.** The ADR is reversible (one PR), but redoing an implemented
+  ledger is expensive. The **owner** confirms, in the phase's decision brief. Nothing in the
+  decomposition blocks on it except T3. T1, T2, T5 and T6 are identical under both options.
+- **T1's migration** (two partial unique indexes and an `account_key` column) is a Drizzle migration
+  in a critical-path zone. It goes through the normal full pipeline with a mandatory
+  security-reviewer. It changes no privilege.
+- **Had the recommendation been B, it would be A3.** B adds a schema and new grants to `crm_app`
+  under the least-privilege ADR, and that ADR's text is the owner's. The owner would decide before
+  any code.
 
 ## Consequences
 
-_Pending._
+- **No new dependency.** `version-pins.md` is untouched. The ESM question does not arise.
+- **The least-privilege boundary stays where the least-privilege ADR drew it.** The only DDL is
+  additive, in `public`, and arrives through the existing manual-migration path.
+- **The ledger becomes a critical module.** Its tests are the proof of exclusivity. The 3.5a
+  characterisation case is deleted and replaced, not adjusted (F4).
+- **Lifecycle constants (`L`, heartbeat interval, `N`, per-run deadline) are config with
+  ceilings**, frozen after MP-05, as the plan requires.
+- **A single API process** is today's deployment. The design does not assume one: two processes
+  claiming concurrently is the first case in T3's spec (replica overlap, from the plan's test list).
+- **Cost:** about 300–450 lines of ledger code (estimate). In exchange there is no external schema to
+  keep in step on every upgrade.
 
 ## Decomposition of Task 2.5
 
