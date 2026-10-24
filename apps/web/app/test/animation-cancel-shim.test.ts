@@ -9,18 +9,23 @@ describe('Animation.cancel shim (setup.ts)', () => {
   it('emits no unhandled rejection on cancel(), yet `finished` still rejects with an AbortError', async () => {
     const reports: unknown[] = []
     const onUnhandled = (reason: unknown) => reports.push(reason)
-    process.on('unhandledRejection', onUnhandled)
-
     const el = document.createElement('div')
-    document.body.appendChild(el)
-    const animation = el.animate([{ opacity: 0 }, { opacity: 1 }], 1000)
-    const observed = animation.finished
-    animation.cancel()
+    process.on('unhandledRejection', onUnhandled)
+    let observed: Promise<unknown>
 
-    // Node emits `unhandledRejection` after the microtask queue drains; wait past it.
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    process.off('unhandledRejection', onUnhandled)
-    el.remove()
+    try {
+      document.body.appendChild(el)
+      const animation = el.animate([{ opacity: 0 }, { opacity: 1 }], 1000)
+      observed = animation.finished
+      animation.cancel()
+
+      // Node emits `unhandledRejection` after the microtask queue drains; wait past it.
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    } finally {
+      // Runs on every path, so a thrown animate()/cancel() cannot leak the global listener.
+      process.off('unhandledRejection', onUnhandled)
+      el.remove()
+    }
 
     expect(reports).toEqual([])
     await expect(observed).rejects.toMatchObject({ name: 'AbortError' })
