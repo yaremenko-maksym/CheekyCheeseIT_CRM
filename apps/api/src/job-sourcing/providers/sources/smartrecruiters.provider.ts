@@ -198,7 +198,7 @@ function bodyHtml(detail: Detail | null): string | null {
  * What identifies a posting's CONTENT in the list: if any of it differs from the cached detail's
  * fingerprint, the detail is fetched again. A digest, so the cache slot stays small.
  */
-export function fingerprintOf(item: ListItem): string {
+function fingerprintOf(item: ListItem): string {
   return createHash('sha256')
     .update(
       JSON.stringify([
@@ -603,7 +603,9 @@ async function collectSmartRecruiters(
     }
     if (aborted !== null) {
       discard()
-      stop = aborted
+      // A bound that threw a page away is not a clean bound: `PAGE_CAP` derives SUCCEEDED, and a
+      // SUCCEEDED attempt cannot have discarded anything. The request report still says PAGE_CAP.
+      stop = aborted === 'PAGE_CAP' ? 'ERROR' : aborted
       break
     }
 

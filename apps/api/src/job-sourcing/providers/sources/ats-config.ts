@@ -134,8 +134,10 @@ export const WORKABLE_KIND: AtsBoardKind = {
  * employers' own sites use mixed case). NOTHING WAS MEASURED, because the API host's robots.txt
  * disallows this collector (see `__fixtures__/smartrecruiters/api-robots.provenance.json`), so
  * the alphabet is the CLOSED superset that cannot reach a host: ASCII letters and digits joined by
- * single hyphens or underscores. If the API turns out to treat case as insignificant, the same
- * company gets two namespaces from two spellings, which is the cost of not being able to measure.
+ * single hyphens or underscores. The scope keeps the spelling it was given; the identity seam folds
+ * the namespace to lower case (measured in the spec), so two spellings of one company cannot become
+ * two sets of vacancies, and two companies that differ ONLY by case would collide, which nothing
+ * seen suggests and nothing measured rules out.
  */
 export const SMARTRECRUITERS_KIND: AtsBoardKind = {
   label: 'smartrecruiters',
