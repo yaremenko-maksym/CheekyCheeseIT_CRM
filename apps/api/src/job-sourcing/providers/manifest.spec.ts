@@ -504,6 +504,7 @@ describe('readiness is derived from provenance, not retyped', () => {
     'workable.board.huggingface',
     'personio.board.westwing',
     'recruitee.board.bunq',
+    'arbeitnow.api.feed',
   ]
 
   it('reads hand-checked sources as candidates and the documented-public ones only', () => {
@@ -539,14 +540,27 @@ describe('readiness is derived from provenance, not retyped', () => {
     expect(codeFor('PUBLIC_FEED')).toEqual([])
   })
 
-  it('a source with documented permission but a blocked status constant (Arbeitnow) is NOT ready', () => {
+  it('Arbeitnow (documented permission, status constant not blocked) is ready as a DERIVED consequence', () => {
     const t = type('ARBEITNOW_API')
     expect(t.permission).toBe('PUBLIC_API_DOCUMENTED')
-    expect(t.status?.value.blocked).toBe(true)
-    const r = readinessAt(entry('arbeitnow.api.feed'), NOW)
+    expect(t.status?.value.blocked).toBe(false)
+    expect(readinessAt(entry('arbeitnow.api.feed'), NOW)).toEqual({
+      status: 'CANDIDATE',
+      blockers: [],
+    })
+  })
+
+  it('flipping the Arbeitnow status constant back to blocked makes the entry stop being ready', () => {
+    const rebuilt = withDefinition('ARBEITNOW_API', (d) => ({
+      ...d,
+      status: { symbol: d.status!.symbol, value: { ...d.status!.value, blocked: true } },
+    }))()
+    const r = readinessAt(
+      rebuilt.entries.find((e) => e.id === 'arbeitnow.api.feed')!,
+      NOW,
+    )
     expect(r.status).toBe('BLOCKED')
     expect(r.blockers.map((b) => b.code)).toEqual(['STATUS_CONSTANT_BLOCKED'])
-    expect(r.blockers[0]!.detail).toContain('4209793 bytes')
   })
 
   it('a constant that disagrees with the provenance fails the build, in either direction', () => {
@@ -1558,9 +1572,7 @@ describe('exact behaviour: constants, markers and boundaries', () => {
   describe('the readiness text', () => {
     it('is null for a ready entry and the joined blockers for a blocked one', () => {
       expect(readinessReason(readinessAt(entry('remoteok.api.latest'), NOW))).toBeNull()
-      expect(readinessReason(readinessAt(type('ARBEITNOW_API'), NOW))).toBe(
-        'STATUS_CONSTANT_BLOCKED: page 1 is 4209793 bytes decoded, past the 2097152-byte JSON cap, and the page size is not selectable; the shared cap is not raised',
-      )
+      expect(readinessReason(readinessAt(type('ARBEITNOW_API'), NOW))).toBeNull()
       expect(
         readinessReason(readinessAt(type('REMOTIVE_API'), NOW))!.startsWith(
           'PERMISSION_UNCLEAR: a fixture records permission UNCLEAR; STATUS_CONSTANT_BLOCKED: robots.txt',
