@@ -238,6 +238,29 @@ type Catalog = { enums: Row[]; columns: Row[]; constraints: Row[]; indexes: Row[
  * differently depending on which side it is read from. Erase the schema prefix on both
  * sides and what remains is comparable.
  */
+/**
+ * THE index comparison (round 3, CR-M-5): the real case and its positive control both call
+ * this one function, so the control proves the comparison the spec actually relies on —
+ * not a re-statement of it that would stay green if the real one were deleted.
+ */
+function assertIndexesMatch(candidate: Catalog, ref: Catalog): void {
+  expect(candidate.indexes).toEqual(ref.indexes)
+}
+
+/**
+ * THE standalone-index tripwire (round 3, CR-M-5): part 2's 44 plus the two Task 2.5 T1
+ * adds through PART_5, by count and by name. Shared by the derivation case and the
+ * positive control for the same reason as `assertIndexesMatch`.
+ */
+function assertStandaloneIndexTripwire(ref: Catalog): void {
+  const constraintBacked = new Set(
+    ref.constraints.filter((r) => r['kind'] === 'p' || r['kind'] === 'u').map((r) => r['name']),
+  )
+  const standalone = ref.indexes.filter((r) => !constraintBacked.has(r['name']))
+  expect(standalone).toHaveLength(EXPECTED.indexes + PART_5_INDEXES.length)
+  expect(standalone.map((r) => r['name'])).toEqual(expect.arrayContaining([...PART_5_INDEXES]))
+}
+
 const unqualify = (text: string, schema: string): string =>
   text.split(`"${schema}".`).join('').split(`${schema}.`).join('')
 
@@ -657,17 +680,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     )
     expect(referenceJobSourcesColumns).toHaveLength(EXPECTED.jobSourcesColumns)
 
-    const constraintBacked = new Set(
-      reference.constraints
-        .filter((r) => r['kind'] === 'p' || r['kind'] === 'u')
-        .map((r) => r['name']),
-    )
-    const standaloneIndexes = reference.indexes.filter((r) => !constraintBacked.has(r['name']))
-    // Part 2's 44 plus the two Task 2.5 T1 adds through PART_5.
-    expect(standaloneIndexes).toHaveLength(EXPECTED.indexes + PART_5_INDEXES.length)
-    expect(standaloneIndexes.map((r) => r['name'])).toEqual(
-      expect.arrayContaining([...PART_5_INDEXES]),
-    )
+    assertStandaloneIndexTripwire(reference)
   })
 
   it('creates NOTHING beyond the Drizzle set — the other direction (CR-L-5)', async () => {
@@ -786,30 +799,24 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
   })
 
   it('creates every index the reference has — partial predicates, NULLS NOT DISTINCT, sort order', () => {
-    expect(afterFirstApply.indexes).toEqual(reference.indexes)
+    assertIndexesMatch(afterFirstApply, reference)
   })
 
-  it('positive control (CR-M-2): ONE missing job_opportunities index is a difference both checks report', () => {
-    // Committed form of the manual control of round 1, where dropping this index from
-    // the reference database turned the spec red ("length of 46 but got 45"). Here the
-    // same mutation is applied to the reference SNAPSHOT, so the two checks above are
-    // shown to see it without disturbing the shared database the other cases read.
+  it('positive control (CR-M-2 / CR-M-5): ONE missing job_opportunities index is a difference the REAL checks report', () => {
+    // The same two functions the real cases above call — not a re-statement of them — run
+    // on the reference SNAPSHOT with one job_opportunities index removed (the mutation that
+    // turned the spec red by hand in round 1: "length of 46 but got 45"). If either
+    // function stopped comparing, this case goes red even though the real case would pass.
     const dropped = 'idx_job_opportunities_availability'
     expect(reference.indexes.map((r) => r['name'])).toContain(dropped)
-    const mutated = reference.indexes.filter((r) => r['name'] !== dropped)
-    expect(mutated).toHaveLength(reference.indexes.length - 1)
+    const mutated: Catalog = {
+      ...reference,
+      indexes: reference.indexes.filter((r) => r['name'] !== dropped),
+    }
+    expect(mutated.indexes).toHaveLength(reference.indexes.length - 1)
 
-    // The full index comparison reports it…
-    expect(() => expect(afterFirstApply.indexes).toEqual(mutated)).toThrow()
-    // …and so does the tripwire count on standalone indexes (44 + 2 expected).
-    const constraintBacked = new Set(
-      reference.constraints
-        .filter((r) => r['kind'] === 'p' || r['kind'] === 'u')
-        .map((r) => r['name']),
-    )
-    const standalone = mutated.filter((r) => !constraintBacked.has(r['name']))
-    expect(standalone).toHaveLength(EXPECTED.indexes + PART_5_INDEXES.length - 1)
-    expect(standalone).not.toHaveLength(EXPECTED.indexes + PART_5_INDEXES.length)
+    expect(() => assertIndexesMatch(afterFirstApply, mutated)).toThrow()
+    expect(() => assertStandaloneIndexTripwire(mutated)).toThrow(/length of 46 but got 45/)
   })
 
   it('compares column ORDER in a way a dropped column cannot shift (CR-L-8)', async () => {
@@ -1331,6 +1338,8 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
       // because the sibling describes read the fresh schema through this connection.
       await client.query('ROLLBACK').catch(() => undefined)
       await client.query(`SET search_path TO ${SCHEMA}`)
+      // The CR-M-3 control and LOW-b set their own session lock_timeout; do not leak it.
+      await client.query(`RESET lock_timeout`)
     })
 
     afterAll(async () => {
@@ -1440,7 +1449,16 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
            CHECK (account_key IS NULL OR account_key <> '#source:')`,
       )
 
-      await expect(applyAtomically()).rejects.toThrow('not exactly the intended definition')
+      const message = await applyAtomically().then(
+        () => 'applied',
+        (error: Error) => error.message,
+      )
+      expect(message).toContain('not exactly the intended definition')
+      // SR-L-4: the exact-text comparison fails closed, so the message carries the exact
+      // manual step that clears it.
+      expect(message).toContain(
+        'ALTER TABLE job_collection_runs DROP CONSTRAINT ck_job_collection_runs_account_key_format;',
+      )
       // Rolled back to the planted state: no index was left behind.
       expect((await t1State()).indexes).toEqual([])
     }, 180_000)
@@ -1467,17 +1485,44 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
       }
     }, 180_000)
 
-    it('CR-M-3 control: the FIRST apply does need the lock — under the same writer it times out and leaves nothing', async () => {
+    it("CR-M-3 control: the FIRST apply does need the lock — under the same writer the FILE'S OWN timeout fires and leaves nothing", async () => {
       await seedPreT1Store()
+      // CR-M-4: parts 1 and 2 leave a SESSION-level lock_timeout of 10s on this client, so
+      // without this reset the control would pass even if PART_5 stopped setting its own.
+      // With 0 (= wait forever), only PART_5's transaction-local 10s can end the wait.
+      await client.query(`SET lock_timeout = 0`)
       const writer = await pool.connect()
+      let outcome = 'not run'
+      let elapsed = 0
       try {
         await writer.query('BEGIN')
         await writer.query(`LOCK TABLE ${T1_SCHEMA}.job_collection_runs IN ROW EXCLUSIVE MODE`)
-        await expect(applyAtomically()).rejects.toThrow('lock timeout')
+        const started = Date.now()
+        const apply = applyAtomically().then(
+          () => 'applied',
+          (error: Error) => error.message,
+        )
+        // A hang means nothing in the file bounded the wait. Detect it here rather than via
+        // the test timeout, which would leave the writer's lock (and this client) stuck.
+        let timer: NodeJS.Timeout | undefined
+        const hung = new Promise<string>((resolve) => {
+          timer = setTimeout(() => resolve('HUNG: no lock_timeout bounded the wait'), 25_000)
+        })
+        outcome = await Promise.race([apply, hung])
+        elapsed = Date.now() - started
+        clearTimeout(timer)
+        if (outcome.startsWith('HUNG')) {
+          await writer.query('ROLLBACK') // releases the lock so the pending apply can finish
+          await apply
+        }
       } finally {
-        await writer.query('ROLLBACK')
+        await writer.query('ROLLBACK').catch(() => undefined)
         writer.release()
       }
+      expect(outcome).toContain('lock timeout')
+      // The file's own 10 s ended the wait (the session's was reset to 0 = forever).
+      expect(elapsed).toBeGreaterThanOrEqual(9_000)
+      expect(elapsed).toBeLessThan(25_000)
       expect(await t1State()).toEqual({ columnType: null, check: null, indexes: [] })
     }, 180_000)
 

@@ -67,11 +67,18 @@
 -- APPLY ONCE; A RE-RUN IS IDEMPOTENT AND LOCK-LIGHT
 -- -------------------------------------------------
 -- The file is meant to be applied ONCE, the first time a deploy carries it. It is safe to
--- run again — the deploy re-applies its ordered list on every run — and a re-run costs
--- nothing on the table: section 1 first checks the CATALOG for the complete intended state
--- (column, CHECK definition, both index shapes), and when everything is there it RETURNS
--- before any DDL, so it takes no lock on `job_collection_runs` at all. Only an incomplete
--- or drifted state reaches the DDL.
+-- run again, and a re-run is lock-light: section 1 first checks the CATALOG for the
+-- complete intended state (column, CHECK definition, both index shapes), and when
+-- everything is there it RETURNS before any DDL. It then takes NO LOCK THAT CONFLICTS WITH
+-- DML — only a momentary ACCESS SHARE on `job_collection_runs` for catalog introspection
+-- (`pg_get_constraintdef`), which every writer coexists with. Only an incomplete or drifted
+-- state reaches the DDL.
+--
+-- What a re-run can still hit (SR-L-3, measured by the security review): ACCESS SHARE
+-- queues behind a PENDING ACCESS EXCLUSIVE request from another session (a VACUUM FULL, an
+-- ALTER, a TRUNCATE). In that window a re-run waits `lock_timeout` (10s) and FAILS the
+-- deploy step. That is the reason the file is meant to be applied once rather than on
+-- every deploy: a deploy list that re-applies every run inherits that (rare) failure mode.
 --
 -- THE PRICE OF THE FIRST APPLY, recorded: the builds are NOT `CONCURRENTLY` (Postgres
 -- refuses that inside a transaction block). The ALTERs take ACCESS EXCLUSIVE and each
@@ -153,7 +160,7 @@ BEGIN
   INTO complete;
 
   IF complete THEN
-    RAISE NOTICE 'job_collection_runs single flight is already in the intended state — no DDL, no table lock';
+    RAISE NOTICE 'job_collection_runs single flight is already in the intended state — no DDL, no lock that conflicts with DML (only a momentary ACCESS SHARE for catalog introspection)';
     RETURN;
   END IF;
 
@@ -280,8 +287,14 @@ BEGIN
   -- An object of the right NAME and the wrong shape is not repaired by a re-run (IF NOT
   -- EXISTS skips by name): it has to be dropped by hand first, deliberately — it may be
   -- someone's diagnostic object, and this file does not drop what it cannot attribute.
+  --
+  -- SR-L-4. The CHECK is compared as EXACT TEXT of `pg_get_constraintdef`, measured on
+  -- PostgreSQL 16.15 only. That fails CLOSED: if a major upgrade or other tooling renders
+  -- the same CHECK differently, every re-apply stops here until the constraint is dropped
+  -- and this file re-applied (which re-adds it in this Postgres's own rendering). The
+  -- message names that step exactly, so the fix is mechanical rather than an investigation.
   IF cardinality(problems) > 0 THEN
-    RAISE EXCEPTION 'job_collection_runs single flight is NOT in the intended state: % — if an object of that NAME exists with another shape, drop it, then re-run this file',
+    RAISE EXCEPTION 'job_collection_runs single flight is NOT in the intended state: % — if an object of that NAME exists with another shape, drop it, then re-run this file. For the CHECK (compared as exact text, measured on PostgreSQL 16.15): ALTER TABLE job_collection_runs DROP CONSTRAINT ck_job_collection_runs_account_key_format; then re-apply this file with psql -v ON_ERROR_STOP=1 --single-transaction',
       array_to_string(problems, '; ');
   END IF;
 END $$;
