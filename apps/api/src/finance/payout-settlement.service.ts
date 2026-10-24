@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto'
 import { ForbiddenException, HttpStatus, Injectable, Logger } from '@nestjs/common'
-import { and, eq, ne, or } from 'drizzle-orm'
+import { and, eq, isNull, ne, or } from 'drizzle-orm'
 import type { ManualPayoutMethod, SessionUser } from '@crm/shared'
 import { extractOnChainTxHash } from '@crm/shared'
 import { apiError } from '../common/api-error'
@@ -19,7 +19,7 @@ import {
 import { OnChainClaimService } from './onchain-claim.service'
 import { PayoutRequestReadService } from './payout-request-read.service'
 import { applyDropProjectPayout } from './payout-settlement-drop.util'
-import { resolveTransactionDate } from './transaction-date.util'
+import { formatTransactionBusinessDate, resolveTransactionDate } from './transaction-date.util'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
 
 // Phase 8 v2 — payout → company wallet. Marker persisted in
@@ -451,19 +451,38 @@ export class PayoutSettlementService {
         // The payment date may be backdated, but never before the PAYOUT row
         // being settled. Validate inside the same transaction as the status
         // claim so no concurrent edit can make the decision stale.
-        const [payoutSource] = await dbtx
-          .select({
-            id: transactions.id,
-            txDate: transactions.txDate,
-            createdAt: transactions.createdAt,
-          })
-          .from(transactions)
-          .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')))
-          .limit(1)
-        if (!payoutSource) {
-          throw apiError('FINANCE_PAYOUT_TRANSACTION_NOT_FOUND_FOR_REQUEST', HttpStatus.BAD_REQUEST)
-        }
+        //
+        // SR-809-M-3 = CR-809-L-3: this lookup runs ONLY when a date was actually
+        // supplied. Its whole purpose is to find the lower bound, so with no date
+        // there is nothing to bound — and #809's unconditional throw made every
+        // payout request without a PAYOUT row (legacy data, a half-failed create)
+        // permanently unpayable, including through `manualConfirmPayout`, which
+        // IS the ADMIN/ACCOUNTANT recovery path. `isNull(deletedAt)` stops a
+        // soft-deleted row from governing the bound of a live payment.
+        let payoutSourceTxDate: Date | null = null
         if (txDate) {
+          const [payoutSource] = await dbtx
+            .select({
+              id: transactions.id,
+              txDate: transactions.txDate,
+              createdAt: transactions.createdAt,
+            })
+            .from(transactions)
+            .where(
+              and(
+                eq(transactions.payoutRequestId, requestId),
+                eq(transactions.type, 'PAYOUT'),
+                isNull(transactions.deletedAt),
+              ),
+            )
+            .limit(1)
+          if (!payoutSource) {
+            throw apiError(
+              'FINANCE_PAYOUT_TRANSACTION_NOT_FOUND_FOR_REQUEST',
+              HttpStatus.BAD_REQUEST,
+            )
+          }
+          payoutSourceTxDate = payoutSource.txDate
           const sourceDate = (payoutSource.txDate ?? payoutSource.createdAt)
             .toISOString()
             .slice(0, 10)
@@ -472,6 +491,21 @@ export class PayoutSettlementService {
           }
         }
         const paymentTxDate = txDate ? resolveTransactionDate(txDate) : undefined
+
+        // SR-809-L-3: the audit trail used to carry the NEW date only, while the
+        // PAYOUT row's own date is overwritten at pay time — so the override was
+        // not reconstructable from the trail. Record both ends of it. `null` means
+        // "the row carried no business date before", which is different from
+        // "no override happened" (then neither key is written at all).
+        const dateOverrideAudit =
+          paymentTxDate === undefined
+            ? {}
+            : {
+                txDateBefore: payoutSourceTxDate
+                  ? formatTransactionBusinessDate(payoutSourceTxDate)
+                  : null,
+                txDateAfter: formatTransactionBusinessDate(paymentTxDate),
+              }
 
         // ── SECURITY (LOW #6, defense-in-depth): in-transaction txHash-reuse guard.
         // For the manual COMPANY_ACCOUNT path the on-chain hash credits the company
@@ -675,6 +709,7 @@ export class PayoutSettlementService {
             payableAmount: req.payableAmount,
             ...(auditNote ? { note: auditNote } : {}),
             ...(txDate ? { txDate } : {}),
+            ...dateOverrideAudit,
           },
         })
 
