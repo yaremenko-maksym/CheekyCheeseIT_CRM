@@ -216,7 +216,7 @@ if (wnTerms !== null) {
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'terms.html.txt'), bytes)
   writeFileSync(
-    join(dir, 'terms.provenance.json'),
+    join(dir, 'terms.html.provenance.json'),
     await format(
       JSON.stringify({
         url: 'https://www.workingnomads.com/terms',
@@ -232,7 +232,7 @@ if (wnTerms !== null) {
         notes:
           'The artifact is the TERMS page, not a vacancy fixture: the plan blocks this source until documented/approved use, and "public JSON is not permission". The Terms of Service (headings 1-11: acceptance, user content, subscriptions, termination, liability, final provisions) contain no clause on automated access, scraping, an API or reuse of job listings either way; the only mention of automation is "We do not use automated decision-making tools". robots.txt (User-agent *) has an empty Disallow, i.e. allows everything. The site footer links "API" to /api/exposed_jobs/ - which is the JSON endpoint itself, not a documentation or terms page (a GET of it, kept out of the repository, answered 200 application/json, allow: GET, HEAD, OPTIONS, 189828 bytes, a bare array of listings with url/title/description). A link labelled API is a hint of intent, not a grant: no terms govern its use, so the owner must decide or ask the site. Clauses that bear on the owner\'s question although none addresses automation: 2.2 grants only "a limited, non-exclusive, non-transferable right to access and use the Platform and its functionalities for their intended purpose"; 3.1(b) forbids "Resell, sublicense, or otherwise commercially exploit the Service"; 3.1(d) forbids "Access or use the Service to build a competitive product or service". Whether feeding listings into a recruiting CRM falls under "intended purpose", "commercially exploit" or "competitive product" is a reading of those clauses, not something the page settles. VERDICT BASIS: headings 1-11 of this page were read on 2026-10-24 by an AI coding agent and confirmed by a reviewing agent (not legal advice; no review by a lawyer or the owner is recorded here), who found no clause on automated access, an API or reuse of listings; this file pins the page as read (fileSha256) and the unit tests only add a keyword screen, which is not a proof of absence.',
       }),
-      join(dir, 'terms.provenance.json'),
+      join(dir, 'terms.html.provenance.json'),
     ),
   )
 }

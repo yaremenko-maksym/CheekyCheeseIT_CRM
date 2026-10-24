@@ -70,7 +70,7 @@ describe('the recorded evidence', () => {
   it('the status says blocked, UNCLEAR, and the provenance agrees', () => {
     expect(WORKINGNOMADS_SOURCE_STATUS.blocked).toBe(true)
     expect(WORKINGNOMADS_SOURCE_STATUS.permission).toBe('UNCLEAR')
-    const p = sourceProvenance('workingnomads', 'terms') as {
+    const p = sourceProvenance('workingnomads', 'terms.html') as {
       permission: string
       notes: string
       trimmedBy: string
@@ -88,7 +88,7 @@ describe('the recorded evidence', () => {
     // text cannot be made complete by listing phrasings (a probe such as "access the API
     // programmatically" passes this screen). The verdict rests on a READING of headings 1-11 by an AI
     // coding agent, confirmed by a reviewing agent, dated 2026-10-24 and recorded in
-    // `terms.provenance.json` (not legal advice; no review by a lawyer or the owner is recorded here); the sha256 pin in
+    // `terms.html.provenance.json` (not legal advice; no review by a lawyer or the owner is recorded here); the sha256 pin in
     // `fixture-provenance.spec.ts` proves the file has not changed since that reading. This screen
     // only catches the commonest wording if the file is ever replaced. If it fails after a
     // re-capture, the verdict is out of date: re-read the terms, decide, record the new date - do

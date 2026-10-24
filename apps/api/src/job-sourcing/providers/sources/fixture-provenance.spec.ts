@@ -142,9 +142,9 @@ describe('fixture provenance', () => {
 
   it('keeps no Working Nomads job data: its only artifact is the terms page, committed byte for byte', () => {
     const dir = join(ROOT, 'workingnomads')
-    expect(readdirSync(dir).sort()).toEqual(['terms.html.txt', 'terms.provenance.json'])
+    expect(readdirSync(dir).sort()).toEqual(['terms.html.provenance.json', 'terms.html.txt'])
     const p = provenanceSchema.parse(
-      JSON.parse(readFileSync(join(dir, 'terms.provenance.json'), 'utf8')),
+      JSON.parse(readFileSync(join(dir, 'terms.html.provenance.json'), 'utf8')),
     )
     const digest = sha256(readFileSync(join(dir, 'terms.html.txt')))
     expect(p.fileSha256).toBe(digest)
@@ -230,7 +230,7 @@ const STATUSES: Array<[provider: string, name: string, blocked: boolean]> = [
   ['jobgether', 'page-1', JOBGETHER_SOURCE_STATUS.blocked],
   ['hn-hiring', 'search', HN_SOURCE_STATUS.blocked],
   ['remotive', 'software-dev', REMOTIVE_SOURCE_STATUS.blocked],
-  ['workingnomads', 'terms', WORKINGNOMADS_SOURCE_STATUS.blocked],
+  ['workingnomads', 'terms.html', WORKINGNOMADS_SOURCE_STATUS.blocked],
 ]
 
 describe('readiness is not derivable from permission alone', () => {
