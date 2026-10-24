@@ -20,8 +20,13 @@ name: Flow Gate
 # visible, attributable line instead of silence. It is NOT a defence against a malicious write-role
 # user (anyone with write access can post a review saying `Verdict: APPROVE`, or write a skip
 # line). Verdicts count only from OWNER / MEMBER / COLLABORATOR associations — the repo is public,
-# so any GitHub user can comment. Verdicts are not bound to the head sha: a verdict survives later
-# pushes, and the flow expects a delta re-review (known limitation, contracts.md §4.1).
+# so any GitHub user can comment.
+#
+# A verdict IS bound to the commit it was given on (since 2026-10-24): a positive verdict on a
+# commit that is not the head reads STALE unless everything that landed since is markdown, or
+# belongs to files the PR does not own (a merge from the base branch). The judgement needs one
+# `compare` per reviewed commit, which is why the fetch happens in two passes — the gate names the
+# shas, this workflow measures them. The reasoning is in flow-gate.mjs, "Verdict freshness".
 #
 # TRIGGERS: `pull_request_target` only — it runs the BASE branch's copy of this file, so a PR cannot
 # edit the gate that judges it. There is deliberately no `pull_request_review` trigger: that event
@@ -84,28 +89,70 @@ jobs:
           # Rename sources are kept (`previous_filename`): the script classifies both names.
           gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" \
             --jq '.[] | {filename, previous_filename, status}' | jq -s . >"$D/files.json"
+          # `commit_id` is the commit the review was submitted against — the whole basis of the
+          # freshness check. A PR comment has no equivalent field, so it keeps only `created_at`.
           gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" \
-            --jq '.[] | {author: .user.login, association: .author_association, state: .state, body: (.body // ""), at: .submitted_at}' \
+            --jq '.[] | {author: .user.login, association: .author_association, state: .state, body: (.body // ""), at: .submitted_at, commit_id: .commit_id}' \
             | jq -s . >"$D/reviews.json"
           gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
             --jq '.[] | {author: .user.login, association: .author_association, body: (.body // ""), at: .created_at}' \
             | jq -s . >"$D/comments.json"
+          # `committedAt` is how a comment-borne verdict (no commit_id) is placed in the history.
           gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/commits?per_page=100" \
-            --jq '.[] | {sha: .sha, message: .commit.message, parents: (.parents | length)}' \
+            --jq '.[] | {sha: .sha, message: .commit.message, parents: (.parents | length), committedAt: .commit.committer.date}' \
             | jq -s . >"$D/commits.json"
           gh api "repos/$REPO/pulls/$PR_NUMBER" \
-            --jq '{body: (.body // ""), counts: {changedFiles: .changed_files, commits: .commits}}' >"$D/pr.json"
+            --jq '{body: (.body // ""), headSha: .head.sha, counts: {changedFiles: .changed_files, commits: .commits}}' >"$D/pr.json"
           jq -n \
             --slurpfile files "$D/files.json" --slurpfile reviews "$D/reviews.json" \
             --slurpfile comments "$D/comments.json" --slurpfile commits "$D/commits.json" \
             --slurpfile pr "$D/pr.json" \
-            '{files: $files[0], body: $pr[0].body, counts: $pr[0].counts, reviews: $reviews[0], comments: $comments[0], commits: $commits[0]}' \
+            '{files: $files[0], body: $pr[0].body, headSha: $pr[0].headSha, counts: $pr[0].counts, reviews: $reviews[0], comments: $comments[0], commits: $commits[0]}' \
             >"$D/pr-data.json"
           f="$D/pr-data.json"
           echo "fetched: files=$(jq '.files | length' "$f")/$(jq '.counts.changedFiles' "$f")" \
             "commits=$(jq '.commits | length' "$f")/$(jq '.counts.commits' "$f")" \
             "reviews=$(jq '.reviews | length' "$f") comments=$(jq '.comments | length' "$f")" \
-            "body-chars=$(jq '.body | length' "$f")"
+            "body-chars=$(jq '.body | length' "$f") head=$(jq -r '.headSha' "$f")"
+
+      # Second pass of the fetch. The gate names the commits whose drift to the head decides
+      # whether a verdict still stands (`--compare-plan`, unit-tested, and it hex-validates every
+      # sha before this loop puts one into an API path); this step only measures them. A
+      # measurement that could not be taken is recorded as `unavailable` rather than omitted — the
+      # gate reads absent, unavailable and truncated alike as STALE, never as "nothing drifted".
+      - name: Measure verdict drift (one compare per reviewed commit)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          D: ${{ runner.temp }}/flow-gate
+        run: |
+          set -euo pipefail
+          f="$D/pr-data.json"
+          head_sha=$(jq -r '.headSha' "$f")
+          node scripts/architect/flow-gate.mjs --compare-plan --input "$f" >"$D/plan.txt"
+          echo "drift measurements planned: $(wc -l <"$D/plan.txt")"
+          : >"$D/compares.ndjson"
+          while read -r sha; do
+            [ -n "$sha" ] || continue
+            if gh api "repos/$REPO/compare/${sha}...${head_sha}" >"$D/c.json" 2>"$D/c.err"; then
+              # The compare endpoint returns at most 300 files and reports no total, so a list AT
+              # the limit is treated as truncated rather than as a complete answer.
+              jq --arg base "$sha" '{
+                base: $base,
+                truncated: ((.files | length) >= 300),
+                paths: ([.files[]? | .filename] + [.files[]? | .previous_filename // empty])
+              }' "$D/c.json"
+            else
+              cat "$D/c.err" >&2
+              jq -n --arg base "$sha" '{base: $base, unavailable: true}'
+            fi >>"$D/compares.ndjson"
+          done <"$D/plan.txt"
+          jq -s . "$D/compares.ndjson" >"$D/compares.json"
+          jq --slurpfile cmp "$D/compares.json" '. + {compares: $cmp[0]}' "$f" >"$D/pr-data.next.json"
+          mv "$D/pr-data.next.json" "$f"
+          echo "drift measured: compares=$(jq '.compares | length' "$f")" \
+            "paths=$(jq '[.compares[] | (.paths // []) | length] | add // 0' "$f")" \
+            "unavailable=$(jq '[.compares[] | select(.unavailable)] | length' "$f")"
 
       - name: Evaluate
         env:

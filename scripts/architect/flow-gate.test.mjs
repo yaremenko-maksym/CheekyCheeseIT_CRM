@@ -1180,3 +1180,46 @@ test('render names STALE in the table', () => {
   assert.match(text, /\| Review \| STALE \|/)
   assert.match(text, /a fresh pass on the new code/)
 })
+
+// --- SEC-1 / SEC-2: the freshness check must not key on anything the PR author controls --------
+
+test('SEC-1: a backdated commit must not make a comment-borne verdict read fresh', () => {
+  // `committedAt` is git metadata — `git commit --date` sets it to anything. A commit backdated
+  // to before the verdict comment leaves no commit "after" the comment, so a date-keyed check
+  // calls the verdict fresh and the gate reports `done` for code nobody read.
+  const r = ev(
+    uiPr({
+      comments: [cm('QA Verdict: PASS', { at: '2026-10-21T10:00:00Z' })],
+      commits: [
+        commit('feat: reviewed', { sha: OLD, committedAt: '2026-10-21T08:00:00Z' }),
+        commit('feat: NOT reviewed\n\nac_verified: 1', {
+          sha: HEAD,
+          // Backdated to AFTER the reviewed commit but BEFORE the verdict comment: the head then
+          // becomes the newest commit the comment could have seen, and a date-keyed check reads
+          // the verdict as given on the head.
+          committedAt: '2026-10-21T09:00:00Z',
+        }),
+      ],
+      compares: [cmp(OLD, [UI])],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'stale')
+})
+
+test('SEC-2: a path the PR reverted AFTER the verdict still counts as owned', () => {
+  // `pulls/files` is the PR's NET diff, so a file reverted after the review is no longer "owned"
+  // and a change to it would fall under the base-merge exemption — the verdict would survive a
+  // change to code the reviewer did read.
+  const REVERTED = 'apps/api/src/vacancies/reverted.service.ts'
+  const r = ev(
+    good({
+      files: [API, API_SPEC], // REVERTED is NOT here: the PR no longer changes it
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      // It drifted between the reviewed commit and the head, and it WAS part of the PR at the
+      // reviewed commit.
+      compares: [cmp(OLD, [REVERTED], { ownedAt: [API, API_SPEC, REVERTED] })],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+})
