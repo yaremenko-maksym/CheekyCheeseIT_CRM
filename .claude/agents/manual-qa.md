@@ -138,7 +138,13 @@ only in your report to Master. Post a PR comment via `mcp__github__add_issue_com
 
 ```
 QA Verdict: PASS | FAIL
+Commit: <the head sha you exercised>
 ```
+
+**The `Commit:` line names the build you exercised.** A PR comment carries no sha of its own, so
+the check reads this line and treats a comment-borne verdict without it as `STALE`. Take the sha
+**before** you start the pass — `gh pr view <N> --json headRefOid -q .headRefOid` — so it names the
+code that was running in the browser.
 
 - `PASS` — no open finding of severity ≥ MED. POLISH items you fixed yourself are fine.
 - `FAIL` — at least one open HIGH/MED finding, or a page with `FAIL-UX`.
