@@ -343,13 +343,17 @@ describe('PayoutRequestService.createPayoutRequest', () => {
     expect(s.payoutValues).not.toHaveBeenCalled()
   })
 
-  it('without a payout date and a past source, the row is stamped now', async () => {
-    const s = setup({ rows: [income({ txDate: new Date('2020-01-01T00:00:00.000Z') })] })
-    const before = Date.now()
-    await s.svc.createPayoutRequest(['tx-1'], user('SENIOR'))
-    const call = s.payoutValues.mock.calls[0] as unknown as [{ txDate: Date }]
-    expect(call[0].txDate.getTime()).toBeGreaterThanOrEqual(before)
-    expect(call[0].txDate.getTime()).toBeLessThanOrEqual(Date.now())
+  it('without a payout date, the row uses the current instant when UTC and Kyiv share a day', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-25T12:00:00.000Z'))
+    try {
+      const s = setup({ rows: [income({ txDate: new Date('2020-01-01T00:00:00.000Z') })] })
+      await s.svc.createPayoutRequest(['tx-1'], user('SENIOR'))
+      const call = s.payoutValues.mock.calls[0] as unknown as [{ txDate: Date }]
+      expect(call[0].txDate.toISOString()).toBe('2026-03-25T12:00:00.000Z')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('DROP batches must be single-project; SENIOR batches may span projects', async () => {
