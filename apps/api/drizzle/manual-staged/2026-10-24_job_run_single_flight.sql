@@ -1,16 +1,34 @@
 -- =============================================================================
--- job_collection_runs single flight (r5 Task 2.5 T1) — prod forward DDL (STAGED)
+-- job_collection_runs single flight (r5 Task 2.5 T1 + T1b) — prod forward DDL (STAGED)
 -- =============================================================================
 --
 -- WHAT THIS FILE DOES
 -- -------------------
 -- One active fetch per source, and one per paid account, as database facts:
 --
---   1. `account_key uuid NOT NULL` on `job_collection_runs` — the account a run spends
---      against: the source's `account_meter_id`, or the source's own id when it has no
---      meter. Backfilled from `job_sources` for every existing row.
+--   1. `account_key text NOT NULL` on `job_collection_runs` — the paid account a run
+--      spends against: the TEXT `account_key` of the source's meter
+--      (`job_account_meters`, through `job_sources.account_meter_id`), or the synthetic
+--      `'#source:' || source_id` when the source has no meter. Backfilled for every
+--      existing row. Bounded by `ck_job_collection_runs_account_key_format`: a real meter
+--      key (`JOB_PUBLIC_ID_PATTERN`, which has no `#`) or `#source:<uuid>`, so a synthetic
+--      key can never equal a real one.
 --   2. `uq_job_collection_runs_one_started_per_source`  — UNIQUE (source_id)   WHERE STARTED
 --   3. `uq_job_collection_runs_one_started_per_account` — UNIQUE (account_key) WHERE STARTED
+--
+-- T1b (folded in before T1 merged, per the ADR's fold rule): T1 as first written keyed
+-- the account on the meter ROW id (uuid). A meter row is unique per (account_key, unit,
+-- window), so one paid account has several rows, and two sources bound to different rows
+-- of one account got different keys — the index did not exclude them. The key is now the
+-- meter's text `account_key`. A database that already holds the uuid column (only scratch
+-- databases ever did; production never received T1) has it dropped and recomputed in
+-- section 1: the column is derived data, nothing else reads it.
+--
+-- A METERED TYPE WITH NO METER (a NULL `account_meter_id` on a type whose manifest
+-- declares a quota) gets the synthetic key here, i.e. a per-source lock only: the database
+-- cannot tell it apart from an unmetered type, because that is manifest knowledge. Per the
+-- ADR the run ledger (T3) refuses such a source at claim time (`METER_MISSING`,
+-- fail-closed), so no run of it is ever written.
 --
 -- `uq_job_collection_runs_running_owner` (UNIQUE (source_id, config_version) WHERE
 -- STARTED, from 2026-10-17_job_opportunities_store_indexes.sql) is KEPT. Index 2 subsumes
@@ -56,7 +74,7 @@
 --
 -- IDEMPOTENT: safe to re-run on every deploy.
 --
--- ROLLBACK (additive; one transaction):
+-- ROLLBACK (additive; one transaction; dropping the column drops its CHECK and index too):
 --   DROP INDEX IF EXISTS uq_job_collection_runs_one_started_per_account;
 --   DROP INDEX IF EXISTS uq_job_collection_runs_one_started_per_source;
 --   ALTER TABLE job_collection_runs DROP COLUMN IF EXISTS account_key;
@@ -82,16 +100,45 @@ SET statement_timeout = '5min';
 -- reaches every row and SET NOT NULL cannot meet a NULL left behind by the backfill.
 --
 -- A terminal run's key is historical only — terminal rows never contend — so deriving it
--- from today's meter assignment is harmless.
-ALTER TABLE "job_collection_runs" ADD COLUMN IF NOT EXISTS "account_key" uuid;
+-- from today's meter assignment is harmless. `job_sources.account_meter_id` is
+-- ON DELETE SET NULL, so a named meter always exists and the LEFT JOIN finds it.
+
+-- T1b: a uuid-typed account_key is T1's superseded key (the meter ROW id). It is derived
+-- data that nothing else reads; drop it (its index goes with it) and recompute below.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_attribute
+     WHERE attrelid = 'job_collection_runs'::regclass
+       AND attname = 'account_key' AND NOT attisdropped
+       AND atttypid = 'uuid'::regtype
+  ) THEN
+    RAISE NOTICE 'job_collection_runs.account_key is the superseded uuid key (T1) — dropping it to recompute the meter text key (T1b)';
+    ALTER TABLE "job_collection_runs" DROP COLUMN "account_key";
+  END IF;
+END $$;
+
+ALTER TABLE "job_collection_runs" ADD COLUMN IF NOT EXISTS "account_key" text;
 
 UPDATE "job_collection_runs" r
-   SET "account_key" = COALESCE(s."account_meter_id", s."id")
+   SET "account_key" = COALESCE(m."account_key", '#source:' || s."id"::text)
   FROM "job_sources" s
+  LEFT JOIN "job_account_meters" m ON m."id" = s."account_meter_id"
  WHERE s."id" = r."source_id"
    AND r."account_key" IS NULL;
 
 ALTER TABLE "job_collection_runs" ALTER COLUMN "account_key" SET NOT NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'job_collection_runs'::regclass
+       AND conname = 'ck_job_collection_runs_account_key_format'
+  ) THEN
+    ALTER TABLE "job_collection_runs" ADD CONSTRAINT "ck_job_collection_runs_account_key_format" CHECK ("job_collection_runs"."account_key" ~ '^[a-z0-9][a-z0-9._:-]{0,99}$' OR "job_collection_runs"."account_key" ~ '^#source:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$');
+  END IF;
+END $$;
 
 
 -- ---------------------------------------------------------------------------
@@ -161,9 +208,19 @@ BEGIN
     SELECT 1 FROM pg_attribute
      WHERE attrelid = 'job_collection_runs'::regclass
        AND attname = 'account_key' AND attnotnull AND NOT attisdropped
-       AND atttypid = 'uuid'::regtype
+       AND atttypid = 'text'::regtype
   ) THEN
-    problems := problems || 'column account_key is missing, nullable or not uuid'::text;
+    problems := problems || 'column account_key is missing, nullable or not text'::text;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'job_collection_runs'::regclass
+       AND conname = 'ck_job_collection_runs_account_key_format'
+       AND contype = 'c' AND convalidated
+       AND pg_get_constraintdef(oid) LIKE '%#source:%'
+  ) THEN
+    problems := problems || 'CHECK ck_job_collection_runs_account_key_format is missing, not validated or of another shape'::text;
   END IF;
 
   FOR expected IN

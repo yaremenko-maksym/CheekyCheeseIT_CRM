@@ -363,16 +363,29 @@ describe('job_collection_runs (AC2)', () => {
     expect(render(i.config.where)).toContain('STARTED')
   })
 
-  it('carries the account key every run contends on: a NOT NULL uuid with no default (2.5 T1)', () => {
+  it('carries the account key every run contends on: NOT NULL text with no default (2.5 T1 + T1b)', () => {
     const c = col(jobCollectionRuns, 'account_key')
     expect(c.notNull).toBe(true)
-    expect(c.getSQLType()).toBe('uuid')
+    // T1b: the METER's text account key, not a meter row id — one paid account has
+    // several meter rows (one per unit/window), and a row id would split it.
+    expect(c.getSQLType()).toBe('text')
     // No default: a key the database invented would be one no other run shares,
     // and the per-account slot would then lock nothing. The writer must name it.
     expect(c.hasDefault).toBe(false)
     // LAST, where the forward DDL's `ADD COLUMN` puts it — the forward-DDL spec
     // compares column order between that path and `db:push`.
     expect(names(jobCollectionRuns).at(-1)).toBe('account_key')
+  })
+
+  it('admits only a real meter key or the synthetic #source:<uuid> as an account key (2.5 T1b)', () => {
+    const s = checkSql(jobCollectionRuns, 'ck_job_collection_runs_account_key_format')
+    // A real meter key: exactly the meters' own public-id alphabet, which has no `#`.
+    expect(s).toContain(`account_key" ~ '^[a-z0-9][a-z0-9._:-]{0,99}$'`)
+    // The synthetic key: `#source:` and a lowercase uuid, nothing else.
+    expect(s).toContain(
+      `account_key" ~ '^#source:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`,
+    )
+    expect(s).toContain(' OR ')
   })
 
   it.each([
