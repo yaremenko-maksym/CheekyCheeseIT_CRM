@@ -97,23 +97,25 @@ jobs:
           gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
             --jq '.[] | {author: .user.login, association: .author_association, body: (.body // ""), at: .created_at}' \
             | jq -s . >"$D/comments.json"
-          # `committedAt` is how a comment-borne verdict (no commit_id) is placed in the history.
+          # Deliberately NO commit date: a committer date is set by whoever makes the commit, so
+          # nothing the gate decides may key on one (SEC-1 — see flow-gate.mjs `referenceSha`).
           gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/commits?per_page=100" \
-            --jq '.[] | {sha: .sha, message: .commit.message, parents: (.parents | length), committedAt: .commit.committer.date}' \
+            --jq '.[] | {sha: .sha, message: .commit.message, parents: (.parents | length)}' \
             | jq -s . >"$D/commits.json"
           gh api "repos/$REPO/pulls/$PR_NUMBER" \
-            --jq '{body: (.body // ""), headSha: .head.sha, counts: {changedFiles: .changed_files, commits: .commits}}' >"$D/pr.json"
+            --jq '{body: (.body // ""), headSha: .head.sha, baseRef: .base.ref, counts: {changedFiles: .changed_files, commits: .commits}}' >"$D/pr.json"
           jq -n \
             --slurpfile files "$D/files.json" --slurpfile reviews "$D/reviews.json" \
             --slurpfile comments "$D/comments.json" --slurpfile commits "$D/commits.json" \
             --slurpfile pr "$D/pr.json" \
-            '{files: $files[0], body: $pr[0].body, headSha: $pr[0].headSha, counts: $pr[0].counts, reviews: $reviews[0], comments: $comments[0], commits: $commits[0]}' \
+            '{files: $files[0], body: $pr[0].body, headSha: $pr[0].headSha, baseRef: $pr[0].baseRef, counts: $pr[0].counts, reviews: $reviews[0], comments: $comments[0], commits: $commits[0]}' \
             >"$D/pr-data.json"
           f="$D/pr-data.json"
           echo "fetched: files=$(jq '.files | length' "$f")/$(jq '.counts.changedFiles' "$f")" \
             "commits=$(jq '.commits | length' "$f")/$(jq '.counts.commits' "$f")" \
             "reviews=$(jq '.reviews | length' "$f") comments=$(jq '.comments | length' "$f")" \
-            "body-chars=$(jq '.body | length' "$f") head=$(jq -r '.headSha' "$f")"
+            "body-chars=$(jq '.body | length' "$f") head=$(jq -r '.headSha' "$f")" \
+            "base=$(jq -r '.baseRef' "$f")"
 
       # Second pass of the fetch. The gate names the commits whose drift to the head decides
       # whether a verdict still stands (`--compare-plan`, unit-tested, and it hex-validates every
@@ -129,19 +131,32 @@ jobs:
           set -euo pipefail
           f="$D/pr-data.json"
           head_sha=$(jq -r '.headSha' "$f")
+          base_ref=$(jq -r '.baseRef' "$f")
           node scripts/architect/flow-gate.mjs --compare-plan --input "$f" >"$D/plan.txt"
           echo "drift measurements planned: $(wc -l <"$D/plan.txt")"
           : >"$D/compares.ndjson"
           while read -r sha; do
             [ -n "$sha" ] || continue
-            if gh api "repos/$REPO/compare/${sha}...${head_sha}" >"$D/c.json" 2>"$D/c.err"; then
+            # TWO reads per reviewed commit V, and both are needed:
+            #   drift    = compare V...HEAD  — what moved since the verdict
+            #   ownedAt  = compare base...V  — the PR's own changed-file set AS OF V, so a file the
+            #              PR has since reverted still counts as its own (SEC-2). The base is the
+            #              branch ref, which makes this the same net-diff shape as pulls/files.
+            if gh api "repos/$REPO/compare/${sha}...${head_sha}" >"$D/drift.json" 2>"$D/c.err" \
+              && gh api "repos/$REPO/compare/${base_ref}...${sha}" >"$D/owned.json" 2>>"$D/c.err"
+            then
               # The compare endpoint returns at most 300 files and reports no total, so a list AT
               # the limit is treated as truncated rather than as a complete answer.
-              jq --arg base "$sha" '{
-                base: $base,
-                truncated: ((.files | length) >= 300),
-                paths: ([.files[]? | .filename] + [.files[]? | .previous_filename // empty])
-              }' "$D/c.json"
+              jq -n --arg base "$sha" \
+                --slurpfile drift "$D/drift.json" --slurpfile owned "$D/owned.json" '
+                def paths: ([.files[]? | .filename] + [.files[]? | .previous_filename // empty]);
+                {
+                  base: $base,
+                  truncated: (((($drift[0].files // []) | length) >= 300)
+                              or ((($owned[0].files // []) | length) >= 300)),
+                  paths: ($drift[0] | paths),
+                  ownedAt: ($owned[0] | paths)
+                }'
             else
               cat "$D/c.err" >&2
               jq -n --arg base "$sha" '{base: $base, unavailable: true}'
@@ -151,7 +166,8 @@ jobs:
           jq --slurpfile cmp "$D/compares.json" '. + {compares: $cmp[0]}' "$f" >"$D/pr-data.next.json"
           mv "$D/pr-data.next.json" "$f"
           echo "drift measured: compares=$(jq '.compares | length' "$f")" \
-            "paths=$(jq '[.compares[] | (.paths // []) | length] | add // 0' "$f")" \
+            "drift-paths=$(jq '[.compares[] | (.paths // []) | length] | add // 0' "$f")" \
+            "owned-paths=$(jq '[.compares[] | (.ownedAt // []) | length] | add // 0' "$f")" \
             "unavailable=$(jq '[.compares[] | select(.unavailable)] | length' "$f")"
 
       - name: Evaluate

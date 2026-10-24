@@ -367,7 +367,9 @@ export function standingVerdict(items, kind) {
 //     base tip and H — the PR contributes nothing to that file. It is base-branch movement pulled
 //     in by a merge, already reviewed on its way into the base. Ignoring it IS the merge
 //     exemption, and it is exactly the check the owner ran by hand on #1108 ("the merge of main
-//     altered none of the PR's own 14 files").
+//     altered none of the PR's own 14 files"). P is the union of the PR's net diff NOW and its net
+//     diff at V (`ownedAt`): a file reverted after the verdict is gone from the first and must
+//     still count — see SEC-2 in `verdictFreshness`.
 //   * a path in the drift AND in P that ends in `.md` is documentation — the gate's existing
 //     docs-only rule applied to a follow-up commit.
 //
@@ -385,17 +387,52 @@ export function standingVerdict(items, kind) {
 const short = (sha) => String(sha ?? '').slice(0, 7) || '(none)'
 
 /**
+ * The sha a comment-borne verdict states it was given on: the first `Commit: <sha>` line of the
+ * body, 7-40 hex characters. Read with the same line discipline as a verdict marker — a quoted
+ * line, a fenced block and an HTML comment are not statements, and markdown decoration is
+ * tolerated (`**Commit:** abc1234`), which `bodyLine` does not do.
+ */
+export function statedCommit(body) {
+  for (const raw of stripNonProse(body).split(/\r?\n/)) {
+    if (/^\s*>/.test(raw)) continue
+    const line = raw.replace(/^[\s#*_`-]+/, '').replace(/[*_`]+/g, '')
+    const m = /^Commit:\s*([0-9a-fA-F]{7,40})\b/.exec(line)
+    if (m) return m[1].toLowerCase()
+  }
+  return null
+}
+
+/**
  * The commit a verdict item judged, or the reason it cannot be named.
  *
- * A review states it. A comment does not, so the best available answer is the last commit that
- * existed when the comment was written. That is WEAKER than `commit_id` in two ways worth naming:
- * a reviewer who read the code minutes before a push and posted afterwards reads as fresh, and a
- * committer date is written by whoever made the commit. The alternative considered was to stop
- * honouring comment-borne verdicts altogether — rejected because `copy-reviewer` posts its verdict
- * as a PR comment by contract, and QA and Design accept one too (`contracts.md` §4.1), so that
- * would delete three steps' evidence channel in order to improve one timestamp's precision. What
- * is NOT acceptable is the third option: leaving comments implicitly always-fresh, which would
- * relocate the hole instead of closing it.
+ * A review states it in `commit_id`, which GitHub records — authoritative, nothing to infer.
+ * `commit_id` is the ONLY thing read for a review; a `Commit:` line in a review body is ignored on
+ * purpose, so a stated sha can never downgrade a server-recorded one.
+ *
+ * A comment has no such field, so the verdict's author must name the sha: `Commit: <sha>`.
+ *
+ * WHAT THIS REPLACED, and why (SEC-1, 2026-10-24). The first edition of this function took "the
+ * last commit that existed when the comment was written" from each commit's `committedAt`. A
+ * committer date is git metadata the committer sets (`git commit --date`), so an author could
+ * backdate a commit to between the reviewed commit and the verdict comment: the head then became
+ * the newest commit the comment could have seen, and a verdict on older code read as fresh. That
+ * is not a weaker check, it is a check that LOOKS like one while keying on data the subject
+ * supplies — worse than the hole it replaced. No date is consulted anywhere in this file now.
+ *
+ * TWO ALTERNATIVES REJECTED.
+ *   * Stop honouring comment-borne verdicts. `copy-reviewer` posts its verdict as a PR comment by
+ *     contract and QA / Design accept one (`contracts.md` §4.1), so this deletes three steps'
+ *     evidence channel. It is a legitimate answer and remains the fallback if the `Commit:` line
+ *     proves unworkable in practice — but it costs more than it buys today.
+ *   * Take "after" from the PR timeline API. The timeline's `committed` event carries the same
+ *     author/committer dates from the commit object, not a server receipt time, so it would be the
+ *     identical author-controlled field reached through a second endpoint. The one genuinely
+ *     server-stamped event, `head_ref_force_pushed`, does not cover an ordinary push.
+ *
+ * COST TO THE AUTHOR. A comment-borne verdict now needs one extra line naming the sha reviewed.
+ * It is the same trust level as the verdict itself — the reviewer's own attributable statement,
+ * which the gate's threat model already accepts — and unlike a date it cannot be set as a
+ * side-effect of committing. A verdict without the line is STALE, with a message that says so.
  * @returns {{sha:string}|{problem:string}}
  */
 export function referenceSha(item, ctx) {
@@ -406,21 +443,22 @@ export function referenceSha(item, ctx) {
       }
     return { sha: String(item.commit_id) }
   }
-  const at = ts(item.at)
-  if (!at) return { problem: 'the comment carries no readable timestamp' }
-  let ref = null
-  for (const c of ctx.commits) {
-    const t = ts(c.committedAt)
-    // A commit with no date would silently read as older than everything (ts → 0) and so make
-    // every comment look fresh. Refuse instead.
-    if (!t)
-      return {
-        problem: `commit ${short(c.sha)} has no readable commit date, so a comment cannot be placed against the commit history`,
-      }
-    if (t <= at && (!ref || t >= ts(ref.committedAt))) ref = c
-  }
-  if (!ref) return { problem: 'the comment predates every commit in the PR' }
-  return { sha: String(ref.sha) }
+  const stated = statedCommit(item.body)
+  if (!stated)
+    return {
+      problem:
+        'a PR comment carries no commit_id, and this one has no `Commit: <sha>` line naming the commit it judged',
+      // The common case is a verdict that WAS given on current code and simply does not say so,
+      // and telling the author to re-review would be wrong as often as not.
+      fix: 'Add a `Commit: <sha>` line to that comment naming the commit you judged, or post the verdict as a review (a review records the sha itself)',
+    }
+  // An abbreviated sha is resolved against the PR's own commits. Ambiguity is refused rather than
+  // guessed; a sha that matches none falls through to the "no longer part of the PR" branch below,
+  // which is the right answer for both a force-pushed commit and a typo.
+  const hits = ctx.commits.filter((c) => String(c.sha).startsWith(stated))
+  if (hits.length > 1)
+    return { problem: `the \`Commit: ${stated}\` line matches ${hits.length} commits in this PR` }
+  return { sha: hits.length ? String(hits[0].sha) : stated }
 }
 
 /**
@@ -429,23 +467,35 @@ export function referenceSha(item, ctx) {
  */
 export function verdictFreshness(item, ctx) {
   const ref = referenceSha(item, ctx)
-  if (ref.problem) return { fresh: false, why: ref.problem }
-  const how = item.fromComment
-    ? ' (a PR comment carries no commit_id, so it is placed by timestamp)'
-    : ''
+  if (ref.problem) return { fresh: false, why: ref.problem, fix: ref.fix }
+  const how = item.fromComment ? ' (stated by the comment\'s own `Commit:` line)' : ''
+  // Sound for both channels because `ref.sha` is now always STATED — a server-recorded
+  // `commit_id`, or a sha the verdict's author wrote down — and never derived from a date or any
+  // other field the PR author sets in passing. The equality is the same one the review path uses.
   if (ref.sha === ctx.headSha) return { fresh: true }
   const where = `it was given on ${short(ref.sha)}, not on the head ${short(ctx.headSha)}`
   if (!ctx.shas.has(ref.sha))
     return { fresh: false, why: `${where}, which is no longer part of the PR (force-push or rebase)${how}` }
   const m = ctx.compares.find((c) => c.base === ref.sha)
-  if (!m || m.unavailable || !Array.isArray(m.paths))
+  if (!m || m.unavailable || !Array.isArray(m.paths) || !Array.isArray(m.ownedAt))
     return { fresh: false, why: `${where}, and the drift between them could not be measured${how}` }
-  if (m.truncated || m.paths.length >= MAX_COMPARE_FILES)
+  if (
+    m.truncated ||
+    m.paths.length >= MAX_COMPARE_FILES ||
+    m.ownedAt.length >= MAX_COMPARE_FILES
+  )
     return {
       fresh: false,
       why: `${where}, and the drift between them was too large to list in full${how}`,
     }
-  const drifted = m.paths.filter((p) => ctx.own.has(p))
+  // SEC-2, 2026-10-24: the owned set is what the PR owns NOW **union** what it owned at the
+  // reviewed commit. `pulls/files` is the PR's NET diff against the current base, so a file the PR
+  // reverted or deleted AFTER the verdict has dropped out of it — and judging drift against the
+  // net set alone exempted a change to a file the reviewer had actually read, under the clause
+  // meant for base-branch movement. `ownedAt` is the file list of `compare/{base}...{V}`, which is
+  // that same net diff taken at the reviewed commit, so the union restores it.
+  const owned = new Set([...ctx.own, ...m.ownedAt])
+  const drifted = m.paths.filter((p) => owned.has(p))
   if (drifted.length === 0)
     return {
       fresh: true,
@@ -485,7 +535,8 @@ const verdictStep = (key, kind, sources, agent, required, whenText) => ({
         ok: false,
         stale: true,
         why: `the standing \`${MARKERS[kind].prefix}:\` verdict (by @${v.item.author}, ${v.item.at}) no longer describes the head — ${f.why}`,
-        fix: `Get a fresh \`${MARKERS[kind].prefix}: ${MARKERS[kind].pos[0]}\` on the current head`,
+        fix:
+          f.fix ?? `Get a fresh \`${MARKERS[kind].prefix}: ${MARKERS[kind].pos[0]}\` on the current head`,
       }
     }
     if (v.state === 'neg')

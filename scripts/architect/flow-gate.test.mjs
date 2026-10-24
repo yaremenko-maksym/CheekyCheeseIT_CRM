@@ -22,6 +22,7 @@ import {
   isCopy,
   render,
   comparePlan,
+  statedCommit,
   MAX_COMPARES,
 } from './flow-gate.mjs'
 
@@ -55,6 +56,10 @@ const cm = (body, over = {}) => ({
   at: '2026-10-21T10:00:00Z',
   ...over,
 })
+// A comment-borne verdict carries no `commit_id`, so it must name the commit it judged. `cmv` is
+// the ordinary case: a verdict on the default head. `cm` is left bare for the fixtures that test
+// what happens without the line.
+const cmv = (body, over = {}) => cm(`${body}\nCommit: ${'f'.repeat(40)}`, over)
 const commit = (message, over = {}) => ({
   sha: 'f'.repeat(40),
   message,
@@ -197,8 +202,8 @@ const EVIDENCE = {
   'Security-Review': (pr) => ({ ...pr, reviews: [...pr.reviews, rv('Security Review: APPROVE')] }),
   'Spec-Review': (pr) => ({ ...pr, reviews: [...pr.reviews, rv('Spec Review: PASS')] }),
   'Copy-Review': (pr) => ({ ...pr, reviews: [...pr.reviews, rv('Copy Review: PASS')] }),
-  QA: (pr) => ({ ...pr, comments: [...pr.comments, cm('QA Verdict: PASS')] }),
-  'Design-Review': (pr) => ({ ...pr, comments: [...pr.comments, cm('Design Review: PASS')] }),
+  QA: (pr) => ({ ...pr, comments: [...pr.comments, cmv('QA Verdict: PASS')] }),
+  'Design-Review': (pr) => ({ ...pr, comments: [...pr.comments, cmv('Design Review: PASS')] }),
   AC: (pr) => ({ ...pr, commits: [commit('feat: x\n\nac_verified: 1')] }),
 }
 
@@ -402,16 +407,16 @@ test('an outsider BLOCK (association CONTRIBUTOR) after an APPROVE is ignored', 
 test('an outsider QA comment is ignored; MEMBER and COLLABORATOR count', () => {
   const ui = good({ files: ['apps/web/app/x.tsx', 'apps/web/app/x.spec.tsx'] })
   assert.equal(
-    status(ev({ ...ui, comments: [cm('QA Verdict: PASS', { association: 'NONE' })] }), 'QA'),
+    status(ev({ ...ui, comments: [cmv('QA Verdict: PASS', { association: 'NONE' })] }), 'QA'),
     'missing',
   )
   assert.equal(
-    status(ev({ ...ui, comments: [cm('QA Verdict: PASS', { association: 'MEMBER' })] }), 'QA'),
+    status(ev({ ...ui, comments: [cmv('QA Verdict: PASS', { association: 'MEMBER' })] }), 'QA'),
     'satisfied',
   )
   assert.equal(
     status(
-      ev({ ...ui, comments: [cm('QA Verdict: PASS', { association: 'COLLABORATOR' })] }),
+      ev({ ...ui, comments: [cmv('QA Verdict: PASS', { association: 'COLLABORATOR' })] }),
       'QA',
     ),
     'satisfied',
@@ -572,9 +577,9 @@ test('Review/Security/Spec read reviews only; Copy/QA/Design read reviews and co
       cm('Verdict: APPROVE'),
       cm('Security Review: APPROVE'),
       cm('Spec Review: PASS'),
-      cm('Copy Review: PASS'),
-      cm('QA Verdict: PASS'),
-      cm('Design Review: PASS'),
+      cmv('Copy Review: PASS'),
+      cmv('QA Verdict: PASS'),
+      cmv('Design Review: PASS'),
     ],
     reviews: [],
   })
@@ -857,7 +862,15 @@ const HEAD = 'f'.repeat(40) // the default `commit()` sha, and so the default he
 const OLD = '1'.repeat(40)
 const GONE = '2'.repeat(40)
 
-const cmp = (base, paths, over = {}) => ({ base, paths, truncated: false, ...over })
+// `ownedAt` is the PR's own changed-file set AT `base` — by default the same files it owns now.
+// A fixture testing SEC-2 passes a wider set.
+const cmp = (base, paths, over = {}) => ({
+  base,
+  paths,
+  ownedAt: [API, API_SPEC],
+  truncated: false,
+  ...over,
+})
 /** Two commits: an older one a review was given on, then the head. */
 const twoCommits = (headMessage = 'feat(api): follow-up\n\nac_verified: 1,2') => [
   commit('wip: first cut', { sha: OLD, committedAt: '2026-10-21T08:00:00Z' }),
@@ -1035,23 +1048,35 @@ test('a stale verdict is still waivable by a recorded Skip line', () => {
   assert.equal(r.pass, true, r.failures.join('\n'))
 })
 
-// --- comment-borne verdicts: only `created_at` to go on ----------------------------------------
+// --- comment-borne verdicts: no commit_id, so the body must state the sha ----------------------
 
 const UI = 'apps/web/app/routes/x.tsx'
+const UI_SPEC = 'apps/web/app/routes/x.spec.tsx'
 const uiPr = (over = {}) =>
   good({
-    files: [UI, 'apps/web/app/routes/x.spec.tsx'],
+    files: [UI, UI_SPEC],
     reviews: FULL_REVIEWS,
     commits: twoCommits(),
     ...over,
   })
+const uiCmp = (base, paths, over = {}) => cmp(base, paths, { ownedAt: [UI, UI_SPEC], ...over })
 
-test('a comment-borne verdict with no commit after it is done', () => {
+test('a comment-borne verdict naming the head is done', () => {
+  const r = ev(
+    uiPr({
+      comments: [cm(`QA Verdict: PASS\nCommit: ${HEAD}`), cm(`Design Review: PASS\nCommit: ${HEAD}`)],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'satisfied')
+  assert.equal(status(r, 'Design-Review'), 'satisfied')
+})
+
+test('a comment-borne verdict may abbreviate the sha and may decorate the line', () => {
   const r = ev(
     uiPr({
       comments: [
-        cm('QA Verdict: PASS', { at: '2026-10-21T13:00:00Z' }),
-        cm('Design Review: PASS', { at: '2026-10-21T13:00:00Z' }),
+        cm(`QA Verdict: PASS\n**Commit:** ${HEAD.slice(0, 7)}`),
+        cm(`Design Review: PASS\n- Commit: ${HEAD.slice(0, 12)}`),
       ],
     }),
   )
@@ -1059,55 +1084,81 @@ test('a comment-borne verdict with no commit after it is done', () => {
   assert.equal(status(r, 'Design-Review'), 'satisfied')
 })
 
-test('a comment-borne verdict with a code commit after it is stale', () => {
+test('a comment-borne verdict with no `Commit:` line is stale, not fresh', () => {
+  const r = ev(uiPr({ comments: [cm('QA Verdict: PASS'), cm('Design Review: PASS')] }))
+  assert.equal(status(r, 'QA'), 'stale')
+  assert.equal(status(r, 'Design-Review'), 'stale')
+  assert.match(failureFor(r, 'QA'), /no `Commit: <sha>` line/)
+  // The remedy for this one is the line, not another QA pass.
+  assert.match(failureFor(r, 'QA'), /Add a `Commit: <sha>` line/)
+})
+
+test('a quoted or fenced `Commit:` line is not a statement', () => {
+  assert.equal(statedCommit(`> Commit: ${HEAD}`), null)
+  assert.equal(statedCommit('```\nCommit: abc1234\n```'), null)
+  assert.equal(statedCommit(`<!--\nCommit: ${HEAD}\n-->`), null)
+  assert.equal(statedCommit('Commit: ABC1234'), 'abc1234')
+  assert.equal(statedCommit('Commit: abc'), null) // shorter than 7 hex characters
+})
+
+test('a comment-borne verdict naming an older commit, with code drift since, is stale', () => {
   const r = ev(
     uiPr({
-      comments: [
-        cm('QA Verdict: PASS', { at: '2026-10-21T09:00:00Z' }),
-        cm('Design Review: PASS', { at: '2026-10-21T09:00:00Z' }),
-      ],
-      compares: [cmp(OLD, [UI])],
+      comments: [cm(`QA Verdict: PASS\nCommit: ${OLD}`), cm(`Design Review: PASS\nCommit: ${OLD}`)],
+      compares: [uiCmp(OLD, [UI])],
     }),
   )
   assert.equal(status(r, 'QA'), 'stale')
   assert.equal(status(r, 'Design-Review'), 'stale')
-  assert.match(failureFor(r, 'QA'), /comment/)
+  assert.match(failureFor(r, 'QA'), /Commit:/)
 })
 
 test('a comment-borne verdict followed only by a docs commit stays done', () => {
   const r = ev(
     uiPr({
-      files: [UI, 'apps/web/app/routes/x.spec.tsx', 'README.md'],
-      comments: [
-        cm('QA Verdict: PASS', { at: '2026-10-21T09:00:00Z' }),
-        cm('Design Review: PASS', { at: '2026-10-21T09:00:00Z' }),
-      ],
-      compares: [cmp(OLD, ['README.md'])],
+      files: [UI, UI_SPEC, 'README.md'],
+      comments: [cm(`QA Verdict: PASS\nCommit: ${OLD}`)],
+      compares: [uiCmp(OLD, ['README.md'], { ownedAt: [UI, UI_SPEC, 'README.md'] })],
     }),
   )
   assert.equal(status(r, 'QA'), 'satisfied')
 })
 
-test('a comment that predates every commit is stale', () => {
+test('a `Commit:` line naming a commit outside the PR is stale', () => {
   const r = ev(
     uiPr({
-      comments: [cm('QA Verdict: PASS', { at: '2026-10-20T00:00:00Z' })],
+      comments: [cm(`QA Verdict: PASS\nCommit: ${GONE}`)],
       compares: [],
     }),
   )
   assert.equal(status(r, 'QA'), 'stale')
-  assert.match(failureFor(r, 'QA'), /predates/)
+  assert.match(failureFor(r, 'QA'), /no longer part of the PR/)
 })
 
-test('a commit with no committedAt makes a comment-borne verdict unverifiable', () => {
+test('an abbreviation matching more than one commit of the PR is refused, not guessed', () => {
   const r = ev(
     uiPr({
-      comments: [cm('QA Verdict: PASS', { at: '2026-10-21T13:00:00Z' })],
-      commits: [commit('feat: x\n\nac_verified: 1', { sha: HEAD, committedAt: null })],
+      comments: [cm('QA Verdict: PASS\nCommit: aaaaaaa')],
+      commits: [
+        commit('wip: a', { sha: 'aaaaaaa1'.padEnd(40, '0') }),
+        commit('wip: b', { sha: 'aaaaaaa2'.padEnd(40, '0') }),
+        commit('feat: c\n\nac_verified: 1', { sha: HEAD }),
+      ],
     }),
   )
   assert.equal(status(r, 'QA'), 'stale')
-  assert.match(failureFor(r, 'QA'), /commit date/)
+  assert.match(failureFor(r, 'QA'), /matches 2 commits/)
+})
+
+test('SEC-1 regression: the gate reads no commit date anywhere', () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const src = readFileSync(join(here, 'flow-gate.mjs'), 'utf8')
+  // A committer date is set by whoever makes the commit, so freshness must never key on one. The
+  // string survives in prose; what must not come back is a read of the field.
+  const reads = src
+    .split('\n')
+    .filter((l) => /committedAt|committer\.date|\.date\b/.test(l) && !/^\s*(\/\/|\*|\/\*)/.test(l))
+  assert.deepEqual(reads, [], `the gate reads a commit date again:\n${reads.join('\n')}`)
 })
 
 // --- the compare plan: which drift measurements the workflow must fetch --------------------------
@@ -1128,11 +1179,11 @@ test('comparePlan names each distinct reference sha, never the head, and only he
   assert.deepEqual(plan, [OLD])
 })
 
-test('comparePlan includes the timestamp-derived sha of a comment-borne verdict', () => {
+test('comparePlan resolves the sha a comment-borne verdict states, abbreviation included', () => {
   const plan = comparePlan(
     withCounts(
       uiPr({
-        comments: [cm('QA Verdict: PASS', { at: '2026-10-21T09:00:00Z' })],
+        comments: [cm(`QA Verdict: PASS\nCommit: ${OLD.slice(0, 8)}`)],
       }),
     ),
   )
@@ -1184,23 +1235,21 @@ test('render names STALE in the table', () => {
 // --- SEC-1 / SEC-2: the freshness check must not key on anything the PR author controls --------
 
 test('SEC-1: a backdated commit must not make a comment-borne verdict read fresh', () => {
-  // `committedAt` is git metadata — `git commit --date` sets it to anything. A commit backdated
-  // to before the verdict comment leaves no commit "after" the comment, so a date-keyed check
-  // calls the verdict fresh and the gate reports `done` for code nobody read.
+  // `committedAt` is git metadata — `git commit --date` sets it to anything. Backdated to AFTER
+  // the reviewed commit but BEFORE the verdict comment, the head became the newest commit the
+  // comment could have seen, and the date-keyed reference read the verdict as given on the head.
+  // The verdict names its commit now, so the dates below are decoration and the drift decides.
   const r = ev(
     uiPr({
-      comments: [cm('QA Verdict: PASS', { at: '2026-10-21T10:00:00Z' })],
+      comments: [cm(`QA Verdict: PASS\nCommit: ${OLD}`, { at: '2026-10-21T10:00:00Z' })],
       commits: [
         commit('feat: reviewed', { sha: OLD, committedAt: '2026-10-21T08:00:00Z' }),
         commit('feat: NOT reviewed\n\nac_verified: 1', {
           sha: HEAD,
-          // Backdated to AFTER the reviewed commit but BEFORE the verdict comment: the head then
-          // becomes the newest commit the comment could have seen, and a date-keyed check reads
-          // the verdict as given on the head.
           committedAt: '2026-10-21T09:00:00Z',
         }),
       ],
-      compares: [cmp(OLD, [UI])],
+      compares: [uiCmp(OLD, [UI])],
     }),
   )
   assert.equal(status(r, 'QA'), 'stale')
