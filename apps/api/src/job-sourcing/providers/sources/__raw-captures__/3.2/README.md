@@ -16,18 +16,23 @@ Safelinks parameters were replaced by a same-length placeholder (details in the 
 | `robots-*.txt` (+ `.hdr`)                          | The robots.txt answers recorded in the provenance notes                                                                                        |
 
 `fixture-provenance.spec.ts` checks that the sha256 of each retained raw capture equals the
-`rawSha256` of the fixture built from it. Rebuild: `node ../../__fixtures__/trim-captures-3.2.mjs 2026-10-24T03:00:00.000Z`
+`rawSha256` of the fixture built from it, **except `an-p1.raw.gz`**: that one is a redacted copy, its
+`rawSha256` is the hash of the bytes as received, and the committed bytes have their own pin.
+**Do not run the rebuild below unannounced: it reads `an-p1.raw.gz` too and would overwrite
+`arbeitnow/page-1.provenance.json`, replacing the as-received `rawSha256` with the hash of the redacted
+file and dropping the REDACTED COPY note (measured: it does).** Restore the file with `git checkout`
+afterwards. Rebuild: `node ../../__fixtures__/trim-captures-3.2.mjs 2026-10-24T03:00:00.000Z`
 (the argument is `termsCheckedAt`); sections whose raw capture is absent are skipped.
 
 ## Privacy record
 
 - `an-p1.raw.gz` held two named individuals' e-mail addresses (one a `.gov.uk` address), URL-encoded as
   `%40` inside Outlook Safelinks tracking parameters; the earlier address scan missed them. They were
-  replaced by `x...x%40example.invalid` of the same length, so the decoded size (4209793 bytes, the
+  replaced by a same-length run of x characters in front of the reserved domain example.invalid, so the decoded size (4209793 bytes, the
   byte-cap evidence) is unchanged. `rawSha256` of `arbeitnow/page-1` stays the hash of the bytes as
-  received; the committed copy has its own pin in the spec. **The pre-redaction blob stays fetchable by
-  its sha through this PR's refs until the platform purges it; purging is the owner's action, and a
-  squash merge keeps it out of `main` but does not delete it.**
+  received; the committed copy has its own pin in the spec. **The pre-redaction blob stays reachable
+  by its commit path from this branch's history; deleting the branch after merge does not purge it, and a
+  squash merge keeps it out of `main` without deleting it. Purging is the owner's action (GitHub support).**
 
 - The raw Hacker News thread captures (462 unique commenter e-mail addresses) were committed to
   this PR by mistake and removed in a later commit. **The blobs stay reachable through the PR's

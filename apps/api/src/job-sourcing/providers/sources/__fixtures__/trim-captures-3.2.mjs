@@ -6,7 +6,10 @@
 // `termsCheckedAt` is ONE value for every file: the DATE (2026-10-24) is when the terms were read, the time of day is a
 // single stand-in, not a per-file clock reading.
 // A section whose raw capture is not in __raw-captures__/3.2/ is SKIPPED, not failed: only the Arbeitnow and
-// Jobgether captures are kept (no personal data); the Hacker News and Working Nomads ones are not.
+// Jobgether captures are kept; the Hacker News and Working Nomads ones are not.
+// DO NOT RUN THIS AGAINST THE COMMITTED __raw-captures__/3.2/an-p1.raw.gz WITHOUT READING THIS: that capture
+// is a REDACTED copy, so the script would overwrite arbeitnow/page-1.provenance.json with the hash of the
+// redacted bytes and drop its REDACTED COPY note (measured). `git checkout` that file afterwards.
 // `rawSha256` is the sha256 of the bytes as RECEIVED (the decompressed capture).
 //
 // RAW CAPTURES THAT CARRY COMMENT OR OTHER USER-SUBMITTED TEXT ARE NEVER COMMITTED (task 3.1's
@@ -157,7 +160,7 @@ await emit(
     termsUrl: JG_TERMS,
     permission: 'UNCLEAR',
     notes: jgNotes(
-      'Page 1 of the date-sorted browse: 25 jobs, hasMore true. The exact request URL was not recorded by the capturing session; the query is reconstructed from the response\'s own browseOnSiteUrl (limit=25&page=1&sort=date).',
+      "Page 1 of the date-sorted browse: 25 jobs, hasMore true. The exact request URL was not recorded by the capturing session; the query is reconstructed from the response's own browseOnSiteUrl (limit=25&page=1&sort=date).",
     ),
   },
 )
@@ -225,7 +228,8 @@ if (wnTerms !== null) {
         httpStatus: 200,
         rawSha256: sha(bytes),
         fileSha256: sha(bytes),
-        trimmedBy: 'none: the terms page is committed byte for byte (terms.html.txt); NO job data was captured or is kept for this source',
+        trimmedBy:
+          'none: the terms page is committed byte for byte (terms.html.txt); NO job data was captured or is kept for this source',
         termsUrl: 'https://www.workingnomads.com/terms',
         termsCheckedAt,
         permission: 'UNCLEAR',
@@ -240,7 +244,7 @@ if (wnTerms !== null) {
 // ---- Hacker News (Algolia) ----
 const HN_TERMS = 'https://www.ycombinator.com/legal/'
 const UNV_HN =
-  ' UNVERIFIABLE FROM THIS REPOSITORY: that none of the 1331 top-level comments in the three threads read (816 + 266 + 249) was deleted; those captures were removed because they held commenters\' e-mail addresses.'
+  " UNVERIFIABLE FROM THIS REPOSITORY: that none of the 1331 top-level comments in the three threads read (816 + 266 + 249) was deleted; those captures were removed because they held commenters' e-mail addresses."
 const hnNotes = (extra) =>
   `${extra} UNCLEAR: the Y Combinator terms (https://www.ycombinator.com/legal/, "Site") say "you will not engage in or use any data mining, robots, scraping or similar data gathering or extraction methods", while the HN Search API on Algolia (https://hn.algolia.com/api) is a public, unauthenticated, documented endpoint. No capture of the terms page is committed; the quote was read at that URL on 2026-10-24 by an AI coding agent (not legal advice; no review by a lawyer or the owner is recorded here) and is unverifiable from this repository. Whether that API counts as "the Site" is a question for the owner, which was put to him and is unanswered, so the source stays blocked. robots.txt of news.ycombinator.com sets Crawl-delay: 30 and does not disallow /item; hn.algolia.com serves no robots.txt (404). ${UNV_HN} Employers are NOT given by the API: a comment is free text whose first paragraph is a header, so every observation is tagged employer-unverified. ${REDACTION}`
 await emit(

@@ -29,11 +29,16 @@ import { WORKINGNOMADS_SOURCE_STATUS } from './workingnomads.provider'
  * into it, so that one reader remains, has NOT been done yet.
  */
 
-const ROOT = join(__dirname, '__fixtures__')
+// Under the mutation gate this file runs from a Stryker sandbox, whose copies of `.mjs` and `.html`
+// files carry an injected `@ts-nocheck` that no committed byte has. The scan is about the COMMITTED
+// bytes, so it reads them from the real directory (measured: 5 extra hits, 3 `.mjs` + 2 `.html`, all
+// `@ts-nocheck`, and the dry run failed before any mutant). The directive is NOT allow-listed.
+const SOURCES_DIR = __dirname.replace(/[/\\]\.stryker-tmp[/\\]sandbox-[^/\\]+/, '')
+const ROOT = join(SOURCES_DIR, '__fixtures__')
 // Evidence, not fixtures: kept outside __fixtures__ so the shared walk does not count it as a provider.
 // The root is `__raw-captures__` itself (`phase3-common.md`: `__raw-captures__/<task>/`), so a later
 // task's capture directory is scanned without editing this file.
-const RAW_ROOT = join(__dirname, '__raw-captures__')
+const RAW_ROOT = join(SOURCES_DIR, '__raw-captures__')
 
 type Permission =
   'PUBLIC_API_DOCUMENTED' | 'PUBLIC_FEED' | 'UNCLEAR' | 'PROHIBITED' | 'KEY_REQUIRED'
@@ -201,6 +206,12 @@ describe('fixture provenance', () => {
  * `.br` or `.zst` capture would pass unseen; none exists); and every directory outside the two roots,
  * e.g. `job-sourcing/__fixtures__` and `meeting-recorder/__fixtures__` (grepped by hand for literal
  * addresses, found clean).
+ *
+ * THE TOKEN LIST IS A DENYLIST OF ENCODINGS: it fails closed on a new occurrence of a listed token,
+ * not on a new encoding. Probed and NOT matched, none in the tree today: `%252540`; `&#64` and `&#x40`
+ * without the semicolon; `&amp;#64;` (the most plausible: double-escaping already occurs in this
+ * corpus as `&amp;amp;`); `\x40`; `\u{40}`; fullwidth and small commercial-at; `{at}`; uppercase
+ * `AT` as a word.
  */
 const TOKEN = String.raw`(?:@|%40|%2540|&#0*64;|&#x0*40;|&commat;|\\u0040)`
 const AT = String.raw`(?:\s*(?:\[at\]|\(at\))\s*)`
@@ -209,8 +220,13 @@ const LABEL = String.raw`[A-Za-z0-9-]+`
 const TOKEN_HIT = String.raw`[A-Za-z0-9._%+-]*${TOKEN}[A-Za-z0-9.-]*`
 const OBFUSCATED_HIT = String.raw`[A-Za-z0-9._%+-]+${AT}${LABEL}(?:${DOT}${LABEL})*`
 const HIT = new RegExp(`${TOKEN_HIT}|${OBFUSCATED_HIT}`, 'gi')
-// A hit that ends in the reserved `example.invalid` domain is the redaction placeholder by definition.
-const isPlaceholder = (hit: string) => /(?:@|%40)example\.invalid$/i.test(hit)
+// The WHOLE placeholder, local part included: `redacted@example.invalid` (the parser's), or the
+// same-length `x...x%40example.invalid` of the Safelinks redaction, which the hit grammar reaches with
+// its `%7C` URL separators attached. A real local part on the reserved domain is NOT a placeholder:
+// `Jane.Tan%40example.invalid` is the defect this scan exists to catch.
+const isPlaceholder = (hit: string) =>
+  /^redacted@example\.invalid$/i.test(hit) ||
+  /^(?:[A-Za-z0-9._%+-]*%7C)?x+%40example\.invalid$/i.test(hit)
 
 const SOCIAL = 'a social-media handle or at-mention in a job ad: no local part, not an address'
 const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
@@ -373,15 +389,18 @@ function walk(dir: string): string[] {
 // A label is a path relative to `__fixtures__`, or relative to this directory when it starts with
 // `__raw-captures__/`. One pair of functions, so a label and its file cannot be resolved differently.
 const RAW_LABEL_PREFIX = `${basename(RAW_ROOT)}/`
-const labelOf = (file: string) => relative(file.startsWith(RAW_ROOT) ? __dirname : ROOT, file)
+const labelOf = (file: string) => relative(file.startsWith(RAW_ROOT) ? SOURCES_DIR : ROOT, file)
 const pathOfLabel = (label: string) =>
-  label.startsWith(RAW_LABEL_PREFIX) ? join(__dirname, label) : join(ROOT, label)
+  label.startsWith(RAW_LABEL_PREFIX) ? join(SOURCES_DIR, label) : join(ROOT, label)
+
+function hitsOf(text: string): string[] {
+  const hits = (text.match(HIT) ?? []).map((h) => h.replace(/\s+/g, ' ').replace(/[.-]+$/, ''))
+  return [...new Set(hits)].sort()
+}
 
 function hitsIn(path: string): string[] {
   const raw = readFileSync(path)
-  const text = (path.endsWith('.gz') ? gunzipSync(raw) : raw).toString('utf8')
-  const hits = (text.match(HIT) ?? []).map((h) => h.replace(/\s+/g, ' ').replace(/[.-]+$/, ''))
-  return [...new Set(hits)].sort()
+  return hitsOf((path.endsWith('.gz') ? gunzipSync(raw) : raw).toString('utf8'))
 }
 
 describe('every @-equivalent token in the two scanned roots is the placeholder or allow-listed by reason', () => {
@@ -407,11 +426,44 @@ describe('every @-equivalent token in the two scanned roots is the placeholder o
   it('every task directory under __raw-captures__ is reached by the scan', () => {
     // The property that matters, listed from the literal path without reading RAW_ROOT: a later
     // `3.4` directory the walk misses fails here.
-    const taskDirs = readdirSync(join(__dirname, '__raw-captures__'))
+    const taskDirs = readdirSync(join(SOURCES_DIR, '__raw-captures__'))
     expect(taskDirs).toContain('3.2')
     for (const dir of taskDirs) {
       expect(rel.some((f) => f.startsWith(`__raw-captures__/${dir}/`))).toBe(true)
     }
+  })
+
+  it.each([
+    ['@', 'jane@example.com'],
+    ['%40', 'jane%40example.com'],
+    ['%2540', 'jane%2540example.com'],
+    ['&#64;', 'jane&#64;example.com'],
+    ['&#0064;', 'jane&#0064;example.com'],
+    ['&#x40;', 'jane&#x40;example.com'],
+    ['&#x0040;', 'jane&#x0040;example.com'],
+    ['&commat;', 'jane&commat;example.com'],
+    ['\\u0040', 'jane\\u0040example.com'],
+    ['[at]/[dot]', 'jane [at] example[dot]com'],
+    ['(at)/(dot)', 'jane(at)example(dot)com'],
+  ])(
+    'the hit grammar finds the %s form (positive control: drop a token and this fails)',
+    (_form, text) => {
+      expect(hitsOf(`mail ${text} now`)).toEqual([text])
+    },
+  )
+
+  it.each([
+    ['redacted@example.invalid', true],
+    ['05%7C01%7Cxxxxxxxx%40example.invalid', true],
+    ['xxxx%40example.invalid', true],
+    ['Jane.Tan%40example.invalid', false],
+    ['05%7C02%7CJane.Tan%40example.invalid', false],
+    ['xxxxJane%40example.invalid', false],
+    ['jane@example.invalid', false],
+    ['xxxx@example.invalid', false],
+    ['xxxx%40example.com', false],
+  ])('placeholder %s: %s', (hit, expected) => {
+    expect(isPlaceholder(hit)).toBe(expected)
   })
 
   it('a label resolves to the file it names, in either root (the allow-list path)', () => {
