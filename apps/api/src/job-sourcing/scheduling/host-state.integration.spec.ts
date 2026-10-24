@@ -517,6 +517,39 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(await pauseSeconds(key)).toBeGreaterThan(DAY - 60)
       })
 
+      it('SEC-AUTO-1: the worst Retry-After still records the ban, at the 30-day cap; a far-past one at 24 h', async () => {
+        const worst = host('sec-worst')
+        expect(await ban(worst, await source(worst), 'Fri, 31 Dec 9999 23:59:59 GMT')).toEqual({
+          applied: true,
+        })
+        expect(await pauseSeconds(worst)).toBeGreaterThan(30 * DAY - 60)
+        expect(await pauseSeconds(worst)).toBeLessThan(30 * DAY + 60)
+        const past = host('sec-past')
+        await ban(past, await source(past), 'Mon, 01 Jan 1900 00:00:00 GMT')
+        expect(await pauseSeconds(past)).toBeGreaterThan(DAY - 60)
+        expect(await pauseSeconds(past)).toBeLessThan(DAY + 60)
+        // Ignored inputs (a 5-digit year, a signed ISO year, an unbounded delay) record a 24 h ban.
+        for (const [name, retry] of [
+          ['sec-y10k', 'Sat, 01 Jan 10000 00:00:00 GMT'],
+          ['sec-iso', '+010000-01-01T00:00:00.000Z'],
+          ['sec-inf', 'Infinity'],
+        ] as const) {
+          const key = host(name)
+          expect(await ban(key, await source(key), retry), retry).toEqual({ applied: true })
+          expect(await pauseSeconds(key), retry).toBeLessThan(DAY + 60)
+        }
+      })
+
+      it('SEC-AUTO-1 control: the instant the guards refuse is one Postgres cannot cast', async () => {
+        // What a year-10000 date would have reached the SQL as, had the parser passed it through.
+        const state = await sqlstateOfRejection(() =>
+          session.pool.query(`SELECT $1::timestamptz`, [
+            new Date('+010000-01-01T00:00:00Z').toISOString(),
+          ]),
+        )
+        expect(state).not.toBeNull()
+      })
+
       it('SR-L-20: an HTTP-date three days ahead yields paused_until equal to that date', async () => {
         const key = host('srl20')
         const { rows } = await ADMIN_DB().query(

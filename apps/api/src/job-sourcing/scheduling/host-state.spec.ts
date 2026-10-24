@@ -86,6 +86,66 @@ describe('parseRetryAfter', () => {
     }
   })
 
+  describe('SEC-AUTO-1: only an instant Postgres can store reaches the SQL', () => {
+    const inYear = (year: number) => {
+      const d = new Date(Date.UTC(2000, 0, 1, 0, 0, 0))
+      d.setUTCFullYear(year)
+      return d
+    }
+
+    it('refuses year 0000 (out of range for timestamptz) and every year 0001-0099 (the parser reads them as 19xx/20xx)', () => {
+      expect(inYear(0).toUTCString()).toBe('Sat, 01 Jan 0000 00:00:00 GMT')
+      for (const year of [0, 1, 49, 50, 99]) {
+        expect(parseRetryAfter(inYear(year).toUTCString()), String(year)).toBeNull()
+      }
+    })
+
+    it('refuses year 10000 and later, and negative years, in every spelling', () => {
+      for (const year of [10_000, 275_000, -1, -271_000]) {
+        const d = inYear(year)
+        expect(parseRetryAfter(d.toUTCString()), d.toUTCString()).toBeNull()
+        expect(parseRetryAfter(d.toISOString()), d.toISOString()).toBeNull()
+      }
+      expect(parseRetryAfter('Sat, 01 Jan 10000 00:00:00 GMT')).toBeNull()
+      expect(parseRetryAfter('+010000-01-01T00:00:00.000Z')).toBeNull()
+      expect(parseRetryAfter('-000001-01-01T00:00:00.000Z')).toBeNull()
+      expect(parseRetryAfter('2026-10-21T07:28:00.000Z')).toBeNull()
+    })
+
+    it('accepts the last storable instant, a far-past date and a date 100 years ahead (SQL caps them)', () => {
+      expect(parseRetryAfter('Fri, 31 Dec 9999 23:59:59 GMT')).toEqual({
+        kind: 'AT',
+        at: new Date('9999-12-31T23:59:59.000Z'),
+      })
+      expect(parseRetryAfter('Mon, 01 Jan 1900 00:00:00 GMT')).toEqual({
+        kind: 'AT',
+        at: new Date('1900-01-01T00:00:00.000Z'),
+      })
+      const ahead = new Date(Date.UTC(2126, 9, 24, 12, 0, 0))
+      expect(parseRetryAfter(ahead.toUTCString())).toEqual({ kind: 'AT', at: ahead })
+    })
+
+    it('delta-seconds is a finite non-negative integer, capped at 30 days', () => {
+      for (const bad of ['Infinity', '-Infinity', 'NaN', '-1', '1.5', '1e9', '9'.repeat(13)]) {
+        expect(parseRetryAfter(bad), bad).toBeNull()
+      }
+      expect(parseRetryAfter('9'.repeat(12))).toEqual({ kind: 'DELAY', seconds: 2_592_000 })
+      expect(parseRetryAfter('3600')).toEqual({ kind: 'DELAY', seconds: 3600 })
+    })
+
+    it('every instant it returns renders to an unsigned four-digit ISO year', () => {
+      for (const header of [
+        'Fri, 31 Dec 9999 23:59:59 GMT',
+        'Mon, 01 Jan 1900 00:00:00 GMT',
+        'Wed, 21 Oct 2026 07:28:00 GMT',
+      ]) {
+        const r = parseRetryAfter(header)
+        expect(r?.kind, header).toBe('AT')
+        expect((r as { at: Date }).at.toISOString()).toMatch(/^\d{4}-/)
+      }
+    })
+  })
+
   it('reads every month and every weekday', () => {
     for (let month = 0; month < 12; month += 1) {
       for (const day of [1, 2, 3, 4, 5, 6, 7]) {
