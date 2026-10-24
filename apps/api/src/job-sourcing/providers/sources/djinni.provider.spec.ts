@@ -244,6 +244,13 @@ describe('description source (synthetic)', () => {
   })
 })
 
+describe('source identity', () => {
+  it('declares the source type that routes its observations: DJINNI_RSS', () => {
+    expect(djinniSpec.type).toBe('DJINNI_RSS')
+    expect(djinniProvider.type).toBe('DJINNI_RSS')
+  })
+})
+
 describe('adapter version', () => {
   it('is djinni-1: the field that invalidates checkpoints, changed only on purpose', () => {
     expect(djinniSpec.adapterVersion).toBe('djinni-1')

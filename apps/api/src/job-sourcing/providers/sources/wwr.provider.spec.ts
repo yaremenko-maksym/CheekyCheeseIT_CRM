@@ -110,6 +110,15 @@ describe('parseWwrTitle - "Company: Position"', () => {
     },
   )
 
+  it('trims the company on both sides: a space before the colon is not part of the name (synthetic)', () => {
+    // Real feeds put "Company: Position"; this shape ("Acme Corp : Backend Engineer") pins that the
+    // company is trimmed on its own, not only the whole string.
+    expect(parseWwrTitle('Acme Corp : Backend Engineer')).toEqual({
+      companyName: 'Acme Corp',
+      title: 'Backend Engineer',
+    })
+  })
+
   it('a colon with no space after it still splits (synthetic): the decision is pinned, not inferred', () => {
     // Real titles always carry ": ". Splitting on the bare colon is the chosen rule (a split on ": "
     // would hand "Acme:Backend" back whole); this case fixes the outcome either way.
@@ -379,6 +388,13 @@ describe('description source', () => {
       bodyText: feedWith('<description>short summary</description>'),
     })
     expect(mapped[0]?.description).toBe('short summary')
+  })
+})
+
+describe('source identity', () => {
+  it('declares the source type that routes its observations: WWR_RSS', () => {
+    expect(wwrSpec.type).toBe('WWR_RSS')
+    expect(wwrProvider.type).toBe('WWR_RSS')
   })
 })
 

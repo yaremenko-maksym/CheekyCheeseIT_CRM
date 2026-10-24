@@ -156,6 +156,13 @@ describe('description source (synthetic)', () => {
   })
 })
 
+describe('source identity', () => {
+  it('declares the source type that routes its observations: EUREMOTEJOBS_RSS', () => {
+    expect(euRemoteJobsSpec.type).toBe('EUREMOTEJOBS_RSS')
+    expect(euRemoteJobsProvider.type).toBe('EUREMOTEJOBS_RSS')
+  })
+})
+
 describe('adapter version', () => {
   it('is euremotejobs-1: the field that invalidates checkpoints, changed only on purpose', () => {
     expect(euRemoteJobsSpec.adapterVersion).toBe('euremotejobs-1')
