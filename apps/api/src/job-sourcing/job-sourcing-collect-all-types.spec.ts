@@ -40,15 +40,20 @@ function makeService(rows: ReturnType<typeof row>[]) {
   return { service, ran }
 }
 
-const ROWS = [row('DOU_RSS'), row('REMOTEOK_API'), row('JSEARCH_API', 'MANUAL')]
+const ROWS = [
+  row('DOU_RSS'),
+  row('REMOTEOK_API'),
+  row('JSEARCH_API', 'MANUAL'),
+  row('ARBEITNOW_API', 'SCHEDULED'),
+]
 
 describe('collectAll type selection (T4)', () => {
   it('no filter keeps today behaviour: every enabled source that accepts the trigger runs', async () => {
     const { service, ran } = makeService(ROWS)
     await service.collectAll()
-    expect(ran).toEqual(['DOU_RSS', 'REMOTEOK_API'])
+    expect(ran).toEqual(['DOU_RSS', 'REMOTEOK_API', 'ARBEITNOW_API'])
     await service.collectAll('MANUAL')
-    expect(ran.slice(2)).toEqual(['DOU_RSS', 'REMOTEOK_API', 'JSEARCH_API'])
+    expect(ran.slice(3)).toEqual(['DOU_RSS', 'REMOTEOK_API', 'JSEARCH_API'])
   })
 
   it('onlyTypes runs no source outside the set', async () => {
@@ -61,7 +66,7 @@ describe('collectAll type selection (T4)', () => {
   it('excludeTypes runs no source inside the set', async () => {
     const { service, ran } = makeService(ROWS)
     await service.collectAll('SCHEDULED', { excludeTypes: ['DOU_RSS'] })
-    expect(ran).toEqual(['REMOTEOK_API'])
+    expect(ran).toEqual(['REMOTEOK_API', 'ARBEITNOW_API'])
   })
 
   it('an empty onlyTypes runs nothing; the trigger policy still applies inside the set', async () => {

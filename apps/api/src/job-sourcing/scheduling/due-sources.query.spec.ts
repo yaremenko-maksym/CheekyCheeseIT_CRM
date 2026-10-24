@@ -1,7 +1,10 @@
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
+import { jobSources } from '../../database/schema'
 import { MAX_CONSECUTIVE_FAILURES } from './due-policy'
-import { dueSourcesPredicate } from './due-sources.query'
+import type { SQL } from 'drizzle-orm'
+import type { DatabaseService } from '../../database/database.service'
+import { dueSourcesPredicate, findDueSources } from './due-sources.query'
 
 /**
  * Renders the predicate to text and parameters. The SEMANTICS are proven against a real Postgres by
@@ -43,5 +46,65 @@ describe('dueSourcesPredicate (rendered)', () => {
 
   it('never reads the stored readiness column', () => {
     expect(render('SCHEDULED').sql).not.toContain('readiness')
+  })
+})
+
+/** A db whose `select().from().where().orderBy()` chain records what it is given. */
+function recordingDb() {
+  const seen: { where?: SQL; orderBy?: unknown } = {}
+  const rows = [{ id: 'row' }]
+  const db = {
+    select: () => ({
+      from: () => ({
+        where: (w: SQL) => {
+          seen.where = w
+          return {
+            orderBy: (o: unknown) => {
+              seen.orderBy = o
+              return Promise.resolve(rows)
+            },
+          }
+        },
+      }),
+    }),
+  } as unknown as DatabaseService['db']
+  return { db, seen, rows }
+}
+
+describe('findDueSources (the one query, against a recording db)', () => {
+  const dialect = new PgDialect()
+
+  it('selects with the predicate for the trigger, oldest next_attempt_at first, and returns the rows', async () => {
+    const { db, seen, rows } = recordingDb()
+    const out = await findDueSources(db, 'MANUAL')
+    expect(out).toBe(rows)
+    expect(seen.where).toBeDefined()
+    const { sql, params } = dialect.sqlToQuery(seen.where as SQL)
+    expect(params).toEqual([true, 'ACTIVE', 'BOTH', 'MANUAL', MAX_CONSECUTIVE_FAILURES])
+    expect(sql).not.toContain('"job_sources"."id" in')
+    expect(seen.orderBy).toBe(jobSources.nextAttemptAt)
+  })
+
+  it('onlyIds narrows the same predicate to those ids', async () => {
+    const { db, seen } = recordingDb()
+    await findDueSources(db, 'SCHEDULED', { onlyIds: ['a', 'b'] })
+    const { sql, params } = dialect.sqlToQuery(seen.where as SQL)
+    expect(sql).toContain('"job_sources"."id" in ($')
+    expect(params).toEqual([
+      true,
+      'ACTIVE',
+      'BOTH',
+      'SCHEDULED',
+      MAX_CONSECUTIVE_FAILURES,
+      0,
+      'a',
+      'b',
+    ])
+  })
+
+  it('an empty onlyIds selects nothing (it does not mean "no scope")', async () => {
+    const { db, seen } = recordingDb()
+    await findDueSources(db, 'SCHEDULED', { onlyIds: [] })
+    expect(dialect.sqlToQuery(seen.where as SQL).sql).toMatch(/ and false\)$/)
   })
 })
