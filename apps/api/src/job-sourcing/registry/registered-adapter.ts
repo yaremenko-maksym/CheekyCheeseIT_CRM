@@ -16,10 +16,10 @@ export type RegisteredAdapter = LegacyDouAdapter | ReportingAdapter
 export class LegacyDouAdapter {
   readonly contract = 'LEGACY' as const
 
-  constructor(readonly provider: JobSourceProvider) {}
+  readonly type: JobSourceType
 
-  get type(): JobSourceType {
-    return this.provider.type
+  constructor(readonly provider: JobSourceProvider) {
+    this.type = provider.type
   }
 }
 
@@ -27,9 +27,9 @@ export class LegacyDouAdapter {
 export class ReportingAdapter {
   readonly contract = 'REPORTING' as const
 
-  constructor(readonly provider: ReportingJobSourceProvider) {}
+  readonly type: JobSourceType
 
-  get type(): JobSourceType {
-    return this.provider.type
+  constructor(readonly provider: ReportingJobSourceProvider) {
+    this.type = provider.type
   }
 }
