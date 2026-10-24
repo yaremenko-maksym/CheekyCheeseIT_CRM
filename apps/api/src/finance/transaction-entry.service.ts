@@ -277,11 +277,23 @@ export class TransactionEntryService {
     // DROP — the marker is simply a row nothing reads.
     //
     // Note what claiming does NOT do: a later DELETE of this part does not
-    // release the marker, so the month stays accounted for. That is the same
-    // rule already in force for an automatic row (see `createMonthlySalaries`
-    // and the month-edit evidence query, both of which count soft-deleted rows
-    // on purpose): deleting a salary is an audit event, not permission for cron
-    // to resurrect it.
+    // release the marker, so the month stays accounted for and nobody is paid
+    // for it until a replacement part is recorded. That is the same rule
+    // already in force for an automatic row (see `createMonthlySalaries` and
+    // the month-edit evidence query, both of which count soft-deleted rows on
+    // purpose): deleting a salary is an audit event, not permission for cron to
+    // resurrect it. Releasing on delete for MANUAL parts only would make the
+    // two origins follow opposite rules on one table and reopen a narrower form
+    // of the double payment this task fixes. Owner-ratified on PR #1102
+    // (SPEC-L-1) rather than assumed — it is a money path, and the cost of
+    // being wrong is a month nobody is paid for.
+    //
+    // The rule is "a delete is not a release", NOT "the marker is never
+    // released": `admin-edit.service` DOES release it on a salary-month change,
+    // and only when no remaining row still accounts for the old month
+    // (`oldMonthEvidence`). That release is bookkeeping for a month that
+    // genuinely no longer has a part — the opposite situation from a delete,
+    // where the part's absence is itself the audit record.
     //
     // Both writes share ONE transaction: a claimed marker with no salary row
     // behind it would suppress the month's automatic accrual for nothing.

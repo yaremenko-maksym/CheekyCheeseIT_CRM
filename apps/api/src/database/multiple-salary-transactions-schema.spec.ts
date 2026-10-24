@@ -163,9 +163,21 @@ describe('multipart salary — Drizzle schema contract', () => {
 
     // One declaration, and no bare re-statement of the list anywhere else in the
     // file. `%s` placeholders are the uses; they carry no list of their own.
-    const bareList = MULTIPART_SALARY_PREPARE_DDL.match(/'MANUAL', 'CRON', 'ADJUSTED'/g) ?? []
-    expect(bareList).toHaveLength(0)
-    const declarations = MULTIPART_SALARY_PREPARE_DDL.match(/v_domain text :=/g) ?? []
+    // Counted per LINE and by MEMBERSHIP, not by matching one exact spelling:
+    // `'MANUAL', 'CRON', 'ADJUSTED'` as a literal regex would miss a copy that
+    // reordered the values or spaced them differently, which is the same copy
+    // with different whitespace. A line naming two or more of the origins is a
+    // re-statement of the list however it is written — except the declaration
+    // itself, which is the one copy allowed.
+    const lines = MULTIPART_SALARY_PREPARE_DDL.split('\n')
+    const namesTwoOrMoreOrigins = (line: string): boolean =>
+      salaryOriginSchema.options.filter((o) => line.includes(`'${o}'`)).length >= 2
+    const restatements = lines.filter(
+      (line) => namesTwoOrMoreOrigins(line) && !line.includes('v_domain text :='),
+    )
+    expect(restatements).toEqual([])
+
+    const declarations = lines.filter((line) => line.includes('v_domain text :='))
     expect(declarations).toHaveLength(1)
   })
 

@@ -421,9 +421,6 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(after.missing.map((r) => r.userId)).not.toContain(HR_EMP_ID)
     }, 30_000)
 
-    // SR-795-L-2 on a real database: the idempotency index has no deleted_at
-    // term, so the key survives the delete. What must not survive is the
-    // wrong-success — a 200 naming a row every read path hides.
     // CR-M-3. The marker claim and the row insert share one transaction, and
     // until now nothing could break that: splitting the row back onto the pool
     // left every assertion green. It matters more than its severity suggests —
@@ -435,9 +432,14 @@ describe.skipIf(!hasDatabaseUrl())(
     // is made to fail where no application code can intercept it: a BEFORE
     // INSERT trigger that raises on a sentinel. Scratch database only, and
     // dropped in `finally` whatever happens.
+    //
+    // The function is created in `public`, not in `pg_temp` — a temp-schema
+    // object belongs to one session and this runs over a pool, so a trigger
+    // could not reliably reach it. It was named `pg_temp_…` at first, which
+    // said the opposite of where it lives; the name now says what it is.
     it('a failed row insert leaves no marker behind (one transaction, not two)', async () => {
       await dbSvc.db.execute(sql`
-        CREATE OR REPLACE FUNCTION pg_temp_fail_salary_insert() RETURNS trigger AS $fn$
+        CREATE OR REPLACE FUNCTION cr_m_3_fault_injection_fn() RETURNS trigger AS $fn$
         BEGIN
           IF NEW.notes = 'CR-M-3 fault injection' THEN
             RAISE EXCEPTION 'injected failure after the marker claim';
@@ -449,7 +451,7 @@ describe.skipIf(!hasDatabaseUrl())(
       await dbSvc.db.execute(sql`
         CREATE TRIGGER trg_cr_m_3_fault_injection
           BEFORE INSERT ON transactions
-          FOR EACH ROW EXECUTE FUNCTION pg_temp_fail_salary_insert();
+          FOR EACH ROW EXECUTE FUNCTION cr_m_3_fault_injection_fn();
       `)
 
       try {
@@ -487,10 +489,13 @@ describe.skipIf(!hasDatabaseUrl())(
         await dbSvc.db.execute(
           sql`DROP TRIGGER IF EXISTS trg_cr_m_3_fault_injection ON transactions`,
         )
-        await dbSvc.db.execute(sql`DROP FUNCTION IF EXISTS pg_temp_fail_salary_insert()`)
+        await dbSvc.db.execute(sql`DROP FUNCTION IF EXISTS cr_m_3_fault_injection_fn()`)
       }
     }, 30_000)
 
+    // SR-795-L-2 on a real database: the idempotency index has no deleted_at
+    // term, so the key survives the delete. What must not survive is the
+    // wrong-success — a 200 naming a row every read path hides.
     it('a replay whose part was deleted is refused, not answered with the deleted id', async () => {
       const idempotencyKey = randomUUID()
       const payload = {

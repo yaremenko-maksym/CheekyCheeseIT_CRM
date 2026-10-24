@@ -6,10 +6,17 @@
  * (`salary_origin IS NULL OR salary_origin = 'CRON'`) re-stated in four places:
  * the cron closure in `salary-payment.service`, the gap resolver in
  * `salary.service`, the month-correction evidence query in `admin-edit.service`
- * and the SQL backfill. Its conclusion is worth keeping in one sentence: that is
- * why "a manual part does not claim the marker" (SR-795-M-1) and "ADJUSTED vs
- * MANUAL" (SR-795-M-3) could exist at all — one predicate, four copies, and the
- * copies disagreed about the values added later.
+ * and the SQL backfill. Its conclusion is worth keeping in one sentence: one
+ * predicate in four copies is how the two defects FIXED by that task could
+ * exist at all — a manual part that claimed no marker (SR-795-M-1) and a
+ * month-correction that wrote MANUAL where it meant ADJUSTED (SR-795-M-3) —
+ * because the copies disagreed about values added to the union later.
+ *
+ * Both of those are history, and neither describes the code now: since owner
+ * decision D-3 the first manual part of a receiver/month DOES claim the marker,
+ * and a month-correction writes ADJUSTED. Said plainly here because the
+ * previous wording quoted the old behaviour in the present tense, which reads
+ * as a statement about what this module does.
  *
  * Both fragments are DERIVED from the shared predicates in `@crm/shared`
  * (`isAutomaticSalaryOrigin`, `accountsForSalaryMonth`) rather than re-typing the
