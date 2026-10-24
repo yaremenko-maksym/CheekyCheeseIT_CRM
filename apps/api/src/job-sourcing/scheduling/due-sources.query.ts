@@ -46,6 +46,7 @@ export function dueSourcesPredicate(
   }
   const combined = and(...terms)
   // `and` returns undefined only for an empty list, which this never passes.
+  // Stryker disable next-line all: the unreachable fallback of a type-narrowing (`terms` always holds six terms), so no input can observe it; failing closed (`false`) is the safe value if it ever were reached
   return combined ?? sql`false`
 }
 
