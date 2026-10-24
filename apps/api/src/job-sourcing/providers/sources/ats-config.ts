@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { baseSourceConfigSchema } from '../api-json.provider'
+import { SLUG_PATTERN } from './as'
 import type {
   CollectionBatch,
   CollectionContext,
@@ -38,6 +39,13 @@ export interface AtsBoardKind {
   /** Regional endpoint variants. The first is the default. One entry = no regional variant. */
   readonly regions: readonly [AtsRegion, ...AtsRegion[]]
   readonly slugMaxChars: number
+  /**
+   * The alphabet of this provider's board slugs. Per provider because the evidence is per provider:
+   * a provider whose board is a DNS label (Task 3.4: Recruitee, Personio) or whose identifiers are
+   * case-sensitive needs a different pattern, and should add it here rather than reshape this file.
+   * Every pattern must stay closed: no separator, dot, percent, `@` or whitespace.
+   */
+  readonly slugPattern: RegExp
 }
 
 /**
@@ -49,39 +57,44 @@ export interface AtsBoardKind {
  */
 export const ATS_SLUG_MAX_CHARS = 64
 
+/**
+ * Slugs are lowercase only: Greenhouse and Ashby treat case as insignificant (`LINEAR` answered
+ * 200, measured), so accepting `Linear` and `linear` would give one board two namespaces and every
+ * vacancy on it two identities. Lever is case-sensitive (`SPOTIFY` is 404) and every site observed
+ * is lowercase, so lowercase-only costs nothing there that was measured.
+ *
+ * Greenhouse and Ashby use the shared `SLUG_PATTERN` from `as.ts` (lowercase alphanumerics joined
+ * by single hyphens): no underscore, no trailing or doubled hyphen has been seen on either, so
+ * neither is accepted until somebody measures one.
+ */
 export const GREENHOUSE_KIND: AtsBoardKind = {
   label: 'greenhouse',
   regions: ['global'],
   slugMaxChars: ATS_SLUG_MAX_CHARS,
+  slugPattern: SLUG_PATTERN,
 }
+
+/**
+ * Lever accepts exactly one thing beyond `SLUG_PATTERN`: a trailing hyphen. It is evidenced: Lever
+ * has a real site named `quantco-` (HTTP 200; `quantco` without the hyphen is 404, measured
+ * 2026-10-24), which is why `slugString` is not used as it stands. Underscores and doubled hyphens
+ * are NOT accepted: nothing measured needs them.
+ */
 export const LEVER_KIND: AtsBoardKind = {
   label: 'lever',
   regions: ['global', 'eu'],
   slugMaxChars: ATS_SLUG_MAX_CHARS,
+  slugPattern: /^[a-z0-9]+(?:-[a-z0-9]+)*-?$/,
 }
 export const ASHBY_KIND: AtsBoardKind = {
   label: 'ashby',
   regions: ['global'],
   slugMaxChars: ATS_SLUG_MAX_CHARS,
+  slugPattern: SLUG_PATTERN,
 }
 
-/**
- * A board slug: lowercase letters and digits, with `-` and `_` allowed after the first character.
- *
- * NOT `slugString` from `as.ts`, deliberately. This pattern relaxes THREE things that one refuses:
- * a trailing hyphen, consecutive hyphens, and underscores. Only the first is evidenced: Lever has a
- * real site named `quantco-` (HTTP 200; `quantco` without the hyphen is 404, measured 2026-10-24).
- * The other two are not observed on any board read; they are accepted because the alphabet stays
- * closed (no separator, dot, percent or `@`), so they add no injection route.
- * Lowercase only because Greenhouse and Ashby treat case as insignificant (`LINEAR` answered 200,
- * measured) - accepting `Linear` and `linear` would give one board two namespaces, so two
- * identities for every vacancy on it. Lever is case-sensitive (`SPOTIFY` is 404), and every site
- * observed is lowercase, so lowercase-only costs nothing there that was measured.
- */
-export const ATS_SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]*$/
-
 export const atsBoardSlug = (kind: AtsBoardKind) =>
-  z.string().min(1).max(kind.slugMaxChars).regex(ATS_SLUG_PATTERN)
+  z.string().min(1).max(kind.slugMaxChars).regex(kind.slugPattern)
 
 const HOSTNAME_PATTERN =
   /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/

@@ -302,7 +302,7 @@ describe('compensation is never invented', () => {
 describe('unlisted postings (isListed=false): documented, never observed on a real board', () => {
   const real = () => linear().jobs[0] as Record<string, unknown>
 
-  it('are refused with the reason stated, while listed neighbours are kept', async () => {
+  it('are QUARANTINED with the reason NOT_AN_OPEN_VACANCY, while listed neighbours are kept', async () => {
     const { batch } = await run(
       withJobs([
         real(),
@@ -313,17 +313,29 @@ describe('unlisted postings (isListed=false): documented, never observed on a re
     expect(batch.counts).toEqual({
       raw: 3,
       normalized: 2,
-      invalid: 1,
-      quarantined: 0,
+      invalid: 0,
+      quarantined: 1,
       discarded: 0,
     })
     expect(batch.observations.map((o) => o.identity.nativeId)).toEqual([
       'c97e034e-19a8-4ec7-89a5-c81987451da8',
       'listed-2',
     ])
-    expect(batch.invalidSamples[0]?.reason).toBe(
-      'ITEM_SCHEMA: unlisted posting (isListed=false) is reachable by direct link only, not an open vacancy',
+    expect(batch.invalidSamples.map((s) => s.reason)).toEqual(['QUARANTINED: NOT_AN_OPEN_VACANCY'])
+  })
+
+  it('the consequence is recorded, not accidental: the run SUCCEEDED but its coverage is PARTIAL, so a board with one unlisted posting cannot claim FULL_INVENTORY', async () => {
+    const clean = await run(withJobs([real()]))
+    expect([clean.batch.outcome, clean.batch.coverage]).toEqual(['SUCCEEDED', 'FULL_INVENTORY'])
+    const { batch } = await run(
+      withJobs([real(), { ...real(), id: 'unlisted-1', isListed: false }]),
     )
+    expect([batch.outcome, batch.coverage]).toEqual(['SUCCEEDED', 'PARTIAL'])
+  })
+
+  it('an unlisted posting with no employer is still named for what it is, not for the gap', async () => {
+    const { batch } = await run(withJobs([{ ...real(), isListed: false }]), cfg('linear'))
+    expect(batch.invalidSamples.map((s) => s.reason)).toEqual(['QUARANTINED: NOT_AN_OPEN_VACANCY'])
   })
 
   it.each([true, null, undefined])('isListed=%s is an open vacancy', async (isListed) => {

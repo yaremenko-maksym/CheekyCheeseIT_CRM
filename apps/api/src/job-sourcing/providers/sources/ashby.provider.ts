@@ -23,9 +23,14 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  *   case-insensitive (`LINEAR` answered 200), hence lowercase-only slugs in `ats-config.ts`.
  * - `jobUrl` is the posting, `applyUrl` the application form: kept distinct.
  * - UNLISTED POSTINGS (`isListed: false`, documented as "only reachable by direct link") are
- *   REFUSED at the item schema with a stated reason, so they are counted `invalid` with a sample
- *   rather than becoming vacancies. Across 10 real non-empty boards (1,612 postings) none was observed - the
- *   public listing appears to omit them - so the guard rests on the documentation, not on a
+ *   QUARANTINED, as the plan says: the mapper flags them `notOpenVacancy` and the observation
+ *   builder refuses them with the reason `NOT_AN_OPEN_VACANCY`, counted `quarantined`, never
+ *   `invalid` (which would read as schema drift). CONSEQUENCE, pinned by a test: the batch is still
+ *   `SUCCEEDED`, but any quarantined item makes its coverage `PARTIAL`, so a board that ever lists
+ *   one unlisted posting can no longer claim `FULL_INVENTORY` (the base derives coverage from the
+ *   counts; an adapter-level exclusion that keeps the full-inventory claim would be a base change
+ *   and needs an owning task). Across 10 real non-empty boards (1,612 postings) none was observed -
+ *   the public listing appears to omit them - so the guard rests on the documentation, not on a
  *   capture, and its test says so. An ABSENT `isListed` is accepted (it is not in every payload
  *   shape).
  * - COMPENSATION IS NEVER INVENTED. The observation contract has no compensation field, and this
@@ -38,7 +43,13 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  *   remote, anything else (including the `null` several real boards send) -> unknown. `isRemote` is
  *   not read: the documentation says it is true for Hybrid as well.
  * - DATES: `publishedAt` is documented as "the last publish", so a re-publish moves it; it is read
- *   as `PUBLISHED` because it is the only date offered.
+ *   as `PUBLISHED` because it is the only date offered. DECISION AND COST (owner-visible): the
+ *   content hash covers `PUBLISHED` and deliberately not `UPDATED` (boards bump `UPDATED` without
+ *   the posting changing), so an Ashby re-publish with identical content produces a NEW
+ *   `contentHash`, which the exclusion of `UPDATED` exists to prevent. The alternative, `UPDATED`,
+ *   keeps the hash stable but leaves every Ashby vacancy without a publication date. Chosen: keep
+ *   the date, accept the churn on re-publish. Reversing it is the `semantics` value below plus the
+ *   expectations in `ashby.provider.spec.ts` that name `PUBLISHED`.
  * - LOCATION is `location` plus each `secondaryLocations[].location`, de-duplicated, joined "; ".
  */
 
@@ -70,13 +81,7 @@ const itemSchema = z.object({
   workplaceType: optionalString(50),
   publishedAt: dateRaw(),
   descriptionHtml: optionalString(ORIGINAL_LIMITS.description),
-  isListed: z
-    .boolean()
-    .nullish()
-    .refine((v) => v !== false, {
-      message:
-        'unlisted posting (isListed=false) is reachable by direct link only, not an open vacancy',
-    }),
+  isListed: z.boolean().nullish(),
 })
 type Item = z.infer<typeof itemSchema>
 
@@ -133,6 +138,7 @@ export const ashbySpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     employmentType: item.employmentType,
     tags: presentStrings([item.department, item.team]),
     dates: [{ raw: item.publishedAt, contract: 'ISO_ZONED', semantics: 'PUBLISHED' }],
+    ...(item.isListed === false ? { notOpenVacancy: true as const } : {}),
   }),
   scopeOf: (config) => ({
     namespace: config.namespace,

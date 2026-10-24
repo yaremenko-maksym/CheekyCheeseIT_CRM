@@ -76,6 +76,18 @@ const goodConfig = (board: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 })
 
+function trailingHyphenVerdict(
+  provider: { parseConfig(raw: unknown): unknown },
+  slug: string,
+): 'accepted' | 'refused' {
+  try {
+    provider.parseConfig(goodConfig(slug))
+    return 'accepted'
+  } catch {
+    return 'refused'
+  }
+}
+
 function issuePaths(fn: () => unknown): string[] {
   try {
     fn()
@@ -126,10 +138,26 @@ describe.each(PROVIDERS)('$label: board slug refusal table', ({ provider, kind }
     expect(() => provider.parseConfig(goodConfig(max + 'a'))).toThrow(ZodError)
   })
 
-  it.each(['a', 'x1', '1password', 'data-science', 'snake_case', 'a-', 'quantco-', 'leverdemo-8'])(
+  it.each(['a', 'x1', '1password', 'data-science', 'leverdemo-8', 'siteimprove'])(
     'accepts the real-shaped slug %j',
     (slug) => {
       expect(provider.parseConfig(goodConfig(slug)).board).toBe(slug)
+    },
+  )
+
+  it.each(['a--b', 'a_b', 'snake_case', 'a_', 'a-_b'])(
+    'refuses %j: no board read needs an underscore or a doubled hyphen',
+    (slug) => {
+      expect(issuePaths(() => provider.parseConfig(goodConfig(slug)))).toEqual(['board'])
+    },
+  )
+
+  it.each(['a-', 'quantco-', 'x1-'])(
+    'a trailing hyphen (%j) is accepted only where it is evidenced: Lever',
+    (slug) => {
+      expect(trailingHyphenVerdict(provider, slug)).toBe(
+        kind.label === 'lever' ? 'accepted' : 'refused',
+      )
     },
   )
 
