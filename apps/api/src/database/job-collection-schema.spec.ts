@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { SQL } from 'drizzle-orm'
 import { getTableConfig, PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
@@ -32,7 +34,22 @@ import {
   jobSourceAdminStateEnum,
   jobSourceReadinessEnum,
   jobSources,
+  SYNTHETIC_SOURCE_ACCOUNT_KEY_PATTERN,
 } from './schema'
+import { JOB_PUBLIC_ID_PATTERN } from './schema/job-patterns'
+
+/**
+ * The staged (or, once DevOps moves it, the wired) forward DDL of Task 2.5 T1 + T1b.
+ * It carries the account-key CHECK as SQL text, i.e. a hard-coded COPY of the two
+ * patterns the Drizzle declaration builds from constants — read here so a drift between
+ * the copy and the constants fails a unit spec, not only the integration catalog diff.
+ */
+const T1_FORWARD_DDL = (() => {
+  const name = '2026-10-24_job_run_single_flight.sql'
+  const drizzle = join(__dirname, '..', '..', 'drizzle')
+  const wired = join(drizzle, 'manual', name)
+  return readFileSync(existsSync(wired) ? wired : join(drizzle, 'manual-staged', name), 'utf8')
+})()
 
 /**
  * r5 Task 1.2 (part 2) — the COLLECTION half of the store, asserted against the
@@ -386,6 +403,23 @@ describe('job_collection_runs (AC2)', () => {
       `account_key" ~ '^#source:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`,
     )
     expect(s).toContain(' OR ')
+  })
+
+  it("keeps the forward DDL's hard-coded copy of both key patterns equal to the constants (2.5 T1b, SPEC-M-1)", () => {
+    // The ADD CONSTRAINT statement: both patterns as the Drizzle CHECK renders them.
+    const add = /ADD CONSTRAINT "ck_job_collection_runs_account_key_format" CHECK \((.*)\);/.exec(
+      T1_FORWARD_DDL,
+    )?.[1]
+    expect(add).toBe(
+      `"job_collection_runs"."account_key" ~ '${JOB_PUBLIC_ID_PATTERN}' OR ` +
+        `"job_collection_runs"."account_key" ~ '${SYNTHETIC_SOURCE_ACCOUNT_KEY_PATTERN}'`,
+    )
+    // The normalised definition the pre-check and the final check compare against —
+    // two copies (one per DO block), both exactly this.
+    const normalised =
+      `'CHECK (((account_key ~ ''${JOB_PUBLIC_ID_PATTERN}''::text) OR ` +
+      `(account_key ~ ''${SYNTHETIC_SOURCE_ACCOUNT_KEY_PATTERN}''::text)))';`
+    expect(T1_FORWARD_DDL.split(normalised)).toHaveLength(3)
   })
 
   it.each([

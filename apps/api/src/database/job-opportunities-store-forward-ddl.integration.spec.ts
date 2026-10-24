@@ -62,7 +62,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Pool, type PoolClient } from 'pg'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { splitSqlStatements } from './manual-sql-statements'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
 import {
@@ -119,8 +119,8 @@ const SCHEMA = 'ddl_job_opportunities_store'
 /** Its own schema, so the migration path cannot disturb the fresh-path comparison. */
 const MIGRATION_SCHEMA = 'ddl_job_queue_reason_redacted_alter'
 const CONFIG_GUARD_SCHEMA = 'ddl_job_sources_config_guard'
-/** Its own schema too: the T1b backfill case seeds rows before PART_5 runs. */
-const BACKFILL_SCHEMA = 'ddl_job_runs_account_key_backfill'
+/** Its own schema too: the T1/T1b cases seed rows and bad states before PART_5 runs. */
+const T1_SCHEMA = 'ddl_job_runs_single_flight'
 /** A non-superuser used to reproduce the masked-progress-row case (SR-M-4). */
 const UNPRIVILEGED_ROLE = 'ddl_forward_ddl_probe'
 /** Two indexes on one table, so "a build on the same table" is expressible. */
@@ -743,7 +743,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     // check's `VALUES` each name its indexes, so an index added to one and forgotten in
     // the other would be built but never shape-checked (or checked but never built).
     const sql = readPart(PART_5_MIGRATION)
-    const created = [...sql.matchAll(/^CREATE UNIQUE INDEX IF NOT EXISTS "([a-z_0-9]+)"/gm)].map(
+    const created = [...sql.matchAll(/^\s*CREATE UNIQUE INDEX IF NOT EXISTS "([a-z_0-9]+)"/gm)].map(
       (m) => m[1]!,
     )
     const finalNames = [...sql.matchAll(/\('(uq_[a-z_0-9]+)', '[a-z_]+'\)/g)].map((m) => m[1]!)
@@ -787,6 +787,29 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
 
   it('creates every index the reference has — partial predicates, NULLS NOT DISTINCT, sort order', () => {
     expect(afterFirstApply.indexes).toEqual(reference.indexes)
+  })
+
+  it('positive control (CR-M-2): ONE missing job_opportunities index is a difference both checks report', () => {
+    // Committed form of the manual control of round 1, where dropping this index from
+    // the reference database turned the spec red ("length of 46 but got 45"). Here the
+    // same mutation is applied to the reference SNAPSHOT, so the two checks above are
+    // shown to see it without disturbing the shared database the other cases read.
+    const dropped = 'idx_job_opportunities_availability'
+    expect(reference.indexes.map((r) => r['name'])).toContain(dropped)
+    const mutated = reference.indexes.filter((r) => r['name'] !== dropped)
+    expect(mutated).toHaveLength(reference.indexes.length - 1)
+
+    // The full index comparison reports it…
+    expect(() => expect(afterFirstApply.indexes).toEqual(mutated)).toThrow()
+    // …and so does the tripwire count on standalone indexes (44 + 2 expected).
+    const constraintBacked = new Set(
+      reference.constraints
+        .filter((r) => r['kind'] === 'p' || r['kind'] === 'u')
+        .map((r) => r['name']),
+    )
+    const standalone = mutated.filter((r) => !constraintBacked.has(r['name']))
+    expect(standalone).toHaveLength(EXPECTED.indexes + PART_5_INDEXES.length - 1)
+    expect(standalone).not.toHaveLength(EXPECTED.indexes + PART_5_INDEXES.length)
   })
 
   it('compares column ORDER in a way a dropped column cannot shift (CR-L-8)', async () => {
@@ -1104,94 +1127,6 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
    * build its fixture is a spec that breaks on a squash. The honest limit is written
    * here instead of being papered over.
    */
-  /**
-   * Task 2.5 T1b AC3 — the BACKFILL, over rows, applied twice. The fresh path above runs
-   * PART_5 over an empty `job_collection_runs`, so its UPDATE never reaches a row; here
-   * the pre-T1 store (parts 1 and 2) is seeded first with a mix the key derivation has
-   * to tell apart, and only then does PART_5 run:
-   *   - source A, bound to the REQUEST row of one paid account  -> that account's key
-   *   - source B, bound to the RECORD row of the SAME account   -> the SAME key (T1b)
-   *   - source C, with no meter                                 -> '#source:' || C
-   */
-  describe('the T1b backfill over a seeded mix, applied twice (2.5 T1b AC3)', () => {
-    const ACCOUNT = 'acct-t1b:shared'
-    let keysAfterFirst: Array<{ attempt_id: string; account_key: string }>
-    let keysAfterSecond: Array<{ attempt_id: string; account_key: string }>
-    let unmeteredSource: string
-
-    beforeAll(async () => {
-      await buildPreStoreStub(client, BACKFILL_SCHEMA)
-      await applyParts(client, [PART_1, PART_2])
-      const meters = await client.query(
-        `INSERT INTO job_account_meters (account_key, unit, window_kind, window_started_at)
-         VALUES ($1, 'REQUEST', 'DAY', now()), ($1, 'RECORD', 'DAY', now())
-         RETURNING id, unit`,
-        [ACCOUNT],
-      )
-      const row = (unit: string) =>
-        (meters.rows as Array<{ id: string; unit: string }>).find((r) => r.unit === unit)!.id
-      const sources = await client.query(
-        `INSERT INTO job_sources (type, config, enabled, account_meter_id) VALUES
-           ('DOU_RSS', '{"t1b":"a"}'::jsonb, true, $1),
-           ('DOU_RSS', '{"t1b":"b"}'::jsonb, true, $2),
-           ('DOU_RSS', '{"t1b":"c"}'::jsonb, true, NULL)
-         RETURNING id, config->>'t1b' AS tag`,
-        [row('REQUEST'), row('RECORD')],
-      )
-      const source = (tag: string) =>
-        (sources.rows as Array<{ id: string; tag: string }>).find((r) => r.tag === tag)!.id
-      unmeteredSource = source('c')
-      const cycle = await client.query(
-        `INSERT INTO job_collection_cycles (trigger, trigger_key) VALUES ('SCHEDULED', 't1b') RETURNING id`,
-      )
-      const cycleId = (cycle.rows[0] as { id: string }).id
-      // Pre-T1 rows: no account_key column exists yet. A live run of A and of C, and a
-      // terminal one of B (A and B share an account, so only one of them may be live).
-      await client.query(
-        `INSERT INTO job_collection_runs
-           (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, owner_token, lease_expires_at)
-         VALUES ($1, $3, 'run-a', 1, 'v1', 'SCHEDULED', 'o-a', now() + interval '5 min'),
-                ($2, $3, 'run-c', 1, 'v1', 'SCHEDULED', 'o-c', now() + interval '5 min')`,
-        [source('a'), source('c'), cycleId],
-      )
-      await client.query(
-        `INSERT INTO job_collection_runs
-           (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, outcome, owner_token, ended_at)
-         VALUES ($1, $2, 'run-b', 1, 'v1', 'SCHEDULED', 'SUCCEEDED', 'o-b', now())`,
-        [source('b'), cycleId],
-      )
-
-      const read = async () =>
-        (
-          await client.query(
-            `SELECT attempt_id, account_key FROM job_collection_runs ORDER BY attempt_id`,
-          )
-        ).rows as Array<{ attempt_id: string; account_key: string }>
-      await applyParts(client, [PART_5_MIGRATION])
-      keysAfterFirst = await read()
-      await applyParts(client, [PART_5_MIGRATION])
-      keysAfterSecond = await read()
-      // `buildPreStoreStub` repointed `search_path`; the sibling describes read SCHEMA.
-      await client.query(`SET search_path TO ${SCHEMA}`)
-    }, 180_000)
-
-    afterAll(async () => {
-      await client?.query(`DROP SCHEMA IF EXISTS ${BACKFILL_SCHEMA} CASCADE`).catch(() => undefined)
-    })
-
-    it("writes the meter's text key for BOTH rows of one account, and #source:<id> without a meter", () => {
-      expect(keysAfterFirst).toEqual([
-        { attempt_id: 'run-a', account_key: ACCOUNT },
-        { attempt_id: 'run-b', account_key: ACCOUNT },
-        { attempt_id: 'run-c', account_key: `#source:${unmeteredSource}` },
-      ])
-    })
-
-    it('changes nothing on a second application', () => {
-      expect(keysAfterSecond).toEqual(keysAfterFirst)
-    })
-  })
-
   describe('the ALTER path agrees with the fresh path (SR-M-4)', () => {
     let beforeMigration: Catalog
     let withoutRedactionReasonNull: Catalog
@@ -1266,5 +1201,295 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         rows.map(({ position: _position, ...rest }) => rest)
       expect(withoutPosition(afterMigration.columns)).toEqual(withoutPosition(reference.columns))
     })
+  })
+
+  /**
+   * Task 2.5 T1 + T1b — PART_5 over ROWS and over BAD STATES, applied the way the deploy
+   * applies it: the WHOLE file inside one transaction, as `psql --single-transaction`
+   * does. (`applyParts` alone runs statement by statement in autocommit, which cannot see
+   * the all-or-nothing property the file's header promises.)
+   *
+   * Every case rebuilds a pre-T1 store (parts 1 and 2) in its own schema and seeds it:
+   *   - source A, bound to the REQUEST row of one paid account
+   *   - source B, bound to the RECORD row of the SAME account
+   *   - source C, with no meter
+   * and a cycle. The fresh path above runs PART_5 over an EMPTY `job_collection_runs`, so
+   * nothing there reaches the backfill, the preflight, the uuid-drop block or the final
+   * check's refusals: these cases do, and each fails if the block it targets is removed.
+   */
+  describe('PART_5 applied atomically over rows and bad states (2.5 T1 + T1b)', () => {
+    const ACCOUNT = 'acct-t1b:shared'
+    type Seed = { a: string; b: string; c: string; cycle: string; requestRow: string }
+
+    /** BEGIN, the whole file statement by statement, COMMIT — or ROLLBACK and rethrow. */
+    async function applyAtomically(): Promise<void> {
+      await client.query('BEGIN')
+      try {
+        await applyParts(client, [PART_5_MIGRATION])
+        await client.query('COMMIT')
+      } catch (error) {
+        await client.query('ROLLBACK')
+        throw error
+      }
+    }
+
+    async function seedPreT1Store(): Promise<Seed> {
+      await buildPreStoreStub(client, T1_SCHEMA)
+      await applyParts(client, [PART_1, PART_2])
+      const meters = await client.query(
+        `INSERT INTO job_account_meters (account_key, unit, window_kind, window_started_at)
+         VALUES ($1, 'REQUEST', 'DAY', now()), ($1, 'RECORD', 'DAY', now())
+         RETURNING id, unit`,
+        [ACCOUNT],
+      )
+      const row = (unit: string) =>
+        (meters.rows as Array<{ id: string; unit: string }>).find((r) => r.unit === unit)!.id
+      const sources = await client.query(
+        `INSERT INTO job_sources (type, config, enabled, account_meter_id) VALUES
+           ('DOU_RSS', '{"t1b":"a"}'::jsonb, true, $1),
+           ('DOU_RSS', '{"t1b":"b"}'::jsonb, true, $2),
+           ('DOU_RSS', '{"t1b":"c"}'::jsonb, true, NULL)
+         RETURNING id, config->>'t1b' AS tag`,
+        [row('REQUEST'), row('RECORD')],
+      )
+      const source = (tag: string) =>
+        (sources.rows as Array<{ id: string; tag: string }>).find((r) => r.tag === tag)!.id
+      const cycle = await client.query(
+        `INSERT INTO job_collection_cycles (trigger, trigger_key) VALUES ('SCHEDULED', 't1b') RETURNING id`,
+      )
+      return {
+        a: source('a'),
+        b: source('b'),
+        c: source('c'),
+        cycle: (cycle.rows[0] as { id: string }).id,
+        requestRow: row('REQUEST'),
+      }
+    }
+
+    /** A pre-T1 run row: no `account_key` column exists yet. */
+    async function seedRun(
+      seed: Seed,
+      source: string,
+      attempt: string,
+      opts: { started?: boolean; configVersion?: number } = {},
+    ): Promise<void> {
+      if (opts.started ?? true) {
+        await client.query(
+          `INSERT INTO job_collection_runs
+             (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, owner_token, lease_expires_at)
+           VALUES ($1, $2, $3, $4, 'v1', 'SCHEDULED', 'o', now() + interval '5 min')`,
+          [source, seed.cycle, attempt, opts.configVersion ?? 1],
+        )
+      } else {
+        await client.query(
+          `INSERT INTO job_collection_runs
+             (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, outcome, owner_token, ended_at)
+           VALUES ($1, $2, $3, $4, 'v1', 'SCHEDULED', 'SUCCEEDED', 'o', now())`,
+          [source, seed.cycle, attempt, opts.configVersion ?? 1],
+        )
+      }
+    }
+
+    /** What PART_5 leaves behind, read off the catalog — "nothing" is all three empty. */
+    async function t1State(): Promise<{
+      columnType: string | null
+      check: string | null
+      indexes: string[]
+    }> {
+      const column = await client.query(
+        `SELECT format_type(a.atttypid, a.atttypmod) AS t FROM pg_attribute a
+          WHERE a.attrelid = 'job_collection_runs'::regclass AND a.attname = 'account_key'
+            AND NOT a.attisdropped`,
+      )
+      const check = await client.query(
+        `SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint
+          WHERE conrelid = 'job_collection_runs'::regclass
+            AND conname = 'ck_job_collection_runs_account_key_format'`,
+      )
+      const indexes = await client.query(
+        `SELECT c.relname AS name FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+          WHERE i.indrelid = 'job_collection_runs'::regclass AND c.relname = ANY($1::text[])
+          ORDER BY c.relname`,
+        [[...PART_5_INDEXES]],
+      )
+      return {
+        columnType: (column.rows[0] as { t: string } | undefined)?.t ?? null,
+        check: (check.rows[0] as { d: string } | undefined)?.d ?? null,
+        indexes: (indexes.rows as Array<{ name: string }>).map((r) => r.name),
+      }
+    }
+
+    const keys = async () =>
+      (
+        await client.query(
+          `SELECT attempt_id, account_key FROM job_collection_runs ORDER BY attempt_id`,
+        )
+      ).rows as Array<{ attempt_id: string; account_key: string }>
+
+    afterEach(async () => {
+      // A failed case may leave the client mid-transaction; then put `search_path` back,
+      // because the sibling describes read the fresh schema through this connection.
+      await client.query('ROLLBACK').catch(() => undefined)
+      await client.query(`SET search_path TO ${SCHEMA}`)
+    })
+
+    afterAll(async () => {
+      await client?.query(`DROP SCHEMA IF EXISTS ${T1_SCHEMA} CASCADE`).catch(() => undefined)
+    })
+
+    it('T1b AC3 + the DevOps apply: one transaction writes the meter key for both rows of one account, #source:<id> without a meter, and a re-run changes nothing', async () => {
+      const seed = await seedPreT1Store()
+      await seedRun(seed, seed.a, 'run-a')
+      await seedRun(seed, seed.b, 'run-b', { started: false })
+      await seedRun(seed, seed.c, 'run-c')
+
+      await applyAtomically()
+      const first = await keys()
+      expect(first).toEqual([
+        { attempt_id: 'run-a', account_key: ACCOUNT },
+        { attempt_id: 'run-b', account_key: ACCOUNT },
+        { attempt_id: 'run-c', account_key: `#source:${seed.c}` },
+      ])
+      // All of it committed: the column, the CHECK and both indexes.
+      const state = await t1State()
+      expect(state.columnType).toBe('text')
+      expect(state.check).toContain('#source:')
+      expect(state.indexes).toEqual([...PART_5_INDEXES])
+
+      await applyAtomically()
+      expect(await keys()).toEqual(first)
+    }, 180_000)
+
+    it('CR-M-1a: contended STARTED rows abort the apply, NAME the key, and leave neither the column nor an index', async () => {
+      const seed = await seedPreT1Store()
+      // Legal before T1: one source STARTED under two config versions.
+      await seedRun(seed, seed.a, 'run-a1', { configVersion: 1 })
+      await seedRun(seed, seed.a, 'run-a2', { configVersion: 2 })
+
+      await expect(applyAtomically()).rejects.toThrow(`source ${seed.a}`)
+      expect(await t1State()).toEqual({ columnType: null, check: null, indexes: [] })
+    }, 180_000)
+
+    it('CR-M-1a: two STARTED runs of one paid account on different meter rows abort the apply too, naming the account', async () => {
+      const seed = await seedPreT1Store()
+      await seedRun(seed, seed.a, 'run-a')
+      await seedRun(seed, seed.b, 'run-b')
+
+      await expect(applyAtomically()).rejects.toThrow(`account ${ACCOUNT}`)
+      expect(await t1State()).toEqual({ columnType: null, check: null, indexes: [] })
+    }, 180_000)
+
+    it("CR-M-1b: T1's superseded uuid column is dropped and recomputed as the meter's text key", async () => {
+      const seed = await seedPreT1Store()
+      await seedRun(seed, seed.a, 'run-a')
+      await seedRun(seed, seed.c, 'run-c')
+      // The state round 1 left on a database: account_key uuid = the meter ROW id, with
+      // the per-account index on it.
+      await client.query(`ALTER TABLE job_collection_runs ADD COLUMN account_key uuid`)
+      await client.query(
+        `UPDATE job_collection_runs r SET account_key = COALESCE(s.account_meter_id, s.id)
+           FROM job_sources s WHERE s.id = r.source_id`,
+      )
+      await client.query(
+        `CREATE UNIQUE INDEX uq_job_collection_runs_one_started_per_account
+           ON job_collection_runs (account_key) WHERE outcome = 'STARTED'`,
+      )
+      expect((await t1State()).columnType).toBe('uuid')
+
+      await applyAtomically()
+      expect(await keys()).toEqual([
+        { attempt_id: 'run-a', account_key: ACCOUNT },
+        { attempt_id: 'run-c', account_key: `#source:${seed.c}` },
+      ])
+      const state = await t1State()
+      expect(state.columnType).toBe('text')
+      expect(state.indexes).toEqual([...PART_5_INDEXES])
+    }, 180_000)
+
+    it('CR-M-1c: a key outside the allowed alphabet rolls back EVERYTHING — the column is absent afterwards', async () => {
+      const seed = await seedPreT1Store()
+      // The meters' own CHECKs would refuse this key; drop them in this scratch schema
+      // only, to manufacture the one input the run-key CHECK exists to stop.
+      await client.query(
+        `ALTER TABLE job_account_meters
+           DROP CONSTRAINT ck_job_account_meters_account_key_format,
+           DROP CONSTRAINT ck_job_account_meters_account_key_segmented`,
+      )
+      await client.query(`UPDATE job_account_meters SET account_key = 'Bad#Key' WHERE id = $1`, [
+        seed.requestRow,
+      ])
+      await seedRun(seed, seed.a, 'run-a')
+
+      // The ADD CONSTRAINT itself refuses the backfilled row (23514, Postgres's wording for
+      // validating an added CHECK) — not merely the final check noticing a missing CHECK,
+      // whose message would also name the constraint.
+      await expect(applyAtomically()).rejects.toThrow(
+        'check constraint "ck_job_collection_runs_account_key_format" of relation "job_collection_runs" is violated by some row',
+      )
+      expect(await t1State()).toEqual({ columnType: null, check: null, indexes: [] })
+    }, 180_000)
+
+    it('CR-L-1: a same-named CHECK of the WRONG shape fails the final check and the apply', async () => {
+      const seed = await seedPreT1Store()
+      await seedRun(seed, seed.c, 'run-c')
+      // Planted by hand: right name, a definition that happens to mention '#source:', but
+      // not the intended one — the round-1 check (substring '#source:') accepted this.
+      await client.query(`ALTER TABLE job_collection_runs ADD COLUMN account_key text`)
+      await client.query(
+        `ALTER TABLE job_collection_runs ADD CONSTRAINT ck_job_collection_runs_account_key_format
+           CHECK (account_key IS NULL OR account_key <> '#source:')`,
+      )
+
+      await expect(applyAtomically()).rejects.toThrow('not exactly the intended definition')
+      // Rolled back to the planted state: no index was left behind.
+      expect((await t1State()).indexes).toEqual([])
+    }, 180_000)
+
+    it('CR-M-3: a re-run on the complete state takes NO lock on the table (it succeeds while a writer holds ROW EXCLUSIVE)', async () => {
+      const seed = await seedPreT1Store()
+      await seedRun(seed, seed.a, 'run-a')
+      await applyAtomically()
+
+      // ROW EXCLUSIVE — what every INSERT/UPDATE takes — conflicts with the SHARE lock of
+      // an index build and the ACCESS EXCLUSIVE of an ALTER. A re-run that took either
+      // would wait out the file's 10 s lock_timeout and fail.
+      const writer = await pool.connect()
+      try {
+        await writer.query('BEGIN')
+        await writer.query(`LOCK TABLE ${T1_SCHEMA}.job_collection_runs IN ROW EXCLUSIVE MODE`)
+        const started = Date.now()
+        await applyAtomically()
+        expect(Date.now() - started).toBeLessThan(5_000)
+        expect(await keys()).toEqual([{ attempt_id: 'run-a', account_key: ACCOUNT }])
+      } finally {
+        await writer.query('ROLLBACK')
+        writer.release()
+      }
+    }, 180_000)
+
+    it('CR-M-3 control: the FIRST apply does need the lock — under the same writer it times out and leaves nothing', async () => {
+      await seedPreT1Store()
+      const writer = await pool.connect()
+      try {
+        await writer.query('BEGIN')
+        await writer.query(`LOCK TABLE ${T1_SCHEMA}.job_collection_runs IN ROW EXCLUSIVE MODE`)
+        await expect(applyAtomically()).rejects.toThrow('lock timeout')
+      } finally {
+        await writer.query('ROLLBACK')
+        writer.release()
+      }
+      expect(await t1State()).toEqual({ columnType: null, check: null, indexes: [] })
+    }, 180_000)
+
+    it('LOW-b: the apply leaves no lock_timeout behind on the session', async () => {
+      await seedPreT1Store()
+      // Parts 1 and 2 set a SESSION-level lock_timeout of 10s themselves (pre-existing,
+      // not this file's), so pin a value neither file uses; PART_5 sets its own 10s
+      // transaction-locally, and after COMMIT the session must be back on this one.
+      await client.query(`SET lock_timeout = '7s'`)
+      await applyAtomically()
+      const after = (await client.query(`SHOW lock_timeout`)).rows[0] as { lock_timeout: string }
+      expect(after.lock_timeout).toBe('7s')
+    }, 180_000)
   })
 })

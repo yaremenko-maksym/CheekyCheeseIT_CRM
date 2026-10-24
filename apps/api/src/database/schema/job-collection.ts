@@ -60,9 +60,10 @@ import {
  * The synthetic account key of a source with no meter (Task 2.5 T1b):
  * `'#source:' || source_id`. Pinned to a lowercase uuid, the form Postgres
  * renders `uuid::text` in, so the key carries exactly one source id and nothing
- * else.
+ * else. Exported so `job-collection-schema.spec.ts` can hold the forward DDL's
+ * hard-coded copy of it (and of `JOB_PUBLIC_ID_PATTERN`) to this value.
  */
-const SYNTHETIC_SOURCE_ACCOUNT_KEY_PATTERN =
+export const SYNTHETIC_SOURCE_ACCOUNT_KEY_PATTERN =
   '^#source:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 import { jobSources } from './job-sourcing'
 import { users } from './users'
