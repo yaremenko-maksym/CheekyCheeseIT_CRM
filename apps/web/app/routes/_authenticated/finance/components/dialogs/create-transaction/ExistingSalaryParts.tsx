@@ -127,9 +127,23 @@ export function ExistingSalaryParts({
             <span>{i18n._(STATUS_LABEL_MESSAGES[part.status])}</span>
             <span aria-hidden="true">·</span>
             <span className="text-[10px]">
-              {/* A NULL origin is a row written before the column existed; every
+              {/* COPY-M-4: a FINITE VERB, not a bare adverb. "вручну" alone in
+                  the final slot has no subject of its own, so it attaches to the
+                  preceding verb phrase and the row reads "Очікує валідації ·
+                  вручну" as "awaiting validation, done by hand" — a claim about
+                  the VALIDATION. The field means how the PART was entered.
+                  "Внесено" gives it its own subject, and borrows the heading's
+                  own verb ("Вже внесено за цей місяць") so the row echoes the
+                  panel's framing instead of fighting it. Same defect class as
+                  the run-together text this follows: a readable surface saying
+                  the wrong thing.
+                  A NULL origin is a row written before the column existed; every
                   predicate on the server reads it as automatic. */}
-              {part.salaryOrigin === 'MANUAL' ? <Trans>вручну</Trans> : <Trans>автоматично</Trans>}
+              {part.salaryOrigin === 'MANUAL' ? (
+                <Trans>Внесено вручну</Trans>
+              ) : (
+                <Trans>Внесено автоматично</Trans>
+              )}
             </span>
           </li>
         ))}

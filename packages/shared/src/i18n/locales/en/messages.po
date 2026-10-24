@@ -8751,6 +8751,10 @@ msgstr "Current avatar"
 msgid "Посилання не працює. Відкрийте посилання з останнього листа, а якщо його немає — попросіть адміністратора надіслати запрошення ще раз."
 msgstr "This link doesn't work. Open the link from the latest email — if there isn't one, ask an admin to resend the invitation."
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
+msgid "Внесено вручну"
+msgstr "Entered manually"
+
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Почніть вводити технологію…"
 msgstr "Start typing a technology…"
@@ -9560,10 +9564,6 @@ msgstr "A new team — pick HR and an accountant below."
 msgid "Для ролі «{roleLabel}» доступні лише виплати в USDT ERC-20."
 msgstr "Only USDT ERC-20 payouts are available for the “{roleLabel}” role."
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
-msgid "автоматично"
-msgstr "automatic"
-
 #: apps/web/app/components/documents/document-labels.ts
 msgid "Скан"
 msgstr "Scan"
@@ -9987,10 +9987,6 @@ msgstr "+ Register"
 msgid "Скидання…"
 msgstr "Resetting…"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
-msgid "вручну"
-msgstr "manual"
-
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Telegram-канал команди"
@@ -10030,6 +10026,10 @@ msgstr "over {count, plural, one {# month} other {# months}}"
 #: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Технології"
 msgstr "Tech stack"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
+msgid "Внесено автоматично"
+msgstr "Entered automatically"
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "За ім’ям"

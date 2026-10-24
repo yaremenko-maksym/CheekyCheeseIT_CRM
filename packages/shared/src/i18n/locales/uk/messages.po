@@ -8751,6 +8751,10 @@ msgstr "Поточний аватар"
 msgid "Посилання не працює. Відкрийте посилання з останнього листа, а якщо його немає — попросіть адміністратора надіслати запрошення ще раз."
 msgstr "Посилання не працює. Відкрийте посилання з останнього листа, а якщо його немає — попросіть адміністратора надіслати запрошення ще раз."
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
+msgid "Внесено вручну"
+msgstr "Внесено вручну"
+
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Почніть вводити технологію…"
 msgstr "Почніть вводити технологію…"
@@ -9560,10 +9564,6 @@ msgstr "Нова команда — оберіть HR і бухгалтера н
 msgid "Для ролі «{roleLabel}» доступні лише виплати в USDT ERC-20."
 msgstr "Для ролі «{roleLabel}» доступні лише виплати в USDT ERC-20."
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
-msgid "автоматично"
-msgstr "автоматично"
-
 #: apps/web/app/components/documents/document-labels.ts
 msgid "Скан"
 msgstr "Скан"
@@ -9987,10 +9987,6 @@ msgstr "+ Зареєструвати"
 msgid "Скидання…"
 msgstr "Скидання…"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
-msgid "вручну"
-msgstr "вручну"
-
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Telegram-канал команди"
@@ -10030,6 +10026,10 @@ msgstr "за {count, plural, one {# місяць} few {# місяці} many {# �
 #: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Технології"
 msgstr "Технології"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
+msgid "Внесено автоматично"
+msgstr "Внесено автоматично"
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "За ім’ям"

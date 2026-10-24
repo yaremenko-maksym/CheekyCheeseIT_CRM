@@ -292,8 +292,11 @@ describe('ExistingSalaryParts (SR-795-M-1)', () => {
     renderPanel()
 
     const row = await screen.findByTestId('create-transaction-existing-salary-part')
-    expect(row).toHaveTextContent('вручну')
-    expect(row).not.toHaveTextContent('автоматично')
+    // COPY-M-4: the FULL finite-verb phrase. A bare "вручну" would satisfy a
+    // substring check while still reading as a qualifier of the validation,
+    // which is the defect — so the assertion names the verb.
+    expect(row).toHaveTextContent('Внесено вручну')
+    expect(row).not.toHaveTextContent('Внесено автоматично')
   })
 
   // COPY-M-3 — status and origin were separated by flex spacing ALONE, so the
@@ -341,14 +344,18 @@ describe('ExistingSalaryParts (SR-795-M-1)', () => {
     // once, so removing any one separator fails it. The rendered text is the
     // artifact that was wrong — layout spacing is invisible to it, which is why
     // the assertion is on characters and not on classes.
-    expect(dated).toBe('30.09.26·1 000,00 USD·Очікує валідації·вручну')
-    expect(dateless).toBe('1 000,00 USD·Очікує валідації·вручну')
+    expect(dated).toBe('30.09.26·1 000,00 USD·Очікує валідації·Внесено вручну')
+    expect(dateless).toBe('1 000,00 USD·Очікує валідації·Внесено вручну')
 
     // The three collisions this replaces, named so they cannot come back
     // unnoticed: a date fused to an amount reads as one wrong number.
     expect(dated).not.toContain('30.09.261')
     expect(dated).not.toContain('USDОчікує')
-    expect(dated).not.toContain('Очікує валідаціївручну')
+    expect(dated).not.toContain('валідаціїВнесено')
+    // COPY-M-4: and the origin is never a BARE adverb in the final slot, which
+    // reads as a qualifier of the validation however it is spaced.
+    expect(dated).not.toMatch(/·вручну$/)
+    expect(dated).not.toMatch(/·автоматично$/)
   })
 
   it('reads a legacy NULL origin as automatic, the way every server predicate does', async () => {
@@ -371,8 +378,8 @@ describe('ExistingSalaryParts (SR-795-M-1)', () => {
     renderPanel()
 
     const row = await screen.findByTestId('create-transaction-existing-salary-part')
-    expect(row).toHaveTextContent('автоматично')
-    expect(row).not.toHaveTextContent('вручну')
+    expect(row).toHaveTextContent('Внесено автоматично')
+    expect(row).not.toHaveTextContent('Внесено вручну')
   })
 
   // QA-LOW-2 — the panel exists so an operator can RECOGNISE a part they already
