@@ -821,7 +821,8 @@ as dispatched".
 - **Files:**
   - a new `job-sourcing/ownership/` module, `JobRunLedger`, with `claimDue`, `claimSource`,
     `heartbeat`, `assertOwned`, `savePage`, `finish`, `recoverExpired`, `settleStaleUncertain`,
-    `sweepOrphanReservations`, and the ledger functions T9's ADMIN actions call (`resetFailures`);
+    `sweepOrphanReservations`, `openCycle` (called by T5's daily handlers), and the ledger
+    functions T9's ADMIN actions call (`resetFailures`);
   - `createAccountMeter` and `AccountMeterBinding`. They gain `ownerToken` and call `assertOwned` inside
     `reserve`, `markSent` **and `reconcile`**, after the meter lock and before the reservation lock;
   - a new store function `recoverRun(tx, runId)`, also used by `finish` for its open reservations;
@@ -1091,7 +1092,8 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   `JobSourcingService.collectSource` / `collectAll` (they route reporting adapters through the
   worker; DOU stays on the legacy path); `quota-credentials` (it feeds `secrets`); the
   SmartRecruiters adapter's detail-request path; the `markSent` failure branch of
-  `collectJsonPages` in `api-json.provider.ts`.
+  `collectJsonPages` in `api-json.provider.ts`; the production `fetchText` and `markSent` wrappers,
+  which carry the in-flight stop-on-ban.
 - **`markSent`: its home (CR-H-1).** The call site in `collectJsonPages` already exists (F2). This
   task owns the guarantee that it fires at the moment every request leaves:
   - **Structurally.** `buildCollectionContext` wraps `meter` and `fetchText` together. For a
@@ -1106,18 +1108,34 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   - **When `markSent` is refused with `RUN_FENCED` mid-run** (T3 fenced this executor out): the
     request is not sent and the run stops at once. It is reported as `RUN_FENCED`, not
     `PERSISTENCE` (today's label for a failed `markSent`), because the cause is ownership, not our
-    storage. No `reconcile` is attempted, since it would be refused as well (T3 AC 7). The successor
-    owns the reservation from then on.
-- **Carries:** every port backed in production: `run` with the ledger's owner and epoch, `meter` =
-  `createAccountMeter` bound with the owner token, `checkpoints.savePage` calling `assertOwned`
-  first in its transaction, `cache`, `secrets`, `signal` aborted by a failed heartbeat, and
-  **the per-run `deadline`** (#1138 SR-M-1 makes this task its owner). `fetchText` uses
-  `boundedFetchText` **at default caps only**, because transport options are T6's job and arrive
-  after T0. **Free-plan meters** (owner-verified): TheirStack is bound with unit `RECORD`, limit 200,
-  calendar-month window. **Bounded worker pool** (size `N` from config, with a ceiling). One
-  source's failure never blocks another. **Run telemetry persists even if the DTO fails.** Empty
-  and partial runs record honestly.
-- **Depends on:** T2, T3.
+    storage. No `reconcile` is attempted, since it would be refused as well (T3 AC 7). The
+    reservation is settled by recovery (`recoverRun`), or by `sweepOrphanReservations` if the run
+    is already terminal.
+- **Stop-on-ban, the in-flight half (round 4, SR-H-3).** As specified in Option A, "Stop-on-ban for
+  runs in flight":
+  - the `fetchText` wrapper calls T8's `recordHostBan` on HTTP 403, 429 or 451, **before** it returns
+    the response to the adapter;
+  - the `markSent` wrapper reads `readHostPause` lock-free before every request, and on a paused host
+    rejects with `ACCESS_POLICY`, sending nothing;
+  - the worker reads it after every heartbeat, and on a paused host aborts the run's `signal` with
+    `ACCESS_POLICY`.
+- **Carries:** every port backed in production:
+  - `run`, with the ledger's owner and epoch;
+  - `meter` = `createAccountMeter`, bound with the owner token and with the **`account_key` read from
+    the claimed run row, never recomputed from the source** (round 4, SR-L-11). `recoverRun`'s
+    complete-meter-set argument rests on this;
+  - `checkpoints.load` returning the checkpoint the claim chose, and `checkpoints.savePage` =
+    the ledger's `savePage`;
+  - `cache`, `secrets`, and `signal`, which is aborted by a failed heartbeat or a host pause;
+  - the heartbeat loop at interval `H`, on its own reserved connection (pool `N + 1`), with
+    page-write transactions bounded to `H` (Option A, "Lease, heartbeat and page writes");
+    **the per-run `deadline`** (#1138 SR-M-1 makes this task its owner). `fetchText` uses
+    `boundedFetchText` **at default caps only**, because transport options are T6's job and arrive
+    after T0. **Free-plan meters** (owner-verified): TheirStack is bound with unit `RECORD`, limit 200,
+    calendar-month window. **Bounded worker pool** (size `N` from config, with a ceiling). One
+    source's failure never blocks another. **Run telemetry persists even if the DTO fails.** Empty
+    and partial runs record honestly.
+- **Depends on:** T2, T3, T8 (T8's `readHostPause` and `recordHostBan`).
 - **AC:** (1) `grep` finds a `CollectionContext` producer outside `src/test/`; (2) a reporting
   adapter runs end to end against a local fixture server; (3) a TheirStack run that would exceed
   200 records stops with `COST_STOP`; (4) a throwing source leaves the others' runs `SUCCEEDED`;
@@ -1131,27 +1149,53 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   `fetchText` without a committed `markSent`. **AC 6 and AC 9 are the enforcing instruments.** A
   grep cannot tell whether a call site is preceded by an awaited `markSent`. The list of
   `ctx.fetchText(` call sites outside `src/test/` (two on `d0f876f33`) is a reading aid for the
-  reviewer, not a gate.
-- **Real-Postgres:** two workers on one source, one wins, using the ledger rather than a mock; an
-  empty run and a partial run; a deadline overrun stops before the next subrequest. Also: a worker
-  fenced out between `reserve` and `markSent` (its lease recovered by a second worker) sends
-  nothing, and the account is charged exactly what the successor sent.
+  reviewer, not a gate; (10) **in-flight stop-on-ban:** two runs on one host, A and B. A receives a
+  403, and B's every request whose pause check follows the ban's commit is refused. Measured at the
+  fixture server, **B sends zero further requests** after its next check; (11) a heartbeat after a
+  ban aborts the run with `ACCESS_POLICY` before its next subrequest; (12) a request refused by the
+  pause check leaves its reservation `RELEASED`, never `SENT`; (13) the meter binding's account key
+  equals the run row's `account_key`, even when the source's `account_meter_id` changed after the
+  claim; (14) a heartbeat queued behind a page write lands before the lease expires, with a page
+  write held to its `H` budget.
+- **Real-Postgres:**
+  - two workers on one source: one wins, using the ledger rather than a mock;
+  - an empty run and a partial run;
+  - a deadline overrun stops before the next subrequest;
+  - a worker fenced out between `reserve` and `markSent` (its lease recovered by a second worker)
+    sends nothing, and the account is charged exactly what the successor sent;
+  - **the in-flight ban (AC 10)**, with two runs on one host against one fixture server;
+  - the heartbeat-behind-page-write bound (AC 14).
 - **Model:** opus, high (cross-zone, meter).
 
 ### T5 — cron: enqueue only
 
 - **Files:** `JobSourcingCronService`; `JobSourcingModule`.
 - **Carries:** the existing `@Cron('0 5 * * *')` and a new 02:30 HTML schedule, **both with
-  `timeZone: 'Europe/Kyiv'`** (F7: today there is none). Handlers only enqueue: create the cycle,
-  call `recoverExpired` and `settleStaleUncertain` (the `UNCERTAIN` resolver's entry point), then
-  `claimDue` through the worker. They keep the try/catch-never-rethrow
-  convention (C-23). DST and restarts are repaired by due-work reconciliation and idempotent claims.
+  `timeZone: 'Europe/Kyiv'`** (F7: today there is none). The two daily handlers only **enqueue**:
+  each calls the ledger's `openCycle(trigger, types)`, which creates the cycle row and brings
+  `next_attempt_at` forward for the selected types. The handlers write no `job_sources` column
+  themselves ("Who writes which column").
+
+  **A one-minute ledger tick** (added on the round-4 adversarial re-read) runs the work, each step in
+  its own try/catch: `recoverExpired`, `settleStaleUncertain`, `sweepOrphanReservations`, then
+  `claimDue` through the worker. Without it, two things break with a daily cron only. A crash at
+  05:10 would not be recovered until the next day. And a source refused for the per-minute host gap,
+  whose `next_attempt_at` was pushed by seconds, would wait a day rather than a minute.
+
+  All handlers keep the try/catch-never-rethrow convention (C-23). DST and restarts are repaired by
+  due-work reconciliation and idempotent claims.
+
 - **Depends on:** T7.
 - **AC:** (1) both decorators carry the zone; (2) a handler that throws inside does not rethrow;
-  (3) two ticks in one minute create no second claim; (4) each tick calls `recoverExpired` and
-  `settleStaleUncertain` before `claimDue`, and a failure in either does not prevent the claim
-  step.
-- **Real-Postgres:** a DST-shift catch-up case (clock injected) and a double tick.
+  (3) two ticks in one minute create no second claim; (4) each ledger tick calls `recoverExpired`,
+  `settleStaleUncertain` and `sweepOrphanReservations` before `claimDue`, and a failure in any of
+  them does not prevent the claim step; (5) an expired lease is recovered by the next ledger tick,
+  not the next daily cron.
+- **Real-Postgres:** a double tick; a lease aged past expiry by `ageRun` and recovered by the next
+  ledger tick (AC 5). **No clock is injected into the ledger** (Option A, "The clock is the
+  database's"). The DST case is tested on the pure side: the cron expression resolved in
+  `Europe/Kyiv` across both 2027 transitions, with an injected clock. Its effect on the database is
+  only which types are made due, and a fixture of aged rows tests that.
 - **Model:** sonnet, low–medium.
 
 ### T6 — transport wiring (after T0)
