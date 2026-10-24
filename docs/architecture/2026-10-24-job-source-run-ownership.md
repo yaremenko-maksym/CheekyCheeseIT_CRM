@@ -352,7 +352,8 @@ ownership. Also reopen if `apps/api` moves to `module: node16`.
 
 ## Decomposition of Task 2.5
 
-Seven tasks plus one external prerequisite. Files are named by module and symbol. Path fragments are
+Eight tasks plus one external prerequisite. (T8 was added in review round 1 to store the
+host-level state; T1's scope was left as dispatched.) Files are named by module and symbol. Path fragments are
 given only where a file does not exist yet. "Real-Postgres" means an integration spec against a
 scratch database, never `crm_db` (`live-db-access.md`), and **run as `crm_app`** wherever the claim
 is about privileges. That matches the least-privilege ADR's finding that specs run as `crm_user`
@@ -361,21 +362,25 @@ prove nothing about `crm_app`.
 ### Order and parallelism
 
 ```
-T0 (backlog 318, parallel PR — external) ─────────────────────────────┐
-T1 migration ──┐                                                       │
-T4 due policy ─┼─► T3 run ledger ─► T7 context builder + run worker ─┬─► T6 transport wiring
-T2 registry ───┘                                                     └─► T5 cron
+T0 (backlog 318, parallel PR — external) ───────────────────────────────────┐
+T1 migration ──► T8 host state ──┐                                           │
+T4 due policy ───────────────────┼─► T3 run ledger ─► T7 context + worker ─┬─► T6 transport wiring
+T2 registry ─────────────────────┘                                         └─► T5 cron
 ```
 
-- **Wave 1, in parallel:** T1, T2, T4. Their file sets are disjoint: schema plus migration, registry
-  plus service map, and a new due-policy module.
-- **Wave 2:** T3, which needs T1's indexes and T4's due predicate.
-- **Wave 3:** T7, which needs T2's registry and T3's ledger.
-- **Wave 4, in parallel:** T5 and T6. Their file sets are disjoint: the cron file, versus `http/`,
+- **Wave 1, in parallel:** T1, T2, T4. Their file sets are disjoint: run-table schema plus
+  migration, registry plus service map, and a new due-policy module.
+- **Wave 2:** T8. It is a second migration, so it lands after T1 (both append to `deploy.yml`'s
+  ordered list), and it extends T4's due predicate.
+- **Wave 3:** T3, which needs T1's indexes, T4's due predicate and T8's host state.
+- **Wave 4:** T7, which needs T2's registry and T3's ledger.
+- **Wave 5, in parallel:** T5 and T6. Their file sets are disjoint: the cron file, versus `http/`,
   the context builder's `fetchText` and adapter host lists. **T6 also waits for T0** (backlog 318).
   Constraint (a): no `transportOptionsFor` wiring before 318 is fixed.
-- **Not parallel:** T3 with T7 (T7 consumes the ledger's interface), and T2 with T5 (both edit
-  `JobSourcingModule`).
+- **Not parallel:** T1 with T8 (two migrations and one file list), T3 with T7 (T7 consumes the
+  ledger's interface), and T2 with T5 (both edit `JobSourcingModule`).
+- **May start before the owner answers the A-versus-B question:** T1, T2, T4 and T8 (see
+  "Autonomy classification").
 
 ### T0 — backlog 318: parse-order fix in the shared bounded-JSON reader (prerequisite, not part of 2.5)
 
@@ -427,7 +432,9 @@ before `JSON.parse` is entered (its own spec).
 
 - **Files:** a new `job-sourcing/ownership/` module (`JobRunLedger`: `claimDue`, `heartbeat`,
   `assertOwned`, `finish`, `recoverExpired`); `createAccountMeter` and `AccountMeterBinding` (they
-  gain `ownerToken` and call `assertOwned` inside `reserve` and `markSent`); the 3.5a integration
+  gain `ownerToken` and call `assertOwned` inside `reserve`, `markSent` **and `reconcile`**). The
+  third matters: a fenced-out executor's `reconcile(RELEASED)` must not release a `RESERVED` row
+  that its successor's replay walk has already handed back. Also the 3.5a integration
   spec's characterisation case (AutoTest zone; Master assigns that edit).
 - **Carries:** `FOR UPDATE SKIP LOCKED` claim; owner token and epoch committed before I/O; epoch =
   max for the source + 1; heartbeats for the same owner and epoch only; epoch verified in every page
@@ -437,15 +444,18 @@ before `JSON.parse` is entered (its own spec).
   named entry point (called by T5's tick and at worker start). `finish` writes the `job_sources`
   state: attempts persist on empty and on error, `last_success_at` ≠ `last_nonempty_at`, and DOU's
   legacy `lastCollectedAt` semantics are preserved. Bounded attempts: `consecutive_failures`
-  drives a capped backoff.
-- **Depends on:** T1 (indexes), T4 (the due predicate `claimDue` filters on).
+  drives a capped backoff. `finish` calls T8's `recordHostBan` in the same transaction when the
+  outcome is `ACCESS_POLICY` or `RATE_LIMIT`, and `claimDue` calls T8's `claimHostSlot` before it
+  inserts the run. Both are calls into T8's module; the policy and its acceptance criteria are T8's.
+- **Depends on:** T1 (indexes), T4 (the due predicate `claimDue` filters on), T8 (host state).
 - **AC:** (1) the SR-H-1 characterisation case **fails first** and is then replaced by an assertion
   that a second executor's `reserve`/`markSent` is refused with `RUN_FENCED` and that spend equals
   charge; (2) a stale owner's `savePage` after recovery is refused, and the successor's pages are
   intact; (3) a `markSent`/recovery race ends in exactly one of {`SENT`→`UNCERTAIN`, `markSent`
   refused}, never in a request that is sent and released; (4) heartbeat with a wrong epoch changes
   nothing; (5) the epoch strictly increases across re-claims of one source; (6) a grep gate: no file
-  outside the ledger writes `owner_token`, `fencing_epoch` or `lease_expires_at`.
+  outside the ledger writes `owner_token`, `fencing_epoch` or `lease_expires_at`; (7) a fenced-out
+  executor's `reconcile` is refused with `RUN_FENCED` and leaves the row as the successor holds it.
 - **Real-Postgres:** N concurrent claimers (N ≥ 4, two pools, the "replica" case) against one due
   source get exactly one claim. Also: a crash after a page is persisted (kill between `savePage` and
   `finish`, then recover); stale-owner writes; manual run overlapping a scheduled one; bounded
@@ -454,34 +464,94 @@ before `JSON.parse` is entered (its own spec).
 
 ### T4 — due policy (pure, plus one query)
 
-- **Files:** a new `job-sourcing/scheduling/` module (`isDue`, `dueSourcesPredicate`,
-  `hostPauseOf`); the `onlyTypes`/`excludeTypes` options and `sourceAcceptsTrigger` (moved, not
-  rewritten).
+- **Files:** a new `job-sourcing/scheduling/` module (`isDue`, `dueSourcesPredicate`); the existing
+  `sourceAcceptsTrigger` (moved, not rewritten); `JobSourcingService.collectAll`'s signature.
+- **`onlyTypes` / `excludeTypes` are NEW, not moved.** They exist in no code on `d0f876f33`
+  (`git grep -n -E 'onlyTypes|excludeTypes' origin/main -- apps/api/src` finds nothing). They appear
+  only in the superseded 2026-10-04 plan. The r5 plan says to "keep" them, which reads as if they
+  already existed. T4 introduces them, because T5's two schedules (05:00 API, 02:30 HTML) need them:
+  each handler selects its own type set.
 - **Carries:** due = persisted `next_attempt_at` / `cooldown_until` + enabled + **readiness from
   `readinessAt(subject, clock)`, never the stored `job_sources.readiness` column** (PR #1132
   SPEC-L-2 / SR-M-2) + trigger policy. Manual runs skip cadence but not cooldown, entitlement, cost,
   or a current owner. `enabled` is administrative permission. Pause, health, reason and state
   history are separate, and an ADMIN enable never clears an unresolved policy or credential block.
-  **Cross-run stop-on-ban** (PR #1139 SR-M-2): `ACCESS_POLICY` / `RATE_LIMIT` from a host pauses
-  every source on that host until a recorded time ("use it until banned, never evade"). **Rates the
-  manifest cannot enforce** (#1139 SR-L-3): Remotive's documented daily and per-minute limits and an
-  admin-edited `min_interval_hours` are bound by the manifest's ceiling, so a DB value below the
-  floor is clamped and reported.
+  The host-level conditions (ban pause, request rates, the `min_interval_hours` floor) are **T8's**.
+  T4's predicate takes them as an input that T8 extends.
 - **Depends on:** nothing.
 - **AC:** (1) a seeded `CANDIDATE` source past `RECRUITEE_TOKEN_DEADLINE` is not due even though its
-  stored column still says `CANDIDATE`; (2) a 403 on board A makes board B (same host) not due;
-  (3) `min_interval_hours` below the manifest floor runs at the floor; (4) a manual run under
-  cooldown or cost block is refused with a reason; (5) the legacy 10-minute early-due slack never
-  overrides quota or cooldown.
+  stored column still says `CANDIDATE`; (2) a manual run under cooldown or cost block is refused with
+  a reason; (3) the legacy 10-minute early-due slack never overrides quota or cooldown;
+  (4) `collectAll` with `onlyTypes` runs no source outside the set, and with `excludeTypes` runs
+  none inside it.
 - **Real-Postgres:** the due query over a seeded mix (enabled/disabled, paused, cooled down,
   deadline-crossed), compared against the pure `isDue` over the same rows.
 - **Model:** sonnet, medium.
+
+### T8 — host-level state: stop-on-ban and request rates (migration)
+
+Added in review round 1 (CR-M-2, CR-M-3). Nothing on `d0f876f33` can store a host-level fact.
+`job_sources` has no host or pause column
+(`git show origin/main:apps/api/src/database/schema/job-sourcing.ts | grep -n -i -E 'host|pause'`
+finds only comments). The per-source `cooldown_until` cannot express "board B is paused because board
+A was banned" without writing a sibling row the ledger does not own. The Remotive adapter's own
+header states that pacing between its entries "belongs to the scheduler (Task 2.5)". T1 was already
+dispatched with a fixed scope, so the storage is a new task rather than a larger T1.
+
+- **Files:** the Drizzle schema (`job-sourcing.ts`): a new table `job_source_hosts` (`host_key`
+  text primary key, `paused_until`, `pause_reason`, `pause_source_id`, `last_claimed_at`) and a
+  `job_sources.host_key` column; a new `apps/api/drizzle/manual/<date>_job_source_hosts.sql`; its
+  line in `deploy.yml`'s ordered list (a DevOps-zone line, so the dispatch names it); the privileges
+  manifest (`privilege-classes.ts`, a class for the new table); a per-type host-rate declaration in
+  the manifest (`hostRate: { perMinute, perDay }`, a new manifest field); a new
+  `job-sourcing/scheduling/host-state.ts` (`recordHostBan`, `claimHostSlot`, `hostOpenPredicate`).
+- **Who writes and who reads.** The ledger's `finish` (T3) calls `recordHostBan` in its terminal
+  transaction on `ACCESS_POLICY` / `RATE_LIMIT`. The ledger's `claimDue` (T3) calls
+  `claimHostSlot` under `FOR UPDATE` on the host row, and that refuses a claim inside the per-minute
+  gap or over the daily count. The daily count is computed from `job_collection_runs.started_at`
+  for the host's sources in the trailing 24 h, so no counter can drift. T4's `dueSourcesPredicate`
+  is extended with `hostOpenPredicate`. Only this module writes `job_source_hosts`.
+- **Carries:** **cross-run stop-on-ban** (PR #1139 SR-M-2): a ban from a host pauses every source
+  on that host until `paused_until`. The rule is "use it until banned, never evade": an ADMIN enable
+  does not clear it, and only expiry or an explicit recorded ADMIN action does. **Rates the manifest
+  cannot enforce** (#1139 SR-L-3): Remotive's "at most about 4 requests a day and never more than 2
+  a minute" (Remotive adapter header), enforced at runtime across its three entries and across
+  manual runs. Also an admin-edited `min_interval_hours` below the manifest's
+  `minIntervalHoursFloor` is clamped to the floor and reported.
+- **Depends on:** T1 (migration order in `deploy.yml`), T4 (extends its predicate).
+- **AC:** (1) a 403 on board A makes board B on the same host not due until `paused_until`;
+  (2) an ADMIN enable of board B during the pause leaves it not due; (3) three Remotive entries due
+  in the same minute produce at most 2 claims in that minute, and the third is claimed after the
+  gap; (4) a fifth Remotive claim inside 24 h is refused, and so is a manual run once the 4 are
+  used; (5) `min_interval_hours` below the floor runs at the floor; (6) the catalog check passes and
+  `crm_app` holds only the manifest-declared privileges on the new table.
+- **Real-Postgres:** concurrent claimers for two sources on one host (the per-minute gap holds under
+  a race, because both lock the host row); the 24-hour count at the limit and one past it; the ban
+  written by `finish` and read by the due query in the next tick. Run as `crm_app`.
+- **Model:** opus (Drizzle migration). **security-reviewer mandatory.**
 
 ### T7 — production `CollectionContext` builder and run worker
 
 - **Files:** a new `job-sourcing/runtime/` module (`buildCollectionContext`, `JobRunWorker`);
   `JobSourcingService.collectSource` / `collectAll` (they route reporting adapters through the
-  worker; DOU stays on the legacy path); `quota-credentials` (it feeds `secrets`).
+  worker; DOU stays on the legacy path); `quota-credentials` (it feeds `secrets`); the
+  SmartRecruiters adapter's detail-request path; the `markSent` failure branch of
+  `collectJsonPages` in `api-json.provider.ts`.
+- **`markSent`: its home (CR-H-1).** The call site in `collectJsonPages` already exists (F2). This
+  task owns the guarantee that it fires at the moment every request leaves:
+  - **Structurally.** `buildCollectionContext` wraps `meter` and `fetchText` together. For a
+    context bound to a meter, each committed `markSent` grants exactly one send permit, and
+    `fetchText` consumes one. Without a permit, `fetchText` throws `NOT_MARKED_SENT` **before any
+    I/O**. A caller that bypasses the loop is then refused by the production context, not trusted
+    to remember.
+  - **At the one bypassing caller.** The SmartRecruiters detail request gains an awaited
+    `ctx.meter.markSent(reservation)` immediately before its `ctx.fetchText`. A rejection there
+    means not sent, and the reservation is reconciled `RELEASED`, matching `collectJsonPages`.
+  - **When `markSent` is refused with `RUN_FENCED` mid-run** (T3 fenced this executor out): the
+    request is not sent and the run stops at once. It is reported as `RUN_FENCED`, not
+    `PERSISTENCE` (today's label for a failed `markSent`), because the cause is ownership, not our
+    storage. No `reconcile` is attempted, since it would be refused as well (T3 AC 7). The successor
+    owns the reservation from then on.
 - **Carries:** every port backed in production: `run` with the ledger's owner and epoch, `meter` =
   `createAccountMeter` bound with the owner token, `checkpoints.savePage` calling `assertOwned`
   first in its transaction, `cache`, `secrets`, `signal` aborted by a failed heartbeat, and
@@ -495,9 +565,17 @@ before `JSON.parse` is entered (its own spec).
 - **AC:** (1) `grep` finds a `CollectionContext` producer outside `src/test/`; (2) a reporting
   adapter runs end to end against a local fixture server; (3) a TheirStack run that would exceed
   200 records stops with `COST_STOP`; (4) a throwing source leaves the others' runs `SUCCEEDED`;
-  (5) a DTO serialization failure still leaves the run row terminal with its counts.
+  (5) a DTO serialization failure still leaves the run row terminal with its counts; (6) in a
+  metered production context, `fetchText` called without a preceding committed `markSent` throws
+  `NOT_MARKED_SENT`, and the fixture server records zero requests; (7) every SmartRecruiters detail
+  request has a reservation in `SENT` or later before the fixture server sees it; (8) a `markSent`
+  refused with `RUN_FENCED` sends nothing, stops the run, and is reported as `RUN_FENCED`; (9) a
+  grep gate: `ctx.fetchText(` outside `src/test/` appears only in call sites that are preceded by
+  an awaited `markSent`.
 - **Real-Postgres:** two workers on one source, one wins, using the ledger rather than a mock; an
-  empty run and a partial run; a deadline overrun stops before the next subrequest.
+  empty run and a partial run; a deadline overrun stops before the next subrequest. Also: a worker
+  fenced out between `reserve` and `markSent` (its lease recovered by a second worker) sends
+  nothing, and the account is charged exactly what the successor sent.
 - **Model:** opus, high (cross-zone, meter).
 
 ### T5 — cron: enqueue only
