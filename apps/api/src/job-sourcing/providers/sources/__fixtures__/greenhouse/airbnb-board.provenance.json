@@ -1,0 +1,12 @@
+{
+  "url": "https://boards-api.greenhouse.io/v1/boards/airbnb/jobs?content=true",
+  "fetchedAt": "2026-10-24T02:07:51.000Z",
+  "httpStatus": 200,
+  "rawSha256": "15e2c2ed5e3c12acbb03cdcd5a17d6f0ef4c3ef60d619e5b31777bff62f0053c",
+  "fileSha256": "26b0c9f389467264e844563f6ea96d560df97a631ad23d0822df2dbaf40d95d5",
+  "trimmedBy": "node trim-ats-a-captures.mjs (JSON.parse, whole-record selection by job id (meta.total rewritten to the kept count so the envelope stays self-consistent), regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify, prettier); never a byte cut",
+  "termsUrl": "https://docs.greenhouse.io/job-board.html",
+  "termsCheckedAt": "2026-10-24T03:30:00.000Z",
+  "permission": "PUBLIC_API_DOCUMENTED",
+  "notes": "191 jobs captured, 3 kept: a plain city (Bangalore), a Legal job in Tokyo, and a Paris job whose location.name has a trailing space and whose first_published equals updated_at. Two e-mail addresses per body were redacted. Whole response 2.7 MB. OWNERSHIP VERIFIED, EVIDENCE: PAYLOAD_FIELD (the per-job company_name): it is \"Airbnb\" on 191 of 191 jobs and absolute_url hosts are careers.airbnb.com with gh_jid. Documented (https://docs.greenhouse.io/job-board.html): GET endpoints need no authentication (\"Job Board data is publicly available\"); only the application POST needs Basic auth. robots.txt of boards-api.greenhouse.io: User-agent * / Disallow: /embed/ only, so /v1/boards/{token}/jobs is allowed. The docs state no rate limit or terms of use. Job content is HTML-escaped by Greenhouse (entities) and the adapter decodes it once. company_name and first_published appear on every job of this response although the docs show them only in the single-job example. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure)."
+}
