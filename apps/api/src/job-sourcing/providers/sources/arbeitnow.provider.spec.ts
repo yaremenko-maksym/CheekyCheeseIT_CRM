@@ -209,11 +209,11 @@ describe('large pages under the declared per-source byte cap (owner decision: no
     job_types: ['y'],
     created_at: 1792799718 - i,
   })
-  const bodyOfBytes = (bytes: number, items = 300) => {
+  const bodyOfBytes = (bytes: number, first = 1, nextLink: string | null = null) => {
     const make = (pad: string) =>
       JSON.stringify({
-        data: Array.from({ length: items }, (_, i) => syntheticJob(i + 1)),
-        links: { next: null },
+        data: Array.from({ length: 300 }, (_, i) => syntheticJob(first + i)),
+        links: { next: nextLink },
         pad,
       })
     return make('x'.repeat(bytes - Buffer.byteLength(make(''))))
@@ -256,20 +256,26 @@ describe('large pages under the declared per-source byte cap (owner decision: no
     },
   )
 
-  it('the default config collects both authentic-size pages in one walk', async () => {
+  it('the default config walks both authentic-size pages: the union of 600 distinct slugs, both requests carry the cap', async () => {
     const f = fakeCollectionContext({
       now: NOW,
       responses: [
-        {
-          status: 200,
-          bodyText: bodyOfBytes(4209793).replace('"next":null', '"next":"https://x/?page=2"'),
-        },
-        { status: 200, bodyText: bodyOfBytes(2311796) },
+        { status: 200, bodyText: bodyOfBytes(4209793, 1, 'https://x/?page=2') },
+        { status: 200, bodyText: bodyOfBytes(2311796, 301) },
       ],
     })
     const batch = await arbeitnowProvider.collectReport(cfg(), f.ctx)
     expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.counts.normalized).toBe(600)
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(
+      Array.from({ length: 600 }, (_, i) => slugOf(i + 1)),
+    )
     expect(f.sent).toHaveLength(2)
+    expect(f.sent.map((r) => r.maxBytes)).toEqual([ARBEITNOW_MAX_BYTES, ARBEITNOW_MAX_BYTES])
+    expect(f.sent.map((r) => r.url)).toEqual([
+      'https://www.arbeitnow.com/api/job-board-api?page=1',
+      'https://www.arbeitnow.com/api/job-board-api?page=2',
+    ])
   })
 
   it('declares the 8 MiB cap on the request (pinned apart from any whole-request equality)', async () => {

@@ -154,6 +154,26 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     expect(newEntries()).toHaveLength(19)
   })
 
+  it('Arbeitnow is a CANDIDATE row with no reason, still disabled (its block was lifted, not its off switch)', async () => {
+    await applySeedThenDelta()
+    const row = await byManifestId('arbeitnow.api.feed')
+    expect({
+      type: row?.['type'],
+      namespace: row?.['namespace'],
+      readiness: row?.['readiness'],
+      readiness_reason: row?.['readiness_reason'],
+      enabled: row?.['enabled'],
+      config_version: row?.['config_version'],
+    }).toEqual({
+      type: 'ARBEITNOW_API',
+      namespace: 'arbeitnow',
+      readiness: 'CANDIDATE',
+      readiness_reason: null,
+      enabled: false,
+      config_version: 1,
+    })
+  })
+
   it('no row the delta wrote is enabled, and no meter row was created', async () => {
     const meters = (await rowsOf('SELECT * FROM job_account_meters')).length
     await applySeedThenDelta()

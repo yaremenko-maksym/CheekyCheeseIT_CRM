@@ -6174,3 +6174,20 @@ Sources: PR #1133 review round 1 (code-reviewer CR-M-2, spec-reviewer SPEC-M-1, 
 
 - **QA-LOW-1 — same legacy NULL-`txDate` class.** In `PaySalaryDialog`, for a row whose `txDate` is NULL, the displayed date is the `createdAt` instant formatted in the browser's own zone (`formatTxOrCreated`), while the "earliest available date" hint is derived from the source row's UTC day. The two clocks disagree by a day for such a row. Verified at `TZ=America/Los_Angeles` (display `19.10.26`, hint `20.10.2026`); a viewer in Kyiv would see a one-day difference only between 21:00 and 24:00 UTC, which was reasoned from the same logic and not separately run. It disappears if NULL `txDate` is backfilled (the cheaper fix, owner-only, see above); otherwise align the hint to the same clock. Verification: a legacy row with `tx_date` NULL and `created_at` 2026-10-20 05:00 UTC shows the same calendar day in the displayed date and in the hint, under `TZ=Europe/Kyiv` and `TZ=America/Los_Angeles`.
 - **QA-LOW-2 — unrelated and pre-existing.** The salary-month input in the create-transaction dialog renders "October 2026" in English inside the Ukrainian UI. #1133 does not touch it. Check: with the `uk` locale active, the month label is Ukrainian.
+
+## 339. The Arbeitnow 8 MiB cap is a declaration until Task 2.5 wires the transport (2026-10-24)
+
+**Open** — raised in round 1 of PR #1138 (`feature/r5-3.2b-arbeitnow-unblock`) by the security review
+(SR-M-1, SR-M-2). The adapter declares `ARBEITNOW_MAX_BYTES` (8 MiB, under `MAX_RESPONSE_BYTES_CEILING`)
+and the request carries it, but nothing in production builds the fetch that honours it yet; Task 2.5 owns
+that wiring and its brief must carry the three points below.
+
+- (a) **Egress and cap reach the fetch.** The production fetch for this source must be built with
+  `allowedHosts` exactly `www.arbeitnow.com`, and a test must prove that the request's `maxBytes` reaches
+  the transport (not only that the adapter puts it on the request, which is what the adapter spec pins).
+- (b) **Transient memory per page.** One 8 MiB page is held as a body, a decoded string and a parsed
+  tree, so the transient cost is a multiple of 8 MiB (estimate 100-200 MB; **not measured**). The node
+  bound in `parseBoundedJson` is checked only after `JSON.parse`, so a pre-parse bound and a per-run
+  deadline are Task 2.5's, not this adapter's.
+- (c) **How to verify it is done.** Grep the production code (not specs) for a `fetchText` builder that
+  calls `transportOptionsFor` for the Arbeitnow source; absent, the cap is still only a declaration.
