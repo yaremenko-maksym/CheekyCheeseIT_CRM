@@ -155,6 +155,9 @@ test.describe('Invoice public verify endpoint — real API', () => {
       // hash + ip + user-agent — regression catcher for anyone widening the
       // DTO without thinking about the public exposure.
       const sigs = body['signatures'] as Array<Record<string, unknown>>
+      // A signed invoice carries signatures. Without this, an empty array would make every
+      // leak check in the loop below pass vacuously.
+      expect(sigs.length, 'a SIGNED invoice must expose its signatures').toBeGreaterThan(0)
       for (const sig of sigs) {
         expect('ip' in sig, 'verify response must not expose signer IP').toBe(false)
         expect('userAgent' in sig, 'verify response must not expose signer user-agent').toBe(false)

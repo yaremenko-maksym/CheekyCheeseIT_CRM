@@ -1710,9 +1710,9 @@ jobs:
         run: docker rm -f s3-stand || true
 
   # Aggregate status of every E2E matrix leg (11 at the time of writing: ten Playwright legs + landing) into one PR-level check.
-  # (auth-nav, team-users, projects, finance, misc, drop-finance,
-  # drop-lifecycle, landing — count corrected 2026-08-18, PR #573 backlog
-  # item 139 wiring; this comment already read "5" before that change, so
+  # (auth-nav, team-users, projects, finance, misc, meeting-recorder,
+  # drop-finance, drop-lifecycle, docs-money, cache, landing — recounted
+  # from the matrix; earlier counts here went stale ("5", then 8) so
   # do not trust it blindly next time either — recount matrix.shard entries
   # above instead of copying the number forward.)
   # Branch protection / auto-merge depend on this single job rather than
