@@ -71,7 +71,12 @@ export const SEED_ADMIN_EMAIL = 'yaremenkomaksym99@gmail.com'
 export const SEED_EMAILS = {
   admin: 'yaremenkomaksym99@gmail.com',
   seniorA: 'oleksiy.kovalenko@cheekycheese.dev',
+  // seniorB is the seed's deliberately NOT-onboarded wizard-test user
+  // (employee_contract READY_TO_SIGN, no ToS acceptance — seed/onboarding.ts):
+  // logging in as him lands on the onboarding wall, not the app shell. Specs
+  // that need a working senior session use seniorA or seniorC.
   seniorB: 'dmytro.marchenko@cheekycheese.dev',
+  seniorC: 'nazar.ponomarenko@cheekycheese.dev',
   juniorA: 'sofia.bondarenko@cheekycheese.dev',
   juniorB: 'ivan.petrenko@cheekycheese.dev',
   hrA: 'anna.lysenko@cheekycheese.dev',

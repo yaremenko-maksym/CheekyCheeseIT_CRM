@@ -1,17 +1,18 @@
 /**
  * drop-income-ui.spec.ts — task-drop-phase2-e2e (AC6).
  *
- * REAL-API UI flow: DROP registers a DROP_INCOME from their own profile.
+ * REAL-API UI flow: DROP registers a DROP_INCOME from their own finance page.
  *
  * Pre-conditions:
- *   1. ADMIN provisions a fresh DROP + drop-team.
+ *   1. ADMIN provisions a fresh DROP + drop-team and the DROP onboards
+ *      (contract + ToS) — a not-yet-onboarded user gets 403 ONBOARDING_REQUIRED
+ *      on the project-approval call.
  *   2. ADMIN creates a drop-project routed through the DROP.
  *
  * UI flow:
- *   3. DROP logs in, navigates to /profile.
- *   4. Switches to the «Финансы» tab and clicks the
- *      `data-testid="profile-drop-income-button"` («Добавить приход») CTA
- *      surfaced for own-DROP-profile only.
+ *   3. DROP logs in, navigates to /finance (the DROP's own cabinet — the
+ *      profile «Финансы» tab no longer exists for DROP).
+ *   4. Clicks the `data-testid="drop-register-income-btn"` CTA.
  *   5. The CreateTransactionDialog opens — DROP_INCOME is pre-selected
  *      because DROP role has only one option in `availableTypes`.
  *   6. Pick the drop-project from the Select, enter $750, attach a receipt
@@ -31,6 +32,7 @@ import {
   SEED_EMAILS,
   loginViaApi,
   createDropViaAPI,
+  onboardDropViaAPI,
   cleanupDropViaAPI,
   createDropProjectViaAPI,
   listTransactionsByProjectViaAPI,
@@ -57,6 +59,8 @@ test.describe('Drop income — UI flow on /profile (AC6)', () => {
       email: dropEmail,
       displayName: dropDisplayName,
     })
+    await onboardDropViaAPI(page, { dropId, dropEmail })
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
 
     try {
       // 2) Create drop-project routed through the DROP.
@@ -66,24 +70,18 @@ test.describe('Drop income — UI flow on /profile (AC6)', () => {
         name: `Drop AC6 Project ${suffix}`,
       })
 
-      // 3) Log in as DROP. Land on /profile.
+      // 3) Log in as DROP. Land on their finance cabinet.
       await loginViaApi(page, dropEmail)
-      await page.goto('/profile')
+      await page.goto('/finance')
 
-      // 4) Switch to the «Финансы» tab. AnimatedTabs renders plain <button>
-      // elements with aria-label = tab label.
-      const financeTab = page.getByRole('button', { name: 'Финансы' })
-      await expect(financeTab).toBeVisible({ timeout: 10_000 })
-      await financeTab.click()
-
-      // 5) Click the DROP-only «Добавить приход» button.
-      const dropIncomeButton = page.getByTestId('profile-drop-income-button')
+      // 4) Click the DROP «register income» CTA.
+      const dropIncomeButton = page.getByTestId('drop-register-income-btn')
       await expect(dropIncomeButton).toBeVisible({ timeout: 10_000 })
       await dropIncomeButton.click()
 
       // CreateTransactionDialog opens — DROP_INCOME pre-selected (the only
       // option for DROP).
-      const dialog = page.getByRole('dialog')
+      const dialog = page.getByTestId('create-transaction-dialog')
       await expect(dialog).toBeVisible({ timeout: 8_000 })
 
       // 6) Select the drop-project from the project Select. The dialog
@@ -111,11 +109,8 @@ test.describe('Drop income — UI flow on /profile (AC6)', () => {
           resp.request().method() === 'POST',
       )
 
-      // Submit. The dialog uses a «Создать» button.
-      await dialog
-        .getByRole('button', { name: /Создать|Добавить/i })
-        .last()
-        .click()
+      // Submit.
+      await dialog.getByTestId('create-transaction-submit').click()
       const postResp = await postPromise
       expect(postResp.status()).toBeLessThan(400)
       const created = (await postResp.json()) as { id: string; status: string; amount: string }

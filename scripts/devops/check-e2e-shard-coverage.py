@@ -81,8 +81,6 @@ KNOWN_UNSHARDED = {
     # --- dashboard ---
     # --- documents ---
     # --- drop suite ---
-    "tests/drop-income-ui.spec.ts",               # debt: not gated, migrate to drop shard later
-    "tests/drop-senior-readonly.spec.ts",         # debt: not gated, migrate to drop shard later
     # --- 12 files GATED 2026-08-18 (PR #573, backlog item 139) — moved out of
     # this debt list into the `drop-finance` (6) / `drop-lifecycle` (6) shards
     # in ci.yml: drop-confirm-payout-edges, drop-confirm-payout,

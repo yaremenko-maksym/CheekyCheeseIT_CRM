@@ -1373,7 +1373,7 @@ jobs:
             # in parallel, so overall E2E wall time = slowest shard) — two
             # more direct-API tests (a handful of REST calls each, no UI)
             # have no realistic way to close a ~150-200s gap.
-            files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts tests/drop-share-usdt-income.spec.ts tests/drop-share-usdt-gates.spec.ts tests/project-payment-type-and-drop-share.spec.ts tests/drop-share-slider.spec.ts tests/transaction-receipts.spec.ts tests/drop-payout-currency.spec.ts tests/drop-backend-rbac-api.spec.ts tests/drop-confirm-payout-edges.spec.ts tests/drop-confirm-payout.spec.ts tests/drop-confirm-payout-rbac.spec.ts tests/drop-junior-unlock.spec.ts tests/drop-distribution.spec.ts tests/drop-distribution-edge.spec.ts tests/project-draft-status.spec.ts
+            files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts tests/drop-share-usdt-income.spec.ts tests/drop-share-usdt-gates.spec.ts tests/project-payment-type-and-drop-share.spec.ts tests/drop-share-slider.spec.ts tests/transaction-receipts.spec.ts tests/drop-payout-currency.spec.ts tests/drop-backend-rbac-api.spec.ts tests/drop-confirm-payout-edges.spec.ts tests/drop-confirm-payout.spec.ts tests/drop-confirm-payout-rbac.spec.ts tests/drop-junior-unlock.spec.ts tests/drop-distribution.spec.ts tests/drop-distribution-edge.spec.ts tests/project-draft-status.spec.ts tests/drop-income-ui.spec.ts
           - name: drop-lifecycle
             # New shard, 2026-08-18 (PR #573, backlog item 139) — the
             # team-lifecycle half of the same 12-file KNOWN_UNSHARDED sweep
@@ -1384,7 +1384,7 @@ jobs:
             # duplicate-email validation and multi-HR handling for a DROP
             # team, so a separate shard also groups them by what they
             # actually test, not just by filename prefix.
-            files: tests/drop-archive-real.spec.ts tests/drop-archive-user-real.spec.ts tests/drop-archive-impact-contract.spec.ts tests/drop-project-create.spec.ts tests/drop-duplicate-email.spec.ts tests/drop-multi-hr.spec.ts tests/interviews-drop-team-board.spec.ts tests/drop-archive-cascade.spec.ts tests/drop-create-ui-regressions.spec.ts tests/drop-junior-rbac.spec.ts tests/drop-rotate-senior.spec.ts tests/drop-routing-hub.spec.ts tests/drop-rbac.spec.ts tests/drop-route-guards.spec.ts tests/drop-findings-pr198.spec.ts tests/drop-create.spec.ts tests/drop-add-senior.spec.ts
+            files: tests/drop-archive-real.spec.ts tests/drop-archive-user-real.spec.ts tests/drop-archive-impact-contract.spec.ts tests/drop-project-create.spec.ts tests/drop-duplicate-email.spec.ts tests/drop-multi-hr.spec.ts tests/interviews-drop-team-board.spec.ts tests/drop-archive-cascade.spec.ts tests/drop-create-ui-regressions.spec.ts tests/drop-junior-rbac.spec.ts tests/drop-rotate-senior.spec.ts tests/drop-routing-hub.spec.ts tests/drop-rbac.spec.ts tests/drop-route-guards.spec.ts tests/drop-findings-pr198.spec.ts tests/drop-create.spec.ts tests/drop-add-senior.spec.ts tests/drop-senior-readonly.spec.ts
           # task-landing-e2e-in-ci.md Part 2. Different stack shape than every
           # other leg above (no apps/web dev server; apps/landing prerender +
           # `vite preview` instead — see the matrix.shard.name == 'landing'
