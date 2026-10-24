@@ -53,13 +53,32 @@
  */
 let kyivDayFormatter: Intl.DateTimeFormat | undefined
 
-/** Today's Kyiv calendar day, as `YYYY-MM-DD`. See the module comment above. */
-export function kyivToday(): string {
+/**
+ * The Kyiv calendar day of an instant the CALLER supplies, as `YYYY-MM-DD`.
+ *
+ * Exists for the transaction-date policy (SR-809-H-1), which compares an
+ * operator-chosen date against the business day and must be deterministic under
+ * an injected clock — a policy reading the real `Date.now()` cannot be tested at
+ * a window boundary without faking global time. Everything in the module comment
+ * above applies unchanged: the offset and every DST transition are looked up
+ * per-instant via the IANA database, never assumed.
+ */
+export function kyivDayOf(at: Date): string {
   kyivDayFormatter ??= new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Kyiv',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   })
-  return kyivDayFormatter.format(Date.now())
+  return kyivDayFormatter.format(at)
+}
+
+/**
+ * Today's Kyiv calendar day, as `YYYY-MM-DD`. See the module comment above.
+ *
+ * Defined in terms of `kyivDayOf` so there is still exactly ONE definition of
+ * the Kyiv day — the property this module exists to protect.
+ */
+export function kyivToday(): string {
+  return kyivDayOf(new Date())
 }

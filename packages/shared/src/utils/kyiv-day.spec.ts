@@ -1,5 +1,36 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { kyivToday } from './kyiv-day'
+import { kyivDayOf, kyivToday } from './kyiv-day'
+
+/**
+ * `kyivDayOf` — the same Kyiv calendar day, for an instant the CALLER supplies
+ * instead of "now". Added for the transaction-date policy (SR-809-H-1), which
+ * compares an operator-chosen date against the business day and must therefore
+ * be deterministic under an injected clock: a policy that reads the real
+ * `Date.now()` cannot be tested at a boundary without faking global time.
+ *
+ * `kyivToday()` is now defined as `kyivDayOf(new Date())`, so there is still
+ * exactly ONE definition of the Kyiv day — the property the module comment
+ * exists to protect.
+ */
+describe('kyivDayOf', () => {
+  it('resolves a caller-supplied instant against Europe/Kyiv, with no global clock involved', () => {
+    // Kyiv 2026-07-15 00:30 EEST (+3) = UTC 2026-07-14 21:30 — the window the
+    // original backlog-148 bug priced wrong.
+    expect(kyivDayOf(new Date('2026-07-14T21:30:00Z'))).toBe('2026-07-15')
+    expect(kyivDayOf(new Date('2026-07-14T20:59:00Z'))).toBe('2026-07-14')
+  })
+
+  it('tracks the DST offset per instant rather than assuming one', () => {
+    // EET (+2): Kyiv 2026-01-15 00:30 = UTC 2026-01-14 22:30.
+    expect(kyivDayOf(new Date('2026-01-14T22:30:00Z'))).toBe('2026-01-15')
+    // A stale +3 would roll this one a day too early.
+    expect(kyivDayOf(new Date('2026-10-25T21:15:00Z'))).toBe('2026-10-25')
+  })
+
+  it('agrees with kyivToday for the current instant — one definition, two entry points', () => {
+    expect(kyivDayOf(new Date())).toBe(kyivToday())
+  })
+})
 
 /**
  * `kyivToday` — backlog 148 (security-review PR #574 MED-2, PR #578 review
@@ -129,8 +160,7 @@ describe('kyivToday', () => {
     }
 
     const dayFormatterCall = captured.find((args) => Array.isArray(args) && args[0] === 'en-CA') as
-      | [string, Intl.DateTimeFormatOptions]
-      | undefined
+      [string, Intl.DateTimeFormatOptions] | undefined
     expect(dayFormatterCall).toBeDefined()
     expect(dayFormatterCall?.[1]).toEqual({
       timeZone: 'Europe/Kyiv',
