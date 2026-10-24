@@ -400,7 +400,9 @@ describe.skipIf(!hasDatabaseUrl())('quota adapters against the real account mete
         expect(sent * FLAT).toBeGreaterThan(100)
       })
 
-      it('the same account, UNVERIFIED, records at least what was really spent (worst case, 25 a page)', async () => {
+      it('the same account, UNVERIFIED, records at least the MODELLED spend (worst case, 25 a page)', async () => {
+        // Green whether or not the verified route exists: it pins the worst-case direction against
+        // the modelled flat charge (FLAT is a literal, not an observation of TheirStack), not the route.
         const account = nextAccount()
         const meter = await newMeter({ accountKey: account, unit: 'RECORD', limit: 100 })
         const sent = await twoRecordRuns(tsUnverified, account, 8)
