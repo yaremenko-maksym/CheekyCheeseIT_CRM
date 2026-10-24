@@ -22,9 +22,9 @@ number as ours.
 | RTK          | Rust CLI proxy; a hook rewrites Bash commands (`git status` → `rtk git status`) to filter output              | Claims 60–90% on common commands; does not touch Read / Grep / Glob                    | Lever 3: the same idea by hand — bounded reads, quiet reporters, counts kept visible    |
 | Context Mode | MCP server running code in a sandbox so only printed output enters context; SQLite index for post-compact use | Claims 98% on its own benchmark                                                        | Lever 4: park bulk output in a scratchpad file, then `grep`/`head`; fan-out for breadth |
 
-## Why none of the four is installed
+## Why the first pass installed none (superseded — see Install status)
 
-A deliberate decision, not an omission. Each installs executable third-party code into the agent
+The first pass (same day) held back. Each installs executable third-party code into the agent
 harness of a repository whose critical paths are auth, RBAC and money:
 
 1. **Supply chain.** A SessionStart hook (Caveman), a Bash-rewriting hook plus a binary (RTK) and an
@@ -42,12 +42,42 @@ harness of a repository whose critical paths are auth, RBAC and money:
    large levers (tier choice, bounded reads, fan-out for breadth) already exist in `model-routing.md`,
    `mcp-first.md` and `orchestration-routing.md`. This rule adds the missing habits, not a second stack.
 
-## Condition to reopen
+## Install status — owner decision 2026-10-24: "install all four"
 
-Install a tool only after: (a) the owner decides, (b) its primary repo is read and a version is pinned
-(exact, like `standardwebhooks`), (c) a one-week A/B on real sessions shows a measured saving net of
-lost evidence, (d) for RTK, a hook-corpus test shows `pre:bash:*` predicates still fire on rewritten
-commands. Candidate order by value/risk: RTK (largest input saving) → Ponytail (pure skill, no hook).
+The owner overrode the first-pass hold (A3 decision, recorded here). What was done, from primary
+sources (cloned at the pinned tag/commit, not search snippets):
+
+| Tool         | Pin                         | Licence                                         | State                                                                                                                                                                                    |
+| ------------ | --------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RTK          | `v1.0.1`, `rtk-oss` edition | Apache-2.0 (the default asset bundles BUSL-1.1) | **Installed in the repo:** hook `pre:bash:rtk-rewrite` (fail-open) + `scripts/devops/install-rtk.sh` (sha256-verified). Binary must be installed per machine / environment setup script. |
+| Caveman      | `v4.0.1`                    | Apache-2.0                                      | `.caveman.json` sets `lite` (reports stay readable). **Plugin not yet enabled** — see `docs/runbooks/human-only.md` item 8.                                                              |
+| Ponytail     | `v5.3.2`                    | MIT                                             | **Plugin not yet enabled** — same runbook item.                                                                                                                                          |
+| Context Mode | `v1.0.169`                  | **Elastic-2.0** (source-available, not OSI)     | **Plugin not yet enabled** — same runbook item. Adds hooks on 6 events + 11 MCP tools + a local SQLite store.                                                                            |
+
+Why the three plugins are staged, not enabled: the session's auto-mode classifier refused the
+`settings.json` edit that registers third-party plugin marketplaces ("Untrusted Code Integration").
+That is a guardrail, not a bug to route around; enabling them is one pasted JSON block by the owner.
+Note `claude plugin marketplace add --scope project` rewrote the whole `settings.json` destructively
+(dropped hook `id`/`description`, cache TTLs, and reset `permissions.allow`) — **do not use the CLI
+command on this file; paste the JSON block.**
+
+**Not verified:** hook ordering with RTK. The other `pre:bash:*` guards are expected to see the
+original command (hooks run on the same input and RTK only supplies `updatedInput`), but this was
+not tested end-to-end — the existing hooks carry owner-machine absolute paths and cannot run in the
+cloud container. Smoke-test on the owner machine: `git push` with a bad `ac_verified` must still be
+refused. The code of the four tools was not audited line by line; privacy claims (RTK telemetry off
+by default, Context Mode local-only) are from their READMEs.
+
+**Rules that bind the installed tools:** `rtk bypass <cmd>` whenever output is evidence to be read
+verbatim; `ctx_execute` and friends are still bound by `live-db-access.md` (no writes to `crm_db`)
+and `agent-isolation.md`; agents' frontmatter `tools:` allowlists do not include the `ctx_*` MCP
+tools, so subagents will not see them unless an Architect task adds them.
+
+## Condition to reopen (removal / bump)
+
+Bump a pin only after reading the changelog (never on green CI). Remove a tool when: a one-week A/B on
+real sessions shows no measured saving net of lost evidence; a `pre:bash:*` guard is found not to fire
+on an RTK-rewritten command; a licence or telemetry default changes; or the owner says so.
 
 ## Why the rule is short and always-on
 

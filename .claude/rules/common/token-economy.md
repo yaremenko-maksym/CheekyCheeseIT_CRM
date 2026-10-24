@@ -43,6 +43,15 @@ Terse is for narration only. These stay verbatim and complete, because shortenin
 **exit status or a pass/fail count** is not. Keep the count visible (`N passed`, non-zero), and never
 add `2>/dev/null` to a command whose output is evidence.
 
+## Installed tools (what binds them)
+
+- **RTK** (hook `pre:bash:rtk-rewrite`, fail-open) compacts Bash output. When output is evidence you must
+  read verbatim — a failing test, a diff you will cite, an error — run it as `rtk bypass <cmd>`.
+- **Context Mode** `ctx_*` tools remain bound by `live-db-access.md` (no writes to `crm_db`) and
+  `agent-isolation.md`; they are not a way around `mcp-first.md` or the zone hooks.
+- **Caveman** runs in `lite` (`.caveman.json`); the never-compressed list above still wins.
+- Install state and pins: `docs/architecture/rules-rationale/token-economy.md` → Install status.
+
 ## How we know it is violated
 
 | What is reconciled                                                                                 | Who                  |

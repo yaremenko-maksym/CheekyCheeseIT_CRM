@@ -224,6 +224,34 @@ SELECT status, skip_reason, attempts, sent_at IS NOT NULL AS stamped, last_error
 **Where to move:** nowhere. This is a "once after enabling the channel" check, and automating it would
 mean sending real emails from CI.
 
+### 8. Enabling the third-party token-saving plugins (Caveman, Ponytail, Context Mode)
+
+**Why a human:** registering third-party plugin marketplaces in `.claude/settings.json` was refused
+by the session's auto-mode classifier ("Untrusted Code Integration"). It is a guardrail; the owner
+decides on their own machine. Decision already taken: install all four tools (2026-10-24).
+**Automated:** versions pinned to tags, RTK hook + checksum-verified installer, `.caveman.json`,
+the rule and the skill — see `docs/architecture/rules-rationale/token-economy.md` (Install status).
+**Human remainder:** paste this block into the top level of `.claude/settings.json` (do NOT run
+`claude plugin marketplace add --scope project` on this file — it rewrites the whole file
+destructively), then run `scripts/devops/install-rtk.sh` and restart Claude Code:
+
+```json
+"extraKnownMarketplaces": {
+  "caveman": { "source": { "source": "github", "repo": "JuliusBrussee/caveman", "ref": "v4.0.1" } },
+  "ponytail": { "source": { "source": "github", "repo": "DietrichGebert/ponytail", "ref": "v5.3.2" } },
+  "context-mode": { "source": { "source": "github", "repo": "mksglu/context-mode", "ref": "v1.0.169" } }
+},
+"enabledPlugins": {
+  "caveman@caveman": true,
+  "ponytail@ponytail": true,
+  "context-mode@context-mode": true
+},
+```
+
+**Then verify:** `rtk gain` prints a dashboard; `/context-mode:ctx-doctor` shows all `[x]`; a bad
+`git push` (no `ac_verified:`) is still refused with RTK active.
+**Where to move:** once the owner pastes the block this item is closed — delete it.
+
 ---
 
 ## What is NOT written here
