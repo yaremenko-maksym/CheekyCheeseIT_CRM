@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import { sourceFixture, sourceProvenance } from '../../../test/source-fixtures'
 import { PG_INT_MAX } from '../api-json.provider'
-import { MAX_JSON_BYTES } from '../bounded-json'
+import { MAX_RESPONSE_BYTES_CEILING } from '../../http/bounded-fetch'
 import { UnvalidatedConfigError } from '../reporting-provider'
-import { arbeitnowProvider, ARBEITNOW_SOURCE_STATUS } from './arbeitnow.provider'
+import {
+  arbeitnowProvider,
+  ARBEITNOW_MAX_BYTES,
+  ARBEITNOW_SOURCE_STATUS,
+} from './arbeitnow.provider'
 
 /**
  * Arbeitnow through its public provider. Expected values are hand-read from
@@ -187,18 +191,32 @@ describe('mapping the authentic capture', () => {
   })
 })
 
-describe('the byte cap is not raised and the page is not cut (the reason this source is blocked)', () => {
+describe('large pages under the declared per-source byte cap (owner decision: no block on size)', () => {
   // The two authentic pages are not committed (they hold recruiters' personal data: e-mail addresses,
-  // LinkedIn profile links and mobile numbers). What the test needs from them is only their SIZE,
-  // which the provenance records (page 1: 4209793 bytes decoded, page 2: 2311796). So the body is
-  // generated to exactly that size, and the size is asserted below so the number stays checkable.
-  const bodyOfBytes = (bytes: number) => {
-    const skeleton = JSON.stringify({ data: [], links: { next: null }, pad: '' })
-    return JSON.stringify({
-      data: [],
-      links: { next: null },
-      pad: 'x'.repeat(bytes - skeleton.length),
-    })
+  // LinkedIn profile links and mobile numbers). What the test needs from them is their SIZE and their
+  // 300 items, so the body is GENERATED: 300 distinct synthetic jobs plus a pad field, sized to the
+  // exact byte counts the provenance records (page 1: 4209793 bytes decoded, page 2: 2311796).
+  const slugOf = (i: number) => `synthetic-job-${String(i).padStart(3, '0')}`
+  const syntheticJob = (i: number) => ({
+    slug: slugOf(i),
+    url: `https://www.arbeitnow.com/jobs/companies/synthetic/${slugOf(i)}`,
+    title: `Synthetic title ${i}`,
+    company_name: 'Synthetic GmbH',
+    description: '<p>synthetic</p>',
+    remote: i % 2 === 0,
+    location: 'Berlin',
+    tags: ['x'],
+    job_types: ['y'],
+    created_at: 1792799718 - i,
+  })
+  const bodyOfBytes = (bytes: number, items = 300) => {
+    const make = (pad: string) =>
+      JSON.stringify({
+        data: Array.from({ length: items }, (_, i) => syntheticJob(i + 1)),
+        links: { next: null },
+        pad,
+      })
+    return make('x'.repeat(bytes - Buffer.byteLength(make(''))))
   }
 
   /** "Nothing kept" is four claims: no observation, all counts zero, no checkpoint, one request. */
@@ -217,35 +235,69 @@ describe('the byte cap is not raised and the page is not cut (the reason this so
     expect(f.sent).toHaveLength(1)
   }
 
-  it('a page 1 of the measured size, 4209793 bytes - past the 2 MiB cap - fails as PAYLOAD_TOO_LARGE with nothing kept', async () => {
-    const body = bodyOfBytes(4209793)
-    expect(Buffer.byteLength(body)).toBe(4209793)
-    expect(MAX_JSON_BYTES).toBe(2097152)
-    const { batch, f } = await run(body)
+  it.each([4209793, 2311796])(
+    'a 300-job page of the measured size, %i bytes, is collected: 300 observations, no PAYLOAD_TOO_LARGE',
+    async (size) => {
+      const body = bodyOfBytes(size)
+      expect(Buffer.byteLength(body)).toBe(size)
+      const { batch } = await run(body)
+      expect(batch.outcome).toBe('SUCCEEDED')
+      expect(batch.requests[0]?.error).toBeNull()
+      expect(batch.counts).toEqual({
+        raw: 300,
+        normalized: 300,
+        invalid: 0,
+        quarantined: 0,
+        discarded: 0,
+      })
+      expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(
+        Array.from({ length: 300 }, (_, i) => slugOf(i + 1)),
+      )
+    },
+  )
+
+  it('the default config collects both authentic-size pages in one walk', async () => {
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [
+        {
+          status: 200,
+          bodyText: bodyOfBytes(4209793).replace('"next":null', '"next":"https://x/?page=2"'),
+        },
+        { status: 200, bodyText: bodyOfBytes(2311796) },
+      ],
+    })
+    const batch = await arbeitnowProvider.collectReport(cfg(), f.ctx)
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(f.sent).toHaveLength(2)
+  })
+
+  it('declares the 8 MiB cap on the request (pinned apart from any whole-request equality)', async () => {
+    const { f } = await run(page())
+    expect(ARBEITNOW_MAX_BYTES).toBe(8 * 1024 * 1024)
+    expect(f.sent[0]?.maxBytes).toBe(8_388_608)
+  })
+
+  it('the cap is under the shared ceiling and above the largest page measured', () => {
+    expect(ARBEITNOW_MAX_BYTES).toBeLessThanOrEqual(MAX_RESPONSE_BYTES_CEILING)
+    expect(ARBEITNOW_MAX_BYTES).toBeGreaterThan(4209793)
+  })
+
+  it('a body of exactly the declared cap is read; one byte more is PAYLOAD_TOO_LARGE with nothing kept', async () => {
+    const at = bodyOfBytes(ARBEITNOW_MAX_BYTES)
+    expect(Buffer.byteLength(at)).toBe(ARBEITNOW_MAX_BYTES)
+    expect((await run(at)).batch.outcome).toBe('SUCCEEDED')
+    const past = bodyOfBytes(ARBEITNOW_MAX_BYTES + 1)
+    expect(Buffer.byteLength(past)).toBe(ARBEITNOW_MAX_BYTES + 1)
+    const { batch, f } = await run(past)
     expectNothingKept(batch, f)
   })
 
-  it('a page 2 of the measured size (2311796 bytes) is refused the same way', async () => {
-    const body = bodyOfBytes(2311796)
-    expect(Buffer.byteLength(body)).toBe(2311796)
-    const { batch, f } = await run(body)
-    expectNothingKept(batch, f)
-  })
-
-  it('a body of exactly 2097152 bytes is read; one byte more is refused', async () => {
-    const atCap = bodyOfBytes(MAX_JSON_BYTES)
-    expect(Buffer.byteLength(atCap)).toBe(MAX_JSON_BYTES)
-    expect((await run(atCap)).batch.outcome).toBe('SUCCEEDED')
-    const past = bodyOfBytes(MAX_JSON_BYTES + 1)
-    expect(Buffer.byteLength(past)).toBe(MAX_JSON_BYTES + 1)
-    expect((await run(past)).batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
-  })
-
-  it('declares itself blocked with the measured sizes - and the provenance agrees', () => {
-    expect(ARBEITNOW_SOURCE_STATUS.blocked).toBe(true)
+  it('declares itself permitted, not blocked - and the provenance agrees', () => {
+    expect(ARBEITNOW_SOURCE_STATUS.blocked).toBe(false)
     expect(ARBEITNOW_SOURCE_STATUS.permission).toBe('PUBLIC_API_DOCUMENTED')
     expect(ARBEITNOW_SOURCE_STATUS.reason).toContain('4209793')
-    expect(ARBEITNOW_SOURCE_STATUS.reason).toContain('2097152')
+    expect(ARBEITNOW_SOURCE_STATUS.reason).toContain('8388608')
     const p = sourceProvenance('arbeitnow', 'page-1') as { permission: string; notes: string }
     expect(p.permission).toBe(ARBEITNOW_SOURCE_STATUS.permission)
     expect(p.notes).toContain('4209793')
