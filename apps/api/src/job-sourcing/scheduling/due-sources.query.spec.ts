@@ -69,6 +69,14 @@ describe('dueSourcesPredicate (rendered)', () => {
     ).not.toThrow()
   })
 
+  it('CR-M-5: a non-integer or infinite cap or slack throws', () => {
+    for (const bad of [2.5, 1.5, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(() => render('SCHEDULED', { maxConsecutiveFailures: bad })).toThrow(RangeError)
+      expect(() => render('MANUAL', { cadenceSlackMs: bad })).toThrow(RangeError)
+    }
+    expect(() => render('SCHEDULED', { cadenceSlackMs: 0.5 })).toThrow(RangeError)
+  })
+
   it('never reads the stored readiness column', () => {
     expect(render('SCHEDULED').sql).not.toContain('readiness')
   })

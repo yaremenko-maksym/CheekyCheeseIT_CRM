@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { JobSourceTriggerMode, JobSourceType } from '@crm/shared'
+import type { JobCollectionResultDto, JobSourceTriggerMode, JobSourceType } from '@crm/shared'
 import type { HrAccessService } from '../common/hr-access.service'
 import type { DatabaseService } from '../database/database.service'
 import type { DouRssProvider } from './dou.provider'
@@ -29,13 +29,8 @@ function makeService(rows: ReturnType<typeof row>[]) {
   const ran: string[] = []
   vi.spyOn(service, 'collectSource').mockImplementation((source) => {
     ran.push(source.type)
-    return Promise.resolve({
-      sourceType: source.type,
-      fetched: 0,
-      created: 0,
-      duplicates: 0,
-      suggestionsCreated: 0,
-    })
+    // Only `sourceType` is read by these tests; the rest of the result DTO is irrelevant here.
+    return Promise.resolve({ sourceType: source.type } as JobCollectionResultDto)
   })
   return { service, ran }
 }

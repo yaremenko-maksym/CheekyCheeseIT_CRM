@@ -432,6 +432,62 @@ describe('isDue', () => {
     })
   })
 
+  describe('CR-M-5: a non-integer or infinite cap / slack is refused', () => {
+    const invalid = { due: false, reason: 'INVALID_INPUT' } as const
+    const bad = [2.5, 1.5, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]
+    it('failure cap, both triggers', () => {
+      for (const trigger of ['SCHEDULED', 'MANUAL'] as const) {
+        for (const maxConsecutiveFailures of bad) {
+          expect(isDue(dueRow(), ctx({ trigger, maxConsecutiveFailures }))).toEqual(invalid)
+        }
+      }
+    })
+    it('cadence slack, both triggers', () => {
+      for (const trigger of ['SCHEDULED', 'MANUAL'] as const) {
+        for (const cadenceSlackMs of [0.5, 1.5, ...bad]) {
+          expect(isDue(dueRow(), ctx({ trigger, cadenceSlackMs }))).toEqual(invalid)
+        }
+      }
+    })
+    it('a fractional failure count in the row', () => {
+      expect(isDue(dueRow({ consecutiveFailures: 1.5 }), ctx())).toEqual(invalid)
+      expect(isDue(dueRow({ consecutiveFailures: Number.POSITIVE_INFINITY }), ctx())).toEqual(
+        invalid,
+      )
+    })
+  })
+
+  describe('CR-LOW-A: the three blocking inputs are required at the type level', () => {
+    it('omitting any of them does not compile (a regression to optional fails tsc)', () => {
+      // @ts-expect-error costBlocked is required
+      const noCost: DueContext = {
+        trigger: 'SCHEDULED',
+        now: NOW,
+        readiness: READY,
+        hostPaused: false,
+        alreadyRunning: false,
+      }
+      // @ts-expect-error hostPaused is required
+      const noHost: DueContext = {
+        trigger: 'SCHEDULED',
+        now: NOW,
+        readiness: READY,
+        costBlocked: false,
+        alreadyRunning: false,
+      }
+      // @ts-expect-error alreadyRunning is required
+      const noRun: DueContext = {
+        trigger: 'SCHEDULED',
+        now: NOW,
+        readiness: READY,
+        costBlocked: false,
+        hostPaused: false,
+      }
+      // At runtime the omission reads as undefined, which isDue treats as not blocked: the type is the guard.
+      expect([noCost, noHost, noRun]).toHaveLength(3)
+    })
+  })
+
   it('every refusal reason is reachable and listed', () => {
     const seen = new Set<string>()
     const probes: [DueRow, DueContext][] = [
