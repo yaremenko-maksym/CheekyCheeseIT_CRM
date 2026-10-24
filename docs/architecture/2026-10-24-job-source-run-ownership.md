@@ -614,24 +614,25 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
 
 ### Constraint ledger: every appended constraint in exactly one task
 
-| Constraint (source)                                                               | Task         |
-| --------------------------------------------------------------------------------- | ------------ |
-| 318 before transport wiring (PR #1119 security axis)                              | T6 gate (T0) |
-| `readinessAt`, not the stored column (PR #1132 SPEC-L-2 / SR-M-2)                 | T4           |
-| `allowedHosts` + `maxBytes` reaches fetch (PR #1138 SR-M-2)                       | T6           |
-| Transient memory: per-run deadline (PR #1138 SR-M-1)                              | T7           |
-| Transient memory: pre-parse node bound decision (PR #1138 SR-M-1)                 | T6           |
-| Free-plan meters, TheirStack 200 RECORD/month                                     | T7           |
-| Cross-run stop-on-ban (PR #1139 SR-M-2)                                           | T4           |
-| Rates the manifest cannot enforce (PR #1139 SR-L-3)                               | T4           |
-| Evidence is not permission (PR #1139)                                             | T2           |
-| `Object.freeze` of the SmartRecruiters decision (#1139 delta LOW 1)               | T2           |
-| 404 policy with retry policy (#1139 delta LOW 2)                                  | T6           |
-| Backlog 319 (`transportOptionsFor` in `fetchText`)                                | T6           |
-| One live executor per attempt; replace the SR-H-1 case                            | T3           |
-| `RESERVED`/`SENT` recovery with an entry point                                    | T3           |
-| `markSent` call site (already on the port, 3.5b): no `fetchText` outside the loop | T7           |
-| Registry seam, legacy map fate                                                    | T2           |
+| Constraint (source)                                                                                                    | Task         |
+| ---------------------------------------------------------------------------------------------------------------------- | ------------ |
+| 318 before transport wiring (PR #1119 security axis)                                                                   | T6 gate (T0) |
+| `readinessAt`, not the stored column (PR #1132 SPEC-L-2 / SR-M-2)                                                      | T4           |
+| `allowedHosts` + `maxBytes` reaches fetch (PR #1138 SR-M-2)                                                            | T6           |
+| Transient memory: per-run deadline (PR #1138 SR-M-1)                                                                   | T7           |
+| Transient memory: pre-parse node bound decision (PR #1138 SR-M-1)                                                      | T6           |
+| Free-plan meters, TheirStack 200 RECORD/month                                                                          | T7           |
+| Cross-run stop-on-ban (PR #1139 SR-M-2); storage, writer call and reader predicate                                     | T8           |
+| Rates the manifest cannot enforce (PR #1139 SR-L-3): Remotive per-minute and daily, `min_interval_hours` floor         | T8           |
+| Evidence is not permission (PR #1139)                                                                                  | T2           |
+| `Object.freeze` of the SmartRecruiters decision and its four siblings (#1139 delta LOW 1)                              | T2           |
+| 404 policy with retry policy (#1139 delta LOW 2)                                                                       | T6           |
+| Backlog 319 (`transportOptionsFor` in `fetchText`)                                                                     | T6           |
+| One live executor per attempt; replace the SR-H-1 case                                                                 | T3           |
+| `RESERVED`/`SENT` recovery with an entry point                                                                         | T3           |
+| `markSent` fires when every request leaves (brief): send-permit guard, SmartRecruiters call site, `RUN_FENCED` mid-run | T7           |
+| Registry seam, legacy map fate (brief)                                                                                 | T2           |
+| Production `CollectionContext` builder with the 3.5a meter as `meter` (brief)                                          | T7           |
 
 The transient-memory finding is one review item with two separable halves: the deadline and the
 parse bound. Each half lands in exactly one task. The brief's note says the two LOW items should
@@ -685,9 +686,10 @@ F1–F4 and F7 still hold exactly when its output shows all of these:
 When Task 2.5 lands, the map and the precondition disappear, and a `CollectionContext` producer
 appears outside `src/test/`. That change is the expected signal that "Context" has become history.
 
-For F5: `grep -n "REVOKE CREATE ON SCHEMA public FROM PUBLIC"
-apps/api/drizzle/manual/2026-10-18_db_roles.sql` returns one line for as long as the least-privilege
-regime stands. For the pg-boss facts, see the research file's "Shelf life".
+For F5: `grep -c '^REVOKE CREATE ON SCHEMA public FROM PUBLIC'
+apps/api/drizzle/manual/2026-10-18_db_roles.sql` prints `1` for as long as the least-privilege
+regime stands. The pattern is anchored to the start of the line: unanchored, the same text also
+matches a comment above the statement, and the grep returns two lines. For the pg-boss facts, see the research file's "Shelf life".
 
 ## Sources
 
