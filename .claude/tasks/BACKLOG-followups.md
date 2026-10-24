@@ -4679,6 +4679,39 @@ total exactly. The reconciliation against a known total is what turned a plausib
 checkable one, and it is the cheap habit worth copying: a count that does not have to add up to
 anything is a count nobody can falsify.
 
+### Instance 3 — a red step retried until green, with its reason truncated away (2026-10-24)
+
+Reported verbatim by the agent on PR #1110, and it is worth preserving in its own words because the
+honesty is what makes it usable: _"The first `git push` failed in the husky pre-push script (code 1),
+and I did not capture why. A second attempt piped through `head` and its result was unclear, so I
+discarded it. The third, redirected to a file, passed and pushed."_
+
+Three separate failures of instrumentation in one sequence, and only the third attempt was
+instrumented well enough to be believed:
+
+1. **A red step whose reason was never captured.** A pre-push failure is the gate doing its job; a
+   pre-push failure nobody read is indistinguishable from flake, and the only available response to
+   it is to try again. That is the habit every other gate in this repo depends on people not having.
+2. **`| head` on the diagnostic output**, which is this entry's own defect: the reason was probably in
+   the lines that truncation discarded.
+3. **An "unclear" result discarded rather than resolved.** Discarding an inconclusive measurement and
+   re-running is the same move as re-running red until green; it differs only in that nobody can
+   later tell it happened.
+
+The agent reports no hook was bypassed, and the final push is independently checkable
+(`git ls-remote origin` matched local HEAD), so the work itself is sound. **The defect is that
+red -> red -> green across three attempts is on the record with no explanation, and that is exactly the
+shape an intermittent gate failure and a real one share.** Nothing here distinguishes them.
+
+**What would have cost one command:** `git push > /tmp/push.log 2>&1 || tail -50 /tmp/push.log` on the
+FIRST attempt — redirect before you need it, not after two attempts have already failed. The agent
+arrived at this form by the third try; the point of writing it down is that it is available on the
+first.
+
+**Check on closing:** a pre-push failure in any agent's report is accompanied by the reason, or by a
+statement that the reason could not be obtained and why. A report that says a push failed and later
+succeeded, with nothing in between, is incomplete on its face.
+
 ## 303. User-facing error text left over from the retro-PR wave (2026-10-23)
 
 Five findings from reviews and QA that were deliberately not fixed in their PRs, because each touches a
