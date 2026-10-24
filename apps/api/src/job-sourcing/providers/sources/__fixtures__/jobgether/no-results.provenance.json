@@ -1,0 +1,12 @@
+{
+  "url": "https://jobgether.com/astroapi/ai/jobs.json?keyword=qzxwvkjh&limit=25&sort=date",
+  "fetchedAt": "2026-10-24T02:16:45.000Z",
+  "httpStatus": 200,
+  "rawSha256": "53008b3d904f4e7c81ae14fd43addae139b6841eda7ec183c89d3e29079ba225",
+  "fileSha256": "d3572cd7dd01f61d2eed6023b5e4f1272a8bce912b18ebbe4348fd4e42c47b1a",
+  "trimmedBy": "node trim-captures-3.2.mjs (JSON.parse, whole-record selection by none (whole body kept), regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify, prettier); never a byte cut",
+  "termsUrl": "https://jobgether.com/terms-of-use",
+  "termsCheckedAt": "2026-10-24T03:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "A keyword nothing matches: jobs [], hasMore false. CONTRADICTORY, hence UNCLEAR. Terms of use (read 2026-10-24, last updated 7 September 2026) clause 4.5: \"refrain from accessing the Platform or extracting its content by automated means (bots, scrapers, crawlers)\" and \"from using Platform content to train, fine-tune or operate machine-learning models\"; section 9: \"All acts of extraction, data mining, scraping and similar acts ... are strictly prohibited.\" Against that, the API itself is documented as public, unauthenticated and \"intended for AI agents/assistants\" (https://jobgether.com/llms.txt, https://jobgether.com/openapi.json, https://jobgether.com/astroapi/ai/jobs/docs). robots.txt Allows /astroapi/ai/jobs.json (with a query) and Disallows /*?* elsewhere, sets Crawl-delay: 2 and Content-Signal: search=yes, ai-input=yes, ai-train=no. The terms page returned HTTP 403 to this honest user agent, so the clause text was read through a separate fetch tool, not from a committed capture. Rate limit header: ratelimit-policy \"ai-jobs\";q=60;w=60. The listing carries NO description; no detail endpoint is documented. No personal data: company names and job titles only."
+}

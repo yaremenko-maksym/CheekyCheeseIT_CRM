@@ -1,0 +1,53 @@
+{
+  "jobs": [
+    {
+      "id": "6adbe05122c2644c03e5eff3",
+      "title": "Director, Operations & Change Management",
+      "company": "CCS Fundraising",
+      "url": "https://jobgether.com/offer/6adbe05122c2644c03e5eff3-director-operations-change-management",
+      "location": "United States",
+      "remote": "Full Remote",
+      "contractType": "Full time",
+      "experience": "Expert & Leadership (>10 years)",
+      "salaryRange": "115000-135000 USD",
+      "jobFunctions": ["Managing Director"],
+      "postedAt": "2026-10-23T22:31:45.217Z"
+    },
+    {
+      "id": "6adbe05122c2644c03e5effb",
+      "title": "Consultant, eDiscovery Technology",
+      "company": "KLDiscovery ",
+      "url": "https://jobgether.com/offer/6adbe05122c2644c03e5effb-consultant-ediscovery-technology",
+      "location": "United States",
+      "remote": "Full Remote",
+      "contractType": "Freelance",
+      "experience": "Senior (5-10 years)",
+      "salaryRange": "91000-114000 USD",
+      "jobFunctions": ["eDiscovery Specialist", "eDiscovery Manager"],
+      "postedAt": "2026-10-23T22:31:45.217Z"
+    },
+    {
+      "id": "6adbe05122c2644c03e5eff9",
+      "title": "Director, Cybersecurity Operations",
+      "company": "KLDiscovery ",
+      "url": "https://jobgether.com/offer/6adbe05122c2644c03e5eff9-director-cybersecurity-operations",
+      "location": "United States",
+      "remote": "Full Remote",
+      "contractType": "Full time",
+      "experience": "Expert & Leadership (>10 years)",
+      "salaryRange": "175000-215000 USD",
+      "jobFunctions": ["Cybersecurity Advisor"],
+      "postedAt": "2026-10-23T22:31:45.217Z"
+    }
+  ],
+  "pagination": { "page": 1, "limit": 10, "hasMore": true },
+  "browseOnSiteUrl": "https://jobgether.com/search-offers?",
+  "docs": "/astroapi/ai/jobs/docs",
+  "deprecation": {
+    "deprecated": true,
+    "message": "This path is deprecated and stops responding on 2026-09-28. Use /api/v1/jobs instead — same parameters, same response shape.",
+    "successor": "/api/v1/jobs",
+    "since": "2026-08-28",
+    "sunset": "2026-09-28"
+  }
+}

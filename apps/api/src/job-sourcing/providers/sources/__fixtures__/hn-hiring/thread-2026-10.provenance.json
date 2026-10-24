@@ -1,0 +1,12 @@
+{
+  "url": "https://hn.algolia.com/api/v1/items/49922569",
+  "fetchedAt": "2026-10-24T02:11:13.000Z",
+  "httpStatus": 200,
+  "rawSha256": "9037f0224bf1aab39fb8a98dd1c79304f9585aee83c6ba7339418f5443c83475",
+  "fileSha256": "8b29739530bfb1ea9cd652457a147fb916a745453344e07744fc657492465aac",
+  "trimmedBy": "node trim-captures-3.2.mjs (JSON.parse, whole-record selection by comment id (top-level, each with its nested replies as received), regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify, prettier); never a byte cut",
+  "termsUrl": "https://www.ycombinator.com/legal/",
+  "termsCheckedAt": "2026-10-24T03:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "items/49922569, \"Ask HN: Who is hiring? (October 2026)\": 266 top-level comments (480084 bytes), 8 kept. They cover a header without a pipe (49922584, with one nested reply), pipe headers (49922609), multi-role headers (49922615, 49922711), a header whose first segment is the location (49923426), and two commentary comments that are not vacancies (49924849 with 5 nested replies, 49925544). UNCLEAR: the Y Combinator terms (https://www.ycombinator.com/legal/, \"Site\") say \"you will not engage in or use any data mining, robots, scraping or similar data gathering or extraction methods\", while the HN Search API on Algolia (https://hn.algolia.com/api) is a public, unauthenticated, documented endpoint. Whether that API counts as \"the Site\" is a question for the owner, which was put to him and is unanswered, so the source stays blocked. robots.txt of news.ycombinator.com sets Crawl-delay: 30 and does not disallow /item; hn.algolia.com serves no robots.txt (404). Employers are NOT given by the API: a comment is free text whose first paragraph is a header, so every observation is tagged employer-unverified. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text cannot be found by a parser and were not redacted (records were chosen with short text to limit exposure)."
+}

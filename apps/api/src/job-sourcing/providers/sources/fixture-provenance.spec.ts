@@ -11,7 +11,15 @@ import { z } from 'zod'
  */
 
 const ROOT = join(__dirname, '__fixtures__')
-const PROVIDERS = ['remoteok', 'remotive', 'himalayas', 'jobicy']
+const PROVIDERS = [
+  'remoteok',
+  'remotive',
+  'himalayas',
+  'jobicy',
+  'arbeitnow',
+  'jobgether',
+  'hn-hiring',
+]
 
 const provenanceSchema = z
   .object({
@@ -41,9 +49,9 @@ const fixtures = PROVIDERS.flatMap((provider) =>
 )
 
 describe('fixture provenance', () => {
-  it('covers every provider with at least one fixture, and the 7 captured files', () => {
+  it('covers every provider with at least one fixture, and the 17 captured files (7 from 3.1, 10 from 3.2)', () => {
     expect(new Set(fixtures.map((f) => f.provider))).toEqual(new Set(PROVIDERS))
-    expect(fixtures).toHaveLength(7)
+    expect(fixtures).toHaveLength(17)
   })
 
   it.each(fixtures.map((f) => [`${f.provider}/${f.name}`, f] as const))(
@@ -64,6 +72,37 @@ describe('fixture provenance', () => {
     const p = provenanceSchema.parse(
       JSON.parse(readFileSync(join(ROOT, 'remotive', 'software-dev.provenance.json'), 'utf8')),
     )
+    expect(p.permission).toBe('UNCLEAR')
+  })
+
+  it.each([
+    ['arbeitnow', 'page-1', 'PUBLIC_API_DOCUMENTED'],
+    ['arbeitnow', 'empty-page', 'PUBLIC_API_DOCUMENTED'],
+    ['jobgether', 'page-1', 'UNCLEAR'],
+    ['jobgether', 'page-10', 'UNCLEAR'],
+    ['jobgether', 'no-results', 'UNCLEAR'],
+    ['jobgether', 'deprecated-path', 'UNCLEAR'],
+    ['hn-hiring', 'search', 'UNCLEAR'],
+    ['hn-hiring', 'thread-2026-10', 'UNCLEAR'],
+    ['hn-hiring', 'thread-2026-09', 'UNCLEAR'],
+    ['hn-hiring', 'thread-2019-05', 'UNCLEAR'],
+  ])('%s/%s records permission %s (the 3.2 verdicts)', (provider, name, permission) => {
+    const p = provenanceSchema.parse(
+      JSON.parse(readFileSync(join(ROOT, provider, `${name}.provenance.json`), 'utf8')),
+    )
+    expect(p.permission).toBe(permission)
+  })
+
+  it('keeps no Working Nomads job data: its only artifact is the terms page, committed byte for byte', () => {
+    const dir = join(ROOT, 'workingnomads')
+    expect(readdirSync(dir).sort()).toEqual(['terms.html', 'terms.provenance.json'])
+    const p = provenanceSchema.parse(
+      JSON.parse(readFileSync(join(dir, 'terms.provenance.json'), 'utf8')),
+    )
+    const bytes = readFileSync(join(dir, 'terms.html'))
+    const digest = createHash('sha256').update(bytes).digest('hex')
+    expect(p.fileSha256).toBe(digest)
+    expect(p.rawSha256).toBe(digest)
     expect(p.permission).toBe('UNCLEAR')
   })
 

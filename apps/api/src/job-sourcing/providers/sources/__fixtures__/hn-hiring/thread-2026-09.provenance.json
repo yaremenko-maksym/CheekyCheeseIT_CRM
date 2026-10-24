@@ -1,0 +1,12 @@
+{
+  "url": "https://hn.algolia.com/api/v1/items/49522897",
+  "fetchedAt": "2026-10-24T02:11:29.000Z",
+  "httpStatus": 200,
+  "rawSha256": "78552ab83582544073b09c9ef455a438c6d9c606cbbbbed199e9982196df3c1b",
+  "fileSha256": "7ec2807b4eb8d05335fe703e335ace70416131c9a2babafc32e8474e5a1158f8",
+  "trimmedBy": "node trim-captures-3.2.mjs (JSON.parse, whole-record selection by comment id, regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify, prettier); never a byte cut",
+  "termsUrl": "https://www.ycombinator.com/legal/",
+  "termsCheckedAt": "2026-10-24T03:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "items/49522897, \"Ask HN: Who is hiring? (September 2026)\": 249 top-level comments, 2 kept, both with the location as the first segment (\"NYC | ONSITE (hybrid) ...\", \"Remote (US) Close (...) | ...\"). UNCLEAR: the Y Combinator terms (https://www.ycombinator.com/legal/, \"Site\") say \"you will not engage in or use any data mining, robots, scraping or similar data gathering or extraction methods\", while the HN Search API on Algolia (https://hn.algolia.com/api) is a public, unauthenticated, documented endpoint. Whether that API counts as \"the Site\" is a question for the owner, which was put to him and is unanswered, so the source stays blocked. robots.txt of news.ycombinator.com sets Crawl-delay: 30 and does not disallow /item; hn.algolia.com serves no robots.txt (404). Employers are NOT given by the API: a comment is free text whose first paragraph is a header, so every observation is tagged employer-unverified. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text cannot be found by a parser and were not redacted (records were chosen with short text to limit exposure)."
+}
