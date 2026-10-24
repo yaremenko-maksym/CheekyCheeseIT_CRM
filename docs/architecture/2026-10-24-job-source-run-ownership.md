@@ -164,7 +164,78 @@ Option A adds more of that arithmetic, in the most concurrency-sensitive place i
 
 ## Option B — `pg-boss`
 
-_Pending._
+All external facts in this section are in `2026-10-24-pg-boss-research.md`, where each is cited to the
+npm registry, the shipped tarball of `pg-boss@12.38.0`, or
+[pgboss.io/api/constructor](https://pgboss.io/api/constructor), all retrieved 2026-10-24. Only the
+facts that decide the comparison are repeated here.
+
+**What it is.** `pg-boss` 12.38.0 (2026-10-13), MIT, one npm maintainer, 77 releases in the 12.x line
+in 11 months. `engines.node` is `>=22.12.0`, which our Node 22 pin satisfies. The package is
+**ESM-only** (`"type": "module"`), while `apps/api` compiles to CommonJS with
+`moduleResolution: Node`. The `types` field and `require(esm)` on Node 22.12 should make that work.
+That is **unproven here**; a spike must show `nest build` output and Vitest both loading it.
+
+**How it would be used.** One queue, `job-source-run`, with policy `singleton` and
+`singletonKey = sourceId`, gives one active job per source. Group concurrency 1 with
+`group.id = account key` gives one active job per account. The cron calls `send` for each due source.
+Workers call `work` with `heartbeatSeconds`. Expiry and retries belong to pg-boss's supervise pass.
+
+**Production DDL, concretely.** `crm_app` has no `CREATE` on the database or on `public`, and the
+catalog check fails the deploy if it owns any schema or relation (F5). So pg-boss **cannot install
+itself in production**. The only workable path:
+
+1. Run `getConstructionPlans('pgboss')` at the pinned version and commit its output as
+   `apps/api/drizzle/manual/<date>_pgboss_v46.sql`. Add the file to `deploy.yml`'s ordered list,
+   where `crm_user` applies it.
+2. Add a grants file for `crm_app` on schema `pgboss`: `USAGE`, per-table DML, `EXECUTE` on the
+   functions it calls, and sequences. The exact set is not documented. It has to be derived from
+   `dist/plans.js` and proven by a `crm_app` integration run.
+3. Extend the generated catalog check, which inspects `public` only, to cover `pgboss`. Otherwise the
+   least-privilege ADR's guarantee silently stops at the new schema.
+4. Construct the client with `migrate: false`, `createSchema: false`, `persistQueueStats: false`,
+   and only `partition: false` queues. That avoids the two runtime DDL paths the research found.
+   `start()` then throws `requires migrations` whenever the database's schema version differs from
+   the library's.
+5. **Every `pg-boss` bump that moves the schema version** repeats steps 1–3 with
+   `getMigrationPlans`, and the migration must land before the image. The schema version went from
+   40 to 46 between 2026-09-03 and 2026-10-13. Exact pin, deliberate bumps only.
+
+**The fencing epoch, which the plan says to keep.** pg-boss fences **its own** settle calls. Every
+claim after the first increments `retry_count`, and `complete`, `fail` and `touch` match on
+`id:retry_count` (upstream's "attempt fence", issue #925). That fence is invisible to our tables. A
+page write into `job_source_records` or a checkpoint into `job_collection_runs` cannot be refused by
+it, unless the write transaction reads `pgboss.job`, coupling our hottest write path to a
+third-party schema that changes six times in 40 days. To meet the plan, Option B therefore **still
+writes `owner_token`, `fencing_epoch` and `lease_expires_at` on `job_collection_runs`**, and still
+runs `assertOwned` in every page write and meter call. That is Option A's fencing core, plus a
+second lease (pg-boss's heartbeat) that must agree with ours.
+
+**"Check every `send` result".** `send` returns `Promise<string | null>`. `null` means nothing was
+inserted: a singleton or policy conflict, or a throttle. Checking means three things. Treat `null` as
+"this source was not enqueued". Record that as the cycle's outcome for the source (`ALREADY_OWNED` or
+`THROTTLED`), never as a dispatched run. Assert in a spec that a second `send` for a source with an
+active job returns `null` and leaves exactly one job. A `send` that throws is an enqueue failure of
+that source alone; it must not abort the cycle (C-23).
+
+**What pg-boss does not give.** It does not recover our meter reservations (`RESERVED`/`SENT` →
+replay or `UNCERTAIN`). It does not evaluate readiness through `readinessAt`, cooldown, cadence,
+`min_interval_hours`, or the host-level stop-on-ban across sources. It provides no epoch check on
+our writes, and it does not keep `job_sources` state (last success versus last non-empty). All of
+that is hand-written under either option.
+
+**Bounded review of the new dependency.** 7 new packages (`pg-boss`, `cron-parser`, `luxon`,
+`rrule-temporal`, `temporal-spec`, `serialize-error` with `non-error` and `type-fest`, plus the
+non-optional peer `@opentelemetry/api`). `pg` is already present. All are MIT, and none has an
+install script. Release cadence is high (14 releases between 2026-09-17 and 2026-10-13) and there is one
+maintainer. That makes the upgrade policy an exact pin, a Renovate ignore, and a reviewed bump with
+its migration file. The package would need its own row in `version-pins.md`.
+
+**Strongest argument for B.** Claim, expiry, retry with backoff, singleton enforcement and attempt
+fencing are battle-tested, years-old code paths with a large user base. Phase 3's worst defects were
+exactly this kind of lifecycle arithmetic, written by us. Upstream's own attempt fence exists
+because of issue #925, a stale-settle defect of the same shape we guard against. When the fix landed
+was not established. That cuts both ways: the library is maintained, and its long history did not
+prevent this defect.
 
 ## Decision
 
