@@ -290,7 +290,11 @@ describe('SettleSeniorPayoutDialog — reused for DROP_PENDING_PAYOUT (settle-dr
   })
 
   it('renders the tx createdAt date with the shortYY style ("01.06.26")', () => {
-    renderDialog(TX) // createdAt: '2026-06-01T00:00:00.000Z'
+    // `createdAt` is an INSTANT rendered in the browser's own zone (`shortYY`,
+    // deliberately not UTC-pinned). Midday UTC is the same calendar day in
+    // Kyiv (15:00), UTC and Los Angeles (05:00); the shared fixture's
+    // T00:00Z would read 31.05.26 west of UTC.
+    renderDialog({ ...TX, createdAt: '2026-06-01T12:00:00.000Z' })
     expect(screen.getByText('01.06.26')).toBeInTheDocument()
   })
 

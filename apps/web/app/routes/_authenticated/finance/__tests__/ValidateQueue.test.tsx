@@ -295,7 +295,7 @@ describe('ValidateDialog — info-card labels and dialog/alert text (mutation-ga
       senderName: 'Client A',
       projectName: 'Project X',
       notes: 'Важлива примітка',
-      createdAt: '2026-04-09T00:00:00.000Z',
+      createdAt: '2026-04-09T12:00:00.000Z', // midday UTC: same calendar day in every zone from Kyiv to Los Angeles
     })
     renderDialog({ tx, queue: [tx] })
     expect(screen.getByRole('heading', { name: 'Валідація транзакції' })).toBeInTheDocument()
