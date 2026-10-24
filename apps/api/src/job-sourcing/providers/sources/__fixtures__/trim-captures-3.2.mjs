@@ -214,7 +214,7 @@ if (wnTerms !== null) {
   const bytes = wnTerms
   const dir = join(here, 'workingnomads')
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'terms.html'), bytes)
+  writeFileSync(join(dir, 'terms.html.txt'), bytes)
   writeFileSync(
     join(dir, 'terms.provenance.json'),
     await format(
@@ -225,7 +225,7 @@ if (wnTerms !== null) {
         httpStatus: 200,
         rawSha256: sha(bytes),
         fileSha256: sha(bytes),
-        trimmedBy: 'none: the terms page is committed byte for byte (terms.html); NO job data was captured or is kept for this source',
+        trimmedBy: 'none: the terms page is committed byte for byte (terms.html.txt); NO job data was captured or is kept for this source',
         termsUrl: 'https://www.workingnomads.com/terms',
         termsCheckedAt,
         permission: 'UNCLEAR',

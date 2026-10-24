@@ -140,11 +140,11 @@ describe('fixture provenance', () => {
 
   it('keeps no Working Nomads job data: its only artifact is the terms page, committed byte for byte', () => {
     const dir = join(ROOT, 'workingnomads')
-    expect(readdirSync(dir).sort()).toEqual(['terms.html', 'terms.provenance.json'])
+    expect(readdirSync(dir).sort()).toEqual(['terms.html.txt', 'terms.provenance.json'])
     const p = provenanceSchema.parse(
       JSON.parse(readFileSync(join(dir, 'terms.provenance.json'), 'utf8')),
     )
-    const digest = sha256(readFileSync(join(dir, 'terms.html')))
+    const digest = sha256(readFileSync(join(dir, 'terms.html.txt')))
     expect(p.fileSha256).toBe(digest)
     expect(p.rawSha256).toBe(digest)
     expect(p.permission).toBe('UNCLEAR')
@@ -160,7 +160,7 @@ describe('fixture provenance', () => {
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
 const PLACEHOLDER = 'redacted@example.invalid'
 const PUBLISHED_CONTACTS: Record<string, string[]> = {
-  'workingnomads/terms.html': ['hello@workingnomads.com', 'report@workingnomads.com'],
+  'workingnomads/terms.html.txt': ['hello@workingnomads.com', 'report@workingnomads.com'],
 }
 
 function walk(dir: string): string[] {

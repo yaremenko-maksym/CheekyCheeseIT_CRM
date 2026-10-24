@@ -6,7 +6,7 @@ import type { ReportingJobSourceProvider } from '../reporting-provider'
  *
  * The plan blocks this source "until documented/approved use and an authentic fixture (public JSON
  * is not permission)". Neither exists:
- *  - The Terms of Service (committed byte for byte as `__fixtures__/workingnomads/terms.html`)
+ *  - The Terms of Service (committed byte for byte as `__fixtures__/workingnomads/terms.html.txt`)
  *    have no clause on automated access, scraping, an API or reuse of listings, either way. The
  *    only mention of automation is "We do not use automated decision-making tools".
  *  - robots.txt allows everything, which is silence, not a grant.

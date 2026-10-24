@@ -4,7 +4,7 @@
   "httpStatus": 200,
   "rawSha256": "46335d052d896db38bf445c01ab54a1e68d2fede789c2184c3aafce3157e6e6e",
   "fileSha256": "46335d052d896db38bf445c01ab54a1e68d2fede789c2184c3aafce3157e6e6e",
-  "trimmedBy": "none: the terms page is committed byte for byte (terms.html); NO job data was captured or is kept for this source",
+  "trimmedBy": "none: the terms page is committed byte for byte (terms.html.txt); NO job data was captured or is kept for this source",
   "termsUrl": "https://www.workingnomads.com/terms",
   "termsCheckedAt": "2026-10-24T03:00:00.000Z",
   "permission": "UNCLEAR",

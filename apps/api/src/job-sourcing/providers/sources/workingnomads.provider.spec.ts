@@ -20,7 +20,7 @@ const NOW = new Date('2026-10-24T03:00:00Z')
 const SEEDED = { categories: ['development'] }
 
 const termsText = () =>
-  readFileSync(join(__dirname, '__fixtures__', 'workingnomads', 'terms.html'), 'utf8')
+  readFileSync(join(__dirname, '__fixtures__', 'workingnomads', 'terms.html.txt'), 'utf8')
     .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/g, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
@@ -95,7 +95,7 @@ describe('the recorded evidence', () => {
 
   it('the footer "API" link is the JSON endpoint itself, not documentation', () => {
     const html = readFileSync(
-      join(__dirname, '__fixtures__', 'workingnomads', 'terms.html'),
+      join(__dirname, '__fixtures__', 'workingnomads', 'terms.html.txt'),
       'utf8',
     )
     expect(html).toContain('<a href="/api/exposed_jobs/" target="_self" rel="nofollow">API</a>')
