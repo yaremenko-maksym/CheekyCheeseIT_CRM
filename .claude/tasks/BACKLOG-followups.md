@@ -5322,6 +5322,20 @@ and the 10 MiB is not reachable.
 10 MiB limit and a 200,000-node limit. Today it takes about 1.6 s and +310 MB before refusing; closed
 means it is refused in single-digit milliseconds without allocating the parsed tree.
 
+**Sequencing constraint, added 2026-10-24 — this entry must close before the transport is wired.**
+Plan Task 2.5 builds the production `CollectionContext` and must call `transportOptionsFor` for an
+adapter's declared cap to reach the transport at all. The moment it does, Greenhouse and Ashby's
+declared **10 MiB** becomes live and this entry's window opens for two real sources at five times the
+shared default. So: **fix this entry, then wire the transport.** If anyone wires first, that is a
+decision to be stated and justified, not a step to be taken quietly.
+
+Measured independently on 2026-10-24 by the security axis of PR #1119, **on Node v20.15.1 rather than
+the pinned 22**, so the figures are indicative and not the pin's behaviour: 3.56M `{}` elements in a
+10.2 MB body took ~679 ms and ~291 MB, synchronously on the event loop. A `[0,0,…]` body of similar
+size took ~66 ms — that run **did not reproduce** the ~1.6 s figure recorded above for the array shape.
+Both measurements are kept rather than reconciled, because which one is right is itself unresolved, and
+a single averaged number would hide that.
+
 ## 319. An adapter's declared byte cap cannot reach the transport, so a source whose pages exceed the transport's default is refused before its own cap is consulted (2026-10-24)
 
 **Open** — found while measuring the ATS A adapters; the work belongs to the task that owns the quota
@@ -5482,3 +5496,93 @@ unreachable, because no provider key is provisioned and none may be — so there
 break. It becomes real the day the owner provisions one, and a provider that issues a short key would
 present as a boot failure rather than as a configuration error. **Check on closing:** a short key produces
 a message naming the variable and the floor, at whatever point it is rejected.
+
+## 324. Flow Gate's MISSING bucket means two different things, and its legend asserts the wrong one (2026-10-24)
+
+A step's status can be `done`, `STALE`, `MISSING` or `n/a`. Measured on PR #1119 within one hour, the same
+`MISSING` was printed for two unrelated situations:
+
+| What was true                                   | What the gate printed |
+| ----------------------------------------------- | --------------------- |
+| no spec review existed at all (verdict count 0) | `Spec-Review          | MISSING | no "Spec Review: PASS" review`    |
+| a spec review existed and said `ISSUES`         | `Spec-Review          | MISSING | the latest verdict … is negative` |
+
+The detail text does distinguish them. The **status does not**, and the gate's own explanatory section in
+the same output says: "unlike **MISSING**, which is a step nobody has looked at yet." That sentence is false
+in the second case — someone looked and rejected it.
+
+**Why it matters rather than being cosmetic.** The two call for opposite actions. "Nobody looked" means
+dispatch the axis. "Reviewed and rejected" means address the findings, and dispatching a fresh reviewer
+instead invites it to re-derive what the first one already said. The orchestrator read this exact line on
+#1119, concluded no spec review had ever run, and was right — but only because it separately counted the
+verdicts and got zero. The status alone did not support the conclusion it appeared to support.
+
+**Candidate answers:** a distinct status for a negative standing verdict (`REJECTED` reads naturally beside
+`STALE`), or, at minimum, correcting the legend so it stops claiming something the classifier does not
+guarantee. The first is better; the second is nearly free and removes the false sentence.
+
+**Check on closing:** a PR whose only spec review is negative prints a status distinguishable from a PR with
+no spec review at all, and no explanatory text claims MISSING implies nobody looked.
+
+Related: entry 311 (three other matcher and classifier gaps found by using the gate).
+
+## 325. The critical-path zone list omits secret handling and committed personal data, so Security-Review reads n/a where the axis finds real defects (2026-10-24)
+
+`contracts.md` §2.1 is the canonical list that makes `security-reviewer` mandatory, and Flow Gate implements
+it faithfully. Verbatim, the five zones are auth/sessions/JWT/OAuth; finance/calculation logic/split
+math/rates; RBAC/role visibility/data masking; wallets/transactions/company-account (USDT); Drizzle
+migrations/new tables.
+
+**Two PRs on 2026-10-24 printed `Security-Review | n/a` while carrying a real security surface:**
+
+- **PR #1119** handles five providers' **API keys** and the redactor that keeps them out of logs, traces and
+  errors. The axis was dispatched on the orchestrator's judgment, not by rule, and returned two MED
+  findings — including the one that mattered most, verified by running it: that the exception `withSecrets`
+  raises _about_ a too-short secret does not itself leak the secret, checked through `.message`, `.stack`,
+  `JSON.stringify` and `util.inspect` with `showHidden`.
+- **PR #1120** commits captured third-party pages as fixtures. An earlier head of it had to have 462
+  e-mail addresses removed. A later change moved the capture directory, which would silently have dropped
+  those files out of a personal-data scan had the executor not noticed unasked.
+
+Neither surface is named by the list. "Data masking" is the nearest member and is about role visibility,
+not about what lands in the repository or what leaves it in a request header.
+
+**So the gate is correct and the list is incomplete** — which is the worse failure of the two, because a
+faithful implementation of an incomplete rule reads as an authoritative `n/a`. Both dispatches happened
+because someone remembered, which is the mechanism this project replaces with gates everywhere else.
+
+**Candidate members, phrased as behaviour rather than as file paths:** code that places a credential in an
+outbound request or formats one for a log; code that commits or relocates captured third-party content; and
+code that defines or relaxes a redaction boundary.
+
+**Check on closing:** a diff that adds a credential to an outbound request header, and a diff that commits a
+captured third-party page, each make Security-Review required rather than `n/a`.
+
+## 326. In zsh a variable named `path` is tied to `$PATH`, and clobbering it destroys the shell's commands (2026-10-24)
+
+`verification-integrity.md` already records that this environment's Bash tool runs **zsh**, and names the
+`${VAR}:path` modifier trap. This is a second, independent zsh trap in the same family, measured on
+2026-10-24 while verifying PR #1120.
+
+`path` is one of zsh's special parameters: it is an array **tied to `PATH`**. So an ordinary-looking
+assignment inside a loop —
+
+```sh
+for f in a b; do path="some/relative/dir/$f"; ...; done
+```
+
+— replaces the command search path with one relative directory, and every subsequent command in that shell
+fails with `command not found`, including `git`, `grep` and `wc`.
+
+**Why it belongs with the swallowed-failure family rather than being a curiosity.** The failure arrives in a
+shape that reads as a clean negative. In the measured case the loop printed field labels with empty values
+and the commands' `command not found` lines appeared **before** the loop's own `echo` header, because the
+command substitutions ran first in the environment that had just been destroyed. A field reading
+`email-shaped strings: ` next to a label is one glance away from being read as zero. "Nothing matched" and
+"nothing could run" were again indistinguishable at the consumer.
+
+**The cure is a naming rule, not vigilance:** never name a shell variable `path`, `cdpath`, `fpath`,
+`manpath`, `PATH` or `PROMPT`. For a file being examined in a loop, `blob`, `file` or `target` all work.
+
+**Check on closing:** `grep -nE '(^|[^A-Za-z_])path=' ` over `scripts/`, `.claude/hooks/` and
+`.github/workflows/` finds no assignment to a bare `path` in a zsh-executed context.
