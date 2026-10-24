@@ -129,6 +129,7 @@ export function compareRanked(a: RankedRow, b: RankedRow): number {
   if (a.score !== b.score) return b.score - a.score
   const ta = timeOf(a.firstSeenAt)
   const tb = timeOf(b.firstSeenAt)
-  if (ta !== tb) return ta < tb ? 1 : -1
+  // Only reached when they differ, so at most one is -Infinity and the difference is never NaN.
+  if (ta !== tb) return tb - ta
   return (a.opportunityId < b.opportunityId ? 1 : 0) - (a.opportunityId > b.opportunityId ? 1 : 0)
 }

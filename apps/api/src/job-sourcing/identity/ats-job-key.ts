@@ -34,13 +34,11 @@ export interface AtsJobKey {
 }
 
 const GH_HOST = /^(?:job-)?boards\.(?:eu\.)?greenhouse\.io$/
-const GH_EU_HOST = /^(?:job-)?boards\.eu\./
 const GH_PATH = /^\/([a-z0-9][a-z0-9_-]*)\/jobs\/([0-9]+)(?:\/|$)/i
 const GH_EMBED_PATH = /^\/embed\/job_app\/?$/
 const NAME_ONLY = /^[a-z0-9][a-z0-9_-]*$/i
 const DIGITS_ONLY = /^[0-9]+$/
 const LEVER_HOST = /^jobs\.(?:eu\.)?lever\.co$/
-const LEVER_EU_HOST = /^jobs\.eu\./
 const LEVER_PATH =
   /^\/([a-z0-9][a-z0-9_-]*)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/apply)?\/?$/i
 const ASHBY_HOST = /^jobs\.ashbyhq\.com$/
@@ -95,7 +93,7 @@ function make(
  */
 function hosted(host: string, path: string, query: URLSearchParams): AtsJobKey | null {
   if (GH_HOST.test(host)) {
-    const region = GH_EU_HOST.test(host) ? 'eu' : 'us'
+    const region = host.includes('.eu.') ? 'eu' : 'us'
     const m = groups(GH_PATH, path)
     if (m !== null) return make('greenhouse', `${region}:${m[0]}`, m[1], 'ATS_HOSTED')
     const board = query.get('for')
@@ -114,7 +112,7 @@ function hosted(host: string, path: string, query: URLSearchParams): AtsJobKey |
   }
   if (LEVER_HOST.test(host)) {
     const m = groups(LEVER_PATH, path)
-    const region = LEVER_EU_HOST.test(host) ? 'eu' : 'us'
+    const region = host.includes('.eu.') ? 'eu' : 'us'
     return m === null ? null : make('lever', `${region}:${m[0]}`, m[1].toLowerCase(), 'ATS_HOSTED')
   }
   if (ASHBY_HOST.test(host)) {

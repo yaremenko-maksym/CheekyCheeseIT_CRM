@@ -728,6 +728,25 @@ describe('fix round 1: bounds, typed refusals, greedy order, symbols', () => {
     expect(assess(c, d).rule).toBe('ATS_JOB_KEY_UNCORROBORATED')
   })
 
+  it('a title over the cap on ONE side is unknown there, not a mismatch', () => {
+    const long = rec('a', { postingUrl: GH(5), title: 'x'.repeat(257) })
+    const normal = rec('b', { nativeId: 'x', postingUrl: GH(5) })
+    expect(assess(long, normal)).toMatchObject({ decision: 'ASSOCIATE', rule: 'ATS_JOB_KEY' })
+    expect(assess(normal, long)).toMatchObject({ decision: 'ASSOCIATE', rule: 'ATS_JOB_KEY' })
+  })
+
+  it('a verified application URL that is not an ATS URL is simply ignored', () => {
+    const a = rec('a', {
+      postingUrl: GH(5),
+      applicationUrl: 'https://example.com/apply',
+      applicationUrlVerified: true,
+    })
+    const b = rec('b', { nativeId: 'x', postingUrl: GH(5) })
+    expect(assess(a, b).rule).toBe('ATS_JOB_KEY')
+    const c = rec('c', { applicationUrl: null, applicationUrlVerified: true })
+    expect(assess(c, rec('d', { nativeId: 'y' })).rule).toBe('COMPANY_TITLE')
+  })
+
   it('clusterRecords refuses more than MAX_CLUSTER_RECORDS, typed, and accepts exactly the cap', () => {
     expect(MAX_CLUSTER_RECORDS).toBe(500)
     const many = (n: number) =>
