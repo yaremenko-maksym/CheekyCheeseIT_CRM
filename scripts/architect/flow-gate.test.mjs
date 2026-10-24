@@ -21,11 +21,19 @@ import {
   isUiCode,
   isCopy,
   render,
+  comparePlan,
+  MAX_COMPARES,
 } from './flow-gate.mjs'
 
+// `headSha` defaults to the last listed commit, which is what GitHub reports for a real PR. A
+// fixture that wants a stale verdict overrides the reviews' `commit_id`, not the head.
 const withCounts = (pr) =>
   pr && typeof pr === 'object' && Array.isArray(pr.files) && Array.isArray(pr.commits)
-    ? { counts: { changedFiles: pr.files.length, commits: pr.commits.length }, ...pr }
+    ? {
+        counts: { changedFiles: pr.files.length, commits: pr.commits.length },
+        headSha: pr.commits.length ? pr.commits[pr.commits.length - 1].sha : undefined,
+        ...pr,
+      }
     : pr
 const ev = (pr) => evaluate(withCounts(pr))
 
@@ -37,6 +45,7 @@ const rv = (body, over = {}) => ({
   state: 'COMMENTED',
   body,
   at: '2026-10-21T10:00:00Z',
+  commit_id: 'f'.repeat(40), // the default `commit()` sha, so a default review is on the head
   ...over,
 })
 const cm = (body, over = {}) => ({
@@ -46,7 +55,13 @@ const cm = (body, over = {}) => ({
   at: '2026-10-21T10:00:00Z',
   ...over,
 })
-const commit = (message, over = {}) => ({ sha: 'f'.repeat(40), message, parents: 1, ...over })
+const commit = (message, over = {}) => ({
+  sha: 'f'.repeat(40),
+  message,
+  parents: 1,
+  committedAt: '2026-10-21T09:00:00Z', // before the default review/comment timestamp
+  ...over,
+})
 
 const API = 'apps/api/src/vacancies/vacancies.service.ts' // product code, not critical, not UI
 const API_SPEC = 'apps/api/src/vacancies/vacancies.service.spec.ts'
@@ -428,7 +443,7 @@ test('a review with no association field does not count (fail closed)', () => {
 // --- completeness (fail closed on truncation) --------------------------------------------------
 
 test('listed files fewer than the PR reports → FAIL "could not read the whole PR", even when docs-only', () => {
-  const r = evaluate({ ...bare(['docs/a.md']), counts: { changedFiles: 2, commits: 1 } })
+  const r = ev({ ...bare(['docs/a.md']), counts: { changedFiles: 2, commits: 1 } })
   assert.equal(r.pass, false)
   assert.equal(r.docsOnly, false)
   assert.match(
@@ -438,7 +453,7 @@ test('listed files fewer than the PR reports → FAIL "could not read the whole 
 })
 
 test('listed commits fewer than the PR reports → FAIL', () => {
-  const r = evaluate({ ...good(), counts: { changedFiles: 2, commits: 3 } })
+  const r = ev({ ...good(), counts: { changedFiles: 2, commits: 3 } })
   assert.equal(r.pass, false)
   assert.match(r.failures[0], /listed 1 commits, the PR reports 3/)
 })
@@ -446,18 +461,23 @@ test('listed commits fewer than the PR reports → FAIL', () => {
 test('changed_files ≥ 3000 or commits ≥ 250 → FAIL even when the counts match', () => {
   const files = Array.from({ length: 3000 }, (_, i) => `docs/f${i}.md`)
   assert.match(
-    evaluate({ ...bare(files), counts: { changedFiles: 3000, commits: 1 } }).failures[0],
+    ev({ ...bare(files), counts: { changedFiles: 3000, commits: 1 } }).failures[0],
     /lists at most 3000/,
   )
   const commits = Array.from({ length: 250 }, () => commit('wip: x'))
   assert.match(
-    evaluate({ ...good({ commits }), counts: { changedFiles: 2, commits: 250 } }).failures[0],
+    ev({ ...good({ commits }), counts: { changedFiles: 2, commits: 250 } }).failures[0],
     /lists at most 250/,
   )
 })
 
 test('missing counts → FAIL, a skip line cannot cover it', () => {
-  const r = evaluate({ ...good(), body: `${FULL_BODY}Skip-Completeness: whatever reason here\n` })
+  // Deliberately NOT through `ev`: that helper derives the counts, and this case is their absence.
+  const r = evaluate({
+    ...good(),
+    headSha: 'f'.repeat(40),
+    body: `${FULL_BODY}Skip-Completeness: whatever reason here\n`,
+  })
   assert.equal(r.pass, false)
   assert.match(r.failures[0], /counts were not provided/)
 })
@@ -827,26 +847,336 @@ test('CLI: malformed input exits 2, never 0', () => {
   assert.equal(runCli(good({ files: [] })).status, 2)
 })
 
-// --- AC-1: the defect, asserted before it is fixed ----------------------------------------------
+// --- verdict freshness: a verdict is pinned to the commit it was given on -----------------------
+//
+// Backlog 311 (fourth gap), PR #1110: both verdicts were given on `abc3fa24c`, a further commit
+// landed, and the gate still reported both steps `done`. The reviewed code and the merged code
+// were different code.
+
+const HEAD = 'f'.repeat(40) // the default `commit()` sha, and so the default head
+const OLD = '1'.repeat(40)
+const GONE = '2'.repeat(40)
+
+const cmp = (base, paths, over = {}) => ({ base, paths, truncated: false, ...over })
+/** Two commits: an older one a review was given on, then the head. */
+const twoCommits = (headMessage = 'feat(api): follow-up\n\nac_verified: 1,2') => [
+  commit('wip: first cut', { sha: OLD, committedAt: '2026-10-21T08:00:00Z' }),
+  commit(headMessage, { sha: HEAD, committedAt: '2026-10-21T12:00:00Z' }),
+]
+const mergeCommits = (driftPaths) => ({
+  commits: [
+    commit('feat(api): x\n\nac_verified: 1,2', { sha: OLD, committedAt: '2026-10-21T08:00:00Z' }),
+    commit("Merge branch 'main' into feature", {
+      sha: HEAD,
+      parents: 2,
+      committedAt: '2026-10-21T12:00:00Z',
+    }),
+  ],
+  compares: [cmp(OLD, driftPaths)],
+})
 
 test('AC-1: a positive review verdict on an older sha is NOT done', () => {
-  const OLD = '1'.repeat(40)
   const r = ev(
     good({
-      headSha: 'f'.repeat(40),
       reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
-      commits: [
-        { sha: OLD, message: 'wip: first cut', parents: 1, committedAt: '2026-10-21T08:00:00Z' },
-        {
-          sha: 'f'.repeat(40),
-          message: 'feat(api): follow-up\n\nac_verified: 1,2',
-          parents: 1,
-          committedAt: '2026-10-21T12:00:00Z',
-        },
-      ],
-      compares: [{ base: OLD, paths: [API], truncated: false }],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [API])],
     }),
   )
   assert.equal(status(r, 'Review'), 'stale')
   assert.equal(r.pass, false)
+  assert.match(failureFor(r, 'Review'), /1111111/)
+  assert.match(failureFor(r, 'Review'), /fffffff/)
+})
+
+test('a positive review verdict on the head sha is done', () => {
+  const r = ev(good({ commits: twoCommits(), compares: [] }))
+  assert.equal(status(r, 'Review'), 'satisfied')
+  assert.equal(status(r, 'Spec-Review'), 'satisfied')
+  assert.equal(r.pass, true, r.failures.join('\n'))
+})
+
+test('a stale verdict followed only by a docs commit stays done', () => {
+  const r = ev(
+    good({
+      files: [API, API_SPEC, 'README.md'],
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits('docs: fix a typo in the README\n\nac_verified: 1,2'),
+      compares: [cmp(OLD, ['README.md'])],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'satisfied')
+  assert.match(r.steps.find((s) => s.key === 'Review').detail, /docs/)
+})
+
+test("a base-branch merge that leaves the PR's own files alone keeps the verdict", () => {
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      // The merge brought in base-branch files; none of them is a file this PR changes.
+      ...mergeCommits(['apps/api/src/unrelated/other.service.ts', 'docs/x.md']),
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'satisfied')
+  assert.match(r.steps.find((s) => s.key === 'Review').detail, /base/)
+})
+
+test('a merge whose conflict resolution touched a file the PR owns makes the verdict stale', () => {
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      ...mergeCommits(['apps/api/src/unrelated/other.service.ts', API]),
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.ok(failureFor(r, 'Review').includes(API), failureFor(r, 'Review'))
+})
+
+test('a review with no commit_id is unverifiable, so not done (fail closed)', () => {
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: null }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.match(failureFor(r, 'Review'), /no commit_id/)
+})
+
+test('a verdict on a commit that is no longer in the PR (force-push) is stale', () => {
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: GONE }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.match(failureFor(r, 'Review'), /no longer part of the PR/)
+})
+
+test('a stale verdict with no drift measurement fails closed', () => {
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.match(failureFor(r, 'Review'), /could not be measured/)
+})
+
+test('a truncated or unavailable drift measurement fails closed', () => {
+  for (const over of [{ truncated: true }, { unavailable: true }]) {
+    const r = ev(
+      good({
+        reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+        commits: twoCommits(),
+        compares: [cmp(OLD, [], over)],
+      }),
+    )
+    assert.equal(status(r, 'Review'), 'stale', JSON.stringify(over))
+  }
+})
+
+test('an earlier FRESH positive verdict is honoured even when a later one is stale', () => {
+  const r = ev(
+    good({
+      reviews: [
+        rv('Verdict: APPROVE', { commit_id: HEAD, at: '2026-10-21T13:00:00Z' }),
+        rv('Verdict: APPROVE', { commit_id: OLD, at: '2026-10-21T14:00:00Z' }),
+        rv('Spec Review: PASS'),
+      ],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [API])],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'satisfied')
+})
+
+test('a fresh positive BEFORE a negative does not revive it', () => {
+  const r = ev(
+    good({
+      reviews: [
+        rv('Verdict: APPROVE', { commit_id: HEAD, at: '2026-10-21T13:00:00Z' }),
+        rv('Verdict: BLOCK', { commit_id: HEAD, at: '2026-10-21T14:00:00Z' }),
+        rv('Spec Review: PASS'),
+      ],
+      commits: twoCommits(),
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'missing')
+  assert.match(failureFor(r, 'Review'), /is negative/)
+})
+
+test('a negative verdict reads as before — unchanged behaviour, not stale', () => {
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: BLOCK', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [API])],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'missing')
+  assert.match(failureFor(r, 'Review'), /is negative/)
+})
+
+test('a stale verdict is still waivable by a recorded Skip line', () => {
+  const r = ev(
+    good({
+      body: `${FULL_BODY}Skip-Review: owner re-read the delta in the chat before merging\n`,
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [API])],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'skipped')
+  assert.equal(r.pass, true, r.failures.join('\n'))
+})
+
+// --- comment-borne verdicts: only `created_at` to go on ----------------------------------------
+
+const UI = 'apps/web/app/routes/x.tsx'
+const uiPr = (over = {}) =>
+  good({
+    files: [UI, 'apps/web/app/routes/x.spec.tsx'],
+    reviews: FULL_REVIEWS,
+    commits: twoCommits(),
+    ...over,
+  })
+
+test('a comment-borne verdict with no commit after it is done', () => {
+  const r = ev(
+    uiPr({
+      comments: [
+        cm('QA Verdict: PASS', { at: '2026-10-21T13:00:00Z' }),
+        cm('Design Review: PASS', { at: '2026-10-21T13:00:00Z' }),
+      ],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'satisfied')
+  assert.equal(status(r, 'Design-Review'), 'satisfied')
+})
+
+test('a comment-borne verdict with a code commit after it is stale', () => {
+  const r = ev(
+    uiPr({
+      comments: [
+        cm('QA Verdict: PASS', { at: '2026-10-21T09:00:00Z' }),
+        cm('Design Review: PASS', { at: '2026-10-21T09:00:00Z' }),
+      ],
+      compares: [cmp(OLD, [UI])],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'stale')
+  assert.equal(status(r, 'Design-Review'), 'stale')
+  assert.match(failureFor(r, 'QA'), /comment/)
+})
+
+test('a comment-borne verdict followed only by a docs commit stays done', () => {
+  const r = ev(
+    uiPr({
+      files: [UI, 'apps/web/app/routes/x.spec.tsx', 'README.md'],
+      comments: [
+        cm('QA Verdict: PASS', { at: '2026-10-21T09:00:00Z' }),
+        cm('Design Review: PASS', { at: '2026-10-21T09:00:00Z' }),
+      ],
+      compares: [cmp(OLD, ['README.md'])],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'satisfied')
+})
+
+test('a comment that predates every commit is stale', () => {
+  const r = ev(
+    uiPr({
+      comments: [cm('QA Verdict: PASS', { at: '2026-10-20T00:00:00Z' })],
+      compares: [],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'stale')
+  assert.match(failureFor(r, 'QA'), /predates/)
+})
+
+test('a commit with no committedAt makes a comment-borne verdict unverifiable', () => {
+  const r = ev(
+    uiPr({
+      comments: [cm('QA Verdict: PASS', { at: '2026-10-21T13:00:00Z' })],
+      commits: [commit('feat: x\n\nac_verified: 1', { sha: HEAD, committedAt: null })],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'stale')
+  assert.match(failureFor(r, 'QA'), /commit date/)
+})
+
+// --- the compare plan: which drift measurements the workflow must fetch --------------------------
+
+test('comparePlan names each distinct reference sha, never the head, and only hex shas', () => {
+  const plan = comparePlan(
+    withCounts(
+      good({
+        reviews: [
+          rv('Verdict: APPROVE', { commit_id: OLD }),
+          rv('Spec Review: PASS', { commit_id: OLD }),
+          rv('Security Review: APPROVE', { commit_id: HEAD }),
+        ],
+        commits: twoCommits(),
+      }),
+    ),
+  )
+  assert.deepEqual(plan, [OLD])
+})
+
+test('comparePlan includes the timestamp-derived sha of a comment-borne verdict', () => {
+  const plan = comparePlan(
+    withCounts(
+      uiPr({
+        comments: [cm('QA Verdict: PASS', { at: '2026-10-21T09:00:00Z' })],
+      }),
+    ),
+  )
+  assert.deepEqual(plan, [OLD])
+})
+
+test('comparePlan is capped, and an unmeasured sha then fails closed', () => {
+  assert.equal(typeof MAX_COMPARES, 'number')
+  const commits = []
+  const reviews = [rv('Spec Review: PASS')]
+  for (let i = 0; i < MAX_COMPARES + 3; i++) {
+    const sha = (i + 10).toString(16).padStart(2, '0').repeat(20)
+    commits.push(commit(`wip: ${i}`, { sha, committedAt: `2026-10-21T${String(i).padStart(2, '0')}:00:00Z` }))
+    reviews.push(rv('Verdict: APPROVE', { commit_id: sha, at: `2026-10-22T${String(i).padStart(2, '0')}:00:00Z` }))
+  }
+  commits.push(
+    commit('feat: last\n\nac_verified: 1', { sha: HEAD, committedAt: '2026-10-23T00:00:00Z' }),
+  )
+  const plan = comparePlan(withCounts(good({ reviews, commits })))
+  assert.equal(plan.length, MAX_COMPARES)
+  for (const sha of plan) assert.match(sha, /^[0-9a-f]{7,40}$/)
+})
+
+// --- completeness: the head must be among the listed commits -----------------------------------
+
+test('a head sha absent from the listed commits fails closed', () => {
+  const r = ev(good({ headSha: 'b'.repeat(40), commits: twoCommits() }))
+  assert.equal(r.pass, false)
+  assert.match(r.failures.join('\n'), /could not read the whole PR/)
+})
+
+test('a missing headSha is malformed input, not an empty head', () => {
+  assert.throws(() => evaluate({ ...withCounts(good()), headSha: null }), /headSha/)
+})
+
+test('render names STALE in the table', () => {
+  const pr = withCounts(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [API])],
+    }),
+  )
+  const text = render(evaluate(pr), pr)
+  assert.match(text, /\| Review \| STALE \|/)
+  assert.match(text, /a fresh pass on the new code/)
 })
