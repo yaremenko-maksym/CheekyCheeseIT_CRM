@@ -1,0 +1,46 @@
+{
+  "author": "whoishiring",
+  "children": [
+    {
+      "author": "hnuser04",
+      "children": [],
+      "created_at": "2026-09-02T18:29:44.000Z",
+      "created_at_i": 1788373784,
+      "id": 49540382,
+      "options": [],
+      "parent_id": 49522897,
+      "points": null,
+      "story_id": 49522897,
+      "text": "NYC | ONSITE (hybrid) Norm Ai, the agentic law company, has a client base with a combined $30 trillion in assets under management. Norm Ai pioneered Legal Engineering, the process that empowers lawyers to build and supervise domain-specific AI agents with Norm’s proprietary suite of no-code software tools. Norm Ai technology is deployed inside many of the largest and most consequential institutions in the world. Norm Ai is also the technology behind Norm Law, LLP, a separate but affiliated AI-native law firm built for the era of agentic AI. Norm Law’s attorneys advise leading institutions across private funds, private equity, venture capital, real estate, registered funds, and financial regulation, using the same legal intelligence platform that powers Norm Ai’s products.<p>The company is growing quickly and hiring in NYC across all teams, see list here: <a href=\"https:&#x2F;&#x2F;jobs.ashbyhq.com&#x2F;norm-ai?utm_source=7ow8wN5o3g\" rel=\"nofollow\">https:&#x2F;&#x2F;jobs.ashbyhq.com&#x2F;norm-ai?utm_source=7ow8wN5o3g</a>",
+      "title": null,
+      "type": "comment",
+      "url": null
+    },
+    {
+      "author": "hnuser05",
+      "children": [],
+      "created_at": "2026-09-08T19:49:58.000Z",
+      "created_at_i": 1788896998,
+      "id": 49615973,
+      "options": [],
+      "parent_id": 49522897,
+      "points": null,
+      "story_id": 49522897,
+      "text": "Remote (US) Close (<a href=\"https:&#x2F;&#x2F;close.com\" rel=\"nofollow\">https:&#x2F;&#x2F;close.com</a>) | Senior&#x2F;Staff Backend Engineer, Backend Platform | Full-time<p>We&#x27;re bootstrapped, profitable, and 130 people, all remote, building an AI-powered CRM. We&#x27;re spinning up a new Backend Platforms team and you&#x27;d be one of the first hires — unusual influence over what it owns.<p>You&#x27;d build for other engineers: the paved-road patterns under our Python&#x2F;Flask API layer (REST + GraphQL, auth, permissions, migrations), the Flask→FastAPI path, production observability standards, and our AI dev platform — DevDawg (cloud dev environments for the whole stack) and Spice (our agent layer that already auto-approves simple PRs). Making Spice safe across more of our review surface is the team&#x27;s biggest project.<p>Stack: Python, Flask, FastAPI, GraphQL, TaskTiger, Rust, TypeScript, Kafka, Redis, MongoDB, PostgreSQL, Elasticsearch, Docker, Kubernetes, AWS.<p>Looking for: deep Python, shipped LLM&#x2F;agentic work to real users, daily coding-agent use with a real POV, strong observability and API design instincts.<p>Also: ~5 weeks PTO + winter break, optional 4-day week at 80% pay, 1-month sabbatical every 5 years, 99% of medical premiums covered, 401k match to 6%.<p>Our code: <a href=\"https:&#x2F;&#x2F;github.com&#x2F;closeio\" rel=\"nofollow\">https:&#x2F;&#x2F;github.com&#x2F;closeio</a> (TaskTiger, SocketShark, ciso8601)\nEng blog: <a href=\"https:&#x2F;&#x2F;making.close.com\" rel=\"nofollow\">https:&#x2F;&#x2F;making.close.com</a>\nApply: <a href=\"https:&#x2F;&#x2F;jobs.ashbyhq.com&#x2F;close&#x2F;5bf4629b-d2ee-4129-980f-e31b96185c9c\" rel=\"nofollow\">https:&#x2F;&#x2F;jobs.ashbyhq.com&#x2F;close&#x2F;5bf4629b-d2ee-4129-980f-e31b9...</a>",
+      "title": null,
+      "type": "comment",
+      "url": null
+    }
+  ],
+  "created_at": "2026-09-01T15:01:17.000Z",
+  "created_at_i": 1788274877,
+  "id": 49522897,
+  "options": [],
+  "parent_id": null,
+  "points": 254,
+  "story_id": 49522897,
+  "text": "Please state the location and include REMOTE for remote work, REMOTE (US)\nor similar if the country is restricted, and ONSITE when remote work is <i>not</i> an option.<p>Please only post if you personally are part of the hiring company—no\nrecruiting firms or job boards. One post per company. If it isn&#x27;t a household name,\nexplain what your company does.<p>Please only post if you are actively filling a position and are committed\nto replying to applicants.<p>Commenters: please don&#x27;t reply to job posts to complain about\nsomething. It&#x27;s off topic here.<p>Readers: please only email if you are personally interested in the job.<p>Searchers: try <a href=\"https:&#x2F;&#x2F;hnwork.app\" rel=\"nofollow\">https:&#x2F;&#x2F;hnwork.app</a>, <a href=\"https:&#x2F;&#x2F;nthesis.ai&#x2F;public&#x2F;hn-who-is-hiring\" rel=\"nofollow\">https:&#x2F;&#x2F;nthesis.ai&#x2F;public&#x2F;hn-who-is-hiring</a>, <a href=\"https:&#x2F;&#x2F;dheerajck.github.io&#x2F;hnwhoishiring&#x2F;\" rel=\"nofollow\">https:&#x2F;&#x2F;dheerajck.github.io&#x2F;hnwhoishiring&#x2F;</a>,\n<a href=\"http:&#x2F;&#x2F;nchelluri.github.io&#x2F;hnjobs&#x2F;\" rel=\"nofollow\">http:&#x2F;&#x2F;nchelluri.github.io&#x2F;hnjobs&#x2F;</a>, <a href=\"https:&#x2F;&#x2F;hnjobs.emilburzo.com\" rel=\"nofollow\">https:&#x2F;&#x2F;hnjobs.emilburzo.com</a>.<p>Don&#x27;t miss this other fine thread: <i>Who wants to be hired?</i> <a href=\"https:&#x2F;&#x2F;news.ycombinator.com&#x2F;item?id=49522896\">https:&#x2F;&#x2F;news.ycombinator.com&#x2F;item?id=49522896</a>",
+  "title": "Ask HN: Who is hiring? (September 2026)",
+  "type": "story",
+  "url": null
+}

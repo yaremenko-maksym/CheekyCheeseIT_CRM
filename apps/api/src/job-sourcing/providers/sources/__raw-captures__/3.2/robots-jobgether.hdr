@@ -1,0 +1,24 @@
+HTTP/2 200 
+date: Sat, 24 Oct 2026 02:37:43 GMT
+content-type: text/plain
+content-length: 453
+cf-ray: a4f599e8a976bfd5-WAW
+cf-cache-status: HIT
+accept-ranges: bytes
+access-control-allow-origin: https://auth.jobgether.com
+age: 14389
+etag: "0x8DF31222DFC4200"
+last-modified: Fri, 23 Oct 2026 16:24:58 GMT
+server: cloudflare
+strict-transport-security: max-age=63072000; includeSubDomains; preload
+vary: accept-encoding
+access-control-allow-headers: Content-Type, Authorization
+access-control-allow-methods: GET, POST, OPTIONS
+content-md5: kI2V3UpmgW4hQ4v0NFc/0w==
+content-security-policy: script-src-elem 'self' 'unsafe-inline' data: https://cdn.mxpnl.com https://widget.trustpilot.com https://reviewcollection.trustpilot.com https://challenges.cloudflare.com/ https://community.cloudflare.com https://ajax.googleapis.com https://track.jobgether.com https://cdn.cookie-script.com https://www.googletagmanager.com https://connect.facebook.net https://googleads.g.doubleclick.net https://geo.cookie-script.com https://www.gstatic.com https://eu-assets.i.posthog.com https://static.cloudflareinsights.com https://tally.so https://www.google.com; worker-src https://api.mapbox.com https://jobgether.com blob: https://www.googletagmanager.com/gtm.js https://connect.facebook.net/en_US/fbevents.js; frame-ancestors 'self' https://company-admin.jobgether.com https://admin.jobgether.com;
+permissions-policy: geolocation=(self "https://jobgether.com" "https://*.jobgether.com")
+expect-ct: max-age=86400, enforce
+x-frame-options: SAMEORIGIN
+x-ms-request-id: 72a0e871-701e-000d-293f-63bd99000000
+x-ms-version: 2018-03-28
+

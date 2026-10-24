@@ -1,0 +1,12 @@
+HTTP/2 200 
+server: nginx/1.18.0 (Ubuntu)
+date: Sat, 24 Oct 2026 02:37:43 GMT
+content-type: text/plain
+content-length: 23
+vary: Accept-Encoding
+x-frame-options: DENY
+vary: Cookie
+x-content-type-options: nosniff
+referrer-policy: same-origin
+cross-origin-opener-policy: same-origin
+
