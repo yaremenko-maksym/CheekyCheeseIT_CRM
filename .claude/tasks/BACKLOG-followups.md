@@ -4949,6 +4949,33 @@ names both refusal shapes, so a loop built from it handles the throw as well as 
 configured quota key is provably absent from a report the collection loop produced, asserted on the
 report rather than on the reader's return value.
 
+## 309. A posting whose employer is withheld at the source has nowhere to live (2026-10-24)
+
+**Open.** Found while reviewing the RSS adapters of r5 Task 3.6; it is the reason two of the three
+sources yield nothing.
+
+An observation with no employer is quarantined `MISSING_COMPANY`, a rule introduced with the shared
+observation identity seam. That rule reads every empty employer as a defect. **Djinni's feed carries
+no employer field at all** — the site withholds it until a candidate applies — so a correct adapter
+over a healthy feed produces zero stored rows, and the source is worthless rather than partial.
+
+"Withheld at the source" is a third value, distinct from "present" and from "we failed to parse it",
+and the ingestion contract cannot express it. Settle, before writing code: what deduplication does
+when one of two sources naming the same posting discloses the employer; what a per-senior company
+exclusion means against an unknown employer, since an excluded company can arrive anonymously; and
+whether an anonymous posting is worth a SENIOR's attention at all. The last is the owner's call.
+
+**Second, separate requirement, same area:** the shared feed reader exposes only the common
+RSS/Atom fields, so a feed's namespaced extension elements are parsed but unreachable by an adapter.
+EU Remote Jobs' employer IS in its feed, as `job_listing:company`, and is lost to this; We Work
+Remotely's region, country, type, skills and expiry are lost to the same gap, which is why the
+enrichment item of that task shipped undone. An extension slot stays untrusted input: the port's
+existing bounds on element count, depth and value length apply to it unchanged.
+
+**Check on closing:** a Djinni-shaped item that is quarantined today produces a stored posting whose
+employer is explicitly unknown; an EU Remote Jobs item produces an employer read from its namespaced
+element; and no new bound ships with only a refusal-side test.
+
 ## 311. Flow Gate: three matcher and classifier gaps found by using it (2026-10-24)
 
 All three surfaced while putting real PRs through the gate on the day it became required. None is a
@@ -5007,6 +5034,67 @@ is one people route around — worse than the hole. A docs-only exemption (every
 a reporting choice worth making deliberately: `MISSING` is strictest, but a distinct `STALE` status
 tells the author whether they need to run a reviewer or get a fresh pass, and those are different
 remedies.
+
+### It happened in production while the fix was in review (measured 2026-10-24)
+
+Not a hypothetical any more. **PR #1103 merged at 02:25:44Z carrying stale verdicts on all three
+axes**, hours after this gap was written up and while the fix for it (#1116) was under review. The
+fix's own blast-radius run had named #1103 as the one PR that would newly block — and it merged
+before the fix did.
+
+Measured, and the arithmetic matters because the raw diff grossly overstates it:
+
+|                                                            | files | lines        |
+| ---------------------------------------------------------- | ----- | ------------ |
+| diff from the code/security verdict sha to the merged head | 53    | +6544 / −207 |
+| of those, files the PR itself **owns**                     | 4     | +462 / −28   |
+| same, measured from the spec `PASS` sha                    | 2     | +184 / −25   |
+
+The 53-file figure is almost all base-branch movement — the branch merged `main` in between, which
+brought three other PRs with it. **Quoting it as "merged without review" would be false**, and it is
+the trap entry 301 describes: a real measurement, less precise than the claim it would support. The
+honest number is the intersection of the drift with the PR's own net diff, which is exactly the
+quantity #1116's rule computes (`drift ∩ P`) — the entry and the fix agree on what to measure.
+
+What actually merged unreviewed: `account-meter.store.ts` and two of its spec files, **+462 lines of a
+metering and quota store**, after `Verdict: APPROVE` and `Security Review: APPROVE` were both given on
+`36c209006` and the head moved on. The spec `PASS` on `d1c2f578a` was stale too, by 184 lines of the
+store itself. The PR had a `Security Review: BLOCK` earlier in its history, so this is not a surface
+nobody worried about.
+
+**The step this rests on, made explicit because it is the one that could be wrong.** "Merged on stale
+verdicts" is only true if no fresh verdict landed between the last one and the merge. The full review
+list (`--paginate`, so not a truncated page) ends at `Spec Review: PASS` at **00:52:25Z**; the merge is
+at **02:25:44Z**. Nothing was submitted in that hour and a half, and the latest verdict on each axis
+sits on a sha that is not the merged head: code and security on `36c209006`, spec on `d1c2f578a`, head
+`f8afb7ab7`. Without that check the claim would rest on a snapshot taken earlier, which is a different
+and weaker statement.
+
+Reconstruct it with:
+
+```
+gh api repos/<owner>/<repo>/pulls/1103/reviews --paginate \
+  --jq '.[] | select(.body | test("^(Verdict|Spec Review|Security Review):")) | "\(.commit_id[0:9]) \(.body | split("\n")[0])"'
+gh pr view 1103 --json headRefOid,mergedAt
+# then intersect: git diff --name-only <base>...<head>  vs  git diff --name-only <verdict sha> <head>
+```
+
+**The decisive fact, which is stronger than "the verdicts were stale".** The `Flow Gate` check run on
+the merged head concluded **`success` at 02:14:04Z**, eleven minutes before the 02:25:44Z merge:
+
+```
+gh api repos/<owner>/<repo>/commits/f8afb7ab7/check-runs --jq '.check_runs[] | select(.name=="Flow Gate") | "\(.conclusion) \(.completed_at)"'
+```
+
+So the gate did not merely fail to notice. **It affirmatively certified every step as `done` for a head
+whose code and security verdicts had been given three commits earlier.** A gate that stays silent is a
+gap; a gate that returns a positive answer about something it did not measure is a false statement,
+and it is the shape `verification-integrity.md` is built around — an instrument reporting a result when
+it had not looked at the thing it was reporting on.
+
+**Why this belongs in the entry rather than only in #1116's body:** it answers the objection that
+head-pinning is ceremony. The gate reported every step `done` for this PR, and every step was `done` —
+for code that is not what merged.
 
 **Check on closing:** a PR with a positive review verdict on an older sha does NOT report that step
 `done`; the same PR with only a subsequent docs commit still does; and the gate still fails closed on
