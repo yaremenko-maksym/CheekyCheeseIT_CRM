@@ -1,8 +1,11 @@
 # Raw captures kept for Task 3.2
 
-Only captures with no personal data and a spec or a provenance hash that depends on them are kept.
-Anything carrying comments or other user-submitted text is not committed (the Hacker News threads
-were, by mistake, and were removed: `fixture-provenance.spec.ts` now scans the whole tree).
+Only captures that a spec or a provenance hash depends on are kept. Anything carrying comments or
+other user-submitted text is not committed (the Hacker News threads were, by mistake, and were removed).
+Whether a kept capture holds an e-mail address is established by the scan in `fixture-provenance.spec.ts`
+(every `@`-equivalent token is reported and allow-listed by reason), not by this sentence; the scan reads
+addresses, not names. `an-p1.raw.gz` is a REDACTED copy: two named individuals' addresses in Outlook
+Safelinks parameters were replaced by a same-length placeholder (details in the Privacy record).
 
 | File                                               | What it proves                                                                                                                                 |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -17,6 +20,14 @@ were, by mistake, and were removed: `fixture-provenance.spec.ts` now scans the w
 (the argument is `termsCheckedAt`); sections whose raw capture is absent are skipped.
 
 ## Privacy record
+
+- `an-p1.raw.gz` held two named individuals' e-mail addresses (one a `.gov.uk` address), URL-encoded as
+  `%40` inside Outlook Safelinks tracking parameters; the earlier address scan missed them. They were
+  replaced by `x...x%40example.invalid` of the same length, so the decoded size (4209793 bytes, the
+  byte-cap evidence) is unchanged. `rawSha256` of `arbeitnow/page-1` stays the hash of the bytes as
+  received; the committed copy has its own pin in the spec. **The pre-redaction blob stays fetchable by
+  its sha through this PR's refs until the platform purges it; purging is the owner's action, and a
+  squash merge keeps it out of `main` but does not delete it.**
 
 - The raw Hacker News thread captures (462 unique commenter e-mail addresses) were committed to
   this PR by mistake and removed in a later commit. **The blobs stay reachable through the PR's

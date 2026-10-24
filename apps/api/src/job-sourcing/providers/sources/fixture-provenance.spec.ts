@@ -62,9 +62,21 @@ const FIXTURES: Record<string, Record<string, Permission>> = {
   },
 }
 
+/**
+ * `an-p1.raw.gz` is committed REDACTED, so it is not a row above. Convention (the one the Hacker News
+ * redaction set, `trim-captures-3.2.mjs` header: "`rawSha256` is the sha256 of the bytes as RECEIVED"):
+ * the provenance keeps the hash of what was fetched, the redaction is recorded in the notes, and the
+ * committed bytes get their own pin here. Two named individuals' e-mail addresses, percent-encoded in
+ * Outlook Safelinks parameters, were replaced by `x...x%40example.invalid` of the SAME length, so the
+ * decoded size (4209793, the byte-cap evidence) is unchanged.
+ */
+const REDACTED_AN_P1 = {
+  decodedBytes: 4209793,
+  decodedSha256: '4f5e334fcd52f8fa49134f1c4dd9364869330a555cad19f8b981615a38ca5d1a',
+}
+
 /** Fixtures whose raw capture is still committed: the raw bytes must hash to `rawSha256`. */
 const RAW_CAPTURES: Array<[provider: string, name: string, rawFile: string]> = [
-  ['arbeitnow', 'page-1', 'an-p1.raw.gz'],
   ['arbeitnow', 'empty-page', 'an-p100.raw'],
   ['jobgether', 'page-1', 'jg-p1.raw'],
   ['jobgether', 'page-10', 'jg-p10.raw'],
@@ -142,6 +154,15 @@ describe('fixture provenance', () => {
     },
   )
 
+  it('arbeitnow/page-1: the committed capture is the redacted copy; rawSha256 still names what was fetched', () => {
+    const bytes = gunzipSync(readFileSync(join(RAW_ROOT, '3.2', 'an-p1.raw.gz')))
+    expect(bytes.length).toBe(REDACTED_AN_P1.decodedBytes)
+    expect(sha256(bytes)).toBe(REDACTED_AN_P1.decodedSha256)
+    const p = provenanceOf('arbeitnow', 'page-1')
+    expect(p.rawSha256).not.toBe(REDACTED_AN_P1.decodedSha256)
+    expect(p.notes).toContain('REDACTED COPY')
+  })
+
   it('keeps no Working Nomads job data: its only artifact is the terms page, committed byte for byte', () => {
     const dir = join(ROOT, 'workingnomads')
     expect(readdirSync(dir).sort()).toEqual(['terms.html.provenance.json', 'terms.html.txt'])
@@ -156,42 +177,188 @@ describe('fixture provenance', () => {
 })
 
 /**
- * LITERAL and OBFUSCATED e-mail addresses in the files under `sources/__fixtures__/` and
- * `sources/__raw-captures__/`, raw captures and scripts included, `.gz` decompressed. The allow-list
- * is per FILE and per ADDRESS (an obfuscated one is listed by its whitespace-collapsed text): the
- * redaction placeholder, and the published role mailboxes kept as evidence. A new address in an
- * allow-listed file fails, as does any address in any other file.
+ * EVERY `@`-EQUIVALENT TOKEN in the files under `sources/__fixtures__/` and `sources/__raw-captures__/`
+ * (raw captures and scripts included, `.gz` decompressed) is reported as a HIT and must be allow-listed
+ * by file, by value and by REASON in `ALLOWED_HITS`, or be the redaction placeholder.
  *
- * WHAT IS MATCHED: `local@domain.tld`; the bracket and paren forms `[at]` and `(at)` (spaces around
- * them allowed); the entities `&#64;`, `&#x40;`, `&commat;`; and `(dot)` / `[dot]` between domain labels.
- * Hacker News commenters obfuscate precisely to defeat a scanner, so the literal form alone is not enough.
+ * The scan is by TOKEN, not by address grammar, because grammar-guessing failed: it was widened for
+ * seven review rounds (literal, `[at]`, `(at)`, entities) and still missed two named individuals'
+ * addresses written `name%40domain` inside a tracking URL (PR #1120). Tokens: `@`, `%40`, `%2540`,
+ * `&#0*64;`, `&#x0*40;`, `&commat;`, `@`. The text around the token is reported with it. The
+ * bracket and paren forms `[at]` / `(at)` (spaces allowed, `(dot)` / `[dot]` between labels) carry no
+ * such token, so they keep their own rule.
  *
- * WHAT IS NOT COVERED (a scan that reads nothing passes like one that finds nothing, so the limits
- * are stated): the spelled-out form `x at y dot z` (none exists in the tree today); a JSON `\u0040`
- * escape; any compression but `.gz` (a `.br` or `.zst` capture would pass unseen; none exists); and
- * every directory outside the two roots above, e.g. `job-sourcing/__fixtures__` and
- * `meeting-recorder/__fixtures__`. The last was grepped for literal addresses by hand and found clean.
+ * PAIRED TESTS, edit both together: "finds no hit except ..." alone stays green if the regex is dead
+ * (nothing is found, so nothing offends); "every allow-listed file ... carries exactly the hits listed"
+ * is what fails then, because it requires the allow-listed hits to be FOUND.
+ *
+ * WHAT THIS MEASURES: addresses, NOT names. A green scan is not "no personal data": a named person
+ * beside an allow-listed role mailbox (e.g. the managing director in an Impressum block) is personal
+ * data this instrument never looks for.
+ *
+ * NOT COVERED (a scan that reads nothing passes like one that finds nothing, so the limits are stated):
+ * the spelled-out form `x at y dot z` (none exists in the tree today); any compression but `.gz` (a
+ * `.br` or `.zst` capture would pass unseen; none exists); and every directory outside the two roots,
+ * e.g. `job-sourcing/__fixtures__` and `meeting-recorder/__fixtures__` (grepped by hand for literal
+ * addresses, found clean).
  */
-const AT = String.raw`(?:\s*(?:\[at\]|\(at\))\s*|&#64;|&#x40;|&commat;)`
+const TOKEN = String.raw`(?:@|%40|%2540|&#0*64;|&#x0*40;|&commat;|\\u0040)`
+const AT = String.raw`(?:\s*(?:\[at\]|\(at\))\s*)`
 const DOT = String.raw`(?:\.|\s*(?:\[dot\]|\(dot\))\s*)`
 const LABEL = String.raw`[A-Za-z0-9-]+`
-const LITERAL_EMAIL = String.raw`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`
-const OBFUSCATED_EMAIL = String.raw`[A-Za-z0-9._%+-]+${AT}${LABEL}(?:${DOT}${LABEL})*`
-const EMAIL = new RegExp(`${LITERAL_EMAIL}|${OBFUSCATED_EMAIL}`, 'gi')
-const PLACEHOLDER = 'redacted@example.invalid'
-const PUBLISHED_CONTACTS: Record<string, string[]> = {
-  'workingnomads/terms.html.txt': ['hello@workingnomads.com', 'report@workingnomads.com'],
-  // Obfuscated, all published role mailboxes of an employer or a platform (checked by reading the context):
-  // an employer's contact line in a job post.
-  'hn-hiring/thread-2026-10.json': ['jobs[at]openeducation.foundation'],
-  // Remotive's own contact for API questions, quoted in its feed.
-  'remotive/software-dev.json': ['hello(at)remotive(dot)io'],
-  '__raw-captures__/3.2/an-p1.raw.gz': [
-    'contact (at) coni-partner.com', // the generic contact line of an employer's imprint block
-    'hr.dataprivacy(at)doctolib.com', // an employer's data-protection contact in its job ad
-    'security [at] perk', // a platform's published security contact ("security [at] perk .com")
-  ],
-}
+const TOKEN_HIT = String.raw`[A-Za-z0-9._%+-]*${TOKEN}[A-Za-z0-9.-]*`
+const OBFUSCATED_HIT = String.raw`[A-Za-z0-9._%+-]+${AT}${LABEL}(?:${DOT}${LABEL})*`
+const HIT = new RegExp(`${TOKEN_HIT}|${OBFUSCATED_HIT}`, 'gi')
+// A hit that ends in the reserved `example.invalid` domain is the redaction placeholder by definition.
+const isPlaceholder = (hit: string) => /(?:@|%40)example\.invalid$/i.test(hit)
+
+const SOCIAL = 'a social-media handle or at-mention in a job ad: no local part, not an address'
+const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
+  {
+    file: 'workingnomads/terms.html.txt',
+    reason:
+      'the published role mailboxes of a third-party terms page, kept as evidence of a verdict',
+    hits: ['hello@workingnomads.com', 'report@workingnomads.com'],
+  },
+  {
+    file: 'workingnomads/terms.html.txt',
+    reason: 'a CSS @media rule in the committed page',
+    hits: ['@media'],
+  },
+  {
+    file: 'wwr/unknown-category.challenge-403.html',
+    reason: 'a CSS @media rule in a committed challenge page',
+    hits: ['@media'],
+  },
+  {
+    file: 'hn-hiring/thread-2026-10.json',
+    reason: "an employer's contact line in a job post, obfuscated by the poster",
+    hits: ['jobs[at]openeducation.foundation'],
+  },
+  {
+    file: 'remotive/software-dev.json',
+    reason: "Remotive's own contact for API questions, quoted in its feed",
+    hits: ['hello(at)remotive(dot)io'],
+  },
+  {
+    file: 'jobicy/seeded-page1.json',
+    reason:
+      'a domain naming where recruiter mail comes from ("an @banyansoftware.com address"): no local part',
+    hits: ['@banyansoftware.com'],
+  },
+  {
+    file: 'greenhouse/airbnb-board.json',
+    reason: 'a bare @ in job-board text: no local part, not an address',
+    hits: ['@'],
+  },
+  {
+    file: '__raw-captures__/3.2/README.md',
+    reason: 'the prose "HN @<handle>" and the encoding %40 named in the privacy record: no address',
+    hits: ['%40', '@'],
+  },
+  {
+    file: 'djinni/primary-keyword-rust.truncated.provenance.json',
+    reason: 'the @truncate marker of the truncation record',
+    hits: ['@truncate'],
+  },
+  {
+    file: 'wwr/category-devops.truncated.provenance.json',
+    reason: 'the @truncate marker of the truncation record',
+    hits: ['@truncate'],
+  },
+  {
+    file: 'euremotejobs/jobs-feed.truncated.provenance.json',
+    reason: 'the @truncate-at-channel-close marker of the truncation record',
+    hits: ['@truncate-at-channel-close'],
+  },
+  {
+    file: 'trim-rss-items.py',
+    reason: 'the @truncate markers the script writes',
+    hits: ['@truncate', '@truncate-at-channel-close'],
+  },
+  {
+    file: 'jobgether/deprecated-path.provenance.json',
+    reason: 'a Sunset header value (@ + unix time), a date and not an address',
+    hits: ['@1787875200'],
+  },
+  {
+    file: '__raw-captures__/3.2/jg-depr.hdr',
+    reason: 'a Sunset header value (@ + unix time), a date and not an address',
+    hits: ['@1787875200'],
+  },
+  {
+    file: 'trim-captures-3.2.mjs',
+    reason: 'a Sunset header value (@ + unix time) and the regex source of the redaction',
+    hits: ['+@', '@1787875200'],
+  },
+  {
+    file: 'trim-captures.mjs',
+    reason: 'the regex source of the redaction',
+    hits: ['+@'],
+  },
+  {
+    file: 'trim-ats-a-captures.mjs',
+    reason: 'the regex source of the redaction',
+    hits: ['+@'],
+  },
+  {
+    file: '__raw-captures__/3.2/an-terms.html',
+    reason: 'Alpine.js directives (@click, @mouseenter ...) in the committed terms page',
+    hits: [
+      '@arbeitnow',
+      '@click',
+      '@click.away',
+      '@close-popover-group.window',
+      '@keydown.escape',
+      '@mouseenter',
+      '@mouseleave',
+    ],
+  },
+  {
+    file: '__raw-captures__/3.2/an-p1.raw.gz',
+    reason: SOCIAL,
+    hits: ['@', '@Curatible', '@EURODYN', '@SoftOne', '@SotremoSA', '@lifeat12build', '@mention'],
+  },
+  {
+    file: '__raw-captures__/3.2/an-p1.raw.gz',
+    reason: 'CSS-framework class prefixes (@md, @sm) inside embedded markup',
+    hits: ['@md', '@sm'],
+  },
+  {
+    file: '__raw-captures__/3.2/an-p1.raw.gz',
+    reason:
+      'a benefits tag, a metric name and a company name that contain an @: no domain, not addresses',
+    hits: ['Recall@k', 'Woman@capco'],
+  },
+  {
+    file: '__raw-captures__/3.2/an-p1.raw.gz',
+    reason: "an employer's published data-protection contact in its job ad (role mailbox)",
+    hits: ['hr.dataprivacy(at)doctolib.com'],
+  },
+  {
+    file: '__raw-captures__/3.2/an-p1.raw.gz',
+    reason:
+      'a platform\'s published security contact, written "security [at] perk .com" (role mailbox)',
+    hits: ['security [at] perk'],
+  },
+  {
+    file: '__raw-captures__/3.2/an-p1.raw.gz',
+    reason: "the generic contact line of an employer's statutory imprint (role mailbox)",
+    hits: ['contact (at) coni-partner.com'],
+  },
+  {
+    file: '__raw-captures__/3.2/an-p2.raw.gz',
+    reason: SOCIAL,
+    hits: ['@', '@Curatible', '@InsideGeotab', '@SoftOne', '@SotremoSA', '@bluuwash', '@iwocauk'],
+  },
+  {
+    file: '__raw-captures__/3.2/an-p2.raw.gz',
+    reason: 'a CSS-framework class prefix (@sm) and a company name (Is@talent): not addresses',
+    hits: ['@sm', 'Is@talent'],
+  },
+]
+const allowedHitsOf = (label: string) =>
+  ALLOWED_HITS.filter((e) => label === e.file).flatMap((e) => e.hits)
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -210,13 +377,14 @@ const labelOf = (file: string) => relative(file.startsWith(RAW_ROOT) ? __dirname
 const pathOfLabel = (label: string) =>
   label.startsWith(RAW_LABEL_PREFIX) ? join(__dirname, label) : join(ROOT, label)
 
-function addressesIn(path: string): string[] {
+function hitsIn(path: string): string[] {
   const raw = readFileSync(path)
   const text = (path.endsWith('.gz') ? gunzipSync(raw) : raw).toString('utf8')
-  return [...new Set((text.match(EMAIL) ?? []).map((a) => a.replace(/\s+/g, ' ')))].sort()
+  const hits = (text.match(HIT) ?? []).map((h) => h.replace(/\s+/g, ' ').replace(/[.-]+$/, ''))
+  return [...new Set(hits)].sort()
 }
 
-describe('no e-mail address, literal or obfuscated, in the two scanned roots except the allow-listed ones', () => {
+describe('every @-equivalent token in the two scanned roots is the placeholder or allow-listed by reason', () => {
   const files = [...walk(ROOT), ...walk(RAW_ROOT)]
   const rel = files.map(labelOf)
 
@@ -231,9 +399,8 @@ describe('no e-mail address, literal or obfuscated, in the two scanned roots exc
   })
 
   it('the scan root is __raw-captures__ itself, not one task directory under it', () => {
-    // A guard, not a probe: with the root narrowed back to `.../3.2` every label below would be
-    // computed identically and nothing else in this file would notice. (Checked by hand once with a
-    // `__raw-captures__/3.4/hn-probe.raw` file: both the offender scan and the hn- check failed.)
+    // Weak on its own: a root renamed but still narrowed to one task passes this identically. The
+    // listing test below is what carries the weight; this one only pins the constant's name.
     expect(basename(RAW_ROOT)).toBe('__raw-captures__')
   })
 
@@ -252,29 +419,31 @@ describe('no e-mail address, literal or obfuscated, in the two scanned roots exc
     const raw = '__raw-captures__/3.2/robots-workingnomads.txt'
     expect(rel).toContain(raw)
     expect(pathOfLabel(raw)).toBe(join(RAW_ROOT, '3.2', 'robots-workingnomads.txt'))
-    expect(() => addressesIn(pathOfLabel(raw))).not.toThrow()
+    expect(() => hitsIn(pathOfLabel(raw))).not.toThrow()
     expect(pathOfLabel('workingnomads/terms.html.txt')).toBe(
       join(ROOT, 'workingnomads', 'terms.html.txt'),
     )
     for (const file of files) expect(pathOfLabel(labelOf(file))).toBe(file)
   })
 
-  it('finds no address except the placeholder and the allow-listed published contacts', () => {
+  it('finds no hit except the placeholder and the allow-listed ones', () => {
     const offenders = files.flatMap((file) => {
       const name = labelOf(file)
-      const allowed = new Set([PLACEHOLDER, ...(PUBLISHED_CONTACTS[name] ?? [])])
-      return addressesIn(file)
-        .filter((a) => !allowed.has(a))
-        .map((a) => `${name}: ${a}`)
+      const allowed = new Set(allowedHitsOf(name))
+      return hitsIn(file)
+        .filter((h) => !isPlaceholder(h) && !allowed.has(h))
+        .map((h) => `${name}: ${h}`)
     })
     expect(offenders).toEqual([])
   })
 
-  it('every allow-listed file exists and still carries exactly the addresses listed for it', () => {
-    for (const [name, expected] of Object.entries(PUBLISHED_CONTACTS)) {
+  it('every allow-listed file exists and still carries exactly the hits listed for it', () => {
+    // Pairs with the test above: that one is green when the pattern is dead, this one is not.
+    const labels = [...new Set(ALLOWED_HITS.map((e) => e.file))]
+    for (const name of labels) {
       expect(rel).toContain(name)
-      expect(addressesIn(pathOfLabel(name)).filter((a) => a !== PLACEHOLDER)).toEqual(
-        [...expected].sort(),
+      expect(hitsIn(pathOfLabel(name)).filter((h) => !isPlaceholder(h))).toEqual(
+        [...new Set(allowedHitsOf(name))].sort(),
       )
     }
   })
