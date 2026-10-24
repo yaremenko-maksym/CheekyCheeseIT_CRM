@@ -115,6 +115,5 @@ export function compareRanked(a: RankedRow, b: RankedRow): number {
   if (a.score !== b.score) return b.score - a.score
   const seen = b.firstSeenAt.getTime() - a.firstSeenAt.getTime()
   if (seen !== 0) return seen
-  if (a.opportunityId === b.opportunityId) return 0
-  return a.opportunityId < b.opportunityId ? 1 : -1
+  return (a.opportunityId < b.opportunityId ? 1 : 0) - (a.opportunityId > b.opportunityId ? 1 : 0)
 }

@@ -272,4 +272,11 @@ describe('compareRanked: (score, firstSeenAt, opportunityId) descending', () => 
       compareRanked(row(1, '2026-10-01T00:00:00Z', 'a'), row(1, '2026-10-01T00:00:00Z', 'a')),
     ).toBe(0)
   })
+
+  it('breaks a full tie by id, descending, in both argument orders', () => {
+    const lo = row(1, '2026-10-01T00:00:00Z', 'a')
+    const hi = row(1, '2026-10-01T00:00:00Z', 'b')
+    expect(compareRanked(lo, hi)).toBe(1)
+    expect(compareRanked(hi, lo)).toBe(-1)
+  })
 })

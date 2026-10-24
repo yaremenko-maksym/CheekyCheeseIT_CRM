@@ -64,9 +64,11 @@ const VENDOR_HOSTS = [
 ]
 
 /** Capture groups of `re` on `text`, or null. Every group of every pattern above is mandatory. */
-function groups(re: RegExp, text: string): string[] | null {
+function groups(re: RegExp, text: string): [string, string] | null {
   const m = re.exec(text)
-  return m === null ? null : (m.slice(1) as string[])
+  // Typed as a pair so call sites index without `undefined` noise: patterns with one group never
+  // read [1], and patterns with two always capture both (no optional groups).
+  return m === null ? null : (m.slice(1) as [string, string])
 }
 
 function make(
@@ -89,9 +91,15 @@ function hosted(host: string, path: string, query: URLSearchParams): AtsJobKey |
   if (GH_HOST.test(host)) {
     const m = groups(GH_PATH, path)
     if (m !== null) return make('greenhouse', m[0], m[1], 'ATS_HOSTED')
-    const board = query.get('for') ?? ''
-    const token = query.get('token') ?? ''
-    if (GH_EMBED_PATH.test(path) && NAME_ONLY.test(board) && DIGITS_ONLY.test(token)) {
+    const board = query.get('for')
+    const token = query.get('token')
+    if (
+      GH_EMBED_PATH.test(path) &&
+      board !== null &&
+      token !== null &&
+      NAME_ONLY.test(board) &&
+      DIGITS_ONLY.test(token)
+    ) {
       return make('greenhouse', board, token, 'ATS_HOSTED')
     }
     return null
@@ -137,8 +145,9 @@ export function atsJobKey(raw: string | null | undefined): AtsJobKey | null {
   // host but not an employer site, and would read like a board slug; the scope is also in the key
   // tuple, so the two can never collide.
   // A vendor host is never an "employer host": a URL it rejected stays rejected.
-  const jid = searchParams.get('gh_jid') ?? ''
-  return DIGITS_ONLY.test(jid) &&
+  const jid = searchParams.get('gh_jid')
+  return jid !== null &&
+    DIGITS_ONLY.test(jid) &&
     hostname.includes('.') &&
     !VENDOR_HOSTS.some((re) => re.test(hostname))
     ? make('greenhouse', hostname, jid, 'EMPLOYER_HOST')

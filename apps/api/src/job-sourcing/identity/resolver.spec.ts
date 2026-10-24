@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   IDENTITY_RULES_VERSION,
   assess,
+  assessWithRevocations,
+  revocationSet,
   canAttach,
   canonicalAuthorityPolicyVersion,
   chooseCanonical,
@@ -479,6 +481,101 @@ describe('canAttach and clusterRecords: every-member check', () => {
     const [cl] = clusterRecords([a, b, d])
     expect(cl.memberIds).toEqual(['a', 'b', 'd'])
     expect(cl.associations).toHaveLength(3)
+  })
+})
+
+describe('ordering and bookkeeping', () => {
+  it('exports the rules version literal', () => {
+    expect(IDENTITY_RULES_VERSION).toBe('identity-rules-v1')
+  })
+
+  it('association ids are sorted whichever side the candidate is on', () => {
+    const lo = rec('a', { nativeId: 'same' })
+    const hi = rec('b', { nativeId: 'same' })
+    const up = canAttach([lo], hi)
+    const down = canAttach([hi], lo)
+    expect(
+      [up, down].map((r) => (r.attach ? [r.associations[0]?.aId, r.associations[0]?.bId] : null)),
+    ).toEqual([
+      ['a', 'b'],
+      ['a', 'b'],
+    ])
+  })
+
+  it('canAttach lists blockers and associations in id order whatever the cluster order', () => {
+    const c = rec('z', { nativeId: 'nz', company: 'Globex', title: 'Other' })
+    const m1 = rec('m1', { nativeId: 'n1' })
+    const m2 = rec('m2', { nativeId: 'n2' })
+    const m3 = rec('m3', { nativeId: 'n3' })
+    expect(canAttach([m3, m1, m2], c)).toEqual({
+      attach: false,
+      reason: 'NOT_ASSOCIATED_WITH_ALL',
+      blockedBy: ['m1', 'm2', 'm3'],
+    })
+    const joiner = rec('j', { nativeId: 'shared' })
+    const x3 = rec('x3', { nativeId: 'shared' })
+    const x1 = rec('x1', { nativeId: 'shared' })
+    const x2 = rec('x2', { nativeId: 'shared' })
+    const res = canAttach([x3, x1, x2], joiner)
+    expect(res.attach ? res.associations.map((a) => `${a.aId}-${a.bId}`) : []).toEqual([
+      'j-x1',
+      'j-x2',
+      'j-x3',
+    ])
+  })
+
+  it('a candidate already in a larger cluster is refused as ALREADY_MEMBER', () => {
+    const a = rec('a')
+    const b = rec('b', { nativeId: 'nb' })
+    expect(canAttach([a, b], b)).toEqual({
+      attach: false,
+      reason: 'ALREADY_MEMBER',
+      blockedBy: ['b'],
+    })
+    expect(canAttach([b, a], b)).toEqual({
+      attach: false,
+      reason: 'ALREADY_MEMBER',
+      blockedBy: ['b'],
+    })
+  })
+
+  it('a partial blocker is named and only that one', () => {
+    const ok = rec('ok', { nativeId: 'shared' })
+    const no = rec('no', { nativeId: 'other', company: 'Globex', title: 'Other' })
+    const c = rec('c', { nativeId: 'shared' })
+    expect(canAttach([ok, no], c)).toEqual({
+      attach: false,
+      reason: 'NOT_ASSOCIATED_WITH_ALL',
+      blockedBy: ['no'],
+    })
+  })
+
+  it('clusterRecords orders clusters and members by id for a shuffled input', () => {
+    const r = (id: string, nativeId: string) => rec(id, { nativeId })
+    const out = clusterRecords([r('d', 'x'), r('b', 'y'), r('c', 'x'), r('a', 'y'), r('e', 'z')])
+    expect(out.map((c) => c.memberIds)).toEqual([['a', 'b'], ['c', 'd'], ['e']])
+  })
+
+  it('works without options and with ids that look like the old default (S, t)', () => {
+    const s1 = rec('S', { nativeId: 'same' })
+    const t1 = rec('t', { nativeId: 'same' })
+    expect(clusterRecords([s1, t1]).map((c) => c.memberIds)).toEqual([['S', 't']])
+  })
+
+  it('assessWithRevocations: order-insensitive, exact evidence, others unaffected', () => {
+    const a = rec('a', { nativeId: 'same' })
+    const b = rec('b', { nativeId: 'same' })
+    const c = rec('c', { nativeId: 'same' })
+    const revoked = revocationSet([['b', 'a']])
+    expect(assessWithRevocations(a, b, revoked)).toEqual({
+      decision: 'DISTINCT',
+      rule: 'REVOKED',
+      evidence: ['REVOKED:a,b'],
+      revision: IDENTITY_RULES_VERSION,
+    })
+    expect(assessWithRevocations(b, a, revoked).evidence).toEqual(['REVOKED:a,b'])
+    expect(assessWithRevocations(a, c, revoked).decision).toBe('ASSOCIATE')
+    expect(revocationSet(undefined).size).toBe(0)
   })
 })
 

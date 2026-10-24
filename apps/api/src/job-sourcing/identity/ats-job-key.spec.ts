@@ -296,4 +296,29 @@ describe('atsJobKey: key stability and separation', () => {
       expect(k(u), u).toBeNull()
     }
   })
+
+  it('every hosted shape is ATS_HOSTED and says so inside its key', () => {
+    const U = '5f1c2d3e-aaaa-4bbb-8ccc-0123456789ab'
+    const urls = [
+      'https://boards.greenhouse.io/acme/jobs/1',
+      'https://boards.greenhouse.io/embed/job_app?for=acme&token=1',
+      `https://jobs.lever.co/acme/${U}`,
+      `https://jobs.ashbyhq.com/acme/${U}`,
+      'https://apply.workable.com/acme/j/ABCDEF',
+      'https://jobs.smartrecruiters.com/acme/1',
+      'https://acme.recruitee.com/o/dev',
+      'https://acme.jobs.personio.de/job/1',
+    ]
+    for (const u of urls) {
+      const r = k(u)
+      expect(r?.scope, u).toBe('ATS_HOSTED')
+      expect(r?.key.includes('"ATS_HOSTED"'), u).toBe(true)
+    }
+  })
+
+  it('embed parameters are validated as whole values and the vendor host is exact', () => {
+    expect(k('https://boards.greenhouse.io/embed/job_app?for=acme.x&token=1')).toBeNull()
+    expect(k('https://boards.greenhouse.io/embed/job_app?for=acme&token=1.5')).toBeNull()
+    expect(k('https://apply.workable.com.example/acme/j/ABCDEF')).toBeNull()
+  })
 })

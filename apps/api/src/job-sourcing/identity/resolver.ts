@@ -70,8 +70,8 @@ function strongKeys(r: ResolverRecord): { keys: AtsJobKey[]; evidence: string[] 
   const posting = atsJobKey(r.postingUrl)
   const apply = atsJobKey(r.applicationUrl)
   const evidence: string[] = []
-  const postingStrong = posting !== null && posting.scope === 'ATS_HOSTED' ? posting : null
-  const applyStrong = apply !== null && r.applicationUrlVerified ? apply : null
+  const postingStrong = posting?.scope === 'ATS_HOSTED' ? posting : null
+  const applyStrong = r.applicationUrlVerified ? apply : null
   if (apply !== null && !r.applicationUrlVerified) evidence.push(`APPLY_URL_UNVERIFIED:${r.id}`)
   if (postingStrong !== null && applyStrong !== null && postingStrong.key !== applyStrong.key) {
     // The record contradicts itself: trust neither URL.
@@ -166,11 +166,24 @@ export interface ResolveOptions {
   revokedPairs?: readonly (readonly [string, string])[]
 }
 
-const pairKey = (p: string, q: string) => (p <= q ? `${p}\u0000${q}` : `${q}\u0000${p}`)
+/** Default string sort is by UTF-16 code unit: one fixed order, no comparator to get wrong. */
+const sortedPair = (p: string, q: string) => [p, q].sort() as [string, string]
+const pairKey = (p: string, q: string) => sortedPair(p, q).join('\u0000')
 
-function assessWith(a: ResolverRecord, b: ResolverRecord, revoked: Set<string>): Assessment {
+// Stryker disable next-line EqualityOperator: ids are unique, so the equal case never reaches here
+const byId = (p: { id: string }, q: { id: string }) => (p.id < q.id ? -1 : 1)
+
+export const revocationSet = (pairs: ResolveOptions['revokedPairs']): Set<string> =>
+  new Set((pairs ?? []).map(([p, q]) => pairKey(p, q)))
+
+/** `assess`, except that a pair an ADMIN split is DISTINCT whatever the rules say. */
+export function assessWithRevocations(
+  a: ResolverRecord,
+  b: ResolverRecord,
+  revoked: Set<string>,
+): Assessment {
   return revoked.has(pairKey(a.id, b.id))
-    ? base('DISTINCT', 'REVOKED', [`REVOKED:${[a.id, b.id].sort().join(',')}`])
+    ? base('DISTINCT', 'REVOKED', [`REVOKED:${sortedPair(a.id, b.id).join(',')}`])
     : assess(a, b)
 }
 
@@ -184,13 +197,13 @@ function attach(
     return { attach: false, reason: 'ALREADY_MEMBER', blockedBy: [c.id] }
   const associations: Association[] = []
   const blockedBy: string[] = []
-  for (const m of [...cluster].sort((p, q) => (p.id < q.id ? -1 : 1))) {
-    const r = assessWith(m, c, revoked)
+  for (const m of [...cluster].sort(byId)) {
+    const r = assessWithRevocations(m, c, revoked)
     if (r.decision !== 'ASSOCIATE') {
       blockedBy.push(m.id)
       continue
     }
-    const [aId, bId] = m.id <= c.id ? [m.id, c.id] : [c.id, m.id]
+    const [aId, bId] = sortedPair(m.id, c.id)
     associations.push({
       aId,
       bId,
@@ -229,8 +242,8 @@ export function clusterRecords(
   records: readonly ResolverRecord[],
   options: ResolveOptions = {},
 ): Cluster[] {
-  const revoked = new Set((options.revokedPairs ?? []).map(([p, q]) => pairKey(p, q)))
-  const ordered = [...records].sort((p, q) => (p.id < q.id ? -1 : p.id > q.id ? 1 : 0))
+  const revoked = revocationSet(options.revokedPairs)
+  const ordered = [...records].sort(byId)
   const groups: { members: ResolverRecord[]; associations: Association[] }[] = []
   for (const rec of ordered) {
     let placed = false
