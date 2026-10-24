@@ -197,7 +197,6 @@ describe('the generated seed delta', () => {
     const blocked = seedRowsOf(manifest).typeBlocks.map((b) => b.type)
     expect(blocked).toEqual([
       'REMOTIVE_API',
-      'ARBEITNOW_API',
       'WORKINGNOMADS_API',
       'JOBGETHER_API',
       'HN_HIRING',

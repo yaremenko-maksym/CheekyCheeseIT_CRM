@@ -11,15 +11,24 @@ import { boundedString, dateRaw, optionalString, optionalStringArray, urlString 
 /**
  * Arbeitnow (`https://www.arbeitnow.com/api/job-board-api?page=n`), page-number pagination.
  *
- * BLOCKED - NOT TO BE REGISTERED OR ENABLED (see `ARBEITNOW_SOURCE_STATUS`). Permission is
- * documented (terms section 11), but the feed does not fit the shared 2 MiB JSON byte cap: live
- * page 1 measured 4 209 793 bytes DECODED and page 2 measured 2 311 796, against 2 097 152. The
- * page size cannot be chosen (`per_page`, `limit`, `page_size`, `size` and `perPage` were all tried
- * and all returned the same ~1.83 MB gzip body) (UNVERIFIABLE FROM THIS REPOSITORY: those five responses were not kept), pages are 300 items long, and the newest items are
- * on the pages that are too big. The shared cap protects every source and is not raised here, and
- * a page is not cut to fit: it fails as `PAYLOAD_TOO_LARGE`, which is what this adapter does with
- * the authentic capture (asserted in the spec). Whoever lifts the block needs either a smaller
- * page from the provider or an owner decision to give THIS source a larger cap.
+ * PERMITTED (terms section 11) and runnable under a DECLARED PER-SOURCE BYTE CAP. The feed does
+ * not fit the shared 2 MiB default: live page 1 measured 4 209 793 bytes DECODED and page 2
+ * measured 2 311 796 (300 items each). The page size cannot be chosen (`per_page`, `limit`,
+ * `page_size`, `size` and `perPage` were all tried and all returned the same ~1.83 MB gzip body)
+ * (UNVERIFIABLE FROM THIS REPOSITORY: those five responses were not kept) and there is no field
+ * selection, so every page is downloaded in full; the adapter keeps only the normalised fields
+ * (`itemSchema`) and retains nothing else past the parse. The newest items sit on the big pages.
+ *
+ * Owner decision 2026-10-24: no block on response size. This source therefore declares
+ * `ARBEITNOW_MAX_BYTES` (8 MiB, nearly twice the largest page seen), the way Greenhouse does.
+ * ONE setting lifts BOTH refusals that applied: `collectJsonPages` copies `limits.maxBytes` into
+ * the request (`FetchRequest.maxBytes`, honoured by the transport in place of its 2 MiB default)
+ * AND into `parseBoundedJson` (the decoded-text bound). The shared ceiling
+ * (`MAX_RESPONSE_BYTES_CEILING`, 10 MiB) is NOT raised. A page past the declared cap still fails
+ * as `PAYLOAD_TOO_LARGE`: the cap is a real bound.
+ *
+ * !! THE CAP IS A DECLARATION, NOT A GUARANTEE (see the Greenhouse adapter's note and the backlog
+ * entry on declared byte caps reaching the transport): this file proves the request carries it.
  *
  * - IDENTITY is the `slug` (unique within every page measured, 300 of 300). The provider issues no
  *   numeric id.
@@ -38,11 +47,14 @@ import { boundedString, dateRaw, optionalString, optionalStringArray, urlString 
  */
 
 export const ARBEITNOW_SOURCE_STATUS = {
-  blocked: true,
+  blocked: false,
   permission: 'PUBLIC_API_DOCUMENTED',
   reason:
-    'page 1 is 4209793 bytes decoded, past the 2097152-byte JSON cap, and the page size is not selectable; the shared cap is not raised',
+    'permitted by the documented API terms; pages are large (page 1 is 4209793 bytes decoded) and are read under the declared per-source cap of 8388608 bytes',
 } as const
+
+/** 8 MiB: headroom over the largest page measured (4 209 793), under the 10 MiB shared ceiling. */
+export const ARBEITNOW_MAX_BYTES = 8 * 1024 * 1024
 
 export const ARBEITNOW_ADAPTER_VERSION = 'arbeitnow-1'
 export const ARBEITNOW_NAMESPACE = 'arbeitnow'
@@ -150,7 +162,11 @@ export const arbeitnowProvider = definePagedProvider(arbeitnowSpec, (config, ctx
   collectJsonPages(
     {
       ...arbeitnowSpec,
-      limits: { maxPages: config.maxPages, maxItemsPerPage: ARBEITNOW_MAX_PAGE_ITEMS },
+      limits: {
+        maxBytes: ARBEITNOW_MAX_BYTES,
+        maxPages: config.maxPages,
+        maxItemsPerPage: ARBEITNOW_MAX_PAGE_ITEMS,
+      },
     },
     config,
     ctx,

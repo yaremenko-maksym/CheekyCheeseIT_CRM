@@ -605,8 +605,9 @@ describe('every @-equivalent token in the two scanned roots is the placeholder o
 })
 
 /**
- * A source can be PERMITTED and still BLOCKED: Arbeitnow's permission is PUBLIC_API_DOCUMENTED, but
- * its page does not fit the byte cap. Task 3.7 must not read readiness from `permission` alone, and
+ * A source can be PERMITTED and still BLOCKED: Arbeitnow's permission was PUBLIC_API_DOCUMENTED while
+ * its page did not fit the byte cap (now lifted by a declared per-source cap; the manifest spec
+ * flips the constant back to prove the derivation). Task 3.7 must not read readiness from `permission` alone, and
  * this table is what proves the two are different things: it compares what `permission` ALONE
  * would imply with what each source's own status constant says, and names the disagreement.
  */
@@ -622,18 +623,20 @@ const STATUSES: Array<[provider: string, name: string, blocked: boolean]> = [
 ]
 
 describe('readiness is not derivable from permission alone', () => {
-  it('every Task 3.2 source and Remotive is blocked', () => {
-    expect(STATUSES.filter(([, , blocked]) => !blocked)).toEqual([])
+  it('every Task 3.2 source and Remotive is blocked, except Arbeitnow (permitted, large pages)', () => {
+    expect(STATUSES.filter(([, , blocked]) => !blocked).map(([provider]) => provider)).toEqual([
+      'arbeitnow',
+    ])
   })
 
-  it('exactly one blocked source is nevertheless permitted by its provenance: Arbeitnow', () => {
+  it('no source is both permitted by its provenance and blocked any more (Arbeitnow was the one)', () => {
     const permittedButBlocked = STATUSES.filter(([provider, name, blocked]) => {
       const permission = provenanceSchema.parse(
         JSON.parse(readFileSync(join(ROOT, provider, `${name}.provenance.json`), 'utf8')),
       ).permission
       return permissionImpliesReady(permission) && blocked
     }).map(([provider]) => provider)
-    expect(permittedButBlocked).toEqual(['arbeitnow'])
+    expect(permittedButBlocked).toEqual([])
   })
 
   it('permissionImpliesReady itself: only the two permitted values', () => {
