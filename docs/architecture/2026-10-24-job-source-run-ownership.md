@@ -689,8 +689,12 @@ before `JSON.parse` is entered (its own spec).
   each handler selects its own type set.
 - **Carries:** due = persisted `next_attempt_at` / `cooldown_until` + enabled + **readiness from
   `readinessAt(subject, clock)`, never the stored `job_sources.readiness` column** (PR #1132
-  SPEC-L-2 / SR-M-2) + trigger policy. Manual runs skip cadence but not cooldown, entitlement, cost,
-  or a current owner. `enabled` is administrative permission. Pause, health, reason and state
+  SPEC-L-2 / SR-M-2) + trigger policy. The scalar terms of "The due predicate" (Option A) are T4's:
+  `enabled`, `manifest_id IS NOT NULL` (**no manifest entry, never due**), `next_attempt_at`,
+  `cooldown_until`, and `consecutive_failures < MAX_CONSECUTIVE_FAILURES`. **A manual trigger skips
+  the cadence term and nothing else.** A host pause is not cadence. Neither are a cooldown,
+  readiness, entitlement, cost, a missing meter, the failure cap or a current owner, so each of them
+  refuses a manual run too. `enabled` is administrative permission. Pause, health, reason and state
   history are separate, and an ADMIN enable never clears an unresolved policy or credential block.
   The host-level conditions (ban pause, request rates, the `min_interval_hours` floor) are **T8's**.
   T4's predicate takes them as an input that T8 extends.
@@ -699,9 +703,12 @@ before `JSON.parse` is entered (its own spec).
   stored column still says `CANDIDATE`; (2) a manual run under cooldown or cost block is refused with
   a reason; (3) the legacy 10-minute early-due slack never overrides quota or cooldown;
   (4) `collectAll` with `onlyTypes` runs no source outside the set, and with `excludeTypes` runs
-  none inside it.
-- **Real-Postgres:** the due query over a seeded mix (enabled/disabled, paused, cooled down,
-  deadline-crossed), compared against the pure `isDue` over the same rows.
+  none inside it; (5) a row with `manifest_id IS NULL` is never due, by schedule or by manual
+  trigger; (6) a row at `MAX_CONSECUTIVE_FAILURES` is never due; (7) a manual trigger is due exactly
+  when the scheduled predicate minus the cadence term is true.
+- **Real-Postgres:** the due query over a seeded mix, compared against the pure `isDue` over the same
+  rows. The mix includes enabled and disabled rows, a cooled-down row, a deadline-crossed row, a
+  row with no manifest entry, a row at the failure cap, and a manual trigger on each.
 - **Model:** sonnet, medium.
 
 ### T8 — host-level state: stop-on-ban and request rates (migration)
@@ -725,10 +732,17 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
 - **Who writes and who reads.** The ledger's `finish` (T3) calls `recordHostBan` in its terminal
   transaction when the run's **error code** (a `COLLECTION_ERROR_CODES` value, not a run outcome)
   is `ACCESS_POLICY` or `RATE_LIMIT`. The run's outcome is then `FAILED` or `PARTIAL`. The ledger's
-  `claimDue` (T3) calls `claimHostSlot`, which refuses a claim inside the per-minute gap or over the
-  daily count. The daily count is computed from `job_collection_runs.started_at` for the host's
+  `claimDue` (T3) calls `claimHostSlot`, which, **on the locked host row**, refuses the claim:
+  - if `paused_until > clock_timestamp()` (round 3, SR-H-1). The due `SELECT` may run on a snapshot
+    older than a ban's commit, so the pause is re-read here, under the lock that `recordHostBan`
+    also takes. A claim racing a ban therefore sees it;
+  - if it is inside the per-minute gap;
+  - if it is over the daily count.
+
+  A manual trigger goes through the same `claimHostSlot`. The daily count is computed from `job_collection_runs.started_at` for the host's
   sources in the trailing 24 h, so no counter can drift. T4's `dueSourcesPredicate` is extended
   with `hostOpenPredicate`. Only this module writes `job_source_hosts`.
+
 - **(a) How `host_key` is derived and backfilled.** The value is the request host the adapter
   contacts. The manifest gains a per-type `requestHost(config)` function, for example
   `api.smartrecruiters.com` for every SmartRecruiters board and `remotive.com` for every Remotive
@@ -740,8 +754,10 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
     `UPDATE job_sources SET host_key = … WHERE manifest_id = … AND host_key IS NULL`. It is
     idempotent and never overwrites a value. It is applied by `deploy.yml` after the migration.
   - A row with no `manifest_id` (an unclaimed legacy row) keeps `host_key = NULL`.
-    `hostOpenPredicate` treats `NULL` as **not due**, so the gap fails closed rather than escaping
-    the host rules.
+    `hostOpenPredicate` is written as `s.host_key IS NOT NULL AND NOT EXISTS (…)`, with the null
+    test **first**. A bare `NOT EXISTS (… h.host_key = s.host_key …)` is TRUE for a NULL key and
+    would fail open. `claimHostSlot` refuses a NULL key explicitly, rather than letting a
+    primary-key error abort the claim.
   - The manifest's drift test asserts that every manifest entry yields a non-empty host and that the
     generated delta sets it.
 - **(b) How the host row exists before it is locked.** `claimHostSlot` runs inside `claimDue`'s
@@ -749,10 +765,11 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   `INSERT INTO job_source_hosts (host_key) VALUES ($1) ON CONFLICT (host_key) DO NOTHING`. Then
   `SELECT … FROM job_source_hosts WHERE host_key = $1 FOR UPDATE`. The seed delta also inserts a row
   for every manifest host, but correctness does not rest on the seed. This is race-free under
-  `READ COMMITTED`, and the reason is specific. A second claimer's conflicting insert waits on the
-  first transaction's uncommitted index entry, then does nothing. Its `SELECT … FOR UPDATE` takes a
-  new snapshot, so it finds the committed row and blocks on the first claimer's lock until that
-  transaction ends. Exactly one row exists either way, and the two claims serialize on it. The
+  `READ COMMITTED`, which T3 pins explicitly. A second claimer's conflicting insert waits on the
+  first transaction's uncommitted index entry, and the first claimer holds that entry until its
+  whole claim transaction ends. **So the two claimers serialize at the `INSERT`.** The second then
+  does nothing, and its `SELECT … FOR UPDATE` takes a fresh statement snapshot and finds the
+  committed row. Exactly one row exists either way, and the two claims are serialized. The
   per-minute check reads `last_claimed_at` under that lock and writes it in the same transaction.
 - **(c) `started_at` and re-claims.** A recovered run is never re-claimed (T3, Option A): the next
   claim inserts a new row whose `started_at` is its own claim time, and no code updates
@@ -765,7 +782,12 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   a minute" (Remotive adapter header), enforced at runtime across its three entries and across
   manual runs. Also an admin-edited `min_interval_hours` below the manifest's
   `minIntervalHoursFloor` is clamped to the floor and reported.
-- **Depends on:** T1 (migration order in `deploy.yml`), T4 (extends its predicate).
+- **`hostRate.perDay` counts claims, not requests (round 3, SR-L-4).** It is valid only for an
+  adapter that makes exactly one request per run. Remotive's header says one run is one request per
+  entry. The manifest's drift test refuses a type that declares `perDay` with `requestsPerRun`
+  other than 1. A multi-request adapter needs a request-level counter, which is not built here.
+- **Depends on:** T1b (migration order in `deploy.yml`, after T1 and T1b), T4 (extends its
+  predicate).
 - **AC:** (1) a 403 on board A makes board B on the same host not due until `paused_until`;
   (2) an ADMIN enable of board B during the pause leaves it not due; (3) three Remotive entries due
   in the same minute produce at most 2 claims in that minute, and the third is claimed after the
@@ -776,13 +798,25 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   application changes no row; (8) a source with `host_key IS NULL` is never due; (9) two claimers on
   a host that has no `job_source_hosts` row yet leave exactly one row, and their claims serialize
   (the second sees the first's `last_claimed_at`); (10) a recovered run followed by a new claim
-  counts as two in the 24 h count, and the recovered row's `started_at` is unchanged.
-- **Real-Postgres:** concurrent claimers for two sources on one host (the per-minute gap holds under
-  a race, because both lock the host row); the 24-hour count at the limit and one past it; the ban
-  written by `finish` and read by the due query in the next tick. One case per item (a)–(c): the
-  generated delta applied twice to a seeded database (backfill and idempotence, AC 7); two
-  concurrent `claimHostSlot` calls on a missing host row (AC 9); a crash, recovery and a new claim,
-  then the count (AC 10). Run as `crm_app`.
+  counts as two in the 24 h count, and the recovered row's `started_at` is unchanged; (11) **a ban
+  committed between a claimer's due `SELECT` and its `claimHostSlot` refuses that claim**;
+  (12) **a manual run on a paused host is refused**; (13) the drift test refuses `perDay` on a type
+  whose `requestsPerRun` is not 1.
+- **Real-Postgres:**
+  - concurrent claimers for two sources on one host (the per-minute gap holds under a race, because
+    both lock the host row);
+  - the 24-hour count at the limit and one past it;
+  - the ban written by `finish` and read by the due query in the next tick;
+  - **the ban race (AC 11):** claimer B runs its due `SELECT`, `finish` of a sibling commits a ban,
+    then B calls `claimHostSlot`, and B is refused, driven step by step with two connections;
+  - **a manual trigger during a pause (AC 12);**
+  - **a NULL `host_key` (AC 8)** under both a scheduled and a manual trigger;
+  - one case per item (a)–(c): the generated delta applied twice to a seeded database (AC 7), two
+    concurrent `claimHostSlot` calls on a missing host row (AC 9), and a crash, recovery and new
+    claim, then the count (AC 10).
+
+  Run as `crm_app`.
+
 - **Model:** opus (Drizzle migration). **security-reviewer mandatory.**
 
 ### T7 — production `CollectionContext` builder and run worker
