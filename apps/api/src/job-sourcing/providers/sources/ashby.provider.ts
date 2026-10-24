@@ -16,8 +16,8 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  * plan's ceiling for a per-source cap, and the openai board - the only one past it - fails as
  * `PAYLOAD_TOO_LARGE` FOR THAT BOARD, which is the honest answer (a bigger cap is a measurement, not
  * an edit). As for Greenhouse, the same caveat holds: this is the body decoder's cap, and the fetch
- * port carries no per-request byte cap yet; the owner is `.claude/tasks/task-3.5b-quota-adapters.md`
- * ("Inherited from the review of 3.5a", the byte-cap item; in flight in PR #1119), see
+ * port carries no per-request byte cap yet; tracked in `.claude/tasks/BACKLOG-followups.md` under
+ * the entry titled "An adapter's declared byte cap cannot reach the transport …", see
  * `GREENHOUSE_LIMITS`.
  *
  * - NAMESPACE `ashby:{board}`; `id` (a UUID) is the native id. Ashby treats the board name as
@@ -30,7 +30,9 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  *   `SUCCEEDED`, but any quarantined item makes its coverage `PARTIAL`, so a board that ever lists
  *   one unlisted posting can no longer claim `FULL_INVENTORY` (the base derives coverage from the
  *   counts; an adapter-level exclusion that keeps the full-inventory claim would be a base change
- *   and needs an owning task). Across 10 real non-empty boards (1,612 postings) none was observed -
+ *   and needs an owning task; tracked in `.claude/tasks/BACKLOG-followups.md` under the entry
+ *   titled "A board carrying a permanent unlisted posting never reaches the full-inventory claim
+ *   …"). Across 10 real non-empty boards (1,612 postings) none was observed -
  *   the public listing appears to omit them - so the guard rests on the documentation, not on a
  *   capture, and its test says so. An ABSENT `isListed` is accepted (it is not in every payload
  *   shape).

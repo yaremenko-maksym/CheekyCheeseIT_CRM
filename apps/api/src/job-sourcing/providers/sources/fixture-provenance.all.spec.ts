@@ -122,7 +122,7 @@ describe('ATS A fixture provenance', () => {
       'greenhouse/cloudflare-board.json': 'PAYLOAD_FIELD',
       'greenhouse/stripe-board.json': 'PAYLOAD_FIELD',
       'lever/spotify-page1.json': 'TEXT_PARTIAL',
-      'lever/spotify-page2.json': undefined,
+      'lever/spotify-page2.json': 'TEXT_PARTIAL',
       'lever/siteimprove-eu-board.json': 'TEXT_FULL',
       'lever/quantco-trailing-hyphen-board.json': 'TEXT_FULL',
       'ashby/linear-board.json': 'TEXT_FULL',
