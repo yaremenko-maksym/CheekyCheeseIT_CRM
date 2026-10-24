@@ -4130,7 +4130,7 @@ rather than from anyone's recollection:
 | `retro-salary-form-defaults`       | #1093          | 5   | merged                           |
 | `retro-txdate-reporting`           | #1108          | 2   | merged                           |
 | carried by the collaborator's #868 | #868           | 3   | merged — see the note below      |
-| `retro-salary-ledger-integrity`    | #1102          | 8   | open, `BLOCK`, 13-finding round  |
+| `retro-salary-ledger-integrity`    | #1102          | 8   | merged (#1102)                   |
 | `retro-txdate-policy`              | merged (#1113) | 9   | branch `fix/retro-txdate-policy` |
 | `retro-business-day-clock`         | not started    | 6   | waits on txdate-policy           |
 | `retro-manual-ddl-coverage`        | not started    | 6   | —                                |
