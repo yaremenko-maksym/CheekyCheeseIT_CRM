@@ -339,11 +339,18 @@ restarted.
 of its own, i.e. its checkpoint's `completedAt` is at or after its `started_at`. `finish` and
 recovery write `job_sources` by this table:
 
-| The run                                                                                        | `consecutive_failures` | `cooldown_until`                                       |
-| ---------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------ |
-| `SUCCEEDED`, or made progress, whatever its outcome                                            | reset to 0             | cleared                                                |
-| no progress, ended `COST_STOP`, `PAGE_CAP`, `CANCELLED`, `ACCESS_POLICY` or `RATE_LIMIT`       | unchanged              | unchanged (the meter window and host pause pace these) |
-| no progress, any other error code, including `LEASE_EXPIRED`, `DEADLINE` and `NOT_MARKED_SENT` | +1                     | `clock_timestamp() + backoff(n)`, capped               |
+| The run                                                                                        | `consecutive_failures` | `cooldown_until`                         | `next_attempt_at`                                                |
+| ---------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------- | ---------------------------------------------------------------- |
+| `SUCCEEDED`                                                                                    | reset to 0             | cleared                                  | now + cadence (`min_interval_hours`, floored by T8)              |
+| made progress, ended `LEASE_EXPIRED`, `DEADLINE` or another error                              | reset to 0             | cleared                                  | **now**: resume promptly, while the checkpoint is fresh          |
+| ended `PAGE_CAP` (with or without progress)                                                    | reset if progress      | cleared if progress                      | now + cadence; the next run continues from the copied checkpoint |
+| ended `COST_STOP` (with or without progress)                                                   | reset if progress      | unchanged                                | the later of now + cadence and the meter's `resets_at`           |
+| no progress, ended `CANCELLED`, `ACCESS_POLICY` or `RATE_LIMIT`                                | unchanged              | unchanged (the host pause paces the ban) | now + cadence                                                    |
+| no progress, any other error code, including `LEASE_EXPIRED`, `DEADLINE` and `NOT_MARKED_SENT` | +1                     | `clock_timestamp() + backoff(n)`, capped | now + cadence; the cooldown governs                              |
+
+"now" is `clock_timestamp()`. The `COST_STOP` row is why a spent monthly budget is not re-claimed
+every minute: the source waits for its meter window, which is the only thing that can change the
+answer.
 
 The backoff lives in `cooldown_until`, not in `next_attempt_at`. A manual trigger skips only the
 cadence term, so **manual runs respect the backoff**, and a manual retry loop cannot drive a source
@@ -362,8 +369,9 @@ statements, in order:
    written once at insert and never updated, so an unlocked read of it is exact.
 2. Lock **every** meter row of that account, in `id` order, through `lockMeter` (which applies the
    lazy window roll): `SELECT … FROM job_account_meters WHERE account_key = $accountKey ORDER BY id
-FOR UPDATE`. The run's binding draws only on its own account's rows, since T7 builds the binding
-   from the run row's `account_key` (round 4, SR-L-11). So this set contains every meter any of the
+FOR UPDATE`. The run's binding draws only on its own account's rows: T7 builds the binding
+   from the run row's `account_key` and refuses to build one with a window whose meter row has a
+   different `account_key` (round 4, SR-L-11; T7 AC 13). So this set contains every meter any of the
    run's reservations can name, including one a racing `reserve` is about to use. A synthetic
    unmetered key matches no row, and the step locks nothing.
 3. `SELECT … FROM job_collection_runs WHERE id = $run AND outcome = 'STARTED' AND lease_expires_at <
@@ -405,10 +413,13 @@ states.
 running** on the host, not only new claims. Three mechanisms, all T7 code calling T8's host-state
 module:
 
-- **The ban is written the moment it is observed.** T7's production `fetchText` wrapper sees the
-  HTTP status. On 403, 429 or 451 it calls T8's `recordHostBan` in its own short transaction (host
-  row only) **before** it returns the response to the adapter. `finish` calls it again on
-  `ACCESS_POLICY` / `RATE_LIMIT`; the write is idempotent.
+- **The ban is written the moment it is observed.** T7's production `fetchText` wrapper catches the
+  transport's typed refusals. On `origin/main` these are `SourceBlockedError` (HTTP 403) and
+  `SourceRateLimitedError` (429), both in `http/source-errors.ts`. On either, the wrapper calls T8's
+  `recordHostBan` in its own short transaction (host row only), **before** it rethrows to the
+  adapter. HTTP 451 is today a plain `Error` that carries the status only in its message, so it
+  becomes observable once T6 surfaces the status, and T6 adds it to the same call. `finish` calls
+  `recordHostBan` again on `ACCESS_POLICY` / `RATE_LIMIT`; the write is idempotent.
 - **Every request checks the pause before it is sent.** T7 wraps `meter.markSent`. Before calling
   the store, the wrapper reads `paused_until` for the run's host with a plain, **lock-free** indexed
   read. If the host is paused, it rejects with `ACCESS_POLICY` and nothing is sent, so the adapter
@@ -481,9 +492,20 @@ These indexes, T1b's correction and T8's host table are the only DDL Option A ne
 the free slots, never more. `N`, `L`, the heartbeat interval and the per-run deadline are config
 values with ceilings, frozen after MP-05.
 
-**Cost of A** (estimate, not measured). The ledger is about 300–450 lines plus real-Postgres specs.
-The arithmetic it owns is the lease predicate, the epoch increment, the recovery transitions, and
-the due-time computation (cooldown, cadence, readiness). Due time is needed under Option B too.
+**Cost of A** (estimate, not measured; revised in round 4). The ledger, `recoverRun` and the host
+state are together about 700–1,000 lines, plus real-Postgres specs. Four review rounds grew it from
+a first estimate of 300–450, and the growth is the honest measure of the problem's size. The
+arithmetic A owns:
+
+- the lease predicate and the epoch increment;
+- the recovery and `finish` settlements;
+- the refusal write-back and the failure-accounting table;
+- the checkpoint-copy rule;
+- the due-time computation (cooldown, cadence, readiness).
+
+Due time, the host state, the checkpoint rule, the failure accounting and both settlements would be
+needed under Option B too, because pg-boss provides none of them (Option B, "What pg-boss does not
+give").
 The precedent `OutboxRepository.claimDue` (F6) already covers the claim half, and the house has a
 real-Postgres spec style for it.
 
@@ -624,7 +646,7 @@ arithmetic this task must still write. Its facts 3 and 4 are an inert fencing ep
 executors sharing one reservation. Under the plan's requirement to keep the epoch, both stay ours
 under either option: pg-boss fences only its own job row (Option B). Option A
 limits that risk by **locality** instead: one module is the only writer of the ownership columns
-(enforced by a grep gate in its task), and every transition has a real-Postgres multi-worker case.
+(enforced by the write gate, T3 AC 6), and every transition has a real-Postgres multi-worker case.
 That is the verification bar the brief sets anyway.
 
 **When to reopen.** If a later task needs features pg-boss does well and we lack (DAG flows, cron
@@ -651,14 +673,14 @@ ownership. Also reopen if `apps/api` moves to `module: node16`.
 
 - **No new dependency.** `version-pins.md` is untouched. The ESM question does not arise.
 - **The least-privilege boundary stays where the least-privilege ADR drew it.** The only DDL is
-  additive, in `public`, and arrives through the existing manual-migration path.
+  additive or corrective (T1b), in `public`, and arrives through the existing manual-migration path.
 - **The ledger becomes a critical module.** Its tests are the proof of exclusivity. The 3.5a
   characterisation case is deleted and replaced, not adjusted (F4).
 - **Lifecycle constants (`L`, heartbeat interval, `N`, per-run deadline) are config with
   ceilings**, frozen after MP-05, as the plan requires.
 - **A single API process** is today's deployment. The design does not assume one: two processes
   claiming concurrently is the first case in T3's spec (replica overlap, from the plan's test list).
-- **Cost:** about 300–450 lines of ledger code (estimate). In exchange there is no external schema to
+- **Cost:** about 700–1,000 lines of ledger, recovery and host-state code (estimate, revised in round 4; see "Cost of A"). In exchange there is no external schema to
   keep in step on every upgrade.
 
 ## Decomposition of Task 2.5
@@ -1008,9 +1030,13 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   - if it is inside the per-minute gap;
   - if it is over the daily count.
 
-  A manual trigger goes through the same `claimHostSlot`. The daily count is computed from `job_collection_runs.started_at` for the host's
-  sources in the trailing 24 h, so no counter can drift. T4's `dueSourcesPredicate` is extended
-  with `hostOpenPredicate`. Only this module writes `job_source_hosts`.
+  A manual trigger goes through the same `claimHostSlot`. The daily count is computed from
+  `job_collection_runs.started_at` for the host's sources in the trailing 24 h, so no counter can
+  drift. T4's `dueSourcesPredicate` is extended with `hostOpenPredicate`.
+
+  Two more callers (round 4, SR-H-3). T7's `fetchText` wrapper calls `recordHostBan` on 403 and
+  429 (and on 451 once T6 surfaces the status), and T7's `markSent` wrapper and heartbeat loop call `readHostPause`, a lock-free
+  read. T9 calls `clearHostPause`. Only this module writes `job_source_hosts`.
 
 - **(a) How `host_key` is derived and backfilled.** The value is the request host the adapter
   contacts. The manifest gains a per-type `requestHost(config)` function, for example
@@ -1022,6 +1048,8 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
     Task 3.7's: one dollar-quoted `jsonb` literal read through `jsonb_to_recordset`, then
     `UPDATE job_sources SET host_key = … WHERE manifest_id = … AND host_key IS NULL`. It is
     idempotent and never overwrites a value. It is applied by `deploy.yml` after the migration.
+    Every later generated seed delta that **inserts** a source row sets `host_key` in the same
+    insert, so a new source is never left on a NULL key.
   - A row with no `manifest_id` (an unclaimed legacy row) keeps `host_key = NULL`.
     `hostOpenPredicate` is written as `s.host_key IS NOT NULL AND NOT EXISTS (…)`, with the null
     test **first**. A bare `NOT EXISTS (… h.host_key = s.host_key …)` is TRUE for a NULL key and
@@ -1120,8 +1148,8 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
     is already terminal.
 - **Stop-on-ban, the in-flight half (round 4, SR-H-3).** As specified in Option A, "Stop-on-ban for
   runs in flight":
-  - the `fetchText` wrapper calls T8's `recordHostBan` on HTTP 403, 429 or 451, **before** it returns
-    the response to the adapter;
+  - the `fetchText` wrapper calls T8's `recordHostBan` on the transport's `SourceBlockedError` (403)
+    and `SourceRateLimitedError` (429), **before** it rethrows to the adapter (451 follows in T6);
   - the `markSent` wrapper reads `readHostPause` lock-free before every request, and on a paused host
     rejects with `ACCESS_POLICY`, sending nothing;
   - the worker reads it after every heartbeat, and on a paused host aborts the run's `signal` with
@@ -1161,7 +1189,7 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   fixture server, **B sends zero further requests** after its next check; (11) a heartbeat after a
   ban aborts the run with `ACCESS_POLICY` before its next subrequest; (12) a request refused by the
   pause check leaves its reservation `RELEASED`, never `SENT`; (13) the meter binding's account key
-  equals the run row's `account_key`, even when the source's `account_meter_id` changed after the
+  equals the run row's `account_key`, and building a binding with a window from another account is refused, even when the source's `account_meter_id` changed after the
   claim; (14) a heartbeat queued behind a page write lands before the lease expires, with a page
   write held to its `H` budget.
 - **Real-Postgres:**
@@ -1216,12 +1244,14 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   decision** (#1138 SR-M-1): record whether T0's fix suffices for the worst-case transient memory
   per page, or add the cheap pre-parse bound to the shared bounded-JSON reader. **404 and status
   policy** (#1139 delta LOW 2): the transport surfaces the HTTP status, so an adapter's "a detail 404
-  is an answer" path is reachable, decided together with the retry policy.
+  is an answer" path is reachable, decided together with the retry policy. With the status
+  surfaced, T7's ban-at-observation call extends to **HTTP 451**, which today is a plain `Error`.
 - **Depends on:** T0 (gate), T7.
 - **AC:** (1) a spy shows each adapter's declared `maxBytes` and `allowedHosts` arrive at the fetch;
   (2) a redirect or request to an unlisted host is refused; (3) a body one byte over the cap is
   refused before parse, and one at the cap is accepted; (4) a detail 404 is classified as the
-  adapter's answer, not `TRANSIENT_NETWORK`.
+  adapter's answer, not `TRANSIENT_NETWORK`; (5) an HTTP 451 records a host ban exactly as a 403
+  does.
 - **Real-Postgres:** not needed for the transport. Run one end-to-end run per raised-cap source
   (Greenhouse, Ashby, Arbeitnow) against a fixture server.
 - **Model:** opus, high (security surface). **security-reviewer mandatory.**
