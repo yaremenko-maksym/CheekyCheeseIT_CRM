@@ -103,14 +103,18 @@ import {
  *   took the meter from `{reserved 4}` to all zeroes with 4 units really spent. What protects the
  *   loop today is not this guard but `collectJsonPages`, which sets `resolution = 'UNCERTAIN'`
  *   BEFORE calling `fetchText`. Wiring `markSent` into the transport, or formally retiring the
- *   SENT bullet, is owned by Task 3.5b and tracked as BACKLOG-followups 308, item 1.
+ *   SENT bullet, is owned by the adapter task (its "Inherited from the review of 3.5a" section
+ *   holds it) and tracked as BACKLOG-followups 308, in the bullet beginning "Nothing can record
+ *   that a request left". Named by its opening words rather than by an ordinal: bullets have been
+ *   added to that entry since, and an ordinal would now point at the wrong one.
  * - Exactly-once conversion. A second USED is a no-op; every other move out of a settled state is
  *   refused (`ILLEGAL_TRANSITION`). The amount converted is the STORED one, never the caller's.
  *   `used` is therefore an UPPER BOUND ON spend, not spend: the full reserved worst case is
  *   converted, because `reconcile` carries no actual cost, and once written there is no path to
  *   correct the row. Safe for overspend and wrong for accounting — nothing downstream may report
  *   `used` to the owner as money actually billed. Widening the port to carry the incurred cost is
- *   owned by Task 3.5b and tracked as BACKLOG-followups 308, item 2 (SR-M-3 / SPEC-M-3).
+ *   owned by the adapter task and tracked as BACKLOG-followups 308, in the bullet beginning
+ *   "Settlement charges the full reserved worst case".
  * - Window rollover. A meter row is reset in place, lazily, under the same lock, by the first
  *   operation at or after `resets_at`: `used` returns to 0; outstanding `reserved` / `uncertain`
  *   stay, because they are holds of the window they were taken in. When such a reservation later
