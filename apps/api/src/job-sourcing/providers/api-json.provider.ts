@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
 import type { JobMeterUnit, JobSourceType } from '@crm/shared'
 import { z, type ZodType } from 'zod'
+import { DEFAULT_MAX_BYTES, MAX_RESPONSE_BYTES_CEILING } from '../http/bounded-fetch'
+import { SourcePayloadTooLargeError } from '../http/source-errors'
 import { canonicalNativeId } from '../normalize/identity-key'
 import {
   buildSourceObservation,
@@ -121,6 +123,13 @@ export interface PageTarget {
 
 export interface PageRequest {
   request: FetchRequest
+  /**
+   * The URL to REPORT for this page, when `request.url` carries a credential (a key in the path).
+   * Reports use it INSTEAD of `request.url`, unconditionally: redaction by registered value is
+   * only as good as whoever registered, and a path segment has no structural form for the
+   * redactor to find. Absent, `request.url` is reported (after the usual redaction).
+   */
+  reportUrl?: string
   /**
    * The cache SLOT for this page — a readable label, NOT the whole key. Omit to skip caching for
    * this page. The loop keys the entry on this slot plus a digest of the request itself (see
@@ -250,8 +259,33 @@ export interface PagedSourceSpec<TConfig extends SourceConfigFields, TEnvelope, 
   scopeOf(config: TConfig, now: Date): SourceCoverageScope
   /** Required here and resolved by each binding: a loop-level default would be one no binding used. */
   readonly limits: PageLimits
-  /** What one page costs. Reserved BEFORE any I/O, per the store's reservation ordering. */
-  readonly meter?: { unit: JobMeterUnit; amountPerRequest: number }
+  /**
+   * The response cap every request of this source declares to the transport (`FetchRequest.maxBytes`).
+   * Absent, nothing is declared and the transport's 2 MiB default applies. A separate field from
+   * `limits`, whose byte bound belongs to the decoding binding, not to the loop.
+   */
+  readonly requestMaxBytes?: number
+  /**
+   * What one page costs. Reserved BEFORE any I/O, per the store's reservation ordering.
+   *
+   * `amountPerRequest` is the WORST CASE. A source whose real cost differs from it (credits per
+   * returned record) also supplies `incurredAmount`: given the body of a successful page, the cost
+   * the provider actually charged, or `null` when it cannot tell. The loop settles with that amount
+   * when it lies in `0..amountPerRequest` (a free request, 0, settles as 1: the store cannot record
+   * a USED reservation with no cost); absent, `null`, non-integer or past the reservation, the
+   * full reservation is charged: that cannot overspend the RESERVATION, but whether the reservation
+   * covers what the provider really charged is the provider's billing, which this loop cannot
+   * know (a real charge above the reservation would still be under-counted). A reported cost BELOW the
+   * reservation frees the difference for re-reservation, which overspends if the reading is wrong:
+   * supply this hook only for a billing basis that has been observed. It must not throw: a throw is
+   * an adapter defect (`ADAPTER_INVARIANT`, which no retry acts on), with the response already
+   * counted as having arrived (the reservation settles USED, whole).
+   */
+  readonly meter?: {
+    unit: JobMeterUnit
+    amountPerRequest: number
+    incurredAmount?(bodyText: string): number | null
+  }
   readonly overlapMs?: number
 }
 
@@ -260,7 +294,10 @@ export interface ApiJsonSourceSpec<
   TConfig extends SourceConfigFields,
   TEnvelope,
   TItem,
-> extends Omit<PagedSourceSpec<TConfig, TEnvelope, TItem>, 'decodeEnvelope' | 'limits'> {
+> extends Omit<
+  PagedSourceSpec<TConfig, TEnvelope, TItem>,
+  'decodeEnvelope' | 'limits' | 'requestMaxBytes'
+> {
   readonly configSchema: ZodType<TConfig>
   /**
    * The page envelope. MUST treat the item array as OPAQUE (`z.array(z.unknown())`), for the
@@ -407,6 +444,11 @@ type PageAdvance =
   /** The provider's inventory ran out. */
   | { kind: 'EXHAUSTED' }
 
+/** What a report says this page's URL was. */
+function reportedUrl(page: PageRequest): string {
+  return page.reportUrl ?? page.request.url
+}
+
 /**
  * Ask the adapter for a page request, and treat a throw as data.
  *
@@ -545,6 +587,87 @@ function responseCacheKey(
   return JSON.stringify([slot, digest])
 }
 
+/**
+ * The cost an adapter read off a successful response, or `undefined` for "charge the whole
+ * reservation". Only an integer in `0..reserved` is believed: a cost past the reservation is
+ * drift in the adapter's reading, and settling it at face value would either be refused by the
+ * store (leaving the hold unresolved) or, worse, understate what the page was reserved at.
+ * Falling back to the whole reservation cannot overspend the reservation; it does NOT make a
+ * billing basis safe, in either direction. A reading inside `0..reserved` is always believed, so a
+ * wrong-but-in-range reading is settled at face value and frees the difference.
+ */
+function readIncurred(
+  read: (bodyText: string) => number | null,
+  bodyText: string,
+  reserved: number,
+): number | undefined {
+  const amount = read(bodyText)
+  if (!isWholeNumber(amount)) return undefined
+  if (amount < 0 || amount > reserved) return undefined
+  // The store cannot record a USED reservation of zero (its `used_settled` CHECK), so a free
+  // request is reported as the smallest cost it can hold.
+  return Math.max(amount, 1)
+}
+
+/** `Number.isSafeInteger` as a type guard: false for null, undefined, NaN, fractions and huge values. */
+function isWholeNumber(value: number | null): value is number {
+  return Number.isSafeInteger(value)
+}
+
+/**
+ * A source's declared response cap must be a whole number of bytes the transport will accept:
+ * refused here, with nothing yet reserved or sent, rather than discovered as a failed fetch.
+ */
+export function assertByteCap(maxBytes: number): void {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_RESPONSE_BYTES_CEILING) {
+    throw new Error(`invalid maxBytes: ${maxBytes} (must be 1..${MAX_RESPONSE_BYTES_CEILING})`)
+  }
+}
+
+/**
+ * The request as the transport must see it. A cap equal to the transport's own default is NOT
+ * attached: it would change nothing, and every current caller keeps the request it had.
+ */
+function withByteCap(request: FetchRequest, maxBytes: number): FetchRequest {
+  return maxBytes === DEFAULT_MAX_BYTES ? request : { ...request, maxBytes }
+}
+
+/** A cost hook that threw: our adapter is wrong, not the network. */
+class CostHookError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : 'the cost hook threw a non-Error value')
+  }
+}
+
+function readCostOrFlag(
+  read: ((bodyText: string) => number | undefined) | undefined,
+  bodyText: string,
+): number | undefined {
+  try {
+    return read?.(bodyText)
+  } catch (error) {
+    throw new CostHookError(error)
+  }
+}
+
+/** A throw out of the fetch seam, as a page failure. */
+function failureOfThrown(error: unknown, aborted: boolean): PageAttemptFailure {
+  // A programming error in an adapter is `ADAPTER_INVARIANT`, which no retry policy acts on; it
+  // must never wear the code of a network blink.
+  if (error instanceof CostHookError) {
+    return { code: 'ADAPTER_INVARIANT', message: error.message, status: null }
+  }
+  // The transport refused the body at its cap and kept none of it: say so, not "network".
+  if (error instanceof SourcePayloadTooLargeError) {
+    return { code: 'PAYLOAD_TOO_LARGE', message: error.message, status: null }
+  }
+  return {
+    code: aborted ? 'CANCELLED' : 'TRANSIENT_NETWORK',
+    message: error instanceof Error ? error.message : 'the request failed',
+    status: null,
+  }
+}
+
 /** HTTP status -> our typed code. Classified from the STATUS, never from the body text. */
 function classifyStatus(status: number): CollectionErrorCode | null {
   if (status >= 200 && status < 300) return null
@@ -579,6 +702,10 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
 ): Promise<CollectionBatch> {
   const limits = spec.limits
   const overlapMs = spec.overlapMs ?? DEFAULT_OVERLAP_MS
+  // At config time, at the seam that consumes the field: before the checkpoint is read, a
+  // reservation is taken or a request is built, whichever binding set it.
+  const requestMaxBytes = spec.requestMaxBytes ?? DEFAULT_MAX_BYTES
+  assertByteCap(requestMaxBytes)
 
   const stored = await ctx.checkpoints.load()
   const decision = decideCheckpoint(stored, {
@@ -715,7 +842,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
           {
             attempt: 1,
             page: at.page,
-            url: pageRequest.request.url,
+            url: reportedUrl(pageRequest),
             status: null,
             startedAt,
             endedAt: ctx.now(),
@@ -735,7 +862,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
           {
             attempt: 1,
             page: at.page,
-            url: pageRequest.request.url,
+            url: reportedUrl(pageRequest),
             status: null,
             startedAt,
             endedAt: ctx.now(),
@@ -751,7 +878,13 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     // RESERVED before any I/O. A refusal is a cost stop, not an error: nothing went wrong, we are
     // simply out of budget, and everything already persisted stands.
     let reservation: MeterReservation | null = null
+    // How this source reads the cost off a response; set with the reservation, absent otherwise.
+    let costReader: ((bodyText: string) => number | undefined) | undefined
     if (spec.meter !== undefined) {
+      const { incurredAmount, amountPerRequest } = spec.meter
+      if (incurredAmount !== undefined) {
+        costReader = (body) => readIncurred(incurredAmount, body, amountPerRequest)
+      }
       reservation = await ctx.meter.reserve(spec.meter.unit, spec.meter.amountPerRequest)
       if (reservation === null) {
         stop = 'COST_STOP'
@@ -760,7 +893,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
             {
               attempt: 1,
               page: at.page,
-              url: pageRequest.request.url,
+              url: reportedUrl(pageRequest),
               status: null,
               startedAt,
               endedAt: ctx.now(),
@@ -774,8 +907,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
       }
     }
 
-    const cost =
-      reservation === null ? null : { unit: reservation.unit, amount: reservation.amount }
+    let cost = reservation === null ? null : { unit: reservation.unit, amount: reservation.amount }
 
     // The failure paths below deliberately do NOT assign this: `failure !== null` short-circuits
     // before anything parses the body, so no test can observe what it holds on those paths.
@@ -785,7 +917,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     let failure: PageAttemptFailure | null = null
     // A `let` because a cached validator rewrites it, and it is read by the reports below — which
     // are outside the span, so it cannot live inside the try.
-    let request: FetchRequest = pageRequest.request
+    let request: FetchRequest = withByteCap(pageRequest.request, requestMaxBytes)
 
     /**
      * THE WHOLE RESERVE -> RECONCILE SPAN IS ONE TRY, WITH `reconcile` IN A `finally`.
@@ -810,6 +942,11 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
      * All three are reachable and asserted, so the `finally` is not a guard without a failing test.
      */
     let resolution: ReservationResolution = 'RELEASED'
+    // The cost the provider actually charged, read off a FRESH successful response only.
+    let incurred: number | undefined
+    // True from the moment `markSent` is called: with `resolution` still RELEASED, a throw can only
+    // have come from `markSent` itself, so the request was NEVER sent.
+    let markSentStarted = false
     const cacheKey =
       pageRequest.cacheKey === undefined
         ? undefined
@@ -823,11 +960,22 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
       const cached = Object.keys(validators).length > 0 ? stored : null
       if (cached !== null) {
         request = {
-          ...pageRequest.request,
-          headers: { ...pageRequest.request.headers, ...validators },
+          ...request,
+          headers: { ...request.headers, ...validators },
         }
       }
 
+      /**
+       * SENT is recorded BEFORE the request leaves, and awaited: the store releases only cost it
+       * can prove unsent, and "provably unsent" means this write COMMITTED first. It sits after
+       * the cache read (which can still fail without anything having left) and before the
+       * `UNCERTAIN` assignment, so a `markSent` that fails leaves `RELEASED` — the request is not
+       * sent, and the reservation is freed rather than held.
+       */
+      if (reservation !== null) {
+        markSentStarted = true
+        await ctx.meter.markSent(reservation)
+      }
       resolution = 'UNCERTAIN'
       const response = await ctx.fetchText(request)
       resolution = 'USED'
@@ -846,6 +994,15 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
         }
       } else {
         bodyText = response.bodyText
+        // LOAD-BEARING PLACEMENT: `incurred` is set only here, in the final `else` of the status
+        // chain, so a 304 (which never reaches this line) settles the whole reservation. The hazard
+        // is a SHARED cost read placed AFTER the chain: by then the 304 branch has run
+        // `bodyText = cached.bodyText`, and a read of it would settle a 304 at the CACHED body's
+        // record count (an under-count). Moving the read ABOVE the 304 branch is not that hazard
+        // (`bodyText` is still empty there, so it reads nothing and charges the whole reservation).
+        // No test fails either way: there is no metered-304 test (TheirStack is a POST source, so a
+        // 304 is barely reachable there).
+        incurred = readCostOrFlag(costReader, bodyText)
         const lastModified = response.headers['last-modified']
         if ((isValidator(response.etag) || isValidator(lastModified)) && cacheKey !== undefined) {
           /**
@@ -885,14 +1042,12 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
         resolution === 'RELEASED'
           ? {
               code: 'PERSISTENCE',
-              message: `the response cache could not be read: ${error instanceof Error ? error.message : 'the cache failed'}`,
+              message: markSentStarted
+                ? `the request was not sent, its reservation could not be marked sent: ${error instanceof Error ? error.message : 'the meter failed'}`
+                : `the response cache could not be read: ${error instanceof Error ? error.message : 'the cache failed'}`,
               status: null,
             }
-          : {
-              code: ctx.signal.aborted ? 'CANCELLED' : 'TRANSIENT_NETWORK',
-              message: error instanceof Error ? error.message : 'the request failed',
-              status: null,
-            }
+          : failureOfThrown(error, ctx.signal.aborted)
     } finally {
       if (reservation !== null) {
         /**
@@ -912,7 +1067,8 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
          * informative than the bookkeeping that failed afterwards.
          */
         try {
-          await ctx.meter.reconcile(reservation, resolution)
+          await ctx.meter.reconcile(reservation, resolution, incurred)
+          cost = { unit: reservation.unit, amount: incurred ?? reservation.amount }
         } catch (error) {
           failure ??= {
             code: 'PERSISTENCE',
@@ -1062,7 +1218,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
                 {
                   attempt: 1,
                   page: at.page,
-                  url: request.url,
+                  url: reportedUrl(pageRequest),
                   status,
                   startedAt,
                   endedAt: ctx.now(),
@@ -1113,7 +1269,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
                     // The request the cycle WOULD have sent — available by TYPE on this arm,
                     // which is what removed a `nextRequest === null ? …` ternary whose null
                     // branch no input could reach.
-                    url: advance.request.request.url,
+                    url: reportedUrl(advance.request),
                     status: null,
                     startedAt: ctx.now(),
                     endedAt: ctx.now(),
@@ -1143,7 +1299,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
         {
           attempt: 1,
           page: at.page,
-          url: request.url,
+          url: reportedUrl(pageRequest),
           status: failure.status,
           startedAt,
           endedAt: ctx.now(),
@@ -1172,6 +1328,40 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
  * Its signature and behaviour are what Task 2.3 shipped; only the body step moved behind
  * `decodeEnvelope`, so every assertion in `api-json.provider.spec.ts` still runs against it.
  */
+/**
+ * The headers a JSON adapter may send, as an ALLOWLIST (inverted from a denylist for the reason the
+ * feed binding's `honestRequest` gives: a denylist is the impersonations someone thought of). It is
+ * what the five quota adapters were MEASURED to send (a search of every `headers` they build): the
+ * content-negotiation pair, `content-type` for the two POST bodies, and the credential headers of
+ * the header-keyed schemes (`authorization`, RapidAPI's pair). A member nobody sends is not here:
+ * `from` is by specification an e-mail address, the channel a User-Agent disclosure once went out
+ * through, so it is added by the first adapter that needs it, with that argument. NOT here, and so
+ * dropped: `user-agent` (the transport owns our outbound identity and sets the honest one by
+ * default), `cookie`, `referer`, `origin`, `x-forwarded-for`. The loop's own conditional headers
+ * are added AFTER this filter, so they are unaffected.
+ */
+export const ALLOWED_JSON_REQUEST_HEADERS: ReadonlySet<string> = new Set([
+  'accept',
+  'accept-language',
+  'authorization',
+  'content-type',
+  'x-rapidapi-key',
+  'x-rapidapi-host',
+])
+
+function withAllowedHeaders(page: PageRequest): PageRequest {
+  const headers: Record<string, string> = {}
+  for (const [name, value] of Object.entries(page.request.headers ?? {})) {
+    const key = name.toLowerCase()
+    if (ALLOWED_JSON_REQUEST_HEADERS.has(key)) headers[key] = value
+  }
+  const { headers: _dropped, ...rest } = page.request
+  return {
+    ...page,
+    request: Object.keys(headers).length === 0 ? rest : { ...rest, headers },
+  }
+}
+
 export async function collectJsonPages<TConfig extends SourceConfigFields, TEnvelope, TItem>(
   spec: ApiJsonSourceSpec<TConfig, TEnvelope, TItem>,
   config: TConfig,
@@ -1181,7 +1371,9 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
   return collectPages(
     {
       ...spec,
+      pageRequest: (c, at) => withAllowedHeaders(spec.pageRequest(c, at)),
       limits,
+      requestMaxBytes: limits.maxBytes,
       decodeEnvelope: (bodyText) => decodeJsonEnvelope(bodyText, spec.envelopeSchema, limits),
     },
     config,

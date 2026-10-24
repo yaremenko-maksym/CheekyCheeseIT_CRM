@@ -1,0 +1,39 @@
+{
+  "totalCount": 3,
+  "jobs": [
+    {
+      "title": "Senior Backend Developer",
+      "location": "Remote",
+      "snippet": "We are looking for a <b>Senior</b> Backend Developer to join our platform team...",
+      "salary": "",
+      "source": "example-board.test",
+      "type": "Full-time",
+      "link": "https://jooble.org/desc/4821937?ckey=senior+developer&rgn=-1&pos=1",
+      "company": "Example Platform Ltd",
+      "updated": "2026-10-20T08:00:00.0000000",
+      "id": 4821937
+    },
+    {
+      "title": "Staff Engineer, Data",
+      "location": "Berlin",
+      "snippet": "Own the data platform end to end...",
+      "salary": "90 000 - 110 000 EUR",
+      "source": "example-careers.test",
+      "type": "Contract",
+      "link": "https://jooble.org/desc/-6876573728492742391?ckey=senior+developer&rgn=-1&pos=2",
+      "company": "Example Data GmbH",
+      "updated": "2026-10-19T14:30:00.0000000",
+      "id": -6876573728492743000
+    },
+    {
+      "title": "Lead Developer",
+      "location": "London",
+      "snippet": "Lead a small team of developers...",
+      "salary": "",
+      "source": "example-board.test",
+      "type": "",
+      "link": "https://jooble.org/desc/anonymous-3?ckey=senior+developer&rgn=-1&pos=3",
+      "updated": "2026-10-18T09:15:00.0000000"
+    }
+  ]
+}

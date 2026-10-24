@@ -1,0 +1,33 @@
+{
+  "status": "OK",
+  "request_id": "00000000-0000-4000-8000-000000000001",
+  "parameters": { "query": "senior backend developer remote", "page": 1, "num_pages": 1 },
+  "data": [
+    {
+      "job_id": "ExampleJobIdA1==",
+      "job_title": "Senior Backend Engineer",
+      "employer_name": "Example Systems Inc",
+      "job_apply_link": "https://careers.example-systems.test/jobs/1001/apply",
+      "job_description": "Build and run backend services in Go.\nRemote within Europe.",
+      "job_posted_at_datetime_utc": "2026-10-21T09:30:00.000Z",
+      "job_city": "Warsaw",
+      "job_state": "Mazowieckie",
+      "job_country": "PL",
+      "job_employment_type": "FULLTIME",
+      "job_is_remote": true
+    },
+    {
+      "job_id": "ExampleJobIdB2==",
+      "job_title": "Backend Developer (Contract)",
+      "employer_name": "Example Labs",
+      "job_apply_link": "https://boards.example-jobs.test/view/2002",
+      "job_description": "Six month contract.",
+      "job_posted_at_datetime_utc": "2026-10-20T16:00:00.000Z",
+      "job_city": null,
+      "job_state": null,
+      "job_country": "DE",
+      "job_employment_type": "CONTRACTOR",
+      "job_is_remote": false
+    }
+  ]
+}
