@@ -184,35 +184,40 @@ describe('activation query against the real manifest (AC3)', () => {
     adapters: MANIFEST_VALIDATION_ADAPTERS,
     fixtureRoot: FIXTURE_ROOT,
   })
-  const facts = activationFactsByType(manifest, NOW)
-  const registry = new JobSourceRegistry([
-    new LegacyDouAdapter(new DouRssProvider()),
-    new ReportingAdapter(smartrecruitersProvider),
-    new ReportingAdapter(remoteokProvider),
-  ])
+  const facts = () => activationFactsByType(manifest, NOW)
+  // Built per test, never at collection: a registry that throws here must fail a TEST, not the file.
+  const makeRegistry = () =>
+    new JobSourceRegistry([
+      new LegacyDouAdapter(new DouRssProvider()),
+      new ReportingAdapter(smartrecruitersProvider),
+      new ReportingAdapter(remoteokProvider),
+    ])
 
   it('SmartRecruiters: permitted by owner decision, no captured payload -> NOT_VERIFIED', () => {
-    const f = facts.get('SMARTRECRUITERS_ATS')!
+    const f = facts().get('SMARTRECRUITERS_ATS')!
     // The permission blocker IS lifted by the decision; only the missing capture remains.
     expect(f.blockerCodes).toEqual(['NO_API_CAPTURE'])
     expect(f.payloadVerified).toBe(false)
-    expect(registry.activation('SMARTRECRUITERS_ATS', f)).toBe('NOT_VERIFIED')
+    expect(makeRegistry().activation('SMARTRECRUITERS_ATS', f)).toBe('NOT_VERIFIED')
   })
 
   it('is never returned by the activation query, enabled or not', () => {
-    const query = registry.activatable(facts)
+    const query = makeRegistry().activatable(facts())
     expect(query).not.toContain('SMARTRECRUITERS_ATS')
     expect(query).toContain('DOU_RSS')
   })
 
   it('a type that is not registered is UNREGISTERED and not returned', () => {
-    expect(registry.activation('JOOBLE_API', facts.get('JOOBLE_API'))).toBe('UNREGISTERED')
-    expect(registry.activatable(facts)).not.toContain('JOOBLE_API')
+    expect(makeRegistry().activation('JOOBLE_API', facts().get('JOOBLE_API'))).toBe('UNREGISTERED')
+    expect(makeRegistry().activatable(facts())).not.toContain('JOOBLE_API')
   })
 
   it('every status of a registered type agrees with activationOf over the same facts', () => {
+    const registry = makeRegistry()
     for (const t of registry.types()) {
-      expect(registry.activation(t, facts.get(t))).toBe(activationOf(registry.get(t), facts.get(t)))
+      expect(registry.activation(t, facts().get(t))).toBe(
+        activationOf(registry.get(t), facts().get(t)),
+      )
     }
   })
 
