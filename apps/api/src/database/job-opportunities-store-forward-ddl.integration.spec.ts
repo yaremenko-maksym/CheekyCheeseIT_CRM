@@ -233,34 +233,53 @@ type Row = Record<string, unknown>
 type Catalog = { enums: Row[]; columns: Row[]; constraints: Row[]; indexes: Row[] }
 
 /**
- * `pg_get_constraintdef` / `pg_get_indexdef` / `format_type` schema-qualify a name that
- * is not visible in the reading session's `search_path`, so the same object renders
- * differently depending on which side it is read from. Erase the schema prefix on both
- * sides and what remains is comparable.
- */
-/**
  * THE index comparison (round 3, CR-M-5): the real case and its positive control both call
  * this one function, so the control proves the comparison the spec actually relies on —
  * not a re-statement of it that would stay green if the real one were deleted.
  */
 function assertIndexesMatch(candidate: Catalog, ref: Catalog): void {
+  // By NAME first, so a missing or extra index is reported by its name (a deep-equality
+  // failure on 76 rows abbreviates them in the error message); then the full definitions,
+  // which catch a same-named index whose shape drifted.
+  // The names go into the assertion's own message, which vitest never truncates (it
+  // abbreviates the compared values themselves).
+  const names = (c: Catalog) => c.indexes.map((r) => String(r['name']))
+  const missing = names(ref).filter((n) => !names(candidate).includes(n))
+  const extra = names(candidate).filter((n) => !names(ref).includes(n))
+  expect(
+    [...missing, ...extra],
+    `indexes missing from the candidate: [${missing.join(', ')}]; extra in it: [${extra.join(', ')}]`,
+  ).toEqual([])
   expect(candidate.indexes).toEqual(ref.indexes)
+}
+
+/** The standalone (not constraint-backed) indexes of a catalog — what the tripwire counts. */
+function standaloneIndexNames(ref: Catalog): unknown[] {
+  const constraintBacked = new Set(
+    ref.constraints.filter((r) => r['kind'] === 'p' || r['kind'] === 'u').map((r) => r['name']),
+  )
+  return ref.indexes.filter((r) => !constraintBacked.has(r['name'])).map((r) => r['name'])
 }
 
 /**
  * THE standalone-index tripwire (round 3, CR-M-5): part 2's 44 plus the two Task 2.5 T1
  * adds through PART_5, by count and by name. Shared by the derivation case and the
- * positive control for the same reason as `assertIndexesMatch`.
+ * positive controls for the same reason as `assertIndexesMatch`.
  */
 function assertStandaloneIndexTripwire(ref: Catalog): void {
-  const constraintBacked = new Set(
-    ref.constraints.filter((r) => r['kind'] === 'p' || r['kind'] === 'u').map((r) => r['name']),
-  )
-  const standalone = ref.indexes.filter((r) => !constraintBacked.has(r['name']))
+  const standalone = standaloneIndexNames(ref)
   expect(standalone).toHaveLength(EXPECTED.indexes + PART_5_INDEXES.length)
-  expect(standalone.map((r) => r['name'])).toEqual(expect.arrayContaining([...PART_5_INDEXES]))
+  // By name: the T1 indexes absent from the catalog, named in the assertion's own message.
+  const absent = PART_5_INDEXES.filter((n) => !standalone.includes(n))
+  expect(absent, `T1 indexes absent by name: [${absent.join(', ')}]`).toEqual([])
 }
 
+/**
+ * `pg_get_constraintdef` / `pg_get_indexdef` / `format_type` schema-qualify a name that
+ * is not visible in the reading session's `search_path`, so the same object renders
+ * differently depending on which side it is read from. Erase the schema prefix on both
+ * sides and what remains is comparable.
+ */
 const unqualify = (text: string, schema: string): string =>
   text.split(`"${schema}".`).join('').split(`${schema}.`).join('')
 
@@ -815,8 +834,33 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     }
     expect(mutated.indexes).toHaveLength(reference.indexes.length - 1)
 
-    expect(() => assertIndexesMatch(afterFirstApply, mutated)).toThrow()
-    expect(() => assertStandaloneIndexTripwire(mutated)).toThrow(/length of 46 but got 45/)
+    // CR-L-4: the SPECIFIC report — the comparison names the index that differs (a bare
+    // `.toThrow()` would accept any TypeError) — and the count is derived from the same
+    // constants the real case uses, not a literal.
+    expect(() => assertIndexesMatch(afterFirstApply, mutated)).toThrow(new RegExp(dropped))
+    const expected = EXPECTED.indexes + PART_5_INDEXES.length
+    expect(() => assertStandaloneIndexTripwire(mutated)).toThrow(
+      `length of ${expected} but got ${expected - 1}`,
+    )
+  })
+
+  it('positive control (CR-L-3): a T1 index missing BY NAME is reported even when the count still matches', () => {
+    // The tripwire has two halves, a count and a by-name `arrayContaining` over
+    // PART_5_INDEXES. The control above trips the count first, so it cannot see the second
+    // half. Here a PART_5 index is RENAMED in the snapshot (not dropped): the count stays
+    // right, and only the by-name half can report it.
+    const renamed = 'uq_job_collection_runs_one_started_per_account'
+    expect(PART_5_INDEXES).toContain(renamed)
+    const mutated: Catalog = {
+      ...reference,
+      indexes: reference.indexes.map((r) =>
+        r['name'] === renamed ? { ...r, name: 'uq_job_collection_runs_some_other_index' } : r,
+      ),
+    }
+    expect(standaloneIndexNames(mutated)).toHaveLength(EXPECTED.indexes + PART_5_INDEXES.length)
+    expect(standaloneIndexNames(mutated)).not.toContain(renamed)
+
+    expect(() => assertStandaloneIndexTripwire(mutated)).toThrow(new RegExp(renamed))
   })
 
   it('compares column ORDER in a way a dropped column cannot shift (CR-L-8)', async () => {
