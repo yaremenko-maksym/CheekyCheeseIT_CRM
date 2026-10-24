@@ -395,6 +395,8 @@ export interface ManifestType {
   readonly attribution: Attribution
   readonly endpointVariant: string
   readonly scopeKind: ScopeKind
+  /** Requests one scheduled run may send: the multiplier the quota arithmetic needs. */
+  readonly requestsPerRun: number
   readonly quota: QuotaDeclaration | null
   readonly status: { readonly symbol: string; readonly value: StatusConstant } | null
   readonly blockers: readonly Blocker[]
@@ -560,11 +562,8 @@ function checkQuota(types: readonly ManifestType[], entries: readonly ManifestEn
     const perMonth = entries
       .filter((e) => owners.some((t) => t.type === e.type))
       .reduce((sum, e) => {
-        const t = owners.find((o) => o.type === e.type)
-        return (
-          sum +
-          Math.floor(MONTH_HOURS / e.intervalHours) * (requestsPerRunOf.get(t?.type ?? e.type) ?? 1)
-        )
+        const perRun = owners.find((o) => o.type === e.type)?.requestsPerRun ?? 1
+        return sum + Math.floor(MONTH_HOURS / e.intervalHours) * perRun
       }, 0)
     if (q.unit === 'REQUEST' && perMonth > q.limit) {
       throw new ManifestError(
@@ -574,9 +573,6 @@ function checkQuota(types: readonly ManifestType[], entries: readonly ManifestEn
     }
   }
 }
-
-/** Filled by `buildManifest`; keyed by type. Module-level so `checkQuota` stays a pure function of its inputs. */
-const requestsPerRunOf = new Map<JobSourceType, number>()
 
 function checkCadence(def: TypeDefinition, e: EntryDefinition): void {
   if (!Number.isInteger(e.intervalHours) || e.intervalHours < 1) {
@@ -655,7 +651,6 @@ export function employerEvidenceText(o: OwnershipRecord): string {
 }
 
 export function buildManifest(input: BuildInput): Manifest {
-  requestsPerRunOf.clear()
   const known = new Set<string>(jobSourceTypeSchema.options)
   const seenTypes = new Set<string>()
   const types: ManifestType[] = []
@@ -727,7 +722,6 @@ export function buildManifest(input: BuildInput): Manifest {
         `${type}: readiness reason is ${reason.length} characters`,
       )
     }
-    requestsPerRunOf.set(type, def.requestsPerRun ?? 1)
 
     const policyRefs = [
       ...new Map(
@@ -748,6 +742,7 @@ export function buildManifest(input: BuildInput): Manifest {
       attribution: def.attribution,
       endpointVariant: def.endpointVariant,
       scopeKind: def.scopeKind,
+      requestsPerRun: def.requestsPerRun ?? 1,
       quota: def.quota ?? null,
       status: def.status ?? null,
       blockers,
