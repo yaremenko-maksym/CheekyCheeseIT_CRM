@@ -4831,3 +4831,40 @@ suppressions and they point in opposite directions, so a review of one is not a 
 
 **Check on closing:** place such a directive inside a chain and confirm the gate's `ignored` count
 moves. If the count is unchanged, the directive is decoration and the line is still gated.
+
+## 313. The mutation gate reads a mutant killed only by rejection tests as surviving (2026-10-24)
+
+**Open** — a tool fact with no mechanism behind it, measured independently twice. Number 313 because
+312 is the entry above; `origin/main`'s highest was 307, and 309 through 311 were taken by branches
+and sessions in flight on the same day.
+
+Stryker's per-test attribution does not select a test whose assertion is on a **rejection** — that
+the call under test throws, or that a promise rejects. A mutant whose only killers are such tests is
+therefore reported as `Survived` while the suite does kill it: hand-mutate the line and the named
+tests fail, every time. Found by the author of an account-meter store and confirmed by a reviewer,
+which is the only reason anyone believed it rather than suppressing harder.
+
+Two instances, with their numbers, so a later reader can re-run them rather than trust this entry.
+Both are in the store's settlement path, and both were measured by applying the mutation by hand and
+running the unit suite:
+
+- the meter-lock `catch` that converts only a not-found error into a foreign-reservation refusal,
+  forced always-true: **2 unit tests fail** ("an error that merely LOOKS like METER_NOT_FOUND ..."
+  and "a plain failure inside the meter lock ..."), both of which assert on a rejection;
+- the no-op arm of the settlement state machine, forced always-true: **2 unit tests fail**, the two
+  refused-transition cases, which assert on a rejection for the same reason.
+
+Why it costs more than the chain-directive quirk of entry 312: that one fails toward a red gate and
+merely wastes time, while this one invites the wrong repair. The natural response to a survivor you
+cannot explain is a suppression, and a suppression here hides a line the tests were already
+guarding — so the gate stops watching a line that was never unwatched, and the file now tells the
+next reader not to look.
+
+The honest handling is a suppression whose reason carries **the measurement** — which mutation, which
+tests fail, how many — so a later reader can re-run it instead of trusting it, and can delete the
+directive the day the tool is fixed. Both suppressions in the account-meter store that cite this
+quirk are written that way.
+
+**Check on closing:** hand-mutate a line whose only coverage is a rejection assertion and compare the
+suite's result with the gate's report. If they agree, the quirk is gone and every suppression citing
+it can be deleted.
