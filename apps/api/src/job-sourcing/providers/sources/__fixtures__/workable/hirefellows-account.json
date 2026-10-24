@@ -1,0 +1,95 @@
+{
+  "name": "Hire Fellows",
+  "description": null,
+  "jobs": [
+    {
+      "title": "Full Stack Developer - Lovable & Supabase",
+      "shortcode": "09D3268344",
+      "code": "",
+      "employment_type": "Full-time",
+      "telecommuting": true,
+      "department": "Engineering",
+      "url": "https://apply.workable.com/j/09D3268344",
+      "shortlink": "https://apply.workable.com/j/09D3268344",
+      "application_url": "https://apply.workable.com/j/09D3268344/apply",
+      "published_on": "2026-09-03",
+      "created_at": "2026-09-03",
+      "country": "Bahrain",
+      "city": "",
+      "state": "",
+      "education": "",
+      "experience": "Associate",
+      "function": "Engineering",
+      "industry": "",
+      "locations": [
+        { "country": "Bahrain", "countryCode": "BH", "city": "", "region": null, "hidden": true },
+        { "country": "Pakistan", "countryCode": "PK", "city": "", "region": null, "hidden": true },
+        { "country": "India", "countryCode": "IN", "city": "", "region": null, "hidden": true },
+        { "country": "Egypt", "countryCode": "EG", "city": "", "region": null, "hidden": true },
+        { "country": "Morocco", "countryCode": "MA", "city": "", "region": null, "hidden": true },
+        { "country": "Tunisia", "countryCode": "TN", "city": "", "region": null, "hidden": true }
+      ],
+      "description": "<p>We are looking for a skilled and adaptable Full-Stack Developer to join the technology team of a fast-growing, early-stage company building a multi-sided digital platform. You will take technical ownership of an existing application and play a hands-on role in making it fully functional, stable, and ready for launch.</p><p>In this role, you will work across the backend and frontend of the product, with a particular focus on troubleshooting, improving, and completing the existing backend infrastructure. The application is already substantially built, so this is not a role focused purely on building from scratch. You will assess the current setup, identify what needs to be fixed or improved, and make practical decisions on whether to optimize, rebuild, or simplify different parts of the product.</p><p>You will work closely with the founder across the customer-facing application and internal platforms, ensuring that core functionality, data flows, integrations, and real-time processes work reliably from end to end.</p><p></p><h3><strong>Responsibilities</strong></h3><ul><li>Take full technical ownership of the existing application and assess what needs to be fixed, improved, optimized, or rebuilt.</li><li>Troubleshoot and improve backend functionality, with a strong focus on authentication, user profiles, databases, order flows, and real-time syncing.</li><li>Work across the product’s main interfaces, including the customer app, driver app, retailer dashboard, and admin dashboard.</li><li>Review the existing Lovable-built application and make improvements while identifying areas that may require rebuilding or restructuring.</li><li>Build, maintain, and optimize backend functionality using Supabase and related technologies.</li><li>Manage and work with code hosted on GitHub, ensuring a clean and maintainable development setup.</li><li>Ensure customer, driver, retailer, and admin data flows correctly across the platform.</li><li>Troubleshoot authentication, sign-in, profiles, dashboards, order management, and real-time updates.</li><li>Ensure end-to-end order and operational flows function correctly across different user types.</li><li>Work with booking, calendar-based, and other workflow-driven functionality where required.</li><li>Identify technical issues proactively and recommend practical solutions based on scalability, reliability, and maintainability.</li><li>Test functionality thoroughly and resolve bugs or issues before launch.</li><li>Maintain clear documentation of the product setup, technical decisions, and key workflows.</li><li>Explain technical decisions, challenges, and recommendations clearly to a non-technical founder.</li><li>Work independently and manage technical priorities with minimal supervision.</li><li>Ensure a smooth technical handover and knowledge transfer if additional developers are brought into the team in the future.</li></ul><p><strong>Requirements</strong></p><ul><li>3+ years of experience in full-stack development, with strong backend development experience.</li></ul><ul><li>Hands-on experience working with Lovable or strong familiarity with AI-assisted application development platforms.</li><li>Strong experience with Supabase or similar backend, database, and authentication platforms.</li><li>Comfortable working with GitHub and existing codebases.</li><li>Proven experience troubleshooting, improving, and completing existing applications rather than only building new products from scratch.</li><li>Strong understanding of authentication, user profiles, databases, APIs, dashboards, and application workflows.</li><li>Experience working with real-time data, syncing, notifications, or similar live application functionality.</li><li>Experience working across multiple user interfaces or role-based platforms.</li><li>Strong problem-solving skills and the ability to quickly understand an existing technical setup.</li><li>Ability to determine when existing functionality should be fixed or optimized versus rebuilt.</li><li>Comfortable working independently and taking full technical ownership of a product.</li><li>Strong communication skills and the ability to explain technical concepts clearly to non-technical stakeholders.</li><li>Comfortable working in an early-stage, founder-led environment with a high level of ambiguity and ownership.</li><li>Strong attention to detail, reliability, and a practical approach to solving technical problems.</li></ul><p></p><h3><strong>Nice to Have</strong></h3><ul><li>Experience building multi-sided products involving customers, drivers, retailers/vendors, and administrators.</li><li>Experience with real-time order tracking or operational workflows.</li><li>Experience quickly rebuilding or restructuring parts of an application when the existing architecture is difficult to maintain.</li><li>Experience working in early-stage startups or founder-led environments.</li><li>Ability and willingness to collaborate on-site in the future if required.</li></ul>"
+    },
+    {
+      "title": "Sous Chef ( 3D Cake Artist)",
+      "shortcode": "5EAE844505",
+      "code": "",
+      "employment_type": "",
+      "telecommuting": false,
+      "department": null,
+      "url": "https://apply.workable.com/j/5EAE844505",
+      "shortlink": "https://apply.workable.com/j/5EAE844505",
+      "application_url": "https://apply.workable.com/j/5EAE844505/apply",
+      "published_on": "2026-10-13",
+      "created_at": "2026-10-13",
+      "country": "Saudi Arabia",
+      "city": "Riyadh",
+      "state": "Riyadh Province",
+      "education": "",
+      "experience": "",
+      "function": "",
+      "industry": "Food Production",
+      "locations": [
+        {
+          "country": "Saudi Arabia",
+          "countryCode": "SA",
+          "city": "Riyadh",
+          "region": "Riyadh Province",
+          "hidden": false
+        }
+      ],
+      "description": "<p>We are looking for an experienced and hands-on Sous Chef to join the production team of a fast-growing company operating across multiple markets. You will play a key role in overseeing the day-to-day operations of the kitchen, ensuring every order is produced on time, to the required quality standards, and in line with food safety and operational requirements.</p><p>In this role, you will have end-to-end responsibility for the kitchen floor, overseeing multiple production sections including cake artistry, decorating, baking, chocolate, and stewarding. You will lead and develop the kitchen team, manage daily production against order volumes, maintain quality and food-safety standards, and drive efficient use of people, ingredients, and resources.</p><p></p><h3>Responsibilities </h3><ul><li>Oversee the day-to-day operations of all kitchen and production sections, including cake artistry, decorating, baking, chocolate, and stewarding.</li><li>Manage daily production plans and ensure orders are completed accurately and on time.</li><li>Monitor recipe adherence and finished-product quality against required standards.</li><li>Identify and resolve quality issues before products reach dispatch.</li><li>Manage kitchen inventory levels in coordination with Procurement and Inventory teams, minimizing stockouts and unnecessary waste.</li><li>Build and adjust staff schedules based on daily order volumes and production requirements.</li><li>Allocate workloads across sections to ensure efficient use of the kitchen team.</li><li>Lead, coach, and hold section heads and their teams accountable for performance, quality, and productivity.</li><li>Conduct daily production briefings to communicate order volumes, priorities, special requests, and operational requirements.</li><li>Identify training and development needs across the kitchen team and work with HR on onboarding and employee development.</li><li>Enforce food safety, hygiene, sanitation, and HACCP standards across the facility.</li><li>Work closely with the QC team to maintain consistent food-safety and quality standards.</li><li>Own escalations related to design, product quality, rework, and delivery timelines.</li><li>Make decisions on whether products require rework, should be held, or are ready for release.</li><li>Monitor and report kitchen performance, including production output, quality, and on-time completion.</li><li>Manage key kitchen cost drivers including labor, ingredients, and wastage against the facility budget.</li><li>Develop capacity plans for peak periods and ensure all sections are prepared for increased production volumes.</li><li>Identify opportunities to improve kitchen workflows, layouts, processes, and overall productivity.</li><li>Act as the senior decision-maker on kitchen equipment, workflow, and operational changes affecting production.</li><li>Work cross-functionally with Operations, Supply Chain, Marketing, and other teams on new launches, seasonal collections, and production planning.</li><li>Maintain a clean, organized, safe, and efficient kitchen environment.</li></ul><p><strong>Requirements</strong></p><ul><li>7-10 years of professional kitchen, bakery, or food production experience.</li><li>Previous experience managing a multi-section kitchen, bakery, or high-volume production facility.</li><li>Strong knowledge of cake production and decoration, including expert-level fondant and cake-craft skills.</li><li>Excellent eye for detail with a strong understanding of product quality and presentation.</li><li>Proven experience managing and developing a multi-person kitchen team.</li><li>Strong experience with staff scheduling, coaching, performance management, and team development.</li><li>Working knowledge of inventory management, food cost, wastage, and production planning.</li><li>Strong understanding of food safety, hygiene, sanitation, and HACCP principles.</li><li>Ability to manage production efficiently against changing order volumes and tight deadlines.</li><li>Strong problem-solving and decision-making skills, with the ability to remain calm under pressure.</li><li>Strong leadership and communication skills.</li><li>Commercially aware with an understanding of kitchen budgets and cost control.</li><li>Highly organized with strong attention to detail and operational follow-through.</li><li>Comfortable working in a fast-paced, high-volume production environment.</li><li>Hands-on leadership style with a willingness to be involved in day-to-day kitchen operations.</li></ul>"
+    },
+    {
+      "title": "Associate Full Stack Engineer",
+      "shortcode": "D598232CFB",
+      "code": "",
+      "employment_type": "Full-time",
+      "telecommuting": false,
+      "department": null,
+      "url": "https://apply.workable.com/j/D598232CFB",
+      "shortlink": "https://apply.workable.com/j/D598232CFB",
+      "application_url": "https://apply.workable.com/j/D598232CFB/apply",
+      "published_on": "2026-09-22",
+      "created_at": "2026-09-22",
+      "country": "Bahrain",
+      "city": "Manama",
+      "state": "Capital Governorate",
+      "education": "",
+      "experience": "Mid-Senior level",
+      "function": "Engineering",
+      "industry": "Computer & Network Security",
+      "locations": [
+        {
+          "country": "Bahrain",
+          "countryCode": "BH",
+          "city": "Manama",
+          "region": "Capital Governorate",
+          "hidden": false
+        }
+      ],
+      "description": "<p>We're looking for a Full Stack Engineer to join a cyber security company in Bahrain that receives a very large volume of security telemetry from many customers, The platform runs automated analysis, gives our operations teams the tools to reach and act on decisions. The platform serves many customers from a single deployment, so every pipeline stage has to hold up under strict tenant isolation, bursty traffic, third-party rate limits, and partial failure. The engineering problems are, first and foremost, distributed systems problems.</p><p></p><p>The team is small and senior in outlook. Engineers ship to production, own what they ship, and work directly with the operations teams who use the product every day. We hire for engineering quality above everything else. You will build production components of the platform from your first month, paired with a senior engineer who owns the subsystem you work in, and you will grow toward owning one yourself. This is not a junior role in the usual sense. We are looking for someone early in their career who has already shown they operate above their level, and who wants hard systems problems rather than glue code.</p><p></p><h3><strong>Role Requirements: </strong></h3><ul><li>Two or more years writing production software in TypeScript on Node.js or in Python, with a working command of the other.</li><li>Hands-on experience with a system that had real scale. You contributed to, and can explain in detail, a service that handled sustained high throughput, large data volumes, or many concurrent tenants. You need not have designed it, but you must know why it was built the way it was and where its limits were.</li><li>A proven record of excellence, evidenced by at least one of: graduating at the top of your cohort from a strong program; a competitive programming or security capture-the-flag ranking; meaningful contributions to a widely used open-source project; an early promotion or an outsized ownership grant at a previous employer; a shipped feature with a measured business or reliability outcome you can describe.</li><li>Solid fundamentals: data structures, concurrency and asynchronous programming, HTTP and REST, relational and document databases, message queues.</li><li>Discipline: you write tests without being asked, you read the code you depend on, and your pull requests explain the why.</li><li>Clear written communication in English. Much of our design work happens in documents and pull request threads.</li></ul><p><strong>Requirements</strong></p><p></p><ul><li>Exposure to cyber-security: log analysis, endpoint-detection tooling, the MITRE ATTACK framework, or a security-focused degree or certification</li><li>Used a workflow orchestration engine or a streaming platform in production.</li><li>Deployed to Kubernetes and debugged a pod that would not start.</li><li>Integrated with a third-party API that had strict rate limits and lived to tell the tale.</li><li>No security background required. You'll learn how defenders think and how attacks unfold. </li></ul>"
+    }
+  ]
+}
