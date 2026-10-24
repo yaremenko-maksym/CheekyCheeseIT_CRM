@@ -43,9 +43,6 @@ export type RetryAfter =
   { readonly kind: 'DELAY'; readonly seconds: number } | { readonly kind: 'AT'; readonly at: Date }
 
 const DELAY_SECONDS = /^\d{1,12}$/
-/** RFC 9110 IMF-fixdate, the one HTTP-date form a sender must generate. */
-const IMF_FIXDATE =
-  /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/
 
 /**
  * `Retry-After` in its two forms (RFC 9110 §10.2.3): delay-seconds, or an IMF-fixdate. A delay is
@@ -60,10 +57,10 @@ export function parseRetryAfter(raw: unknown): RetryAfter | null {
   if (DELAY_SECONDS.test(value)) {
     return { kind: 'DELAY', seconds: Math.min(Number(value), HOST_BAN_PAUSE_MAX_SECONDS) }
   }
-  if (!IMF_FIXDATE.test(value)) return null
-  // `toUTCString` writes exactly an IMF-fixdate. A date the parser rolled over (31 Feb -> 3 Mar,
-  // 24:00 -> the next day), a weekday that does not match, or no date at all ("Invalid Date") does
-  // not round-trip to the same text, and is refused.
+  // `toUTCString` writes exactly an IMF-fixdate, so the round trip IS the format check: any other
+  // date form `Date.parse` happens to accept, a date it rolled over (31 Feb -> 3 Mar, 24:00 -> the
+  // next day), a weekday that does not match, or no date at all ("Invalid Date") does not come
+  // back as the same text, and is refused.
   const at = new Date(Date.parse(value))
   return at.toUTCString() === value ? { kind: 'AT', at } : null
 }

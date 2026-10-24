@@ -427,6 +427,56 @@ describe('T8: every reporting source has a host key that scopes what it really r
     expect(rebuilt({ minIntervalHoursFloor: 0 })).not.toThrow()
   })
 
+  it('each reporting type declares exactly this key (a literal table, read off the definitions)', () => {
+    const keyOf = (type: string, config: Record<string, unknown> = {}) =>
+      MANIFEST_DEFINITIONS.find((d) => d.type === type)!.hostKey!(config)
+    expect({
+      REMOTEOK_API: keyOf('REMOTEOK_API'),
+      REMOTIVE_API: keyOf('REMOTIVE_API'),
+      HIMALAYAS_API: keyOf('HIMALAYAS_API'),
+      JOBICY_API: keyOf('JOBICY_API'),
+      ARBEITNOW_API: keyOf('ARBEITNOW_API'),
+      JOBGETHER_API: keyOf('JOBGETHER_API'),
+      HN_HIRING: keyOf('HN_HIRING'),
+      GREENHOUSE_ATS: keyOf('GREENHOUSE_ATS'),
+      LEVER_ATS: [keyOf('LEVER_ATS', { region: 'global' }), keyOf('LEVER_ATS', { region: 'eu' })],
+      ASHBY_ATS: keyOf('ASHBY_ATS'),
+      WORKABLE_ATS: keyOf('WORKABLE_ATS'),
+      RECRUITEE_ATS: keyOf('RECRUITEE_ATS'),
+      PERSONIO_ATS: [keyOf('PERSONIO_ATS', { tld: 'de' }), keyOf('PERSONIO_ATS', { tld: 'com' })],
+      JOOBLE_API: keyOf('JOOBLE_API'),
+      JSEARCH_API: keyOf('JSEARCH_API'),
+      THEIRSTACK_API: keyOf('THEIRSTACK_API'),
+      MUSE_API: keyOf('MUSE_API'),
+      REED_API: keyOf('REED_API'),
+      DJINNI_RSS: keyOf('DJINNI_RSS'),
+      WWR_RSS: keyOf('WWR_RSS'),
+      EUREMOTEJOBS_RSS: keyOf('EUREMOTEJOBS_RSS'),
+    }).toEqual({
+      REMOTEOK_API: 'remoteok.com',
+      REMOTIVE_API: 'remotive.com',
+      HIMALAYAS_API: 'himalayas.app',
+      JOBICY_API: 'jobicy.com',
+      ARBEITNOW_API: 'www.arbeitnow.com',
+      JOBGETHER_API: 'jobgether.com',
+      HN_HIRING: 'hn.algolia.com',
+      GREENHOUSE_ATS: 'boards-api.greenhouse.io',
+      LEVER_ATS: ['api.lever.co', 'api.eu.lever.co'],
+      ASHBY_ATS: 'api.ashbyhq.com',
+      WORKABLE_ATS: 'apply.workable.com',
+      RECRUITEE_ATS: 'recruitee.com',
+      PERSONIO_ATS: ['personio.de', 'personio.com'],
+      JOOBLE_API: 'jooble.org',
+      JSEARCH_API: 'jsearch.p.rapidapi.com',
+      THEIRSTACK_API: 'api.theirstack.com',
+      MUSE_API: 'www.themuse.com',
+      REED_API: 'www.reed.co.uk',
+      DJINNI_RSS: 'djinni.co',
+      WWR_RSS: 'weworkremotely.com',
+      EUREMOTEJOBS_RSS: 'euremotejobs.com',
+    })
+  })
+
   it('types with no entry yet still name their real host (WorkingNomads, SmartRecruiters)', () => {
     const keyOf = (type: string) => MANIFEST_DEFINITIONS.find((d) => d.type === type)!.hostKey!({})
     expect(keyOf('WORKINGNOMADS_API')).toBe('www.workingnomads.com')
