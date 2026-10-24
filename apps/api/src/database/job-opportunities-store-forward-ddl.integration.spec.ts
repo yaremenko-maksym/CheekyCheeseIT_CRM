@@ -59,10 +59,10 @@
  * It is possible only because no statement in those files is schema-qualified — see the
  * note on the foreign keys in part 1's header.
  */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Pool, type PoolClient } from 'pg'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { splitSqlStatements } from './manual-sql-statements'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
 import {
@@ -95,11 +95,32 @@ const PART_3_MIGRATION = '2026-10-21_job_queue_reason_redacted.sql'
  * `job-queue-append-only.integration.spec.ts`.
  */
 const PART_4_MIGRATION = '2026-10-22_job_queue_redaction_callable.sql'
+/**
+ * r5 Task 2.5 T1. `job_collection_runs.account_key` and the two single-flight indexes
+ * (`uq_job_collection_runs_one_started_per_{source,account}`) are declared in Drizzle,
+ * so the `db:push` reference carries them, and production gets them ONLY through this
+ * file. It is therefore part of every forward path below — applied after parts 1 and 2,
+ * as `deploy.yml` will apply it — and on a fresh store it is a REAL upgrade: parts 1 and
+ * 2 create `job_collection_runs` without the column, and this file adds it.
+ *
+ * It is STAGED in `drizzle/manual-staged/` until DevOps wires the deploy and moves it to
+ * `manual/` (the same arrangement as the 2026-10-24 manifest seed delta), so `readPart`
+ * looks in `manual/` first and falls back to `manual-staged/`: the move changes no byte
+ * of the file and must not break this spec.
+ */
+const PART_5_MIGRATION = '2026-10-24_job_run_single_flight.sql'
+/** The indexes PART_5 creates; the reference counts them beside part 2's own. */
+const PART_5_INDEXES = [
+  'uq_job_collection_runs_one_started_per_account',
+  'uq_job_collection_runs_one_started_per_source',
+] as const
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
 const SCHEMA = 'ddl_job_opportunities_store'
 /** Its own schema, so the migration path cannot disturb the fresh-path comparison. */
 const MIGRATION_SCHEMA = 'ddl_job_queue_reason_redacted_alter'
 const CONFIG_GUARD_SCHEMA = 'ddl_job_sources_config_guard'
+/** Its own schema too: the T1/T1b cases seed rows and bad states before PART_5 runs. */
+const T1_SCHEMA = 'ddl_job_runs_single_flight'
 /** A non-superuser used to reproduce the masked-progress-row case (SR-M-4). */
 const UNPRIVILEGED_ROLE = 'ddl_forward_ddl_probe'
 /** Two indexes on one table, so "a build on the same table" is expressible. */
@@ -162,7 +183,12 @@ const PRE_STORE_ENUMS = [
 /** Tripwires on the DERIVED expectation — they fail if the reference side shifts. */
 const EXPECTED = { tables: 18, enums: 19, jobSourcesColumns: 18, indexes: 44 } as const
 
-const readPart = (name: string): string => readFileSync(join(MANUAL_DIR, name), 'utf8')
+const STAGED_DIR = join(__dirname, '..', '..', 'drizzle', 'manual-staged')
+const readPart = (name: string): string =>
+  readFileSync(
+    existsSync(join(MANUAL_DIR, name)) ? join(MANUAL_DIR, name) : join(STAGED_DIR, name),
+    'utf8',
+  )
 
 /**
  * Membership, read off the Drizzle declarations rather than the SQL under test. Textual
@@ -205,6 +231,48 @@ const POSITION_EXPRESSION = `CASE
 
 type Row = Record<string, unknown>
 type Catalog = { enums: Row[]; columns: Row[]; constraints: Row[]; indexes: Row[] }
+
+/**
+ * THE index comparison (round 3, CR-M-5): the real case and its positive control both call
+ * this one function, so the control proves the comparison the spec actually relies on —
+ * not a re-statement of it that would stay green if the real one were deleted.
+ */
+function assertIndexesMatch(candidate: Catalog, ref: Catalog): void {
+  // By NAME first, so a missing or extra index is reported by its name (a deep-equality
+  // failure on 76 rows abbreviates them in the error message); then the full definitions,
+  // which catch a same-named index whose shape drifted.
+  // The names go into the assertion's own message, which vitest never truncates (it
+  // abbreviates the compared values themselves).
+  const names = (c: Catalog) => c.indexes.map((r) => String(r['name']))
+  const missing = names(ref).filter((n) => !names(candidate).includes(n))
+  const extra = names(candidate).filter((n) => !names(ref).includes(n))
+  expect(
+    [...missing, ...extra],
+    `indexes missing from the candidate: [${missing.join(', ')}]; extra in it: [${extra.join(', ')}]`,
+  ).toEqual([])
+  expect(candidate.indexes).toEqual(ref.indexes)
+}
+
+/** The standalone (not constraint-backed) indexes of a catalog — what the tripwire counts. */
+function standaloneIndexNames(ref: Catalog): unknown[] {
+  const constraintBacked = new Set(
+    ref.constraints.filter((r) => r['kind'] === 'p' || r['kind'] === 'u').map((r) => r['name']),
+  )
+  return ref.indexes.filter((r) => !constraintBacked.has(r['name'])).map((r) => r['name'])
+}
+
+/**
+ * THE standalone-index tripwire (round 3, CR-M-5): part 2's 44 plus the two Task 2.5 T1
+ * adds through PART_5, by count and by name. Shared by the derivation case and the
+ * positive controls for the same reason as `assertIndexesMatch`.
+ */
+function assertStandaloneIndexTripwire(ref: Catalog): void {
+  const standalone = standaloneIndexNames(ref)
+  expect(standalone).toHaveLength(EXPECTED.indexes + PART_5_INDEXES.length)
+  // By name: the T1 indexes absent from the catalog, named in the assertion's own message.
+  const absent = PART_5_INDEXES.filter((n) => !standalone.includes(n))
+  expect(absent, `T1 indexes absent by name: [${absent.join(', ')}]`).toEqual([])
+}
 
 /**
  * `pg_get_constraintdef` / `pg_get_indexdef` / `format_type` schema-qualify a name that
@@ -476,7 +544,12 @@ async function applyParts(client: PoolClient, parts: readonly string[]): Promise
   }
 }
 
-const applyBothParts = (client: PoolClient): Promise<void> => applyParts(client, [PART_1, PART_2])
+/**
+ * The full forward path for the store as `deploy.yml` applies it. The name predates
+ * PART_5 (Task 2.5 T1); it is kept so the history of the tests that call it reads on.
+ */
+const applyBothParts = (client: PoolClient): Promise<void> =>
+  applyParts(client, [PART_1, PART_2, PART_5_MIGRATION])
 const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 
 /**
@@ -626,13 +699,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     )
     expect(referenceJobSourcesColumns).toHaveLength(EXPECTED.jobSourcesColumns)
 
-    const constraintBacked = new Set(
-      reference.constraints
-        .filter((r) => r['kind'] === 'p' || r['kind'] === 'u')
-        .map((r) => r['name']),
-    )
-    const standaloneIndexes = reference.indexes.filter((r) => !constraintBacked.has(r['name']))
-    expect(standaloneIndexes).toHaveLength(EXPECTED.indexes)
+    assertStandaloneIndexTripwire(reference)
   })
 
   it('creates NOTHING beyond the Drizzle set — the other direction (CR-L-5)', async () => {
@@ -703,6 +770,34 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     expect(finalNames.slice().sort()).toEqual(created.slice().sort())
   })
 
+  it('keeps the two copies of the T1 index-name list in agreement (2.5 T1, same as SR-M-6)', () => {
+    // PART_5 repeats part 2's device on a smaller scale: the creates and the final
+    // check's `VALUES` each name its indexes, so an index added to one and forgotten in
+    // the other would be built but never shape-checked (or checked but never built).
+    const sql = readPart(PART_5_MIGRATION)
+    const created = [...sql.matchAll(/^\s*CREATE UNIQUE INDEX IF NOT EXISTS "([a-z_0-9]+)"/gm)].map(
+      (m) => m[1]!,
+    )
+    const finalNames = [...sql.matchAll(/\('(uq_[a-z_0-9]+)', '[a-z_]+'\)/g)].map((m) => m[1]!)
+
+    // Exact lists, so a regex that matched nothing fails here, not as two equal empties.
+    expect(created.slice().sort()).toEqual([...PART_5_INDEXES])
+    expect(finalNames.slice().sort()).toEqual([...PART_5_INDEXES])
+  })
+
+  it('applies the T1 file only as a whole transaction: no CONCURRENTLY, no inner BEGIN/COMMIT (2.5 T1)', () => {
+    // The file is applied with `psql --single-transaction`, which is what makes a refused
+    // preflight undo the column add. A `CONCURRENTLY` build would make psql fail inside the
+    // transaction block, and an inner COMMIT would end the transaction early and silently
+    // turn the apply back into statement-by-statement.
+    const sql = readPart(PART_5_MIGRATION)
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('--'))
+      .join('\n')
+    expect(sql).not.toMatch(/\bCONCURRENTLY\b/i)
+    expect(sql).not.toMatch(/^\s*(BEGIN|COMMIT|ROLLBACK)\s*;/im)
+  })
+
   it('creates every enum type the Drizzle schema declares for the store, value order included', () => {
     // Order, not membership: `ALTER TYPE … ADD VALUE BEFORE/AFTER` and a fresh
     // `CREATE TYPE` can agree on the set and disagree on `enumsortorder`, and the order
@@ -723,7 +818,49 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
   })
 
   it('creates every index the reference has — partial predicates, NULLS NOT DISTINCT, sort order', () => {
-    expect(afterFirstApply.indexes).toEqual(reference.indexes)
+    assertIndexesMatch(afterFirstApply, reference)
+  })
+
+  it('positive control (CR-M-2 / CR-M-5): ONE missing job_opportunities index is a difference the REAL checks report', () => {
+    // The same two functions the real cases above call — not a re-statement of them — run
+    // on the reference SNAPSHOT with one job_opportunities index removed (the mutation that
+    // turned the spec red by hand in round 1: "length of 46 but got 45"). If either
+    // function stopped comparing, this case goes red even though the real case would pass.
+    const dropped = 'idx_job_opportunities_availability'
+    expect(reference.indexes.map((r) => r['name'])).toContain(dropped)
+    const mutated: Catalog = {
+      ...reference,
+      indexes: reference.indexes.filter((r) => r['name'] !== dropped),
+    }
+    expect(mutated.indexes).toHaveLength(reference.indexes.length - 1)
+
+    // CR-L-4: the SPECIFIC report — the comparison names the index that differs (a bare
+    // `.toThrow()` would accept any TypeError) — and the count is derived from the same
+    // constants the real case uses, not a literal.
+    expect(() => assertIndexesMatch(afterFirstApply, mutated)).toThrow(new RegExp(dropped))
+    const expected = EXPECTED.indexes + PART_5_INDEXES.length
+    expect(() => assertStandaloneIndexTripwire(mutated)).toThrow(
+      `length of ${expected} but got ${expected - 1}`,
+    )
+  })
+
+  it('positive control (CR-L-3): a T1 index missing BY NAME is reported even when the count still matches', () => {
+    // The tripwire has two halves, a count and a by-name `arrayContaining` over
+    // PART_5_INDEXES. The control above trips the count first, so it cannot see the second
+    // half. Here a PART_5 index is RENAMED in the snapshot (not dropped): the count stays
+    // right, and only the by-name half can report it.
+    const renamed = 'uq_job_collection_runs_one_started_per_account'
+    expect(PART_5_INDEXES).toContain(renamed)
+    const mutated: Catalog = {
+      ...reference,
+      indexes: reference.indexes.map((r) =>
+        r['name'] === renamed ? { ...r, name: 'uq_job_collection_runs_some_other_index' } : r,
+      ),
+    }
+    expect(standaloneIndexNames(mutated)).toHaveLength(EXPECTED.indexes + PART_5_INDEXES.length)
+    expect(standaloneIndexNames(mutated)).not.toContain(renamed)
+
+    expect(() => assertStandaloneIndexTripwire(mutated)).toThrow(new RegExp(renamed))
   })
 
   it('compares column ORDER in a way a dropped column cannot shift (CR-L-8)', async () => {
@@ -1049,7 +1186,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
 
     beforeAll(async () => {
       await buildPreStoreStub(client, MIGRATION_SCHEMA)
-      await applyParts(client, [PART_1, PART_2])
+      await applyParts(client, [PART_1, PART_2, PART_5_MIGRATION])
       beforeMigration = await readCatalog(client, MIGRATION_SCHEMA)
       await applyParts(client, [PART_3_MIGRATION])
       // r5 Task 1.4b-iii — the ONE pre-change state this spec can rebuild without git
@@ -1115,5 +1252,333 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         rows.map(({ position: _position, ...rest }) => rest)
       expect(withoutPosition(afterMigration.columns)).toEqual(withoutPosition(reference.columns))
     })
+  })
+
+  /**
+   * Task 2.5 T1 + T1b — PART_5 over ROWS and over BAD STATES, applied the way the deploy
+   * applies it: the WHOLE file inside one transaction, as `psql --single-transaction`
+   * does. (`applyParts` alone runs statement by statement in autocommit, which cannot see
+   * the all-or-nothing property the file's header promises.)
+   *
+   * Every case rebuilds a pre-T1 store (parts 1 and 2) in its own schema and seeds it:
+   *   - source A, bound to the REQUEST row of one paid account
+   *   - source B, bound to the RECORD row of the SAME account
+   *   - source C, with no meter
+   * and a cycle. The fresh path above runs PART_5 over an EMPTY `job_collection_runs`, so
+   * nothing there reaches the backfill, the preflight, the uuid-drop block or the final
+   * check's refusals: these cases do, and each fails if the block it targets is removed.
+   */
+  describe('PART_5 applied atomically over rows and bad states (2.5 T1 + T1b)', () => {
+    const ACCOUNT = 'acct-t1b:shared'
+    type Seed = { a: string; b: string; c: string; cycle: string; requestRow: string }
+
+    /** BEGIN, the whole file statement by statement, COMMIT — or ROLLBACK and rethrow. */
+    async function applyAtomically(): Promise<void> {
+      await client.query('BEGIN')
+      try {
+        await applyParts(client, [PART_5_MIGRATION])
+        await client.query('COMMIT')
+      } catch (error) {
+        await client.query('ROLLBACK')
+        throw error
+      }
+    }
+
+    async function seedPreT1Store(): Promise<Seed> {
+      await buildPreStoreStub(client, T1_SCHEMA)
+      await applyParts(client, [PART_1, PART_2])
+      const meters = await client.query(
+        `INSERT INTO job_account_meters (account_key, unit, window_kind, window_started_at)
+         VALUES ($1, 'REQUEST', 'DAY', now()), ($1, 'RECORD', 'DAY', now())
+         RETURNING id, unit`,
+        [ACCOUNT],
+      )
+      const row = (unit: string) =>
+        (meters.rows as Array<{ id: string; unit: string }>).find((r) => r.unit === unit)!.id
+      const sources = await client.query(
+        `INSERT INTO job_sources (type, config, enabled, account_meter_id) VALUES
+           ('DOU_RSS', '{"t1b":"a"}'::jsonb, true, $1),
+           ('DOU_RSS', '{"t1b":"b"}'::jsonb, true, $2),
+           ('DOU_RSS', '{"t1b":"c"}'::jsonb, true, NULL)
+         RETURNING id, config->>'t1b' AS tag`,
+        [row('REQUEST'), row('RECORD')],
+      )
+      const source = (tag: string) =>
+        (sources.rows as Array<{ id: string; tag: string }>).find((r) => r.tag === tag)!.id
+      const cycle = await client.query(
+        `INSERT INTO job_collection_cycles (trigger, trigger_key) VALUES ('SCHEDULED', 't1b') RETURNING id`,
+      )
+      return {
+        a: source('a'),
+        b: source('b'),
+        c: source('c'),
+        cycle: (cycle.rows[0] as { id: string }).id,
+        requestRow: row('REQUEST'),
+      }
+    }
+
+    /** A pre-T1 run row: no `account_key` column exists yet. */
+    async function seedRun(
+      seed: Seed,
+      source: string,
+      attempt: string,
+      opts: { started?: boolean; configVersion?: number } = {},
+    ): Promise<void> {
+      if (opts.started ?? true) {
+        await client.query(
+          `INSERT INTO job_collection_runs
+             (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, owner_token, lease_expires_at)
+           VALUES ($1, $2, $3, $4, 'v1', 'SCHEDULED', 'o', now() + interval '5 min')`,
+          [source, seed.cycle, attempt, opts.configVersion ?? 1],
+        )
+      } else {
+        await client.query(
+          `INSERT INTO job_collection_runs
+             (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, outcome, owner_token, ended_at)
+           VALUES ($1, $2, $3, $4, 'v1', 'SCHEDULED', 'SUCCEEDED', 'o', now())`,
+          [source, seed.cycle, attempt, opts.configVersion ?? 1],
+        )
+      }
+    }
+
+    /** What PART_5 leaves behind, read off the catalog — "nothing" is all three empty. */
+    async function t1State(): Promise<{
+      columnType: string | null
+      check: string | null
+      indexes: string[]
+    }> {
+      const column = await client.query(
+        `SELECT format_type(a.atttypid, a.atttypmod) AS t FROM pg_attribute a
+          WHERE a.attrelid = 'job_collection_runs'::regclass AND a.attname = 'account_key'
+            AND NOT a.attisdropped`,
+      )
+      const check = await client.query(
+        `SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint
+          WHERE conrelid = 'job_collection_runs'::regclass
+            AND conname = 'ck_job_collection_runs_account_key_format'`,
+      )
+      const indexes = await client.query(
+        `SELECT c.relname AS name FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+          WHERE i.indrelid = 'job_collection_runs'::regclass AND c.relname = ANY($1::text[])
+          ORDER BY c.relname`,
+        [[...PART_5_INDEXES]],
+      )
+      return {
+        columnType: (column.rows[0] as { t: string } | undefined)?.t ?? null,
+        check: (check.rows[0] as { d: string } | undefined)?.d ?? null,
+        indexes: (indexes.rows as Array<{ name: string }>).map((r) => r.name),
+      }
+    }
+
+    const keys = async () =>
+      (
+        await client.query(
+          `SELECT attempt_id, account_key FROM job_collection_runs ORDER BY attempt_id`,
+        )
+      ).rows as Array<{ attempt_id: string; account_key: string }>
+
+    afterEach(async () => {
+      // A failed case may leave the client mid-transaction; then put `search_path` back,
+      // because the sibling describes read the fresh schema through this connection.
+      await client.query('ROLLBACK').catch(() => undefined)
+      await client.query(`SET search_path TO ${SCHEMA}`)
+      // The CR-M-3 control and LOW-b set their own session lock_timeout; do not leak it.
+      await client.query(`RESET lock_timeout`)
+    })
+
+    afterAll(async () => {
+      await client?.query(`DROP SCHEMA IF EXISTS ${T1_SCHEMA} CASCADE`).catch(() => undefined)
+    })
+
+    it('T1b AC3 + the DevOps apply: one transaction writes the meter key for both rows of one account, #source:<id> without a meter, and a re-run changes nothing', async () => {
+      const seed = await seedPreT1Store()
+      await seedRun(seed, seed.a, 'run-a')
+      await seedRun(seed, seed.b, 'run-b', { started: false })
+      await seedRun(seed, seed.c, 'run-c')
+
+      await applyAtomically()
+      const first = await keys()
+      expect(first).toEqual([
+        { attempt_id: 'run-a', account_key: ACCOUNT },
+        { attempt_id: 'run-b', account_key: ACCOUNT },
+        { attempt_id: 'run-c', account_key: `#source:${seed.c}` },
+      ])
+      // All of it committed: the column, the CHECK and both indexes.
+      const state = await t1State()
+      expect(state.columnType).toBe('text')
+      expect(state.check).toContain('#source:')
+      expect(state.indexes).toEqual([...PART_5_INDEXES])
+
+      await applyAtomically()
+      expect(await keys()).toEqual(first)
+    }, 180_000)
+
+    it('CR-M-1a: contended STARTED rows abort the apply, NAME the key, and leave neither the column nor an index', async () => {
+      const seed = await seedPreT1Store()
+      // Legal before T1: one source STARTED under two config versions.
+      await seedRun(seed, seed.a, 'run-a1', { configVersion: 1 })
+      await seedRun(seed, seed.a, 'run-a2', { configVersion: 2 })
+
+      await expect(applyAtomically()).rejects.toThrow(`source ${seed.a}`)
+      expect(await t1State()).toEqual({ columnType: null, check: null, indexes: [] })
+    }, 180_000)
+
+    it('CR-M-1a: two STARTED runs of one paid account on different meter rows abort the apply too, naming the account', async () => {
+      const seed = await seedPreT1Store()
+      await seedRun(seed, seed.a, 'run-a')
+      await seedRun(seed, seed.b, 'run-b')
+
+      await expect(applyAtomically()).rejects.toThrow(`account ${ACCOUNT}`)
+      expect(await t1State()).toEqual({ columnType: null, check: null, indexes: [] })
+    }, 180_000)
+
+    it("CR-M-1b: T1's superseded uuid column is dropped and recomputed as the meter's text key", async () => {
+      const seed = await seedPreT1Store()
+      await seedRun(seed, seed.a, 'run-a')
+      await seedRun(seed, seed.c, 'run-c')
+      // The state round 1 left on a database: account_key uuid = the meter ROW id, with
+      // the per-account index on it.
+      await client.query(`ALTER TABLE job_collection_runs ADD COLUMN account_key uuid`)
+      await client.query(
+        `UPDATE job_collection_runs r SET account_key = COALESCE(s.account_meter_id, s.id)
+           FROM job_sources s WHERE s.id = r.source_id`,
+      )
+      await client.query(
+        `CREATE UNIQUE INDEX uq_job_collection_runs_one_started_per_account
+           ON job_collection_runs (account_key) WHERE outcome = 'STARTED'`,
+      )
+      expect((await t1State()).columnType).toBe('uuid')
+
+      await applyAtomically()
+      expect(await keys()).toEqual([
+        { attempt_id: 'run-a', account_key: ACCOUNT },
+        { attempt_id: 'run-c', account_key: `#source:${seed.c}` },
+      ])
+      const state = await t1State()
+      expect(state.columnType).toBe('text')
+      expect(state.indexes).toEqual([...PART_5_INDEXES])
+    }, 180_000)
+
+    it('CR-M-1c: a key outside the allowed alphabet rolls back EVERYTHING — the column is absent afterwards', async () => {
+      const seed = await seedPreT1Store()
+      // The meters' own CHECKs would refuse this key; drop them in this scratch schema
+      // only, to manufacture the one input the run-key CHECK exists to stop.
+      await client.query(
+        `ALTER TABLE job_account_meters
+           DROP CONSTRAINT ck_job_account_meters_account_key_format,
+           DROP CONSTRAINT ck_job_account_meters_account_key_segmented`,
+      )
+      await client.query(`UPDATE job_account_meters SET account_key = 'Bad#Key' WHERE id = $1`, [
+        seed.requestRow,
+      ])
+      await seedRun(seed, seed.a, 'run-a')
+
+      // The ADD CONSTRAINT itself refuses the backfilled row (23514, Postgres's wording for
+      // validating an added CHECK) — not merely the final check noticing a missing CHECK,
+      // whose message would also name the constraint.
+      await expect(applyAtomically()).rejects.toThrow(
+        'check constraint "ck_job_collection_runs_account_key_format" of relation "job_collection_runs" is violated by some row',
+      )
+      expect(await t1State()).toEqual({ columnType: null, check: null, indexes: [] })
+    }, 180_000)
+
+    it('CR-L-1: a same-named CHECK of the WRONG shape fails the final check and the apply', async () => {
+      const seed = await seedPreT1Store()
+      await seedRun(seed, seed.c, 'run-c')
+      // Planted by hand: right name, a definition that happens to mention '#source:', but
+      // not the intended one — the round-1 check (substring '#source:') accepted this.
+      await client.query(`ALTER TABLE job_collection_runs ADD COLUMN account_key text`)
+      await client.query(
+        `ALTER TABLE job_collection_runs ADD CONSTRAINT ck_job_collection_runs_account_key_format
+           CHECK (account_key IS NULL OR account_key <> '#source:')`,
+      )
+
+      const message = await applyAtomically().then(
+        () => 'applied',
+        (error: Error) => error.message,
+      )
+      expect(message).toContain('not exactly the intended definition')
+      // SR-L-4: the exact-text comparison fails closed, so the message carries the exact
+      // manual step that clears it.
+      expect(message).toContain(
+        'ALTER TABLE job_collection_runs DROP CONSTRAINT ck_job_collection_runs_account_key_format;',
+      )
+      // Rolled back to the planted state: no index was left behind.
+      expect((await t1State()).indexes).toEqual([])
+    }, 180_000)
+
+    it('CR-M-3: a re-run on the complete state takes NO lock on the table (it succeeds while a writer holds ROW EXCLUSIVE)', async () => {
+      const seed = await seedPreT1Store()
+      await seedRun(seed, seed.a, 'run-a')
+      await applyAtomically()
+
+      // ROW EXCLUSIVE — what every INSERT/UPDATE takes — conflicts with the SHARE lock of
+      // an index build and the ACCESS EXCLUSIVE of an ALTER. A re-run that took either
+      // would wait out the file's 10 s lock_timeout and fail.
+      const writer = await pool.connect()
+      try {
+        await writer.query('BEGIN')
+        await writer.query(`LOCK TABLE ${T1_SCHEMA}.job_collection_runs IN ROW EXCLUSIVE MODE`)
+        const started = Date.now()
+        await applyAtomically()
+        expect(Date.now() - started).toBeLessThan(5_000)
+        expect(await keys()).toEqual([{ attempt_id: 'run-a', account_key: ACCOUNT }])
+      } finally {
+        await writer.query('ROLLBACK')
+        writer.release()
+      }
+    }, 180_000)
+
+    it("CR-M-3 control: the FIRST apply does need the lock — under the same writer the FILE'S OWN timeout fires and leaves nothing", async () => {
+      await seedPreT1Store()
+      // CR-M-4: parts 1 and 2 leave a SESSION-level lock_timeout of 10s on this client, so
+      // without this reset the control would pass even if PART_5 stopped setting its own.
+      // With 0 (= wait forever), only PART_5's transaction-local 10s can end the wait.
+      await client.query(`SET lock_timeout = 0`)
+      const writer = await pool.connect()
+      let outcome = 'not run'
+      let elapsed = 0
+      try {
+        await writer.query('BEGIN')
+        await writer.query(`LOCK TABLE ${T1_SCHEMA}.job_collection_runs IN ROW EXCLUSIVE MODE`)
+        const started = Date.now()
+        const apply = applyAtomically().then(
+          () => 'applied',
+          (error: Error) => error.message,
+        )
+        // A hang means nothing in the file bounded the wait. Detect it here rather than via
+        // the test timeout, which would leave the writer's lock (and this client) stuck.
+        let timer: NodeJS.Timeout | undefined
+        const hung = new Promise<string>((resolve) => {
+          timer = setTimeout(() => resolve('HUNG: no lock_timeout bounded the wait'), 25_000)
+        })
+        outcome = await Promise.race([apply, hung])
+        elapsed = Date.now() - started
+        clearTimeout(timer)
+        if (outcome.startsWith('HUNG')) {
+          await writer.query('ROLLBACK') // releases the lock so the pending apply can finish
+          await apply
+        }
+      } finally {
+        await writer.query('ROLLBACK').catch(() => undefined)
+        writer.release()
+      }
+      expect(outcome).toContain('lock timeout')
+      // The file's own 10 s ended the wait (the session's was reset to 0 = forever).
+      expect(elapsed).toBeGreaterThanOrEqual(9_000)
+      expect(elapsed).toBeLessThan(25_000)
+      expect(await t1State()).toEqual({ columnType: null, check: null, indexes: [] })
+    }, 180_000)
+
+    it('LOW-b: the apply leaves no lock_timeout behind on the session', async () => {
+      await seedPreT1Store()
+      // Parts 1 and 2 set a SESSION-level lock_timeout of 10s themselves (pre-existing,
+      // not this file's), so pin a value neither file uses; PART_5 sets its own 10s
+      // transaction-locally, and after COMMIT the session must be back on this one.
+      await client.query(`SET lock_timeout = '7s'`)
+      await applyAtomically()
+      const after = (await client.query(`SHOW lock_timeout`)).rows[0] as { lock_timeout: string }
+      expect(after.lock_timeout).toBe('7s')
+    }, 180_000)
   })
 })

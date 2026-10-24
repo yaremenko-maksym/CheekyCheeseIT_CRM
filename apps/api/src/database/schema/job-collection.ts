@@ -52,8 +52,19 @@ import {
   JOB_HANDLE_MAX,
   JOB_JSONB_TEXT_MAX,
   JOB_SANITIZED_TEXT_MAX,
+  JOB_PUBLIC_ID_PATTERN,
   JOB_SHORT_TEXT_MAX,
 } from './job-patterns'
+
+/**
+ * The synthetic account key of a source with no meter (Task 2.5 T1b):
+ * `'#source:' || source_id`. Pinned to a lowercase uuid, the form Postgres
+ * renders `uuid::text` in, so the key carries exactly one source id and nothing
+ * else. Exported so `job-collection-schema.spec.ts` can hold the forward DDL's
+ * hard-coded copy of it (and of `JOB_PUBLIC_ID_PATTERN`) to this value.
+ */
+export const SYNTHETIC_SOURCE_ACCOUNT_KEY_PATTERN =
+  '^#source:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 import { jobSources } from './job-sourcing'
 import { users } from './users'
 
@@ -158,8 +169,10 @@ export const jobCollectionRuns = pgTable(
     /**
      * The source's config version at the moment the run started. A bump
      * INVALIDATES the checkpoint: a checkpoint belongs to the config it was
-     * taken under, and the partial UNIQUE below is scoped by this column, so a
-     * run under a new config does not contend with a stale running one.
+     * taken under. `uq_job_collection_runs_running_owner` is scoped by this
+     * column, but since Task 2.5 T1 `uq_job_collection_runs_one_started_per_source`
+     * is not: a run under a new config DOES contend with a still-running one,
+     * which has to end (or be recovered) first.
      */
     configVersion: integer('config_version').notNull(),
     /** The config itself, snapshotted — a later edit must not rewrite history. */
@@ -209,6 +222,46 @@ export const jobCollectionRuns = pgTable(
     endedAt: timestamp('ended_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    /**
+     * The paid account this run spends against (Task 2.5 T1, corrected by T1b):
+     * the `account_key` TEXT of the source's meter (`job_account_meters`, read
+     * through `job_sources.account_meter_id`), or the synthetic
+     * `'#source:' || source_id` when the source has no meter. It is what
+     * `uq_job_collection_runs_one_started_per_account` keys on, so two sources
+     * of one paid account cannot fetch at the same time.
+     *
+     * NOT the meter ROW id (T1b, ADR SR-M-3): a meter row is unique per
+     * (account_key, unit, window), so one account has several rows, and two
+     * sources bound to different rows of one account would get different keys.
+     *
+     * `#` cannot occur in a real meter key (`JOB_PUBLIC_ID_PATTERN` has no `#`),
+     * so a synthetic key can never equal a real one; the CHECK
+     * `ck_job_collection_runs_account_key_format` makes that a database fact.
+     *
+     * A METERED TYPE WITH NO METER (a NULL `account_meter_id` on a type whose
+     * manifest declares a quota) would get the synthetic key and therefore a
+     * per-source lock only. The database cannot tell that case apart — it is
+     * manifest knowledge — so per the ADR the run ledger refuses such a source
+     * at claim time (`METER_MISSING`, fail-closed, Task 2.5 T3): no run of it is
+     * ever written.
+     *
+     * LAST on purpose: production gets this column from
+     * `2026-10-24_job_run_single_flight.sql` (`ALTER TABLE … ADD COLUMN`, which
+     * appends), and `job-opportunities-store-forward-ddl.integration.spec.ts`
+     * compares column ORDER between that path and `db:push`. Declared anywhere
+     * else, the two catalogs would disagree on position.
+     *
+     * NO DEFAULT, on purpose: a key the database invented would be shared by no
+     * other run, and the per-account slot would then lock nothing.
+     *
+     * WORKER OBLIGATION the database cannot see (a CHECK reads only its own
+     * row; there is no FK, since the key names either a meter or a source):
+     * the writer derives the key from `job_sources` at claim time, under the
+     * claim's row locks. A writer that passed the synthetic key for a metered
+     * source would get a per-source lock only. The run ledger (Task 2.5 T3) is
+     * the only intended writer.
+     */
+    accountKey: text('account_key').notNull(),
   },
   (t) => [
     foreignKey({
@@ -252,6 +305,21 @@ export const jobCollectionRuns = pgTable(
     uniqueIndex('uq_job_collection_runs_running_owner')
       .on(t.sourceId, t.configVersion)
       .where(sql`${t.outcome} = 'STARTED'`),
+    /**
+     * Task 2.5 T1 — ONE ACTIVE FETCH PER SOURCE, whatever its config version.
+     * The index above is per (source, config), so a config bump would let a
+     * second STARTED run coexist with the first; this one closes that. The
+     * index above stays: it is subsumed, not contradicted, and dropping it is
+     * not this task's call. The run ledger checks the same rule under row
+     * locks; this is the backstop that holds when a writer does not.
+     */
+    uniqueIndex('uq_job_collection_runs_one_started_per_source')
+      .on(t.sourceId)
+      .where(sql`${t.outcome} = 'STARTED'`),
+    /** Task 2.5 T1 — ONE ACTIVE FETCH PER ACCOUNT (see `accountKey`). */
+    uniqueIndex('uq_job_collection_runs_one_started_per_account')
+      .on(t.accountKey)
+      .where(sql`${t.outcome} = 'STARTED'`),
     index('idx_job_collection_runs_source_started').on(t.sourceId, t.startedAt.desc()),
     // FK child index: the RESTRICT probe on cycle close, and the cycle fan-out.
     index('idx_job_collection_runs_cycle').on(t.cycleId),
@@ -265,6 +333,17 @@ export const jobCollectionRuns = pgTable(
     check(
       'ck_job_collection_runs_owner_token_bounded',
       sql`${t.ownerToken} IS NULL OR length(${t.ownerToken}) <= ${sql.raw(String(JOB_HANDLE_MAX))}`,
+    ),
+    /**
+     * Task 2.5 T1b. The account key is either a REAL meter key (the meters' own
+     * alphabet, which has no `#`) or the synthetic `#source:<uuid>`. That makes
+     * "a synthetic key can never equal a real one" a database fact rather than a
+     * property of two patterns read side by side, and it bounds the column (a
+     * text column with no bound is where a payload goes — SR-M-3).
+     */
+    check(
+      'ck_job_collection_runs_account_key_format',
+      sql`${t.accountKey} ~ ${sql.raw(`'${JOB_PUBLIC_ID_PATTERN}'`)} OR ${t.accountKey} ~ ${sql.raw(`'${SYNTHETIC_SOURCE_ACCOUNT_KEY_PATTERN}'`)}`,
     ),
     check(
       'ck_job_collection_runs_adapter_version_bounded',

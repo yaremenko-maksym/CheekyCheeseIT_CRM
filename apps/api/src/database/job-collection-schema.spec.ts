@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { SQL } from 'drizzle-orm'
 import { getTableConfig, PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
@@ -32,7 +34,22 @@ import {
   jobSourceAdminStateEnum,
   jobSourceReadinessEnum,
   jobSources,
+  SYNTHETIC_SOURCE_ACCOUNT_KEY_PATTERN,
 } from './schema'
+import { JOB_PUBLIC_ID_PATTERN } from './schema/job-patterns'
+
+/**
+ * The staged (or, once DevOps moves it, the wired) forward DDL of Task 2.5 T1 + T1b.
+ * It carries the account-key CHECK as SQL text, i.e. a hard-coded COPY of the two
+ * patterns the Drizzle declaration builds from constants — read here so a drift between
+ * the copy and the constants fails a unit spec, not only the integration catalog diff.
+ */
+const T1_FORWARD_DDL = (() => {
+  const name = '2026-10-24_job_run_single_flight.sql'
+  const drizzle = join(__dirname, '..', '..', 'drizzle')
+  const wired = join(drizzle, 'manual', name)
+  return readFileSync(existsSync(wired) ? wired : join(drizzle, 'manual-staged', name), 'utf8')
+})()
 
 /**
  * r5 Task 1.2 (part 2) — the COLLECTION half of the store, asserted against the
@@ -322,6 +339,7 @@ describe('job_collection_runs (AC2)', () => {
         'outcome',
         'coverage',
         'owner_token',
+        'account_key',
         'fencing_epoch',
         'lease_expires_at',
         'checkpoint',
@@ -360,6 +378,59 @@ describe('job_collection_runs (AC2)', () => {
     ])
     // Terminal runs are history; only STARTED rows contend for the slot.
     expect(render(i.config.where)).toContain('STARTED')
+  })
+
+  it('carries the account key every run contends on: NOT NULL text with no default (2.5 T1 + T1b)', () => {
+    const c = col(jobCollectionRuns, 'account_key')
+    expect(c.notNull).toBe(true)
+    // T1b: the METER's text account key, not a meter row id — one paid account has
+    // several meter rows (one per unit/window), and a row id would split it.
+    expect(c.getSQLType()).toBe('text')
+    // No default: a key the database invented would be one no other run shares,
+    // and the per-account slot would then lock nothing. The writer must name it.
+    expect(c.hasDefault).toBe(false)
+    // LAST, where the forward DDL's `ADD COLUMN` puts it — the forward-DDL spec
+    // compares column order between that path and `db:push`.
+    expect(names(jobCollectionRuns).at(-1)).toBe('account_key')
+  })
+
+  it('admits only a real meter key or the synthetic #source:<uuid> as an account key (2.5 T1b)', () => {
+    const s = checkSql(jobCollectionRuns, 'ck_job_collection_runs_account_key_format')
+    // A real meter key: exactly the meters' own public-id alphabet, which has no `#`.
+    expect(s).toContain(`account_key" ~ '^[a-z0-9][a-z0-9._:-]{0,99}$'`)
+    // The synthetic key: `#source:` and a lowercase uuid, nothing else.
+    expect(s).toContain(
+      `account_key" ~ '^#source:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`,
+    )
+    expect(s).toContain(' OR ')
+  })
+
+  it("keeps the forward DDL's hard-coded copy of both key patterns equal to the constants (2.5 T1b, SPEC-M-1)", () => {
+    // The ADD CONSTRAINT statement: both patterns as the Drizzle CHECK renders them.
+    const add = /ADD CONSTRAINT "ck_job_collection_runs_account_key_format" CHECK \((.*)\);/.exec(
+      T1_FORWARD_DDL,
+    )?.[1]
+    expect(add).toBe(
+      `"job_collection_runs"."account_key" ~ '${JOB_PUBLIC_ID_PATTERN}' OR ` +
+        `"job_collection_runs"."account_key" ~ '${SYNTHETIC_SOURCE_ACCOUNT_KEY_PATTERN}'`,
+    )
+    // The normalised definition the pre-check and the final check compare against —
+    // two copies (one per DO block), both exactly this.
+    const normalised =
+      `'CHECK (((account_key ~ ''${JOB_PUBLIC_ID_PATTERN}''::text) OR ` +
+      `(account_key ~ ''${SYNTHETIC_SOURCE_ACCOUNT_KEY_PATTERN}''::text)))';`
+    expect(T1_FORWARD_DDL.split(normalised)).toHaveLength(3)
+  })
+
+  it.each([
+    ['uq_job_collection_runs_one_started_per_source', ['source_id']],
+    ['uq_job_collection_runs_one_started_per_account', ['account_key']],
+  ])('%s: one STARTED run per key, terminal runs never contend (2.5 T1)', (name, cols) => {
+    const i = idx(jobCollectionRuns, name)
+    expect(i.config.unique).toBe(true)
+    // The key ALONE — no config_version: a config bump must not open a second slot.
+    expect(idxCols(jobCollectionRuns, name)).toEqual(cols)
+    expect(render(i.config.where)).toBe(`"job_collection_runs"."outcome" = 'STARTED'`)
   })
 
   it('carries the fencing epoch and a lease while it is running', () => {
