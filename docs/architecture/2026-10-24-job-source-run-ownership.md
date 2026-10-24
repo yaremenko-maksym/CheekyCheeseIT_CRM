@@ -147,13 +147,13 @@ One module, the **run ledger** (working name `JobRunLedger`), is the only writer
 columns. Its interface is five operations. Every one of them is a short transaction, and none holds
 a lock across network I/O.
 
-| Operation                            | What it does, in one transaction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `claimDue(limit, owner, now)`        | `SELECT … FROM job_sources WHERE <due> ORDER BY next_attempt_at FOR UPDATE SKIP LOCKED LIMIT n`. For each row it locks the account's `job_account_meters` row (`FOR UPDATE`, when `account_meter_id` is set), then checks that no `STARTED` run exists for the source (any `config_version`) or the account. It then inserts a **new** `job_collection_runs` row (a new `attempt_id`; a run that recovery ended is never re-claimed) with a fresh `owner_token`, `fencing_epoch = max(epoch for this source) + 1` and `lease_expires_at = now() + L`. It **commits before any I/O**. |
-| `heartbeat(run, owner, epoch)`       | `UPDATE … SET lease_expires_at = now() + L WHERE id = $run AND owner_token = $owner AND fencing_epoch = $epoch AND outcome = 'STARTED' AND lease_expires_at > now()`. If zero rows change, the worker is fenced out: abort the `AbortSignal` and stop.                                                                                                                                                                                                                                                                  |
-| `assertOwned(tx, run, owner, epoch)` | `SELECT 1 FROM job_collection_runs WHERE <same predicate> FOR UPDATE`, called **first inside every page write** (`checkpoints.savePage`) and inside the meter's `reserve`, `markSent` and `reconcile`. If no row comes back, the transaction rolls back and the worker raises `RUN_FENCED`.                                                                                                                                                                                                                                          |
-| `finish(run, owner, epoch, outcome)` | The terminal transition under the same predicate. It writes `job_sources` state (`last_attempt_at`, `last_success_at`, `last_nonempty_at`, `next_attempt_at`, `cooldown_until`, `consecutive_failures`) in the same transaction.                                                                                                                                                                                                                                                                                        |
-| `recoverExpired(now)`                | For each `STARTED` run with `lease_expires_at < now()` (`FOR UPDATE SKIP LOCKED`), it moves that attempt's `SENT` reservations to `UNCERTAIN` and its `RESERVED` ones to `RELEASED`, marks the run `FAILED` with error code `LEASE_EXPIRED`, and re-queues the source (`next_attempt_at = now()`). Releasing `RESERVED` is safe here and only here: the run row is locked and is being made terminal in the same transaction, so the old owner's `markSent` either committed first (the row is `SENT`, so it is held as `UNCERTAIN`) or is refused afterwards. The run is never re-claimed; the next claim is a new row.                                                                                                                                                                       |
+| Operation                            | What it does, in one transaction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `claimDue(limit, owner, now)`        | `SELECT … FROM job_sources WHERE <due> ORDER BY next_attempt_at FOR UPDATE SKIP LOCKED LIMIT n`. For each row it locks the account's `job_account_meters` row (`FOR UPDATE`, when `account_meter_id` is set), then checks that no `STARTED` run exists for the source (any `config_version`) or the account. It then inserts a **new** `job_collection_runs` row (a new `attempt_id`; a run that recovery ended is never re-claimed) with a fresh `owner_token`, `fencing_epoch = max(epoch for this source) + 1` and `lease_expires_at = now() + L`. It **commits before any I/O**.                                     |
+| `heartbeat(run, owner, epoch)`       | `UPDATE … SET lease_expires_at = now() + L WHERE id = $run AND owner_token = $owner AND fencing_epoch = $epoch AND outcome = 'STARTED' AND lease_expires_at > now()`. If zero rows change, the worker is fenced out: abort the `AbortSignal` and stop.                                                                                                                                                                                                                                                                                                                                                                   |
+| `assertOwned(tx, run, owner, epoch)` | `SELECT 1 FROM job_collection_runs WHERE <same predicate> FOR UPDATE`, called **first inside every page write** (`checkpoints.savePage`) and inside the meter's `reserve`, `markSent` and `reconcile`. If no row comes back, the transaction rolls back and the worker raises `RUN_FENCED`.                                                                                                                                                                                                                                                                                                                              |
+| `finish(run, owner, epoch, outcome)` | The terminal transition under the same predicate. It writes `job_sources` state (`last_attempt_at`, `last_success_at`, `last_nonempty_at`, `next_attempt_at`, `cooldown_until`, `consecutive_failures`) in the same transaction.                                                                                                                                                                                                                                                                                                                                                                                         |
+| `recoverExpired(now)`                | For each `STARTED` run with `lease_expires_at < now()` (`FOR UPDATE SKIP LOCKED`), it moves that attempt's `SENT` reservations to `UNCERTAIN` and its `RESERVED` ones to `RELEASED`, marks the run `FAILED` with error code `LEASE_EXPIRED`, and re-queues the source (`next_attempt_at = now()`). Releasing `RESERVED` is safe here and only here: the run row is locked and is being made terminal in the same transaction, so the old owner's `markSent` either committed first (the row is `SENT`, so it is held as `UNCERTAIN`) or is refused afterwards. The run is never re-claimed; the next claim is a new row. |
 
 **Why this makes F4 false.** The meter binding gains `ownerToken` and calls `assertOwned` inside its
 own transaction. A second live executor of the same `attemptId` holds a different token, or the
@@ -370,24 +370,52 @@ prove nothing about `crm_app`.
 
 ### Order and parallelism
 
+Every arrow below is one entry of a task's own "Depends on" line, and there are no other arrows.
+`A ──► B` means B depends on A.
+
 ```
-T0 (backlog 318, parallel PR — external) ───────────────────────────────────┐
-T1 migration ──► T8 host state ──┐                                           │
-T4 due policy ───────────────────┼─► T3 run ledger ─► T7 context + worker ─┬─► T6 transport wiring
-T2 registry ─────────────────────┘                                         └─► T5 cron
+T1 migration ──────────────┬──────────────────────────► T3 run ledger
+                           └──► T8 host state ────────► T3
+T2 registry ──► T4 due policy ──┬──────────────────────► T3
+                                └──► T8
+T2 ─────────────────────────────────────────────────────► T7 context + worker
+T3 ─────────────────────────────────────────────────────► T7
+T7 ──┬──► T5 cron
+     └──► T6 transport wiring
+T0 (backlog 318, parallel PR — external) ───────────────► T6
 ```
 
-- **Wave 1, in parallel:** T1, T2, T4. Their file sets are disjoint: run-table schema plus
-  migration, registry plus service map, and a new due-policy module.
-- **Wave 2:** T8. It is a second migration, so it lands after T1 (both append to `deploy.yml`'s
+**Self-check: each task's "Depends on" line against the arrows.**
+
+| Task | Its "Depends on" line                                | Arrows into it   |
+| ---- | ---------------------------------------------------- | ---------------- |
+| T1   | nothing                                              | none             |
+| T2   | nothing                                              | none             |
+| T4   | T2 (sequencing only: both edit `JobSourcingService`) | T2 → T4          |
+| T8   | T1, T4                                               | T1 → T8, T4 → T8 |
+| T3   | T1, T4, T8                                           | T1, T4, T8 → T3  |
+| T7   | T2, T3                                               | T2 → T7, T3 → T7 |
+| T5   | T7                                                   | T7 → T5          |
+| T6   | T0, T7                                               | T0 → T6, T7 → T6 |
+
+Eleven arrows and eleven dependency entries, one for one.
+
+- **Wave 1, in parallel:** T1 and T2. Their file sets are disjoint: the run-table schema plus a
+  migration, versus the registry plus `JobSourcingService`'s `providers` map and constructor.
+- **Wave 2:** T4, **after T2 merges**. T4 edits `JobSourcingService` too (`collectAll`'s signature,
+  and it moves `sourceAcceptsTrigger` out). The two touch different regions of one file, so a
+  textual conflict is likely, and they are serialized rather than run in parallel. T2 is already
+  running, so T4 is dispatched once T2 is on `main`.
+- **Wave 3:** T8. It is a second migration, so it lands after T1 (both append to `deploy.yml`'s
   ordered list), and it extends T4's due predicate.
-- **Wave 3:** T3, which needs T1's indexes, T4's due predicate and T8's host state.
-- **Wave 4:** T7, which needs T2's registry and T3's ledger.
-- **Wave 5, in parallel:** T5 and T6. Their file sets are disjoint: the cron file, versus `http/`,
+- **Wave 4:** T3, which needs T1's indexes, T4's due predicate and T8's host state.
+- **Wave 5:** T7, which needs T2's registry and T3's ledger.
+- **Wave 6, in parallel:** T5 and T6. Their file sets are disjoint: the cron file, versus `http/`,
   the context builder's `fetchText` and adapter host lists. **T6 also waits for T0** (backlog 318).
   Constraint (a): no `transportOptionsFor` wiring before 318 is fixed.
-- **Not parallel:** T1 with T8 (two migrations and one file list), T3 with T7 (T7 consumes the
-  ledger's interface), and T2 with T5 (both edit `JobSourcingModule`).
+- **Not parallel:** T2 with T4 (both edit `JobSourcingService`), T1 with T8 (two migrations and one
+  file list), T3 with T7 (T7 consumes the ledger's interface), and T2 with T5 (both edit
+  `JobSourcingModule`).
 - **May start before the owner answers the A-versus-B question:** T1, T2, T4 and T8 (see
   "Autonomy classification").
 
@@ -501,7 +529,7 @@ before `JSON.parse` is entered (its own spec).
   history are separate, and an ADMIN enable never clears an unresolved policy or credential block.
   The host-level conditions (ban pause, request rates, the `min_interval_hours` floor) are **T8's**.
   T4's predicate takes them as an input that T8 extends.
-- **Depends on:** nothing.
+- **Depends on:** T2 (sequencing only: both edit `JobSourcingService`; T4 starts after T2 merges).
 - **AC:** (1) a seeded `CANDIDATE` source past `RECRUITEE_TOKEN_DEADLINE` is not due even though its
   stored column still says `CANDIDATE`; (2) a manual run under cooldown or cost block is refused with
   a reason; (3) the legacy 10-minute early-due slack never overrides quota or cooldown;
@@ -604,7 +632,8 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   - **Structurally.** `buildCollectionContext` wraps `meter` and `fetchText` together. For a
     context bound to a meter, each committed `markSent` grants exactly one send permit, and
     `fetchText` consumes one. Without a permit, `fetchText` throws `NOT_MARKED_SENT` **before any
-    I/O**. A caller that bypasses the loop is then refused by the production context, not trusted
+    I/O**. (T3 adds the code `NOT_MARKED_SENT`, together with `RUN_FENCED`, to
+    `COLLECTION_ERROR_CODES`; T7 only raises them and does not edit the list.) A caller that bypasses the loop is then refused by the production context, not trusted
     to remember.
   - **At the one bypassing caller.** The SmartRecruiters detail request gains an awaited
     `ctx.meter.markSent(reservation)` immediately before its `ctx.fetchText`. A rejection there
@@ -631,9 +660,13 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   metered production context, `fetchText` called without a preceding committed `markSent` throws
   `NOT_MARKED_SENT`, and the fixture server records zero requests; (7) every SmartRecruiters detail
   request has a reservation in `SENT` or later before the fixture server sees it; (8) a `markSent`
-  refused with `RUN_FENCED` sends nothing, stops the run, and is reported as `RUN_FENCED`; (9) a
-  grep gate: `ctx.fetchText(` outside `src/test/` appears only in call sites that are preceded by
-  an awaited `markSent`.
+  refused with `RUN_FENCED` sends nothing, stops the run, and is reported as `RUN_FENCED`; (9) **every** metered
+  reporting adapter, run once through the production context against a fixture server, completes
+  without `NOT_MARKED_SENT`. One parametrised test, failing on the first adapter that reaches
+  `fetchText` without a committed `markSent`. **AC 6 and AC 9 are the enforcing instruments.** A
+  grep cannot tell whether a call site is preceded by an awaited `markSent`. The list of
+  `ctx.fetchText(` call sites outside `src/test/` (two on `d0f876f33`) is a reading aid for the
+  reviewer, not a gate.
 - **Real-Postgres:** two workers on one source, one wins, using the ledger rather than a mock; an
   empty run and a partial run; a deadline overrun stops before the next subrequest. Also: a worker
   fenced out between `reserve` and `markSent` (its lease recovered by a second worker) sends
