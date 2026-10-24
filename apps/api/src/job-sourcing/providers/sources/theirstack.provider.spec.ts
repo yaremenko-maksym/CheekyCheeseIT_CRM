@@ -225,11 +225,14 @@ describe('mapping the unit example', () => {
 })
 
 /**
- * RECORDS, NOT CALLS. The documented rule is one credit per job RETURNED, so a call is reserved at
- * its worst case (`limit`) and settled at what came back. Every figure is hand-counted from the
- * pages built above.
+ * RECORDS, NOT CALLS - THE VERIFIED BRANCH. The default `provider()` in this file carries the
+ * `SUPPORTING` observation, so everything in this block runs with the reconcile-to-actual path
+ * ATTACHED. That is NOT the shipped state (no observation is committed; shipped, a page whose
+ * request left settles at `limit` - see 'billing is not trusted until it has been observed'). The
+ * documented rule is one credit per job RETURNED, so a call is reserved at its worst case (`limit`)
+ * and, here, settled at what came back. Every figure is hand-counted from the pages built above.
  */
-describe('billing is per returned record', () => {
+describe('billing per returned record (VERIFIED branch: the SUPPORTING observation is attached)', () => {
   it('reserves the worst case (limit credits) in RECORD units before anything is sent', async () => {
     const { m } = await run([body(jobs(2))])
     expect(m.reserved).toEqual([{ unit: 'RECORD', amount: 25 }])
@@ -539,13 +542,42 @@ describe('billing is not trusted until it has been observed (SR-M-1)', () => {
     )
     const settledAt = wrong.m.settled[0]?.incurred
     expect(settledAt).toBe(2)
-    expect(settledAt).toBeLessThan(REALLY_CHARGED_PER_REQUEST) // the under-count
+    expect(wrong.batch.requests[0]?.cost).toEqual({ unit: 'RECORD', amount: 2 })
+    // The under-count is the gap between this 2 and the account's true flat charge of
+    // REALLY_CHARGED_PER_REQUEST (5): a model of the account, not an observation of TheirStack.
+    // (A literal-versus-literal comparison here could not fail, so it is not asserted.)
+    void REALLY_CHARGED_PER_REQUEST
 
     // Without the observation the SAME page is charged whole: no incurred amount, so the store
     // takes the full 25-credit reservation, which is not below what was spent. If the route did not
     // exist (the observation refused) the first assertion above would fail: this is its contrast.
     const unverified = await runWith(createTheirStackProvider({ credential: READY }))
     expect(unverified.m.settled).toEqual([{ id: 'res-1', resolution: 'USED' }])
+  })
+
+  it('a configured limit BELOW the flat charge: 4 full pages then a 1-record page record 41 against 5 x 40 spent', async () => {
+    // F = 40 met a requestedLimit of 50; the configured limit is 10 and maxPages 5. The per-attempt
+    // formula is (maxPages - 1) * (F - limit) + (F - 1) = 4 * 30 + 39 = 159.
+    const F = 40
+    const flat40 = {
+      observedAt: '2026-10-24T09:00:00.000Z',
+      requestedLimit: 50,
+      jobsReturned: F,
+      creditBalanceBefore: 1000,
+      creditBalanceAfter: 960,
+    }
+    const p = createTheirStackProvider({ credential: READY, billingObservation: flat40 })
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [...[1, 2, 3, 4].map((n) => body(jobs(10, n * 100))), body(jobs(1, 900))],
+    })
+    const m = meteredContext(f)
+    await p.collectReport(cfg({ limit: 10, maxPages: 5 }, p), m.ctx)
+    const recorded = m.settled.reduce((sum, s) => sum + (s.incurred ?? 0), 0)
+    expect(m.settled).toHaveLength(5)
+    expect(recorded).toBe(41)
+    const reallySpent = m.settled.length * F // the model of the account: 5 requests at a flat F
+    expect(reallySpent - recorded).toBe((5 - 1) * (F - 10) + (F - 1))
   })
 
   it('a malformed observation fails when the provider is built, not mid-run', () => {

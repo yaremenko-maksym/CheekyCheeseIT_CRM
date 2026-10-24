@@ -32,8 +32,8 @@ import { requireApiKey, withSecrets } from './quota-provider'
  *   not `REQUEST`, and the two never share a counter. A page is RESERVED at its worst case, `limit`
  *   credits, before the request leaves; WITH NO billing observation (the state today) a page
  *   whose request LEFT settles at the whole reservation, so a short or empty one frees nothing; a
- *   page whose request never left (a FAILING cache read or `markSent`; a 304 did leave and settles whole) is RELEASED, charged
- *   nothing, and frees all of it. ONLY once a
+ *   page whose request never left is RELEASED, charged nothing, and frees all of it (for THIS
+ *   adapter that is a failing `markSent` only: it sets no `cacheKey`, so no cache read happens). ONLY once a
  *   `billingObservation` supports per-record billing does the response settle at the number of
  *   jobs it carried (`data.length`) and free the rest (see `billingObservationSchema` for what
  *   that does and does not guarantee). A request that timed out after it left holds the whole
@@ -234,10 +234,13 @@ function makeSpec(
  *   published statement is true (one credit per returned job, so a page costs at most `limit`). If
  *   the real charge were a flat `F` larger than `limit`, even this branch under-counts. So "the
  *   worst case" is the safe reading of the published statement, not a measured ceiling.
- * - UNVERIFIED, page whose request NEVER LEFT (a failing cache read or `markSent`): RELEASED, charged
+ * - UNVERIFIED, page whose request NEVER LEFT (here: a failing `markSent`): RELEASED, charged
  *   nothing, the whole reservation freed. Correct, because nothing was spent.
- * - Any page whose request left and whose outcome is unknown (timeout): held UNCERTAIN whole.
- * - VERIFIED, and the evidence is right: pages settle at `data.length`, which is the real charge.
+ * - ANY throw out of `fetchText` (a timeout, and also a transport refusal that never reached the
+ *   wire) is held UNCERTAIN whole: this over-holds, and says nothing about what was really spent.
+ * - VERIFIED, and the evidence is right: a page settles at `data.length`, the real charge. Edge
+ *   shapes: an empty page settles at 1 (the store cannot record 0) and a body that cannot be read
+ *   settles at the whole reservation.
  * - VERIFIED IN ERROR (the residuals above): the adapter attaches an actual cost and the difference
  *   is freed for re-reservation, so the meter UNDER-counts. Route: the true charge is a flat `F`
  *   per request and `F` happened to equal `jobsReturned` on the one observed page; a later page that
@@ -246,13 +249,22 @@ function makeSpec(
  *   NOT close this: `data.length` is always inside them. They stop an out-of-range reading from
  *   being believed, and raising the threshold can only move a source toward the worst case;
  *   neither makes a wrongly verified source safe.
- *   HOW BAD (measured by security review, for a configured `limit` >= F): full pages settle at
- *   `limit` (an over-count) and the run ends on the first short page, so the under-count is at most
- *   `F - 1` credits per collection attempt. Real, repeated every attempt, and not a multiple of the
- *   budget. For a configured `limit` BELOW F that bound does not apply (`requestedLimit` in the
- *   observation is independent of the configured `limit`): every full page then settles at `limit`
- *   and under-counts by `F - limit`, for up to `maxPages` (at most 5) pages per attempt - derived by
- *   reading, not measured.
+ *   HOW BAD, PER ATTEMPT (`F = jobsReturned < requestedLimit <= 50` in the observation, so F <= 49):
+ *   - configured `limit` >= F (measured by security review): full pages settle at `limit` (an
+ *     over-count) and the run ends on a short page of k records, settled at max(k, 1), so the
+ *     under-count is at most `F - 1` credits per collection attempt.
+ *   - configured `limit` < F (derived by reading, then checked by arithmetic; the unit spec
+ *     reproduces one case): every full page under-counts by `F - limit` and the closing short page by
+ *     up to `F - 1`, so at most `(maxPages - 1) * (F - limit) + (F - 1)`. At limit 10, F 40,
+ *     maxPages 5 that is 4 * 30 + 39 = 159. `requestedLimit` in the observation is independent of
+ *     the configured `limit`, which is why this case exists.
+ *   CUMULATIVELY the per-attempt figure repeats: N attempts in one window under-count by up to N
+ *   times it, and nothing here bounds that by the budget. Arithmetic (not a run of the real
+ *   service) on the integration spec's own account - limit 100, reserve 25, 2-record pages - attempts
+ *   continue while `used + 25 <= 100`: 38 attempts, 76 recorded against 38 * 5 = 190 spent, about
+ *   1.9 times the budget. With F near the limit and 1-record pages the ratio approaches F. The
+ *   integration spec reproduces the 38-attempt case against a MODEL of the account (`sent * F`),
+ *   not an observation of TheirStack.
  * "Worst case per page" is therefore a statement about the unverified branch, conditional on the
  * published billing statement. Verifying a source is a decision to trust the observation with money,
  * not a formality. (This meter's unit is `RECORD`, credits.)

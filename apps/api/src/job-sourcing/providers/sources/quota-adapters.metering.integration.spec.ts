@@ -344,6 +344,9 @@ describe.skipIf(!hasDatabaseUrl())('quota adapters against the real account mete
      * billing and the provider treats the source as verified. Every later page returns 2 records:
      * the provider settles it at 2 while 5 was spent, and the freed room is re-reservable.
      *
+     * The unverified contrast below is green WHETHER OR NOT the route exists: it pins the worst-case
+     * direction (under the modelled flat F), not the route. The route is the first test.
+     *
      * What its green would look like if the route did not exist: with the observation refused (the
      * unverified provider) the same 8 runs stop at 4 pages and record 100, never fewer than the real
      * spend - the sibling assertion below. Here the meter records 16 against a real 40.
@@ -379,6 +382,22 @@ describe.skipIf(!hasDatabaseUrl())('quota adapters against the real account mete
         const { used } = await counters(meter)
         expect(used).toBe(16)
         expect(used).toBeLessThan(sent * FLAT)
+      })
+
+      it('CUMULATIVELY: attempts continue until the window is full - 38 attempts record 76 against 190 spent (1.9x the budget of 100)', async () => {
+        const account = nextAccount()
+        const meter = await newMeter({ accountKey: account, unit: 'RECORD', limit: 100 })
+        const wronglyVerified = createTheirStackProvider({
+          credential: READY,
+          billingObservation: FLAT_OBSERVATION,
+        })
+        const sent = await twoRecordRuns(wronglyVerified, account, 60)
+        expect(sent).toBe(38) // used + 25 <= 100 admits attempts while used <= 75: 2n <= 75 -> n = 0..37
+        const { used } = await counters(meter)
+        expect(used).toBe(76)
+        // 190 is `sent * FLAT`, a MODEL of the account, not an observation of TheirStack.
+        expect(sent * FLAT).toBe(190)
+        expect(sent * FLAT).toBeGreaterThan(100)
       })
 
       it('the same account, UNVERIFIED, records at least what was really spent (worst case, 25 a page)', async () => {

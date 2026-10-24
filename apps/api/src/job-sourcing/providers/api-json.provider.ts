@@ -273,7 +273,9 @@ export interface PagedSourceSpec<TConfig extends SourceConfigFields, TEnvelope, 
    * the provider actually charged, or `null` when it cannot tell. The loop settles with that amount
    * when it lies in `0..amountPerRequest` (a free request, 0, settles as 1: the store cannot record
    * a USED reservation with no cost); absent, `null`, non-integer or past the reservation, the
-   * full reservation is charged — the direction that cannot overspend. A reported cost BELOW the
+   * full reservation is charged: that cannot overspend the RESERVATION, but whether the reservation
+   * covers what the provider really charged is the provider's billing, which this loop cannot
+   * know (a real charge above the reservation would still be under-counted). A reported cost BELOW the
    * reservation frees the difference for re-reservation, which overspends if the reading is wrong:
    * supply this hook only for a billing basis that has been observed. It must not throw: a throw is
    * an adapter defect (`ADAPTER_INVARIANT`, which no retry acts on), with the response already
@@ -589,8 +591,10 @@ function responseCacheKey(
  * The cost an adapter read off a successful response, or `undefined` for "charge the whole
  * reservation". Only an integer in `0..reserved` is believed: a cost past the reservation is
  * drift in the adapter's reading, and settling it at face value would either be refused by the
- * store (leaving the hold unresolved) or, worse, understate what the page was reserved at. The
- * worst case is the direction that cannot overspend.
+ * store (leaving the hold unresolved) or, worse, understate what the page was reserved at.
+ * Falling back to the whole reservation cannot overspend the reservation; it does NOT make a
+ * billing basis safe, in either direction. A reading inside `0..reserved` is always believed, so a
+ * wrong-but-in-range reading is settled at face value and frees the difference.
  */
 function readIncurred(
   read: (bodyText: string) => number | null,
@@ -990,6 +994,11 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
         }
       } else {
         bodyText = response.bodyText
+        // LOAD-BEARING ORDER: `incurred` is set only here, in the final `else` of the status chain,
+        // after the 304 branch. A 304 therefore settles the whole reservation. If this read moved
+        // above the 304 branch, a 304 would be settled at the CACHED body's record count and no test
+        // would fail (there is no metered-304 test; TheirStack is a POST source, so it is barely
+        // reachable there).
         incurred = readCostOrFlag(costReader, bodyText)
         const lastModified = response.headers['last-modified']
         if ((isValidator(response.etag) || isValidator(lastModified)) && cacheKey !== undefined) {
