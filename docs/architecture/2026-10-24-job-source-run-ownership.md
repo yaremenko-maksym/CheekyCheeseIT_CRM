@@ -144,158 +144,334 @@ task below must not start (§ Decomposition, task T6).
 ## Option A — hand-written claims on Postgres
 
 One module, the **run ledger** (working name `JobRunLedger`), is the only writer of the ownership
-columns. Its interface is six operations. Every one of them is a short transaction, and none holds
-a lock across network I/O.
+and scheduling columns (see "Who writes which column" at the end of this section). Every operation
+is a short transaction, and none holds a lock across network I/O.
 
-**Rules every operation follows** (round 3, SR-L-1, SR-L-3, SR-M-1):
+**Rules every operation follows** (rounds 3–4):
 
 - **Isolation is pinned to `READ COMMITTED`**, explicitly on each transaction rather than inherited.
   Two arguments below depend on it: a blocked `FOR UPDATE` re-evaluates its predicate after the
   lock is released, and a statement after a conflicting insert takes a fresh snapshot.
-- **The clock is the database's.** No operation takes an application `now`. Lease and pause
+- **The clock is the database's.** No operation takes an application `now`. Lease, pause and age
   predicates use `clock_timestamp()`, not `now()`, because `now()` is frozen at transaction start.
-- **One lock order, for every path:** `job_sources` → `job_source_hosts` → `job_account_meters`
-  (by `id`) → `job_collection_runs` → `job_account_meter_reservations` → page tables. Each operation
-  takes a prefix-respecting subset:
-  - `claimDue`: source, host, then inserts the run;
-  - `finish`: source, host, run;
-  - `recoverExpired`: source, meters, run, reservations;
-  - store operations: meter, run (via `assertOwned`, taken **after** the meter lock and before the
-    reservation lock), reservation;
-  - `heartbeat`: run only.
+  Specs move time by **aging stored timestamps** through test helpers in `src/test/` (for example
+  `ageRun`, `ageHostPause`, `ageReservation`). They do not inject a clock into the ledger. Clock
+  injection stays on the pure TypeScript side: `isDue`, `readinessAt`, and the cron-expression
+  arithmetic.
+- **One lock order, for every path, including administrative writes and heartbeats:**
+  `job_sources` → `job_source_hosts` → `job_account_meters` (by `id`) → `job_collection_runs` →
+  `job_account_meter_reservations` → page tables. Each operation takes an ordered subset:
 
-  A cycle needs two paths that take the same pair in opposite orders, and none do. In particular,
-  `claimDue` no longer locks a meter row at all; per-account exclusivity is the T1b index's job (see
-  below).
+  | Operation                                         | Locks, in order                                                  |
+  | ------------------------------------------------- | ---------------------------------------------------------------- |
+  | `claimDue` / `claimSource`                        | source, host; then inserts the run (index waits only)            |
+  | `finish`                                          | source, host, the account's meters, run, the run's reservations  |
+  | `recoverExpired` → `recoverRun`                   | source, the account's meters, run, the run's reservations        |
+  | `reserve`, `markSent`, `reconcile`                | meter, run (`assertOwned`), reservation                          |
+  | `savePage`                                        | run (`assertOwned`), page tables                                 |
+  | `heartbeat`                                       | run; then a **lock-free** read of the host row                   |
+  | `recordHostBan` at observation (T7 → T8)          | host only                                                        |
+  | `settleStaleUncertain`, `sweepOrphanReservations` | one reservation per transaction: its meter, then the reservation |
+  | ADMIN `resetFailures`, `clearHostPause` (T9)      | source, then host                                                |
 
-- **One source per claim transaction.** A refused or conflicting source rolls back only itself, and
-  the loop moves to the next candidate. Locks are never accumulated across sources.
+  A cycle needs two paths that take the same pair in opposite orders, and none do. `claimDue` locks
+  no meter row; per-account exclusivity is the T1b index's job. A claim's `INSERT` can wait on
+  another transaction's uncommitted `STARTED` row (recovery, `finish` or a claim). None of those
+  needs a lock the claim holds, so the wait is one-directional (security review round 4,
+  answer (a)).
 
-| Operation                            | What it does, in one transaction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `claimDue(limit, owner)`             | Up to `limit` iterations, **one transaction each**. In each: (1) `SELECT … FROM job_sources s WHERE <due predicate> ORDER BY next_attempt_at FOR UPDATE SKIP LOCKED LIMIT 1`, using the predicate written out under "The due predicate" below, which includes T8's `hostOpenPredicate`. (2) Re-check the locked source in code: `readinessAt(manifest entry, DB clock)` must permit a run, and a type whose manifest declares a quota must have a non-NULL `account_meter_id`. A refusal records its reason and moves on to the next candidate. (3) Call T8's `claimHostSlot(tx, host_key)`, which locks the host row and **re-reads `paused_until` under that lock**, then checks the per-minute gap and the daily count. (4) Insert a **new** `job_collection_runs` row: a new `attempt_id` (a recovered run is never re-claimed), a fresh `owner_token`, `fencing_epoch = max(epoch for this source) + 1`, `lease_expires_at = clock_timestamp() + L`, `account_key` per T1b, and the **predecessor's checkpoint** (see "Crash resume"). A 23505 from either single-flight index rolls back this source only. Each transaction **commits before any I/O**. |
-| `heartbeat(run, owner, epoch)`       | `UPDATE … SET lease_expires_at = clock_timestamp() + L WHERE id = $run AND owner_token = $owner AND fencing_epoch = $epoch AND outcome = 'STARTED' AND lease_expires_at > clock_timestamp()`. If zero rows change, the worker is fenced out: abort the `AbortSignal` and stop.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `assertOwned(tx, run, owner, epoch)` | `SELECT 1 FROM job_collection_runs WHERE <same predicate> FOR UPDATE`, called **first inside every page write** (`checkpoints.savePage`) and inside the meter's `reserve`, `markSent` and `reconcile`. If no row comes back, the transaction rolls back and the worker raises `RUN_FENCED`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `finish(run, owner, epoch, outcome)` | Locks in the global order: source, then host (T8's `recordHostBan`, when the run's error code is `ACCESS_POLICY` or `RATE_LIMIT`), then the run under the same predicate. Makes the terminal transition, and writes `job_sources` state in the same transaction: `last_attempt_at`, `last_success_at`, `last_nonempty_at`, `next_attempt_at`, `cooldown_until`, and `consecutive_failures` (reset to 0 only on a successful run).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `recoverExpired()`                   | Reads candidate runs (`outcome = 'STARTED' AND lease_expires_at < clock_timestamp()`) without locking. Then, **one transaction per run**, in the global order: lock the source row; call the store's **`recoverRun(tx, runId)`** (specified below), which locks the run's meters in `id` order, then the run row, re-checking `STARTED` and expiry under the lock and skipping the run if either changed, then its reservations, and settles them. Mark the run `FAILED` with error code `LEASE_EXPIRED`. Increment `consecutive_failures`, and set `next_attempt_at = clock_timestamp() + backoff(consecutive_failures)`, capped at a ceiling. The run is never re-claimed; the next claim is a new row.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `settleStaleUncertain()`             | The resolver for `UNCERTAIN` holds (round 3, SR-M-2), specified under "Who resolves `UNCERTAIN`" below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+- **One source per claim transaction.** A refused or conflicting source rolls back, or commits only
+  its refusal record, and the loop moves on. Locks are never accumulated across sources.
+
+**Operations.** The ownership predicate, written once and used verbatim by `heartbeat`,
+`assertOwned` and `finish`:
+
+```sql
+id = $run AND owner_token = $owner AND fencing_epoch = $epoch
+AND outcome = 'STARTED' AND lease_expires_at > clock_timestamp()
+```
+
+| Operation                                       | What it does                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claimDue(limit, owner)`                        | The scheduled path, specified under "Claiming" below. Iterates candidates with a bounded scan, one transaction per source.                                                                                                                                                                                                                                                                                                          |
+| `claimSource(sourceId, owner)`                  | The **manual** path (round 4, SR-L-10). It does the same steps for one named source, with the cadence term (`next_attempt_at`) removed from the predicate and nothing else removed. A refusal is returned to the caller with its reason.                                                                                                                                                                                            |
+| `heartbeat(run, owner, epoch)`                  | `UPDATE job_collection_runs SET lease_expires_at = clock_timestamp() + L WHERE <ownership predicate>`. If zero rows change, the worker is fenced out: it aborts its `AbortSignal` with `RUN_FENCED`. The worker (T7) then reads the run's host pause without a lock; see "Stop-on-ban for runs in flight".                                                                                                                          |
+| `assertOwned(tx, run, owner, epoch)`            | `SELECT 1 FROM job_collection_runs WHERE <ownership predicate> FOR UPDATE`. It is called first in every page write, and inside `reserve`, `markSent` and `reconcile` after the meter lock. No row means the transaction rolls back with `RUN_FENCED`.                                                                                                                                                                               |
+| `finish(run, owner, epoch, outcome, errorCode)` | Locks the source, then the host (calling T8's `recordHostBan` when `errorCode` is `ACCESS_POLICY` or `RATE_LIMIT`), then the account's meters and the run under the ownership predicate. **It settles the run's open reservations** with the same arithmetic as `recoverRun`: `RESERVED → RELEASED`, `SENT → UNCERTAIN` (round 4, SR-M-9). It then makes the terminal transition and writes `job_sources` per "Failure accounting". |
+| `recoverExpired()`                              | Reads candidates (`outcome = 'STARTED' AND lease_expires_at < clock_timestamp()`) without locking. Then, one transaction per run, it locks the source row and calls `recoverRun`. It marks the run `FAILED` / `LEASE_EXPIRED` and writes `job_sources` per "Failure accounting".                                                                                                                                                    |
+| `recoverRun(tx, runId)`                         | Store-level, specified below (rounds 3–4, SR-M-1 / SR-M-5).                                                                                                                                                                                                                                                                                                                                                                         |
+| `settleStaleUncertain()`                        | The automatic `UNCERTAIN` resolver, specified under "Who resolves `UNCERTAIN`".                                                                                                                                                                                                                                                                                                                                                     |
+| `sweepOrphanReservations()`                     | A belt to `finish`'s settlement. Any `RESERVED` or `SENT` reservation whose run is terminal is settled `RESERVED → RELEASED`, `SENT → UNCERTAIN`, one transaction per reservation. Called from T5's tick (round 4, SR-M-9).                                                                                                                                                                                                         |
 
 **Why this makes F4 false.** The meter binding gains `ownerToken` and calls `assertOwned` inside its
 own transaction. A second live executor of the same `attemptId` holds a different token, or the
 superseded epoch, so its `reserve` and `markSent` are refused before anything leaves the process.
 Recovery and `markSent` lock the same run row, so they serialize. Either `markSent` commits `SENT`
 first, and recovery turns it into `UNCERTAIN` (a hold, the safe direction), or recovery commits
-first and `markSent` is refused, so the request is never sent. With the fence in place, a
-`RESERVED` row of a fenced-out run is provably unsent, which is why recovery may release it.
+first and `markSent` re-evaluates `assertOwned` and is refused, so the request is never sent. With
+the fence in place, a `RESERVED` row of a fenced-out or finished run is provably unsent. That is
+why recovery and `finish` may release it.
+
+**Every way a run ends.** Recovery and `finish` are the only two transitions out of `STARTED`.
+
+| Ended by                                                                       | Outcome     | Error code                            | Open reservations       |
+| ------------------------------------------------------------------------------ | ----------- | ------------------------------------- | ----------------------- |
+| `finish`: success                                                              | `SUCCEEDED` | none                                  | settled by `finish`     |
+| `finish`: partial (page cap, cost stop, deadline)                              | `PARTIAL`   | `PAGE_CAP` / `COST_STOP` / `DEADLINE` | settled by `finish`     |
+| `finish`: adapter or transport error                                           | `FAILED`    | the adapter's code                    | settled by `finish`     |
+| `finish`: shutdown, while the worker still owns the lease                      | `CANCELLED` | `CANCELLED`                           | settled by `finish`     |
+| `recoverRun`: lease expired (crash, fence, a shutdown that could not `finish`) | `FAILED`    | `LEASE_EXPIRED`                       | settled by `recoverRun` |
+
+A fenced-out worker cannot `finish`: the ownership predicate refuses it. It stops, and recovery
+ends the run. `sweepOrphanReservations` catches anything the two paths could miss, for example
+runs that ended before this design shipped.
 
 **A recovered run is ended; its work is resumed by a new run.** Recovery does not re-claim the
 expired run under a new epoch. It ends that run, and the next claim inserts a new row with a new
 `attempt_id`. Two consequences follow. First, `started_at` is written once per claim and never
-updated, so T8's daily request count, which reads it, counts every claim exactly once (T3's grep
-gate includes `started_at`). Second, the store's same-attempt replay walk is never used across
-owners, so the SR-H-1 shape cannot recur through recovery. "Ended" does not mean "start over".
+updated, so T8's daily count, which reads it, counts every claim exactly once (T3's write gate
+covers `started_at`). Second, the store's same-attempt replay walk is never used across owners, so
+the SR-H-1 shape cannot recur through recovery. "Ended" does not mean "start over": see "Crash
+resume".
 
-**Crash resume (round 3, SR-H-2).** The checkpoint stays on the run row
-(`job_collection_runs.checkpoint`). `savePage` commits a page's observations and its checkpoint
-together, so the stored checkpoint always names the last **durable** page. In the claim
-transaction, the new row copies the checkpoint of the source's **most recent** run, provided all
-of these hold:
+**Claiming (round 4, SR-M-6).** `claimDue(limit, owner)` runs at most `MAX_CLAIM_SCAN` candidate
+transactions per call (a config value with a ceiling, default `4 × limit`) and carries the ids it
+has already tried in `$tried`. Each transaction does the following:
 
-- that run has the same `config_version`;
-- it did not succeed (`FAILED`, `PARTIAL` or `CANCELLED`);
-- its checkpoint is non-empty.
+1. **Pick.** `SELECT … FROM job_sources s WHERE <due predicate> AND s.id <> ALL($tried) ORDER BY
+s.next_attempt_at FOR UPDATE SKIP LOCKED LIMIT 1`.
+2. **Resolve and re-check, on the locked row.**
+   - A `manifest_id` that resolves to no manifest entry is a **refusal**, `MANIFEST_ENTRY_MISSING`.
+     It fails closed, is recorded, and is never thrown out of the loop or the cron.
+   - `readinessAt(entry, DB clock)` must permit a run.
+   - A type whose manifest declares a quota must have a non-NULL `account_meter_id`.
+3. **Host slot.** T8's `claimHostSlot(tx, host_key)` locks the host row, re-reads `paused_until`
+   under that lock, and checks the per-minute gap and the daily count.
+4. **Insert** a new `job_collection_runs` row: a new `attempt_id`, a fresh `owner_token`,
+   `fencing_epoch = COALESCE(max(fencing_epoch) for this source, 0) + 1` (round 4, SR-L-13),
+   `lease_expires_at = clock_timestamp() + L`, `account_key` per T1b, and the checkpoint chosen by
+   "Crash resume". A 23505 from a single-flight index rolls back this source only.
+5. **Commit**, before any I/O.
 
-The source row is locked, so "most recent" cannot move under the claim. `checkpoints.load()` then
-validates the copy with `validatedCheckpointSchema`, which already requires the same
-`configVersion`, `policyVersion` and `adapterVersion`. A mismatch yields a fresh start, not a wrong
-resume.
+**A refusal never stays at the head of the queue.** The refused source is added to `$tried`. On the
+scheduled path its refusal is also committed, in the same transaction:
 
-**The re-spend bound:** a crash costs **at most the one page in flight**. That page's reservation
-is held `UNCERTAIN` (it may have been billed), and the successor fetches the page again. Every page
-before it is durable and is not refetched. TheirStack worked case (`RECORD`, limit 200, 50 per
-page): crash on page 3 after pages 1–2 are durable. Then 100 are used and 50 held, and the
-successor resumes at page 3 and pays 50. Total 200, against 300 if it restarted from page 1.
+- **Persistent refusals** (`MANIFEST_ENTRY_MISSING`, readiness blocked, a metered type with no
+  meter) set `last_error_code` to the reason and push
+  `next_attempt_at = clock_timestamp() + REFUSAL_RECHECK`, a config value.
+- **Host refusals** set `next_attempt_at` to the instant the slot opens: the end of the gap, the
+  moment the oldest counted claim leaves the 24 h window, or `paused_until`.
 
-**Recovery is paced and bounded.** Recovery increments `consecutive_failures` and applies the same
-capped backoff as a failed `finish`. The due predicate excludes a source whose
-`consecutive_failures` has reached `MAX_CONSECUTIVE_FAILURES`, a config value with a ceiling. So a
-poison page that kills the worker every time stops being claimed after that many recoveries, rather
-than burning the meter. The counter returns to 0 only on a successful `finish`, or by an ADMIN
-action recorded in `admin_state_history`.
+A refusal never touches `consecutive_failures`. On the manual path (`claimSource`) the refusal is
+returned to the caller and does not move `next_attempt_at`, so a manual attempt cannot disturb the
+schedule.
 
-**The due predicate**, written out (T4 owns the scalar terms, T8 the host term; round 3, SR-M-4):
+**The due predicate**, written out (T4 owns the scalar terms, T8 the host term):
 
 ```sql
 s.enabled
 AND s.manifest_id IS NOT NULL                -- no manifest entry: never due
 AND s.host_key IS NOT NULL                   -- written first, so the NOT EXISTS below cannot fail open
-AND s.next_attempt_at <= clock_timestamp()   -- cadence; a manual trigger skips this term only
-AND (s.cooldown_until IS NULL OR s.cooldown_until <= clock_timestamp())
+AND s.next_attempt_at <= clock_timestamp()   -- cadence; claimSource drops this term and only this term
+AND (s.cooldown_until IS NULL OR s.cooldown_until <= clock_timestamp())   -- failure backoff
 AND s.consecutive_failures < $maxConsecutiveFailures
 AND NOT EXISTS (SELECT 1 FROM job_source_hosts h
                  WHERE h.host_key = s.host_key AND h.paused_until > clock_timestamp())
+AND NOT EXISTS (SELECT 1 FROM job_collection_runs r          -- already running: not a candidate
+                 WHERE r.outcome = 'STARTED'
+                   AND (r.source_id = s.id OR r.account_key = <s's account key, per T1b>))
 ```
 
-`readinessAt` is TypeScript over a manifest subject, so it cannot sit in SQL. It is re-checked on
-the locked row in the claim transaction (step 2 of `claimDue`). A row refused there consumes no
-slot, because claims go one source per transaction. **A manual trigger skips the cadence term and
-nothing else.** A pause, a cooldown, readiness, a missing meter or the failure cap all refuse a
-manual run too.
+The last term matters (adversarial re-read, round 4). Without it, a source that is already running,
+or whose account is, would be picked, hit 23505, and be picked again: the same starvation SR-M-6
+describes, reached through the index. The index stays as the backstop for the race the predicate
+cannot see.
 
-**`recoverRun(tx, runId)` — the store-level recovery (round 3, SR-M-1).** It lives in the meter
-store beside `reserve`, `markSent` and `reconcile`, and it reuses their arithmetic rather than
-adding a path:
+`readinessAt` is TypeScript over a manifest subject, so it cannot sit in SQL. It is applied at
+step 2, after `LIMIT 1` and on the locked row, and a refused row consumes no slot.
 
-- It selects `RESERVED` and `SENT` reservations **by `run_id`**. Today `reserve` writes
-  `runId: binding.runId`, which is caller input. T3 changes it to write the id of the run row that
-  `assertOwned` just locked, so no reservation of the run can carry another id and escape recovery.
-- It locks their meter rows **in `id` order** through `lockMeter`, which applies the lazy window
-  roll. Then it locks the run row, re-checking `STARTED` and `lease_expires_at < clock_timestamp()`,
-  and returns without effect if either changed. Then it locks the reservations.
-- Each transition goes through `planSettlement`: `RESERVED → RELEASED` and `SENT → UNCERTAIN`.
-  Counters move exactly as they would for a caller's `reconcile`.
+**A manual trigger skips the cadence term and nothing else.** A pause, the failure backoff
+(`cooldown_until`), readiness, a missing meter, the failure cap and a running run all refuse a manual
+run too.
 
-Releasing `RESERVED` is safe here and only here. The run row is locked and is made terminal in the
-same transaction, so the old owner's `markSent` either committed first (the row is `SENT`, so it is
-held as `UNCERTAIN`) or re-evaluates `assertOwned` after the lock and is refused. Its tests assert
-the **counter values** (`used`, `reserved`, `uncertain`) before and after, not only row states.
+**Crash resume (rounds 3–4, SR-H-2, SR-M-7, CR-M-14).** The checkpoint stays on the run row.
+`savePage` (a ledger operation that T7's `checkpoints` port calls) commits a page's observations and
+its checkpoint together under `assertOwned`. So the stored checkpoint always names the last durable
+page. A fenced write commits whole before recovery or is refused whole.
 
-**Who resolves `UNCERTAIN` (round 3, SR-M-2).** Today no production code moves `UNCERTAIN` to
-`USED`: the only non-spec `reconcile` callers are the two adapters, and a fenced-out owner's own
-`reconcile` is refused. Without a resolver, every recovery that catches a sent request removes that
-amount from capacity, and the store keeps outstanding holds across a window roll. The resolution:
+At claim, under the source lock, the **predecessor** is the source's run with the greatest
+`fencing_epoch`. Epochs are per source and strictly increasing, so ordering by epoch cannot tie or
+reorder the way timestamps can. Its checkpoint is copied **only if all** of these hold:
 
-- **Automatic, conservative.** `settleStaleUncertain()` (owner: T3; entry point: T5's tick, beside
-  `recoverExpired`) settles every `UNCERTAIN` reservation older than `UNCERTAIN_MAX_AGE` as `USED`
-  at the full reservation. That is the overcount direction: the request is assumed billed. It is
-  never released, because "not billed" is exactly what nobody can prove.
-  - **Window rule:** a hold from a past window settles into that window's spend record and does
-    not enter the current window's `used`. That is the store's existing rollover rule, unchanged.
-    So the cost of an uncertain request is bounded to the window it was taken in.
-- **Manual, precise.** An ADMIN or operator action settles a named reservation with an observed
-  provider figure, through the same `reconcile` arithmetic, and is recorded. Its UI is not decided
-  here.
-- **Fewer holds in the first place.** `L` is set above the per-request timeout plus the pool's
-  acquire timeout, and heartbeats use a connection reserved for them (pool size `N + 1`). A
-  live-but-slow worker is therefore not mistaken for a dead one because page writes starved its
-  heartbeat.
+- its outcome is `FAILED`, `PARTIAL` or `CANCELLED`;
+- it has the same `config_version`;
+- it ended within `CHECKPOINT_MAX_AGE`, a config value no greater than the cadence plus the backoff
+  ceiling. An older cursor may have been expired by the provider;
+- it ended after the source's latest ADMIN reset, read from `admin_state_history`;
+- **the checkpoint was produced by that run**, meaning its `completedAt` is at or after that run's
+  `started_at`.
 
-**One active fetch per source and per account.** The database enforces both with partial unique
-indexes over `outcome = 'STARTED'`: one on `source_id` alone (today's index is per
-`(source_id, config_version)`, F3) and one on `account_key`.
+The last rule drops a poison cursor. A cursor the provider rejects fails the run before any page,
+so that run's checkpoint is the one it inherited, and the next claim does not copy it again. Without
+the rule, a rejected cursor would survive the failure cap and an ADMIN reset. When nothing is copied,
+the run starts fresh.
 
-**Defect in T1 as dispatched (round 3, SR-M-3), corrected by a follow-up, T1b.** T1 keys the
-account index on `job_sources.account_meter_id` as a `uuid`. But a meter **row** is unique per
-`(account_key, unit, window_kind)`, and `job_account_meters.account_key` is `text`. Two sources of
-one paid account bound to different unit rows therefore get different keys, and the index does not
-exclude them. The spend guard is unaffected, because each meter row is locked and tested
-atomically.
+The loop then calls the existing `decideCheckpoint(stored, current)`, and its three outcomes apply
+unchanged:
 
-The correct key is the meter's **text `account_key`**, read through `account_meter_id`. For a
-source with no meter, the fallback is the text `'source:' || source_id`. A type whose manifest
-declares a quota but whose row has a NULL `account_meter_id` is not claimable (`claimDue` step 2):
-it **fails closed** rather than running unmetered. T1's section is left as dispatched; T1b changes
-the column type and backfill, and rebuilds the index.
+- `FRESH` when nothing was copied;
+- `RESUME` when the versions match;
+- `RESTART_WITH_OVERLAP` when the copy is unparsable or its `policyVersion` / `adapterVersion`
+  differs. `config_version` is already equal by the copy rule. This outcome restarts with a widened
+  window that re-reads the boundary.
+
+`validatedCheckpointSchema` only parses the shape; the version comparison is `decideCheckpoint`'s.
+
+**The re-spend bound:** a crash costs **at most the one page in flight**. That page's reservation is
+held `UNCERTAIN`, and the successor fetches it again; every page before it is durable. The one
+exception is a policy or adapter version change between the crash and the resume
+(`RESTART_WITH_OVERLAP`), which re-reads the overlap and is outside this bound by design. TheirStack
+worked case (`RECORD`, limit 200, 50 per page): a crash on page 3 after pages 1–2 are durable leaves
+100 used and 50 held, and the successor resumes at page 3 and pays 50. Total 200, against 300 if it
+restarted.
+
+**Failure accounting (round 4, SR-M-8).** A run **made progress** if it persisted at least one page
+of its own, i.e. its checkpoint's `completedAt` is at or after its `started_at`. `finish` and
+recovery write `job_sources` by this table:
+
+| The run                                                                                        | `consecutive_failures` | `cooldown_until`                                       |
+| ---------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------ |
+| `SUCCEEDED`, or made progress, whatever its outcome                                            | reset to 0             | cleared                                                |
+| no progress, ended `COST_STOP`, `PAGE_CAP`, `CANCELLED`, `ACCESS_POLICY` or `RATE_LIMIT`       | unchanged              | unchanged (the meter window and host pause pace these) |
+| no progress, any other error code, including `LEASE_EXPIRED`, `DEADLINE` and `NOT_MARKED_SENT` | +1                     | `clock_timestamp() + backoff(n)`, capped               |
+
+The backoff lives in `cooldown_until`, not in `next_attempt_at`. A manual trigger skips only the
+cadence term, so **manual runs respect the backoff**, and a manual retry loop cannot drive a source
+to the cap faster than the schedule would. A run that a deploy kills after it advanced its
+checkpoint resets the counter instead of counting as a poison page.
+
+A source at `MAX_CONSECUTIVE_FAILURES` is never claimed by either path. Its only exit is a recorded
+ADMIN reset (T9), and T9's ADMIN listing shows every excluded source with its reason, so the
+exclusion is not silent.
+
+**`recoverRun(tx, runId)` — the store-level recovery (rounds 3–4, SR-M-1, SR-M-5).** It lives in the
+meter store beside `reserve`, `markSent` and `reconcile` and reuses their arithmetic. The exact
+statements, in order:
+
+1. `SELECT account_key FROM job_collection_runs WHERE id = $run`, without a lock. `account_key` is
+   written once at insert and never updated, so an unlocked read of it is exact.
+2. Lock **every** meter row of that account, in `id` order, through `lockMeter` (which applies the
+   lazy window roll): `SELECT … FROM job_account_meters WHERE account_key = $accountKey ORDER BY id
+FOR UPDATE`. The run's binding draws only on its own account's rows, since T7 builds the binding
+   from the run row's `account_key` (round 4, SR-L-11). So this set contains every meter any of the
+   run's reservations can name, including one a racing `reserve` is about to use. A synthetic
+   unmetered key matches no row, and the step locks nothing.
+3. `SELECT … FROM job_collection_runs WHERE id = $run AND outcome = 'STARTED' AND lease_expires_at <
+clock_timestamp() FOR UPDATE`. If it returns no row, return without effect.
+4. `SELECT … FROM job_account_meter_reservations WHERE run_id = $run AND status IN ('RESERVED',
+'SENT') ORDER BY id FOR UPDATE`. A row whose `meter_id` is outside the set locked at step 2 is
+   impossible by step 2's argument; if one appears, the transaction rolls back loudly rather than
+   settling it unlocked.
+5. Apply `planSettlement` to each: `RESERVED → RELEASED`, `SENT → UNCERTAIN`.
+
+**The race SR-M-5 described is closed at step 2.** A `reserve` takes its meter lock before
+`assertOwned`, so it and recovery serialize on that meter row. If `reserve` commits first, step 4
+sees its reservation. If recovery takes the meters first, `reserve` later passes the meter lock,
+re-evaluates `assertOwned` against a `FAILED` run, and is refused with `RUN_FENCED`.
+
+Today `reserve` writes `runId: binding.runId`, which is caller input. T3 changes it to the id of the
+run row `assertOwned` just locked. `finish` runs steps 2, 4 and 5 under the ownership predicate in
+place of step 3. Tests assert the counter values (`used`, `reserved`, `uncertain`), not only row
+states.
+
+**Who resolves `UNCERTAIN` (rounds 3–4, SR-M-2, SR-L-7).** Today no production code moves
+`UNCERTAIN` to `USED`. The resolution:
+
+- **Automatic, conservative.** `settleStaleUncertain()` (T3, called from T5's tick) settles each
+  `UNCERTAIN` reservation whose **`sent_at`** is older than `UNCERTAIN_MAX_AGE`, as `USED` at the full
+  reservation. Every `UNCERTAIN` row has `sent_at`, because `planSettlement` stamps it on any move
+  other than to `RELEASED`. It works one reservation per transaction, meter then reservation, so it
+  cannot deadlock with `recoverRun`'s id-ordered meter set. A hold from a past window settles into
+  that window's spend record and not into the current window's `used` (the store's rollover rule,
+  unchanged).
+- **Manual, precise.** An ADMIN settle (T9) with an observed provider figure, through `reconcile`'s
+  arithmetic, recorded in the audit history. **The first conversion wins:** after the automatic
+  settle, a different figure is refused (`AMOUNT_MISMATCH`). So `UNCERTAIN_MAX_AGE` is set long
+  enough for an operator to act, at least 7 days, and T9's listing shows every open `UNCERTAIN` hold
+  with its age.
+- **Fewer holds in the first place.** See "Lease, heartbeat and page writes".
+
+**Stop-on-ban for runs in flight (round 4, SR-H-3).** A ban must stop runs that are **already
+running** on the host, not only new claims. Three mechanisms, all T7 code calling T8's host-state
+module:
+
+- **The ban is written the moment it is observed.** T7's production `fetchText` wrapper sees the
+  HTTP status. On 403, 429 or 451 it calls T8's `recordHostBan` in its own short transaction (host
+  row only) **before** it returns the response to the adapter. `finish` calls it again on
+  `ACCESS_POLICY` / `RATE_LIMIT`; the write is idempotent.
+- **Every request checks the pause before it is sent.** T7 wraps `meter.markSent`. Before calling
+  the store, the wrapper reads `paused_until` for the run's host with a plain, **lock-free** indexed
+  read. If the host is paused, it rejects with `ACCESS_POLICY` and nothing is sent, so the adapter
+  reconciles the reservation `RELEASED`. Because the check precedes `markSent`, a paused request
+  never leaves a `SENT` hold behind.
+- **Every heartbeat checks the pause.** After a successful heartbeat, the worker reads the same
+  column lock-free. If the host is paused, it aborts the run's `signal` with `ACCESS_POLICY`. The
+  loop already checks `signal` before every subrequest, so a run between requests stops too.
+
+**Why a lock-free read is enough.** Holding the host lock for a request would serialize every board
+of a host, and it would take the host lock after the meter lock, against the global order. A read
+that started before the ban committed can let through at most **one** request per in-flight run:
+the one whose check preceded the commit. That request is indistinguishable from one sent at the
+same moment as the 403 itself, so the bound is the best the provider could observe anyway. Every
+check after the commit sees the ban.
+
+**Pause duration (T8):**
+`paused_until = GREATEST(paused_until, clock_timestamp() + HOST_BAN_PAUSE)`, where
+`HOST_BAN_PAUSE` is the largest of three values: 24 hours; the longest `minIntervalHoursFloor` of
+any type on the host; and a `Retry-After` the host sent. It is capped at `HOST_BAN_PAUSE_MAX`
+(30 days). A later write never shortens it. Only expiry, or a recorded ADMIN clear (T9), lifts it.
+
+**Lease, heartbeat and page writes (round 4, SR-L-9).** A heartbeat's `UPDATE` queues behind a page
+write's `assertOwned` row lock. So three bounds are stated together:
+
+- the heartbeat interval `H ≤ L / 3`;
+- a page-write transaction runs with `SET LOCAL statement_timeout` and `lock_timeout` so that it
+  ends within `H`;
+- heartbeats use a connection reserved for them, so the pool size is `N + 1`.
+
+A heartbeat delayed by one page write therefore still lands at least `L − 2H ≥ H` before expiry.
+`L` is also greater than the per-request timeout plus the pool's acquire timeout. Together these
+keep a live but slow worker from being mistaken for a dead one, which is what creates avoidable
+`UNCERTAIN` holds.
+
+**One active fetch per source and per account.** The predicate excludes both (its last term), and
+partial unique indexes over `outcome = 'STARTED'` enforce them as the backstop: one on `source_id`
+(today's index is per `(source_id, config_version)`, F3), and one on `account_key`.
+
+**Defect in T1 as dispatched (round 3, SR-M-3), corrected by T1b.** T1 keys the account index on
+`job_sources.account_meter_id` as a `uuid`. But a meter **row** is unique per
+`(account_key, unit, window_kind)`, and `job_account_meters.account_key` is `text`. So two sources of
+one paid account, bound to different unit rows, get different keys, and the index does not exclude
+them. The spend guard is unaffected, because each meter row is locked and tested atomically.
+
+The correct key is the meter's text `account_key`, read through `account_meter_id`. For a source
+with no meter it is the synthetic `'#source:' || source_id`. **`#` cannot appear in a real meter's
+`account_key`:** `ck_job_account_meters_account_key_format` enforces `JOB_PUBLIC_ID_PATTERN`,
+`^[a-z0-9][a-z0-9._:-]{0,99}$`. So a synthetic key can never equal a real one (round 4, SR-L-6;
+`'source:'` alone would pass that pattern). A type whose manifest declares a quota but whose row has
+a NULL `account_meter_id` is refused at claim step 2: it **fails closed**.
+
+**Who writes which column** (round 4, SR-L-8). T3's write gate (AC 6) enforces this table: no file
+outside the named module writes the column. `*.spec.ts` and `src/test/**` are excluded, because the
+aging helpers live there.
+
+| Column(s)                                                                                                                                                                                                             | Only writer                                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `job_collection_runs`: `owner_token`, `fencing_epoch`, `lease_expires_at`, `started_at`, `outcome`, `ended_at`, `error_code`, `checkpoint`, `account_key`, and the counts                                             | the ledger (T3), including `savePage`                                                  |
+| `job_sources`: `next_attempt_at`, `cooldown_until`, `consecutive_failures`, `last_attempt_at`, `last_success_at`, `last_nonempty_at`, `last_error_code`, `last_error_message`; RESET entries in `admin_state_history` | the ledger (T3); T9's ADMIN actions call ledger functions, never SQL of their own      |
+| `job_sources.host_key`                                                                                                                                                                                                | T8's generated seed delta                                                              |
+| `job_source_hosts`: every column                                                                                                                                                                                      | T8's host-state module (`recordHostBan`, `claimHostSlot`, `clearHostPause`)            |
+| `job_account_meters` counters, `job_account_meter_reservations`                                                                                                                                                       | the meter store (`reserve`, `markSent`, `reconcile`, `recoverRun`, the settle helpers) |
 
 These indexes, T1b's correction and T8's host table are the only DDL Option A needs. All are
 **additive or corrective in `public`**, none changes a privilege, and all go through the existing
