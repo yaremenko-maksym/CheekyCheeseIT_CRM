@@ -90,10 +90,13 @@ const CLOSE_BRACE = 0x7d
 /**
  * One pass over the raw text enforcing BOTH pre-parse bounds: nesting depth and an upper bound of
  * the node count. The scan stops at the FIRST breach in text order, so a flat hostile body is
- * refused after the few hundred KB that hold `maxNodes` separators rather than after all 10 MiB
- * (measured, Node 22: ~45 ms for the full pass, so the early exit is what makes the refusal cheap).
- * The estimate only grows, so stopping early is sound. A body that breaks both bounds is named by
- * whichever it breaches first in the text; before this scan it was always `TOO_DEEP`.
+ * refused after the few hundred KB that hold `maxNodes` separators rather than after all 10 MiB.
+ * A full pass over 10 MiB costs tens to a couple of hundred ms depending on the machine and the
+ * body (measured 45-220 ms on Node 20/22, all-string bodies being the slow end), so the early exit
+ * is what makes the refusal cheap. The estimate only grows, so stopping early is sound. A body
+ * that breaks both bounds is named by whichever it breaches first in the text; before this scan
+ * it was always `TOO_DEEP`. The scan also runs before `JSON.parse`, so a MALFORMED body with more
+ * than `maxNodes` structural commas is now `TOO_MANY_NODES` rather than `NOT_JSON`.
  *
  * The node estimate is `1 + structural commas + container openings`, where a structural comma is
  * one OUTSIDE a string literal. The post-parse count (`countNodesWithin`) is the container plus
@@ -101,7 +104,11 @@ const CLOSE_BRACE = 0x7d
  * values, so the true count is `1 + commas + non-empty containers`. Counting every opening, empty
  * or not, can only add: it OVER-counts by one per empty container (`[]`, `{}`) and is never below
  * the truth for well-formed JSON. Over-counting is the safe direction for a refusal that only has
- * to stop a hostile flat body, and the margin is tiny for honest bodies.
+ * to stop a hostile flat body, but the margin is NOT negligible for empty-heavy bodies. Estimate
+ * over exact, measured: `[{},{},...]` 1.999 (refused at about HALF the node limit), `{"tags":[],
+ * "x":1}` 1.333, a 30-field record with three empty containers 1.097. A real page of a few
+ * thousand records with a handful of empty arrays each sits far below the limit, so this is
+ * accepted as a known conservative margin.
  *
  * The string state is what keeps the estimate honest. Job descriptions are prose full of commas;
  * counting those would refuse a 4 MiB page that has a few dozen real nodes. So commas and

@@ -490,6 +490,70 @@ describe('the pre-parse node bound', () => {
     expect(parseBoundedJson('1', limits({ maxNodes: 1 }))).toMatchObject({ ok: true })
   })
 
+  it('names nodes when the breach is at an OPENING that precedes a later depth breach', () => {
+    // Five openings, no comma. maxNodes 2 is crossed by the second opening; maxDepth 4 only by the
+    // fourth. With the node check deleted from the opening branch this reads TOO_DEEP.
+    const parse = vi.spyOn(JSON, 'parse')
+    try {
+      expect(parseBoundedJson('['.repeat(5), limits({ maxDepth: 4, maxNodes: 2 }))).toMatchObject({
+        ok: false,
+        reason: 'TOO_MANY_NODES',
+      })
+      expect(parse).not.toHaveBeenCalled()
+    } finally {
+      parse.mockRestore()
+    }
+  })
+
+  it('names depth when ONE opening breaches both bounds (depth is checked first)', () => {
+    // '[1]' under maxDepth 1 and maxNodes 1: the single opening crosses both.
+    expect(parseBoundedJson('[1]', limits({ maxDepth: 1, maxNodes: 1 }))).toMatchObject({
+      ok: false,
+      reason: 'TOO_DEEP',
+    })
+  })
+
+  // SPEC-M-1: the scan runs before the parser, so a malformed body is judged on its shape first.
+  // Before backlog 318 this was NOT_JSON; the caller maps it to PAYLOAD_TOO_LARGE, not PARSE_DRIFT.
+  it('reports TOO_MANY_NODES, not NOT_JSON, for a malformed body with too many separators', () => {
+    const parse = vi.spyOn(JSON, 'parse')
+    try {
+      expect(parseBoundedJson('[1,,,,,,,', limits({ maxNodes: 3 }))).toMatchObject({
+        ok: false,
+        reason: 'TOO_MANY_NODES',
+      })
+      expect(parse).not.toHaveBeenCalled()
+    } finally {
+      parse.mockRestore()
+    }
+  })
+
+  // SPEC-L-2 / CR-M-2 / SR-L-2: the estimate counts every opening, so empty containers are
+  // over-counted. Known conservative margin: an all-empty body is refused at about HALF the limit.
+  describe('the empty-container over-count', () => {
+    it('refuses a body whose exact count is within the limit, never the other way round', () => {
+      // [{},{},{},{}]: exact 5 nodes (array + four objects); estimate 1 + 3 commas + 5 openings = 9.
+      const text = '[{},{},{},{}]'
+      expect(parseBoundedJson(text, limits({ maxNodes: 9 }))).toMatchObject({ ok: true })
+      expect(parseBoundedJson(text, limits({ maxNodes: 8 }))).toMatchObject({
+        ok: false,
+        reason: 'TOO_MANY_NODES',
+      })
+    })
+
+    it('refuses an all-empty body at about half the node limit (documented ratio ~2)', () => {
+      const text = '[' + '{},'.repeat(99) + '{}]' // exact 101 nodes, estimate 201
+      expect(JSON.parse(text)).toHaveLength(100)
+      expect(parseBoundedJson(text, limits({ maxBytes: 10_000, maxNodes: 150 }))).toMatchObject({
+        ok: false,
+        reason: 'TOO_MANY_NODES',
+      })
+      expect(parseBoundedJson(text, limits({ maxBytes: 10_000, maxNodes: 201 }))).toMatchObject({
+        ok: true,
+      })
+    })
+  })
+
   it('refuses at the opening bracket that crosses the limit, not only at commas', () => {
     // [[[ : three nodes by openings alone, no comma anywhere.
     const parse = vi.spyOn(JSON, 'parse')

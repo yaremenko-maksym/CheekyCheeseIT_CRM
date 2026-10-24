@@ -5413,8 +5413,14 @@ limit: before the fix 286 ms / +404 MiB RSS and 496 ms / +303 MiB RSS (refused o
 4.8 ms and 4.6 ms with RSS +15 and +10 MiB, which is the body string itself, not a parsed tree. Proof:
 `bounded-json.spec.ts`, describe `the pre-parse node bound` (spy shows `JSON.parse` is never called; array and
 object boundaries; escaped quote and escaped backslash; ~4 MiB comma-heavy prose that must pass). When a body
-breaks both depth and nodes, the reason now names whichever comes first in the text. The Node 20 figures
-recorded above were not re-run.
+breaks both depth and nodes, the reason now names whichever comes first in the text. Behaviour changes
+beyond that, stated honestly: the scan runs before `JSON.parse`, so a MALFORMED body with more than
+`maxNodes` structural commas used to be `NOT_JSON` and is now `TOO_MANY_NODES`, which `api-json.provider.ts`
+and `smartrecruiters.provider.ts` map to `PAYLOAD_TOO_LARGE` instead of `PARSE_DRIFT` (acceptable: such a
+body is hostile either way; spec: the malformed, node-heavy case). The estimate also over-counts empty
+containers: `[{},{},...]` is refused at about half the node limit (ratio 1.999; `{"tags":[],"x":1}` 1.333;
+a 30-field record with three empty containers 1.097), a known conservative margin pinned by spec. The Node 20
+figures recorded above were not re-run.
 
 ## 319. An adapter's declared byte cap cannot reach the transport, so a source whose pages exceed the transport's default is refused before its own cap is consulted (2026-10-24)
 
