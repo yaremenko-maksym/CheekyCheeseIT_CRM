@@ -5079,6 +5079,19 @@ gh pr view 1103 --json headRefOid,mergedAt
 # then intersect: git diff --name-only <base>...<head>  vs  git diff --name-only <verdict sha> <head>
 ```
 
+**The decisive fact, which is stronger than "the verdicts were stale".** The `Flow Gate` check run on
+the merged head concluded **`success` at 02:14:04Z**, eleven minutes before the 02:25:44Z merge:
+
+```
+gh api repos/<owner>/<repo>/commits/f8afb7ab7/check-runs --jq '.check_runs[] | select(.name=="Flow Gate") | "\(.conclusion) \(.completed_at)"'
+```
+
+So the gate did not merely fail to notice. **It affirmatively certified every step as `done` for a head
+whose code and security verdicts had been given three commits earlier.** A gate that stays silent is a
+gap; a gate that returns a positive answer about something it did not measure is a false statement,
+and it is the shape `verification-integrity.md` is built around — an instrument reporting a result when
+it had not looked at the thing it was reporting on.
+
 **Why this belongs in the entry rather than only in #1116's body:** it answers the objection that
 head-pinning is ceremony. The gate reported every step `done` for this PR, and every step was `done` —
 for code that is not what merged.
