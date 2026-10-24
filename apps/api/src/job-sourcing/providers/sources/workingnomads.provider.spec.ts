@@ -81,13 +81,17 @@ describe('the recorded evidence', () => {
     expect(p.trimmedBy).toContain('NO job data was captured')
   })
 
-  it('the committed Terms of Service are the Working Nomads terms and contain NO automated-access clause', () => {
+  it('the committed page is the Working Nomads Terms of Service and passes a KEYWORD screen for automated-access wording', () => {
     const text = termsText()
     expect(text).toContain('Terms of Service')
-    // The deciding property is an ABSENCE, so it is stated as one. If a re-captured page makes this
-    // fail, the permission verdict is out of date: re-read the terms and decide - do not edit the
-    // pattern until it passes. (A frozen file pinned by sha256 cannot detect a live change; that
-    // belongs to a scheduled live-vs-rawSha256 comparison, not to this unit suite.)
+    // WHAT THIS IS NOT: a proof that the page has no automated-access clause. An absence over free
+    // text cannot be made complete by listing phrasings (a probe such as "access the API
+    // programmatically" passes this screen). The verdict rests on a HUMAN READING of headings 1-11,
+    // dated 2026-10-24 and recorded in `terms.provenance.json`; the sha256 pin in
+    // `fixture-provenance.spec.ts` proves the file has not changed since that reading. This screen
+    // only catches the commonest wording if the file is ever replaced. If it fails after a
+    // re-capture, the verdict is out of date: re-read the terms, decide, record the new date - do
+    // not edit the pattern until it passes.
     expect(text).not.toMatch(
       /scrap|crawl|robot|spider|data mining|harvest|automated (?:access|means|tools? for (?:access|collect))|\bbots?\b/i,
     )
