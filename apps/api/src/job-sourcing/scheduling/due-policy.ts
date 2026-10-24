@@ -185,7 +185,8 @@ function inputsValid(row: DueRow, ctx: DueContext): boolean {
  * exactly when the scheduled predicate minus the cadence term is true. A NULL `next_attempt_at` is
  * not yet due on a schedule, as in the ADR's SQL (`NULL <= now` is not true). Every invalid input
  * (NaN, invalid date, a cap above its ceiling, a slack above its maximum) refuses with
- * `INVALID_INPUT`: the predicate fails closed.
+ * `INVALID_INPUT`: the predicate fails closed. So do the three block inputs at runtime: only a
+ * strictly `false` means "not blocked"; undefined, null, 0, '' or true refuse with their reason.
  *
  * REQUIREMENT ON THE CALLER (T7): this is a pre-check, not the permission. The caller must build
  * the activation facts itself, from the registry and the manifest, at the SAME clock it passes as
@@ -204,9 +205,11 @@ export function isDue(row: DueRow, ctx: DueContext): DueVerdict {
   if (row.cooldownUntil !== null && row.cooldownUntil.getTime() > ctx.now.getTime()) {
     return refuse('COOLING_DOWN')
   }
-  if (ctx.costBlocked) return refuse('COST_BLOCKED')
-  if (ctx.hostPaused) return refuse('HOST_PAUSED')
-  if (ctx.alreadyRunning) return refuse('ALREADY_RUNNING')
+  // Strict: only a literal `false` means "not blocked". A cast or untyped JS that drops the field, or
+  // passes null / 0 / '' / anything else, is treated as blocked: the types are not the only guard.
+  if (ctx.costBlocked !== false) return refuse('COST_BLOCKED')
+  if (ctx.hostPaused !== false) return refuse('HOST_PAUSED')
+  if (ctx.alreadyRunning !== false) return refuse('ALREADY_RUNNING')
   if (ctx.trigger !== 'MANUAL') {
     const horizon = ctx.now.getTime() + (ctx.cadenceSlackMs ?? 0)
     if (row.nextAttemptAt === null || row.nextAttemptAt.getTime() > horizon) {

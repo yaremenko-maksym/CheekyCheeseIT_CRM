@@ -451,10 +451,33 @@ describe('isDue', () => {
     })
     it('a fractional failure count in the row', () => {
       expect(isDue(dueRow({ consecutiveFailures: 1.5 }), ctx())).toEqual(invalid)
+      expect(isDue(dueRow({ consecutiveFailures: 2.5 }), ctx())).toEqual(invalid)
       expect(isDue(dueRow({ consecutiveFailures: Number.POSITIVE_INFINITY }), ctx())).toEqual(
         invalid,
       )
     })
+  })
+
+  describe('runtime: only a strictly false block input means "not blocked"', () => {
+    const fields = [
+      ['costBlocked', 'COST_BLOCKED'],
+      ['hostPaused', 'HOST_PAUSED'],
+      ['alreadyRunning', 'ALREADY_RUNNING'],
+    ] as const
+    for (const [field, reason] of fields) {
+      for (const trigger of ['SCHEDULED', 'MANUAL'] as const) {
+        it(`${field} deleted, null, 0, '' or true refuses with ${reason} (${trigger})`, () => {
+          for (const bad of [undefined, null, 0, '', true, 'false']) {
+            const c = { ...ctx({ trigger }), [field]: bad } as unknown as DueContext
+            expect(isDue(dueRow(), c)).toEqual({ due: false, reason })
+          }
+          const deleted = { ...ctx({ trigger }) } as Record<string, unknown>
+          delete deleted[field]
+          expect(isDue(dueRow(), deleted as unknown as DueContext)).toEqual({ due: false, reason })
+          expect(isDue(dueRow(), ctx({ trigger, [field]: false }))).toEqual({ due: true })
+        })
+      }
+    }
   })
 
   describe('CR-LOW-A: the three blocking inputs are required at the type level', () => {
@@ -483,7 +506,7 @@ describe('isDue', () => {
         costBlocked: false,
         hostPaused: false,
       }
-      // At runtime the omission reads as undefined, which isDue treats as not blocked: the type is the guard.
+      // This pins the compile-time guard; the runtime guard (undefined is blocked) is tested above.
       expect([noCost, noHost, noRun]).toHaveLength(3)
     })
   })
