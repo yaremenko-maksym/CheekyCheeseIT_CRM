@@ -7,6 +7,7 @@ import {
   baseSourceConfigSchema,
   collectJsonPages,
   collectPages,
+  ALLOWED_JSON_REQUEST_HEADERS,
   DEFAULT_OVERLAP_MS,
   defineApiJsonProvider,
   UNBUILT_REQUEST_URL,
@@ -3074,7 +3075,7 @@ describe('settling at the cost actually incurred', () => {
     expect(batch.requests[0]?.cost).toEqual({ unit: 'RECORD', amount: 50 })
   })
 
-  it('a hook that throws fails the page loudly, with its own message, and settles the whole reservation', async () => {
+  it('a hook that throws is ADAPTER_INVARIANT (no retry acts on it), with its own message, and settles the whole reservation', async () => {
     const h = harness({ pages: [onePage([job('1')])] })
     const batch = await collectJsonPages(
       makeSpec({
@@ -3091,7 +3092,24 @@ describe('settling at the cost actually incurred', () => {
     expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED' }])
     expect(batch.outcome).toBe('FAILED')
     expect(batch.observations).toEqual([])
-    expect(batch.requests.at(-1)?.error?.message).toBe('hook bug')
+    expect(batch.requests.at(-1)?.error).toEqual({ code: 'ADAPTER_INVARIANT', message: 'hook bug' })
+  })
+
+  it('a hook that throws a non-Error is named as such, not as a network failure', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(
+      makeSpec({
+        meter: metered(() => {
+          throw 'plain string'
+        }),
+      }),
+      config(),
+      h.ctx,
+    )
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'ADAPTER_INVARIANT',
+      message: 'the cost hook threw a non-Error value',
+    })
   })
 
   it('a refused response is charged the whole reservation: the hook is never asked', async () => {
@@ -3311,5 +3329,158 @@ describe('SourcePayloadTooLargeError', () => {
     expect(error.host).toBe('api.example.com')
     expect(error.maxBytes).toBe(5)
     expect(error.message).toBe('api.example.com response too large: exceeded 5 bytes')
+  })
+})
+
+/** SR-M-2: the report states its own URL when the request URL carries a credential. */
+describe('a request that carries a credential reports the URL its adapter stated (SR-M-2)', () => {
+  const KEY_URL = 'https://api.example.com/key/SECRETKEY12345/jobs'
+  const spec = (over: Partial<ReturnType<typeof makeSpec>> = {}) =>
+    makeSpec({
+      pageRequest: () => ({
+        reportUrl: 'https://api.example.com/key/[REDACTED]/jobs',
+        request: { url: KEY_URL },
+      }),
+      ...over,
+    })
+
+  it('a successful page reports the stated URL, with NO secret registered', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(spec(), config(), h.ctx)
+    expect(batch.requests[0]?.url).toBe('https://api.example.com/key/[REDACTED]/jobs')
+    expect(h.sent[0]?.url).toBe(KEY_URL)
+    expect(JSON.stringify(batch)).not.toContain('SECRETKEY12345')
+  })
+
+  it('a failed page, a cost stop and a refused response all report it', async () => {
+    const failed = harness({ pages: [{ status: 500 }] })
+    expect((await collectJsonPages(spec(), config(), failed.ctx)).requests.at(-1)?.url).toBe(
+      'https://api.example.com/key/[REDACTED]/jobs',
+    )
+    const stopped = harness({ pages: [], reserveRefusesOnCall: 1 })
+    const batch = await collectJsonPages(
+      spec({ meter: { unit: 'REQUEST', amountPerRequest: 1 } }),
+      config(),
+      stopped.ctx,
+    )
+    expect(batch.requests.at(-1)?.url).toBe('https://api.example.com/key/[REDACTED]/jobs')
+    expect(JSON.stringify(batch)).not.toContain('SECRETKEY12345')
+  })
+
+  it('a thrown network error that echoes the URL cannot undo the stated URL', async () => {
+    const h = harness({ pages: [{ throws: new Error('boom') }] })
+    const batch = await collectJsonPages(spec(), config(), h.ctx)
+    expect(batch.requests[0]?.url).toBe('https://api.example.com/key/[REDACTED]/jobs')
+  })
+
+  it('a request without reportUrl reports its own URL, as before', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+    expect(batch.requests[0]?.url).toBe('https://api.example.com/jobs?page=1')
+  })
+})
+
+/** SR-M-4: the JSON binding owns what headers an adapter may send. */
+describe('the JSON binding admits only argued-for request headers (SR-M-4)', () => {
+  const sending = (headers: Record<string, string>) =>
+    makeSpec({
+      pageRequest: () => ({
+        cacheKey: 'p1',
+        request: { url: 'https://api.example.com/jobs', headers },
+      }),
+    })
+
+  it('keeps exactly the allowlist, lowercased', async () => {
+    expect([...ALLOWED_JSON_REQUEST_HEADERS].sort()).toEqual([
+      'accept',
+      'accept-language',
+      'authorization',
+      'content-type',
+      'from',
+      'x-rapidapi-host',
+      'x-rapidapi-key',
+    ])
+  })
+
+  it('drops user-agent, cookie, referer, origin and x-forwarded-for in any letter case', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(
+      sending({
+        'User-Agent': 'Mozilla/5.0',
+        Cookie: 'session=1',
+        Referer: 'https://x.test',
+        ORIGIN: 'https://x.test',
+        'X-Forwarded-For': '1.2.3.4',
+        Accept: 'application/json',
+      }),
+      config(),
+      h.ctx,
+    )
+    expect(h.sent[0]?.headers).toEqual({ accept: 'application/json' })
+  })
+
+  it('keeps the credential headers of the keyed schemes', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(
+      sending({
+        Authorization: 'Bearer k',
+        'X-RapidAPI-Key': 'k',
+        'x-rapidapi-host': 'h',
+        'Content-Type': 'application/json',
+      }),
+      config(),
+      h.ctx,
+    )
+    expect(h.sent[0]?.headers).toEqual({
+      authorization: 'Bearer k',
+      'x-rapidapi-key': 'k',
+      'x-rapidapi-host': 'h',
+      'content-type': 'application/json',
+    })
+  })
+
+  it('a request whose headers were all refused carries no headers key at all', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(sending({ 'User-Agent': 'x' }), config(), h.ctx)
+    expect(Object.keys(h.sent[0] ?? {})).toEqual(['url'])
+  })
+
+  it("the loop's own conditional headers are added after the filter", async () => {
+    const h = harness({
+      pages: [{ status: 304 }],
+      cacheSeed: { p1: { etag: '"v1"', bodyText: JSON.stringify({ jobs: [], next: null }) } },
+    })
+    await collectJsonPages(sending({ Accept: 'application/json', Cookie: 'x' }), config(), h.ctx)
+    expect(h.sent[0]?.headers).toEqual({ accept: 'application/json', 'if-none-match': '"v1"' })
+  })
+})
+
+/** SR-M-5: the cap is validated where the field is consumed, whichever binding set it. */
+describe('collectPages validates the cap it consumes (SR-M-5)', () => {
+  const bare = (requestMaxBytes: number) => ({
+    ...makeSpec(),
+    limits: { maxPages: 5, maxItemsPerPage: 500 },
+    requestMaxBytes,
+    decodeEnvelope: (text: string) => ({ ok: true as const, value: JSON.parse(text) as never }),
+  })
+
+  it.each([
+    ['ceiling+1', 10 * 1024 * 1024 + 1],
+    ['a fraction', 2_097_152.5],
+    ['zero', 0],
+    ['NaN', Number.NaN],
+  ])(
+    '%s is refused before any call, by a binding that is not collectJsonPages',
+    async (_l, bad) => {
+      const h = harness({ pages: [onePage([job('1')])] })
+      await expect(collectPages(bare(bad), config(), h.ctx)).rejects.toThrow(/invalid maxBytes/)
+      expect(h.calls).toEqual([])
+    },
+  )
+
+  it('the ceiling is accepted there too', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectPages(bare(10 * 1024 * 1024), config(), h.ctx)
+    expect(h.sent[0]?.maxBytes).toBe(10_485_760)
   })
 })

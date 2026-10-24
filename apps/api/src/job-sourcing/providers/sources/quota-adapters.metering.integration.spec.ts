@@ -117,7 +117,9 @@ const theirstackJobs = (n: number, from = 1) =>
 const theirstackBody = (n: number, from = 1): FakeResponse => ({
   bodyText: JSON.stringify({ data: theirstackJobs(n, from) }),
 })
-const ts = createTheirStackProvider({ credential: READY })
+// The reading is attached (billing verified) except where SR-M-1 says otherwise.
+const ts = createTheirStackProvider({ credential: READY, billingVerified: true })
+const tsUnverified = createTheirStackProvider({ credential: READY })
 const tsConfig = (extra: Record<string, unknown> = {}) =>
   ts.parseConfig({ configVersion: 1, limit: 25, seniority: ['senior'], ...extra })
 
@@ -291,6 +293,40 @@ describe.skipIf(!hasDatabaseUrl())('quota adapters against the real account mete
 
       // The hold is released in full; its 4 credits belong to the OLD window, so the new one is unchanged.
       expect(await counters(meter)).toEqual({ used: 3, reserved: 0, uncertain: 0 })
+    })
+  })
+
+  /**
+   * SR-M-1, at a limit SEVERAL RESERVATIONS WIDE: 100 records, reserved 25 a page, so room for four.
+   * (At a limit of one reservation the amplification is invisible - the window is full after the
+   * first page whatever it settles at - which is why a single-reservation test cannot tell the
+   * defect from its absence.) Each page returns ONE job.
+   */
+  describe('settling low frees budget: only a verified billing basis may do it (SR-M-1)', () => {
+    const runs = async (provider: typeof ts, account: string, n: number) => {
+      let sent = 0
+      for (let i = 0; i < n; i += 1) {
+        const { f, ctx } = await metered(account, 'RECORD', [theirstackBody(1, 1000 + i)])
+        await provider.collectReport(provider.parseConfig({ configVersion: 1, limit: 25 }), ctx)
+        sent += f.sent.length
+      }
+      return sent
+    }
+
+    it('UNVERIFIED (the default): worst case every page, so 100 records allow exactly 4 pages', async () => {
+      const account = nextAccount()
+      const meter = await newMeter({ accountKey: account, unit: 'RECORD', limit: 100 })
+      const sent = await runs(tsUnverified, account, 8)
+      expect(sent).toBe(4)
+      expect(await counters(meter)).toEqual({ used: 100, reserved: 0, uncertain: 0 })
+    })
+
+    it('VERIFIED: the freed difference is re-reservable, so the same limit allows all 8 pages (used 8)', async () => {
+      const account = nextAccount()
+      const meter = await newMeter({ accountKey: account, unit: 'RECORD', limit: 100 })
+      const sent = await runs(ts, account, 8)
+      expect(sent).toBe(8)
+      expect(await counters(meter)).toEqual({ used: 8, reserved: 0, uncertain: 0 })
     })
   })
 

@@ -1325,6 +1325,11 @@ export interface CollectionContext {
      * least 1: the store's table refuses a USED reservation with no cost, so a request that cost
      * nothing is reported as 1. An uncertain or released reservation has no known cost to report,
      * so passing one there is refused too.
+     *
+     * A cost BELOW the reservation frees the difference for re-reservation in the same window. That
+     * is the overspend direction against the external account if the reported cost is wrong, so a
+     * source reports one only after its billing basis has been observed, never from documentation
+     * alone.
      */
     reconcile(
       reservation: MeterReservation,

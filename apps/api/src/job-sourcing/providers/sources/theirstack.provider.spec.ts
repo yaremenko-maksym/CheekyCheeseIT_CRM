@@ -28,7 +28,8 @@ const NOT_CONFIGURED = { configured: false, apiKey: null, secrets: [] } as const
 
 const provider = (
   credential: Parameters<typeof createTheirStackProvider>[0]['credential'] = READY,
-) => createTheirStackProvider({ credential })
+  billingVerified = true,
+) => createTheirStackProvider({ credential, billingVerified })
 const cfg = (extra: Record<string, unknown> = {}, p = provider()) =>
   p.parseConfig({ configVersion: 1, ...SEEDED, ...extra })
 
@@ -189,7 +190,7 @@ describe('mapping the unit example', () => {
     const second = byId(batch, '7001002')
     expect(second?.normalized.remote).toBeNull()
     expect(second?.normalized.location).toBeNull()
-    expect(second?.normalized.description ?? null).toBeNull()
+    expect(second?.normalized.descriptionMd).toBe('')
   })
 
   it('one malformed job is isolated; the rest are kept', async () => {
@@ -458,5 +459,55 @@ describe('what a reviewer would otherwise have to take on trust', () => {
 
   it('a body too deep to read is no cost reading: the whole reservation is charged', () => {
     expect(theirstackIncurredCredits(`${'['.repeat(100)}${']'.repeat(100)}`)).toBeNull()
+  })
+})
+
+/**
+ * SR-M-1. Settling BELOW the reservation frees the difference for re-reservation, which overspends
+ * the external account if the reading is wrong (measured by the review: limit 100, reserve 10,
+ * settle 1 permitted 91 pages). So the reading is attached only once the billing basis is observed.
+ * The wide-limit counter arithmetic is in the integration spec; here, what the adapter asks for.
+ */
+describe('billing is not trusted until it has been observed (SR-M-1)', () => {
+  const unverified = () => createTheirStackProvider({ credential: READY })
+
+  async function runWith(p: ReturnType<typeof unverified>) {
+    const f = fakeCollectionContext({ now: NOW, responses: [body(jobs(2))] })
+    const m = meteredContext(f)
+    const batch = await p.collectReport(p.parseConfig({ configVersion: 1, ...SEEDED }), m.ctx)
+    return { m, batch }
+  }
+
+  it('by default every page is charged its WORST CASE: 2 jobs back, 25 charged', async () => {
+    const { m, batch } = await runWith(unverified())
+    expect(m.settled).toEqual([{ id: 'res-1', resolution: 'USED' }])
+    expect(batch.requests[0]?.cost).toEqual({ unit: 'RECORD', amount: 25 })
+  })
+
+  it('with billingVerified false, explicitly, the same', async () => {
+    const { m } = await runWith(
+      createTheirStackProvider({ credential: READY, billingVerified: false }),
+    )
+    expect(m.settled).toEqual([{ id: 'res-1', resolution: 'USED' }])
+  })
+
+  it('only billingVerified true attaches the reading: 2 jobs back, 2 charged', async () => {
+    const { m } = await runWith(
+      createTheirStackProvider({ credential: READY, billingVerified: true }),
+    )
+    expect(m.settled).toEqual([{ id: 'res-1', resolution: 'USED', incurred: 2 }])
+  })
+
+  it('a truthy non-true value does not count as verification', async () => {
+    const { m } = await runWith(
+      createTheirStackProvider({ credential: READY, billingVerified: 1 as never }),
+    )
+    expect(m.settled).toEqual([{ id: 'res-1', resolution: 'USED' }])
+  })
+
+  it('the cost reader admits a body past the 2 MiB default (the transport already admitted it)', () => {
+    const big = JSON.stringify({ data: [{ pad: 'x'.repeat(2_200_000) }, {}] })
+    expect(big.length).toBeGreaterThan(2_097_152)
+    expect(theirstackIncurredCredits(big)).toBe(2)
   })
 })

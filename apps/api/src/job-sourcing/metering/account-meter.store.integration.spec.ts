@@ -20,6 +20,12 @@ import {
  * scratch database, and every transition is asserted by the VALUES of `used / reserved /
  * uncertain` read back with plain SQL — never by "changed", never by a count of calls.
  *
+ * MEASURED (security review of PR #1119): `pnpm --filter @crm/api db:push` EXITED 0 HAVING CREATED
+ * 0 TABLES when `@crm/shared` was unbuilt (drizzle-kit could not resolve it). Build it first
+ * (`pnpm --filter @crm/shared build`) and CHECK THE ARTEFACT, not the exit status: for example
+ * `psql ... -Atc "select count(*) from information_schema.tables where table_schema='public'"`
+ * must be non-zero before this spec means anything (`assertRealDbSchema` below also refuses).
+ *
  * Run against a scratch DB (NEVER the live crm_db), after `db:push`:
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_scratch_meter35a \
  *     pnpm --filter @crm/api exec vitest run src/job-sourcing/metering/account-meter.store

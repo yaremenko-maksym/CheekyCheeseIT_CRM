@@ -100,6 +100,10 @@ describe('the unit examples of the keyed sources', () => {
       expect(p.rawSha256).toBe(SHA256_OF_NOTHING)
       expect(p.permission).toBe('KEY_REQUIRED')
       expect(p.trimmedBy.startsWith('none: written by hand from ')).toBe(true)
+      // The sentinel: nothing was fetched and no terms were read, so both dates are the epoch.
+      expect(p.fetchedAt).toBe('1970-01-01T00:00:00.000Z')
+      expect(p.termsCheckedAt).toBe('1970-01-01T00:00:00.000Z')
+      expect(p.notes.startsWith('SENTINEL: ')).toBe(true)
       expect(p.notes).toContain('UNIT EXAMPLE ONLY, NOT A CAPTURE')
       expect(p.notes).toContain('Every value in the file is invented')
       expect(p.notes).toContain('BLOCKED until the owner runs a controlled authenticated smoke')

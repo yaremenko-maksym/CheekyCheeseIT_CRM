@@ -103,6 +103,9 @@ function makeSpec(apiKey: string, meter: MeterOption): ApiJsonSourceSpec<Config,
     itemSchema,
     meter,
     pageRequest: (config, at) => ({
+      // The key is the last path segment, so the URL is never reported as built: the report states
+      // its own safe form, whether or not anyone registered the key.
+      reportUrl: `${ENDPOINT}[REDACTED]`,
       request: {
         // The key is a path segment: encoded so a key with a reserved character cannot change the path.
         url: `${ENDPOINT}${encodeURIComponent(apiKey)}`,

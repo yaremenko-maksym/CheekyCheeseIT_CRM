@@ -68,13 +68,19 @@ const isDevCredentialMatch = (value: string, devValue: string): boolean =>
   value.trim().toLowerCase() === devValue
 
 /**
- * An optional secret where a blank value (`KEY=` left in a .env, or whitespace) means ABSENT —
- * the same hole `JOB_MATCH_THRESHOLD`'s preprocess closes, applied to a credential.
+ * An optional API credential where a blank value (`KEY=` left in a .env, or whitespace) means ABSENT -
+ * the same hole `JOB_MATCH_THRESHOLD`'s preprocess closes - and with a FLOOR. A one-character key can
+ * be configured and then cannot be redacted: the redactor drops every form of length <= 1 (a
+ * one-character form would blank the whole string), so the key would be reported verbatim in a URL,
+ * a message and a sample. "Redacted from every report" is only true above some length, so below the
+ * floor the key is refused at boot instead of configured. 8 is a plausible minimum for a real
+ * provider key, not a measured threshold.
  */
-const optionalSecret = () =>
+export const MIN_API_CREDENTIAL_CHARS = 8
+const optionalCredential = () =>
   z.preprocess(
     (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
-    z.string().min(1).optional(),
+    z.string().min(MIN_API_CREDENTIAL_CHARS).optional(),
   )
 
 const envSchema = z
@@ -307,11 +313,11 @@ const envSchema = z
     // credential. The Muse needs no key. Each is its OWN credential — never derived from
     // CLOUDFLARE_* (C-21). Read only by `job-sourcing/quota-credentials.ts`, which also hands
     // the value to `CollectionContext.secrets` for redaction.
-    JOOBLE_API_KEY: optionalSecret(),
+    JOOBLE_API_KEY: optionalCredential(),
     /** RapidAPI key for JSearch. */
-    RAPIDAPI_KEY: optionalSecret(),
-    THEIRSTACK_API_KEY: optionalSecret(),
-    REED_API_KEY: optionalSecret(),
+    RAPIDAPI_KEY: optionalCredential(),
+    THEIRSTACK_API_KEY: optionalCredential(),
+    REED_API_KEY: optionalCredential(),
 
     // task-vacancy-matching §3 — the stack-match score below which a suggestion
     // is COLLAPSED (still counted, still one click away; never discarded).

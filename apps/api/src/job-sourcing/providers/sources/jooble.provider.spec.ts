@@ -181,7 +181,10 @@ describe('mapping the unit example', () => {
       quarantined: 1,
       discarded: 0,
     })
-    expect(byUrl(batch, 'anonymous-3')).toBeUndefined()
+    expect(batch.observations.map((o) => o.normalized.title)).toEqual([
+      'Senior Backend Developer',
+      'Staff Engineer, Data',
+    ])
   })
 
   it('one malformed job is isolated; the rest are kept', async () => {

@@ -1,12 +1,12 @@
 {
   "url": "https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch",
-  "fetchedAt": "2026-10-24T03:45:00.000Z",
+  "fetchedAt": "1970-01-01T00:00:00.000Z",
   "httpStatus": 0,
   "rawSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "fileSha256": "a2fdbb00820fb50fcfe7ee02e106f0e865a8a5562c0d33db04f338441a2fb8f5",
   "trimmedBy": "none: written by hand from the RapidAPI listing and the OpenWeb Ninja documentation mirrors (https://context7.com/websites/openwebninja_api_jsearch, https://www.openwebninja.com/api/jsearch/docs), read 2026-10-24; no request was made and no script produced it",
   "termsUrl": "https://www.openwebninja.com/api/jsearch",
-  "termsCheckedAt": "2026-10-24T03:45:00.000Z",
+  "termsCheckedAt": "1970-01-01T00:00:00.000Z",
   "permission": "KEY_REQUIRED",
-  "notes": "UNIT EXAMPLE ONLY, NOT A CAPTURE. httpStatus 0 and rawSha256 = sha256 of the empty string say that no bytes were received: no request was sent, because no key is provisioned and none may be. Source of the field names: the job-details example lists job_id, job_title, employer_name, job_apply_link, job_description, job_is_remote, job_posted_at_datetime_utc, job_city, job_state, job_country and job_employment_type. Whether the legacy RapidAPI `data` is a bare array (as here) or an object holding `jobs` (as the OpenWeb Ninja search-v2 shows) is NOT confirmed for the RapidAPI product. The billing rule for num_pages > 1 was not found on any page readable without an account; the adapter therefore always sends num_pages=1. Every value in the file is invented. The adapter stays BLOCKED until the owner runs a controlled authenticated smoke and a real response replaces this file."
+  "notes": "SENTINEL: fetchedAt and termsCheckedAt are 1970-01-01T00:00:00.000Z because NOTHING WAS FETCHED and NO TERMS WERE READ; a consumer must read an epoch as \"never\", not as a date. The documentation named in trimmedBy was read on 2026-10-24. UNIT EXAMPLE ONLY, NOT A CAPTURE. httpStatus 0 and rawSha256 = sha256 of the empty string say that no bytes were received: no request was sent, because no key is provisioned and none may be. Source of the field names: the job-details example lists job_id, job_title, employer_name, job_apply_link, job_description, job_is_remote, job_posted_at_datetime_utc, job_city, job_state, job_country and job_employment_type. Whether the legacy RapidAPI `data` is a bare array (as here) or an object holding `jobs` (as the OpenWeb Ninja search-v2 shows) is NOT confirmed for the RapidAPI product. The billing rule for num_pages > 1 was not found on any page readable without an account; the adapter therefore always sends num_pages=1. Every value in the file is invented. The adapter stays BLOCKED until the owner runs a controlled authenticated smoke and a real response replaces this file."
 }

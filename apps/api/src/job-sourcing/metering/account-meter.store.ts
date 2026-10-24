@@ -110,9 +110,16 @@ import {
  *   than clamped, and a second USED that disagrees with the amount already recorded is
  *   `AMOUNT_MISMATCH` too, not a silent no-op. The smallest incurred cost is 1, not 0: the
  *   schema's `used_settled` CHECK refuses a USED row with no cost, so a free request is recorded
- *   as one unit until that CHECK is relaxed by a migration. A source that reports no cost
- *   (every flat per-request source) is still charged its worst case, so `used` stays an UPPER
- *   BOUND for those, and exact only where an adapter supplies the incurred cost.
+ *   as one unit until that CHECK is relaxed by a migration. So `used` is exact for an incurred
+ *   cost of 1..reserved and over-recorded by one at zero. A source that reports no cost (every
+ *   flat per-request source) is charged its worst case: `used` is an UPPER BOUND for those.
+ *
+ *   SETTLING BELOW THE RESERVATION IS THE OVERSPEND DIRECTION against the external account (SR-M-1,
+ *   measured: a limit of 100, 10 reserved and 1 settled per page permitted 91 pages, 910 worst-case
+ *   credits). The difference is freed and may be re-reserved in the same window, on purpose: a
+ *   short page is real information. That is only safe when the reported cost is what the provider
+ *   billed, so a source must not report one until its billing basis has been OBSERVED (TheirStack's
+ *   `billingVerified`). The store cannot tell; it trusts the caller within the reservation.
  * - Window rollover. A meter row is reset in place, lazily, under the same lock, by the first
  *   operation at or after `resets_at`: `used` returns to 0; outstanding `reserved` / `uncertain`
  *   stay, because they are holds of the window they were taken in. When such a reservation later

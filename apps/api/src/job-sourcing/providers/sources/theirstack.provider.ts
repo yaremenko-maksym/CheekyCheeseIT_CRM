@@ -7,6 +7,7 @@ import {
   collectJsonPages,
   definePagedProvider,
 } from '../api-json.provider'
+import { MAX_RESPONSE_BYTES_CEILING } from '../../http/bounded-fetch'
 import { DEFAULT_JSON_LIMITS, parseBoundedJson } from '../bounded-json'
 import type { ReportingJobSourceProvider, Validated } from '../reporting-provider'
 import {
@@ -110,18 +111,28 @@ type Envelope = z.infer<typeof envelopeSchema>
  * that lets the count be read, which the loop treats as "charge the whole reservation".
  */
 export function theirstackIncurredCredits(bodyText: string): number | null {
-  // The bounded parse, so a hostile body cannot make the cost reading the expensive part.
-  const parsed = parseBoundedJson(bodyText, DEFAULT_JSON_LIMITS)
-  // Stryker disable next-line ConditionalExpression: equivalent - a refused parse carries no `value`, so reading past this line yields undefined, which the Array.isArray check below refuses exactly as `return null` does
-  if (!parsed.ok) return null
-  const data = (parsed.value as { data?: unknown } | null)?.data
+  // The bounded parse, so a hostile body cannot make the cost reading the expensive part. Its byte
+  // bound is the transport's CEILING, not the default: the body was already admitted by the
+  // transport under whatever cap this source declared, and a smaller bound here would silently
+  // switch the precision off (every body refused, every page charged whole) the day a cap is raised.
+  const parsed = parseBoundedJson(bodyText, {
+    ...DEFAULT_JSON_LIMITS,
+    maxBytes: MAX_RESPONSE_BYTES_CEILING,
+  })
+  // A refused parse has no `value`, so it reads as undefined below and is refused by the
+  // Array.isArray check, exactly as an explicit early return would: no branch to get wrong.
+  const data = (parsed as { value?: { data?: unknown } | null }).value?.data
   return Array.isArray(data) ? data.length : null
 }
 
 /** The one definition of identity, used by the spec's `nativeIdOf` AND by the mapping. */
 const theirstackNativeId = (item: Item): string => String(item.id)
 
-function makeSpec(apiKey: string, config: Config): ApiJsonSourceSpec<Config, Envelope, Item> {
+function makeSpec(
+  apiKey: string,
+  config: Config,
+  billingVerified: boolean,
+): ApiJsonSourceSpec<Config, Envelope, Item> {
   return {
     type: 'THEIRSTACK_API',
     adapterVersion: THEIRSTACK_ADAPTER_VERSION,
@@ -131,7 +142,11 @@ function makeSpec(apiKey: string, config: Config): ApiJsonSourceSpec<Config, Env
     meter: {
       unit: 'RECORD',
       amountPerRequest: config.limit,
-      incurredAmount: theirstackIncurredCredits,
+      // Settling below the reservation FREES budget that may have been really spent (SR-M-1:
+      // measured, a limit of 100 reserved at 10 a page and settled at 1 permitted 91 pages, 910
+      // worst-case credits), so the reading is attached only once the billing basis has been
+      // observed. Until then every page is charged its worst case and the meter stays a hard ceiling.
+      ...(billingVerified && { incurredAmount: theirstackIncurredCredits }),
     },
     pageRequest: (c, at) => ({
       request: {
@@ -182,6 +197,13 @@ function makeSpec(apiKey: string, config: Config): ApiJsonSourceSpec<Config, Env
 
 export interface TheirStackOptions {
   credential: QuotaCredential
+  /**
+   * True only after the owner's authenticated smoke has reconciled `data.length` against
+   * TheirStack's own credit balance. DEFAULT FALSE: the "1 credit per job returned" sentence is a
+   * published reference, not an observation, and a freed difference is re-reservable within the
+   * window, so an unverified reading turns a hard budget into a multiple of it.
+   */
+  billingVerified?: boolean
 }
 
 export function createTheirStackProvider(
@@ -196,7 +218,7 @@ export function createTheirStackProvider(
     )
     return collectJsonPages(
       {
-        ...makeSpec(apiKey, config),
+        ...makeSpec(apiKey, config, options.billingVerified === true),
         limits: { maxPages: config.maxPages, maxItemsPerPage: config.limit },
       },
       config,

@@ -124,6 +124,13 @@ export interface PageTarget {
 export interface PageRequest {
   request: FetchRequest
   /**
+   * The URL to REPORT for this page, when `request.url` carries a credential (a key in the path).
+   * Reports use it INSTEAD of `request.url`, unconditionally: redaction by registered value is
+   * only as good as whoever registered, and a path segment has no structural form for the
+   * redactor to find. Absent, `request.url` is reported (after the usual redaction).
+   */
+  reportUrl?: string
+  /**
    * The cache SLOT for this page — a readable label, NOT the whole key. Omit to skip caching for
    * this page. The loop keys the entry on this slot plus a digest of the request itself (see
    * `responseCacheKey`), so a slot an adapter reuses across two different requests cannot make
@@ -266,9 +273,11 @@ export interface PagedSourceSpec<TConfig extends SourceConfigFields, TEnvelope, 
    * the provider actually charged, or `null` when it cannot tell. The loop settles with that amount
    * when it lies in `0..amountPerRequest` (a free request, 0, settles as 1: the store cannot record
    * a USED reservation with no cost); absent, `null`, non-integer or past the reservation, the
-   * full reservation is charged — the direction that cannot overspend. It must not throw: a throw is
-   * a defect in the adapter and fails the page like any other, with the response already counted as
-   * having arrived (the reservation settles USED, whole).
+   * full reservation is charged — the direction that cannot overspend. A reported cost BELOW the
+   * reservation frees the difference for re-reservation, which overspends if the reading is wrong:
+   * supply this hook only for a billing basis that has been observed. It must not throw: a throw is
+   * an adapter defect (`ADAPTER_INVARIANT`, which no retry acts on), with the response already
+   * counted as having arrived (the reservation settles USED, whole).
    */
   readonly meter?: {
     unit: JobMeterUnit
@@ -283,7 +292,10 @@ export interface ApiJsonSourceSpec<
   TConfig extends SourceConfigFields,
   TEnvelope,
   TItem,
-> extends Omit<PagedSourceSpec<TConfig, TEnvelope, TItem>, 'decodeEnvelope' | 'limits'> {
+> extends Omit<
+  PagedSourceSpec<TConfig, TEnvelope, TItem>,
+  'decodeEnvelope' | 'limits' | 'requestMaxBytes'
+> {
   readonly configSchema: ZodType<TConfig>
   /**
    * The page envelope. MUST treat the item array as OPAQUE (`z.array(z.unknown())`), for the
@@ -429,6 +441,11 @@ type PageAdvance =
   | { kind: 'UNUSABLE_CURSOR'; page: number; message: string }
   /** The provider's inventory ran out. */
   | { kind: 'EXHAUSTED' }
+
+/** What a report says this page's URL was. */
+function reportedUrl(page: PageRequest): string {
+  return page.reportUrl ?? page.request.url
+}
 
 /**
  * Ask the adapter for a page request, and treat a throw as data.
@@ -611,8 +628,32 @@ function withByteCap(request: FetchRequest, maxBytes: number): FetchRequest {
   return maxBytes === DEFAULT_MAX_BYTES ? request : { ...request, maxBytes }
 }
 
+/** A cost hook that threw: our adapter is wrong, not the network. */
+class CostHookError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : 'the cost hook threw a non-Error value')
+    this.name = 'CostHookError'
+  }
+}
+
+function readCostOrFlag(
+  read: ((bodyText: string) => number | undefined) | undefined,
+  bodyText: string,
+): number | undefined {
+  try {
+    return read?.(bodyText)
+  } catch (error) {
+    throw new CostHookError(error)
+  }
+}
+
 /** A throw out of the fetch seam, as a page failure. */
 function failureOfThrown(error: unknown, aborted: boolean): PageAttemptFailure {
+  // A programming error in an adapter is `ADAPTER_INVARIANT`, which no retry policy acts on; it
+  // must never wear the code of a network blink.
+  if (error instanceof CostHookError) {
+    return { code: 'ADAPTER_INVARIANT', message: error.message, status: null }
+  }
   // The transport refused the body at its cap and kept none of it: say so, not "network".
   if (error instanceof SourcePayloadTooLargeError) {
     return { code: 'PAYLOAD_TOO_LARGE', message: error.message, status: null }
@@ -658,6 +699,10 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
 ): Promise<CollectionBatch> {
   const limits = spec.limits
   const overlapMs = spec.overlapMs ?? DEFAULT_OVERLAP_MS
+  // At config time, at the seam that consumes the field: before the checkpoint is read, a
+  // reservation is taken or a request is built, whichever binding set it.
+  const requestMaxBytes = spec.requestMaxBytes ?? DEFAULT_MAX_BYTES
+  assertByteCap(requestMaxBytes)
 
   const stored = await ctx.checkpoints.load()
   const decision = decideCheckpoint(stored, {
@@ -794,7 +839,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
           {
             attempt: 1,
             page: at.page,
-            url: pageRequest.request.url,
+            url: reportedUrl(pageRequest),
             status: null,
             startedAt,
             endedAt: ctx.now(),
@@ -814,7 +859,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
           {
             attempt: 1,
             page: at.page,
-            url: pageRequest.request.url,
+            url: reportedUrl(pageRequest),
             status: null,
             startedAt,
             endedAt: ctx.now(),
@@ -845,7 +890,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
             {
               attempt: 1,
               page: at.page,
-              url: pageRequest.request.url,
+              url: reportedUrl(pageRequest),
               status: null,
               startedAt,
               endedAt: ctx.now(),
@@ -869,10 +914,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     let failure: PageAttemptFailure | null = null
     // A `let` because a cached validator rewrites it, and it is read by the reports below — which
     // are outside the span, so it cannot live inside the try.
-    let request: FetchRequest = withByteCap(
-      pageRequest.request,
-      spec.requestMaxBytes ?? DEFAULT_MAX_BYTES,
-    )
+    let request: FetchRequest = withByteCap(pageRequest.request, requestMaxBytes)
 
     /**
      * THE WHOLE RESERVE -> RECONCILE SPAN IS ONE TRY, WITH `reconcile` IN A `finally`.
@@ -949,7 +991,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
         }
       } else {
         bodyText = response.bodyText
-        incurred = costReader?.(bodyText)
+        incurred = readCostOrFlag(costReader, bodyText)
         const lastModified = response.headers['last-modified']
         if ((isValidator(response.etag) || isValidator(lastModified)) && cacheKey !== undefined) {
           /**
@@ -1165,7 +1207,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
                 {
                   attempt: 1,
                   page: at.page,
-                  url: request.url,
+                  url: reportedUrl(pageRequest),
                   status,
                   startedAt,
                   endedAt: ctx.now(),
@@ -1216,7 +1258,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
                     // The request the cycle WOULD have sent — available by TYPE on this arm,
                     // which is what removed a `nextRequest === null ? …` ternary whose null
                     // branch no input could reach.
-                    url: advance.request.request.url,
+                    url: reportedUrl(advance.request),
                     status: null,
                     startedAt: ctx.now(),
                     endedAt: ctx.now(),
@@ -1246,7 +1288,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
         {
           attempt: 1,
           page: at.page,
-          url: request.url,
+          url: reportedUrl(pageRequest),
           status: failure.status,
           startedAt,
           endedAt: ctx.now(),
@@ -1275,17 +1317,48 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
  * Its signature and behaviour are what Task 2.3 shipped; only the body step moved behind
  * `decodeEnvelope`, so every assertion in `api-json.provider.spec.ts` still runs against it.
  */
+/**
+ * The headers a JSON adapter may send, as an ALLOWLIST (inverted from a denylist for the reason the
+ * feed binding's `honestRequest` gives: a denylist is the impersonations someone thought of). It is
+ * what the five quota adapters need and nothing more: content negotiation, the credential headers
+ * of the two header-keyed schemes (`authorization`, RapidAPI's pair), and `from`. NOT here, and so
+ * dropped: `user-agent` (the transport owns our outbound identity and sets the honest one by
+ * default), `cookie`, `referer`, `origin`, `x-forwarded-for`. The loop's own conditional headers
+ * are added AFTER this filter, so they are unaffected.
+ */
+export const ALLOWED_JSON_REQUEST_HEADERS: ReadonlySet<string> = new Set([
+  'accept',
+  'accept-language',
+  'authorization',
+  'content-type',
+  'from',
+  'x-rapidapi-key',
+  'x-rapidapi-host',
+])
+
+function withAllowedHeaders(page: PageRequest): PageRequest {
+  const headers: Record<string, string> = {}
+  for (const [name, value] of Object.entries(page.request.headers ?? {})) {
+    const key = name.toLowerCase()
+    if (ALLOWED_JSON_REQUEST_HEADERS.has(key)) headers[key] = value
+  }
+  const { headers: _dropped, ...rest } = page.request
+  return {
+    ...page,
+    request: Object.keys(headers).length === 0 ? rest : { ...rest, headers },
+  }
+}
+
 export async function collectJsonPages<TConfig extends SourceConfigFields, TEnvelope, TItem>(
   spec: ApiJsonSourceSpec<TConfig, TEnvelope, TItem>,
   config: TConfig,
   ctx: CollectionContext,
 ): Promise<CollectionBatch> {
   const limits: ApiJsonLimits = { ...DEFAULT_API_JSON_LIMITS, ...spec.limits }
-  // At config time - before the checkpoint is read, a reservation is taken or a request is built.
-  assertByteCap(limits.maxBytes)
   return collectPages(
     {
       ...spec,
+      pageRequest: (c, at) => withAllowedHeaders(spec.pageRequest(c, at)),
       limits,
       requestMaxBytes: limits.maxBytes,
       decodeEnvelope: (bodyText) => decodeJsonEnvelope(bodyText, spec.envelopeSchema, limits),
