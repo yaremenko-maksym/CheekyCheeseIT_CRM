@@ -3,7 +3,7 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { jobSourceTypeSchema } from '@crm/shared'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../test/fake-collection-context'
 import { FIXTURE_ROOT } from '../../test/fixture-provenance'
 import {
@@ -41,14 +41,20 @@ const real = (): BuildInput => ({
   fixtureRoot: FIXTURE_ROOT,
 })
 /**
- * Built in a hook, not at import: a build that throws at import fails the FILE to load, which a
- * mutation run reads as "no test failed" and so counts a mutant that breaks the build as survived.
- * In a hook it fails every test below it, which is what killing a mutant looks like.
+ * Built on first use INSIDE a test, not at import and not in a hook. A build that throws at import
+ * fails the FILE to load, and one that throws in `beforeAll` leaves its tests "skipped"; a mutation
+ * run reads both as "no test failed", so a mutant that breaks the build would count as survived.
+ * Thrown inside a test body it fails that test, which is what killing a mutant looks like.
  */
-let manifest: Manifest
-beforeAll(() => {
-  manifest = buildManifest(real())
-})
+let built: Manifest | undefined
+const manifest = {
+  get entries() {
+    return (built ??= buildManifest(real())).entries
+  },
+  get types() {
+    return (built ??= buildManifest(real())).types
+  },
+}
 const entry = (id: string) => manifest.entries.find((e) => e.id === id)!
 const type = (t: string) => manifest.types.find((x) => x.type === t)!
 

@@ -9,7 +9,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { FIXTURE_ROOT } from '../../test/fixture-provenance'
 import { buildManifest, type Manifest } from './manifest'
 import { writeSeedDelta } from './manifest.generate'
@@ -37,16 +37,24 @@ const DRIZZLE = join(__dirname, '..', '..', '..', 'drizzle')
 const providerFiles = readdirSync(SOURCES).filter((f) => f.endsWith('.provider.ts'))
 const text = (f: string) => readFileSync(join(SOURCES, f), 'utf8')
 
-// Built in a hook so that a build which throws FAILS tests instead of failing the file to load
-// (see manifest.spec.ts for why a mutation run needs that).
-let manifest: Manifest
-beforeAll(() => {
-  manifest = buildManifest({
+// Built on first use inside a test (see manifest.spec.ts: a build that throws at import or in a hook
+// is invisible to a mutation run, which reads it as "no test failed").
+let built: Manifest | undefined
+const manifest = {
+  get entries() {
+    return (built ??= buildOnce()).entries
+  },
+  get types() {
+    return (built ??= buildOnce()).types
+  },
+}
+function buildOnce(): Manifest {
+  return buildManifest({
     definitions: MANIFEST_DEFINITIONS,
     adapters: MANIFEST_VALIDATION_ADAPTERS,
     fixtureRoot: FIXTURE_ROOT,
   })
-})
+}
 
 describe('every adapter in the tree is accounted for', () => {
   it('the adapter modules declare exactly the 23 types the manifest marks implemented on the reporting contract', () => {
