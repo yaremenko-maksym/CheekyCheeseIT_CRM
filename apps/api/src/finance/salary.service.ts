@@ -1,22 +1,30 @@
 import { HttpStatus, Injectable } from '@nestjs/common'
-import { and, eq, inArray, isNotNull, isNull, notExists, or } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, isNull, notExists, or } from 'drizzle-orm'
 // QueryBuilder assembles SQL without a client — used by
 // `salaryReceiverNotArchivedFilter` to build a correlated sub-select that some
 // OTHER statement executes. See that method for why it must not go through `db`.
 import { QueryBuilder } from 'drizzle-orm/pg-core'
-import type { SessionUser, SalaryMonthGapReportDto, SalaryMonthGapReceiverDto } from '@crm/shared'
+import type {
+  SessionUser,
+  SalaryMonthGapReportDto,
+  SalaryMonthGapReceiverDto,
+  SalaryPartsQuery,
+  SalaryPartsResponseDto,
+} from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import {
   projectFinanceSettings,
   projectMembers,
   projects,
+  nonDeletedTransactions,
   salaryMonthInitializations,
   transactions,
   users,
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { previousSalaryMonthKey } from './salary-month.util'
+import { isAutomaticSalaryComponent } from './salary-origin'
 
 /**
  * Salary logic that depends on the database ONLY (no shared TransactionsService
@@ -359,13 +367,17 @@ export class SalaryService {
 
     if (expected.length === 0) return { month, missing: [] }
 
-    // A manual salary part is intentionally NOT evidence that cron has run:
-    // manual and automatic parts may coexist. Markers are authoritative after
-    // this feature ships. Legacy rows (salary_origin IS NULL) and existing CRON
-    // rows are also accepted so the first post-upgrade gap check/backfill does
-    // not falsely advertise an already-accrued salary. Raw transactions are
-    // deliberate here: a soft-deleted automatic component must not be
-    // resurrected by backfill.
+    // Two independent kinds of evidence that a month is accounted for, and the
+    // split matters since owner decision D-3 (SR-795-M-1):
+    //   - a MARKER. Authoritative, and a manual part now claims one too — which
+    //     is how a month recorded by hand stops being advertised here (before
+    //     D-3 a manual part was deliberately NOT evidence, and the gap report
+    //     kept offering a month that already had a salary in it);
+    //   - an automatic ROW (legacy NULL or CRON). Still accepted on its own, so
+    //     the first post-upgrade gap check does not advertise an already-accrued
+    //     salary on a database whose markers were not backfilled yet.
+    // Raw transactions are deliberate: a soft-deleted automatic component must
+    // not be resurrected by backfill.
     const receiverIds = expected.map((r) => r.userId)
     const [markers, automaticRows] = await Promise.all([
       this.db.db
@@ -385,7 +397,8 @@ export class SalaryService {
             eq(transactions.type, 'SALARY'),
             eq(transactions.salaryMonth, month),
             inArray(transactions.receiverId, receiverIds),
-            or(isNull(transactions.salaryOrigin), eq(transactions.salaryOrigin, 'CRON')),
+            // CR-795-M-7: one shared fragment — see salary-origin.ts.
+            isAutomaticSalaryComponent(),
           ),
         ),
     ])
@@ -397,6 +410,73 @@ export class SalaryService {
     return {
       month,
       missing: expected.filter((r) => !existingReceiverIds.has(r.userId)),
+    }
+  }
+
+  /**
+   * GET /api/finance/salary-parts — ADMIN + ACCOUNTANT only (the pair that may
+   * create a salary). SR-795-M-1 / owner decision D-3, second half: the create
+   * dialog shows what is already on the ledger for this receiver and month
+   * BEFORE the operator submits.
+   *
+   * It is the answer to the thing the measured defect relied on: nothing in the
+   * UI or the API ever mentioned that another part for the same person and month
+   * existed, so an operator who hit the 409 and reopened the dialog — which
+   * mints a fresh idempotency key — produced a second and a third row without
+   * ever being shown the first.
+   *
+   * Reads the non-deleted view: a deleted part is not an obligation and must not
+   * be presented as one. Ordered oldest-first, the same order the legacy
+   * single-part projection uses (SR-795-L-3), so the list reads as a history.
+   */
+  async getSalaryParts(
+    currentUser: SessionUser,
+    query: SalaryPartsQuery,
+  ): Promise<SalaryPartsResponseDto> {
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+      throw apiError('FINANCE_SALARY_MONTH_GAP_FORBIDDEN', HttpStatus.FORBIDDEN)
+    }
+
+    const rows = await this.db.db
+      .select({
+        id: nonDeletedTransactions.id,
+        amount: nonDeletedTransactions.amount,
+        currency: nonDeletedTransactions.currency,
+        status: nonDeletedTransactions.status,
+        salaryOrigin: nonDeletedTransactions.salaryOrigin,
+        txDate: nonDeletedTransactions.txDate,
+        notes: nonDeletedTransactions.notes,
+      })
+      .from(nonDeletedTransactions)
+      .where(
+        and(
+          eq(nonDeletedTransactions.type, 'SALARY'),
+          eq(nonDeletedTransactions.receiverId, query.receiverId),
+          eq(nonDeletedTransactions.salaryMonth, query.month),
+        ),
+      )
+      .orderBy(asc(nonDeletedTransactions.createdAt), asc(nonDeletedTransactions.id))
+
+    return {
+      receiverId: query.receiverId,
+      month: query.month,
+      parts: rows
+        // A SALARY row can also be CANCELLED/REJECTED; only the three states the
+        // DTO names are obligations an operator should weigh against a new part.
+        .filter(
+          (row) => row.status === 'PENDING' || row.status === 'PAID' || row.status === 'LOCKED',
+        )
+        .map((row) => ({
+          id: row.id,
+          amount: Number(row.amount),
+          currency: row.currency,
+          status: row.status as 'PENDING' | 'PAID' | 'LOCKED',
+          salaryOrigin: row.salaryOrigin ?? null,
+          // Same wire shape `mapTx` gives `txDate` everywhere else: an ISO
+          // string, never a Date instance.
+          txDate: row.txDate ? row.txDate.toISOString() : null,
+          notes: row.notes ?? null,
+        })),
     }
   }
 

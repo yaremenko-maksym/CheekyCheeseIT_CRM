@@ -235,6 +235,19 @@ function mockInvoiceFlow(
       }),
     }),
   )
+  // The detail dialog's inline PDF previewer fetches a presigned URL from
+  // /documents/:id/preview (documents-pdf-preview) — without a mock it falls
+  // through to the real API, 401s and the axios interceptor bounces to /login.
+  void page.route(new RegExp(`${API_RE}/documents/([^/?]+)/preview$`), (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        url: 'http://localhost:9000/invoices/mock.pdf',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+      }),
+    }),
+  )
   void page.route(new RegExp(`${API_RE}/documents/([^/?]+)$`), (r) => {
     const docId = r.request().url().split('/').at(-1) ?? INVOICE_DOC_ID_UNSIGNED
     return r.fulfill({
@@ -409,7 +422,9 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
     )
     await expect(page.getByTestId('invoice-verify-signatures-table')).toBeVisible()
     await expect(page.getByTestId('invoice-verify-signatures-count')).toContainText(
-      assertInCatalog(uk, 'Підписи ({0} з 2)').replace('{0}', '2'),
+      // The count is an ICU interpolation («Підписи ({0} з 2)»): the flattened compiled
+      // catalog cannot be matched whole, so pin the stable stem from the catalog.
+      new RegExp(`${assertInCatalog(uk, 'Підписи')} \\(2 з 2\\)`),
     )
     await expect(page.getByText(USERS.admin.displayName)).toBeVisible()
     await expect(page.getByText(USERS.senior.displayName)).toBeVisible()
@@ -448,7 +463,9 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
       assertInCatalog(uk, 'Документ очікує підпису'),
     )
     await expect(page.getByTestId('invoice-verify-signatures-count')).toContainText(
-      assertInCatalog(uk, 'Підписи ({0} з 2)').replace('{0}', '1'),
+      // The count is an ICU interpolation («Підписи ({0} з 2)»): the flattened compiled
+      // catalog cannot be matched whole, so pin the stable stem from the catalog.
+      new RegExp(`${assertInCatalog(uk, 'Підписи')} \\(1 з 2\\)`),
     )
   })
 

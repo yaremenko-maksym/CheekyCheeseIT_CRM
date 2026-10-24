@@ -46,6 +46,9 @@ test.describe('Drop add-senior flow — AC2', () => {
     const uk = await loadMessages('uk')
     await withVacantDropTeam(page)
     await page.goto('/users')
+    // Wait for the list to settle: a click on «Добавить» before the page has
+    // finished loading can be lost (dialog never opens) — flaked 1 in 3.
+    await expect(page.getByTestId('users-list')).toBeVisible()
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
@@ -67,6 +70,9 @@ test.describe('Drop add-senior flow — AC2', () => {
     const uk = await loadMessages('uk')
     await withVacantDropTeam(page)
     await page.goto('/users')
+    // Wait for the list to settle: a click on «Добавить» before the page has
+    // finished loading can be lost (dialog never opens) — flaked 1 in 3.
+    await expect(page.getByTestId('users-list')).toBeVisible()
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
@@ -95,6 +101,9 @@ test.describe('Drop add-senior flow — AC2', () => {
       }),
     )
     await page.goto('/users')
+    // Wait for the list to settle: a click on «Добавить» before the page has
+    // finished loading can be lost (dialog never opens) — flaked 1 in 3.
+    await expect(page.getByTestId('users-list')).toBeVisible()
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
@@ -113,6 +122,9 @@ test.describe('Drop add-senior flow — AC2', () => {
     const uk = await loadMessages('uk')
     await withVacantDropTeam(page)
     await page.goto('/users')
+    // Wait for the list to settle: a click on «Добавить» before the page has
+    // finished loading can be lost (dialog never opens) — flaked 1 in 3.
+    await expect(page.getByTestId('users-list')).toBeVisible()
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
@@ -140,6 +152,9 @@ test.describe('Drop add-senior flow — AC2', () => {
     const uk = await loadMessages('uk')
     await withVacantDropTeam(page)
     await page.goto('/users')
+    // Wait for the list to settle: a click on «Добавить» before the page has
+    // finished loading can be lost (dialog never opens) — flaked 1 in 3.
+    await expect(page.getByTestId('users-list')).toBeVisible()
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
@@ -151,7 +166,7 @@ test.describe('Drop add-senior flow — AC2', () => {
 
     // The whole RadioGroup row is wrapped in a <label> — clicking it is
     // the canonical activation surface, mirrors a user tap on the option.
-    await dialog.getByText(assertInCatalog(uk, 'Додати до команди дропа')).click({ force: true })
+    await dialog.getByText(assertInCatalog(uk, 'Додати до команди дропа')).click()
 
     // Drop-team picker should mount.
     const dropTrigger = dialog.getByTestId('user-dialog-drop-team-trigger')
@@ -166,6 +181,9 @@ test.describe('Drop add-senior flow — AC2', () => {
     const uk = await loadMessages('uk')
     await withVacantDropTeam(page)
     await page.goto('/users')
+    // Wait for the list to settle: a click on «Добавить» before the page has
+    // finished loading can be lost (dialog never opens) — flaked 1 in 3.
+    await expect(page.getByTestId('users-list')).toBeVisible()
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()

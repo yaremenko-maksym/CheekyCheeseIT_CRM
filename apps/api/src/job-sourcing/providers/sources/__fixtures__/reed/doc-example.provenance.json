@@ -1,0 +1,12 @@
+{
+  "url": "https://www.reed.co.uk/developers/jobseeker",
+  "fetchedAt": "1970-01-01T00:00:00.000Z",
+  "httpStatus": 0,
+  "rawSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "fileSha256": "7f6fa64a72d2c19fb9cbe646f1e9cbcd48676a4db9302009a60e2683811f2d75",
+  "trimmedBy": "none: written by hand from https://www.reed.co.uk/developers/jobseeker (read 2026-10-24); no request was made and no script produced it",
+  "termsUrl": "https://www.reed.co.uk/developers/jobseeker",
+  "termsCheckedAt": "1970-01-01T00:00:00.000Z",
+  "permission": "KEY_REQUIRED",
+  "notes": "SENTINEL: fetchedAt and termsCheckedAt are 1970-01-01T00:00:00.000Z because NOTHING WAS FETCHED and NO TERMS WERE READ; a consumer must read an epoch as \"never\", not as a date. The documentation named in trimmedBy was read on 2026-10-24. UNIT EXAMPLE ONLY, NOT A CAPTURE. httpStatus 0 and rawSha256 = sha256 of the empty string say that no bytes were received: no request was sent, because no key is provisioned and none may be. Source of the endpoint, the Basic-auth rule (key as username, empty password), the query parameters (keywords, locationName, resultsToTake limited to 100, resultsToSkip) and the response FIELD LABELS. The page does not give JSON key names, the date format or a rate limit; the keys (jobId, employerName, jobTitle, locationName, jobDescription, date, expirationDate, jobUrl) and dd/MM/yyyy are the API's widely published shape and are UNVERIFIED here. The second job carries 31/02/2026 on purpose. No terms, eligibility or UK-only rule was found. Every value in the file is invented. The adapter stays BLOCKED until the owner runs a controlled authenticated smoke and a real response replaces this file."
+}

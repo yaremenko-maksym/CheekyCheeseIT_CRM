@@ -311,6 +311,7 @@ function ctxFor(jobs: unknown[], errorPage?: { status: number }): CollectionCont
       async reserve() {
         return null
       },
+      async markSent() {},
       async reconcile() {},
     },
     checkpoints: {

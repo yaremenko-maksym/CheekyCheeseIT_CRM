@@ -1,5 +1,5 @@
 import { ForbiddenException, HttpStatus, Injectable, Logger } from '@nestjs/common'
-import { and, eq, isNull, or, sql } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import type { SalaryMonthGapReportDto, SessionUser } from '@crm/shared'
 import {
   COMPANY_ACCOUNT_LABEL,
@@ -23,6 +23,7 @@ import {
 } from './company-account-balance'
 import { isStorableExchangeRate } from './exchange-rate.util'
 import { assertReceiptDocumentBindable } from './receipt.util'
+import { isAutomaticSalaryComponent } from './salary-origin'
 import { SalaryService } from './salary.service'
 import { formatTransactionBusinessDate, resolveTransactionDate } from './transaction-date.util'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
@@ -530,8 +531,11 @@ export class SalaryPaymentService {
       projectId?: string
     }): Promise<string | null> =>
       this.db.db.transaction(async (dbtx) => {
-        // Claim the automatic component independently from the salary ledger.
-        // Manual parts never touch this marker, so they can coexist with cron.
+        // Claim the month's automatic component, independently of the salary
+        // ledger. Whoever claims first owns the month: since owner decision D-3
+        // (SR-795-M-1) a MANUAL part claims this marker too, and a month it
+        // already holds makes this insert a no-op — which is exactly how cron
+        // comes to skip a month an operator has already recorded by hand.
         const claimed = await dbtx
           .insert(salaryMonthInitializations)
           .values({
@@ -554,7 +558,8 @@ export class SalaryPaymentService {
             eq(transactions.type, 'SALARY'),
             eq(transactions.receiverId, values.receiverId),
             eq(transactions.salaryMonth, month),
-            or(isNull(transactions.salaryOrigin), eq(transactions.salaryOrigin, 'CRON')),
+            // CR-795-M-7: one shared fragment — see salary-origin.ts.
+            isAutomaticSalaryComponent(),
           ),
           columns: { id: true },
         })

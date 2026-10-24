@@ -32,7 +32,7 @@
  * cross-module DI dependency (FinanceModule ↔ InterviewsModule).
  */
 
-import { and, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import { MONEY_SCALE } from '@crm/shared'
 import type {
   MultipartSalaryStatus,
@@ -74,6 +74,14 @@ export async function getOwnSalaryStates(
         eq(nonDeletedTransactions.salaryMonth, salaryMonth),
       ),
     )
+    // SR-795-L-3: `legacyRow` below is `validRows[0]`, so this read has to
+    // impose an order. Before multipart salary the database guaranteed one row
+    // per receiver/month and the helper carried a `.limit(1)`; dropping the
+    // limit without an ORDER BY left the single-part field an employee's own
+    // page shows to Postgres's physical row order, which a VACUUM or a
+    // no-op UPDATE can reshuffle. Oldest part first — the same order the
+    // prepare migration's DISTINCT ON uses to pick a month's authoritative row.
+    .orderBy(asc(nonDeletedTransactions.createdAt), asc(nonDeletedTransactions.id))
 
   const validStatuses: SalaryStatus[] = ['PENDING', 'PAID', 'LOCKED']
   const validRows = salaryRows.filter((row) => validStatuses.includes(row.status as SalaryStatus))

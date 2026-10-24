@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { AdapterIdentityCollisionError } from './api-json.provider'
+import { SourcePayloadTooLargeError } from '../http/source-errors'
 import {
   type ApiJsonSourceSpec,
   baseSourceConfigSchema,
   collectJsonPages,
+  collectPages,
+  ALLOWED_JSON_REQUEST_HEADERS,
   DEFAULT_OVERLAP_MS,
   defineApiJsonProvider,
   UNBUILT_REQUEST_URL,
@@ -114,7 +117,7 @@ interface PageResponse {
 interface Harness {
   ctx: CollectionContext
   calls: string[]
-  reconciles: Array<{ id: string; resolution: ReservationResolution }>
+  reconciles: Array<{ id: string; resolution: ReservationResolution; incurred?: number }>
   saved: ValidatedCheckpoint[]
   /** Every outgoing request, so the conditional-request header can be asserted. */
   sent: FetchRequest[]
@@ -161,10 +164,12 @@ function harness(opts: {
    * are deliberately different — see the comment on `cache.put` in `api-json.provider.ts`. */
   cacheGetThrows?: boolean
   cachePutThrows?: boolean
+  /** `markSent` rejects: the store could not record that the request was about to leave. */
+  markSentThrows?: boolean
 }): Harness {
   const calls: string[] = []
   const sent: FetchRequest[] = []
-  const reconciles: Array<{ id: string; resolution: ReservationResolution }> = []
+  const reconciles: Array<{ id: string; resolution: ReservationResolution; incurred?: number }> = []
   const saved: ValidatedCheckpoint[] = []
   const cache = new Map<string, CachedResponse>(Object.entries(opts.cacheSeed ?? {}))
   const controller = new AbortController()
@@ -204,9 +209,17 @@ function harness(opts: {
         if (opts.reserveRefusesOnCall === reserves) return null
         return { id: `r${reserves}`, unit, amount }
       },
-      async reconcile(reservation, resolution) {
+      async markSent(reservation) {
+        calls.push(`markSent:${reservation.id}`)
+        if (opts.markSentThrows === true) throw new Error('the meter is down')
+      },
+      async reconcile(reservation, resolution, incurred) {
         calls.push(`reconcile:${resolution}`)
-        reconciles.push({ id: reservation.id, resolution })
+        reconciles.push({
+          id: reservation.id,
+          resolution,
+          ...(incurred === undefined ? {} : { incurred }),
+        })
       },
     },
     checkpoints: {
@@ -962,11 +975,13 @@ describe('the order of operations', () => {
       'load',
       'reserve:1',
       'cache.get:p1',
+      'markSent:r1',
       'fetch:1',
       'reconcile:USED',
       'save:1',
       'reserve:2',
       'cache.get:p2',
+      'markSent:r2',
       'fetch:2',
       'reconcile:USED',
       'save:2',
@@ -2891,5 +2906,592 @@ describe('the catches this round added survive a non-Error rejection', () => {
     expect(batch.requests.at(-1)?.error?.message).toBe(
       'the reservation could not be reconciled: the meter failed',
     )
+  })
+})
+
+/**
+ * Task 3.5b, inherited item 1: `markSent` is part of the port and the loop calls it as the request
+ * leaves. The store releases only cost it can prove unsent, and that proof is the SENT write
+ * having COMMITTED first — so the assertions here are about ORDER and about what a failed write
+ * does to the request, not about the call having happened.
+ */
+describe('SENT is recorded before the request leaves', () => {
+  const metered = { unit: 'REQUEST' as const, amountPerRequest: 1 }
+
+  it('awaits markSent to completion before fetchText is entered', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    h.ctx.meter.markSent = async (reservation) => {
+      h.calls.push(`markSent:start:${reservation.id}`)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      h.calls.push(`markSent:committed:${reservation.id}`)
+    }
+    await collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx)
+
+    expect(h.calls.filter((c) => c.startsWith('markSent') || c.startsWith('fetch'))).toEqual([
+      'markSent:start:r1',
+      'markSent:committed:r1',
+      'fetch:1',
+    ])
+  })
+
+  it('marks the reservation the page took, once per paid request', async () => {
+    const h = harness({
+      pages: [
+        { body: { jobs: [job('1')], next: 'c2' } },
+        { body: { jobs: [job('2')], next: null } },
+      ],
+    })
+    await collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx)
+
+    expect(h.calls.filter((c) => c.startsWith('markSent'))).toEqual(['markSent:r1', 'markSent:r2'])
+  })
+
+  it('does not send the request when markSent fails, and releases the reservation', async () => {
+    const h = harness({ pages: [onePage([job('1')])], markSentThrows: true })
+    const batch = await collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx)
+
+    expect(h.sent).toEqual([])
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'RELEASED' }])
+    expect(batch.outcome).toBe('FAILED')
+    const error = batch.requests.at(-1)?.error
+    expect(error?.code).toBe('PERSISTENCE')
+    expect(error?.message).toBe(
+      'the request was not sent, its reservation could not be marked sent: the meter is down',
+    )
+  })
+
+  it('names a markSent that rejects with something that is not an Error', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    h.ctx.meter.markSent = () => Promise.reject('boom')
+    const batch = await collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx)
+
+    expect(h.sent).toEqual([])
+    expect(batch.requests.at(-1)?.error?.message).toBe(
+      'the request was not sent, its reservation could not be marked sent: the meter failed',
+    )
+  })
+
+  it('does not mark a reservation sent when the cache read fails first: nothing left', async () => {
+    const h = harness({ pages: [onePage([job('1')])], cacheGetThrows: true })
+    await collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx)
+
+    expect(h.calls.filter((c) => c.startsWith('markSent'))).toEqual([])
+  })
+
+  it('does not mark anything for an unmetered source', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.calls.filter((c) => c.startsWith('markSent'))).toEqual([])
+  })
+
+  it('a fetch that throws after markSent still holds UNCERTAIN, not RELEASED', async () => {
+    const h = harness({ pages: [{ throws: new Error('timeout') }] })
+    await collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx)
+
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'UNCERTAIN' }])
+  })
+})
+
+/**
+ * Task 3.5b, inherited item 2: a source whose cost differs from its reservation settles at the
+ * cost actually incurred. The reservation here is 50 RECORD units (TheirStack's `limit` maximum);
+ * every expected number is written out by hand, not derived from the hook.
+ */
+describe('settling at the cost actually incurred', () => {
+  const metered = (incurredAmount: (bodyText: string) => number | null) => ({
+    unit: 'RECORD' as const,
+    amountPerRequest: 50,
+    incurredAmount,
+  })
+
+  it('settles USED at the incurred amount and reports that cost, not the reservation', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(makeSpec({ meter: metered(() => 7) }), config(), h.ctx)
+
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED', incurred: 7 }])
+    expect(batch.requests[0]?.cost).toEqual({ unit: 'RECORD', amount: 7 })
+  })
+
+  it('hands the hook the body of the response, verbatim', async () => {
+    const seen: string[] = []
+    const h = harness({ pages: [{ bodyText: JSON.stringify({ jobs: [job('1')], next: null }) }] })
+    await collectJsonPages(
+      makeSpec({
+        meter: metered((body) => {
+          seen.push(body)
+          return 1
+        }),
+      }),
+      config(),
+      h.ctx,
+    )
+
+    expect(seen).toEqual([JSON.stringify({ jobs: [job('1')], next: null })])
+  })
+
+  it('a free request (0) settles as 1: the store cannot record a USED reservation of nothing', async () => {
+    const h = harness({ pages: [onePage([])] })
+    const batch = await collectJsonPages(makeSpec({ meter: metered(() => 0) }), config(), h.ctx)
+
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED', incurred: 1 }])
+    expect(batch.requests[0]?.cost).toEqual({ unit: 'RECORD', amount: 1 })
+  })
+
+  it('1 stays 1: the floor does not raise a real minimum', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(makeSpec({ meter: metered(() => 1) }), config(), h.ctx)
+
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED', incurred: 1 }])
+  })
+
+  it('AT the reservation (50 of 50) is believed', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(makeSpec({ meter: metered(() => 50) }), config(), h.ctx)
+
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED', incurred: 50 }])
+    expect(batch.requests[0]?.cost).toEqual({ unit: 'RECORD', amount: 50 })
+  })
+
+  it('PAST the reservation (51 of 50) is not believed: the whole reservation is charged', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(makeSpec({ meter: metered(() => 51) }), config(), h.ctx)
+
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED' }])
+    expect(batch.requests[0]?.cost).toEqual({ unit: 'RECORD', amount: 50 })
+  })
+
+  it.each([
+    ['null (the adapter cannot tell)', null],
+    ['a negative number', -1],
+    ['a fraction', 2.5],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])('%s charges the whole reservation', async (_label, value) => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(makeSpec({ meter: metered(() => value) }), config(), h.ctx)
+
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED' }])
+    expect(batch.requests[0]?.cost).toEqual({ unit: 'RECORD', amount: 50 })
+  })
+
+  it('a hook that throws is ADAPTER_INVARIANT (no retry acts on it), with its own message, and settles the whole reservation', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(
+      makeSpec({
+        meter: metered(() => {
+          throw new Error('hook bug')
+        }),
+      }),
+      config(),
+      h.ctx,
+    )
+
+    // The response arrived (so USED, whole): the adapter's defect fails the page instead of being
+    // swallowed into a quiet worst-case charge.
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED' }])
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.observations).toEqual([])
+    expect(batch.requests.at(-1)?.error).toEqual({ code: 'ADAPTER_INVARIANT', message: 'hook bug' })
+  })
+
+  it('a hook that throws a non-Error is named as such, not as a network failure', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(
+      makeSpec({
+        meter: metered(() => {
+          throw 'plain string'
+        }),
+      }),
+      config(),
+      h.ctx,
+    )
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'ADAPTER_INVARIANT',
+      message: 'the cost hook threw a non-Error value',
+    })
+  })
+
+  it('a refused response is charged the whole reservation: the hook is never asked', async () => {
+    let asked = 0
+    const h = harness({ pages: [{ status: 429 }] })
+    await collectJsonPages(
+      makeSpec({
+        meter: metered(() => {
+          asked += 1
+          return 3
+        }),
+      }),
+      config(),
+      h.ctx,
+    )
+
+    expect(asked).toBe(0)
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED' }])
+  })
+
+  it('an in-flight failure holds UNCERTAIN with no amount: the cost is unknown', async () => {
+    let asked = 0
+    const h = harness({ pages: [{ throws: new Error('timeout') }] })
+    await collectJsonPages(
+      makeSpec({
+        meter: metered(() => {
+          asked += 1
+          return 3
+        }),
+      }),
+      config(),
+      h.ctx,
+    )
+
+    expect(asked).toBe(0)
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'UNCERTAIN' }])
+  })
+
+  it('a source with no hook settles without an amount, exactly as before', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(
+      makeSpec({ meter: { unit: 'RECORD', amountPerRequest: 50 } }),
+      config(),
+      h.ctx,
+    )
+
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED' }])
+  })
+
+  it('reports the reservation as the cost when the reconcile itself failed', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    h.ctx.meter.reconcile = async () => {
+      throw new Error('the meter ledger is unreachable')
+    }
+    const batch = await collectJsonPages(makeSpec({ meter: metered(() => 7) }), config(), h.ctx)
+
+    expect(batch.requests[0]?.cost).toEqual({ unit: 'RECORD', amount: 50 })
+  })
+})
+
+/**
+ * Task 3.5b: the byte cap an adapter declares reaches the transport on the request, and a refusal
+ * at that cap is a PAYLOAD_TOO_LARGE that keeps nothing.
+ */
+describe('the response cap a source declares', () => {
+  const TEN_MIB = 10 * 1024 * 1024
+  const withCap = (maxBytes: number) => makeSpec({ limits: { maxPages: 5, maxBytes } })
+  const metered = { unit: 'REQUEST' as const, amountPerRequest: 1 }
+
+  it('a source that declares no cap sends requests with no maxBytes at all', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+    expect(Object.keys(h.sent[0] ?? {})).toEqual(['url'])
+  })
+
+  it('a cap equal to the transport default (2 MiB) is not attached: nothing changes for it', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(withCap(2_097_152), config(), h.ctx)
+    // DELIBERATELY a deep-equal: this is the pin that a source declaring the default cap puts no
+    // new field on the wire at all - the one place where "any new key" is the defect.
+    expect(h.sent[0]).toEqual({ url: 'https://api.example.com/jobs?page=1' })
+  })
+
+  it('a larger cap (8 000 000) is declared on every request of the attempt', async () => {
+    const h = harness({
+      pages: [
+        { body: { jobs: [job('1')], next: 'c2' } },
+        { body: { jobs: [job('2')], next: null } },
+      ],
+    })
+    await collectJsonPages(withCap(8_000_000), config(), h.ctx)
+    expect(h.sent.map((r) => r.maxBytes)).toEqual([8_000_000, 8_000_000])
+  })
+
+  it('a smaller cap (1000) is declared too, so the transport can stop early', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(withCap(1000), config(), h.ctx)
+    expect(h.sent[0]?.maxBytes).toBe(1000)
+  })
+
+  it('the smallest cap (1 byte) is a valid declaration: refused only below it', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(withCap(1), config(), h.ctx)
+    expect(h.sent[0]?.maxBytes).toBe(1)
+  })
+
+  it('a binding that declares no cap at all (the XML bindings) sends no maxBytes key', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    const spec = makeSpec()
+    await collectPages(
+      {
+        ...spec,
+        limits: { maxPages: 5, maxItemsPerPage: 500 },
+        decodeEnvelope: (text) => ({ ok: true, value: JSON.parse(text) as never }),
+      },
+      config(),
+      h.ctx,
+    )
+    expect(Object.keys(h.sent[0] ?? {})).toEqual(['url'])
+  })
+
+  it('the ceiling itself (10 MiB) is accepted and declared', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(withCap(TEN_MIB), config(), h.ctx)
+    expect(h.sent[0]?.maxBytes).toBe(10_485_760)
+  })
+
+  it.each([
+    ['one byte past the ceiling', TEN_MIB + 1],
+    ['zero', 0],
+    ['negative', -1],
+    ['a fraction', 1.5],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])(
+    '%s is refused at config time: no checkpoint read, no reservation, no request',
+    async (_l, bad) => {
+      const h = harness({ pages: [onePage([job('1')])] })
+      await expect(
+        collectJsonPages(
+          makeSpec({ meter: metered, limits: { maxPages: 5, maxBytes: bad } }),
+          config(),
+          h.ctx,
+        ),
+      ).rejects.toThrow(/invalid maxBytes/)
+      expect(h.calls).toEqual([])
+      expect(h.sent).toEqual([])
+    },
+  )
+
+  it('names the bound in the refusal', async () => {
+    const h = harness({ pages: [] })
+    await expect(collectJsonPages(withCap(TEN_MIB + 1), config(), h.ctx)).rejects.toThrow(
+      'invalid maxBytes: 10485761 (must be 1..10485760)',
+    )
+  })
+
+  it('a transport refusal at the cap is PAYLOAD_TOO_LARGE, keeps no observation, and holds the cost UNCERTAIN', async () => {
+    const h = harness({
+      pages: [
+        {
+          throws: new SourcePayloadTooLargeError(
+            'api.example.com',
+            8_000_000,
+            'exceeded 8000000 bytes',
+          ),
+        },
+      ],
+    })
+    const batch = await collectJsonPages(
+      makeSpec({ meter: metered, limits: { maxPages: 5, maxBytes: 8_000_000 } }),
+      config(),
+      h.ctx,
+    )
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.observations).toEqual([])
+    expect(batch.counts.raw).toBe(0)
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'PAYLOAD_TOO_LARGE',
+      message: 'api.example.com response too large: exceeded 8000000 bytes',
+    })
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'UNCERTAIN' }])
+  })
+
+  it('an ordinary network failure is still TRANSIENT_NETWORK, not PAYLOAD_TOO_LARGE', async () => {
+    const h = harness({ pages: [{ throws: new Error('socket hang up') }] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+    expect(batch.requests.at(-1)?.error?.code).toBe('TRANSIENT_NETWORK')
+  })
+
+  it('a decoded body past the declared cap is refused as PAYLOAD_TOO_LARGE; at the cap it is parsed', async () => {
+    const text = JSON.stringify({ jobs: [], next: null })
+    const bytes = new TextEncoder().encode(text).length
+    const at = harness({ pages: [{ bodyText: text }] })
+    expect((await collectJsonPages(withCap(bytes), config(), at.ctx)).outcome).toBe('SUCCEEDED')
+    const past = harness({ pages: [{ bodyText: text }] })
+    const batch = await collectJsonPages(withCap(bytes - 1), config(), past.ctx)
+    expect(batch.requests.at(-1)?.error?.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(batch.observations).toEqual([])
+  })
+})
+
+describe('a failure BEFORE the request leaves is named for what it is', () => {
+  const metered = { unit: 'REQUEST' as const, amountPerRequest: 1 }
+
+  it('a cache that cannot be read is reported as the cache, not as an unsent request', async () => {
+    const h = harness({ pages: [onePage([job('1')])], cacheGetThrows: true })
+    const batch = await collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx)
+    expect(batch.requests.at(-1)?.error?.message).toBe(
+      'the response cache could not be read: the response cache is unreachable',
+    )
+  })
+})
+
+describe('SourcePayloadTooLargeError', () => {
+  it('carries its name, host and cap, and says which host and why', () => {
+    const error = new SourcePayloadTooLargeError('api.example.com', 5, 'exceeded 5 bytes')
+    expect(error.name).toBe('SourcePayloadTooLargeError')
+    expect(error.host).toBe('api.example.com')
+    expect(error.maxBytes).toBe(5)
+    expect(error.message).toBe('api.example.com response too large: exceeded 5 bytes')
+  })
+})
+
+/** SR-M-2: the report states its own URL when the request URL carries a credential. */
+describe('a request that carries a credential reports the URL its adapter stated (SR-M-2)', () => {
+  const KEY_URL = 'https://api.example.com/key/SECRETKEY12345/jobs'
+  const spec = (over: Partial<ReturnType<typeof makeSpec>> = {}) =>
+    makeSpec({
+      pageRequest: () => ({
+        reportUrl: 'https://api.example.com/key/[REDACTED]/jobs',
+        request: { url: KEY_URL },
+      }),
+      ...over,
+    })
+
+  it('a successful page reports the stated URL, with NO secret registered', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(spec(), config(), h.ctx)
+    expect(batch.requests[0]?.url).toBe('https://api.example.com/key/[REDACTED]/jobs')
+    expect(h.sent[0]?.url).toBe(KEY_URL)
+    expect(JSON.stringify(batch)).not.toContain('SECRETKEY12345')
+  })
+
+  it('a failed page, a cost stop and a refused response all report it', async () => {
+    const failed = harness({ pages: [{ status: 500 }] })
+    expect((await collectJsonPages(spec(), config(), failed.ctx)).requests.at(-1)?.url).toBe(
+      'https://api.example.com/key/[REDACTED]/jobs',
+    )
+    const stopped = harness({ pages: [], reserveRefusesOnCall: 1 })
+    const batch = await collectJsonPages(
+      spec({ meter: { unit: 'REQUEST', amountPerRequest: 1 } }),
+      config(),
+      stopped.ctx,
+    )
+    expect(batch.requests.at(-1)?.url).toBe('https://api.example.com/key/[REDACTED]/jobs')
+    expect(JSON.stringify(batch)).not.toContain('SECRETKEY12345')
+  })
+
+  it('a thrown network error that echoes the URL cannot undo the stated URL', async () => {
+    const h = harness({ pages: [{ throws: new Error('boom') }] })
+    const batch = await collectJsonPages(spec(), config(), h.ctx)
+    expect(batch.requests[0]?.url).toBe('https://api.example.com/key/[REDACTED]/jobs')
+  })
+
+  it('a request without reportUrl reports its own URL, as before', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+    expect(batch.requests[0]?.url).toBe('https://api.example.com/jobs?page=1')
+  })
+})
+
+/** SR-M-4: the JSON binding owns what headers an adapter may send. */
+describe('the JSON binding admits only argued-for request headers (SR-M-4)', () => {
+  const sending = (headers: Record<string, string>) =>
+    makeSpec({
+      pageRequest: () => ({
+        cacheKey: 'p1',
+        request: { url: 'https://api.example.com/jobs', headers },
+      }),
+    })
+
+  it('keeps exactly the allowlist, lowercased', async () => {
+    expect([...ALLOWED_JSON_REQUEST_HEADERS].sort()).toEqual([
+      'accept',
+      'accept-language',
+      'authorization',
+      'content-type',
+      'x-rapidapi-host',
+      'x-rapidapi-key',
+    ])
+  })
+
+  it('drops user-agent, cookie, referer, origin and x-forwarded-for in any letter case', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(
+      sending({
+        'User-Agent': 'Mozilla/5.0',
+        Cookie: 'session=1',
+        Referer: 'https://x.test',
+        ORIGIN: 'https://x.test',
+        'X-Forwarded-For': '1.2.3.4',
+        Accept: 'application/json',
+      }),
+      config(),
+      h.ctx,
+    )
+    expect(h.sent[0]?.headers).toEqual({ accept: 'application/json' })
+  })
+
+  it('drops `from` (an e-mail header nobody sends) in any letter case', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(
+      sending({ From: 'someone@example.test', Accept: 'a/b' }),
+      config(),
+      h.ctx,
+    )
+    expect(h.sent[0]?.headers).toEqual({ accept: 'a/b' })
+  })
+
+  it('keeps the credential headers of the keyed schemes', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(
+      sending({
+        Authorization: 'Bearer k',
+        'X-RapidAPI-Key': 'k',
+        'x-rapidapi-host': 'h',
+        'Content-Type': 'application/json',
+      }),
+      config(),
+      h.ctx,
+    )
+    expect(h.sent[0]?.headers).toEqual({
+      authorization: 'Bearer k',
+      'x-rapidapi-key': 'k',
+      'x-rapidapi-host': 'h',
+      'content-type': 'application/json',
+    })
+  })
+
+  it('a request whose headers were all refused carries no headers key at all', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(sending({ 'User-Agent': 'x' }), config(), h.ctx)
+    expect(Object.keys(h.sent[0] ?? {})).toEqual(['url'])
+  })
+
+  it("the loop's own conditional headers are added after the filter", async () => {
+    const h = harness({
+      pages: [{ status: 304 }],
+      cacheSeed: { p1: { etag: '"v1"', bodyText: JSON.stringify({ jobs: [], next: null }) } },
+    })
+    await collectJsonPages(sending({ Accept: 'application/json', Cookie: 'x' }), config(), h.ctx)
+    expect(h.sent[0]?.headers).toEqual({ accept: 'application/json', 'if-none-match': '"v1"' })
+  })
+})
+
+/** SR-M-5: the cap is validated where the field is consumed, whichever binding set it. */
+describe('collectPages validates the cap it consumes (SR-M-5)', () => {
+  const bare = (requestMaxBytes: number) => ({
+    ...makeSpec(),
+    limits: { maxPages: 5, maxItemsPerPage: 500 },
+    requestMaxBytes,
+    decodeEnvelope: (text: string) => ({ ok: true as const, value: JSON.parse(text) as never }),
+  })
+
+  it.each([
+    ['ceiling+1', 10 * 1024 * 1024 + 1],
+    ['a fraction', 2_097_152.5],
+    ['zero', 0],
+    ['NaN', Number.NaN],
+  ])(
+    '%s is refused before any call, by a binding that is not collectJsonPages',
+    async (_l, bad) => {
+      const h = harness({ pages: [onePage([job('1')])] })
+      await expect(collectPages(bare(bad), config(), h.ctx)).rejects.toThrow(/invalid maxBytes/)
+      expect(h.calls).toEqual([])
+    },
+  )
+
+  it('the ceiling is accepted there too', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectPages(bare(10 * 1024 * 1024), config(), h.ctx)
+    expect(h.sent[0]?.maxBytes).toBe(10_485_760)
   })
 })

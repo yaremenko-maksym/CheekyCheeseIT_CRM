@@ -144,6 +144,65 @@ export const COMPANY_ACCOUNT_LABEL = 'COMPANY'
 export const salaryFundingSourceSchema = z.enum(['COMPANY_ACCOUNT', 'ADMIN_PERSONAL'])
 export type SalaryFundingSource = z.infer<typeof salaryFundingSourceSchema>
 
+// ---------------------------------------------------------------------------
+// Salary origin — which half of the multipart-salary feature wrote the row
+// ---------------------------------------------------------------------------
+//
+// task-retro-salary-ledger-integrity (CR-795-L-2). `transactions.salary_origin`
+// shipped as a bare `varchar(8)` compared against string literals in five
+// services; a mis-cased 'Manual' type-checked and silently dropped the row out
+// of the automatic-component predicate. The union is declared here, used as
+// `.$type<SalaryOrigin>()` on the Drizzle column, and enforced in Postgres by
+// `ck_transactions_salary_origin_domain` (SR-795-L-3).
+//
+//   MANUAL   — an operator recorded this salary part by hand (carries an
+//              idempotency key; `ck_transactions_manual_salary_idempotency_key`).
+//   CRON     — the monthly accrual created it; its idempotency lives in
+//              `salary_month_initializations`, not in a client key.
+//   ADJUSTED — it WAS an automatic row (CRON or legacy NULL) that an admin moved
+//              into a month whose automatic slot was already taken, so it no
+//              longer owns one. See `adminUpdateTransaction` (SR-795-M-3).
+//   NULL     — legacy: written before this column existed. Treated as automatic,
+//              because before the feature any salary row occupied the single
+//              receiver/month slot.
+//
+// NULL is deliberately NOT a member of the union: the column is nullable and the
+// absence of a value is a fact about the row's age, not an origin anyone writes.
+export const salaryOriginSchema = z.enum(['MANUAL', 'CRON', 'ADJUSTED'])
+export type SalaryOrigin = z.infer<typeof salaryOriginSchema>
+
+/**
+ * The origins that own the automatic (cron) component of a receiver/month.
+ * `NULL` belongs to this set too — see `isAutomaticSalaryOrigin`, which is the
+ * predicate to use; this list exists so the SQL fragments and the DB CHECK can
+ * be generated from one place rather than re-typed.
+ */
+export const AUTOMATIC_SALARY_ORIGINS = ['CRON'] as const satisfies readonly SalaryOrigin[]
+
+/**
+ * CR-795-M-7 — one definition of "this row IS the automatic monthly component".
+ * The cron closure, the salary-month gap report and the month-correction
+ * reclassification decision all ask this question; they used to each spell it
+ * out, which is why `MANUAL` and `ADJUSTED` drifted between them.
+ */
+export function isAutomaticSalaryOrigin(origin: SalaryOrigin | null | undefined): boolean {
+  if (origin === null || origin === undefined) return true
+  return (AUTOMATIC_SALARY_ORIGINS as readonly SalaryOrigin[]).includes(origin)
+}
+
+/**
+ * CR-795-M-7 / SR-795-M-1 — "this row accounts for the receiver's salary month",
+ * i.e. its existence is why a `salary_month_initializations` marker is held.
+ *
+ * Wider than `isAutomaticSalaryOrigin` by exactly one value: since D-3 the FIRST
+ * manual part of a month claims the marker, so a MANUAL row also accounts for
+ * the month. An ADJUSTED row never does — it was reclassified precisely because
+ * something else already owned that month's slot.
+ */
+export function accountsForSalaryMonth(origin: SalaryOrigin | null | undefined): boolean {
+  return origin !== 'ADJUSTED'
+}
+
 // task-drop-share-override-and-receiver (D3). Sentinel value for the "company
 // account" receiver of an admin-declared income — distinguishes crediting the
 // shared USDT pool from crediting a specific ADMIN's personal balance. Used by

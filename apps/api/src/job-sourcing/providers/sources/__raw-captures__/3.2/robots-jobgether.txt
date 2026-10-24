@@ -1,0 +1,17 @@
+# START robots (indexing enabled)
+  Sitemap: https://jobgether.com/sitemap-index.xml
+  Crawl-delay: 2
+  User-agent: *
+  Content-Signal: search=yes, ai-input=yes, ai-train=no
+  Allow: /
+  Allow: /astroapi/ai/jobs.json
+  Allow: /astroapi/ai/jobs.json?*
+  Disallow: /*?*
+  Disallow: *?*&*&*&
+  Disallow: /offer/{*}
+  Disallow: /offer/%7B*%7D
+  Disallow: /proxy/*?*
+  Disallow: /cdn-cgi/
+  Disallow: /_server-islands/
+  Disallow: /active-offers
+# END robots

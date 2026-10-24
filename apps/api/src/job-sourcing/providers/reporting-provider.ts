@@ -564,8 +564,17 @@ function secretForms(secret: string): string[] {
   // Stryker disable next-line StringLiteral: same fallback as the line above — an unrecognised input encoding silently becomes utf8, so the base64url form produced is unchanged.
   forms.add(Buffer.from(secret, 'utf8').toString('base64url'))
   // A one-character form would redact the whole string and say nothing.
-  return [...forms].filter((f) => f.length > 1)
+  return [...forms].filter((f) => f.length >= MIN_REDACTABLE_SECRET_CHARS)
 }
+
+/**
+ * The shortest secret this redactor can represent. A shorter one has no usable form (see the filter
+ * in `secretForms`), so it would be reported VERBATIM while the report claims to be redacted.
+ * Exported so that whoever REGISTERS a secret (`withSecrets`) refuses one below it, loudly, at the
+ * place the filter lives - and so a floor set elsewhere (the env boundary's) can be asserted not to
+ * have drifted beneath it.
+ */
+export const MIN_REDACTABLE_SECRET_CHARS = 2
 
 /**
  * Replace every known secret, in every form it can be written in, with `REDACTED`. Longest first.
@@ -1267,6 +1276,12 @@ export interface FetchRequest {
   method?: 'GET' | 'POST'
   body?: string
   headers?: Readonly<Record<string, string>>
+  /**
+   * The most response bytes this request may be answered with. Absent, the transport's default
+   * (2 MiB) applies; present, the transport honours it up to its own ceiling (10 MiB). A response
+   * past it is REFUSED (`PAYLOAD_TOO_LARGE`), never truncated: nothing partial reaches a parser.
+   */
+  maxBytes?: number
 }
 
 export interface MeterReservation {
@@ -1304,7 +1319,32 @@ export interface CollectionContext {
     /** RESERVED before any I/O (the store's own ordering). Returns `null` when the budget refuses,
      * which is a COST_STOP, not an error. */
     reserve(unit: JobMeterUnit, amount: number): Promise<MeterReservation | null>
-    reconcile(reservation: MeterReservation, resolution: ReservationResolution): Promise<void>
+    /**
+     * RESERVED -> SENT, called by the loop IMMEDIATELY BEFORE the request leaves the process and
+     * AWAITED: the store's "release only provably unsent cost" is only provable if this has
+     * COMMITTED before `fetchText` is entered. A rejection means the request was NOT sent, and the
+     * loop does not send it.
+     */
+    markSent(reservation: MeterReservation): Promise<void>
+    /**
+     * Settles a reservation. `incurred` is the cost the provider ACTUALLY charged, and it is
+     * meaningful for `USED` only: omitted, the full reservation is charged (a flat per-request
+     * source, whose cost is its reservation). It is BOUNDED BY THE RESERVATION — more than was
+     * reserved is a defect in the estimate and the store refuses it rather than clamp it — and at
+     * least 1: the store's table refuses a USED reservation with no cost, so a request that cost
+     * nothing is reported as 1. An uncertain or released reservation has no known cost to report,
+     * so passing one there is refused too.
+     *
+     * A cost BELOW the reservation frees the difference for re-reservation in the same window. That
+     * is the overspend direction against the external account if the reported cost is wrong, so a
+     * source reports one only after its billing basis has been observed, never from documentation
+     * alone.
+     */
+    reconcile(
+      reservation: MeterReservation,
+      resolution: ReservationResolution,
+      incurred?: number,
+    ): Promise<void>
   }
   checkpoints: {
     load(): Promise<ValidatedCheckpoint | null>

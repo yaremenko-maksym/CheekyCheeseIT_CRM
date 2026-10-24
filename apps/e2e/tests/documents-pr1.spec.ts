@@ -27,15 +27,17 @@ test.describe('Sidebar — audit-log link removed', () => {
     await page.goto('/')
     await page.waitForLoadState('networkidle')
     // Any link whose text is «Аудит-журнал» must not be in the DOM.
-    await expect(page.getByRole('link', { name: /аудит-журнал/i })).toHaveCount(0)
-    await expect(page.getByRole('link', { name: /аудит журнал/i })).toHaveCount(0)
+    // Locale-independent: the removed page is routed at /audit*, whatever the label's language.
+    await expect(page.locator('a[href*="audit"]')).toHaveCount(0)
+    await expect(page.getByRole('link', { name: /аудит|audit|аудіт/i })).toHaveCount(0)
   })
 
   test('ACCOUNTANT sidebar has no "Аудит-журнал" link', async ({ page }) => {
     await mockAuthAs(page, USERS.accountant)
     await page.goto('/')
     await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('link', { name: /аудит-журнал/i })).toHaveCount(0)
+    await expect(page.locator('a[href*="audit"]')).toHaveCount(0)
+    await expect(page.getByRole('link', { name: /аудит|audit|аудіт/i })).toHaveCount(0)
   })
 })
 
@@ -71,7 +73,8 @@ test.describe('User profile — no audit tab', () => {
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     // AnimatedTabs renders tab buttons by label text, not by testid.
     // The audit tab was labelled "История" — it must not appear after removal.
-    await expect(page.getByRole('button', { name: 'История' })).toHaveCount(0)
+    // (Matches the ru/uk/en spellings — a Russian-only literal passed vacuously once the UI went uk.)
+    await expect(page.getByRole('button', { name: /історі|истори|history/i })).toHaveCount(0)
     // Profile still renders the Overview tab correctly.
     await expect(page.getByRole('button', { name: assertInCatalog(uk, 'Огляд') })).toBeVisible()
   })

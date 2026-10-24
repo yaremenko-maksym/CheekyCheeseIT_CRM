@@ -67,6 +67,7 @@ export function fakeCollectionContext(opts: {
       async reserve(unit, amount) {
         return { id: 'r', unit, amount }
       },
+      async markSent() {},
       async reconcile() {},
     },
     checkpoints: {

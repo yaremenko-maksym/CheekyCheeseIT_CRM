@@ -5687,3 +5687,374 @@ point. State whether any other role is affected rather than fixing only the JUNI
 a render loop in a production build; both `fixme` markers are gone and both tests are green twice; and
 a test fails if the race returns, since a redirect race fixed by reordering two effects is the kind of
 fix that comes back silently.
+
+## 328. ~20 trivially-passing "absent" assertions in an already-gated spec (`team.spec.ts`) (2026-10-24)
+
+Found while gating the 54 previously ungated E2E specs (PR #1121). The gating PR fixed this class of
+assertion in the specs it newly gated, and correctly left `team.spec.ts` alone because that spec was
+already gated and rewriting ~20 assertions in it would have ballooned an unrelated diff. So it is a
+real gap with a deliberate reason for not being closed here, which is exactly what belongs in the
+backlog rather than in the PR.
+
+**The defect.** `team.spec.ts` asserts the **absence** of Russian strings that the i18n migration
+removed from the product — among them `Переименовать` (three sites), `Все роли`, `Статистика` /
+`Активность`, `Участники команди` [sic], `Создана`, `Активные проекты`, `Добавить` / `Редактировать`,
+the form placeholders, and `Отмена` / `Сохранить` — roughly 20 in all. An "is absent" assertion for a
+string the product can no longer render **passes without testing anything**: it would pass even if the
+feature it guards were deleted. This is the same class the gating PR fixed elsewhere by asserting
+against the uk catalog or a role-neutral locator instead of a removed Russian literal.
+
+**Why it is worth fixing rather than deleting.** Each assertion was written to check that some control
+is reachable or some text shows for a role; the intent is real, only the anchor is dead. Rewrite each
+to the uk catalog string (or a `data-testid` / role locator), so it fails when the control it names
+disappears. Deleting them would remove the intent with the dead anchor.
+
+**Scope note.** `polish-regressions` deliberately asserts the absence of an _old_ Russian spelling, and
+that one is meaningful — do not sweep it with the rest. Distinguish "absence of a string the product
+replaced with a localised one" (dead) from "absence of a spelling we deliberately removed" (a real
+regression guard).
+
+**Check on closing:** no "is absent" assertion in `team.spec.ts` keys on a Russian product string that
+the uk/en catalog has replaced; each former such assertion now keys on the catalog string or a
+testid, and fails when its control is removed.
+
+## 329. The transaction-date policy is wired into 9 of 13 writers; the remainder needs a committed address (2026-10-24)
+
+PR #1113 ships the server-side transaction-date policy (retro of #809) wired into **9 of 13** writers,
+by a deliberate owner-ratified scope decision: ship what can take the policy now, document the rest as
+not done, split the remainder rather than hold a finance fix for a spec-harness rewrite. This is that
+remainder's durable home — the PR body names it, but a PR body is not where the next person looks, and
+the task files that described it (`task-retro-txdate-policy.md`, `task-retro-business-day-clock.md`)
+are under `.claude/tasks/`, which is **gitignored** and dies with the worktree. (Same lesson as entry
+327: a follow-up recorded only in a gitignored path is not recorded.)
+
+**What remains, by behaviour, not coordinates:**
+
+1. **Four writers do not call the policy** and so accept any client-supplied date:
+   `createExpense`, `createSalary`, `createAdminTransfer` (in `transaction-entry.service.ts`) and
+   `paySalary` (in `salary-payment.service.ts`). They are unwired because their specs mock the
+   `transaction-date.util` **module** seam, so moving the seam means rewriting those specs — a design
+   decision about the seam, which is why it was split out rather than rushed. `createSalary` is also
+   the one `PLANNED` flow and needs its own future-date case, not the same bound as the executed ones.
+2. **AC 2 of the #809 retro is not met:** on-chain-verified flows (`payPayoutRequest`, `submitDeposit`)
+   are **bounded** but still persist the **client-supplied** date rather than the block timestamp,
+   because `DepositVerification` exposes no timestamp and the adapter makes no `eth_getBlockByNumber`
+   call. Taking the date from the verified block is the unfinished half. Until then an invoice for an
+   on-chain-verified transfer can still carry an operator-chosen date within the bound, which is better
+   than unbounded and is not the verified truth.
+3. **CR-809-M-5 is untouched:** whether the NBU rate day should follow the picked settle date or stay
+   on the booking day is a product decision never taken; the rate day currently follows the picker.
+
+**Scoped by the security review of #1113 (2026-10-24), which changes what the remainder must do.**
+Two facts, and the first is reassurance rather than work:
+
+- **The four unwired writers are not a hole today.** All four are privilege-gated — `createExpense`,
+  `createSalary` and `createAdminTransfer` require ADMIN or ACCOUNTANT, `paySalary` requires ADMIN —
+  the year/calendar schema floor still applies, and none of them is invoice-facing. No unprivileged
+  role can inject a date through them. That is why shipping 9 of 13 was defensible rather than
+  reckless: the gap is bounded by the role gate, not merely documented.
+- **But wiring the policy is not sufficient.** The residual at those four is that ADMIN/ACCOUNTANT can
+  still **future-date EXECUTED rows** and **backdate out of window without an audit reason**. So the
+  remainder must do three things, not one: route the four through the shared policy, _block future
+  dates on EXECUTED rows there_, and _capture the audit reason_ on an out-of-window backdate.
+- **AC 2 likewise needs more than the bound.** A bounded-but-client-chosen date on a verified transfer
+  **can misstate the on-chain settlement date on an invoice**, which is a legal document. Closing it
+  means adding the `eth_getBlockByNumber` lookup so the date comes from the verified block, not
+  tightening the bound further.
+
+A fourth, cosmetic: `createSeniorIncome` and `createDropIncome` plumb a `backdateReason` the policy can
+never consume for SENIOR/DROP — dead transport for something nothing reads. (#1113 removes it; noted
+here in case it reappears when the four writers are wired.)
+
+**Check on closing:** all 13 writers resolve their date through the one shared policy (grep the call
+sites); the on-chain flows take their date from the block timestamp, not the client; and the
+`⚠ NOT YET UNIVERSAL` block in `transaction-date-policy.ts` is gone because it has become universal.
+
+## 330. Pushing with `DATABASE_URL=` empty means your integration specs did not run, and nothing says so (2026-10-24)
+
+`git-policy.md` requires feature branches to be pushed as `DATABASE_URL= git push` (the variable
+empty). That rule is right and should stay: without it the pre-push integration specs connect to the
+libpq default — the live `crm_db` — which is how a database once got wiped. The rule's stated purpose
+is data safety and it achieves it.
+
+**The unstated cost: with `DATABASE_URL=` empty the integration specs graceful-skip, so no integration
+spec is ever exercised before a push.** The author gets a green pre-push gate and reads it as "my
+changes pass", when the gate did not run the class of test most likely to catch a cross-service
+regression. Nothing in the rule, the hook output or the gate summary says which tests were skipped or
+why.
+
+**Measured instance (PR #1113, 2026-10-24).** A new server-side upper bound on the transaction date
+was added. The author's pre-push gate was 6/6 green. CI then failed "Integration Tests (Postgres)" at
+**1 failed / 162 passed**: `drop-topup.integration.spec.ts` settles on a next-day fixture and the new
+bound correctly refused it with `FINANCE_TX_DATE_IN_FUTURE`. The merge base was green, so the PR caused
+it, and **the author could not have seen it** — the only place those specs execute is CI.
+
+**Why this is the same family as entry 317 and worse than it looks.** 317 is a filtered run that drops
+integration specs from discovery and still exits 0. This is the same shape reached by a different
+route, and it is _mandated_ rather than accidental: every agent and every contributor follows it on
+every push. So the pre-push gate systematically reports a pass for a test class it never ran, and the
+first signal is a red CI job after the push.
+
+**Candidates, and the first is cheap:**
+
+1. **Make the skip loud.** When the integration specs graceful-skip, print one line naming the count
+   skipped and the reason ("DATABASE_URL empty — integration specs not run"). The information exists
+   at skip time; the author just never sees it. This alone converts a silent pass into an informed one.
+2. **Give the pre-push gate a scratch database** rather than no database: point `DATABASE_URL` at a
+   disposable DB (the `crm_scratch_*` convention already exists and the seed/integration guards
+   already refuse anything that does not look disposable) so the specs actually run and the live DB
+   stays protected. This is the real fix; it costs provisioning in the hook.
+3. **State the cost in `git-policy.md` beside the rule** — one sentence: pushing with `DATABASE_URL=`
+   empty means your integration specs did not run, so CI is the only place they execute. Cheapest of
+   all and stops the misreading even if 1 and 2 are never done.
+
+**Check on closing:** a developer or agent pushing a change that breaks an integration spec either
+sees it fail pre-push, or sees an explicit line saying integration specs were not run — and in neither
+case reads an unqualified green.
+
+## 331. A stale service worker in a reused browser profile silently serves the OLD build to a QA pass (2026-10-24)
+
+Found by the manual-QA re-check on PR #1102. Its first attempts at 320px tested **code that was not in
+the branch** — no date column, and the `salary-parts` query never fired — and the render looked
+plausible rather than broken, so nothing announced the problem.
+
+**The cause.** The Playwright profile held a service worker registered by an **earlier production
+build** on `localhost:3010`. A service worker is scoped to an origin, not to a build, so it survives
+swapping the dev server behind that port and keeps serving its cached app shell. The agent was driving
+a fresh Vite dev server and reading the previous build's UI.
+
+**Why this is the dangerous shape rather than a nuisance.** The failure is a **false negative with a
+plausible surface**: the page renders, the flows click through, and the only symptom is that new UI is
+absent and new network calls do not happen — which reads exactly like "the feature is not working" or,
+worse, like "the feature works and looks like this". A QA pass is the one gate whose whole value is
+seeing the real thing, so an instrument that quietly shows the wrong build defeats it completely. It is
+the same family as a filtered test run reporting green for tests it never executed (entry 317) and a
+figure measured on the wrong Node version: the instrument answered about something other than the
+subject.
+
+**The cheap check, which costs one line before trusting any render:**
+
+```
+navigator.serviceWorker.getRegistrations().then(r => r.length)   // expect 0
+```
+
+Non-zero on a reused profile means unregister and clear caches before believing anything on screen.
+The agent did exactly that, and all of its reported results come from the clean run — which is the only
+reason the verdict is worth anything.
+
+**Why it will recur.** The repository deliberately ships a service worker (there is a `cache` E2E
+project testing it, with `sw-smoke` and `anti-stale` specs), agents reuse ports 3010/3011 constantly,
+and the browser profile is shared across runs. So any agent that previews a production build on a port
+another agent later uses for dev has armed this trap for them.
+
+**Candidates:** have manual-qa assert zero registrations as a precondition of any visual pass and say
+so in its report (cheapest, and it is a precondition like `node -v`); or have the dev-server start
+script unregister service workers for its own origin; or give production previews a different port
+range from dev servers so the origins never collide.
+
+**Check on closing:** a QA pass on a reused profile either reports zero service-worker registrations
+before its first assertion, or states that it unregistered them — and never reports a render without
+one of those two.
+
+## 332. Deferred non-blocking items from the PR #1119 / #1120 / #1122 review rounds (2026-10-24)
+
+These are LOW items the review axes raised on the three Task-3.x adapter PRs and that I (Master) chose not to
+hold a merge for. Each is a sentence or a bounded, non-urgent fix; each has a verification condition so a
+reader can tell whether it is still live. Grouped because none is worth its own heading and the shared
+context is that all three adapter PRs are blocked, unkeyed, and inert in production.
+
+**From #1119 (TheirStack quota adapter):**
+
+- **The `BillingObservation` docblock's worked example writes "limit 100, reserve 25"**, where `limit`
+  elsewhere in that block means the configured `L` (25 there). A reader can take `L` as 100 and compute
+  `N = 1` instead of 38. The next sentence defines `B` and `L`, so it is ambiguous rather than wrong.
+  **Check:** the example names `B` (account budget) and `L` (reservation) by the same symbols the formula
+  uses.
+- **A stale round-labelled line** ("Item 10") in the PR body carried the pre-correction 304-hazard wording;
+  it is superseded by the round-7 entry and round-labelled, so it was left. **Check:** if that body is ever
+  consolidated, the superseded line is removed rather than read as current.
+
+**From #1122 (ATS-B adapters):**
+
+- **Workable's `robots.txt` carries `Content-Signal: ai-train=no`.** The vacancy text this adapter collects
+  must never be used to train or fine-tune a model in the inference layer. This binds `@crm/inference`, not
+  the adapter, and there is nothing to enforce in #1122. **Check:** the inference layer's data-source policy
+  names Workable-sourced text as train-excluded before any such text reaches a training or fine-tuning path.
+- **The report redactor over-matches on English words**, rewriting prose like "token from" or a company
+  name containing "Token" to `[REDACTED]`. It touches only reports, errors and invalid-sample messages,
+  never stored vacancies, and leaks nothing — it destroys prose. It is shared code outside #1122's diff.
+  **Check:** the redactor keys on a secret _value_ registered for redaction, not on a word.
+- **The shared report redactor misses unregistered credentials** in `Bearer: x`, `X-…-Token: x` and
+  `Token=x` shapes. Existing shared code, not introduced by #1122. **Check:** a credential in those shapes,
+  not separately registered, is redacted from a report.
+- **Recruitee's `description` and `requirements` are joined with no separator**, and Workable's `sameName`
+  uses a locale-default `localeCompare`. Both LOW, both cosmetic. **Check:** the joined text has a boundary;
+  the comparison uses a fixed locale.
+- **Copyright of committed third-party job text and XML** in a public repo is a question for the legal
+  agent, not a code fix. **Check:** legal has given a disposition on committing captured vacancy text as
+  fixtures.
+
+**From #1120 (free-JSON-B adapters), carried from earlier rounds and not re-raised as blockers:**
+
+- **The personal-data scan reads addresses and profile links, not names.** Named individuals in free text
+  (for example a managing director beside an Impressum address, or a first name beside a redacted profile
+  link) are outside it by construction, and the spec header now says so. **Check:** the header's NOT COVERED
+  list still names "personal names in free text".
+- **The profile-link test covers `/in/` paths only** — a `/pub/` profile, `lnkd.in`, or a non-LinkedIn
+  profile URL would pass. None is in the corpus. **Check:** either the test covers those forms, or the
+  header lists them as not covered.
+
+**A durability gap the spec axis raised on #1122, recorded here because it outlives that PR.** Two
+decisions made during these rounds live only in gitignored task files, where a PR reader and the repo's own
+history cannot see them: the loosening of Task 3.4's "`ats-config.ts` additive only" to "behaviour-preserving
+extension", and the closure of the Recruitee-deadline manifest finding by deferral to Task 3.7. The
+adapter-level fact is durable — `RECRUITEE_TOKEN_DEADLINE` is an exported constant the adapter enforces — but
+**the manifest's obligation to import and assert against it lives only in the untracked 3.7 brief.** If that
+brief is lost or reworded, nothing in the repository records that Task 3.7 must derive readiness from the
+date rather than re-type it. **Check:** Task 3.7's PR, when it lands, carries that requirement in a tracked
+file (its own code, a spec, or an ADR), not only in `.claude/tasks/`.
+
+**The one that is not mine and not deferrable the same way:** the convergent integration-run defect is
+already tracked as entry **317** ("The integration-run model is a dichotomy; reality has a third case that
+reports a confident pass"), filed by a parallel session. The security axis found the same thing on #1119
+independently; #1119 closed its instance by recording an actual filtered run with the executed count. No new
+entry — 317 holds it, and this line exists so the #1119 provenance points at it.
+
+## 333. Two follow-ups from PR #1122's round-2 review — the next layer of the SmartRecruiters dormancy guard (2026-10-24)
+
+Both found by the code axis on PR #1122 at `b747340c`, both correctly judged non-blocking there, both the
+_next_ layer of a guard that is sound for every path reachable today. Recorded so they are not lost when
+that PR merges.
+
+- **`createSmartRecruitersProvider(bounds, { liveDespiteRobots: true })` is a public export.** The provider
+  is dormant by construction — the live loop (`collectSmartRecruiters`) is unexported, and the only route to
+  it is the `liveDespiteRobots === true` option, which parsed config cannot supply, so the default export
+  and every config refuse. But a **future non-spec caller** could arm the factory directly, and every
+  current test would stay green, because the dormancy specs exercise the default export rather than forbid
+  the armed one outside tests. The fix the reviewer proposed is a **source-scan test that no non-spec file
+  contains `liveDespiteRobots`**. This belongs with registration — the first place such a caller could
+  appear is plan Task 2.5 / Task 3.7 — and SmartRecruiters is `BLOCKED(robots)` with no authentic capture,
+  so there is nothing to register today. **Check:** a test fails if any non-spec file references
+  `liveDespiteRobots`, added no later than the change that first registers a phase-3 adapter.
+- **The Personio host-declaration assertion compares two copies of the same template**, so it catches drift
+  between the declared host and the request but not a mistake shared by both. The real protection is the
+  slug-and-`tld` validation (`board` a single DNS label, `tld` limited to `de`/`com`), which is tested
+  against hostile spellings. **Check:** the host assertion derives the expected host from something other
+  than the same template the code uses, or the review note explains why the slug/tld validation makes that
+  unnecessary.
+
+Both are on the SmartRecruiters path, which cannot run in production until registration (Task 2.5) exists —
+the same keystone every phase-3 adapter waits on.
+
+## 334. The privacy scan's own controls are unguarded by CI, so a later loosening would be caught by nothing (2026-10-24)
+
+Raised by the spec axis on PR #1120 at `abc12d1b` as outside its own axis, and it is right that it needs a
+home rather than a verdict.
+
+`fixture-provenance.spec.ts` carries the personal-data scan for the job-source fixtures: a decode-first
+`@`-token check, a decode-first `linkedin.com/in/` check with 13 planted-form controls, a whole-value
+`isPlaceholder`, a root guard and a recommitted-raw guard. Those controls are real — during PR #1120 they
+found two named individuals' e-mail addresses and three personal profile slugs that four hand-written scans
+had missed, and one control (`/in&#x2Fbob`) exposed a genuine greedy-hex bug that read `&#x2Fb` as U+02FB.
+
+**The gap: nothing mechanically proves the controls still bite.** The mutation gate loads spec files in its
+dry run but does **not mutate them**, so a 0-survivor gate result says nothing about whether the scan's
+regexes still catch anything. The only evidence they work is a **hand-mutation the author performed once**
+— reverting the slug class to ASCII and making the entity read greedy, observing four controls fail, then
+restoring the file. That is good practice and it is **not re-runnable by anyone**, so it does not survive
+into the future. A later simplification of the scan — widening `isPlaceholder`, shortening the decode
+rounds, narrowing the slug class back to ASCII — would pass CI green.
+
+This is the same shape as the defect the whole PR was about, one level up: a property established by an act
+rather than by an instrument.
+
+**Candidate answers, in increasing cost:**
+
+1. **Mutation-test the scan helpers by moving them out of the spec.** If `decodeDelimiters`, `PROFILE_LINK`
+   and `isPlaceholder` lived in `src/test/` as a module rather than inside the spec file, the gate would
+   mutate them and the 13 controls would become the thing that kills those mutants. Cheapest real fix, and
+   it uses machinery that already exists.
+2. **A meta-test that mutates the scan in-process** — apply a known loosening to a copy of the pattern and
+   assert the control fails. Self-contained but writes a mutation harness by hand.
+3. **Leave it and rely on review.** This is the status quo and is what the twelve rounds of #1120 show does
+   not reliably hold.
+
+**Check on closing:** a loosening of the slug class, the decode-round cap or `isPlaceholder` fails a check
+in CI without anyone re-reading the spec.
+
+Related: entry 332 (the scan reads delimiters and addresses, not names in free text), and the #1120 history
+for what the controls caught.
+
+## 335. Two instrument-honesty gaps in the fixture privacy scan, deferred from PR #1120's final axes (2026-10-24)
+
+Both raised at PR #1120's merged head (`4db0cd92`), both MED, both about what the scan _says_ it covers versus
+what it covers, neither exposed data. Deferred rather than held for a fourteenth round: the source is blocked
+and inert, three independent decode-first sweeps found no personal data in the tree, and each item is a
+one-sentence or one-line change with no behavioural effect.
+
+**The `@`-token scan cannot see a Cloudflare `data-cfemail` token, and the header does not say so (RM-SR-M-1).**
+`an-terms.html` holds two such tokens; they XOR-decode to `contact@arbeitnow.com`, a role mailbox on
+Arbeitnow's own terms page — not personal data, which is why this does not block. But the token is
+XOR-obfuscated hex with no literal `@`, so the scan is blind to it: it would stay green if such a token held a
+_personal_ address. The security axis checked the whole tree (2,539 files) and found no other `data-cfemail`
+token. **Fix:** add `data-cfemail` / Cloudflare-email-protection to the spec header's NOT-COVERED list, or
+decode the token in `hitsOf`. **Check on closing:** a planted `data-cfemail` token encoding a non-role address
+either fails the scan or is named in the NOT-COVERED list.
+
+**A decode-ceiling comment in `fixture-provenance.spec.ts` is one very long line (RM-CR-M-1).** Prettier
+accepts it, so it is cosmetic; wrap it when the file is next touched. No check on closing beyond "prettier
+still passes".
+
+These join 334 (the scan's controls are not mutation-tested) as the standing instrument-limit set for the
+fixture privacy scan: the scan is a denylist of encodings and its honest boundary is the header's NOT-COVERED
+list, so that list is the thing to keep accurate as encodings are found.
+
+## 336. Auto-merge refused a PR whose required contexts it had just confirmed green, declared it non-transient, and the same merge then succeeded by hand (2026-10-24)
+
+**Cause not established.** This entry records measured facts and what is ruled out, deliberately
+without a theory, because two plausible theories were formed and both were wrong.
+
+**What happened, with timestamps from run 40081584341 on PR #1127 (a docs-only diff):**
+
+- **09:22:27 — the workflow's own guard emitted:** `OK: every required context is present and passing`,
+  listing all five (`Typecheck · Lint · Unit Tests`, `E2E Tests`, `Integration Tests (Postgres)`,
+  `Mutation Gate`, `Flow Gate`).
+- **09:22:28 — one second later, `gh pr merge` was refused:** `not mergeable: the base branch policy
+prohibits the merge`, and the workflow logged `refused by branch protection policy (not a transient
+error) — not retrying`.
+- **Minutes later the identical `gh pr merge --squash` succeeded by hand**, with nothing about the PR
+  changed in between (same head `96dc10add`, no new commits, no label change).
+
+**Ruled out by measurement, not by argument:**
+
+- **Branch protection is intact.** `branches/main/protection` reports five `required_status_checks.contexts`
+  including `Flow Gate`, with `enforce_admins: true`, `required_linear_history: true`,
+  `required_conversation_resolution: true`, `strict: false`. Nothing had been stripped.
+- **No required context was skipped or absent.** Each of the five was individually `SUCCESS` on the PR.
+- **Not the workflow-file restriction.** The diff was one `.md` file, so the `GITHUB_TOKEN` limitation
+  on `.github/workflows/**` does not apply.
+
+**The actionable part, independent of the cause: the "not retrying" policy is wrong here.** The
+workflow declares this class non-transient and refuses to retry, yet the same merge succeeded on a
+later attempt with no intervening change. Whatever the mechanism, it is time-dependent in effect, so
+either the message should not claim non-transience, or the workflow should retry once after a short
+delay before giving up. As it stands it reports a permanent-sounding failure for something that clears
+on its own.
+
+**A diagnostic trap this cost two wrong diagnoses, and it generalises to every CI log read here.**
+The first theory was that protection had lost its required contexts, because the log contains the
+string `reports zero required_status_checks.contexts`. **That line is the script's own source, echoed
+by the runner, not output the script emitted** — the runner prefixes echoed script with an ANSI
+sequence (`ESC[36;1m`), and a plain `grep` for an error string matches the `echo "::error::…"` that
+_would_ print it as readily as a line that _did_. So **grepping a CI log for an error message finds
+the error's source text as well as its occurrence**, and the two are indistinguishable without
+separating echoed script from emitted output:
+
+```
+# emitted only — drop the runner's script-echo lines
+grep -a '<needle>' run.log | grep -av $'\033[36;1m'
+```
+
+**Check on closing:** the auto-merge workflow either retries this class once before declaring failure,
+or its message stops asserting non-transience; and whoever next debugs a CI log distinguishes echoed
+script from emitted output before concluding anything from a matched string.

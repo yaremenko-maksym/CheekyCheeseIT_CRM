@@ -1,0 +1,6 @@
+{
+  "jobs": [],
+  "pagination": { "page": 1, "limit": 25, "hasMore": false },
+  "browseOnSiteUrl": "https://jobgether.com/search-offers?keyword=qzxwvkjh&limit=25&sort=date",
+  "docs": "/astroapi/ai/jobs/docs"
+}
