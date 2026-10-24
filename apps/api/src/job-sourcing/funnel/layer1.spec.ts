@@ -581,3 +581,555 @@ describe('layer1: flags', () => {
     expect(other.flags).toEqual(['SALARY_UNKNOWN'])
   })
 })
+
+const ev = (source: string, field: string, excerpt: string, code: string, used = true) => ({
+  source,
+  field,
+  excerpt,
+  code,
+  used,
+})
+
+describe('layer1: evidence is exact (source, field, excerpt, code, used)', () => {
+  it('reads every structured field and tags, each tagged with its own field name', () => {
+    const r = run({
+      title: 'Remote Dev',
+      location: 'Hybrid',
+      employmentType: 'onsite',
+      tags: ['hybrid'],
+      seniorityHint: 'Senior',
+    })
+    expect(r.workplace.evidence).toEqual([
+      ev('TITLE', 'title', 'Remote Dev', 'REMOTE_KEYWORD', false),
+      ev('STRUCTURED', 'location', 'Hybrid', 'HYBRID_KEYWORD', false),
+      ev('STRUCTURED', 'tags', 'hybrid', 'HYBRID_KEYWORD', false),
+      ev('POLICY', '', '', 'CONFLICTING_WORKPLACE_SIGNALS'),
+    ])
+    expect(r.workplace.value).toBe('UNKNOWN')
+  })
+
+  it('seniority hint is read from the hint field only; location/tags are not level sources', () => {
+    expect(run({ seniorityHint: 'Senior' }).seniority.evidence).toEqual([
+      ev('STRUCTURED', 'seniorityHint', 'Senior', 'LEVEL_SENIOR'),
+    ])
+    expect(run({ title: 'Dev', location: 'Senior', tags: ['junior'] }).seniority.value).toBe(
+      'UNKNOWN',
+    )
+  })
+
+  it('title evidence for each level code', () => {
+    const codeOf = (title: string) => run({ title }).seniority.evidence.map((e) => e.code)
+    expect(codeOf('Intern')).toEqual(['LEVEL_INTERN'])
+    expect(codeOf('Junior')).toEqual(['LEVEL_JUNIOR'])
+    expect(codeOf('Middle')).toEqual(['LEVEL_MIDDLE'])
+    expect(codeOf('Staff Engineer')).toEqual(['LEVEL_STAFF_PRINCIPAL'])
+    expect(codeOf('Team Lead')).toEqual(['LEVEL_LEAD'])
+    expect(codeOf('CTO')).toEqual(['LEVEL_EXECUTIVE'])
+    const mixed = run({ title: 'Junior Senior Lead' }).seniority
+    expect(mixed.value).toBe('LEAD')
+    expect(mixed.evidence.map((e) => [e.code, e.used])).toEqual([
+      ['LEVEL_JUNIOR', false],
+      ['LEVEL_SENIOR', false],
+      ['LEVEL_LEAD', true],
+    ])
+  })
+
+  it('body years evidence', () => {
+    expect(
+      run({ descriptionMd: 'We need 3+ years in Go.\nMore text.' }).seniority.evidence,
+    ).toEqual([ev('BODY', 'descriptionMd', 'We need 3+ years in Go.', 'YEARS_3')])
+    const two = run({ descriptionMd: '1 year of Go. 6 years of Java.' }).seniority
+    expect(two.value).toBe('SENIOR')
+    expect(two.evidence[0]).toMatchObject({ code: 'YEARS_6', excerpt: '6 years of Java.' })
+    // a larger number first, then a smaller: the larger stays
+    expect(
+      run({ descriptionMd: '6 years of Java. 1 year of Go.' }).seniority.evidence[0],
+    ).toMatchObject({
+      code: 'YEARS_6',
+    })
+    expect(run({ descriptionMd: 'Experience: 0 years' }).seniority.value).toBe('JUNIOR')
+    expect(run({ descriptionMd: '2 years' }).seniority.value).toBe('MIDDLE')
+    expect(run({ descriptionMd: '5 years' }).seniority.value).toBe('SENIOR')
+    expect(run({ descriptionMd: '1 year' }).seniority.value).toBe('JUNIOR')
+    expect(run({ descriptionMd: '4 yrs' }).seniority.value).toBe('MIDDLE')
+    expect(run({ descriptionMd: '3 роки' }).seniority.value).toBe('MIDDLE')
+    expect(run({ descriptionMd: '7 лет' }).seniority.value).toBe('SENIOR')
+    expect(run({ descriptionMd: '12 jahre' }).seniority.value).toBe('SENIOR')
+    expect(run({ descriptionMd: '6 lat' }).seniority.value).toBe('SENIOR')
+    expect(run({ descriptionMd: 'version 3.5 years' }).seniority.value).toBe('UNKNOWN')
+  })
+
+  it('leadership evidence', () => {
+    expect(run({ title: 'Head of Engineering' }).leadership.evidence).toEqual([
+      ev('TITLE', 'title', 'Head of Engineering', 'LEAD_TITLE'),
+    ])
+    expect(run({ title: 'Dev', seniorityHint: 'Team Lead' }).leadership.evidence).toEqual([
+      ev('STRUCTURED', 'seniorityHint', 'Team Lead', 'LEAD_TITLE'),
+    ])
+    expect(run({ descriptionMd: 'You have direct reports.' }).leadership.evidence).toEqual([
+      ev('BODY', 'descriptionMd', 'You have direct reports.', 'LEAD_BODY'),
+    ])
+    expect(run({ descriptionMd: 'An individual contributor role.' }).leadership.evidence).toEqual([
+      ev('BODY', 'descriptionMd', 'An individual contributor role.', 'IC_BODY'),
+    ])
+    expect(run({ descriptionMd: 'Line management of engineers.' }).leadership.value).toBe(
+      'LEADS_PEOPLE',
+    )
+    expect(run({ descriptionMd: 'People management.' }).leadership.value).toBe('LEADS_PEOPLE')
+    expect(run({}).leadership.evidence).toEqual([])
+    expect(run({}).leadership.verdict).toBe('PASS')
+  })
+
+  it('role family evidence names its source and code', () => {
+    expect(run({ title: 'SRE' }).roleFamily.evidence).toEqual([
+      ev('TITLE', 'title', 'SRE', 'FAMILY_DEVOPS'),
+    ])
+    expect(run({ title: 'x', tags: ['designer'] }).roleFamily.evidence).toEqual([
+      ev('STRUCTURED', 'tags', 'designer', 'FAMILY_DESIGN'),
+    ])
+    expect(run({ title: 'x' }).roleFamily.evidence).toEqual([])
+  })
+
+  it('geography evidence', () => {
+    expect(run({ location: 'Remote, US only' }).geography.evidence).toEqual([
+      ev('STRUCTURED', 'location', 'Remote, US only', 'REGION_LIMIT'),
+    ])
+    expect(run({ descriptionMd: 'You are authorized to work in the UK.' }).geography).toMatchObject(
+      {
+        value: { kind: 'WORK_AUTHORIZATION_REQUIRED', regions: ['UK'] },
+        evidence: [
+          ev(
+            'BODY',
+            'descriptionMd',
+            'You are authorized to work in the UK.',
+            'WORK_AUTHORIZATION',
+          ),
+        ],
+      },
+    )
+    expect(run({}).geography.evidence).toEqual([])
+  })
+
+  it('salary evidence', () => {
+    expect(run({}).salary.evidence).toEqual([ev('POLICY', '', '', 'SALARY_UNKNOWN')])
+    expect(
+      run({ salary: { min: 1, max: 1, currency: 'PLN', period: 'MONTH' } }).salary.evidence,
+    ).toEqual([ev('POLICY', '', 'PLN', 'NO_RECORDED_RATE')])
+    expect(
+      run({ salary: { min: 4000, max: 4000, currency: 'usd', period: 'MONTH' } }).salary.evidence,
+    ).toEqual([ev('POLICY', '', '4000', 'AT_OR_ABOVE_FLOOR')])
+    expect(
+      run({ salary: { min: 100, max: 100, currency: 'USD', period: 'MONTH' } }).salary.evidence,
+    ).toEqual([ev('POLICY', '', '100', 'BELOW_FLOOR')])
+  })
+
+  it('salary guards: zero, negative, NaN and Infinity figures are "unknown"; bad rates unusable', () => {
+    for (const top of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(
+        run({ salary: { min: null, max: top, currency: 'USD', period: 'MONTH' } }).salary.value,
+      ).toEqual({ state: 'UNKNOWN', monthlyUsd: null })
+    }
+    expect(
+      run({ salary: { min: 5000, max: null, currency: 'USD', period: 'MONTH' } }).salary.value,
+    ).toEqual({ state: 'ABOVE_FLOOR', monthlyUsd: 5000 })
+    const eur = { min: 9000, max: 9000, currency: 'EUR', period: 'MONTH' as const }
+    for (const usdPerUnit of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(
+        run({ salary: eur, fxRate: { currency: 'EUR', usdPerUnit, recordedAt: 'x' } }).salary.value
+          .state,
+      ).toBe('UNCONVERTIBLE')
+    }
+    expect(
+      run({ salary: eur, fxRate: { currency: 'eur', usdPerUnit: 1, recordedAt: 'x' } }).salary.value
+        .state,
+    ).toBe('ABOVE_FLOOR')
+    expect(
+      run({
+        salary: { ...eur, currency: 'eur' },
+        fxRate: { currency: 'EUR', usdPerUnit: 1, recordedAt: 'x' },
+      }).salary.value.state,
+    ).toBe('ABOVE_FLOOR')
+  })
+
+  it('date evidence', () => {
+    const fut: ObservedDate = {
+      semantics: 'UPDATED',
+      contract: 'ISO_ZONED',
+      raw: 'r1',
+      status: 'FUTURE',
+      value: null,
+    }
+    const inv: ObservedDate = {
+      semantics: 'PUBLISHED',
+      contract: 'ISO_ZONED',
+      raw: 'r2',
+      status: 'INVALID',
+      value: null,
+    }
+    const r = run({
+      dates: [
+        fut,
+        inv,
+        ok('EXPIRY', '2026-01-01T00:00:00Z'),
+        ok('PUBLISHED', '2026-12-01T00:00:00Z'),
+        ok('RELEASED', '2026-10-19T12:00:00Z'),
+      ],
+    })
+    expect(r.freshness.evidence).toEqual([
+      ev('STRUCTURED', 'date.UPDATED', 'r1', 'FUTURE_DATE', false),
+      ev('STRUCTURED', 'date.PUBLISHED', 'r2', 'DATE_INVALID', false),
+      ev('STRUCTURED', 'date.EXPIRY', '2026-01-01T00:00:00Z', 'EXPIRED'),
+      ev('STRUCTURED', 'date.PUBLISHED', '2026-12-01T00:00:00Z', 'FUTURE_DATE', false),
+      ev('STRUCTURED', 'date.RELEASED', '2026-10-19T12:00:00Z', 'DATED'),
+    ])
+    expect(r.flags).toEqual(['DATE_UNCERTAIN', 'FUTURE_DATE_IGNORED', 'SALARY_UNKNOWN'])
+    // exactly now + 24h is still tolerated; one millisecond more is not
+    expect(run({ dates: [ok('PUBLISHED', '2026-10-21T12:00:00Z')] }).freshness.value.bucket).toBe(
+      'FRESH',
+    )
+    expect(
+      run({ dates: [ok('PUBLISHED', '2026-10-21T12:00:00.001Z')] }).freshness.value.bucket,
+    ).toBe('UNKNOWN')
+    // the NEWEST usable date wins regardless of order
+    const newest = run({
+      dates: [ok('PUBLISHED', '2026-10-19T12:00:00Z'), ok('UPDATED', '2026-10-01T12:00:00Z')],
+    })
+    expect(newest.freshness.value.ageDays).toBe(1)
+  })
+
+  it('agency evidence and mixed signals', () => {
+    expect(run({ descriptionMd: 'Agencies are welcome.' }).agency.evidence).toEqual([
+      ev('BODY', 'descriptionMd', 'Agencies are welcome.', 'AGENCY_WELCOME'),
+    ])
+    expect(run({ descriptionMd: 'No agencies.' }).agency.evidence).toEqual([
+      ev('BODY', 'descriptionMd', 'No agencies.', 'NO_AGENCY'),
+    ])
+    const mixed = run({ descriptionMd: 'No agencies.\nAgencies are welcome.' }).agency
+    expect(mixed).toMatchObject({ value: 'UNKNOWN', verdict: 'WARN_UNKNOWN' })
+    // agency statements only count in the body
+    expect(run({ title: 'No agencies' }).agency.value).toBe('UNKNOWN')
+  })
+
+  it('conflict evidence is kept unused, with a policy note', () => {
+    const r = run({ employmentType: 'full_time', title: 'Part-time Dev' })
+    expect(r.schedule.evidence).toEqual([
+      ev('TITLE', 'title', 'Part-time Dev', 'PART_TIME_KEYWORD', false),
+      ev('STRUCTURED', 'employmentType', 'full time', 'FULL_TIME_KEYWORD', false),
+      ev('POLICY', '', '', 'CONFLICTING_SCHEDULE_SIGNALS'),
+    ])
+    const w = run({ remote: true, title: 'Onsite' })
+    expect(w.workplace.evidence.at(-1)).toEqual(
+      ev('POLICY', '', '', 'CONFLICTING_WORKPLACE_SIGNALS'),
+    )
+    const d = run({ descriptionMd: 'Permanent role. Fixed-term role.' }).duration
+    expect(d).toMatchObject({ value: 'UNKNOWN', verdict: 'PASS' })
+    expect(d.evidence.at(-1)).toEqual(ev('POLICY', '', '', 'CONFLICT'))
+  })
+
+  it('basis evidence: used only for the deciding tier', () => {
+    const r = run({ employmentType: 'Contract', descriptionMd: 'Employment contract.' })
+    expect(r.basis.value).toBe('CONTRACTOR')
+    expect(r.basis.evidence.map((e) => [e.code, e.used])).toEqual([
+      ['CONTRACTOR_KEYWORD', true],
+      ['EMPLOYMENT_KEYWORD', false],
+    ])
+    expect(
+      run({ title: 'x', descriptionMd: 'Sole proprietor welcome. Self-employed.' }).basis.value,
+    ).toBe('B2B')
+    expect(run({ descriptionMd: 'Freelance, 1099.' }).basis.value).toBe('CONTRACTOR')
+    expect(run({ descriptionMd: 'W-2 employee.' }).basis.value).toBe('EMPLOYEE')
+    expect(run({ descriptionMd: 'No B2B, no contractors.' }).basis.value).toBe('UNKNOWN')
+    expect(run({ descriptionMd: 'Не B2B.' }).basis.value).toBe('UNKNOWN')
+    expect(run({ descriptionMd: 'Умова: ФОП.' }).basis.value).toBe('B2B')
+    expect(run({ descriptionMd: 'Трудовий договір.' }).basis.value).toBe('EMPLOYEE')
+    expect(run({ descriptionMd: 'B2B, employee or contractor' }).basis.value).toBe('EITHER')
+  })
+})
+
+describe('layer1: keyword families (each alternative is a distinct behaviour)', () => {
+  it.each([
+    ['Fully remote', 'REMOTE'],
+    ['remote-first', 'REMOTE'],
+    ['remotely', 'REMOTE'],
+    ['working from home', 'REMOTE'],
+    ['WFH', 'REMOTE'],
+    ['telecommute', 'REMOTE'],
+    ['fully distributed', 'REMOTE'],
+    ['дистанційно', 'REMOTE'],
+    ['дистанционная работа', 'REMOTE'],
+    ['homeoffice', 'REMOTE'],
+    ['hybrid', 'HYBRID'],
+    ['гибридный', 'HYBRID'],
+    ['частково віддалено', 'HYBRID'],
+    ['2 days a week in the office', 'HYBRID'],
+    ['4 days weekly at the office', 'HYBRID'],
+    ['onsite', 'ONSITE'],
+    ['on site', 'ONSITE'],
+    ['in-office', 'ONSITE'],
+    ['office-based', 'ONSITE'],
+    ['work from the office', 'ONSITE'],
+    ['5 days per week in the office', 'ONSITE'],
+    ['офісний формат', 'ONSITE'],
+    ['офисный формат', 'ONSITE'],
+    ['работа в офисе', 'ONSITE'],
+    ['vor Ort', 'ONSITE'],
+  ])('%s => %s', (text, expected) => {
+    expect(run({ location: text }).workplace.value).toBe(expected)
+  })
+
+  it.each([
+    ['onsite interview'],
+    ['onsite meeting'],
+    ['onsite event'],
+    ['onsite training'],
+    ['occasional hybrid days'],
+    ['optionally in-office'],
+    ['rarely on-site'],
+    ['quarterly onsite'],
+    ['annual onsite'],
+    ['sometimes onsite'],
+    ['from time to time onsite'],
+    ['періодично onsite'.replace('періодично', 'periodic')],
+    ['епізодично onsite'],
+    ['іноді onsite'],
+  ])('softened/irrelevant "%s" is not a workplace signal', (text) => {
+    expect(run({ location: text }).workplace.value).toBe('UNKNOWN')
+  })
+
+  it.each([
+    ['no remote', 'UNKNOWN'],
+    ['without hybrid', 'UNKNOWN'],
+    ['never onsite', 'UNKNOWN'],
+    ['neither hybrid nor onsite', 'UNKNOWN'],
+    ['non-onsite', 'UNKNOWN'],
+    ['kein onsite', 'UNKNOWN'],
+    ['не onsite', 'UNKNOWN'],
+    ['нет onsite', 'UNKNOWN'],
+    ['без onsite', 'UNKNOWN'],
+    ['ні onsite', 'UNKNOWN'],
+    ['brak onsite', 'UNKNOWN'],
+    ['bez onsite', 'UNKNOWN'],
+    ["isn't onsite", 'UNKNOWN'],
+    ['no travel or onsite', 'UNKNOWN'],
+  ])('negated "%s" yields no positive', (text, expected) => {
+    expect(run({ location: text }).workplace.value).toBe(expected)
+  })
+
+  it('negation does not leak across a clause break or beyond four words', () => {
+    expect(run({ descriptionMd: 'No agencies. On-site in Kyiv.' }).workplace.value).toBe('ONSITE')
+    expect(run({ descriptionMd: 'Not great, on-site' }).workplace.value).toBe('ONSITE')
+    expect(run({ descriptionMd: 'Not a, b, c, d, e, on-site' }).workplace.value).toBe('ONSITE')
+    expect(run({ descriptionMd: 'not one two three four five onsite' }).workplace.value).toBe(
+      'ONSITE',
+    )
+    expect(run({ descriptionMd: 'not one two three four onsite' }).workplace.value).toBe('UNKNOWN')
+    expect(run({ descriptionMd: 'knot onsite' }).workplace.value).toBe('ONSITE')
+    expect(run({ descriptionMd: 'x'.repeat(60) + ' not onsite' }).workplace.value).toBe('UNKNOWN')
+    expect(run({ descriptionMd: 'not ' + 'x'.repeat(60) + ' onsite' }).workplace.value).toBe(
+      'ONSITE',
+    )
+  })
+
+  it('markdown, NUL and line breaks: sentences are split and cleaned', () => {
+    const r = run({ descriptionMd: '## Remote\u0000 **role**\n* No agencies' })
+    expect(r.workplace.evidence[0]).toMatchObject({ excerpt: 'Remote role' })
+    expect(r.agency.value).toBe('PROHIBITED')
+    const long = run({ descriptionMd: `Remote ${'a'.repeat(300)}` })
+    expect(long.workplace.evidence[0]?.excerpt).toHaveLength(160)
+    expect(run({ descriptionMd: 'First one. Remote work.' }).workplace.evidence[0]?.excerpt).toBe(
+      'Remote work.',
+    )
+    expect(run({ descriptionMd: '   \n  \n' }).workplace.evidence).toEqual([])
+  })
+
+  it.each([
+    ['Remote (EU)', ['EUROPE']],
+    ['Remote - EMEA', ['EUROPE']],
+    ['Remote: Європа', ['EUROPE']],
+    ['Remote in the USA', ['US']],
+    ['Remote within United States', ['US']],
+    ['Remote, UK', ['UK']],
+    ['Remote from Canada', ['CANADA']],
+    ['Remote LATAM', ['LATAM']],
+    ['Remote - Latin America', ['LATAM']],
+    ['APAC only', ['APAC']],
+    ['Europe-only', ['EUROPE']],
+    ['must be located in Canada', ['CANADA']],
+    ['must reside in the EU', ['EUROPE']],
+    ['must live in the UK', ['UK']],
+    ['must be based in USA', ['US']],
+  ])('region limit "%s" => %j', (location, regions) => {
+    const g = run({ location }).geography
+    expect(g.value).toEqual({ kind: 'REGION_LIMITED', regions })
+  })
+
+  it('worldwide / negated region limits do not restrict; regions are sorted and de-duplicated', () => {
+    expect(run({ location: 'Remote worldwide' }).geography.value.kind).toBe('UNSTATED')
+    expect(run({ location: 'not remote us only' }).geography.value.kind).toBe('UNSTATED')
+    expect(
+      run({ location: 'Remote US', descriptionMd: 'Remote EU. Remote US.' }).geography.value,
+    ).toEqual({
+      kind: 'REGION_LIMITED',
+      regions: ['EUROPE', 'US'],
+    })
+  })
+
+  it.each([
+    ['eligible to work in the EU', ['EUROPE']],
+    ['legally entitled to work in Canada', ['CANADA']],
+    ['legal right to work in the United States', ['US']],
+    ['US work authorization is required', ['US']],
+    ['US citizens only', ['US']],
+    ['Потрібен дозвіл на роботу в США', ['US']],
+    ['Нужно разрешение на работу в США', ['US']],
+  ])('work authorization "%s"', (text, regions) => {
+    expect(run({ descriptionMd: text }).geography.value).toEqual({
+      kind: 'WORK_AUTHORIZATION_REQUIRED',
+      regions,
+    })
+  })
+
+  it('arbeitserlaubnis requires authorization with no region', () => {
+    expect(run({ descriptionMd: 'Arbeitserlaubnis nötig.' }).geography.value).toEqual({
+      kind: 'WORK_AUTHORIZATION_REQUIRED',
+      regions: [],
+    })
+  })
+
+  it.each([
+    ['Intern', 'INTERN'],
+    ['Internship', 'INTERN'],
+    ['Trainee', 'INTERN'],
+    ['Стажер', 'INTERN'],
+    ['Jr. Developer', 'JUNIOR'],
+    ['Entry-level', 'JUNIOR'],
+    ['Джуніор', 'JUNIOR'],
+    ['Mid-level Dev', 'MIDDLE'],
+    ['Mid Dev', 'MIDDLE'],
+    ['Sr. Dev', 'SENIOR'],
+    ['Сеніор', 'SENIOR'],
+    ['Сеньор', 'SENIOR'],
+    ['Distinguished Engineer', 'SENIOR'],
+    ['Tech Lead', 'LEAD'],
+    ['Technical Lead', 'LEAD'],
+    ['Teamlead', 'LEAD'],
+    ['Engineering Manager', 'LEAD'],
+    ['Development Manager', 'LEAD'],
+    ['Тімлід', 'LEAD'],
+    ['Тимлид', 'LEAD'],
+    ['VP Engineering', 'EXECUTIVE'],
+    ['Vice President', 'EXECUTIVE'],
+    ['Chief Architect', 'EXECUTIVE'],
+    ['Директор', 'EXECUTIVE'],
+  ])('level keyword "%s" => %s', (title, level) => {
+    expect(run({ title }).seniority.value).toBe(level)
+  })
+
+  it.each([
+    ['QA', 'QA'],
+    ['Quality Assurance', 'QA'],
+    ['SDET', 'QA'],
+    ['Test Engineer', 'QA'],
+    ['Tester', 'QA'],
+    ['Site Reliability Engineer', 'DEVOPS'],
+    ['Platform Engineer', 'DEVOPS'],
+    ['Cloud Engineer', 'DEVOPS'],
+    ['Infrastructure Engineer', 'DEVOPS'],
+    ['Data Scientist', 'DATA'],
+    ['Data Analyst', 'DATA'],
+    ['Machine Learning Engineer', 'DATA'],
+    ['ML Engineer', 'DATA'],
+    ['AI Engineer', 'DATA'],
+    ['UI Designer', 'DESIGN'],
+    ['Product Owner', 'PRODUCT'],
+    ['Project Manager', 'PRODUCT'],
+    ['Scrum Master', 'PRODUCT'],
+    ['Delivery Manager', 'PRODUCT'],
+    ['Programmer', 'SOFTWARE'],
+    ['Software Tester Dev', 'QA'],
+    ['Frontend', 'SOFTWARE'],
+    ['Back-end', 'SOFTWARE'],
+    ['Fullstack', 'SOFTWARE'],
+    ['Full Stack', 'SOFTWARE'],
+    ['Розробник', 'SOFTWARE'],
+    ['Програміст', 'SOFTWARE'],
+    ['Разработчик', 'SOFTWARE'],
+    ['Entwickler', 'SOFTWARE'],
+    ['Sales', 'OTHER'],
+    ['Marketing', 'OTHER'],
+    ['Accountant', 'OTHER'],
+    ['Support', 'OTHER'],
+    ['HR', 'OTHER'],
+    ['Legal', 'OTHER'],
+  ])('role family "%s" => %s', (title, family) => {
+    expect(run({ title }).roleFamily.value).toBe(family)
+  })
+
+  it.each([
+    ['fulltime', 'FULL_TIME'],
+    ['Повна зайнятість', 'FULL_TIME'],
+    ['Vollzeit', 'FULL_TIME'],
+    ['pełny etat', 'FULL_TIME'],
+    ['parttime', 'PART_TIME'],
+    ['Part Time', 'PART_TIME'],
+    ['парт-тайм', 'PART_TIME'],
+    ['Teilzeit', 'PART_TIME'],
+    ['niepełny etat', 'PART_TIME'],
+    ['część etatu', 'PART_TIME'],
+    ['35 hours/week', 'FULL_TIME'],
+    ['30 hrs a week', 'PART_TIME'],
+    ['34 hours per week', 'UNKNOWN'],
+    ['31 hours per week', 'UNKNOWN'],
+    ['40 годин на тиждень', 'FULL_TIME'],
+  ])('schedule keyword "%s" => %s', (text, expected) => {
+    expect(run({ descriptionMd: text }).schedule.value).toBe(expected)
+  })
+
+  it.each([
+    ['fixed term', 'FIXED_TERM'],
+    ['temporary', 'FIXED_TERM'],
+    ['6 month contract', 'FIXED_TERM'],
+    ['3-months engagement', 'FIXED_TERM'],
+    ['2 month project', 'FIXED_TERM'],
+    ['contract for 12 months', 'FIXED_TERM'],
+    ['contract of 6 months', 'FIXED_TERM'],
+    ['befristet', 'FIXED_TERM'],
+    ['строковий договір', 'FIXED_TERM'],
+    ['project basis', 'PROJECT'],
+    ['one-off project', 'PROJECT'],
+    ['проєктна робота', 'PROJECT'],
+    ['проектная работа', 'PROJECT'],
+    ['indefinite', 'PERMANENT'],
+    ['безстроково', 'PERMANENT'],
+    ['unbefristet', 'PERMANENT'],
+    ['not permanent', 'UNKNOWN'],
+    ['no temporary work', 'UNKNOWN'],
+    ['not project-based', 'UNKNOWN'],
+  ])('duration keyword "%s" => %s', (text, expected) => {
+    expect(run({ descriptionMd: text }).duration.value).toBe(expected)
+  })
+
+  it.each([
+    ['Agencies need not apply', 'PROHIBITED'],
+    ['agency do not contact', 'PROHIBITED'],
+    ['No third-party', 'PROHIBITED'],
+    ['without recruiters', 'PROHIBITED'],
+    ['no vendors', 'PROHIBITED'],
+    ['Без агенцій', 'PROHIBITED'],
+    ['Без рекрутингових агенцій', 'PROHIBITED'],
+    ['Без посредников', 'PROHIBITED'],
+    ['recruiters are accepted', 'ACCEPTED'],
+    ['vendors encouraged', 'ACCEPTED'],
+    ['open to recruitment agencies', 'ACCEPTED'],
+    ['we work with staffing agencies', 'ACCEPTED'],
+    ['we partner with agencies', 'ACCEPTED'],
+  ])('agency phrase "%s" => %s', (text, expected) => {
+    expect(run({ descriptionMd: text }).agency.value).toBe(expected)
+  })
+
+  it('verdict table for leadership / levels at the edges', () => {
+    expect(run({ title: 'Senior', descriptionMd: 'Not a people manager.' }).leadership.value).toBe(
+      'UNKNOWN',
+    )
+  })
+})

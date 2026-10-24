@@ -379,7 +379,7 @@ function classifyBasis(input: Layer1Input): Dimension<Basis> {
 }
 
 const FIXED_RE =
-  /\bfixed[- ]term\b|\btemporary\b|\b\d{1,2}[- ]months?\s+(?:contract|term|engagement|project)\b|\bcontract (?:for|of) \d{1,2} months\b|терміновий|строков\p{L}* договір|befristet/giu
+  /\bfixed[- ]term\b|\btemporary\b|\b\d{1,2}[- ]months?\s+(?:contract|term|engagement|project)\b|\bcontract (?:for|of) \d{1,2} months\b|термінов\p{L}* договір|строков\p{L}* договір|(?<!un)befristet/giu
 const PROJECT_RE =
   /\bproject[- ]based\b|\bproject basis\b|\bone[- ]off project\b|проєктн\p{L}*|проектн\p{L}*/giu
 const PERMANENT_RE = /\bpermanent\b|\bindefinite\b|безстроков\p{L}*|unbefristet/giu
@@ -524,7 +524,14 @@ function classifySeniority(input: Layer1Input): Dimension<Seniority> {
       (best, lvl) => (first.some((s) => s.value === lvl) ? lvl : best),
       null,
     ) as Seniority
-    for (const s of first) evidence.push({ ...s, used: s.value === top })
+    for (const s of first)
+      evidence.push({
+        source: s.source,
+        field: s.field,
+        excerpt: s.excerpt,
+        code: s.code,
+        used: s.value === top,
+      })
     return dim<Seniority>(top, levelVerdict(top, false), evidence)
   }
   // Body requirement sections second: only an explicit years-of-experience statement counts.
@@ -618,8 +625,8 @@ const REGION_NAMES: ReadonlyArray<readonly [string, string]> = [
 ]
 const REGION_PATTERN = REGION_NAMES.map(([, p]) => p).join('|')
 const REGION_LIMIT_RE = new RegExp(
-  `\\bremote\\s*(?:\\(|[-,:–]\\s*|in\\s+|within\\s+|from\\s+)?(?:the\\s+)?(${REGION_PATTERN})\\b\\)?` +
-    `|\\b(${REGION_PATTERN})[- ]only\\b|\\bmust (?:be (?:located|based)|reside|live) in (?:the )?(${REGION_PATTERN})\\b`,
+  `\\bremote\\s*(?:\\(|[-,:–]\\s*|in\\s+|within\\s+|from\\s+)?(?:the\\s+)?(${REGION_PATTERN})(?!\\p{L})\\)?` +
+    `|\\b(${REGION_PATTERN})[- ]only\\b|\\bmust (?:be (?:located|based)|reside|live) in (?:the )?(${REGION_PATTERN})(?!\\p{L})`,
   'giu',
 )
 const WORK_AUTH_RE =
