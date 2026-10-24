@@ -422,7 +422,7 @@ describe('headers by shape (September 2026 and May 2019 captures)', () => {
     )
     expect(brain?.normalized.tags).toEqual(['employer-unverified', 'triage:multi-role'])
     expect(
-      may.batch.observations.filter((o) => o.normalized.tags.includes('triage:multi-role')),
+      may.batch.observations.filter((o) => o.normalized.tags?.includes('triage:multi-role')),
     ).toHaveLength(1)
     expect(byId(may.batch, '19815745')?.normalized.tags).toEqual(['employer-unverified'])
     expect(byId(may.batch, '19797758')?.normalized.title).toBe(
