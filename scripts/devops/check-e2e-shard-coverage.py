@@ -79,21 +79,14 @@ KNOWN_UNSHARDED = {
     # --- admin ---
     "tests/admin-templates.spec.ts",              # debt: not gated, migrate to misc shard later
     # --- dashboard ---
-    "tests/dashboard-russian-strings.spec.ts",    # debt: not gated, migrate to misc shard later
     # --- documents ---
-    "tests/documents-pr1.spec.ts",                # debt: not gated, migrate to documents shard later
-    "tests/documents-pr3.spec.ts",                # debt: not gated, migrate to documents shard later
     # --- drop suite ---
     "tests/drop-add-senior.spec.ts",              # debt: not gated, migrate to drop shard later
-    "tests/drop-archive-cascade.spec.ts",         # debt: not gated, migrate to drop shard later
     "tests/drop-balances-panel.spec.ts",          # debt: not gated, migrate to drop shard later
-    "tests/drop-create-ui-regressions.spec.ts",   # debt: not gated, migrate to drop shard later
     "tests/drop-create.spec.ts",                  # debt: not gated, migrate to drop shard later
     "tests/drop-findings-pr198.spec.ts",          # debt: not gated, migrate to drop shard later
     "tests/drop-income-ui.spec.ts",               # debt: not gated, migrate to drop shard later
-    "tests/drop-junior-rbac.spec.ts",             # debt: not gated, migrate to drop shard later
     "tests/drop-rbac.spec.ts",                    # debt: not gated, migrate to drop shard later
-    "tests/drop-rotate-senior.spec.ts",           # debt: not gated, migrate to drop shard later
     "tests/drop-route-guards.spec.ts",            # debt: not gated, migrate to drop shard later
     "tests/drop-routing-hub.spec.ts",             # debt: not gated, migrate to drop shard later
     "tests/drop-senior-readonly.spec.ts",         # debt: not gated, migrate to drop shard later
@@ -111,15 +104,12 @@ KNOWN_UNSHARDED = {
     # drop-share-slider.spec.ts: gated in drop-finance shard (task-drop-share-slider-shard,
     # closes PR #376 MED-1 coverage gap).
     # --- finance extras ---
-    "tests/finance-funding-source.spec.ts",       # debt: not gated, migrate to finance shard later
     "tests/finance-payout-simulate.spec.ts",      # debt: not gated, migrate to finance shard later
-    "tests/finance-senior-payment-flow.spec.ts",  # debt: not gated, migrate to finance shard later
     "tests/finance-smoke-regressions.spec.ts",    # debt: not gated, migrate to finance shard later
     # --- hr ---
     "tests/hr-dashboard.spec.ts",                 # debt: not gated, migrate to team-users shard later
     # --- invoices ---
     "tests/invoice-aggregate.spec.ts",            # debt: not gated, migrate to invoices shard later
-    "tests/invoice-public-verify.spec.ts",        # debt: not gated, migrate to invoices shard later
     "tests/invoice-real-contract-number.spec.ts", # debt: not gated, migrate to invoices shard later
     "tests/invoice-signing-real.spec.ts",         # debt: not gated, migrate to invoices shard later
     "tests/invoices-signing-flow.spec.ts",        # debt: not gated, migrate to invoices shard later
@@ -129,7 +119,6 @@ KNOWN_UNSHARDED = {
     "tests/legend.spec.ts",                       # debt: not gated, migrate to misc shard later
     # --- onboarding ---
     "tests/onboarding-flow.spec.ts",              # debt: not gated, migrate to misc shard later
-    "tests/onboarding-regression-pr110.spec.ts",  # debt: not gated, migrate to misc shard later
     # --- payout ---
     "tests/payout-admin-projectid-regression.spec.ts", # debt: not gated, migrate to finance shard later
     "tests/payout-auto-cascade-invoice.spec.ts",  # debt: not gated, migrate to finance shard later
@@ -138,20 +127,16 @@ KNOWN_UNSHARDED = {
     "tests/phase2-auto-distribution-regression.spec.ts", # debt: not gated, migrate to finance shard later
     "tests/phase8-payout-company.spec.ts",        # debt: not gated, migrate to finance shard later
     # --- polish ---
-    "tests/polish-regressions.spec.ts",           # debt: not gated, migrate to misc shard later
     # --- project ---
-    "tests/project-credentials.spec.ts",          # debt: not gated, migrate to projects shard later
     # --- rbac ---
     "tests/rbac-senior-junior.spec.ts",           # debt: not gated, migrate to team-users shard later
     # --- senior ---
-    "tests/senior-archive-regression.spec.ts",    # debt: not gated, migrate to misc shard later
     "tests/senior-confirm-payout.spec.ts",        # debt: not gated, migrate to finance shard later
     "tests/senior-create-default.spec.ts",        # debt: not gated, migrate to team-users shard later
     "tests/senior-payout-no-dup.spec.ts",         # debt: not gated, migrate to finance shard later
     "tests/senior-project-distribution-regression.spec.ts", # debt: not gated, migrate to projects shard later
     "tests/senior-teamless.spec.ts",              # debt: not gated, migrate to team-users shard later
     # --- team share ---
-    "tests/team-share-override.spec.ts",          # debt: not gated, migrate to team-users shard later
     # --- ui ---
     "tests/ui-invariants-pr56.spec.ts",           # debt: not gated, migrate to misc shard later
 
