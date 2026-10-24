@@ -944,14 +944,14 @@ Each is run against real Postgres, as `crm_app`.
 - **Carries:** due = persisted `next_attempt_at` / `cooldown_until` + enabled + **readiness from
   `readinessAt(subject, clock)`, never the stored `job_sources.readiness` column** (PR #1132
   SPEC-L-2 / SR-M-2) + trigger policy. The scalar terms of "The due predicate" (Option A) are T4's:
-  `enabled`, `manifest_id IS NOT NULL` (**no manifest entry, never due**), `next_attempt_at`,
+  `enabled`, `admin_state = 'ACTIVE'` (round 5, SR-H-5), `manifest_id IS NOT NULL` (**no manifest entry, never due**), `next_attempt_at`,
   `cooldown_until`, and `consecutive_failures < MAX_CONSECUTIVE_FAILURES`. **A manual trigger skips
   the cadence term and nothing else.** A host pause is not cadence. Neither are a cooldown,
   readiness, entitlement, cost, a missing meter, the failure cap or a current owner, so each of them
   refuses a manual run too. `enabled` is administrative permission. Pause, health, reason and state
   history are separate, and an ADMIN enable never clears an unresolved policy or credential block.
   The host-level conditions (ban pause, request rates, the `min_interval_hours` floor) are **T8's**,
-  and the "already running" term is **T3's** (it needs T1b's account key). T4's predicate takes both
+  and the "already running" term is **T3's** (it needs the text account key in T1's migration). T4's predicate takes both
   as inputs. `cooldown_until` also carries the failure backoff, which T3 writes; T4 only reads it.
 - **Depends on:** T2 (sequencing only: both edit `JobSourcingService`; T4 starts after T2 merges).
 - **AC:** (1) a seeded `CANDIDATE` source past `RECRUITEE_TOKEN_DEADLINE` is not due even though its
@@ -959,137 +959,118 @@ Each is run against real Postgres, as `crm_app`.
   a reason; (3) the legacy 10-minute early-due slack never overrides quota or cooldown;
   (4) `collectAll` with `onlyTypes` runs no source outside the set, and with `excludeTypes` runs
   none inside it; (5) a row with `manifest_id IS NULL` is never due, by schedule or by manual
-  trigger; (6) a row at `MAX_CONSECUTIVE_FAILURES` is never due; (7) a manual trigger is due exactly
+  trigger; (6) a row at `MAX_CONSECUTIVE_FAILURES` is never due, nor is a row whose `admin_state` is `PAUSED` or `RETIRED`; (7) a manual trigger is due exactly
   when the scheduled predicate minus the cadence term is true.
 - **Real-Postgres:** the due query over a seeded mix, compared against the pure `isDue` over the same
   rows. The mix includes enabled and disabled rows, a cooled-down row, a deadline-crossed row, a
-  row with no manifest entry, a row at the failure cap, and a manual trigger on each.
+  row with no manifest entry, a row at the failure cap, a `PAUSED` and a `RETIRED` row with `enabled = true`, and a manual trigger on each.
 - **Model:** sonnet, medium.
 
-### T8 — host-level state: stop-on-ban and request rates (migration)
+### T8 — host-level state: stop-on-ban, one run per host, request rates (migration)
 
-Added in review round 1 (CR-M-2, CR-M-3). Nothing on `d0f876f33` can store a host-level fact.
-`job_sources` has no host or pause column
-(`git show origin/main:apps/api/src/database/schema/job-sourcing.ts | grep -n -i -E 'host|pause'`
-finds only comments). The per-source `cooldown_until` cannot express "board B is paused because board
-A was banned" without writing a sibling row the ledger does not own. The Remotive adapter's own
-header states that pacing between its entries "belongs to the scheduler (Task 2.5)". T1 was already
-dispatched with a fixed scope, so the storage is a new task rather than a larger T1.
+Added in review round 1 (CR-M-2, CR-M-3). On `d0f876f33` nothing can store a host-level fact:
+`job_sources` has no host or pause column. The Remotive adapter's own header states that pacing
+between its entries "belongs to the scheduler (Task 2.5)". T1's section is kept as dispatched, so
+the storage is this separate task.
 
-- **Files:** the Drizzle schema (`job-sourcing.ts`): a new table `job_source_hosts` (`host_key`
-  text primary key, `paused_until`, `pause_reason`, `pause_source_id`, `last_claimed_at`) and a
-  `job_sources.host_key` column; a new `apps/api/drizzle/manual/<date>_job_source_hosts.sql`; its
-  line in `deploy.yml`'s ordered list (a DevOps-zone line, so the dispatch names it); the privileges
-  manifest (`privilege-classes.ts`, a class for the new table); a per-type host-rate declaration in
-  the manifest (`hostRate: { perMinute, perDay }`, a new manifest field); a new
-  `job-sourcing/scheduling/host-state.ts` (`recordHostBan`, `claimHostSlot`, `hostOpenPredicate`,
-  `readHostPause` (the lock-free read T7 uses), and `clearHostPause` (called by T9)); the
-  seed-delta generator `manifest.seed-sql.ts` (a new generated delta file for the backfill).
-- **Pause duration (round 4, SR-H-3).** `recordHostBan(hostKey, reason, sourceId, retryAfter?)`
-  writes `paused_until = GREATEST(paused_until, clock_timestamp() + HOST_BAN_PAUSE)`. Here
-  `HOST_BAN_PAUSE` is the largest of three values: 24 hours, the longest `minIntervalHoursFloor` of
-  any type on the host, and `retryAfter`. It is capped at `HOST_BAN_PAUSE_MAX`, which is 30 days, a
-  named constant. A write never shortens a pause. Only expiry or T9's recorded ADMIN clear lifts
-  one.
-- **Who writes and who reads.** The ledger's `finish` (T3) calls `recordHostBan` in its terminal
-  transaction when the run's **error code** (a `COLLECTION_ERROR_CODES` value, not a run outcome)
-  is `ACCESS_POLICY` or `RATE_LIMIT`. The run's outcome is then `FAILED` or `PARTIAL`. The ledger's
-  `claimDue` (T3) calls `claimHostSlot`, which, **on the locked host row**, refuses the claim:
-  - if `paused_until > clock_timestamp()` (round 3, SR-H-1). The due `SELECT` may run on a snapshot
-    older than a ban's commit, so the pause is re-read here, under the lock that `recordHostBan`
-    also takes. A claim racing a ban therefore sees it;
-  - if it is inside the per-minute gap;
-  - if it is over the daily count.
+- **Files:**
+  - the Drizzle schema (`job-sourcing.ts`): a new table `job_source_hosts` (`host_key` text primary
+    key, `paused_until`, `pause_reason`, `pause_source_id`, `last_claimed_at`) and a
+    `job_sources.host_key` column;
+  - a new `apps/api/drizzle/manual/<date>_job_source_hosts.sql`, and its line in `deploy.yml`'s
+    ordered list (a DevOps-zone line, so the dispatch names it);
+  - the privileges manifest (`privilege-classes.ts`, a class for the new table);
+  - the manifest: a per-type `hostRate: { perMinute, perDay }`, and a per-type `hostKey(config)`
+    function (see (a));
+  - a new `job-sourcing/scheduling/host-state.ts`, with `recordHostBan`, `claimHostSlot`,
+    `hostOpenPredicate` and `readHostPause`;
+  - the seed-delta generator `manifest.seed-sql.ts`.
+- **`pause_source_id` is a plain `uuid` column with no foreign key** (round 5, SR-M-10 item 4).
+  `recordHostBan` therefore takes no lock on `job_sources`, and the lock order holds.
+- **`recordHostBan(hostKey, reason, sourceId, retryAfter?)`** (round 5, CR-L-6, CONTRA-1, SR-M-14):
+  - **It is monotone, not idempotent.** It sets
+    `paused_until = GREATEST(paused_until, clock_timestamp() + HOST_BAN_PAUSE)`.
+  - **A repeat from the same source while that source's pause is still active is a no-op.**
+    One source cannot keep re-extending its host's pause; its repeated refusals count against its
+    own failure counter instead (T3).
+  - `HOST_BAN_PAUSE` is the largest of three values: 24 hours, the longest `minIntervalHoursFloor`
+    on the host, and `retryAfter`. It is capped at `HOST_BAN_PAUSE_MAX`, 30 days.
+  - `Retry-After` is parsed in its seconds and HTTP-date forms. It must be finite and
+    non-negative, and is capped; anything else is ignored.
+  - Its only callers are T7's transport wrapper (403 and 429) and T6's extension (451). `finish`
+    does not call it.
+- **`claimHostSlot(tx, hostKey)`** runs inside the claim transaction. It inserts the host row if it
+  is missing, then locks it (see (b)), and refuses the claim:
+  - while `paused_until > clock_timestamp()` (`HOST_PAUSED`);
+  - **while any `STARTED` run exists on a source with this `host_key`** (`HOST_BUSY`; round 5,
+    SR-M-13). This makes at most one run active per host;
+  - for a type that declares `hostRate`: inside the per-minute gap (`last_claimed_at`, read and
+    written under the lock), or over the daily count (`job_collection_runs.started_at` for the
+    host's sources in the trailing 24 h). `started_at` is written once per claim and never updated,
+    so each claim counts exactly once.
 
-  A manual trigger goes through the same `claimHostSlot`. The daily count is computed from
-  `job_collection_runs.started_at` for the host's sources in the trailing 24 h, so no counter can
-  drift. T4's `dueSourcesPredicate` is extended with `hostOpenPredicate`.
+  It refuses a NULL key explicitly.
 
-  Two more callers (round 4, SR-H-3). T7's `fetchText` wrapper calls `recordHostBan` on 403 and
-  429 (and on 451 once T6 surfaces the status), and T7's `markSent` wrapper and heartbeat loop call `readHostPause`, a lock-free
-  read. T9 calls `clearHostPause`. Only this module writes `job_source_hosts`.
-
-- **(a) How `host_key` is derived and backfilled.** The value is the request host the adapter
-  contacts. The manifest gains a per-type `requestHost(config)` function, for example
-  `api.smartrecruiters.com` for every SmartRecruiters board and `remotive.com` for every Remotive
-  category, so sources that share a host share a key. DOU's legacy entry gets `jobs.dou.ua`, so the ban
-  rule is uniform.
-  - The column is added **nullable**, because a migration cannot run manifest code. The backfill is
-    a **new generated seed-delta file**, produced by `manifest.seed-sql.ts` in the same style as
-    Task 3.7's: one dollar-quoted `jsonb` literal read through `jsonb_to_recordset`, then
-    `UPDATE job_sources SET host_key = … WHERE manifest_id = … AND host_key IS NULL`. It is
-    idempotent and never overwrites a value. It is applied by `deploy.yml` after the migration.
-    Every later generated seed delta that **inserts** a source row sets `host_key` in the same
-    insert, so a new source is never left on a NULL key.
-  - A row with no `manifest_id` (an unclaimed legacy row) keeps `host_key = NULL`.
-    `hostOpenPredicate` is written as `s.host_key IS NOT NULL AND NOT EXISTS (…)`, with the null
-    test **first**. A bare `NOT EXISTS (… h.host_key = s.host_key …)` is TRUE for a NULL key and
-    would fail open. `claimHostSlot` refuses a NULL key explicitly, rather than letting a
-    primary-key error abort the claim.
-  - The manifest's drift test asserts that every manifest entry yields a non-empty host and that the
-    generated delta sets it.
-- **(b) How the host row exists before it is locked.** `claimHostSlot` runs inside `claimDue`'s
-  transaction and does two statements. First,
-  `INSERT INTO job_source_hosts (host_key) VALUES ($1) ON CONFLICT (host_key) DO NOTHING`. Then
-  `SELECT … FROM job_source_hosts WHERE host_key = $1 FOR UPDATE`. The seed delta also inserts a row
-  for every manifest host, but correctness does not rest on the seed. This is race-free under
-  `READ COMMITTED`, which T3 pins explicitly. A second claimer's conflicting insert waits on the
-  first transaction's uncommitted index entry, and the first claimer holds that entry until its
-  whole claim transaction ends. **So the two claimers serialize at the `INSERT`.** The second then
-  does nothing, and its `SELECT … FOR UPDATE` takes a fresh statement snapshot and finds the
-  committed row. Exactly one row exists either way, and the two claims are serialized. The
-  per-minute check reads `last_claimed_at` under that lock and writes it in the same transaction.
-- **(c) `started_at` and re-claims.** A recovered run is never re-claimed (T3, Option A): the next
-  claim inserts a new row whose `started_at` is its own claim time, and no code updates
-  `started_at`. So each claim is counted exactly once in the trailing-24 h count. A run that fails
-  before sending still counts, which over-counts in the safe direction.
-- **Carries:** **cross-run stop-on-ban** (PR #1139 SR-M-2), **storage and claim half**: a ban from
-  a host pauses every source on that host until `paused_until`, and no new run of it is claimed. The
-  rule is "use it until banned, never evade": an ADMIN enable does not clear it, and only expiry or
-  T9's recorded ADMIN clear does. **The in-flight half** (runs already running stop sending) is
-  T7's, through `readHostPause` and the ban-at-observation call; see Option A, "Stop-on-ban for runs
-  in flight". **Rates the manifest
-  cannot enforce** (#1139 SR-L-3): Remotive's "at most about 4 requests a day and never more than 2
-  a minute" (Remotive adapter header), enforced at runtime across its three entries and across
-  manual runs. Also an admin-edited `min_interval_hours` below the manifest's
-  `minIntervalHoursFloor` is clamped to the floor and reported.
-- **`hostRate.perDay` counts claims, not requests (round 3, SR-L-4).** It is valid only for an
-  adapter that makes exactly one request per run. Remotive's header says one run is one request per
-  entry. The manifest's drift test refuses a type that declares `perDay` with `requestsPerRun`
-  other than 1. A multi-request adapter needs a request-level counter, which is not built here.
-- **Depends on:** T1b (migration order in `deploy.yml`, after T1 and T1b), T4 (extends its
-  predicate).
-- **AC:** (1) a 403 on board A makes board B on the same host not due until `paused_until`;
-  (2) an ADMIN enable of board B during the pause leaves it not due; (3) three Remotive entries due
-  in the same minute produce at most 2 claims in that minute, and the third is claimed after the
-  gap; (4) a fifth Remotive claim inside 24 h is refused, and so is a manual run once the 4 are
-  used; (5) `min_interval_hours` below the floor runs at the floor; (6) the catalog check passes and
-  `crm_app` holds only the manifest-declared privileges on the new table; (7) after the seed delta,
-  every manifest-owned `job_sources` row has the `host_key` its manifest entry yields, and a second
-  application changes no row; (8) a source with `host_key IS NULL` is never due; (9) two claimers on
-  a host that has no `job_source_hosts` row yet leave exactly one row, and their claims serialize
-  (the second sees the first's `last_claimed_at`); (10) a recovered run followed by a new claim
-  counts as two in the 24 h count, and the recovered row's `started_at` is unchanged; (11) **a ban
-  committed between a claimer's due `SELECT` and its `claimHostSlot` refuses that claim**;
-  (12) **a manual run on a paused host is refused**; (13) the drift test refuses `perDay` on a type
-  whose `requestsPerRun` is not 1; (14) `recordHostBan` sets `paused_until` to at least 24 hours
-  ahead, honours a longer `Retry-After` up to 30 days, and never shortens an existing pause.
-- **Real-Postgres:**
-  - concurrent claimers for two sources on one host (the per-minute gap holds under a race, because
-    both lock the host row);
-  - the 24-hour count at the limit and one past it;
-  - the ban written by `finish` and read by the due query in the next tick;
-  - **the ban race (AC 11):** claimer B runs its due `SELECT`, `finish` of a sibling commits a ban,
-    then B calls `claimHostSlot`, and B is refused, driven step by step with two connections;
-  - **a manual trigger during a pause (AC 12);**
-  - **a NULL `host_key` (AC 8)** under both a scheduled and a manual trigger;
-  - one case per item (a)–(c): the generated delta applied twice to a seeded database (AC 7), two
-    concurrent `claimHostSlot` calls on a missing host row (AC 9), and a crash, recovery and new
-    claim, then the count (AC 10);
-  - the pause arithmetic (AC 14), with time moved by `ageHostPause`.
-
-  Run as `crm_app`.
-
+- **`readHostPause(hostKey)`** returns `paused_until > clock_timestamp()`, computed in SQL, as a
+  boolean. It takes no lock and is never cached in process.
+- **`hostOpenPredicate`** is written `s.host_key IS NOT NULL AND NOT EXISTS (…)`, with the null test
+  **first**. A bare `NOT EXISTS` is TRUE for a NULL key and would fail open.
+- **(a) How `host_key` is derived.** The manifest's `hostKey(config)` gives the **scope a provider
+  bans or rate-limits at** (round 5, SR-L-14). For a provider with one API host, that is the
+  request host, for example `api.smartrecruiters.com` or `remotive.com`. For tenant-subdomain
+  providers (Workable, Recruitee, and any other the manifest marks), it is the **provider's
+  apex**, not the tenant's subdomain, so a provider-wide limit pauses every tenant.
+  - **DOU keeps `host_key = NULL`**, because DOU stays on the legacy path, outside the ledger (Option
+    A, SR-M-17).
+  - The column is added **nullable**, because a migration cannot run manifest code. A **new
+    generated seed delta** backfills it for every manifest-owned **reporting** source:
+    `UPDATE … WHERE manifest_id = … AND host_key IS NULL`. It is idempotent and never overwrites. It
+    is applied by `deploy.yml` after the migration. Later seed deltas set `host_key` on every
+    reporting source they insert.
+  - The drift test asserts that every reporting manifest entry yields a non-empty key.
+- **(b) How the host row exists before it is locked.** `claimHostSlot` first runs `INSERT INTO
+job_source_hosts (host_key) VALUES ($1) ON CONFLICT (host_key) DO NOTHING`, then `SELECT … FOR
+UPDATE`. Under `READ COMMITTED`, a second claimer's conflicting insert waits on the first's
+  uncommitted index entry until the first transaction ends, so **the two serialize at the
+  `INSERT`**. The second's `SELECT … FOR UPDATE` then takes a fresh snapshot and finds the committed
+  row. Exactly one row exists either way.
+- **Carries:** **cross-run stop-on-ban** (PR #1139 SR-M-2), the **storage and claim half**: a ban
+  pauses every source on the host, and no new run of it is claimed. The rule is "use it until
+  banned, never evade". An ADMIN enable does not clear a pause, and since round 5 nothing does but
+  expiry. **The in-flight half** is T7's. **Rates the manifest cannot enforce** (#1139 SR-L-3):
+  Remotive's "at most about 4 requests a day and never more than 2 a minute" (Remotive adapter
+  header), across its entries and manual runs. An admin-edited `min_interval_hours` below the
+  manifest's `minIntervalHoursFloor` is clamped to the floor and reported. **`hostRate.perDay`
+  counts claims**, so it is valid only for adapters that make one request per run. The drift test
+  refuses `perDay` where `requestsPerRun ≠ 1`.
+- **Depends on:** T1 (migration order in `deploy.yml`; T1 carries T1b), T4 (extends its predicate).
+- **AC** (round 5, CR-M-16: every criterion calls this task's own functions on seeded rows; the
+  end-to-end versions are T3 AC 16):
+  1. With a seeded pause, `dueSourcesPredicate` excludes every source on the host until
+     `paused_until`.
+  2. An ADMIN `enabled` toggle during the pause leaves the source excluded.
+  3. `claimHostSlot` refuses inside the per-minute gap and allows after it: three seeded Remotive
+     sources get at most 2 slots in one minute.
+  4. `claimHostSlot` refuses a fifth Remotive slot inside 24 h, counted from seeded `started_at`
+     rows.
+  5. `min_interval_hours` below the floor runs at the floor.
+  6. The catalog check passes, and `crm_app` holds only the manifest-declared privileges on the new
+     table.
+  7. The seed delta sets every reporting source's `host_key`, leaves DOU's NULL, and a second
+     application changes nothing.
+  8. A source with `host_key IS NULL` is never matched by the predicate, and `claimHostSlot`
+     refuses a NULL key without an exception.
+  9. Two concurrent `claimHostSlot` calls on a missing host row leave exactly one row and serialize.
+  10. `claimHostSlot` refuses `HOST_BUSY` while a seeded `STARTED` run exists on the host.
+  11. A pause committed after a claimer's due `SELECT` and before its `claimHostSlot` refuses that
+      claim (two connections, stepped).
+  12. `recordHostBan` sets at least 24 h, honours a longer valid `Retry-After` up to 30 days,
+      ignores a malformed or negative one, never shortens a pause, and is a no-op on a repeat from
+      the same source within its pause.
+  13. The drift test refuses `perDay` on a type whose `requestsPerRun` is not 1.
+  14. Tenant-subdomain sources of one provider share one `host_key`.
+- **Real-Postgres:** AC 1–4 and 6–12 against a scratch database, as `crm_app`. Time is moved by
+  `ageHostPause`.
 - **Model:** opus (Drizzle migration). **security-reviewer mandatory.**
 
 ### T7 — production `CollectionContext` builder and run worker
