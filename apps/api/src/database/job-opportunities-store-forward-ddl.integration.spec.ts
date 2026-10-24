@@ -59,7 +59,7 @@
  * It is possible only because no statement in those files is schema-qualified — see the
  * note on the foreign keys in part 1's header.
  */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Pool, type PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -102,6 +102,11 @@ const PART_4_MIGRATION = '2026-10-22_job_queue_redaction_callable.sql'
  * file. It is therefore part of every forward path below — applied after parts 1 and 2,
  * as `deploy.yml` will apply it — and on a fresh store it is a REAL upgrade: parts 1 and
  * 2 create `job_collection_runs` without the column, and this file adds it.
+ *
+ * It is STAGED in `drizzle/manual-staged/` until DevOps wires the deploy and moves it to
+ * `manual/` (the same arrangement as the 2026-10-24 manifest seed delta), so `readPart`
+ * looks in `manual/` first and falls back to `manual-staged/`: the move changes no byte
+ * of the file and must not break this spec.
  */
 const PART_5_MIGRATION = '2026-10-24_job_run_single_flight.sql'
 /** The indexes PART_5 creates; the reference counts them beside part 2's own. */
@@ -176,7 +181,12 @@ const PRE_STORE_ENUMS = [
 /** Tripwires on the DERIVED expectation — they fail if the reference side shifts. */
 const EXPECTED = { tables: 18, enums: 19, jobSourcesColumns: 18, indexes: 44 } as const
 
-const readPart = (name: string): string => readFileSync(join(MANUAL_DIR, name), 'utf8')
+const STAGED_DIR = join(__dirname, '..', '..', 'drizzle', 'manual-staged')
+const readPart = (name: string): string =>
+  readFileSync(
+    existsSync(join(MANUAL_DIR, name)) ? join(MANUAL_DIR, name) : join(STAGED_DIR, name),
+    'utf8',
+  )
 
 /**
  * Membership, read off the Drizzle declarations rather than the SQL under test. Textual
@@ -726,22 +736,32 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     expect(finalNames.slice().sort()).toEqual(created.slice().sort())
   })
 
-  it('keeps the three copies of the T1 index-name list in agreement (2.5 T1, same as SR-M-6)', () => {
-    // PART_5 repeats part 2's device on a smaller scale: the creates, the sweep's
-    // `ARRAY[…]` and the final check's `VALUES` each name its indexes, for the same
-    // reason (every statement independently applicable), so the same drift is possible.
+  it('keeps the two copies of the T1 index-name list in agreement (2.5 T1, same as SR-M-6)', () => {
+    // PART_5 repeats part 2's device on a smaller scale: the creates and the final
+    // check's `VALUES` each name its indexes, so an index added to one and forgotten in
+    // the other would be built but never shape-checked (or checked but never built).
     const sql = readPart(PART_5_MIGRATION)
-    const created = [
-      ...sql.matchAll(/^CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "([a-z_0-9]+)"/gm),
-    ].map((m) => m[1]!)
-    const sweepArray = /ARRAY\[([\s\S]*?)\]\)/.exec(sql)?.[1] ?? ''
-    const sweepNames = [...sweepArray.matchAll(/'([a-z_0-9]+)'/g)].map((m) => m[1]!)
+    const created = [...sql.matchAll(/^CREATE UNIQUE INDEX IF NOT EXISTS "([a-z_0-9]+)"/gm)].map(
+      (m) => m[1]!,
+    )
     const finalNames = [...sql.matchAll(/\('(uq_[a-z_0-9]+)', '[a-z_]+'\)/g)].map((m) => m[1]!)
 
-    // Sizes first, so a regex that matched nothing fails here, not as two equal empties.
-    for (const list of [created, sweepNames, finalNames]) {
-      expect(list.slice().sort()).toEqual([...PART_5_INDEXES])
-    }
+    // Exact lists, so a regex that matched nothing fails here, not as two equal empties.
+    expect(created.slice().sort()).toEqual([...PART_5_INDEXES])
+    expect(finalNames.slice().sort()).toEqual([...PART_5_INDEXES])
+  })
+
+  it('applies the T1 file only as a whole transaction: no CONCURRENTLY, no inner BEGIN/COMMIT (2.5 T1)', () => {
+    // The file is applied with `psql --single-transaction`, which is what makes a refused
+    // preflight undo the column add. A `CONCURRENTLY` build would make psql fail inside the
+    // transaction block, and an inner COMMIT would end the transaction early and silently
+    // turn the apply back into statement-by-statement.
+    const sql = readPart(PART_5_MIGRATION)
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('--'))
+      .join('\n')
+    expect(sql).not.toMatch(/\bCONCURRENTLY\b/i)
+    expect(sql).not.toMatch(/^\s*(BEGIN|COMMIT|ROLLBACK)\s*;/im)
   })
 
   it('creates every enum type the Drizzle schema declares for the store, value order included', () => {

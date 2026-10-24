@@ -1,5 +1,5 @@
 -- =============================================================================
--- job_collection_runs single flight (r5 Task 2.5 T1) — prod forward DDL
+-- job_collection_runs single flight (r5 Task 2.5 T1) — prod forward DDL (STAGED)
 -- =============================================================================
 --
 -- WHAT THIS FILE DOES
@@ -18,13 +18,35 @@
 --
 -- Design: docs/architecture/2026-10-24-job-source-run-ownership.md (Option A, task T1).
 -- The Drizzle declaration of the same objects is `jobCollectionRuns` in
--- apps/api/src/database/schema/job-collection.ts — this file and that one describe one
--- catalog, and `db:push` on a fresh database produces the same three objects.
+-- apps/api/src/database/schema/job-collection.ts; `db:push` on a fresh database produces
+-- the same three objects, and job-opportunities-store-forward-ddl.integration.spec.ts
+-- proves it by applying this file and comparing catalogs.
 --
--- Apply AFTER 2026-10-17_job_opportunities_store.sql and ..._store_indexes.sql (the table
--- and the index this file sits beside). Apply as the migration role (`crm_user`), with
--- `psql -v ON_ERROR_STOP=1`, NOT inside `--single-transaction`: section 4 is
--- `CREATE INDEX CONCURRENTLY`, which Postgres refuses inside a transaction block.
+-- WHY THIS FILE IS STAGED, NOT IN manual/
+-- ---------------------------------------
+-- Same reason as manual-staged/2026-10-24_job_sources_manifest_delta.sql:
+-- scripts/devops/check-prod-ddl-wiring.py fails a build holding a manual/ file the deploy
+-- does not copy and apply, and wiring the deploy is DevOps work (backlog 337's list).
+-- DevOps moves this file to manual/ together with those edits. The text names no
+-- directory, so the move changes no byte of it.
+--
+-- HOW TO APPLY (load-bearing)
+-- ---------------------------
+--   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
+-- as the migration role (`crm_user`), AFTER 2026-10-17_job_opportunities_store.sql and
+-- 2026-10-17_job_opportunities_store_indexes.sql (they create the table and the index
+-- this file sits beside). --single-transaction is REQUIRED: it makes the apply
+-- all-or-nothing, so a refusal in section 2 also undoes section 1, and a failed index
+-- build leaves no object behind. That is also why there is no INVALID-index sweep here,
+-- unlike the store's index file: a non-concurrent build inside a transaction either
+-- commits a valid index or rolls back entirely.
+--
+-- THE PRICE, recorded: these builds are NOT `CONCURRENTLY` (Postgres refuses that inside a
+-- transaction block). Each takes a SHARE lock on `job_collection_runs` for the length of
+-- its build, and the ALTER in section 1 holds ACCESS EXCLUSIVE until the transaction
+-- commits. Today no production code writes the table (ADR fact F3), so the build covers no
+-- rows and blocks no writer. On a later re-apply where both indexes already exist,
+-- `IF NOT EXISTS` skips the build.
 --
 -- PRIVILEGES: none change. `job_collection_runs` is class A in
 -- apps/api/src/database/privileges/privilege-classes.ts, granted at TABLE level, so the new
@@ -32,12 +54,11 @@
 -- Indexes carry no privileges. Every object here is created by the applying role, so
 -- `crm_app` owns nothing new (the catalog check's part 7 stays true).
 --
--- IDEMPOTENT: every section is safe to re-run on every deploy. RE-RUNNING THIS FILE IS THE
--- REPAIR for an interrupted run, exactly as for the store's index file.
+-- IDEMPOTENT: safe to re-run on every deploy.
 --
--- ROLLBACK (additive; through the same path):
---   DROP INDEX CONCURRENTLY IF EXISTS uq_job_collection_runs_one_started_per_account;
---   DROP INDEX CONCURRENTLY IF EXISTS uq_job_collection_runs_one_started_per_source;
+-- ROLLBACK (additive; one transaction):
+--   DROP INDEX IF EXISTS uq_job_collection_runs_one_started_per_account;
+--   DROP INDEX IF EXISTS uq_job_collection_runs_one_started_per_source;
 --   ALTER TABLE job_collection_runs DROP COLUMN IF EXISTS account_key;
 --
 -- WHAT THE DATABASE STILL CANNOT SEE: that a writer derived `account_key` correctly. A
@@ -47,11 +68,11 @@
 -- =============================================================================
 
 SET lock_timeout = '10s';
-SET statement_timeout = '30min';
+SET statement_timeout = '5min';
 
 
 -- ---------------------------------------------------------------------------
--- 1. The column, backfilled, then NOT NULL — one transaction
+-- 1. The column, backfilled, then NOT NULL
 -- ---------------------------------------------------------------------------
 --
 -- No production code writes runs yet (ADR fact F3), so on production the UPDATE is
@@ -62,8 +83,6 @@ SET statement_timeout = '30min';
 --
 -- A terminal run's key is historical only — terminal rows never contend — so deriving it
 -- from today's meter assignment is harmless.
-BEGIN;
-
 ALTER TABLE "job_collection_runs" ADD COLUMN IF NOT EXISTS "account_key" uuid;
 
 UPDATE "job_collection_runs" r
@@ -74,18 +93,16 @@ UPDATE "job_collection_runs" r
 
 ALTER TABLE "job_collection_runs" ALTER COLUMN "account_key" SET NOT NULL;
 
-COMMIT;
-
 
 -- ---------------------------------------------------------------------------
 -- 2. Preflight: refuse to build over live contention
 -- ---------------------------------------------------------------------------
 --
 -- If two STARTED runs already share a source or an account, a UNIQUE build cannot
--- succeed, and a failed CONCURRENTLY build leaves an INVALID index behind. Which of the
--- two runs should lose is a decision about live collection state (production data), so
--- this file does NOT resolve it: it names the contended keys and stops before building
--- anything. Resolve them (let the runs end, or mark the stale one terminal), then re-run.
+-- succeed. Which of the two runs should lose is a decision about live collection state
+-- (production data), so this file does NOT resolve it: it names the contended keys and
+-- stops, and --single-transaction rolls section 1 back with it. Resolve them (let the
+-- runs end, or mark the stale one terminal), then re-run.
 DO $$
 DECLARE
   contended_sources int;
@@ -115,81 +132,25 @@ END $$;
 
 
 -- ---------------------------------------------------------------------------
--- 3. Drop ABANDONED invalid leftovers of the two indexes below
+-- 3. The two single-flight indexes
 -- ---------------------------------------------------------------------------
 --
--- Same contract as section 0 of 2026-10-17_job_opportunities_store_indexes.sql, whose
--- header carries the measurements (SR-M-2 / SR-M-4): an interrupted CONCURRENTLY build
--- leaves an INVALID index that `IF NOT EXISTS` would then skip forever; an index that is
--- invalid because a build is still RUNNING must not be dropped; and a build this role
--- cannot attribute (masked progress columns) means nothing is swept this run. The name
--- list is EXACTLY the two indexes this file creates.
-DO $$
-DECLARE
-  leftover text;
-  total_builds int;
-  attributable_builds int;
-BEGIN
-  SELECT count(*), count(p.relid)
-    INTO total_builds, attributable_builds
-    FROM pg_stat_progress_create_index p
-   WHERE p.datid = (SELECT oid FROM pg_database WHERE datname = current_database());
+-- The key ALONE, no config_version: a config bump must not open a second slot for the
+-- same source.
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_job_collection_runs_one_started_per_source" ON "job_collection_runs" USING btree ("source_id") WHERE "job_collection_runs"."outcome" = 'STARTED';
 
-  IF total_builds <> attributable_builds THEN
-    RAISE NOTICE
-      'pg_stat_progress_create_index reports % index build(s) in this database and % of them are masked from role % — cannot prove no build is in progress, so NOTHING is swept this run; re-run when no build is in flight',
-      total_builds, total_builds - attributable_builds, current_user;
-    RETURN;
-  END IF;
-
-  FOR leftover IN
-    SELECT c.relname
-      FROM pg_class c
-      JOIN pg_index i ON i.indexrelid = c.oid
-      JOIN pg_namespace n ON n.oid = c.relnamespace
-     WHERE n.nspname = current_schema()
-       AND NOT i.indisvalid
-       AND NOT EXISTS (
-             SELECT 1
-               FROM pg_stat_progress_create_index p
-              WHERE p.datid = (SELECT oid FROM pg_database WHERE datname = current_database())
-                AND (p.index_relid = c.oid OR p.relid = i.indrelid)
-           )
-       AND c.relname = ANY (ARRAY[
-         'uq_job_collection_runs_one_started_per_account',
-         'uq_job_collection_runs_one_started_per_source'
-       ])
-  LOOP
-    RAISE NOTICE 'dropping INVALID index % (interrupted CONCURRENTLY build); it is rebuilt below', leftover;
-    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), leftover);
-  END LOOP;
-END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_job_collection_runs_one_started_per_account" ON "job_collection_runs" USING btree ("account_key") WHERE "job_collection_runs"."outcome" = 'STARTED';
 
 
 -- ---------------------------------------------------------------------------
--- 4. The two single-flight indexes
--- ---------------------------------------------------------------------------
---
--- CONCURRENTLY for the reason the store's index file gives: the first apply is not the
--- only apply, and a re-apply onto a table that by then holds rows must not take a write
--- lock for the length of the build. The key ALONE, no config_version: a config bump must
--- not open a second slot for the same source.
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "uq_job_collection_runs_one_started_per_source" ON "job_collection_runs" USING btree ("source_id") WHERE "job_collection_runs"."outcome" = 'STARTED';
-
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "uq_job_collection_runs_one_started_per_account" ON "job_collection_runs" USING btree ("account_key") WHERE "job_collection_runs"."outcome" = 'STARTED';
-
-
--- ---------------------------------------------------------------------------
--- 5. Final check: the intended state, or a failed apply
+-- 4. Final check: the intended state, or a failed apply
 -- ---------------------------------------------------------------------------
 --
 -- `IF NOT EXISTS` matches on the NAME only, so an index of the right name and the wrong
--- shape (a hand-made one, a stale definition) would let sections 3-4 exit 0 while
--- enforcing something else. This check asserts the SHAPE: valid, unique, exactly the one
--- intended key column, the STARTED predicate — plus the column's NOT NULL. Anything else
--- raises, and `ON_ERROR_STOP=1` turns that into a failed deploy instead of a quietly
--- unenforced invariant. An in-flight build of one of these very indexes still raises here
--- (it is not usable yet); re-run when it has finished.
+-- shape (a hand-made one, a stale definition) would let section 3 succeed while enforcing
+-- something else. This check asserts the SHAPE: valid, unique, exactly the one intended
+-- key column, the STARTED predicate — plus the column's NOT NULL. Anything else raises,
+-- and ON_ERROR_STOP=1 with --single-transaction rolls the whole apply back.
 DO $$
 DECLARE
   expected record;
@@ -232,12 +193,12 @@ BEGIN
     END IF;
   END LOOP;
 
+  -- A VALID index of the right name and the wrong shape is not repaired by a re-run
+  -- (IF NOT EXISTS skips by name): it has to be dropped by hand first, deliberately — it
+  -- may be someone's diagnostic index, and this file does not drop what it cannot
+  -- attribute.
   IF cardinality(problems) > 0 THEN
-    -- A re-run repairs an INVALID or missing index. It does NOT repair a VALID index of the
-    -- right name and the wrong shape (section 3 sweeps invalid ones only, and IF NOT EXISTS
-    -- skips by name): that one has to be dropped by hand first, deliberately — it may be
-    -- someone's diagnostic index, and this file does not drop what it cannot attribute.
-    RAISE EXCEPTION 'job_collection_runs single flight is NOT in the intended state: % — if the index is missing or INVALID, re-run this file; if an index of that NAME exists with another shape, drop it, then re-run',
+    RAISE EXCEPTION 'job_collection_runs single flight is NOT in the intended state: % — if an index of that NAME exists with another shape, drop it, then re-run this file',
       array_to_string(problems, '; ');
   END IF;
 END $$;
