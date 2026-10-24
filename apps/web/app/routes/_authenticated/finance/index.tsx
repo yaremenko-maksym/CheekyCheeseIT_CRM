@@ -295,7 +295,11 @@ function FinancePage() {
                               {formatMonthLabel(salaryTx.salaryMonth, locale)}
                             </td>
                             <td className="py-3 px-4 text-xs text-muted-foreground">
-                              {formatDate(salaryTx.txDate ?? salaryTx.createdAt, locale, 'shortYY')}
+                              {formatDate(
+                                salaryTx.txDate ?? salaryTx.createdAt,
+                                locale,
+                                'shortYYUtc',
+                              )}
                             </td>
                             <td className="py-3 px-4">
                               <span
@@ -386,7 +390,7 @@ function FinancePage() {
                                 {formatDate(
                                   salaryTx.txDate ?? salaryTx.createdAt,
                                   locale,
-                                  'shortYY',
+                                  'shortYYUtc',
                                 )}
                               </td>
                               <td className="py-3 px-4">

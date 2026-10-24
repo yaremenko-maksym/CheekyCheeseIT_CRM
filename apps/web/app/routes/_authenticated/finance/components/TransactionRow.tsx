@@ -420,7 +420,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
         </td>
 
         <td className="py-3 px-4 text-xs text-muted-foreground whitespace-nowrap">
-          {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}
+          {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYYUtc')}
         </td>
 
         <td className="py-3 px-4">

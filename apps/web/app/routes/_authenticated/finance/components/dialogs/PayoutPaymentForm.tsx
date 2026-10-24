@@ -237,7 +237,7 @@ export function PayoutPaymentForm({
                         <p className="text-muted-foreground">
                           <Trans>
                             #{tx.id.slice(0, 6)} від{' '}
-                            {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}
+                            {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYYUtc')}
                           </Trans>
                         </p>
                       </div>
@@ -316,7 +316,7 @@ export function PayoutPaymentForm({
                         <p className="text-muted-foreground">
                           <Trans>
                             {tx.projectName ?? '—'} · #{tx.id.slice(0, 6)} від{' '}
-                            {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}
+                            {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYYUtc')}
                           </Trans>
                         </p>
                       </div>

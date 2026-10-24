@@ -301,7 +301,7 @@ export function PaySalaryDialog({
                 <Trans>Дата</Trans>
               </span>
               <span className="font-medium text-right">
-                {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}
+                {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYYUtc')}
               </span>
             </div>
           </div>

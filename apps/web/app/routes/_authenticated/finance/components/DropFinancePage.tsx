@@ -16,6 +16,7 @@ import { useLingui } from '@lingui/react/macro'
 import { msg } from '@lingui/core/macro'
 import type { MessageDescriptor } from '@lingui/core'
 import { formatNumber, formatDate } from '@crm/shared'
+import { periodToDates, type Period } from '../utils/period'
 import { useLocale } from '@/lib/i18n'
 import type { DropIncomeDto, DropIncomeStatus, DropPaymentDto, Locale } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
@@ -172,39 +173,6 @@ function PaymentStatusBadge({ status }: { status: DropPaymentStatus }) {
   )
 }
 
-// ── Period filter helper ───────────────────────────────────────────────────────
-
-type Period = 'all' | 'current' | 'prev' | '3m'
-
-function localCalendarDateKey(date: Date): string {
-  // The filter is chosen in the browser's local calendar. Serialising local
-  // midnight with Date#toISOString can move the key to the previous UTC day
-  // in positive-offset timezones. Re-encode the same local Y/M/D components
-  // as UTC solely to obtain a stable YYYY-MM-DD key.
-  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
-    .toISOString()
-    .slice(0, 10)
-}
-
-function periodToDates(period: Period): { from?: string; to?: string } {
-  const now = new Date()
-  if (period === 'all') return {}
-
-  if (period === 'current') {
-    const from = new Date(now.getFullYear(), now.getMonth(), 1)
-    return { from: localCalendarDateKey(from) }
-  }
-  if (period === 'prev') {
-    const from = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-    const to = new Date(now.getFullYear(), now.getMonth(), 0)
-    return { from: localCalendarDateKey(from), to: localCalendarDateKey(to) }
-  }
-  // 3m
-  const from = new Date(now)
-  from.setMonth(from.getMonth() - 3)
-  return { from: localCalendarDateKey(from) }
-}
-
 // ── DropIncomesTable ───────────────────────────────────────────────────────────
 
 function DropIncomesTable() {
@@ -346,7 +314,7 @@ function DropIncomesTable() {
                 {incomes.map((income) => (
                   <TableRow key={income.id} data-testid={`drop-income-row-${income.id}`}>
                     <TableCell className="text-xs text-muted-foreground tabular-nums">
-                      {formatDate(income.txDate ?? income.createdAt, locale, 'shortYY')}
+                      {formatDate(income.txDate ?? income.createdAt, locale, 'shortYYUtc')}
                     </TableCell>
                     <TableCell className="text-sm">{income.companyName}</TableCell>
                     <TableCell className="text-sm font-semibold tabular-nums">
@@ -459,7 +427,7 @@ function DropPaymentsHistory({
                   data-testid={`drop-payment-row-${p.id}`}
                 >
                   <span className="text-xs text-muted-foreground tabular-nums">
-                    {formatDate(p.txDate ?? p.createdAt, locale, 'shortYY')}
+                    {formatDate(p.txDate ?? p.createdAt, locale, 'shortYYUtc')}
                   </span>
                   <span className="text-sm font-semibold tabular-nums">
                     {fmtUsd(p.amount, locale)}

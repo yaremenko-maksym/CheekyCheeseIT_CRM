@@ -5,7 +5,7 @@ import { CheckCircle2, Loader2 } from 'lucide-react'
 import { Trans, Plural, useLingui } from '@lingui/react/macro'
 import { i18n } from '@lingui/core'
 import type { TransactionDto } from '@crm/shared'
-import { formatDate } from '@crm/shared'
+import { formatDate, kyivToday } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -33,11 +33,6 @@ import { usePayoutPaymentForm } from '../../hooks/usePayoutPaymentForm'
 import { PayoutPaymentForm } from './PayoutPaymentForm'
 
 type Step = 'select' | 'pay'
-
-function localTodayKey(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
 
 function transactionDateKey(tx: TransactionDto): string {
   return new Date(tx.txDate ?? tx.createdAt).toISOString().slice(0, 10)
@@ -136,7 +131,7 @@ function ProjectRow({
             onChange={() => onToggleTx(tx.id)}
             disabled={disabled}
             className="h-4 w-4 shrink-0 accent-primary"
-            aria-label={t`Дохід від ${formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}`}
+            aria-label={t`Дохід від ${formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYYUtc')}`}
             data-testid={`company-share-income-checkbox-${tx.id}`}
           />
           <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
@@ -144,7 +139,7 @@ function ProjectRow({
               className="min-w-0 truncate text-xs text-muted-foreground"
               data-testid={`company-share-income-date-${tx.id}`}
             >
-              <Trans>Дохід від {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}</Trans>
+              <Trans>Дохід від {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYYUtc')}</Trans>
             </span>
             <span className="shrink-0 tabular-nums text-xs">
               {fmtAmount(tx.amount, tx.currency)}
@@ -201,7 +196,7 @@ export function CompanySharePayoutModal({
   const [step, setStep] = useState<Step>('select')
   const [selected, setSelected] = useState<Set<string>>(() => new Set(preselectedTxIds ?? []))
   const [payoutId, setPayoutId] = useState<string | null>(null)
-  const [payoutDate, setPayoutDate] = useState(localTodayKey)
+  const [payoutDate, setPayoutDate] = useState(kyivToday)
 
   const step2Ref = useRef<HTMLDivElement>(null)
 
@@ -211,7 +206,7 @@ export function CompanySharePayoutModal({
     if (open) {
       setStep('select')
       setPayoutId(null)
-      setPayoutDate(localTodayKey())
+      setPayoutDate(kyivToday())
       setSelected(
         new Set(
           preselectedTxIds && preselectedTxIds.length > 0

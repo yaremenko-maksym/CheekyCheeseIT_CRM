@@ -2,7 +2,12 @@ import React, { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { SALARY_ELIGIBLE_ROLES, COMPANY_ACCOUNT_RECEIVER, formatNumber } from '@crm/shared'
+import {
+  SALARY_ELIGIBLE_ROLES,
+  COMPANY_ACCOUNT_RECEIVER,
+  formatNumber,
+  kyivToday,
+} from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useLocale } from '@/lib/i18n'
 import { api } from '@/lib/axios'
@@ -160,10 +165,7 @@ export function CreateTransactionDialog({
     crypto.randomUUID(),
   )
   const [salaryIdempotencyKey, setSalaryIdempotencyKey] = useState(() => crypto.randomUUID())
-  const [txDate, setTxDate] = useState(() => {
-    const now = new Date()
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-  })
+  const [txDate, setTxDate] = useState(kyivToday)
   // AC4: per-field validation errors keyed by field name. Populated on submit
   // so the user sees EVERY missing/invalid field at once (project, receipt,
   // amount, …) inline next to the field, instead of only the first failure in
@@ -444,10 +446,7 @@ export function CreateTransactionDialog({
     setFieldErrors({})
     // Reset funding source to per-type default.
     setFundingSource(defaultFundingSource(type))
-    const now = new Date()
-    setTxDate(
-      `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`,
-    )
+    setTxDate(kyivToday())
     // MED-2 (BIZ-19): generate a fresh idempotency key on each dialog close so
     // the next open session starts with a new key (new dialog = new dividend intent).
     setDividendIdempotencyKey(crypto.randomUUID())
