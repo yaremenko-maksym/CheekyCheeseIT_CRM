@@ -19,6 +19,8 @@ export interface FakeResponse {
   bodyText?: string
   etag?: string | null
   headers?: Record<string, string>
+  /** The fetch REJECTS with this instead of answering (a network failure). */
+  throws?: unknown
 }
 
 export interface FakeContext {
@@ -32,6 +34,8 @@ export function fakeCollectionContext(opts: {
   responses: FakeResponse[]
   now?: Date
   cacheSeed?: Record<string, CachedResponse>
+  /** The checkpoint a previous attempt left behind (default: none). */
+  stored?: ValidatedCheckpoint | null
 }): FakeContext {
   const sent: FetchRequest[] = []
   const saved: ValidatedCheckpoint[] = []
@@ -51,6 +55,7 @@ export function fakeCollectionContext(opts: {
       const response = opts.responses[fetches]
       fetches += 1
       if (response === undefined) throw new Error(`no fake response for fetch ${fetches}`)
+      if (response.throws !== undefined) throw response.throws
       return {
         status: response.status ?? 200,
         bodyText: response.bodyText ?? '',
@@ -66,7 +71,7 @@ export function fakeCollectionContext(opts: {
     },
     checkpoints: {
       async load() {
-        return null
+        return opts.stored ?? null
       },
       async savePage({ checkpoint }) {
         saved.push(checkpoint)

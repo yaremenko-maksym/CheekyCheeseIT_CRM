@@ -25,3 +25,37 @@ import { i18n } from '@lingui/core'
  */
 i18n.load('uk', {})
 i18n.activate('uk')
+
+/**
+ * happy-dom 21 (GHSA-834v-8h66-3h79 bump). `Animation.cancel()` rejects the
+ * animation's `finished` promise with an `AbortError` but does not mark that
+ * rejection handled. The Web Animations spec (W3C web-animations-1, 4.4.14
+ * "Canceling an animation") does both: step 1.2 rejects the current finished
+ * promise with an AbortError, step 1.3 sets its [[PromiseIsHandled]] slot to
+ * true. motion-dom calls `cancel()` through `NativeAnimation.stop()` on
+ * unmount, so nothing attaches a catch and Vitest reports an unhandled
+ * rejection (exit code 1 with every test green). Attaching a no-op catch first
+ * supplies step 1.3's effect for the tracker only: `p.catch(noop)` derives a new
+ * promise and leaves `p` rejecting for every other consumer. No product code is
+ * involved.
+ *
+ * What is pinned: `animation-cancel-shim.test.ts` asserts both halves: no
+ * `unhandledRejection` is emitted by `cancel()` (measured red without this
+ * shim, green with it) and the promise that `cancel()` rejected still rejects
+ * with an AbortError for a late consumer. It does not detect a shim that
+ * swallows by replacing `finished`; the whole-suite exit code and 0-error count
+ * remain the end-to-end check.
+ *
+ * Remove when: a later happy-dom marks the rejection handled itself, or motion-dom
+ * stops calling `cancel()` on unmount. Delete this block together with that test.
+ */
+const animationProto = (
+  globalThis as { Animation?: { prototype: { cancel: () => void; finished?: Promise<unknown> } } }
+).Animation?.prototype
+if (animationProto) {
+  const originalCancel = animationProto.cancel
+  animationProto.cancel = function cancel(this: { finished?: Promise<unknown> }) {
+    this.finished?.catch(() => undefined)
+    return originalCancel.call(this)
+  }
+}

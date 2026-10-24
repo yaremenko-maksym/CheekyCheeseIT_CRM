@@ -765,3 +765,29 @@ describe('validateEnv — Google Indexing API env (Section G)', () => {
     })
   })
 })
+
+describe('validateEnv — vacancy-sourcing quota provider keys (r5 Task 3.5a)', () => {
+  const KEYS = ['JOOBLE_API_KEY', 'RAPIDAPI_KEY', 'THEIRSTACK_API_KEY', 'REED_API_KEY'] as const
+
+  it.each(KEYS)('%s omitted -> unconfigured (undefined), boot succeeds', (key) => {
+    expect(validateEnv({ ...BASE_DEV })[key]).toBeUndefined()
+  })
+
+  it.each(KEYS)('%s empty or whitespace-only -> unconfigured, never an empty credential', (key) => {
+    expect(validateEnv({ ...BASE_DEV, [key]: '' })[key]).toBeUndefined()
+    expect(validateEnv({ ...BASE_DEV, [key]: '   ' })[key]).toBeUndefined()
+  })
+
+  it.each(KEYS)('%s set -> kept verbatim', (key) => {
+    expect(validateEnv({ ...BASE_DEV, [key]: 'k-123' })[key]).toBe('k-123')
+  })
+
+  it('Cloudflare credentials do not configure any quota provider (C-21)', () => {
+    const env = validateEnv({
+      ...BASE_DEV,
+      CLOUDFLARE_ACCOUNT_ID: 'cf-account',
+      CLOUDFLARE_AI_TOKEN: 'cf-token',
+    })
+    for (const key of KEYS) expect(env[key]).toBeUndefined()
+  })
+})

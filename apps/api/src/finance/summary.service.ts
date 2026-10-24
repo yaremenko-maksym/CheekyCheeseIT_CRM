@@ -310,8 +310,14 @@ export class SummaryService {
 
     for (const tx of paid) {
       // Audit 2026-06-28 (#9): bucket by the business date (txDate) when present,
-      // falling back to createdAt. Aligns with getIncomeComplianceOverview. Prod
-      // data has txDate == createdAt so the existing totals / graph are unchanged.
+      // falling back to createdAt. Aligns with getIncomeComplianceOverview.
+      //
+      // CR-809-H-2: the line that used to stand here — "Prod data has txDate ==
+      // createdAt so the existing totals / graph are unchanged" — has been false
+      // since #809 shipped operator-chosen dates. It is removed rather than
+      // amended because it was being read as a licence to key sibling
+      // aggregates on `createdAt`; `getAccountantSummary.paidAmount` did
+      // exactly that and disagreed with this graph by the backdated amounts.
       const when = tx.txDate ?? tx.createdAt
       const month = when.toISOString().slice(0, 7) // YYYY-MM
       if (!monthMap.has(month))
@@ -379,7 +385,11 @@ export class SummaryService {
    *   - validatedThisMonth — rows the accountant VALIDATED in the current
    *                          calendar month (by `validatedAt`, NOT NULL).
    *   - paidThisMonth      — income/payout money settled (status PAID) whose
-   *                          `createdAt` falls in the current month.
+   *                          BUSINESS date (`coalesce(tx_date, created_at)`)
+   *                          falls in the current month (CR-809-H-2). Keyed on
+   *                          the same expression as the monthly graph in
+   *                          `getSummary`, so a backdated row lands in one
+   *                          month for both.
    *   - recipientCount     — distinct income parties (seniors / drops) the
    *                          accountant oversees.
    *
@@ -430,8 +440,26 @@ export class SummaryService {
           sql<number>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'VALIDATED' and ${transactions.validatedAt} is not null and ${transactions.validatedAt} >= ${monthStart}), 0)`.mapWith(
             Number,
           ),
+        // CR-809-H-2: windowed on the BUSINESS date, not on `created_at`.
+        // Before #809 the two were interchangeable; since operators can pick
+        // the date, they are not. A September salary paid on 6 Oct and dated
+        // 30 Sep belongs to September in the monthly graph (which has always
+        // bucketed on `txDate ?? createdAt` — see `getSummary` above), so it
+        // must not be counted by THIS tile as October money: that disagreement
+        // between two numbers on one screen is the defect. `coalesce` matches
+        // the monthly graph's `tx.txDate ?? tx.createdAt` exactly, including
+        // for the NULL-txDate rows that predate #809.
+        //
+        // Index note: the only date index on `transactions` is
+        // `idx_transactions_active_created_at (created_at) WHERE deleted_at IS
+        // NULL`, and a btree on a bare column cannot serve a `coalesce(...)`
+        // expression. Nothing is lost here: the term lives inside a
+        // `FILTER (WHERE ...)` clause, which Postgres evaluates per row while
+        // scanning the set already selected by the query's own
+        // `WHERE deleted_at IS NULL` — it was never an index-driven predicate,
+        // before or after this change.
         paidAmount:
-          sql<number>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'PAID' and ${paidEligibleTypes} and ${transactions.createdAt} >= ${monthStart}), 0)`.mapWith(
+          sql<number>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'PAID' and ${paidEligibleTypes} and coalesce(${transactions.txDate}, ${transactions.createdAt}) >= ${monthStart}), 0)`.mapWith(
             Number,
           ),
         recipientCount:
