@@ -258,3 +258,194 @@ const STRENGTH_RANK: Readonly<Record<MentionStrength, number>> = {
   NEGATED: 0,
 }
 const SOURCE_ORDER: readonly MentionSource[] = ['TITLE', 'TAG', 'BODY']
+
+// ---------------------------------------------------------------------------
+// Matching
+// ---------------------------------------------------------------------------
+
+interface PostingReading {
+  hits: ReturnType<typeof stackKeywordHits>
+  evidence: Map<string, KeywordEvidence>
+  tags: boolean
+  requirements: boolean
+}
+
+/** Tokenise the posting ONCE and read the strength of every keyword in `union`. */
+function readPosting(posting: TechMatchPosting, union: readonly string[]): PostingReading {
+  const titleTokens = stackTokens(posting.title)
+  const surface: string[] = [...titleTokens]
+  const surfaceSource: MentionSource[] = titleTokens.map(() => 'TITLE')
+  let tags = false
+  for (const tag of posting.tags) {
+    const tagTokens = stackTokens(tag)
+    if (tagTokens.length === 0) continue
+    tags = true
+    surface.push(SEGMENT_BREAK, ...tagTokens)
+    surfaceSource.push('TAG', ...tagTokens.map((): MentionSource => 'TAG'))
+  }
+  const { segments, tokens: bodyTokens } = segmentBody(posting.body)
+  const requirements = segments.some((s) => s.tokens.some((t) => REQUIREMENT_MARKERS.has(t)))
+
+  const hits = stackKeywordHits(union, surface, bodyTokens)
+  const evidence = new Map<string, KeywordEvidence>()
+  for (const [keyword, hit] of hits) {
+    let best = -1
+    let sources = new Set<MentionSource>()
+    let excerpt: string | null = null
+    const consider = (strength: MentionStrength, source: MentionSource, text: string | null) => {
+      const rank = STRENGTH_RANK[strength]
+      if (rank < best) return
+      if (rank > best) {
+        best = rank
+        sources = new Set()
+        excerpt = null
+      }
+      sources.add(source)
+      if (source === 'BODY' && excerpt === null) excerpt = text
+    }
+    for (const index of hit.titleIndexes) {
+      consider('CORE', surfaceSource[index] ?? 'TITLE', null)
+    }
+    for (const index of hit.bodyIndexes) {
+      const segment = segments[segmentIndexOf(segments, index)]
+      if (!segment) continue
+      const negated = isNegatedAt(segment.tokens, index - segment.start)
+      const strength = negated ? 'NEGATED' : segment.optional ? 'OPTIONAL' : 'CORE'
+      consider(strength, 'BODY', segment.text.slice(0, MAX_EVIDENCE_EXCERPT_CHARS))
+    }
+    const winner = (Object.keys(STRENGTH_RANK) as MentionStrength[]).find(
+      (s) => STRENGTH_RANK[s] === best,
+    )
+    if (winner === undefined) continue
+    evidence.set(keyword, {
+      keyword,
+      strength: winner,
+      sources: SOURCE_ORDER.filter((s) => sources.has(s)),
+      excerpt,
+    })
+  }
+  return { hits, evidence, tags, requirements }
+}
+
+function findDuplicates(ids: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const dup = new Set<string>()
+  for (const id of ids) {
+    if (seen.has(id)) dup.add(id)
+    seen.add(id)
+  }
+  return [...dup]
+}
+
+export function matchTech(input: TechMatchInput): TechMatchResult {
+  const { posting, rosterSeniorIds, profiles, exclusions } = input
+
+  // Readiness: a roster senior without a profile must not read as "no match".
+  const profileIds = profiles.map((p) => p.seniorId)
+  const have = new Set(profileIds)
+  const missing = [...new Set(rosterSeniorIds)].filter((id) => !have.has(id))
+  const duplicated = findDuplicates(profileIds)
+  const issues: TechMatchReadinessIssue['issues'] = []
+  if (missing.length > 0) issues.push({ code: 'MISSING_ROSTER_PROFILES', seniorIds: missing })
+  if (duplicated.length > 0) issues.push({ code: 'DUPLICATE_PROFILES', seniorIds: duplicated })
+  if (issues.length > 0) return { status: 'READINESS_ISSUE', issues }
+
+  const rosterSet = new Set(rosterSeniorIds)
+  const globalKeyword = exclusions.filter((e) => e.scope === 'GLOBAL' && e.kind === 'KEYWORD')
+  const ignoredExclusionIds = exclusions
+    .filter((e) => e.scope === 'GLOBAL' && e.kind === 'COMPANY')
+    .flatMap((e) => (e.id === null ? [] : [e.id]))
+
+  // 1. exclusions, 2. access — before any text is read.
+  const seniors: SeniorDisposition[] = []
+  const matchable: { seniorId: string; keywords: string[] }[] = []
+  for (const profile of profiles) {
+    if (!rosterSet.has(profile.seniorId)) continue
+    const own = exclusions.filter((e) => e.scope === 'SENIOR' && e.seniorId === profile.seniorId)
+    const excluded =
+      findMatchingExclusion(posting, globalKeyword) ?? findMatchingExclusion(posting, own)
+    if (excluded) {
+      seniors.push({
+        seniorId: profile.seniorId,
+        disposition: 'EXCLUDED',
+        exclusionId: excluded.id,
+        exclusionKind: excluded.kind,
+        exclusionScope: excluded.scope,
+      })
+    } else if (profile.teamIds.length === 0) {
+      seniors.push({ seniorId: profile.seniorId, disposition: 'NO_TEAM_ACCESS' })
+    } else {
+      matchable.push({
+        seniorId: profile.seniorId,
+        keywords: canonicalStackKeywords(profile.techStack),
+      })
+      seniors.push({
+        seniorId: profile.seniorId,
+        disposition: 'MATCHABLE',
+        profileKeywordCount: 0,
+        matches: [],
+        negated: [],
+        coreMatchCount: 0,
+        optionalMatchCount: 0,
+        coreMismatch: false,
+      })
+    }
+  }
+
+  // 3. matching over the distinct complete union of the matchable profiles.
+  const union = [...new Set(matchable.flatMap((m) => m.keywords))]
+  const reading = readPosting(posting, union)
+  const keywordHit = reading.hits.size > 0
+  const lowInformation =
+    matchable.length > 0 && !keywordHit && !reading.tags && !reading.requirements
+
+  const holders = new Map<string, string[]>()
+  for (const m of matchable) {
+    for (const k of m.keywords) holders.set(k, [...(holders.get(k) ?? []), m.seniorId])
+  }
+  const rosterMatches: RosterKeywordMatch[] = []
+  const rosterNegated: RosterKeywordMatch[] = []
+  for (const keyword of union) {
+    const ev = reading.evidence.get(keyword)
+    if (!ev) continue
+    const entry = { ...ev, seniorIds: holders.get(keyword) ?? [] }
+    if (ev.strength === 'NEGATED') rosterNegated.push(entry)
+    else rosterMatches.push(entry)
+  }
+
+  const filled = seniors.map((s): SeniorDisposition => {
+    if (s.disposition !== 'MATCHABLE') return s
+    const keywords = matchable.find((m) => m.seniorId === s.seniorId)?.keywords ?? []
+    const evs = keywords.flatMap((k) => {
+      const ev = reading.evidence.get(k)
+      return ev ? [ev] : []
+    })
+    const matches = evs.filter((e) => e.strength !== 'NEGATED')
+    const coreMatchCount = matches.filter((e) => e.strength === 'CORE').length
+    return {
+      ...s,
+      profileKeywordCount: keywords.length,
+      matches,
+      negated: evs.filter((e) => e.strength === 'NEGATED'),
+      coreMatchCount,
+      optionalMatchCount: matches.length - coreMatchCount,
+      coreMismatch: keywords.length > 0 && coreMatchCount === 0 && !lowInformation,
+    }
+  })
+
+  return {
+    status: 'READY',
+    matchableSeniorIds: matchable.map((m) => m.seniorId),
+    rosterUnionSize: union.length,
+    rosterMatches,
+    rosterNegated,
+    seniors: filled,
+    evidenceSurfaces: {
+      tags: reading.tags,
+      requirements: reading.requirements,
+      keywordHit,
+    },
+    lowInformation,
+    ignoredExclusionIds,
+  }
+}
