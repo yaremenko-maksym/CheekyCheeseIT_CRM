@@ -365,7 +365,7 @@ function createFixture(
 
 describe('CRM media upload create contract', () => {
   it('SPEC-M-1: rejects creation for a tombstoned recording before provider allocation', async () => {
-    const { service, begin } = createFixture({
+    const { service, begin, selections } = createFixture({
       recordingPurgedAt: new Date('2026-10-24T12:00:00.000Z'),
     })
 
@@ -374,6 +374,9 @@ describe('CRM media upload create contract', () => {
       response: { code: 'MEDIA_RECORDING_PURGED' },
     })
     expect(begin).not.toHaveBeenCalled()
+    expect(selections.find((entry) => entry.table === interviewRecordings)?.selection).toEqual({
+      purgedAt: interviewRecordings.purgedAt,
+    })
   })
 
   it.each([
@@ -652,6 +655,34 @@ describe('CRM media upload create contract', () => {
     })
     expect(ready.begin).not.toHaveBeenCalled()
   })
+
+  it.each(['purging', 'purged'] as const)(
+    'SPEC-M-1: rejects create idempotency reuse for an existing %s artifact',
+    async (status) => {
+      const requestFingerprint = createHash('sha256')
+        .update(
+          JSON.stringify([
+            validCreateInput.recordingId,
+            validCreateInput.artifact.role,
+            validCreateInput.artifact.filename,
+            validCreateInput.artifact.mimeType,
+            validCreateInput.artifact.bytes,
+          ]),
+        )
+        .digest('hex')
+      const ctx = createFixture({
+        existing: { ...artifact, requestFingerprint, status },
+      })
+
+      await expect(
+        ctx.service.create(artifact.connectionId, validCreateInput),
+      ).rejects.toMatchObject({
+        status: 410,
+        response: { code: 'MEDIA_RECORDING_PURGED' },
+      })
+      expect(ctx.begin).not.toHaveBeenCalled()
+    },
+  )
 
   it('pins four active attempts as the concurrency limit and includes the exact lifecycle filter', async () => {
     const { service, filters, begin, selections } = createFixture({ activeCount: 4 })
@@ -1206,25 +1237,28 @@ describe('CRM media upload lifecycle contract', () => {
 describe('CRM media multipart completion contract', () => {
   const onePartBody = { parts: [{ partNumber: 1, etag: 'etag-1' }] }
 
-  it('SPEC-M-1: a purge that wins during completion cannot be resurrected by a late HEAD', async () => {
-    const { service, provider, txUpdateRecords } = fixture({ artifactStatus: 'purging' })
-    provider.head.mockResolvedValue({ bytes: artifact.bytes, mimeType: artifact.mimeType })
+  it.each(['purging', 'purged'] as const)(
+    'SPEC-M-1: a %s artifact that wins during completion cannot be resurrected by a late HEAD',
+    async (artifactStatus) => {
+      const { service, provider, txUpdateRecords } = fixture({ artifactStatus })
+      provider.head.mockResolvedValue({ bytes: artifact.bytes, mimeType: artifact.mimeType })
 
-    await expect(
-      service.complete(artifact.connectionId, `upload_${upload.id}`, onePartBody),
-    ).rejects.toMatchObject({
-      status: 410,
-      response: { code: 'MEDIA_RECORDING_PURGED' },
-    })
-    expect(txUpdateRecords).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          table: recordingMediaArtifacts,
-          values: expect.objectContaining({ status: 'ready' }),
-        }),
-      ]),
-    )
-  })
+      await expect(
+        service.complete(artifact.connectionId, `upload_${upload.id}`, onePartBody),
+      ).rejects.toMatchObject({
+        status: 410,
+        response: { code: 'MEDIA_RECORDING_PURGED' },
+      })
+      expect(txUpdateRecords).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            table: recordingMediaArtifacts,
+            values: expect.objectContaining({ status: 'ready' }),
+          }),
+        ]),
+      )
+    },
+  )
 
   it('returns an already-ready artifact before parsing or touching provider completion', async () => {
     const { service, provider } = fixture({ artifactOverrides: { status: 'ready' } })

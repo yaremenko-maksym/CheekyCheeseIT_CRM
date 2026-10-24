@@ -1,4 +1,9 @@
-import { ServiceUnavailableException } from '@nestjs/common'
+import {
+  ConflictException,
+  GoneException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 
@@ -56,6 +61,7 @@ function fixture(
   const uploadService = { status }
 
   let artifactCandidateFilter: unknown
+  let completionCandidateFilter: unknown
   let artifactReferenceFilter: unknown
   let uploadReferenceFilter: unknown
   const artifactReferenceFilters: unknown[] = []
@@ -69,7 +75,10 @@ function fixture(
       if (table === recordingMediaUploads && 'connectionId' in selection) {
         return {
           innerJoin: () => ({
-            where: vi.fn().mockResolvedValue(options.completionCandidates ?? []),
+            where: vi.fn((filter: unknown) => {
+              completionCandidateFilter = filter
+              return Promise.resolve(options.completionCandidates ?? [])
+            }),
           }),
         }
       }
@@ -187,6 +196,7 @@ function fixture(
     set,
     updateWhere,
     returning,
+    completionCandidateFilter: () => completionCandidateFilter,
     artifactCandidateFilter: () => artifactCandidateFilter,
     artifactReferenceFilter: () => artifactReferenceFilter,
     uploadReferenceFilter: () => uploadReferenceFilter,
@@ -226,7 +236,7 @@ describe('dedicated media multipart reconciliation', () => {
       id: '99999999-9999-4999-8999-999999999999',
       connectionId: '88888888-8888-4888-8888-888888888888',
     }
-    const { service, status, set, storage, abort } = fixture({
+    const { service, status, set, storage, abort, completionCandidateFilter } = fixture({
       completionCandidates: [candidate],
       artifactFailureCandidates: [],
     })
@@ -237,6 +247,10 @@ describe('dedicated media multipart reconciliation', () => {
     expect(storage.listOpenMediaUploads).not.toHaveBeenCalled()
     expect(storage.listMediaObjects).not.toHaveBeenCalled()
     expect(abort).not.toHaveBeenCalled()
+    const completionQuery = new PgDialect().sqlToQuery(completionCandidateFilter() as never)
+    expect(completionQuery.params).toEqual(
+      expect.arrayContaining(['completing', new Date(now.getTime() - 2 * 60 * 1000).toISOString()]),
+    )
   })
 
   it('CR-M-1: keeps an expired completion retryable when provider HEAD recovery is unavailable', async () => {
@@ -255,6 +269,23 @@ describe('dedicated media multipart reconciliation', () => {
     expect(storage.listOpenMediaUploads).not.toHaveBeenCalled()
     expect(storage.listMediaObjects).not.toHaveBeenCalled()
   })
+
+  it.each([new NotFoundException(), new ConflictException(), new GoneException()])(
+    'CR-M-1: treats terminal completion recovery HTTP status %s as converged',
+    async (error) => {
+      const candidate = {
+        id: '99999999-9999-4999-8999-999999999999',
+        connectionId: '88888888-8888-4888-8888-888888888888',
+      }
+      const { service, status } = fixture({
+        completionCandidates: [candidate],
+        artifactFailureCandidates: [],
+      })
+      status.mockRejectedValueOnce(error)
+
+      await expect(service.sweepExpiredCompletions(now)).resolves.toBeUndefined()
+    },
+  )
 
   it('CR-M-1: the five-minute sweep expires dead attempts and releases artifact quota without bucket scans', async () => {
     const { service, set, storage, abort } = fixture({

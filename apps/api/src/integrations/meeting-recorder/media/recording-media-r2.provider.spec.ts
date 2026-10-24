@@ -3,14 +3,10 @@ import { describe, expect, it } from 'vitest'
 
 import { RecordingMediaStorageService } from './recording-media-storage.service'
 
-function env(primary: string, fallback: string): string | undefined {
-  return process.env[primary] ?? process.env[fallback]
-}
-
-const endpoint = env('MEETING_RECORDER_MEDIA_S3_ENDPOINT', 'S3_ENDPOINT')
-const bucket = env('MEETING_RECORDER_MEDIA_S3_BUCKET', 'S3_BUCKET')
-const accessKeyId = env('MEETING_RECORDER_MEDIA_AWS_ACCESS_KEY_ID', 'AWS_ACCESS_KEY_ID')
-const secretAccessKey = env('MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY', 'AWS_SECRET_ACCESS_KEY')
+const endpoint = process.env['MEETING_RECORDER_MEDIA_S3_ENDPOINT']
+const bucket = process.env['MEETING_RECORDER_MEDIA_S3_BUCKET']
+const accessKeyId = process.env['MEETING_RECORDER_MEDIA_AWS_ACCESS_KEY_ID']
+const secretAccessKey = process.env['MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY']
 const hasR2Credentials = Boolean(endpoint && bucket && accessKeyId && secretAccessKey)
 
 describe.skipIf(!hasR2Credentials)('Meeting Recorder media — real Cloudflare R2', () => {

@@ -653,6 +653,10 @@ describe('MeetingRecorderService snapshot revision semantics', () => {
         updatedAt: expect.any(Date),
       }),
     )
+    expect(ctx.updateSet).toHaveBeenNthCalledWith(2, {
+      lastEventAt: new Date('2026-10-07T19:02:00.000Z'),
+      updatedAt: expect.any(Date),
+    })
     for (const [value] of ctx.updateSet.mock.calls) {
       expect(value).not.toHaveProperty('snapshot')
       expect(value).not.toHaveProperty('title')
