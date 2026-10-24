@@ -4122,18 +4122,18 @@ The map above assigns every identifier a destination; this says which destinatio
 arithmetic is the point, so it is reconciled rather than asserted, and it is derived from merged PRs
 rather than from anyone's recollection:
 
-| Destination                        | PR          | ids | state                            |
-| ---------------------------------- | ----------- | --- | -------------------------------- |
-| `retro-mr-matcher-access`          | #1094       | 4   | merged                           |
-| `retro-mr-webhook-ingest`          | #1097       | 8   | merged                           |
-| `retro-mr-en-catalog`              | #1091       | 1   | merged                           |
-| `retro-salary-form-defaults`       | #1093       | 5   | merged                           |
-| `retro-txdate-reporting`           | #1108       | 2   | merged                           |
-| carried by the collaborator's #868 | #868        | 3   | merged — see the note below      |
-| `retro-salary-ledger-integrity`    | #1102       | 8   | open, `BLOCK`, 13-finding round  |
-| `retro-txdate-policy`              | in progress | 9   | branch `fix/retro-txdate-policy` |
-| `retro-business-day-clock`         | not started | 6   | waits on txdate-policy           |
-| `retro-manual-ddl-coverage`        | not started | 6   | —                                |
+| Destination                        | PR             | ids | state                            |
+| ---------------------------------- | -------------- | --- | -------------------------------- |
+| `retro-mr-matcher-access`          | #1094          | 4   | merged                           |
+| `retro-mr-webhook-ingest`          | #1097          | 8   | merged                           |
+| `retro-mr-en-catalog`              | #1091          | 1   | merged                           |
+| `retro-salary-form-defaults`       | #1093          | 5   | merged                           |
+| `retro-txdate-reporting`           | #1108          | 2   | merged                           |
+| carried by the collaborator's #868 | #868           | 3   | merged — see the note below      |
+| `retro-salary-ledger-integrity`    | #1102          | 8   | open, `BLOCK`, 13-finding round  |
+| `retro-txdate-policy`              | merged (#1113) | 9   | branch `fix/retro-txdate-policy` |
+| `retro-business-day-clock`         | not started    | 6   | waits on txdate-policy           |
+| `retro-manual-ddl-coverage`        | not started    | 6   | —                                |
 
 Closed: 4 + 8 + 1 + 5 + 2 + 3 = **23**. In flight or pending: 8 + 9 + 6 + 6 = **29**. Sum **52**, which
 matches the task-bound total in the map above (the remaining 23 of the 75 are the 18 deferred to
@@ -5750,17 +5750,30 @@ Two facts, and the first is reassurance rather than work:
 
 - **The four unwired writers are not a hole today.** All four are privilege-gated — `createExpense`,
   `createSalary` and `createAdminTransfer` require ADMIN or ACCOUNTANT, `paySalary` requires ADMIN —
-  the year/calendar schema floor still applies, and none of them is invoice-facing. No unprivileged
-  role can inject a date through them. That is why shipping 9 of 13 was defensible rather than
-  reckless: the gap is bounded by the role gate, not merely documented.
+  the year/calendar schema floor still applies. No unprivileged role can inject a date through them.
+  That bounds the gap by the role gate, but it is **not** "none of them is invoice-facing" (an earlier
+  edition of this entry said so; the security review of #1113, SR-M-1, found that false):
+  `createSalary` and `paySalary` ARE invoice-facing. A SALARY row's `txDate` is stamped onto a salary
+  invoice, a legal document, by `invoice-creation.service.ts` Trigger 2 on the transition to PAID. So
+  an ADMIN/ACCOUNTANT can today put an unbounded, future or far-past date, with no audit reason, onto a
+  legal invoice through those two writers.
 - **But wiring the policy is not sufficient.** The residual at those four is that ADMIN/ACCOUNTANT can
   still **future-date EXECUTED rows** and **backdate out of window without an audit reason**. So the
   remainder must do three things, not one: route the four through the shared policy, _block future
-  dates on EXECUTED rows there_, and _capture the audit reason_ on an out-of-window backdate.
+  dates on EXECUTED rows there_, and _capture the audit reason_ on an out-of-window backdate. For
+  `createSalary`/`paySalary` this is required, not optional hardening, because of the invoice path above.
 - **AC 2 likewise needs more than the bound.** A bounded-but-client-chosen date on a verified transfer
   **can misstate the on-chain settlement date on an invoice**, which is a legal document. Closing it
   means adding the `eth_getBlockByNumber` lookup so the date comes from the verified block, not
   tightening the bound further.
+
+Two residuals from the #1113 review round (CR-M-2 and a LOW):
+
+- **CR-M-2:** the `PLANNED` transaction-date flow has no wired caller until `createSalary` lands, so
+  the follow-up must exercise a future-date case for `PLANNED` (a future date is legitimate there,
+  unlike on EXECUTED rows), or that branch of the policy ships untested by any real caller.
+- **LOW:** `backdateReason` is accepted but inert on the DTOs of the four unwired writers: the schema
+  takes it and nothing reads it. Clean it up (or make it live) when they are wired.
 
 A fourth, cosmetic: `createSeniorIncome` and `createDropIncome` plumb a `backdateReason` the policy can
 never consume for SENIOR/DROP — dead transport for something nothing reads. (#1113 removes it; noted
