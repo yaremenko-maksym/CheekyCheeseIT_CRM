@@ -1292,6 +1292,246 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
     })
   })
 
+  /**
+   * Task 3.5b, inherited item 2: `reconcile` settles at the cost actually INCURRED, bounded by the
+   * reservation. The first use is TheirStack (credits per returned record): a 50-record worst case
+   * that returned 7 records must leave `used = 7`, not 50. Every figure below is hand-counted and
+   * asserted as a counter VALUE read back with plain SQL.
+   */
+  describe('settling at the cost actually incurred (3.5b)', () => {
+    async function recordMeter(limit: number | null = 100) {
+      const m = await newMeter({ unit: 'RECORD', limit })
+      const meter = createAccountMeter(
+        db,
+        binding({
+          accountKey: m.accountKey,
+          cycleId: await newCycle(),
+          windows: { RECORD: 'DAY' },
+        }),
+      )
+      return { m, meter }
+    }
+
+    it('converts only the incurred cost and frees the rest of the reservation', async () => {
+      const { m, meter } = await recordMeter(100)
+      const r = await meter.reserve('RECORD', 50)
+      if (r === null) throw new Error('setup: reservation refused')
+      await meter.markSent(r)
+
+      await meter.reconcile(r, 'USED', 7)
+
+      expect(await counters(m.id)).toEqual({ used: 7, reserved: 0, uncertain: 0 })
+      expect(await reservationRow(r.id)).toMatchObject({
+        status: 'USED',
+        amount: 50,
+        used_amount: 7,
+      })
+      // The 43 unused records are capacity again: 100 - 7 = 93 fits exactly, 94 does not.
+      expect(await meter.reserve('RECORD', 94)).toBeNull()
+      expect(await meter.reserve('RECORD', 93)).not.toBeNull()
+    })
+
+    it('the smallest cost is 1: a USED reservation cannot record nothing', async () => {
+      const { m, meter } = await recordMeter(100)
+      const r = await meter.reserve('RECORD', 50)
+      if (r === null) throw new Error('setup: reservation refused')
+
+      // 0 is refused (the table's `used_settled` CHECK would reject the row) and the reservation
+      // is untouched; 1 is the floor and is accepted.
+      const refusal = await rejection(meter.reconcile(r, 'USED', 0))
+      expect(refusal.code).toBe('INVALID_AMOUNT')
+      expect(refusal.message).toBe('the incurred cost must be a whole number of units, at least 1')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 50, uncertain: 0 })
+
+      await meter.reconcile(r, 'USED', 1)
+      expect(await counters(m.id)).toEqual({ used: 1, reserved: 0, uncertain: 0 })
+      expect(await reservationRow(r.id)).toMatchObject({ status: 'USED', used_amount: 1 })
+    })
+
+    it('AT the reservation (50 of 50) converts all of it', async () => {
+      const { m, meter } = await recordMeter(100)
+      const r = await meter.reserve('RECORD', 50)
+      if (r === null) throw new Error('setup: reservation refused')
+
+      await meter.reconcile(r, 'USED', 50)
+
+      expect(await counters(m.id)).toEqual({ used: 50, reserved: 0, uncertain: 0 })
+      expect(await reservationRow(r.id)).toMatchObject({ status: 'USED', used_amount: 50 })
+    })
+
+    it('PAST the reservation (51 of 50) is refused, nothing moves, and a correct settle still works', async () => {
+      const { m, meter } = await recordMeter(100)
+      const r = await meter.reserve('RECORD', 50)
+      if (r === null) throw new Error('setup: reservation refused')
+
+      const refusal = await rejection(meter.reconcile(r, 'USED', 51))
+
+      expect(refusal.code).toBe('AMOUNT_MISMATCH')
+      expect(refusal.message).toBe('the incurred cost 51 exceeds the reserved 50')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 50, uncertain: 0 })
+      expect(await reservationRow(r.id)).toMatchObject({ status: 'RESERVED', used_amount: 0 })
+
+      await meter.reconcile(r, 'USED', 50)
+      expect(await counters(m.id)).toEqual({ used: 50, reserved: 0, uncertain: 0 })
+    })
+
+    it('exactly once: repeating the same settlement is a no-op', async () => {
+      const { m, meter } = await recordMeter(100)
+      const r = await meter.reserve('RECORD', 50)
+      if (r === null) throw new Error('setup: reservation refused')
+
+      await meter.reconcile(r, 'USED', 7)
+      await meter.reconcile(r, 'USED', 7)
+
+      expect(await counters(m.id)).toEqual({ used: 7, reserved: 0, uncertain: 0 })
+      expect((await reservationRow(r.id)).used_amount).toBe(7)
+    })
+
+    it('exactly once: a second settlement that DISAGREES is refused, the first stands', async () => {
+      const { m, meter } = await recordMeter(100)
+      const r = await meter.reserve('RECORD', 50)
+      if (r === null) throw new Error('setup: reservation refused')
+      await meter.reconcile(r, 'USED', 7)
+
+      const lower = await rejection(meter.reconcile(r, 'USED', 3))
+      const higher = await rejection(meter.reconcile(r, 'USED', 50))
+
+      expect(lower.code).toBe('AMOUNT_MISMATCH')
+      expect(lower.message).toBe('the reservation already settled at 7, not 3')
+      expect(higher.code).toBe('AMOUNT_MISMATCH')
+      expect(await counters(m.id)).toEqual({ used: 7, reserved: 0, uncertain: 0 })
+      expect((await reservationRow(r.id)).used_amount).toBe(7)
+    })
+
+    it('exactly once: a later settle that reports no amount does not re-charge the worst case', async () => {
+      const { m, meter } = await recordMeter(100)
+      const r = await meter.reserve('RECORD', 50)
+      if (r === null) throw new Error('setup: reservation refused')
+      await meter.reconcile(r, 'USED', 7)
+
+      await meter.reconcile(r, 'USED')
+
+      expect(await counters(m.id)).toEqual({ used: 7, reserved: 0, uncertain: 0 })
+    })
+
+    it('exactly once under concurrency: N simultaneous settlements convert the cost once', async () => {
+      const { m, meter } = await recordMeter(100)
+      const r = await meter.reserve('RECORD', 50)
+      if (r === null) throw new Error('setup: reservation refused')
+
+      const results = await Promise.allSettled(
+        Array.from({ length: 6 }, () => meter.reconcile(r, 'USED', 7)),
+      )
+
+      expect(results.every((x) => x.status === 'fulfilled')).toBe(true)
+      expect(await counters(m.id)).toEqual({ used: 7, reserved: 0, uncertain: 0 })
+    })
+
+    it('an uncertain hold reconciles at the incurred cost and frees the whole hold', async () => {
+      const { m, meter } = await recordMeter(100)
+      const r = await meter.reserve('RECORD', 50)
+      if (r === null) throw new Error('setup: reservation refused')
+      await meter.markSent(r)
+      await meter.reconcile(r, 'UNCERTAIN')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 0, uncertain: 50 })
+
+      await meter.reconcile(r, 'USED', 12)
+
+      expect(await counters(m.id)).toEqual({ used: 12, reserved: 0, uncertain: 0 })
+      expect(await reservationRow(r.id)).toMatchObject({ status: 'USED', used_amount: 12 })
+    })
+
+    it('PAST the reservation is refused from an uncertain hold too, and the hold stays', async () => {
+      const { m, meter } = await recordMeter(100)
+      const r = await meter.reserve('RECORD', 50)
+      if (r === null) throw new Error('setup: reservation refused')
+      await meter.reconcile(r, 'UNCERTAIN')
+
+      expect((await rejection(meter.reconcile(r, 'USED', 51))).code).toBe('AMOUNT_MISMATCH')
+
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 0, uncertain: 50 })
+    })
+
+    it.each(['UNCERTAIN', 'RELEASED'] as const)(
+      'refuses an incurred cost on a %s settlement: there is no known cost to report',
+      async (resolution) => {
+        const { m, meter } = await recordMeter(100)
+        const r = await meter.reserve('RECORD', 50)
+        if (r === null) throw new Error('setup: reservation refused')
+
+        const refusal = await rejection(meter.reconcile(r, resolution, 7))
+
+        expect(refusal.code).toBe('INVALID_AMOUNT')
+        expect(refusal.message).toBe(
+          `an incurred cost belongs to a USED settlement, not ${resolution}`,
+        )
+        expect(await counters(m.id)).toEqual({ used: 0, reserved: 50, uncertain: 0 })
+      },
+    )
+
+    it.each([0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
+      'refuses the incurred cost %s before touching the meter',
+      async (bad) => {
+        const { m, meter } = await recordMeter(100)
+        const r = await meter.reserve('RECORD', 50)
+        if (r === null) throw new Error('setup: reservation refused')
+
+        const refusal = await rejection(meter.reconcile(r, 'USED', bad))
+
+        expect(refusal.code).toBe('INVALID_AMOUNT')
+        expect(await counters(m.id)).toEqual({ used: 0, reserved: 50, uncertain: 0 })
+      },
+    )
+
+    it('a reservation taken in W and settled in W+1 frees its hold but charges W+1 nothing', async () => {
+      const m = await newMeter({ unit: 'RECORD', window: 'DAY', limit: 100 })
+      const meter = createAccountMeter(
+        db,
+        binding({
+          accountKey: m.accountKey,
+          cycleId: await newCycle(),
+          windows: { RECORD: 'DAY' },
+        }),
+      )
+      const r = await meter.reserve('RECORD', 50)
+      if (r === null) throw new Error('setup: reservation refused')
+      await q(
+        `UPDATE job_account_meters
+            SET resets_at = sub.t + interval '1 millisecond',
+                window_started_at = sub.t + interval '1 millisecond' - interval '1 day'
+           FROM (SELECT max(reserved_at) AS t FROM job_account_meter_reservations
+                  WHERE meter_id = $1) sub
+          WHERE id = $1`,
+        [m.id],
+      )
+      await new Promise((resolve) => setTimeout(resolve, 20))
+
+      await meter.reconcile(r, 'USED', 7)
+
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 0, uncertain: 0 })
+      expect(await reservationRow(r.id)).toMatchObject({ status: 'USED', used_amount: 7 })
+    })
+
+    it('a USD_MICROS meter records the money actually billed, not the worst case', async () => {
+      const m = await newMeter({ unit: 'USD_MICROS', limit: 10_000_000 })
+      const meter = createAccountMeter(
+        db,
+        binding({
+          accountKey: m.accountKey,
+          cycleId: await newCycle(),
+          windows: { USD_MICROS: 'DAY' },
+        }),
+      )
+      const r = await meter.reserve('USD_MICROS', 5_000_000)
+      if (r === null) throw new Error('setup: reservation refused')
+
+      await meter.reconcile(r, 'USED', 1_234_567)
+
+      expect(await counters(m.id)).toEqual({ used: 1_234_567, reserved: 0, uncertain: 0 })
+      expect((await reservationRow(r.id)).used_amount).toBe(1_234_567)
+    })
+  })
+
   describe('binding to a run', () => {
     it('records the run and cycle on the reservation when bound to a run', async () => {
       const cycleId = await newCycle()

@@ -1315,9 +1315,10 @@ export interface CollectionContext {
      * Settles a reservation. `incurred` is the cost the provider ACTUALLY charged, and it is
      * meaningful for `USED` only: omitted, the full reservation is charged (a flat per-request
      * source, whose cost is its reservation). It is BOUNDED BY THE RESERVATION — more than was
-     * reserved is a defect in the estimate and the store refuses it rather than clamp it, and `0`
-     * is a legal answer (a search that returned nothing cost nothing). An uncertain or released
-     * reservation has no known cost to report, so passing one there is refused too.
+     * reserved is a defect in the estimate and the store refuses it rather than clamp it — and at
+     * least 1: the store's table refuses a USED reservation with no cost, so a request that cost
+     * nothing is reported as 1. An uncertain or released reservation has no known cost to report,
+     * so passing one there is refused too.
      */
     reconcile(
       reservation: MeterReservation,

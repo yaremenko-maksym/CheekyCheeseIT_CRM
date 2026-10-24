@@ -3016,12 +3016,19 @@ describe('settling at the cost actually incurred', () => {
     expect(seen).toEqual([JSON.stringify({ jobs: [job('1')], next: null })])
   })
 
-  it('zero is a real cost: an empty search settles at 0, not at the reservation', async () => {
+  it('a free request (0) settles as 1: the store cannot record a USED reservation of nothing', async () => {
     const h = harness({ pages: [onePage([])] })
     const batch = await collectJsonPages(makeSpec({ meter: metered(() => 0) }), config(), h.ctx)
 
-    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED', incurred: 0 }])
-    expect(batch.requests[0]?.cost).toEqual({ unit: 'RECORD', amount: 0 })
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED', incurred: 1 }])
+    expect(batch.requests[0]?.cost).toEqual({ unit: 'RECORD', amount: 1 })
+  })
+
+  it('1 stays 1: the floor does not raise a real minimum', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(makeSpec({ meter: metered(() => 1) }), config(), h.ctx)
+
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED', incurred: 1 }])
   })
 
   it('AT the reservation (50 of 50) is believed', async () => {

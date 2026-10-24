@@ -108,7 +108,9 @@ import {
  *   (`reconcile`'s third argument, USED only), or the whole reservation when none is reported.
  *   The incurred cost is bounded by the reservation: more is `AMOUNT_MISMATCH`, refused rather
  *   than clamped, and a second USED that disagrees with the amount already recorded is
- *   `AMOUNT_MISMATCH` too, not a silent no-op. Zero is legal. A source that reports no cost
+ *   `AMOUNT_MISMATCH` too, not a silent no-op. The smallest incurred cost is 1, not 0: the
+ *   schema's `used_settled` CHECK refuses a USED row with no cost, so a free request is recorded
+ *   as one unit until that CHECK is relaxed by a migration. A source that reports no cost
  *   (every flat per-request source) is still charged its worst case, so `used` stays an UPPER
  *   BOUND for those, and exact only where an adapter supplies the incurred cost.
  * - Window rollover. A meter row is reset in place, lazily, under the same lock, by the first
@@ -522,10 +524,15 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
     if (incurred !== undefined) {
       // Before any query: a cost that is not a whole non-negative number, or that accompanies a
       // resolution which has no known cost to report, is a defect in the caller.
-      if (!Number.isSafeInteger(incurred) || incurred < 0) {
+      // At least 1, not 0: the table's `used_settled` CHECK is "a USED reservation has settled,
+      // WITH cost" (`used_amount > 0`), so a zero settlement cannot be written. Relaxing that
+      // CHECK is a production migration and not this store's decision; until it is made, a
+      // caller reporting a free request must say 1 (the smallest representable cost), which
+      // errs toward over-recording by one unit and never toward the worst case.
+      if (!Number.isSafeInteger(incurred) || incurred < 1) {
         throw new AccountMeterError(
           'INVALID_AMOUNT',
-          'the incurred cost must be a whole number of units, zero or more',
+          'the incurred cost must be a whole number of units, at least 1',
         )
       }
       if (resolution !== 'USED') {

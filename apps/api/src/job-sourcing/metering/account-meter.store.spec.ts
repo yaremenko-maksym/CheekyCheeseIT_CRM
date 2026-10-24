@@ -133,6 +133,10 @@ interface FakeOpts {
   window?: 'DAY' | 'MONTH' | 'LIFETIME'
   /** The meter's reset instant. Default is far future, so no roll is due. */
   resetsAt?: Date
+  /** The reservation's stored (worst-case) amount. Default 2. */
+  amount?: number
+  /** The cost already converted on the reservation row. Default 0. */
+  usedAmount?: number
   /** The window start the meter row carries. */
   windowStartedAt?: Date
   /** Rows returned by the reservation -> meter peek. `[]` = no such reservation. */
@@ -174,7 +178,8 @@ function fakeMeterDb(opts: FakeOpts = {}) {
     id: FAKE_RESERVATION_ID,
     meterId: FAKE_METER_ID,
     status: opts.status ?? 'RESERVED',
-    amount: 2,
+    amount: opts.amount ?? 2,
+    usedAmount: opts.usedAmount ?? 0,
     reservedAt: new Date('2026-06-01T00:00:00Z'),
     sentAt: null,
     settledAt: null,
@@ -644,5 +649,104 @@ describe('AccountMeterError', () => {
     expect(e.code).toBe('METER_NOT_FOUND')
     expect(e.name).toBe('AccountMeterError')
     expect(e.message).toBe('x')
+  })
+})
+
+/**
+ * Task 3.5b: `reconcile`'s third argument, the cost actually incurred. Everything decidable BEFORE
+ * the database, and the two refusals decided from the locked row, is asserted here because the
+ * mutation gate runs the unit suite only; the counter VALUES are the integration spec's.
+ */
+describe('reconcile — the incurred cost', () => {
+  const claim = () => ({ id: FAKE_RESERVATION_ID, unit: 'RECORD' as const, amount: 50 })
+  const recordBinding = (): AccountMeterBinding => ({ ...valid(), windows: { RECORD: 'MONTH' } })
+
+  it.each([
+    [0, 'zero'],
+    [-1, 'negative'],
+    [1.5, 'a fraction'],
+    [Number.NaN, 'NaN'],
+    [Number.POSITIVE_INFINITY, 'Infinity'],
+    [Number.MAX_SAFE_INTEGER + 1, 'past the safe integers'],
+  ])('refuses %s (%s) before the database is touched', async (bad) => {
+    const { db, touched } = untouchableDb()
+    const error = await callError(() =>
+      createAccountMeter(db, recordBinding()).reconcile(claim(), 'USED', bad),
+    )
+    expect(error.code).toBe('INVALID_AMOUNT')
+    expect(error.message).toBe('the incurred cost must be a whole number of units, at least 1')
+    expect(touched).toEqual([])
+  })
+
+  it.each(['UNCERTAIN', 'RELEASED'] as const)(
+    'refuses an incurred cost on %s before the database is touched',
+    async (resolution) => {
+      const { db, touched } = untouchableDb()
+      const error = await callError(() =>
+        createAccountMeter(db, recordBinding()).reconcile(claim(), resolution, 5),
+      )
+      expect(error.code).toBe('INVALID_AMOUNT')
+      expect(error.message).toBe(`an incurred cost belongs to a USED settlement, not ${resolution}`)
+      expect(touched).toEqual([])
+    },
+  )
+
+  it('the smallest valid incurred cost (1) does reach the database', async () => {
+    const { db, touched } = untouchableDb()
+    await expect(
+      createAccountMeter(db, recordBinding()).reconcile(claim(), 'USED', 1),
+    ).rejects.toThrow('the database was touched')
+    expect(touched).toEqual(['transaction'])
+  })
+
+  it('refuses a cost past the stored reservation and writes nothing', async () => {
+    const { db, writes } = fakeMeterDb({ amount: 50 })
+    const error = await callError(() =>
+      createAccountMeter(db, recordBinding()).reconcile(claim(), 'USED', 51),
+    )
+    expect(error.code).toBe('AMOUNT_MISMATCH')
+    expect(error.message).toBe('the incurred cost 51 exceeds the reserved 50')
+    expect(writes).toEqual([])
+  })
+
+  it('accepts a cost AT the stored reservation', async () => {
+    const { db, writes, payloads } = fakeMeterDb({ amount: 50 })
+    await createAccountMeter(db, recordBinding()).reconcile(claim(), 'USED', 50)
+    expect(writes).toEqual(['update', 'update'])
+    expect(payloads.at(-1)).toMatchObject({ status: 'USED', usedAmount: 50 })
+  })
+
+  it('records the incurred cost, not the reservation, on the reservation row', async () => {
+    const { db, payloads } = fakeMeterDb({ amount: 50 })
+    await createAccountMeter(db, recordBinding()).reconcile(claim(), 'USED', 7)
+    expect(payloads.at(-1)).toMatchObject({ status: 'USED', usedAmount: 7 })
+  })
+
+  it('without an incurred cost the whole stored reservation is recorded', async () => {
+    const { db, payloads } = fakeMeterDb({ amount: 50 })
+    await createAccountMeter(db, recordBinding()).reconcile(claim(), 'USED')
+    expect(payloads.at(-1)).toMatchObject({ status: 'USED', usedAmount: 50 })
+  })
+
+  it('a repeat at the amount already recorded is a no-op: nothing is written', async () => {
+    const { db, writes } = fakeMeterDb({ status: 'USED', amount: 50, usedAmount: 7 })
+    await createAccountMeter(db, recordBinding()).reconcile(claim(), 'USED', 7)
+    expect(writes).toEqual([])
+  })
+
+  it('a repeat that disagrees with the amount already recorded is refused, writing nothing', async () => {
+    const { db, writes } = fakeMeterDb({ status: 'USED', amount: 50, usedAmount: 7 })
+    const error = await callError(() =>
+      createAccountMeter(db, recordBinding()).reconcile(claim(), 'USED', 8),
+    )
+    expect(error.code).toBe('AMOUNT_MISMATCH')
+    expect(error.message).toBe('the reservation already settled at 7, not 8')
+    expect(writes).toEqual([])
+  })
+
+  it('a repeat that reports no cost is a no-op whatever was recorded', async () => {
+    const { db, writes } = fakeMeterDb({ status: 'USED', amount: 50, usedAmount: 7 })
+    await createAccountMeter(db, recordBinding()).reconcile(claim(), 'USED')
+    expect(writes).toEqual([])
   })
 })

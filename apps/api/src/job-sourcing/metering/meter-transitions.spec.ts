@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  incurredFault,
   isInCurrentWindow,
   planMarkSent,
   planSettlement,
@@ -142,4 +143,31 @@ describe('reservation keys', () => {
       reservationKey('att-10', 'REQUEST', 1).startsWith(reservationKeyPrefix('att-1', 'REQUEST')),
     ).toBe(false)
   })
+})
+
+/**
+ * `incurredFault`: the cost a caller says was incurred against the reservation (50) and what the
+ * row already recorded. Written as a table; the bound cases are AT (50) and PAST (51).
+ */
+describe('incurredFault', () => {
+  it.each([
+    ['apply', undefined, 50, 0, null],
+    ['apply', 1, 50, 0, null],
+    ['apply', 49, 50, 0, null],
+    ['apply', 50, 50, 0, null],
+    ['apply', 51, 50, 0, 'EXCEEDS_RESERVATION'],
+    ['apply', 1000, 50, 0, 'EXCEEDS_RESERVATION'],
+    ['noop', undefined, 50, 7, null],
+    ['noop', 7, 50, 7, null],
+    ['noop', 6, 50, 7, 'CONTRADICTS_SETTLEMENT'],
+    ['noop', 8, 50, 7, 'CONTRADICTS_SETTLEMENT'],
+    ['noop', 51, 50, 7, 'CONTRADICTS_SETTLEMENT'],
+    ['illegal', 5, 50, 0, null],
+    ['illegal', 51, 50, 0, null],
+  ] as const)(
+    '%s, incurred %s of %s, recorded %s -> %s',
+    (plan, incurred, reserved, recorded, want) => {
+      expect(incurredFault(plan, incurred, reserved, recorded)).toBe(want)
+    },
+  )
 })

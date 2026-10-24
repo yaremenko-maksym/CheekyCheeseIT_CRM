@@ -256,7 +256,8 @@ export interface PagedSourceSpec<TConfig extends SourceConfigFields, TEnvelope, 
    * `amountPerRequest` is the WORST CASE. A source whose real cost differs from it (credits per
    * returned record) also supplies `incurredAmount`: given the body of a successful page, the cost
    * the provider actually charged, or `null` when it cannot tell. The loop settles with that amount
-   * when it lies in `0..amountPerRequest`; absent, `null`, non-integer or past the reservation, the
+   * when it lies in `0..amountPerRequest` (a free request, 0, settles as 1: the store cannot record
+   * a USED reservation with no cost); absent, `null`, non-integer or past the reservation, the
    * full reservation is charged — the direction that cannot overspend. It must not throw (a throw
    * is treated as `null`).
    */
@@ -578,7 +579,10 @@ function readIncurred(
     return undefined
   }
   if (amount === null || !Number.isSafeInteger(amount)) return undefined
-  return amount >= 0 && amount <= reservation.amount ? amount : undefined
+  if (amount < 0 || amount > reservation.amount) return undefined
+  // The store cannot record a USED reservation of zero (its `used_settled` CHECK), so a free
+  // request is reported as the smallest cost it can hold.
+  return Math.max(amount, 1)
 }
 
 /** HTTP status -> our typed code. Classified from the STATUS, never from the body text. */
