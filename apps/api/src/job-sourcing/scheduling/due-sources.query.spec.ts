@@ -5,6 +5,7 @@ import { MAX_CONSECUTIVE_FAILURES } from './due-policy'
 import type { SQL } from 'drizzle-orm'
 import type { DatabaseService } from '../../database/database.service'
 import { dueSourcesPredicate, findDueSources } from './due-sources.query'
+import { hostOpenPredicate } from './host-state'
 
 /**
  * Renders the predicate to text and parameters. The SEMANTICS are proven against a real Postgres by
@@ -75,6 +76,18 @@ describe('dueSourcesPredicate (rendered)', () => {
       expect(() => render('MANUAL', { cadenceSlackMs: bad })).toThrow(RangeError)
     }
     expect(() => render('SCHEDULED', { cadenceSlackMs: 0.5 })).toThrow(RangeError)
+  })
+
+  it('T8: both triggers carry the host term, its NULL test before the pause test', () => {
+    const term = new PgDialect().sqlToQuery(hostOpenPredicate()).sql
+    for (const trigger of ['SCHEDULED', 'MANUAL'] as const) {
+      const { sql } = render(trigger)
+      expect(sql).toContain(` and ${term}`)
+    }
+    expect(term.indexOf('"job_sources"."host_key" IS NOT NULL')).toBe(1)
+    expect(term).toContain('AND NOT EXISTS (SELECT 1 FROM job_source_hosts h')
+    // The manual predicate ends with it: the cadence term is the only one a manual run drops.
+    expect(render('MANUAL').sql.endsWith(`${term})`)).toBe(true)
   })
 
   it('never reads the stored readiness column', () => {
