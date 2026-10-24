@@ -5446,3 +5446,39 @@ one).
 **Check on closing:** an agent that creates a worktree in its session scratchpad and exits without removing it
 leaves a tree that the dispatching orchestrator can remove in one command, while an agent of a different session
 is still refused the same path.
+
+## 323. Four small findings from the PR #1119 review rounds, each too small for its own entry (2026-10-24)
+
+Three review axes passed PR #1119 (Task 3.5b, quota-metered adapters) and raised sixteen identifiers. The
+MED ones were fixed in the PR. These four are what is left: none blocks, each is checkable, and each would
+otherwise live only in a review thread that nobody re-reads.
+
+**`observedAt` is validated by shape and never read.** The TheirStack billing observation carries an
+`observedAt` instant checked only against a format regex, so `2026-13-45T99:99:99.000Z` is accepted. The
+field is recorded and no code consumes it. Two honest answers: validate it as a date, or drop it and let
+the record say when the smoke happened in prose. **Check on closing:** an impossible calendar date is
+refused, or the field no longer exists.
+
+**`accept-language` is on the JSON header allowlist with no caller.** Measured at the time: every `headers`
+literal across the five quota adapters and the five JSON providers on main sends only `accept` —
+plus `content-type`, `authorization` and the RapidAPI pair where a scheme needs them. The allowlist's own
+comment justifies itself as "what the adapters were MEASURED to send", and this member was not. It is the
+same no-user problem that removed `from`, and the exact-set test pins it either way, so the test passing is
+not evidence that it is used. **Check on closing:** the allowlist contains no member that no caller sends,
+asserted by a search over the callers rather than by the allowlist's own test.
+
+**A mutation-gate tool failure is reported without naming the mutant.** Runs on this branch report 712
+mutants, 711 killed, 0 survived and **1 tool failure**, and the tool failure is attributed to a module-load
+quirk in `muse.provider.ts`. A tool failure is neither a pass nor a survivor — a distinction this project
+has already paid for once, by counting `[Survived]` mentions in a log instead of reading the gate's own
+classification. The figure is only trustworthy if the one failure is named and shown to sit outside the
+code whose mutants matter, in this case the secret-redaction floor and the billing derivation. **Check on
+closing:** the gate's own output names the failing mutant, or the count is reported as 711 of 711 with the
+twelfth excluded for a stated reason.
+
+**The 8-character secret floor in `env.ts` is a boot-time refusal.** A key shorter than eight characters
+stops the process rather than being rejected at use. That is the right direction and it is currently
+unreachable, because no provider key is provisioned and none may be — so there is no deployed short key to
+break. It becomes real the day the owner provisions one, and a provider that issues a short key would
+present as a boot failure rather than as a configuration error. **Check on closing:** a short key produces
+a message naming the variable and the floor, at whatever point it is rejected.
