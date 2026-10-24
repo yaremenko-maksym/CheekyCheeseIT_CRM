@@ -4116,6 +4116,39 @@ Sum: 4+8+1+8+5+6+11+2+7+2+4+8+4+2+3 = **75**.
 
 **Check on closing:** every task and backlog entry above is closed or carries a recorded decision.
 
+### Progress, 2026-10-24 — 23 of the 52 task-bound identifiers closed on `main`
+
+The map above assigns every identifier a destination; this says which destinations have landed. The
+arithmetic is the point, so it is reconciled rather than asserted, and it is derived from merged PRs
+rather than from anyone's recollection:
+
+| Destination                        | PR          | ids | state                            |
+| ---------------------------------- | ----------- | --- | -------------------------------- |
+| `retro-mr-matcher-access`          | #1094       | 4   | merged                           |
+| `retro-mr-webhook-ingest`          | #1097       | 8   | merged                           |
+| `retro-mr-en-catalog`              | #1091       | 1   | merged                           |
+| `retro-salary-form-defaults`       | #1093       | 5   | merged                           |
+| `retro-txdate-reporting`           | #1108       | 2   | merged                           |
+| carried by the collaborator's #868 | #868        | 3   | merged — see the note below      |
+| `retro-salary-ledger-integrity`    | #1102       | 8   | open, `BLOCK`, 13-finding round  |
+| `retro-txdate-policy`              | in progress | 9   | branch `fix/retro-txdate-policy` |
+| `retro-business-day-clock`         | not started | 6   | waits on txdate-policy           |
+| `retro-manual-ddl-coverage`        | not started | 6   | —                                |
+
+Closed: 4 + 8 + 1 + 5 + 2 + 3 = **23**. In flight or pending: 8 + 9 + 6 + 6 = **29**. Sum **52**, which
+matches the task-bound total in the map above (the remaining 23 of the 75 are the 18 deferred to
+backlog 280-283 and the 5 already closed).
+
+**The three ids carried by #868** are `SR-809-M-1` = `CR-809-M-1` (the "payment cannot predate its
+source" check applying only when `txDate` is supplied) and `CR-867-M-1` (`periodToDates` building
+local-midnight keys). The map's header says open PRs #868/#869 were deliberately not counted as
+fixes, which was correct when written — **#868 merged 2026-10-23T20:17:53Z**, so they count now. The
+two task files record the scope change; this row is what keeps the sum reconcilable across it.
+
+**Not a closure:** `retro-txdate-policy`'s and `retro-business-day-clock`'s counts here are 9 and 6,
+not the map's 11 and 7, for exactly that reason. If you reconcile against the map without reading this
+paragraph the sum will look wrong by 3.
+
 ## 280. Meeting-recorder transcripts are kept forever and outlive their interview (2026-10-22)
 
 `MeetingRecorderRetentionCronService` purges only webhook receipts. `interview_recordings.snapshot`
@@ -4545,6 +4578,13 @@ Tried from the orchestrator with the literal path, after the creating agent had 
 so neither the agent that made it nor the only party the rule names as the fallback can clear it, and
 it genuinely falls to the owner. **Measured scale at the time of writing: 16 such checkouts across two
 sessions' scratchpads**, most from reviews closed hours earlier.
+
+**The app's own cleanup cannot reach these (measured 2026-10-24).** The obvious alternative to an
+owner-run command is the desktop app's "Clean up inactive sessions" facility. It qualifies sessions by
+**no activity for at least 30, 60 or 90 days** — those are the only accepted values — so a tree
+stranded today is outside its reach by design, and will stay so for a month. It also cleans
+_session_ worktrees, not the scratchpad checkouts reviewers create. So the escape route is closed from
+a third end as well, and "just use the app's cleanup" is not an answer to this entry.
 
 A related sharp edge found in the same attempt: passing the path through a shell variable gets
 `WORKTREE-OPAQUE` instead, because the hook cannot expand it and refuses rather than guess. That is
@@ -5106,3 +5146,46 @@ suppressions and they point in opposite directions, so a review of one is not a 
 
 **Check on closing:** place such a directive inside a chain and confirm the gate's `ignored` count
 moves. If the count is unchanged, the directive is decoration and the line is still gated.
+
+## 316. `.mjs` is formatted by nothing: outside lint-staged AND outside the CI formatting gate (2026-10-24)
+
+Surfaced by the architect while writing PR #1116, reported as "`lint-staged` globs do not cover
+`scripts/**/*.mjs`, so the pre-commit hook never formatted them and the CI prettier gate would have
+failed". **The first half is right and the second half is wrong**, and the correction is the finding:
+nothing would have failed.
+
+Measured on `origin/main`:
+
+```
+# the pre-commit side — no glob matches scripts/architect/flow-gate.mjs
+python3 -c "import json,fnmatch;d=json.load(open('package.json'));print([k for k in d['lint-staged'] if fnmatch.fnmatch('scripts/architect/flow-gate.mjs',k)])"
+
+# the CI side — the file-type filter in check-no-skip-hooks.yml
+git show origin/main:.github/workflows/check-no-skip-hooks.yml | grep -E "grep -E '\\\\."
+```
+
+`lint-staged` declares seven globs, all under `apps/`, `packages/` or the repo root, and **none
+matches**. The CI gate collects PR-changed files through
+`grep -E '\.(ts|tsx|js|jsx|json|md|yml|yaml)$'` — and `\.js$` does **not** match `.mjs`, because the
+dot is followed by `mjs`. So `.mjs` is outside both.
+
+**Why the wrong half matters more than the right half.** "The hook misses it but CI catches it" is a
+gap with a loud failure at the end, and it needs no action beyond widening a glob. "Neither checks it"
+is silence: the extension the project uses for its own gate scripts — `scripts/architect/flow-gate.mjs`
+is 43k and is what decides whether code may enter `main` — is formatted by nobody, and a reader
+reviewing a diff in it cannot tell formatting noise from intent. The author reports having run prettier
+by hand and the files being clean, which is true and is also the point: it held because someone
+remembered.
+
+This is also a second instance of the shape in `verification-integrity.md`: a gate reported as covering
+something it does not. The author inferred CI coverage from the existence of a formatting gate rather
+than from its file filter.
+
+**Candidate fix, both ends, because fixing one reinstates the asymmetry:** add a `lint-staged` glob for
+`scripts/**/*.{mjs,cjs,js}` (and `.claude/**` / `.github/**` scripts if they are formatted at all — not
+checked here), and add `mjs|cjs` to the CI filter's alternation. Decide deliberately whether `.claude/`
+and `.github/` shell and JS are in scope; this entry measured only `.mjs`.
+
+**Check on closing:** a deliberately mis-formatted `scripts/**/*.mjs` committed with hooks active is
+either reformatted by the pre-commit hook or fails the CI formatting gate — today it does neither, and
+that is the assertion to re-run.
