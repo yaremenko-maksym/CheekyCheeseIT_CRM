@@ -109,6 +109,24 @@ describe('buildSourceObservation: quarantine', () => {
   it('accepts the same record once the defect is removed (the quarantine is not unconditional)', () => {
     expect(build().ok).toBe(true)
   })
+
+  it('quarantines a posting the source itself says is not an open vacancy, with that reason', () => {
+    expect(build({ notOpenVacancy: true })).toEqual({ ok: false, reason: 'NOT_AN_OPEN_VACANCY' })
+  })
+
+  it("names that reason even when the record also lacks an employer (the source's statement outranks a field gap)", () => {
+    expect(build({ notOpenVacancy: true, companyName: null })).toEqual({
+      ok: false,
+      reason: 'NOT_AN_OPEN_VACANCY',
+    })
+  })
+
+  it('still reports an adapter bug first: a bad adapter version outranks the exclusion', () => {
+    expect(build({ notOpenVacancy: true, adapterVersion: ' ' })).toEqual({
+      ok: false,
+      reason: 'INVALID_ADAPTER_VERSION',
+    })
+  })
 })
 
 describe('buildSourceObservation: originals and truncation flags', () => {

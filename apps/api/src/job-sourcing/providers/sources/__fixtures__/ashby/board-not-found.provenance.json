@@ -1,0 +1,12 @@
+{
+  "url": "https://api.ashbyhq.com/posting-api/job-board/cheeky-nonexistent-board-0001?includeCompensation=true",
+  "fetchedAt": "2026-10-24T02:15:45.000Z",
+  "httpStatus": 404,
+  "rawSha256": "0019dfc4b32d63c1392aa264aed2253c1e0c2fb09216f8e2cc269bbfb8bb49b5",
+  "fileSha256": "0019dfc4b32d63c1392aa264aed2253c1e0c2fb09216f8e2cc269bbfb8bb49b5",
+  "trimmedBy": "none: the body is stored exactly as received (a plain-text 404 is not JSON, hence .txt)",
+  "termsUrl": "https://developers.ashbyhq.com/docs/public-job-posting-api",
+  "termsCheckedAt": "2026-10-24T03:30:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "PERMISSION IS UNCLEAR, NOT DOCUMENTED-PUBLIC: the endpoint is documented without credentials, but https://api.ashbyhq.com/robots.txt answers HTTP 401, so this host states no robots verdict and the permission field must not read stronger than that. A board that does not exist answers HTTP 404 with the PLAIN TEXT body \"Not Found\" (content-type text/plain), not JSON - hence the .txt extension. The slug is deliberately fictitious. Documented (https://developers.ashbyhq.com/docs/public-job-posting-api): a public endpoint with no credentials in the example; the page states no rate limit or terms of use. robots.txt: https://api.ashbyhq.com/robots.txt answers HTTP 401, so NO robots verdict exists for the API host (recorded as such, not as permission). The payload carries NO employer name; employer evidence is the posting text naming the employer. includeCompensation=true was requested; every job carries a compensation object, empty tiers where the employer published none. isListed was true on every one of 1,612 postings across 10 non-empty boards, so no unlisted posting was ever captured. DECISION AND COST: publishedAt is documented as the last publish and is read as PUBLISHED; the content hash covers PUBLISHED, so an Ashby re-publish with identical content changes contentHash (reading it as UPDATED would keep the hash stable but leave Ashby vacancies without a publication date). E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure)."
+}

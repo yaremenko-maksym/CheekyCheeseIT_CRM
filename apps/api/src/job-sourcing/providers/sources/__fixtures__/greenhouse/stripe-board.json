@@ -1,0 +1,214 @@
+{
+  "jobs": [
+    {
+      "absolute_url": "https://stripe.com/jobs/search?gh_jid=7984866",
+      "data_compliance": [
+        {
+          "type": "gdpr",
+          "requires_consent": false,
+          "requires_processing_consent": false,
+          "requires_retention_consent": false,
+          "retention_period": null,
+          "demographic_data_consent_applies": false
+        }
+      ],
+      "education": "education_required",
+      "internal_job_id": 3465046,
+      "location": { "name": "Toronto" },
+      "metadata": null,
+      "id": 7984866,
+      "updated_at": "2026-10-22T09:15:16-04:00",
+      "requisition_id": "See Opening ID",
+      "title": "Product Manager, Ecosystem Risk",
+      "company_name": "Stripe",
+      "first_published": "2026-06-11T09:20:38-04:00",
+      "language": "en",
+      "application_deadline": null,
+      "content": "&lt;h2&gt;Who we are&lt;/h2&gt;\n&lt;h3&gt;About Stripe&lt;/h3&gt;\n&lt;p&gt;Stripe is a financial infrastructure platform for businesses. Millions of companies — from the world&#39;s largest enterprises to the most ambitious startups — use Stripe to accept payments, grow their revenue, and accelerate new business opportunities. Our mission is to increase the GDP of the internet, and we have a staggering amount of work ahead. That means you have an unprecedented opportunity to put the global economy within everyone&#39;s reach while doing the most important work of your career.&lt;/p&gt;\n&lt;h3&gt;About the team&lt;/h3&gt;\n&lt;p&gt;The Ecosystem Risk Product Management team sits at the intersection of growth and protection. Our focus is twofold. We enable online businesses—including those in emerging and regulated industries—to start and grow on Stripe, while protecting consumers, merchants, and partners from financial crimes. We build financial infrastructure at scale that powers every transaction on Stripe, deliver merchant-facing UI and API experiences, and develop AI-driven solutions to some of the hardest and most exciting challenges in the digital economy.&lt;/p&gt;\n&lt;h2&gt;What you&#39;ll do&lt;/h2&gt;\n&lt;h3&gt;Responsibilities&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;Own the vision and multi-year roadmap for AI-powered financial crimes controls—spanning detection, investigation, information collection, and the UI and API surfaces that tie them together.&lt;/li&gt;\n&lt;li&gt;Build core infrastructure that underpins Stripe&#39;s growing suite of products and services. • Develop investigator tools that power accurate case reviews using the best of AI and human expertise.&lt;/li&gt;\n&lt;li&gt;Drive cross-functional execution by partnering closely with engineering, operations, design, data science, go-to-market, legal, and product teams across Stripe.&lt;/li&gt;\n&lt;li&gt;Define and own success metrics, navigate complex trade-offs, drive prioritization, and measure outcomes with rigor to demonstrate impact.&lt;/li&gt;\n&lt;li&gt;Align leadership and stakeholders by synthesizing input from across the organization and external sources, and communicating a clear point of view to peers and executives.&lt;/li&gt;\n&lt;li&gt;Monitor the external landscape—regulatory trends, emerging technologies, and competitive offerings—to inform strategy and identify opportunities.&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h2&gt;Who you are&lt;/h2&gt;\n&lt;h3&gt;Minimum requirements&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;7+ years in Product Management&lt;/li&gt;\n&lt;li&gt;Proven experience building infrastructure and user experiences at scale&lt;/li&gt;\n&lt;li&gt;Track record of operating effectively in highly cross-functional environments&lt;/li&gt;\n&lt;li&gt;Excellent analytical, problem-solving, and decision-making skills&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h3&gt;Preferred qualifications&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;Experience in financial crimes or fraud prevention within financial services&lt;/li&gt;\n&lt;/ul&gt;",
+      "departments": [
+        {
+          "id": 83108,
+          "name": "8260 Risk and Compliance Platform PM",
+          "child_ids": [],
+          "parent_id": 150328
+        }
+      ],
+      "offices": [
+        {
+          "id": 87006,
+          "name": "Canada Locations",
+          "location": null,
+          "child_ids": [
+            93355, 212396, 243441, 264677, 83765, 83863, 80164, 80439, 83762, 83763, 83766, 83764
+          ],
+          "parent_id": 673
+        }
+      ],
+      "ai_disclaimer": null,
+      "include_ai_disclaimer": false,
+      "ai_opt_out_request_url": "http://app.greenhouse.io/ai_opt_out_request/job_post/7984866/ai_opt_out"
+    },
+    {
+      "absolute_url": "https://stripe.com/jobs/search?gh_jid=7994330",
+      "data_compliance": [
+        {
+          "type": "gdpr",
+          "requires_consent": false,
+          "requires_processing_consent": false,
+          "requires_retention_consent": false,
+          "retention_period": null,
+          "demographic_data_consent_applies": false
+        }
+      ],
+      "education": "education_required",
+      "internal_job_id": 3467829,
+      "location": { "name": "US-Chicago, US-New York" },
+      "metadata": null,
+      "id": 7994330,
+      "updated_at": "2026-10-22T09:17:05-04:00",
+      "requisition_id": "See Opening ID",
+      "title": "Account Executive, Enterprise - Hunter",
+      "company_name": "Stripe",
+      "first_published": "2026-06-10T10:30:26-04:00",
+      "language": "en",
+      "application_deadline": null,
+      "content": "&lt;h2&gt;&lt;strong&gt;Who we are&lt;/strong&gt;&lt;/h2&gt;\n&lt;h3&gt;&lt;strong&gt;About Stripe&lt;/strong&gt;&lt;/h3&gt;\n&lt;p&gt;Stripe is a financial infrastructure platform for businesses. Millions of companies—from the world’s largest enterprises to the most ambitious startups—use Stripe to accept payments, grow their revenue, and accelerate new business opportunities. Our mission is to increase the GDP of the internet, and we have a staggering amount of work ahead. That means you have an unprecedented opportunity to put the global economy within everyone’s reach while doing the most important work of your career.&lt;/p&gt;\n&lt;h2&gt;&lt;strong&gt;What you’ll do&lt;/strong&gt;&lt;/h2&gt;\n&lt;p&gt;As an Enterprise Account Executive covering new business, you’ll identify new opportunities to expand Stripe’s footprint. Specifically, we’re looking for someone who can execute on long-term sales strategies, engage with internal and external stakeholders, align on technical and business requirements with product teams, build value in competitive situations, lead commercial negotiations, and close deals.&lt;/p&gt;\n&lt;h3&gt;&lt;strong&gt;Responsibilities&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;Expand business with high growth technology companies&lt;/li&gt;\n&lt;li&gt;Develop outbound strategies to create and nurture opportunities&lt;/li&gt;\n&lt;li&gt;Drive deal strategy and commercial negotiations for large, complex renewals&lt;/li&gt;\n&lt;li&gt;Develop relationships with executive stakeholders within your book of business&lt;/li&gt;\n&lt;li&gt;Be responsible for account mapping and coordinating effective meetings with the appropriate external stakeholders expanding the customer relationship&lt;/li&gt;\n&lt;li&gt;Lead and contribute to team projects to develop and refine our sales process and help shape the Stripe sales culture&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h2&gt;&lt;strong&gt;Who you are&lt;/strong&gt;&lt;/h2&gt;\n&lt;p&gt;We’re looking for someone who meets the minimum requirements to be considered for the role. If you meet these requirements, you are encouraged to apply. The preferred qualifications are a bonus, not a requirement.&lt;/p&gt;\n&lt;h3&gt;&lt;strong&gt;Minimum requirements&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;10+ years of sales experience, preferably selling a highly technical product to enterprise customers, with a track record of top performance&lt;/li&gt;\n&lt;li&gt;Ability to understand technical requirements and craft solutions across multiple products&lt;/li&gt;\n&lt;li&gt;Ability to develop and execute account plans spanning multiple business units across complex organizations&lt;/li&gt;\n&lt;li&gt;A knack for working well with a wide range of people, both internally and externally&lt;/li&gt;\n&lt;li&gt;Strong presentation skills, particularly for in-person meetings with multiple stakeholders&lt;/li&gt;\n&lt;li&gt;Proven ability to lead complex negotiations involving bespoke commercial agreement&lt;/li&gt;\n&lt;li&gt;Ability to operate in a highly ambiguous and fast-paced environment&lt;/li&gt;\n&lt;li&gt;Strong interest in technology and a deep understanding of the space&lt;/li&gt;\n&lt;/ul&gt;\n&lt;p&gt;Location: Hybrid In-Office Schedule out of Chicago, IL or New York, NY&lt;/p&gt;",
+      "departments": [
+        {
+          "id": 81430,
+          "name": "1175 Enterprise - Account Executives (NA)",
+          "child_ids": [],
+          "parent_id": 81961
+        }
+      ],
+      "offices": [
+        {
+          "id": 65234,
+          "name": "US",
+          "location": null,
+          "child_ids": [
+            89623, 249942, 249943, 230657, 61413, 80440, 344486, 83778, 61414, 83767, 83768, 83776,
+            83769, 83770, 83771, 83772, 83773, 83774, 89624, 83789, 83775, 83777, 83779, 83780,
+            83820, 83781, 83782, 83783, 83784, 83785, 83786, 83787, 83821, 83788, 83790, 83791,
+            83792, 83793, 83794, 83854, 83861, 83795, 83796, 83797, 83831, 83798, 83799, 83856,
+            83800, 83801, 83819, 83802, 83850, 83803, 83804, 83805, 83806, 83807, 83808, 83809,
+            83810, 83811, 83812, 83813, 83815, 83817, 83822, 83824, 83846, 83825, 83829, 83830,
+            65238, 83834, 83849, 83859, 83835, 83836, 83837, 83839, 83840, 83841, 83842, 83843,
+            83844, 83847, 83848, 83851, 83852, 83853, 83855, 83857, 83858, 83860, 83862, 83814,
+            83818, 83823, 83826, 83827, 83828, 83832, 83833, 83816, 85342, 83838, 83845, 223073,
+            265365, 16654
+          ],
+          "parent_id": 673
+        }
+      ],
+      "ai_disclaimer": null,
+      "include_ai_disclaimer": false,
+      "ai_opt_out_request_url": "http://app.greenhouse.io/ai_opt_out_request/job_post/7994330/ai_opt_out"
+    },
+    {
+      "absolute_url": "https://stripe.com/jobs/search?gh_jid=7557403",
+      "data_compliance": [
+        {
+          "type": "gdpr",
+          "requires_consent": false,
+          "requires_processing_consent": false,
+          "requires_retention_consent": false,
+          "retention_period": null,
+          "demographic_data_consent_applies": false
+        }
+      ],
+      "education": "education_required",
+      "internal_job_id": 3341558,
+      "location": { "name": "San Francisco, Seattle" },
+      "metadata": null,
+      "id": 7557403,
+      "updated_at": "2026-10-22T09:17:04-04:00",
+      "requisition_id": "See Opening ID",
+      "title": "Android Engineer, Terminal OS Platform",
+      "company_name": "Stripe",
+      "first_published": "2026-01-22T10:20:45-05:00",
+      "language": "en",
+      "application_deadline": null,
+      "content": "&lt;h2&gt;Who we are&lt;/h2&gt;\n&lt;h3&gt;About Stripe&lt;/h3&gt;\n&lt;p&gt;Stripe is a financial infrastructure platform for businesses. Millions of companies—from the world&#39;s largest enterprises to the most ambitious startups—use Stripe to accept payments, grow their revenue, and accelerate new business opportunities. Our mission is to increase the GDP of the internet, and we have a staggering amount of work ahead. That means you have an unprecedented opportunity to put the global economy within everyone&#39;s reach while doing the most important work of your career.&lt;/p&gt;\n&lt;h3&gt;About the team&lt;/h3&gt;\n&lt;p&gt;Stripe Terminal helps our users extend their online presence to the physical world. The Terminal team&#39;s mission is to make it as easy for businesses to accept in-person payments as the Stripe API has done for online payments. Stripe was founded to make it easier for developers to accept payments. We&#39;ve solved a small part of that problem, but our ambition is to go much further.&lt;/p&gt;\n&lt;p&gt;Android engineers on the Terminal team will build and enhance the Device Platform including the applications and services that run on the physical Terminal devices. This also includes building the frameworks for other engineers, both internal and external to Stripe, to develop on our custom platform with ease.&lt;/p&gt;\n&lt;h2&gt;What you&#39;ll do&lt;/h2&gt;\n&lt;h3&gt;Responsibilities&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;Design, build, and maintain Android apps and SDKs in Kotlin&lt;/li&gt;\n&lt;li&gt;Develop Android payment applications for a variety of devices and form factors&lt;/li&gt;\n&lt;li&gt;Work with engineers, product managers, designers, and stakeholders across the company to bring new features and products to Stripe&#39;s mobile users&lt;/li&gt;\n&lt;li&gt;Collaborate with Android developers who work on the Stripe mobile apps and Stripe Terminal to set best practices for Android development across the company&lt;/li&gt;\n&lt;li&gt;Work with user research and product design to understand users and address their needs&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h2&gt;Who you are&lt;/h2&gt;\n&lt;p&gt;We&#39;re looking for someone who meets the minimum requirements to be considered for the role. If you meet these requirements, you are encouraged to apply. The preferred qualifications are a bonus, not a requirement.&lt;/p&gt;\n&lt;h3&gt;Minimum requirements&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;Have a strong technical background, with 2–6 years of experience in Android development.&lt;/li&gt;\n&lt;li&gt;Listen well and internalize the best ideas from all over the organization.&lt;/li&gt;\n&lt;li&gt;Prefer simple solutions and designs over complex ones, and have a good intuition for what is lasting and scalable.&lt;/li&gt;\n&lt;li&gt;Thrive in a collaborative environment involving different stakeholders and subject matter experts.&lt;/li&gt;\n&lt;li&gt;Put yourself in the shoes of your users and be a steward of crafting great developer and consumer experiences.&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h3&gt;Preferred qualifications&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;Custom hardware experience on the Android platform&lt;/li&gt;\n&lt;li&gt;Payments expertise or knowledge&lt;/li&gt;\n&lt;li&gt;Backend infrastructure or services experience&lt;/li&gt;\n&lt;li&gt;Based in the PST time zone&lt;/li&gt;\n&lt;/ul&gt;",
+      "departments": [
+        { "id": 66157, "name": "8512 Terminal - Eng", "child_ids": [], "parent_id": 340723 }
+      ],
+      "offices": [
+        {
+          "id": 65234,
+          "name": "US",
+          "location": null,
+          "child_ids": [
+            89623, 249942, 249943, 230657, 61413, 80440, 344486, 83778, 61414, 83767, 83768, 83776,
+            83769, 83770, 83771, 83772, 83773, 83774, 89624, 83789, 83775, 83777, 83779, 83780,
+            83820, 83781, 83782, 83783, 83784, 83785, 83786, 83787, 83821, 83788, 83790, 83791,
+            83792, 83793, 83794, 83854, 83861, 83795, 83796, 83797, 83831, 83798, 83799, 83856,
+            83800, 83801, 83819, 83802, 83850, 83803, 83804, 83805, 83806, 83807, 83808, 83809,
+            83810, 83811, 83812, 83813, 83815, 83817, 83822, 83824, 83846, 83825, 83829, 83830,
+            65238, 83834, 83849, 83859, 83835, 83836, 83837, 83839, 83840, 83841, 83842, 83843,
+            83844, 83847, 83848, 83851, 83852, 83853, 83855, 83857, 83858, 83860, 83862, 83814,
+            83818, 83823, 83826, 83827, 83828, 83832, 83833, 83816, 85342, 83838, 83845, 223073,
+            265365, 16654
+          ],
+          "parent_id": 673
+        }
+      ],
+      "ai_disclaimer": null,
+      "include_ai_disclaimer": false,
+      "ai_opt_out_request_url": "http://app.greenhouse.io/ai_opt_out_request/job_post/7557403/ai_opt_out"
+    },
+    {
+      "absolute_url": "https://stripe.com/jobs/search?gh_jid=8260980",
+      "data_compliance": [
+        {
+          "type": "gdpr",
+          "requires_consent": false,
+          "requires_processing_consent": false,
+          "requires_retention_consent": false,
+          "retention_period": null,
+          "demographic_data_consent_applies": false
+        }
+      ],
+      "education": "education_required",
+      "internal_job_id": 3574474,
+      "location": { "name": "Seattle, New York, San Francisco" },
+      "metadata": null,
+      "id": 8260980,
+      "updated_at": "2026-10-22T15:52:24-04:00",
+      "requisition_id": "See Opening ID",
+      "title": "Staff Software Engineer, Payments Intelligence",
+      "company_name": "Stripe",
+      "first_published": "2026-10-22T15:52:24-04:00",
+      "language": "en",
+      "application_deadline": null,
+      "content": "&lt;h2&gt;Who we are&lt;/h2&gt;\n&lt;h3&gt;About Stripe&lt;/h3&gt;\n&lt;p&gt;&lt;span style=&quot;font-weight: 400;&quot;&gt;Stripe is a financial infrastructure platform for businesses. Millions of companies—from the world’s largest enterprises to the most ambitious startups—use Stripe to accept payments, grow their revenue, and accelerate new business opportunities. Our mission is to increase the GDP of the internet, and we have a staggering amount of work ahead. That means you have an unprecedented opportunity to put the global economy within everyone’s reach while doing the most important work of your career.&lt;/span&gt;&lt;/p&gt;\n&lt;h3&gt;&lt;strong&gt;About the team&lt;/strong&gt;&lt;/h3&gt;\n&lt;p&gt;Payment Intelligence is comprised of multiple product teams building AI-first solutions to some of our customers’ biggest challenges, including fraud/abuse (&lt;a href=&quot;https://stripe.com/au/radar&quot;&gt;Radar&lt;/a&gt;), payment optimizations (&lt;a href=&quot;https://stripe.com/authorization-boost&quot;&gt;AuthBoost&lt;/a&gt;), Disputes, Authentication, and merchant analytics. We’re a mix of machine engineering engineers and full-stack software engineers impacting ~every Stripe transaction, creating revenue opportunities for Stripe and our customers, and helping protect the broader ecosystem.&lt;/p&gt;\n&lt;p&gt;We have the benefit and privilege of working on cutting edge technologies with incredible scale and reach while also working directly with our merchants every day to build the right products for their needs.&lt;/p&gt;\n&lt;h2&gt;&lt;strong&gt;What you&#39;ll do&lt;/strong&gt;&lt;/h2&gt;\n&lt;p&gt;As a Staff Engineer on Payment Intelligence, you’ll work across our product portfolio to ensure we’re building in a consistent, efficient, and effective manner. Experience with large, distributed systems on the critical path will help candidates succeed, as will comfort working across the stack and interacting with ML teams and models.&amp;nbsp;&lt;/p&gt;\n&lt;h3&gt;&lt;strong&gt;Responsibilities&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;Define technical strategy for multiple experiences across the Payment Intelligence portfolio, with a focus on quality and performance&lt;/li&gt;\n&lt;li&gt;Champion a quality-first engineering culture - establish standards, tooling, and processes that make it easy to ship high-quality code at scale&lt;/li&gt;\n&lt;li&gt;Partner with some of Stripe’s largest merchants to co-build the future of payment-centric intelligence&lt;/li&gt;\n&lt;li&gt;Partner cross-functionally with product, design, and ML colleagues to ship the very best software possible&lt;/li&gt;\n&lt;li&gt;Work across the stack - contributing to infrastructure and foundational systems, but also FE, API, and ML-adjacent work.&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h3&gt;&lt;strong&gt;Minimum requirements&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;10+ years of software engineering experience, including 5+ years of experience in a strategic technical leadership role&lt;/li&gt;\n&lt;li&gt;Experience leading engineering team(s) working on Distributed systems, API design, and user facing products&lt;/li&gt;\n&lt;li&gt;Proven track record of delivering pragmatic solutions that accelerate business growth&lt;/li&gt;\n&lt;li&gt;Ability to drive projects at a high-level while also being hands on and contributing directly to technical solutions as necessary&lt;/li&gt;\n&lt;li&gt;Effective communication skills and a proven ability to work cross-team, cross-org, and cross-functionally.&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h3&gt;&lt;strong&gt;Preferred qualifications&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;Experience with payments systems and/or fraud detection&lt;/li&gt;\n&lt;li&gt;Familiarity with ML systems in production: model serving, training pipelines, observability, and evaluation&lt;/li&gt;\n&lt;li&gt;Prior experience with 0-1 product builds: you&#39;ve started with a blank page and ended with a production system, and you have clear opinions about what makes that process go well or poorly&lt;/li&gt;\n&lt;li&gt;Experience across a range of software languages and frameworks; our stack includes Java, Ruby, Python, TypeScript, Kafka, Flyte, Airflow, and Mongo.&lt;/li&gt;\n&lt;li&gt;Experience navigating ambiguity in a fast-moving organization - you can make confident technical decisions with incomplete information and update gracefully when new constraints emerge&lt;/li&gt;\n&lt;/ul&gt;",
+      "departments": [
+        { "id": 66168, "name": "8511 PayIntel - Eng", "child_ids": [], "parent_id": 340726 }
+      ],
+      "offices": [
+        {
+          "id": 65234,
+          "name": "US",
+          "location": null,
+          "child_ids": [
+            89623, 249942, 249943, 230657, 61413, 80440, 344486, 83778, 61414, 83767, 83768, 83776,
+            83769, 83770, 83771, 83772, 83773, 83774, 89624, 83789, 83775, 83777, 83779, 83780,
+            83820, 83781, 83782, 83783, 83784, 83785, 83786, 83787, 83821, 83788, 83790, 83791,
+            83792, 83793, 83794, 83854, 83861, 83795, 83796, 83797, 83831, 83798, 83799, 83856,
+            83800, 83801, 83819, 83802, 83850, 83803, 83804, 83805, 83806, 83807, 83808, 83809,
+            83810, 83811, 83812, 83813, 83815, 83817, 83822, 83824, 83846, 83825, 83829, 83830,
+            65238, 83834, 83849, 83859, 83835, 83836, 83837, 83839, 83840, 83841, 83842, 83843,
+            83844, 83847, 83848, 83851, 83852, 83853, 83855, 83857, 83858, 83860, 83862, 83814,
+            83818, 83823, 83826, 83827, 83828, 83832, 83833, 83816, 85342, 83838, 83845, 223073,
+            265365, 16654
+          ],
+          "parent_id": 673
+        }
+      ],
+      "ai_disclaimer": null,
+      "include_ai_disclaimer": false,
+      "ai_opt_out_request_url": "http://app.greenhouse.io/ai_opt_out_request/job_post/8260980/ai_opt_out"
+    }
+  ],
+  "meta": { "total": 4 }
+}
