@@ -88,7 +88,7 @@ describe('assess: native identity and ATS keys', () => {
     })
     const r = assess(a, b)
     expect(r).toMatchObject({ decision: 'ASSOCIATE', rule: 'ATS_JOB_KEY' })
-    expect(r.evidence).toContain('ATS_KEY:["ats1","greenhouse","acme","100"]')
+    expect(r.evidence).toContain('ATS_KEY:["ats1","greenhouse","ATS_HOSTED","acme","100"]')
   })
 
   it('an UNVERIFIED application URL is not identity (poisoned / tracking / unverified)', () => {

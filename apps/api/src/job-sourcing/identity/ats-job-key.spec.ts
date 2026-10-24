@@ -153,7 +153,28 @@ describe('atsJobKey: key stability and separation', () => {
 
   it('the key is a versioned JSON tuple (no delimiter ambiguity)', () => {
     expect(k('https://boards.greenhouse.io/acme/jobs/42')?.key).toBe(
-      '["ats1","greenhouse","acme","42"]',
+      '["ats1","greenhouse","ATS_HOSTED","acme","42"]',
+    )
+  })
+
+  it('an EMPLOYER_HOST key can never equal an ATS_HOSTED key (scope is part of the key)', () => {
+    // A dotless host is a legal URL host; it must not impersonate the board slug "acme".
+    const hostile = k('https://acme/open-roles?gh_jid=4012345')
+    const board = k('https://boards.greenhouse.io/acme/jobs/4012345')
+    expect(board).not.toBeNull()
+    expect(hostile === null || hostile.key !== board?.key).toBe(true)
+  })
+
+  it('an EMPLOYER_HOST namespace must be a real dotted host', () => {
+    expect(k('https://acme/open-roles?gh_jid=4012345')).toBeNull()
+    expect(k('https://localhost/x?gh_jid=1')).toBeNull()
+  })
+
+  it('same employer host + id keeps one key; the scope is in the tuple', () => {
+    const e = k('https://careers.acme.example/a?gh_jid=9')
+    expect(e?.key).toBe('["ats1","greenhouse","EMPLOYER_HOST","careers.acme.example","9"]')
+    expect(k('https://boards.greenhouse.io/acme/jobs/9')?.key).toBe(
+      '["ats1","greenhouse","ATS_HOSTED","acme","9"]',
     )
   })
 })

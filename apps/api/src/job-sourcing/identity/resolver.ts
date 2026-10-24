@@ -319,12 +319,13 @@ export function chooseCanonical(claims: readonly FieldClaim[]): CanonicalChoice 
       policyVersion,
     }
   }
-  const [winner] = [...tier].sort(
+  // `tier` is non-empty: `claims` is, and `top` is the maximum of a non-empty pool.
+  const winner = [...tier].sort(
     (p, q) =>
       q.observedAt.getTime() - p.observedAt.getTime() ||
       q.revision - p.revision ||
       (p.sourceRecordId < q.sourceRecordId ? -1 : p.sourceRecordId > q.sourceRecordId ? 1 : 0),
-  )
+  )[0] as FieldClaim
   return {
     status: 'CHOSEN',
     value: winner.value,

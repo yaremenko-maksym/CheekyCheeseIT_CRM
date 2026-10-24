@@ -52,7 +52,7 @@ function make(
     namespace: ns,
     jobId,
     scope,
-    key: encodeIdentityTuple([ATS_KEY_VERSION, provider, ns, jobId]),
+    key: encodeIdentityTuple([ATS_KEY_VERSION, provider, scope, ns, jobId]),
   }
 }
 
@@ -60,26 +60,22 @@ function make(
 const segments = (path: string): string[] => path.split('/').filter((s) => s.length > 0)
 
 function greenhouse(host: string, url: URL, parts: string[]): AtsJobKey | null {
+  const [p0 = '', p1 = '', p2 = ''] = parts
   if (
     host === 'boards.greenhouse.io' ||
     host === 'job-boards.greenhouse.io' ||
     host === 'boards.eu.greenhouse.io' ||
     host === 'job-boards.eu.greenhouse.io'
   ) {
-    if (
-      parts.length >= 3 &&
-      parts[1] === 'jobs' &&
-      ACCOUNT.test(parts[0]) &&
-      DIGITS.test(parts[2])
-    ) {
-      return make('greenhouse', parts[0], parts[2], 'ATS_HOSTED')
+    if (parts.length >= 3 && p1 === 'jobs' && ACCOUNT.test(p0) && DIGITS.test(p2)) {
+      return make('greenhouse', p0, p2, 'ATS_HOSTED')
     }
     const board = url.searchParams.get('for')
     const token = url.searchParams.get('token')
     if (
       parts.length === 2 &&
-      parts[0] === 'embed' &&
-      parts[1] === 'job_app' &&
+      p0 === 'embed' &&
+      p1 === 'job_app' &&
       board &&
       token &&
       ACCOUNT.test(board) &&
@@ -97,25 +93,28 @@ const ASHBY_HOSTS = new Set(['jobs.ashbyhq.com'])
 
 /** `<account>/<uuid>[/apply|/application]` on a fixed-host ATS. */
 function accountUuid(provider: 'lever' | 'ashby', parts: string[], tail: string): AtsJobKey | null {
+  const [account = '', id = '', suffix] = parts
   if (parts.length < 2 || parts.length > 3) return null
-  if (parts.length === 3 && parts[2] !== tail) return null
-  if (!ACCOUNT.test(parts[0]) || !UUID.test(parts[1])) return null
-  return make(provider, parts[0], parts[1].toLowerCase(), 'ATS_HOSTED')
+  if (parts.length === 3 && suffix !== tail) return null
+  if (!ACCOUNT.test(account) || !UUID.test(id)) return null
+  return make(provider, account, id.toLowerCase(), 'ATS_HOSTED')
 }
 
 function workable(parts: string[]): AtsJobKey | null {
   // /<account>/j/<SHORTCODE>[/apply]
-  if (parts.length < 3 || parts.length > 4 || parts[1] !== 'j') return null
-  if (parts.length === 4 && parts[3] !== 'apply') return null
-  if (!ACCOUNT.test(parts[0]) || !SHORTCODE.test(parts[2])) return null
-  return make('workable', parts[0], parts[2].toUpperCase(), 'ATS_HOSTED')
+  const [account = '', j, code = '', suffix] = parts
+  if (parts.length < 3 || parts.length > 4 || j !== 'j') return null
+  if (parts.length === 4 && suffix !== 'apply') return null
+  if (!ACCOUNT.test(account) || !SHORTCODE.test(code)) return null
+  return make('workable', account, code.toUpperCase(), 'ATS_HOSTED')
 }
 
 function smartRecruiters(parts: string[]): AtsJobKey | null {
   // /<Company>/<numeric id>[-slug]
-  if (parts.length !== 2 || !ACCOUNT.test(parts[0])) return null
-  const m = /^([0-9]+)(?:-.*)?$/.exec(parts[1])
-  return m ? make('smartrecruiters', parts[0], m[1], 'ATS_HOSTED') : null
+  const [account = '', last = ''] = parts
+  if (parts.length !== 2 || !ACCOUNT.test(account)) return null
+  const id = /^([0-9]+)(?:-.*)?$/.exec(last)?.[1]
+  return id === undefined ? null : make('smartrecruiters', account, id, 'ATS_HOSTED')
 }
 
 function subdomainOf(host: string, suffix: string): string | null {
@@ -126,15 +125,16 @@ function subdomainOf(host: string, suffix: string): string | null {
 
 function recruitee(host: string, parts: string[]): AtsJobKey | null {
   const account = subdomainOf(host, 'recruitee.com')
-  if (account === null || parts.length < 2 || parts[0] !== 'o' || !SLUG.test(parts[1])) return null
-  return make('recruitee', account, parts[1].toLowerCase(), 'ATS_HOSTED')
+  const [o, slug = ''] = parts
+  if (account === null || parts.length < 2 || o !== 'o' || !SLUG.test(slug)) return null
+  return make('recruitee', account, slug.toLowerCase(), 'ATS_HOSTED')
 }
 
 function personio(host: string, parts: string[]): AtsJobKey | null {
   const account = subdomainOf(host, 'jobs.personio.de') ?? subdomainOf(host, 'jobs.personio.com')
-  if (account === null || parts.length !== 2 || parts[0] !== 'job' || !DIGITS.test(parts[1]))
-    return null
-  return make('personio', account, parts[1], 'ATS_HOSTED')
+  const [job, id = ''] = parts
+  if (account === null || parts.length !== 2 || job !== 'job' || !DIGITS.test(id)) return null
+  return make('personio', account, id, 'ATS_HOSTED')
 }
 
 export function atsJobKey(raw: string | null | undefined): AtsJobKey | null {
@@ -159,6 +159,10 @@ export function atsJobKey(raw: string | null | undefined): AtsJobKey | null {
   // `gh_jid` on any other host: an employer page embedding a Greenhouse board. Scoped to the host
   // because the same number on another site is another job.
   const jid = url.searchParams.get('gh_jid')
-  if (jid !== null && DIGITS.test(jid)) return make('greenhouse', host, jid, 'EMPLOYER_HOST')
+  // A dotless host ("acme") is a legal URL host but not an employer site, and would read like a
+  // board slug; the scope is also in the key tuple, so the two can never collide.
+  if (jid !== null && DIGITS.test(jid) && host.includes('.')) {
+    return make('greenhouse', host, jid, 'EMPLOYER_HOST')
+  }
   return null
 }
