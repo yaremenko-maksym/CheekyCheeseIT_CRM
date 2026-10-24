@@ -3,7 +3,12 @@ import { expectNoneOf, expectOnlyPublicRequests } from '../../../test/ats-b-asse
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import { readFixtureText } from '../../../test/fixture-provenance'
 import { boardConfigsOf, boardVerdictOf } from './ats-config'
-import { PERSONIO_LANGUAGES, personioBoardGroupSchema, personioProvider } from './personio.provider'
+import {
+  PERSONIO_LANGUAGES,
+  personioAllowedHosts,
+  personioBoardGroupSchema,
+  personioProvider,
+} from './personio.provider'
 
 /**
  * Personio through its public provider, on the XML binding of Task 2.4. Expected values are
@@ -72,6 +77,18 @@ describe('the request (public, one address, language and host variant in config)
     ] as const) {
       const { f } = await run(body, cfg(), status)
       expectOnlyPublicRequests(f.sent, /^westwing\.jobs\.personio\.de$/, ['accept', 'user-agent'])
+    }
+  })
+
+  it("the declared host is the company's own on the configured tld, and every request is on it", async () => {
+    expect(personioAllowedHosts({ board: 'westwing', tld: 'com' })).toEqual([
+      'westwing.jobs.personio.com',
+    ])
+    for (const tld of ['de', 'com']) {
+      const { f } = await run(feed(), cfg('westwing', { tld }))
+      for (const r of f.sent) {
+        expect(personioAllowedHosts({ board: 'westwing', tld })).toContain(new URL(r.url).host)
+      }
     }
   })
 
@@ -429,7 +446,7 @@ describe('empty, missing and isolated', () => {
     expectNoneOf(batch, [secret, 'session='])
   })
 
-  it('a redirect is not followed', async () => {
+  it('a redirect answer is a failure; the loop never reads Location', async () => {
     const f = fakeCollectionContext({
       now: NOW,
       responses: [

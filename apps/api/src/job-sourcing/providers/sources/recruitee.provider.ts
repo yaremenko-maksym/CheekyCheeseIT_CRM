@@ -73,6 +73,11 @@ import { boundedString, dateRaw, optionalString, positiveSafeInt, urlString } fr
 
 export const RECRUITEE_ADAPTER_VERSION = 'recruitee-1'
 
+/** The one host this tenant's requests may reach; a transport is pinned to it. */
+export const recruiteeAllowedHosts = (config: { board: string }): readonly string[] => [
+  `${config.board}.recruitee.com`,
+]
+
 /** Recruitee's published date from which the Careers Site API answers 401 without a per-company token. */
 export const RECRUITEE_TOKEN_DEADLINE = new Date('2027-02-10T00:00:00.000Z')
 

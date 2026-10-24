@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { AT_FORMS, addressHits, PLACEHOLDER } from '../../../test/address-tokens'
 import { fixtureFiles, readFixtureText, readProvenance } from '../../../test/fixture-provenance'
 
 /**
@@ -19,6 +20,24 @@ const stem = (file: string) => file.slice(0, file.lastIndexOf('.'))
 const instant = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 const all = Object.keys(HOSTS).flatMap((p) => fixtureFiles(p))
 const label = (f: { provider: string; file: string }) => `${f.provider}/${f.file}`
+
+/**
+ * An address-shaped run that is allowed to stay, by file, exact value and reason. The captures hold
+ * nothing but the placeholder; the two entries are the npm scope of the XML parser named in
+ * `trimmedBy`, found by the scan itself.
+ */
+const ALLOWED_ADDRESS_SPANS: readonly { file: string; value: string; reason: string }[] = [
+  {
+    file: 'personio/westwing-de.provenance.json',
+    value: '@rgrove',
+    reason: 'npm scope of @rgrove/parse-xml in the trimmedBy description, not a person',
+  },
+  {
+    file: 'personio/westwing-en.provenance.json',
+    value: '@rgrove',
+    reason: 'npm scope of @rgrove/parse-xml in the trimmedBy description, not a person',
+  },
+]
 
 describe('ATS B fixture provenance', () => {
   it('covers the four providers with exactly the 12 committed files', () => {
@@ -54,14 +73,24 @@ describe('ATS B fixture provenance', () => {
     },
   )
 
-  it('leaves no e-mail address in any ATS B fixture except the redaction placeholder', () => {
+  it('leaves no address-shaped token in any ATS B fixture or provenance file, in any spelling of "@"', () => {
+    const unexpected: string[] = []
     for (const f of all) {
-      const emails =
-        readFixtureText(f.provider, f.file).match(
-          /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
-        ) ?? []
-      expect(emails.filter((e) => e !== 'redacted@example.invalid')).toEqual([])
+      for (const name of [f.file, f.provenanceFile]) {
+        for (const hit of addressHits(readFixtureText(f.provider, name))) {
+          const allowed = ALLOWED_ADDRESS_SPANS.some(
+            (a) => a.file === `${f.provider}/${name}` && a.value === hit.span,
+          )
+          if (!allowed) unexpected.push(`${f.provider}/${name} [${hit.form}] ${hit.span}`)
+        }
+      }
     }
+    expect(unexpected).toEqual([])
+  })
+
+  it('the redaction ran: bunq carries the placeholder once per offer and nothing else that looks like an address', () => {
+    const text = readFixtureText('recruitee', 'bunq-offers.json')
+    expect(text.split(PLACEHOLDER).length - 1).toBe(3)
   })
 
   it('SmartRecruiters: the only capture is the robots.txt that disallows this collector, and it says UNCLEAR first', () => {
@@ -108,5 +137,60 @@ describe('ATS B fixture provenance', () => {
       [...readFixtureText('personio', name).matchAll(/<id>(\d+)<\/id>/g)].map((m) => m[1])
     expect(ids('westwing-en.xml')).toEqual(['2630474', '2703051', '2435528', '1968758', '2702093'])
     expect(ids('westwing-de.xml')).toEqual(['2630474', '2702093'])
+  })
+})
+
+describe('the address scan sees every spelling of "@", each with its own positive control', () => {
+  const CONTROLS: readonly (readonly [string, string])[] = [
+    ['literal @', '@'],
+    ['fullwidth @', '\uFF20'],
+    ['percent-encoded', '%40'],
+    ['double percent-encoded', '%2540'],
+    ['decimal entity', '&#64;'],
+    ['decimal entity', '&#0064;'],
+    ['hex entity', '&#x40;'],
+    ['hex entity', '&#X0040;'],
+    ['named entity', '&commat;'],
+    ['[at]', '[at]'],
+    ['(at)', '(AT)'],
+  ]
+
+  it('knows exactly these forms, so deleting one from the scan fails here', () => {
+    expect(AT_FORMS.map((f) => f.name)).toEqual([
+      'literal @',
+      'fullwidth @',
+      'percent-encoded',
+      'double percent-encoded',
+      'decimal entity',
+      'hex entity',
+      'named entity',
+      '[at]',
+      '(at)',
+    ])
+  })
+
+  it.each(CONTROLS)('%s: %s is found inside an address, whole', (form, token) => {
+    const hits = addressHits(`write to jane.tan${token}example.invalid today`)
+    expect(hits.map((h) => [h.form, h.span])).toEqual([[form, `jane.tan${token}example.invalid`]])
+  })
+
+  it('the placeholder is matched WHOLE: only the exact literal passes', () => {
+    expect(addressHits(PLACEHOLDER)).toEqual([])
+    expect(addressHits(`"${PLACEHOLDER}"`)).toEqual([])
+    for (const near of [
+      'Jane.Tan%40example.invalid',
+      'redacted%40example.invalid',
+      'xredacted@example.invalid',
+      'redacted@example.invalid.evil',
+      'redacted@example.invalidx',
+      'Redacted@example.invalid',
+    ]) {
+      expect(addressHits(near).length, near).toBeGreaterThan(0)
+    }
+  })
+
+  it('a bare @ and plain text', () => {
+    expect(addressHits('@')).toEqual([{ form: 'literal @', span: '@' }])
+    expect(addressHits('no address here, 40 percent and 64 entities')).toEqual([])
   })
 })

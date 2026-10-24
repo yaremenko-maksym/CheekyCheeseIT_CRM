@@ -15,16 +15,18 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  * Measurements, captures, robots and terms verdicts: `__fixtures__/workable/*.provenance.json`
  * (2026-10-24).
  *
- * WHICH ADDRESS, AND WHY THERE IS NO REDIRECT HERE. Workable's help center documents the public
+ * WHICH ADDRESS, AND WHY THIS ADAPTER NEEDS NO REDIRECT. Workable's help center documents the public
  * form `https://www.workable.com/api/accounts/{subdomain}?details=true`. That address answers HTTP
  * 302 to the `apply.workable.com/api/v1/widget/accounts/...` one above (measured: the Location
- * header is in the provenance notes). This adapter calls the FINAL address directly, so it never
- * needs a redirect and follows none: `a redirect follows a reviewed hop allow-list OR NOT AT ALL`
- * (plan, Task 3.4) is satisfied by "not at all". The loop treats any 3xx as an UPSTREAM failure of
- * that one request and sends nothing further, so a widget that starts redirecting (to a login, to
- * another host) ends the attempt after one request instead of following the redirect with our
- * headers. If Workable ever redirects THIS address legitimately, the hop that is added is a
- * reviewed allow-list entry in this file, not a relaxed check.
+ * header is in the provenance notes). This adapter calls the FINAL address directly, so it has no
+ * use for a redirect. WHAT IS TRUE ABOUT REDIRECTS, AND WHAT IS NOT: the page loop treats any 3xx as
+ * an UPSTREAM failure of that request and never reads `Location`; it is the TRANSPORT that decides
+ * whether a redirect is followed, and `boundedFetchText` follows up to three, host-pinned to the
+ * `allowedHosts` its caller gives it. So this file declares the host (`workableAllowedHosts`), a
+ * spec asserts every request stays on it, and whoever builds `fetchText` for this adapter pins the
+ * transport to it: then a redirect can only lead to the same host. (The plan says only "widget
+ * redirect only via reviewed hop allow-list"; a hop beyond the declared host would be a reviewed
+ * addition to the declaration, not a relaxed check.)
  *
  * `https://{subdomain}.workable.com/spi/v3/` is the authenticated partner API (a bearer token) and
  * a separate, authorised integration. No code path here builds a request for it, and nothing here
@@ -65,6 +67,9 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
 
 export const WORKABLE_ADAPTER_VERSION = 'workable-1'
 const HOST = 'apply.workable.com'
+
+/** The one host this adapter's requests may reach; a transport is pinned to it. */
+export const workableAllowedHosts = (): readonly string[] => [HOST]
 
 export const WORKABLE_LIMITS = {
   maxBytes: 10 * 1024 * 1024,

@@ -69,6 +69,11 @@ import { boundedString, dateRaw, optionalString } from './as'
 
 export const PERSONIO_ADAPTER_VERSION = 'personio-1'
 
+/** The one host this company's requests may reach; a transport is pinned to it. */
+export const personioAllowedHosts = (config: { board: string; tld: string }): readonly string[] => [
+  `${config.board}.jobs.personio.${config.tld}`,
+]
+
 export const PERSONIO_LANGUAGES = ['de', 'en', 'fr', 'es', 'nl', 'it', 'pt'] as const
 export const PERSONIO_TLDS = ['de', 'com'] as const
 

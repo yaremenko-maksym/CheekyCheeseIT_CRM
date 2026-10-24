@@ -215,7 +215,7 @@ describe('Recruitee and Personio: the tenant is a DNS label (the host half of th
 describe('Workable and SmartRecruiters: the slug is one path segment', () => {
   it.each([
     ['uppercase', 'Acme', 'workable', false],
-    ['uppercase', 'Acme', 'smartrecruiters', true],
+    ['uppercase', 'Acme', 'smartrecruiters', false],
     ['an underscore', 'a_b', 'workable', false],
     ['an underscore', 'a_b', 'smartrecruiters', true],
     ['a trailing hyphen', 'acme-', 'workable', false],
@@ -223,7 +223,8 @@ describe('Workable and SmartRecruiters: the slug is one path segment', () => {
     ['a trailing underscore', 'acme_', 'smartrecruiters', false],
     ['a doubled separator', 'a--b', 'smartrecruiters', false],
     ['a leading hyphen', '-acme', 'smartrecruiters', false],
-    ['digits and letters', 'McDonalds1', 'smartrecruiters', true],
+    ['digits and letters', 'mcdonalds1', 'smartrecruiters', true],
+    ['mixed case', 'McDonalds1', 'smartrecruiters', false],
   ])('%s %j for %s: accepted=%s', (_label, board, which, accepted) => {
     const provider = which === 'workable' ? workableProvider : smartrecruitersProvider
     expect(refused(which, provider, board)).toBe(!accepted)

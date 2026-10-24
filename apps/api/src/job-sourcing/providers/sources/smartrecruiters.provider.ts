@@ -12,6 +12,7 @@ import {
   buildCollectionBatch,
   buildInvalidSample,
   buildRequestReport,
+  type CollectionBatch,
   type CollectionContext,
   type CollectionCounts,
   type CollectionErrorCode,
@@ -38,7 +39,9 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  * for the list and `.../postings/{id}` for one posting's detail
  * (https://developers.smartrecruiters.com/docs/endpoints).
  *
- * !! THIS SOURCE IS BLOCKED, AND THE ADAPTER IS DORMANT. `api.smartrecruiters.com/robots.txt` says
+ * !! THIS SOURCE IS BLOCKED, AND THE ADAPTER IS DORMANT BY CONSTRUCTION: the exported provider refuses
+ * every attempt without a request (`refuseDisallowedHost`); the real loop runs only from
+ * `createSmartRecruitersProvider(bounds, { liveDespiteRobots: true })`, which only the spec calls. `api.smartrecruiters.com/robots.txt` says
  * `User-agent: LinkedInBot / Allow: /v1/companies/ / User-agent: * / Disallow: /`: the Posting API is
  * disallowed to every agent but one named crawler, this collector included, while the documentation
  * calls the same API "public". The two conflict, the brief says to stop at a disallowed path, and
@@ -291,17 +294,19 @@ const emptyCounts = (): CollectionCounts => ({
   discarded: 0,
 })
 
+const scopeOf = (config: Config) => ({
+  namespace: config.namespace,
+  query: null,
+  configVersion: config.configVersion,
+  window: null,
+})
+
 async function collectSmartRecruiters(
   bounds: SmartRecruitersBounds,
   config: Config,
   ctx: CollectionContext,
 ) {
-  const scope = {
-    namespace: config.namespace,
-    query: null,
-    configVersion: config.configVersion,
-    window: null,
-  }
+  const scope = scopeOf(config)
   const decision = decideCheckpoint(await ctx.checkpoints.load(), {
     configVersion: config.configVersion,
     policyVersion: ctx.policyVersion,
@@ -452,9 +457,8 @@ async function collectSmartRecruiters(
   /** A cached or fetched detail body, judged: the posting's own detail, or nothing. */
   const detailOf = (bodyText: string, id: string): Detail | null => {
     const parsed = jsonOf(bodyText)
-    // Stryker disable next-line ConditionalExpression: with the guard removed (`false`), a body that is not JSON carries no `value`, `safeParse(undefined)` fails, and the next line returns null exactly as the guard does; the same directive also covers `true`, which every test that reads a detail kills.
-    if (!parsed.ok) return null
-    const detail = detailSchema.safeParse(parsed.value)
+    // `false` for a body that is not JSON: `safeParse(false)` rejects it, so no branch is needed.
+    const detail = detailSchema.safeParse(parsed.ok && parsed.value)
     return detail.success && detail.data.id === id ? detail.data : null
   }
 
@@ -661,12 +665,69 @@ async function collectSmartRecruiters(
   }
 }
 
+/**
+ * The attempt that is not made, whatever the context: the Posting API's robots.txt disallows this
+ * collector, so no request is sent and the batch says why. Same shape as Recruitee's
+ * `refuseWithoutToken`: ONE report, `ACCESS_POLICY`, at the unbuilt-request address, `ERROR` with no
+ * page, so the batch is FAILED and claims no coverage. (The message avoids the word that the report
+ * redactor rewrites.)
+ */
+function refuseDisallowedHost(config: Config, ctx: CollectionContext): CollectionBatch {
+  const at = ctx.now()
+  return buildCollectionBatch({
+    observations: [],
+    facts: {
+      stop: 'ERROR',
+      pagesCompleted: 0,
+      counts: emptyCounts(),
+      scope: scopeOf(config),
+      resumed: false,
+    },
+    requests: [
+      buildRequestReport(
+        {
+          attempt: 1,
+          page: 1,
+          url: UNBUILT_REQUEST_URL,
+          status: null,
+          startedAt: at,
+          endedAt: at,
+          cost: null,
+          error: {
+            code: 'ACCESS_POLICY',
+            message: `robots.txt of ${HOST} disallows this collector and the owner has not decided otherwise, so no request was made`,
+          },
+        },
+        ctx.secrets,
+      ),
+    ],
+    checkpoint: null,
+    invalidSamples: [],
+  })
+}
+
+export interface SmartRecruitersOptions {
+  /**
+   * Arms the real loop. ONLY the spec factory passes it: the exported `smartrecruitersProvider`
+   * never does, so importing this module and handing it a context sends nothing. Turning it on in
+   * production is the owner's decision about the robots.txt conflict, made in review, not a default.
+   */
+  readonly liveDespiteRobots?: boolean
+}
+
 export function createSmartRecruitersProvider(
   bounds: SmartRecruitersBounds = SMARTRECRUITERS_BOUNDS,
+  options: SmartRecruitersOptions = {},
 ) {
   return definePagedProvider({ type: 'SMARTRECRUITERS_ATS', configSchema }, (config, ctx) =>
-    collectSmartRecruiters(bounds, config, ctx),
+    options.liveDespiteRobots === true
+      ? collectSmartRecruiters(bounds, config, ctx)
+      : Promise.resolve(refuseDisallowedHost(config, ctx)),
   )
 }
 
+/** DORMANT: refuses every attempt without a request. See `refuseDisallowedHost`. */
 export const smartrecruitersProvider = createSmartRecruitersProvider()
+
+/** The one host this adapter's requests may reach; a transport is pinned to it. */
+export const smartrecruitersAllowedHosts = (): readonly string[] => [HOST]

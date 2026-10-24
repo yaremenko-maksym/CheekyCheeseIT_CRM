@@ -5,6 +5,7 @@ import { sourceFixture, sourceFixtureText } from '../../../test/source-fixtures'
 import { boardVerdictOf } from './ats-config'
 import {
   RECRUITEE_LIMITS,
+  recruiteeAllowedHosts,
   RECRUITEE_TOKEN_DEADLINE,
   recruiteeInstant,
   recruiteeProvider,
@@ -90,6 +91,14 @@ describe('the request (public, one address, no token)', () => {
       { baseUrl: 'https://evil.example' },
     ]) {
       expect(() => cfg('bunq', extra)).toThrow()
+    }
+  })
+
+  it("the declared host is the tenant's own, and every request is on it", async () => {
+    expect(recruiteeAllowedHosts({ board: 'bunq' })).toEqual(['bunq.recruitee.com'])
+    const { f } = await run(bunq())
+    for (const r of f.sent) {
+      expect(recruiteeAllowedHosts({ board: 'bunq' })).toContain(new URL(r.url).host)
     }
   })
 
@@ -408,7 +417,7 @@ describe('empty, missing and unreadable tenants', () => {
     expect(boardVerdictOf(batch)).toBe('BOARD_NOT_FOUND')
   })
 
-  it('a redirect (recruitee.com/careers_not_hosted for a tenant with no site) is not followed', async () => {
+  it('a redirect answer (recruitee.com/careers_not_hosted for a tenant with no site) is a failure; the loop never reads Location', async () => {
     const f = fakeCollectionContext({
       now: NOW,
       responses: [

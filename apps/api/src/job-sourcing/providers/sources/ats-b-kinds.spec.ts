@@ -42,12 +42,12 @@ describe('the kinds are exactly what their documentation says', () => {
     expect(kind).toEqual(expected)
   })
 
-  it('smartrecruiters: letters and digits in runs joined by one hyphen or underscore each', () => {
+  it('smartrecruiters: lower-case letters and digits in runs joined by one hyphen or underscore each', () => {
     expect(SMARTRECRUITERS_KIND.label).toBe('smartrecruiters')
     expect(SMARTRECRUITERS_KIND.regions).toEqual(['global'])
     expect(SMARTRECRUITERS_KIND.slugMaxChars).toBe(64)
-    const accepted = ['a', 'ab', 'ab-cd', 'ab_cd', 'Ab-Cd_ef', 'a1-b22_c333']
-    const refused = ['', 'ab--cd', 'ab-', '-ab', 'ab_', 'a-_b', 'a b', 'a.b']
+    const accepted = ['a', 'ab', 'ab-cd', 'ab_cd', 'ab-cd_ef', 'a1-b22_c333']
+    const refused = ['', 'ab--cd', 'ab-', '-ab', 'ab_', 'a-_b', 'a b', 'a.b', 'Ab', 'AB', 'aB']
     expect(accepted.filter((v) => !SMARTRECRUITERS_KIND.slugPattern.test(v))).toEqual([])
     expect(refused.filter((v) => SMARTRECRUITERS_KIND.slugPattern.test(v))).toEqual([])
   })

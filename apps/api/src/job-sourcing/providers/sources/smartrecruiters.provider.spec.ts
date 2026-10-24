@@ -10,6 +10,7 @@ import type {
 import { boardVerdictOf } from './ats-config'
 import {
   createSmartRecruitersProvider,
+  smartrecruitersAllowedHosts,
   SMARTRECRUITERS_BOUNDS,
   smartrecruitersProvider,
 } from './smartrecruiters.provider'
@@ -29,7 +30,7 @@ import {
 const NOW = new Date('2026-10-24T04:00:00Z')
 const ACME = { name: 'Acme Inc', evidence: 'company.name on the documented example' }
 
-const cfg = (board = 'Acme', extra: Record<string, unknown> = {}) =>
+const cfg = (board = 'acme', extra: Record<string, unknown> = {}) =>
   smartrecruitersProvider.parseConfig({ configVersion: 1, board, ...extra })
 
 // ---- payload builders (documented schema)
@@ -159,7 +160,7 @@ function world(opts: {
 
 const idOf = (url: string) => /\/postings\/([^/?]+)$/.exec(url)?.[1]
 const isDetail = (r: FetchRequest) => idOf(r.url) !== undefined
-const listUrl = (offset = 0, board = 'Acme') =>
+const listUrl = (offset = 0, board = 'acme') =>
   `https://api.smartrecruiters.com/v1/companies/${board}/postings?limit=100&offset=${offset}`
 
 /** One list page of `ids`, and a detail for each, unless `details` says otherwise. */
@@ -177,7 +178,9 @@ const simple =
     return details[id] ?? { body: detail(id) }
   }
 
-async function run(w: World, config = cfg(), provider = smartrecruitersProvider) {
+const live = createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, { liveDespiteRobots: true })
+
+async function run(w: World, config = cfg(), provider = live) {
   return provider.collectReport(config, w.ctx)
 }
 const detailRequests = (w: World) => w.sent.filter(isDetail)
@@ -188,8 +191,8 @@ describe('the requests (public, built here, never from the data)', () => {
     await run(w)
     expect(w.sent.map((r) => r.url)).toEqual([
       listUrl(0),
-      'https://api.smartrecruiters.com/v1/companies/Acme/postings/111',
-      'https://api.smartrecruiters.com/v1/companies/Acme/postings/222',
+      'https://api.smartrecruiters.com/v1/companies/acme/postings/111',
+      'https://api.smartrecruiters.com/v1/companies/acme/postings/222',
     ])
     expect(w.sent.every((r) => JSON.stringify(r.headers) === '{"accept":"application/json"}')).toBe(
       true,
@@ -231,7 +234,7 @@ describe('the requests (public, built here, never from the data)', () => {
     })
     const batch = await run(w)
     expect(detailRequests(w).map((r) => r.url)).toEqual([
-      'https://api.smartrecruiters.com/v1/companies/Acme/postings/ok-1_2',
+      'https://api.smartrecruiters.com/v1/companies/acme/postings/ok-1_2',
     ])
     expect(batch.counts).toEqual({
       raw: 4,
@@ -251,11 +254,10 @@ describe('the requests (public, built here, never from the data)', () => {
 describe('detail enriched', () => {
   it('maps every field of an enriched posting (documented schema, literal expectations)', async () => {
     const w = world({ answer: simple(['111']) })
-    const batch = await run(w, cfg('Acme', { employer: ACME }))
+    const batch = await run(w, cfg('acme', { employer: ACME }))
     const o = batch.observations[0]
     expect(o?.identity).toMatchObject({
       provider: 'SMARTRECRUITERS_ATS',
-      // The identity seam folds the namespace to lower case, so `Acme` and `acme` are one board.
       namespace: 'smartrecruiters:acme',
       nativeId: '111',
       identityKind: 'NATIVE_ID',
@@ -321,7 +323,7 @@ describe('detail enriched', () => {
       discarded: 0,
     })
     expect(batch.scope).toEqual({
-      namespace: 'smartrecruiters:Acme',
+      namespace: 'smartrecruiters:acme',
       query: null,
       configVersion: 1,
       window: null,
@@ -344,7 +346,7 @@ describe('detail absent', () => {
     const batch = await run(w)
     const o = batch.observations[0]
     expect(batch.outcome).toBe('SUCCEEDED')
-    expect(o?.sourcePostingUrl).toBe('https://jobs.smartrecruiters.com/Acme/111')
+    expect(o?.sourcePostingUrl).toBe('https://jobs.smartrecruiters.com/acme/111')
     expect(o?.applicationUrl).toBeNull()
     expect(o?.normalized.descriptionMd ?? '').toBe('')
     expect(o?.normalized.title).toBe('Posting 111')
@@ -360,7 +362,7 @@ describe('detail absent', () => {
       const batch = await run(w)
       expect(batch.observations[0]?.normalized.descriptionMd ?? '').toBe('')
       expect(batch.observations[0]?.sourcePostingUrl).toBe(
-        'https://jobs.smartrecruiters.com/Acme/111',
+        'https://jobs.smartrecruiters.com/acme/111',
       )
       expect(batch.invalidSamples.map((s) => s.reason)).toEqual([
         'DETAIL_UNUSABLE: not the posting detail asked for',
@@ -545,11 +547,14 @@ describe('the budget includes detail pages (AC4)', () => {
   it('when pages already landed, a cost stop on a later page is PARTIAL and the checkpoint is the last good page', async () => {
     const pageOne = Array.from({ length: 2 }, (_, i) => listItem(String(100 + i)))
     const pageTwo = [listItem('300'), listItem('301')]
-    const provider = createSmartRecruitersProvider({
-      maxListPages: 5,
-      maxRequests: 50,
-      pageSize: 2,
-    })
+    const provider = createSmartRecruitersProvider(
+      {
+        maxListPages: 5,
+        maxRequests: 50,
+        pageSize: 2,
+      },
+      { liveDespiteRobots: true },
+    )
     const w = world({
       budget: 5,
       answer: (r) => {
@@ -577,11 +582,14 @@ describe('the budget includes detail pages (AC4)', () => {
   })
 
   it('the request bound counts details too: at the bound it completes, past it it stops with PAGE_CAP', async () => {
-    const provider = createSmartRecruitersProvider({
-      maxListPages: 5,
-      maxRequests: 3,
-      pageSize: 100,
-    })
+    const provider = createSmartRecruitersProvider(
+      {
+        maxListPages: 5,
+        maxRequests: 3,
+        pageSize: 100,
+      },
+      { liveDespiteRobots: true },
+    )
     const atBound = world({ answer: simple(['111', '222']) })
     expect((await run(atBound, cfg(), provider)).outcome).toBe('SUCCEEDED')
     expect(atBound.sent).toHaveLength(3)
@@ -615,7 +623,10 @@ describe('the budget includes detail pages (AC4)', () => {
 })
 
 describe('the list: paging, bounds, resume', () => {
-  const small = createSmartRecruitersProvider({ maxListPages: 2, maxRequests: 100, pageSize: 2 })
+  const small = createSmartRecruitersProvider(
+    { maxListPages: 2, maxRequests: 100, pageSize: 2 },
+    { liveDespiteRobots: true },
+  )
   const pages =
     (answer: (offset: number) => { items: string[]; total: number | null }) =>
     (r: FetchRequest) => {
@@ -848,7 +859,7 @@ describe('failures, cancellation and isolation', () => {
       answer: (r) => (idOf(r.url) === undefined ? body('1') : { body: detail('1') }),
     })
     expect(
-      (await run(withEvidence, cfg('Acme', { employer: ACME }))).observations[0]?.normalized
+      (await run(withEvidence, cfg('acme', { employer: ACME }))).observations[0]?.normalized
         .companyName,
     ).toBe('Acme Inc')
   })
@@ -874,15 +885,21 @@ describe('failures, cancellation and isolation', () => {
 })
 
 describe('every refusal says what it is (messages, codes, statuses asserted exactly)', () => {
-  const small = createSmartRecruitersProvider({ maxListPages: 2, maxRequests: 3, pageSize: 2 })
+  const small = createSmartRecruitersProvider(
+    { maxListPages: 2, maxRequests: 3, pageSize: 2 },
+    { liveDespiteRobots: true },
+  )
 
   it('the request bound reports its own number', async () => {
     const w = world({ answer: simple(['1', '2', '3']) })
-    const provider = createSmartRecruitersProvider({
-      maxListPages: 5,
-      maxRequests: 3,
-      pageSize: 100,
-    })
+    const provider = createSmartRecruitersProvider(
+      {
+        maxListPages: 5,
+        maxRequests: 3,
+        pageSize: 100,
+      },
+      { liveDespiteRobots: true },
+    )
     const batch = await run(w, cfg(), provider)
     expect(batch.requests.at(-1)?.error).toEqual({
       code: 'PAGE_CAP',
@@ -898,11 +915,14 @@ describe('every refusal says what it is (messages, codes, statuses asserted exac
           ? { body: listPage([listItem('1'), listItem('2')], 99) }
           : { body: detail(idOf(r.url) as string) },
     })
-    const pageBound = createSmartRecruitersProvider({
-      maxListPages: 2,
-      maxRequests: 100,
-      pageSize: 2,
-    })
+    const pageBound = createSmartRecruitersProvider(
+      {
+        maxListPages: 2,
+        maxRequests: 100,
+        pageSize: 2,
+      },
+      { liveDespiteRobots: true },
+    )
     const batch = await run(w, cfg(), pageBound)
     expect(batch.requests.map((r) => r.error?.message ?? null)).toContain(
       'the attempt reached its 2-page bound',
@@ -1164,11 +1184,14 @@ describe('what a sample says, and what a discarded page counts', () => {
   })
 
   it('a short page that totalFound says is not the last continues', async () => {
-    const provider = createSmartRecruitersProvider({
-      maxListPages: 3,
-      maxRequests: 50,
-      pageSize: 5,
-    })
+    const provider = createSmartRecruitersProvider(
+      {
+        maxListPages: 3,
+        maxRequests: 50,
+        pageSize: 5,
+      },
+      { liveDespiteRobots: true },
+    )
     const w = world({
       answer: (r) => {
         const id = idOf(r.url)
@@ -1188,7 +1211,7 @@ describe('what a sample says, and what a discarded page counts', () => {
     const cache = new Map<string, CachedResponse>()
     await run(world({ answer: simple(['111']), cache }))
     expect([...cache.keys()]).toEqual([
-      JSON.stringify(['smartrecruiters-detail', 'smartrecruiters:Acme', '111']),
+      JSON.stringify(['smartrecruiters-detail', 'smartrecruiters:acme', '111']),
     ])
   })
 })
@@ -1291,6 +1314,92 @@ describe('the description and the workplace, section by section', () => {
       await run(withDetail(detail('1', { active: false }))),
     ]
     expect(closed.map((b) => b.counts.quarantined)).toEqual([1, 1, 1])
+  })
+})
+
+describe('the exported provider is DORMANT: robots.txt disallows this collector, so it sends nothing', () => {
+  const expectRefused = async (provider: typeof smartrecruitersProvider) => {
+    const w = world({ answer: simple(['111', '222']) })
+    const batch = await provider.collectReport(
+      provider.parseConfig({ configVersion: 1, board: 'acme' }),
+      w.ctx,
+    )
+    expect(w.sent).toEqual([])
+    expect(w.reserved).toBe(0)
+    expect(w.saved).toEqual([])
+    expect(w.cache.size).toBe(0)
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.coverage).toBe('PARTIAL')
+    expect(batch.observations).toEqual([])
+    expect(batch.counts).toEqual({
+      raw: 0,
+      normalized: 0,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
+    expect(batch.checkpoint).toBeNull()
+    expect(batch.invalidSamples).toEqual([])
+    expect(batch.scope).toEqual({
+      namespace: 'smartrecruiters:acme',
+      query: null,
+      configVersion: 1,
+      window: null,
+    })
+    expect(batch.requests).toHaveLength(1)
+    expect(batch.requests[0]).toMatchObject({
+      status: null,
+      cost: null,
+      url: 'about:request-not-built',
+    })
+    expect(batch.requests[0]?.error).toEqual({
+      code: 'ACCESS_POLICY',
+      message:
+        'robots.txt of api.smartrecruiters.com disallows this collector and the owner has not decided otherwise, so no request was made',
+    })
+  }
+
+  it('the default export sends no request, reserves nothing, stores nothing and says why', async () => {
+    await expectRefused(smartrecruitersProvider)
+  })
+
+  it('custom bounds do not arm it', async () => {
+    await expectRefused(
+      createSmartRecruitersProvider({ maxListPages: 5, maxRequests: 50, pageSize: 100 }),
+    )
+  })
+
+  it('only the explicit flag arms it: false, absent and "truthy" do not', async () => {
+    await expectRefused(
+      createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, { liveDespiteRobots: false }),
+    )
+    await expectRefused(createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, {}))
+    await expectRefused(
+      createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, {
+        liveDespiteRobots: 1 as unknown as boolean,
+      }),
+    )
+  })
+
+  it('the armed factory is the same adapter and does send (the spec above runs on it)', async () => {
+    const w = world({ answer: simple(['111']) })
+    await run(w)
+    expect(w.sent.length).toBeGreaterThan(0)
+  })
+
+  it('every request of the armed adapter is on the declared host', async () => {
+    const w = world({ answer: simple(['111', '222']) })
+    await run(w)
+    expect(smartrecruitersAllowedHosts()).toEqual(['api.smartrecruiters.com'])
+    for (const r of w.sent) expect(smartrecruitersAllowedHosts()).toContain(new URL(r.url).host)
+  })
+})
+
+describe('a company identifier is lower case, so two spellings cannot write the same identities', () => {
+  it('refuses capitals and accepts the lower-case spelling', () => {
+    expect(() => cfg('Acme')).toThrow()
+    expect(() => cfg('ACME')).toThrow()
+    expect(cfg('acme').namespace).toBe('smartrecruiters:acme')
   })
 })
 

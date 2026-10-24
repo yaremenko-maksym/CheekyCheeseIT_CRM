@@ -129,21 +129,20 @@ export const WORKABLE_KIND: AtsBoardKind = {
 }
 
 /**
- * SmartRecruiters company identifiers are the last segment of a career-site URL and are
- * case-SENSITIVE in the documented examples (the documentation page uses `smartrecruiters`; the
- * employers' own sites use mixed case). NOTHING WAS MEASURED, because the API host's robots.txt
- * disallows this collector (see `__fixtures__/smartrecruiters/api-robots.provenance.json`), so
- * the alphabet is the CLOSED superset that cannot reach a host: ASCII letters and digits joined by
- * single hyphens or underscores. The scope keeps the spelling it was given; the identity seam folds
- * the namespace to lower case (measured in the spec), so two spellings of one company cannot become
- * two sets of vacancies, and two companies that differ ONLY by case would collide, which nothing
- * seen suggests and nothing measured rules out.
+ * SmartRecruiters company identifiers are the last segment of a career-site URL. NOTHING WAS
+ * MEASURED, because the API host's robots.txt disallows this collector (see
+ * `__fixtures__/smartrecruiters/api-robots.provenance.json`), so the alphabet is the CLOSED one that
+ * cannot reach a host: LOWER-CASE ASCII letters and digits joined by single hyphens or underscores.
+ * Lower case on purpose: the identity seam folds the namespace to lower case (`normalizeNamespace`
+ * in `identity-key.ts`), so `Acme` and `acme` would pass the group's duplicate check and then write
+ * the SAME identities. Refusing capitals makes that collision impossible; the cost is that a company
+ * whose identifier needs capitals is refused until somebody measures one, which fails closed.
  */
 export const SMARTRECRUITERS_KIND: AtsBoardKind = {
   label: 'smartrecruiters',
   regions: ['global'],
   slugMaxChars: ATS_SLUG_MAX_CHARS,
-  slugPattern: /^[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*$/,
+  slugPattern: /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/,
 }
 
 /** Recruitee tenants are the subdomain of `{tenant}.recruitee.com`: a DNS label. */

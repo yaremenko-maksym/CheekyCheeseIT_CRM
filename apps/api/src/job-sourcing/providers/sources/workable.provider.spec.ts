@@ -3,7 +3,7 @@ import { expectNoneOf, expectOnlyPublicRequests } from '../../../test/ats-b-asse
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import { sourceFixture, sourceFixtureText } from '../../../test/source-fixtures'
 import { boardVerdictOf } from './ats-config'
-import { WORKABLE_LIMITS, workableProvider } from './workable.provider'
+import { WORKABLE_LIMITS, workableAllowedHosts, workableProvider } from './workable.provider'
 
 /**
  * Workable through its public provider. Expected values are hand-read from the authentic captures
@@ -95,7 +95,7 @@ describe('the request (public, one address, nothing authorised)', () => {
   })
 })
 
-describe('redirects are never followed (the documented www address redirects; this one is the final address)', () => {
+describe('a redirect answer is a failure: the loop never reads Location (the documented www address redirects; this one is the final address)', () => {
   it('a 302 to another host ends the attempt after one request, naming the status only', async () => {
     const f = fakeCollectionContext({
       now: NOW,
@@ -116,9 +116,11 @@ describe('redirects are never followed (the documented www address redirects; th
     expectNoneOf(batch, ['evil.example', 'steal'])
   })
 
-  it('the documented www form, which redirects to the address above, is never requested', async () => {
+  it('the documented www form, which redirects to the address above, is never requested; every request is on the declared host', async () => {
     const { f } = await run(huggingface())
     expect(f.sent.map((r) => new URL(r.url).host)).toEqual(['apply.workable.com'])
+    expect(workableAllowedHosts()).toEqual(['apply.workable.com'])
+    for (const r of f.sent) expect(workableAllowedHosts()).toContain(new URL(r.url).host)
   })
 })
 
