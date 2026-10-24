@@ -333,7 +333,7 @@ function classifySchedule(input: Layer1Input): {
 }
 
 type BasisSignal = 'EMPLOYEE' | 'CONTRACTOR' | 'B2B'
-const B2B_RE = /\bb\s?-?2\s?-?b\b|\bфоп\b|\bjdg\b|\bsole proprietor\w*/giu
+const B2B_RE = /\bb\s?-?2\s?-?b\b|(?<!\p{L})фоп(?!\p{L})|\bjdg\b|\bsole proprietor\w*/giu
 const CONTRACTOR_RE =
   /\bcontractor\b|\bfreelanc\w*|\bself[- ]employed\b|\b1099\b|договір підряду|\bcontract\b/giu
 const EMPLOYEE_RE =
@@ -494,7 +494,7 @@ const LEVEL_RULES: ReadonlyArray<readonly [Seniority, RegExp, string]> = [
   ],
 ]
 const YEARS_RE =
-  /(?<![\d.])(\d{1,2})\s*\+?(?:\s*[-–]\s*\d{1,2})?\s*\+?\s*(?:years?|yrs?|роки|років|рік|лет|года|jahre|lat)\b/giu
+  /(?<![\d.])(\d{1,2})\s*\+?(?:\s*[-–]\s*\d{1,2})?\s*\+?\s*(?:years?|yrs?|роки|років|рік|лет|года|jahre|lat)(?!\p{L})/giu
 
 function levelFromYears(years: number): Seniority {
   if (years >= 5) return 'SENIOR'
