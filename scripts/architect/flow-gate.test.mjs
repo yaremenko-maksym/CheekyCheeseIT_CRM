@@ -1096,7 +1096,11 @@ test('a quoted or fenced `Commit:` line is not a statement', () => {
   assert.equal(statedCommit('```\nCommit: abc1234\n```'), null)
   assert.equal(statedCommit(`<!--\nCommit: ${HEAD}\n-->`), null)
   assert.equal(statedCommit('Commit: ABC1234'), 'abc1234')
-  assert.equal(statedCommit('Commit: abc'), null) // shorter than 7 hex characters
+  // LOW: the `{7,40}` LOWER bound, at the boundary rather than far below it.
+  assert.equal(statedCommit('Commit: abc'), null)
+  assert.equal(statedCommit('Commit: abc123'), null) // 6 hex characters — one short
+  assert.equal(statedCommit('Commit: abc1234'), 'abc1234') // 7 is the minimum
+  assert.equal(statedCommit(`Commit: ${'a'.repeat(40)}`), 'a'.repeat(40)) // 40 is the maximum
 })
 
 test('a comment-borne verdict naming an older commit, with code drift since, is stale', () => {
@@ -1755,6 +1759,15 @@ test('CR-M-9: the inert allowlist is ANCHORED — a prefixed or nested path is n
     'docs/architecture/2026-01-01-a/b/c.md',
     // and the root README is the root one only
     'vendor/README.md',
+    // LOW: the `$` anchor of the dated-ADR pattern. Without it, `[^/]+\.md` matches the first
+    // `.md` component and anything may follow it.
+    'docs/architecture/2026-01-01-x.md/evil.md',
+    'docs/architecture/2026-01-01-x.md/sub/evil.md',
+    // LOW: the trailing slash on `docs/business/`. Without it, any `docs/business*` sibling
+    // directory is inert.
+    'docs/business-archive/secret.md',
+    'docs/businessplan.md',
+    'docs/business.md',
   ])
     assert.equal(isInertDoc(p), false, p)
   // The happy cases still hold, so the anchoring did not simply disable the allowlist.
@@ -1800,20 +1813,32 @@ test('CR-M-8: each verdict is judged by ITS OWN drift measurement, matched by sh
 test('CR-M-8: the sha join is EQUALITY — an entry whose base is a prefix does not match', () => {
   // `ref.sha === c.base` must not weaken to `ref.sha.startsWith(c.base)`: an abbreviated or
   // truncated base would then capture a verdict and answer for a measurement that is not its own.
-  const r = ev(
-    good({
-      files: [API, API_SPEC, 'README.md'],
-      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
-      commits: twoCommits(),
-      compares: [
-        // base is a strict PREFIX of the reviewed sha, and harmless; it must be ignored.
-        cmp(OLD.slice(0, 7), ['README.md'], { ownedAt: [API, API_SPEC, 'README.md'] }),
-        cmp(OLD, [API], { ownedAt: [API, API_SPEC] }),
-      ],
-    }),
-  )
-  assert.equal(status(r, 'Review'), 'stale')
-  assert.ok(failureFor(r, 'Review').includes(API), failureFor(r, 'Review'))
+  //
+  // CR-M-12: the assertion deliberately does NOT depend on which entry comes first. The earlier
+  // edition put the harmless prefix entry first and relied on that silently, so swapping the two
+  // let a `startsWith` join survive with zero failures — a fixture whose ORDER carries the
+  // assertion, which the next reader tidies and nothing goes red. Both orders are asserted here,
+  // so there is no order left to tidy.
+  const prefixEntry = cmp(OLD.slice(0, 7), ['README.md'], {
+    ownedAt: [API, API_SPEC, 'README.md'],
+  })
+  const realEntry = cmp(OLD, [API], { ownedAt: [API, API_SPEC] })
+  for (const compares of [
+    [prefixEntry, realEntry],
+    [realEntry, prefixEntry],
+  ]) {
+    const r = ev(
+      good({
+        files: [API, API_SPEC, 'README.md'],
+        reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+        commits: twoCommits(),
+        compares,
+      }),
+    )
+    const order = compares[0] === prefixEntry ? 'prefix entry first' : 'real entry first'
+    assert.equal(status(r, 'Review'), 'stale', order)
+    assert.ok(failureFor(r, 'Review').includes(API), `${order}: ${failureFor(r, 'Review')}`)
+  }
 })
 
 // --- CR-M-10: `statedCommit` selection and shape, as documented --------------------------------
@@ -1853,11 +1878,17 @@ test('CR-M-10: a `Commit:` reference mid-sentence is not a statement', () => {
 //
 // WHAT THIS GUARD IS, AND WHAT DEFEATS IT. It is a lexical assertion over the workflow YAML, the
 // same kind of tripwire as the date guard, and it is honest about the same limit: it cannot prove
-// the shell's semantics, only that the three clauses the property rests on are still present. It is
-// defeated by `set -e` written as `set -o errexit`, by a failure path that emits `unavailable`
-// through a variable rather than a literal, by `continue-on-error` set at the job level or through
-// an expression, and by anything that moves the step out of this file. It is worth having anyway,
-// because the absence of those clauses is otherwise silent.
+// the shell's semantics, only that the clauses the property rests on are still present.
+//
+// **The list below is NOT exhaustive**, and saying so is the point: an enumerated defeat list
+// invites being read as a boundary. Known defeats: a failure path emitting `unavailable` through a
+// variable rather than a literal; `continue-on-error` reached through an expression; anything that
+// moves the step out of this file. `|| true` on the plan invocation WAS a defeat of the first
+// edition and is now asserted against — which shortens the list rather than completing it.
+//
+// One correction to that first edition: `set -e` spelled `set -o errexit` is **refused, not
+// defeated**, because the assertion requires the literal `set -euo pipefail`. That errs safe, and
+// listing it as a bypass had the direction backwards.
 
 test('SR-M-4: the drift step fails closed — the three clauses are still there', () => {
   const here = dirname(fileURLToPath(import.meta.url))
@@ -1879,6 +1910,10 @@ test('SR-M-4: the drift step fails closed — the three clauses are still there'
   //    why (`verification-integrity.md` form 1).
   assert.match(step, /cat "\$D\/c\.err" >&2/, 'the failure branch stopped reporting stderr')
   assert.doesNotMatch(step, /2>\/dev\/null/, 'the drift step discards stderr')
+  // 5. No `|| true` anywhere: it was a known survivor of this guard's first edition — appended to
+  //    the plan invocation it suppresses a failed plan while leaving every other test green. The
+  //    legitimate `||` in this step is the `[ -n "$sha" ] || continue` guard, which this allows.
+  assert.doesNotMatch(step, /\|\|\s*true/, 'the drift step swallows a failure with `|| true`')
 })
 
 test('SR-M-4: no job-level escape hatch around the gate', () => {
@@ -1904,9 +1939,52 @@ test('SR-M-4 (LOW): a `..` segment is never inert, on any clause', () => {
   for (const p of [
     'docs/business/../../CLAUDE.md',
     'docs/business/../../.claude/rules/common/git-policy.md',
+    // LOW: a SINGLE `..` segment, which every other row doubles or nests
+    'docs/business/../CLAUDE.md',
+    'docs/business/../x.md',
+    '../docs/business/x.md',
     'docs/business/..md', // not a `..` SEGMENT — stays inert, so the split is on segments
+    'docs/business/a..b.md', // nor is this one
   ])
-    assert.equal(isInertDoc(p), p === 'docs/business/..md', p)
+    assert.equal(isInertDoc(p), p.endsWith('..md') || p.endsWith('a..b.md'), p)
   assert.equal(isInertDoc('docs/architecture/2026-01-01-x.md'), true)
   assert.equal(isInertDoc('docs/business/modules/finance.md'), true)
+})
+
+// --- SR-M-5: the membership gate is pinned by OUTCOME, not by message text ---------------------
+
+test('SR-M-5/CR-M-11: a measurement supplied for a NON-MEMBER sha is never honoured', () => {
+  // The case that was missing, and its absence is why the ordering claim was unpinned.
+  //
+  // The three cases that went red when the membership gate was disabled all used `compares: []`,
+  // so `compares.find` returned undefined, the code fell into the unmeasured branch, and the
+  // verdict stayed stale whatever the gate did. They failed on the message text — "no longer part
+  // of the PR" vs "could not be measured" — not on the outcome. A test that goes red for an
+  // incidental reason reads exactly like one that pins the property.
+  //
+  // Here the non-member sha HAS a measurement, and that measurement is a clean empty drift with a
+  // real owned side — the one shape that would be honoured if the membership gate did not run
+  // first. On real code: stale, because the sha is not in the PR. With the gate disabled: the
+  // empty drift is believed and the verdict reads fresh. So this case, and only this case, pins
+  // the no-false-empty-drift property by its outcome.
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: GONE }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [cmp(GONE, [], { ownedAt: [API, API_SPEC] })],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.match(failureFor(r, 'Review'), /no longer part of the PR/)
+})
+
+test('SR-M-5/CR-M-11: a measurement for a non-member sha, stated by a comment', () => {
+  const r = ev(
+    uiPr({
+      comments: [cm(`QA Verdict: PASS\nCommit: ${GONE}`)],
+      compares: [cmp(GONE, [], { ownedAt: [UI, UI_SPEC] })],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'stale')
+  assert.match(failureFor(r, 'QA'), /no longer part of the PR/)
 })

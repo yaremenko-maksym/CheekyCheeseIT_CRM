@@ -24,8 +24,12 @@
 #
 # RUNNER DEPENDENCY, named because an implicit one breaks silently on an image bump: the trailing
 # comma after `ownedAt` needs **jq >= 1.7**. `ubuntu-latest` is 24.04, which ships jq 1.7.1, and the
-# unit suite runs this filter through whatever `jq` is on PATH — so a downgrade of either fails the
-# "the compare filter" cases loudly rather than at gate time.
+# unit suite runs this filter through whatever `jq` is on PATH, so a downgrade should fail the
+# "the compare filter" cases rather than the gate.
+#
+# BOTH halves of that are UNVERIFIED claims, not measurements: only jq 1.7.1 was available to me
+# and to two reviewers, so neither the 1.7 floor nor the loud-failure behaviour below it has been
+# observed. They are stated so a future reader knows what to re-check, not as evidence.
 
 def measured: (type == "object") and ((.files | type) == "array");
 def paths: [.files[]? | .filename] + [.files[]? | .previous_filename // empty];

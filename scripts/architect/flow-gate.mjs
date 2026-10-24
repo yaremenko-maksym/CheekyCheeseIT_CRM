@@ -167,9 +167,20 @@ export const isInertDoc = (p) =>
   isDoc(p) &&
   // No `..` segment anywhere. The dated-ADR clause is traversal-proof already (`[^/]+` cannot
   // cross a slash), but `docs/business/` is a bare prefix, so `docs/business/../../CLAUDE.md`
-  // would otherwise read inert. It is unreachable today — git refuses `..` as a tree path
-  // component and the only inputs are GitHub-API tree paths — so this is removing an asymmetry in
-  // robustness rather than closing a live hole, and it costs one clause.
+  // would otherwise read inert.
+  //
+  // This is a real guard against a crafted tree, not merely symmetry — the first edition of this
+  // comment said git refuses `..` as a tree path component, which is true of porcelain and NOT
+  // true at the object level: `git mktree` accepts a `..` entry, and `git fsck` only WARNS
+  // (`hasDotdot`) unless `--strict`. Whether GitHub's receive-side fsck rejects such a push is
+  // unverified. Practical exposure is nil for a different reason: checkout refuses such a path,
+  // and this gate never touches the filesystem with these strings — it compares them as text. So
+  // the clause is cheap insurance on a path nobody can currently walk, rather than a fix for a
+  // reachable hole.
+  //
+  // Nothing legitimate is refused: only a segment EXACTLY equal to `..`, and the path must still
+  // end in `.md`. `..md`, `a..b`, `....` and the encoded and unicode lookalikes all stay inert,
+  // and none of them traverses.
   !p.split('/').includes('..') &&
   (/^docs\/architecture\/\d{4}-\d{2}-\d{2}-[^/]+\.md$/.test(p) ||
     p.startsWith('docs/business/') ||
@@ -443,6 +454,29 @@ export function standingVerdict(items, kind) {
 // it, so it is in the drift. The claim being tested is not "this commit is a merge" (which a commit
 // can assert about itself) but "nothing the PR owns moved", which it cannot.
 //
+// AN EMPTY DRIFT IS A FACT, and this is a proof rather than a preference (security review,
+// 2026-10-24). `compare V...HEAD` is **three-dot**: it reports against `merge-base(V, HEAD)`, not
+// against `V`. Every `V` that reaches the drift judgment has already passed `ctx.shas.has`, so `V`
+// is one of the PR's own commits and therefore an ancestor of the head; hence
+// `merge-base(V, HEAD) == V`, and an empty drift provably means `tree(V) == tree(HEAD)`. The one
+// shape that could lie — `V` a descendant of the head after a force-push, where the three-dot base
+// would not be `V` — dies at that membership check. An empty `ownedAt`, by contrast, is never a
+// fact: a PR always owns a file, so emptiness there can only mean the read did not happen.
+//
+// THE MEMBERSHIP GATE MUST THEREFORE PRECEDE THE DRIFT JUDGMENT. That is the precise statement:
+// swapping the two *lines* is behaviour-neutral, since `find` has no side effects. What would turn
+// an empty drift from a fact into an assumption is **judging** drift for a sha whose membership was
+// never established. Pinned by OUTCOME, not by message text — `SR-M-5/CR-M-11` feeds a non-member
+// sha that HAS a clean empty-drift measurement and reads `satisfied` instead of `stale` when the
+// gate is disabled. Three older cases go red there too, but all three on the wording of the
+// refusal: they use `compares: []`, fall into the unmeasured branch and stay stale either way. That
+// near-miss is the whole reason SR-M-5 exists, and it is the third time on this change that a red
+// for an incidental reason looked like a pin.
+//
+// TWO INDEPENDENT LAYERS HOLD THIS, so do not drop either as redundant: `comparePlan` never emits a
+// sha outside the PR (pinned by `CR-M-2: comparePlan skips a sha that is not one of the PR
+// commits`), so a false empty drift needs both to regress at once. That is why SR-M-5 is MED.
+//
 // EVERYTHING UNMEASURABLE IS STALE, never fresh: a review with no `commit_id`, a comment with no
 // `Commit:` line, an ambiguous abbreviation, a reviewed commit no longer in the PR (force-push or
 // rebase), and a drift measurement that is missing, unavailable, truncated, or whose owned side
@@ -551,16 +585,9 @@ export function verdictFreshness(item, ctx) {
   // carrying no file list. The shape is the one this repository records most: exit 0 without the
   // artifact.
   //
-  // WHY THE ASYMMETRY IS SOUND, and it is a proof rather than a preference (security review,
-  // 2026-10-24). An empty `paths` is NOT suspicious the way an empty `ownedAt` is, because
-  // `compare V...HEAD` is three-dot — it reports against `merge-base(V, HEAD)`, not against `V`.
-  // Every `V` that reaches this line has already passed `ctx.shas.has(ref.sha)` **above**, so `V`
-  // is necessarily one of the PR's own commits and therefore an ancestor of the head; hence
-  // `merge-base(V, HEAD) == V`, and an empty drift provably means `tree(V) == tree(HEAD)`. The one
-  // shape that could lie — `V` a descendant of the head after a force-push, where the three-dot
-  // base would not be `V` — dies at that membership check. So the ordering of these two tests is
-  // load-bearing: moving `compares.find` above `shas.has` would turn an empty drift from a fact
-  // into an assumption.
+  // An empty `paths` is NOT suspicious the same way: an empty drift is a FACT about the two trees,
+  // not an absence of information. Why that holds — and why the membership gate above it is what
+  // makes it hold — is the proof under "An empty drift is a fact" in the section header.
   if (
     !m ||
     m.unavailable ||
