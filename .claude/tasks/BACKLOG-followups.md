@@ -5811,3 +5811,47 @@ first signal is a red CI job after the push.
 **Check on closing:** a developer or agent pushing a change that breaks an integration spec either
 sees it fail pre-push, or sees an explicit line saying integration specs were not run — and in neither
 case reads an unqualified green.
+
+## 331. A stale service worker in a reused browser profile silently serves the OLD build to a QA pass (2026-10-24)
+
+Found by the manual-QA re-check on PR #1102. Its first attempts at 320px tested **code that was not in
+the branch** — no date column, and the `salary-parts` query never fired — and the render looked
+plausible rather than broken, so nothing announced the problem.
+
+**The cause.** The Playwright profile held a service worker registered by an **earlier production
+build** on `localhost:3010`. A service worker is scoped to an origin, not to a build, so it survives
+swapping the dev server behind that port and keeps serving its cached app shell. The agent was driving
+a fresh Vite dev server and reading the previous build's UI.
+
+**Why this is the dangerous shape rather than a nuisance.** The failure is a **false negative with a
+plausible surface**: the page renders, the flows click through, and the only symptom is that new UI is
+absent and new network calls do not happen — which reads exactly like "the feature is not working" or,
+worse, like "the feature works and looks like this". A QA pass is the one gate whose whole value is
+seeing the real thing, so an instrument that quietly shows the wrong build defeats it completely. It is
+the same family as a filtered test run reporting green for tests it never executed (entry 317) and a
+figure measured on the wrong Node version: the instrument answered about something other than the
+subject.
+
+**The cheap check, which costs one line before trusting any render:**
+
+```
+navigator.serviceWorker.getRegistrations().then(r => r.length)   // expect 0
+```
+
+Non-zero on a reused profile means unregister and clear caches before believing anything on screen.
+The agent did exactly that, and all of its reported results come from the clean run — which is the only
+reason the verdict is worth anything.
+
+**Why it will recur.** The repository deliberately ships a service worker (there is a `cache` E2E
+project testing it, with `sw-smoke` and `anti-stale` specs), agents reuse ports 3010/3011 constantly,
+and the browser profile is shared across runs. So any agent that previews a production build on a port
+another agent later uses for dev has armed this trap for them.
+
+**Candidates:** have manual-qa assert zero registrations as a precondition of any visual pass and say
+so in its report (cheapest, and it is a precondition like `node -v`); or have the dev-server start
+script unregister service workers for its own origin; or give production previews a different port
+range from dev servers so the origins never collide.
+
+**Check on closing:** a QA pass on a reused profile either reports zero service-worker registrations
+before its first assertion, or states that it unregistered them — and never reports a render without
+one of those two.
