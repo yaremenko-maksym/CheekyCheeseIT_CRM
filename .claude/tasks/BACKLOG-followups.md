@@ -4524,6 +4524,37 @@ escalation path.
 later call regardless of how the `add` was composed or whether its working directory changed, while a
 sibling's path stays refused — both arms asserted by the hook's own tests.
 
+### A second, measured cause: the macOS `/tmp` symlink (2026-10-24)
+
+Ownership also fails to record when the path is **correct, literal and the agent's own**. Measured:
+`/tmp` on macOS is a symlink to `private/tmp` (`ls -ld /tmp` → `/tmp -> private/tmp`). The harness
+issues the scratchpad to an agent as a `/private/tmp/...` path, so `git worktree add` is called with
+`/private/tmp/...`, while the hook's recorded scratchpad root is the `/tmp/...` spelling. The two name
+the same directory and do not match as strings, so nothing is recorded and the later
+`git worktree remove` is refused with `WORKTREE-REMOVE` — on a tree the agent demonstrably created.
+
+An agent that did everything the rule asks (literal path, own identifier in the name, inside its own
+scratchpad) still cannot clean up after itself. The affected agent declined to force past the guard,
+which is correct — "this looks abandoned" is not an observation it can make — so the refusal is working
+as designed on the removal side while the recording side is the defect.
+
+**The escape route is closed from both ends, measured 2026-10-24.** The rule's answer to a tree you
+cannot remove is "report it to the orchestrator, who sees all agents". The orchestrator is refused
+too, by `WORKTREE-REMOVE`: the path is not _its_ worktree either, and the refusal is correct as a rule.
+Tried from the orchestrator with the literal path, after the creating agent had already been refused —
+so neither the agent that made it nor the only party the rule names as the fallback can clear it, and
+it genuinely falls to the owner. **Measured scale at the time of writing: 16 such checkouts across two
+sessions' scratchpads**, most from reviews closed hours earlier.
+
+A related sharp edge found in the same attempt: passing the path through a shell variable gets
+`WORKTREE-OPAQUE` instead, because the hook cannot expand it and refuses rather than guess. That is
+right, and it means any batch cleanup must expand each path to a literal first — which is also why a
+loop over `git worktree list` cannot be the fix.
+
+**Check on closing:** an agent creates a worktree at the `/private/tmp/...` path the harness issued it
+and then removes it, with no intervening step. Both commands succeed. And a tree whose creator is gone
+can be cleared by _someone_ without forcing past the guard.
+
 ## 301. A verification can be real but less precise than the claim it supports (2026-10-23)
 
 `verification-integrity.md` distinguishes "did not look" from "looked and found nothing". The retro-PR
@@ -4614,6 +4645,22 @@ output. The hook half is optional; the rule half is the point.
 
 **Check on closing:** a merge with conflicts in two files, read the way the rule prescribes, reports
 both.
+
+### Instance 2 — truncation plus an anchor that could never match (2026-10-24)
+
+A PR body carried "E2E 866 passed, 0 failed". It was false, and the author diagnosed its own
+instrument rather than its memory. **Two faults compounded:** the run was captured through
+`| tail -40`, so only forty lines ever existed to search; and the search was
+`grep '^\s+[0-9]+ failed'`, which cannot match Playwright's summary line because ANSI escapes
+(`ESC[1A ESC[2K`) precede the whitespace. The absent match was read as zero failures — a count offered
+as proof of an absence with no proof the input was read, which is `verification-integrity.md`'s form 1
+reached by a different route.
+
+Re-measured properly (full stdout to a file, ANSI stripped, pattern unanchored, reconciled against
+`--list`): **866 passed · 238 failed · 26 skipped · 13 did not run = 1143**, matching the chromium
+total exactly. The reconciliation against a known total is what turned a plausible number into a
+checkable one, and it is the cheap habit worth copying: a count that does not have to add up to
+anything is a count nobody can falsify.
 
 ## 303. User-facing error text left over from the retro-PR wave (2026-10-23)
 
@@ -4811,6 +4858,32 @@ process can name and settle the reservations of an attempt whose worker died; th
 names both refusal shapes, so a loop built from it handles the throw as well as the `null`; and a
 configured quota key is provably absent from a report the collection loop produced, asserted on the
 report rather than on the reader's return value.
+
+## 311. Flow Gate: three matcher and classifier gaps found by using it (2026-10-24)
+
+All three surfaced while putting real PRs through the gate on the day it became required. None is a
+false pass — each is a false FAIL, which is the cheaper direction, but each costs a review round and
+teaches the author to distrust the gate.
+
+- **A bolded step line is invisible.** `**Task:**` / `**Plan:**` do not match; the line must be plain
+  at line start. Markdown bolding is the obvious way to write a labelled line in a PR body, so this
+  will recur. The matcher tolerates a `- ` / `* ` bullet but not emphasis.
+- **A vitest setup file is not a test file.** A PR whose only code hunk was `apps/web/app/test/setup.ts`
+  reported `Tests: MISSING`. The file is listed in `setupFiles` of `apps/web/vitest.config.ts`, so it
+  is test infrastructure by definition, and the author had to add a `Skip-Tests:` line for a change
+  that is nothing but tests.
+- **`Skip-Task:` silently waives `Spec-Review` too.** Spec-Review is required only when a `Task:` line
+  is declared, so skipping Task removes the spec axis with no second reason and no visible trace — the
+  gate's own table then reads `n/a` rather than `SKIPPED`, which is the one place a reader would look.
+  One recorded skip quietly buys two.
+
+**Candidates:** tolerate `**` and other emphasis around a step key; treat files under a package's
+`test/` directory (or any file named in a vitest `setupFiles`) as test files; and make `Spec-Review`
+read `SKIPPED (no Task declared)` rather than `n/a`, or require its own skip line when Task is skipped.
+
+**Check on closing:** a PR body with `**Task:**` passes the Task row; a PR whose only code change is a
+vitest setup file does not report `Tests: MISSING`; and a `Skip-Task:` PR shows Spec-Review as skipped
+with a reason rather than as not applicable.
 
 ## 312. A Stryker directive inside a method chain is silently not honoured (2026-10-24)
 
