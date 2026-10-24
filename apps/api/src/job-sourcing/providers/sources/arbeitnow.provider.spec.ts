@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import { sourceFixture, sourceProvenance } from '../../../test/source-fixtures'
@@ -191,10 +188,18 @@ describe('mapping the authentic capture', () => {
 })
 
 describe('the byte cap is not raised and the page is not cut (the reason this source is blocked)', () => {
-  const capture = (name: string) =>
-    gunzipSync(readFileSync(join(__dirname, '__raw-captures__', '3.2', `${name}.raw.gz`))).toString(
-      'utf8',
-    )
+  // The two authentic pages are not committed (they hold recruiters' personal data: e-mail addresses,
+  // LinkedIn profile links and mobile numbers). What the test needs from them is only their SIZE,
+  // which the provenance records (page 1: 4209793 bytes decoded, page 2: 2311796). So the body is
+  // generated to exactly that size, and the size is asserted below so the number stays checkable.
+  const bodyOfBytes = (bytes: number) => {
+    const skeleton = JSON.stringify({ data: [], links: { next: null }, pad: '' })
+    return JSON.stringify({
+      data: [],
+      links: { next: null },
+      pad: 'x'.repeat(bytes - skeleton.length),
+    })
+  }
 
   /** "Nothing kept" is four claims: no observation, all counts zero, no checkpoint, one request. */
   function expectNothingKept(batch: Batch, f: Awaited<ReturnType<typeof run>>['f']) {
@@ -212,29 +217,26 @@ describe('the byte cap is not raised and the page is not cut (the reason this so
     expect(f.sent).toHaveLength(1)
   }
 
-  it('the authentic page 1 is 4209793 bytes - past the 2 MiB cap - and fails as PAYLOAD_TOO_LARGE with nothing kept', async () => {
-    const body = capture('an-p1')
+  it('a page 1 of the measured size, 4209793 bytes - past the 2 MiB cap - fails as PAYLOAD_TOO_LARGE with nothing kept', async () => {
+    const body = bodyOfBytes(4209793)
     expect(Buffer.byteLength(body)).toBe(4209793)
     expect(MAX_JSON_BYTES).toBe(2097152)
     const { batch, f } = await run(body)
     expectNothingKept(batch, f)
   })
 
-  it('the authentic page 2 (2311796 bytes) is refused the same way', async () => {
-    const body = capture('an-p2')
+  it('a page 2 of the measured size (2311796 bytes) is refused the same way', async () => {
+    const body = bodyOfBytes(2311796)
     expect(Buffer.byteLength(body)).toBe(2311796)
     const { batch, f } = await run(body)
     expectNothingKept(batch, f)
   })
 
   it('a body of exactly 2097152 bytes is read; one byte more is refused', async () => {
-    const skeleton = JSON.stringify({ data: [], links: { next: null }, pad: '' })
-    const fill = (bytes: number) =>
-      JSON.stringify({ data: [], links: { next: null }, pad: 'x'.repeat(bytes - skeleton.length) })
-    const atCap = fill(MAX_JSON_BYTES)
+    const atCap = bodyOfBytes(MAX_JSON_BYTES)
     expect(Buffer.byteLength(atCap)).toBe(MAX_JSON_BYTES)
     expect((await run(atCap)).batch.outcome).toBe('SUCCEEDED')
-    const past = fill(MAX_JSON_BYTES + 1)
+    const past = bodyOfBytes(MAX_JSON_BYTES + 1)
     expect(Buffer.byteLength(past)).toBe(MAX_JSON_BYTES + 1)
     expect((await run(past)).batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
   })

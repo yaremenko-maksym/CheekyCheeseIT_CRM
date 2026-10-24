@@ -5,11 +5,11 @@
 // a different value rewrites `termsCheckedAt` in every provenance file it regenerates).
 // `termsCheckedAt` is ONE value for every file: the DATE (2026-10-24) is when the terms were read, the time of day is a
 // single stand-in, not a per-file clock reading.
-// A section whose raw capture is not in __raw-captures__/3.2/ is SKIPPED, not failed: only the Arbeitnow and
-// Jobgether captures are kept; the Hacker News and Working Nomads ones are not.
-// DO NOT RUN THIS AGAINST THE COMMITTED __raw-captures__/3.2/an-p1.raw.gz WITHOUT READING THIS: that capture
-// is a REDACTED copy, so the script would overwrite arbeitnow/page-1.provenance.json with the hash of the
-// redacted bytes and drop its REDACTED COPY note (measured). `git checkout` that file afterwards.
+// A section whose raw capture is not in __raw-captures__/3.2/ is SKIPPED, not failed: only the Jobgether,
+// Arbeitnow empty-page and terms/robots captures are kept; the Hacker News, Working Nomads and Arbeitnow page ones are not.
+// The Arbeitnow page 1/2 captures (an-p1, an-p2) are NOT committed any more: they held recruiters' personal
+// data. The `arbeitnow/page-1` provenance note therefore carries a RAW REMOVED sentence this script does
+// not write; if the raw is ever captured again locally, run this script and restore that sentence.
 // `rawSha256` is the sha256 of the bytes as RECEIVED (the decompressed capture).
 //
 // RAW CAPTURES THAT CARRY COMMENT OR OTHER USER-SUBMITTED TEXT ARE NEVER COMMITTED (task 3.1's

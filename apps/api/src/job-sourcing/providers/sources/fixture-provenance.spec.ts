@@ -67,19 +67,6 @@ const FIXTURES: Record<string, Record<string, Permission>> = {
   },
 }
 
-/**
- * `an-p1.raw.gz` is committed REDACTED, so it is not a row above. Convention (the one the Hacker News
- * redaction set, `trim-captures-3.2.mjs` header: "`rawSha256` is the sha256 of the bytes as RECEIVED"):
- * the provenance keeps the hash of what was fetched, the redaction is recorded in the notes, and the
- * committed bytes get their own pin here. Two named individuals' e-mail addresses, percent-encoded in
- * Outlook Safelinks parameters, were replaced by `x...x%40example.invalid` of the SAME length, so the
- * decoded size (4209793, the byte-cap evidence) is unchanged.
- */
-const REDACTED_AN_P1 = {
-  decodedBytes: 4209793,
-  decodedSha256: '4f5e334fcd52f8fa49134f1c4dd9364869330a555cad19f8b981615a38ca5d1a',
-}
-
 /** Fixtures whose raw capture is still committed: the raw bytes must hash to `rawSha256`. */
 const RAW_CAPTURES: Array<[provider: string, name: string, rawFile: string]> = [
   ['arbeitnow', 'empty-page', 'an-p100.raw'],
@@ -159,15 +146,6 @@ describe('fixture provenance', () => {
     },
   )
 
-  it('arbeitnow/page-1: the committed capture is the redacted copy; rawSha256 still names what was fetched', () => {
-    const bytes = gunzipSync(readFileSync(join(RAW_ROOT, '3.2', 'an-p1.raw.gz')))
-    expect(bytes.length).toBe(REDACTED_AN_P1.decodedBytes)
-    expect(sha256(bytes)).toBe(REDACTED_AN_P1.decodedSha256)
-    const p = provenanceOf('arbeitnow', 'page-1')
-    expect(p.rawSha256).not.toBe(REDACTED_AN_P1.decodedSha256)
-    expect(p.notes).toContain('REDACTED COPY')
-  })
-
   it('keeps no Working Nomads job data: its only artifact is the terms page, committed byte for byte', () => {
     const dir = join(ROOT, 'workingnomads')
     expect(readdirSync(dir).sort()).toEqual(['terms.html.provenance.json', 'terms.html.txt'])
@@ -228,7 +206,6 @@ const isPlaceholder = (hit: string) =>
   /^redacted@example\.invalid$/i.test(hit) ||
   /^(?:[A-Za-z0-9._%+-]*%7C)?x+%40example\.invalid$/i.test(hit)
 
-const SOCIAL = 'a social-media handle or at-mention in a job ad: no local part, not an address'
 const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
   {
     file: 'workingnomads/terms.html.txt',
@@ -269,8 +246,8 @@ const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
   },
   {
     file: '__raw-captures__/3.2/README.md',
-    reason: 'the prose "HN @<handle>" and the encoding %40 named in the privacy record: no address',
-    hits: ['%40', '@'],
+    reason: 'the prose "HN @<handle>": a placeholder, not an address',
+    hits: ['@'],
   },
   {
     file: 'djinni/primary-keyword-rust.truncated.provenance.json',
@@ -330,48 +307,6 @@ const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
       '@mouseleave',
     ],
   },
-  {
-    file: '__raw-captures__/3.2/an-p1.raw.gz',
-    reason: SOCIAL,
-    hits: ['@', '@Curatible', '@EURODYN', '@SoftOne', '@SotremoSA', '@lifeat12build', '@mention'],
-  },
-  {
-    file: '__raw-captures__/3.2/an-p1.raw.gz',
-    reason: 'CSS-framework class prefixes (@md, @sm) inside embedded markup',
-    hits: ['@md', '@sm'],
-  },
-  {
-    file: '__raw-captures__/3.2/an-p1.raw.gz',
-    reason:
-      'a benefits tag, a metric name and a company name that contain an @: no domain, not addresses',
-    hits: ['Recall@k', 'Woman@capco'],
-  },
-  {
-    file: '__raw-captures__/3.2/an-p1.raw.gz',
-    reason: "an employer's published data-protection contact in its job ad (role mailbox)",
-    hits: ['hr.dataprivacy(at)doctolib.com'],
-  },
-  {
-    file: '__raw-captures__/3.2/an-p1.raw.gz',
-    reason:
-      'a platform\'s published security contact, written "security [at] perk .com" (role mailbox)',
-    hits: ['security [at] perk'],
-  },
-  {
-    file: '__raw-captures__/3.2/an-p1.raw.gz',
-    reason: "the generic contact line of an employer's statutory imprint (role mailbox)",
-    hits: ['contact (at) coni-partner.com'],
-  },
-  {
-    file: '__raw-captures__/3.2/an-p2.raw.gz',
-    reason: SOCIAL,
-    hits: ['@', '@Curatible', '@InsideGeotab', '@SoftOne', '@SotremoSA', '@bluuwash', '@iwocauk'],
-  },
-  {
-    file: '__raw-captures__/3.2/an-p2.raw.gz',
-    reason: 'a CSS-framework class prefix (@sm) and a company name (Is@talent): not addresses',
-    hits: ['@sm', 'Is@talent'],
-  },
 ]
 const allowedHitsOf = (label: string) =>
   ALLOWED_HITS.filter((e) => label === e.file).flatMap((e) => e.hits)
@@ -414,7 +349,7 @@ describe('every @-equivalent token in the two scanned roots is the placeholder o
       expect(rel.some((f) => f.startsWith(`${dir}/`))).toBe(true)
     }
     expect(rel).toContain('trim-captures-3.2.mjs')
-    expect(rel).toContain('__raw-captures__/3.2/an-p1.raw.gz')
+    expect(rel).toContain('__raw-captures__/3.2/jg-p1.raw')
   })
 
   it('the scan root is __raw-captures__ itself, not one task directory under it', () => {
@@ -500,12 +435,17 @@ describe('every @-equivalent token in the two scanned roots is the placeholder o
     }
   })
 
-  it("the raw Hacker News thread captures are not committed (they hold commenters' addresses)", () => {
-    // Any task directory under __raw-captures__, not only 3.2. The control proves the pattern can
-    // match the label shape the walk produces, so an empty result is not an instrument that cannot see.
-    const hnCapture = /^__raw-captures__\/[^/]+\/hn-/
-    expect(hnCapture.test('__raw-captures__/3.2/hn-item-oct.raw')).toBe(true)
-    expect(rel.filter((f) => hnCapture.test(f))).toEqual([])
+  it("the raw captures that hold other people's personal data are not committed", () => {
+    // Hacker News threads (462 commenters' e-mail addresses) and the two Arbeitnow pages (recruiters'
+    // LinkedIn links and mobile numbers, which no e-mail scan looks for). Any task directory under
+    // __raw-captures__, not only 3.2. The controls prove the pattern can match the label shape the walk
+    // produces, so an empty result is not an instrument that cannot see.
+    const personal = /^__raw-captures__\/[^/]+\/(?:hn-|an-p[12]\.raw)/
+    expect(personal.test('__raw-captures__/3.2/hn-item-oct.raw')).toBe(true)
+    expect(personal.test('__raw-captures__/3.2/an-p1.raw.gz')).toBe(true)
+    expect(personal.test('__raw-captures__/3.2/an-p2.raw')).toBe(true)
+    expect(personal.test('__raw-captures__/3.2/an-p100.raw')).toBe(false)
+    expect(rel.filter((f) => personal.test(f))).toEqual([])
   })
 })
 

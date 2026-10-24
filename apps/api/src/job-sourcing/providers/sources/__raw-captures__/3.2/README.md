@@ -1,54 +1,54 @@
 # Raw captures kept for Task 3.2
 
-Only captures that a spec or a provenance hash depends on are kept. Anything carrying comments or
-other user-submitted text is not committed (the Hacker News threads were, by mistake, and were removed).
+Only captures that a spec or a provenance hash depends on are kept, and only if they carry no other
+people's personal data. Anything carrying comments or other user-submitted text is not committed:
+the Hacker News threads and the two Arbeitnow job pages were removed (see the Privacy record).
 Whether a kept capture holds an e-mail address is established by the scan in `fixture-provenance.spec.ts`
 (every `@`-equivalent token is reported and allow-listed by reason), not by this sentence; the scan reads
-addresses, not names. `an-p1.raw.gz` is a REDACTED copy: two named individuals' addresses in Outlook
-Safelinks parameters were replaced by a same-length placeholder (details in the Privacy record).
+addresses, not names, and not LinkedIn links or phone numbers.
 
 | File                                               | What it proves                                                                                                                                 |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `an-p1.raw.gz`, `an-p2.raw.gz` (+ `.hdr`)          | Arbeitnow pages 1 and 2 are 4209793 and 2311796 bytes decoded, past the 2 MiB cap; read by `arbeitnow.provider.spec.ts`                        |
+| `an-p1.hdr`, `an-p2.hdr`                           | Response headers of the two Arbeitnow pages (their bodies are removed); `an-p1.hdr` supplies `fetchedAt`                                       |
 | `an-p100.raw`, `an-p20.hdr`                        | The empty page past the end (source of `arbeitnow/empty-page.json`; the capture has no header file of its own, `an-p20.hdr` supplies the date) |
 | `an-terms.html`                                    | Arbeitnow terms, section 11 (API, link back, revocable)                                                                                        |
 | `jg-p1`, `jg-p10`, `jg-none`, `jg-depr` (+ `.hdr`) | Source of the four Jobgether fixtures; public listing data (titles, company names), no descriptions                                            |
 | `robots-*.txt` (+ `.hdr`)                          | The robots.txt answers recorded in the provenance notes                                                                                        |
 
 `fixture-provenance.spec.ts` checks that the sha256 of each retained raw capture equals the
-`rawSha256` of the fixture built from it, **except `an-p1.raw.gz`**: that one is a redacted copy, its
-`rawSha256` is the hash of the bytes as received, and the committed bytes have their own pin.
-**Do not run the rebuild below unannounced: it reads `an-p1.raw.gz` too and would overwrite
-`arbeitnow/page-1.provenance.json`, replacing the as-received `rawSha256` with the hash of the redacted
-file and dropping the REDACTED COPY note (measured: it does).** Restore the file with `git checkout`
-afterwards. Rebuild: `node ../../__fixtures__/trim-captures-3.2.mjs 2026-10-24T03:00:00.000Z`
+`rawSha256` of the fixture built from it. Rebuild: `node ../../__fixtures__/trim-captures-3.2.mjs 2026-10-24T03:00:00.000Z`
 (the argument is `termsCheckedAt`); sections whose raw capture is absent are skipped.
 
 ## Privacy record
 
-- `an-p1.raw.gz` held two named individuals' e-mail addresses (one a `.gov.uk` address), URL-encoded as
-  `%40` inside Outlook Safelinks tracking parameters; the earlier address scan missed them. They were
-  replaced by a same-length run of x characters in front of the reserved domain example.invalid, so the decoded size (4209793 bytes, the
-  byte-cap evidence) is unchanged. `rawSha256` of `arbeitnow/page-1` stays the hash of the bytes as
-  received; the committed copy has its own pin in the spec. **The pre-redaction blob stays reachable
-  by its commit path from this branch's history; deleting the branch after merge does not purge it, and a
-  squash merge keeps it out of `main` without deleting it. Purging is the owner's action (GitHub support).**
-
-- The raw Hacker News thread captures (462 unique commenter e-mail addresses) were committed to
-  this PR by mistake and removed in a later commit. **The blobs stay reachable through the PR's
-  refs (`refs/pull/<n>/head`) and any fork or clone made meanwhile until the platform purges
-  them. Purging is the repository owner's action (GitHub support); no commit on this branch can
-  do it.** A squash merge keeps them out of `main`.
+- The raw Hacker News thread captures (462 unique commenter e-mail addresses) were committed to this PR
+  by mistake and removed in a later commit (`7fe61d663`).
+- The raw Arbeitnow pages 1 and 2 (`an-p1`, `an-p2`) were also removed. They held other people's personal
+  data of three kinds: two named individuals' e-mail addresses (one a `.gov.uk` address) percent-encoded
+  inside Outlook Safelinks tracking parameters, which the first address scan missed; 12 distinct personal
+  LinkedIn profile links (written with escaped slashes); and 4 mobile-shaped phone numbers of named
+  recruiters. For a while `an-p1` was committed with the two addresses redacted; the owner then decided
+  to delete both files, as for Hacker News. `arbeitnow/page-1` keeps the hash of the bytes as RECEIVED
+  and the measured sizes (4209793 and 2311796 bytes) in its provenance; `arbeitnow.provider.spec.ts`
+  generates bodies of exactly those sizes.
+- **Residual, a decision and not a pending action (owner, 2026-10-24):** the Hacker News blobs, the
+  pre-redaction `an-p1`, the redacted `an-p1` and `an-p2` all remain reachable by sha and by commit path
+  from this branch's history. Deleting the branch after merge does not purge them; a squash merge keeps
+  them out of `main` without deleting them. The owner decided NOT to ask GitHub to purge the history and
+  judged that acceptable for this content. Two review bodies on this PR that quoted two of the addresses
+  were redacted; their edit history stays, by the same decision.
 - The guard is `fixture-provenance.spec.ts`: it walks the whole `__fixtures__` tree and the whole `__raw-captures__` directory and fails on
-  any e-mail address not on its per-file allow-list.
+  any hit not on its per-file allow-list, and on a committed `hn-*` or `an-p1`/`an-p2` raw.
 - HN author handles are kept verbatim in the trimmed fixtures: they are public pseudonyms and the
   adapter uses them as the posting account (`HN @<handle>`).
 - `termsCheckedAt` is one value across every provenance file: the date (2026-10-24) is when the
   terms were read, the time of day is a single stand-in.
 - Re-derivability: only the four Jobgether provenance files are proven against `trim-captures-3.2.mjs`
   by a run (their raw captures are committed, and re-running the script leaves them byte for byte
-  unchanged). The four HN notes and the Working Nomads note are produced by the script only when
-  their raw captures are present, which they are not, so those five were patched by hand to match
-  the script's text; script and JSON agree by reading, not by a run.
+  unchanged). The four HN notes, the Working Nomads note and the Arbeitnow `page-1` note are produced
+  by the script only when their raw captures are present, which they are not, so none of those six was
+  regenerated by a run. The HN and Working Nomads notes were patched by hand to match the script's text;
+  the `page-1` note additionally carries a RAW REMOVED sentence the script does not write. Script and JSON
+  agree by reading, not by a run, and `page-1` does not agree on that sentence.
 - Who read the third-party terms: an AI coding agent (the Working Nomads page also by a reviewing
   agent). This is not legal advice, and no review by a lawyer or the owner is recorded here.
