@@ -1,7 +1,10 @@
 // Builds the Task 3.2 fixtures from the raw captures committed in ./raw-captures-3.2 (gzip over
 // 300 KB, lossless). Parser-based end to end: JSON.parse -> select WHOLE records by identity ->
 // redact personal data inside string values -> JSON.stringify -> prettier. Never a byte cut.
-// Usage: node trim-captures-3.2.mjs <termsCheckedAt-ISO>
+// Usage: node trim-captures-3.2.mjs <termsCheckedAt-ISO>   (the committed fixtures used 2026-10-24T03:00:00.000Z;
+// a different value rewrites `termsCheckedAt` in every provenance file it regenerates).
+// A section whose raw capture is not in raw-captures-3.2/ is SKIPPED, not failed: only the Arbeitnow and
+// Jobgether captures are kept (no personal data); the Hacker News and Working Nomads ones are not.
 // `rawSha256` is the sha256 of the bytes as RECEIVED (the decompressed capture).
 //
 // RAW CAPTURES THAT CARRY COMMENT OR OTHER USER-SUBMITTED TEXT ARE NEVER COMMITTED (task 3.1's
@@ -42,7 +45,8 @@ const redact = (v) =>
 /** The bytes as received: `<name>` or `<name>.gz` in the capture directory. */
 function readRaw(name) {
   const plain = join(rawDir, name)
-  return existsSync(plain) ? readFileSync(plain) : gunzipSync(readFileSync(`${plain}.gz`))
+  if (existsSync(plain)) return readFileSync(plain)
+  return existsSync(`${plain}.gz`) ? gunzipSync(readFileSync(`${plain}.gz`)) : null
 }
 const dateHeader = (hdrFile) => {
   const line = readFileSync(join(rawDir, hdrFile), 'utf8')
@@ -60,6 +64,10 @@ async function format(text, filepath) {
 
 async function emit(provider, name, rawFile, hdrFile, url, produce, meta) {
   const rawBytes = readRaw(rawFile)
+  if (rawBytes === null) {
+    console.log(`skipped ${provider}/${name}: ${rawFile} is not committed`)
+    return
+  }
   const dir = join(here, provider)
   mkdirSync(dir, { recursive: true })
   const out = await format(
@@ -130,7 +138,7 @@ await emit(
 // ---- Jobgether ----
 const JG_TERMS = 'https://jobgether.com/terms-of-use'
 const jgNotes = (extra) =>
-  `${extra} CONTRADICTORY, hence UNCLEAR. Terms of use (read 2026-10-24, last updated 7 September 2026) clause 4.5: "refrain from accessing the Platform or extracting its content by automated means (bots, scrapers, crawlers)" and "from using Platform content to train, fine-tune or operate machine-learning models"; section 9: "All acts of extraction, data mining, scraping and similar acts ... are strictly prohibited." Against that, the API itself is documented as public, unauthenticated and "intended for AI agents/assistants" (https://jobgether.com/llms.txt, https://jobgether.com/openapi.json, https://jobgether.com/astroapi/ai/jobs/docs). robots.txt Allows /astroapi/ai/jobs.json (with a query) and Disallows /*?* elsewhere, sets Crawl-delay: 2 and Content-Signal: search=yes, ai-input=yes, ai-train=no. The terms page returned HTTP 403 to this honest user agent, so the clause text was read through a separate fetch tool, not from a committed capture. Rate limit header: ratelimit-policy "ai-jobs";q=60;w=60. The listing carries NO description; no detail endpoint is documented. No personal data: company names and job titles only.`
+  `${extra} CONTRADICTORY, hence UNCLEAR. Terms of use (read 2026-10-24, last updated 7 September 2026) clause 4.5: "refrain from accessing the Platform or extracting its content by automated means (bots, scrapers, crawlers)" and "from using Platform content to train, fine-tune or operate machine-learning models"; section 9: "All acts of extraction, data mining, scraping and similar acts ... are strictly prohibited." Against that, the API itself is documented as public, unauthenticated and "intended for AI agents/assistants" (https://jobgether.com/llms.txt, https://jobgether.com/openapi.json, https://jobgether.com/astroapi/ai/jobs/docs). robots.txt Allows /astroapi/ai/jobs.json (with a query) and Disallows /*?* elsewhere, sets Crawl-delay: 2 and Content-Signal: search=yes, ai-input=yes, ai-train=no. UNVERIFIABLE FROM THIS REPOSITORY: the terms page returned HTTP 403 to this honest user agent, so the clause text was read through a separate fetch tool on 2026-10-24 and no capture of it is committed; re-read https://jobgether.com/terms-of-use before relying on the quote. Rate limit header: ratelimit-policy "ai-jobs";q=60;w=60. The listing carries NO description; no detail endpoint is documented. No personal data: company names and job titles only.`
 await emit(
   'jobgether',
   'page-1',
@@ -195,8 +203,9 @@ await emit(
 )
 
 // ---- Working Nomads: NO job fixture (permission UNCLEAR). The only artifact is the terms page. ----
-{
-  const bytes = readRaw('wn-terms.html')
+const wnTerms = readRaw('wn-terms.html')
+if (wnTerms !== null) {
+  const bytes = wnTerms
   const dir = join(here, 'workingnomads')
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'terms.html'), bytes)
@@ -225,7 +234,7 @@ await emit(
 // ---- Hacker News (Algolia) ----
 const HN_TERMS = 'https://www.ycombinator.com/legal/'
 const hnNotes = (extra) =>
-  `${extra} UNCLEAR: the Y Combinator terms (https://www.ycombinator.com/legal/, "Site") say "you will not engage in or use any data mining, robots, scraping or similar data gathering or extraction methods", while the HN Search API on Algolia (https://hn.algolia.com/api) is a public, unauthenticated, documented endpoint. Whether that API counts as "the Site" is a question for the owner, which was put to him and is unanswered, so the source stays blocked. robots.txt of news.ycombinator.com sets Crawl-delay: 30 and does not disallow /item; hn.algolia.com serves no robots.txt (404). Employers are NOT given by the API: a comment is free text whose first paragraph is a header, so every observation is tagged employer-unverified. ${REDACTION}`
+  `${extra} UNCLEAR: the Y Combinator terms (https://www.ycombinator.com/legal/, "Site") say "you will not engage in or use any data mining, robots, scraping or similar data gathering or extraction methods", while the HN Search API on Algolia (https://hn.algolia.com/api) is a public, unauthenticated, documented endpoint. No capture of the terms page is committed; the quote was read at that URL on 2026-10-24 and is unverifiable from this repository. Whether that API counts as "the Site" is a question for the owner, which was put to him and is unanswered, so the source stays blocked. robots.txt of news.ycombinator.com sets Crawl-delay: 30 and does not disallow /item; hn.algolia.com serves no robots.txt (404). Employers are NOT given by the API: a comment is free text whose first paragraph is a header, so every observation is tagged employer-unverified. ${REDACTION}`
 await emit(
   'hn-hiring',
   'search',

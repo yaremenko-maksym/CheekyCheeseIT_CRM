@@ -1,24 +1,61 @@
 import { createHash } from 'node:crypto'
-import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join, relative } from 'node:path'
+import { gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 /**
  * The provenance contract of the phase-3 fixtures (`phase3-common.md`): Task 3.7 builds the
  * manifest from these files, so their shape is a contract, not a convention. Every fixture must
- * have a sibling provenance file, and the recorded hash must describe the bytes actually committed.
+ * have a sibling provenance file, the recorded hash must describe the bytes actually committed,
+ * and no file anywhere under `__fixtures__/` may carry a stray e-mail address.
+ *
+ * ONE WALKER, TWO CHECKS: the e-mail scan used to read only the trimmed fixtures this file listed,
+ * and three raw Hacker News captures with 462 commenters' addresses were committed unseen (PR
+ * #1120). The scan below walks the whole tree, so the file nobody listed is still read.
+ *
+ * ADDING A SOURCE: append ONE row to `FIXTURES` (provider -> fixture name -> permission). There
+ * is no global count to edit.
  */
 
 const ROOT = join(__dirname, '__fixtures__')
-const PROVIDERS = [
-  'remoteok',
-  'remotive',
-  'himalayas',
-  'jobicy',
-  'arbeitnow',
-  'jobgether',
-  'hn-hiring',
+
+type Permission =
+  'PUBLIC_API_DOCUMENTED' | 'PUBLIC_FEED' | 'UNCLEAR' | 'PROHIBITED' | 'KEY_REQUIRED'
+
+const FIXTURES: Record<string, Record<string, Permission>> = {
+  remoteok: { feed: 'PUBLIC_API_DOCUMENTED' },
+  remotive: { 'software-dev': 'UNCLEAR' },
+  himalayas: {
+    'browse-page1': 'PUBLIC_API_DOCUMENTED',
+    'browse-page2': 'PUBLIC_API_DOCUMENTED',
+    'search-page1': 'PUBLIC_API_DOCUMENTED',
+  },
+  jobicy: { 'seeded-page1': 'PUBLIC_API_DOCUMENTED', 'seeded-page2': 'PUBLIC_API_DOCUMENTED' },
+  arbeitnow: { 'page-1': 'PUBLIC_API_DOCUMENTED', 'empty-page': 'PUBLIC_API_DOCUMENTED' },
+  jobgether: {
+    'page-1': 'UNCLEAR',
+    'page-10': 'UNCLEAR',
+    'no-results': 'UNCLEAR',
+    'deprecated-path': 'UNCLEAR',
+  },
+  'hn-hiring': {
+    search: 'UNCLEAR',
+    'thread-2026-10': 'UNCLEAR',
+    'thread-2026-09': 'UNCLEAR',
+    'thread-2019-05': 'UNCLEAR',
+  },
+}
+
+/** Fixtures whose raw capture is still committed: the raw bytes must hash to `rawSha256`. */
+const RAW_CAPTURES: Array<[provider: string, name: string, rawFile: string]> = [
+  ['arbeitnow', 'page-1', 'an-p1.raw.gz'],
+  ['arbeitnow', 'empty-page', 'an-p100.raw'],
+  ['jobgether', 'page-1', 'jg-p1.raw'],
+  ['jobgether', 'page-10', 'jg-p10.raw'],
+  ['jobgether', 'no-results', 'jg-none.raw'],
+  ['jobgether', 'deprecated-path', 'jg-depr.raw'],
 ]
 
 const provenanceSchema = z
@@ -42,56 +79,54 @@ const provenanceSchema = z
   })
   .strict()
 
-const fixtures = PROVIDERS.flatMap((provider) =>
-  readdirSync(join(ROOT, provider))
-    .filter((f) => f.endsWith('.json') && !f.endsWith('.provenance.json'))
-    .map((f) => ({ provider, name: f.slice(0, -'.json'.length) })),
+const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')
+const provenanceOf = (provider: string, name: string) =>
+  provenanceSchema.parse(
+    JSON.parse(readFileSync(join(ROOT, provider, `${name}.provenance.json`), 'utf8')),
+  )
+
+const fixtures = Object.entries(FIXTURES).flatMap(([provider, names]) =>
+  Object.keys(names).map((name) => ({ provider, name })),
 )
 
 describe('fixture provenance', () => {
-  it('covers every provider with at least one fixture, and the 17 captured files (7 from 3.1, 10 from 3.2)', () => {
-    expect(new Set(fixtures.map((f) => f.provider))).toEqual(new Set(PROVIDERS))
-    expect(fixtures).toHaveLength(17)
-  })
+  it.each(Object.entries(FIXTURES))(
+    '%s: the committed fixtures are exactly the ones in the table',
+    (provider, names) => {
+      const onDisk = readdirSync(join(ROOT, provider))
+        .filter((f) => f.endsWith('.json') && !f.endsWith('.provenance.json'))
+        .map((f) => f.slice(0, -'.json'.length))
+      expect(onDisk.sort()).toEqual(Object.keys(names).sort())
+    },
+  )
 
   it.each(fixtures.map((f) => [`${f.provider}/${f.name}`, f] as const))(
     '%s has a provenance file of exactly the contract shape whose fileSha256 matches the committed bytes',
     (_label, { provider, name }) => {
-      const provenance = provenanceSchema.parse(
-        JSON.parse(readFileSync(join(ROOT, provider, `${name}.provenance.json`), 'utf8')),
-      )
+      const provenance = provenanceOf(provider, name)
       const committed = readFileSync(join(ROOT, provider, `${name}.json`))
-      expect(createHash('sha256').update(committed).digest('hex')).toBe(provenance.fileSha256)
+      expect(sha256(committed)).toBe(provenance.fileSha256)
       expect(provenance.rawSha256).not.toBe(provenance.fileSha256)
       expect(provenance.trimmedBy).not.toMatch(/head -c/)
       expect(provenance.httpStatus).toBe(200)
     },
   )
 
-  it('records the Remotive robots.txt contradiction as UNCLEAR rather than as permission', () => {
-    const p = provenanceSchema.parse(
-      JSON.parse(readFileSync(join(ROOT, 'remotive', 'software-dev.provenance.json'), 'utf8')),
-    )
-    expect(p.permission).toBe('UNCLEAR')
-  })
+  it.each(fixtures.map((f) => [`${f.provider}/${f.name}`, f] as const))(
+    '%s records the permission the table states',
+    (_label, { provider, name }) => {
+      expect(provenanceOf(provider, name).permission).toBe(FIXTURES[provider]?.[name])
+    },
+  )
 
-  it.each([
-    ['arbeitnow', 'page-1', 'PUBLIC_API_DOCUMENTED'],
-    ['arbeitnow', 'empty-page', 'PUBLIC_API_DOCUMENTED'],
-    ['jobgether', 'page-1', 'UNCLEAR'],
-    ['jobgether', 'page-10', 'UNCLEAR'],
-    ['jobgether', 'no-results', 'UNCLEAR'],
-    ['jobgether', 'deprecated-path', 'UNCLEAR'],
-    ['hn-hiring', 'search', 'UNCLEAR'],
-    ['hn-hiring', 'thread-2026-10', 'UNCLEAR'],
-    ['hn-hiring', 'thread-2026-09', 'UNCLEAR'],
-    ['hn-hiring', 'thread-2019-05', 'UNCLEAR'],
-  ])('%s/%s records permission %s (the 3.2 verdicts)', (provider, name, permission) => {
-    const p = provenanceSchema.parse(
-      JSON.parse(readFileSync(join(ROOT, provider, `${name}.provenance.json`), 'utf8')),
-    )
-    expect(p.permission).toBe(permission)
-  })
+  it.each(RAW_CAPTURES)(
+    '%s/%s: the committed raw capture %s hashes to the recorded rawSha256',
+    (provider, name, rawFile) => {
+      const raw = readFileSync(join(ROOT, 'raw-captures-3.2', rawFile))
+      const bytes = rawFile.endsWith('.gz') ? gunzipSync(raw) : raw
+      expect(sha256(bytes)).toBe(provenanceOf(provider, name).rawSha256)
+    },
+  )
 
   it('keeps no Working Nomads job data: its only artifact is the terms page, committed byte for byte', () => {
     const dir = join(ROOT, 'workingnomads')
@@ -99,18 +134,71 @@ describe('fixture provenance', () => {
     const p = provenanceSchema.parse(
       JSON.parse(readFileSync(join(dir, 'terms.provenance.json'), 'utf8')),
     )
-    const bytes = readFileSync(join(dir, 'terms.html'))
-    const digest = createHash('sha256').update(bytes).digest('hex')
+    const digest = sha256(readFileSync(join(dir, 'terms.html')))
     expect(p.fileSha256).toBe(digest)
     expect(p.rawSha256).toBe(digest)
     expect(p.permission).toBe('UNCLEAR')
   })
+})
 
-  it('leaves no e-mail address in any fixture except the redaction placeholder', () => {
-    for (const { provider, name } of fixtures) {
-      const text = readFileSync(join(ROOT, provider, `${name}.json`), 'utf8')
-      const emails = text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) ?? []
-      expect(emails.filter((e) => e !== 'redacted@example.invalid')).toEqual([])
+/**
+ * E-mail addresses anywhere under `__fixtures__/`, raw captures and scripts included, `.gz`
+ * decompressed. The allow-list is per FILE and per ADDRESS: the redaction placeholder, and the
+ * published role mailboxes of a third-party terms page kept as evidence of a verdict. A new
+ * address in an allow-listed file fails, as does any address in any other file.
+ */
+const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
+const PLACEHOLDER = 'redacted@example.invalid'
+const PUBLISHED_CONTACTS: Record<string, string[]> = {
+  'workingnomads/terms.html': ['hello@workingnomads.com', 'report@workingnomads.com'],
+}
+
+function walk(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name)
+    return statSync(path).isDirectory() ? walk(path) : [path]
+  })
+}
+
+function addressesIn(path: string): string[] {
+  const raw = readFileSync(path)
+  const text = (path.endsWith('.gz') ? gunzipSync(raw) : raw).toString('utf8')
+  return [...new Set(text.match(EMAIL) ?? [])].sort()
+}
+
+describe('no personal e-mail address anywhere under __fixtures__', () => {
+  const files = walk(ROOT)
+  const rel = files.map((f) => relative(ROOT, f))
+
+  it('scans the whole tree: every provider directory, the raw captures and the scripts', () => {
+    // A scanner that only saw a subset would pass the checks below too, so the scope is asserted.
+    expect(rel.length).toBeGreaterThan(70)
+    for (const dir of [...Object.keys(FIXTURES), 'workingnomads', 'raw-captures-3.2']) {
+      expect(rel.some((f) => f.startsWith(`${dir}/`))).toBe(true)
     }
+    expect(rel).toContain('trim-captures-3.2.mjs')
+    expect(rel).toContain('raw-captures-3.2/an-p1.raw.gz')
+  })
+
+  it('finds no address except the placeholder and the allow-listed published contacts', () => {
+    const offenders = files.flatMap((file) => {
+      const name = relative(ROOT, file)
+      const allowed = new Set([PLACEHOLDER, ...(PUBLISHED_CONTACTS[name] ?? [])])
+      return addressesIn(file)
+        .filter((a) => !allowed.has(a))
+        .map((a) => `${name}: ${a}`)
+    })
+    expect(offenders).toEqual([])
+  })
+
+  it('every allow-listed file exists and still carries exactly the addresses listed for it', () => {
+    for (const [name, expected] of Object.entries(PUBLISHED_CONTACTS)) {
+      expect(rel).toContain(name)
+      expect(addressesIn(join(ROOT, name))).toEqual([...expected].sort())
+    }
+  })
+
+  it("the raw Hacker News thread captures are not committed (they hold commenters' addresses)", () => {
+    expect(rel.filter((f) => /^raw-captures-3\.2\/hn-/.test(f))).toEqual([])
   })
 })

@@ -4,7 +4,7 @@ import { sourceFixture } from '../../../test/source-fixtures'
 import { arbeitnowProvider, arbeitnowSpec } from './arbeitnow.provider'
 import { himalayasBrowseSpec, himalayasProvider, himalayasSearchSpec } from './himalayas.provider'
 import { hnHiringProvider, hnSpec } from './hn-hiring.provider'
-import { jobgetherProvider, jobgetherSpec } from './jobgether.provider'
+import { jobgetherProvider, jobgetherSpecFor } from './jobgether.provider'
 import { jobicyProvider, jobicySpec } from './jobicy.provider'
 import { remoteokProvider, remoteokSpec } from './remoteok.provider'
 import { remotiveProvider, remotiveSpec } from './remotive.provider'
@@ -84,7 +84,7 @@ const rows: Row[] = [
   },
   {
     name: 'jobgether',
-    spec: jobgetherSpec as Row['spec'],
+    spec: jobgetherSpecFor(new Date('2026-10-24T03:00:00Z')) as Row['spec'],
     config: jobgetherProvider.parseConfig({ configVersion: 1 }),
     rawItem: first('jobgether', 'page-1', 'jobs'),
     expected: '6adc0a6822c2644c03e6a821',

@@ -30,11 +30,15 @@ import { boundedString, dateRaw, optionalString, optionalStringArray, urlString 
  *   yield more than 250 jobs; `maxPages` is therefore 1..10. The walk ends at `hasMore: false`.
  *   Coverage is WINDOW, never FULL_INVENTORY: the page cap, not the inventory, ends a walk
  *   (page 10 of the capture still said `hasMore: true`).
- * - DEPRECATION is SURFACED by failing: a body carrying `deprecation.deprecated: true` is refused
- *   as `PARSE_DRIFT` whose message names the sunset date and the successor. The batch has no
- *   warning channel, and this endpoint is announced as not deprecated, so a deprecation notice
- *   here means the path is retiring and an operator must see it. (Headers `Deprecation`, `Sunset`
- *   and `Link: rel="successor-version"` are not visible to a spec, only the body.)
+ * - DEPRECATION (a STOPGAP until the batch has a warning channel, which it does not). A body with
+ *   `deprecation.deprecated: true` means the path we call is retiring. What is traded: BEFORE the
+ *   announced `sunset` the page is ingested in full and every observation carries the tag
+ *   `path-deprecated` (a healthy body is not mislabelled as drift, and up to 25 valid jobs per page
+ *   are not thrown away for a 30-day window); AT or after the sunset the page is refused as
+ *   `PARSE_DRIFT` naming the sunset and the successor, because a retired path that still answers
+ *   cannot be trusted. A notice with no parseable sunset is treated as not yet due. The tag is the
+ *   only channel a mapper has; the `Deprecation` / `Sunset` / `Link` headers are not visible to a
+ *   spec. The code stays `PARSE_DRIFT` because the envelope decoder can return no other.
  * - DETAIL POLICY for omitted descriptions: NONE, by design. The listing carries no description
  *   and no detail endpoint is documented; the only detail would be the listing page's HTML, which
  *   robots.txt disallows (`/offer/...`) and the terms forbid scraping. So descriptions stay
@@ -83,29 +87,34 @@ const itemSchema = z.object({
   experience: optionalString(100),
   jobFunctions: optionalStringArray(ORIGINAL_LIMITS.tags, ORIGINAL_LIMITS.tag),
   postedAt: dateRaw(),
+  /** Set by `extractItems` on a deprecated path; never read from the wire as such. */
+  pathDeprecated: z.boolean().optional(),
 })
 type Item = z.infer<typeof itemSchema>
 
-/** `jobs` stays OPAQUE so one bad job is isolated instead of failing the page. */
 const deprecationSchema = z.object({
   deprecated: z.boolean().optional(),
   sunset: z.string().max(64).optional(),
   successor: z.string().max(200).optional(),
 })
+type Deprecation = z.infer<typeof deprecationSchema>
 
-const envelopeSchema = z
-  .object({
-    jobs: z.array(z.unknown()),
-    pagination: z.object({ hasMore: z.boolean() }),
-    deprecation: deprecationSchema.optional(),
-  })
-  .refine((envelope) => envelope.deprecation?.deprecated !== true, {
-    error: ({ input }) => {
-      const d = deprecationSchema.parse((input as { deprecation: unknown }).deprecation)
-      return `Jobgether reports this path deprecated (sunset ${d.sunset ?? 'unannounced'}, successor ${d.successor ?? 'unnamed'})`
-    },
-  })
+/** `jobs` stays OPAQUE so one bad job is isolated instead of failing the page. */
+const envelopeSchema = z.object({
+  jobs: z.array(z.unknown()),
+  pagination: z.object({ hasMore: z.boolean() }),
+  deprecation: deprecationSchema.optional(),
+})
 type Envelope = z.infer<typeof envelopeSchema>
+
+/** True once the announced sunset is not after `now`. No sunset, or one that is not a date: not yet. */
+function isRetired(d: Deprecation | undefined, now: Date): boolean {
+  if (d?.deprecated !== true || d.sunset === undefined) return false
+  const sunset = Date.parse(d.sunset)
+  return Number.isFinite(sunset) && sunset <= now.getTime()
+}
+
+const TAG_PATH_DEPRECATED = 'path-deprecated'
 
 const REMOTE_YES = /^(?:full[- ]remote|remote[- ]first)$/i
 
@@ -120,18 +129,26 @@ function mapItem(item: Item, config: Config) {
     remote: item.remote !== null && REMOTE_YES.test(item.remote.trim()) ? true : null,
     employmentType: item.contractType,
     seniorityHint: item.experience,
-    tags: item.jobFunctions,
+    tags:
+      item.pathDeprecated === true
+        ? [...item.jobFunctions, TAG_PATH_DEPRECATED]
+        : item.jobFunctions,
     dates: [
       { raw: item.postedAt, contract: 'ISO_ZONED' as const, semantics: 'PUBLISHED' as const },
     ],
   }
 }
 
-export const jobgetherSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
+export const jobgetherSpecFor = (now: Date): ApiJsonSourceSpec<Config, Envelope, Item> => ({
   type: 'JOBGETHER_API',
   adapterVersion: JOBGETHER_ADAPTER_VERSION,
   configSchema,
-  envelopeSchema,
+  envelopeSchema: envelopeSchema.refine((envelope) => !isRetired(envelope.deprecation, now), {
+    error: ({ input }) => {
+      const d = deprecationSchema.parse((input as { deprecation: unknown }).deprecation)
+      return `Jobgether reports this path deprecated (sunset ${d.sunset}, successor ${d.successor ?? 'unnamed'})`
+    },
+  }),
   itemSchema,
   pageRequest: (config, at) => {
     const url = new URL(ENDPOINT)
@@ -141,7 +158,12 @@ export const jobgetherSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     url.searchParams.set('page', String(at.page))
     return { request: { url: url.href, headers: { accept: 'application/json' } } }
   },
-  extractItems: (envelope) => envelope.jobs,
+  extractItems: (envelope) =>
+    envelope.deprecation?.deprecated === true
+      ? envelope.jobs.map((job) =>
+          typeof job === 'object' && job !== null ? { ...job, pathDeprecated: true } : job,
+        )
+      : envelope.jobs,
   nextCursor: (envelope, at) => (envelope.pagination.hasMore ? `page:${at.page + 1}` : null),
   nativeIdOf: (item) => item.id,
   mapItem,
@@ -151,15 +173,17 @@ export const jobgetherSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     configVersion: config.configVersion,
     window: null,
   }),
-}
+})
 
-export const jobgetherProvider = definePagedProvider(jobgetherSpec, (config, ctx) =>
-  collectJsonPages(
-    {
-      ...jobgetherSpec,
-      limits: { maxPages: config.maxPages, maxItemsPerPage: config.pageSize },
-    },
-    config,
-    ctx,
-  ),
+export const jobgetherProvider = definePagedProvider(
+  { type: 'JOBGETHER_API', configSchema },
+  (config, ctx) =>
+    collectJsonPages(
+      {
+        ...jobgetherSpecFor(ctx.now()),
+        limits: { maxPages: config.maxPages, maxItemsPerPage: config.pageSize },
+      },
+      config,
+      ctx,
+    ),
 )

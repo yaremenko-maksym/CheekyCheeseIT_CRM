@@ -241,9 +241,40 @@ describe('the keyword and the request', () => {
   })
 })
 
-describe('deprecation signals are surfaced, not swallowed', () => {
-  it('the authentic deprecated-path body fails the page as PARSE_DRIFT naming the sunset and the successor', async () => {
-    const { batch } = await run(sourceFixture('jobgether', 'deprecated-path'))
+describe('deprecation: ingest before the sunset, refuse from it (CR-M-5)', () => {
+  const SUNSET = Date.parse('2026-09-28T00:00:00.000Z')
+  const deprecated = () => sourceFixture('jobgether', 'deprecated-path') as Envelope
+  /** The authentic body ends the walk (the capture said hasMore: true) so one response is enough. */
+  const lastDeprecated = (extra: Record<string, unknown> = {}) => ({
+    ...deprecated(),
+    pagination: { page: 1, limit: 10, hasMore: false },
+    ...extra,
+  })
+  async function runAt(body: unknown, now: Date) {
+    const f = fakeCollectionContext({ now, responses: [{ bodyText: JSON.stringify(body) }] })
+    const batch = await jobgetherProvider.collectReport(cfg(), f.ctx)
+    return { batch, f }
+  }
+
+  it('before the sunset the authentic body is ingested in full, and every job carries the path-deprecated tag', async () => {
+    const { batch } = await runAt(lastDeprecated(), new Date(SUNSET - 1))
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.counts).toEqual({
+      raw: 3,
+      normalized: 3,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
+    expect(batch.observations.map((o) => o.normalized.tags)).toEqual([
+      ['Managing Director', 'path-deprecated'],
+      ['eDiscovery Specialist', 'eDiscovery Manager', 'path-deprecated'],
+      ['Cybersecurity Advisor', 'path-deprecated'],
+    ])
+  })
+
+  it('at the sunset instant the same body is refused as PARSE_DRIFT naming the sunset and the successor', async () => {
+    const { batch } = await runAt(lastDeprecated(), new Date(SUNSET))
     expect(batch.outcome).toBe('FAILED')
     expect(batch.observations).toEqual([])
     expect(batch.requests[0]?.error).toEqual({
@@ -253,17 +284,60 @@ describe('deprecation signals are surfaced, not swallowed', () => {
     })
   })
 
-  it('deprecated: false is not a signal', async () => {
-    const { batch } = await run({ ...last(), deprecation: { deprecated: false } })
-    expect(batch.outcome).toBe('SUCCEEDED')
-    expect(batch.counts.normalized).toBe(25)
+  it('long after the sunset (the capture day) it is refused too', async () => {
+    const { batch } = await run(sourceFixture('jobgether', 'deprecated-path'))
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.requests[0]?.error?.code).toBe('PARSE_DRIFT')
   })
 
-  it('a deprecation notice without a sunset or successor still fails, with placeholders', async () => {
-    const { batch } = await run({ ...last(), deprecation: { deprecated: true } })
-    expect(batch.requests[0]?.error?.message).toBe(
-      'envelope: Jobgether reports this path deprecated (sunset unannounced, successor unnamed)',
+  it('a retired notice with no successor names none', async () => {
+    const { batch } = await runAt(
+      { ...last(), deprecation: { deprecated: true, sunset: '2026-09-28' } },
+      new Date(SUNSET),
     )
+    expect(batch.requests[0]?.error?.message).toBe(
+      'envelope: Jobgether reports this path deprecated (sunset 2026-09-28, successor unnamed)',
+    )
+  })
+
+  it.each([
+    ['no sunset', { deprecated: true }],
+    ['a sunset that is not a date', { deprecated: true, sunset: 'soon' }],
+  ])('a notice with %s is treated as not yet due: ingested and tagged', async (_label, d) => {
+    const { batch } = await runAt({ ...last(), deprecation: d }, NOW)
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.counts.normalized).toBe(25)
+    for (const o of batch.observations) expect(o.normalized.tags).toContain('path-deprecated')
+  })
+
+  it('deprecated: false is no signal: no tag, no failure', async () => {
+    const { batch } = await runAt(
+      { ...last(), deprecation: { deprecated: false, sunset: '2026-09-28' } },
+      NOW,
+    )
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.observations.flatMap((o) => o.normalized.tags ?? [])).not.toContain(
+      'path-deprecated',
+    )
+  })
+
+  it('a healthy page carries no deprecation tag', async () => {
+    const { batch } = await run(last())
+    expect(byId(batch, CLOUDERA)?.normalized.tags).toEqual(['Contract Manager'])
+  })
+
+  it('a null or primitive job on a deprecated page is an invalid item, never a crash', async () => {
+    const { batch } = await runAt(
+      { ...lastDeprecated(), jobs: [null, 5, ...deprecated().jobs.slice(0, 1)] },
+      new Date(SUNSET - 1),
+    )
+    expect(batch.counts).toEqual({
+      raw: 3,
+      normalized: 1,
+      invalid: 2,
+      quarantined: 0,
+      discarded: 0,
+    })
   })
 })
 

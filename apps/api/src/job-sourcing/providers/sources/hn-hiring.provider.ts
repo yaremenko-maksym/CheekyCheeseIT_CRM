@@ -6,6 +6,7 @@ import {
   collectJsonPages,
   definePagedProvider,
 } from '../api-json.provider'
+import { decodeXmlEntities } from '../../rss'
 import { boundedString, dateRaw, positiveSafeInt } from './as'
 
 /**
@@ -132,34 +133,15 @@ const envelopeSchema = z
   )
 type Envelope = z.infer<typeof envelopeSchema>
 
-const ENTITIES: Record<string, string> = {
-  amp: '&',
-  lt: '<',
-  gt: '>',
-  quot: '"',
-  apos: "'",
-  nbsp: ' ',
-}
-
-function decodeEntities(value: string): string {
-  return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, body: string) => {
-    if (body.startsWith('#')) {
-      const hex = body[1] === 'x' || body[1] === 'X'
-      const code = Number.parseInt(body.slice(hex ? 2 : 1), hex ? 16 : 10)
-      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match
-    }
-    return ENTITIES[body.toLowerCase()] ?? match
-  })
-}
-
 /**
  * The comment's first line as plain text: HN separates paragraphs with `<p>`, and some posters put
  * the header on its own line with a bare newline before the prose ("PDT Partners | NYC, Hybrid\n
  * PDT was a pioneer ..."), so a newline ends the header too.
  */
 export function headerOf(html: string): string {
-  const first = html.split(/<p>|\r?\n/i, 1)[0] ?? ''
-  return decodeEntities(first.replace(/<[^>]*>/g, ''))
+  const first = html.replace(/(?:<p>|\r?\n)[\s\S]*/i, '')
+  // `&nbsp;` is the one HTML entity HN emits that the shared XML decoder does not know.
+  return decodeXmlEntities(first.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' '))
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -189,6 +171,17 @@ export function remoteOf(header: string): boolean | null {
   return remote && !onsite ? true : null
 }
 
+/**
+ * HN separates paragraphs with a bare `<p>` and never closes it, which the markdown converter reads
+ * as no break at all ("...Engineer<p>Acme is..." became "...EngineerAcme is..."). Every segment is
+ * wrapped in a closed `<p>`...`</p>` pair so the paragraphs stay paragraphs.
+ */
+export const paragraphs = (html: string): string =>
+  html
+    .split(/<p>/i)
+    .map((segment) => `<p>${segment}</p>`)
+    .join('')
+
 function mapItem(item: Item, config: Config) {
   const full = headerOf(item.text)
   const codePoints = [...full]
@@ -207,7 +200,7 @@ function mapItem(item: Item, config: Config) {
     identityParams: ['id'],
     title: header,
     companyName: `HN @${item.author}`,
-    description: item.text,
+    description: paragraphs(item.text),
     descriptionKind: 'html' as const,
     remote: remoteOf(full),
     tags,

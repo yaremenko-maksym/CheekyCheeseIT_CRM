@@ -11,6 +11,7 @@ import {
   HN_MAX_COMMENTS,
   hasRoleSignal,
   isMultiRole,
+  paragraphs,
   HN_SOURCE_STATUS,
   remoteOf,
 } from './hn-hiring.provider'
@@ -907,5 +908,39 @@ describe('triage vocabulary, word by word', () => {
     expect(hasRoleSignal('remotely')).toBe(false)
     expect(hasRoleSignal('lovely weather')).toBe(false)
     expect(hasRoleSignal('a | b')).toBe(true)
+  })
+})
+
+describe('the description is rendered as HTML, not shown as text (CR-M-4)', () => {
+  it('keeps HN paragraphs apart and renders a link as markdown with the decoded URL', async () => {
+    const { batch } = await walk(search(), octThread())
+    const md = byId(batch, '49922584')?.normalized.descriptionMd ?? ''
+    expect(
+      md.startsWith(
+        'PrairieLearn (Remote US) — Full-Stack Software Engineer — TypeScript / Postgres / React / AI\n\nPrairieLearn ([https://www.prairielearn.com](<https://www.prairielearn.com>)) is an open-source assessment platform',
+      ),
+    ).toBe(true)
+    expect(md).not.toContain('<p>')
+    expect(md).not.toContain('&#x2F;')
+  })
+
+  it('a link in the first line is a markdown link, and the next paragraph starts a new block', async () => {
+    const sep = await walk(
+      search(),
+      sepThread(),
+      cfg({ maxThreadAgeDays: 90 }),
+      new Date('2026-10-05T00:00:00Z'),
+    )
+    const md = byId(sep.batch, '49615973')?.normalized.descriptionMd ?? ''
+    expect(
+      md.startsWith(
+        "Remote (US) Close ([https://close.com](<https://close.com>)) | Senior/Staff Backend Engineer, Backend Platform | Full-time\n\nWe're bootstrapped, profitable",
+      ),
+    ).toBe(true)
+  })
+
+  it('paragraphs() closes every bare <p>, whatever its case, and wraps the first segment too', () => {
+    expect(paragraphs('a<p>b<P>c')).toBe('<p>a</p><p>b</p><p>c</p>')
+    expect(paragraphs('only')).toBe('<p>only</p>')
   })
 })

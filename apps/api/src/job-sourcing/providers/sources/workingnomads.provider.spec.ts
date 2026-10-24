@@ -81,19 +81,16 @@ describe('the recorded evidence', () => {
     expect(p.trimmedBy).toContain('NO job data was captured')
   })
 
-  it('the committed Terms of Service are the Working Nomads terms and say nothing on scraping or an API', () => {
+  it('the committed Terms of Service are the Working Nomads terms and contain NO automated-access clause', () => {
     const text = termsText()
     expect(text).toContain('Terms of Service')
-    expect(text).not.toMatch(/scrap|crawl|robot|spider|data mining|harvest/i)
-    // The only automation words are five unrelated ones: automated decision-making (moderation),
-    // subscriptions that renew automatically (twice), automatically renewing contracts, and a
-    // payment charged automatically.
-    const automation = [...text.matchAll(/.{0,30}automat\w*.{0,30}/gi)].map((m) => m[0])
-    expect(automation).toHaveLength(5)
-    expect(automation.filter((s) => /decision-making/i.test(s))).toHaveLength(1)
-    expect(automation.filter((s) => /renew automatically/i.test(s))).toHaveLength(2)
-    expect(automation.filter((s) => /charge them automatically/i.test(s))).toHaveLength(1)
-    expect(automation.filter((s) => /automatically renewing/i.test(s))).toHaveLength(1)
+    // The deciding property is an ABSENCE, so it is stated as one. If a re-captured page makes this
+    // fail, the permission verdict is out of date: re-read the terms and decide - do not edit the
+    // pattern until it passes. (A frozen file pinned by sha256 cannot detect a live change; that
+    // belongs to a scheduled live-vs-rawSha256 comparison, not to this unit suite.)
+    expect(text).not.toMatch(
+      /scrap|crawl|robot|spider|data mining|harvest|automated (?:access|means|tools? for (?:access|collect))|\bbots?\b/i,
+    )
   })
 
   it('the footer "API" link is the JSON endpoint itself, not documentation', () => {

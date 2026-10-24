@@ -196,21 +196,35 @@ describe('the byte cap is not raised and the page is not cut (the reason this so
       readFileSync(join(__dirname, '__fixtures__', 'raw-captures-3.2', `${name}.raw.gz`)),
     ).toString('utf8')
 
+  /** "Nothing kept" is four claims: no observation, all counts zero, no checkpoint, one request. */
+  function expectNothingKept(batch: Batch, f: Awaited<ReturnType<typeof run>>['f']) {
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(batch.observations).toEqual([])
+    expect(batch.counts).toEqual({
+      raw: 0,
+      normalized: 0,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
+    expect(f.saved).toEqual([])
+    expect(f.sent).toHaveLength(1)
+  }
+
   it('the authentic page 1 is 4209793 bytes - past the 2 MiB cap - and fails as PAYLOAD_TOO_LARGE with nothing kept', async () => {
     const body = capture('an-p1')
     expect(Buffer.byteLength(body)).toBe(4209793)
     expect(MAX_JSON_BYTES).toBe(2097152)
-    const { batch } = await run(body)
-    expect(batch.outcome).toBe('FAILED')
-    expect(batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
-    expect(batch.observations).toEqual([])
+    const { batch, f } = await run(body)
+    expectNothingKept(batch, f)
   })
 
   it('the authentic page 2 (2311796 bytes) is refused the same way', async () => {
     const body = capture('an-p2')
     expect(Buffer.byteLength(body)).toBe(2311796)
-    const { batch } = await run(body)
-    expect(batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
+    const { batch, f } = await run(body)
+    expectNothingKept(batch, f)
   })
 
   it('a body of exactly 2097152 bytes is read; one byte more is refused', async () => {
