@@ -3,7 +3,7 @@ import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync }
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { jobSourceTypeSchema } from '@crm/shared'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../test/fake-collection-context'
 import { FIXTURE_ROOT } from '../../test/fixture-provenance'
 import {
@@ -24,6 +24,7 @@ import {
 } from './manifest'
 import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
 import { MANIFEST_DEFINITIONS } from './manifest.definitions'
+import type { ReportingJobSourceProvider } from './reporting-provider'
 import { RECRUITEE_TOKEN_DEADLINE, recruiteeProvider } from './sources/recruitee.provider'
 
 /**
@@ -52,6 +53,12 @@ const real = (): BuildInput => ({
  * Thrown inside a test body it fails that test, which is what killing a mutant looks like.
  */
 let built: Manifest | undefined
+// A fresh build per test: a mutation run attributes a line to the tests that EXECUTED it, so a build
+// cached across tests would be attributed to the first one alone and the assertions of every later
+// test would never be run against a mutant of the build.
+beforeEach(() => {
+  built = undefined
+})
 const manifest = {
   get entries() {
     return (built ??= buildManifest(real())).entries
@@ -1740,5 +1747,74 @@ describe('exact behaviour: constants, markers and boundaries', () => {
     )
     expect(r.code).toBe('CONFIG_REJECTED')
     expect(r.message).toHaveLength('CONFIG_REJECTED: djinni.rss.python: '.length + 300)
+  })
+})
+
+describe('more exact behaviour', () => {
+  it('an auth deadline is found among several deadlines, not only when it is the only one', () => {
+    const m = withDefinition('RECRUITEE_ATS', (d) => ({
+      ...d,
+      deadlines: [
+        ...d.deadlines!,
+        { kind: 'POLICY_EXPIRES', at: new Date('2030-01-01T00:00:00.000Z'), symbol: 'TEST_EXPIRY' },
+      ],
+    }))()
+    expect(m.types.find((t) => t.type === 'RECRUITEE_ATS')!.deadlines).toHaveLength(2)
+  })
+
+  it('the auth refusal lists every permission the fixtures hold, comma-separated', () => {
+    const root = fixtureCopy()
+    editJson(join(root, 'ashby', 'board-not-found.provenance.json'), (o) => {
+      o['permission'] = 'PUBLIC_API_DOCUMENTED'
+    })
+    expect(
+      refusal(() =>
+        buildManifest({
+          ...real(),
+          fixtureRoot: root,
+          definitions: MANIFEST_DEFINITIONS.map((d) =>
+            d.type === 'ASHBY_ATS' ? { ...d, entries: [], auth: 'API_KEY' } : d,
+          ),
+        }),
+      ),
+    ).toEqual(
+      refused(
+        'AUTH_DISAGREES',
+        'ASHBY_ATS: auth API_KEY against provenance permissions PUBLIC_API_DOCUMENTED,UNCLEAR',
+      ),
+    )
+  })
+
+  it('a verified employer is reported with exactly its name and domain', () => {
+    expect(entry('lever.board.eu.siteimprove').verifiedEmployer).toEqual({
+      name: 'Siteimprove',
+      domain: null,
+    })
+    expect(entry('greenhouse.board.stripe').verifiedEmployer).toEqual({
+      name: 'Stripe',
+      domain: 'stripe.com',
+    })
+    expect(entry('recruitee.board.bunq').verifiedEmployer).toEqual({ name: 'bunq', domain: null })
+    expect(entry('remoteok.api.latest').verifiedEmployer).toBeNull()
+    expect(entry('remoteok.api.latest').ownership).toBeNull()
+  })
+
+  it('the adapter map cannot collect: an unconfigured key refuses before any request', async () => {
+    for (const [t, id] of [
+      ['JOOBLE_API', 'jooble.api.senior-developer-remote'],
+      ['JSEARCH_API', 'jsearch.rapidapi.backend'],
+      ['THEIRSTACK_API', 'theirstack.api.senior'],
+      ['REED_API', 'reed.api.senior-developer-remote'],
+    ] as const) {
+      const adapter = MANIFEST_VALIDATION_ADAPTERS.get(t) as ReportingJobSourceProvider
+      const e = entry(id)
+      const f = fakeCollectionContext({
+        responses: [{ status: 200, bodyText: '{}' }],
+      })
+      await expect(
+        adapter.collectReport(adapter.parseConfig({ ...e.config, configVersion: 1 }), f.ctx),
+      ).rejects.toThrow(/is not configured/)
+      expect(f.sent, t).toEqual([])
+    }
   })
 })

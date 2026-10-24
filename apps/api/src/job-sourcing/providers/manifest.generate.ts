@@ -26,7 +26,7 @@ export function writeSeedDelta(drizzleRoot: string): string {
   const { manual, staged } = seedDeltaLocations(drizzleRoot)
   const target = existsSync(manual) ? manual : staged
   mkdirSync(dirname(target), { recursive: true })
-  writeFileSync(target, generateSeedDelta(manifest), 'utf8')
+  writeFileSync(target, generateSeedDelta(manifest))
   return target
 }
 

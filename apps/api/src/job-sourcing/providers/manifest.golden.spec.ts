@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { FIXTURE_ROOT } from '../../test/fixture-provenance'
 import { buildManifest, type Manifest } from './manifest'
 import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
@@ -18,6 +18,10 @@ import { MANIFEST_DEFINITIONS } from './manifest.definitions'
  */
 
 let built: Manifest | undefined
+// A fresh build per test (see manifest.spec.ts: coverage is attributed per test).
+beforeEach(() => {
+  built = undefined
+})
 const manifest = () =>
   (built ??= buildManifest({
     definitions: MANIFEST_DEFINITIONS,

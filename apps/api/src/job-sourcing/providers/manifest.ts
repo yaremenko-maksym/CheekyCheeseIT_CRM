@@ -299,6 +299,7 @@ function readFixtureDir(root: string, dir: string): FixtureRecord[] {
     throw new ManifestError('FIXTURE_DIR_MISSING', `${dir} is not under the fixture root`)
   const names = readdirSync(path)
   const records: FixtureRecord[] = []
+  // Stryker disable next-line MethodExpression: `.sort()` makes the record order independent of the directory listing order; a filesystem that already lists sorted (macOS, most CI images) makes the mutant unobservable, and no test can choose the listing order of a real directory
   for (const file of names.filter((n) => !isProvenance(n)).sort()) {
     const provenanceFile = `${stemOf(file)}.provenance.json`
     if (!names.includes(provenanceFile)) {
@@ -330,8 +331,8 @@ function readFixtureDir(root: string, dir: string): FixtureRecord[] {
       permission: p.permission,
       evidence,
       termsUrl: p.termsUrl,
-      termsCheckedAt:
-        evidence === 'SENTINEL' && p.termsCheckedAt === EPOCH ? null : p.termsCheckedAt,
+      // The epoch is "never", not a date: the terms were not read.
+      termsCheckedAt: p.termsCheckedAt === EPOCH ? null : p.termsCheckedAt,
       httpStatus: p.httpStatus,
       notes: p.notes,
     })
@@ -558,17 +559,19 @@ function checkQuota(types: readonly ManifestType[], entries: readonly ManifestEn
   // account in a month, against the figure the PROVIDER publishes (never a sum of seed rows).
   for (const [account, q] of accounts) {
     const owners = types.filter((t) => t.quota?.account === account)
-    if (q.limit === null || q.window !== 'MONTH') continue
+    // A MONTH window has a limit: the check above refuses one without.
+    if (q.window !== 'MONTH') continue
+    const limit = q.limit!
     // The requests one run of each owning type sends; an entry of any other type is not this account's.
     const perRun = new Map(owners.map((o) => [o.type, o.requestsPerRun]))
     const perMonth = entries.reduce((sum, e) => {
       const n = perRun.get(e.type)
       return n === undefined ? sum : sum + Math.floor(MONTH_HOURS / e.intervalHours) * n
     }, 0)
-    if (q.unit === 'REQUEST' && perMonth > q.limit) {
+    if (q.unit === 'REQUEST' && perMonth > limit) {
       throw new ManifestError(
         'QUOTA_INCONSISTENT',
-        `${account}: the schedule needs ${perMonth} requests a month against a limit of ${q.limit}`,
+        `${account}: the schedule needs ${perMonth} requests a month against a limit of ${limit}`,
       )
     }
   }

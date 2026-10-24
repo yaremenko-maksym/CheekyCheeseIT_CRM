@@ -9,7 +9,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FIXTURE_ROOT } from '../../test/fixture-provenance'
 import { buildManifest, type Manifest } from './manifest'
 import { writeSeedDelta } from './manifest.generate'
@@ -40,6 +40,10 @@ const text = (f: string) => readFileSync(join(SOURCES, f), 'utf8')
 // Built on first use inside a test (see manifest.spec.ts: a build that throws at import or in a hook
 // is invisible to a mutation run, which reads it as "no test failed").
 let built: Manifest | undefined
+// A fresh build per test (see manifest.spec.ts: coverage is attributed per test).
+beforeEach(() => {
+  built = undefined
+})
 const manifest = {
   get entries() {
     return (built ??= buildOnce()).entries
@@ -230,5 +234,33 @@ describe('the generator writes the delta where the file already is', () => {
     expect(writeSeedDelta(root)).toBe(manual)
     expect(readFileSync(manual, 'utf8')).not.toBe('stale')
     expect(existsSync(staged)).toBe(false)
+  })
+})
+
+describe('the seed SQL generator', () => {
+  const entryOf = (m: Manifest, id: string) => m.entries.find((e) => e.id === id)!
+
+  it('locates the delta under manual/ or manual-staged/ of the root it is given', () => {
+    expect(seedDeltaLocations('/r')).toEqual({
+      manual: join('/r', 'manual', SEED_DELTA_FILE),
+      staged: join('/r', 'manual-staged', SEED_DELTA_FILE),
+    })
+  })
+
+  it('writes an empty list as [] and a list as one element per line', () => {
+    const empty = generateSeedDelta({ types: [], entries: [] })
+    expect(empty).toContain('{"sources":[],"typeBlocks":[]}')
+    const one = generateSeedDelta({
+      types: [],
+      entries: [entryOf(manifest as Manifest, 'remoteok.api.latest')],
+    })
+    expect(one).toContain('{"sources":[\n  {"manifest_id":"remoteok.api.latest"')
+  })
+
+  it('refuses data that would end its own dollar-quoted literal', () => {
+    const e = entryOf(manifest as Manifest, 'remoteok.api.latest')
+    expect(() =>
+      generateSeedDelta({ types: [], entries: [{ ...e, config: { x: '$manifest$' } }] }),
+    ).toThrow('the manifest data contains $manifest$, which would end its own literal')
   })
 })

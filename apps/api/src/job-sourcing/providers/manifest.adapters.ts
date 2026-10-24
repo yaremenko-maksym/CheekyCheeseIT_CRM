@@ -1,5 +1,5 @@
 import type { JobSourceType } from '@crm/shared'
-import type { QuotaCredential } from '../quota-credentials'
+import { readQuotaCredential } from '../quota-credentials'
 import type { ReportingJobSourceProvider } from './reporting-provider'
 import { arbeitnowProvider } from './sources/arbeitnow.provider'
 import { ashbyProvider } from './sources/ashby.provider'
@@ -40,7 +40,7 @@ import { wwrProvider } from './sources/wwr.provider'
  * reads it, and an unconfigured one makes a `collectReport` call through here refuse before any
  * request, which is the safe failure for a map that must not be used to collect.
  */
-const NO_KEY: QuotaCredential = { configured: false, apiKey: null, secrets: [] }
+const NO_KEY = readQuotaCredential('jooble', () => undefined)
 
 type Validator = Pick<ReportingJobSourceProvider, 'type' | 'parseConfig'>
 
