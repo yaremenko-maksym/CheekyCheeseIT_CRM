@@ -1,4 +1,5 @@
-import { GoneException } from '@nestjs/common'
+import { GoneException, ServiceUnavailableException } from '@nestjs/common'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { DatabaseService } from '../../../database/database.service'
@@ -26,20 +27,35 @@ function cleanupFixture(
     status: string
     updatedAt: Date
   }>,
+  options: { transitioned?: boolean } = {},
 ) {
+  const selections: Record<string, unknown>[] = []
   const where = vi.fn().mockResolvedValue(attempts)
-  const select = vi.fn().mockReturnValue({
-    from: vi.fn().mockReturnValue({ where }),
+  const select = vi.fn((selection: Record<string, unknown>) => {
+    selections.push(selection)
+    return {
+      from: vi.fn().mockReturnValue({ where }),
+    }
   })
   const updates: Array<{ table: unknown; values: unknown }> = []
+  const updateFilters: Array<{ table: unknown; filter: unknown }> = []
+  const returningSelections: Array<{ table: unknown; selection: Record<string, unknown> }> = []
   const update = vi.fn((table: unknown) => ({
     set: (values: unknown) => {
       updates.push({ table, values })
       return {
-        where: vi.fn().mockReturnValue({
-          returning: vi
-            .fn()
-            .mockResolvedValue(table === recordingMediaArtifacts ? [{ id: artifact.id }] : []),
+        where: vi.fn((filter: unknown) => {
+          updateFilters.push({ table, filter })
+          return {
+            returning: vi.fn((selection: Record<string, unknown>) => {
+              returningSelections.push({ table, selection })
+              return Promise.resolve(
+                table === recordingMediaArtifacts && options.transitioned !== false
+                  ? [{ id: artifact.id }]
+                  : [],
+              )
+            }),
+          }
         }),
       }
     },
@@ -58,7 +74,16 @@ function cleanupFixture(
     abort: vi.fn().mockResolvedValue(undefined),
     delete: vi.fn().mockResolvedValue(undefined),
   }
-  return { db, storage, updates, auditValues, transaction }
+  return {
+    db,
+    storage,
+    selections,
+    updates,
+    updateFilters,
+    returningSelections,
+    auditValues,
+    transaction,
+  }
 }
 
 describe('recording media purge', () => {
@@ -80,6 +105,15 @@ describe('recording media purge', () => {
     ).resolves.toBe(true)
 
     expect(ctx.storage.abort).toHaveBeenCalledWith(attemptKey, 'provider-upload')
+    expect(ctx.selections).toEqual([
+      {
+        id: recordingMediaUploads.id,
+        storageKey: recordingMediaUploads.storageKey,
+        storageUploadId: recordingMediaUploads.storageUploadId,
+        status: recordingMediaUploads.status,
+        updatedAt: recordingMediaUploads.updatedAt,
+      },
+    ])
     expect(ctx.storage.delete.mock.calls.map(([key]) => key).sort()).toEqual(
       [artifact.storageKey, attemptKey].sort(),
     )
@@ -92,14 +126,24 @@ describe('recording media purge', () => {
         { table: recordingMediaArtifacts, values: { status: 'purged' } },
       ]),
     )
-    expect(ctx.auditValues).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'media-purged',
-        actorUserId: null,
-        connectionId: artifact.connectionId,
-        interviewRecordingId: recordingId,
-      }),
+    expect(ctx.auditValues).toHaveBeenCalledWith({
+      action: 'media-purged',
+      actorUserId: null,
+      connectionId: artifact.connectionId,
+      interviewRecordingId: recordingId,
+      metadata: { artifactId: artifact.id },
+    })
+    const artifactTransition = ctx.updateFilters.find(
+      (record) => record.table === recordingMediaArtifacts,
     )
+    expect(artifactTransition).toBeDefined()
+    expect(new PgDialect().sqlToQuery(artifactTransition!.filter as never).params).toEqual([
+      artifact.id,
+      'purging',
+    ])
+    expect(ctx.returningSelections).toEqual([
+      { table: recordingMediaArtifacts, selection: { id: recordingMediaArtifacts.id } },
+    ])
   })
 
   it('SR-M-2: leaves the durable purging state untouched on provider failure so retry can finish', async () => {
@@ -198,6 +242,43 @@ describe('recording media purge', () => {
     expect(ctx.transaction).not.toHaveBeenCalled()
   })
 
+  it('SR-M-2: does not treat a fresh non-completing attempt as an active completion lease', async () => {
+    const ctx = cleanupFixture([
+      {
+        id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        storageKey: artifact.storageKey,
+        storageUploadId: 'provider-upload',
+        status: 'ready',
+        updatedAt: new Date('2026-10-24T12:09:59.999Z'),
+      },
+    ])
+    const service = new RecordingMediaPurgeService(ctx.db, ctx.storage as never)
+
+    await expect(
+      service.cleanupArtifact(artifact, recordingId, new Date('2026-10-24T12:10:00.000Z')),
+    ).resolves.toBe(true)
+    expect(ctx.storage.abort).not.toHaveBeenCalled()
+    expect(ctx.storage.delete).toHaveBeenCalledWith(artifact.storageKey)
+  })
+
+  it('SR-M-2: allows purge when a completion lease is exactly at the expiry boundary', async () => {
+    const ctx = cleanupFixture([
+      {
+        id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        storageKey: artifact.storageKey,
+        storageUploadId: 'provider-upload',
+        status: 'completing',
+        updatedAt: new Date('2026-10-24T12:08:00.000Z'),
+      },
+    ])
+    const service = new RecordingMediaPurgeService(ctx.db, ctx.storage as never)
+
+    await expect(
+      service.cleanupArtifact(artifact, recordingId, new Date('2026-10-24T12:10:00.000Z')),
+    ).resolves.toBe(true)
+    expect(ctx.storage.abort).toHaveBeenCalledWith(artifact.storageKey, 'provider-upload')
+  })
+
   it('SR-M-2: treats an already-missing multipart session as an idempotent abort', async () => {
     const ctx = cleanupFixture([
       {
@@ -215,5 +296,34 @@ describe('recording media purge', () => {
       service.cleanupArtifact(artifact, recordingId, new Date('2026-10-24T12:10:00.000Z')),
     ).resolves.toBe(true)
     expect(ctx.storage.delete).toHaveBeenCalled()
+  })
+
+  it('SR-M-2: rethrows a non-Gone HTTP failure from multipart abort', async () => {
+    const ctx = cleanupFixture([
+      {
+        id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        storageKey: artifact.storageKey,
+        storageUploadId: 'provider-upload',
+        status: 'expired',
+        updatedAt: new Date('2026-10-24T10:00:00.000Z'),
+      },
+    ])
+    ctx.storage.abort.mockRejectedValueOnce(new ServiceUnavailableException('provider unavailable'))
+    const service = new RecordingMediaPurgeService(ctx.db, ctx.storage as never)
+
+    await expect(
+      service.cleanupArtifact(artifact, recordingId, new Date('2026-10-24T12:10:00.000Z')),
+    ).rejects.toMatchObject({ status: 503 })
+    expect(ctx.storage.delete).not.toHaveBeenCalled()
+  })
+
+  it('SR-M-2: does not audit when another worker already completed the durable transition', async () => {
+    const ctx = cleanupFixture([], { transitioned: false })
+    const service = new RecordingMediaPurgeService(ctx.db, ctx.storage as never)
+
+    await expect(
+      service.cleanupArtifact(artifact, recordingId, new Date('2026-10-24T12:10:00.000Z')),
+    ).resolves.toBe(true)
+    expect(ctx.auditValues).not.toHaveBeenCalled()
   })
 })
