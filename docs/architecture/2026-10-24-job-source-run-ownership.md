@@ -266,7 +266,7 @@ A refusal never touches `consecutive_failures`. On the manual path (`claimSource
 returned to the caller and does not move `next_attempt_at`, so a manual attempt cannot disturb the
 schedule.
 
-**The due predicate**, written out (T4 owns the scalar terms, T8 the host term):
+**The due predicate**, written out (T4 owns the scalar terms, T8 the host term, T3 the "already running" term):
 
 ```sql
 s.enabled
@@ -841,6 +841,7 @@ as dispatched".
 - **Carries:** everything Option A specifies for the ledger:
   - the rules (`READ COMMITTED`, the DB clock, the lock order, one source per claim transaction);
   - "Claiming", including the bounded scan, the refusal write-back and the unresolvable manifest id;
+  - the due predicate's "already running" term, by source and by T1b's account key;
   - `claimSource`, the manual path, which drops the cadence term only;
   - `recoverRun`'s five statements;
   - `finish` settling open reservations, and `sweepOrphanReservations`;
@@ -948,8 +949,9 @@ as dispatched".
   readiness, entitlement, cost, a missing meter, the failure cap or a current owner, so each of them
   refuses a manual run too. `enabled` is administrative permission. Pause, health, reason and state
   history are separate, and an ADMIN enable never clears an unresolved policy or credential block.
-  The host-level conditions (ban pause, request rates, the `min_interval_hours` floor) are **T8's**.
-  T4's predicate takes them as an input that T8 extends.
+  The host-level conditions (ban pause, request rates, the `min_interval_hours` floor) are **T8's**,
+  and the "already running" term is **T3's** (it needs T1b's account key). T4's predicate takes both
+  as inputs. `cooldown_until` also carries the failure backoff, which T3 writes; T4 only reads it.
 - **Depends on:** T2 (sequencing only: both edit `JobSourcingService`; T4 starts after T2 merges).
 - **AC:** (1) a seeded `CANDIDATE` source past `RECRUITEE_TOKEN_DEADLINE` is not due even though its
   stored column still says `CANDIDATE`; (2) a manual run under cooldown or cost block is refused with
@@ -979,8 +981,15 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   line in `deploy.yml`'s ordered list (a DevOps-zone line, so the dispatch names it); the privileges
   manifest (`privilege-classes.ts`, a class for the new table); a per-type host-rate declaration in
   the manifest (`hostRate: { perMinute, perDay }`, a new manifest field); a new
-  `job-sourcing/scheduling/host-state.ts` (`recordHostBan`, `claimHostSlot`, `hostOpenPredicate`);
-  the seed-delta generator `manifest.seed-sql.ts` (a new generated delta file for the backfill).
+  `job-sourcing/scheduling/host-state.ts` (`recordHostBan`, `claimHostSlot`, `hostOpenPredicate`,
+  `readHostPause` (the lock-free read T7 uses), and `clearHostPause` (called by T9)); the
+  seed-delta generator `manifest.seed-sql.ts` (a new generated delta file for the backfill).
+- **Pause duration (round 4, SR-H-3).** `recordHostBan(hostKey, reason, sourceId, retryAfter?)`
+  writes `paused_until = GREATEST(paused_until, clock_timestamp() + HOST_BAN_PAUSE)`. Here
+  `HOST_BAN_PAUSE` is the largest of three values: 24 hours, the longest `minIntervalHoursFloor` of
+  any type on the host, and `retryAfter`. It is capped at `HOST_BAN_PAUSE_MAX`, which is 30 days, a
+  named constant. A write never shortens a pause. Only expiry or T9's recorded ADMIN clear lifts
+  one.
 - **Who writes and who reads.** The ledger's `finish` (T3) calls `recordHostBan` in its terminal
   transaction when the run's **error code** (a `COLLECTION_ERROR_CODES` value, not a run outcome)
   is `ACCESS_POLICY` or `RATE_LIMIT`. The run's outcome is then `FAILED` or `PARTIAL`. The ledger's
@@ -1027,9 +1036,12 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   claim inserts a new row whose `started_at` is its own claim time, and no code updates
   `started_at`. So each claim is counted exactly once in the trailing-24 h count. A run that fails
   before sending still counts, which over-counts in the safe direction.
-- **Carries:** **cross-run stop-on-ban** (PR #1139 SR-M-2): a ban from a host pauses every source
-  on that host until `paused_until`. The rule is "use it until banned, never evade": an ADMIN enable
-  does not clear it, and only expiry or an explicit recorded ADMIN action does. **Rates the manifest
+- **Carries:** **cross-run stop-on-ban** (PR #1139 SR-M-2), **storage and claim half**: a ban from
+  a host pauses every source on that host until `paused_until`, and no new run of it is claimed. The
+  rule is "use it until banned, never evade": an ADMIN enable does not clear it, and only expiry or
+  T9's recorded ADMIN clear does. **The in-flight half** (runs already running stop sending) is
+  T7's, through `readHostPause` and the ban-at-observation call; see Option A, "Stop-on-ban for runs
+  in flight". **Rates the manifest
   cannot enforce** (#1139 SR-L-3): Remotive's "at most about 4 requests a day and never more than 2
   a minute" (Remotive adapter header), enforced at runtime across its three entries and across
   manual runs. Also an admin-edited `min_interval_hours` below the manifest's
@@ -1053,7 +1065,8 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   counts as two in the 24 h count, and the recovered row's `started_at` is unchanged; (11) **a ban
   committed between a claimer's due `SELECT` and its `claimHostSlot` refuses that claim**;
   (12) **a manual run on a paused host is refused**; (13) the drift test refuses `perDay` on a type
-  whose `requestsPerRun` is not 1.
+  whose `requestsPerRun` is not 1; (14) `recordHostBan` sets `paused_until` to at least 24 hours
+  ahead, honours a longer `Retry-After` up to 30 days, and never shortens an existing pause.
 - **Real-Postgres:**
   - concurrent claimers for two sources on one host (the per-minute gap holds under a race, because
     both lock the host row);
@@ -1065,7 +1078,8 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
   - **a NULL `host_key` (AC 8)** under both a scheduled and a manual trigger;
   - one case per item (a)–(c): the generated delta applied twice to a seeded database (AC 7), two
     concurrent `claimHostSlot` calls on a missing host row (AC 9), and a crash, recovery and new
-    claim, then the count (AC 10).
+    claim, then the count (AC 10);
+  - the pause arithmetic (AC 14), with time moved by `ageHostPause`.
 
   Run as `crm_app`.
 
