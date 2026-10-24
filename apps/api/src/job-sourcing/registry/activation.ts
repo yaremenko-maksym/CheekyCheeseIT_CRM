@@ -51,9 +51,8 @@ export function activationOf(
   if (adapter === undefined) return 'UNREGISTERED'
   if (adapter.contract === 'LEGACY') return 'ACTIVATABLE'
   if (facts === undefined) return 'NOT_VERIFIED'
-  // A reporting adapter whose manifest entry says LEGACY is a contradiction; refuse it.
-  if (facts.readiness === 'LEGACY') return 'BLOCKED'
   if (facts.blockerCodes.some((c) => !EVIDENCE_BLOCKERS.has(c))) return 'BLOCKED'
   if (facts.blockerCodes.length > 0 || !facts.payloadVerified) return 'NOT_VERIFIED'
+  // Only CANDIDATE approves. BLOCKED, and LEGACY on a reporting adapter (a contradiction), refuse.
   return facts.readiness === 'CANDIDATE' ? 'ACTIVATABLE' : 'BLOCKED'
 }

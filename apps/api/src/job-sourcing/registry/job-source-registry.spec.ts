@@ -38,6 +38,24 @@ describe('JobSourceRegistry construction (AC1)', () => {
     expect(() => new JobSourceRegistry([legacy('DOU_RSS'), legacy('DOU_RSS')])).toThrow(/DOU_RSS/)
   })
 
+  it('the error carries its name and the offending type', () => {
+    const err = (() => {
+      try {
+        new JobSourceRegistry([legacy('DOU_RSS'), legacy('DOU_RSS')])
+      } catch (e) {
+        return e as DuplicateJobSourceTypeError
+      }
+      return undefined
+    })()
+    expect(err?.name).toBe('DuplicateJobSourceTypeError')
+    expect(err?.sourceType).toBe('DOU_RSS')
+  })
+
+  it('each adapter reports the type of the provider it wraps', () => {
+    expect(legacy('DOU_RSS').type).toBe('DOU_RSS')
+    expect(reporting('REMOTEOK_API').type).toBe('REMOTEOK_API')
+  })
+
   it('rejects a duplicate across the two contracts', () => {
     expect(
       () => new JobSourceRegistry([legacy('REMOTEOK_API'), reporting('REMOTEOK_API')]),
@@ -118,6 +136,16 @@ describe('activationOf', () => {
       ).toBe('NOT_VERIFIED')
     },
   )
+
+  it('a missing-capture blocker keeps NOT_VERIFIED even when the payload flag says verified', () => {
+    expect(
+      activationOf(rep, {
+        readiness: 'CANDIDATE',
+        blockerCodes: ['NO_CAPTURE'],
+        payloadVerified: true,
+      }),
+    ).toBe('NOT_VERIFIED')
+  })
 
   it('payload not verified with no blocker listed is still NOT_VERIFIED', () => {
     expect(activationOf(rep, { ...VERIFIED, payloadVerified: false })).toBe('NOT_VERIFIED')
