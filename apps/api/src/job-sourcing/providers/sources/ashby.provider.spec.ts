@@ -197,6 +197,24 @@ describe('locations', () => {
     expect(b.batch.observations[0]?.normalized.location ?? null).toBeNull()
   })
 
+  it('a primary location alone is that location exactly, whether secondaryLocations is null, absent or empty', async () => {
+    for (const secondaryLocations of [null, undefined, []]) {
+      const { batch } = await run(withJobs([job(1, { location: 'Paris', secondaryLocations })]))
+      expect(batch.observations[0]?.normalized.location).toBe('Paris')
+    }
+  })
+
+  it('department and team are the tags, whichever of them exists', async () => {
+    const both = await run(withJobs([job(1, { department: 'GTM', team: 'Sales' })]))
+    expect(both.batch.observations[0]?.normalized.tags).toEqual(['GTM', 'Sales'])
+    const dept = await run(withJobs([job(2, { department: 'GTM' })]))
+    expect(dept.batch.observations[0]?.normalized.tags).toEqual(['GTM'])
+    const team = await run(withJobs([job(3, { team: 'Sales' })]))
+    expect(team.batch.observations[0]?.normalized.tags).toEqual(['Sales'])
+    const none = await run(withJobs([job(4)]))
+    expect(none.batch.observations[0]?.normalized.tags).toEqual([])
+  })
+
   it('a secondary entry with no location text is skipped', async () => {
     const { batch } = await run(
       withJobs([job(1, { location: 'Rome', secondaryLocations: [{ location: null }, {}] })]),

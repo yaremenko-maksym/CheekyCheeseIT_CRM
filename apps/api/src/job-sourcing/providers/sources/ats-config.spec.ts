@@ -15,6 +15,7 @@ import {
   collectBoardGroup,
   GREENHOUSE_KIND,
   LEVER_KIND,
+  presentStrings,
 } from './ats-config'
 import { ashbyProvider } from './ashby.provider'
 import { greenhouseProvider } from './greenhouse.provider'
@@ -247,6 +248,9 @@ describe('employer evidence', () => {
     ['digits', 'a1.b2.example'],
     ['a punycode label', 'xn--bcher-kva.example'],
     ['two labels', 'airbnb.com'],
+    ['single-character labels', 'a.b'],
+    ['a one-letter label, then a longer one', 'a.bc'],
+    ['a longer label, then a one-letter one', 'ab.c'],
     [
       'a domain of exactly 253 characters',
       `${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(58)}.co`,
@@ -542,6 +546,92 @@ describe('boardVerdictOf', () => {
     )
     expect(f.sent).toEqual([])
     expect(boardVerdictOf(batch)).toBe('CANCELLED')
+  })
+
+  it('a run that made no request at all (the deadline had passed) is a source failure, not a dead board', async () => {
+    const f = fakeCollectionContext({ responses: [{ status: 404, bodyText: '[]' }] })
+    f.ctx.deadline = new Date(0)
+    const batch = await leverProvider.collectReport(
+      leverProvider.parseConfig(goodConfig('ok')),
+      f.ctx,
+    )
+    expect(f.sent).toEqual([])
+    expect(batch.requests.map((r) => [r.status, r.error?.code])).toEqual([[null, 'DEADLINE']])
+    expect(boardVerdictOf(batch)).toBe('SOURCE_FAILED')
+  })
+
+  it.each([
+    ['no request report at all', [], 'SOURCE_FAILED'],
+    ['a 404', [404], 'BOARD_NOT_FOUND'],
+    [
+      'a transient failure and then a 404: the last word is the board is gone',
+      [503, 404],
+      'BOARD_NOT_FOUND',
+    ],
+    ['a 404 and then a transient failure: not known to be gone', [404, 503], 'SOURCE_FAILED'],
+    ['a request with no response and then a 404', [null, 404], 'BOARD_NOT_FOUND'],
+    ['only non-404 answers', [500, 502], 'SOURCE_FAILED'],
+  ])('a FAILED batch with %s is %s', (_why, statuses, verdict) => {
+    expect(
+      boardVerdictOf({ outcome: 'FAILED', requests: statuses.map((status) => ({ status })) }),
+    ).toBe(verdict)
+  })
+})
+
+describe('what a refusal says', () => {
+  const messages = (fn: () => unknown): string[] => {
+    try {
+      fn()
+    } catch (error) {
+      if (error instanceof ZodError) return error.issues.map((i) => i.message)
+      throw error
+    }
+    throw new Error('expected a ZodError, got no throw')
+  }
+
+  it('a search query: the board is the scope', () => {
+    expect(
+      messages(() => leverProvider.parseConfig(goodConfig('ok', { query: 'python' }))),
+    ).toEqual(['ATS boards are not searched; the board is the scope'])
+  })
+
+  it('a date window: boards have none', () => {
+    const window = { from: '2026-10-01T00:00:00Z', to: '2026-10-02T00:00:00Z' }
+    expect(messages(() => leverProvider.parseConfig(goodConfig('ok', { window })))).toEqual([
+      'ATS boards have no date window',
+    ])
+  })
+
+  it('a foreign namespace: it is derived, not chosen', () => {
+    expect(messages(() => leverProvider.parseConfig(goodConfig('ok', { namespace: 'x' })))).toEqual(
+      ['namespace is derived from the board and region and cannot be set to anything else'],
+    )
+  })
+
+  it('a board listed twice in a group', () => {
+    expect(
+      messages(() =>
+        atsBoardGroupSchema(LEVER_KIND).parse({
+          configVersion: 1,
+          boards: [{ board: 'a' }, { board: 'a' }],
+        }),
+      ),
+    ).toEqual(['a board is listed twice in the group'])
+  })
+})
+
+describe('presentStrings', () => {
+  it('keeps the strings, in order, and drops null and undefined', () => {
+    expect(presentStrings(['a', null, undefined, 'b'])).toEqual(['a', 'b'])
+  })
+
+  it('keeps an empty string (it is a string; the normalizer decides what it is worth)', () => {
+    expect(presentStrings(['', 'x'])).toEqual(['', 'x'])
+  })
+
+  it('an empty list and an all-absent list are both empty', () => {
+    expect(presentStrings([])).toEqual([])
+    expect(presentStrings([null, undefined])).toEqual([])
   })
 })
 

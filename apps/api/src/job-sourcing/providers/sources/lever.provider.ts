@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { ORIGINAL_LIMITS } from '../../normalize/observation'
 import { type ApiJsonSourceSpec, defineApiJsonProvider } from '../api-json.provider'
-import { atsBoardConfigSchema, type AtsRegion, LEVER_KIND } from './ats-config'
+import { atsBoardConfigSchema, type AtsRegion, LEVER_KIND, presentStrings } from './ats-config'
 import { boundedString, dateRaw, optionalString, urlString } from './as'
 
 /**
@@ -144,12 +144,9 @@ export const leverSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     companyName: config.employer?.name ?? null,
     location: locationOf(item),
     description: bodyHtml(item),
-    descriptionKind: 'html',
     remote: remoteFromWorkplaceType(item.workplaceType),
     employmentType: item.categories?.commitment ?? null,
-    tags: [item.categories?.department, item.categories?.team].flatMap((t) =>
-      t === null || t === undefined ? [] : [t],
-    ),
+    tags: presentStrings([item.categories?.department, item.categories?.team]),
     dates: [{ raw: item.createdAt, contract: 'UNIX_MILLISECONDS', semantics: 'PUBLISHED' }],
   }),
   scopeOf: (config) => ({

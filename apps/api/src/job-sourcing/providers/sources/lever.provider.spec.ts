@@ -447,6 +447,10 @@ describe('paging by skip', () => {
       const batch = await leverProvider.collectReport(spotifyCfg(), f.ctx)
       expect(f.sent).toEqual([])
       expect(batch.outcome).toBe('FAILED')
+      expect(batch.requests[0]?.error).toEqual({
+        code: 'PARSE_DRIFT',
+        message: 'the stored page cursor is not a skip offset',
+      })
     },
   )
 

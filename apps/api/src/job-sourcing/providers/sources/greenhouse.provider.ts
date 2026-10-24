@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { ORIGINAL_LIMITS } from '../../normalize/observation'
 import { type ApiJsonSourceSpec, defineApiJsonProvider } from '../api-json.provider'
-import { atsBoardConfigSchema, GREENHOUSE_KIND } from './ats-config'
+import { atsBoardConfigSchema, GREENHOUSE_KIND, presentStrings } from './ats-config'
 import { boundedString, dateRaw, optionalString, positiveSafeInt, urlString } from './as'
 
 /**
@@ -134,8 +134,7 @@ export const greenhouseSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     companyName: employerOf(item, config),
     location: item.location?.name ?? null,
     description: item.content === null ? null : decodeEscapedOnce(item.content),
-    descriptionKind: 'html',
-    tags: (item.departments ?? []).flatMap((d) => (d.name === null ? [] : [d.name])),
+    tags: presentStrings((item.departments ?? []).map((d) => d.name)),
     dates: [
       { raw: item.first_published, contract: 'ISO_ZONED', semantics: 'PUBLISHED' },
       { raw: item.updated_at, contract: 'ISO_ZONED', semantics: 'UPDATED' },

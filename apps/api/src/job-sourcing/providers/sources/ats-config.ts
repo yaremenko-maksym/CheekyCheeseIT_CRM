@@ -30,11 +30,9 @@ import type {
  *    outcome for a board whose owner nobody verified.
  */
 
-export type AtsProviderType = 'GREENHOUSE_ATS' | 'LEVER_ATS' | 'ASHBY_ATS'
 export type AtsRegion = 'global' | 'eu'
 
 export interface AtsBoardKind {
-  readonly type: AtsProviderType
   /** The namespace prefix; part of every identity key, so it never changes once a board is live. */
   readonly label: 'greenhouse' | 'lever' | 'ashby'
   /** Regional endpoint variants. The first is the default. One entry = no regional variant. */
@@ -52,19 +50,16 @@ export interface AtsBoardKind {
 export const ATS_SLUG_MAX_CHARS = 64
 
 export const GREENHOUSE_KIND: AtsBoardKind = {
-  type: 'GREENHOUSE_ATS',
   label: 'greenhouse',
   regions: ['global'],
   slugMaxChars: ATS_SLUG_MAX_CHARS,
 }
 export const LEVER_KIND: AtsBoardKind = {
-  type: 'LEVER_ATS',
   label: 'lever',
   regions: ['global', 'eu'],
   slugMaxChars: ATS_SLUG_MAX_CHARS,
 }
 export const ASHBY_KIND: AtsBoardKind = {
-  type: 'ASHBY_ATS',
   label: 'ashby',
   regions: ['global'],
   slugMaxChars: ATS_SLUG_MAX_CHARS,
@@ -185,6 +180,15 @@ export function boardConfigsOf(group: AtsBoardGroup) {
  */
 export const ATS_PROPOSED_REQUEST_GAP_MS = 500
 
+/**
+ * The strings among `values`, in order: a mapper's way of saying "the department and the team,
+ * whichever of them the provider sent". Exported so its behaviour is asserted where it lives
+ * instead of through three mappers whose downstream normalizer would hide a leaked null.
+ */
+export function presentStrings(values: readonly (string | null | undefined)[]): string[] {
+  return values.filter((v): v is string => typeof v === 'string')
+}
+
 // ---------------------------------------------------------------------------
 // Running a group: independent boards, independent failures
 // ---------------------------------------------------------------------------
@@ -198,7 +202,14 @@ export const ATS_PROPOSED_REQUEST_GAP_MS = 500
 export type BoardVerdict =
   'SUCCEEDED' | 'PARTIAL' | 'CANCELLED' | 'BOARD_NOT_FOUND' | 'SOURCE_FAILED' | 'CONFIG_INVALID'
 
-export function boardVerdictOf(batch: CollectionBatch): Exclude<BoardVerdict, 'CONFIG_INVALID'> {
+/** What a verdict reads of a batch: its outcome and the status each request got. A real batch satisfies it; so does a literal in a test. */
+export interface VerdictFacts {
+  readonly outcome: CollectionBatch['outcome']
+  readonly requests: readonly { readonly status: number | null }[]
+}
+
+/** The LAST request's status decides: a board that answers 404 after a transient failure is dead, and one that fails after a 404 is not known to be. */
+export function boardVerdictOf(batch: VerdictFacts): Exclude<BoardVerdict, 'CONFIG_INVALID'> {
   switch (batch.outcome) {
     case 'SUCCEEDED':
     case 'PARTIAL':
@@ -207,7 +218,7 @@ export function boardVerdictOf(batch: CollectionBatch): Exclude<BoardVerdict, 'C
     default:
       // `FAILED`, and the store's `STARTED`, which a finished batch never carries. The 404 is read
       // from the STATUS the loop recorded, never from the body text.
-      return batch.requests.some((r) => r.status === 404) ? 'BOARD_NOT_FOUND' : 'SOURCE_FAILED'
+      return batch.requests.at(-1)?.status === 404 ? 'BOARD_NOT_FOUND' : 'SOURCE_FAILED'
   }
 }
 

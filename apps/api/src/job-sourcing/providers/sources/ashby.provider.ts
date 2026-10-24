@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { ORIGINAL_LIMITS } from '../../normalize/observation'
 import { type ApiJsonSourceSpec, defineApiJsonProvider } from '../api-json.provider'
-import { ASHBY_KIND, atsBoardConfigSchema } from './ats-config'
+import { ASHBY_KIND, atsBoardConfigSchema, presentStrings } from './ats-config'
 import { boundedString, dateRaw, optionalString, urlString } from './as'
 
 /**
@@ -97,12 +97,11 @@ export function remoteFromAshbyWorkplace(value: string | null): boolean | null {
   }
 }
 
-function locationOf(item: Item): string | null {
-  const all = [item.location, ...item.secondaryLocations.map((s) => s.location)].flatMap((l) =>
-    l === null ? [] : [l],
-  )
-  const distinct = [...new Set(all)]
-  return distinct.length > 0 ? distinct.join('; ') : null
+/** Primary then secondary locations, de-duplicated and joined; none at all is the empty string, which the normalizer reads as no location. */
+function locationOf(item: Item): string {
+  return [
+    ...new Set(presentStrings([item.location, ...item.secondaryLocations.map((s) => s.location)])),
+  ].join('; ')
 }
 
 export const ashbySpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
@@ -131,10 +130,9 @@ export const ashbySpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     companyName: config.employer?.name ?? null,
     location: locationOf(item),
     description: item.descriptionHtml,
-    descriptionKind: 'html',
     remote: remoteFromAshbyWorkplace(item.workplaceType),
     employmentType: item.employmentType,
-    tags: [item.department, item.team].flatMap((t) => (t === null ? [] : [t])),
+    tags: presentStrings([item.department, item.team]),
     dates: [{ raw: item.publishedAt, contract: 'ISO_ZONED', semantics: 'PUBLISHED' }],
   }),
   scopeOf: (config) => ({

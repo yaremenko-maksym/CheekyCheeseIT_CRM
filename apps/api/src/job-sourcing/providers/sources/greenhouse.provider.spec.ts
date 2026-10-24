@@ -116,6 +116,13 @@ describe('the Airbnb capture', () => {
     expect(byId(batch, '8303135')?.normalized.location).toBe('Paris, France')
   })
 
+  it('a job with no departments has no tags', async () => {
+    for (const departments of [undefined, null, []]) {
+      const { batch } = await run(withJobs([job(1, { departments })]))
+      expect(batch.observations[0]?.normalized.tags).toEqual([])
+    }
+  })
+
   it('keeps the departments of a job as its tags, in order, and skips a nameless one', async () => {
     const { batch } = await run(
       withJobs([job(1, { departments: [{ name: 'Legal' }, { name: null }, { name: 'Ops' }, {}] })]),
