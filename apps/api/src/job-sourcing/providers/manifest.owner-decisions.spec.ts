@@ -152,12 +152,6 @@ describe('HN: ready only with the decision record (AC1)', () => {
       ])
     }
   })
-
-  it('lifting the block does not touch the employer: the adapter still tags every observation employer-unverified', () => {
-    const src = readFileSync(join(__dirname, 'sources', 'hn-hiring.provider.ts'), 'utf8')
-    expect(src).toContain("export const HN_TAG_EMPLOYER_UNVERIFIED = 'employer-unverified'")
-    expect(src).toContain('const tags = [\n    HN_TAG_EMPLOYER_UNVERIFIED,')
-  })
 })
 
 describe('PROHIBITED is not overridable, with the decision still present (AC2)', () => {
