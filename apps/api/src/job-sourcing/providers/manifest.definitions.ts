@@ -5,6 +5,13 @@ import { HN_SOURCE_STATUS } from './sources/hn-hiring.provider'
 import { JOOBLE_SOURCE_STATUS } from './sources/jooble.provider'
 import { JSEARCH_SOURCE_STATUS } from './sources/jsearch.provider'
 import { MUSE_SOURCE_STATUS } from './sources/muse.provider'
+import {
+  HN_OWNER_DECISION,
+  JOBGETHER_OWNER_DECISION,
+  REMOTIVE_OWNER_DECISION,
+  SMARTRECRUITERS_OWNER_DECISION,
+  WORKABLE_OWNER_DECISION,
+} from './owner-decisions'
 import { RECRUITEE_TOKEN_DEADLINE } from './sources/recruitee.provider'
 import { REED_SOURCE_STATUS } from './sources/reed.provider'
 import { REMOTIVE_SOURCE_STATUS } from './sources/remotive.provider'
@@ -151,6 +158,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     disposition: REPORTING,
     fixtureDir: 'remotive',
     status: { symbol: 'REMOTIVE_SOURCE_STATUS', value: REMOTIVE_SOURCE_STATUS },
+    ownerDecisions: [REMOTIVE_OWNER_DECISION],
     auth: 'NONE',
     attribution: 'LINK_BACK_REQUIRED',
     endpointVariant: 'category',
@@ -223,6 +231,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     disposition: REPORTING,
     fixtureDir: 'jobgether',
     status: { symbol: 'JOBGETHER_SOURCE_STATUS', value: JOBGETHER_SOURCE_STATUS },
+    ownerDecisions: [JOBGETHER_OWNER_DECISION],
     auth: 'NONE',
     attribution: 'NONE_RECORDED',
     endpointVariant: 'astroapi-ai-jobs',
@@ -236,6 +245,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     disposition: REPORTING,
     fixtureDir: 'hn-hiring',
     status: { symbol: 'HN_SOURCE_STATUS', value: HN_SOURCE_STATUS },
+    ownerDecisions: [HN_OWNER_DECISION],
     auth: 'NONE',
     attribution: 'NONE_RECORDED',
     endpointVariant: 'algolia-who-is-hiring',
@@ -318,6 +328,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     provider: 'Workable',
     disposition: REPORTING,
     fixtureDir: 'workable',
+    ownerDecisions: [WORKABLE_OWNER_DECISION],
     auth: 'NONE',
     attribution: 'NONE_RECORDED',
     endpointVariant: 'widget-accounts',
@@ -342,11 +353,14 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     provider: 'SmartRecruiters',
     disposition: REPORTING,
     fixtureDir: 'smartrecruiters',
+    ownerDecisions: [SMARTRECRUITERS_OWNER_DECISION],
     auth: 'NONE',
     attribution: 'NONE_RECORDED',
     endpointVariant: 'posting-api',
     scopeKind: 'BOARD',
-    // No entries: the API host's robots.txt disallows this collector, so no board was ever captured.
+    // No entries: no board was ever captured (the host's robots.txt disallows this collector; the
+    // owner accepted that risk on 2026-10-24, so the decision is recorded above, but the type stays
+    // not ready until a real capture exists: NO_CAPTURE).
     entries: [],
   },
   {

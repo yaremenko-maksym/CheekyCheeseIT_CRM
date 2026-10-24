@@ -14,6 +14,7 @@ import {
   ownershipCountOf,
   ownershipEvidenceOf,
 } from './manifest.ownership'
+import { isWellFormedDecision, liftsUnclear, type OwnerDecision } from './owner-decisions'
 import type { ReportingJobSourceProvider } from './reporting-provider'
 
 export type { OwnershipCount, OwnershipEvidence } from './manifest.ownership'
@@ -76,6 +77,7 @@ export type ManifestErrorCode =
   | 'CADENCE_INVALID'
   | 'REASON_TOO_LONG'
   | 'DEADLINE_DISAGREES'
+  | 'OWNER_DECISION_INVALID'
 
 /** Every refusal the manifest makes carries a code a test can assert on, not a message to match. */
 export class ManifestError extends Error {
@@ -228,6 +230,12 @@ export interface TypeDefinition {
   readonly minIntervalHoursFloor?: number
   readonly requestsPerRun?: number
   readonly quota?: QuotaDeclaration
+  /**
+   * Owner decisions about this source (`owner-decisions.ts`), recorded BESIDE the provenance, which
+   * keeps saying what the terms say. An `ACCEPT_RISK` decision for this type's `endpointVariant`
+   * lifts an `UNCLEAR` permission and nothing else.
+   */
+  readonly ownerDecisions?: readonly OwnerDecision[]
   readonly entries: readonly EntryDefinition[]
 }
 
@@ -367,6 +375,8 @@ export interface ManifestEntry {
   readonly verifiedEmployer: { readonly name: string; readonly domain: string | null } | null
   readonly blockers: readonly Blocker[]
   readonly deadlines: readonly PolicyDeadline[]
+  /** The owner decisions of the entry's type: a risk accepted, never a documented permission. */
+  readonly ownerDecisions: readonly OwnerDecision[]
 }
 
 export interface ManifestType {
@@ -394,6 +404,7 @@ export interface ManifestType {
   readonly status: { readonly symbol: string; readonly value: StatusConstant } | null
   readonly blockers: readonly Blocker[]
   readonly deadlines: readonly PolicyDeadline[]
+  readonly ownerDecisions: readonly OwnerDecision[]
   /** True when EVERY fixture is a real capture; a source with no fixture at all is not verified. */
   readonly payloadVerified: boolean
 }
@@ -434,12 +445,16 @@ export function canonicalJson(value: unknown): string {
 const weakest = <T>(order: readonly T[], values: readonly T[]): T | undefined =>
   order.find((o) => values.includes(o))
 
-function permissionBlockers(permissions: readonly Permission[]): Blocker[] {
+/**
+ * `unclearLifted`: an owner decision accepts the risk of an `UNCLEAR` source. It lifts that one code.
+ * `PROHIBITED` and `KEY_REQUIRED` are emitted whatever was decided.
+ */
+function permissionBlockers(permissions: readonly Permission[], unclearLifted: boolean): Blocker[] {
   const out: Blocker[] = []
   if (permissions.includes('PROHIBITED')) {
     out.push({ code: 'PERMISSION_PROHIBITED', detail: 'a fixture records permission PROHIBITED' })
   }
-  if (permissions.includes('UNCLEAR')) {
+  if (permissions.includes('UNCLEAR') && !unclearLifted) {
     out.push({ code: 'PERMISSION_UNCLEAR', detail: 'a fixture records permission UNCLEAR' })
   }
   if (permissions.includes('KEY_REQUIRED')) {
@@ -457,7 +472,11 @@ function checkId(id: string): void {
   }
 }
 
-function reconcileStatus(def: TypeDefinition, permission: Permission | null): Blocker[] {
+function reconcileStatus(
+  def: TypeDefinition,
+  permission: Permission | null,
+  unclearLifted: boolean,
+): Blocker[] {
   if (def.status === undefined) return []
   const { symbol, value } = def.status
   if (permission === null) {
@@ -474,7 +493,9 @@ function reconcileStatus(def: TypeDefinition, permission: Permission | null): Bl
       `${symbol}.permission is ${value.permission} but the provenance of ${def.type} says ${permission}`,
     )
   }
-  if (!value.blocked && !READY_PERMISSIONS.has(permission)) {
+  // `UNCLEAR` is the one non-ready permission an owner decision can make runnable.
+  const readyByDecision = permission === 'UNCLEAR' && unclearLifted
+  if (!value.blocked && !READY_PERMISSIONS.has(permission) && !readyByDecision) {
     throw new ManifestError(
       'STATUS_CONSTANT_DISAGREES',
       `${symbol}.blocked is false but the provenance permission ${permission} is not a ready one`,
@@ -694,12 +715,23 @@ export function buildManifest(input: BuildInput): Manifest {
     checkAuth(def, permissions)
     checkAttribution(def, fixtures)
 
+    const ownerDecisions = def.ownerDecisions ?? []
+    for (const d of ownerDecisions) {
+      if (!isWellFormedDecision(d)) {
+        throw new ManifestError(
+          'OWNER_DECISION_INVALID',
+          `${def.type}: an owner decision needs an ISO date, an endpoint variant, a scope and a reference`,
+        )
+      }
+    }
+    const unclearLifted = liftsUnclear(ownerDecisions, def.endpointVariant)
+
     const blockers: Blocker[] = []
     if (def.disposition.kind === 'BLOCKED') {
       blockers.push({ code: 'NO_ADAPTER', detail: def.disposition.reason })
     }
     if (reporting) {
-      blockers.push(...permissionBlockers(permissions))
+      blockers.push(...permissionBlockers(permissions, unclearLifted))
       // Vacuously true for a source with no fixture at all: it has no capture either.
       if (fixtures.every((f) => f.evidence === 'SENTINEL')) {
         blockers.push({
@@ -710,7 +742,7 @@ export function buildManifest(input: BuildInput): Manifest {
               : 'every fixture is a hand-written unit example',
         })
       }
-      blockers.push(...reconcileStatus(def, permission))
+      blockers.push(...reconcileStatus(def, permission, unclearLifted))
     }
     const reason = blockers.map((b) => `${b.code}: ${b.detail}`).join('; ')
     if (reason.length > READINESS_REASON_MAX_CHARS) {
@@ -744,6 +776,7 @@ export function buildManifest(input: BuildInput): Manifest {
       status: def.status ?? null,
       blockers,
       deadlines: def.deadlines ?? [],
+      ownerDecisions,
       payloadVerified: fixtures.length > 0 && fixtures.every((f) => f.evidence === 'CAPTURE'),
     })
 
@@ -804,6 +837,7 @@ export function buildManifest(input: BuildInput): Manifest {
             : null,
         blockers,
         deadlines: def.deadlines ?? [],
+        ownerDecisions,
       })
     }
   }

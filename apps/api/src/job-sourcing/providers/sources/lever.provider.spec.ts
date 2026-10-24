@@ -268,17 +268,18 @@ describe('locations', () => {
   })
 })
 
-describe('workplaceType: documented values only', () => {
+describe('workplaceType: documented values plus the owner-aliased onsite', () => {
   it.each([
     ['remote', true],
     ['on-site', false],
+    ['onsite', false],
     ['hybrid', false],
     ['unspecified', null],
   ])('%s maps to remote=%s', (value, expected) => {
     expect(remoteFromWorkplaceType(value)).toBe(expected)
   })
 
-  it.each(['onsite', 'ONSITE', 'Remote', 'office', '', 'remote '])(
+  it.each(['ONSITE', 'Onsite', 'Remote', 'office', '', 'remote ', ' onsite', 'on site'])(
     'the undocumented value %j is unknown, not guessed',
     (value) => {
       expect(remoteFromWorkplaceType(value)).toBeNull()
@@ -289,14 +290,13 @@ describe('workplaceType: documented values only', () => {
     expect(remoteFromWorkplaceType(null)).toBeNull()
   })
 
-  it('through the mapper: remote and hybrid postings of the capture, and the live "onsite" drift', async () => {
+  it('through the mapper: remote and hybrid postings of the capture, and the aliased live "onsite"', async () => {
     const { batch } = await run(page('spotify-page1'))
     expect(byId(batch, 'e2c7bbb8-f873-42c7-811f-0bd45bf452ae')?.normalized.remote).toBe(true) // remote
     expect(byId(batch, '47aeb6ee-f8c9-4f1e-9197-25c4c5676e5d')?.normalized.remote).toBe(false) // hybrid
-    // The live API sends "onsite" where the README says "on-site": unknown until an owner aliases it.
-    expect(
-      byId(batch, 'c152d042-642d-4a48-862b-8be8d6cdc819')?.normalized.remote ?? null,
-    ).toBeNull()
+    // The live API sends "onsite" where the README says "on-site": aliased by the owner (2026-10-24),
+    // so it is `false` (not remote), not unknown.
+    expect(byId(batch, 'c152d042-642d-4a48-862b-8be8d6cdc819')?.normalized.remote).toBe(false)
   })
 })
 

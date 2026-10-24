@@ -18,16 +18,23 @@ import {
 /**
  * Remotive (`https://remotive.com/api/remote-jobs?category=<slug>`), one request per category.
  *
- * BLOCKED - NOT TO BE REGISTERED OR ENABLED (permission `UNCLEAR`; see `REMOTIVE_SOURCE_STATUS`).
- * The documented API grants developer access, but robots.txt (User-agent *) says
- * `Disallow: /api/*` and `Disallow: /*category=`, and this adapter requests exactly
- * `/api/remote-jobs?category=`. The two contradict each other, so an OWNER decision is required
- * before Task 3.7 registers it or any seeded row is switched on. The adapter and its fixture stay
- * until that decision. (The fixture itself was captured with two GETs to that path.)
+ * PERMISSION IS `UNCLEAR` AND THE RISK IS ACCEPTED BY THE OWNER (decision of 2026-10-24, answer
+ * "2a"; see `REMOTIVE_OWNER_DECISION` and `REMOTIVE_SOURCE_STATUS`). The documented API grants
+ * developer access, but robots.txt (User-agent *) says `Disallow: /api/*` and
+ * `Disallow: /*category=`, and this adapter requests exactly `/api/remote-jobs?category=`. The
+ * owner ruled that the documented API takes priority over robots.txt. That is an ACCEPTED RISK,
+ * NOT a documented permission: the provenance still says `UNCLEAR`. The vendor's limits stay
+ * binding on us (attribution to Remotive, jobs delayed 24 h, at most about 4 requests a day and
+ * never more than 2 a minute). Not registered or enabled by this: registration is plan Task 2.5.
  *
- * UNVERIFIED, inherited by whoever lifts the block: the capture held 9 jobs (105 KB). Whether a
- * full category can exceed the 2 MiB JSON byte cap (`PAYLOAD_TOO_LARGE`) was not measured, and the
- * cap was not raised.
+ * WHAT THIS ADAPTER DOES AND DOES NOT ENFORCE OF THOSE LIMITS. One run is ONE request per entry
+ * (`nextCursor` is always null), the manifest floors the interval at 6 hours, and a spec derives
+ * the requests a day of all Remotive entries from the manifest and holds them to 4. The 2 a minute
+ * limit is NOT enforceable here: pacing between separate entries belongs to the scheduler (Task
+ * 2.5), and three entries fired in the same minute would be three requests in it.
+ *
+ * UNVERIFIED: the capture held 9 jobs (105 KB). Whether a full category can exceed the 2 MiB JSON
+ * byte cap (`PAYLOAD_TOO_LARGE`) was not measured, and no per-source cap is declared.
  *
  * - NAMESPACE is the constant `remotive`, not the category: a category is a filter, not a board,
  *   so one posting listed under two categories keeps ONE identity.
@@ -44,17 +51,17 @@ import {
  */
 
 /**
- * Machine-readable twin of the BLOCKED note above, pinned against the provenance file by a spec.
+ * Machine-readable twin of the permission note above, pinned against the provenance file by a spec.
  * It guards nothing at runtime: the reconciliation that makes the manifest build fail when this and
  * the provenance disagree is tracked in `.claude/tasks/BACKLOG-followups.md` under the entry titled
  * "Readiness is stated in two places, and nothing reconciles them" (number 314 when written; the
  * title is the address).
  */
 export const REMOTIVE_SOURCE_STATUS = {
-  blocked: true,
+  blocked: false,
   permission: 'UNCLEAR',
   reason:
-    'robots.txt Disallow: /api/* and /*category= contradicts the documented API; owner decision required before registration',
+    'permission stays UNCLEAR (robots.txt Disallow: /api/* and /*category= contradicts the documented API); the owner ruled on 2026-10-24 that the documented API takes priority, which is an accepted risk, not a documented permission',
 } as const
 
 export const REMOTIVE_ADAPTER_VERSION = 'remotive-1'

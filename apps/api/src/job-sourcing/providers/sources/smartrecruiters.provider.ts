@@ -6,6 +6,12 @@ import {
   type SourceObservation,
 } from '../../normalize/observation'
 import { definePagedProvider, UNBUILT_REQUEST_URL } from '../api-json.provider'
+import {
+  isWellFormedDecision,
+  liftsUnclear,
+  type OwnerDecision,
+  SMARTRECRUITERS_OWNER_DECISION,
+} from '../owner-decisions'
 import { DEFAULT_API_JSON_LIMITS } from '../api-json.limits'
 import { parseBoundedJson } from '../bounded-json'
 import {
@@ -39,16 +45,24 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  * for the list and `.../postings/{id}` for one posting's detail
  * (https://developers.smartrecruiters.com/docs/endpoints).
  *
- * !! THIS SOURCE IS BLOCKED, AND THE ADAPTER IS DORMANT BY CONSTRUCTION: the exported provider refuses
- * every attempt without a request (`refuseDisallowedHost`); the real loop runs only from
- * `createSmartRecruitersProvider(bounds, { liveDespiteRobots: true })`, which only the spec calls. `api.smartrecruiters.com/robots.txt` says
+ * !! THIS ADAPTER IS A DECISION GATE: it sends a request only when it is armed with an owner
+ * decision. The loop runs only when `createSmartRecruitersProvider(bounds, { ownerDecision })` is
+ * given an `ACCEPT_RISK` decision for the `posting-api` endpoint (`SMARTRECRUITERS_OWNER_DECISION`
+ * in `owner-decisions.ts`, the same record the manifest carries); without one every attempt is
+ * refused without a request (`refuseWithoutDecision`). The exported `smartrecruitersProvider` is
+ * armed with the recorded decision. `api.smartrecruiters.com/robots.txt` says
  * `User-agent: LinkedInBot / Allow: /v1/companies/ / User-agent: * / Disallow: /`: the Posting API is
  * disallowed to every agent but one named crawler, this collector included, while the documentation
- * calls the same API "public". The two conflict, the brief says to stop at a disallowed path, and
- * so NO REQUEST WAS SENT to this host except for `robots.txt` itself. There is no authentic
+ * calls the same API "public". The owner accepted that conflict as a RISK on 2026-10-24 ("until
+ * banned"); it is not a permission, and the provenance file still records `permission: UNCLEAR`.
+ * NO REQUEST WAS SENT to this host except for `robots.txt` itself, so there is no authentic
  * capture: the spec builds its payloads from the DOCUMENTED schema (the documentation's own examples
- * are not valid JSON) and says so. The provenance file records `permission: UNCLEAR`. It must not be
- * enabled until the owner decides.
+ * are not valid JSON) and says so. Nothing is registered or enabled by this (plan Task 2.5).
+ *
+ * STOP ON BAN, NEVER EVADE. A 401, 403, 451 (`ACCESS_POLICY`) or 429 (`RATE_LIMIT`) on ANY request ends
+ * the run at once: no retry, no further request in that run (the page in flight is discarded, not
+ * stored half-enriched). Nothing here changes the User-Agent, rotates a proxy or retries around a
+ * refusal, and requests carry only an `accept` header. A ban is a stop, not an obstacle.
  *
  * WHY THIS ADAPTER DOES NOT USE THE PAGE LOOP'S SPEC. The loop asks one request per page, and a
  * posting's description and canonical URL live only in the DETAIL (`jobAd.sections`, `postingUrl`),
@@ -281,7 +295,7 @@ type Fetched =
 /** HTTP status -> our code, from the STATUS and never the body. */
 function classify(status: number): CollectionErrorCode | null {
   if (status >= 200 && status < 300) return null
-  if (status === 401 || status === 403) return 'ACCESS_POLICY'
+  if (status === 401 || status === 403 || status === 451) return 'ACCESS_POLICY'
   if (status === 429) return 'RATE_LIMIT'
   return 'UPSTREAM'
 }
@@ -666,13 +680,13 @@ async function collectSmartRecruiters(
 }
 
 /**
- * The attempt that is not made, whatever the context: the Posting API's robots.txt disallows this
- * collector, so no request is sent and the batch says why. Same shape as Recruitee's
+ * The attempt that is not made without an owner decision: the Posting API's robots.txt disallows
+ * this collector, so no request is sent and the batch says why. Same shape as Recruitee's
  * `refuseWithoutToken`: ONE report, `ACCESS_POLICY`, at the unbuilt-request address, `ERROR` with no
  * page, so the batch is FAILED and claims no coverage. (The message avoids the word that the report
  * redactor rewrites.)
  */
-function refuseDisallowedHost(config: Config, ctx: CollectionContext): CollectionBatch {
+function refuseWithoutDecision(config: Config, ctx: CollectionContext): CollectionBatch {
   const at = ctx.now()
   return buildCollectionBatch({
     observations: [],
@@ -696,7 +710,7 @@ function refuseDisallowedHost(config: Config, ctx: CollectionContext): Collectio
           cost: null,
           error: {
             code: 'ACCESS_POLICY',
-            message: `robots.txt of ${HOST} disallows this collector and the owner has not decided otherwise, so no request was made`,
+            message: `robots.txt of ${HOST} disallows this collector and no owner decision covers it, so no request was made`,
           },
         },
         ctx.secrets,
@@ -707,28 +721,38 @@ function refuseDisallowedHost(config: Config, ctx: CollectionContext): Collectio
   })
 }
 
+/** The manifest `endpointVariant` this adapter sends requests to; a decision must be about it. */
+export const SMARTRECRUITERS_ENDPOINT_VARIANT = 'posting-api'
+
 export interface SmartRecruitersOptions {
   /**
-   * Arms the real loop. ONLY the spec factory passes it: the exported `smartrecruitersProvider`
-   * never does, so importing this module and handing it a context sends nothing. Turning it on in
-   * production is the owner's decision about the robots.txt conflict, made in review, not a default.
+   * Arms the real loop. It must be an `ACCEPT_RISK` decision about `SMARTRECRUITERS_ENDPOINT_VARIANT`
+   * and well-formed; anything else (absent, informational, another endpoint) leaves the adapter
+   * refusing every attempt. The decision is the owner's, recorded once in `owner-decisions.ts`.
    */
-  readonly liveDespiteRobots?: boolean
+  readonly ownerDecision?: OwnerDecision
 }
+
+const isArmedBy = (decision: OwnerDecision | undefined): boolean =>
+  decision !== undefined &&
+  isWellFormedDecision(decision) &&
+  liftsUnclear([decision], SMARTRECRUITERS_ENDPOINT_VARIANT)
 
 export function createSmartRecruitersProvider(
   bounds: SmartRecruitersBounds = SMARTRECRUITERS_BOUNDS,
   options: SmartRecruitersOptions = {},
 ) {
   return definePagedProvider({ type: 'SMARTRECRUITERS_ATS', configSchema }, (config, ctx) =>
-    options.liveDespiteRobots === true
+    isArmedBy(options.ownerDecision)
       ? collectSmartRecruiters(bounds, config, ctx)
-      : Promise.resolve(refuseDisallowedHost(config, ctx)),
+      : Promise.resolve(refuseWithoutDecision(config, ctx)),
   )
 }
 
-/** DORMANT: refuses every attempt without a request. See `refuseDisallowedHost`. */
-export const smartrecruitersProvider = createSmartRecruitersProvider()
+/** Armed with the owner's recorded decision. Without it the factory refuses; see `refuseWithoutDecision`. */
+export const smartrecruitersProvider = createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, {
+  ownerDecision: SMARTRECRUITERS_OWNER_DECISION,
+})
 
 /** The one host this adapter's requests may reach; a transport is pinned to it. */
 export const smartrecruitersAllowedHosts = (): readonly string[] => [HOST]
