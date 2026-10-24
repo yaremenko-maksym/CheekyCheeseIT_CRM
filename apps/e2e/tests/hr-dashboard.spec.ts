@@ -4,7 +4,8 @@
  * Coverage (AC3):
  *   A. dashboard.tsx dispatches HR → HRDashboard hub on the /crm root.
  *   B. Hub renders 3 KPI cards with the mocked values.
- *   C. CTA «Открыть канбан» navigates to /interviews.
+ *   (The old «Открыть канбан» CTA and «my salary» KPI no longer exist — the hub
+ *   is the three read-only KPIs below; interviews are reached via the sidebar.)
  *   D. Non-HR roles do NOT see the HR hub on the /crm root.
  *
  * Mock-based (LIFO route registration via fixtures). Default
@@ -14,31 +15,23 @@
 import { test, expect } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
-// CRM root, anchored — matches `/` (and `/`) but NOT `/team` etc.
-const CRM_ROOT = /\/?$/
+// CRM root, anchored on the WHOLE url — matches `/` (and `/?x`) but NOT `/team` etc.
+// (a bare `/\/?$/` matches EVERY url, so it asserted nothing).
+const CRM_ROOT = /^https?:\/\/[^/]+\/?(\?.*)?$/
 
 // ── A. Dispatch + hub render ─────────────────────────────────────────────────
 
 test.describe('A. HR dashboard dispatch', () => {
   test('HR on /crm sees the HR hub (not general dashboard)', async ({ asHr: page }) => {
-    const uk = await loadMessages('uk')
     await page.goto('/')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
 
-    const hub = page.getByTestId('hr-dashboard-hub')
-    await expect(hub).toBeVisible({ timeout: 8_000 })
-    await expect(hub.getByRole('heading', { level: 1 })).toContainText(
-      assertInCatalog(uk, 'Дашборд'),
-    )
-    // NOTE: "Рекрутинг хаб HR-менеджера" — pre-existing/out-of-scope: no
-    // such text exists anywhere in HRDashboard.tsx any more (page-h1
-    // subtitles were removed project-wide, #243/#244, unrelated to this
-    // wave). Not fixed here — this fix round is copy-review + i18n-migration
-    // scoped, not a general E2E-debt sweep.
+    // Page-title h1s were removed deliberately — the anchor is the hub's root testid.
+    await expect(page.getByTestId('hr-dashboard-hub')).toBeVisible({ timeout: 8_000 })
 
     // Other role hubs must NOT appear for HR.
     await expect(page.getByTestId('accountant-dashboard-hub')).toHaveCount(0)
-    await expect(page.getByTestId('drop-routing-hub')).toHaveCount(0)
+    await expect(page.getByTestId('drop-dashboard-hub')).toHaveCount(0)
   })
 })
 
@@ -49,36 +42,22 @@ test.describe('B. HR hub — KPI cards', () => {
     await page.goto('/')
     await expect(page.getByTestId('hr-kpi-grid')).toBeVisible({ timeout: 8_000 })
 
+    const uk = await loadMessages('uk')
+
     const open = page.getByTestId('kpi-open-interviews')
     await expect(open).toBeVisible()
     await expect(open).toContainText('3')
-    await expect(open).toContainText('Відкриті співбесіди')
+    await expect(open).toContainText(assertInCatalog(uk, 'Відкриті співбесіди'))
 
     const hired = page.getByTestId('kpi-hired-month')
     await expect(hired).toBeVisible()
     await expect(hired).toContainText('1')
-    await expect(hired).toContainText('Найнято за місяць')
+    await expect(hired).toContainText(assertInCatalog(uk, 'Найнято за місяць'))
 
-    const salary = page.getByTestId('kpi-my-salary')
-    await expect(salary).toBeVisible()
-    await expect(salary).toContainText('$1,500.00')
-    await expect(salary).toContainText('Ожидает выплаты')
-  })
-})
-
-// ── C. CTA navigation ────────────────────────────────────────────────────────
-
-test.describe('C. HR hub — interviews CTA', () => {
-  test('CTA «Открыть канбан» navigates to /interviews', async ({ asHr: page }) => {
-    await page.goto('/')
-
-    const cta = page.getByTestId('hr-interviews-cta')
-    await expect(cta).toBeVisible({ timeout: 8_000 })
-    await expect(cta).toContainText('Открыть канбан')
-
-    await cta.click()
-
-    await expect(page).toHaveURL(/\/interviews/, { timeout: 8_000 })
+    const projects = page.getByTestId('kpi-active-projects')
+    await expect(projects).toBeVisible()
+    await expect(projects).toContainText('2')
+    await expect(projects).toContainText(assertInCatalog(uk, 'Активні проєкти'))
   })
 })
 

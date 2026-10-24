@@ -24,51 +24,63 @@
 
 import { test, expect } from './fixtures'
 
+/**
+ * Walk one role through `/finance` and fail on any uncaught page error.
+ *
+ * Each role is its OWN test requesting ONLY its own fixture: requesting
+ * `asAdmin`, `asSenior` and `asDrop` together in one test instantiates all
+ * three, and the last mock-auth registration wins — the "ADMIN" iteration
+ * was silently rendering the DROP cabinet.
+ */
+async function expectFinanceRendersCleanly(
+  page: import('@playwright/test').Page,
+  role: string,
+  rootTestId: string,
+): Promise<void> {
+  // Capture page-level runtime errors (uncaught exceptions). A crash
+  // like the `Cannot read .length of undefined` on dropBalances would
+  // fire `pageerror` and bubble into the assertions below.
+  const errors: string[] = []
+  page.on('pageerror', (err) => {
+    errors.push(err.message)
+  })
+
+  await page.goto('/finance')
+
+  // The finance page root renders for all three roles (route guard allows
+  // DROP per useRoleGuard widened in PR #63 phase 1 fix AC4). Page-title h1s
+  // were removed deliberately; the anchor is the root data-testid —
+  // `drop-finance-page` for DROP (its own cabinet), `finance-page` otherwise.
+  await expect(page.getByTestId(rootTestId)).toBeVisible({ timeout: 10_000 })
+
+  // Wait a beat for any deferred error to fire (React hydration,
+  // useQuery resolves). networkidle is the cheapest signal that the
+  // initial data fetch has settled.
+  await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => undefined)
+
+  // The page must not have thrown any uncaught error during the
+  // initial render + query resolution. ANY pageerror is a regression.
+  expect(errors, `Page errors on /finance as ${role}: ${errors.join(' || ')}`).toEqual([])
+}
+
 test.describe('Finance page smoke — no console errors per role', () => {
-  for (const role of ['Admin', 'Senior', 'Drop'] as const) {
-    test(`/finance for ${role.toUpperCase()} renders without runtime errors`, async ({
-      asAdmin,
-      asSenior,
-      asDrop,
-    }) => {
-      const page = role === 'Admin' ? asAdmin : role === 'Senior' ? asSenior : asDrop
+  test('/finance for ADMIN renders without runtime errors', async ({ asAdmin }) => {
+    await expectFinanceRendersCleanly(asAdmin, 'ADMIN', 'finance-page')
+  })
 
-      // Capture page-level runtime errors (uncaught exceptions). A crash
-      // like the `Cannot read .length of undefined` on dropBalances would
-      // fire `pageerror` and bubble into the assertions below.
-      const errors: string[] = []
-      page.on('pageerror', (err) => {
-        errors.push(err.message)
-      })
+  test('/finance for SENIOR renders without runtime errors', async ({ asSenior }) => {
+    await expectFinanceRendersCleanly(asSenior, 'SENIOR', 'finance-page')
+  })
 
-      await page.goto('/finance')
-
-      // The «Финансы» header is rendered for all three roles (route guard
-      // allows DROP per useRoleGuard widened in PR #63 phase 1 fix AC4).
-      const main = page.locator('main')
-      await expect(main.getByRole('heading', { level: 1, name: 'Финансы' })).toBeVisible({
-        timeout: 10_000,
-      })
-
-      // Wait a beat for any deferred error to fire (React hydration,
-      // useQuery resolves). networkidle is the cheapest signal that the
-      // initial data fetch has settled.
-      await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => undefined)
-
-      // The page must not have thrown any uncaught error during the
-      // initial render + query resolution. ANY pageerror is a regression.
-      expect(errors, `Page errors on /finance as ${role}: ${errors.join(' || ')}`).toEqual([])
-    })
-  }
+  test('/finance for DROP renders without runtime errors', async ({ asDrop }) => {
+    await expectFinanceRendersCleanly(asDrop, 'DROP', 'drop-finance-page')
+  })
 
   test('SENIOR sees «Новая транзакция» button + transactions table on /finance', async ({
     asSenior: page,
   }) => {
     await page.goto('/finance')
-    const main = page.locator('main')
-    await expect(main.getByRole('heading', { level: 1, name: 'Финансы' })).toBeVisible({
-      timeout: 10_000,
-    })
+    await expect(page.getByTestId('finance-page')).toBeVisible({ timeout: 10_000 })
 
     // SENIOR sees the create button (canCreate is true).
     await expect(page.getByTestId('finance-create-transaction-button')).toBeVisible({
@@ -82,7 +94,7 @@ test.describe('Finance page smoke — no console errors per role', () => {
     // Drop role - phase 2: DROP also gets `canCreate` (income is the only
     // type DROP can post). Verify the CTA is rendered.
     await page.goto('/finance')
-    await expect(page.getByTestId('finance-create-transaction-button')).toBeVisible({
+    await expect(page.getByTestId('drop-register-income-btn')).toBeVisible({
       timeout: 10_000,
     })
   })

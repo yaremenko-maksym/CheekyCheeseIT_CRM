@@ -35,8 +35,9 @@
 
 import { test, expect } from './fixtures'
 
-// CRM root, anchored — matches `/` (and `/`) but NOT `/team` etc.
-const CRM_ROOT = /\/?$/
+// CRM root, anchored on the WHOLE url — matches `/` (and `/?x`) but NOT `/team` etc.
+// (a bare `/\/?$/` matches EVERY url, so it asserted nothing).
+const CRM_ROOT = /^https?:\/\/[^/]+\/?(\?.*)?$/
 
 test.describe('Drop frontend route-guards — dashboard consolidated to /crm root', () => {
   // ── Forbidden routes: must redirect to DROP home (/crm root) ─────────────────
@@ -104,7 +105,7 @@ test.describe('Drop frontend route-guards — dashboard consolidated to /crm roo
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
     await expect(page).not.toHaveURL(/\/login/)
     // DropDashboard renders the hub testid — confirms full render, not just URL settle.
-    await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
+    await expect(page.getByTestId('drop-dashboard-hub')).toBeVisible({ timeout: 8_000 })
   })
 
   test('/routing for DROP → redirects to /crm (permanent redirect)', async ({ asDrop: page }) => {
@@ -113,7 +114,7 @@ test.describe('Drop frontend route-guards — dashboard consolidated to /crm roo
     await page.goto('/routing')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
     await expect(page).not.toHaveURL(/\/login/)
-    await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
+    await expect(page.getByTestId('drop-dashboard-hub')).toBeVisible({ timeout: 8_000 })
   })
 
   test('/profile for DROP stays on profile (no redirect to /crm root)', async ({

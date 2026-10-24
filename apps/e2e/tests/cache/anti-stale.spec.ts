@@ -33,6 +33,7 @@
  *   - Unique sentinel amounts per run (Date.now()) to avoid collisions
  */
 import { test, expect } from '@playwright/test'
+import { loadMessages, assertInCatalog } from '../../fixtures/catalog'
 import {
   clearSWAndCaches,
   navigateWithSWReady,
@@ -188,13 +189,16 @@ test.describe('Anti-stale: UI mutation → fresh data, /api/* never cached by th
     // Select EXPENSE type (admin sees: ADMIN_INCOME, EXPENSE, SALARY, ADMIN_TRANSFER).
     await page.locator('[data-testid="create-transaction-type-expense"]').click()
 
-    // Fill amount.
-    // AmountCurrencyInput has a text input — find by placeholder or role.
-    const amountInput = page
-      .locator('[data-testid="create-transaction-dialog"]')
-      .locator('input[type="text"], input[inputmode="decimal"], input[placeholder]')
-      .first()
-    await amountInput.fill(sentinelAmount)
+    // EXPENSE requires a category («Категорія витрати») on top of the amount. Labels are
+    // product i18n (uk) — read from the compiled catalog, not hardcoded.
+    const uk = await loadMessages('uk')
+    const dialog = page.locator('[data-testid="create-transaction-dialog"]')
+    await dialog
+      .getByRole('textbox', { name: assertInCatalog(uk, 'Категорія витрати') })
+      .fill('E2E anti-stale')
+
+    // Fill amount (AmountCurrencyInput, placeholder «0.00»).
+    await dialog.getByPlaceholder('0.00').fill(sentinelAmount)
 
     // Receipt is required ("Чек обязателен: приложите файл или ссылку на
     // blockchain-explorer") — switch the ReceiptInput to link mode and fill
@@ -279,6 +283,16 @@ test.describe('Anti-stale: UI mutation → fresh data, /api/* never cached by th
         intervals: [500, 1000, 2000],
       })
       .toBeTruthy()
+
+    // A freshly created project is a DRAFT until its invited approvers confirm
+    // (task-project-draft-status), so it never appears on the default «Активні» tab —
+    // it lands on «Очікують рішення». Switch to that tab BEFORE creating, so the
+    // anti-stale check is unchanged: the new card must show up through the
+    // post-mutation refetch of the list we are already looking at (no reload, no tab switch).
+    const uk = await loadMessages('uk')
+    const pendingTab = page.getByRole('tab', { name: assertInCatalog(uk, 'Очікують рішення') })
+    await pendingTab.click()
+    await expect(pendingTab).toHaveAttribute('aria-selected', 'true')
 
     // Unique sentinel name — makes the new project identifiable in the list.
     const sentinelSuffix = Date.now().toString().slice(-6)
@@ -420,11 +434,13 @@ test.describe('Anti-stale: UI mutation → fresh data, /api/* never cached by th
     await expect(page.locator('[data-testid="create-transaction-dialog"]')).toBeVisible()
     await page.locator('[data-testid="create-transaction-type-expense"]').click()
 
-    const amountInput = page
-      .locator('[data-testid="create-transaction-dialog"]')
-      .locator('input[type="text"], input[inputmode="decimal"], input[placeholder]')
-      .first()
-    await amountInput.fill(sentinelAmount)
+    // EXPENSE requires a category on top of the amount — see Scenario 1 above.
+    const uk = await loadMessages('uk')
+    const dialog = page.locator('[data-testid="create-transaction-dialog"]')
+    await dialog
+      .getByRole('textbox', { name: assertInCatalog(uk, 'Категорія витрати') })
+      .fill('E2E anti-stale')
+    await dialog.getByPlaceholder('0.00').fill(sentinelAmount)
 
     // Receipt is required — see the comment on the same two lines in
     // Scenario 1 above.

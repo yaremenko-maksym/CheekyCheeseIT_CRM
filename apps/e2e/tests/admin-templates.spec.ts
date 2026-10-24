@@ -3,11 +3,11 @@
  *
  * Coverage (AC 6C-8):
  * 1. ADMIN opens /admin/contracts → sees 5 role cards,
- *    clicks SENIOR editor, edits markdown, publishes new version → toast shown
+ *    clicks SENIOR editor, opens the PDF preview, publishes new version → toast shown
  * 2. ADMIN publishes new ToS version → onboarding-status invalidated
  *    (soft-notify banner visible for an onboarded user)
- * 3. non-ADMIN (SENIOR) navigates to /admin →
- *    redirected to /crm + error toast shown
+ * 3. non-ADMIN (SENIOR) navigates to /admin → redirected to the CRM root
+ * 4. ADMIN can preview an archived ToS version from the history list
  *
  * All tests use Playwright route mocks (no real backend required).
  * Route moved: /admin/templates/* → /admin/* (PR #256).
@@ -84,6 +84,16 @@ async function mockTemplateApis(page: Page) {
   // GET /tos/current
   await page.route(`${API_GLOB}/tos/current`, (r) => jsonOk(r, TOS_VERSION))
 
+  // POST /contracts/templates/preview-pdf and /tos/preview-pdf — server-rendered PDF
+  // previews. Unmocked they hit the real API, 401 and bounce the page to /login.
+  const MINIMAL_PDF = Buffer.from('%PDF-1.4 mock')
+  await page.route(`${API_GLOB}/contracts/templates/preview-pdf`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/pdf', body: MINIMAL_PDF }),
+  )
+  await page.route(`${API_GLOB}/tos/preview-pdf`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/pdf', body: MINIMAL_PDF }),
+  )
+
   // POST /tos — publish new ToS version
   await page.route(`${API_GLOB}/tos`, (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
@@ -128,13 +138,16 @@ test('ADMIN sees 5 role cards, edits SENIOR contract, publishes new version', as
   await page.getByTestId('contract-template-edit-senior').click()
   await expect(page).toHaveURL(/\/admin\/contracts\/senior/)
 
-  // Variables tab should be visible by default (new UI: Tabs instead of hint toggle)
-  await expect(page.getByTestId('tab-variables')).toBeVisible()
-  await expect(page.getByTestId('variables-tab-content')).toBeVisible()
+  // The editor and the variables panel render together (the old Variables/Preview
+  // tabs were replaced by a full-width editor + panel below it).
+  await expect(page.getByTestId('contract-editor-wrapper')).toBeVisible()
+  await expect(page.getByTestId('variables-panel-wrapper')).toBeVisible()
 
-  // Switch to preview tab → preview panel becomes visible
-  await page.getByTestId('tab-preview').click()
-  await expect(page.getByTestId('contract-editor-preview')).toBeVisible()
+  // Preview opens as a modal (PDF rendered server-side) and closes again.
+  await page.getByTestId('preview-template-button').click()
+  await expect(page.getByTestId('preview-dialog')).toBeVisible()
+  await page.getByTestId('preview-dialog-close').click()
+  await expect(page.getByTestId('preview-dialog')).not.toBeVisible()
 
   // Click publish → confirmation dialog appears
   await page.getByTestId('publish-template-button').click()
@@ -148,13 +161,15 @@ test('ADMIN sees 5 role cards, edits SENIOR contract, publishes new version', as
   await page.getByTestId('publish-template-button').click()
   await expect(page.getByTestId('publish-confirm-dialog')).toBeVisible()
 
-  // NEW: assert diff panel visible inside confirm dialog
+  // Diff panel visible inside the confirm dialog
   await expect(page.locator('[data-testid^="markdown-diff"]')).toBeVisible()
 
   await page.getByTestId('confirm-publish-button').click()
 
-  // Toast success
-  await expect(page.getByText(/опубликован/i)).toBeVisible()
+  // Success toast («Шаблон договору для ролі «…» опубліковано») — scoped to the toast region.
+  await expect(
+    page.getByRole('region', { name: /Notifications/ }).getByText(/опубліковано/),
+  ).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------
@@ -176,8 +191,8 @@ test('ADMIN publishes new ToS, soft-notify banner visible for onboarded user', a
   await page.getByTestId('publish-new-tos-button').click()
   await expect(page).toHaveURL(/\/admin\/tos\/new/)
 
-  // Editor and preview visible
-  await expect(page.getByTestId('tos-editor-preview')).toBeVisible()
+  // Editor visible
+  await expect(page.getByTestId('tos-editor-wrapper')).toBeVisible()
 
   // Click publish → confirmation dialog
   await page.getByTestId('publish-tos-button').click()
@@ -204,32 +219,30 @@ test('ADMIN publishes new ToS, soft-notify banner visible for onboarded user', a
   await page.getByTestId('publish-tos-button').click()
   await expect(page.getByTestId('publish-tos-confirm-dialog')).toBeVisible()
 
-  // NEW: assert diff panel visible inside confirm dialog
+  // Diff panel visible inside the confirm dialog
   await expect(page.locator('[data-testid^="markdown-diff"]')).toBeVisible()
 
   await page.getByTestId('confirm-publish-tos-button').click()
 
-  // Toast success — .first() guards against strict-mode violation: Sonner portal
-  // plus the sidebar/status badge can both match /опубликована/i simultaneously.
-  await expect(page.getByText(/опубликована/i).first()).toBeVisible()
+  // Success toast («Нову версію умов використання опубліковано…») — scoped to the toast region.
+  await expect(
+    page.getByRole('region', { name: /Notifications/ }).getByText(/опубліковано/),
+  ).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------
-// AC 6C-8 — Scenario 3: non-ADMIN redirected from /admin/templates
+// AC 6C-8 — Scenario 3: non-ADMIN redirected from /admin/*
 // ---------------------------------------------------------------------------
 
 test('non-ADMIN navigating to /admin is redirected to /', async ({ asSenior: page }) => {
   await page.goto('/admin/contracts')
 
-  // Should land on the dashboard root /crm (redirect triggered by RBAC guard in
-  // route layout). Anchored so it doesn't match /admin/... sub-paths.
-  await expect(page).toHaveURL(/\/?$/)
+  // The layout-level route guard (route-access: `/admin` is ADMIN-only) sends the
+  // SENIOR to their home. Anchored on the whole URL so `/admin/...` cannot match.
+  await expect(page).toHaveURL(/^https?:\/\/[^/]+\/?(\?.*)?$/, { timeout: 8_000 })
 
-  // Error toast should be shown — use .first() to handle potential strict-mode
-  // duplicate (toast can render inside the Sonner portal which may produce two
-  // matching nodes when a sidebar label also contains the text; .first() is
-  // safe here because we only assert the toast is visible, not its exact count).
-  await expect(page.getByText(/только для ADMIN/i).first()).toBeVisible()
+  // No admin editor content leaks to the SENIOR.
+  await expect(page.getByTestId('contract-template-card-senior')).toHaveCount(0)
 })
 
 // ---------------------------------------------------------------------------
@@ -255,11 +268,11 @@ test('ADMIN can preview archived ToS version in history list', async ({ asAdmin:
   await expect(page.getByTestId('tos-history-list')).toBeVisible()
   await expect(page.getByTestId('tos-history-item-v1')).toBeVisible()
 
-  // Click archived version → amber "Просмотр архивной версии" banner appears
+  // Click archived version → amber «Перегляд архівної версії» banner appears
   await page.getByTestId('tos-history-item-v1').click()
-  await expect(page.getByText(/Просмотр архивной версии v1/)).toBeVisible()
+  await expect(page.getByText(/Перегляд архівної версії v1/)).toBeVisible()
 
   // Back to active button returns to active view
   await page.getByTestId('back-to-active-tos').click()
-  await expect(page.getByText(/Просмотр архивной версии/)).not.toBeVisible()
+  await expect(page.getByText(/Перегляд архівної версії/)).not.toBeVisible()
 })

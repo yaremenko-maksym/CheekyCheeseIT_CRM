@@ -28,6 +28,39 @@ function jsonOk(route: Route, body: unknown, status = 200) {
 const COMPANY_WALLET = '0xDeAdBeEf1234567890AbCdEf1234567890AbCdEf'
 
 const PAYOUT_ID = 'payout-p8-1'
+const PAYOUT_TX_ID = 'payout-p8-tx-1'
+
+/**
+ * The PAYOUT transaction row (PENDING_PAYMENT) that points at PAYOUT_ID. The inline
+ * «Оплатити» pill lives on THIS row (`row-pay-payout-<txId>`), not on the payout-request
+ * list — the finance page no longer renders payout requests directly.
+ */
+function makePayoutTxRow(overrides: object = {}) {
+  return {
+    id: PAYOUT_TX_ID,
+    type: 'PAYOUT',
+    status: 'PENDING_PAYMENT',
+    payoutRequestId: PAYOUT_ID,
+    amount: '3700',
+    currency: 'USDT',
+    senderId: USERS.senior.id,
+    senderName: USERS.senior.displayName,
+    senderLabel: null,
+    receiverId: null,
+    receiverName: null,
+    receiverLabel: 'CheekyCheeseIT',
+    projectId: null,
+    projectName: null,
+    salaryMonth: null,
+    txDate: null,
+    txHash: null,
+    rejectionReason: null,
+    seniorSharePercent: null,
+    seniorSharePercentSource: null,
+    createdAt: '2026-06-01T10:00:00.000Z',
+    ...overrides,
+  }
+}
 
 function makePayoutRequest(overrides: object = {}) {
   return {
@@ -75,10 +108,10 @@ async function mockPayoutDetailRoutes(page: Page, payout = makePayoutRequest()) 
     if (r.request().method() === 'POST') return jsonOk(r, payout, 201)
     return jsonOk(r, [payout])
   })
-  // Transactions list (finance page requires it)
+  // Transactions list — one PAYOUT row in PENDING_PAYMENT carrying the payout-request id
   await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) => {
     if (r.request().method() === 'POST') return jsonOk(r, {}, 201)
-    return jsonOk(r, [])
+    return jsonOk(r, [makePayoutTxRow()])
   })
 }
 
@@ -102,7 +135,7 @@ test.describe('AC2 — PayoutDetailDialog: company wallet address for SENIOR', (
     await mockPayoutDetailRoutes(asSenior)
 
     await asSenior.goto('/finance')
-    await asSenior.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
+    await asSenior.getByTestId(`row-pay-payout-${PAYOUT_TX_ID}`).click()
 
     const dialog = asSenior.getByTestId('payout-detail-dialog')
     await expect(dialog).toBeVisible()
@@ -114,7 +147,7 @@ test.describe('AC2 — PayoutDetailDialog: company wallet address for SENIOR', (
     await mockPayoutDetailRoutes(asSenior)
 
     await asSenior.goto('/finance')
-    await asSenior.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
+    await asSenior.getByTestId(`row-pay-payout-${PAYOUT_TX_ID}`).click()
 
     const dialog = asSenior.getByTestId('payout-detail-dialog')
     await expect(dialog).toBeVisible()
@@ -126,7 +159,7 @@ test.describe('AC2 — PayoutDetailDialog: company wallet address for SENIOR', (
     await mockPayoutDetailRoutes(asSenior)
 
     await asSenior.goto('/finance')
-    await asSenior.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
+    await asSenior.getByTestId(`row-pay-payout-${PAYOUT_TX_ID}`).click()
 
     const dialog = asSenior.getByTestId('payout-detail-dialog')
     await expect(dialog).toBeVisible()
@@ -138,7 +171,7 @@ test.describe('AC2 — PayoutDetailDialog: company wallet address for SENIOR', (
     await mockPayoutDetailRoutes(asSenior)
 
     await asSenior.goto('/finance')
-    await asSenior.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
+    await asSenior.getByTestId(`row-pay-payout-${PAYOUT_TX_ID}`).click()
 
     const dialog = asSenior.getByTestId('payout-detail-dialog')
     await expect(dialog).toBeVisible()
@@ -155,92 +188,84 @@ test.describe('AC2 — PayoutDetailDialog: company wallet address for SENIOR', (
 })
 
 // ---------------------------------------------------------------------------
-// AC3 — Manual-confirm section RBAC: ADMIN and ACCOUNTANT see it
+// AC3 — Manual payout confirmation RBAC
 // ---------------------------------------------------------------------------
+//
+// Manual confirmation (CASH / ADMIN_USDT / COMPANY_ACCOUNT) is reached by ADMIN /
+// ACCOUNTANT through the «confirm payout» button on the PAYOUT row (ConfirmPayoutDialog,
+// click-through covered below). The inline «Оплатити» pill that opens PayoutDetailDialog
+// is SENIOR-only on /finance, so the dialog's own manual section is no longer reachable
+// from the UI for ADMIN/ACCOUNTANT — that component-level behaviour is pinned by
+// PayoutDetailDialog.test.tsx; here we assert the reachable RBAC surface.
 
-test.describe('AC3 — Manual-confirm section: visible for ADMIN / ACCOUNTANT', () => {
-  test('ADMIN sees manual-confirm section in payout dialog', async ({ asAdmin }) => {
-    await mockPayoutDetailRoutes(asAdmin)
-
-    await asAdmin.goto('/finance')
-    await asAdmin.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
-
-    const dialog = asAdmin.getByTestId('payout-detail-dialog')
-    await expect(dialog).toBeVisible()
-    await expect(dialog.getByTestId('payout-detail-manual-section')).toBeVisible()
-  })
-
-  test('ADMIN sees all three manual methods: CASH, ADMIN_USDT, COMPANY_ACCOUNT', async ({
+test.describe('AC3 — Manual payout confirmation: ADMIN / ACCOUNTANT only', () => {
+  test('ADMIN sees the confirm-payout button on a PENDING_PAYMENT PAYOUT row', async ({
     asAdmin,
   }) => {
     await mockPayoutDetailRoutes(asAdmin)
 
     await asAdmin.goto('/finance')
-    await asAdmin.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
-
-    const dialog = asAdmin.getByTestId('payout-detail-dialog')
-    await expect(dialog).toBeVisible()
-    await expect(dialog.getByTestId('payout-detail-manual-method-cash')).toBeVisible()
-    await expect(dialog.getByTestId('payout-detail-manual-method-admin_usdt')).toBeVisible()
-    await expect(dialog.getByTestId('payout-detail-manual-method-company_account')).toBeVisible()
+    await expect(asAdmin.getByTestId(`confirm-payout-button-${PAYOUT_TX_ID}`)).toBeVisible()
   })
 
-  test('ADMIN submits manual-confirm with CASH method — dialog closes', async ({ asAdmin }) => {
-    await mockPayoutDetailRoutes(asAdmin)
-
-    await asAdmin.goto('/finance')
-    await asAdmin.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
-
-    const dialog = asAdmin.getByTestId('payout-detail-dialog')
-    await expect(dialog).toBeVisible()
-
-    await dialog.getByTestId('payout-detail-manual-method-cash').click()
-    await dialog.getByTestId('payout-detail-manual-note').fill('Оплачено наличными')
-    await dialog.getByTestId('payout-detail-manual-submit').click()
-
-    await expect(dialog).not.toBeVisible()
-  })
-
-  test('ACCOUNTANT sees manual-confirm section in payout dialog', async ({ asAccountant }) => {
+  test('ACCOUNTANT sees the confirm-payout button on a PENDING_PAYMENT PAYOUT row', async ({
+    asAccountant,
+  }) => {
     await mockPayoutDetailRoutes(asAccountant)
 
     await asAccountant.goto('/finance')
-    await asAccountant.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
-
-    const dialog = asAccountant.getByTestId('payout-detail-dialog')
-    await expect(dialog).toBeVisible()
-    await expect(dialog.getByTestId('payout-detail-manual-section')).toBeVisible()
+    await expect(asAccountant.getByTestId(`confirm-payout-button-${PAYOUT_TX_ID}`)).toBeVisible()
   })
-})
 
-// ---------------------------------------------------------------------------
-// AC3 — Manual-confirm section RBAC: hidden for SENIOR / DROP / JUNIOR / HR
-// ---------------------------------------------------------------------------
-
-test.describe('AC3 — Manual-confirm section: hidden for non-privileged roles', () => {
-  async function assertManualSectionHidden(page: Page) {
-    await mockPayoutDetailRoutes(page)
-    await page.goto('/finance')
-    await page.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
-    const dialog = page.getByTestId('payout-detail-dialog')
+  test('SENIOR does NOT see the manual-confirm section in the payout dialog (own payout)', async ({
+    asSenior,
+  }) => {
+    await mockPayoutDetailRoutes(asSenior)
+    await asSenior.goto('/finance')
+    await asSenior.getByTestId(`row-pay-payout-${PAYOUT_TX_ID}`).click()
+    const dialog = asSenior.getByTestId('payout-detail-dialog')
     await expect(dialog).toBeVisible()
     await expect(dialog.getByTestId('payout-detail-manual-section')).not.toBeVisible()
+  })
+
+  test('SENIOR does NOT see the confirm-payout button', async ({ asSenior }) => {
+    await mockPayoutDetailRoutes(asSenior)
+    await asSenior.goto('/finance')
+    await expect(asSenior.getByTestId(`row-pay-payout-${PAYOUT_TX_ID}`)).toBeVisible()
+    await expect(asSenior.getByTestId(`confirm-payout-button-${PAYOUT_TX_ID}`)).toHaveCount(0)
+  })
+
+  test('DROP does NOT see manual confirmation on the dashboard payout row', async ({ asDrop }) => {
+    await mockPayoutDetailRoutes(asDrop)
+    // The DROP pays from the dashboard «in progress» panel (self-scoped /transactions).
+    await asDrop.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) => {
+      if (r.request().method() !== 'GET') return r.fallback()
+      return jsonOk(r, [makePayoutTxRow({ senderId: USERS.drop.id, senderName: 'Drop User' })])
+    })
+    await asDrop.goto('/')
+    await asDrop.getByTestId(`drop-pay-payout-${PAYOUT_TX_ID}`).click()
+    const dialog = asDrop.getByTestId('payout-detail-dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByTestId('payout-detail-manual-section')).not.toBeVisible()
+    await expect(asDrop.getByTestId(`confirm-payout-button-${PAYOUT_TX_ID}`)).toHaveCount(0)
+  })
+
+  // One test per role, each requesting ONLY its own fixture. Requesting two role fixtures in a
+  // single test instantiates both on the same `page` and the last `mockAuthAs` wins — a combined
+  // JUNIOR/HR loop here ran as HR and asserted nothing about JUNIOR.
+  async function expectNoConfirmPayoutButton(page: Page) {
+    await mockPayoutDetailRoutes(page)
+    await page.goto('/finance')
+    await expect(page.getByTestId('finance-page')).toBeVisible()
+    await expect(page.getByTestId(`confirm-payout-button-${PAYOUT_TX_ID}`)).toHaveCount(0)
   }
 
-  test('SENIOR does NOT see manual-confirm section', async ({ asSenior }) => {
-    await assertManualSectionHidden(asSenior)
+  test('JUNIOR does NOT see the confirm-payout button', async ({ asJunior }) => {
+    await expectNoConfirmPayoutButton(asJunior)
   })
 
-  test('DROP does NOT see manual-confirm section', async ({ asDrop }) => {
-    await assertManualSectionHidden(asDrop)
-  })
-
-  test('JUNIOR does NOT see manual-confirm section', async ({ asJunior }) => {
-    await assertManualSectionHidden(asJunior)
-  })
-
-  test('HR does NOT see manual-confirm section', async ({ asHr }) => {
-    await assertManualSectionHidden(asHr)
+  test('HR does NOT see the confirm-payout button', async ({ asHr }) => {
+    await expectNoConfirmPayoutButton(asHr)
   })
 })
 
@@ -580,6 +605,22 @@ test.describe('AC5 — Company balance KPI on /stats', () => {
     await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) => jsonOk(r, []))
     await page.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) => jsonOk(r, []))
     await page.route(`${API_GLOB}/users`, (r) => jsonOk(r, []))
+    // «Контроль приходів» section of /stats (ADMIN + ACCOUNTANT): empty-but-valid overview.
+    // Unmocked it falls through to the real API, 401s and bounces the page to /login.
+    await page.route(new RegExp(`${API_RE}/finance/income-compliance(\\?.*)?$`), (r) =>
+      jsonOk(r, {
+        month: '2026-06',
+        totals: {
+          expectedProjects: 0,
+          submittedProjects: 0,
+          laggingReceivers: 0,
+          completeReceivers: 0,
+          pendingProjects: 0,
+          accruedProjects: 0,
+        },
+        receivers: [],
+      }),
+    )
     // Full FinanceSummaryDto shape (the fixture default summary predates
     // `adminBalances`). Owner decision 2026-10-12: ADMIN and ACCOUNTANT both see
     // the partner (admin) balances next to the company balance.

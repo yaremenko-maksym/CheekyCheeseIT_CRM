@@ -66,18 +66,20 @@ export default defineConfig({
       // The default 'chromium' project above keeps serviceWorkers: 'block' so
       // existing mock-based specs are not affected.
       //
-      // CI note: a dedicated 'cache-e2e' shard in ci.yml needs a pre-built
-      // dist/ — see docs/superpowers/plans/2026-06-06-cache-e2e-plan.md.
+      // CI: the `cache` leg of ci.yml's `e2e` matrix runs this project
+      // (`playwright test --project=cache`) against the same production
+      // build + API + `vite preview` the other shards use.
       // NOTE: requires externally-started servers (see the webServer note
-      // below); not auto-run by ci.yml yet (no cache shard) — run locally or
-      // via the deferred dedicated shard.
+      // below).
       name: 'cache',
       testMatch: '**/cache/**/*.spec.ts',
       use: {
         ...devices['Desktop Chrome'],
         // Enable SW registration — this is what we are testing.
         serviceWorkers: 'allow' as const,
-        baseURL: 'http://localhost:3000',
+        // Same override as the top-level `use.baseURL`, so a scratch-port run
+        // (PLAYWRIGHT_BASE_URL=http://localhost:30xx) works for this project too.
+        baseURL: process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:3000',
         // Longer timeout for SW activation (activation requires ~1–3 network
         // round-trips for SW script fetch + install + activate lifecycle).
         actionTimeout: 20_000,

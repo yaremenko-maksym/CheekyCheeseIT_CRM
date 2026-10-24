@@ -53,6 +53,9 @@ async function createSeniorViaDialog(page: Page): Promise<Record<string, unknown
   return JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
 }
 
+// CRM root, anchored on the WHOLE url (a bare `/\/?$/` matches EVERY url, so it asserted nothing).
+const CRM_ROOT = /^https?:\/\/[^/]+\/?(\?.*)?$/
+
 test.describe('Users management page', () => {
   // ---------------------------------------------------------------------------
   // RBAC: access control
@@ -72,7 +75,7 @@ test.describe('Users management page', () => {
       // = '/'. Old in-page «Доступ только для администратора» panel
       // is no longer rendered — guard redirects before the page mounts.
       await page.goto('/users')
-      await expect(page).toHaveURL(/\/?$/, { timeout: 8_000 })
+      await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
       await expect(page).not.toHaveURL(/\/users/)
     })
 
@@ -80,7 +83,7 @@ test.describe('Users management page', () => {
       // PR #184 route-guard: /users is ADMIN-only. resolveRoleHome('HR')
       // = '/'. Guard redirects before the page mounts.
       await page.goto('/users')
-      await expect(page).toHaveURL(/\/?$/, { timeout: 8_000 })
+      await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
       await expect(page).not.toHaveURL(/\/users/)
     })
 
@@ -612,7 +615,7 @@ test.describe('Users management page', () => {
       // resolveRoleHome('HR') = '/'. The in-page «Доступ только
       // для администратора» notice is no longer rendered — guard fires first.
       await page.goto('/users')
-      await expect(page).toHaveURL(/\/?$/, { timeout: 8_000 })
+      await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
       await expect(page).not.toHaveURL(/\/users/)
     })
   })

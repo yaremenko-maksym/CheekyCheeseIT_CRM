@@ -30,6 +30,7 @@ import {
   createPayoutRequestViaAPI,
   payPayoutRequestViaAPI,
   listTransactionsByProjectViaAPI,
+  ensureCompanyWalletViaAPI,
 } from './fixtures'
 
 const REAL_API = `${REAL_API_BASE}/api`
@@ -79,6 +80,7 @@ test.describe('Invoice signing — real API', () => {
 
     try {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
+      await ensureCompanyWalletViaAPI(page)
       const invoiceRes = await page.request.get(`${REAL_API}/invoices/${payoutTxId}`)
       // The invoice may not be ready immediately if the backend defers PDF
       // creation; retry a couple of times.
@@ -111,6 +113,7 @@ test.describe('Invoice signing — real API', () => {
     try {
       // Wait briefly for invoice to be ready.
       await loginViaApi(page, SEED_ADMIN_EMAIL)
+      await ensureCompanyWalletViaAPI(page)
       for (let attempt = 0; attempt < 5; attempt++) {
         const r = await page.request.get(`${REAL_API}/invoices/${payoutTxId}`)
         if (r.status() === 200) break
@@ -144,6 +147,7 @@ test.describe('Invoice signing — real API', () => {
 
     try {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
+      await ensureCompanyWalletViaAPI(page)
       // Wait for invoice to be ready.
       for (let attempt = 0; attempt < 5; attempt++) {
         const r = await page.request.get(`${REAL_API}/invoices/${payoutTxId}`)
@@ -152,7 +156,7 @@ test.describe('Invoice signing — real API', () => {
       }
 
       // SeniorB is NOT the counterparty (seniorA is) → 403.
-      await loginViaApi(page, SEED_EMAILS.seniorB)
+      await loginViaApi(page, SEED_EMAILS.seniorC)
       const res = await page.request.post(`${REAL_API}/invoices/${payoutTxId}/sign`, {
         data: {},
       })

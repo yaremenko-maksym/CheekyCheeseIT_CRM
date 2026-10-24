@@ -34,6 +34,28 @@ make_case() {
 
 run_guard() { python3 "$1/scripts/devops/$GUARD"; }
 
+# Patch the COPIED guard (never the real one under scripts/devops/) so its
+# KNOWN_UNSHARDED holds exactly one entry. $1 = fake repo root, $2 = spec path
+# relative to apps/e2e/, $3 = the reason string.
+exempt_in_guard() {
+  python3 - "$1/scripts/devops/$GUARD" "$2" "$3" <<'PY'
+import sys
+
+path, entry, reason = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f:
+    content = f.read()
+needle = "KNOWN_UNSHARDED: dict[str, str] = {}"
+if needle not in content:
+    raise SystemExit(
+        "harness assumption broken: literal '{}' not found in {} "
+        "(guard script changed shape - update this test)".format(needle, path)
+    )
+content = content.replace(needle, "KNOWN_UNSHARDED: dict[str, str] = {" + repr(entry) + ": " + repr(reason) + "}")
+with open(path, "w") as f:
+    f.write(content)
+PY
+}
+
 read -r -d '' SHARDED_YML <<YML || true
 name: CI
 on: [push]
@@ -154,9 +176,13 @@ assert_green "spec covered by a directory-prefix shard token (tests/crm)" \
   --contains "OK: All spec files" \
   -- run_guard "$(make_case dir-prefix "$DIR_PREFIX_YML" "tests/crm/$SPEC")"
 
-assert_green "a KNOWN_UNSHARDED spec stays green with no ci.yml mention" \
+ALLOWLISTED_ROOT="$(make_case allowlisted "$NO_MENTION_YML" "tests/needs-own-stack.spec.ts" "tests/some-other.spec.ts")"
+exempt_in_guard "$ALLOWLISTED_ROOT" "tests/needs-own-stack.spec.ts" \
+  "needs a dedicated Redis flush the shared CI stack cannot give it (see runbook)"
+assert_green "a KNOWN_UNSHARDED spec WITH a real reason stays green with no ci.yml mention" \
   --contains "OK: All spec files" \
-  -- run_guard "$(make_case allowlisted "$NO_MENTION_YML" "tests/legend.spec.ts" "tests/some-other.spec.ts")"
+  --contains "Known unsharded:     1" \
+  -- run_guard "$ALLOWLISTED_ROOT"
 
 # ── negative ───────────────────────────────────────────────────────────────────
 assert_red "spec in no shard and no debt list -> red" \
@@ -172,6 +198,16 @@ assert_red "CHEAT: spec named under a foreign key (paths-filter / step name) -> 
   --contains "NOT in any CI shard" \
   -- run_guard "$(make_case foreign-key "$FOREIGN_KEY_YML" "tests/$SPEC")"
 
+# ── exemptions must carry a real reason (deferral is how 54 specs went unrun) ─────
+for reason in "migrate to the finance shard later" "debt: not gated" "todo" ""; do
+  EX_ROOT="$(make_case "deferral-$(printf '%s' "$reason" | tr -c 'a-z' '_')" "$NO_MENTION_YML" "tests/needs-own-stack.spec.ts" "tests/some-other.spec.ts")"
+  exempt_in_guard "$EX_ROOT" "tests/needs-own-stack.spec.ts" "$reason"
+  assert_red "CHEAT: exemption whose reason only defers the work ('$reason') -> red" \
+    --contains "without a real reason" \
+    --contains "needs-own-stack.spec.ts" \
+    -- run_guard "$EX_ROOT"
+done
+
 # ── reverse-direction: shard files: entry pointing at nothing ───────────────────
 assert_red "shard files: names a spec that does not exist on disk -> red (reverse-direction check)" \
   --contains "GHOST shard entries" \
@@ -179,9 +215,12 @@ assert_red "shard files: names a spec that does not exist on disk -> red (revers
   --contains "$SPEC" \
   -- run_guard "$(make_case ghost-shard "$GHOST_SHARD_YML" "tests/real.spec.ts")"
 
+EMPTY_DIR_ROOT="$(make_case empty-dir-prefix "$EMPTY_DIR_PREFIX_YML" "tests/needs-own-stack.spec.ts")"
+exempt_in_guard "$EMPTY_DIR_ROOT" "tests/needs-own-stack.spec.ts" \
+  "needs a dedicated Redis flush the shared CI stack cannot give it (see runbook)"
 assert_green "directory-prefix token matching zero files is not treated as a ghost" \
   --contains "OK: All spec files" \
-  -- run_guard "$(make_case empty-dir-prefix "$EMPTY_DIR_PREFIX_YML" "tests/legend.spec.ts")"
+  -- run_guard "$EMPTY_DIR_ROOT"
 
 # PENDING_SHARD_FILES escape hatch: a shard files: entry naming a not-yet-
 # created spec stays green ONLY if explicitly acknowledged — same idiom as

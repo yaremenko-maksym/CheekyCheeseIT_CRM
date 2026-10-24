@@ -15,6 +15,7 @@
  */
 
 import { test, expect } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 import {
   SEED_ADMIN_EMAIL,
   SEED_EMAILS,
@@ -30,6 +31,7 @@ function uniqueSuffix(): string {
 
 test.describe('Drop-team — SENIOR read-only view (AC7)', () => {
   test('senior attached to a drop-team sees no edit/archive controls', async ({ page }) => {
+    const uk = await loadMessages('uk')
     const suffix = uniqueSuffix()
     const dropEmail = `drop-ac7-senior-${suffix}@cheekycheese.dev`
     const dropDisplayName = `Drop AC7 Senior ${suffix}`
@@ -43,10 +45,10 @@ test.describe('Drop-team — SENIOR read-only view (AC7)', () => {
 
     try {
       // Step 2: attach a seed SENIOR to the drop-team.
-      await addSeniorToDropTeamViaAPI(page, teamId, { seniorEmail: SEED_EMAILS.seniorB })
+      await addSeniorToDropTeamViaAPI(page, teamId, { seniorEmail: SEED_EMAILS.seniorC })
 
       // Step 3: re-login as the SENIOR and visit the team page.
-      await loginViaApi(page, SEED_EMAILS.seniorB)
+      await loginViaApi(page, SEED_EMAILS.seniorC)
       await page.goto(`/team/${teamId}`)
 
       // The page renders — drop's display name visible somewhere (the team
@@ -69,10 +71,14 @@ test.describe('Drop-team — SENIOR read-only view (AC7)', () => {
 
       // «Сменить синьора» / «Rotate senior» — round-2 admin-only control
       // on the drop-team page. Test that it never surfaces to a SENIOR.
-      await expect(page.getByRole('button', { name: /сменить синьора/i })).toHaveCount(0)
+      await expect(
+        page.getByRole('button', { name: assertInCatalog(uk, 'Змінити сеньйора') }),
+      ).toHaveCount(0)
 
       // «Добавить» — add-member affordance, ADMIN/HR-only.
-      await expect(page.getByRole('button', { name: /^добавить$/i })).toHaveCount(0)
+      await expect(
+        page.getByRole('button', { name: assertInCatalog(uk, 'Додати'), exact: true }),
+      ).toHaveCount(0)
     } finally {
       // Re-login as ADMIN and archive the drop to clean up.
       await loginViaApi(page, SEED_ADMIN_EMAIL)
