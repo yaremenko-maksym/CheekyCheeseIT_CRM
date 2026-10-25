@@ -113,6 +113,7 @@ export type Layer1Flag =
   | 'DESCRIPTION_TRUNCATED'
   | 'FUTURE_DATE_IGNORED'
   | 'DATE_UNCERTAIN'
+  | 'TIMEZONE_MENTIONED'
 
 export interface Layer1Result {
   ruleVersion: RuleVersion

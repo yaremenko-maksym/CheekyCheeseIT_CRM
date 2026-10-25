@@ -320,3 +320,27 @@ export const AUTHORIZATION_PHRASES = [
   ['разрешение на работу в сша', 'US'],
   ['arbeitserlaubnis', null],
 ] as const
+
+/**
+ * Timezone mentions. Evidence only (flag TIMEZONE_MENTIONED): no rule rejects on a timezone. The
+ * text is folded first, so "UTC-5" is read as "utc 5" and "UTC+2" as "utc+2"; both start with "utc".
+ */
+export const TIMEZONE_PHRASES = [
+  'utc',
+  'gmt',
+  'cet',
+  'cest',
+  'eet',
+  'eest',
+  'est',
+  'edt',
+  'cst',
+  'cdt',
+  'pst',
+  'pdt',
+  'mst',
+  'mdt',
+  'msk',
+  'time zone*',
+  'timezone*',
+] as const

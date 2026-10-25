@@ -1372,6 +1372,85 @@ describe('layer1: flags', () => {
   })
 })
 
+describe('layer1: a company saying what it is, not who may apply, is not an agency ban', () => {
+  it.each([
+    'We are not an agency',
+    'Not a recruitment agency',
+    "We aren't an agency",
+    "This isn't a recruitment agency",
+    'We are not an agency, we are a product company',
+  ])('%s => no agency signal, nothing rejected', (text) => {
+    const r = body(text)
+    expect(r.agency).toMatchObject({ value: 'UNKNOWN', verdict: 'WARN_UNKNOWN', evidence: [] })
+    expect(r.rejectedBy).not.toContain('agency')
+  })
+
+  it('a real ban next to such a sentence still rejects', () => {
+    expect(body('We are not an agency. No agencies please.').agency.value).toBe('PROHIBITED')
+    expect(body('We are not hiring through agencies').agency.value).toBe('PROHIBITED')
+  })
+})
+
+describe('layer1: timezone mentions are evidence and a flag, never a verdict', () => {
+  it.each([
+    'utc',
+    'gmt',
+    'cet',
+    'cest',
+    'eet',
+    'eest',
+    'est',
+    'edt',
+    'cst',
+    'cdt',
+    'pst',
+    'pdt',
+    'mst',
+    'mdt',
+    'msk',
+    'time zone',
+    'timezone',
+  ])('"%s" is recorded without changing the geography verdict', (phrase) => {
+    const text = `Core hours in ${phrase}`
+    const r = body(text)
+    expect(r.flags).toContain('TIMEZONE_MENTIONED')
+    expect(r.geography.value).toEqual({ kind: 'UNSTATED', regions: [] })
+    expect(r.geography.verdict).toBe('PASS')
+    expect(r.geography.evidence).toEqual([ev('BODY', 'descriptionMd', text, 'TIMEZONE_MENTION')])
+    expect(r.rejectedBy).toEqual([])
+  })
+
+  it.each(['UTC+2', 'GMT-5', 'Time zones: Europe', 'Timezones: Europe', 'Overlap with US hours'])(
+    '%s is recorded',
+    (text) => {
+      expect(body(text).flags).toContain('TIMEZONE_MENTIONED')
+    },
+  )
+
+  it('reads a title and a structured location too', () => {
+    expect(run({ title: 'Developer (UTC+2)' }).flags).toContain('TIMEZONE_MENTIONED')
+    expect(run({ location: 'CET' }).geography.evidence).toEqual([
+      ev('STRUCTURED', 'location', 'CET', 'TIMEZONE_MENTION'),
+    ])
+  })
+
+  it.each([
+    'Best team in town',
+    'Overlap with the team',
+    'Overlap with the team; hours vary',
+    'Overlap with the team. Hours vary',
+    'Overlap with our users hourly',
+  ])('%s is not a timezone mention', (text) => {
+    expect(body(text).flags).not.toContain('TIMEZONE_MENTIONED')
+  })
+
+  it('an overlap window further than 60 characters (the gap includes both spaces) from its hours is not read as one', () => {
+    const far = `Overlap with ${'x'.repeat(59)} hours`
+    expect(body(far).flags).not.toContain('TIMEZONE_MENTIONED')
+    expect(body(`Overlap with ${'x'.repeat(58)} hours`).flags).toContain('TIMEZONE_MENTIONED')
+  })
+})
+
 describe('layer1: mutation kills (boundaries, evidence codes, text normalisation)', () => {
   it('a hit that starts exactly where a hybrid span ends is not inside that span', () => {
     // "гібрид*" is a stem, so it ends where the digit starts; the 5-day office phrase is onsite. "at office" is no onsite phrase, so only the days entry speaks.

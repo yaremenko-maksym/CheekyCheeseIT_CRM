@@ -26,6 +26,7 @@ import {
   REMOTE_PHRASES,
   ROLE_FAMILIES,
   SOFTENER_STEMS,
+  TIMEZONE_PHRASES,
   YEARS_UNITS,
 } from './layer1.lexicon'
 import type {
@@ -104,17 +105,16 @@ function hitsOf(re: RegExp, folded: string): Hit[] {
 const inside = (spans: readonly Hit[], index: number): boolean =>
   spans.some((s) => index >= s.index && index < s.index + s.text.length)
 
-/** Runs of anything that is not a letter or an apostrophe. */
-// Stryker disable next-line Regex: equivalent — dropping the `+` only yields empty strings between adjacent separators, and every caller filters empty words out
-const NON_WORD_RUN = /[^\p{L}']+/u
+/** Anything that is not a letter or an apostrophe; callers drop the empty words it leaves. */
+const NON_WORD = /[^\p{L}']/u
 
 function precedingWords(folded: string, index: number, count: number): string[] {
   const head = folded.slice(0, index)
   const cut = Math.max(...['.', ';', '!', '?', ':', ','].map((c) => head.lastIndexOf(c)))
-  // Stryker disable next-line ConditionalExpression,UnaryOperator: equivalent — with no punctuation `slice(cut + 1)` is `slice(0)`, the whole head; a cut at index 1 only adds one preceding character, never a negator
-  const clause = cut === -1 ? head : head.slice(cut + 1)
+  // No punctuation: cut is -1, so this is the whole head.
+  const clause = head.slice(cut + 1)
   return clause
-    .split(NON_WORD_RUN)
+    .split(NON_WORD)
     .filter((w) => w.length > 0)
     .slice(-count)
 }
@@ -137,19 +137,13 @@ function normalizeText(text: string): string {
     .replace(/’/g, "'")
 }
 
-// Stryker disable next-line Regex: equivalent — a shorter separator only leaves empty or whitespace-only sentences, which `sentencesOf` trims and drops
-const SENTENCE_BREAK = /[\r\n]+|(?<=[.!?])\s+/
-// Stryker disable next-line Regex: equivalent — one space per mark or one per run collapses to the same text under `\s+` below
-const MARKDOWN_MARKS = /[*#>`]+/g
-// Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent — an empty sentence yields no signal in any extractor, so keeping it changes nothing observable
-const isNonEmpty = (s: string): boolean => s.length > 0
-
+/** Empty and whitespace-only pieces are harmless: no extractor reads a signal from them. */
+const SENTENCE_BREAK = /[\r\n]|(?<=[.!?])\s/
+const MARKDOWN_MARKS = /[*#>`]/g
 function sentencesOf(text: string): string[] {
-  // Stryker disable next-line MethodExpression: equivalent — see `isNonEmpty`: dropping the empty-sentence filter changes nothing observable
   return normalizeText(text)
     .split(SENTENCE_BREAK)
     .map((s) => s.replace(MARKDOWN_MARKS, ' ').replace(/\s+/g, ' ').trim())
-    .filter(isNonEmpty)
 }
 
 const excerptOf = (s: string): string => s.slice(0, MAX_EXCERPT)
@@ -274,8 +268,8 @@ const extractWorkplace: Extractor<WorkplaceSignal> = (folded) => {
     if (isNegated(folded, h.index) || isSoftened(folded, h.index)) continue
     out.push({ value: 'HYBRID', code: 'HYBRID_KEYWORD' })
   }
-  // Stryker disable next-line ConditionalExpression,MethodExpression: equivalent — a day count below 5 is also in `hybrid`, and `inside(hybrid, ...)` below skips it
-  const onsite = [...hitsOf(ONSITE_RE, folded), ...days.filter((d) => d.count === 5)]
+  // Every day entry is a candidate: a count below 5 is already in `hybrid`, so `inside` skips it.
+  const onsite = [...hitsOf(ONSITE_RE, folded), ...days]
   for (const h of onsite) {
     // "2 days in the office" is one hybrid phrase: its "in office" is not an onsite signal.
     if (inside(hybrid, h.index)) continue
@@ -352,9 +346,7 @@ function classifyWorkplace(input: Layer1Input): {
 const FULL_RE = phraseRegex(FULL_TIME_PHRASES)
 const PART_RE = phraseRegex(PART_TIME_PHRASES)
 /** "40 hours per week", "20 год на тиждень". */
-const HOURS_RE =
-  // Stryker disable next-line Regex: equivalent — the match ends after the "тиж" stem and nothing reads what follows it, so `\p{L}*` vs `\P{L}*` is unobservable
-  /(?<!\d)(\d{1,2}) ?(?:hours?|hrs?|год\p{L}*) ?(?:\/|per|a|в|на) ?(?:week|wk|тиж\p{L}*)/gu
+const HOURS_RE = /(?<!\d)(\d{1,2}) ?(?:hours?|hrs?|год\p{L}*) ?(?:\/|per|a|в|на) ?(?:week|wk|тиж)/gu
 
 const extractSchedule: Extractor<Schedule> = (folded) => {
   const full = hitsOf(FULL_RE, folded).filter((h) => !isNegated(folded, h.index))
@@ -460,7 +452,7 @@ function classifyDuration(input: Layer1Input): Dimension<Duration> {
 const wordsAfter = (folded: string, hit: Hit): string =>
   `${folded
     .slice(hit.index + hit.text.length)
-    .split(NON_WORD_RUN)
+    .split(NON_WORD)
     .filter((w) => w.length > 0)
     .join(' ')} `
 
@@ -472,12 +464,23 @@ const AGENCY_NOUN_RE = phraseRegex(AGENCY_NOUNS)
 const AGENCY_PROHIBIT_RE = phraseRegex(AGENCY_PROHIBIT_PHRASES)
 const AGENCY_ACCEPT_RE = phraseRegex(AGENCY_ACCEPT_PHRASES)
 
+/** "isn't an agency", "not a recruitment agency": says what the company is, not who may apply. */
+const isCopulaNegation = (words: string[], i: number): boolean =>
+  (words[i] === 'not' || words[i]?.endsWith("n't") === true) &&
+  (words[i + 1] === 'a' || words[i + 1] === 'an')
+
+/** A negator shortly before an agency noun bans agencies, unless it only denies being one. */
+function bansAgencies(folded: string, hit: Hit): boolean {
+  const words = precedingWords(folded, hit.index, AGENCY_NEGATION_WORDS)
+  return words.some((w, i) => isNegator(w) && !isCopulaNegation(words, i))
+}
+
 const extractAgency: Extractor<AgencyAcceptance> = (folded) => {
   const prohibited =
     hitsOf(AGENCY_PROHIBIT_RE, folded).length > 0 ||
     hitsOf(AGENCY_NOUN_RE, folded).some(
       (h) =>
-        isNegated(folded, h.index, AGENCY_NEGATION_WORDS) ||
+        bansAgencies(folded, h) ||
         AGENCY_PROHIBIT_AFTER.some((p) => agencyTail(folded, h).startsWith(`${p} `)),
     )
   if (prohibited) return [{ value: 'PROHIBITED', code: 'NO_AGENCY' }]
@@ -491,8 +494,7 @@ const extractAgency: Extractor<AgencyAcceptance> = (folded) => {
 
 function classifyAgency(input: Layer1Input): Dimension<AgencyAcceptance> {
   const r = resolve(collect(textSources(input), extractAgency, ['descriptionMd']))
-  // Stryker disable next-line ConditionalExpression: equivalent — a conflict resolves to value null, which the lines below already map to the same UNKNOWN / WARN_UNKNOWN / evidence
-  if (r.conflict) return dim<AgencyAcceptance>('UNKNOWN', 'WARN_UNKNOWN', r.evidence)
+  // A conflict resolves to value null, which maps to UNKNOWN / WARN_UNKNOWN below.
   const v = r.value ?? 'UNKNOWN'
   return dim<AgencyAcceptance>(
     v,
@@ -617,10 +619,11 @@ const LEADS_BODY_RE = phraseRegex(LEADS_BODY_PHRASES)
 const IC_BODY_RE = phraseRegex(IC_BODY_PHRASES)
 
 function classifyLeadership(input: Layer1Input): Dimension<Leadership> {
+  // Stryker disable next-line StringLiteral: equivalent — any placeholder that is not a lead phrase reads exactly like the empty string
+  const hint = input.seniorityHint ?? ''
   const probes = [
     { source: 'TITLE' as const, field: 'title', text: input.title },
-    // Stryker disable next-line StringLiteral: equivalent — any non-lead placeholder text matches no lead phrase, exactly like the empty string
-    { source: 'STRUCTURED' as const, field: 'seniorityHint', text: input.seniorityHint ?? '' },
+    { source: 'STRUCTURED' as const, field: 'seniorityHint', text: hint },
   ]
   for (const p of probes) {
     if (hitsOf(LEAD_RE, fold(p.text)).length > 0)
@@ -659,11 +662,11 @@ function classifyLeadership(input: Layer1Input): Dimension<Leadership> {
 const REGION_ALTERNATIVES = REGIONS.flatMap(([, phrases]) => phrases).join('|')
 /** "Remote - Europe", "EU only", "must be based in Canada". */
 const REGION_LIMIT_RE = new RegExp(
-  // Stryker disable next-line StringLiteral: the mutant leaves an unbalanced group, so the module throws on load and the runner reports no failing test — it cannot be asserted against
-  `${WORD_START}(?:remote(?: in| within| from)?[ ,:(]*(?:the )?(${REGION_ALTERNATIVES})` +
-    `|(${REGION_ALTERNATIVES}) only` +
-    // Stryker disable next-line StringLiteral: as above — an unbalanced group makes the module fail to load
-    `|must (?:be (?:located|based)|reside|live) in (?:the )?(${REGION_ALTERNATIVES}))${WORD_END}`,
+  `${WORD_START}(?:${[
+    `remote(?: in| within| from)?[ ,:(]*(?:the )?(${REGION_ALTERNATIVES})`,
+    `(${REGION_ALTERNATIVES}) only`,
+    `must (?:be (?:located|based)|reside|live) in (?:the )?(${REGION_ALTERNATIVES})`,
+  ].join('|')})${WORD_END}`,
   'giu',
 )
 /** "authorized to work in the US". */
@@ -671,6 +674,10 @@ const AUTHORIZED_TO_WORK_RE = new RegExp(
   `${WORD_START}(?:${AUTHORIZATION_VERBS.join('|')}) to work in (?:the )?(${REGION_ALTERNATIVES})${WORD_END}`,
   'giu',
 )
+/** "UTC+2", "CET", "overlap with US hours": a timezone is mentioned (evidence only, never a reject). */
+const TIMEZONE_RE = phraseRegex(TIMEZONE_PHRASES)
+/** "overlap with ... hours" names a working-hours window without naming a zone. */
+const OVERLAP_HOURS_RE = /\boverlap (?:with|of)\b[^.;]{0,60}\bhours?\b/u
 const AUTHORIZATION_RES = AUTHORIZATION_PHRASES.map(([phrase, region]) => ({
   re: phraseRegex([phrase]),
   region,
@@ -701,6 +708,8 @@ function classifyGeography(input: Layer1Input): Dimension<GeographyValue> {
         regions.add(regionCode(m[1] ?? m[2] ?? m[3] ?? ''))
         note(src, sentence, 'REGION_LIMIT')
       }
+      if (hitsOf(TIMEZONE_RE, folded).length > 0 || OVERLAP_HOURS_RE.test(folded))
+        note(src, sentence, 'TIMEZONE_MENTION')
       for (const m of folded.matchAll(AUTHORIZED_TO_WORK_RE)) {
         if (isNegated(folded, m.index ?? 0)) continue
         authorization = true
@@ -722,6 +731,8 @@ function classifyGeography(input: Layer1Input): Dimension<GeographyValue> {
     : regions.size > 0
       ? 'REGION_LIMITED'
       : 'UNSTATED'
+  // A timezone mention is evidence only: the studio's timezone policy is not frozen, so it never
+  // changes the kind or the verdict (it raises TIMEZONE_MENTIONED for a human to read).
   // Policy A1o is "any location": a restriction can only warn, because whether it excludes a
   // given senior depends on that senior, which Layer 1 does not know.
   return dim<GeographyValue>(
@@ -759,11 +770,13 @@ function classifySalary(input: Layer1Input): {
   const usdPerUnit =
     currency === 'USD'
       ? 1
-      : rate && rate.currency.toUpperCase() === currency && rate.usdPerUnit > 0
+      : rate &&
+          rate.currency.toUpperCase() === currency &&
+          Number.isFinite(rate.usdPerUnit) &&
+          rate.usdPerUnit > 0
         ? rate.usdPerUnit
         : null
-  // Stryker disable next-line ConditionalExpression: equivalent for the `=== null` operand — `Number.isFinite(null)` is false, so null is refused by the second operand anyway (the finite check itself is pinned by the Infinity-rate spec)
-  if (usdPerUnit === null || !Number.isFinite(usdPerUnit))
+  if (usdPerUnit === null)
     return {
       dimension: dim<SalaryValue>({ state: 'UNCONVERTIBLE', monthlyUsd: null }, 'WARN_UNKNOWN', [
         policyNote('NO_RECORDED_RATE', currency),
@@ -800,7 +813,7 @@ function classifyFreshness(
   const evidence: Layer1Evidence[] = []
   const note = (field: string, raw: string, code: string, used: boolean) =>
     evidence.push({ source: 'STRUCTURED', field, excerpt: raw, code, used })
-  let newest: Date | null = null
+  const datedAt: number[] = []
   let expired = false
   for (const d of input.dates) {
     const field = `date.${d.semantics}`
@@ -820,13 +833,13 @@ function classifyFreshness(
       note(field, d.raw, 'FUTURE_DATE', false)
     } else {
       note(field, d.raw, 'DATED', true)
-      // Stryker disable next-line EqualityOperator: equivalent — on a tie the replacement is an equal instant, so `newest` is the same moment either way
-      if (newest === null || d.value.getTime() > newest.getTime()) newest = d.value
+      datedAt.push(d.value.getTime())
     }
   }
   let value: FreshnessValue = { bucket: 'UNKNOWN', ageDays: null, rank: 0 }
-  if (newest !== null) {
-    const ageDays = Math.max(0, Math.floor((now.getTime() - newest.getTime()) / MS_PER_DAY))
+  if (datedAt.length > 0) {
+    const newest = Math.max(...datedAt)
+    const ageDays = Math.max(0, Math.floor((now.getTime() - newest) / MS_PER_DAY))
     const bucket =
       ageDays <= 7 ? 'FRESH' : ageDays <= 30 ? 'RECENT' : ageDays <= 90 ? 'AGING' : 'OLD'
     value = { bucket, ageDays, rank: 1 / (1 + ageDays) }
@@ -866,6 +879,8 @@ export function classifyLayer1(input: Layer1Input, options: Layer1Options): Laye
     salary: salary.dimension,
     freshness: freshness.dimension,
   }
+  if (named.geography.evidence.some((e) => e.code === 'TIMEZONE_MENTION'))
+    flags.add('TIMEZONE_MENTIONED')
   const entries = Object.entries(named) as Array<[string, Dimension<unknown>]>
   const rejectedBy = entries.filter(([, d]) => d.verdict === 'REJECT').map(([k]) => k)
   const unknown = entries.filter(([, d]) => d.verdict === 'WARN_UNKNOWN').map(([k]) => k)
