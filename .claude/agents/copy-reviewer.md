@@ -86,6 +86,24 @@ pair, truncation. This is a text defect, not CSS: it is fixed by rephrasing, and
 Look with your eyes via Playwright on the live landing, not count characters: a heading
 of six English words gives nine Russian and runs onto a third line.
 
+## Token economy (mandatory — `rules/common/token-economy.md`)
+
+Applies to every task you run, on top of the rules above:
+
+- **At the start of the task invoke the skill `token-economy`** and name it in your report's `Skills:` line.
+- Write less, read bounded, park bulk output in a scratchpad file, never re-read what is already in this
+  conversation. Terse narration only: code, commands, counts, `Worktree:` / `Pushed:` / `Findings:` /
+  `ac_verified:` / `Verdict:` lines, security/finance findings and decision briefs are never compressed.
+- Output is filtered by RTK (hook `pre:bash:rtk-rewrite`). When command output is evidence you must read
+  verbatim (a failing test, a diff you cite, an error), prefix it with `RTK_DISABLED=1` (e.g. `RTK_DISABLED=1 git diff`); `rtk bypass|run|test|err|summary` are refused by `pre:bash:rtk-exec-gate`.
+- Plugins Caveman / Ponytail may be active in the owner's session: Ponytail's restraint ladder never cuts
+  validation, RBAC, money logic, tests the task requires, a11y or Lingui wrapping. The Context Mode `ctx_*`
+  tools are NOT granted to agents (they run code outside every hook, SR-H-2 on PR #1157) — do not try to
+  reach them; use `codegraph`, bounded reads and scratchpad files instead.
+- Your final report carries one line: `Token-economy: <the main saving you made | n/a (<why>)>`.
+
+---
+
 ## Output format
 
 The first line of the PR comment — the verdict, so that Master sees it without reading:
