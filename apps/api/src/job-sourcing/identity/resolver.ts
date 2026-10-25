@@ -426,10 +426,10 @@ function compareClaims(p: FieldClaim, q: FieldClaim): number {
   const rp = orderable(p.revision)
   const rq = orderable(q.revision)
   if (rp !== rq) return rq - rp
-  return (
-    // Stryker disable next-line ConditionalExpression,EqualityOperator: the `>` half only ever yields 1 or 0 for "p sorts after q"; Array.prototype.sort treats every non-negative result alike, so 0 vs 1 (also `>=`) cannot change the order.
-    (p.sourceRecordId < q.sourceRecordId ? -1 : 0) + (p.sourceRecordId > q.sourceRecordId ? 1 : 0)
-  )
+  const before = p.sourceRecordId < q.sourceRecordId ? -1 : 0
+  // Stryker disable next-line ConditionalExpression,EqualityOperator: the `>` half only yields 1 or 0 for "p sorts after q"; V8's sort (not an ECMAScript guarantee) treats every non-negative result alike, so 0 vs 1 (also `>=`) cannot change the order.
+  const after = p.sourceRecordId > q.sourceRecordId ? 1 : 0
+  return before + after
 }
 
 export function chooseCanonical(claims: readonly FieldClaim[]): CanonicalChoice {
