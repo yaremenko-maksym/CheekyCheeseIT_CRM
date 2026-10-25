@@ -34,14 +34,20 @@ const RUN: ClaimedRun = {
 const HOST = 'api.smartrecruiters.com'
 const REQ = { url: `https://${HOST}/v1/companies/acme/postings/1` }
 
-function world(over: { input?: Partial<ContextInput>; transport: ContextDeps['transport'] }) {
+function world(over: {
+  input?: Partial<ContextInput>
+  transport: ContextDeps['transport']
+  noLogger?: boolean
+}) {
   const bans: HostBan[] = []
   const logs: string[] = []
+  const attempts = { count: 0 }
   let banFailures = 0
   let hold: Promise<void> | null = null
   const deps: ContextDeps = {
     transport: over.transport,
     recordBan: async (ban) => {
+      attempts.count += 1
       if (hold !== null) await hold
       if (banFailures > 0) {
         banFailures -= 1
@@ -52,7 +58,7 @@ function world(over: { input?: Partial<ContextInput>; transport: ContextDeps['tr
     savePage: async () => undefined,
     monotonicNow: () => 0,
     now: () => new Date('2026-10-25T10:00:00Z'),
-    logger: { error: (m: string) => logs.push(m) },
+    logger: over.noLogger === true ? undefined : { error: (m: string) => logs.push(m) },
   }
   const control = buildCollectionContext(deps, {
     run: RUN,
@@ -72,6 +78,7 @@ function world(over: { input?: Partial<ContextInput>; transport: ContextDeps['tr
     ...control,
     bans,
     logs,
+    attempts,
     failBans: (n: number) => {
       banFailures = n
     },
@@ -217,6 +224,60 @@ describe('a ban write that fails is never lost silently (CR-M-6 / SR-L-3)', () =
         floorHours: 0,
       },
     ])
+    // a retry that succeeded says nothing more, and is not retried again
+    await vi.advanceTimersByTimeAsync(10 * LATE_BAN_RETRY_MS)
+    expect(w.logs).toHaveLength(1)
+    expect(w.bans).toHaveLength(1)
+  })
+
+  it('a LATE refusal whose ban write succeeds is written once, and never scheduled again', async () => {
+    vi.useFakeTimers()
+    let refuse: (e: unknown) => void = () => undefined
+    const w = world({
+      transport: () =>
+        new Promise<string>((_resolve, reject) => {
+          refuse = reject
+        }),
+    })
+    const pending = w.ctx.fetchText(REQ).catch(() => undefined)
+    w.close('DEADLINE')
+    await pending
+    await w.drain()
+    refuse(new SourceRateLimitedError(HOST))
+    await vi.advanceTimersByTimeAsync(10 * LATE_BAN_RETRY_MS)
+    expect(w.attempts.count).toBe(1)
+    expect(w.bans).toHaveLength(1)
+    expect(w.logs).toEqual([])
+  })
+
+  it('without a logger, a late ban that stays unrecorded fails quietly (no unhandled rejection)', async () => {
+    vi.useFakeTimers()
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown) => unhandled.push(reason)
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      let refuse: (e: unknown) => void = () => undefined
+      const w = world({
+        noLogger: true,
+        transport: () =>
+          new Promise<string>((_resolve, reject) => {
+            refuse = reject
+          }),
+      })
+      const pending = w.ctx.fetchText(REQ).catch(() => undefined)
+      w.close('DEADLINE')
+      await pending
+      await w.drain()
+      w.failBans(2 * BAN_WRITE_ATTEMPTS)
+      refuse(new SourceBlockedError(HOST, 451))
+      await vi.advanceTimersByTimeAsync(LATE_BAN_RETRY_MS)
+      vi.useRealTimers()
+      await new Promise((r) => setTimeout(r, 10))
+      expect(w.attempts.count).toBe(2 * BAN_WRITE_ATTEMPTS)
+      expect(unhandled).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
   })
 
   it('a late retry that fails as well says so, once, and stops', async () => {

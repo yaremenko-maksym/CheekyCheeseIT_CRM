@@ -244,7 +244,7 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
           )
         }
       })
-    }, LATE_BAN_RETRY_MS).unref?.()
+    }, LATE_BAN_RETRY_MS).unref()
   }
 
   /** The ban, or null once written; after the last failed attempt the ban itself, logged. */

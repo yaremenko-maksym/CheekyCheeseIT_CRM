@@ -118,6 +118,39 @@ describe('T6 AC 1: declared hosts and byte caps reach the transport, for every e
     expect(REPORTING_WIRING.ARBEITNOW_API?.allowedHosts).toEqual(['www.arbeitnow.com'])
   })
 
+  it('every one-host type is pinned to its literal host, with a version (hand-written table)', () => {
+    const fixed: Record<string, string> = {
+      ARBEITNOW_API: 'www.arbeitnow.com',
+      ASHBY_ATS: 'api.ashbyhq.com',
+      DJINNI_RSS: 'djinni.co',
+      EUREMOTEJOBS_RSS: 'euremotejobs.com',
+      GREENHOUSE_ATS: 'boards-api.greenhouse.io',
+      HIMALAYAS_API: 'himalayas.app',
+      HN_HIRING: 'hn.algolia.com',
+      JOBGETHER_API: 'jobgether.com',
+      JOBICY_API: 'jobicy.com',
+      JOOBLE_API: 'jooble.org',
+      JSEARCH_API: 'jsearch.p.rapidapi.com',
+      MUSE_API: 'www.themuse.com',
+      REMOTEOK_API: 'remoteok.com',
+      REMOTIVE_API: 'remotive.com',
+      SMARTRECRUITERS_ATS: 'api.smartrecruiters.com',
+      THEIRSTACK_API: 'api.theirstack.com',
+      WORKABLE_ATS: 'apply.workable.com',
+      WWR_RSS: 'weworkremotely.com',
+    }
+    for (const [type, host] of Object.entries(fixed)) {
+      const wiring = REPORTING_WIRING[type as keyof typeof REPORTING_WIRING]
+      expect(wiring?.allowedHosts, type).toEqual([host])
+      expect(wiring?.adapterVersion, type).toMatch(/^[a-z-]+-\d+$/)
+    }
+    // the three config-dependent ones are functions (covered per entry below)
+    for (const type of ['LEVER_ATS', 'PERSONIO_ATS', 'RECRUITEE_ATS'] as const) {
+      expect(typeof REPORTING_WIRING[type]?.allowedHosts, type).toBe('function')
+      expect(REPORTING_WIRING[type]?.adapterVersion, type).toMatch(/^[a-z-]+-\d+$/)
+    }
+  })
+
   it('the manifest has entries for the wired types, so the run below is not vacuous', () => {
     expect(wiredEntries.length).toBeGreaterThanOrEqual(30)
   })
