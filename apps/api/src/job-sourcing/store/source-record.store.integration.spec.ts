@@ -24,8 +24,8 @@ import {
 } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageRun, ageSource } from '../../test/run-aging'
-import { JobRunLedger, writePageProgress } from '../ownership/job-run-ledger'
-import { RunFencedError, assertOwned } from '../ownership/run-ownership'
+import { JobRunLedger, type SavedPage, writePageProgress } from '../ownership/job-run-ledger'
+import { type RunHandle, RunFencedError, assertOwned } from '../ownership/run-ownership'
 import { LockContentionError } from './lock-order'
 import {
   MAX_OBSERVATIONS_PER_PAGE,
@@ -237,6 +237,42 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
     expect(await storeCounts(session.admin, namespace)).toMatchObject({ records: 1, revisions: 2 })
     const r = (await fx.runs(await sourceOf(h.runId)))[0]
     expect(r).toMatchObject({ received: 3, created: 1, unchanged: 0, duplicates: 2 })
+  })
+
+  /**
+   * Task 4.6 AC 4 — CHARACTERIZATION, written against the ledger's `savePage` BEFORE the fold: the
+   * literals below are what that writer put in the checkpoint counters for this input, and the
+   * record store's page write must put the same. Input: one record already known (x), one exact
+   * repeat (a, A twice), one record observed with two contents (a, A then B), one new record (b);
+   * the page is then replayed in the same run.
+   */
+  it.each([
+    ['ledger.savePage', (h: RunHandle, p: SavedPage) => ledger.savePage(h, p)],
+    ['saveObservationPage', (h: RunHandle, p: SavedPage) => saveObservationPage(db, h, p)],
+  ] as const)('Task 4.6 AC 4: %s writes the pre-fold checkpoint counters', async (_, write) => {
+    const namespace = ns()
+    await write(await run(), {
+      observations: [obs(namespace, 'x')],
+      checkpoint: specCheckpoint(1),
+    })
+    const h = await run()
+    const page = {
+      observations: [
+        obs(namespace, 'x'),
+        obs(namespace, 'a', 'A'),
+        obs(namespace, 'a', 'A'),
+        obs(namespace, 'a', 'B'),
+        obs(namespace, 'b'),
+      ],
+      checkpoint: specCheckpoint(3),
+    }
+    await write(h, page)
+    const once = (await fx.runs(await sourceOf(h.runId)))[0]
+    expect(once).toMatchObject({ received: 5, created: 2, unchanged: 1, duplicates: 2 })
+    await write(h, page)
+    const twice = (await fx.runs(await sourceOf(h.runId)))[0]
+    expect(twice).toMatchObject({ received: 10, created: 2, unchanged: 4, duplicates: 4 })
+    expect(twice?.checkpoint).toMatchObject({ position: { page: 3 } })
   })
 
   it('R2-CR-M-1: a run that waited for the record lock reads the head committed meanwhile', async () => {
