@@ -309,7 +309,8 @@ async function assertSchemaPresent(owner: Pool): Promise<void> {
   }
 }
 
-export async function openCrmAppSession(): Promise<CrmAppSession> {
+/** `appPoolMax`: connections of the `crm_app` pool (default 2); a concurrency spec needs more. */
+export async function openCrmAppSession({ appPoolMax = 2 } = {}): Promise<CrmAppSession> {
   const { ownerUrl, appPassword } = resolveConnectionPlan(process.env)
   assertDisposableTarget(ownerUrl)
   // Before the roles file can rewrite them — restored by `close()`.
@@ -364,7 +365,10 @@ export async function openCrmAppSession(): Promise<CrmAppSession> {
     await applyDeployDdlFile(admin, join(MANUAL_DIR, TRIGGERS_FILE))
     await applyDeployDdlFile(admin, join(MANUAL_DIR, GRANTS_FILE))
 
-    appPool = new Pool({ connectionString: urlFor(ownerUrl, ROLES.app, appPassword), max: 2 })
+    appPool = new Pool({
+      connectionString: urlFor(ownerUrl, ROLES.app, appPassword),
+      max: appPoolMax,
+    })
     const pool = appPool
     assertIsCrmApp(await readIdentity(pool))
 

@@ -17,7 +17,7 @@ import {
 } from '../providers/reporting-provider'
 import type { JobSourceRegistry } from '../registry/job-source-registry'
 import { dueSourcesPredicate } from '../scheduling/due-sources.query'
-import { cadenceHoursAtFloor, claimHostSlot } from '../scheduling/host-state'
+import { type SqlExecutor, cadenceHoursAtFloor, claimHostSlot } from '../scheduling/host-state'
 import type { LedgerCatalog } from './ledger-catalog'
 import {
   type ClaimRefusal,
@@ -33,6 +33,7 @@ import {
   validateEnding,
 } from './ledger-policy'
 import {
+  type OwnedRun,
   RUN_ATTEMPT_PREFIX,
   type RunHandle,
   RunFencedError,
@@ -803,6 +804,32 @@ export class JobRunLedger {
     )
     return rows.length === 1
   }
+}
+
+/**
+ * A page's checkpoint and counters, inside the caller's transaction (r5 Task 4.5: the record
+ * store's page write). It lives here so the ledger stays the one writer of `job_collection_runs`
+ * (write-gate.spec.ts). FENCED BY CONSTRUCTION (SR-M-1 / CR-M-1): it takes the `OwnedRun` that
+ * `assertOwned` returned for this handle AND repeats the ownership predicate in its WHERE, so a
+ * stale handle updates nothing and gets `RunFencedError`. It duplicates `savePage`'s UPDATE until
+ * Task 4.6 folds `savePage` onto it when it wires the store in.
+ */
+export async function writePageProgress(
+  tx: SqlExecutor,
+  h: RunHandle,
+  owned: OwnedRun,
+  page: { checkpoint: ValidatedCheckpoint; received: number; unique: number; created: number },
+): Promise<void> {
+  if (owned.runId !== h.runId) throw new RunFencedError('the owned run is not this handle`s run')
+  const checkpoint = validatedCheckpointSchema.parse(page.checkpoint)
+  const { rows } = await tx.execute(
+    sql`UPDATE job_collection_runs
+           SET checkpoint = ${JSON.stringify(checkpoint)}::jsonb, received = received + ${page.received},
+               created = created + ${page.created}, unchanged = unchanged + ${page.unique - page.created},
+               duplicates = duplicates + ${page.received - page.unique}, updated_at = clock_timestamp()
+         WHERE ${ownershipPredicate(h)} RETURNING 1 AS ok`,
+  )
+  if (rows.length !== 1) throw new RunFencedError()
 }
 
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)

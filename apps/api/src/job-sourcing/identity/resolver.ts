@@ -94,6 +94,12 @@ function strongKeys(r: ResolverRecord): { keys: AtsJobKey[]; evidence: string[] 
   return { keys: [postingStrong, applyStrong].filter((k): k is AtsJobKey => k !== null), evidence }
 }
 
+/**
+ * The keys of one record that may become a stored identity token (r5 Task 4.5): exactly the keys
+ * `assess` trusts, so the store and the resolver cannot disagree about what is strong.
+ */
+export const trustedAtsKeys = (r: ResolverRecord): AtsJobKey[] => strongKeys(r).keys
+
 const base = (decision: Decision, rule: AssessRule, evidence: string[]): Assessment => ({
   decision,
   rule,

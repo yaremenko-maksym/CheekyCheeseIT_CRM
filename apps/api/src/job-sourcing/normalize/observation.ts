@@ -44,9 +44,16 @@ export const ORIGINAL_LIMITS = {
   tags: 200,
 } as const
 
+/**
+ * At most this many dates are read from one record (SR-M-4, PR #1164): a provider sends a handful
+ * (published / updated / expiry), and each becomes a stored jsonb entry and possibly an evidence
+ * entry, so an unbounded list is an unbounded row. Extra entries are ignored, never stored.
+ */
+export const MAX_OBSERVED_DATES = 8
+
 /** Display limits as shipped by `buildNormalizedPosting` (title 500 / company 255 / tags 50x60). */
-const DISPLAY_TAGS = 50
-const DISPLAY_TAG_CHARS = 60
+export const DISPLAY_TAGS = 50
+export const DISPLAY_TAG_CHARS = 60
 
 export interface BoundedText {
   /** The original, NUL-stripped, cut at the retention cap. */
@@ -288,7 +295,7 @@ export function buildSourceObservation(
   const evidence: FieldEvidence[] = []
 
   const dates: ObservedDate[] = []
-  raw.dates?.forEach((input) => {
+  raw.dates?.slice(0, MAX_OBSERVED_DATES).forEach((input) => {
     const parsed = parseSourceDate(input, now)
     if (parsed === null) return
     dates.push(parsed)

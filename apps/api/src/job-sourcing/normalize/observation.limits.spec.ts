@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildSourceObservation, type RawObservationFields } from './observation'
+import {
+  MAX_OBSERVED_DATES,
+  buildSourceObservation,
+  type RawObservationFields,
+} from './observation'
 
 /** Description and tag limits, content-hash inputs, and the INVALID_RECORD quarantine. */
 
@@ -182,5 +186,19 @@ describe('adapterVersion that is not a string', () => {
         reason: 'INVALID_ADAPTER_VERSION',
       })
     }
+  })
+})
+
+describe('dates: bounded per record (SR-M-4)', () => {
+  it('reads at most MAX_OBSERVED_DATES dates and the evidence they produce', () => {
+    const dates = Array.from({ length: 50 }, () => ({
+      raw: 'not a date',
+      contract: 'ISO_ZONED' as const,
+      semantics: 'UPDATED' as const,
+    }))
+    const o = ok({ dates })
+    expect(MAX_OBSERVED_DATES).toBe(8)
+    expect(o.normalized.dates).toHaveLength(8)
+    expect(o.evidence.filter((e) => e.kind === 'DATE_UNCERTAIN')).toHaveLength(8)
   })
 })

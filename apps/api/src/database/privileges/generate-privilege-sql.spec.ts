@@ -24,6 +24,7 @@ import {
   ROLES_FILE,
   buildCheckSql,
   buildGrantsSql,
+  stagedGrantSql,
 } from './generate-privilege-sql'
 import {
   CLASS_PRIVILEGES,
@@ -31,6 +32,7 @@ import {
   RETENTION_OWNER_COLUMN_WRITE_GRANTS,
   RETENTION_OWNER_TABLE_PRIVILEGES,
   ROLES,
+  STAGED_RELATIONS,
   appendOnlyTriggers,
   collectorColumns,
   retentionOwnerFunctions,
@@ -221,6 +223,62 @@ describe('generated privilege SQL', () => {
     } finally {
       for (const [cls, relations] of Object.entries(original)) classes[cls] = relations
     }
+  })
+
+  it('grants a STAGED relation only where it exists, never in the plain class list (Task 4.5)', () => {
+    expect(stagedGrantSql(['t_one', 't_two'], ['SELECT', 'INSERT'], 'crm_app')).toBe(
+      `-- staged relations (drizzle/manual-staged/): granted only where they exist.
+DO $staged$
+BEGIN
+  IF to_regclass('public.t_one') IS NOT NULL THEN
+    GRANT SELECT, INSERT ON TABLE public.t_one TO crm_app;
+  END IF;
+  IF to_regclass('public.t_two') IS NOT NULL THEN
+    GRANT SELECT, INSERT ON TABLE public.t_two TO crm_app;
+  END IF;
+END
+$staged$;`,
+    )
+    const staged = Object.keys(STAGED_RELATIONS)
+    expect(staged.length).toBeGreaterThan(0)
+    const statements = splitSqlStatements(buildGrantsSql())
+    const plain = statements.filter((s) => /^\s*GRANT /.test(s))
+    expect(
+      plain.filter((s) =>
+        staged.some((t) => s.includes(`public.${t}\n`) || s.includes(`public.${t},`)),
+      ),
+    ).toEqual([])
+    const block = statements.find((s) => s.includes('DO $staged$')) ?? ''
+    for (const t of staged) {
+      expect(block).toContain(
+        `IF to_regclass('public.${t}') IS NOT NULL THEN\n    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.${t} TO ${ROLES.app};`,
+      )
+    }
+    // The plain class-A list still carries the existing store tables.
+    expect(plain.some((s) => s.includes('public.job_opportunities,'))).toBe(true)
+  })
+
+  it('emits no empty plain GRANT for a class whose relations are all staged', () => {
+    const classes = PRIVILEGE_CLASSES as unknown as Record<string, string[]>
+    const originalA = classList(classes, 'A')
+    const originalLog = classList(classes, 'A-log')
+    try {
+      classes.A = originalA.filter((r) => !(r in STAGED_RELATIONS))
+      classes['A-log'] = ['job_run_records']
+      const sql = buildGrantsSql()
+      expect(sql).not.toMatch(/ON TABLE\n\s+TO /)
+      expect(sql).toContain('GRANT SELECT, INSERT ON TABLE public.job_run_records TO crm_app;')
+    } finally {
+      classes.A = originalA
+      classes['A-log'] = originalLog
+    }
+  })
+
+  it('marks a STAGED relation optional in the catalog check, and a plain one required', () => {
+    const sql = buildCheckSql()
+    expect(sql).toContain(`('job_run_records', 'A', true)`)
+    expect(sql).toContain(`('job_opportunity_identity_tokens', 'A', true)`)
+    expect(sql).toContain(`('job_opportunities', 'A', false)`)
   })
 })
 

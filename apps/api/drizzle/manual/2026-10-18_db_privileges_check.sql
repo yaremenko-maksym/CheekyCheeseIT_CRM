@@ -68,6 +68,7 @@ BEGIN
     ('job_dirty_work', 'A', false),
     ('job_exclusion_filters', 'A', false),
     ('job_opportunities', 'A', false),
+    ('job_opportunity_identity_tokens', 'A', true),
     ('job_opportunity_matches', 'A', false),
     ('job_opportunity_sources', 'A', false),
     ('job_opportunity_team_triage', 'A', false),
@@ -77,7 +78,9 @@ BEGIN
     ('job_queue_dismissals', 'A', false),
     ('job_queue_generation_entries', 'A', false),
     ('job_queue_generations', 'A', false),
+    ('job_run_records', 'A', true),
     ('job_source_hosts', 'A', false),
+    ('job_source_record_heads', 'A', true),
     ('job_source_record_revisions', 'A', false),
     ('job_source_records', 'A', false),
     ('job_sources', 'A', false),
@@ -186,6 +189,7 @@ BEGIN
     ('job_dirty_work', 'A', false),
     ('job_exclusion_filters', 'A', false),
     ('job_opportunities', 'A', false),
+    ('job_opportunity_identity_tokens', 'A', true),
     ('job_opportunity_matches', 'A', false),
     ('job_opportunity_sources', 'A', false),
     ('job_opportunity_team_triage', 'A', false),
@@ -195,7 +199,9 @@ BEGIN
     ('job_queue_dismissals', 'A', false),
     ('job_queue_generation_entries', 'A', false),
     ('job_queue_generations', 'A', false),
+    ('job_run_records', 'A', true),
     ('job_source_hosts', 'A', false),
+    ('job_source_record_heads', 'A', true),
     ('job_source_record_revisions', 'A', false),
     ('job_source_records', 'A', false),
     ('job_sources', 'A', false),
@@ -473,6 +479,7 @@ BEGIN
     ('job_dirty_work', 'A', false),
     ('job_exclusion_filters', 'A', false),
     ('job_opportunities', 'A', false),
+    ('job_opportunity_identity_tokens', 'A', true),
     ('job_opportunity_matches', 'A', false),
     ('job_opportunity_sources', 'A', false),
     ('job_opportunity_team_triage', 'A', false),
@@ -482,7 +489,9 @@ BEGIN
     ('job_queue_dismissals', 'A', false),
     ('job_queue_generation_entries', 'A', false),
     ('job_queue_generations', 'A', false),
+    ('job_run_records', 'A', true),
     ('job_source_hosts', 'A', false),
+    ('job_source_record_heads', 'A', true),
     ('job_source_record_revisions', 'A', false),
     ('job_source_records', 'A', false),
     ('job_sources', 'A', false),
@@ -672,6 +681,7 @@ BEGIN
     ('job_dirty_work', 'A', false),
     ('job_exclusion_filters', 'A', false),
     ('job_opportunities', 'A', false),
+    ('job_opportunity_identity_tokens', 'A', true),
     ('job_opportunity_matches', 'A', false),
     ('job_opportunity_sources', 'A', false),
     ('job_opportunity_team_triage', 'A', false),
@@ -681,7 +691,9 @@ BEGIN
     ('job_queue_dismissals', 'A', false),
     ('job_queue_generation_entries', 'A', false),
     ('job_queue_generations', 'A', false),
+    ('job_run_records', 'A', true),
     ('job_source_hosts', 'A', false),
+    ('job_source_record_heads', 'A', true),
     ('job_source_record_revisions', 'A', false),
     ('job_source_records', 'A', false),
     ('job_sources', 'A', false),
@@ -1091,7 +1103,7 @@ $check$;
 DO $ok$
 BEGIN
   RAISE NOTICE 'db-privileges check passed: % relations classified, roles %, %, %',
-    78, 'crm_app', 'crm_collector', 'crm_retention_owner';
+    81, 'crm_app', 'crm_collector', 'crm_retention_owner';
 END
 $ok$;
 
