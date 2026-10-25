@@ -1,0 +1,347 @@
+import { randomUUID } from 'node:crypto'
+import { drizzle } from 'drizzle-orm/node-postgres'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import {
+  openCrmAppSession,
+  type CrmAppSession,
+} from '../../database/__test-helpers__/crm-app-session'
+import * as schema from '../../database/schema'
+import { LedgerFixtures, SpecCatalog, specRegistry } from '../../test/ledger-fixtures'
+import { hasDatabaseUrl } from '../../test/require-real-db'
+import { ageRun, ageSource } from '../../test/run-aging'
+import type { SourceObservation } from '../normalize/observation'
+import type { ValidatedCheckpoint } from '../providers/reporting-provider'
+import { type ClaimedRun, JobRunLedger } from './job-run-ledger'
+
+/**
+ * r5 Task 2.5 T3 — the run ledger against a REAL Postgres, AS `crm_app` (every statement under test
+ * runs on the `crm_app` pool; fixtures and aging go through the migration role). Time is moved by
+ * the aging helpers only (`ageRun`, `ageSource`), never by an injected clock.
+ *
+ * NEVER run against `crm_db` (`openCrmAppSession` refuses one):
+ *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/<scratch> \
+ *     pnpm --filter @crm/api exec vitest run job-run-ledger.integration
+ */
+const TAG = randomUUID().slice(0, 8)
+
+let session: CrmAppSession
+let fx: LedgerFixtures
+let catalog: SpecCatalog
+let ledger: JobRunLedger
+let actor: string
+
+const HOUR = 3_600_000
+
+async function scheduledCycle(): Promise<string> {
+  return (await ledger.openCycle({ trigger: 'SCHEDULED', triggerKey: fx.cycleKey() })).cycleId
+}
+
+async function manualCycle(): Promise<string> {
+  return (await ledger.openCycle({ trigger: 'MANUAL', triggerKey: fx.cycleKey(), actor })).cycleId
+}
+
+/** A reporting source with a catalog entry and a host policy; returns its id. */
+async function reporting(seed: Parameters<LedgerFixtures['source']>[0] = {}): Promise<string> {
+  const manifestId = seed.manifestId ?? fx.manifestId()
+  const hostKey =
+    seed.hostKey === undefined ? fx.host(`h-${randomUUID().slice(0, 6)}`) : seed.hostKey
+  catalog.add(manifestId, { type: seed.type ?? 'REMOTIVE_API' })
+  if (hostKey !== null) catalog.policies.set(hostKey, { rate: null, floorHours: 0 })
+  return fx.source({ ...seed, manifestId, hostKey })
+}
+
+async function claimOne(sourceId: string): Promise<ClaimedRun> {
+  const { claimed } = await ledger.claimDue({
+    cycleId: await scheduledCycle(),
+    owner: 'spec-worker',
+    limit: 1,
+    onlyIds: [sourceId],
+  })
+  const run = claimed[0]
+  if (run === undefined) throw new Error(`setup: source ${sourceId} was not claimed`)
+  return run
+}
+
+const handle = (r: ClaimedRun) => ({
+  runId: r.runId,
+  ownerToken: r.ownerToken,
+  fencingEpoch: r.fencingEpoch,
+})
+
+function checkpoint(page: number): ValidatedCheckpoint {
+  return {
+    configVersion: 1,
+    policyVersion: 1,
+    adapterVersion: 'remotive_api-1',
+    position: { kind: 'CURSOR', page, cursor: `c${page}` },
+    completedAt: new Date('2026-10-25T00:00:00Z'),
+  }
+}
+
+/** Observations carrying only what `savePage` reads: the identity. */
+function observations(ids: readonly string[], namespace = `t3spec-${TAG}`): SourceObservation[] {
+  return ids.map(
+    (id) =>
+      ({
+        identity: {
+          provider: 'REMOTIVE_API',
+          namespace,
+          nativeId: id,
+          identityKey: `["${id}"]`,
+          identityKind: 'NATIVE_ID',
+        },
+      }) as unknown as SourceObservation,
+  )
+}
+
+async function rejection(p: Promise<unknown>): Promise<{ code?: string }> {
+  try {
+    await p
+  } catch (e) {
+    return e as { code?: string }
+  }
+  throw new Error('expected a rejection')
+}
+
+describe.skipIf(!hasDatabaseUrl())('the run ledger against Postgres, as crm_app (T3)', () => {
+  beforeAll(async () => {
+    session = await openCrmAppSession()
+    fx = new LedgerFixtures(session.admin, TAG)
+    catalog = new SpecCatalog()
+    ledger = new JobRunLedger(
+      drizzle(session.pool, { schema }),
+      specRegistry(['REMOTIVE_API', 'ARBEITNOW_API', 'JSEARCH_API'], ['ARBEITNOW_API']),
+      catalog,
+    )
+    const { rows } = await session.admin.query(
+      `INSERT INTO users (email, display_name, role) VALUES ($1, 'T3 spec', 'ADMIN') RETURNING id`,
+      [`t3spec-${TAG}@example.test`],
+    )
+    actor = rows[0].id as string
+  }, 120_000)
+
+  afterAll(async () => {
+    if (session === undefined) return
+    try {
+      await fx.cleanup()
+      await session.admin.query(`DELETE FROM users WHERE id = $1`, [actor])
+    } finally {
+      await session.close()
+    }
+  })
+
+  it('runs on a scratch database, as crm_app', async () => {
+    const identity = await session.identity()
+    expect([identity.currentUser, identity.isSuperuser]).toEqual(['crm_app', false])
+    const { rows } = await session.pool.query('SELECT current_database() AS db')
+    expect(rows[0].db).not.toBe('crm_db')
+  })
+
+  describe('openCycle (SR-L-19)', () => {
+    it('two replicas opening the same scheduled cycle get one row', async () => {
+      const key = fx.cycleKey()
+      const [a, b] = await Promise.all([
+        ledger.openCycle({ trigger: 'SCHEDULED', triggerKey: key }),
+        ledger.openCycle({ trigger: 'SCHEDULED', triggerKey: key }),
+      ])
+      expect(a.cycleId).toBe(b.cycleId)
+      const { rows } = await session.admin.query(
+        `SELECT count(*)::int AS n FROM job_collection_cycles WHERE trigger_key = $1`,
+        [key],
+      )
+      expect(rows[0].n).toBe(1)
+    })
+
+    it('a manual cycle names its actor; a manual cycle without one is refused', async () => {
+      const id = await manualCycle()
+      const { rows } = await session.admin.query(
+        `SELECT trigger, requested_by FROM job_collection_cycles WHERE id = $1`,
+        [id],
+      )
+      expect(rows[0]).toEqual({ trigger: 'MANUAL', requested_by: actor })
+      await expect(
+        ledger.openCycle({ trigger: 'MANUAL', triggerKey: fx.cycleKey() } as never),
+      ).rejects.toThrow(RangeError)
+    })
+  })
+
+  describe('AC 5: the epoch', () => {
+    it('the first run of a source is epoch 1, and each later run is strictly greater', async () => {
+      const s = await reporting()
+      const epochs: number[] = []
+      for (let i = 0; i < 3; i += 1) {
+        const run = await claimOne(s)
+        epochs.push(run.fencingEpoch)
+        await ledger.finish(handle(run), { outcome: 'SUCCEEDED', errorCode: null })
+        await ageSource(session.admin, s, 25 * HOUR)
+      }
+      expect(epochs).toEqual([1, 2, 3])
+      expect((await fx.runs(s)).map((r) => r.epoch)).toEqual([1, 2, 3])
+    })
+  })
+
+  describe('AC 4 / SR-M-18: heartbeat', () => {
+    it('a heartbeat with the wrong epoch or token changes nothing', async () => {
+      const s = await reporting()
+      const run = await claimOne(s)
+      const before = await session.admin.query(
+        `SELECT lease_expires_at FROM job_collection_runs WHERE id = $1`,
+        [run.runId],
+      )
+      expect(await ledger.heartbeat({ ...handle(run), fencingEpoch: run.fencingEpoch + 1 })).toBe(
+        false,
+      )
+      expect(await ledger.heartbeat({ ...handle(run), ownerToken: 'someone-else' })).toBe(false)
+      const after = await session.admin.query(
+        `SELECT lease_expires_at FROM job_collection_runs WHERE id = $1`,
+        [run.runId],
+      )
+      expect(after.rows[0].lease_expires_at).toEqual(before.rows[0].lease_expires_at)
+      expect(await ledger.heartbeat(handle(run))).toBe(true)
+    })
+
+    it('no heartbeat extends a lease past started_at + RUN_MAX_AGE', async () => {
+      const s = await reporting()
+      const run = await claimOne(s)
+      // 1 h 58 min into a 2 h maximum: a 5 min lease would reach 2 h 3 min, so it is capped.
+      await ageRun(session.admin, run.runId, 118 * 60_000, 'started_at')
+      expect(await ledger.heartbeat(handle(run))).toBe(true)
+      const { rows } = await session.admin.query(
+        `SELECT extract(epoch FROM lease_expires_at - started_at)::float8 AS s FROM job_collection_runs WHERE id = $1`,
+        [run.runId],
+      )
+      expect(rows[0].s).toBeCloseTo(7200, 0)
+    })
+  })
+
+  describe('AC 2 / AC 8: recovery', () => {
+    it('after recovery a stale savePage is refused RUN_FENCED and the successor`s pages are intact', async () => {
+      const s = await reporting()
+      const stale = await claimOne(s)
+      await ledger.savePage(handle(stale), {
+        observations: observations(['a1']),
+        checkpoint: checkpoint(1),
+      })
+      await ageRun(session.admin, stale.runId, 10 * 60_000)
+      expect(await ledger.recoverExpired()).toBeGreaterThanOrEqual(1)
+      await ageSource(session.admin, s, 48 * HOUR)
+
+      const successor = await claimOne(s)
+      await ledger.savePage(handle(successor), {
+        observations: observations(['b1']),
+        checkpoint: checkpoint(2),
+      })
+      const err = await rejection(
+        ledger.savePage(handle(stale), {
+          observations: observations(['a2']),
+          checkpoint: checkpoint(9),
+        }),
+      )
+      expect(err.code).toBe('RUN_FENCED')
+      const runs = await fx.runs(s)
+      expect(runs.map((r) => [r.outcome, r.error_code])).toEqual([
+        ['FAILED', 'LEASE_EXPIRED'],
+        ['STARTED', null],
+      ])
+      expect((runs[1]!.checkpoint['position'] as { page: number }).page).toBe(2)
+      expect(runs[1]!.received).toBe(1)
+    })
+
+    it('recovery settles RESERVED -> RELEASED and SENT / UNCERTAIN -> USED at the full amount', async () => {
+      const acct = fx.accountKey('recover')
+      const meterId = await fx.meter(acct, 100)
+      const s = await reporting({ type: 'JSEARCH_API', accountMeterId: meterId })
+      const run = await claimOne(s)
+      const meter = ledger.meterFor(run, { REQUEST: 'DAY' })
+      const r1 = (await meter.reserve('REQUEST', 3))!
+      const r2 = (await meter.reserve('REQUEST', 5))!
+      const r3 = (await meter.reserve('REQUEST', 7))!
+      await meter.markSent(r2)
+      await meter.reconcile(r3, 'UNCERTAIN')
+      expect(await fx.counters(meterId)).toEqual({ used: 0, reserved: 8, uncertain: 7 })
+
+      await ageRun(session.admin, run.runId, 10 * 60_000)
+      await ledger.recoverExpired()
+
+      expect((await fx.runs(s)).map((r) => [r.outcome, r.error_code])).toEqual([
+        ['FAILED', 'LEASE_EXPIRED'],
+      ])
+      const settled = new Map((await fx.reservations(run.runId)).map((r) => [r.id, r]))
+      expect(settled.get(r1.id)).toMatchObject({ status: 'RELEASED', used_amount: 0 })
+      expect(settled.get(r2.id)).toMatchObject({ status: 'USED', used_amount: 5 })
+      expect(settled.get(r3.id)).toMatchObject({ status: 'USED', used_amount: 7 })
+      expect(await fx.counters(meterId)).toEqual({ used: 12, reserved: 0, uncertain: 0 })
+    })
+
+    it('finish settles the same way: no UNCERTAIN remains on a finished run', async () => {
+      const meterId = await fx.meter(fx.accountKey('finish'), 100)
+      const s = await reporting({ type: 'JSEARCH_API', accountMeterId: meterId })
+      const run = await claimOne(s)
+      const meter = ledger.meterFor(run, { REQUEST: 'DAY' })
+      const r = (await meter.reserve('REQUEST', 4))!
+      await meter.reconcile(r, 'UNCERTAIN')
+      await ledger.finish(handle(run), { outcome: 'FAILED', errorCode: 'UPSTREAM' })
+      expect((await fx.reservations(run.runId)).map((x) => x.status)).toEqual(['USED'])
+      expect(await fx.counters(meterId)).toEqual({ used: 4, reserved: 0, uncertain: 0 })
+    })
+
+    it('the sweep settles an open reservation left on a terminal run', async () => {
+      const meterId = await fx.meter(fx.accountKey('sweep'), 100)
+      const s = await reporting({ type: 'JSEARCH_API', accountMeterId: meterId })
+      const run = await claimOne(s)
+      const r = (await ledger.meterFor(run, { REQUEST: 'DAY' }).reserve('REQUEST', 2))!
+      await ledger.finish(handle(run), { outcome: 'SUCCEEDED', errorCode: null })
+      // A reservation the settlement could not see (written behind its back), still SENT.
+      await session.admin.query(
+        `UPDATE job_account_meter_reservations SET status = 'SENT', settled_at = NULL, sent_at = now() WHERE id = $1`,
+        [r.id],
+      )
+      await session.admin.query(
+        `UPDATE job_account_meters SET reserved = reserved + 2 WHERE id = $1`,
+        [meterId],
+      )
+      expect(await ledger.sweepOrphanReservations()).toBeGreaterThanOrEqual(1)
+      expect((await fx.reservations(run.runId)).map((x) => x.status)).toEqual(['USED'])
+      const { rows } = await session.admin.query(
+        `SELECT count(*)::int AS n FROM job_account_meter_reservations res
+           JOIN job_collection_runs r ON r.id = res.run_id
+          WHERE r.outcome <> 'STARTED' AND res.status IN ('RESERVED', 'SENT', 'UNCERTAIN')`,
+      )
+      expect(rows[0].n).toBe(0)
+    })
+  })
+
+  describe('AC 3: markSent against recovery', () => {
+    it('ends in exactly one of {SENT settled USED, markSent refused}, 20 races', async () => {
+      const meterId = await fx.meter(fx.accountKey('race'), null)
+      const s = await reporting({ type: 'JSEARCH_API', accountMeterId: meterId })
+      const outcomes: string[] = []
+      for (let i = 0; i < 20; i += 1) {
+        const run = await claimOne(s)
+        const meter = ledger.meterFor(run, { REQUEST: 'DAY' })
+        const r = (await meter.reserve('REQUEST', 1))!
+        // The lease ends within the next ~0-40 ms, so the two really race for the run row: recovery
+        // retries until the lease is gone, while markSent goes once.
+        await ageRun(session.admin, run.runId, 5 * 60_000 - Math.floor(Math.random() * 40))
+        const recover = async () => {
+          for (let k = 0; k < 50 && (await ledger.recoverExpired()) === 0; k += 1) {
+            await new Promise((done) => setTimeout(done, 5))
+          }
+        }
+        const [sent] = await Promise.allSettled([meter.markSent(r), recover()])
+        const [row] = await fx.reservations(run.runId)
+        const markSent =
+          sent.status === 'fulfilled' ? 'SENT' : String((sent.reason as { code?: string }).code)
+        outcomes.push(`${markSent}->${row!.status}`)
+        await session.admin.query(
+          `UPDATE job_sources SET consecutive_failures = 0, cooldown_until = NULL, next_attempt_at = clock_timestamp() - interval '1 hour' WHERE id = $1`,
+          [s],
+        )
+      }
+      // Exactly two endings exist: a committed markSent is charged (USED), a refused one sent
+      // nothing and was released. "SENT->RELEASED" -- sent and then released -- never occurs.
+      expect(outcomes).toHaveLength(20)
+      expect(outcomes.filter((o) => o !== 'SENT->USED' && o !== 'RUN_FENCED->RELEASED')).toEqual([])
+    })
+  })
+})
