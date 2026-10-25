@@ -71,7 +71,7 @@ Applies to every task you run, on top of the rules above:
   conversation. Terse narration only: code, commands, counts, `Worktree:` / `Pushed:` / `Findings:` /
   `ac_verified:` / `Verdict:` lines, security/finance findings and decision briefs are never compressed.
 - Output is filtered by RTK (hook `pre:bash:rtk-rewrite`). When command output is evidence you must read
-  verbatim (a failing test, a diff you cite, an error), run it as `rtk bypass <cmd>`.
+  verbatim (a failing test, a diff you cite, an error), prefix it with `RTK_DISABLED=1` (e.g. `RTK_DISABLED=1 git diff`); `rtk bypass|run|test|err|summary` are refused by `pre:bash:rtk-exec-gate`.
 - Plugins Caveman / Ponytail may be active in the owner's session: Ponytail's restraint ladder never cuts
   validation, RBAC, money logic, tests the task requires, a11y or Lingui wrapping. The Context Mode `ctx_*`
   tools are NOT granted to agents (they run code outside every hook, SR-H-2 on PR #1157) — do not try to

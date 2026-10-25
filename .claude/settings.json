@@ -58,6 +58,17 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-bash-rtk-exec-gate.sh"
+          }
+        ],
+        "description": "RTK exec-subcommand gate (token-economy) — refuse `rtk bypass|proxy|err|test|run|summary`: those run their operand (often one quoted string, via sh -c) outside the other guards' view. Four review rounds on PR #1157 kept finding one more quoting form; refusing the form closes the class. Unfiltered output: `RTK_DISABLED=1 <cmd>`. Test: scripts/devops/tests/test-pre-bash-rtk-exec-gate.sh",
+        "id": "pre:bash:rtk-exec-gate"
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
             "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-bash-safety.sh"
           }
         ],

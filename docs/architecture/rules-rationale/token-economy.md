@@ -82,6 +82,18 @@ divergences. (A first "0" was a false green — a syntax error made both sides e
 checks the decision body and crashes.) Whether Claude Code hands guards the original or the rewritten
 command no longer matters.
 
+**Why the exec subcommands are refused outright (round 4, PR #1157).** Three review rounds each found one
+more quoting form of the exec subcommands (`bypass`, `err`, `test`, `run`, `summary`, entered after the
+`rtk` word with one quoted string as the operand) that some guard did not look inside: the blast hook split
+the string on a separator inside the quotes, the dev-server gate missed a quoted command word, and the three
+`git push` gates match raw text and never used cmdscan. Teaching every guard to parse every form was a losing
+game, so `pre:bash:rtk-exec-gate` refuses the form on the RAW command text, and the project has no need for
+it: filtered output = run the command normally (the rewrite hook adds the prefix, tool subcommands only),
+unfiltered output = prefix `RTK_DISABLED=1` (rtk's own documented opt-out, verified: its hook skips the
+rewrite). The cmdscan / blast unwrapping from rounds 2-3 stays as defence in depth. Known limit, shared with
+every guard here: the binary reached through a variable or a rebuilt string. A text that merely mentions the
+exec subcommands next to the binary name is also refused (false positive by design): separate the words.
+
 **Still not verified:** end-to-end ordering inside a live Claude Code session — the existing hooks carry
 owner-machine absolute paths and cannot run in the cloud container. Smoke-test on the owner machine: `git push` with a bad `ac_verified` must still be
 refused. The code of the four tools was not audited line by line; privacy claims (RTK telemetry off

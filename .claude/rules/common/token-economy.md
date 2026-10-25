@@ -46,7 +46,7 @@ add `2>/dev/null` to a command whose output is evidence.
 ## Installed tools (what binds them)
 
 - **RTK** (hook `pre:bash:rtk-rewrite`, fail-open, fixed binary path, rewrite sanity-checked) compacts Bash output. When output is evidence you must
-  read verbatim — a failing test, a diff you will cite, an error — run it as `rtk bypass <cmd>`.
+  read verbatim — a failing test, a diff you will cite, an error — prefix it with `RTK_DISABLED=1` (e.g. `RTK_DISABLED=1 git diff`); `rtk bypass|run|test|err|summary` are refused by `pre:bash:rtk-exec-gate`.
 - **Context Mode** is installed for the owner's own session only. Its `ctx_*` tools are **not granted to any
   agent**: they execute code outside every `pre:bash:*` / zone hook, so they would bypass `zone-of-write.md`,
   `live-db-access.md` and `agent-isolation.md` (SR-H-2, PR #1157). Granting them needs a guard hook on

@@ -99,7 +99,7 @@ Binding on every dispatch (`rules/common/token-economy.md`, skill `token-economy
 - **Master's own turns:** tier by `model-routing.md`; no text turn on a non-terminal event; bulk output to a
   scratchpad file; breadth-first surveys are a fan-out (`orchestration-routing.md`), not Master's context.
 - **Tooling conflicts:** RTK compacts Bash output — evidence to be read verbatim is run as
-  `rtk bypass <cmd>`. All `pre:bash:*` guards treat `rtk` as a transparent wrapper (differential-tested,
+  `RTK_DISABLED=1 <cmd>`; `rtk bypass|proxy|err|test|run|summary` (they execute their operand) are refused by `pre:bash:rtk-exec-gate`. The other `pre:bash:*` guards treat `rtk <tool>` as transparent (differential-tested,
   `docs/architecture/rules-rationale/token-economy.md`); a guard that decides differently on `rtk <cmd>` vs
   `<cmd>` is a defect to fix in `lib/cmdscan.py`, never a reason to disable RTK or a guard.
 
