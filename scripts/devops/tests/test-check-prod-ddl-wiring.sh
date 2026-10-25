@@ -1556,6 +1556,26 @@ assert_red "single-transaction: a pinned file with a reformatted header AND no f
   --contains "Applies missing --single-transaction: 2" \
   -- run_guard "$(make_single_tx_case stx-pinned-reformatted-noflag "$REFORMATTED_HEADER" "" "" "$PINNED_DDL")"
 
+# SR-M-3 (security review PR #1155): the pin is by name, not by presence in manual/.
+# A pinned file the deploy still applies, but which left manual/, must go red even
+# when its psql call carries the flag (before the fix the pin silently dropped out).
+make_pinned_moved_out_case() {
+  local root
+  root="$(make_single_tx_case "$1" "$SINGLE_TX_HEADER" "$2" "" "$PINNED_DDL")"
+  rm "$root/apps/api/drizzle/manual/$PINNED_DDL"
+  printf '%s' "$root"
+}
+
+assert_red "single-transaction: a pinned file moved out of manual/ but still applied (with the flag) -> red, names the file" \
+  --contains "not a wired file in manual/" \
+  --contains "$PINNED_DDL" \
+  -- run_guard "$(make_pinned_moved_out_case stx-pinned-moved-flag "--single-transaction")"
+
+assert_red "single-transaction: a pinned file moved out of manual/ AND applied without the flag -> red" \
+  --contains "not a wired file in manual/" \
+  --contains "Applies missing --single-transaction: 2" \
+  -- run_guard "$(make_pinned_moved_out_case stx-pinned-moved-noflag "")"
+
 # ── hard-required list continuation (2026-10-25) ────────────────────────────────
 # Both lists are one backslash-continued shell command. A blank line inside one
 # was on main in both copies at once (so the mirror check stayed green) and made

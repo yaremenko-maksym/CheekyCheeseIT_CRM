@@ -667,6 +667,8 @@ jobs:
             apps/api/drizzle/manual/2026-10-22_interviews_call_meet_code.sql \
             apps/api/drizzle/manual/2026-10-24_job_run_single_flight.sql \
             apps/api/drizzle/manual/2026-10-24_job_sources_manifest_delta.sql \
+            apps/api/drizzle/manual/2026-10-24_job_source_hosts.sql \
+            apps/api/drizzle/manual/2026-10-24_job_sources_host_keys.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -2674,6 +2676,35 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-10-24_job_sources_manifest_delta.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-10-24_job_sources_manifest_delta.sql
+
+      # r5 Task 2.5 T8. Applied by deploy-stack-on-vps.sh directly after the manifest delta
+      # (hosts first, then host keys) and BEFORE the grants, with --single-transaction.
+      # Hard-required, same as the step above.
+      - name: Copy job source hosts via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-24_job_source_hosts.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-24_job_source_hosts.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-24_job_source_hosts.sql
+
+      - name: Copy job sources host keys via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-24_job_sources_host_keys.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-24_job_sources_host_keys.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-24_job_sources_host_keys.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the

@@ -645,10 +645,12 @@ rather than trust the numbers, they shift whenever a file is added above):
 | 52       | `2026-10-17_job_opportunities_store.sql`               | Creates the job-store tables                                                                                              |
 | 55       | `2026-10-24_job_run_single_flight.sql`                 | Needs `job_collection_runs` and `job_account_meters` (position 52); before the grants and both checks. One transaction    |
 | 56       | `2026-10-24_job_sources_manifest_delta.sql`            | Writes `job_sources` columns position 52 adds, so AFTER it (not after the 2026-10-05 seed); TEMP tables. One transaction  |
-| 57       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                   |
-| 58       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                         |
-| 61       | `2026-10-18_db_privileges_check.sql`                   | First run: before the container swap, so a drift fails while the old API serves                                           |
-| 62       | `2026-10-04_multiple_salary_transactions_activate.sql` | Breaking half, must follow the swap and the health gate; creates no relation                                              |
+| 57       | `2026-10-24_job_source_hosts.sql`                      | Creates `job_source_hosts`, so before the grants. One transaction                                                         |
+| 58       | `2026-10-24_job_sources_host_keys.sql`                 | Needs `job_source_hosts` (57) and the delta's `manifest_id` (56). One transaction                                         |
+| 59       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                   |
+| 60       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                         |
+| 63       | `2026-10-18_db_privileges_check.sql`                   | First run: before the container swap, so a drift fails while the old API serves                                           |
+| 64       | `2026-10-04_multiple_salary_transactions_activate.sql` | Breaking half, must follow the swap and the health gate; creates no relation                                              |
 | (end)    | `2026-10-18_db_privileges_check.sql` (second run)      | The last database step, after the post-cutover `drop_cascade_origin` marker re-run, so the END state is what is validated |
 
 Two invariants, both enforced by `scripts/devops/check-prod-ddl-wiring.py` (it derives the apply order
@@ -1074,6 +1076,8 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-10-22_interviews_call_meet_code.sql \
     apps/api/drizzle/manual/2026-10-24_job_run_single_flight.sql \
     apps/api/drizzle/manual/2026-10-24_job_sources_manifest_delta.sql \
+    apps/api/drizzle/manual/2026-10-24_job_source_hosts.sql \
+    apps/api/drizzle/manual/2026-10-24_job_sources_host_keys.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \
