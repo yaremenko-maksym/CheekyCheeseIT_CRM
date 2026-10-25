@@ -2092,6 +2092,80 @@ docker compose \
   < "$JOB_QUEUE_REDACTION_CALLABLE_FILE"
 echo "==> job queue redaction-callable upgrade DDL applied successfully"
 
+# ── job collection runs: single flight per source and per account (r5 Task 2.5 T1 + T1b) ──
+# Adds job_collection_runs.account_key (NOT NULL), its format CHECK and two partial unique
+# indexes. MUST run after store part 1 above, which creates job_collection_runs and
+# job_account_meters (the backfill reads the meters), and BEFORE the grants block below and
+# both privileges-check runs. Creates no relation, grants nothing. Its header also names
+# store part 2 (the CONCURRENTLY indexes, applied after the grants below) as a predecessor;
+# that is the table's neighbour index, not a dependency, and the deploy order here was
+# proven on a scratch database (fresh and converged) in the wiring PR.
+# `--single-transaction` is REQUIRED (backlog 337): the file is built for one transaction
+# (no CONCURRENTLY, no BEGIN/COMMIT of its own), and its final check RAISEs when the end
+# state is not the intended one; in one transaction that rolls every step back instead of
+# leaving the column added behind a loud failure. Meant to be applied ONCE: a re-run on a
+# converged database runs no DDL and takes no lock that conflicts with DML, but its momentary
+# ACCESS SHARE can queue behind a pending ACCESS EXCLUSIVE request from another session and
+# fail this step after `lock_timeout` (10s) — see docs/runbooks/deployment.md §9.
+# check-prod-ddl-wiring.py fails CI if this psql call loses the flag.
+
+# Source: apps/api/drizzle/manual/2026-10-24_job_run_single_flight.sql
+JOB_RUN_SINGLE_FLIGHT_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-24_job_run_single_flight.sql"
+
+if [ ! -f "$JOB_RUN_SINGLE_FLIGHT_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_RUN_SINGLE_FLIGHT_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job collection runs single-flight DDL (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$JOB_RUN_SINGLE_FLIGHT_FILE"
+echo "==> job collection runs single-flight DDL applied successfully"
+
+# ── job sources: typed manifest forward seed delta (r5 Task 3.7; backlog 337) ──
+# ORDER IS LOAD-BEARING. MUST run after store part 1 above: the delta writes
+# job_sources.manifest_id / namespace / config_version / readiness, columns that file adds.
+# The 2026-10-05 seed runs far above the store block, so "right after the seed" is the
+# WRONG place and dies with: column "manifest_id" does not exist. Before the grants block
+# below, because the delta creates (and drops) session TEMP tables, which the
+# GRANTS-AFTER-CREATORS invariant of check-prod-ddl-wiring.py counts as relation creation.
+# Every row it inserts is DISABLED (enabled = false).
+# `--single-transaction` is REQUIRED (backlog 337): the delta ends in a RAISE when a
+# manifest entry still has no row (an operator-made row of the same (type, config)
+# swallowed the insert). Without the flag steps 1-3 would commit and step 4 never run; with
+# it the whole delta rolls back. A PERMANENT collision of that kind fails EVERY deploy here
+# until the row is claimed or retired by hand: docs/runbooks/deployment.md §9 says how.
+# check-prod-ddl-wiring.py fails CI if this psql call loses the flag.
+#
+# Package B (r5 Task 2.5 T8) inserts its two files directly below this block and above the
+# grants: 2026-10-24_job_source_hosts.sql, then 2026-10-24_job_sources_host_keys.sql (which
+# needs both the hosts column and this delta's manifest_id).
+
+# Source: apps/api/drizzle/manual/2026-10-24_job_sources_manifest_delta.sql
+JOB_SOURCES_MANIFEST_DELTA_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-24_job_sources_manifest_delta.sql"
+
+if [ ! -f "$JOB_SOURCES_MANIFEST_DELTA_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_SOURCES_MANIFEST_DELTA_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job sources manifest seed delta (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$JOB_SOURCES_MANIFEST_DELTA_FILE"
+echo "==> job sources manifest seed delta applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file

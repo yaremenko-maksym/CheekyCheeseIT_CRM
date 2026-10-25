@@ -246,7 +246,7 @@ describe('the generator writes the delta where the file already is', () => {
     expect(written).toBe(staged)
     expect(existsSync(manual)).toBe(false)
     expect(readFileSync(staged, 'utf8')).toBe(
-      readFileSync(seedDeltaLocations(DRIZZLE).staged, 'utf8'),
+      readFileSync(seedDeltaLocations(DRIZZLE).manual, 'utf8'),
     )
   })
 

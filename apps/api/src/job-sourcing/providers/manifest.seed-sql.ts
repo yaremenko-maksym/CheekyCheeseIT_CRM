@@ -43,11 +43,11 @@ export const GENERATE_COMMAND = 'pnpm --filter @crm/api job-sources:manifest:gen
 const DOLLAR_TAG = '$manifest$'
 
 /**
- * Where the delta lives. It is generated into `drizzle/manual-staged/` and DevOps moves it to
- * `drizzle/manual/` together with the four deploy edits (see the PR). It cannot start in `manual/`:
+ * Where the delta lives. It was generated into `drizzle/manual-staged/` and DevOps moved it to
+ * `drizzle/manual/` together with the four deploy edits (backlog 337), so the generator now writes
+ * to `manual/`. `staged` stays the fallback for a root that has no wired copy yet:
  * `scripts/devops/check-prod-ddl-wiring.py` fails a build holding a manual file the deploy does not
- * copy and apply, and wiring the deploy is not this task's zone. The text of the file names no
- * directory, so the move changes no byte of it.
+ * copy and apply. The text of the file names no directory, so the move changed no byte of it.
  */
 export function seedDeltaLocations(drizzleRoot: string): { manual: string; staged: string } {
   return {

@@ -5,8 +5,8 @@
  *
  * `manifest.drift.spec.ts` fails when the committed file differs from what this produces, so running
  * it is part of any change to the manifest definitions, the fixtures' provenance or an adapter's
- * status constant. It writes where the file already is (`manual/` once DevOps has moved it,
- * `manual-staged/` before).
+ * status constant. It writes where the file already is: `manual/`, where DevOps moved it when the
+ * deploy was wired (backlog 337); `manual-staged/` only for a root that holds no wired copy.
  */
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'

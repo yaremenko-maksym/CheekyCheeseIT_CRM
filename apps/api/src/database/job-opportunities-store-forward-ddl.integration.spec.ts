@@ -103,10 +103,10 @@ const PART_4_MIGRATION = '2026-10-22_job_queue_redaction_callable.sql'
  * as `deploy.yml` will apply it — and on a fresh store it is a REAL upgrade: parts 1 and
  * 2 create `job_collection_runs` without the column, and this file adds it.
  *
- * It is STAGED in `drizzle/manual-staged/` until DevOps wires the deploy and moves it to
- * `manual/` (the same arrangement as the 2026-10-24 manifest seed delta), so `readPart`
- * looks in `manual/` first and falls back to `manual-staged/`: the move changes no byte
- * of the file and must not break this spec.
+ * It was STAGED in `drizzle/manual-staged/` until DevOps wired the deploy and moved it to
+ * `manual/` (backlog 337, together with the 2026-10-24 manifest seed delta). `readPart`
+ * looks in `manual/` first and still falls back to `manual-staged/`, where a migration
+ * waits until its own deploy wiring lands: the move changes no byte of the file.
  */
 const PART_5_MIGRATION = '2026-10-24_job_run_single_flight.sql'
 /** The indexes PART_5 creates; the reference counts them beside part 2's own. */
