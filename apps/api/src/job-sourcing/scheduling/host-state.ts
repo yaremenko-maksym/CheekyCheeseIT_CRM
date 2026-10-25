@@ -45,6 +45,8 @@ export type RetryAfter =
 const DELAY_SECONDS = /^\d{1,12}$/
 /** The last year `timestamptz` and a `toISOString` without a `+` sign both hold (SEC-AUTO-1). */
 const MAX_YEAR = 9999
+/** The first year `timestamptz` holds (there is no year 0). */
+const MIN_YEAR = 1
 
 /**
  * `Retry-After` in its two forms (RFC 9110 §10.2.3): delay-seconds, or an IMF-fixdate. A delay is
@@ -129,13 +131,20 @@ function assertBan(ban: HostBan): void {
 /** The SQL for `Retry-After`: a delay from the database clock, a parameter instant, or nothing. */
 export function retrySql(retry: RetryAfter | null): SQL {
   if (retry === null) return sql`NULL::timestamptz`
-  if (retry.kind === 'DELAY')
+  // The second wall (SR-H-1, CR-M-6, SR-L-1): `parseRetryAfter` never returns any of the values
+  // refused below, but a value Postgres cannot take would make the ban statement fail (or
+  // `toISOString` throw), leaving the ban unrecorded. Each becomes a NULL, which GREATEST skips:
+  // the ban then pauses for its floor.
+  if (retry.kind === 'DELAY') {
+    // A non-finite or negative delay is no `make_interval` argument.
+    if (!Number.isFinite(retry.seconds) || retry.seconds < 0) return sql`NULL::timestamptz`
     return sql`clock_timestamp() + make_interval(secs => ${retry.seconds})`
-  // SR-H-1: `toISOString` THROWS on an invalid Date, and a throw here would leave the ban
-  // unrecorded. A non-finite or out-of-range instant is a NULL, which GREATEST skips (the ban
-  // then pauses for its floor); `parseRetryAfter` never returns one, this is the second wall.
+  }
+  // An invalid Date, or a year outside 1..9999 (year 0, a negative year, a 5-digit year), is no
+  // `timestamptz`.
   const ms = retry.at.getTime()
-  if (!Number.isFinite(ms) || retry.at.getUTCFullYear() > MAX_YEAR) return sql`NULL::timestamptz`
+  const year = retry.at.getUTCFullYear()
+  if (!Number.isFinite(ms) || year < MIN_YEAR || year > MAX_YEAR) return sql`NULL::timestamptz`
   return sql`${retry.at.toISOString()}::timestamptz`
 }
 

@@ -136,6 +136,35 @@ describe('parseRetryAfter', () => {
         params: ['9999-12-31T23:59:59.000Z'],
       })
       expect(shape(retrySql(null))).toEqual({ sql: 'NULL::timestamptz', params: [] })
+    })
+
+    it('CR-M-6 / SR-L-1: retrySql refuses year 0, negative years and non-finite or negative delays', () => {
+      const shape = (q: SQL) => {
+        const { sql, params } = render(q)
+        return { sql, params }
+      }
+      const NULL = { sql: 'NULL::timestamptz', params: [] }
+      const inYear = (year: number) => {
+        const d = new Date(Date.UTC(2000, 0, 1))
+        d.setUTCFullYear(year)
+        return d
+      }
+      for (const at of [inYear(0), inYear(-1), new Date(-8.64e15)]) {
+        expect(shape(retrySql({ kind: 'AT', at })), String(at.getUTCFullYear())).toEqual(NULL)
+      }
+      // The first storable year passes: the bound is `< 1`, not `<= 1`.
+      expect(shape(retrySql({ kind: 'AT', at: inYear(1) }))).toEqual({
+        sql: '$1::timestamptz',
+        params: ['0001-01-01T00:00:00.000Z'],
+      })
+      for (const seconds of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1]) {
+        expect(shape(retrySql({ kind: 'DELAY', seconds })), String(seconds)).toEqual(NULL)
+      }
+      // A zero delay is a valid argument: the bound is `< 0`, not `<= 0`.
+      expect(shape(retrySql({ kind: 'DELAY', seconds: 0 }))).toEqual({
+        sql: 'clock_timestamp() + make_interval(secs => $1)',
+        params: [0],
+      })
       expect(shape(retrySql({ kind: 'DELAY', seconds: 5 }))).toEqual({
         sql: 'clock_timestamp() + make_interval(secs => $1)',
         params: [5],
