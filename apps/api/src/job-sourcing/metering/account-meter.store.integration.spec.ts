@@ -3,8 +3,12 @@ import type { JobMeterUnit, JobMeterWindow } from '@crm/shared'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { openCrmAppSession } from '../../database/__test-helpers__/crm-app-session'
 import * as schema from '../../database/schema'
+import { LedgerFixtures, LedgerKit, SpecCatalog, specRegistry } from '../../test/ledger-fixtures'
 import { assertRealDbSchema, hasDatabaseUrl } from '../../test/require-real-db'
+import { JobRunLedger } from '../ownership/job-run-ledger'
+import { RunFencedError } from '../ownership/run-ownership'
 import {
   AccountMeterError,
   createAccountMeter,
@@ -527,58 +531,84 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
     )
 
     /**
-     * SR-H-1 — A CHARACTERISATION TEST OF THE UNENFORCED PRECONDITION, not an endorsement of it.
+     * SR-H-1 — NOW PINS THE FIX (r5 Task 2.5 T3 AC 1). This was the characterisation of the
+     * unenforced precondition: two live bindings carrying one `attemptId` shared ONE reservation,
+     * both really sent, and 4 units left the account while 2 were charged.
      *
-     * The store's reuse rule reads a RESERVED row as "the request never left". That is only true
-     * if the executor which took the row is gone, and the store has no evidence of that. This
-     * case reproduces the security review's ADV-3 probe: two LIVE bindings carrying one
-     * `attemptId` (separate objects = separate processes, so the per-process `nextOrdinal` map
-     * does not separate them) receive ONE reservation between them, and when both really send,
-     * the account pays twice and the meter records once.
-     *
-     * It is asserted rather than described because a comment stating a hazard is not a
-     * measurement: anyone who later makes the store distinguish two executors will see THIS test
-     * fail, which is the signal to delete it and assert the fix. Until then it is the honest
-     * statement of what the store does, and the reason the docblock carries the precondition "at
-     * most one live executor per attemptId" as a CALLER obligation.
-     *
-     * The repository cannot fix it inside this file today: the distinguishing fact would have to
-     * arrive through `CollectionContext.run`, which carries no owner token, and whose
-     * `fencingEpoch` is never written by any code here (schema default 1, lease recovery of plan
-     * Task 2.5 unimplemented) — so folding the epoch into the reservation key separates nothing.
-     * Owned by BACKLOG-followups 308.
+     * A run-bound binding now carries the owner token and epoch of a run claimed through
+     * `JobRunLedger`, so a second executor of the same attempt (another token, or a superseded
+     * epoch) is refused with RUN_FENCED on `reserve` and `markSent` before anything is held or
+     * sent. Spend equals charge. The sibling `account-meter.fencing.integration.spec.ts` covers the
+     * rest of the T3 contract; this case keeps the original probe's shape (two workers, one
+     * attempt, a limit of 10) so the before/after is readable side by side.
      */
-    it('TWO live executors of one attempt SHARE a reservation — the precondition, measured', async () => {
-      const m = await newMeter({ limit: 10 })
-      const cycleId = await newCycle()
-      const attemptId = nextTag()
-      const workerA = createAccountMeter(
-        db,
-        binding({ accountKey: m.accountKey, cycleId, attemptId }),
+    it('TWO live executors of one attempt: the second is fenced, spend equals charge (SR-H-1 fixed)', async () => {
+      const session = await openCrmAppSession()
+      const fx = new LedgerFixtures(session.admin, nextTag())
+      const catalog = new SpecCatalog()
+      const ledger = new JobRunLedger(
+        drizzle(session.pool, { schema }),
+        specRegistry(['JSEARCH_API']),
+        catalog,
       )
-      const workerB = createAccountMeter(
-        db,
-        binding({ accountKey: m.accountKey, cycleId, attemptId }),
-      )
+      try {
+        const { rows: u } = await session.admin.query(
+          `INSERT INTO users (email, display_name, role) VALUES ($1, 'SR-H-1 spec', 'ADMIN') RETURNING id`,
+          [`srh1-${nextTag()}@example.test`],
+        )
+        const kit = new LedgerKit(ledger, fx, catalog, u[0].id as string)
+        try {
+          const meterId = await fx.meter(fx.accountKey(`m-${randomUUID().slice(0, 6)}`), 10)
+          const run = await kit.claimOne(
+            await kit.reporting(
+              { type: 'JSEARCH_API', accountMeterId: meterId },
+              { quotaDeclared: true },
+            ),
+          )
+          const base = {
+            accountKey: run.accountKey,
+            windows: { REQUEST: 'DAY' as const },
+            attemptId: run.attemptId,
+            cycleId: run.cycleId,
+            runId: run.runId,
+          }
+          const workerA = createAccountMeter(db, {
+            ...base,
+            ownerToken: run.ownerToken,
+            fencingEpoch: run.fencingEpoch,
+          })
+          const workerB = createAccountMeter(db, {
+            ...base,
+            ownerToken: 'spec-worker:other',
+            fencingEpoch: run.fencingEpoch,
+          })
+          const rejected = async (p: Promise<unknown>) => {
+            try {
+              await p
+            } catch (e) {
+              return e
+            }
+            return null
+          }
 
-      const a = await workerA.reserve('REQUEST', 2)
-      const b = await workerB.reserve('REQUEST', 2)
-      if (a === null || b === null) throw new Error('setup: reservation refused')
+          const a = await workerA.reserve('REQUEST', 2)
+          if (a === null) throw new Error('setup: reservation refused')
+          expect(await rejected(workerB.reserve('REQUEST', 2))).toBeInstanceOf(RunFencedError)
+          expect(await rejected(workerB.markSent(a))).toBeInstanceOf(RunFencedError)
 
-      // One hold between the two of them, for what will be two real requests.
-      expect(b.id).toBe(a.id)
-      expect(await counters(m.id)).toEqual({ used: 0, reserved: 2, uncertain: 0 })
-      expect(await reservationCount(m.id)).toBe(1)
+          await workerA.markSent(a)
+          await workerA.reconcile(a, 'USED')
 
-      // Both send for real and both settle. The second settle is a SILENT no-op, so worker B
-      // believes it was charged.
-      await workerA.reconcile(a, 'USED')
-      await workerB.reconcile(b, 'USED')
-
-      // 4 units left the account; 2 are on the meter. This is the overspend direction.
-      expect(await counters(m.id)).toEqual({ used: 2, reserved: 0, uncertain: 0 })
-      expect(await reservationRow(a.id)).toMatchObject({ status: 'USED', used_amount: 2 })
-    })
+          // One request left the account and 2 units are charged; B held and sent nothing.
+          expect(await fx.counters(meterId)).toEqual({ used: 2, reserved: 0, uncertain: 0 })
+        } finally {
+          await fx.cleanup()
+          await session.admin.query(`DELETE FROM users WHERE id = $1`, [u[0].id])
+        }
+      } finally {
+        await session.close()
+      }
+    }, 120_000)
 
     /**
      * R2-CR-M-3 — the ordinal must advance on the REUSE branch too, not only after a fresh
@@ -1547,17 +1577,25 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
         [nextTag()],
       )
       const attemptId = nextTag()
+      const ownerToken = `owner-${nextTag()}`
+      const m = await newMeter({ limit: 10 })
       const { rows: run } = await q(
         `INSERT INTO job_collection_runs
            (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
             owner_token, lease_expires_at, account_key)
-         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', $4, now() + interval '5 min', '#source:' || $1::uuid::text) RETURNING id`,
-        [src[0].id, cycleId, attemptId, `owner-${nextTag()}`],
+         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', $4, now() + interval '5 min', $5) RETURNING id`,
+        [src[0].id, cycleId, attemptId, ownerToken, m.accountKey],
       )
-      const m = await newMeter({ limit: 10 })
       const meter = createAccountMeter(
         db,
-        binding({ accountKey: m.accountKey, cycleId, attemptId, runId: run[0].id as string }),
+        binding({
+          accountKey: m.accountKey,
+          cycleId,
+          attemptId,
+          runId: run[0].id as string,
+          ownerToken,
+          fencingEpoch: 1,
+        }),
       )
       const r = await meter.reserve('REQUEST', 1)
       if (r === null) throw new Error('setup: reservation refused')
