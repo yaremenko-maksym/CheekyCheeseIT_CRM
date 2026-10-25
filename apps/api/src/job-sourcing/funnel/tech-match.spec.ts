@@ -898,6 +898,17 @@ describe('Requirements heading and clause-bounded cues', () => {
     expect(strengths('without Java', ['java'])).toEqual({ java: 'NEGATED' })
   })
 
+  it('a negation stops at a comma or colon with no following space', () => {
+    expect(strengths('No travel,Java', ['java'])).toEqual({ java: 'CORE' })
+    expect(strengths('No travel,Java,Python', ['java', 'python'])).toEqual({
+      java: 'CORE',
+      python: 'CORE',
+    })
+    expect(strengths('No relocation:Java', ['java'])).toEqual({ java: 'CORE' })
+    expect(strengths('no Rust,Java', ['java', 'rust'])).toEqual({ java: 'CORE', rust: 'NEGATED' })
+    expect(strengths('Java,Python', ['java', 'python'])).toEqual({ java: 'CORE', python: 'CORE' })
+  })
+
   it('a negation stops at a colon, a bullet glyph and a newline', () => {
     expect(strengths('No relocation: Java', ['java'])).toEqual({ java: 'CORE' })
     expect(strengths('• no Rust • Java', ['java', 'rust'])).toEqual({

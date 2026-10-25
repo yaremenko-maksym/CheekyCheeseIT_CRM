@@ -213,8 +213,8 @@ const REQUIREMENT_MARKERS: ReadonlySet<string> = new Set([
 
 const MAX_HEADING_WORDS = 8
 
-/** Clause boundaries inside a sentence: comma / colon followed by a space, or a bullet glyph. */
-const CLAUSE_BOUNDARY = /[,:]\s|\s[•·▪●]\s/
+/** Clause boundaries inside a sentence: a comma or colon (spaced or tight, "Java,Python"), or a bullet glyph. */
+const CLAUSE_BOUNDARY = /[,:]|\s[•·▪●]\s/
 /** Sentence boundaries inside a line. */
 const SENTENCE_BOUNDARY = /(?<=[.!?;])\s/
 
