@@ -2,6 +2,7 @@
  * Record store side tables (r5 Task 4.5) — run membership and canonical identity tokens.
  *
  *   job_run_records                   which run observed which source record, and at which revision
+ *   job_source_record_heads           per record: the order of its observations (latest = newest observed)
  *   job_opportunity_identity_tokens   a trusted cross-source job key claimed by ONE opportunity
  *
  * Both are written only by `apps/api/src/job-sourcing/store/`. The forward DDL is
@@ -10,6 +11,7 @@
  */
 import { sql } from 'drizzle-orm'
 import {
+  bigint,
   check,
   foreignKey,
   index,
@@ -17,11 +19,12 @@ import {
   primaryKey,
   text,
   timestamp,
-  unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
 import { jobCollectionRuns } from './job-collection'
 import { jobOpportunities, jobSourceRecordRevisions, jobSourceRecords } from './job-opportunities'
+import { users } from './users'
 
 /** Upper bound of a token key: an ATS key is a JSON tuple of provider, namespace and job id. */
 export const IDENTITY_TOKEN_KEY_MAX = 1024
@@ -66,9 +69,44 @@ export const jobRunRecords = pgTable(
 )
 
 /**
+ * The observation order of one record (CR-M-2). `observed_at` is when the observing run started
+ * (its fetch time, as far as the store can know it); `observation_seq` counts observations that
+ * moved the latest pointer, per record, and is the dirty-work `target_version` — monotonic, so
+ * content A -> B -> A enqueues three distinct versions. An observation older than `observed_at`
+ * (a slow run committing after a later one) is stored as a revision and never moves the pointer.
+ * A side table rather than columns on `job_source_records`, whose catalog is pinned by the
+ * Phase-1 forward DDL.
+ */
+export const jobSourceRecordHeads = pgTable(
+  'job_source_record_heads',
+  {
+    sourceRecordId: uuid('source_record_id').primaryKey(),
+    latestRevisionId: uuid('latest_revision_id').notNull(),
+    observedAt: timestamp('observed_at', { withTimezone: true }).notNull(),
+    observationSeq: bigint('observation_seq', { mode: 'number' }).notNull(),
+  },
+  (t) => [
+    foreignKey({
+      name: 'fk_job_source_record_heads_record',
+      columns: [t.sourceRecordId],
+      foreignColumns: [jobSourceRecords.id],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'fk_job_source_record_heads_revision',
+      columns: [t.latestRevisionId],
+      foreignColumns: [jobSourceRecordRevisions.id],
+    }).onDelete('cascade'),
+    index('idx_job_source_record_heads_revision').on(t.latestRevisionId),
+    check('ck_job_source_record_heads_seq_positive', sql`${t.observationSeq} > 0`),
+  ],
+)
+
+/**
  * A trusted identity token: at most ONE opportunity owns a (kind, key). Only vendor-hosted ATS job
  * keys (`trustedAtsKeys`) become tokens — never an unverified apply URL, a homepage or a company
- * name. The UNIQUE constraint is the claim: `INSERT … ON CONFLICT DO NOTHING`, then read the owner.
+ * name — and only a record from that ATS's own adapter may claim one (SR-M-2). The partial UNIQUE
+ * index over ACTIVE rows is the claim: `INSERT … ON CONFLICT DO NOTHING`, then read the owner. An
+ * ADMIN release (`releaseToken`) sets `released_*` and keeps the row as history.
  */
 export const jobOpportunityIdentityTokens = pgTable(
   'job_opportunity_identity_tokens',
@@ -81,9 +119,14 @@ export const jobOpportunityIdentityTokens = pgTable(
     sourceRecordId: uuid('source_record_id').notNull(),
     ruleVersion: text('rule_version').notNull(),
     claimedAt: timestamp('claimed_at', { withTimezone: true }).defaultNow().notNull(),
+    releasedAt: timestamp('released_at', { withTimezone: true }),
+    releasedBy: uuid('released_by'),
+    releaseReason: text('release_reason'),
   },
   (t) => [
-    unique('uq_job_opportunity_identity_tokens_key').on(t.namespaceKind, t.tokenKey),
+    uniqueIndex('uq_job_opportunity_identity_tokens_active_key')
+      .on(t.namespaceKind, t.tokenKey)
+      .where(sql`${t.releasedAt} IS NULL`),
     foreignKey({
       name: 'fk_job_opportunity_identity_tokens_opportunity',
       columns: [t.opportunityId],
@@ -96,6 +139,21 @@ export const jobOpportunityIdentityTokens = pgTable(
     }).onDelete('cascade'),
     index('idx_job_opportunity_identity_tokens_opportunity').on(t.opportunityId),
     index('idx_job_opportunity_identity_tokens_record').on(t.sourceRecordId),
+    foreignKey({
+      name: 'fk_job_opportunity_identity_tokens_released_by',
+      columns: [t.releasedBy],
+      foreignColumns: [users.id],
+    }).onDelete('restrict'),
+    index('idx_job_opportunity_identity_tokens_released_by').on(t.releasedBy),
+    // A release says when, who and why — all three or none.
+    check(
+      'ck_job_opportunity_identity_tokens_release_triple',
+      sql`(${t.releasedAt} IS NULL) = (${t.releasedBy} IS NULL) AND (${t.releasedAt} IS NULL) = (${t.releaseReason} IS NULL)`,
+    ),
+    check(
+      'ck_job_opportunity_identity_tokens_release_reason_bounded',
+      sql`${t.releaseReason} IS NULL OR length(${t.releaseReason}) <= 500`,
+    ),
     check('ck_job_opportunity_identity_tokens_kind', sql`${t.namespaceKind} IN ('ATS_JOB_KEY')`),
     check(
       'ck_job_opportunity_identity_tokens_key_bounded',
@@ -109,4 +167,5 @@ export const jobOpportunityIdentityTokens = pgTable(
 )
 
 export type JobRunRecord = typeof jobRunRecords.$inferSelect
+export type JobSourceRecordHead = typeof jobSourceRecordHeads.$inferSelect
 export type JobOpportunityIdentityToken = typeof jobOpportunityIdentityTokens.$inferSelect

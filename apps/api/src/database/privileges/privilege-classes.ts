@@ -212,6 +212,8 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     // Task 2.5 T8: host-level ban pause and claim times. The API's own claim and ban
     // paths read and write it; DELETE comes with the class and is used by nothing.
     'job_source_hosts',
+    // Task 4.5: per-record observation order; the API's record store writes it. STAGED (below).
+    'job_source_record_heads',
     'job_source_record_revisions',
     'job_source_records',
     'job_sources',
@@ -372,6 +374,7 @@ export const STAGED_RELATIONS: Record<string, { file: string }> = {
     file: 'drizzle/manual-staged/2026-10-25_job_record_store.sql',
   },
   job_run_records: { file: 'drizzle/manual-staged/2026-10-25_job_record_store.sql' },
+  job_source_record_heads: { file: 'drizzle/manual-staged/2026-10-25_job_record_store.sql' },
 }
 
 /**

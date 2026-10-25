@@ -140,6 +140,9 @@ BEGIN
   IF to_regclass('public.job_run_records') IS NOT NULL THEN
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.job_run_records TO crm_app;
   END IF;
+  IF to_regclass('public.job_source_record_heads') IS NOT NULL THEN
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.job_source_record_heads TO crm_app;
+  END IF;
 END
 $staged$;
 --   crm_collector: nothing.

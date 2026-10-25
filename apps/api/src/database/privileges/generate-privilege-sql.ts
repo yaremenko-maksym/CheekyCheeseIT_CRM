@@ -208,15 +208,6 @@ $seqs$;
 }
 
 /**
- * File 2 of ADR §4 — the grants, applied LAST on every deploy, as ONE transaction.
- *
- * Shape: revoke everything from the three roles, then grant back exactly what each class
- * prescribes. Re-applying it therefore also REPAIRS drift (a hand-made grant on the live
- * database is undone by the next deploy), and the single transaction means no session
- * ever observes the intermediate state in which the append-only log or a
- * migration-internal table is briefly writable.
- */
-/**
  * The grant for STAGED relations (see STAGED_RELATIONS): the class's privileges, one table at a
  * time, only where the table exists. A plain `GRANT … ON TABLE` would fail with 42P01 on a
  * database the staged file has not reached, and abort the whole grants transaction.
@@ -240,6 +231,15 @@ END
 $staged$;`
 }
 
+/**
+ * File 2 of ADR §4 — the grants, applied LAST on every deploy, as ONE transaction.
+ *
+ * Shape: revoke everything from the three roles, then grant back exactly what each class
+ * prescribes. Re-applying it therefore also REPAIRS drift (a hand-made grant on the live
+ * database is undone by the next deploy), and the single transaction means no session
+ * ever observes the intermediate state in which the append-only log or a
+ * migration-internal table is briefly writable.
+ */
 export function buildGrantsSql(): string {
   const out: string[] = []
   out.push(header(GRANTS_FILE, 'privileges per table class (ADR §2, file 2 of §4)'))
