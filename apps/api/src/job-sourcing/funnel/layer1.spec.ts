@@ -1420,12 +1420,22 @@ describe('layer1: timezone mentions are evidence and a flag, never a verdict', (
     expect(r.rejectedBy).toEqual([])
   })
 
-  it.each(['UTC+2', 'GMT-5', 'Time zones: Europe', 'Timezones: Europe', 'Overlap with US hours'])(
-    '%s is recorded',
-    (text) => {
-      expect(body(text).flags).toContain('TIMEZONE_MENTIONED')
-    },
-  )
+  it.each([
+    'UTC+2',
+    'GMT-5',
+    'Time zones: Europe',
+    'Timezones: Europe',
+    'Overlap with US hours',
+    'Overlap of 1 hour',
+  ])('%s is recorded', (text) => {
+    expect(body(text).flags).toContain('TIMEZONE_MENTIONED')
+  })
+
+  it('other geography evidence raises no timezone flag', () => {
+    const r = run({ location: 'Remote - Europe' })
+    expect(r.geography.evidence).toHaveLength(1)
+    expect(r.flags).not.toContain('TIMEZONE_MENTIONED')
+  })
 
   it('reads a title and a structured location too', () => {
     expect(run({ title: 'Developer (UTC+2)' }).flags).toContain('TIMEZONE_MENTIONED')

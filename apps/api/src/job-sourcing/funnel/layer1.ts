@@ -465,14 +465,13 @@ const AGENCY_PROHIBIT_RE = phraseRegex(AGENCY_PROHIBIT_PHRASES)
 const AGENCY_ACCEPT_RE = phraseRegex(AGENCY_ACCEPT_PHRASES)
 
 /** "isn't an agency", "not a recruitment agency": says what the company is, not who may apply. */
-const isCopulaNegation = (words: string[], i: number): boolean =>
-  (words[i] === 'not' || words[i]?.endsWith("n't") === true) &&
-  (words[i + 1] === 'a' || words[i + 1] === 'an')
+const isNot = (w: string): boolean => w === 'not' || w.endsWith("n't")
+const isArticle = (w: string | undefined): boolean => w === 'a' || w === 'an'
 
 /** A negator shortly before an agency noun bans agencies, unless it only denies being one. */
 function bansAgencies(folded: string, hit: Hit): boolean {
   const words = precedingWords(folded, hit.index, AGENCY_NEGATION_WORDS)
-  return words.some((w, i) => isNegator(w) && !isCopulaNegation(words, i))
+  return words.some((w, i) => isNegator(w) && !(isNot(w) && isArticle(words[i + 1])))
 }
 
 const extractAgency: Extractor<AgencyAcceptance> = (folded) => {
