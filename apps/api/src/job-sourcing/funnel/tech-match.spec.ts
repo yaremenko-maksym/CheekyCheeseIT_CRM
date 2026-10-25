@@ -912,6 +912,7 @@ describe('Requirements heading and clause-bounded cues', () => {
   it('numbers with a comma or colon and URLs do not change keyword hits', () => {
     expect(strengths('No travel 3,5 years Java', ['java'])).toEqual({ java: 'CORE' })
     expect(strengths('no 10:30 shift,Java', ['java'])).toEqual({ java: 'CORE' })
+    expect(strengths('no 10:30 Java', ['java'])).toEqual({ java: 'CORE' })
     expect(strengths('https://x.io/a,b Java', ['java'])).toEqual({ java: 'CORE' })
     expect(strengths('3,5 years Java, 1,000 users Python', ['java', 'python'])).toEqual({
       java: 'CORE',
