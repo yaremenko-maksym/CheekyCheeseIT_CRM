@@ -207,11 +207,12 @@ export function SettleSeniorPayoutDialog({
   // fall BELOW `settleMinDate` whenever the source row was future-dated, and a
   // picker with `min > max` offers no selectable day at all — which is how a
   // future-dated source became unsettleable through the UI.
-  // Stryker disable next-line StringLiteral: the `tx == null` fallback is never READ. The component returns before rendering anything when `tx` is null (pinned by "renders nothing and does not throw when tx is null"), so no bound, default or payload can observe which empty-ish string sits here.
   // Backlog 338: the business day is `transactionBusinessDay` — the `txDate`
   // day, or the KYIV day of `createdAt` for a NULL-`txDate` row — the same
   // helper the server floor calls, so the picker never offers a refused day.
-  const settleMinDate = tx ? (transactionBusinessDay(tx.txDate, tx.createdAt) ?? '') : ''
+  // '' when there is no row or its date is unparseable (no bound, no throw).
+  // Stryker disable next-line StringLiteral: the '' fallback is never READ. With no `tx` the component returns before rendering (pinned by "renders nothing and does not throw when tx is null"); with an unparseable `createdAt` the dialog's own createdAt label (`formatDate(tx.createdAt, …)`, pre-existing) throws first, so no bound, default or payload can observe which string sits here.
+  const settleMinDate = (tx && transactionBusinessDay(tx.txDate, tx.createdAt)) ?? ''
   // CR-M-4: the SAME function the server bound calls, so the picker cannot
   // disagree with what `PendingSettlementService` will accept. This was hand-
   // written here and again in the service — one rule, two copies, two separate
