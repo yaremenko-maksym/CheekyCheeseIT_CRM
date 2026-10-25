@@ -9,23 +9,96 @@ import {
   type BatchEntry,
   type Evaluated,
   type Excluded,
+  type CanonicalRevision,
+  type EvaluateInput,
   type Reason,
 } from './evaluate'
-import {
-  exclusion,
-  input,
-  javaRevision,
-  profile,
-  roster,
-  SENIOR_A,
-  SENIOR_B,
-  SENIOR_C,
-  TEAM_1,
-  TEAM_2,
-  TEAM_3,
-  unknownStackRevision,
-} from './evaluate.fixtures'
 import { rankScore } from './rank'
+import type { SeniorTechProfile } from './tech-match'
+
+/* fixtures */
+import type { JobExclusionDto } from '@crm/shared'
+
+const NOW = new Date('2026-10-20T12:00:00Z')
+
+const SENIOR_A = '11111111-1111-4111-8111-111111111111'
+const SENIOR_B = '22222222-2222-4222-8222-222222222222'
+const SENIOR_C = '44444444-4444-4444-8444-444444444444'
+const TEAM_1 = '33333333-3333-4333-8333-333333333333'
+const TEAM_2 = '55555555-5555-4555-8555-555555555555'
+const TEAM_3 = '66666666-6666-4666-8666-666666666666'
+
+const profile = (seniorId: string, techStack: string[], teamIds: string[]): SeniorTechProfile => ({
+  seniorId,
+  teamIds,
+  techStack,
+})
+
+const exclusion = (over: Partial<JobExclusionDto>): JobExclusionDto => ({
+  id: '77777777-7777-4777-8777-777777777777',
+  scope: 'GLOBAL',
+  seniorId: null,
+  kind: 'KEYWORD',
+  value: 'x',
+  normalizedValue: 'x',
+  origin: 'MANUAL',
+  sourceLabel: null,
+  createdAt: null,
+  ...over,
+})
+
+/** A posting that names its stack, is remote, and is not a layer-1 reject. */
+const javaRevision = (over: Partial<CanonicalRevision> = {}): CanonicalRevision => ({
+  opportunityId: 'opp-1',
+  revisionId: 'rev-1',
+  companyName: 'Acme',
+  fields: {
+    title: 'Senior Java Developer',
+    location: null,
+    descriptionMd: 'Requirements: Java, Spring. Fully remote.',
+    remote: true,
+    employmentType: null,
+    seniorityHint: 'senior',
+    tags: ['java'],
+    dates: [],
+  },
+  availability: 'OPEN',
+  firstSeenAt: new Date('2026-10-19T12:00:00Z'),
+  firstSeenKind: 'NORMAL',
+  trustedPublishedAt: null,
+  ...over,
+})
+
+/** No tags, no requirements, no keyword: layer 2 cannot judge it. */
+const unknownStackRevision = (over: Partial<CanonicalRevision> = {}): CanonicalRevision =>
+  javaRevision({
+    fields: {
+      ...javaRevision().fields,
+      title: 'Senior Developer',
+      descriptionMd: 'Join our friendly team and build great things. Fully remote.',
+      tags: [],
+    },
+    ...over,
+  })
+
+const roster = () => ({
+  rosterSeniorIds: [SENIOR_A, SENIOR_B, SENIOR_C],
+  profiles: [
+    profile(SENIOR_A, ['java', 'kotlin'], [TEAM_1]),
+    profile(SENIOR_B, ['python'], [TEAM_2]),
+    profile(SENIOR_C, ['java'], [TEAM_1, TEAM_3]),
+  ],
+})
+
+const input = (over: Partial<EvaluateInput> = {}): EvaluateInput => ({
+  recordKey: 'rec-1',
+  evaluationTime: NOW,
+  revision: javaRevision(),
+  ...roster(),
+  exclusions: [],
+  teamTriageGrants: [],
+  ...over,
+})
 
 const evaluated = (r: BatchEntry): Evaluated => {
   expect(r.kind).toBe('EVALUATED')
@@ -574,14 +647,7 @@ describe('evaluate: purity (AC 8)', () => {
 
   it('imports only the composed pure modules and types', () => {
     expect([...new Set(specifiers)].sort()).toEqual(
-      [
-        '../filtering',
-        './evaluate.types',
-        './layer1',
-        './rank',
-        './tech-match',
-        '@crm/shared',
-      ].sort(),
+      ['../filtering', './evaluate.types', './layer1', './rank', './tech-match'].sort(),
     )
   })
 
@@ -599,5 +665,233 @@ describe('evaluate: purity (AC 8)', () => {
     } finally {
       for (const guard of guards) guard.mockRestore()
     }
+  })
+})
+
+describe('evaluate: exact outputs', () => {
+  const only = (ids: string[]) => ({
+    rosterSeniorIds: ids,
+    profiles: roster().profiles.filter((p) => ids.includes(p.seniorId)),
+  })
+  const expectedScore = (flags: { unknownSeniority: boolean; unknownRemote: boolean }) =>
+    rankScore({
+      evaluationTime: NOW,
+      trustedPublishedAt: null,
+      firstSeenAt: new Date('2026-10-19T12:00:00Z'),
+      firstSeenKind: 'NORMAL',
+      matchCount: 1,
+      unknownStack: false,
+      ...flags,
+    }).score
+
+  it('records a closed posting with its inputs and an empty roster audit', () => {
+    const r = excluded(evaluate(input({ revision: javaRevision({ availability: 'CLOSED' }) })))
+    expect(r.reasons).toEqual([
+      { code: 'AVAILABILITY_CLOSED', evidence: ['availability=CLOSED'], ruleVersion: 'eval.1' },
+    ])
+    expect(r.audit).toEqual({
+      excluded: [
+        {
+          subject: 'OPPORTUNITY',
+          stage: 'CLASSIFICATION',
+          reasons: r.reasons,
+          inputs: { availability: 'CLOSED', rejectedBy: [] },
+        },
+      ],
+      noTeamAccess: [],
+      ignoredExclusionIds: [],
+    })
+  })
+
+  it('records a layer-1 rejection with the dimension value and every evidence line', () => {
+    const fields = { ...javaRevision().fields, title: 'Junior Developer', seniorityHint: null }
+    const r = excluded(evaluate(input({ revision: javaRevision({ fields }) })))
+    expect(r.reasons).toEqual([
+      {
+        code: 'LAYER1_REJECT',
+        evidence: ['seniority="JUNIOR"', 'TITLE:title:LEVEL_JUNIOR:Junior Developer'],
+        ruleVersion: 'l1.1',
+      },
+    ])
+    expect(r.audit.excluded[0]).toMatchObject({
+      subject: 'OPPORTUNITY',
+      inputs: { availability: 'OPEN', rejectedBy: ['seniority'] },
+    })
+  })
+
+  it('records a global exclusion with the entry it rests on', () => {
+    const entry = exclusion({ kind: 'KEYWORD', value: 'Java' })
+    const r = excluded(evaluate(input({ exclusions: [entry] })))
+    expect(r.reasons).toEqual([
+      { code: 'GLOBAL_EXCLUSION', evidence: ['KEYWORD:Java'], ruleVersion: 'eval.1' },
+    ])
+    expect(r.audit.excluded).toEqual([
+      {
+        subject: 'OPPORTUNITY',
+        stage: 'GLOBAL_RESTRICTIONS',
+        reasons: r.reasons,
+        inputs: { exclusion: entry },
+      },
+    ])
+  })
+
+  it('treats a senior-scoped keyword exclusion as that senior only, not the studio', () => {
+    const entry = exclusion({ scope: 'SENIOR', seniorId: SENIOR_B, kind: 'KEYWORD', value: 'Java' })
+    const r = evaluated(evaluate(input({ exclusions: [entry] })))
+    expect(r.status).toBe('LEAD')
+    expect(r.audit.excluded.map((e) => e.subject)).toEqual([`SENIOR:${SENIOR_B}`])
+  })
+
+  it('reads the company alias from the URL only for the source that defines it', () => {
+    const entry = exclusion({ kind: 'KEYWORD', value: 'epam systems' })
+    const revision = (sourceType: string) =>
+      javaRevision({
+        companyName: 'Romashka Digital',
+        sourceType,
+        url: 'https://jobs.dou.ua/companies/epam-systems/vacancies/1/',
+      })
+    expect(evaluate(input({ revision: revision('DOU_RSS'), exclusions: [entry] })).kind).toBe(
+      'EXCLUDED',
+    )
+    expect(evaluate(input({ revision: revision('HN'), exclusions: [entry] })).kind).toBe(
+      'EVALUATED',
+    )
+  })
+
+  it('reports the same exclusion when several match, whatever the input order', () => {
+    const byCompany = exclusion({
+      id: '88888888-8888-4888-8888-888888888888',
+      scope: 'SENIOR',
+      seniorId: SENIOR_C,
+      kind: 'COMPANY',
+      value: 'Acme',
+    })
+    const byKeyword = {
+      ...byCompany,
+      id: '99999999-9999-4999-8999-999999999999',
+      kind: 'KEYWORD' as const,
+      value: 'Java',
+    }
+    const idOf = (exclusions: JobExclusionDto[]) =>
+      evaluated(evaluate(input({ exclusions }))).audit.excluded[0]?.inputs['exclusionId']
+    expect(idOf([byKeyword, byCompany])).toBe(byCompany.id)
+    expect(idOf([byCompany, byKeyword])).toBe(byCompany.id)
+  })
+
+  it('names the matched keywords once, sorted, with their strength', () => {
+    const fields = { ...javaRevision().fields, tags: ['kotlin', 'java'] }
+    const r = evaluated(evaluate(input({ revision: javaRevision({ fields }) })))
+    const want = [
+      { code: 'TECH_MATCH', evidence: ['java:CORE', 'kotlin:CORE'], ruleVersion: 'eval.1' },
+    ]
+    expect(projection(r, 'STUDIO')?.reasons).toEqual(want)
+    expect(projection(r, `TEAM:${TEAM_1}`)?.reasons).toEqual(want)
+    expect(projection(r, `SENIOR:${SENIOR_C}`)?.reasons).toEqual([
+      { code: 'TECH_MATCH', evidence: ['java:CORE'], ruleVersion: 'eval.1' },
+    ])
+    expect(projection(r, 'STUDIO')?.rankWarnings).toEqual([])
+  })
+
+  it('gives TRIAGE exact reasons: the grant only on the granted team, none on the studio', () => {
+    const r = evaluated(
+      evaluate(input({ revision: unknownStackRevision(), teamTriageGrants: [TEAM_1] })),
+    )
+    const unknown = {
+      code: 'UNKNOWN_STACK',
+      evidence: ['no tags, requirements or keyword hit'],
+      ruleVersion: 'eval.1',
+    }
+    expect(projection(r, 'STUDIO')).toMatchObject({
+      status: 'TRIAGE',
+      matchCount: 0,
+      score: null,
+      rankWarnings: [],
+      reasons: [unknown],
+    })
+    expect(projection(r, `TEAM:${TEAM_1}`)).toMatchObject({
+      status: 'TRIAGE',
+      matchCount: 0,
+      rankWarnings: [],
+      reasons: [
+        unknown,
+        { code: 'TEAM_TRIAGE_GRANT', evidence: [`TEAM:${TEAM_1}`], ruleVersion: 'eval.1' },
+      ],
+    })
+    expect(scopes(r)).toEqual(['STUDIO', `TEAM:${TEAM_1}`])
+  })
+
+  it('does not call a known stack unknown for a team that does not match it', () => {
+    const fields = {
+      ...javaRevision().fields,
+      title: 'Senior Developer',
+      tags: [],
+      descriptionMd: 'We use Java daily. Fully remote.',
+    }
+    const r = evaluated(
+      evaluate(input({ revision: javaRevision({ fields }), teamTriageGrants: [TEAM_1, TEAM_2] })),
+    )
+    expect(r.status).toBe('LEAD')
+    expect(projection(r, `TEAM:${TEAM_1}`)?.status).toBe('LEAD')
+    expect(projection(r, `TEAM:${TEAM_2}`)).toBeUndefined()
+  })
+
+  it('is NO_MATCH, not excluded, when seniors only lack a team', () => {
+    const r = evaluated(
+      evaluate(
+        input({
+          rosterSeniorIds: [SENIOR_A],
+          profiles: [profile(SENIOR_A, ['java'], [])],
+        }),
+      ),
+    )
+    expect(r.status).toBe('NO_MATCH')
+    expect(r.projections).toEqual([])
+    expect(r.audit).toEqual({ excluded: [], noTeamAccess: [SENIOR_A], ignoredExclusionIds: [] })
+    expect(r.trace.map((t) => t.stage)).not.toContain('SCORE')
+    expect(r.trace.at(-1)?.stage).toBe('PROJECTIONS')
+  })
+
+  it('lowers the score for an unknown seniority and for an unknown workplace', () => {
+    const fields = { ...javaRevision().fields, seniorityHint: null, title: 'Java Developer' }
+    const score = (over: Partial<typeof fields>) =>
+      projection(
+        evaluated(
+          evaluate(
+            input({
+              ...only([SENIOR_A]),
+              revision: javaRevision({ fields: { ...fields, ...over } }),
+            }),
+          ),
+        ),
+        'STUDIO',
+      )?.score
+    expect(score({ title: 'Senior Java Developer', seniorityHint: 'senior' })).toBe(
+      expectedScore({ unknownSeniority: false, unknownRemote: false }),
+    )
+    expect(score({})).toBe(expectedScore({ unknownSeniority: true, unknownRemote: false }))
+    expect(
+      score({
+        title: 'Senior Java Developer',
+        seniorityHint: 'senior',
+        remote: null,
+        descriptionMd: 'Requirements: Java.',
+      }),
+    ).toBe(expectedScore({ unknownSeniority: false, unknownRemote: true }))
+  })
+
+  it('lists several missing roster profiles in a stable order', () => {
+    const r = evaluate(
+      input({ rosterSeniorIds: ['ghost-b', SENIOR_A, 'ghost-a', SENIOR_B, SENIOR_C] }),
+    )
+    expect(r).toMatchObject({
+      readiness: [{ code: 'MISSING_ROSTER_PROFILES', seniorIds: ['ghost-a', 'ghost-b'] }],
+    })
+  })
+
+  it('rejects an identifier that is not a string', () => {
+    const bad = (over: object) =>
+      evaluate(input({ revision: { ...javaRevision(), ...over } as never }))
+    expect(bad({ opportunityId: 7 })).toMatchObject({ code: 'INVALID_REVISION' })
+    expect(bad({ revisionId: 7 })).toMatchObject({ code: 'INVALID_REVISION' })
   })
 })

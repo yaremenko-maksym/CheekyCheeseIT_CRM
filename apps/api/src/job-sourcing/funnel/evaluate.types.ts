@@ -1,5 +1,5 @@
 import type { JobExclusionDto } from '@crm/shared'
-import type { RuleVersion as Layer1RuleVersion, Layer1Input, Layer1Result } from './layer1'
+import type { Layer1Input, Layer1Result } from './layer1'
 import type { FirstSeenKind, RankWarning } from './rank'
 import type { SeniorTechProfile, TechMatchView, TechMatchReadinessIssue } from './tech-match'
 
@@ -39,8 +39,8 @@ export interface CanonicalRevision {
   opportunityId: string
   revisionId: string
   companyName: string
-  url?: string
-  sourceType?: string
+  url: string
+  sourceType: string
   fields: Layer1Input
   availability: Availability
   firstSeenAt: Date
@@ -153,5 +153,3 @@ export type EvaluationResult = Evaluated | Excluded | InvalidInput | Retryable
 export type BatchEntry = EvaluationResult | RecordFailed
 
 export type Viewer = { role: 'ADMIN' } | { role: 'HR'; teamId: string | null }
-
-export type { Layer1RuleVersion }
