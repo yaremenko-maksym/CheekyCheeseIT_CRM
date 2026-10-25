@@ -124,11 +124,10 @@ export class JobSourceAdminService {
 
   /** Overdue at the floored cadence: past `next_attempt_at` by more than two cadences (DB clock). */
   private overdueAtFloor(r: Record<string, unknown>): boolean {
-    const manifestId = r['manifest_id']
-    const entry = typeof manifestId === 'string' ? this.ledger.catalog.entry(manifestId) : undefined
-    const stored = r['min_interval_hours']
+    // A NULL manifest id resolves to no entry; a NULL or non-integer interval is "unusable" to T8.
+    const entry = this.ledger.catalog.entry(r['manifest_id'] as string)
     const { hours } = cadenceHoursAtFloor(
-      typeof stored === 'number' ? stored : null,
+      r['min_interval_hours'] as number | null,
       entry?.floorHours ?? 0,
       entry?.intervalHours ?? DEFAULT_CADENCE_HOURS,
     )

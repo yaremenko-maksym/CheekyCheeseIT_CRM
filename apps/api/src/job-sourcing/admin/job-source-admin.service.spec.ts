@@ -114,6 +114,7 @@ describe('listExcluded — the row mapping', () => {
 
   it('without a catalog entry the stored cadence stands; an unusable one falls back to 24 h', async () => {
     const h = harness([
+      row({ overdue: true, now_ms: NEXT + 48 * HOUR }), // exactly two cadences: not yet
       row({ overdue: true, now_ms: NEXT + 47 * HOUR }),
       row({ overdue: true, now_ms: NEXT + 49 * HOUR }),
       row({ overdue: true, min_interval_hours: null, now_ms: NEXT + 49 * HOUR }),
