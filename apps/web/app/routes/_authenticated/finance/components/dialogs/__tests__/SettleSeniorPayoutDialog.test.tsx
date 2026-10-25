@@ -655,6 +655,24 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
     expect(payload['txDate']).toBe('2026-06-01')
   })
 
+  // Backlog 338: with no txDate, `settleMinDate` (and so the default and the
+  // payload) is the KYIV day of createdAt — the floor PendingSettlementService
+  // enforces. 21:30Z on 1 Jun is already 2 Jun in Kyiv (EEST), in every zone.
+  it('date picker: a NULL-txDate row defaults to, and sends, the Kyiv day of createdAt', async () => {
+    renderDialog({
+      ...(TX as object),
+      txDate: null,
+      createdAt: '2026-06-01T21:30:00.000Z',
+    } as never)
+    await screen.findByTestId('settle-senior-account-company')
+    expect(screen.getByTestId('settle-senior-txdate')).toHaveTextContent('02 черв')
+    await fillReceipt('https://etherscan.io/tx/0xkyivday')
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    await waitFor(() => expect(settleMock).toHaveBeenCalledTimes(1))
+    const [, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
+    expect(payload['txDate']).toBe('2026-06-02')
+  })
+
   // owner addendum (2026-08): defaults to the obligation's own creation date
   // («по умолчанию — дата создания»), and that default is exactly what
   // lands in the settle payload untouched.

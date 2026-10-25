@@ -22,7 +22,6 @@ import { describe, expect, it, vi, beforeEach, afterEach, beforeAll } from 'vite
 import { useQuery } from '@tanstack/react-query'
 import type { ReactElement } from 'react'
 import type { PayoutRequestDto, TransactionDto } from '@crm/shared'
-import { formatDate } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 beforeAll(async () => {
@@ -170,6 +169,19 @@ describe('PayoutDetailDialog — instruction card (payer surface)', () => {
     // eslint-disable-next-line testing-library/no-node-access
     const txHashLabel = screen.getByText('Хеш транзакції').closest('label')
     expect(txHashLabel?.textContent).toMatch(/транзакції\s+\(після оплати\)/)
+  })
+
+  // Backlog 338: a NULL-txDate PAYOUT row's minimum is the KYIV day of
+  // createdAt — the server floor — in every zone (21:30Z = next day in Kyiv).
+  it('NULL txDate: the payout payment minimum is the Kyiv day of createdAt', () => {
+    PAYOUT.transactions = [
+      makePayoutLedgerTx({ txDate: null, createdAt: '2099-06-07T21:30:00.000Z' }),
+    ]
+    renderDialog()
+    expect(screen.getByTestId('payout-detail-txdate')).toHaveAttribute('min', '2099-06-08')
+    expect(screen.getByText(/Найраніша доступна дата/).textContent).toBe(
+      'Найраніша доступна дата — 08.06.2099.',
+    )
   })
 
   it('binds the payout payment date to the payout source date and helper', () => {
@@ -538,7 +550,9 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
     renderDialog()
 
     const row = screen.getByTestId('payout-detail-obligation-obligation-long-id-1')
-    const expectedDate = formatDate(obligationTx.createdAt, 'uk', 'shortYY')
+    // Backlog 338: a NULL-txDate row shows its business day, the KYIV day of
+    // createdAt (00:00Z on 1 Jul = 03:00 Kyiv), as a literal in every zone.
+    const expectedDate = '01.07.26'
     // Dash fallback + a REAL space between "от" and the date + the date
     // itself computed from createdAt (txDate is null). receiverName is a
     // real (non-dash) name here, so this substring is unambiguous — see the
