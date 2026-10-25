@@ -7,6 +7,11 @@ import {
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageRun, ageSource } from '../../test/run-aging'
 import { __resetThrottleForTests } from '../http/bounded-fetch'
+import type { SourceObservation } from '../normalize/observation'
+import {
+  type ReportingJobSourceProvider,
+  buildCollectionBatch,
+} from '../providers/reporting-provider'
 import { arbeitnowProvider } from '../providers/sources/arbeitnow.provider'
 import {
   type FixtureServer,
@@ -53,6 +58,53 @@ function arbeitnowPage(ids: readonly string[], next: boolean) {
   }
 }
 
+/**
+ * AC 5: an adapter that persists a page and then hands back a batch whose counts do not balance --
+ * the summary of it cannot be built, and the run must still be terminal with what `savePage` wrote.
+ */
+const unbalanced: ReportingJobSourceProvider = {
+  type: 'JOBICY_API',
+  parseConfig: (raw) => raw as never,
+  async collectReport(_config, ctx) {
+    const observations = ['u1', 'u2'].map(
+      (id) =>
+        ({
+          identity: {
+            provider: 'JOBICY_API',
+            namespace: `t3spec-${TAG}`,
+            nativeId: id,
+            identityKey: `["t7-${TAG}-${id}"]`,
+            identityKind: 'NATIVE_ID',
+          },
+        }) as unknown as SourceObservation,
+    )
+    await ctx.checkpoints.savePage({
+      observations,
+      checkpoint: {
+        configVersion: 1,
+        policyVersion: 1,
+        adapterVersion: 'jobicy_api-spec',
+        position: { kind: 'CURSOR', page: 1, cursor: 'c1' },
+        completedAt: new Date('2026-10-25T00:00:00Z'),
+      },
+    })
+    const batch = buildCollectionBatch({
+      observations: [],
+      facts: {
+        stop: 'EXHAUSTED',
+        pagesCompleted: 1,
+        counts: { raw: 0, normalized: 0, invalid: 0, quarantined: 0, discarded: 0 },
+        scope: { namespace: 'spec', query: null, configVersion: 1, window: null },
+        resumed: false,
+      },
+      requests: [],
+      checkpoint: null,
+      invalidSamples: [],
+    })
+    return { ...batch, counts: { ...batch.counts, raw: 7 } }
+  },
+}
+
 const pageOf = (path: string) => Number(new URL(path, 'http://x').searchParams.get('page'))
 
 describe.skipIf(!hasDatabaseUrl())('the run worker against Postgres, as crm_app (T7)', () => {
@@ -60,6 +112,7 @@ describe.skipIf(!hasDatabaseUrl())('the run worker against Postgres, as crm_app 
     session = await openCrmAppSession()
     w = await openWorld(session, TAG)
     w.register(arbeitnowProvider, [ARBEITNOW])
+    w.register(unbalanced, [ARBEITNOW])
     fixture = await startFixtureServer()
     restoreFetch = routeFetchTo(fixture)
   }, 120_000)
@@ -157,6 +210,16 @@ describe.skipIf(!hasDatabaseUrl())('the run worker against Postgres, as crm_app 
     ])
     expect(a.length + b.length).toBe(1)
     expect((await w.fx.runs(sourceId)).length).toBe(1)
+  })
+
+  it('AC 5: a summary that cannot be built still leaves the run terminal, with its counts', async () => {
+    const { sourceId } = await w.source({ type: 'JOBICY_API', config: { t7: TAG } })
+    const [report] = await w.worker().runDue({ cycleId: await w.cycle(), onlyIds: [sourceId] })
+    expect(report).toMatchObject({ outcome: 'SUCCEEDED', finished: true, counts: null })
+    expect(await runRow(w.admin, report!.runId)).toMatchObject({
+      outcome: 'SUCCEEDED',
+      received: 2,
+    })
   })
 
   it('AC 16: at worker start an expired run left by a previous process is recovered first', async () => {

@@ -6,12 +6,9 @@ import {
   type CrmAppSession,
 } from '../../database/__test-helpers__/crm-app-session'
 import { fakeCollectionContext } from '../../test/fake-collection-context'
-import { ageHostPause } from '../../test/host-pause-aging'
 import { hasDatabaseUrl } from '../../test/require-real-db'
-import { ageRun, ageSource } from '../../test/run-aging'
 import { sourceFixture } from '../../test/source-fixtures'
 import { __resetThrottleForTests } from '../http/bounded-fetch'
-import type { ClaimedRun } from '../ownership/job-run-ledger'
 import { SMARTRECRUITERS_OWNER_DECISION } from '../providers/owner-decisions'
 import {
   type CollectionBatch,
@@ -27,12 +24,9 @@ import {
   createSmartRecruitersProvider,
 } from '../providers/sources/smartrecruiters.provider'
 import { createTheirStackProvider } from '../providers/sources/theirstack.provider'
-import type { HostBan } from '../scheduling/host-state'
-import { recordHostBan } from '../scheduling/host-state'
 import {
   type FixtureServer,
   type World,
-  hostPausedForHours,
   meterRow,
   openWorld,
   reservationsOf,
@@ -42,7 +36,7 @@ import {
 } from './__test-helpers__/runtime-harness'
 
 /**
- * r5 Task 2.5 T7 — the METERED production context and stop-on-ban against a REAL Postgres AS
+ * r5 Task 2.5 T7 — the METERED production context against a REAL Postgres AS
  * `crm_app`, real adapters and the real `boundedFetchText`, answered by a LOCAL fixture server. Every
  * case asserts what the fixture server actually received.
  *
@@ -182,13 +176,6 @@ async function counters(meterId: string) {
     [meterId],
   )
   return rows[0] as { used: number; reserved: number; uncertain: number }
-}
-
-async function runOf(sourceId: string): Promise<string> {
-  const runs = await w.fx.runs(sourceId)
-  const last = runs.at(-1)
-  if (last === undefined) throw new Error('no run')
-  return last.id
 }
 
 describe.skipIf(!hasDatabaseUrl())('the metered production context against Postgres (T7)', () => {
