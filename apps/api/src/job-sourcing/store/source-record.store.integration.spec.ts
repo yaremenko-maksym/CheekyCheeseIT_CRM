@@ -239,38 +239,40 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
     expect(r).toMatchObject({ received: 3, created: 1, unchanged: 0, duplicates: 2 })
   })
 
-  it('R2-CR-M-1: an older run that waited behind a newer one reads the head the newer one wrote', async () => {
+  it('R2-CR-M-1: a run that waited for the record lock reads the head committed meanwhile', async () => {
     const namespace = ns()
     const seed = await run()
-    await saveObservationPage(db, seed, {
+    const [c] = await saveObservationPage(db, seed, {
       observations: [obs(namespace, 'w', 'C')],
       checkpoint: specCheckpoint(1),
     })
-    const older = await run()
-    const newer = await run()
-    const hold = gate()
-    const written = gate()
-    // The newer run writes B and keeps its transaction (and the record lock) open.
-    const newerTx = db.transaction(async (tx) => {
-      const saved = await saveObservations(tx, newer, [obs(namespace, 'w', 'B')])
-      written.open()
-      await hold.wait
-      return saved
-    })
-    await written.wait
-    // The older run's page now waits on the record lock.
-    const olderPage = saveObservationPage(db, older, {
-      observations: [obs(namespace, 'w', 'A')],
-      checkpoint: specCheckpoint(1),
-    })
-    await untilBlocked(session.admin)
-    hold.open()
-    const [[b], [a]] = [await newerTx, await olderPage]
-    expect(b?.advanced).toBe(true)
-    // After the wait the older run saw the NEWER head: A is stored and the pointer stays on B.
-    expect(a).toMatchObject({ createdRevision: true, advanced: false })
-    expect(await latestOf(namespace)).toBe(b?.revisionId)
-    expect(await dirtyVersions(namespace)).toEqual([1, 2])
+    const later = await run()
+    // Another writer holds the record lock (a row lock only, so the INSERT ... DO NOTHING of the
+    // waiting run does not wait: it reaches the locking statement and waits THERE).
+    const holder = await session.admin.connect()
+    try {
+      await holder.query('BEGIN')
+      await holder.query(`SELECT 1 FROM job_source_records WHERE id = $1 FOR UPDATE`, [c?.recordId])
+      const page = saveObservationPage(db, later, {
+        observations: [obs(namespace, 'w', 'A')],
+        checkpoint: specCheckpoint(1),
+      })
+      await untilBlocked(session.admin)
+      // While it waits, the holder commits a head from an observation NEWER than this run.
+      await holder.query(
+        `UPDATE job_source_record_heads SET observed_at = clock_timestamp() + interval '1 day'
+          WHERE source_record_id = $1`,
+        [c?.recordId],
+      )
+      await holder.query('COMMIT')
+      const [a] = await page
+      // A head read inside the locking statement would be the pre-wait one and move the pointer.
+      expect(a).toMatchObject({ createdRevision: true, advanced: false })
+    } finally {
+      holder.release()
+    }
+    expect(await latestOf(namespace)).toBe(c?.revisionId)
+    expect(await dirtyVersions(namespace)).toEqual([1])
   })
 
   it('R2-CR-M-1: two concurrent first observations of a new record both succeed', async () => {
