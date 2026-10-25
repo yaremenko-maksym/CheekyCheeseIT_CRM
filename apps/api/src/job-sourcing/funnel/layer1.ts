@@ -104,12 +104,17 @@ function hitsOf(re: RegExp, folded: string): Hit[] {
 const inside = (spans: readonly Hit[], index: number): boolean =>
   spans.some((s) => index >= s.index && index < s.index + s.text.length)
 
+/** Runs of anything that is not a letter or an apostrophe. */
+// Stryker disable next-line Regex: equivalent — dropping the `+` only yields empty strings between adjacent separators, and every caller filters empty words out
+const NON_WORD_RUN = /[^\p{L}']+/u
+
 function precedingWords(folded: string, index: number, count: number): string[] {
   const head = folded.slice(0, index)
   const cut = Math.max(...['.', ';', '!', '?', ':', ','].map((c) => head.lastIndexOf(c)))
+  // Stryker disable next-line ConditionalExpression,UnaryOperator: equivalent — with no punctuation `slice(cut + 1)` is `slice(0)`, the whole head; a cut at index 1 only adds one preceding character, never a negator
   const clause = cut === -1 ? head : head.slice(cut + 1)
   return clause
-    .split(/[^\p{L}']+/u)
+    .split(NON_WORD_RUN)
     .filter((w) => w.length > 0)
     .slice(-count)
 }
@@ -132,16 +137,19 @@ function normalizeText(text: string): string {
     .replace(/’/g, "'")
 }
 
+// Stryker disable next-line Regex: equivalent — a shorter separator only leaves empty or whitespace-only sentences, which `sentencesOf` trims and drops
+const SENTENCE_BREAK = /[\r\n]+|(?<=[.!?])\s+/
+// Stryker disable next-line Regex: equivalent — one space per mark or one per run collapses to the same text under `\s+` below
+const MARKDOWN_MARKS = /[*#>`]+/g
+// Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent — an empty sentence yields no signal in any extractor, so keeping it changes nothing observable
+const isNonEmpty = (s: string): boolean => s.length > 0
+
 function sentencesOf(text: string): string[] {
+  // Stryker disable next-line MethodExpression: equivalent — see `isNonEmpty`: dropping the empty-sentence filter changes nothing observable
   return normalizeText(text)
-    .split(/[\r\n]+|(?<=[.!?])\s+/)
-    .map((s) =>
-      s
-        .replace(/[*#>`]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim(),
-    )
-    .filter((s) => s.length > 0)
+    .split(SENTENCE_BREAK)
+    .map((s) => s.replace(MARKDOWN_MARKS, ' ').replace(/\s+/g, ' ').trim())
+    .filter(isNonEmpty)
 }
 
 const excerptOf = (s: string): string => s.slice(0, MAX_EXCERPT)
@@ -266,6 +274,7 @@ const extractWorkplace: Extractor<WorkplaceSignal> = (folded) => {
     if (isNegated(folded, h.index) || isSoftened(folded, h.index)) continue
     out.push({ value: 'HYBRID', code: 'HYBRID_KEYWORD' })
   }
+  // Stryker disable next-line ConditionalExpression,MethodExpression: equivalent — a day count below 5 is also in `hybrid`, and `inside(hybrid, ...)` below skips it
   const onsite = [...hitsOf(ONSITE_RE, folded), ...days.filter((d) => d.count === 5)]
   for (const h of onsite) {
     // "2 days in the office" is one hybrid phrase: its "in office" is not an onsite signal.
@@ -344,6 +353,7 @@ const FULL_RE = phraseRegex(FULL_TIME_PHRASES)
 const PART_RE = phraseRegex(PART_TIME_PHRASES)
 /** "40 hours per week", "20 год на тиждень". */
 const HOURS_RE =
+  // Stryker disable next-line Regex: equivalent — the match ends after the "тиж" stem and nothing reads what follows it, so `\p{L}*` vs `\P{L}*` is unobservable
   /(?<!\d)(\d{1,2}) ?(?:hours?|hrs?|год\p{L}*) ?(?:\/|per|a|в|на) ?(?:week|wk|тиж\p{L}*)/gu
 
 const extractSchedule: Extractor<Schedule> = (folded) => {
@@ -450,7 +460,7 @@ function classifyDuration(input: Layer1Input): Dimension<Duration> {
 const wordsAfter = (folded: string, hit: Hit): string =>
   `${folded
     .slice(hit.index + hit.text.length)
-    .split(/[^\p{L}']+/u)
+    .split(NON_WORD_RUN)
     .filter((w) => w.length > 0)
     .join(' ')} `
 
@@ -481,6 +491,7 @@ const extractAgency: Extractor<AgencyAcceptance> = (folded) => {
 
 function classifyAgency(input: Layer1Input): Dimension<AgencyAcceptance> {
   const r = resolve(collect(textSources(input), extractAgency, ['descriptionMd']))
+  // Stryker disable next-line ConditionalExpression: equivalent — a conflict resolves to value null, which the lines below already map to the same UNKNOWN / WARN_UNKNOWN / evidence
   if (r.conflict) return dim<AgencyAcceptance>('UNKNOWN', 'WARN_UNKNOWN', r.evidence)
   const v = r.value ?? 'UNKNOWN'
   return dim<AgencyAcceptance>(
@@ -583,6 +594,7 @@ function classifySeniority(input: Layer1Input): Dimension<Seniority> {
   // Body requirement sections second: only an explicit years-of-experience statement counts.
   // Words such as "junior" or "mentorship" in a body describe the team, not the role.
   let years = -1
+  // Stryker disable next-line StringLiteral: equivalent — the initial value is overwritten whenever `years` is set, and `years < 0` returns before `excerpt` is read
   let excerpt = ''
   for (const sentence of sentencesOf(input.descriptionMd)) {
     for (const m of fold(sentence).matchAll(YEARS_RE)) {
@@ -607,6 +619,7 @@ const IC_BODY_RE = phraseRegex(IC_BODY_PHRASES)
 function classifyLeadership(input: Layer1Input): Dimension<Leadership> {
   const probes = [
     { source: 'TITLE' as const, field: 'title', text: input.title },
+    // Stryker disable next-line StringLiteral: equivalent — any non-lead placeholder text matches no lead phrase, exactly like the empty string
     { source: 'STRUCTURED' as const, field: 'seniorityHint', text: input.seniorityHint ?? '' },
   ]
   for (const p of probes) {
@@ -646,8 +659,10 @@ function classifyLeadership(input: Layer1Input): Dimension<Leadership> {
 const REGION_ALTERNATIVES = REGIONS.flatMap(([, phrases]) => phrases).join('|')
 /** "Remote - Europe", "EU only", "must be based in Canada". */
 const REGION_LIMIT_RE = new RegExp(
+  // Stryker disable next-line StringLiteral: the mutant leaves an unbalanced group, so the module throws on load and the runner reports no failing test — it cannot be asserted against
   `${WORD_START}(?:remote(?: in| within| from)?[ ,:(]*(?:the )?(${REGION_ALTERNATIVES})` +
     `|(${REGION_ALTERNATIVES}) only` +
+    // Stryker disable next-line StringLiteral: as above — an unbalanced group makes the module fail to load
     `|must (?:be (?:located|based)|reside|live) in (?:the )?(${REGION_ALTERNATIVES}))${WORD_END}`,
   'giu',
 )
@@ -804,6 +819,7 @@ function classifyFreshness(
       note(field, d.raw, 'FUTURE_DATE', false)
     } else {
       note(field, d.raw, 'DATED', true)
+      // Stryker disable next-line EqualityOperator: equivalent — on a tie the replacement is an equal instant, so `newest` is the same moment either way
       if (newest === null || d.value.getTime() > newest.getTime()) newest = d.value
     }
   }

@@ -1371,3 +1371,93 @@ describe('layer1: flags', () => {
     expect(schedOnly.flags).toContain('UNRESOLVED_CONTRADICTION')
   })
 })
+
+describe('layer1: mutation kills (boundaries, evidence codes, text normalisation)', () => {
+  it('a hit that starts exactly where a hybrid span ends is not inside that span', () => {
+    // "гібрид*" is a stem, so it ends where the digit starts; the 5-day office phrase is onsite.
+    const r = run({ location: 'гібрид5 days in office' })
+    expect(r.workplace.value).toBe('UNKNOWN')
+    expect(r.flags).toContain('UNRESOLVED_CONTRADICTION')
+  })
+
+  it('a clause that begins at the very start of the text still scopes negation to itself', () => {
+    const r = run({ location: ', not remote' })
+    expect(r.workplace.evidence).toEqual([
+      ev('STRUCTURED', 'location', ', not remote', 'NEGATED_REMOTE'),
+    ])
+  })
+
+  it('markdown marks are replaced by a space, not deleted', () => {
+    const r = body('work*from*home')
+    expect(r.workplace.value).toBe('REMOTE')
+    expect(r.workplace.evidence[0]?.excerpt).toBe('work from home')
+  })
+
+  it('names the evidence code of each workplace signal', () => {
+    expect(run({ location: 'Hybrid' }).workplace.evidence).toEqual([
+      ev('STRUCTURED', 'location', 'Hybrid', 'HYBRID_KEYWORD'),
+    ])
+    expect(run({ location: 'Not remote' }).workplace.evidence).toEqual([
+      ev('STRUCTURED', 'location', 'Not remote', 'NEGATED_REMOTE'),
+    ])
+  })
+
+  it('a schedule conflict leaves the value UNKNOWN, with the contradiction recorded', () => {
+    const r = run({ employmentType: 'Full-time', title: 'Part-time Dev' })
+    expect(r.schedule.value).toBe('UNKNOWN')
+    expect(r.schedule.verdict).toBe('WARN_UNKNOWN')
+    expect(r.schedule.evidence.at(-1)).toEqual(ev('POLICY', '', '', 'CONFLICTING_SCHEDULE_SIGNALS'))
+  })
+
+  it('a stem phrase needs its whole stem: a shorter prefix is not a match', () => {
+    expect(run({ employmentType: 'неповага' }).schedule.value).toBe('UNKNOWN')
+    expect(run({ employmentType: 'неповний день' }).schedule.value).toBe('PART_TIME')
+  })
+
+  it('"are" is dropped only when it directly follows the agency noun', () => {
+    expect(body('Agencies are not welcome').agency.value).toBe('PROHIBITED')
+    expect(body('Agencies do are not hiring').agency.value).toBe('UNKNOWN')
+  })
+
+  it('an acceptance word counts only right after the agency noun, not at the end of the clause', () => {
+    expect(body('Agencies welcome').agency.value).toBe('ACCEPTED')
+    expect(body('Agencies, contact recruiting welcome').agency.value).toBe('UNKNOWN')
+  })
+
+  it('names the leadership value and code for a body that states an individual contributor role', () => {
+    const r = body('This is an individual contributor role')
+    expect(r.leadership.value).toBe('INDIVIDUAL_CONTRIBUTOR')
+    expect(r.leadership.evidence[0]?.code).toBe('IC_BODY')
+    expect(body('You will have direct reports').leadership.value).toBe('LEADS_PEOPLE')
+  })
+
+  it('a work-authorization phrase that carries its own region is recorded as such', () => {
+    const r = body('US citizens only')
+    expect(r.geography.value).toEqual({ kind: 'WORK_AUTHORIZATION_REQUIRED', regions: ['US'] })
+    expect(r.geography.evidence.map((e) => e.code)).toContain('WORK_AUTHORIZATION')
+  })
+
+  it('a rate that is not finite is as unusable as a missing one', () => {
+    const r = run({
+      salary: { min: 100, max: 100, currency: 'EUR', period: 'MONTH' },
+      fxRate: { currency: 'EUR', usdPerUnit: Number.POSITIVE_INFINITY, recordedAt: '2026-10-01' },
+    })
+    expect(r.salary.value).toEqual({ state: 'UNCONVERTIBLE', monthlyUsd: null })
+    expect(r.flags).toContain('SALARY_UNCONVERTIBLE')
+  })
+
+  it('raises no salary flag when the salary is usable', () => {
+    const r = run({ salary: { min: 5000, max: 5000, currency: 'USD', period: 'MONTH' } })
+    expect(r.flags).toEqual([])
+  })
+
+  it('flags truncation when ANY evidence item is the truncated description', () => {
+    const r = run({
+      evidence: [
+        { field: 'description', kind: 'DISPLAY_TRUNCATED', detail: 'x' },
+        { field: 'title', kind: 'DISPLAY_TRUNCATED', detail: 'y' },
+      ],
+    })
+    expect(r.flags).toContain('DESCRIPTION_TRUNCATED')
+  })
+})
