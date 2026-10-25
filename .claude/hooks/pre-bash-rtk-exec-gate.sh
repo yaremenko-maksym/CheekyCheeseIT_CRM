@@ -14,8 +14,11 @@
 # Decided on the RAW command text, after one NORMALISATION step that does what the shell does when it builds
 # a word: it deletes backslash-newline continuations, DECODES ANSI-C strings with BASH semantics ($'\x62ypass',
 # \u with 1-4 hex digits, \U with 1-8, octal, \x with 1-2; an escape bash would not decode is kept as text),
-# then drops the remaining quote characters and backslashes. Whitespace runs are collapsed first so that no
-# regex below can go quadratic on padding. So `byp''ass`, `te\st`, `"te"st`, `$'bypass'`, `$'\x62ypass'`,
+# then drops the remaining quote characters and backslashes, turns $IFS / ${IFS} / $IFS$9 into a space and
+# deletes redirections (2>/dev/null, >&2, <&-, {fd}>f ...) that may sit between the binary and its subcommand.
+# Whitespace runs are collapsed so that no regex below can go quadratic on padding, and the command-position
+# prefix is written with DISJOINT alternatives so it cannot backtrack exponentially either (both pinned by the
+# timing row in the test). A binary glued to an expansion (rtk$X, rtk followed by a backtick) is refused too. So `byp''ass`, `te\st`, `"te"st`, `$'bypass'`, `$'\x62ypass'`,
 # `$'\u62'ypass`, `byp\<NL>ass` and a split `r''tk` all read as the plain word they become. After that:
 #   1. the word after `rtk` (+ flags) is an exec subcommand            -> refused anywhere in the text;
 #   2. the binary is in COMMAND POSITION and the word after it is not a literal word (contains { } $ ` * ?)
@@ -27,9 +30,13 @@
 #      is not in command position there.
 # The cost of rule 1 is a false positive when TEXT mentions e.g. `rtk test` in an echo or a commit message;
 # the block message says how to rephrase.
-# Known limits, shared by every guard in this directory (see cmdscan.py): the binary or the subcommand rebuilt
-# in a variable or assembled by a script; a GLOB in the binary word (r?k); a copy or symlink of the binary
-# under another name (needs a file the attacker created first). This closes the typed forms.
+# Known limits, shared by every guard in this directory (see cmdscan.py) and ACCEPTED by the owner on
+# 2026-10-25 (list in the rationale file): the binary or the subcommand rebuilt in a variable, a command
+# substitution, an alias/function or a script; a GLOB in the binary word (r?k); a copy or symlink of the
+# binary under another name; payloads outside the shell word model (sh -c "$VAR", eval "$(...)", base64 | sh);
+# command-position gaps for rare syntax (case arms, if/while conditions, find -exec, flock, coproc ...).
+# The binary is installed OUTSIDE PATH (scripts/devops/install-rtk.sh), so a bare typed `rtk ...` is
+# "command not found" for an agent; this gate is the second layer, not the only one.
 #
 # Contract: exit 0 = allow; exit 2 + {"decision":"block","reason":...} on stdout = refuse. It never
 # crashes into a block: any internal failure exits 0 (fail-open) — the other guards still run.
@@ -100,6 +107,11 @@ norm = re.sub(r"\s*\n\s*", "\n", norm)
 norm = re.sub(r"\$\x27((?:[^\x27\\]|\\.)*)\x27", ansi_c, norm, flags=re.S)
 norm = re.sub(r"\$(?=[\x27\x22])", "", norm)
 norm = re.sub(r"[\\\x27\x22]", "", norm)
+# $IFS (and the $IFS$9 idiom) is a word separator the shell expands to whitespace (SR-H-14)
+norm = re.sub(r"\$\{?IFS\}?(?:\$\{?[0-9@*]\}?)*", " ", norm)
+# redirections may sit anywhere in a simple command, between the binary and its subcommand too (SR-H-13)
+norm = re.sub(r"\{\w+\}(?=[<>])", "", norm)
+norm = re.sub(r"(?<![\w-])[0-9]*(?:&>>?|[<>]&|<<<|<<?|>>?\|?) ?(?:&?-|[^\s;&|()<>]+)?", " ", norm)
 norm = re.sub(r"[ \t\r\f\v]+", " ", norm)
 
 gap = r"\s+"
@@ -108,15 +120,23 @@ binary = r"(?<![\w.~$/-])(?:[\w./~$-]*/)?rtk"
 exec_word = r"(?:bypass|proxy|err|test|run|summary)(?![\w-])"
 nonlit = r"[^\s;&|]*[{}$`*?][^\s;&|]*"
 wrapper = r"(?:time|env|sudo|doas|command|exec|nohup|xargs|nice|ionice|timeout|stdbuf|setsid|eval|unbuffer|watch)"
-wflag = r"\s+-{1,2}[\w-]+(?:=\S+)?(?:\s+(?!rtk\b)[\w.@:/-]+)?"
+# The alternatives below are DISJOINT on purpose (SR-M-13): a flag value never matches a bare duration
+# (`-n 5` parses one way only), and an assignment value stops at a separator, so no input can make the
+# prefix backtrack exponentially or quadratically.
+wflag = (
+    r"\s+-{1,2}[\w-]+(?:=\S+)?"
+    r"(?:\s+(?!rtk\b)(?!" + wrapper + r"\b)(?!\d+[smhd]?(?:\s|$))[\w.@:/-]+)?"
+)
 cmdpos = (
     r"(?:^|[;&|({\n]|\b(?:then|do|else)\b|\s-l?c\s)\s*"
-    r"(?:(?:\w+=\S*|!|" + wrapper + r"(?:" + wflag + r"|\s+\d+[smhd]?)*)\s+)*"
+    r"(?:(?:\w+=[^\s;&|]*|!|" + wrapper + r"(?:" + wflag + r"|\s+\d+[smhd]?)*)\s+)*"
 )
 
 pat_exec = re.compile(binary + flags + gap + exec_word)
 pat_nonlit = re.compile(cmdpos + binary + flags + gap + nonlit, re.M)
-m = pat_exec.search(norm) or pat_nonlit.search(norm)
+# the binary glued to an expansion with no whitespace (rtk$X, rtk`cmd`) is as unreadable as a non-literal word
+pat_glue = re.compile(cmdpos + binary + r"[$`]", re.M)
+m = pat_exec.search(norm) or pat_nonlit.search(norm) or pat_glue.search(norm)
 if m:
     hit = m.group(0).strip(" ;&|({\n")
     # ascii only: a lone surrogate must not crash the print and turn the gate fail-open

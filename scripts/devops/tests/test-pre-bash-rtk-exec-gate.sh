@@ -68,6 +68,19 @@ rtk \$SUB ls" \
   "command -p rtk \$SUB hi" \
   "nohup nice rtk \$SUB hi" \
   "B=1; rtk {bypass,echo} hi" \
+  "rtk 2>/dev/null run 'touch M'" \
+  "rtk >/dev/null run ls" \
+  "rtk <&- run ls" \
+  "rtk &>/dev/null run ls" \
+  "rtk 3>&1 run ls" \
+  "rtk -v 2>&1 test ls" \
+  "rtk 2> /dev/null bypass ls" \
+  "rtk {fd}>/dev/null run ls" \
+  "rtk\${IFS}run 'touch M'" \
+  "rtk\$IFS\$9run ls" \
+  "rtk\${IFS}bypass ls" \
+  "rtk\$X run ls" \
+  "echo ok; rtk\`echo\` run ls" \
   "rtk byp''ass rm -rf /x/node_modules" \
   "rtk \$'bypass' rm -rf /x/node_modules" \
   "rtk {bypass,} rm -rf /x/node_modules" \
@@ -144,12 +157,14 @@ for cmd in \
 done
 
 # ── performance: padding must not make the regexes quadratic (SR-M-12) ──
-assert_green "20k newlines, 10k space-newline pairs and a 160 KB path run all finish fast" \
+assert_green "padding and adversarial wrapper chains (20k newlines, path runs, nice -n 5 x40, a=b; x50k, 300 KB chain) all finish fast" \
   --contains "FAST" \
   -- python3 -c '
 import json, subprocess, sys, time
 hook = sys.argv[1]
-for cmd in ("echo ok" + "\n" * 20000, "echo ok" + " \n" * 10000, "echo " + "a/" * 80000, "echo " + "~" * 100000):
+for cmd in ("echo ok" + "\n" * 20000, "echo ok" + " \n" * 10000, "echo " + "a/" * 80000, "echo " + "~" * 100000,
+            "nice -n 5 " * 40 + "ls", "time -p " * 60 + "ls", "sudo -u x " * 40 + "ls", "a=b;" * 50000, ";" * 100000,
+            "nice -n 5 " * 30000):
     t = time.time()
     subprocess.run(["bash", hook], input=json.dumps({"tool_input": {"command": cmd}}).encode(), capture_output=True)
     if time.time() - t > 5:

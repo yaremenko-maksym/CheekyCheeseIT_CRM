@@ -13,13 +13,17 @@
 # Edition: `rtk-oss` (Apache-2.0, built without the BUSL-1.1 engine). Do not switch to the default
 # `rtk` asset without an owner decision — it bundles a BUSL-1.1 component.
 #
-# Usage:  scripts/devops/install-rtk.sh            # installs to ~/.local/bin (RTK_INSTALL_DIR overrides)
+# Usage:  scripts/devops/install-rtk.sh            # installs to ~/.local/share/rtk/bin (RTK_INSTALL_DIR overrides)
 #         RTK_INSTALL_DIR=/usr/local/bin scripts/devops/install-rtk.sh
 set -euo pipefail
 
 RTK_VERSION="v1.0.1"
 REPO="rtk-ai/rtk"
-INSTALL_DIR="${RTK_INSTALL_DIR:-$HOME/.local/bin}"
+# NOT a PATH directory, on purpose (owner decision 2026-10-25, review of PR #1157): the binary has
+# subcommands that execute their operand, and an agent that cannot type a bare `rtk` cannot reach them
+# by accident or by injected text. The rewrite hook calls it by absolute path. For your own use:
+#   alias rtk="$HOME/.local/share/rtk/bin/rtk"      # in ~/.zshrc, human shells only
+INSTALL_DIR="${RTK_INSTALL_DIR:-$HOME/.local/share/rtk/bin}"
 
 os="$(uname -s)"
 arch="$(uname -m)"

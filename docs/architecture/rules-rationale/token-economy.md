@@ -131,6 +131,37 @@ run, which removed a quadratic path on padded input (20k newlines took 27 s). Th
 now also accepts a wrapper flag's value (`sudo -u x`, `time -p`, `command -p`) and chained wrappers. The test
 pins each of these; mutants that print the raw hit or skip the whitespace collapse turn rows red.
 
+Follow-up 5 (security review, seventh round) and the owner's decision of 2026-10-25. Two more real
+bypasses: a redirection between the binary and its subcommand (`2>/dev/null`, `>&2`, `{fd}>f`) and `$IFS`
+used as the gap; both are now normalised away, and a binary glued to an expansion is refused. One defect of
+mine: the command-position prefix could backtrack exponentially (a chain of `time -p` words took over 40 s,
+and a hook timeout is non-blocking, so that was a fail-open); its alternatives are now disjoint and the
+test pins adversarial chains (`nice -n 5` x40, `time -p` x60, `a=b;` x50k, a 300 KB chain).
+
+After seven rounds the reviewer's own opinion was that further heuristic patching of a text regex that
+re-implements a shell parser has more risk than value. The owner chose to **install the binary outside PATH**
+and to freeze the gate. `scripts/devops/install-rtk.sh` now installs to `~/.local/share/rtk/bin` (override
+with `RTK_INSTALL_DIR`), the rewrite hook calls it by absolute path, and a bare `rtk ...` typed by an agent is
+"command not found". The gate stays as the second layer. For humans: `alias rtk="$HOME/.local/share/rtk/bin/rtk"`.
+
+**Residual limits accepted by the owner (2026-10-25)**, all of the same class as the long-standing
+`sh -c '...'` limit of every guard in `.claude/hooks`:
+
+1. The binary or subcommand rebuilt in a variable, a command substitution, an alias, a function, a copy or a
+   symlink, or reached through a glob in the binary word (`r?k`).
+2. Payloads outside the shell word model: `sh -c "$VAR"`, `eval "$(...)"`, `base64 -d | sh`,
+   `source <(...)`, `system()` calls in python, awk or perl.
+3. An upper-case spelling of the binary on a case-insensitive filesystem (every guard matches lower case).
+4. The binary runs any unknown first word as the command itself (`rtk touch f` works); the exec gate does not
+   cover that by design, cmdscan marks it inexact.
+5. Rule 1 false positives on prose that puts the binary next to an exec word (commit messages, heredocs).
+6. Command-position gaps for rare syntax: backtick wrappers, `if`/`while`/`until`/`elif` conditions, `case`
+   arms, leading redirections, quoted or array assignments, fractional `timeout 1.5`, `coproc`, `builtin`,
+   `xargs -I{}`, `find -exec`, `flock`, `taskset`, `strace`, `script -qc`, `bash -ec` / `-xc`.
+
+The durable fix, recorded for a later task, is to do the check inside `cmdscan.py`, which already tokenises
+words and is shared by every other guard, and delete this second, weaker parser.
+
 **Still not verified:** end-to-end ordering inside a live Claude Code session — the existing hooks carry
 owner-machine absolute paths and cannot run in the cloud container. Smoke-test on the owner machine: `git push` with a bad `ac_verified` must still be
 refused. The code of the four tools was not audited line by line; privacy claims (RTK telemetry off

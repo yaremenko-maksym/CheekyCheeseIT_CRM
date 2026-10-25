@@ -8,7 +8,7 @@
 # This hook decides what actually RUNS (updatedInput), after the other pre:bash guards have judged the
 # ORIGINAL command in parallel. So it is the highest-trust step in the Bash path and is hardened
 # (SR-M-2, PR #1157):
-#   * rtk is resolved to a FIXED absolute path (RTK_INSTALL_DIR or ~/.local/bin, where
+#   * rtk is resolved to a FIXED absolute path (RTK_INSTALL_DIR or ~/.local/share/rtk/bin, a directory that is NOT on PATH, where
 #     scripts/devops/install-rtk.sh puts the sha256-pinned binary) — never through PATH, so a binary
 #     named `rtk` earlier on PATH cannot supply the command that runs;
 #   * the rewrite is applied ONLY if it is a pure `rtk ` prefixing of the original: removing every
@@ -22,7 +22,7 @@
 # subcommands (bypass/err/test/run/summary) are refused by pre:bash:rtk-exec-gate.
 # Rationale and the condition to reopen: docs/architecture/rules-rationale/token-economy.md
 
-RTK_BIN="${RTK_INSTALL_DIR:-$HOME/.local/bin}/rtk"
+RTK_BIN="${RTK_INSTALL_DIR:-$HOME/.local/share/rtk/bin}/rtk"
 [ -x "$RTK_BIN" ] || exit 0
 
 INPUT=$(cat)
