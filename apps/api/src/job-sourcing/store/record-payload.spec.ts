@@ -163,7 +163,8 @@ describe('validateObservation (SR-M-4: the store re-parses what it is handed)', 
     expect(at({ tags: Array(51).fill('t') })).toThrow(
       new RangeError('validateObservation: tags over the display limit'),
     )
-    expect(at({ tags: ['t'.repeat(61)] })).toThrow(
+    // One long tag among short ones is enough.
+    expect(at({ tags: ['go', 't'.repeat(61)] })).toThrow(
       new RangeError('validateObservation: tags over the display limit'),
     )
   })
