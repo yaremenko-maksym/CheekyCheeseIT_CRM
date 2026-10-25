@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import type { MeterDb } from '../metering/account-meter.store'
 import type { SourceObservation } from '../normalize/observation'
-import type { SavedPage } from '../ownership/job-run-ledger'
+import { type SavedPage, writePageProgress } from '../ownership/job-run-ledger'
 import { type OwnedRun, type RunHandle, assertOwned } from '../ownership/run-ownership'
 import { validatedCheckpointSchema } from '../providers/reporting-provider'
 import type { SqlExecutor } from '../scheduling/host-state'
@@ -205,26 +205,19 @@ export async function saveObservations(
   return saved
 }
 
-/** The page's checkpoint and counters on the run row, as `savePage` writes them. */
+/** The page's checkpoint and counters, written by the ledger (the run row's one writer). */
 export async function writePageCheckpoint(
   tx: SqlExecutor,
   h: RunHandle,
   page: SavedPage,
   saved: readonly SavedObservation[],
 ): Promise<void> {
-  const checkpoint = validatedCheckpointSchema.parse(page.checkpoint)
-  const created = saved.filter((s) => s.createdRecord).length
-  const received = page.observations.length
-  await tx.execute(
-    sql`UPDATE job_collection_runs
-           SET checkpoint = ${JSON.stringify(checkpoint)}::jsonb,
-               received = received + ${received},
-               created = created + ${created},
-               unchanged = unchanged + ${saved.length - created},
-               duplicates = duplicates + ${received - saved.length},
-               updated_at = clock_timestamp()
-         WHERE id = ${h.runId}::uuid`,
-  )
+  await writePageProgress(tx, h.runId, {
+    checkpoint: page.checkpoint,
+    received: page.observations.length,
+    unique: saved.length,
+    created: saved.filter((s) => s.createdRecord).length,
+  })
 }
 
 /**

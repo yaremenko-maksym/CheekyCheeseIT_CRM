@@ -17,7 +17,7 @@ import {
 } from '../providers/reporting-provider'
 import type { JobSourceRegistry } from '../registry/job-source-registry'
 import { dueSourcesPredicate } from '../scheduling/due-sources.query'
-import { cadenceHoursAtFloor, claimHostSlot } from '../scheduling/host-state'
+import { type SqlExecutor, cadenceHoursAtFloor, claimHostSlot } from '../scheduling/host-state'
 import type { LedgerCatalog } from './ledger-catalog'
 import {
   type ClaimRefusal,
@@ -783,6 +783,27 @@ export class JobRunLedger {
     )
     return rows.length === 1
   }
+}
+
+/**
+ * A page's checkpoint and counters, inside the caller's transaction, ownership already asserted
+ * (r5 Task 4.5: the record store's page write). The same UPDATE as `savePage`'s; it lives here so
+ * the ledger stays the one writer of `job_collection_runs` (write-gate.spec.ts). Task 4.6 folds
+ * `savePage` onto it when it wires the store in.
+ */
+export async function writePageProgress(
+  tx: SqlExecutor,
+  runId: string,
+  page: { checkpoint: ValidatedCheckpoint; received: number; unique: number; created: number },
+): Promise<void> {
+  const checkpoint = validatedCheckpointSchema.parse(page.checkpoint)
+  await tx.execute(
+    sql`UPDATE job_collection_runs
+           SET checkpoint = ${JSON.stringify(checkpoint)}::jsonb, received = received + ${page.received},
+               created = created + ${page.created}, unchanged = unchanged + ${page.unique - page.created},
+               duplicates = duplicates + ${page.received - page.unique}, updated_at = clock_timestamp()
+         WHERE id = ${runId}::uuid`,
+  )
 }
 
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
