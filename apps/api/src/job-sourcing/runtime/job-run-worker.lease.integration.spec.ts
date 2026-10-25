@@ -22,6 +22,7 @@ import {
   type FixtureServer,
   SPEC_LEDGER_OPTIONS,
   type World,
+  hostPausedForHours,
   meterRow,
   openWorld,
   reservationsOf,
@@ -312,20 +313,70 @@ describe.skipIf(!hasDatabaseUrl())('ownership in flight against Postgres (T7)', 
     }
   })
 
-  it('SR-M-18: an adapter whose request never settles has its run ended, and the host is claimable again', async () => {
+  it('SR-M-18: a fetchText that never settles has its run ended once RUN_MAX_AGE has passed; the host is claimable again', async () => {
     const hostKey = w.fx.host('hang')
     const a = await scriptedSource(hostKey)
     const sibling = await scriptedSource(hostKey)
-    behave = () => new Promise<CollectionBatch>(() => {})
-    const started = Date.now()
+    fixture.answer = () => 'HANG' // the host never answers
+    let aged = false
+    behave = async (ctx) => {
+      // RUN_MAX_AGE passes while the request hangs: the run's started_at is aged by it (DB clock).
+      setTimeout(() => {
+        void runIdOfAttempt(ctx.run.attemptId)
+          .then((runId) => ageRun(w.admin, runId, SPEC_LEDGER_OPTIONS.runMaxAgeMs, 'started_at'))
+          .then(() => {
+            aged = true
+          })
+      }, 200)
+      await ctx.fetchText({ url: `https://${HOST}/hangs` }).catch(() => undefined)
+      return emptyBatch()
+    }
+    // The run's own deadline is far away: only RUN_MAX_AGE can end this run.
     const [report] = await w
-      .worker({}, { runDeadlineMs: 1_500, deadlineGraceMs: 500 })
+      .worker({}, { heartbeatMs: 500, runDeadlineMs: 50_000, deadlineGraceMs: 5_000 })
       .runDue({ cycleId: await w.cycle(), onlyIds: [a.sourceId] })
-    expect(Date.now() - started).toBeGreaterThanOrEqual(1_900)
-    expect(report).toMatchObject({ outcome: 'PARTIAL', errorCode: 'DEADLINE', finished: true })
+    expect(aged).toBe(true)
+    // No heartbeat may extend the lease past started_at + RUN_MAX_AGE, so the next one finds the
+    // run fenced: the hung request is abandoned and the worker cannot finish a run it no longer owns.
+    expect(report).toMatchObject({ errorCode: 'RUN_FENCED', finished: false })
+    expect(fixture.requests.map((r) => r.path)).toEqual(['/hangs'])
+    // The run holds the host until recovery ends it -- then the host is free again.
+    expect((await manualClaim(sibling.sourceId)).kind).toBe('REFUSED')
+    await w.ledger.recoverExpired()
+    expect(await runRow(w.admin, report!.runId)).toMatchObject({
+      outcome: 'FAILED',
+      error_code: 'LEASE_EXPIRED',
+    })
     const claim = await manualClaim(sibling.sourceId)
     expect(claim.kind).toBe('CLAIMED')
     await release(claim)
+  })
+
+  it('SR-M-2: the deadline closes the run before the host answers 429; the host still ends paused', async () => {
+    const hostKey = w.fx.host('late429')
+    const { sourceId } = await scriptedSource(hostKey)
+    fixture.answer = async () => {
+      await new Promise((r) => setTimeout(r, 1_200))
+      return { status: 429 }
+    }
+    let seen: string | undefined
+    behave = async (ctx) => {
+      seen = await ctx.fetchText({ url: `https://${HOST}/late` }).then(
+        () => 'answered',
+        (e: { code?: string }) => e.code,
+      )
+      return emptyBatch()
+    }
+    const [report] = await w
+      .worker({}, { runDeadlineMs: 400, deadlineGraceMs: 3_000 })
+      .runDue({ cycleId: await w.cycle(), onlyIds: [sourceId] })
+    // the adapter was answered by the deadline, long before the host refused
+    expect(seen).toBe('DEADLINE')
+    expect(report).toMatchObject({ errorCode: 'DEADLINE', finished: true })
+    expect(await hostPausedForHours(w.admin, hostKey)).toBeNull()
+    await new Promise((r) => setTimeout(r, 1_500))
+    // the refusal of the request that was on the wire is still recorded
+    expect(await hostPausedForHours(w.admin, hostKey)).toBeGreaterThan(23.9)
   })
 
   it('the per-run deadline: an overrun stops before the next subrequest', async () => {

@@ -235,6 +235,14 @@ export function endingOf(
           errorMessage: 'the host refused a request; the run stopped',
         }
   }
+  if (state.closed === 'FENCED') {
+    // Whatever the adapter returned, a run that lost its lease claims nothing.
+    return {
+      outcome: 'FAILED',
+      errorCode: 'RUN_FENCED',
+      errorMessage: 'the run lost its lease (fenced out) before it ended',
+    }
+  }
   if (settled.kind === 'UNSETTLED' || state.closed === 'DEADLINE') {
     return {
       outcome: 'PARTIAL',

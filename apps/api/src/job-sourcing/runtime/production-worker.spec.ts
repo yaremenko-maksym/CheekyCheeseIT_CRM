@@ -5,7 +5,12 @@ import type { MeterDb } from '../metering/account-meter.store'
 import { secretsForType } from '../quota-credentials'
 import { JobSourceRegistry } from '../registry/job-source-registry'
 import { POOL_SIZE_CEILING, type WorkerDeps } from './job-run-worker'
-import { createProductionLedger, createProductionWorker, lateBoundDb } from './production-worker'
+import {
+  createHeartbeatPool,
+  createProductionLedger,
+  createProductionWorker,
+  lateBoundDb,
+} from './production-worker'
 import { productionLedgerCatalog } from './production-catalog'
 
 /**
@@ -41,6 +46,38 @@ const HANDLE = {
   ownerToken: 'api-1:x',
   fencingEpoch: 1,
 }
+
+describe('the heartbeat pool (CR-H-1 / SR-M-1)', () => {
+  it('an idle-client error is logged, not thrown: the API process survives it', async () => {
+    const lines: unknown[][] = []
+    const pool = createHeartbeatPool('postgresql://nobody:nothing@127.0.0.1:1/none', {
+      error: (...args: unknown[]) => void lines.push(args),
+    })
+    const idle = Object.assign(new Error('terminating connection due to administrator command'), {
+      code: '57P01',
+    })
+    // With no 'error' listener this emit throws, which in production is an uncaught exception.
+    expect(() => pool.emit('error', idle)).not.toThrow()
+    expect(lines).toEqual([
+      [
+        'Run-worker heartbeat pool idle-client error sqlstate=57P01: terminating connection due to administrator command',
+        idle.stack,
+      ],
+    ])
+    expect(pool.options.max).toBe(1)
+    await pool.end()
+  })
+
+  it('an error without a SQLSTATE says so plainly', async () => {
+    const lines: unknown[] = []
+    const pool = createHeartbeatPool('postgresql://nobody:nothing@127.0.0.1:1/none', {
+      error: (m: unknown) => void lines.push(m),
+    })
+    pool.emit('error', new Error('read ECONNRESET'))
+    expect(lines).toEqual(['Run-worker heartbeat pool idle-client error: read ECONNRESET'])
+    await pool.end()
+  })
+})
 
 describe('lateBoundDb', () => {
   it('reads the database at use, not at construction, and binds its methods to it', async () => {

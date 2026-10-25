@@ -533,6 +533,16 @@ describe('endingOf: every way a run ends', () => {
     )
   })
 
+  it('a run that lost its lease claims nothing, whatever the adapter returned', () => {
+    expect(
+      endingOf({ kind: 'BATCH', batch: batch('EXHAUSTED') }, { ...open, closed: 'FENCED' }, S),
+    ).toEqual({
+      outcome: 'FAILED',
+      errorCode: 'RUN_FENCED',
+      errorMessage: 'the run lost its lease (fenced out) before it ended',
+    })
+  })
+
   it('an unsettled adapter or a deadline close is PARTIAL / DEADLINE', () => {
     expect(endingOf({ kind: 'UNSETTLED' }, open, S)).toMatchObject({
       outcome: 'PARTIAL',
