@@ -149,4 +149,22 @@ describe('validateObservation (SR-M-4: the store re-parses what it is handed)', 
     )
     expect(() => validateObservation({ ...o, evidence: Array(32).fill(entry) })).not.toThrow()
   })
+
+  it('refuses a description or tags beyond the display limits (20 000 chars; 50 tags of 60)', () => {
+    const o = observation()
+    const n = o.normalized
+    const at = (over: Partial<SourceObservation['normalized']>) => () =>
+      validateObservation({ ...o, normalized: { ...n, ...over } })
+    expect(at({ descriptionMd: 'd'.repeat(20_000) })).not.toThrow()
+    expect(at({ descriptionMd: 'd'.repeat(20_001) })).toThrow(
+      new RangeError('validateObservation: description over the display limit'),
+    )
+    expect(at({ tags: Array(50).fill('t'.repeat(60)) })).not.toThrow()
+    expect(at({ tags: Array(51).fill('t') })).toThrow(
+      new RangeError('validateObservation: tags over the display limit'),
+    )
+    expect(at({ tags: ['t'.repeat(61)] })).toThrow(
+      new RangeError('validateObservation: tags over the display limit'),
+    )
+  })
 })

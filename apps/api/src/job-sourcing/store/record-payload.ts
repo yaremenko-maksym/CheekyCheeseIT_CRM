@@ -4,7 +4,10 @@ import {
   jobSourceIdentitySchema,
   jobSourceRevisionSchema,
 } from '@crm/shared'
+import { MAX_DESCRIPTION_CHARS } from '../html-to-markdown'
 import {
+  DISPLAY_TAG_CHARS,
+  DISPLAY_TAGS,
   MAX_OBSERVED_DATES,
   type SourceObservation,
   toStoredIdentity,
@@ -45,6 +48,12 @@ export function validateObservation(o: SourceObservation): void {
     throw new RangeError(
       `validateObservation: ${evidence} evidence entries, at most ${MAX_EVIDENCE_ENTRIES}`,
     )
+  // The display limits `buildSourceObservation` applies, re-checked (security LOW, round 2).
+  if (o.normalized.descriptionMd.length > MAX_DESCRIPTION_CHARS)
+    throw new RangeError('validateObservation: description over the display limit')
+  const tags = o.normalized.tags ?? []
+  if (tags.length > DISPLAY_TAGS || tags.some((t) => t.length > DISPLAY_TAG_CHARS))
+    throw new RangeError('validateObservation: tags over the display limit')
 }
 
 /**

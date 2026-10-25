@@ -96,21 +96,22 @@ interface Keyed {
 
 /**
  * Ascending (namespace, identity key) by code unit. Within one identity the arrival order is kept
- * and only EXACT repeats (same identity and content hash) are dropped (CR-M-3): two contents of
- * one posting in one page are both stored, the later one last. The sort key joins the two with
+ * and only an exact repeat of the IMMEDIATELY preceding content is dropped (CR-M-3, R2-CR-M-2): a
+ * page with A, B, A for one posting writes all three in that order and ends on A — the last
+ * observation wins — while A, A, B writes A, B. The sort key joins the two with
  * NUL, the smallest code unit, which no stored text can contain (Postgres text has no NUL), so the
  * default string sort IS the tuple order — no comparator to get wrong, and independent of any
  * database collation.
  */
 export function byNaturalKey<T extends Keyed>(items: readonly T[]): T[] {
-  const byKey = new Map<string, Map<string, T>>()
+  const byKey = new Map<string, T[]>()
   for (const item of items) {
     const key = `${item.identity.namespace}\u0000${item.identity.identityKey}`
-    const contents = byKey.get(key) ?? new Map<string, T>()
-    if (!contents.has(item.contentHash)) contents.set(item.contentHash, item)
+    const contents = byKey.get(key) ?? []
+    if (contents.at(-1)?.contentHash !== item.contentHash) contents.push(item)
     byKey.set(key, contents)
   }
-  return [...byKey.keys()].sort().flatMap((k) => [...(byKey.get(k) as Map<string, T>).values()])
+  return [...byKey.keys()].sort().flatMap((k) => byKey.get(k) as T[])
 }
 
 /** Ids ascending (code unit), each once: the order every multi-row lock takes. */

@@ -16,9 +16,11 @@ import {
 } from '../../test/ledger-fixtures'
 import {
   cleanupStore,
+  gate,
   legacyCounts,
   observation,
   storeCounts,
+  untilBlocked,
 } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageRun, ageSource } from '../../test/run-aging'
@@ -212,7 +214,7 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
     expect(await storeCounts(session.admin, namespace)).toMatchObject({ records: 1, revisions: 2 })
   })
 
-  it('CR-M-3: two contents of one record in one page are both stored, the later one latest', async () => {
+  it('CR-M-3 / R2-CR-M-2: A, B, A in one page writes all three and ends on A', async () => {
     const namespace = ns()
     const h = await run()
     const page = {
@@ -224,14 +226,82 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
       checkpoint: specCheckpoint(1),
     }
     const saved = await saveObservationPage(db, h, page)
-    expect(saved.map((s) => [s.superseded, s.advanced])).toEqual([
-      [true, true],
-      [false, true],
+    expect(saved.map((s) => [s.superseded, s.advanced, s.createdRevision])).toEqual([
+      [true, true, true],
+      [true, true, true],
+      [false, true, false],
     ])
-    expect(await latestOf(namespace)).toBe(saved[1]?.revisionId)
+    expect(saved[2]?.revisionId).toBe(saved[0]?.revisionId)
+    expect(await latestOf(namespace)).toBe(saved[0]?.revisionId)
+    expect(await dirtyVersions(namespace)).toEqual([1, 2, 3])
     expect(await storeCounts(session.admin, namespace)).toMatchObject({ records: 1, revisions: 2 })
     const r = (await fx.runs(await sourceOf(h.runId)))[0]
     expect(r).toMatchObject({ received: 3, created: 1, unchanged: 0, duplicates: 2 })
+  })
+
+  it('R2-CR-M-1: an older run that waited behind a newer one reads the head the newer one wrote', async () => {
+    const namespace = ns()
+    const seed = await run()
+    await saveObservationPage(db, seed, {
+      observations: [obs(namespace, 'w', 'C')],
+      checkpoint: specCheckpoint(1),
+    })
+    const older = await run()
+    const newer = await run()
+    const hold = gate()
+    const written = gate()
+    // The newer run writes B and keeps its transaction (and the record lock) open.
+    const newerTx = db.transaction(async (tx) => {
+      const saved = await saveObservations(tx, newer, [obs(namespace, 'w', 'B')])
+      written.open()
+      await hold.wait
+      return saved
+    })
+    await written.wait
+    // The older run's page now waits on the record lock.
+    const olderPage = saveObservationPage(db, older, {
+      observations: [obs(namespace, 'w', 'A')],
+      checkpoint: specCheckpoint(1),
+    })
+    await untilBlocked(session.admin)
+    hold.open()
+    const [[b], [a]] = [await newerTx, await olderPage]
+    expect(b?.advanced).toBe(true)
+    // After the wait the older run saw the NEWER head: A is stored and the pointer stays on B.
+    expect(a).toMatchObject({ createdRevision: true, advanced: false })
+    expect(await latestOf(namespace)).toBe(b?.revisionId)
+    expect(await dirtyVersions(namespace)).toEqual([1, 2])
+  })
+
+  it('R2-CR-M-1: two concurrent first observations of a new record both succeed', async () => {
+    const namespace = ns()
+    const [first, second] = [await run(), await run()]
+    const hold = gate()
+    const written = gate()
+    const firstTx = db.transaction(async (tx) => {
+      const saved = await saveObservations(tx, first, [obs(namespace, 'n', 'X')])
+      written.open()
+      await hold.wait
+      return saved
+    })
+    await written.wait
+    const secondPage = saveObservationPage(db, second, {
+      observations: [obs(namespace, 'n', 'Y')],
+      checkpoint: specCheckpoint(1),
+    })
+    await untilBlocked(session.admin)
+    hold.open()
+    const [[x], [y]] = [await firstTx, await secondPage]
+    expect(x?.recordId).toBe(y?.recordId)
+    expect([x?.createdRecord, y?.createdRecord]).toEqual([true, false])
+    // The second run started later: its observation is the latest, versions 1 then 2.
+    expect(await latestOf(namespace)).toBe(y?.revisionId)
+    expect(await dirtyVersions(namespace)).toEqual([1, 2])
+    const { rows } = await session.admin.query(
+      `SELECT count(*)::int AS n FROM job_source_record_heads h JOIN job_source_records r ON r.id = h.source_record_id WHERE r.namespace = $1`,
+      [namespace],
+    )
+    expect(rows[0].n).toBe(1)
   })
 
   it('AC 5: a crash between the revision insert and the checkpoint rolls both back; the retry after commit is idempotent', async () => {

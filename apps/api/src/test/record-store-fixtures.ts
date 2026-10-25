@@ -86,6 +86,29 @@ export async function storeCounts(admin: Pool, prefix: string): Promise<StoreCou
   return rows[0] as StoreCounts
 }
 
+/** Wait (bounded) until some backend of the API role is blocked on a lock. */
+export async function untilBlocked(admin: Pool): Promise<void> {
+  const deadline = Date.now() + 10_000
+  for (;;) {
+    const { rows } = await admin.query(
+      `SELECT count(*)::int AS n FROM pg_stat_activity
+        WHERE datname = current_database() AND usename = 'crm_app' AND wait_event_type = 'Lock'`,
+    )
+    if (rows[0].n > 0) return
+    if (Date.now() > deadline) throw new Error('setup: no backend became blocked on a lock')
+    await new Promise((r) => setTimeout(r, 20))
+  }
+}
+
+/** A promise and the function that settles it: holds a transaction open until a test says so. */
+export function gate(): { wait: Promise<void>; open: () => void } {
+  let open = () => {}
+  const wait = new Promise<void>((resolve) => {
+    open = resolve
+  })
+  return { wait, open }
+}
+
 /** Legacy rows the store must never create. */
 export async function legacyCounts(
   admin: Pool,

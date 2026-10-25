@@ -117,15 +117,19 @@ async function writeObservation(
   const record = await recordIdFor(tx, o, p.sourceUrl, p.applicationUrl)
   const run = sql`(SELECT started_at FROM job_collection_runs WHERE id = ${owned.runId}::uuid)`
 
-  // 3. Lock the record; read its head (the observation that set the pointer) under the lock.
-  const { rows: locked } = await tx.execute(
-    sql`SELECT h.latest_revision_id, h.observation_seq, ${run} >= h.observed_at AS not_older
-          FROM job_source_records r
-          LEFT JOIN job_source_record_heads h ON h.source_record_id = r.id
-         WHERE r.id = ${record.id}::uuid
-           FOR UPDATE OF r`,
-  )
-  const head = locked[0]
+  // 3. Lock the record, THEN read its head in a separate statement (R2-CR-M-1): under READ
+  //    COMMITTED a statement that waited for the lock re-checks only the locked row, so a head
+  //    joined into the locking statement would be the pre-wait snapshot, and a waiter would act
+  //    on the head the lock holder just replaced. A new statement sees what the holder committed.
+  await tx.execute(sql`SELECT 1 FROM job_source_records WHERE id = ${record.id}::uuid FOR UPDATE`)
+  const readHead = async () =>
+    (
+      await tx.execute(
+        sql`SELECT latest_revision_id, ${run} >= observed_at AS not_older
+              FROM job_source_record_heads WHERE source_record_id = ${record.id}::uuid`,
+      )
+    ).rows[0]
+  let head = await readHead()
 
   // 4. Content-addressed description, then the immutable revision, both idempotent.
   if (p.description !== null) {
@@ -159,18 +163,24 @@ async function writeObservation(
   const receivedSeq = Number((revision as Row)['received_seq'])
 
   // 5. Move the pointer to the most recently observed content; never back to an older observation.
-  const latestRevision = head?.['latest_revision_id']
-  const hasHead = latestRevision !== null && latestRevision !== undefined
-  const notOlder = !hasHead || head?.['not_older'] === true
-  const advanced = notOlder && latestRevision !== revisionId
+  //    The head is written only under the record lock, so a first-observation race is not
+  //    expected; if one happens anyway (a writer outside this module), the claim of the heads
+  //    primary key loses with no row, and the head is re-read and treated as existing.
   let targetVersion = 0
-  if (!hasHead) {
-    await tx.execute(
+  if (head === undefined) {
+    const { rows: first } = await tx.execute(
       sql`INSERT INTO job_source_record_heads (source_record_id, latest_revision_id, observed_at, observation_seq)
-          VALUES (${record.id}::uuid, ${revisionId}::uuid, ${run}, 1)`,
+          VALUES (${record.id}::uuid, ${revisionId}::uuid, ${run}, 1)
+          ON CONFLICT (source_record_id) DO NOTHING
+          RETURNING observation_seq`,
     )
-    targetVersion = 1
-  } else if (notOlder) {
+    if (first[0] !== undefined) targetVersion = 1
+    else head = await readHead()
+  }
+  const latestRevision = head?.['latest_revision_id']
+  const notOlder = head === undefined || head['not_older'] === true
+  const advanced = notOlder && latestRevision !== revisionId
+  if (head !== undefined && notOlder) {
     const { rows: moved } = await tx.execute(
       sql`UPDATE job_source_record_heads
              SET latest_revision_id = ${revisionId}::uuid, observed_at = ${run},
@@ -218,11 +228,15 @@ async function writeObservation(
   }
 }
 
-function assertPage(observations: readonly SourceObservation[], type: unknown): void {
+/** The page cap, checked before any round trip (security LOW, round 2). */
+function assertPageSize(observations: readonly SourceObservation[]): void {
   if (observations.length > MAX_OBSERVATIONS_PER_PAGE)
     throw new RangeError(
       `saveObservations: ${observations.length} observations, at most ${MAX_OBSERVATIONS_PER_PAGE}`,
     )
+}
+
+function assertPage(observations: readonly SourceObservation[], type: unknown): void {
   for (const o of observations) {
     validateObservation(o)
     if (o.identity.provider !== type)
@@ -253,6 +267,7 @@ export async function saveObservations(
   h: RunHandle,
   observations: readonly SourceObservation[],
 ): Promise<SavedObservation[]> {
+  assertPageSize(observations)
   const { owned, type } = await pageContext(tx, h)
   assertPage(observations, type)
   const saved: SavedObservation[] = []
@@ -272,12 +287,12 @@ export async function writePageCheckpoint(
   saved: readonly SavedObservation[],
 ): Promise<void> {
   const owned = await assertOwned(tx, h)
-  const first = saved.filter((s, i) => saved.findIndex((x) => x.recordId === s.recordId) === i)
+  const records = new Set(saved.map((s) => s.recordId))
   await writePageProgress(tx, h, owned, {
     checkpoint: page.checkpoint,
     received: page.observations.length,
-    unique: first.length,
-    created: first.filter((s) => s.createdRecord).length,
+    unique: records.size,
+    created: saved.filter((s) => s.createdRecord).length,
   })
 }
 
@@ -292,6 +307,7 @@ export async function saveObservationPage(
   page: SavedPage,
   { lockTimeoutMs = STORE_LOCK_TIMEOUT_MS } = {},
 ): Promise<SavedObservation[]> {
+  assertPageSize(page.observations)
   return withLockRetry(() =>
     db.transaction(async (tx) => {
       await setLockTimeout(tx, lockTimeoutMs)

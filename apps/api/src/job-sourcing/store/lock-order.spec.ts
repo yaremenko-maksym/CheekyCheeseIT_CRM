@@ -172,17 +172,19 @@ describe('lock order', () => {
     ])
   })
 
-  it('keeps every distinct content of one identity, in arrival order (CR-M-3)', () => {
+  it('keeps every content of one identity in arrival order, so the last one wins (CR-M-3, R2-CR-M-2)', () => {
     const sorted = byNaturalKey([
-      o('a', '1', 'late', 'z'),
+      o('a', '1', 'A', 'z'),
       o('a', '0', 'other', 'h'),
-      o('a', '1', 'early', 'a'),
-      o('a', '1', 'repeat', 'z'),
+      o('a', '1', 'B', 'a'),
+      o('a', '1', 'A-again', 'z'),
+      o('a', '1', 'A-adjacent-repeat', 'z'),
     ])
     expect(sorted.map((x) => `${x.identity.identityKey}${x.tag}`)).toEqual([
       '0other',
-      '1late',
-      '1early',
+      '1A',
+      '1B',
+      '1A-again',
     ])
   })
 

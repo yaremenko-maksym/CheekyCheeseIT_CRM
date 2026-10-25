@@ -52,8 +52,8 @@ export const ORIGINAL_LIMITS = {
 export const MAX_OBSERVED_DATES = 8
 
 /** Display limits as shipped by `buildNormalizedPosting` (title 500 / company 255 / tags 50x60). */
-const DISPLAY_TAGS = 50
-const DISPLAY_TAG_CHARS = 60
+export const DISPLAY_TAGS = 50
+export const DISPLAY_TAG_CHARS = 60
 
 export interface BoundedText {
   /** The original, NUL-stripped, cut at the retention cap. */

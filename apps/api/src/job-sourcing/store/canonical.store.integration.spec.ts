@@ -21,6 +21,7 @@ import {
   cleanupStore,
   legacyCounts,
   observation,
+  untilBlocked as untilBlockedOn,
 } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { JobRunLedger } from '../ownership/job-run-ledger'
@@ -131,6 +132,16 @@ async function tokensFor(jobId: number) {
   }[]
 }
 
+/** The database's deadlock counter (cumulative statistics, flushed at most once a second). */
+async function deadlocks(): Promise<number> {
+  await new Promise((r) => setTimeout(r, 1_100))
+  await session.admin.query('SELECT pg_stat_clear_snapshot()')
+  const { rows } = await session.admin.query(
+    `SELECT deadlocks::int AS n FROM pg_stat_database WHERE datname = current_database()`,
+  )
+  return rows[0].n as number
+}
+
 async function newAdmin(name: string): Promise<string> {
   const { rows } = await session.admin.query(
     `INSERT INTO users (email, display_name, role) VALUES ($1, 'T4.5 admin', 'ADMIN') RETURNING id`,
@@ -140,19 +151,7 @@ async function newAdmin(name: string): Promise<string> {
   return rows[0].id as string
 }
 
-/** Wait (bounded) until some backend of the app role is blocked on a lock. */
-async function untilBlocked(): Promise<void> {
-  const deadline = Date.now() + 10_000
-  for (;;) {
-    const { rows } = await session.admin.query(
-      `SELECT count(*)::int AS n FROM pg_stat_activity
-        WHERE datname = current_database() AND usename = 'crm_app' AND wait_event_type = 'Lock'`,
-    )
-    if (rows[0].n > 0) return
-    if (Date.now() > deadline) throw new Error('setup: no backend became blocked on a lock')
-    await new Promise((r) => setTimeout(r, 20))
-  }
-}
+const untilBlocked = () => untilBlockedOn(session.admin)
 
 describe.skipIf(!hasDatabaseUrl())('canonical store (Task 4.5, real Postgres)', () => {
   beforeAll(async () => {
@@ -489,6 +488,41 @@ describe.skipIf(!hasDatabaseUrl())('canonical store (Task 4.5, real Postgres)', 
       // transaction did and its retry converged after the page committed.
       expect([null, '40P01']).toContain(pageCode)
     })
+  })
+
+  it('R2-CR-M-3: releaseToken against a concurrent resolve of the owner never deadlocks', async () => {
+    const before = await deadlocks()
+    for (let i = 0; i < 20; i += 1) {
+      const job = 20_000 + i
+      const r = await record({
+        nativeId: String(job),
+        provider: ATS,
+        namespace: BOARD_NS,
+        postingUrl: ats(job),
+      })
+      await resolveRecordsTx(db, [r])
+      const key = (
+        await session.admin.query(
+          `SELECT token_key FROM job_opportunity_identity_tokens WHERE source_record_id = $1`,
+          [r],
+        )
+      ).rows[0].token_key as string
+      // No retry wrapper around the release: a 40P01 here would surface as a rejection.
+      const [release, resolve] = await Promise.allSettled([
+        db.transaction((tx) => releaseToken(tx, admin, key, `race ${i}`)),
+        resolveRecordsTx(db, [r]),
+      ])
+      expect({ i, release: release.status, resolve: resolve.status }).toEqual({
+        i,
+        release: 'fulfilled',
+        resolve: 'fulfilled',
+      })
+      // The released row stays; at most one active owner exists, whoever went first.
+      const tokens = await tokensFor(job)
+      expect(tokens.filter((t) => t.released)).toHaveLength(1)
+      expect(tokens.filter((t) => !t.released).length).toBeLessThanOrEqual(1)
+    }
+    expect(await deadlocks()).toBe(before)
   })
 
   it(`AC 8: simultaneous claim/merge of one token, alternating which transaction goes first, ${ITERATIONS} iterations`, async () => {

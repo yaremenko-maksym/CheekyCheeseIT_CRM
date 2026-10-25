@@ -512,6 +512,12 @@ export async function splitRecord(
 /**
  * ADMIN disposition (SR-M-2): release an active identity token, so a squatted key can be claimed
  * again by the record that really owns it. The row stays as history, with when, who and why.
+ *
+ * LOCK ORDER (R2-CR-M-3): the owning OPPORTUNITY first, then the token row — the order
+ * `resolveRecords` takes them in (it locks opportunities before its token INSERT, which waits on
+ * a token row being released). The owner is read without a lock, locked, and the UPDATE repeats
+ * it, so a token released or moved in between is TOKEN_NOT_FOUND, never a release of the wrong row.
+ * In the caller's transaction: take nothing else before it that `resolveRecords` takes after.
  */
 export async function releaseToken(
   tx: SqlExecutor,
@@ -520,15 +526,21 @@ export async function releaseToken(
   reason: string,
 ): Promise<void> {
   await assertAdmin(tx, actor)
+  const { rows: owners } = await tx.execute(
+    sql`SELECT opportunity_id FROM job_opportunity_identity_tokens
+         WHERE namespace_kind = 'ATS_JOB_KEY' AND token_key = ${tokenKey} AND released_at IS NULL`,
+  )
+  const owner = owners[0]?.['opportunity_id']
+  if (owner === undefined) throw new CanonicalStateError('TOKEN_NOT_FOUND')
+  await lockOpportunities(tx, [String(owner)])
   const { rows } = await tx.execute(
     sql`UPDATE job_opportunity_identity_tokens
            SET released_at = clock_timestamp(), released_by = ${actor.userId}::uuid,
                release_reason = ${reason.slice(0, REASON_MAX)}
          WHERE namespace_kind = 'ATS_JOB_KEY' AND token_key = ${tokenKey} AND released_at IS NULL
-     RETURNING opportunity_id`,
+           AND opportunity_id = ${String(owner)}::uuid
+     RETURNING id`,
   )
-  const owner = rows[0]?.['opportunity_id']
-  if (owner === undefined) throw new CanonicalStateError('TOKEN_NOT_FOUND')
-  await lockOpportunities(tx, [String(owner)])
+  if (rows[0] === undefined) throw new CanonicalStateError('TOKEN_NOT_FOUND')
   await refreshOpportunity(tx, String(owner), true)
 }
