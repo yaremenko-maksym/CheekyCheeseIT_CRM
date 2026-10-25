@@ -21,6 +21,25 @@ run_hook() {
 # ── refusals: the contract body must be present (a bash syntax error also exits 2) ──
 for cmd in \
   "rtk bypass rm -rf /etc" \
+  "rtk byp''ass rm -rf /x/node_modules" \
+  "rtk \$'bypass' rm -rf /x/node_modules" \
+  "rtk {bypass,} rm -rf /x/node_modules" \
+  "rtk {test,} ls" \
+  "rtk \$'bypass' git worktree remove --force /x" \
+  "rtk te\\st ls" \
+  "rtk \"te\"st ls" \
+  "rtk pr\\oxy ls" \
+  "rtk su''mmary ls" \
+  "rtk byp''ass 'git push origin feat/x'" \
+  "rtk \$'bypass' 'git push origin feat/x'" \
+  "r''tk byp''ass 'git push origin feat/x'" \
+  "rt\\k run ls" \
+  "\"rtk\" run ls" \
+  "rtk \$(echo bypass) ls" \
+  "rtk \`echo test\` ls" \
+  "rtk \$SUB ls" \
+  "rtk ru? ls" \
+  "rtk -v \$'run' ls" \
   "rtk proxy ls" \
   "rtk err ls" \
   "rtk test echo hi" \
@@ -48,6 +67,8 @@ done
 
 # ── silence: tool subcommands, rtk's own utilities, RTK_DISABLED, plain commands ──
 for cmd in \
+  "git commit -m \"use the rtk filter for output\"" \
+  "echo 'the rtk hook rewrites commands'" \
   "rtk git status" \
   "rtk git add a && rtk git commit -m x" \
   "rtk pnpm --filter @crm/api test" \

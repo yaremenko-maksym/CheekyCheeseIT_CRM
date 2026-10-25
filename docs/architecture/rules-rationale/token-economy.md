@@ -94,6 +94,17 @@ rewrite). The cmdscan / blast unwrapping from rounds 2-3 stays as defence in dep
 every guard here: the binary reached through a variable or a rebuilt string. A text that merely mentions the
 exec subcommands next to the binary name is also refused (false positive by design): separate the words.
 
+Round 5 (review of the first gate) showed that matching the LITERAL spelling of the subcommand word is not
+enough either: the shell builds a word from quotes, backslashes, `$'...'` strings and brace expansion, so
+`byp''ass`, `te\st`, `$'bypass'`, `{bypass,}` and a split binary word all reach the real subcommand. The gate
+now normalises the command text first (drops quotes, backslashes, the `$` of `$'...'`) and also refuses any
+word after the binary that is not a literal word (`{ } $ backtick * ?`). The reviewer's alternative, an
+allowlist of tool subcommands, was rejected: it would refuse every prose mention such as "the rtk filter",
+and agents write commit messages and PR text through Bash all day. Unknown literal words are left alone on
+purpose: the binary treats an unknown subcommand as the command itself, which the cmdscan unwrapping and the
+blast hook already judge like the bare command. The `git push` gates (raw-text match) are covered by the gate
+for the typed forms, because the gate refuses before they matter.
+
 **Still not verified:** end-to-end ordering inside a live Claude Code session — the existing hooks carry
 owner-machine absolute paths and cannot run in the cloud container. Smoke-test on the owner machine: `git push` with a bad `ac_verified` must still be
 refused. The code of the four tools was not audited line by line; privacy claims (RTK telemetry off
