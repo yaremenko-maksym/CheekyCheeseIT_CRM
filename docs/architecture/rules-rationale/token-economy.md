@@ -50,13 +50,13 @@ sources (cloned at the pinned tag/commit, not search snippets):
 | Tool         | Pin                         | Licence                                         | State                                                                                                                                                                                    |
 | ------------ | --------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | RTK          | `v1.0.1`, `rtk-oss` edition | Apache-2.0 (the default asset bundles BUSL-1.1) | **Installed in the repo:** hook `pre:bash:rtk-rewrite` (fail-open) + `scripts/devops/install-rtk.sh` (sha256-verified). Binary must be installed per machine / environment setup script. |
-| Caveman      | `v4.0.1`                    | Apache-2.0                                      | `.caveman.json` sets `lite` (reports stay readable). **Plugin not yet enabled** — see `docs/runbooks/human-only.md` item 8.                                                              |
-| Ponytail     | `v5.3.2`                    | MIT                                             | **Plugin not yet enabled** — same runbook item.                                                                                                                                          |
-| Context Mode | `v1.0.169`                  | **Elastic-2.0** (source-available, not OSI)     | **Plugin not yet enabled** — same runbook item. Adds hooks on 6 events + 11 MCP tools + a local SQLite store.                                                                            |
+| Caveman      | `v4.0.1`                    | Apache-2.0                                      | `.caveman.json` sets `lite` (reports stay readable). **Plugin enabled** in `.claude/settings.json` (pinned marketplace ref).                                                             |
+| Ponytail     | `v5.3.2`                    | MIT                                             | **Plugin enabled** (pinned).                                                                                                                                                             |
+| Context Mode | `v1.0.169`                  | **Elastic-2.0** (source-available, not OSI)     | **Plugin enabled** (pinned). Adds hooks on 6 events + 11 MCP tools + a local SQLite store.                                                                                               |
 
-Why the three plugins are staged, not enabled: the session's auto-mode classifier refused the
-`settings.json` edit that registers third-party plugin marketplaces ("Untrusted Code Integration").
-That is a guardrail, not a bug to route around; enabling them is one pasted JSON block by the owner.
+The three plugins were first staged: the session's auto-mode classifier refused the `settings.json`
+edit that registers third-party plugin marketplaces ("Untrusted Code Integration"). After the owner's
+explicit instruction (2026-10-25) the same block was applied and the runbook item closed.
 Note `claude plugin marketplace add --scope project` rewrote the whole `settings.json` destructively
 (dropped hook `id`/`description`, cache TTLs, and reset `permissions.allow`) — **do not use the CLI
 command on this file; paste the JSON block.**
