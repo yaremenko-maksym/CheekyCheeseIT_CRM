@@ -227,9 +227,10 @@ Applies to every task you run, on top of the rules above:
   `ac_verified:` / `Verdict:` lines, security/finance findings and decision briefs are never compressed.
 - Output is filtered by RTK (hook `pre:bash:rtk-rewrite`). When command output is evidence you must read
   verbatim (a failing test, a diff you cite, an error), run it as `rtk bypass <cmd>`.
-- Plugins Caveman / Ponytail / Context Mode may be active in the session: Ponytail's restraint ladder never
-  cuts validation, RBAC, money logic, tests the task requires, a11y or Lingui wrapping; `ctx_*` tools are
-  still bound by `live-db-access.md` and `agent-isolation.md`.
+- Plugins Caveman / Ponytail may be active in the owner's session: Ponytail's restraint ladder never cuts
+  validation, RBAC, money logic, tests the task requires, a11y or Lingui wrapping. The Context Mode `ctx_*`
+  tools are NOT granted to agents (they run code outside every hook, SR-H-2 on PR #1157) — do not try to
+  reach them; use `codegraph`, bounded reads and scratchpad files instead.
 - Your final report carries one line: `Token-economy: <the main saving you made | n/a (<why>)>`.
 
 ---

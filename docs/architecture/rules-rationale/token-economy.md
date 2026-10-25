@@ -58,7 +58,7 @@ The three plugins were first staged: the session's auto-mode classifier refused 
 edit that registers third-party plugin marketplaces ("Untrusted Code Integration"). The owner
 then decided (2026-10-25) that the three plugins live at **user scope** on their machine, not in the
 project `settings.json` — so nothing in the repo declares them and cloud / other-contributor sessions do
-not load them. Install commands (pins) are in the Install status section below.
+not load them. Install commands (pins) are below.
 Note `claude plugin marketplace add --scope project` rewrote the whole `settings.json` destructively
 (dropped hook `id`/`description`, cache TTLs, and reset `permissions.allow`) — **do not use the CLI
 command on this file; paste the JSON block.**
@@ -88,10 +88,20 @@ refused. The code of the four tools was not audited line by line; privacy claims
 by default, Context Mode local-only) are from their READMEs.
 
 **Rules that bind the installed tools:** `rtk bypass <cmd>` whenever output is evidence to be read
-verbatim; `ctx_execute` and friends are still bound by `live-db-access.md` (no writes to `crm_db`)
-and `agent-isolation.md`; owner decision 2026-10-25: Context Mode is connected for agents too — the five `ctx_*` sandbox/search
-tools (`mcp__plugin_context-mode_context-mode__*`) are in the `tools:` of the seven agents that read
-large outputs; legal, copy-reviewer, architect and ui-ux-designer do not get them.
+verbatim.
+
+**Context Mode and agents — reversed after review (2026-10-25).** The owner asked to connect Context
+Mode; the first cut granted the five `ctx_*` tools to seven agents. The security review (SR-H-2, PR
+#1157) showed every guard is matched on `Bash` / `Edit|Write…` only, so `ctx_execute*` is an unguarded
+execution channel — including for read-only reviewers — and `permissions.allow = ["*"]` leaves nothing
+else in the way. Grants removed; Context Mode stays installed at user scope for the owner's session.
+To grant it to agents later: add a PreToolUse hook on `mcp__plugin_context-mode_context-mode__ctx_.*`
+that runs shell `code` through cmdscan and refuses other languages touching `crm_db` / git writes
+(A3, security-reviewer mandatory).
+
+**Zone note (CR-M-4).** `scripts/devops/install-rtk.sh`, `.caveman.json`, the hooks and the agent
+prompts were written from a Master session on explicit owner instruction (2026-10-24/25), outside the
+usual Architect / DevOps zones; recorded here as an owner decision, not a precedent.
 
 ## Condition to reopen (removal / bump)
 

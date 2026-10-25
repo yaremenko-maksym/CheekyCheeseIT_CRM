@@ -1,7 +1,7 @@
 ---
 name: coder
 description: "Fullstack developer for the CRM (NestJS 11 + Drizzle + React + Vite SPA + Zod v4). Implements features + fixes from a task file. Does chunking (intent marker + ac_verified pre-push gate D1-D4 resilience), writes tests first (TDD), zone-of-write enforced by a pre-edit hook (apps/** + packages/** = Coder zone). Mandatory MCP first: codegraph (explore/callers — navigation and blast-radius) / ast-grep / eslint / postgres / playwright / context7. MANDATORY ac_verified marker before git push (hooks/coder-push-gate.sh blocks it). Output in English."
-tools: Skill, Bash, Read, Edit, Write, MultiEdit, Grep, Glob, WebSearch, WebFetch, mcp__eslint__lint-files, mcp__postgres__query, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule, mcp__ast-grep__dump_syntax_tree, mcp__ast-grep__test_match_code_rule, mcp__codegraph__codegraph_explore, mcp__codegraph__codegraph_search, mcp__codegraph__codegraph_callers, mcp__codegraph__codegraph_node, mcp__context7__resolve-library-id, mcp__context7__query-docs, mcp__playwright__browser_navigate, mcp__playwright__browser_click, mcp__playwright__browser_fill_form, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_console_messages, mcp__playwright__browser_snapshot, mcp__playwright__browser_evaluate, mcp__github__add_issue_comment, mcp__github__get_pull_request, mcp__github__get_pull_request_files, mcp__github__get_pull_request_comments, mcp__github__create_pull_request, mcp__github__create_branch, mcp__github__list_pull_requests, mcp__github__update_pull_request_branch, mcp__github__list_commits, mcp__plugin_context-mode_context-mode__ctx_execute, mcp__plugin_context-mode_context-mode__ctx_execute_file, mcp__plugin_context-mode_context-mode__ctx_batch_execute, mcp__plugin_context-mode_context-mode__ctx_index, mcp__plugin_context-mode_context-mode__ctx_search
+tools: Skill, Bash, Read, Edit, Write, MultiEdit, Grep, Glob, WebSearch, WebFetch, mcp__eslint__lint-files, mcp__postgres__query, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule, mcp__ast-grep__dump_syntax_tree, mcp__ast-grep__test_match_code_rule, mcp__codegraph__codegraph_explore, mcp__codegraph__codegraph_search, mcp__codegraph__codegraph_callers, mcp__codegraph__codegraph_node, mcp__context7__resolve-library-id, mcp__context7__query-docs, mcp__playwright__browser_navigate, mcp__playwright__browser_click, mcp__playwright__browser_fill_form, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_console_messages, mcp__playwright__browser_snapshot, mcp__playwright__browser_evaluate, mcp__github__add_issue_comment, mcp__github__get_pull_request, mcp__github__get_pull_request_files, mcp__github__get_pull_request_comments, mcp__github__create_pull_request, mcp__github__create_branch, mcp__github__list_pull_requests, mcp__github__update_pull_request_branch, mcp__github__list_commits
 model: sonnet
 ---
 
@@ -63,9 +63,10 @@ Applies to every task you run, on top of the rules above:
   `ac_verified:` / `Verdict:` lines, security/finance findings and decision briefs are never compressed.
 - Output is filtered by RTK (hook `pre:bash:rtk-rewrite`). When command output is evidence you must read
   verbatim (a failing test, a diff you cite, an error), run it as `rtk bypass <cmd>`.
-- Plugins Caveman / Ponytail / Context Mode may be active in the session: Ponytail's restraint ladder never
-  cuts validation, RBAC, money logic, tests the task requires, a11y or Lingui wrapping; `ctx_*` tools are
-  still bound by `live-db-access.md` and `agent-isolation.md`.
+- Plugins Caveman / Ponytail may be active in the owner's session: Ponytail's restraint ladder never cuts
+  validation, RBAC, money logic, tests the task requires, a11y or Lingui wrapping. The Context Mode `ctx_*`
+  tools are NOT granted to agents (they run code outside every hook, SR-H-2 on PR #1157) — do not try to
+  reach them; use `codegraph`, bounded reads and scratchpad files instead.
 - Your final report carries one line: `Token-economy: <the main saving you made | n/a (<why>)>`.
 
 ---

@@ -68,6 +68,34 @@ assert_red "RTK bypass-wrapped removal of another agent's worktree -> BLOCK" \
   --contains '"decision": "block"' \
   -- run_hook "$MINE" "rtk bypass git worktree remove --force $OTHER"
 
+assert_red "SR-H-1: rtk test wrapping a foreign worktree removal -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook "$MINE" "rtk test git worktree remove --force $OTHER"
+
+assert_red "SR-H-1: rtk err wrapping a foreign worktree removal -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook "$MINE" "rtk err git worktree remove --force $OTHER"
+
+assert_red "SR-H-1: rtk run wrapping a foreign worktree removal -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook "$MINE" "rtk run git worktree remove --force $OTHER"
+
+assert_red "SR-H-1: rtk summary wrapping a foreign worktree removal -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook "$MINE" "rtk summary git worktree remove --force $OTHER"
+
+assert_red "SR-H-1: rtk bypass with a flag wrapping a foreign worktree removal -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook "$MINE" "rtk bypass -v git worktree remove --force $OTHER"
+
+assert_red "SR-H-1: rtk run -c shell string wrapping a foreign worktree removal -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook "$MINE" "rtk run -c \"git worktree remove --force $OTHER\""
+
+assert_red "SR-H-1: rtk test --shell string wrapping a foreign worktree removal -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook "$MINE" "rtk test --shell sh \"git worktree remove --force $OTHER\""
+
 assert_red "mutating another agent's tree -> BLOCK (PR #551)" \
   --contains '"decision": "block"' \
   -- run_hook "$MINE" "cd $OTHER && git checkout -- apps/api/src/x.ts"

@@ -360,6 +360,7 @@ segments = re.split(r"(?:\|\||&&|[;\n|&])", cmd)
 # PR #553). Unwrapping is safe for the false-positive budget because a
 # predicate still additionally requires a foreign path to be referenced.
 WRAPPERS = {"xargs", "sudo", "env", "nice", "nohup", "command", "stdbuf", "timeout", "rtk"}
+RTK_EXEC = {"bypass", "proxy", "err", "test", "run", "summary"}
 # Wrapper flags that consume the NEXT token as their value.
 VALUE_FLAGS = {"-I", "-i", "-n", "-P", "-d", "-E", "-s", "-L", "-a", "-u", "-p"}
 
@@ -394,9 +395,34 @@ def first_token(seg):
             flag = parts.pop(0)
             if flag in VALUE_FLAGS and parts:
                 parts.pop(0)
-        # rtk bypass <cmd> - RTKs run-unfiltered subcommand sits where the command would be
-        if wrapper == "rtk" and parts and parts[0] == "bypass":
-            parts.pop(0)
+        # rtk is a proxy: `rtk git status` is `git status`. Its exec subcommands (bypass, proxy,
+        # err, test, run, summary) run the rest of the line, optionally as one shell string
+        # (--shell SH, run -c STR). Unwrap them and judge the real command (SR-H-1, PR 1157).
+        if wrapper == "rtk":
+            while parts and parts[0].startswith("-") and parts[0] not in ("-", "--"):
+                parts.pop(0)
+            if parts and parts[0] in RTK_EXEC:
+                parts.pop(0)
+                payload = None
+                shell_mode = False
+                while parts and parts[0].startswith("-") and parts[0] not in ("-", "--"):
+                    flag = parts.pop(0)
+                    key = flag.split("=", 1)[0]
+                    if key == "--shell":
+                        shell_mode = True
+                        if "=" not in flag and parts:
+                            parts.pop(0)
+                    elif key in ("-c", "--command"):
+                        payload = flag.split("=", 1)[1] if "=" in flag else (parts.pop(0) if parts else "")
+                if parts and parts[0] == "--":
+                    parts.pop(0)
+                if payload is None and shell_mode and parts:
+                    payload = " ".join(parts)
+                if payload is not None:
+                    try:
+                        parts = shlex.split(payload)
+                    except ValueError:
+                        parts = payload.split()
         # `timeout 60 rm ...` — the duration sits where the command would be
         if wrapper == "timeout" and parts and re.match(r"^[0-9.]+[smhd]?$", parts[0]):
             parts.pop(0)

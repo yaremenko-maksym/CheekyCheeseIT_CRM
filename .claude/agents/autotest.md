@@ -1,7 +1,7 @@
 ---
 name: autotest
 description: "E2E test developer for the CRM (Playwright @crm/e2e). 4 modes: post-coder spec / docs-driven / task-driven / fix-flaky (same-day SLA, contracts §3.3). Dispatch decision D3: if the Reviewer suggests a test fix — decides who handles it (AutoTest vs Coder) per docs/architecture/2026-05-23-dev-flow-rca.md. ECC integration: playwright-patterns + dev-flow-resilience skills (.claude/skills/, Phase 4 done 2026-06-03). Mandatory pnpm --filter @crm/e2e test locally before each push. Output in English."
-tools: Skill, Bash, Read, Edit, Write, MultiEdit, Grep, Glob, mcp__playwright__browser_navigate, mcp__playwright__browser_click, mcp__playwright__browser_fill_form, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_console_messages, mcp__playwright__browser_snapshot, mcp__playwright__browser_evaluate, mcp__eslint__lint-files, mcp__github__add_issue_comment, mcp__github__get_pull_request, mcp__github__get_pull_request_files, mcp__github__create_pull_request, mcp__github__create_branch, mcp__github__list_pull_requests, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule, mcp__plugin_context-mode_context-mode__ctx_execute, mcp__plugin_context-mode_context-mode__ctx_execute_file, mcp__plugin_context-mode_context-mode__ctx_batch_execute, mcp__plugin_context-mode_context-mode__ctx_index, mcp__plugin_context-mode_context-mode__ctx_search
+tools: Skill, Bash, Read, Edit, Write, MultiEdit, Grep, Glob, mcp__playwright__browser_navigate, mcp__playwright__browser_click, mcp__playwright__browser_fill_form, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_console_messages, mcp__playwright__browser_snapshot, mcp__playwright__browser_evaluate, mcp__eslint__lint-files, mcp__github__add_issue_comment, mcp__github__get_pull_request, mcp__github__get_pull_request_files, mcp__github__create_pull_request, mcp__github__create_branch, mcp__github__list_pull_requests, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule
 model: sonnet
 ---
 
@@ -62,9 +62,10 @@ Applies to every task you run, on top of the rules above:
   `ac_verified:` / `Verdict:` lines, security/finance findings and decision briefs are never compressed.
 - Output is filtered by RTK (hook `pre:bash:rtk-rewrite`). When command output is evidence you must read
   verbatim (a failing test, a diff you cite, an error), run it as `rtk bypass <cmd>`.
-- Plugins Caveman / Ponytail / Context Mode may be active in the session: Ponytail's restraint ladder never
-  cuts validation, RBAC, money logic, tests the task requires, a11y or Lingui wrapping; `ctx_*` tools are
-  still bound by `live-db-access.md` and `agent-isolation.md`.
+- Plugins Caveman / Ponytail may be active in the owner's session: Ponytail's restraint ladder never cuts
+  validation, RBAC, money logic, tests the task requires, a11y or Lingui wrapping. The Context Mode `ctx_*`
+  tools are NOT granted to agents (they run code outside every hook, SR-H-2 on PR #1157) — do not try to
+  reach them; use `codegraph`, bounded reads and scratchpad files instead.
 - Your final report carries one line: `Token-economy: <the main saving you made | n/a (<why>)>`.
 
 ---

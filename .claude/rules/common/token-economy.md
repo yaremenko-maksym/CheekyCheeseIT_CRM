@@ -1,6 +1,6 @@
 # Rule: Token economy — spend context on decisions, not on noise
 
-**Status:** Always-on (procedural; no hook — observability is the report line below)
+**Status:** Always-on (procedural — observability is the report line below; the RTK hook is advisory and never refuses)
 **Applies to:** All agents (Coder, AutoTest, Reviewers, DevOps, Legal, Architect, ui-ux-designer, manual-qa, plus ECC-imported agents) + Master
 
 > Rationale, the four ideas this rule adapts, the third-party tools adopted (RTK, Caveman, Ponytail, Context Mode), install state, and
@@ -45,11 +45,12 @@ add `2>/dev/null` to a command whose output is evidence.
 
 ## Installed tools (what binds them)
 
-- **RTK** (hook `pre:bash:rtk-rewrite`, fail-open) compacts Bash output. When output is evidence you must
+- **RTK** (hook `pre:bash:rtk-rewrite`, fail-open, fixed binary path, rewrite sanity-checked) compacts Bash output. When output is evidence you must
   read verbatim — a failing test, a diff you will cite, an error — run it as `rtk bypass <cmd>`.
-- **Context Mode** `ctx_*` tools (granted in the `tools:` of coder, autotest, devops, code-reviewer,
-  security-reviewer, spec-reviewer, manual-qa) remain bound by `live-db-access.md` (no writes to `crm_db`) and
-  `agent-isolation.md`; they are not a way around `mcp-first.md` or the zone hooks.
+- **Context Mode** is installed for the owner's own session only. Its `ctx_*` tools are **not granted to any
+  agent**: they execute code outside every `pre:bash:*` / zone hook, so they would bypass `zone-of-write.md`,
+  `live-db-access.md` and `agent-isolation.md` (SR-H-2, PR #1157). Granting them needs a guard hook on
+  `mcp__plugin_context-mode_context-mode__ctx_*` first — an A3 owner decision.
 - **Caveman** runs in `lite` (`.caveman.json`); the never-compressed list above still wins.
 - Install state and pins: `docs/architecture/rules-rationale/token-economy.md` → Install status.
 

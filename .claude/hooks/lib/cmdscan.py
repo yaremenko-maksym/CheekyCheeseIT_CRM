@@ -286,12 +286,31 @@ WRAPPER_SPEC = {
                   code_flags=("-c", "--command"), operands=1, exact=False),
     # the project's own TTL wrapper: `dev-ttl.sh [--ttl N] -- <command>`
     "dev-ttl.sh": _w(),
-    # RTK output filter (token-economy): `rtk git status` IS `git status` with a compacted
-    # output, and `rtk bypass <cmd>` is `<cmd>` unfiltered (the `bypass` token is dropped in
-    # _unwrap). Modelled as a transparent wrapper so every pre:bash guard decides the same on
-    # the original and on the RTK-rewritten command, whichever of the two it is handed.
-    "rtk": _w(),
 }
+
+
+# ── RTK (token-economy output filter) ─────────────────────────────────────────
+# `rtk <tool> ...` is a proxy: it runs <tool> with a compacted output. But rtk also has subcommands
+# that RUN the rest of the line themselves (`bypass`/`proxy`, `err`, `test`, `run`, `summary`),
+# optionally through a shell string (`--shell <SH>`, `run -c <STR>`). A generic "drop rtk" model
+# lets `rtk test rm -rf /etc` read as the builtin `test` and ends the scan (SR-H-1, PR #1157).
+#   exec subcommand   -> unwrapped, its own flags consumed, the rest judged as the command;
+#                        a shell string (`--shell`, `-c`) is handed to nested scanning
+#   tool subcommand   -> transparent (`rtk git status` IS `git status`, judged on the next token)
+#   anything else     -> transparent but INEXACT: the segment also goes through readings(),
+#                        so an unknown or future subcommand fails toward caution
+# The subcommand lists are for the pinned rtk (scripts/devops/install-rtk.sh); re-derive both
+# from `rtk --help` on a version bump (test-hook-command-corpus.sh checks them when rtk exists).
+RTK_EXEC_SUBCOMMANDS = frozenset({"bypass", "proxy", "err", "test", "run", "summary"})
+RTK_TOOL_SUBCOMMANDS = frozenset("""
+ls tree read smart git gh glab aws psql pnpm json deps env find diff log dotnet docker kubectl oc
+grep rg ast-grep init wget wc gain cc-economics config jest vitest ctest prisma tsc next lint
+prettier format playwright cargo npm npx bun bunx curl discover session telemetry llm-proxy learn
+recall pipe trust untrust verify ruff sqlfluff pytest mypy php phpunit phpstan pest paratest ecs
+pint phpt rake rubocop rspec pip uv deno go sbt gt golangci-lint gradlew mvn mvnd hook-audit
+rewrite hook help
+""".split())
+_RTK_EXEC_SPEC = _w(value_flags=("--shell",), code_flags=("-c", "--command"))
 
 INTERPRETERS = {"sh", "bash", "zsh", "dash", "ksh", "ash"}
 
@@ -1183,6 +1202,26 @@ def _unwrap(tokens, assigns):
                 wrappers.append(base)
                 tokens = tokens[j:]
                 continue
+        if base == "rtk":
+            wrappers.append(base)
+            tokens.pop(0)
+            tokens = _consume_flags(tokens, _w(), nested_code)  # -v / --skip-env before the subcommand
+            sub = tokens[0] if tokens else None
+            if sub in RTK_EXEC_SUBCOMMANDS:
+                tokens.pop(0)
+                shell_mode = any(x == "--shell" or x.startswith("--shell=") for x in tokens)
+                tokens = _consume_flags(tokens, _RTK_EXEC_SPEC, nested_code)
+                if tokens and tokens[0] == "--":
+                    tokens.pop(0)
+                if shell_mode and tokens:
+                    # one quoted command string run through a shell: scan it as code
+                    nested_code.append(" ".join(tokens))
+                    if inexact is None:
+                        inexact = base
+            elif sub is not None and sub not in RTK_TOOL_SUBCOMMANDS:
+                if inexact is None:
+                    inexact = base
+            continue
         spec = WRAPPER_SPEC.get(base)
         if spec is None:
             break
@@ -1190,8 +1229,6 @@ def _unwrap(tokens, assigns):
         tokens.pop(0)
         if not spec["exact"] and inexact is None:
             inexact = base
-        if base == "rtk" and tokens and tokens[0] == "bypass":
-            tokens.pop(0)
         if base == "dev-ttl.sh" and "--" in tokens:
             # Its contract is `dev-ttl.sh [--ttl N] -- <command>`; everything
             # before the `--` is the wrapper's own business.

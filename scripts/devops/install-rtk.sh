@@ -2,9 +2,12 @@
 # install-rtk.sh — install the pinned RTK (Rust Token Killer) binary, verified by checksum.
 #
 # WHY a script and not `curl | sh`: the upstream installer takes whatever "latest" is and the hook
-# registered in .claude/settings.json (pre:bash:rtk-rewrite) executes this binary on every Bash call.
-# Version and edition are pinned here; the tarball is checked against the release's checksums.txt
-# and the install is refused on any mismatch. Bump deliberately (read the changelog first) — see
+# registered in .claude/settings.json (pre:bash:rtk-rewrite) executes this binary on every Bash call
+# — it is the highest-trust binary in the toolchain. Version, edition AND the expected sha256 of each
+# platform tarball are pinned HERE, in-repo and reviewed (SR-M-1, PR #1157): a checksum fetched from
+# the same release origin as the tarball only detects corruption, not a re-pointed tag. A mismatch
+# refuses the install. On a version bump: read the changelog, then replace RTK_VERSION and all four
+# hashes together (take them from the release's checksums.txt, rtk-oss-* lines) —
 # docs/architecture/rules-rationale/token-economy.md.
 #
 # Edition: `rtk-oss` (Apache-2.0, built without the BUSL-1.1 engine). Do not switch to the default
@@ -21,10 +24,22 @@ INSTALL_DIR="${RTK_INSTALL_DIR:-$HOME/.local/bin}"
 os="$(uname -s)"
 arch="$(uname -m)"
 case "${os}-${arch}" in
-  Linux-x86_64) target="x86_64-unknown-linux-musl" ;;
-  Linux-aarch64 | Linux-arm64) target="aarch64-unknown-linux-gnu" ;;
-  Darwin-arm64) target="aarch64-apple-darwin" ;;
-  Darwin-x86_64) target="x86_64-apple-darwin" ;;
+  Linux-x86_64)
+    target="x86_64-unknown-linux-musl"
+    expected="a44e8ffc43981100b4ddf1710399a1649a6c874591aa6d0c0727fe6cbd983c41"
+    ;;
+  Linux-aarch64 | Linux-arm64)
+    target="aarch64-unknown-linux-gnu"
+    expected="ee24a43dac9162de55fea8460b5efcd56d401ec28b5117c921bffa8a57bc136e"
+    ;;
+  Darwin-arm64)
+    target="aarch64-apple-darwin"
+    expected="4a4d9d09656ff29423336aa506e680afc3f7b6dafe84f0194a1c9a523a3c80e1"
+    ;;
+  Darwin-x86_64)
+    target="x86_64-apple-darwin"
+    expected="2cf4d6dd2cabccbc74aa6aba2a48e60aad85b1a31e3d740e6ca0b2fa0060b06a"
+    ;;
   *)
     echo "install-rtk: unsupported platform ${os}-${arch}" >&2
     exit 1
@@ -32,30 +47,27 @@ case "${os}-${arch}" in
 esac
 
 asset="rtk-oss-${target}.tar.gz"
-base="https://github.com/${REPO}/releases/download/${RTK_VERSION}"
+url="https://github.com/${REPO}/releases/download/${RTK_VERSION}/${asset}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 
-curl -fsSL --max-time 120 -o "${tmp}/${asset}" "${base}/${asset}"
-curl -fsSL --max-time 60 -o "${tmp}/checksums.txt" "${base}/checksums.txt"
+curl -fsSL --max-time 120 -o "${tmp}/${asset}" "${url}"
 
-expected="$(awk -v a="${asset}" '$2 == a { print $1 }' "${tmp}/checksums.txt")"
-if [ -z "${expected}" ]; then
-  echo "install-rtk: ${asset} is not listed in checksums.txt — refusing" >&2
-  exit 1
-fi
 if command -v sha256sum >/dev/null 2>&1; then
   actual="$(sha256sum "${tmp}/${asset}" | awk '{ print $1 }')"
 else
   actual="$(shasum -a 256 "${tmp}/${asset}" | awk '{ print $1 }')"
 fi
 if [ "${expected}" != "${actual}" ]; then
-  echo "install-rtk: checksum mismatch for ${asset} (expected ${expected}, got ${actual}) — refusing" >&2
+  echo "install-rtk: sha256 mismatch for ${asset}: pinned ${expected}, got ${actual} — refusing" >&2
   exit 1
 fi
 
-mkdir -p "${INSTALL_DIR}"
+# The archive must hold exactly the member we extract (assumption checked on linux-musl and
+# aarch64-apple-darwin releases of ${RTK_VERSION}); tar of one named member into a private dir.
+tar tzf "${tmp}/${asset}" | grep -qx 'rtk' || { echo "install-rtk: archive has no 'rtk' member — refusing" >&2; exit 1; }
 tar xzf "${tmp}/${asset}" -C "${tmp}" rtk
+mkdir -p "${INSTALL_DIR}"
 install -m 0755 "${tmp}/rtk" "${INSTALL_DIR}/rtk"
 
 # Assert the artifact, not the exit status (verification-integrity.md).

@@ -1,7 +1,7 @@
 ---
 name: security-reviewer
 description: "Security-focused review: OWASP Top 10, npm audit, secrets leak detection, USDT/ETH smart-contract patterns. Use proactively when a PR touches auth/finance/wallets/transactions/contracts/USDT paths, OR on a User /security request. Complements code-reviewer (does NOT replace it — both run for finance PRs). Output in English. Confidence-tagged HIGH/MED/LOW."
-tools: Skill, Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__github__add_issue_comment, mcp__github__create_pull_request_review, mcp__github__get_pull_request, mcp__github__get_pull_request_comments, mcp__github__get_pull_request_files, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule, mcp__plugin_context-mode_context-mode__ctx_execute, mcp__plugin_context-mode_context-mode__ctx_execute_file, mcp__plugin_context-mode_context-mode__ctx_batch_execute, mcp__plugin_context-mode_context-mode__ctx_index, mcp__plugin_context-mode_context-mode__ctx_search
+tools: Skill, Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__github__add_issue_comment, mcp__github__create_pull_request_review, mcp__github__get_pull_request, mcp__github__get_pull_request_comments, mcp__github__get_pull_request_files, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule
 model: sonnet
 ---
 
@@ -72,9 +72,10 @@ Applies to every task you run, on top of the rules above:
   `ac_verified:` / `Verdict:` lines, security/finance findings and decision briefs are never compressed.
 - Output is filtered by RTK (hook `pre:bash:rtk-rewrite`). When command output is evidence you must read
   verbatim (a failing test, a diff you cite, an error), run it as `rtk bypass <cmd>`.
-- Plugins Caveman / Ponytail / Context Mode may be active in the session: Ponytail's restraint ladder never
-  cuts validation, RBAC, money logic, tests the task requires, a11y or Lingui wrapping; `ctx_*` tools are
-  still bound by `live-db-access.md` and `agent-isolation.md`.
+- Plugins Caveman / Ponytail may be active in the owner's session: Ponytail's restraint ladder never cuts
+  validation, RBAC, money logic, tests the task requires, a11y or Lingui wrapping. The Context Mode `ctx_*`
+  tools are NOT granted to agents (they run code outside every hook, SR-H-2 on PR #1157) — do not try to
+  reach them; use `codegraph`, bounded reads and scratchpad files instead.
 - Your final report carries one line: `Token-economy: <the main saving you made | n/a (<why>)>`.
 
 ---
