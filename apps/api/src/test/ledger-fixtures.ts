@@ -1,19 +1,25 @@
 import { randomUUID } from 'node:crypto'
 import type { JobSourceType } from '@crm/shared'
 import type { Pool } from 'pg'
-import type { ReportingJobSourceProvider } from '../job-sourcing/providers/reporting-provider'
+import type { JobSourceProvider } from '../job-sourcing/job-source.provider'
+import type { SourceObservation } from '../job-sourcing/normalize/observation'
+import type { ClaimedRun, JobRunLedger } from '../job-sourcing/ownership/job-run-ledger'
+import type { LedgerCatalog, LedgerCatalogEntry } from '../job-sourcing/ownership/ledger-catalog'
+import type { RunHandle } from '../job-sourcing/ownership/run-ownership'
+import type {
+  ReportingJobSourceProvider,
+  ValidatedCheckpoint,
+} from '../job-sourcing/providers/reporting-provider'
 import type { ActivationFacts } from '../job-sourcing/registry/activation'
 import { JobSourceRegistry } from '../job-sourcing/registry/job-source-registry'
 import { LegacyDouAdapter, ReportingAdapter } from '../job-sourcing/registry/registered-adapter'
-import type { JobSourceProvider } from '../job-sourcing/job-source.provider'
 import type { HostPolicy } from '../job-sourcing/scheduling/host-policy'
-import type { LedgerCatalog, LedgerCatalogEntry } from '../job-sourcing/ownership/ledger-catalog'
 
 /**
- * Fixtures shared by the run ledger's real-Postgres specs (r5 Task 2.5 T3). A SPEC-ONLY module
- * (no production file imports it; the write gate and the build exclude it by its `.fixtures.ts`
- * name being imported only from specs). Rows are written on the MIGRATION role's pool and every
- * row carries the per-file tag, so specs can share a scratch database.
+ * Fixtures shared by the run ledger's real-Postgres specs (r5 Task 2.5 T3). Spec-only: no
+ * production file imports it, `src/test/**` is outside the mutation gate, and
+ * `tsconfig.build.json` excludes it. Rows are written on the MIGRATION role's pool and every row
+ * carries the per-file tag, so specs can share a scratch database.
  */
 
 export const READY: ActivationFacts = {
@@ -243,4 +249,109 @@ export class LedgerFixtures {
   cycleKey(): string {
     return `t3spec-${this.tag}-${randomUUID()}`
   }
+}
+
+/**
+ * The claim helpers the ledger specs share: cycles, a catalogued reporting source, one claim.
+ */
+export class LedgerKit {
+  constructor(
+    readonly ledger: JobRunLedger,
+    readonly fx: LedgerFixtures,
+    readonly catalog: SpecCatalog,
+    readonly actor: string,
+  ) {}
+
+  async scheduledCycle(): Promise<string> {
+    const c = await this.ledger.openCycle({ trigger: 'SCHEDULED', triggerKey: this.fx.cycleKey() })
+    return c.cycleId
+  }
+
+  async manualCycle(): Promise<string> {
+    const c = await this.ledger.openCycle({
+      trigger: 'MANUAL',
+      triggerKey: this.fx.cycleKey(),
+      actor: this.actor,
+    })
+    return c.cycleId
+  }
+
+  /** A reporting source with a catalog entry and a host policy (no rate unless given). */
+  async reporting(
+    seed: SourceSeed = {},
+    entry: Partial<LedgerCatalogEntry> = {},
+    policy: HostPolicy = { rate: null, floorHours: 0 },
+  ): Promise<string> {
+    const manifestId = seed.manifestId ?? this.fx.manifestId()
+    const hostKey =
+      seed.hostKey === undefined ? this.fx.host(`h-${randomUUID().slice(0, 6)}`) : seed.hostKey
+    this.catalog.add(manifestId, { type: seed.type ?? 'REMOTIVE_API', ...entry })
+    if (hostKey !== null) this.catalog.policies.set(hostKey, policy)
+    return this.fx.source({ ...seed, manifestId, hostKey })
+  }
+
+  /** Claim through the scheduled path; undefined when nothing was claimed. */
+  async tryClaim(sourceId: string): Promise<ClaimedRun | undefined> {
+    const { claimed } = await this.ledger.claimDue({
+      cycleId: await this.scheduledCycle(),
+      owner: 'spec-worker',
+      limit: 1,
+      onlyIds: [sourceId],
+    })
+    return claimed[0]
+  }
+
+  async claimOne(sourceId: string): Promise<ClaimedRun> {
+    const run = await this.tryClaim(sourceId)
+    if (run === undefined) throw new Error(`setup: source ${sourceId} was not claimed`)
+    return run
+  }
+
+  async claimManual(sourceId: string) {
+    return this.ledger.claimSource({
+      cycleId: await this.manualCycle(),
+      owner: 'spec-worker',
+      sourceId,
+      actor: this.actor,
+    })
+  }
+}
+
+export const handleOf = (r: ClaimedRun): RunHandle => ({
+  runId: r.runId,
+  ownerToken: r.ownerToken,
+  fencingEpoch: r.fencingEpoch,
+})
+
+export function specCheckpoint(
+  page: number,
+  adapterVersion = 'remotive_api-1',
+): ValidatedCheckpoint {
+  return {
+    configVersion: 1,
+    policyVersion: 1,
+    adapterVersion,
+    position: { kind: 'CURSOR', page, cursor: `c${page}` },
+    completedAt: new Date('2026-10-25T00:00:00Z'),
+  }
+}
+
+/** Observations carrying only what `savePage` reads: the identity. */
+export function identityObservations(
+  ids: readonly string[],
+  namespace: string,
+  provider: JobSourceType = 'REMOTIVE_API',
+): SourceObservation[] {
+  return ids.map(
+    (id) =>
+      ({
+        identity: {
+          provider,
+          namespace,
+          nativeId: id,
+          identityKey: `["${id}"]`,
+          identityKind: 'NATIVE_ID',
+        },
+      }) as unknown as SourceObservation,
+  )
 }
