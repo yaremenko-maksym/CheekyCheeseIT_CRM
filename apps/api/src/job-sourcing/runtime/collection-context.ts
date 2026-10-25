@@ -73,7 +73,7 @@ export const BAN_WRITE_ATTEMPTS = 3
 
 export interface ContextDeps {
   /** The transport. Production: `boundedFetchText`. */
-  readonly transport?: (url: string, opts: BoundedFetchOptions) => Promise<string>
+  readonly transport?: ((url: string, opts: BoundedFetchOptions) => Promise<string>) | undefined
   /** T8's `recordHostBan`, bound to the database. */
   readonly recordBan: (ban: HostBan) => Promise<unknown>
   /** The ledger's `savePage`, with the page-write budget. */
@@ -83,9 +83,9 @@ export interface ContextDeps {
     options: { readonly timeoutMs: number },
   ) => Promise<void>
   /** Monotonic milliseconds. Production: `performance.now`. */
-  readonly monotonicNow?: () => number
-  /** Wall clock, for `ctx.now()` and the deadline. Production: `new Date()`. */
-  readonly now?: () => Date
+  readonly monotonicNow?: (() => number) | undefined
+  /** Wall clock, for `ctx.now()`. Production: `new Date()`. */
+  readonly now?: (() => Date) | undefined
 }
 
 export interface ContextInput {
@@ -132,25 +132,6 @@ function retryAfterOf(error: unknown): string | null {
   return typeof value === 'string' ? value : null
 }
 
-function raceAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted)
-    return Promise.reject(new ContextRefusedError('CANCELLED', 'the run was aborted'))
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(new ContextRefusedError('CANCELLED', 'the run was aborted'))
-    signal.addEventListener('abort', onAbort, { once: true })
-    work.then(
-      (v) => {
-        signal.removeEventListener('abort', onAbort)
-        resolve(v)
-      },
-      (e: unknown) => {
-        signal.removeEventListener('abort', onAbort)
-        reject(e)
-      },
-    )
-  })
-}
-
 export function buildCollectionContext(deps: ContextDeps, input: ContextInput): RunControl {
   const transport = deps.transport ?? boundedFetchText
   const mono = deps.monotonicNow ?? (() => performance.now())
@@ -162,6 +143,12 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
     fencingEpoch: run.fencingEpoch,
   }
   const controller = new AbortController()
+  // ONE listener per run: an in-flight request is abandoned the moment the run closes, whatever
+  // the transport does (it has its own timeout but no signal of ours).
+  const aborted = new Promise<never>((_, reject) => {
+    controller.signal.addEventListener('abort', () => reject(closedError()))
+  })
+  aborted.catch(() => undefined)
   const cache = new Map<string, CachedResponse>()
   let closed: ClosedReason | null = null
   let banCode: CollectionErrorCode | null = null
@@ -174,12 +161,15 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
     controller.abort(reason)
   }
 
+  /** A closed run's refusal. A banned run refuses with the refused request's own code (403 / 429). */
+  function closedError(): ContextRefusedError {
+    const reason = closed as ClosedReason
+    return new ContextRefusedError(banCode ?? CLOSED_CODE[reason], `the run is closed (${reason})`)
+  }
+
   /** Every refusal of a closed context happens here, before any transaction or I/O. */
   const assertOpen = () => {
-    if (closed !== null) {
-      // A banned run refuses with the refused request's own code (403 or 429).
-      throw new ContextRefusedError(banCode ?? CLOSED_CODE[closed], `the run is closed (${closed})`)
-    }
+    if (closed !== null) throw closedError()
   }
 
   /** SR-L-22: a frozen process does not act on a lease it may have lost. */
@@ -231,22 +221,25 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
         close('DEADLINE')
         throw new ContextRefusedError('DEADLINE', 'the run`s deadline passed before this request')
       }
-      if (meter !== null && permits < 1) {
-        throw new ContextRefusedError(
-          'NOT_MARKED_SENT',
-          'a metered request was attempted without a committed markSent',
-        )
-      }
+      // SR-L-22: the lease is re-validated before a permit is consumed.
       assertLease()
-      if (meter !== null) permits -= 1
+      if (meter !== null) {
+        if (permits < 1) {
+          throw new ContextRefusedError(
+            'NOT_MARKED_SENT',
+            'a metered request was attempted without a committed markSent',
+          )
+        }
+        permits -= 1
+      }
       try {
-        const bodyText = await raceAbort(
+        const bodyText = await Promise.race([
           transport(request.url, {
             allowedHosts: input.allowedHosts,
             ...transportOptionsFor(request),
           }),
-          controller.signal,
-        )
+          aborted,
+        ])
         return { status: 200, bodyText, headers: {}, etag: null }
       } catch (error) {
         if (error instanceof SourceBlockedError || error instanceof SourceRateLimitedError) {

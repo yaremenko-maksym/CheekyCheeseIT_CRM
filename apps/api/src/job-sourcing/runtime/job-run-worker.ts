@@ -74,9 +74,9 @@ export interface WorkerDeps {
   readonly recordBan: (ban: HostBan) => Promise<unknown>
   /** What the run's reports must never show: the type's credentials. */
   readonly secretsFor: (type: JobSourceType) => readonly string[]
-  readonly transport?: (url: string, opts: BoundedFetchOptions) => Promise<string>
-  readonly monotonicNow?: () => number
-  readonly now?: () => Date
+  readonly transport?: ((url: string, opts: BoundedFetchOptions) => Promise<string>) | undefined
+  readonly monotonicNow?: (() => number) | undefined
+  readonly now?: (() => Date) | undefined
   /** Releases what the worker owns (the heartbeat's reserved connection) at shutdown. */
   readonly close?: () => Promise<void>
 }
@@ -93,8 +93,19 @@ export interface RunReport {
   readonly counts: { received: number; invalid: number; normalized: number } | null
 }
 
+/**
+ * The worker could not set the run up (its row, adapter, host policy). Our own sentence, so the run
+ * row may carry it; it never wraps an upstream or exception text.
+ */
+export class RunSetupError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RunSetupError'
+  }
+}
+
 /** The meter binding is refused: the source's meter is not the run's account (AC 13). */
-export class MeterBindingRefusedError extends Error {
+export class MeterBindingRefusedError extends RunSetupError {
   constructor(message: string) {
     super(message)
     this.name = 'MeterBindingRefusedError'
@@ -114,8 +125,8 @@ interface RunRow {
   configVersion: number
   config: Record<string, unknown>
   policyVersion: number
-  hostKey: string | null
-  manifestId: string | null
+  hostKey: string
+  manifestId: string
   meter: {
     accountKey: string
     unit: JobMeterUnit
@@ -180,6 +191,15 @@ type Settled =
   | { readonly kind: 'THREW'; readonly error: unknown }
   | { readonly kind: 'UNSETTLED' }
 
+/** The summary's counts, or null when the batch's own counts do not balance (AC 5). */
+function summaryCounts(counts: CollectionBatch['counts']): RunReport['counts'] {
+  try {
+    return toStoredReportCounts(counts)
+  } catch {
+    return null
+  }
+}
+
 function cap(text: string, secrets: readonly string[]): string {
   return redactText(text, secrets).slice(0, MESSAGE_MAX)
 }
@@ -221,7 +241,7 @@ export function endingOf(
       outcome: 'FAILED',
       errorCode: known ? (code as CollectionErrorCode) : 'ADAPTER_INVARIANT',
       errorMessage:
-        e instanceof ContextRefusedError || isRunFenced(e)
+        e instanceof ContextRefusedError || e instanceof RunSetupError || isRunFenced(e)
           ? cap((e as Error).message, secrets)
           : `the adapter threw ${e instanceof Error ? e.name : typeof e}`,
     }
@@ -249,12 +269,15 @@ export class JobRunWorker {
 
   private active = 0
 
+  private readonly now: () => Date
+
   constructor(
     private readonly deps: WorkerDeps,
     options: Partial<WorkerOptions> & Pick<WorkerOptions, 'owner'>,
   ) {
     this.options = { ...DEFAULT_WORKER_OPTIONS, ...options }
     validateWorkerOptions(this.options, deps.ledger.options)
+    this.now = deps.now ?? (() => new Date())
   }
 
   /** Nest calls this at shutdown. */
@@ -281,7 +304,7 @@ export class JobRunWorker {
         cycleId: input.cycleId,
         owner: this.options.owner,
         limit: free,
-        ...(input.onlyIds !== undefined && { onlyIds: input.onlyIds }),
+        onlyIds: input.onlyIds,
       }))
     } finally {
       this.active -= free
@@ -330,14 +353,19 @@ export class JobRunWorker {
       secrets = this.deps.secretsFor(run.sourceType)
       const row = await this.readRun(run.runId)
       const adapter = this.deps.registry.get(run.sourceType)
-      if (adapter?.contract !== 'REPORTING') throw new Error('not a reporting adapter')
+      if (adapter?.contract !== 'REPORTING') {
+        throw new RunSetupError(`${run.sourceType} has no reporting adapter`)
+      }
       const windows = meterWindowsFor(run, row.meter)
       const meter: AccountMeter | null =
         windows === null ? null : this.deps.ledger.meterFor(run, windows)
-      const entry = row.manifestId === null ? undefined : this.deps.catalog.entry(row.manifestId)
-      const policy = row.hostKey === null ? undefined : this.deps.catalog.hostPolicy(row.hostKey)
-      if (row.hostKey === null || policy === undefined)
-        throw new Error('the run`s host has no policy')
+      // The claim resolved both through the same catalog (T3), so they exist for a claimed run;
+      // read again here only for what the context needs, and refused if either vanished.
+      const entry = this.deps.catalog.entry(row.manifestId)
+      const policy = this.deps.catalog.hostPolicy(row.hostKey)
+      if (entry === undefined || policy === undefined) {
+        throw new RunSetupError('the run`s catalog entry or host policy is gone')
+      }
       const config = adapter.provider.parseConfig({
         ...row.config,
         configVersion: row.configVersion,
@@ -346,22 +374,20 @@ export class JobRunWorker {
         {
           recordBan: this.deps.recordBan,
           savePage: (h, page, o) => this.deps.ledger.savePage(h, page, o),
-          ...(this.deps.transport !== undefined && { transport: this.deps.transport }),
-          ...(this.deps.monotonicNow !== undefined && { monotonicNow: this.deps.monotonicNow }),
-          ...(this.deps.now !== undefined && { now: this.deps.now }),
+          transport: this.deps.transport,
+          monotonicNow: this.deps.monotonicNow,
+          now: this.now,
         },
         {
           run,
           hostKey: row.hostKey,
           floorHours: policy.floorHours,
-          banScope: entry?.banScope,
+          banScope: entry.banScope,
           allowedHosts: adapter.allowedHosts,
           meter,
           secrets,
           policyVersion: row.policyVersion,
-          deadline: new Date(
-            (this.deps.now?.() ?? new Date()).getTime() + this.options.runDeadlineMs,
-          ),
+          deadline: new Date(this.now().getTime() + this.options.runDeadlineMs),
           leaseMs: this.deps.ledger.options.leaseMs,
           pageWriteTimeoutMs: this.options.heartbeatMs,
         },
@@ -386,15 +412,7 @@ export class JobRunWorker {
     if (state.unrecordedBan !== null) {
       await this.deps.recordBan(state.unrecordedBan).catch(() => undefined)
     }
-    let counts: RunReport['counts'] = null
-    if (settled.kind === 'BATCH') {
-      try {
-        counts = toStoredReportCounts(settled.batch.counts)
-      } catch {
-        // The run row is already terminal with the counts savePage wrote (AC 5).
-        counts = null
-      }
-    }
+    const counts = settled.kind === 'BATCH' ? summaryCounts(settled.batch.counts) : null
     return {
       runId: run.runId,
       sourceId: run.sourceId,
@@ -413,11 +431,9 @@ export class JobRunWorker {
     handle: RunHandle,
   ): Promise<Settled> {
     const timers: ReturnType<typeof setTimeout>[] = []
-    let stopped = false
     const beat = () => {
       timers.push(
         setTimeout(() => {
-          if (stopped) return
           const sentAt = control.monotonicNow()
           this.deps.heartbeat(handle).then(
             (ok) => {
@@ -450,7 +466,6 @@ export class JobRunWorker {
         grace,
       ])
     } finally {
-      stopped = true
       for (const t of timers) clearTimeout(t)
       // Whatever the adapter does after this, it does through a closed context.
       control.close('CANCELLED')
@@ -468,13 +483,19 @@ export class JobRunWorker {
            WHERE r.id = ${runId}::uuid`,
     )
     const r = rows[0]
-    if (r === undefined) throw new Error('the claimed run has no row')
+    if (r === undefined) throw new RunSetupError('the claimed run has no row')
+    const hostKey = r['host_key']
+    const manifestId = r['manifest_id']
+    // A claim requires both (T3's gate); a row without them was changed after the claim.
+    if (typeof hostKey !== 'string' || typeof manifestId !== 'string') {
+      throw new RunSetupError('the run`s source has no host key or manifest entry')
+    }
     return {
       configVersion: Number(r['config_version']),
-      config: (r['config'] ?? {}) as Record<string, unknown>,
+      config: r['config'] as Record<string, unknown>,
       policyVersion: Number(r['policy_version']),
-      hostKey: typeof r['host_key'] === 'string' ? r['host_key'] : null,
-      manifestId: typeof r['manifest_id'] === 'string' ? r['manifest_id'] : null,
+      hostKey,
+      manifestId,
       meter:
         typeof r['meter_account_key'] === 'string'
           ? {

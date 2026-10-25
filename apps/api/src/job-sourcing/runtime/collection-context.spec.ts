@@ -5,6 +5,7 @@ import type { ClaimedRun } from '../ownership/job-run-ledger'
 import type { HostBan } from '../scheduling/host-state'
 import {
   BAN_WRITE_ATTEMPTS,
+  ContextRefusedError,
   type ContextDeps,
   type ContextInput,
   buildCollectionContext,
@@ -114,10 +115,24 @@ describe('send permits (AC 6)', () => {
   it('one markSent grants exactly one send', async () => {
     const w = world()
     const r = await w.ctx.meter.reserve('REQUEST', 1)
+    // a metered context reserves on the account meter, never locally
+    expect(r).toEqual({ id: 'r1', unit: 'REQUEST', amount: 1 })
     await w.ctx.meter.markSent(r!)
     await w.ctx.fetchText(REQ)
-    expect((await refusal(w.ctx.fetchText(REQ))).code).toBe('NOT_MARKED_SENT')
-    expect(w.events.filter((e) => e.startsWith('send:'))).toHaveLength(1)
+    const refused = await refusal(w.ctx.fetchText(REQ))
+    expect(refused).toBeInstanceOf(ContextRefusedError)
+    expect(refused).toMatchObject({
+      name: 'ContextRefusedError',
+      code: 'NOT_MARKED_SENT',
+      message: 'a metered request was attempted without a committed markSent',
+    })
+    expect(w.events).toEqual(['reserve', 'markSent', `send:${REQ.url}`])
+  })
+
+  it('a metered reconcile settles on the account meter', async () => {
+    const w = world()
+    await w.ctx.meter.reconcile({ id: 'r1', unit: 'REQUEST', amount: 1 }, 'USED')
+    expect(w.events).toEqual(['reconcile:USED'])
   })
 
   it('a markSent that fails grants nothing', async () => {
@@ -365,6 +380,55 @@ describe('the local lease (SR-L-22) and the deadline', () => {
     expect((await pending).code).toBe('CANCELLED')
     expect(w.state.closed).toBe('CANCELLED')
     expect((await refusal(w.ctx.fetchText(REQ))).code).toBe('CANCELLED')
+  })
+})
+
+describe('a closed context and the defaults', () => {
+  it.each([
+    ['DEADLINE', 'DEADLINE'],
+    ['FENCED', 'RUN_FENCED'],
+    ['CANCELLED', 'CANCELLED'],
+  ] as const)('closed %s, every send is refused %s with the reason named', async (reason, code) => {
+    const w = world()
+    w.close(reason)
+    expect(await refusal(w.ctx.meter.reserve('REQUEST', 1))).toMatchObject({
+      code,
+      message: `the run is closed (${reason})`,
+    })
+    expect(w.ctx.signal.reason).toBe(reason)
+    expect(w.events).toEqual([])
+  })
+
+  it('the lease refusal and the deadline refusal say what happened', async () => {
+    const a = world()
+    a.advance(L)
+    expect(await refusal(a.ctx.fetchText(REQ))).toMatchObject({
+      message: 'the run`s lease passed before this request',
+    })
+    const b = world({ input: { meter: null, deadline: new Date('2026-10-25T09:00:00Z') } })
+    expect(await refusal(b.ctx.fetchText(REQ))).toMatchObject({
+      message: 'the run`s deadline passed before this request',
+    })
+  })
+
+  it('without injected clocks the context reads the real ones', async () => {
+    const c = buildCollectionContext(
+      { recordBan: async () => {}, savePage: async () => {}, transport: async () => 'ok' },
+      { ...baseInput(), leaseMs: 1 },
+    )
+    const before = Date.now()
+    expect(Math.abs(c.ctx.now().getTime() - before)).toBeLessThan(1_000)
+    expect(c.monotonicNow()).toBeGreaterThan(0)
+    await new Promise((r) => setTimeout(r, 5))
+    expect((await refusal(c.ctx.fetchText(REQ))).code).toBe('RUN_FENCED')
+  })
+
+  it('without an injected transport it is boundedFetchText (which refuses an empty host list)', async () => {
+    const c = buildCollectionContext(
+      { recordBan: async () => {}, savePage: async () => {} },
+      { ...baseInput(), allowedHosts: [] },
+    )
+    await expect(c.ctx.fetchText(REQ)).rejects.toThrow('invalid allowedHosts: empty list')
   })
 })
 

@@ -234,7 +234,7 @@ export class JobRunLedger {
     readonly cycleId: string
     readonly owner: string
     readonly limit: number
-    readonly onlyIds?: readonly string[]
+    readonly onlyIds?: readonly string[] | undefined
   }): Promise<{ claimed: ClaimedRun[]; refused: ClaimRefused[] }> {
     this.assertOwner(input.owner)
     if (!Number.isSafeInteger(input.limit) || input.limit < 0) {
