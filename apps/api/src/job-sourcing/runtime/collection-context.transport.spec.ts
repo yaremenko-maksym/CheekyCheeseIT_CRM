@@ -212,6 +212,30 @@ describe('a ban write that fails is never lost silently (CR-M-6 / SR-L-3)', () =
     void pending
   })
 
+  it('CR-M-1: a drain that gives up flags the write still hanging, not one that already landed', async () => {
+    const refusals: ((e: unknown) => void)[] = []
+    const w = world({
+      transport: () =>
+        new Promise<string>((_resolve, reject) => {
+          refusals.push(reject)
+        }),
+    })
+    // two requests on the wire at once (unmetered: no permits needed)
+    const a = w.ctx.fetchText(REQ).catch(() => undefined)
+    const b = w.ctx.fetchText(REQ).catch(() => undefined)
+    await new Promise((r) => setTimeout(r, 0))
+    refusals[0]!(new SourceBlockedError(HOST, 403))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.bans).toHaveLength(1) // the 403's ban landed
+    w.holdBans() // the next write hangs
+    refusals[1]!(new SourceRateLimitedError(HOST))
+    await new Promise((r) => setTimeout(r, 0))
+    await w.drain(50)
+    expect(w.state.unrecordedBan).toMatchObject({ reason: 'HTTP_429' })
+    void a
+    void b
+  })
+
   it('CR-M-1: drain with nothing in flight returns at once and flags nothing', async () => {
     const w = world({ transport: async () => 'ok' })
     await w.ctx.fetchText(REQ)
