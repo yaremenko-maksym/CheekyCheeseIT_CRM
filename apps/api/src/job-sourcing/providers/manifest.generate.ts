@@ -14,6 +14,7 @@ import { FIXTURE_ROOT } from '../../test/fixture-provenance'
 import { buildManifest } from './manifest'
 import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
 import { MANIFEST_DEFINITIONS } from './manifest.definitions'
+import { generateLedgerCatalogSnapshotSource } from './manifest.ledger-catalog'
 import {
   generateHostKeyDelta,
   generateSeedDelta,
@@ -46,10 +47,25 @@ export function writeHostKeyDelta(drizzleRoot: string): string {
   return writeWhereItIs(hostKeyDeltaLocations(drizzleRoot), generateHostKeyDelta(build()))
 }
 
+/** Task 2.5 T7: the production ledger catalog's snapshot, the one manifest copy the build ships. */
+export const LEDGER_CATALOG_SNAPSHOT_PATH = join(
+  __dirname,
+  '..',
+  'runtime',
+  'ledger-catalog.snapshot.ts',
+)
+
+export function writeLedgerCatalogSnapshot(path = LEDGER_CATALOG_SNAPSHOT_PATH): string {
+  writeFileSync(path, generateLedgerCatalogSnapshotSource(build()))
+  return path
+}
+
 // Stryker disable next-line all: the command-line entry. It cannot run under a test (it would execute on import and rewrite the committed file); `writeSeedDelta`, the whole of what it does, is tested directly, and the generate script's wiring is asserted by manifest.drift.spec.ts
 if (require.main === module) {
   // Stryker disable next-line all: the status line and the drizzle root of the command-line entry above; same reason
   const root = join(__dirname, '..', '..', '..', 'drizzle')
   // Stryker disable next-line all: same — the command-line entry
-  process.stdout.write(`wrote ${writeSeedDelta(root)}\nwrote ${writeHostKeyDelta(root)}\n`)
+  process.stdout.write(
+    `wrote ${writeSeedDelta(root)}\nwrote ${writeHostKeyDelta(root)}\nwrote ${writeLedgerCatalogSnapshot()} (run prettier on it)\n`,
+  )
 }
