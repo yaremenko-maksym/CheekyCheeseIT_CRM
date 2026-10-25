@@ -1218,6 +1218,17 @@ def _unwrap(tokens, assigns):
                     nested_code.append(" ".join(tokens))
                     if inexact is None:
                         inexact = base
+                elif len(tokens) == 1 and re.search(r"[\s;&|<>$`()]", tokens[0]):
+                    # `rtk bypass 'rm -rf /etc'`: ONE operand with spaces or shell syntax is a whole
+                    # command string, which rtk splits (or runs through sh -c) itself (SR-H-3).
+                    # Scan it as code AND re-split it so the real command name is judged.
+                    nested_code.append(tokens[0])
+                    if inexact is None:
+                        inexact = base
+                    try:
+                        tokens = shlex.split(tokens[0])
+                    except ValueError:
+                        pass
             elif sub is not None and sub not in RTK_TOOL_SUBCOMMANDS:
                 if inexact is None:
                     inexact = base

@@ -12,8 +12,9 @@
 #     scripts/devops/install-rtk.sh puts the sha256-pinned binary) — never through PATH, so a binary
 #     named `rtk` earlier on PATH cannot supply the command that runs;
 #   * the rewrite is applied ONLY if it is a pure `rtk ` prefixing of the original: removing every
-#     `rtk ` token from both the rewritten and the original command must give the same string. Anything
-#     else (rtk substituted, dropped or appended something) is discarded and the original runs.
+#     `rtk ` token from the rewritten command must give back the original. Anything else (rtk
+#     substituted, dropped or appended something) is discarded and the original runs. The command that
+#     is returned carries the ABSOLUTE rtk path, not a bare `rtk` (no PATH lookup at run time).
 #
 # ADVISORY and FAIL-OPEN: it never refuses. No binary, a crash, bad JSON, or a failed sanity check =
 # silent no-op, the original command runs unchanged. A missing optimisation must never block work.
@@ -27,19 +28,25 @@ INPUT=$(cat)
 OUT=$(printf '%s' "$INPUT" | "$RTK_BIN" hook claude 2>/dev/null) || exit 0
 [ -n "$OUT" ] || exit 0
 
-# Pass the rewrite through only when it is a pure prefixing of the original command.
-printf '%s' "$INPUT" | ORIG_OUT="$OUT" python3 -c '
-import json, os, re, sys
+# Pass the rewrite through only when it is a pure prefixing of the original command, and pin the
+# executed binary: every `rtk ` token is replaced by the absolute path validated above, so the Bash tool
+# does not resolve `rtk` through PATH at run time (SR-M-3, PR #1157). An original that already
+# contains an `rtk ` token is not rewritten at all: the replacement could not tell its own tokens apart.
+printf '%s' "$INPUT" | ORIG_OUT="$OUT" RTK_BIN="$RTK_BIN" python3 -I -c '
+import json, os, re, shlex, sys
 try:
     original = json.load(sys.stdin)["tool_input"]["command"]
     out = json.loads(os.environ["ORIG_OUT"])
     new = out["hookSpecificOutput"]["updatedInput"]["command"]
 except Exception:
     sys.exit(1)
-strip = lambda s: re.sub(r"(?<![\w-])rtk ", "", s)
-if strip(new) != strip(original):
+tok = r"(?<![\w-])rtk "
+if re.search(tok, original):
     sys.exit(1)
-if "permissionDecision" in out.get("hookSpecificOutput", {}):
+if re.sub(tok, "", new) != original:
     sys.exit(1)
-sys.stdout.write(os.environ["ORIG_OUT"])
+if "permissionDecision" in out["hookSpecificOutput"]:
+    sys.exit(1)
+out["hookSpecificOutput"]["updatedInput"]["command"] = re.sub(tok, lambda m: shlex.quote(os.environ["RTK_BIN"]) + " ", new)
+sys.stdout.write(json.dumps(out))
 ' || exit 0

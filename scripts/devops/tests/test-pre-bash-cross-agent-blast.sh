@@ -96,6 +96,18 @@ assert_red "SR-H-1: rtk test --shell string wrapping a foreign worktree removal 
   --contains '"decision": "block"' \
   -- run_hook "$MINE" "rtk test --shell sh \"git worktree remove --force $OTHER\""
 
+assert_red "SR-H-3: rtk bypass one quoted string wrapping a foreign worktree removal -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook "$MINE" "rtk bypass 'git worktree remove --force $OTHER'"
+
+assert_red "SR-H-3: rtk test one quoted string wrapping a foreign worktree removal -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook "$MINE" "rtk test 'git worktree remove --force $OTHER'"
+
+assert_red "SR-H-3: rtk -v summary one quoted string wrapping a foreign worktree removal -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook "$MINE" "rtk -v summary 'git worktree remove --force $OTHER'"
+
 assert_red "mutating another agent's tree -> BLOCK (PR #551)" \
   --contains '"decision": "block"' \
   -- run_hook "$MINE" "cd $OTHER && git checkout -- apps/api/src/x.ts"

@@ -418,6 +418,8 @@ def first_token(seg):
                     parts.pop(0)
                 if payload is None and shell_mode and parts:
                     payload = " ".join(parts)
+                if payload is None and len(parts) == 1 and re.search(r"[\s;&|<>]", parts[0]):
+                    payload = parts[0]
                 if payload is not None:
                     try:
                         parts = shlex.split(payload)

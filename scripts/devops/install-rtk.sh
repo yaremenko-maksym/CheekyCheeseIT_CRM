@@ -65,7 +65,9 @@ fi
 
 # The archive must hold exactly the member we extract (assumption checked on linux-musl and
 # aarch64-apple-darwin releases of ${RTK_VERSION}); tar of one named member into a private dir.
-tar tzf "${tmp}/${asset}" | grep -qx 'rtk' || { echo "install-rtk: archive has no 'rtk' member — refusing" >&2; exit 1; }
+members="$(tar tzf "${tmp}/${asset}")"
+# here-string, not a pipe: `grep -q` closing a pipe early gives tar SIGPIPE, which pipefail turns into a failure
+grep -qx 'rtk' <<<"${members}" || { echo "install-rtk: archive has no 'rtk' member — refusing" >&2; exit 1; }
 tar xzf "${tmp}/${asset}" -C "${tmp}" rtk
 mkdir -p "${INSTALL_DIR}"
 install -m 0755 "${tmp}/rtk" "${INSTALL_DIR}/rtk"
@@ -79,7 +81,5 @@ case "${installed}" in
     exit 1
     ;;
 esac
-case ":${PATH}:" in
-  *":${INSTALL_DIR}:"*) ;;
-  *) echo "install-rtk: add ${INSTALL_DIR} to PATH for the hook to find rtk" >&2 ;;
-esac
+echo "install-rtk: the hook pre:bash:rtk-rewrite looks for ${INSTALL_DIR}/rtk (a fixed path, not PATH);" >&2
+echo "install-rtk: if you changed RTK_INSTALL_DIR, export the same value in the environment Claude Code runs in." >&2

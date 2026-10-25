@@ -692,3 +692,18 @@ block	db,ttl	rtk test --shell sh 'pnpm dev'
 allow	all	rtk gain
 allow	all	rtk test pnpm --filter @crm/api test
 allow	all	rtk grep -rn 'pnpm dev' .claude/rules
+# SR-H-3 (PR #1157): ONE quoted operand on an exec subcommand is a whole command string that rtk
+# splits or runs through sh -c itself. It must be scanned like `sh -c '...'`.
+block	safety	rtk bypass 'rm -rf /etc'
+block	safety	rtk test 'rm -rf /etc'
+block	safety	rtk err 'rm -rf /etc'
+block	safety	rtk run 'rm -rf /etc'
+block	safety	rtk summary 'rm -rf /etc'
+block	safety	rtk proxy 'rm -rf /etc'
+block	safety	rtk -v test 'rm -rf /etc'
+block	safety	rtk bypass 'echo ok; rm -rf /etc'
+block	db,ttl	rtk test 'pnpm dev'
+block	db,ttl	rtk bypass -v 'pnpm dev'
+block	db,ttl	rtk summary 'echo ok && pnpm dev'
+allow	all	rtk bypass 'echo hello world'
+allow	all	rtk test 'pnpm --filter @crm/api test'
