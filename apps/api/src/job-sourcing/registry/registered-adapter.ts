@@ -1,6 +1,9 @@
 import type { JobSourceType } from '@crm/shared'
 import type { JobSourceProvider } from '../job-source.provider'
-import type { ReportingJobSourceProvider } from '../providers/reporting-provider'
+import type {
+  ReportingJobSourceProvider,
+  ValidatedSourceConfig,
+} from '../providers/reporting-provider'
 
 /**
  * What the registry holds: ONE entry per `JobSourceType`, tagged with the contract it implements.
@@ -34,14 +37,21 @@ export class LegacyDouAdapter {
   }
 }
 
+/** The exact hosts one source's requests may reach, from the ADAPTER-PARSED config. */
+export type AllowedHostsOf = (config: ValidatedSourceConfig) => readonly string[]
+
 /**
  * How a reporting adapter is wired to the transport (r5 Task 2.5 T3 gate, T6 fills it in). Absent
  * means NOT wired: the run ledger refuses to claim a source whose adapter declares no
  * `allowedHosts` (`TRANSPORT_NOT_WIRED`, SR-M-16) or no version to stamp on its run row.
+ *
+ * `allowedHosts` is a fixed list for an adapter with one API host, or a function of the parsed
+ * config for a tenant-subdomain one (Recruitee, Personio) or a regional one (Lever). The transport
+ * matches hosts EXACTLY (no suffix, no wildcard), so a tenant's host is named, never its apex.
  */
 export interface ReportingWiring {
   readonly adapterVersion?: string
-  readonly allowedHosts?: readonly string[]
+  readonly allowedHosts?: readonly string[] | AllowedHostsOf
 }
 
 /** A phase-3 adapter on the reporting contract. Registered for activation, never run by this task. */
@@ -52,7 +62,10 @@ export class ReportingAdapter {
 
   readonly adapterVersion: string | null
 
-  readonly allowedHosts: readonly string[]
+  /** Whether the adapter declares hosts at all; without them it is never claimed. */
+  readonly transportWired: boolean
+
+  private readonly hostsOf: AllowedHostsOf
 
   constructor(
     readonly provider: ReportingJobSourceProvider,
@@ -60,6 +73,19 @@ export class ReportingAdapter {
   ) {
     this.type = provider.type
     this.adapterVersion = wiring.adapterVersion ?? null
-    this.allowedHosts = Object.freeze([...(wiring.allowedHosts ?? [])])
+    const declared = wiring.allowedHosts ?? []
+    if (typeof declared === 'function') {
+      this.transportWired = true
+      this.hostsOf = declared
+    } else {
+      const fixed = Object.freeze([...declared])
+      this.transportWired = fixed.length > 0
+      this.hostsOf = () => fixed
+    }
+  }
+
+  /** The hosts the transport is pinned to for this source (a fresh frozen copy). */
+  allowedHostsFor(config: ValidatedSourceConfig): readonly string[] {
+    return Object.freeze([...this.hostsOf(config)])
   }
 }

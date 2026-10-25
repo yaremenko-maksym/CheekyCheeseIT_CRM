@@ -272,8 +272,18 @@ describe('banTargetOf (SR-M-24)', () => {
     expect(banTargetOf('ANYTHING' as never, 403)).toBe('HOST')
   })
 
+  it('a 401 bans exactly as a 403 does (T6)', () => {
+    expect(banTargetOf('HOST', 401)).toBe('HOST')
+    expect(banTargetOf('SOURCE', 401)).toBe('SOURCE')
+  })
+
+  it('an absent scope bans the host, typed as such (T6: no cast at the caller)', () => {
+    expect(banTargetOf(undefined, 403)).toBe('HOST')
+    expect(banTargetOf(undefined, 401)).toBe('HOST')
+  })
+
   it('any other status is not a ban', () => {
-    for (const s of [200, 401, 404, 402, 404, 430, 450, 452, 500, 503]) {
+    for (const s of [200, 400, 402, 404, 430, 450, 452, 500, 503]) {
       expect(banTargetOf('HOST', s)).toBe('NONE')
     }
   })

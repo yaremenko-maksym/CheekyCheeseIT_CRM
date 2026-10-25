@@ -409,13 +409,14 @@ export class JobRunWorker {
           transport: this.deps.transport,
           monotonicNow: this.deps.monotonicNow,
           now: this.now,
+          logger: this.logger,
         },
         {
           run,
           hostKey: row.hostKey,
           floorHours: policy.floorHours,
           banScope: entry.banScope,
-          allowedHosts: adapter.allowedHosts,
+          allowedHosts: adapter.allowedHostsFor(config),
           meter,
           secrets,
           policyVersion: row.policyVersion,
@@ -432,6 +433,10 @@ export class JobRunWorker {
     } catch (error) {
       settled = { kind: 'THREW', error }
     }
+    // A ban write still retrying is finished before `state` is read (CR-M-6 / SR-L-3); one that
+    // starts after this is the context's own to log and retry. Bounded by the deadline grace
+    // (CR-M-1): nothing renews the lease here, so a hung write must not hold the run from finish.
+    await control?.drain(this.options.deadlineGraceMs)
     const state = control?.state ?? { closed: null, banCode: null, unrecordedBan: null }
     const ending = endingOf(settled, state, secrets)
     let finished = true

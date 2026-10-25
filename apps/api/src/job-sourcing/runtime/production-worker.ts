@@ -24,7 +24,8 @@ import { productionLedgerCatalog } from './production-catalog'
  *
  * !! PROVIDING THIS MAKES NO SOURCE RUNNABLE. Nothing calls the worker until T5's handlers; the
  * registry holds DOU only (the ledger refuses it `NOT_ACTIVATABLE`), and a reporting adapter
- * registered later is refused `TRANSPORT_NOT_WIRED` until T6 gives it `allowedHosts`.
+ * registered later is refused `TRANSPORT_NOT_WIRED` unless it is built with its `REPORTING_WIRING`
+ * entry (T6), whose hosts the transport is pinned to.
  */
 /**
  * The app's database, read at the moment of each call. `DatabaseService` opens its pool and sets

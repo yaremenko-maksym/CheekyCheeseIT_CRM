@@ -1204,7 +1204,38 @@ describe('review round 1: the worker survives and reports what it swallows', () 
     })
     await w.worker.runDue({ cycleId: uuid(1) })
     expect(rec.lines).toEqual([
+      // T6 (CR-M-6 / SR-L-3): the context says its own last failed attempt, in our own words
+      'error: host h.example: ban HTTP_429 could not be recorded after 3 attempts',
       `error: host h.example refused run ${uuid(101)} (HTTP_429) and its ban could not be recorded (Error)`,
     ])
   })
+
+  it('CR-M-1: a ban write that never settles holds the run from finish no longer than the grace, and is written again after', async () => {
+    let calls = 0
+    const written: HostBan[] = []
+    const w = world({
+      collect: async (_c, ctx) => {
+        await ctx.fetchText({ url: 'https://h.example/x' }).catch(() => undefined)
+        return batch('ERROR', 'RATE_LIMIT')
+      },
+      deps: {
+        transport: async () => {
+          throw new SourceRateLimitedError('h.example', '7200')
+        },
+        recordBan: async (ban) => {
+          calls += 1
+          // the first write hangs, as a write on a stuck connection would; the retry lands
+          if (calls === 1) return new Promise<never>(() => undefined)
+          written.push(ban)
+        },
+      },
+    })
+    const started = performance.now()
+    const [r] = await w.worker.runDue({ cycleId: uuid(1) })
+    expect(performance.now() - started).toBeLessThan(2_000)
+    expect(r).toMatchObject({ finished: true, errorCode: 'HOST_BAN_UNRECORDED' })
+    expect(w.log.filter((l) => l.startsWith('finish:'))).toHaveLength(1)
+    expect(calls).toBe(2)
+    expect(written).toEqual([expect.objectContaining({ reason: 'HTTP_429', retryAfter: '7200' })])
+  }, 5_000)
 })
