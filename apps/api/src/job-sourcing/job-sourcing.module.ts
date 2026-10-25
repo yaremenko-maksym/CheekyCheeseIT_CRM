@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common'
 import { AuthModule } from '../auth/auth.module'
 import { DatabaseModule } from '../database/database.module'
+import { JobSourceAdminController } from './admin/job-source-admin.controller'
+import { JobSourceAdminService } from './admin/job-source-admin.service'
 import { DouRssProvider } from './dou.provider'
 import { JobQueueActionRetentionCronService } from './job-queue-action-retention.cron'
 import { JobSourcingController } from './job-sourcing.controller'
@@ -32,9 +34,10 @@ import { createProductionRegistry } from './registry/production-registry'
  */
 @Module({
   imports: [DatabaseModule, AuthModule],
-  controllers: [JobSourcingController],
+  controllers: [JobSourcingController, JobSourceAdminController],
   providers: [
     JobSourcingService,
+    JobSourceAdminService,
     JobSourcingCronService,
     JobQueueActionRetentionCronService,
     DouRssProvider,
