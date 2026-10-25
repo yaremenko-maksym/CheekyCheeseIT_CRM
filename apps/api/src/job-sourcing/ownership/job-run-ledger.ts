@@ -177,7 +177,8 @@ export class JobRunLedger {
   constructor(
     private readonly db: LedgerDb,
     private readonly registry: JobSourceRegistry,
-    private readonly catalog: LedgerCatalog,
+    /** Read-only for the ledger's consumers (T7 worker, T9 listing): the one catalog it claims by. */
+    readonly catalog: LedgerCatalog,
     options: Partial<LedgerOptions> = {},
   ) {
     this.options = resolveLedgerOptions(options)

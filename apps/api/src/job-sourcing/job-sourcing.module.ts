@@ -14,7 +14,8 @@ import { JobSourcingService } from './job-sourcing.service'
 import { JobSourceRegistry } from './registry/job-source-registry'
 import { createProductionRegistry } from './registry/production-registry'
 import { JobRunWorker } from './runtime/job-run-worker'
-import { createProductionWorker } from './runtime/production-worker'
+import { createProductionLedger, createProductionWorker } from './runtime/production-worker'
+import { JobRunLedger } from './ownership/job-run-ledger'
 
 /**
  * Job sourcing (task-job-sourcing-slice1).
@@ -51,16 +52,29 @@ import { createProductionWorker } from './runtime/production-worker'
       useFactory: createProductionRegistry,
       inject: [DouRssProvider],
     },
-    // r5 Task 2.5 T7: the run worker (reporting adapters, through the ledger). Nothing calls it
-    // until T5's handlers; see `createProductionWorker`.
+    // r5 Task 2.5 T7: THE run ledger (production catalog) and the run worker over it. The T9 admin
+    // service resets failures through this same ledger. Nothing calls the worker until T5's
+    // handlers; see `createProductionWorker`.
+    {
+      provide: JobRunLedger,
+      useFactory: (db: DatabaseService, registry: JobSourceRegistry) =>
+        createProductionLedger(db.db, registry),
+      inject: [DatabaseService, JobSourceRegistry],
+    },
     {
       provide: JobRunWorker,
       useFactory: (
+        ledger: JobRunLedger,
         db: DatabaseService,
         registry: JobSourceRegistry,
         config: ConfigService<Env, true> | undefined,
-      ) => createProductionWorker(db.db, registry, config),
-      inject: [DatabaseService, JobSourceRegistry, { token: ConfigService, optional: true }],
+      ) => createProductionWorker(ledger, db.db, registry, config),
+      inject: [
+        JobRunLedger,
+        DatabaseService,
+        JobSourceRegistry,
+        { token: ConfigService, optional: true },
+      ],
     },
   ],
   exports: [JobSourcingService],

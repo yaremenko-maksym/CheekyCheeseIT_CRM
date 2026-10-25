@@ -4,8 +4,10 @@ import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 import type { DatabaseService } from '../../database/database.service'
-import { specRegistry } from '../../test/ledger-fixtures'
-import { JobSourceAdminService, NO_CATALOG } from './job-source-admin.service'
+import { SpecCatalog, specRegistry } from '../../test/ledger-fixtures'
+import type { MeterDb } from '../metering/account-meter.store'
+import { JobRunLedger } from '../ownership/job-run-ledger'
+import { JobSourceAdminService } from './job-source-admin.service'
 
 /**
  * Unit doubles for the T9 service, so the mutation gate can see the role check, the row mapping
@@ -33,12 +35,19 @@ function harness(rows: Record<string, unknown>[] = [], resetRows: unknown[] = [{
     cb({ execute: txExecute }),
   )
   const database = { db: { execute, transaction } } as unknown as DatabaseService
+  // T7: the service runs on THE ledger; its catalog gives the provider floor OVERDUE applies.
+  const catalog = new SpecCatalog()
+  catalog.add('remotive.api.software-dev', { floorHours: 60, intervalHours: 24 })
+  const ledger = new JobRunLedger(database.db as unknown as MeterDb, specRegistry([]), catalog)
   return {
-    service: new JobSourceAdminService(database, specRegistry([])),
+    service: new JobSourceAdminService(database, ledger),
     execute,
     txExecute,
   }
 }
+
+const HOUR = 3_600_000
+const NEXT = Date.parse('2026-10-20T00:00:00.000Z')
 
 const row = (over: Record<string, unknown> = {}) => ({
   id: SOURCE,
@@ -46,7 +55,10 @@ const row = (over: Record<string, unknown> = {}) => ({
   host_key: 'remotive.com',
   consecutive_failures: 3,
   last_error_code: 'LEASE_EXPIRED',
-  next_attempt_ms: Date.parse('2026-10-20T00:00:00.000Z'),
+  manifest_id: null,
+  min_interval_hours: 24,
+  now_ms: NEXT + 5 * 24 * HOUR,
+  next_attempt_ms: NEXT,
   paused_until_ms: null,
   pause_reason: null,
   pause_source_id: null,
@@ -86,9 +98,29 @@ describe('listExcluded — the row mapping', () => {
     ['overdue', 'OVERDUE'],
   ])('%s alone gives %s; a non-boolean truthy flag gives nothing', async (flag, reason) => {
     const h = harness([row({ [flag]: true }), row({ [flag]: 't' })])
-    const [one, two] = await h.service.listExcluded(ADMIN)
-    expect(one?.reasons).toEqual([reason])
-    expect(two?.reasons).toEqual([])
+    // a row left with no reason is not excluded, so it is not listed (T7)
+    expect((await h.service.listExcluded(ADMIN)).map((r) => r.reasons)).toEqual([[reason]])
+  })
+
+  it('OVERDUE is measured at the provider floor the ledger runs the source at (T9 CR-M-2)', async () => {
+    // due 5 days ago. Stored cadence 24 h: overdue past 48 h. The catalog entry's floor is 60 h, so
+    // the real cadence is 60 h and overdue starts only past 120 h.
+    const at = (hours: number) =>
+      row({ overdue: true, manifest_id: 'remotive.api.software-dev', now_ms: NEXT + hours * HOUR })
+    const h = harness([at(119), at(121)])
+    const out = await h.service.listExcluded(ADMIN)
+    expect(out.map((r) => r.reasons)).toEqual([['OVERDUE']])
+  })
+
+  it('without a catalog entry the stored cadence stands; an unusable one falls back to 24 h', async () => {
+    const h = harness([
+      row({ overdue: true, now_ms: NEXT + 47 * HOUR }),
+      row({ overdue: true, now_ms: NEXT + 49 * HOUR }),
+      row({ overdue: true, min_interval_hours: null, now_ms: NEXT + 49 * HOUR }),
+      row({ overdue: true, min_interval_hours: 10, now_ms: NEXT + 21 * HOUR }),
+      row({ overdue: true, manifest_id: 'no.such.entry', now_ms: NEXT + 49 * HOUR }),
+    ])
+    expect((await h.service.listExcluded(ADMIN)).length).toBe(4)
   })
 
   it('projects the allow-listed columns, instants as ISO strings', async () => {
@@ -169,12 +201,5 @@ describe('resetFailures — calls the ledger', () => {
     await expect(h.service.resetFailures(SOURCE, { reason: 'x' }, ADMIN)).rejects.toThrow(
       new NotFoundException('Job source not found'),
     )
-  })
-
-  it('builds its ledger on a catalog that resolves nothing (any claim on it fails closed)', () => {
-    expect([NO_CATALOG.entry('any.manifest'), NO_CATALOG.hostPolicy('remotive.com')]).toEqual([
-      undefined,
-      undefined,
-    ])
   })
 })

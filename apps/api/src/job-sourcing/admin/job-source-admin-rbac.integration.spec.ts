@@ -20,6 +20,7 @@ import { specRegistry } from '../../test/ledger-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ZodExceptionFilter } from '../../zod-exception.filter'
 import { JobSourceRegistry } from '../registry/job-source-registry'
+import { createProductionLedger } from '../runtime/production-worker'
 import { JobSourceAdminController } from './job-source-admin.controller'
 import { JobSourceAdminService } from './job-source-admin.service'
 
@@ -72,8 +73,9 @@ class TestDatabaseModule {}
     { provide: JobSourceRegistry, useValue: specRegistry(['REMOTIVE_API']) },
     {
       provide: JobSourceAdminService,
+      // T7: the service runs on THE ledger; here the production one over the spec registry.
       useFactory: (db: DatabaseService, registry: JobSourceRegistry) =>
-        new JobSourceAdminService(db, registry),
+        new JobSourceAdminService(db, createProductionLedger(db.db, registry)),
       inject: [DatabaseService, JobSourceRegistry],
     },
     // JwtAuthGuard as APP_GUARD, as AppModule does. RolesGuard is NOT global: the controller's own

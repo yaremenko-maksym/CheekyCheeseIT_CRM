@@ -5,7 +5,8 @@ import type { MeterDb } from '../metering/account-meter.store'
 import { secretsForType } from '../quota-credentials'
 import { JobSourceRegistry } from '../registry/job-source-registry'
 import { POOL_SIZE_CEILING, type WorkerDeps } from './job-run-worker'
-import { createProductionWorker } from './production-worker'
+import { createProductionLedger, createProductionWorker } from './production-worker'
+import { productionLedgerCatalog } from './production-catalog'
 
 /**
  * r5 Task 2.5 T7 — the production wiring: the worker builds without touching anything (the module
@@ -32,40 +33,60 @@ const config = {
 
 const depsOf = (w: unknown) => (w as { deps: WorkerDeps }).deps
 
+/** The production ledger: constructing it touches nothing. */
+const LEDGER = createProductionLedger(untouchable, new JobSourceRegistry([]))
+
 const HANDLE = {
   runId: '00000000-0000-4000-8000-000000000001',
   ownerToken: 'api-1:x',
   fencingEpoch: 1,
 }
 
+describe('createProductionLedger', () => {
+  it('claims by the generated production catalog', () => {
+    expect(LEDGER.catalog.entry('remotive.api.software-dev')).toMatchObject({
+      type: 'REMOTIVE_API',
+      floorHours: 6,
+      intervalHours: 24,
+      quotaDeclared: false,
+      banScope: 'HOST',
+    })
+    expect(productionLedgerCatalog().entry('no.such.entry')).toBeUndefined()
+    expect(LEDGER.catalog.hostPolicy('remotive.com')).toEqual({
+      rate: { perMinute: 2, perDay: 4 },
+      floorHours: 6,
+    })
+  })
+})
+
 describe('createProductionWorker', () => {
   it('builds with no database contact and no config, and closes cleanly having opened nothing', async () => {
-    const w = createProductionWorker(untouchable, new JobSourceRegistry([]), undefined)
+    const w = createProductionWorker(LEDGER, untouchable, new JobSourceRegistry([]), undefined)
     expect(w.options).toMatchObject({ owner: `api-${process.pid}`, poolSize: 2 })
     await expect(w.onModuleDestroy()).resolves.toBeUndefined()
   })
 
   it('without config it refuses to run, by name', () => {
-    const w = createProductionWorker(untouchable, new JobSourceRegistry([]), undefined)
+    const w = createProductionWorker(LEDGER, untouchable, new JobSourceRegistry([]), undefined)
     expect(() => depsOf(w).secretsFor('JSEARCH_API')).toThrow(
       'the run worker needs ConfigService to run',
     )
   })
 
   it('passes worker options through, under their ceilings', () => {
-    const w = createProductionWorker(untouchable, new JobSourceRegistry([]), undefined, {
+    const w = createProductionWorker(LEDGER, untouchable, new JobSourceRegistry([]), undefined, {
       poolSize: POOL_SIZE_CEILING,
     })
     expect(w.options.poolSize).toBe(POOL_SIZE_CEILING)
     expect(() =>
-      createProductionWorker(untouchable, new JobSourceRegistry([]), undefined, {
+      createProductionWorker(LEDGER, untouchable, new JobSourceRegistry([]), undefined, {
         poolSize: POOL_SIZE_CEILING + 1,
       }),
     ).toThrow(/poolSize/)
   })
 
   it('records a ban through T8`s recordHostBan on the app database', async () => {
-    const w = createProductionWorker(untouchable, new JobSourceRegistry([]), config)
+    const w = createProductionWorker(LEDGER, untouchable, new JobSourceRegistry([]), config)
     await expect(
       depsOf(w).recordBan({
         hostKey: 'api.example.com',
@@ -77,13 +98,13 @@ describe('createProductionWorker', () => {
   })
 
   it('reads the type`s credentials through the config it was given', () => {
-    const w = createProductionWorker(untouchable, new JobSourceRegistry([]), config)
+    const w = createProductionWorker(LEDGER, untouchable, new JobSourceRegistry([]), config)
     expect(depsOf(w).secretsFor('JSEARCH_API')).toEqual(['rapid-key-1'])
     expect(depsOf(w).secretsFor('REMOTIVE_API')).toEqual([])
   })
 
   it('heartbeats through the ledger on its own pool, opened on first use and ended at shutdown', async () => {
-    const w = createProductionWorker(untouchable, new JobSourceRegistry([]), config)
+    const w = createProductionWorker(LEDGER, untouchable, new JobSourceRegistry([]), config)
     // a malformed handle owns nothing: the ledger answers false before any SQL
     await expect(depsOf(w).heartbeat({ ...HANDLE, runId: 'nope' })).resolves.toBe(false)
     // a well-formed one goes to THE configured database (port 1: refused, nothing reached)

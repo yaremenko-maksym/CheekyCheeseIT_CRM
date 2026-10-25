@@ -25,7 +25,13 @@ import { productionLedgerCatalog } from './production-catalog'
  * registry holds DOU only (the ledger refuses it `NOT_ACTIVATABLE`), and a reporting adapter
  * registered later is refused `TRANSPORT_NOT_WIRED` until T6 gives it `allowedHosts`.
  */
+/** The production ledger: the app's database, the registry, the generated production catalog. */
+export function createProductionLedger(db: MeterDb, registry: JobSourceRegistry): JobRunLedger {
+  return new JobRunLedger(db, registry, productionLedgerCatalog())
+}
+
 export function createProductionWorker(
+  ledger: JobRunLedger,
   db: MeterDb,
   registry: JobSourceRegistry,
   config: ConfigService<Env, true> | undefined,
@@ -35,8 +41,7 @@ export function createProductionWorker(
     if (config === undefined) throw new Error('the run worker needs ConfigService to run')
     return config
   }
-  const catalog = productionLedgerCatalog()
-  const ledger = new JobRunLedger(db, registry, catalog)
+  const catalog = ledger.catalog
   let heartbeatPool: Pool | null = null
   let heartbeatLedger: JobRunLedger | null = null
   const heartbeats = (): JobRunLedger => {
