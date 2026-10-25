@@ -184,7 +184,8 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
     const status = error instanceof SourceBlockedError ? error.status : 429
     banCode = status === 429 ? 'RATE_LIMIT' : 'ACCESS_POLICY'
     close('BANNED')
-    if (banTargetOf(input.banScope ?? 'HOST', status) !== 'HOST') return
+    // `banTargetOf` reads anything but a literal SOURCE (an absent scope included) as HOST.
+    if (banTargetOf(input.banScope as BanScope, status) !== 'HOST') return
     const ban: HostBan = {
       hostKey: input.hostKey,
       reason: `HTTP_${status}`,

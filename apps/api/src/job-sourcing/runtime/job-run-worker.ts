@@ -6,8 +6,8 @@ import type { ClaimedRun, JobRunLedger, RunEnding } from '../ownership/job-run-l
 import type { LedgerCatalog } from '../ownership/ledger-catalog'
 import { type RunHandle, isRunFenced } from '../ownership/run-ownership'
 import {
-  COLLECTION_ERROR_CODES,
   type CollectionBatch,
+  collectionCodeOf,
   type CollectionErrorCode,
   redactText,
   toStoredReportCounts,
@@ -117,7 +117,6 @@ export const FREE_PLAN_METERS: Partial<
   Record<JobSourceType, { unit: JobMeterUnit; window: JobMeterWindow; limit: number }>
 > = Object.freeze({ THEIRSTACK_API: { unit: 'RECORD', window: 'MONTH', limit: 200 } })
 
-const KNOWN_CODES: ReadonlySet<string> = new Set(COLLECTION_ERROR_CODES)
 const DESIGNED_STOPS: ReadonlySet<string> = new Set(['PAGE_CAP', 'COST_STOP', 'DEADLINE'])
 const MESSAGE_MAX = 300
 
@@ -235,11 +234,11 @@ export function endingOf(
   }
   if (settled.kind === 'THREW') {
     const e = settled.error
-    const code = (e as { code?: unknown } | null)?.code
-    const known = typeof code === 'string' && KNOWN_CODES.has(code) && code !== 'LEASE_EXPIRED'
+    const code = collectionCodeOf(e)
     return {
       outcome: 'FAILED',
-      errorCode: known ? (code as CollectionErrorCode) : 'ADAPTER_INVARIANT',
+      // LEASE_EXPIRED is recovery's alone (`validateEnding` refuses it from a live worker).
+      errorCode: code === null || code === 'LEASE_EXPIRED' ? 'ADAPTER_INVARIANT' : code,
       errorMessage:
         e instanceof ContextRefusedError || e instanceof RunSetupError || isRunFenced(e)
           ? cap((e as Error).message, secrets)
@@ -346,6 +345,7 @@ export class JobRunWorker {
       ownerToken: run.ownerToken,
       fencingEpoch: run.fencingEpoch,
     }
+    // Stryker disable next-line ArrayDeclaration: read only when `secretsFor` itself threw, and then the ending is that error's class name, which no secret can redact
     let secrets: readonly string[] = []
     let settled: Settled
     let control: RunControl | null = null
@@ -430,9 +430,9 @@ export class JobRunWorker {
     work: () => Promise<CollectionBatch>,
     handle: RunHandle,
   ): Promise<Settled> {
-    const timers: ReturnType<typeof setTimeout>[] = []
+    const timers = new Set<ReturnType<typeof setTimeout>>()
     const beat = () => {
-      timers.push(
+      timers.add(
         setTimeout(() => {
           const sentAt = control.monotonicNow()
           this.deps.heartbeat(handle).then(
@@ -449,14 +449,15 @@ export class JobRunWorker {
       )
     }
     beat()
-    let graceExpired: () => void = () => undefined
+    timers.add(setTimeout(() => control.close('DEADLINE'), this.options.runDeadlineMs))
     const grace = new Promise<Settled>((resolve) => {
-      graceExpired = () => resolve({ kind: 'UNSETTLED' })
+      timers.add(
+        setTimeout(
+          () => resolve({ kind: 'UNSETTLED' }),
+          this.options.runDeadlineMs + this.options.deadlineGraceMs,
+        ),
+      )
     })
-    timers.push(setTimeout(() => control.close('DEADLINE'), this.options.runDeadlineMs))
-    timers.push(
-      setTimeout(() => graceExpired(), this.options.runDeadlineMs + this.options.deadlineGraceMs),
-    )
     try {
       return await Promise.race([
         work().then(

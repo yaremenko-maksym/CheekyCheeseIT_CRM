@@ -34,7 +34,7 @@ describe('a run attempt binding without its run id (T7)', () => {
   it('is refused at construction, before the database is touched', () => {
     expect(() =>
       createAccountMeter(untouchable, binding({ attemptId: `run-${'a'.repeat(8)}` })),
-    ).toThrow(/a run attempt binding names its run/)
+    ).toThrow('the meter binding is invalid: runId a run attempt binding names its run')
   })
 
   it('a non-run reservation with no run id is still a legal binding', () => {

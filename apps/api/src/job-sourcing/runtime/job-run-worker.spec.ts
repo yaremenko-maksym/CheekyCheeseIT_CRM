@@ -715,6 +715,9 @@ describe('setting a run up: every refusal is named on the run row', () => {
     expect(r).toMatchObject({ outcome: 'FAILED', errorCode: 'ADAPTER_INVARIANT', finished: true })
     expect(persisted).toBe(message)
     expect(collected).toBe(false)
+    // a run that never got a context has no ban to write again, and finishes ITS run
+    expect(w.log).not.toContain('ban')
+    expect(w.finishes.map((f) => f.runId)).toEqual([uuid(101)])
   })
 
   it('a refused meter binding is named too', async () => {
@@ -738,6 +741,7 @@ describe('what a run is handed', () => {
     })
     await w.worker.runDue({ cycleId: uuid(1) })
     expect(w.readIds).toEqual([uuid(101)])
+    expect(w.finishes.map((f) => f.runId)).toEqual([uuid(101)])
     expect(w.configs).toEqual([{ a: 1, configVersion: 3 }])
     expect(seen!.policyVersion).toBe(4)
     expect(seen!.secrets).toEqual(['sekrit-key'])
@@ -812,6 +816,23 @@ describe('what a run is handed', () => {
     })
     const [r] = await w.worker.runDue({ cycleId: uuid(1) })
     expect(r?.outcome).toBe(outcome)
+  })
+})
+
+describe('the worker`s own clock', () => {
+  it('without an injected clock, the deadline runs from the real now', async () => {
+    let deadline = 0
+    const w = world({
+      deps: { now: undefined },
+      collect: async (_c, ctx) => {
+        deadline = ctx.deadline.getTime()
+        return batch('EXHAUSTED')
+      },
+    })
+    const before = Date.now()
+    await w.worker.runDue({ cycleId: uuid(1) })
+    expect(deadline).toBeGreaterThanOrEqual(before + 120)
+    expect(deadline).toBeLessThanOrEqual(Date.now() + 120)
   })
 })
 

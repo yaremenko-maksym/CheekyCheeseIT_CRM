@@ -58,6 +58,27 @@ describe('one routing (T7, AC 17)', () => {
       'REMOTIVE_API is a reporting source: it runs only through the run ledger',
     )
     expect(s.collectReport).not.toHaveBeenCalled()
+    expect(new NotLegacySourceError('REMOTIVE_API')).toMatchObject({
+      name: 'NotLegacySourceError',
+      sourceType: 'REMOTIVE_API',
+    })
+  })
+
+  it('DOU (LEGACY) passes the routing and is collected through its legacy provider', async () => {
+    const s = service()
+    const error = await s.svc.collectSource(source('DOU_RSS') as never).catch((e: unknown) => e)
+    // it fails later (this spec gives it no postings), never at the routing
+    expect(error).not.toBeInstanceOf(NotLegacySourceError)
+    expect(s.douCollect).toHaveBeenCalledWith({})
+  })
+
+  it('an unregistered type is refused as before (no provider), not as a routing error', async () => {
+    const s = service()
+    const error = await s.svc
+      .collectSource(source('ARBEITNOW_API') as never)
+      .catch((e: unknown) => e)
+    expect(error).not.toBeInstanceOf(NotLegacySourceError)
+    expect((error as Error).message).toBe('Нет провайдера для источника ARBEITNOW_API')
   })
 
   it('collectAll leaves reporting sources to the worker and still collects DOU', async () => {
