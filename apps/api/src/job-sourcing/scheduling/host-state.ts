@@ -59,16 +59,21 @@ export function parseRetryAfter(raw: unknown): RetryAfter | null {
   if (DELAY_SECONDS.test(value)) {
     return { kind: 'DELAY', seconds: Math.min(Number(value), HOST_BAN_PAUSE_MAX_SECONDS) }
   }
-  // SEC-AUTO-1: two guards, so an instant that reaches the SQL is always one Postgres can store
+  // SEC-AUTO-1: three guards, so an instant that reaches the SQL is always one Postgres can store
   // (a value it cannot cast would make the ban FAIL, the gap SR-M-21 forbids).
-  // 1. The round trip: `toUTCString` writes exactly an IMF-fixdate (RFC 9110,
+  // 1. A parse that produced no instant is refused FIRST (SR-H-1): an invalid Date's
+  //    `toUTCString()` is the literal "Invalid Date", so the header `Invalid Date` would
+  //    otherwise pass the round trip below.
+  const ms = Date.parse(value)
+  if (!Number.isFinite(ms)) return null
+  // 2. The round trip: `toUTCString` writes exactly an IMF-fixdate (RFC 9110,
   //    `Sun, 06 Nov 1994 08:49:37 GMT`), so any other date form `Date.parse` accepts, a date it
-  //    rolled over (31 Feb -> 3 Mar, 24:00 -> the next day), a wrong weekday, or "Invalid Date" is
-  //    refused. Measured on Node 22: a year below 100 is read as 19xx/20xx and a negative year as
-  //    NaN, so neither round-trips; this guard is what keeps year 0 (not a timestamptz) out.
-  const at = new Date(Date.parse(value))
+  //    rolled over (31 Feb -> 3 Mar, 24:00 -> the next day) or a wrong weekday is refused.
+  //    Measured on Node 22: a year below 100 is read as 19xx/20xx and a negative year as NaN, so
+  //    neither round-trips; this guard is what keeps year 0 (not a timestamptz) out.
+  const at = new Date(ms)
   if (at.toUTCString() !== value) return null
-  // 2. Year 9999 at most: a 5-digit year DOES round-trip, and its `toISOString` (`+010000-…`)
+  // 3. Year 9999 at most: a 5-digit year DOES round-trip, and its `toISOString` (`+010000-…`)
   //    is refused by the `::timestamptz` cast.
   if (at.getUTCFullYear() > MAX_YEAR) return null
   return { kind: 'AT', at }
@@ -122,10 +127,15 @@ function assertBan(ban: HostBan): void {
 }
 
 /** The SQL for `Retry-After`: a delay from the database clock, a parameter instant, or nothing. */
-function retrySql(retry: RetryAfter | null): SQL {
+export function retrySql(retry: RetryAfter | null): SQL {
   if (retry === null) return sql`NULL::timestamptz`
   if (retry.kind === 'DELAY')
     return sql`clock_timestamp() + make_interval(secs => ${retry.seconds})`
+  // SR-H-1: `toISOString` THROWS on an invalid Date, and a throw here would leave the ban
+  // unrecorded. A non-finite or out-of-range instant is a NULL, which GREATEST skips (the ban
+  // then pauses for its floor); `parseRetryAfter` never returns one, this is the second wall.
+  const ms = retry.at.getTime()
+  if (!Number.isFinite(ms) || retry.at.getUTCFullYear() > MAX_YEAR) return sql`NULL::timestamptz`
   return sql`${retry.at.toISOString()}::timestamptz`
 }
 

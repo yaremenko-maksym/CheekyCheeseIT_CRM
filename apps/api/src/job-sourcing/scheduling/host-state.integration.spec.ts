@@ -533,10 +533,14 @@ describe.skipIf(!hasDatabaseUrl())(
           ['sec-y10k', 'Sat, 01 Jan 10000 00:00:00 GMT'],
           ['sec-iso', '+010000-01-01T00:00:00.000Z'],
           ['sec-inf', 'Infinity'],
+          // SR-H-1: the header that once parsed to an invalid Date and threw before any SQL.
+          ['srh1-invalid', 'Invalid Date'],
+          ['srh1-foo', 'Mon, 32 Foo 2026'],
         ] as const) {
           const key = host(name)
           expect(await ban(key, await source(key), retry), retry).toEqual({ applied: true })
           expect(await pauseSeconds(key), retry).toBeLessThan(DAY + 60)
+          expect(await pauseSeconds(key), retry).toBeGreaterThan(DAY - 60)
         }
       })
 

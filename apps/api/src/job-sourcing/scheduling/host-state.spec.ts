@@ -17,6 +17,7 @@ import {
   parseRetryAfter,
   readHostPaused,
   recordHostBan,
+  retrySql,
 } from './host-state'
 
 /**
@@ -84,6 +85,62 @@ describe('parseRetryAfter', () => {
     for (const bad of [7200, null, undefined, Number.NaN, {}, ['7200']]) {
       expect(parseRetryAfter(bad)).toBeNull()
     }
+  })
+
+  describe('SR-H-1: a header that parses to NO instant is ignored, never thrown on', () => {
+    const NAN_INPUTS = [
+      'Invalid Date',
+      'invalid date',
+      'INVALID DATE',
+      ' Invalid Date ',
+      'Mon, 32 Foo 2026',
+      'Mon, 32 Foo 2026 00:00:00 GMT',
+      'NaN',
+      'undefined',
+      'null',
+      '\u0000',
+      'Wed, 21 Oct 2026 07:28:00 GMT\u0000',
+      '２０２６',
+      '9'.repeat(400),
+    ]
+
+    it('parseRetryAfter returns null for every one of them', () => {
+      for (const raw of NAN_INPUTS) expect(parseRetryAfter(raw), JSON.stringify(raw)).toBeNull()
+    })
+
+    it('hostBanStatement builds for every one of them, with no retry term (the 24 h floor)', () => {
+      for (const raw of NAN_INPUTS) {
+        const q = render(hostBanStatement(ban({ retryAfter: raw })))
+        expect(q.params, JSON.stringify(raw)).toEqual(['remotive.com', 720, 24, 'HTTP_429', SOURCE])
+        expect(q.sql).toContain(
+          'GREATEST(clock_timestamp() + make_interval(hours => $3), NULL::timestamptz)',
+        )
+      }
+    })
+
+    it('retrySql itself cannot throw: an invalid Date or a year past 9999 becomes NULL', () => {
+      const shape = (q: SQL) => {
+        const { sql, params } = render(q)
+        return { sql, params }
+      }
+      const nul = shape(retrySql({ kind: 'AT', at: new Date(Number.NaN) }))
+      expect(nul).toEqual({ sql: 'NULL::timestamptz', params: [] })
+      const y10k = new Date(Date.UTC(2000, 0, 1))
+      y10k.setUTCFullYear(10_000)
+      expect(shape(retrySql({ kind: 'AT', at: y10k }))).toEqual({
+        sql: 'NULL::timestamptz',
+        params: [],
+      })
+      expect(shape(retrySql({ kind: 'AT', at: new Date('9999-12-31T23:59:59.000Z') }))).toEqual({
+        sql: '$1::timestamptz',
+        params: ['9999-12-31T23:59:59.000Z'],
+      })
+      expect(shape(retrySql(null))).toEqual({ sql: 'NULL::timestamptz', params: [] })
+      expect(shape(retrySql({ kind: 'DELAY', seconds: 5 }))).toEqual({
+        sql: 'clock_timestamp() + make_interval(secs => $1)',
+        params: [5],
+      })
+    })
   })
 
   describe('SEC-AUTO-1: only an instant Postgres can store reaches the SQL', () => {
