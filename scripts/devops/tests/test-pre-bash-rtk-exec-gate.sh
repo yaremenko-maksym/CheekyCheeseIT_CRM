@@ -21,6 +21,18 @@ run_hook() {
 # ── refusals: the contract body must be present (a bash syntax error also exits 2) ──
 for cmd in \
   "rtk bypass rm -rf /etc" \
+  "rtk \$'\\x62ypass' ls" \
+  "rtk \$'\\142ypass' ls" \
+  "rtk \$'\\U00000062ypass' ls" \
+  "rtk \$'\\x2dv' bypass ls" \
+  "\$'\\x72tk' bypass ls" \
+  "~/.local/bin/\$'\\x72tk' bypass ls" \
+  "rtk byp\\
+ass ls" \
+  "rt\\
+k bypass ls" \
+  "echo ok; rtk \$(echo bypass) ls" \
+  "sudo rtk \$SUB ls" \
   "rtk byp''ass rm -rf /x/node_modules" \
   "rtk \$'bypass' rm -rf /x/node_modules" \
   "rtk {bypass,} rm -rf /x/node_modules" \
@@ -67,6 +79,13 @@ done
 
 # ── silence: tool subcommands, rtk's own utilities, RTK_DISABLED, plain commands ──
 for cmd in \
+  "grep -rn rtk .claude/hooks/*.sh" \
+  "git grep -n rtk -- '*.md'" \
+  "rg rtk -g '*.sh'" \
+  "grep -rn \"rtk\" \$CLAUDE_PROJECT_DIR/docs" \
+  "git commit -m \"fix: rtk \$(date)\"" \
+  "grep -l rtk \$(git ls-files docs)" \
+  "echo \$'\\x68ello'" \
   "git commit -m \"use the rtk filter for output\"" \
   "echo 'the rtk hook rewrites commands'" \
   "rtk git status" \

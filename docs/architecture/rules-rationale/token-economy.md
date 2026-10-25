@@ -105,6 +105,15 @@ purpose: the binary treats an unknown subcommand as the command itself, which th
 blast hook already judge like the bare command. The `git push` gates (raw-text match) are covered by the gate
 for the typed forms, because the gate refuses before they matter.
 
+Round 6 (security re-review of that gate, approved with two MED findings) closed the rest of the typed
+spellings: the normalisation now also deletes backslash-newline continuations and DECODES ANSI-C strings
+(`$'\x62ypass'`, octal and `\U` forms, in the subcommand, a flag or the binary word); an undecodable body
+becomes a `$`, which trips the non-literal rule. The non-literal rule (glob, variable or substitution where
+the subcommand belongs) is applied only when the binary is in command position, so greps and commit messages
+that merely mention the binary name next to a glob or `$(date)` are no longer refused. Remaining documented
+limits, shared by every guard in this directory and equal to the `sh -c` limit: a glob in the binary word
+(`r?k`), variable- or script-rebuilt words, and a copy or symlink of the binary under another name.
+
 **Still not verified:** end-to-end ordering inside a live Claude Code session — the existing hooks carry
 owner-machine absolute paths and cannot run in the cloud container. Smoke-test on the owner machine: `git push` with a bad `ac_verified` must still be
 refused. The code of the four tools was not audited line by line; privacy claims (RTK telemetry off
