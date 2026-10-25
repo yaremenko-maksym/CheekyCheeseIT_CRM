@@ -93,6 +93,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.job_queue_dismissals,
   public.job_queue_generation_entries,
   public.job_queue_generations,
+  public.job_source_hosts,
   public.job_source_record_revisions,
   public.job_source_records,
   public.job_sources,

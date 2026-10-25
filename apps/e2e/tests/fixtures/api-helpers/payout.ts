@@ -151,6 +151,8 @@ export async function listTransactionsByProjectViaAPI(
     type: string
     status: string
     amount: string
+    createdAt: string
+    txDate: string | null
     // backlog 144: same undeclared-field gap as `payoutRequestId` below —
     // `mapTx` has always returned `currency`, the shape here just never said
     // so. drop-confirm-payout.spec.ts needs it now that it reads the PAYOUT

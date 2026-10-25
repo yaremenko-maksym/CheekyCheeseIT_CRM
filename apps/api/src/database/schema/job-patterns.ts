@@ -38,6 +38,18 @@ export const JOB_UNBROKEN_RUN_PATTERN = '[a-z0-9]{24}'
  */
 export const JOB_ERROR_CODE_PATTERN = '^[A-Z][A-Z0-9_]{0,63}$'
 
+/**
+ * A host key (Task 2.5 T8): the lowercase DNS name a provider bans or rate-limits at
+ * (`remotive.com`, `api.lever.co`). At least two labels, letters, digits, `-` and `.`
+ * only, so a URL, a path, a port or a credential cannot be stored as one. Length is
+ * bounded separately (`JOB_HOST_KEY_MAX`).
+ */
+export const JOB_HOST_KEY_PATTERN =
+  '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+
+/** The longest DNS name. */
+export const JOB_HOST_KEY_MAX = 253
+
 /** A sanitized sentence, not an upstream body. */
 export const JOB_SANITIZED_TEXT_MAX = 500
 

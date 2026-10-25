@@ -12,17 +12,34 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FIXTURE_ROOT } from '../../test/fixture-provenance'
 import { buildManifest, type Manifest } from './manifest'
-import { writeSeedDelta } from './manifest.generate'
+import { fakeCollectionContext } from '../../test/fake-collection-context'
+import { readQuotaCredential } from '../quota-credentials'
+import { writeHostKeyDelta, writeSeedDelta } from './manifest.generate'
 import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
 import { MANIFEST_DEFINITIONS } from './manifest.definitions'
 import {
+  type HostObservation,
+  hostKeyProblems,
+  hostPolicyOf,
+  isValidHostKey,
+} from './manifest.hosts'
+import {
   GENERATE_COMMAND,
+  HOST_KEY_DELTA_FILE,
   SEED_CLOCK,
   SEED_DELTA_FILE,
+  generateHostKeyDelta,
   generateSeedDelta,
+  hostKeyDeltaLocations,
+  hostKeyRowsOf,
   seedDeltaLocations,
   seedRowsOf,
 } from './manifest.seed-sql'
+import type { ReportingJobSourceProvider } from './reporting-provider'
+import { createJoobleProvider } from './sources/jooble.provider'
+import { createJSearchProvider } from './sources/jsearch.provider'
+import { createReedProvider } from './sources/reed.provider'
+import { createTheirStackProvider } from './sources/theirstack.provider'
 
 /**
  * DRIFT: the manifest is a statement about the tree, so it must fail when the tree moves without it.
@@ -269,5 +286,289 @@ describe('the seed SQL generator', () => {
     expect(() =>
       generateSeedDelta({ types: [], entries: [{ ...e, config: { x: '$manifest$' } }] }),
     ).toThrow('the manifest data contains $manifest$, which would end its own literal')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 2.5 T8: host keys, rates and ban scopes
+// ---------------------------------------------------------------------------
+
+const KEY = readQuotaCredential('jooble', () => 'drift-spec-key')
+/** Every reporting adapter, the keyed ones built WITH a (fake) key so they reach the network port. */
+const OBSERVERS: ReadonlyMap<string, ReportingJobSourceProvider> = new Map(
+  [
+    ...MANIFEST_VALIDATION_ADAPTERS.values(),
+    createJoobleProvider({ credential: KEY }),
+    createJSearchProvider({ credential: KEY }),
+    createTheirStackProvider({ credential: KEY }),
+    createReedProvider({ credential: KEY }),
+  ].map((p) => [p.type, p as unknown as ReportingJobSourceProvider]),
+)
+
+/**
+ * The hosts an entry's adapter ACTUALLY requests: its first request is recorded by a fake context
+ * and refused, so nothing leaves the process. This is the measurement AC 14 rests on: the drift
+ * rule compares keys over real request hosts, not over a second hand-written list of them.
+ */
+async function requestHostsOf(entry: Manifest['entries'][number]): Promise<string[]> {
+  const adapter = OBSERVERS.get(entry.type)!
+  const fake = fakeCollectionContext({ responses: [{ throws: new Error('drift-spec: stop') }] })
+  const config = adapter.parseConfig({ ...entry.config, configVersion: entry.configVersion })
+  await adapter.collectReport(config, fake.ctx).catch(() => undefined)
+  return fake.sent.map((r) => new URL(r.url).host)
+}
+
+async function observations(m: Manifest): Promise<HostObservation[]> {
+  const out: HostObservation[] = []
+  for (const e of m.entries) {
+    for (const requestHost of await requestHostsOf(e)) {
+      out.push({ entryId: e.id, requestHost, hostKey: e.hostKey })
+    }
+  }
+  return out
+}
+
+describe('T8: every reporting source has a host key that scopes what it really requests', () => {
+  it('every entry carries a valid, non-empty key (the ADR drift rule)', () => {
+    expect(manifest.entries).toHaveLength(34)
+    for (const e of manifest.entries) expect(isValidHostKey(e.hostKey), e.id).toBe(true)
+  })
+
+  it('AC 14: the keys of real request hosts agree, and each key scopes its host', async () => {
+    const obs = await observations(manifest as Manifest)
+    // Non-vacuous: every entry reached its network port at least once.
+    expect(new Set(obs.map((o) => o.entryId)).size).toBe(manifest.entries.length)
+    expect(hostKeyProblems(obs)).toEqual([])
+  })
+
+  it('AC 14: tenants of one provider share one key (Workable, Personio, Greenhouse, Recruitee)', async () => {
+    const keyOf = (id: string) => manifest.entries.find((e) => e.id === id)!.hostKey
+    expect(keyOf('workable.board.huggingface')).toBe('apply.workable.com')
+    expect(keyOf('workable.board.hirefellows')).toBe('apply.workable.com')
+    expect(keyOf('personio.board.westwing')).toBe('personio.de')
+    expect(keyOf('personio.board.personio')).toBe('personio.de')
+    expect(keyOf('greenhouse.board.stripe')).toBe(keyOf('greenhouse.board.airbnb'))
+    // Recruitee has one entry: its key is the apex, while its request host is the tenant's own.
+    expect(keyOf('recruitee.board.bunq')).toBe('recruitee.com')
+    const bunq = manifest.entries.find((e) => e.id === 'recruitee.board.bunq')!
+    expect(await requestHostsOf(bunq)).toEqual(['bunq.recruitee.com'])
+    const westwing = manifest.entries.find((e) => e.id === 'personio.board.westwing')!
+    expect(await requestHostsOf(westwing)).toEqual(['westwing.jobs.personio.de'])
+    // Lever's two regions are two API hosts and two data sets: two keys.
+    expect(keyOf('lever.board.spotify')).toBe('api.lever.co')
+    expect(keyOf('lever.board.eu.siteimprove')).toBe('api.eu.lever.co')
+  })
+
+  it('AC 14 positive control: a key that splits one real host fails the drift rule', async () => {
+    const split = buildManifest({
+      definitions: MANIFEST_DEFINITIONS.map((d) =>
+        d.type === 'LEVER_ATS'
+          ? {
+              ...d,
+              hostKey: (c) => (c['board'] === 'spotify' ? 'spotify.lever.co' : 'api.lever.co'),
+            }
+          : d,
+      ),
+      adapters: MANIFEST_VALIDATION_ADAPTERS,
+      fixtureRoot: FIXTURE_ROOT,
+    })
+    // (It also files the EU board under the global key, a third problem the rule reports.)
+    expect(hostKeyProblems(await observations(split))).toEqual([
+      'lever.board.spotify: key spotify.lever.co does not scope its request host api.lever.co',
+      'lever.board.eu.siteimprove: key api.lever.co does not scope its request host api.eu.lever.co',
+      'api.lever.co is reached under 2 keys: api.lever.co, spotify.lever.co',
+    ])
+  })
+
+  it('AC 13: the build refuses perDay on a type whose requestsPerRun is not 1', () => {
+    const rebuilt = (type: string, over: Record<string, unknown>) => () =>
+      buildManifest({
+        definitions: MANIFEST_DEFINITIONS.map((d) => (d.type === type ? { ...d, ...over } : d)),
+        adapters: MANIFEST_VALIDATION_ADAPTERS,
+        fixtureRoot: FIXTURE_ROOT,
+      })
+    // Arbeitnow sends 5 requests a run.
+    expect(rebuilt('ARBEITNOW_API', { hostRate: { perMinute: 2, perDay: 4 } })).toThrow(
+      'HOST_RATE_INVALID: ARBEITNOW_API: perDay counts claims, and this type sends 5 requests a run',
+    )
+    // The same declaration on a one-request type builds.
+    expect(rebuilt('REMOTEOK_API', { hostRate: { perMinute: 2, perDay: 4 } })).not.toThrow()
+    expect(rebuilt('REMOTIVE_API', { hostRate: { perMinute: 0, perDay: 4 } })).toThrow(
+      'HOST_RATE_INVALID',
+    )
+  })
+
+  it('the build refuses a reporting type with no key, and an entry whose key is not a host name', () => {
+    const rebuilt = (over: Record<string, unknown>) => () =>
+      buildManifest({
+        definitions: MANIFEST_DEFINITIONS.map((d) =>
+          d.type === 'REMOTEOK_API' ? { ...d, ...over } : d,
+        ),
+        adapters: MANIFEST_VALIDATION_ADAPTERS,
+        fixtureRoot: FIXTURE_ROOT,
+      })
+    expect(rebuilt({ hostKey: undefined })).toThrow(
+      'HOST_KEY_MISSING: REMOTEOK_API declares no hostKey',
+    )
+    expect(rebuilt({ hostKey: () => '' })).toThrow(
+      'HOST_KEY_INVALID: remoteok.api.latest: host key "" is not a lowercase host name',
+    )
+    expect(rebuilt({ hostKey: () => 'https://remoteok.com' })).toThrow('HOST_KEY_INVALID')
+    expect(rebuilt({ minIntervalHoursFloor: 721 })).toThrow(
+      'CADENCE_INVALID: REMOTEOK_API: minIntervalHoursFloor 721 is not an integer from 0 to 720',
+    )
+    expect(rebuilt({ minIntervalHoursFloor: -1 })).toThrow('CADENCE_INVALID')
+    expect(rebuilt({ minIntervalHoursFloor: 1.5 })).toThrow('CADENCE_INVALID')
+    expect(rebuilt({ minIntervalHoursFloor: 24 })).not.toThrow()
+    // 720 passes the type's floor check; the entry's own 24 h is then refused against it.
+    expect(rebuilt({ minIntervalHoursFloor: 720 })).toThrow(
+      "CADENCE_INVALID: remoteok.api.latest: 24 h is under the 720 h the provider's terms allow",
+    )
+    expect(rebuilt({ minIntervalHoursFloor: 0 })).not.toThrow()
+  })
+
+  it('each reporting type declares exactly this key (a literal table, read off the definitions)', () => {
+    const keyOf = (type: string, config: Record<string, unknown> = {}) =>
+      MANIFEST_DEFINITIONS.find((d) => d.type === type)!.hostKey!(config)
+    expect({
+      REMOTEOK_API: keyOf('REMOTEOK_API'),
+      REMOTIVE_API: keyOf('REMOTIVE_API'),
+      HIMALAYAS_API: keyOf('HIMALAYAS_API'),
+      JOBICY_API: keyOf('JOBICY_API'),
+      ARBEITNOW_API: keyOf('ARBEITNOW_API'),
+      JOBGETHER_API: keyOf('JOBGETHER_API'),
+      HN_HIRING: keyOf('HN_HIRING'),
+      GREENHOUSE_ATS: keyOf('GREENHOUSE_ATS'),
+      LEVER_ATS: [keyOf('LEVER_ATS', { region: 'global' }), keyOf('LEVER_ATS', { region: 'eu' })],
+      ASHBY_ATS: keyOf('ASHBY_ATS'),
+      WORKABLE_ATS: keyOf('WORKABLE_ATS'),
+      RECRUITEE_ATS: keyOf('RECRUITEE_ATS'),
+      PERSONIO_ATS: [keyOf('PERSONIO_ATS', { tld: 'de' }), keyOf('PERSONIO_ATS', { tld: 'com' })],
+      JOOBLE_API: keyOf('JOOBLE_API'),
+      JSEARCH_API: keyOf('JSEARCH_API'),
+      THEIRSTACK_API: keyOf('THEIRSTACK_API'),
+      MUSE_API: keyOf('MUSE_API'),
+      REED_API: keyOf('REED_API'),
+      DJINNI_RSS: keyOf('DJINNI_RSS'),
+      WWR_RSS: keyOf('WWR_RSS'),
+      EUREMOTEJOBS_RSS: keyOf('EUREMOTEJOBS_RSS'),
+    }).toEqual({
+      REMOTEOK_API: 'remoteok.com',
+      REMOTIVE_API: 'remotive.com',
+      HIMALAYAS_API: 'himalayas.app',
+      JOBICY_API: 'jobicy.com',
+      ARBEITNOW_API: 'www.arbeitnow.com',
+      JOBGETHER_API: 'jobgether.com',
+      HN_HIRING: 'hn.algolia.com',
+      GREENHOUSE_ATS: 'boards-api.greenhouse.io',
+      LEVER_ATS: ['api.lever.co', 'api.eu.lever.co'],
+      ASHBY_ATS: 'api.ashbyhq.com',
+      WORKABLE_ATS: 'apply.workable.com',
+      RECRUITEE_ATS: 'recruitee.com',
+      PERSONIO_ATS: ['personio.de', 'personio.com'],
+      JOOBLE_API: 'jooble.org',
+      JSEARCH_API: 'jsearch.p.rapidapi.com',
+      THEIRSTACK_API: 'api.theirstack.com',
+      MUSE_API: 'www.themuse.com',
+      REED_API: 'www.reed.co.uk',
+      DJINNI_RSS: 'djinni.co',
+      WWR_RSS: 'weworkremotely.com',
+      EUREMOTEJOBS_RSS: 'euremotejobs.com',
+    })
+  })
+
+  it('types with no entry yet still name their real host (WorkingNomads, SmartRecruiters)', () => {
+    const keyOf = (type: string) => MANIFEST_DEFINITIONS.find((d) => d.type === type)!.hostKey!({})
+    expect(keyOf('WORKINGNOMADS_API')).toBe('www.workingnomads.com')
+    expect(keyOf('SMARTRECRUITERS_ATS')).toBe('api.smartrecruiters.com')
+  })
+
+  it('a non-reporting type needs no key: DOU stays outside the ledger', () => {
+    const dou = MANIFEST_DEFINITIONS.find((d) => d.type === 'DOU_RSS')!
+    expect(dou.hostKey).toBeUndefined()
+    expect(manifest.entries.some((e) => e.type === 'DOU_RSS')).toBe(false)
+  })
+
+  it('carries rate, floor and ban scope onto the built types', () => {
+    const t = (type: string) => manifest.types.find((x) => x.type === type)!
+    expect([t('REMOTIVE_API').hostRate, t('REMOTIVE_API').minIntervalHoursFloor]).toEqual([
+      { perMinute: 2, perDay: 4 },
+      6,
+    ])
+    expect(t('RECRUITEE_ATS').banScope).toBe('SOURCE')
+    expect(t('PERSONIO_ATS').banScope).toBe('SOURCE')
+    expect(t('GREENHOUSE_ATS').banScope).toBe('HOST')
+    expect(t('GREENHOUSE_ATS').hostRate).toBeNull()
+    expect(t('GREENHOUSE_ATS').minIntervalHoursFloor).toBe(0)
+    expect(manifest.types.filter((x) => x.hostRate !== null).map((x) => x.type)).toEqual([
+      'REMOTIVE_API',
+    ])
+    expect(manifest.types.filter((x) => x.banScope === 'SOURCE').map((x) => x.type)).toEqual([
+      'RECRUITEE_ATS',
+      'PERSONIO_ATS',
+    ])
+    expect(hostPolicyOf(manifest, 'remotive.com')).toEqual({
+      rate: { perMinute: 2, perDay: 4 },
+      floorHours: 6,
+    })
+  })
+})
+
+describe('T8: the generated host-key delta', () => {
+  const where = () => {
+    const { manual, staged } = hostKeyDeltaLocations(DRIZZLE)
+    return { manual, staged, committed: existsSync(manual) ? manual : staged }
+  }
+
+  it('lives in exactly one place, and is byte-for-byte what the generator produces', () => {
+    const { manual, staged, committed } = where()
+    expect([existsSync(manual), existsSync(staged)].filter(Boolean)).toHaveLength(1)
+    expect(readFileSync(committed, 'utf8'), GENERATE_COMMAND).toBe(generateHostKeyDelta(manifest))
+    expect(HOST_KEY_DELTA_FILE).toBe('2026-10-24_job_sources_host_keys.sql')
+    expect(hostKeyDeltaLocations('/r')).toEqual({
+      manual: join('/r', 'manual', HOST_KEY_DELTA_FILE),
+      staged: join('/r', 'manual-staged', HOST_KEY_DELTA_FILE),
+    })
+  })
+
+  it('writes one row per entry, and only fills a NULL key of a manifest-owned row', () => {
+    expect(hostKeyRowsOf(manifest)).toEqual(
+      manifest.entries.map((e) => ({ manifest_id: e.id, host_key: e.hostKey })),
+    )
+    const sql = generateHostKeyDelta(manifest)
+    expect(sql).toContain('WHERE s.manifest_id = k.manifest_id\n  AND s.host_key IS NULL;')
+    expect(sql).toContain('psql -v ON_ERROR_STOP=1 --single-transaction < <this file>')
+    expect(sql).not.toMatch(/\b(DELETE\s+FROM|TRUNCATE|INSERT\s+INTO)\b/i)
+    expect(sql).not.toMatch(/^\s*(BEGIN|COMMIT|ROLLBACK)\s*;/im)
+    expect(sql).not.toMatch(/crm_db/)
+    expect([...sql.matchAll(/DROP TABLE (?:IF EXISTS )?(\S+?);/g)].map((m) => m[1])).toEqual([
+      'pg_temp._jsh_keys',
+      '_jsh_keys',
+    ])
+  })
+
+  it('an empty manifest writes an empty list, and data that would end its literal is refused', () => {
+    expect(generateHostKeyDelta({ entries: [] })).toContain(
+      'jsonb_to_recordset($hostkeys$[]$hostkeys$::jsonb)',
+    )
+    const e = manifest.entries[0]!
+    expect(() => generateHostKeyDelta({ entries: [{ ...e, hostKey: '$hostkeys$' }] })).toThrow(
+      'the manifest data contains $hostkeys$, which would end its own literal',
+    )
+  })
+
+  it('the generator writes it where the file already is', () => {
+    const root = mkdtempSync(join(tmpdir(), 'manifest-hostkeys-'))
+    try {
+      const { manual, staged } = hostKeyDeltaLocations(root)
+      expect(writeHostKeyDelta(root)).toBe(staged)
+      expect(readFileSync(staged, 'utf8')).toBe(readFileSync(where().committed, 'utf8'))
+      mkdirSync(join(root, 'manual'))
+      writeFileSync(manual, 'stale')
+      expect(writeHostKeyDelta(root)).toBe(manual)
+      expect(readFileSync(manual, 'utf8')).not.toBe('stale')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
