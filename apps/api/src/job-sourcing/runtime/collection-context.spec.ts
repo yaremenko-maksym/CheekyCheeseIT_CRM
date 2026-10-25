@@ -363,6 +363,9 @@ describe('stop-on-ban in flight (AC 10, 12; SR-M-20, SR-M-21, SR-M-24)', () => {
     await expect(sendOnce(w)).rejects.toThrow('host responded 500')
     expect(w.state.closed).toBeNull()
     expect(w.events).not.toContain('ban')
+    // the latch stays open: the signal is not aborted and the run can send again
+    expect(w.ctx.signal.aborted).toBe(false)
+    await expect(sendOnce(w)).rejects.toThrow('host responded 500')
   })
 })
 
