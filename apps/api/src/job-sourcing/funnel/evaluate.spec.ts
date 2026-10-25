@@ -97,6 +97,7 @@ const input = (over: Partial<EvaluateInput> = {}): EvaluateInput => ({
   ...roster(),
   exclusions: [],
   teamTriageGrants: [],
+  unavailable: [],
   ...over,
 })
 
@@ -820,7 +821,7 @@ describe('evaluate: exact outputs', () => {
     expect(scopes(r)).toEqual(['STUDIO', `TEAM:${TEAM_1}`])
   })
 
-  it('decides TRIAGE on the scope own view: a granted team that matches nothing still gets it', () => {
+  it('never turns a known-stack LEAD into TRIAGE for a granted team that does not match', () => {
     const fields = {
       ...javaRevision().fields,
       title: 'Senior Developer',
@@ -832,9 +833,18 @@ describe('evaluate: exact outputs', () => {
     )
     expect(r.status).toBe('LEAD')
     expect(projection(r, `TEAM:${TEAM_1}`)?.status).toBe('LEAD')
-    // Team 2 sees no evidence for its own seniors, so with its grant it triages the item.
-    expect(projection(r, `TEAM:${TEAM_2}`)?.status).toBe('TRIAGE')
-    expect(projection(r, `TEAM:${TEAM_3}`)?.status).toBe('LEAD')
+    expect(projection(r, `TEAM:${TEAM_2}`)).toBeUndefined()
+    expect(projectionsForViewer(r, { role: 'HR', teamId: TEAM_2 })).toEqual([])
+  })
+
+  it('triages an unknown-stack posting for the granted team only, and for nobody without a grant', () => {
+    const granted = evaluated(
+      evaluate(input({ revision: unknownStackRevision(), teamTriageGrants: [TEAM_2] })),
+    )
+    expect(scopes(granted)).toEqual(['STUDIO', `TEAM:${TEAM_2}`])
+    expect(projection(granted, `TEAM:${TEAM_2}`)?.status).toBe('TRIAGE')
+    const none = evaluated(evaluate(input({ revision: unknownStackRevision() })))
+    expect(scopes(none)).toEqual(['STUDIO'])
   })
 
   it('gives a granted team whose only senior is excluded no projection and no TRIAGE', () => {
@@ -919,6 +929,35 @@ describe('evaluate: exact outputs', () => {
     expect(r).toMatchObject({
       readiness: [{ code: 'MISSING_ROSTER_PROFILES', seniorIds: ['ghost-a', 'ghost-b'] }],
     })
+  })
+
+  it('counts a senior once whatever duplicates the inputs carry', () => {
+    const plain = evaluated(evaluate(input()))
+    const doubled = evaluated(
+      evaluate(
+        input({
+          rosterSeniorIds: [SENIOR_A, SENIOR_A, SENIOR_B, SENIOR_C, SENIOR_C],
+          profiles: roster().profiles.map((p) => ({ ...p, teamIds: [...p.teamIds, ...p.teamIds] })),
+        }),
+      ),
+    )
+    expect(doubled).toEqual(plain)
+    expect(projection(doubled, `TEAM:${TEAM_1}`)?.matchCount).toBe(2)
+  })
+
+  it('answers duplicate profiles with RETRYABLE and no projection', () => {
+    const r = evaluate(input({ profiles: [...roster().profiles, roster().profiles[1]!] }))
+    expect(r).toMatchObject({
+      kind: 'RETRYABLE',
+      readiness: [{ code: 'DUPLICATE_PROFILES', seniorIds: [SENIOR_B] }],
+    })
+    expect(projectionsForViewer(r, { role: 'ADMIN' })).toEqual([])
+  })
+
+  it('ignores a profile that is not on the roster without throwing', () => {
+    const extra = profile('99999999-0000-4000-8000-000000000000', ['java'], [TEAM_2])
+    const r = evaluated(evaluate(input({ profiles: [...roster().profiles, extra] })))
+    expect(r).toEqual(evaluated(evaluate(input())))
   })
 
   it('rejects an identifier that is not a string', () => {

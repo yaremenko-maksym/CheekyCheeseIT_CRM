@@ -60,7 +60,8 @@ export interface EvaluateInput {
   exclusions: readonly JobExclusionDto[]
   /** Teams explicitly granted unknown-stack triage items. There is no global pool. */
   teamTriageGrants: readonly string[]
-  unavailable?: readonly UnavailableInput[]
+  /** REQUIRED: an omitted flag must not read as "everything loaded". Pass `[]` when it all was. */
+  unavailable: readonly UnavailableInput[]
 }
 
 /** `SENIOR:<id>`, `TEAM:<id>` or `STUDIO`. */
@@ -90,7 +91,10 @@ export interface ExcludedEntry {
   inputs: Record<string, unknown>
 }
 
-/** Staff-only. Never contributes to a count, a rank or a viewer explanation. */
+/**
+ * Staff-only. Never contributes to a count, a rank or a viewer explanation. NOT FOR SERIALIZATION
+ * to a client: it names excluded seniors and exclusions.
+ */
 export interface EvaluationAudit {
   excluded: ExcludedEntry[]
   noTeamAccess: string[]

@@ -136,6 +136,7 @@ function buildScopes(
   tech: TechMatchReady,
   profiles: readonly SeniorTechProfile[],
   grants: ReadonlySet<string>,
+  studioUnknown: boolean,
 ): { seniors: Scope[]; studio: Scope; teams: Scope[] } {
   const view = (ids: readonly string[]) => forViewer(tech, { visibleSeniorIds: ids })
   const teamsOf = new Map(profiles.map((p) => [p.seniorId, p.teamIds]))
@@ -157,7 +158,7 @@ function buildScopes(
     teams: [...members.keys()].sort().map((teamId) => ({
       key: teamKey(teamId),
       view: view(members.get(teamId) as string[]),
-      triage: grants.has(teamId),
+      triage: studioUnknown && grants.has(teamId),
     })),
   }
 }
@@ -194,7 +195,8 @@ function projectScope(scope: Scope, ctx: ProjectionContext): ScopeProjection | n
       reasons: [reason('TECH_MATCH', sorted([...keywords]) as [string, ...string[]])],
     }
   }
-  // Decided on the scope's OWN view: it needs a matchable senior and no evidence, plus the grant.
+  // TRIAGE needs the studio-level posting to be unknown-stack (built into `scope.triage` for a team),
+  // the scope's own view to hold a matchable senior without evidence, and for a team the grant.
   if (!scope.view.lowInformation || !scope.triage) return null
   return {
     ...base,
@@ -250,7 +252,7 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
   }
 
   // Inputs the caller could not load: retried, never filtered.
-  const unavailable = sorted(input.unavailable ?? []) as UnavailableInput[]
+  const unavailable = sorted(input.unavailable) as UnavailableInput[]
   if (unavailable.length > 0) {
     return {
       kind: 'RETRYABLE',
@@ -290,7 +292,7 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
   const profiles = inCanonicalOrder(
     input.profiles.map((p) => ({
       seniorId: p.seniorId,
-      teamIds: p.teamIds,
+      teamIds: sorted([...new Set(p.teamIds)]),
       techStack: sorted(p.techStack),
     })),
   )
@@ -341,8 +343,10 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
 
   // 6. Projections per scope (and, for a LEAD, 7. the scope score).
   enter('PROJECTIONS')
+  // shortcut: roster, exclusions and profiles are sorted per record; the roster is small (tens of
+  // seniors), so hoisting this out of `evaluateBatch` is deferred until a roster of thousands.
   const ctx = { layer1, revision, evaluationTime: input.evaluationTime }
-  const scopes = buildScopes(tech, profiles, new Set(input.teamTriageGrants))
+  const scopes = buildScopes(tech, profiles, new Set(input.teamTriageGrants), tech.lowInformation)
   const studio = projectScope(scopes.studio, ctx)
   const projections = [
     ...scopes.seniors.map((scope) => projectScope(scope, ctx)),
