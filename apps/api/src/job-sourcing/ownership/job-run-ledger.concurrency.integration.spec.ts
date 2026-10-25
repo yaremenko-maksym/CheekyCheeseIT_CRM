@@ -95,8 +95,18 @@ describe.skipIf(!hasDatabaseUrl())('the lock-acquisition table, all at once (T3 
     const all = [a, b, c, d, e, f, g]
 
     const errors = new Map<string, number>()
+    // Keyed by the code, plus the first message line for anything unexpected, so a failure names
+    // its statement.
+    const deadlocks: string[] = []
     const note = (err: unknown) => {
-      const k = codeOf(err)
+      const code = codeOf(err)
+      if (code === '40P01') deadlocks.push(String((err as Error).message))
+      const k =
+        code === 'RunFencedError'
+          ? code
+          : `${code}: ${String((err as Error).message)
+              .split('\n')[0]
+              ?.slice(0, 160)}`
       errors.set(k, (errors.get(k) ?? 0) + 1)
     }
     const settle = async (p: Promise<unknown>) => {
@@ -198,7 +208,7 @@ describe.skipIf(!hasDatabaseUrl())('the lock-acquisition table, all at once (T3 
     }
 
     const unexpected = [...errors.entries()].filter(([k]) => k !== 'RunFencedError')
-    expect(errors.get('40P01') ?? 0).toBe(0)
+    expect(deadlocks).toEqual([])
     expect(unexpected).toEqual([])
     // Every run the iterations started is terminal, and nothing is left open on a terminal run.
     const { rows } = await session.admin.query(
