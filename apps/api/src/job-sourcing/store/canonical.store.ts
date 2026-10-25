@@ -215,11 +215,15 @@ async function claimTokens(
   }
 }
 
+/** A text[] parameter, without drizzle spreading the JS array into a row constructor. */
+const textArray = (values: readonly string[]) =>
+  sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(values)}::jsonb))`
+
 const fieldValues = (c: CanonicalFields) => sql`
   title = ${c.title}, title_key = ${c.titleKey}, employer_name = ${c.employerName},
   employer_key = ${c.employerKey}, location = ${c.location}, application_url = ${c.applicationUrl},
   published_at = ${c.publishedAt}::timestamptz, description_sha256 = ${c.descriptionSha256},
-  stack_keywords = ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(c.stackKeywords)}::jsonb)),
+  stack_keywords = ${textArray(c.stackKeywords)},
   field_revisions = ${JSON.stringify(c.fieldRevisions)}::jsonb`
 
 async function enqueueOpportunity(tx: SqlExecutor, id: string, revision: number): Promise<void> {
@@ -239,7 +243,7 @@ async function createOpportunity(tx: SqlExecutor, m: MemberSnapshot): Promise<st
            description_sha256, stack_keywords, field_revisions)
         VALUES (${c.title}, ${c.titleKey}, ${c.employerName}, ${c.employerKey}, ${c.location},
                 ${c.applicationUrl}, ${c.publishedAt}::timestamptz, ${c.descriptionSha256},
-                ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(c.stackKeywords)}::jsonb)),
+                ${textArray(c.stackKeywords)},
                 ${JSON.stringify(c.fieldRevisions)}::jsonb)
         RETURNING id, revision`,
   )
@@ -281,7 +285,7 @@ const canonicalRow = (c: CanonicalFields) => sql`
   ${c.title}::text, ${c.titleKey}::text, ${c.employerName}::text, ${c.employerKey}::text,
   ${c.location}::text, ${c.applicationUrl}::text, ${c.publishedAt}::timestamptz,
   ${c.descriptionSha256}::text,
-  ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(c.stackKeywords)}::jsonb)),
+  ${textArray(c.stackKeywords)},
   ${JSON.stringify(c.fieldRevisions)}::jsonb`
 
 async function insertLink(
@@ -319,11 +323,14 @@ export async function resolveRecords(
   const ids = sortedUniqueIds(recordIds)
   await lockRecords(tx, ids)
   const snaps = await snapshots(tx, ids)
+  // A record's link changes only under its lock, which this transaction holds: read it once.
+  const links = new Map<string, Awaited<ReturnType<typeof activeLink>>>()
   const planned: string[] = []
   for (const id of ids) {
     const snap = snaps.get(id)
     if (snap === undefined) continue
     const link = await activeLink(tx, id)
+    links.set(id, link)
     if (link !== null) planned.push(link.opportunityId)
     planned.push(...(await tokenOwners(tx, trustedTokens(snap))).values())
   }
@@ -337,7 +344,7 @@ export async function resolveRecords(
       continue
     }
     const tokens = trustedTokens(snap)
-    const link = await activeLink(tx, id)
+    const link = links.get(id) ?? null
     const owned = await tokenOwners(tx, tokens)
     const owners = sortedUniqueIds([...owned.values()])
     // An owner committed after the plan was read: lock it now (out of order, so a deadlock here
