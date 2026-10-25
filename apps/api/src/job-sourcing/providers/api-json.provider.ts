@@ -23,6 +23,7 @@ import {
   type CollectionCounts,
   type CollectionErrorCode,
   type CollectionWindow,
+  collectionCodeOf,
   decideCheckpoint,
   type FetchRequest,
   type InvalidSample,
@@ -662,6 +663,9 @@ function failureOfThrown(error: unknown, aborted: boolean): PageAttemptFailure {
   if (error instanceof SourcePayloadTooLargeError) {
     return { code: 'PAYLOAD_TOO_LARGE', message: error.message, status: null }
   }
+  // T7: a refusal of the production context already names its cause (NOT_MARKED_SENT, ...).
+  const coded = collectionCodeOf(error)
+  if (coded !== null) return { code: coded, message: (error as Error).message, status: null }
   return {
     code: aborted ? 'CANCELLED' : 'TRANSIENT_NETWORK',
     message: error instanceof Error ? error.message : 'the request failed',

@@ -19,6 +19,7 @@ import {
   type CollectionContext,
   type CollectionCounts,
   type CollectionErrorCode,
+  collectionCodeOf,
   decideCheckpoint,
   type FetchRequest,
   type InvalidSample,
@@ -316,6 +317,9 @@ function failureOfThrown(error: unknown, aborted: boolean): Failure {
     return { code: 'RATE_LIMIT', message: 'provider answered HTTP 429', status: 429 }
   }
   const message = error instanceof Error ? error.message : 'the request failed'
+  // T7: a refusal of the production context already names its cause (NOT_MARKED_SENT, ...).
+  const coded = collectionCodeOf(error)
+  if (coded !== null) return { code: coded, message, status: null }
   // No match gives NaN, which `classify` answers with UPSTREAM, never a ban.
   const status = Number(TRANSPORT_STATUS.exec(message)?.[1])
   if (classify(status) === 'ACCESS_POLICY') {

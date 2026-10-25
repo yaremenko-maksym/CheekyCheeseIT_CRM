@@ -71,6 +71,21 @@ export const COLLECTION_ERROR_CODES = [
 
 export type CollectionErrorCode = (typeof COLLECTION_ERROR_CODES)[number]
 
+const KNOWN_COLLECTION_CODES: ReadonlySet<string> = new Set(COLLECTION_ERROR_CODES)
+
+/**
+ * The collection code a thrown value already carries (r5 Task 2.5 T7): the production context
+ * refuses with `NOT_MARKED_SENT`, `RUN_FENCED`, `DEADLINE` and the like, and a loop that relabels
+ * such a refusal as a network blink reports the wrong cause. Null for anything else.
+ */
+export function collectionCodeOf(error: unknown): CollectionErrorCode | null {
+  const code =
+    typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : null
+  return typeof code === 'string' && KNOWN_COLLECTION_CODES.has(code)
+    ? (code as CollectionErrorCode)
+    : null
+}
+
 /** The redaction placeholder. Asserted BY NAME in tests, so both halves of "the key is gone and
  * something marks where it was" are checkable. */
 export const REDACTED = '[REDACTED]'
