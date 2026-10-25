@@ -50,10 +50,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * others (SENIOR, EXCLUSION, PROJECT_CLIENT) get one with their producer slice, and until then a
  * completion of such a row is refused rather than guessed.
  */
-const CURRENT_VERSION: Partial<Record<JobDirtyWorkEntityKind, (id: string) => SQL>> = {
-  SOURCE_RECORD: (id) =>
-    sql`SELECT observation_seq FROM job_source_record_heads WHERE source_record_id = ${id}::uuid`,
-  OPPORTUNITY: (id) => sql`SELECT revision FROM job_opportunities WHERE id = ${id}::uuid`,
+const CURRENT_VERSION: Partial<Record<JobDirtyWorkEntityKind, SQL>> = {
+  // Correlated on `w`, the dirty row being completed (see `complete`).
+  SOURCE_RECORD: sql`SELECT observation_seq FROM job_source_record_heads WHERE source_record_id = w.entity_id`,
+  OPPORTUNITY: sql`SELECT revision FROM job_opportunities WHERE id = w.entity_id`,
 }
 
 /** What a claimer holds for one row. */
@@ -158,7 +158,7 @@ export const dirtyWorkStatements = {
                d.retry_count, d.created_at`,
 
   complete: (h: DirtyWorkHandle, current: SQL): SQL =>
-    sql`WITH cur AS (SELECT (${current}) AS v)
+    sql`WITH cur AS (SELECT (${current}) AS v FROM job_dirty_work w WHERE w.id = ${h.id}::uuid)
         UPDATE job_dirty_work
            SET status = CASE WHEN cur.v = target_version THEN 'DONE' ELSE 'DEFERRED' END::job_dirty_work_status,
                last_error_code = CASE WHEN cur.v IS NULL THEN ${ENTITY_MISSING}
@@ -251,7 +251,7 @@ export async function completeDirty(tx: SqlExecutor, h: DirtyWorkHandle): Promis
   assertHandle(h)
   const current = CURRENT_VERSION[h.entityKind]
   if (current === undefined) throw new DirtyKindUnsupportedError(h.entityKind)
-  const { rows } = await tx.execute(dirtyWorkStatements.complete(h, current(h.id)))
+  const { rows } = await tx.execute(dirtyWorkStatements.complete(h, current))
   const status = rows[0]?.['status']
   if (status === undefined) throw new DirtyWorkFencedError()
   return status === 'DONE' ? 'DONE' : 'DEFERRED'
