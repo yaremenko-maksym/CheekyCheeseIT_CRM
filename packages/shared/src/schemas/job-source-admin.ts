@@ -38,13 +38,15 @@ export const jobSourceExclusionReasonSchema = z.enum([
 export const excludedJobSourceSchema = z.object({
   sourceId: z.string().uuid(),
   type: jobSourceTypeSchema,
-  hostKey: z.string().max(255).nullable(),
+  hostKey: z.string().max(253).nullable(),
   reasons: z.array(jobSourceExclusionReasonSchema).min(1),
   consecutiveFailures: z.number().int().nonnegative(),
   lastErrorCode: z.string().max(64).nullable(),
   nextAttemptAt: z.string().datetime().nullable(),
+  /** The host pause, when one is in force: until when, why (a typed code) and which source drew it. */
   pausedUntil: z.string().datetime().nullable(),
-  pauseReason: z.string().max(500).nullable(),
+  pauseReason: z.string().max(64).nullable(),
+  pauseSourceId: z.string().uuid().nullable(),
 })
 
 export const excludedJobSourceListSchema = z.object({

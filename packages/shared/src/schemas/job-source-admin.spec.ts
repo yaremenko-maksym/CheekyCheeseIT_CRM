@@ -37,6 +37,7 @@ describe('excludedJobSourceListSchema', () => {
     nextAttemptAt: '2026-10-20T00:00:00.000Z',
     pausedUntil: null,
     pauseReason: null,
+    pauseSourceId: null,
   }
 
   it('accepts a listed source', () => {
