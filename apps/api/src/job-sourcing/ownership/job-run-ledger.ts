@@ -34,6 +34,7 @@ import {
 } from './ledger-policy'
 import {
   type OwnedRun,
+  RUN_ATTEMPT_PREFIX,
   type RunHandle,
   RunFencedError,
   assertOwned,
@@ -177,7 +178,8 @@ export class JobRunLedger {
   constructor(
     private readonly db: LedgerDb,
     private readonly registry: JobSourceRegistry,
-    private readonly catalog: LedgerCatalog,
+    /** Read-only for the ledger's consumers (T7 worker, T9 listing): the one catalog it claims by. */
+    readonly catalog: LedgerCatalog,
     options: Partial<LedgerOptions> = {},
   ) {
     this.options = resolveLedgerOptions(options)
@@ -234,7 +236,7 @@ export class JobRunLedger {
     readonly cycleId: string
     readonly owner: string
     readonly limit: number
-    readonly onlyIds?: readonly string[]
+    readonly onlyIds?: readonly string[] | undefined
   }): Promise<{ claimed: ClaimedRun[]; refused: ClaimRefused[] }> {
     this.assertOwner(input.owner)
     if (!Number.isSafeInteger(input.limit) || input.limit < 0) {
@@ -417,7 +419,7 @@ export class JobRunLedger {
     adapterVersion: string,
   ): Promise<ClaimedRun> {
     const sourceId = String(row['id'])
-    const attemptId = `run-${randomUUID()}`
+    const attemptId = `${RUN_ATTEMPT_PREFIX}${randomUUID()}`
     const ownerToken = `${owner}:${randomUUID()}`
     const leaseS = this.options.leaseMs / 1000
     const maxAgeS = this.options.runMaxAgeMs / 1000
@@ -517,7 +519,20 @@ export class JobRunLedger {
    * purpose: a multi-row `INSERT ... SELECT ... ORDER BY` has no documented guarantee that rows are
    * locked in that order. The count is bounded by one provider page (one upstream response).
    */
-  async savePage(h: RunHandle, page: SavedPage): Promise<void> {
+  async savePage(
+    h: RunHandle,
+    page: SavedPage,
+    /**
+     * T7 (SR-L-9, "Lease, heartbeat and page writes"): the page write's budget `H`. The
+     * transaction runs under `SET LOCAL statement_timeout` and `lock_timeout` of this many ms, so a
+     * heartbeat queued behind it still lands before the lease expires. Absent: no bound.
+     */
+    options: { readonly timeoutMs?: number } = {},
+  ): Promise<void> {
+    const timeoutMs = options.timeoutMs
+    if (timeoutMs !== undefined && !(Number.isSafeInteger(timeoutMs) && timeoutMs > 0)) {
+      throw new RangeError('savePage: invalid timeout')
+    }
     const checkpoint = validatedCheckpointSchema.parse(page.checkpoint)
     const seen = new Set<string>()
     const unique: SourceObservation['identity'][] = []
@@ -533,6 +548,11 @@ export class JobRunLedger {
         : compare(a.namespace, b.namespace),
     )
     await this.db.transaction(async (tx) => {
+      if (timeoutMs !== undefined) {
+        await tx.execute(
+          sql`SELECT set_config('statement_timeout', ${`${timeoutMs}ms`}, true), set_config('lock_timeout', ${`${timeoutMs}ms`}, true)`,
+        )
+      }
       const owned = await assertOwned(tx, h)
       const { rows: src } = await tx.execute(
         sql`SELECT type FROM job_sources WHERE id = ${owned.sourceId}::uuid`,

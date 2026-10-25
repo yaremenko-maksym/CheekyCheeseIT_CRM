@@ -1,6 +1,6 @@
 import type { JobSourceType } from '@crm/shared'
 import type { ActivationFacts } from '../registry/activation'
-import type { HostPolicy } from '../scheduling/host-policy'
+import type { BanScope, HostPolicy } from '../scheduling/host-policy'
 
 /**
  * What the run ledger must know about the manifest (r5 Task 2.5 T3), as a port.
@@ -25,6 +25,11 @@ export interface LedgerCatalogEntry {
   readonly intervalHours: number
   /** The type's `minIntervalHoursFloor`. */
   readonly floorHours: number
+  /**
+   * T7 (SR-M-24): what a 403 bans. Absent reads as `HOST` -- anything but a literal `SOURCE` scope
+   * bans the host key, so an entry that forgot it fails toward stopping.
+   */
+  readonly banScope?: BanScope
 }
 
 export interface LedgerCatalog {

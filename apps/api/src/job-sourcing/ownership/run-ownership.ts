@@ -10,6 +10,13 @@ import type { SqlExecutor } from '../scheduling/host-state'
  * ledger, which imports the meter store.
  */
 
+/**
+ * The prefix of every attempt id the ledger issues (`run-<uuid>`). The meter store refuses a binding
+ * with such an attempt and NO run id (T7): it would skip fencing, and the end-of-run settlement,
+ * which settles by run id, would never reach its reservations.
+ */
+export const RUN_ATTEMPT_PREFIX = 'run-'
+
 /** What an executor holds after a claim: the run, its fresh owner token and its epoch. */
 export interface RunHandle {
   readonly runId: string
@@ -25,6 +32,20 @@ export class RunFencedError extends Error {
     super(message)
     this.name = 'RunFencedError'
   }
+}
+
+/**
+ * True for a refusal on ownership grounds: the ledger's `RunFencedError`, or the production
+ * context's own refusal once its locally tracked lease has passed (T7, SR-L-22), which carries the
+ * same code. Read by code, not class, because the meter store and the context throw it from two
+ * modules.
+ */
+export function isRunFenced(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === 'RUN_FENCED'
+  )
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
