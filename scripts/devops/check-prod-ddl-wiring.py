@@ -172,6 +172,12 @@ is no real exception to encode. If one is ever genuinely needed, add a
 reasoned comment at the call site and a matching allowlist entry then —
 never a silent omission.
 
+SINGLE-TRANSACTION and HARD-REQUIRED LIST CONTINUATION (backlog 337, 2026-10-25)
+---------------------------------------------------------------------------------
+A file whose header declares `psql ... --single-transaction < <this file>` must be
+applied with that flag (or `-1`), and both hard-required path lists must be
+unbroken backslash-continued commands. See the sections of those names below.
+
 Tests: scripts/devops/tests/test-check-prod-ddl-wiring.sh (positive AND negative
 cases — including the comment-only cheat above, which must go red).
 
@@ -1151,34 +1157,10 @@ def ordered_applied_files(steps, job_id):
 
     A file applied several times appears several times. Assignments are
     resolved in sequence (not collected up front), so a re-used variable name
-    resolves to the file it held at that point.
+    resolves to the file it held at that point. The resolution itself lives in
+    applied_commands() below (one implementation, review PR #1155 CR-M-2).
     """
-    var_files = {}
-    sequence = []
-    for step in steps:
-        if step.job_id != job_id:
-            continue
-        for cmd in join_logical_commands(step.lines):
-            cmd_lines = cmd.split("\n")
-            if len(cmd_lines) == 1:
-                m = VAR_ASSIGN_RE.match(cmd_lines[0])
-                if m:
-                    var_files[m.group(1)] = m.group(2) if m.group(2) is not None else m.group(3)
-                    continue
-            if not any(
-                PSQL_INVOCATION_RE.search(ln) and not ECHO_LINE_RE.match(ln) for ln in cmd_lines
-            ):
-                continue
-            found = []
-            for varname, path in var_files.items():
-                ref = re.search(r"\$\{?" + re.escape(varname) + r"\}?(?![A-Za-z0-9_])", cmd)
-                if ref:
-                    found.append((ref.start(), path))
-            for m in re.finditer(r"/opt/crm/\S+\.sql", cmd):
-                found.append((m.start(), m.group(0).rstrip("\"'),;")))
-            for _pos, path in sorted(found):
-                sequence.append(os.path.basename(path))
-    return sequence
+    return [name for j, name, _cmd in applied_commands(steps) if j == job_id]
 
 
 def creates_relation(ddl_dir, filename):
@@ -1236,6 +1218,154 @@ def check_apply_order(steps, ddl_dir):
                 )
             )
     return violations
+
+
+# ---------------------------------------------------------------------------
+# SINGLE-TRANSACTION INVARIANT (backlog 337, task-devops-wiring-A-staged-ddl,
+# 2026-10-25)
+# ---------------------------------------------------------------------------
+# Some manual files are only correct when psql applies them as ONE transaction:
+# the job-sources manifest delta ends in a RAISE (an operator-made row swallowed
+# an insert), and without `--single-transaction` its earlier steps commit while
+# the later ones never run — a half-applied migration behind a loud failure.
+# Until this check, the only thing that said so was the drift spec, which proves
+# the file's DOCUMENTED apply line carries the flag; the real psql call lives in
+# scripts/devops/deploy-stack-on-vps.sh, and nothing went red if it omitted it.
+#
+# Which files need it is read from the files themselves, not from a list here:
+# a file whose comments carry an apply line of the form
+#     --   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
+# (or `-1`) declares the requirement, and every psql command in the deploy that
+# applies that file must then carry `--single-transaction` or `-1` on the same
+# logical (backslash-joined) command. A new file with such a header is covered
+# the moment it lands in manual/, with no edit to this guard. Files that must NOT
+# run in one transaction (CONCURRENTLY, a new enum value used in the same file)
+# say so in prose ("MUST NOT be applied with `psql -1`"), which this pattern does
+# not match: it requires the line to START with the psql invocation.
+REQUIRES_SINGLE_TX_RE = re.compile(
+    r"^--\s+psql\b[^\n]*?(?:--single-transaction|(?<!\S)-1(?!\S))", re.MULTILINE
+)
+SINGLE_TX_FLAG_RE = re.compile(r"(?<!\S)(?:--single-transaction|-1)(?!\S)")
+
+# Files KNOWN to need one transaction, pinned by name (security review PR #1155,
+# SR-M-1). Header discovery alone fails open: reformat a header so the pattern
+# stops matching and the file silently leaves the check, the count drops and the
+# guard stays green. A pinned file that is in manual/ but no longer declares the
+# apply line is a failure of its own. Discovery stays for every other file.
+# Package B (Task 2.5 T8) adds its two file names here.
+PINNED_SINGLE_TX_FILES = {
+    "2026-10-24_job_run_single_flight.sql",
+    "2026-10-24_job_sources_manifest_delta.sql",
+}
+
+
+def requires_single_transaction(ddl_dir, filename):
+    """True when the file declares a `psql ... --single-transaction` apply line."""
+    path = os.path.join(ddl_dir, filename)
+    if not os.path.isfile(path):
+        return False
+    with open(path, "r") as f:
+        return REQUIRES_SINGLE_TX_RE.search(f.read()) is not None
+
+
+def applied_commands(steps):
+    """(job_id, file name, logical command) for every psql command that applies
+    a /opt/crm/....sql file, resolving `< "$VAR"` per job in text order and,
+    within one command, in the order the files appear. ordered_applied_files
+    (the apply-order invariants) is a projection of this list."""
+    out = []
+    var_files_by_job = {}
+    for step in steps:
+        var_files = var_files_by_job.setdefault(step.job_id, {})
+        for cmd in join_logical_commands(step.lines):
+            cmd_lines = cmd.split("\n")
+            if len(cmd_lines) == 1:
+                m = VAR_ASSIGN_RE.match(cmd_lines[0])
+                if m:
+                    var_files[m.group(1)] = m.group(2) if m.group(2) is not None else m.group(3)
+                    continue
+            if not any(
+                PSQL_INVOCATION_RE.search(ln) and not ECHO_LINE_RE.match(ln) for ln in cmd_lines
+            ):
+                continue
+            found = []
+            for varname, path in var_files.items():
+                ref = re.search(r"\$\{?" + re.escape(varname) + r"\}?(?![A-Za-z0-9_])", cmd)
+                if ref:
+                    found.append((ref.start(), path))
+            for m in re.finditer(r"/opt/crm/\S+\.sql", cmd):
+                found.append((m.start(), m.group(0).rstrip("\"'),;")))
+            for _pos, path in sorted(found):
+                out.append((step.job_id, os.path.basename(path), cmd))
+    return out
+
+
+def find_single_transaction_gaps(steps, ddl_dir, files):
+    """[(file, evidence line)] for each apply of a file that declares it needs
+    one transaction, whose psql command carries neither `--single-transaction`
+    nor `-1`. Returns the required set too, so the summary can print how many
+    files the check actually covered (a 0 there means "nothing to check", not
+    "checked and fine")."""
+    declared = {f for f in files if requires_single_transaction(ddl_dir, f)}
+    required = sorted(declared | (PINNED_SINGLE_TX_FILES & set(files)))
+    gaps = []
+    for name in sorted((PINNED_SINGLE_TX_FILES & set(files)) - declared):
+        gaps.append(
+            (
+                name,
+                "pinned in PINNED_SINGLE_TX_FILES, but its header no longer carries a "
+                "`--   psql ... --single-transaction < <this file>` apply line",
+            )
+        )
+    for _job_id, name, cmd in applied_commands(steps):
+        if name not in required or SINGLE_TX_FLAG_RE.search(cmd):
+            continue
+        cmd_lines = cmd.split("\n")
+        evidence = next(
+            (ln.strip() for ln in cmd_lines if PSQL_INVOCATION_RE.search(ln)),
+            cmd_lines[0].strip(),
+        )
+        gaps.append((name, evidence))
+    return required, gaps
+
+
+# ---------------------------------------------------------------------------
+# HARD-REQUIRED LIST CONTINUATION (task-devops-wiring-A-staged-ddl, 2026-10-25)
+# ---------------------------------------------------------------------------
+# Both hard-required lists are ONE shell command spread over backslash-continued
+# lines. _extract_backslash_list skips blank lines, which is right for set
+# comparison and wrong for the shell: a blank line (or a path with no trailing
+# `\`) ends the command there. Found on main: a blank line after
+# 2026-10-10_salary_creation_intent.sql in BOTH lists, so the preflight's
+# `for FILE in` was a bash syntax error (every rollback dispatch failed at that
+# step) and the runbook's `git log -1` silently dropped every later path (the
+# floor it printed was too old). The mirror check stayed green because both
+# copies carried the same break. This check reads the lists the way bash does.
+def find_broken_continuations(content, anchor_re, end_re, last_may_end, label):
+    """Lines inside the anchored list that break the backslash continuation.
+    `last_may_end` allows the final line before `end_re` to end the command
+    (the runbook's `git log` list); the preflight's last path must still end in
+    `\\` because `; do` follows on its own line."""
+    if content is None:
+        return []
+    lines = content.splitlines()
+    starts = [i for i, ln in enumerate(lines) if anchor_re.search(ln)]
+    if len(starts) != 1:
+        return []  # absent or ambiguous: reported by the mirror check
+    body = []
+    j = starts[0] + 1
+    while j < len(lines) and not end_re.match(lines[j]):
+        body.append((j + 1, lines[j]))
+        j += 1
+    if j >= len(lines):
+        return []  # never closed: _extract_backslash_list already treats as absent
+    broken = []
+    for idx, (lineno, raw) in enumerate(body):
+        if last_may_end and idx == len(body) - 1:
+            continue
+        if not raw.rstrip().endswith("\\"):
+            broken.append((label, lineno, raw.strip() or "(blank line)"))
+    return broken
 
 
 def main():
@@ -1297,6 +1427,16 @@ def main():
 
     order_violations = check_apply_order(steps, DDL_MANUAL_DIR)
 
+    single_tx_required, single_tx_gaps = find_single_transaction_gaps(
+        steps, DDL_MANUAL_DIR, all_files - KNOWN_NOT_WIRED
+    )
+
+    continuation_breaks = find_broken_continuations(
+        deploy_yml_content, FOR_FILE_LOOP_RE, FOR_LOOP_END_RE, False, "deploy.yml preflight"
+    ) + find_broken_continuations(
+        runbook_content, RUNBOOK_GITLOG_RE, RUNBOOK_FENCE_RE, True, "runbook mirror"
+    )
+
     print("Prod DDL Wiring Guard")
     print("  Total manual DDL files:  {}".format(len(all_files)))
     print("  Copied AND applied:      {}".format(len(fully_wired)))
@@ -1309,6 +1449,9 @@ def main():
     print("  Hard-required list drift (preflight vs runbook): {}".format(mirror_drift))
     print("  Preflight missing unconditional scp files: {}".format(len(missing_from_preflight)))
     print("  Apply-order violations (grants / privileges check): {}".format(len(order_violations)))
+    print("  Files requiring a --single-transaction apply: {}".format(len(single_tx_required)))
+    print("  Applies missing --single-transaction: {}".format(len(single_tx_gaps)))
+    print("  Broken line continuations in hard-required lists: {}".format(len(continuation_breaks)))
 
     if ghost_allowlist:
         print()
@@ -1468,8 +1611,34 @@ def main():
         print("an earlier run before the container swap may stay (it fails the deploy while")
         print("the old API is still serving), but a run must also close the sequence.")
 
+    if single_tx_gaps:
+        print()
+        print("FAIL: these manual DDL files declare in their header that they must be applied")
+        print("with `psql ... --single-transaction`, but a psql command in the deploy applies")
+        print("them without `--single-transaction` or `-1`. Without it every statement commits")
+        print("on its own, so a RAISE late in the file leaves the earlier steps applied: a")
+        print("half-applied migration behind a loud failure (backlog 337).")
+        for name, evidence in single_tx_gaps:
+            print("  {}: {}".format(name, evidence))
+        print()
+        print("Fix: add `--single-transaction` after `-v ON_ERROR_STOP=1` on that psql call")
+        print("(scripts/devops/deploy-stack-on-vps.sh holds the apply steps).")
+
+    if continuation_breaks:
+        print()
+        print("FAIL: a hard-required file list is one backslash-continued shell command, and")
+        print("these lines end it early. In deploy.yml's rollback preflight that is a bash")
+        print("syntax error (every rollback fails at that step); in the runbook's `git log -1`")
+        print("command every later path is silently dropped, so the floor it prints is wrong.")
+        for label, lineno, text in continuation_breaks:
+            print("  {} line {}: {}".format(label, lineno, text))
+        print()
+        print("Fix: remove the blank line, or end the line with ` \\`.")
+
     if (
         broken
+        or single_tx_gaps
+        or continuation_breaks
         or order_violations
         or private_leaks
         or flag_gaps
@@ -1486,7 +1655,9 @@ def main():
     print("referenced by any workflow, every psql invocation in deploy.yml passes")
     print("-v ON_ERROR_STOP=1, the rollback hard-required file list (when present) agrees")
     print("between deploy.yml and its runbook mirror, and that list covers every file an")
-    print("unconditional scp-action step actually copies.")
+    print("unconditional scp-action step actually copies; every file that declares a")
+    print("--single-transaction apply is applied that way, and both hard-required lists")
+    print("are unbroken backslash-continued commands.")
     return 0
 
 

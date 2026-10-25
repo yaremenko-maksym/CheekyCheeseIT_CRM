@@ -654,7 +654,6 @@ jobs:
             apps/api/drizzle/manual/2026-10-05_vacancy_sources_seed.sql \
             apps/api/drizzle/manual/2026-10-07_meeting_recorder_integration.sql \
             apps/api/drizzle/manual/2026-10-10_salary_creation_intent.sql \
-
             apps/api/drizzle/manual/2026-10-08_meeting_recorder_media.sql \
             apps/api/drizzle/manual/2026-10-17_job_opportunities_store.sql \
             apps/api/drizzle/manual/2026-10-17_job_opportunities_store_indexes.sql \
@@ -666,6 +665,8 @@ jobs:
             apps/api/drizzle/manual/2026-10-21_job_queue_reason_redacted.sql \
             apps/api/drizzle/manual/2026-10-22_job_queue_redaction_callable.sql \
             apps/api/drizzle/manual/2026-10-22_interviews_call_meet_code.sql \
+            apps/api/drizzle/manual/2026-10-24_job_run_single_flight.sql \
+            apps/api/drizzle/manual/2026-10-24_job_sources_manifest_delta.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -2639,6 +2640,40 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-10-22_job_queue_redaction_callable.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-10-22_job_queue_redaction_callable.sql
+
+      # r5 Task 2.5 T1 + T1b (backlog 337). Applied by deploy-stack-on-vps.sh after store
+      # part 1 and BEFORE 2026-10-18_db_grants.sql, with --single-transaction. Hard-required
+      # (listed in the rollback preflight above): a rollback target that predates the move
+      # out of manual-staged/ is refused before anything reaches the VPS.
+      - name: Copy job collection runs single-flight DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-24_job_run_single_flight.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-24_job_run_single_flight.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-24_job_run_single_flight.sql
+
+      # r5 Task 3.7 (backlog 337). Applied by deploy-stack-on-vps.sh AFTER
+      # 2026-10-17_job_opportunities_store.sql (it writes columns that file adds) and BEFORE
+      # the grants, with --single-transaction. Hard-required, same as the step above.
+      # Package B (Task 2.5 T8) adds one step per file directly below this one.
+      - name: Copy job sources manifest seed delta via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-24_job_sources_manifest_delta.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-24_job_sources_manifest_delta.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-24_job_sources_manifest_delta.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the
