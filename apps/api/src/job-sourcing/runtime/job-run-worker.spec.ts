@@ -1,5 +1,8 @@
 import type { JobSourceType } from '@crm/shared'
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
+import { SourceRateLimitedError } from '../http/source-errors'
 import type { MeterDb } from '../metering/account-meter.store'
 import type { ClaimedRun, RunEnding } from '../ownership/job-run-ledger'
 import { RunFencedError } from '../ownership/run-ownership'
@@ -16,6 +19,8 @@ import { ReportingAdapter } from '../registry/registered-adapter'
 import type { HostBan } from '../scheduling/host-state'
 import {
   type WorkerDeps,
+  type WorkerOptions,
+  RunSetupError,
   FREE_PLAN_METERS,
   JobRunWorker,
   MeterBindingRefusedError,
@@ -84,32 +89,58 @@ function batch(
 
 type Collect = (config: unknown, ctx: CollectionContext) => Promise<CollectionBatch>
 
+const RUN_ROW = {
+  config_version: 3,
+  config: { a: 1 },
+  policy_version: 4,
+  host_key: 'h.example',
+  manifest_id: 'm1',
+  meter_account_key: null,
+  meter_unit: null,
+  meter_window: null,
+  meter_limit: null,
+} as Record<string, unknown>
+
+const dialect = new PgDialect()
+
 function world(
-  opts: { collect?: Collect; claims?: ClaimedRun[]; heartbeat?: () => Promise<boolean> } = {},
+  opts: {
+    collect?: Collect
+    claims?: ClaimedRun[]
+    heartbeat?: () => Promise<boolean>
+    /** Overrides of the run row the worker reads; `null` returns no row at all. */
+    row?: Record<string, unknown> | null
+    entry?: 'MISSING'
+    policy?: 'MISSING'
+    deps?: Partial<WorkerDeps>
+    options?: Partial<WorkerOptions>
+    registry?: JobSourceRegistry
+  } = {},
 ) {
   const log: string[] = []
   const finishes: { runId: string; ending: RunEnding }[] = []
   const bans: HostBan[] = []
+  const configs: unknown[] = []
+  const meterBindings: unknown[] = []
+  const saves: unknown[] = []
+  const readIds: unknown[] = []
   let finishThrows: unknown = null
   const provider: ReportingJobSourceProvider = {
     type: 'REMOTIVE_API',
-    parseConfig: (raw) => raw as never,
+    parseConfig: (raw) => {
+      configs.push(raw)
+      return raw as never
+    },
     collectReport: (config, ctx) => (opts.collect ?? (async () => batch('EXHAUSTED')))(config, ctx),
   }
   const db = {
-    async execute() {
-      return {
-        rows: [
-          {
-            config_version: 1,
-            config: { a: 1 },
-            policy_version: 1,
-            host_key: 'h.example',
-            manifest_id: 'm1',
-            meter_account_key: null,
-          },
-        ],
-      }
+    async execute(query: SQL) {
+      // The contract double: the worker reads THE claimed run's row, joined to its source and meter.
+      const q = dialect.sqlToQuery(query)
+      readIds.push(q.params[0])
+      if (!/FROM job_collection_runs r\s+JOIN job_sources s/.test(q.sql)) return { rows: [] }
+      if (opts.row === null) return { rows: [] }
+      return { rows: [{ ...RUN_ROW, ...opts.row }] }
     },
   } as unknown as MeterDb
   const deps: WorkerDeps = {
@@ -132,30 +163,52 @@ function world(
         if (finishThrows !== null) throw finishThrows
         finishes.push({ runId: h.runId, ending })
       },
-      async savePage() {},
-      meterFor: () => {
-        throw new Error('unmetered in this spec')
+      async savePage(...args) {
+        saves.push(args)
+      },
+      meterFor: (run, windows) => {
+        meterBindings.push({ accountKey: run.accountKey, windows })
+        return {
+          async reserve(unit, amount) {
+            log.push('meter:reserve')
+            return { id: 'm1', unit, amount }
+          },
+          async markSent() {
+            log.push('meter:markSent')
+          },
+          async reconcile() {
+            log.push('meter:reconcile')
+          },
+        }
       },
     },
     heartbeat: opts.heartbeat ?? (async () => true),
-    registry: new JobSourceRegistry([
-      new ReportingAdapter(provider, { adapterVersion: 'r-1', allowedHosts: ['h.example'] }),
-    ]),
+    registry:
+      opts.registry ??
+      new JobSourceRegistry([
+        new ReportingAdapter(provider, { adapterVersion: 'r-1', allowedHosts: ['h.example'] }),
+      ]),
     catalog: {
-      entry: () => ({
-        type: 'REMOTIVE_API',
-        activationFacts: () => ({
-          readiness: 'CANDIDATE',
-          blockerCodes: [],
-          payloadVerified: true,
-        }),
-        entryReadiness: () => 'CANDIDATE',
-        quotaDeclared: false,
-        intervalHours: 24,
-        floorHours: 0,
-        banScope: 'HOST',
-      }),
-      hostPolicy: () => ({ rate: null, floorHours: 0 }),
+      entry: (id) =>
+        opts.entry === 'MISSING' || id !== 'm1'
+          ? undefined
+          : {
+              type: 'REMOTIVE_API',
+              activationFacts: () => ({
+                readiness: 'CANDIDATE',
+                blockerCodes: [],
+                payloadVerified: true,
+              }),
+              entryReadiness: () => 'CANDIDATE',
+              quotaDeclared: false,
+              intervalHours: 24,
+              floorHours: 0,
+              banScope: 'SOURCE',
+            },
+      hostPolicy: (key) =>
+        opts.policy === 'MISSING' || key !== 'h.example'
+          ? undefined
+          : { rate: null, floorHours: 5 },
     },
     db,
     recordBan: async (ban) => {
@@ -164,6 +217,7 @@ function world(
     },
     secretsFor: () => ['sekrit-key'],
     now: () => NOW,
+    ...opts.deps,
   }
   const worker = new JobRunWorker(deps, {
     owner: 'spec',
@@ -171,12 +225,17 @@ function world(
     heartbeatMs: 20,
     runDeadlineMs: 120,
     deadlineGraceMs: 60,
+    ...opts.options,
   })
   return {
     worker,
     log,
     finishes,
     bans,
+    configs,
+    meterBindings,
+    saves,
+    readIds,
     failFinish: (e: unknown) => {
       finishThrows = e
     },
@@ -330,26 +389,75 @@ describe('the deadline and the heartbeat (SR-M-18)', () => {
 describe('the ban the context could not write is written again after finish (SR-M-21)', () => {
   it('a HOST_BAN_UNRECORDED run calls recordHostBan after finish', async () => {
     let attempts = 0
+    const banned: HostBan[] = []
     const w = world({
       collect: async (_c, ctx) => {
         await ctx.fetchText({ url: 'https://h.example/x' }).catch(() => undefined)
-        return batch('ERROR', 'ACCESS_POLICY')
+        return batch('ERROR', 'RATE_LIMIT')
+      },
+      deps: {
+        transport: async () => {
+          throw new SourceRateLimitedError('h.example')
+        },
+        recordBan: async (ban) => {
+          attempts += 1
+          log.push('ban')
+          if (attempts <= 3) throw new Error('db down')
+          banned.push(ban)
+        },
       },
     })
-    const deps = (w.worker as unknown as { deps: WorkerDeps }).deps
-    ;(deps as { transport?: unknown }).transport = async () => {
-      const { SourceBlockedError } = await import('../http/source-errors')
-      throw new SourceBlockedError('h.example', 403)
-    }
-    ;(deps as { recordBan: WorkerDeps['recordBan'] }).recordBan = async () => {
-      attempts += 1
-      w.log.push('ban')
-      if (attempts <= 3) throw new Error('db down')
-    }
+    const log = w.log
     const [r] = await w.worker.runDue({ cycleId: uuid(1) })
     expect(r).toMatchObject({ outcome: 'FAILED', errorCode: 'HOST_BAN_UNRECORDED' })
     expect(w.log.slice(-2)).toEqual(['finish:FAILED', 'ban'])
     expect(attempts).toBe(4)
+    // the ban carries the run's host, source and the host policy's floor
+    expect(banned).toEqual([
+      {
+        hostKey: 'h.example',
+        reason: 'HTTP_429',
+        sourceId: uuid(201),
+        retryAfter: null,
+        floorHours: 5,
+      },
+    ])
+  })
+
+  it('a ban that was written is not written again, and a failing late write is swallowed', async () => {
+    const w = world({
+      collect: async (_c, ctx) => {
+        await ctx.fetchText({ url: 'https://h.example/x' }).catch(() => undefined)
+        return batch('ERROR', 'RATE_LIMIT')
+      },
+      deps: {
+        transport: async () => {
+          throw new SourceRateLimitedError('h.example')
+        },
+      },
+    })
+    const [r] = await w.worker.runDue({ cycleId: uuid(1) })
+    expect(r).toMatchObject({ errorCode: 'RATE_LIMIT' })
+    expect(w.log.filter((l) => l === 'ban')).toHaveLength(1)
+
+    let calls = 0
+    const failing = world({
+      collect: async (_c, ctx) => {
+        await ctx.fetchText({ url: 'https://h.example/x' }).catch(() => undefined)
+        return batch('ERROR', 'RATE_LIMIT')
+      },
+      deps: {
+        transport: async () => {
+          throw new SourceRateLimitedError('h.example')
+        },
+        recordBan: async () => {
+          calls += 1
+          throw new Error('still down')
+        },
+      },
+    })
+    await expect(failing.worker.runDue({ cycleId: uuid(1) })).resolves.toHaveLength(1)
+    expect(calls).toBe(4)
   })
 })
 
@@ -570,5 +678,405 @@ describe('worker options carry ceilings', () => {
     [{ runDeadlineMs: 7_100_000, deadlineGraceMs: 100_001 }, /RUN_MAX_AGE/],
   ])('refuses %o', (over, message) => {
     expect(() => validateWorkerOptions({ ...ok, ...over }, ledger)).toThrow(message)
+  })
+
+  it('the owner pattern is anchored at both ends', () => {
+    expect(() => validateWorkerOptions({ ...ok, owner: 'api-1 X' }, ledger)).toThrow(
+      'worker: invalid owner',
+    )
+  })
+})
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+describe('setting a run up: every refusal is named on the run row', () => {
+  const setup = async (w: ReturnType<typeof world>) => {
+    const [r] = await w.worker.runDue({ cycleId: uuid(1) })
+    return { r, message: w.finishes[0]?.ending.errorMessage }
+  }
+
+  it.each([
+    [{ row: null }, 'the claimed run has no row'],
+    [{ row: { host_key: null } }, 'the run`s source has no host key or manifest entry'],
+    [{ row: { manifest_id: null } }, 'the run`s source has no host key or manifest entry'],
+    [{ entry: 'MISSING' as const }, 'the run`s catalog entry or host policy is gone'],
+    [{ policy: 'MISSING' as const }, 'the run`s catalog entry or host policy is gone'],
+    [{ registry: new JobSourceRegistry([]) }, 'REMOTIVE_API has no reporting adapter'],
+  ])('%o', async (opts, message) => {
+    let collected = false
+    const w = world({
+      ...opts,
+      collect: async () => {
+        collected = true
+        return batch('EXHAUSTED')
+      },
+    })
+    const { r, message: persisted } = await setup(w)
+    expect(r).toMatchObject({ outcome: 'FAILED', errorCode: 'ADAPTER_INVARIANT', finished: true })
+    expect(persisted).toBe(message)
+    expect(collected).toBe(false)
+  })
+
+  it('a refused meter binding is named too', async () => {
+    const w = world({
+      row: { meter_account_key: 'someone:else', meter_unit: 'REQUEST', meter_window: 'DAY' },
+    })
+    const { message } = await setup(w)
+    expect(message).toBe('the source`s meter is not the claimed run`s account')
+  })
+})
+
+describe('what a run is handed', () => {
+  it('reads ITS run row, parses the snapshot with its version, and builds the context from both', async () => {
+    let seen: CollectionContext | null = null
+    const w = world({
+      collect: async (_c, ctx) => {
+        seen = ctx
+        await ctx.checkpoints.savePage({ observations: [], checkpoint: { n: 1 } as never })
+        return batch('EXHAUSTED')
+      },
+    })
+    await w.worker.runDue({ cycleId: uuid(1) })
+    expect(w.readIds).toEqual([uuid(101)])
+    expect(w.configs).toEqual([{ a: 1, configVersion: 3 }])
+    expect(seen!.policyVersion).toBe(4)
+    expect(seen!.secrets).toEqual(['sekrit-key'])
+    expect(seen!.deadline.getTime()).toBe(NOW.getTime() + 120)
+    expect(seen!.now()).toBe(NOW)
+    expect(w.saves).toEqual([
+      [
+        { runId: uuid(101), ownerToken: 'spec:1', fencingEpoch: 1 },
+        { observations: [], checkpoint: { n: 1 } },
+        { timeoutMs: 20 },
+      ],
+    ])
+  })
+
+  it('a 403 on the entry`s SOURCE scope bans nothing (the scope comes from the catalog entry)', async () => {
+    const w = world({
+      collect: async (_c, ctx) => {
+        await ctx.fetchText({ url: 'https://h.example/x' }).catch(() => undefined)
+        return batch('ERROR', 'ACCESS_POLICY')
+      },
+      deps: {
+        transport: async () => {
+          const { SourceBlockedError } = await import('../http/source-errors')
+          throw new SourceBlockedError('h.example', 403)
+        },
+      },
+    })
+    const [r] = await w.worker.runDue({ cycleId: uuid(1) })
+    expect(r).toMatchObject({ errorCode: 'ACCESS_POLICY' })
+    expect(w.log).not.toContain('ban')
+  })
+
+  it('a metered source is bound to the run`s account at its meter row`s unit and window', async () => {
+    const accountKey = 'jsearch:main'
+    const w = world({
+      claims: [claimed(1, { accountKey })],
+      row: {
+        meter_account_key: accountKey,
+        meter_unit: 'REQUEST',
+        meter_window: 'MONTH',
+        meter_limit: '7',
+      },
+      collect: async (_c, ctx) => {
+        await ctx.meter.reserve('REQUEST', 1)
+        return batch('EXHAUSTED')
+      },
+    })
+    await w.worker.runDue({ cycleId: uuid(1) })
+    expect(w.meterBindings).toEqual([{ accountKey, windows: { REQUEST: 'MONTH' } }])
+    expect(w.log).toContain('meter:reserve')
+  })
+
+  it.each([
+    ['200', 'SUCCEEDED'],
+    [null, 'FAILED'],
+  ])('a TheirStack meter limit read as %s binds or is refused', async (limit, outcome) => {
+    const accountKey = 'theirstack:main'
+    const ts = {
+      type: 'THEIRSTACK_API',
+      parseConfig: (raw: unknown) => raw,
+      collectReport: async () => batch('EXHAUSTED'),
+    } as unknown as ReportingJobSourceProvider
+    const w = world({
+      claims: [claimed(1, { accountKey, sourceType: 'THEIRSTACK_API' })],
+      registry: new JobSourceRegistry([new ReportingAdapter(ts, { allowedHosts: ['h.example'] })]),
+      row: {
+        meter_account_key: accountKey,
+        meter_unit: 'RECORD',
+        meter_window: 'MONTH',
+        meter_limit: limit,
+      },
+    })
+    const [r] = await w.worker.runDue({ cycleId: uuid(1) })
+    expect(r?.outcome).toBe(outcome)
+  })
+})
+
+describe('the heartbeat, the deadline and the end of a run', () => {
+  it('a successful heartbeat renews the local lease, so a long run keeps sending', async () => {
+    let beats = 0
+    const w = world({
+      heartbeat: async () => {
+        beats += 1
+        return true
+      },
+      deps: { transport: async () => 'ok' },
+      options: { runDeadlineMs: 2_000, deadlineGraceMs: 100 },
+      collect: async (_c, ctx) => {
+        await sleep(400) // past L = 300
+        await ctx.fetchText({ url: 'https://h.example/x' })
+        return batch('EXHAUSTED')
+      },
+    })
+    const [r] = await w.worker.runDue({ cycleId: uuid(1) })
+    expect(r?.outcome).toBe('SUCCEEDED')
+    expect(beats).toBeGreaterThan(5)
+  })
+
+  it('a heartbeat that cannot reach the database is not a fence, and is not an unhandled error', async () => {
+    const w = world({
+      heartbeat: async () => {
+        throw new Error('db down')
+      },
+      deps: { transport: async () => 'ok' },
+      collect: async (_c, ctx) => {
+        await sleep(60)
+        await ctx.fetchText({ url: 'https://h.example/x' })
+        return batch('EXHAUSTED')
+      },
+    })
+    const [r] = await w.worker.runDue({ cycleId: uuid(1) })
+    expect(r?.outcome).toBe('SUCCEEDED')
+  })
+
+  it('after the run, its timers stop and its context refuses whatever the adapter still tries', async () => {
+    let beats = 0
+    let late: unknown = null
+    let sends = 0
+    const w = world({
+      heartbeat: async () => {
+        beats += 1
+        return true
+      },
+      deps: {
+        transport: async () => {
+          sends += 1
+          return 'ok'
+        },
+      },
+      collect: async (_c, ctx) => {
+        setTimeout(() => {
+          ctx.fetchText({ url: 'https://h.example/x' }).catch((e: unknown) => {
+            late = e
+          })
+        }, 50)
+        await sleep(45)
+        return batch('EXHAUSTED')
+      },
+    })
+    await w.worker.runDue({ cycleId: uuid(1) })
+    const beatsAtEnd = beats
+    await sleep(120)
+    expect(beats).toBe(beatsAtEnd)
+    expect((late as { code?: string } | null)?.code).toBe('CANCELLED')
+    expect(sends).toBe(0)
+  })
+
+  it('the deadline aborts the signal; an adapter that stops then ends PARTIAL / DEADLINE before the grace', async () => {
+    let reason: unknown = null
+    const started = Date.now()
+    const w = world({
+      collect: (_c, ctx) =>
+        new Promise((resolve) => {
+          ctx.signal.addEventListener('abort', () => {
+            reason = ctx.signal.reason
+            resolve(batch('EXHAUSTED'))
+          })
+        }),
+    })
+    const [r] = await w.worker.runDue({ cycleId: uuid(1) })
+    const elapsed = Date.now() - started
+    expect(reason).toBe('DEADLINE')
+    expect(w.finishes[0]?.ending).toEqual({
+      outcome: 'PARTIAL',
+      errorCode: 'DEADLINE',
+      errorMessage: 'the run reached its deadline',
+    })
+    expect(r?.outcome).toBe('PARTIAL')
+    expect(elapsed).toBeGreaterThanOrEqual(110)
+    expect(elapsed).toBeLessThan(175)
+  })
+
+  it('an adapter that never settles is ended only after the deadline AND its grace', async () => {
+    const started = Date.now()
+    const w = world({ collect: () => new Promise(() => {}) })
+    await w.worker.runDue({ cycleId: uuid(1) })
+    expect(Date.now() - started).toBeGreaterThanOrEqual(175)
+    expect(w.finishes[0]?.ending.errorMessage).toBe(
+      'the adapter did not settle within the deadline grace',
+    )
+  })
+
+  it('shutdown releases what the worker owns, and is a no-op when it owns nothing', async () => {
+    let closed = 0
+    const w = world({
+      deps: {
+        close: async () => {
+          closed += 1
+        },
+      },
+    })
+    await w.worker.onModuleDestroy()
+    expect(closed).toBe(1)
+    await expect(world().worker.onModuleDestroy()).resolves.toBeUndefined()
+  })
+})
+
+describe('the manual path and the pool boundaries', () => {
+  it('a manual claim holds its slot while it claims, and passes the owner and the source', async () => {
+    const args: unknown[] = []
+    const w = world({ claims: [] })
+    const ledger = (w.worker as unknown as { deps: WorkerDeps }).deps.ledger as {
+      claimSource: WorkerDeps['ledger']['claimSource']
+    }
+    const real = ledger.claimSource
+    ledger.claimSource = async (input) => {
+      args.push(input)
+      return real(input)
+    }
+    await w.worker.start()
+    await Promise.all([
+      w.worker.runSource({ cycleId: uuid(1), sourceId: uuid(5), actor: uuid(6) }),
+      w.worker.runDue({ cycleId: uuid(1) }),
+    ])
+    expect(w.log.filter((l) => l.startsWith('claim'))).toEqual(['claimSource', 'claim:1'])
+    expect(args).toEqual([{ cycleId: uuid(1), sourceId: uuid(5), actor: uuid(6), owner: 'spec' }])
+    await w.worker.runDue({ cycleId: uuid(1) })
+    expect(w.log.filter((l) => l.startsWith('claim')).at(-1)).toBe('claim:2')
+  })
+
+  it('a refused manual claim runs nothing', async () => {
+    const w = world()
+    const ledger = (w.worker as unknown as { deps: WorkerDeps }).deps.ledger as {
+      claimSource: unknown
+    }
+    ledger.claimSource = async () => ({ kind: 'REFUSED', reason: 'HOST_BUSY' })
+    expect(
+      await w.worker.runSource({ cycleId: uuid(1), sourceId: uuid(5), actor: uuid(6) }),
+    ).toEqual({
+      kind: 'REFUSED',
+      reason: 'HOST_BUSY',
+    })
+    expect(w.log).not.toContain('finish:SUCCEEDED')
+  })
+
+  it('with one slot taken, a pass claims exactly the one free slot', async () => {
+    let release: () => void = () => undefined
+    const w = world({
+      claims: [claimed(1)],
+      collect: () =>
+        new Promise((resolve) => {
+          release = () => resolve(batch('EXHAUSTED'))
+        }),
+      options: { runDeadlineMs: 5_000, deadlineGraceMs: 100 },
+    })
+    const first = w.worker.runClaimed(claimed(7))
+    await sleep(5)
+    const second = w.worker.runDue({ cycleId: uuid(1) })
+    await sleep(5)
+    expect(w.log.filter((l) => l.startsWith('claim'))).toEqual(['claim:1'])
+    release()
+    release()
+    await Promise.all([first, second])
+  })
+})
+
+describe('errors the worker names', () => {
+  it('a refused binding and a setup refusal carry their own names', () => {
+    expect(new MeterBindingRefusedError('x')).toMatchObject({
+      name: 'MeterBindingRefusedError',
+      message: 'x',
+    })
+    expect(new MeterBindingRefusedError('x')).toBeInstanceOf(RunSetupError)
+    expect(new RunSetupError('y')).toMatchObject({ name: 'RunSetupError', message: 'y' })
+  })
+
+  it('the binding refusals say exactly what was refused', () => {
+    expect(() =>
+      meterWindowsFor(
+        { accountKey: 'a:b', sourceId: uuid(7), sourceType: 'JSEARCH_API' },
+        { accountKey: 'c:d', unit: 'REQUEST', window: 'DAY', limit: 1 },
+      ),
+    ).toThrow(new MeterBindingRefusedError('the source`s meter is not the claimed run`s account'))
+  })
+})
+
+describe('endingOf: the sentences on the row', () => {
+  const open = { closed: null, banCode: null, unrecordedBan: null } as const
+  const b = { kind: 'BATCH', batch: batch('EXHAUSTED') } as const
+
+  it('a ban, recorded or not, and a cancelled batch', () => {
+    expect(
+      endingOf(b, { closed: 'BANNED', banCode: 'ACCESS_POLICY', unrecordedBan: null }, []),
+    ).toEqual({
+      outcome: 'FAILED',
+      errorCode: 'ACCESS_POLICY',
+      errorMessage: 'the host refused a request; the run stopped',
+    })
+    expect(
+      endingOf(b, { closed: 'BANNED', banCode: 'RATE_LIMIT', unrecordedBan: {} as HostBan }, []),
+    ).toEqual({
+      outcome: 'FAILED',
+      errorCode: 'HOST_BAN_UNRECORDED',
+      errorMessage: 'the host refused a request and its ban could not be recorded',
+    })
+    expect(endingOf({ kind: 'BATCH', batch: batch('CANCELLED', 'CANCELLED') }, open, [])).toEqual({
+      outcome: 'CANCELLED',
+      errorCode: 'CANCELLED',
+      errorMessage: 'the run was cancelled',
+    })
+  })
+
+  it('the LAST request error decides, not the first and not a later success', () => {
+    const many = buildCollectionBatch({
+      observations: [],
+      facts: {
+        stop: 'COST_STOP',
+        pagesCompleted: 1,
+        counts: { raw: 0, normalized: 0, invalid: 0, quarantined: 0, discarded: 0 },
+        scope: { namespace: 'n', query: null, configVersion: 1, window: null },
+        resumed: false,
+      },
+      requests: [report('UPSTREAM', 'first'), report('COST_STOP', 'second'), report(null)],
+      checkpoint: null,
+      invalidSamples: [],
+    })
+    expect(endingOf({ kind: 'BATCH', batch: many }, open, [])).toEqual({
+      outcome: 'PARTIAL',
+      errorCode: 'COST_STOP',
+      errorMessage: 'second',
+    })
+  })
+
+  it('a thrown setup refusal keeps its own sentence, redacted', () => {
+    expect(
+      endingOf({ kind: 'THREW', error: new RunSetupError('setup with sekrit-key') }, open, [
+        'sekrit-key',
+      ]),
+    ).toEqual({
+      outcome: 'FAILED',
+      errorCode: 'ADAPTER_INVARIANT',
+      errorMessage: 'setup with [REDACTED]',
+    })
+    expect(
+      endingOf(
+        { kind: 'THREW', error: Object.assign(new Error('x'), { code: 'NOT_MARKED_SENT' }) },
+        open,
+        [],
+      ).errorCode,
+    ).toBe('NOT_MARKED_SENT')
   })
 })
