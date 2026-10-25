@@ -853,6 +853,21 @@ describe('evaluate: exact outputs', () => {
     expect(r.audit.excluded.map((e) => e.subject)).toEqual([`SENIOR:${SENIOR_C}`])
   })
 
+  it('orders team scopes by id, not by the order seniors are met', () => {
+    const r = evaluated(
+      evaluate(
+        input({
+          rosterSeniorIds: [SENIOR_A, SENIOR_B],
+          profiles: [profile(SENIOR_A, ['java'], [TEAM_3]), profile(SENIOR_B, ['java'], [TEAM_1])],
+        }),
+      ),
+    )
+    expect(scopes(r).filter((k) => k.startsWith('TEAM:'))).toEqual([
+      `TEAM:${TEAM_1}`,
+      `TEAM:${TEAM_3}`,
+    ])
+  })
+
   it('is NO_MATCH, not excluded, when seniors only lack a team', () => {
     const r = evaluated(
       evaluate(

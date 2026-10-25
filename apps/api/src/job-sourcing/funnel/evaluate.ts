@@ -125,8 +125,6 @@ interface Scope {
   view: TechMatchView
   /** May an unknown-stack posting reach this scope as TRIAGE? */
   triage: boolean
-  /** The reason TRIAGE reached it: an explicit team grant. */
-  granted: boolean
 }
 
 /**
@@ -154,14 +152,12 @@ function buildScopes(
       key: seniorKey(id),
       view: view([id]),
       triage: false,
-      granted: false,
     })),
-    studio: { key: 'STUDIO', view: view(tech.matchableSeniorIds), triage: true, granted: false },
+    studio: { key: 'STUDIO', view: view(tech.matchableSeniorIds), triage: true },
     teams: [...members.keys()].sort().map((teamId) => ({
       key: teamKey(teamId),
       view: view(members.get(teamId) as string[]),
       triage: grants.has(teamId),
-      granted: true,
     })),
   }
 }
@@ -207,7 +203,7 @@ function projectScope(scope: Scope, ctx: ProjectionContext): ScopeProjection | n
     rankWarnings: [],
     reasons: [
       reason('UNKNOWN_STACK', ['no tags, requirements or keyword hit']),
-      ...(scope.granted ? [reason('TEAM_TRIAGE_GRANT', [scope.key])] : []),
+      ...(scope.key.startsWith('TEAM:') ? [reason('TEAM_TRIAGE_GRANT', [scope.key])] : []),
     ],
   }
 }
