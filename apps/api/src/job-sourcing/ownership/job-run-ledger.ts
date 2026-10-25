@@ -220,6 +220,20 @@ export class JobRunLedger {
     return { cycleId: id }
   }
 
+  /**
+   * Close a scheduled cycle at the end of its handler's window (SR-L-19): `status = 'CLOSED'` with
+   * its closing instant (`ck_job_collection_cycles_closed_pair`). Idempotent -- two replicas share
+   * one cycle row and the first closing instant stays. Returns whether THIS call closed it.
+   */
+  async closeCycle(cycleId: string): Promise<boolean> {
+    if (!UUID.test(cycleId)) throw new RangeError('invalid cycle id')
+    const { rows } = await this.db.execute(
+      sql`UPDATE job_collection_cycles SET status = 'CLOSED', closed_at = clock_timestamp()
+           WHERE id = ${cycleId}::uuid AND status = 'OPEN' RETURNING id`,
+    )
+    return rows.length === 1
+  }
+
   // -------------------------------------------------------------------------
   // Claims
   // -------------------------------------------------------------------------
@@ -237,6 +251,8 @@ export class JobRunLedger {
     readonly owner: string
     readonly limit: number
     readonly onlyIds?: readonly string[] | undefined
+    /** T5: a handler claims its own type set only (API types at 05:00, HTML types at 02:30). */
+    readonly onlyTypes?: readonly JobSourceType[] | undefined
   }): Promise<{ claimed: ClaimedRun[]; refused: ClaimRefused[] }> {
     this.assertOwner(input.owner)
     if (!Number.isSafeInteger(input.limit) || input.limit < 0) {
@@ -255,7 +271,7 @@ export class JobRunLedger {
       const triedBefore = tried.length
       try {
         const step = await this.db.transaction(async (tx) => {
-          const row = await this.pickDue(tx, tried, input.onlyIds)
+          const row = await this.pickDue(tx, tried, input.onlyIds, input.onlyTypes)
           if (row === undefined) return { kind: 'EMPTY' as const }
           const sourceId = String(row['id'])
           tried.push(sourceId)
@@ -341,9 +357,15 @@ export class JobRunLedger {
     tx: DrizzleTx,
     tried: readonly string[],
     onlyIds: readonly string[] | undefined,
+    onlyTypes: readonly JobSourceType[] | undefined,
   ): Promise<Row | undefined> {
-    const scope =
+    const ids =
       onlyIds === undefined ? sql`true` : sql`job_sources.id = ANY(${toUuidArray(onlyIds)})`
+    const types =
+      onlyTypes === undefined
+        ? sql`true`
+        : sql`job_sources.type::text = ANY(${toTypeArray(onlyTypes)})`
+    const scope = sql`${ids} AND ${types}`
     const { rows } = await tx.execute(
       sql`SELECT job_sources.*, ${RUN_ACCOUNT_KEY} AS run_account_key, ${METER_KEY} AS meter_key,
             clock_timestamp() AS db_now
@@ -835,6 +857,11 @@ export async function writePageProgress(
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
 /** A uuid[] parameter: drizzle would spread a JS array into a row constructor, so pass it as text. */
+function toTypeArray(types: readonly string[]): SQL {
+  for (const t of types) if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(t)) throw new RangeError('not a type')
+  return sql`${`{${types.join(',')}}`}::text[]`
+}
+
 function toUuidArray(ids: readonly string[]): SQL {
   for (const id of ids) if (!UUID.test(id)) throw new RangeError('not a uuid')
   return sql`${`{${ids.join(',')}}`}::uuid[]`

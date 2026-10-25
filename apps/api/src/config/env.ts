@@ -6,6 +6,8 @@ import { z } from 'zod'
  * showing one they skip past.
  */
 export const DEFAULT_JOB_MATCH_THRESHOLD = 0.2
+export const DEFAULT_JOB_COLLECTION_WINDOW_MS = 60 * 60_000
+export const JOB_COLLECTION_WINDOW_CEILING_MS = 2 * 60 * 60_000
 
 /**
  * Shape of a real git commit SHA (short or full). Shared by GIT_COMMIT's
@@ -383,6 +385,18 @@ const envSchema = z
     // `undefined` INPUT to the schema it is attached to, so an outer default
     // would never see the `undefined` this preprocess produces for a blank
     // string — the coercion would turn it into NaN first.
+    // r5 Task 2.5 T5 — how long one daily handler (02:30 HTML, 05:00 API) keeps claiming sources.
+    // Ceiling 2 h so the 02:30 window is over before the 05:00 one starts; blank = default.
+    JOB_COLLECTION_WINDOW_MS: z.preprocess(
+      (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+      z.coerce
+        .number()
+        .int()
+        .min(1_000)
+        .max(JOB_COLLECTION_WINDOW_CEILING_MS)
+        .default(DEFAULT_JOB_COLLECTION_WINDOW_MS),
+    ),
+
     JOB_MATCH_THRESHOLD: z.preprocess(
       (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
       z.coerce.number().min(0).max(1).default(DEFAULT_JOB_MATCH_THRESHOLD),
