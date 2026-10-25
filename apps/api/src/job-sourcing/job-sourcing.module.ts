@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { AuthModule } from '../auth/auth.module'
+import type { Env } from '../config/env'
 import { DatabaseModule } from '../database/database.module'
+import { DatabaseService } from '../database/database.service'
 import { DouRssProvider } from './dou.provider'
 import { JobQueueActionRetentionCronService } from './job-queue-action-retention.cron'
 import { JobSourcingController } from './job-sourcing.controller'
@@ -8,6 +11,8 @@ import { JobSourcingCronService } from './job-sourcing.cron'
 import { JobSourcingService } from './job-sourcing.service'
 import { JobSourceRegistry } from './registry/job-source-registry'
 import { createProductionRegistry } from './registry/production-registry'
+import { JobRunWorker } from './runtime/job-run-worker'
+import { createProductionWorker } from './runtime/production-worker'
 
 /**
  * Job sourcing (task-job-sourcing-slice1).
@@ -42,6 +47,17 @@ import { createProductionRegistry } from './registry/production-registry'
       provide: JobSourceRegistry,
       useFactory: createProductionRegistry,
       inject: [DouRssProvider],
+    },
+    // r5 Task 2.5 T7: the run worker (reporting adapters, through the ledger). Nothing calls it
+    // until T5's handlers; see `createProductionWorker`.
+    {
+      provide: JobRunWorker,
+      useFactory: (
+        db: DatabaseService,
+        registry: JobSourceRegistry,
+        config: ConfigService<Env, true> | undefined,
+      ) => createProductionWorker(db.db, registry, config),
+      inject: [DatabaseService, JobSourceRegistry, { token: ConfigService, optional: true }],
     },
   ],
   exports: [JobSourcingService],

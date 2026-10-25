@@ -77,6 +77,8 @@ export interface WorkerDeps {
   readonly transport?: (url: string, opts: BoundedFetchOptions) => Promise<string>
   readonly monotonicNow?: () => number
   readonly now?: () => Date
+  /** Releases what the worker owns (the heartbeat's reserved connection) at shutdown. */
+  readonly close?: () => Promise<void>
 }
 
 /** What one run came to. `finished` is false when the ledger refused the ending (fenced). */
@@ -255,6 +257,11 @@ export class JobRunWorker {
     validateWorkerOptions(this.options, deps.ledger.options)
   }
 
+  /** Nest calls this at shutdown. */
+  async onModuleDestroy(): Promise<void> {
+    await this.deps.close?.()
+  }
+
   /** Worker start: recover runs a previous process left expired, once, before any claim (AC 16). */
   start(): Promise<number> {
     this.started ??= this.deps.ledger.recoverExpired()
@@ -301,10 +308,11 @@ export class JobRunWorker {
       ownerToken: run.ownerToken,
       fencingEpoch: run.fencingEpoch,
     }
-    const secrets = this.deps.secretsFor(run.sourceType)
+    let secrets: readonly string[] = []
     let settled: Settled
     let control: RunControl | null = null
     try {
+      secrets = this.deps.secretsFor(run.sourceType)
       const row = await this.readRun(run.runId)
       const adapter = this.deps.registry.get(run.sourceType)
       if (adapter?.contract !== 'REPORTING') throw new Error('not a reporting adapter')
