@@ -61,7 +61,25 @@ describe('enqueueDirty', () => {
     expect(seen[0]!.sql).toContain(
       'ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING',
     )
-    expect(seen[0]!.params).toEqual(['SOURCE_RECORD', ENTITY, 7, 'SOURCE_REVISION'])
+    expect(seen[0]!.params).toEqual(['SOURCE_RECORD', ENTITY, 7, 'SOURCE_REVISION', null])
+    expect(seen[0]!.sql).toContain('target_version, reason, cycle_id)')
+  })
+
+  it('carries a given cycle id (CR-M-3)', async () => {
+    const { tx, seen } = scripted([{ id: ID }])
+    await enqueueDirty(tx, 'SOURCE_RECORD', ENTITY, 7, 'SOURCE_REVISION', ID)
+    expect(seen[0]!.params).toEqual(['SOURCE_RECORD', ENTITY, 7, 'SOURCE_REVISION', ID])
+  })
+
+  it.each([
+    ['a non-uuid cycle id', 'nope'],
+    ['a cycle id with a trailing character', `${ID}x`],
+  ])('refuses %s before any SQL', async (_label, cycleId) => {
+    const { tx, seen } = scripted([{ id: ID }])
+    await expect(enqueueDirty(tx, 'OPPORTUNITY', ENTITY, 1, 'R', cycleId)).rejects.toThrow(
+      new RangeError('cycleId must be a lowercase uuid'),
+    )
+    expect(seen).toHaveLength(0)
   })
 
   it('refuses an unknown kind before any SQL', async () => {
@@ -118,13 +136,49 @@ describe('claimDirtyBatch', () => {
     expect(seen[0]!.sql).toContain('FOR UPDATE SKIP LOCKED')
     expect(seen[0]!.sql).toContain("WHERE status = 'PENDING'")
     expect(seen[0]!.sql).toContain('fencing_epoch = d.fencing_epoch + 1')
-    expect(seen[0]!.params).toEqual([200, 'w', 300_000])
+    // Default kinds: exactly those with a version source (CR-M-2).
+    expect(seen[0]!.sql).toContain('AND entity_kind IN ($1, $2)')
+    expect(seen[0]!.params).toEqual(['SOURCE_RECORD', 'OPPORTUNITY', 200, 'w', 300_000])
   })
 
   it('passes an explicit batch size and lease', async () => {
     const { tx, seen } = scripted()
     await claimDirtyBatch(tx, { owner: 'w', batchSize: 1000, leaseMs: 3_600_000 })
-    expect(seen[0]!.params).toEqual([1000, 'w', 3_600_000])
+    expect(seen[0]!.params).toEqual(['SOURCE_RECORD', 'OPPORTUNITY', 1000, 'w', 3_600_000])
+  })
+
+  it('claims only the kinds it is given', async () => {
+    const { tx, seen } = scripted()
+    await claimDirtyBatch(tx, { owner: 'w', kinds: ['OPPORTUNITY'] })
+    expect(seen[0]!.sql).toContain('AND entity_kind IN ($1)')
+    expect(seen[0]!.params).toEqual(['OPPORTUNITY', 200, 'w', 300_000])
+  })
+
+  it('refuses an empty kind list before any SQL', async () => {
+    const { tx, seen } = scripted()
+    await expect(claimDirtyBatch(tx, { owner: 'w', kinds: [] })).rejects.toThrow(
+      new RangeError('kinds must name at least one kind'),
+    )
+    expect(seen).toHaveLength(0)
+  })
+
+  it.each(['SENIOR', 'EXCLUSION', 'PROJECT_CLIENT'] as const)(
+    'refuses to claim kind %s, which completeDirty could not finish',
+    async (kind) => {
+      const { tx, seen } = scripted()
+      const err = claimDirtyBatch(tx, { owner: 'w', kinds: ['OPPORTUNITY', kind] })
+      await expect(err).rejects.toBeInstanceOf(DirtyKindUnsupportedError)
+      await expect(err).rejects.toThrow(`dirty work of kind ${kind} has no version source yet`)
+      expect(seen).toHaveLength(0)
+    },
+  )
+
+  it('refuses an unknown kind before any SQL', async () => {
+    const { tx, seen } = scripted()
+    await expect(
+      claimDirtyBatch(tx, { owner: 'w', kinds: ['NOPE' as 'OPPORTUNITY'] }),
+    ).rejects.toThrow()
+    expect(seen).toHaveLength(0)
   })
 
   it.each([
@@ -354,7 +408,7 @@ describe('recoverExpiredDirty', () => {
 
 describe('dirtyWorkStatements', () => {
   it('claims oldest-first within the batch limit', () => {
-    const s = render(dirtyWorkStatements.claim('w', 5, 1000)).sql
+    const s = render(dirtyWorkStatements.claim('w', 5, 1000, ['OPPORTUNITY'])).sql
     expect(s).toContain('ORDER BY created_at, id')
     expect(s).toContain("SET status = 'CLAIMED'")
   })

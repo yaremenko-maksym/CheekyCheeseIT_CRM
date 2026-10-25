@@ -56,6 +56,12 @@ const CURRENT_VERSION: Partial<Record<JobDirtyWorkEntityKind, SQL>> = {
   OPPORTUNITY: sql`SELECT revision FROM job_opportunities WHERE id = w.entity_id`,
 }
 
+/**
+ * The kinds a claim hands out by default: exactly those `completeDirty` can finish. A row of any
+ * other kind stays PENDING, untouched, until its version source exists (CR-M-2).
+ */
+export const CLAIMABLE_KINDS = Object.keys(CURRENT_VERSION) as readonly JobDirtyWorkEntityKind[]
+
 /** What a claimer holds for one row. */
 export interface DirtyWorkHandle {
   readonly id: string
@@ -75,6 +81,8 @@ export interface ClaimOptions {
   readonly owner: string
   readonly batchSize?: number
   readonly leaseMs?: number
+  /** Kinds to claim; default `CLAIMABLE_KINDS`. A kind with no version source is refused. */
+  readonly kinds?: readonly JobDirtyWorkEntityKind[]
 }
 
 export interface RetryOptions {
@@ -135,16 +143,31 @@ function heldBy(h: DirtyWorkHandle): SQL {
 
 /** The statements, exported so the unit spec can render them. */
 export const dirtyWorkStatements = {
-  enqueue: (kind: JobDirtyWorkEntityKind, id: string, version: number, reason: string): SQL =>
-    sql`INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason)
-        VALUES (${kind}, ${id}::uuid, ${version}, ${reason})
+  enqueue: (
+    kind: JobDirtyWorkEntityKind,
+    id: string,
+    version: number,
+    reason: string,
+    cycleId: string | null,
+  ): SQL =>
+    sql`INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason, cycle_id)
+        VALUES (${kind}, ${id}::uuid, ${version}, ${reason}, ${cycleId}::uuid)
         ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING
         RETURNING id`,
 
-  claim: (owner: string, batchSize: number, leaseMs: number): SQL =>
+  claim: (
+    owner: string,
+    batchSize: number,
+    leaseMs: number,
+    kinds: readonly JobDirtyWorkEntityKind[],
+  ): SQL =>
     sql`WITH picked AS (
           SELECT id FROM job_dirty_work
            WHERE status = 'PENDING'
+             AND entity_kind IN (${sql.join(
+               kinds.map((k) => sql`${k}`),
+               sql`, `,
+             )})
            ORDER BY created_at, id
            LIMIT ${batchSize}
            FOR UPDATE SKIP LOCKED)
@@ -197,7 +220,8 @@ export const dirtyWorkStatements = {
 
 /**
  * Enqueue one unit of dirty work in the caller's (producer's) transaction. A duplicate on
- * `(kind, entity, version, reason)` is a no-op, never a 23505: `{ inserted: false }`.
+ * `(kind, entity, version, reason)` is a no-op, never a 23505: `{ inserted: false }` (the first
+ * row, and its `cycle_id`, stand). `cycleId` ties the work to the collection cycle that produced it.
  */
 export async function enqueueDirty(
   tx: SqlExecutor,
@@ -205,14 +229,29 @@ export async function enqueueDirty(
   entityId: string,
   version: number,
   reason: string,
+  cycleId?: string,
 ): Promise<{ inserted: boolean }> {
   const k = jobDirtyWorkEntityKindSchema.parse(kind)
   if (!UUID.test(entityId)) throw new RangeError('entityId must be a lowercase uuid')
   boundedInt('version', version, Number.MAX_SAFE_INTEGER)
   if (reason.trim().length === 0 || reason.length > REASON_MAX)
     throw new RangeError(`reason must be non-blank and at most ${REASON_MAX} characters`)
-  const { rows } = await tx.execute(dirtyWorkStatements.enqueue(k, entityId, version, reason))
+  if (cycleId !== undefined && !UUID.test(cycleId))
+    throw new RangeError('cycleId must be a lowercase uuid')
+  const { rows } = await tx.execute(
+    dirtyWorkStatements.enqueue(k, entityId, version, reason, cycleId ?? null),
+  )
   return { inserted: rows.length > 0 }
+}
+
+/** The kinds a claim may name: at least one, each with a version source. */
+function claimKinds(kinds: readonly JobDirtyWorkEntityKind[]): readonly JobDirtyWorkEntityKind[] {
+  if (kinds.length === 0) throw new RangeError('kinds must name at least one kind')
+  for (const kind of kinds) {
+    if (CURRENT_VERSION[jobDirtyWorkEntityKindSchema.parse(kind)] === undefined)
+      throw new DirtyKindUnsupportedError(kind)
+  }
+  return kinds
 }
 
 /**
@@ -226,7 +265,10 @@ export async function claimDirtyBatch(
   assertOwner(opts.owner)
   const batchSize = boundedInt('batchSize', opts.batchSize ?? DIRTY_BATCH_DEFAULT, DIRTY_BATCH_MAX)
   const leaseMs = boundedInt('leaseMs', opts.leaseMs ?? DIRTY_LEASE_DEFAULT_MS, DIRTY_LEASE_MAX_MS)
-  const { rows } = await db.execute(dirtyWorkStatements.claim(opts.owner, batchSize, leaseMs))
+  const kinds = claimKinds(opts.kinds ?? CLAIMABLE_KINDS)
+  const { rows } = await db.execute(
+    dirtyWorkStatements.claim(opts.owner, batchSize, leaseMs, kinds),
+  )
   // The batch is picked oldest-first; the order of the returned rows carries no meaning.
   return rows.map((r) => ({
     id: String(r['id']),
