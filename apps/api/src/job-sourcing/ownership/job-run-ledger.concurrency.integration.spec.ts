@@ -26,8 +26,9 @@ import { type ClaimedRun, JobRunLedger } from './job-run-ledger'
  * claimSource, heartbeat, reserve, markSent -> reconcile, savePage from two sources with
  * overlapping records (in opposite order), finish, recoverExpired, sweepOrphanReservations,
  * resetFailures and T8's recordHostBan -- on rows chosen so they contend: one paid account shared
- * by the live run's meter and an orphan reservation the sweep settles, one host shared by a running
- * source and a claimer, one page-table key set written by two runs.
+ * by the live run's meter, an orphan reservation the sweep settles, and two more sources that race
+ * to claim it the moment its run finishes (the claim INSERT waiting on an uncommitted STARTED row),
+ * one host being banned under a claimer, one page-table key set written by two runs.
  *
  * A deadlock surfaces as SQLSTATE 40P01 on one of the operations; the assertion is that none
  * occurred and that every operation either succeeded or refused in a designed way.
@@ -85,14 +86,22 @@ describe.skipIf(!hasDatabaseUrl())('the lock-acquisition table, all at once (T3 
     // A: the live metered run. B: a second live run (unmetered) whose pages overlap A's.
     const a = await kit.reporting({ ...metered, hostKey: sharedHost }, { quotaDeclared: true })
     const b = await kit.reporting()
-    // C claims on A's host (HOST_BUSY under the host lock); D claims on the host being banned.
+    // C sits on A's busy host: the HOST_IDLE filter skips it before any host lock (SR-M-19), so it
+    // is never claimed while A runs. D claims on the host being banned (the host-row lock).
     const c = await kit.reporting({ hostKey: sharedHost })
     const d = await kit.reporting({ hostKey: banHost })
     // E: claimed manually. F: a run whose lease is expired, for recovery. G: reset target.
     const e = await kit.reporting()
     const f = await kit.reporting()
     const g = await kit.reporting({ consecutiveFailures: 3 })
-    const all = [a, b, c, d, e, f, g]
+    // H1, H2 (CR-M-2): two more sources on A's PAID account, each on its own host, claimed while A
+    // finishes -- H1 by the scheduled loops, H2 manually. Once A's finish commits, both pass "not
+    // running" and race to insert: the loser's INSERT waits on the winner's uncommitted STARTED row
+    // in the one-started-per-account index (the ADR's one cross-transaction wait) and is refused.
+    const h1 = await kit.reporting(metered, { quotaDeclared: true })
+    const h2 = await kit.reporting(metered, { quotaDeclared: true })
+    const all = [a, b, c, d, e, f, g, h1, h2]
+    const onAccount = { claimed: 0, conflicts: 0 }
 
     const errors = new Map<string, number>()
     // Keyed by the code, plus the first message line for anything unexpected, so a failure names
@@ -152,6 +161,26 @@ describe.skipIf(!hasDatabaseUrl())('the lock-acquisition table, all at once (T3 
         })
         claimed.push(...res.claimed)
       }
+      // A finishes, then H1 (scheduled) and H2 (manual) race for its account, while the rest of
+      // the table is still in flight.
+      const finishAThenClaimAccount = async () => {
+        await ledger.finish(handleOf(runA), { outcome: 'SUCCEEDED', errorCode: null })
+        await Promise.all([
+          settle(
+            ledger
+              .claimDue({ cycleId: scheduled, owner: 'cc-worker', limit: 1, onlyIds: [h1] })
+              .then((res) => claimed.push(...res.claimed)),
+          ),
+          settle(
+            ledger
+              .claimSource({ cycleId: manual, owner: 'cc-worker', sourceId: h2, actor: kit.actor })
+              .then((m) => {
+                if (m.kind === 'CLAIMED') claimed.push(m.run)
+                else if (m.reason === 'CONFLICT') onAccount.conflicts += 1
+              }),
+          ),
+        ])
+      }
       await Promise.all([
         settle(ledger.openCycle({ trigger: 'SCHEDULED', triggerKey: fx.cycleKey() })),
         settle(claimLoop()),
@@ -179,6 +208,7 @@ describe.skipIf(!hasDatabaseUrl())('the lock-acquisition table, all at once (T3 
           }),
         ),
         settle(ledger.finish(handleOf(runB), { outcome: 'SUCCEEDED', errorCode: null })),
+        settle(finishAThenClaimAccount()),
         settle(ledger.recoverExpired()),
         settle(ledger.sweepOrphanReservations()),
         settle(ledger.resetFailures({ sourceId: g, actor: kit.actor, reason: `cc ${i}` })),
@@ -188,7 +218,7 @@ describe.skipIf(!hasDatabaseUrl())('the lock-acquisition table, all at once (T3 
       ])
 
       // --- end everything this iteration started, and reset the rows -------------------------
-      await settle(ledger.finish(handleOf(runA), { outcome: 'SUCCEEDED', errorCode: null }))
+      onAccount.claimed += claimed.filter((r) => r.sourceId === h1 || r.sourceId === h2).length
       for (const run of claimed) {
         await settle(ledger.finish(handleOf(run), { outcome: 'SUCCEEDED', errorCode: null }))
       }
@@ -210,6 +240,14 @@ describe.skipIf(!hasDatabaseUrl())('the lock-acquisition table, all at once (T3 
     const unexpected = [...errors.entries()].filter(([k]) => k !== 'RunFencedError')
     expect(deadlocks).toEqual([])
     expect(unexpected).toEqual([])
+    // CR-M-2: A's account was claimed again inside the contended block, by exactly one of H1 / H2
+    // every iteration (single flight per account) ...
+    expect(onAccount.claimed).toBe(ITERATIONS)
+    // ... and the loser was refused at the account index, not only filtered by "not running"
+    // (measured: ~80 of 100 iterations; a lowered local iteration count may legitimately see none).
+    expect({ sawConflict: onAccount.conflicts > 0 || ITERATIONS < 100 }).toEqual({
+      sawConflict: true,
+    })
     // Every run the iterations started is terminal, and nothing is left open on a terminal run.
     const { rows } = await session.admin.query(
       `SELECT

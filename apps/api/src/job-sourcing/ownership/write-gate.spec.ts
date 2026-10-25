@@ -8,8 +8,10 @@ import { describe, expect, it } from 'vitest'
  * column's one named writer, fails this spec. `*.spec.ts` and `src/test/**` are excluded (fixtures
  * write rows directly on purpose), as are the schema declarations, which define rather than write.
  *
- * It reads statements, not imports: a raw `INSERT INTO` / `UPDATE` naming the table, or a drizzle
- * `.insert(table)` / `.update(table)`. For `job_sources` only the ledger-owned columns count, because
+ * It reads statements, not imports: a raw `INSERT INTO` / `UPDATE` / `DELETE FROM` naming the table
+ * (bare, `public.`-qualified or quoted), or a drizzle `.insert` / `.update` / `.delete` of it (bare,
+ * `schema.x`-qualified or import-aliased). It is textual: a table reached through a variable or
+ * built SQL text is not seen. For `job_sources` only the ledger-owned columns count, because
  * other modules legitimately write other columns of that table (the legacy budget, the seed).
  */
 const SRC = join(__dirname, '..', '..')
@@ -52,8 +54,18 @@ interface Violation {
 /** The text of every write statement in `text` that targets `table` (raw SQL or drizzle). */
 function writeWindows(text: string, sqlName: string, drizzleName: string): string[] {
   const windows: string[] = []
-  const raw = new RegExp(`\\b(INSERT\\s+INTO|UPDATE)\\s+${sqlName}\\b`, 'gi')
-  const orm = new RegExp(`\\.(insert|update)\\(\\s*${drizzleName}\\s*\\)`, 'g')
+  // Raw SQL: INSERT INTO / UPDATE / DELETE FROM, optionally `public.`-qualified, optionally quoted.
+  const raw = new RegExp(
+    `\\b(INSERT\\s+INTO|UPDATE|DELETE\\s+FROM)\\s+(?:"?public"?\\s*\\.\\s*)?"?${sqlName}(?!\\w)`,
+    'gi',
+  )
+  // Drizzle: .insert / .update / .delete of the table, bare, namespace-qualified
+  // (`schema.jobSources`) or under an import alias (`jobSources as sources`).
+  const aliases = [...text.matchAll(new RegExp(`\\b${drizzleName}\\s+as\\s+(\\w+)`, 'g'))].map(
+    (m) => m[1],
+  )
+  const names = [drizzleName, ...aliases].join('|')
+  const orm = new RegExp(`\\.(insert|update|delete)\\(\\s*(?:\\w+\\.)?(?:${names})\\s*\\)`, 'g')
   for (const re of [raw, orm]) {
     for (const m of text.matchAll(re)) {
       // A raw statement ends at its template's closing backtick; a drizzle chain is read for the
@@ -168,6 +180,38 @@ describe('the write gate (T3 AC 7)', () => {
         'a drizzle source counter write',
         'db.update(jobSources).set({ consecutiveFailures: 0 })',
         'job_sources.consecutive_failures',
+      ],
+      // SPEC-M-3: the other spellings of a write.
+      [
+        'a schema-qualified raw update',
+        "sql`UPDATE public.job_collection_runs SET outcome = 'FAILED'`",
+        'job_collection_runs',
+      ],
+      [
+        'a quoted, schema-qualified raw insert',
+        'sql`INSERT INTO "public"."job_source_hosts" (host_key) VALUES (1)`',
+        'job_source_hosts',
+      ],
+      [
+        'a quoted raw source write',
+        'sql`UPDATE "job_sources" SET next_attempt_at = now()`',
+        'job_sources.next_attempt_at',
+      ],
+      [
+        'a raw delete',
+        "sql`DELETE FROM job_account_meter_reservations WHERE status = 'USED'`",
+        'job_account_meter_reservations',
+      ],
+      [
+        'a namespace drizzle update',
+        "await tx.update(schema.jobCollectionRuns).set({ outcome: 'FAILED' })",
+        'job_collection_runs',
+      ],
+      ['a drizzle delete', 'await db.delete(jobSourceHosts)', 'job_source_hosts'],
+      [
+        'an aliased drizzle import',
+        "import { jobAccountMeters as meters } from '../database/schema'\ndb.update(meters).set({ used: 0 })",
+        'job_account_meters',
       ],
     ])('%s', (_label, text, what) => {
       expect(scanForForeignWrites('job-sourcing/elsewhere.ts', text)).toEqual([
