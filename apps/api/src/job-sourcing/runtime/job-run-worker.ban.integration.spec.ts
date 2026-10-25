@@ -260,7 +260,7 @@ describe.skipIf(!hasDatabaseUrl())(
         finished: true,
       })
       expect((await runRow(w.admin, run!.runId)).error_message).toBe(
-        'the adapter threw MeterBindingRefusedError',
+        'the source`s meter is not the claimed run`s account',
       )
       expect(fixture.requests).toEqual([])
       expect(seen.outcomes).toEqual([])
