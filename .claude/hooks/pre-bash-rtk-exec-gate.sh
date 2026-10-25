@@ -13,7 +13,9 @@
 #
 # Decided on the RAW command text, after one NORMALISATION step that does what the shell does when it builds
 # a word: it deletes backslash-newline continuations, DECODES ANSI-C strings with BASH semantics ($'\x62ypass',
-# \u with 1-4 hex digits, \U with 1-8, octal, \x with 1-2; an escape bash would not decode is kept as text),
+# \u with 1-4 hex digits, \U with 1-8, octal, \x with 1-2; an escape bash would not decode is kept as text;
+# the string is cut at the first NUL as bash does; a code point above 0x10FFFF becomes `$`, and `\c?` gives
+# 0x1f where bash gives 0x7f — both only ever cause an extra refusal, never hide a word),
 # then drops the remaining quote characters and backslashes, turns $IFS / ${IFS} / $IFS$9 into a space and
 # deletes redirections (2>/dev/null, >&2, <&-, {fd}>f ...) that may sit between the binary and its subcommand.
 # Whitespace runs are collapsed so that no regex below can go quadratic on padding, and the command-position
@@ -97,7 +99,11 @@ def ansi_c(m):
             else:
                 out.append("\\" + n)
                 i += 2
-        return "".join(out)
+        res = "".join(out)
+        # bash cuts an ANSI-C string at the first NUL ($x27by\0pass x27 is "by", $x27\0x27 is empty), so
+        # the word around it is rebuilt; keeping the NUL would hide an exec word that bash reassembles
+        cut = res.find("\x00")
+        return res if cut < 0 else res[:cut]
     except Exception:
         return "$" + body
 
@@ -125,11 +131,16 @@ wrapper = r"(?:time|env|sudo|doas|command|exec|nohup|xargs|nice|ionice|timeout|s
 # prefix backtrack exponentially or quadratically.
 wflag = (
     r"\s+-{1,2}[\w-]+(?:=\S+)?"
-    r"(?:\s+(?!rtk\b)(?!" + wrapper + r"\b)(?!\d+[smhd]?(?:\s|$))[\w.@:/-]+)?"
+    r"(?:\s+(?!rtk\b)(?!" + wrapper + r"\b)(?!\d+[smhd]?(?:\s|$))[\w.@:/][\w.@:/-]*)?"
 )
+# DISJOINT alternatives (CR-H-2, round 7: both of these were exponential): the flag value cannot start
+# with `-` (it would also parse as the next flag), cannot be a bare duration (`-n 5` parses one way only:
+# the 5 is the duration) and cannot be a wrapper word; the duration (`timeout 5 cmd`) is ONE optional item
+# after the flags. Consequence, accepted: a SECOND numeric flag value (`nice -n 5 -n 5 rtk $X`) is not
+# followed.
 cmdpos = (
-    r"(?:^|[;&|({\n]|\b(?:then|do|else)\b|\s-l?c\s)\s*"
-    r"(?:(?:\w+=[^\s;&|]*|!|" + wrapper + r"(?:" + wflag + r"|\s+\d+[smhd]?)*)\s+)*"
+    r"(?:^|[;&|({)\x60\n]|\b(?:then|do|else)\b|\s-\w*c\s)\s*"
+    r"(?:(?:\w+=[^\s;&|]*|!|" + wrapper + r"(?:" + wflag + r")*(?:\s+\d+[smhd]?)?)\s+)*"
 )
 
 pat_exec = re.compile(binary + flags + gap + exec_word)

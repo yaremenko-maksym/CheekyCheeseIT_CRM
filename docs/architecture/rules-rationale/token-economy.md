@@ -119,8 +119,8 @@ pattern has no notion of quoting context, so a `$'` inside an ordinary single-qu
 bogus match that swallowed a real subcommand up to the next apostrophe; the body is now kept visible to the
 later steps. The command-position prefix of the non-literal rule also accepts leading `VAR=value`
 assignments (the documented `RTK_DISABLED=1` idiom), `!`, wrappers with their flags and durations, and
-`-c` / `-lc` nested shell strings. The test file pins every alternative of that prefix, the decode-failure
-branch and the decoy; two mutants (dropping the decoded body, dropping the `-c` position) turn rows red.
+`-c` / `-lc` nested shell strings. The test file pins every alternative of that prefix and the decoy; two
+mutants (dropping the decoded body, dropping the `-c` position) turn rows red.
 
 Follow-up 4 (security review of that change, four MED findings): the ANSI-C decoder no longer uses
 Python's `unicode_escape` (it demands exactly 2/4/8 hex digits, bash takes 1-2, 1-4 and 1-8, and a decode
@@ -161,6 +161,17 @@ with `RTK_INSTALL_DIR`), the rewrite hook calls it by absolute path, and a bare 
 
 The durable fix, recorded for a later task, is to do the check inside `cmdscan.py`, which already tokenises
 words and is shared by every other guard, and delete this second, weaker parser.
+
+Follow-up 6 (code review, seventh round, applied before the freeze): a NUL produced by an ANSI-C escape
+(`$'\0'`, `$'\x00'`, `$'\400'`) hid the exec word, because bash cuts such a string at the first NUL and
+rebuilds the word around it while the decoder kept the NUL; the decoded string is now cut the same way.
+The command-position prefix was exponential a second time (a flag value could also parse as the next flag
+or as the duration); it is now unambiguous and a chain of 300 KB finishes in well under a second (the timing
+row of the test pins it, 600 random token sequences: worst 0.37 s). Command position now also covers `bash
+-ec`/`-xc` strings, a backtick and a `case` arm `)`; a leading redirection is removed by the normalisation.
+A second numeric flag value (`nice -n 5 -n 5 <binary> $X`) is not followed, which is the price of the
+disjoint alternatives. The decode-failure branch of the decoder is purely defensive (it cannot be reached
+with the current digit rules) and is not pinned by a row; the decoy rows pin the case that mattered.
 
 **Still not verified:** end-to-end ordering inside a live Claude Code session — the existing hooks carry
 owner-machine absolute paths and cannot run in the cloud container. Smoke-test on the owner machine: `git push` with a bad `ac_verified` must still be

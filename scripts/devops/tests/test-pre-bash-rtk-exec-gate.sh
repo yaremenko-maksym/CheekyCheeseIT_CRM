@@ -68,6 +68,25 @@ rtk \$SUB ls" \
   "command -p rtk \$SUB hi" \
   "nohup nice rtk \$SUB hi" \
   "B=1; rtk {bypass,echo} hi" \
+  "rtk \$'\\0'bypass ls" \
+  "rtk \$'\\x00'proxy ls" \
+  "rtk \$'\\400'run ls" \
+  "rtk byp\$'\\0'ass ls" \
+  "r\$'\\0'tk bypass ls" \
+  "rtk \$'\\x74est' ls" \
+  "rtk \$'\\u0074est' ls" \
+  "rtk \$'\\u0072un' ls" \
+  "ionice rtk \$SUB ls" \
+  "stdbuf -oL rtk \$SUB ls" \
+  "setsid rtk \$SUB ls" \
+  "unbuffer rtk \$SUB ls" \
+  "watch -n 5 rtk \$SUB ls" \
+  "doas rtk \$SUB ls" \
+  "bash -ec 'rtk \$SUB ls'" \
+  "bash -xc 'rtk \$SUB ls'" \
+  "echo \`rtk \$SUB ls\`" \
+  "case a in a) rtk \$SUB ls;; esac" \
+  ">/dev/null rtk \$SUB ls" \
   "rtk 2>/dev/null run 'touch M'" \
   "rtk >/dev/null run ls" \
   "rtk <&- run ls" \
@@ -133,6 +152,9 @@ for cmd in \
   "grep -rn \"rtk\" \$CLAUDE_PROJECT_DIR/docs" \
   "git commit -m \"fix: rtk \$(date)\"" \
   "grep -l rtk \$(git ls-files docs)" \
+  "rtk test-foo ls" \
+  "rtk runner ls" \
+  "rtk tests ls" \
   "grep -n rtk \$'\\x2e'" \
   "echo \$'\\x68ello'" \
   "git commit -m \"use the rtk filter for output\"" \
@@ -164,7 +186,8 @@ import json, subprocess, sys, time
 hook = sys.argv[1]
 for cmd in ("echo ok" + "\n" * 20000, "echo ok" + " \n" * 10000, "echo " + "a/" * 80000, "echo " + "~" * 100000,
             "nice -n 5 " * 40 + "ls", "time -p " * 60 + "ls", "sudo -u x " * 40 + "ls", "a=b;" * 50000, ";" * 100000,
-            "nice -n 5 " * 30000):
+            "nice -n 5 " * 30000, "sudo" + " -a" * 60 + " x", "time" + " -n 1" * 40 + " x", "A=1 " * 50000 + "ls",
+            "time -p nice -n 1 " * 40 + "x", "sudo -u x -g y " * 40 + "ls"):
     t = time.time()
     subprocess.run(["bash", hook], input=json.dumps({"tool_input": {"command": cmd}}).encode(), capture_output=True)
     if time.time() - t > 5:
