@@ -260,12 +260,14 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
   B: ['job_queue_actions'],
   C: [],
   D: [],
-  // Not the migration ledger (that does not exist yet) but the three tables historical
-  // manual DDL files left in `public` — see MANUAL_DDL_RELATIONS below for why they are
-  // here, why they are class E, and why they are OPTIONAL.
+  // Class E: relations the API roles get no privilege on at all. Not the migration ledger
+  // (that does not exist yet) but the backups and bookkeeping tables that manual DDL files
+  // or operators left in `public` — see MANUAL_DDL_RELATIONS below for why each is here,
+  // why it is class E, and why it is OPTIONAL.
   E: [
     '_drop_share_pending_parity_backup_20260727',
     '_settle_phantom_backup_20260715',
+    '_tx_date_kyiv_backfill_backup_20261025',
     'drop_cascade_origin_marker_state',
     'salary_month_shift_backup',
   ],
@@ -324,6 +326,11 @@ export const MANUAL_DDL_RELATIONS: Record<string, { file: string | null; why: st
   _settle_phantom_backup_20260715: {
     file: 'drizzle/manual/2026-07-15_settle_phantom_cleanup.sql (and …_auto.sql)',
     why: 'Row backup (LIKE transactions INCLUDING ALL) taken before the phantom-settle cleanup.',
+  },
+  _tx_date_kyiv_backfill_backup_20261025: {
+    // Staged until the DevOps wiring PR moves the file to drizzle/manual/ (the #1142 -> #1155 route).
+    file: 'drizzle/manual-staged/2026-10-25_tx_date_kyiv_backfill.sql',
+    why: 'Ids and written values of the NULL tx_date rows the Kyiv-day backfill changed; the rollback reads it.',
   },
   drop_cascade_origin_marker_state: {
     file: 'drizzle/manual/2026-07-27_drop_cascade_origin_marker.sql',

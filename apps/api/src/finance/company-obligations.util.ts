@@ -1,6 +1,7 @@
 import { COMPANY_ACCOUNT_LABEL, roundShareAmount } from '@crm/shared'
 import { pendingObligations, transactions } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-drop-share-override-and-receiver (D4). Book the company's obligations to
@@ -62,6 +63,9 @@ export async function bookCompanyObligations(
   const { incomeAmount, projectId, companyName, createdBy, payoutRequestId, senior, drop } = params
   const incomeTransactionId = params.incomeTransactionId ?? null
   const notePrefix = params.notePrefix ?? 'Company owes'
+  // SR-H-1 (PR #1158): never leave tx_date NULL. Without a caller date, the IOU is dated with
+  // the Kyiv business day of now, the same fallback every other transaction writer uses.
+  const txDate = params.txDate ?? resolveTransactionDate(null)
   let seniorAmount: number | null = null
   let dropAmount: number | null = null
 
@@ -86,7 +90,7 @@ export async function bookCompanyObligations(
         createdBy,
         sourceIncomeTransactionId: incomeTransactionId,
         companyNameSnapshot: companyName,
-        ...(params.txDate ? { txDate: params.txDate } : {}),
+        txDate,
       })
       .returning()
     if (pendingRow) {
@@ -137,7 +141,7 @@ export async function bookCompanyObligations(
         createdBy,
         sourceIncomeTransactionId: incomeTransactionId,
         companyNameSnapshot: companyName,
-        ...(params.txDate ? { txDate: params.txDate } : {}),
+        txDate,
       })
       .returning()
     if (pendingRow) {

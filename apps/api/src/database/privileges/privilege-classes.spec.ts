@@ -178,9 +178,10 @@ describe('privilege-class manifest', () => {
     // And the other claim, equally checkable: a named file must EXIST and must actually
     // create the relation. A path written in a field is a claim nothing checked; this is
     // the same claim, checked.
-    expect(fromFile.filter(([, e]) => !e.file.startsWith('drizzle/manual/'))).toEqual([])
+    // `manual-staged/` holds a file written ahead of its DevOps wiring PR (the #1142 -> #1155 route).
+    expect(fromFile.filter(([, e]) => !/^drizzle\/manual(-staged)?\//.test(e.file))).toEqual([])
     const pathOf = (file: string): string =>
-      join(MANUAL_DIR, file.replace(/^drizzle\/manual\//, '').split(' ')[0] as string)
+      join(MANUAL_DIR, '..', file.replace(/^drizzle\//, '').split(' ')[0] as string)
     expect(fromFile.filter(([, e]) => !existsSync(pathOf(e.file))).map(([r]) => r)).toEqual([])
     expect(
       fromFile

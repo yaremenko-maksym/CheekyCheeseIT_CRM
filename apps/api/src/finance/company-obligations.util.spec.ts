@@ -102,6 +102,47 @@ describe('bookCompanyObligations', () => {
     expect(inserted[1]).toMatchObject({ payoutRequestId: null, status: 'PENDING' })
   })
 
+  // SR-H-1 (PR #1158): a drop-project payout paid without a date passed `txDate: undefined`,
+  // and both IOU rows were written with NULL tx_date. The fallback is the Kyiv business day
+  // of "now", as for every other writer (resolveTransactionDate).
+  describe('without a txDate', () => {
+    const senior = {
+      id: 's',
+      role: 'SENIOR',
+      shareSnapshot: { value: 10, source: 'TEAM' as const },
+    }
+    const drop = { id: 'd', shareSnapshot: { value: 10, source: 'PROJECT' as const } }
+
+    async function bookAt(now: string) {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date(now))
+      try {
+        const { tx, inserted } = stubTx()
+        await bookCompanyObligations(tx, { ...base, payoutRequestId: 'pr1', senior, drop })
+        return [inserted[0], inserted[2]].map((row) =>
+          (row?.['txDate'] as Date | undefined)?.toISOString(),
+        )
+      } finally {
+        vi.useRealTimers()
+      }
+    }
+
+    it('dates both IOU rows with the current instant on an ordinary day', async () => {
+      expect(await bookAt('2026-10-15T10:00:00.000Z')).toEqual([
+        '2026-10-15T10:00:00.000Z',
+        '2026-10-15T10:00:00.000Z',
+      ])
+    })
+
+    it('dates both IOU rows with the Kyiv day when Kyiv is already a day ahead', async () => {
+      // 22:30Z on 31 Oct = 00:30 on 1 Nov in Kyiv.
+      expect(await bookAt('2026-10-31T22:30:00.000Z')).toEqual([
+        '2026-11-01T00:00:00.000Z',
+        '2026-11-01T00:00:00.000Z',
+      ])
+    })
+  })
+
   it('writes no obligation row when the IOU insert returns no row', async () => {
     const inserted: Array<Record<string, unknown>> = []
     const tx = {
