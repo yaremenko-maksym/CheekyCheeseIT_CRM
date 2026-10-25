@@ -260,9 +260,10 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
   B: ['job_queue_actions'],
   C: [],
   D: [],
-  // Not the migration ledger (that does not exist yet) but the three tables historical
-  // manual DDL files left in `public` — see MANUAL_DDL_RELATIONS below for why they are
-  // here, why they are class E, and why they are OPTIONAL.
+  // Class E: relations the API roles get no privilege on at all. Not the migration ledger
+  // (that does not exist yet) but the backups and bookkeeping tables that manual DDL files
+  // or operators left in `public` — see MANUAL_DDL_RELATIONS below for why each is here,
+  // why it is class E, and why it is OPTIONAL.
   E: [
     '_drop_share_pending_parity_backup_20260727',
     '_settle_phantom_backup_20260715',
