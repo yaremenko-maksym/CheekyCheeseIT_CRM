@@ -2,6 +2,7 @@ import type { JobSourceType } from '@crm/shared'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
+import { identityObservations } from '../../test/ledger-fixtures'
 import { SourceRateLimitedError } from '../http/source-errors'
 import type { MeterDb } from '../metering/account-meter.store'
 import type { ClaimedRun, RunEnding } from '../ownership/job-run-ledger'
@@ -793,6 +794,28 @@ describe('what a run is handed', () => {
     expect(JSON.parse(String(update?.params[0]))).toMatchObject({ position: PAGE_ONE.position })
     expect(update?.params.slice(1, 5)).toEqual([0, 0, 0, 0])
     expect(update?.params.slice(-3)).toEqual([uuid(101), 'spec:1', 1])
+  })
+
+  it('CR-M-2: a page whose one identity exceeds the store cap writes nothing at all', async () => {
+    let refused: unknown = null
+    const w = world({
+      collect: async (_c, ctx) => {
+        const observations = [
+          ...identityObservations(['ok'], 'n'),
+          ...identityObservations(
+            Array.from({ length: 501 }, () => 'same'),
+            'n',
+          ),
+        ]
+        refused = await ctx.checkpoints
+          .savePage({ observations, checkpoint: PAGE_ONE })
+          .catch((e: unknown) => e)
+        return batch('EXHAUSTED')
+      },
+    })
+    await w.worker.runDue({ cycleId: uuid(1) })
+    expect(refused).toBeInstanceOf(RangeError)
+    expect(w.saves).toEqual([])
   })
 
   it('a 403 on the entry`s SOURCE scope bans nothing (the scope comes from the catalog entry)', async () => {

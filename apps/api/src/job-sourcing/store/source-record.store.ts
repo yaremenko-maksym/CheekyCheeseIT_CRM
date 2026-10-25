@@ -285,21 +285,37 @@ export interface PageChunk {
 /**
  * Split a page into chunks of at most `max` observations for `saveObservationPage`, keeping every
  * observation of one identity in ONE chunk (so the per-chunk counters add up to the page's) and
- * moving the checkpoint with the LAST chunk only (a crash between chunks resumes from the page). A
- * page within the cap is one chunk, unchanged. shortcut: a single identity with more than `max`
- * observations stays one oversized chunk and is refused by the store's cap.
+ * moving the checkpoint with the LAST chunk only. A page within the cap is one chunk, unchanged.
+ *
+ * Every chunk is sized BEFORE any is written: an identity with more than `max` observations throws
+ * here, so a page is never half-committed and then refused (CR-M-2).
+ *
+ * THE LIMIT OF CHUNKING (CR-M-1). Each chunk is its own transaction. A crash between chunks keeps
+ * the earlier chunks' observations AND their counters on the crashed run; the checkpoint has not
+ * moved, so the successor run re-fetches the page and counts all of it. Every run's counters stay
+ * true for that run (it did persist what it counts), but summed across the two runs `received`
+ * counts the committed chunks twice; the single-transaction path rolled them back instead. Making
+ * the successor skip them would mean counting only records new to the run, which changes what
+ * `received` means for an ordinary replay too (the pre-fold writer counts a replayed page again,
+ * pinned by the Task 4.6 AC 4 characterization), so it is not done here.
  */
 export function chunkPage(page: SavedPage, max = MAX_OBSERVATIONS_PER_PAGE): PageChunk[] {
   if (page.observations.length <= max) return [page]
   const groups = new Map<string, SourceObservation[]>()
   for (const o of page.observations) {
     const key = `${o.identity.namespace}\u0000${o.identity.identityKey}`
-    groups.set(key, [...(groups.get(key) ?? []), o])
+    const group = groups.get(key)
+    if (group === undefined) groups.set(key, [o])
+    else group.push(o)
   }
   const chunks: SourceObservation[][] = [[]]
   for (const group of groups.values()) {
+    if (group.length > max)
+      throw new RangeError(
+        `chunkPage: one identity has ${group.length} observations, at most ${max}`,
+      )
     const last = chunks.at(-1) as SourceObservation[]
-    if (last.length > 0 && last.length + group.length > max) chunks.push([...group])
+    if (last.length + group.length > max) chunks.push(group)
     else last.push(...group)
   }
   return chunks.map((observations, i) => ({
@@ -336,6 +352,12 @@ export interface PageWriteOptions {
    * The run worker's page-write budget `H` (T7 SR-L-9, "Lease, heartbeat and page writes"): each
    * attempt runs under `statement_timeout` AND `lock_timeout` of this many ms, so a heartbeat
    * queued behind it still lands before the lease expires.
+   *
+   * PER ATTEMPT, not per call (CR-M-4): a lock error is retried up to 3 attempts, so one call can
+   * take up to 3 H plus the backoff (two sleeps, under 50 ms together), and a chunked page that many times its chunk
+   * count. Between attempts the transaction is gone, so the heartbeat lands and the lease holds.
+   * The run-level bound is the worker's deadline: past `runDeadlineMs + deadlineGraceMs` it ends
+   * the run itself, and the next attempt is fenced (`RunFencedError`, never retried).
    */
   readonly timeoutMs?: number
 }

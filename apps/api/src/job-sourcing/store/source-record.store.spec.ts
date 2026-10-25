@@ -81,14 +81,21 @@ describe('chunkPage (Task 4.6 S1, AC 6)', () => {
     ])
   })
 
-  it('an identity larger than the room left starts a new chunk; one larger than the cap stays whole', () => {
+  it('an identity larger than the room left starts a new chunk; one exactly the cap fills one', () => {
     const page = {
       observations: identityObservations(['a', 'b', 'b', 'b', 'c'], 'n'),
       checkpoint: cp,
     }
     expect(chunkPage(page, 3).map(ids)).toEqual([['a'], ['b', 'b', 'b'], ['c']])
-    const huge = { observations: identityObservations(['x', 'x', 'x', 'y'], 'n'), checkpoint: cp }
-    expect(chunkPage(huge, 2).map(ids)).toEqual([['x', 'x', 'x'], ['y']])
+    const full = { observations: identityObservations(['x', 'x', 'y'], 'n'), checkpoint: cp }
+    expect(chunkPage(full, 2).map(ids)).toEqual([['x', 'x'], ['y']])
+  })
+
+  it('CR-M-2: an identity larger than the cap is refused before any chunk exists', () => {
+    const huge = { observations: identityObservations(['y', 'x', 'x', 'x'], 'n'), checkpoint: cp }
+    expect(() => chunkPage(huge, 2)).toThrow(
+      new RangeError('chunkPage: one identity has 3 observations, at most 2'),
+    )
   })
 
   it('one native id in two namespaces is two identities', () => {

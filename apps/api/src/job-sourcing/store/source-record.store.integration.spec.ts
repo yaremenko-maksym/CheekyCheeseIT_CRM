@@ -246,14 +246,14 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
    * and was then removed with that writer): the literals are what it put in the checkpoint
    * counters for this input. Input: one record already known (x), one exact repeat (a, A twice),
    * one record observed with two contents (a, A then B), one new record (b); the page is then
-   * replayed in the same run. The worker's chunked write (here at a cap of 2) adds up the same.
+   * replayed in the same run. The worker's chunked write (here at a cap of 3: chunks x | a a a | b) adds up the same.
    */
   it.each([
     ['saveObservationPage', (h: RunHandle, p: SavedPage) => saveObservationPage(db, h, p)],
     [
-      'chunked, at most 2 per chunk',
+      'chunked, at most 3 per chunk',
       async (h: RunHandle, p: SavedPage) => {
-        for (const chunk of chunkPage(p, 2)) await saveObservationPage(db, h, chunk)
+        for (const chunk of chunkPage(p, 3)) await saveObservationPage(db, h, chunk)
       },
     ],
   ] as const)('Task 4.6 AC 4: %s writes the pre-fold checkpoint counters', async (_, write) => {
@@ -280,6 +280,36 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
     const twice = (await fx.runs(await sourceOf(h.runId)))[0]
     expect(twice).toMatchObject({ received: 10, created: 2, unchanged: 4, duplicates: 4 })
     expect(twice?.checkpoint).toMatchObject({ position: { page: 3 } })
+  })
+
+  it('CR-M-1: after a crash between chunks the successor replays the page; each run counts what it persisted', async () => {
+    const namespace = ns()
+    const source = await kit.reporting()
+    const crashed = handleOf(await kit.claimOne(source))
+    const page = {
+      observations: [obs(namespace, 'r1'), obs(namespace, 'r2'), obs(namespace, 'r3')],
+      checkpoint: specCheckpoint(1),
+    }
+    const [first] = chunkPage(page, 2)
+    await saveObservationPage(db, crashed, first!)
+    // The process dies here; recovery ends the run and a successor claims the source.
+    await ageRun(session.admin, crashed.runId, 10 * 60_000)
+    expect(await ledger.recoverExpired()).toBeGreaterThanOrEqual(1)
+    await ageSource(session.admin, source, 48 * HOUR)
+    const claim = await kit.claimOne(source)
+    // The checkpoint never moved, so the successor starts from scratch and re-fetches the page.
+    expect(claim.checkpoint).toBeNull()
+    for (const chunk of chunkPage(page, 2)) await saveObservationPage(db, handleOf(claim), chunk)
+    const [crashedRow, successorRow] = await fx.runs(source)
+    // The documented limit: summed over both runs `received` is 5 for a 3-observation page.
+    expect(crashedRow).toMatchObject({ received: 2, created: 2, unchanged: 0, duplicates: 0 })
+    expect(successorRow).toMatchObject({ received: 3, created: 1, unchanged: 2, duplicates: 0 })
+    expect(successorRow?.checkpoint).toMatchObject({ position: { page: 1 } })
+    expect(await storeCounts(session.admin, namespace)).toMatchObject({
+      records: 3,
+      revisions: 3,
+      memberships: 5,
+    })
   })
 
   it('Task 4.6 AC 2 / AC 6: a crash between two chunks leaves the checkpoint where it was', async () => {

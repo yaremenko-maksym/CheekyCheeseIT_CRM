@@ -7,7 +7,7 @@ import type { SqlExecutor } from '../scheduling/host-state'
  *
  * THE ORDER (an extension of the ADR 2026-10-24 lock-acquisition table, never a reversal of it):
  *   observation path   `job_collection_runs` 1 row (`assertOwned`) -> `job_source_records` in
- *                      ascending (namespace, identity_key), as `savePage` already does, so two
+ *                      ascending (namespace, identity_key) (`saveObservations`), so two
  *                      runs whose pages overlap lock their records in the same order;
  *   canonical path     `job_source_records` by id ascending -> `job_opportunities` by id
  *                      ascending, all opportunities locked in one statement before any write.
