@@ -1395,17 +1395,13 @@ describe('layer1: timezone mentions are evidence and a flag, never a verdict', (
   it.each([
     'utc',
     'gmt',
-    'cet',
     'cest',
     'eet',
     'eest',
-    'est',
     'edt',
-    'cst',
     'cdt',
     'pst',
     'pdt',
-    'mst',
     'mdt',
     'msk',
     'time zone',
@@ -1420,6 +1416,33 @@ describe('layer1: timezone mentions are evidence and a flag, never a verdict', (
     expect(r.rejectedBy).toEqual([])
   })
 
+  it.each(['CET', 'EST', 'CST', 'MST'])('the upper-case abbreviation %s is recorded', (abbr) => {
+    const text = `Core hours in ${abbr}`
+    expect(body(text).geography.evidence).toEqual([
+      ev('BODY', 'descriptionMd', text, 'TIMEZONE_MENTION'),
+    ])
+    expect(body(text).flags).toContain('TIMEZONE_MENTIONED')
+    expect(body(text).geography.verdict).toBe('PASS')
+  })
+
+  it.each([
+    'Est. 2015',
+    'Elle est ici, cet été',
+    'est',
+    'cet',
+    'Core hours in est',
+    'Cst and Mst are names',
+  ])('"%s" is ordinary text, not a timezone', (text) => {
+    expect(body(text).flags).not.toContain('TIMEZONE_MENTIONED')
+    expect(body(text).geography.evidence).toEqual([])
+  })
+
+  it('an abbreviation inside a longer word or number is not a timezone', () => {
+    expect(body('ESTONIA').flags).not.toContain('TIMEZONE_MENTIONED')
+    expect(body('XCET').flags).not.toContain('TIMEZONE_MENTIONED')
+    expect(body('CET1').flags).not.toContain('TIMEZONE_MENTIONED')
+  })
+
   it.each([
     'UTC+2',
     'GMT-5',
@@ -1427,6 +1450,7 @@ describe('layer1: timezone mentions are evidence and a flag, never a verdict', (
     'Timezones: Europe',
     'Overlap with US hours',
     'Overlap of 1 hour',
+    'overlap with CET hours',
   ])('%s is recorded', (text) => {
     expect(body(text).flags).toContain('TIMEZONE_MENTIONED')
   })

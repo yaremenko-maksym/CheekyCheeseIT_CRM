@@ -328,19 +328,21 @@ export const AUTHORIZATION_PHRASES = [
 export const TIMEZONE_PHRASES = [
   'utc',
   'gmt',
-  'cet',
   'cest',
   'eet',
   'eest',
-  'est',
   'edt',
-  'cst',
   'cdt',
   'pst',
   'pdt',
-  'mst',
   'mdt',
   'msk',
   'time zone*',
   'timezone*',
 ] as const
+
+/**
+ * Zone abbreviations that are also ordinary words ("Est. 2015", French "est" / "cet"). They count
+ * only as written here, upper case and as a whole token; the lower-case folding does not apply.
+ */
+export const TIMEZONE_UPPERCASE_ABBREVIATIONS = ['CET', 'EST', 'CST', 'MST'] as const

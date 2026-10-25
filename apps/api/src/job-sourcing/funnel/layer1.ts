@@ -27,6 +27,7 @@ import {
   ROLE_FAMILIES,
   SOFTENER_STEMS,
   TIMEZONE_PHRASES,
+  TIMEZONE_UPPERCASE_ABBREVIATIONS,
   YEARS_UNITS,
 } from './layer1.lexicon'
 import type {
@@ -676,6 +677,11 @@ const AUTHORIZED_TO_WORK_RE = new RegExp(
 /** "UTC+2", "CET", "overlap with US hours": a timezone is mentioned (evidence only, never a reject). */
 const TIMEZONE_RE = phraseRegex(TIMEZONE_PHRASES)
 /** "overlap with ... hours" names a working-hours window without naming a zone. */
+/** Case-sensitive on purpose: tested on the sentence as written, not on the folded text. */
+const TIMEZONE_ABBREVIATION_RE = new RegExp(
+  `${WORD_START}(?:${TIMEZONE_UPPERCASE_ABBREVIATIONS.join('|')})${WORD_END}`,
+  'u',
+)
 const OVERLAP_HOURS_RE = /\boverlap (?:with|of)\b[^.;]{0,60}\bhours?\b/u
 const AUTHORIZATION_RES = AUTHORIZATION_PHRASES.map(([phrase, region]) => ({
   re: phraseRegex([phrase]),
@@ -707,7 +713,11 @@ function classifyGeography(input: Layer1Input): Dimension<GeographyValue> {
         regions.add(regionCode(m[1] ?? m[2] ?? m[3] ?? ''))
         note(src, sentence, 'REGION_LIMIT')
       }
-      if (hitsOf(TIMEZONE_RE, folded).length > 0 || OVERLAP_HOURS_RE.test(folded))
+      if (
+        hitsOf(TIMEZONE_RE, folded).length > 0 ||
+        TIMEZONE_ABBREVIATION_RE.test(sentence) ||
+        OVERLAP_HOURS_RE.test(folded)
+      )
         note(src, sentence, 'TIMEZONE_MENTION')
       for (const m of folded.matchAll(AUTHORIZED_TO_WORK_RE)) {
         if (isNegated(folded, m.index ?? 0)) continue
