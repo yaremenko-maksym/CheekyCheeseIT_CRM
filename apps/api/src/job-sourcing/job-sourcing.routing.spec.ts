@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { HrAccessService } from '../common/hr-access.service'
 import type { DatabaseService } from '../database/database.service'
 import type { JobSourceProvider } from './job-source.provider'
+import { JobSourcingCronService } from './job-sourcing.cron'
 import { JobSourcingService, NotLegacySourceError } from './job-sourcing.service'
 import type { ReportingJobSourceProvider } from './providers/reporting-provider'
 import { JobSourceRegistry } from './registry/job-source-registry'
@@ -100,5 +101,26 @@ describe('one routing (T7, AC 17)', () => {
     // ARBEITNOW_API is not registered at all: it still reaches collectSource, as before (it fails
     // there with "no provider"); only a REGISTERED reporting type is skipped.
     expect(ran).toEqual(['DOU_RSS', 'ARBEITNOW_API'])
+  })
+
+  it('the 05:00 handler itself collects DOU through the legacy path, and skips a manual-only source', async () => {
+    const rows = [
+      { ...source('DOU_RSS'), id: 'id-dou', enabled: true },
+      { ...source('REMOTIVE_API'), id: 'id-remotive', enabled: true },
+      // a manual-only legacy row: the cron trigger must not run it
+      { ...source('DOU_RSS'), id: 'id-dou-manual', enabled: true, triggerMode: 'MANUAL' as const },
+    ]
+    const db = {
+      db: { select: () => ({ from: () => ({ where: () => Promise.resolve(rows) }) }) },
+    } as unknown as DatabaseService
+    const s = service(db)
+    const ran: string[] = []
+    vi.spyOn(s.svc, 'collectSource').mockImplementation(async (src) => {
+      ran.push(src.id)
+      return { sourceType: src.type } as never
+    })
+    vi.spyOn(s.svc, 'purgeStalePostings').mockResolvedValue(0)
+    await new JobSourcingCronService(s.svc).handleDailyCollection()
+    expect(ran).toEqual(['id-dou'])
   })
 })

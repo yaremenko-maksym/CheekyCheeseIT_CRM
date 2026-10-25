@@ -241,7 +241,83 @@ describe.skipIf(!hasDatabaseUrl())('ownership in flight against Postgres (T7)', 
     await release(successorClaim!)
   })
 
-  it('AC 14: a heartbeat queued behind a page write lands before the lease expires', async () => {
+  it('AC 14 (SPEC-L-2), through the WORKER: its heartbeat loop lands behind its own page write, within L', async () => {
+    const { sourceId } = await scriptedSource()
+    const identityKey = `["t7-${TAG}-worker-locked"]`
+    await w.admin.query(
+      `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key)
+       VALUES ('JOBICY_API', $1, 'NATIVE_ID', $2)`,
+      [`t3spec-${TAG}`, identityKey],
+    )
+    const blocker = await w.admin.connect()
+    const H = 1_000
+    const beats: { ok: boolean; ms: number }[] = []
+    let pageResult = ''
+    try {
+      await blocker.query('BEGIN')
+      await blocker.query(`SELECT 1 FROM job_source_records WHERE identity_key = $1 FOR UPDATE`, [
+        identityKey,
+      ])
+      behave = async (ctx) => {
+        // start the page write just before the worker's first heartbeat (at H)
+        await new Promise((r) => setTimeout(r, H - 150))
+        pageResult = await ctx.checkpoints
+          .savePage({
+            observations: [
+              {
+                identity: {
+                  provider: 'JOBICY_API',
+                  namespace: `t3spec-${TAG}`,
+                  nativeId: 'worker-locked',
+                  identityKey,
+                  identityKind: 'NATIVE_ID',
+                },
+              } as never,
+            ],
+            checkpoint: {
+              configVersion: 1,
+              policyVersion: 1,
+              adapterVersion: 'jobicy_api-spec',
+              position: { kind: 'CURSOR', page: 1, cursor: 'c1' },
+              completedAt: new Date('2026-10-25T00:00:00Z'),
+            },
+          })
+          .then(
+            () => 'saved',
+            (e: { cause?: { code?: string }; code?: string }) =>
+              e.cause?.code ?? e.code ?? 'failed',
+          )
+        return emptyBatch()
+      }
+      const [report] = await w
+        .worker(
+          {
+            // the worker's own heartbeat, on the reserved connection, timed
+            heartbeat: async (h) => {
+              const t = Date.now()
+              const ok = await w.heartbeat(h)
+              beats.push({ ok, ms: Date.now() - t })
+              return ok
+            },
+          },
+          { heartbeatMs: H, runDeadlineMs: 20_000 },
+        )
+        .runDue({ cycleId: await w.cycle(), onlyIds: [sourceId] })
+      // the page write was cut at H (its budget is the heartbeat interval) ...
+      expect(['55P03', '57014']).toContain(pageResult)
+      // ... the heartbeat that queued behind it landed, renewed, and well inside L
+      expect(beats[0]?.ok).toBe(true)
+      expect(beats[0]?.ms).toBeGreaterThan(H / 2)
+      expect(beats[0]?.ms).toBeLessThan(L - 2 * H)
+      expect(report).toMatchObject({ finished: true })
+    } finally {
+      await blocker.query('ROLLBACK')
+      blocker.release()
+      await w.admin.query(`DELETE FROM job_source_records WHERE identity_key = $1`, [identityKey])
+    }
+  })
+
+  it('AC 14, at the ledger: a heartbeat queued behind a page write lands before the lease expires', async () => {
     const { sourceId } = await scriptedSource()
     const [run] = (
       await w.ledger.claimDue({

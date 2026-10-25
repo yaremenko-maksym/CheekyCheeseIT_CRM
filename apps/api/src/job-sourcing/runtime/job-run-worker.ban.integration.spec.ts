@@ -155,11 +155,14 @@ describe.skipIf(!hasDatabaseUrl())(
       fixture.answer = () => ({ body: {} })
     })
 
+    // The 429 carries `Retry-After: 7200` (2 h), but the header does not reach the context before
+    // T6 surfaces it on the transport error, so this pins the 24 h FLOOR only: SR-M-21's
+    // "the larger value wins" with a Retry-After above 24 h is T6's test.
     it.each([
       [403, 'ACCESS_POLICY', {}],
       [429, 'RATE_LIMIT', { 'retry-after': '7200' }],
     ] as const)(
-      'AC 10-12: a %i pauses the host before the adapter sees it; the run sends and spends nothing more',
+      'AC 10-12: a %i pauses the host (24 h floor only) before the adapter sees it; the run sends and spends nothing more',
       async (status, code, headers) => {
         fixture.answer = () => ({ status, headers })
         const hostKey = w.fx.host(`ban${status}`)

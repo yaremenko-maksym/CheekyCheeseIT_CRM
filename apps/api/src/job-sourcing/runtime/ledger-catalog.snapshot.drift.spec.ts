@@ -1,6 +1,6 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { FIXTURE_ROOT } from '../../test/fixture-provenance'
 import { buildManifest } from '../providers/manifest'
@@ -156,27 +156,73 @@ describe('the production build ships what the worker imports (T7)', () => {
   const build = JSON.parse(readFileSync(join(apiRoot, 'tsconfig.build.json'), 'utf8')) as {
     exclude: string[]
   }
+  /** `tsconfig.build.json`'s exclude globs (`**`, `*`), matched against an api-relative path. */
   const excluded = (path: string) =>
     build.exclude.some((glob) => {
       const re = new RegExp(
         `^${glob
           .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-          .replace(/\*\*\//g, '(.*/)?')
-          .replace(/\*/g, '[^/]*')}$`,
+          .replace(/\*\*\//g, '\u0000')
+          .replace(/\*\*/g, '\u0001')
+          .replace(/\*/g, '[^/]*')
+          .replace(/\u0000/g, '(.*/)?')
+          .replace(/\u0001/g, '.*')}$`,
       )
       return re.test(path)
     })
 
-  it('the snapshot and the catalog are not excluded, and the manifest still is', () => {
+  /**
+   * CR-M-4: every file reachable through RELATIVE imports (static `import … from`, `export … from`,
+   * side-effect `import '…'`, dynamic `import('…')`) from the files the production process runs.
+   * Package imports are not followed: the build does not emit them.
+   */
+  function importGraph(entries: readonly string[]): Set<string> {
+    const seen = new Set<string>()
+    const queue = [...entries]
+    while (queue.length > 0) {
+      const file = queue.pop() as string
+      if (seen.has(file)) continue
+      seen.add(file)
+      const text = readFileSync(file, 'utf8')
+      const specifiers = [...text.matchAll(/(?:from|import)\s*\(?\s*'(\.{1,2}\/[^']+)'/g)].map(
+        (m) => m[1] as string,
+      )
+      for (const spec of specifiers) {
+        const base = join(dirname(file), spec)
+        const resolved = [`${base}.ts`, join(base, 'index.ts')].find((p) => existsSync(p))
+        if (resolved === undefined) throw new Error(`unresolved import ${spec} in ${file}`)
+        queue.push(resolved)
+      }
+    }
+    return seen
+  }
+
+  const RUNTIME_ENTRIES = [
+    'job-run-worker.ts',
+    'collection-context.ts',
+    'production-worker.ts',
+    'production-catalog.ts',
+  ].map((f) => join(__dirname, f))
+
+  it('the exclude matcher reads the build`s globs as the build does', () => {
     expect(excluded('src/job-sourcing/runtime/ledger-catalog.snapshot.ts')).toBe(false)
     expect(excluded('src/job-sourcing/runtime/production-catalog.ts')).toBe(false)
     expect(excluded('src/job-sourcing/providers/manifest.ledger-catalog.ts')).toBe(true)
+    expect(excluded('src/job-sourcing/runtime/__test-helpers__/runtime-harness.ts')).toBe(true)
+    expect(excluded('src/job-sourcing/runtime/job-run-worker.spec.ts')).toBe(true)
+    expect(excluded('src/test/ledger-fixtures.ts')).toBe(true)
   })
 
-  it('no runtime file imports the manifest, which the build drops', () => {
-    for (const file of ['production-catalog.ts', 'ledger-catalog.snapshot.ts']) {
-      const text = readFileSync(join(__dirname, file), 'utf8')
-      expect(text, file).not.toMatch(/from '\.\.\/providers\/manifest/)
-    }
+  it('nothing the production worker, context or catalog imports is a file the build drops', () => {
+    const graph = [...importGraph(RUNTIME_ENTRIES)].map((p) => relative(apiRoot, p))
+    // the walk really walked: the ledger, the meter store and the snapshot are reached
+    expect(graph).toEqual(
+      expect.arrayContaining([
+        'src/job-sourcing/ownership/job-run-ledger.ts',
+        'src/job-sourcing/metering/account-meter.store.ts',
+        'src/job-sourcing/runtime/ledger-catalog.snapshot.ts',
+      ]),
+    )
+    expect(graph.filter(excluded)).toEqual([])
   })
 })

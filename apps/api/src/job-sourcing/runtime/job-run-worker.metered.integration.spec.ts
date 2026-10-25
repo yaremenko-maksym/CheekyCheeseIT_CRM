@@ -34,6 +34,7 @@ import {
   runRow,
   startFixtureServer,
 } from './__test-helpers__/runtime-harness'
+import { LEDGER_CATALOG_SNAPSHOT } from './ledger-catalog.snapshot'
 
 /**
  * r5 Task 2.5 T7 — the METERED production context against a REAL Postgres AS
@@ -177,6 +178,32 @@ async function counters(meterId: string) {
   )
   return rows[0] as { used: number; reserved: number; uncertain: number }
 }
+
+/**
+ * Quota-declaring types that are NOT in the AC 9 list, each with the reason (SPEC-L-1). Anything
+ * else the production catalog says is metered must be in `METERED`, or this file fails.
+ */
+const NOT_IN_AC9: Readonly<Partial<Record<JobSourceType, string>>> = {
+  REED_API:
+    'the adapter declares no meter of its own; under its account meter it fails closed (pinned below). Master A1: excepted from AC 9, a separate task makes Reed meter',
+}
+
+describe('AC 9 covers every metered type the production catalog knows (SPEC-L-1)', () => {
+  const quotaTypes = LEDGER_CATALOG_SNAPSHOT.types.filter((t) => t.quotaDeclared).map((t) => t.type)
+  const listed = METERED.map((m) => m.type)
+
+  it('every quota-declaring type is run by AC 9, or excepted here with a reason', () => {
+    expect(quotaTypes.length).toBeGreaterThan(0)
+    expect(quotaTypes.filter((t) => !listed.includes(t) && NOT_IN_AC9[t] === undefined)).toEqual([])
+  })
+
+  it('an exception is a quota-declaring type the AC 9 list does not also run', () => {
+    for (const t of Object.keys(NOT_IN_AC9) as JobSourceType[]) {
+      expect(quotaTypes).toContain(t)
+      expect(listed).not.toContain(t)
+    }
+  })
+})
 
 describe.skipIf(!hasDatabaseUrl())('the metered production context against Postgres (T7)', () => {
   const hosts = new Map<JobSourceType, string>()
