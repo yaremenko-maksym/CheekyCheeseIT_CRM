@@ -184,6 +184,20 @@ describe('PayoutDetailDialog — instruction card (payer surface)', () => {
     )
   })
 
+  // CR-M-2 (PR #1159): with no PAYOUT row the minimum falls back to the payout
+  // request's own createdAt — on the KYIV day (21:30Z = next day in Kyiv), not
+  // its UTC day. Runs under both tz:* projects.
+  it('no PAYOUT row: the minimum is the Kyiv day of the request createdAt', () => {
+    const original = PAYOUT.createdAt
+    PAYOUT.createdAt = '2099-06-07T21:30:00.000Z'
+    try {
+      renderDialog()
+      expect(screen.getByTestId('payout-detail-txdate')).toHaveAttribute('min', '2099-06-08')
+    } finally {
+      PAYOUT.createdAt = original
+    }
+  })
+
   it('binds the payout payment date to the payout source date and helper', () => {
     PAYOUT.transactions = [
       makePayoutLedgerTx({

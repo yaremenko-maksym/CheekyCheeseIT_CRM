@@ -673,6 +673,21 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
     expect(payload['txDate']).toBe('2026-06-02')
   })
 
+  // CR-M-1 (PR #1159) / backlog 338 item (e): an unparseable createdAt must not
+  // throw a RangeError from the creation-date label. The label falls back to
+  // `—`, the picker has no bound, and the empty date is what gets sent.
+  it('an unparseable createdAt renders a dash label and sends an empty date', async () => {
+    renderDialog({ ...(TX as object), txDate: null, createdAt: 'not-a-date' } as never)
+    await screen.findByTestId('settle-senior-account-company')
+    // The label row has no testid; its parent holds the label and the value.
+    expect(screen.getByText('Дата').parentElement?.textContent).toBe('Дата—')
+    await fillReceipt('https://etherscan.io/tx/0xbaddate')
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    await waitFor(() => expect(settleMock).toHaveBeenCalledTimes(1))
+    const [, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
+    expect(payload['txDate']).toBe('')
+  })
+
   // owner addendum (2026-08): defaults to the obligation's own creation date
   // («по умолчанию — дата создания»), and that default is exactly what
   // lands in the settle payload untouched.

@@ -211,7 +211,6 @@ export function SettleSeniorPayoutDialog({
   // day, or the KYIV day of `createdAt` for a NULL-`txDate` row — the same
   // helper the server floor calls, so the picker never offers a refused day.
   // '' when there is no row or its date is unparseable (no bound, no throw).
-  // Stryker disable next-line StringLiteral: the '' fallback is never READ. With no `tx` the component returns before rendering (pinned by "renders nothing and does not throw when tx is null"); with an unparseable `createdAt` the dialog's own createdAt label (`formatDate(tx.createdAt, …)`, pre-existing) throws first, so no bound, default or payload can observe which string sits here.
   const settleMinDate = (tx && transactionBusinessDay(tx.txDate, tx.createdAt)) ?? ''
   // CR-M-4: the SAME function the server bound calls, so the picker cannot
   // disagree with what `PendingSettlementService` will accept. This was hand-
@@ -533,7 +532,12 @@ export function SettleSeniorPayoutDialog({
               <span className="text-muted-foreground">
                 <Trans>Дата</Trans>
               </span>
-              <span className="font-medium">{formatDate(tx.createdAt, locale, 'shortYY')}</span>
+              <span className="font-medium">
+                {/* CR-M-1 (PR #1159): an unparseable createdAt renders `—`, not a RangeError. */}
+                {Number.isNaN(Date.parse(tx.createdAt))
+                  ? '—'
+                  : formatDate(tx.createdAt, locale, 'shortYY')}
+              </span>
             </div>
           </div>
 
