@@ -5,7 +5,7 @@ import {
   type JobMeterUnit,
   type JobMeterWindow,
 } from '@crm/shared'
-import { and, eq, isNull, or, sql, type SQL } from 'drizzle-orm'
+import { and, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { z } from 'zod'
 import * as schema from '../../database/schema'
@@ -23,9 +23,11 @@ import {
   isInCurrentWindow,
   planMarkSent,
   planSettlement,
+  type SettlementPlan,
   reservationKey,
   reservationKeyPrefix,
 } from './meter-transitions'
+import { assertOwned } from '../ownership/run-ownership'
 
 /**
  * The Postgres-backed shared account meter (r5 Task 3.5a): the implementation of
@@ -188,21 +190,37 @@ export const MAX_RESERVATION_AMOUNT: Readonly<Record<JobMeterUnit, number>> = {
   USD_MICROS: 1_000_000_000,
 }
 
-const bindingSchema = z.object({
-  accountKey: jobAccountKeySchema,
-  windows: z
-    .partialRecord(jobMeterUnitSchema, jobMeterWindowSchema)
-    .refine((w) => Object.keys(w).length > 0, 'at least one unit must be metered'),
-  attemptId: z
-    .string()
-    .max(MAX_METERED_ATTEMPT_ID)
-    .regex(/[^\s]/, 'attempt id must not be blank')
-    // `#` separates the attempt from the request suffix in a reservation key; an attempt id that
-    // contained one could prefix-match ANOTHER attempt's keys and settle its reservations.
-    .refine((id) => !id.includes('#'), 'attempt id must not contain #'),
-  cycleId: z.uuid(),
-  runId: z.uuid().nullable(),
-})
+const bindingSchema = z
+  .object({
+    accountKey: jobAccountKeySchema,
+    windows: z
+      .partialRecord(jobMeterUnitSchema, jobMeterWindowSchema)
+      .refine((w) => Object.keys(w).length > 0, 'at least one unit must be metered'),
+    attemptId: z
+      .string()
+      .max(MAX_METERED_ATTEMPT_ID)
+      .regex(/[^\s]/, 'attempt id must not be blank')
+      // `#` separates the attempt from the request suffix in a reservation key; an attempt id that
+      // contained one could prefix-match ANOTHER attempt's keys and settle its reservations.
+      .refine((id) => !id.includes('#'), 'attempt id must not contain #'),
+    cycleId: z.uuid(),
+    runId: z.uuid().nullable(),
+    ownerToken: z.string().min(1).max(JOB_HANDLE_MAX).nullish(),
+    fencingEpoch: z.number().int().positive().nullish(),
+  })
+  .refine(
+    // r5 Task 2.5 T3: a binding bound to a run is FENCED -- it must carry the run's owner token and
+    // epoch -- and a binding with no run carries neither. There is no third state: an unfenced
+    // run-bound binding is exactly the SR-H-1 hole.
+    (b) =>
+      b.runId === null
+        ? b.ownerToken == null && b.fencingEpoch == null
+        : b.ownerToken != null && b.fencingEpoch != null,
+    {
+      message: 'a run-bound binding carries its owner token and epoch, and only it does',
+      path: ['ownerToken'],
+    },
+  )
 
 export interface AccountMeterBinding {
   /** A credential-free account identity, e.g. `jsearch:rapidapi-main`. */
@@ -214,6 +232,14 @@ export interface AccountMeterBinding {
   cycleId: string
   /** NULL for a reservation that is not a collection attempt (e.g. a model call). */
   runId: string | null
+  /**
+   * r5 Task 2.5 T3: the run ledger's owner token and fencing epoch of `runId`, REQUIRED when
+   * `runId` is set and absent otherwise. Every `reserve` / `markSent` / `reconcile` of a run-bound
+   * binding asserts, in its own transaction, that this executor still owns the run; a fenced-out
+   * executor is refused with `RunFencedError` before anything is written.
+   */
+  ownerToken?: string | null
+  fencingEpoch?: number | null
 }
 
 /**
@@ -260,16 +286,29 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
     return window
   }
 
-  async function dbNow(tx: DrizzleTx): Promise<Date> {
-    // This is the SQL text itself — any other string is either a syntax error Postgres rejects or
-    // a different clock, and a unit double supplies the rows whatever the text says, so no unit
-    // test can distinguish it.
-    // Verified by the window-rollover block of account-meter.store.integration.spec.ts, which
-    // rolls a real meter against the real server clock.
-    // Stryker disable next-line StringLiteral: SQL text, only Postgres can evaluate it
-    const { rows } = await tx.execute<{ now: Date }>(sql`SELECT now() AS now`)
-    const now = rows[0]?.now
-    return now instanceof Date ? now : new Date(String(now))
+  /**
+   * r5 Task 2.5 T3 — the cross-process half of SR-H-1. A run-bound binding asserts, under the
+   * run row lock, that its executor still owns the run; a second live executor of the same attempt
+   * holds another token or a superseded epoch and is refused here, before a reservation is taken,
+   * marked sent or settled. Returns the asserted run id (what `reserve` writes as `run_id`), or
+   * null for a binding with no run. The run must spend on THIS binding's account: a binding naming
+   * another account than its run's is refused, so a run's reservations are always on the meters
+   * the end-of-run settlement locks.
+   */
+  async function assertBindingOwned(tx: DrizzleTx): Promise<string | null> {
+    if (binding.runId === null) return null
+    const owned = await assertOwned(tx, {
+      runId: binding.runId,
+      ownerToken: binding.ownerToken as string,
+      fencingEpoch: binding.fencingEpoch as number,
+    })
+    if (owned.accountKey !== binding.accountKey) {
+      throw new AccountMeterError(
+        'INVALID_BINDING',
+        'the binding names another account than its run',
+      )
+    }
+    return owned.runId
   }
 
   /** Lock the meter row, then apply a due window reset in place. Returns the current row. */
@@ -288,35 +327,7 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
         'no meter row exists for this account, unit and window',
       )
     }
-    const next = rollWindow(meter.window, meter.resetsAt, await dbNow(tx))
-    // The roll's real effect (`used` back to 0, the bounds advanced) is asserted by VALUES in the
-    // integration spec's rollover block; forcing this arm FALSE — rolling a window that is not
-    // due — is caught by 6 unit tests. R4-SR-M-2: a `disable next-line` here blanket-covered that
-    // killable arm too, which is lost signal, so it was removed.
-    if (next === null) return meter
-    // Hoisted out of the `.set({ ... })` below rather than written inline, which is the workaround
-    // backlog 315 names: a `Stryker disable` is not honoured inside a method chain, so a line that
-    // genuinely needs one has to be a statement. The clock text itself is SQL — only Postgres
-    // evaluates it, and a database double is handed the object whatever it says.
-    // Stryker disable next-line StringLiteral: SQL text, only Postgres evaluates it
-    const touchedAt = sql`now()`
-    const [rolled] = await tx
-      .update(jobAccountMeters)
-      .set({
-        used: 0,
-        windowStartedAt: next.windowStartedAt,
-        resetsAt: next.resetsAt,
-        updatedAt: touchedAt,
-      })
-      .where(eq(jobAccountMeters.id, meter.id))
-      .returning()
-    // The ROLLED row, so the caller sees the advanced bounds; `meter` is the pre-roll fallback for
-    // the case the UPDATE matched nothing. A double cannot tell the two apart, because it returns
-    // the same row object either way; what distinguishes them is a real UPDATE, and the integration
-    // spec's "a reconcile can itself be the first operation of W+1 and still accounts to W" case is
-    // what fails if the stale row is returned, because the window decision reads its start instant.
-    // Stryker disable next-line LogicalOperator: needs a really-updated row, verified by the integration rollover cases
-    return rolled ?? meter
+    return rollIfDue(tx, meter)
   }
 
   async function reserve(unit: JobMeterUnit, amount: number): Promise<MeterReservation | null> {
@@ -344,6 +355,8 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
           eq(jobAccountMeters.window, window),
         ),
       )
+      // Lock order (ADR lock-acquisition table): meter -> run -> reservation.
+      const runId = await assertBindingOwned(tx)
 
       /**
        * Replay walk: reuse a still-RESERVED key, skip keys whose request already left.
@@ -424,7 +437,8 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
         .values({
           meterId: meter.id,
           attemptId: reservationKey(binding.attemptId, unit, ordinal),
-          runId: binding.runId,
+          // The id of the run row `assertOwned` locked, never caller input (ADR T3).
+          runId,
           cycleId: binding.cycleId,
           amount,
         })
@@ -485,6 +499,8 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
       if (error instanceof AccountMeterError && error.code === 'METER_NOT_FOUND') throw foreign()
       throw error
     })
+    // Lock order (ADR lock-acquisition table): meter -> run -> reservation.
+    await assertBindingOwned(tx)
     const [row] = await tx
       .select()
       .from(jobAccountMeterReservations)
@@ -591,37 +607,177 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
       // Stryker disable next-line ConditionalExpression: forcing it true fails 18 of 48 integration tests and 0 of the unit suite
       if (plan.kind === 'illegal') throw illegal(row.status, resolution)
 
-      // The STORED amount releases the hold, never the caller's claim. What is CONVERTED is the
-      // cost actually incurred when the caller reported one (already bounded by `amount` above),
-      // else the whole reservation.
-      const amount = row.amount
-      const converted = incurred ?? amount
-      const hold =
-        plan.releaseFrom === 'uncertain' ? jobAccountMeters.uncertain : jobAccountMeters.reserved
-
-      await tx
-        .update(jobAccountMeters)
-        .set({
-          [plan.releaseFrom]: sql`${hold} - ${amount}`,
-          ...(plan.addUncertain
-            ? { uncertain: sql`${jobAccountMeters.uncertain} + ${amount}` }
-            : {}),
-          ...(plan.addUsed ? { used: sql`${jobAccountMeters.used} + ${converted}` } : {}),
-          updatedAt: sql`now()`,
-        })
-        .where(eq(jobAccountMeters.id, meter.id))
-
-      await tx
-        .update(jobAccountMeterReservations)
-        .set({
-          status: resolution,
-          ...(plan.stampSent ? { sentAt: row.sentAt ?? sql`now()` } : {}),
-          ...(plan.stampSettled ? { settledAt: sql`now()` } : {}),
-          ...(plan.recordUsed ? { usedAmount: converted } : {}),
-        })
-        .where(eq(jobAccountMeterReservations.id, row.id))
+      await applySettlement(tx, meter.id, row, plan, resolution, incurred)
     })
   }
 
   return { reserve, reconcile, markSent }
+}
+
+/**
+ * The database clock (`now()`, the transaction's start) -- the same clock `reserved_at` defaults to,
+ * so the window a reservation belongs to is decided by one clock.
+ */
+async function dbNow(tx: DrizzleTx): Promise<Date> {
+  // This is the SQL text itself — any other string is either a syntax error Postgres rejects or
+  // a different clock, and a unit double supplies the rows whatever the text says, so no unit
+  // test can distinguish it.
+  // Verified by the window-rollover block of account-meter.store.integration.spec.ts, which
+  // rolls a real meter against the real server clock.
+  // Stryker disable next-line StringLiteral: SQL text, only Postgres can evaluate it
+  const { rows } = await tx.execute<{ now: Date }>(sql`SELECT now() AS now`)
+  const now = rows[0]?.now
+  return now instanceof Date ? now : new Date(String(now))
+}
+
+/** Apply a due window reset in place to a meter row the caller has LOCKED. Returns the current row. */
+async function rollIfDue(tx: DrizzleTx, meter: MeterRow): Promise<MeterRow> {
+  const next = rollWindow(meter.window, meter.resetsAt, await dbNow(tx))
+  // The roll's real effect (`used` back to 0, the bounds advanced) is asserted by VALUES in the
+  // integration spec's rollover block; forcing this arm FALSE — rolling a window that is not
+  // due — is caught by 6 unit tests. R4-SR-M-2: a `disable next-line` here blanket-covered that
+  // killable arm too, which is lost signal, so it was removed.
+  if (next === null) return meter
+  // Hoisted out of the `.set({ ... })` below rather than written inline, which is the workaround
+  // backlog 315 names: a `Stryker disable` is not honoured inside a method chain, so a line that
+  // genuinely needs one has to be a statement. The clock text itself is SQL — only Postgres
+  // evaluates it, and a database double is handed the object whatever it says.
+  // Stryker disable next-line StringLiteral: SQL text, only Postgres evaluates it
+  const touchedAt = sql`now()`
+  const [rolled] = await tx
+    .update(jobAccountMeters)
+    .set({
+      used: 0,
+      windowStartedAt: next.windowStartedAt,
+      resetsAt: next.resetsAt,
+      updatedAt: touchedAt,
+    })
+    .where(eq(jobAccountMeters.id, meter.id))
+    .returning()
+  // The ROLLED row, so the caller sees the advanced bounds; `meter` is the pre-roll fallback for
+  // the case the UPDATE matched nothing. A double cannot tell the two apart, because it returns
+  // the same row object either way; what distinguishes them is a real UPDATE, and the integration
+  // spec's "a reconcile can itself be the first operation of W+1 and still accounts to W" case is
+  // what fails if the stale row is returned, because the window decision reads its start instant.
+  // Stryker disable next-line LogicalOperator: needs a really-updated row, verified by the integration rollover cases
+  return rolled ?? meter
+}
+
+/**
+ * Write one legal settlement (`plan.kind === 'apply'`) under the meter and reservation locks.
+ * The STORED amount releases the hold, never the caller's claim. What is CONVERTED is the cost
+ * actually incurred when the caller reported one (already bounded by the amount), else the whole
+ * reservation.
+ */
+async function applySettlement(
+  tx: DrizzleTx,
+  meterId: string,
+  row: ReservationRow,
+  plan: Extract<SettlementPlan, { kind: 'apply' }>,
+  resolution: ReservationResolution,
+  incurred: number | undefined,
+): Promise<void> {
+  const amount = row.amount
+  const converted = incurred ?? amount
+  const hold =
+    plan.releaseFrom === 'uncertain' ? jobAccountMeters.uncertain : jobAccountMeters.reserved
+
+  await tx
+    .update(jobAccountMeters)
+    .set({
+      [plan.releaseFrom]: sql`${hold} - ${amount}`,
+      ...(plan.addUncertain ? { uncertain: sql`${jobAccountMeters.uncertain} + ${amount}` } : {}),
+      ...(plan.addUsed ? { used: sql`${jobAccountMeters.used} + ${converted}` } : {}),
+      updatedAt: sql`now()`,
+    })
+    .where(eq(jobAccountMeters.id, meterId))
+
+  await tx
+    .update(jobAccountMeterReservations)
+    .set({
+      status: resolution,
+      ...(plan.stampSent ? { sentAt: row.sentAt ?? sql`now()` } : {}),
+      ...(plan.stampSettled ? { settledAt: sql`now()` } : {}),
+      ...(plan.recordUsed ? { usedAmount: converted } : {}),
+    })
+    .where(eq(jobAccountMeterReservations.id, row.id))
+}
+
+// ---------------------------------------------------------------------------
+// End-of-run settlement (r5 Task 2.5 T3; ADR "End-of-run settlement")
+// ---------------------------------------------------------------------------
+
+/**
+ * `lockAccountMeters(tx, accountKey)`: lock EVERY meter row of one account, by `id`, and apply each
+ * row's due window roll -- the meter step of `finish` and recovery in the lock-acquisition table.
+ * A synthetic `#source:` key has no meter rows, so the map is empty for an unmetered source.
+ */
+export async function lockAccountMeters(
+  tx: DrizzleTx,
+  accountKey: string,
+): Promise<ReadonlyMap<string, MeterRow>> {
+  const rows = await tx
+    .select()
+    .from(jobAccountMeters)
+    .where(eq(jobAccountMeters.accountKey, accountKey))
+    .orderBy(jobAccountMeters.id)
+    .for('update')
+  const locked = new Map<string, MeterRow>()
+  for (const row of rows) locked.set(row.id, await rollIfDue(tx, row))
+  return locked
+}
+
+/** The end-of-run resolution of an open reservation (ADR table): unsent is released, else spent. */
+export function endOfRunResolution(
+  status: 'RESERVED' | 'SENT' | 'UNCERTAIN',
+): ReservationResolution {
+  return status === 'RESERVED' ? 'RELEASED' : 'USED'
+}
+
+/**
+ * `settleRunReservations(tx, runId, meters)`: settle every OPEN reservation of a run that is being
+ * made terminal (the caller holds its run row) or already is (the sweep), under meter locks the
+ * caller already holds. It is not `reconcile`: it asserts no live run, because the run is ending.
+ *
+ *   RESERVED  -> RELEASED   provably unsent: `markSent` serializes against the run row lock
+ *   SENT      -> USED       may have been billed; counted at the full reservation
+ *   UNCERTAIN -> USED       the adapter could not tell; counted at the full reservation
+ *
+ * So no `UNCERTAIN` hold outlives its run. A reservation on a meter the caller did not lock is an
+ * invariant breach (the meter binding refuses a window from another account than its run's), and
+ * throws rather than settling outside the lock order. Returns how many were settled.
+ */
+export async function settleRunReservations(
+  tx: DrizzleTx,
+  runId: string,
+  meters: ReadonlyMap<string, MeterRow>,
+): Promise<number> {
+  const open = await tx
+    .select()
+    .from(jobAccountMeterReservations)
+    .where(
+      and(
+        eq(jobAccountMeterReservations.runId, runId),
+        inArray(jobAccountMeterReservations.status, ['RESERVED', 'SENT', 'UNCERTAIN']),
+      ),
+    )
+    .orderBy(jobAccountMeterReservations.id)
+    .for('update')
+  for (const row of open) {
+    const meter = meters.get(row.meterId)
+    if (meter === undefined) {
+      throw new Error(
+        `settleRunReservations: reservation ${row.id} is on a meter that is not locked`,
+      )
+    }
+    const resolution = endOfRunResolution(row.status as 'RESERVED' | 'SENT' | 'UNCERTAIN')
+    const plan = planSettlement(
+      row.status,
+      resolution,
+      isInCurrentWindow(meter.windowStartedAt, row.reservedAt),
+    )
+    if (plan.kind !== 'apply') throw new Error(`settleRunReservations: ${row.status} cannot end`)
+    await applySettlement(tx, meter.id, row, plan, resolution, undefined)
+  }
+  return open.length
 }

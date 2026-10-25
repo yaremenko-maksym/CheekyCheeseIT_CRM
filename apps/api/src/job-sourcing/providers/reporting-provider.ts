@@ -57,6 +57,13 @@ export const COLLECTION_ERROR_CODES = [
   'CURSOR_CYCLE',
   'PAYLOAD_TOO_LARGE',
   'ADAPTER_INVARIANT',
+  // r5 Task 2.5 T3 (the run ledger owns these; T7 only raises them):
+  // the executor no longer owns its run (wrong token, superseded epoch, or lease gone).
+  'RUN_FENCED',
+  // recovery ended a run whose lease expired (crash, fence, a shutdown that could not finish).
+  'LEASE_EXPIRED',
+  // a fetch was attempted without a committed markSent (T7's send-permit guard).
+  'NOT_MARKED_SENT',
 ] as const
 
 export type CollectionErrorCode = (typeof COLLECTION_ERROR_CODES)[number]

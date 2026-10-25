@@ -34,13 +34,32 @@ export class LegacyDouAdapter {
   }
 }
 
+/**
+ * How a reporting adapter is wired to the transport (r5 Task 2.5 T3 gate, T6 fills it in). Absent
+ * means NOT wired: the run ledger refuses to claim a source whose adapter declares no
+ * `allowedHosts` (`TRANSPORT_NOT_WIRED`, SR-M-16) or no version to stamp on its run row.
+ */
+export interface ReportingWiring {
+  readonly adapterVersion?: string
+  readonly allowedHosts?: readonly string[]
+}
+
 /** A phase-3 adapter on the reporting contract. Registered for activation, never run by this task. */
 export class ReportingAdapter {
   readonly contract = 'REPORTING' as const
 
   readonly type: JobSourceType
 
-  constructor(readonly provider: ReportingJobSourceProvider) {
+  readonly adapterVersion: string | null
+
+  readonly allowedHosts: readonly string[]
+
+  constructor(
+    readonly provider: ReportingJobSourceProvider,
+    wiring: ReportingWiring = {},
+  ) {
     this.type = provider.type
+    this.adapterVersion = wiring.adapterVersion ?? null
+    this.allowedHosts = Object.freeze([...(wiring.allowedHosts ?? [])])
   }
 }
