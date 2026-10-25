@@ -43,9 +43,14 @@ export type RetryAfter =
   { readonly kind: 'DELAY'; readonly seconds: number } | { readonly kind: 'AT'; readonly at: Date }
 
 const DELAY_SECONDS = /^\d{1,12}$/
-/** The last year `timestamptz` and a `toISOString` without a `+` sign both hold (SEC-AUTO-1). */
+/**
+ * The last year an instant may have here (SEC-AUTO-1). Not a `timestamptz` limit (that type spans
+ * 4713 BC to 294276 AD): past 9999 `toISOString` renders a signed 6-digit year (`+010000-…`),
+ * which the `::timestamptz` cast of that text refuses. Below year 1 it renders `0000-` or a `-`
+ * sign, which the cast refuses too.
+ */
 const MAX_YEAR = 9999
-/** The first year `timestamptz` holds (there is no year 0). */
+/** The first year whose `toISOString` text the cast accepts (see MAX_YEAR). */
 const MIN_YEAR = 1
 
 /**
@@ -136,12 +141,14 @@ export function retrySql(retry: RetryAfter | null): SQL {
   // `toISOString` throw), leaving the ban unrecorded. Each becomes a NULL, which GREATEST skips:
   // the ban then pauses for its floor.
   if (retry.kind === 'DELAY') {
-    // A non-finite or negative delay is no `make_interval` argument.
+    // A non-finite delay is no `make_interval` argument (Postgres refuses NaN and Infinity). A
+    // negative one IS valid, but it names a past instant that `GREATEST` skips anyway; refusing
+    // it keeps the parameter meaningful. Neither is reachable: the delay pattern is digits only.
     if (!Number.isFinite(retry.seconds) || retry.seconds < 0) return sql`NULL::timestamptz`
     return sql`clock_timestamp() + make_interval(secs => ${retry.seconds})`
   }
-  // An invalid Date, or a year outside 1..9999 (year 0, a negative year, a 5-digit year), is no
-  // `timestamptz`.
+  // An invalid Date throws in `toISOString`; a year outside 1..9999 (year 0, a negative year, a
+  // 5-digit year) renders text the `::timestamptz` cast refuses (see MAX_YEAR).
   const ms = retry.at.getTime()
   const year = retry.at.getUTCFullYear()
   if (!Number.isFinite(ms) || year < MIN_YEAR || year > MAX_YEAR) return sql`NULL::timestamptz`

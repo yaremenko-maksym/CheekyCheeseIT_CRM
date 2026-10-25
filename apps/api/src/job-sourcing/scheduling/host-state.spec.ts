@@ -136,6 +136,10 @@ describe('parseRetryAfter', () => {
         params: ['9999-12-31T23:59:59.000Z'],
       })
       expect(shape(retrySql(null))).toEqual({ sql: 'NULL::timestamptz', params: [] })
+      expect(shape(retrySql({ kind: 'DELAY', seconds: 5 }))).toEqual({
+        sql: 'clock_timestamp() + make_interval(secs => $1)',
+        params: [5],
+      })
     })
 
     it('CR-M-6 / SR-L-1: retrySql refuses year 0, negative years and non-finite or negative delays', () => {
@@ -164,10 +168,6 @@ describe('parseRetryAfter', () => {
       expect(shape(retrySql({ kind: 'DELAY', seconds: 0 }))).toEqual({
         sql: 'clock_timestamp() + make_interval(secs => $1)',
         params: [0],
-      })
-      expect(shape(retrySql({ kind: 'DELAY', seconds: 5 }))).toEqual({
-        sql: 'clock_timestamp() + make_interval(secs => $1)',
-        params: [5],
       })
     })
   })
