@@ -4,6 +4,8 @@ import { AuthModule } from '../auth/auth.module'
 import type { Env } from '../config/env'
 import { DatabaseModule } from '../database/database.module'
 import { DatabaseService } from '../database/database.service'
+import { JobSourceAdminController } from './admin/job-source-admin.controller'
+import { JobSourceAdminService } from './admin/job-source-admin.service'
 import { DouRssProvider } from './dou.provider'
 import { JobQueueActionRetentionCronService } from './job-queue-action-retention.cron'
 import { JobSourcingController } from './job-sourcing.controller'
@@ -37,9 +39,10 @@ import { createProductionWorker } from './runtime/production-worker'
  */
 @Module({
   imports: [DatabaseModule, AuthModule],
-  controllers: [JobSourcingController],
+  controllers: [JobSourcingController, JobSourceAdminController],
   providers: [
     JobSourcingService,
+    JobSourceAdminService,
     JobSourcingCronService,
     JobQueueActionRetentionCronService,
     DouRssProvider,

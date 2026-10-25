@@ -1717,10 +1717,15 @@ describe('applyPayoutPaidCascade — drop-project IOU booking (amounts)', () => 
     }
   })
 
-  it('without a chosen date the IOU rows carry no txDate key', async () => {
+  // SR-H-1 (PR #1158): this used to pin the bug — no txDate key, so tx_date was NULL.
+  it('without a chosen date the IOU rows are dated with the current Kyiv business day', async () => {
     const h = build(ioWorld())
     await h.svc.manualConfirmPayout(REQUEST_ID, 'COMPANY_ACCOUNT', ADMIN)
-    for (const row of iouRows(h)) expect(row).not.toHaveProperty('txDate')
+    expect(iouRows(h)).toHaveLength(2)
+    // NOW is 12:00Z on 15 Jun: Kyiv and UTC agree on the day, so the instant itself.
+    for (const row of iouRows(h)) {
+      expect((row['txDate'] as Date).toISOString()).toBe('2026-06-15T12:00:00.000Z')
+    }
   })
 
   it('the income is req.incomeAmount parsed as a float (not payableAmount)', async () => {

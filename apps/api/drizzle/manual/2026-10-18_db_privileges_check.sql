@@ -123,6 +123,7 @@ BEGIN
     ('job_queue_actions', 'B', false),
     ('_drop_share_pending_parity_backup_20260727', 'E', true),
     ('_settle_phantom_backup_20260715', 'E', true),
+    ('_tx_date_kyiv_backfill_backup_20261025', 'E', true),
     ('drop_cascade_origin_marker_state', 'E', true),
     ('salary_month_shift_backup', 'E', true),
     ('confirmed_projects', 'V', false),
@@ -240,6 +241,7 @@ BEGIN
     ('job_queue_actions', 'B', false),
     ('_drop_share_pending_parity_backup_20260727', 'E', true),
     ('_settle_phantom_backup_20260715', 'E', true),
+    ('_tx_date_kyiv_backfill_backup_20261025', 'E', true),
     ('drop_cascade_origin_marker_state', 'E', true),
     ('salary_month_shift_backup', 'E', true),
     ('confirmed_projects', 'V', false),
@@ -526,6 +528,7 @@ BEGIN
     ('job_queue_actions', 'B', false),
     ('_drop_share_pending_parity_backup_20260727', 'E', true),
     ('_settle_phantom_backup_20260715', 'E', true),
+    ('_tx_date_kyiv_backfill_backup_20261025', 'E', true),
     ('drop_cascade_origin_marker_state', 'E', true),
     ('salary_month_shift_backup', 'E', true),
     ('confirmed_projects', 'V', false),
@@ -724,6 +727,7 @@ BEGIN
     ('job_queue_actions', 'B', false),
     ('_drop_share_pending_parity_backup_20260727', 'E', true),
     ('_settle_phantom_backup_20260715', 'E', true),
+    ('_tx_date_kyiv_backfill_backup_20261025', 'E', true),
     ('drop_cascade_origin_marker_state', 'E', true),
     ('salary_month_shift_backup', 'E', true),
     ('confirmed_projects', 'V', false),
@@ -1087,7 +1091,7 @@ $check$;
 DO $ok$
 BEGIN
   RAISE NOTICE 'db-privileges check passed: % relations classified, roles %, %, %',
-    77, 'crm_app', 'crm_collector', 'crm_retention_owner';
+    78, 'crm_app', 'crm_collector', 'crm_retention_owner';
 END
 $ok$;
 
