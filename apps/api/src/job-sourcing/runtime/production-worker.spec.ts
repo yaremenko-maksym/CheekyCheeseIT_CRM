@@ -5,7 +5,7 @@ import type { MeterDb } from '../metering/account-meter.store'
 import { secretsForType } from '../quota-credentials'
 import { JobSourceRegistry } from '../registry/job-source-registry'
 import { POOL_SIZE_CEILING, type WorkerDeps } from './job-run-worker'
-import { createProductionLedger, createProductionWorker } from './production-worker'
+import { createProductionLedger, createProductionWorker, lateBoundDb } from './production-worker'
 import { productionLedgerCatalog } from './production-catalog'
 
 /**
@@ -41,6 +41,25 @@ const HANDLE = {
   ownerToken: 'api-1:x',
   fencingEpoch: 1,
 }
+
+describe('lateBoundDb', () => {
+  it('reads the database at use, not at construction, and binds its methods to it', async () => {
+    const holder: { db: unknown } = { db: undefined }
+    const late = lateBoundDb(holder) as unknown as {
+      execute(): Promise<unknown>
+      dialect: string
+    }
+    const real = {
+      dialect: 'pg',
+      async execute(this: { dialect: string }) {
+        return this.dialect
+      },
+    }
+    holder.db = real
+    await expect(late.execute()).resolves.toBe('pg')
+    expect(late.dialect).toBe('pg')
+  })
+})
 
 describe('createProductionLedger', () => {
   it('claims by the generated production catalog', () => {

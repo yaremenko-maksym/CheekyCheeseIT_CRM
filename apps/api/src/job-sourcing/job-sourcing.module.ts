@@ -14,7 +14,11 @@ import { JobSourcingService } from './job-sourcing.service'
 import { JobSourceRegistry } from './registry/job-source-registry'
 import { createProductionRegistry } from './registry/production-registry'
 import { JobRunWorker } from './runtime/job-run-worker'
-import { createProductionLedger, createProductionWorker } from './runtime/production-worker'
+import {
+  createProductionLedger,
+  createProductionWorker,
+  lateBoundDb,
+} from './runtime/production-worker'
 import { JobRunLedger } from './ownership/job-run-ledger'
 
 /**
@@ -58,7 +62,7 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     {
       provide: JobRunLedger,
       useFactory: (db: DatabaseService, registry: JobSourceRegistry) =>
-        createProductionLedger(db.db, registry),
+        createProductionLedger(lateBoundDb(db), registry),
       inject: [DatabaseService, JobSourceRegistry],
     },
     {
@@ -68,7 +72,7 @@ import { JobRunLedger } from './ownership/job-run-ledger'
         db: DatabaseService,
         registry: JobSourceRegistry,
         config: ConfigService<Env, true> | undefined,
-      ) => createProductionWorker(ledger, db.db, registry, config),
+      ) => createProductionWorker(ledger, lateBoundDb(db), registry, config),
       inject: [
         JobRunLedger,
         DatabaseService,

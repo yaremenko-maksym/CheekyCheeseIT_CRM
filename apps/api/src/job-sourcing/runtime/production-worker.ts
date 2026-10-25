@@ -25,6 +25,24 @@ import { productionLedgerCatalog } from './production-catalog'
  * registry holds DOU only (the ledger refuses it `NOT_ACTIVATABLE`), and a reporting adapter
  * registered later is refused `TRANSPORT_NOT_WIRED` until T6 gives it `allowedHosts`.
  */
+/**
+ * The app's database, read at the moment of each call. `DatabaseService` opens its pool and sets
+ * `db` in `onModuleInit`, which Nest runs AFTER every factory provider; a factory that read
+ * `database.db` directly captured `undefined` (PR #1162: the admin reset answered 500). Every
+ * property is fetched from the live `db` on use, methods bound to it.
+ */
+export function lateBoundDb(database: { readonly db: unknown }): MeterDb {
+  return new Proxy({} as MeterDb, {
+    get(_target, property) {
+      const db = database.db as Record<PropertyKey, unknown>
+      const value = db[property]
+      return typeof value === 'function'
+        ? (value as (...args: unknown[]) => unknown).bind(db)
+        : value
+    },
+  })
+}
+
 /** The production ledger: the app's database, the registry, the generated production catalog. */
 export function createProductionLedger(db: MeterDb, registry: JobSourceRegistry): JobRunLedger {
   return new JobRunLedger(db, registry, productionLedgerCatalog())
