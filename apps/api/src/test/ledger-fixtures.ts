@@ -4,7 +4,8 @@ import type { Pool } from 'pg'
 import type { ReportingJobSourceProvider } from '../job-sourcing/providers/reporting-provider'
 import type { ActivationFacts } from '../job-sourcing/registry/activation'
 import { JobSourceRegistry } from '../job-sourcing/registry/job-source-registry'
-import { ReportingAdapter } from '../job-sourcing/registry/registered-adapter'
+import { LegacyDouAdapter, ReportingAdapter } from '../job-sourcing/registry/registered-adapter'
+import type { JobSourceProvider } from '../job-sourcing/job-source.provider'
 import type { HostPolicy } from '../job-sourcing/scheduling/host-policy'
 import type { LedgerCatalog, LedgerCatalogEntry } from '../job-sourcing/ownership/ledger-catalog'
 
@@ -55,8 +56,10 @@ export function specRegistry(
   types: readonly JobSourceType[],
   unwired: readonly JobSourceType[] = [],
 ): JobSourceRegistry {
-  return new JobSourceRegistry(
-    types.map((t) =>
+  return new JobSourceRegistry([
+    // DOU, as production registers it: the legacy contract (T3 AC 18).
+    new LegacyDouAdapter({ type: 'DOU_RSS' } as unknown as JobSourceProvider),
+    ...types.map((t) =>
       unwired.includes(t)
         ? new ReportingAdapter(provider(t))
         : new ReportingAdapter(provider(t), {
@@ -64,7 +67,7 @@ export function specRegistry(
             allowedHosts: ['fixture.test'],
           }),
     ),
-  )
+  ])
 }
 
 export interface SourceSeed {

@@ -309,6 +309,10 @@ export class JobRunLedger {
         )
         const row = rows[0]
         if (row === undefined) throw new Rollback('NOT_FOUND')
+        // The kind first (AC 18): DOU is refused for being LEGACY, not for its missing manifest id.
+        if (this.registry.get(row['type'] as JobSourceType)?.contract !== 'REPORTING') {
+          throw new Rollback('NOT_ACTIVATABLE')
+        }
         const term = manualTermRefusal(row)
         if (term !== null) throw new Rollback(term)
         const verdict = await this.gateAndHost(tx, row)

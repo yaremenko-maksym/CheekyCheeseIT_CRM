@@ -344,4 +344,255 @@ describe.skipIf(!hasDatabaseUrl())('the run ledger against Postgres, as crm_app 
       expect(outcomes.filter((o) => o !== 'SENT->USED' && o !== 'RUN_FENCED->RELEASED')).toEqual([])
     })
   })
+
+  describe('AC 13 / AC 18: the claim gates refuse, by claimDue and claimSource alike', () => {
+    /** Neither path claimed: no run row, and the host slot was never stamped. */
+    async function noSlotConsumed(sourceId: string, hostKey: string | null): Promise<void> {
+      expect(await fx.runs(sourceId)).toEqual([])
+      const { rows } = await session.admin.query(
+        `SELECT last_claimed_at FROM job_source_hosts WHERE host_key = $1`,
+        [hostKey],
+      )
+      expect(rows.map((r) => r.last_claimed_at)).toEqual(rows.length === 0 ? [] : [null])
+    }
+
+    async function bothPaths(sourceId: string) {
+      const due = await ledger.claimDue({
+        cycleId: await scheduledCycle(),
+        owner: 'spec-worker',
+        limit: 1,
+        onlyIds: [sourceId],
+      })
+      const manual = await ledger.claimSource({
+        cycleId: await manualCycle(),
+        owner: 'spec-worker',
+        sourceId,
+        actor,
+      })
+      return { due, manual }
+    }
+
+    it.each(['PAUSED', 'RETIRED'] as const)(
+      'an enabled source in admin_state %s is never claimed',
+      async (adminState) => {
+        const host = fx.host(`adm-${adminState.toLowerCase()}`)
+        const s = await reporting({ adminState, hostKey: host })
+        const { due, manual } = await bothPaths(s)
+        expect(due).toEqual({ claimed: [], refused: [] })
+        expect(manual).toEqual({ kind: 'REFUSED', reason: 'NOT_ACTIVE' })
+        await noSlotConsumed(s, host)
+      },
+    )
+
+    const gated: [string, (id: string) => void, Parameters<LedgerFixtures['source']>[0], string][] =
+      [
+        [
+          'an ACCEPT_RISK type with no captured evidence (NOT_ACTIVATABLE)',
+          (m) =>
+            catalog.add(m, {
+              activationFacts: () => ({
+                readiness: 'BLOCKED',
+                blockerCodes: ['NO_CAPTURE'],
+                payloadVerified: false,
+              }),
+            }),
+          {},
+          'NOT_ACTIVATABLE',
+        ],
+        [
+          'a source past its readinessAt deadline (READINESS_BLOCKED)',
+          (m) => catalog.add(m, { entryReadiness: () => 'BLOCKED' }),
+          {},
+          'READINESS_BLOCKED',
+        ],
+        [
+          'an adapter without allowedHosts (TRANSPORT_NOT_WIRED)',
+          (m) => catalog.add(m, { type: 'ARBEITNOW_API' }),
+          { type: 'ARBEITNOW_API' },
+          'TRANSPORT_NOT_WIRED',
+        ],
+        [
+          'a metered type with a NULL meter (METER_MISSING)',
+          (m) => catalog.add(m, { type: 'JSEARCH_API', quotaDeclared: true }),
+          { type: 'JSEARCH_API' },
+          'METER_MISSING',
+        ],
+        [
+          'an unresolvable manifest_id (MANIFEST_ENTRY_MISSING)',
+          () => undefined,
+          {},
+          'MANIFEST_ENTRY_MISSING',
+        ],
+      ]
+
+    it.each(gated)('refuses %s', async (_label, register, seed, reason) => {
+      const manifestId = fx.manifestId()
+      register(manifestId)
+      const host = fx.host(`gate-${randomUUID().slice(0, 6)}`)
+      catalog.policies.set(host, { rate: null, floorHours: 0 })
+      const s = await fx.source({ ...seed, manifestId, hostKey: host })
+      const { due, manual } = await bothPaths(s)
+      expect(due).toEqual({ claimed: [], refused: [{ sourceId: s, reason }] })
+      expect(manual).toEqual({ kind: 'REFUSED', reason })
+      await noSlotConsumed(s, host)
+      // The scheduled refusal is recorded and pushed out by the recheck (6 h), never counted.
+      const row = await fx.sourceRow(s)
+      expect(row.last_error_code).toBe(reason)
+      expect(row.consecutive_failures).toBe(0)
+      expect(row.next_in_s).toBeGreaterThan(6 * 3600 - 60)
+    })
+
+    it('DOU (LEGACY kind) is refused NOT_ACTIVATABLE even with a manifest id and a host key', async () => {
+      const manifestId = fx.manifestId()
+      catalog.add(manifestId, { type: 'DOU_RSS' })
+      const host = fx.host('dou')
+      catalog.policies.set(host, { rate: null, floorHours: 0 })
+      const s = await fx.source({ type: 'DOU_RSS', manifestId, hostKey: host })
+      const { due, manual } = await bothPaths(s)
+      expect(due.refused).toEqual([{ sourceId: s, reason: 'NOT_ACTIVATABLE' }])
+      expect(manual).toEqual({ kind: 'REFUSED', reason: 'NOT_ACTIVATABLE' })
+      await noSlotConsumed(s, host)
+    })
+
+    it('DOU as seeded (no manifest id, NULL host key) is never even picked', async () => {
+      const s = await fx.source({ type: 'DOU_RSS', manifestId: null, hostKey: null })
+      const { due, manual } = await bothPaths(s)
+      expect(due).toEqual({ claimed: [], refused: [] })
+      expect(manual).toEqual({ kind: 'REFUSED', reason: 'NOT_ACTIVATABLE' })
+    })
+  })
+
+  describe('AC 14 / SR-M-19: the queue is never blocked', () => {
+    it('a refused source at the head does not block a claimable one behind it', async () => {
+      const head = await fx.source({
+        type: 'ARBEITNOW_API',
+        manifestId: fx.manifestId(),
+        nextAttemptSql: "clock_timestamp() - interval '3 hours'",
+      })
+      catalog.add(await fx.manifestIdOf(head), { type: 'ARBEITNOW_API' })
+      const behind = await reporting({ nextAttemptSql: "clock_timestamp() - interval '1 hour'" })
+      const { claimed, refused } = await ledger.claimDue({
+        cycleId: await scheduledCycle(),
+        owner: 'spec-worker',
+        limit: 1,
+        onlyIds: [head, behind],
+      })
+      expect(refused).toEqual([{ sourceId: head, reason: 'TRANSPORT_NOT_WIRED' }])
+      expect(claimed.map((c) => c.sourceId)).toEqual([behind])
+    })
+
+    it('with 12 due sources on a busy host and one elsewhere, the other host is claimed in one call', async () => {
+      const busyHost = fx.host('busy')
+      const runner = await reporting({ hostKey: busyHost })
+      await claimOne(runner)
+      const waiting: string[] = []
+      for (let i = 0; i < 12; i += 1) {
+        waiting.push(
+          await reporting({
+            hostKey: busyHost,
+            nextAttemptSql: "clock_timestamp() - interval '5 hours'",
+          }),
+        )
+      }
+      const elsewhere = await reporting({
+        nextAttemptSql: "clock_timestamp() - interval '1 minute'",
+      })
+      const narrow = new JobRunLedger(
+        drizzle(session.pool, { schema }),
+        specRegistry(['REMOTIVE_API']),
+        catalog,
+        { maxClaimScan: 2 },
+      )
+      const { claimed, refused } = await narrow.claimDue({
+        cycleId: await scheduledCycle(),
+        owner: 'spec-worker',
+        limit: 1,
+        onlyIds: [...waiting, elsewhere],
+      })
+      expect(claimed.map((c) => c.sourceId)).toEqual([elsewhere])
+      expect(refused).toEqual([])
+    })
+  })
+
+  describe('AC 17 (SR-L-16): claimSource does not wait behind a held source row', () => {
+    it('returns LOCK_TIMEOUT within its lock_timeout', async () => {
+      const s = await reporting()
+      const quick = new JobRunLedger(
+        drizzle(session.pool, { schema }),
+        specRegistry(['REMOTIVE_API']),
+        catalog,
+        { claimLockTimeoutMs: 300 },
+      )
+      const holder = await session.pool.connect()
+      try {
+        await holder.query('BEGIN')
+        await holder.query('SELECT 1 FROM job_sources WHERE id = $1 FOR UPDATE', [s])
+        const started = Date.now()
+        const result = await quick.claimSource({
+          cycleId: await manualCycle(),
+          owner: 'spec-worker',
+          sourceId: s,
+          actor,
+        })
+        const elapsed = Date.now() - started
+        expect(result).toEqual({ kind: 'REFUSED', reason: 'LOCK_TIMEOUT' })
+        expect(elapsed).toBeLessThan(2_000)
+      } finally {
+        await holder.query('ROLLBACK')
+        holder.release()
+      }
+      expect(await fx.runs(s)).toEqual([])
+    })
+  })
+
+  describe('SR-L-25: resetFailures', () => {
+    it('clears the cap, makes the source due now, and appends one RESET_FAILURES entry', async () => {
+      const s = await reporting({ consecutiveFailures: 3 })
+      expect(await ledger.resetFailures({ sourceId: s, actor, reason: 'provider fixed' })).toBe(
+        true,
+      )
+      const row = await fx.sourceRow(s)
+      expect(row.consecutive_failures).toBe(0)
+      expect(row.cooling).toBe(false)
+      expect(row.next_in_s).toBeLessThanOrEqual(0)
+      expect(row.admin_state_history).toEqual([
+        expect.objectContaining({ kind: 'RESET_FAILURES', actor, reason: 'provider fixed' }),
+      ])
+      // Claimable at the next handler.
+      expect((await claimOne(s)).sourceId).toBe(s)
+    })
+
+    it('a concurrent admin-state append survives the reset`s append', async () => {
+      const s = await reporting({ consecutiveFailures: 3 })
+      const toggler = await session.pool.connect()
+      try {
+        await toggler.query('BEGIN')
+        await toggler.query(
+          `UPDATE job_sources SET admin_state_history = admin_state_history || '[{"kind":"TOGGLE"}]'::jsonb WHERE id = $1`,
+          [s],
+        )
+        const reset = ledger.resetFailures({ sourceId: s, actor, reason: 'concurrent' })
+        await new Promise((done) => setTimeout(done, 100))
+        await toggler.query('COMMIT')
+        expect(await reset).toBe(true)
+      } finally {
+        toggler.release()
+      }
+      const kinds = (await fx.sourceRow(s)).admin_state_history.map(
+        (e) => (e as { kind: string }).kind,
+      )
+      expect(kinds).toEqual(['TOGGLE', 'RESET_FAILURES'])
+    })
+
+    it('refuses an empty or over-long reason and writes nothing', async () => {
+      const s = await reporting({ consecutiveFailures: 3 })
+      await expect(ledger.resetFailures({ sourceId: s, actor, reason: ' ' })).rejects.toThrow(
+        RangeError,
+      )
+      await expect(
+        ledger.resetFailures({ sourceId: s, actor, reason: 'x'.repeat(501) }),
+      ).rejects.toThrow(RangeError)
+      expect((await fx.sourceRow(s)).consecutive_failures).toBe(3)
+    })
+  })
 })
