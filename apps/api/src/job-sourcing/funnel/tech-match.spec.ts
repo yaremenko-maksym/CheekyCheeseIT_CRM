@@ -909,6 +909,16 @@ describe('Requirements heading and clause-bounded cues', () => {
     expect(strengths('Java,Python', ['java', 'python'])).toEqual({ java: 'CORE', python: 'CORE' })
   })
 
+  it('numbers with a comma or colon and URLs do not change keyword hits', () => {
+    expect(strengths('No travel 3,5 years Java', ['java'])).toEqual({ java: 'CORE' })
+    expect(strengths('no 10:30 shift,Java', ['java'])).toEqual({ java: 'CORE' })
+    expect(strengths('https://x.io/a,b Java', ['java'])).toEqual({ java: 'CORE' })
+    expect(strengths('3,5 years Java, 1,000 users Python', ['java', 'python'])).toEqual({
+      java: 'CORE',
+      python: 'CORE',
+    })
+  })
+
   it('a negation stops at a colon, a bullet glyph and a newline', () => {
     expect(strengths('No relocation: Java', ['java'])).toEqual({ java: 'CORE' })
     expect(strengths('• no Rust • Java', ['java', 'rust'])).toEqual({
