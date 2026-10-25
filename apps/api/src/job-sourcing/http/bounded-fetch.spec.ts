@@ -8,6 +8,7 @@ import {
 } from './bounded-fetch'
 import {
   SourceBlockedError,
+  SourceHttpStatusError,
   SourcePayloadTooLargeError,
   SourceRateLimitedError,
 } from './source-errors'
@@ -865,5 +866,62 @@ describe('transportOptionsFor', () => {
     })
     expect(out).toEqual({ method: 'POST', body: '{}', headers: { accept: 'application/json' } })
     expect(out.headers).not.toBe(headers)
+  })
+})
+
+/**
+ * Task 2.5 T6: the transport surfaces the HTTP status. A refusal (401 / 403 / 451, 429) is a typed
+ * error carrying the raw `Retry-After`; any other non-2xx is a typed status error, so the context
+ * can hand the status to the adapter (a detail 404 is an answer) instead of a network failure.
+ */
+describe('T6: typed statuses and Retry-After', () => {
+  const U = 'https://api.example.test/x'
+  const o = { allowedHosts: hosts, minGapMs: 0 }
+  const answer = (status: number, headers: Record<string, string> = {}) =>
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(resp('secret error body', { status, url: U, headers })),
+    )
+  const failure = () => boundedFetchText(U, o).catch((e: unknown) => e)
+
+  it.each([401, 403, 451])(
+    'HTTP %i is a SourceBlockedError carrying its status',
+    async (status) => {
+      answer(status)
+      const error = await failure()
+      expect(error).toBeInstanceOf(SourceBlockedError)
+      expect((error as SourceBlockedError).status).toBe(status)
+      expect((error as SourceBlockedError).host).toBe('api.example.test')
+      expect((error as SourceBlockedError).retryAfter).toBeNull()
+    },
+  )
+
+  it('a refusal carries the raw Retry-After, in delay and in HTTP-date form', async () => {
+    answer(429, { 'retry-after': '7200' })
+    expect(((await failure()) as SourceRateLimitedError).retryAfter).toBe('7200')
+    answer(451, { 'retry-after': 'Wed, 28 Oct 2026 08:49:37 GMT' })
+    expect(((await failure()) as SourceBlockedError).retryAfter).toBe(
+      'Wed, 28 Oct 2026 08:49:37 GMT',
+    )
+    answer(429)
+    expect(((await failure()) as SourceRateLimitedError).retryAfter).toBeNull()
+  })
+
+  it.each([400, 404, 410, 500, 503])(
+    'HTTP %i is a SourceHttpStatusError with the status and no body',
+    async (status) => {
+      answer(status)
+      const error = await failure()
+      expect(error).toBeInstanceOf(SourceHttpStatusError)
+      expect((error as SourceHttpStatusError).status).toBe(status)
+      expect((error as SourceHttpStatusError).host).toBe('api.example.test')
+      expect((error as Error).message).toBe(`api.example.test responded ${status}`)
+      expect((error as Error).name).toBe('SourceHttpStatusError')
+    },
+  )
+
+  it('a 2xx other than 200 is still a body, not a status error', async () => {
+    answer(203)
+    await expect(boundedFetchText(U, o)).resolves.toBe('secret error body')
   })
 })

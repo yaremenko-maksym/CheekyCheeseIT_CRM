@@ -1,6 +1,7 @@
 import type { FetchRequest } from '../providers/reporting-provider'
 import {
   SourceBlockedError,
+  SourceHttpStatusError,
   SourcePayloadTooLargeError,
   SourceRateLimitedError,
 } from './source-errors'
@@ -23,6 +24,8 @@ export const MAX_RESPONSE_BYTES_CEILING = 10 * 1024 * 1024
 const TIMEOUT_MS_CEILING = 60_000
 const MAX_REDIRECTS = 3
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+/** A refusal by the host (T6): unauthorised, forbidden, unavailable for legal reasons. */
+const REFUSAL_STATUSES = new Set([401, 403, 451])
 
 export interface BoundedFetchOptions {
   /**
@@ -149,8 +152,9 @@ function lowercaseKeys(headers: Record<string, string>): Record<string, string> 
  * size-capped (streamed, aborted at the cap), time-capped, throttled per host,
  * and host-pinned on EVERY hop — redirects are followed by hand so a foreign
  * target is refused before any request is made to it, and credentials/body are
- * never forwarded to a different host. 403 / 429 map to typed deliberate-stop
- * errors.
+ * never forwarded to a different host. 401 / 403 / 451 / 429 map to typed deliberate-stop
+ * errors carrying the raw `Retry-After`; any other non-2xx is a `SourceHttpStatusError`
+ * (status only, body cancelled unread).
  */
 export async function boundedFetchText(url: string, opts: BoundedFetchOptions): Promise<string> {
   assertValidAllowedHosts(opts.allowedHosts)
@@ -219,17 +223,17 @@ export async function boundedFetchText(url: string, opts: BoundedFetchOptions): 
         throw err
       }
 
-      if (response.status === 403) {
+      if (REFUSAL_STATUSES.has(response.status)) {
         await response.body?.cancel()
-        throw new SourceBlockedError(host, response.status)
+        throw new SourceBlockedError(host, response.status, response.headers.get('retry-after'))
       }
       if (response.status === 429) {
         await response.body?.cancel()
-        throw new SourceRateLimitedError(host)
+        throw new SourceRateLimitedError(host, response.headers.get('retry-after'))
       }
       if (!response.ok) {
         await response.body?.cancel()
-        throw new Error(`${host} responded ${response.status}`)
+        throw new SourceHttpStatusError(host, response.status)
       }
 
       // Cheap pre-check when the server is honest about the size; the streaming
