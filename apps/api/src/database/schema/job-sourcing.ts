@@ -32,6 +32,8 @@ import { jobAccountMeters } from './job-metering'
 import {
   JOB_ERROR_CODE_PATTERN,
   JOB_HANDLE_MAX,
+  JOB_HOST_KEY_MAX,
+  JOB_HOST_KEY_PATTERN,
   JOB_JSONB_TEXT_MAX,
   JOB_PUBLIC_ID_PATTERN,
   JOB_SANITIZED_TEXT_MAX,
@@ -194,8 +196,31 @@ export const jobSources = pgTable(
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+
+    /**
+     * The scope this source's provider bans or rate-limits at (Task 2.5 T8): the
+     * manifest's `hostKey(config)`, e.g. `remotive.com`, or a provider apex shared by
+     * every tenant. It keys `job_source_hosts` (a ban pauses every source on the key)
+     * and the one-run-per-host rule.
+     *
+     * NULLABLE, because a migration cannot run manifest code: the GENERATED seed delta
+     * `2026-10-24_job_sources_host_keys.sql` backfills it for every manifest-owned
+     * reporting source, and never overwrites. DOU keeps NULL (it stays on the legacy
+     * path, outside the ledger). A NULL key is never due to the ledger
+     * (`hostOpenPredicate` tests it FIRST) and `claimHostSlot` refuses it.
+     *
+     * LAST on purpose: production gets it from `2026-10-24_job_source_hosts.sql`
+     * (`ALTER TABLE … ADD COLUMN` appends).
+     */
+    hostKey: text('host_key'),
   },
   (t) => [
+    // T8: the HOST_BUSY lookup and the daily count find the host's sources by key.
+    index('idx_job_sources_host_key').on(t.hostKey),
+    check(
+      'ck_job_sources_host_key_format',
+      sql`${t.hostKey} IS NULL OR (length(${t.hostKey}) <= ${sql.raw(String(JOB_HOST_KEY_MAX))} AND ${t.hostKey} ~ ${sql.raw(`'${JOB_HOST_KEY_PATTERN}'`)})`,
+    ),
     // One row per (type, settings) pair — re-seeding the same source is a
     // no-op instead of silently doubling every collection run. KEPT: the
     // immutable seed's `ON CONFLICT (type, config) DO NOTHING` targets this
@@ -285,6 +310,48 @@ export const jobSources = pgTable(
     ),
   ],
 )
+
+/**
+ * Host-level state (Task 2.5 T8; ADR 2026-10-24-job-source-run-ownership.md, T8).
+ * One row per `job_sources.host_key`: whether the host is paused by a ban, and when a
+ * run was last claimed on it. Written ONLY by `scheduling/host-state.ts`
+ * (`recordHostBan`, `claimHostSlot`); nothing clears a pause but its expiry.
+ *
+ * `pause_source_id` is a plain `uuid` with NO foreign key (ADR round 5, SR-M-10 item 4):
+ * `recordHostBan` then takes no lock on `job_sources`, so the global lock order
+ * (`job_sources` -> `job_source_hosts` -> ...) holds.
+ */
+export const jobSourceHosts = pgTable(
+  'job_source_hosts',
+  {
+    hostKey: text('host_key').primaryKey(),
+    /** The host is paused while this is in the future. NULL: never paused. */
+    pausedUntil: timestamp('paused_until', { withTimezone: true }),
+    /** A typed code (`HTTP_403`, `HTTP_429`, `HTTP_451`), never an upstream body. */
+    pauseReason: text('pause_reason'),
+    /** The source whose request was refused. A repeat from it inside its pause is a no-op. */
+    pauseSourceId: uuid('pause_source_id'),
+    /** Written under the row lock at every granted claim: the per-minute gap reads it. */
+    lastClaimedAt: timestamp('last_claimed_at', { withTimezone: true }),
+  },
+  (t) => [
+    check(
+      'ck_job_source_hosts_host_key_format',
+      sql`length(${t.hostKey}) <= ${sql.raw(String(JOB_HOST_KEY_MAX))} AND ${t.hostKey} ~ ${sql.raw(`'${JOB_HOST_KEY_PATTERN}'`)}`,
+    ),
+    check(
+      'ck_job_source_hosts_pause_reason_format',
+      sql`${t.pauseReason} IS NULL OR ${t.pauseReason} ~ ${sql.raw(`'${JOB_ERROR_CODE_PATTERN}'`)}`,
+    ),
+    // A pause always says why and who: the ADMIN listing (T9) shows both.
+    check(
+      'ck_job_source_hosts_pause_complete',
+      sql`${t.pausedUntil} IS NULL OR (${t.pauseReason} IS NOT NULL AND ${t.pauseSourceId} IS NOT NULL)`,
+    ),
+  ],
+)
+
+export type JobSourceHost = typeof jobSourceHosts.$inferSelect
 
 export const jobPostings = pgTable(
   'job_postings',

@@ -248,6 +248,9 @@ describe('CreateTransactionDialog — ADMIN_TRANSFER mandatory receipt', () => {
     })
     fireEvent.click(screen.getByTestId('create-transaction-submit'))
     await waitFor(() => expect(createAdminTransferMock).toHaveBeenCalledTimes(1))
+    expect(createAdminTransferMock).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: 'admin-1', receiverId: 'admin-2' }),
+    )
   })
 })
 

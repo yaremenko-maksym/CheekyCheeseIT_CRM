@@ -1252,10 +1252,11 @@ SINGLE_TX_FLAG_RE = re.compile(r"(?<!\S)(?:--single-transaction|-1)(?!\S)")
 # stops matching and the file silently leaves the check, the count drops and the
 # guard stays green. A pinned file that is in manual/ but no longer declares the
 # apply line is a failure of its own. Discovery stays for every other file.
-# Package B (Task 2.5 T8) adds its two file names here.
 PINNED_SINGLE_TX_FILES = {
     "2026-10-24_job_run_single_flight.sql",
     "2026-10-24_job_sources_manifest_delta.sql",
+    "2026-10-24_job_source_hosts.sql",
+    "2026-10-24_job_sources_host_keys.sql",
 }
 
 
@@ -1307,8 +1308,21 @@ def find_single_transaction_gaps(steps, ddl_dir, files):
     files the check actually covered (a 0 there means "nothing to check", not
     "checked and fine")."""
     declared = {f for f in files if requires_single_transaction(ddl_dir, f)}
-    required = sorted(declared | (PINNED_SINGLE_TX_FILES & set(files)))
+    # SR-M-3 (security review PR #1155): the pin is by NAME, not by presence in
+    # `files`. A pinned file moved out of manual/ or parked in KNOWN_NOT_WIRED
+    # while the deploy still applies it would otherwise drop out of `required`
+    # and its flag go unchecked, with the count merely shrinking.
+    applied_names = {name for _job_id, name, _cmd in applied_commands(steps)}
+    required = sorted(declared | (PINNED_SINGLE_TX_FILES & (set(files) | applied_names)))
     gaps = []
+    for name in sorted(PINNED_SINGLE_TX_FILES & applied_names - set(files)):
+        gaps.append(
+            (
+                name,
+                "pinned in PINNED_SINGLE_TX_FILES and still applied by the deploy, but "
+                "it is not a wired file in manual/ (moved, deleted or in KNOWN_NOT_WIRED)",
+            )
+        )
     for name in sorted((PINNED_SINGLE_TX_FILES & set(files)) - declared):
         gaps.append(
             (

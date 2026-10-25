@@ -46,6 +46,7 @@ async function provisionDropPendingPayout(page: import('@playwright/test').Page)
   projectName: string
   dropPendingId: string
   dropShare: number
+  defaultTxDate: string
 }> {
   const suffix = uniqueSuffix()
   const dropEmail = `dpc-drop-${suffix}@cheekycheese.dev`
@@ -89,6 +90,7 @@ async function provisionDropPendingPayout(page: import('@playwright/test').Page)
     projectName,
     dropPendingId: dropPending.id,
     dropShare: parseFloat(dropPending.amount),
+    defaultTxDate: (dropPending.txDate ?? dropPending.createdAt).slice(0, 10),
   }
 }
 
@@ -202,10 +204,9 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
   })
 
   // owner addendum (2026-08): the date picker defaults to the obligation's
-  // own creation date — for a freshly-provisioned obligation (this run) that
-  // IS today, so the default (untouched) path records today's date as
-  // `txDate`. The exact-date-selection numerics (two DIFFERENT dates
-  // applying two DIFFERENT known rates, and `txDate` reflecting whichever
+  // own date. Around midnight, its stored UTC date may differ from the local
+  // calendar date in the browser/runner. The exact-date-selection numerics
+  // (two DIFFERENT dates applying two DIFFERENT known rates, and `txDate` reflecting whichever
   // was selected) are proven deterministically at the unit level
   // (`pending-settlement.drop-currency.spec.ts` — the owner's own "главный
   // тест" for this part) and the real-DB integration level
@@ -214,10 +215,10 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
   // backend/DB — deliberately NOT driving react-day-picker's calendar-day
   // grid here (no precedent in this suite for a robust, non-flaky selector
   // for that interaction; see the extended note in the PR).
-  test('date picker: renders with today as the default (fresh obligation), and the default path records txDate = today', async ({
+  test('date picker: defaults to the obligation date and records that date on settlement', async ({
     page,
   }) => {
-    const { dropPendingId } = await provisionDropPendingPayout(page)
+    const { dropPendingId, defaultTxDate } = await provisionDropPendingPayout(page)
 
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     await page.goto('/finance')
@@ -231,11 +232,10 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
 
     const datePicker = dialog.getByTestId('settle-senior-txdate')
     await expect(datePicker).toBeVisible()
-    const todayStr = new Date().toISOString().slice(0, 10)
-    // dd MMM yyyy (ru locale) — see DatePickerField's `format(selected, 'dd MMM yyyy', {locale: ru})`.
-    const [, month, day] = todayStr.split('-')
-    await expect(datePicker).toContainText(day!)
-    void month // month is locale-formatted (e.g. "серп") — day/year are the stable, unambiguous check.
+    // dd MMM yyyy in the active UI locale. Pin the day and year from the
+    // obligation instead of UTC `today` (which changes before midnight in Kyiv).
+    const [year, , day] = defaultTxDate.split('-')
+    await expect(datePicker).toHaveText(new RegExp(`^${day}\\s+.+\\s+${year}$`))
 
     // ADMIN_PERSONAL funding — sidesteps the company-account balance gate
     // (unrelated to this test, which only exercises the date default).
@@ -259,7 +259,7 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
     const recorded = body.created.find((c) => c.id === dropPendingId)
     expect(recorded).toBeTruthy()
     expect(recorded!.txDate).toBeTruthy()
-    expect(recorded!.txDate!.slice(0, 10)).toBe(todayStr)
+    expect(recorded!.txDate!.slice(0, 10)).toBe(defaultTxDate)
   })
 
   test('AC8: adaptive at 320/375/768/1024/1440 — dialog stays usable, no horizontal overflow', async ({
