@@ -152,6 +152,44 @@ describe.skipIf(!hasDatabaseUrl())('the run ledger against Postgres, as crm_app 
       expect(rows[0].n).toBe(1)
     })
 
+    it('CR-M-1: the replica whose insert waits on the winner`s uncommitted row gets the winner`s id', async () => {
+      const key = fx.cycleKey()
+      const winner = await session.admin.connect()
+      try {
+        await winner.query('BEGIN')
+        const { rows } = await winner.query(
+          `INSERT INTO job_collection_cycles (trigger, trigger_key) VALUES ('SCHEDULED', $1) RETURNING id`,
+          [key],
+        )
+        const loser = ledger.openCycle({ trigger: 'SCHEDULED', triggerKey: key })
+        // Commit only once the loser's INSERT is parked on the winner's row.
+        const deadline = Date.now() + 10_000
+        for (;;) {
+          const { rows: w } = await session.admin.query(
+            `SELECT count(*)::int AS n FROM pg_stat_activity
+              WHERE wait_event_type = 'Lock' AND query LIKE '%INSERT INTO job_collection_cycles%'`,
+          )
+          if (w[0].n > 0) break
+          if (Date.now() > deadline) throw new Error('setup: the loser never waited')
+          await new Promise((r) => setTimeout(r, 20))
+        }
+        await winner.query('COMMIT')
+        expect((await loser).cycleId).toBe(rows[0].id)
+      } finally {
+        winner.release()
+      }
+    })
+
+    it('CR-M-1: 200 rounds of 4 replicas opening one cycle never throw and leave one row', async () => {
+      for (let i = 0; i < 200; i += 1) {
+        const key = fx.cycleKey()
+        const ids = await Promise.all(
+          [0, 1, 2, 3].map(() => ledger.openCycle({ trigger: 'SCHEDULED', triggerKey: key })),
+        )
+        expect(new Set(ids.map((x) => x.cycleId)).size).toBe(1)
+      }
+    }, 120_000)
+
     it('a manual cycle names its actor; a manual cycle without one is refused', async () => {
       const id = await manualCycle()
       const { rows } = await session.admin.query(
@@ -547,7 +585,17 @@ describe.skipIf(!hasDatabaseUrl())('the run ledger against Postgres, as crm_app 
 
   describe('SR-L-25: resetFailures', () => {
     it('clears the cap, makes the source due now, and appends one RESET_FAILURES entry', async () => {
-      const s = await reporting({ consecutiveFailures: 3 })
+      // A capped source as `finish` leaves it (SPEC-M-1): next attempt a cadence away, cooling down.
+      const s = await reporting({
+        consecutiveFailures: 3,
+        nextAttemptSql: "clock_timestamp() + interval '24 hours'",
+      })
+      await session.admin.query(
+        `UPDATE job_sources SET cooldown_until = clock_timestamp() + interval '4 hours' WHERE id = $1`,
+        [s],
+      )
+      const before = await fx.sourceRow(s)
+      expect([before.cooling, before.next_in_s > 23 * 3600]).toEqual([true, true])
       expect(await ledger.resetFailures({ sourceId: s, actor, reason: 'provider fixed' })).toBe(
         true,
       )

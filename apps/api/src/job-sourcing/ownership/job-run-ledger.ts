@@ -203,15 +203,14 @@ export class JobRunLedger {
     if (input.trigger !== 'MANUAL' && input.trigger !== 'SCHEDULED') {
       throw new RangeError('openCycle: invalid trigger')
     }
+    // CR-M-1: a no-op DO UPDATE, not DO NOTHING + re-SELECT -- the loser of a simultaneous insert
+    // waits on the winner's row and RETURNs it; a SELECT in the same statement would read the
+    // statement's old snapshot and find nothing.
     const { rows } = await this.db.execute(
-      sql`WITH ins AS (
-            INSERT INTO job_collection_cycles (trigger, trigger_key, requested_by)
-            VALUES (${input.trigger}::job_collection_trigger, ${key}, ${actor}::uuid)
-            ON CONFLICT (trigger, trigger_key) DO NOTHING RETURNING id)
-          SELECT id FROM ins
-          UNION ALL
-          SELECT id FROM job_collection_cycles WHERE trigger = ${input.trigger}::job_collection_trigger AND trigger_key = ${key}
-          LIMIT 1`,
+      sql`INSERT INTO job_collection_cycles (trigger, trigger_key, requested_by)
+          VALUES (${input.trigger}::job_collection_trigger, ${key}, ${actor}::uuid)
+          ON CONFLICT (trigger, trigger_key) DO UPDATE SET trigger_key = EXCLUDED.trigger_key
+          RETURNING id`,
     )
     const id = rows[0]?.['id']
     if (typeof id !== 'string') throw new Error('openCycle: no cycle row')
