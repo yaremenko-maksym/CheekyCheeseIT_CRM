@@ -302,6 +302,31 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(reg.rows[0].r).toBeNull()
     })
 
+    it('fails loud and writes nothing when the update count disagrees with the backup (CR-M-1)', async () => {
+      // Stand-in for a concurrent writer between the backup INSERT and the UPDATE: a trigger
+      // that silently skips the update of one row, so updated (11) < backed_up (12). Deleting
+      // the final counts-disagree RAISE makes this run succeed and this test fail.
+      const skipped = ids.get('mid-day')!
+      await pool.query(`CREATE FUNCTION pg_temp_skip_one() RETURNS trigger LANGUAGE plpgsql AS $f$
+      BEGIN IF OLD.id = '${skipped}' THEN RETURN NULL; END IF; RETURN NEW; END $f$`)
+      await pool.query(
+        `CREATE TRIGGER skip_one BEFORE UPDATE ON transactions FOR EACH ROW EXECUTE FUNCTION pg_temp_skip_one()`,
+      )
+      try {
+        await expect(applyMigration()).rejects.toThrow(
+          /counts disagree \(null_before=12, backed_up=12, updated=11, null_after=1\)/,
+        )
+      } finally {
+        await pool.query(`DROP TRIGGER skip_one ON transactions`)
+        await pool.query(`DROP FUNCTION pg_temp_skip_one()`)
+      }
+      // The whole DO block rolled back: no backup table, every NULL still NULL, nothing else moved.
+      expect(await nullCount()).toBe(12)
+      const reg = await pool.query(`SELECT to_regclass($1) AS r`, [`public.${BACKUP_TABLE}`])
+      expect(reg.rows[0].r).toBeNull()
+      expect(await snapshotWithoutTxDate()).toEqual(snapshotBefore)
+    })
+
     it('first run backfills every NULL row and reports the counts', async () => {
       const notices = await applyMigration()
       expect(await nullCount()).toBe(0)

@@ -2,9 +2,12 @@
 -- Backfill legacy NULL transactions.tx_date to the Kyiv business day — ONE-TIME DATA-FIX
 -- =============================================================================
 --
--- backlog 338, owner decision 2 (approved 2026-10-25). Every insert path persists a
--- non-null tx_date through `resolveTransactionDate` since PR #1133; rows created before
--- that may still carry NULL, and readers fall back to the Kyiv month of created_at
+-- backlog 338, owner decision 2 (approved 2026-10-25). Most insert paths have persisted a
+-- non-null tx_date through `resolveTransactionDate` since PR #1133. The last two that did
+-- not (`bookCompanyObligations`, the IOU rows of a drop-project payout paid without a date,
+-- and the monthly salary cron) are fixed in the same PR as this file (#1158, SR-H-1), so
+-- the code that ships with it writes no NULL tx_date. Older rows may still carry NULL, and
+-- readers fall back to the Kyiv month of created_at
 -- (`transactionBusinessMonth` -> `kyivMonthOf`). This file gives those rows the value
 -- `resolveTransactionDate(null, created_at)` would persist for a new row:
 --   - Kyiv day == UTC day of created_at  -> created_at itself (the real instant);
@@ -30,11 +33,23 @@
 --     the file RAISES instead of silently patching it over.
 --   - Output is aggregate counts only (the deploy log is public): no ids, no amounts.
 --
--- RECOVERY: _tx_date_kyiv_backfill_backup_20261025 keeps the id of every row this file
--- changed plus the value it wrote. It is never dropped by this file. The guard on
+-- RECOVERY: public._tx_date_kyiv_backfill_backup_20261025 keeps the id of every row this
+-- file changed plus the value it wrote. It is never dropped by this file. The guard on
 -- backfilled_tx_date leaves alone any row an operator has re-dated since.
+--
+-- ROLLBACK ORDER (SR-M-1). The rollback puts NULLs back while the backup table (the
+-- run marker) stays, so the next apply of THIS file raises and turns the deploy red:
+--   1. De-wire this file's deploy step first (or confirm it is already listed in
+--      KNOWN_NOT_WIRED in scripts/devops/check-prod-ddl-wiring.py).
+--   2. Only then run the UPDATE below. Its row count should equal
+--      `SELECT count(*) FROM public._tx_date_kyiv_backfill_backup_20261025`, minus any rows
+--      re-dated since.
+--   3. To re-apply the backfill after a rollback, first rename the backup table out of the
+--      way (ALTER TABLE ... RENAME TO ..._rolledback_<date>), and classify the renamed
+--      table in privilege-classes.ts; otherwise the file treats the restored NULLs as new.
 -- ROLLBACK:
---   UPDATE transactions t SET tx_date = NULL FROM _tx_date_kyiv_backfill_backup_20261025 b
+--   UPDATE public.transactions t SET tx_date = NULL
+--     FROM public._tx_date_kyiv_backfill_backup_20261025 b
 --    WHERE t.id = b.transaction_id AND t.tx_date = b.backfilled_tx_date;
 -- =============================================================================
 
@@ -46,7 +61,7 @@ DECLARE
   updated bigint;
   null_after bigint;
 BEGIN
-  SELECT count(*) INTO null_before FROM transactions WHERE tx_date IS NULL;
+  SELECT count(*) INTO null_before FROM public.transactions WHERE tx_date IS NULL;
   RAISE NOTICE 'tx_date kyiv backfill: prior_run=% null_before=%', prior_run::text, null_before;
 
   IF prior_run AND null_before > 0 THEN
@@ -54,32 +69,32 @@ BEGIN
   END IF;
 
   IF NOT prior_run THEN
-    CREATE TABLE _tx_date_kyiv_backfill_backup_20261025 (
+    CREATE TABLE public._tx_date_kyiv_backfill_backup_20261025 (
       transaction_id uuid PRIMARY KEY,
       backfilled_tx_date timestamptz NOT NULL,
       backfilled_at timestamptz NOT NULL DEFAULT now()
     );
   END IF;
 
-  INSERT INTO _tx_date_kyiv_backfill_backup_20261025 (transaction_id, backfilled_tx_date)
+  INSERT INTO public._tx_date_kyiv_backfill_backup_20261025 (transaction_id, backfilled_tx_date)
   SELECT id,
          CASE
            WHEN (created_at AT TIME ZONE 'Europe/Kyiv')::date = (created_at AT TIME ZONE 'UTC')::date
              THEN created_at
            ELSE ((created_at AT TIME ZONE 'Europe/Kyiv')::date)::timestamp AT TIME ZONE 'UTC'
          END
-    FROM transactions
+    FROM public.transactions
    WHERE tx_date IS NULL;
   GET DIAGNOSTICS backed_up = ROW_COUNT;
 
-  UPDATE transactions t
+  UPDATE public.transactions t
      SET tx_date = b.backfilled_tx_date
-    FROM _tx_date_kyiv_backfill_backup_20261025 b
+    FROM public._tx_date_kyiv_backfill_backup_20261025 b
    WHERE b.transaction_id = t.id
      AND t.tx_date IS NULL;
   GET DIAGNOSTICS updated = ROW_COUNT;
 
-  SELECT count(*) INTO null_after FROM transactions WHERE tx_date IS NULL;
+  SELECT count(*) INTO null_after FROM public.transactions WHERE tx_date IS NULL;
   RAISE NOTICE 'tx_date kyiv backfill: updated=% null_after=%', updated, null_after;
 
   IF updated <> backed_up OR updated <> null_before OR null_after <> 0 THEN
