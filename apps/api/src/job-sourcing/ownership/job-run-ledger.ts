@@ -54,6 +54,12 @@ import {
  *  - locks follow the global order job_sources -> job_source_hosts -> job_account_meters (by id) ->
  *    job_collection_runs -> job_account_meter_reservations -> page tables (by natural key).
  *
+ * THE ACCOUNT-LEVEL SPEND BOUND (SR-L-23). The failure cap is per SOURCE, so N sources on one paid
+ * account can each fail `MAX_CONSECUTIVE_FAILURES` (3) times before all are capped: in the worst
+ * case the account spends up to `3 × page × N` per meter reset (a run that spends one page and
+ * fails), on top of whatever successful runs spend. Raising N on one account raises the bound
+ * linearly; `job-run-ledger.accounting.integration.spec.ts` pins it for N = 2.
+ *
  * !! MERGING THIS MAKES NO SOURCE RUNNABLE: nothing in production constructs a ledger until T7, and
  * no adapter declares `allowedHosts` until T6, so every claim is refused `TRANSPORT_NOT_WIRED`.
  */
