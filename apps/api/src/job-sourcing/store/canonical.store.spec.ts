@@ -7,6 +7,7 @@ import {
   asAdminActor,
   linkRecordTx,
   releaseTokenTx,
+  resolveRecordsTx,
   splitRecordTx,
 } from './canonical.store'
 
@@ -71,6 +72,12 @@ describe('own-transaction wrappers (Task 4.6 / S2)', () => {
     const { db, seen } = fakeDb([[pgError('40P01')], releaseOk])
     await expect(releaseTokenTx(db, actor, 'k', 'why')).resolves.toBeUndefined()
     expect(seen.transactions).toBe(2)
+  })
+
+  it('resolveRecordsTx runs resolveRecords in its own transaction and returns its outcomes', async () => {
+    const { db, seen } = fakeDb([[]])
+    await expect(resolveRecordsTx(db, [])).resolves.toEqual([])
+    expect(seen.transactions).toBe(1)
   })
 
   it('every attempt is a read committed transaction with the lock timeout set first', async () => {
