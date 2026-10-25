@@ -30,7 +30,7 @@ import { ExternalLink, Coins, Banknote, Gem } from 'lucide-react'
 import { toast } from 'sonner'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { PayoutMethod, TransactionDto } from '@crm/shared'
-import { formatDate, kyivToday, MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
+import { formatDate, kyivToday, MAKSYM_ID, KOSTYA_ID, transactionBusinessDay } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { DatePickerField } from '@/components/ui/date-picker'
 import {
@@ -92,13 +92,14 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
   const [payoutDate, setPayoutDate] = useState(kyivToday)
 
   const isCompanyAccount = method === 'COMPANY_ACCOUNT'
-  const sourceDateKey = tx
-    ? new Date(tx.txDate ?? tx.createdAt).toISOString().slice(0, 10)
-    : kyivToday()
+  // Backlog 338: the PAYOUT row's business day (`txDate` day, or the KYIV day
+  // of `createdAt`) — the floor `PayoutConfirmationService` enforces. `null`
+  // for an unparseable row: no bound, and no RangeError.
+  const sourceDateKey = tx ? transactionBusinessDay(tx.txDate, tx.createdAt) : kyivToday()
 
   useEffect(() => {
     const today = kyivToday()
-    setPayoutDate([today, sourceDateKey].sort()[1]!)
+    setPayoutDate(sourceDateKey && sourceDateKey > today ? sourceDateKey : today)
   }, [sourceDateKey])
 
   // Return type is `void` on purpose — the two branches resolve to different

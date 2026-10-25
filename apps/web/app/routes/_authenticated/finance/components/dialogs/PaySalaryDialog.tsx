@@ -8,6 +8,7 @@ import {
   receiptMandatoryError,
   salaryPaidAmountDeviation,
   transactionAmountError,
+  transactionBusinessDay,
   formatDate,
 } from '@crm/shared'
 import { useLocale } from '@/lib/i18n'
@@ -64,7 +65,7 @@ export function PaySalaryDialog({
   const [payoutDate, setPayoutDate] = useState(kyivToday)
 
   const isCompany = account === COMPANY_ACCOUNT_VALUE
-  // «Счёт компании» is a USDT-only account — the backend re-forces this, so
+  // The company account is a USDT-only account — the backend re-forces this, so
   // every conversion below must reason about what will ACTUALLY be paid.
   const effectiveCurrency: Currency = isCompany ? 'USDT' : currency
 
@@ -76,18 +77,18 @@ export function PaySalaryDialog({
   // SERVER prices by (backlog 148), or this pre-fills the amount from a rate
   // a stale-by-up-to-3-hours cache thinks is still "today's".
   const todayKey = kyivToday()
-  // The picker bound, hint and default name the day the SERVER floors on:
-  // `SalaryPaymentService` compares the payment date with the UTC day of
-  // `txDate ?? createdAt`. Do NOT derive this from the browser-zone day the
-  // «Дата» cell shows for a NULL-`txDate` row - the picker would then offer a
-  // date the API refuses (FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION; QA-MED-1).
-  const sourceDateKey = tx
-    ? new Date(tx.txDate ?? tx.createdAt).toISOString().slice(0, 10)
-    : todayKey
+  // The picker bound, hint, default and the "Date" cell all name the day the
+  // SERVER floors on (`SalaryPaymentService`): the row's business day — its
+  // `txDate` day, or the KYIV day of `createdAt` for a NULL-`txDate` row
+  // (backlog 338, QA-LOW-1). One shared helper, so the picker can never offer
+  // a date the API refuses (FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION; QA-MED-1).
+  // `null` for an unparseable row: no bound, and no RangeError (item e).
+  const sourceDateKey = tx ? transactionBusinessDay(tx.txDate, tx.createdAt) : todayKey
 
   useEffect(() => {
+    // item (b): both sides are Kyiv business days, so the later one is the default.
     const today = kyivToday()
-    setPayoutDate([today, sourceDateKey].sort()[1]!)
+    setPayoutDate(sourceDateKey && sourceDateKey > today ? sourceDateKey : today)
   }, [tx?.id, sourceDateKey])
 
   const { data: rates } = useQuery<ExchangeRates>({
@@ -159,7 +160,7 @@ export function PaySalaryDialog({
       const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
       const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
       // task-salary-pay-flow: the funding source + currency are chosen HERE.
-      //   - «Счёт компании» → COMPANY_ACCOUNT, currency forced USDT (the account
+      //   - the company account → COMPANY_ACCOUNT, currency forced USDT (the account
       //     is USDT-only; the backend re-forces it and gates the balance).
       //   - an ADMIN partner → ADMIN_PERSONAL, payerAdminId = that partner, the
       //     chosen currency (any) is used.
@@ -192,7 +193,7 @@ export function PaySalaryDialog({
     resetState()
   }
 
-  // Select the account: when switching to «Счёт компании» the currency is locked
+  // Select the account: when switching to the company account the currency is locked
   // to USDT; switching to a partner restores an editable currency.
   function selectAccount(value: string) {
     setAccount(value)
@@ -243,7 +244,7 @@ export function PaySalaryDialog({
 
   if (!tx) return null
 
-  // Whether a conversion is actually in play — drives the «расчёт по курсу» row
+  // Whether a conversion is actually in play — drives the "calculated at the rate" row
   // (AC1: the amount due in the chosen currency; the rate itself is rendered by
   // AmountCurrencyInput's own hint below). Compared on the FIGURE, not on the
   // currency code: paying a USD obligation in USDT is a 1:1 relabel, and a row
@@ -409,7 +410,7 @@ export function PaySalaryDialog({
             </div>
           )}
 
-          {/* AC5: warns, never blocks — «Отметить как оплачено» stays enabled. */}
+          {/* AC5: warns, never blocks — the "mark as paid" button stays enabled. */}
           {deviation !== null && expectedAmount !== null && (
             <div
               className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-400"

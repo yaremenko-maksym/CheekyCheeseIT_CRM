@@ -585,6 +585,13 @@ describe('Kyiv month windows at 23:30Z on 31 Oct (UTC October, Kyiv already Nove
     expect(params('paidAmount')).toEqual([new Date('2026-11-01T00:00:00.000Z'), novemberStart])
   })
 
+  it("getSeniorSummary keys salaryMonth on the Kyiv month of now at 22:30Z on a month's last day", async () => {
+    freeze('2026-10-31T22:30:00Z')
+    const { svc, cap } = makeDb({ selfUser: { seniorSharePercent: 100 }, projects: [], txs: [] })
+    await svc.getSeniorSummary(user('SENIOR'))
+    expect(compileWhere(cap.salaryWhere).params).toEqual(['SALARY', 'senior-1', '2026-11'])
+  })
+
   it('senior stats file a NULL-txDate row created 22:30Z on 31 Oct under November', async () => {
     freeze(BOUNDARY)
     const { svc, cap } = makeDb({
@@ -625,8 +632,9 @@ describe('Kyiv month windows at 23:30Z on 31 Oct (UTC October, Kyiv already Nove
     expect(hist.at(-2)).toEqual({ month: '2026-10', amount: 10 })
     expect(hist[0]!.month).toBe('2026-04')
     expect(r.earningsStats.companyIncomeProgress).toEqual({ received: 1, total: 1 })
-    // the stored-salary lookup key is deliberately still the UTC month
-    expect(compileWhere(cap.salaryWhere).params).toEqual(['SALARY', 'senior-1', '2026-10'])
+    // backlog 338 (a): the salary lookup key is the KYIV month of `now`, like
+    // the incomes in the same response (22:30Z on 31 Oct = Kyiv 1 Nov).
+    expect(compileWhere(cap.salaryWhere).params).toEqual(['SALARY', 'senior-1', '2026-11'])
   })
 })
 

@@ -3,7 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
-import { latestSettleBusinessDay, receiptMandatoryError, formatDate } from '@crm/shared'
+import {
+  latestSettleBusinessDay,
+  receiptMandatoryError,
+  formatDate,
+  transactionBusinessDay,
+} from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -137,7 +142,7 @@ export function SettleSeniorPayoutDialog({
   // Business date of the settlement. DROP uses it for both the NBU-rate day
   // and the row's txDate; SENIOR uses it as the row's txDate. Both default to
   // the source transaction's effective business date.
-  // Stryker disable next-line StringLiteral: unobservable for the SAME reason as the useState default above — the mount-sync effect below (keyed on tx?.id) synchronously overwrites this to tx.createdAt.slice(0,10) on EVERY mount before any render is visible to a consumer/test (the dialog never renders without a tx)
+  // Stryker disable next-line StringLiteral: unobservable for the SAME reason as the useState default above — the mount-sync effect below (keyed on tx?.id) synchronously overwrites this to settleMinDate on EVERY mount before any render is visible to a consumer/test (the dialog never renders without a tx)
   const [txDate, setTxDate] = useState<string>('')
 
   const isCompany = account === COMPANY_ACCOUNT_VALUE
@@ -203,8 +208,10 @@ export function SettleSeniorPayoutDialog({
   // picker with `min > max` offers no selectable day at all — which is how a
   // future-dated source became unsettleable through the UI.
   // Stryker disable next-line StringLiteral: the `tx == null` fallback is never READ. The component returns before rendering anything when `tx` is null (pinned by "renders nothing and does not throw when tx is null"), so no bound, default or payload can observe which empty-ish string sits here.
-  // Stryker disable next-line MethodExpression: `.slice(0,10)` matters only in a REAL browser in a non-UTC local timezone — DatePickerField's `parseISO` reads a date-only string as LOCAL midnight (the operator's own calendar day) while a full ISO instant anchors to UTC. This project's test environment is TZ=UTC-pinned, where "local" IS "UTC", so the two collapse to the same calendar day for every time-of-day and no test run under the mandated TZ can observe the difference. Identical reasoning to the documented suppression on the `value={txDate}` slice below.
-  const settleMinDate = tx ? (tx.txDate ?? tx.createdAt).slice(0, 10) : ''
+  // Backlog 338: the business day is `transactionBusinessDay` — the `txDate`
+  // day, or the KYIV day of `createdAt` for a NULL-`txDate` row — the same
+  // helper the server floor calls, so the picker never offers a refused day.
+  const settleMinDate = tx ? (transactionBusinessDay(tx.txDate, tx.createdAt) ?? '') : ''
   // CR-M-4: the SAME function the server bound calls, so the picker cannot
   // disagree with what `PendingSettlementService` will accept. This was hand-
   // written here and again in the service — one rule, two copies, two separate
@@ -315,14 +322,12 @@ export function SettleSeniorPayoutDialog({
 
   // task-drop-payout-currency (owner addendum): every time the dialog opens
   // for a NEW tx, the date picker starts at the OBLIGATION's own creation
-  // date — «по умолчанию — дата создания», never a stale pick left over
-  // from a previously settled row. `tx.createdAt` is a full ISO datetime;
-  // sliced to the calendar day the same way the backend compares it
-  // (`obligation.createdAt.toISOString().slice(0, 10)` in
-  // pending-settlement.service.ts), so an untouched picker always passes
-  // the server's own lower-bound check trivially.
+  // date ("default: the creation date"), never a stale pick left over from a
+  // previously settled row. It is `settleMinDate` — the row's business day,
+  // computed by the same helper the server's lower-bound check uses
+  // (pending-settlement.service.ts), so an untouched picker always passes it.
   useEffect(() => {
-    if (tx) setTxDate((tx.txDate ?? tx.createdAt).slice(0, 10))
+    if (tx) setTxDate(settleMinDate)
   }, [tx?.id])
 
   // Select the account: when switching to «Счёт компании» the currency is
