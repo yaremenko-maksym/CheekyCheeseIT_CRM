@@ -64,6 +64,9 @@ export const COLLECTION_ERROR_CODES = [
   'LEASE_EXPIRED',
   // a fetch was attempted without a committed markSent (T7's send-permit guard).
   'NOT_MARKED_SENT',
+  // r5 Task 2.5 T7 (SR-M-21): the host refused a request and its ban could not be written; the
+  // worker writes it again after `finish`.
+  'HOST_BAN_UNRECORDED',
 ] as const
 
 export type CollectionErrorCode = (typeof COLLECTION_ERROR_CODES)[number]
