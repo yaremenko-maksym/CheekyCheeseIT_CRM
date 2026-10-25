@@ -50,16 +50,27 @@ sources (cloned at the pinned tag/commit, not search snippets):
 | Tool         | Pin                         | Licence                                         | State                                                                                                                                                                                    |
 | ------------ | --------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | RTK          | `v1.0.1`, `rtk-oss` edition | Apache-2.0 (the default asset bundles BUSL-1.1) | **Installed in the repo:** hook `pre:bash:rtk-rewrite` (fail-open) + `scripts/devops/install-rtk.sh` (sha256-verified). Binary must be installed per machine / environment setup script. |
-| Caveman      | `v4.0.1`                    | Apache-2.0                                      | `.caveman.json` sets `lite` (reports stay readable). **Plugin enabled** in `.claude/settings.json` (pinned marketplace ref).                                                             |
-| Ponytail     | `v5.3.2`                    | MIT                                             | **Plugin enabled** (pinned).                                                                                                                                                             |
-| Context Mode | `v1.0.169`                  | **Elastic-2.0** (source-available, not OSI)     | **Plugin enabled** (pinned). Adds hooks on 6 events + 11 MCP tools + a local SQLite store.                                                                                               |
+| Caveman      | `v4.0.1`                    | Apache-2.0                                      | `.caveman.json` sets `lite` (reports stay readable). **Plugin: user scope** (owner machine, `~/.claude`), pinned marketplace ref.                                                        |
+| Ponytail     | `v5.3.2`                    | MIT                                             | **Plugin: user scope**, pinned.                                                                                                                                                          |
+| Context Mode | `v1.0.169`                  | **Elastic-2.0** (source-available, not OSI)     | **Plugin: user scope**, pinned. Adds hooks on 6 events + 11 MCP tools + a local SQLite store.                                                                                            |
 
 The three plugins were first staged: the session's auto-mode classifier refused the `settings.json`
-edit that registers third-party plugin marketplaces ("Untrusted Code Integration"). After the owner's
-explicit instruction (2026-10-25) the same block was applied and the runbook item closed.
+edit that registers third-party plugin marketplaces ("Untrusted Code Integration"). The owner
+then decided (2026-10-25) that the three plugins live at **user scope** on their machine, not in the
+project `settings.json` — so nothing in the repo declares them and cloud / other-contributor sessions do
+not load them. Install commands (pins) are in the Install status section below.
 Note `claude plugin marketplace add --scope project` rewrote the whole `settings.json` destructively
 (dropped hook `id`/`description`, cache TTLs, and reset `permissions.allow`) — **do not use the CLI
 command on this file; paste the JSON block.**
+
+Install at user scope (run once, outside the repo; back up `~/.claude/settings.json` first — the CLI
+rewrites settings files):
+
+```bash
+claude plugin marketplace add JuliusBrussee/caveman@v4.0.1 --scope user && claude plugin install caveman@caveman --scope user
+claude plugin marketplace add DietrichGebert/ponytail@v5.3.2 --scope user && claude plugin install ponytail@ponytail --scope user
+claude plugin marketplace add mksglu/context-mode@v1.0.169 --scope user && claude plugin install context-mode@context-mode --scope user
+```
 
 **Hook conflicts — found and resolved (2026-10-24).** A differential run of every `pre:bash:*` guard
 over the 419-row command corpus plus push/commit/worktree cases, original vs RTK-rewritten (151 commands
