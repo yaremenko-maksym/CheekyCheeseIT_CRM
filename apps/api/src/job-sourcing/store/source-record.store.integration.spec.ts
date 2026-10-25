@@ -306,6 +306,46 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
     expect(rows[0].n).toBe(1)
   })
 
+  it('CR-M-1: a head insert that loses the race on the heads key re-reads the head and continues from it', async () => {
+    const namespace = ns()
+    const [c] = await saveObservationPage(db, await run(), {
+      observations: [obs(namespace, 'race', 'C')],
+      checkpoint: specCheckpoint(1),
+    })
+    // No head, so the next writer reads none and tries to insert one.
+    await session.admin.query(`DELETE FROM job_source_record_heads WHERE source_record_id = $1`, [
+      c?.recordId,
+    ])
+    const later = await run()
+    // A writer outside the store holds an uncommitted head (an older observation at seq 5): the
+    // store's head INSERT ... ON CONFLICT DO NOTHING waits on that key, then returns no row.
+    const holder = await session.admin.connect()
+    try {
+      await holder.query('BEGIN')
+      // Without FK triggers in this session only: the FK check's KEY SHARE on the record row would
+      // otherwise block the store's FOR UPDATE, and the store would wait before reading the head.
+      await holder.query(`SET LOCAL session_replication_role = replica`)
+      await holder.query(
+        `INSERT INTO job_source_record_heads (source_record_id, latest_revision_id, observed_at, observation_seq)
+         VALUES ($1, $2, clock_timestamp() - interval '1 day', 5)`,
+        [c?.recordId, c?.revisionId],
+      )
+      const page = saveObservationPage(db, later, {
+        observations: [obs(namespace, 'race', 'A')],
+        checkpoint: specCheckpoint(1),
+      })
+      await untilBlocked(session.admin)
+      await holder.query('COMMIT')
+      const [a] = await page
+      expect(a).toMatchObject({ createdRevision: true, advanced: true })
+      expect(await latestOf(namespace)).toBe(a?.revisionId)
+    } finally {
+      holder.release()
+    }
+    // The move continues from the re-read head (5 -> 6), not from a missing one (version 0).
+    expect(await dirtyVersions(namespace)).toEqual([1, 6])
+  })
+
   it('AC 5: a crash between the revision insert and the checkpoint rolls both back; the retry after commit is idempotent', async () => {
     const namespace = ns()
     const h = await run()

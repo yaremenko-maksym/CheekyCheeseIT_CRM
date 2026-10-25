@@ -257,9 +257,10 @@ export async function saveObservation(
 
 /**
  * A page of observations inside the caller's transaction (Task 4.6 calls this from `savePage`):
- * `assertOwned` once, then the records in ascending (namespace, identity key). Exact repeats are
- * dropped; two contents of one record are both written, in arrival order, and the earlier one is
- * marked `superseded`. shortcut: one round trip per statement (about eight per observation),
+ * `assertOwned` once, then the records in ascending (namespace, identity key). Only a content that
+ * immediately repeats the previous content of the same record is dropped (A, A -> A; A, B, A is
+ * written as A, B, A and ends on A); every other content of one record is written, in arrival
+ * order, and each but the last is marked `superseded`. shortcut: one round trip per statement (about eight per observation),
  * bounded by MAX_OBSERVATIONS_PER_PAGE; batching would have to keep the per-record lock order.
  */
 export async function saveObservations(
