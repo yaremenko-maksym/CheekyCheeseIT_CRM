@@ -110,8 +110,9 @@ owner-machine absolute paths and cannot run in the cloud container. Smoke-test o
 refused. The code of the four tools was not audited line by line; privacy claims (RTK telemetry off
 by default, Context Mode local-only) are from their READMEs.
 
-**Rules that bind the installed tools:** `rtk bypass <cmd>` whenever output is evidence to be read
-verbatim.
+**Rules that bind the installed tools:** prefix a command with `RTK_DISABLED=1` whenever its output is
+evidence to be read verbatim (the exec subcommands themselves are refused by `pre:bash:rtk-exec-gate`,
+see below).
 
 **Context Mode and agents — reversed after review (2026-10-25).** The owner asked to connect Context
 Mode; the first cut granted the five `ctx_*` tools to seven agents. The security review (SR-H-2, PR
