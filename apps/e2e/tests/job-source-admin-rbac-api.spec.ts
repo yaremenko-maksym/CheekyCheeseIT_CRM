@@ -25,9 +25,18 @@ test.describe('T9 admin job-source endpoints — real-backend RBAC', () => {
   for (const [role, email] of NON_ADMIN) {
     test(`${role}: GET excluded and POST reset → 403`, async ({ page }) => {
       await loginViaApi(page, email)
-      expect((await page.request.get(LIST)).status()).toBe(403)
+      // The role guard's own code, not any 403: an onboarding or other guard refusing first
+      // would otherwise pass this row without the role check ever running.
+      const list = await page.request.get(LIST)
+      expect([list.status(), ((await list.json()) as { code?: string }).code]).toEqual([
+        403,
+        'FORBIDDEN_INSUFFICIENT_ROLE',
+      ])
       const res = await page.request.post(reset(randomUUID()), { data: { reason: 'e2e' } })
-      expect(res.status()).toBe(403)
+      expect([res.status(), ((await res.json()) as { code?: string }).code]).toEqual([
+        403,
+        'FORBIDDEN_INSUFFICIENT_ROLE',
+      ])
     })
   }
 
