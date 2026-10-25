@@ -395,7 +395,8 @@ export function canonicalStackKeyword(raw: string | null | undefined): string {
  * exactly that: deleting such an entry changed nothing).
  */
 function spellingsOf(canonical: string): string[] {
-  const aliases = ALIAS_FAMILIES[canonical]
+  // Own properties only: `canonical` is user data, and `ALIAS_FAMILIES['constructor']` is a function.
+  const aliases = Object.hasOwn(ALIAS_FAMILIES, canonical) ? ALIAS_FAMILIES[canonical] : undefined
   if (!aliases) return [canonical]
   const out = [canonical]
   for (const alias of aliases) {
@@ -533,6 +534,75 @@ export function stackMatchScore(
     matched,
     total: canonicalKeywords.length,
   }
+}
+
+/** Where, in already-tokenised text, one canonical keyword was found. */
+export interface StackKeywordHit {
+  /** Start indexes in the title token list (ambiguous spellings such as `go` count here). */
+  titleIndexes: number[]
+  /** Start indexes in the body token list (ambiguous spellings never count here). */
+  bodyIndexes: number[]
+}
+
+/**
+ * Uncapped union matching over text that is ALREADY tokenised (`stackTokens`), so
+ * a caller scoring a whole roster tokenises a posting once and not once per
+ * keyword. `canonicals` is taken as given: no `MAX_STACK_KEYWORDS` truncation is
+ * applied here — the per-profile cap belongs to `canonicalStackKeywords`, and a
+ * roster union of several profiles legitimately exceeds it.
+ *
+ * Same spelling and ambiguity semantics as `textMentionsStackKeyword`. The result
+ * holds ONLY keywords with at least one hit, in the order given, and every index
+ * so a caller can look at the neighbourhood of each mention.
+ */
+export function stackKeywordHits(
+  canonicals: readonly string[],
+  titleTokens: readonly string[],
+  bodyTokens: readonly string[],
+): Map<string, StackKeywordHit> {
+  const titleIndex = indexByFirstToken(titleTokens)
+  const bodyIndex = indexByFirstToken(bodyTokens)
+  const hits = new Map<string, StackKeywordHit>()
+
+  for (const canonical of canonicals) {
+    const title = new Set<number>()
+    const body = new Set<number>()
+    for (const spelling of spellingsOf(canonical)) {
+      const needle = spelling.split(' ')
+      for (const start of phraseStarts(titleTokens, titleIndex, needle)) title.add(start)
+      if (AMBIGUOUS_ALIASES.has(spelling)) continue
+      for (const start of phraseStarts(bodyTokens, bodyIndex, needle)) body.add(start)
+    }
+    if (title.size > 0 || body.size > 0) {
+      hits.set(canonical, {
+        titleIndexes: [...title].sort((a, b) => a - b),
+        bodyIndexes: [...body].sort((a, b) => a - b),
+      })
+    }
+  }
+  return hits
+}
+
+function indexByFirstToken(tokens: readonly string[]): Map<string, number[]> {
+  const index = new Map<string, number[]>()
+  tokens.forEach((token, position) => {
+    const positions = index.get(token)
+    // Pushed in place: copying the list per token would be quadratic on a repetitive posting.
+    if (positions) positions.push(position)
+    else index.set(token, [position])
+  })
+  return index
+}
+
+/** Start positions where `needle` (a normalised phrase, already split) occurs as whole tokens. */
+function phraseStarts(
+  tokens: readonly string[],
+  index: ReadonlyMap<string, number[]>,
+  needle: readonly string[],
+): number[] {
+  // A spelling is never empty, so `needle[0]` exists; String() keeps the lookup type-safe without a fallback.
+  const candidates = index.get(String(needle[0]))
+  return candidates?.filter((start) => needle.every((word, j) => tokens[start + j] === word)) ?? []
 }
 
 /** Exported for tests + docs: the alias families this build folds. */
