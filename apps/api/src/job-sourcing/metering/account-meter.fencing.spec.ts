@@ -44,10 +44,12 @@ interface Script {
   /** Parameters of the ownership statement, as Postgres would receive them. */
   ownershipParams: unknown[][]
   inserted: unknown[]
+  /** Every `.set(...)` payload, in order. */
+  payloads: Record<string, unknown>[]
 }
 
 function fakeDb(owned: unknown[]): { db: MeterDb; script: Script } {
-  const script: Script = { owned, log: [], ownershipParams: [], inserted: [] }
+  const script: Script = { owned, log: [], ownershipParams: [], inserted: [], payloads: [] }
   const meter = {
     id: METER_ID,
     window: 'MONTH',
@@ -105,9 +107,10 @@ function fakeDb(owned: unknown[]): { db: MeterDb; script: Script } {
       return Promise.resolve({ rows: [{ now: new Date('2026-06-02T00:00:00Z') }] })
     },
     update: () => ({
-      set: () => ({
+      set: (payload: Record<string, unknown>) => ({
         where: () => {
           script.log.push('write:update')
+          script.payloads.push(payload)
           const p = Promise.resolve([meter]) as Promise<unknown[]> & {
             returning: () => Promise<unknown[]>
           }
@@ -157,6 +160,19 @@ describe('the binding carries ownership exactly when it is bound to a run', () =
     )
   })
 
+  it('a binding with no run may not carry an epoch either, and the refusal says why', () => {
+    const { db } = fakeDb(OWNED)
+    let message = ''
+    try {
+      createAccountMeter(db, runBound({ runId: null, ownerToken: null, fencingEpoch: 4 }))
+    } catch (e) {
+      message = (e as AccountMeterError).message
+    }
+    expect(message).toContain(
+      'ownerToken a run-bound binding carries its owner token and epoch, and only it does',
+    )
+  })
+
   it('refuses a non-positive or fractional epoch and an empty token', () => {
     const { db } = fakeDb(OWNED)
     for (const over of [{ fencingEpoch: 0 }, { fencingEpoch: 1.5 }, { ownerToken: '' }]) {
@@ -202,6 +218,9 @@ describe('reserve asserts ownership after the meter lock, before the reservation
     const { db, script } = fakeDb([{ ...OWNED[0], account_key: 'other:acct' }])
     const err = await rejection(createAccountMeter(db, runBound()).reserve('REQUEST', 2))
     expect((err as AccountMeterError).code).toBe('INVALID_BINDING')
+    expect((err as AccountMeterError).message).toBe(
+      'the binding names another account than its run',
+    )
     expect(script.inserted).toEqual([])
   })
 
@@ -238,6 +257,24 @@ describe('markSent and reconcile assert ownership between the meter and reservat
     const err = await rejection(createAccountMeter(db, runBound()).reconcile(claim, 'USED'))
     expect(err).toBeInstanceOf(RunFencedError)
     expect(script.log).toEqual(['lock:meter', 'lock:run'])
+  })
+
+  it('an owned USED settlement stamps the clock on the meter and the reservation', async () => {
+    const { db, script } = fakeDb(OWNED)
+    await createAccountMeter(db, runBound()).reconcile(claim, 'USED')
+    const render = (v: unknown) => dialect.sqlToQuery(v as SQL).sql
+    const [meterSet, reservationSet] = script.payloads
+    expect(render(meterSet!['updatedAt'])).toBe('now()')
+    expect(Object.keys(reservationSet!).sort()).toEqual([
+      'sentAt',
+      'settledAt',
+      'status',
+      'usedAmount',
+    ])
+    // The row was never marked sent (sentAt null), so the send is stamped now.
+    expect(render(reservationSet!['sentAt'])).toBe('now()')
+    expect(render(reservationSet!['settledAt'])).toBe('now()')
+    expect(reservationSet!['usedAmount']).toBe(2)
   })
 
   it('markSent of an owned binding locks meter, run, reservation, then writes', async () => {

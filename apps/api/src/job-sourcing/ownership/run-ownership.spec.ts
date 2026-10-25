@@ -42,6 +42,9 @@ describe('isWellFormedHandle', () => {
     ['an empty token', { ownerToken: '' }],
     ['an over-long token', { ownerToken: 'x'.repeat(201) }],
     ['a non-string token', { ownerToken: 7 as unknown as string }],
+    ['an array token (it has a length)', { ownerToken: ['w:token'] as unknown as string }],
+    ['a run id with a prefix', { runId: `x${RUN}` }],
+    ['a run id with a suffix', { runId: `${RUN}x` }],
     ['epoch 0', { fencingEpoch: 0 }],
     ['a negative epoch', { fencingEpoch: -1 }],
     ['a fractional epoch', { fencingEpoch: 1.5 }],
@@ -83,10 +86,14 @@ describe('assertOwned', () => {
     expect(err).toBeInstanceOf(RunFencedError)
     expect((err as RunFencedError).code).toBe('RUN_FENCED')
     expect((err as RunFencedError).name).toBe('RunFencedError')
+    expect((err as RunFencedError).message).toBe('the run is not owned by this executor')
   })
 
-  it('a malformed handle is RUN_FENCED before any SQL', async () => {
+  it('a malformed handle is RUN_FENCED before any SQL, and says so', async () => {
     const { tx, seen } = executor([{ id: RUN }])
+    await expect(assertOwned(tx, { ...good, fencingEpoch: 0 })).rejects.toThrow(
+      new RunFencedError('a malformed run handle owns nothing'),
+    )
     await expect(assertOwned(tx, { ...good, fencingEpoch: 0 })).rejects.toBeInstanceOf(
       RunFencedError,
     )

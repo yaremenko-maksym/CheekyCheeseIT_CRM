@@ -195,8 +195,16 @@ describe('validateEnding — the closed table of how a run may end', () => {
     expect(() => validateEnding(outcome, code)).not.toThrow()
   })
 
+  it('names the refused combination', () => {
+    expect(() => validateEnding('PARTIAL', 'ACCESS_POLICY')).toThrow(
+      'a run cannot end PARTIAL / ACCESS_POLICY',
+    )
+  })
+
   it.each([
     ['STARTED', null],
+    ['STARTED', 'UPSTREAM'],
+    ['STARTED', 'CANCELLED'],
     ['SUCCEEDED', 'PAGE_CAP'],
     ['PARTIAL', null],
     ['PARTIAL', 'ACCESS_POLICY'],
@@ -235,6 +243,10 @@ describe('endingEffect — failure accounting by how the run ended (SR-H-4, SR-M
     expect(endingEffect('CANCELLED', 'CANCELLED', false)).toBe('NEUTRAL')
   })
 
+  it('only a PARTIAL ending can be a cost stop: a FAILED run carrying COST_STOP still counts', () => {
+    expect(endingEffect('FAILED', 'COST_STOP', true)).toBe('FAILURE')
+  })
+
   it.each(['ACCESS_POLICY', 'PARSE_DRIFT', 'CURSOR_CYCLE', 'LEASE_EXPIRED'] as const)(
     'FAILED/%s is a failure whatever was persisted (SR-L-18 for LEASE_EXPIRED)',
     (c) => {
@@ -258,8 +270,8 @@ describe('backoffMs — doubling from the base, capped', () => {
     expect(backoffMs(60, base, max)).toBe(14_400_000)
   })
 
-  it('refuses a non-positive count', () => {
-    expect(() => backoffMs(0, base, max)).toThrow(RangeError)
+  it('refuses a non-positive count, naming it', () => {
+    expect(() => backoffMs(0, base, max)).toThrow('backoff: invalid failure count 0')
   })
 })
 
@@ -303,15 +315,26 @@ describe('resolveLedgerOptions — config values with ceilings', () => {
     expect(() => resolveLedgerOptions({ [key]: value })).toThrow(RangeError)
   })
 
-  it('refuses a lease longer than the run max age', () => {
+  it('refuses a lease longer than the run max age, and accepts one equal to it', () => {
     expect(() => resolveLedgerOptions({ leaseMs: 600_000, runMaxAgeMs: 300_000 })).toThrow(
-      RangeError,
+      'the lease must not outlive RUN_MAX_AGE',
     )
+    expect(resolveLedgerOptions({ leaseMs: 600_000, runMaxAgeMs: 600_000 }).leaseMs).toBe(600_000)
   })
 
-  it('refuses a backoff base above its cap', () => {
+  it('refuses a backoff base above its cap, and accepts one equal to it', () => {
     expect(() =>
       resolveLedgerOptions({ backoffBaseMs: 7_200_000, backoffMaxMs: 3_600_000 }),
-    ).toThrow(RangeError)
+    ).toThrow('the backoff base exceeds its cap')
+    expect(
+      resolveLedgerOptions({ backoffBaseMs: 3_600_000, backoffMaxMs: 3_600_000 }).backoffBaseMs,
+    ).toBe(3_600_000)
+  })
+
+  it('the lower bound is 1 inclusive, and the refusal names the option and its range', () => {
+    expect(resolveLedgerOptions({ maxClaimScan: 1 }).maxClaimScan).toBe(1)
+    expect(() => resolveLedgerOptions({ maxClaimScan: 0 })).toThrow(
+      'ledger option maxClaimScan = 0 is outside 1..500',
+    )
   })
 })

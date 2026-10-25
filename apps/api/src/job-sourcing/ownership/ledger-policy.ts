@@ -109,13 +109,10 @@ export function validateEnding(outcome: RunEndOutcome, code: CollectionErrorCode
     outcome === 'SUCCEEDED'
       ? code === null
       : outcome === 'PARTIAL'
-        ? code !== null && PARTIAL_CODES.has(code)
+        ? PARTIAL_CODES.has(String(code))
         : outcome === 'CANCELLED'
           ? code === 'CANCELLED'
-          : outcome === 'FAILED' &&
-            code !== null &&
-            KNOWN_CODES.has(code) &&
-            code !== 'LEASE_EXPIRED'
+          : outcome === 'FAILED' && KNOWN_CODES.has(String(code)) && code !== 'LEASE_EXPIRED'
   if (!ok) throw new RangeError(`a run cannot end ${outcome} / ${String(code)}`)
 }
 
