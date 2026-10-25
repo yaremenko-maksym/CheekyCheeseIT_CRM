@@ -36,7 +36,10 @@ function nextUtc(expr: string, from: string): string {
   return new CronTime(expr, CRON_TIME_ZONE).getNextDateFrom(new Date(from)).toUTC().toISO()
 }
 
-afterEach(() => vi.useRealTimers())
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
 
 describe('schedules (AC 1)', () => {
   it('both decorators carry Europe/Kyiv and their own expression', () => {
@@ -239,25 +242,27 @@ describe('window length from config', () => {
 
 describe('the trigger key', () => {
   it('is the schedule name and the KYIV calendar date, whatever the server`s zone', async () => {
-    const before = process.env['TZ']
-    process.env['TZ'] = 'Pacific/Kiritimati' // UTC+14: its date differs from Kyiv's at this instant
-    try {
-      // 2027-06-30 21:30 UTC = 2027-07-01 00:30 Kyiv (EEST) = 2027-07-01 11:30 Kiritimati
-      // and 2027-06-30 22:30 UTC = 2027-07-01 01:30 Kyiv = 2027-07-01 12:30 Kiritimati: use the
-      // instant where they split: 2027-06-30 09:30 UTC = 2027-06-30 12:30 Kyiv = 2027-06-30 23:30 Kiritimati
-      // and 2027-06-30 10:30 UTC = 2027-06-30 13:30 Kyiv = 2027-07-01 00:30 Kiritimati.
-      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2027-06-30T10:30:00Z') })
-      const b = build({})
-      await b.svc.handleHtmlCollection()
-      expect(b.ledger.openCycle).toHaveBeenCalledTimes(1)
-      expect(b.ledger.openCycle.mock.calls[0]?.[0]).toStrictEqual({
-        trigger: 'SCHEDULED',
-        triggerKey: 'daily-html:2027-06-30',
+    // A host whose default zone is far from Kyiv: a formatter built without an explicit zone
+    // would name the wrong day at 10:30 UTC (13:30 Kyiv, 00:30 the next day on Kiritimati).
+    const RealFormat = Intl.DateTimeFormat
+    vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (
+      locale?: string | string[],
+      options?: Intl.DateTimeFormatOptions,
+    ) {
+      return new RealFormat(locale, {
+        ...options,
+        timeZone: options?.timeZone ?? 'Pacific/Kiritimati',
       })
-    } finally {
-      if (before === undefined) delete process.env['TZ']
-      else process.env['TZ'] = before
-    }
+    } as never)
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2027-06-30T10:30:00Z') })
+    const b = build({})
+    await b.svc.handleHtmlCollection()
+    expect(b.ledger.openCycle).toHaveBeenCalledTimes(1)
+    expect(b.ledger.openCycle.mock.calls[0]?.[0]).toStrictEqual({
+      trigger: 'SCHEDULED',
+      triggerKey: 'daily-html:2027-06-30',
+    })
+    vi.restoreAllMocks()
   })
 })
 

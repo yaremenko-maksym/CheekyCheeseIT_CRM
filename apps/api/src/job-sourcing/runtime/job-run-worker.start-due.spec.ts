@@ -112,7 +112,7 @@ describe('boundedWrite', () => {
     vi.useFakeTimers()
     const outcome = boundedWrite(new Promise(() => undefined), 500).then(
       () => 'resolved',
-      (e: Error) => e.name,
+      (e: Error) => e.message,
     )
     await vi.advanceTimersByTimeAsync(499)
     let early = true
@@ -122,7 +122,7 @@ describe('boundedWrite', () => {
     await Promise.resolve()
     expect(early).toBe(true) // not before the bound
     await vi.advanceTimersByTimeAsync(1)
-    expect(await outcome).toBe('Error') // new Error('TimeoutError')
+    expect(await outcome).toBe('TimeoutError')
   })
 
   it('passes a write that settles in time through, resolved or rejected, and clears its timer', async () => {

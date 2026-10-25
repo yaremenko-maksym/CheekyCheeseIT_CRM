@@ -78,7 +78,7 @@ export class JobSourcingCronService {
 
   private windowMs(): number {
     const value = this.config?.get('JOB_COLLECTION_WINDOW_MS', { infer: true })
-    return typeof value === 'number' && Number.isFinite(value) && value > 0
+    return typeof value === 'number' && value > 0 && value < Number.POSITIVE_INFINITY
       ? value
       : DEFAULT_JOB_COLLECTION_WINDOW_MS
   }
@@ -97,32 +97,34 @@ export class JobSourcingCronService {
     const startedAt = performance.now()
     const ledger = this.ledger
     const worker = this.worker
-    let cycleId: string | null = null
+    // Set by the ledger steps when there is a cycle to claim under and a worker to claim with.
+    let window: (() => Promise<unknown>) | null = null
     if (ledger !== undefined) {
       const opened = await this.step(`${name}: openCycle`, () =>
         ledger.openCycle({ trigger: 'SCHEDULED', triggerKey: this.triggerKey(name) }),
       )
-      cycleId = opened?.cycleId ?? null
       await this.step(`${name}: recoverExpired`, () => ledger.recoverExpired())
       await this.step(`${name}: sweepOrphanReservations`, () => ledger.sweepOrphanReservations())
+      if (opened !== undefined && worker !== undefined) {
+        const cycleId = opened.cycleId
+        window = () =>
+          this.step(`${name}: collection window`, () =>
+            runCollectionWindow(
+              { ledger, worker, logger: this.logger },
+              {
+                cycleId,
+                types,
+                windowMs: this.windowMs(),
+                intervalMs: this.tuning.intervalMs,
+                onlyIds: this.tuning.onlyIds,
+                startedAt,
+              },
+            ),
+          )
+      }
     }
     if (legacyDou) await this.collectLegacyDou()
-    if (ledger !== undefined && worker !== undefined && cycleId !== null) {
-      const id = cycleId
-      await this.step(`${name}: collection window`, () =>
-        runCollectionWindow(
-          { ledger, worker, logger: this.logger },
-          {
-            cycleId: id,
-            types,
-            windowMs: this.windowMs(),
-            intervalMs: this.tuning.intervalMs,
-            onlyIds: this.tuning.onlyIds,
-            startedAt,
-          },
-        ),
-      )
-    }
+    if (window !== null) await window()
   }
 
   /** One step; a failure is logged (class name only) and the next step still runs. */
