@@ -1091,7 +1091,7 @@ $check$;
 DO $ok$
 BEGIN
   RAISE NOTICE 'db-privileges check passed: % relations classified, roles %, %, %',
-    77, 'crm_app', 'crm_collector', 'crm_retention_owner';
+    78, 'crm_app', 'crm_collector', 'crm_retention_owner';
 END
 $ok$;
 
