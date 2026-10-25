@@ -1576,6 +1576,30 @@ assert_red "single-transaction: a pinned file moved out of manual/ AND applied w
   --contains "Applies missing --single-transaction: 2" \
   -- run_guard "$(make_pinned_moved_out_case stx-pinned-moved-noflag "")"
 
+# SPEC-L-1 (a): the other way a pin can drop out of `files` — parked in
+# KNOWN_NOT_WIRED (file still in manual/, deploy still applies it). The fixture
+# patches the COPIED guard's KNOWN_NOT_WIRED; the repo's guard is untouched.
+make_pinned_parked_case() {
+  local root
+  root="$(make_single_tx_case "$1" "$SINGLE_TX_HEADER" "--single-transaction" "" "$PINNED_DDL")"
+  sed -i.bak "s/^KNOWN_NOT_WIRED = {/KNOWN_NOT_WIRED = {\"$PINNED_DDL\",/" "$root/scripts/devops/$GUARD"
+  grep -q "^KNOWN_NOT_WIRED = {\"$PINNED_DDL\"," "$root/scripts/devops/$GUARD" || echo "FIXTURE PATCH DID NOT APPLY" >&2
+  printf '%s' "$root"
+}
+
+assert_red "single-transaction: a pinned file parked in KNOWN_NOT_WIRED while the deploy still applies it -> red, names the file" \
+  --contains "not a wired file in manual/" \
+  --contains "KNOWN_NOT_WIRED" \
+  --contains "$PINNED_DDL" \
+  -- run_guard "$(make_pinned_parked_case stx-pinned-parked)"
+
+# SPEC-L-1 (b): a pin whose file is deleted AND no longer applied is a clean
+# retirement, not a violation (pin is `& (files | applied_names)`).
+assert_green "single-transaction: a pinned file deleted and no longer applied (another file wired) -> green" \
+  --contains "Files requiring a --single-transaction apply: 0" \
+  --contains "Applies missing --single-transaction: 0" \
+  -- run_guard "$(make_single_tx_case stx-pinned-retired "$NO_TX_PROSE_HEADER" "")"
+
 # ── hard-required list continuation (2026-10-25) ────────────────────────────────
 # Both lists are one backslash-continued shell command. A blank line inside one
 # was on main in both copies at once (so the mirror check stayed green) and made

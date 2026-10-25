@@ -634,7 +634,7 @@ the prod image of the API or create a separate migrate container in `docker-comp
 ### 5.1 Database roles in the deploy: apply order and how the `crm_app` credential reaches the VPS
 
 **Apply order inside the "Pull, up, migrate, health-check via SSH" step** (positions count distinct
-manual files in textual order, which is execution order; 62 distinct files run in that one step,
+manual files in textual order, which is execution order; 64 distinct files run in that one step,
 derived from the script on 2026-10-25 with the wiring guard's own `applied_commands()`; re-derive
 rather than trust the numbers, they shift whenever a file is added above):
 
