@@ -109,7 +109,8 @@ def ansi_c(m):
 
 Q1 = "\x27"
 Q2 = "\x22"
-REDIR = re.compile(r"(?:[0-9]+|\{\w+\})?(?:&>>?|[<>]&|<<<|<<?|>>?\|?)")
+OPS = re.compile(r"(?:&>>?|[<>]&|<<<|<<?|>>?\|?)")
+FDVAR = re.compile(r"\{\w+\}")
 
 def skip_quoted(s, i):
     # end index of the quoted region that starts at s[i] (single, double or ANSI-C dollar-single quote)
@@ -153,10 +154,21 @@ def strip_redirects(s):
             out.append(s[i:k])
             i = k
         elif c in "0123456789{&<>":
-            m = REDIR.match(s, i)
+            # fd prefix first: a WHOLE digit run (or a {name}), never re-scanned character by character
+            # (a run of N digits with no operator after it was O(N^2), SR-H-17)
+            j = i
+            if c in "0123456789":
+                while j < n and s[j] in "0123456789":
+                    j += 1
+            elif c == "{":
+                mf = FDVAR.match(s, i)
+                if mf is not None:
+                    j = mf.end()
+            m = OPS.match(s, j)
             if m is None:
-                out.append(c)
-                i += 1
+                k = max(j, i + 1)
+                out.append(s[i:k])
+                i = k
                 continue
             j = m.end()
             while j < n and s[j] in " \t":

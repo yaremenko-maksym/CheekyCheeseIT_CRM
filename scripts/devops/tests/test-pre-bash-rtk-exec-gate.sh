@@ -201,13 +201,29 @@ for cmd in ("echo ok" + "\n" * 20000, "echo ok" + " \n" * 10000, "echo " + "a/" 
             "nice -n 5 " * 30000, "sudo" + " -a" * 60 + " x", "time" + " -n 1" * 40 + " x", "A=1 " * 50000 + "ls",
             "time -p nice -n 1 " * 40 + "x", "sudo -u x -g y " * 40 + "ls",
             "nice -n -5 " * 40 + "rtk zzz", "nice --adj " * 40 + "ls", "sudo -u -x " * 40 + "ls", "env --foo=bar " * 40 + "ls",
-            "rtk --adj " * 40 + "zzz", "echo " + ">\"" * 50000, "echo " + ">\x27" * 50000, "echo " + ">\\" * 50000):
+            "rtk --adj " * 40 + "zzz", "echo " + "1" * 100000 + " ; rtk run ls", "echo {" + "1" * 100000 + " ; rtk run ls",
+            "{1" * 50000, "echo " + "1 " * 50000, "{" * 100000, "&" * 100000, "<" * 100000, ">" * 100000, "echo " + ">\"" * 50000, "echo " + ">\x27" * 50000, "echo " + ">\\" * 50000):
     t = time.time()
     subprocess.run(["bash", hook], input=json.dumps({"tool_input": {"command": cmd}}).encode(), capture_output=True)
     if time.time() - t > 5:
         print("SLOW", len(cmd), round(time.time() - t, 1))
         sys.exit(1)
 print("FAST")
+' "$HOOK"
+
+assert_green "a 30k digit run (or {+digits) before an exec form is still refused, and fast (SR-H-17)" \
+  --contains "REFUSED-FAST" \
+  -- python3 -c '
+import json, subprocess, sys, time
+hook = sys.argv[1]
+b = "r" + "tk"
+for cmd in ("echo " + "1" * 30000 + " ; " + b + " ru" + "n ls", "echo {" + "1" * 30000 + " ; " + b + " ru" + "n ls"):
+    t = time.time()
+    r = subprocess.run(["bash", hook], input=json.dumps({"tool_input": {"command": cmd}}).encode(), capture_output=True)
+    if r.returncode != 2 or time.time() - t > 2:
+        print("BAD", r.returncode, round(time.time() - t, 1))
+        sys.exit(1)
+print("REFUSED-FAST")
 ' "$HOOK"
 
 # ── fail-open: garbage input must never become a block ──

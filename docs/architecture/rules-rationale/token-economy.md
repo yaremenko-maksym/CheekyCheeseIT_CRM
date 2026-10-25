@@ -183,7 +183,11 @@ Two more ambiguities of the flag pattern (`--adj` parsed two ways, a flag value 
 exponential on crafted input (a 240-character command took 30 s); both are removed and the test pins `nice -n
 -5`, `nice --adj`, `sudo -u -x`, `env --foo=bar` and the binary's own flag chain at x40, plus 100k-character
 quote and redirect floods. `init` joined the refused words as hardening: it rewrites the agent settings of the
-tool itself and installs a second hook next to ours.
+tool itself and installs a second hook next to ours. The first version of the scanner was quadratic on a long
+run of digits that is not followed by a redirection operator (it re-tried the file-descriptor prefix at every
+digit: 30,000 digits took 45 s, a regression the round-8 regex did not have); the scanner now consumes the whole
+digit run (or `{name}`) once before looking for an operator, and the test pins a 30k digit run and `{` plus
+digits in front of an exec form (refused in well under 2 s) and floods of `{`, `&`, `<`, `>` and `1 ` pairs.
 
 **Still not verified:** end-to-end ordering inside a live Claude Code session — the existing hooks carry
 owner-machine absolute paths and cannot run in the cloud container. Smoke-test on the owner machine: `git push` with a bad `ac_verified` must still be
