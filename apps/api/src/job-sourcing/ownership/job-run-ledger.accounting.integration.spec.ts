@@ -273,6 +273,13 @@ describe.skipIf(!hasDatabaseUrl())(
           const s = await kit.reporting()
           for (let i = 0; i < 3; i += 1) {
             const run = await kit.claimOne(s)
+            // SR-M-1: a heartbeat, and any other bookkeeping write that moves the run's
+            // `updated_at`, is not a page. Only what `savePage` writes may say "a page was saved".
+            expect(await ledger.heartbeat(handleOf(run))).toBe(true)
+            await session.admin.query(
+              `UPDATE job_collection_runs SET updated_at = clock_timestamp() + interval '1 second' WHERE id = $1`,
+              [run.runId],
+            )
             await ledger.finish(handleOf(run), { outcome: 'PARTIAL', errorCode: code })
             await ageSource(session.admin, s, 48 * HOUR)
           }
@@ -280,6 +287,30 @@ describe.skipIf(!hasDatabaseUrl())(
           expect(await kit.tryClaim(s)).toBeUndefined()
         },
       )
+
+      it('SR-M-1: an inherited checkpoint is not a page; a successor that saves none counts', async () => {
+        const s = await kit.reporting()
+        const first = await kit.claimOne(s)
+        await ledger.savePage(handleOf(first), {
+          observations: identityObservations([`${s}-1`], NS),
+          checkpoint: specCheckpoint(1),
+        })
+        await ledger.finish(handleOf(first), { outcome: 'PARTIAL', errorCode: 'DEADLINE' })
+        expect((await fx.sourceRow(s)).consecutive_failures).toBe(0)
+        await ageSource(session.admin, s, 48 * HOUR)
+        const second = await kit.claimOne(s)
+        expect(second.checkpoint).not.toBeNull()
+        await ledger.finish(handleOf(second), { outcome: 'PARTIAL', errorCode: 'DEADLINE' })
+        expect((await fx.sourceRow(s)).consecutive_failures).toBe(1)
+      })
+
+      it('SR-M-1: a page with no observations that moves the checkpoint is a page', async () => {
+        const s = await kit.reporting({ consecutiveFailures: 1 })
+        const run = await kit.claimOne(s)
+        await ledger.savePage(handleOf(run), { observations: [], checkpoint: specCheckpoint(1) })
+        await ledger.finish(handleOf(run), { outcome: 'PARTIAL', errorCode: 'PAGE_CAP' })
+        expect((await fx.sourceRow(s)).consecutive_failures).toBe(1)
+      })
 
       it('SR-L-18: three LEASE_EXPIRED endings cap a source, with the reason recorded', async () => {
         const s = await kit.reporting()

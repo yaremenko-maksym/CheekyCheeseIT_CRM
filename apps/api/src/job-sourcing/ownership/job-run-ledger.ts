@@ -159,6 +159,17 @@ const HOST_IDLE =
   sql.raw(`NOT EXISTS (SELECT 1 FROM job_collection_runs r JOIN job_sources hs ON hs.id = r.source_id
     WHERE hs.host_key = job_sources.host_key AND r.outcome = 'STARTED' AND r.lease_expires_at > clock_timestamp())`)
 
+/**
+ * The checkpoint "Crash resume" hands a new run: the latest run's (greatest epoch among those
+ * `before` admits), if it has the same config version, did not succeed and did not end
+ * `CURSOR_CYCLE` -- else `{}`. One expression for the claim and for `endRun`'s "a page was saved".
+ */
+const inheritedCheckpoint = (sourceId: SQL, configVersion: SQL, before: SQL): SQL =>
+  sql`COALESCE((SELECT CASE WHEN l.config_version = ${configVersion} AND l.outcome <> 'SUCCEEDED'
+                         AND l.error_code IS DISTINCT FROM 'CURSOR_CYCLE' THEN l.checkpoint END
+              FROM job_collection_runs l WHERE l.source_id = ${sourceId} AND ${before}
+             ORDER BY l.fencing_epoch DESC LIMIT 1), '{}'::jsonb)`
+
 export class JobRunLedger {
   readonly options: LedgerOptions
 
@@ -418,10 +429,7 @@ export class JobRunLedger {
             ${cycle.trigger}::job_collection_trigger, ${ownerToken},
             COALESCE((SELECT max(r.fencing_epoch) FROM job_collection_runs r WHERE r.source_id = s.id), 0) + 1,
             LEAST(clock_timestamp() + make_interval(secs => ${leaseS}), now() + make_interval(secs => ${maxAgeS})),
-            COALESCE((SELECT CASE WHEN l.config_version = s.config_version AND l.outcome <> 'SUCCEEDED'
-                                   AND l.error_code IS DISTINCT FROM 'CURSOR_CYCLE' THEN l.checkpoint END
-                        FROM job_collection_runs l WHERE l.source_id = s.id
-                       ORDER BY l.fencing_epoch DESC LIMIT 1), '{}'::jsonb),
+            ${inheritedCheckpoint(sql`s.id`, sql`s.config_version`, sql`true`)},
             ${String(row['run_account_key'])}
           FROM job_sources s WHERE s.id = ${sourceId}::uuid
           RETURNING id, fencing_epoch, checkpoint, account_key`,
@@ -657,8 +665,12 @@ export class JobRunLedger {
     const source = src[0]
     if (source === undefined) throw new Error('endRun: the run`s source vanished')
     const meters = await lockAccountMeters(tx, head.accountKey)
+    // "A page was saved" (SR-M-22) from what only `savePage` writes (SR-M-1): observations
+    // received, or a checkpoint moved off the one the claim inherited. Never `updated_at`.
     const { rows: locked } = await tx.execute(
-      sql`SELECT received, updated_at > created_at AS paged FROM job_collection_runs WHERE ${runPredicate} FOR UPDATE`,
+      sql`SELECT r.received, (r.received > 0 OR r.checkpoint IS DISTINCT FROM
+                 ${inheritedCheckpoint(sql`r.source_id`, sql`r.config_version`, sql`l.fencing_epoch < r.fencing_epoch`)}) AS paged
+            FROM job_collection_runs r WHERE ${runPredicate} FOR UPDATE OF r`,
     )
     const run = locked[0]
     if (run === undefined) return false
