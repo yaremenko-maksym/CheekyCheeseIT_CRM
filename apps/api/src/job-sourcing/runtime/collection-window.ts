@@ -101,13 +101,13 @@ export async function runCollectionWindow(
     if (started !== undefined) {
       claimedNow = started.claimed
       claimed += claimedNow
-    }
-    // Only a claim that started runs is waited on: a pass that claimed nothing hands back an
-    // already-settled promise, and racing on it would wake the loop at once, every pass.
-    if (started !== undefined && claimedNow > 0) {
-      const settled: Promise<RunReport[]> = started.settled.finally(() => pending.delete(settled))
-      pending.add(settled)
-      settled.catch(() => undefined)
+      // Only a claim that started runs is waited on: a pass that claimed nothing hands back an
+      // already-settled promise, and racing on it would wake the loop at once, every pass.
+      if (claimedNow > 0) {
+        const settled: Promise<RunReport[]> = started.settled.finally(() => pending.delete(settled))
+        pending.add(settled)
+        settled.catch(() => undefined)
+      }
     }
     if (claimedNow === 0 && deps.worker.activeRuns === 0) {
       // Nothing of ours runs. Sources still due but not claimable (behind another replica's run on

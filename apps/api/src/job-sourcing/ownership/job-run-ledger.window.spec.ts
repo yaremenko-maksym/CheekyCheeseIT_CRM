@@ -52,6 +52,18 @@ describe('countDue', () => {
     expect(last().sql).not.toContain('ANY(')
   })
 
+  it('asks the SCHEDULED due predicate, at the ledger`s own failure cap', async () => {
+    const execute = vi.fn(async (_q: SQL) => ({ rows: [{ n: 0 }] }))
+    const ledger = new JobRunLedger({ execute } as never, {} as never, {} as never, {
+      maxConsecutiveFailures: 5,
+    })
+    await ledger.countDue({})
+    const { params } = dialect.sqlToQuery(execute.mock.calls[0]![0])
+    expect(params).toContain('SCHEDULED') // the trigger-mode term; a manual trigger drops the cadence term
+    expect(params).toContain(5) // consecutive_failures < the cap this ledger was built with
+    expect(params).not.toContain(3)
+  })
+
   it('no row, or a null count, is zero', async () => {
     expect(await ledgerOver([]).ledger.countDue({})).toBe(0)
     expect(await ledgerOver([{ n: null }]).ledger.countDue({})).toBe(0)
