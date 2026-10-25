@@ -820,7 +820,7 @@ describe('evaluate: exact outputs', () => {
     expect(scopes(r)).toEqual(['STUDIO', `TEAM:${TEAM_1}`])
   })
 
-  it('does not call a known stack unknown for a team that does not match it', () => {
+  it('decides TRIAGE on the scope own view: a granted team that matches nothing still gets it', () => {
     const fields = {
       ...javaRevision().fields,
       title: 'Senior Developer',
@@ -832,7 +832,25 @@ describe('evaluate: exact outputs', () => {
     )
     expect(r.status).toBe('LEAD')
     expect(projection(r, `TEAM:${TEAM_1}`)?.status).toBe('LEAD')
-    expect(projection(r, `TEAM:${TEAM_2}`)).toBeUndefined()
+    // Team 2 sees no evidence for its own seniors, so with its grant it triages the item.
+    expect(projection(r, `TEAM:${TEAM_2}`)?.status).toBe('TRIAGE')
+    expect(projection(r, `TEAM:${TEAM_3}`)?.status).toBe('LEAD')
+  })
+
+  it('gives a granted team whose only senior is excluded no projection and no TRIAGE', () => {
+    const r = evaluated(
+      evaluate(
+        input({
+          revision: unknownStackRevision(),
+          exclusions: [cExcluded()],
+          teamTriageGrants: [TEAM_3],
+        }),
+      ),
+    )
+    expect(scopes(r)).toEqual(['STUDIO'])
+    expect(JSON.stringify(r.projections)).not.toContain(TEAM_3)
+    expect(projectionsForViewer(r, { role: 'HR', teamId: TEAM_3 })).toEqual([])
+    expect(r.audit.excluded.map((e) => e.subject)).toEqual([`SENIOR:${SENIOR_C}`])
   })
 
   it('is NO_MATCH, not excluded, when seniors only lack a team', () => {

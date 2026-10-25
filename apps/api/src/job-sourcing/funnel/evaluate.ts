@@ -131,45 +131,45 @@ interface Scope {
 
 /**
  * Scopes in `scope`-key order by construction: `SENIOR:` < `STUDIO` < `TEAM:` (E < T), seniors
- * and teams each ascending.
+ * and teams each ascending. Team membership comes from the MATCHABLE seniors only, so an
+ * excluded senior can never create a team scope.
  */
 function buildScopes(
   tech: TechMatchReady,
   profiles: readonly SeniorTechProfile[],
   grants: ReadonlySet<string>,
-): Scope[] {
+): { seniors: Scope[]; studio: Scope; teams: Scope[] } {
   const view = (ids: readonly string[]) => forViewer(tech, { visibleSeniorIds: ids })
+  const teamsOf = new Map(profiles.map((p) => [p.seniorId, p.teamIds]))
   const members = new Map<string, string[]>()
-  for (const p of profiles) {
-    for (const teamId of p.teamIds) {
+  for (const seniorId of tech.matchableSeniorIds) {
+    for (const teamId of teamsOf.get(seniorId) as readonly string[]) {
       const list = members.get(teamId)
-      if (list) list.push(p.seniorId)
-      else members.set(teamId, [p.seniorId])
+      if (list) list.push(seniorId)
+      else members.set(teamId, [seniorId])
     }
   }
-  return [
-    ...tech.matchableSeniorIds.map((id) => ({
+  return {
+    seniors: tech.matchableSeniorIds.map((id) => ({
       key: seniorKey(id),
       view: view([id]),
       triage: false,
       granted: false,
     })),
-    { key: 'STUDIO', view: view(tech.matchableSeniorIds), triage: true, granted: false },
-    ...[...members.keys()].sort().map((teamId) => ({
+    studio: { key: 'STUDIO', view: view(tech.matchableSeniorIds), triage: true, granted: false },
+    teams: [...members.keys()].sort().map((teamId) => ({
       key: teamKey(teamId),
       view: view(members.get(teamId) as string[]),
       triage: grants.has(teamId),
       granted: true,
     })),
-  ]
+  }
 }
 
 interface ProjectionContext {
   layer1: Layer1Result
   revision: CanonicalRevision
   evaluationTime: Date
-  /** The posting is unknown-stack for the whole roster (not for one scope's narrowed view). */
-  unknownStack: boolean
 }
 
 function projectScope(scope: Scope, ctx: ProjectionContext): ScopeProjection | null {
@@ -198,7 +198,8 @@ function projectScope(scope: Scope, ctx: ProjectionContext): ScopeProjection | n
       reasons: [reason('TECH_MATCH', sorted([...keywords]) as [string, ...string[]])],
     }
   }
-  if (!ctx.unknownStack || !scope.triage) return null
+  // Decided on the scope's OWN view: it needs a matchable senior and no evidence, plus the grant.
+  if (!scope.view.lowInformation || !scope.triage) return null
   return {
     ...base,
     status: 'TRIAGE',
@@ -344,22 +345,20 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
 
   // 6. Projections per scope (and, for a LEAD, 7. the scope score).
   enter('PROJECTIONS')
-  const ctx = {
-    layer1,
-    revision,
-    evaluationTime: input.evaluationTime,
-    unknownStack: tech.lowInformation,
-  }
-  const projections = buildScopes(tech, profiles, new Set(input.teamTriageGrants))
-    .map((scope) => projectScope(scope, ctx))
-    .filter((p): p is ScopeProjection => p !== null)
+  const ctx = { layer1, revision, evaluationTime: input.evaluationTime }
+  const scopes = buildScopes(tech, profiles, new Set(input.teamTriageGrants))
+  const studio = projectScope(scopes.studio, ctx)
+  const projections = [
+    ...scopes.seniors.map((scope) => projectScope(scope, ctx)),
+    studio,
+    ...scopes.teams.map((scope) => projectScope(scope, ctx)),
+  ].filter((p): p is ScopeProjection => p !== null)
   if (projections.some((p) => p.status === 'LEAD')) enter('SCORE')
 
   return {
     kind: 'EVALUATED',
     ...base,
-    // Every projection of one posting has the same status: LEAD needs a keyword hit, TRIAGE forbids one.
-    status: projections[0]?.status ?? 'NO_MATCH',
+    status: studio?.status ?? 'NO_MATCH',
     layer1,
     projections,
     trace,
