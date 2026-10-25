@@ -107,7 +107,70 @@ def ansi_c(m):
     except Exception:
         return "$" + body
 
+Q1 = "\x27"
+Q2 = "\x22"
+REDIR = re.compile(r"(?:[0-9]+|\{\w+\})?(?:&>>?|[<>]&|<<<|<<?|>>?\|?)")
+
+def skip_quoted(s, i):
+    # end index of the quoted region that starts at s[i] (single, double or ANSI-C dollar-single quote)
+    n = len(s)
+    if s[i] == Q1:
+        k = s.find(Q1, i + 1)
+        return n if k < 0 else k + 1
+    k = i + (2 if s[i] == "$" else 1)
+    end = Q1 if s[i] == "$" else Q2
+    while k < n and s[k] != end:
+        k += 2 if s[k] == "\\" else 1
+    return min(n, k + 1)
+
+def skip_word(s, j):
+    # one shell word from s[j], quote aware, stopping at unquoted whitespace or a metacharacter
+    n = len(s)
+    while j < n:
+        c = s[j]
+        if c == "\\" and j + 1 < n:
+            j += 2
+        elif c in (Q1, Q2) or (c == "$" and j + 1 < n and s[j + 1] == Q1):
+            j = skip_quoted(s, j)
+        elif c in " \t\n;&|()<>":
+            break
+        else:
+            j += 1
+    return j
+
+def strip_redirects(s):
+    # Delete redirections WITH their target word, honouring quotes: an operator inside quotes is text, and
+    # a quoted/escaped/ANSI-C target that contains a space is ONE word (SR-H-13, SR-H-16). A regex on raw
+    # text cannot do this: a quote opened in a decoy can swallow the real command up to a later quote.
+    out, i, n = [], 0, len(s)
+    while i < n:
+        c = s[i]
+        if c == "\\" and i + 1 < n:
+            out.append(s[i:i + 2])
+            i += 2
+        elif c in (Q1, Q2) or (c == "$" and i + 1 < n and s[i + 1] == Q1):
+            k = skip_quoted(s, i)
+            out.append(s[i:k])
+            i = k
+        elif c in "0123456789{&<>":
+            m = REDIR.match(s, i)
+            if m is None:
+                out.append(c)
+                i += 1
+                continue
+            j = m.end()
+            while j < n and s[j] in " \t":
+                j += 1
+            j = skip_word(s, j)
+            out.append(" ")
+            i = max(j, m.end())
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
 norm = cmd.replace("\\\n", "")
+norm = strip_redirects(norm)
 norm = re.sub(r"[ \t\r\f\v]+", " ", norm)
 norm = re.sub(r"\s*\n\s*", "\n", norm)
 norm = re.sub(r"\$\x27((?:[^\x27\\]|\\.)*)\x27", ansi_c, norm, flags=re.S)
@@ -115,23 +178,22 @@ norm = re.sub(r"\$(?=[\x27\x22])", "", norm)
 norm = re.sub(r"[\\\x27\x22]", "", norm)
 # $IFS (and the $IFS$9 idiom) is a word separator the shell expands to whitespace (SR-H-14)
 norm = re.sub(r"\$\{?IFS\}?(?:\$\{?[0-9@*]\}?)*", " ", norm)
-# redirections may sit anywhere in a simple command, between the binary and its subcommand too (SR-H-13)
-norm = re.sub(r"\{\w+\}(?=[<>])", "", norm)
-norm = re.sub(r"(?<![\w-])[0-9]*(?:&>>?|[<>]&|<<<|<<?|>>?\|?) ?(?:&?-|[^\s;&|()<>]+)?", " ", norm)
 norm = re.sub(r"[ \t\r\f\v]+", " ", norm)
 
 gap = r"\s+"
-flags = r"(?:" + gap + r"-{1,2}[\w-]+(?:=\S+)?)*"
+flags = r"(?:" + gap + r"--?(?:\w[\w-]*)?(?:=\S+)?)*"
 binary = r"(?<![\w.~$/-])(?:[\w./~$-]*/)?rtk"
-exec_word = r"(?:bypass|proxy|err|test|run|summary)(?![\w-])"
+# `init` is not an exec subcommand but it rewrites the agent settings of the tool itself (it installs a second hook
+# next to ours); an agent has no reason to run it, so it is refused with the exec words (hardening, SR round 8)
+exec_word = r"(?:bypass|proxy|err|test|run|summary|init)(?![\w-])"
 nonlit = r"[^\s;&|]*[{}$`*?][^\s;&|]*"
 wrapper = r"(?:time|env|sudo|doas|command|exec|nohup|xargs|nice|ionice|timeout|stdbuf|setsid|eval|unbuffer|watch)"
 # The alternatives below are DISJOINT on purpose (SR-M-13): a flag value never matches a bare duration
 # (`-n 5` parses one way only), and an assignment value stops at a separator, so no input can make the
 # prefix backtrack exponentially or quadratically.
 wflag = (
-    r"\s+-{1,2}[\w-]+(?:=\S+)?"
-    r"(?:\s+(?!rtk\b)(?!" + wrapper + r"\b)(?!\d+[smhd]?(?:\s|$))[\w.@:/][\w.@:/-]*)?"
+    r"\s+--?(?:\w[\w-]*)?(?:=\S+)?"
+    r"(?:\s+(?!-)(?!rtk\b)(?!" + wrapper + r"\b)(?!\d+[smhd]?(?:\s|$))[\w.@:/][\w.@:/-]*)?"
 )
 # DISJOINT alternatives (CR-H-2, round 7: both of these were exponential): the flag value cannot start
 # with `-` (it would also parse as the next flag), cannot be a bare duration (`-n 5` parses one way only:

@@ -173,6 +173,18 @@ A second numeric flag value (`nice -n 5 -n 5 <binary> $X`) is not followed, whic
 disjoint alternatives. The decode-failure branch of the decoder is purely defensive (it cannot be reached
 with the current digit rules) and is not pinned by a row; the decoy rows pin the case that mattered.
 
+Follow-up 7 (security review, eighth round): the redirection deletion ran after quote stripping, so a quoted,
+escaped or ANSI-C redirect target that contains a space (`3>"f g" test`) was cut at the space and hid the
+subcommand. It is now a small quote-aware scanner that runs BEFORE decoding and quote stripping and deletes
+the operator together with its whole target word. The reviewer's regex fix was not used: on raw text a
+quote opened inside a decoy (`echo '>' ; <binary> run ls; echo 'x'`) lets the target swallow the real
+command up to a later quote; the scanner treats an operator inside quotes as text, and the decoy is a row.
+Two more ambiguities of the flag pattern (`--adj` parsed two ways, a flag value starting with `-`) were
+exponential on crafted input (a 240-character command took 30 s); both are removed and the test pins `nice -n
+-5`, `nice --adj`, `sudo -u -x`, `env --foo=bar` and the binary's own flag chain at x40, plus 100k-character
+quote and redirect floods. `init` joined the refused words as hardening: it rewrites the agent settings of the
+tool itself and installs a second hook next to ours.
+
 **Still not verified:** end-to-end ordering inside a live Claude Code session — the existing hooks carry
 owner-machine absolute paths and cannot run in the cloud container. Smoke-test on the owner machine: `git push` with a bad `ac_verified` must still be
 refused. The code of the four tools was not audited line by line; privacy claims (RTK telemetry off

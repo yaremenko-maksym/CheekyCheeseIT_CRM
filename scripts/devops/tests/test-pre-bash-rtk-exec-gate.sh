@@ -68,6 +68,17 @@ rtk \$SUB ls" \
   "command -p rtk \$SUB hi" \
   "nohup nice rtk \$SUB hi" \
   "B=1; rtk {bypass,echo} hi" \
+  "rtk 3>\"f g\" test echo MARK" \
+  "rtk 3>'f g' bypass echo MARK" \
+  "rtk 2>\"a b\" -v proxy echo MARK" \
+  "rtk 2>f\\ g test echo MARK" \
+  "rtk 2>\"a b\"\"c d\" test echo MARK" \
+  "rtk 2>\"e f\" run echo MARK" \
+  "rtk 2>\$'f g' test echo MARK" \
+  "echo '>' ; rtk run ls; echo 'x'" \
+  "echo \"a > b\" ; rtk run ls" \
+  "rtk init -g" \
+  "rtk init --show" \
   "rtk \$'\\0'bypass ls" \
   "rtk \$'\\x00'proxy ls" \
   "rtk \$'\\400'run ls" \
@@ -166,7 +177,8 @@ for cmd in \
   "rtk gain" \
   "rtk --version" \
   "rtk hook claude" \
-  "rtk init --show" \
+  "echo 'a > b' ; git status" \
+  "echo hi >/dev/null 2>&1 ; git status" \
   "RTK_DISABLED=1 git diff" \
   "git status" \
   "pnpm test" \
@@ -187,7 +199,9 @@ hook = sys.argv[1]
 for cmd in ("echo ok" + "\n" * 20000, "echo ok" + " \n" * 10000, "echo " + "a/" * 80000, "echo " + "~" * 100000,
             "nice -n 5 " * 40 + "ls", "time -p " * 60 + "ls", "sudo -u x " * 40 + "ls", "a=b;" * 50000, ";" * 100000,
             "nice -n 5 " * 30000, "sudo" + " -a" * 60 + " x", "time" + " -n 1" * 40 + " x", "A=1 " * 50000 + "ls",
-            "time -p nice -n 1 " * 40 + "x", "sudo -u x -g y " * 40 + "ls"):
+            "time -p nice -n 1 " * 40 + "x", "sudo -u x -g y " * 40 + "ls",
+            "nice -n -5 " * 40 + "rtk zzz", "nice --adj " * 40 + "ls", "sudo -u -x " * 40 + "ls", "env --foo=bar " * 40 + "ls",
+            "rtk --adj " * 40 + "zzz", "echo " + ">\"" * 50000, "echo " + ">\x27" * 50000, "echo " + ">\\" * 50000):
     t = time.time()
     subprocess.run(["bash", hook], input=json.dumps({"tool_input": {"command": cmd}}).encode(), capture_output=True)
     if time.time() - t > 5:
