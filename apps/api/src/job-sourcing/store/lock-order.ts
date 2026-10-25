@@ -1,4 +1,6 @@
+import { sql } from 'drizzle-orm'
 import { findPgError } from '../../database/pg-errors'
+import type { SqlExecutor } from '../scheduling/host-state'
 
 /**
  * Lock order and bounded contention retries for the record store (r5 Task 4.5).
@@ -89,24 +91,39 @@ export async function withLockRetry<T>(
 
 interface Keyed {
   readonly identity: { readonly namespace: string; readonly identityKey: string }
+  readonly contentHash: string
 }
 
 /**
- * Ascending (namespace, identity key) by code unit, the first of any repeated key kept. The sort
- * key joins the two with NUL, the smallest code unit, which no stored text can contain (Postgres
- * text has no NUL), so the default string sort IS the tuple order — no comparator to get wrong,
- * and independent of any database collation.
+ * Ascending (namespace, identity key) by code unit. Within one identity the arrival order is kept
+ * and only EXACT repeats (same identity and content hash) are dropped (CR-M-3): two contents of
+ * one posting in one page are both stored, the later one last. The sort key joins the two with
+ * NUL, the smallest code unit, which no stored text can contain (Postgres text has no NUL), so the
+ * default string sort IS the tuple order — no comparator to get wrong, and independent of any
+ * database collation.
  */
 export function byNaturalKey<T extends Keyed>(items: readonly T[]): T[] {
-  const byKey = new Map<string, T>()
+  const byKey = new Map<string, Map<string, T>>()
   for (const item of items) {
     const key = `${item.identity.namespace}\u0000${item.identity.identityKey}`
-    if (!byKey.has(key)) byKey.set(key, item)
+    const contents = byKey.get(key) ?? new Map<string, T>()
+    if (!contents.has(item.contentHash)) contents.set(item.contentHash, item)
+    byKey.set(key, contents)
   }
-  return [...byKey.keys()].sort().map((k) => byKey.get(k) as T)
+  return [...byKey.keys()].sort().flatMap((k) => [...(byKey.get(k) as Map<string, T>).values()])
 }
 
 /** Ids ascending (code unit), each once: the order every multi-row lock takes. */
 export function sortedUniqueIds(ids: readonly string[]): string[] {
   return [...new Set(ids)].sort()
+}
+
+/**
+ * `SET LOCAL lock_timeout` for the store's own transaction: a lock wait ends in 55P03, which
+ * `withLockRetry` retries and then types, instead of an unbounded wait. SET takes no bind
+ * parameter, so the value is validated and inlined.
+ */
+export async function setLockTimeout(tx: SqlExecutor, ms: number): Promise<void> {
+  if (!Number.isSafeInteger(ms) || ms <= 0) throw new RangeError(`setLockTimeout: invalid ${ms}`)
+  await tx.execute(sql.raw(`SET LOCAL lock_timeout = '${ms}ms'`))
 }

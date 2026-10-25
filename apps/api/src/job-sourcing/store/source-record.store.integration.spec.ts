@@ -22,9 +22,11 @@ import {
 } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageRun, ageSource } from '../../test/run-aging'
-import { JobRunLedger } from '../ownership/job-run-ledger'
-import { RunFencedError } from '../ownership/run-ownership'
+import { JobRunLedger, writePageProgress } from '../ownership/job-run-ledger'
+import { RunFencedError, assertOwned } from '../ownership/run-ownership'
+import { LockContentionError } from './lock-order'
 import {
+  MAX_OBSERVATIONS_PER_PAGE,
   saveObservation,
   saveObservationPage,
   saveObservations,
@@ -33,7 +35,9 @@ import {
 
 /**
  * r5 Task 4.5 — the observation store against real Postgres, as `crm_app` (so the staged
- * relations' grants are exercised too). AC 1, 2, 4, 5, 6, 10.
+ * relations' grants are exercised too). AC 1, 2, 4, 5, 6, 10; fix round 1: CR-M-2 (latest follows
+ * the most recent observation), CR-M-3 (two contents in one page), SR-M-1 (self-fencing
+ * checkpoint), SR-M-4 (page cap, runtime re-parse), CR-M-7 (contention exhaustion on a real lock).
  */
 const TAG = randomUUID().slice(0, 8)
 const PREFIX = `t3spec-${TAG}`
@@ -61,6 +65,24 @@ async function latestOf(namespace: string): Promise<string | null> {
     [namespace],
   )
   return rows[0]?.latest_revision_id ?? null
+}
+
+async function dirtyVersions(namespace: string): Promise<number[]> {
+  const { rows } = await session.admin.query(
+    `SELECT d.target_version::int AS v FROM job_dirty_work d
+       JOIN job_source_records r ON r.id = d.entity_id
+      WHERE r.namespace = $1 AND d.entity_kind = 'SOURCE_RECORD' ORDER BY 1`,
+    [namespace],
+  )
+  return rows.map((r) => r.v as number)
+}
+
+async function sourceOf(runId: string): Promise<string> {
+  const { rows } = await session.admin.query(
+    `SELECT source_id FROM job_collection_runs WHERE id = $1`,
+    [runId],
+  )
+  return rows[0].source_id as string
 }
 
 describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres)', () => {
@@ -102,15 +124,25 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
         }),
       ),
     )
-    expect(results.flat()).toHaveLength(8)
+    const saved = results.flat()
+    expect(saved).toHaveLength(8)
     const counts = await storeCounts(session.admin, namespace)
     expect(counts).toMatchObject({ records: 1, revisions: 2, memberships: 8 })
-    expect(new Set(results.flat().map((r) => r.recordId)).size).toBe(1)
-    expect(results.flat().filter((r) => r.createdRecord)).toHaveLength(1)
-    expect(results.flat().filter((r) => r.createdRevision)).toHaveLength(2)
-    // Dirty work only where the pointer advanced: the first arrival of each content (record
-    // lock serializes them, so the second content always arrives later), never per transaction.
-    expect(counts.dirty).toBe(2)
+    expect(new Set(saved.map((r) => r.recordId)).size).toBe(1)
+    expect(saved.filter((r) => r.createdRecord)).toHaveLength(1)
+    expect(saved.filter((r) => r.createdRevision)).toHaveLength(2)
+    // One dirty version per pointer move, versions 1..n with no repeat.
+    const versions = await dirtyVersions(namespace)
+    expect(versions).toEqual(Array.from({ length: versions.length }, (_, i) => i + 1))
+    expect(versions.length).toBe(saved.filter((r) => r.advanced).length)
+    // The latest is the content of the run that started last (the most recent observation).
+    const { rows } = await session.admin.query(
+      `SELECT id FROM job_collection_runs WHERE id = ANY($1::uuid[]) ORDER BY started_at DESC, id DESC LIMIT 1`,
+      [handles.map((h) => h.runId)],
+    )
+    const last = handles.findIndex((h) => h.runId === rows[0].id)
+    const lastRevision = saved[last]?.revisionId
+    expect(await latestOf(namespace)).toBe(lastRevision)
   })
 
   it('AC 2: two discovery configs observing one native job -> one record, two memberships', async () => {
@@ -138,50 +170,68 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
     expect(rows[0].runs).toBe(2)
   })
 
-  it('AC 4: an older revision arriving after a newer one is stored and never regresses the pointer', async () => {
+  it('AC 4 / CR-M-2: latest follows the most recent observation; an older one never regresses it', async () => {
     const namespace = ns()
-    const h = await run()
-    const [older] = await saveObservationPage(db, h, {
+    const older = await run() // claimed first: its observations are older
+    const newer = await run()
+    const [b] = await saveObservationPage(db, newer, {
+      observations: [obs(namespace, 'late', 'B')],
+      checkpoint: specCheckpoint(1),
+    })
+    // A slow run that started earlier commits content A afterwards: stored, pointer kept at B.
+    const [lateA] = await saveObservationPage(db, older, {
       observations: [obs(namespace, 'late', 'A')],
       checkpoint: specCheckpoint(1),
     })
-    const [newer] = await saveObservationPage(db, h, {
-      observations: [obs(namespace, 'late', 'B')],
+    expect(lateA).toMatchObject({ createdRevision: true, advanced: false })
+    expect(await latestOf(namespace)).toBe(b?.revisionId)
+    // The newer run now observes A, then B again: A -> B -> A -> B, each a pointer move.
+    const [a] = await saveObservationPage(db, newer, {
+      observations: [obs(namespace, 'late', 'A')],
       checkpoint: specCheckpoint(2),
     })
-    expect(newer?.advanced).toBe(true)
-    expect(await latestOf(namespace)).toBe(newer?.revisionId)
-    // A revision with an EARLIER arrival than the latest one (planted with an explicit, lower
-    // `received_seq`, as a late write from a slow replica would have) — stored, pointer kept.
-    const recordId = newer?.recordId as string
-    await session.admin.query(
-      `INSERT INTO job_source_record_revisions
-         (source_record_id, adapter_version, normalizer_version, content_hash, normalized, original_identity, received_seq)
-       OVERRIDING SYSTEM VALUE
-       VALUES ($1, 'remotive_api-1', 'n1', $2, '{"title":"x"}', '{}', $3)`,
-      [recordId, 'c'.repeat(64), (older?.receivedSeq as number) - 1_000_000],
-    )
-    const lateObs = { ...obs(namespace, 'late', 'C'), contentHash: 'c'.repeat(64) }
-    const [late] = await saveObservationPage(db, h, {
-      observations: [lateObs],
+    expect(a).toMatchObject({
+      revisionId: lateA?.revisionId,
+      createdRevision: false,
+      advanced: true,
+    })
+    expect(await latestOf(namespace)).toBe(lateA?.revisionId)
+    const [b2] = await saveObservationPage(db, newer, {
+      observations: [obs(namespace, 'late', 'B')],
       checkpoint: specCheckpoint(3),
     })
-    expect(late?.advanced).toBe(false)
-    expect(late?.createdRevision).toBe(false)
-    // The re-observed older content too: stored once, pointer kept.
-    const [again] = await saveObservationPage(db, h, {
-      observations: [obs(namespace, 'late', 'A')],
+    expect(b2?.advanced).toBe(true)
+    expect(await latestOf(namespace)).toBe(b?.revisionId)
+    // The same content again moves nothing and enqueues nothing.
+    const [same] = await saveObservationPage(db, newer, {
+      observations: [obs(namespace, 'late', 'B')],
       checkpoint: specCheckpoint(4),
     })
-    expect(again?.revisionId).toBe(older?.revisionId)
-    expect(again?.advanced).toBe(false)
-    expect(await latestOf(namespace)).toBe(newer?.revisionId)
-    expect(await storeCounts(session.admin, namespace)).toMatchObject({
-      records: 1,
-      revisions: 3,
-      memberships: 1,
-      dirty: 2,
-    })
+    expect(same?.advanced).toBe(false)
+    expect(await dirtyVersions(namespace)).toEqual([1, 2, 3])
+    expect(await storeCounts(session.admin, namespace)).toMatchObject({ records: 1, revisions: 2 })
+  })
+
+  it('CR-M-3: two contents of one record in one page are both stored, the later one latest', async () => {
+    const namespace = ns()
+    const h = await run()
+    const page = {
+      observations: [
+        obs(namespace, 'd1', 'first'),
+        obs(namespace, 'd1', 'second'),
+        obs(namespace, 'd1', 'first'),
+      ],
+      checkpoint: specCheckpoint(1),
+    }
+    const saved = await saveObservationPage(db, h, page)
+    expect(saved.map((s) => [s.superseded, s.advanced])).toEqual([
+      [true, true],
+      [false, true],
+    ])
+    expect(await latestOf(namespace)).toBe(saved[1]?.revisionId)
+    expect(await storeCounts(session.admin, namespace)).toMatchObject({ records: 1, revisions: 2 })
+    const r = (await fx.runs(await sourceOf(h.runId)))[0]
+    expect(r).toMatchObject({ received: 3, created: 1, unchanged: 0, duplicates: 2 })
   })
 
   it('AC 5: a crash between the revision insert and the checkpoint rolls both back; the retry after commit is idempotent', async () => {
@@ -229,7 +279,7 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
     expect(after?.unchanged).toBe(2)
   })
 
-  it('AC 6: a fenced run writes nothing, and its successor`s pages stay intact', async () => {
+  it('AC 6 / SR-M-1: a fenced run writes nothing — through the page, one observation, or the checkpoint alone', async () => {
     const namespace = ns()
     const source = await kit.reporting()
     const stale = handleOf(await kit.claimOne(source))
@@ -247,20 +297,83 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
     })
     const before = await storeCounts(session.admin, namespace)
     const runsBefore = await fx.runs(source)
+    const page = { observations: [obs(namespace, 'f3')], checkpoint: specCheckpoint(9) }
 
     for (const attempt of [
       () =>
         saveObservationPage(db, stale, {
+          ...page,
           observations: [obs(namespace, 'f3'), obs(namespace, 'f1', 'B')],
-          checkpoint: specCheckpoint(9),
         }),
       () => db.transaction((tx) => saveObservation(tx, stale, obs(namespace, 'f4'))),
+      () => db.transaction((tx) => writePageCheckpoint(tx, stale, page, [])),
+      // The ledger's writer refuses a stale handle even when handed the successor's OwnedRun.
+      () =>
+        db.transaction(async (tx) =>
+          writePageProgress(tx, stale, await assertOwned(tx, successor), {
+            checkpoint: specCheckpoint(9),
+            received: 0,
+            unique: 0,
+            created: 0,
+          }),
+        ),
     ]) {
       await expect(attempt()).rejects.toBeInstanceOf(RunFencedError)
     }
     expect(await storeCounts(session.admin, namespace)).toEqual(before)
     expect(await fx.runs(source)).toEqual(runsBefore)
     expect(before).toMatchObject({ records: 2, memberships: 2 })
+  })
+
+  it('SR-M-4: refuses an oversized page and a malformed observation, writing nothing', async () => {
+    const namespace = ns()
+    const h = await run()
+    const big = Array.from({ length: MAX_OBSERVATIONS_PER_PAGE + 1 }, (_, i) =>
+      obs(namespace, `b${i}`),
+    )
+    await expect(
+      saveObservationPage(db, h, { observations: big, checkpoint: specCheckpoint(1) }),
+    ).rejects.toThrow(
+      new RangeError(
+        `saveObservations: ${big.length} observations, at most ${MAX_OBSERVATIONS_PER_PAGE}`,
+      ),
+    )
+    const bad = { ...obs(namespace, 'm1'), contentHash: 'not-a-hash' }
+    await expect(
+      saveObservationPage(db, h, {
+        observations: [obs(namespace, 'm0'), bad],
+        checkpoint: specCheckpoint(1),
+      }),
+    ).rejects.toThrow()
+    expect((await storeCounts(session.admin, namespace)).records).toBe(0)
+  })
+
+  it('CR-M-7: a lock held past every attempt ends in a typed LockContentionError (55P03)', async () => {
+    const namespace = ns()
+    const h = await run()
+    const [first] = await saveObservationPage(db, h, {
+      observations: [obs(namespace, 'x1')],
+      checkpoint: specCheckpoint(1),
+    })
+    const holder = await session.admin.connect()
+    try {
+      await holder.query('BEGIN')
+      await holder.query(`SELECT 1 FROM job_source_records WHERE id = $1 FOR UPDATE`, [
+        first?.recordId,
+      ])
+      const err = await saveObservationPage(
+        db,
+        h,
+        { observations: [obs(namespace, 'x1', 'v2')], checkpoint: specCheckpoint(2) },
+        { lockTimeoutMs: 100 },
+      ).catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(LockContentionError)
+      expect(err).toMatchObject({ sqlstate: '55P03', attempts: 3 })
+    } finally {
+      await holder.query('ROLLBACK')
+      holder.release()
+    }
+    expect((await storeCounts(session.admin, namespace)).revisions).toBe(1)
   })
 
   it('refuses an observation of another source type, writing nothing', async () => {
@@ -280,11 +393,3 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
     expect(await legacyCounts(session.admin)).toEqual(legacyBefore)
   })
 })
-
-async function sourceOf(runId: string): Promise<string> {
-  const { rows } = await session.admin.query(
-    `SELECT source_id FROM job_collection_runs WHERE id = $1`,
-    [runId],
-  )
-  return rows[0].source_id as string
-}

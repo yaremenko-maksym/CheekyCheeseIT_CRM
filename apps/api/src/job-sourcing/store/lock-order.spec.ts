@@ -1,3 +1,5 @@
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 import {
   LockContentionError,
@@ -5,6 +7,7 @@ import {
   backoffMs,
   byNaturalKey,
   retryableCode,
+  setLockTimeout,
   sortedUniqueIds,
   withLockRetry,
 } from './lock-order'
@@ -147,12 +150,13 @@ describe('withLockRetry', () => {
 })
 
 describe('lock order', () => {
-  const o = (namespace: string, identityKey: string, tag = '') => ({
+  const o = (namespace: string, identityKey: string, tag = '', contentHash = 'h') => ({
     identity: { namespace, identityKey },
+    contentHash,
     tag,
   })
 
-  it('orders observations by namespace, then identity key, by code unit, dropping repeats', () => {
+  it('orders observations by namespace, then identity key, by code unit, dropping exact repeats', () => {
     const sorted = byNaturalKey([
       o('b', '1'),
       o('a', '2'),
@@ -165,6 +169,20 @@ describe('lock order', () => {
       'a/10first',
       'a/2',
       'b/1',
+    ])
+  })
+
+  it('keeps every distinct content of one identity, in arrival order (CR-M-3)', () => {
+    const sorted = byNaturalKey([
+      o('a', '1', 'late', 'z'),
+      o('a', '0', 'other', 'h'),
+      o('a', '1', 'early', 'a'),
+      o('a', '1', 'repeat', 'z'),
+    ])
+    expect(sorted.map((x) => `${x.identity.identityKey}${x.tag}`)).toEqual([
+      '0other',
+      '1late',
+      '1early',
     ])
   })
 
@@ -187,5 +205,28 @@ describe('lock order', () => {
 
   it('sorts ids ascending and drops duplicates', () => {
     expect(sortedUniqueIds(['c', 'a', 'b', 'a'])).toEqual(['a', 'b', 'c'])
+  })
+})
+
+describe('setLockTimeout', () => {
+  it('sets a transaction-local lock_timeout in milliseconds', async () => {
+    const seen: string[] = []
+    const tx = {
+      execute: async (q: SQL) => {
+        seen.push(new PgDialect().sqlToQuery(q).sql)
+        return { rows: [] }
+      },
+    }
+    await setLockTimeout(tx, 250)
+    expect(seen).toEqual(["SET LOCAL lock_timeout = '250ms'"])
+  })
+
+  it('refuses anything but a positive integer, before any SQL', async () => {
+    const tx = { execute: async () => ({ rows: [] }) }
+    for (const bad of [0, -1, 1.5, Number.NaN]) {
+      await expect(setLockTimeout(tx, bad)).rejects.toThrow(
+        new RangeError(`setLockTimeout: invalid ${bad}`),
+      )
+    }
   })
 })

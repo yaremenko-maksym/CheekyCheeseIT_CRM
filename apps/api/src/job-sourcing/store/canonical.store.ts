@@ -9,10 +9,13 @@ import {
   type MemberSnapshot,
   canonicalFields,
   decideAuto,
+  keepMayClaim,
+  toInstant,
   toResolverRecord,
   trustedTokens,
 } from './canonical-plan'
-import { RetryableRaceError, sortedUniqueIds, withLockRetry } from './lock-order'
+import { RetryableRaceError, setLockTimeout, sortedUniqueIds, withLockRetry } from './lock-order'
+import { STORE_LOCK_TIMEOUT_MS } from './source-record.store'
 
 /**
  * The canonical repository (r5 Task 4.5): source record -> opportunity associations, identity
@@ -58,7 +61,12 @@ export class ForbiddenActorError extends Error {
   }
 }
 
-/** The one way to obtain an `AdminActor`: the caller's authenticated user, role ADMIN. */
+/**
+ * The one way to obtain an `AdminActor`: the caller's authenticated user, role ADMIN. It is NOT
+ * the authority (SR-M-3): every disposition re-reads the actor's role in the database inside its
+ * own transaction, so a demoted or archived ADMIN, or an actor minted from literals, is refused
+ * there. `admin-actor.spec.ts` pins the callers of this function.
+ */
 export function asAdminActor(user: { readonly id: string; readonly role: string }): AdminActor {
   if (user.role !== 'ADMIN' || !UUID.test(user.id)) throw new ForbiddenActorError()
   const actor = Object.freeze({ userId: user.id }) as AdminActor
@@ -66,13 +74,21 @@ export function asAdminActor(user: { readonly id: string; readonly role: string 
   return actor
 }
 
-function assertAdmin(actor: AdminActor): void {
+/** The mint check, then the database: an ADMIN now, not archived. In the disposition's tx. */
+async function assertAdmin(tx: SqlExecutor, actor: AdminActor): Promise<void> {
   if (!minted.has(actor)) throw new ForbiddenActorError()
+  const { rows } = await tx.execute(
+    sql`SELECT 1 AS ok FROM users
+         WHERE id = ${actor.userId}::uuid AND role = 'ADMIN' AND archived_at IS NULL
+           FOR SHARE`,
+  )
+  if (rows.length !== 1) throw new ForbiddenActorError()
 }
 
 export class CanonicalStateError extends Error {
   constructor(
-    readonly code: 'RECORD_NOT_LINKED' | 'RECORD_HAS_NO_REVISION' | 'OPPORTUNITY_NOT_FOUND',
+    readonly code:
+      'RECORD_NOT_LINKED' | 'RECORD_HAS_NO_REVISION' | 'OPPORTUNITY_NOT_FOUND' | 'TOKEN_NOT_FOUND',
   ) {
     super(code)
     this.name = 'CanonicalStateError'
@@ -81,7 +97,9 @@ export class CanonicalStateError extends Error {
 
 export type ResolveOutcome =
   | { recordId: string; kind: 'SKIPPED' }
-  | { recordId: string; kind: 'KEEP' | 'ATTACH' | 'NEW'; opportunityId: string }
+  | { recordId: string; kind: 'ATTACH' | 'NEW'; opportunityId: string }
+  /** `unclaimed`: new trusted keys KEEP refused to claim — the record no longer associates. */
+  | { recordId: string; kind: 'KEEP'; opportunityId: string; unclaimed: readonly string[] }
   | { recordId: string; kind: 'CONFLICT'; opportunityId: string; owners: readonly string[] }
 
 type Row = Record<string, unknown>
@@ -116,7 +134,7 @@ function snapshotOf(r: Row): MemberSnapshot {
     recordId: String(r['record_id']),
     revisionId: String(r['revision_id']),
     receivedSeq: Number(r['received_seq']),
-    receivedAt: new Date(String(r['received_at'])),
+    receivedAt: toInstant(r['received_at']),
     provider: String(r['source_type']),
     namespace: String(r['namespace']),
     nativeId: typeof original['nativeId'] === 'string' ? original['nativeId'] : null,
@@ -160,24 +178,35 @@ async function members(tx: SqlExecutor, opportunityId: string): Promise<MemberSn
   return rows.map(snapshotOf)
 }
 
-async function activeLink(
+type Link = ActiveLink & { linkId: string }
+
+/** The active link of each record that has one, in one statement (CR-M-4). */
+async function activeLinks(
   tx: SqlExecutor,
-  recordId: string,
-): Promise<(ActiveLink & { linkId: string }) | null> {
+  recordIds: readonly string[],
+): Promise<Map<string, Link>> {
+  if (recordIds.length === 0) return new Map()
   const { rows } = await tx.execute(
-    sql`SELECT id, opportunity_id, decision FROM job_opportunity_sources
-         WHERE source_record_id = ${recordId}::uuid AND unlinked_at IS NULL`,
+    sql`SELECT id, source_record_id, opportunity_id, decision FROM job_opportunity_sources
+         WHERE source_record_id IN (${uuidList(recordIds)}) AND unlinked_at IS NULL`,
   )
-  const r = rows[0]
-  if (r === undefined) return null
-  return {
-    linkId: String(r['id']),
-    opportunityId: String(r['opportunity_id']),
-    decision: r['decision'] === 'CONFIRMED' ? 'CONFIRMED' : 'AUTO',
-  }
+  return new Map(
+    rows.map((r) => [
+      String(r['source_record_id']),
+      {
+        linkId: String(r['id']),
+        opportunityId: String(r['opportunity_id']),
+        decision: r['decision'] === 'CONFIRMED' ? 'CONFIRMED' : 'AUTO',
+      },
+    ]),
+  )
 }
 
-/** token key -> owning opportunity, for the tokens that have an owner. */
+async function activeLink(tx: SqlExecutor, recordId: string): Promise<Link | null> {
+  return (await activeLinks(tx, [recordId])).get(recordId) ?? null
+}
+
+/** token key -> owning opportunity, for the ACTIVE (unreleased) tokens that have an owner. */
 async function tokenOwners(
   tx: SqlExecutor,
   tokens: readonly IdentityToken[],
@@ -185,7 +214,7 @@ async function tokenOwners(
   if (tokens.length === 0) return new Map()
   const { rows } = await tx.execute(
     sql`SELECT token_key, opportunity_id FROM job_opportunity_identity_tokens
-         WHERE namespace_kind = 'ATS_JOB_KEY'
+         WHERE namespace_kind = 'ATS_JOB_KEY' AND released_at IS NULL
            AND token_key IN (${sql.join(
              tokens.map((t) => sql`${t.key}`),
              sql`, `,
@@ -194,7 +223,10 @@ async function tokenOwners(
   return new Map(rows.map((r) => [String(r['token_key']), String(r['opportunity_id'])]))
 }
 
-/** Claim the tokens no one owns for `opportunityId`. A lost claim re-runs the transaction. */
+/**
+ * Claim, for `opportunityId`, the CLAIMABLE tokens no one owns (SR-M-2: only the ATS's own adapter
+ * claims its keys). A lost claim re-runs the transaction.
+ */
 async function claimTokens(
   tx: SqlExecutor,
   tokens: readonly IdentityToken[],
@@ -202,13 +234,15 @@ async function claimTokens(
   opportunityId: string,
   recordId: string,
 ): Promise<void> {
-  const free = sortedUniqueIds(tokens.map((t) => t.key).filter((k) => !owned.has(k)))
+  const free = sortedUniqueIds(
+    tokens.filter((t) => t.claimable && !owned.has(t.key)).map((t) => t.key),
+  )
   for (const key of free) {
     const { rows } = await tx.execute(
       sql`INSERT INTO job_opportunity_identity_tokens
             (namespace_kind, token_key, opportunity_id, source_record_id, rule_version)
           VALUES ('ATS_JOB_KEY', ${key}, ${opportunityId}::uuid, ${recordId}::uuid, ${IDENTITY_RULES_VERSION})
-          ON CONFLICT (namespace_kind, token_key) DO NOTHING
+          ON CONFLICT (namespace_kind, token_key) WHERE released_at IS NULL DO NOTHING
           RETURNING id`,
     )
     if (rows[0] === undefined) throw new RetryableRaceError('identity token claim')
@@ -323,17 +357,11 @@ export async function resolveRecords(
   const ids = sortedUniqueIds(recordIds)
   await lockRecords(tx, ids)
   const snaps = await snapshots(tx, ids)
-  // A record's link changes only under its lock, which this transaction holds: read it once.
-  const links = new Map<string, Awaited<ReturnType<typeof activeLink>>>()
-  const planned: string[] = []
-  for (const id of ids) {
-    const snap = snaps.get(id)
-    if (snap === undefined) continue
-    const link = await activeLink(tx, id)
-    links.set(id, link)
-    if (link !== null) planned.push(link.opportunityId)
-    planned.push(...(await tokenOwners(tx, trustedTokens(snap))).values())
-  }
+  // A record's link changes only under its lock, which this transaction holds: read once, in one
+  // statement; the plan's token owners in one statement too (CR-M-4).
+  const links = await activeLinks(tx, ids)
+  const planOwners = await tokenOwners(tx, [...snaps.values()].flatMap(trustedTokens))
+  const planned = [...[...links.values()].map((l) => l.opportunityId), ...planOwners.values()]
   const locked = await lockOpportunities(tx, sortedUniqueIds(planned))
 
   const outcomes: ResolveOutcome[] = []
@@ -345,6 +373,7 @@ export async function resolveRecords(
     }
     const tokens = trustedTokens(snap)
     const link = links.get(id) ?? null
+    // Re-read after the previous records' writes in this transaction (deliberate, per record).
     const owned = await tokenOwners(tx, tokens)
     const owners = sortedUniqueIds([...owned.values()])
     // An owner committed after the plan was read: lock it now (out of order, so a deadlock here
@@ -361,11 +390,21 @@ export async function resolveRecords(
       case 'CONFLICT':
         outcomes.push({ recordId: id, ...decision })
         break
-      case 'KEEP':
-        await claimTokens(tx, tokens, owned, decision.opportunityId, id)
+      case 'KEEP': {
+        // SR-M-2: new keys only after the same every-member check ATTACH passes.
+        const others = (await members(tx, decision.opportunityId)).filter((m) => m.recordId !== id)
+        const fresh = tokens.filter((t) => t.claimable && !owned.has(t.key))
+        const mayClaim = keepMayClaim(others, snap)
+        if (mayClaim) await claimTokens(tx, tokens, owned, decision.opportunityId, id)
         await refreshOpportunity(tx, decision.opportunityId, false)
-        outcomes.push({ recordId: id, kind: 'KEEP', opportunityId: decision.opportunityId })
+        outcomes.push({
+          recordId: id,
+          kind: 'KEEP',
+          opportunityId: decision.opportunityId,
+          unclaimed: mayClaim ? [] : fresh.map((t) => t.key),
+        })
         break
+      }
       case 'ATTACH':
         await insertLink(tx, id, decision.opportunityId, 'AUTO', {
           actor: 'SYSTEM',
@@ -393,8 +432,17 @@ export async function resolveRecords(
 }
 
 /** `resolveRecords` in its own short transaction, retried as a whole on contention. */
-export function resolveRecordsTx(db: MeterDb, recordIds: readonly string[]) {
-  return withLockRetry(() => db.transaction((tx) => resolveRecords(tx, recordIds), READ_COMMITTED))
+export function resolveRecordsTx(
+  db: MeterDb,
+  recordIds: readonly string[],
+  { lockTimeoutMs = STORE_LOCK_TIMEOUT_MS } = {},
+) {
+  return withLockRetry(() =>
+    db.transaction(async (tx) => {
+      await setLockTimeout(tx, lockTimeoutMs)
+      return resolveRecords(tx, recordIds)
+    }, READ_COMMITTED),
+  )
 }
 
 /**
@@ -409,7 +457,7 @@ export async function linkRecord(
   opportunityId: string,
   reason: string,
 ): Promise<void> {
-  assertAdmin(actor)
+  await assertAdmin(tx, actor)
   await lockRecords(tx, [recordId])
   const link = await activeLink(tx, recordId)
   const targets = sortedUniqueIds(
@@ -441,7 +489,7 @@ export async function splitRecord(
   recordId: string,
   reason: string,
 ): Promise<string> {
-  assertAdmin(actor)
+  await assertAdmin(tx, actor)
   await lockRecords(tx, [recordId])
   const link = await activeLink(tx, recordId)
   if (link === null) throw new CanonicalStateError('RECORD_NOT_LINKED')
@@ -458,4 +506,28 @@ export async function splitRecord(
   })
   await refreshOpportunity(tx, link.opportunityId, true)
   return opportunityId
+}
+
+/**
+ * ADMIN disposition (SR-M-2): release an active identity token, so a squatted key can be claimed
+ * again by the record that really owns it. The row stays as history, with when, who and why.
+ */
+export async function releaseToken(
+  tx: SqlExecutor,
+  actor: AdminActor,
+  tokenKey: string,
+  reason: string,
+): Promise<void> {
+  await assertAdmin(tx, actor)
+  const { rows } = await tx.execute(
+    sql`UPDATE job_opportunity_identity_tokens
+           SET released_at = clock_timestamp(), released_by = ${actor.userId}::uuid,
+               release_reason = ${reason.slice(0, REASON_MAX)}
+         WHERE namespace_kind = 'ATS_JOB_KEY' AND token_key = ${tokenKey} AND released_at IS NULL
+     RETURNING opportunity_id`,
+  )
+  const owner = rows[0]?.['opportunity_id']
+  if (owner === undefined) throw new CanonicalStateError('TOKEN_NOT_FOUND')
+  await lockOpportunities(tx, [String(owner)])
+  await refreshOpportunity(tx, String(owner), true)
 }

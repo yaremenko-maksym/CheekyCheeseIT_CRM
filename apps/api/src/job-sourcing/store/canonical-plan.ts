@@ -3,6 +3,7 @@ import {
   type ClaimValue,
   type FieldClaim,
   type ResolverRecord,
+  canAttach,
   chooseCanonical,
   normalizeCompanyName,
   normalizeTitle,
@@ -55,11 +56,38 @@ export function toResolverRecord(m: MemberSnapshot): ResolverRecord {
 export interface IdentityToken {
   kind: 'ATS_JOB_KEY'
   key: string
+  /**
+   * The record may CLAIM the token, not only match on it (SR-M-2): only a record from that ATS's
+   * own adapter (`GREENHOUSE_ATS` for a greenhouse key, ...). An aggregator that reports a vendor
+   * job URL is a first-comer anyone could be, so it may attach to the owner but never become it.
+   */
+  claimable: boolean
 }
 
-/** The tokens a record may claim: exactly the resolver's trusted ATS keys. */
+/** The resolver's trusted ATS keys of a record, each marked claimable or not. */
 export function trustedTokens(m: MemberSnapshot): IdentityToken[] {
-  return trustedAtsKeys(toResolverRecord(m)).map((k) => ({ kind: 'ATS_JOB_KEY', key: k.key }))
+  return trustedAtsKeys(toResolverRecord(m)).map((k) => ({
+    kind: 'ATS_JOB_KEY',
+    key: k.key,
+    claimable: m.provider === `${k.provider.toUpperCase()}_ATS`,
+  }))
+}
+
+/**
+ * KEEP may claim a linked record's new tokens only when the record still associates with every
+ * OTHER member (SR-M-2), the same every-member check ATTACH passes; alone, nothing contradicts it.
+ */
+export function keepMayClaim(others: readonly MemberSnapshot[], self: MemberSnapshot): boolean {
+  return (
+    others.length === 0 || canAttach(others.map(toResolverRecord), toResolverRecord(self)).attach
+  )
+}
+
+/** A database instant as a Date, milliseconds kept (CR-M-5): pg hands timestamptz back as Date. */
+export function toInstant(value: unknown): Date {
+  const at = value instanceof Date ? value : new Date(String(value))
+  if (!Number.isFinite(at.getTime())) throw new RangeError('toInstant: not an instant')
+  return at
 }
 
 export interface ActiveLink {

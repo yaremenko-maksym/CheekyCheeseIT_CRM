@@ -3,6 +3,8 @@ import {
   type MemberSnapshot,
   canonicalFields,
   decideAuto,
+  keepMayClaim,
+  toInstant,
   toResolverRecord,
   trustedTokens,
 } from './canonical-plan'
@@ -53,16 +55,50 @@ describe('toResolverRecord', () => {
 })
 
 describe('trustedTokens', () => {
-  it('turns a vendor-hosted ATS posting URL into one ATS_JOB_KEY token', () => {
+  it('turns a vendor-hosted ATS posting URL into one ATS_JOB_KEY token, claimable only by that ATS', () => {
     const [token, ...rest] = trustedTokens(member({ sourceUrl: GH }))
     expect(rest).toEqual([])
     expect(token?.kind).toBe('ATS_JOB_KEY')
     expect(token?.key).toContain('123')
+    expect(token?.claimable).toBe(false)
+    expect(trustedTokens(member({ sourceUrl: GH, provider: 'GREENHOUSE_ATS' }))[0]?.claimable).toBe(
+      true,
+    )
+    expect(trustedTokens(member({ sourceUrl: GH, provider: 'LEVER_ATS' }))[0]?.claimable).toBe(
+      false,
+    )
   })
 
   it('never trusts an apply URL, a homepage or a plain posting page', () => {
     expect(trustedTokens(member({ applicationUrl: GH }))).toEqual([])
     expect(trustedTokens(member({ sourceUrl: 'https://acme.test/' }))).toEqual([])
+  })
+})
+
+describe('keepMayClaim', () => {
+  it('lets a sole member claim, and others only when it still associates with all of them', () => {
+    const self = member({ sourceUrl: GH })
+    expect(keepMayClaim([], self)).toBe(true)
+    expect(keepMayClaim([member({ recordId: 'r2', nativeId: '2', sourceUrl: GH })], self)).toBe(
+      true,
+    )
+    expect(
+      keepMayClaim(
+        [member({ recordId: 'r2', nativeId: '2', sourceUrl: GH, title: 'Office Manager' })],
+        self,
+      ),
+    ).toBe(false)
+  })
+})
+
+describe('toInstant', () => {
+  it('keeps milliseconds from a Date and from text, and refuses garbage', () => {
+    const d = new Date('2026-10-25T10:00:00.123Z')
+    expect(toInstant(d)).toBe(d)
+    expect(toInstant('2026-10-25 10:00:00.456+00').getTime()).toBe(
+      Date.parse('2026-10-25T10:00:00.456Z'),
+    )
+    expect(() => toInstant('nope')).toThrow(new RangeError('toInstant: not an instant'))
   })
 })
 

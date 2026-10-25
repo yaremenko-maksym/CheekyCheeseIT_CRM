@@ -1,5 +1,51 @@
 import { createHash } from 'node:crypto'
-import type { SourceObservation } from '../normalize/observation'
+import {
+  externalHttpsUrlSchema,
+  jobSourceIdentitySchema,
+  jobSourceRevisionSchema,
+} from '@crm/shared'
+import {
+  MAX_OBSERVED_DATES,
+  type SourceObservation,
+  toStoredIdentity,
+  toStoredRevisionFields,
+} from '../normalize/observation'
+
+/**
+ * Evidence entries one observation can carry: one per date (MAX_OBSERVED_DATES), one rejected
+ * link and a few display truncations — 32 is well above that and still a bounded jsonb row.
+ */
+export const MAX_EVIDENCE_ENTRIES = 32
+
+const storedRevision = jobSourceRevisionSchema.pick({
+  adapterVersion: true,
+  normalizerVersion: true,
+  contentHash: true,
+  title: true,
+  companyName: true,
+  location: true,
+  applicationUrl: true,
+  publishedAt: true,
+})
+
+/**
+ * The store does not trust the TypeScript type of what it is handed (SR-M-4): the identity and
+ * the revision fields are re-parsed with the store's own schemas, the posting URL with the shared
+ * https rule, and the two unbounded-by-type lists are bounded. Throws on the first violation.
+ */
+export function validateObservation(o: SourceObservation): void {
+  jobSourceIdentitySchema.parse(toStoredIdentity(o.identity))
+  storedRevision.parse(toStoredRevisionFields(o))
+  externalHttpsUrlSchema.parse(o.sourcePostingUrl)
+  const dates = o.normalized.dates.length
+  if (dates > MAX_OBSERVED_DATES)
+    throw new RangeError(`validateObservation: ${dates} dates, at most ${MAX_OBSERVED_DATES}`)
+  const evidence = o.evidence.length
+  if (evidence > MAX_EVIDENCE_ENTRIES)
+    throw new RangeError(
+      `validateObservation: ${evidence} evidence entries, at most ${MAX_EVIDENCE_ENTRIES}`,
+    )
+}
 
 /**
  * What one observation writes into `job_source_record_revisions` (and `job_text_blobs`), as plain
