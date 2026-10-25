@@ -3,6 +3,7 @@ import {
   type MemberSnapshot,
   canonicalFields,
   decideAuto,
+  decisionOrder,
   keepMayClaim,
   toInstant,
   toResolverRecord,
@@ -61,9 +62,20 @@ describe('trustedTokens', () => {
     expect(token?.kind).toBe('ATS_JOB_KEY')
     expect(token?.key).toContain('123')
     expect(token?.claimable).toBe(false)
-    expect(trustedTokens(member({ sourceUrl: GH, provider: 'GREENHOUSE_ATS' }))[0]?.claimable).toBe(
-      true,
+    const own = {
+      sourceUrl: GH,
+      provider: 'GREENHOUSE_ATS',
+      namespace: 'greenhouse:Acme',
+      nativeId: '123',
+    }
+    expect(trustedTokens(member(own))[0]?.claimable).toBe(true)
+    expect(trustedTokens(member({ ...own, namespace: 'acme' }))[0]?.claimable).toBe(true)
+    // PRE-M-1: board A carrying board B's job URL, or another job of the board, claims nothing.
+    expect(trustedTokens(member({ ...own, namespace: 'greenhouse:other' }))[0]?.claimable).toBe(
+      false,
     )
+    expect(trustedTokens(member({ ...own, nativeId: '124' }))[0]?.claimable).toBe(false)
+    expect(trustedTokens(member({ ...own, nativeId: null }))[0]?.claimable).toBe(false)
     expect(trustedTokens(member({ sourceUrl: GH, provider: 'LEVER_ATS' }))[0]?.claimable).toBe(
       false,
     )
@@ -72,6 +84,26 @@ describe('trustedTokens', () => {
   it('never trusts an apply URL, a homepage or a plain posting page', () => {
     expect(trustedTokens(member({ applicationUrl: GH }))).toEqual([])
     expect(trustedTokens(member({ sourceUrl: 'https://acme.test/' }))).toEqual([])
+  })
+})
+
+describe('decisionOrder', () => {
+  it('decides claimants first, the rest after, each group in the given order', () => {
+    const claimant = member({
+      recordId: 'b',
+      sourceUrl: GH,
+      provider: 'GREENHOUSE_ATS',
+      namespace: 'greenhouse:acme',
+      nativeId: '123',
+    })
+    const copy = member({ recordId: 'a', sourceUrl: GH })
+    const plain = member({ recordId: 'c' })
+    const snaps = new Map([
+      ['a', copy],
+      ['b', claimant],
+      ['c', plain],
+    ])
+    expect(decisionOrder(['a', 'b', 'c', 'z'], snaps)).toEqual(['b', 'a', 'c', 'z'])
   })
 })
 

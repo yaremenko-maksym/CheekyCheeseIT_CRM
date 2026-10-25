@@ -58,8 +58,11 @@ export interface IdentityToken {
   key: string
   /**
    * The record may CLAIM the token, not only match on it (SR-M-2): only a record from that ATS's
-   * own adapter (`GREENHOUSE_ATS` for a greenhouse key, ...). An aggregator that reports a vendor
-   * job URL is a first-comer anyone could be, so it may attach to the owner but never become it.
+   * own adapter (`GREENHOUSE_ATS` for a greenhouse key, ...) AND only for the record's own job
+   * (PRE-M-1): the key's board is the record's verified board and the key's job id is the record's
+   * native id — the key is the adapter's trusted (namespace, native id), not the URL in the payload.
+   * An aggregator, or another board of the same ATS, that reports a vendor job URL is a first-comer
+   * anyone could be: it may attach to the owner but never become it.
    */
   claimable: boolean
 }
@@ -69,8 +72,36 @@ export function trustedTokens(m: MemberSnapshot): IdentityToken[] {
   return trustedAtsKeys(toResolverRecord(m)).map((k) => ({
     kind: 'ATS_JOB_KEY',
     key: k.key,
-    claimable: m.provider === `${k.provider.toUpperCase()}_ATS`,
+    claimable:
+      m.provider === `${k.provider.toUpperCase()}_ATS` &&
+      boardOf(k.namespace) === boardOf(m.namespace) &&
+      k.jobId.toLowerCase() === (m.nativeId ?? '').toLowerCase(),
   }))
+}
+
+/**
+ * The board slug: the last `:`-segment, lowercased. The key's namespace (`us:acme`, `de:acme`)
+ * and the adapter's (`greenhouse:acme`, `lever:global:acme`) carry different prefixes for one
+ * board, and the slug is the part both state. shortcut: the region prefix is not compared, so a
+ * board on two regional deployments of one vendor counts as one board; compare it once the two
+ * namespace vocabularies are unified.
+ */
+const boardOf = (namespace: string) => namespace.slice(namespace.lastIndexOf(':') + 1).toLowerCase()
+
+/**
+ * The order records are DECIDED in (the locks are already taken, by id): records that can claim a
+ * token first, so a batch holding a job's own ATS record and a copy of it creates the owner before
+ * the copy looks for one. Otherwise ascending id, as given.
+ */
+export function decisionOrder(
+  ids: readonly string[],
+  snaps: ReadonlyMap<string, MemberSnapshot>,
+): string[] {
+  const claims = (id: string) => {
+    const snap = snaps.get(id)
+    return snap !== undefined && trustedTokens(snap).some((t) => t.claimable)
+  }
+  return [...ids.filter(claims), ...ids.filter((id) => !claims(id))]
 }
 
 /**

@@ -24,12 +24,13 @@ const FILE = join(
   '2026-10-25_job_record_store.sql',
 )
 const SCHEMA = 'ddl_job_record_store'
-const TABLES = ['job_opportunity_identity_tokens', 'job_run_records']
+const TABLES = ['job_opportunity_identity_tokens', 'job_run_records', 'job_source_record_heads']
 const PARENTS = [
   'job_collection_runs',
   'job_source_records',
   'job_source_record_revisions',
   'job_opportunities',
+  'users',
 ]
 
 type Row = Record<string, unknown>
@@ -121,9 +122,9 @@ describe.skipIf(!hasDatabaseUrl())('job record store forward DDL (Task 4.5 AC 11
   it('creates exactly the db:push catalog of both tables — columns, constraints, indexes', async () => {
     const ref = await readCatalog('public')
     const candidate = await readCatalog(SCHEMA)
-    expect(ref.columns).toHaveLength(11)
+    expect(ref.columns).toHaveLength(18)
     expect(ref.constraints.length).toBeGreaterThanOrEqual(10)
-    expect(ref.indexes.length).toBe(7)
+    expect(ref.indexes.length).toBe(10)
     expect(candidate.columns).toEqual(ref.columns)
     expect(candidate.constraints).toEqual(ref.constraints)
     expect(candidate.indexes).toEqual(ref.indexes)
@@ -133,6 +134,14 @@ describe.skipIf(!hasDatabaseUrl())('job record store forward DDL (Task 4.5 AC 11
     const before = await readCatalog(SCHEMA)
     await applyFile()
     expect(await readCatalog(SCHEMA)).toEqual(before)
+  })
+
+  it('the active-token index is partial: a released token frees its key for a new claim', async () => {
+    const ref = await readCatalog('public')
+    const def = ref.indexes.find(
+      (r) => r['name'] === 'uq_job_opportunity_identity_tokens_active_key',
+    )
+    expect(String(def?.['def'])).toMatch(/UNIQUE INDEX .* WHERE \(released_at IS NULL\)/)
   })
 
   it('positive control: a dropped index is a difference the comparison reports, and a re-apply repairs it', async () => {
@@ -162,7 +171,7 @@ describe.skipIf(!hasDatabaseUrl())('job record store forward DDL (Task 4.5 AC 11
       [ROLES.app, Object.keys(STAGED_RELATIONS)],
     )
     expect(rows.filter((r) => r['held'] !== (r['privilege'] !== 'TRUNCATE'))).toEqual([])
-    expect(rows).toHaveLength(10)
+    expect(rows).toHaveLength(15)
   })
 
   it('the staged grant block is a no-op where its table does not exist', async () => {

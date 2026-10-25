@@ -9,6 +9,7 @@ import {
   type MemberSnapshot,
   canonicalFields,
   decideAuto,
+  decisionOrder,
   keepMayClaim,
   toInstant,
   toResolverRecord,
@@ -365,7 +366,7 @@ export async function resolveRecords(
   const locked = await lockOpportunities(tx, sortedUniqueIds(planned))
 
   const outcomes: ResolveOutcome[] = []
-  for (const id of ids) {
+  for (const id of decisionOrder(ids, snaps)) {
     const snap = snaps.get(id)
     if (snap === undefined) {
       outcomes.push({ recordId: id, kind: 'SKIPPED' })

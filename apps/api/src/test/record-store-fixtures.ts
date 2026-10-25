@@ -68,10 +68,10 @@ export interface StoreCounts {
   tokens: number
 }
 
-/** Row counts of everything the store writes, for records in namespaces starting `prefix`. */
+/** Row counts of everything the store writes, for records whose namespace contains `prefix`. */
 export async function storeCounts(admin: Pool, prefix: string): Promise<StoreCounts> {
   const { rows } = await admin.query(
-    `WITH r AS (SELECT id FROM job_source_records WHERE namespace LIKE $1 || '%'),
+    `WITH r AS (SELECT id FROM job_source_records WHERE namespace LIKE '%' || $1 || '%'),
           o AS (SELECT DISTINCT opportunity_id AS id FROM job_opportunity_sources
                  WHERE source_record_id IN (SELECT id FROM r))
      SELECT (SELECT count(*) FROM r)::int AS records,
@@ -102,7 +102,8 @@ export async function legacyCounts(
  * the blobs carrying `tag`. Run BEFORE `LedgerFixtures.cleanup`, which deletes the records.
  */
 export async function cleanupStore(admin: Pool, prefix: string, tag: string): Promise<void> {
-  const records = `SELECT id FROM job_source_records WHERE namespace LIKE $1 || '%'`
+  // CONTAINS, not starts with: an ATS board namespace is `greenhouse:<board>`.
+  const records = `SELECT id FROM job_source_records WHERE namespace LIKE '%' || $1 || '%'`
   const { rows } = await admin.query(
     `SELECT DISTINCT opportunity_id AS id FROM job_opportunity_sources WHERE source_record_id IN (${records})`,
     [prefix],
@@ -120,5 +121,8 @@ export async function cleanupStore(admin: Pool, prefix: string, tag: string): Pr
     `DELETE FROM job_source_record_revisions WHERE source_record_id IN (${records})`,
     [prefix],
   )
+  await admin.query(`DELETE FROM job_source_records WHERE namespace LIKE '%' || $1 || '%'`, [
+    prefix,
+  ])
   await admin.query(`DELETE FROM job_text_blobs WHERE text LIKE '%' || $1 || '%'`, [tag])
 }
