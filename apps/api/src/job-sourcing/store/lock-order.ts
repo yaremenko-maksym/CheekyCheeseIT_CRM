@@ -50,8 +50,8 @@ export class LockContentionError extends Error {
 /** The retryable code of `err` (its SQLSTATE, or 'RACE' for the store's own signal), or null. */
 export function retryableCode(err: unknown): string | null {
   if (err instanceof RetryableRaceError) return 'RACE'
-  const code = findPgError(err)?.['code']
-  return typeof code === 'string' && RETRYABLE.has(code) ? code : null
+  const code = String(findPgError(err)?.['code'])
+  return RETRYABLE.has(code) ? code : null
 }
 
 /** Exponential backoff with jitter: 10 ms, 20 ms, 40 ms … each scaled into [0.5, 1.5). */
@@ -87,31 +87,26 @@ export async function withLockRetry<T>(
   }
 }
 
-/** Code-unit order: one fixed order, independent of any database collation. */
-const compareText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
-
 interface Keyed {
   readonly identity: { readonly namespace: string; readonly identityKey: string }
 }
 
-/** Ascending (namespace, identity key), the first of any repeated key kept. */
+/**
+ * Ascending (namespace, identity key) by code unit, the first of any repeated key kept. The sort
+ * key joins the two with NUL, the smallest code unit, which no stored text can contain (Postgres
+ * text has no NUL), so the default string sort IS the tuple order — no comparator to get wrong,
+ * and independent of any database collation.
+ */
 export function byNaturalKey<T extends Keyed>(items: readonly T[]): T[] {
-  const seen = new Set<string>()
-  const unique: T[] = []
+  const byKey = new Map<string, T>()
   for (const item of items) {
-    const key = JSON.stringify([item.identity.namespace, item.identity.identityKey])
-    if (seen.has(key)) continue
-    seen.add(key)
-    unique.push(item)
+    const key = `${item.identity.namespace}\u0000${item.identity.identityKey}`
+    if (!byKey.has(key)) byKey.set(key, item)
   }
-  return unique.sort(
-    (a, b) =>
-      compareText(a.identity.namespace, b.identity.namespace) ||
-      compareText(a.identity.identityKey, b.identity.identityKey),
-  )
+  return [...byKey.keys()].sort().map((k) => byKey.get(k) as T)
 }
 
-/** Ids ascending, each once: the order every multi-row lock takes. */
+/** Ids ascending (code unit), each once: the order every multi-row lock takes. */
 export function sortedUniqueIds(ids: readonly string[]): string[] {
-  return [...new Set(ids)].sort(compareText)
+  return [...new Set(ids)].sort()
 }

@@ -213,6 +213,16 @@ describe('canonicalFields', () => {
   })
 
   it('refuses an empty member set', () => {
-    expect(() => canonicalFields([], null)).toThrow(RangeError)
+    expect(() => canonicalFields([], null)).toThrow(
+      new RangeError('canonicalFields: an opportunity needs a member'),
+    )
+  })
+
+  it('treats a member with no tags as no claim, so the tagged member’s keywords win', () => {
+    const tagged = member({ tags: ['rust'] })
+    const untagged = member({ recordId: 'r2', revisionId: 'v2', tags: [] })
+    const c = canonicalFields([tagged, untagged], null)
+    expect(c.stackKeywords).toEqual(['rust'])
+    expect(c.fieldRevisions['stackKeywords']).toBe('v1')
   })
 })

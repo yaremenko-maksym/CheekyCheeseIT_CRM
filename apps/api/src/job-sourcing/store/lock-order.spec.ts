@@ -31,7 +31,10 @@ describe('retryableCode', () => {
   })
 
   it('names the store’s own lost-race signal', () => {
-    expect(retryableCode(new RetryableRaceError('token'))).toBe('RACE')
+    const race = new RetryableRaceError('token')
+    expect(retryableCode(race)).toBe('RACE')
+    expect(race.message).toBe('lost a concurrent token race')
+    expect(race.name).toBe('RetryableRaceError')
   })
 
   it('is null for every other error, a unique violation included', () => {
@@ -167,6 +170,19 @@ describe('lock order', () => {
 
   it('keeps an empty input empty', () => {
     expect(byNaturalKey([])).toEqual([])
+  })
+
+  it('orders by the namespace first even when a namespace prefixes another', () => {
+    const sorted = byNaturalKey([o('a1', '0'), o('a', '9'), o('a', '10')])
+    expect(sorted.map((x) => `${x.identity.namespace}|${x.identity.identityKey}`)).toEqual([
+      'a|10',
+      'a|9',
+      'a1|0',
+    ])
+  })
+
+  it('sorts ids by code unit, uppercase before lowercase, whatever the input order', () => {
+    expect(sortedUniqueIds(['b', 'B', 'a', 'A', 'b'])).toEqual(['A', 'B', 'a', 'b'])
   })
 
   it('sorts ids ascending and drops duplicates', () => {
