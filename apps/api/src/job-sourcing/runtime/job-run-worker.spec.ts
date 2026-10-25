@@ -1101,3 +1101,100 @@ describe('endingOf: the sentences on the row', () => {
     ).toBe('NOT_MARKED_SENT')
   })
 })
+
+/** A logger that records what the worker swallows (T7 CR-M-3). */
+function recordingLogger() {
+  const lines: string[] = []
+  return {
+    lines,
+    logger: {
+      error: (m: string) => void lines.push(`error: ${m}`),
+      warn: (m: string) => void lines.push(`warn: ${m}`),
+    },
+  }
+}
+
+describe('review round 1: the worker survives and reports what it swallows', () => {
+  it('CR-M-1: a start-up recovery that failed is retried by the next pass, not remembered', async () => {
+    const rec = recordingLogger()
+    let recovers = 0
+    const w = world({ deps: { logger: rec.logger } })
+    const ledger = (w.worker as unknown as { deps: WorkerDeps }).deps.ledger as {
+      recoverExpired: () => Promise<number>
+    }
+    ledger.recoverExpired = async () => {
+      recovers += 1
+      if (recovers === 1) throw new Error('db blip')
+      return 0
+    }
+    await expect(w.worker.runDue({ cycleId: uuid(1) })).rejects.toThrow('db blip')
+    expect(rec.lines).toEqual([
+      'error: run worker start-up recovery failed (Error); retried next pass',
+    ])
+    await expect(w.worker.runDue({ cycleId: uuid(1) })).resolves.toHaveLength(1)
+    await w.worker.runDue({ cycleId: uuid(1) })
+    expect(recovers).toBe(2)
+  })
+
+  it('CR-M-2: a heartbeat that THROWS synchronously is caught, logged, and the loop goes on', async () => {
+    const rec = recordingLogger()
+    let beats = 0
+    const w = world({
+      heartbeat: () => {
+        beats += 1
+        throw new TypeError('no config')
+      },
+      deps: { logger: rec.logger },
+      collect: async () => {
+        await sleep(70)
+        return batch('EXHAUSTED')
+      },
+    })
+    const [r] = await w.worker.runDue({ cycleId: uuid(1) })
+    expect(r?.outcome).toBe('SUCCEEDED')
+    expect(beats).toBeGreaterThanOrEqual(2)
+    expect(rec.lines[0]).toBe(`warn: run ${uuid(101)}: heartbeat failed (TypeError)`)
+  })
+
+  it('CR-M-3: a finish refused by a fence and one failing on the database are told apart', async () => {
+    const fenced = recordingLogger()
+    const a = world({ deps: { logger: fenced.logger } })
+    a.failFinish(new RunFencedError())
+    await a.worker.runDue({ cycleId: uuid(1) })
+    expect(fenced.lines).toEqual([
+      `warn: run ${uuid(101)} was fenced out before it finished; recovery ends it`,
+    ])
+    const broken = recordingLogger()
+    const b = world({ deps: { logger: broken.logger } })
+    b.failFinish(
+      Object.assign(new Error('connection terminated, password=hunter2'), { code: '57P01' }),
+    )
+    await b.worker.runDue({ cycleId: uuid(1) })
+    expect(broken.lines).toEqual([
+      `error: run ${uuid(101)} could not be finished (Error); left for recovery`,
+    ])
+  })
+
+  it('CR-M-3: a ban that could not be recorded even after the run is logged, without the error text', async () => {
+    const rec = recordingLogger()
+    const w = world({
+      collect: async (_c, ctx) => {
+        await ctx.fetchText({ url: 'https://h.example/x' }).catch(() => undefined)
+        return batch('ERROR', 'RATE_LIMIT')
+      },
+      deps: {
+        logger: rec.logger,
+        transport: async () => {
+          throw new SourceRateLimitedError('h.example')
+        },
+        recordBan: async () => {
+          throw new Error('still down: secret-ish detail')
+        },
+      },
+    })
+    await w.worker.runDue({ cycleId: uuid(1) })
+    expect(rec.lines).toEqual([
+      `error: host h.example refused run ${uuid(101)} (HTTP_429) and its ban could not be recorded (Error)`,
+    ])
+  })
+})

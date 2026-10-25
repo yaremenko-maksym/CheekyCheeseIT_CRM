@@ -183,25 +183,33 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
   async function onRefusal(error: SourceBlockedError | SourceRateLimitedError): Promise<void> {
     const status = error instanceof SourceBlockedError ? error.status : 429
     banCode = status === 429 ? 'RATE_LIMIT' : 'ACCESS_POLICY'
-    close('BANNED')
+    // LATCH FIRST (SR-M-21): every further reserve / markSent / fetchText is refused from here.
+    // The signal is aborted by `fetchText` once this refusal has reached the adapter; aborting
+    // here would make the request lose the race to its own close.
+    closed ??= 'BANNED'
     // `banTargetOf` reads anything but a literal SOURCE (an absent scope included) as HOST.
-    if (banTargetOf(input.banScope as BanScope, status) !== 'HOST') return
-    const ban: HostBan = {
-      hostKey: input.hostKey,
-      reason: `HTTP_${status}`,
-      sourceId: run.sourceId,
-      retryAfter: retryAfterOf(error),
-      floorHours: input.floorHours,
+    if (banTargetOf(input.banScope as BanScope, status) === 'HOST') {
+      unrecordedBan = await recordWithRetry({
+        hostKey: input.hostKey,
+        reason: `HTTP_${status}`,
+        sourceId: run.sourceId,
+        retryAfter: retryAfterOf(error),
+        floorHours: input.floorHours,
+      })
     }
+  }
+
+  /** The ban, or null once written; after the last failed attempt the ban itself (flagged). */
+  async function recordWithRetry(ban: HostBan): Promise<HostBan | null> {
     for (let attempt = 1; attempt <= BAN_WRITE_ATTEMPTS; attempt += 1) {
       try {
         await deps.recordBan(ban)
-        return
+        return null
       } catch {
-        // retried; after the last attempt the run is flagged below
+        // retried; after the last attempt the run is flagged
       }
     }
-    unrecordedBan = ban
+    return ban
   }
 
   const ctx: CollectionContext = {
@@ -233,19 +241,28 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
         }
         permits -= 1
       }
+      // The refusal handler rides on the TRANSPORT promise, not on the race (SR-M-2): a request
+      // already on the wire when the run closes (deadline, lost lease, cancel) can still be refused
+      // by the host, and that ban is recorded even though nobody awaits the answer any more. When
+      // the request is still awaited, the pause is written BEFORE the adapter sees the refusal.
+      const answer = transport(request.url, {
+        allowedHosts: input.allowedHosts,
+        ...transportOptionsFor(request),
+      }).catch(async (error: unknown) => {
+        if (error instanceof SourceBlockedError || error instanceof SourceRateLimitedError) {
+          await onRefusal(error)
+        }
+        throw error
+      })
+      // When the race below is lost to a close, nobody awaits `answer`: its failure is expected.
+      answer.catch(() => undefined)
       try {
-        const bodyText = await Promise.race([
-          transport(request.url, {
-            allowedHosts: input.allowedHosts,
-            ...transportOptionsFor(request),
-          }),
-          aborted,
-        ])
+        const bodyText = await Promise.race([answer, aborted])
         return { status: 200, bodyText, headers: {}, etag: null }
       } catch (error) {
+        // A refusal of THIS request: the run is latched already; now abort its signal too.
         if (error instanceof SourceBlockedError || error instanceof SourceRateLimitedError) {
-          // The pause is written BEFORE the adapter sees the refusal.
-          await onRefusal(error)
+          controller.abort(closed)
         }
         throw error
       }

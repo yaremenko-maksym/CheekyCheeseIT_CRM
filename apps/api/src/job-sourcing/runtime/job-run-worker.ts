@@ -1,4 +1,5 @@
 import type { JobMeterUnit, JobMeterWindow, JobSourceType } from '@crm/shared'
+import { Logger } from '@nestjs/common'
 import { sql } from 'drizzle-orm'
 import type { BoundedFetchOptions } from '../http/bounded-fetch'
 import type { AccountMeter, MeterDb } from '../metering/account-meter.store'
@@ -33,9 +34,12 @@ import { ContextRefusedError, type RunControl, buildCollectionContext } from './
  *  - A ban the context could not write is written again after `finish` (SR-M-21): `recordHostBan`
  *    is monotone and a same-source repeat is a no-op, so the retry is safe.
  *
- * Persisted error messages are OUR sentences: a request report's message (built by
- * `buildRequestReport`, already redacted) redacted once more against this run's secrets, or a fixed
- * sentence for a thrown error. An upstream body or an exception's own text never reaches the row.
+ * Persisted error messages: a fixed sentence, our own refusal sentences (`ContextRefusedError`,
+ * `RunSetupError`), or a failed batch's last request-report message. That last one is built by the
+ * adapter loop (`buildRequestReport`, already redacted) and redacted once more against this run's
+ * secrets and capped, but it CAN carry text the loop took from an exception, e.g. the meter store's
+ * message in a SmartRecruiters `PERSISTENCE` report. A foreign exception thrown out of the adapter
+ * itself persists only its class name. Logs carry our sentences and class names only.
  */
 
 export const POOL_SIZE_CEILING = 8
@@ -79,7 +83,16 @@ export interface WorkerDeps {
   readonly now?: (() => Date) | undefined
   /** Releases what the worker owns (the heartbeat's reserved connection) at shutdown. */
   readonly close?: () => Promise<void>
+  /**
+   * Where the worker records what it swallows (T7 CR-M-3): a failed `finish`, a ban it could not
+   * write, a heartbeat that could not reach the database. Our sentences and error class names only,
+   * never an exception's own text. Default: the Nest logger.
+   */
+  readonly logger?: Pick<Logger, 'error' | 'warn'> | undefined
 }
+
+/** A thrown value's class name, the only part of a foreign error the worker logs. */
+const nameOf = (e: unknown): string => (e instanceof Error ? e.name : typeof e)
 
 /** What one run came to. `finished` is false when the ledger refused the ending (fenced). */
 export interface RunReport {
@@ -270,6 +283,8 @@ export class JobRunWorker {
 
   private readonly now: () => Date
 
+  private readonly logger: Pick<Logger, 'error' | 'warn'>
+
   constructor(
     private readonly deps: WorkerDeps,
     options: Partial<WorkerOptions> & Pick<WorkerOptions, 'owner'>,
@@ -277,6 +292,7 @@ export class JobRunWorker {
     this.options = { ...DEFAULT_WORKER_OPTIONS, ...options }
     validateWorkerOptions(this.options, deps.ledger.options)
     this.now = deps.now ?? (() => new Date())
+    this.logger = deps.logger ?? new Logger(JobRunWorker.name)
   }
 
   /** Nest calls this at shutdown. */
@@ -284,9 +300,17 @@ export class JobRunWorker {
     await this.deps.close?.()
   }
 
-  /** Worker start: recover runs a previous process left expired, once, before any claim (AC 16). */
+  /**
+   * Worker start: recover runs a previous process left expired, once, before any claim (AC 16). A
+   * recovery that FAILED is not remembered (CR-M-1): the next pass tries again rather than
+   * awaiting the same rejection forever.
+   */
   start(): Promise<number> {
-    this.started ??= this.deps.ledger.recoverExpired()
+    this.started ??= this.deps.ledger.recoverExpired().catch((error: unknown) => {
+      this.started = null
+      this.logger.error(`run worker start-up recovery failed (${nameOf(error)}); retried next pass`)
+      throw error
+    })
     return this.started
   }
 
@@ -405,12 +429,25 @@ export class JobRunWorker {
     let finished = true
     try {
       await this.deps.ledger.finish(handle, ending)
-    } catch {
-      // Fenced (recovery ends the run) or a database error: the run stays for recovery either way.
+    } catch (error) {
+      // Fenced (recovery ends the run) or a database error: the run stays for recovery either way,
+      // and the two are told apart in the log (CR-M-3).
       finished = false
+      if (isRunFenced(error)) {
+        this.logger.warn(`run ${run.runId} was fenced out before it finished; recovery ends it`)
+      } else {
+        this.logger.error(
+          `run ${run.runId} could not be finished (${nameOf(error)}); left for recovery`,
+        )
+      }
     }
     if (state.unrecordedBan !== null) {
-      await this.deps.recordBan(state.unrecordedBan).catch(() => undefined)
+      const ban = state.unrecordedBan
+      await this.deps.recordBan(ban).catch((error: unknown) => {
+        this.logger.error(
+          `host ${ban.hostKey} refused run ${run.runId} (${ban.reason}) and its ban could not be recorded (${nameOf(error)})`,
+        )
+      })
     }
     const counts = settled.kind === 'BATCH' ? summaryCounts(settled.batch.counts) : null
     return {
@@ -435,15 +472,21 @@ export class JobRunWorker {
       timers.add(
         setTimeout(() => {
           const sentAt = control.monotonicNow()
-          this.deps.heartbeat(handle).then(
-            (ok) => {
-              if (ok) control.renewLease(sentAt)
-              else control.close('FENCED')
-            },
-            // A heartbeat that could not reach the database proves nothing either way: the local
-            // lease (SR-L-22) stops sends if it is never renewed.
-            () => undefined,
-          )
+          // Inside a promise, so a heartbeat that THROWS (not only rejects) is caught too (CR-M-2):
+          // a throw in a timer callback would be an uncaught exception and stop the loop.
+          Promise.resolve()
+            .then(() => this.deps.heartbeat(handle))
+            .then(
+              (ok) => {
+                if (ok) control.renewLease(sentAt)
+                else control.close('FENCED')
+              },
+              // A heartbeat that could not reach the database proves nothing either way: the local
+              // lease (SR-L-22) stops sends if it is never renewed.
+              (error: unknown) => {
+                this.logger.warn(`run ${handle.runId}: heartbeat failed (${nameOf(error)})`)
+              },
+            )
           beat()
         }, this.options.heartbeatMs),
       )

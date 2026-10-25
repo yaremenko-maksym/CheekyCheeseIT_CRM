@@ -312,6 +312,48 @@ describe('stop-on-ban in flight (AC 10, 12; SR-M-20, SR-M-21, SR-M-24)', () => {
     expect(w.state.unrecordedBan).toBeNull()
   })
 
+  it.each(['DEADLINE', 'FENCED', 'CANCELLED'] as const)(
+    'SR-M-2: closed %s while the request is in flight, a later 429 still records the host ban',
+    async (reason) => {
+      let refuse: (e: unknown) => void = () => undefined
+      const w = world({
+        input: { meter: null },
+        transport: () =>
+          new Promise<string>((_resolve, reject) => {
+            refuse = reject
+          }),
+      })
+      const pending = refusal(w.ctx.fetchText(REQ))
+      w.close(reason)
+      // the adapter has already been answered by the close ...
+      expect((await pending).code).toBe(reason === 'FENCED' ? 'RUN_FENCED' : reason)
+      expect(w.bans).toEqual([])
+      // ... and the host refuses the request that was already on the wire
+      refuse(new SourceRateLimitedError('jsearch.p.rapidapi.com'))
+      await new Promise((r) => setTimeout(r, 0))
+      expect(w.bans).toHaveLength(1)
+      expect(w.bans[0]).toMatchObject({ reason: 'HTTP_429', hostKey: 'jsearch.p.rapidapi.com' })
+      expect(w.state.banCode).toBe('RATE_LIMIT')
+    },
+  )
+
+  it('a late non-ban failure after a close is swallowed (no unhandled rejection), and bans nothing', async () => {
+    let refuse: (e: unknown) => void = () => undefined
+    const w = world({
+      input: { meter: null },
+      transport: () =>
+        new Promise<string>((_resolve, reject) => {
+          refuse = reject
+        }),
+    })
+    const pending = refusal(w.ctx.fetchText(REQ))
+    w.close('DEADLINE')
+    await pending
+    refuse(new Error('socket hang up'))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.bans).toEqual([])
+  })
+
   it('any other transport error closes nothing and bans nothing', async () => {
     const w = world({
       transport: async () => {
