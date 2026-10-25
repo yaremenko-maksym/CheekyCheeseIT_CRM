@@ -7,8 +7,10 @@ import {
   CRON_TIME_ZONE,
   HTML_COLLECTION_CRON,
   HTML_COLLECTION_TYPES,
+  DEFAULT_WINDOW_INTERVAL_MS,
   JobSourcingCronService,
 } from './job-sourcing.cron'
+import { DEFAULT_JOB_COLLECTION_WINDOW_MS } from '../config/env'
 
 /**
  * r5 Task 2.5 T5, the pure side: decorators, the cron expressions resolved in Europe/Kyiv across
@@ -199,5 +201,113 @@ describe('the 02:30 handler', () => {
     const b = build({ recoverExpired: () => Promise.reject(new Error('boom')) })
     await expect(b.svc.handleHtmlCollection()).resolves.toBeUndefined()
     expect(b.ledger.sweepOrphanReservations).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('window length from config', () => {
+  const windowOf = (value: unknown, withConfig = true) => {
+    const get = vi.fn(() => value)
+    const svc = new JobSourcingCronService(
+      {} as never,
+      undefined,
+      undefined,
+      withConfig ? ({ get } as never) : undefined,
+    )
+    return { ms: (svc as unknown as { windowMs(): number }).windowMs(), get }
+  }
+
+  it('reads JOB_COLLECTION_WINDOW_MS with the typed-read option and uses a positive finite number', () => {
+    const { ms, get } = windowOf(1_234)
+    expect(ms).toBe(1_234)
+    expect(get).toHaveBeenCalledWith('JOB_COLLECTION_WINDOW_MS', { infer: true })
+  })
+
+  it('anything else is the default: no config, undefined, zero, negative, NaN, Infinity, a string', () => {
+    const d = DEFAULT_JOB_COLLECTION_WINDOW_MS
+    expect(windowOf(1, false).ms).toBe(d)
+    for (const bad of [undefined, 0, -5, Number.NaN, Number.POSITIVE_INFINITY, '5000', null]) {
+      expect(windowOf(bad).ms).toBe(d)
+    }
+  })
+
+  it('the wait between claims defaults to 30 s', () => {
+    const svc = new JobSourcingCronService({} as never)
+    expect(DEFAULT_WINDOW_INTERVAL_MS).toBe(30_000)
+    expect(svc.tuning.intervalMs).toBe(30_000)
+  })
+})
+
+describe('the trigger key', () => {
+  it('is the schedule name and the KYIV calendar date, whatever the server`s zone', async () => {
+    const before = process.env['TZ']
+    process.env['TZ'] = 'Pacific/Kiritimati' // UTC+14: its date differs from Kyiv's at this instant
+    try {
+      // 2027-06-30 21:30 UTC = 2027-07-01 00:30 Kyiv (EEST) = 2027-07-01 11:30 Kiritimati
+      // and 2027-06-30 22:30 UTC = 2027-07-01 01:30 Kyiv = 2027-07-01 12:30 Kiritimati: use the
+      // instant where they split: 2027-06-30 09:30 UTC = 2027-06-30 12:30 Kyiv = 2027-06-30 23:30 Kiritimati
+      // and 2027-06-30 10:30 UTC = 2027-06-30 13:30 Kyiv = 2027-07-01 00:30 Kiritimati.
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2027-06-30T10:30:00Z') })
+      const b = build({})
+      await b.svc.handleHtmlCollection()
+      expect(b.ledger.openCycle).toHaveBeenCalledTimes(1)
+      expect(b.ledger.openCycle.mock.calls[0]?.[0]).toStrictEqual({
+        trigger: 'SCHEDULED',
+        triggerKey: 'daily-html:2027-06-30',
+      })
+    } finally {
+      if (before === undefined) delete process.env['TZ']
+      else process.env['TZ'] = before
+    }
+  })
+})
+
+describe('step failures are named in the log', () => {
+  const boom = () => Promise.reject(new Error('boom'))
+  const errorsOf = (svc: JobSourcingCronService) =>
+    vi
+      .spyOn((svc as unknown as { logger: { error: () => void } }).logger, 'error')
+      .mockImplementation(() => undefined)
+
+  it('openCycle, recoverExpired and sweepOrphanReservations each say which step failed', async () => {
+    const b = build({ openCycle: boom, recoverExpired: boom, sweep: boom })
+    const errors = errorsOf(b.svc)
+    await b.svc.handleDailyCollection()
+    const first = errors.mock.calls.map((c) => String(c[0]))
+    expect(first).toContainEqual(
+      expect.stringMatching(/^Job sourcing cron step failed \[daily-api: openCycle\]/),
+    )
+    expect(first).toContainEqual(expect.stringMatching(/\[daily-api: recoverExpired\]/))
+    expect(first).toContainEqual(expect.stringMatching(/\[daily-api: sweepOrphanReservations\]/))
+  })
+
+  it('a window that escapes its own guards is caught and named, not rethrown', async () => {
+    const b = build({})
+    const logger = (b.svc as unknown as { logger: { log: () => void } }).logger
+    vi.spyOn(logger, 'log').mockImplementation(() => {
+      throw new Error('log sink down')
+    })
+    const errors = errorsOf(b.svc)
+    await expect(b.svc.handleHtmlCollection()).resolves.toBeUndefined()
+    expect(errors.mock.calls.map((c) => String(c[0]))).toContainEqual(
+      expect.stringMatching(/\[daily-html: collection window\]/),
+    )
+  })
+})
+
+describe('the window needs a ledger AND a worker AND a cycle', () => {
+  it('ledger without a worker: cycle opened and recovery run, but no window and no close', async () => {
+    const b = build({})
+    const svc = new JobSourcingCronService(b.service as never, b.ledger as never)
+    await svc.handleHtmlCollection()
+    expect(b.ledger.openCycle).toHaveBeenCalledTimes(1)
+    expect(b.ledger.recoverExpired).toHaveBeenCalledTimes(1)
+    expect(b.ledger.closeCycle).not.toHaveBeenCalled()
+  })
+
+  it('a worker without a ledger does nothing and does not throw', async () => {
+    const b = build({})
+    const svc = new JobSourcingCronService(b.service as never, undefined, b.worker as never)
+    await expect(svc.handleHtmlCollection()).resolves.toBeUndefined()
+    expect(b.worker.startDue).not.toHaveBeenCalled()
   })
 })

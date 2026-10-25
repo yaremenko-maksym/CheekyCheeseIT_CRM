@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClaimedRun } from '../ownership/job-run-ledger'
-import { JobRunWorker, type RunReport } from './job-run-worker'
+import { JobRunWorker, type RunReport, boundedWrite } from './job-run-worker'
 
 /**
  * r5 Task 2.5 T5 — `startDue` (the claim awaited, the runs not), `runDue` over it, `activeRuns`.
@@ -102,5 +102,54 @@ describe('JobRunWorker.startDue', () => {
     claimDue.mockRejectedValueOnce(new Error('db down'))
     await expect(worker.startDue({ cycleId: 'cyc' })).rejects.toThrow('db down')
     expect(worker.activeRuns).toBe(0)
+  })
+})
+
+describe('boundedWrite', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('rejects with TimeoutError after the bound when the write never settles', async () => {
+    vi.useFakeTimers()
+    const outcome = boundedWrite(new Promise(() => undefined), 500).then(
+      () => 'resolved',
+      (e: Error) => e.name,
+    )
+    await vi.advanceTimersByTimeAsync(499)
+    let early = true
+    void outcome.then(() => {
+      early = false
+    })
+    await Promise.resolve()
+    expect(early).toBe(true) // not before the bound
+    await vi.advanceTimersByTimeAsync(1)
+    expect(await outcome).toBe('Error') // new Error('TimeoutError')
+  })
+
+  it('passes a write that settles in time through, resolved or rejected, and clears its timer', async () => {
+    vi.useFakeTimers()
+    await expect(boundedWrite(Promise.resolve(7), 500)).resolves.toBe(7)
+    expect(vi.getTimerCount()).toBe(0)
+    await expect(boundedWrite(Promise.reject(new Error('db')), 500)).rejects.toThrow('db')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('the bound`s timer is unref-ed: it can never keep the process alive', async () => {
+    const real = globalThis.setTimeout
+    let unrefCalls = 0
+    globalThis.setTimeout = ((fn: () => void, ms: number) => {
+      const t = real(fn, ms)
+      const unref = t.unref.bind(t)
+      t.unref = () => {
+        unrefCalls += 1
+        return unref()
+      }
+      return t
+    }) as typeof setTimeout
+    try {
+      await boundedWrite(Promise.resolve(1), 50)
+    } finally {
+      globalThis.setTimeout = real
+    }
+    expect(unrefCalls).toBe(1)
   })
 })

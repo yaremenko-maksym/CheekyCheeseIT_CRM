@@ -101,6 +101,10 @@ export async function runCollectionWindow(
     if (started !== undefined) {
       claimedNow = started.claimed
       claimed += claimedNow
+    }
+    // Only a claim that started runs is waited on: a pass that claimed nothing hands back an
+    // already-settled promise, and racing on it would wake the loop at once, every pass.
+    if (started !== undefined && claimedNow > 0) {
       const settled: Promise<RunReport[]> = started.settled.finally(() => pending.delete(settled))
       pending.add(settled)
       settled.catch(() => undefined)
@@ -120,7 +124,6 @@ export async function runCollectionWindow(
       }
     }
     const wait = Math.min(input.intervalMs, remaining())
-    if (wait <= 0) break
     // Early wake-up: the next claim can use the slot (and the host) a finished run frees.
     await within(Promise.race([...pending]), wait)
   }

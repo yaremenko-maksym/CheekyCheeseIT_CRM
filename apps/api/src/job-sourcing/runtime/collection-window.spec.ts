@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type WindowDeps, runCollectionWindow } from './collection-window'
 
 /**
@@ -35,6 +35,11 @@ function deps(over: {
 
 const input = { cycleId: 'c1', types: ['ARBEITNOW_API' as const], windowMs: 400, intervalMs: 20 }
 
+afterEach(() => {
+  vi.useRealTimers()
+  vi.clearAllMocks()
+})
+
 describe('runCollectionWindow', () => {
   it('ends DRAINED when nothing is claimable and nothing runs, and closes the cycle', async () => {
     const d = deps({})
@@ -46,7 +51,12 @@ describe('runCollectionWindow', () => {
       cycleClosed: true,
     })
     expect(d.ledger.closeCycle).toHaveBeenCalledWith('c1')
-    expect(d.worker.startDue).toHaveBeenCalledWith({ cycleId: 'c1', onlyTypes: ['ARBEITNOW_API'] })
+    // strict: an absent `onlyIds` is an absent key, not `onlyIds: undefined`
+    expect(d.worker.startDue.mock.calls[0]?.[0]).toStrictEqual({
+      cycleId: 'c1',
+      onlyTypes: ['ARBEITNOW_API'],
+    })
+    expect(d.ledger.countDue.mock.calls[0]?.[0]).toStrictEqual({ onlyTypes: ['ARBEITNOW_API'] })
   })
 
   it('calls recoverExpired on EVERY iteration (SR-M-19)', async () => {
@@ -155,7 +165,7 @@ describe('runCollectionWindow', () => {
   it('passes the spec seam onlyIds to both the claim and the count', async () => {
     const d = deps({})
     await runCollectionWindow(d, { ...input, onlyIds: ['id-1'] })
-    expect(d.worker.startDue).toHaveBeenCalledWith({
+    expect(d.worker.startDue.mock.calls[0]?.[0]).toStrictEqual({
       cycleId: 'c1',
       onlyTypes: ['ARBEITNOW_API'],
       onlyIds: ['id-1'],
@@ -174,5 +184,59 @@ describe('runCollectionWindow', () => {
     })
     expect(summary).toMatchObject({ ended: 'WINDOW', iterations: 0, cycleClosed: true })
     expect(d.worker.startDue).not.toHaveBeenCalled()
+  })
+
+  it('a window with exactly 0 ms left runs no pass (the boundary is exclusive)', async () => {
+    const d = deps({})
+    const summary = await runCollectionWindow(
+      { ...d, monotonicNow: () => 100 },
+      { ...input, windowMs: 100, startedAt: 0 },
+    )
+    expect(summary.iterations).toBe(0)
+    expect(d.worker.startDue).not.toHaveBeenCalled()
+  })
+
+  it('names the step that failed or hung, and logs how the window ended', async () => {
+    const d = deps({
+      startDue: () => Promise.reject(new Error('x')),
+      countDue: () => Promise.reject(new Error('y')),
+    })
+    await runCollectionWindow(d, input)
+    expect(logger.error).toHaveBeenCalledWith('collection window: claim failed (Error)')
+    expect(logger.error).toHaveBeenCalledWith('collection window: countDue failed (Error)')
+    expect(logger.log).toHaveBeenCalledWith(
+      'collection window DRAINED: iterations=1, claimed=0, running=0',
+    )
+    const hung = deps({ recoverExpired: () => new Promise(() => undefined), active: () => 1 })
+    await runCollectionWindow(hung, { ...input, windowMs: 60 })
+    expect(logger.warn).toHaveBeenCalledWith(
+      'collection window: recoverExpired did not settle within the window',
+    )
+    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('collection window WINDOW:'))
+  })
+
+  it('leaves no timer behind once it has returned', async () => {
+    vi.useFakeTimers()
+    const d = deps({})
+    await runCollectionWindow(d, { ...input, windowMs: 10_000 })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('does not spin on a run that has already finished (the pending set is pruned)', async () => {
+    let n = 0
+    const d = deps({
+      startDue: () => {
+        n += 1
+        return Promise.resolve({
+          claimed: n === 1 ? 1 : 0,
+          settled: Promise.resolve([]),
+        })
+      },
+      active: () => 1, // something (another claim) keeps the window open
+    })
+    const summary = await runCollectionWindow(d, { ...input, windowMs: 300, intervalMs: 50 })
+    expect(summary.ended).toBe('WINDOW')
+    expect(summary.iterations).toBeGreaterThanOrEqual(3)
+    expect(summary.iterations).toBeLessThan(12) // ~ 300 / 50, not thousands
   })
 })

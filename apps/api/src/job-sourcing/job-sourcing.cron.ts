@@ -1,5 +1,5 @@
 import { type JobSourceType, jobSourceTypeSchema } from '@crm/shared'
-import { Injectable, Logger, Optional } from '@nestjs/common'
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Cron } from '@nestjs/schedule'
 import { DEFAULT_JOB_COLLECTION_WINDOW_MS, type Env } from '../config/env'
@@ -58,10 +58,12 @@ export class JobSourcingCronService {
   }
 
   constructor(
-    private readonly service: JobSourcingService,
-    @Optional() private readonly ledger?: JobRunLedger,
-    @Optional() private readonly worker?: JobRunWorker,
-    @Optional() private readonly config?: ConfigService<Env, true>,
+    @Inject(JobSourcingService) private readonly service: JobSourcingService,
+    // Explicit tokens: the test transformer emits no `design:paramtypes`, and an `@Optional()` that
+    // resolves to nothing would not fail at boot, it would quietly collect DOU only.
+    @Optional() @Inject(JobRunLedger) private readonly ledger?: JobRunLedger,
+    @Optional() @Inject(JobRunWorker) private readonly worker?: JobRunWorker,
+    @Optional() @Inject(ConfigService) private readonly config?: ConfigService<Env, true>,
   ) {}
 
   @Cron(API_COLLECTION_CRON, { timeZone: CRON_TIME_ZONE })
