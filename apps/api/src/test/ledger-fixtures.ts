@@ -231,6 +231,12 @@ export class LedgerFixtures {
     await this.admin.query(`DELETE FROM job_collection_runs WHERE source_id = ANY($1::uuid[])`, [
       ids,
     ])
+    // The record store's page write (Task 4.6) enqueues dirty work against the run's cycle.
+    await this.admin.query(
+      `DELETE FROM job_dirty_work WHERE cycle_id IN
+         (SELECT id FROM job_collection_cycles WHERE trigger_key LIKE $1)`,
+      [`t3spec-${this.tag}-%`],
+    )
     await this.admin.query(`DELETE FROM job_collection_cycles WHERE trigger_key LIKE $1`, [
       `t3spec-${this.tag}-%`,
     ])
@@ -336,7 +342,7 @@ export function specCheckpoint(
   }
 }
 
-/** Observations carrying only what `savePage` reads: the identity. */
+/** Observations carrying only an identity (what `chunkPage` reads); the store refuses them. */
 export function identityObservations(
   ids: readonly string[],
   namespace: string,

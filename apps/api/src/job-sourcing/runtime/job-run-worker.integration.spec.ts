@@ -4,10 +4,10 @@ import {
   openCrmAppSession,
   type CrmAppSession,
 } from '../../database/__test-helpers__/crm-app-session'
+import { observation } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageRun, ageSource } from '../../test/run-aging'
 import { __resetThrottleForTests } from '../http/bounded-fetch'
-import type { SourceObservation } from '../normalize/observation'
 import {
   type ReportingJobSourceProvider,
   buildCollectionBatch,
@@ -60,23 +60,19 @@ function arbeitnowPage(ids: readonly string[], next: boolean) {
 
 /**
  * AC 5: an adapter that persists a page and then hands back a batch whose counts do not balance --
- * the summary of it cannot be built, and the run must still be terminal with what `savePage` wrote.
+ * the summary of it cannot be built, and the run must still be terminal with what its page write wrote.
  */
 const unbalanced: ReportingJobSourceProvider = {
   type: 'JOBICY_API',
   parseConfig: (raw) => raw as never,
   async collectReport(_config, ctx) {
-    const observations = ['u1', 'u2'].map(
-      (id) =>
-        ({
-          identity: {
-            provider: 'JOBICY_API',
-            namespace: `t3spec-${TAG}`,
-            nativeId: id,
-            identityKey: `["t7-${TAG}-${id}"]`,
-            identityKind: 'NATIVE_ID',
-          },
-        }) as unknown as SourceObservation,
+    const observations = ['u1', 'u2'].map((id) =>
+      observation({
+        provider: 'JOBICY_API',
+        namespace: `t3spec-${TAG}`,
+        nativeId: `t7-${TAG}-${id}`,
+        tag: TAG,
+      }),
     )
     await ctx.checkpoints.savePage({
       observations,
