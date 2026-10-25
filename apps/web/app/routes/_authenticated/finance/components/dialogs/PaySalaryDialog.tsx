@@ -5,6 +5,7 @@ import { Trans, useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
 import {
   kyivToday,
+  latestSettleBusinessDay,
   receiptMandatoryError,
   salaryPaidAmountDeviation,
   transactionAmountError,
@@ -86,9 +87,8 @@ export function PaySalaryDialog({
   const sourceDateKey = tx ? transactionBusinessDay(tx.txDate, tx.createdAt) : todayKey
 
   useEffect(() => {
-    // item (b): both sides are Kyiv business days, so the later one is the default.
-    const today = kyivToday()
-    setPayoutDate(sourceDateKey && sourceDateKey > today ? sourceDateKey : today)
+    // item (b): max(Kyiv today, Kyiv source day) — the one shared definition.
+    setPayoutDate(sourceDateKey ? latestSettleBusinessDay(sourceDateKey) : kyivToday())
   }, [tx?.id, sourceDateKey])
 
   const { data: rates } = useQuery<ExchangeRates>({

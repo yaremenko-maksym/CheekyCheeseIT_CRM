@@ -30,7 +30,14 @@ import { ExternalLink, Coins, Banknote, Gem } from 'lucide-react'
 import { toast } from 'sonner'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { PayoutMethod, TransactionDto } from '@crm/shared'
-import { formatDate, kyivToday, MAKSYM_ID, KOSTYA_ID, transactionBusinessDay } from '@crm/shared'
+import {
+  formatDate,
+  kyivToday,
+  latestSettleBusinessDay,
+  MAKSYM_ID,
+  KOSTYA_ID,
+  transactionBusinessDay,
+} from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { DatePickerField } from '@/components/ui/date-picker'
 import {
@@ -98,8 +105,7 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
   const sourceDateKey = tx ? transactionBusinessDay(tx.txDate, tx.createdAt) : kyivToday()
 
   useEffect(() => {
-    const today = kyivToday()
-    setPayoutDate(sourceDateKey && sourceDateKey > today ? sourceDateKey : today)
+    setPayoutDate(sourceDateKey ? latestSettleBusinessDay(sourceDateKey) : kyivToday())
   }, [sourceDateKey])
 
   // Return type is `void` on purpose — the two branches resolve to different
