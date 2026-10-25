@@ -512,7 +512,9 @@ export class JobRunLedger {
    * Persist one page's observations AND its checkpoint, together, under `assertOwned` ("Crash
    * resume"). Records are upserted in ascending natural-key order (namespace, identity key), so two
    * runs whose records overlap lock them in the same order. Only the identity row is written here;
-   * revisions belong to the observation store.
+   * revisions belong to the observation store. One statement per unique record (CR-M-3), on
+   * purpose: a multi-row `INSERT ... SELECT ... ORDER BY` has no documented guarantee that rows are
+   * locked in that order. The count is bounded by one provider page (one upstream response).
    */
   async savePage(h: RunHandle, page: SavedPage): Promise<void> {
     const checkpoint = validatedCheckpointSchema.parse(page.checkpoint)
@@ -731,8 +733,10 @@ export class JobRunLedger {
       )
       return
     }
+    // Compile-time exhaustiveness: a new EndingEffect fails here until it is given its own write.
+    const remaining: 'NEUTRAL' | 'COST_STOP' = effect
     const next =
-      effect === 'COST_STOP'
+      remaining === 'COST_STOP'
         ? sql`GREATEST(${cadence}, (SELECT max(m.resets_at) FROM job_account_meters m WHERE m.account_key = ${head.accountKey}))`
         : cadence
     await tx.execute(

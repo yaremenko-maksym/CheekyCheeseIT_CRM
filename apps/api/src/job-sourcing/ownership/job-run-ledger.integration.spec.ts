@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   openCrmAppSession,
   type CrmAppSession,
@@ -12,6 +12,7 @@ import { ageRun, ageSource } from '../../test/run-aging'
 import type { SourceObservation } from '../normalize/observation'
 import type { ValidatedCheckpoint } from '../providers/reporting-provider'
 import { type ClaimedRun, JobRunLedger } from './job-run-ledger'
+import type { LedgerCatalogEntry } from './ledger-catalog'
 
 /**
  * r5 Task 2.5 T3 — the run ledger against a REAL Postgres, AS `crm_app` (every statement under test
@@ -31,6 +32,8 @@ let ledger: JobRunLedger
 let actor: string
 
 const HOUR = 3_600_000
+/** A readiness deadline every database clock of this suite is past. */
+const PAST_DEADLINE = Date.parse('2026-01-01T00:00:00Z')
 
 async function scheduledCycle(): Promise<string> {
   return (await ledger.openCycle({ trigger: 'SCHEDULED', triggerKey: fx.cycleKey() })).cycleId
@@ -439,7 +442,11 @@ describe.skipIf(!hasDatabaseUrl())('the run ledger against Postgres, as crm_app 
         ],
         [
           'a source past its readinessAt deadline (READINESS_BLOCKED)',
-          (m) => catalog.add(m, { entryReadiness: () => 'BLOCKED' }),
+          // Date-dependent (SPEC-M-2): blocked only at an instant past the deadline.
+          (m) =>
+            catalog.add(m, {
+              entryReadiness: (at) => (at.getTime() >= PAST_DEADLINE ? 'BLOCKED' : 'CANDIDATE'),
+            }),
           {},
           'READINESS_BLOCKED',
         ],
@@ -478,6 +485,60 @@ describe.skipIf(!hasDatabaseUrl())('the run ledger against Postgres, as crm_app 
       expect(row.last_error_code).toBe(reason)
       expect(row.consecutive_failures).toBe(0)
       expect(row.next_in_s).toBeGreaterThan(6 * 3600 - 60)
+    })
+
+    describe('SR-L-21 (SPEC-M-2): the gates are evaluated at the DATABASE clock, not the app clock', () => {
+      // Only `Date` is faked: the app clock is moved a day away from the database's, timers stay real.
+      afterEach(() => {
+        vi.useRealTimers()
+      })
+
+      async function dbNow(): Promise<number> {
+        const { rows } = await session.admin.query(`SELECT clock_timestamp() AS t`)
+        return (rows[0].t as Date).getTime()
+      }
+
+      async function gatedSource(over: Partial<LedgerCatalogEntry>): Promise<string> {
+        const manifestId = fx.manifestId()
+        catalog.add(manifestId, over)
+        const host = fx.host(`clk-${randomUUID().slice(0, 6)}`)
+        catalog.policies.set(host, { rate: null, floorHours: 0 })
+        return fx.source({ manifestId, hostKey: host })
+      }
+
+      it('a readiness deadline the DB clock has passed refuses, though the app clock has not', async () => {
+        const deadline = (await dbNow()) - HOUR
+        const s = await gatedSource({
+          entryReadiness: (at) => (at.getTime() >= deadline ? 'BLOCKED' : 'CANDIDATE'),
+        })
+        vi.useFakeTimers({ toFake: ['Date'] })
+        vi.setSystemTime(deadline - 24 * HOUR)
+        const { due, manual } = await bothPaths(s)
+        expect(due).toEqual({
+          claimed: [],
+          refused: [{ sourceId: s, reason: 'READINESS_BLOCKED' }],
+        })
+        expect(manual).toEqual({ kind: 'REFUSED', reason: 'READINESS_BLOCKED' })
+      })
+
+      it('activation evidence still valid at the DB clock is honoured, though the app clock is past it', async () => {
+        const validUntil = (await dbNow()) + HOUR
+        const s = await gatedSource({
+          activationFacts: (at) =>
+            at.getTime() < validUntil
+              ? { readiness: 'CANDIDATE', blockerCodes: [], payloadVerified: true }
+              : { readiness: 'BLOCKED', blockerCodes: ['NO_CAPTURE'], payloadVerified: false },
+        })
+        vi.useFakeTimers({ toFake: ['Date'] })
+        vi.setSystemTime(validUntil + 24 * HOUR)
+        const manual = await ledger.claimSource({
+          cycleId: await manualCycle(),
+          owner: 'spec-worker',
+          sourceId: s,
+          actor,
+        })
+        expect(manual.kind).toBe('CLAIMED')
+      })
     })
 
     it('DOU (LEGACY kind) is refused NOT_ACTIVATABLE even with a manifest id and a host key', async () => {
