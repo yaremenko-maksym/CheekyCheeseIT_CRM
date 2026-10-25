@@ -131,6 +131,17 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.vacancies,
   public.vacancy_applications
   TO crm_app;
+-- staged relations (drizzle/manual-staged/): granted only where they exist.
+DO $staged$
+BEGIN
+  IF to_regclass('public.job_opportunity_identity_tokens') IS NOT NULL THEN
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.job_opportunity_identity_tokens TO crm_app;
+  END IF;
+  IF to_regclass('public.job_run_records') IS NOT NULL THEN
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.job_run_records TO crm_app;
+  END IF;
+END
+$staged$;
 --   crm_collector: nothing.
 --   crm_retention_owner: nothing.
 
