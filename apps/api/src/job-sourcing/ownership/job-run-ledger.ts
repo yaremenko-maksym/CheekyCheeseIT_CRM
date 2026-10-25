@@ -37,7 +37,6 @@ import {
   RUN_ATTEMPT_PREFIX,
   type RunHandle,
   RunFencedError,
-  assertOwned,
   isWellFormedHandle,
   ownershipPredicate,
 } from './run-ownership'
@@ -511,80 +510,6 @@ export class JobRunLedger {
     })
   }
 
-  /**
-   * Persist one page's observations AND its checkpoint, together, under `assertOwned` ("Crash
-   * resume"). Records are upserted in ascending natural-key order (namespace, identity key), so two
-   * runs whose records overlap lock them in the same order. Only the identity row is written here;
-   * revisions belong to the observation store. One statement per unique record (CR-M-3), on
-   * purpose: a multi-row `INSERT ... SELECT ... ORDER BY` has no documented guarantee that rows are
-   * locked in that order. The count is bounded by one provider page (one upstream response).
-   */
-  async savePage(
-    h: RunHandle,
-    page: SavedPage,
-    /**
-     * T7 (SR-L-9, "Lease, heartbeat and page writes"): the page write's budget `H`. The
-     * transaction runs under `SET LOCAL statement_timeout` and `lock_timeout` of this many ms, so a
-     * heartbeat queued behind it still lands before the lease expires. Absent: no bound.
-     */
-    options: { readonly timeoutMs?: number } = {},
-  ): Promise<void> {
-    const timeoutMs = options.timeoutMs
-    if (timeoutMs !== undefined && !(Number.isSafeInteger(timeoutMs) && timeoutMs > 0)) {
-      throw new RangeError('savePage: invalid timeout')
-    }
-    const checkpoint = validatedCheckpointSchema.parse(page.checkpoint)
-    const seen = new Set<string>()
-    const unique: SourceObservation['identity'][] = []
-    for (const o of page.observations) {
-      const k = JSON.stringify([o.identity.namespace, o.identity.identityKey])
-      if (seen.has(k)) continue
-      seen.add(k)
-      unique.push(o.identity)
-    }
-    unique.sort((a, b) =>
-      a.namespace === b.namespace
-        ? compare(a.identityKey, b.identityKey)
-        : compare(a.namespace, b.namespace),
-    )
-    await this.db.transaction(async (tx) => {
-      if (timeoutMs !== undefined) {
-        await tx.execute(
-          sql`SELECT set_config('statement_timeout', ${`${timeoutMs}ms`}, true), set_config('lock_timeout', ${`${timeoutMs}ms`}, true)`,
-        )
-      }
-      const owned = await assertOwned(tx, h)
-      const { rows: src } = await tx.execute(
-        sql`SELECT type FROM job_sources WHERE id = ${owned.sourceId}::uuid`,
-      )
-      const type = src[0]?.['type']
-      let created = 0
-      for (const id of unique) {
-        if (id.provider !== type)
-          throw new RangeError('savePage: an observation of another source type')
-        const { rows } = await tx.execute(
-          sql`INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key)
-              VALUES (${id.provider}::job_source_type, ${id.namespace}, ${id.identityKind}::job_identity_kind, ${id.identityKey})
-              ON CONFLICT (source_type, namespace, identity_key)
-              DO UPDATE SET last_observed_at = clock_timestamp(), updated_at = clock_timestamp()
-              RETURNING (xmax = 0) AS inserted`,
-        )
-        if (rows[0]?.['inserted'] === true) created += 1
-      }
-      const received = page.observations.length
-      await tx.execute(
-        sql`UPDATE job_collection_runs
-               SET checkpoint = ${JSON.stringify(checkpoint)}::jsonb,
-                   received = received + ${received},
-                   created = created + ${created},
-                   unchanged = unchanged + ${unique.length - created},
-                   duplicates = duplicates + ${received - unique.length},
-                   updated_at = clock_timestamp()
-             WHERE id = ${owned.runId}::uuid`,
-      )
-    }, READ_COMMITTED)
-  }
-
   // -------------------------------------------------------------------------
   // Ending a run
   // -------------------------------------------------------------------------
@@ -687,7 +612,7 @@ export class JobRunLedger {
     const source = src[0]
     if (source === undefined) throw new Error('endRun: the run`s source vanished')
     const meters = await lockAccountMeters(tx, head.accountKey)
-    // "A page was saved" (SR-M-22) from what only `savePage` writes (SR-M-1): observations
+    // "A page was saved" (SR-M-22) from what only a page write (`writePageProgress`) writes (SR-M-1): observations
     // received, or a checkpoint moved off the one the claim inherited. Never `updated_at`.
     const { rows: locked } = await tx.execute(
       sql`SELECT r.received, (r.received > 0 OR r.checkpoint IS DISTINCT FROM
@@ -811,28 +736,38 @@ export class JobRunLedger {
  * store's page write). It lives here so the ledger stays the one writer of `job_collection_runs`
  * (write-gate.spec.ts). FENCED BY CONSTRUCTION (SR-M-1 / CR-M-1): it takes the `OwnedRun` that
  * `assertOwned` returned for this handle AND repeats the ownership predicate in its WHERE, so a
- * stale handle updates nothing and gets `RunFencedError`. It duplicates `savePage`'s UPDATE until
- * Task 4.6 folds `savePage` onto it when it wires the store in.
+ * stale handle updates nothing and gets `RunFencedError`. Since Task 4.6 it is the ONLY writer of a
+ * page's counters (the ledger's own `savePage` was folded onto the store).
+ *
+ * `checkpoint: null` keeps the stored checkpoint and adds only the counters: the worker splits a
+ * page above the store's cap into chunks and moves the checkpoint with the LAST chunk only, so a
+ * crash between chunks resumes from the page, never past it.
  */
 export async function writePageProgress(
   tx: SqlExecutor,
   h: RunHandle,
   owned: OwnedRun,
-  page: { checkpoint: ValidatedCheckpoint; received: number; unique: number; created: number },
+  page: {
+    checkpoint: ValidatedCheckpoint | null
+    received: number
+    unique: number
+    created: number
+  },
 ): Promise<void> {
   if (owned.runId !== h.runId) throw new RunFencedError('the owned run is not this handle`s run')
-  const checkpoint = validatedCheckpointSchema.parse(page.checkpoint)
+  const checkpoint =
+    page.checkpoint === null
+      ? null
+      : JSON.stringify(validatedCheckpointSchema.parse(page.checkpoint))
   const { rows } = await tx.execute(
     sql`UPDATE job_collection_runs
-           SET checkpoint = ${JSON.stringify(checkpoint)}::jsonb, received = received + ${page.received},
+           SET checkpoint = COALESCE(${checkpoint}::jsonb, checkpoint), received = received + ${page.received},
                created = created + ${page.created}, unchanged = unchanged + ${page.unique - page.created},
                duplicates = duplicates + ${page.received - page.unique}, updated_at = clock_timestamp()
          WHERE ${ownershipPredicate(h)} RETURNING 1 AS ok`,
   )
   if (rows.length !== 1) throw new RunFencedError()
 }
-
-const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
 /** A uuid[] parameter: drizzle would spread a JS array into a row constructor, so pass it as text. */
 function toUuidArray(ids: readonly string[]): SQL {

@@ -101,7 +101,7 @@ export interface ContextDeps {
   readonly transport?: ((url: string, opts: BoundedFetchOptions) => Promise<string>) | undefined
   /** T8's `recordHostBan`, bound to the database. */
   readonly recordBan: (ban: HostBan) => Promise<unknown>
-  /** The ledger's `savePage`, with the page-write budget. */
+  /** The page write (the record store's `saveObservationPage`), with the page-write budget. */
   readonly savePage: (
     h: RunHandle,
     page: SavedPage,

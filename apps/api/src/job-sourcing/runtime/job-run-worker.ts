@@ -14,6 +14,7 @@ import {
   toStoredReportCounts,
 } from '../providers/reporting-provider'
 import type { JobSourceRegistry } from '../registry/job-source-registry'
+import { chunkPage, saveObservationPage } from '../store/source-record.store'
 import type { HostBan } from '../scheduling/host-state'
 import { ContextRefusedError, type RunControl, buildCollectionContext } from './collection-context'
 
@@ -29,7 +30,7 @@ import { ContextRefusedError, type RunControl, buildCollectionContext } from './
  *    and after a grace period a run whose adapter has not settled is ended `PARTIAL` / `DEADLINE`
  *    by the worker itself (SR-M-18), so a never-settling request cannot hold the host forever.
  *  - The run row is ended BEFORE anything is summarised: a summary that fails to build leaves the
- *    run terminal with the counts `savePage` already wrote (AC 5). One run's failure is caught and
+ *    run terminal with the counts its page writes already wrote (AC 5). One run's failure is caught and
  *    reported, never thrown: it cannot block another (AC 4).
  *  - A ban the context could not write is written again after `finish` (SR-M-21): `recordHostBan`
  *    is monotone and a same-source repeat is a no-op, so the retry is safe.
@@ -67,13 +68,16 @@ export const DEFAULT_WORKER_OPTIONS: Omit<WorkerOptions, 'owner'> = Object.freez
 export interface WorkerDeps {
   readonly ledger: Pick<
     JobRunLedger,
-    'claimDue' | 'claimSource' | 'finish' | 'recoverExpired' | 'savePage' | 'meterFor' | 'options'
+    'claimDue' | 'claimSource' | 'finish' | 'recoverExpired' | 'meterFor' | 'options'
   >
   /** The ledger's `heartbeat` on a connection reserved for it. */
   readonly heartbeat: (h: RunHandle) => Promise<boolean>
   readonly registry: JobSourceRegistry
   readonly catalog: LedgerCatalog
-  /** Reads the claimed run's row, its source and its meter. */
+  /**
+   * Reads the claimed run's row, its source and its meter, and writes its pages through the record
+   * store (`saveObservationPage`, Task 4.6).
+   */
   readonly db: MeterDb
   readonly recordBan: (ban: HostBan) => Promise<unknown>
   /** What the run's reports must never show: the type's credentials. */
@@ -405,7 +409,11 @@ export class JobRunWorker {
       control = buildCollectionContext(
         {
           recordBan: this.deps.recordBan,
-          savePage: (h, page, o) => this.deps.ledger.savePage(h, page, o),
+          // A page above the store's cap is written in chunks; the checkpoint moves with the last.
+          savePage: async (h, page, o) => {
+            for (const chunk of chunkPage(page))
+              await saveObservationPage(this.deps.db, h, chunk, o)
+          },
           transport: this.deps.transport,
           monotonicNow: this.deps.monotonicNow,
           now: this.now,

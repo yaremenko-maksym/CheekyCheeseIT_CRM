@@ -29,6 +29,7 @@ import { type RunHandle, RunFencedError, assertOwned } from '../ownership/run-ow
 import { LockContentionError } from './lock-order'
 import {
   MAX_OBSERVATIONS_PER_PAGE,
+  chunkPage,
   saveObservation,
   saveObservationPage,
   saveObservations,
@@ -240,15 +241,21 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
   })
 
   /**
-   * Task 4.6 AC 4 — CHARACTERIZATION, written against the ledger's `savePage` BEFORE the fold: the
-   * literals below are what that writer put in the checkpoint counters for this input, and the
-   * record store's page write must put the same. Input: one record already known (x), one exact
-   * repeat (a, A twice), one record observed with two contents (a, A then B), one new record (b);
-   * the page is then replayed in the same run.
+   * Task 4.6 AC 4 — CHARACTERIZATION, written against the ledger's `savePage` BEFORE the fold
+   * (commit d12d27ca8 ran this table with a `ledger.savePage` row; it passed with these literals
+   * and was then removed with that writer): the literals are what it put in the checkpoint
+   * counters for this input. Input: one record already known (x), one exact repeat (a, A twice),
+   * one record observed with two contents (a, A then B), one new record (b); the page is then
+   * replayed in the same run. The worker's chunked write (here at a cap of 2) adds up the same.
    */
   it.each([
-    ['ledger.savePage', (h: RunHandle, p: SavedPage) => ledger.savePage(h, p)],
     ['saveObservationPage', (h: RunHandle, p: SavedPage) => saveObservationPage(db, h, p)],
+    [
+      'chunked, at most 2 per chunk',
+      async (h: RunHandle, p: SavedPage) => {
+        for (const chunk of chunkPage(p, 2)) await saveObservationPage(db, h, chunk)
+      },
+    ],
   ] as const)('Task 4.6 AC 4: %s writes the pre-fold checkpoint counters', async (_, write) => {
     const namespace = ns()
     await write(await run(), {
@@ -273,6 +280,27 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
     const twice = (await fx.runs(await sourceOf(h.runId)))[0]
     expect(twice).toMatchObject({ received: 10, created: 2, unchanged: 4, duplicates: 4 })
     expect(twice?.checkpoint).toMatchObject({ position: { page: 3 } })
+  })
+
+  it('Task 4.6 AC 2 / AC 6: a crash between two chunks leaves the checkpoint where it was', async () => {
+    const namespace = ns()
+    const h = await run()
+    await saveObservationPage(db, h, { observations: [], checkpoint: specCheckpoint(1) })
+    const page = {
+      observations: [obs(namespace, 'k1'), obs(namespace, 'k2'), obs(namespace, 'k3')],
+      checkpoint: specCheckpoint(2),
+    }
+    const [first, last] = chunkPage(page, 2)
+    expect(last?.checkpoint).toEqual(page.checkpoint)
+    await saveObservationPage(db, h, first!)
+    const between = (await fx.runs(await sourceOf(h.runId)))[0]
+    expect(between?.checkpoint).toMatchObject({ position: { page: 1 } })
+    expect(between).toMatchObject({ received: 2, created: 2 })
+    // A crash here leaves checkpoint 1, so a successor re-fetches page 2; the last chunk moves it.
+    await saveObservationPage(db, h, last!)
+    const after = (await fx.runs(await sourceOf(h.runId)))[0]
+    expect(after?.checkpoint).toMatchObject({ position: { page: 2 } })
+    expect(after).toMatchObject({ received: 3, created: 3, unchanged: 0, duplicates: 0 })
   })
 
   it('R2-CR-M-1: a run that waited for the record lock reads the head committed meanwhile', async () => {
@@ -305,6 +333,7 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
       // A head read inside the locking statement would be the pre-wait one and move the pointer.
       expect(a).toMatchObject({ createdRevision: true, advanced: false })
     } finally {
+      await holder.query('ROLLBACK')
       holder.release()
     }
     expect(await latestOf(namespace)).toBe(c?.revisionId)
@@ -376,6 +405,7 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
       expect(a).toMatchObject({ createdRevision: true, advanced: true })
       expect(await latestOf(namespace)).toBe(a?.revisionId)
     } finally {
+      await holder.query('ROLLBACK')
       holder.release()
     }
     // The move continues from the re-read head (5 -> 6), not from a missing one (version 0).

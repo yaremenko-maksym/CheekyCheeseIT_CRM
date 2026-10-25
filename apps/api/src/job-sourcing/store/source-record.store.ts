@@ -13,7 +13,7 @@ import { revisionPayload, validateObservation } from './record-payload'
  *
  * Every write path starts with `assertOwned` (ADR 2026-10-24, "Operations"): a fenced executor
  * gets `RunFencedError` and its transaction writes nothing. Short READ COMMITTED transactions;
- * records are locked in ascending (namespace, identity key) — the `savePage` row of the ADR's
+ * records are locked in ascending (namespace, identity key) — the page-write row of the ADR's
  * lock-acquisition table, which this store extends rather than changes.
  *
  * LATEST = MOST RECENTLY OBSERVED (CR-M-2). An observation's time is its run's `started_at` (the
@@ -23,8 +23,8 @@ import { revisionPayload, validateObservation } from './record-payload'
  * a later one) is stored as a revision and never regresses it. Every move bumps the record's
  * `observation_seq`, which is the dirty-work target version, so it is monotonic per record.
  *
- * `saveObservations` is the tx-level seam Task 4.6 calls inside `savePage`'s own transaction;
- * `saveObservationPage` is the stand-alone page write (observations + checkpoint, one tx).
+ * `saveObservations` is the tx-level seam; `saveObservationPage` is THE page write (observations
+ * + checkpoint, one tx) — since Task 4.6 the run worker's only one (the ledger's `savePage` is gone).
  */
 
 const READ_COMMITTED = { isolationLevel: 'read committed' } as const
@@ -34,9 +34,9 @@ const RECORD_ATTEMPTS = 3
 export const SOURCE_REVISION_REASON = 'SOURCE_REVISION'
 /**
  * The most observations one page may write (SR-M-4, CR-M-4): the page holds every record lock
- * until it commits and costs about eight statements per observation. shortcut: no provider-wide
- * page cap exists yet (Arbeitnow's is 300); 4.6 must page adapters below this, and the bound is
- * re-derived when one does.
+ * until it commits and costs about eight statements per observation. Adapter pages may be larger
+ * (an ATS board is one 2 000-item page): the run worker splits those into chunks of at most this
+ * many (`chunkPage`, Task 4.6), so a larger page never reaches `saveObservations`.
  */
 export const MAX_OBSERVATIONS_PER_PAGE = 500
 /** Default `lock_timeout` of the store's own transactions (contention is retried, then typed). */
@@ -256,7 +256,7 @@ export async function saveObservation(
 }
 
 /**
- * A page of observations inside the caller's transaction (Task 4.6 calls this from `savePage`):
+ * A page of observations inside the caller's transaction (`saveObservationPage` calls it):
  * `assertOwned` once, then the records in ascending (namespace, identity key). Only a content that
  * immediately repeats the previous content of the same record is dropped (A, A -> A; A, B, A is
  * written as A, B, A and ends on A); every other content of one record is written, in arrival
@@ -276,6 +276,38 @@ export async function saveObservations(
   return saved.map((s, i) => ({ ...s, superseded: saved[i + 1]?.recordId === s.recordId }))
 }
 
+/** A page, or a chunk of one: `checkpoint: null` adds the counters and keeps the checkpoint. */
+export interface PageChunk {
+  readonly observations: SavedPage['observations']
+  readonly checkpoint: SavedPage['checkpoint'] | null
+}
+
+/**
+ * Split a page into chunks of at most `max` observations for `saveObservationPage`, keeping every
+ * observation of one identity in ONE chunk (so the per-chunk counters add up to the page's) and
+ * moving the checkpoint with the LAST chunk only (a crash between chunks resumes from the page). A
+ * page within the cap is one chunk, unchanged. shortcut: a single identity with more than `max`
+ * observations stays one oversized chunk and is refused by the store's cap.
+ */
+export function chunkPage(page: SavedPage, max = MAX_OBSERVATIONS_PER_PAGE): PageChunk[] {
+  if (page.observations.length <= max) return [page]
+  const groups = new Map<string, SourceObservation[]>()
+  for (const o of page.observations) {
+    const key = `${o.identity.namespace}\u0000${o.identity.identityKey}`
+    groups.set(key, [...(groups.get(key) ?? []), o])
+  }
+  const chunks: SourceObservation[][] = [[]]
+  for (const group of groups.values()) {
+    const last = chunks.at(-1) as SourceObservation[]
+    if (last.length > 0 && last.length + group.length > max) chunks.push([...group])
+    else last.push(...group)
+  }
+  return chunks.map((observations, i) => ({
+    observations,
+    checkpoint: i === chunks.length - 1 ? page.checkpoint : null,
+  }))
+}
+
 /**
  * The page's checkpoint and counters, written by the ledger (the run row's one writer). Fences
  * itself (SR-M-1 / CR-M-1): `assertOwned` here, and the ledger's UPDATE repeats the ownership
@@ -284,7 +316,7 @@ export async function saveObservations(
 export async function writePageCheckpoint(
   tx: SqlExecutor,
   h: RunHandle,
-  page: SavedPage,
+  page: PageChunk,
   saved: readonly SavedObservation[],
 ): Promise<void> {
   const owned = await assertOwned(tx, h)
@@ -297,21 +329,43 @@ export async function writePageCheckpoint(
   })
 }
 
+export interface PageWriteOptions {
+  /** `lock_timeout` of each attempt when no `timeoutMs` budget is given. */
+  readonly lockTimeoutMs?: number
+  /**
+   * The run worker's page-write budget `H` (T7 SR-L-9, "Lease, heartbeat and page writes"): each
+   * attempt runs under `statement_timeout` AND `lock_timeout` of this many ms, so a heartbeat
+   * queued behind it still lands before the lease expires.
+   */
+  readonly timeoutMs?: number
+}
+
+/** `SET LOCAL statement_timeout` and `lock_timeout` to one budget, bound as parameters. */
+async function setPageBudget(tx: SqlExecutor, ms: number): Promise<void> {
+  await tx.execute(
+    sql`SELECT set_config('statement_timeout', ${`${ms}ms`}, true), set_config('lock_timeout', ${`${ms}ms`}, true)`,
+  )
+}
+
 /**
  * A whole page in ONE transaction: the observations and the checkpoint commit or roll back
  * together, so a crash re-pays at most the page in flight (ADR "Crash resume"). Retried as a
- * whole on deadlock / serialization / lock timeout; a fenced run is never retried.
+ * whole on deadlock / serialization / lock timeout (bounded, `withLockRetry`); a fenced run is
+ * never retried. This is the production page write (Task 4.6): the worker's context calls it.
  */
 export async function saveObservationPage(
   db: MeterDb,
   h: RunHandle,
-  page: SavedPage,
-  { lockTimeoutMs = STORE_LOCK_TIMEOUT_MS } = {},
+  page: PageChunk,
+  { lockTimeoutMs = STORE_LOCK_TIMEOUT_MS, timeoutMs }: PageWriteOptions = {},
 ): Promise<SavedObservation[]> {
+  if (timeoutMs !== undefined && !(Number.isSafeInteger(timeoutMs) && timeoutMs > 0))
+    throw new RangeError('saveObservationPage: invalid timeout')
   assertPageSize(page.observations)
   return withLockRetry(() =>
     db.transaction(async (tx) => {
-      await setLockTimeout(tx, lockTimeoutMs)
+      if (timeoutMs === undefined) await setLockTimeout(tx, lockTimeoutMs)
+      else await setPageBudget(tx, timeoutMs)
       const saved = await saveObservations(tx, h, page.observations)
       await writePageCheckpoint(tx, h, page, saved)
       return saved

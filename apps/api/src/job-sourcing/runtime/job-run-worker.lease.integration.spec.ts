@@ -4,12 +4,15 @@ import {
   openCrmAppSession,
   type CrmAppSession,
 } from '../../database/__test-helpers__/crm-app-session'
+import { observation } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageRun, ageSource } from '../../test/run-aging'
 import { sourceFixture } from '../../test/source-fixtures'
 import { __resetThrottleForTests } from '../http/bounded-fetch'
 import type { JobSourceProvider } from '../job-source.provider'
 import type { ClaimedRun } from '../ownership/job-run-ledger'
+import { LockContentionError } from '../store/lock-order'
+import { saveObservationPage } from '../store/source-record.store'
 import {
   type CollectionBatch,
   type CollectionContext,
@@ -41,6 +44,16 @@ import {
  *     pnpm --filter @crm/api exec vitest run job-run-worker.lease.integration
  */
 const TAG = randomUUID().slice(0, 8)
+
+/**
+ * Where a page write was cut: a lock wait past H is retried (bounded) and then typed as
+ * `LockContentionError` (Task 4.6), whose SQLSTATE is 55P03; a statement timeout surfaces as 57014.
+ */
+const cutCode = (e: unknown): string => {
+  if (e instanceof LockContentionError) return e.sqlstate
+  const err = e as { cause?: { code?: string }; code?: string }
+  return err.cause?.code ?? err.code ?? 'failed'
+}
 const KEY = 'fake0000t7lease0000key0000fake0000t7lease0000key0000xyz'
 const HOST = 'api.t7-lease.example'
 const L = SPEC_LEDGER_OPTIONS.leaseMs
@@ -264,15 +277,12 @@ describe.skipIf(!hasDatabaseUrl())('ownership in flight against Postgres (T7)', 
         pageResult = await ctx.checkpoints
           .savePage({
             observations: [
-              {
-                identity: {
-                  provider: 'JOBICY_API',
-                  namespace: `t3spec-${TAG}`,
-                  nativeId: 'worker-locked',
-                  identityKey,
-                  identityKind: 'NATIVE_ID',
-                },
-              } as never,
+              observation({
+                provider: 'JOBICY_API',
+                namespace: `t3spec-${TAG}`,
+                nativeId: `t7-${TAG}-worker-locked`,
+                tag: TAG,
+              }),
             ],
             checkpoint: {
               configVersion: 1,
@@ -282,11 +292,7 @@ describe.skipIf(!hasDatabaseUrl())('ownership in flight against Postgres (T7)', 
               completedAt: new Date('2026-10-25T00:00:00Z'),
             },
           })
-          .then(
-            () => 'saved',
-            (e: { cause?: { code?: string }; code?: string }) =>
-              e.cause?.code ?? e.code ?? 'failed',
-          )
+          .then(() => 'saved', cutCode)
         return emptyBatch()
       }
       const [report] = await w
@@ -343,35 +349,28 @@ describe.skipIf(!hasDatabaseUrl())('ownership in flight against Postgres (T7)', 
       ])
       const started = Date.now()
       // the page write takes the run row, then waits on the locked record, bounded to H
-      const page = w.ledger
-        .savePage(
-          h,
-          {
-            observations: [
-              {
-                identity: {
-                  provider: 'JOBICY_API',
-                  namespace: `t3spec-${TAG}`,
-                  nativeId: 'locked',
-                  identityKey,
-                  identityKind: 'NATIVE_ID',
-                },
-              } as never,
-            ],
-            checkpoint: {
-              configVersion: 1,
-              policyVersion: 1,
-              adapterVersion: 'jobicy_api-spec',
-              position: { kind: 'CURSOR', page: 1, cursor: 'c1' },
-              completedAt: new Date('2026-10-25T00:00:00Z'),
-            },
+      const page = saveObservationPage(
+        w.db,
+        h,
+        {
+          observations: [
+            observation({
+              provider: 'JOBICY_API',
+              namespace: `t3spec-${TAG}`,
+              nativeId: `t7-${TAG}-locked`,
+              tag: TAG,
+            }),
+          ],
+          checkpoint: {
+            configVersion: 1,
+            policyVersion: 1,
+            adapterVersion: 'jobicy_api-spec',
+            position: { kind: 'CURSOR', page: 1, cursor: 'c1' },
+            completedAt: new Date('2026-10-25T00:00:00Z'),
           },
-          { timeoutMs: H },
-        )
-        .then(
-          () => 'saved',
-          (e: { cause?: { code?: string }; code?: string }) => e.cause?.code ?? e.code ?? 'failed',
-        )
+        },
+        { timeoutMs: H },
+      ).then(() => 'saved', cutCode)
       await new Promise((r) => setTimeout(r, 100))
       // the heartbeat, on its own connection, queues behind the page write's run-row lock
       const beat = await w.heartbeat(h)

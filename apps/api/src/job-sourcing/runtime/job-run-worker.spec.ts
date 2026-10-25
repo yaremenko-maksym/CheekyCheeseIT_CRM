@@ -11,6 +11,7 @@ import {
   type CollectionContext,
   type CollectionErrorCode,
   type ReportingJobSourceProvider,
+  type ValidatedCheckpoint,
   buildCollectionBatch,
   buildRequestReport,
 } from '../providers/reporting-provider'
@@ -103,6 +104,14 @@ const RUN_ROW = {
 
 const dialect = new PgDialect()
 
+const PAGE_ONE: ValidatedCheckpoint = {
+  configVersion: 3,
+  policyVersion: 4,
+  adapterVersion: 'r-1',
+  position: { kind: 'CURSOR', page: 1, cursor: 'c1' },
+  completedAt: NOW,
+}
+
 function world(
   opts: {
     collect?: Collect
@@ -122,7 +131,8 @@ function world(
   const bans: HostBan[] = []
   const configs: unknown[] = []
   const meterBindings: unknown[] = []
-  const saves: unknown[] = []
+  /** The statements of the page writes, in order (the record store against a recording `tx`). */
+  const saves: { sql: string; params: unknown[] }[] = []
   const readIds: unknown[] = []
   let finishThrows: unknown = null
   const provider: ReportingJobSourceProvider = {
@@ -141,6 +151,23 @@ function world(
       if (!/FROM job_collection_runs r\s+JOIN job_sources s/.test(q.sql)) return { rows: [] }
       if (opts.row === null) return { rows: [] }
       return { rows: [{ ...RUN_ROW, ...opts.row }] }
+    },
+    // The page write (`saveObservationPage`): the run is owned, its source is REMOTIVE_API, and
+    // the checkpoint UPDATE matches one row.
+    async transaction(fn: (tx: unknown) => Promise<unknown>) {
+      return fn({
+        async execute(query: SQL) {
+          const q = dialect.sqlToQuery(query)
+          saves.push(q)
+          if (/SELECT id, account_key, source_id FROM job_collection_runs/.test(q.sql)) {
+            return { rows: [{ id: q.params[0], account_key: 'a', source_id: uuid(201) }] }
+          }
+          if (/SELECT type FROM job_sources/.test(q.sql))
+            return { rows: [{ type: 'REMOTIVE_API' }] }
+          if (/^\s*UPDATE job_collection_runs/.test(q.sql)) return { rows: [{ ok: 1 }] }
+          return { rows: [] }
+        },
+      })
     },
   } as unknown as MeterDb
   const deps: WorkerDeps = {
@@ -162,9 +189,6 @@ function world(
         log.push(`finish:${ending.outcome}`)
         if (finishThrows !== null) throw finishThrows
         finishes.push({ runId: h.runId, ending })
-      },
-      async savePage(...args) {
-        saves.push(args)
       },
       meterFor: (run, windows) => {
         meterBindings.push({ accountKey: run.accountKey, windows })
@@ -745,7 +769,7 @@ describe('what a run is handed', () => {
     const w = world({
       collect: async (_c, ctx) => {
         seen = ctx
-        await ctx.checkpoints.savePage({ observations: [], checkpoint: { n: 1 } as never })
+        await ctx.checkpoints.savePage({ observations: [], checkpoint: PAGE_ONE })
         return batch('EXHAUSTED')
       },
     })
@@ -757,13 +781,18 @@ describe('what a run is handed', () => {
     expect(seen!.secrets).toEqual(['sekrit-key'])
     expect(seen!.deadline.getTime()).toBe(NOW.getTime() + 120)
     expect(seen!.now()).toBe(NOW)
-    expect(w.saves).toEqual([
-      [
-        { runId: uuid(101), ownerToken: 'spec:1', fencingEpoch: 1 },
-        { observations: [], checkpoint: { n: 1 } },
-        { timeoutMs: 20 },
-      ],
-    ])
+    // Task 4.6: the page goes through the record store, under the page-write budget H = 20 ms
+    // (statement AND lock timeout), fenced on THIS run's handle, and moves the checkpoint.
+    expect(w.saves[0]).toMatchObject({
+      sql: "SELECT set_config('statement_timeout', $1, true), set_config('lock_timeout', $2, true)",
+      params: ['20ms', '20ms'],
+    })
+    expect(w.saves[1]?.params.slice(0, 3)).toEqual([uuid(101), 'spec:1', 1])
+    const update = w.saves.at(-1)
+    expect(update?.sql).toMatch(/^\s*UPDATE job_collection_runs\s+SET checkpoint = COALESCE/)
+    expect(JSON.parse(String(update?.params[0]))).toMatchObject({ position: PAGE_ONE.position })
+    expect(update?.params.slice(1, 5)).toEqual([0, 0, 0, 0])
+    expect(update?.params.slice(-3)).toEqual([uuid(101), 'spec:1', 1])
   })
 
   it('a 403 on the entry`s SOURCE scope bans nothing (the scope comes from the catalog entry)', async () => {
