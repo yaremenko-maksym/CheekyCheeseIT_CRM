@@ -31,10 +31,14 @@ import {
   ForbiddenActorError,
   asAdminActor,
   linkRecord,
+  linkRecordTx,
   releaseToken,
+  releaseTokenTx,
   resolveRecordsTx,
   splitRecord,
+  splitRecordTx,
 } from './canonical.store'
+import { LockContentionError } from './lock-order'
 import { saveObservationPage } from './source-record.store'
 
 /**
@@ -152,6 +156,34 @@ async function newAdmin(name: string): Promise<string> {
 }
 
 const untilBlocked = () => untilBlockedOn(session.admin)
+
+/** Never return a pooled client with a transaction (and its locks) open: ROLLBACK, then release. */
+async function releaseRolledBack(client: PoolClient): Promise<void> {
+  try {
+    await client.query('ROLLBACK')
+  } finally {
+    client.release()
+  }
+}
+
+/** An ATS-owned record, resolved: its opportunity and token key. */
+async function ownedRecord(job: number) {
+  const r = await record({
+    nativeId: String(job),
+    provider: ATS,
+    namespace: BOARD_NS,
+    postingUrl: ats(job),
+  })
+  await resolveRecordsTx(db, [r])
+  const opportunityId = (await activeOf(r))[0]?.opportunity_id as string
+  const key = (
+    await session.admin.query(
+      `SELECT token_key FROM job_opportunity_identity_tokens WHERE source_record_id = $1`,
+      [r],
+    )
+  ).rows[0].token_key as string
+  return { r, opportunityId, key }
+}
 
 describe.skipIf(!hasDatabaseUrl())('canonical store (Task 4.5, real Postgres)', () => {
   beforeAll(async () => {
@@ -447,7 +479,7 @@ describe.skipIf(!hasDatabaseUrl())('canonical store (Task 4.5, real Postgres)', 
           { recordId: r, kind: 'CONFLICT', opportunityId: x, owners: [owner] },
         ])
       } finally {
-        holder.release()
+        await releaseRolledBack(holder)
       }
       expect((await activeOf(r))[0]?.opportunity_id).toBe(x)
     })
@@ -482,12 +514,117 @@ describe.skipIf(!hasDatabaseUrl())('canonical store (Task 4.5, real Postgres)', 
         }
         expect((await canonical).map((o) => o.kind)).toEqual(['NEW', 'NEW'])
       } finally {
-        page.release()
+        await releaseRolledBack(page)
       }
       // Postgres broke the cycle on one side: either the page got 40P01, or the canonical
       // transaction did and its retry converged after the page committed.
       expect([null, '40P01']).toContain(pageCode)
     })
+  })
+
+  describe('Task 4.6 / S2: link, split and release retry contention in their own transaction', () => {
+    /**
+     * An outside session takes `hold`, the wrapper blocks behind it (having locked something the
+     * outside session then asks for), the outside session asks for it: a real 40P01 cycle. Postgres
+     * aborts one side; either way the wrapper must end up done.
+     */
+    async function deadlockedWith(
+      hold: { sql: string; params: unknown[] },
+      then: { sql: string; params: unknown[] },
+      run: () => Promise<unknown>,
+    ) {
+      const before = await deadlocks()
+      const ext: PoolClient = await session.admin.connect()
+      let extCode: string | null = null
+      let outcome: unknown
+      try {
+        await ext.query('BEGIN')
+        await ext.query(hold.sql, hold.params)
+        const pending = run()
+        await untilBlocked()
+        try {
+          await ext.query(then.sql, then.params)
+          await ext.query('COMMIT')
+        } catch (e) {
+          extCode = String((e as { code?: string }).code)
+          await ext.query('ROLLBACK') // free the locks the wrapper is retrying against
+        }
+        outcome = await pending
+      } finally {
+        await releaseRolledBack(ext)
+      }
+      expect([null, '40P01']).toContain(extCode)
+      expect(await deadlocks()).toBeGreaterThan(before)
+      return outcome
+    }
+
+    const lockRec = (id: string) => ({
+      sql: `SELECT 1 FROM job_source_records WHERE id = $1 FOR UPDATE`,
+      params: [id],
+    })
+    const lockOpp = (id: string) => ({
+      sql: `SELECT 1 FROM job_opportunities WHERE id = $1 FOR UPDATE`,
+      params: [id],
+    })
+
+    it('linkRecordTx: a deadlock (record lock vs target opportunity) is retried and links', async () => {
+      const a = await ownedRecord(30_001)
+      const t = await ownedRecord(30_002)
+      await deadlockedWith(lockOpp(t.opportunityId), lockRec(a.r), () =>
+        linkRecordTx(db, admin, a.r, t.opportunityId, 'deadlock'),
+      )
+      expect(await activeOf(a.r)).toEqual([
+        { opportunity_id: t.opportunityId, decision: 'CONFIRMED' },
+      ])
+    })
+
+    it('splitRecordTx: a deadlock (record lock vs its opportunity) is retried and splits', async () => {
+      const a = await ownedRecord(30_003)
+      const split = (await deadlockedWith(lockOpp(a.opportunityId), lockRec(a.r), () =>
+        splitRecordTx(db, admin, a.r, 'deadlock'),
+      )) as string
+      expect(await activeOf(a.r)).toEqual([{ opportunity_id: split, decision: 'CONFIRMED' }])
+    })
+
+    it('releaseTokenTx: a deadlock (opportunity lock vs token row) is retried and releases', async () => {
+      const a = await ownedRecord(30_004)
+      await deadlockedWith(
+        {
+          sql: `SELECT 1 FROM job_opportunity_identity_tokens WHERE token_key = $1 AND released_at IS NULL FOR UPDATE`,
+          params: [a.key],
+        },
+        lockOpp(a.opportunityId),
+        () => releaseTokenTx(db, admin, a.key, 'deadlock'),
+      )
+      expect((await tokensFor(30_004)).filter((t) => t.released)).toHaveLength(1)
+    })
+
+    it('a lock timeout is the typed LockContentionError (55P03), after bounded attempts', async () => {
+      const a = await ownedRecord(30_005)
+      const t = await ownedRecord(30_006)
+      const holder: PoolClient = await session.admin.connect()
+      try {
+        await holder.query('BEGIN')
+        await holder.query(lockOpp(a.opportunityId).sql, [a.opportunityId])
+        await holder.query(lockOpp(t.opportunityId).sql, [t.opportunityId])
+        const quick = { lockTimeoutMs: 100 }
+        const outcomes = await Promise.all(
+          [
+            linkRecordTx(db, admin, a.r, t.opportunityId, 't', quick),
+            splitRecordTx(db, admin, t.r, 't', quick),
+            releaseTokenTx(db, admin, t.key, 't', quick),
+          ].map((p) => p.catch((e: unknown) => e)),
+        )
+        for (const e of outcomes) {
+          expect(e).toBeInstanceOf(LockContentionError)
+          expect(e).toMatchObject({ sqlstate: '55P03', attempts: 3 })
+        }
+      } finally {
+        await releaseRolledBack(holder)
+      }
+      // Nothing half-done: the failed attempts rolled back.
+      expect(await activeOf(a.r)).toEqual([{ opportunity_id: a.opportunityId, decision: 'AUTO' }])
+    }, 60_000)
   })
 
   it('R2-CR-M-3: releaseToken against a concurrent resolve of the owner never deadlocks', async () => {
