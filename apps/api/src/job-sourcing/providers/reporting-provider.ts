@@ -81,9 +81,7 @@ const KNOWN_COLLECTION_CODES: ReadonlySet<string> = new Set(COLLECTION_ERROR_COD
 export function collectionCodeOf(error: unknown): CollectionErrorCode | null {
   const code =
     typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : null
-  return typeof code === 'string' && KNOWN_COLLECTION_CODES.has(code)
-    ? (code as CollectionErrorCode)
-    : null
+  return KNOWN_COLLECTION_CODES.has(code as string) ? (code as CollectionErrorCode) : null
 }
 
 /** The redaction placeholder. Asserted BY NAME in tests, so both halves of "the key is gone and

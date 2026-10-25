@@ -64,6 +64,18 @@ describe('createProductionWorker', () => {
     ).toThrow(/poolSize/)
   })
 
+  it('records a ban through T8`s recordHostBan on the app database', async () => {
+    const w = createProductionWorker(untouchable, new JobSourceRegistry([]), config)
+    await expect(
+      depsOf(w).recordBan({
+        hostKey: 'api.example.com',
+        reason: 'HTTP_429',
+        sourceId: '00000000-0000-4000-8000-000000000002',
+        floorHours: 0,
+      }),
+    ).rejects.toThrow('the database was touched')
+  })
+
   it('reads the type`s credentials through the config it was given', () => {
     const w = createProductionWorker(untouchable, new JobSourceRegistry([]), config)
     expect(depsOf(w).secretsFor('JSEARCH_API')).toEqual(['rapid-key-1'])
@@ -74,6 +86,14 @@ describe('createProductionWorker', () => {
     const w = createProductionWorker(untouchable, new JobSourceRegistry([]), config)
     // a malformed handle owns nothing: the ledger answers false before any SQL
     await expect(depsOf(w).heartbeat({ ...HANDLE, runId: 'nope' })).resolves.toBe(false)
+    // a well-formed one goes to THE configured database (port 1: refused, nothing reached)
+    const refused = await depsOf(w)
+      .heartbeat(HANDLE)
+      .catch((e: unknown) => e)
+    expect((refused as { cause?: { code?: string; port?: number } }).cause).toMatchObject({
+      code: 'ECONNREFUSED',
+      port: 1,
+    })
     await w.onModuleDestroy()
     // the reserved pool was ended: a well-formed heartbeat now fails on the ended pool
     const error = await depsOf(w)

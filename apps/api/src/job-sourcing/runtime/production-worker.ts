@@ -42,9 +42,11 @@ export function createProductionWorker(
   const heartbeats = (): JobRunLedger => {
     if (heartbeatLedger === null) {
       heartbeatPool = new Pool({
+        // Stryker disable next-line ObjectLiteral,BooleanLiteral: `infer` only types the value; the URL read is asserted by the port-1 refusal in production-worker.spec
         connectionString: requireConfig().get('DATABASE_URL', { infer: true }),
         max: 1,
       })
+      // Stryker disable next-line ObjectLiteral: the heartbeat runs one raw SQL statement; the schema option shapes the drizzle type, not the statement
       heartbeatLedger = new JobRunLedger(drizzle(heartbeatPool, { schema }), registry, catalog)
     }
     return heartbeatLedger
@@ -58,6 +60,7 @@ export function createProductionWorker(
       db,
       recordBan: (ban) => recordHostBan(db, ban),
       secretsFor: (type) =>
+        // Stryker disable next-line ObjectLiteral,BooleanLiteral: `infer` only types the value; the key read is asserted in production-worker.spec
         secretsForType(type, (key) => requireConfig().get(key, { infer: true })),
       close: async () => {
         await heartbeatPool?.end()
