@@ -326,8 +326,9 @@ export function SettleSeniorPayoutDialog({
   // previously settled row. It is `settleMinDate` — the row's business day,
   // computed by the same helper the server's lower-bound check uses
   // (pending-settlement.service.ts), so an untouched picker always passes it.
+  // No `tx` guard: without a row `settleMinDate` is '' and nothing renders.
   useEffect(() => {
-    if (tx) setTxDate(settleMinDate)
+    setTxDate(settleMinDate)
   }, [tx?.id])
 
   // Select the account: when switching to «Счёт компании» the currency is
