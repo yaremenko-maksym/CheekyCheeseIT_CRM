@@ -132,6 +132,8 @@ function world(opts: {
         w.reserved += 1
         return { id: `r${w.reserved}`, unit, amount }
       },
+      // T7: the adapter now awaits markSent before every request (the port's own contract).
+      async markSent() {},
       async reconcile(_reservation, resolution) {
         reconciled.push(resolution)
       },

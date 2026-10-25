@@ -33,6 +33,7 @@ import {
   validateEnding,
 } from './ledger-policy'
 import {
+  RUN_ATTEMPT_PREFIX,
   type RunHandle,
   RunFencedError,
   assertOwned,
@@ -416,7 +417,7 @@ export class JobRunLedger {
     adapterVersion: string,
   ): Promise<ClaimedRun> {
     const sourceId = String(row['id'])
-    const attemptId = `run-${randomUUID()}`
+    const attemptId = `${RUN_ATTEMPT_PREFIX}${randomUUID()}`
     const ownerToken = `${owner}:${randomUUID()}`
     const leaseS = this.options.leaseMs / 1000
     const maxAgeS = this.options.runMaxAgeMs / 1000

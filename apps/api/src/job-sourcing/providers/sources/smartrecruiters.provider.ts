@@ -8,6 +8,7 @@ import {
 import { definePagedProvider, UNBUILT_REQUEST_URL } from '../api-json.provider'
 import { type OwnerDecision, SMARTRECRUITERS_OWNER_DECISION } from '../owner-decisions'
 import { SourceBlockedError, SourceRateLimitedError } from '../../http/source-errors'
+import { isRunFenced } from '../../ownership/run-ownership'
 import { DEFAULT_API_JSON_LIMITS } from '../api-json.limits'
 import { parseBoundedJson } from '../bounded-json'
 import {
@@ -451,6 +452,36 @@ async function collectSmartRecruiters(
       )
     }
     const cost = { unit: reservation.unit, amount: reservation.amount }
+    // T7 (ADR "markSent: its home", CR-H-1): SENT is COMMITTED, awaited, immediately before the
+    // request leaves -- the store releases only cost it can prove unsent. A rejection means the
+    // request was NOT sent: the reservation is released, except when the executor is fenced out
+    // (RUN_FENCED), where a reconcile would be refused too and the run's settlement releases it.
+    try {
+      await ctx.meter.markSent(reservation)
+    } catch (error) {
+      if (isRunFenced(error)) {
+        return refuse(
+          {
+            code: 'RUN_FENCED',
+            message: 'the request was not sent: the run is fenced out',
+            status: null,
+          },
+          'ERROR',
+        )
+      }
+      const released = await ctx.meter.reconcile(reservation, 'RELEASED').then(
+        () => true,
+        () => false,
+      )
+      return refuse(
+        {
+          code: 'PERSISTENCE',
+          message: `the request was not sent, its reservation could not be marked sent${released ? '' : ' (nor released)'}: ${error instanceof Error ? error.message : 'the meter failed'}`,
+          status: null,
+        },
+        'ERROR',
+      )
+    }
     requestsMade += 1
     // From here the request may have left the process, so a failure cannot claim it was unused.
     let resolution: ReservationResolution = 'UNCERTAIN'

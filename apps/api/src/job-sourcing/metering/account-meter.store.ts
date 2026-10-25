@@ -27,7 +27,7 @@ import {
   reservationKey,
   reservationKeyPrefix,
 } from './meter-transitions'
-import { assertOwned } from '../ownership/run-ownership'
+import { RUN_ATTEMPT_PREFIX, assertOwned } from '../ownership/run-ownership'
 
 /**
  * The Postgres-backed shared account meter (r5 Task 3.5a): the implementation of
@@ -220,6 +220,13 @@ const bindingSchema = z
       message: 'a run-bound binding carries its owner token and epoch, and only it does',
       path: ['ownerToken'],
     },
+  )
+  .refine(
+    // r5 Task 2.5 T7: a RUN attempt (the ledger's `run-` ids) without its run id would skip the
+    // fencing above and leave reservations the end-of-run settlement (by run id) never reaches.
+    // NULL stays legal only for reservations that are not a collection run (e.g. a model call).
+    (b) => b.runId !== null || !b.attemptId.startsWith(RUN_ATTEMPT_PREFIX),
+    { message: 'a run attempt binding names its run', path: ['runId'] },
   )
 
 export interface AccountMeterBinding {
