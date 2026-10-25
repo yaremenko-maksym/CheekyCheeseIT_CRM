@@ -25,7 +25,11 @@ import { isStorableExchangeRate } from './exchange-rate.util'
 import { assertReceiptDocumentBindable } from './receipt.util'
 import { isAutomaticSalaryComponent } from './salary-origin'
 import { SalaryService } from './salary.service'
-import { formatTransactionBusinessDate, resolveTransactionDate } from './transaction-date.util'
+import {
+  formatTransactionBusinessDate,
+  resolveTransactionDate,
+  sourceBusinessDay,
+} from './transaction-date.util'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
 import { assertTransactionWritable } from './transaction-visibility.util'
 
@@ -87,7 +91,8 @@ export class SalaryPaymentService {
     // SR-809-M-1 (PR #868): resolve an omitted/null date to now and validate
     // that effective day too, so omitting the field cannot bypass the bound.
     const paymentTxDate = resolveTransactionDate(data.txDate, new Date())
-    const sourceDate = formatTransactionBusinessDate(tx.txDate ?? tx.createdAt)
+    // Backlog 338: a NULL-txDate row floors on the KYIV day of createdAt.
+    const sourceDate = sourceBusinessDay(tx)
     if (formatTransactionBusinessDate(paymentTxDate) < sourceDate) {
       throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
     }

@@ -488,7 +488,7 @@ describe('confirmPayout — guards', () => {
 
   // Backlog 338: a NULL-txDate PAYOUT floors on the KYIV day of createdAt.
   it('floors a NULL-txDate PAYOUT on the Kyiv day of createdAt in the 21:00-24:00 UTC window', async () => {
-    const payout = { txDate: null, createdAt: new Date('2026-10-20T21:30:00.000Z') }
+    const payout = { txDate: null, createdAt: new Date('2026-10-08T21:30:00.000Z') }
     const confirm = (txDate: string) =>
       confirmHarness({ payout }).svc.confirmPayout(
         'payout-1',
@@ -497,10 +497,10 @@ describe('confirmPayout — guards', () => {
         { txHash: HASH, txDate },
         readBack,
       )
-    await expect(confirm('2026-10-20')).rejects.toMatchObject({
+    await expect(confirm('2026-10-08')).rejects.toMatchObject({
       response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION' },
     })
-    await expect(confirm('2026-10-21')).resolves.toBeDefined()
+    await expect(confirm('2026-10-09')).resolves.toBeDefined()
   })
 
   it('looks the recipient up by id', async () => {
