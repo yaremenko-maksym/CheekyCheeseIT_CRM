@@ -56,7 +56,9 @@ describe('lateBoundDb', () => {
       },
     }
     holder.db = real
-    await expect(late.execute()).resolves.toBe('pg')
+    // detached, as drizzle passes methods around: only a method bound to the real db still works
+    const { execute } = late
+    await expect(execute()).resolves.toBe('pg')
     expect(late.dialect).toBe('pg')
   })
 })
