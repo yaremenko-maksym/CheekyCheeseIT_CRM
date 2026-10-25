@@ -101,6 +101,7 @@ function build(over: {
       calls.push('close')
       return true
     }),
+    countDue: vi.fn(async () => 0),
   }
   const worker = {
     startDue: vi.fn(async (i: { onlyTypes: readonly string[] }) => {

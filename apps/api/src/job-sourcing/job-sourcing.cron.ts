@@ -53,7 +53,9 @@ export class JobSourcingCronService {
   private readonly logger = new Logger(JobSourcingCronService.name)
 
   /** Exposed for specs; production keeps the default. */
-  readonly tuning = { intervalMs: DEFAULT_WINDOW_INTERVAL_MS }
+  readonly tuning: { intervalMs: number; onlyIds?: readonly string[] } = {
+    intervalMs: DEFAULT_WINDOW_INTERVAL_MS,
+  }
 
   constructor(
     private readonly service: JobSourcingService,
@@ -113,6 +115,7 @@ export class JobSourcingCronService {
             types,
             windowMs: this.windowMs(),
             intervalMs: this.tuning.intervalMs,
+            onlyIds: this.tuning.onlyIds,
             startedAt,
           },
         ),

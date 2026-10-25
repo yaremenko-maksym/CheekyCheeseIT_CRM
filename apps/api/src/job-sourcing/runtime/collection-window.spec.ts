@@ -10,12 +10,14 @@ const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() }
 function deps(over: {
   recoverExpired?: () => Promise<number>
   closeCycle?: () => Promise<boolean>
+  countDue?: () => Promise<number>
   startDue?: WindowDeps['worker']['startDue']
   active?: () => number
 }) {
   const ledger = {
     recoverExpired: vi.fn(over.recoverExpired ?? (() => Promise.resolve(0))),
     closeCycle: vi.fn(over.closeCycle ?? (() => Promise.resolve(true))),
+    countDue: vi.fn(over.countDue ?? (() => Promise.resolve(0))),
   }
   const worker = {
     startDue: vi.fn(
@@ -133,6 +135,35 @@ describe('runCollectionWindow', () => {
     const summary = await runCollectionWindow(d, { ...input, intervalMs: 5_000, windowMs: 10_000 })
     expect(summary).toMatchObject({ ended: 'DRAINED', iterations: 2 })
     expect(performance.now() - t0).toBeLessThan(1_000)
+  })
+
+  it('keeps waiting while sources of the set are still due behind a busy host, then drains', async () => {
+    let due = 3
+    const d = deps({ countDue: () => Promise.resolve(due--) })
+    const summary = await runCollectionWindow(d, input)
+    // due reads 3, 2, 1, then 0: the fourth empty pass ends the window
+    expect(summary).toMatchObject({ ended: 'DRAINED', iterations: 4, claimed: 0 })
+    expect(d.ledger.countDue).toHaveBeenCalledWith({ onlyTypes: ['ARBEITNOW_API'] })
+  })
+
+  it('a failed due count counts as nothing due: a sick database ends the window', async () => {
+    const d = deps({ countDue: () => Promise.reject(new Error('db down')) })
+    const summary = await runCollectionWindow(d, input)
+    expect(summary).toMatchObject({ ended: 'DRAINED', iterations: 1 })
+  })
+
+  it('passes the spec seam onlyIds to both the claim and the count', async () => {
+    const d = deps({})
+    await runCollectionWindow(d, { ...input, onlyIds: ['id-1'] })
+    expect(d.worker.startDue).toHaveBeenCalledWith({
+      cycleId: 'c1',
+      onlyTypes: ['ARBEITNOW_API'],
+      onlyIds: ['id-1'],
+    })
+    expect(d.ledger.countDue).toHaveBeenCalledWith({
+      onlyTypes: ['ARBEITNOW_API'],
+      onlyIds: ['id-1'],
+    })
   })
 
   it('a window already over at the start claims nothing and still closes the cycle', async () => {

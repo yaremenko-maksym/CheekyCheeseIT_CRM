@@ -234,6 +234,24 @@ export class JobRunLedger {
     return rows.length === 1
   }
 
+  /**
+   * How many sources of the scope pass the scheduled due predicate right now, WHETHER OR NOT one
+   * can be claimed this instant (a busy host, a running account). A handler's window keeps waiting
+   * while this is non-zero: a source behind another replica's run is claimed once that run ends. A
+   * claim refusal moves the source's `next_attempt_at` out, so a refused source stops counting.
+   */
+  async countDue(input: {
+    readonly onlyIds?: readonly string[] | undefined
+    readonly onlyTypes?: readonly JobSourceType[] | undefined
+  }): Promise<number> {
+    const { rows } = await this.db.execute(
+      sql`SELECT count(*)::int AS n FROM job_sources
+          WHERE ${dueSourcesPredicate('SCHEDULED', { maxConsecutiveFailures: this.options.maxConsecutiveFailures })}
+            AND ${scopeOf(input.onlyIds, input.onlyTypes)}`,
+    )
+    return Number(rows[0]?.['n'] ?? 0)
+  }
+
   // -------------------------------------------------------------------------
   // Claims
   // -------------------------------------------------------------------------
@@ -359,13 +377,7 @@ export class JobRunLedger {
     onlyIds: readonly string[] | undefined,
     onlyTypes: readonly JobSourceType[] | undefined,
   ): Promise<Row | undefined> {
-    const ids =
-      onlyIds === undefined ? sql`true` : sql`job_sources.id = ANY(${toUuidArray(onlyIds)})`
-    const types =
-      onlyTypes === undefined
-        ? sql`true`
-        : sql`job_sources.type::text = ANY(${toTypeArray(onlyTypes)})`
-    const scope = sql`${ids} AND ${types}`
+    const scope = scopeOf(onlyIds, onlyTypes)
     const { rows } = await tx.execute(
       sql`SELECT job_sources.*, ${RUN_ACCOUNT_KEY} AS run_account_key, ${METER_KEY} AS meter_key,
             clock_timestamp() AS db_now
@@ -857,6 +869,19 @@ export async function writePageProgress(
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
 /** A uuid[] parameter: drizzle would spread a JS array into a row constructor, so pass it as text. */
+/** The `onlyIds` / `onlyTypes` narrowing of a scheduled pick or count; absent = no narrowing. */
+function scopeOf(
+  onlyIds: readonly string[] | undefined,
+  onlyTypes: readonly JobSourceType[] | undefined,
+): SQL {
+  const ids = onlyIds === undefined ? sql`true` : sql`job_sources.id = ANY(${toUuidArray(onlyIds)})`
+  const types =
+    onlyTypes === undefined
+      ? sql`true`
+      : sql`job_sources.type::text = ANY(${toTypeArray(onlyTypes)})`
+  return sql`${ids} AND ${types}`
+}
+
 function toTypeArray(types: readonly string[]): SQL {
   for (const t of types) if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(t)) throw new RangeError('not a type')
   return sql`${`{${types.join(',')}}`}::text[]`

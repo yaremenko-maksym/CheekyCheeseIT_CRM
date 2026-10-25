@@ -9,8 +9,8 @@ import type { JobRunWorker, RunReport } from './job-run-worker'
  *
  * Each pass: `recoverExpired` (EVERY iteration, so a run killed mid-window is recovered inside it),
  * then one claim for the free slots, for this handler's type set only, then a bounded wait that
- * ends early when a run finishes. The window ends when nothing was claimed and nothing runs
- * (`DRAINED`), or `windowMs` after `startedAt` (`WINDOW`), whichever comes first, and then closes
+ * ends early when a run finishes. The window ends when nothing was claimed, nothing runs and nothing
+ * of the set is still due (`DRAINED`), or `windowMs` after `startedAt` (`WINDOW`), whichever comes first, and then closes
  * the cycle. Runs still in flight at the end keep their own deadline; the window does not wait for
  * them, so no slow run, hung ban store or hung database call can stretch it past `windowMs`.
  *
@@ -19,7 +19,7 @@ import type { JobRunWorker, RunReport } from './job-run-worker'
  */
 
 export interface WindowDeps {
-  readonly ledger: Pick<JobRunLedger, 'recoverExpired' | 'closeCycle'>
+  readonly ledger: Pick<JobRunLedger, 'recoverExpired' | 'closeCycle' | 'countDue'>
   readonly worker: Pick<JobRunWorker, 'startDue' | 'activeRuns'>
   readonly logger: Pick<Logger, 'log' | 'warn' | 'error'>
   /** Monotonic milliseconds. Default `performance.now`. */
@@ -33,6 +33,8 @@ export interface CollectionWindowInput {
   readonly windowMs: number
   /** The longest wait between two claims. */
   readonly intervalMs: number
+  /** Spec seam only (the ledger's `onlyIds`): a spec on a shared database claims its own rows. */
+  readonly onlyIds?: readonly string[] | undefined
   /** The handler's start, on the same clock as `monotonicNow`. Default: now. */
   readonly startedAt?: number
 }
@@ -90,7 +92,11 @@ export async function runCollectionWindow(
     await step('recoverExpired', () => deps.ledger.recoverExpired())
     let claimedNow = 0
     const started = await step('claim', () =>
-      deps.worker.startDue({ cycleId: input.cycleId, onlyTypes: input.types }),
+      deps.worker.startDue({
+        cycleId: input.cycleId,
+        onlyTypes: input.types,
+        ...(input.onlyIds === undefined ? {} : { onlyIds: input.onlyIds }),
+      }),
     )
     if (started !== undefined) {
       claimedNow = started.claimed
@@ -100,8 +106,18 @@ export async function runCollectionWindow(
       settled.catch(() => undefined)
     }
     if (claimedNow === 0 && deps.worker.activeRuns === 0) {
-      ended = 'DRAINED'
-      break
+      // Nothing of ours runs. Sources still due but not claimable (behind another replica's run on
+      // their host) are waited for; a failed count counts as none, so a sick database ends the window.
+      const due = await step('countDue', () =>
+        deps.ledger.countDue({
+          onlyTypes: input.types,
+          ...(input.onlyIds === undefined ? {} : { onlyIds: input.onlyIds }),
+        }),
+      )
+      if (due === undefined || due === 0) {
+        ended = 'DRAINED'
+        break
+      }
     }
     const wait = Math.min(input.intervalMs, remaining())
     if (wait <= 0) break
