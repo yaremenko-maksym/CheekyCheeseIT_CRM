@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { FIXTURE_ROOT } from '../../test/fixture-provenance'
@@ -6,8 +7,13 @@ import { buildManifest } from '../providers/manifest'
 import { MANIFEST_VALIDATION_ADAPTERS } from '../providers/manifest.adapters'
 import { MANIFEST_DEFINITIONS } from '../providers/manifest.definitions'
 import {
+  LEDGER_CATALOG_SNAPSHOT_PATH,
+  writeLedgerCatalogSnapshot,
+} from '../providers/manifest.generate'
+import {
   buildLedgerCatalog,
   buildLedgerCatalogSnapshot,
+  generateLedgerCatalogSnapshotSource,
 } from '../providers/manifest.ledger-catalog'
 import { LEDGER_CATALOG_SNAPSHOT } from './ledger-catalog.snapshot'
 import {
@@ -89,13 +95,16 @@ describe('the production ledger catalog (T7)', () => {
     expect(e?.banScope).toBe('SOURCE')
   })
 
-  it('a legacy type reads LEGACY, and an entry of an undescribed type is not resolved', () => {
+  it('a reached deadline blocks, and an entry of an undescribed type is not resolved', () => {
     expect(
-      snapshotReadinessAt({ legacy: true, blockerCodes: ['X'], deadlines: [] }, new Date()),
-    ).toEqual({
-      status: 'LEGACY',
-      blockerCodes: [],
-    })
+      snapshotReadinessAt(
+        {
+          blockerCodes: ['KEY_REQUIRED'],
+          deadlines: [{ kind: 'AUTH_REQUIRED_FROM', at: '2026-01-01T00:00:00.000Z' }],
+        },
+        new Date('2025-12-31T23:59:59.999Z'),
+      ),
+    ).toEqual({ status: 'BLOCKED', blockerCodes: ['KEY_REQUIRED'] })
     expect(
       snapshotReadinessAt(
         {
@@ -113,6 +122,25 @@ describe('the production ledger catalog (T7)', () => {
       hosts: [],
     })
     expect(orphan.entry('x')).toBeUndefined()
+  })
+})
+
+describe('the generator writes the snapshot where production reads it (T7)', () => {
+  it('the default path is this directory`s snapshot module', () => {
+    expect(LEDGER_CATALOG_SNAPSHOT_PATH).toBe(join(__dirname, 'ledger-catalog.snapshot.ts'))
+  })
+
+  it('writes the generated module text, which declares the snapshot the catalog imports', () => {
+    const dir = mkdtempSync(join(tmpdir(), 't7-snapshot-'))
+    try {
+      const path = join(dir, 'snapshot.ts')
+      expect(writeLedgerCatalogSnapshot(path)).toBe(path)
+      const text = readFileSync(path, 'utf8')
+      expect(text).toBe(generateLedgerCatalogSnapshotSource(manifest))
+      expect(text).toContain('export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 

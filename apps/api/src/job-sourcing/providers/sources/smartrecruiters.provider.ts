@@ -473,14 +473,14 @@ async function collectSmartRecruiters(
           'ERROR',
         )
       }
-      const released = await ctx.meter.reconcile(reservation, 'RELEASED').then(
-        () => true,
-        () => false,
+      const releaseNote = await ctx.meter.reconcile(reservation, 'RELEASED').then(
+        () => '',
+        () => ' (nor released)',
       )
       return refuse(
         {
           code: 'PERSISTENCE',
-          message: `the request was not sent, its reservation could not be marked sent${released ? '' : ' (nor released)'}: ${error instanceof Error ? error.message : 'the meter failed'}`,
+          message: `the request was not sent, its reservation could not be marked sent${releaseNote}: ${error instanceof Error ? error.message : 'the meter failed'}`,
           status: null,
         },
         'ERROR',

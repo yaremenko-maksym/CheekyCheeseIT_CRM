@@ -5,7 +5,7 @@ import type {
   SnapshotHost,
 } from '../runtime/production-catalog'
 import { type Manifest, type PolicyDeadline, readinessAt } from './manifest'
-import { hostPolicyOf } from './manifest.hosts'
+import { type HostPolicy, hostPolicyOf } from './manifest.hosts'
 
 /**
  * The run ledger's catalog, built from the manifest (r5 Task 2.5 T3). It lives with the manifest
@@ -65,7 +65,6 @@ export function buildLedgerCatalogSnapshot(manifest: Manifest): LedgerCatalogSna
       .filter((t) => entryTypes.has(t.type))
       .map((t) => ({
         type: t.type,
-        legacy: t.disposition.kind === 'IMPLEMENTED' && t.disposition.contract === 'LEGACY',
         blockerCodes: t.blockers.map((b) => b.code),
         deadlines: deadlinesOf(t.deadlines),
         payloadVerified: t.payloadVerified,
@@ -80,10 +79,11 @@ export function buildLedgerCatalogSnapshot(manifest: Manifest): LedgerCatalogSna
       deadlines: deadlinesOf(e.deadlines),
       intervalHours: e.intervalHours,
     })),
-    hosts: hostKeys.flatMap((hostKey): SnapshotHost[] => {
-      const policy = hostPolicyOf(manifest, hostKey)
-      return policy === undefined ? [] : [{ hostKey, policy }]
-    }),
+    // Every key here is carried by an entry, so `hostPolicyOf` always has a policy for it.
+    hosts: hostKeys.map((hostKey): SnapshotHost => ({
+      hostKey,
+      policy: hostPolicyOf(manifest, hostKey) as HostPolicy,
+    })),
   }
 }
 

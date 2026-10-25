@@ -1065,9 +1065,9 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
             }
           : failureOfThrown(error, ctx.signal.aborted)
     } finally {
-      if (reservation !== null && fenced) {
-        reservation = null
-      } else if (reservation !== null) {
+      // A fenced-out executor attempts no reconcile (the store would refuse it): the run's
+      // end-of-run settlement releases the reservation.
+      if (reservation !== null && !fenced) {
         /**
          * THE RECONCILE ITSELF CAN THROW, and that was the last way out of this span that lost
          * the attempt. Not one of the round's findings — found while re-reading the `finally` the

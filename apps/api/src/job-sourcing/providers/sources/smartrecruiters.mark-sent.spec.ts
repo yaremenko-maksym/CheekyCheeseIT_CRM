@@ -110,7 +110,10 @@ describe('SmartRecruiters marks every request sent before it leaves (T7, AC 7)',
       'reconcile:r1:USED',
       'reserve:r2',
     ])
-    expect(batch.requests.at(-1)?.error?.code).toBe('RUN_FENCED')
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'RUN_FENCED',
+      message: 'the request was not sent: the run is fenced out',
+    })
   })
 
   it('a markSent failing for another reason is not sent, and the reservation is RELEASED', async () => {
@@ -137,5 +140,17 @@ describe('SmartRecruiters marks every request sent before it leaves (T7, AC 7)',
     expect(batch.requests.at(-1)?.error?.message).toBe(
       'the request was not sent, its reservation could not be marked sent (nor released): the meter failed',
     )
+  })
+
+  it('a refusal the context raises on the send keeps its own code (not a network blink)', async () => {
+    const h = harness(async () => {})
+    h.ctx.fetchText = async () => {
+      throw Object.assign(new Error('the run is closed (DEADLINE)'), { code: 'DEADLINE' })
+    }
+    const batch = await live.collectReport(config, h.ctx)
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'DEADLINE',
+      message: 'the run is closed (DEADLINE)',
+    })
   })
 })

@@ -23,8 +23,6 @@ export interface SnapshotDeadline {
 
 export interface SnapshotType {
   readonly type: JobSourceType
-  /** The type's disposition is the legacy contract (DOU): its readiness is `LEGACY`. */
-  readonly legacy: boolean
   readonly blockerCodes: readonly string[]
   readonly deadlines: readonly SnapshotDeadline[]
   readonly payloadVerified: boolean
@@ -53,18 +51,17 @@ export interface LedgerCatalogSnapshot {
 }
 
 /**
- * The manifest's `readinessAt`, over snapshot data: a legacy type is `LEGACY`; otherwise the
- * standing blockers plus every deadline the clock has reached, `CANDIDATE` only when none stand.
+ * The manifest's `readinessAt`, over snapshot data: the standing blockers plus every deadline the
+ * clock has reached, `CANDIDATE` only when none stand. (Only reporting types carry entries, so a
+ * catalog type is never the manifest's `LEGACY`.)
  */
 export function snapshotReadinessAt(
   subject: {
-    readonly legacy?: boolean
     readonly blockerCodes: readonly string[]
     readonly deadlines: readonly SnapshotDeadline[]
   },
   at: Date,
-): { status: 'CANDIDATE' | 'BLOCKED' | 'LEGACY'; blockerCodes: string[] } {
-  if (subject.legacy === true) return { status: 'LEGACY', blockerCodes: [] }
+): { status: 'CANDIDATE' | 'BLOCKED'; blockerCodes: string[] } {
   const timed = subject.deadlines
     .filter((d) => at.getTime() >= Date.parse(d.at))
     .map((d) => (d.kind === 'AUTH_REQUIRED_FROM' ? 'AUTH_DEADLINE_PASSED' : 'POLICY_EXPIRED'))

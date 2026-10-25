@@ -6,7 +6,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
   types: [
     {
       type: 'REMOTEOK_API',
-      legacy: false,
       blockerCodes: [],
       deadlines: [],
       payloadVerified: true,
@@ -16,7 +15,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'REMOTIVE_API',
-      legacy: false,
       blockerCodes: [],
       deadlines: [],
       payloadVerified: true,
@@ -26,7 +24,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'HIMALAYAS_API',
-      legacy: false,
       blockerCodes: [],
       deadlines: [],
       payloadVerified: true,
@@ -36,7 +33,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'JOBICY_API',
-      legacy: false,
       blockerCodes: [],
       deadlines: [],
       payloadVerified: true,
@@ -46,7 +42,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'ARBEITNOW_API',
-      legacy: false,
       blockerCodes: [],
       deadlines: [],
       payloadVerified: true,
@@ -56,7 +51,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'JOBGETHER_API',
-      legacy: false,
       blockerCodes: [],
       deadlines: [],
       payloadVerified: true,
@@ -66,7 +60,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'HN_HIRING',
-      legacy: false,
       blockerCodes: [],
       deadlines: [],
       payloadVerified: true,
@@ -76,7 +69,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'GREENHOUSE_ATS',
-      legacy: false,
       blockerCodes: [],
       deadlines: [],
       payloadVerified: true,
@@ -86,7 +78,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'LEVER_ATS',
-      legacy: false,
       blockerCodes: [],
       deadlines: [],
       payloadVerified: true,
@@ -96,7 +87,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'ASHBY_ATS',
-      legacy: false,
       blockerCodes: ['PERMISSION_UNCLEAR'],
       deadlines: [],
       payloadVerified: true,
@@ -106,7 +96,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'WORKABLE_ATS',
-      legacy: false,
       blockerCodes: [],
       deadlines: [],
       payloadVerified: true,
@@ -116,7 +105,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'RECRUITEE_ATS',
-      legacy: false,
       blockerCodes: [],
       deadlines: [
         {
@@ -131,7 +119,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'PERSONIO_ATS',
-      legacy: false,
       blockerCodes: [],
       deadlines: [],
       payloadVerified: true,
@@ -141,7 +128,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'JOOBLE_API',
-      legacy: false,
       blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
       deadlines: [],
       payloadVerified: false,
@@ -151,7 +137,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'JSEARCH_API',
-      legacy: false,
       blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
       deadlines: [],
       payloadVerified: false,
@@ -161,7 +146,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'THEIRSTACK_API',
-      legacy: false,
       blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
       deadlines: [],
       payloadVerified: false,
@@ -171,7 +155,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'MUSE_API',
-      legacy: false,
       blockerCodes: ['PERMISSION_UNCLEAR', 'STATUS_CONSTANT_BLOCKED'],
       deadlines: [],
       payloadVerified: true,
@@ -181,7 +164,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'REED_API',
-      legacy: false,
       blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
       deadlines: [],
       payloadVerified: false,
@@ -191,7 +173,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'DJINNI_RSS',
-      legacy: false,
       blockerCodes: ['PERMISSION_UNCLEAR'],
       deadlines: [],
       payloadVerified: true,
@@ -201,7 +182,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'WWR_RSS',
-      legacy: false,
       blockerCodes: ['PERMISSION_UNCLEAR'],
       deadlines: [],
       payloadVerified: true,
@@ -211,7 +191,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'EUREMOTEJOBS_RSS',
-      legacy: false,
       blockerCodes: ['PERMISSION_UNCLEAR'],
       deadlines: [],
       payloadVerified: true,
