@@ -1498,24 +1498,26 @@ NO_TX_PROSE_HEADER='-- MUST NOT be applied with `psql -1` / `--single-transactio
 # $1 = case name, $2 = header line written into the DDL file, $3 = extra psql
 # flags inserted after `-v ON_ERROR_STOP=1` (may be empty), $4 = optional text
 # appended after the apply line (a trailing comment, for the cheat case).
+# $5 = optional DDL file name (default $DDL), for the pinned-name cases.
 make_single_tx_case() {
-  local name="$1" header="$2" flags="$3" trailer="${4-}"
+  local name="$1" header="$2" flags="$3" trailer="${4-}" ddl="${5:-$DDL}"
   local root="$WS/$name" yml
   yml="${WIRED_YML//ON_ERROR_STOP=1 </ON_ERROR_STOP=1 ${flags:+$flags }<}"
+  yml="${yml//$DDL/$ddl}"
   # The apply line is WIRED_YML's last line, so a trailer lands beside the call.
   [ -n "$trailer" ] && yml="$yml   $trailer"
-  root="$(make_case "$name" "$yml")"
-  printf '%s\nUPDATE t SET c = c;\n' "$header" >"$root/apps/api/drizzle/manual/$DDL"
+  root="$(make_case "$name" "$yml" "$ddl")"
+  printf '%s\nUPDATE t SET c = c;\n' "$header" >"$root/apps/api/drizzle/manual/$ddl"
   printf '%s' "$root"
 }
 
 assert_green "single-transaction: a file declaring it, applied with --single-transaction -> green" \
-  --contains "Files declaring a --single-transaction apply: 1" \
+  --contains "Files requiring a --single-transaction apply: 1" \
   --contains "Applies missing --single-transaction: 0" \
   -- run_guard "$(make_single_tx_case stx-ok "$SINGLE_TX_HEADER" "--single-transaction")"
 
 assert_green "single-transaction: psql's short form -1 counts as the flag -> green" \
-  --contains "Files declaring a --single-transaction apply: 1" \
+  --contains "Files requiring a --single-transaction apply: 1" \
   --contains "Applies missing --single-transaction: 0" \
   -- run_guard "$(make_single_tx_case stx-dash1 "$SINGLE_TX_DASH1_HEADER" "-1")"
 
@@ -1530,9 +1532,29 @@ assert_red "single-transaction: the flag only in a trailing comment beside the c
   -- run_guard "$(make_single_tx_case stx-comment-cheat "$SINGLE_TX_HEADER" "" "# --single-transaction")"
 
 assert_green "single-transaction: prose that FORBIDS -1 is not a declaration (CONCURRENTLY-style files) -> green" \
-  --contains "Files declaring a --single-transaction apply: 0" \
+  --contains "Files requiring a --single-transaction apply: 0" \
   --contains "Applies missing --single-transaction: 0" \
   -- run_guard "$(make_single_tx_case stx-prose "$NO_TX_PROSE_HEADER" "")"
+
+# SR-M-1 (security review PR #1155): header discovery fails open. A pinned file
+# whose header was reformatted so the pattern no longer matches must go red,
+# even though it is still applied WITH the flag.
+PINNED_DDL="2026-10-24_job_sources_manifest_delta.sql"
+REFORMATTED_HEADER='-- How to apply: run psql with ON_ERROR_STOP and single-transaction on this file'
+
+assert_green "single-transaction: a pinned file with its apply-line header, applied with the flag -> green" \
+  --contains "Applies missing --single-transaction: 0" \
+  -- run_guard "$(make_single_tx_case stx-pinned-ok "$SINGLE_TX_HEADER" "--single-transaction" "" "$PINNED_DDL")"
+
+assert_red "single-transaction: a pinned file whose header was reformatted (pattern no longer matches) -> red, not a silent 0" \
+  --contains "Files requiring a --single-transaction apply: 1" \
+  --contains "Applies missing --single-transaction: 1" \
+  --contains "$PINNED_DDL: pinned in PINNED_SINGLE_TX_FILES" \
+  -- run_guard "$(make_single_tx_case stx-pinned-reformatted "$REFORMATTED_HEADER" "--single-transaction" "" "$PINNED_DDL")"
+
+assert_red "single-transaction: a pinned file with a reformatted header AND no flag -> red" \
+  --contains "Applies missing --single-transaction: 2" \
+  -- run_guard "$(make_single_tx_case stx-pinned-reformatted-noflag "$REFORMATTED_HEADER" "" "" "$PINNED_DDL")"
 
 # ── hard-required list continuation (2026-10-25) ────────────────────────────────
 # Both lists are one backslash-continued shell command. A blank line inside one

@@ -1218,6 +1218,20 @@ which is the deliberate trade (a loud stop over a silently missing source).
    that source; or **retire** it (change its `config` or remove it) if it is not. Then re-run the
    deploy; the delta is idempotent and picks up from there.
 
+**A rollback dispatch does NOT get around a permanent collision.** Established from the workflow,
+not assumed: the `deploy` job's "Checkout (for the deploy script)" step checks out the workflow's
+own ref with no `ref:` (it is deliberately not pinned to the rollback target), copies
+`scripts/devops/deploy-stack-on-vps.sh` from there, and the SSH step runs it. The two apply blocks
+in that script carry no `image_tag` / rollback condition, so a rollback dispatch runs them exactly
+like a merge deploy does, against the copy of the delta that `copy-compose` took from the ROLLBACK
+TARGET's checkout. A target older than the move into `manual/` is refused earlier, by the `build`
+job's hard-required preflight. A target at or after the move ships the delta, the same rows still
+collide, the same `RAISE` fires, and the rollback stops at that step: before the container swap,
+so the image it was meant to roll back to never starts. The remedy is the same as above (claim or
+retire the row, then re-dispatch). If the API must be rolled back before the row can be dealt
+with, the only route is the "Emergency SSH path" below, which runs `pull` and `up -d` and applies
+no DDL. The same holds for a refusal of the single-flight file's final check below.
+
 **`2026-10-24_job_run_single_flight.sql` — apply-once, re-run on every deploy.** The file is
 designed to be applied once; the deploy re-runs it because it re-runs every file. On a converged
 database a re-run executes no DDL and takes no lock that conflicts with reads or writes, only a

@@ -1157,34 +1157,10 @@ def ordered_applied_files(steps, job_id):
 
     A file applied several times appears several times. Assignments are
     resolved in sequence (not collected up front), so a re-used variable name
-    resolves to the file it held at that point.
+    resolves to the file it held at that point. The resolution itself lives in
+    applied_commands() below (one implementation, review PR #1155 CR-M-2).
     """
-    var_files = {}
-    sequence = []
-    for step in steps:
-        if step.job_id != job_id:
-            continue
-        for cmd in join_logical_commands(step.lines):
-            cmd_lines = cmd.split("\n")
-            if len(cmd_lines) == 1:
-                m = VAR_ASSIGN_RE.match(cmd_lines[0])
-                if m:
-                    var_files[m.group(1)] = m.group(2) if m.group(2) is not None else m.group(3)
-                    continue
-            if not any(
-                PSQL_INVOCATION_RE.search(ln) and not ECHO_LINE_RE.match(ln) for ln in cmd_lines
-            ):
-                continue
-            found = []
-            for varname, path in var_files.items():
-                ref = re.search(r"\$\{?" + re.escape(varname) + r"\}?(?![A-Za-z0-9_])", cmd)
-                if ref:
-                    found.append((ref.start(), path))
-            for m in re.finditer(r"/opt/crm/\S+\.sql", cmd):
-                found.append((m.start(), m.group(0).rstrip("\"'),;")))
-            for _pos, path in sorted(found):
-                sequence.append(os.path.basename(path))
-    return sequence
+    return [name for j, name, _cmd in applied_commands(steps) if j == job_id]
 
 
 def creates_relation(ddl_dir, filename):
@@ -1271,6 +1247,17 @@ REQUIRES_SINGLE_TX_RE = re.compile(
 )
 SINGLE_TX_FLAG_RE = re.compile(r"(?<!\S)(?:--single-transaction|-1)(?!\S)")
 
+# Files KNOWN to need one transaction, pinned by name (security review PR #1155,
+# SR-M-1). Header discovery alone fails open: reformat a header so the pattern
+# stops matching and the file silently leaves the check, the count drops and the
+# guard stays green. A pinned file that is in manual/ but no longer declares the
+# apply line is a failure of its own. Discovery stays for every other file.
+# Package B (Task 2.5 T8) adds its two file names here.
+PINNED_SINGLE_TX_FILES = {
+    "2026-10-24_job_run_single_flight.sql",
+    "2026-10-24_job_sources_manifest_delta.sql",
+}
+
 
 def requires_single_transaction(ddl_dir, filename):
     """True when the file declares a `psql ... --single-transaction` apply line."""
@@ -1283,8 +1270,9 @@ def requires_single_transaction(ddl_dir, filename):
 
 def applied_commands(steps):
     """(job_id, file name, logical command) for every psql command that applies
-    a /opt/crm/....sql file, resolving `< "$VAR"` per job in text order — the
-    same resolution ordered_applied_files uses, keeping the command text."""
+    a /opt/crm/....sql file, resolving `< "$VAR"` per job in text order and,
+    within one command, in the order the files appear. ordered_applied_files
+    (the apply-order invariants) is a projection of this list."""
     out = []
     var_files_by_job = {}
     for step in steps:
@@ -1300,11 +1288,15 @@ def applied_commands(steps):
                 PSQL_INVOCATION_RE.search(ln) and not ECHO_LINE_RE.match(ln) for ln in cmd_lines
             ):
                 continue
+            found = []
             for varname, path in var_files.items():
-                if re.search(r"\$\{?" + re.escape(varname) + r"\}?(?![A-Za-z0-9_])", cmd):
-                    out.append((step.job_id, os.path.basename(path), cmd))
+                ref = re.search(r"\$\{?" + re.escape(varname) + r"\}?(?![A-Za-z0-9_])", cmd)
+                if ref:
+                    found.append((ref.start(), path))
             for m in re.finditer(r"/opt/crm/\S+\.sql", cmd):
-                out.append((step.job_id, os.path.basename(m.group(0).rstrip("\"'),;")), cmd))
+                found.append((m.start(), m.group(0).rstrip("\"'),;")))
+            for _pos, path in sorted(found):
+                out.append((step.job_id, os.path.basename(path), cmd))
     return out
 
 
@@ -1314,8 +1306,17 @@ def find_single_transaction_gaps(steps, ddl_dir, files):
     nor `-1`. Returns the required set too, so the summary can print how many
     files the check actually covered (a 0 there means "nothing to check", not
     "checked and fine")."""
-    required = sorted(f for f in files if requires_single_transaction(ddl_dir, f))
+    declared = {f for f in files if requires_single_transaction(ddl_dir, f)}
+    required = sorted(declared | (PINNED_SINGLE_TX_FILES & set(files)))
     gaps = []
+    for name in sorted((PINNED_SINGLE_TX_FILES & set(files)) - declared):
+        gaps.append(
+            (
+                name,
+                "pinned in PINNED_SINGLE_TX_FILES, but its header no longer carries a "
+                "`--   psql ... --single-transaction < <this file>` apply line",
+            )
+        )
     for _job_id, name, cmd in applied_commands(steps):
         if name not in required or SINGLE_TX_FLAG_RE.search(cmd):
             continue
@@ -1448,7 +1449,7 @@ def main():
     print("  Hard-required list drift (preflight vs runbook): {}".format(mirror_drift))
     print("  Preflight missing unconditional scp files: {}".format(len(missing_from_preflight)))
     print("  Apply-order violations (grants / privileges check): {}".format(len(order_violations)))
-    print("  Files declaring a --single-transaction apply: {}".format(len(single_tx_required)))
+    print("  Files requiring a --single-transaction apply: {}".format(len(single_tx_required)))
     print("  Applies missing --single-transaction: {}".format(len(single_tx_gaps)))
     print("  Broken line continuations in hard-required lists: {}".format(len(continuation_breaks)))
 
