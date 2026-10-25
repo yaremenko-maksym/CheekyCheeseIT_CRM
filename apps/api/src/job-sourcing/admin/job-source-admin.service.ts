@@ -31,7 +31,7 @@ import { MAX_CONSECUTIVE_FAILURES } from '../scheduling/due-policy'
  * called on it would refuse every claim (fail closed) rather than run a source.
  * shortcut: a private ledger instance; inject T7's provider once it exists.
  */
-const NO_CATALOG: LedgerCatalog = { entry: () => undefined, hostPolicy: () => undefined }
+export const NO_CATALOG: LedgerCatalog = { entry: () => undefined, hostPolicy: () => undefined }
 
 const REFUSAL_CODES = `{${CLAIM_REFUSALS.join(',')}}`
 

@@ -5,7 +5,7 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 import type { DatabaseService } from '../../database/database.service'
 import { specRegistry } from '../../test/ledger-fixtures'
-import { JobSourceAdminService } from './job-source-admin.service'
+import { JobSourceAdminService, NO_CATALOG } from './job-source-admin.service'
 
 /**
  * Unit doubles for the T9 service, so the mutation gate can see the role check, the row mapping
@@ -23,7 +23,7 @@ const ADMIN: SessionUser = {
   legalFullName: null,
 }
 const NON_ADMIN: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
-const SOURCE = '11111111-2222-4333-8444-555555555555'
+const SOURCE = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
 const dialect = new PgDialect()
 
 function harness(rows: Record<string, unknown>[] = [], resetRows: unknown[] = [{ ok: 1 }]) {
@@ -61,9 +61,11 @@ describe('JobSourceAdminService — role check in the service body', () => {
   it.each(NON_ADMIN)('%s is refused on both methods, before any query', async (role) => {
     const h = harness()
     const user = { ...ADMIN, role }
-    await expect(h.service.listExcluded(user)).rejects.toThrow(ForbiddenException)
+    await expect(h.service.listExcluded(user)).rejects.toThrow(
+      new ForbiddenException('Job source controls are ADMIN only'),
+    )
     await expect(h.service.resetFailures(SOURCE, { reason: 'x' }, user)).rejects.toThrow(
-      ForbiddenException,
+      new ForbiddenException('Job source controls are ADMIN only'),
     )
     expect(h.execute).not.toHaveBeenCalled()
     expect(h.txExecute).not.toHaveBeenCalled()
@@ -165,7 +167,14 @@ describe('resetFailures — calls the ledger', () => {
   it('answers NotFound when no row was updated', async () => {
     const h = harness([], [])
     await expect(h.service.resetFailures(SOURCE, { reason: 'x' }, ADMIN)).rejects.toThrow(
-      NotFoundException,
+      new NotFoundException('Job source not found'),
     )
+  })
+
+  it('builds its ledger on a catalog that resolves nothing (any claim on it fails closed)', () => {
+    expect([NO_CATALOG.entry('any.manifest'), NO_CATALOG.hostPolicy('remotive.com')]).toEqual([
+      undefined,
+      undefined,
+    ])
   })
 })

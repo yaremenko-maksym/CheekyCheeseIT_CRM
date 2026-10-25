@@ -44,6 +44,28 @@ describe('excludedJobSourceListSchema', () => {
     expect(excludedJobSourceListSchema.parse({ items: [item] }).items[0]).toEqual(item)
   })
 
+  it.each(['FAILURE_CAP', 'HOST_PAUSED', 'CLAIM_REFUSED', 'OVERDUE'])('accepts reason %s', (r) => {
+    expect(
+      excludedJobSourceListSchema.parse({ items: [{ ...item, reasons: [r] }] }).items[0]?.reasons,
+    ).toEqual([r])
+  })
+
+  it('bounds the pause reason to a 64-character code', () => {
+    const paused = {
+      ...item,
+      pausedUntil: '2026-10-26T00:00:00.000Z',
+      pauseReason: 'HTTP_429',
+      pauseSourceId: item.sourceId,
+    }
+    expect(excludedJobSourceListSchema.parse({ items: [paused] }).items[0]?.pauseReason).toBe(
+      'HTTP_429',
+    )
+    expect(
+      excludedJobSourceListSchema.safeParse({ items: [{ ...paused, pauseReason: 'X'.repeat(65) }] })
+        .success,
+    ).toBe(false)
+  })
+
   it('refuses an unknown reason and an empty reason list', () => {
     expect(
       excludedJobSourceListSchema.safeParse({ items: [{ ...item, reasons: ['WHATEVER'] }] })
