@@ -1,0 +1,107 @@
+import { describe, expect, it } from 'vitest'
+import type { SourceObservation } from '../normalize/observation'
+import { revisionPayload } from './record-payload'
+
+const HASH = 'a'.repeat(64)
+/** `printf 'Build things.' | shasum -a 256` */
+const DESCRIPTION_SHA = 'c0c56823c9971e29c57fdbd0f6a4a78497fb24f5ae138bd98a1c3afe7a17d63b'
+
+const DATES: SourceObservation['normalized']['dates'] = [
+  { semantics: 'UPDATED', contract: 'ISO_ZONED', raw: 'u-raw', status: 'INVALID', value: null },
+  {
+    semantics: 'PUBLISHED',
+    contract: 'ISO_ZONED',
+    raw: '2026-10-20T10:00:00Z',
+    status: 'OK',
+    value: new Date('2026-10-20T10:00:00Z'),
+  },
+]
+
+function observation(over: Partial<SourceObservation['normalized']> = {}): SourceObservation {
+  return {
+    identity: {
+      provider: 'REMOTIVE_API',
+      namespace: 'ns',
+      nativeId: '42',
+      identityKey: '["42"]',
+      identityKind: 'NATIVE_ID',
+    },
+    sourcePostingUrl: 'https://fixture.test/jobs/42',
+    applicationUrl: 'https://fixture.test/apply/42',
+    originalFields: {} as SourceObservation['originalFields'],
+    normalized: {
+      title: 'Senior Go Engineer',
+      companyName: 'Acme',
+      companyNameNormalized: 'acme',
+      location: 'Remote',
+      descriptionMd: 'Build things.',
+      publishedAt: new Date('2026-10-20T10:00:00Z'),
+      dates: DATES,
+      ...over,
+    },
+    evidence: [{ field: 'title', kind: 'DISPLAY_TRUNCATED', detail: 'cut' }],
+    adapterVersion: 'remotive-1',
+    normalizerVersion: 'n1',
+    contentHash: HASH,
+  }
+}
+
+describe('revisionPayload', () => {
+  it('maps an observation onto the revision columns, the description content-addressed', () => {
+    expect(
+      revisionPayload(
+        observation({
+          tags: ['go'],
+          remote: true,
+          employmentType: 'full_time',
+          seniorityHint: 'Senior',
+        }),
+      ),
+    ).toEqual({
+      adapterVersion: 'remotive-1',
+      normalizerVersion: 'n1',
+      contentHash: HASH,
+      normalized: {
+        title: 'Senior Go Engineer',
+        companyName: 'Acme',
+        companyNameNormalized: 'acme',
+        location: 'Remote',
+        publishedAt: '2026-10-20T10:00:00.000Z',
+        remote: true,
+        employmentType: 'full_time',
+        seniorityHint: 'Senior',
+        tags: ['go'],
+        dates: DATES,
+      },
+      originalIdentity: {
+        provider: 'REMOTIVE_API',
+        namespace: 'ns',
+        nativeId: '42',
+        identityKind: 'NATIVE_ID',
+        identityKey: '["42"]',
+        sourcePostingUrl: 'https://fixture.test/jobs/42',
+        applicationUrl: 'https://fixture.test/apply/42',
+      },
+      evidence: { fields: [{ field: 'title', kind: 'DISPLAY_TRUNCATED', detail: 'cut' }] },
+      description: { sha256: DESCRIPTION_SHA, text: 'Build things.' },
+      publishedAtRaw: '2026-10-20T10:00:00Z',
+      publishedAt: '2026-10-20T10:00:00.000Z',
+      sourceUrl: 'https://fixture.test/jobs/42',
+      applicationUrl: 'https://fixture.test/apply/42',
+    })
+  })
+
+  it('stores no blob for an empty description, and nulls for absent dates and extras', () => {
+    const p = revisionPayload(observation({ descriptionMd: '', publishedAt: null, dates: [] }))
+    expect(p.description).toBeNull()
+    expect(p.publishedAt).toBeNull()
+    expect(p.publishedAtRaw).toBeNull()
+    expect(p.normalized).toMatchObject({
+      publishedAt: null,
+      remote: null,
+      employmentType: null,
+      seniorityHint: null,
+      tags: [],
+    })
+  })
+})
