@@ -5,7 +5,11 @@ import {
   boundedFetchText,
   transportOptionsFor,
 } from '../http/bounded-fetch'
-import { SourceBlockedError, SourceRateLimitedError } from '../http/source-errors'
+import {
+  SourceBlockedError,
+  SourceHttpStatusError,
+  SourceRateLimitedError,
+} from '../http/source-errors'
 import type { AccountMeter } from '../metering/account-meter.store'
 import type { ClaimedRun, SavedPage } from '../ownership/job-run-ledger'
 import type { RunHandle } from '../ownership/run-ownership'
@@ -42,10 +46,23 @@ import { type HostBan, banTargetOf } from '../scheduling/host-state'
  *    heartbeat). A process frozen past `L` sends nothing on a stale permit: it closes as fenced.
  *  - THE DEADLINE. `fetchText` refuses once `deadline` has passed, whatever the adapter checked.
  *
- * `fetchText` is `boundedFetchText` at its DEFAULT caps and the adapter's `allowedHosts` (T6 owns
- * transport options). Until T6 that list is empty and the ledger never claims such a source
- * (`TRANSPORT_NOT_WIRED`). The transport answers with the body only, so a response carries status
- * 200, no headers and no ETag: conditional requests begin when T6 surfaces them.
+ * `fetchText` is `boundedFetchText` pinned to the adapter's `allowedHosts` for this config, with the
+ * request's own options (`transportOptionsFor`: method, headers, body, the declared `maxBytes`).
+ * An adapter that declares no hosts is never claimed (`TRANSPORT_NOT_WIRED`).
+ *
+ * STATUSES (T6). A 2xx is a 200 with its body. A refusal (401 / 403 / 451, 429) is the typed error
+ * above, and bans. ANY OTHER status is the adapter's answer, not a failure of ours: it is returned
+ * as a response with that status and NO body (the transport cancels it unread), so an adapter's
+ * "a detail 404 is an answer" path is reachable and a 5xx is the adapter's `UPSTREAM`, never
+ * `TRANSIENT_NETWORK`. There is no retry here or in the transport: a failed request is retried by
+ * the next run, on cadence and backoff (T3), so one run never multiplies its requests.
+ * Headers and validators are not surfaced: a response carries no headers and no ETag, so the cache
+ * below never holds a validator and no conditional request is sent.
+ *
+ * LATE BANS (CR-M-6 / SR-L-3). The worker `drain`s the context before it reads `state`, so a ban
+ * write still retrying is finished first. A refusal that arrives after the drain (a request still on
+ * the wire when the run ended) is nobody's to read any more: its failed write is logged and retried
+ * once more after `LATE_BAN_RETRY_MS`, then said to remain unrecorded.
  */
 
 export type ClosedReason = 'BANNED' | 'FENCED' | 'DEADLINE' | 'CANCELLED'
@@ -71,6 +88,14 @@ const CLOSED_CODE: Readonly<Record<ClosedReason, CollectionErrorCode>> = {
 /** The bounded retry of a ban write (SR-M-21): this many attempts, then the run is flagged. */
 export const BAN_WRITE_ATTEMPTS = 3
 
+/** How long after a late ban write failed the context tries it once more (CR-M-6 / SR-L-3). */
+export const LATE_BAN_RETRY_MS = 30_000
+
+type Refusal = SourceBlockedError | SourceRateLimitedError
+
+const isRefusal = (error: unknown): error is Refusal =>
+  error instanceof SourceBlockedError || error instanceof SourceRateLimitedError
+
 export interface ContextDeps {
   /** The transport. Production: `boundedFetchText`. */
   readonly transport?: ((url: string, opts: BoundedFetchOptions) => Promise<string>) | undefined
@@ -86,6 +111,8 @@ export interface ContextDeps {
   readonly monotonicNow?: (() => number) | undefined
   /** Wall clock, for `ctx.now()`. Production: `new Date()`. */
   readonly now?: (() => Date) | undefined
+  /** Where an unrecorded ban is said. Only our own sentences reach it, never exception text. */
+  readonly logger?: { error(message: string): void } | undefined
 }
 
 export interface ContextInput {
@@ -117,6 +144,11 @@ export interface RunControl {
   renewLease(sentAt: number): void
   /** The context's monotonic clock, for the heartbeat's `sentAt`. */
   monotonicNow(): number
+  /**
+   * Wait for every ban write already started, so `state` is final; from then on a ban write that
+   * fails is the context's own to log and retry (CR-M-6 / SR-L-3). Never rejects.
+   */
+  drain(): Promise<void>
   readonly state: {
     readonly closed: ClosedReason | null
     /** The refused request's code (`ACCESS_POLICY` / `RATE_LIMIT`) when the run was banned. */
@@ -124,12 +156,6 @@ export interface RunControl {
     /** A host ban that could not be written; the worker retries it after `finish` (SR-M-21). */
     readonly unrecordedBan: HostBan | null
   }
-}
-
-function retryAfterOf(error: unknown): string | null {
-  // T6 adds `retryAfter` to the transport errors; read it when present.
-  const value = (error as { retryAfter?: unknown }).retryAfter
-  return typeof value === 'string' ? value : null
 }
 
 export function buildCollectionContext(deps: ContextDeps, input: ContextInput): RunControl {
@@ -155,6 +181,14 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
   let unrecordedBan: HostBan | null = null
   let permits = 0
   let leaseDeadline = mono() + input.leaseMs
+  const logger = deps.logger
+  /** Ban writes in progress, and whether the worker has drained them (CR-M-6 / SR-L-3). */
+  const pending = new Set<Promise<void>>()
+  let drained = false
+  const track = (write: Promise<void>): Promise<void> => {
+    pending.add(write)
+    return write.finally(() => pending.delete(write))
+  }
 
   const close = (reason: ClosedReason) => {
     closed ??= reason
@@ -180,35 +214,52 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
     }
   }
 
-  async function onRefusal(error: SourceBlockedError | SourceRateLimitedError): Promise<void> {
+  async function onRefusal(error: Refusal): Promise<void> {
     const status = error instanceof SourceBlockedError ? error.status : 429
     banCode = status === 429 ? 'RATE_LIMIT' : 'ACCESS_POLICY'
     // LATCH FIRST (SR-M-21): every further reserve / markSent / fetchText is refused from here.
     // The signal is aborted by `fetchText` once this refusal has reached the adapter; aborting
     // here would make the request lose the race to its own close.
     closed ??= 'BANNED'
-    // `banTargetOf` reads anything but a literal SOURCE (an absent scope included) as HOST.
-    if (banTargetOf(input.banScope as BanScope, status) === 'HOST') {
-      unrecordedBan = await recordWithRetry({
-        hostKey: input.hostKey,
-        reason: `HTTP_${status}`,
-        sourceId: run.sourceId,
-        retryAfter: retryAfterOf(error),
-        floorHours: input.floorHours,
-      })
+    if (banTargetOf(input.banScope, status) !== 'HOST') return
+    const ban: HostBan = {
+      hostKey: input.hostKey,
+      reason: `HTTP_${status}`,
+      sourceId: run.sourceId,
+      retryAfter: error.retryAfter,
+      floorHours: input.floorHours,
     }
+    const failed = await recordWithRetry(ban)
+    if (failed === null) return
+    if (!drained) {
+      unrecordedBan = failed
+      return
+    }
+    // Late: the worker has read `state` already, so nobody else will retry this ban.
+    setTimeout(() => {
+      void recordWithRetry(ban).then((still) => {
+        if (still !== null) {
+          logger?.error(
+            `host ${ban.hostKey}: ban ${ban.reason} for run ${run.runId} remains unrecorded after its late retry`,
+          )
+        }
+      })
+    }, LATE_BAN_RETRY_MS).unref?.()
   }
 
-  /** The ban, or null once written; after the last failed attempt the ban itself (flagged). */
+  /** The ban, or null once written; after the last failed attempt the ban itself, logged. */
   async function recordWithRetry(ban: HostBan): Promise<HostBan | null> {
     for (let attempt = 1; attempt <= BAN_WRITE_ATTEMPTS; attempt += 1) {
       try {
         await deps.recordBan(ban)
         return null
       } catch {
-        // retried; after the last attempt the run is flagged
+        // retried; the exception text is not logged (it may carry connection details)
       }
     }
+    logger?.error(
+      `host ${ban.hostKey}: ban ${ban.reason} could not be recorded after ${BAN_WRITE_ATTEMPTS} attempts`,
+    )
     return ban
   }
 
@@ -249,9 +300,7 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
         allowedHosts: input.allowedHosts,
         ...transportOptionsFor(request),
       }).catch(async (error: unknown) => {
-        if (error instanceof SourceBlockedError || error instanceof SourceRateLimitedError) {
-          await onRefusal(error)
-        }
+        if (isRefusal(error)) await track(onRefusal(error))
         throw error
       })
       // When the race below is lost to a close, nobody awaits `answer`: its failure is expected.
@@ -260,10 +309,12 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
         const bodyText = await Promise.race([answer, aborted])
         return { status: 200, bodyText, headers: {}, etag: null }
       } catch (error) {
-        // A refusal of THIS request: the run is latched already; now abort its signal too.
-        if (error instanceof SourceBlockedError || error instanceof SourceRateLimitedError) {
-          controller.abort(closed)
+        // Any other status is the adapter's answer (T6): its status, never its body.
+        if (error instanceof SourceHttpStatusError) {
+          return { status: error.status, bodyText: '', headers: {}, etag: null }
         }
+        // A refusal of THIS request: the run is latched already; now abort its signal too.
+        if (isRefusal(error)) controller.abort(closed)
         throw error
       }
     },
@@ -315,6 +366,11 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
       leaseDeadline = Math.max(leaseDeadline, sentAt + input.leaseMs)
     },
     monotonicNow: mono,
+    drain: async () => {
+      // A write that finishes may not start another, but loop anyway: the set is the truth.
+      while (pending.size > 0) await Promise.allSettled([...pending])
+      drained = true
+    },
     state: {
       get closed() {
         return closed

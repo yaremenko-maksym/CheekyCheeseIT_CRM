@@ -61,7 +61,7 @@ export function claimGate(input: GateInput): ClaimRefusal | null {
   const entryReady = entry.entryReadiness(dbNow) === 'CANDIDATE'
   if (status === 'NOT_VERIFIED') return 'NOT_ACTIVATABLE'
   if (status !== 'ACTIVATABLE' || !entryReady) return 'READINESS_BLOCKED'
-  if (adapter.allowedHosts.length === 0 || adapter.adapterVersion === null) {
+  if (!adapter.transportWired || adapter.adapterVersion === null) {
     return 'TRANSPORT_NOT_WIRED'
   }
   if (entry.quotaDeclared && input.meterKey === null) return 'METER_MISSING'

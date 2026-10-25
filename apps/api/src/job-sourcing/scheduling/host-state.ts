@@ -94,14 +94,14 @@ export function parseRetryAfter(raw: unknown): RetryAfter | null {
 export type BanTarget = 'HOST' | 'SOURCE' | 'NONE'
 
 /**
- * 429 and 451 always ban the host key. A 403 bans the host key unless the type declares the
- * `SOURCE` scope, in which case it is that source's own failure (T3 counts it). Any other status
- * is not a ban. Anything but a literal `'SOURCE'` scope bans the host: an unknown scope fails
- * toward stopping.
+ * 429 and 451 always ban the host key. A 403 (and, since T6, a 401) bans the host key unless the
+ * type declares the `SOURCE` scope, in which case it is that source's own failure (T3 counts it).
+ * Any other status is not a ban. Anything but a literal `'SOURCE'` scope, an absent one included,
+ * bans the host: an unknown scope fails toward stopping.
  */
-export function banTargetOf(banScope: BanScope, status: number): BanTarget {
+export function banTargetOf(banScope: BanScope | undefined, status: number): BanTarget {
   if (status === 429 || status === 451) return 'HOST'
-  if (status !== 403) return 'NONE'
+  if (status !== 403 && status !== 401) return 'NONE'
   return banScope === 'SOURCE' ? 'SOURCE' : 'HOST'
 }
 

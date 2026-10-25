@@ -1204,6 +1204,8 @@ describe('review round 1: the worker survives and reports what it swallows', () 
     })
     await w.worker.runDue({ cycleId: uuid(1) })
     expect(rec.lines).toEqual([
+      // T6 (CR-M-6 / SR-L-3): the context says its own last failed attempt, in our own words
+      'error: host h.example: ban HTTP_429 could not be recorded after 3 attempts',
       `error: host h.example refused run ${uuid(101)} (HTTP_429) and its ban could not be recorded (Error)`,
     ])
   })
