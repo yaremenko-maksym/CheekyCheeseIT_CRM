@@ -61,8 +61,8 @@ import {
  * fails), on top of whatever successful runs spend. Raising N on one account raises the bound
  * linearly; `job-run-ledger.accounting.integration.spec.ts` pins it for N = 2.
  *
- * !! MERGING THIS MAKES NO SOURCE RUNNABLE: nothing in production constructs a ledger until T7, and
- * no adapter declares `allowedHosts` until T6, so every claim is refused `TRANSPORT_NOT_WIRED`.
+ * !! A reporting adapter is claimed only once it is registered AND wired (`REPORTING_WIRING`, T6);
+ * the production registry holds DOU only, which is refused `NOT_ACTIVATABLE`.
  */
 
 export type LedgerDb = MeterDb

@@ -175,10 +175,11 @@ describe.skipIf(!hasDatabaseUrl())('the run worker against Postgres, as crm_app 
       pageOf(r.path) === 1 ? { body: arbeitnowPage(['p1', 'p2', 'p3'], true) } : { status: 500 }
     const partial = await w.source({ type: 'ARBEITNOW_API', config: { maxPages: 3 } })
     const [p] = await w.worker().runDue({ cycleId: await w.cycle(), onlyIds: [partial.sourceId] })
-    // page 1 persisted, page 2 failed: the run failed, and its row keeps what it received
+    // page 1 persisted, page 2 failed: the run failed, and its row keeps what it received. Since T6
+    // the transport surfaces the 500 to the adapter, which reports UPSTREAM, not a network failure.
     expect(await runRow(w.admin, p!.runId)).toMatchObject({
       outcome: 'FAILED',
-      error_code: 'TRANSIENT_NETWORK',
+      error_code: 'UPSTREAM',
       received: 3,
     })
     expect(fixture.requests.map((r) => pageOf(r.path))).toEqual([1, 1, 2])

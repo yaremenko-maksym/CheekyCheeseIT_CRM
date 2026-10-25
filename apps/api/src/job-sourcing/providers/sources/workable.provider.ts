@@ -61,8 +61,8 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  * - DETAIL: `details=true` puts `description` (HTML) on every job. A job without it is still
  *   mapped, with no description.
  *
- * !! The 10 MiB cap below is a claim about this file's body decoder only; the transport's own cap
- * is 2 MiB (see the Greenhouse adapter's note and the backlog entry it names).
+ * The 10 MiB cap below is declared on the request and, since Task 2.5 T6, enforced by the transport
+ * before any parse (see the Greenhouse adapter's note).
  */
 
 export const WORKABLE_ADAPTER_VERSION = 'workable-1'
