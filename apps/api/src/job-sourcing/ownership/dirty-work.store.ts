@@ -155,7 +155,7 @@ export const dirtyWorkStatements = {
           FROM picked
          WHERE d.id = picked.id
      RETURNING d.id, d.entity_kind, d.entity_id, d.target_version, d.reason, d.fencing_epoch,
-               d.retry_count, d.created_at`,
+               d.retry_count`,
 
   complete: (h: DirtyWorkHandle, current: SQL): SQL =>
     sql`WITH cur AS (SELECT (${current}) AS v FROM job_dirty_work w WHERE w.id = ${h.id}::uuid)
@@ -227,20 +227,17 @@ export async function claimDirtyBatch(
   const batchSize = boundedInt('batchSize', opts.batchSize ?? DIRTY_BATCH_DEFAULT, DIRTY_BATCH_MAX)
   const leaseMs = boundedInt('leaseMs', opts.leaseMs ?? DIRTY_LEASE_DEFAULT_MS, DIRTY_LEASE_MAX_MS)
   const { rows } = await db.execute(dirtyWorkStatements.claim(opts.owner, batchSize, leaseMs))
-  return rows
-    .map((r) => ({
-      id: String(r['id']),
-      owner: opts.owner,
-      fencingEpoch: Number(r['fencing_epoch']),
-      entityKind: jobDirtyWorkEntityKindSchema.parse(r['entity_kind']),
-      entityId: String(r['entity_id']),
-      targetVersion: Number(r['target_version']),
-      reason: String(r['reason']),
-      retryCount: Number(r['retry_count']),
-      createdAt: new Date(String(r['created_at'])).getTime(),
-    }))
-    .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1))
-    .map(({ createdAt: _createdAt, ...w }) => w)
+  // The batch is picked oldest-first; the order of the returned rows carries no meaning.
+  return rows.map((r) => ({
+    id: String(r['id']),
+    owner: opts.owner,
+    fencingEpoch: Number(r['fencing_epoch']),
+    entityKind: jobDirtyWorkEntityKindSchema.parse(r['entity_kind']),
+    entityId: String(r['entity_id']),
+    targetVersion: Number(r['target_version']),
+    reason: String(r['reason']),
+    retryCount: Number(r['retry_count']),
+  }))
 }
 
 /**
