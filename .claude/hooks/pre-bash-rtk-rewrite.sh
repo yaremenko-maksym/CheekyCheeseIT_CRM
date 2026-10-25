@@ -19,7 +19,7 @@
 # ADVISORY and FAIL-OPEN: it never refuses. No binary, a crash, bad JSON, or a failed sanity check =
 # silent no-op, the original command runs unchanged. A missing optimisation must never block work.
 # One command unfiltered (evidence you must read verbatim): prefix it with RTK_DISABLED=1. The rtk exec
-# subcommands (bypass/err/test/run/summary) are refused by pre:bash:rtk-exec-gate.
+# subcommands (bypass/proxy/err/test/run/summary, plus init) are refused by pre:bash:rtk-exec-gate.
 # Rationale and the condition to reopen: docs/architecture/rules-rationale/token-economy.md
 
 RTK_BIN="${RTK_INSTALL_DIR:-$HOME/.local/share/rtk/bin}/rtk"

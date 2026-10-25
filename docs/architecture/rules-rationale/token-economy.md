@@ -155,9 +155,10 @@ with `RTK_INSTALL_DIR`), the rewrite hook calls it by absolute path, and a bare 
 4. The binary runs any unknown first word as the command itself (`rtk touch f` works); the exec gate does not
    cover that by design, cmdscan marks it inexact.
 5. Rule 1 false positives on prose that puts the binary next to an exec word (commit messages, heredocs).
-6. Command-position gaps for rare syntax: backtick wrappers, `if`/`while`/`until`/`elif` conditions, `case`
-   arms, leading redirections, quoted or array assignments, fractional `timeout 1.5`, `coproc`, `builtin`,
-   `xargs -I{}`, `find -exec`, `flock`, `taskset`, `strace`, `script -qc`, `bash -ec` / `-xc`.
+6. Command-position gaps for rare syntax: `if`/`while`/`until`/`elif` conditions, quoted or array
+   assignments, fractional `timeout 1.5`, `coproc`, `builtin`, `xargs -I{}`, `find -exec`, `flock`, `taskset`,
+   `strace`, `script -qc`, and a second numeric flag value (`nice -n 5 -n 5`). Covered since the follow-ups
+   below: backtick wrappers, `case` arms, `bash -c` / `-ec` / `-xc` strings, leading redirections.
 
 The durable fix, recorded for a later task, is to do the check inside `cmdscan.py`, which already tokenises
 words and is shared by every other guard, and delete this second, weaker parser.

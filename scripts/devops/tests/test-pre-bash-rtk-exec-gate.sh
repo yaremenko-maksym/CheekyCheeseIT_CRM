@@ -79,6 +79,8 @@ rtk \$SUB ls" \
   "echo \"a > b\" ; rtk run ls" \
   "rtk init -g" \
   "rtk init --show" \
+  "timeout -k 5 10 rtk \$SUB ls" \
+  "timeout 5 10 rtk \$SUB ls" \
   "rtk \$'\\0'bypass ls" \
   "rtk \$'\\x00'proxy ls" \
   "rtk \$'\\400'run ls" \
@@ -204,7 +206,11 @@ for cmd in ("echo ok" + "\n" * 20000, "echo ok" + " \n" * 10000, "echo " + "a/" 
             "rtk --adj " * 40 + "zzz", "echo " + "1" * 100000 + " ; rtk run ls", "echo {" + "1" * 100000 + " ; rtk run ls",
             "{1" * 50000, "echo " + "1 " * 50000, "{" * 100000, "&" * 100000, "<" * 100000, ">" * 100000, "echo " + ">\"" * 50000, "echo " + ">\x27" * 50000, "echo " + ">\\" * 50000):
     t = time.time()
-    subprocess.run(["bash", hook], input=json.dumps({"tool_input": {"command": cmd}}).encode(), capture_output=True)
+    try:
+        subprocess.run(["bash", hook], input=json.dumps({"tool_input": {"command": cmd}}).encode(), capture_output=True, timeout=10)
+    except subprocess.TimeoutExpired:
+        print("HANG", len(cmd), cmd[:60])
+        sys.exit(1)
     if time.time() - t > 5:
         print("SLOW", len(cmd), round(time.time() - t, 1))
         sys.exit(1)
@@ -219,7 +225,11 @@ hook = sys.argv[1]
 b = "r" + "tk"
 for cmd in ("echo " + "1" * 30000 + " ; " + b + " ru" + "n ls", "echo {" + "1" * 30000 + " ; " + b + " ru" + "n ls"):
     t = time.time()
-    r = subprocess.run(["bash", hook], input=json.dumps({"tool_input": {"command": cmd}}).encode(), capture_output=True)
+    try:
+        r = subprocess.run(["bash", hook], input=json.dumps({"tool_input": {"command": cmd}}).encode(), capture_output=True, timeout=10)
+    except subprocess.TimeoutExpired:
+        print("HANG", len(cmd))
+        sys.exit(1)
     if r.returncode != 2 or time.time() - t > 2:
         print("BAD", r.returncode, round(time.time() - t, 1))
         sys.exit(1)

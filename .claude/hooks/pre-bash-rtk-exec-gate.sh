@@ -214,7 +214,7 @@ wflag = (
 # followed.
 cmdpos = (
     r"(?:^|[;&|({)\x60\n]|\b(?:then|do|else)\b|\s-\w*c\s)\s*"
-    r"(?:(?:\w+=[^\s;&|]*|!|" + wrapper + r"(?:" + wflag + r")*(?:\s+\d+[smhd]?)?)\s+)*"
+    r"(?:(?:\w+=[^\s;&|]*|!|" + wrapper + r"(?:" + wflag + r")*(?:\s+\d+[smhd]?)*)\s+)*"
 )
 
 pat_exec = re.compile(binary + flags + gap + exec_word)
