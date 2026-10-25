@@ -6,6 +6,7 @@ import { RunFencedError } from '../ownership/run-ownership'
 import {
   AccountMeterError,
   createAccountMeter,
+  endOfRunResolution,
   type AccountMeterBinding,
   type MeterDb,
 } from './account-meter.store'
@@ -212,6 +213,14 @@ describe('reserve asserts ownership after the meter lock, before the reservation
     ).reserve('REQUEST', 2)
     expect(script.log).not.toContain('lock:run')
     expect(script.inserted).toEqual([expect.objectContaining({ runId: null })])
+  })
+})
+
+describe('endOfRunResolution — the end-of-run settlement table', () => {
+  it('RESERVED is released (provably unsent); SENT and UNCERTAIN are spent', () => {
+    expect(endOfRunResolution('RESERVED')).toBe('RELEASED')
+    expect(endOfRunResolution('SENT')).toBe('USED')
+    expect(endOfRunResolution('UNCERTAIN')).toBe('USED')
   })
 })
 

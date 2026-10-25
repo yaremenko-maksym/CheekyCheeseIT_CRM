@@ -22,10 +22,12 @@ import type { LedgerCatalog } from './ledger-catalog'
 import {
   type ClaimRefusal,
   type LedgerOptions,
+  type ManualRefusal,
   type RunEndOutcome,
   backoffMs,
   claimGate,
   endingEffect,
+  manualTermRefusal,
   refusalWrite,
   resolveLedgerOptions,
   validateEnding,
@@ -74,20 +76,6 @@ export interface ClaimRefused {
   readonly sourceId: string
   readonly reason: ClaimRefusal
 }
-
-/** Why `claimSource` refused, beyond the gates: the due predicate's own terms, a lock, a race. */
-export type ManualRefusal =
-  | ClaimRefusal
-  | 'NOT_FOUND'
-  | 'DISABLED'
-  | 'NOT_ACTIVE'
-  | 'NO_MANIFEST_ENTRY'
-  | 'TRIGGER_MODE'
-  | 'FAILURE_CAP'
-  | 'COOLING_DOWN'
-  | 'ALREADY_RUNNING'
-  | 'LOCK_TIMEOUT'
-  | 'CONFLICT'
 
 export type ManualClaim =
   | { readonly kind: 'CLAIMED'; readonly run: ClaimedRun }
@@ -782,18 +770,4 @@ const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 function toUuidArray(ids: readonly string[]): SQL {
   for (const id of ids) if (!UUID.test(id)) throw new RangeError('not a uuid')
   return sql`${`{${ids.join(',')}}`}::uuid[]`
-}
-
-/** The first failing term of the manual due predicate, in `isDue`'s order, or null if all pass. */
-export function manualTermRefusal(row: Row): ManualRefusal | null {
-  if (row['t_enabled'] !== true) return 'DISABLED'
-  if (row['t_active'] !== true) return 'NOT_ACTIVE'
-  if (row['t_manifest'] !== true) return 'NO_MANIFEST_ENTRY'
-  if (row['t_trigger'] !== true) return 'TRIGGER_MODE'
-  if (row['t_cap'] !== true) return 'FAILURE_CAP'
-  if (row['t_cool'] !== true) return 'COOLING_DOWN'
-  if (row['t_idle'] !== true) return 'ALREADY_RUNNING'
-  // The host term of the predicate: a NULL key, or a paused host.
-  if (row['t_due'] !== true) return row['host_key'] === null ? 'HOST_KEY_MISSING' : 'HOST_PAUSED'
-  return null
 }

@@ -207,3 +207,39 @@ export function resolveLedgerOptions(over: Partial<LedgerOptions> = {}): LedgerO
   if (o.backoffBaseMs > o.backoffMaxMs) throw new RangeError('the backoff base exceeds its cap')
   return o
 }
+
+// ---------------------------------------------------------------------------
+// The manual claim's due terms
+// ---------------------------------------------------------------------------
+
+/** Why `claimSource` refused, beyond the gates: the due predicate's own terms, a lock, a race. */
+export type ManualRefusal =
+  | ClaimRefusal
+  | 'NOT_FOUND'
+  | 'DISABLED'
+  | 'NOT_ACTIVE'
+  | 'NO_MANIFEST_ENTRY'
+  | 'TRIGGER_MODE'
+  | 'FAILURE_CAP'
+  | 'COOLING_DOWN'
+  | 'ALREADY_RUNNING'
+  | 'LOCK_TIMEOUT'
+  | 'CONFLICT'
+
+/**
+ * The first failing term of the MANUAL due predicate, in `isDue`'s order, or null when all pass.
+ * Each `t_*` is a boolean the claim's SQL computed on the locked row against the database clock;
+ * anything but a literal `true` refuses (a NULL included).
+ */
+export function manualTermRefusal(row: Readonly<Record<string, unknown>>): ManualRefusal | null {
+  if (row['t_enabled'] !== true) return 'DISABLED'
+  if (row['t_active'] !== true) return 'NOT_ACTIVE'
+  if (row['t_manifest'] !== true) return 'NO_MANIFEST_ENTRY'
+  if (row['t_trigger'] !== true) return 'TRIGGER_MODE'
+  if (row['t_cap'] !== true) return 'FAILURE_CAP'
+  if (row['t_cool'] !== true) return 'COOLING_DOWN'
+  if (row['t_idle'] !== true) return 'ALREADY_RUNNING'
+  // The host term of the predicate: a NULL key, or a paused host.
+  if (row['t_due'] !== true) return row['host_key'] === null ? 'HOST_KEY_MISSING' : 'HOST_PAUSED'
+  return null
+}
