@@ -345,6 +345,9 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
   enter('PROJECTIONS')
   // shortcut: roster, exclusions and profiles are sorted per record; the roster is small (tens of
   // seniors), so hoisting this out of `evaluateBatch` is deferred until a roster of thousands.
+  // shortcut: `buildScopes` calls `forViewer` once per senior, per team and for the studio, each
+  // re-filtering the senior list: O(S * (S + T)) per record. Fine for tens of seniors; upgrade
+  // (one pass bucketed by senior id) when the roster grows past a few hundred.
   const ctx = { layer1, revision, evaluationTime: input.evaluationTime }
   const scopes = buildScopes(tech, profiles, new Set(input.teamTriageGrants), tech.lowInformation)
   const studio = projectScope(scopes.studio, ctx)

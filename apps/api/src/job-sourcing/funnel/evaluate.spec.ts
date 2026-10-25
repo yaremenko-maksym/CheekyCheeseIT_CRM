@@ -13,6 +13,7 @@ import {
   type EvaluateInput,
   type Reason,
 } from './evaluate'
+import type { Layer1Input } from './layer1'
 import { rankScore } from './rank'
 import type { SeniorTechProfile } from './tech-match'
 
@@ -52,6 +53,8 @@ const javaRevision = (over: Partial<CanonicalRevision> = {}): CanonicalRevision 
   opportunityId: 'opp-1',
   revisionId: 'rev-1',
   companyName: 'Acme',
+  url: 'https://example.com/jobs/1',
+  sourceType: 'EXAMPLE',
   fields: {
     title: 'Senior Java Developer',
     location: null,
@@ -895,8 +898,12 @@ describe('evaluate: exact outputs', () => {
   })
 
   it('lowers the score for an unknown seniority and for an unknown workplace', () => {
-    const fields = { ...javaRevision().fields, seniorityHint: null, title: 'Java Developer' }
-    const score = (over: Partial<typeof fields>) =>
+    const fields: Layer1Input = {
+      ...javaRevision().fields,
+      seniorityHint: null,
+      title: 'Java Developer',
+    }
+    const score = (over: Partial<Layer1Input>) =>
       projection(
         evaluated(
           evaluate(
