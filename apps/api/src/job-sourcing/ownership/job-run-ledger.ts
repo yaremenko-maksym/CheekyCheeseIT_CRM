@@ -517,7 +517,20 @@ export class JobRunLedger {
    * purpose: a multi-row `INSERT ... SELECT ... ORDER BY` has no documented guarantee that rows are
    * locked in that order. The count is bounded by one provider page (one upstream response).
    */
-  async savePage(h: RunHandle, page: SavedPage): Promise<void> {
+  async savePage(
+    h: RunHandle,
+    page: SavedPage,
+    /**
+     * T7 (SR-L-9, "Lease, heartbeat and page writes"): the page write's budget `H`. The
+     * transaction runs under `SET LOCAL statement_timeout` and `lock_timeout` of this many ms, so a
+     * heartbeat queued behind it still lands before the lease expires. Absent: no bound.
+     */
+    options: { readonly timeoutMs?: number } = {},
+  ): Promise<void> {
+    const timeoutMs = options.timeoutMs
+    if (timeoutMs !== undefined && !(Number.isSafeInteger(timeoutMs) && timeoutMs > 0)) {
+      throw new RangeError('savePage: invalid timeout')
+    }
     const checkpoint = validatedCheckpointSchema.parse(page.checkpoint)
     const seen = new Set<string>()
     const unique: SourceObservation['identity'][] = []
@@ -533,6 +546,11 @@ export class JobRunLedger {
         : compare(a.namespace, b.namespace),
     )
     await this.db.transaction(async (tx) => {
+      if (timeoutMs !== undefined) {
+        await tx.execute(
+          sql`SELECT set_config('statement_timeout', ${`${timeoutMs}ms`}, true), set_config('lock_timeout', ${`${timeoutMs}ms`}, true)`,
+        )
+      }
       const owned = await assertOwned(tx, h)
       const { rows: src } = await tx.execute(
         sql`SELECT type FROM job_sources WHERE id = ${owned.sourceId}::uuid`,
