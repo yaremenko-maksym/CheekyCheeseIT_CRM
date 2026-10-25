@@ -3,12 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
-import {
-  latestSettleBusinessDay,
-  receiptMandatoryError,
-  formatDate,
-  transactionBusinessDay,
-} from '@crm/shared'
+import { latestSettleBusinessDay, receiptMandatoryError, transactionBusinessDay } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -26,6 +21,7 @@ import { translateZodMessage, getApiErrorMessage } from '@/lib/axios-utils'
 import { useLocale } from '@/lib/i18n'
 import { financeApi } from '../../api'
 import { settlementSplit } from '../../cascade-preview'
+import { formatTxOrCreated } from '../../utils/tx-date'
 import { fmtAmount, fmtYyyymmdd, convertAmount, type ExchangeRates } from '../../constants'
 import { FundingSourceFields, COMPANY_ACCOUNT_VALUE, type Currency } from './FundingSourceFields'
 import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
@@ -533,10 +529,10 @@ export function SettleSeniorPayoutDialog({
                 <Trans>Дата</Trans>
               </span>
               <span className="font-medium">
-                {/* CR-M-1 (PR #1159): an unparseable createdAt renders `—`, not a RangeError. */}
-                {Number.isNaN(Date.parse(tx.createdAt))
-                  ? '—'
-                  : formatDate(tx.createdAt, locale, 'shortYY')}
+                {/* QA-MED-1 / CR-M-1 (PR #1159): the row's business day — the same day as
+                the table cell and the picker minimum in every browser zone — and `—`
+                for an unparseable createdAt instead of a RangeError. */}
+                {formatTxOrCreated(tx.txDate, tx.createdAt, locale)}
               </span>
             </div>
           </div>
