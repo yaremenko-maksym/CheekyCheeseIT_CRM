@@ -2166,6 +2166,48 @@ docker compose \
   < "$JOB_SOURCES_MANIFEST_DELTA_FILE"
 echo "==> job sources manifest seed delta applied successfully"
 
+# ── job source hosts and host keys (r5 Task 2.5 T8) ──
+# Hosts first: the host-keys file needs job_source_hosts and this delta's manifest_id.
+# job_source_hosts.sql creates a table, so it MUST stay above the grants below
+# (check-prod-ddl-wiring.py GRANTS-AFTER-CREATORS). Both run in one transaction each.
+# Source: apps/api/drizzle/manual/2026-10-24_job_source_hosts.sql
+JOB_SOURCE_HOSTS_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-24_job_source_hosts.sql"
+
+if [ ! -f "$JOB_SOURCE_HOSTS_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_SOURCE_HOSTS_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job source hosts (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$JOB_SOURCE_HOSTS_FILE"
+echo "==> job source hosts applied successfully"
+
+# Source: apps/api/drizzle/manual/2026-10-24_job_sources_host_keys.sql
+JOB_SOURCES_HOST_KEYS_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-24_job_sources_host_keys.sql"
+
+if [ ! -f "$JOB_SOURCES_HOST_KEYS_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_SOURCES_HOST_KEYS_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job sources host keys (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$JOB_SOURCES_HOST_KEYS_FILE"
+echo "==> job sources host keys applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file

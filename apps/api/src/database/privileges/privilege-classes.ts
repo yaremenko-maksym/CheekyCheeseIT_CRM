@@ -205,6 +205,9 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'job_queue_dismissals',
     'job_queue_generation_entries',
     'job_queue_generations',
+    // Task 2.5 T8: host-level ban pause and claim times. The API's own claim and ban
+    // paths read and write it; DELETE comes with the class and is used by nothing.
+    'job_source_hosts',
     'job_source_record_revisions',
     'job_source_records',
     'job_sources',

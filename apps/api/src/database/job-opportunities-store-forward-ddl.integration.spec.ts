@@ -114,6 +114,19 @@ const PART_5_INDEXES = [
   'uq_job_collection_runs_one_started_per_account',
   'uq_job_collection_runs_one_started_per_source',
 ] as const
+/**
+ * r5 Task 2.5 T8. `job_sources.host_key` (with its CHECK and `idx_job_sources_host_key`) and the
+ * table `job_source_hosts` are declared in Drizzle (`job-sourcing.ts`), so the `db:push`
+ * reference carries them, and production gets them ONLY through this file. Applied after
+ * PART_5, as the deploy will. STAGED like PART_5 (`readPart` falls back to `manual-staged/`).
+ */
+const PART_6_MIGRATION = '2026-10-24_job_source_hosts.sql'
+/** The index PART_6 creates; the reference counts it beside part 2's and PART_5's. */
+const PART_6_INDEXES = ['idx_job_sources_host_key'] as const
+/** The `job_sources` column PART_6 adds: not one of part 1's, so not in its header list. */
+const PART_6_JOB_SOURCES_COLUMNS = ['host_key']
+/** The tables PART_6 creates. Declared in `job-sourcing.ts`, which is not a store module. */
+const PART_6_TABLES = ['job_source_hosts']
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
 const SCHEMA = 'ddl_job_opportunities_store'
 /** Its own schema, so the migration path cannot disturb the fresh-path comparison. */
@@ -121,6 +134,8 @@ const MIGRATION_SCHEMA = 'ddl_job_queue_reason_redacted_alter'
 const CONFIG_GUARD_SCHEMA = 'ddl_job_sources_config_guard'
 /** Its own schema too: the T1/T1b cases seed rows and bad states before PART_5 runs. */
 const T1_SCHEMA = 'ddl_job_runs_single_flight'
+/** Task 2.5 T8: PART_6 over planted bad states, in its own schema. */
+const T8_SCHEMA = 'ddl_job_source_hosts'
 /** A non-superuser used to reproduce the masked-progress-row case (SR-M-4). */
 const UNPRIVILEGED_ROLE = 'ddl_forward_ddl_probe'
 /** Two indexes on one table, so "a build on the same table" is expressible. */
@@ -181,7 +196,9 @@ const PRE_STORE_ENUMS = [
 ]
 
 /** Tripwires on the DERIVED expectation — they fail if the reference side shifts. */
-const EXPECTED = { tables: 18, enums: 19, jobSourcesColumns: 18, indexes: 44 } as const
+const EXPECTED = { tables: 19, enums: 19, jobSourcesColumns: 19, indexes: 44 } as const
+/** The standalone indexes beyond part 2's 44: T1's two (PART_5) and T8's one (PART_6). */
+const LATER_INDEXES = [...PART_5_INDEXES, ...PART_6_INDEXES]
 
 const STAGED_DIR = join(__dirname, '..', '..', 'drizzle', 'manual-staged')
 const readPart = (name: string): string =>
@@ -202,6 +219,16 @@ function declaredStoreTables(): string[] {
   for (const file of STORE_MODULES) {
     const source = readFileSync(join(SCHEMA_DIR, file), 'utf8')
     for (const match of source.matchAll(/pgTable\(\s*'([a-z_0-9]+)'/g)) names.add(match[1]!)
+  }
+  // T8's table, read from its own module BY NAME: `job-sourcing.ts` also declares the
+  // pre-store tables, so it cannot join STORE_MODULES wholesale. A missing declaration fails
+  // here rather than shrinking both sides of the comparison.
+  const t8Source = readFileSync(join(SCHEMA_DIR, 'job-sourcing.ts'), 'utf8')
+  for (const table of PART_6_TABLES) {
+    if (!t8Source.includes(`pgTable(\n  '${table}'`)) {
+      throw new Error(`job-sourcing.ts no longer declares ${table}`)
+    }
+    names.add(table)
   }
   return [...names].sort()
 }
@@ -268,9 +295,9 @@ function standaloneIndexNames(ref: Catalog): unknown[] {
  */
 function assertStandaloneIndexTripwire(ref: Catalog): void {
   const standalone = standaloneIndexNames(ref)
-  expect(standalone).toHaveLength(EXPECTED.indexes + PART_5_INDEXES.length)
-  // By name: the T1 indexes absent from the catalog, named in the assertion's own message.
-  const absent = PART_5_INDEXES.filter((n) => !standalone.includes(n))
+  expect(standalone).toHaveLength(EXPECTED.indexes + LATER_INDEXES.length)
+  // By name: the T1 / T8 indexes absent from the catalog, named in the assertion's own message.
+  const absent = LATER_INDEXES.filter((n) => !standalone.includes(n))
   expect(absent, `T1 indexes absent by name: [${absent.join(', ')}]`).toEqual([])
 }
 
@@ -549,7 +576,7 @@ async function applyParts(client: PoolClient, parts: readonly string[]): Promise
  * PART_5 (Task 2.5 T1); it is kept so the history of the tests that call it reads on.
  */
 const applyBothParts = (client: PoolClient): Promise<void> =>
-  applyParts(client, [PART_1, PART_2, PART_5_MIGRATION])
+  applyParts(client, [PART_1, PART_2, PART_5_MIGRATION, PART_6_MIGRATION])
 const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 
 /**
@@ -838,7 +865,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     // `.toThrow()` would accept any TypeError) — and the count is derived from the same
     // constants the real case uses, not a literal.
     expect(() => assertIndexesMatch(afterFirstApply, mutated)).toThrow(new RegExp(dropped))
-    const expected = EXPECTED.indexes + PART_5_INDEXES.length
+    const expected = EXPECTED.indexes + LATER_INDEXES.length
     expect(() => assertStandaloneIndexTripwire(mutated)).toThrow(
       `length of ${expected} but got ${expected - 1}`,
     )
@@ -857,7 +884,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         r['name'] === renamed ? { ...r, name: 'uq_job_collection_runs_some_other_index' } : r,
       ),
     }
-    expect(standaloneIndexNames(mutated)).toHaveLength(EXPECTED.indexes + PART_5_INDEXES.length)
+    expect(standaloneIndexNames(mutated)).toHaveLength(EXPECTED.indexes + LATER_INDEXES.length)
     expect(standaloneIndexNames(mutated)).not.toContain(renamed)
 
     expect(() => assertStandaloneIndexTripwire(mutated)).toThrow(new RegExp(renamed))
@@ -926,7 +953,10 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     const validated = afterFirstApply.constraints.filter(
       (r) => r['table_name'] === 'job_sources' && r['kind'] === 'c',
     )
-    expect(validated).toHaveLength(11)
+    // Part 1's 11, plus T8's `ck_job_sources_host_key_format` (PART_6), validated against
+    // the same three rows (all with a NULL key, which the CHECK admits).
+    expect(validated).toHaveLength(12)
+    expect(validated.map((r) => r['name'])).toContain('ck_job_sources_host_key_format')
     expect(validated.every((r) => r['validated'] === true)).toBe(true)
   })
 
@@ -982,6 +1012,8 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
       const namesAdded = reference.columns
         .filter((r) => r['table_name'] === 'job_sources')
         .map((r) => String(r['column_name']))
+        // T8's column arrives through PART_6, not part 1, so part 1's header does not list it.
+        .filter((name) => !PART_6_JOB_SOURCES_COLUMNS.includes(name))
       expect(namesInHeader.sort()).toEqual(namesAdded.sort())
 
       // The assertion is on POSTGRES'S OWN message, not on the constraint name (CR-L-6).
@@ -1186,7 +1218,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
 
     beforeAll(async () => {
       await buildPreStoreStub(client, MIGRATION_SCHEMA)
-      await applyParts(client, [PART_1, PART_2, PART_5_MIGRATION])
+      await applyParts(client, [PART_1, PART_2, PART_5_MIGRATION, PART_6_MIGRATION])
       beforeMigration = await readCatalog(client, MIGRATION_SCHEMA)
       await applyParts(client, [PART_3_MIGRATION])
       // r5 Task 1.4b-iii — the ONE pre-change state this spec can rebuild without git
@@ -1579,6 +1611,161 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
       await applyAtomically()
       const after = (await client.query(`SHOW lock_timeout`)).rows[0] as { lock_timeout: string }
       expect(after.lock_timeout).toBe('7s')
+    }, 180_000)
+  })
+
+  /**
+   * Task 2.5 T8 (round 1, CR-M-1): the PART_6 file's own claims, standing — the static form,
+   * a wrong-shape object refused by the final check with the manual remedy, a lock-free re-run,
+   * and a final check that is load-bearing (deleting it would let a wrong shape through).
+   */
+  describe('PART_6 (T8 host state) applied atomically over bad states', () => {
+    /** BEGIN, the given SQL statement by statement, COMMIT — or ROLLBACK and rethrow. */
+    async function applyText(sqlText: string): Promise<void> {
+      await client.query('BEGIN')
+      try {
+        for (const statement of splitSqlStatements(sqlText)) await client.query(statement)
+        await client.query('COMMIT')
+      } catch (error) {
+        await client.query('ROLLBACK')
+        throw error
+      }
+    }
+    const applyPart6 = () => applyText(readPart(PART_6_MIGRATION))
+
+    /** Parts 1, 2 and 5 in T8_SCHEMA: the state PART_6 is applied over in production. */
+    async function seedPreT8(): Promise<void> {
+      await buildPreStoreStub(client, T8_SCHEMA)
+      await applyParts(client, [PART_1, PART_2, PART_5_MIGRATION])
+      await client.query(
+        `INSERT INTO job_sources (type, config) VALUES ('DOU_RSS', '{"t8":1}'::jsonb)`,
+      )
+    }
+
+    /** What PART_6 leaves behind in T8_SCHEMA: "nothing" is no column, no table. */
+    async function t8State(): Promise<{ column: boolean; table: boolean }> {
+      const { rows } = await client.query(
+        `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                         WHERE table_schema = $1 AND table_name = 'job_sources' AND column_name = 'host_key') AS column,
+                to_regclass($1 || '.job_source_hosts') IS NOT NULL AS table`,
+        [T8_SCHEMA],
+      )
+      return rows[0] as { column: boolean; table: boolean }
+    }
+
+    afterEach(async () => {
+      await client.query('ROLLBACK').catch(() => undefined)
+      await client.query(`SET search_path TO ${SCHEMA}`)
+      await client.query(`RESET lock_timeout`)
+    })
+
+    afterAll(async () => {
+      await client?.query(`DROP SCHEMA IF EXISTS ${T8_SCHEMA} CASCADE`).catch(() => undefined)
+    })
+
+    it('applies only as a whole transaction: no CONCURRENTLY, no inner BEGIN/COMMIT, no GRANT', () => {
+      const sql = readPart(PART_6_MIGRATION)
+        .split('\n')
+        .filter((line) => !line.trimStart().startsWith('--'))
+        .join('\n')
+      expect(sql).not.toMatch(/\bCONCURRENTLY\b/i)
+      expect(sql).not.toMatch(/^\s*(BEGIN|COMMIT|ROLLBACK)\s*;/im)
+      expect(sql).not.toMatch(/\b(GRANT|REVOKE|OWNER TO)\b/i)
+      // Two DO blocks: the pre-checked DDL and the final shape check.
+      expect(sql.match(/^DO \$\$/gm)).toHaveLength(2)
+    })
+
+    it('a same-named CHECK of the WRONG shape fails the final check, names the manual remedy, and leaves no table', async () => {
+      await seedPreT8()
+      await client.query(`ALTER TABLE job_sources ADD COLUMN host_key text`)
+      await client.query(
+        `ALTER TABLE job_sources ADD CONSTRAINT ck_job_sources_host_key_format CHECK (host_key IS NULL OR host_key <> '')`,
+      )
+      const message = await applyPart6().then(
+        () => 'applied',
+        (error: Error) => error.message,
+      )
+      expect(message).toContain(
+        'CHECK ck_job_sources_host_key_format is missing, not validated or not exactly the intended definition',
+      )
+      expect(message).toContain('ALTER TABLE <table> DROP CONSTRAINT <name>')
+      // Rolled back to the planted state: the table the same apply created is gone.
+      expect(await t8State()).toEqual({ column: true, table: false })
+    }, 180_000)
+
+    it('a same-named UNIQUE index, or an extra column on job_source_hosts, also fails the final check', async () => {
+      await seedPreT8()
+      await client.query(`ALTER TABLE job_sources ADD COLUMN host_key text`)
+      await client.query(`CREATE UNIQUE INDEX idx_job_sources_host_key ON job_sources (host_key)`)
+      await expect(applyPart6()).rejects.toThrow(
+        /index idx_job_sources_host_key is missing, invalid, unique/,
+      )
+
+      await seedPreT8()
+      await client.query(`CREATE TABLE job_source_hosts (host_key text PRIMARY KEY, extra int)`)
+      await expect(applyPart6()).rejects.toThrow(/has columns this file does not declare/)
+    }, 180_000)
+
+    it('the final check is load-bearing: without it the wrong-shape CHECK would apply cleanly', async () => {
+      await seedPreT8()
+      await client.query(`ALTER TABLE job_sources ADD COLUMN host_key text`)
+      await client.query(
+        `ALTER TABLE job_sources ADD CONSTRAINT ck_job_sources_host_key_format CHECK (host_key IS NULL OR host_key <> '')`,
+      )
+      const full = readPart(PART_6_MIGRATION)
+      const finalCheck = full.slice(full.lastIndexOf('DO $$'))
+      expect(finalCheck).toContain('NOT in the intended state')
+      // The file minus its final DO block: section 1 sees an incomplete state, adds what is
+      // missing by name, and nothing else refuses the planted shape.
+      await expect(applyText(full.slice(0, full.lastIndexOf('DO $$')))).resolves.toBeUndefined()
+      expect(await t8State()).toEqual({ column: true, table: true })
+    }, 180_000)
+
+    it('a re-run on the complete state takes NO lock that conflicts with a writer', async () => {
+      await seedPreT8()
+      await applyPart6()
+      const writer = await pool.connect()
+      try {
+        await writer.query('BEGIN')
+        await writer.query(`LOCK TABLE ${T8_SCHEMA}.job_sources IN ROW EXCLUSIVE MODE`)
+        const started = Date.now()
+        await applyPart6()
+        expect(Date.now() - started).toBeLessThan(5_000)
+      } finally {
+        await writer.query('ROLLBACK')
+        writer.release()
+      }
+      expect(await t8State()).toEqual({ column: true, table: true })
+    }, 180_000)
+
+    it("control: the FIRST apply does need the lock — under the same writer the file's own timeout fires and leaves nothing", async () => {
+      await seedPreT8()
+      await client.query(`SET lock_timeout = 0`)
+      const writer = await pool.connect()
+      let outcome = 'not run'
+      try {
+        await writer.query('BEGIN')
+        await writer.query(`LOCK TABLE ${T8_SCHEMA}.job_sources IN ROW EXCLUSIVE MODE`)
+        const apply = applyPart6().then(
+          () => 'applied',
+          (error: Error) => error.message,
+        )
+        let timer: NodeJS.Timeout | undefined
+        const hung = new Promise<string>((resolve) => {
+          timer = setTimeout(() => resolve('HUNG'), 25_000)
+        })
+        outcome = await Promise.race([apply, hung])
+        clearTimeout(timer)
+        if (outcome === 'HUNG') {
+          await writer.query('ROLLBACK')
+          await apply
+        }
+      } finally {
+        await writer.query('ROLLBACK').catch(() => undefined)
+        writer.release()
+      }
+      expect(outcome).toContain('lock timeout')
+      expect(await t8State()).toEqual({ column: false, table: false })
     }, 180_000)
   })
 })
