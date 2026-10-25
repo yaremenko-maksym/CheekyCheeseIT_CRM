@@ -310,6 +310,20 @@ describe('PayoutRequestService.createPayoutRequest', () => {
     expect(same.insert).toHaveBeenCalled()
   })
 
+  // Backlog 338: a NULL-txDate income floors on the KYIV day of createdAt.
+  it('a NULL-txDate income floors on the Kyiv day of createdAt in the 21:00-24:00 UTC window', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-18T12:00:00.000Z'))
+    const rows = () => [income({ txDate: null, createdAt: new Date('2026-03-15T22:30:00.000Z') })]
+    const before = setup({ rows: rows() })
+    expect(
+      await codeOf(before.svc.createPayoutRequest(['tx-1'], user('SENIOR'), '2026-03-15')),
+    ).toBe('FINANCE_PAYOUT_DATE_BEFORE_INCOME')
+    const onDay = setup({ rows: rows() })
+    await onDay.svc.createPayoutRequest(['tx-1'], user('SENIOR'), '2026-03-16')
+    expect(onDay.insert).toHaveBeenCalled()
+  })
+
   it('uses the latest of several source dates and falls back to createdAt without txDate', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-18T12:00:00.000Z'))
