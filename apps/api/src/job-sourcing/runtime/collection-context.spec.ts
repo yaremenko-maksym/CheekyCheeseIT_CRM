@@ -263,6 +263,14 @@ describe('stop-on-ban in flight (AC 10, 12; SR-M-20, SR-M-21, SR-M-24)', () => {
       },
     ])
     expect(w.state.banCode).toBe('RATE_LIMIT')
+    // the latched refusals carry the refused request's own code
+    expect((await refusal(w.ctx.meter.reserve('REQUEST', 1))).code).toBe('RATE_LIMIT')
+  })
+
+  it('a run closed BANNED from outside refuses as an access-policy stop', async () => {
+    const w = world()
+    w.close('BANNED')
+    expect((await refusal(w.ctx.meter.reserve('REQUEST', 1))).code).toBe('ACCESS_POLICY')
   })
 
   it('a 403 on a SOURCE-scoped type bans nothing, and still closes this run', async () => {

@@ -12,7 +12,8 @@ import { JobRunLedger } from '../../ownership/job-run-ledger'
 import type { LedgerCatalogEntry } from '../../ownership/ledger-catalog'
 import type { ReportingJobSourceProvider } from '../../providers/reporting-provider'
 import { JobSourceRegistry } from '../../registry/job-source-registry'
-import { ReportingAdapter } from '../../registry/registered-adapter'
+import type { RunHandle } from '../../ownership/run-ownership'
+import { type RegisteredAdapter, ReportingAdapter } from '../../registry/registered-adapter'
 import type { HostPolicy } from '../../scheduling/host-policy'
 import { type HostBan, recordHostBan } from '../../scheduling/host-state'
 import { JobRunWorker, type WorkerDeps, type WorkerOptions } from '../job-run-worker'
@@ -114,6 +115,10 @@ export interface World {
   worker(over?: Partial<WorkerDeps>, options?: Partial<WorkerOptions>): JobRunWorker
   /** Register a real provider for `type`, wired to `hosts`. */
   register(provider: ReportingJobSourceProvider, hosts: readonly string[]): void
+  /** Register any adapter as it is (e.g. DOU on the legacy contract). */
+  registerAdapter(adapter: RegisteredAdapter): void
+  /** The ledger's heartbeat on the reserved connection. */
+  heartbeat(h: RunHandle): Promise<boolean>
   /** A reporting source of `type` with a config, a catalog entry and a host policy. */
   source(input: {
     type: JobSourceType
@@ -134,10 +139,10 @@ export const SPEC_LEDGER_OPTIONS = { leaseMs: 6_000, runMaxAgeMs: 60_000 } as co
 export async function openWorld(session: CrmAppSession, tag: string): Promise<World> {
   const fx = new LedgerFixtures(session.admin, tag)
   const catalog = new SpecCatalog()
-  const adapters = new Map<JobSourceType, ReportingAdapter>()
+  const adapters = new Map<JobSourceType, RegisteredAdapter>()
   // The registry reads the map at every `get`, so adapters registered after the world opens count.
   const registry = new JobSourceRegistry([])
-  ;(registry as unknown as { byType: Map<JobSourceType, ReportingAdapter> }).byType = adapters
+  ;(registry as unknown as { byType: Map<JobSourceType, RegisteredAdapter> }).byType = adapters
   const db = drizzle(session.pool, { schema }) as unknown as MeterDb
   const ledger = new JobRunLedger(db, registry, catalog, SPEC_LEDGER_OPTIONS)
   const heartbeatPool = new Pool({ ...session.pool.options, max: 1 })
@@ -181,6 +186,10 @@ export async function openWorld(session: CrmAppSession, tag: string): Promise<Wo
           ...options,
         },
       ),
+    registerAdapter: (adapter) => {
+      adapters.set(adapter.type, adapter)
+    },
+    heartbeat: (h) => heartbeatLedger.heartbeat(h),
     register: (provider, hosts) => {
       adapters.set(
         provider.type,

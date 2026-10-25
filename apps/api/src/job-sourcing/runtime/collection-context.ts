@@ -177,7 +177,8 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
   /** Every refusal of a closed context happens here, before any transaction or I/O. */
   const assertOpen = () => {
     if (closed !== null) {
-      throw new ContextRefusedError(CLOSED_CODE[closed], `the run is closed (${closed})`)
+      // A banned run refuses with the refused request's own code (403 or 429).
+      throw new ContextRefusedError(banCode ?? CLOSED_CODE[closed], `the run is closed (${closed})`)
     }
   }
 
@@ -191,8 +192,8 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
 
   async function onRefusal(error: SourceBlockedError | SourceRateLimitedError): Promise<void> {
     const status = error instanceof SourceBlockedError ? error.status : 429
-    close('BANNED')
     banCode = status === 429 ? 'RATE_LIMIT' : 'ACCESS_POLICY'
+    close('BANNED')
     if (banTargetOf(input.banScope ?? 'HOST', status) !== 'HOST') return
     const ban: HostBan = {
       hostKey: input.hostKey,
