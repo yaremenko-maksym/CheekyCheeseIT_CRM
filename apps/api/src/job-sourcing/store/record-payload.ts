@@ -25,12 +25,12 @@ const storedRevision = jobSourceRevisionSchema.pick({
   companyName: true,
   location: true,
   applicationUrl: true,
-  publishedAt: true,
 })
 
 /**
  * The store does not trust the TypeScript type of what it is handed (SR-M-4): the identity and
- * the revision fields are re-parsed with the store's own schemas, the posting URL with the shared
+ * the revision fields are re-parsed with the store's own schemas (`publishedAt` is not: it is
+ * serialised from a Date, so it is a valid ISO instant or the serialisation already threw), the posting URL with the shared
  * https rule, and the two unbounded-by-type lists are bounded. Throws on the first violation.
  */
 export function validateObservation(o: SourceObservation): void {

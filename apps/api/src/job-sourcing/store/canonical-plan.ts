@@ -74,19 +74,20 @@ export function trustedTokens(m: MemberSnapshot): IdentityToken[] {
     key: k.key,
     claimable:
       m.provider === `${k.provider.toUpperCase()}_ATS` &&
-      boardOf(k.namespace) === boardOf(m.namespace) &&
-      k.jobId.toLowerCase() === (m.nativeId ?? '').toLowerCase(),
+      boardOf(k.namespace) === boardOf(m.namespace.toLowerCase()) &&
+      m.nativeId !== null &&
+      k.jobId.toLowerCase() === m.nativeId.toLowerCase(),
   }))
 }
 
 /**
- * The board slug: the last `:`-segment, lowercased. The key's namespace (`us:acme`, `de:acme`)
+ * The board slug: the last `:`-segment (the key's namespace is lowercase already). The key's namespace (`us:acme`, `de:acme`)
  * and the adapter's (`greenhouse:acme`, `lever:global:acme`) carry different prefixes for one
  * board, and the slug is the part both state. shortcut: the region prefix is not compared, so a
  * board on two regional deployments of one vendor counts as one board; compare it once the two
  * namespace vocabularies are unified.
  */
-const boardOf = (namespace: string) => namespace.slice(namespace.lastIndexOf(':') + 1).toLowerCase()
+const boardOf = (namespace: string) => namespace.slice(namespace.lastIndexOf(':') + 1)
 
 /**
  * The order records are DECIDED in (the locks are already taken, by id): records that can claim a

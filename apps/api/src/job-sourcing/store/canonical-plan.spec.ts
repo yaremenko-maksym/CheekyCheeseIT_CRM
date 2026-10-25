@@ -76,6 +76,21 @@ describe('trustedTokens', () => {
     )
     expect(trustedTokens(member({ ...own, nativeId: '124' }))[0]?.claimable).toBe(false)
     expect(trustedTokens(member({ ...own, nativeId: null }))[0]?.claimable).toBe(false)
+    // Board and job match, the adapter does not: only the vendor's own adapter claims.
+    expect(trustedTokens(member({ ...own, provider: 'LEVER_ATS' }))[0]?.claimable).toBe(false)
+    expect(trustedTokens(member({ ...own, provider: 'REMOTIVE_API' }))[0]?.claimable).toBe(false)
+    // Lever lowercases its job id in the key; the adapter's native id may be upper case.
+    const id = '0B5F8E2A-1C3D-4E5F-8A9B-0C1D2E3F4A5B'
+    expect(
+      trustedTokens(
+        member({
+          sourceUrl: `https://jobs.lever.co/acme/${id.toLowerCase()}`,
+          provider: 'LEVER_ATS',
+          namespace: 'lever:global:acme',
+          nativeId: id,
+        }),
+      )[0]?.claimable,
+    ).toBe(true)
     expect(trustedTokens(member({ sourceUrl: GH, provider: 'LEVER_ATS' }))[0]?.claimable).toBe(
       false,
     )

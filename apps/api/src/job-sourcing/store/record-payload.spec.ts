@@ -117,6 +117,18 @@ describe('validateObservation (SR-M-4: the store re-parses what it is handed)', 
       validateObservation({ ...o, identity: { ...o.identity, identityKey: '' } }),
     ).toThrow()
     expect(() => validateObservation({ ...o, contentHash: 'not-hex' })).toThrow()
+    expect(() => validateObservation({ ...o, adapterVersion: '' })).toThrow()
+    expect(() => validateObservation({ ...o, normalizerVersion: 'v'.repeat(101) })).toThrow()
+    const n = o.normalized
+    expect(() =>
+      validateObservation({ ...o, normalized: { ...n, title: 't'.repeat(501) } }),
+    ).toThrow()
+    expect(() =>
+      validateObservation({ ...o, normalized: { ...n, companyName: 'c'.repeat(256) } }),
+    ).toThrow()
+    expect(() =>
+      validateObservation({ ...o, normalized: { ...n, location: 'l'.repeat(501) } }),
+    ).toThrow()
     expect(() => validateObservation({ ...o, applicationUrl: 'http://plain.test/x' })).toThrow()
     expect(() => validateObservation({ ...o, sourcePostingUrl: 'javascript:alert(1)' })).toThrow()
   })
