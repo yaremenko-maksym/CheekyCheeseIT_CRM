@@ -181,7 +181,7 @@ describe('a ban write that fails is never lost silently (CR-M-6 / SR-L-3)', () =
     await new Promise((r) => setTimeout(r, 0))
     expect(w.state.unrecordedBan).toBeNull()
     let drained = false
-    const draining = w.drain().then(() => {
+    const draining = w.drain(60_000).then(() => {
       drained = true
     })
     await new Promise((r) => setTimeout(r, 0))
@@ -190,6 +190,35 @@ describe('a ban write that fails is never lost silently (CR-M-6 / SR-L-3)', () =
     await draining
     expect(w.state.unrecordedBan).toMatchObject({ reason: 'HTTP_429' })
     await pending
+  })
+
+  it('CR-M-1: drain gives up after its bound on a write that never settles, and flags that ban', async () => {
+    const w = world({ transport: throwing(new SourceRateLimitedError(HOST, '7200')) })
+    w.holdBans() // never released: the write hangs
+    const pending = w.ctx.fetchText(REQ).catch(() => undefined)
+    await new Promise((r) => setTimeout(r, 0))
+    const started = performance.now()
+    await w.drain(50)
+    const waited = performance.now() - started
+    expect(waited).toBeGreaterThanOrEqual(40)
+    expect(waited).toBeLessThan(1_000)
+    expect(w.state.unrecordedBan).toEqual({
+      hostKey: HOST,
+      reason: 'HTTP_429',
+      sourceId: RUN.sourceId,
+      retryAfter: '7200',
+      floorHours: 0,
+    })
+    void pending
+  })
+
+  it('CR-M-1: drain with nothing in flight returns at once and flags nothing', async () => {
+    const w = world({ transport: async () => 'ok' })
+    await w.ctx.fetchText(REQ)
+    const started = performance.now()
+    await w.drain(5_000)
+    expect(performance.now() - started).toBeLessThan(1_000)
+    expect(w.state.unrecordedBan).toBeNull()
   })
 
   it('a LATE refusal whose ban write fails after drain is logged, then retried later until the host is paused', async () => {
@@ -204,7 +233,7 @@ describe('a ban write that fails is never lost silently (CR-M-6 / SR-L-3)', () =
     const pending = w.ctx.fetchText(REQ).catch(() => undefined)
     w.close('DEADLINE')
     await pending
-    await w.drain()
+    await w.drain(60_000)
     w.failBans(BAN_WRITE_ATTEMPTS)
     refuse(new SourceRateLimitedError(HOST, '7200'))
     await vi.advanceTimersByTimeAsync(0)
@@ -242,7 +271,7 @@ describe('a ban write that fails is never lost silently (CR-M-6 / SR-L-3)', () =
     const pending = w.ctx.fetchText(REQ).catch(() => undefined)
     w.close('DEADLINE')
     await pending
-    await w.drain()
+    await w.drain(60_000)
     refuse(new SourceRateLimitedError(HOST))
     await vi.advanceTimersByTimeAsync(10 * LATE_BAN_RETRY_MS)
     expect(w.attempts.count).toBe(1)
@@ -267,7 +296,7 @@ describe('a ban write that fails is never lost silently (CR-M-6 / SR-L-3)', () =
       const pending = w.ctx.fetchText(REQ).catch(() => undefined)
       w.close('DEADLINE')
       await pending
-      await w.drain()
+      await w.drain(60_000)
       w.failBans(2 * BAN_WRITE_ATTEMPTS)
       refuse(new SourceBlockedError(HOST, 451))
       await vi.advanceTimersByTimeAsync(LATE_BAN_RETRY_MS)
@@ -292,7 +321,7 @@ describe('a ban write that fails is never lost silently (CR-M-6 / SR-L-3)', () =
     const pending = w.ctx.fetchText(REQ).catch(() => undefined)
     w.close('DEADLINE')
     await pending
-    await w.drain()
+    await w.drain(60_000)
     w.failBans(2 * BAN_WRITE_ATTEMPTS)
     refuse(new SourceBlockedError(HOST, 451))
     await vi.advanceTimersByTimeAsync(LATE_BAN_RETRY_MS)
@@ -311,7 +340,7 @@ describe('a ban write that fails is never lost silently (CR-M-6 / SR-L-3)', () =
     const w = world({ transport: throwing(new SourceBlockedError(HOST, 403)) })
     w.failBans(BAN_WRITE_ATTEMPTS)
     await expect(w.ctx.fetchText(REQ)).rejects.toThrow()
-    await w.drain()
+    await w.drain(60_000)
     await vi.advanceTimersByTimeAsync(10 * LATE_BAN_RETRY_MS)
     expect(w.bans).toEqual([])
     expect(w.state.unrecordedBan).not.toBeNull()

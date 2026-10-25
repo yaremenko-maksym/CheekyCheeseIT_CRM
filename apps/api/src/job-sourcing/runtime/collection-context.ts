@@ -146,9 +146,11 @@ export interface RunControl {
   monotonicNow(): number
   /**
    * Wait for every ban write already started, so `state` is final; from then on a ban write that
-   * fails is the context's own to log and retry (CR-M-6 / SR-L-3). Never rejects.
+   * fails is the context's own to log and retry (CR-M-6 / SR-L-3). Never rejects. Gives up after
+   * `timeoutMs` (CR-M-1): a write still in flight is then flagged `unrecordedBan`, so the worker
+   * writes it again after `finish`.
    */
-  drain(): Promise<void>
+  drain(timeoutMs: number): Promise<void>
   readonly state: {
     readonly closed: ClosedReason | null
     /** The refused request's code (`ACCESS_POLICY` / `RATE_LIMIT`) when the run was banned. */
@@ -184,6 +186,8 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
   const logger = deps.logger
   /** Ban writes in progress, and whether the worker has drained them (CR-M-6 / SR-L-3). */
   const pending = new Set<Promise<void>>()
+  /** The bans those writes carry, for a drain that gives up on them (CR-M-1). */
+  const writing = new Set<HostBan>()
   let drained = false
   const track = (write: Promise<void>): Promise<void> => {
     pending.add(write)
@@ -229,7 +233,8 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
       retryAfter: error.retryAfter,
       floorHours: input.floorHours,
     }
-    const failed = await recordWithRetry(ban)
+    writing.add(ban)
+    const failed = await recordWithRetry(ban).finally(() => writing.delete(ban))
     if (failed === null) return
     if (!drained) {
       unrecordedBan = failed
@@ -366,10 +371,26 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
       leaseDeadline = Math.max(leaseDeadline, sentAt + input.leaseMs)
     },
     monotonicNow: mono,
-    drain: async () => {
-      // A write that finishes may not start another, but loop anyway: the set is the truth.
-      while (pending.size > 0) await Promise.allSettled([...pending])
-      drained = true
+    drain: async (timeoutMs) => {
+      // CR-M-1: bounded. A write that never settles must not keep the run from `finish`.
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const expired = new Promise<'EXPIRED'>((resolve) => {
+        timer = setTimeout(() => resolve('EXPIRED'), timeoutMs)
+        timer.unref()
+      })
+      try {
+        // A write that finishes may not start another, but loop anyway: the set is the truth.
+        while (pending.size > 0) {
+          if ((await Promise.race([Promise.allSettled([...pending]), expired])) === 'EXPIRED') {
+            // Still writing: flag it, so the worker's HOST_BAN_UNRECORDED path writes it again.
+            unrecordedBan ??= [...writing][0] ?? null
+            break
+          }
+        }
+      } finally {
+        clearTimeout(timer)
+        drained = true
+      }
     },
     state: {
       get closed() {
