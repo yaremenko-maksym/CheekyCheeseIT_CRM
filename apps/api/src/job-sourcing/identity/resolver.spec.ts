@@ -934,6 +934,29 @@ describe('chooseCanonical: authority policy', () => {
     ).toMatchObject({ winnerId: 'a' })
   })
 
+  it('lowest source id wins a full tie, in both input orders and among many claims', () => {
+    for (const ids of [
+      ['a', 'b'],
+      ['b', 'a'],
+    ])
+      expect(chooseCanonical(ids.map((id) => claim({ sourceRecordId: id })))).toMatchObject({
+        winnerId: 'a',
+      })
+    // 40 claims exceed V8's short-run insertion sort, so the merge/gallop path compares too.
+    const many = Array.from({ length: 40 }, (_, i) =>
+      claim({ sourceRecordId: `id-${String((i * 17) % 40).padStart(2, '0')}` }),
+    )
+    expect(chooseCanonical(many)).toMatchObject({ winnerId: 'id-00' })
+    expect(chooseCanonical([...many].reverse())).toMatchObject({ winnerId: 'id-00' })
+  })
+
+  it('claims with the very same id compare equal: the first one in input order is kept', () => {
+    const first = claim({ sourceRecordId: 'a', value: ['x', 'y'] })
+    const second = claim({ sourceRecordId: 'a', value: ['y', 'x'] })
+    expect(chooseCanonical([first, second])).toMatchObject({ value: ['x', 'y'] })
+    expect(chooseCanonical([second, first])).toMatchObject({ value: ['y', 'x'] })
+  })
+
   it('is independent of claim order', () => {
     const claims = [
       claim({ sourceRecordId: 'a', value: 'x' }),

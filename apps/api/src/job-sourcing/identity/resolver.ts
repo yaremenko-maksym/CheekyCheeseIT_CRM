@@ -427,6 +427,7 @@ function compareClaims(p: FieldClaim, q: FieldClaim): number {
   const rq = orderable(q.revision)
   if (rp !== rq) return rq - rp
   return (
+    // Stryker disable next-line ConditionalExpression,EqualityOperator: the `>` half only ever yields 1 or 0 for "p sorts after q"; Array.prototype.sort treats every non-negative result alike, so 0 vs 1 (also `>=`) cannot change the order.
     (p.sourceRecordId < q.sourceRecordId ? -1 : 0) + (p.sourceRecordId > q.sourceRecordId ? 1 : 0)
   )
 }
