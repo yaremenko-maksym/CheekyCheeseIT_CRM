@@ -3,8 +3,8 @@
 **Status:** Always-on (procedural; no hook — observability is the report line below)
 **Applies to:** All agents (Coder, AutoTest, Reviewers, DevOps, Legal, Architect, ui-ux-designer, manual-qa, plus ECC-imported agents) + Master
 
-> Rationale, the four ideas this rule adapts, why none of the third-party tools is installed, and
-> what would reopen that: `docs/architecture/rules-rationale/token-economy.md`
+> Rationale, the four ideas this rule adapts, the third-party tools adopted (RTK, Caveman, Ponytail, Context Mode), install state, and
+> what would remove them: `docs/architecture/rules-rationale/token-economy.md`
 > Playbook (commands, examples, the code-restraint ladder): skill `token-economy`.
 
 ---
@@ -47,7 +47,8 @@ add `2>/dev/null` to a command whose output is evidence.
 
 - **RTK** (hook `pre:bash:rtk-rewrite`, fail-open) compacts Bash output. When output is evidence you must
   read verbatim — a failing test, a diff you will cite, an error — run it as `rtk bypass <cmd>`.
-- **Context Mode** `ctx_*` tools remain bound by `live-db-access.md` (no writes to `crm_db`) and
+- **Context Mode** `ctx_*` tools (granted in the `tools:` of coder, autotest, devops, code-reviewer,
+  security-reviewer, spec-reviewer, manual-qa) remain bound by `live-db-access.md` (no writes to `crm_db`) and
   `agent-isolation.md`; they are not a way around `mcp-first.md` or the zone hooks.
 - **Caveman** runs in `lite` (`.caveman.json`); the never-compressed list above still wins.
 - Install state and pins: `docs/architecture/rules-rationale/token-economy.md` → Install status.

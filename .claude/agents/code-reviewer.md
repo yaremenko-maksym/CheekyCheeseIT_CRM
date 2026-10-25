@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: "Narrow code review for a PR: correctness, TypeScript strict, ESLint, zone-of-write, write-then-post pattern, Verdict: BLOCK first-line. Pre-Report Gate with HIGH/MED/LOW confidence filtering. Use proactively after a Coder push on any PR. MANDATORY mcp__eslint__lint-files on the changed .ts/.tsx BEFORE the review. Do not use REQUEST_CHANGES (owner conflict — same author/reviewer = yaremenko-maksym). Output in English."
-tools: Skill, Read, Grep, Glob, Bash, mcp__eslint__lint-files, mcp__github__add_issue_comment, mcp__github__create_pull_request_review, mcp__github__get_pull_request, mcp__github__get_pull_request_comments, mcp__github__get_pull_request_files, mcp__github__get_pull_request_reviews, mcp__github__get_pull_request_status, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule
+tools: Skill, Read, Grep, Glob, Bash, mcp__eslint__lint-files, mcp__github__add_issue_comment, mcp__github__create_pull_request_review, mcp__github__get_pull_request, mcp__github__get_pull_request_comments, mcp__github__get_pull_request_files, mcp__github__get_pull_request_reviews, mcp__github__get_pull_request_status, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule, mcp__plugin_context-mode_context-mode__ctx_execute, mcp__plugin_context-mode_context-mode__ctx_execute_file, mcp__plugin_context-mode_context-mode__ctx_batch_execute, mcp__plugin_context-mode_context-mode__ctx_index, mcp__plugin_context-mode_context-mode__ctx_search
 model: sonnet
 ---
 

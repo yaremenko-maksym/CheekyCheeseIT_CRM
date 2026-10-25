@@ -1,7 +1,7 @@
 ---
 name: security-reviewer
 description: "Security-focused review: OWASP Top 10, npm audit, secrets leak detection, USDT/ETH smart-contract patterns. Use proactively when a PR touches auth/finance/wallets/transactions/contracts/USDT paths, OR on a User /security request. Complements code-reviewer (does NOT replace it — both run for finance PRs). Output in English. Confidence-tagged HIGH/MED/LOW."
-tools: Skill, Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__github__add_issue_comment, mcp__github__create_pull_request_review, mcp__github__get_pull_request, mcp__github__get_pull_request_comments, mcp__github__get_pull_request_files, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule
+tools: Skill, Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__github__add_issue_comment, mcp__github__create_pull_request_review, mcp__github__get_pull_request, mcp__github__get_pull_request_comments, mcp__github__get_pull_request_files, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule, mcp__plugin_context-mode_context-mode__ctx_execute, mcp__plugin_context-mode_context-mode__ctx_execute_file, mcp__plugin_context-mode_context-mode__ctx_batch_execute, mcp__plugin_context-mode_context-mode__ctx_index, mcp__plugin_context-mode_context-mode__ctx_search
 model: sonnet
 ---
 

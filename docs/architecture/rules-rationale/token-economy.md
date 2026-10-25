@@ -78,8 +78,9 @@ by default, Context Mode local-only) are from their READMEs.
 
 **Rules that bind the installed tools:** `rtk bypass <cmd>` whenever output is evidence to be read
 verbatim; `ctx_execute` and friends are still bound by `live-db-access.md` (no writes to `crm_db`)
-and `agent-isolation.md`; agents' frontmatter `tools:` allowlists do not include the `ctx_*` MCP
-tools, so subagents will not see them unless an Architect task adds them.
+and `agent-isolation.md`; owner decision 2026-10-25: Context Mode is connected for agents too — the five `ctx_*` sandbox/search
+tools (`mcp__plugin_context-mode_context-mode__*`) are in the `tools:` of the seven agents that read
+large outputs; legal, copy-reviewer, architect and ui-ux-designer do not get them.
 
 ## Condition to reopen (removal / bump)
 

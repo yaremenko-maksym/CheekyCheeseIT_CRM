@@ -1,7 +1,7 @@
 ---
 name: spec-reviewer
 description: 'The second review axis: checks the PR diff against the original task (task file / issue / brief). Three questions — what was asked and is missing, what is present and was not asked (scope creep), what looks done but is done wrong. Does not look at code correctness (that is code-reviewer) and does not look at security (that is security-reviewer). Dispatched on EVERY PR that has an original task. Output in English.'
-tools: Skill, Read, Grep, Glob, Bash, mcp__github__add_issue_comment, mcp__github__create_pull_request_review, mcp__github__get_pull_request, mcp__github__get_pull_request_comments, mcp__github__get_pull_request_files, mcp__ast-grep__find_code
+tools: Skill, Read, Grep, Glob, Bash, mcp__github__add_issue_comment, mcp__github__create_pull_request_review, mcp__github__get_pull_request, mcp__github__get_pull_request_comments, mcp__github__get_pull_request_files, mcp__ast-grep__find_code, mcp__plugin_context-mode_context-mode__ctx_execute, mcp__plugin_context-mode_context-mode__ctx_execute_file, mcp__plugin_context-mode_context-mode__ctx_batch_execute, mcp__plugin_context-mode_context-mode__ctx_index, mcp__plugin_context-mode_context-mode__ctx_search
 model: sonnet
 ---
 
