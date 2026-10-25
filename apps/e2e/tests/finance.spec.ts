@@ -4,6 +4,22 @@ import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 const PROJECT = PROJECTS[0]!
 const PROJECT_ID = PROJECT.id
 const PROJECT_NAME = PROJECT.name
+const SECOND_ADMIN = {
+  ...USERS.admin,
+  id: 'a0000000-0000-4000-8000-000000000099',
+  email: 'admin2@cheekycheese.dev',
+  displayName: 'Second Admin',
+}
+
+async function mockTransferAdmins(page: import('@playwright/test').Page) {
+  await page.route(new RegExp(`${API_RE}/users(\\?.*)?$`), (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([USERS.admin, SECOND_ADMIN]),
+    }),
+  )
+}
 
 // Origin-agnostic API path prefix — matches any host/port. See fixtures.ts
 // comment (API_GLOB / API_RE) for the rationale: vite dev proxies /api/*
@@ -501,6 +517,50 @@ test.describe('Finance — создание транзакции', () => {
     await expect(
       asAdmin.getByRole('dialog').getByRole('button', { name: assertInCatalog(uk, 'Інше') }),
     ).toBeVisible()
+  })
+
+  test('ADMIN_TRANSFER: ADMIN sees a fixed outgoing direction with no swap affordance', async ({
+    asAdmin,
+  }) => {
+    const uk = await loadMessages('uk')
+    await mockTransferAdmins(asAdmin)
+    await mockTransactions(asAdmin, [])
+    await asAdmin.goto('/finance')
+    await asAdmin.getByRole('button', { name: assertInCatalog(uk, 'Нова транзакція') }).click()
+
+    const dialog = asAdmin.getByRole('dialog')
+    await dialog.getByTestId('create-transaction-type-admin_transfer').click()
+
+    await expect(dialog.getByText(USERS.admin.displayName, { exact: true })).toBeVisible()
+    await expect(dialog.getByText(SECOND_ADMIN.displayName, { exact: true })).toBeVisible()
+    await expect(dialog.getByTitle(assertInCatalog(uk, 'Поміняти напрямок'))).toHaveCount(0)
+    await expect(
+      dialog.getByTitle(assertInCatalog(uk, 'Натисніть, щоб змінити напрямок')),
+    ).toHaveCount(0)
+  })
+
+  test('ADMIN_TRANSFER: ACCOUNTANT can still reverse the two admin parties', async ({
+    asAccountant,
+  }) => {
+    const uk = await loadMessages('uk')
+    await mockTransferAdmins(asAccountant)
+    await mockTransactions(asAccountant, [])
+    await asAccountant.goto('/finance')
+    await asAccountant.getByRole('button', { name: assertInCatalog(uk, 'Нова транзакція') }).click()
+
+    const dialog = asAccountant.getByRole('dialog')
+    await dialog.getByTestId('create-transaction-type-admin_transfer').click()
+
+    const cardTitle = assertInCatalog(uk, 'Натисніть, щоб змінити напрямок')
+    const cards = dialog.getByTitle(cardTitle)
+    await expect(cards).toHaveCount(2)
+    await expect(cards.nth(0)).toContainText(USERS.admin.displayName)
+    await expect(cards.nth(1)).toContainText(SECOND_ADMIN.displayName)
+
+    await dialog.getByTitle(assertInCatalog(uk, 'Поміняти напрямок')).click()
+
+    await expect(cards.nth(0)).toContainText(SECOND_ADMIN.displayName)
+    await expect(cards.nth(1)).toContainText(USERS.admin.displayName)
   })
 })
 
