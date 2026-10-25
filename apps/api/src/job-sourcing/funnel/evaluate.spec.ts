@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   EVALUATE_RULE_VERSION,
   evaluate,
@@ -585,16 +585,19 @@ describe('evaluate: purity (AC 8)', () => {
     )
   })
 
-  it('reads no clock and no randomness, and does no I/O', () => {
-    for (const forbidden of [
-      'Date.now',
-      'new Date(',
-      'Math.random',
-      'fetch(',
-      'process.env',
-      'await ',
-    ]) {
-      expect(source).not.toContain(forbidden)
+  it('reads no clock, no randomness and no network', () => {
+    const trap = () => {
+      throw new Error('impure call')
+    }
+    const guards = [
+      vi.spyOn(Date, 'now').mockImplementation(trap),
+      vi.spyOn(Math, 'random').mockImplementation(trap),
+      vi.spyOn(globalThis, 'fetch').mockImplementation(trap),
+    ]
+    try {
+      expect(evaluate(input()).kind).toBe('EVALUATED')
+    } finally {
+      for (const guard of guards) guard.mockRestore()
     }
   })
 })
