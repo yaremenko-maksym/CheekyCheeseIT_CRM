@@ -273,21 +273,36 @@ export class JobRunWorker {
     await this.start()
     const free = this.options.poolSize - this.active
     if (free < 1) return []
-    const { claimed } = await this.deps.ledger.claimDue({
-      cycleId: input.cycleId,
-      owner: this.options.owner,
-      limit: free,
-      ...(input.onlyIds !== undefined && { onlyIds: input.onlyIds }),
-    })
+    // The slots are held WHILE the claim runs, so two passes at once cannot both claim them.
+    this.active += free
+    let claimed: ClaimedRun[]
+    try {
+      ;({ claimed } = await this.deps.ledger.claimDue({
+        cycleId: input.cycleId,
+        owner: this.options.owner,
+        limit: free,
+        ...(input.onlyIds !== undefined && { onlyIds: input.onlyIds }),
+      }))
+    } finally {
+      this.active -= free
+    }
+    // `runClaimed` takes its slot synchronously, before this pass yields again.
     return Promise.all(claimed.map((run) => this.runClaimed(run)))
   }
 
   /** The manual path: one named source, claimed under the actor's manual cycle. */
   async runSource(input: { cycleId: string; sourceId: string; actor: string }) {
     await this.start()
-    if (this.active >= this.options.poolSize)
+    if (this.active >= this.options.poolSize) {
       return { kind: 'REFUSED' as const, reason: 'POOL_FULL' as const }
-    const claim = await this.deps.ledger.claimSource({ ...input, owner: this.options.owner })
+    }
+    this.active += 1
+    let claim: Awaited<ReturnType<WorkerDeps['ledger']['claimSource']>>
+    try {
+      claim = await this.deps.ledger.claimSource({ ...input, owner: this.options.owner })
+    } finally {
+      this.active -= 1
+    }
     if (claim.kind === 'REFUSED') return claim
     return { kind: 'RAN' as const, report: await this.runClaimed(claim.run) }
   }

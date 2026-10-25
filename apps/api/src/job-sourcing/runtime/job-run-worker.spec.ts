@@ -215,6 +215,38 @@ describe('worker start and the pool', () => {
     expect(w.log.filter((l) => l.startsWith('claim'))).toEqual(['claim:2'])
   })
 
+  it('two passes at once never claim more than the pool: the slots are held during the claim', async () => {
+    const w = world({ claims: [] })
+    await w.worker.start()
+    await Promise.all([
+      w.worker.runDue({ cycleId: uuid(1) }),
+      w.worker.runDue({ cycleId: uuid(1) }),
+      w.worker.runSource({ cycleId: uuid(1), sourceId: uuid(5), actor: uuid(6) }),
+    ])
+    expect(w.log.filter((l) => l.startsWith('claim'))).toEqual(['claim:2'])
+    // and the slots come back once the claim is done
+    await w.worker.runDue({ cycleId: uuid(1) })
+    expect(w.log.filter((l) => l.startsWith('claim'))).toEqual(['claim:2', 'claim:2'])
+  })
+
+  it('a claim that throws gives its slots back', async () => {
+    const w = world()
+    const ledger = (w.worker as unknown as { deps: WorkerDeps }).deps.ledger as {
+      claimDue: unknown
+    }
+    let fail = true
+    const real = ledger.claimDue as WorkerDeps['ledger']['claimDue']
+    ledger.claimDue = (async (input: Parameters<WorkerDeps['ledger']['claimDue']>[0]) => {
+      if (fail) {
+        fail = false
+        throw new Error('db down')
+      }
+      return real(input)
+    }) as never
+    await expect(w.worker.runDue({ cycleId: uuid(1) })).rejects.toThrow('db down')
+    expect(await w.worker.runDue({ cycleId: uuid(1) })).toHaveLength(1)
+  })
+
   it('one throwing source leaves the other SUCCEEDED (AC 4)', async () => {
     const w = world({
       claims: [claimed(1), claimed(2)],
