@@ -52,7 +52,8 @@ describe.skipIf(!hasDatabaseUrl())('T9 ADMIN reset + excluded listing, as crm_ap
     const catalog = new SpecCatalog()
     const registry = specRegistry(['REMOTIVE_API', 'JSEARCH_API'])
     ledger = new JobRunLedger(drizzle(session.pool, { schema }), registry, catalog)
-    service = new JobSourceAdminService(session.databaseService, registry)
+    // T7: the service runs on THE ledger (here the spec's, over the spec catalog).
+    service = new JobSourceAdminService(session.databaseService, ledger)
     const { rows } = await session.admin.query(
       `INSERT INTO users (email, display_name, role) VALUES ($1, 'T9 spec', 'ADMIN') RETURNING id`,
       [`t9spec-${TAG}@example.test`],

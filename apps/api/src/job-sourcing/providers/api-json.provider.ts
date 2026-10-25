@@ -4,6 +4,7 @@ import { z, type ZodType } from 'zod'
 import { DEFAULT_MAX_BYTES, MAX_RESPONSE_BYTES_CEILING } from '../http/bounded-fetch'
 import { SourcePayloadTooLargeError } from '../http/source-errors'
 import { canonicalNativeId } from '../normalize/identity-key'
+import { isRunFenced } from '../ownership/run-ownership'
 import {
   buildSourceObservation,
   type RawObservationFields,
@@ -22,6 +23,7 @@ import {
   type CollectionCounts,
   type CollectionErrorCode,
   type CollectionWindow,
+  collectionCodeOf,
   decideCheckpoint,
   type FetchRequest,
   type InvalidSample,
@@ -661,6 +663,9 @@ function failureOfThrown(error: unknown, aborted: boolean): PageAttemptFailure {
   if (error instanceof SourcePayloadTooLargeError) {
     return { code: 'PAYLOAD_TOO_LARGE', message: error.message, status: null }
   }
+  // T7: a refusal of the production context already names its cause (NOT_MARKED_SENT, ...).
+  const coded = collectionCodeOf(error)
+  if (coded !== null) return { code: coded, message: (error as Error).message, status: null }
   return {
     code: aborted ? 'CANCELLED' : 'TRANSIENT_NETWORK',
     message: error instanceof Error ? error.message : 'the request failed',
@@ -947,6 +952,8 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     // True from the moment `markSent` is called: with `resolution` still RELEASED, a throw can only
     // have come from `markSent` itself, so the request was NEVER sent.
     let markSentStarted = false
+    // True when that `markSent` was refused with RUN_FENCED (T7): no reconcile is attempted.
+    let fenced = false
     const cacheKey =
       pageRequest.cacheKey === undefined
         ? undefined
@@ -1035,11 +1042,20 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
       }
     } catch (error) {
       status = 0
-      failure =
-        // `RELEASED` is still set only while nothing has left the process — which is precisely
-        // the condition under which the throw CANNOT be the provider's. It is our own storage,
-        // so it is `PERSISTENCE`, the code this module already reserves for our fault (AC3).
-        resolution === 'RELEASED'
+      // T7: `markSent` refused because this executor no longer owns its run. Nothing was sent, the
+      // cause is ownership rather than our storage, and a `reconcile` would be refused as well:
+      // the run's end-of-run settlement releases the reservation.
+      fenced = resolution === 'RELEASED' && markSentStarted && isRunFenced(error)
+      failure = fenced
+        ? {
+            code: 'RUN_FENCED',
+            message: 'the request was not sent: the run is fenced out',
+            status: null,
+          }
+        : // `RELEASED` is still set only while nothing has left the process — which is precisely
+          // the condition under which the throw CANNOT be the provider's. It is our own storage,
+          // so it is `PERSISTENCE`, the code this module already reserves for our fault (AC3).
+          resolution === 'RELEASED'
           ? {
               code: 'PERSISTENCE',
               message: markSentStarted
@@ -1049,7 +1065,9 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
             }
           : failureOfThrown(error, ctx.signal.aborted)
     } finally {
-      if (reservation !== null) {
+      // A fenced-out executor attempts no reconcile (the store would refuse it): the run's
+      // end-of-run settlement releases the reservation.
+      if (reservation !== null && !fenced) {
         /**
          * THE RECONCILE ITSELF CAN THROW, and that was the last way out of this span that lost
          * the attempt. Not one of the round's findings — found while re-reading the `finally` the

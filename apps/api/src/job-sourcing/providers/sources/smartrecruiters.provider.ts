@@ -8,6 +8,7 @@ import {
 import { definePagedProvider, UNBUILT_REQUEST_URL } from '../api-json.provider'
 import { type OwnerDecision, SMARTRECRUITERS_OWNER_DECISION } from '../owner-decisions'
 import { SourceBlockedError, SourceRateLimitedError } from '../../http/source-errors'
+import { isRunFenced } from '../../ownership/run-ownership'
 import { DEFAULT_API_JSON_LIMITS } from '../api-json.limits'
 import { parseBoundedJson } from '../bounded-json'
 import {
@@ -18,6 +19,7 @@ import {
   type CollectionContext,
   type CollectionCounts,
   type CollectionErrorCode,
+  collectionCodeOf,
   decideCheckpoint,
   type FetchRequest,
   type InvalidSample,
@@ -315,6 +317,9 @@ function failureOfThrown(error: unknown, aborted: boolean): Failure {
     return { code: 'RATE_LIMIT', message: 'provider answered HTTP 429', status: 429 }
   }
   const message = error instanceof Error ? error.message : 'the request failed'
+  // T7: a refusal of the production context already names its cause (NOT_MARKED_SENT, ...).
+  const coded = collectionCodeOf(error)
+  if (coded !== null) return { code: coded, message, status: null }
   // No match gives NaN, which `classify` answers with UPSTREAM, never a ban.
   const status = Number(TRANSPORT_STATUS.exec(message)?.[1])
   if (classify(status) === 'ACCESS_POLICY') {
@@ -451,6 +456,36 @@ async function collectSmartRecruiters(
       )
     }
     const cost = { unit: reservation.unit, amount: reservation.amount }
+    // T7 (ADR "markSent: its home", CR-H-1): SENT is COMMITTED, awaited, immediately before the
+    // request leaves -- the store releases only cost it can prove unsent. A rejection means the
+    // request was NOT sent: the reservation is released, except when the executor is fenced out
+    // (RUN_FENCED), where a reconcile would be refused too and the run's settlement releases it.
+    try {
+      await ctx.meter.markSent(reservation)
+    } catch (error) {
+      if (isRunFenced(error)) {
+        return refuse(
+          {
+            code: 'RUN_FENCED',
+            message: 'the request was not sent: the run is fenced out',
+            status: null,
+          },
+          'ERROR',
+        )
+      }
+      const releaseNote = await ctx.meter.reconcile(reservation, 'RELEASED').then(
+        () => '',
+        () => ' (nor released)',
+      )
+      return refuse(
+        {
+          code: 'PERSISTENCE',
+          message: `the request was not sent, its reservation could not be marked sent${releaseNote}: ${error instanceof Error ? error.message : 'the meter failed'}`,
+          status: null,
+        },
+        'ERROR',
+      )
+    }
     requestsMade += 1
     // From here the request may have left the process, so a failure cannot claim it was unused.
     let resolution: ReservationResolution = 'UNCERTAIN'
