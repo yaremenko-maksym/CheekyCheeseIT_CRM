@@ -94,7 +94,7 @@ rewrite). The cmdscan / blast unwrapping from rounds 2-3 stays as defence in dep
 every guard here: the binary reached through a variable or a rebuilt string. A text that merely mentions the
 exec subcommands next to the binary name is also refused (false positive by design): separate the words.
 
-Round 5 (review of the first gate) showed that matching the LITERAL spelling of the subcommand word is not
+Follow-up 1 (review of the first gate) showed that matching the LITERAL spelling of the subcommand word is not
 enough either: the shell builds a word from quotes, backslashes, `$'...'` strings and brace expansion, so
 `byp''ass`, `te\st`, `$'bypass'`, `{bypass,}` and a split binary word all reach the real subcommand. The gate
 now normalises the command text first (drops quotes, backslashes, the `$` of `$'...'`) and also refuses any
@@ -105,7 +105,7 @@ purpose: the binary treats an unknown subcommand as the command itself, which th
 blast hook already judge like the bare command. The `git push` gates (raw-text match) are covered by the gate
 for the typed forms, because the gate refuses before they matter.
 
-Round 6 (security re-review of that gate, approved with two MED findings) closed the rest of the typed
+Follow-up 2 (security re-review of that gate, approved with two MED findings) closed the rest of the typed
 spellings: the normalisation now also deletes backslash-newline continuations and DECODES ANSI-C strings
 (`$'\x62ypass'`, octal and `\U` forms, in the subcommand, a flag or the binary word); an undecodable body
 becomes a `$`, which trips the non-literal rule. The non-literal rule (glob, variable or substitution where
@@ -114,6 +114,23 @@ that merely mention the binary name next to a glob or `$(date)` are no longer re
 limits, shared by every guard in this directory and equal to the `sh -c` limit: a glob in the binary word
 (`r?k`), variable- or script-rebuilt words, and a copy or symlink of the binary under another name.
 
+Follow-up 3 (code review of that change): an undecodable ANSI-C body is no longer replaced by a bare `$`. The
+pattern has no notion of quoting context, so a `$'` inside an ordinary single-quoted string could start a
+bogus match that swallowed a real subcommand up to the next apostrophe; the body is now kept visible to the
+later steps. The command-position prefix of the non-literal rule also accepts leading `VAR=value`
+assignments (the documented `RTK_DISABLED=1` idiom), `!`, wrappers with their flags and durations, and
+`-c` / `-lc` nested shell strings. The test file pins every alternative of that prefix, the decode-failure
+branch and the decoy; two mutants (dropping the decoded body, dropping the `-c` position) turn rows red.
+
+Follow-up 4 (security review of that change, four MED findings): the ANSI-C decoder no longer uses
+Python's `unicode_escape` (it demands exactly 2/4/8 hex digits, bash takes 1-2, 1-4 and 1-8, and a decode
+error hid the whole body); it is a small decoder with bash semantics that keeps any escape bash would not
+decode as text and never raises. The printed hit is ASCII-escaped, because a lone surrogate (`$'\ud800'`)
+made the print fail and a failed print is a fail-open gate. Whitespace runs are collapsed before the regexes
+run, which removed a quadratic path on padded input (20k newlines took 27 s). The command-position prefix
+now also accepts a wrapper flag's value (`sudo -u x`, `time -p`, `command -p`) and chained wrappers. The test
+pins each of these; mutants that print the raw hit or skip the whitespace collapse turn rows red.
+
 **Still not verified:** end-to-end ordering inside a live Claude Code session — the existing hooks carry
 owner-machine absolute paths and cannot run in the cloud container. Smoke-test on the owner machine: `git push` with a bad `ac_verified` must still be
 refused. The code of the four tools was not audited line by line; privacy claims (RTK telemetry off
@@ -121,7 +138,7 @@ by default, Context Mode local-only) are from their READMEs.
 
 **Rules that bind the installed tools:** prefix a command with `RTK_DISABLED=1` whenever its output is
 evidence to be read verbatim (the exec subcommands themselves are refused by `pre:bash:rtk-exec-gate`,
-see below).
+see the paragraph on the exec gate above).
 
 **Context Mode and agents — reversed after review (2026-10-25).** The owner asked to connect Context
 Mode; the first cut granted the five `ctx_*` tools to seven agents. The security review (SR-H-2, PR

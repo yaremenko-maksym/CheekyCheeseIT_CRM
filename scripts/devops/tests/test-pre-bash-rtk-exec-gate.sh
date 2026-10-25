@@ -33,6 +33,41 @@ ass ls" \
 k bypass ls" \
   "echo ok; rtk \$(echo bypass) ls" \
   "sudo rtk \$SUB ls" \
+  "echo '\$'; rtk bypass \\U1; echo 'x'" \
+  "awk '{print \$'; rtk run ls; echo 'x'" \
+  "if true; then rtk \$SUB ls; fi" \
+  "for i in 1; do rtk \$SUB ls; done" \
+  "if false; then :; else rtk \$SUB ls; fi" \
+  "time rtk \$SUB ls" \
+  "env -i rtk \$SUB ls" \
+  "command rtk \$SUB ls" \
+  "exec rtk \$SUB ls" \
+  "nohup rtk \$SUB ls" \
+  "xargs -n1 rtk \$SUB" \
+  "eval rtk \$SUB ls" \
+  "(rtk \$SUB ls)" \
+  "{ rtk \$SUB ls; }" \
+  "echo a
+rtk \$SUB ls" \
+  "FOO=1 rtk \$SUB ls" \
+  "RTK_DISABLED=1 rtk \$SUB ls" \
+  "nice rtk \$SUB ls" \
+  "timeout 5 rtk \$SUB ls" \
+  "! rtk \$SUB ls" \
+  "bash -c 'rtk \$SUB ls'" \
+  "sh -lc \"rtk \$SUB ls\"" \
+  "\$'\\x72\\u74k' bypass ls" \
+  "bash -c \"\$'\\u72'tk bypass ls\"" \
+  "sh -c \"rtk \$'\\u62ypass' ls\"" \
+  "bash -c \"rtk \$'\\u62'ypass ls\"" \
+  "rtk {bypass,echo,\$'\\ud800'} ." \
+  "FOO=1 rtk {bypass,echo} hi" \
+  "env B=1 rtk \$SUB hi" \
+  "sudo -u x rtk \$SUB hi" \
+  "time -p rtk \$SUB hi" \
+  "command -p rtk \$SUB hi" \
+  "nohup nice rtk \$SUB hi" \
+  "B=1; rtk {bypass,echo} hi" \
   "rtk byp''ass rm -rf /x/node_modules" \
   "rtk \$'bypass' rm -rf /x/node_modules" \
   "rtk {bypass,} rm -rf /x/node_modules" \
@@ -85,6 +120,7 @@ for cmd in \
   "grep -rn \"rtk\" \$CLAUDE_PROJECT_DIR/docs" \
   "git commit -m \"fix: rtk \$(date)\"" \
   "grep -l rtk \$(git ls-files docs)" \
+  "grep -n rtk \$'\\x2e'" \
   "echo \$'\\x68ello'" \
   "git commit -m \"use the rtk filter for output\"" \
   "echo 'the rtk hook rewrites commands'" \
@@ -106,6 +142,21 @@ for cmd in \
     --not-contains '"decision"' \
     -- run_hook "$cmd"
 done
+
+# ── performance: padding must not make the regexes quadratic (SR-M-12) ──
+assert_green "20k newlines, 10k space-newline pairs and a 160 KB path run all finish fast" \
+  --contains "FAST" \
+  -- python3 -c '
+import json, subprocess, sys, time
+hook = sys.argv[1]
+for cmd in ("echo ok" + "\n" * 20000, "echo ok" + " \n" * 10000, "echo " + "a/" * 80000, "echo " + "~" * 100000):
+    t = time.time()
+    subprocess.run(["bash", hook], input=json.dumps({"tool_input": {"command": cmd}}).encode(), capture_output=True)
+    if time.time() - t > 5:
+        print("SLOW", len(cmd), round(time.time() - t, 1))
+        sys.exit(1)
+print("FAST")
+' "$HOOK"
 
 # ── fail-open: garbage input must never become a block ──
 assert_green "garbage stdin is allowed (fail-open)" \
