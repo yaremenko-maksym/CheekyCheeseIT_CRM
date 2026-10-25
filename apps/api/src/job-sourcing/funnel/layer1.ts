@@ -762,6 +762,7 @@ function classifySalary(input: Layer1Input): {
       : rate && rate.currency.toUpperCase() === currency && rate.usdPerUnit > 0
         ? rate.usdPerUnit
         : null
+  // Stryker disable next-line ConditionalExpression: equivalent for the `=== null` operand — `Number.isFinite(null)` is false, so null is refused by the second operand anyway (the finite check itself is pinned by the Infinity-rate spec)
   if (usdPerUnit === null || !Number.isFinite(usdPerUnit))
     return {
       dimension: dim<SalaryValue>({ state: 'UNCONVERTIBLE', monthlyUsd: null }, 'WARN_UNKNOWN', [

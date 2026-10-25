@@ -1374,8 +1374,8 @@ describe('layer1: flags', () => {
 
 describe('layer1: mutation kills (boundaries, evidence codes, text normalisation)', () => {
   it('a hit that starts exactly where a hybrid span ends is not inside that span', () => {
-    // "гібрид*" is a stem, so it ends where the digit starts; the 5-day office phrase is onsite.
-    const r = run({ location: 'гібрид5 days in office' })
+    // "гібрид*" is a stem, so it ends where the digit starts; the 5-day office phrase is onsite. "at office" is no onsite phrase, so only the days entry speaks.
+    const r = run({ location: 'гібрид5 days at office' })
     expect(r.workplace.value).toBe('UNKNOWN')
     expect(r.flags).toContain('UNRESOLVED_CONTRADICTION')
   })
@@ -1400,6 +1400,10 @@ describe('layer1: mutation kills (boundaries, evidence codes, text normalisation
     expect(run({ location: 'Not remote' }).workplace.evidence).toEqual([
       ev('STRUCTURED', 'location', 'Not remote', 'NEGATED_REMOTE'),
     ])
+  })
+
+  it('a negated remote beside an onsite signal does not turn into a conflict', () => {
+    expect(run({ location: 'Onsite, not remote' }).workplace.value).toBe('ONSITE')
   })
 
   it('a schedule conflict leaves the value UNKNOWN, with the contradiction recorded', () => {
@@ -1428,7 +1432,10 @@ describe('layer1: mutation kills (boundaries, evidence codes, text normalisation
     const r = body('This is an individual contributor role')
     expect(r.leadership.value).toBe('INDIVIDUAL_CONTRIBUTOR')
     expect(r.leadership.evidence[0]?.code).toBe('IC_BODY')
-    expect(body('You will have direct reports').leadership.value).toBe('LEADS_PEOPLE')
+    expect(r.leadership.verdict).toBe('PASS')
+    const leads = body('You will have direct reports').leadership
+    expect(leads.value).toBe('LEADS_PEOPLE')
+    expect(leads.verdict).toBe('PASS')
   })
 
   it('a work-authorization phrase that carries its own region is recorded as such', () => {
