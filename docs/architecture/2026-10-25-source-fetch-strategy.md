@@ -49,8 +49,17 @@ the draft is in git history.
     formula would have rewritten every value in the deployed seed delta and made a revert run hourly
     sources hourly.
   - A **scheduled** claim of a source whose profile is `null` is refused with the code `NOT_SCHEDULED`
-    (a member of `CLAIM_REFUSALS`, written to `last_error_code`, rechecked like every persistent
-    refusal). A manual claim still runs it, which is the owner's supervised smoke.
+    (a member of `CLAIM_REFUSALS`, written to `last_error_code`) and the claim writes
+    `next_attempt_at = NULL` **once**: the row is never due by schedule, sweep or detail pass, so there is
+    no recheck churn (a second claim neither selects nor rewrites it). The admin listing shows it once as
+    `CLAIM_REFUSED / NOT_SCHEDULED`. `claimGate` refuses `NOT_SCHEDULED` unless the `scheduled` input is an
+    explicit `false`, so a caller that drops it fails closed. Deployed rows of the deferred types carry a
+    non-null `next_attempt_at`, so the claim gate, not the data, is what stops them. A manual claim still
+    runs such a source, which is the owner's supervised smoke.
+  - **First slot of a deferred source.** Because a `null`-profile source has `next_attempt_at = NULL` and
+    is never due, no tick or sweep picks it up even after it is given a profile. Its **first slot** comes
+    from the finish of the supervised manual run that connects it (`finish` computes `nextSlot` from the
+    profile it then has), or U12 sets `next_attempt_at` itself (see U12).
   - A `fixedSlots` profile carries a documented **placeholder `intervalMinutes`**, used only by the
     slow-down gap; it does not affect the slots, which come from `fixedSlots` alone (see the U1a bullet
     that `fixedSlots` ignores the stagger and excludes window and off grid).
@@ -778,6 +787,11 @@ AC:
 5. Real-Postgres: two concurrent ticks with the same key create one cycle and no second claim of any
    source.
 6. Real-Postgres: a tick claims a source whose slot passed and not one whose slot is one minute ahead.
+7. **The sweep and the tick never both claim a fixed-slot source** (added 2026-10-26, U1b spec review,
+   SPEC-L-2). Himalayas has a `fixedSlots` slot at 08:00 Kyiv, the sweep's own time. Real-Postgres: on a
+   Kyiv day with the sweep and the 08:00 tick both firing, that source gets exactly one run; the rule is
+   that the sweep skips (or the tick skips) a source whose profile has `fixedSlots`, and the spec pins
+   whichever side the implementation chooses.
 
 **U8a — board data files and the generator.** One data file per ATS provider; the generator in the
 manifest builder; the 13 existing boards moved into the files with their regions; drift-test
@@ -923,8 +937,14 @@ release has passed, and only on the owner's separate word. **Model:** opus. **Re
 **security (mandatory)**.
 
 **U12 — connect the deferred sources (Q8).** SmartRecruiters (switched to `ON_DEMAND` detail), Jobgether
-and Hacker News get their section 8 profiles; each first call is a supervised smoke. **Depends on:**
-everything above and the owner's word. **Model:** opus. **Reviewers:** code, spec, security.
+and Hacker News get their section 8 profiles; each first call is a supervised smoke. **First slot
+(added 2026-10-26, U1b spec review):** a `null`-profile source has `next_attempt_at = NULL` and is never
+due, so giving it a profile does not make it run. U12 must either run a **manual claim** whose `finish`
+computes `nextSlot` from the new profile, or set `next_attempt_at` itself; it must not rely on the tick or
+the sweep. **Depends on:** everything above and the owner's word. **Model:** opus. **Reviewers:** code,
+spec, security.
+AC: after the connecting run, each connected source is due at its slot (`isDue` false before the slot,
+true at it, on a scratch database), and a source whose connecting run did not happen stays undue.
 
 ## Open questions
 
