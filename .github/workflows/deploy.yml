@@ -669,6 +669,7 @@ jobs:
             apps/api/drizzle/manual/2026-10-24_job_sources_manifest_delta.sql \
             apps/api/drizzle/manual/2026-10-24_job_source_hosts.sql \
             apps/api/drizzle/manual/2026-10-24_job_sources_host_keys.sql \
+            apps/api/drizzle/manual/2026-10-25_job_record_store.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -2705,6 +2706,19 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-10-24_job_sources_host_keys.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-10-24_job_sources_host_keys.sql
+
+      - name: Copy job record store DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-25_job_record_store.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-25_job_record_store.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-25_job_record_store.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the

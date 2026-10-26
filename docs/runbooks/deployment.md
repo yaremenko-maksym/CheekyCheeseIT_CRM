@@ -1078,6 +1078,7 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-10-24_job_sources_manifest_delta.sql \
     apps/api/drizzle/manual/2026-10-24_job_source_hosts.sql \
     apps/api/drizzle/manual/2026-10-24_job_sources_host_keys.sql \
+    apps/api/drizzle/manual/2026-10-25_job_record_store.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \

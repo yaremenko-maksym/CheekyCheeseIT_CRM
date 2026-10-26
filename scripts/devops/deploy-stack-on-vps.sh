@@ -2208,6 +2208,27 @@ docker compose \
   < "$JOB_SOURCES_HOST_KEYS_FILE"
 echo "==> job sources host keys applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-10-25_job_record_store.sql
+# Creates the 3 record-store tables; MUST precede the grants file below (its privileges
+# check requires them).
+JOB_RECORD_STORE_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-25_job_record_store.sql"
+
+if [ ! -f "$JOB_RECORD_STORE_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_RECORD_STORE_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job record store (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$JOB_RECORD_STORE_FILE"
+echo "==> job record store applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file
