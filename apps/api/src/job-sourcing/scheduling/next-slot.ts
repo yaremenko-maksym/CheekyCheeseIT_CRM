@@ -24,8 +24,10 @@ const MINUTE_MS = 60_000
 const DAY_MS = 24 * 60 * MINUTE_MS
 const MAX_INTERVAL_MINUTES = 7 * 24 * 60
 const MAX_SLOWDOWN_LEVEL = 4
-const SLOWDOWN_INTERVAL_CAP_MINUTES = 24 * 60
-const SEARCH_DAYS_AHEAD = 8
+const MINUTES_PER_DAY = 24 * 60
+const SLOWDOWN_INTERVAL_CAP_MINUTES = MINUTES_PER_DAY
+/** Today plus 7 more local days: a weekly-only profile always finds its slot inside it. */
+const LAST_SEARCH_DAY = 7
 
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
 const minutesOf = (t: string): number => Number(t.slice(0, 2)) * 60 + Number(t.slice(3))
@@ -34,8 +36,9 @@ function isKnownZone(timeZone: string): boolean {
   try {
     new Intl.DateTimeFormat('en-US', { timeZone })
     return true
-  } catch {
-    return false
+  } catch (error) {
+    if (error instanceof RangeError) return false
+    throw error
   }
 }
 const zone = z.string().refine(isKnownZone, { message: 'unknown IANA time zone' })
@@ -85,7 +88,7 @@ function parseOrThrow<T extends z.ZodType>(schema: T, value: unknown, what: stri
   const r = schema.safeParse(value)
   if (r.success) return r.data
   throw new InvalidFetchProfileError(
-    r.error.issues.map((i) => `${what}.${i.path.join('.')}: ${i.message}`),
+    r.error.issues.map((i) => `${[what, ...i.path].join('.')}: ${i.message}`),
   )
 }
 
@@ -153,12 +156,11 @@ function dayOfWall(wallMs: number): Day {
 }
 
 /**
- * The instant of a local wall-clock time. A time that occurs twice (fall back) resolves to its first
- * occurrence; one that does not exist (spring forward) resolves to the first instant after the gap.
+ * The instant of a local wall-clock time, given the UTC offsets `before` and `after` that bracket its
+ * day. A time that occurs twice (fall back) resolves to its first occurrence; one that does not exist
+ * (spring forward) resolves to the first instant after the gap.
  */
-function resolveLocal(timeZone: string, wallMs: number): number {
-  const before = offsetAt(timeZone, wallMs - DAY_MS)
-  const after = offsetAt(timeZone, wallMs + DAY_MS)
+function resolveLocal(timeZone: string, wallMs: number, before: number, after: number): number {
   const valid = [wallMs - before, wallMs - after].filter(
     (t) => offsetAt(timeZone, t) === wallMs - t,
   )
@@ -175,69 +177,84 @@ function resolveLocal(timeZone: string, wallMs: number): number {
 }
 
 type Profile = z.output<typeof fetchProfileSchema>
-type Window = NonNullable<Profile['window']>
-const ALL_DAY: Window = { timeZone: 'UTC', days: [...DAYS], from: '00:00', to: '23:59' }
+
+/** The profile in one shape: no window means "every day, all day", fixed slots a day of listed minutes. */
+interface Shape {
+  readonly zone: string
+  readonly days: readonly Day[]
+  readonly from: number
+  readonly to: number
+  readonly interval: number
+  readonly off: number | null
+  readonly fixed: readonly number[] | null
+}
+
+function shapeOf(p: Profile): Shape {
+  const w = p.window
+  return {
+    zone: p.fixedSlots?.timeZone ?? w?.timeZone ?? 'UTC',
+    days: w?.days ?? DAYS,
+    from: w ? minutesOf(w.from) : 0,
+    to: w ? minutesOf(w.to) : MINUTES_PER_DAY,
+    interval: p.intervalMinutes,
+    off: p.offIntervalMinutes,
+    fixed: p.fixedSlots ? p.fixedSlots.times.map(minutesOf) : null,
+  }
+}
+
+const insideWindow = (s: Shape, day: Day, minute: number): boolean =>
+  s.days.includes(day) && minute >= s.from && minute < s.to
 
 /** Local minutes of one day on which the profile has a slot. */
-function slotMinutes(p: Profile, day: Day, staggerKey: string): number[] {
-  if (p.fixedSlots) return p.fixedSlots.times.map(minutesOf)
-  const stagger = staggerMinutes(staggerKey, p.intervalMinutes)
-  const win = p.window ?? ALL_DAY
-  const active = win.days.includes(day)
-  const from = p.window === null ? 0 : minutesOf(win.from)
-  const to = p.window === null ? 24 * 60 : minutesOf(win.to)
+function slotMinutes(s: Shape, day: Day, stagger: number): number[] {
+  if (s.fixed !== null) return [...s.fixed]
   const out: number[] = []
-  if (active) for (let m = from + stagger; m < to; m += p.intervalMinutes) out.push(m)
-  const off = p.offIntervalMinutes
-  if (off !== null && p.window !== null) {
-    for (let m = stagger % off; m < 24 * 60; m += off) {
-      if (!(active && m >= from && m < to)) out.push(m)
+  if (s.days.includes(day)) {
+    for (let m = s.from + stagger; m < s.to; m += s.interval) out.push(m)
+  }
+  if (s.off !== null) {
+    for (let m = stagger % s.off; m < MINUTES_PER_DAY; m += s.off) {
+      if (!insideWindow(s, day, m)) out.push(m)
     }
   }
   return out
 }
 
 /** The interval of the period `nowMs` falls in: the active one inside the window, the off one outside. */
-function periodInterval(p: Profile, nowMs: number): number {
-  if (p.window === null || p.fixedSlots) return p.intervalMinutes
-  const q = localParts(p.window.timeZone, nowMs)
+function periodInterval(s: Shape, nowMs: number): number {
+  const q = localParts(s.zone, nowMs)
   const day = dayOfWall(Date.UTC(q.year, q.month - 1, q.day))
-  const inside =
-    p.window.days.includes(day) &&
-    q.minute >= minutesOf(p.window.from) &&
-    q.minute < minutesOf(p.window.to)
-  return inside ? p.intervalMinutes : (p.offIntervalMinutes ?? p.intervalMinutes)
+  return insideWindow(s, day, q.minute) || s.off === null ? s.interval : s.off
 }
 
 /**
  * The first grid slot strictly after `now + gap`, where
  * `gap = max(floorMinutes, min(interval * 2^level, 24 h) - interval)` and `interval` is that of the
  * period `now` falls in. Throws `InvalidFetchProfileError` (a `RangeError`) on an invalid profile,
- * policy or clock, and a plain `RangeError` when the profile has no slot within 8 local days.
+ * policy or clock, and a plain `RangeError` when the profile has no slot within the 8 local days
+ * from the one the threshold falls on.
  */
 export function nextSlot(now: Date, profile: FetchProfile, policy: SlotPolicy): Date {
   const nowMs = now.getTime()
   if (!Number.isFinite(nowMs)) throw new InvalidFetchProfileError(['now: invalid date'])
-  const p = parseOrThrow(fetchProfileSchema, profile, 'profile')
+  const s = shapeOf(parseOrThrow(fetchProfileSchema, profile, 'profile'))
   const pol = parseOrThrow(slotPolicySchema, policy, 'policy')
 
-  const period = periodInterval(p, nowMs)
+  const period = periodInterval(s, nowMs)
   const slowed = Math.min(period * 2 ** pol.slowdownLevel, SLOWDOWN_INTERVAL_CAP_MINUTES) - period
   const thresholdMs = nowMs + Math.max(pol.floorMinutes, slowed, 0) * MINUTE_MS
 
-  const dayZone = p.fixedSlots?.timeZone ?? p.window?.timeZone ?? 'UTC'
-  const t = localParts(dayZone, thresholdMs)
+  const stagger = staggerMinutes(pol.staggerKey, s.interval)
+  const t = localParts(s.zone, thresholdMs)
   const firstDayWall = Date.UTC(t.year, t.month - 1, t.day)
-  for (let d = -1; d <= SEARCH_DAYS_AHEAD; d++) {
+  for (let d = 0; d <= LAST_SEARCH_DAY; d++) {
     const dayWall = firstDayWall + d * DAY_MS
-    const offsetStart = offsetAt(dayZone, dayWall - DAY_MS)
-    const offsetEnd = offsetAt(dayZone, dayWall + 2 * DAY_MS)
-    const instants = slotMinutes(p, dayOfWall(dayWall), pol.staggerKey).map((m) => {
-      const wall = dayWall + m * MINUTE_MS
-      return offsetStart === offsetEnd ? wall - offsetStart : resolveLocal(dayZone, wall)
-    })
-    const later = instants.filter((i) => i > thresholdMs)
+    const before = offsetAt(s.zone, dayWall - DAY_MS)
+    const after = offsetAt(s.zone, dayWall + 2 * DAY_MS)
+    const later = slotMinutes(s, dayOfWall(dayWall), stagger)
+      .map((m) => resolveLocal(s.zone, dayWall + m * MINUTE_MS, before, after))
+      .filter((instant) => instant > thresholdMs)
     if (later.length > 0) return new Date(Math.min(...later))
   }
-  throw new RangeError(`nextSlot: no slot within ${SEARCH_DAYS_AHEAD} local days`)
+  throw new RangeError(`nextSlot: no slot within ${LAST_SEARCH_DAY + 1} local days`)
 }

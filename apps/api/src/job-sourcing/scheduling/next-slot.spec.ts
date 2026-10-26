@@ -408,6 +408,138 @@ describe('AC 8: invalid input is refused with a typed error, never clamped', () 
   })
 })
 
+describe('pinned edges (grid boundaries, period interval, messages)', () => {
+  const issuesOf = (fn: () => unknown): string[] => {
+    try {
+      fn()
+    } catch (error) {
+      return error instanceof InvalidFetchProfileError
+        ? [...error.issues]
+        : [`other: ${String(error)}`]
+    }
+    return []
+  }
+  const now = at('2027-01-12T09:20:00Z')
+
+  it.each(['x09:00', '09:00x', '9:00', '09:0', '24:00', '23:60', ' 09:00'])(
+    'fixed time %j is refused',
+    (time) => {
+      const p: FetchProfile = {
+        intervalMinutes: 60,
+        offIntervalMinutes: null,
+        window: null,
+        fixedSlots: { timeZone: 'UTC', times: [time] },
+      }
+      expect(fetchProfileSchema.safeParse(p).success).toBe(false)
+      expect(
+        fetchProfileSchema.safeParse({ ...p, fixedSlots: { timeZone: 'UTC', times: ['09:00'] } })
+          .success,
+      ).toBe(true)
+    },
+  )
+
+  it('names the offending field and says why', () => {
+    const zone = berlin({
+      window: { timeZone: 'Mars/Olympus', days: ['MON'], from: '08:00', to: '19:00' },
+    })
+    expect(issuesOf(() => nextSlot(now, zone, policy(K7)))).toEqual([
+      'profile.window.timeZone: unknown IANA time zone',
+    ])
+    const order = berlin({ window: { timeZone: 'UTC', days: ['MON'], from: '19:00', to: '08:00' } })
+    expect(issuesOf(() => nextSlot(now, order, policy(K7)))).toEqual([
+      'profile.window: from must be before to',
+    ])
+    const fixed = { ...berlin(), fixedSlots: { timeZone: 'UTC', times: ['09:00'] } }
+    expect(issuesOf(() => nextSlot(now, fixed, policy(K7)))).toEqual([
+      'profile: fixedSlots replaces the grid: no window and no off interval',
+    ])
+    expect(issuesOf(() => nextSlot(new Date(Number.NaN), berlin(), policy(K7)))).toEqual([
+      'now: invalid date',
+    ])
+    expect(issuesOf(() => nextSlot(now, berlin(), policy(K7, -1)))).toEqual([
+      expect.stringMatching(/^policy\.floorMinutes: /),
+    ])
+    expect(issuesOf(() => nextSlot(now, berlin(), policy('')))).toEqual([
+      expect.stringMatching(/^policy\.staggerKey: /),
+    ])
+  })
+
+  it('the error is named, and its message lists every issue', () => {
+    const bad = berlin({ intervalMinutes: 0, offIntervalMinutes: 0 })
+    let caught: unknown
+    try {
+      nextSlot(now, bad, policy(K7))
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(InvalidFetchProfileError)
+    expect((caught as Error).name).toBe('InvalidFetchProfileError')
+    expect((caught as Error).message).toMatch(
+      /^invalid fetch profile: profile\.intervalMinutes: .+; profile\.offIntervalMinutes: .+$/,
+    )
+  })
+
+  it('the no-slot error says how far it looked', () => {
+    const p = berlin({
+      offIntervalMinutes: null,
+      window: { timeZone: 'Europe/Berlin', days: ['MON'], from: '08:00', to: '08:05' },
+    })
+    expect(() => nextSlot(now, p, policy(keyFor(10, 60)))).toThrow(/no slot within 8 local days/)
+  })
+
+  it('an off slot exactly at "from" belongs to the window (off 450, stagger 30: 08:00 is skipped)', () => {
+    const p = berlin({ offIntervalMinutes: 450 })
+    expect(iso(nextSlot(at('2027-01-12T06:00:00Z'), p, policy(K30)))).toBe(
+      '2027-01-12T07:30:00.000Z',
+    )
+  })
+
+  it('an off slot exactly at "to" is outside the window (off 555, stagger 30: 19:00 is kept)', () => {
+    const p = berlin({ offIntervalMinutes: 555 })
+    expect(iso(nextSlot(at('2027-01-12T17:45:00Z'), p, policy(K30)))).toBe(
+      '2027-01-12T18:00:00.000Z',
+    )
+  })
+
+  it('an in-window slot exactly at "to" is not a slot', () => {
+    const p = berlin({
+      offIntervalMinutes: null,
+      window: { timeZone: 'Europe/Berlin', days: [...WEEKDAYS], from: '08:00', to: '09:00' },
+    })
+    expect(iso(nextSlot(at('2027-01-12T07:00:30Z'), p, policy(K0)))).toBe(
+      '2027-01-13T07:00:00.000Z',
+    )
+  })
+
+  it('the off grid ends at midnight: a slot at minute 1440 is not invented (off 470, stagger 30)', () => {
+    const p: FetchProfile = {
+      intervalMinutes: 60,
+      offIntervalMinutes: 470,
+      window: { timeZone: 'UTC', days: [...ALL_DAYS], from: '08:00', to: '09:00' },
+    }
+    expect(iso(nextSlot(at('2027-01-12T20:00:00Z'), p, policy(K30)))).toBe(
+      '2027-01-13T00:30:00.000Z',
+    )
+  })
+
+  it.each([
+    ['before the window', '2027-01-12T04:30:00Z', '2027-01-12T08:07:00.000Z'],
+    ['after the window', '2027-01-12T18:30:00Z', '2027-01-12T23:07:00.000Z'],
+    ['exactly at "from" (inside)', '2027-01-12T07:00:00Z', '2027-01-12T08:07:00.000Z'],
+    ['exactly at "to" (outside)', '2027-01-12T18:00:00Z', '2027-01-12T23:07:00.000Z'],
+    ['on a day outside the window', '2027-01-16T09:20:00Z', '2027-01-16T14:07:00.000Z'],
+  ])('level 1 uses the interval of the period now falls in: %s', (_name, nowIso, expected) => {
+    expect(iso(nextSlot(at(nowIso), berlin(), policy(K7, 0, 1)))).toBe(expected)
+  })
+
+  it('an interval above 24 h never moves the threshold before now', () => {
+    const p: FetchProfile = { intervalMinutes: 2880, offIntervalMinutes: null, window: null }
+    expect(iso(nextSlot(at('2027-01-12T00:00:00Z'), p, policy(keyFor(0, 2880))))).toBe(
+      '2027-01-13T00:00:00.000Z',
+    )
+  })
+})
+
 /** A seeded LCG: the same sequence on every machine. */
 function lcg(seed: number): () => number {
   let s = seed >>> 0
