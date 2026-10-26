@@ -6345,3 +6345,40 @@ delta claim-step item (c) of 340 is not closed).
 
 Sources: PR #1153, #1160, #1161, #1162, #1165, #1169 review rounds (code, security and spec axes) and the
 2026-10-24 ADR "Job-source run ownership".
+
+## 342. Source-fetch units U1a and U6a: LOW findings, open owner questions, accepted legal risk (2026-10-26)
+
+**Open** — the LOW findings of the source-fetch units merged so far (U1a `nextSlot`, PR #1175; U6a Greenhouse
+list and detail by id, PR #1176), the strategy ADR's open owner questions, and one recorded owner decision.
+Each item names a symbol or behaviour.
+
+**U1a (`nextSlot`).**
+
+- `gridMinutes` is exported and could loop on a positive step too small to change the value, or on
+  `end = Infinity`. Callers pass finite integers today; bound it or make it module-private.
+- Offset zones such as `+05:00` are accepted by `Intl`, so they pass as zones. Decide whether the manifest
+  drift test should refuse them (the strategy ADR requires a named IANA zone).
+
+**U6a (Greenhouse adapter).**
+
+- The header comment of the Greenhouse adapter still says list+detail is "NOT built here".
+- A detail 404 caused by a deleted board returns 404 for every id of that board; the adapter cannot tell a
+  gone posting from a gone board.
+- A redundant `Number.isSafeInteger` check in the adapter.
+- `detailMode` is not checked against `DETAIL_MODES` at runtime (only by type).
+- A 410 maps to `FAILED` with an UPSTREAM class; decide whether it should be treated like a 404.
+
+**Open owner questions (strategy ADR, section "Open questions").**
+
+- **6, ADMIN alerts:** pending, re-asked in plain words; the recommendation stands (yes, to all admins).
+- **11, requests per minute per multi-board host:** recommended 2 per minute per site, raised in steps after
+  two weeks without a refusal.
+- **12, batch approval of the first live requests of boards:** irreversible in the sense of the owner's
+  supervised-first-request rule; without an answer no new board is contacted.
+
+**Owner decision recorded: the legal review of provider terms was SKIPPED.** The owner accepted the risk of
+DOU's automated-collection clause, Jobgether's machine-learning clause, Arbeitnow's non-commercial licence
+and Remotive's third-party clause. Revisit if a provider objects.
+
+Sources: PR #1175 and #1176 review rounds; `docs/architecture/2026-10-25-source-fetch-strategy.md`
+(Owner decisions, Open questions).

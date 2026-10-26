@@ -8,6 +8,28 @@ is pending, re-asked in plain words**, and the units that depend on it wait. Two
 his answers (11 and 12). This file replaces the draft proposal of 2026-10-25 that stood at the same path;
 the draft is in git history.
 
+## Amendments
+
+**2026-10-26 (facts learned while implementing U1a and U6a).**
+
+- **Source of truth for what the merged Task 2.5 delivered:** the PR list #1153 (T8 + package B), #1160
+  (T3), #1161 (T9), #1162 (T7), #1165 (T6), #1169 (T5). The production registry holds DOU only, so the
+  windows collect only DOU until a reporting adapter is registered (see the run-ownership ADR).
+- **U1a (merged, PR #1175) went beyond this ADR in these decisions:**
+  - The in-window stagger is taken modulo `min(intervalMinutes, window length)`, not modulo
+    `intervalMinutes`. A valid profile therefore always has a slot inside an active window; the "no slot
+    within 8 days" `RangeError` is unreachable through `nextSlot` for a valid profile and is demonstrated
+    through the exported `firstSlotAfter` on a hand-built shape (section 2 and U1a AC 8 amended).
+  - A window never crosses midnight.
+  - `window: null` means always active, on UTC days.
+  - The off grid restarts at local midnight with offset `stagger % offIntervalMinutes`.
+  - `fixedSlots` ignores the stagger and excludes window and off grid.
+  - Slow-down gap: `gap = max(floorMinutes, effectiveInterval x (2^slowdownLevel - 1))` as in section 2,
+    with the cap of AC 6 (level 4 caps at 24 h).
+  - Interval bounds are 1..10080 minutes; the floor is capped at one year.
+  - Offset zones such as `+05:00` are accepted by `Intl`, so they pass as zones.
+- **U6a (merged, PR #1176):** see the precondition added to section 6a and unit U10.
+
 ## Owner decisions of 2026-10-26
 
 | #   | Question                     | Decision                                                                                                                                                                                                                                                         |
@@ -160,9 +182,9 @@ function nextSlot(
   time, on `window.days`), before `window.to`. Outside the window, slots fall at
   `00:00 + stagger + k * offIntervalMinutes` (local time), skipping any that lie inside the window; none
   when `offIntervalMinutes` is null. `fixedSlots` replaces the grid with its listed local times.
-  `stagger = hash(staggerKey) mod intervalMinutes`, in whole minutes, with `staggerKey` the
-  `manifest_id`, so sources on one interval never fire on the same minute and a source keeps its minute
-  across deploys.
+  `stagger = hash(staggerKey) mod min(intervalMinutes, window length)` inside the window (amended
+  2026-10-26, see "Amendments"), in whole minutes, with `staggerKey` the `manifest_id`, so sources on one
+  interval never fire on the same minute and a source keeps its minute across deploys.
 - **The result** is the first grid slot strictly after `now + gap`, where
   `gap = max(floorMinutes, effectiveInterval × (2^slowdownLevel − 1))` and `effectiveInterval` is the
   interval of the period `now` falls in. At level 0 with no floor the gap is 0, so a run that ends at
@@ -172,7 +194,10 @@ function nextSlot(
   `@crm/shared`'s `kyiv-day`; no new dependency). A local slot that does not exist (the spring-forward
   gap) moves to the first instant after the gap. A local slot that occurs twice (fall-back) is taken
   once, at its first occurrence. The function searches at most 8 local days ahead and throws
-  `RangeError` if it finds no slot (a profile the drift test should have refused).
+  `RangeError` if it finds no slot. Amended 2026-10-26: for a valid profile that branch is unreachable
+  through `nextSlot`, because the in-window stagger is taken modulo `min(interval, window length)` and so
+  a valid profile always has a slot inside an active window. It is demonstrated through the exported
+  `firstSlotAfter` on a hand-built shape.
 - **No clock is injected into the ledger** (T5's rule). The ledger reads `clock_timestamp()` once in the
   finishing transaction, passes it to `nextSlot`, and writes the absolute result.
 - **Confidence HIGH** on purity and testability; **MED** on the 8-day bound (a weekly-only profile is
@@ -298,6 +323,17 @@ remaining requests are counted in the host budget like any other.
 **because its detail is pending** is never `EXCLUDED` on stack grounds; at worst it is `TRIAGE` with the
 stack unknown, so it is enriched and evaluated again. Title-level exclusions still apply. Without this
 rule, list-only sources would lose every match the description would have found.
+
+**Precondition for switching any source to `ON_DEMAND`** (added 2026-10-26 from the U6a security review,
+SR-M-1). The rule above must be **implemented and tested before any source's manifest `detailMode` becomes
+`'ON_DEMAND'`**. The tests: a posting with an empty body, a department tag and a title without a stack
+keyword is not `EXCLUDED`; `lowInformation` is false when a tag exists, and `coreMismatch` then wins.
+Without the rule, an `ON_DEMAND` source silently loses matches. Also required of U10: `FOUND.fields` goes
+through `buildNormalizedPosting` and never straight to a store or a renderer; U10 confirms the adapter
+version `greenhouse-2` (the revision identity changes once the mode flips); the JSON parser's error
+fragment (up to 200 characters in a `PARSE_DRIFT` detail) stays out of logs and persistence. State at
+2026-10-26: Greenhouse U6a landed (PR #1176) as list-only `ON_DEMAND`-capable, and the manifest keeps it
+`IN_LIST`.
 
 ### 7. Conditional requests: observe first, then use
 
@@ -653,7 +689,9 @@ AC (each a unit test that fails before the code exists):
    `America/New_York` (2027-03-14, 2027-11-07).
 6. Level 1 skips exactly one slot; level 4 caps at 24 h; a floor larger than the gap pushes past a slot.
 7. `fixedSlots` returns the next listed local time.
-8. An unknown zone, and a profile with no slot in 8 days, throw `RangeError`.
+8. An unknown zone throws `RangeError` through `nextSlot`. The no-slot branch (no slot within 8 local days)
+   throws `RangeError` too, but is demonstrated through the exported `firstSlotAfter` on a hand-built
+   shape, not through `nextSlot` (amended 2026-10-26: a valid profile always has a slot).
 9. Over 1,000 seeded-random `now` values across 2027 in three zones: the result is after `now`, lies on
    the grid, and at level 0 with no floor never skips a slot.
 10. The spec runs under the `tz:Europe/Kyiv` and `tz:America/Los_Angeles` projects of `apps/api`.
@@ -769,6 +807,12 @@ clean without touching any source record.
 stack grounds); the run worker's detail tail and scope `DETAIL_ONLY`; the 08:30 weekday detail pass and
 its predicate variant; Greenhouse switched to `ON_DEMAND`. **Depends on:** U3, U6a, and phase 4's
 evaluation worker. **Model:** opus, high (claims, fencing, external requests). **Reviewers:** code, spec.
+**Precondition (SR-M-1 of the U6a review, 2026-10-26):** the evaluation rule is implemented and tested
+**before** any source is switched to `detailMode: 'ON_DEMAND'` (empty body + a department tag + a title
+without a stack keyword is not excluded; `lowInformation` false when a tag exists, `coreMismatch` wins).
+U10 sends `FOUND.fields` through `buildNormalizedPosting`, never straight to a store or renderer; confirms
+adapter version `greenhouse-2`; keeps the parser error fragment (up to 200 characters of a `PARSE_DRIFT`
+detail) out of logs and persistence. See section 6a.
 AC:
 
 1. Real-Postgres as `crm_app`: an evaluation that yields `TRIAGE` for a list-only record enqueues one

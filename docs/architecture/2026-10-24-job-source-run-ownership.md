@@ -7,6 +7,13 @@ see "Autonomy classification") in chat on 2026-10-24: hand-written Postgres clai
 The decomposition T0–T9 below is therefore the plan of record for Task 2.5. Companion research
 file: `2026-10-24-pg-boss-research.md`.
 
+**Amendments (2026-10-26).** Source of truth for what the merged Task 2.5 delivered: the PR list #1153
+(T8 + package B), #1160 (T3), #1161 (T9), #1162 (T7), #1165 (T6), #1169 (T5). **The production registry
+holds DOU only** (the legacy provider), so the scheduled windows collect only DOU until a reporting adapter
+is registered; the phase-3 adapters stay inert in production until then. The table "Every way a run ends"
+gained the `RUN_FENCED` row (T7). The follow-up ADR `2026-10-25-source-fetch-strategy.md` replaces the two
+daily handlers of T5 in part.
+
 ## Context — the measured facts
 
 Plan r5, Task 2.5, requires PostgreSQL-backed run ownership and tells the implementer to compare the
@@ -249,15 +256,18 @@ is therefore provably unsent, which is why the end-of-run settlement may release
 
 **Every way a run ends.** `finish` and recovery are the only transitions out of `STARTED`.
 
-| Ended by                                                                   | Outcome     | Error code                                                                       |
-| -------------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------- |
-| `finish`: success                                                          | `SUCCEEDED` | none                                                                             |
-| `finish`: a designed stop                                                  | `PARTIAL`   | `PAGE_CAP`, `COST_STOP` or `DEADLINE`                                            |
-| `finish`: adapter or transport error                                       | `FAILED`    | the adapter's code, for example `ACCESS_POLICY`, `PARSE_DRIFT` or `CURSOR_CYCLE` |
-| `finish`: shutdown while the lease is still held                           | `CANCELLED` | `CANCELLED`                                                                      |
-| recovery: lease expired (crash, fence, a shutdown that could not `finish`) | `FAILED`    | `LEASE_EXPIRED`                                                                  |
+| Ended by                                                                                                          | Outcome     | Error code                                                                       |
+| ----------------------------------------------------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------- |
+| `finish`: success                                                                                                 | `SUCCEEDED` | none                                                                             |
+| `finish`: a designed stop                                                                                         | `PARTIAL`   | `PAGE_CAP`, `COST_STOP` or `DEADLINE`                                            |
+| `finish`: adapter or transport error                                                                              | `FAILED`    | the adapter's code, for example `ACCESS_POLICY`, `PARSE_DRIFT` or `CURSOR_CYCLE` |
+| `finish`: shutdown while the lease is still held                                                                  | `CANCELLED` | `CANCELLED`                                                                      |
+| recovery: lease expired (crash, fence, a shutdown that could not `finish`)                                        | `FAILED`    | `LEASE_EXPIRED`                                                                  |
+| `finish`: the worker lost its LOCAL lease while the database row is still ours (T7, PR #1162; amended 2026-10-26) | `FAILED`    | `RUN_FENCED`; counts +1 with backoff                                             |
 
-A fenced-out worker cannot `finish`; recovery ends its run. Every row settles its open reservations
+A fenced-out worker cannot `finish`; recovery ends its run. (The `RUN_FENCED` row is the other case: the
+worker's own lease timer ran out but the row is still its own, so it can still end the run. A truly
+fenced worker, whose row was taken, cannot finish, and recovery writes `LEASE_EXPIRED`.) Every row settles its open reservations
 by the same rules.
 
 **End-of-run settlement** (round 5: replaces `UNCERTAIN` as a durable state, SR-M-11, CONTRA-5).
