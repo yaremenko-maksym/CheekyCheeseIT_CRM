@@ -3246,6 +3246,11 @@ msgstr "Seniors and admins can only be paid to USDT ERC-20"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SENIOR_MIN_TECHNOLOGIES"
+msgstr "A senior needs at least 3 different technologies"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_NOT_FOUND"
 msgstr "Senior not found"
 
@@ -11998,6 +12003,11 @@ msgstr "Enter the salary or the senior's share — at least one of the two"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.SENDER_RECEIVER_SAME"
 msgstr "Sender and receiver cannot be the same"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.SENIOR_MIN_TECHNOLOGIES"
+msgstr "A senior needs at least 3 different technologies"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
