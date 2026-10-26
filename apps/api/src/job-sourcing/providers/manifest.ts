@@ -23,6 +23,7 @@ import {
   isValidHostKey,
 } from './manifest.hosts'
 import { isWellFormedDecision, liftsUnclear, type OwnerDecision } from './owner-decisions'
+import type { DetailMode } from './detail-mode'
 import type { ReportingJobSourceProvider } from './reporting-provider'
 
 export type { OwnershipCount, OwnershipEvidence } from './manifest.ownership'
@@ -89,6 +90,7 @@ export type ManifestErrorCode =
   | 'HOST_KEY_MISSING'
   | 'HOST_KEY_INVALID'
   | 'HOST_RATE_INVALID'
+  | 'DETAIL_INVALID'
 
 /** Every refusal the manifest makes carries a code a test can assert on, not a message to match. */
 export class ManifestError extends Error {
@@ -241,6 +243,13 @@ export interface TypeDefinition {
   /** A floor the provider's own terms set on the interval between two collections, if any. */
   readonly minIntervalHoursFloor?: number
   readonly requestsPerRun?: number
+  /**
+   * Where the posting description arrives (ADR 6a). Absent means `IN_LIST`. Data only: nothing in
+   * the routine run reads it until U10.
+   */
+  readonly detailMode?: DetailMode
+  /** `ON_DEMAND` only: how many pending detail fetches one run may claim after its list phase. */
+  readonly detailPerRun?: number
   readonly quota?: QuotaDeclaration
   /**
    * Task 2.5 T8 (`manifest.hosts.ts`): the scope this provider bans or rate-limits at, from the
@@ -431,6 +440,8 @@ export interface ManifestType {
   readonly scopeKind: ScopeKind
   /** Requests one scheduled run may send: the multiplier the quota arithmetic needs. */
   readonly requestsPerRun: number
+  readonly detailMode: DetailMode
+  readonly detailPerRun: number | null
   readonly quota: QuotaDeclaration | null
   readonly minIntervalHoursFloor: number
   readonly banScope: BanScope
@@ -641,6 +652,27 @@ function checkHostDeclaration(def: TypeDefinition): void {
   if (problem !== null) throw new ManifestError('HOST_RATE_INVALID', `${def.type}: ${problem}`)
 }
 
+/** The most details one run may claim. A bound on a typo, not a measured limit. */
+const MAX_DETAIL_PER_RUN = 100
+
+/**
+ * ADR 6a: a declared `detailPerRun` is a usable whole number, and an ON_DEMAND type must declare
+ * one. An IN_LIST type may still carry it (Greenhouse does until U10 flips its mode, so that the
+ * rollback is the one `detailMode` line).
+ */
+function checkDetail(def: TypeDefinition): void {
+  const perRun = def.detailPerRun
+  const missing = perRun === undefined && def.detailMode === 'ON_DEMAND'
+  const malformed =
+    perRun !== undefined && (!Number.isInteger(perRun) || perRun < 1 || perRun > MAX_DETAIL_PER_RUN)
+  if (missing || malformed) {
+    throw new ManifestError(
+      'DETAIL_INVALID',
+      `${def.type}: detailPerRun must be an integer from 1 to ${MAX_DETAIL_PER_RUN}`,
+    )
+  }
+}
+
 function checkCadence(def: TypeDefinition, e: EntryDefinition): void {
   if (!Number.isInteger(e.intervalHours) || e.intervalHours < 1) {
     throw new ManifestError(
@@ -766,6 +798,7 @@ export function buildManifest(input: BuildInput): Manifest {
     checkAuth(def, permissions)
     checkAttribution(def, fixtures)
     if (reporting) checkHostDeclaration(def)
+    checkDetail(def)
 
     const ownerDecisions = def.ownerDecisions ?? []
     for (const d of ownerDecisions) {
@@ -838,6 +871,8 @@ export function buildManifest(input: BuildInput): Manifest {
       endpointVariant: def.endpointVariant,
       scopeKind: def.scopeKind,
       requestsPerRun: def.requestsPerRun ?? 1,
+      detailMode: def.detailMode ?? 'IN_LIST',
+      detailPerRun: def.detailPerRun ?? null,
       quota: def.quota ?? null,
       minIntervalHoursFloor: def.minIntervalHoursFloor ?? 0,
       banScope: def.banScope ?? 'HOST',
