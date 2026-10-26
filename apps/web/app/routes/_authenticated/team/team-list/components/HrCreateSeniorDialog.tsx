@@ -22,6 +22,7 @@ import {
   DialogDescription,
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { PhoneInput } from '@/components/ui/phone-input'
 import {
   Select,
@@ -33,7 +34,6 @@ import {
 import { ShareSlider } from '@/components/ui/share-slider'
 import { toast } from 'sonner'
 import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
-import { Field } from '@/components/users/section'
 import { seniorTechStackError } from '@/components/users/user-dialog/validation'
 import { normalizeTelegram } from '../normalize-telegram'
 
@@ -49,6 +49,38 @@ type UserOption = {
 async function fetchAllUsers(): Promise<UserOption[]> {
   const res = await api.get<UserOption[]>('/users')
   return res.data
+}
+
+// ── Field wrapper ─────────────────────────────────────────────────────────────
+
+function Field({
+  label,
+  error,
+  errorId,
+  required,
+  children,
+}: {
+  label: string
+  error?: string | undefined
+  /** `id` of the error line, for the control's `aria-describedby`. */
+  errorId?: string | undefined
+  required?: boolean | undefined
+  children: React.ReactNode
+}) {
+  return (
+    <div className="grid gap-1.5">
+      <Label className={cn(error && 'text-destructive')}>
+        {label}
+        {required && <span className="ml-0.5 text-destructive">*</span>}
+      </Label>
+      {children}
+      {error && (
+        <p id={errorId} className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  )
 }
 
 // ── Share slider ──────────────────────────────────────────────────────────────
