@@ -225,10 +225,10 @@ describe('MonthPickerField', () => {
 
   it('an out-of-range stored year is merged into the list in ascending order', async () => {
     await loadCatalog('uk')
-    render(<Harness initial="2029-05" />)
+    render(<Harness initial="2019-05" />)
     await user().click(screen.getByTestId(YEAR))
     const years = (await screen.findAllByRole('option')).map((o) => o.textContent)
-    expect(years).toEqual(['2023', '2024', '2025', '2026', '2027', '2029'])
+    expect(years).toEqual(['2019', '2023', '2024', '2025', '2026', '2027'])
   })
 
   it('follows prop and locale changes without a remount', async () => {
@@ -254,5 +254,29 @@ describe('MonthPickerField', () => {
     await user().click(screen.getByTestId(YEAR))
     const years = (await screen.findAllByRole('option')).map((o) => o.textContent)
     expect(years).toEqual(['2025', '2026'])
+  })
+
+  it('disabled disables both triggers', async () => {
+    await loadCatalog('uk')
+    render(
+      <I18nTestProvider>
+        <MonthPickerField value="2026-10" onChange={() => {}} disabled />
+      </I18nTestProvider>,
+    )
+    expect(screen.getByTestId(MONTH)).toBeDisabled()
+    expect(screen.getByTestId(YEAR)).toBeDisabled()
+  })
+
+  it('month trigger flexes to fill; year trigger is a fixed-width tabular column', async () => {
+    await loadCatalog('uk')
+    render(<Harness initial="2026-10" />)
+    expect(screen.getByTestId(MONTH)).toHaveClass('h-9', 'min-w-0', 'flex-1', 'text-sm')
+    expect(screen.getByTestId(YEAR)).toHaveClass(
+      'h-9',
+      'w-[5.5rem]',
+      'shrink-0',
+      'text-sm',
+      'tabular-nums',
+    )
   })
 })
