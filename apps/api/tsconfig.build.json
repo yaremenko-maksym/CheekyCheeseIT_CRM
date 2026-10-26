@@ -10,6 +10,8 @@
     "src/job-sourcing/providers/manifest*.ts",
     "src/test/host-pause-aging.ts",
     "src/test/run-aging.ts",
-    "src/test/ledger-fixtures.ts"
+    "src/test/ledger-fixtures.ts",
+    "src/test/create-user-harness.ts",
+    "src/test/senior-tech-stack.ts"
   ]
 }
