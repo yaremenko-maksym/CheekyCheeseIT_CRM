@@ -11,13 +11,13 @@ UI shows "October 2026". It is the only `type="month"` in `apps/web`. The curren
 
 ## Decision: Option B, two `Select`s (month + year)
 
-| Criterion            | A popover picker                         | **B two Selects**                              | C caption beside native input         |
-| -------------------- | ---------------------------------------- | ---------------------------------------------- | ------------------------------------- |
-| Fixes the bug        | yes                                      | yes                                            | no (native text still English)        |
-| New code             | new MonthPicker grid + popover + roving focus | one small component, zero new primitives  | tiny                                  |
-| Keyboard + SR        | must build grid semantics ourselves      | Radix Select: listbox, type-ahead, Esc, focus return for free | native, but inconsistent |
-| Mobile 320px         | popover over a dialog = nested layers    | Radix Select portal, already used in the same dialog (receiver) | n/a                  |
-| Consistency          | new pattern                              | same control as the neighbouring "Співробітник" field | inconsistent |
+| Criterion     | A popover picker                              | **B two Selects**                                               | C caption beside native input  |
+| ------------- | --------------------------------------------- | --------------------------------------------------------------- | ------------------------------ |
+| Fixes the bug | yes                                           | yes                                                             | no (native text still English) |
+| New code      | new MonthPicker grid + popover + roving focus | one small component, zero new primitives                        | tiny                           |
+| Keyboard + SR | must build grid semantics ourselves           | Radix Select: listbox, type-ahead, Esc, focus return for free   | native, but inconsistent       |
+| Mobile 320px  | popover over a dialog = nested layers         | Radix Select portal, already used in the same dialog (receiver) | n/a                            |
+| Consistency   | new pattern                                   | same control as the neighbouring "Співробітник" field           | inconsistent                   |
 
 Salary month is a 2-step choice (pick month, rarely change year). Selects are the denser, scannable
 operations-tool answer; A adds a nested overlay and custom a11y for no gain. C does not fix the bug.
@@ -81,13 +81,13 @@ Dialog grid change in `SalaryFields.tsx`: `grid grid-cols-2 gap-3` becomes
 
 Wrap with `t`/`<Trans>`; `uk` is the source text, add `en` to catalog (`pnpm i18n:extract`).
 
-| Where                | uk                       | en                      |
-| -------------------- | ------------------------ | ----------------------- |
-| Field label (exists) | Місяць                   | Month                   |
-| Month placeholder    | Місяць                   | Month                   |
-| Year placeholder     | Рік                      | Year                    |
-| Month trigger aria   | Місяць зарплати          | Salary month            |
-| Year trigger aria    | Рік зарплати             | Salary year             |
+| Where                | uk                                                        | en           |
+| -------------------- | --------------------------------------------------------- | ------------ |
+| Field label (exists) | Місяць                                                    | Month        |
+| Month placeholder    | Місяць                                                    | Month        |
+| Year placeholder     | Рік                                                       | Year         |
+| Month trigger aria   | Місяць зарплати                                           | Salary month |
+| Year trigger aria    | Рік зарплати                                              | Salary year  |
 | Missing-value error  | reuse the existing salary-month error key; do not add one |
 
 Both languages say the same thing (a month/year of the salary); no longer strings than "Місяць зарплати"
