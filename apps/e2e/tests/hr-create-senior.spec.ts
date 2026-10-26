@@ -12,6 +12,7 @@
  */
 
 import { test, expect, API_RE } from './fixtures'
+import { SENIOR_TECH_STACK, addTechnologies, techStackInput } from './fixtures/senior-tech'
 
 test.describe('HR create senior dialog', () => {
   test('HR fills email + name and the dialog POSTs a valid requisite-less SENIOR payload', async ({
@@ -35,6 +36,7 @@ test.describe('HR create senior dialog', () => {
     await expect(dialog).toBeVisible()
     await dialog.getByPlaceholder('senior@cheekycheese.dev').fill('new.senior@cheekycheese.dev')
     await dialog.getByPlaceholder('Іван Іваненко').fill('Іван Іваненко')
+    await addTechnologies(dialog)
     await dialog.getByRole('button', { name: 'Створити', exact: true }).click()
 
     // The dialog closes and a success toast confirms the creation.
@@ -48,6 +50,7 @@ test.describe('HR create senior dialog', () => {
       displayName: 'Іван Іваненко',
       role: 'SENIOR',
       seniorSharePercent: 26,
+      techStack: [...SENIOR_TECH_STACK],
     })
     // HR never sends requisites or a legal name.
     // The untouched phone widget's seeded "+380" is not sent as a phone number either.
@@ -62,5 +65,31 @@ test.describe('HR create senior dialog', () => {
     }
     // And no validation-failure toast.
     await expect(page.getByText('Не вдалося створити команду')).toHaveCount(0)
+  })
+
+  test('with 2 technologies the dialog shows the floor error inline and does not POST', async ({
+    asHr: page,
+  }) => {
+    let posts = 0
+    await page.route(new RegExp(`${API_RE}/users$`), (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      posts += 1
+      return route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
+    })
+
+    await page.goto('/team')
+    await page.locator('main').getByRole('button', { name: 'Створити сеньйора' }).first().click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByPlaceholder('senior@cheekycheese.dev').fill('two.techs@cheekycheese.dev')
+    await dialog.getByPlaceholder('Іван Іваненко').fill('Іван Іваненко')
+    await addTechnologies(dialog, SENIOR_TECH_STACK.slice(0, 2))
+    await dialog.getByRole('button', { name: 'Створити', exact: true }).click()
+
+    const error = dialog.getByText('Сеньйору потрібно щонайменше 3 різні технології')
+    await expect(error).toBeVisible()
+    const input = await techStackInput(dialog)
+    await expect(input).toHaveAttribute('aria-describedby', (await error.getAttribute('id')) ?? '')
+    await expect(dialog).toBeVisible()
+    expect(posts).toBe(0)
   })
 })
