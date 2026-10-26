@@ -1,5 +1,6 @@
 import type { FetchProfile } from '../scheduling/next-slot'
 import type { EntryDefinition, PolicyDeadline, QuotaDeclaration, TypeDefinition } from './manifest'
+import { FIXED_SLOTS_INTERVAL_MINUTES } from './manifest.fetch-profile'
 import { ARBEITNOW_SOURCE_STATUS } from './sources/arbeitnow.provider'
 import { JOBGETHER_SOURCE_STATUS } from './sources/jobgether.provider'
 import { HN_SOURCE_STATUS } from './sources/hn-hiring.provider'
@@ -114,7 +115,11 @@ const workingHours = (timeZone: string, interval: number, off: number | null): F
 /** Once a day, at the stagger minute after 00:00 UTC: today's cadence, for the unchanged types. */
 const DAILY: FetchProfile = { intervalMinutes: 24 * 60, offIntervalMinutes: null, window: null }
 
-/** One attempt every Monday in the Kyiv working day; the interval keeps the seed's legacy hours. */
+/**
+ * One attempt every Monday in the Kyiv working day. `intervalMinutes` is NOT this cadence (the window
+ * holds one slot whatever it is): it only carries the legacy seed hours `rollbackCadenceHours`
+ * derives (168 for Jooble, 96 for TheirStack), so the committed seed delta stays byte-identical.
+ */
 const mondays = (intervalMinutes: number): FetchProfile => ({
   intervalMinutes,
   offIntervalMinutes: null,
@@ -123,7 +128,7 @@ const mondays = (intervalMinutes: number): FetchProfile => ({
 
 /** A fixed local time in Kyiv, once a day (Remotive, one entry per slot; Himalayas, sweep only). */
 const kyivAt = (time: string): FetchProfile => ({
-  intervalMinutes: 24 * 60,
+  intervalMinutes: FIXED_SLOTS_INTERVAL_MINUTES,
   offIntervalMinutes: null,
   window: null,
   fixedSlots: { timeZone: 'Europe/Kyiv', times: [time] },

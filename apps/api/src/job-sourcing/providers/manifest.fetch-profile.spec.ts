@@ -4,7 +4,12 @@ import type { FetchProfile } from '../scheduling/next-slot'
 import { buildManifest, ManifestError, type TypeDefinition } from './manifest'
 import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
 import { MANIFEST_DEFINITIONS } from './manifest.definitions'
-import { attemptsIn, attemptsPerDay, fetchProfileProblem } from './manifest.fetch-profile'
+import {
+  FIXED_SLOTS_INTERVAL_MINUTES,
+  attemptsIn,
+  attemptsPerDay,
+  fetchProfileProblem,
+} from './manifest.fetch-profile'
 import { rollbackCadenceHours } from './manifest.seed-sql'
 
 /**
@@ -338,6 +343,25 @@ describe('the build refuses each profile section 1 forbids', () => {
   it('fixed slots combined with an off interval', () => {
     const p = { ...kyivAt('08:00'), offIntervalMinutes: 180 }
     expect(codeOf(() => withProfile('HIMALAYAS_API', p))).toBe('FETCH_PROFILE_INVALID')
+  })
+
+  it.each([60, 360, 1439, 1441])(
+    'SPEC-M-2: fixed slots combined with an interval (%i, not the placeholder 1440)',
+    (intervalMinutes) => {
+      const def = MANIFEST_DEFINITIONS.find((d) => d.type === 'REMOTIVE_API')!
+      const edit = () => ({
+        ...def,
+        entries: [{ ...def.entries[0]!, fetchProfile: { ...kyivAt('09:00'), intervalMinutes } }],
+      })
+      expect(() => build('REMOTIVE_API', edit)).toThrow(
+        `FETCH_PROFILE_INVALID: remotive.api.software-dev: fixed slots carry intervalMinutes ${FIXED_SLOTS_INTERVAL_MINUTES}, not ${intervalMinutes}`,
+      )
+    },
+  )
+
+  it('SPEC-M-2: the placeholder interval of fixed slots is 1440', () => {
+    expect(FIXED_SLOTS_INTERVAL_MINUTES).toBe(1440)
+    expect(fetchProfileProblem(kyivAt('09:00'), 6)).toBeNull()
   })
 
   it('a Remotive schedule whose daily attempts exceed hostRate.perDay', () => {

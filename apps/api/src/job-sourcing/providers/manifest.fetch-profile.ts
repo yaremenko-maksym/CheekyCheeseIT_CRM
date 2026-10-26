@@ -23,6 +23,13 @@ export interface ProfileProblem {
 }
 
 const DAY_MINUTES = 24 * 60
+
+/**
+ * The `intervalMinutes` a `fixedSlots` profile must carry. `nextSlot` ignores it for the grid (the
+ * listed times replace it); it is unused except for the slow-down gap, which it caps at one day
+ * (U1a). U1a's schema requires the field, so this one value stands for "no interval".
+ */
+export const FIXED_SLOTS_INTERVAL_MINUTES = DAY_MINUTES
 /**
  * An IANA `Area/Location` name, as written in the tz database (capitalised, with a slash). `Intl`
  * alone also accepts `UTC`, `EST`, offsets such as `+05:00` and any letter case, none of which names
@@ -55,6 +62,14 @@ export function fetchProfileProblem(profile: unknown, floorHours: number): Profi
         code: 'FETCH_PROFILE_INVALID',
         message: `time zone ${zone} is not an IANA Area/Location name`,
       }
+    }
+  }
+  // SPEC-M-2: ADR section 1 forbids `fixedSlots` combined with an interval. U1a's schema still
+  // requires `intervalMinutes`, so a fixed-slot profile carries exactly the placeholder.
+  if (p.fixedSlots !== undefined && p.intervalMinutes !== FIXED_SLOTS_INTERVAL_MINUTES) {
+    return {
+      code: 'FETCH_PROFILE_INVALID',
+      message: `fixed slots carry intervalMinutes ${FIXED_SLOTS_INTERVAL_MINUTES}, not ${p.intervalMinutes}`,
     }
   }
   const gaps =
