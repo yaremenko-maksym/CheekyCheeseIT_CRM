@@ -22,6 +22,7 @@ import {
   startFixtureServer,
 } from './runtime/__test-helpers__/runtime-harness'
 import type { JobRunWorker } from './runtime/job-run-worker'
+import { ReportingAdapter } from './registry/registered-adapter'
 import type { HostBan } from './scheduling/host-state'
 
 /**
@@ -342,6 +343,78 @@ describe.skipIf(!hasDatabaseUrl())('the daily collection handlers against Postgr
     })
     expect(ran.slice(1).sort()).toEqual(queued.map((q) => q.key).sort())
   }, 40_000)
+
+  /** A source on a host whose rate allows one claim per `60 / perMinute` seconds. */
+  async function rateGapped(perMinute: number) {
+    const hostKey = w.fx.host(`gap${perMinute}`)
+    const policy = { rate: { perMinute, perDay: 1_000 }, floorHours: 0 }
+    seq += 1
+    const a = await w.source({
+      type: 'JOBICY_API',
+      config: { key: `t5-${TAG}-ga${seq}` },
+      hostKey,
+      policy,
+    })
+    seq += 1
+    const b = await w.source({
+      type: 'JOBICY_API',
+      config: { key: `t5-${TAG}-gb${seq}` },
+      hostKey,
+      policy,
+    })
+    return { a, b, keyOf: (id: string) => (id === a.sourceId ? 'a' : 'b') }
+  }
+
+  async function sourceState(sourceId: string) {
+    const { rows } = await w.admin.query(
+      `SELECT last_error_code, next_attempt_at > clock_timestamp() AS ahead,
+              next_attempt_at > clock_timestamp() + interval '1 hour' AS far
+         FROM job_sources WHERE id = $1`,
+      [sourceId],
+    )
+    return rows[0] as { last_error_code: string | null; ahead: boolean; far: boolean }
+  }
+
+  it('SPEC-M-1: a source refused HOST_RATE_GAP whose gap opens inside the window is claimed in the same window', async () => {
+    const { a, b } = await rateGapped(12) // one claim per 5 s on the host
+    const t0 = Date.now()
+    await handler([a.sourceId, b.sourceId], 15_000).svc.handleDailyCollection()
+    const elapsed = Date.now() - t0
+    expect(ran).toHaveLength(2) // A, then B once the gap opened: not DRAINED with B left for tomorrow
+    expect((await runsOf(b.sourceId))[0]).toMatchObject({ outcome: 'SUCCEEDED' })
+    expect(elapsed).toBeGreaterThanOrEqual(4_000) // it really waited for the gap
+    expect(elapsed).toBeLessThan(12_000) // and ended DRAINED, not at the window
+  }, 40_000)
+
+  it('SPEC-M-1: a gap that opens beyond the window ends the window DRAINED, the source left for the next day', async () => {
+    const { a, b } = await rateGapped(1) // one claim per minute
+    const t0 = Date.now()
+    await handler([a.sourceId, b.sourceId], 4_000).svc.handleDailyCollection()
+    expect(Date.now() - t0).toBeLessThan(3_000)
+    expect(ran).toHaveLength(1)
+    expect(await runsOf(b.sourceId)).toHaveLength(0)
+    expect(await sourceState(b.sourceId)).toMatchObject({
+      last_error_code: 'HOST_RATE_GAP',
+      ahead: true,
+    })
+  }, 20_000)
+
+  it.each([
+    ['NOT_ACTIVATABLE', false],
+    ['TRANSPORT_NOT_WIRED', true],
+  ] as const)(
+    'SPEC-L-1: a persistent refusal (%s) is pushed hours out and the window ends DRAINED at once',
+    async (reason, unwired) => {
+      if (unwired) w.registerAdapter(new ReportingAdapter({ type: 'REED_API' } as never))
+      const s = await w.source({ type: 'REED_API', config: { key: `t5-${TAG}-${reason}` } })
+      const t0 = Date.now()
+      await handler([s.sourceId], 6_000).svc.handleDailyCollection()
+      expect(Date.now() - t0).toBeLessThan(2_500) // not the whole window
+      expect(await runsOf(s.sourceId)).toHaveLength(0)
+      expect(await sourceState(s.sourceId)).toMatchObject({ last_error_code: reason, far: true })
+      expect(await w.ledger.countDue({ onlyIds: [s.sourceId], lookaheadMs: 600_000 })).toBe(0)
+    },
+  )
 
   it('AC 11, 12: a ban store that hangs on the post-finish re-write does not hold the slot or stretch the window', async () => {
     fixture.answer = () => ({ status: 429 })

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { type WindowDeps, runCollectionWindow } from './collection-window'
+import { CLOSE_GRACE_MS, type WindowDeps, runCollectionWindow } from './collection-window'
 
 /**
  * r5 Task 2.5 T5 — the window loop over fakes (real timers, tens of milliseconds). The real
@@ -56,7 +56,11 @@ describe('runCollectionWindow', () => {
       cycleId: 'c1',
       onlyTypes: ['ARBEITNOW_API'],
     })
-    expect(d.ledger.countDue.mock.calls[0]?.[0]).toStrictEqual({ onlyTypes: ['ARBEITNOW_API'] })
+    const count = d.ledger.countDue.mock.calls[0]?.[0] as { lookaheadMs: number }
+    expect(count).toStrictEqual({ onlyTypes: ['ARBEITNOW_API'], lookaheadMs: expect.any(Number) })
+    // the look-ahead is what is left of the window: a gap opening inside it keeps the window open
+    expect(count.lookaheadMs).toBeGreaterThan(input.windowMs - 100)
+    expect(count.lookaheadMs).toBeLessThanOrEqual(input.windowMs)
   })
 
   it('calls recoverExpired on EVERY iteration (SR-M-19)', async () => {
@@ -153,7 +157,6 @@ describe('runCollectionWindow', () => {
     const summary = await runCollectionWindow(d, input)
     // due reads 3, 2, 1, then 0: the fourth empty pass ends the window
     expect(summary).toMatchObject({ ended: 'DRAINED', iterations: 4, claimed: 0 })
-    expect(d.ledger.countDue).toHaveBeenCalledWith({ onlyTypes: ['ARBEITNOW_API'] })
   })
 
   it('a failed due count counts as nothing due: a sick database ends the window', async () => {
@@ -173,6 +176,7 @@ describe('runCollectionWindow', () => {
     expect(d.ledger.countDue).toHaveBeenCalledWith({
       onlyTypes: ['ARBEITNOW_API'],
       onlyIds: ['id-1'],
+      lookaheadMs: expect.any(Number),
     })
   })
 
@@ -238,5 +242,46 @@ describe('runCollectionWindow', () => {
     expect(summary.ended).toBe('WINDOW')
     expect(summary.iterations).toBeGreaterThanOrEqual(3)
     expect(summary.iterations).toBeLessThan(12) // ~ 300 / 50, not thousands
+  })
+
+  it('CR-M-1: a closeCycle that never settles is given CLOSE_GRACE_MS, then logged; the handler returns', async () => {
+    vi.useFakeTimers()
+    const d = deps({ closeCycle: () => new Promise(() => undefined) })
+    let done = false
+    const run = runCollectionWindow(d, { ...input, windowMs: 10_000 }).then((r) => {
+      done = true
+      return r
+    })
+    await vi.advanceTimersByTimeAsync(CLOSE_GRACE_MS - 1)
+    expect(done).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    const summary = await run
+    expect(summary.cycleClosed).toBe(false)
+    expect(logger.warn).toHaveBeenCalledWith(
+      'collection window: closing the cycle did not settle within its grace',
+    )
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('closes the cycle even after the window is spent (the grace is on top of it)', async () => {
+    const d = deps({ startDue: () => new Promise(() => undefined), active: () => 1 })
+    const summary = await runCollectionWindow(d, { ...input, windowMs: 50 })
+    expect(summary).toMatchObject({ ended: 'WINDOW', cycleClosed: true })
+  })
+
+  it('a claim that reports the shared cycle closed ends the window at once, without counting or polling', async () => {
+    const d = deps({
+      startDue: () => Promise.reject(new RangeError('no open cycle with that id')),
+    })
+    const summary = await runCollectionWindow(d, { ...input, windowMs: 10_000 })
+    expect(summary).toMatchObject({ ended: 'DRAINED', iterations: 1 })
+    expect(d.ledger.countDue).not.toHaveBeenCalled()
+    // a different failure does not: the count decides
+    const other = deps({ startDue: () => Promise.reject(new RangeError('invalid cycle id')) })
+    await runCollectionWindow(other, input)
+    expect(other.ledger.countDue).toHaveBeenCalledTimes(1)
+    const generic = deps({ startDue: () => Promise.reject(new Error('no open cycle')) })
+    await runCollectionWindow(generic, input)
+    expect(generic.ledger.countDue).toHaveBeenCalledTimes(1)
   })
 })

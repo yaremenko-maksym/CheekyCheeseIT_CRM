@@ -39,9 +39,13 @@ export const DEFAULT_WINDOW_INTERVAL_MS = 30_000
  * silently kills the scheduler for every OTHER cron in the process.
  *
  * Two schedules, both in `Europe/Kyiv`:
- *  - 02:30 HTML types, 05:00 API types plus the legacy DOU collection. 05:00 stays after the
- *    03:00 / 03:30 / 04:00 retention jobs, so an external fetch never contends with them for DB
- *    connections, and comfortably before the working day.
+ *  - 02:30 HTML types, 05:00 API types plus the legacy DOU collection, both in Europe/Kyiv (the ADR
+ *    asks for company time). !! Before T5 the 05:00 cron had NO zone and ran at 05:00 UTC, after the
+ *    03:00 / 03:30 / 03:45 / 04:15 / 04:30 retention crons. Those retention crons are still UTC, so
+ *    05:00 Kyiv (03:00 UTC in winter, 02:00 UTC in summer) now starts together with, and the API
+ *    window (up to `JOB_COLLECTION_WINDOW_MS`) overlaps, the retention jobs: an external fetch can now
+ *    contend with them for DB connections. Accepted for now (Master decision, PR #1169); moving or
+ *    staggering the retention crons is on the backlog.
  *  - each handler: `openCycle` -> `recoverExpired` -> `sweepOrphanReservations` -> (05:00 only)
  *    DOU -> the bounded collection window (`runCollectionWindow`), which closes the cycle.
  *

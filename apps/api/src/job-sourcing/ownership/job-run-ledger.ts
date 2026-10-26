@@ -16,6 +16,7 @@ import {
   validatedCheckpointSchema,
 } from '../providers/reporting-provider'
 import type { JobSourceRegistry } from '../registry/job-source-registry'
+import { MAX_EARLY_DUE_SLACK_MS } from '../scheduling/due-policy'
 import { dueSourcesPredicate } from '../scheduling/due-sources.query'
 import { type SqlExecutor, cadenceHoursAtFloor, claimHostSlot } from '../scheduling/host-state'
 import type { LedgerCatalog } from './ledger-catalog'
@@ -238,15 +239,24 @@ export class JobRunLedger {
    * How many sources of the scope pass the scheduled due predicate right now, WHETHER OR NOT one
    * can be claimed this instant (a busy host, a running account). A handler's window keeps waiting
    * while this is non-zero: a source behind another replica's run is claimed once that run ends. A
-   * claim refusal moves the source's `next_attempt_at` out, so a refused source stops counting.
+   * claim refusal moves the source's `next_attempt_at` out, so a refused source stops counting --
+   * except a host-timed one (`HOST_RATE_GAP`) whose slot opens within `lookaheadMs`: that source
+   * counts, because the window claims it once the gap opens. `lookaheadMs` is clamped to
+   * `MAX_EARLY_DUE_SLACK_MS` (10 min), the longest forward look the due predicate takes; a
+   * persistent refusal is pushed `REFUSAL_RECHECK` (hours) out and never counts.
    */
   async countDue(input: {
     readonly onlyIds?: readonly string[] | undefined
     readonly onlyTypes?: readonly JobSourceType[] | undefined
+    readonly lookaheadMs?: number | undefined
   }): Promise<number> {
+    const lookahead = Math.min(
+      Math.max(0, Math.floor(input.lookaheadMs ?? 0)),
+      MAX_EARLY_DUE_SLACK_MS,
+    )
     const { rows } = await this.db.execute(
       sql`SELECT count(*)::int AS n FROM job_sources
-          WHERE ${dueSourcesPredicate('SCHEDULED', { maxConsecutiveFailures: this.options.maxConsecutiveFailures })}
+          WHERE ${dueSourcesPredicate('SCHEDULED', { maxConsecutiveFailures: this.options.maxConsecutiveFailures, cadenceSlackMs: lookahead })}
             AND ${scopeOf(input.onlyIds, input.onlyTypes)}`,
     )
     return Number(rows[0]?.['n'] ?? 0)
@@ -868,7 +878,6 @@ export async function writePageProgress(
 
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
-/** A uuid[] parameter: drizzle would spread a JS array into a row constructor, so pass it as text. */
 /** The `onlyIds` / `onlyTypes` narrowing of a scheduled pick or count; absent = no narrowing. */
 function scopeOf(
   onlyIds: readonly string[] | undefined,
@@ -887,6 +896,7 @@ function toTypeArray(types: readonly string[]): SQL {
   return sql`${`{${types.join(',')}}`}::text[]`
 }
 
+/** A uuid[] parameter: drizzle would spread a JS array into a row constructor, so pass it as text. */
 function toUuidArray(ids: readonly string[]): SQL {
   for (const id of ids) if (!UUID.test(id)) throw new RangeError('not a uuid')
   return sql`${`{${ids.join(',')}}`}::uuid[]`

@@ -12,7 +12,13 @@ import type { JobRunWorker, RunReport } from './job-run-worker'
  * ends early when a run finishes. The window ends when nothing was claimed, nothing runs and nothing
  * of the set is still due (`DRAINED`), or `windowMs` after `startedAt` (`WINDOW`), whichever comes first, and then closes
  * the cycle. Runs still in flight at the end keep their own deadline; the window does not wait for
- * them, so no slow run, hung ban store or hung database call can stretch it past `windowMs`.
+ * them, so no slow run, hung ban store or hung database call can stretch it past `windowMs`. The
+ * closing call gets `CLOSE_GRACE_MS` more, no longer. NOT covered here: the handler's steps BEFORE
+ * the window (`openCycle`, `recoverExpired`, `sweepOrphanReservations`, the 05:00 DOU collection)
+ * are unbounded; their time is spent out of the window (it is measured from the handler's start).
+ * A source refused `HOST_RATE_GAP` whose gap opens within the ledger's 10-minute look-ahead keeps
+ * the window open and is claimed once it opens; a gap further out, a paused host and a persistent
+ * refusal (`NOT_ACTIVATABLE`, `TRANSPORT_NOT_WIRED`) do not.
  *
  * Every step is in its own try/catch and the function never rejects. The monotonic clock here is
  * the handler's own: the ledger takes no clock.
@@ -47,6 +53,9 @@ export interface WindowSummary {
 }
 
 const TIMED_OUT = Symbol('timed out')
+
+/** What the final `closeCycle` may take once the window is spent (a hung connection must not hold the handler). */
+export const CLOSE_GRACE_MS = 5_000
 
 /** `promise`, or `TIMED_OUT` after `ms` (unref-ed, always cleared). The promise itself is not cancelled. */
 function within<T>(promise: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
@@ -91,13 +100,24 @@ export async function runCollectionWindow(
     iterations += 1
     await step('recoverExpired', () => deps.ledger.recoverExpired())
     let claimedNow = 0
+    let cycleGone = false
     const started = await step('claim', () =>
-      deps.worker.startDue({
-        cycleId: input.cycleId,
-        onlyTypes: input.types,
-        ...(input.onlyIds === undefined ? {} : { onlyIds: input.onlyIds }),
-      }),
+      deps.worker
+        .startDue({
+          cycleId: input.cycleId,
+          onlyTypes: input.types,
+          ...(input.onlyIds === undefined ? {} : { onlyIds: input.onlyIds }),
+        })
+        .catch((error: unknown) => {
+          // Another replica closed the shared cycle: nothing more can be claimed under it.
+          cycleGone = error instanceof RangeError && /no open cycle/.test(error.message)
+          throw error
+        }),
     )
+    if (cycleGone) {
+      ended = 'DRAINED'
+      break
+    }
     if (started !== undefined) {
       claimedNow = started.claimed
       claimed += claimedNow
@@ -115,6 +135,7 @@ export async function runCollectionWindow(
       const due = await step('countDue', () =>
         deps.ledger.countDue({
           onlyTypes: input.types,
+          lookaheadMs: remaining(),
           ...(input.onlyIds === undefined ? {} : { onlyIds: input.onlyIds }),
         }),
       )
@@ -130,7 +151,12 @@ export async function runCollectionWindow(
 
   let cycleClosed = false
   try {
-    cycleClosed = await deps.ledger.closeCycle(input.cycleId)
+    const closed = await within(deps.ledger.closeCycle(input.cycleId), CLOSE_GRACE_MS)
+    if (closed === TIMED_OUT) {
+      deps.logger.warn('collection window: closing the cycle did not settle within its grace')
+    } else {
+      cycleClosed = closed
+    }
   } catch (error) {
     deps.logger.error(`collection window: closing the cycle failed (${nameOf(error)})`)
   }

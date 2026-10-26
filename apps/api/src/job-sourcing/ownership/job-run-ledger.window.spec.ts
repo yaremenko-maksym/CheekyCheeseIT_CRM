@@ -64,6 +64,18 @@ describe('countDue', () => {
     expect(params).not.toContain(3)
   })
 
+  it('looks ahead by lookaheadMs, floored, never negative, and never past the 10-minute limit', async () => {
+    const slackOf = async (lookaheadMs?: number) => {
+      const { ledger, last } = ledgerOver([{ n: 0 }])
+      await ledger.countDue(lookaheadMs === undefined ? {} : { lookaheadMs })
+      return last().params.filter((p) => typeof p === 'number' && p >= 0 && p !== 3)
+    }
+    expect(await slackOf()).toEqual([0])
+    expect(await slackOf(2_500.9)).toEqual([2_500])
+    expect(await slackOf(-5)).toEqual([0])
+    expect(await slackOf(60 * 60_000)).toEqual([600_000]) // MAX_EARLY_DUE_SLACK_MS
+  })
+
   it('no row, or a null count, is zero', async () => {
     expect(await ledgerOver([]).ledger.countDue({})).toBe(0)
     expect(await ledgerOver([{ n: null }]).ledger.countDue({})).toBe(0)
