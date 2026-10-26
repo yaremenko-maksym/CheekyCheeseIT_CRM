@@ -206,6 +206,16 @@ describe('UsersService.changeRole — SEC-03: privilege escalation guard', () =>
     }
   })
 
+  it('SENIOR floor: re-asserting SENIOR on a legacy SENIOR with 1 technology is not a promotion, so it passes', async () => {
+    const seniorId = 'ssssssss-ssss-4sss-ssss-000000000002'
+    const existing = { ...makeDbUser(seniorId, 'SENIOR'), techStack: ['React'] }
+    const db = makeDb({ existingUser: existing, updatedUser: existing })
+    const service = makeUsersService(db)
+    await expect(service.changeRole(seniorId, 'SENIOR', ADMIN_ID)).resolves.toMatchObject({
+      role: 'SENIOR',
+    })
+  })
+
   it('SENIOR floor: a SENIOR with 1 technology -> JUNIOR is unaffected', async () => {
     const seniorId = 'ssssssss-ssss-4sss-ssss-000000000001'
     const existing = { ...makeDbUser(seniorId, 'SENIOR'), techStack: ['React'] }

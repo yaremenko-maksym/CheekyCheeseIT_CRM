@@ -2260,7 +2260,11 @@ describe('UsersService.updateProfile — SENIOR technology floor on a self-edit'
     await makeUsersService(grow).updateProfile('user-1', {
       techStack: ['React', 'Go', 'AWS', 'Docker'],
     })
-    expect(grow.db.update).toHaveBeenCalledTimes(1)
+    const growSet = (grow.db.update as ReturnType<typeof vi.fn>).mock.results[0]?.value
+      ?.set as ReturnType<typeof vi.fn>
+    expect(growSet).toHaveBeenCalledWith(
+      expect.objectContaining({ techStack: ['React', 'Go', 'AWS', 'Docker'] }),
+    )
     const legacy = self('SENIOR', ['React', 'Go'])
     await makeUsersService(legacy).updateProfile('user-1', { techStack: ['React', 'Go'] })
     expect(legacy.db.update).toHaveBeenCalledTimes(1)

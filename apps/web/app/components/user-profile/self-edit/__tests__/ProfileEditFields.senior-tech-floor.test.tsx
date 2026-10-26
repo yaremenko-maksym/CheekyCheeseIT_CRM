@@ -18,8 +18,8 @@ import { ProfileEditFields } from '../ProfileEditFields'
 const FLOOR_UK = 'Сеньйору потрібно щонайменше 3 різні технології'
 
 function makeUser(role: string, techStack: string[]): UserProfileDto {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double, only the fields ProfileEditFields reads are populated
-  return {
+  // Test double: only the fields ProfileEditFields reads are populated.
+  const partial = {
     id: 'u1',
     displayName: 'Test',
     role,
@@ -27,7 +27,8 @@ function makeUser(role: string, techStack: string[]): UserProfileDto {
     telegram: null,
     phone: null,
     techStack,
-  } as any
+  }
+  return partial as unknown as UserProfileDto
 }
 
 const removeChip = (user: ReturnType<typeof userEvent.setup>, tech: string) =>
@@ -50,6 +51,7 @@ describe('ProfileEditFields — SENIOR technology floor', () => {
     const error = screen.getByText(FLOOR_UK)
     const input = screen.getByPlaceholderText('Почніть вводити: React, Node.js…')
     expect(input.getAttribute('aria-describedby')).toBe(error.id)
+    expect(screen.getByText('Технології').className).toContain('text-destructive')
     await act(() => vi.advanceTimersByTimeAsync(1000))
     // The phone widget's own mount-time save of its seeded "+380" is unrelated; no techStack is sent.
     expect(mutate.mock.calls.filter(([patch]) => 'techStack' in (patch as object))).toEqual([])
@@ -63,6 +65,7 @@ describe('ProfileEditFields — SENIOR technology floor', () => {
     })
     await removeChip(user, 'Go')
     expect(screen.queryByText(FLOOR_UK)).toBeNull()
+    expect(screen.getByText('Технології').className).not.toContain('text-destructive')
     await act(() => vi.advanceTimersByTimeAsync(1000))
     expect(mutate).toHaveBeenCalledWith({ techStack: ['React'] })
   })

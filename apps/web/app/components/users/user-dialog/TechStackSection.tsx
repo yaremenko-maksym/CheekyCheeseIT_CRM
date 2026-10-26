@@ -12,7 +12,7 @@ type AnyForm = ReactFormExtendedApi<any, any, any, any, any, any, any, any, any,
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 interface TechStackSectionProps {
-  form: Pick<AnyForm, 'Field'>
+  form: Pick<AnyForm, 'Field' | 'Subscribe'>
   /** The stored user on edit (`null` on create) — see `seniorTechStackError`. */
   editingUser?: { role: string; techStack?: string[] | null | undefined } | null | undefined
 }
@@ -30,33 +30,34 @@ export function TechStackSection({ form, editingUser }: TechStackSectionProps) {
     : undefined
   return (
     <Section title={t`Професія`}>
-      <form.Field
-        name="techStack"
-        validators={{
-          onChangeListenTo: ['role'],
-          onChange: ({ value, fieldApi }) =>
-            fieldApi.form.state.submissionAttempts > 0
-              ? seniorTechStackError(fieldApi.form.getFieldValue('role'), value, original)
-              : undefined,
-          onSubmit: ({ value, fieldApi }) =>
-            seniorTechStackError(fieldApi.form.getFieldValue('role'), value, original),
-        }}
-      >
-        {(field) => {
-          const err = field.state.meta.errors[0] as string | undefined
-          return (
-            <Field label={t`Технології`} error={err} errorId={errorId}>
-              <TechAutocompleteInput
-                value={field.state.value}
-                onChange={field.handleChange}
-                onBlur={field.handleBlur}
-                placeholder={t`Почніть вводити: React, Node.js…`}
-                errorId={err ? errorId : undefined}
-              />
-            </Field>
-          )
-        }}
-      </form.Field>
+      <form.Subscribe selector={(s) => [s.values.role as string, s.submissionAttempts] as const}>
+        {([role, attempts]) => (
+          <form.Field
+            name="techStack"
+            validators={{
+              onSubmit: ({ value }) => seniorTechStackError(role, value, original),
+            }}
+          >
+            {(field) => {
+              // Recomputed from the current role + stack after the first submit, so the
+              // message follows every change and never goes stale.
+              const err =
+                attempts > 0 ? seniorTechStackError(role, field.state.value, original) : undefined
+              return (
+                <Field label={t`Технології`} error={err} errorId={errorId}>
+                  <TechAutocompleteInput
+                    value={field.state.value}
+                    onChange={field.handleChange}
+                    onBlur={field.handleBlur}
+                    placeholder={t`Почніть вводити: React, Node.js…`}
+                    errorId={err ? errorId : undefined}
+                  />
+                </Field>
+              )
+            }}
+          </form.Field>
+        )}
+      </form.Subscribe>
     </Section>
   )
 }

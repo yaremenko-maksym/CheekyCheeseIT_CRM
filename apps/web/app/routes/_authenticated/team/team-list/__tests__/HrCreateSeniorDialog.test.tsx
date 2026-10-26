@@ -704,6 +704,14 @@ describe('HrCreateSeniorDialog — SENIOR technology floor (>= 3 distinct)', () 
     expect(mockedPost).not.toHaveBeenCalled()
   })
 
+  it('stays quiet while technologies are added before the first submit', async () => {
+    const user = userEvent.setup()
+    renderDialog()
+    await addTech(user, 'React')
+    expect(screen.queryByText(FLOOR_UK)).toBeNull()
+    expect(techEl().getAttribute('aria-describedby')).toBeNull()
+  })
+
   it('clears the error once a third distinct technology is added, then submits', async () => {
     const user = userEvent.setup()
     renderDialog()

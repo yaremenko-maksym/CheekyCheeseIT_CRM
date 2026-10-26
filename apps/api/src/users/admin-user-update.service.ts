@@ -126,7 +126,8 @@ export class AdminUserUpdateService {
     // SENIOR technology floor: on a role change TO SENIOR or an actual stack
     // change; an unrelated edit of a legacy SENIOR below the floor still passes.
     const stackChanged = techStackChanged(data.techStack, existing.techStack)
-    if ((effectiveRole === 'SENIOR' && existing.role !== 'SENIOR') || stackChanged) {
+    // (`assertSeniorTechFloor` is a no-op unless `effectiveRole` is SENIOR.)
+    if (existing.role !== 'SENIOR' || stackChanged) {
       assertSeniorTechFloor(
         effectiveRole,
         stackChanged ? (data.techStack ?? null) : existing.techStack,

@@ -248,31 +248,31 @@ export function HrCreateSeniorDialog({
 
             {/* Tech Stack */}
             {/* A SENIOR needs at least 3 distinct technologies (shared rule). */}
-            <form.Field
-              name="techStack"
-              validators={{
-                onChange: ({ value, fieldApi }) =>
-                  fieldApi.form.state.submissionAttempts > 0
-                    ? seniorTechStackError('SENIOR', value)
-                    : undefined,
-                onSubmit: ({ value }) => seniorTechStackError('SENIOR', value),
-              }}
-            >
-              {(field) => {
-                const err = field.state.meta.errors[0] as string | undefined
-                return (
-                  <Field label={t`Технології`} error={err} errorId={techErrorId}>
-                    <TechAutocompleteInput
-                      value={field.state.value}
-                      onChange={field.handleChange}
-                      onBlur={field.handleBlur}
-                      placeholder={t`Почніть вводити: React, Node.js…`}
-                      errorId={err ? techErrorId : undefined}
-                    />
-                  </Field>
-                )
-              }}
-            </form.Field>
+            <form.Subscribe selector={(s) => s.submissionAttempts}>
+              {(attempts) => (
+                <form.Field
+                  name="techStack"
+                  validators={{ onSubmit: ({ value }) => seniorTechStackError('SENIOR', value) }}
+                >
+                  {(field) => {
+                    // Recomputed after the first submit, so it follows every change.
+                    const err =
+                      attempts > 0 ? seniorTechStackError('SENIOR', field.state.value) : undefined
+                    return (
+                      <Field label={t`Технології`} error={err} errorId={techErrorId}>
+                        <TechAutocompleteInput
+                          value={field.state.value}
+                          onChange={field.handleChange}
+                          onBlur={field.handleBlur}
+                          placeholder={t`Почніть вводити: React, Node.js…`}
+                          errorId={err ? techErrorId : undefined}
+                        />
+                      </Field>
+                    )
+                  }}
+                </form.Field>
+              )}
+            </form.Subscribe>
 
             {/* Telegram */}
             <form.Field
