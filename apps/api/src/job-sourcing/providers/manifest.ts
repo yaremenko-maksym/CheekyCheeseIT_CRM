@@ -24,7 +24,12 @@ import {
 } from './manifest.hosts'
 import { isWellFormedDecision, liftsUnclear, type OwnerDecision } from './owner-decisions'
 import type { DetailMode } from './detail-mode'
-import { UNSCHEDULED_TYPES, attemptsIn, fetchProfileProblem } from './manifest.fetch-profile'
+import {
+  UNSCHEDULED_TYPES,
+  attemptsIn,
+  attemptsPerDay,
+  fetchProfileProblem,
+} from './manifest.fetch-profile'
 import type { FetchProfile } from '../scheduling/next-slot'
 import type { ReportingJobSourceProvider } from './reporting-provider'
 
@@ -720,9 +725,8 @@ function fetchProfileOf(def: TypeDefinition, e: EntryDefinition): FetchProfile |
 
 /** A host's daily rate (Remotive: 4) holds against every scheduled attempt of the type's entries. */
 function checkHostDay(def: TypeDefinition, profiles: readonly (FetchProfile | null)[]): void {
-  const perDay = def.hostRate?.perDay
-  if (perDay === undefined) return
-  const attempts = profiles.reduce((n, p) => n + attemptsIn(p, 24 * 60), 0)
+  const perDay = def.hostRate?.perDay ?? Number.POSITIVE_INFINITY
+  const attempts = profiles.reduce((n, p) => n + attemptsPerDay(p), 0)
   if (attempts > perDay) {
     throw new ManifestError(
       'HOST_RATE_INVALID',

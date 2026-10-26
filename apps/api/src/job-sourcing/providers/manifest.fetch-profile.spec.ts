@@ -4,6 +4,7 @@ import type { FetchProfile } from '../scheduling/next-slot'
 import { buildManifest, ManifestError, type TypeDefinition } from './manifest'
 import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
 import { MANIFEST_DEFINITIONS } from './manifest.definitions'
+import { attemptsIn, attemptsPerDay, fetchProfileProblem } from './manifest.fetch-profile'
 
 /**
  * U1b: the fetch profile as manifest data (source fetch strategy ADR, sections 1 and 8). The
@@ -144,6 +145,106 @@ describe('the fetch profile of every manifest entry (ADR section 8)', () => {
       expect(codeOf(() => withProfile(type, daily(1440)))).toBe('FETCH_PROFILE_INVALID')
     },
   )
+})
+
+describe('the profile is resolved entry over type, and null exactly for the deferred types', () => {
+  /** Edits ONE entry's own profile, the type default left as it is. */
+  const withEntryProfile = (type: string, p: unknown) =>
+    build(type, (d) => ({
+      ...d,
+      entries: d.entries.map((e, i) => (i === 0 ? { ...e, fetchProfile: p as FetchProfile } : e)),
+    }))
+
+  it('an entry of a deferred type may not override its null default with a profile', () => {
+    expect(() => withEntryProfile('HN_HIRING', daily(1440))).toThrow(
+      'FETCH_PROFILE_INVALID: hn-hiring.thread.latest: an unscheduled type (owner, Q8) takes a null profile',
+    )
+  })
+
+  it('an entry of any other type may not be null', () => {
+    expect(() => withEntryProfile('JOBICY_API', null)).toThrow(
+      'FETCH_PROFILE_INVALID: jobicy.api.engineering-europe: needs a fetch profile',
+    )
+  })
+
+  it('an entry with no profile of its own and no type default needs one', () => {
+    expect(() => withProfile('JOBICY_API', undefined)).toThrow(
+      'FETCH_PROFILE_INVALID: jobicy.api.engineering-europe: needs a fetch profile',
+    )
+  })
+
+  it('a type default is checked even with no entries (SmartRecruiters), and may be absent', () => {
+    expect(() => withProfile('SMARTRECRUITERS_ATS', daily(1440))).toThrow(
+      'FETCH_PROFILE_INVALID: SMARTRECRUITERS_ATS: its default profile',
+    )
+    expect(codeOf(() => withProfile('SMARTRECRUITERS_ATS', undefined))).toBeNull()
+  })
+
+  it('an entry`s own profile wins over the type default', () => {
+    const m = withEntryProfile('JOBICY_API', daily(1440))
+    expect(m.entries.find((e) => e.id === 'jobicy.api.engineering-europe')!.fetchProfile).toEqual(
+      daily(1440),
+    )
+  })
+})
+
+describe('fetchProfileProblem and attemptsIn (pure)', () => {
+  const fixed = (times: string[]) => ({
+    ...kyivAt(times[0]!),
+    fixedSlots: { timeZone: 'Europe/Kyiv', times },
+  })
+
+  it('fixed slots are compared in time order, the gap across midnight included', () => {
+    // 02:00 and 23:00: gaps 21 h and 3 h, so a 3 h floor holds whatever order they are listed in.
+    expect(fetchProfileProblem(fixed(['23:00', '02:00']), 3)).toBeNull()
+    expect(fetchProfileProblem(fixed(['02:00', '23:00']), 4)?.code).toBe('CADENCE_INVALID')
+  })
+
+  it('a slot`s minutes count: 09:00 and 14:30 are 5 h 30 min apart', () => {
+    expect(fetchProfileProblem(fixed(['09:00', '14:30']), 5)).toBeNull()
+    expect(fetchProfileProblem(fixed(['09:00', '14:30']), 6)).toEqual({
+      code: 'CADENCE_INVALID',
+      message: "330 min between attempts is under the 6 h the provider's terms allow",
+    })
+  })
+
+  it('every schema issue is reported, separated by "; "', () => {
+    const p = fetchProfileProblem(
+      { ...daily(0), window: { ...weekday('Europe/Berlin', 1, 1).window, days: [] } },
+      0,
+    )
+    expect(p?.code).toBe('FETCH_PROFILE_INVALID')
+    expect(p?.message).toMatch(/^profile\.intervalMinutes: .+; profile\.window\.days: /)
+  })
+
+  it('names the zone that is not Area/Location', () => {
+    expect(fetchProfileProblem(weekday('UTC', 60, 180), 0)).toEqual({
+      code: 'FETCH_PROFILE_INVALID',
+      message: 'time zone UTC is not an IANA Area/Location name',
+    })
+  })
+
+  it.each(['america/Argentina/Buenos_Aires', 'europe/berlin'])(
+    'a zone Intl accepts in another letter case (%s) is refused',
+    (z) => {
+      expect(fetchProfileProblem(weekday(z, 60, 180), 0)?.code).toBe('FETCH_PROFILE_INVALID')
+    },
+  )
+
+  it('a three-part zone is Area/Location', () => {
+    expect(fetchProfileProblem(weekday('America/Argentina/Buenos_Aires', 60, 180), 0)).toBeNull()
+  })
+
+  it('attempts: none for a null profile; hand-counted for the others', () => {
+    expect(attemptsIn(null, 30 * 1440)).toBe(0)
+    expect(attemptsPerDay(null)).toBe(0)
+    // 08:00-19:00 hourly is 11, plus 8 at 3 h through the day.
+    expect(attemptsPerDay(weekday('Europe/Berlin', 60, 180) as FetchProfile)).toBe(19)
+    expect(attemptsPerDay(kyivAt('09:00') as FetchProfile)).toBe(1)
+    expect(attemptsPerDay(daily(360) as FetchProfile)).toBe(4)
+    // Mondays only: at most 5 in any 30 days.
+    expect(attemptsIn(mondays(10080) as FetchProfile, 30 * 1440)).toBe(5)
+  })
 })
 
 describe('the build refuses each profile section 1 forbids', () => {

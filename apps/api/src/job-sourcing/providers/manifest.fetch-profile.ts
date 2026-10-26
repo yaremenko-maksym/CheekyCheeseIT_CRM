@@ -24,10 +24,12 @@ export interface ProfileProblem {
 
 const DAY_MINUTES = 24 * 60
 /**
- * An IANA `Area/Location` name. `Intl` alone also accepts `UTC`, `EST` and offsets such as `+05:00`,
- * none of which is a region's working day (the next-slot module leaves this stricter rule here).
+ * An IANA `Area/Location` name, as written in the tz database (capitalised, with a slash). `Intl`
+ * alone also accepts `UTC`, `EST`, offsets such as `+05:00` and any letter case, none of which names
+ * a region's working day (the next-slot module leaves this stricter rule here). The schema has
+ * already checked that `Intl` knows the zone.
  */
-const AREA_LOCATION = /^[A-Z][A-Za-z_-]*(?:\/[A-Za-z0-9_+-]+)+$/
+const isAreaLocation = (zone: string): boolean => /^[A-Z]/.test(zone) && zone.includes('/')
 
 const minutesOf = (t: string): number => Number(t.slice(0, 2)) * 60 + Number(t.slice(3))
 
@@ -48,7 +50,7 @@ export function fetchProfileProblem(profile: unknown, floorHours: number): Profi
   }
   const p = parsed.data
   for (const zone of [p.window?.timeZone, p.fixedSlots?.timeZone]) {
-    if (zone !== undefined && !AREA_LOCATION.test(zone)) {
+    if (zone !== undefined && !isAreaLocation(zone)) {
       return {
         code: 'FETCH_PROFILE_INVALID',
         message: `time zone ${zone} is not an IANA Area/Location name`,
@@ -87,3 +89,7 @@ export function attemptsIn(profile: FetchProfile | null, minutes: number): numbe
     profile.offIntervalMinutes === null ? 0 : Math.ceil(DAY_MINUTES / profile.offIntervalMinutes)
   return activeDays * inWindow + days * off
 }
+
+/** The attempts a profile schedules in one day: what a host's `perDay` rate is checked against. */
+export const attemptsPerDay = (profile: FetchProfile | null): number =>
+  attemptsIn(profile, DAY_MINUTES)

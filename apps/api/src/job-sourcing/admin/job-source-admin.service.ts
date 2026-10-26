@@ -125,7 +125,9 @@ export class JobSourceAdminService {
     // A NULL manifest id resolves to no entry: the ledger's daily fallback.
     const entry = this.ledger.catalog.entry(manifestId)
     const first = nextAttemptAt(new Date(Number(r['next_attempt_ms'])), manifestId, entry)
-    const second = first === null ? null : nextAttemptAt(first, manifestId, entry)
-    return second !== null && Number(r['now_ms']) > second.getTime()
+    // A first slot implies a profile, so the second exists too.
+    return (
+      first !== null && Number(r['now_ms']) > nextAttemptAt(first, manifestId, entry)!.getTime()
+    )
   }
 }
