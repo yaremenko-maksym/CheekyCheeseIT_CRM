@@ -73,7 +73,7 @@ describe('CreateTransactionDialog — salary month payload', () => {
     fireEvent.click(screen.getByTestId('create-transaction-submit'))
 
     await waitFor(() => expect(createSalary).toHaveBeenCalledTimes(1))
-    expect(createSalary.mock.calls[0][0]).toMatchObject({
+    expect(createSalary.mock.lastCall?.[0]).toMatchObject({
       receiverId: 'junior-1',
       salaryMonth: '2026-03',
     })

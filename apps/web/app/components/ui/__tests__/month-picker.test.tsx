@@ -31,10 +31,10 @@ const MONTH = 'create-transaction-salary-month-select'
 const YEAR = 'create-transaction-salary-year-select'
 
 function Harness(props: {
-  initial?: string
-  minMonth?: string
-  maxMonth?: string
-  onChange?: (v: string) => void
+  initial?: string | undefined
+  minMonth?: string | undefined
+  maxMonth?: string | undefined
+  onChange?: ((v: string) => void) | undefined
 }) {
   const [v, setV] = useState(props.initial ?? '')
   return (

@@ -16,21 +16,21 @@ interface MonthPickerFieldProps {
   /** Only ever emits a complete 'YYYY-MM'. */
   onChange: (v: string) => void
   /** 'YYYY-MM' inclusive; undefined = unbounded. */
-  minMonth?: string
+  minMonth?: string | undefined
   /** 'YYYY-MM' inclusive; undefined = unbounded. */
-  maxMonth?: string
-  disabled?: boolean
+  maxMonth?: string | undefined
+  disabled?: boolean | undefined
   /** Applied to the month trigger (label target). */
-  id?: string
-  'aria-invalid'?: boolean
-  'aria-describedby'?: string
-  'aria-labelledby'?: string
-  'data-testid'?: string
+  id?: string | undefined
+  'aria-invalid'?: boolean | undefined
+  'aria-describedby'?: string | undefined
+  'aria-labelledby'?: string | undefined
+  'data-testid'?: string | undefined
 }
 
 // 'YYYY-MM' -> months since year 0; split() on purpose, a Date round-trip drifts with TZ.
 function toIndex(ym: string): number {
-  const [y, m] = ym.split('-').map(Number)
+  const [y = 0, m = 1] = ym.split('-').map(Number)
   return y * 12 + (m - 1)
 }
 
@@ -93,7 +93,7 @@ export function MonthPickerField({
       <Select
         value={selMonth ? pad(selMonth) : ''}
         onValueChange={(m) => emit(monthYear, Number(m))}
-        disabled={disabled}
+        disabled={disabled ?? false}
       >
         <SelectTrigger
           id={id}
@@ -125,7 +125,7 @@ export function MonthPickerField({
       <Select
         value={selYear ? String(selYear) : ''}
         onValueChange={(y) => emit(Number(y), selMonth ?? curMonth)}
-        disabled={disabled}
+        disabled={disabled ?? false}
       >
         <SelectTrigger
           aria-label={t`Рік зарплати`}
