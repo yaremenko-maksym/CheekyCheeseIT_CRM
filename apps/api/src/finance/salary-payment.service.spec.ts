@@ -861,6 +861,11 @@ describe('SalaryPaymentService.createMonthlySalaries', () => {
       insertedSalaryIds: ['sal-hr', 'sal-jr'],
     })
     await h.svc.createMonthlySalaries('2026-10')
+    // SR-H-1 (PR #1158): the cron rows used to be written with NULL tx_date. They now carry
+    // `resolveTransactionDate(null)` — the Kyiv business day of the run (mocked here to
+    // TX_DATE; its Kyiv semantics are covered by transaction-date.util.spec.ts).
+    expect(txDateMock).toHaveBeenCalledWith(null)
+    const kyivDay = TX_DATE
 
     const claims = h.inserts.filter((i) => 'initializedBy' in i.row).map((i) => i.row)
     expect(claims).toEqual([
@@ -881,6 +886,7 @@ describe('SalaryPaymentService.createMonthlySalaries', () => {
         salaryOrigin: 'CRON',
         fundingSource: null,
         createdBy: 'some-admin',
+        txDate: kyivDay,
       },
       {
         type: 'SALARY',
@@ -895,6 +901,7 @@ describe('SalaryPaymentService.createMonthlySalaries', () => {
         salaryOrigin: 'CRON',
         fundingSource: null,
         createdBy: 'some-admin',
+        txDate: kyivDay,
       },
     ])
     expect(h.lifecycle.afterTransactionCreated).toHaveBeenNthCalledWith(

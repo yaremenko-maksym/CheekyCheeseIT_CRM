@@ -57,9 +57,32 @@ export const COLLECTION_ERROR_CODES = [
   'CURSOR_CYCLE',
   'PAYLOAD_TOO_LARGE',
   'ADAPTER_INVARIANT',
+  // r5 Task 2.5 T3 (the run ledger owns these; T7 only raises them):
+  // the executor no longer owns its run (wrong token, superseded epoch, or lease gone).
+  'RUN_FENCED',
+  // recovery ended a run whose lease expired (crash, fence, a shutdown that could not finish).
+  'LEASE_EXPIRED',
+  // a fetch was attempted without a committed markSent (T7's send-permit guard).
+  'NOT_MARKED_SENT',
+  // r5 Task 2.5 T7 (SR-M-21): the host refused a request and its ban could not be written; the
+  // worker writes it again after `finish`.
+  'HOST_BAN_UNRECORDED',
 ] as const
 
 export type CollectionErrorCode = (typeof COLLECTION_ERROR_CODES)[number]
+
+const KNOWN_COLLECTION_CODES: ReadonlySet<string> = new Set(COLLECTION_ERROR_CODES)
+
+/**
+ * The collection code a thrown value already carries (r5 Task 2.5 T7): the production context
+ * refuses with `NOT_MARKED_SENT`, `RUN_FENCED`, `DEADLINE` and the like, and a loop that relabels
+ * such a refusal as a network blink reports the wrong cause. Null for anything else.
+ */
+export function collectionCodeOf(error: unknown): CollectionErrorCode | null {
+  const code =
+    typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : null
+  return KNOWN_COLLECTION_CODES.has(code as string) ? (code as CollectionErrorCode) : null
+}
 
 /** The redaction placeholder. Asserted BY NAME in tests, so both halves of "the key is gone and
  * something marks where it was" are checkable. */

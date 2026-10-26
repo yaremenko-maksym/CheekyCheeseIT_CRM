@@ -27,14 +27,11 @@ import { boundedString, dateRaw, optionalString, positiveSafeInt, urlString } fr
  * that outgrows 10 MiB fails as `PAYLOAD_TOO_LARGE` for THAT BOARD, loudly; list+detail is the
  * escape hatch for that day and is NOT built here.
  *
- * !! THE 10 MiB IS A DECLARATION, NOT A GUARANTEE. `FetchRequest.maxBytes` now exists and the
- * request carries this cap (a test pins it), and `http/bounded-fetch.ts` honours it in place of
- * its 2 MiB default. But a declared cap is only as good as the transport that enforces it and the
- * order in which the body is parsed relative to that cap; nothing in this file proves either, and
- * the transport is not wired to this adapter yet. See the entry in
- * `.claude/tasks/BACKLOG-followups.md` titled "An adapter's declared byte cap cannot reach the
- * transport, so a source whose pages exceed the transport's default is refused before its own cap
- * is consulted".
+ * THE 10 MiB REACHES THE TRANSPORT (Task 2.5 T6). The request carries it in
+ * `FetchRequest.maxBytes`, the production context passes it to `boundedFetchText` in place of the
+ * 2 MiB default, and the transport refuses a body past it before anything parses it:
+ * `runtime/raised-cap.fixture-server.spec.ts` runs this adapter end to end at exactly the cap and
+ * one byte over it.
  *
  * - NAMESPACE `greenhouse:{token}`: a board is the scope, so the same job seen on two runs keeps
  *   one identity. `id` is the native id.

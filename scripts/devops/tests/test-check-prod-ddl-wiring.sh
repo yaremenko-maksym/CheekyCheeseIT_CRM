@@ -1486,4 +1486,141 @@ assert_red "script_path: in a form the guard cannot resolve -> red, not silently
   --contains "cannot resolve" \
   -- run_guard "$(make_script_path_case sp-unresolvable "$SCRIPT_PATH_UNRESOLVABLE_YML" "$APPLY_SCRIPT")"
 
+# ── single-transaction invariant (backlog 337, 2026-10-25) ──────────────────────
+# A file whose header carries `--   psql ... --single-transaction < <this file>`
+# must be applied by a psql command that carries the flag. Before this, the only
+# check was a drift spec over the file's DOCUMENTED apply line; the real psql call
+# could drop the flag and nothing went red.
+SINGLE_TX_HEADER='--   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>'
+SINGLE_TX_DASH1_HEADER='--   psql -v ON_ERROR_STOP=1 -1 < <this file>'
+NO_TX_PROSE_HEADER='-- MUST NOT be applied with `psql -1` / `--single-transaction`'
+
+# $1 = case name, $2 = header line written into the DDL file, $3 = extra psql
+# flags inserted after `-v ON_ERROR_STOP=1` (may be empty), $4 = optional text
+# appended after the apply line (a trailing comment, for the cheat case).
+# $5 = optional DDL file name (default $DDL), for the pinned-name cases.
+make_single_tx_case() {
+  local name="$1" header="$2" flags="$3" trailer="${4-}" ddl="${5:-$DDL}"
+  local root="$WS/$name" yml
+  yml="${WIRED_YML//ON_ERROR_STOP=1 </ON_ERROR_STOP=1 ${flags:+$flags }<}"
+  yml="${yml//$DDL/$ddl}"
+  # The apply line is WIRED_YML's last line, so a trailer lands beside the call.
+  [ -n "$trailer" ] && yml="$yml   $trailer"
+  root="$(make_case "$name" "$yml" "$ddl")"
+  printf '%s\nUPDATE t SET c = c;\n' "$header" >"$root/apps/api/drizzle/manual/$ddl"
+  printf '%s' "$root"
+}
+
+assert_green "single-transaction: a file declaring it, applied with --single-transaction -> green" \
+  --contains "Files requiring a --single-transaction apply: 1" \
+  --contains "Applies missing --single-transaction: 0" \
+  -- run_guard "$(make_single_tx_case stx-ok "$SINGLE_TX_HEADER" "--single-transaction")"
+
+assert_green "single-transaction: psql's short form -1 counts as the flag -> green" \
+  --contains "Files requiring a --single-transaction apply: 1" \
+  --contains "Applies missing --single-transaction: 0" \
+  -- run_guard "$(make_single_tx_case stx-dash1 "$SINGLE_TX_DASH1_HEADER" "-1")"
+
+assert_red "single-transaction: a file declaring it, applied WITHOUT the flag -> red, names the file" \
+  --contains "Applies missing --single-transaction: 1" \
+  --contains "$DDL: psql" \
+  --contains "half-applied migration" \
+  -- run_guard "$(make_single_tx_case stx-missing "$SINGLE_TX_HEADER" "")"
+
+assert_red "single-transaction: the flag only in a trailing comment beside the call -> still red" \
+  --contains "Applies missing --single-transaction: 1" \
+  -- run_guard "$(make_single_tx_case stx-comment-cheat "$SINGLE_TX_HEADER" "" "# --single-transaction")"
+
+assert_green "single-transaction: prose that FORBIDS -1 is not a declaration (CONCURRENTLY-style files) -> green" \
+  --contains "Files requiring a --single-transaction apply: 0" \
+  --contains "Applies missing --single-transaction: 0" \
+  -- run_guard "$(make_single_tx_case stx-prose "$NO_TX_PROSE_HEADER" "")"
+
+# SR-M-1 (security review PR #1155): header discovery fails open. A pinned file
+# whose header was reformatted so the pattern no longer matches must go red,
+# even though it is still applied WITH the flag.
+PINNED_DDL="2026-10-24_job_sources_manifest_delta.sql"
+REFORMATTED_HEADER='-- How to apply: run psql with ON_ERROR_STOP and single-transaction on this file'
+
+assert_green "single-transaction: a pinned file with its apply-line header, applied with the flag -> green" \
+  --contains "Applies missing --single-transaction: 0" \
+  -- run_guard "$(make_single_tx_case stx-pinned-ok "$SINGLE_TX_HEADER" "--single-transaction" "" "$PINNED_DDL")"
+
+assert_red "single-transaction: a pinned file whose header was reformatted (pattern no longer matches) -> red, not a silent 0" \
+  --contains "Files requiring a --single-transaction apply: 1" \
+  --contains "Applies missing --single-transaction: 1" \
+  --contains "$PINNED_DDL: pinned in PINNED_SINGLE_TX_FILES" \
+  -- run_guard "$(make_single_tx_case stx-pinned-reformatted "$REFORMATTED_HEADER" "--single-transaction" "" "$PINNED_DDL")"
+
+assert_red "single-transaction: a pinned file with a reformatted header AND no flag -> red" \
+  --contains "Applies missing --single-transaction: 2" \
+  -- run_guard "$(make_single_tx_case stx-pinned-reformatted-noflag "$REFORMATTED_HEADER" "" "" "$PINNED_DDL")"
+
+# SR-M-3 (security review PR #1155): the pin is by name, not by presence in manual/.
+# A pinned file the deploy still applies, but which left manual/, must go red even
+# when its psql call carries the flag (before the fix the pin silently dropped out).
+make_pinned_moved_out_case() {
+  local root
+  root="$(make_single_tx_case "$1" "$SINGLE_TX_HEADER" "$2" "" "$PINNED_DDL")"
+  rm "$root/apps/api/drizzle/manual/$PINNED_DDL"
+  printf '%s' "$root"
+}
+
+assert_red "single-transaction: a pinned file moved out of manual/ but still applied (with the flag) -> red, names the file" \
+  --contains "not a wired file in manual/" \
+  --contains "$PINNED_DDL" \
+  -- run_guard "$(make_pinned_moved_out_case stx-pinned-moved-flag "--single-transaction")"
+
+assert_red "single-transaction: a pinned file moved out of manual/ AND applied without the flag -> red" \
+  --contains "not a wired file in manual/" \
+  --contains "Applies missing --single-transaction: 2" \
+  -- run_guard "$(make_pinned_moved_out_case stx-pinned-moved-noflag "")"
+
+# SPEC-L-1 (a): the other way a pin can drop out of `files` — parked in
+# KNOWN_NOT_WIRED (file still in manual/, deploy still applies it). The fixture
+# patches the COPIED guard's KNOWN_NOT_WIRED; the repo's guard is untouched.
+make_pinned_parked_case() {
+  local root
+  root="$(make_single_tx_case "$1" "$SINGLE_TX_HEADER" "--single-transaction" "" "$PINNED_DDL")"
+  sed -i.bak "s/^KNOWN_NOT_WIRED = {/KNOWN_NOT_WIRED = {\"$PINNED_DDL\",/" "$root/scripts/devops/$GUARD"
+  grep -q "^KNOWN_NOT_WIRED = {\"$PINNED_DDL\"," "$root/scripts/devops/$GUARD" || echo "FIXTURE PATCH DID NOT APPLY" >&2
+  printf '%s' "$root"
+}
+
+assert_red "single-transaction: a pinned file parked in KNOWN_NOT_WIRED while the deploy still applies it -> red, names the file" \
+  --contains "not a wired file in manual/" \
+  --contains "KNOWN_NOT_WIRED" \
+  --contains "$PINNED_DDL" \
+  -- run_guard "$(make_pinned_parked_case stx-pinned-parked)"
+
+# SPEC-L-1 (b): a pin whose file is deleted AND no longer applied is a clean
+# retirement, not a violation (pin is `& (files | applied_names)`).
+assert_green "single-transaction: a pinned file deleted and no longer applied (another file wired) -> green" \
+  --contains "Files requiring a --single-transaction apply: 0" \
+  --contains "Applies missing --single-transaction: 0" \
+  -- run_guard "$(make_single_tx_case stx-pinned-retired "$NO_TX_PROSE_HEADER" "")"
+
+# ── hard-required list continuation (2026-10-25) ────────────────────────────────
+# Both lists are one backslash-continued shell command. A blank line inside one
+# was on main in both copies at once (so the mirror check stayed green) and made
+# the rollback preflight a bash syntax error.
+BLANK_PREFLIGHT_YML="${MIRROR_BASE_YML/docker-compose.prod.yml \\$'\n'/docker-compose.prod.yml \\$'\n\n'}"
+BLANK_RUNBOOK_MD="${MIRROR_MATCH_MD/docker-compose.prod.yml \\$'\n'/docker-compose.prod.yml \\$'\n\n'}"
+
+assert_green "continuation: both hard-required lists unbroken -> green" \
+  --contains "Broken line continuations in hard-required lists: 0" \
+  -- run_guard "$(make_mirror_case cont-ok "$MIRROR_BASE_YML" "$MIRROR_MATCH_MD")"
+
+assert_red "continuation: a blank line inside deploy.yml's preflight list -> red (bash syntax error), mirror drift still 0" \
+  --contains "Broken line continuations in hard-required lists: 1" \
+  --contains "Hard-required list drift (preflight vs runbook): 0" \
+  --contains "deploy.yml preflight line" \
+  --contains "(blank line)" \
+  -- run_guard "$(make_mirror_case cont-preflight-blank "$BLANK_PREFLIGHT_YML" "$MIRROR_MATCH_MD")"
+
+assert_red "continuation: a blank line inside the runbook's git log list -> red (later paths silently dropped)" \
+  --contains "Broken line continuations in hard-required lists: 1" \
+  --contains "runbook mirror line" \
+  -- run_guard "$(make_mirror_case cont-runbook-blank "$MIRROR_BASE_YML" "$BLANK_RUNBOOK_MD")"
+
 guard_test_summary "test-check-prod-ddl-wiring.sh"

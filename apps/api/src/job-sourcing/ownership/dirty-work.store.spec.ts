@@ -1,0 +1,415 @@
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
+import { describe, expect, it } from 'vitest'
+import type { SqlExecutor } from '../scheduling/host-state'
+import {
+  claimDirtyBatch,
+  completeDirty,
+  DirtyKindUnsupportedError,
+  DirtyWorkFencedError,
+  type DirtyWorkHandle,
+  dirtyWorkStatements,
+  enqueueDirty,
+  failDirty,
+  recoverExpiredDirty,
+} from './dirty-work.store'
+
+/**
+ * r5 Task 4.6 S3 — the dirty-work store against a scripted executor. The real-DB behaviour
+ * (SKIP LOCKED, lease expiry, version comparison) is proven in the integration spec; this spec
+ * pins validation, outcome mapping and the parameters each statement carries.
+ */
+const dialect = new PgDialect()
+const render = (q: SQL) => dialect.sqlToQuery(q)
+
+const ID = '0b6a6f6e-8f43-4c55-9c4a-6c3f3e1f2a10'
+const ENTITY = '7d9b0d1c-2e5f-4a8b-9c6d-1e2f3a4b5c6d'
+
+function scripted(rows: Record<string, unknown>[] = []) {
+  const seen: { sql: string; params: unknown[] }[] = []
+  const tx: SqlExecutor = {
+    execute: (q: SQL) => {
+      seen.push(render(q))
+      return Promise.resolve({ rows })
+    },
+  }
+  return { tx, seen }
+}
+
+const handle = (over: Partial<DirtyWorkHandle> = {}): DirtyWorkHandle => ({
+  id: ID,
+  owner: 'worker-1',
+  fencingEpoch: 3,
+  entityKind: 'OPPORTUNITY',
+  ...over,
+})
+
+describe('enqueueDirty', () => {
+  it('reports a returned row as inserted and no row (a duplicate) as a no-op', async () => {
+    await expect(
+      enqueueDirty(scripted([{ id: ID }]).tx, 'OPPORTUNITY', ENTITY, 2, 'R'),
+    ).resolves.toEqual({ inserted: true })
+    await expect(enqueueDirty(scripted([]).tx, 'OPPORTUNITY', ENTITY, 2, 'R')).resolves.toEqual({
+      inserted: false,
+    })
+  })
+
+  it('inserts with ON CONFLICT DO NOTHING on the unique key, with the given values', async () => {
+    const { tx, seen } = scripted([{ id: ID }])
+    await enqueueDirty(tx, 'SOURCE_RECORD', ENTITY, 7, 'SOURCE_REVISION')
+    expect(seen).toHaveLength(1)
+    expect(seen[0]!.sql).toContain(
+      'ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING',
+    )
+    expect(seen[0]!.params).toEqual(['SOURCE_RECORD', ENTITY, 7, 'SOURCE_REVISION', null])
+    expect(seen[0]!.sql).toContain('target_version, reason, cycle_id)')
+  })
+
+  it('carries a given cycle id (CR-M-3)', async () => {
+    const { tx, seen } = scripted([{ id: ID }])
+    await enqueueDirty(tx, 'SOURCE_RECORD', ENTITY, 7, 'SOURCE_REVISION', ID)
+    expect(seen[0]!.params).toEqual(['SOURCE_RECORD', ENTITY, 7, 'SOURCE_REVISION', ID])
+  })
+
+  it.each([
+    ['a non-uuid cycle id', 'nope'],
+    ['a cycle id with a trailing character', `${ID}x`],
+  ])('refuses %s before any SQL', async (_label, cycleId) => {
+    const { tx, seen } = scripted([{ id: ID }])
+    await expect(enqueueDirty(tx, 'OPPORTUNITY', ENTITY, 1, 'R', cycleId)).rejects.toThrow(
+      new RangeError('cycleId must be a lowercase uuid'),
+    )
+    expect(seen).toHaveLength(0)
+  })
+
+  it('refuses an unknown kind before any SQL', async () => {
+    const { tx, seen } = scripted()
+    await expect(enqueueDirty(tx, 'NOPE' as 'OPPORTUNITY', ENTITY, 1, 'R')).rejects.toThrow()
+    expect(seen).toHaveLength(0)
+  })
+
+  const UUID_MSG = 'entityId must be a lowercase uuid'
+  const REASON_MSG = 'reason must be non-blank and at most 100 characters'
+  it.each([
+    ['a non-uuid entity', 'x', 1, 'R', UUID_MSG],
+    ['a uuid with a leading character', `x${ENTITY}`, 1, 'R', UUID_MSG],
+    ['a uuid with a trailing character', `${ENTITY}x`, 1, 'R', UUID_MSG],
+    ['version 0', ENTITY, 0, 'R', 'version must be an integer in 1..9007199254740991, got 0'],
+    [
+      'a fractional version',
+      ENTITY,
+      1.5,
+      'R',
+      'version must be an integer in 1..9007199254740991, got 1.5',
+    ],
+    ['a blank reason', ENTITY, 1, '   ', REASON_MSG],
+    ['a 101-character reason', ENTITY, 1, 'R'.repeat(101), REASON_MSG],
+  ])('refuses %s before any SQL', async (_label, id, version, reason, message) => {
+    const { tx, seen } = scripted()
+    const err = enqueueDirty(tx, 'OPPORTUNITY', id, version, reason)
+    await expect(err).rejects.toThrow(RangeError)
+    await expect(err).rejects.toThrow(message)
+    expect(seen).toHaveLength(0)
+  })
+
+  it('accepts a 100-character reason and version 1', async () => {
+    const { tx, seen } = scripted([{ id: ID }])
+    await enqueueDirty(tx, 'OPPORTUNITY', ENTITY, 1, 'R'.repeat(100))
+    expect(seen).toHaveLength(1)
+  })
+})
+
+describe('claimDirtyBatch', () => {
+  const row = (id: string, epoch: number) => ({
+    id,
+    entity_kind: 'OPPORTUNITY',
+    entity_id: ENTITY,
+    target_version: '4',
+    reason: 'CANONICAL_REVISION',
+    fencing_epoch: String(epoch),
+    retry_count: 1,
+  })
+
+  it('defaults to a batch of 200 and a five-minute lease, SKIP LOCKED', async () => {
+    const { tx, seen } = scripted()
+    await claimDirtyBatch(tx, { owner: 'w' })
+    expect(seen[0]!.sql).toContain('FOR UPDATE SKIP LOCKED')
+    expect(seen[0]!.sql).toContain("WHERE status = 'PENDING'")
+    expect(seen[0]!.sql).toContain('fencing_epoch = d.fencing_epoch + 1')
+    // Default kinds: exactly those with a version source (CR-M-2).
+    expect(seen[0]!.sql).toContain('AND entity_kind IN ($1, $2)')
+    expect(seen[0]!.params).toEqual(['SOURCE_RECORD', 'OPPORTUNITY', 200, 'w', 300_000])
+  })
+
+  it('passes an explicit batch size and lease', async () => {
+    const { tx, seen } = scripted()
+    await claimDirtyBatch(tx, { owner: 'w', batchSize: 1000, leaseMs: 3_600_000 })
+    expect(seen[0]!.params).toEqual(['SOURCE_RECORD', 'OPPORTUNITY', 1000, 'w', 3_600_000])
+  })
+
+  it('claims only the kinds it is given', async () => {
+    const { tx, seen } = scripted()
+    await claimDirtyBatch(tx, { owner: 'w', kinds: ['OPPORTUNITY'] })
+    expect(seen[0]!.sql).toContain('AND entity_kind IN ($1)')
+    expect(seen[0]!.params).toEqual(['OPPORTUNITY', 200, 'w', 300_000])
+  })
+
+  it('refuses an empty kind list before any SQL', async () => {
+    const { tx, seen } = scripted()
+    await expect(claimDirtyBatch(tx, { owner: 'w', kinds: [] })).rejects.toThrow(
+      new RangeError('kinds must name at least one kind'),
+    )
+    expect(seen).toHaveLength(0)
+  })
+
+  it.each(['SENIOR', 'EXCLUSION', 'PROJECT_CLIENT'] as const)(
+    'refuses to claim kind %s, which completeDirty could not finish',
+    async (kind) => {
+      const { tx, seen } = scripted()
+      const err = claimDirtyBatch(tx, { owner: 'w', kinds: ['OPPORTUNITY', kind] })
+      await expect(err).rejects.toBeInstanceOf(DirtyKindUnsupportedError)
+      await expect(err).rejects.toThrow(`dirty work of kind ${kind} has no version source yet`)
+      expect(seen).toHaveLength(0)
+    },
+  )
+
+  it('refuses an unknown kind before any SQL', async () => {
+    const { tx, seen } = scripted()
+    await expect(
+      claimDirtyBatch(tx, { owner: 'w', kinds: ['NOPE' as 'OPPORTUNITY'] }),
+    ).rejects.toThrow()
+    expect(seen).toHaveLength(0)
+  })
+
+  it.each([
+    ['batch 0', { batchSize: 0 }, 'batchSize must be an integer in 1..1000, got 0'],
+    [
+      'batch above the cap',
+      { batchSize: 1001 },
+      'batchSize must be an integer in 1..1000, got 1001',
+    ],
+    ['a fractional batch', { batchSize: 2.5 }, 'batchSize must be an integer in 1..1000, got 2.5'],
+    ['lease 0', { leaseMs: 0 }, 'leaseMs must be an integer in 1..3600000, got 0'],
+    [
+      'a lease above an hour',
+      { leaseMs: 3_600_001 },
+      'leaseMs must be an integer in 1..3600000, got 3600001',
+    ],
+  ])('refuses %s before any SQL', async (_label, over, message) => {
+    const { tx, seen } = scripted()
+    const err = claimDirtyBatch(tx, { owner: 'w', ...over })
+    await expect(err).rejects.toThrow(RangeError)
+    await expect(err).rejects.toThrow(message)
+    expect(seen).toHaveLength(0)
+  })
+
+  it.each([
+    ['an empty owner', ''],
+    ['a 201-character owner', 'o'.repeat(201)],
+    ['a non-string owner', 42 as unknown as string],
+  ])('refuses %s', async (_label, owner) => {
+    const { tx, seen } = scripted()
+    const err = claimDirtyBatch(tx, { owner })
+    await expect(err).rejects.toThrow(RangeError)
+    await expect(err).rejects.toThrow('owner must be 1..200 characters')
+    expect(seen).toHaveLength(0)
+  })
+
+  it('accepts a 200-character owner', async () => {
+    const { tx, seen } = scripted()
+    await claimDirtyBatch(tx, { owner: 'o'.repeat(200) })
+    expect(seen).toHaveLength(1)
+  })
+
+  it('maps rows to numeric handles carrying the owner', async () => {
+    const later = '1b6a6f6e-8f43-4c55-9c4a-6c3f3e1f2a10'
+    const { tx } = scripted([row(later, 5)])
+    const got = await claimDirtyBatch(tx, { owner: 'w' })
+    expect(got).toHaveLength(1)
+    expect(got[0]).toEqual({
+      id: later,
+      owner: 'w',
+      fencingEpoch: 5,
+      entityKind: 'OPPORTUNITY',
+      entityId: ENTITY,
+      targetVersion: 4,
+      reason: 'CANONICAL_REVISION',
+      retryCount: 1,
+    })
+  })
+})
+
+describe('completeDirty', () => {
+  it('returns DONE / DEFERRED as the statement reports', async () => {
+    await expect(completeDirty(scripted([{ status: 'DONE' }]).tx, handle())).resolves.toBe('DONE')
+    await expect(completeDirty(scripted([{ status: 'DEFERRED' }]).tx, handle())).resolves.toBe(
+      'DEFERRED',
+    )
+  })
+
+  it('refuses a stale handle (no row) as fenced', async () => {
+    await expect(completeDirty(scripted([]).tx, handle())).rejects.toMatchObject({
+      name: 'DirtyWorkFencedError',
+      code: 'DIRTY_WORK_FENCED',
+      message: 'the dirty-work row is not held by this claimer',
+    })
+  })
+
+  it('names id, owner, epoch, kind, CLAIMED and a live lease, and reads the version by kind', async () => {
+    const { tx, seen } = scripted([{ status: 'DONE' }])
+    await completeDirty(tx, handle({ entityKind: 'SOURCE_RECORD' }))
+    const s = seen[0]!.sql
+    expect(s).toContain('FROM job_source_record_heads WHERE source_record_id = w.entity_id')
+    expect(s).toContain('claim_owner = $')
+    expect(s).toContain('fencing_epoch = $')
+    expect(s).toContain("status = 'CLAIMED' AND lease_expires_at > clock_timestamp()")
+    expect(seen[0]!.params).toEqual([
+      ID,
+      'ENTITY_MISSING',
+      'VERSION_STALE',
+      ID,
+      'worker-1',
+      3,
+      'SOURCE_RECORD',
+    ])
+  })
+
+  it('reads an opportunity version from job_opportunities.revision', async () => {
+    const { tx, seen } = scripted([{ status: 'DONE' }])
+    await completeDirty(tx, handle())
+    expect(seen[0]!.sql).toContain('SELECT revision FROM job_opportunities WHERE id = w.entity_id')
+  })
+
+  it.each(['SENIOR', 'EXCLUSION', 'PROJECT_CLIENT'] as const)(
+    'refuses kind %s, which has no version source, before any SQL',
+    async (entityKind) => {
+      const { tx, seen } = scripted([{ status: 'DONE' }])
+      const err = completeDirty(tx, handle({ entityKind }))
+      await expect(err).rejects.toBeInstanceOf(DirtyKindUnsupportedError)
+      await expect(err).rejects.toMatchObject({
+        name: 'DirtyKindUnsupportedError',
+        code: 'DIRTY_KIND_UNSUPPORTED',
+        message: `dirty work of kind ${entityKind} has no version source yet`,
+      })
+      expect(seen).toHaveLength(0)
+    },
+  )
+
+  it.each([
+    ['a non-uuid id', { id: 'nope' }],
+    ['an id with a leading character', { id: `x${ID}` }],
+    ['an id with a trailing character', { id: `${ID}x` }],
+    ['an empty owner', { owner: '' }],
+    ['a 201-character owner', { owner: 'o'.repeat(201) }],
+    ['a non-string owner', { owner: 42 as unknown as string }],
+    ['epoch 0', { fencingEpoch: 0 }],
+    ['a fractional epoch', { fencingEpoch: 1.5 }],
+  ])('refuses %s as fenced before any SQL', async (_label, over) => {
+    const { tx, seen } = scripted([{ status: 'DONE' }])
+    const err = completeDirty(tx, handle(over))
+    await expect(err).rejects.toBeInstanceOf(DirtyWorkFencedError)
+    await expect(err).rejects.toThrow('a malformed dirty-work handle holds nothing')
+    expect(seen).toHaveLength(0)
+  })
+
+  it('accepts epoch 1 and a 200-character owner', async () => {
+    const { tx } = scripted([{ status: 'DONE' }])
+    await expect(
+      completeDirty(tx, handle({ fencingEpoch: 1, owner: 'o'.repeat(200) })),
+    ).resolves.toBe('DONE')
+  })
+})
+
+describe('failDirty', () => {
+  it('maps PENDING to RETRY and FAILED to FAILED', async () => {
+    await expect(
+      failDirty(scripted([{ status: 'PENDING' }]).tx, handle(), 'HTTP_500'),
+    ).resolves.toBe('RETRY')
+    await expect(
+      failDirty(scripted([{ status: 'FAILED' }]).tx, handle(), 'HTTP_500'),
+    ).resolves.toBe('FAILED')
+  })
+
+  it('refuses a stale handle', async () => {
+    await expect(failDirty(scripted([]).tx, handle(), 'HTTP_500')).rejects.toBeInstanceOf(
+      DirtyWorkFencedError,
+    )
+  })
+
+  it('carries the code and a default budget of 5 attempts', async () => {
+    const { tx, seen } = scripted([{ status: 'PENDING' }])
+    await failDirty(tx, handle(), 'HTTP_500')
+    expect(seen[0]!.params.slice(0, 3)).toEqual([5, 5, 'HTTP_500'])
+    expect(seen[0]!.sql).toContain('retry_count = retry_count + 1')
+  })
+
+  it('carries an explicit budget', async () => {
+    const { tx, seen } = scripted([{ status: 'PENDING' }])
+    await failDirty(tx, handle(), 'HTTP_500', { maxAttempts: 20 })
+    expect(seen[0]!.params.slice(0, 2)).toEqual([20, 20])
+  })
+
+  it('refuses a lowercase code before any SQL', async () => {
+    const { tx, seen } = scripted([{ status: 'PENDING' }])
+    await expect(failDirty(tx, handle(), 'oops')).rejects.toThrow()
+    expect(seen).toHaveLength(0)
+  })
+
+  it.each([
+    ['budget 0', { maxAttempts: 0 }, 'maxAttempts must be an integer in 1..20, got 0'],
+    ['a budget above 20', { maxAttempts: 21 }, 'maxAttempts must be an integer in 1..20, got 21'],
+  ])('refuses %s before any SQL', async (_label, opts, message) => {
+    const { tx, seen } = scripted([{ status: 'PENDING' }])
+    const err = failDirty(tx, handle(), 'HTTP_500', opts)
+    await expect(err).rejects.toThrow(RangeError)
+    await expect(err).rejects.toThrow(message)
+    expect(seen).toHaveLength(0)
+  })
+
+  it('refuses a malformed handle before any SQL', async () => {
+    const { tx, seen } = scripted([{ status: 'PENDING' }])
+    await expect(failDirty(tx, handle({ fencingEpoch: 0 }), 'HTTP_500')).rejects.toBeInstanceOf(
+      DirtyWorkFencedError,
+    )
+    expect(seen).toHaveLength(0)
+  })
+})
+
+describe('recoverExpiredDirty', () => {
+  it('counts requeued and failed rows', async () => {
+    const { tx } = scripted([{ status: 'PENDING' }, { status: 'FAILED' }, { status: 'PENDING' }])
+    await expect(recoverExpiredDirty(tx)).resolves.toEqual({ requeued: 2, failed: 1 })
+  })
+
+  it('bumps the epoch, counts the attempt, defaults to 200 rows and 5 attempts', async () => {
+    const { tx, seen } = scripted()
+    await expect(recoverExpiredDirty(tx)).resolves.toEqual({ requeued: 0, failed: 0 })
+    const s = seen[0]!.sql
+    expect(s).toContain("status = 'CLAIMED' AND lease_expires_at <= clock_timestamp()")
+    expect(s).toContain('FOR UPDATE SKIP LOCKED')
+    expect(s).toContain('fencing_epoch = d.fencing_epoch + 1')
+    expect(s).toContain('retry_count = d.retry_count + 1')
+    expect(seen[0]!.params).toEqual([200, 5, 5, 'LEASE_EXPIRED'])
+  })
+
+  it('carries explicit options and refuses out-of-range ones', async () => {
+    const { tx, seen } = scripted()
+    await recoverExpiredDirty(tx, { batchSize: 10, maxAttempts: 2 })
+    expect(seen[0]!.params).toEqual([10, 2, 2, 'LEASE_EXPIRED'])
+    await expect(recoverExpiredDirty(tx, { batchSize: 1001 })).rejects.toThrow(
+      new RangeError('batchSize must be an integer in 1..1000, got 1001'),
+    )
+    await expect(recoverExpiredDirty(tx, { maxAttempts: 21 })).rejects.toThrow(
+      new RangeError('maxAttempts must be an integer in 1..20, got 21'),
+    )
+    expect(seen).toHaveLength(1)
+  })
+})
+
+describe('dirtyWorkStatements', () => {
+  it('claims oldest-first within the batch limit', () => {
+    const s = render(dirtyWorkStatements.claim('w', 5, 1000, ['OPPORTUNITY'])).sql
+    expect(s).toContain('ORDER BY created_at, id')
+    expect(s).toContain("SET status = 'CLAIMED'")
+  })
+})

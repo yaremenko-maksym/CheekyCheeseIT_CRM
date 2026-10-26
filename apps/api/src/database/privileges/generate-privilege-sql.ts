@@ -32,6 +32,7 @@ import {
   RETENTION_OWNER_COLUMN_WRITE_GRANTS,
   ROLES,
   MANUAL_DDL_RELATIONS,
+  STAGED_RELATIONS,
   appendOnlyTriggers,
   collectorColumns,
   retentionOwnerFunctions,
@@ -90,7 +91,7 @@ function relationClassValues(): string {
     relationsOf(cls).map(
       (relation) =>
         `    (${literal(relation)}, ${literal(cls)}, ${
-          relation in MANUAL_DDL_RELATIONS ? 'true' : 'false'
+          relation in MANUAL_DDL_RELATIONS || relation in STAGED_RELATIONS ? 'true' : 'false'
         })`,
     ),
   )
@@ -207,6 +208,30 @@ $seqs$;
 }
 
 /**
+ * The grant for STAGED relations (see STAGED_RELATIONS): the class's privileges, one table at a
+ * time, only where the table exists. A plain `GRANT … ON TABLE` would fail with 42P01 on a
+ * database the staged file has not reached, and abort the whole grants transaction.
+ */
+export function stagedGrantSql(
+  tables: readonly string[],
+  privileges: readonly string[],
+  role: string,
+): string {
+  const lines = tables.map(
+    (t) =>
+      `  IF to_regclass(${literal(`public.${ident(t)}`)}) IS NOT NULL THEN\n` +
+      `    GRANT ${privileges.join(', ')} ON TABLE public.${t} TO ${ident(role)};\n` +
+      `  END IF;`,
+  )
+  return `-- staged relations (drizzle/manual-staged/): granted only where they exist.
+DO $staged$
+BEGIN
+${lines.join('\n')}
+END
+$staged$;`
+}
+
+/**
  * File 2 of ADR §4 — the grants, applied LAST on every deploy, as ONE transaction.
  *
  * Shape: revoke everything from the three roles, then grant back exactly what each class
@@ -309,8 +334,13 @@ $columns$;
         out.push(`--   ${roleName}: nothing.`)
         continue
       }
-      const list = relations.map((r) => `  public.${r}`).join(',\n')
-      out.push(`GRANT ${privileges.join(', ')} ON TABLE\n${list}\n  TO ${ident(roleName)};`)
+      const present = relations.filter((r) => !(r in STAGED_RELATIONS))
+      const staged = relations.filter((r) => r in STAGED_RELATIONS)
+      if (present.length > 0) {
+        const list = present.map((r) => `  public.${r}`).join(',\n')
+        out.push(`GRANT ${privileges.join(', ')} ON TABLE\n${list}\n  TO ${ident(roleName)};`)
+      }
+      if (staged.length > 0) out.push(stagedGrantSql(staged, privileges, roleName))
     }
     out.push('')
   }

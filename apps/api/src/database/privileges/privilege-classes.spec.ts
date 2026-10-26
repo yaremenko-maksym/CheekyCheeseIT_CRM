@@ -43,6 +43,7 @@ import {
   RETENTION_OWNER_EVIDENCE_COLUMN_GRANT,
   RETENTION_OWNER_REDACTION_COLUMN_GRANT,
   RETENTION_OWNER_TABLE_PRIVILEGES,
+  STAGED_RELATIONS,
   VIEW_CLASS,
   appendOnlyTriggers,
   collectorColumns,
@@ -178,9 +179,10 @@ describe('privilege-class manifest', () => {
     // And the other claim, equally checkable: a named file must EXIST and must actually
     // create the relation. A path written in a field is a claim nothing checked; this is
     // the same claim, checked.
-    expect(fromFile.filter(([, e]) => !e.file.startsWith('drizzle/manual/'))).toEqual([])
+    // `manual-staged/` holds a file written ahead of its DevOps wiring PR (the #1142 -> #1155 route).
+    expect(fromFile.filter(([, e]) => !/^drizzle\/manual(-staged)?\//.test(e.file))).toEqual([])
     const pathOf = (file: string): string =>
-      join(MANUAL_DIR, file.replace(/^drizzle\/manual\//, '').split(' ')[0] as string)
+      join(MANUAL_DIR, '..', file.replace(/^drizzle\//, '').split(' ')[0] as string)
     expect(fromFile.filter(([, e]) => !existsSync(pathOf(e.file))).map(([r]) => r)).toEqual([])
     expect(
       fromFile
@@ -209,6 +211,31 @@ describe('privilege-class manifest', () => {
     // go — otherwise the check would stop requiring it to exist.
     const declared = new Set([...schemaTableNames(), ...schemaViewNames()])
     expect(Object.keys(MANUAL_DDL_RELATIONS).filter((r) => declared.has(r))).toEqual([])
+  })
+
+  it('declares STAGED relations only for Drizzle tables whose staged file creates them (Task 4.5)', () => {
+    // A staged entry makes the catalog check stop requiring the table and guards its grant,
+    // so each one must be a real schema table, classified, and created by a file that is
+    // still in manual-staged/: once the file moves to manual/, the entry must go with it.
+    const tables = new Set(schemaTableNames())
+    const entries = Object.entries(STAGED_RELATIONS)
+    expect(entries.length).toBeGreaterThan(0)
+    expect(entries.filter(([r]) => !tables.has(r)).map(([r]) => r)).toEqual([])
+    expect(entries.filter(([r]) => relationClass(r) === undefined).map(([r]) => r)).toEqual([])
+    expect(entries.filter(([, e]) => !e.file.startsWith('drizzle/manual-staged/'))).toEqual([])
+    const pathOf = (file: string) => join(MANUAL_DIR, '..', file.replace(/^drizzle\//, ''))
+    expect(
+      entries
+        .filter(
+          ([r, e]) =>
+            !existsSync(pathOf(e.file)) ||
+            !new RegExp(`CREATE TABLE IF NOT EXISTS ${r}\\b`).test(
+              readFileSync(pathOf(e.file), 'utf8'),
+            ),
+        )
+        .map(([r]) => r),
+    ).toEqual([])
+    expect(entries.filter(([r]) => r in MANUAL_DDL_RELATIONS).map(([r]) => r)).toEqual([])
   })
 
   it('assigns no table to the view class', () => {

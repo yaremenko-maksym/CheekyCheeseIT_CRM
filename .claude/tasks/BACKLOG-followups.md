@@ -6209,6 +6209,7 @@ Sources: PR #1133 review round 1 (code-reviewer CR-M-2, spec-reviewer SPEC-M-1, 
 - **Still open — same bug class, other dialogs.** `usePayoutPaymentForm`'s `payoutMinDate` and `SettleSeniorPayoutDialog`'s `settleMinDate` still read the UTC day of `createdAt` when `txDate` is NULL; the server enforces the real bound. Check: a test per dialog, pinned under both zones.
 - **Still open — smaller items.** (a) `getSeniorSummary` keeps `salaryMonth` on the UTC month of `now` while the incomes use the Kyiv month, a 2-3 hour mismatch inside one response (CR-M-2 of #1143). (b) `PaySalaryDialog` compares the Kyiv 'today' with the UTC-day source key when choosing the default pay date (predates #1146). (c) The offset-keyed tests in `tx-date.test.ts` return silently in an unpinned developer zone; the `tz:*` projects pin the zone in CI. (d) The pin test's `value >= '2026-10-20'` default-date assertion is weaker than its two literal neighbours. (e) `new Date(...).toISOString()` in the dialog throws a `RangeError` on an unparseable `createdAt` and would break its rendering (existing behaviour). (f) A code comment in `PaySalaryDialog.tsx` quotes a Russian UI label; comments in the repo are English.
 - **Owner decisions this leaves.** (1) Move the server floor for NULL-`txDate` rows to the Kyiv business day (closes QA-LOW-1 and the two dialogs above in one change). (2) Backfill NULL `txDate` — a production-data operation — which would make the whole class, and the `kyivMonthOf` fallback branch, disappear.
+- **Addendum 2026-10-25 — both owner decisions approved; the fallback removal is the last step.** The backfill is staged in `apps/api/drizzle/manual-staged/` (PR #1158) and needs a DevOps PR to wire it; the NULL-`txDate` writers (company IOU rows, the salary cron) now persist a date. Delete the `kyivMonthOf` fallback, and the NULL branch of `businessMonthWindow`, only after the owner confirms on production that `SELECT count(*) FROM transactions WHERE tx_date IS NULL` returns 0 once the new API version is live. Verification: no reference to `kyivMonthOf` remains and the graph, tiles and senior stats still agree for a month-boundary row.
 
 ## 339. The Arbeitnow 8 MiB cap is a declaration until Task 2.5 wires the transport (2026-10-24)
 
@@ -6253,3 +6254,93 @@ Task 2.5 builds. Its brief must carry all three.
   step.
 
 Sources: PR #1139 review round 1 (security-reviewer SR-M-2, SR-L-3, SR-L-4).
+
+## 341. Task 2.5 leftovers: what the T3–T9 reviews carried out of scope (2026-10-26)
+
+**Open** — Task 2.5 is merged (T8 with package B #1153, T3 #1160, T9 #1161, T7 #1162, T6 #1165, T5 #1169).
+Every H/M finding of those reviews was closed or answered in its PR body; the items below are the LOW findings
+and the deliberate "not done" answers, grouped by area. Each names a symbol or behaviour, not a place. Entries
+339 and 340 are closed by this work (Arbeitnow cap and host pin: T6; cross-run stop-on-ban: T8 and T7; the seed
+delta claim-step item (c) of 340 is not closed).
+
+**Run ledger (T3).**
+
+- `JobRunLedger` file size: the module is over the 800-line limit (main already was). Split it as one atomic,
+  behaviour-preserving PR with the `decomposing-large-code` skill (CR-M-2 of PR #1169).
+- The "a page was saved" rule in `endRun` counts a moved checkpoint as a page, so an adapter that alternates
+  checkpoints A→B→A with zero records could earn NEUTRAL instead of FAILURE. Harden: require `received > 0` or a
+  monotone cursor for a PARTIAL ending to count as progress.
+- The idle-host filter (`HOST_IDLE`) ignores an expired-lease `STARTED` run that `claimHostSlot` still refuses, so
+  an unrecovered stuck host burns claim-scan slots until recovery.
+- `claimGate` does not check `host_key` against the adapter's `allowedHosts`; today `host_key` is written only by
+  the seed migration.
+- Settling a reservation found on an unlocked meter throws and would wedge `finish`; unreachable while the binding
+  check holds.
+- `openCycle` with an already-existing key writes a new row version each time (WAL only).
+- `savePage` bounds each statement, not the whole page transaction (the ADR prescribes this).
+
+**Run worker and context (T7, T6).**
+
+- The post-finish re-write of an unrecorded ban is bounded only at the caller (T5's `boundedWrite`); on drain
+  expiry only the first in-flight ban is flagged `unrecordedBan`.
+- The local lease starts when the context is built, not at claim; ban-write retries run back to back with no
+  backoff; `onModuleDestroy` does not abort in-flight runs; the heartbeat pool has no statement or connection
+  timeout; the production heartbeat pool has not run against a real database; the production response cache is
+  per run and in memory.
+- RSS and XML loops still report a context refusal (DEADLINE, RUN_FENCED) as a network error.
+- A late ban awaiting its 30 s retry lives in memory only and is lost if the process exits in that window.
+- The resolved IP of a pinned host is never checked against private ranges (DNS rebinding is not blocked; the hosts
+  are fixed vendor names, so exposure is small; predates T6).
+- `reporting-wiring` has four `as unknown as` casts.
+- The ADR table "Every way a run ends" has no row for a run that loses its local lease while the database row is
+  still ours (ends FAILED with RUN_FENCED and counts +1 with backoff). ADR text is the Architect's zone.
+- **Reed** does not meter its requests (the manifest declares a quota, so the claim requires a meter, and the
+  production context refuses Reed's first request with `NOT_MARKED_SENT`: fails closed, nothing is charged). The
+  adapter must reserve one request per request, like Jooble; AC 9 of T7 excepts Reed until then. Separate task
+  with AutoTest for the adapter spec. Working Nomads has no fetch path and stays unwired.
+
+**ADMIN reset and listing (T9).**
+
+- `listExcluded` has no `LIMIT` (the table is small and the route ADMIN-only), counts a source as capped at a
+  constant 3 although the ledger cap is configurable (1..5), and can answer 500 if a stored `host_key` exceeds 253
+  characters or `last_error_code` / `pause_reason` exceed 64.
+- Zod `.uuid()` is stricter than `ParseUUIDPipe`; a hand-seeded non-RFC-4122 id would make the listing's response
+  parse throw.
+- `@Throttle` on the reset route is declared but no spec exercises it.
+- `resetFailures` sets `next_attempt_at` to now, which skips the meter-reset wait after a COST_STOP ending; confirm
+  the meter reservation still enforces the budget on the next run. It does not clear `last_error_code`, so a source
+  capped on a claim refusal can stay listed as CLAIM_REFUSED until its next claim. The free-text `reason` is stored
+  as written.
+
+**Cron handlers (T5).**
+
+- The DOU cron now runs at 05:00 Kyiv (03:00 UTC in winter, 02:00 UTC in summer) and overlaps the UTC retention
+  crons: move the retention crons to Europe/Kyiv or stagger them.
+- `openCycle`, `recoverExpired`, the sweep and the DOU collection before the window are unbounded and their time
+  counts against the window; a hung database call there delays DOU. `closeCycle` is bounded (5 s) but a timeout can
+  leave the cycle OPEN, and replica A closing the shared cycle at the end of its window ends replica B's window.
+- A handler retriggered the same Kyiv day after its cycle closed gets no claims. The "no open cycle" short-circuit
+  matches on the error text; replace it by a typed error from the ledger.
+- `tuning.onlyIds` is a mutable test seam on a production service. The cron wiring spec takes about 27 s to import.
+- `JOB_COLLECTION_WINDOW_MS` is missing from `.env.example` and the deploy environment (DevOps; the 1 h default
+  applies). The look-ahead of `countDue` is clamped to the 10-minute maximum of the due predicate; a host gap longer
+  than that would not keep a window open (the manifest allows no rate below 1 per minute, so it cannot happen today).
+
+**Deploy wiring and review hygiene (package B, #1155).**
+
+- The headers of the two moved T8 SQL files and of the single-flight file still say STAGED and name the wrong
+  predecessor: edit the single-flight file by hand; the manifest delta is generated, so change `generateSeedDelta`
+  and regenerate. Check: grep `STAGED` and `manual-staged` over both files in the applied directory is empty.
+- A pinned file in the applied directory that the deploy does not apply is not caught by the single-transaction
+  function itself (the separate wiring checks cover it); a pin whose file was deleted and is no longer applied
+  silently drops out.
+- `appleboy/scp-action` is pinned by tag, not by commit, in every copy step.
+- `retrySql` has no ceiling for a finite but huge delay (unreachable today); SR-L-12 of the same review round.
+- Reviewers of one PR must not share a scratch file name: on PR #1169 the security reviewer's body overwrote the
+  spec reviewer's, and review 5646287260 carries the wrong text (the right one is 5646345746). Dismiss the stale
+  review when convenient.
+- Scratch databases left on the local Postgres: `crm_scratch_t3ledger`, `crm_scratch_t3fix1`, `crm_scratch_t9admin`,
+  `crm_scratch_t7e2e`, `crm_scratch_t6transport`, `crm_t5_scratch`; drop them.
+
+Sources: PR #1153, #1160, #1161, #1162, #1165, #1169 review rounds (code, security and spec axes) and the
+2026-10-24 ADR "Job-source run ownership".

@@ -1,32 +1,151 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { type JobSourceType, jobSourceTypeSchema } from '@crm/shared'
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { Cron } from '@nestjs/schedule'
+import { DEFAULT_JOB_COLLECTION_WINDOW_MS, type Env } from '../config/env'
 import { dbErrorLogSuffix, safeErrorStack } from '../database/pg-errors'
 import { JobSourcingService } from './job-sourcing.service'
+import { JobRunLedger } from './ownership/job-run-ledger'
+import { runCollectionWindow } from './runtime/collection-window'
+import { JobRunWorker } from './runtime/job-run-worker'
+
+/** Both daily handlers run on the company's clock, not the server's (ADR T5, F7). */
+export const CRON_TIME_ZONE = 'Europe/Kyiv'
+export const API_COLLECTION_CRON = '0 5 * * *'
+export const HTML_COLLECTION_CRON = '30 2 * * *'
+
+/**
+ * The type sets of the two schedules: HTML types at 02:30, every other reporting type at 05:00.
+ * DOU is the legacy path (`collectAll`), never claimed through the ledger.
+ */
+export const HTML_COLLECTION_TYPES: readonly JobSourceType[] = jobSourceTypeSchema.options.filter(
+  (t) => t.endsWith('_HTML'),
+)
+export const API_COLLECTION_TYPES: readonly JobSourceType[] = jobSourceTypeSchema.options.filter(
+  (t) => !t.endsWith('_HTML') && t !== 'DOU_RSS',
+)
+
+/** The longest wait between two claims inside a window. */
+export const DEFAULT_WINDOW_INTERVAL_MS = 30_000
 
 /**
  * Scheduled collection — task-job-sourcing-slice1 §2 ("Периодичность — по
- * существующему механизму заданий, не изобретать свой").
+ * существующему механизму заданий, не изобретать свой"), r5 Task 2.5 T5.
  *
  * Uses the SAME `@nestjs/schedule` `@Cron` mechanism as SalaryCronService /
  * VacanciesRetentionCronService / TelemetryRetentionCronService, including
- * their hard-won error-handling shape: the handler body is wrapped in
- * try/catch and NEVER rethrows, because an unhandled rejection inside a
- * `@Cron` handler silently kills the scheduler for every OTHER cron in the
- * process.
+ * their hard-won error-handling shape: every step is wrapped in try/catch and
+ * NEVER rethrows, because an unhandled rejection inside a `@Cron` handler
+ * silently kills the scheduler for every OTHER cron in the process.
  *
- * Slot: 05:00 daily — after the 03:00 / 03:30 / 04:00 retention jobs, so an
- * external HTTP fetch never contends with them for DB connections, and still
- * comfortably before the working day (a senior opening the modal in the
- * morning sees the night's postings).
+ * Two schedules, both in `Europe/Kyiv`:
+ *  - 02:30 HTML types, 05:00 API types plus the legacy DOU collection, both in Europe/Kyiv (the ADR
+ *    asks for company time). !! Before T5 the 05:00 cron had NO zone and ran at 05:00 UTC, after the
+ *    03:00 / 03:30 / 03:45 / 04:15 / 04:30 retention crons. Those retention crons are still UTC, so
+ *    05:00 Kyiv (03:00 UTC in winter, 02:00 UTC in summer) now starts together with, and the API
+ *    window (up to `JOB_COLLECTION_WINDOW_MS`) overlaps, the retention jobs: an external fetch can now
+ *    contend with them for DB connections. Accepted for now (Master decision, PR #1169); moving or
+ *    staggering the retention crons is on the backlog.
+ *  - each handler: `openCycle` -> `recoverExpired` -> `sweepOrphanReservations` -> (05:00 only)
+ *    DOU -> the bounded collection window (`runCollectionWindow`), which closes the cycle.
+ *
+ * The ledger and the worker are optional constructor arguments: without them (a unit context) the
+ * handler does the legacy DOU work only, as before T5.
  */
 @Injectable()
 export class JobSourcingCronService {
   private readonly logger = new Logger(JobSourcingCronService.name)
 
-  constructor(private readonly service: JobSourcingService) {}
+  /** Exposed for specs; production keeps the default. */
+  readonly tuning: { intervalMs: number; onlyIds?: readonly string[] } = {
+    intervalMs: DEFAULT_WINDOW_INTERVAL_MS,
+  }
 
-  @Cron('0 5 * * *')
+  constructor(
+    @Inject(JobSourcingService) private readonly service: JobSourcingService,
+    // Explicit tokens: the test transformer emits no `design:paramtypes`, and an `@Optional()` that
+    // resolves to nothing would not fail at boot, it would quietly collect DOU only.
+    @Optional() @Inject(JobRunLedger) private readonly ledger?: JobRunLedger,
+    @Optional() @Inject(JobRunWorker) private readonly worker?: JobRunWorker,
+    @Optional() @Inject(ConfigService) private readonly config?: ConfigService<Env, true>,
+  ) {}
+
+  @Cron(API_COLLECTION_CRON, { timeZone: CRON_TIME_ZONE })
   async handleDailyCollection(): Promise<void> {
+    await this.runHandler('daily-api', API_COLLECTION_TYPES, true)
+  }
+
+  @Cron(HTML_COLLECTION_CRON, { timeZone: CRON_TIME_ZONE })
+  async handleHtmlCollection(): Promise<void> {
+    await this.runHandler('daily-html', HTML_COLLECTION_TYPES, false)
+  }
+
+  private windowMs(): number {
+    const value = this.config?.get('JOB_COLLECTION_WINDOW_MS', { infer: true })
+    return typeof value === 'number' && value > 0 && value < Number.POSITIVE_INFINITY
+      ? value
+      : DEFAULT_JOB_COLLECTION_WINDOW_MS
+  }
+
+  /** `<name>:<Kyiv calendar date>`: two replicas of one schedule share the key (SR-L-19). */
+  private triggerKey(name: string): string {
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: CRON_TIME_ZONE }).format(new Date())
+    return `${name}:${day}`
+  }
+
+  private async runHandler(
+    name: string,
+    types: readonly JobSourceType[],
+    legacyDou: boolean,
+  ): Promise<void> {
+    const startedAt = performance.now()
+    const ledger = this.ledger
+    const worker = this.worker
+    // Set by the ledger steps when there is a cycle to claim under and a worker to claim with.
+    let window: (() => Promise<unknown>) | null = null
+    if (ledger !== undefined) {
+      const opened = await this.step(`${name}: openCycle`, () =>
+        ledger.openCycle({ trigger: 'SCHEDULED', triggerKey: this.triggerKey(name) }),
+      )
+      await this.step(`${name}: recoverExpired`, () => ledger.recoverExpired())
+      await this.step(`${name}: sweepOrphanReservations`, () => ledger.sweepOrphanReservations())
+      if (opened !== undefined && worker !== undefined) {
+        const cycleId = opened.cycleId
+        window = () =>
+          this.step(`${name}: collection window`, () =>
+            runCollectionWindow(
+              { ledger, worker, logger: this.logger },
+              {
+                cycleId,
+                types,
+                windowMs: this.windowMs(),
+                intervalMs: this.tuning.intervalMs,
+                onlyIds: this.tuning.onlyIds,
+                startedAt,
+              },
+            ),
+          )
+      }
+    }
+    if (legacyDou) await this.collectLegacyDou()
+    if (window !== null) await window()
+  }
+
+  /** One step; a failure is logged (class name only) and the next step still runs. */
+  private async step<T>(label: string, work: () => Promise<T>): Promise<T | undefined> {
+    try {
+      return await work()
+    } catch (err: unknown) {
+      this.logger.error(
+        `Job sourcing cron step failed [${label}]${dbErrorLogSuffix(err)}`,
+        safeErrorStack(err),
+      )
+      return undefined
+    }
+  }
+
+  /** The legacy DOU collection, exactly as it was before T5. */
+  private async collectLegacyDou(): Promise<void> {
     try {
       const { results, failures } = await this.service.collectAll()
       for (const result of results) {

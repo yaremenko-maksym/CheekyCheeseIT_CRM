@@ -17,6 +17,7 @@ import type {
   JobExclusionDto,
   JobSourceDto,
   JobSourceTriggerMode,
+  JobSourceType,
   JobSuggestionDto,
   JobSuggestionListDto,
   SessionUser,
@@ -148,6 +149,14 @@ export type BudgetedSource = Pick<JobSource, 'id' | 'type'> & {
   budgetWindow?: 'DAY' | 'MONTH' | null
   budgetUsed?: number | null
   budgetWindowStartedAt?: Date | null
+}
+
+/** The legacy path was handed a type registered on the reporting contract (T7, SR-M-23). */
+export class NotLegacySourceError extends Error {
+  constructor(readonly sourceType: JobSourceType) {
+    super(`${sourceType} is a reporting source: it runs only through the run ledger`)
+    this.name = 'NotLegacySourceError'
+  }
 }
 
 @Injectable()
@@ -883,6 +892,11 @@ export class JobSourcingService {
 
   /** Run one configured source end to end. */
   async collectSource(source: BudgetedSource): Promise<JobCollectionResultDto> {
+    // ONE ROUTING (r5 Task 2.5 T7, SR-M-23): this is the LEGACY path. A type registered on the
+    // reporting contract runs only through the run ledger and its worker; here it is refused before
+    // the budget, the provider or any request.
+    const kind = this.registry.get(source.type)?.contract
+    if (kind !== undefined && kind !== 'LEGACY') throw new NotLegacySourceError(source.type)
     const provider = this.registry.legacyProvider(source.type)
     if (!provider) throw new BadRequestException(`Нет провайдера для источника ${source.type}`)
 
@@ -964,7 +978,10 @@ export class JobSourcingService {
     const all = await this.db.db.select().from(jobSources).where(eq(jobSources.enabled, true))
     const sources = all.filter(
       (source) =>
-        sourceAcceptsTrigger(source.triggerMode, trigger) && typePassesFilter(source.type, filter),
+        sourceAcceptsTrigger(source.triggerMode, trigger) &&
+        typePassesFilter(source.type, filter) &&
+        // T7: reporting types are the run worker's, never this loop's (SR-M-23).
+        this.registry.get(source.type)?.contract !== 'REPORTING',
     )
 
     const results: JobCollectionResultDto[] = []

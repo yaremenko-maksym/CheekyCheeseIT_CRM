@@ -1,3 +1,4 @@
+import type { JobSourceType } from '@crm/shared'
 import type { Env } from '../config/env'
 
 /**
@@ -28,6 +29,28 @@ export interface QuotaCredential {
   apiKey: string | null
   /** Exactly what to add to `CollectionContext.secrets`. Empty when there is no key. */
   secrets: readonly string[]
+}
+
+/** The quota provider whose credential a source type sends, or none (r5 Task 2.5 T7). */
+export const QUOTA_PROVIDER_OF_TYPE: Partial<Record<JobSourceType, QuotaProvider>> = Object.freeze({
+  JOOBLE_API: 'jooble',
+  JSEARCH_API: 'jsearch',
+  THEIRSTACK_API: 'theirstack',
+  REED_API: 'reed',
+  MUSE_API: 'themuse',
+})
+
+/**
+ * T7: what a run of `type` must never show in a report or a persisted message -- the type's own
+ * credential, when it has one. The worker hands this to the context's `secrets`; each keyed adapter
+ * also registers its key itself, so redaction never rests on one of the two alone.
+ */
+export function secretsForType(
+  type: JobSourceType,
+  read: (key: QuotaEnvKey) => string | undefined,
+): readonly string[] {
+  const provider = QUOTA_PROVIDER_OF_TYPE[type]
+  return provider === undefined ? [] : readQuotaCredential(provider, read).secrets
 }
 
 /**

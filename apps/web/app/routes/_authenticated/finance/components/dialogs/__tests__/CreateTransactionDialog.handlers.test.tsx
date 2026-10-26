@@ -8,8 +8,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 
+let currentRole = 'ADMIN'
 vi.mock('@/context/auth', () => ({
-  useAuth: () => ({ user: { id: 'admin-1', role: 'ADMIN', displayName: 'Tester' } }),
+  useAuth: () => ({ user: { id: 'admin-1', role: currentRole, displayName: 'Tester' } }),
 }))
 
 const PROJECTS = [
@@ -53,6 +54,7 @@ function renderDialog() {
 
 beforeEach(async () => {
   await loadCatalog('uk')
+  currentRole = 'ADMIN'
 })
 
 describe('project pick', () => {
@@ -84,6 +86,7 @@ describe('type switch', () => {
   })
 
   it('forgets a swapped transfer direction', async () => {
+    currentRole = 'ACCOUNTANT'
     renderDialog()
     await screen.findByTestId('create-transaction-type-admin_transfer')
     fireEvent.click(screen.getByTestId('create-transaction-type-admin_transfer'))
@@ -95,5 +98,19 @@ describe('type switch', () => {
     fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
     fireEvent.click(screen.getByTestId('create-transaction-type-admin_transfer'))
     expect(within(await senderCard()).getByText('Admin One')).toBeInTheDocument()
+  })
+
+  it('never offers ADMIN a reverse transfer that the API would turn into self-pay', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_transfer')
+    fireEvent.click(screen.getByTestId('create-transaction-type-admin_transfer'))
+
+    expect(screen.getByText('Admin One')).toBeInTheDocument()
+    expect(screen.getByText('Admin Two')).toBeInTheDocument()
+    expect(screen.queryByTitle('Поміняти напрямок')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Натисніть, щоб змінити напрямок')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Натисніть на картки або стрілку, щоб змінити напрямок'),
+    ).not.toBeInTheDocument()
   })
 })

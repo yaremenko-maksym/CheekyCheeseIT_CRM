@@ -31,6 +31,7 @@ Each entry reads `trigger → skill · agents it applies to`.
 ## Trigger → Skill mapping
 
 - A session begins (any) → `superpowers:using-superpowers` · All
+- A task starts; before a large read, long command output, or new code → `token-economy` · All
 - Any creative task (feature / UI / behavior change) → `superpowers:brainstorming` · Master, Coder
 - Multi-step task — before implementation → `superpowers:writing-plans` · Coder, DevOps
 - Any feature / fix — before implementation → `superpowers:test-driven-development` · Coder
@@ -58,7 +59,7 @@ Each entry reads `trigger → skill · agents it applies to`.
 
 ## Project-local skills
 
-Project-local + imported skills under `.claude/skills/` (23 on disk). This catalog is machine-checked
+Project-local + imported skills under `.claude/skills/` (24 on disk). This catalog is machine-checked
 against the disk by `scripts/architect/check-skill-registry.mjs` (CI workflow
 `check-skill-registry.yml`) — a row here with no directory, or a directory with no row, fails CI.
 
@@ -86,6 +87,7 @@ against the disk by `scripts/architect/check-skill-registry.mjs` (CI workflow
 | `prototype`                   | A one-off prototype for one question: UI variants via `?variant=` or an HTML logic demo.                                   |
 | `external-research`           | Reconnaissance outward by primary sources → a citable file in the repository with an expiry date.                          |
 | `writing-for-agents`          | Writing and weeding documents that agents read.                                                                            |
+| `token-economy`               | Every task start; before a large read / long output / new code: terse narration, bounded reads, bulk output to a file.     |
 | `decomposing-large-code`      | A safe split of a giant (the seam chosen): Mikado + characterization tests, leaves bottom-up, behavior-preserving.         |
 
 ## Reconcile this table on every plugin update

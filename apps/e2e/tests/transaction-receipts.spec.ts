@@ -517,6 +517,7 @@ test.describe('Transaction receipts — pay/settle без чека → блок'
     const uk = await loadMessages('uk')
     const suffix = uniqueSuffix()
     const dropEmail = `receipts-settle-block-${suffix}@cheekycheese.dev`
+    const projectName = `Receipts Settle Project ${suffix}`
 
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     const { dropId } = await createDropViaAPI(page, {
@@ -529,6 +530,7 @@ test.describe('Transaction receipts — pay/settle без чека → блок'
     const { projectId } = await createDropProjectViaAPI(page, {
       dropId,
       seniorEmail: SEED_EMAILS.seniorA,
+      name: projectName,
     })
 
     try {
@@ -559,6 +561,10 @@ test.describe('Transaction receipts — pay/settle без чека → блок'
       expect(pendingPayout, 'cascade must yield a SENIOR_PENDING_PAYOUT row').toBeTruthy()
 
       await page.goto('/finance')
+      // The finance table paginates at 50 rows; other parallel E2E suites
+      // create enough transactions to push this obligation to a later page.
+      // The pending payout row shows the senior and project, not the drop.
+      await page.getByRole('searchbox').fill(projectName)
       const row = page.getByTestId(`tx-row-${pendingPayout!.id}`)
       await expect(row).toBeVisible()
       await row.getByTestId(`tx-row-settle-senior-payout-${pendingPayout!.id}`).click()

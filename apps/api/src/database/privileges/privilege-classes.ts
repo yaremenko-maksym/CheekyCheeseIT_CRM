@@ -196,6 +196,8 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'job_dirty_work',
     'job_exclusion_filters',
     'job_opportunities',
+    // Task 4.5: canonical identity tokens; the API's record store claims them. STAGED (below).
+    'job_opportunity_identity_tokens',
     'job_opportunity_matches',
     'job_opportunity_sources',
     'job_opportunity_team_triage',
@@ -205,6 +207,13 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'job_queue_dismissals',
     'job_queue_generation_entries',
     'job_queue_generations',
+    // Task 4.5: run membership; the API's record store writes it. STAGED (below).
+    'job_run_records',
+    // Task 2.5 T8: host-level ban pause and claim times. The API's own claim and ban
+    // paths read and write it; DELETE comes with the class and is used by nothing.
+    'job_source_hosts',
+    // Task 4.5: per-record observation order; the API's record store writes it. STAGED (below).
+    'job_source_record_heads',
     'job_source_record_revisions',
     'job_source_records',
     'job_sources',
@@ -257,12 +266,14 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
   B: ['job_queue_actions'],
   C: [],
   D: [],
-  // Not the migration ledger (that does not exist yet) but the three tables historical
-  // manual DDL files left in `public` — see MANUAL_DDL_RELATIONS below for why they are
-  // here, why they are class E, and why they are OPTIONAL.
+  // Class E: relations the API roles get no privilege on at all. Not the migration ledger
+  // (that does not exist yet) but the backups and bookkeeping tables that manual DDL files
+  // or operators left in `public` — see MANUAL_DDL_RELATIONS below for why each is here,
+  // why it is class E, and why it is OPTIONAL.
   E: [
     '_drop_share_pending_parity_backup_20260727',
     '_settle_phantom_backup_20260715',
+    '_tx_date_kyiv_backfill_backup_20261025',
     'drop_cascade_origin_marker_state',
     'salary_month_shift_backup',
   ],
@@ -322,6 +333,11 @@ export const MANUAL_DDL_RELATIONS: Record<string, { file: string | null; why: st
     file: 'drizzle/manual/2026-07-15_settle_phantom_cleanup.sql (and …_auto.sql)',
     why: 'Row backup (LIKE transactions INCLUDING ALL) taken before the phantom-settle cleanup.',
   },
+  _tx_date_kyiv_backfill_backup_20261025: {
+    // Staged until the DevOps wiring PR moves the file to drizzle/manual/ (the #1142 -> #1155 route).
+    file: 'drizzle/manual-staged/2026-10-25_tx_date_kyiv_backfill.sql',
+    why: 'Ids and written values of the NULL tx_date rows the Kyiv-day backfill changed; the rollback reads it.',
+  },
   drop_cascade_origin_marker_state: {
     file: 'drizzle/manual/2026-07-27_drop_cascade_origin_marker.sql',
     why: 'Bookkeeping for the drop-cascade origin marker backfill.',
@@ -332,6 +348,33 @@ export const MANUAL_DDL_RELATIONS: Record<string, { file: string | null; why: st
     file: null,
     why: 'Row backup of salary data, taken by hand (4 columns, owner crm_user); no file here creates it.',
   },
+}
+
+/**
+ * Tables the Drizzle schema DECLARES whose forward DDL is still STAGED in
+ * `drizzle/manual-staged/` — written, reviewed, and not yet applied by the deploy (r5 Task 4.5).
+ *
+ * WHY THIS EXISTS: until the DevOps wiring PR moves the file to `drizzle/manual/`, production
+ * does not have these tables. A plain class grant names them unconditionally
+ * (`GRANT … ON TABLE public.x`), which fails with 42P01 on a database without them, and the
+ * catalog check requires every classified relation to exist. Either would fail the next deploy
+ * of ANY change. So a staged relation is classified as usual and treated by the generated files
+ * like a manual-DDL artefact:
+ *   - the check marks it OPTIONAL (classified where it exists, not required to exist);
+ *   - the grants file grants its class's privileges only when `to_regclass` finds it.
+ * Where the table exists (CI's `db:push` database, production after the staged file ran) the
+ * grants and the check are exactly those of its class.
+ *
+ * WHEN THE WIRING LANDS: remove the entry in the same PR that moves the file to `manual/`, and
+ * regenerate. `privilege-classes.spec.ts` fails while an entry names a file that is not in
+ * `manual-staged/`, so a stale entry cannot outlive the move.
+ */
+export const STAGED_RELATIONS: Record<string, { file: string }> = {
+  job_opportunity_identity_tokens: {
+    file: 'drizzle/manual-staged/2026-10-25_job_record_store.sql',
+  },
+  job_run_records: { file: 'drizzle/manual-staged/2026-10-25_job_record_store.sql' },
+  job_source_record_heads: { file: 'drizzle/manual-staged/2026-10-25_job_record_store.sql' },
 }
 
 /**

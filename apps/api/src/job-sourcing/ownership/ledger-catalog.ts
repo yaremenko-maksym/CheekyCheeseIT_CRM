@@ -1,0 +1,40 @@
+import type { JobSourceType } from '@crm/shared'
+import type { ActivationFacts } from '../registry/activation'
+import type { BanScope, HostPolicy } from '../scheduling/host-policy'
+
+/**
+ * What the run ledger must know about the manifest (r5 Task 2.5 T3), as a port.
+ *
+ * The manifest itself is excluded from the production build (it reads fixture files), so the ledger
+ * never imports it: it is constructed with a catalog. `buildLedgerCatalog` in
+ * `providers/manifest.ledger-catalog.ts` builds one from a manifest; T7 owns wiring one in
+ * production. The ledger reads the host policy HERE, never from a claim's caller, so a caller
+ * cannot loosen a host's rate by building its own policy (T8 backlog: "claimHostSlot trusts the
+ * policy argument").
+ */
+export interface LedgerCatalogEntry {
+  /** The entry's type. A `job_sources` row of another type pointing at it is not resolved. */
+  readonly type: JobSourceType
+  /** The TYPE's activation facts at `at` (T2's `activationFactsByType`), evaluated at the DB clock. */
+  activationFacts(at: Date): ActivationFacts
+  /** The ENTRY's own `readinessAt(entry, at).status`, evaluated at the DB clock. */
+  entryReadiness(at: Date): 'CANDIDATE' | 'BLOCKED' | 'LEGACY'
+  /** The type's manifest declares a quota: a source of it without a meter fails closed. */
+  readonly quotaDeclared: boolean
+  /** The entry's default cadence (`intervalHours`), used when the stored interval is unusable. */
+  readonly intervalHours: number
+  /** The type's `minIntervalHoursFloor`. */
+  readonly floorHours: number
+  /**
+   * T7 (SR-M-24): what a 403 bans. Absent reads as `HOST` -- anything but a literal `SOURCE` scope
+   * bans the host key, so an entry that forgot it fails toward stopping.
+   */
+  readonly banScope?: BanScope
+}
+
+export interface LedgerCatalog {
+  /** The entry `job_sources.manifest_id` names, or undefined (the claim refuses it). */
+  entry(manifestId: string): LedgerCatalogEntry | undefined
+  /** The merged policy of a host key, or undefined (the claim refuses it, fail closed). */
+  hostPolicy(hostKey: string): HostPolicy | undefined
+}

@@ -47,6 +47,28 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-bash-rtk-rewrite.sh"
+          }
+        ],
+        "description": "RTK output filter (token-economy) — rewrites a Bash command to `rtk <cmd>` so its output is compacted before it reaches the model. Fail-open: no rtk binary at the fixed install path (RTK_INSTALL_DIR or ~/.local/share/rtk/bin, a directory that is NOT on PATH) = no-op. Never refuses. Binary pinned with in-repo sha256 by scripts/devops/install-rtk.sh; the rewrite is passed through only as a pure prefixing and carries the absolute binary path. One command unfiltered: prefix it with RTK_DISABLED=1. Rationale: docs/architecture/rules-rationale/token-economy.md",
+        "id": "pre:bash:rtk-rewrite"
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-bash-rtk-exec-gate.sh"
+          }
+        ],
+        "description": "RTK exec-subcommand gate (token-economy) — refuse `rtk bypass|proxy|err|test|run|summary`: those run their operand (often one quoted string, via sh -c) outside the other guards' view. Four review rounds on PR #1157 kept finding one more quoting form; refusing the form closes the class. Unfiltered output: `RTK_DISABLED=1 <cmd>`. Test: scripts/devops/tests/test-pre-bash-rtk-exec-gate.sh",
+        "id": "pre:bash:rtk-exec-gate"
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
             "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-bash-safety.sh"
           }
         ],

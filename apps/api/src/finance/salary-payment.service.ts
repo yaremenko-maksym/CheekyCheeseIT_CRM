@@ -580,6 +580,8 @@ export class SalaryPaymentService {
             salaryOrigin: 'CRON',
             fundingSource: null,
             createdBy: actorId,
+            // SR-H-1 (PR #1158): never NULL — the Kyiv business day of the cron run.
+            txDate: resolveTransactionDate(null),
           })
           .returning({ id: transactions.id })
         return inserted?.id ?? null

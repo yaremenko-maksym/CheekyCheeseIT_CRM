@@ -10,6 +10,7 @@ import { MANIFEST_DEFINITIONS } from './manifest.definitions'
 import {
   SEED_CLOCK,
   SEED_DELTA_FILE,
+  generateHostKeyDelta,
   generateSeedDelta,
   seedDeltaLocations,
 } from './manifest.seed-sql'
@@ -337,6 +338,53 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     const committed = readFileSync(existsSync(manual) ? manual : staged, 'utf8')
     expect(committed).toBe(delta())
     expect(SEED_DELTA_FILE).toMatch(/\.sql$/)
+  })
+
+  describe('T8 AC 7: the generated host-key delta', () => {
+    const hostDelta = () => generateHostKeyDelta(manifest)
+    const keys = async () =>
+      (
+        await client.query(
+          `SELECT manifest_id, type, host_key FROM job_sources ORDER BY type, config::text`,
+        )
+      ).rows as { manifest_id: string | null; type: string; host_key: string | null }[]
+
+    it('sets every reporting source`s host_key, leaves DOU NULL, and a second application changes nothing', async () => {
+      await client.query(
+        `INSERT INTO job_sources (type, config) VALUES ('DOU_RSS', '{"t8": 1}'::jsonb)`,
+      )
+      await applySeedThenDelta()
+      // Before the host delta every key is NULL: the column has no default.
+      expect((await keys()).every((r) => r.host_key === null)).toBe(true)
+      await client.query(hostDelta())
+      for (const e of manifest.entries) {
+        expect((await byManifestId(e.id))?.['host_key'], e.id).toBe(e.hostKey)
+      }
+      const dou = (await keys()).filter((r) => r.type === 'DOU_RSS')
+      expect(dou).toEqual([{ manifest_id: null, type: 'DOU_RSS', host_key: null }])
+      const once = await snapshot()
+      await client.query(hostDelta())
+      expect(await snapshot()).toEqual(once)
+    })
+
+    it('never overwrites a key a row already has, and touches no row without a manifest_id', async () => {
+      await applySeedThenDelta()
+      await client.query(
+        `UPDATE job_sources SET host_key = 'kept.example' WHERE manifest_id = 'remotive.api.data'`,
+      )
+      await client.query(
+        `INSERT INTO job_sources (type, config) VALUES ('HIMALAYAS_API', '{"t8": "unmanaged"}'::jsonb)`,
+      )
+      await client.query(hostDelta())
+      expect((await byManifestId('remotive.api.data'))?.['host_key']).toBe('kept.example')
+      expect((await byManifestId('remotive.api.devops'))?.['host_key']).toBe('remotive.com')
+      const unmanaged = (
+        await client.query(
+          `SELECT host_key FROM job_sources WHERE config = '{"t8": "unmanaged"}'::jsonb`,
+        )
+      ).rows
+      expect(unmanaged).toEqual([{ host_key: null }])
+    })
   })
 })
 

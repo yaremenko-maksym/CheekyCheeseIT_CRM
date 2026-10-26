@@ -43,17 +43,89 @@ export const GENERATE_COMMAND = 'pnpm --filter @crm/api job-sources:manifest:gen
 const DOLLAR_TAG = '$manifest$'
 
 /**
- * Where the delta lives. It is generated into `drizzle/manual-staged/` and DevOps moves it to
- * `drizzle/manual/` together with the four deploy edits (see the PR). It cannot start in `manual/`:
+ * Where the delta lives. It was generated into `drizzle/manual-staged/` and DevOps moved it to
+ * `drizzle/manual/` together with the four deploy edits (backlog 337), so the generator now writes
+ * to `manual/`. `staged` stays the fallback for a root that has no wired copy yet:
  * `scripts/devops/check-prod-ddl-wiring.py` fails a build holding a manual file the deploy does not
- * copy and apply, and wiring the deploy is not this task's zone. The text of the file names no
- * directory, so the move changes no byte of it.
+ * copy and apply. The text of the file names no directory, so the move changed no byte of it.
  */
 export function seedDeltaLocations(drizzleRoot: string): { manual: string; staged: string } {
   return {
     manual: join(drizzleRoot, 'manual', SEED_DELTA_FILE),
     staged: join(drizzleRoot, 'manual-staged', SEED_DELTA_FILE),
   }
+}
+
+/**
+ * Task 2.5 T8: the second generated delta. It fills `job_sources.host_key`, which the T8 migration
+ * adds NULLABLE because a migration cannot run manifest code. A separate file, not a step of the
+ * delta above: that file runs before the column exists in the deploy order, and its text is
+ * already reviewed. Like it, this is generated into `drizzle/manual-staged/` and moved by DevOps.
+ */
+export const HOST_KEY_DELTA_FILE = '2026-10-24_job_sources_host_keys.sql'
+
+export function hostKeyDeltaLocations(drizzleRoot: string): { manual: string; staged: string } {
+  return {
+    manual: join(drizzleRoot, 'manual', HOST_KEY_DELTA_FILE),
+    staged: join(drizzleRoot, 'manual-staged', HOST_KEY_DELTA_FILE),
+  }
+}
+
+export interface HostKeyRow {
+  manifest_id: string
+  host_key: string
+}
+
+/** What the host-key delta writes: one row per manifest entry (every entry is a reporting source). */
+export function hostKeyRowsOf(manifest: Pick<Manifest, 'entries'>): HostKeyRow[] {
+  return manifest.entries.map((e) => ({ manifest_id: e.id, host_key: e.hostKey }))
+}
+
+const HOST_DOLLAR_TAG = '$hostkeys$'
+
+export function generateHostKeyDelta(manifest: Pick<Manifest, 'entries'>): string {
+  const doc = jsonArray(hostKeyRowsOf(manifest))
+  if (doc.includes(HOST_DOLLAR_TAG)) {
+    throw new Error(
+      `the manifest data contains ${HOST_DOLLAR_TAG}, which would end its own literal`,
+    )
+  }
+  return `-- =============================================================================
+-- Vacancy sourcing - host keys of the manifest sources (r5 Task 2.5 T8)
+-- =============================================================================
+--
+-- GENERATED from apps/api/src/job-sourcing/providers/manifest.definitions.ts (each type's
+-- hostKey(config)). DO NOT EDIT BY HAND: \`${GENERATE_COMMAND}\` rewrites it, and
+-- manifest.drift.spec.ts fails when this file differs from what the generator produces.
+--
+-- APPLY ORDER (load-bearing). AFTER 2026-10-24_job_source_hosts.sql (it adds the column this
+-- file writes) and AFTER ${SEED_DELTA_FILE} (it gives the rows the manifest_id this file
+-- keys on, and inserts the rows the 2026-10-05 seed never held).
+--
+-- WHAT IT DOES: sets host_key on every manifest-owned (reporting) source whose host_key is
+-- still NULL. It NEVER overwrites a key, and it never touches a row without a manifest_id,
+-- so DOU (legacy path, outside the ledger) keeps NULL. Idempotent: a second application
+-- matches no row. A changed key for an existing entry is therefore NOT applied by a later
+-- run of this file; that needs its own reviewed migration.
+--
+-- How to apply (the deploy wires this file; see the DevOps note in the PR):
+--   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
+
+DROP TABLE IF EXISTS pg_temp._jsh_keys;
+
+CREATE TEMP TABLE _jsh_keys AS
+SELECT x.*
+FROM jsonb_to_recordset(${HOST_DOLLAR_TAG}${doc}${HOST_DOLLAR_TAG}::jsonb) AS x(manifest_id text, host_key text);
+
+UPDATE job_sources s
+SET host_key   = k.host_key,
+    updated_at = clock_timestamp()
+FROM _jsh_keys k
+WHERE s.manifest_id = k.manifest_id
+  AND s.host_key IS NULL;
+
+DROP TABLE _jsh_keys;
+`
 }
 
 export interface SeedSource {
