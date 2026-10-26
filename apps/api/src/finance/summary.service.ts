@@ -6,7 +6,7 @@ import type {
   IncomeComplianceOverviewDto,
   MySalaryStatusDto,
 } from '@crm/shared'
-import { MONEY_SCALE, addCalendarMonths, businessMonthWindow, kyivMonthOf } from '@crm/shared'
+import { MONEY_SCALE, addCalendarMonths, businessMonthWindow, kyivDayOf } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -310,8 +310,8 @@ export class SummaryService {
     >()
 
     for (const tx of paid) {
-      // Audit 2026-06-28 (#9): bucket by the business date (txDate) when present,
-      // falling back to createdAt. Aligns with getIncomeComplianceOverview.
+      // Audit 2026-06-28 (#9): bucket by the business date (txDate). Backlog
+      // 338: the createdAt fallback is gone; a NULL txDate throws.
       //
       // CR-809-H-2: the line that used to stand here — "Prod data has txDate ==
       // createdAt so the existing totals / graph are unchanged" — has been false
@@ -386,7 +386,7 @@ export class SummaryService {
    *   - validatedThisMonth — rows the accountant VALIDATED in the current
    *                          calendar month (by `validatedAt`, NOT NULL).
    *   - paidThisMonth      — income/payout money settled (status PAID) whose
-   *                          BUSINESS date (`coalesce(tx_date, created_at)`)
+   *                          BUSINESS date (`tx_date`)
    *                          falls in the current month (CR-809-H-2). Keyed on
    *                          the same expression as the monthly graph in
    *                          `getSummary`, so a backdated row lands in one
@@ -408,10 +408,10 @@ export class SummaryService {
       throw apiError('FINANCE_ACCOUNTANT_SUMMARY_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
-    // Current business month, computed once, on the SAME clock the monthly graph
-    // in `getSummary` uses (`transactionBusinessMonth`): the Kyiv month. See
-    // `businessMonthWindow` for the two-branch row semantics (backlog 338).
-    const { dateStart, instantStart } = businessMonthWindow(kyivMonthOf(new Date()))
+    // Current business month, computed once: the Kyiv month of now. `dateStart`
+    // bounds the date-only `tx_date` (the graph's `transactionBusinessMonth`
+    // key), `instantStart` bounds the `validated_at` instant (backlog 338).
+    const { dateStart, instantStart } = businessMonthWindow(kyivDayOf(new Date()).slice(0, 7))
 
     // Income types a senior / drop submits that require accountant validation —
     // the validatable-income predicate (pendingValidation + recipientCount).
@@ -445,26 +445,18 @@ export class SummaryService {
         // Before #809 the two were interchangeable; since operators can pick
         // the date, they are not. A September salary paid on 6 Oct and dated
         // 30 Sep belongs to September in the monthly graph (which has always
-        // bucketed on `txDate ?? createdAt` — see `getSummary` above), so it
+        // bucketed on the business date — see `getSummary` above), so it
         // must not be counted by THIS tile as October money: that disagreement
         // between two numbers on one screen is the defect. The window mirrors
-        // the graph's `transactionBusinessMonth` EXACTLY (backlog 338): a dated
-        // row is compared as a date-only value (`tx_date >= dateStart`, UTC
-        // midnight), a NULL-txDate row by the instant its Kyiv month began
-        // (`created_at >= instantStart`). Both bounds come from
-        // `businessMonthWindow`, so the tile and the graph cannot disagree on a
-        // legacy row created in the 2-3 hours after Kyiv midnight on the 1st.
+        // the graph's `transactionBusinessMonth` EXACTLY (backlog 338): the row
+        // is compared as a date-only value (`tx_date >= dateStart`, UTC
+        // midnight). There is no `created_at` fallback: every writer persists a
+        // Kyiv business-day `tx_date` and the legacy NULL rows were backfilled.
+        // A NULL `tx_date` (a broken invariant) never satisfies the comparison,
+        // so it is EXCLUDED here, while the graph throws on it.
         // Lower bound only, as before: a future-dated row still counts.
-        //
-        // Index note: the only date index on `transactions` is
-        // `idx_transactions_active_created_at (created_at) WHERE deleted_at IS
-        // NULL`. The term lives inside a `FILTER (WHERE ...)` clause, which
-        // Postgres evaluates per row while scanning the set already selected by
-        // the query's own `WHERE deleted_at IS NULL`; it was never an
-        // index-driven predicate (the old `coalesce(...)` could not use a btree
-        // either), so splitting it into two bare-column branches costs nothing.
         paidAmount:
-          sql<number>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'PAID' and ${paidEligibleTypes} and ((${transactions.txDate} is not null and ${transactions.txDate} >= ${dateStart}) or (${transactions.txDate} is null and ${transactions.createdAt} >= ${instantStart}))), 0)`.mapWith(
+          sql<number>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'PAID' and ${paidEligibleTypes} and ${transactions.txDate} >= ${dateStart}), 0)`.mapWith(
             Number,
           ),
         recipientCount:
@@ -530,7 +522,7 @@ export class SummaryService {
     // is user-chosen) must not leak into "this month" holds because a later month
     // has a different key.
     const now = new Date()
-    const thisMonthKey = kyivMonthOf(now)
+    const thisMonthKey = kyivDayOf(now).slice(0, 7)
     const monthKeyBefore = (offset: number): string =>
       addCalendarMonths(`${thisMonthKey}-01`, -offset).slice(0, 7)
     const lastMonthKey = monthKeyBefore(1)

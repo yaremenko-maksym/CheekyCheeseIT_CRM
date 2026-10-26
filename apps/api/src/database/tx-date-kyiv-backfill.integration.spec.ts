@@ -24,7 +24,7 @@ import path from 'node:path'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { kyivMonthOf, type SessionUser } from '@crm/shared'
+import { kyivDayOf, type SessionUser } from '@crm/shared'
 
 import { DatabaseService } from './database.service'
 import * as schema from './schema'
@@ -131,7 +131,7 @@ describe.skipIf(!hasDatabaseUrl())(
     let explicitId: string
     let snapshotBefore: Map<string, Record<string, unknown>>
     let monthsBefore: Map<string, string>
-    let graphBefore: unknown
+    let graphBeforeError: string | null
 
     async function insertTx(row: {
       txDate: string | null
@@ -274,14 +274,13 @@ describe.skipIf(!hasDatabaseUrl())(
       const before = await pool.query<{ id: string; created_at: Date }>(
         `SELECT id, created_at FROM transactions WHERE tx_date IS NULL`,
       )
-      // Month key every row has TODAY, through the kyivMonthOf fallback.
-      monthsBefore = new Map(
-        before.rows.map((r) => [
-          r.id,
-          transactionBusinessMonth({ txDate: null, createdAt: r.created_at }),
-        ]),
+      // Month key each row had through the (now removed) created_at fallback: the
+      // KYIV month of created_at.
+      monthsBefore = new Map(before.rows.map((r) => [r.id, kyivDayOf(r.created_at).slice(0, 7)]))
+      graphBeforeError = await graph().then(
+        () => null,
+        (e: unknown) => (e instanceof Error ? e.message : String(e)),
       )
-      graphBefore = await graph()
     }, 60_000)
 
     afterAll(async () => {
@@ -358,26 +357,46 @@ describe.skipIf(!hasDatabaseUrl())(
       }
     })
 
-    it('keeps every row in the business month it had through the kyivMonthOf fallback', async () => {
-      const res = await pool.query<{ id: string; tx_date: Date; created_at: Date }>(
-        `SELECT id, tx_date, created_at FROM transactions WHERE id = ANY($1)`,
+    it('keeps every row in the business month the removed created_at fallback gave it', async () => {
+      const res = await pool.query<{ id: string; tx_date: Date }>(
+        `SELECT id, tx_date FROM transactions WHERE id = ANY($1)`,
         [[...monthsBefore.keys()]],
       )
       expect(res.rows).toHaveLength(12)
       for (const row of res.rows) {
-        const after = transactionBusinessMonth({ txDate: row.tx_date, createdAt: row.created_at })
+        const after = transactionBusinessMonth({ id: row.id, txDate: row.tx_date })
         expect({ id: row.id, month: after }).toEqual({
           id: row.id,
           month: monthsBefore.get(row.id),
         })
-        expect(after).toBe(kyivMonthOf(row.created_at))
       }
       // The decisive row, by literal: filed in November before and after.
       expect(monthsBefore.get(ids.get('oct-month-boundary')!)).toBe('2026-11')
     })
 
-    it('leaves the summary graph identical', async () => {
-      expect(await graph()).toEqual(graphBefore)
+    it('the graph refused the NULL rows before the backfill and files them by literal after it', async () => {
+      // backlog 338: no created_at fallback, so a NULL tx_date fails loud.
+      expect(graphBeforeError).toMatch(
+        /^transactionBusinessMonth: transaction .+ has a NULL tx_date$/,
+      )
+      // Hand-computed from NULL_ROWS (amount = index + 1, all PAID) plus the explicit
+      // 31 Oct row (10); the PENDING and soft-deleted rows are not in the graph.
+      const income = (month: string, amount: number) => ({
+        month,
+        income: amount,
+        expenses: 0,
+        salaries: 0,
+        profit: amount,
+      })
+      expect(await graph()).toEqual([
+        income('2026-01', 3), // year-boundary
+        income('2026-02', 2), // jan-month-boundary-winter
+        income('2026-03', 13), // dst-start-after 6 + dst-start-eve 7
+        income('2026-05', 9), // summer-midnight-minus-1s
+        income('2026-06', 8), // summer-midnight-exact
+        income('2026-10', 29), // dst-end-eve 4 + dst-end-after 5 + mid-day 10 + explicit 10
+        income('2026-11', 1), // oct-month-boundary
+      ])
     })
 
     it('touches no column other than tx_date, and no row that had a tx_date', async () => {
