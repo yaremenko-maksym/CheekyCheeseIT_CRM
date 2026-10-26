@@ -1,3 +1,5 @@
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 import type { MeterDb } from '../metering/account-meter.store'
 import { LockContentionError } from './lock-order'
@@ -27,8 +29,15 @@ type Rows = Record<string, unknown>[]
 type Step = Rows | Error
 const ok: Rows = [{ ok: 1 }]
 
+const dialect = new PgDialect()
+
 function fakeDb(attempts: readonly (readonly Step[])[]) {
-  const seen = { transactions: 0, options: [] as unknown[], setLocal: [] as string[] }
+  const seen = {
+    transactions: 0,
+    options: [] as unknown[],
+    setLocal: [] as string[],
+    queries: [] as { sql: string; params: unknown[] }[],
+  }
   const db = {
     async transaction<T>(fn: (tx: unknown) => Promise<T>, options: unknown): Promise<T> {
       const steps = attempts[seen.transactions] ?? []
@@ -36,7 +45,8 @@ function fakeDb(attempts: readonly (readonly Step[])[]) {
       seen.options.push(options)
       let call = 0
       const tx = {
-        async execute(query: { queryChunks?: unknown[] }) {
+        async execute(query: SQL & { queryChunks?: unknown[] }) {
+          seen.queries.push(dialect.sqlToQuery(query))
           if (call === 0) {
             call += 1
             seen.setLocal.push(
@@ -123,6 +133,18 @@ describe('own-transaction wrappers (Task 4.6 / S2)', () => {
     ])
     await expect(releaseTokenTx(db, actor, 'k', 'r')).rejects.toBeInstanceOf(CanonicalStateError)
     expect(seen.transactions).toBe(1)
+  })
+
+  it('a new canonical revision is enqueued through the dirty-work store in the same transaction (Task 4.6 S4a)', async () => {
+    // releaseOk, but the opportunity refresh returns its new revision.
+    const { db, seen } = fakeDb([[...releaseOk.slice(0, 6), [{ revision: 7 }], []]])
+    await releaseTokenTx(db, actor, 'k', 'why')
+    expect(seen.transactions).toBe(1)
+    const enqueue = seen.queries.filter((q) => /INSERT INTO job_dirty_work/.test(q.sql))
+    expect(enqueue.map((q) => q.params)).toEqual([
+      ['OPPORTUNITY', OPP, 7, 'CANONICAL_REVISION', null],
+    ])
+    expect(enqueue[0]?.sql).toMatch(/DO NOTHING\s+RETURNING id/)
   })
 
   it('an unrelated database error is not retried', async () => {

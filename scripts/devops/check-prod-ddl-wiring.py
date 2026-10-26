@@ -248,6 +248,14 @@ KNOWN_NOT_WIRED = {
     # `2026-08-12_admin_income_drop_backfill_column.sql`, is wired normally (additive,
     # idempotent schema change, safe on every deploy regardless of whether the
     # backfill itself is ever applied).
+    "2026-10-25_tx_date_kyiv_backfill.sql",  # deliberately DE-WIRED after a single
+    # successful prod apply — backlog 338, PR #1174 wired it, deploy run 40319307008
+    # applied it; verified read-only on 2026-10-26 (0 NULL tx_date, backup table
+    # present). One-time data-fix whose backup table is a run marker: left wired, any
+    # NULL tx_date that reappears would fail every later deploy, and the hard-required
+    # preflight entry refused rollback to images older than #1174. The backup table
+    # (_tx_date_kyiv_backfill_backup_20261025) is kept, never dropped — privilege class E
+    # in privilege-classes.ts. De-wiring is also step 1 of the file's ROLLBACK ORDER.
 }
 
 

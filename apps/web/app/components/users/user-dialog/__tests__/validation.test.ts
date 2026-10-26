@@ -11,6 +11,7 @@ import {
   ibanPattern,
   phoneFieldSchema,
   rnokppPattern,
+  seniorTechStackError,
   telegramFieldSchema,
   toUsd,
   usdtWalletPattern,
@@ -96,5 +97,34 @@ describe('field schemas', () => {
   it('phoneFieldSchema caps at 30 characters', () => {
     expect(phoneFieldSchema.safeParse('1'.repeat(30)).success).toBe(true)
     expect(phoneFieldSchema.safeParse('1'.repeat(31)).success).toBe(false)
+  })
+})
+
+describe('seniorTechStackError (shared SENIOR technology floor)', () => {
+  it('flags a SENIOR with fewer than 3 distinct technologies', () => {
+    expect(seniorTechStackError('SENIOR', [])).toBeDefined()
+    expect(seniorTechStackError('SENIOR', ['React', 'Go'])).toBeDefined()
+    expect(seniorTechStackError('SENIOR', ['a', 'a', 'a'])).toBeDefined()
+    expect(seniorTechStackError('SENIOR', ['node', 'Node.js', 'Go'])).toBeDefined()
+  })
+
+  it('passes 3 distinct technologies, and every other role', () => {
+    expect(seniorTechStackError('SENIOR', ['React', 'Go', 'AWS'])).toBeUndefined()
+    expect(seniorTechStackError('JUNIOR', [])).toBeUndefined()
+    expect(seniorTechStackError('HR', [])).toBeUndefined()
+  })
+
+  it('edit of a legacy SENIOR: an unchanged stack passes, any change is checked (A1)', () => {
+    const legacy = { role: 'SENIOR', techStack: ['React', 'Go'] }
+    expect(seniorTechStackError('SENIOR', ['React', 'Go'], legacy)).toBeUndefined()
+    expect(seniorTechStackError('SENIOR', ['Go', 'React'], legacy)).toBeDefined()
+    expect(seniorTechStackError('SENIOR', ['React'], legacy)).toBeDefined()
+    expect(seniorTechStackError('SENIOR', ['React', 'Go', 'AWS'], legacy)).toBeUndefined()
+  })
+
+  it('edit promoting a JUNIOR with 2 technologies to SENIOR is checked', () => {
+    const junior = { role: 'JUNIOR', techStack: ['React', 'Go'] }
+    expect(seniorTechStackError('SENIOR', ['React', 'Go'], junior)).toBeDefined()
+    expect(seniorTechStackError('SENIOR', [], { role: 'SENIOR', techStack: null })).toBeUndefined()
   })
 })

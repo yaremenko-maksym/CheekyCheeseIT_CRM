@@ -46,6 +46,8 @@ const makeUser = (over: Row = {}): Row => ({
   seniorSharePercent: 26,
   dropSharePercent: 5,
   pendingSeniorSharePercent: null,
+  // >= SENIOR_MIN_TECHNOLOGIES, so a promotion to SENIOR passes the floor.
+  techStack: ['TypeScript', 'Go', 'PostgreSQL'],
   ...over,
 })
 
@@ -282,6 +284,103 @@ describe('UsersService.adminUpdateUser — ADMIN-target protection (before any o
   it('explicit null actorId behaves like the default', async () => {
     const h = makeHarness({ existing: admin() })
     await expect(edit(h, { displayName: 'Z' }, null)).resolves.toBeDefined()
+  })
+})
+
+describe('UsersService.adminUpdateUser — SENIOR technology floor (>= 3 distinct)', () => {
+  const senior = (techStack: string[] | null) => makeUser({ role: 'SENIOR', techStack })
+  // The outcome of one PATCH: the thrown error and whether anything was written.
+  const outcome = async (h: ReturnType<typeof makeHarness>, data: Row) => {
+    const error = await edit(h, data, 'admin-1').then(
+      () => undefined,
+      (e: unknown) => e,
+    )
+    return {
+      error,
+      transactions: vi.mocked(h.db.transaction).mock.calls.length,
+      update: userUpdate(h.log),
+    }
+  }
+  const REFUSED = {
+    error: code('SENIOR_MIN_TECHNOLOGIES', 400),
+    transactions: 0,
+    update: undefined,
+  }
+
+  it('SENIOR 3 -> 2 technologies is refused and writes nothing', async () => {
+    expect(
+      await outcome(makeHarness({ existing: senior(['React', 'Go', 'AWS']) }), {
+        techStack: ['React', 'Go'],
+      }),
+    ).toMatchObject(REFUSED)
+  })
+
+  it('SENIOR 3 -> duplicates/blanks/aliases of fewer than 3 is refused', async () => {
+    for (const techStack of [
+      ['a', 'a', 'a'],
+      ['a', '', ' '],
+      ['node', 'Node.js', 'Go'],
+    ]) {
+      expect(
+        await outcome(makeHarness({ existing: senior(['React', 'Go', 'AWS']) }), { techStack }),
+      ).toMatchObject(REFUSED)
+    }
+  })
+
+  it('SENIOR 3 -> 4 technologies is written', async () => {
+    const h = makeHarness({ existing: senior(['React', 'Go', 'AWS']) })
+    await expect(
+      edit(h, { techStack: ['React', 'Go', 'AWS', 'Docker'] }, 'admin-1'),
+    ).resolves.toBeDefined()
+    expect(userUpdateSet(h.log).techStack).toEqual(['React', 'Go', 'AWS', 'Docker'])
+  })
+
+  it('a legacy SENIOR with 2 technologies: an unrelated edit succeeds (A1)', async () => {
+    const h = makeHarness({ existing: senior(['React', 'Go']) })
+    await expect(edit(h, { displayName: 'New' }, 'admin-1')).resolves.toBeDefined()
+    expect(userUpdateSet(h.log).displayName).toBe('New')
+  })
+
+  it('a legacy SENIOR with 2 technologies: resubmitting the same stack with the form succeeds (A1)', async () => {
+    const h = makeHarness({ existing: senior(['React', 'Go']) })
+    await expect(
+      edit(h, { displayName: 'New', role: 'SENIOR', techStack: ['React', 'Go'] }, 'admin-1'),
+    ).resolves.toBeDefined()
+  })
+
+  it('a legacy SENIOR with 2 technologies: shrinking further to 1 is refused', async () => {
+    expect(
+      await outcome(makeHarness({ existing: senior(['React', 'Go']) }), { techStack: ['React'] }),
+    ).toMatchObject(REFUSED)
+  })
+
+  it('JUNIOR with 2 technologies -> SENIOR is refused; with 3 sent in the same PATCH it passes', async () => {
+    expect(
+      await outcome(makeHarness({ existing: makeUser({ techStack: ['React', 'Go'] }) }), {
+        role: 'SENIOR',
+      }),
+    ).toMatchObject(REFUSED)
+    const h = makeHarness({ existing: makeUser({ techStack: ['React', 'Go'] }) })
+    await expect(
+      edit(h, { role: 'SENIOR', techStack: ['React', 'Go', 'AWS'] }, 'admin-1'),
+    ).resolves.toBeDefined()
+    expect(userUpdateSet(h.log).role).toBe('SENIOR')
+  })
+
+  it('JUNIOR with 3 technologies -> SENIOR while cutting the stack to 2 is refused', async () => {
+    expect(
+      await outcome(makeHarness({ existing: makeUser() }), {
+        role: 'SENIOR',
+        techStack: ['React', 'Go'],
+      }),
+    ).toMatchObject(REFUSED)
+  })
+
+  it('SENIOR with 1 technology -> JUNIOR is unaffected, and other roles have no floor', async () => {
+    const h = makeHarness({ existing: senior(['React']) })
+    await expect(edit(h, { role: 'JUNIOR' }, 'admin-1')).resolves.toBeDefined()
+    const j = makeHarness({ existing: makeUser({ role: 'HR' }) })
+    await expect(edit(j, { techStack: ['Excel'] }, 'admin-1')).resolves.toBeDefined()
   })
 })
 

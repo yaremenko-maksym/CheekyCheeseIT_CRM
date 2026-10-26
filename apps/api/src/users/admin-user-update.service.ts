@@ -8,6 +8,8 @@ import { assertEmailAvailable } from './user-emails.util'
 import {
   assertAdminTargetEditableForUpdate,
   assertAssignableRoleOnChange,
+  assertSeniorTechFloor,
+  techStackChanged,
 } from './role-guards.util'
 import { buildAdminUserUpdateSet } from './user-update.util'
 import { assertAvatarDocument } from './user-avatar.util'
@@ -120,6 +122,16 @@ export class AdminUserUpdateService {
     const effectiveRole = data.role ?? existing.role
     if (data.teamTelegramChannel !== undefined && effectiveRole !== 'SENIOR') {
       throw apiError('TELEGRAM_CHANNEL_SENIOR_ONLY', HttpStatus.BAD_REQUEST)
+    }
+    // SENIOR technology floor: on a role change TO SENIOR or an actual stack
+    // change; an unrelated edit of a legacy SENIOR below the floor still passes.
+    const stackChanged = techStackChanged(data.techStack, existing.techStack)
+    // (`assertSeniorTechFloor` is a no-op unless `effectiveRole` is SENIOR.)
+    if (existing.role !== 'SENIOR' || stackChanged) {
+      assertSeniorTechFloor(
+        effectiveRole,
+        stackChanged ? (data.techStack ?? null) : existing.techStack,
+      )
     }
     // Email uniqueness check — only when actually changing it.
     if (data.email !== undefined && data.email !== existing.email) {

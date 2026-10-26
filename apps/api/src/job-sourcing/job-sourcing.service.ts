@@ -49,7 +49,7 @@ import {
   users,
 } from '../database/schema'
 import type { DouRssProvider } from './dou.provider'
-import { deriveProjectExclusions, findMatchingExclusion } from './filtering'
+import { deriveProjectExclusions, findMatchingExclusion, manualExclusionDto } from './filtering'
 import {
   JobSourceBudgetContentionError,
   JobSourceBudgetExhaustedError,
@@ -270,17 +270,7 @@ export class JobSourcingService {
         sql`${jobExclusionFilters.seniorId} IS NULL OR ${jobExclusionFilters.seniorId} = ${seniorId}`,
       )
 
-    const manual: JobExclusionDto[] = rows.map((row) => ({
-      id: row.id,
-      scope: row.seniorId === null ? 'GLOBAL' : 'SENIOR',
-      seniorId: row.seniorId,
-      kind: row.kind,
-      value: row.value,
-      normalizedValue: row.normalizedValue,
-      origin: 'MANUAL',
-      sourceLabel: null,
-      createdAt: row.createdAt.toISOString(),
-    }))
+    const manual: JobExclusionDto[] = rows.map(manualExclusionDto)
 
     const projectRows = await this.db.db
       .select({

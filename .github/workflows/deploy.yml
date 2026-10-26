@@ -670,7 +670,6 @@ jobs:
             apps/api/drizzle/manual/2026-10-24_job_source_hosts.sql \
             apps/api/drizzle/manual/2026-10-24_job_sources_host_keys.sql \
             apps/api/drizzle/manual/2026-10-25_job_record_store.sql \
-            apps/api/drizzle/manual/2026-10-25_tx_date_kyiv_backfill.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -2720,23 +2719,6 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-10-25_job_record_store.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-10-25_job_record_store.sql
-
-      # backlog 338, one-time data-fix. Applied by deploy-stack-on-vps.sh BEFORE
-      # 2026-10-18_db_grants.sql (it creates its backup table), with --single-transaction.
-      # Hard-required (rollback preflight above). Temporary: de-wired after the first
-      # production apply — remove this step, the preflight entry and the apply block together.
-      - name: Copy tx_date Kyiv backfill via SCP
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
-          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          source: 'apps/api/drizzle/manual/2026-10-25_tx_date_kyiv_backfill.sql'
-          target: '/opt/crm'
-          # apps/api/drizzle/manual/2026-10-25_tx_date_kyiv_backfill.sql
-          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-25_tx_date_kyiv_backfill.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the

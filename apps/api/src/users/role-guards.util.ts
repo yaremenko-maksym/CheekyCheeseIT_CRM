@@ -1,4 +1,5 @@
 import { HttpStatus } from '@nestjs/common'
+import { seniorTechStackSchema } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import type { User } from '../database/schema'
 
@@ -53,6 +54,30 @@ export function assertAssignableRoleOnChange(
       throw apiError('DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT', HttpStatus.FORBIDDEN)
     }
   }
+}
+
+/**
+ * The SENIOR technology floor (`seniorTechStackSchema`, owner decision
+ * 2026-10-25). Callers invoke it only on a write that creates a SENIOR, turns a
+ * user into one, or changes a SENIOR's stack — so an unrelated edit of a legacy
+ * SENIOR below the floor keeps working. A no-op for every other role.
+ */
+export function assertSeniorTechFloor(role: Role, techStack: readonly string[] | null): void {
+  if (role !== 'SENIOR') return
+  if (!seniorTechStackSchema.safeParse(techStack).success) {
+    throw apiError('SENIOR_MIN_TECHNOLOGIES', HttpStatus.BAD_REQUEST)
+  }
+}
+
+/** Whether a write actually changes the stored stack (resubmitting it unchanged does not). */
+export function techStackChanged(
+  next: readonly string[] | null | undefined,
+  current: readonly string[] | null,
+): boolean {
+  if (next === undefined) return false
+  const a = next ?? []
+  const b = current ?? []
+  return a.length !== b.length || a.some((tech, i) => tech !== b[i])
 }
 
 /**
