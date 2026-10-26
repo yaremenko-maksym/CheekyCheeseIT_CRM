@@ -28,9 +28,13 @@ describe('focusFirstInvalid', () => {
   it('focuses without the browser scroll, leaving the centring to scrollIntoView', () => {
     const root = mount('<input id="a" aria-invalid="true" />')
     const el = root.querySelector<HTMLInputElement>('#a')!
-    const focus = vi.spyOn(el, 'focus')
+    const order: string[] = []
+    const focus = vi.spyOn(el, 'focus').mockImplementation(() => order.push('focus'))
+    el.scrollIntoView = vi.fn(() => order.push('scroll'))
     focusFirstInvalid(root)
     expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+    expect(el.scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
+    expect(order).toEqual(['focus', 'scroll'])
   })
 
   it('ignores aria-invalid="false" and leaves focus alone when nothing is invalid', () => {
