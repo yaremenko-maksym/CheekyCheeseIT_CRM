@@ -115,37 +115,44 @@ function employerOf(item: Item, config: Config): string | null {
 const listUrl = (board: string, mode: DetailMode) =>
   `https://${HOST}/v1/boards/${board}/jobs${mode === 'IN_LIST' ? '?content=true' : ''}`
 
+export const greenhouseSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
+  type: 'GREENHOUSE_ATS',
+  adapterVersion: GREENHOUSE_ADAPTER_VERSION,
+  configSchema,
+  envelopeSchema,
+  itemSchema,
+  limits: GREENHOUSE_LIMITS,
+  pageRequest: (config: Config) => ({
+    request: {
+      url: listUrl(config.board, 'IN_LIST'),
+      headers: { accept: 'application/json' },
+    },
+    cacheKey: 'board',
+  }),
+  extractItems: (envelope) => envelope.jobs,
+  nextCursor: () => null,
+  nativeIdOf: (item) => String(item.id),
+  mapItem: mapGreenhouseItem,
+  scopeOf: (config) => ({
+    namespace: config.namespace,
+    query: null,
+    configVersion: config.configVersion,
+    window: null,
+  }),
+}
+
 /**
  * `ON_DEMAND` (ADR 6a) reads the list WITHOUT `content`: the posting is stored with its list fields
- * and no description, which `fetchGreenhouseDetail` supplies later. `IN_LIST` is today's request,
- * byte for byte, and keeps today's adapter version.
+ * and no description, which `fetchGreenhouseDetail` supplies later. Everything else is the
+ * `IN_LIST` spec, whose request stays today's, byte for byte, under today's adapter version.
  */
-function specFor(mode: DetailMode): ApiJsonSourceSpec<Config, Envelope, Item> {
-  return {
-    type: 'GREENHOUSE_ATS',
-    adapterVersion: mode === 'IN_LIST' ? GREENHOUSE_ADAPTER_VERSION : 'greenhouse-2',
-    configSchema,
-    envelopeSchema,
-    itemSchema,
-    limits: GREENHOUSE_LIMITS,
-    pageRequest: (config: Config) => ({
-      request: {
-        url: listUrl(config.board, mode),
-        headers: { accept: 'application/json' },
-      },
-      cacheKey: 'board',
-    }),
-    extractItems: (envelope) => envelope.jobs,
-    nextCursor: () => null,
-    nativeIdOf: (item) => String(item.id),
-    mapItem: mapGreenhouseItem,
-    scopeOf: (config) => ({
-      namespace: config.namespace,
-      query: null,
-      configVersion: config.configVersion,
-      window: null,
-    }),
-  }
+const onDemandSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
+  ...greenhouseSpec,
+  adapterVersion: 'greenhouse-2',
+  pageRequest: (config: Config) => ({
+    request: { url: listUrl(config.board, 'ON_DEMAND'), headers: { accept: 'application/json' } },
+    cacheKey: 'board',
+  }),
 }
 
 function mapGreenhouseItem(item: Item, config: Config) {
@@ -170,12 +177,11 @@ function mapGreenhouseItem(item: Item, config: Config) {
   }
 }
 
-export const greenhouseSpec = specFor('IN_LIST')
-
 export const greenhouseProvider = defineApiJsonProvider(greenhouseSpec)
 
 /** The provider for a mode. U10 passes the manifest's `detailMode`; `greenhouseProvider` is `IN_LIST`. */
-export const createGreenhouseProvider = (mode: DetailMode) => defineApiJsonProvider(specFor(mode))
+export const createGreenhouseProvider = (mode: DetailMode) =>
+  defineApiJsonProvider(mode === 'IN_LIST' ? greenhouseSpec : onDemandSpec)
 
 // ---------------------------------------------------------------------------
 // Detail by id (ADR 6a). Not called by the routine run: U10 wires the trigger.
