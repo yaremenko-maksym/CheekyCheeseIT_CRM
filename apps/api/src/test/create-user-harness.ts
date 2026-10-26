@@ -7,6 +7,7 @@ import { expect, vi } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { getTableName, type SQL } from 'drizzle-orm'
 import { UsersService } from '../users/users.service'
+import { SENIOR_TECH_STACK } from './senior-tech-stack'
 
 export const dialect = new PgDialect()
 export const compile = (cond: SQL | undefined) => {
@@ -184,7 +185,7 @@ export const baseInput = (over: Partial<CreateUserInput> = {}): CreateUserInput 
   ...over,
 })
 
-export const SENIOR_STACK = ['TypeScript', 'Go', 'PostgreSQL']
+export const SENIOR_STACK = SENIOR_TECH_STACK
 
 export const inserts = (log: Log, table: string) =>
   log.filter((e) => e.op === 'insert' && e.table === table)

@@ -37,6 +37,7 @@ import { TeamAuditLogService } from '../teams/team-audit-log.service'
 import { teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { SENIOR_TECH_STACK } from '../test/senior-tech-stack'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ── Test IDs — stable namespace hrjoin- ────────────────────────────────────
@@ -196,6 +197,7 @@ describe.skipIf(!hasDatabaseUrl())(
           email,
           displayName: 'Attempted Senior A',
           role: 'SENIOR',
+          techStack: SENIOR_TECH_STACK,
           teamMode: 'JOIN_DROP_TEAM',
           dropTeamId: HR_FOREIGN_TEAM_ID, // HR_A is NOT a member of this one
           actorRole: 'HR',
@@ -223,6 +225,7 @@ describe.skipIf(!hasDatabaseUrl())(
         email,
         displayName: 'Attempted Senior B',
         role: 'SENIOR',
+        techStack: SENIOR_TECH_STACK,
         teamMode: 'JOIN_DROP_TEAM',
         dropTeamId: HR_OWN_TEAM_ID, // HR_A IS a member of this one
         actorRole: 'HR',
@@ -246,6 +249,7 @@ describe.skipIf(!hasDatabaseUrl())(
         email,
         displayName: 'Attempted Senior C',
         role: 'SENIOR',
+        techStack: SENIOR_TECH_STACK,
         teamMode: 'JOIN_DROP_TEAM',
         dropTeamId: HR_FOREIGN_TEAM_ID, // ADMIN is not a member of ANY team — must still work
         actorRole: 'ADMIN',
