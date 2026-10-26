@@ -35,6 +35,8 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
       }),
     )
     await page.goto('/users')
+    // A click before the list renders is lost and the dialog never opens.
+    await expect(page.getByTestId('users-list')).toBeVisible()
     await page.getByTestId('users-create-button').click()
 
     await page.getByTestId('user-dialog-role-trigger').click()
@@ -61,6 +63,8 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
       }),
     )
     await page.goto('/users')
+    // A click before the list renders is lost and the dialog never opens.
+    await expect(page.getByTestId('users-list')).toBeVisible()
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
     await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
@@ -98,6 +102,8 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
         req.method() === 'POST',
     )
 
+    // A click before the list renders is lost and the dialog never opens.
+    await expect(page.getByTestId('users-list')).toBeVisible()
     await page.getByTestId('users-create-button').click()
     await page.getByPlaceholder('user@cheekycheese.dev').fill('senior-default@cheekycheese.dev')
     await page.getByTestId('user-dialog-name').fill('Default Senior')
