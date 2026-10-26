@@ -13,7 +13,9 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  * is a scratch schema holding stubs of the four parent tables, into which the file is applied as
  * the deploy would (`--single-transaction`). The two tables' columns, constraints and indexes
  * must be equal; a second apply changes nothing; the shipped grants file gives `crm_app` the
- * class-A privileges on them, and its staged block is harmless where a table is absent.
+ * class-A privileges on them. The grants file requires these tables to exist (they are promoted
+ * to `drizzle/manual/` and no longer staged), so the staged-grant mechanism is exercised only
+ * through `stagedGrantSql` in the test below.
  */
 const FILE = join(__dirname, '..', '..', 'drizzle', 'manual', '2026-10-25_job_record_store.sql')
 const SCHEMA = 'ddl_job_record_store'
