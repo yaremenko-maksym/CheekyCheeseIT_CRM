@@ -35,13 +35,14 @@ only.
    at most 4 a day and delays jobs by 24 h; Jobicy says polling "must not exceed once per hour" and
    keeps a 3 h delay.
 3. **DOU's terms forbid automated access and "automatic collection" without the site's consent**
-   (section 2.5). DOU is the only source live in production. Polling it more often is a legal question,
-   not a scheduling one: it goes to the legal agent before any cadence change.
+   (section 2.5). DOU is the only source live in production. The owner accepted this as a known risk on
+   2026-10-26 without a legal review (ADR, Q10); DOU's cadence stays as it is.
 4. **Jobgether's terms forbid bots and scrapers, and the use of its content to "operate
    machine-learning models"**. Jobgether is already an accepted-risk source; the machine-learning clause
    is new and touches the relevance step.
 5. **Arbeitnow's terms grant a "personal, non-commercial" licence in section 2 and an API section that
-   asks for a link back in section 11.** The two read against each other; legal question.
+   asks for a link back in section 11.** The two read against each other; accepted by the owner as a
+   known risk (ADR, Q10), as were items 3 and 4 and Remotive's "third party websites" clause.
 6. **No provider publishes a read rate limit for an ATS board (Greenhouse, Lever, Ashby, Workable,
    Recruitee, Personio, SmartRecruiters).** The conservative numbers stay.
 
@@ -105,8 +106,11 @@ the last three are blocked, so no fact about them changes an interval.
 - **Greenhouse:** list-then-detail is documented (fact 2), so the adapter change is low-risk.
 - **Ashby:** `publishedAt` moving on re-publish is documented (fact 6); accepted churn as before.
 - **Recruitee:** the deadline is confirmed; the adapter's own stop and `readinessAt` already carry it.
-- **DOU, Jobgether, Arbeitnow, Remotive's "third party websites" clause:** legal questions, routed to the
-  legal agent in the ADR's decision brief. Not decided here.
+- **DOU, Jobgether, Arbeitnow, Remotive's "third party websites" clause:** the owner accepted all four as
+  a known risk on 2026-10-26, with no legal-agent review (ADR, Q10). Revisit if a provider objects; a
+  change in any of these pages is also a recheck signal for this file.
+- **Greenhouse list without `content`** (fact 2) is what makes the ADR's detail on demand possible for
+  Greenhouse; Ashby documents no such list (fact 6), so it stays on the full board.
 
 ## What could not be established
 
