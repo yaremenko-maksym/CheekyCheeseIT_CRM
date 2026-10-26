@@ -5,7 +5,38 @@ import {
   deriveProjectExclusions,
   findMatchingExclusion,
   isPostingExcluded,
+  manualExclusionDto,
 } from './filtering'
+
+describe('manualExclusionDto', () => {
+  const row = {
+    id: 'e1',
+    seniorId: null,
+    kind: 'KEYWORD' as const,
+    value: 'PHP',
+    normalizedValue: 'php',
+    createdAt: new Date('2026-03-04T05:06:07.089Z'),
+  }
+
+  it('a row without a senior is studio-wide', () => {
+    expect(manualExclusionDto(row)).toEqual({
+      id: 'e1',
+      scope: 'GLOBAL',
+      seniorId: null,
+      kind: 'KEYWORD',
+      value: 'PHP',
+      normalizedValue: 'php',
+      origin: 'MANUAL',
+      sourceLabel: null,
+      createdAt: '2026-03-04T05:06:07.089Z',
+    })
+  })
+
+  it("a row with a senior is that senior's own", () => {
+    const seniorId = '11111111-1111-4111-8111-111111111111'
+    expect(manualExclusionDto({ ...row, seniorId })).toMatchObject({ scope: 'SENIOR', seniorId })
+  })
+})
 
 const SENIOR_ID = '11111111-1111-4111-8111-111111111111'
 
