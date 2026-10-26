@@ -205,6 +205,8 @@ export function TechAutocompleteInput({
               : (placeholder ?? t`Почніть вводити технологію…`)
           }
           disabled={limitReached}
+          // Same invalid style as the neighbouring inputs (tokens, so light and dark both follow).
+          className={cn(errorId && 'border-destructive focus-visible:ring-destructive/30')}
           aria-invalid={errorId ? true : undefined}
           aria-describedby={errorId}
           aria-autocomplete="list"
