@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { JobExclusionDto } from '@crm/shared'
 import { type SQL, sql } from 'drizzle-orm'
-import { deriveProjectExclusions, manualExclusionDto } from '../filtering'
+import { type SeniorProjectRow, deriveProjectExclusions, manualExclusionDto } from '../filtering'
 import {
   type Availability,
   type CanonicalRevision,
@@ -29,11 +29,21 @@ export const MATCH_RULE_VERSION = `${EVALUATE_RULE_VERSION}+${RULE_VERSION}`
 
 type Row = Record<string, unknown>
 
-/** The roster `evaluate` matches against, loaded once per batch. */
+/** A senior's input versions, as stored on each of their match rows. */
+export interface SeniorVersions {
+  readonly profile: string
+  readonly exclusion: string
+}
+
+/**
+ * The roster `evaluate` matches against, read inside the install transaction after the
+ * opportunity lock (SR-M-1). `versions` is computed once per load, not per match row (CR-M-3).
+ */
 export interface RosterInputs {
   readonly rosterSeniorIds: readonly string[]
   readonly profiles: readonly SeniorTechProfile[]
   readonly exclusions: readonly JobExclusionDto[]
+  readonly versions: ReadonlyMap<string, SeniorVersions>
 }
 
 /** One opportunity at its current revision, shaped for `evaluate`. */
@@ -64,7 +74,8 @@ export async function loadRoster(db: SqlExecutor): Promise<RosterInputs> {
     techStack: strings(r['tech_stack']),
   }))
   const ids = profiles.map((p) => p.seniorId)
-  if (ids.length === 0) return { rosterSeniorIds: [], profiles, exclusions: [] }
+  if (ids.length === 0)
+    return { rosterSeniorIds: [], profiles, exclusions: [], versions: new Map() }
   const roster = sql`(SELECT jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb)::uuid)`
   const { rows: manual } = await db.execute(
     sql`SELECT id, senior_id, kind, value, normalized_value, created_at FROM job_exclusion_filters
@@ -74,19 +85,20 @@ export async function loadRoster(db: SqlExecutor): Promise<RosterInputs> {
     sql`SELECT senior_id, name, company_name, archived_at FROM projects
          WHERE senior_id IN ${roster} ORDER BY id`,
   )
-  const derived = ids.flatMap((id) =>
-    deriveProjectExclusions(
-      id,
-      owned
-        .filter((p) => String(p['senior_id']) === id)
-        .map((p) => ({
-          name: String(p['name']),
-          companyName: String(p['company_name']),
-          // Stryker disable next-line all: carried for the row type only; `deriveProjectExclusions` never reads it (archived projects still exclude).
-          archivedAt: p['archived_at'] == null ? null : instant(p['archived_at']),
-        })),
-    ),
-  )
+  // One pass over the projects, grouped by senior: O(seniors + projects), not their product.
+  const projectsOf = new Map<string, SeniorProjectRow[]>()
+  for (const p of owned) {
+    const seniorId = String(p['senior_id'])
+    const list = projectsOf.get(seniorId) ?? []
+    list.push({
+      name: String(p['name']),
+      companyName: String(p['company_name']),
+      // Stryker disable next-line all: carried for the row type only; `deriveProjectExclusions` never reads it (archived projects still exclude).
+      archivedAt: p['archived_at'] == null ? null : instant(p['archived_at']),
+    })
+    projectsOf.set(seniorId, list)
+  }
+  const derived = ids.flatMap((id) => deriveProjectExclusions(id, projectsOf.get(id) ?? []))
   const stored = manual.map((r) =>
     manualExclusionDto({
       id: String(r['id']),
@@ -97,7 +109,13 @@ export async function loadRoster(db: SqlExecutor): Promise<RosterInputs> {
       createdAt: instant(r['created_at']),
     }),
   )
-  return { rosterSeniorIds: ids, profiles, exclusions: [...stored, ...derived] }
+  const exclusions = [...stored, ...derived]
+  return {
+    rosterSeniorIds: ids,
+    profiles,
+    exclusions,
+    versions: rosterVersions(profiles, exclusions),
+  }
 }
 
 /** A timestamp as the driver returns it (a `Date`, or text when its parser is overridden). */
@@ -204,8 +222,13 @@ const SENIOR = 'SENIOR:'
 /**
  * Per-senior rows of a verdict. LEAD: a senior scope that matched. EXCLUDED: a senior removed by
  * an exclusion, or — for an opportunity-level exclusion (closed, layer-1 reject, global
- * exclusion) — every roster senior. A plain mismatch is no row. Studio and team projections are
- * not per-senior and are not stored here (they are recomputed from the verdict on read).
+ * exclusion) — every roster senior. A plain mismatch is no row. An EXCLUDED entry is never
+ * overwritten by a projection (SR-L-1).
+ *
+ * NOT PERSISTED IN S4a (SPEC-M-1): the STUDIO and TEAM projections — including a TEAM-scope
+ * TRIAGE from a triage grant — are deliberately dropped here; this table is per senior. The
+ * queue reader task (and S5's invalidation) must derive them from the verdict on read; until
+ * then nothing serves them.
  */
 export function matchRows(result: Evaluated | Excluded, roster: RosterInputs): MatchRow[] {
   const rows = new Map<string, MatchRow>()
@@ -223,6 +246,7 @@ export function matchRows(result: Evaluated | Excluded, roster: RosterInputs): M
     for (const p of result.projections) {
       if (!p.scope.startsWith(SENIOR)) continue
       const seniorId = p.scope.slice(SENIOR.length)
+      if (rows.get(seniorId)?.outcome === 'EXCLUDED') continue
       rows.set(seniorId, {
         seniorId,
         outcome: p.status,
@@ -237,18 +261,40 @@ const digest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 32)
 
 /** A senior's profile version: the stack and teams the verdict rests on. */
-export function profileVersion(p: SeniorTechProfile | undefined): string {
-  return digest(p === undefined ? null : [[...p.techStack].sort(), [...p.teamIds].sort()])
+export function profileVersion(p: SeniorTechProfile): string {
+  return digest([[...p.techStack].sort(), [...p.teamIds].sort()])
 }
 
-/** A senior's exclusion version: the studio-wide entries plus their own, order-insensitive. */
-export function exclusionVersion(exclusions: readonly JobExclusionDto[], seniorId: string): string {
+/** An exclusion version: the digest of a senior's applicable entries, order-insensitive. */
+export function exclusionVersion(applicable: readonly JobExclusionDto[]): string {
   return digest(
-    exclusions
-      .filter((e) => e.seniorId === null || e.seniorId === seniorId)
-      .map((e) => [e.scope, e.kind, e.normalizedValue, e.id])
-      .map((e) => JSON.stringify(e))
-      .sort(),
+    applicable.map((e) => JSON.stringify([e.scope, e.kind, e.normalizedValue, e.id])).sort(),
+  )
+}
+
+/**
+ * Every roster senior's versions in one pass (CR-M-3): exclusions are grouped by senior once, so
+ * the cost is O(seniors + exclusions) per roster load, whatever the number of match rows.
+ * A senior's exclusions are the studio-wide entries plus their own.
+ */
+export function rosterVersions(
+  profiles: readonly SeniorTechProfile[],
+  exclusions: readonly JobExclusionDto[],
+): Map<string, SeniorVersions> {
+  const studio: JobExclusionDto[] = []
+  const own = new Map<string, JobExclusionDto[]>()
+  for (const e of exclusions) {
+    if (e.seniorId === null) studio.push(e)
+    else own.set(e.seniorId, [...(own.get(e.seniorId) ?? []), e])
+  }
+  return new Map(
+    profiles.map((p) => [
+      p.seniorId,
+      {
+        profile: profileVersion(p),
+        exclusion: exclusionVersion([...studio, ...(own.get(p.seniorId) ?? [])]),
+      },
+    ]),
   )
 }
 
@@ -256,6 +302,12 @@ export function exclusionVersion(exclusions: readonly JobExclusionDto[], seniorI
  * Replace the opportunity's matches with the verdict for `revision`, inside the caller's
  * transaction (which holds the opportunity and has checked `revision` is current). Neither the
  * upsert nor the delete ever touches a row of a NEWER revision.
+ *
+ * STALENESS UNTIL S5 (SR-M-2): only a new opportunity revision enqueues a recompute. A senior's
+ * archive, team change or new exclusion does NOT (that is S5, pending decision D2), so a row
+ * written here can outlive the roster it was computed from. Until S5 ships, a reader MUST check
+ * the live roster and compare `senior_profile_version` / `exclusion_version` with the current
+ * hashes (`rosterVersions`) before serving a row.
  */
 export async function installMatches(
   tx: SqlExecutor,
@@ -264,14 +316,17 @@ export async function installMatches(
   result: Evaluated | Excluded,
   roster: RosterInputs,
 ): Promise<number> {
-  const profiles = new Map(roster.profiles.map((p) => [p.seniorId, p]))
-  const rows = matchRows(result, roster).map((r) => ({
-    senior_id: r.seniorId,
-    outcome: r.outcome,
-    evidence: r.evidence,
-    profile_version: profileVersion(profiles.get(r.seniorId)),
-    exclusion_version: exclusionVersion(roster.exclusions, r.seniorId),
-  }))
+  const rows = matchRows(result, roster).map((r) => {
+    // Every senior of a verdict comes from this roster, so each has its versions.
+    const v = roster.versions.get(r.seniorId) as SeniorVersions
+    return {
+      senior_id: r.seniorId,
+      outcome: r.outcome,
+      evidence: r.evidence,
+      profile_version: v.profile,
+      exclusion_version: v.exclusion,
+    }
+  })
   const json = JSON.stringify(rows)
   await tx.execute(
     sql`DELETE FROM job_opportunity_matches
