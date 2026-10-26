@@ -20,6 +20,8 @@ export interface TechAutocompleteInputProps {
   onBlur?: () => void
   /** Optional className applied to the outer container. */
   className?: string
+  /** Id of the field's inline error, wired to the text input as `aria-describedby`. */
+  errorId?: string | undefined
 }
 
 const DEFAULT_MAX_ITEMS = 30
@@ -51,6 +53,7 @@ export function TechAutocompleteInput({
   maxSuggestions = DEFAULT_MAX_SUGGESTIONS,
   onBlur,
   className,
+  errorId,
 }: TechAutocompleteInputProps) {
   const { t } = useLingui()
   const [input, setInput] = useState('')
@@ -202,6 +205,8 @@ export function TechAutocompleteInput({
               : (placeholder ?? t`Почніть вводити технологію…`)
           }
           disabled={limitReached}
+          aria-invalid={errorId ? true : undefined}
+          aria-describedby={errorId}
           aria-autocomplete="list"
           aria-expanded={dropdownOpen}
           aria-controls="tech-autocomplete-listbox"

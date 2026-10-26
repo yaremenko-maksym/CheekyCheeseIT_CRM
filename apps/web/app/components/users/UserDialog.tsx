@@ -402,7 +402,7 @@ export function UserDialog(props: UserDialogProps) {
               <ContactsSection form={form} />
 
               {/* ── Section 3: Profession (Tech stack) ──────────────────── */}
-              <TechStackSection form={form} />
+              <TechStackSection form={form} editingUser={editingUser} />
 
               {/* ── Section 4: Finance ──────────────────────────────────── */}
               <FinanceSection form={form} isCreate={isCreate} editingUser={editingUser} />

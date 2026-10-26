@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { Input } from '@/components/ui/input'
@@ -7,6 +7,7 @@ import { PhoneInput } from '@/components/ui/phone-input'
 import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 import type { UserProfileDto } from '@crm/shared'
 import { useUpdateMe } from '@/hooks/use-user-profile'
+import { seniorTechStackError } from '@/components/users/user-dialog/validation'
 
 export function ProfileEditFields({ user }: { user: UserProfileDto }) {
   const { t } = useLingui()
@@ -19,6 +20,8 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
     (user.phone as PhoneValue | undefined) ?? ('' as PhoneValue),
   )
   const [techStack, setTechStack] = useState<string[]>(user.techStack ?? [])
+  const [techError, setTechError] = useState<string | undefined>(undefined)
+  const techErrorId = useId()
 
   useEffect(
     () => () => {
@@ -96,17 +99,26 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
       </div>
 
       <div className="space-y-1.5">
-        <Label>
+        <Label className={techError ? 'text-destructive' : undefined}>
           <Trans>Технології</Trans>
         </Label>
         <TechAutocompleteInput
           value={techStack}
           onChange={(next) => {
             setTechStack(next)
-            scheduleSave({ techStack: next })
+            // A SENIOR below the shared floor is not saved — the API would refuse it.
+            const err = seniorTechStackError(user.role, next, user)
+            setTechError(err)
+            if (!err) scheduleSave({ techStack: next })
           }}
           placeholder={t`Почніть вводити: React, Node.js…`}
+          errorId={techError ? techErrorId : undefined}
         />
+        {techError && (
+          <p id={techErrorId} className="text-xs text-destructive">
+            {techError}
+          </p>
+        )}
       </div>
     </div>
   )
