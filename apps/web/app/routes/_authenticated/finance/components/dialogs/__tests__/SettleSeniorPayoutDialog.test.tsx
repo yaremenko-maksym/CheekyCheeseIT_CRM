@@ -289,13 +289,27 @@ describe('SettleSeniorPayoutDialog — reused for DROP_PENDING_PAYOUT (settle-dr
     expect(screen.getByText('Розрахунок із сеньйором')).toBeInTheDocument()
   })
 
-  it('renders the tx createdAt date with the shortYY style ("01.06.26")', () => {
-    // `createdAt` is an INSTANT rendered in the browser's own zone (`shortYY`,
-    // deliberately not UTC-pinned). Midday UTC is the same calendar day in
-    // Kyiv (15:00), UTC and Los Angeles (05:00); the shared fixture's
-    // T00:00Z would read 31.05.26 west of UTC.
+  it('renders the tx date in the dd.MM.yy style ("01.06.26")', () => {
+    // The label is the row's business day (QA-MED-1): with no txDate, the Kyiv
+    // day of createdAt. Midday UTC on 1 Jun is 1 Jun in Kyiv.
     renderDialog({ ...(TX as object), createdAt: '2026-06-01T12:00:00.000Z' })
     expect(screen.getByText('01.06.26')).toBeInTheDocument()
+  })
+
+  // QA-MED-1 (PR #1159): the "Дата" label names the row's business day — the
+  // KYIV day of createdAt for a NULL-txDate row — the same day as the table
+  // cell and the picker minimum, in every browser zone. 21:30Z on 21 Oct is
+  // 00:30 on 22 Oct in Kyiv (EEST). Runs under default, Kyiv and Los Angeles.
+  it('the "Дата" label is the Kyiv business day of createdAt, same as the picker default', async () => {
+    renderDialog({
+      ...(TX as object),
+      txDate: null,
+      createdAt: '2026-10-21T21:30:00.000Z',
+    } as never)
+    await screen.findByTestId('settle-senior-account-company')
+    // The label row has no testid; its parent holds the label and the value.
+    expect(screen.getByText('Дата').parentElement?.textContent).toBe('Дата22.10.26')
+    expect(screen.getByTestId('settle-senior-txdate')).toHaveTextContent('22 жовт')
   })
 
   it('shows «Розрахунок із дропом» title for a DROP_PENDING_PAYOUT tx', () => {
@@ -653,6 +667,39 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
     await waitFor(() => expect(settleMock).toHaveBeenCalledTimes(1))
     const [, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
     expect(payload['txDate']).toBe('2026-06-01')
+  })
+
+  // Backlog 338: with no txDate, `settleMinDate` (and so the default and the
+  // payload) is the KYIV day of createdAt — the floor PendingSettlementService
+  // enforces. 21:30Z on 1 Jun is already 2 Jun in Kyiv (EEST), in every zone.
+  it('date picker: a NULL-txDate row defaults to, and sends, the Kyiv day of createdAt', async () => {
+    renderDialog({
+      ...(TX as object),
+      txDate: null,
+      createdAt: '2026-06-01T21:30:00.000Z',
+    } as never)
+    await screen.findByTestId('settle-senior-account-company')
+    expect(screen.getByTestId('settle-senior-txdate')).toHaveTextContent('02 черв')
+    await fillReceipt('https://etherscan.io/tx/0xkyivday')
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    await waitFor(() => expect(settleMock).toHaveBeenCalledTimes(1))
+    const [, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
+    expect(payload['txDate']).toBe('2026-06-02')
+  })
+
+  // CR-M-1 (PR #1159) / backlog 338 item (e): an unparseable createdAt must not
+  // throw a RangeError from the creation-date label. The label falls back to
+  // `—`, the picker has no bound, and the empty date is what gets sent.
+  it('an unparseable createdAt renders a dash label and sends an empty date', async () => {
+    renderDialog({ ...(TX as object), txDate: null, createdAt: 'not-a-date' } as never)
+    await screen.findByTestId('settle-senior-account-company')
+    // The label row has no testid; its parent holds the label and the value.
+    expect(screen.getByText('Дата').parentElement?.textContent).toBe('Дата—')
+    await fillReceipt('https://etherscan.io/tx/0xbaddate')
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    await waitFor(() => expect(settleMock).toHaveBeenCalledTimes(1))
+    const [, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
+    expect(payload['txDate']).toBe('')
   })
 
   // owner addendum (2026-08): defaults to the obligation's own creation date

@@ -4,6 +4,7 @@ import {
   kyivMonthOf,
   MAX_TRANSACTION_BUSINESS_YEAR,
   MIN_TRANSACTION_BUSINESS_YEAR,
+  transactionBusinessDay,
 } from '@crm/shared'
 import { apiError } from '../common/api-error'
 
@@ -61,6 +62,20 @@ export function formatTransactionBusinessDate(date: Date): string {
  */
 export function transactionBusinessMonth(tx: { txDate: Date | null; createdAt: Date }): string {
   return tx.txDate ? tx.txDate.toISOString().slice(0, 7) : kyivMonthOf(tx.createdAt)
+}
+
+/**
+ * The business DAY (`YYYY-MM-DD`) a stored row floors a later payment on: its
+ * `txDate` day, or the KYIV day of `createdAt` when `txDate` is NULL (backlog
+ * 338). The shared `transactionBusinessDay` is the one definition, so the
+ * server floor and the web picker minimum cannot drift apart. A DB timestamp is
+ * always a valid `Date`; an invalid one fails loud rather than letting an empty
+ * floor accept any date.
+ */
+export function sourceBusinessDay(row: { txDate: Date | null; createdAt: Date }): string {
+  const day = transactionBusinessDay(row.txDate, row.createdAt)
+  if (day === null) throw new Error('sourceBusinessDay: the source row carries an invalid date')
+  return day
 }
 
 /**

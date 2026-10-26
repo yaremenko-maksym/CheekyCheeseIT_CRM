@@ -5,6 +5,7 @@ import {
   formatTransactionBusinessDate,
   parseTransactionBusinessDate,
   resolveTransactionDate,
+  sourceBusinessDay,
   transactionBusinessMonth,
 } from './transaction-date.util'
 
@@ -140,5 +141,24 @@ describe('resolveTransactionDate', () => {
   it('keeps future-date policy outside the timestamp resolver', () => {
     const now = new Date('2026-10-05T18:12:34.567Z')
     expect(resolveTransactionDate('2026-10-06', now).toISOString()).toBe('2026-10-06T00:00:00.000Z')
+  })
+})
+
+describe('sourceBusinessDay (backlog 338)', () => {
+  it('a non-null txDate is its own UTC day; a NULL txDate is the Kyiv day of createdAt', () => {
+    const late = new Date('2026-10-20T21:30:00.000Z')
+    expect(
+      sourceBusinessDay({ txDate: new Date('2026-10-20T00:00:00.000Z'), createdAt: late }),
+    ).toBe('2026-10-20')
+    expect(sourceBusinessDay({ txDate: null, createdAt: late })).toBe('2026-10-21')
+    expect(
+      sourceBusinessDay({ txDate: null, createdAt: new Date('2026-10-20T05:00:00.000Z') }),
+    ).toBe('2026-10-20')
+  })
+
+  it('fails loud on an invalid date instead of returning an empty floor', () => {
+    expect(() => sourceBusinessDay({ txDate: null, createdAt: new Date(Number.NaN) })).toThrow(
+      'sourceBusinessDay: the source row carries an invalid date',
+    )
   })
 })

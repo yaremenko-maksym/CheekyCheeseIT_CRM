@@ -534,9 +534,9 @@ export class SummaryService {
     const monthKeyBefore = (offset: number): string =>
       addCalendarMonths(`${thisMonthKey}-01`, -offset).slice(0, 7)
     const lastMonthKey = monthKeyBefore(1)
-    // The SALARY lookup key stays the UTC month of `now`: it addresses stored
-    // `salary_month` values, which are not part of this finding.
-    const salaryMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
+    // Backlog 338 (a): the SALARY lookup key is the same Kyiv month as the
+    // incomes above, so one response never mixes two months for 2-3 hours.
+    const salaryMonth = thisMonthKey
 
     // ── 1. Active own senior-projects + effective share % ──────────────────────
     // Self-scope at the DB level: only projects where seniorId === self AND not

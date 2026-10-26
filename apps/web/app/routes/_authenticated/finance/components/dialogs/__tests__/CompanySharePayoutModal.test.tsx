@@ -324,6 +324,25 @@ describe('CompanySharePayoutModal — step 1 selection (AC2)', () => {
     expect(date).toHaveAttribute('min', '2099-05-06')
   })
 
+  // Backlog 338: a NULL-txDate income floors on the KYIV day of createdAt
+  // (PayoutRequestService), so the minimum is that day in every zone.
+  it('NULL txDate: the minimum is the Kyiv day of createdAt', async () => {
+    const late = makeTx({ id: 'late', txDate: null, createdAt: '2099-05-06T21:30:00.000Z' })
+    renderModal({ validatedTxs: [late], preselectedTxIds: [late.id] })
+    const date = screen.getByTestId('company-share-payout-date')
+    await waitFor(() => expect(date).toHaveValue('2099-05-07'))
+    expect(date).toHaveAttribute('min', '2099-05-07')
+  })
+
+  it('an income with an unparseable date does not raise the minimum (item e)', async () => {
+    const ok = makeTx({ id: 'ok', txDate: '2099-05-06T00:00:00.000Z' })
+    const broken = makeTx({ id: 'broken', txDate: null, createdAt: 'not-a-date' })
+    renderModal({ validatedTxs: [ok, broken], preselectedTxIds: [ok.id, broken.id] })
+    const date = screen.getByTestId('company-share-payout-date')
+    await waitFor(() => expect(date).toHaveValue('2099-05-06'))
+    expect(date).toHaveAttribute('min', '2099-05-06')
+  })
+
   it('removes the date bound and helper when the selection becomes empty', () => {
     renderModal({ validatedTxs: [TX_A1], preselectedTxIds: [TX_A1.id] })
     const date = screen.getByTestId('company-share-payout-date')
