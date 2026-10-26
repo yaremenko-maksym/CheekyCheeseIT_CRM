@@ -14,6 +14,7 @@ import type { DrizzleTx } from '../database/types'
 import type { TeamsService } from '../teams/teams.service'
 import type { AuditLogService } from './audit-log.service'
 import type { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
+import { assertSeniorTechFloor } from './role-guards.util'
 import { assertTeamStaffRoles } from './team-staff.util'
 import { buildCreateUserInsertValues } from './user-insert.util'
 
@@ -148,6 +149,7 @@ export class UserCreationService {
         }
       }
     }
+    assertSeniorTechFloor(data.role, data.techStack ?? null)
     // SR-M-1 (security-review #990): the CREATE_NEW team's HR/accountant members are
     // validated BEFORE anything is written, so a rejection never leaves a
     // half-created senior behind.
