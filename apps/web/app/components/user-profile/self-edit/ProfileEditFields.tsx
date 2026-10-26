@@ -34,20 +34,25 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
 
   function scheduleSave(patch: Record<string, unknown>) {
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    pendingPatchRef.current = patch
+    // One slot, merged: an edit of another field within the debounce is kept, not overwritten (QA-L-3).
+    const merged = { ...pendingPatchRef.current, ...patch }
+    pendingPatchRef.current = merged
     debounceRef.current = setTimeout(() => {
       pendingPatchRef.current = null
-      mutation.mutate(patch as never)
+      mutation.mutate(merged as never)
     }, 800)
   }
 
   /** Drops a pending save of an earlier stack, so the server never gets a stack the chips no longer show. */
   function cancelPendingTechStackSave() {
-    // A pending patch of another field (name, phone…) is left alone and still saves.
-    if (pendingPatchRef.current && 'techStack' in pendingPatchRef.current) {
+    const pending = pendingPatchRef.current
+    if (pending && 'techStack' in pending) {
       // A pending patch always has its timer, so no null check is needed here.
       clearTimeout(debounceRef.current ?? undefined)
       pendingPatchRef.current = null
+      // Other fields in the same pending save (name, phone…) still go out.
+      const { techStack: _dropped, ...rest } = pending
+      if (Object.keys(rest).length > 0) scheduleSave(rest)
     }
   }
 

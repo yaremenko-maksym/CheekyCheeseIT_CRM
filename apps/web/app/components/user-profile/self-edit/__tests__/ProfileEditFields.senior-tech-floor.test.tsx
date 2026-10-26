@@ -68,6 +68,8 @@ describe('ProfileEditFields — SENIOR technology floor', () => {
     render(<ProfileEditFields user={makeUser('SENIOR', ['React', 'Go', 'AWS'])} />, {
       wrapper: I18nTestProvider,
     })
+    await act(() => vi.advanceTimersByTimeAsync(1000)) // flush the phone widget's mount-time save
+    mutate.mockReset()
     // A valid edit schedules a save (debounced 800 ms)…
     await user.type(
       screen.getByPlaceholderText('Почніть вводити: React, Node.js…'),
@@ -78,7 +80,7 @@ describe('ProfileEditFields — SENIOR technology floor', () => {
     await removeChip(user, 'AWS')
     expect(screen.getByText(FLOOR_UK)).toBeInTheDocument()
     await act(() => vi.advanceTimersByTimeAsync(2000))
-    expect(mutate.mock.calls.filter(([patch]) => 'techStack' in (patch as object))).toEqual([])
+    expect(mutate.mock.calls).toEqual([])
   })
 
   it('CR-M-1: a pending save of ANOTHER field is not dropped by an invalid stack and still goes out', async () => {
@@ -125,17 +127,51 @@ describe('ProfileEditFields — SENIOR technology floor', () => {
     expect(mutate.mock.calls).toEqual([[{ techStack: ['React', 'Go', 'AWS', 'Zzone', 'Zztwo'] }]])
   })
 
+  it('QA-L-3: a name edit then a valid stack edit within the debounce are saved together', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ProfileEditFields user={makeUser('SENIOR', ['React', 'Go', 'AWS'])} />, {
+      wrapper: I18nTestProvider,
+    })
+    await act(() => vi.advanceTimersByTimeAsync(1000))
+    mutate.mockReset()
+    await user.type(screen.getByLabelText('Ім’я та прізвище'), 'X')
+    await user.type(screen.getByPlaceholderText('Почніть вводити: React, Node.js…'), 'Zzone{Enter}')
+    await act(() => vi.advanceTimersByTimeAsync(2000))
+    expect(mutate.mock.calls).toEqual([
+      [{ displayName: 'TestX', techStack: ['React', 'Go', 'AWS', 'Zzone'] }],
+    ])
+  })
+
+  it('QA-L-3: name + stack pending, then the stack turns invalid: the name is still saved, the stack is not', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ProfileEditFields user={makeUser('SENIOR', ['React', 'Go', 'AWS'])} />, {
+      wrapper: I18nTestProvider,
+    })
+    await act(() => vi.advanceTimersByTimeAsync(1000))
+    mutate.mockReset()
+    await user.type(screen.getByLabelText('Ім’я та прізвище'), 'X')
+    await user.type(screen.getByPlaceholderText('Почніть вводити: React, Node.js…'), 'Zzone{Enter}')
+    await removeChip(user, 'Zzone')
+    await removeChip(user, 'AWS')
+    await act(() => vi.advanceTimersByTimeAsync(2000))
+    expect(mutate.mock.calls).toEqual([[{ displayName: 'TestX' }]])
+  })
+
   it('a JUNIOR dropping to 1 technology saves with no error', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ProfileEditFields user={makeUser('JUNIOR', ['React', 'Go'])} />, {
       wrapper: I18nTestProvider,
     })
+    await act(() => vi.advanceTimersByTimeAsync(1000)) // flush the phone widget's mount-time save
+    mutate.mockReset()
     await removeChip(user, 'Go')
     expect(screen.queryByText(FLOOR_UK)).toBeNull()
     expect(screen.getByText('Технології').className).not.toContain('text-destructive')
     await act(() => vi.advanceTimersByTimeAsync(1000))
-    expect(mutate).toHaveBeenCalledWith({ techStack: ['React'] })
+    expect(mutate.mock.calls).toEqual([[{ techStack: ['React'] }]])
   })
 
   it('en: the same refusal renders in English (SPEC-M-2)', async () => {
