@@ -12,7 +12,6 @@ import {
 import { RULE_VERSION } from '../funnel/layer1'
 import type { Layer1Input } from '../funnel/layer1'
 import type { SeniorTechProfile } from '../funnel/tech-match'
-import type { MeterDb } from '../metering/account-meter.store'
 import type { ObservedDate } from '../normalize/date-policy'
 import type { SqlExecutor } from '../scheduling/host-state'
 

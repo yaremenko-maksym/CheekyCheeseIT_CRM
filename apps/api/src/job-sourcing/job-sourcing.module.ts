@@ -14,6 +14,7 @@ import { JobSourcingService } from './job-sourcing.service'
 import { JobSourceRegistry } from './registry/job-source-registry'
 import { createProductionRegistry } from './registry/production-registry'
 import { JobRunWorker } from './runtime/job-run-worker'
+import { RecomputeWorker, createRecomputeSteps } from './runtime/recompute-worker'
 import {
   createProductionLedger,
   createProductionWorker,
@@ -79,6 +80,16 @@ import { JobRunLedger } from './ownership/job-run-ledger'
         JobSourceRegistry,
         { token: ConfigService, optional: true },
       ],
+    },
+    // r5 Task 4.6 S4a: the dirty-work recompute consumer. Provided, not scheduled: S4b adds the
+    // periodic reconciliation that calls `runOnce`.
+    {
+      provide: RecomputeWorker,
+      useFactory: (db: DatabaseService) =>
+        new RecomputeWorker(createRecomputeSteps(lateBoundDb(db)), {
+          owner: `recompute-${process.pid}`,
+        }),
+      inject: [DatabaseService],
     },
   ],
   exports: [JobSourcingService],
