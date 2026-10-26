@@ -38,6 +38,7 @@ import { useTeamSelection } from './user-dialog/useTeamSelection'
 // Re-exported so existing test imports from '../UserDialog' keep resolving.
 export { WizardStep2 }
 import { buildUserDialogDefaults } from './user-dialog/form-defaults'
+import { focusFirstInvalid } from '@/lib/focus-first-invalid'
 import {
   buildCreateDropPayload,
   buildCreateUserPayload,
@@ -143,6 +144,10 @@ export function UserDialog(props: UserDialogProps) {
   // ── Form ─────────────────────────────────────────────────────────────────
   const form = useForm({
     defaultValues: buildUserDialogDefaults(editingUser, { hrOnly }),
+    // UX-M-2: after a failed submit, take the user to the first invalid control.
+    onSubmitInvalid: () => {
+      requestAnimationFrame(() => focusFirstInvalid(document.querySelector('[role="dialog"]')))
+    },
     onSubmit: async ({ value }) => {
       const isSenior = value.role === 'SENIOR'
       const isDrop = value.role === 'DROP'

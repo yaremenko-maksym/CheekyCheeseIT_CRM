@@ -35,6 +35,7 @@ import { ShareSlider } from '@/components/ui/share-slider'
 import { toast } from 'sonner'
 import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 import { seniorTechStackError } from '@/components/users/user-dialog/validation'
+import { focusFirstInvalid } from '@/lib/focus-first-invalid'
 import { normalizeTelegram } from '../normalize-telegram'
 
 type UserOption = {
@@ -153,6 +154,10 @@ export function HrCreateSeniorDialog({
 
   const techErrorId = useId()
   const form = useForm({
+    // UX-M-2: after a failed submit, take the user to the first invalid control.
+    onSubmitInvalid: () => {
+      requestAnimationFrame(() => focusFirstInvalid(document.querySelector('[role="dialog"]')))
+    },
     defaultValues: {
       email: '',
       displayName: '',

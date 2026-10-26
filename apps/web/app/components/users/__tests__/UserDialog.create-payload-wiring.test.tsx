@@ -278,6 +278,8 @@ describe('UserDialog — SENIOR technology floor (>= 3 distinct)', () => {
     const error = await screen.findByText('Сеньйору потрібно щонайменше 3 різні технології')
     expect(techEl().getAttribute('aria-describedby')).toBe(error.id)
     expect(mockPost.mock.calls.filter((c) => String(c[0]) === '/users')).toHaveLength(0)
+    // UX-M-2: focus leaves «Далі» for the first invalid control (the tech input here).
+    await waitFor(() => expect(techEl()).toHaveFocus())
   })
 
   it('a JUNIOR create with no technology is not affected', async () => {

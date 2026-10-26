@@ -703,6 +703,13 @@ describe('HrCreateSeniorDialog — SENIOR technology floor (>= 3 distinct)', () 
     expect(error.id).not.toBe('')
     // UX-L-1: announced when it appears.
     expect(error.getAttribute('role')).toBe('alert')
+    // UX-M-2: focus moves from «Створити» to the invalid control…
+    await waitFor(() => expect(techEl()).toHaveFocus())
+    // …and is not stolen back while the user types elsewhere.
+    const telegram = screen.getByPlaceholderText('@username')
+    await user.click(telegram)
+    await user.type(telegram, 'abc')
+    expect(telegram).toHaveFocus()
     expect(mockedPost).not.toHaveBeenCalled()
   })
 
