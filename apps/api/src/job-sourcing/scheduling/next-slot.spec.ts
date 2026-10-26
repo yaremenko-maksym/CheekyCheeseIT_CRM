@@ -2,9 +2,12 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   fetchProfileSchema,
+  firstSlotAfter,
   fnv1a32,
+  gridMinutes,
   InvalidFetchProfileError,
   nextSlot,
+  type Shape,
   staggerMinutes,
   type FetchProfile,
   type SlotPolicy,
@@ -115,7 +118,7 @@ describe('AC 1-3: the grid and the working window (Europe/Berlin, January = UTC+
     )
   })
 
-  it('a stagger that pushes the first slot to "to" or later leaves the day without in-window slots', () => {
+  it('a stagger beyond the window length wraps into the window', () => {
     const p = berlin({
       offIntervalMinutes: null,
       window: { timeZone: 'Europe/Berlin', days: ['MON', 'TUE'], from: '08:00', to: '08:30' },
@@ -124,9 +127,9 @@ describe('AC 1-3: the grid and the working window (Europe/Berlin, January = UTC+
     expect(iso(nextSlot(at('2027-01-11T07:08:00Z'), p, policy(K7)))).toBe(
       '2027-01-12T07:07:00.000Z',
     )
-    // stagger 40 (>= window length) -> no slot, ever.
-    expect(() => nextSlot(at('2027-01-11T07:08:00Z'), p, policy(keyFor(40, 60)))).toThrow(
-      RangeError,
+    // stagger 40 (>= window length 30) wraps into the window: 08:10, not "no slot".
+    expect(iso(nextSlot(at('2027-01-11T07:08:00Z'), p, policy(keyFor(40, 60))))).toBe(
+      '2027-01-11T07:10:00.000Z',
     )
   })
 
@@ -250,7 +253,7 @@ describe('AC 6: slowdown, the 24 h cap and the provider floor', () => {
   it('a floor larger than the gap pushes past a slot; a floor below the gap changes nothing', () => {
     expect(iso(nextSlot(slot, p, policy(K7, 90)))).toBe('2027-01-12T11:07:00.000Z')
     expect(iso(nextSlot(slot, p, policy(K7, 59)))).toBe('2027-01-12T10:07:00.000Z')
-    // the floor is strict: a slot exactly floor minutes away is allowed (not "strictly after now + floor")
+    // the result is strictly after now + gap: a slot exactly floor minutes away is excluded (10:07 + 60 -> 12:07)
     expect(iso(nextSlot(slot, p, policy(K7, 60)))).toBe('2027-01-12T11:07:00.000Z')
   })
 
@@ -314,13 +317,40 @@ describe('AC 8: invalid input is refused with a typed error, never clamped', () 
     expect(() => nextSlot(now, p, policy(K7))).toThrow(InvalidFetchProfileError)
   })
 
-  it('a profile with no slot within 8 days throws RangeError', () => {
+  // With the in-window stagger wrapping (CR-M-1) a valid profile always has a slot: the former
+  // "no slot in 8 days" profile now returns one, and the guard is exercised with a shape that has none.
+  const emptyShape: Shape = {
+    zone: 'UTC',
+    days: ['MON'],
+    from: 480,
+    to: 480,
+    interval: 60,
+    off: null,
+    fixed: null,
+  }
+
+  it('the former no-slot profile (5 minute window, stagger 10) now lands in its window', () => {
     const p = berlin({
       offIntervalMinutes: null,
       window: { timeZone: 'Europe/Berlin', days: ['MON'], from: '08:00', to: '08:05' },
     })
-    expect(() => nextSlot(now, p, policy(keyFor(10, 60)))).toThrow(RangeError)
-    expect(() => nextSlot(now, p, policy(keyFor(10, 60)))).not.toThrow(InvalidFetchProfileError)
+    expect(iso(nextSlot(now, p, policy(keyFor(10, 60))))).toBe('2027-01-18T07:00:00.000Z')
+  })
+
+  it('a shape with no slot within the search throws a plain RangeError saying how far it looked', () => {
+    const run = (): Date => firstSlotAfter(emptyShape, 0, Date.UTC(2027, 0, 12))
+    expect(run).toThrow(RangeError)
+    expect(run).toThrow(/no slot within 8 local days/)
+    expect(run).not.toThrow(InvalidFetchProfileError)
+  })
+
+  it('searches the threshold day and seven more, no further', () => {
+    const monday: Shape = { ...emptyShape, to: 540 } // MON 08:00-09:00, stagger 0 -> 08:00
+    const tuesday = Date.UTC(2027, 0, 12, 12) // Tue 12:00: next Monday is 6 days ahead
+    expect(firstSlotAfter(monday, 0, tuesday, 6).toISOString()).toBe('2027-01-18T08:00:00.000Z')
+    expect(() => firstSlotAfter(monday, 0, tuesday, 5)).toThrow(/no slot within 6 local days/)
+    const mondayNoon = Date.UTC(2027, 0, 11, 12) // Mon 12:00: next Monday is exactly 7 days ahead
+    expect(firstSlotAfter(monday, 0, mondayNoon).toISOString()).toBe('2027-01-18T08:00:00.000Z')
   })
 
   const win = (over: Partial<NonNullable<FetchProfile['window']>>): FetchProfile =>
@@ -479,14 +509,6 @@ describe('pinned edges (grid boundaries, period interval, messages)', () => {
     )
   })
 
-  it('the no-slot error says how far it looked', () => {
-    const p = berlin({
-      offIntervalMinutes: null,
-      window: { timeZone: 'Europe/Berlin', days: ['MON'], from: '08:00', to: '08:05' },
-    })
-    expect(() => nextSlot(now, p, policy(keyFor(10, 60)))).toThrow(/no slot within 8 local days/)
-  })
-
   it('an off slot exactly at "from" belongs to the window (off 450, stagger 30: 08:00 is skipped)', () => {
     const p = berlin({ offIntervalMinutes: 450 })
     expect(iso(nextSlot(at('2027-01-12T06:00:00Z'), p, policy(K30)))).toBe(
@@ -544,6 +566,182 @@ describe('pinned edges (grid boundaries, period interval, messages)', () => {
     expect(iso(nextSlot(at('2027-01-12T00:00:00Z'), p, policy(keyFor(0, 2880))))).toBe(
       '2027-01-13T00:00:00.000Z',
     )
+  })
+})
+
+describe('review round 1', () => {
+  const now = at('2027-01-12T00:00:00Z') // Tue 01:00 Berlin, before the window
+  const withKeys = {
+    window: { timeZone: 'Europe/Berlin', days: [...WEEKDAYS], from: '08:00', to: '19:00' },
+  }
+
+  describe('CR-M-2: unknown keys are refused at every level', () => {
+    it.each([
+      ['profile', { ...berlin(), fixedSlot: { timeZone: 'UTC', times: ['09:00'] } }],
+      ['window', berlin({ window: { ...withKeys.window, day: ['MON'] } as never })],
+      [
+        'fixedSlots',
+        {
+          intervalMinutes: 60,
+          offIntervalMinutes: null,
+          window: null,
+          fixedSlots: { timeZone: 'UTC', times: ['09:00'], time: '10:00' },
+        },
+      ],
+    ] as [string, FetchProfile][])('refuses an unknown key in the %s', (_level, profile) => {
+      expect(fetchProfileSchema.safeParse(profile).success).toBe(false)
+      expect(() => nextSlot(now, profile, policy(K7))).toThrow(InvalidFetchProfileError)
+    })
+
+    it('refuses an unknown key in the policy', () => {
+      const bad = { floorMinutes: 0, slowdownLevel: 0, staggerKey: K7, level: 1 } as never
+      expect(() => nextSlot(now, berlin(), bad)).toThrow(InvalidFetchProfileError)
+    })
+  })
+
+  describe('SPEC-M-1: routinePages (ADR section 1)', () => {
+    it.each([1, 3, 100])('accepts routinePages %d', (n) => {
+      expect(fetchProfileSchema.safeParse(berlin({ routinePages: n })).success).toBe(true)
+    })
+    it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, '1'])(
+      'refuses routinePages %j',
+      (n) => {
+        expect(fetchProfileSchema.safeParse({ ...berlin(), routinePages: n }).success).toBe(false)
+      },
+    )
+    it('is optional, and does not influence the slot', () => {
+      expect(fetchProfileSchema.safeParse(berlin()).success).toBe(true)
+      const base = nextSlot(now, berlin(), policy(K7)).getTime()
+      expect(nextSlot(now, berlin({ routinePages: 1 }), policy(K7)).getTime()).toBe(base)
+    })
+  })
+
+  describe('CR-M-1: a valid profile always has a slot inside an active window', () => {
+    const daily = berlin({ intervalMinutes: 1440, offIntervalMinutes: null })
+    // stagger (on a 1440 interval) -> expected slot: 08:00 + stagger % 660 on Tue 2027-01-12, Berlin = UTC+1
+    it.each([
+      [0, '2027-01-12T07:00:00.000Z'],
+      [659, '2027-01-12T17:59:00.000Z'], // the last minute of the window
+      [660, '2027-01-12T07:00:00.000Z'], // at the window length: wraps to the start
+      [700, '2027-01-12T07:40:00.000Z'],
+      [1000, '2027-01-12T12:40:00.000Z'],
+      [1439, '2027-01-12T08:59:00.000Z'],
+    ])('daily interval on an 11 h window, stagger %d', (stagger, expected) => {
+      expect(iso(nextSlot(now, daily, policy(keyFor(stagger, 1440))))).toBe(expected)
+    })
+
+    it('a weekly interval with a stagger beyond a day still lands in the window (and in the null window)', () => {
+      const weekly = berlin({ intervalMinutes: 10_080, offIntervalMinutes: null })
+      expect(iso(nextSlot(now, weekly, policy(keyFor(5000, 10_080))))).toBe(
+        '2027-01-12T13:20:00.000Z',
+      )
+      const open: FetchProfile = { intervalMinutes: 10_080, offIntervalMinutes: null, window: null }
+      expect(iso(nextSlot(now, open, policy(keyFor(5000, 10_080))))).toBe(
+        '2027-01-12T11:20:00.000Z',
+      )
+    })
+
+    it('an interval below the window length keeps the plain stagger (ADR instants unchanged)', () => {
+      expect(iso(nextSlot(at('2027-01-12T09:20:00Z'), berlin(), policy(K7)))).toBe(
+        '2027-01-12T10:07:00.000Z',
+      )
+    })
+  })
+
+  describe('gridMinutes', () => {
+    it('lists first, first + step, ... strictly below end', () => {
+      expect(gridMinutes(5, 10, 30)).toEqual([5, 15, 25])
+      expect(gridMinutes(10, 10, 10)).toEqual([])
+      expect(gridMinutes(30, 10, 30)).toEqual([])
+      expect(gridMinutes(25, 10, 30)).toEqual([25])
+    })
+    it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])('refuses step %j', (step) => {
+      expect(() => gridMinutes(0, step, 10)).toThrow(RangeError)
+    })
+    it('refuses a null step (an absent off interval must never reach the grid)', () => {
+      expect(() => gridMinutes(0, null as never, 10)).toThrow(RangeError)
+    })
+  })
+
+  describe('floorMinutes is bounded (backlog LOW)', () => {
+    it('accepts one year and refuses more, with the typed error', () => {
+      expect(() => nextSlot(now, berlin(), policy(K7, 525_600))).not.toThrow()
+      expect(() => nextSlot(now, berlin(), policy(K7, 525_601))).toThrow(InvalidFetchProfileError)
+      expect(() => nextSlot(now, berlin(), policy(K7, 1e15))).toThrow(InvalidFetchProfileError)
+    })
+  })
+
+  describe('SPEC-L-2: the OFF grid across a transition (window + off interval, both directions)', () => {
+    // Transitions fall on Sundays, outside the Mon-Fri window, so the 60-minute off grid (stagger 30) applies.
+    const off = (timeZone: string): FetchProfile => ({
+      intervalMinutes: 60,
+      offIntervalMinutes: 60,
+      window: { timeZone, days: [...WEEKDAYS], from: '08:00', to: '19:00' },
+    })
+    it.each([
+      [
+        'Kyiv spring forward 03:30 -> 04:00',
+        'Europe/Kyiv',
+        '2027-03-28T00:30:00Z',
+        '2027-03-28T01:00:00.000Z',
+      ],
+      [
+        'Kyiv after the gap slot',
+        'Europe/Kyiv',
+        '2027-03-28T01:00:00Z',
+        '2027-03-28T01:30:00.000Z',
+      ],
+      [
+        'Kyiv fall back, first 03:30',
+        'Europe/Kyiv',
+        '2027-10-30T23:30:00Z',
+        '2027-10-31T00:30:00.000Z',
+      ],
+      [
+        'Kyiv fall back, repeat skipped',
+        'Europe/Kyiv',
+        '2027-10-31T00:31:00Z',
+        '2027-10-31T02:30:00.000Z',
+      ],
+      [
+        'New_York spring forward',
+        'America/New_York',
+        '2027-03-14T06:30:00Z',
+        '2027-03-14T07:00:00.000Z',
+      ],
+      [
+        'New_York after the gap slot',
+        'America/New_York',
+        '2027-03-14T07:00:00Z',
+        '2027-03-14T07:30:00.000Z',
+      ],
+      [
+        'New_York fall back, first 01:30',
+        'America/New_York',
+        '2027-11-07T04:30:00Z',
+        '2027-11-07T05:30:00.000Z',
+      ],
+      [
+        'New_York fall back, repeat skipped',
+        'America/New_York',
+        '2027-11-07T05:30:00Z',
+        '2027-11-07T07:30:00.000Z',
+      ],
+      [
+        'Sydney spring forward',
+        'Australia/Sydney',
+        '2027-10-02T15:30:00Z',
+        '2027-10-02T16:00:00.000Z',
+      ],
+      [
+        'Sydney fall back, repeat skipped',
+        'Australia/Sydney',
+        '2027-04-03T15:30:00Z',
+        '2027-04-03T17:30:00.000Z',
+      ],
+    ])('%s', (_name, zone, from, expected) => {
+      expect(iso(nextSlot(at(from), off(zone), policy(K30)))).toBe(expected)
+    })
   })
 })
 

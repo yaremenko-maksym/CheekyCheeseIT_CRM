@@ -12,6 +12,12 @@ import { z } from 'zod'
  * - `window: null` means "always active" on UTC days; its grid is `00:00 + stagger + k * interval`.
  * - The off grid restarts at local 00:00 every day with offset `stagger % offIntervalMinutes`, so an
  *   off interval that does not divide 24 h has a shorter step at midnight.
+ * - An interval longer than the window takes its in-window stagger modulo the window length, so an
+ *   active window always holds a slot (CR-M-1); with a shorter interval the ADR's instants are unchanged.
+ * - `routinePages` is a positive integer (ADR gives no bound); `nextSlot` ignores it.
+ * - The zone check is `Intl`'s: it also accepts offset zones such as `+05:00`; the profile's `timeZone`
+ *   is meant to be an IANA name, and the manifest drift test (U1b) is where a stricter rule belongs.
+ * - `floorMinutes` is at most one year.
  * - `fixedSlots` ignores the stagger, and may not be combined with a window or an off interval.
  * - The slow-down gap uses the interval of the period `now` falls in (the active interval when the
  *   off interval is null).
@@ -43,12 +49,15 @@ function isKnownZone(timeZone: string): boolean {
 const zone = z.string().refine(isKnownZone, { message: 'unknown IANA time zone' })
 const interval = z.number().int().positive().max(MAX_INTERVAL_MINUTES)
 
+/** One year: far beyond any real provider floor, small enough that `now + floor` stays a valid date. */
+const MAX_FLOOR_MINUTES = 365 * MINUTES_PER_DAY
+
 export const fetchProfileSchema = z
-  .object({
+  .strictObject({
     intervalMinutes: interval,
     offIntervalMinutes: interval.nullable(),
     window: z
-      .object({
+      .strictObject({
         timeZone: zone,
         days: z.array(z.enum(DAYS)).min(1),
         from: hhmm,
@@ -56,7 +65,9 @@ export const fetchProfileSchema = z
       })
       .refine((w) => minutesOf(w.from) < minutesOf(w.to), { message: 'from must be before to' })
       .nullable(),
-    fixedSlots: z.object({ timeZone: zone, times: z.array(hhmm).min(1) }).optional(),
+    fixedSlots: z.strictObject({ timeZone: zone, times: z.array(hhmm).min(1) }).optional(),
+    /** How many pages a routine run reads (ADR section 1). Read by the adapters, never by `nextSlot`. */
+    routinePages: z.number().int().positive().optional(),
   })
   .refine(
     (p) => p.fixedSlots === undefined || (p.window === null && p.offIntervalMinutes === null),
@@ -67,8 +78,8 @@ export const fetchProfileSchema = z
 
 export type FetchProfile = z.input<typeof fetchProfileSchema>
 
-const slotPolicySchema = z.object({
-  floorMinutes: z.number().int().nonnegative(),
+const slotPolicySchema = z.strictObject({
+  floorMinutes: z.number().int().nonnegative().max(MAX_FLOOR_MINUTES),
   slowdownLevel: z.number().int().min(0).max(MAX_SLOWDOWN_LEVEL),
   staggerKey: z.string().min(1),
 })
@@ -178,7 +189,7 @@ function resolveLocal(timeZone: string, wallMs: number, before: number, after: n
 type Profile = z.output<typeof fetchProfileSchema>
 
 /** The profile in one shape: no window means "every day, all day", fixed slots a day of listed minutes. */
-interface Shape {
+export interface Shape {
   readonly zone: string
   readonly days: readonly Day[]
   readonly from: number
@@ -204,16 +215,30 @@ function shapeOf(p: Profile): Shape {
 const insideWindow = (s: Shape, day: Day, minute: number): boolean =>
   s.days.includes(day) && minute >= s.from && minute < s.to
 
+/**
+ * `first, first + step, ...` strictly below `end`. A step that is not a positive finite number is
+ * refused: an absent off interval (`null`) must never reach a grid, where it would be read as 0.
+ */
+export function gridMinutes(first: number, step: number, end: number): number[] {
+  if (!(Number.isFinite(step) && step > 0))
+    throw new RangeError(`grid step must be positive, got ${step}`)
+  const out: number[] = []
+  for (let m = first; m < end; m += step) out.push(m)
+  return out
+}
+
 /** Local minutes of one day on which the profile has a slot. */
 function slotMinutes(s: Shape, day: Day, stagger: number): number[] {
   if (s.fixed !== null) return [...s.fixed]
   const out: number[] = []
   if (s.days.includes(day)) {
-    for (let m = s.from + stagger; m < s.to; m += s.interval) out.push(m)
+    // The stagger is taken modulo the window length when the interval is longer, so an active
+    // window always holds a slot (ADR instants are unchanged whenever interval < window length).
+    const inWindowStagger = stagger % Math.min(s.interval, s.to - s.from)
+    out.push(...gridMinutes(s.from + inWindowStagger, s.interval, s.to))
   }
-  // Stryker disable next-line ConditionalExpression: with `off === null`, `stagger % null` is NaN, so the loop below never runs; the guard only narrows the type for the compiler.
   if (s.off !== null) {
-    for (let m = stagger % s.off; m < MINUTES_PER_DAY; m += s.off) {
+    for (const m of gridMinutes(stagger % s.off, s.off, MINUTES_PER_DAY)) {
       if (!insideWindow(s, day, m)) out.push(m)
     }
   }
@@ -244,10 +269,23 @@ export function nextSlot(now: Date, profile: FetchProfile, policy: SlotPolicy): 
   const slowed = Math.min(period * 2 ** pol.slowdownLevel, SLOWDOWN_INTERVAL_CAP_MINUTES) - period
   const thresholdMs = nowMs + Math.max(pol.floorMinutes, slowed, 0) * MINUTE_MS
 
-  const stagger = staggerMinutes(pol.staggerKey, s.interval)
+  return firstSlotAfter(s, staggerMinutes(pol.staggerKey, s.interval), thresholdMs)
+}
+
+/**
+ * The first slot strictly after `thresholdMs`, searching the threshold's local day and `lastDay` more.
+ * A valid profile always has one (every active window holds a slot); the `RangeError` is the guard for
+ * a shape the schema would have refused. Exported so the guard can be exercised with such a shape.
+ */
+export function firstSlotAfter(
+  s: Shape,
+  stagger: number,
+  thresholdMs: number,
+  lastDay = LAST_SEARCH_DAY,
+): Date {
   const t = localParts(s.zone, thresholdMs)
   const firstDayWall = Date.UTC(t.year, t.month - 1, t.day)
-  for (let d = 0; d <= LAST_SEARCH_DAY; d++) {
+  for (let d = 0; d <= lastDay; d++) {
     const dayWall = firstDayWall + d * DAY_MS
     const before = offsetAt(s.zone, dayWall - DAY_MS)
     const after = offsetAt(s.zone, dayWall + 2 * DAY_MS)
@@ -256,5 +294,5 @@ export function nextSlot(now: Date, profile: FetchProfile, policy: SlotPolicy): 
       .filter((instant) => instant > thresholdMs)
     if (later.length > 0) return new Date(Math.min(...later))
   }
-  throw new RangeError(`nextSlot: no slot within ${LAST_SEARCH_DAY + 1} local days`)
+  throw new RangeError(`nextSlot: no slot within ${lastDay + 1} local days`)
 }
