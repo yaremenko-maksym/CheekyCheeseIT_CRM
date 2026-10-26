@@ -117,6 +117,15 @@ describe('TechStackSection — SENIOR technology floor', () => {
     expect(screen.queryByText(FLOOR_UK)).toBeNull()
   })
 
+  it('en: a SENIOR submit with 2 technologies shows the English message (SPEC-M-2)', async () => {
+    await loadCatalog('en')
+    const api: Partial<FloorForm> = {}
+    render(<FloorHarness api={api} techStack={['Zzalpha', 'Zzbeta']} />)
+    await act(() => api.submit!())
+    const error = screen.getByText('A senior needs at least 3 different technologies')
+    expect(screen.getByRole('textbox').getAttribute('aria-describedby')).toBe(error.id)
+  })
+
   it('a JUNIOR submit with no technology shows no error', async () => {
     const api: Partial<FloorForm> = {}
     render(<FloorHarness api={api} role="JUNIOR" />)

@@ -11,7 +11,8 @@
  * requisite-less SENIOR payload, shows the success toast and closes.
  */
 
-import { test, expect, API_RE } from './fixtures'
+import { test, expect, API_RE, USERS, mockAuthAs } from './fixtures'
+import { assertInCatalog, loadMessages } from '../fixtures/catalog'
 import { SENIOR_TECH_STACK, addTechnologies, techStackInput } from './fixtures/senior-tech'
 
 test.describe('HR create senior dialog', () => {
@@ -90,6 +91,40 @@ test.describe('HR create senior dialog', () => {
     const input = await techStackInput(dialog)
     await expect(input).toHaveAttribute('aria-describedby', (await error.getAttribute('id')) ?? '')
     await expect(dialog).toBeVisible()
+    expect(posts).toBe(0)
+  })
+
+  test('en: the floor error renders in English, tied to the input (SPEC-M-2)', async ({ page }) => {
+    const en = await loadMessages('en')
+    await mockAuthAs(page, { ...USERS.hr, locale: 'en' })
+    let posts = 0
+    await page.route(new RegExp(`${API_RE}/users$`), (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      posts += 1
+      return route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
+    })
+
+    await page.goto('/team')
+    await page
+      .locator('main')
+      .getByRole('button', { name: assertInCatalog(en, 'Create senior') })
+      .first()
+      .click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByPlaceholder('senior@cheekycheese.dev').fill('en.senior@cheekycheese.dev')
+    await dialog.getByPlaceholder(assertInCatalog(en, 'Ivan Ivanenko')).fill('Ivan Ivanenko')
+    const input = dialog.getByPlaceholder(assertInCatalog(en, 'Start typing: React, Node.js…'))
+    for (const tech of SENIOR_TECH_STACK.slice(0, 2)) {
+      await input.fill(tech)
+      await input.press('Enter')
+    }
+    await dialog.getByRole('button', { name: assertInCatalog(en, 'Create'), exact: true }).click()
+
+    const error = dialog.getByText(
+      assertInCatalog(en, 'A senior needs at least 3 different technologies'),
+    )
+    await expect(error).toBeVisible()
+    await expect(input).toHaveAttribute('aria-describedby', (await error.getAttribute('id')) ?? '')
     expect(posts).toBe(0)
   })
 })
