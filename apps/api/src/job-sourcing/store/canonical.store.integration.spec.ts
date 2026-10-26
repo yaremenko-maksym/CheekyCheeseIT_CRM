@@ -161,8 +161,9 @@ const untilBlocked = () => untilBlockedOn(session.admin)
 async function releaseRolledBack(client: PoolClient): Promise<void> {
   try {
     await client.query('ROLLBACK')
-  } finally {
     client.release()
+  } catch (err) {
+    client.release(err instanceof Error ? err : new Error(String(err))) // dead connection: destroy, do not pool
   }
 }
 
@@ -525,14 +526,23 @@ describe.skipIf(!hasDatabaseUrl())('canonical store (Task 4.5, real Postgres)', 
   describe('Task 4.6 / S2: link, split and release retry contention in their own transaction', () => {
     /**
      * An outside session takes `hold`, the wrapper blocks behind it (having locked something the
-     * outside session then asks for), the outside session asks for it: a real 40P01 cycle. Postgres
-     * aborts one side; either way the wrapper must end up done.
+     * outside session then asks for), the outside session asks for it: a real 40P01 cycle. The
+     * wrapper has waited longest, so its deadlock check fires first and it is the victim. The test
+     * FAILS if the outside session was the victim or the wrapper did not run a second attempt, so
+     * the retry is proven on every run, not assumed.
      */
     async function deadlockedWith(
       hold: { sql: string; params: unknown[] },
       then: { sql: string; params: unknown[] },
-      run: () => Promise<unknown>,
+      run: (counted: typeof db) => Promise<unknown>,
     ) {
+      let attempts = 0
+      const counted = {
+        transaction: (...args: Parameters<typeof db.transaction>) => {
+          attempts += 1
+          return db.transaction(...args)
+        },
+      } as unknown as typeof db
       const before = await deadlocks()
       const ext: PoolClient = await session.admin.connect()
       let extCode: string | null = null
@@ -540,7 +550,7 @@ describe.skipIf(!hasDatabaseUrl())('canonical store (Task 4.5, real Postgres)', 
       try {
         await ext.query('BEGIN')
         await ext.query(hold.sql, hold.params)
-        const pending = run()
+        const pending = run(counted)
         await untilBlocked()
         try {
           await ext.query(then.sql, then.params)
@@ -553,7 +563,8 @@ describe.skipIf(!hasDatabaseUrl())('canonical store (Task 4.5, real Postgres)', 
       } finally {
         await releaseRolledBack(ext)
       }
-      expect([null, '40P01']).toContain(extCode)
+      expect(extCode).toBeNull() // the wrapper, not the outside session, was the deadlock victim
+      expect(attempts).toBeGreaterThanOrEqual(2) // its first attempt died with 40P01 and was retried
       expect(await deadlocks()).toBeGreaterThan(before)
       return outcome
     }
@@ -570,8 +581,8 @@ describe.skipIf(!hasDatabaseUrl())('canonical store (Task 4.5, real Postgres)', 
     it('linkRecordTx: a deadlock (record lock vs target opportunity) is retried and links', async () => {
       const a = await ownedRecord(30_001)
       const t = await ownedRecord(30_002)
-      await deadlockedWith(lockOpp(t.opportunityId), lockRec(a.r), () =>
-        linkRecordTx(db, admin, a.r, t.opportunityId, 'deadlock'),
+      await deadlockedWith(lockOpp(t.opportunityId), lockRec(a.r), (d) =>
+        linkRecordTx(d, admin, a.r, t.opportunityId, 'deadlock'),
       )
       expect(await activeOf(a.r)).toEqual([
         { opportunity_id: t.opportunityId, decision: 'CONFIRMED' },
@@ -580,8 +591,8 @@ describe.skipIf(!hasDatabaseUrl())('canonical store (Task 4.5, real Postgres)', 
 
     it('splitRecordTx: a deadlock (record lock vs its opportunity) is retried and splits', async () => {
       const a = await ownedRecord(30_003)
-      const split = (await deadlockedWith(lockOpp(a.opportunityId), lockRec(a.r), () =>
-        splitRecordTx(db, admin, a.r, 'deadlock'),
+      const split = (await deadlockedWith(lockOpp(a.opportunityId), lockRec(a.r), (d) =>
+        splitRecordTx(d, admin, a.r, 'deadlock'),
       )) as string
       expect(await activeOf(a.r)).toEqual([{ opportunity_id: split, decision: 'CONFIRMED' }])
     })
@@ -594,7 +605,7 @@ describe.skipIf(!hasDatabaseUrl())('canonical store (Task 4.5, real Postgres)', 
           params: [a.key],
         },
         lockOpp(a.opportunityId),
-        () => releaseTokenTx(db, admin, a.key, 'deadlock'),
+        (d) => releaseTokenTx(d, admin, a.key, 'deadlock'),
       )
       expect((await tokensFor(30_004)).filter((t) => t.released)).toHaveLength(1)
     })
@@ -624,6 +635,8 @@ describe.skipIf(!hasDatabaseUrl())('canonical store (Task 4.5, real Postgres)', 
       }
       // Nothing half-done: the failed attempts rolled back.
       expect(await activeOf(a.r)).toEqual([{ opportunity_id: a.opportunityId, decision: 'AUTO' }])
+      expect(await activeOf(t.r)).toEqual([{ opportunity_id: t.opportunityId, decision: 'AUTO' }])
+      expect((await tokensFor(30_006)).filter((x) => x.released)).toEqual([])
     }, 60_000)
   })
 
