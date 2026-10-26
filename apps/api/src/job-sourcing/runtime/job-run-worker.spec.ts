@@ -226,7 +226,7 @@ function world(
               }),
               entryReadiness: () => 'CANDIDATE',
               quotaDeclared: false,
-              intervalHours: 24,
+              fetchProfile: { intervalMinutes: 1440, offIntervalMinutes: null, window: null },
               floorHours: 0,
               banScope: 'SOURCE',
             },

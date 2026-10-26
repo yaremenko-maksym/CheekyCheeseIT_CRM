@@ -31,7 +31,7 @@ function entry(over: Partial<LedgerCatalogEntry> = {}): LedgerCatalogEntry {
   return {
     type: 'REMOTIVE_API',
     quotaDeclared: false,
-    intervalHours: 24,
+    fetchProfile: { intervalMinutes: 1440, offIntervalMinutes: null, window: null },
     floorHours: 0,
     activationFacts: () => READY,
     entryReadiness: () => 'CANDIDATE',
