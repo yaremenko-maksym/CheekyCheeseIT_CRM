@@ -63,16 +63,18 @@ function uniqueSuffix(): string {
 }
 
 /**
- * A random YYYY-MM far outside the seed data's real range (2025/2026) and
- * spread across ~720 combinations — `createSalary` enforces ONE reminder per
- * (receiver, month), so a fixed month would collide across repeated test
- * runs (and with itself across `--repeat-each`). Random, not sequential, so
- * parallel workers can't collide either.
+ * A random year + month among the salary picker's selectable range
+ * (currentYear-3 .. currentYear+1, 60 combinations) — `createSalary` enforces
+ * ONE reminder per (receiver, month), so a fixed month would collide across
+ * repeated test runs (and with itself across `--repeat-each`). Random, not
+ * sequential, so parallel workers can't collide either. The picker (unlike the
+ * old native month input) cannot reach the far future, so the range is the
+ * widest one the UI offers.
  */
-function randomSalaryMonth(): string {
-  const year = 2030 + Math.floor(Math.random() * 60)
+function randomSalaryMonth(): { year: number; month: string } {
+  const year = new Date().getFullYear() - 3 + Math.floor(Math.random() * 5)
   const month = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0')
-  return `${year}-${month}`
+  return { year, month }
 }
 
 /** A tiny valid 1x1 PNG — avoids depending on an on-disk fixture asset. */
@@ -289,7 +291,11 @@ test.describe('Transaction receipts — create-block без чека (mandatory)
     // run's reminder for whichever receiver happens to be "first" in the
     // list. Force a random far-future month so this test never collides with
     // itself or with any other spec/run.
-    await dialog.getByTestId('create-transaction-salary-month').fill(randomSalaryMonth())
+    const { year, month } = randomSalaryMonth()
+    await dialog.getByTestId('create-transaction-salary-year-select').click()
+    await page.getByTestId(`salary-year-option-${year}`).click()
+    await dialog.getByTestId('create-transaction-salary-month-select').click()
+    await page.getByTestId(`salary-month-option-${month}`).click()
 
     // No receipt input at all for SALARY.
     await expect(dialog.getByTestId('receipt-input-url-field')).not.toBeAttached()

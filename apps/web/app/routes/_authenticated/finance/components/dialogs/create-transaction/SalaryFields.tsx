@@ -32,7 +32,10 @@ export function SalaryFields({
   const { t } = useLingui()
   return (
     <div className="space-y-1.5">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+        data-testid="create-transaction-salary-grid"
+      >
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">
             <Trans>Співробітник</Trans>

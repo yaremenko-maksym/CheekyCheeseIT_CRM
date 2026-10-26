@@ -81,6 +81,12 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
 // ── Component ────────────────────────────────────────────────────────────────
 import { CreateTransactionDialog } from '../CreateTransactionDialog'
 
+// The salary month is now two selects (month name + year), not a native month input.
+function expectSalaryMonth(month: string, year: string) {
+  expect(screen.getByTestId('create-transaction-salary-month-select')).toHaveTextContent(month)
+  expect(screen.getByTestId('create-transaction-salary-year-select')).toHaveTextContent(year)
+}
+
 beforeEach(async () => {
   await loadCatalog('uk')
 })
@@ -130,7 +136,7 @@ describe('CreateTransactionDialog — SALARY no longer has a funding selector', 
     try {
       renderDialog()
       clickTypeCard('create-transaction-type-salary')
-      expect(screen.getByTestId('create-transaction-salary-month')).toHaveValue('2025-12')
+      expectSalaryMonth('Грудень', '2025')
     } finally {
       vi.useRealTimers()
     }
@@ -145,7 +151,7 @@ describe('CreateTransactionDialog — SALARY no longer has a funding selector', 
     try {
       renderDialog()
       clickTypeCard('create-transaction-type-salary')
-      expect(screen.getByTestId('create-transaction-salary-month')).toHaveValue('2026-10')
+      expectSalaryMonth('Жовтень', '2026')
     } finally {
       vi.useRealTimers()
     }
@@ -158,7 +164,7 @@ describe('CreateTransactionDialog — SALARY no longer has a funding selector', 
     try {
       renderDialog()
       clickTypeCard('create-transaction-type-salary')
-      expect(screen.getByTestId('create-transaction-salary-month')).toHaveValue('2026-02')
+      expectSalaryMonth('Лютий', '2026')
     } finally {
       vi.useRealTimers()
     }
@@ -177,7 +183,7 @@ describe('CreateTransactionDialog — SALARY no longer has a funding selector', 
     expect(screen.getByTestId('create-transaction-dialog-title')).toHaveTextContent(
       'Додати частину зарплати',
     )
-    expect(screen.getByTestId('create-transaction-salary-month')).toHaveValue('2026-04')
+    expectSalaryMonth('Квітень', '2026')
     expect(screen.getByTestId('create-transaction-receiver-trigger')).toHaveTextContent(
       'Junior User',
     )
@@ -207,7 +213,7 @@ describe('CreateTransactionDialog — SALARY no longer has a funding selector', 
     )
 
     await waitFor(() => {
-      expect(screen.getByTestId('create-transaction-salary-month')).toHaveValue('2026-05')
+      expectSalaryMonth('Травень', '2026')
       expect(screen.getByTestId('amount-currency-amount-input')).toHaveValue('')
     })
   })
@@ -237,7 +243,7 @@ describe('CreateTransactionDialog — SALARY no longer has a funding selector', 
     )
 
     await waitFor(() => {
-      expect(screen.getByTestId('create-transaction-salary-month')).toHaveValue('2026-05')
+      expectSalaryMonth('Травень', '2026')
       expect(currencyTexts()).toContain('USD')
       expect(currencyTexts()).not.toContain('EUR')
     })

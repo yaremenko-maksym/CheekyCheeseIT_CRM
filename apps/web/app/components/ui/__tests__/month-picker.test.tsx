@@ -70,6 +70,15 @@ describe('MonthPickerField', () => {
     expect(screen.getByTestId(MONTH)).toHaveTextContent('October')
   })
 
+  it('translates accessible names and placeholders for en', async () => {
+    await loadCatalog('en')
+    render(<Harness />)
+    expect(screen.getByTestId(MONTH)).toHaveAttribute('aria-label', 'Salary month')
+    expect(screen.getByTestId(YEAR)).toHaveAttribute('aria-label', 'Salary year')
+    expect(screen.getByTestId(MONTH)).toHaveTextContent('Month')
+    expect(screen.getByTestId(YEAR)).toHaveTextContent('Year')
+  })
+
   it('has no native month input and never calls showPicker', async () => {
     await loadCatalog('uk')
     const spy = vi.fn()

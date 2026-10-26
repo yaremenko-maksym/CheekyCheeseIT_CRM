@@ -6999,6 +6999,10 @@ msgstr "Максимум"
 msgid "Примітки"
 msgstr "Примітки"
 
+#: apps/web/app/components/ui/month-picker.tsx
+msgid "Рік зарплати"
+msgstr "Рік зарплати"
+
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Проєкти сеньйорів команд"
 msgstr "Проєкти сеньйорів команд"
@@ -7249,6 +7253,7 @@ msgstr "Розгорнути"
 msgid "Контракт підписано, номер {0}"
 msgstr "Контракт підписано, номер {0}"
 
+#: apps/web/app/components/ui/month-picker.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/SalaryFields.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
@@ -8885,6 +8890,10 @@ msgstr "Частка за проєктом «{projectName}»"
 msgid "Ваша частка: {0}% · сеньйор: {1}"
 msgstr "Ваша частка: {0}% · сеньйор: {1}"
 
+#: apps/web/app/components/ui/month-picker.tsx
+msgid "Місяць зарплати"
+msgstr "Місяць зарплати"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Користувачі"
 msgstr "Користувачі"
@@ -10286,6 +10295,7 @@ msgstr "Попередній перегляд PDF — {roleLabel}"
 msgid "Сеньйор:"
 msgstr "Сеньйор:"
 
+#: apps/web/app/components/ui/month-picker.tsx
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Рік"
 msgstr "Рік"
