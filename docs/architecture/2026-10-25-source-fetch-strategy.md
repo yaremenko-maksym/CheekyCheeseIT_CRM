@@ -1,186 +1,216 @@
-# Source fetch strategy: timing, safety and health tracking per source (DRAFT PROPOSAL)
+# ADR: Source fetch strategy — per-source timing, safety and health tracking
 
-**Status:** Proposal (2026-10-25), not decided. Written at the owner's request. Nothing here runs today: no source is
-runnable until Task 2.5's chain (T3, T7, T6, T5) is merged. **Every provider fact below is either taken from this
-repository (REPO) or is an assumption to verify against the provider's own documentation before the source is enabled
-(VERIFY).** Companion: `2026-10-24-job-source-run-ownership.md` (the ledger, host state, due predicate).
+## Status
 
-## 1. What the owner asked for
+**Proposed (2026-10-26).** The owner gave the direction a green light on 2026-10-26 ("launch the source-fetch
+strategy"). He has decided none of the forks in "Decision brief" below, and every number in this document is
+a proposal until he does. This file replaces the draft proposal of 2026-10-25 that stood at the same path;
+the draft is in git history.
 
-1. **09:00 daily (Europe/Kyiv):** one sweep over ALL enabled sources, a refetch of known vacancies (availability) and a
-   digest email to HR. HR applies; submission is not automated.
-2. **Between sweeps:** every other source is fetched regularly to collect fresh vacancies. **The owner's working
-   baseline: once an hour.** Each platform can have its own timing, and its working-hours window follows its region.
-3. **Safety first:** the rate must be safe and sources must not drop away.
-4. **Health tracking:** we must know when a source starts to disappear (degrade, go silent, fail) and be able to trace the
-   cause.
+Companions:
 
-## 2. The mechanism (one design for every source)
+- `2026-10-24-job-source-run-ownership.md` (Accepted): the run ledger, host state, due predicate (T4), host
+  budget (T8), the two daily handlers (T5) this ADR partly replaces.
+- `2026-10-26-source-fetch-provider-research.md`: what each provider's own documentation says, with an
+  expiry date. Every provider number below cites a row of that file as **R<n>**, or says REPO (a fact
+  already in this repository) or UNVERIFIED.
 
-A per-source **fetch profile** in the manifest (data, not code) and a pure function that turns it into the next allowed
-attempt time.
+## Context
 
-| Field                  | Meaning                                                                                         |
-| ---------------------- | ----------------------------------------------------------------------------------------------- |
-| `intervalMinutes`      | the interval inside the active window; **default 60** (the owner's baseline)                    |
-| `offIntervalMinutes`   | interval outside the window (nights, weekends); `null` = do not poll; default 180               |
-| `window`               | `{ timeZone, days, from, to }` in the provider's region (default 08:00-19:00 Mon-Fri), not Kyiv |
-| `providerFloorMinutes` | the provider's own minimum gap (REPO: Remotive 6 h)                                             |
-| `hostBudget`           | requests per minute and per day on the host (T8's `claimHostSlot` enforces it)                  |
-| `staggerMinute`        | a fixed offset per source (hash of the id modulo the interval) so sources never fire together   |
-| `conditional`          | `ETag` / `If-Modified-Since` where the host supports it (VERIFY per host)                       |
-| `scope`                | what a routine poll reads (for example only the first pages of a feed) vs the full 09:00 sweep  |
+### What the owner asked for (2026-10-25)
 
-- `nextAttemptAt` is computed when a run ends (`finish`, T3) as `nextSlot(now, profile)`: pure, unit-testable,
-  daylight-saving safe (IANA zones), with the failure backoff applied. The due predicate (T4) keeps comparing timestamps.
-- **One handler every 10 minutes** asks the ledger for due sources (an hourly baseline needs no faster tick: each source
-  is due once an hour at its own stagger slot). **The 09:00 handler** opens a cycle that makes every enabled source due
-  once, and **the digest job** runs when that sweep is complete. This replaces T5's two daily handlers.
-- **The strictest limit wins:** provider floor, host budget, quota, ban pause, failure cap.
-- **Inherited rules (owner decisions):** free sources only; stop on 403/429 and never evade; no authentication, no writes;
-  an `UNCLEAR` source runs only with its recorded owner decision; one run per host.
-- **Freshness is measured, not promised:** `first_seen_at - published_at` per source (both exist). Where the provider
-  gives no trustworthy publish date, `first_seen_at` is the clock; the first sweep of a source never counts as fresh.
+1. **09:00 daily (Europe/Kyiv):** one sweep over all enabled sources, a refresh of known job opportunities
+   (are they still open), and a digest email to HR. HR applies on the source site; a **submission** is a
+   recorded fact, never sent by the CRM.
+2. **Between sweeps:** every source is fetched regularly to collect new job opportunities. **The owner's
+   working baseline is once an hour.** Each platform may have its own timing, and its working-hours
+   window follows its region.
+3. **Safety first:** the rate must be safe, and sources must not fall away.
+4. **Health tracking:** know when a source starts to disappear (degrades, goes silent, fails), and be
+   able to trace why and since when.
 
-## 3. Strategy per source (hourly baseline; exceptions only where a hard limit forces them)
+### What exists on `main` (measured 2026-10-26, after T5, PR #1169)
 
-Intervals are for the active window; outside it, the off interval. Windows are working hours of the employer's or
-platform's region unless stated.
+Each fact names a symbol so a `grep` confirms it.
 
-### 3.1 Employer boards (public, no key): the freshest class
+- **Cadence is whole hours, with no window.** The ledger's `account` (inside `endRun`, called by
+  `finish`) writes `next_attempt_at = clock_timestamp() + cadence`, where the cadence is
+  `cadenceHoursAtFloor(stored min_interval_hours, minIntervalHoursFloor, entry.intervalHours)`. Every
+  ordinary manifest entry declares `intervalHours: DAILY` (24). A failure also writes
+  `cooldown_until` from `backoffMs`. A `COST_STOP` waits for the meter reset.
+- **`min_interval_hours` has no writer but the seed.** `generateSeedDelta` writes it from
+  `entry.intervalHours`; no route edits it (the `@crm/shared` `jobSourceSchema` carries it only in the
+  read-only `GET sources` listing, shown by the web `SourceBudgetPanel`). The admin listing
+  (`JobSourceAdminService`) also derives its "next due" from it.
+- **Two daily handlers** in `JobSourcingCronService`, both `timeZone: 'Europe/Kyiv'`:
+  `handleDailyCollection` at 05:00 (API types, plus the legacy DOU `collectAll`) and
+  `handleHtmlCollection` at 02:30 (the `_HTML` types, all blocked until phase 5). Each opens a cycle
+  keyed `<name>:<Kyiv date>`, recovers, sweeps orphan reservations, then runs `runCollectionWindow`
+  for `JOB_COLLECTION_WINDOW_MS` (default 1 h).
+- **`countDue`'s look-ahead is clamped to `MAX_EARLY_DUE_SLACK_MS` (10 minutes)**, the widest the due
+  predicate may look forward; the claim itself uses no slack.
+- **Host state (T8):** `claimHostSlot` refuses `HOST_PAUSED`, `HOST_BUSY` (one run per host) and
+  `HOST_RATE_GAP` / the daily count for a type with `hostRate` (only Remotive declares one:
+  `{ perMinute: 2, perDay: 4 }`, with `minIntervalHoursFloor: 6`). `recordHostBan` pauses a host for at
+  least 24 h, at most 30 days, on 403 / 429 / 451 (`banScope: 'SOURCE'` narrows a 403 to one source).
+- **Failure cap:** `MAX_CONSECUTIVE_FAILURES` (3) excludes a source until an ADMIN calls the T9 reset.
+- **Per run** (`job_collection_runs`): `outcome`, `coverage`, `received`, `created`, `revised`,
+  `unchanged`, `duplicates`, `invalid`, `persistence_errors`, `error_code`, `error_message`,
+  `adapter_version`, `config_version`, `source_config_snapshot`, `started_at`, `ended_at`. Duration is
+  therefore already derivable (`ended_at - started_at`).
+- **Freshness inputs exist:** `job_source_records.first_seen_at`, the revision's `published_at`, and
+  `availability`, `availability_evidence`, `availability_checked_at` on the source record.
+- **Email:** the notifications module already sends email through an outbox (`notification-email-outbox`,
+  `NotificationEmailCronService`, `MAX_EMAIL_ATTEMPTS` 5) over Resend (`RESEND_API_KEY`). No second
+  mailer is needed.
 
-Today the manifest holds 13 boards (REPO: Greenhouse 3, Lever 2, Ashby 2, Workable 2, Personio 2, Recruitee 1,
-SmartRecruiters per its definition). Volume is trivial; **freshness is limited by the list of employers we watch**, a
-product decision (a watchlist kept by seniors/HR, plus boards that produced matches).
+### What the provider documentation changed (research file)
 
-| Source          | Facts (REPO)                                                                                                                                  | Interval                    | Notes                                                                                                                                                                                       |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Greenhouse      | `first_published` is the publish date; `updated_at` is an update (differs for 712 of Stripe's 720 jobs); `content=true` is 2.7-8 MB per board | 60 min, weekends 180        | Hourly fetches must not download `content=true` each time: poll the list without content (about 147 KB measured for Airbnb) and fetch content for new or changed ids only (adapter change). |
-| Lever           | `createdAt` epoch ms is the only date (a proxy)                                                                                               | 60 min                      | Cheap pages.                                                                                                                                                                                |
-| Ashby           | `publishedAt` = last publish, a re-publish moves it (accepted churn); boards up to 13.9 MB                                                    | 60 min                      | Same list-then-detail concern for large boards.                                                                                                                                             |
-| Workable        | `published_on` is a date only; all tenants call `apply.workable.com`                                                                          | 60 min                      | One host key for all tenants: the budget is shared, so many tenants may need a longer interval each.                                                                                        |
-| Recruitee       | `published_at`, `updated_at`, `close_at`; the tenant is in the host; **free access ends 2027-02-10**                                          | 60 min until the deadline   | The adapter stops by itself at the deadline.                                                                                                                                                |
-| Personio        | XML feed, `createdAt` only; language-keyed                                                                                                    | 60 min                      | Cheap XML.                                                                                                                                                                                  |
-| SmartRecruiters | accepted-risk (robots.txt disallows us); up to 400 requests per attempt; **no real payload capture yet**                                      | 180 min, working hours only | The first call is a controlled smoke. Stop at the first 403/429. Small boards only.                                                                                                         |
+- **Himalayas refreshes its data once a day** (R17), and unkeyed callers share one pooled allowance
+  (R18). An hourly poll gains nothing and raises our 429 risk.
+- **Remotive** confirms "more than 2x per minute will be blocked", "max. 4 times a day", and a 24 h delay
+  (R13–R14). Its three category entries share those 4 requests.
+- **Jobicy** says polling "must not exceed once per hour" and keeps a 3 h delay (R15–R16).
+- **Greenhouse** documents the list without `content` (R2): list-then-detail is a documented shape.
+- **Ashby** documents only the full board (R6): list-then-detail is not available from its docs.
+- **No ATS provider publishes a read rate** (R3, R4, R6, R7, R9–R11). Conservative numbers stay.
+- **Conditional requests are documented by nobody.** They can be learned only from response headers.
+- **Four terms questions** (DOU R29, Jobgether R26, Arbeitnow R20, Remotive R14) go to the legal agent.
+  This ADR changes no cadence of a source whose terms question is open.
 
-### 3.2 Public feeds with a delay or a short window: limits decide
+## Decision
 
-| Source                 | Facts (REPO)                                                                                        | Interval                                       | Notes                                                                                                     |
-| ---------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Remotive               | **24 h publication delay**; vendor limit about 4 requests a day, 2 a minute; floor 6 h; attribution | 4 fixed runs: 09:00, 13:00, 17:00, 21:00 Kyiv  | Hourly is NOT allowed here. It can never be fresh. The 4-a-day limit is shared by its 3 category entries. |
-| Jobicy                 | last 7 days, **3 h publication delay**, cursor trusted 23 h, status calls metered                   | 120 min                                        | Hourly adds nothing under a 3 h delay.                                                                    |
-| Himalayas              | browse cursor, 20 per page, `pubDate` is the last UPDATE                                            | 60 min, first 2-3 pages                        | `first_seen_at` is the clock. Terms require the tracked apply URL.                                        |
-| RemoteOK               | newest feed, legal object first, attribution                                                        | 60 min                                         | One request; VERIFY the terms' rate guidance.                                                             |
-| Arbeitnow              | feed **re-ordered hourly**, up to 300 items a page, page 1 about 4.2 MB                             | 60-120 min, pages 1-2                          | A full 5-page sweep (about 15-20 MB) only at 09:00. VERIFY conditional requests.                          |
-| We Work Remotely (RSS) | holds only the 10 newest per category; measured age gap of the busiest category **57.4 h**          | 60 min                                         | Far below the bound; re-measure before widening.                                                          |
-| Djinni (RSS)           | the newest **100** postings per filter, about 3.1 h at peak, no employer in the feed                | 60 min, Kyiv 08:00-20:00; 120 min off          | **A gap over about 3 h loses postings**: this is an upper bound on the interval. Hourly is safe.          |
-| Hacker News            | one thread a month; accepted-risk                                                                   | every 2 h on days 1-4 of the month, then daily | Chosen by title, never by position.                                                                       |
-| Jobgether              | paged, at most 10 x 25; rate 60/min, robots `Crawl-delay: 2`; accepted-risk                         | 120 min                                        | Never exceed the documented rate.                                                                         |
+### 1. The fetch profile: manifest data, not a database column
 
-### 3.3 Key or quota APIs (free-only rule): not polling sources
+Each manifest **entry** (with a per-type default) declares a `fetchProfile`. It replaces `intervalHours`.
 
-| Source     | Facts                                                   | Strategy                                                                              |
-| ---------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| JSearch    | **200 requests a MONTH**, hard; owner: spot checks only | No schedule. Manual runs only.                                                        |
-| TheirStack | **200 credits a month**, 1 per job returned             | No schedule. Discovery of NEW employers for the watchlist (hard filters, limit 5-10). |
-| Jooble     | quota unpublished, no real capture yet                  | Smoke once; then the 09:00 sweep only until the quota is known.                       |
-| Reed       | UK only, quota unpublished, no real capture yet         | Smoke once; then the 09:00 sweep only.                                                |
+```ts
+interface FetchProfile {
+  /** Minutes between attempts inside the active window. */
+  readonly intervalMinutes: number
+  /** Minutes between attempts outside it; null = no attempt outside the window. */
+  readonly offIntervalMinutes: number | null
+  /** The active window in the provider's or employer's region; null = always active. */
+  readonly window: {
+    readonly timeZone: string // IANA, e.g. 'Europe/Berlin'
+    readonly days: readonly ('MON' | 'TUE' | 'WED' | 'THU' | 'FRI' | 'SAT' | 'SUN')[]
+    readonly from: string // 'HH:MM', local
+    readonly to: string // 'HH:MM', local, exclusive
+  } | null
+  /** Fixed local times instead of an interval (Remotive). Mutually exclusive with the interval grid. */
+  readonly fixedSlots?: { readonly timeZone: string; readonly times: readonly string[] }
+  /** How many pages a routine (non-sweep) run reads; undefined = the adapter's own limit. */
+  readonly routinePages?: number
+}
+```
 
-### 3.4 Legacy and blocked
+What is **not** in the profile, because it already exists: the provider floor (`minIntervalHoursFloor`),
+the host budget (`hostRate`), the ban scope (`banScope`), the quota (`quota` and the account meters), the
+trigger mode (`triggerMode`: a quota API stays `MANUAL`, so it has no schedule at all). The stagger is
+**derived**, not declared (see 2). Conditional-request support is an adapter capability, not a schedule
+fact (see 7).
 
-| Source                  | State                                                                              | Strategy                                                                                                                                                    |
-| ----------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| DOU (RSS, legacy)       | the only LIVE source; runs once a day at 05:00 on its own path                     | First candidate for an hourly cadence (Kyiv 08:00-20:00); needs its own terms check and the plan's compatibility barrier (its `lastCollectedAt` semantics). |
-| The Muse                | blocked: terms require a registered app; rate 500 requests an hour unauthenticated | Skip until the owner decides.                                                                                                                               |
-| Working Nomads          | blocked: no documented permission                                                  | Skip.                                                                                                                                                       |
-| EU Remote Jobs          | blocked: the committed feed is the wrong one (zero items)                          | Needs the right feed URL.                                                                                                                                   |
-| The seven `_HTML` types | blocked, phase 5                                                                   | Out of scope.                                                                                                                                               |
+- **Confidence HIGH** that the profile belongs in the manifest: the manifest is already the single
+  source for every per-type policy fact (floor, host rate, ban scope, quota), and a drift test checks it
+  at build time. A database copy would need a seed delta per change and a production deploy per
+  interval tweak.
+- The drift test refuses: a profile whose interval is below the provider floor; an unknown IANA zone
+  (`Intl.DateTimeFormat` throws a `RangeError` on one); `from >= to`; an empty `days`; a `fixedSlots`
+  combined with an interval; and a Remotive schedule whose daily attempts across its entries exceed
+  `hostRate.perDay`.
 
-## 4. Safety: how sources are kept from falling away
+### 2. `nextSlot(now, profile, policy)`: a pure function
 
-Layers, from the cheapest to the strictest. Each is a rule the system enforces, not a convention.
+```ts
+function nextSlot(
+  now: Date, // the database clock, read inside the finishing transaction
+  profile: FetchProfile,
+  policy: { floorMinutes: number; slowdownLevel: number; staggerKey: string },
+): Date
+```
 
-1. **Be a polite client.** One run per host, a per-host request budget (T8), a stagger offset and jitter so there are no
-   bursts, conditional requests where supported, a fixed identifying `User-Agent`, honour `Retry-After`, never exceed a
-   documented limit, a response size cap per source (REPO: 8-10 MiB, pre-parse node bound).
-2. **Slow down before stopping.** On a 429 or repeated 5xx the source's interval doubles (up to a cap) and recovers one
-   step after each clean run, before the failure cap is reached.
-3. **Stop on refusal, never evade.** 401/403/451/429 ends the run, records a ban pause on the host (24 h minimum, 30 days
-   cap), and no sibling run sends anything after it.
-4. **Cap repeated failure.** Three consecutive failures take the source out of the schedule until an ADMIN resets it
-   (T9). A source never retries in a loop.
-5. **Isolate bad data.** An invalid record is quarantined without stopping the source; a body that is too large, too
-   deep or malformed is refused before it is parsed.
-6. **Evidence before enabling.** A source with no real payload capture is not activatable; its first call is a smoke.
-7. **A schedule that matches the provider's own rhythm.** Delays and short windows (section 3.2) set the interval, not
-   our wish.
+- **The grid.** Inside the window, slots fall at `window.from + stagger + k * intervalMinutes` (local
+  time, on `window.days`), before `window.to`. Outside the window, slots fall at
+  `00:00 + stagger + k * offIntervalMinutes` (local time), skipping any that lie inside the window; none
+  when `offIntervalMinutes` is null. `fixedSlots` replaces the grid with its listed local times.
+  `stagger = hash(staggerKey) mod intervalMinutes`, in whole minutes, with `staggerKey` the
+  `manifest_id`, so sources on one interval never fire on the same minute and a source keeps its minute
+  across deploys.
+- **The result** is the first grid slot strictly after `now + gap`, where
+  `gap = max(floorMinutes, effectiveInterval × (2^slowdownLevel − 1))` and `effectiveInterval` is the
+  interval of the period `now` falls in. At level 0 with no floor the gap is 0, so a run that ends at
+  10:06 on a 10:05 / 11:05 grid is next due at 11:05, never 12:05. Level 1 skips one slot, level 2
+  three, and so on (see 4).
+- **DST safety.** Local times are converted with `Intl.DateTimeFormat` offset resolution (the pattern of
+  `@crm/shared`'s `kyiv-day`; no new dependency). A local slot that does not exist (the spring-forward
+  gap) moves to the first instant after the gap. A local slot that occurs twice (fall-back) is taken
+  once, at its first occurrence. The function searches at most 8 local days ahead and throws
+  `RangeError` if it finds no slot (a profile the drift test should have refused).
+- **No clock is injected into the ledger** (T5's rule). The ledger reads `clock_timestamp()` once in the
+  finishing transaction, passes it to `nextSlot`, and writes the absolute result.
+- **Confidence HIGH** on purity and testability; **MED** on the 8-day bound (a weekly-only profile is
+  the longest case the data has).
 
-## 5. Source health and root-cause tracking
+### 3. How it composes with what exists — the strictest limit wins
 
-The goal: know that a source has begun to disappear, and be able to say why and since when.
+`nextSlot` only decides **when a source next becomes due**. Every other term stays where it is:
 
-### 5.1 What we already record (REPO: `job_collection_runs`)
+| Limit                   | Owner on `main`                                     | Change                                           |
+| ----------------------- | --------------------------------------------------- | ------------------------------------------------ |
+| Cadence (`next_attempt_at`) | `account` via `cadenceHoursAtFloor`             | **`nextSlot`**; `min_interval_hours` no longer read |
+| Provider floor          | `minIntervalHoursFloor` → `floorHours`              | none (passed to `nextSlot` as minutes)           |
+| Failure backoff         | `cooldown_until` from `backoffMs`                   | none                                             |
+| Host ban pause          | `recordHostBan`, `hostOpenPredicate`                | none                                             |
+| Host budget             | `claimHostSlot` (`hostRate`, `HOST_BUSY`)           | none                                             |
+| Quota / cost            | account meters, `COST_STOP` → meter reset           | none (`GREATEST(nextSlot, resets_at)`)           |
+| Failure cap             | `MAX_CONSECUTIVE_FAILURES`, T9 reset                | none                                             |
+| Readiness, admin state  | `readinessAt`, `admin_state`                        | none                                             |
 
-Per run: `outcome`, `coverage`, counters `received`, `created`, `revised`, `unchanged`, `duplicates`, `invalid`,
-`persistenceErrors`, `errorCode` (one of ACCESS_POLICY, RATE_LIMIT, TRANSIENT_NETWORK, UPSTREAM, PARSE_DRIFT,
-INVALID_RECORD, PERSISTENCE, COST_STOP, CANCELLED, DEADLINE, PAGE_CAP, CURSOR_CYCLE, PAYLOAD_TOO_LARGE,
-ADAPTER_INVARIANT), `errorMessage`, `adapterVersion`, `configVersion`, a snapshot of the source config and timestamps.
-So health can be computed from data that already exists. **To add (small):** `durationMs`, `requestCount`,
-`bytesRead`, `lastHttpStatus`, `oldestItemAgeHours`, and `envelopeFingerprint` (a hash of the set of field names the
-response carried, to see a provider changing its format before parsing fails).
+The due predicate (T4) keeps comparing timestamps. Claims use **no slack**: a slot is exact, so
+`MAX_EARLY_DUE_SLACK_MS` stays in use only for `countDue`'s look-ahead.
 
-### 5.2 Health states
+### 4. Slow down before stopping
 
-`HEALTHY`, `DEGRADED` (partial: invalid share up, slower, throttled), `SILENT` (technically fine, but no new vacancies
-for far longer than usual), `EMPTY` (the provider answered with nothing: the wrong-feed case), `FAILING` (consecutive
-failures), `PAUSED` (ban pause), `CAPPED` (failure cap reached), `BLOCKED` (policy, deadline or missing evidence).
+- **A refusal still stops.** 401 / 403 / 451 / 429 end the run and pause the host (T8, unchanged). That is
+  the owner's rule, and nothing here evades it.
+- **The slow-down is what happens around a refusal and before the failure cap.** A new
+  `job_sources.slowdown_level` (0..4) multiplies the interval by `2^level`:
+  - **+1** when a run ends `RATE_LIMIT`, `UPSTREAM` or `TRANSIENT_NETWORK`, and once more when a host
+    pause on the source's host expires (the first run after a ban runs at half speed);
+  - **−1** after each clean run (`SUCCESS` effect), never below 0;
+  - the interval it produces is capped at 24 hours.
+- So a flaky provider is asked less often **before** three failures cap it. **Confidence MED**: the
+  increments are a proposal; the cap and the direction are not.
 
-### 5.3 Detectors (pure functions over the run history; thresholds are proposals)
+### 5. Handlers: a 10-minute tick, a sweep cycle, a digest job
 
-| Detector           | Rule                                                                                                                | Reason code                   |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| Volume drop        | `received` over 24 h below 30% of the 14-day median for the same weekday, source with a stable baseline             | `VOLUME_DROP`                 |
-| Silence            | no `created` for several times the usual gap between new items (from the source's own history) while `received` > 0 | `NO_NEW_ITEMS`                |
-| Empty answer       | `received` = 0 on a source that normally returns items                                                              | `EMPTY_RESPONSE`              |
-| Format drift       | `PARSE_DRIFT`, `invalid / received` above 10%, or a changed `envelopeFingerprint`                                   | `SCHEMA_DRIFT`                |
-| Access change      | 401/403/451, a robots.txt change, repeated 429                                                                      | `ACCESS_CHANGED`, `THROTTLED` |
-| Slowdown or growth | duration or bytes over 3x the baseline                                                                              | `SLOW`, `PAYLOAD_GROWTH`      |
-| Stale answer       | the newest item older than the provider's own delay allows (a cached or reordered feed)                             | `STALE_FEED`                  |
-| Board gone         | an employer board returns 404 or zero jobs after having had some                                                    | `BOARD_GONE`                  |
-| Deadline           | a policy deadline (for example Recruitee 2027-02-10) approaching                                                    | `DEADLINE_NEAR`               |
+| Handler                    | Cron (all `Europe/Kyiv`) | What it does                                                                                                     |
+| -------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| **tick** (new)             | `*/10 * * * *`           | Opens a cycle keyed `tick:<Kyiv date>T<HH:MM>`, recovers, then `runCollectionWindow` over the API types for at most **9 minutes**, so two ticks of one replica never overlap |
+| **sweep** (new)            | `0 8 * * *` (proposal; see brief Q3) | Opens a cycle keyed `sweep:<Kyiv date>`; claims with the **sweep predicate** (below) until every enabled API-type source has run once in this cycle or `JOB_COLLECTION_WINDOW_MS` passes |
+| **digest** (new)           | `0 9 * * *`              | Builds and enqueues the HR digest (section 9)                                                                    |
+| `handleDailyCollection`    | `0 5 * * *`              | **Keeps only** the legacy DOU collection and retention; the API types leave it                                   |
+| `handleHtmlCollection`     | `30 2 * * *`             | **Unchanged** (its types are blocked until phase 5)                                                              |
 
-### 5.4 Tracing the cause
+- **Why 10 minutes.** The finest interval any profile proposes is 60 minutes, and staggers are whole
+  minutes, so a 10-minute tick claims every source within 10 minutes of its slot. A 1-minute tick was
+  deleted in T5 round 5 for cost; this ADR does not bring it back.
+- **The sweep predicate** is the scheduled due predicate **minus the cadence term**, plus "this source
+  has no run in this cycle" (`NOT EXISTS` a `job_collection_runs` row with the sweep's `cycle_id`). It is
+  the manual-trigger rule of T4 ("a manual trigger skips the cadence term and nothing else") applied to
+  one cycle, so it bypasses no ban, budget, quota, readiness or cap. The runs are recorded with trigger
+  `SCHEDULED`: **no enum value is added** (no DDL). A quota source stays out, because its trigger mode is
+  `MANUAL`.
+- **The sweep reads a source in full** (all pages its adapter allows), where a tick reads
+  `routinePages`. A sweep run's `finish` sets the next slot like any run.
+- **Per-tick cycle keys** avoid backlog 341's "a handler retriggered the same Kyiv day after its cycle
+  closed gets no claims". Two replicas firing one tick share the key and so the cycle. Cost: 144 cycle
+  rows a day per replica set (about 53,000 a year); retention of closed cycles is noted in Consequences.
 
-An append-only **health event log** per source (new table): each state change records the time, `from` and `to` state,
-the reason code, the evidence (run ids, metric values against the baseline), `first_bad_run_id` and `last_good_run_id`,
-the adapter and config version at that moment, the HTTP status and an error sample, and the deploy commit. The source
-page shows the run timeline, the event log and the difference between the last good and the latest response shape, with
-correlation hints: "began after deploy X", "began after config version N", or "began with no change on our side"
-(a provider-side change). A person can add a note (for example a provider announcement).
+### 6. Availability refresh in the sweep
 
-### 5.5 Alerts
-
-- ADMIN: an immediate email on `FAILING`, `CAPPED`, `BLOCKED`, `SCHEMA_DRIFT`, `EMPTY`, and a weekly source report.
-- HR: the 09:00 digest carries a line "sources that could not be refreshed today" with the reason, not an alarm.
-- One incident per problem (open and close it), de-duplicated, quiet while a known incident is open.
-
-## 6. What would need to be built (none of it exists)
-
-1. The fetch profile in the manifest and a migration replacing `min_interval_hours` (whole hours, no window).
-2. `nextSlot(now, profile)` in `finish`, with the failure backoff and the slow-down rule; the 10-minute handler and the
-   09:00 cycle (extension of T5); the digest job (new).
-3. Run metrics columns, the detectors, the health event table, the ADMIN source page (extends T9's listing) and alerts.
-4. List-then-detail for Greenhouse and Ashby; conditional requests where supported.
-5. A watchlist of employer boards with a region per board (product decision).
-
-Suggested order: after T3, T7, T6, T5; then 1-2; then 3 (health) next to it, because a source we cannot see is a source
-we will lose; then the adapter changes; DOU first because it is live.
-
-## 7. Limits no design removes
-
-- Sources with a publication delay (Remotive 24 h, Jobicy 3 h) and feeds with a short window (Djinni about 3 h, WWR 10
-  per category) cannot be made fresh by polling faster.
-- "Fresh" needs a trustworthy publish date; otherwise `first_seen_at` is the clock.
-- The free-only rule removes the quota APIs from the polling set.
-- A faster poll raises the ban risk; the accepted-risk sources get the longest intervals and stop at the first refusal.
-- Every number here is a proposal until verified against the provider's documentation and measured freshness.
+The sweep re-lists each source; it sends **no per-opportunity request**. A source record seen in the list
+has its `last_observed_at` moved. Absence is evidence of closure **only for a complete-board source** (an
+ATS board, which lists every open posting): a feed with a rolling window (Jobicy's 7 days, R16; WWR's 10
+newest; Djinni's 100 newest) proves nothing by absence, and Jobicy says so in as many words. Writing
+`availability` from that evidence is phase 4's store rule; this ADR only guarantees the observation.
