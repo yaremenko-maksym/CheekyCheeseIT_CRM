@@ -158,6 +158,11 @@ async function selectRole(user: ReturnType<typeof userEvent.setup>, optionName: 
   await user.click(within(listbox).getByRole('option', { name: optionName }))
 }
 
+const techEl = () => screen.getByPlaceholderText('Почніть вводити: React, Node.js…')
+async function addTech(user: ReturnType<typeof userEvent.setup>, ...techs: string[]) {
+  for (const tech of techs) await user.type(techEl(), `${tech}{Enter}`)
+}
+
 describe('UserDialog — create payload wiring', () => {
   it('SENIOR create: POST /users carries the selected HR + accountant from the team pickers', async () => {
     const user = userEvent.setup()
@@ -167,6 +172,7 @@ describe('UserDialog — create payload wiring', () => {
     await user.type(screen.getByTestId('user-dialog-name'), 'Senior Person')
     await selectRole(user, 'Сеньйор')
     await user.type(screen.getByTestId('user-dialog-legal-full-name'), 'Senior Legal Person')
+    await addTech(user, 'Rust', 'Elixir', 'Haskell')
     await user.type(
       screen.getByTestId('user-dialog-wallet'),
       '0x1234567890abcdef1234567890abcdef12345678',
@@ -227,6 +233,7 @@ describe('UserDialog — create payload wiring', () => {
     await user.type(screen.getByTestId('user-dialog-name'), 'Senior Person')
     await selectRole(user, 'Сеньйор')
     await user.type(screen.getByTestId('user-dialog-legal-full-name'), 'Senior Legal Person')
+    await addTech(user, 'Rust', 'Elixir', 'Haskell')
     await user.type(
       screen.getByTestId('user-dialog-wallet'),
       '0x1234567890abcdef1234567890abcdef12345678',
@@ -249,5 +256,45 @@ describe('UserDialog — create payload wiring', () => {
       hrIds: [HR_ID],
       accountantId: ACCOUNTANT_ID,
     })
+  })
+})
+
+describe('UserDialog — SENIOR technology floor (>= 3 distinct)', () => {
+  it('SENIOR create with 2 technologies: no POST, the error is inline and tied to the input', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    await user.type(screen.getByTestId('user-dialog-email'), 'senior@example.com')
+    await user.type(screen.getByTestId('user-dialog-name'), 'Senior Person')
+    await selectRole(user, 'Сеньйор')
+    await user.type(screen.getByTestId('user-dialog-legal-full-name'), 'Senior Legal Person')
+    await addTech(user, 'Rust', 'Elixir')
+    await user.type(
+      screen.getByTestId('user-dialog-wallet'),
+      '0x1234567890abcdef1234567890abcdef12345678',
+    )
+    await user.click(screen.getByTestId('wizard-next-btn'))
+
+    const error = await screen.findByText('Сеньйору потрібно щонайменше 3 різні технології')
+    expect(techEl().getAttribute('aria-describedby')).toBe(error.id)
+    expect(mockPost.mock.calls.filter((c) => String(c[0]) === '/users')).toHaveLength(0)
+  })
+
+  it('a JUNIOR create with no technology is not affected', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    await user.type(screen.getByTestId('user-dialog-email'), 'junior@example.com')
+    await user.type(screen.getByTestId('user-dialog-name'), 'Junior Person')
+    await user.type(screen.getByTestId('user-dialog-legal-full-name'), 'Junior Legal Person')
+    await user.type(screen.getByTestId('user-dialog-bank-recipient'), 'Junior Person')
+    await user.type(screen.getByTestId('user-dialog-bank-iban'), 'UA123456789012345678901234567')
+    await user.type(screen.getByTestId('user-dialog-bank-rnokpp'), '1234567890')
+    await user.click(screen.getByTestId('wizard-next-btn'))
+
+    await waitFor(() => {
+      expect(mockPost.mock.calls.filter((c) => String(c[0]) === '/users')).toHaveLength(1)
+    })
+    expect(screen.queryByText('Сеньйору потрібно щонайменше 3 різні технології')).toBeNull()
   })
 })
