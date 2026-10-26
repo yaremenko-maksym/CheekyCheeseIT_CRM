@@ -271,6 +271,22 @@ describe('input versions', () => {
       expect(exclusionVersion(applicable)).toBe(oracle(applicable))
       expect(versions.get(id)?.exclusion).toBe(oracle(applicable))
     }
+    // An inconsistent row (no senior, yet scope SENIOR) still goes into the studio-wide part
+    // FIRST: the split is by senior, not by the sort order the scope happens to give.
+    const odd = exclusion({ id: 'z1', scope: 'SENIOR', seniorId: null, normalizedValue: 'zzz' })
+    const own = exclusion({ id: 'a1', scope: 'SENIOR', seniorId: A, normalizedValue: 'aaa' })
+    const inOrder = (set: JobExclusionDto[]) =>
+      createHash('sha256')
+        .update(
+          JSON.stringify(
+            set.map((e) => JSON.stringify([e.scope, e.kind, e.normalizedValue, e.id])),
+          ),
+        )
+        .digest('hex')
+        .slice(0, 32)
+    expect(exclusionVersion([own, odd])).toBe(inOrder([odd, own]))
+    expect(exclusionVersion([own, odd])).not.toBe(oracle([own, odd]))
+    expect(rosterVersions(profiles, [own, odd]).get(A)?.exclusion).toBe(inOrder([odd, own]))
     // Input order does not matter.
     const reversed = rosterVersions(profiles, [...all].reverse())
     for (const id of seniors) expect(reversed.get(id)).toEqual(versions.get(id))
