@@ -29,6 +29,17 @@ export const MATCH_RULE_VERSION = `${EVALUATE_RULE_VERSION}+${RULE_VERSION}`
 
 type Row = Record<string, unknown>
 
+/**
+ * A per-record failure the data itself causes: retrying cannot help. Defined here (the worker
+ * re-exports it) so the install step can raise it without an import cycle.
+ */
+export class RecomputePoisonError extends Error {
+  constructor(readonly code: string) {
+    super(`recompute refused the record: ${code}`)
+    this.name = 'RecomputePoisonError'
+  }
+}
+
 /** A senior's input versions, as stored on each of their match rows. */
 export interface SeniorVersions {
   readonly profile: string
@@ -269,32 +280,67 @@ export function profileVersion(p: SeniorTechProfile): string {
 
 /** An exclusion version: the digest of a senior's applicable entries, order-insensitive. */
 export function exclusionVersion(applicable: readonly JobExclusionDto[]): string {
-  return digest(
-    applicable.map((e) => JSON.stringify([e.scope, e.kind, e.normalizedValue, e.id])).sort(),
-  )
+  return digest(applicable.map(exclusionKey).sort())
+}
+
+const exclusionKey = (e: JobExclusionDto) =>
+  JSON.stringify([e.scope, e.kind, e.normalizedValue, e.id])
+
+/** Two code-unit-sorted lists as one, in the order `Array.prototype.sort` would give. */
+function mergeSorted(a: readonly string[], b: readonly string[]): string[] {
+  const out: string[] = []
+  let i = 0
+  let j = 0
+  while (i < a.length && j < b.length) {
+    const x = a[i] as string
+    const y = b[j] as string
+    // Stryker disable next-line EqualityOperator: `<=` vs `<` differ only on equal keys, and equal keys give the same sequence either way.
+    if (x <= y) {
+      out.push(x)
+      i += 1
+    } else {
+      out.push(y)
+      j += 1
+    }
+  }
+  return out.concat(a.slice(i), b.slice(j))
 }
 
 /**
- * Every roster senior's versions in one pass (CR-M-3): exclusions are grouped by senior once, so
- * the cost is O(seniors + exclusions) per roster load, whatever the number of match rows.
- * A senior's exclusions are the studio-wide entries plus their own.
+ * Every roster senior's versions, with the values `exclusionVersion` gives for the studio-wide
+ * entries plus the senior's own (CR-M-3, CR-M-5). Each exclusion is serialised once and the
+ * studio-wide list is sorted once; a senior then costs one linear merge with their own sorted
+ * entries and one hash of the result.
+ *
+ * BOUND: O(E log E + S * G) for E exclusions, S seniors and G studio-wide entries. Not
+ * O(S + E): every senior's digest covers the whole studio-wide list, so its G entries are hashed
+ * once per senior. Keeping the stored values equal to `exclusionVersion` rules out hashing a
+ * pre-digested studio part instead. Studio-wide entries are a short manual list, so S * G stays
+ * small.
  */
 export function rosterVersions(
   profiles: readonly SeniorTechProfile[],
   exclusions: readonly JobExclusionDto[],
 ): Map<string, SeniorVersions> {
-  const studio: JobExclusionDto[] = []
-  const own = new Map<string, JobExclusionDto[]>()
+  const studio: string[] = []
+  const own = new Map<string, string[]>()
   for (const e of exclusions) {
-    if (e.seniorId === null) studio.push(e)
-    else own.set(e.seniorId, [...(own.get(e.seniorId) ?? []), e])
+    const key = exclusionKey(e)
+    if (e.seniorId === null) {
+      studio.push(key)
+      continue
+    }
+    const list = own.get(e.seniorId)
+    if (list === undefined) own.set(e.seniorId, [key])
+    else list.push(key)
   }
+  studio.sort()
   return new Map(
     profiles.map((p) => [
       p.seniorId,
       {
         profile: profileVersion(p),
-        exclusion: exclusionVersion([...studio, ...(own.get(p.seniorId) ?? [])]),
+        exclusion: digest(mergeSorted(studio, [...(own.get(p.seniorId) ?? [])].sort())),
       },
     ]),
   )
@@ -319,8 +365,10 @@ export async function installMatches(
   roster: RosterInputs,
 ): Promise<number> {
   const rows = matchRows(result, roster).map((r) => {
-    // Every senior of a verdict comes from this roster, so each has its versions.
-    const v = roster.versions.get(r.seniorId) as SeniorVersions
+    const v = roster.versions.get(r.seniorId)
+    // A verdict senior the roster does not know cannot be versioned (SR-L-3): refuse the record
+    // as poison rather than fail with a TypeError that would be retried as an infra error.
+    if (v === undefined) throw new RecomputePoisonError('VERDICT_SENIOR_NOT_IN_ROSTER')
     return {
       senior_id: r.seniorId,
       outcome: r.outcome,

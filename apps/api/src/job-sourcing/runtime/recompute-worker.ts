@@ -19,6 +19,7 @@ import { LockContentionError, setLockTimeout, withLockRetry } from '../store/loc
 import { STORE_LOCK_TIMEOUT_MS } from '../store/source-record.store'
 import {
   type LoadedOpportunity,
+  RecomputePoisonError,
   type RosterInputs,
   installMatches,
   loadOpportunity,
@@ -56,13 +57,8 @@ export const RECOMPUTE_YIELD_EVERY = 50
 /** One attempt: a poison row is terminal at once. */
 const POISON_ATTEMPTS = 1
 
-/** A per-record failure the data itself causes: retrying cannot help. */
-export class RecomputePoisonError extends Error {
-  constructor(readonly code: string) {
-    super(`recompute refused the record: ${code}`)
-    this.name = 'RecomputePoisonError'
-  }
-}
+/** A per-record failure the data itself causes: retrying cannot help (defined with the inputs). */
+export { RecomputePoisonError }
 
 /** An input `evaluate` needs is not ready yet (roster, exclusions): retried, never filtered. */
 export class RecomputeNotReadyError extends Error {
@@ -266,7 +262,9 @@ function recomputeOpportunity(
 ): Promise<CompleteOutcome> {
   return inTx(db, async (tx) => {
     const { rows } = await tx.execute(
-      sql`SELECT revision FROM job_opportunities WHERE id = ${work.entityId}::uuid FOR UPDATE`,
+      // NO KEY UPDATE (CR-M-4): conflicts with the canonical store's FOR UPDATE and with another
+      // worker, but not with the FOR KEY SHARE an FK insert (source link, triage grant) takes.
+      sql`SELECT revision FROM job_opportunities WHERE id = ${work.entityId}::uuid FOR NO KEY UPDATE`,
     )
     // Missing or moved on: nothing to compute, the store records ENTITY_MISSING / VERSION_STALE.
     if (Number(rows[0]?.['revision']) !== work.targetVersion) return completeDirty(tx, work)

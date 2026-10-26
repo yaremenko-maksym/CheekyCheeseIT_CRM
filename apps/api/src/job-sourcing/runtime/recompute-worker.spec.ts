@@ -398,7 +398,7 @@ const world =
     if (/FROM job_source_record_heads/.test(q.sql))
       return seq === null ? [] : [{ observation_seq: seq }]
     if (/FROM job_opportunities o/.test(q.sql)) return [opportunity]
-    if (/FROM job_opportunities WHERE id = .* FOR UPDATE/.test(q.sql))
+    if (/FROM job_opportunities WHERE id = .* FOR NO KEY UPDATE$/.test(q.sql))
       return lockRevision === null ? [] : [{ revision: lockRevision }]
     if (/FROM users u JOIN team_members/.test(q.sql)) {
       onRoster()
@@ -479,7 +479,7 @@ describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
     expect(seen.transactions).toBe(1)
     // SR-M-1: every input read comes after the opportunity lock.
     const order = (re: RegExp) => seen.statements.findIndex((s) => re.test(s.sql))
-    const lock = order(/FROM job_opportunities WHERE id = .* FOR UPDATE/)
+    const lock = order(/FROM job_opportunities WHERE id = .* FOR NO KEY UPDATE$/)
     expect(seen.statements[0]?.sql).toBe(`SET LOCAL lock_timeout = '5000ms'`)
     expect(lock).toBe(1)
     expect(order(/FROM job_opportunities o/)).toBeGreaterThan(lock)

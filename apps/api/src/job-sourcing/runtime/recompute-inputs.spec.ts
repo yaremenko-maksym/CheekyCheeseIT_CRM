@@ -6,6 +6,7 @@ import type { Evaluated, Excluded, ScopeProjection } from '../funnel/evaluate'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
   MATCH_RULE_VERSION,
+  RecomputePoisonError,
   type RosterInputs,
   exclusionVersion,
   installMatches,
@@ -234,6 +235,35 @@ describe('input versions', () => {
     expect(versions.get(B)?.exclusion).toBe(exclusionVersion([global, theirs]))
     expect(versions.get(C)?.exclusion).toBe(exclusionVersion([global]))
     expect(rosterVersions(profiles, []).get(C)?.exclusion).toBe(exclusionVersion([]))
+  })
+
+  it('CR-M-5: the single-pass rosterVersions gives exactly the hashes of exclusionVersion over each senior own + studio-wide set', () => {
+    // Keys that interleave when sorted: studio-wide and own entries alternate, and some own
+    // entries sort before every studio-wide one and some after, so both merge branches run.
+    const seniors = [A, B, C]
+    const all: JobExclusionDto[] = []
+    for (let n = 0; n < 24; n += 1) {
+      const studioWide = n % 3 === 0
+      all.push(
+        exclusion({
+          id: `x${String((n * 7) % 24).padStart(2, '0')}`,
+          scope: studioWide ? 'GLOBAL' : 'SENIOR',
+          seniorId: studioWide ? null : (seniors[n % seniors.length] as string),
+          kind: n % 2 === 0 ? 'KEYWORD' : 'COMPANY',
+          normalizedValue: `v${(n * 5) % 11}`,
+        }),
+      )
+    }
+    const versions = rosterVersions(profiles, all)
+    for (const id of seniors) {
+      const reference = exclusionVersion(
+        all.filter((e) => e.seniorId === null || e.seniorId === id),
+      )
+      expect(versions.get(id)?.exclusion).toBe(reference)
+    }
+    // Input order does not matter.
+    const reversed = rosterVersions(profiles, [...all].reverse())
+    for (const id of seniors) expect(reversed.get(id)).toEqual(versions.get(id))
   })
 })
 
@@ -501,6 +531,21 @@ describe('installMatches', () => {
       ]),
     ])
     expect(del?.params[2]).toBe(ins?.params[4])
+  })
+
+  it('SR-L-3: a verdict senior missing from the roster is poison, never a TypeError, and nothing is written', async () => {
+    const { tx, statements } = recording()
+    const stranger = '00000000-0000-4000-8000-0000000000ee'
+    const err = await installMatches(
+      tx,
+      OPP,
+      1,
+      evaluated([projection(`SENIOR:${stranger}`, 'LEAD')]),
+      roster,
+    ).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(RecomputePoisonError)
+    expect(err).toMatchObject({ code: 'VERDICT_SENIOR_NOT_IN_ROSTER' })
+    expect(statements).toEqual([])
   })
 
   it('no row to install: only the delete runs', async () => {

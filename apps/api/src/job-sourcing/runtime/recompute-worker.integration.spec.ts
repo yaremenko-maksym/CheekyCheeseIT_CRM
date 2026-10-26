@@ -313,12 +313,13 @@ describe.skipIf(!hasDatabaseUrl())('recompute worker against Postgres (Task 4.6 
 
     // A second row at the SAME revision (only the roster changes, not the opportunity).
     await enqueueDirty(db, 'OPPORTUNITY', o, 1, 'S4A_SPEC_ROSTER')
-    // Another writer holds the opportunity and adds an exclusion for the senior, uncommitted.
+    // Another writer holds the opportunity and adds an exclusion for the senior, uncommitted. It
+    // takes the worker's own lock mode (CR-M-4): two NO KEY UPDATE lockers must still serialise.
     const holder = await session.admin.connect()
     let run: Promise<unknown> | undefined
     try {
       await holder.query('BEGIN')
-      await holder.query(`SELECT 1 FROM job_opportunities WHERE id = $1 FOR UPDATE`, [o])
+      await holder.query(`SELECT 1 FROM job_opportunities WHERE id = $1 FOR NO KEY UPDATE`, [o])
       await holder.query(
         `INSERT INTO job_exclusion_filters (senior_id, kind, value, normalized_value)
          VALUES ($1, 'KEYWORD', 'Go', 'go')`,
@@ -338,6 +339,32 @@ describe.skipIf(!hasDatabaseUrl())('recompute worker against Postgres (Task 4.6 
     // Read before the lock, the roster would have no exclusion and LEAD would stay.
     expect(await matchOf(o)).toMatchObject({ outcome: 'EXCLUDED', opportunity_revision: 1 })
     await session.admin.query(`DELETE FROM job_exclusion_filters WHERE senior_id = $1`, [senior])
+  })
+
+  it('CR-M-4: the worker lock mode does not block an FK insert that references the opportunity', async () => {
+    await settle()
+    const r = await record('fk')
+    await runMine()
+    const o = await opportunityOf(r)
+    const holder = await session.admin.connect()
+    const inserter = await session.admin.connect()
+    try {
+      await holder.query('BEGIN')
+      await holder.query(`SELECT 1 FROM job_opportunities WHERE id = $1 FOR NO KEY UPDATE`, [o])
+      await inserter.query('BEGIN')
+      await inserter.query(`SET LOCAL lock_timeout = '1000ms'`)
+      // A triage grant references the opportunity (FK -> FOR KEY SHARE): it must not wait.
+      const { rowCount } = await inserter.query(
+        `INSERT INTO job_opportunity_team_triage
+           (opportunity_id, team_id, assigned_by, policy_version, opportunity_revision, expires_at)
+         VALUES ($1, $2, $3, 1, 1, now() + interval '1 day')`,
+        [o, team, kit.actor],
+      )
+      expect(rowCount).toBe(1)
+    } finally {
+      await releaseRolledBack(inserter)
+      await releaseRolledBack(holder)
+    }
   })
 
   it('AC 7: an active, claimed opportunity first seen 60 days ago is recomputed', async () => {
