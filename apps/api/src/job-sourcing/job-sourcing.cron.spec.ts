@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   API_COLLECTION_CRON,
   API_COLLECTION_TYPES,
-  CRON_TIME_ZONE,
   HTML_COLLECTION_CRON,
   HTML_COLLECTION_TYPES,
   DEFAULT_WINDOW_INTERVAL_MS,
@@ -24,7 +23,7 @@ const { CronTime } = createRequire(createRequire(import.meta.url).resolve('@nest
   CronTime: new (
     expr: string,
     zone: string,
-  ) => { getNextDateFrom(from: Date): { toUTC(): { toISO(): string } } }
+  ) => { getNextDateFrom(from: Date, zone: string): { toUTC(): { toISO(): string } } }
 }
 
 const OPTIONS_KEY = 'SCHEDULE_CRON_OPTIONS'
@@ -32,8 +31,14 @@ const proto = JobSourcingCronService.prototype
 const optionsOf = (fn: unknown) =>
   Reflect.getMetadata(OPTIONS_KEY, fn as object) as { cronTime: string; timeZone: string }
 
-function nextUtc(expr: string, from: string): string {
-  return new CronTime(expr, CRON_TIME_ZONE).getNextDateFrom(new Date(from)).toUTC().toISO()
+/**
+ * The next fire time of a handler, computed from ITS OWN decorator options (expression and zone)
+ * and an explicit `from` instant. The zone is passed to the library so the result does not depend
+ * on the host's timezone (`getNextDateFrom(date)` alone resolves in the HOST zone).
+ */
+function nextUtc(handler: unknown, from: string): string {
+  const { cronTime, timeZone } = optionsOf(handler)
+  return new CronTime(cronTime, timeZone).getNextDateFrom(new Date(from), timeZone).toUTC().toISO()
 }
 
 afterEach(() => {
@@ -56,16 +61,30 @@ describe('schedules (AC 1)', () => {
 
   it('resolves in Kyiv local time across both 2027 transitions (EET +2, EEST +3)', () => {
     // winter: 02:30 EET = 00:30Z, 05:00 EET = 03:00Z
-    expect(nextUtc(HTML_COLLECTION_CRON, '2027-01-10T12:00:00Z')).toBe('2027-01-11T00:30:00.000Z')
-    expect(nextUtc(API_COLLECTION_CRON, '2027-01-10T12:00:00Z')).toBe('2027-01-11T03:00:00.000Z')
+    expect(nextUtc(proto.handleHtmlCollection, '2027-01-10T12:00:00Z')).toBe(
+      '2027-01-11T00:30:00.000Z',
+    )
+    expect(nextUtc(proto.handleDailyCollection, '2027-01-10T12:00:00Z')).toBe(
+      '2027-01-11T03:00:00.000Z',
+    )
     // 2027-03-28: Kyiv jumps 03:00 -> 04:00; 02:30 still exists (EET), 05:00 is EEST (+3)
-    expect(nextUtc(HTML_COLLECTION_CRON, '2027-03-27T12:00:00Z')).toBe('2027-03-28T00:30:00.000Z')
-    expect(nextUtc(API_COLLECTION_CRON, '2027-03-27T12:00:00Z')).toBe('2027-03-28T02:00:00.000Z')
+    expect(nextUtc(proto.handleHtmlCollection, '2027-03-27T12:00:00Z')).toBe(
+      '2027-03-28T00:30:00.000Z',
+    )
+    expect(nextUtc(proto.handleDailyCollection, '2027-03-27T12:00:00Z')).toBe(
+      '2027-03-28T02:00:00.000Z',
+    )
     // summer: 02:30 EEST = 23:30Z the day before
-    expect(nextUtc(HTML_COLLECTION_CRON, '2027-07-10T12:00:00Z')).toBe('2027-07-10T23:30:00.000Z')
+    expect(nextUtc(proto.handleHtmlCollection, '2027-07-10T12:00:00Z')).toBe(
+      '2027-07-10T23:30:00.000Z',
+    )
     // 2027-10-31: Kyiv falls back 04:00 -> 03:00; 02:30 is EEST (+3), 05:00 is EET (+2)
-    expect(nextUtc(HTML_COLLECTION_CRON, '2027-10-30T12:00:00Z')).toBe('2027-10-30T23:30:00.000Z')
-    expect(nextUtc(API_COLLECTION_CRON, '2027-10-30T12:00:00Z')).toBe('2027-10-31T03:00:00.000Z')
+    expect(nextUtc(proto.handleHtmlCollection, '2027-10-30T12:00:00Z')).toBe(
+      '2027-10-30T23:30:00.000Z',
+    )
+    expect(nextUtc(proto.handleDailyCollection, '2027-10-30T12:00:00Z')).toBe(
+      '2027-10-31T03:00:00.000Z',
+    )
   })
 })
 
