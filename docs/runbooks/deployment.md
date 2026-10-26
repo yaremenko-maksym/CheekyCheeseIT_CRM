@@ -654,6 +654,19 @@ rather than trust the numbers, they shift whenever a file is added above):
 | 65       | `2026-10-04_multiple_salary_transactions_activate.sql` | Breaking half, must follow the swap and the health gate; creates no relation                                              |
 | (end)    | `2026-10-18_db_privileges_check.sql` (second run)      | The last database step, after the post-cutover `drop_cascade_origin` marker re-run, so the END state is what is validated |
 
+**After the deploy that first applies `2026-10-25_tx_date_kyiv_backfill.sql` (backlog 338), check production
+once the new API version is live** (read-only; production commands are the owner's, through `ssh crm-vps`):
+
+```sql
+SELECT count(*) FROM transactions WHERE tx_date IS NULL;   -- must be 0
+```
+
+A non-zero count means something still persisted a NULL `tx_date` after the backfill. The likeliest cause is the
+old API, which keeps serving during the deploy window. Because the backup table (the run marker) now exists, the
+NEXT deploy will fail loudly on this step, by design, instead of patching the row over. Before that deploy,
+de-wire the file (follow-up `ci/dewire-tx-date-kyiv-backfill`) and fix the row by hand. The rollback order is in
+the file's header: de-wire first, then run its UPDATE.
+
 Two invariants, both enforced by `scripts/devops/check-prod-ddl-wiring.py` (it derives the apply order
 from `deploy.yml` and reads each file's SQL, with no list of file names): a file whose first
 application comes after the grants may not create a table, view, materialized view or sequence
