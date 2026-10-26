@@ -35,11 +35,10 @@ const minutesOf = (t: string): number => Number(t.slice(0, 2)) * 60 + Number(t.s
 function isKnownZone(timeZone: string): boolean {
   try {
     new Intl.DateTimeFormat('en-US', { timeZone })
-    return true
-  } catch (error) {
-    if (error instanceof RangeError) return false
-    throw error
+  } catch {
+    return false
   }
+  return true
 }
 const zone = z.string().refine(isKnownZone, { message: 'unknown IANA time zone' })
 const interval = z.number().int().positive().max(MAX_INTERVAL_MINUTES)
@@ -212,6 +211,7 @@ function slotMinutes(s: Shape, day: Day, stagger: number): number[] {
   if (s.days.includes(day)) {
     for (let m = s.from + stagger; m < s.to; m += s.interval) out.push(m)
   }
+  // Stryker disable next-line ConditionalExpression: with `off === null`, `stagger % null` is NaN, so the loop below never runs; the guard only narrows the type for the compiler.
   if (s.off !== null) {
     for (let m = stagger % s.off; m < MINUTES_PER_DAY; m += s.off) {
       if (!insideWindow(s, day, m)) out.push(m)

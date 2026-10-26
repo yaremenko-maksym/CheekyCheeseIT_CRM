@@ -532,6 +532,13 @@ describe('pinned edges (grid boundaries, period interval, messages)', () => {
     expect(iso(nextSlot(at(nowIso), berlin(), policy(K7, 0, 1)))).toBe(expected)
   })
 
+  it('with no off interval, level 4 outside the window still uses the active interval (a 15 h gap)', () => {
+    const p = berlin({ offIntervalMinutes: null })
+    expect(iso(nextSlot(at('2027-01-11T06:30:00Z'), p, policy(K7, 0, 4)))).toBe(
+      '2027-01-12T07:07:00.000Z',
+    )
+  })
+
   it('an interval above 24 h never moves the threshold before now', () => {
     const p: FetchProfile = { intervalMinutes: 2880, offIntervalMinutes: null, window: null }
     expect(iso(nextSlot(at('2027-01-12T00:00:00Z'), p, policy(keyFor(0, 2880))))).toBe(
