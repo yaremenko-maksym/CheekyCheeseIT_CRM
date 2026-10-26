@@ -1337,6 +1337,25 @@ describe('applyPayoutPaidCascade — payment date', () => {
     ).resolves.toBeDefined()
   })
 
+  // Backlog 338: the createdAt fallback is the KYIV day, not the UTC day.
+  it('with no PAYOUT txDate the floor is the Kyiv day of createdAt in the 21:00-24:00 UTC window', async () => {
+    const payoutSource = [
+      { id: PAYOUT_ROW_ID, txDate: null, createdAt: new Date('2026-06-05T21:30:00.000Z') },
+    ]
+    await expectApiError(
+      build({ payoutSource }).svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN, {
+        txDate: '2026-06-05',
+      }),
+      'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION',
+      HttpStatus.BAD_REQUEST,
+    )
+    await expect(
+      build({ payoutSource }).svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN, {
+        txDate: '2026-06-06',
+      }),
+    ).resolves.toBeDefined()
+  })
+
   it('a backdated txDate is stored as UTC midnight of that day; today keeps the real instant', async () => {
     const past = build()
     await past.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN, { txDate: '2026-06-10' })

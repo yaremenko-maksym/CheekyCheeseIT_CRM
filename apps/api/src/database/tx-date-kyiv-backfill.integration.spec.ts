@@ -2,7 +2,7 @@
  * backlog 338 (owner decision 2, approved 2026-10-25) — the one-time backfill of legacy
  * NULL `transactions.tx_date` to the Kyiv business day, run against REAL Postgres.
  *
- * Runs the ACTUAL file `drizzle/manual-staged/2026-10-25_tx_date_kyiv_backfill.sql`, not a
+ * Runs the ACTUAL file `drizzle/manual/2026-10-25_tx_date_kyiv_backfill.sql`, not a
  * paraphrase. The value it writes must be exactly what `resolveTransactionDate(null, createdAt)`
  * would have persisted had the row been inserted today: the real instant when the Kyiv day
  * equals the UTC day, otherwise UTC midnight of the Kyiv day. Expected values below are
@@ -35,7 +35,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
 
 const MIGRATION_PATH = path.resolve(
   __dirname,
-  '../../drizzle/manual-staged/2026-10-25_tx_date_kyiv_backfill.sql',
+  '../../drizzle/manual/2026-10-25_tx_date_kyiv_backfill.sql',
 )
 const BACKUP_TABLE = '_tx_date_kyiv_backfill_backup_20261025'
 const SCRATCH_NAME = /^crm_scratch_txbackfill_[0-9a-f]{12}$/

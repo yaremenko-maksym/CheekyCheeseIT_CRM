@@ -1,21 +1,23 @@
-import { formatDate, type Locale } from '@crm/shared'
+import { formatDate, transactionBusinessDay, type Locale } from '@crm/shared'
 
 /**
- * Display date of a transaction row: the business date when there is one,
- * otherwise the creation instant.
+ * Display date of a transaction row: its BUSINESS DAY (`transactionBusinessDay`
+ * in `@crm/shared`) — the `txDate` day, or the KYIV day of `createdAt` for a
+ * legacy NULL-`txDate` row.
  *
- * The two branches are different KINDS of value and need different formats:
- *  - `txDate` is a DATE-ONLY business field stored at UTC-midnight, so it is
- *    rendered with `shortYYUtc` (the same calendar day in any browser zone).
- *  - `createdAt` is a real INSTANT; `shortYYUtc` would show it a day early
- *    21:00-24:00 UTC, so it is rendered with the instant format `shortYY`.
+ * Backlog 338 (QA-LOW-1): this is the same day the server floors a later
+ * payment on and the pickers offer as their minimum, so the cell, the hint and
+ * the bound agree in every browser zone. It used to render `createdAt` in the
+ * browser's own zone, which disagreed with the floor by a day in Los Angeles,
+ * and in Kyiv between 21:00 and 24:00 UTC.
+ *
+ * An unparseable value renders `—` instead of throwing a `RangeError`.
  */
 export function formatTxOrCreated(
   txDate: string | Date | null | undefined,
   createdAt: string | Date,
   locale: Locale,
 ): string {
-  return txDate
-    ? formatDate(txDate, locale, 'shortYYUtc')
-    : formatDate(createdAt, locale, 'shortYY')
+  const day = transactionBusinessDay(txDate, createdAt)
+  return day ? formatDate(`${day}T00:00:00.000Z`, locale, 'shortYYUtc') : '—'
 }

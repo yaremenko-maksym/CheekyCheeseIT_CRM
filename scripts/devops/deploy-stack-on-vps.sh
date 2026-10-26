@@ -2229,6 +2229,35 @@ docker compose \
   < "$JOB_RECORD_STORE_FILE"
 echo "==> job record store applied successfully"
 
+# ── tx_date Kyiv backfill (backlog 338, one-time data-fix, owner-approved 2026-10-25) ──
+# Gives legacy NULL transactions.tx_date the Kyiv business day. It creates the backup
+# table _tx_date_kyiv_backfill_backup_20261025, so it MUST stay above the grants below
+# (check-prod-ddl-wiring.py GRANTS-AFTER-CREATORS). Runs once: the backup table is the
+# run marker, a re-apply prints updated=0 and writes nothing. If NULL rows appear AFTER
+# the first run (some writer persists NULL again, e.g. the old API in the deploy window),
+# the file RAISES and this step fails the deploy before the container swap — by design.
+# One DO block = one transaction; --single-transaction is belt and braces.
+# Temporary: de-wire after the first production apply (see the file header for the
+# rollback order — de-wire FIRST, then the UPDATE).
+# Source: apps/api/drizzle/manual/2026-10-25_tx_date_kyiv_backfill.sql
+TX_DATE_KYIV_BACKFILL_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-25_tx_date_kyiv_backfill.sql"
+
+if [ ! -f "$TX_DATE_KYIV_BACKFILL_FILE" ]; then
+  echo "ERROR: DDL file not found at $TX_DATE_KYIV_BACKFILL_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying tx_date Kyiv backfill (one transaction, run-once) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$TX_DATE_KYIV_BACKFILL_FILE"
+echo "==> tx_date Kyiv backfill applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file

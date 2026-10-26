@@ -9,7 +9,7 @@ import { DEFAULT_SENIOR_SHARE_PERCENT } from './drop-distribution.util'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { PayoutRequestReadService } from './payout-request-read.service'
 import { resolveTransactionDateWithPolicy } from './transaction-date-policy'
-import { formatTransactionBusinessDate } from './transaction-date.util'
+import { formatTransactionBusinessDate, sourceBusinessDay } from './transaction-date.util'
 import { convertToUsdtMinor } from './usdt-conversion.util'
 
 /**
@@ -139,7 +139,8 @@ export class PayoutRequestService {
       // source rows carry timestamps. For a batch, the latest source date is
       // therefore the inclusive lower bound for the payout date.
       const latestSourceDate = lockedRows
-        .map((tx) => formatTransactionBusinessDate(tx.txDate ?? tx.createdAt))
+        // Backlog 338: a NULL-txDate income floors on the KYIV day of createdAt.
+        .map((tx) => sourceBusinessDay(tx))
         .sort()
         .pop()
       const comparableLatestSourceDate = latestSourceDate ?? effectivePayoutBusinessDate

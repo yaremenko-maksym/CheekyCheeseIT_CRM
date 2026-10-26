@@ -225,6 +225,20 @@ describe('ConfirmPayoutDialog', () => {
     expect(date).toHaveAttribute('min', '2099-02-03')
   })
 
+  // Backlog 338: the createdAt fallback is the KYIV day (22:30Z in winter is
+  // 00:30 the next day in Kyiv), the floor PayoutConfirmationService enforces.
+  it('NULL txDate: the minimum and default are the Kyiv day of createdAt', async () => {
+    render(
+      <ConfirmPayoutDialog
+        tx={makeTx({ txDate: null, createdAt: '2099-02-03T22:30:00.000Z' })}
+        onClose={vi.fn()}
+      />,
+    )
+    const date = screen.getByTestId('confirm-payout-txdate')
+    await waitFor(() => expect(date).toHaveValue('2099-02-04'))
+    expect(date).toHaveAttribute('min', '2099-02-04')
+  })
+
   it('recomputes the minimum when the selected transaction changes', async () => {
     const { rerender } = render(
       <ConfirmPayoutDialog

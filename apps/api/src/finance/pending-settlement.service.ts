@@ -66,7 +66,7 @@ import { assertReceiptDocumentBindable } from './receipt.util'
 import { NbuCurrencyService } from './nbu-currency.service'
 import type { BalanceCurrency } from './balance.service'
 import { settledAmountError, throwSettledAmountError } from './exchange-rate.util'
-import { parseTransactionBusinessDate } from './transaction-date.util'
+import { parseTransactionBusinessDate, sourceBusinessDay } from './transaction-date.util'
 import { toObligationDto, toTransactionDto } from './pending-settlement-mapper.util'
 import {
   denormalise,
@@ -402,9 +402,11 @@ export class PendingSettlementService {
     let txDateToWrite: Date | undefined
     const selectedDateStr = funding?.txDate ?? undefined
     if (selectedDateStr) {
-      const sourceBusinessDate = (sourceTxDate ?? sourceCreatedAt ?? obligation.createdAt)
-        .toISOString()
-        .slice(0, 10)
+      // Backlog 338: a NULL-txDate source floors on the KYIV day of createdAt.
+      const sourceBusinessDate = sourceBusinessDay({
+        txDate: sourceTxDate,
+        createdAt: sourceCreatedAt ?? obligation.createdAt,
+      })
       if (selectedDateStr < sourceBusinessDate) {
         throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
       }

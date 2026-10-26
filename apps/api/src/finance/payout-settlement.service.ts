@@ -21,7 +21,7 @@ import { PayoutRequestReadService } from './payout-request-read.service'
 import { applyDropProjectPayout } from './payout-settlement-drop.util'
 import { backdateAuditRow } from './transaction-date-audit.util'
 import { resolveTransactionDateWithPolicy } from './transaction-date-policy'
-import { formatTransactionBusinessDate } from './transaction-date.util'
+import { formatTransactionBusinessDate, sourceBusinessDay } from './transaction-date.util'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
 
 // Phase 8 v2 — payout → company wallet. Marker persisted in
@@ -497,9 +497,8 @@ export class PayoutSettlementService {
             )
           }
           payoutSourceTxDate = payoutSource.txDate
-          const sourceDate = (payoutSource.txDate ?? payoutSource.createdAt)
-            .toISOString()
-            .slice(0, 10)
+          // Backlog 338: a NULL-txDate PAYOUT floors on the KYIV day of createdAt.
+          const sourceDate = sourceBusinessDay(payoutSource)
           if (txDate < sourceDate) {
             throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
           }
