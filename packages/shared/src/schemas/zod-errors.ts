@@ -79,6 +79,7 @@ export const ZOD_ERROR_CODES = [
   'LEGAL_FULL_NAME_REQUIRED_FOR_CONTRACT',
   'PERSONAL_EMAIL_MUST_DIFFER',
   'JOIN_DROP_TEAM_SENIOR_ONLY',
+  'SENIOR_MIN_TECHNOLOGIES',
   'DROP_TEAM_ID_REQUIRED',
   'HR_REQUIRED_MIN',
   // UserDialog.tsx / RejoinTeamDialog.tsx — local literal dupes migrated into
@@ -328,6 +329,10 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
     id: 'zod-error.JOIN_DROP_TEAM_SENIOR_ONLY',
     message: 'Долучити до команди дропа можна лише сеньйора',
   },
+  SENIOR_MIN_TECHNOLOGIES: /* i18n */ {
+    id: 'zod-error.SENIOR_MIN_TECHNOLOGIES',
+    message: 'Сеньйору потрібно щонайменше 3 різні технології',
+  },
   DROP_TEAM_ID_REQUIRED: /* i18n */ {
     id: 'zod-error.DROP_TEAM_ID_REQUIRED',
     message: 'Оберіть команду дропа',
@@ -526,6 +531,7 @@ export const ZOD_ERROR_FALLBACK_EN: Record<ZodErrorCode, string> = {
   LEGAL_FULL_NAME_REQUIRED_FOR_CONTRACT: 'Full name is required for the contract',
   PERSONAL_EMAIL_MUST_DIFFER: 'The personal email must differ from the work email',
   JOIN_DROP_TEAM_SENIOR_ONLY: 'Only a senior can be added to a drop team',
+  SENIOR_MIN_TECHNOLOGIES: 'A senior needs at least 3 different technologies',
   DROP_TEAM_ID_REQUIRED: 'Select a drop team',
   HR_REQUIRED_MIN: 'Select at least one HR',
   VALIDATION_FAILED_FORM: 'Check the fields you filled in',
