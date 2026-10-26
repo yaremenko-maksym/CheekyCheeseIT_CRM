@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { JobExclusionDto } from '@crm/shared'
-import { type SQL, inArray, isNull, or, sql } from 'drizzle-orm'
-import { jobExclusionFilters, projects } from '../../database/schema'
+import { type SQL, sql } from 'drizzle-orm'
 import { deriveProjectExclusions, manualExclusionDto } from '../filtering'
 import {
   type Availability,
@@ -53,7 +52,7 @@ const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []
  * `findEligibleSeniorIds` rule), with their stack and teams; and every exclusion that applies to
  * any of them: studio-wide rows, their own rows, and the ones derived from their projects.
  */
-export async function loadRoster(db: MeterDb): Promise<RosterInputs> {
+export async function loadRoster(db: SqlExecutor): Promise<RosterInputs> {
   const { rows } = await db.execute(
     sql`SELECT u.id, u.tech_stack, array_agg(DISTINCT tm.team_id::text) AS team_ids
           FROM users u JOIN team_members tm ON tm.user_id = u.id AND tm.left_at IS NULL
@@ -67,31 +66,42 @@ export async function loadRoster(db: MeterDb): Promise<RosterInputs> {
   }))
   const ids = profiles.map((p) => p.seniorId)
   if (ids.length === 0) return { rosterSeniorIds: [], profiles, exclusions: [] }
-  const manual = await db
-    .select()
-    .from(jobExclusionFilters)
-    .where(or(isNull(jobExclusionFilters.seniorId), inArray(jobExclusionFilters.seniorId, ids)))
-  const owned = await db
-    .select({
-      seniorId: projects.seniorId,
-      name: projects.name,
-      companyName: projects.companyName,
-      archivedAt: projects.archivedAt,
-    })
-    .from(projects)
-    .where(inArray(projects.seniorId, ids))
+  const roster = sql`(SELECT jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb)::uuid)`
+  const { rows: manual } = await db.execute(
+    sql`SELECT id, senior_id, kind, value, normalized_value, created_at FROM job_exclusion_filters
+         WHERE senior_id IS NULL OR senior_id IN ${roster} ORDER BY id`,
+  )
+  const { rows: owned } = await db.execute(
+    sql`SELECT senior_id, name, company_name, archived_at FROM projects
+         WHERE senior_id IN ${roster} ORDER BY id`,
+  )
   const derived = ids.flatMap((id) =>
     deriveProjectExclusions(
       id,
-      owned.filter((p) => p.seniorId === id),
+      owned
+        .filter((p) => String(p['senior_id']) === id)
+        .map((p) => ({
+          name: String(p['name']),
+          companyName: String(p['company_name']),
+          archivedAt: p['archived_at'] == null ? null : instant(p['archived_at']),
+        })),
     ),
   )
-  return {
-    rosterSeniorIds: ids,
-    profiles,
-    exclusions: [...manual.map(manualExclusionDto), ...derived],
-  }
+  const stored = manual.map((r) =>
+    manualExclusionDto({
+      id: String(r['id']),
+      seniorId: r['senior_id'] == null ? null : String(r['senior_id']),
+      kind: r['kind'] as JobExclusionDto['kind'],
+      value: String(r['value']),
+      normalizedValue: String(r['normalized_value']),
+      createdAt: instant(r['created_at']),
+    }),
+  )
+  return { rosterSeniorIds: ids, profiles, exclusions: [...stored, ...derived] }
 }
+
+/** A timestamp as the driver returns it (a `Date`, or text when its parser is overridden). */
+const instant = (v: unknown): Date => (v instanceof Date ? v : new Date(String(v)))
 
 /** JSON dates back to `ObservedDate`: an OK date gets its instant back as a `Date`. */
 function reviveDates(v: unknown): ObservedDate[] {
@@ -173,7 +183,7 @@ export async function loadOpportunity(
       sourceType: (o['source_type'] as string | null) ?? '',
       fields,
       availability: String(o['availability']) as Availability,
-      firstSeenAt: new Date(String(o['first_seen_at'])),
+      firstSeenAt: instant(o['first_seen_at']),
       // shortcut: every opportunity is NORMAL; INITIAL_SWEEP arrives with the initial-sweep task.
       firstSeenKind: 'NORMAL',
       trustedPublishedAt: published?.status === 'OK' ? published.value : null,
