@@ -214,3 +214,182 @@ has its `last_observed_at` moved. Absence is evidence of closure **only for a co
 ATS board, which lists every open posting): a feed with a rolling window (Jobicy's 7 days, R16; WWR's 10
 newest; Djinni's 100 newest) proves nothing by absence, and Jobicy says so in as many words. Writing
 `availability` from that evidence is phase 4's store rule; this ADR only guarantees the observation.
+
+### 7. Conditional requests: observe first, then use
+
+No provider documents `ETag` or `If-Modified-Since` (research, "What could not be established"), and
+learning it needs a request. So:
+
+1. Every run records whether a response carried a validator (`ETag` or `Last-Modified`) in the new run
+   column `validators_seen`. This costs no request: it reads headers of requests that happen anyway.
+2. An adapter whose host has shown validators stores them in its run `checkpoint` (already per source,
+   inherited by the next run, bounded at 8192 characters) and sends them on the next routine run. A
+   `304` is a clean run with `received = 0` that does **not** count toward the `EMPTY_RESPONSE`
+   detector.
+3. Until a host has shown validators, nothing changes for it.
+
+### 8. Strategy per source (proposal; the owner's Q1 and Q2 decide it)
+
+Intervals are minutes inside the window / outside it. "Window" is local working hours of the employer's
+or platform's region, `08:00–19:00 Mon–Fri` unless stated. **Hourly is the baseline wherever no
+documented limit or delay makes it pointless.**
+
+| Source                          | Profile                                                       | Why (research row or REPO)                                                                                        |
+| ------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Greenhouse, Lever, Workable, Recruitee, Personio boards | 60 / 180, window in the **board's** region | No published read rate (R3, R4, R7, R9, R10): owner baseline. Recruitee stops itself at 2027-02-10 (R7) |
+| Ashby boards                    | 60 / 180; large boards (over 5 MB) 180 / off                  | Only the full board is documented (R6); boards up to 13.9 MB (REPO)                                               |
+| SmartRecruiters (accepted risk) | 180 / off                                                     | robots.txt disallows us (REPO); stop at the first refusal; first call is a smoke                                  |
+| Remotive (3 entries)            | `fixedSlots` 09:00, 13:00, 17:00 Kyiv, **one entry per slot** | 4 a day for the host (R13); 3 used, 1 left for a manual run; 24 h delay means it is never fresh (R14)             |
+| Jobicy                          | 120 / 240                                                     | No more than hourly (R15); 3 h delay makes hourly pointless (R16)                                                 |
+| Himalayas                       | sweep only (once a day)                                       | Data refreshed every 24 h (R17); pooled public allowance (R18)                                                    |
+| RemoteOK                        | 60 / 180                                                      | One request; no published rate (R23)                                                                             |
+| Arbeitnow                       | 120 / off, `routinePages: 1`; full pages only in the sweep    | Page 1 about 4.2 MB (REPO); no published rate (R21); terms question open (R20)                                    |
+| We Work Remotely                | 180 / 360                                                     | 10 newest per category, 57.4 h age gap measured (REPO): 3 h loses nothing                                         |
+| Djinni                          | 60 / 120, window Kyiv 08:00–20:00 every day                   | 100 newest, about 3.1 h at peak (REPO): **any gap over about 3 h loses postings**, so the off interval stays 120  |
+| Hacker News                     | 120 on days 1–4 of the month, then sweep only                 | One thread a month (REPO); limit known only from a secondary source (R24)                                          |
+| Jobgether (accepted risk)       | 120 / off                                                     | 10 × 25 cap (R25); terms forbid bots and ML use (R26), legal question open                                        |
+| DOU (legacy, the only live one) | **unchanged: 05:00 daily**                                    | Terms forbid automated collection without consent (R29); no change before the legal answer                        |
+| JSearch, TheirStack, Jooble, Reed | no schedule (`triggerMode: MANUAL`)                         | Free-only rule; quota APIs are not polling sources (REPO)                                                         |
+| The Muse, Working Nomads, EU Remote Jobs, `_HTML` types | none                                | Blocked (REPO)                                                                                                    |
+
+**Request volume at these numbers** (a weekday, per source): a 60 / 180 profile with an 11-hour window is
+11 + 5 = 16 runs, plus the sweep. For a Greenhouse board without `content` (about 147 KB, REPO) that is
+about 2.5 MB a day. Arbeitnow at 120 minutes, page 1 only, is about 6 × 4.2 MB plus a 15–20 MB sweep.
+
+### 9. Freshness is measured, not promised
+
+- **Freshness of a source record** = `first_seen_at − published_at` of its first revision. Reported per
+  source as the median and the 90th percentile over 7 days.
+- **Excluded:** records first seen in the source's **first** run (the backlog, not news); records of a
+  source whose `published_at` is an update or re-publish time (Himalayas `pubDate`, R17; Ashby
+  `publishedAt`, R6), which the manifest marks `publishedAtMeaning: 'UPDATED'` and whose freshness is
+  reported as "not measurable" rather than as a misleading number.
+- Freshness is a report on the source page and in the weekly ADMIN report, not an alert.
+
+### 10. Health: states, detectors, an append-only event log
+
+**States**, in precedence order (the first that applies wins):
+
+| State      | Meaning                                                                          |
+| ---------- | -------------------------------------------------------------------------------- |
+| `BLOCKED`  | policy, deadline (`readinessAt`), missing evidence, or `admin_state` not ACTIVE |
+| `CAPPED`   | at `MAX_CONSECUTIVE_FAILURES`, waiting for the ADMIN reset                      |
+| `PAUSED`   | its host is under a ban pause                                                   |
+| `FAILING`  | one or more consecutive failures, below the cap                                 |
+| `EMPTY`    | the provider answered with nothing where it normally returns items              |
+| `DEGRADED` | partial: format drift, invalid share up, slower, throttled, payload growth      |
+| `SILENT`   | technically fine, but no new items for far longer than its own history predicts |
+| `HEALTHY`  | none of the above                                                               |
+
+`SCHEMA_DRIFT` is a **reason** that puts a source in `DEGRADED`, not a state of its own; the alert rule
+names it explicitly (section 11).
+
+**Detectors** are pure functions over a source's run history and its manifest facts. Thresholds are
+constants in one module, tunable without a migration (proposals, **confidence MED**):
+
+| Detector           | Rule                                                                                                        | Reason            |
+| ------------------ | ----------------------------------------------------------------------------------------------------------- | ----------------- |
+| Volume drop        | `received` over 24 h below 30% of the 14-day median for the same weekday, given 7 days of history           | `VOLUME_DROP`     |
+| Silence            | no `created` for 4 × the source's median gap between new items, while `received` > 0                       | `NO_NEW_ITEMS`    |
+| Empty answer       | `received` = 0 (not a `304`) on two consecutive runs of a source whose 14-day median is above 0            | `EMPTY_RESPONSE`  |
+| Format drift       | an ending `PARSE_DRIFT`, `invalid / received` above 10%, or a changed `envelope_fingerprint`               | `SCHEMA_DRIFT`    |
+| Access change      | 401 / 403 / 451, or a 429 (each already pauses the host)                                                   | `ACCESS_CHANGED`, `THROTTLED` |
+| Slowdown, growth   | duration or `bytes_read` over 3 × the 14-day median                                                         | `SLOW`, `PAYLOAD_GROWTH` |
+| Stale answer       | `newest_item_published_at` older than the provider's own delay allows (24 h Remotive, 3 h Jobicy)          | `STALE_FEED`      |
+| Board gone         | an employer board answers 404 or zero jobs after having had some                                            | `BOARD_GONE`      |
+| Deadline           | a policy deadline (Recruitee 2027-02-10) less than 30 days away                                            | `DEADLINE_NEAR`   |
+
+**Where they run.** One detector pass at the end of each tick window, over every reporting source (about
+40 rows; one aggregate query over 14 days of runs). It writes an event **only on a change of state or
+reason**, so the log does not grow with time, only with change.
+
+**The health event log** — a new append-only table `job_source_health_events` (no `UPDATE`, no
+`DELETE`; the append-only trigger pattern of `job_queue_actions`):
+
+| Column                                   | Content                                                           |
+| ---------------------------------------- | ----------------------------------------------------------------- |
+| `id`, `source_id`, `at`                  | `at` from the database clock                                      |
+| `kind`                                   | `TRANSITION` or `NOTE`                                            |
+| `from_state`, `to_state`, `reason_code`  | `TRANSITION` only                                                 |
+| `evidence`                               | bounded JSON: the metric values against the baseline, run ids     |
+| `first_bad_run_id`, `last_good_run_id`   | the runs that bracket the change                                  |
+| `adapter_version`, `config_version`      | at the moment of the change                                       |
+| `http_status`, `error_sample`            | the last status, a bounded sample (500 characters, no PII)        |
+| `actor_id`, `note`                       | `NOTE` only: an ADMIN's note (a provider announcement, a decision) |
+
+The **current** state of a source is its latest `TRANSITION` event; no state column is stored. The
+source page (unit U7) shows the run timeline, the events, and a correlation hint: "began with adapter
+version X", "began with config version N", or "began with no change on our side" (a provider-side
+change).
+
+**New run columns** on `job_collection_runs` (additive, nullable): `request_count`, `bytes_read`,
+`last_http_status`, `newest_item_published_at`, `envelope_fingerprint` (a hash of the sorted set of field
+names a response carried, to see a format change before parsing fails), `validators_seen`. Duration is
+not a column: it is `ended_at − started_at`.
+
+### 11. Alerts and the HR digest
+
+- **ADMIN, immediately:** a notification (in-app, and email through the existing outbox) to every active
+  ADMIN when a source **enters** `FAILING`, `CAPPED`, `BLOCKED`, `EMPTY`, or `DEGRADED` with reason
+  `SCHEMA_DRIFT`. Proposed addition (brief Q6): `PAUSED`, because a ban is the event the owner most
+  wants to see. **One alert per transition** — an incident is the span between entering and leaving the
+  state, so a source that stays `FAILING` sends nothing more. **At most 3 alert emails per source per
+  Kyiv day**; further transitions that day appear only in-app and in the weekly report.
+- **ADMIN, weekly** (Monday 09:00 Kyiv): per source, the state, transitions of the week, runs, freshness
+  median and p90, request and byte totals.
+- **HR, daily digest** at 09:00 Kyiv: per HR user, the new job opportunities in **their own team's**
+  queue since the previous digest, plus one line "sources that could not be refreshed today" with the
+  reason. It is information, not an alarm. The digest reads the recruiter queue phase 4 publishes; it is
+  scoped exactly like the queue (an HR user sees what their team's seniors match, never another team's).
+  Copy in `uk` and `en` by the recipient's locale, through Lingui.
+
+## What changes in merged code
+
+| Merged piece                                      | Change                                                                                      | Unit |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---- |
+| Manifest `EntryDefinition.intervalHours`          | replaced by `fetchProfile` (per-type default, per-entry override)                           | U1b  |
+| `cadenceHoursAtFloor` in `account`                | replaced by `nextSlot`; `min_interval_hours` **no longer read** (column kept)                | U1b  |
+| `JobSourceAdminService` next-due derivation       | from `nextSlot`'s inputs, not `min_interval_hours`                                          | U1b  |
+| `generateSeedDelta`                               | keeps writing `min_interval_hours` (as `ceil(intervalMinutes / 60)`) so the listing stays truthful until U7 | U1b  |
+| `JobSourcingCronService.handleDailyCollection`    | keeps DOU and retention only; the API types move to tick and sweep                          | U3   |
+| `JobSourcingCronService.handleHtmlCollection`     | unchanged                                                                                   | —    |
+| `dueSourcesPredicate`, `claimDue`, `countDue`     | gain the sweep variant (cycle-scoped, cadence term skipped); slack stays 0 for claims       | U3   |
+| `job_sources`                                     | **+ `slowdown_level`** (DDL)                                                                | U2   |
+| `job_collection_runs`                             | **+ six metric columns** (DDL)                                                              | U2   |
+| new `job_source_health_events`                    | **new table** (DDL)                                                                         | U4   |
+| `@crm/shared` `jobSourceSchema.minIntervalHours`  | replaced by a profile summary on the source page                                            | U7   |
+| `job_sources.min_interval_hours`                  | **dropped only on the owner's separate word** (brief Q9)                                     | U9   |
+
+## Consequences
+
+- **More runs.** About 16 a weekday per hourly source instead of 1; every one passes the same ledger,
+  host and quota gates, so no new safety path is opened. The request volume per host is in section 8.
+- **More rows.** 144 tick cycles a day; runs grow about 16 ×. Retention of closed cycles and old runs is
+  not specified anywhere today; it becomes a backlog item when U3 merges (it needs a decision on how long
+  run history must live for the 14-day detectors: at least 28 days).
+- **The cron load overlaps the UTC retention crons** more often than T5's single 05:00 window did
+  (backlog 341). Moving those crons to `Europe/Kyiv` or staggering them is a prerequisite of U3, not an
+  option.
+- **Health becomes visible before it becomes automatic.** The detectors only record and alert; none of
+  them disables a source. Disabling stays with the failure cap and the ban pause.
+- **Freshness stays bounded by providers**: Remotive 24 h, Jobicy 3 h, Himalayas 24 h, Djinni's 3 h
+  window and WWR's 10 items cannot be made fresher by asking more often.
+- **What the owner loses:** an hourly cadence on Himalayas (it gives nothing), on Jobicy (the delay),
+  on WWR and SmartRecruiters (safety), and any DOU change until the legal answer.
+
+## Rollback
+
+Each unit is one PR; each rollback is listed with its expected state and how to verify it.
+
+| Unit | Undo                                                                                                       | Expected state after                                                    | Verify                                                                                      |
+| ---- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| U1a  | `git revert <merge>`                                                                                       | `nextSlot` gone; nothing calls it yet                                   | `grep -rn nextSlot apps/api/src` empty                                                      |
+| U1b  | `git revert <merge>`; the column was never dropped, so `cadenceHoursAtFloor` reads it again                | daily cadence from `min_interval_hours`                                 | a run's `next_attempt_at` is `ended_at + 24 h` on a scratch database                        |
+| U3   | `git revert <merge>`                                                                                       | the two T5 handlers as merged in #1169                                  | `grep -n "@Cron" job-sourcing.cron.ts` shows exactly `0 5` and `30 2`                       |
+| U2   | `git revert` the code; the columns are additive and nullable, so they stay (no down-migration needed)     | columns present, unwritten                                              | new runs have NULL in the six columns; `slowdown_level` stays 0                             |
+| U4   | `git revert` the code; the table stays (append-only data is evidence, not dropped)                        | no new events                                                           | `SELECT max(at) FROM job_source_health_events` stops moving                                 |
+| U5   | `git revert`; queued outbox rows of the reverted types are cancelled by the outbox's own skip path        | no alerts, no digest                                                    | no outbox rows of the new types after the revert                                            |
+| U6   | `git revert` per adapter                                                                                   | the adapter reads the full board again                                  | the adapter spec's fixture run requests the `content=true` URL                              |
+| U7   | `git revert`                                                                                               | the old listing                                                         | the source page route returns 404                                                           |
+| U8   | a seed delta that sets the board's `enabled = false` (never a `DELETE`: runs reference sources)            | the board is never due                                                  | `isDue` false for it on a scratch database                                                  |
+| U9   | **none**: a dropped column cannot be restored with its values. That is why it is A3 and last              | —                                                                       | —                                                                                           |
