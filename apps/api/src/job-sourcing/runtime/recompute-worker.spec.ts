@@ -227,7 +227,14 @@ describe('classifyFailure', () => {
     ['connection failure', pg('08006'), 'PG_08006', false],
     ['statement timeout', pg('57014'), 'PG_57014', false],
     ['foreign key', pg('23503'), 'PG_23503', false],
-    ['a range error', new RangeError('bad'), 'INVALID_RECORD', true],
+    // CR-M-2: a bare RangeError may be the runtime's own; poison needs an explicit marker.
+    ['a range error', new RangeError('bad'), 'RECOMPUTE_ERROR', false],
+    [
+      'a stack overflow',
+      new RangeError('Maximum call stack size exceeded'),
+      'RECOMPUTE_ERROR',
+      false,
+    ],
     ['anything else', new TypeError('x'), 'RECOMPUTE_ERROR', false],
     ['a non-error', 'oops', 'RECOMPUTE_ERROR', false],
   ])('%s', (_name, err, code, poison) => {
@@ -243,7 +250,7 @@ describe('classifyFailure', () => {
     })
     expect(
       classifyFailure(Object.assign(new RangeError('x'), { code: 'lower', severity: 'ERROR' })),
-    ).toEqual({ code: 'INVALID_RECORD', poison: true })
+    ).toEqual({ code: 'RECOMPUTE_ERROR', poison: false })
   })
 
   it('the typed errors name themselves', () => {
@@ -358,8 +365,11 @@ const opportunityRow = (over: Record<string, unknown> = {}) => ({
 interface World {
   seq?: number | null
   completes?: boolean
-  opportunity?: Record<string, unknown> | null
-  sharedRevision?: number | null
+  opportunity?: Record<string, unknown>
+  /** The revision the install transaction's lock reads; null = the opportunity is gone. */
+  lockRevision?: number | null
+  /** Called on every roster read; throw to fail it. */
+  onRoster?: () => void
 }
 
 const world =
@@ -367,7 +377,8 @@ const world =
     seq = 1,
     completes = true,
     opportunity = opportunityRow(),
-    sharedRevision = 1,
+    lockRevision = 1,
+    onRoster = () => {},
   }: World): Answer =>
   (q) => {
     if (/^\s*WITH cur AS/.test(q.sql)) return completes ? [{ status: 'DONE' }] : []
@@ -386,13 +397,15 @@ const world =
       ]
     if (/FROM job_source_record_heads/.test(q.sql))
       return seq === null ? [] : [{ observation_seq: seq }]
-    if (/FROM job_opportunities o/.test(q.sql)) return opportunity === null ? [] : [opportunity]
-    if (/FOR SHARE/.test(q.sql))
-      return sharedRevision === null ? [] : [{ revision: sharedRevision }]
-    if (/FROM users u JOIN team_members/.test(q.sql))
+    if (/FROM job_opportunities o/.test(q.sql)) return [opportunity]
+    if (/FROM job_opportunities WHERE id = .* FOR UPDATE/.test(q.sql))
+      return lockRevision === null ? [] : [{ revision: lockRevision }]
+    if (/FROM users u JOIN team_members/.test(q.sql)) {
+      onRoster()
       return [
         { id: SENIOR, tech_stack: ['Go'], team_ids: ['00000000-0000-4000-8000-0000000000t1'] },
       ]
+    }
     return []
   }
 
@@ -453,7 +466,7 @@ describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
   const evaluate = vi.mocked(funnel.evaluate)
   afterEach(() => evaluate.mockClear())
 
-  it('evaluates the current revision, installs it, and completes in one transaction', async () => {
+  it('locks the opportunity FIRST, then reads it and the roster, evaluates, installs, completes — one transaction', async () => {
     const { db, seen, did } = recordingDb(world({}))
     expect(await createRecomputeSteps(db).process(work(1), batchAt())).toBe('DONE')
     expect(evaluate).toHaveBeenCalledOnce()
@@ -464,53 +477,69 @@ describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
       unavailable: [],
     })
     expect(seen.transactions).toBe(1)
+    // SR-M-1: every input read comes after the opportunity lock.
+    const order = (re: RegExp) => seen.statements.findIndex((s) => re.test(s.sql))
+    const lock = order(/FROM job_opportunities WHERE id = .* FOR UPDATE/)
+    expect(seen.statements[0]?.sql).toBe(`SET LOCAL lock_timeout = '5000ms'`)
+    expect(lock).toBe(1)
+    expect(order(/FROM job_opportunities o/)).toBeGreaterThan(lock)
+    expect(order(/FROM users u JOIN team_members/)).toBeGreaterThan(lock)
     const [insert] = did(/INSERT INTO job_opportunity_matches/)
     expect(JSON.stringify(insert?.params)).toContain(SENIOR)
     expect(JSON.stringify(insert?.params)).toContain('LEAD')
-    expect(did(/^\s*WITH cur AS/)).toHaveLength(1)
+    expect(order(/^\s*WITH cur AS/)).toBe(seen.statements.length - 1)
   })
 
-  it('loads the roster once per batch', async () => {
+  it('reads the roster per row, never from a batch snapshot', async () => {
     const { db, did } = recordingDb(world({}))
     const steps = createRecomputeSteps(db)
     const batch = batchAt()
     await steps.process(work(1), batch)
     await steps.process(work(1), batch)
-    expect(did(/FROM users u JOIN team_members/)).toHaveLength(1)
+    expect(did(/FROM users u JOIN team_members/)).toHaveLength(2)
   })
 
-  it.each([
-    ['missing', null],
-    ['moved on', opportunityRow({ revision: 2 })],
-  ])('a %s opportunity is completed without evaluating', async (_n, opportunity) => {
-    const { db, did } = recordingDb(world({ opportunity }))
-    await createRecomputeSteps(db).process(work(1), batchAt())
-    expect(evaluate).not.toHaveBeenCalled()
-    expect(did(/FROM users u/)).toEqual([])
-    expect(did(/^\s*WITH cur AS/)).toHaveLength(1)
+  it('CR-M-1: a failed roster read costs only its own row; the next row reads it again', async () => {
+    let reads = 0
+    const { db, did } = recordingDb(
+      world({
+        onRoster: () => {
+          reads += 1
+          if (reads === 1) throw new Error('connection terminated')
+        },
+      }),
+    )
+    const steps = createRecomputeSteps(db)
+    const batch = batchAt()
+    const first = await steps.process(work(1), batch).catch((e: unknown) => e)
+    expect(classifyFailure(first)).toEqual({ code: 'RECOMPUTE_ERROR', poison: false })
+    expect(await steps.process(work(2), batch)).toBe('DONE')
+    expect(did(/FROM users u JOIN team_members/)).toHaveLength(2)
+    expect(did(/INSERT INTO job_opportunity_matches/)).toHaveLength(1)
   })
 
   it.each([
     ['moved on', 2],
-    ['was deleted', null],
-  ])(
-    'an opportunity that %s during evaluation is NOT installed, only completed',
-    async (_n, rev) => {
-      const { db, did } = recordingDb(world({ sharedRevision: rev }))
-      await createRecomputeSteps(db).process(work(1), batchAt())
-      expect(did(/job_opportunity_matches/)).toEqual([])
-      expect(did(/^\s*WITH cur AS/)).toHaveLength(1)
-    },
-  )
+    ['is gone', null],
+  ])('an opportunity that %s is completed under the lock, without evaluating', async (_n, rev) => {
+    const { db, did } = recordingDb(world({ lockRevision: rev }))
+    await createRecomputeSteps(db).process(work(1), batchAt())
+    expect(evaluate).not.toHaveBeenCalled()
+    expect(did(/FROM job_opportunities o/)).toEqual([])
+    expect(did(/FROM users u/)).toEqual([])
+    expect(did(/job_opportunity_matches/)).toEqual([])
+    expect(did(/^\s*WITH cur AS/)).toHaveLength(1)
+  })
 
-  it('an invalid revision is poison', async () => {
-    const { db, seen } = recordingDb(
+  it('an invalid revision is poison, and nothing is installed', async () => {
+    const { db, did } = recordingDb(
       world({ opportunity: opportunityRow({ availability: 'BOGUS' }) }),
     )
     await expect(createRecomputeSteps(db).process(work(1), batchAt())).rejects.toEqual(
       new RecomputePoisonError('INVALID_REVISION'),
     )
-    expect(seen.transactions).toBe(0)
+    expect(did(/job_opportunity_matches/)).toEqual([])
+    expect(did(/^\s*WITH cur AS/)).toEqual([])
   })
 
   it('an evaluation that throws is poison', async () => {
@@ -532,12 +561,12 @@ describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
       readiness: [],
       trace: [],
     })
-    const { db, seen } = recordingDb(world({}))
+    const { db, did } = recordingDb(world({}))
     const err = await createRecomputeSteps(db)
       .process(work(1), batchAt())
       .catch((e: unknown) => e)
     expect(err).toEqual(new RecomputeNotReadyError('ROSTER_NOT_READY'))
     expect(classifyFailure(err)).toEqual({ code: 'ROSTER_NOT_READY', poison: false })
-    expect(seen.transactions).toBe(0)
+    expect(did(/job_opportunity_matches/)).toEqual([])
   })
 })

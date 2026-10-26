@@ -13,6 +13,7 @@ import {
   loadRoster,
   matchRows,
   profileVersion,
+  rosterVersions,
 } from './recompute-inputs'
 
 /**
@@ -54,15 +55,18 @@ const exclusion = (over: Partial<JobExclusionDto>): JobExclusionDto => ({
   ...over,
 })
 
-const roster: RosterInputs = {
+const profiles = [
+  { seniorId: A, teamIds: ['t1'], techStack: ['Go'] },
+  { seniorId: B, teamIds: ['t1'], techStack: ['PHP'] },
+  { seniorId: C, teamIds: ['t2'], techStack: ['Rust'] },
+]
+const rosterWith = (exclusions: JobExclusionDto[]): RosterInputs => ({
   rosterSeniorIds: [A, B, C],
-  profiles: [
-    { seniorId: A, teamIds: ['t1'], techStack: ['Go'] },
-    { seniorId: B, teamIds: ['t1'], techStack: ['PHP'] },
-    { seniorId: C, teamIds: ['t2'], techStack: ['Rust'] },
-  ],
-  exclusions: [],
-}
+  profiles,
+  exclusions,
+  versions: rosterVersions(profiles, exclusions),
+})
+const roster = rosterWith([])
 
 const reason = { code: 'R', evidence: ['e'] as [string], ruleVersion: 'v' }
 const projection = (scope: string, status: 'LEAD' | 'TRIAGE'): ScopeProjection => ({
@@ -108,6 +112,25 @@ describe('matchRows', () => {
         outcome: 'LEAD',
         evidence: { score: 0.5, reasons: [reason], rankWarnings: [] },
       },
+    ])
+  })
+
+  it('SR-L-1: a projection never overwrites an EXCLUDED entry of the same senior', () => {
+    const excluded = [
+      {
+        subject: `SENIOR:${A}`,
+        stage: 'SCOPED_RESTRICTIONS' as const,
+        reasons: [reason],
+        inputs: {},
+      },
+    ]
+    const rows = matchRows(
+      evaluated([projection(`SENIOR:${A}`, 'LEAD'), projection(`SENIOR:${B}`, 'LEAD')], excluded),
+      roster,
+    )
+    expect(rows.map((r) => [r.seniorId, r.outcome])).toEqual([
+      [A, 'EXCLUDED'],
+      [B, 'LEAD'],
     ])
   })
 
@@ -176,11 +199,9 @@ describe('input versions', () => {
     expect(
       profileVersion({ seniorId: A, teamIds: ['Go', 'Rust'], techStack: ['t1', 't2'] }),
     ).not.toBe(v)
-    expect(profileVersion(undefined)).toMatch(/^[0-9a-f]{32}$/)
-    expect(profileVersion(undefined)).not.toBe(v)
   })
 
-  it('an exclusion version covers the studio-wide entries and the senior own, nobody else', () => {
+  it('an exclusion version is order-insensitive and moves with every identifying field', () => {
     const global = exclusion({ id: 'g' })
     const mine = exclusion({
       id: 'm',
@@ -189,17 +210,30 @@ describe('input versions', () => {
       kind: 'COMPANY',
       normalizedValue: 'acme',
     })
-    const theirs = exclusion({ id: 't', scope: 'SENIOR', seniorId: B, normalizedValue: 'evil' })
-    const v = exclusionVersion([global, mine, theirs], A)
+    const v = exclusionVersion([global, mine])
     expect(v).toMatch(/^[0-9a-f]{32}$/)
-    expect(exclusionVersion([theirs, mine, global], A)).toBe(v)
-    expect(exclusionVersion([global, mine], A)).toBe(v)
-    expect(exclusionVersion([global], A)).not.toBe(v)
-    expect(exclusionVersion([mine], A)).not.toBe(v)
-    expect(exclusionVersion([global, { ...mine, normalizedValue: 'other' }], A)).not.toBe(v)
-    expect(exclusionVersion([global, { ...mine, kind: 'KEYWORD' }], A)).not.toBe(v)
-    expect(exclusionVersion([global, { ...mine, scope: 'GLOBAL' }], A)).not.toBe(v)
-    expect(exclusionVersion([global, { ...mine, id: 'm2' }], A)).not.toBe(v)
+    expect(exclusionVersion([mine, global])).toBe(v)
+    expect(exclusionVersion([global])).not.toBe(v)
+    expect(exclusionVersion([global, { ...mine, normalizedValue: 'other' }])).not.toBe(v)
+    expect(exclusionVersion([global, { ...mine, kind: 'KEYWORD' }])).not.toBe(v)
+    expect(exclusionVersion([global, { ...mine, scope: 'GLOBAL' }])).not.toBe(v)
+    expect(exclusionVersion([global, { ...mine, id: 'm2' }])).not.toBe(v)
+  })
+
+  it('rosterVersions: per senior, the studio-wide entries plus their own, nobody else', () => {
+    const global = exclusion({ id: 'g' })
+    const mine = exclusion({ id: 'm', scope: 'SENIOR', seniorId: A, normalizedValue: 'acme' })
+    const mine2 = exclusion({ id: 'm2', scope: 'SENIOR', seniorId: A, normalizedValue: 'beta' })
+    const theirs = exclusion({ id: 't', scope: 'SENIOR', seniorId: B, normalizedValue: 'evil' })
+    const versions = rosterVersions(profiles, [theirs, mine, global, mine2])
+    expect([...versions.keys()]).toEqual([A, B, C])
+    expect(versions.get(A)).toEqual({
+      profile: profileVersion(profiles[0] as (typeof profiles)[0]),
+      exclusion: exclusionVersion([global, mine, mine2]),
+    })
+    expect(versions.get(B)?.exclusion).toBe(exclusionVersion([global, theirs]))
+    expect(versions.get(C)?.exclusion).toBe(exclusionVersion([global]))
+    expect(rosterVersions(profiles, []).get(C)?.exclusion).toBe(exclusionVersion([]))
   })
 })
 
@@ -211,7 +245,12 @@ describe('loadRoster', () => {
 
   it('an empty roster reads no exclusions', async () => {
     const { tx, statements } = recording()
-    expect(await loadRoster(tx)).toEqual({ rosterSeniorIds: [], profiles: [], exclusions: [] })
+    expect(await loadRoster(tx)).toEqual({
+      rosterSeniorIds: [],
+      profiles: [],
+      exclusions: [],
+      versions: new Map(),
+    })
     expect(statements).toHaveLength(1)
     expect(statements[0]?.sql).toMatch(/u\.role = 'SENIOR' AND u\.archived_at IS NULL/)
     expect(statements[0]?.sql).toMatch(/tm\.left_at IS NULL/)
@@ -249,6 +288,8 @@ describe('loadRoster', () => {
     })
     const r = await loadRoster(tx)
     expect(r.rosterSeniorIds).toEqual([A, B])
+    // Versions come with the load, computed from exactly what it returns (CR-M-3).
+    expect(r.versions).toEqual(rosterVersions(r.profiles, r.exclusions))
     expect(r.profiles).toEqual([
       { seniorId: A, teamIds: ['t1', 't2'], techStack: ['Go'] },
       { seniorId: B, teamIds: ['t1'], techStack: [] },
@@ -423,7 +464,7 @@ describe('loadOpportunity', () => {
 
 describe('installMatches', () => {
   const result = evaluated([projection(`SENIOR:${A}`, 'LEAD')])
-  const withExclusions: RosterInputs = { ...roster, exclusions: [exclusion({ id: 'g' })] }
+  const withExclusions = rosterWith([exclusion({ id: 'g' })])
 
   it('replaces the rows at this revision and never touches a newer revision', async () => {
     const { tx, statements } = recording()
@@ -446,8 +487,8 @@ describe('installMatches', () => {
           senior_id: A,
           outcome: 'LEAD',
           evidence: { score: 0.5, reasons: [reason], rankWarnings: [] },
-          profile_version: profileVersion(roster.profiles[0]),
-          exclusion_version: exclusionVersion(withExclusions.exclusions, A),
+          profile_version: withExclusions.versions.get(A)?.profile,
+          exclusion_version: withExclusions.versions.get(A)?.exclusion,
         },
       ]),
     ])

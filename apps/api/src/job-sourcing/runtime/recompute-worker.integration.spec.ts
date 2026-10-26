@@ -15,7 +15,7 @@ import {
   specCheckpoint,
   specRegistry,
 } from '../../test/ledger-fixtures'
-import { cleanupStore, observation } from '../../test/record-store-fixtures'
+import { cleanupStore, observation, untilBlocked } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { type ClaimedDirtyWork, enqueueDirty } from '../ownership/dirty-work.store'
 import { JobRunLedger } from '../ownership/job-run-ledger'
@@ -192,6 +192,7 @@ describe.skipIf(!hasDatabaseUrl())('recompute worker against Postgres (Task 4.6 
         `DELETE FROM job_queue_assignments WHERE assignee_id = $1 OR assignee_id = $2`,
         [kit.actor, senior],
       )
+      await session.admin.query(`DELETE FROM job_exclusion_filters WHERE senior_id = $1`, [senior])
       await cleanupStore(session.admin, PREFIX, TAG)
       await fx.cleanup()
       await session.admin.query(`DELETE FROM team_members WHERE team_id = $1`, [team])
@@ -300,6 +301,43 @@ describe.skipIf(!hasDatabaseUrl())('recompute worker against Postgres (Task 4.6 
     expect(await opportunityOf(r)).toBeUndefined()
     const [row] = (await work('SOURCE_RECORD')).filter((w) => w.entity_id === r)
     expect(row?.status).toBe('CLAIMED')
+  })
+
+  it('SR-M-1: an install reads the roster after the opportunity lock — a stale roster cannot resurrect an excluded senior', async () => {
+    await settle()
+    const r = await record('roster')
+    await runMine()
+    const o = await opportunityOf(r)
+    await runMine()
+    expect(await matchOf(o)).toMatchObject({ outcome: 'LEAD', opportunity_revision: 1 })
+
+    // A second row at the SAME revision (only the roster changes, not the opportunity).
+    await enqueueDirty(db, 'OPPORTUNITY', o, 1, 'S4A_SPEC_ROSTER')
+    // Another writer holds the opportunity and adds an exclusion for the senior, uncommitted.
+    const holder = await session.admin.connect()
+    let run: Promise<unknown> | undefined
+    try {
+      await holder.query('BEGIN')
+      await holder.query(`SELECT 1 FROM job_opportunities WHERE id = $1 FOR UPDATE`, [o])
+      await holder.query(
+        `INSERT INTO job_exclusion_filters (senior_id, kind, value, normalized_value)
+         VALUES ($1, 'KEYWORD', 'Go', 'go')`,
+        [senior],
+      )
+      run = runMine()
+      // The worker waits on the opportunity lock: it has read no roster yet.
+      await untilBlocked(session.admin)
+      await holder.query('COMMIT')
+    } catch (err) {
+      await holder.query('ROLLBACK')
+      throw err
+    } finally {
+      holder.release()
+    }
+    expect(await run).toMatchObject({ claimed: 1, done: 1 })
+    // Read before the lock, the roster would have no exclusion and LEAD would stay.
+    expect(await matchOf(o)).toMatchObject({ outcome: 'EXCLUDED', opportunity_revision: 1 })
+    await session.admin.query(`DELETE FROM job_exclusion_filters WHERE senior_id = $1`, [senior])
   })
 
   it('AC 7: an active, claimed opportunity first seen 60 days ago is recomputed', async () => {
