@@ -10,6 +10,7 @@ import type { LedgerCatalogEntry } from './ledger-catalog'
 import {
   CLAIM_REFUSALS,
   DEFAULT_LEDGER_OPTIONS,
+  type GateInput,
   backoffMs,
   claimGate,
   endingEffect,
@@ -49,8 +50,15 @@ const wired = (type: JobSourceType = 'REMOTIVE_API') =>
     allowedHosts: ['remotive.com'],
   })
 
-const gate = (over: Partial<Parameters<typeof claimGate>[0]> = {}) =>
-  claimGate({ adapter: wired(), entry: entry(), dbNow: NOW, meterKey: null, ...over })
+const gate = (over: Partial<GateInput> = {}) =>
+  claimGate({
+    adapter: wired(),
+    entry: entry(),
+    dbNow: NOW,
+    meterKey: null,
+    scheduled: false,
+    ...over,
+  })
 
 describe('U1b: a null fetch profile is never claimed by schedule (owner, Q8)', () => {
   const unscheduled = entry({ fetchProfile: null })
@@ -61,7 +69,17 @@ describe('U1b: a null fetch profile is never claimed by schedule (owner, Q8)', (
 
   it('a manual claim of the same source is not refused for its profile', () => {
     expect(gate({ entry: unscheduled, scheduled: false })).toBeNull()
-    expect(gate({ entry: unscheduled })).toBeNull()
+  })
+
+  it('CR-M-1: a caller that omits `scheduled` (a type error) is refused, never let through', () => {
+    // `scheduled` is required by the type; a JS caller or a cast that drops it fails closed.
+    const omitted = {
+      adapter: wired(),
+      entry: unscheduled,
+      dbNow: NOW,
+      meterKey: null,
+    } as unknown as GateInput
+    expect(claimGate(omitted)).toBe('NOT_SCHEDULED')
   })
 
   it('a scheduled claim of a source with a profile passes', () => {
@@ -73,9 +91,10 @@ describe('U1b: a null fetch profile is never claimed by schedule (owner, Q8)', (
     expect(gate({ entry: blocked, scheduled: true })).toBe('READINESS_BLOCKED')
   })
 
-  it('NOT_SCHEDULED is a recorded refusal, rechecked like every persistent one', () => {
+  it('CR-M-2: NOT_SCHEDULED is recorded once and leaves no next attempt (no recheck churn)', () => {
     expect(CLAIM_REFUSALS).toContain('NOT_SCHEDULED')
-    expect(refusalWrite('NOT_SCHEDULED', null)).toEqual({ kind: 'RECHECK' })
+    expect(refusalWrite('NOT_SCHEDULED', null)).toEqual({ kind: 'NEVER' })
+    expect(refusalWrite('NOT_SCHEDULED', new Date(NOW))).toEqual({ kind: 'NEVER' })
   })
 })
 

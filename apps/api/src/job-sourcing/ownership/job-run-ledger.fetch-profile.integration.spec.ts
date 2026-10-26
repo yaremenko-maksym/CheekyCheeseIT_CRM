@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { Client } from 'pg'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   openCrmAppSession,
   type CrmAppSession,
@@ -26,6 +27,9 @@ import { JobRunLedger } from './job-run-ledger'
  *     pnpm --filter @crm/api exec vitest run job-run-ledger.fetch-profile.integration
  */
 const TAG = randomUUID().slice(0, 8)
+// The driver's own query method, captured before any spy wraps it.
+
+const originalQuery = Client.prototype.query
 
 let session: CrmAppSession
 let fx: LedgerFixtures
@@ -52,6 +56,16 @@ async function ending(runId: string) {
     [runId],
   )
   return rows[0] as { ended_at: Date; next_attempt_at: Date | null; manifest_id: string }
+}
+
+/** The source's `next_attempt_at` and `updated_at`, as ISO strings (a rewrite moves `updated_at`). */
+async function nextAndUpdated(sourceId: string) {
+  const { rows } = await session.admin.query(
+    `SELECT next_attempt_at, updated_at FROM job_sources WHERE id = $1`,
+    [sourceId],
+  )
+  const r = rows[0] as { next_attempt_at: Date | null; updated_at: Date }
+  return { next: r.next_attempt_at?.toISOString() ?? null, updated: r.updated_at.toISOString() }
 }
 
 async function finishOnce(sourceId: string): Promise<string> {
@@ -115,17 +129,46 @@ describe.skipIf(!hasDatabaseUrl())(
       },
     )
 
-    it('the clock is read once: ended_at is the instant the slot was computed from', async () => {
-      // A minute-aligned grid: the slot is the next whole minute after ended_at.
-      const everyMinute: FetchProfile = {
-        intervalMinutes: 1,
-        offIntervalMinutes: null,
-        window: null,
+    it('SPEC-L-4: finish reads the clock once, and that one value is both ended_at and the slot`s now', async () => {
+      const s = await kit.reporting({}, { fetchProfile: BERLIN_60 })
+      const run = await kit.claimOne(s)
+      // Every statement `finish` sends, as the driver receives it.
+      const sent: { text: string; values: unknown[] }[] = []
+      const query = vi.spyOn(Client.prototype, 'query')
+      query.mockImplementation(function (this: Client, ...args: unknown[]) {
+        const [first, second] = args as [unknown, unknown]
+        const text = typeof first === 'string' ? first : (first as { text: string }).text
+        // `query(text, values)` or `query({ text, values })`; drizzle sends `({ text, ... }, values)`.
+        const values =
+          (typeof first === 'string' ? undefined : (first as { values?: unknown[] }).values) ??
+          (second as unknown[] | undefined) ??
+          []
+        sent.push({ text, values })
+        return Reflect.apply(originalQuery, this, args) as never
+      })
+      try {
+        await ledger.finish(handleOf(run), { outcome: 'SUCCEEDED', errorCode: null })
+      } finally {
+        query.mockRestore()
       }
-      const s = await kit.reporting({}, { fetchProfile: everyMinute })
-      const e = await ending(await finishOnce(s))
-      const ended = e.ended_at.getTime()
-      expect(e.next_attempt_at!.getTime()).toBe(Math.floor(ended / 60_000) * 60_000 + 60_000)
+      const e = await ending(run.runId)
+      const reads = sent.filter((q) => /clock_timestamp\(\)\s+AS\s+db_now/i.test(q.text))
+      expect(reads).toHaveLength(1)
+      const endRun = sent.find((q) => /UPDATE job_collection_runs\s+SET outcome/.test(q.text))!
+      // ended_at is the value read, not a second clock_timestamp() ...
+      expect(endRun.text).not.toMatch(/ended_at = clock_timestamp\(\)/)
+      expect(endRun.values).toContain(e.ended_at.toISOString())
+      // ... and the next attempt is nextSlot of exactly that value, written as a parameter.
+      const expected = nextSlot(e.ended_at, BERLIN_60, {
+        floorMinutes: 0,
+        slowdownLevel: 0,
+        staggerKey: e.manifest_id,
+      }).toISOString()
+      const account = sent.find((q) =>
+        /UPDATE job_sources SET consecutive_failures = 0/.test(q.text),
+      )!
+      expect(account.values).toContain(expected)
+      expect(e.next_attempt_at?.toISOString()).toBe(expected)
     })
 
     it('composition: the provider floor pushes the slot past ended_at + floor (strictest wins)', async () => {
@@ -156,11 +199,47 @@ describe.skipIf(!hasDatabaseUrl())(
         // ... but the claim never runs it.
         expect(claimed).toEqual([])
         expect(refused).toEqual([{ sourceId: s, reason: 'NOT_SCHEDULED' }])
-        const row = await fx.sourceRow(s)
-        expect(row.last_error_code).toBe('NOT_SCHEDULED')
-        expect(row.next_in_s).toBeGreaterThan(60)
+        // CR-M-2: one write, NULL, never a recheck.
+        const first = await nextAndUpdated(s)
+        expect(first.next).toBeNull()
+        expect((await fx.sourceRow(s)).last_error_code).toBe('NOT_SCHEDULED')
         expect(await findDueSources(db, 'SCHEDULED', { onlyIds: [s] })).toEqual([])
         expect(await ledger.countDue({ onlyIds: [s] })).toBe(0)
+        // A second scheduled claim neither selects nor rewrites it: bounded at one write.
+        const again = await ledger.claimDue({
+          cycleId: await kit.scheduledCycle(),
+          owner: 'spec-worker',
+          limit: 1,
+          onlyIds: [s],
+        })
+        expect(again).toEqual({ claimed: [], refused: [] })
+        expect(await nextAndUpdated(s)).toEqual(first)
+      })
+
+      it('CR-M-2: given a profile later, it gets its first slot from the manual run that connects it', async () => {
+        const manifestId = fx.manifestId()
+        const s = await kit.reporting({ manifestId }, { fetchProfile: null })
+        await ledger.claimDue({
+          cycleId: await kit.scheduledCycle(),
+          owner: 'spec-worker',
+          limit: 1,
+          onlyIds: [s],
+        })
+        expect((await nextAndUpdated(s)).next).toBeNull()
+        // The profile appears (U12 connects the type): a NULL next attempt is still not due ...
+        kit.catalog.add(manifestId, { fetchProfile: BERLIN_60 })
+        expect(await kit.tryClaim(s)).toBeUndefined()
+        // ... until the supervised manual run's finish computes its first slot.
+        const manual = await kit.claimManual(s)
+        if (manual.kind !== 'CLAIMED') throw new Error(`setup: manual claim ${manual.reason}`)
+        await ledger.finish(handleOf(manual.run), { outcome: 'SUCCEEDED', errorCode: null })
+        const e = await ending(manual.run.runId)
+        const expected = nextSlot(e.ended_at, BERLIN_60, {
+          floorMinutes: 0,
+          slowdownLevel: 0,
+          staggerKey: manifestId,
+        })
+        expect(e.next_attempt_at?.toISOString()).toBe(expected.toISOString())
       })
 
       it('a manual run of it ends with no next attempt: NULL, which no scheduled claim selects', async () => {

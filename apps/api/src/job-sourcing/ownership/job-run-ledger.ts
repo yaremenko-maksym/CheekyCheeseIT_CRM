@@ -442,9 +442,11 @@ export class JobRunLedger {
     const write = refusalWrite(reason, opensAt)
     if (write.kind === 'NONE') return
     const next =
-      write.kind === 'UNTIL'
-        ? sql`${write.at.toISOString()}::timestamptz`
-        : sql`clock_timestamp() + make_interval(secs => ${this.options.refusalRecheckMs / 1000})`
+      write.kind === 'NEVER'
+        ? sql`NULL::timestamptz`
+        : write.kind === 'UNTIL'
+          ? sql`${write.at.toISOString()}::timestamptz`
+          : sql`clock_timestamp() + make_interval(secs => ${this.options.refusalRecheckMs / 1000})`
     await tx.execute(
       sql`UPDATE job_sources SET last_error_code = ${reason}, next_attempt_at = ${next}, updated_at = clock_timestamp() WHERE id = ${sourceId}::uuid`,
     )

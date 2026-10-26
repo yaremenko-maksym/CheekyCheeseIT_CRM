@@ -44,8 +44,11 @@ export interface GateInput {
   readonly dbNow: Date
   /** The meter's account key through `account_meter_id`, or null when there is no meter row. */
   readonly meterKey: string | null
-  /** U1b: a SCHEDULED claim; only it is refused for a null fetch profile (a manual run is not). */
-  readonly scheduled?: boolean
+  /**
+   * U1b: true for a SCHEDULED claim, false for a manual one. Required (CR-M-1): only an explicit
+   * `false` skips the null-profile refusal, so a caller that omits it fails closed.
+   */
+  readonly scheduled: boolean
 }
 
 /**
@@ -70,7 +73,7 @@ export function claimGate(input: GateInput): ClaimRefusal | null {
     return 'TRANSPORT_NOT_WIRED'
   }
   if (entry.quotaDeclared && input.meterKey === null) return 'METER_MISSING'
-  if (input.scheduled === true && entry.fetchProfile === null) return 'NOT_SCHEDULED'
+  if (input.scheduled !== false && entry.fetchProfile === null) return 'NOT_SCHEDULED'
   return null
 }
 
@@ -105,6 +108,8 @@ export function nextAttemptAt(
 
 export type RefusalWrite =
   | { readonly kind: 'NONE' }
+  /** `next_attempt_at = NULL`: never due by schedule again (a NULL is not due). */
+  | { readonly kind: 'NEVER' }
   | { readonly kind: 'RECHECK' }
   | { readonly kind: 'UNTIL'; readonly at: Date }
 
@@ -122,6 +127,10 @@ const HOST_TIMED: ReadonlySet<ClaimRefusal> = new Set([
  */
 export function refusalWrite(reason: ClaimRefusal, opensAt: Date | null): RefusalWrite {
   if (reason === 'HOST_BUSY') return { kind: 'NONE' }
+  // U1b, CR-M-2: "a null profile means never scheduled" (ADR section 1). One write, then the row is
+  // never picked again; its first slot comes from the finish of the supervised manual run that
+  // connects it (U12, section 8a), which computes `nextSlot` from the profile it then has.
+  if (reason === 'NOT_SCHEDULED') return { kind: 'NEVER' }
   if (HOST_TIMED.has(reason) && opensAt !== null) return { kind: 'UNTIL', at: opensAt }
   return { kind: 'RECHECK' }
 }
