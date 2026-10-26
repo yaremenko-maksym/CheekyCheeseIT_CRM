@@ -16,6 +16,7 @@ import {
   validatedCheckpointSchema,
 } from '../providers/reporting-provider'
 import type { JobSourceRegistry } from '../registry/job-source-registry'
+import { MAX_EARLY_DUE_SLACK_MS } from '../scheduling/due-policy'
 import { dueSourcesPredicate } from '../scheduling/due-sources.query'
 import { type SqlExecutor, cadenceHoursAtFloor, claimHostSlot } from '../scheduling/host-state'
 import type { LedgerCatalog } from './ledger-catalog'
@@ -219,6 +220,47 @@ export class JobRunLedger {
     return { cycleId: id }
   }
 
+  /**
+   * Close a scheduled cycle at the end of its handler's window (SR-L-19): `status = 'CLOSED'` with
+   * its closing instant (`ck_job_collection_cycles_closed_pair`). Idempotent -- two replicas share
+   * one cycle row and the first closing instant stays. Returns whether THIS call closed it.
+   */
+  async closeCycle(cycleId: string): Promise<boolean> {
+    if (!UUID.test(cycleId)) throw new RangeError('invalid cycle id')
+    const { rows } = await this.db.execute(
+      sql`UPDATE job_collection_cycles SET status = 'CLOSED', closed_at = clock_timestamp()
+           WHERE id = ${cycleId}::uuid AND status = 'OPEN' RETURNING id`,
+    )
+    return rows.length === 1
+  }
+
+  /**
+   * How many sources of the scope pass the scheduled due predicate right now, WHETHER OR NOT one
+   * can be claimed this instant (a busy host, a running account). A handler's window keeps waiting
+   * while this is non-zero: a source behind another replica's run is claimed once that run ends. A
+   * claim refusal moves the source's `next_attempt_at` out, so a refused source stops counting --
+   * except a host-timed one (`HOST_RATE_GAP`) whose slot opens within `lookaheadMs`: that source
+   * counts, because the window claims it once the gap opens. `lookaheadMs` is clamped to
+   * `MAX_EARLY_DUE_SLACK_MS` (10 min), the longest forward look the due predicate takes; a
+   * persistent refusal is pushed `REFUSAL_RECHECK` (hours) out and never counts.
+   */
+  async countDue(input: {
+    readonly onlyIds?: readonly string[] | undefined
+    readonly onlyTypes?: readonly JobSourceType[] | undefined
+    readonly lookaheadMs?: number | undefined
+  }): Promise<number> {
+    const lookahead = Math.min(
+      Math.max(0, Math.floor(input.lookaheadMs ?? 0)),
+      MAX_EARLY_DUE_SLACK_MS,
+    )
+    const { rows } = await this.db.execute(
+      sql`SELECT count(*)::int AS n FROM job_sources
+          WHERE ${dueSourcesPredicate('SCHEDULED', { maxConsecutiveFailures: this.options.maxConsecutiveFailures, cadenceSlackMs: lookahead })}
+            AND ${scopeOf(input.onlyIds, input.onlyTypes)}`,
+    )
+    return Number(rows[0]?.['n'] ?? 0)
+  }
+
   // -------------------------------------------------------------------------
   // Claims
   // -------------------------------------------------------------------------
@@ -236,6 +278,8 @@ export class JobRunLedger {
     readonly owner: string
     readonly limit: number
     readonly onlyIds?: readonly string[] | undefined
+    /** T5: a handler claims its own type set only (API types at 05:00, HTML types at 02:30). */
+    readonly onlyTypes?: readonly JobSourceType[] | undefined
   }): Promise<{ claimed: ClaimedRun[]; refused: ClaimRefused[] }> {
     this.assertOwner(input.owner)
     if (!Number.isSafeInteger(input.limit) || input.limit < 0) {
@@ -254,7 +298,7 @@ export class JobRunLedger {
       const triedBefore = tried.length
       try {
         const step = await this.db.transaction(async (tx) => {
-          const row = await this.pickDue(tx, tried, input.onlyIds)
+          const row = await this.pickDue(tx, tried, input.onlyIds, input.onlyTypes)
           if (row === undefined) return { kind: 'EMPTY' as const }
           const sourceId = String(row['id'])
           tried.push(sourceId)
@@ -340,9 +384,9 @@ export class JobRunLedger {
     tx: DrizzleTx,
     tried: readonly string[],
     onlyIds: readonly string[] | undefined,
+    onlyTypes: readonly JobSourceType[] | undefined,
   ): Promise<Row | undefined> {
-    const scope =
-      onlyIds === undefined ? sql`true` : sql`job_sources.id = ANY(${toUuidArray(onlyIds)})`
+    const scope = scopeOf(onlyIds, onlyTypes)
     const { rows } = await tx.execute(
       sql`SELECT job_sources.*, ${RUN_ACCOUNT_KEY} AS run_account_key, ${METER_KEY} AS meter_key,
             clock_timestamp() AS db_now
@@ -767,6 +811,24 @@ export async function writePageProgress(
          WHERE ${ownershipPredicate(h)} RETURNING 1 AS ok`,
   )
   if (rows.length !== 1) throw new RunFencedError()
+}
+
+/** The `onlyIds` / `onlyTypes` narrowing of a scheduled pick or count; absent = no narrowing. */
+function scopeOf(
+  onlyIds: readonly string[] | undefined,
+  onlyTypes: readonly JobSourceType[] | undefined,
+): SQL {
+  const ids = onlyIds === undefined ? sql`true` : sql`job_sources.id = ANY(${toUuidArray(onlyIds)})`
+  const types =
+    onlyTypes === undefined
+      ? sql`true`
+      : sql`job_sources.type::text = ANY(${toTypeArray(onlyTypes)})`
+  return sql`${ids} AND ${types}`
+}
+
+function toTypeArray(types: readonly string[]): SQL {
+  for (const t of types) if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(t)) throw new RangeError('not a type')
+  return sql`${`{${types.join(',')}}`}::text[]`
 }
 
 /** A uuid[] parameter: drizzle would spread a JS array into a row constructor, so pass it as text. */
