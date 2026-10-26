@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { JobExclusionDto } from '@crm/shared'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
@@ -254,12 +255,21 @@ describe('input versions', () => {
         }),
       )
     }
+    // The pre-round-2 formula, as an independent oracle: sha256 of the WHOLE applicable set sorted.
+    const oracle = (set: JobExclusionDto[]) =>
+      createHash('sha256')
+        .update(
+          JSON.stringify(
+            set.map((e) => JSON.stringify([e.scope, e.kind, e.normalizedValue, e.id])).sort(),
+          ),
+        )
+        .digest('hex')
+        .slice(0, 32)
     const versions = rosterVersions(profiles, all)
     for (const id of seniors) {
-      const reference = exclusionVersion(
-        all.filter((e) => e.seniorId === null || e.seniorId === id),
-      )
-      expect(versions.get(id)?.exclusion).toBe(reference)
+      const applicable = all.filter((e) => e.seniorId === null || e.seniorId === id)
+      expect(exclusionVersion(applicable)).toBe(oracle(applicable))
+      expect(versions.get(id)?.exclusion).toBe(oracle(applicable))
     }
     // Input order does not matter.
     const reversed = rosterVersions(profiles, [...all].reverse())

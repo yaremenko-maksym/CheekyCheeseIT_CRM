@@ -278,45 +278,37 @@ export function profileVersion(p: SeniorTechProfile): string {
   return digest([[...p.techStack].sort(), [...p.teamIds].sort()])
 }
 
-/** An exclusion version: the digest of a senior's applicable entries, order-insensitive. */
-export function exclusionVersion(applicable: readonly JobExclusionDto[]): string {
-  return digest(applicable.map(exclusionKey).sort())
-}
-
 const exclusionKey = (e: JobExclusionDto) =>
   JSON.stringify([e.scope, e.kind, e.normalizedValue, e.id])
 
-/** Two code-unit-sorted lists as one, in the order `Array.prototype.sort` would give. */
-function mergeSorted(a: readonly string[], b: readonly string[]): string[] {
-  const out: string[] = []
-  let i = 0
-  let j = 0
-  while (i < a.length && j < b.length) {
-    const x = a[i] as string
-    const y = b[j] as string
-    // Stryker disable next-line EqualityOperator: `<=` vs `<` differ only on equal keys, and equal keys give the same sequence either way.
-    if (x <= y) {
-      out.push(x)
-      i += 1
-    } else {
-      out.push(y)
-      j += 1
-    }
-  }
-  return out.concat(a.slice(i), b.slice(j))
+/** The digest of a senior's entries: studio-wide keys sorted, then the senior's own sorted. */
+const exclusionDigest = (studioSorted: readonly string[], ownSorted: readonly string[]) =>
+  digest([...studioSorted, ...ownSorted])
+
+/**
+ * An exclusion version: the digest of a senior's applicable entries, order-insensitive.
+ * Studio-wide entries (no senior) come first, each part sorted. A key starts with its scope and
+ * `"GLOBAL"` sorts before `"SENIOR"`, so for consistent rows this is the digest of the whole set
+ * sorted; splitting by senior makes that an identity by construction, not by data.
+ */
+export function exclusionVersion(applicable: readonly JobExclusionDto[]): string {
+  const keys = (studioWide: boolean) =>
+    applicable
+      .filter((e) => (e.seniorId === null) === studioWide)
+      .map(exclusionKey)
+      .sort()
+  return exclusionDigest(keys(true), keys(false))
 }
 
 /**
- * Every roster senior's versions, with the values `exclusionVersion` gives for the studio-wide
- * entries plus the senior's own (CR-M-3, CR-M-5). Each exclusion is serialised once and the
- * studio-wide list is sorted once; a senior then costs one linear merge with their own sorted
- * entries and one hash of the result.
+ * Every roster senior's versions, equal to `exclusionVersion` of the studio-wide entries plus the
+ * senior's own (CR-M-3, CR-M-5). Each exclusion is serialised once and grouped once; the
+ * studio-wide list is sorted once and reused for every senior.
  *
  * BOUND: O(E log E + S * G) for E exclusions, S seniors and G studio-wide entries. Not
- * O(S + E): every senior's digest covers the whole studio-wide list, so its G entries are hashed
- * once per senior. Keeping the stored values equal to `exclusionVersion` rules out hashing a
- * pre-digested studio part instead. Studio-wide entries are a short manual list, so S * G stays
- * small.
+ * O(S + E): every senior's digest covers the studio-wide list, so its G keys are hashed once per
+ * senior; folding in a pre-digested studio part instead would change every stored value.
+ * Studio-wide entries are a short manual list, so S * G stays small.
  */
 export function rosterVersions(
   profiles: readonly SeniorTechProfile[],
@@ -340,7 +332,7 @@ export function rosterVersions(
       p.seniorId,
       {
         profile: profileVersion(p),
-        exclusion: digest(mergeSorted(studio, [...(own.get(p.seniorId) ?? [])].sort())),
+        exclusion: exclusionDigest(studio, [...(own.get(p.seniorId) ?? [])].sort()),
       },
     ]),
   )
