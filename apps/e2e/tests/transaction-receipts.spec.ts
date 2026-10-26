@@ -64,10 +64,11 @@ function uniqueSuffix(): string {
 
 /**
  * A random YYYY-MM far outside the seed data's real range (2025/2026) and
- * spread across ~720 combinations — `createSalary` enforces ONE reminder per
- * (receiver, month), so a fixed month would collide across repeated test
- * runs (and with itself across `--repeat-each`). Random, not sequential, so
- * parallel workers can't collide either.
+ * spread across ~720 combinations. `createSalary` does NOT reject a second
+ * salary part for the same (receiver, month) - it records it as another part -
+ * but a fixed month would pile every run's rows onto a single (receiver,
+ * month). Random, not sequential, so repeated runs, `--repeat-each` and
+ * parallel workers spread across months.
  */
 function randomSalaryMonth(): string {
   const year = 2030 + Math.floor(Math.random() * 60)
