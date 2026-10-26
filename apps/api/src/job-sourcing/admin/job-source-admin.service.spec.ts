@@ -194,10 +194,11 @@ describe('listExcluded — the row mapping', () => {
     await h.service.listExcluded(ADMIN)
     const q = h.execute.mock.calls[0]?.[0]
     const { params } = dialect.sqlToQuery(q as SQL)
+    // U1b: no cadence parameter any more (the 24 h fallback of `min_interval_hours` is gone).
+    expect(params).not.toContain(24)
     expect(params).toEqual(
       expect.arrayContaining([
         3,
-        24,
         '{MANIFEST_ENTRY_MISSING,NOT_ACTIVATABLE,READINESS_BLOCKED,TRANSPORT_NOT_WIRED,METER_MISSING,HOST_KEY_MISSING,HOST_PAUSED,HOST_BUSY,HOST_RATE_GAP,HOST_DAILY_CAP,NOT_SCHEDULED}',
       ]),
     )

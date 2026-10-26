@@ -23,6 +23,7 @@ import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageRun, ageSource } from '../../test/run-aging'
 import { decideCheckpoint } from '../providers/reporting-provider'
 import { recordHostBan } from '../scheduling/host-state'
+import { nextSlot } from '../scheduling/next-slot'
 import { saveObservationPage } from '../store/source-record.store'
 import { type ClaimedRun, JobRunLedger } from './job-run-ledger'
 
@@ -108,6 +109,35 @@ async function collect(
   }
   await ledger.finish(handleOf(run), { outcome: 'SUCCEEDED', errorCode: null })
   return 'ENDED'
+}
+
+/** The fixtures' default profile (`SpecCatalog.add`): once a day at the stagger minute, UTC. */
+const DAILY_PROFILE = { intervalMinutes: 24 * 60, offIntervalMinutes: null, window: null }
+
+/**
+ * U1b: the run's `ended_at` and the source's `next_attempt_at`, and what `nextSlot` gives for that
+ * `ended_at` (no floor, level 0, the manifest id as the stagger key).
+ */
+async function slotOf(
+  runId: string,
+  profile: Parameters<typeof nextSlot>[1] = DAILY_PROFILE,
+  floorMinutes = 0,
+): Promise<{ next: string | null; expected: string }> {
+  const { rows } = await session.admin.query(
+    `SELECT r.ended_at, s.next_attempt_at, s.manifest_id
+       FROM job_collection_runs r JOIN job_sources s ON s.id = r.source_id WHERE r.id = $1`,
+    [runId],
+  )
+  const r = rows[0]
+  const expected = nextSlot(r.ended_at as Date, profile, {
+    floorMinutes,
+    slowdownLevel: 0,
+    staggerKey: r.manifest_id as string,
+  })
+  return {
+    next: r.next_attempt_at === null ? null : (r.next_attempt_at as Date).toISOString(),
+    expected: expected.toISOString(),
+  }
 }
 
 /** Expire a crashed run's lease and recover it, then let the source's cadence and backoff pass. */
@@ -243,10 +273,11 @@ describe.skipIf(!hasDatabaseUrl())(
         await ledger.finish(handleOf(run), { outcome: 'FAILED', errorCode: 'UPSTREAM' })
         const row = await fx.sourceRow(s)
         expect(row.consecutive_failures).toBe(1)
-        // The first backoff is the base, one hour; the cadence is the entry's 24 h.
+        // The first backoff is the base, one hour; the cadence is the entry's next slot (U1b AC 3).
         expect(row.cooldown_in_s).toBeGreaterThan(3600 - 60)
         expect(row.cooldown_in_s).toBeLessThanOrEqual(3600)
-        expect(row.next_in_s).toBeGreaterThan(24 * 3600 - 60)
+        const slot = await slotOf(run.runId)
+        expect(slot.next).toBe(slot.expected)
         expect(await kit.claimManual(s)).toEqual({ kind: 'REFUSED', reason: 'COOLING_DOWN' })
       })
 
@@ -267,7 +298,9 @@ describe.skipIf(!hasDatabaseUrl())(
           await ledger.finish(handleOf(run), { outcome, errorCode: code })
           const row = await fx.sourceRow(s)
           expect(row.consecutive_failures).toBe(1)
-          expect(row.next_in_s).toBeGreaterThan(24 * 3600 - 60)
+          const slot = await slotOf(run.runId)
+          // COST_STOP waits for the meter reset only on a metered source; this one has none.
+          expect(slot.next).toBe(slot.expected)
         },
       )
 
@@ -330,14 +363,32 @@ describe.skipIf(!hasDatabaseUrl())(
 
       it('COST_STOP waits for the meter reset when it is later than the cadence', async () => {
         const meterId = await fx.meter(fx.accountKey('cost'), 100)
+        const hourly = { intervalMinutes: 60, offIntervalMinutes: null, window: null }
         const s = await kit.reporting(
-          { type: 'JSEARCH_API', accountMeterId: meterId, minIntervalHours: 1 },
-          { quotaDeclared: true },
+          { type: 'JSEARCH_API', accountMeterId: meterId },
+          { quotaDeclared: true, fetchProfile: hourly },
         )
         const run = await kit.claimOne(s)
         await ledger.finish(handleOf(run), { outcome: 'PARTIAL', errorCode: 'COST_STOP' })
-        // The meter resets in ~23 h; the cadence is 1 h.
+        // The meter resets in ~23 h; the next slot is within the hour: GREATEST takes the reset.
+        const slot = await slotOf(run.runId, hourly)
+        expect(Date.parse(slot.expected) - Date.now()).toBeLessThan(3600_000 + 60_000)
         expect((await fx.sourceRow(s)).next_in_s).toBeGreaterThan(22 * 3600)
+      })
+
+      it('U1b AC 3: a COST_STOP of a null-profile source stays unscheduled (GREATEST ignores NULL)', async () => {
+        const meterId = await fx.meter(fx.accountKey('cost-null'), 100)
+        const s = await kit.reporting(
+          { type: 'JSEARCH_API', accountMeterId: meterId },
+          { quotaDeclared: true, fetchProfile: null },
+        )
+        // Never claimed by schedule; a manual run is still allowed (owner smoke, U12).
+        expect(await kit.tryClaim(s)).toBeUndefined()
+        const manual = await kit.claimManual(s)
+        if (manual.kind !== 'CLAIMED') throw new Error(`setup: manual claim ${manual.reason}`)
+        const run = manual.run
+        await ledger.finish(handleOf(run), { outcome: 'PARTIAL', errorCode: 'COST_STOP' })
+        expect((await slotOf(run.runId)).next).toBeNull()
       })
 
       it('SUCCEEDED resets the counter and clears the cooldown', async () => {
