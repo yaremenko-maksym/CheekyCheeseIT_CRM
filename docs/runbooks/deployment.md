@@ -634,8 +634,8 @@ the prod image of the API or create a separate migrate container in `docker-comp
 ### 5.1 Database roles in the deploy: apply order and how the `crm_app` credential reaches the VPS
 
 **Apply order inside the "Pull, up, migrate, health-check via SSH" step** (positions count distinct
-manual files in textual order, which is execution order; 64 distinct files run in that one step,
-derived from the script on 2026-10-25 with the wiring guard's own `applied_commands()`; re-derive
+manual files in textual order, which is execution order; 65 distinct files run in that one step,
+derived from the script on 2026-10-26 with the wiring guard's own `applied_commands()`; re-derive
 rather than trust the numbers, they shift whenever a file is added above):
 
 | Position | File                                                   | Why it sits there                                                                                                         |
@@ -647,11 +647,25 @@ rather than trust the numbers, they shift whenever a file is added above):
 | 56       | `2026-10-24_job_sources_manifest_delta.sql`            | Writes `job_sources` columns position 52 adds, so AFTER it (not after the 2026-10-05 seed); TEMP tables. One transaction  |
 | 57       | `2026-10-24_job_source_hosts.sql`                      | Creates `job_source_hosts`, so before the grants. One transaction                                                         |
 | 58       | `2026-10-24_job_sources_host_keys.sql`                 | Needs `job_source_hosts` (57) and the delta's `manifest_id` (56). One transaction                                         |
-| 59       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                   |
-| 60       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                         |
-| 63       | `2026-10-18_db_privileges_check.sql`                   | First run: before the container swap, so a drift fails while the old API serves                                           |
-| 64       | `2026-10-04_multiple_salary_transactions_activate.sql` | Breaking half, must follow the swap and the health gate; creates no relation                                              |
+| 59       | `2026-10-25_tx_date_kyiv_backfill.sql`                 | One-time data-fix (backlog 338); creates its backup table (run marker), so before the grants. Temporary, de-wired after   |
+| 60       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                   |
+| 61       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                         |
+| 64       | `2026-10-18_db_privileges_check.sql`                   | First run: before the container swap, so a drift fails while the old API serves                                           |
+| 65       | `2026-10-04_multiple_salary_transactions_activate.sql` | Breaking half, must follow the swap and the health gate; creates no relation                                              |
 | (end)    | `2026-10-18_db_privileges_check.sql` (second run)      | The last database step, after the post-cutover `drop_cascade_origin` marker re-run, so the END state is what is validated |
+
+**After the deploy that first applies `2026-10-25_tx_date_kyiv_backfill.sql` (backlog 338), check production
+once the new API version is live** (read-only; production commands are the owner's, through `ssh crm-vps`):
+
+```sql
+SELECT count(*) FROM transactions WHERE tx_date IS NULL;   -- must be 0
+```
+
+A non-zero count means something still persisted a NULL `tx_date` after the backfill. The likeliest cause is the
+old API, which keeps serving during the deploy window. Because the backup table (the run marker) now exists, the
+NEXT deploy will fail loudly on this step, by design, instead of patching the row over. Before that deploy,
+de-wire the file (follow-up `ci/dewire-tx-date-kyiv-backfill`) and fix the row by hand. The rollback order is in
+the file's header: de-wire first, then run its UPDATE.
 
 Two invariants, both enforced by `scripts/devops/check-prod-ddl-wiring.py` (it derives the apply order
 from `deploy.yml` and reads each file's SQL, with no list of file names): a file whose first
@@ -1078,6 +1092,7 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-10-24_job_sources_manifest_delta.sql \
     apps/api/drizzle/manual/2026-10-24_job_source_hosts.sql \
     apps/api/drizzle/manual/2026-10-24_job_sources_host_keys.sql \
+    apps/api/drizzle/manual/2026-10-25_tx_date_kyiv_backfill.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \
