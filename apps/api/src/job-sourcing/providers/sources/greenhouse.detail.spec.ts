@@ -50,6 +50,16 @@ describe('ON_DEMAND list', () => {
     })
     expect(batch.observations.map((o) => o.normalized.descriptionMd)).toEqual(['', '', ''])
     expect(batch.observations[0]?.normalized.title).toBe('Tech Lead Manager, Oracle ERP')
+    expect(batch.observations[0]?.adapterVersion).toBe('greenhouse-2')
+  })
+
+  it('caches the list under the board slot when a validator arrives, like IN_LIST', async () => {
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: listBody(), etag: '"v1"' }],
+    })
+    await provider.collectReport(cfg(), f.ctx)
+    expect([...f.cache.keys()].map((k) => (JSON.parse(k) as string[])[0])).toEqual(['board'])
   })
 
   it('a job missing a required list field is isolated as invalid, the board goes on', async () => {
@@ -145,22 +155,45 @@ describe('parseGreenhouseDetail', () => {
     expect(parse(404, '')).toEqual({ kind: 'GONE' })
   })
 
-  it.each([500, 502, 503, 400, 410])('%s is FAILED UPSTREAM carrying the status', (status) => {
-    expect(parse(status, '')).toMatchObject({ kind: 'FAILED', code: 'UPSTREAM', status })
+  it.each([100, 199, 300, 301, 304, 400, 410, 500, 502, 503])(
+    '%s is FAILED UPSTREAM carrying the status',
+    (status) => {
+      expect(parse(status, body())).toEqual({
+        kind: 'FAILED',
+        code: 'UPSTREAM',
+        message: `provider answered HTTP ${status}`,
+        status,
+      })
+    },
+  )
+
+  it.each([200, 201, 204, 299])('%s with the posting is read', (status) => {
+    expect(parse(status, body()).kind).toBe('FOUND')
   })
 
-  it('a body that is not JSON is PARSE_DRIFT', () => {
-    expect(parse(200, '<html>')).toMatchObject({ kind: 'FAILED', code: 'PARSE_DRIFT' })
+  it("a body that is not JSON is PARSE_DRIFT, with the parser's own reason", () => {
+    const r = parse(200, '<html>')
+    expect(r).toMatchObject({ kind: 'FAILED', code: 'PARSE_DRIFT', status: 200 })
+    expect((r as { message: string }).message).not.toBe('')
   })
 
   it('a posting missing a required field is PARSE_DRIFT', () => {
     const { title: _t, ...rest } = JSON.parse(body()) as Job
-    expect(parse(200, JSON.stringify(rest))).toMatchObject({ kind: 'FAILED', code: 'PARSE_DRIFT' })
+    expect(parse(200, JSON.stringify(rest))).toEqual({
+      kind: 'FAILED',
+      code: 'PARSE_DRIFT',
+      message: 'the posting does not match the contract',
+      status: 200,
+    })
   })
 
   it('a posting with another id than the one asked for is PARSE_DRIFT, never stored under the asked id', () => {
-    const r = parse(200, body(8303135))
-    expect(r).toMatchObject({ kind: 'FAILED', code: 'PARSE_DRIFT' })
+    expect(parse(200, body(8303135))).toEqual({
+      kind: 'FAILED',
+      code: 'PARSE_DRIFT',
+      message: 'the posting is not the one asked for',
+      status: 200,
+    })
   })
 
   it('a body over the cap is refused before it is parsed', () => {

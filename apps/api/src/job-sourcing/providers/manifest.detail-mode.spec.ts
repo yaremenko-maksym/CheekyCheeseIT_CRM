@@ -48,9 +48,21 @@ describe('detail mode in the manifest', () => {
     expect([g.detailMode, g.detailPerRun]).toEqual(['ON_DEMAND', 3])
   })
 
-  it.each([0, -1, 1.5, Number.NaN, 1001])('detailPerRun %s is refused', (n) => {
+  it.each([0, -1, 1.5, Number.NaN, 101, 1001])('detailPerRun %s is refused', (n) => {
     expect(codeOf(() => build((d) => ({ ...d, detailMode: 'ON_DEMAND', detailPerRun: n })))).toBe(
       'DETAIL_INVALID',
+    )
+  })
+
+  it.each([1, 2, 99, 100])('detailPerRun %s is accepted, the bounds included', (n) => {
+    expect(
+      codeOf(() => build((d) => ({ ...d, detailMode: 'ON_DEMAND', detailPerRun: n }))),
+    ).toBeNull()
+  })
+
+  it('the refusal names the type and the range', () => {
+    expect(() => build((d) => ({ ...d, detailPerRun: 0 }))).toThrow(
+      'DETAIL_INVALID: GREENHOUSE_ATS: detailPerRun must be an integer from 1 to 100',
     )
   })
 

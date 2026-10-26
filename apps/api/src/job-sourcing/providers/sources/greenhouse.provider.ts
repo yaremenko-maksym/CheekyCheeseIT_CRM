@@ -112,8 +112,7 @@ function employerOf(item: Item, config: Config): string | null {
   return fromPayload === '' ? (config.employer?.name ?? null) : fromPayload
 }
 
-const listUrl = (board: string, mode: DetailMode) =>
-  `https://${HOST}/v1/boards/${board}/jobs${mode === 'IN_LIST' ? '?content=true' : ''}`
+const listUrl = (board: string) => `https://${HOST}/v1/boards/${board}/jobs`
 
 export const greenhouseSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
   type: 'GREENHOUSE_ATS',
@@ -124,7 +123,7 @@ export const greenhouseSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
   limits: GREENHOUSE_LIMITS,
   pageRequest: (config: Config) => ({
     request: {
-      url: listUrl(config.board, 'IN_LIST'),
+      url: `${listUrl(config.board)}?content=true`,
       headers: { accept: 'application/json' },
     },
     cacheKey: 'board',
@@ -150,7 +149,7 @@ const onDemandSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
   ...greenhouseSpec,
   adapterVersion: 'greenhouse-2',
   pageRequest: (config: Config) => ({
-    request: { url: listUrl(config.board, 'ON_DEMAND'), headers: { accept: 'application/json' } },
+    request: { url: listUrl(config.board), headers: { accept: 'application/json' } },
     cacheKey: 'board',
   }),
 }
