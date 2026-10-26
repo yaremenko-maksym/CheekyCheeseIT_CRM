@@ -175,8 +175,8 @@ The due predicate (T4) keeps comparing timestamps. Claims use **no slack**: a sl
   the owner's rule, and nothing here evades it.
 - **The slow-down is what happens around a refusal and before the failure cap.** A new
   `job_sources.slowdown_level` (0..4) multiplies the interval by `2^level`:
-  - **+1** when a run ends `RATE_LIMIT`, `UPSTREAM` or `TRANSIENT_NETWORK`, and once more when a host
-    pause on the source's host expires (the first run after a ban runs at half speed);
+  - **+1** when a run ends `RATE_LIMIT`, `UPSTREAM` or `TRANSIENT_NETWORK`. The run a 429 refused ends
+    `RATE_LIMIT`, so the first run after that ban's pause expires already runs at half speed;
   - **−1** after each clean run (`SUCCESS` effect), never below 0;
   - the interval it produces is capped at 24 hours.
 - So a flaky provider is asked less often **before** three failures cap it. **Confidence MED**: the
@@ -350,7 +350,7 @@ not a column: it is `ended_at − started_at`.
 | Manifest `EntryDefinition.intervalHours`          | replaced by `fetchProfile` (per-type default, per-entry override)                           | U1b  |
 | `cadenceHoursAtFloor` in `account`                | replaced by `nextSlot`; `min_interval_hours` **no longer read** (column kept)                | U1b  |
 | `JobSourceAdminService` next-due derivation       | from `nextSlot`'s inputs, not `min_interval_hours`                                          | U1b  |
-| `generateSeedDelta`                               | keeps writing `min_interval_hours` (as `ceil(intervalMinutes / 60)`) so the listing stays truthful until U7 | U1b  |
+| `generateSeedDelta`                               | writes `min_interval_hours` for **new** rows as `ceil(intervalMinutes / 60)`; existing rows keep their stored value, which nothing reads after U1b. No seed delta is produced by U1b, so it has no production data step | U1b  |
 | `JobSourcingCronService.handleDailyCollection`    | keeps DOU and retention only; the API types move to tick and sweep                          | U3   |
 | `JobSourcingCronService.handleHtmlCollection`     | unchanged                                                                                   | —    |
 | `dueSourcesPredicate`, `claimDue`, `countDue`     | gain the sweep variant (cycle-scoped, cadence term skipped); slack stays 0 for claims       | U3   |
@@ -367,9 +367,12 @@ not a column: it is `ended_at − started_at`.
 - **More rows.** 144 tick cycles a day; runs grow about 16 ×. Retention of closed cycles and old runs is
   not specified anywhere today; it becomes a backlog item when U3 merges (it needs a decision on how long
   run history must live for the 14-day detectors: at least 28 days).
-- **The cron load overlaps the UTC retention crons** more often than T5's single 05:00 window did
-  (backlog 341). Moving those crons to `Europe/Kyiv` or staggering them is a prerequisite of U3, not an
-  option.
+- **The collection load overlaps the UTC retention crons permanently**, where T5's overlap was one
+  window a day (backlog 341). With a tick every 10 minutes no stagger avoids it; the bound is the worker's
+  slot limit (`freeSlots`), which caps concurrent runs whatever the tick does. The backlog 341 item stays
+  open as a tuning item, not a prerequisite.
+- **The listing's `minIntervalHours` is stale between U1b and U7**: it shows the stored value, which no
+  longer drives the cadence. Accepted for that span; U7 replaces the field.
 - **Health becomes visible before it becomes automatic.** The detectors only record and alert; none of
   them disables a source. Disabling stays with the failure cap and the ban pause.
 - **Freshness stays bounded by providers**: Remotive 24 h, Jobicy 3 h, Himalayas 24 h, Djinni's 3 h
@@ -393,3 +396,305 @@ Each unit is one PR; each rollback is listed with its expected state and how to 
 | U7   | `git revert`                                                                                               | the old listing                                                         | the source page route returns 404                                                           |
 | U8   | a seed delta that sets the board's `enabled = false` (never a `DELETE`: runs reference sources)            | the board is never due                                                  | `isDue` false for it on a scratch database                                                  |
 | U9   | **none**: a dropped column cannot be restored with its values. That is why it is A3 and last              | —                                                                       | —                                                                                           |
+
+## Decomposition
+
+### Order and parallelism
+
+```
+U1a nextSlot ──► U1b profile + ledger ──► U3 tick + sweep ──► U2 metrics + slowdown (DDL) ──► U4 health log (DDL) ──┬─► U5a ADMIN alerts ──► U5b HR digest
+U6a Greenhouse list-then-detail (parallel with U1a)                │                               │                └─► U7 source page (parallel with U5a)
+                                                                    ├─► U2-D deploy wiring (DevOps)  └─► U4-D deploy wiring (DevOps)
+                                                                    └─► U6b conditional requests
+owner Q7 ──► U8 watchlist (data) ──► U8-D deploy wiring (DevOps)
+U7 merged + one release ──► U9 drop min_interval_hours (owner's A3 word only)
+```
+
+- **Routing** (`orchestration-routing.md`): **single pipeline**. U1b, U3 and U2 all edit `JobRunLedger`,
+  and U5a and U5b both edit the notification registry, so they are sequential by file overlap. Two pairs
+  may run side by side (U1a with U6a; U5a with U7): disjoint files, no output dependency. That is never
+  three disjoint tasks at once, so no wave fan-out and no `routing_decision` line.
+- **Gate before U3 merges:** T5's own preconditions still hold (T6 transport wiring is merged, PR #1165).
+  U3 switches unattended collection from once a day to every 10 minutes, so it is also the point after
+  which every not-yet-enabled source's first live request needs the owner's word (brief Q8 and Q7).
+- **Production DDL (prod data path, backlog 337 lesson):** U2, U4 and U8 ship their SQL **staged** in
+  `apps/api/drizzle/manual-staged/`, and each has a **DevOps companion** (U2-D, U4-D, U8-D) that, in one
+  change: moves the file to `manual/`; adds its apply step to `scripts/devops/deploy-stack-on-vps.sh`
+  **after its predecessor** (the store migration for U2, U2's file for U4); passes `--single-transaction`;
+  adds it to the hard-required file list and the scp source list; and adds the runbook entry. The
+  wiring gate `check-prod-ddl-wiring.py` then enforces it.
+- **Real-Postgres** in every DB unit means a scratch database built from the migrations, connected **as
+  `crm_app`** (the least-privilege role), with `DATABASE_URL` set inline; never `crm_db`.
+
+### Units
+
+**U1a — `nextSlot` (pure).** New `job-sourcing/scheduling/next-slot.ts` (`nextSlot`, the `FetchProfile`
+type, the stagger hash). No caller yet. **Model:** sonnet, medium. **Reviewers:** code, spec.
+AC (each a unit test that fails before the code exists):
+
+1. Profile 60 / 180, window `Europe/Berlin` 08:00–19:00 Mon–Fri, stagger 7: `now` Tuesday 10:20 Berlin →
+   11:07 Berlin.
+2. `now` Tuesday 18:30 Berlin → the first off-grid slot at or after 19:00 (stagger 7, step 180).
+3. `offIntervalMinutes: null`, `now` Friday 18:30 → Monday 08:07.
+4. `Europe/Kyiv` 2027-03-28 (spring forward): a 03:30 local slot resolves to 04:00 local.
+5. `Europe/Kyiv` 2027-10-31 (fall back): a 03:30 local slot is returned once; a call just after its first
+   occurrence returns the next grid slot, not the repeated 03:30. The same two cases for
+   `America/New_York` (2027-03-14, 2027-11-07).
+6. Level 1 skips exactly one slot; level 4 caps at 24 h; a floor larger than the gap pushes past a slot.
+7. `fixedSlots` returns the next listed local time.
+8. An unknown zone, and a profile with no slot in 8 days, throw `RangeError`.
+9. Over 1,000 seeded-random `now` values across 2027 in three zones: the result is after `now`, lies on
+   the grid, and at level 0 with no floor never skips a slot.
+10. The spec runs under the `tz:Europe/Kyiv` and `tz:America/Los_Angeles` projects of `apps/api`.
+
+**U6a — Greenhouse list-then-detail.** The Greenhouse adapter lists without `content` (R2) and fetches
+the detail only for ids that are new or whose `updated_at` changed since the checkpoint; the manifest's
+`requestsPerRun` for the type is updated. Fixtures only: **no live request** (the first live call is the
+owner's, Q7/Q8). **Model:** sonnet, medium. **Reviewers:** code, spec; specs by AutoTest.
+AC: (1) against a fixture board of 3 jobs, a first run makes 1 list + 3 detail requests and a second run
+with one changed `updated_at` makes 1 + 1; (2) a detail 404 is the adapter's answer (T6's status policy),
+not `TRANSIENT_NETWORK`; (3) a list over the byte cap is refused before parse.
+
+**U1b — the profile in the manifest, `nextSlot` in the ledger.** `EntryDefinition` and `TypeDefinition`
+gain `fetchProfile` (section 1) and lose `intervalHours`; `manifest.definitions.ts` gets section 8's
+values; the ledger catalog carries the profile; `JobRunLedger`'s `account` calls `nextSlot` with
+`clock_timestamp()` read **once** in the finishing transaction and used for both `ended_at` and `now`;
+`JobSourceAdminService`'s next-due derivation follows; the drift test gains section 1's refusals. **Depends
+on:** U1a. **Model:** opus, high (the ledger is where phase 3's hardest defects were). **Reviewers:**
+code, spec.
+AC:
+
+1. Real-Postgres as `crm_app`: a finished run of a source with a 60-minute Berlin profile has
+   `next_attempt_at = nextSlot(ended_at, profile, …)` exactly.
+2. Setting that row's `min_interval_hours` to 1 changes nothing (the column is not read).
+3. A `COST_STOP` ending still waits for the meter reset (`GREATEST`); a failure still writes
+   `cooldown_until`.
+4. The drift test refuses each case in section 1 (one test per refusal), including a Remotive schedule
+   whose daily attempts exceed `hostRate.perDay`.
+5. The admin listing's next-due equals the ledger's next slot for a seeded row.
+
+**U3 — tick, sweep, and the 05:00 handler narrowed.** `JobSourcingCronService` gains the tick and the
+sweep (section 5); `handleDailyCollection` keeps DOU and retention only; the due predicate,
+`claimDue` and `countDue` gain the sweep variant. **Depends on:** U1b. **Model:** opus, high (claim
+predicates under concurrency). **Reviewers:** code, spec.
+AC:
+
+1. The decorators: tick `*/10 * * * *`, sweep `0 8 * * *`, both `Europe/Kyiv`; the 05:00 handler claims
+   no API-type source (spy on `startDue`).
+2. A tick window ends within 9 minutes even while work is due (fake monotonic clock).
+3. Real-Postgres as `crm_app`: a sweep claims every enabled API-type source with a manifest entry
+   exactly once, including one whose `next_attempt_at` is tomorrow; a second sweep call the same Kyiv day
+   claims none.
+4. Real-Postgres: the sweep claims none of: a source on a paused host, at the failure cap, under
+   cooldown, past its `readinessAt` deadline, `PAUSED` / `RETIRED`, or with trigger mode `MANUAL`.
+5. Real-Postgres: two concurrent ticks with the same key create one cycle and no second claim of any
+   source.
+6. Real-Postgres: a tick claims a source whose slot passed and not one whose slot is one minute ahead.
+
+**U2 — run metrics and the slow-down (DDL).** A staged SQL file adding the six run columns and
+`job_sources.slowdown_level smallint NOT NULL DEFAULT 0 CHECK (slowdown_level BETWEEN 0 AND 4)`
+(`IF NOT EXISTS`, re-runnable); the Drizzle schema; the run context counts requests, bytes, the last
+status and validators; `savePage` keeps the newest `published_at` seen; the bounded JSON and XML readers
+yield the envelope fingerprint; `account` moves `slowdown_level` (section 4) and `nextSlot` reads it.
+**Depends on:** U3 (both edit `JobRunLedger`). **Model:** opus, high. **Reviewers:** code, spec,
+**security (mandatory: a Drizzle migration)**. **Companion:** U2-D.
+AC:
+
+1. The SQL applies twice on a scratch database without error, and the catalog check passes with
+   `crm_app` able to write the new columns through its existing grants and nothing more.
+2. A fixture run of 3 requests records `request_count` 3 and `bytes_read` equal to the three bodies.
+3. A run ending `RATE_LIMIT` raises `slowdown_level` by 1, a clean run lowers it by 1, it never leaves
+   0..4, and the CHECK refuses 5 (as `crm_app`).
+4. Two responses whose field names differ give different fingerprints; the same names in another order
+   give the same one.
+
+**U2-D, U4-D, U8-D — deploy wiring (DevOps).** Each does the five steps listed under "Production DDL" for
+its file. **Model:** sonnet, medium. **Reviewers:** code, **security (mandatory: production DDL)**.
+AC: the wiring gate lists the file; a CI check fails if its apply line lacks `--single-transaction`
+(backlog 337's "check on closing"); the apply step comes after its predecessor.
+
+**U4 — the health event log, detectors and the pass (DDL).** A staged SQL file for
+`job_source_health_events` with append-only triggers; the privilege manifest class (`SELECT`, `INSERT`
+only); `job-sourcing/health/` with the pure detectors and `classifyHealth`; the detector pass at the end
+of each tick window. **Depends on:** U2, U3. **Model:** opus, high. **Reviewers:** code, spec,
+**security (mandatory: a Drizzle migration and an append-only table)**. **Companion:** U4-D.
+AC:
+
+1. One unit test per detector, each from a seeded run history that triggers it and one that does not.
+2. Precedence: a source both `CAPPED` and `SILENT` is `CAPPED`.
+3. Real-Postgres as `crm_app`: two passes over unchanged data write one event, not two; `UPDATE` and
+   `DELETE` on the table are refused.
+4. A `304` run does not count toward `EMPTY_RESPONSE` (with U6b; until then, a seeded `304` ending).
+5. `error_sample` is bounded at 500 characters and the `evidence` JSON at 8192.
+
+**U5a — ADMIN alerts and the weekly report.** New notification types in the registry, `uk` and `en`
+copy through Lingui, recipients = active ADMIN users, the per-source daily cap of 3 emails, the weekly
+report cron. **Depends on:** U4. **Model:** sonnet, high. **Reviewers:** code, spec, **security
+(mandatory: who receives operational data)**, copy.
+AC: (1) entering `FAILING` enqueues one notification per active ADMIN and none to any other role; (2)
+staying `FAILING` across passes enqueues nothing more; (3) a fourth alerting transition of one source in
+one Kyiv day is in-app only; (4) a deactivated ADMIN receives nothing. **Before writing:** check whether
+the database constrains the notification type; if it does, the type is DDL and U5a gains a staged file
+and a DevOps companion.
+
+**U5b — the HR digest.** A daily 09:00 Kyiv job; per HR user, the team's new queue entries since the last
+digest and the source line; email through the outbox by the recipient's locale. **Depends on:** U5a
+(registry), and phase 4 publishing the recruiter queue (outside this ADR). **Model:** opus, high
+(team-scoped data). **Reviewers:** code, spec, **security (mandatory: team scoping)**, copy.
+AC: (1) against the real backend, an HR user's digest contains only their own team's opportunities
+(a seeded second team's entry is absent); (2) an HR user with nothing new and no source problem gets no
+email (if the owner chooses so, Q5); (3) a source that failed today appears in the line with its reason.
+
+**U6b — conditional requests.** The shared fetch sends `If-None-Match` / `If-Modified-Since` from the
+checkpoint for a host that has shown validators, and maps `304` to a clean run with `received = 0`.
+**Depends on:** U2. **Model:** sonnet, medium. **Reviewers:** code, spec.
+AC: against a fixture server, the second request carries the stored validator and a `304` ends the run
+clean without touching any source record.
+
+**U7 — the source page.** ADMIN-only endpoints (list with state and freshness; one source's runs and
+events; `POST` a note, a bounded string through Zod `.parse()`), `@Roles('ADMIN')` **and** a role check in
+the service body (the no-op `RolesGuard` lesson), `@Throttle` on the `POST`; the web page; `@crm/shared`
+replaces `minIntervalHours` with a profile summary. **Depends on:** U4. **Model:** opus (RBAC).
+**Reviewers:** code, spec, **security (mandatory: RBAC)**, design (design gate: UI), copy, manual QA.
+AC: (1) every endpoint answers 403 to each non-ADMIN role against the real backend; (2) a note is stored
+as a `NOTE` event with the actor and cannot be edited; (3) the page renders at the four responsive
+breakpoints.
+
+**U8 — the employer-board watchlist (data).** After the owner's Q7: manifest entries per board, each with
+its region (the window's time zone), evidence of ownership as the manifest already requires, and a
+staged seed delta. A board's first live request needs the owner's word (Q8). **Model:** sonnet, medium.
+**Reviewers:** code, spec, **security (production data)**. **Companion:** U8-D.
+
+**U9 — drop `min_interval_hours` (DDL, irreversible).** Only after U7 has removed the last reader and one
+release has passed, and only on the owner's separate word. **Model:** opus. **Reviewers:** code,
+**security (mandatory)**.
+
+## Decision brief
+
+🟠 Decisions from you — 10 · source fetch strategy · PR (this one)
+Everything else in this ADR is finished and waits only on this. Nothing is built yet; U1a and U6a can start
+without any answer below.
+
+❓ 1 — How often each source is asked between sweeps
+Your baseline is hourly. The providers' own pages show it is useless or unsafe for some: Himalayas
+refreshes its data once a day; Jobicy says "not more than once an hour" and is 3 h late anyway; Remotive
+allows 4 requests a day in total. The table in section 8 keeps hourly everywhere else.
+➡️ I recommend: section 8 as written — hourly where no published limit or delay says otherwise.
+🔓 Reversible (manifest data, one PR) · ⏱ silence until 2026-10-29 12:00 Kyiv → I take the
+recommendation and record it in "Assumptions", rollback = one PR.
+
+❓ 2 — Working hours per region
+Each employer board polls hourly inside its own region's working hours and every 3 h outside; feeds use
+their platform's region (Djinni: Kyiv, every day).
+➡️ I recommend: 08:00–19:00 Mon–Fri in the board's own time zone, every 3 h outside; the time zone is a
+required field of each watchlist board.
+🔓 Reversible · ⏱ silence until 2026-10-29 12:00 Kyiv → I take it, rollback = one PR.
+
+❓ 3 — When the morning sweep runs
+A sweep over about 40 sources takes up to an hour. Run at 09:00, the digest would arrive around 10:00.
+➡️ I recommend: sweep at 08:00 Kyiv, digest at 09:00 Kyiv, so HR gets it at the start of the day.
+🔓 Reversible · ⏱ silence until 2026-10-29 12:00 Kyiv → I take it, rollback = one line.
+
+❓ 4 — What the sweep re-reads
+Option A: re-list every enabled source once (about 40 sources, roughly 100 requests and 20–30 MB a day),
+and treat a missing posting as closed only on employer boards, which list everything. Option B: also ask
+each open opportunity's page — one request per opportunity, hundreds a day, far more ban risk.
+➡️ I recommend: A. No per-opportunity requests.
+🔓 Reversible · ⏱ silence until 2026-10-29 12:00 Kyiv → I take it, rollback = one PR.
+
+❓ 5 — The HR digest by email
+One email a day per HR user, only their own team's new opportunities plus one line on sources that failed,
+in the user's language, sent through the email channel the CRM already uses for notifications.
+➡️ I recommend: yes; skip the email on a day with nothing new and no failed source.
+🔓 Reversible · ⏱ silence until 2026-10-29 12:00 Kyiv → I take it, rollback = turning the job off.
+
+❓ 6 — Who gets source alerts, and how many
+Every active ADMIN, in-app and by email, through the existing email channel, once when a source enters a
+bad state (not repeatedly while it stays there), at most 3 emails per source per day, plus a Monday report.
+➡️ I recommend: as written, and add one state to your list: "paused" (a source's host banned us), because
+a ban is the event you most want to hear about.
+🔓 Reversible · ⏱ silence until 2026-10-29 12:00 Kyiv → I take it, rollback = one PR.
+
+❓ 7 — Which employer boards we watch, and in which region
+Fresh opportunities from employer boards are limited only by which employers we watch. Today there are 13
+boards, picked for testing, not by product choice.
+➡️ I recommend: keep the 13, give each its region; add boards that produced matches; a senior or HR
+proposes, an ADMIN adds through a PR with the evidence the manifest already requires.
+🔓 The list is reversible, but each new board's **first live request** needs your word (your rule on job
+sites). Without an answer, no board is added.
+
+❓ 8 — Ban risk on the accepted-risk sources at these intervals
+SmartRecruiters every 3 h in working hours (its robots.txt disallows us), Jobgether every 2 h in working
+hours (its terms forbid bots), Hacker News every 2 h on the first 4 days of a month. Each stops at the
+first refusal and never retries around it.
+➡️ I recommend: accept these intervals, each source's first call as a single supervised smoke.
+🔒 Irreversible (a ban may be permanent and can cost the source). Without an answer these three stay off.
+
+❓ 9 — Retiring the `min_interval_hours` column
+The new timing makes the old column dead. Stopping reading it is reversible and happens in U1b. Dropping
+it deletes data for good.
+➡️ I recommend: stop reading it now; drop it only after the new source page has shipped and one release
+has passed, and ask you again then.
+🔒 Irreversible (the drop). Your answer now is only to the plan; the drop itself is asked again.
+
+❓ 10 — The providers' terms of use (legal)
+The providers' own pages raise four questions I must not decide: DOU's terms forbid automated access and
+"automatic collection" without its consent, and DOU is the one source live today; Jobgether's terms
+forbid using its content to "operate machine-learning models", which touches our relevance step;
+Arbeitnow grants a "personal, non-commercial" licence next to an API section; Remotive asks not to
+"submit Remotive jobs to third party websites".
+➡️ I recommend: dispatch the legal agent on these four with the research file as input. Until it
+answers, DOU stays exactly as it runs today, and no change raises the frequency of any of the four.
+🔒 Legal, outside my authority. Without an answer nothing about these four changes.
+
+## Assumptions (A1, decided and recorded)
+
+- The fetch profile is manifest code, not a database column or a seed delta.
+- Time-zone arithmetic uses `Intl.DateTimeFormat` offset resolution (the `kyiv-day` pattern); no new
+  date dependency.
+- The stagger is derived from a hash of `manifest_id`, not declared.
+- The tick is 10 minutes with a 9-minute window and per-tick cycle keys; no enum value is added (sweep
+  runs are `SCHEDULED`).
+- `handleDailyCollection` keeps DOU and retention at 05:00; `handleHtmlCollection` is unchanged.
+- Claims use no early-due slack; `MAX_EARLY_DUE_SLACK_MS` remains only `countDue`'s look-ahead.
+- `SCHEMA_DRIFT` is a reason within `DEGRADED`, not a state.
+- The current health state is derived from the latest event; no state column.
+- Duration is `ended_at − started_at`; no column.
+- Conditional-request validators live in the run checkpoint; no column.
+- Detector thresholds are constants in one module (section 10).
+- The slow-down cap is level 4 and 24 hours.
+- No new environment variable; the sweep reuses `JOB_COLLECTION_WINDOW_MS`.
+
+## What this ADR does not decide
+
+- The legal questions of brief Q10 (the legal agent's).
+- How `availability` is written from the sweep's evidence (phase 4's store).
+- Retention of cycles and runs (a backlog item when U3 merges).
+- Phase 5's HTML sources.
+
+## Verification
+
+Each claim about `main` above names a symbol; this checks the load-bearing ones on any later commit:
+
+```bash
+grep -n "cadenceHoursAtFloor" apps/api/src/job-sourcing/ownership/job-run-ledger.ts   # U1b removes it
+grep -n "@Cron" apps/api/src/job-sourcing/job-sourcing.cron.ts                        # 0 5, 30 2 until U3
+grep -n "MAX_EARLY_DUE_SLACK_MS =" apps/api/src/job-sourcing/scheduling/due-policy.ts
+grep -n "minIntervalHours" packages/shared/src/schemas/job-sourcing.ts                 # U7 removes it
+grep -rn "first_seen_at" apps/api/drizzle/manual/2026-10-17_job_opportunities_store.sql
+```
+
+The provider facts are verified by re-reading the pages listed in the research file, before its expiry.
+
+## Sources
+
+- The owner's request (2026-10-25) and green light (2026-10-26), relayed by Master in the dispatch.
+- `docs/architecture/2026-10-24-job-source-run-ownership.md`: T3, T4, T5, T8, T9.
+- `docs/architecture/2026-10-26-source-fetch-provider-research.md`: rows R1–R29.
+- `.claude/tasks/BACKLOG-followups.md` entries 337, 340, 341.
+- `main` at `3c545f619` (2026-10-26): `JobSourcingCronService`, `runCollectionWindow`, `JobRunLedger`
+  (`countDue`, `claimDue`, `account`), `cadenceHoursAtFloor`, `claimHostSlot`, `recordHostBan`,
+  `generateSeedDelta`, `JobSourceAdminService`, `jobSourceSchema`, the 2026-10-17 store migration, the
+  notification email outbox.
+- `CONTEXT.md` (Job source, Job opportunity, Submission), `.claude/rules/common/autonomy-levels.md`,
+  `orchestration-routing.md`, `model-routing.md`, `doc-durability.md`.
