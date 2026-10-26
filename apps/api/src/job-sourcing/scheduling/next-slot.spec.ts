@@ -657,6 +657,7 @@ describe('review round 1', () => {
     })
     it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])('refuses step %j', (step) => {
       expect(() => gridMinutes(0, step, 10)).toThrow(RangeError)
+      expect(() => gridMinutes(0, step, 10)).toThrow(`grid step must be positive, got ${step}`)
     })
     it('refuses a null step (an absent off interval must never reach the grid)', () => {
       expect(() => gridMinutes(0, null as never, 10)).toThrow(RangeError)
