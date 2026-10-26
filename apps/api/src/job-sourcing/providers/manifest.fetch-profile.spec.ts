@@ -5,6 +5,7 @@ import { buildManifest, ManifestError, type TypeDefinition } from './manifest'
 import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
 import { MANIFEST_DEFINITIONS } from './manifest.definitions'
 import { attemptsIn, attemptsPerDay, fetchProfileProblem } from './manifest.fetch-profile'
+import { rollbackCadenceHours } from './manifest.seed-sql'
 
 /**
  * U1b: the fetch profile as manifest data (source fetch strategy ADR, sections 1 and 8). The
@@ -244,6 +245,20 @@ describe('fetchProfileProblem and attemptsIn (pure)', () => {
     expect(attemptsPerDay(daily(360) as FetchProfile)).toBe(4)
     // Mondays only: at most 5 in any 30 days.
     expect(attemptsIn(mondays(10080) as FetchProfile, 30 * 1440)).toBe(5)
+  })
+})
+
+describe('rollbackCadenceHours — the min_interval_hours a new row is seeded with', () => {
+  it('is never shorter than the daily cadence of before, so a revert of U1b runs daily', () => {
+    expect(rollbackCadenceHours(null)).toBe(24)
+    expect(rollbackCadenceHours(weekday('Europe/Berlin', 60, 180) as FetchProfile)).toBe(24)
+    expect(rollbackCadenceHours(daily(1440) as FetchProfile)).toBe(24)
+  })
+
+  it('keeps the longer legacy hours of the quota entries (Jooble 168, TheirStack 96)', () => {
+    expect(rollbackCadenceHours(mondays(10080) as FetchProfile)).toBe(168)
+    expect(rollbackCadenceHours(mondays(5760) as FetchProfile)).toBe(96)
+    expect(rollbackCadenceHours(daily(1441) as FetchProfile)).toBe(25)
   })
 })
 
