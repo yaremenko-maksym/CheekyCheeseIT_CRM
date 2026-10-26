@@ -2208,6 +2208,27 @@ docker compose \
   < "$JOB_SOURCES_HOST_KEYS_FILE"
 echo "==> job sources host keys applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-10-25_job_record_store.sql
+# Creates the 3 record-store tables; MUST precede the grants file below (its privileges
+# check requires them).
+JOB_RECORD_STORE_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-25_job_record_store.sql"
+
+if [ ! -f "$JOB_RECORD_STORE_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_RECORD_STORE_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job record store (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$JOB_RECORD_STORE_FILE"
+echo "==> job record store applied successfully"
+
 # ── tx_date Kyiv backfill (backlog 338, one-time data-fix, owner-approved 2026-10-25) ──
 # Gives legacy NULL transactions.tx_date the Kyiv business day. It creates the backup
 # table _tx_date_kyiv_backfill_backup_20261025, so it MUST stay above the grants below

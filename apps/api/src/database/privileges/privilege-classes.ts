@@ -196,7 +196,7 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'job_dirty_work',
     'job_exclusion_filters',
     'job_opportunities',
-    // Task 4.5: canonical identity tokens; the API's record store claims them. STAGED (below).
+    // Task 4.5: canonical identity tokens; the API's record store claims them. Promoted to manual/ (Task 4.6 S0).
     'job_opportunity_identity_tokens',
     'job_opportunity_matches',
     'job_opportunity_sources',
@@ -207,12 +207,12 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'job_queue_dismissals',
     'job_queue_generation_entries',
     'job_queue_generations',
-    // Task 4.5: run membership; the API's record store writes it. STAGED (below).
+    // Task 4.5: run membership; the API's record store writes it. Promoted to manual/ (Task 4.6 S0).
     'job_run_records',
     // Task 2.5 T8: host-level ban pause and claim times. The API's own claim and ban
     // paths read and write it; DELETE comes with the class and is used by nothing.
     'job_source_hosts',
-    // Task 4.5: per-record observation order; the API's record store writes it. STAGED (below).
+    // Task 4.5: per-record observation order; the API's record store writes it. Promoted to manual/ (Task 4.6 S0).
     'job_source_record_heads',
     'job_source_record_revisions',
     'job_source_records',
@@ -351,10 +351,13 @@ export const MANUAL_DDL_RELATIONS: Record<string, { file: string | null; why: st
 
 /**
  * Tables the Drizzle schema DECLARES whose forward DDL is still STAGED in
- * `drizzle/manual-staged/` — written, reviewed, and not yet applied by the deploy (r5 Task 4.5).
+ * `drizzle/manual-staged/`. EMPTY BY DESIGN: the record-store tables were promoted to
+ * `drizzle/manual/` by Task 4.6 S0, so no relation is staged today. The mechanism stays for the
+ * next manual-staged file, `manual-staged/2026-10-25_tx_date_kyiv_backfill.sql`, which is not
+ * yet wired into the deploy.
  *
- * WHY THIS EXISTS: until the DevOps wiring PR moves the file to `drizzle/manual/`, production
- * does not have these tables. A plain class grant names them unconditionally
+ * WHY THIS EXISTS: until a DevOps wiring PR moves a file to `drizzle/manual/`, production
+ * does not have its tables. A plain class grant names them unconditionally
  * (`GRANT … ON TABLE public.x`), which fails with 42P01 on a database without them, and the
  * catalog check requires every classified relation to exist. Either would fail the next deploy
  * of ANY change. So a staged relation is classified as usual and treated by the generated files
@@ -368,13 +371,7 @@ export const MANUAL_DDL_RELATIONS: Record<string, { file: string | null; why: st
  * regenerate. `privilege-classes.spec.ts` fails while an entry names a file that is not in
  * `manual-staged/`, so a stale entry cannot outlive the move.
  */
-export const STAGED_RELATIONS: Record<string, { file: string }> = {
-  job_opportunity_identity_tokens: {
-    file: 'drizzle/manual-staged/2026-10-25_job_record_store.sql',
-  },
-  job_run_records: { file: 'drizzle/manual-staged/2026-10-25_job_record_store.sql' },
-  job_source_record_heads: { file: 'drizzle/manual-staged/2026-10-25_job_record_store.sql' },
-}
+export const STAGED_RELATIONS: Record<string, { file: string }> = {}
 
 /**
  * Class D column-level `SELECT` for the collector. A class D table listed here gets NO

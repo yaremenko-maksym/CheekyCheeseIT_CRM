@@ -4,25 +4,20 @@ import type { PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type CrmAppSession, openCrmAppSession } from './__test-helpers__/crm-app-session'
 import { stagedGrantSql } from './privileges/generate-privilege-sql'
-import { ROLES, STAGED_RELATIONS } from './privileges/privilege-classes'
+import { ROLES } from './privileges/privilege-classes'
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * r5 Task 4.5 AC 11 — the staged forward DDL `2026-10-25_job_record_store.sql` against the
+ * r5 Task 4.5 AC 11 — the forward DDL (promoted from `manual-staged/` by Task 4.6 S0) `2026-10-25_job_record_store.sql` against the
  * `db:push` reference. The reference is `public` (pushed from the Drizzle schema); the candidate
  * is a scratch schema holding stubs of the four parent tables, into which the file is applied as
  * the deploy would (`--single-transaction`). The two tables' columns, constraints and indexes
  * must be equal; a second apply changes nothing; the shipped grants file gives `crm_app` the
- * class-A privileges on them, and its staged block is harmless where a table is absent.
+ * class-A privileges on them. The grants file requires these tables to exist (they are promoted
+ * to `drizzle/manual/` and no longer staged), so the staged-grant mechanism is exercised only
+ * through `stagedGrantSql` in the test below.
  */
-const FILE = join(
-  __dirname,
-  '..',
-  '..',
-  'drizzle',
-  'manual-staged',
-  '2026-10-25_job_record_store.sql',
-)
+const FILE = join(__dirname, '..', '..', 'drizzle', 'manual', '2026-10-25_job_record_store.sql')
 const SCHEMA = 'ddl_job_record_store'
 const TABLES = ['job_opportunity_identity_tokens', 'job_run_records', 'job_source_record_heads']
 const PARENTS = [
@@ -168,7 +163,7 @@ describe.skipIf(!hasDatabaseUrl())('job record store forward DDL (Task 4.5 AC 11
       `SELECT t AS table, p AS privilege, has_table_privilege($1, 'public.' || t, p) AS held
          FROM unnest($2::text[]) t, unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) p
         ORDER BY t, p`,
-      [ROLES.app, Object.keys(STAGED_RELATIONS)],
+      [ROLES.app, TABLES],
     )
     expect(rows.filter((r) => r['held'] !== (r['privilege'] !== 'TRUNCATE'))).toEqual([])
     expect(rows).toHaveLength(15)

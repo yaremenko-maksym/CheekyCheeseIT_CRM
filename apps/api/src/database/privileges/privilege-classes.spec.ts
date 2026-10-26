@@ -214,12 +214,14 @@ describe('privilege-class manifest', () => {
   })
 
   it('declares STAGED relations only for Drizzle tables whose staged file creates them (Task 4.5)', () => {
+    // STAGED_RELATIONS is empty by design after the Task 4.6 S0 promotion, so this pass is
+    // intended and runs vacuously. The staged mechanism is still covered by the `withStaged`
+    // tests in generate-privilege-sql.spec.ts; do not delete it as dead code.
     // A staged entry makes the catalog check stop requiring the table and guards its grant,
     // so each one must be a real schema table, classified, and created by a file that is
     // still in manual-staged/: once the file moves to manual/, the entry must go with it.
     const tables = new Set(schemaTableNames())
     const entries = Object.entries(STAGED_RELATIONS)
-    expect(entries.length).toBeGreaterThan(0)
     expect(entries.filter(([r]) => !tables.has(r)).map(([r]) => r)).toEqual([])
     expect(entries.filter(([r]) => relationClass(r) === undefined).map(([r]) => r)).toEqual([])
     expect(entries.filter(([, e]) => !e.file.startsWith('drizzle/manual-staged/'))).toEqual([])

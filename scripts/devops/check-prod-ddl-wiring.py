@@ -1257,6 +1257,7 @@ PINNED_SINGLE_TX_FILES = {
     "2026-10-24_job_sources_manifest_delta.sql",
     "2026-10-24_job_source_hosts.sql",
     "2026-10-24_job_sources_host_keys.sql",
+    "2026-10-25_job_record_store.sql",
 }
 
 

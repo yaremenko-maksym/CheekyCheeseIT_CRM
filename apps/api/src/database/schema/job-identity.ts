@@ -6,7 +6,7 @@
  *   job_opportunity_identity_tokens   a trusted cross-source job key claimed by ONE opportunity
  *
  * Both are written only by `apps/api/src/job-sourcing/store/`. The forward DDL is
- * `drizzle/manual-staged/2026-10-25_job_record_store.sql` (staged, not applied by the deploy);
+ * `drizzle/manual/2026-10-25_job_record_store.sql` (wired into the deploy by Task 4.6 S0);
  * `job-record-store-forward-ddl.integration.spec.ts` compares it with `db:push`.
  */
 import { sql } from 'drizzle-orm'
