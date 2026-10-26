@@ -78,6 +78,50 @@ describe('ProfileEditFields — SENIOR technology floor', () => {
     expect(mutate.mock.calls.filter(([patch]) => 'techStack' in (patch as object))).toEqual([])
   })
 
+  it('CR-M-1: a pending save of ANOTHER field is not dropped by an invalid stack and still goes out', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ProfileEditFields user={makeUser('SENIOR', ['React', 'Go', 'AWS'])} />, {
+      wrapper: I18nTestProvider,
+    })
+    await act(() => vi.advanceTimersByTimeAsync(1000)) // flush the phone widget's mount-time save
+    mutate.mockReset()
+    await user.type(screen.getByLabelText('Ім’я та прізвище'), 'X')
+    await removeChip(user, 'AWS')
+    expect(screen.getByText(FLOOR_UK)).toBeInTheDocument()
+    await act(() => vi.advanceTimersByTimeAsync(2000))
+    expect(mutate.mock.calls).toEqual([[{ displayName: 'TestX' }]])
+  })
+
+  it('CR-M-1: an invalid stack with nothing pending sends nothing and does not throw', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ProfileEditFields user={makeUser('SENIOR', ['React', 'Go', 'AWS'])} />, {
+      wrapper: I18nTestProvider,
+    })
+    await act(() => vi.advanceTimersByTimeAsync(1000)) // nothing pending any more
+    mutate.mockReset()
+    await removeChip(user, 'AWS')
+    expect(screen.getByText(FLOOR_UK)).toBeInTheDocument()
+    await act(() => vi.advanceTimersByTimeAsync(2000))
+    expect(mutate.mock.calls).toEqual([])
+  })
+
+  it('CR-M-1: a valid change while a stack save is pending replaces it with the latest stack', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ProfileEditFields user={makeUser('SENIOR', ['React', 'Go', 'AWS'])} />, {
+      wrapper: I18nTestProvider,
+    })
+    await act(() => vi.advanceTimersByTimeAsync(1000))
+    mutate.mockReset()
+    const input = screen.getByPlaceholderText('Почніть вводити: React, Node.js…')
+    await user.type(input, 'Zzone{Enter}')
+    await user.type(input, 'Zztwo{Enter}')
+    await act(() => vi.advanceTimersByTimeAsync(2000))
+    expect(mutate.mock.calls).toEqual([[{ techStack: ['React', 'Go', 'AWS', 'Zzone', 'Zztwo'] }]])
+  })
+
   it('a JUNIOR dropping to 1 technology saves with no error', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })

@@ -43,8 +43,10 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
 
   /** Drops a pending save of an earlier stack, so the server never gets a stack the chips no longer show. */
   function cancelPendingTechStackSave() {
+    // A pending patch of another field (name, phone…) is left alone and still saves.
     if (pendingPatchRef.current && 'techStack' in pendingPatchRef.current) {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
+      // A pending patch always has its timer, so no null check is needed here.
+      clearTimeout(debounceRef.current ?? undefined)
       pendingPatchRef.current = null
     }
   }
