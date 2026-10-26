@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { JobSourceType } from '@crm/shared'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
@@ -11,13 +12,14 @@ import {
   LedgerKit,
   SpecCatalog,
   handleOf,
-  identityObservations,
   specCheckpoint,
   specRegistry,
 } from '../../test/ledger-fixtures'
+import { cleanupStore, observation } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageRun } from '../../test/run-aging'
 import { recordHostBan } from '../scheduling/host-state'
+import { saveObservationPage } from '../store/source-record.store'
 import { type ClaimedRun, JobRunLedger } from './job-run-ledger'
 
 /**
@@ -37,11 +39,15 @@ import { type ClaimedRun, JobRunLedger } from './job-run-ledger'
 const TAG = randomUUID().slice(0, 8)
 const ITERATIONS = Number(process.env['T3_CONCURRENCY_ITERATIONS'] ?? 1000)
 const NS = `t3spec-${TAG}-cc`
+/** Valid observations of `ids` in NS (the record store validates what it writes). */
+const observed = (ids: readonly string[], provider: JobSourceType = 'REMOTIVE_API') =>
+  ids.map((nativeId) => observation({ namespace: NS, nativeId, provider, tag: TAG }))
 
 let session: CrmAppSession
 let fx: LedgerFixtures
 let kit: LedgerKit
 let ledger: JobRunLedger
+let db: ReturnType<typeof drizzle<typeof schema>>
 
 const codeOf = (e: unknown): string => {
   const x = e as { code?: unknown; cause?: { code?: unknown }; name?: string }
@@ -53,12 +59,10 @@ describe.skipIf(!hasDatabaseUrl())('the lock-acquisition table, all at once (T3 
     session = await openCrmAppSession()
     fx = new LedgerFixtures(session.admin, TAG)
     const catalog = new SpecCatalog()
-    ledger = new JobRunLedger(
-      drizzle(session.pool, { schema }),
-      specRegistry(['REMOTIVE_API', 'JSEARCH_API']),
-      catalog,
-      { claimLockTimeoutMs: 1000 },
-    )
+    db = drizzle(session.pool, { schema })
+    ledger = new JobRunLedger(db, specRegistry(['REMOTIVE_API', 'JSEARCH_API']), catalog, {
+      claimLockTimeoutMs: 1000,
+    })
     const { rows } = await session.admin.query(
       `INSERT INTO users (email, display_name, role) VALUES ($1, 'T3 cc spec', 'ADMIN') RETURNING id`,
       [`t3cc-${TAG}@example.test`],
@@ -69,6 +73,7 @@ describe.skipIf(!hasDatabaseUrl())('the lock-acquisition table, all at once (T3 
   afterAll(async () => {
     if (session === undefined) return
     try {
+      await cleanupStore(session.admin, NS, TAG)
       await fx.cleanup()
       await session.admin.query(`DELETE FROM users WHERE id = $1`, [kit.actor])
     } finally {
@@ -196,14 +201,14 @@ describe.skipIf(!hasDatabaseUrl())('the lock-acquisition table, all at once (T3 
         settle(meterA.reserve('REQUEST', 1)),
         settle(meterA.markSent(r1).then(() => meterA.reconcile(r1, 'USED'))),
         settle(
-          ledger.savePage(handleOf(runA), {
-            observations: identityObservations(ids, NS, 'JSEARCH_API'),
+          saveObservationPage(db, handleOf(runA), {
+            observations: observed(ids, 'JSEARCH_API'),
             checkpoint: specCheckpoint(i + 1, 'jsearch_api-1'),
           }),
         ),
         settle(
-          ledger.savePage(handleOf(runB), {
-            observations: identityObservations([...ids].reverse(), NS, 'REMOTIVE_API'),
+          saveObservationPage(db, handleOf(runB), {
+            observations: observed([...ids].reverse(), 'REMOTIVE_API'),
             checkpoint: specCheckpoint(i + 1),
           }),
         ),

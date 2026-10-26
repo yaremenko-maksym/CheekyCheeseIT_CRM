@@ -24,11 +24,12 @@ import {
 } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageRun, ageSource } from '../../test/run-aging'
-import { JobRunLedger, writePageProgress } from '../ownership/job-run-ledger'
-import { RunFencedError, assertOwned } from '../ownership/run-ownership'
+import { JobRunLedger, type SavedPage, writePageProgress } from '../ownership/job-run-ledger'
+import { type RunHandle, RunFencedError, assertOwned } from '../ownership/run-ownership'
 import { LockContentionError } from './lock-order'
 import {
   MAX_OBSERVATIONS_PER_PAGE,
+  chunkPage,
   saveObservation,
   saveObservationPage,
   saveObservations,
@@ -239,6 +240,99 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
     expect(r).toMatchObject({ received: 3, created: 1, unchanged: 0, duplicates: 2 })
   })
 
+  /**
+   * Task 4.6 AC 4 — CHARACTERIZATION, written against the ledger's `savePage` BEFORE the fold
+   * (commit d12d27ca8 ran this table with a `ledger.savePage` row; it passed with these literals
+   * and was then removed with that writer): the literals are what it put in the checkpoint
+   * counters for this input. Input: one record already known (x), one exact repeat (a, A twice),
+   * one record observed with two contents (a, A then B), one new record (b); the page is then
+   * replayed in the same run. The worker's chunked write (here at a cap of 3: chunks x | a a a | b) adds up the same.
+   */
+  it.each([
+    ['saveObservationPage', (h: RunHandle, p: SavedPage) => saveObservationPage(db, h, p)],
+    [
+      'chunked, at most 3 per chunk',
+      async (h: RunHandle, p: SavedPage) => {
+        for (const chunk of chunkPage(p, 3)) await saveObservationPage(db, h, chunk)
+      },
+    ],
+  ] as const)('Task 4.6 AC 4: %s writes the pre-fold checkpoint counters', async (_, write) => {
+    const namespace = ns()
+    await write(await run(), {
+      observations: [obs(namespace, 'x')],
+      checkpoint: specCheckpoint(1),
+    })
+    const h = await run()
+    const page = {
+      observations: [
+        obs(namespace, 'x'),
+        obs(namespace, 'a', 'A'),
+        obs(namespace, 'a', 'A'),
+        obs(namespace, 'a', 'B'),
+        obs(namespace, 'b'),
+      ],
+      checkpoint: specCheckpoint(3),
+    }
+    await write(h, page)
+    const once = (await fx.runs(await sourceOf(h.runId)))[0]
+    expect(once).toMatchObject({ received: 5, created: 2, unchanged: 1, duplicates: 2 })
+    await write(h, page)
+    const twice = (await fx.runs(await sourceOf(h.runId)))[0]
+    expect(twice).toMatchObject({ received: 10, created: 2, unchanged: 4, duplicates: 4 })
+    expect(twice?.checkpoint).toMatchObject({ position: { page: 3 } })
+  })
+
+  it('CR-M-1: after a crash between chunks the successor replays the page; each run counts what it persisted', async () => {
+    const namespace = ns()
+    const source = await kit.reporting()
+    const crashed = handleOf(await kit.claimOne(source))
+    const page = {
+      observations: [obs(namespace, 'r1'), obs(namespace, 'r2'), obs(namespace, 'r3')],
+      checkpoint: specCheckpoint(1),
+    }
+    const [first] = chunkPage(page, 2)
+    await saveObservationPage(db, crashed, first!)
+    // The process dies here; recovery ends the run and a successor claims the source.
+    await ageRun(session.admin, crashed.runId, 10 * 60_000)
+    expect(await ledger.recoverExpired()).toBeGreaterThanOrEqual(1)
+    await ageSource(session.admin, source, 48 * HOUR)
+    const claim = await kit.claimOne(source)
+    // The checkpoint never moved, so the successor starts from scratch and re-fetches the page.
+    expect(claim.checkpoint).toBeNull()
+    for (const chunk of chunkPage(page, 2)) await saveObservationPage(db, handleOf(claim), chunk)
+    const [crashedRow, successorRow] = await fx.runs(source)
+    // The documented limit: summed over both runs `received` is 5 for a 3-observation page.
+    expect(crashedRow).toMatchObject({ received: 2, created: 2, unchanged: 0, duplicates: 0 })
+    expect(successorRow).toMatchObject({ received: 3, created: 1, unchanged: 2, duplicates: 0 })
+    expect(successorRow?.checkpoint).toMatchObject({ position: { page: 1 } })
+    expect(await storeCounts(session.admin, namespace)).toMatchObject({
+      records: 3,
+      revisions: 3,
+      memberships: 5,
+    })
+  })
+
+  it('Task 4.6 AC 2 / AC 6: a crash between two chunks leaves the checkpoint where it was', async () => {
+    const namespace = ns()
+    const h = await run()
+    await saveObservationPage(db, h, { observations: [], checkpoint: specCheckpoint(1) })
+    const page = {
+      observations: [obs(namespace, 'k1'), obs(namespace, 'k2'), obs(namespace, 'k3')],
+      checkpoint: specCheckpoint(2),
+    }
+    const [first, last] = chunkPage(page, 2)
+    expect(last?.checkpoint).toEqual(page.checkpoint)
+    await saveObservationPage(db, h, first!)
+    const between = (await fx.runs(await sourceOf(h.runId)))[0]
+    expect(between?.checkpoint).toMatchObject({ position: { page: 1 } })
+    expect(between).toMatchObject({ received: 2, created: 2 })
+    // A crash here leaves checkpoint 1, so a successor re-fetches page 2; the last chunk moves it.
+    await saveObservationPage(db, h, last!)
+    const after = (await fx.runs(await sourceOf(h.runId)))[0]
+    expect(after?.checkpoint).toMatchObject({ position: { page: 2 } })
+    expect(after).toMatchObject({ received: 3, created: 3, unchanged: 0, duplicates: 0 })
+  })
+
   it('R2-CR-M-1: a run that waited for the record lock reads the head committed meanwhile', async () => {
     const namespace = ns()
     const seed = await run()
@@ -269,6 +363,7 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
       // A head read inside the locking statement would be the pre-wait one and move the pointer.
       expect(a).toMatchObject({ createdRevision: true, advanced: false })
     } finally {
+      await holder.query('ROLLBACK')
       holder.release()
     }
     expect(await latestOf(namespace)).toBe(c?.revisionId)
@@ -340,6 +435,7 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
       expect(a).toMatchObject({ createdRevision: true, advanced: true })
       expect(await latestOf(namespace)).toBe(a?.revisionId)
     } finally {
+      await holder.query('ROLLBACK')
       holder.release()
     }
     // The move continues from the re-read head (5 -> 6), not from a missing one (version 0).

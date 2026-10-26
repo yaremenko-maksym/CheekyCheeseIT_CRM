@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { JobSourceType } from '@crm/shared'
 import { type Server, createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -14,14 +15,15 @@ import {
   LedgerKit,
   SpecCatalog,
   handleOf,
-  identityObservations,
   specCheckpoint,
   specRegistry,
 } from '../../test/ledger-fixtures'
+import { cleanupStore, observation } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageRun, ageSource } from '../../test/run-aging'
 import { decideCheckpoint } from '../providers/reporting-provider'
 import { recordHostBan } from '../scheduling/host-state'
+import { saveObservationPage } from '../store/source-record.store'
 import { type ClaimedRun, JobRunLedger } from './job-run-ledger'
 
 /**
@@ -35,12 +37,16 @@ import { type ClaimedRun, JobRunLedger } from './job-run-ledger'
  */
 const TAG = randomUUID().slice(0, 8)
 const NS = `t3spec-${TAG}-acct`
+/** Valid observations of `ids` in NS (the record store validates what it writes). */
+const observed = (ids: readonly string[], provider: JobSourceType = 'REMOTIVE_API') =>
+  ids.map((nativeId) => observation({ namespace: NS, nativeId, provider, tag: TAG }))
 const HOUR = 3_600_000
 
 let session: CrmAppSession
 let fx: LedgerFixtures
 let kit: LedgerKit
 let ledger: JobRunLedger
+let db: ReturnType<typeof drizzle<typeof schema>>
 
 // ---------------------------------------------------------------------------
 // The fixture server: GET /<source>/p/<n> answers 200 and counts the request.
@@ -90,8 +96,8 @@ async function collect(
     }
     const res = await fetch(`${base}/${run.sourceId}/p/${page}`)
     expect(res.status).toBe(200)
-    await ledger.savePage(handleOf(run), {
-      observations: identityObservations([`${run.sourceId}-${page}`], NS),
+    await saveObservationPage(db, handleOf(run), {
+      observations: observed([`${run.sourceId}-${page}`]),
       checkpoint: specCheckpoint(page),
     })
     if (opts.stopAfter === page) return 'CRASHED'
@@ -118,11 +124,8 @@ describe.skipIf(!hasDatabaseUrl())(
       session = await openCrmAppSession()
       fx = new LedgerFixtures(session.admin, TAG)
       const catalog = new SpecCatalog()
-      ledger = new JobRunLedger(
-        drizzle(session.pool, { schema }),
-        specRegistry(['REMOTIVE_API', 'JSEARCH_API']),
-        catalog,
-      )
+      db = drizzle(session.pool, { schema })
+      ledger = new JobRunLedger(db, specRegistry(['REMOTIVE_API', 'JSEARCH_API']), catalog)
       const { rows } = await session.admin.query(
         `INSERT INTO users (email, display_name, role) VALUES ($1, 'T3 spec', 'ADMIN') RETURNING id`,
         [`t3acct-${TAG}@example.test`],
@@ -142,6 +145,7 @@ describe.skipIf(!hasDatabaseUrl())(
       await new Promise((done) => server?.close(done))
       if (session === undefined) return
       try {
+        await cleanupStore(session.admin, NS, TAG)
         await fx.cleanup()
         await session.admin.query(`DELETE FROM users WHERE id = $1`, [kit.actor])
       } finally {
@@ -256,8 +260,8 @@ describe.skipIf(!hasDatabaseUrl())(
         async (outcome, code) => {
           const s = await kit.reporting({ consecutiveFailures: 1 })
           const run = await kit.claimOne(s)
-          await ledger.savePage(handleOf(run), {
-            observations: identityObservations([`${s}-x`], NS),
+          await saveObservationPage(db, handleOf(run), {
+            observations: observed([`${s}-x`]),
             checkpoint: specCheckpoint(1),
           })
           await ledger.finish(handleOf(run), { outcome, errorCode: code })
@@ -291,8 +295,8 @@ describe.skipIf(!hasDatabaseUrl())(
       it('SR-M-1: an inherited checkpoint is not a page; a successor that saves none counts', async () => {
         const s = await kit.reporting()
         const first = await kit.claimOne(s)
-        await ledger.savePage(handleOf(first), {
-          observations: identityObservations([`${s}-1`], NS),
+        await saveObservationPage(db, handleOf(first), {
+          observations: observed([`${s}-1`]),
           checkpoint: specCheckpoint(1),
         })
         await ledger.finish(handleOf(first), { outcome: 'PARTIAL', errorCode: 'DEADLINE' })
@@ -307,7 +311,10 @@ describe.skipIf(!hasDatabaseUrl())(
       it('SR-M-1: a page with no observations that moves the checkpoint is a page', async () => {
         const s = await kit.reporting({ consecutiveFailures: 1 })
         const run = await kit.claimOne(s)
-        await ledger.savePage(handleOf(run), { observations: [], checkpoint: specCheckpoint(1) })
+        await saveObservationPage(db, handleOf(run), {
+          observations: [],
+          checkpoint: specCheckpoint(1),
+        })
         await ledger.finish(handleOf(run), { outcome: 'PARTIAL', errorCode: 'PAGE_CAP' })
         expect((await fx.sourceRow(s)).consecutive_failures).toBe(1)
       })

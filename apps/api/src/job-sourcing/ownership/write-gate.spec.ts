@@ -148,6 +148,22 @@ describe('the write gate (T3 AC 7)', () => {
     ).toBeGreaterThan(0)
   })
 
+  it('Task 4.6: a page`s checkpoint and counters have ONE writing statement, the ledger`s', () => {
+    const read = (f: string) => readFileSync(join(SRC, f), 'utf8')
+    const pageWrites = writeWindows(
+      read(LEDGER),
+      'job_collection_runs',
+      'jobCollectionRuns',
+    ).filter((w) => /\breceived\s*=\s*received\s*\+/.test(w))
+    // `writePageProgress` only: the ledger's own `savePage` UPDATE was folded onto it.
+    expect(pageWrites).toHaveLength(1)
+    expect(pageWrites[0]).toMatch(/SET checkpoint = COALESCE\(/)
+    // The record store reaches the run row only through that function.
+    const store = read('job-sourcing/store/source-record.store.ts')
+    expect(writeWindows(store, 'job_collection_runs', 'jobCollectionRuns')).toEqual([])
+    expect(store).toMatch(/\bwritePageProgress\(tx, h, owned,/)
+  })
+
   describe('it fails on a foreign writer', () => {
     it.each([
       [

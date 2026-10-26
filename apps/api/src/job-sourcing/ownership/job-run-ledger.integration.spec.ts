@@ -7,10 +7,11 @@ import {
 } from '../../database/__test-helpers__/crm-app-session'
 import * as schema from '../../database/schema'
 import { LedgerFixtures, SpecCatalog, specRegistry } from '../../test/ledger-fixtures'
+import { cleanupStore, observation } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageRun, ageSource } from '../../test/run-aging'
-import type { SourceObservation } from '../normalize/observation'
 import type { ValidatedCheckpoint } from '../providers/reporting-provider'
+import { saveObservationPage } from '../store/source-record.store'
 import { type ClaimedRun, JobRunLedger } from './job-run-ledger'
 import type { LedgerCatalogEntry } from './ledger-catalog'
 
@@ -29,6 +30,7 @@ let session: CrmAppSession
 let fx: LedgerFixtures
 let catalog: SpecCatalog
 let ledger: JobRunLedger
+let db: ReturnType<typeof drizzle<typeof schema>>
 let actor: string
 
 const HOUR = 3_600_000
@@ -81,21 +83,8 @@ function checkpoint(page: number): ValidatedCheckpoint {
   }
 }
 
-/** Observations carrying only what `savePage` reads: the identity. */
-function observations(ids: readonly string[], namespace = `t3spec-${TAG}`): SourceObservation[] {
-  return ids.map(
-    (id) =>
-      ({
-        identity: {
-          provider: 'REMOTIVE_API',
-          namespace,
-          nativeId: id,
-          identityKey: `["${id}"]`,
-          identityKind: 'NATIVE_ID',
-        },
-      }) as unknown as SourceObservation,
-  )
-}
+const NS = `t3spec-${TAG}`
+const observed = (id: string) => observation({ namespace: NS, nativeId: id, tag: TAG })
 
 async function rejection(p: Promise<unknown>): Promise<{ code?: string }> {
   try {
@@ -111,8 +100,9 @@ describe.skipIf(!hasDatabaseUrl())('the run ledger against Postgres, as crm_app 
     session = await openCrmAppSession()
     fx = new LedgerFixtures(session.admin, TAG)
     catalog = new SpecCatalog()
+    db = drizzle(session.pool, { schema })
     ledger = new JobRunLedger(
-      drizzle(session.pool, { schema }),
+      db,
       specRegistry(['REMOTIVE_API', 'ARBEITNOW_API', 'JSEARCH_API'], ['ARBEITNOW_API']),
       catalog,
     )
@@ -126,6 +116,7 @@ describe.skipIf(!hasDatabaseUrl())('the run ledger against Postgres, as crm_app 
   afterAll(async () => {
     if (session === undefined) return
     try {
+      await cleanupStore(session.admin, NS, TAG)
       await fx.cleanup()
       await session.admin.query(`DELETE FROM users WHERE id = $1`, [actor])
     } finally {
@@ -179,6 +170,7 @@ describe.skipIf(!hasDatabaseUrl())('the run ledger against Postgres, as crm_app 
         await winner.query('COMMIT')
         expect((await loser).cycleId).toBe(rows[0].id)
       } finally {
+        await winner.query('ROLLBACK')
         winner.release()
       }
     })
@@ -256,11 +248,11 @@ describe.skipIf(!hasDatabaseUrl())('the run ledger against Postgres, as crm_app 
   })
 
   describe('AC 2 / AC 8: recovery', () => {
-    it('after recovery a stale savePage is refused RUN_FENCED and the successor`s pages are intact', async () => {
+    it('after recovery a stale page write is refused RUN_FENCED; the successor resumes from the checkpoint and its pages are intact', async () => {
       const s = await reporting()
       const stale = await claimOne(s)
-      await ledger.savePage(handle(stale), {
-        observations: observations(['a1']),
+      await saveObservationPage(db, handle(stale), {
+        observations: [observed('a1')],
         checkpoint: checkpoint(1),
       })
       await ageRun(session.admin, stale.runId, 10 * 60_000)
@@ -268,17 +260,25 @@ describe.skipIf(!hasDatabaseUrl())('the run ledger against Postgres, as crm_app 
       await ageSource(session.admin, s, 48 * HOUR)
 
       const successor = await claimOne(s)
-      await ledger.savePage(handle(successor), {
-        observations: observations(['b1']),
+      // Task 4.6 AC 3: the successor is handed the stale run's last saved checkpoint.
+      expect(successor.checkpoint).toMatchObject({ position: checkpoint(1).position })
+      await saveObservationPage(db, handle(successor), {
+        observations: [observed('b1')],
         checkpoint: checkpoint(2),
       })
       const err = await rejection(
-        ledger.savePage(handle(stale), {
-          observations: observations(['a2']),
+        saveObservationPage(db, handle(stale), {
+          observations: [observed('a2')],
           checkpoint: checkpoint(9),
         }),
       )
       expect(err.code).toBe('RUN_FENCED')
+      // The fenced page wrote nothing: no record for a2.
+      const { rows: fenced } = await session.admin.query(
+        `SELECT count(*)::int AS n FROM job_source_records WHERE namespace = $1 AND identity_key = $2`,
+        [NS, JSON.stringify(['a2'])],
+      )
+      expect(fenced[0].n).toBe(0)
       const runs = await fx.runs(s)
       expect(runs.map((r) => [r.outcome, r.error_code])).toEqual([
         ['FAILED', 'LEASE_EXPIRED'],
@@ -685,6 +685,7 @@ describe.skipIf(!hasDatabaseUrl())('the run ledger against Postgres, as crm_app 
         await toggler.query('COMMIT')
         expect(await reset).toBe(true)
       } finally {
+        await toggler.query('ROLLBACK')
         toggler.release()
       }
       const kinds = (await fx.sourceRow(s)).admin_state_history.map(
