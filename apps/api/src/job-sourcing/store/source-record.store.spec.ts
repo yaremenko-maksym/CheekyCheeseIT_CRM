@@ -2,6 +2,7 @@ import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 import { identityObservations, specCheckpoint } from '../../test/ledger-fixtures'
+import { observation } from '../../test/record-store-fixtures'
 import type { MeterDb } from '../metering/account-meter.store'
 import { RunFencedError } from '../ownership/run-ownership'
 import { LockContentionError } from './lock-order'
@@ -185,5 +186,51 @@ describe('saveObservationPage: budget, retry, fence (Task 4.6 S1, AC 5)', () => 
       RunFencedError,
     )
     expect(seen.transactions).toBe(1)
+  })
+})
+
+describe('the dirty-work producer (Task 4.6 S4a, AC 8)', () => {
+  const RECORD = '00000000-0000-4000-8000-0000000000a1'
+  const CYCLE = '00000000-0000-4000-8000-0000000000c1'
+  /** A first observation: the record is new and its head is created at sequence 1. */
+  const firstObservation = (cycle: string | null) => (q: Query) => {
+    if (/SELECT cycle_id FROM job_collection_runs/.test(q.sql))
+      return { rows: [{ cycle_id: cycle }] }
+    if (/INSERT INTO job_source_records/.test(q.sql)) return { rows: [{ id: RECORD }] }
+    if (/INSERT INTO job_source_record_revisions/.test(q.sql))
+      return { rows: [{ id: '00000000-0000-4000-8000-0000000000b1', received_seq: 1 }] }
+    if (/INSERT INTO job_source_record_heads/.test(q.sql)) return { rows: [{ observation_seq: 1 }] }
+    if (/FROM job_source_record_heads/.test(q.sql)) return { rows: [] }
+    return owned(q)
+  }
+  const page = {
+    observations: [observation({ namespace: 'n', nativeId: 'a', tag: 's4a' })],
+    checkpoint: specCheckpoint(1),
+  }
+  const enqueues = (statements: Query[]) =>
+    statements.filter((s) => /INSERT INTO job_dirty_work/.test(s.sql))
+
+  it('enqueues through the dirty-work store, in the page transaction, with the run cycle', async () => {
+    const { db, seen } = recordingDb(firstObservation(CYCLE))
+    await saveObservationPage(db, H, page)
+    expect(seen.transactions).toBe(1)
+    const [enqueue, ...more] = enqueues(seen.statements)
+    expect(more).toEqual([])
+    expect(enqueue?.sql).toMatch(
+      /ON CONFLICT \(entity_kind, entity_id, target_version, reason\) DO NOTHING\s+RETURNING id/,
+    )
+    expect(enqueue?.params).toEqual(['SOURCE_RECORD', RECORD, 1, 'SOURCE_REVISION', CYCLE])
+  })
+
+  it('a run without a cycle enqueues with a null cycle', async () => {
+    const { db, seen } = recordingDb(firstObservation(null))
+    await saveObservationPage(db, H, page)
+    expect(enqueues(seen.statements)[0]?.params).toEqual([
+      'SOURCE_RECORD',
+      RECORD,
+      1,
+      'SOURCE_REVISION',
+      null,
+    ])
   })
 })
