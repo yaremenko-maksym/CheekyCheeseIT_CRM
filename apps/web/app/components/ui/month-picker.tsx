@@ -58,7 +58,10 @@ export function MonthPickerField({
   const now = new Date()
   const curYear = now.getFullYear()
   const curMonth = now.getMonth() + 1
-  const [selYear, selMonth] = value ? value.split('-').map(Number) : [undefined, undefined]
+  // '' splits to [''] -> 0, so `|| undefined` maps "nothing chosen" to undefined.
+  const [yearPart, monthPart] = value.split('-').map(Number)
+  const selYear = yearPart || undefined
+  const selMonth = monthPart || undefined
 
   const lo = minMonth ? toIndex(minMonth) : -Infinity
   const hi = maxMonth ? toIndex(maxMonth) : Infinity

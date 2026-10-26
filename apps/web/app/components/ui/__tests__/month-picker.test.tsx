@@ -190,4 +190,69 @@ describe('MonthPickerField', () => {
     expect(screen.getByTestId(MONTH)).toHaveAttribute('aria-label', 'Місяць зарплати')
     expect(screen.getByTestId(YEAR)).toHaveAttribute('aria-label', 'Рік зарплати')
   })
+
+  it('marks both triggers invalid with a destructive border only when aria-invalid', async () => {
+    await loadCatalog('uk')
+    const { rerender } = render(
+      <I18nTestProvider>
+        <MonthPickerField value="2026-10" onChange={() => {}} aria-invalid aria-describedby="err" />
+      </I18nTestProvider>,
+    )
+    for (const id of [MONTH, YEAR]) {
+      expect(screen.getByTestId(id)).toHaveClass('border-destructive')
+      expect(screen.getByTestId(id)).toHaveAttribute('aria-invalid', 'true')
+      expect(screen.getByTestId(id)).toHaveAttribute('aria-describedby', 'err')
+    }
+    rerender(
+      <I18nTestProvider>
+        <MonthPickerField value="2026-10" onChange={() => {}} />
+      </I18nTestProvider>,
+    )
+    for (const id of [MONTH, YEAR]) {
+      expect(screen.getByTestId(id)).not.toHaveClass('border-destructive')
+    }
+  })
+
+  it('empty value: placeholders shown and exactly the 5 default years, ascending', async () => {
+    await loadCatalog('uk')
+    render(<Harness />)
+    expect(screen.getByTestId(MONTH)).toHaveTextContent('Місяць')
+    expect(screen.getByTestId(YEAR)).toHaveTextContent('Рік')
+    await user().click(screen.getByTestId(YEAR))
+    const years = (await screen.findAllByRole('option')).map((o) => o.textContent)
+    expect(years).toEqual(['2023', '2024', '2025', '2026', '2027'])
+  })
+
+  it('an out-of-range stored year is merged into the list in ascending order', async () => {
+    await loadCatalog('uk')
+    render(<Harness initial="2029-05" />)
+    await user().click(screen.getByTestId(YEAR))
+    const years = (await screen.findAllByRole('option')).map((o) => o.textContent)
+    expect(years).toEqual(['2023', '2024', '2025', '2026', '2027', '2029'])
+  })
+
+  it('follows prop and locale changes without a remount', async () => {
+    await loadCatalog('uk')
+    const el = (v: string) => (
+      <I18nTestProvider>
+        <MonthPickerField value={v} onChange={() => {}} />
+      </I18nTestProvider>
+    )
+    const { rerender } = render(el('2026-10'))
+    expect(screen.getByTestId(MONTH)).toHaveTextContent('Жовтень')
+    await loadCatalog('en')
+    rerender(el('2019-10'))
+    expect(screen.getByTestId(MONTH)).toHaveTextContent('October')
+    expect(screen.getByTestId(YEAR)).toHaveTextContent('2019')
+    await user().click(screen.getByTestId(YEAR))
+    expect(await screen.findByTestId('salary-year-option-2019')).toBeInTheDocument()
+  })
+
+  it('bounded years replace the default range', async () => {
+    await loadCatalog('uk')
+    render(<Harness initial="2025-06" minMonth="2025-03" maxMonth="2026-02" />)
+    await user().click(screen.getByTestId(YEAR))
+    const years = (await screen.findAllByRole('option')).map((o) => o.textContent)
+    expect(years).toEqual(['2025', '2026'])
+  })
 })
