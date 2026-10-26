@@ -225,6 +225,17 @@ describe('generated privilege SQL', () => {
     }
   })
 
+  /** STAGED_RELATIONS is empty once every staged table is wired (Task 4.6 S0): populate it for one call. */
+  const withStaged = <T>(names: string[], fn: () => T): T => {
+    const map = STAGED_RELATIONS as Record<string, { file: string }>
+    for (const t of names) map[t] = { file: 'drizzle/manual-staged/x.sql' }
+    try {
+      return fn()
+    } finally {
+      for (const t of names) delete map[t]
+    }
+  }
+
   it('grants a STAGED relation only where it exists, never in the plain class list (Task 4.5)', () => {
     expect(stagedGrantSql(['t_one', 't_two'], ['SELECT', 'INSERT'], 'crm_app')).toBe(
       `-- staged relations (drizzle/manual-staged/): granted only where they exist.
@@ -239,9 +250,8 @@ BEGIN
 END
 $staged$;`,
     )
-    const staged = Object.keys(STAGED_RELATIONS)
-    expect(staged.length).toBeGreaterThan(0)
-    const statements = splitSqlStatements(buildGrantsSql())
+    const staged = ['job_run_records', 'job_opportunity_identity_tokens']
+    const statements = splitSqlStatements(withStaged(staged, buildGrantsSql))
     const plain = statements.filter((s) => /^\s*GRANT /.test(s))
     expect(
       plain.filter((s) =>
@@ -263,9 +273,9 @@ $staged$;`,
     const originalA = classList(classes, 'A')
     const originalLog = classList(classes, 'A-log')
     try {
-      classes.A = originalA.filter((r) => !(r in STAGED_RELATIONS))
+      classes.A = originalA.filter((r) => r !== 'job_run_records')
       classes['A-log'] = ['job_run_records']
-      const sql = buildGrantsSql()
+      const sql = withStaged(['job_run_records'], buildGrantsSql)
       expect(sql).not.toMatch(/ON TABLE\n\s+TO /)
       expect(sql).toContain('GRANT SELECT, INSERT ON TABLE public.job_run_records TO crm_app;')
     } finally {
@@ -275,7 +285,7 @@ $staged$;`,
   })
 
   it('marks a STAGED relation optional in the catalog check, and a plain one required', () => {
-    const sql = buildCheckSql()
+    const sql = withStaged(['job_run_records', 'job_opportunity_identity_tokens'], buildCheckSql)
     expect(sql).toContain(`('job_run_records', 'A', true)`)
     expect(sql).toContain(`('job_opportunity_identity_tokens', 'A', true)`)
     expect(sql).toContain(`('job_opportunities', 'A', false)`)

@@ -369,13 +369,7 @@ export const MANUAL_DDL_RELATIONS: Record<string, { file: string | null; why: st
  * regenerate. `privilege-classes.spec.ts` fails while an entry names a file that is not in
  * `manual-staged/`, so a stale entry cannot outlive the move.
  */
-export const STAGED_RELATIONS: Record<string, { file: string }> = {
-  job_opportunity_identity_tokens: {
-    file: 'drizzle/manual-staged/2026-10-25_job_record_store.sql',
-  },
-  job_run_records: { file: 'drizzle/manual-staged/2026-10-25_job_record_store.sql' },
-  job_source_record_heads: { file: 'drizzle/manual-staged/2026-10-25_job_record_store.sql' },
-}
+export const STAGED_RELATIONS: Record<string, { file: string }> = {}
 
 /**
  * Class D column-level `SELECT` for the collector. A class D table listed here gets NO

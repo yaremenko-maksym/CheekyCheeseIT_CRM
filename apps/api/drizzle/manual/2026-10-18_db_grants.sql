@@ -84,6 +84,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.job_dirty_work,
   public.job_exclusion_filters,
   public.job_opportunities,
+  public.job_opportunity_identity_tokens,
   public.job_opportunity_matches,
   public.job_opportunity_sources,
   public.job_opportunity_team_triage,
@@ -93,7 +94,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.job_queue_dismissals,
   public.job_queue_generation_entries,
   public.job_queue_generations,
+  public.job_run_records,
   public.job_source_hosts,
+  public.job_source_record_heads,
   public.job_source_record_revisions,
   public.job_source_records,
   public.job_sources,
@@ -131,20 +134,6 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.vacancies,
   public.vacancy_applications
   TO crm_app;
--- staged relations (drizzle/manual-staged/): granted only where they exist.
-DO $staged$
-BEGIN
-  IF to_regclass('public.job_opportunity_identity_tokens') IS NOT NULL THEN
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.job_opportunity_identity_tokens TO crm_app;
-  END IF;
-  IF to_regclass('public.job_run_records') IS NOT NULL THEN
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.job_run_records TO crm_app;
-  END IF;
-  IF to_regclass('public.job_source_record_heads') IS NOT NULL THEN
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.job_source_record_heads TO crm_app;
-  END IF;
-END
-$staged$;
 --   crm_collector: nothing.
 --   crm_retention_owner: nothing.
 

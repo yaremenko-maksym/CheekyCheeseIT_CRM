@@ -219,7 +219,6 @@ describe('privilege-class manifest', () => {
     // still in manual-staged/: once the file moves to manual/, the entry must go with it.
     const tables = new Set(schemaTableNames())
     const entries = Object.entries(STAGED_RELATIONS)
-    expect(entries.length).toBeGreaterThan(0)
     expect(entries.filter(([r]) => !tables.has(r)).map(([r]) => r)).toEqual([])
     expect(entries.filter(([r]) => relationClass(r) === undefined).map(([r]) => r)).toEqual([])
     expect(entries.filter(([, e]) => !e.file.startsWith('drizzle/manual-staged/'))).toEqual([])
