@@ -274,23 +274,35 @@ describe('event-loop yield (AC 6)', () => {
     }
   }
 
-  /** The longest the event loop went without running a 1 ms timer while `run` was in flight. */
-  async function maxLag(run: () => Promise<unknown>): Promise<{ lag: number; total: number }> {
+  /**
+   * While `run` is in flight: the longest the event loop went without running a 1 ms timer
+   * (`lag`), and how many times that timer got to run at all (`ticks`). A timer can only run
+   * when the loop is given back, so `ticks` counts the yields whatever the machine's load.
+   */
+  async function maxLag(
+    run: () => Promise<unknown>,
+  ): Promise<{ lag: number; total: number; ticks: number }> {
     let last = performance.now()
     let lag = 0
+    let ticks = 0
+    let measuring = false
     const probe = setInterval(() => {
       const now = performance.now()
       lag = Math.max(lag, now - last)
       last = now
+      if (measuring) ticks += 1
     }, 1)
     await new Promise((r) => setTimeout(r, 5))
     last = performance.now()
+    lag = 0
+    measuring = true
     const start = performance.now()
     await run()
+    measuring = false
     const total = performance.now() - start
     lag = Math.max(lag, performance.now() - last)
     clearInterval(probe)
-    return { lag, total }
+    return { lag, total, ticks }
   }
 
   const PER_ROW_MS = 4
@@ -302,17 +314,23 @@ describe('event-loop yield (AC 6)', () => {
       return 'DONE'
     })
 
-  it('yields every 50 rows: the loop is never blocked for much more than 50 rows of work', async () => {
+  it('yields every 50 rows: the loop runs between stretches, and the max lag is a fraction of the no-yield control', async () => {
     expect(RECOMPUTE_YIELD_EVERY).toBe(50)
-    const { lag, total } = await maxLag(() => worker(spinning()).runOnce())
-    // 200 rows x 4 ms = 800 ms of CPU work; one 50-row stretch is 200 ms.
-    expect(total).toBeGreaterThanOrEqual(ROWS * PER_ROW_MS)
-    expect(lag).toBeLessThan(ROWS * PER_ROW_MS * 0.6)
-  })
-
-  it('control: the same work without a yield blocks the loop for the whole batch', async () => {
-    const { lag } = await maxLag(() => worker(spinning(), { yieldEvery: ROWS }).runOnce())
-    expect(lag).toBeGreaterThanOrEqual(ROWS * PER_ROW_MS * 0.9)
+    // Measured back to back so both runs share the machine's load (wall-clock specs flake on
+    // absolute thresholds under load; the ratio and the tick count do not).
+    const yielding = await maxLag(() => worker(spinning()).runOnce())
+    const control = await maxLag(() => worker(spinning(), { yieldEvery: ROWS }).runOnce())
+    // 200 rows x 4 ms = 800 ms of CPU work in four 50-row stretches.
+    expect(yielding.total).toBeGreaterThanOrEqual(ROWS * PER_ROW_MS)
+    // Sensitivity: without a yield the probe sees the whole batch as one stall, and never runs.
+    expect(control.lag).toBeGreaterThanOrEqual(ROWS * PER_ROW_MS * 0.9)
+    expect(control.ticks).toBe(0)
+    // With the yield: the loop is given back between the four stretches (3 yields), not per row.
+    // 2, not 3, at the low end: a batch that starts inside a timers-phase callback resumes its
+    // first yield in the check phase of the same loop iteration, before any timer can run.
+    expect(yielding.ticks).toBeGreaterThanOrEqual(2)
+    expect(yielding.ticks).toBeLessThanOrEqual(6)
+    expect(yielding.lag).toBeLessThan(control.lag * 0.6)
   })
 })
 
