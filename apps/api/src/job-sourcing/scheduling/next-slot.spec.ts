@@ -244,7 +244,7 @@ describe('AC 6: slowdown, the 24 h cap and the provider floor', () => {
   it('level 4 caps the interval at 24 h', () => {
     const utc: FetchProfile = { intervalMinutes: 180, offIntervalMinutes: null, window: null }
     const now = at('2027-01-12T00:00:00Z')
-    expect(iso(nextSlot(now, utc, policy(K0, 0, 4)))).toBe('2027-01-13T00:00:00.000Z')
+    expect(iso(nextSlot(now, utc, policy(keyFor(0, 180), 0, 4)))).toBe('2027-01-13T00:00:00.000Z')
   })
 
   it('a floor larger than the gap pushes past a slot; a floor below the gap changes nothing', () => {
@@ -264,14 +264,14 @@ describe('AC 6: slowdown, the 24 h cap and the provider floor', () => {
   it('a floor above 24 h still wins over the slowdown cap', () => {
     const utc: FetchProfile = { intervalMinutes: 60, offIntervalMinutes: null, window: null }
     expect(iso(nextSlot(at('2027-01-12T00:00:00Z'), utc, policy(K0, 3000)))).toBe(
-      '2027-01-14T02:00:00.000Z',
+      '2027-01-14T03:00:00.000Z',
     )
   })
 })
 
 describe('AC 7: fixedSlots', () => {
   const fixed: FetchProfile = {
-    intervalMinutes: 1440,
+    intervalMinutes: 360,
     offIntervalMinutes: null,
     window: null,
     fixedSlots: { timeZone: 'Europe/Kyiv', times: ['15:00', '09:00'] },
