@@ -44,6 +44,12 @@ const daily = (intervalMinutes: number) => ({
   offIntervalMinutes: null,
   window: null,
 })
+/** Quota entries keep their legacy interval (the seed's hours), one attempt each Monday. */
+const mondays = (intervalMinutes: number) => ({
+  intervalMinutes,
+  offIntervalMinutes: null,
+  window: { timeZone: 'Europe/Kyiv', days: ['MON'], from: '08:00', to: '19:00' },
+})
 const kyivAt = (time: string) => ({
   intervalMinutes: 1440,
   offIntervalMinutes: null,
@@ -74,11 +80,11 @@ const EXPECTED: Record<string, unknown> = {
   'recruitee.board.bunq': weekday('Europe/Amsterdam', 60, 180),
   'personio.board.westwing': weekday('Europe/Berlin', 60, 180),
   'personio.board.personio': weekday('Europe/Berlin', 60, 180),
-  'jooble.api.senior-developer-remote': daily(10080),
+  'jooble.api.senior-developer-remote': mondays(10080),
   'jsearch.rapidapi.backend': daily(1440),
   'jsearch.rapidapi.frontend': daily(1440),
   'jsearch.rapidapi.ai-engineer': daily(1440),
-  'theirstack.api.senior': daily(5760),
+  'theirstack.api.senior': mondays(5760),
   'muse.api.software-engineering-senior': daily(1440),
   'reed.api.senior-developer-remote': daily(1440),
   'djinni.rss.python': {

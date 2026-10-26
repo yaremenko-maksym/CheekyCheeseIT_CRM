@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import type { FetchProfile } from '../scheduling/next-slot'
 import { isReporting, type Manifest, readinessAt, readinessReason } from './manifest'
 
 /**
@@ -150,6 +151,16 @@ export interface SeedTypeBlock {
 }
 
 /**
+ * The `min_interval_hours` a NEW row is inserted with (source fetch strategy U1b). Nothing reads the
+ * column after U1b; it is what a revert of U1b would read again, so it is never shorter than the
+ * daily cadence that ran before the profile: `max(24, ceil(intervalMinutes / 60))`, and 24 for a
+ * profile that is never scheduled. That keeps every value the committed delta already carries.
+ */
+export function rollbackCadenceHours(profile: FetchProfile | null): number {
+  return Math.max(24, Math.ceil((profile?.intervalMinutes ?? 0) / 60))
+}
+
+/**
  * What the delta will write, as plain data. Exported so the spec can compare ROWS against it
  * without going through the SQL text.
  */
@@ -164,7 +175,7 @@ export function seedRowsOf(manifest: Manifest, clock: Date = SEED_CLOCK) {
       manifest_version: e.manifestVersion,
       policy_version: e.policyVersion,
       config_version: e.configVersion,
-      min_interval_hours: e.intervalHours,
+      min_interval_hours: rollbackCadenceHours(e.fetchProfile),
       budget_limit: e.budget?.limit ?? null,
       budget_window: e.budget?.window ?? null,
       // The manifest never says VERIFIED: that is what a smoke against the real provider earns.

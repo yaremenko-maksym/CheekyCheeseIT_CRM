@@ -24,6 +24,8 @@ import {
 } from './manifest.hosts'
 import { isWellFormedDecision, liftsUnclear, type OwnerDecision } from './owner-decisions'
 import type { DetailMode } from './detail-mode'
+import { UNSCHEDULED_TYPES, attemptsIn, fetchProfileProblem } from './manifest.fetch-profile'
+import type { FetchProfile } from '../scheduling/next-slot'
 import type { ReportingJobSourceProvider } from './reporting-provider'
 
 export type { OwnershipCount, OwnershipEvidence } from './manifest.ownership'
@@ -91,6 +93,7 @@ export type ManifestErrorCode =
   | 'HOST_KEY_INVALID'
   | 'HOST_RATE_INVALID'
   | 'DETAIL_INVALID'
+  | 'FETCH_PROFILE_INVALID'
 
 /** Every refusal the manifest makes carries a code a test can assert on, not a message to match. */
 export class ManifestError extends Error {
@@ -212,7 +215,11 @@ export interface EntryDefinition {
   readonly configVersion?: number
   /** True when the 2026-10-05 seed already holds this exact `(type, config)` row. */
   readonly legacySeed?: boolean
-  readonly intervalHours: number
+  /**
+   * When this entry is next due (source fetch strategy ADR, section 1): overrides the type's
+   * `fetchProfile`. `null` = never scheduled; absent = the type's default.
+   */
+  readonly fetchProfile?: FetchProfile | null
   readonly budget?: BudgetDeclaration
   /**
    * Ownership of an ATS board. `fixtures` are the file names under the type's fixture directory
@@ -242,6 +249,8 @@ export interface TypeDefinition {
   readonly scopeKind: ScopeKind
   /** A floor the provider's own terms set on the interval between two collections, if any. */
   readonly minIntervalHoursFloor?: number
+  /** The default fetch profile of the type's entries (ADR section 1); `null` = never scheduled. */
+  readonly fetchProfile?: FetchProfile | null
   readonly requestsPerRun?: number
   /**
    * Where the posting description arrives (ADR 6a). Absent means `IN_LIST`. Data only: nothing in
@@ -408,7 +417,8 @@ export interface ManifestEntry {
   /** Task 2.5 T8: `hostKey(parsed config)`, what the seed delta writes to `job_sources.host_key`. */
   readonly hostKey: string
   readonly legacySeed: boolean
-  readonly intervalHours: number
+  /** The resolved, validated profile; `null` only for the owner's `UNSCHEDULED_TYPES`. */
+  readonly fetchProfile: FetchProfile | null
   readonly budget: BudgetDeclaration | null
   readonly ownership: OwnershipRecord | null
   /** The employer, only when its ownership is verified. `null` is not "unknown employer". */
@@ -624,7 +634,7 @@ function checkQuota(types: readonly ManifestType[], entries: readonly ManifestEn
     const perRun = new Map(owners.map((o) => [o.type, o.requestsPerRun]))
     const perMonth = entries.reduce((sum, e) => {
       const n = perRun.get(e.type)
-      return n === undefined ? sum : sum + Math.floor(MONTH_HOURS / e.intervalHours) * n
+      return n === undefined ? sum : sum + attemptsIn(e.fetchProfile, MONTH_HOURS * 60) * n
     }, 0)
     if (q.unit === 'REQUEST' && perMonth > limit) {
       throw new ManifestError(
@@ -673,30 +683,51 @@ function checkDetail(def: TypeDefinition): void {
   }
 }
 
-function checkCadence(def: TypeDefinition, e: EntryDefinition): void {
-  if (!Number.isInteger(e.intervalHours) || e.intervalHours < 1) {
-    throw new ManifestError(
-      'CADENCE_INVALID',
-      `${e.id}: intervalHours ${e.intervalHours} is not a positive integer`,
-    )
+const isUnscheduled = (type: string): boolean =>
+  (UNSCHEDULED_TYPES as readonly string[]).includes(type)
+
+/**
+ * U1b: the entry's fetch profile, resolved (the entry's own, else the type's default) and checked
+ * against section 1 of the source fetch strategy ADR: a valid shape, an IANA Area/Location zone, no
+ * gap under the provider floor, `null` exactly for the owner's `UNSCHEDULED_TYPES`, and a schedule
+ * that fits the entry's own budget.
+ */
+function fetchProfileOf(def: TypeDefinition, e: EntryDefinition): FetchProfile | null {
+  const profile = e.fetchProfile !== undefined ? e.fetchProfile : def.fetchProfile
+  const unscheduled = isUnscheduled(def.type)
+  if (profile === undefined || (profile === null) !== unscheduled) {
+    const want = unscheduled
+      ? 'an unscheduled type (owner, Q8) takes a null profile'
+      : 'needs a fetch profile'
+    throw new ManifestError('FETCH_PROFILE_INVALID', `${e.id}: ${want}`)
   }
-  const floor = def.minIntervalHoursFloor ?? 0
-  if (e.intervalHours < floor) {
-    throw new ManifestError(
-      'CADENCE_INVALID',
-      `${e.id}: ${e.intervalHours} h is under the ${floor} h the provider's terms allow`,
-    )
-  }
+  if (profile === null) return null
+  const problem = fetchProfileProblem(profile, def.minIntervalHoursFloor ?? 0)
+  if (problem !== null) throw new ManifestError(problem.code, `${e.id}: ${problem.message}`)
   if (e.budget !== undefined) {
     // The schedule has to fit the entry's OWN budget in the window the budget is counted over.
     const unit = e.budget.window === 'DAY' ? 'day' : 'month'
-    const runs = Math.floor((e.budget.window === 'DAY' ? 24 : MONTH_HOURS) / e.intervalHours)
+    const runs = attemptsIn(profile, (e.budget.window === 'DAY' ? 24 : MONTH_HOURS) * 60)
     if (runs > e.budget.limit) {
       throw new ManifestError(
         'CADENCE_INVALID',
         `${e.id}: ${runs} scheduled runs a ${unit} exceed its own budget of ${e.budget.limit}`,
       )
     }
+  }
+  return profile
+}
+
+/** A host's daily rate (Remotive: 4) holds against every scheduled attempt of the type's entries. */
+function checkHostDay(def: TypeDefinition, profiles: readonly (FetchProfile | null)[]): void {
+  const perDay = def.hostRate?.perDay
+  if (perDay === undefined) return
+  const attempts = profiles.reduce((n, p) => n + attemptsIn(p, 24 * 60), 0)
+  if (attempts > perDay) {
+    throw new ManifestError(
+      'HOST_RATE_INVALID',
+      `${def.type}: ${attempts} scheduled attempts a day exceed the host's ${perDay}`,
+    )
   }
 }
 
@@ -887,11 +918,17 @@ export function buildManifest(input: BuildInput): Manifest {
         fixtures.every((f) => f.evidence === 'CAPTURE'),
     })
 
+    // A type without entries (SmartRecruiters) still states its default: it is what an entry gets.
+    if (def.fetchProfile !== undefined && (def.fetchProfile === null) !== isUnscheduled(type)) {
+      throw new ManifestError('FETCH_PROFILE_INVALID', `${type}: its default profile`)
+    }
+    const profiles: (FetchProfile | null)[] = []
     for (const e of def.entries) {
       checkId(e.id)
       if (ids.has(e.id)) throw new ManifestError('DUPLICATE_ID', `${e.id} is declared twice`)
       ids.add(e.id)
-      checkCadence(def, e)
+      const fetchProfile = fetchProfileOf(def, e)
+      profiles.push(fetchProfile)
       const ownership = ownershipOf(def, e, fixtures)
       const config: Record<string, unknown> = { ...e.config }
       if (ownership !== null) {
@@ -944,7 +981,7 @@ export function buildManifest(input: BuildInput): Manifest {
         namespace,
         hostKey,
         legacySeed: e.legacySeed === true,
-        intervalHours: e.intervalHours,
+        fetchProfile,
         budget: e.budget ?? null,
         ownership,
         verifiedEmployer:
@@ -956,6 +993,7 @@ export function buildManifest(input: BuildInput): Manifest {
         ownerDecisions,
       })
     }
+    checkHostDay(def, profiles)
   }
 
   for (const t of jobSourceTypeSchema.options) {
