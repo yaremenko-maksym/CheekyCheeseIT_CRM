@@ -4,12 +4,14 @@ import { describe, expect, it } from 'vitest'
 import { identityObservations, specCheckpoint } from '../../test/ledger-fixtures'
 import { observation } from '../../test/record-store-fixtures'
 import type { MeterDb } from '../metering/account-meter.store'
+import type { SourceObservation } from '../normalize/observation'
 import { RunFencedError } from '../ownership/run-ownership'
 import { LockContentionError } from './lock-order'
 import {
   MAX_OBSERVATIONS_PER_PAGE,
   type PageChunk,
   chunkPage,
+  saveObservation,
   saveObservationPage,
 } from './source-record.store'
 
@@ -232,5 +234,47 @@ describe('the dirty-work producer (Task 4.6 S4a, AC 8)', () => {
       'SOURCE_REVISION',
       null,
     ])
+  })
+
+  it('content that does not move the pointer enqueues nothing', async () => {
+    const REV = '00000000-0000-4000-8000-0000000000b1'
+    const { db, seen } = recordingDb((q) => {
+      if (/^\s*SELECT latest_revision_id/.test(q.sql))
+        return { rows: [{ latest_revision_id: REV, not_older: true }] }
+      if (/^\s*UPDATE job_source_record_heads/.test(q.sql))
+        return { rows: [{ observation_seq: 3 }] }
+      return firstObservation(CYCLE)(q)
+    })
+    await saveObservationPage(db, H, page)
+    expect(seen.statements.some((s) => /UPDATE job_source_record_heads/.test(s.sql))).toBe(true)
+    expect(enqueues(seen.statements)).toEqual([])
+  })
+
+  it('the single-observation write enqueues in the caller transaction too', async () => {
+    const { db, seen } = recordingDb(firstObservation(CYCLE))
+    await db.transaction((tx) => saveObservation(tx, H, page.observations[0] as SourceObservation))
+    expect(enqueues(seen.statements)[0]?.params).toEqual([
+      'SOURCE_RECORD',
+      RECORD,
+      1,
+      'SOURCE_REVISION',
+      CYCLE,
+    ])
+  })
+
+  it('a run whose source row is gone writes nothing: the type check refuses the page', async () => {
+    const noSource = (q: Query) =>
+      /SELECT type FROM job_sources/.test(q.sql) ? { rows: [] } : firstObservation(CYCLE)(q)
+    const single = recordingDb(noSource)
+    await expect(
+      single.db.transaction((tx) =>
+        saveObservation(tx, H, page.observations[0] as SourceObservation),
+      ),
+    ).rejects.toThrow(new RangeError('saveObservations: an observation of another source type'))
+    const paged = recordingDb(noSource)
+    await expect(saveObservationPage(paged.db, H, page)).rejects.toThrow(
+      new RangeError('saveObservations: an observation of another source type'),
+    )
+    expect(enqueues([...single.seen.statements, ...paged.seen.statements])).toEqual([])
   })
 })

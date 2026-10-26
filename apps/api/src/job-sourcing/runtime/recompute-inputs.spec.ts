@@ -258,12 +258,17 @@ describe('loadRoster', () => {
         id: 'g1',
         scope: 'GLOBAL',
         seniorId: null,
+        kind: 'KEYWORD',
+        value: 'PHP',
+        normalizedValue: 'php',
         createdAt: created.toISOString(),
       }),
       expect.objectContaining({
         id: 's1',
         scope: 'SENIOR',
         seniorId: A,
+        kind: 'COMPANY',
+        value: 'Acme',
         normalizedValue: 'acme',
         createdAt: created.toISOString(),
       }),
@@ -331,7 +336,16 @@ describe('loadOpportunity', () => {
     const { tx, statements } = recording()
     expect(await loadOpportunity(tx, OPP)).toBeNull()
     expect(statements[0]?.params).toContain(OPP)
+    // No date window (AC 7): the opportunity is read by id alone.
     expect(statements[0]?.sql).not.toMatch(/first_seen_at\s*>|created_at\s*>/)
+    // The representative revision: the title's, else the lowest-id ACTIVE member's latest.
+    expect(statements[0]?.sql).toMatch(/o\.field_revisions->>'title'/)
+    expect(statements[0]?.sql).toMatch(/s\.unlinked_at IS NULL/)
+    expect(statements[0]?.sql).toMatch(/ORDER BY c\.prio, c\.record_id\s+LIMIT 1/)
+    // Triage grants: unrevoked and unexpired only.
+    expect(statements[0]?.sql).toMatch(
+      /t\.revoked_at IS NULL\s+AND t\.expires_at > clock_timestamp\(\)/,
+    )
   })
 
   it('the canonical revision, with the representative revision fields and trusted dates', async () => {

@@ -8,6 +8,7 @@ import {
   DIRTY_BATCH_DEFAULT,
   DirtyWorkFencedError,
   type FailOutcome,
+  type RetryOptions,
   claimDirtyBatch,
   completeDirty,
   failDirty,
@@ -76,7 +77,7 @@ export interface RecomputeSteps {
   claim(owner: string, batchSize: number): Promise<ClaimedDirtyWork[]>
   /** Process one held row and complete it, in one transaction with any write it makes. */
   process(work: ClaimedDirtyWork, batch: RecomputeBatch): Promise<CompleteOutcome>
-  fail(work: ClaimedDirtyWork, code: string, maxAttempts?: number): Promise<FailOutcome>
+  fail(work: ClaimedDirtyWork, code: string, opts: RetryOptions): Promise<FailOutcome>
 }
 
 export interface Failure {
@@ -90,10 +91,13 @@ export function classifyFailure(err: unknown): Failure {
   if (err instanceof RecomputeNotReadyError) return { code: err.code, poison: false }
   if (err instanceof CanonicalStateError) return { code: err.code, poison: true }
   if (err instanceof LockContentionError) return { code: err.code, poison: false }
-  const sqlstate = findPgError(err)?.['code']
-  if (typeof sqlstate === 'string' && /^[0-9A-Z]{5}$/.test(sqlstate))
+  // `findPgError` only returns a node whose `code` is a well-formed SQLSTATE.
+  const pg = findPgError(err)
+  if (pg !== null) {
+    const sqlstate = String(pg['code'])
     // Class 22 (data exception) is the value's fault; every other class is the server's.
     return { code: `PG_${sqlstate}`, poison: sqlstate.startsWith('22') }
+  }
   if (err instanceof RangeError) return { code: 'INVALID_RECORD', poison: true }
   return { code: 'RECOMPUTE_ERROR', poison: false }
 }
@@ -144,8 +148,13 @@ export class RecomputeWorker {
       ...claimed.filter((w) => w.entityKind === 'SOURCE_RECORD'),
       ...claimed.filter((w) => w.entityKind !== 'SOURCE_RECORD'),
     ]
-    for (const [i, work] of ordered.entries()) {
-      if (i > 0 && i % yieldEvery === 0) await yieldToLoop()
+    let sinceYield = 0
+    for (const work of ordered) {
+      if (sinceYield === yieldEvery) {
+        sinceYield = 0
+        await yieldToLoop()
+      }
+      sinceYield += 1
       await this.finish(work, batch, report)
     }
     return report
@@ -168,7 +177,11 @@ export class RecomputeWorker {
       }
       const { code, poison } = classifyFailure(err)
       try {
-        const outcome = await this.steps.fail(work, code, poison ? POISON_ATTEMPTS : undefined)
+        const outcome = await this.steps.fail(
+          work,
+          code,
+          poison ? { maxAttempts: POISON_ATTEMPTS } : {},
+        )
         if (outcome === 'FAILED') report.failed += 1
         else report.retried += 1
       } catch (failErr) {
@@ -251,7 +264,6 @@ export function createRecomputeSteps(db: MeterDb): RecomputeSteps {
       work.entityKind === 'SOURCE_RECORD'
         ? resolveSourceRecord(db, work)
         : recomputeOpportunity(db, work, batch),
-    fail: (work, code, maxAttempts) =>
-      failDirty(db, work, code, maxAttempts === undefined ? {} : { maxAttempts }),
+    fail: (work, code, opts) => failDirty(db, work, code, opts),
   }
 }

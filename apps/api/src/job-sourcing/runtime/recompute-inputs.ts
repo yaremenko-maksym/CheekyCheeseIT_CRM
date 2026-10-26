@@ -82,6 +82,7 @@ export async function loadRoster(db: SqlExecutor): Promise<RosterInputs> {
         .map((p) => ({
           name: String(p['name']),
           companyName: String(p['company_name']),
+          // Stryker disable next-line all: carried for the row type only; `deriveProjectExclusions` never reads it (archived projects still exclude).
           archivedAt: p['archived_at'] == null ? null : instant(p['archived_at']),
         })),
     ),
@@ -229,7 +230,7 @@ export function matchRows(result: Evaluated | Excluded, roster: RosterInputs): M
       })
     }
   }
-  return [...rows.values()].sort((a, b) => (a.seniorId < b.seniorId ? -1 : 1))
+  return [...rows.keys()].sort().map((id) => rows.get(id) as MatchRow)
 }
 
 const digest = (value: unknown) =>

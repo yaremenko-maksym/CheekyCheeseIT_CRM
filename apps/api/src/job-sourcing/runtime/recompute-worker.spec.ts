@@ -9,6 +9,7 @@ import {
   type CompleteOutcome,
   DirtyWorkFencedError,
   type FailOutcome,
+  type RetryOptions,
 } from '../ownership/dirty-work.store'
 import { CanonicalStateError } from '../store/canonical.store'
 import { LockContentionError } from '../store/lock-order'
@@ -52,7 +53,7 @@ const work = (
 interface Fake {
   steps: RecomputeSteps
   processed: string[]
-  failed: [string, string, number | undefined][]
+  failed: [string, string, RetryOptions][]
   claims: [string, number][]
   batches: RecomputeBatch[]
 }
@@ -73,8 +74,8 @@ function fakeSteps(
       f.batches.push(batch)
       return process(w)
     },
-    async fail(w, code, maxAttempts) {
-      f.failed.push([w.id, code, maxAttempts])
+    async fail(w, code, opts) {
+      f.failed.push([w.id, code, opts])
       return fail(w)
     },
   }
@@ -146,7 +147,7 @@ describe('RecomputeWorker.runOnce: failure classes (AC 3, 4)', () => {
       () => 'FAILED',
     )
     expect(await worker(f).runOnce()).toMatchObject({ done: 2, failed: 1, retried: 0 })
-    expect(f.failed).toEqual([[rows[1]?.id, 'INVALID_REVISION', 1]])
+    expect(f.failed).toEqual([[rows[1]?.id, 'INVALID_REVISION', { maxAttempts: 1 }]])
     expect(f.processed).toHaveLength(3)
   })
 
@@ -162,8 +163,8 @@ describe('RecomputeWorker.runOnce: failure classes (AC 3, 4)', () => {
     )
     expect(await worker(f).runOnce()).toMatchObject({ retried: 1, failed: 1, done: 0 })
     expect(f.failed).toEqual([
-      [rows[0]?.id, 'LOCK_CONTENTION', undefined],
-      [rows[1]?.id, 'LOCK_CONTENTION', undefined],
+      [rows[0]?.id, 'LOCK_CONTENTION', {}],
+      [rows[1]?.id, 'LOCK_CONTENTION', {}],
     ])
   })
 
@@ -243,6 +244,17 @@ describe('classifyFailure', () => {
     expect(
       classifyFailure(Object.assign(new RangeError('x'), { code: 'lower', severity: 'ERROR' })),
     ).toEqual({ code: 'INVALID_RECORD', poison: true })
+  })
+
+  it('the typed errors name themselves', () => {
+    expect(new RecomputePoisonError('X')).toMatchObject({
+      name: 'RecomputePoisonError',
+      message: 'recompute refused the record: X',
+    })
+    expect(new RecomputeNotReadyError('Y')).toMatchObject({
+      name: 'RecomputeNotReadyError',
+      message: 'recompute input not ready: Y',
+    })
   })
 })
 
@@ -344,10 +356,10 @@ const opportunityRow = (over: Record<string, unknown> = {}) => ({
 })
 
 interface World {
-  seq?: number
+  seq?: number | null
   completes?: boolean
   opportunity?: Record<string, unknown> | null
-  sharedRevision?: number
+  sharedRevision?: number | null
 }
 
 const world =
@@ -372,9 +384,11 @@ const world =
           retry_count: 0,
         },
       ]
-    if (/FROM job_source_record_heads/.test(q.sql)) return [{ observation_seq: seq }]
+    if (/FROM job_source_record_heads/.test(q.sql))
+      return seq === null ? [] : [{ observation_seq: seq }]
     if (/FROM job_opportunities o/.test(q.sql)) return opportunity === null ? [] : [opportunity]
-    if (/FOR SHARE/.test(q.sql)) return [{ revision: sharedRevision }]
+    if (/FOR SHARE/.test(q.sql))
+      return sharedRevision === null ? [] : [{ revision: sharedRevision }]
     if (/FROM users u JOIN team_members/.test(q.sql))
       return [
         { id: SENIOR, tech_stack: ['Go'], team_ids: ['00000000-0000-4000-8000-0000000000t1'] },
@@ -396,12 +410,12 @@ describe('createRecomputeSteps: claim and fail through the store', () => {
   it('fails with the given attempts, or the store default (5)', async () => {
     const { db, did } = recordingDb(world({}))
     const steps = createRecomputeSteps(db)
-    expect(await steps.fail(work(1), 'PG_08006', 1)).toBe('RETRY')
-    await steps.fail(work(1), 'PG_08006')
+    expect(await steps.fail(work(1), 'PG_08006', { maxAttempts: 1 })).toBe('RETRY')
+    await steps.fail(work(1), 'PG_08006', {})
     const [one, dflt] = did(/SET retry_count = retry_count \+ 1/)
-    expect(one?.params).toContain(1)
-    expect(one?.params).toContain('PG_08006')
-    expect(dflt?.params).toContain(5)
+    // retry_count + 1 >= $1 (twice), then the error code.
+    expect(one?.params.slice(0, 3)).toEqual([1, 1, 'PG_08006'])
+    expect(dflt?.params.slice(0, 3)).toEqual([5, 5, 'PG_08006'])
   })
 })
 
@@ -417,8 +431,11 @@ describe('createRecomputeSteps: SOURCE_RECORD (AC 4, 5)', () => {
     expect(did(/^\s*WITH cur AS/)).toHaveLength(1)
   })
 
-  it('a record that moved on is completed without resolving', async () => {
-    const { db, did } = recordingDb(world({ seq: 2 }))
+  it.each([
+    ['moved on', 2],
+    ['without a head (gone)', null],
+  ])('a record that %s is completed without resolving', async (_n, seq) => {
+    const { db, did } = recordingDb(world({ seq }))
     await createRecomputeSteps(db).process(rec, batchAt())
     expect(did(/FOR UPDATE/)).toEqual([])
     expect(did(/^\s*WITH cur AS/)).toHaveLength(1)
@@ -473,12 +490,18 @@ describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
     expect(did(/^\s*WITH cur AS/)).toHaveLength(1)
   })
 
-  it('a revision that moved on during evaluation is NOT installed, only completed', async () => {
-    const { db, did } = recordingDb(world({ sharedRevision: 2 }))
-    await createRecomputeSteps(db).process(work(1), batchAt())
-    expect(did(/job_opportunity_matches/)).toEqual([])
-    expect(did(/^\s*WITH cur AS/)).toHaveLength(1)
-  })
+  it.each([
+    ['moved on', 2],
+    ['was deleted', null],
+  ])(
+    'an opportunity that %s during evaluation is NOT installed, only completed',
+    async (_n, rev) => {
+      const { db, did } = recordingDb(world({ sharedRevision: rev }))
+      await createRecomputeSteps(db).process(work(1), batchAt())
+      expect(did(/job_opportunity_matches/)).toEqual([])
+      expect(did(/^\s*WITH cur AS/)).toHaveLength(1)
+    },
+  )
 
   it('an invalid revision is poison', async () => {
     const { db, seen } = recordingDb(
