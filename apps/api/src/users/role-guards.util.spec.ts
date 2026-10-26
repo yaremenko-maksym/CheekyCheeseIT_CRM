@@ -5,6 +5,8 @@ import {
   assertAdminTargetEditableForUpdate,
   assertAssignableRole,
   assertAssignableRoleOnChange,
+  assertSeniorTechFloor,
+  techStackChanged,
 } from './role-guards.util'
 
 type Role = User['role']
@@ -102,5 +104,44 @@ describe('assertAdminTargetEditableForUpdate', () => {
     const j = { id: 't', role: 'JUNIOR' as Role }
     expect(() => assertAdminTargetEditableForUpdate(j, 'SENIOR', 'other')).not.toThrow()
     expect(() => assertAdminTargetEditableForUpdate(j, 'SENIOR', 't')).not.toThrow()
+  })
+})
+
+describe('assertSeniorTechFloor', () => {
+  it('refuses a SENIOR with 0, 1 or 2 distinct technologies with SENIOR_MIN_TECHNOLOGIES (400)', () => {
+    for (const stack of [null, [], ['React'], ['React', 'Go'], ['a', 'a', 'a'], ['a', '', ' ']]) {
+      expect(codeOf(() => assertSeniorTechFloor('SENIOR', stack))).toBe('SENIOR_MIN_TECHNOLOGIES')
+    }
+    expect(() => assertSeniorTechFloor('SENIOR', ['React'])).toThrow(
+      expect.objectContaining({ status: 400 }),
+    )
+  })
+
+  it('accepts a SENIOR with 3 distinct technologies', () => {
+    expect(() => assertSeniorTechFloor('SENIOR', ['React', 'Go', 'Docker'])).not.toThrow()
+  })
+
+  it('ignores every other role', () => {
+    for (const role of ['ADMIN', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] as Role[]) {
+      expect(() => assertSeniorTechFloor(role, null)).not.toThrow()
+    }
+  })
+})
+
+describe('techStackChanged', () => {
+  it('is false when the field is absent or resubmitted unchanged', () => {
+    expect(techStackChanged(undefined, ['a'])).toBe(false)
+    expect(techStackChanged(['a', 'b'], ['a', 'b'])).toBe(false)
+    expect(techStackChanged(null, null)).toBe(false)
+    expect(techStackChanged([], null)).toBe(false)
+  })
+
+  it('is true on any difference in length, value or order', () => {
+    expect(techStackChanged(['a'], ['a', 'b'])).toBe(true)
+    expect(techStackChanged(['a', 'b', 'c'], ['a', 'b'])).toBe(true)
+    expect(techStackChanged(['a', 'c'], ['a', 'b'])).toBe(true)
+    expect(techStackChanged(['b', 'a'], ['a', 'b'])).toBe(true)
+    expect(techStackChanged(null, ['a'])).toBe(true)
+    expect(techStackChanged(['a'], null)).toBe(true)
   })
 })

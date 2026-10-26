@@ -1,9 +1,32 @@
 import { z } from 'zod'
 import type { PaymentMethod, UserProfileDto } from '@crm/shared'
-import { updateProfileSchema } from '@crm/shared'
+import { seniorTechStackSchema, updateProfileSchema } from '@crm/shared'
+import { translateZodMessage } from '@/lib/axios-utils'
 import type { Currency } from '@/components/ui/amount-currency-input'
 import { api } from '@/lib/axios'
 import type { Role } from '../constants'
+
+/**
+ * Inline SENIOR technology floor — the shared `seniorTechStackSchema`, so the
+ * form and the API count technologies the same way. `undefined` = valid.
+ * `original` is the stored user on edit: like the API (A1), a SENIOR whose stack
+ * and role are unchanged is not checked, so a legacy SENIOR below the floor can
+ * still save unrelated edits.
+ */
+export function seniorTechStackError(
+  role: string,
+  stack: readonly string[],
+  original?: { role: string; techStack: readonly string[] | null | undefined },
+): string | undefined {
+  if (role !== 'SENIOR') return undefined
+  const before = original?.techStack ?? []
+  const unchanged = stack.length === before.length && stack.every((tech, i) => tech === before[i])
+  if (original?.role === 'SENIOR' && unchanged) return undefined
+  const r = seniorTechStackSchema.safeParse([...stack])
+  return r.success
+    ? undefined
+    : r.error.issues.map((issue) => translateZodMessage(issue.message))[0]
+}
 
 export const telegramFieldSchema = updateProfileSchema.shape.telegram.unwrap().unwrap()
 export const phoneFieldSchema = z.string().max(30)

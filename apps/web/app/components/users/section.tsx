@@ -37,10 +37,13 @@ export function Field({
   error,
   required,
   hint,
+  errorId,
   children,
 }: {
   label: string
   error?: string | undefined
+  /** `id` of the error line, for the control's `aria-describedby`. */
+  errorId?: string | undefined
   required?: boolean | undefined
   /** Inline helper text below the label — shown before/instead of error. */
   hint?: string | undefined
@@ -54,7 +57,10 @@ export function Field({
       </Label>
       {children}
       {error ? (
-        <p className="text-xs text-destructive">{error}</p>
+        // A field wired by `errorId` (the tech stack) announces its error when it appears.
+        <p id={errorId} role={errorId ? 'alert' : undefined} className="text-xs text-destructive">
+          {error}
+        </p>
       ) : hint ? (
         <p className="text-xs text-muted-foreground">{hint}</p>
       ) : null}

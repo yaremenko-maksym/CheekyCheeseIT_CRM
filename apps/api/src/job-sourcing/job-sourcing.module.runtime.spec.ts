@@ -9,6 +9,7 @@ import { DatabaseService } from '../database/database.service'
 import { JobSourceAdminService } from './admin/job-source-admin.service'
 import { JobSourcingModule } from './job-sourcing.module'
 import { JobRunWorker } from './runtime/job-run-worker'
+import { RecomputeWorker } from './runtime/recompute-worker'
 
 /**
  * r5 Task 2.5 T7 — the REAL `JobSourcingModule` container, with a database service that behaves
@@ -69,6 +70,18 @@ describe('JobSourcingModule, booted: the ledger reaches the database the app ope
     // the worker's ledger is the same container's: its start-up recovery reads the database too
     await expect(moduleRef.get(JobRunWorker).start()).resolves.toBe(0)
     expect(execute).toHaveBeenCalled()
+
+    // Task 4.6 S4a: the recompute worker claims through the same initialised database.
+    execute.mockClear()
+    await expect(moduleRef.get(RecomputeWorker).runOnce()).resolves.toEqual({
+      claimed: 0,
+      done: 0,
+      deferred: 0,
+      retried: 0,
+      failed: 0,
+      fenced: 0,
+    })
+    expect(execute).toHaveBeenCalledTimes(1)
     await moduleRef.close()
   })
 })

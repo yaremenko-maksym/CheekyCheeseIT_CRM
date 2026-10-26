@@ -28,7 +28,12 @@ import { ApprovalsService } from '../approvals/approvals.service'
 import type { Locale } from '@crm/shared'
 import { NotificationsService } from '../notifications/notifications.service'
 import { AuditLogService } from './audit-log.service'
-import { assertAdminTargetEditableForRoleChange, assertAssignableRole } from './role-guards.util'
+import {
+  assertAdminTargetEditableForRoleChange,
+  assertAssignableRole,
+  assertSeniorTechFloor,
+  techStackChanged,
+} from './role-guards.util'
 import { UsersAccessService } from './users-access.service'
 import { UserProfileService } from './user-profile.service'
 import { SeniorShareChangeService } from './senior-share-change.service'
@@ -509,7 +514,15 @@ export class UsersService {
     if (data.displayName !== undefined) set.displayName = data.displayName
     if ('telegram' in data) set.telegram = data.telegram ?? null
     if ('phone' in data) set.phone = data.phone ?? null
-    if ('techStack' in data) set.techStack = data.techStack ?? null
+    if ('techStack' in data) {
+      // SENIOR technology floor on a self-edit of the stack (an unchanged resubmit passes).
+      const self = await this.findById(id)
+      if (!self) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
+      if (techStackChanged(data.techStack, self.techStack)) {
+        assertSeniorTechFloor(self.role, data.techStack ?? null)
+      }
+      set.techStack = data.techStack ?? null
+    }
     if ('avatarDocumentId' in data) {
       // Self-update: document must be owned by `id`.
       await assertAvatarDocument(this.db.db, data.avatarDocumentId ?? null, id)
@@ -583,6 +596,9 @@ export class UsersService {
 
     // (3)+(4) ADMIN targets are never editable here (another ADMIN / self-demotion).
     assertAdminTargetEditableForRoleChange(existing, actorId)
+
+    // SENIOR technology floor — only when the user BECOMES a SENIOR here.
+    if (existing.role !== 'SENIOR') assertSeniorTechFloor(role, existing.techStack)
 
     // (5) task-archived-user-completeness (AC2): an archived user's role is
     // frozen. Guards (1)–(4) are about privilege; this one is about money —

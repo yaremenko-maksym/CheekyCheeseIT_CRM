@@ -6210,7 +6210,7 @@ Sources: PR #1133 review round 1 (code-reviewer CR-M-2, spec-reviewer SPEC-M-1, 
 - **Still open — smaller items.** (a) `getSeniorSummary` keeps `salaryMonth` on the UTC month of `now` while the incomes use the Kyiv month, a 2-3 hour mismatch inside one response (CR-M-2 of #1143). (b) `PaySalaryDialog` compares the Kyiv 'today' with the UTC-day source key when choosing the default pay date (predates #1146). (c) The offset-keyed tests in `tx-date.test.ts` return silently in an unpinned developer zone; the `tz:*` projects pin the zone in CI. (d) The pin test's `value >= '2026-10-20'` default-date assertion is weaker than its two literal neighbours. (e) `new Date(...).toISOString()` in the dialog throws a `RangeError` on an unparseable `createdAt` and would break its rendering (existing behaviour). (f) A code comment in `PaySalaryDialog.tsx` quotes a Russian UI label; comments in the repo are English.
 - **Owner decisions this leaves.** (1) Move the server floor for NULL-`txDate` rows to the Kyiv business day (closes QA-LOW-1 and the two dialogs above in one change). (2) Backfill NULL `txDate` — a production-data operation — which would make the whole class, and the `kyivMonthOf` fallback branch, disappear.
 - **Addendum 2026-10-25 — both owner decisions approved; the fallback removal is the last step.** The backfill is staged in `apps/api/drizzle/manual-staged/` (PR #1158) and needs a DevOps PR to wire it; the NULL-`txDate` writers (company IOU rows, the salary cron) now persist a date. Delete the `kyivMonthOf` fallback, and the NULL branch of `businessMonthWindow`, only after the owner confirms on production that `SELECT count(*) FROM transactions WHERE tx_date IS NULL` returns 0 once the new API version is live. Verification: no reference to `kyivMonthOf` remains and the graph, tiles and senior stats still agree for a month-boundary row.
-- **Follow-up 2026-10-26 — de-wire the backfill (`ci/dewire-tx-date-kyiv-backfill`).** PR #1174 wires `2026-10-25_tx_date_kyiv_backfill.sql` into every deploy as a hard-required, run-once step (its backup table `_tx_date_kyiv_backfill_backup_20261025` is the run marker). Once the first production apply has succeeded, remove its apply block from `deploy-stack-on-vps.sh`, its copy step and rollback-preflight entry from `deploy.yml`, and its runbook mirror and apply-order entries, and add the file to `KNOWN_NOT_WIRED` with a reason, all in one PR. De-wiring is also the mandatory FIRST step of any rollback of the backfill. Verification: `check-prod-ddl-wiring.py` is green, and a `grep` for the file name in `.github/workflows/deploy.yml` and `scripts/devops/deploy-stack-on-vps.sh` finds nothing.
+- **Follow-up 2026-10-26 — de-wire the backfill (`ci/dewire-tx-date-kyiv-backfill`). DONE 2026-10-26.** The backfill was applied on production by deploy run 40319307008 (verified read-only: 0 NULL `tx_date`, backup table present) and then de-wired: the deploy no longer copies, applies or rollback-requires the file, which now sits in `KNOWN_NOT_WIRED` and stays in `drizzle/manual/` as history; the backup table is kept (privilege class E). Rollback to an image older than #1174 is allowed again, but only to one that writes no NULL `tx_date` — the first image containing #1159 (`810aabe3c`) or newer. The runbook keeps the NULL-count query as a manual health check, since no deploy step catches a returning NULL any more. Verification: `check-prod-ddl-wiring.py` is green and `grep` for the file name in `.github/workflows/deploy.yml` and `scripts/devops/deploy-stack-on-vps.sh` finds nothing. Original text: PR #1174 wires `2026-10-25_tx_date_kyiv_backfill.sql` into every deploy as a hard-required, run-once step (its backup table `_tx_date_kyiv_backfill_backup_20261025` is the run marker). Once the first production apply has succeeded, remove its apply block from `deploy-stack-on-vps.sh`, its copy step and rollback-preflight entry from `deploy.yml`, and its runbook mirror and apply-order entries, and add the file to `KNOWN_NOT_WIRED` with a reason, all in one PR. De-wiring is also the mandatory FIRST step of any rollback of the backfill. Verification: `check-prod-ddl-wiring.py` is green, and a `grep` for the file name in `.github/workflows/deploy.yml` and `scripts/devops/deploy-stack-on-vps.sh` finds nothing.
 - **Done 2026-10-26 — the month-level fallback is removed (`refactor/remove-kyiv-month-of-fallback`).** Precondition held: production had 0 NULL `tx_date` rows after the backfill. Behaviour now: the `@crm/shared` month helper `kyivMonthOf` no longer exists ("the Kyiv month of now" is the first seven characters of `kyivDayOf`); `transactionBusinessMonth` keys a row only by its `txDate` and **throws** on a NULL one, naming the row, so the summary graph and the senior stats fail loud instead of filing money under another clock; the accountant `paidThisMonth` tile compares `tx_date` alone, so a NULL row is **excluded** there; `businessMonthWindow` keeps both bound pairs, the date-only pair for `tx_date` and the instant pair for `validated_at`. Verification: `git grep kyivMonthOf -- apps packages` finds nothing, and the real-Postgres agreement spec proves the graph, the tiles and the senior stats file a row written at 22:30Z on 31 October (with the Kyiv-day `tx_date` the writer persists) in November. **Still open:** (1) a `NOT NULL` constraint on `transactions.tx_date` is an owner-gated production migration, not done; (2) the day-level `transactionBusinessDay` keeps its `createdAt` fallback because payout requests without a transaction call it with no `txDate` at all; (3) display and list-ordering readers (`txDate ?? createdAt`, and the `coalesce(tx_date, created_at)` sort/filter backed by an expression index) and the income-compliance month check still carry the coalesce: harmless with 0 NULL rows, removable together with (1).
 
 ## 339. The Arbeitnow 8 MiB cap is a declaration until Task 2.5 wires the transport (2026-10-24)
@@ -6346,3 +6346,40 @@ delta claim-step item (c) of 340 is not closed).
 
 Sources: PR #1153, #1160, #1161, #1162, #1165, #1169 review rounds (code, security and spec axes) and the
 2026-10-24 ADR "Job-source run ownership".
+
+## 342. Source-fetch units U1a and U6a: LOW findings, open owner questions, accepted legal risk (2026-10-26)
+
+**Open** — the LOW findings of the source-fetch units merged so far (U1a `nextSlot`, PR #1175; U6a Greenhouse
+list and detail by id, PR #1176), the strategy ADR's open owner questions, and one recorded owner decision.
+Each item names a symbol or behaviour.
+
+**U1a (`nextSlot`).**
+
+- `gridMinutes` is exported and could loop on a positive step too small to change the value, or on
+  `end = Infinity`. Callers pass finite integers today; bound it or make it module-private.
+- Offset zones such as `+05:00` are accepted by `Intl`, so they pass as zones. Decide whether the manifest
+  drift test should refuse them (the strategy ADR requires a named IANA zone).
+
+**U6a (Greenhouse adapter).**
+
+- The header comment of the Greenhouse adapter still says list+detail is "NOT built here".
+- A detail 404 caused by a deleted board returns 404 for every id of that board; the adapter cannot tell a
+  gone posting from a gone board.
+- A redundant `Number.isSafeInteger` check in the adapter.
+- `detailMode` is not checked against `DETAIL_MODES` at runtime (only by type).
+- A 410 maps to `FAILED` with an UPSTREAM class; decide whether it should be treated like a 404.
+
+**Open owner questions (strategy ADR, section "Open questions").**
+
+- **6, ADMIN alerts:** pending, re-asked in plain words; the recommendation stands (yes, to all admins).
+- **11, requests per minute per multi-board host:** recommended 2 per minute per site, raised in steps after
+  two weeks without a refusal.
+- **12, batch approval of the first live requests of boards:** irreversible in the sense of the owner's
+  supervised-first-request rule; without an answer no new board is contacted.
+
+**Owner decision recorded: the legal review of provider terms was SKIPPED.** The owner accepted the risk of
+DOU's automated-collection clause, Jobgether's machine-learning clause, Arbeitnow's non-commercial licence
+and Remotive's third-party clause. Revisit if a provider objects.
+
+Sources: PR #1175 and #1176 review rounds; `docs/architecture/2026-10-25-source-fetch-strategy.md`
+(Owner decisions, Open questions).

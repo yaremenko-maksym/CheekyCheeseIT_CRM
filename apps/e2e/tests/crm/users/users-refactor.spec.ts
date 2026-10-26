@@ -43,8 +43,8 @@ test.describe('Users page refactor (PR 2)', () => {
     }) => {
       await page.goto('/users')
       const row = page.getByTestId(`user-row-${USERS.senior.id}`)
-      // techStack = ['TypeScript', 'React'] should render as 2 pills, not a single
-      // bracket-wrapped string. Each tech token visible.
+      // techStack = ['TypeScript', 'React', 'Node.js'] should render as pills, not a
+      // single bracket-wrapped string. Each tech token visible.
       await expect(row.getByText('TypeScript', { exact: true })).toBeVisible()
       await expect(row.getByText('React', { exact: true })).toBeVisible()
     })

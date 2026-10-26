@@ -141,6 +141,14 @@ async function fillRequired(user: ReturnType<typeof userEvent.setup>) {
   await user.clear(phoneEl())
   await user.type(phoneEl(), '+380501234567')
   await user.type(screen.getByPlaceholderText('Іван Іваненко'), '  Іван Сеньйор ')
+  // A SENIOR needs at least 3 distinct technologies (shared floor).
+  await addTech(user, ...SENIOR_STACK)
+}
+
+const SENIOR_STACK = ['Rust', 'Elixir', 'Haskell']
+const techEl = () => screen.getByPlaceholderText('Почніть вводити: React, Node.js…')
+async function addTech(user: ReturnType<typeof userEvent.setup>, ...techs: string[]) {
+  for (const tech of techs) await user.type(techEl(), `${tech}{Enter}`)
 }
 
 beforeEach(async () => {
@@ -405,7 +413,7 @@ describe('HrCreateSeniorDialog submit', () => {
       role: 'SENIOR',
       telegram: '@senior_tg',
       phone: '+380501234567',
-      techStack: ['React'],
+      techStack: [...SENIOR_STACK, 'React'],
       seniorSharePercent: 40,
       hrIds: [HR_ID],
       accountantId: ACC_A,
@@ -427,6 +435,7 @@ describe('HrCreateSeniorDialog submit', () => {
     const view = renderDialog()
     await user.type(screen.getByPlaceholderText('senior@cheekycheese.dev'), 'sen@cheeky.dev')
     await user.type(screen.getByPlaceholderText('Іван Іваненко'), 'Іван Сеньйор')
+    await addTech(user, ...SENIOR_STACK)
     expect(phoneEl().value).toBe('+380')
     mockedPost.mockResolvedValue({ data: {} } as never)
     await user.click(screen.getByRole('button', { name: 'Створити' }))
@@ -449,7 +458,7 @@ describe('HrCreateSeniorDialog submit', () => {
     const payload = mockedPost.mock.calls[0]?.[1] as Record<string, unknown>
     expect(payload.telegram).toBe('@already')
     expect(payload.phone).toBeUndefined()
-    expect(payload.techStack).toBeUndefined()
+    expect(payload.techStack).toEqual(SENIOR_STACK)
     expect(payload.accountantId).toBeNull()
     expect(payload.seniorSharePercent).toBe(26)
   })
@@ -478,6 +487,7 @@ describe('HrCreateSeniorDialog submit', () => {
       displayName: 'Іван Сеньйор',
       role: 'SENIOR',
       phone: '+380501234567',
+      techStack: SENIOR_STACK,
       seniorSharePercent: 26,
       hrIds: [HR_ID],
       accountantId: null,
@@ -600,6 +610,7 @@ describe('HrCreateSeniorDialog data wiring and trimming', () => {
     expect(fieldError('Email')).toBeNull()
     await user.type(screen.getByPlaceholderText('Іван Іваненко'), 'Іван Сеньйор')
     await user.clear(phoneEl())
+    await addTech(user, ...SENIOR_STACK)
     await user.click(screen.getByRole('button', { name: 'Створити' }))
     await waitFor(() => expect(schemaSpy).toHaveBeenCalledTimes(1))
     expect(schemaSpy.mock.calls[0]?.[0]).toMatchObject({ email: 'pad@cheeky.dev' })
@@ -671,5 +682,59 @@ describe('HrCreateSeniorDialog while closed', () => {
     // Mount plus the query observer settling is 2 commits; an effect that seeds state while
     // closed would add more (4 with the open-gate removed).
     expect(onRender).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('HrCreateSeniorDialog — SENIOR technology floor (>= 3 distinct)', () => {
+  const FLOOR_UK = 'Сеньйору потрібно щонайменше 3 різні технології'
+
+  it('blocks submit with 2 distinct technologies and shows the error inline, tied to the input', async () => {
+    const user = userEvent.setup()
+    renderDialog()
+    await user.type(screen.getByPlaceholderText('senior@cheekycheese.dev'), 'sen@cheeky.dev')
+    await user.clear(phoneEl())
+    await user.type(screen.getByPlaceholderText('Іван Іваненко'), 'Іван Сеньйор')
+    // The chip input's own suggestions make typed duplicates unreliable here; dedup is pinned in @crm/shared.
+    await addTech(user, 'React', 'Go')
+    await user.click(screen.getByRole('button', { name: 'Створити' }))
+    const error = await screen.findByText(FLOOR_UK)
+    expect(techEl().getAttribute('aria-invalid')).toBe('true')
+    expect(techEl().getAttribute('aria-describedby')).toBe(error.id)
+    expect(error.id).not.toBe('')
+    // UX-L-1: announced when it appears.
+    expect(error.getAttribute('role')).toBe('alert')
+    // UX-M-2: focus moves from «Створити» to the invalid control…
+    await waitFor(() => expect(techEl()).toHaveFocus())
+    // …and is not stolen back while the user types elsewhere.
+    const telegram = screen.getByPlaceholderText('@username')
+    await user.click(telegram)
+    await user.type(telegram, 'abc')
+    expect(telegram).toHaveFocus()
+    expect(mockedPost).not.toHaveBeenCalled()
+  })
+
+  it('stays quiet while technologies are added before the first submit', async () => {
+    const user = userEvent.setup()
+    renderDialog()
+    await addTech(user, 'React')
+    expect(screen.queryByText(FLOOR_UK)).toBeNull()
+    expect(techEl().getAttribute('aria-describedby')).toBeNull()
+  })
+
+  it('clears the error once a third distinct technology is added, then submits', async () => {
+    const user = userEvent.setup()
+    renderDialog()
+    await user.type(screen.getByPlaceholderText('senior@cheekycheese.dev'), 'sen@cheeky.dev')
+    await user.clear(phoneEl())
+    await user.type(screen.getByPlaceholderText('Іван Іваненко'), 'Іван Сеньйор')
+    await addTech(user, 'React', 'Go')
+    await user.click(screen.getByRole('button', { name: 'Створити' }))
+    await screen.findByText(FLOOR_UK)
+    await addTech(user, 'Docker')
+    await waitFor(() => expect(screen.queryByText(FLOOR_UK)).toBeNull())
+    expect(techEl().getAttribute('aria-describedby')).toBeNull()
+    mockedPost.mockResolvedValue({ data: {} } as never)
+    await user.click(screen.getByRole('button', { name: 'Створити' }))
+    await waitFor(() => expect(mockedPost).toHaveBeenCalledTimes(1))
   })
 })

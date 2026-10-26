@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import type { MeterDb } from '../metering/account-meter.store'
 import type { SourceObservation } from '../normalize/observation'
+import { enqueueDirty } from '../ownership/dirty-work.store'
 import { type SavedPage, writePageProgress } from '../ownership/job-run-ledger'
 import { type OwnedRun, type RunHandle, assertOwned } from '../ownership/run-ownership'
 import type { SqlExecutor } from '../scheduling/host-state'
@@ -69,6 +70,8 @@ type Row = Record<string, unknown>
 interface PageContext {
   owned: OwnedRun
   type: unknown
+  /** The run's collection cycle, stamped on the dirty work the page produces. */
+  cycleId: string | undefined
 }
 
 async function pageContext(tx: SqlExecutor, h: RunHandle): Promise<PageContext> {
@@ -76,7 +79,11 @@ async function pageContext(tx: SqlExecutor, h: RunHandle): Promise<PageContext> 
   const { rows } = await tx.execute(
     sql`SELECT type FROM job_sources WHERE id = ${owned.sourceId}::uuid`,
   )
-  return { owned, type: rows[0]?.['type'] }
+  const { rows: cycle } = await tx.execute(
+    sql`SELECT cycle_id FROM job_collection_runs WHERE id = ${owned.runId}::uuid`,
+  )
+  const cycleId = cycle[0]?.['cycle_id']
+  return { owned, type: rows[0]?.['type'], cycleId: cycleId == null ? undefined : String(cycleId) }
 }
 
 /** Step 2: the record's id, inserting it if new. No CTE-visibility assumption. */
@@ -110,7 +117,7 @@ async function recordIdFor(
 /** Steps 2–7 for one observation, inside the caller's transaction, ownership already asserted. */
 async function writeObservation(
   tx: SqlExecutor,
-  owned: OwnedRun,
+  { owned, cycleId }: PageContext,
   o: SourceObservation,
 ): Promise<SavedObservation> {
   const p = revisionPayload(o)
@@ -209,14 +216,15 @@ async function writeObservation(
   )
 
   // 7. Dirty work in the producer's transaction, at the record's new observation sequence.
-  if (advanced) {
-    await tx.execute(
-      sql`INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason, cycle_id)
-          VALUES ('SOURCE_RECORD', ${record.id}::uuid, ${targetVersion}, ${SOURCE_REVISION_REASON},
-                  (SELECT cycle_id FROM job_collection_runs WHERE id = ${owned.runId}::uuid))
-          ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING`,
+  if (advanced)
+    await enqueueDirty(
+      tx,
+      'SOURCE_RECORD',
+      record.id,
+      targetVersion,
+      SOURCE_REVISION_REASON,
+      cycleId,
     )
-  }
   return {
     recordId: record.id,
     revisionId,
@@ -250,9 +258,9 @@ export async function saveObservation(
   h: RunHandle,
   o: SourceObservation,
 ): Promise<SavedObservation> {
-  const { owned, type } = await pageContext(tx, h)
-  assertPage([o], type)
-  return writeObservation(tx, owned, o)
+  const ctx = await pageContext(tx, h)
+  assertPage([o], ctx.type)
+  return writeObservation(tx, ctx, o)
 }
 
 /**
@@ -269,10 +277,10 @@ export async function saveObservations(
   observations: readonly SourceObservation[],
 ): Promise<SavedObservation[]> {
   assertPageSize(observations)
-  const { owned, type } = await pageContext(tx, h)
-  assertPage(observations, type)
+  const ctx = await pageContext(tx, h)
+  assertPage(observations, ctx.type)
   const saved: SavedObservation[] = []
-  for (const o of byNaturalKey(observations)) saved.push(await writeObservation(tx, owned, o))
+  for (const o of byNaturalKey(observations)) saved.push(await writeObservation(tx, ctx, o))
   return saved.map((s, i) => ({ ...s, superseded: saved[i + 1]?.recordId === s.recordId }))
 }
 

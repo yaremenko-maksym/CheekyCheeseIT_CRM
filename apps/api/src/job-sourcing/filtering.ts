@@ -50,6 +50,31 @@ export function companyAliases(posting: FilterablePosting): string[] {
   return companyNamesMatch(slug, posting.companyName) ? [] : [slug]
 }
 
+/** A stored (`job_exclusion_filters`) row, as the database returns it. */
+export interface ManualExclusionRow {
+  id: string
+  seniorId: string | null
+  kind: JobExclusionDto['kind']
+  value: string
+  normalizedValue: string
+  createdAt: Date
+}
+
+/** A stored row as the DTO every consumer applies: no senior = studio-wide (GLOBAL). */
+export function manualExclusionDto(row: ManualExclusionRow): JobExclusionDto {
+  return {
+    id: row.id,
+    scope: row.seniorId === null ? 'GLOBAL' : 'SENIOR',
+    seniorId: row.seniorId,
+    kind: row.kind,
+    value: row.value,
+    normalizedValue: row.normalizedValue,
+    origin: 'MANUAL',
+    sourceLabel: null,
+    createdAt: row.createdAt.toISOString(),
+  }
+}
+
 /**
  * Project rows a senior's derived exclusions are built from.
  * `archivedAt` is carried but NOT used to skip anything — see below.

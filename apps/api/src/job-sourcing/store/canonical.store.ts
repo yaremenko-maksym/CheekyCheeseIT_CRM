@@ -1,6 +1,7 @@
 import { type SQL, sql } from 'drizzle-orm'
 import { IDENTITY_RULES_VERSION, canAttach } from '../identity/resolver'
 import type { MeterDb } from '../metering/account-meter.store'
+import { enqueueDirty } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
   type ActiveLink,
@@ -262,11 +263,7 @@ const fieldValues = (c: CanonicalFields) => sql`
   field_revisions = ${JSON.stringify(c.fieldRevisions)}::jsonb`
 
 async function enqueueOpportunity(tx: SqlExecutor, id: string, revision: number): Promise<void> {
-  await tx.execute(
-    sql`INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason)
-        VALUES ('OPPORTUNITY', ${id}::uuid, ${revision}, ${CANONICAL_REVISION_REASON})
-        ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING`,
-  )
+  await enqueueDirty(tx, 'OPPORTUNITY', id, revision, CANONICAL_REVISION_REASON)
 }
 
 /** A new opportunity from one member (the default: distinct). Revision 1, enqueued. */
