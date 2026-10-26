@@ -63,15 +63,25 @@ function uniqueSuffix(): string {
 }
 
 /**
- * A random year + month among the salary picker's selectable range
- * (currentYear-3 .. currentYear+1, 60 combinations) — `createSalary` enforces
- * ONE reminder per (receiver, month), so a fixed month would collide across
- * repeated test runs (and with itself across `--repeat-each`). Random, not
- * sequential, so parallel workers can't collide either. The picker (unlike the
- * old native month input) cannot reach the far future, so the range is the
- * widest one the UI offers.
+ * A random YYYY-MM far outside the seed data's real range (2025/2026) and
+ * spread across ~720 combinations — `createSalary` enforces ONE reminder per
+ * (receiver, month), so a fixed month would collide across repeated test
+ * runs (and with itself across `--repeat-each`). Random, not sequential, so
+ * parallel workers can't collide either.
  */
-function randomSalaryMonth(): { year: number; month: string } {
+function randomSalaryMonth(): string {
+  const year = 2030 + Math.floor(Math.random() * 60)
+  const month = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0')
+  return `${year}-${month}`
+}
+
+/**
+ * Same idea for the create-transaction dialog: the month picker only offers
+ * currentYear-3 .. currentYear+1 (60 combinations), so a UI-driven test cannot
+ * reach the far-future months `randomSalaryMonth` uses. Returns the year and the
+ * zero-padded month to select by testid.
+ */
+function randomPickerMonth(): { year: number; month: string } {
   const year = new Date().getFullYear() - 3 + Math.floor(Math.random() * 5)
   const month = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0')
   return { year, month }
@@ -291,7 +301,7 @@ test.describe('Transaction receipts — create-block без чека (mandatory)
     // run's reminder for whichever receiver happens to be "first" in the
     // list. Force a random far-future month so this test never collides with
     // itself or with any other spec/run.
-    const { year, month } = randomSalaryMonth()
+    const { year, month } = randomPickerMonth()
     await dialog.getByTestId('create-transaction-salary-year-select').click()
     await page.getByTestId(`salary-year-option-${year}`).click()
     await dialog.getByTestId('create-transaction-salary-month-select').click()
