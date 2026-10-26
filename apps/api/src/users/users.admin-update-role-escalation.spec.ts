@@ -64,7 +64,7 @@ const makeDbUser = (id: string, role: string) => ({
   googleId: `g-${id}`,
   telegram: null,
   phone: null,
-  techStack: null,
+  techStack: ['TypeScript', 'Go', 'PostgreSQL'],
   seniorSharePercent: 26,
   dropSharePercent: 5,
   monthlySalary: null,

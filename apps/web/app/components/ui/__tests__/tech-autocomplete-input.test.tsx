@@ -245,3 +245,24 @@ describe('TechAutocompleteInput — placeholder + chip remove button labels', ()
     expect(screen.getByLabelText('Видалити TypeScript')).toBeInTheDocument()
   })
 })
+
+describe('TechAutocompleteInput — invalid state (UX-M-1)', () => {
+  it('with an errorId the input takes the same destructive border as neighbouring inputs', () => {
+    render(<TechAutocompleteInput value={[]} onChange={() => {}} errorId="err-1" />, {
+      wrapper: I18nTestProvider,
+    })
+    const input = screen.getByRole('textbox')
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+    expect(input.className).toContain('border-destructive')
+    expect(input.className).toContain('focus-visible:ring-destructive/30')
+  })
+
+  it('without an errorId it keeps the neutral border', () => {
+    render(<TechAutocompleteInput value={[]} onChange={() => {}} />, {
+      wrapper: I18nTestProvider,
+    })
+    const input = screen.getByRole('textbox')
+    expect(input.getAttribute('aria-invalid')).toBeNull()
+    expect(input.className).not.toContain('border-destructive')
+  })
+})

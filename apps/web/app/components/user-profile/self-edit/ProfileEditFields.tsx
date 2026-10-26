@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { Input } from '@/components/ui/input'
@@ -7,6 +7,7 @@ import { PhoneInput } from '@/components/ui/phone-input'
 import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 import type { UserProfileDto } from '@crm/shared'
 import { useUpdateMe } from '@/hooks/use-user-profile'
+import { seniorTechStackError } from '@/components/users/user-dialog/validation'
 
 export function ProfileEditFields({ user }: { user: UserProfileDto }) {
   const { t } = useLingui()
@@ -19,6 +20,8 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
     (user.phone as PhoneValue | undefined) ?? ('' as PhoneValue),
   )
   const [techStack, setTechStack] = useState<string[]>(user.techStack ?? [])
+  const [techError, setTechError] = useState<string | undefined>(undefined)
+  const techErrorId = useId()
 
   useEffect(
     () => () => {
@@ -27,9 +30,30 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
     [],
   )
 
+  const pendingPatchRef = useRef<Record<string, unknown> | null>(null)
+
   function scheduleSave(patch: Record<string, unknown>) {
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => mutation.mutate(patch as never), 800)
+    // One slot, merged: an edit of another field within the debounce is kept, not overwritten (QA-L-3).
+    const merged = { ...pendingPatchRef.current, ...patch }
+    pendingPatchRef.current = merged
+    debounceRef.current = setTimeout(() => {
+      pendingPatchRef.current = null
+      mutation.mutate(merged as never)
+    }, 800)
+  }
+
+  /** Drops a pending save of an earlier stack, so the server never gets a stack the chips no longer show. */
+  function cancelPendingTechStackSave() {
+    const pending = pendingPatchRef.current
+    if (pending && 'techStack' in pending) {
+      // A pending patch always has its timer, so no null check is needed here.
+      clearTimeout(debounceRef.current ?? undefined)
+      pendingPatchRef.current = null
+      // Other fields in the same pending save (name, phone…) still go out.
+      const { techStack: _dropped, ...rest } = pending
+      if (Object.keys(rest).length > 0) scheduleSave(rest)
+    }
   }
 
   return (
@@ -96,17 +120,33 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
       </div>
 
       <div className="space-y-1.5">
-        <Label>
+        <Label className={techError ? 'text-destructive' : undefined}>
           <Trans>Технології</Trans>
         </Label>
         <TechAutocompleteInput
           value={techStack}
           onChange={(next) => {
             setTechStack(next)
-            scheduleSave({ techStack: next })
+            // A SENIOR below the shared floor is not saved — the API would refuse it — and
+            // the message says so (CR-M-1).
+            const invalid = seniorTechStackError(user.role, next, user) !== undefined
+            setTechError(
+              invalid
+                ? t`Не збережено: сеньйору потрібно щонайменше 3 різні технології`
+                : undefined,
+            )
+            if (invalid) cancelPendingTechStackSave()
+            else scheduleSave({ techStack: next })
           }}
           placeholder={t`Почніть вводити: React, Node.js…`}
+          errorId={techError ? techErrorId : undefined}
         />
+        {techError && (
+          // role="status" (polite): it appears while the user is still editing, so it must not interrupt.
+          <p id={techErrorId} role="status" className="text-xs text-destructive">
+            {techError}
+          </p>
+        )}
       </div>
     </div>
   )
