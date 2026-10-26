@@ -490,7 +490,8 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   SENIOR_MIN_TECHNOLOGIES: /* i18n */ {
     id: 'api-error.SENIOR_MIN_TECHNOLOGIES',
-    message: 'Сеньйору потрібно щонайменше 3 різні технології',
+    // No-break spaces keep «3 різні технології» on one line (COPY-L-1).
+    message: 'Сеньйору потрібно щонайменше 3 різні технології',
   },
   SENIOR_NOT_FOUND: /* i18n */ {
     id: 'api-error.SENIOR_NOT_FOUND',

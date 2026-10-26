@@ -331,7 +331,8 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   SENIOR_MIN_TECHNOLOGIES: /* i18n */ {
     id: 'zod-error.SENIOR_MIN_TECHNOLOGIES',
-    message: 'Сеньйору потрібно щонайменше 3 різні технології',
+    // No-break spaces keep «3 різні технології» on one line (COPY-L-1).
+    message: 'Сеньйору потрібно щонайменше 3 різні технології',
   },
   DROP_TEAM_ID_REQUIRED: /* i18n */ {
     id: 'zod-error.DROP_TEAM_ID_REQUIRED',

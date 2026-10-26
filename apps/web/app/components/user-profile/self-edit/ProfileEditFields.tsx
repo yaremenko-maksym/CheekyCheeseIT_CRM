@@ -30,9 +30,23 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
     [],
   )
 
+  const pendingPatchRef = useRef<Record<string, unknown> | null>(null)
+
   function scheduleSave(patch: Record<string, unknown>) {
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => mutation.mutate(patch as never), 800)
+    pendingPatchRef.current = patch
+    debounceRef.current = setTimeout(() => {
+      pendingPatchRef.current = null
+      mutation.mutate(patch as never)
+    }, 800)
+  }
+
+  /** Drops a pending save of an earlier stack, so the server never gets a stack the chips no longer show. */
+  function cancelPendingTechStackSave() {
+    if (pendingPatchRef.current && 'techStack' in pendingPatchRef.current) {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      pendingPatchRef.current = null
+    }
   }
 
   return (
@@ -106,10 +120,16 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
           value={techStack}
           onChange={(next) => {
             setTechStack(next)
-            // A SENIOR below the shared floor is not saved — the API would refuse it.
-            const err = seniorTechStackError(user.role, next, user)
-            setTechError(err)
-            if (!err) scheduleSave({ techStack: next })
+            // A SENIOR below the shared floor is not saved — the API would refuse it — and
+            // the message says so (CR-M-1).
+            const invalid = seniorTechStackError(user.role, next, user) !== undefined
+            setTechError(
+              invalid
+                ? t`Не збережено: сеньйору потрібно щонайменше 3 різні технології`
+                : undefined,
+            )
+            if (invalid) cancelPendingTechStackSave()
+            else scheduleSave({ techStack: next })
           }}
           placeholder={t`Почніть вводити: React, Node.js…`}
           errorId={techError ? techErrorId : undefined}

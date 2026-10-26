@@ -11632,6 +11632,10 @@ msgstr "Edit vacancy"
 msgid "Сеньйор"
 msgstr "Senior"
 
+#: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
+msgid "Не збережено: сеньйору потрібно щонайменше 3 різні технології"
+msgstr "Not saved: a senior needs at least 3 different technologies"
+
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "РНОКПП (10 цифр)"
 msgstr "Tax ID (RNOKPP, 10 digits)"
