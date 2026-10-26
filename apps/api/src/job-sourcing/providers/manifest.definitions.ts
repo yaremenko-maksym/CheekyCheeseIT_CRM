@@ -277,6 +277,9 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: 'job-board-api',
     scopeKind: 'BOARD',
     hostKey: () => 'boards-api.greenhouse.io',
+    // ADR 6a: U10 flips this to ON_DEMAND; until then the adapter reads `content=true`.
+    detailMode: 'IN_LIST',
+    detailPerRun: 5,
     entries: [
       board(
         'greenhouse.board.stripe',

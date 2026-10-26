@@ -1,7 +1,11 @@
 import { z } from 'zod'
 import { ORIGINAL_LIMITS } from '../../normalize/observation'
 import { type ApiJsonSourceSpec, defineApiJsonProvider } from '../api-json.provider'
-import { atsBoardConfigSchema, GREENHOUSE_KIND, presentStrings } from './ats-config'
+import { DEFAULT_API_JSON_LIMITS } from '../api-json.limits'
+import { parseBoundedJson } from '../bounded-json'
+import type { DetailMode } from '../detail-mode'
+import type { CollectionContext, FetchRequest } from '../reporting-provider'
+import { atsBoardConfigSchema, atsBoardSlug, GREENHOUSE_KIND, presentStrings } from './ats-config'
 import { boundedString, dateRaw, optionalString, positiveSafeInt, urlString } from './as'
 
 /**
@@ -108,24 +112,44 @@ function employerOf(item: Item, config: Config): string | null {
   return fromPayload === '' ? (config.employer?.name ?? null) : fromPayload
 }
 
-export const greenhouseSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
-  type: 'GREENHOUSE_ATS',
-  adapterVersion: GREENHOUSE_ADAPTER_VERSION,
-  configSchema,
-  envelopeSchema,
-  itemSchema,
-  limits: GREENHOUSE_LIMITS,
-  pageRequest: (config: Config) => ({
-    request: {
-      url: `https://${HOST}/v1/boards/${config.board}/jobs?content=true`,
-      headers: { accept: 'application/json' },
-    },
-    cacheKey: 'board',
-  }),
-  extractItems: (envelope) => envelope.jobs,
-  nextCursor: () => null,
-  nativeIdOf: (item) => String(item.id),
-  mapItem: (item, config) => ({
+const listUrl = (board: string, mode: DetailMode) =>
+  `https://${HOST}/v1/boards/${board}/jobs${mode === 'IN_LIST' ? '?content=true' : ''}`
+
+/**
+ * `ON_DEMAND` (ADR 6a) reads the list WITHOUT `content`: the posting is stored with its list fields
+ * and no description, which `fetchGreenhouseDetail` supplies later. `IN_LIST` is today's request,
+ * byte for byte, and keeps today's adapter version.
+ */
+function specFor(mode: DetailMode): ApiJsonSourceSpec<Config, Envelope, Item> {
+  return {
+    type: 'GREENHOUSE_ATS',
+    adapterVersion: mode === 'IN_LIST' ? GREENHOUSE_ADAPTER_VERSION : 'greenhouse-2',
+    configSchema,
+    envelopeSchema,
+    itemSchema,
+    limits: GREENHOUSE_LIMITS,
+    pageRequest: (config: Config) => ({
+      request: {
+        url: listUrl(config.board, mode),
+        headers: { accept: 'application/json' },
+      },
+      cacheKey: 'board',
+    }),
+    extractItems: (envelope) => envelope.jobs,
+    nextCursor: () => null,
+    nativeIdOf: (item) => String(item.id),
+    mapItem: mapGreenhouseItem,
+    scopeOf: (config) => ({
+      namespace: config.namespace,
+      query: null,
+      configVersion: config.configVersion,
+      window: null,
+    }),
+  }
+}
+
+function mapGreenhouseItem(item: Item, config: Config) {
+  return {
     namespace: config.namespace,
     nativeId: String(item.id),
     url: item.absolute_url,
@@ -136,16 +160,101 @@ export const greenhouseSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     description: item.content === null ? null : decodeEscapedOnce(item.content),
     tags: presentStrings(item.departments?.map((d) => d.name)),
     dates: [
-      { raw: item.first_published, contract: 'ISO_ZONED', semantics: 'PUBLISHED' },
-      { raw: item.updated_at, contract: 'ISO_ZONED', semantics: 'UPDATED' },
+      {
+        raw: item.first_published,
+        contract: 'ISO_ZONED' as const,
+        semantics: 'PUBLISHED' as const,
+      },
+      { raw: item.updated_at, contract: 'ISO_ZONED' as const, semantics: 'UPDATED' as const },
     ],
-  }),
-  scopeOf: (config) => ({
-    namespace: config.namespace,
-    query: null,
-    configVersion: config.configVersion,
-    window: null,
-  }),
+  }
 }
 
+export const greenhouseSpec = specFor('IN_LIST')
+
 export const greenhouseProvider = defineApiJsonProvider(greenhouseSpec)
+
+/** The provider for a mode. U10 passes the manifest's `detailMode`; `greenhouseProvider` is `IN_LIST`. */
+export const createGreenhouseProvider = (mode: DetailMode) => defineApiJsonProvider(specFor(mode))
+
+// ---------------------------------------------------------------------------
+// Detail by id (ADR 6a). Not called by the routine run: U10 wires the trigger.
+// ---------------------------------------------------------------------------
+
+const boardToken = atsBoardSlug(GREENHOUSE_KIND)
+const detailIdSchema = positiveSafeInt()
+
+/**
+ * `GET https://boards-api.greenhouse.io/v1/boards/{token}/jobs/{id}`: ONE posting, whole. Pure, and
+ * built only from a validated token and a positive integer, never from response text, so the host
+ * stays this file's. Same headers and byte cap as the list; no credential.
+ */
+export function greenhouseDetailRequest(board: string, id: number): FetchRequest {
+  if (!boardToken.safeParse(board).success)
+    throw new Error('greenhouse detail: invalid board token')
+  if (!detailIdSchema.safeParse(id).success || !Number.isSafeInteger(id)) {
+    throw new Error('greenhouse detail: invalid id')
+  }
+  return {
+    url: `https://${HOST}/v1/boards/${board}/jobs/${id}`,
+    headers: { accept: 'application/json' },
+    maxBytes: GREENHOUSE_LIMITS.maxBytes,
+  }
+}
+
+export type GreenhouseDetail =
+  | { kind: 'FOUND'; fields: ReturnType<typeof mapGreenhouseItem> }
+  /** 404: the posting is gone. An answer, recorded as availability evidence, never retried. */
+  | { kind: 'GONE' }
+  | {
+      kind: 'FAILED'
+      code: 'UPSTREAM' | 'PARSE_DRIFT' | 'PAYLOAD_TOO_LARGE'
+      message: string
+      status: number
+    }
+
+const failed = (
+  code: 'UPSTREAM' | 'PARSE_DRIFT' | 'PAYLOAD_TOO_LARGE',
+  message: string,
+  status: number,
+): GreenhouseDetail => ({ kind: 'FAILED', code, message, status })
+
+/**
+ * One detail response, judged from its STATUS first and its body second. 401/403/429/451 never get
+ * here: the production context throws them typed and bans the host, and `fetchGreenhouseDetail`
+ * lets that propagate.
+ */
+export function parseGreenhouseDetail(
+  config: Config,
+  id: number,
+  response: { status: number; bodyText: string },
+): GreenhouseDetail {
+  const { status, bodyText } = response
+  if (status === 404) return { kind: 'GONE' }
+  if (status < 200 || status >= 300) {
+    return failed('UPSTREAM', `provider answered HTTP ${status}`, status)
+  }
+  const json = parseBoundedJson(bodyText, {
+    ...DEFAULT_API_JSON_LIMITS,
+    maxBytes: GREENHOUSE_LIMITS.maxBytes,
+  })
+  if (!json.ok) {
+    const code = json.reason === 'TOO_MANY_BYTES' ? 'PAYLOAD_TOO_LARGE' : 'PARSE_DRIFT'
+    return failed(code, json.detail, status)
+  }
+  const item = itemSchema.safeParse(json.value)
+  if (!item.success) return failed('PARSE_DRIFT', 'the posting does not match the contract', status)
+  if (item.data.id !== id)
+    return failed('PARSE_DRIFT', 'the posting is not the one asked for', status)
+  return { kind: 'FOUND', fields: mapGreenhouseItem(item.data, config) }
+}
+
+/** Request and judge one posting's detail. Transport refusals propagate untouched. */
+export async function fetchGreenhouseDetail(
+  ctx: Pick<CollectionContext, 'fetchText'>,
+  config: Config,
+  id: number,
+): Promise<GreenhouseDetail> {
+  const response = await ctx.fetchText(greenhouseDetailRequest(config.board, id))
+  return parseGreenhouseDetail(config, id, response)
+}
