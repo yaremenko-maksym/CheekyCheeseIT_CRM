@@ -37,7 +37,16 @@ function harness(rows: Record<string, unknown>[] = [], resetRows: unknown[] = [{
   const database = { db: { execute, transaction } } as unknown as DatabaseService
   // T7: the service runs on THE ledger; its catalog gives the provider floor OVERDUE applies.
   const catalog = new SpecCatalog()
-  catalog.add('remotive.api.software-dev', { floorHours: 60, intervalHours: 24 })
+  catalog.add('remotive.api.software-dev', {
+    floorHours: 60,
+    fetchProfile: {
+      intervalMinutes: 1440,
+      offIntervalMinutes: null,
+      window: null,
+      fixedSlots: { timeZone: 'UTC', times: ['00:00'] },
+    },
+  })
+  catalog.add('unscheduled.entry', { fetchProfile: null })
   const ledger = new JobRunLedger(database.db as unknown as MeterDb, specRegistry([]), catalog)
   return {
     service: new JobSourceAdminService(database, ledger),
@@ -102,26 +111,33 @@ describe('listExcluded — the row mapping', () => {
     expect((await h.service.listExcluded(ADMIN)).map((r) => r.reasons)).toEqual([[reason]])
   })
 
-  it('OVERDUE is measured at the provider floor the ledger runs the source at (T9 CR-M-2)', async () => {
-    // due 5 days ago. Stored cadence 24 h: overdue past 48 h. The catalog entry's floor is 60 h, so
-    // the real cadence is 60 h and overdue starts only past 120 h.
+  it('OVERDUE is two of the ledger`s own slots past due, at the provider floor (T9 CR-M-2, U1b)', async () => {
+    // Due 2026-10-20 00:00 UTC; one slot a day at 00:00 UTC, floor 60 h. Slot 1: the first 00:00
+    // after 10-22 12:00 = 10-23 00:00 (+72 h). Slot 2: the first 00:00 after 10-25 12:00 =
+    // 10-26 00:00 (+144 h). Overdue only past +144 h.
     const at = (hours: number) =>
       row({ overdue: true, manifest_id: 'remotive.api.software-dev', now_ms: NEXT + hours * HOUR })
-    const h = harness([at(119), at(121)])
+    const h = harness([at(143), at(144), at(145)])
     const out = await h.service.listExcluded(ADMIN)
     expect(out.map((r) => r.reasons)).toEqual([['OVERDUE']])
   })
 
-  it('without a catalog entry the stored cadence stands; an unusable one falls back to 24 h', async () => {
+  it('without a catalog entry the ledger`s daily fallback applies; min_interval_hours is not read', async () => {
     const h = harness([
       row({ overdue: true, now_ms: NEXT + 48 * HOUR }), // exactly two cadences: not yet
       row({ overdue: true, now_ms: NEXT + 47 * HOUR }),
       row({ overdue: true, now_ms: NEXT + 49 * HOUR }),
-      row({ overdue: true, min_interval_hours: null, now_ms: NEXT + 49 * HOUR }),
-      row({ overdue: true, min_interval_hours: 10, now_ms: NEXT + 21 * HOUR }),
+      row({ overdue: true, min_interval_hours: 1, now_ms: NEXT + 21 * HOUR }),
       row({ overdue: true, manifest_id: 'no.such.entry', now_ms: NEXT + 49 * HOUR }),
     ])
-    expect((await h.service.listExcluded(ADMIN)).length).toBe(4)
+    expect((await h.service.listExcluded(ADMIN)).length).toBe(2)
+  })
+
+  it('a null-profile source (owner, Q8) is never overdue: it has no next slot', async () => {
+    const h = harness([
+      row({ overdue: true, manifest_id: 'unscheduled.entry', now_ms: NEXT + 1000 * HOUR }),
+    ])
+    expect(await h.service.listExcluded(ADMIN)).toEqual([])
   })
 
   it('projects the allow-listed columns, instants as ISO strings', async () => {
@@ -182,7 +198,7 @@ describe('listExcluded — the row mapping', () => {
       expect.arrayContaining([
         3,
         24,
-        '{MANIFEST_ENTRY_MISSING,NOT_ACTIVATABLE,READINESS_BLOCKED,TRANSPORT_NOT_WIRED,METER_MISSING,HOST_KEY_MISSING,HOST_PAUSED,HOST_BUSY,HOST_RATE_GAP,HOST_DAILY_CAP}',
+        '{MANIFEST_ENTRY_MISSING,NOT_ACTIVATABLE,READINESS_BLOCKED,TRANSPORT_NOT_WIRED,METER_MISSING,HOST_KEY_MISSING,HOST_PAUSED,HOST_BUSY,HOST_RATE_GAP,HOST_DAILY_CAP,NOT_SCHEDULED}',
       ]),
     )
   })

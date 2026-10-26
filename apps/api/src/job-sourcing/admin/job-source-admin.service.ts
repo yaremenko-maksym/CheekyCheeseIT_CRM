@@ -8,9 +8,8 @@ import type {
 import { sql } from 'drizzle-orm'
 import { DatabaseService } from '../../database/database.service'
 import { JobRunLedger } from '../ownership/job-run-ledger'
-import { CLAIM_REFUSALS } from '../ownership/ledger-policy'
+import { CLAIM_REFUSALS, nextAttemptAt } from '../ownership/ledger-policy'
 import { MAX_CONSECUTIVE_FAILURES } from '../scheduling/due-policy'
-import { cadenceHoursAtFloor } from '../scheduling/host-state'
 
 /**
  * ADMIN controls over the run ledger (r5 Task 2.5 T9; ADR
@@ -25,10 +24,6 @@ import { cadenceHoursAtFloor } from '../scheduling/host-state'
  */
 
 const REFUSAL_CODES = `{${CLAIM_REFUSALS.join(',')}}`
-
-/** The cadence fallback of a NULL or unusable `min_interval_hours` (the manifest entry default). */
-const DEFAULT_CADENCE_HOURS = 24
-const HOUR_MS = 3_600_000
 
 /** Instants are read as epoch milliseconds: the driver's timestamptz parsing is not relied on. */
 const iso = (ms: unknown): string | null =>
@@ -69,17 +64,16 @@ export class JobSourceAdminService {
   /**
    * Sources the ledger is not running, each with every reason that applies; capped ones first.
    * OVERDUE is "due for more than 2 cadences" at the cadence the ledger actually runs the source at
-   * (T7, T9 CR-M-2 / SPEC-L-1): T8's `cadenceHoursAtFloor` over the stored `min_interval_hours`, the
-   * catalog entry's provider floor and its default interval. The SQL pre-selects on the stored
-   * cadence (24 h when unusable), a superset because a floor only lengthens a cadence and no catalog
-   * interval is below 24 h; the floor is then applied here, and a row left with no reason is dropped.
+   * (T7, T9 CR-M-2 / SPEC-L-1; U1b): two slots of the ledger's own `nextAttemptAt` past the due
+   * time. The SQL pre-selects every source past due (a superset); the slots are applied here, and a
+   * row left with no reason is dropped.
    */
   async listExcluded(actor: SessionUser): Promise<ExcludedJobSourceDto[]> {
     this.assertAdmin(actor)
     const { rows } = await this.database.db.execute(sql`
       SELECT * FROM (
         SELECT s.id, s.type, s.host_key, s.consecutive_failures, s.last_error_code, s.next_attempt_at,
-               s.manifest_id, s.min_interval_hours,
+               s.manifest_id,
                (extract(epoch FROM clock_timestamp()) * 1000)::float8 AS now_ms,
                (extract(epoch FROM s.next_attempt_at) * 1000)::float8 AS next_attempt_ms,
                CASE WHEN h.paused_until > clock_timestamp()
@@ -90,9 +84,7 @@ export class JobSourceAdminService {
                COALESCE(h.paused_until > clock_timestamp(), false) AS host_paused,
                COALESCE(s.last_error_code = ANY(${REFUSAL_CODES}::text[]), false) AS refused,
                COALESCE(s.enabled AND s.admin_state = 'ACTIVE'
-                 AND s.next_attempt_at < clock_timestamp() - make_interval(hours => 2 *
-                   CASE WHEN s.min_interval_hours BETWEEN 1 AND 8760 THEN s.min_interval_hours
-                        ELSE ${DEFAULT_CADENCE_HOURS} END), false) AS overdue
+                 AND s.next_attempt_at < clock_timestamp(), false) AS overdue
           FROM job_sources s
           LEFT JOIN job_source_hosts h ON h.host_key = s.host_key
       ) x
@@ -122,15 +114,18 @@ export class JobSourceAdminService {
     })
   }
 
-  /** Overdue at the floored cadence: past `next_attempt_at` by more than two cadences (DB clock). */
+  /**
+   * Overdue: two whole slots of the source's own schedule have passed since it was due (DB clock).
+   * U1b: the slots are the ledger's own (`nextAttemptAt`: the profile, the floor, the manifest id),
+   * so the listing and the ledger never disagree; `min_interval_hours` is not read. A null-profile
+   * source has no next slot and is never overdue.
+   */
   private overdueAtFloor(r: Record<string, unknown>): boolean {
-    // A NULL manifest id resolves to no entry; a NULL or non-integer interval is "unusable" to T8.
-    const entry = this.ledger.catalog.entry(r['manifest_id'] as string)
-    const { hours } = cadenceHoursAtFloor(
-      r['min_interval_hours'] as number | null,
-      entry?.floorHours ?? 0,
-      entry?.intervalHours ?? DEFAULT_CADENCE_HOURS,
-    )
-    return Number(r['now_ms']) - Number(r['next_attempt_ms']) > 2 * hours * HOUR_MS
+    const manifestId = String(r['manifest_id'])
+    // A NULL manifest id resolves to no entry: the ledger's daily fallback.
+    const entry = this.ledger.catalog.entry(manifestId)
+    const first = nextAttemptAt(new Date(Number(r['next_attempt_ms'])), manifestId, entry)
+    const second = first === null ? null : nextAttemptAt(first, manifestId, entry)
+    return second !== null && Number(r['now_ms']) > second.getTime()
   }
 }

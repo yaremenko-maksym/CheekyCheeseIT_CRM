@@ -5,6 +5,7 @@ import type { ActivationFacts } from '../registry/activation'
 import { LegacyDouAdapter, ReportingAdapter } from '../registry/registered-adapter'
 import type { ReportingJobSourceProvider } from '../providers/reporting-provider'
 import type { JobSourceProvider } from '../job-source.provider'
+import { nextSlot } from '../scheduling/next-slot'
 import type { LedgerCatalogEntry } from './ledger-catalog'
 import {
   CLAIM_REFUSALS,
@@ -12,7 +13,9 @@ import {
   backoffMs,
   claimGate,
   endingEffect,
+  nextAttemptAt,
   refusalWrite,
+  SLOWDOWN_LEVEL_BEFORE_U2,
   resolveLedgerOptions,
   validateEnding,
 } from './ledger-policy'
@@ -48,6 +51,92 @@ const wired = (type: JobSourceType = 'REMOTIVE_API') =>
 
 const gate = (over: Partial<Parameters<typeof claimGate>[0]> = {}) =>
   claimGate({ adapter: wired(), entry: entry(), dbNow: NOW, meterKey: null, ...over })
+
+describe('U1b: a null fetch profile is never claimed by schedule (owner, Q8)', () => {
+  const unscheduled = entry({ fetchProfile: null })
+
+  it('a scheduled claim of a null-profile source is refused NOT_SCHEDULED', () => {
+    expect(gate({ entry: unscheduled, scheduled: true })).toBe('NOT_SCHEDULED')
+  })
+
+  it('a manual claim of the same source is not refused for its profile', () => {
+    expect(gate({ entry: unscheduled, scheduled: false })).toBeNull()
+    expect(gate({ entry: unscheduled })).toBeNull()
+  })
+
+  it('a scheduled claim of a source with a profile passes', () => {
+    expect(gate({ scheduled: true })).toBeNull()
+  })
+
+  it('the readiness refusal still comes first for a blocked null-profile entry', () => {
+    const blocked = entry({ fetchProfile: null, entryReadiness: () => 'BLOCKED' })
+    expect(gate({ entry: blocked, scheduled: true })).toBe('READINESS_BLOCKED')
+  })
+
+  it('NOT_SCHEDULED is a recorded refusal, rechecked like every persistent one', () => {
+    expect(CLAIM_REFUSALS).toContain('NOT_SCHEDULED')
+    expect(refusalWrite('NOT_SCHEDULED', null)).toEqual({ kind: 'RECHECK' })
+  })
+})
+
+describe('U1b: nextAttemptAt — the cadence a finish writes, from the profile', () => {
+  // Tuesday 2027-03-09 10:20 Berlin (UTC+1) = 09:20 UTC.
+  const TUE_1020_BERLIN = new Date('2027-03-09T09:20:00.000Z')
+  const berlin = {
+    intervalMinutes: 60,
+    offIntervalMinutes: 180,
+    window: {
+      timeZone: 'Europe/Berlin',
+      days: ['MON', 'TUE', 'WED', 'THU', 'FRI'] as ('MON' | 'TUE' | 'WED' | 'THU' | 'FRI')[],
+      from: '08:00',
+      to: '19:00',
+    },
+  }
+  // The key's stagger on a 60-minute grid, hand-checked: fnv1a32('t.berlin') % 60.
+  const key = 't.berlin'
+
+  it('is nextSlot with the database clock, the floor in minutes, level 0 and the manifest id', () => {
+    const at = nextAttemptAt(TUE_1020_BERLIN, key, entry({ fetchProfile: berlin }))
+    expect(at).toEqual(
+      nextSlot(TUE_1020_BERLIN, berlin, { floorMinutes: 0, slowdownLevel: 0, staggerKey: key }),
+    )
+    // Inside the window: within the next hour, never later.
+    expect(at!.getTime() - TUE_1020_BERLIN.getTime()).toBeGreaterThan(0)
+    expect(at!.getTime() - TUE_1020_BERLIN.getTime()).toBeLessThanOrEqual(60 * 60_000)
+  })
+
+  it('the provider floor (hours) pushes the slot at least that far out', () => {
+    const at = nextAttemptAt(TUE_1020_BERLIN, key, entry({ fetchProfile: berlin, floorHours: 6 }))
+    expect(at!.getTime() - TUE_1020_BERLIN.getTime()).toBeGreaterThan(6 * 3_600_000)
+    expect(at!.getTime() - TUE_1020_BERLIN.getTime()).toBeLessThanOrEqual(7 * 3_600_000)
+  })
+
+  it('a fixed slot is returned as listed (Remotive 09:00 Kyiv, UTC+2 in March)', () => {
+    const remotive = {
+      intervalMinutes: 1440,
+      offIntervalMinutes: null,
+      window: null,
+      fixedSlots: { timeZone: 'Europe/Kyiv', times: ['09:00'] },
+    }
+    expect(
+      nextAttemptAt(TUE_1020_BERLIN, key, entry({ fetchProfile: remotive, floorHours: 6 })),
+    ).toEqual(new Date('2027-03-10T07:00:00.000Z'))
+  })
+
+  it('a null profile leaves no next attempt', () => {
+    expect(nextAttemptAt(TUE_1020_BERLIN, key, entry({ fetchProfile: null }))).toBeNull()
+  })
+
+  it('an entry the catalog does not hold falls back to the daily cadence of before', () => {
+    expect(nextAttemptAt(TUE_1020_BERLIN, key, undefined)).toEqual(
+      new Date('2027-03-10T09:20:00.000Z'),
+    )
+  })
+
+  it('the slow-down level is 0 until U2 adds the column', () => {
+    expect(SLOWDOWN_LEVEL_BEFORE_U2).toBe(0)
+  })
+})
 
 describe('COLLECTION_ERROR_CODES gains the three ledger codes (T3 AC 9)', () => {
   it.each(['RUN_FENCED', 'LEASE_EXPIRED', 'NOT_MARKED_SENT'])('%s is a member', (code) => {
@@ -147,6 +236,7 @@ describe('claimGate — step 2 of the claim, on the locked row (SR-H-5)', () => 
       'HOST_BUSY',
       'HOST_RATE_GAP',
       'HOST_DAILY_CAP',
+      'NOT_SCHEDULED',
     ])
   })
 })
