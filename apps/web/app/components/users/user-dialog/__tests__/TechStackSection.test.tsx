@@ -95,6 +95,8 @@ describe('TechStackSection — SENIOR technology floor', () => {
     await act(() => api.submit!())
     const error = screen.getByText(FLOOR_UK)
     expect(screen.getByRole('textbox').getAttribute('aria-describedby')).toBe(error.id)
+    // UX-L-1: announced when it appears (it appears after an explicit submit).
+    expect(screen.getByRole('alert')).toBe(error)
   })
 
   it('after a failed submit the error follows each change: stays below 3, clears at 3', async () => {

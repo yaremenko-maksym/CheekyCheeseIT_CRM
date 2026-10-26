@@ -701,6 +701,8 @@ describe('HrCreateSeniorDialog — SENIOR technology floor (>= 3 distinct)', () 
     expect(techEl().getAttribute('aria-invalid')).toBe('true')
     expect(techEl().getAttribute('aria-describedby')).toBe(error.id)
     expect(error.id).not.toBe('')
+    // UX-L-1: announced when it appears.
+    expect(error.getAttribute('role')).toBe('alert')
     expect(mockedPost).not.toHaveBeenCalled()
   })
 

@@ -57,7 +57,8 @@ export function Field({
       </Label>
       {children}
       {error ? (
-        <p id={errorId} className="text-xs text-destructive">
+        // A field wired by `errorId` (the tech stack) announces its error when it appears.
+        <p id={errorId} role={errorId ? 'alert' : undefined} className="text-xs text-destructive">
           {error}
         </p>
       ) : hint ? (

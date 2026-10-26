@@ -137,7 +137,8 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
           errorId={techError ? techErrorId : undefined}
         />
         {techError && (
-          <p id={techErrorId} className="text-xs text-destructive">
+          // role="status" (polite): it appears while the user is still editing, so it must not interrupt.
+          <p id={techErrorId} role="status" className="text-xs text-destructive">
             {techError}
           </p>
         )}

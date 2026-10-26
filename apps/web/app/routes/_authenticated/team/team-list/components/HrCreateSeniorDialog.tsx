@@ -75,7 +75,7 @@ function Field({
       </Label>
       {children}
       {error && (
-        <p id={errorId} className="text-xs text-destructive">
+        <p id={errorId} role={errorId ? 'alert' : undefined} className="text-xs text-destructive">
           {error}
         </p>
       )}

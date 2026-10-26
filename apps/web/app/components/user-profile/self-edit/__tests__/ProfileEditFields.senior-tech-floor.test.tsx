@@ -53,6 +53,9 @@ describe('ProfileEditFields — SENIOR technology floor', () => {
     const error = screen.getByText(FLOOR_UK)
     const input = screen.getByPlaceholderText('Почніть вводити: React, Node.js…')
     expect(input.getAttribute('aria-describedby')).toBe(error.id)
+    // UX-L-1: a polite live region — it appears while the user is still editing.
+    expect(error.getAttribute('role')).toBe('status')
+    expect(input.className).toContain('border-destructive')
     expect(screen.getByText('Технології').className).toContain('text-destructive')
     await act(() => vi.advanceTimersByTimeAsync(1000))
     // The phone widget's own mount-time save of its seeded "+380" is unrelated; no techStack is sent.
