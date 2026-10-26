@@ -76,15 +76,24 @@ function randomSalaryMonth(): string {
 }
 
 /**
- * Same idea for the create-transaction dialog: the month picker only offers
- * currentYear-3 .. currentYear+1 (60 combinations), so a UI-driven test cannot
- * reach the far-future months `randomSalaryMonth` uses. Returns the year and the
- * zero-padded month to select by testid.
+ * Every (year, month) the create-transaction month picker offers
+ * (currentYear-3 .. currentYear+1 = 60 combinations), in random order. The
+ * picker cannot reach the far-future months `randomSalaryMonth` uses, and 60
+ * combinations alone would eventually collide across runs on a persistent DB,
+ * so the UI test walks this list and moves on when the server rejects a month
+ * that already has a reminder for the chosen receiver.
  */
-function randomPickerMonth(): { year: number; month: string } {
-  const year = new Date().getFullYear() - 3 + Math.floor(Math.random() * 5)
-  const month = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0')
-  return { year, month }
+function shuffledPickerMonths(): { year: number; month: string }[] {
+  const first = new Date().getFullYear() - 3
+  const all: { year: number; month: string }[] = []
+  for (let year = first; year <= first + 4; year++) {
+    for (let m = 1; m <= 12; m++) all.push({ year, month: String(m).padStart(2, '0') })
+  }
+  for (let i = all.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[all[i], all[j]] = [all[j]!, all[i]!]
+  }
+  return all
 }
 
 /** A tiny valid 1x1 PNG — avoids depending on an on-disk fixture asset. */
@@ -296,21 +305,26 @@ test.describe('Transaction receipts — create-block без чека (mandatory)
     await dialog.getByTestId('create-transaction-receiver-trigger').click()
     await page.getByRole('option').first().click()
     await dialog.getByPlaceholder('0.00').fill('900')
-    // createSalary enforces one reminder per (receiver, month) — the dialog
-    // defaults to last calendar month, which could collide with a prior test
-    // run's reminder for whichever receiver happens to be "first" in the
-    // list. Force a random far-future month so this test never collides with
-    // itself or with any other spec/run.
-    const { year, month } = randomPickerMonth()
-    await dialog.getByTestId('create-transaction-salary-year-select').click()
-    await page.getByTestId(`salary-year-option-${year}`).click()
-    await dialog.getByTestId('create-transaction-salary-month-select').click()
-    await page.getByTestId(`salary-month-option-${month}`).click()
-
     // No receipt input at all for SALARY.
     await expect(dialog.getByTestId('receipt-input-url-field')).not.toBeAttached()
 
-    await dialog.getByTestId('create-transaction-submit').click()
+    // createSalary enforces one reminder per (receiver, month), and a prior run
+    // may already hold any month the picker offers for whichever receiver is
+    // "first". Try picker months in random order until the server accepts one
+    // (the dialog closes); a rejected month leaves the dialog open, so move on.
+    // Only if all 60 are taken does the test fail, on the final expect below.
+    for (const { year, month } of shuffledPickerMonths()) {
+      await dialog.getByTestId('create-transaction-salary-year-select').click()
+      await page.getByTestId(`salary-year-option-${year}`).click()
+      await dialog.getByTestId('create-transaction-salary-month-select').click()
+      await page.getByTestId(`salary-month-option-${month}`).click()
+      await dialog.getByTestId('create-transaction-submit').click()
+      const closed = await dialog
+        .waitFor({ state: 'hidden', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
+      if (closed) break
+    }
     await expect(dialog).not.toBeVisible()
   })
 })

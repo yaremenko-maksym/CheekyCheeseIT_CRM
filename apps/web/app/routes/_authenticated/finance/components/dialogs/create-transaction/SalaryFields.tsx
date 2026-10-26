@@ -74,6 +74,7 @@ export function SalaryFields({
         </div>
         <div className="space-y-1.5">
           <Label
+            id="create-transaction-salary-month-label"
             htmlFor="create-transaction-salary-month-trigger"
             className="text-xs text-muted-foreground"
           >
@@ -81,6 +82,7 @@ export function SalaryFields({
           </Label>
           <MonthPickerField
             id="create-transaction-salary-month-trigger"
+            aria-labelledby="create-transaction-salary-month-label"
             value={salaryMonth}
             onChange={setSalaryMonth}
             data-testid="create-transaction-salary-month"

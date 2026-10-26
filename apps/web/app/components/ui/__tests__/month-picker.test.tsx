@@ -143,7 +143,17 @@ describe('MonthPickerField', () => {
     expect(screen.getByTestId('salary-month-option-10')).toHaveAttribute('aria-disabled', 'true')
   })
 
-  it('year change clamps an illegal month to the nearest legal one', async () => {
+  it('year change clamps to maxMonth when the kept month would exceed it', async () => {
+    await loadCatalog('uk')
+    const onChange = vi.fn()
+    render(<Harness initial="2025-12" minMonth="2025-03" maxMonth="2026-06" onChange={onChange} />)
+    const u = user()
+    await u.click(screen.getByTestId(YEAR))
+    await u.click(await screen.findByTestId('salary-year-option-2026'))
+    expect(onChange).toHaveBeenLastCalledWith('2026-06')
+  })
+
+  it('a year change keeps a still-legal month; month-first at the lower bound emits it', async () => {
     await loadCatalog('uk')
     const onChange = vi.fn()
     render(<Harness initial="2026-12" minMonth="2025-03" maxMonth="2026-12" onChange={onChange} />)

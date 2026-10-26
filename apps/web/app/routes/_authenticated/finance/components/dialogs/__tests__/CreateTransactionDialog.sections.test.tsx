@@ -278,6 +278,14 @@ describe('SalaryFields', () => {
     expect(screen.queryByDisplayValue('2025-03')).not.toBeInTheDocument()
   })
 
+  it('the month group is named by the visible "Місяць" label', () => {
+    renderField()
+    expect(screen.getByRole('group', { name: 'Місяць' })).toHaveAttribute(
+      'data-testid',
+      'create-transaction-salary-month',
+    )
+  })
+
   it('stacks the receiver and month fields in one column below sm, two from sm', () => {
     renderField()
     expect(screen.getByTestId('create-transaction-salary-grid')).toHaveClass(
