@@ -23,8 +23,9 @@ export function seniorTechStackError(
   const unchanged = stack.length === before.length && stack.every((tech, i) => tech === before[i])
   if (original?.role === 'SENIOR' && unchanged) return undefined
   const r = seniorTechStackSchema.safeParse([...stack])
-  // Stryker disable next-line OptionalChaining: a failed safeParse always carries an issue; `?` only satisfies noUncheckedIndexedAccess
-  return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
+  return r.success
+    ? undefined
+    : r.error.issues.map((issue) => translateZodMessage(issue.message))[0]
 }
 
 export const telegramFieldSchema = updateProfileSchema.shape.telegram.unwrap().unwrap()
