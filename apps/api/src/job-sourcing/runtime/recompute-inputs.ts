@@ -89,16 +89,18 @@ export async function loadRoster(db: SqlExecutor): Promise<RosterInputs> {
   const projectsOf = new Map<string, SeniorProjectRow[]>()
   for (const p of owned) {
     const seniorId = String(p['senior_id'])
-    const list = projectsOf.get(seniorId) ?? []
-    list.push({
+    const row: SeniorProjectRow = {
       name: String(p['name']),
       companyName: String(p['company_name']),
       // Stryker disable next-line all: carried for the row type only; `deriveProjectExclusions` never reads it (archived projects still exclude).
       archivedAt: p['archived_at'] == null ? null : instant(p['archived_at']),
-    })
-    projectsOf.set(seniorId, list)
+    }
+    const list = projectsOf.get(seniorId)
+    if (list === undefined) projectsOf.set(seniorId, [row])
+    else list.push(row)
   }
-  const derived = ids.flatMap((id) => deriveProjectExclusions(id, projectsOf.get(id) ?? []))
+  // Only seniors with projects derive anything; the query already limits them to the roster.
+  const derived = [...projectsOf].flatMap(([id, rows]) => deriveProjectExclusions(id, rows))
   const stored = manual.map((r) =>
     manualExclusionDto({
       id: String(r['id']),

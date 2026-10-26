@@ -283,6 +283,8 @@ describe('loadRoster', () => {
         return [
           { senior_id: A, name: 'P', company_name: 'Globex', archived_at: null },
           { senior_id: B, name: 'Q', company_name: 'Initech', archived_at: created },
+          // A second project of the same senior joins their group (not a new one).
+          { senior_id: A, name: 'R', company_name: 'Umbrella', archived_at: null },
         ]
       return []
     })
@@ -318,6 +320,12 @@ describe('loadRoster', () => {
         origin: 'PROJECT',
         value: 'Globex',
         sourceLabel: 'P',
+      }),
+      expect.objectContaining({
+        seniorId: A,
+        origin: 'PROJECT',
+        value: 'Umbrella',
+        sourceLabel: 'R',
       }),
       expect.objectContaining({
         seniorId: B,
