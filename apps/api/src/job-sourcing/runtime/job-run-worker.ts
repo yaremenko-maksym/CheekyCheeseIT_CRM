@@ -94,6 +94,16 @@ export interface WorkerDeps {
 /** A thrown value's class name, the only part of a foreign error the worker logs. */
 const nameOf = (e: unknown): string => (e instanceof Error ? e.name : typeof e)
 
+/** `promise`, or a rejection after `ms`; the timer is unref-ed and always cleared. */
+export function boundedWrite(promise: Promise<unknown>, ms: number): Promise<unknown> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('TimeoutError')), ms)
+    timer.unref()
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+
 /** What one run came to. `finished` is false when the ledger refused the ending (fenced). */
 export interface RunReport {
   readonly runId: string
@@ -323,10 +333,27 @@ export class JobRunWorker {
   }
 
   /** One scheduled pass: claim up to the free slots and run them; each run's failure is its own. */
-  async runDue(input: { cycleId: string; onlyIds?: readonly string[] }): Promise<RunReport[]> {
+  async runDue(input: {
+    cycleId: string
+    onlyIds?: readonly string[]
+    onlyTypes?: readonly JobSourceType[]
+  }): Promise<RunReport[]> {
+    return (await this.startDue(input)).settled
+  }
+
+  /**
+   * `runDue` split in two (T5): the claim is awaited, the runs are not. `settled` resolves with the
+   * reports once every claimed run has ended; it never rejects (`runClaimed` never throws). The
+   * handler's window polls for more work while these run.
+   */
+  async startDue(input: {
+    cycleId: string
+    onlyIds?: readonly string[]
+    onlyTypes?: readonly JobSourceType[]
+  }): Promise<{ claimed: number; settled: Promise<RunReport[]> }> {
     await this.start()
     const free = this.options.poolSize - this.active
-    if (free < 1) return []
+    if (free < 1) return { claimed: 0, settled: Promise.resolve([]) }
     // The slots are held WHILE the claim runs, so two passes at once cannot both claim them.
     this.active += free
     let claimed: ClaimedRun[]
@@ -336,12 +363,21 @@ export class JobRunWorker {
         owner: this.options.owner,
         limit: free,
         onlyIds: input.onlyIds,
+        onlyTypes: input.onlyTypes,
       }))
     } finally {
       this.active -= free
     }
     // `runClaimed` takes its slot synchronously, before this pass yields again.
-    return Promise.all(claimed.map((run) => this.runClaimed(run)))
+    return {
+      claimed: claimed.length,
+      settled: Promise.all(claimed.map((run) => this.runClaimed(run))),
+    }
+  }
+
+  /** Runs held right now (a claim in flight holds its slots too). */
+  get activeRuns(): number {
+    return this.active
   }
 
   /** The manual path: one named source, claimed under the actor's manual cycle. */
@@ -456,11 +492,15 @@ export class JobRunWorker {
     }
     if (state.unrecordedBan !== null) {
       const ban = state.unrecordedBan
-      await this.deps.recordBan(ban).catch((error: unknown) => {
-        this.logger.error(
-          `host ${ban.hostKey} refused run ${run.runId} (${ban.reason}) and its ban could not be recorded (${nameOf(error)})`,
-        )
-      })
+      // Bounded (T5, SR-M-3 of #1165): a hung ban store must not hold this slot, and with it the
+      // handler's window, for ever. The write may still land later; a same-source repeat is a no-op.
+      await boundedWrite(this.deps.recordBan(ban), this.options.deadlineGraceMs).catch(
+        (error: unknown) => {
+          this.logger.error(
+            `host ${ban.hostKey} refused run ${run.runId} (${ban.reason}) and its ban could not be recorded (${nameOf(error)})`,
+          )
+        },
+      )
     }
     const counts = settled.kind === 'BATCH' ? summaryCounts(settled.batch.counts) : null
     return {
