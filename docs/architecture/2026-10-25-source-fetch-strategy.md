@@ -3,9 +3,10 @@
 ## Status
 
 **Accepted (2026-10-26).** Proposed the same day; the owner answered the decision brief on 2026-10-26
-(section "Owner decisions of 2026-10-26"). Nine of ten questions are decided; **question 6 (ADMIN alerts)
-is pending, re-asked in plain words**, and the units that depend on it wait. Two new questions arose from
-his answers (11 and 12). This file replaces the draft proposal of 2026-10-25 that stood at the same path;
+(section "Owner decisions of 2026-10-26"). Nine of ten questions were decided that day; **question 6
+(ADMIN alerts) was re-asked in plain words and answered the same day**, as were the two questions that
+arose from his answers (11 and 12). **Every question is now decided**, and the owner also kept the
+schedules of the four quota APIs (decision 13). This file replaces the draft proposal of 2026-10-25 that stood at the same path;
 the draft is in git history.
 
 ## Amendments
@@ -30,20 +31,57 @@ the draft is in git history.
   - Offset zones such as `+05:00` are accepted by `Intl`, so they pass as zones.
 - **U6a (merged, PR #1176):** see the precondition added to section 6a and unit U10.
 
+**2026-10-26 (owner decisions 6, 11, 12, 13, and clarifications from the U1b review).**
+
+- **Decisions:** 6 (ADMIN alerts: yes), 11 (2 requests a minute, 120 an hour per multi-board host, raised
+  only after two weeks without a refusal), 12 (board first-requests approved in batches of 50, the batch
+  stops at the first refusal) and 13 (the four quota APIs keep their schedules) are recorded in the table
+  below. Units U5a, U11 and U8c no longer wait on an owner answer; their other dependencies stand.
+- **Decision 13 supersedes** section 8's "no schedule (`triggerMode: MANUAL`)" for JSearch, Reed, Jooble
+  and TheirStack: JSearch and Reed daily, Jooble and TheirStack weekly on Mondays (TheirStack was 96 h
+  and becomes weekly because a daily grid cannot repeat every 4 days and two weekdays would exceed its 8 a
+  month). All four stay blocked `KEY_REQUIRED`: nothing can be spent until a key is provisioned and the
+  block lifted.
+- **Implemented in U1b (PR #1179, open at the time of writing, not merged):**
+  - The seed `min_interval_hours` for **new** rows is `max(24, ceil(intervalMinutes / 60))` (24 for a
+    `null` profile), not `ceil(intervalMinutes / 60)` as section "What changes in merged code" first said.
+    It is a legacy column that nothing reads after U1b; the fetch profile lives only in code. The literal
+    formula would have rewritten every value in the deployed seed delta and made a revert run hourly
+    sources hourly.
+  - A **scheduled** claim of a source whose profile is `null` is refused with the code `NOT_SCHEDULED`
+    (a member of `CLAIM_REFUSALS`, written to `last_error_code`) and the claim writes
+    `next_attempt_at = NULL` **once**: the row is never due by schedule, sweep or detail pass, so there is
+    no recheck churn (a second claim neither selects nor rewrites it). The admin listing shows it once as
+    `CLAIM_REFUSED / NOT_SCHEDULED`. `claimGate` refuses `NOT_SCHEDULED` unless the `scheduled` input is an
+    explicit `false`, so a caller that drops it fails closed. Deployed rows of the deferred types carry a
+    non-null `next_attempt_at`, so the claim gate, not the data, is what stops them. A manual claim still
+    runs such a source, which is the owner's supervised smoke.
+  - **First slot of a deferred source.** Because a `null`-profile source has `next_attempt_at = NULL` and
+    is never due, no tick or sweep picks it up even after it is given a profile. Its **first slot** comes
+    from the finish of the supervised manual run that connects it (`finish` computes `nextSlot` from the
+    profile it then has), or U12 sets `next_attempt_at` itself (see U12).
+  - A `fixedSlots` profile carries a documented **placeholder `intervalMinutes`**, used only by the
+    slow-down gap; it does not affect the slots, which come from `fixedSlots` alone (see the U1a bullet
+    that `fixedSlots` ignores the stagger and excludes window and off grid).
+  - If PR #1179 changes before it merges, this bullet describes the PR as written, not main.
+
 ## Owner decisions of 2026-10-26
 
-| #   | Question                     | Decision                                                                                                                                                                                                                                                         |
-| --- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Intervals between sweeps     | As recommended: section 8.                                                                                                                                                                                                                                       |
-| 2   | Working hours per region     | As recommended: 08:00–19:00 Mon–Fri in each board's own time zone, every 3 h outside; the time zone is a required field of each board.                                                                                                                           |
-| 3   | Sweep and digest times       | Sweep 08:00 Kyiv, digest 09:00 Kyiv.                                                                                                                                                                                                                             |
-| 4   | What the sweep re-reads      | Option A: every enabled source is listed once, no per-opportunity request in the sweep. **New requirement:** a job opportunity's **detail** is fetched only on demand, just before it is shown to HR or put into the digest, cached, once (section 6a).          |
-| 5   | HR digest                    | One email a day per HR user; **not on Saturday or Sunday** (Europe/Kyiv); skipped on a day with nothing new and no failed source.                                                                                                                                |
-| 6   | ADMIN alerts                 | **Pending, re-asked** in plain words (section "Open questions"). The recommendation stands.                                                                                                                                                                      |
-| 7   | Watchlist of employer boards | **"Everything we can get"**: no cap; every board reachable on the public no-key ATS APIs (Greenhouse, Lever, Ashby, Recruitee, Personio, Workable). The first live request of each board stays a supervised smoke (section 8a).                                  |
-| 8   | Accepted-risk sources        | SmartRecruiters, Jobgether and Hacker News are connected **at the very end**. Their adapters stay in code; they are not scheduled and not in the enabled set (section 8).                                                                                        |
-| 9   | `min_interval_hours`         | As recommended: stop reading it now (U1b, reversible); drop the column only after the source page has shipped and one release has passed, and ask again then.                                                                                                    |
-| 10  | Provider terms               | **No legal-agent run.** The owner accepts as a known risk: DOU's automated-collection clause, Jobgether's machine-learning clause, Arbeitnow's non-commercial licence, Remotive's third-party clause. DOU stays as it runs today. Revisit if a provider objects. |
+| #   | Question                          | Decision                                                                                                                                                                                                                                                                                                    |
+| --- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Intervals between sweeps          | As recommended: section 8.                                                                                                                                                                                                                                                                                  |
+| 2   | Working hours per region          | As recommended: 08:00–19:00 Mon–Fri in each board's own time zone, every 3 h outside; the time zone is a required field of each board.                                                                                                                                                                      |
+| 3   | Sweep and digest times            | Sweep 08:00 Kyiv, digest 09:00 Kyiv.                                                                                                                                                                                                                                                                        |
+| 4   | What the sweep re-reads           | Option A: every enabled source is listed once, no per-opportunity request in the sweep. **New requirement:** a job opportunity's **detail** is fetched only on demand, just before it is shown to HR or put into the digest, cached, once (section 6a).                                                     |
+| 5   | HR digest                         | One email a day per HR user; **not on Saturday or Sunday** (Europe/Kyiv); skipped on a day with nothing new and no failed source.                                                                                                                                                                           |
+| 6   | ADMIN alerts                      | **Yes, as recommended** (answered 2026-10-26 after the plain-words re-ask): section 11. Every active ADMIN gets one in-app message and one email when a source enters a bad state; none while it stays bad; at most 3 emails per source per day; a Monday 09:00 weekly summary.                             |
+| 7   | Watchlist of employer boards      | **"Everything we can get"**: no cap; every board reachable on the public no-key ATS APIs (Greenhouse, Lever, Ashby, Recruitee, Personio, Workable). The first live request of each board stays a supervised smoke (section 8a).                                                                             |
+| 8   | Accepted-risk sources             | SmartRecruiters, Jobgether and Hacker News are connected **at the very end**. Their adapters stay in code; they are not scheduled and not in the enabled set (section 8).                                                                                                                                   |
+| 9   | `min_interval_hours`              | As recommended: stop reading it now (U1b, reversible); drop the column only after the source page has shipped and one release has passed, and ask again then.                                                                                                                                               |
+| 10  | Provider terms                    | **No legal-agent run.** The owner accepts as a known risk: DOU's automated-collection clause, Jobgether's machine-learning clause, Arbeitnow's non-commercial licence, Remotive's third-party clause. DOU stays as it runs today. Revisit if a provider objects.                                            |
+| 11  | Request rate per multi-board host | **Agreed (2026-10-26):** 2 requests a minute per host (120 an hour), raised in steps only after two weeks without a refusal. At that rate a board is asked about every 1.7 h with 200 boards on a host and every 8.3 h with 1,000 (section 8a).                                                             |
+| 12  | First live requests of new boards | **Agreed (2026-10-26):** approved in batches, for example 50 boards per owner message; the whole batch stops at the first refusal; no new board is contacted without his answer (U8c).                                                                                                                      |
+| 13  | Quota-API schedules               | **Kept (2026-10-26): "let's try the schedule"** for JSearch, Reed, Jooble and TheirStack. **Supersedes** section 8's "no schedule (`triggerMode: MANUAL`)" for those four types. All four stay blocked `KEY_REQUIRED`, so nothing can be spent until a key is provisioned and the block lifted (section 8). |
 
 Companions:
 
@@ -153,7 +191,8 @@ interface FetchProfile {
 
 What is **not** in the profile, because it already exists: the provider floor (`minIntervalHoursFloor`),
 the host budget (`hostRate`), the ban scope (`banScope`), the quota (`quota` and the account meters), the
-trigger mode (`triggerMode`: a quota API stays `MANUAL`, so it has no schedule at all). The stagger is
+trigger mode (`triggerMode`; amended 2026-10-26: the four quota APIs are no longer `MANUAL`-only, they
+carry a schedule, see section 8). The stagger is
 **derived**, not declared (see 2). Conditional-request support is an adapter capability, not a schedule
 fact (see 7).
 
@@ -369,7 +408,9 @@ documented limit or delay makes it pointless.**
 | Hacker News (accepted risk)                             | **not scheduled** until connected at the end (Q8); then 120 on days 1–4 of the month, sweep only after | One thread a month (REPO); limit known only from a secondary source (R24)                                                                                                                                    |
 | Jobgether (accepted risk)                               | **not scheduled** until connected at the end (Q8); then 120 / off                                      | 10 × 25 cap (R25); terms forbid bots and ML use (R26), accepted as a risk (Q10)                                                                                                                              |
 | DOU (legacy, the only live one)                         | **unchanged: 05:00 daily**                                                                             | Terms forbid automated collection without consent (R29); accepted as a risk, cadence unchanged (Q10)                                                                                                         |
-| JSearch, TheirStack, Jooble, Reed                       | no schedule (`triggerMode: MANUAL`)                                                                    | Free-only rule; quota APIs are not polling sources (REPO)                                                                                                                                                    |
+| JSearch, Reed                                           | **daily** (owner, 2026-10-26: "let's try the schedule"; supersedes `triggerMode: MANUAL`)              | Quota APIs; still blocked `KEY_REQUIRED`: no key, so no request and no spend until one is provisioned and the block lifted                                                                                   |
+| Jooble                                                  | **weekly, Mondays** (same owner decision; interval 10080 minutes)                                      | Same: blocked `KEY_REQUIRED`                                                                                                                                                                                 |
+| TheirStack                                              | **weekly, Mondays** (same decision), not every 96 h                                                    | A daily grid cannot repeat every 4 days and two weekdays would exceed its 8 a month, so it runs less often, never more; blocked `KEY_REQUIRED`                                                               |
 | The Muse, Working Nomads, EU Remote Jobs, `_HTML` types | none                                                                                                   | Blocked (REPO)                                                                                                                                                                                               |
 
 **How "not scheduled" is enforced (Q8).** The three accepted-risk types keep their adapters, manifest
@@ -422,7 +463,8 @@ sends no request:
    `apply.workable.com/<token>`). A read-only query lists tokens not yet in a board file, with how many
    opportunities and matches each produced.
 2. Seniors and HR may propose an employer; an ADMIN adds the line.
-3. TheirStack (quota API, manual runs only) can be used by hand to find employers in a niche.
+3. TheirStack (quota API; a manual run is still allowed beside its weekly schedule) can be used by hand to
+   find employers in a niche.
 
 The candidate list is reviewed and appended to the board files as a PR; the time zone comes from the
 employer's location in the stored record, or is set by the reviewer.
@@ -438,18 +480,18 @@ with scale instead of the request rate growing.
 
 **The arithmetic** (per provider host, weekday, list requests only; details add the wanted share):
 
-| Boards on one host | Runs a day at 60 / 180 | Average in the window | Sweep (one list each)     | With a budget of 120 an hour (proposed) |
-| ------------------ | ---------------------- | --------------------- | ------------------------- | --------------------------------------- |
-| 13 (today)         | about 210              | about 0.2 a minute    | 13                        | hourly, budget not reached              |
-| 200                | about 3,200            | about 3 a minute      | 200 (about 2 h at 2/min)  | every 1.7 h in the window               |
-| 1,000              | about 16,000           | about 15 a minute     | 1,000 (over 8 h at 2/min) | every 8.3 h in the window               |
+| Boards on one host | Runs a day at 60 / 180 | Average in the window | Sweep (one list each)     | With a budget of 120 an hour (decided) |
+| ------------------ | ---------------------- | --------------------- | ------------------------- | -------------------------------------- |
+| 13 (today)         | about 210              | about 0.2 a minute    | 13                        | hourly, budget not reached             |
+| 200                | about 3,200            | about 3 a minute      | 200 (about 2 h at 2/min)  | every 1.7 h in the window              |
+| 1,000              | about 16,000           | about 15 a minute     | 1,000 (over 8 h at 2/min) | every 8.3 h in the window              |
 
-Bytes at 1,000 Greenhouse boards listing hourly would be about 2.4 GB a day; at the proposed budget,
+Bytes at 1,000 Greenhouse boards listing hourly would be about 2.4 GB a day; at the decided budget,
 about 0.4 GB. **Ban risk** grows with the sustained request rate per host, not with the number of
-boards; no provider publishes its limit (research), so the budget starts low, a refusal pauses the whole
+boards; no provider publishes its limit (research), so the budget starts low (owner, Q11: 2 a minute, 120 an hour, raised only after two weeks without a refusal), a refusal pauses the whole
 host for at least 24 h (T8), and the slow-down (4) acts before the cap. The sweep at 1,000 boards cannot
 finish in the one-hour window at 2 a minute: at scale the sweep lists what the budget allows and the
-rest is covered by routine runs. The budget numbers are question 11.
+rest is covered by routine runs. The budget numbers are the owner's decision 11.
 
 ### 9. Freshness is measured, not promised
 
@@ -524,7 +566,7 @@ not a column: it is `ended_at − started_at`.
 
 ### 11. Alerts and the HR digest
 
-- **ADMIN, immediately (question 6 pending; this is the recommendation):** a notification (in-app, and
+- **ADMIN, immediately (owner, Q6: yes, as recommended, 2026-10-26):** a notification (in-app, and
   email through the existing outbox) to every active ADMIN when a source **enters** `FAILING`, `CAPPED`,
   `BLOCKED`, `EMPTY`, `PAUSED`, or `DEGRADED` with reason `SCHEMA_DRIFT`. **One alert per transition** —
   an incident is the span between entering and leaving the state, so a source that stays `FAILING` sends
@@ -542,25 +584,25 @@ not a column: it is `ended_at − started_at`.
 
 ## What changes in merged code
 
-| Merged piece                                     | Change                                                                                                                                                                                                                  | Unit |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
-| Manifest `EntryDefinition.intervalHours`         | replaced by `fetchProfile` (per-type default, per-entry override; `null` for the three deferred types)                                                                                                                  | U1b  |
-| `cadenceHoursAtFloor` in `account`               | replaced by `nextSlot`; `min_interval_hours` **no longer read** (column kept)                                                                                                                                           | U1b  |
-| `JobSourceAdminService` next-due derivation      | from `nextSlot`'s inputs, not `min_interval_hours`                                                                                                                                                                      | U1b  |
-| `generateSeedDelta`                              | writes `min_interval_hours` for **new** rows as `ceil(intervalMinutes / 60)`; existing rows keep their stored value, which nothing reads after U1b. No seed delta is produced by U1b, so it has no production data step | U1b  |
-| `JobSourcingCronService.handleDailyCollection`   | keeps DOU and retention only; the API types move to tick and sweep                                                                                                                                                      | U3   |
-| `JobSourcingCronService.handleHtmlCollection`    | unchanged                                                                                                                                                                                                               | —    |
-| `dueSourcesPredicate`, `claimDue`, `countDue`    | gain the sweep variant (cycle-scoped, cadence term skipped); slack stays 0 for claims                                                                                                                                   | U3   |
-| the same, plus the run worker                    | gain the detail-pass variant ("has pending `DETAIL_FETCH`") and run scope `DETAIL_ONLY`                                                                                                                                 | U10  |
-| Greenhouse adapter                               | lists without `content`; a detail-by-id function; manifest `detailMode`, `detailPerRun`                                                                                                                                 | U6a  |
-| `DirtyWorkStore` and `evaluate`                  | reason `DETAIL_FETCH` (no DDL: `reason` is free text); a claim filtered by source; pending detail never excludes on stack grounds                                                                                       | U10  |
-| `claimHostSlot`                                  | a request-counting host budget beside `hostRate`                                                                                                                                                                        | U11  |
-| manifest builder                                 | board data files plus a generator                                                                                                                                                                                       | U8a  |
-| `job_sources`                                    | **+ `slowdown_level`** (DDL)                                                                                                                                                                                            | U2   |
-| `job_collection_runs`                            | **+ six metric columns** (DDL)                                                                                                                                                                                          | U2   |
-| new `job_source_health_events`                   | **new table** (DDL)                                                                                                                                                                                                     | U4   |
-| `@crm/shared` `jobSourceSchema.minIntervalHours` | replaced by a profile summary on the source page                                                                                                                                                                        | U7   |
-| `job_sources.min_interval_hours`                 | **dropped only on the owner's separate word** (Q9)                                                                                                                                                                      | U9   |
+| Merged piece                                     | Change                                                                                                                                                                                                                                                                                           | Unit |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- |
+| Manifest `EntryDefinition.intervalHours`         | replaced by `fetchProfile` (per-type default, per-entry override; `null` for the three deferred types)                                                                                                                                                                                           | U1b  |
+| `cadenceHoursAtFloor` in `account`               | replaced by `nextSlot`; `min_interval_hours` **no longer read** (column kept)                                                                                                                                                                                                                    | U1b  |
+| `JobSourceAdminService` next-due derivation      | from `nextSlot`'s inputs, not `min_interval_hours`                                                                                                                                                                                                                                               | U1b  |
+| `generateSeedDelta`                              | writes `min_interval_hours` for **new** rows as `max(24, ceil(intervalMinutes / 60))` (24 for a `null` profile; amended 2026-10-26, see "Amendments"); existing rows keep their stored value, which nothing reads after U1b. No seed delta is produced by U1b, so it has no production data step | U1b  |
+| `JobSourcingCronService.handleDailyCollection`   | keeps DOU and retention only; the API types move to tick and sweep                                                                                                                                                                                                                               | U3   |
+| `JobSourcingCronService.handleHtmlCollection`    | unchanged                                                                                                                                                                                                                                                                                        | —    |
+| `dueSourcesPredicate`, `claimDue`, `countDue`    | gain the sweep variant (cycle-scoped, cadence term skipped); slack stays 0 for claims                                                                                                                                                                                                            | U3   |
+| the same, plus the run worker                    | gain the detail-pass variant ("has pending `DETAIL_FETCH`") and run scope `DETAIL_ONLY`                                                                                                                                                                                                          | U10  |
+| Greenhouse adapter                               | lists without `content`; a detail-by-id function; manifest `detailMode`, `detailPerRun`                                                                                                                                                                                                          | U6a  |
+| `DirtyWorkStore` and `evaluate`                  | reason `DETAIL_FETCH` (no DDL: `reason` is free text); a claim filtered by source; pending detail never excludes on stack grounds                                                                                                                                                                | U10  |
+| `claimHostSlot`                                  | a request-counting host budget beside `hostRate`                                                                                                                                                                                                                                                 | U11  |
+| manifest builder                                 | board data files plus a generator                                                                                                                                                                                                                                                                | U8a  |
+| `job_sources`                                    | **+ `slowdown_level`** (DDL)                                                                                                                                                                                                                                                                     | U2   |
+| `job_collection_runs`                            | **+ six metric columns** (DDL)                                                                                                                                                                                                                                                                   | U2   |
+| new `job_source_health_events`                   | **new table** (DDL)                                                                                                                                                                                                                                                                              | U4   |
+| `@crm/shared` `jobSourceSchema.minIntervalHours` | replaced by a profile summary on the source page                                                                                                                                                                                                                                                 | U7   |
+| `job_sources.min_interval_hours`                 | **dropped only on the owner's separate word** (Q9)                                                                                                                                                                                                                                               | U9   |
 
 ## Consequences
 
@@ -621,11 +663,11 @@ NOW (no DDL, no open question):
                                  │                        │                  │                               │
                                  └► U8a board files + generator ─► U8b discovery query     ├► U2-D (DevOps)   ├► U4-D (DevOps)
                                                                                           ├► U6b conditional requests
-                                                                                          └► U11 request-counting host budget (needs Q11)
+                                                                                          └► U11 request-counting host budget (Q11 decided: 2/min)
   U10 detail on demand  ◄── U3, U6a, phase 4's evaluation worker (Task 4.6 S4a)
-  U5a ADMIN alerts      ◄── U4 + Q6 (pending)        U5b HR digest ◄── U5a, U10, phase 4's published queue
+  U5a ADMIN alerts      ◄── U4 (Q6 decided: yes)     U5b HR digest ◄── U5a, U10, phase 4's published queue
   U7 source page        ◄── U4
-  U8c board batches (prod data) ◄── U8a, U11, Q12; each board's supervised smoke ─► U8-D (DevOps, once)
+  U8c board batches (prod data) ◄── U8a, U11 (Q12 decided: batches of 50); each board's supervised smoke ─► U8-D (DevOps, once)
   U9 drop min_interval_hours    ◄── U7 merged + one release + the owner's word
   U12 connect SmartRecruiters, Jobgether, Hacker News ◄── everything above + the owner's word (Q8)
 ```
@@ -643,16 +685,16 @@ NOW (no DDL, no open question):
 
 **Waiting:**
 
-| Unit   | Waits on                                                                           |
-| ------ | ---------------------------------------------------------------------------------- |
-| U2, U4 | their predecessor in the chain; production DDL with DevOps companions U2-D, U4-D   |
-| U5a    | U4 and **question 6** (pending)                                                    |
-| U5b    | U5a, U10, and phase 4 publishing the recruiter queue                               |
-| U10    | U3, U6a, and phase 4's evaluation worker (`job_dirty_work` consumer, Task 4.6 S4a) |
-| U11    | U2 (`request_count`) and **question 11** (the budget numbers)                      |
-| U8c    | U8a, U11, **question 12** (how supervised smokes are approved), DevOps U8-D        |
-| U9     | U7 merged, one release, the owner's separate word                                  |
-| U12    | everything else, and the owner's word                                              |
+| Unit   | Waits on                                                                             |
+| ------ | ------------------------------------------------------------------------------------ |
+| U2, U4 | their predecessor in the chain; production DDL with DevOps companions U2-D, U4-D     |
+| U5a    | U4 only (question 6 is decided: yes, 2026-10-26)                                     |
+| U5b    | U5a, U10, and phase 4 publishing the recruiter queue                                 |
+| U10    | U3, U6a, and phase 4's evaluation worker (`job_dirty_work` consumer, Task 4.6 S4a)   |
+| U11    | U2 (`request_count`) only (question 11 is decided: 2 a minute, 120 an hour)          |
+| U8c    | U8a, U11, DevOps U8-D (question 12 is decided: batches of 50, stop at first refusal) |
+| U9     | U7 merged, one release, the owner's separate word                                    |
+| U12    | everything else, and the owner's word                                                |
 
 - **Routing** (`orchestration-routing.md`): **single pipeline**. U1b, U3, U2, U10 and U11 all edit
   `JobRunLedger` or the claim path, and U5a and U5b both edit the notification registry, so they are
@@ -745,6 +787,11 @@ AC:
 5. Real-Postgres: two concurrent ticks with the same key create one cycle and no second claim of any
    source.
 6. Real-Postgres: a tick claims a source whose slot passed and not one whose slot is one minute ahead.
+7. **The sweep and the tick never both claim a fixed-slot source** (added 2026-10-26, U1b spec review,
+   SPEC-L-2). Himalayas has a `fixedSlots` slot at 08:00 Kyiv, the sweep's own time. Real-Postgres: on a
+   Kyiv day with the sweep and the 08:00 tick both firing, that source gets exactly one run; the rule is
+   that the sweep skips (or the tick skips) a source whose profile has `fixedSlots`, and the spec pins
+   whichever side the implementation chooses.
 
 **U8a — board data files and the generator.** One data file per ATS provider; the generator in the
 manifest builder; the 13 existing boards moved into the files with their regions; drift-test
@@ -832,15 +879,21 @@ AC:
 **U11 — request-counting host budget.** `hostRequestBudget { perMinute, perHour }` per host in the
 manifest; `claimHostSlot` refuses `HOST_REQUEST_BUDGET` when the requests of the trailing window (from
 `request_count`, plus the expected requests of runs still `STARTED`, plus the claim's own) would exceed
-it. **Depends on:** U2, question 11. **Model:** opus, high (T8's claim path). **Reviewers:** code, spec,
-security (the claim path that holds the ban-risk line).
+it. **Depends on:** U2. **Owner decision 11 (2026-10-26):** the starting budget is **2 requests a minute and
+120 an hour per host** (`perMinute: 2`, `perHour: 120`); it is raised in steps only after **two weeks
+without a refusal** from that host, and a raise is a manifest edit, never automatic. **Model:** opus, high
+(T8's claim path). **Reviewers:** code, spec, security (the claim path that holds the ban-risk line).
 AC: (1) Real-Postgres as `crm_app`: with a budget of 4 a minute and 6 one-request boards due, at most 4
 are claimed in a minute and the rest are claimed later in the order of `next_attempt_at`; (2) a running
 run's expected requests count against the budget; (3) a host with no declared budget behaves as T8.
 
 **U5a — ADMIN alerts and the weekly report.** New notification types in the registry, `uk` and `en`
 copy through Lingui, recipients = active ADMIN users, the per-source daily cap of 3 emails, the weekly
-report cron. **Depends on:** U4 and **question 6**. **Model:** sonnet, high. **Reviewers:** code, spec,
+report cron. **Depends on:** U4. **Owner decision 6 (yes, 2026-10-26)** fixes the behaviour as section 11
+states it: every active ADMIN, one in-app message and one email per entry into a bad state (failing,
+empty answer, changed format, blocked or paused, no longer allowed), nothing while it stays bad, a new one
+only after recovery and a new breakage, at most 3 emails per source per Kyiv day, and the Monday 09:00
+weekly summary. **Model:** sonnet, high. **Reviewers:** code, spec,
 **security (mandatory: who receives operational data)**, copy.
 AC: (1) entering `FAILING` enqueues one notification per active ADMIN and none to any other role; (2)
 staying `FAILING` across passes enqueues nothing more; (3) a fourth alerting transition of one source in
@@ -871,7 +924,10 @@ breakpoints.
 **U8c — board batches (production data).** For each approved batch from U8b: the lines appended to the
 board files, the staged seed delta (`enabled = false`), then the supervised smoke of each board (one list
 request at the host budget, stop at the first refusal), then a delta enabling the boards that passed
-with their evidence. **Depends on:** U8a, U11, question 12, DevOps U8-D (once). **Model:** sonnet,
+with their evidence. **Owner decision 12 (2026-10-26):** a batch is approved by the owner in one message,
+**50 boards per message** as the standard size; an agent sends one request per board at the host budget,
+**the whole batch stops at the first refusal**, and the report names the boards that passed; **no new
+board is contacted without his answer**. **Depends on:** U8a, U11, DevOps U8-D (once). **Model:** sonnet,
 medium. **Reviewers:** code, spec, **security (production data)**.
 AC: a board without recorded evidence is never due; a refusal during a batch's smokes stops the batch
 and leaves every untried board disabled.
@@ -881,48 +937,22 @@ release has passed, and only on the owner's separate word. **Model:** opus. **Re
 **security (mandatory)**.
 
 **U12 — connect the deferred sources (Q8).** SmartRecruiters (switched to `ON_DEMAND` detail), Jobgether
-and Hacker News get their section 8 profiles; each first call is a supervised smoke. **Depends on:**
-everything above and the owner's word. **Model:** opus. **Reviewers:** code, spec, security.
+and Hacker News get their section 8 profiles; each first call is a supervised smoke. **First slot
+(added 2026-10-26, U1b spec review):** a `null`-profile source has `next_attempt_at = NULL` and is never
+due, so giving it a profile does not make it run. U12 must either run a **manual claim** whose `finish`
+computes `nextSlot` from the new profile, or set `next_attempt_at` itself; it must not rely on the tick or
+the sweep. **Depends on:** everything above and the owner's word. **Model:** opus. **Reviewers:** code,
+spec, security.
+AC: after the connecting run, each connected source is due at its slot (`isDue` false before the slot,
+true at it, on a scratch database), and a source whose connecting run did not happen stays undue.
 
 ## Open questions
 
-🟠 Decisions from you — 3 · source fetch strategy · PR #1172
-Everything else is decided. U1a and U6a start now; nothing listed below blocks them.
-
-❓ 6 (pending, re-asked) — Should the admins get an email when a job source breaks?
-What happens: the CRM checks all job sources every 10 minutes. When a source goes from "working" to
-"broken", **every admin** gets one message inside the CRM and one email. While it stays broken, no more
-emails come; when it works again and later breaks again, a new one comes. No more than 3 emails a day
-about the same source. Every **Monday at 09:00** each admin also gets one summary email: how every
-source did last week.
-"Broken" means one of these, for example:
-
-- **Failing:** a site errored three times in a row and the CRM stopped asking it until an admin resets it.
-- **Empty:** a site we read every hour suddenly returns zero jobs.
-- **Changed format:** a site changed how it sends jobs and we can no longer read them.
-- **Blocked:** a site answered "too many requests" or "access denied", so the CRM paused it for a day.
-- **Not allowed:** a source can no longer run, for example Recruitee after its free access ends.
-
-➡️ I recommend: yes, exactly as described, to all admins.
-🔓 Reversible · ⏱ silence until 2026-10-29 12:00 Kyiv → I take the recommendation, rollback = one PR.
-
-❓ 11 — How fast we may ask one job site when we watch hundreds of its employers
-With "everything we can get", one site (Greenhouse, for example) may host hundreds of boards. Asking each
-hourly means 15 requests a minute to that site all day, and nobody publishes the limit. A per-site limit
-keeps us safe; boards are then asked less often as the list grows (200 boards: every 1.7 h; 1,000:
-every 8 h).
-➡️ I recommend: start at 2 requests a minute per site (120 an hour), raise it in steps after two weeks
-without a refusal.
-🔓 Reversible · ⏱ silence until 2026-10-29 12:00 Kyiv → I take it, rollback = one number.
-
-❓ 12 — Approving the first request to new boards in batches
-Your rule is that each board's first live request is supervised. At hundreds of boards, asking you per
-board is not workable.
-➡️ I recommend: you approve a **batch** (for example 50 boards from the discovery list) in one message;
-an agent sends one request per board at the site limit, stops the whole batch at the first refusal, and
-reports which boards passed.
-🔒 Each first request to a site is irreversible in the sense of your rule. Without an answer no new board
-is contacted.
+**None.** Questions 6, 11 and 12 were answered by the owner on 2026-10-26 (decisions 6, 11 and 12 in the
+table at the top). The questions as asked are in the history of this file (PR #1172). One thing is still
+outside any decision and stays so: **a key for each blocked quota API** (JSearch, Reed, Jooble,
+TheirStack) must be provisioned and the `KEY_REQUIRED` block lifted before any of their schedules can
+spend a request (decision 13).
 
 ## Assumptions (A1, decided and recorded)
 
