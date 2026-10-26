@@ -432,18 +432,69 @@ export async function resolveRecords(
   return outcomes
 }
 
+interface OwnTxOptions {
+  lockTimeoutMs?: number
+}
+
+/**
+ * Own short transaction with `lock_timeout`, re-run as a whole on contention (deadlock, serialization,
+ * lock timeout -> `LockContentionError` once attempts are spent). Any other error (a fenced actor,
+ * a state error) is rethrown at once, never retried.
+ */
+function inOwnTx<T>(
+  db: MeterDb,
+  lockTimeoutMs: number,
+  work: (tx: SqlExecutor) => Promise<T>,
+): Promise<T> {
+  return withLockRetry(() =>
+    db.transaction(async (tx) => {
+      await setLockTimeout(tx, lockTimeoutMs)
+      return work(tx)
+    }, READ_COMMITTED),
+  )
+}
+
 /** `resolveRecords` in its own short transaction, retried as a whole on contention. */
 export function resolveRecordsTx(
   db: MeterDb,
   recordIds: readonly string[],
-  { lockTimeoutMs = STORE_LOCK_TIMEOUT_MS } = {},
+  { lockTimeoutMs = STORE_LOCK_TIMEOUT_MS }: OwnTxOptions = {},
 ) {
-  return withLockRetry(() =>
-    db.transaction(async (tx) => {
-      await setLockTimeout(tx, lockTimeoutMs)
-      return resolveRecords(tx, recordIds)
-    }, READ_COMMITTED),
-  )
+  return inOwnTx(db, lockTimeoutMs, (tx) => resolveRecords(tx, recordIds))
+}
+
+/** `linkRecord` in its own short transaction, retried as a whole on contention. */
+export function linkRecordTx(
+  db: MeterDb,
+  actor: AdminActor,
+  recordId: string,
+  opportunityId: string,
+  reason: string,
+  { lockTimeoutMs = STORE_LOCK_TIMEOUT_MS }: OwnTxOptions = {},
+): Promise<void> {
+  return inOwnTx(db, lockTimeoutMs, (tx) => linkRecord(tx, actor, recordId, opportunityId, reason))
+}
+
+/** `splitRecord` in its own short transaction, retried as a whole on contention. */
+export function splitRecordTx(
+  db: MeterDb,
+  actor: AdminActor,
+  recordId: string,
+  reason: string,
+  { lockTimeoutMs = STORE_LOCK_TIMEOUT_MS }: OwnTxOptions = {},
+): Promise<string> {
+  return inOwnTx(db, lockTimeoutMs, (tx) => splitRecord(tx, actor, recordId, reason))
+}
+
+/** `releaseToken` in its own short transaction, retried as a whole on contention. */
+export function releaseTokenTx(
+  db: MeterDb,
+  actor: AdminActor,
+  tokenKey: string,
+  reason: string,
+  { lockTimeoutMs = STORE_LOCK_TIMEOUT_MS }: OwnTxOptions = {},
+): Promise<void> {
+  return inOwnTx(db, lockTimeoutMs, (tx) => releaseToken(tx, actor, tokenKey, reason))
 }
 
 /**
