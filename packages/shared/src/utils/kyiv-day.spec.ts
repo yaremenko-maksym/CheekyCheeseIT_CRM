@@ -6,6 +6,7 @@ import {
   kyivMonthOf,
   kyivToday,
   latestSettleBusinessDay,
+  transactionBusinessDay,
 } from './kyiv-day'
 
 /**
@@ -311,5 +312,36 @@ describe('businessMonthWindow', () => {
     expect(created < businessMonthWindow('2026-10').instantEnd).toBe(false)
     const summer = new Date('2026-06-30T21:30:00.000Z')
     expect(summer >= businessMonthWindow('2026-07').instantStart).toBe(true)
+  })
+})
+
+describe('transactionBusinessDay', () => {
+  it('a non-null txDate keeps its own UTC-midnight day, ignoring createdAt', () => {
+    expect(transactionBusinessDay('2026-10-19T00:00:00.000Z', '2026-10-20T22:30:00.000Z')).toBe(
+      '2026-10-19',
+    )
+    expect(transactionBusinessDay(new Date('2026-01-01T00:00:00.000Z'), new Date())).toBe(
+      '2026-01-01',
+    )
+    expect(transactionBusinessDay('2026-03-05', '2026-10-20T05:00:00.000Z')).toBe('2026-03-05')
+  })
+
+  it('a NULL txDate falls back to the KYIV day of createdAt (backlog 338, QA-LOW-1)', () => {
+    expect(transactionBusinessDay(null, '2026-10-20T05:00:00.000Z')).toBe('2026-10-20')
+    expect(transactionBusinessDay(undefined, new Date('2026-10-20T05:00:00.000Z'))).toBe(
+      '2026-10-20',
+    )
+    // 21:00-24:00 UTC: Kyiv (EEST, UTC+3) is already on the next day.
+    expect(transactionBusinessDay(null, '2026-10-20T21:30:00.000Z')).toBe('2026-10-21')
+    expect(transactionBusinessDay(null, '2026-10-20T20:59:00.000Z')).toBe('2026-10-20')
+    // Winter (EET, UTC+2): the boundary moves to 22:00Z.
+    expect(transactionBusinessDay(null, '2026-12-31T22:30:00.000Z')).toBe('2027-01-01')
+    expect(transactionBusinessDay(null, '2026-12-31T21:59:00.000Z')).toBe('2026-12-31')
+  })
+
+  it('returns null instead of throwing for an unparseable value (item e)', () => {
+    expect(transactionBusinessDay(null, 'not-a-date')).toBeNull()
+    expect(transactionBusinessDay('garbage', '2026-10-20T05:00:00.000Z')).toBeNull()
+    expect(transactionBusinessDay(null, new Date(Number.NaN))).toBeNull()
   })
 })

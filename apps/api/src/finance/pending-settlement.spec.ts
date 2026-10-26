@@ -2166,6 +2166,27 @@ describe('settleByCompany — business-date upper bound (SR-809-M-2 / CR-809-H-1
     })
   })
 
+  // Backlog 338: a NULL-txDate source floors on the KYIV day of createdAt.
+  it('a NULL-txDate source floors on the Kyiv day of createdAt in the 21:00-24:00 UTC window', async () => {
+    const source = () =>
+      makeService({
+        sourceTxs: new Map([
+          [
+            SOURCE_TX_ID,
+            makeSourceTx({ txDate: null, createdAt: new Date('2026-10-20T21:30:00.000Z') }),
+          ],
+        ]),
+      }).svc
+    await expect(
+      source().settleByCompany(OBLIGATION_COMPANY, accountantUser, settleFunding('2026-10-20')),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', statusCode: 400 },
+    })
+    await expect(
+      source().settleByCompany(OBLIGATION_COMPANY, accountantUser, settleFunding('2026-10-21')),
+    ).resolves.toBeDefined()
+  })
+
   it('today is still accepted when the source row is in the past', async () => {
     const { svc } = withSourceDate(new Date('2026-05-30T00:00:00Z'))
     await expect(

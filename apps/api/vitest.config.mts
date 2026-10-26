@@ -217,8 +217,15 @@ const TIMING_SPEC_GLOB = '**/*.timing.spec.ts'
 const isTimingRun = process.env['TIMING_SPECS'] === '1'
 const timingExclude = isTimingRun ? [] : [TIMING_SPEC_GLOB]
 
-/** Unit specs re-run under each zone below (month-boundary finance windows). */
-const TZ_UNIT_SPECS = ['src/finance/summary.service.spec.ts']
+/**
+ * Unit specs re-run under each zone below (month-boundary finance windows, and
+ * the Kyiv business-day floor of NULL-txDate rows, backlog 338).
+ */
+const TZ_UNIT_SPECS = [
+  'src/finance/summary.service.spec.ts',
+  'src/finance/transaction-date.util.spec.ts',
+  'src/finance/salary-payment.service.spec.ts',
+]
 const TZ_UNIT_SPECS_ZONES = ['Europe/Kyiv', 'America/Los_Angeles']
 
 const discovery = {

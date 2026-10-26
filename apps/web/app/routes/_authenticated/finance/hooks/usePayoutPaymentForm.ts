@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLingui } from '@lingui/react/macro'
-import { kyivToday, type ManualPayoutMethod } from '@crm/shared'
+import { kyivToday, transactionBusinessDay, type ManualPayoutMethod } from '@crm/shared'
 import { getApiErrorMessage } from '@/lib/axios-utils'
 import { financeApi } from '../api'
 
@@ -67,9 +67,13 @@ export function usePayoutPaymentForm(
   })
   const payout = payoutQuery.data
   const payoutTx = payout?.transactions?.find((tx) => tx.type === 'PAYOUT')
-  const payoutMinDate = payoutTx
-    ? new Date(payoutTx.txDate ?? payoutTx.createdAt).toISOString().slice(0, 10)
-    : payout?.createdAt.slice(0, 10)
+  // Backlog 338: the PAYOUT row's business day — the same day the server floors
+  // the payment date on (`txDate` day, or the KYIV day of `createdAt`).
+  // `undefined` when there is nothing parseable to bound by.
+  const payoutMinDate =
+    (payoutTx
+      ? transactionBusinessDay(payoutTx.txDate, payoutTx.createdAt)
+      : payout && transactionBusinessDay(null, payout.createdAt)) ?? undefined
 
   // Reset local state whenever this sub-screen becomes active with a
   // (possibly new) payout id — mirrors the original open→open-with-new-id effect.

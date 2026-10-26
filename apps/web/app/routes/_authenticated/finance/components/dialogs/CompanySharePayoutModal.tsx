@@ -5,7 +5,7 @@ import { CheckCircle2, Loader2 } from 'lucide-react'
 import { Trans, Plural, useLingui } from '@lingui/react/macro'
 import { i18n } from '@lingui/core'
 import type { TransactionDto } from '@crm/shared'
-import { formatDate, kyivToday } from '@crm/shared'
+import { formatDate, kyivToday, transactionBusinessDay } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -35,8 +35,11 @@ import { PayoutPaymentForm } from './PayoutPaymentForm'
 
 type Step = 'select' | 'pay'
 
+// Backlog 338: the income's business day — the floor `PayoutRequestService`
+// enforces (`txDate` day, or the KYIV day of `createdAt`). '' for an
+// unparseable row, which never raises the minimum.
 function transactionDateKey(tx: TransactionDto): string {
-  return new Date(tx.txDate ?? tx.createdAt).toISOString().slice(0, 10)
+  return transactionBusinessDay(tx.txDate, tx.createdAt) ?? ''
 }
 
 /**

@@ -9,7 +9,7 @@ import { payoutRequests, transactionAuditLog, transactions, users } from '../dat
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
 import { backdateAuditRow } from './transaction-date-audit.util'
 import { resolveTransactionDateWithPolicy } from './transaction-date-policy'
-import { formatTransactionBusinessDate } from './transaction-date.util'
+import { formatTransactionBusinessDate, sourceBusinessDay } from './transaction-date.util'
 import { assertTransactionWritable } from './transaction-visibility.util'
 
 /**
@@ -246,7 +246,8 @@ export class PayoutConfirmationService {
       now,
     })
     const confirmationTxDate = dateDecision.txDate
-    const payoutSourceDate = formatTransactionBusinessDate(payoutTx.txDate ?? payoutTx.createdAt)
+    // Backlog 338: a NULL-txDate PAYOUT floors on the KYIV day of createdAt.
+    const payoutSourceDate = sourceBusinessDay(payoutTx)
     if (formatTransactionBusinessDate(confirmationTxDate) < payoutSourceDate) {
       throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
     }

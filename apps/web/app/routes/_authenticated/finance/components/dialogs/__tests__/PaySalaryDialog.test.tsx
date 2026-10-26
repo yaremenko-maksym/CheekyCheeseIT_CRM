@@ -26,7 +26,7 @@
  * Only the API boundary (`@/lib/axios` + `../../../api`) is mocked.
  */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { kyivToday } from '@crm/shared'
@@ -227,28 +227,83 @@ describe('PaySalaryDialog — account + currency selectors', () => {
     )
   })
 
-  // QA-MED-1 (backlog 338, QA-LOW-1 attempt backed out): the picker `min`, the
-  // hint and the default pay date must equal the SERVER floor. The API
-  // (`SalaryPaymentService`) rejects a payment dated before the UTC day of
-  // `txDate ?? createdAt` with FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION, so for a
-  // legacy NULL-`txDate` row created 2026-10-20 05:00Z the floor is 20 Oct in
-  // EVERY zone. The date CELL deliberately shows the browser-zone instant
-  // (19.10.26 in Los Angeles) - that one may differ; the bound must not.
-  // Runs under the default, Kyiv and Los Angeles projects.
-  it('NULL txDate: picker min, hint and default date equal the server floor (UTC day) in any zone', async () => {
-    renderDialog({
-      ...(TX as object),
-      txDate: null,
-      createdAt: '2026-10-20T05:00:00.000Z',
-    } as SalaryTx)
-    await screen.findByTestId('pay-salary-account-company')
-    const picker = screen.getByTestId('pay-salary-txdate')
-    expect(picker).toHaveAttribute('min', '2026-10-20')
-    expect(screen.getByText(/Найраніша доступна дата/).textContent).toBe(
-      'Найраніша доступна дата — 20.10.2026.',
-    )
-    // The default is max(today, floor); the floor is in the past, so it is today.
-    expect((picker as HTMLInputElement).value >= '2026-10-20').toBe(true)
+  // Backlog 338, QA-LOW-1: for a legacy NULL-`txDate` row the date CELL, the
+  // hint, the picker `min` and the server floor are ONE day — the KYIV day of
+  // `createdAt` (`transactionBusinessDay`). The server rejects anything earlier
+  // with FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION, so a client day that disagrees
+  // either hides a valid date or offers a refused one (QA-MED-1 of #1146).
+  // Runs under the default, Kyiv and Los Angeles projects; every literal below
+  // holds in all three.
+  describe('NULL txDate: cell, hint, picker min and default are the Kyiv day of createdAt', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-10-22T12:00:00.000Z'))
+    })
+    afterEach(() => vi.useRealTimers())
+
+    const renderNull = (createdAt: string) =>
+      renderDialog({
+        ...(TX as object),
+        id: `null-${createdAt}`,
+        txDate: null,
+        createdAt,
+      } as SalaryTx)
+
+    it('created 2026-10-20 05:00Z: every surface names 20 Oct; the default is Kyiv today', async () => {
+      renderNull('2026-10-20T05:00:00.000Z')
+      await screen.findByTestId('pay-salary-account-company')
+      const picker = screen.getByTestId('pay-salary-txdate')
+      expect(screen.getByText('20.10.26')).toBeInTheDocument()
+      expect(picker).toHaveAttribute('min', '2026-10-20')
+      expect(screen.getByText(/Найраніша доступна дата/).textContent).toBe(
+        'Найраніша доступна дата — 20.10.2026.',
+      )
+      // item (d): max(Kyiv today, floor) as an exact literal.
+      expect(picker).toHaveValue('2026-10-22')
+    })
+
+    it('created 21:30Z (already the next day in Kyiv): every surface names 21 Oct', async () => {
+      renderNull('2026-10-20T21:30:00.000Z')
+      await screen.findByTestId('pay-salary-account-company')
+      expect(screen.getByText('21.10.26')).toBeInTheDocument()
+      expect(screen.getByTestId('pay-salary-txdate')).toHaveAttribute('min', '2026-10-21')
+      expect(screen.getByText(/Найраніша доступна дата/).textContent).toBe(
+        'Найраніша доступна дата — 21.10.2026.',
+      )
+    })
+
+    // item (b): the default is max(Kyiv today, Kyiv source day). With Kyiv
+    // today = 20 Oct and the row created on Kyiv 21 Oct (UTC 20 Oct), a UTC
+    // source key would give 20 Oct — a date the server refuses.
+    it('item (b): the default is the Kyiv source day when it is ahead of Kyiv today', async () => {
+      vi.setSystemTime(new Date('2026-10-20T20:30:00.000Z')) // Kyiv 23:30 on 20 Oct
+      renderNull('2026-10-20T21:30:00.000Z') // Kyiv 00:30 on 21 Oct
+      await screen.findByTestId('pay-salary-account-company')
+      expect(screen.getByTestId('pay-salary-txdate')).toHaveValue('2026-10-21')
+    })
+
+    it('paying with the picker minimum submits exactly that day', async () => {
+      renderNull('2026-10-20T21:30:00.000Z')
+      const picker = await screen.findByTestId('pay-salary-txdate')
+      fireEvent.change(picker, { target: { value: picker.getAttribute('min') } })
+      fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
+        target: { value: 'https://etherscan.io/tx/0xmin' },
+      })
+      fireEvent.click(screen.getByTestId('pay-salary-submit'))
+      await waitFor(() => expect(paySalaryMock).toHaveBeenCalledTimes(1))
+      expect(paySalaryMock.mock.calls[0]?.[1]).toEqual(
+        expect.objectContaining({ txDate: '2026-10-21' }),
+      )
+    })
+
+    // item (e): an unparseable createdAt no longer throws a RangeError.
+    it('item (e): an unparseable createdAt renders a fallback instead of crashing', async () => {
+      renderNull('not-a-date')
+      await screen.findByTestId('pay-salary-account-company')
+      expect(screen.getByTestId('pay-salary-txdate')).not.toHaveAttribute('min')
+      expect(screen.queryByText(/Найраніша доступна дата/)).toBeNull()
+      expect(screen.getByTestId('pay-salary-txdate')).toHaveValue('2026-10-22')
+    })
   })
 
   it('prefers txDate over createdAt and clamps a future salary payment date', async () => {

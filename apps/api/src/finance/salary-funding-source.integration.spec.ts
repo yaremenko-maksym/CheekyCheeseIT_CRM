@@ -407,6 +407,56 @@ describe.skipIf(!hasDatabaseUrl())(
       })
     })
 
+    // ── backlog 338: a NULL-tx_date row floors on the Kyiv day of created_at ────
+
+    it('NULL tx_date: paying on the Kyiv day of created_at (the picker minimum) succeeds, the day before is refused', async () => {
+      await cleanup()
+      const legacyPending = async (createdAt: string) => {
+        const pending = await svc.createSalary(
+          {
+            receiverId: SENIOR.id,
+            amount: 100,
+            currency: 'USD',
+            salaryMonth: '2026-10',
+            idempotencyKey: randomUUID(),
+          },
+          ADMIN,
+        )
+        // A legacy row: no business date, only the creation instant.
+        await dbSvc.db
+          .update(transactions)
+          .set({ txDate: null, createdAt: new Date(createdAt) })
+          .where(eq(transactions.id, pending.id))
+        return pending.id
+      }
+      const pay = (id: string, txDate: string) =>
+        svc.paySalary(
+          id,
+          {
+            fundingSource: 'ADMIN_PERSONAL',
+            payerAdminId: ADMIN2.id,
+            currency: 'USD',
+            txDate,
+            receiptExternalUrl: `https://drive.google.com/file/kyivfloor${txDate}`,
+          },
+          ADMIN,
+        )
+
+      // created 2026-10-20 05:00Z — the QA-LOW-1 row; its Kyiv day is 20 Oct.
+      const morning = await legacyPending('2026-10-20T05:00:00.000Z')
+      await expect(pay(morning, '2026-10-19')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION' }),
+      })
+      expect((await pay(morning, '2026-10-20')).status).toBe('PAID')
+
+      // created 21:30Z — already 21 Oct in Kyiv; the UTC day (20 Oct) is refused.
+      const late = await legacyPending('2026-10-20T21:30:00.000Z')
+      await expect(pay(late, '2026-10-20')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION' }),
+      })
+      expect((await pay(late, '2026-10-21')).status).toBe('PAID')
+    })
+
     // ── #222 invariant preserved at creation ───────────────────────────────────
 
     it('#222 invariant preserved: ADMIN receiver rejected at createSalary', async () => {

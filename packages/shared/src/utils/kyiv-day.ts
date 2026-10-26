@@ -186,3 +186,30 @@ export function businessMonthWindow(month: string): BusinessMonthWindow {
     instantEnd: kyivMonthStartInstant(next),
   }
 }
+
+/**
+ * The business DAY (`YYYY-MM-DD`) of a transaction row — the day-level
+ * counterpart of the API's `transactionBusinessMonth` (backlog 338, QA-LOW-1).
+ *
+ *   - a non-null `txDate` is a date-only value stored at UTC midnight, so its
+ *     own UTC day IS the business day;
+ *   - a NULL `txDate` (legacy rows) falls back to the KYIV day of the
+ *     `createdAt` instant, never its UTC day: 21:00-24:00 UTC is already the
+ *     next day in Kyiv.
+ *
+ * ONE definition for every reader: the server's payment-date floors
+ * (`FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION` / `_BEFORE_INCOME`) and the web's
+ * date cells, hints and picker minimums. A client minimum that disagrees with
+ * the server floor offers a date the API refuses (QA-MED-1 of #1146).
+ *
+ * Returns `null` instead of throwing when the value it needs is unparseable:
+ * `toISOString()` and `Intl` both raise `RangeError` on an invalid `Date`.
+ */
+export function transactionBusinessDay(
+  txDate: string | Date | null | undefined,
+  createdAt: string | Date,
+): string | null {
+  const d = new Date(txDate || createdAt)
+  if (Number.isNaN(d.getTime())) return null
+  return txDate ? d.toISOString().slice(0, 10) : kyivDayOf(d)
+}

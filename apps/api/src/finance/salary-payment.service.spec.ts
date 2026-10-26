@@ -367,6 +367,31 @@ describe('SalaryPaymentService.paySalary — gates and refusals', () => {
     ).rejects.toMatchObject({ response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION' } })
   })
 
+  // Backlog 338 / QA-LOW-1: a NULL-txDate row floors on the KYIV day of
+  // createdAt — the same day the dialog shows and offers — not its UTC day.
+  it('floors a NULL-txDate row on the Kyiv day of createdAt, incl. the 21:00-24:00 UTC window', async () => {
+    resolveForReal()
+    const lateUtc = () =>
+      make({
+        tx: pendingSalary({ txDate: null, createdAt: new Date('2026-10-20T21:30:00.000Z') }),
+      })
+    const before = lateUtc()
+    await expect(
+      before.svc.paySalary(SALARY_ID, { ...personal, txDate: '2026-10-20' }, ADMIN),
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION' } })
+    expect(before.setCalls).toHaveLength(0)
+
+    const onDay = lateUtc()
+    await onDay.svc.paySalary(SALARY_ID, { ...personal, txDate: '2026-10-21' }, ADMIN)
+    expect(onDay.setCalls).toHaveLength(1)
+
+    const morning = make({
+      tx: pendingSalary({ txDate: null, createdAt: new Date('2026-10-20T05:00:00.000Z') }),
+    })
+    await morning.svc.paySalary(SALARY_ID, { ...personal, txDate: '2026-10-20' }, ADMIN)
+    expect(morning.setCalls).toHaveLength(1)
+  })
+
   // SR-809-M-1 (PR #868): omitting the date resolves to "now", and "now" is
   // still bound by the obligation date — it cannot predate a future-dated row.
   it('refuses an omitted payment date when today is before the obligation date', async () => {
