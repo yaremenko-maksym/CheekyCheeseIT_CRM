@@ -179,8 +179,12 @@ export const baseInput = (over: Partial<CreateUserInput> = {}): CreateUserInput 
   role: 'JUNIOR',
   actorRole: 'ADMIN',
   actorId: 'admin-1',
+  // A SENIOR needs >= 3 technologies (SENIOR_MIN_TECHNOLOGIES): tests about other rules get a valid stack.
+  ...(over.role === 'SENIOR' && { techStack: SENIOR_STACK }),
   ...over,
 })
+
+export const SENIOR_STACK = ['TypeScript', 'Go', 'PostgreSQL']
 
 export const inserts = (log: Log, table: string) =>
   log.filter((e) => e.op === 'insert' && e.table === table)
