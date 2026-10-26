@@ -76,24 +76,16 @@ function randomSalaryMonth(): string {
 }
 
 /**
- * Every (year, month) the create-transaction month picker offers
- * (currentYear-3 .. currentYear+1 = 60 combinations), in random order. The
- * picker cannot reach the far-future months `randomSalaryMonth` uses, and 60
- * combinations alone would eventually collide across runs on a persistent DB,
- * so the UI test walks this list and moves on when the server rejects a month
- * that already has a reminder for the chosen receiver.
+ * A random (year, month) the create-transaction month picker offers
+ * (currentYear-3 .. currentYear+1). The picker cannot reach the far-future
+ * months `randomSalaryMonth` uses. The API does not reject a second salary part
+ * for the same (receiver, month) - it records it as another part - so a repeat
+ * of a month across runs is harmless and no retry is needed.
  */
-function shuffledPickerMonths(): { year: number; month: string }[] {
-  const first = new Date().getFullYear() - 3
-  const all: { year: number; month: string }[] = []
-  for (let year = first; year <= first + 4; year++) {
-    for (let m = 1; m <= 12; m++) all.push({ year, month: String(m).padStart(2, '0') })
-  }
-  for (let i = all.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[all[i], all[j]] = [all[j]!, all[i]!]
-  }
-  return all
+function randomPickerMonth(): { year: number; month: string } {
+  const year = new Date().getFullYear() - 3 + Math.floor(Math.random() * 5)
+  const month = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0')
+  return { year, month }
 }
 
 /** A tiny valid 1x1 PNG — avoids depending on an on-disk fixture asset. */
@@ -308,23 +300,21 @@ test.describe('Transaction receipts — create-block без чека (mandatory)
     // No receipt input at all for SALARY.
     await expect(dialog.getByTestId('receipt-input-url-field')).not.toBeAttached()
 
-    // createSalary enforces one reminder per (receiver, month), and a prior run
-    // may already hold any month the picker offers for whichever receiver is
-    // "first". Try picker months in random order until the server accepts one
-    // (the dialog closes); a rejected month leaves the dialog open, so move on.
-    // Only if all 60 are taken does the test fail, on the final expect below.
-    for (const { year, month } of shuffledPickerMonths()) {
-      await dialog.getByTestId('create-transaction-salary-year-select').click()
-      await page.getByTestId(`salary-year-option-${year}`).click()
-      await dialog.getByTestId('create-transaction-salary-month-select').click()
-      await page.getByTestId(`salary-month-option-${month}`).click()
-      await dialog.getByTestId('create-transaction-submit').click()
-      const closed = await dialog
-        .waitFor({ state: 'hidden', timeout: 4000 })
-        .then(() => true)
-        .catch(() => false)
-      if (closed) break
-    }
+    const { year, month } = randomPickerMonth()
+    await dialog.getByTestId('create-transaction-salary-year-select').click()
+    await page.getByTestId(`salary-year-option-${year}`).click()
+    await dialog.getByTestId('create-transaction-salary-month-select').click()
+    await page.getByTestId(`salary-month-option-${month}`).click()
+
+    // Inspect the create response so a real failure (500, validation, network)
+    // reports its status and body instead of a bare dialog timeout.
+    const createResponse = page.waitForResponse(
+      (r) => r.url().endsWith('/transactions/salary') && r.request().method() === 'POST',
+    )
+    await dialog.getByTestId('create-transaction-submit').click()
+    const res = await createResponse
+    if (!res.ok())
+      throw new Error(`POST /transactions/salary -> ${res.status()}: ${await res.text()}`)
     await expect(dialog).not.toBeVisible()
   })
 })
