@@ -1,3 +1,4 @@
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const enqueue = vi.fn()
@@ -36,7 +37,7 @@ const tuple = (x: ReturnType<typeof m>) => [x.seniorId, x.profile, x.exclusion, 
 /** A db whose page queries return the given pages in order. */
 function dbOf(...pages: Record<string, unknown>[][]) {
   const queue = [...pages]
-  const execute = vi.fn(async () => ({ rows: queue.shift() ?? [] }))
+  const execute = vi.fn(async (_q: unknown) => ({ rows: queue.shift() ?? [] }))
   return { execute }
 }
 const opp = (n: number, matches: unknown = [], revision = 3) => ({
@@ -151,6 +152,42 @@ describe('reconcileOnce', () => {
 
   it('rejects a page size below 1', async () => {
     await expect(reconcileOnce(dbOf(), { pageSize: 0 })).rejects.toThrow(RangeError)
+  })
+})
+
+const rendered = (q: unknown) => new PgDialect().sqlToQuery(q as never)
+
+describe('the page query', () => {
+  it('starts from the nil uuid, orders by id, and limits to the page size', async () => {
+    const db = dbOf([])
+    await reconcileOnce(db, { pageSize: 7 })
+    const q = rendered(db.execute.mock.calls[0]?.[0])
+    expect(q.params).toEqual(['00000000-0000-0000-0000-000000000000', 7])
+    expect(q.sql).toContain('FROM job_opportunities o')
+    expect(q.sql).toContain('job_opportunity_matches')
+    expect(q.sql).toContain('ORDER BY o.id')
+  })
+
+  it('resumes after the given cursor, then after the last id of each page', async () => {
+    const db = dbOf([opp(1), opp(2)], [])
+    await reconcileOnce(db, { pageSize: 2, cursor: id(99) })
+    expect(rendered(db.execute.mock.calls[0]?.[0]).params).toEqual([id(99), 2])
+    expect(rendered(db.execute.mock.calls[1]?.[0]).params).toEqual([id(2), 2])
+  })
+
+  it('accepts a page size of exactly 1', async () => {
+    await expect(reconcileOnce(dbOf([]), { pageSize: 1 })).resolves.toMatchObject({ pages: 1 })
+  })
+})
+
+describe('isStale across rows and reason across orders', () => {
+  it('one stale row among fresh ones makes the opportunity stale', () => {
+    expect(isStale([m(S1, 'p1', 'e1'), m(S2, 'OLD', 'e2')], live)).toBe(true)
+    expect(isStale([m(S1, 'OLD', 'e1'), m(S2, 'p2', 'e2')], live)).toBe(true)
+  })
+  it('the reason does not depend on the roster insertion order', () => {
+    const swapped = new Map([...live].reverse())
+    expect(reconcileReason(swapped, [])).toBe(reconcileReason(live, []))
   })
 })
 

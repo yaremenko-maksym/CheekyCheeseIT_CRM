@@ -123,4 +123,40 @@ describe('JobMatchReconciliationCronService', () => {
     expect(reconcile).toHaveBeenCalledTimes(2)
     expect(log).toHaveBeenCalledTimes(1)
   })
+  it('reads the flag by its name with infer', async () => {
+    const db = { db: {} }
+    const get = vi.fn(() => false)
+    const svc = new JobMatchReconciliationCronService(db as never, {} as never, { get } as never)
+    await svc.handleReconciliation()
+    expect(get).toHaveBeenCalledWith('JOB_MATCH_RECONCILIATION_ENABLED', { infer: true })
+  })
+
+  it('logs the skipped tick, the resume marker and the elapsed time', async () => {
+    const { svc } = make()
+    let release!: () => void
+    reconcile.mockImplementationOnce(
+      () => new Promise((r) => (release = () => r(report({ cursor: 'c' })))),
+    )
+    const now = vi.spyOn(performance, 'now').mockReturnValueOnce(1000).mockReturnValueOnce(1250)
+    const first = svc.handleReconciliation()
+    await svc.handleReconciliation()
+    expect(String(warn.mock.calls[0]?.[0])).toContain('still running')
+    release()
+    await first
+    const line = String(log.mock.calls[0]?.[0])
+    expect(line).toContain('resumeCursor=set')
+    expect(line).toContain('durationMs=250')
+    expect(now).toHaveBeenCalledTimes(2)
+  })
+
+  it('logs resumeCursor=none for a finished sweep and names the failure', async () => {
+    const { svc } = make()
+    await svc.handleReconciliation()
+    expect(String(log.mock.calls[0]?.[0])).toContain('resumeCursor=none')
+    reconcile.mockRejectedValueOnce(new Error('x'))
+    await svc.handleReconciliation()
+    expect(String(error.mock.calls[0]?.[0])).toContain(
+      'Match reconciliation failed; will retry next tick',
+    )
+  })
 })

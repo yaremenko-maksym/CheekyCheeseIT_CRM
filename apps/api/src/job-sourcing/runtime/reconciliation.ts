@@ -68,9 +68,9 @@ const digest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16)
 
 function parseMatches(raw: unknown): StoredMatch[] {
-  if (!Array.isArray(raw)) throw new TypeError('matches is not an array')
-  return raw.map((m: unknown) => {
-    if (!Array.isArray(m) || m.length !== 4) throw new TypeError('malformed match tuple')
+  // `.map` on a non-array throws a TypeError: the caller counts it as this opportunity's failure.
+  return (raw as unknown[]).map((m: unknown) => {
+    if (!Array.isArray(m) || m.length !== 4) throw new TypeError()
     const [seniorId, profile, exclusion, rule] = m.map(String)
     return {
       seniorId: seniorId as string,
@@ -103,8 +103,10 @@ export function reconcileReason(
   live: ReadonlyMap<string, SeniorVersions>,
   matches: readonly StoredMatch[],
 ): string {
-  const roster = digest([...live].sort(([a], [b]) => (a < b ? -1 : 1)))
-  const stored = digest([...matches].sort((a, b) => (a.seniorId < b.seniorId ? -1 : 1)))
+  const roster = digest([...live].map(([id, v]) => `${id}|${v.profile}|${v.exclusion}`).sort())
+  const stored = digest(
+    matches.map((m) => `${m.seniorId}|${m.profile}|${m.exclusion}|${m.rule}`).sort(),
+  )
   return `RECONCILE:${roster}:${stored}`
 }
 
@@ -119,6 +121,7 @@ export async function reconcileOnce(
 ): Promise<ReconcileReport> {
   const pageSize = options.pageSize ?? RECONCILE_PAGE_SIZE
   const maxPages = options.maxPages ?? RECONCILE_MAX_PAGES
+  // Stryker disable next-line StringLiteral: the message text only; the throw itself is asserted.
   if (!Number.isSafeInteger(pageSize) || pageSize < 1) throw new RangeError('pageSize must be >= 1')
   const live = (await loadRoster(db)).versions
   let cursor = options.cursor ?? NIL_UUID
@@ -164,7 +167,7 @@ export async function reconcileOnce(
       }
     }
     if (rows.length < pageSize) return { scanned, stale, enqueued, failed, pages, cursor: null }
-    cursor = String(rows[rows.length - 1]?.['id'])
+    cursor = String((rows[rows.length - 1] as Record<string, unknown>)['id'])
   }
   return { scanned, stale, enqueued, failed, pages, cursor }
 }
