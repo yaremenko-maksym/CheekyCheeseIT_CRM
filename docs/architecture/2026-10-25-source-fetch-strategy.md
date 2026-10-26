@@ -2,10 +2,26 @@
 
 ## Status
 
-**Proposed (2026-10-26).** The owner gave the direction a green light on 2026-10-26 ("launch the source-fetch
-strategy"). He has decided none of the forks in "Decision brief" below, and every number in this document is
-a proposal until he does. This file replaces the draft proposal of 2026-10-25 that stood at the same path;
+**Accepted (2026-10-26).** Proposed the same day; the owner answered the decision brief on 2026-10-26
+(section "Owner decisions of 2026-10-26"). Nine of ten questions are decided; **question 6 (ADMIN alerts)
+is pending, re-asked in plain words**, and the units that depend on it wait. Two new questions arose from
+his answers (11 and 12). This file replaces the draft proposal of 2026-10-25 that stood at the same path;
 the draft is in git history.
+
+## Owner decisions of 2026-10-26
+
+| #   | Question                     | Decision                                                                                                                                                                                                                                                         |
+| --- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Intervals between sweeps     | As recommended: section 8.                                                                                                                                                                                                                                       |
+| 2   | Working hours per region     | As recommended: 08:00–19:00 Mon–Fri in each board's own time zone, every 3 h outside; the time zone is a required field of each board.                                                                                                                           |
+| 3   | Sweep and digest times       | Sweep 08:00 Kyiv, digest 09:00 Kyiv.                                                                                                                                                                                                                             |
+| 4   | What the sweep re-reads      | Option A: every enabled source is listed once, no per-opportunity request in the sweep. **New requirement:** a job opportunity's **detail** is fetched only on demand, just before it is shown to HR or put into the digest, cached, once (section 6a).          |
+| 5   | HR digest                    | One email a day per HR user; **not on Saturday or Sunday** (Europe/Kyiv); skipped on a day with nothing new and no failed source.                                                                                                                                |
+| 6   | ADMIN alerts                 | **Pending, re-asked** in plain words (section "Open questions"). The recommendation stands.                                                                                                                                                                      |
+| 7   | Watchlist of employer boards | **"Everything we can get"**: no cap; every board reachable on the public no-key ATS APIs (Greenhouse, Lever, Ashby, Recruitee, Personio, Workable). The first live request of each board stays a supervised smoke (section 8a).                                  |
+| 8   | Accepted-risk sources        | SmartRecruiters, Jobgether and Hacker News are connected **at the very end**. Their adapters stay in code; they are not scheduled and not in the enabled set (section 8).                                                                                        |
+| 9   | `min_interval_hours`         | As recommended: stop reading it now (U1b, reversible); drop the column only after the source page has shipped and one release has passed, and ask again then.                                                                                                    |
+| 10  | Provider terms               | **No legal-agent run.** The owner accepts as a known risk: DOU's automated-collection clause, Jobgether's machine-learning clause, Arbeitnow's non-commercial licence, Remotive's third-party clause. DOU stays as it runs today. Revisit if a provider objects. |
 
 Companions:
 
@@ -75,8 +91,17 @@ Each fact names a symbol so a `grep` confirms it.
 - **Ashby** documents only the full board (R6): list-then-detail is not available from its docs.
 - **No ATS provider publishes a read rate** (R3, R4, R6, R7, R9–R11). Conservative numbers stay.
 - **Conditional requests are documented by nobody.** They can be learned only from response headers.
-- **Four terms questions** (DOU R29, Jobgether R26, Arbeitnow R20, Remotive R14) go to the legal agent.
-  This ADR changes no cadence of a source whose terms question is open.
+- **Four terms clauses** (DOU R29, Jobgether R26, Arbeitnow R20, Remotive R14) are a known risk the owner
+  accepted on 2026-10-26 without a legal review. DOU's cadence is not changed; revisit if a provider objects.
+- **What the store already persists** (for detail on demand): each revision may carry
+  `description_sha256`, content-addressed into `job_text_blobs`; revisions are immutable; the canonical
+  store's `job_dirty_work` queue (`DirtyWorkStore`) has claims, leases, fencing, attempts, a free-text
+  `reason` and the entity kind `SOURCE_RECORD`. Evaluation reads the description (`layer1` reads
+  `descriptionMd`; `tech-match` reads it too).
+- **Which adapters fetch per-posting detail today:** Greenhouse reads the whole board with
+  `content=true` (2.7–8 MB, REPO); SmartRecruiters fetches a detail per new or changed posting, cached
+  by a list fingerprint; Workable asks `details=true`; Ashby has only the full board (R6); every feed
+  carries the description in its list.
 
 ## Decision
 
@@ -184,13 +209,14 @@ The due predicate (T4) keeps comparing timestamps. Claims use **no slack**: a sl
 
 ### 5. Handlers: a 10-minute tick, a sweep cycle, a digest job
 
-| Handler                 | Cron (all `Europe/Kyiv`)             | What it does                                                                                                                                                                             |
-| ----------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **tick** (new)          | `*/10 * * * *`                       | Opens a cycle keyed `tick:<Kyiv date>T<HH:MM>`, recovers, then `runCollectionWindow` over the API types for at most **9 minutes**, so two ticks of one replica never overlap             |
-| **sweep** (new)         | `0 8 * * *` (proposal; see brief Q3) | Opens a cycle keyed `sweep:<Kyiv date>`; claims with the **sweep predicate** (below) until every enabled API-type source has run once in this cycle or `JOB_COLLECTION_WINDOW_MS` passes |
-| **digest** (new)        | `0 9 * * *`                          | Builds and enqueues the HR digest (section 9)                                                                                                                                            |
-| `handleDailyCollection` | `0 5 * * *`                          | **Keeps only** the legacy DOU collection and retention; the API types leave it                                                                                                           |
-| `handleHtmlCollection`  | `30 2 * * *`                         | **Unchanged** (its types are blocked until phase 5)                                                                                                                                      |
+| Handler                 | Cron (all `Europe/Kyiv`)         | What it does                                                                                                                                                                             |
+| ----------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **tick** (new)          | `*/10 * * * *`                   | Opens a cycle keyed `tick:<Kyiv date>T<HH:MM>`, recovers, then `runCollectionWindow` over the API types for at most **9 minutes**, so two ticks of one replica never overlap             |
+| **sweep** (new)         | `0 8 * * *` (owner, Q3)          | Opens a cycle keyed `sweep:<Kyiv date>`; claims with the **sweep predicate** (below) until every enabled API-type source has run once in this cycle or `JOB_COLLECTION_WINDOW_MS` passes |
+| **detail pass** (new)   | `30 8 * * 1-5`                   | Opens a cycle keyed `detail:<Kyiv date>`; claims only sources that have pending detail requests, with run scope `DETAIL_ONLY` (section 6a), so the 09:00 digest has its details          |
+| **digest** (new)        | `0 9 * * 1-5` (owner, Q3 and Q5) | Builds and enqueues the HR digest (section 11); no digest on Saturday or Sunday                                                                                                          |
+| `handleDailyCollection` | `0 5 * * *`                      | **Keeps only** the legacy DOU collection and retention; the API types leave it                                                                                                           |
+| `handleHtmlCollection`  | `30 2 * * *`                     | **Unchanged** (its types are blocked until phase 5)                                                                                                                                      |
 
 - **Why 10 minutes.** The finest interval any profile proposes is 60 minutes, and staggers are whole
   minutes, so a 10-minute tick claims every source within 10 minutes of its slot. A 1-minute tick was
@@ -215,6 +241,62 @@ ATS board, which lists every open posting): a feed with a rolling window (Jobicy
 newest; Djinni's 100 newest) proves nothing by absence, and Jobicy says so in as many words. Writing
 `availability` from that evidence is phase 4's store rule; this ADR only guarantees the observation.
 
+### 6a. Detail on demand (owner, Q4)
+
+**The rule:** a run reads the **list**. A job opportunity's **detail** (the description and whatever the
+list lacks) is fetched only when the opportunity is about to be shown to HR or put into the digest,
+once, and never for one already enriched.
+
+**Which sources it applies to.** Only those whose list lacks the detail, declared per type as
+`detailMode: 'ON_DEMAND'` in the manifest (the default is `'IN_LIST'`):
+
+| Source                                 | Mode                                      | Why                                                                                                          |
+| -------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Greenhouse                             | **ON_DEMAND**                             | The list without `content` is documented (R2); today's `content=true` costs 2.7–8 MB a board (REPO)          |
+| SmartRecruiters                        | ON_DEMAND when connected (Q8: at the end) | It already fetches a detail per new posting eagerly; switched when it is connected                           |
+| Workable                               | IN_LIST for now                           | Whether the list without `details=true` lacks the description is UNVERIFIED; learned at a supervised capture |
+| Ashby                                  | IN_LIST                                   | Only the full board is documented (R6); there is no list to read instead                                     |
+| Lever, Recruitee, Personio, every feed | IN_LIST                                   | The description arrives in the list; there is nothing to fetch later                                         |
+
+**The flow.** No new table and no DDL: the queue and the cache already exist.
+
+1. **Ingest.** A run of an ON_DEMAND source reads the list only and stores a revision without a
+   description (`description_sha256` NULL).
+2. **Want.** Evaluation runs on what the list carries (title, location, tags). When an opportunity backed
+   by such a record comes out `LEAD` or `TRIAGE` for any senior, the evaluation enqueues one
+   `job_dirty_work` row: kind `SOURCE_RECORD`, reason `DETAIL_FETCH`, `target_version` = the record's
+   current version. The unique key `(kind, entity, version, reason)` makes a second enqueue a no-op:
+   **fetch once**. An HR user opening an opportunity whose detail is missing enqueues the same row (a
+   database write, never an external call).
+3. **Fetch.** Only inside a ledger run of the record's own source, so every rule of a run applies: the
+   host budget and `HOST_BUSY` (`claimHostSlot`), the ban pause, fencing, the byte caps, the request
+   meter. After its list phase, a run claims up to `detailPerRun` (manifest, per type) of the pending
+   `DETAIL_FETCH` rows whose record has its own type and namespace, oldest first, and fetches each detail. A sweep or routine run does this as a tail;
+   the 08:30 **detail pass** runs it alone (scope `DETAIL_ONLY`, no list request) for sources that have
+   pending rows, so the 09:00 digest is enriched.
+4. **Cache.** The detail is written through the existing source-record store as a new immutable
+   revision, the text content-addressed in `job_text_blobs`. The record's next revision triggers
+   re-evaluation through the dirty-work queue, which may drop the opportunity. **It is fetched again
+   only** when the list shows the posting changed (a new list version, for Greenhouse its `updated_at`)
+   and the opportunity is still wanted, or when the stored detail is older than **14 days** and still
+   wanted. That is the TTL.
+5. **Failure.** A 401, 403, 429 or 451 ends the run and pauses the host (T8, unchanged); the claimed row
+   is recovered on lease expiry and retried after the pause. A 404 is the adapter's answer: the posting
+   is gone, recorded as availability evidence, never retried. Anything else counts an attempt; after
+   `DIRTY_MAX_ATTEMPTS_DEFAULT` (5) the row is `FAILED` and stays so.
+6. **Degrade.** The HR list, the opportunity view and the digest never call a provider. An opportunity
+   without its detail is shown with the list's fields, a link to the original posting, and "description
+   not loaded yet" (or "could not be loaded" once `FAILED`). Nothing waits on a provider.
+
+**What it costs and saves.** A Greenhouse board's routine run falls from 2.7–8 MB to about 147 KB (the list,
+REPO). Details are fetched only for the share of new postings that pass evaluation on list fields; the
+remaining requests are counted in the host budget like any other.
+
+**One rule changes in evaluation** (phase 4's `evaluate`): an opportunity whose description is absent
+**because its detail is pending** is never `EXCLUDED` on stack grounds; at worst it is `TRIAGE` with the
+stack unknown, so it is enriched and evaluated again. Title-level exclusions still apply. Without this
+rule, list-only sources would lose every match the description would have found.
+
 ### 7. Conditional requests: observe first, then use
 
 No provider documents `ETag` or `If-Modified-Since` (research, "What could not be established"), and
@@ -228,33 +310,108 @@ learning it needs a request. So:
    detector.
 3. Until a host has shown validators, nothing changes for it.
 
-### 8. Strategy per source (proposal; the owner's Q1 and Q2 decide it)
+### 8. Strategy per source (owner, Q1, Q2 and Q8)
 
 Intervals are minutes inside the window / outside it. "Window" is local working hours of the employer's
 or platform's region, `08:00–19:00 Mon–Fri` unless stated. **Hourly is the baseline wherever no
 documented limit or delay makes it pointless.**
 
-| Source                                                  | Profile                                                       | Why (research row or REPO)                                                                                       |
-| ------------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Greenhouse, Lever, Workable, Recruitee, Personio boards | 60 / 180, window in the **board's** region                    | No published read rate (R3, R4, R7, R9, R10): owner baseline. Recruitee stops itself at 2027-02-10 (R7)          |
-| Ashby boards                                            | 60 / 180; large boards (over 5 MB) 180 / off                  | Only the full board is documented (R6); boards up to 13.9 MB (REPO)                                              |
-| SmartRecruiters (accepted risk)                         | 180 / off                                                     | robots.txt disallows us (REPO); stop at the first refusal; first call is a smoke                                 |
-| Remotive (3 entries)                                    | `fixedSlots` 09:00, 13:00, 17:00 Kyiv, **one entry per slot** | 4 a day for the host (R13); 3 used, 1 left for a manual run; 24 h delay means it is never fresh (R14)            |
-| Jobicy                                                  | 120 / 240                                                     | No more than hourly (R15); 3 h delay makes hourly pointless (R16)                                                |
-| Himalayas                                               | sweep only (once a day)                                       | Data refreshed every 24 h (R17); pooled public allowance (R18)                                                   |
-| RemoteOK                                                | 60 / 180                                                      | One request; no published rate (R23)                                                                             |
-| Arbeitnow                                               | 120 / off, `routinePages: 1`; full pages only in the sweep    | Page 1 about 4.2 MB (REPO); no published rate (R21); terms question open (R20)                                   |
-| We Work Remotely                                        | 180 / 360                                                     | 10 newest per category, 57.4 h age gap measured (REPO): 3 h loses nothing                                        |
-| Djinni                                                  | 60 / 120, window Kyiv 08:00–20:00 every day                   | 100 newest, about 3.1 h at peak (REPO): **any gap over about 3 h loses postings**, so the off interval stays 120 |
-| Hacker News                                             | 120 on days 1–4 of the month, then sweep only                 | One thread a month (REPO); limit known only from a secondary source (R24)                                        |
-| Jobgether (accepted risk)                               | 120 / off                                                     | 10 × 25 cap (R25); terms forbid bots and ML use (R26), legal question open                                       |
-| DOU (legacy, the only live one)                         | **unchanged: 05:00 daily**                                    | Terms forbid automated collection without consent (R29); no change before the legal answer                       |
-| JSearch, TheirStack, Jooble, Reed                       | no schedule (`triggerMode: MANUAL`)                           | Free-only rule; quota APIs are not polling sources (REPO)                                                        |
-| The Muse, Working Nomads, EU Remote Jobs, `_HTML` types | none                                                          | Blocked (REPO)                                                                                                   |
+| Source                                                  | Profile                                                                                                | Why (research row or REPO)                                                                                                                                                                                   |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Greenhouse, Lever, Workable, Recruitee, Personio boards | 60 / 180, window in the **board's** region                                                             | No published read rate (R3, R4, R7, R9, R10): owner baseline. Recruitee stops itself at 2027-02-10 (R7). Greenhouse lists only; details on demand (6a). At scale the host budget stretches the interval (8a) |
+| Ashby boards                                            | 60 / 180; large boards (over 5 MB) 180 / off                                                           | Only the full board is documented (R6); boards up to 13.9 MB (REPO)                                                                                                                                          |
+| SmartRecruiters (accepted risk)                         | **not scheduled** until connected at the end (Q8); then 180 / off                                      | robots.txt disallows us (REPO); stop at the first refusal; first call is a smoke                                                                                                                             |
+| Remotive (3 entries)                                    | `fixedSlots` 09:00, 13:00, 17:00 Kyiv, **one entry per slot**                                          | 4 a day for the host (R13); 3 used, 1 left for a manual run; 24 h delay means it is never fresh (R14)                                                                                                        |
+| Jobicy                                                  | 120 / 240                                                                                              | No more than hourly (R15); 3 h delay makes hourly pointless (R16)                                                                                                                                            |
+| Himalayas                                               | sweep only (once a day)                                                                                | Data refreshed every 24 h (R17); pooled public allowance (R18)                                                                                                                                               |
+| RemoteOK                                                | 60 / 180                                                                                               | One request; no published rate (R23)                                                                                                                                                                         |
+| Arbeitnow                                               | 120 / off, `routinePages: 1`; full pages only in the sweep                                             | Page 1 about 4.2 MB (REPO); no published rate (R21); terms clause accepted as a risk (R20, Q10)                                                                                                              |
+| We Work Remotely                                        | 180 / 360                                                                                              | 10 newest per category, 57.4 h age gap measured (REPO): 3 h loses nothing                                                                                                                                    |
+| Djinni                                                  | 60 / 120, window Kyiv 08:00–20:00 every day                                                            | 100 newest, about 3.1 h at peak (REPO): **any gap over about 3 h loses postings**, so the off interval stays 120                                                                                             |
+| Hacker News (accepted risk)                             | **not scheduled** until connected at the end (Q8); then 120 on days 1–4 of the month, sweep only after | One thread a month (REPO); limit known only from a secondary source (R24)                                                                                                                                    |
+| Jobgether (accepted risk)                               | **not scheduled** until connected at the end (Q8); then 120 / off                                      | 10 × 25 cap (R25); terms forbid bots and ML use (R26), accepted as a risk (Q10)                                                                                                                              |
+| DOU (legacy, the only live one)                         | **unchanged: 05:00 daily**                                                                             | Terms forbid automated collection without consent (R29); accepted as a risk, cadence unchanged (Q10)                                                                                                         |
+| JSearch, TheirStack, Jooble, Reed                       | no schedule (`triggerMode: MANUAL`)                                                                    | Free-only rule; quota APIs are not polling sources (REPO)                                                                                                                                                    |
+| The Muse, Working Nomads, EU Remote Jobs, `_HTML` types | none                                                                                                   | Blocked (REPO)                                                                                                                                                                                               |
+
+**How "not scheduled" is enforced (Q8).** The three accepted-risk types keep their adapters, manifest
+entries and owner decisions, but declare `fetchProfile: null`. A null profile is never due by schedule,
+sweep or detail pass (the drift test pins it for exactly these three types), and their rows stay
+`enabled = false`. Connecting them is the last unit (U12), on the owner's word.
 
 **Request volume at these numbers** (a weekday, per source): a 60 / 180 profile with an 11-hour window is
-11 + 5 = 16 runs, plus the sweep. For a Greenhouse board without `content` (about 147 KB, REPO) that is
-about 2.5 MB a day. Arbeitnow at 120 minutes, page 1 only, is about 6 × 4.2 MB plus a 15–20 MB sweep.
+11 + 5 = 16 runs, plus the sweep. For a Greenhouse board listing without `content` (about 147 KB, REPO)
+that is about 2.5 MB a day, instead of 43–128 MB with `content=true`. Arbeitnow at 120 minutes, page 1
+only, is about 6 × 4.2 MB plus a 15–20 MB sweep. **The sweep** lists each enabled source once: one
+request per board, a few per feed, and **no detail requests** (details come from the 08:30 pass, only for
+wanted opportunities). For the watchlist at scale, see 8a.
+
+### 8a. The watchlist at scale (owner, Q7: "everything we can get")
+
+**Boards are data, not hand-written code.** One data file per provider under the manifest's providers
+directory (for example `boards/greenhouse.boards.json`), one line per board:
+
+```json
+{
+  "token": "acme",
+  "employer": "Acme Inc",
+  "domain": "acme.com",
+  "timeZone": "Europe/Berlin",
+  "addedBy": "discovery",
+  "evidence": null
+}
+```
+
+- **A generator** in the manifest builder turns every line into an `EntryDefinition` with the id
+  `<provider>.board.<token>`, the provider's default `fetchProfile` with `window.timeZone` set to the
+  board's `timeZone` (required: Q2), and the host key the type already derives. The drift test validates
+  every line (token pattern, a known IANA zone, no duplicate token).
+- **The database rows** come from the existing seed-delta generator (`generateSeedDelta`): idempotent
+  inserts of the new ids, `enabled = false`. One staged delta per batch, wired once by DevOps (U8-D);
+  later batches regenerate the same file kind and reuse the wiring.
+- **The evidence rule stays.** A board line enters with `evidence: null` and its row disabled. It is
+  enabled only after its **first live request**, a **supervised smoke**: one list request, made by an
+  agent under the owner's supervision, at the host budget, stopping the batch at the first refusal. The
+  smoke records the capture as the evidence the manifest already requires (status 200, an employer that
+  matches the line). A board that fails stays disabled with the reason.
+
+**Discovery without asking job sites.** Board tokens are found in data we already hold, so discovery
+sends no request:
+
+1. Every stored source record's `original_url`, `display_url` and `application_url` is matched against
+   the six providers' public board URL shapes (`boards.greenhouse.io/<token>`, `jobs.lever.co/<token>`,
+   `jobs.ashbyhq.com/<token>`, `<token>.recruitee.com`, `<token>.jobs.personio.de`,
+   `apply.workable.com/<token>`). A read-only query lists tokens not yet in a board file, with how many
+   opportunities and matches each produced.
+2. Seniors and HR may propose an employer; an ADMIN adds the line.
+3. TheirStack (quota API, manual runs only) can be used by hand to find employers in a niche.
+
+The candidate list is reviewed and appended to the board files as a PR; the time zone comes from the
+employer's location in the stored record, or is set by the reviewer.
+
+**The host budget holds at any scale.** All boards of one provider share one host key (T8). Today
+`HOST_BUSY` lets one run per host at a time, and `hostRate` counts claims, which is valid only for one
+request a run. At scale the budget must count **requests**: a per-host `hostRequestBudget
+{ perMinute, perHour }`, enforced in `claimHostSlot` from `request_count` of recent runs (U2) plus the
+expected requests of the run being claimed (U11). A board refused for budget is simply claimed later;
+the due order (`next_attempt_at`, oldest first) makes that a fair round-robin. **The effective interval
+is therefore `max(profile interval, boards on the host / hourly budget)`**: freshness degrades gracefully
+with scale instead of the request rate growing.
+
+**The arithmetic** (per provider host, weekday, list requests only; details add the wanted share):
+
+| Boards on one host | Runs a day at 60 / 180 | Average in the window | Sweep (one list each)     | With a budget of 120 an hour (proposed) |
+| ------------------ | ---------------------- | --------------------- | ------------------------- | --------------------------------------- |
+| 13 (today)         | about 210              | about 0.2 a minute    | 13                        | hourly, budget not reached              |
+| 200                | about 3,200            | about 3 a minute      | 200 (about 2 h at 2/min)  | every 1.7 h in the window               |
+| 1,000              | about 16,000           | about 15 a minute     | 1,000 (over 8 h at 2/min) | every 8.3 h in the window               |
+
+Bytes at 1,000 Greenhouse boards listing hourly would be about 2.4 GB a day; at the proposed budget,
+about 0.4 GB. **Ban risk** grows with the sustained request rate per host, not with the number of
+boards; no provider publishes its limit (research), so the budget starts low, a refusal pauses the whole
+host for at least 24 h (T8), and the slow-down (4) acts before the cap. The sweep at 1,000 boards cannot
+finish in the one-hour window at 2 a minute: at scale the sweep lists what the budget allows and the
+rest is covered by routine runs. The budget numbers are question 11.
 
 ### 9. Freshness is measured, not promised
 
