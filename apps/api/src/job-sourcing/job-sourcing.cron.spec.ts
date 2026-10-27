@@ -8,6 +8,10 @@ import {
   HTML_COLLECTION_TYPES,
   DEFAULT_WINDOW_INTERVAL_MS,
   JobSourcingCronService,
+  SWEEP_CRON,
+  TICK_CRON,
+  TICK_WINDOW_MS,
+  tickTriggerKey,
 } from './job-sourcing.cron'
 import { DEFAULT_JOB_COLLECTION_WINDOW_MS } from '../config/env'
 
@@ -47,7 +51,7 @@ afterEach(() => {
 })
 
 describe('schedules (AC 1)', () => {
-  it('both decorators carry Europe/Kyiv and their own expression', () => {
+  it('every decorator carries Europe/Kyiv and its own expression', () => {
     expect(optionsOf(proto.handleDailyCollection)).toMatchObject({
       cronTime: '0 5 * * *',
       timeZone: 'Europe/Kyiv',
@@ -56,7 +60,30 @@ describe('schedules (AC 1)', () => {
       cronTime: '30 2 * * *',
       timeZone: 'Europe/Kyiv',
     })
-    expect([API_COLLECTION_CRON, HTML_COLLECTION_CRON]).toEqual(['0 5 * * *', '30 2 * * *'])
+    // source fetch strategy U3 AC 1
+    expect(optionsOf(proto.handleTick)).toMatchObject({
+      cronTime: '*/10 * * * *',
+      timeZone: 'Europe/Kyiv',
+    })
+    expect(optionsOf(proto.handleSweep)).toMatchObject({
+      cronTime: '0 8 * * *',
+      timeZone: 'Europe/Kyiv',
+    })
+    expect([API_COLLECTION_CRON, HTML_COLLECTION_CRON, TICK_CRON, SWEEP_CRON]).toEqual([
+      '0 5 * * *',
+      '30 2 * * *',
+      '*/10 * * * *',
+      '0 8 * * *',
+    ])
+  })
+
+  it('U3: the sweep fires at 08:00 Kyiv across both 2027 transitions; the tick every 10 minutes', () => {
+    // winter 08:00 EET = 06:00Z; after the spring jump 08:00 EEST = 05:00Z; after fall-back EET again
+    expect(nextUtc(proto.handleSweep, '2027-01-10T12:00:00Z')).toBe('2027-01-11T06:00:00.000Z')
+    expect(nextUtc(proto.handleSweep, '2027-03-27T12:00:00Z')).toBe('2027-03-28T05:00:00.000Z')
+    expect(nextUtc(proto.handleSweep, '2027-10-30T12:00:00Z')).toBe('2027-10-31T06:00:00.000Z')
+    expect(nextUtc(proto.handleTick, '2027-07-10T12:03:00Z')).toBe('2027-07-10T12:10:00.000Z')
+    expect(nextUtc(proto.handleTick, '2027-07-10T12:10:00Z')).toBe('2027-07-10T12:20:00.000Z')
   })
 
   it('resolves in Kyiv local time across both 2027 transitions (EET +2, EEST +3)', () => {
@@ -89,7 +116,7 @@ describe('schedules (AC 1)', () => {
 })
 
 describe('type sets', () => {
-  it('HTML types go to 02:30, every other reporting type to 05:00, DOU to neither', () => {
+  it('HTML types go to 02:30, every other reporting type to the tick and the sweep, DOU to neither', () => {
     expect(HTML_COLLECTION_TYPES.length).toBeGreaterThan(0)
     expect(HTML_COLLECTION_TYPES.every((t) => t.endsWith('_HTML'))).toBe(true)
     expect(API_COLLECTION_TYPES).not.toContain('DOU_RSS')
@@ -106,6 +133,7 @@ function build(over: {
   sweep?: () => Promise<number>
   collectAll?: () => Promise<unknown>
   windowMs?: number
+  countDue?: number
 }) {
   const calls: string[] = []
   const ledger = {
@@ -125,12 +153,12 @@ function build(over: {
       calls.push('close')
       return true
     }),
-    countDue: vi.fn(async () => 0),
+    countDue: vi.fn(async (_i: { lookaheadMs?: number }) => over.countDue ?? 0),
   }
   const worker = {
-    startDue: vi.fn(async (i: { onlyTypes: readonly string[] }) => {
-      calls.push(`claim:${i.onlyTypes[0]}`)
-      return { claimed: 0, settled: Promise.resolve([]) }
+    startDue: vi.fn(async (i: { onlyTypes: readonly string[]; sweep?: unknown }) => {
+      calls.push(`claim:${i.onlyTypes[0]}${i.sweep === undefined ? '' : ':sweep'}`)
+      return { claimed: 0, refused: [], settled: Promise.resolve([]) }
     }),
     activeRuns: 0,
   }
@@ -152,44 +180,22 @@ function build(over: {
   return { svc, ledger, worker, service, calls }
 }
 
-describe('the 05:00 handler', () => {
-  it('runs open -> recover -> sweep -> DOU -> window (API types) -> close, in that order', async () => {
+describe('the 05:00 handler (narrowed by U3)', () => {
+  it('U3 AC 1: runs the legacy DOU collection and retention only: no cycle, no claim of any type', async () => {
     vi.useFakeTimers({ toFake: ['Date'], now: new Date('2027-10-31T03:00:00Z') })
     const b = build({})
     await b.svc.handleDailyCollection()
-    expect(b.calls[0]).toBe('open:daily-api:2027-10-31')
-    expect(b.calls.slice(1)).toEqual([
-      'recover',
-      'sweep',
-      'dou',
-      'recover',
-      `claim:${API_COLLECTION_TYPES[0]}`,
-      'close',
-    ])
+    expect(b.calls).toEqual(['dou'])
+    expect(b.service.purgeStalePostings).toHaveBeenCalledTimes(1)
+    expect(b.worker.startDue).not.toHaveBeenCalled()
+    expect(b.ledger.openCycle).not.toHaveBeenCalled()
+    expect(b.ledger.closeCycle).not.toHaveBeenCalled()
   })
 
-  it('AC 2: each throwing step leaves the later steps running and nothing is rethrown', async () => {
-    const boom = () => Promise.reject(new Error('boom'))
-    for (const over of [
-      { openCycle: boom },
-      { recoverExpired: boom },
-      { sweep: boom },
-      { collectAll: boom },
-    ]) {
-      const b = build(over)
-      await expect(b.svc.handleDailyCollection()).resolves.toBeUndefined()
-      expect(b.calls).toContain('sweep')
-      expect(b.calls).toContain('dou')
-    }
-    // a failing openCycle has no cycle to claim under: no window, but DOU and recovery still ran
-    const noCycle = build({ openCycle: boom })
-    await noCycle.svc.handleDailyCollection()
-    expect(noCycle.worker.startDue).not.toHaveBeenCalled()
-    // the later steps of the others still reach the window
-    const noRecover = build({ recoverExpired: boom })
-    await noRecover.svc.handleDailyCollection()
-    expect(noRecover.worker.startDue).toHaveBeenCalledTimes(1)
-    expect(noRecover.ledger.closeCycle).toHaveBeenCalledTimes(1)
+  it('a throwing DOU collection is logged, never rethrown', async () => {
+    const b = build({ collectAll: () => Promise.reject(new Error('boom')) })
+    await expect(b.svc.handleDailyCollection()).resolves.toBeUndefined()
+    expect(b.worker.startDue).not.toHaveBeenCalled()
   })
 
   it('without a ledger it collects DOU only, as before T5', async () => {
@@ -200,6 +206,103 @@ describe('the 05:00 handler', () => {
     await new JobSourcingCronService(service as never).handleDailyCollection()
     expect(service.collectAll).toHaveBeenCalledWith()
     expect(service.purgeStalePostings).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('the tick (U3)', () => {
+  it('runs open -> recover -> sweepOrphans -> window (API types) -> close, keyed by the 10-minute Kyiv slot', async () => {
+    // 2027-07-10 12:17Z = 15:17 EEST: the slot is 15:10
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2027-07-10T12:17:30Z') })
+    const b = build({})
+    await b.svc.handleTick()
+    expect(b.calls).toEqual([
+      'open:tick:2027-07-10T15:10',
+      'recover',
+      'sweep',
+      'recover',
+      `claim:${API_COLLECTION_TYPES[0]}`,
+      'close',
+    ])
+    expect(b.service.collectAll).not.toHaveBeenCalled()
+  })
+
+  it('its window is 9 minutes, whatever JOB_COLLECTION_WINDOW_MS says', async () => {
+    expect(TICK_WINDOW_MS).toBe(9 * 60_000)
+    const b = build({ windowMs: 3_600_000 })
+    await b.svc.handleTick()
+    const lookahead = b.ledger.countDue.mock.calls[0]?.[0]?.lookaheadMs ?? -1
+    expect(lookahead).toBeGreaterThan(TICK_WINDOW_MS - 1_000)
+    expect(lookahead).toBeLessThanOrEqual(TICK_WINDOW_MS)
+  })
+
+  it('U3 AC 2: a tick ends within 9 minutes while work stays due (fake monotonic clock)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] })
+    const b = build({ countDue: 5 }) // always due, never claimable
+    let done = false
+    const run = b.svc.handleTick().then(() => {
+      done = true
+    })
+    await vi.advanceTimersByTimeAsync(TICK_WINDOW_MS - 1_000)
+    expect(done).toBe(false)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await run
+    expect(done).toBe(true)
+    expect(b.ledger.closeCycle).toHaveBeenCalledTimes(1)
+    // a pass every 30 s for 9 minutes: 18 claims, not one more
+    expect(b.worker.startDue).toHaveBeenCalledTimes(18)
+  })
+
+  it('a throwing step never rejects the tick, and later steps still run', async () => {
+    const boom = () => Promise.reject(new Error('boom'))
+    for (const over of [{ openCycle: boom }, { recoverExpired: boom }, { sweep: boom }]) {
+      const b = build(over)
+      await expect(b.svc.handleTick()).resolves.toBeUndefined()
+      expect(b.calls).toContain('sweep')
+    }
+  })
+
+  it('the slot key floors to 10 minutes on the Kyiv clock; the repeated fall-back hour reuses its key', () => {
+    expect(tickTriggerKey(new Date('2027-07-10T12:19:59.999Z'))).toBe('tick:2027-07-10T15:10')
+    expect(tickTriggerKey(new Date('2027-07-10T12:20:00.000Z'))).toBe('tick:2027-07-10T15:20')
+    // 21:00Z on 2027-01-10 is 23:00 EET; 22:05Z is 00:05 the next Kyiv day
+    expect(tickTriggerKey(new Date('2027-01-10T21:59:00Z'))).toBe('tick:2027-01-10T23:50')
+    expect(tickTriggerKey(new Date('2027-01-10T22:05:00Z'))).toBe('tick:2027-01-11T00:00')
+    // 2027-10-31: 03:13 EEST (00:13Z) and 03:13 EET (01:13Z) are the same local slot. The second
+    // tick finds its cycle closed and claims nothing (A1: harmless, once a year, at night).
+    expect(tickTriggerKey(new Date('2027-10-31T00:13:00Z'))).toBe('tick:2027-10-31T03:10')
+    expect(tickTriggerKey(new Date('2027-10-31T01:13:00Z'))).toBe('tick:2027-10-31T03:10')
+  })
+})
+
+describe('the 08:00 sweep (U3)', () => {
+  it('runs open -> recover -> sweepOrphans -> window in SWEEP mode (API types) -> close, keyed by the Kyiv date', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2027-03-28T05:00:00Z') })
+    const b = build({})
+    await b.svc.handleSweep()
+    expect(b.calls).toEqual([
+      'open:sweep:2027-03-28',
+      'recover',
+      'sweep',
+      'recover',
+      `claim:${API_COLLECTION_TYPES[0]}:sweep`,
+      'close',
+    ])
+    expect(b.service.collectAll).not.toHaveBeenCalled()
+  })
+
+  it('its window is JOB_COLLECTION_WINDOW_MS', async () => {
+    const b = build({ windowMs: 200 })
+    await b.svc.handleSweep()
+    const lookahead = b.ledger.countDue.mock.calls[0]?.[0]?.lookaheadMs ?? -1
+    expect(lookahead).toBeGreaterThan(0)
+    expect(lookahead).toBeLessThanOrEqual(200)
+  })
+
+  it('a throwing step never rejects the sweep', async () => {
+    const b = build({ openCycle: () => Promise.reject(new Error('boom')) })
+    await expect(b.svc.handleSweep()).resolves.toBeUndefined()
+    expect(b.worker.startDue).not.toHaveBeenCalled()
+    expect(b.calls).toContain('sweep')
   })
 })
 
