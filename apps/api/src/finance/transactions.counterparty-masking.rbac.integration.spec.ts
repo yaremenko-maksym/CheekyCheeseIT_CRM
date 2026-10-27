@@ -85,6 +85,7 @@ import { transactions, users, payoutRequests } from '../database/schema'
 import * as schema from '../database/schema'
 import type { TransactionsService } from './transactions.service'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 // ---------------------------------------------------------------------------
 // Personas — namespace ca5f0000-*
@@ -263,6 +264,7 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
         // counterparty — deliberately anchored to a NON-masked user so CM-4's
         // whole-payload grep isolates a genuine *counterparty* identity leak.
         createdBy: DROP_1.id,
+        txDate: resolveTransactionDate(null),
       })
       .onConflictDoNothing()
 
@@ -287,6 +289,7 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
         // counterparty — deliberately anchored to a NON-masked user so CM-4's
         // whole-payload grep isolates a genuine *counterparty* identity leak.
         createdBy: DROP_1.id,
+        txDate: resolveTransactionDate(null),
       })
       .onConflictDoNothing()
 
@@ -307,6 +310,7 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
         // counterparty — deliberately anchored to a NON-masked user so CM-4's
         // whole-payload grep isolates a genuine *counterparty* identity leak.
         createdBy: DROP_1.id,
+        txDate: resolveTransactionDate(null),
       })
       .onConflictDoNothing()
 
@@ -329,6 +333,7 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
         // counterparty — deliberately anchored to a NON-masked user so CM-4's
         // whole-payload grep isolates a genuine *counterparty* identity leak.
         createdBy: DROP_1.id,
+        txDate: resolveTransactionDate(null),
       })
       .onConflictDoNothing()
 
@@ -354,6 +359,7 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
         // counterparty — deliberately anchored to a NON-masked user so CM-4's
         // whole-payload grep isolates a genuine *counterparty* identity leak.
         createdBy: DROP_1.id,
+        txDate: resolveTransactionDate(null),
       })
       .onConflictDoNothing()
 
@@ -375,6 +381,7 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
         receiverId: DROP_1.id,
         recipientId: DROP_1.id,
         createdBy: ADMIN_MAKSYM.id,
+        txDate: resolveTransactionDate(null),
       })
       .onConflictDoNothing()
 
@@ -401,6 +408,7 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
         createdBy: ADMIN_MAKSYM.id,
         validatedBy: ADMIN_MAKSYM.id,
         validatedAt: new Date('2026-01-15T10:00:00Z'),
+        txDate: resolveTransactionDate(null),
       })
       .onConflictDoNothing()
   })

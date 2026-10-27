@@ -45,6 +45,7 @@ import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import type { TransactionsService } from './transactions.service'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 // ---------------------------------------------------------------------------
 // Personas — namespace add50000-*
@@ -193,6 +194,7 @@ describe.skipIf(!hasDatabaseUrl())(
           senderLabel: 'Client Co',
           receiverId: SENIOR_OWNER.id,
           createdBy: ADMIN_1.id,
+          txDate: resolveTransactionDate(null),
         })
         .onConflictDoNothing()
 
@@ -212,6 +214,7 @@ describe.skipIf(!hasDatabaseUrl())(
           deletedAt: new Date('2026-07-30T10:00:00Z'),
           deletedBy: ADMIN_1.id,
           deletionReason: 'Ошибочно задвоенный приход',
+          txDate: resolveTransactionDate(null),
         })
         .onConflictDoNothing()
     })

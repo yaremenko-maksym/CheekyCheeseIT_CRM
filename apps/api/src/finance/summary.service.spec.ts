@@ -30,6 +30,7 @@ import { nonDeletedTransactions, pendingObligations, visibleProjects } from '../
 import { CRON_ELIGIBLE_SALARY_ROLES } from './salary-roles.const'
 import { CRON_ELIGIBLE_SALARY_ROLES as REEXPORTED } from './transactions.service'
 import { SummaryService } from './summary.service'
+import { resolveTransactionDate } from './transaction-date.util'
 import type { NbuCurrencyService } from './nbu-currency.service'
 
 function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): SessionUser {
@@ -331,7 +332,8 @@ function stx(o: Row & { type: string }): Row {
     senderId: null,
     receiverId: null,
     fundingSource: null,
-    txDate: null,
+    // backlog 338: every stored row carries a business date (no NULL fallback)
+    txDate: new Date('2026-06-01T00:00:00Z'),
     createdAt: new Date('2026-06-01T00:00:00Z'),
     sender: null,
     receiver: null,
@@ -460,15 +462,25 @@ describe('SummaryService.getSummary — figures (hand-computed literals)', () =>
     ])
   })
 
+  it('fails loud on a PAID row with a NULL txDate instead of guessing its month (backlog 338)', async () => {
+    const { svc } = makeDb({
+      txs: [stx({ id: 'tx-null', type: 'EXPENSE', amount: '5', txDate: null })],
+      admins: [],
+    })
+    await expect(svc.getSummary(user('ADMIN'))).rejects.toThrow(
+      'transactionBusinessMonth: transaction tx-null has a NULL tx_date',
+    )
+  })
+
   it('sums several rows of one month and splits expenses / salaries / income per month', async () => {
     const jan = new Date('2026-01-15T00:00:00Z')
     const { svc } = makeDb({
       txs: [
-        stx({ type: 'EXPENSE', amount: '10.5', createdAt: jan }),
-        stx({ type: 'EXPENSE', amount: '2.25', createdAt: jan }),
-        stx({ type: 'SALARY', amount: '7', createdAt: jan }),
-        stx({ type: 'DROP_INCOME', amount: '40', createdAt: jan }),
-        stx({ type: 'SENIOR_INCOME', amount: '3', createdAt: jan }),
+        stx({ type: 'EXPENSE', amount: '10.5', txDate: jan }),
+        stx({ type: 'EXPENSE', amount: '2.25', txDate: jan }),
+        stx({ type: 'SALARY', amount: '7', txDate: jan }),
+        stx({ type: 'DROP_INCOME', amount: '40', txDate: jan }),
+        stx({ type: 'SENIOR_INCOME', amount: '3', txDate: jan }),
       ],
       admins: [],
     })
@@ -507,6 +519,27 @@ describe('SummaryService.getAccountantSummary — query shape + row mapping', ()
     })
   })
 
+  it('throws, naming the row, when the aggregate finds a PAID money row with a NULL tx_date (CR-M-1)', async () => {
+    const { svc } = makeDb({
+      accountantRows: [
+        {
+          pendingCount: 0,
+          pendingAmount: 0,
+          validatedCount: 0,
+          validatedAmount: 0,
+          paidAmount: 52,
+          recipientCount: 1,
+          nullTxDateId: '7c1d0000-0000-4000-8000-0000000000aa',
+        },
+      ],
+    })
+    await expect(svc.getAccountantSummary(user('ACCOUNTANT'))).rejects.toThrow(
+      new Error(
+        'getAccountantSummary: transaction 7c1d0000-0000-4000-8000-0000000000aa has a NULL tx_date',
+      ),
+    )
+  })
+
   it('an empty aggregate result (no row) degrades to zeros', async () => {
     const { svc } = makeDb({ accountantRows: [] })
     await expect(svc.getAccountantSummary(user('ADMIN'))).resolves.toEqual({
@@ -531,6 +564,7 @@ describe('SummaryService.getAccountantSummary — query shape + row mapping', ()
       'validatedCount',
       'validatedAmount',
       'paidAmount',
+      'nullTxDateId',
       'recipientCount',
     ])
     const pend = `"transactions"."status" = 'PENDING' and "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME')`
@@ -543,26 +577,27 @@ describe('SummaryService.getAccountantSummary — query shape + row mapping', ()
     expect(compiled.validatedAmount!.sql).toBe(
       `coalesce(sum("transactions"."amount") filter (where ${val}), 0)`,
     )
-    // CR-809-H-2 + backlog 338: the PAID window keys on the BUSINESS month, on
-    // the same two branches as `transactionBusinessMonth` in the monthly graph: a
-    // dated row compares `tx_date` to the date-only month start ($1), a NULL
-    // `tx_date` row compares `created_at` to the instant the KYIV month began ($2).
-    // The `val` fragment above legitimately keys on `validated_at` (an audit
-    // instant) against the same Kyiv instant.
+    // CR-809-H-2 + backlog 338: the PAID window keys on the BUSINESS month, like
+    // `transactionBusinessMonth` in the monthly graph: `tx_date` against the
+    // date-only month start ($1). No `created_at` fallback any more; a NULL
+    // `tx_date` PAID money row is found by `nullTxDateId` and makes the call
+    // throw (CR-M-1). The `val` fragment above legitimately keys on
+    // `validated_at` (an audit instant) against the Kyiv month-start instant.
     expect(compiled.paidAmount!.sql).toBe(
-      `coalesce(sum("transactions"."amount") filter (where "transactions"."status" = 'PAID' and "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME', 'PAYOUT', 'PAYOUT_ADMIN', 'PAYOUT_DROP', 'PAYOUT_CONFIRMED') and (("transactions"."tx_date" is not null and "transactions"."tx_date" >= $1) or ("transactions"."tx_date" is null and "transactions"."created_at" >= $2))), 0)`,
+      `coalesce(sum("transactions"."amount") filter (where "transactions"."status" = 'PAID' and "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME', 'PAYOUT', 'PAYOUT_ADMIN', 'PAYOUT_DROP', 'PAYOUT_CONFIRMED') and "transactions"."tx_date" >= $1), 0)`,
     )
     expect(compiled.recipientCount!.sql).toBe(
       `count(distinct coalesce("transactions"."receiver_id", "transactions"."sender_id")) filter (where "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME'))`,
     )
+    expect(compiled.nullTxDateId!.sql).toBe(
+      `min("transactions"."id"::text) filter (where "transactions"."status" = 'PAID' and "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME', 'PAYOUT', 'PAYOUT_ADMIN', 'PAYOUT_DROP', 'PAYOUT_CONFIRMED') and "transactions"."tx_date" is null)`,
+    )
+    expect(compiled.nullTxDateId!.params).toEqual([])
     // March 2026 in Kyiv starts at 22:00Z on 28 Feb (UTC+2, DST not yet begun).
     for (const k of ['validatedCount', 'validatedAmount']) {
       expect(compiled[k]!.params).toEqual([new Date('2026-02-28T22:00:00.000Z')])
     }
-    expect(compiled.paidAmount!.params).toEqual([
-      new Date('2026-03-01T00:00:00.000Z'),
-      new Date('2026-02-28T22:00:00.000Z'),
-    ])
+    expect(compiled.paidAmount!.params).toEqual([new Date('2026-03-01T00:00:00.000Z')])
     expect(compileWhere(cap.accountantWhere).sql).toContain('"deleted_at" is null')
   })
 })
@@ -582,7 +617,7 @@ describe('Kyiv month windows at 23:30Z on 31 Oct (UTC October, Kyiv already Nove
     const novemberStart = new Date('2026-10-31T22:00:00.000Z')
     expect(params('validatedCount')).toEqual([novemberStart])
     expect(params('validatedAmount')).toEqual([novemberStart])
-    expect(params('paidAmount')).toEqual([new Date('2026-11-01T00:00:00.000Z'), novemberStart])
+    expect(params('paidAmount')).toEqual([new Date('2026-11-01T00:00:00.000Z')])
   })
 
   it("getSeniorSummary keys salaryMonth on the Kyiv month of now at 22:30Z on a month's last day", async () => {
@@ -592,18 +627,20 @@ describe('Kyiv month windows at 23:30Z on 31 Oct (UTC October, Kyiv already Nove
     expect(compileWhere(cap.salaryWhere).params).toEqual(['SALARY', 'senior-1', '2026-11'])
   })
 
-  it('senior stats file a NULL-txDate row created 22:30Z on 31 Oct under November', async () => {
+  it('senior stats file a row written 22:30Z on 31 Oct (Kyiv-day txDate) under November', async () => {
     freeze(BOUNDARY)
+    const written = new Date('2026-10-31T22:30:00Z')
     const { svc, cap } = makeDb({
       selfUser: { seniorSharePercent: 100 },
       projects: [{ id: 'p1', name: 'A', companyName: 'Acme', seniorSharePercentOverride: null }],
       txs: [
-        // Kyiv 00:30 on 1 Nov: THIS month although its UTC month is October
+        // Kyiv 00:30 on 1 Nov: the writer persists tx_date 2026-11-01 (UTC
+        // midnight), so THIS month although the UTC month of the write is October
         {
           amount: '100',
           seniorSharePercent: 100,
-          txDate: null,
-          createdAt: new Date('2026-10-31T22:30:00Z'),
+          txDate: resolveTransactionDate(undefined, written),
+          createdAt: written,
           projectId: 'p1',
         },
         // a dated row keeps its own UTC-midnight month: last month
@@ -685,11 +722,11 @@ describe('SummaryService.getSeniorSummary — figures', () => {
           projectId: 'p1',
         },
         { amount: 'NaN', seniorSharePercent: 99, createdAt: new Date('2026-03-02T00:00:00Z') },
-        // txDate null -> createdAt; project no longer active
+        // project no longer active
         {
           amount: '40',
           seniorSharePercent: 50,
-          txDate: null,
+          txDate: new Date('2026-03-05T00:00:00Z'),
           createdAt: new Date('2026-03-05T00:00:00Z'),
           projectId: 'p-gone',
         },
@@ -806,16 +843,23 @@ describe('SummaryService.getSeniorSummary — figures', () => {
     expect((await svc.getSeniorSummary(u)).seniorShareIncome.total).toBeCloseTo(33, 9)
   })
 
-  it('income with neither txDate nor createdAt still counts toward the total only', async () => {
+  it('an income with a NULL txDate fails loud instead of being filed by createdAt (backlog 338)', async () => {
     freeze(MAR)
     const { svc } = makeDb({
       selfUser: { seniorSharePercent: 50 },
-      txs: [{ amount: '100', seniorSharePercent: 50, txDate: null, createdAt: null }],
+      txs: [
+        {
+          id: 'inc-null',
+          amount: '100',
+          seniorSharePercent: 50,
+          txDate: null,
+          createdAt: new Date('2026-03-05T00:00:00Z'),
+        },
+      ],
     })
-    const r = await svc.getSeniorSummary(user('SENIOR'))
-    expect(r.seniorShareIncome.total).toBe(50)
-    expect(r.seniorShareIncome.thisMonth).toBe(0)
-    expect(r.earningsStats.lastMonthIncome).toBe(0)
+    await expect(svc.getSeniorSummary(user('SENIOR'))).rejects.toThrow(
+      'transactionBusinessMonth: transaction inc-null has a NULL tx_date',
+    )
   })
 
   it('an income on a project with no id never inflates arrival progress', async () => {

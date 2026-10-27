@@ -11,6 +11,7 @@ import { DatabaseService } from '../database/database.service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { kyivDayOf } from '@crm/shared'
 
 /**
  * task-drop-share-pending-parity — REAL-DB integration for the manual
@@ -197,6 +198,9 @@ describe.skipIf(!hasDatabaseUrl())('drop_cascade_origin marker migration (real D
         createdBy: ADMIN_ID,
         createdAt,
         // dropCascadeOrigin: deliberately NOT set — must stay NULL.
+        // The writer's tx_date shape (Kyiv day of createdAt at UTC midnight),
+        // built directly: LONG_AGO / far-future lie outside the writer's year window.
+        txDate: new Date(`${kyivDayOf(createdAt)}T00:00:00.000Z`),
       })
       .returning()
     return { txId: tx!.id }

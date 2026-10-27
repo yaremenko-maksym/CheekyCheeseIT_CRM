@@ -68,6 +68,7 @@ import type { ProjectAuditLogService } from '../projects/project-audit-log.servi
 import { HrAccessService } from '../common/hr-access.service'
 import { hasDatabaseUrl } from '../test/require-real-db'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+import { resolveTransactionDate } from './transaction-date.util'
 
 // ---------------------------------------------------------------------------
 // Personas — namespace bd5e0000-*
@@ -251,6 +252,7 @@ describe.skipIf(!hasDatabaseUrl())(
         receiverId: ADMIN_1.id,
         projectId: PROJECT_1,
         createdBy: ADMIN_1.id,
+        txDate: resolveTransactionDate(null),
       })
 
       const afterInsert = await svc.getSummary(ADMIN_1)
@@ -276,6 +278,7 @@ describe.skipIf(!hasDatabaseUrl())(
         receiverId: SENIOR_1.id,
         projectId: PROJECT_1,
         createdBy: SENIOR_1.id,
+        txDate: resolveTransactionDate(null),
       })
 
       const afterInsert = await svc.getAccountantSummary(ACCOUNTANT_1)
@@ -307,6 +310,7 @@ describe.skipIf(!hasDatabaseUrl())(
         projectId: PROJECT_1,
         seniorSharePercent: 26,
         createdBy: SENIOR_1.id,
+        txDate: resolveTransactionDate(null),
       })
 
       // Gross 1000 × 26% = 260 senior share.
@@ -337,6 +341,7 @@ describe.skipIf(!hasDatabaseUrl())(
         recipientId: DROP_1.id,
         projectId: PROJECT_1,
         createdBy: ADMIN_1.id,
+        txDate: resolveTransactionDate(null),
       })
 
       const afterInsert = await svc.getDropSelfSummary(DROP_1)
@@ -362,6 +367,7 @@ describe.skipIf(!hasDatabaseUrl())(
         receiverId: ADMIN_1.id,
         recipientId: ADMIN_1.id,
         createdBy: ADMIN_1.id,
+        txDate: resolveTransactionDate(null),
       })
 
       const afterInsert = await balanceSvc.getAdminBalance(ADMIN_1.id, 'USDT')
@@ -388,6 +394,7 @@ describe.skipIf(!hasDatabaseUrl())(
         receiverId: SENIOR_1.id,
         projectId: PROJECT_1,
         createdBy: ADMIN_1.id,
+        txDate: resolveTransactionDate(null),
       })
 
       const afterInsert = await balanceSvc.getSeniorBalance(SENIOR_1.id, 'USDT')
@@ -413,6 +420,7 @@ describe.skipIf(!hasDatabaseUrl())(
         receiverId: SENIOR_1.id,
         projectId: PROJECT_1,
         createdBy: ADMIN_1.id,
+        txDate: resolveTransactionDate(null),
       })
 
       const afterInsert = await balanceSvc.getTotalEarned(SENIOR_1.id, 'USDT')
@@ -436,6 +444,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USDT',
         senderId: SENIOR_1.id,
         createdBy: SENIOR_1.id,
+        txDate: resolveTransactionDate(null),
       })
 
       const afterInsert = await computeCompanyAccountBalanceFromLedger(dbSvc.db)
@@ -490,6 +499,7 @@ describe.skipIf(!hasDatabaseUrl())(
         receiverId: SENIOR_1.id,
         projectId: PROJECT_1,
         createdBy: SENIOR_1.id,
+        txDate: resolveTransactionDate(null),
       })
 
       const afterInsert = await adminSummarySvc.getSummary(ADMIN_1)
@@ -555,6 +565,7 @@ describe.skipIf(!hasDatabaseUrl())(
         receiverId: DROP_1.id,
         projectId: PROJECT_1,
         createdBy: DROP_1.id,
+        txDate: resolveTransactionDate(null),
       })
 
       const afterInsert = await projectsSvc.findDropOwnProjects(DROP_1)
@@ -589,6 +600,7 @@ describe.skipIf(!hasDatabaseUrl())(
         receiverId: SENIOR_1.id,
         salaryMonth,
         createdBy: ADMIN_1.id,
+        txDate: resolveTransactionDate(null),
       })
 
       const afterInsert = await getOwnSalaryStatus(dbSvc.db, SENIOR_1.id, salaryMonth, salaryConfig)

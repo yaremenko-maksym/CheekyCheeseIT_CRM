@@ -1,7 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import {
   kyivDayOf,
-  kyivMonthOf,
   MAX_TRANSACTION_BUSINESS_YEAR,
   MIN_TRANSACTION_BUSINESS_YEAR,
   transactionBusinessDay,
@@ -56,12 +55,17 @@ export function formatTransactionBusinessDate(date: Date): string {
  * The business month (`YYYY-MM`) a transaction belongs to.
  *
  * A `txDate` is a date-only business value encoded at UTC midnight (see above),
- * so its own UTC month IS the business month. The `createdAt` fallback is a real
- * instant, so it is bucketed by the KYIV month: between 00:00 and 02:00/03:00
- * Kyiv on the 1st its UTC month is still the previous one.
+ * so its own UTC month IS the business month. Every writer persists a Kyiv
+ * business day and the legacy NULL rows were backfilled (backlog 338), so there
+ * is no `createdAt` fallback any more. The column is still nullable in the
+ * schema, so a NULL here is a broken invariant: it fails loud rather than
+ * quietly filing money under some other clock's month.
  */
-export function transactionBusinessMonth(tx: { txDate: Date | null; createdAt: Date }): string {
-  return tx.txDate ? tx.txDate.toISOString().slice(0, 7) : kyivMonthOf(tx.createdAt)
+export function transactionBusinessMonth(tx: { id: string; txDate: Date | null }): string {
+  if (!tx.txDate) {
+    throw new Error(`transactionBusinessMonth: transaction ${tx.id} has a NULL tx_date`)
+  }
+  return tx.txDate.toISOString().slice(0, 7)
 }
 
 /**

@@ -67,6 +67,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 // ── Stable id namespace am88- (archived money paths, backlog 88) ────────────
 const ADMIN_A_ID = 'a1880000-0000-4000-aa00-000000000001'
@@ -311,6 +312,7 @@ describe.skipIf(!hasDatabaseUrl())('archived user — money-out vs settlement (r
       currency: 'USDT',
       senderLabel: DEPOSIT_LABEL,
       createdBy: ADMIN_A_ID,
+      txDate: resolveTransactionDate(null),
     })
   })
 
@@ -449,6 +451,7 @@ describe.skipIf(!hasDatabaseUrl())('archived user — money-out vs settlement (r
           receiverId: SENIOR_ID,
           seniorSharePercent: SENIOR_SHARE,
           createdBy: SENIOR_ID,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       const request = await txSvc.createPayoutRequest([income!.id], SENIOR)
