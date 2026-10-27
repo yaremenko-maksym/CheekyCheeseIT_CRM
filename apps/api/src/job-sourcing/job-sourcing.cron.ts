@@ -65,19 +65,22 @@ export const DEFAULT_WINDOW_INTERVAL_MS = 30_000
  * NEVER rethrows, because an unhandled rejection inside a `@Cron` handler
  * silently kills the scheduler for every OTHER cron in the process.
  *
- * Two schedules, both in `Europe/Kyiv`:
- *  - 02:30 HTML types, 05:00 API types plus the legacy DOU collection, both in Europe/Kyiv (the ADR
- *    asks for company time). !! Before T5 the 05:00 cron had NO zone and ran at 05:00 UTC, after the
- *    03:00 / 03:30 / 03:45 / 04:15 / 04:30 retention crons. Those retention crons are still UTC, so
- *    05:00 Kyiv (03:00 UTC in winter, 02:00 UTC in summer) now starts together with, and the API
- *    window (up to `JOB_COLLECTION_WINDOW_MS`) overlaps, the retention jobs: an external fetch can now
- *    contend with them for DB connections. Accepted for now (Master decision, PR #1169); moving or
- *    staggering the retention crons is on the backlog.
- *  - each handler: `openCycle` -> `recoverExpired` -> `sweepOrphanReservations` -> (05:00 only)
- *    DOU -> the bounded collection window (`runCollectionWindow`), which closes the cycle.
+ * Four schedules, all in `Europe/Kyiv` (source fetch strategy ADR section 5, unit U3):
+ *  - 05:00: the legacy DOU collection and retention ONLY. The API types left it for the tick and
+ *    the sweep; it opens no cycle and claims nothing.
+ *  - 02:30: the HTML types (all blocked until phase 5), unchanged since T5.
+ *  - every 10 minutes, the tick: the API types whose slot has come, in a cycle keyed by the
+ *    10-minute Kyiv slot, for at most `TICK_WINDOW_MS` (9 minutes).
+ *  - 08:00, the sweep: every enabled scheduled API-type source once in a cycle keyed by the Kyiv
+ *    date, whatever its slot (the sweep predicate), within `JOB_COLLECTION_WINDOW_MS`. A source with
+ *    a null profile or with fixed slots is not swept (`isSweepable`); the tick runs fixed slots.
+ *  - each ledger handler: `openCycle` -> `recoverExpired` -> `sweepOrphanReservations` -> the
+ *    bounded collection window (`runCollectionWindow`), which closes the cycle.
+ *  !! The retention crons are UTC; collection now runs every 10 minutes, so the overlap with them
+ *  is permanent (ADR "Consequences"); the worker's pool size bounds concurrent runs.
  *
  * The ledger and the worker are optional constructor arguments: without them (a unit context) the
- * handler does the legacy DOU work only, as before T5.
+ * ledger handlers do nothing, and 05:00 still does the legacy DOU work.
  */
 @Injectable()
 export class JobSourcingCronService {
