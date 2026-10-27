@@ -31,6 +31,7 @@ import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
 import { ZodExceptionFilter } from '../zod-exception.filter'
 import { previousSalaryMonthKey } from './salary-month.util'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * Salary-month gap report + backfill — task-salary-month-gap-and-status (E-5)
@@ -429,6 +430,7 @@ describe.skipIf(!hasDatabaseUrl())(
         receiverId: HR_COVERED.id,
         salaryMonth: TARGET_MONTH,
         createdBy: ADMIN.id,
+        txDate: resolveTransactionDate(null),
       })
 
       // ── security-review MED-1: a SALARY row for HR_SOFT_DELETED, then
@@ -446,6 +448,7 @@ describe.skipIf(!hasDatabaseUrl())(
         receiverId: HR_SOFT_DELETED.id,
         salaryMonth: TARGET_MONTH,
         createdBy: ADMIN.id,
+        txDate: resolveTransactionDate(null),
       })
       await db
         .update(transactions)

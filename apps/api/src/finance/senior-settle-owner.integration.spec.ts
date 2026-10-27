@@ -18,6 +18,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-senior-settle-owner — REAL-DB integration proving the owner / funding
@@ -186,6 +187,7 @@ describe.skipIf(!hasDatabaseUrl())(
         recipientId: SENIOR.id,
         projectId: PROJECT_ID,
         createdBy: ADMIN.id,
+        txDate: resolveTransactionDate(null),
       })
       await dbSvc.db.insert(pendingObligations).values({
         id: OBLIGATION_ID,
@@ -227,6 +229,7 @@ describe.skipIf(!hasDatabaseUrl())(
         dropSharePercent: 10,
         dropSharePercentSource: 'USER_DEFAULT',
         createdBy: ADMIN.id,
+        txDate: resolveTransactionDate(null),
       })
       await dbSvc.db.insert(pendingObligations).values({
         id: DROP_OBLIGATION_ID,
@@ -320,6 +323,7 @@ describe.skipIf(!hasDatabaseUrl())(
         amount: '100000',
         currency: 'USDT',
         createdBy: ADMIN.id,
+        txDate: resolveTransactionDate(null),
       })
     }, 30_000)
 

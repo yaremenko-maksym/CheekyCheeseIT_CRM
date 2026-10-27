@@ -21,6 +21,7 @@ import type { NbuCurrencyService } from './nbu-currency.service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * #254 review LOW fix (FM-5 guard-test gate) — REAL-controller RBAC integration
@@ -288,6 +289,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: JUNIOR.id,
           createdBy: ADMIN.id,
           salaryMonth,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       return tx!.id

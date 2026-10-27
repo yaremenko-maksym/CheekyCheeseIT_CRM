@@ -19,6 +19,7 @@ import { TransactionsService } from './transactions.service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-accountant-stats — GET /api/finance/summary real-backend RBAC integration
@@ -291,6 +292,7 @@ describe.skipIf(!hasDatabaseUrl())(
         receiverId: ADMIN.id,
         createdAt: new Date(),
         createdBy: ADMIN.id,
+        txDate: resolveTransactionDate(null),
       })
     }, 30_000)
 

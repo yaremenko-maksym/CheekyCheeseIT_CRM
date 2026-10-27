@@ -27,6 +27,7 @@ import {
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
 import { sweepOrphanConsumedTxHashes } from './__test-helpers__/consumed-tx-hashes'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-drop-payout-company-account — REAL-DB integration proving the new DROP
@@ -325,6 +326,7 @@ describe.skipIf(!hasDatabaseUrl())(
           recipientId: dropOwner.id,
           projectId,
           createdBy: dropOwner.id,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       return income!.id
@@ -342,6 +344,7 @@ describe.skipIf(!hasDatabaseUrl())(
           projectId: SENIOR_PROJECT,
           seniorSharePercent: SENIOR_SHARE,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       return income!.id
@@ -388,7 +391,8 @@ describe.skipIf(!hasDatabaseUrl())(
           recipientId: DROP_A.id,
           projectId: DROP_PROJECT_A,
           createdBy: ADMIN_MAKSYM.id,
-          // dropCascadeOrigin: deliberately NOT set — must stay NULL.
+          // dropCascadeOrigin: deliberately NOT set — must stay NULL.,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       const [obligation] = await dbSvc.db
@@ -1098,6 +1102,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USDT',
         senderLabel: 'MED-2 test funding',
         createdBy: ACCOUNTANT.id,
+        txDate: resolveTransactionDate(null),
       })
       await dbSvc.db
         .update(transactions)

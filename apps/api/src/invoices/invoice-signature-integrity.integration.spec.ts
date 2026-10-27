@@ -115,6 +115,7 @@ import type { HrAccessService } from '../common/hr-access.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { makeTelemetryErrorsStub } from '../telemetry/__test-helpers__/telemetry-errors-stub'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from '../finance/transaction-date.util'
 
 /** In-memory S3 fake — no real bucket needed for this spec. */
 class FakeS3Service {
@@ -277,6 +278,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USD',
         receiverId: JUNIOR_ID,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       // ---- 1. Auto-create (COMPANY signs) + counterparty signs ----
@@ -429,6 +431,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USD',
         receiverId: JUNIOR_ID,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       await invoices.autoCreateForSalary(txId)
@@ -470,6 +473,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USD',
         receiverId: JUNIOR_ID,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       await invoices.autoCreateForSalary(txId)
@@ -579,6 +583,7 @@ describe.skipIf(!hasDatabaseUrl())(
         receiverId: SENIOR_ID,
         payoutRequestId,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       const payoutTxId = randomUUID()
@@ -592,6 +597,7 @@ describe.skipIf(!hasDatabaseUrl())(
         senderId: SENIOR_ID,
         payoutRequestId,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       await invoices.autoCreateForPayout(payoutTxId)
@@ -737,6 +743,7 @@ describe.skipIf(!hasDatabaseUrl())(
         payoutRequestId,
         createdBy: ADMIN_ID,
         createdAt: new Date('2026-08-01T00:00:00Z'),
+        txDate: resolveTransactionDate(null, new Date('2026-08-01T00:00:00Z')),
       })
       const incomeDropTxId = randomUUID()
       await db.insert(transactions).values({
@@ -749,6 +756,7 @@ describe.skipIf(!hasDatabaseUrl())(
         payoutRequestId,
         createdBy: ADMIN_ID,
         createdAt: new Date('2026-08-02T00:00:00Z'),
+        txDate: resolveTransactionDate(null, new Date('2026-08-02T00:00:00Z')),
       })
 
       const payoutTxId = randomUUID()
@@ -764,6 +772,7 @@ describe.skipIf(!hasDatabaseUrl())(
         senderId: SENIOR_ID,
         payoutRequestId,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       await invoices.autoCreateForPayout(payoutTxId)
@@ -847,6 +856,7 @@ describe.skipIf(!hasDatabaseUrl())(
         receiverId: SENIOR_ID,
         payoutRequestId,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       const payoutTxId = randomUUID()
@@ -859,6 +869,7 @@ describe.skipIf(!hasDatabaseUrl())(
         senderId: SENIOR_ID,
         payoutRequestId,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       // Sign honestly FIRST, while there is exactly one linked-income
@@ -897,6 +908,7 @@ describe.skipIf(!hasDatabaseUrl())(
         receiverId: SENIOR_ID,
         payoutRequestId,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       // security-review round 5 (PR #600, HIGH-4): no longer refuses — the
@@ -945,6 +957,7 @@ describe.skipIf(!hasDatabaseUrl())(
         receiverId: SENIOR_ID,
         payoutRequestId,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       const payoutTxId = randomUUID()
@@ -957,6 +970,7 @@ describe.skipIf(!hasDatabaseUrl())(
         senderId: SENIOR_ID,
         payoutRequestId,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       await invoices.autoCreateForPayout(payoutTxId)
@@ -1015,6 +1029,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USD',
         receiverId: JUNIOR_ID,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       await invoices.autoCreateForSalary(txId)
@@ -1123,6 +1138,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USD',
         receiverId: JUNIOR_ID,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
       await invoices.autoCreateForSalary(txId)
 

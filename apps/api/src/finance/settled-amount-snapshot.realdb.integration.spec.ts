@@ -63,6 +63,7 @@ import type { NbuCurrencyService } from './nbu-currency.service'
 import { companyAccount, pendingObligations, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 // ── Stable id namespace sas599- (task-settled-amount-snapshot, PR #599) ─────
 const ADMIN_ID = 'a5990000-0000-4000-aa00-000000000001'
@@ -214,6 +215,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USDT',
         senderLabel: DEPOSIT_LABEL,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       // The source IOU (SENIOR_PENDING_PAYOUT) — inserted directly, same
@@ -232,6 +234,7 @@ describe.skipIf(!hasDatabaseUrl())(
         seniorSharePercent: 26,
         seniorSharePercentSource: 'PROJECT',
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
       await db.insert(pendingObligations).values({
         id: OBLIGATION_ID,

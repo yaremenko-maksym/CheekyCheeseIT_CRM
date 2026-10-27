@@ -22,6 +22,7 @@ import { TransactionsService } from './transactions.service'
 import { payoutRequests, projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * SENIOR dashboard — senior-summary real-backend integration spec (real
@@ -445,6 +446,7 @@ describe.skipIf(!hasDatabaseUrl())(
           salaryMonth,
           createdAt: thisMonth,
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null, thisMonth),
         },
       ])
 
@@ -719,8 +721,7 @@ describe.skipIf(!hasDatabaseUrl())(
     it('FinanceSummaryController is guarded by @UseGuards(RolesGuard) at class level', () => {
       // Nest stores @UseGuards metadata under the '__guards__' key on the class.
       const guards = Reflect.getMetadata('__guards__', FinanceSummaryController) as
-        | unknown[]
-        | undefined
+        unknown[] | undefined
       expect(guards).toBeDefined()
       expect(guards).toContain(RolesGuard)
     })

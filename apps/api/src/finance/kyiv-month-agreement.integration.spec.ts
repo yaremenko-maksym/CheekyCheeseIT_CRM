@@ -245,6 +245,21 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(history.at(-2)).toEqual({ month: '2026-10', amount: 11 })
     })
 
+    it('the fixture tells the Kyiv month from the UTC month (a UTC clock would answer differently)', async () => {
+      // The boundary row's write instant and V1's validated_at are October in UTC,
+      // and so is the pinned clock; only the Kyiv calendar says November.
+      expect(BOUNDARY_WRITE.toISOString().slice(0, 7)).toBe('2026-10')
+      expect(NOW.toISOString().slice(0, 7)).toBe('2026-10')
+      const tiles = await atBoundaryClock(() => summary.getAccountantSummary(ACCOUNTANT))
+      // A UTC "this month" (October) would sum X + Y + Z = 111 and count V1 + V2
+      // ({ count: 2, amount: 77 }); a date-only Kyiv bound on validated_at
+      // (2026-11-01T00:00Z) would miss V1 ({ count: 0, amount: 0 }). Only the Kyiv
+      // month with the Kyiv instant bound (2026-10-31T22:00Z) gives these numbers.
+      expect(tiles.paidThisMonth.amount).toBe(100)
+      expect(tiles.paidThisMonth.amount).not.toBe(111)
+      expect(tiles.validatedThisMonth).toEqual({ count: 1, amount: 7 })
+    })
+
     it('all three views assign the boundary amount to one and the same month', async () => {
       const { graph, tiles, senior } = await atBoundaryClock(async () => ({
         graph: await summary.getSummary(ACCOUNTANT),

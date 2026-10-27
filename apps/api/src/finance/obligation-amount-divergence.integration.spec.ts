@@ -26,6 +26,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-fix-obligation-amount-divergence (backlog 181, L3 in
@@ -354,6 +355,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USDT',
         senderLabel: DEPOSIT_LABEL,
         createdBy: MAKSYM_ID,
+        txDate: resolveTransactionDate(null),
       })
     })
 

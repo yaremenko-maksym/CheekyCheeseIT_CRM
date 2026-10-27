@@ -24,6 +24,7 @@ import type { InvoicesService } from '../invoices/invoices.service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * Audit 2026-06-27 (findings #2/#3) — REAL-controller RBAC integration for the
@@ -363,6 +364,7 @@ describe.skipIf(!hasDatabaseUrl())(
             recipientId: DROP.id,
             createdBy: DROP.id,
             rejectionReason: 'test rejection',
+            txDate: resolveTransactionDate(null),
           })
         }, 15_000)
 

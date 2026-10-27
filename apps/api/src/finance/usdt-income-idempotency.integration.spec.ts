@@ -16,6 +16,7 @@ import type { NbuCurrencyService } from './nbu-currency.service'
 import { pendingObligations, projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * Security-review PR #367 (MED-1) — declareUsdtProjectIncome idempotency.
@@ -390,6 +391,7 @@ describe.skipIf(!hasDatabaseUrl())(
           idempotencyKey: key,
           receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
           createdBy: MAKSYM_ID,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
 

@@ -11,6 +11,7 @@ import { DatabaseService } from '../database/database.service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-drop-share-pending-parity — REAL-DB integration for the manual
@@ -196,7 +197,8 @@ describe.skipIf(!hasDatabaseUrl())('drop_cascade_origin marker migration (real D
         recipientId: DROP_A_ID,
         createdBy: ADMIN_ID,
         createdAt,
-        // dropCascadeOrigin: deliberately NOT set — must stay NULL.
+        // dropCascadeOrigin: deliberately NOT set — must stay NULL.,
+        txDate: resolveTransactionDate(null, createdAt),
       })
       .returning()
     return { txId: tx!.id }
