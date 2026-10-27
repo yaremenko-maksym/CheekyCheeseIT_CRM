@@ -181,9 +181,9 @@ describe('AC 1: the 13 migrated boards are the 13 hand-written ones', () => {
       'workable.board.huggingface',
       { board: 'huggingface' },
       'America/New_York',
-      'www.workable.com',
+      'apply.workable.com',
     ],
-    ['workable.board.hirefellows', { board: 'hirefellows' }, 'Asia/Bahrain', 'www.workable.com'],
+    ['workable.board.hirefellows', { board: 'hirefellows' }, 'Asia/Bahrain', 'apply.workable.com'],
     ['recruitee.board.bunq', { board: 'bunq' }, 'Europe/Amsterdam', 'recruitee.com'],
     [
       'personio.board.westwing',

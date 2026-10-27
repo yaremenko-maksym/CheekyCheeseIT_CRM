@@ -99,6 +99,8 @@ export type ManifestErrorCode =
   | 'HOST_RATE_INVALID'
   | 'DETAIL_INVALID'
   | 'FETCH_PROFILE_INVALID'
+  | 'BOARD_LINE_INVALID'
+  | 'DUPLICATE_BOARD'
 
 /** Every refusal the manifest makes carries a code a test can assert on, not a message to match. */
 export class ManifestError extends Error {
@@ -159,6 +161,8 @@ export type BlockerCode =
   | 'STATUS_CONSTANT_BLOCKED'
   | 'AUTH_DEADLINE_PASSED'
   | 'POLICY_EXPIRED'
+  /** An ENTRY blocker (U8a): a board line with no committed capture yet, so no first supervised smoke. */
+  | 'NO_BOARD_EVIDENCE'
 
 export interface Blocker {
   readonly code: BlockerCode
@@ -237,6 +241,11 @@ export interface EntryDefinition {
     readonly name: string
     readonly domain: string | null
   }
+  /**
+   * A board line with `evidence: null` (U8a): the entry carries the `NO_BOARD_EVIDENCE` blocker, so
+   * its ledger readiness is BLOCKED and it is never due, until a PR names a committed capture.
+   */
+  readonly awaitingEvidence?: true
 }
 
 export interface TypeDefinition {
@@ -992,7 +1001,17 @@ export function buildManifest(input: BuildInput): Manifest {
           ownership !== null && ownership.verified
             ? { name: ownership.claimedName, domain: ownership.claimedDomain }
             : null,
-        blockers,
+        blockers:
+          e.awaitingEvidence === true
+            ? [
+                ...blockers,
+                {
+                  code: 'NO_BOARD_EVIDENCE',
+                  detail:
+                    'no capture of this board is committed; its first request is a supervised smoke',
+                },
+              ]
+            : blockers,
         deadlines: def.deadlines ?? [],
         ownerDecisions,
       })
