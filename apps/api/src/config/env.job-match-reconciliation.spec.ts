@@ -16,7 +16,7 @@ const BASE_DEV = {
   AWS_SECRET_ACCESS_KEY: 'crmdevsecretkey',
 }
 
-const flag = (v?: string) =>
+const flag = (v?: string | boolean) =>
   validateEnv({ ...BASE_DEV, ...(v === undefined ? {} : { JOB_MATCH_RECONCILIATION_ENABLED: v }) })
     .JOB_MATCH_RECONCILIATION_ENABLED
 
@@ -30,5 +30,10 @@ describe('JOB_MATCH_RECONCILIATION_ENABLED (r5 Task 4.6 S4b)', () => {
   it('is on for "true" in any case', () => {
     expect(flag('true')).toBe(true)
     expect(flag('TRUE')).toBe(true)
+  })
+
+  it('takes an already-boolean value as it is', () => {
+    expect(flag(true)).toBe(true)
+    expect(flag(false)).toBe(false)
   })
 })
