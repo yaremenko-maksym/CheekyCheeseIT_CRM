@@ -391,7 +391,7 @@ describe.skipIf(!hasDatabaseUrl())(
           recipientId: DROP_A.id,
           projectId: DROP_PROJECT_A,
           createdBy: ADMIN_MAKSYM.id,
-          // dropCascadeOrigin: deliberately NOT set — must stay NULL.,
+          // dropCascadeOrigin: deliberately NOT set — must stay NULL.
           txDate: resolveTransactionDate(null),
         })
         .returning()
