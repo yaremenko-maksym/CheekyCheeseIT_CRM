@@ -72,7 +72,6 @@ describe('countDue, the sweep scope (U3)', () => {
               { manifest_id: 'm.fixed' },
               { manifest_id: 'm.null' },
               { manifest_id: 'm.unknown' },
-              { manifest_id: null },
             ],
           }
         : { rows: [{ n: 4 }] },

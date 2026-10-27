@@ -441,9 +441,10 @@ export class JobRunLedger {
     const { rows } = await this.db.execute(
       sql`SELECT DISTINCT manifest_id FROM job_sources WHERE manifest_id IS NOT NULL`,
     )
+    // The query excludes NULL; an id the catalog does not know is not sweepable (fail closed).
     const sweepable = rows
-      .map((r) => r['manifest_id'])
-      .filter((id): id is string => typeof id === 'string' && isSweepable(this.catalog.entry(id)))
+      .map((r) => String(r['manifest_id']))
+      .filter((id) => isSweepable(this.catalog.entry(id)))
     const due = dueSourcesPredicate('SCHEDULED', {
       maxConsecutiveFailures: this.options.maxConsecutiveFailures,
       sweepCycleId: sweep.cycleId,
