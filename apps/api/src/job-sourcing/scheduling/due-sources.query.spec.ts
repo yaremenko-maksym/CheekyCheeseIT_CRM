@@ -15,6 +15,37 @@ import { hostOpenPredicate } from './host-state'
 const render = (...args: Parameters<typeof dueSourcesPredicate>) =>
   new PgDialect().sqlToQuery(dueSourcesPredicate(...args))
 
+describe('dueSourcesPredicate, the sweep variant (U3, rendered)', () => {
+  const CYCLE = '0b4f6b1e-5a5e-4d4e-9a3c-1f2e3d4c5b6a'
+
+  it('replaces the cadence term with "a slot exists and no run in this cycle", and drops nothing else', () => {
+    const { sql, params } = render('SCHEDULED', { sweepCycleId: CYCLE })
+    expect(sql).not.toContain('"next_attempt_at" <= clock_timestamp()')
+    expect(sql).toContain('"job_sources"."next_attempt_at" IS NOT NULL')
+    expect(sql).toMatch(
+      /NOT EXISTS \(SELECT 1 FROM job_collection_runs sr WHERE sr\.source_id = "job_sources"\."id" AND sr\.cycle_id = \$6::uuid\)\)$/,
+    )
+    expect(sql).toContain('"job_sources"."cooldown_until" <= clock_timestamp()')
+    expect(sql).toContain('"job_sources"."consecutive_failures" < $')
+    expect(params).toEqual([true, 'ACTIVE', 'BOTH', 'SCHEDULED', MAX_CONSECUTIVE_FAILURES, CYCLE])
+    // the scheduled predicate's other terms are all still there
+    const scheduled = render('SCHEDULED').sql
+    const head = scheduled.slice(0, scheduled.indexOf(' and "job_sources"."next_attempt_at"'))
+    expect(sql.startsWith(head)).toBe(true)
+  })
+
+  it('refuses a sweep on a manual trigger and a cycle id that is not a uuid', () => {
+    expect(() => dueSourcesPredicate('MANUAL', { sweepCycleId: CYCLE })).toThrow(RangeError)
+    expect(() => dueSourcesPredicate('SCHEDULED', { sweepCycleId: 'x' })).toThrow(RangeError)
+    expect(() => dueSourcesPredicate('SCHEDULED', { sweepCycleId: `${CYCLE}x` })).toThrow(
+      RangeError,
+    )
+    expect(() => dueSourcesPredicate('SCHEDULED', { sweepCycleId: `x${CYCLE}` })).toThrow(
+      RangeError,
+    )
+  })
+})
+
 describe('dueSourcesPredicate (rendered)', () => {
   it('a scheduled predicate carries every scalar term, on the database clock', () => {
     const { sql, params } = render('SCHEDULED')

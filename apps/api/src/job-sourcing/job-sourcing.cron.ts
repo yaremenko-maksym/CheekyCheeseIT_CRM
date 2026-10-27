@@ -11,11 +11,38 @@ import { JobRunWorker } from './runtime/job-run-worker'
 
 /** Both daily handlers run on the company's clock, not the server's (ADR T5, F7). */
 export const CRON_TIME_ZONE = 'Europe/Kyiv'
+/** 05:00: the legacy DOU collection and retention only (source fetch strategy U3). */
 export const API_COLLECTION_CRON = '0 5 * * *'
 export const HTML_COLLECTION_CRON = '30 2 * * *'
+/** Source fetch strategy ADR section 5: the 10-minute tick and the 08:00 sweep (owner, Q3). */
+export const TICK_CRON = '*/10 * * * *'
+export const SWEEP_CRON = '0 8 * * *'
+/** A tick's window: under its 10-minute period, so two ticks of one replica never overlap. */
+export const TICK_WINDOW_MS = 9 * 60_000
+
+const KYIV_SLOT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: CRON_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+})
 
 /**
- * The type sets of the two schedules: HTML types at 02:30, every other reporting type at 05:00.
+ * `tick:<Kyiv date>T<HH:MM>`, the minute floored to the tick's 10: two replicas firing one tick
+ * share the key, and so the cycle (ADR section 5). The fall-back hour repeats its local slots: the
+ * second tick of a slot finds its cycle closed and claims nothing.
+ */
+export function tickTriggerKey(at: Date): string {
+  const p = Object.fromEntries(KYIV_SLOT.formatToParts(at).map((x) => [x.type, x.value]))
+  const minute = String(Math.floor(Number(p['minute']) / 10) * 10).padStart(2, '0')
+  return `tick:${p['year']}-${p['month']}-${p['day']}T${p['hour']}:${minute}`
+}
+
+/**
+ * The type sets: HTML types at 02:30, every other reporting type to the tick and the sweep.
  * DOU is the legacy path (`collectAll`), never claimed through the ledger.
  */
 export const HTML_COLLECTION_TYPES: readonly JobSourceType[] = jobSourceTypeSchema.options.filter(
@@ -57,8 +84,13 @@ export class JobSourcingCronService {
   private readonly logger = new Logger(JobSourcingCronService.name)
 
   /** Exposed for specs; production keeps the default. */
-  readonly tuning: { intervalMs: number; onlyIds?: readonly string[] } = {
+  readonly tuning: {
+    intervalMs: number
+    onlyIds?: readonly string[]
+    tickWindowMs: number
+  } = {
     intervalMs: DEFAULT_WINDOW_INTERVAL_MS,
+    tickWindowMs: TICK_WINDOW_MS,
   }
 
   constructor(
@@ -70,14 +102,40 @@ export class JobSourcingCronService {
     @Optional() @Inject(ConfigService) private readonly config?: ConfigService<Env, true>,
   ) {}
 
+  /** U3: the legacy DOU collection and retention only; the API types moved to the tick and the sweep. */
   @Cron(API_COLLECTION_CRON, { timeZone: CRON_TIME_ZONE })
   async handleDailyCollection(): Promise<void> {
-    await this.runHandler('daily-api', API_COLLECTION_TYPES, true)
+    await this.collectLegacyDou()
   }
 
   @Cron(HTML_COLLECTION_CRON, { timeZone: CRON_TIME_ZONE })
   async handleHtmlCollection(): Promise<void> {
-    await this.runHandler('daily-html', HTML_COLLECTION_TYPES, false)
+    await this.runHandler('daily-html', HTML_COLLECTION_TYPES, {
+      triggerKey: this.triggerKey('daily-html'),
+      windowMs: this.windowMs(),
+    })
+  }
+
+  /** U3: claims the API-type sources whose slot has come, for at most `TICK_WINDOW_MS`. */
+  @Cron(TICK_CRON, { timeZone: CRON_TIME_ZONE })
+  async handleTick(): Promise<void> {
+    await this.runHandler('tick', API_COLLECTION_TYPES, {
+      triggerKey: tickTriggerKey(new Date()),
+      windowMs: this.tuning.tickWindowMs,
+    })
+  }
+
+  /**
+   * U3: every enabled scheduled API-type source once in this cycle, whatever its slot (the sweep
+   * predicate), within `JOB_COLLECTION_WINDOW_MS`. Fixed-slot sources are left to the tick (AC 7).
+   */
+  @Cron(SWEEP_CRON, { timeZone: CRON_TIME_ZONE })
+  async handleSweep(): Promise<void> {
+    await this.runHandler('sweep', API_COLLECTION_TYPES, {
+      triggerKey: this.triggerKey('sweep'),
+      windowMs: this.windowMs(),
+      sweep: true,
+    })
   }
 
   private windowMs(): number {
@@ -96,39 +154,32 @@ export class JobSourcingCronService {
   private async runHandler(
     name: string,
     types: readonly JobSourceType[],
-    legacyDou: boolean,
+    run: { triggerKey: string; windowMs: number; sweep?: true },
   ): Promise<void> {
     const startedAt = performance.now()
     const ledger = this.ledger
     const worker = this.worker
-    // Set by the ledger steps when there is a cycle to claim under and a worker to claim with.
-    let window: (() => Promise<unknown>) | null = null
-    if (ledger !== undefined) {
-      const opened = await this.step(`${name}: openCycle`, () =>
-        ledger.openCycle({ trigger: 'SCHEDULED', triggerKey: this.triggerKey(name) }),
-      )
-      await this.step(`${name}: recoverExpired`, () => ledger.recoverExpired())
-      await this.step(`${name}: sweepOrphanReservations`, () => ledger.sweepOrphanReservations())
-      if (opened !== undefined && worker !== undefined) {
-        const cycleId = opened.cycleId
-        window = () =>
-          this.step(`${name}: collection window`, () =>
-            runCollectionWindow(
-              { ledger, worker, logger: this.logger },
-              {
-                cycleId,
-                types,
-                windowMs: this.windowMs(),
-                intervalMs: this.tuning.intervalMs,
-                onlyIds: this.tuning.onlyIds,
-                startedAt,
-              },
-            ),
-          )
-      }
-    }
-    if (legacyDou) await this.collectLegacyDou()
-    if (window !== null) await window()
+    if (ledger === undefined) return
+    const opened = await this.step(`${name}: openCycle`, () =>
+      ledger.openCycle({ trigger: 'SCHEDULED', triggerKey: run.triggerKey }),
+    )
+    await this.step(`${name}: recoverExpired`, () => ledger.recoverExpired())
+    await this.step(`${name}: sweepOrphanReservations`, () => ledger.sweepOrphanReservations())
+    if (opened === undefined || worker === undefined) return
+    await this.step(`${name}: collection window`, () =>
+      runCollectionWindow(
+        { ledger, worker, logger: this.logger },
+        {
+          cycleId: opened.cycleId,
+          types,
+          windowMs: run.windowMs,
+          intervalMs: this.tuning.intervalMs,
+          onlyIds: this.tuning.onlyIds,
+          startedAt,
+          ...(run.sweep === true ? { sweep: true } : {}),
+        },
+      ),
+    )
   }
 
   /** One step; a failure is logged (class name only) and the next step still runs. */

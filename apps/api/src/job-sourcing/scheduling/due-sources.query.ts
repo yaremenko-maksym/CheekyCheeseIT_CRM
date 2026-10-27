@@ -31,7 +31,16 @@ import { hostOpenPredicate } from './host-state'
 export interface DueQueryOptions {
   readonly cadenceSlackMs?: number
   readonly maxConsecutiveFailures?: number
+  /**
+   * Source fetch strategy U3, the SWEEP predicate (ADR section 5): the cadence term is replaced by
+   * "no run of this source in this cycle", so every scheduled source is due once per sweep cycle
+   * whatever its slot. Nothing else is dropped: ban, cap, cooldown, trigger mode and admin state
+   * stay. A NULL `next_attempt_at` (a null-profile source after its one refusal) is still never due.
+   */
+  readonly sweepCycleId?: string
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export function dueSourcesPredicate(
   trigger: JobSourceTriggerMode,
@@ -55,8 +64,15 @@ export function dueSourcesPredicate(
     // T8: a source with no host key, or on a paused host, is never due -- a manual trigger included.
     hostOpenPredicate(),
   ]
-  // The cadence term, and the ONLY term a manual trigger drops. A NULL next_attempt_at is not due.
-  if (trigger !== 'MANUAL') {
+  const sweep = options.sweepCycleId
+  if (sweep !== undefined) {
+    if (trigger !== 'SCHEDULED' || !UUID_RE.test(sweep)) throw new RangeError('invalid sweep cycle')
+    terms.push(
+      sql`${jobSources.nextAttemptAt} IS NOT NULL`,
+      sql`NOT EXISTS (SELECT 1 FROM job_collection_runs sr WHERE sr.source_id = ${jobSources.id} AND sr.cycle_id = ${sweep}::uuid)`,
+    )
+  } else if (trigger !== 'MANUAL') {
+    // The cadence term, and the ONLY term a manual trigger drops. A NULL next_attempt_at is not due.
     terms.push(
       sql`${jobSources.nextAttemptAt} <= clock_timestamp() + ${slackMs} * interval '1 millisecond'`,
     )

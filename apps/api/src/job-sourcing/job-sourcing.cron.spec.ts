@@ -398,13 +398,13 @@ describe('step failures are named in the log', () => {
   it('openCycle, recoverExpired and sweepOrphanReservations each say which step failed', async () => {
     const b = build({ openCycle: boom, recoverExpired: boom, sweep: boom })
     const errors = errorsOf(b.svc)
-    await b.svc.handleDailyCollection()
+    await b.svc.handleTick()
     const first = errors.mock.calls.map((c) => String(c[0]))
     expect(first).toContainEqual(
-      expect.stringMatching(/^Job sourcing cron step failed \[daily-api: openCycle\]/),
+      expect.stringMatching(/^Job sourcing cron step failed \[tick: openCycle\]/),
     )
-    expect(first).toContainEqual(expect.stringMatching(/\[daily-api: recoverExpired\]/))
-    expect(first).toContainEqual(expect.stringMatching(/\[daily-api: sweepOrphanReservations\]/))
+    expect(first).toContainEqual(expect.stringMatching(/\[tick: recoverExpired\]/))
+    expect(first).toContainEqual(expect.stringMatching(/\[tick: sweepOrphanReservations\]/))
   })
 
   it('a window that escapes its own guards is caught and named, not rethrown', async () => {

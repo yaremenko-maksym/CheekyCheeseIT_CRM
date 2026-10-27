@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CLOSE_GRACE_MS, type WindowDeps, runCollectionWindow } from './collection-window'
+import {
+  CLOSE_GRACE_MS,
+  SWEEP_RETRIED,
+  type WindowDeps,
+  runCollectionWindow,
+} from './collection-window'
 
 /**
  * r5 Task 2.5 T5 — the window loop over fakes (real timers, tens of milliseconds). The real
@@ -283,5 +288,61 @@ describe('runCollectionWindow', () => {
     const generic = deps({ startDue: () => Promise.reject(new Error('no open cycle')) })
     await runCollectionWindow(generic, input)
     expect(generic.ledger.countDue).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('runCollectionWindow, sweep mode (source fetch strategy U3)', () => {
+  it('claims and counts with the sweep scope; a refused source is skipped for the rest of the window', async () => {
+    let pass = 0
+    const d = deps({
+      startDue: () => {
+        pass += 1
+        return Promise.resolve({
+          claimed: 0,
+          refused:
+            pass === 1
+              ? [
+                  { sourceId: 's-blocked', reason: 'NOT_ACTIVATABLE' as const },
+                  { sourceId: 's-busy', reason: 'HOST_BUSY' as const },
+                  { sourceId: 's-gap', reason: 'HOST_RATE_GAP' as const },
+                ]
+              : [],
+          settled: Promise.resolve([]),
+        })
+      },
+      countDue: () => Promise.resolve(pass < 2 ? 1 : 0),
+    })
+    const summary = await runCollectionWindow(d, { ...input, sweep: true })
+    expect(summary).toMatchObject({ ended: 'DRAINED', iterations: 2 })
+    expect(d.worker.startDue.mock.calls[0]?.[0]).toStrictEqual({
+      cycleId: 'c1',
+      onlyTypes: ['ARBEITNOW_API'],
+      sweep: { cycleId: 'c1', skipIds: [] },
+    })
+    // the persistent refusal is skipped; the busy host and the rate gap are tried again
+    expect(d.worker.startDue.mock.calls[1]?.[0]).toMatchObject({
+      sweep: { cycleId: 'c1', skipIds: ['s-blocked'] },
+    })
+    expect(d.ledger.countDue.mock.calls[0]?.[0]).toMatchObject({
+      sweep: { cycleId: 'c1', skipIds: ['s-blocked'] },
+    })
+  })
+
+  it('outside sweep mode a refusal is never skipped and no sweep scope is sent', async () => {
+    const d = deps({
+      startDue: () =>
+        Promise.resolve({
+          claimed: 0,
+          refused: [{ sourceId: 's-blocked', reason: 'NOT_ACTIVATABLE' as const }],
+          settled: Promise.resolve([]),
+        }),
+    })
+    await runCollectionWindow(d, input)
+    expect(d.worker.startDue.mock.calls[0]?.[0]).not.toHaveProperty('sweep')
+    expect(d.ledger.countDue.mock.calls[0]?.[0]).not.toHaveProperty('sweep')
+  })
+
+  it('SWEEP_RETRIED is exactly the two refusals another run or an open gap ends', () => {
+    expect([...SWEEP_RETRIED].sort()).toEqual(['HOST_BUSY', 'HOST_RATE_GAP'])
   })
 })

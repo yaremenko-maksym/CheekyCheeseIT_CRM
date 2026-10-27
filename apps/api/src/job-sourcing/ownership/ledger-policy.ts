@@ -135,6 +135,17 @@ export function refusalWrite(reason: ClaimRefusal, opensAt: Date | null): Refusa
   return { kind: 'RECHECK' }
 }
 
+/**
+ * Source fetch strategy U3: may the 08:00 sweep claim a source of this catalog entry? Only an
+ * entry with an interval profile. A `null` profile is never scheduled (owner, Q8); a `fixedSlots`
+ * profile is left to the tick (AC 7: Himalayas' 08:00 slot is the sweep's own time, and one side
+ * must skip it -- the sweep does, because the tick is the only path to Remotive's 09/13/17 slots).
+ * An unknown entry is not sweepable: the sweep fails closed.
+ */
+export function isSweepable(entry: Pick<LedgerCatalogEntry, 'fetchProfile'> | undefined): boolean {
+  return entry?.fetchProfile != null && entry.fetchProfile.fixedSlots === undefined
+}
+
 // ---------------------------------------------------------------------------
 // How a run ends
 // ---------------------------------------------------------------------------

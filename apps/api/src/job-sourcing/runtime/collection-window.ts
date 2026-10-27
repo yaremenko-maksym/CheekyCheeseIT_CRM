@@ -1,6 +1,7 @@
 import type { JobSourceType } from '@crm/shared'
 import type { Logger } from '@nestjs/common'
 import type { JobRunLedger } from '../ownership/job-run-ledger'
+import type { ClaimRefusal } from '../ownership/ledger-policy'
 import type { JobRunWorker, RunReport } from './job-run-worker'
 
 /**
@@ -43,7 +44,16 @@ export interface CollectionWindowInput {
   readonly onlyIds?: readonly string[] | undefined
   /** The handler's start, on the same clock as `monotonicNow`. Default: now. */
   readonly startedAt?: number
+  /**
+   * Source fetch strategy U3: claim and count with the SWEEP predicate (every enabled scheduled
+   * source once in this cycle, whatever its slot). A source refused in this window is skipped for
+   * the rest of it, unless the refusal is one a later pass can outlive (`SWEEP_RETRIED`).
+   */
+  readonly sweep?: boolean
 }
+
+/** Refusals that end when another run ends or a host gap opens: the sweep tries those again. */
+export const SWEEP_RETRIED: ReadonlySet<ClaimRefusal> = new Set(['HOST_BUSY', 'HOST_RATE_GAP'])
 
 export interface WindowSummary {
   readonly ended: 'DRAINED' | 'WINDOW'
@@ -77,6 +87,10 @@ export async function runCollectionWindow(
   const startedAt = input.startedAt ?? now()
   const remaining = (): number => input.windowMs - (now() - startedAt)
   const pending = new Set<Promise<unknown>>()
+  // Sweep only: sources refused in this window, never re-picked or counted in it.
+  const skipped = new Set<string>()
+  const sweep = (): { sweep: { cycleId: string; skipIds: string[] } } | Record<string, never> =>
+    input.sweep === true ? { sweep: { cycleId: input.cycleId, skipIds: [...skipped] } } : {}
   let iterations = 0
   let claimed = 0
   let ended: WindowSummary['ended'] = 'WINDOW'
@@ -107,6 +121,7 @@ export async function runCollectionWindow(
           cycleId: input.cycleId,
           onlyTypes: input.types,
           ...(input.onlyIds === undefined ? {} : { onlyIds: input.onlyIds }),
+          ...sweep(),
         })
         .catch((error: unknown) => {
           // Another replica closed the shared cycle: nothing more can be claimed under it.
@@ -119,6 +134,9 @@ export async function runCollectionWindow(
       break
     }
     if (started !== undefined) {
+      if (input.sweep === true) {
+        for (const r of started.refused) if (!SWEEP_RETRIED.has(r.reason)) skipped.add(r.sourceId)
+      }
       claimedNow = started.claimed
       claimed += claimedNow
       // Only a claim that started runs is waited on: a pass that claimed nothing hands back an
@@ -137,6 +155,7 @@ export async function runCollectionWindow(
           onlyTypes: input.types,
           lookaheadMs: remaining(),
           ...(input.onlyIds === undefined ? {} : { onlyIds: input.onlyIds }),
+          ...sweep(),
         }),
       )
       if (due === undefined || due === 0) {
