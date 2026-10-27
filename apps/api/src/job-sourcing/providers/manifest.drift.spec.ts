@@ -391,8 +391,15 @@ describe('T8: every reporting source has a host key that scopes what it really r
     expect(rebuilt('ARBEITNOW_API', { hostRate: { perMinute: 2, perDay: 4 } })).toThrow(
       'HOST_RATE_INVALID: ARBEITNOW_API: perDay counts claims, and this type sends 5 requests a run',
     )
-    // The same declaration on a one-request type builds.
-    expect(rebuilt('REMOTEOK_API', { hostRate: { perMinute: 2, perDay: 4 } })).not.toThrow()
+    // The same declaration on a one-request type builds, once its schedule fits 4 a day (U1b).
+    const daily = { intervalMinutes: 1440, offIntervalMinutes: null, window: null }
+    expect(
+      rebuilt('REMOTEOK_API', { hostRate: { perMinute: 2, perDay: 4 }, fetchProfile: daily }),
+    ).not.toThrow()
+    // Hourly RemoteOK is 19 attempts a day (11 in the window, 8 outside): over 4.
+    expect(rebuilt('REMOTEOK_API', { hostRate: { perMinute: 2, perDay: 4 } })).toThrow(
+      "HOST_RATE_INVALID: REMOTEOK_API: 19 scheduled attempts a day exceed the host's 4",
+    )
     expect(rebuilt('REMOTIVE_API', { hostRate: { perMinute: 0, perDay: 4 } })).toThrow(
       'HOST_RATE_INVALID',
     )
@@ -419,10 +426,11 @@ describe('T8: every reporting source has a host key that scopes what it really r
     )
     expect(rebuilt({ minIntervalHoursFloor: -1 })).toThrow('CADENCE_INVALID')
     expect(rebuilt({ minIntervalHoursFloor: 1.5 })).toThrow('CADENCE_INVALID')
-    expect(rebuilt({ minIntervalHoursFloor: 24 })).not.toThrow()
-    // 720 passes the type's floor check; the entry's own 24 h is then refused against it.
+    // U1b: RemoteOK's profile is hourly, so a 1 h floor is the largest it passes.
+    expect(rebuilt({ minIntervalHoursFloor: 1 })).not.toThrow()
+    // 720 passes the type's floor check; the entry's own 60 minutes are then refused against it.
     expect(rebuilt({ minIntervalHoursFloor: 720 })).toThrow(
-      "CADENCE_INVALID: remoteok.api.latest: 24 h is under the 720 h the provider's terms allow",
+      "CADENCE_INVALID: remoteok.api.latest: 60 min between attempts is under the 720 h the provider's terms allow",
     )
     expect(rebuilt({ minIntervalHoursFloor: 0 })).not.toThrow()
   })

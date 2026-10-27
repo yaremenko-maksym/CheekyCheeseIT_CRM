@@ -46,7 +46,8 @@ export class SpecCatalog implements LedgerCatalog {
     this.entries.set(manifestId, {
       type: 'REMOTIVE_API',
       quotaDeclared: false,
-      intervalHours: 24,
+      // Once a day, at the manifest id's stagger minute after 00:00 UTC (U1b).
+      fetchProfile: { intervalMinutes: 24 * 60, offIntervalMinutes: null, window: null },
       floorHours: 0,
       activationFacts: () => READY,
       entryReadiness: () => 'CANDIDATE',

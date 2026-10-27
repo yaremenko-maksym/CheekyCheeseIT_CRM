@@ -13,6 +13,7 @@ import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageRun, ageSource } from '../../test/run-aging'
 import { JobRunLedger } from '../ownership/job-run-ledger'
 import { recordHostBan } from '../scheduling/host-state'
+import { nextSlot } from '../scheduling/next-slot'
 import { JobSourceAdminService } from './job-source-admin.service'
 
 /**
@@ -193,22 +194,60 @@ describe.skipIf(!hasDatabaseUrl())('T9 ADMIN reset + excluded listing, as crm_ap
       expect((await listed(s))?.reasons).toContain('FAILURE_CAP')
     })
 
-    it('AC 6 (SR-L-24): a source due for more than 2 cadences is listed; one under 2 is not', async () => {
-      const starved = await kit.reporting({
-        minIntervalHours: 24,
-        nextAttemptSql: "clock_timestamp() - interval '49 hours'",
-      })
-      const late = await kit.reporting({
-        minIntervalHours: 24,
-        nextAttemptSql: "clock_timestamp() - interval '47 hours'",
-      })
-      // A NULL interval falls back to 24 hours.
-      const defaulted = await kit.reporting({
-        nextAttemptSql: "clock_timestamp() - interval '49 hours'",
-      })
+    it('AC 6 (SR-L-24): a source due for more than 2 of its slots is listed; one under 2 is not', async () => {
+      // U1b: an hourly grid. Due 3 h ago: slot 1 is within the following hour, slot 2 an hour after
+      // that, both past. Due 30 min ago: slot 2 is at least 30 min ahead. `min_interval_hours` (here a
+      // misleading 1000) is not read.
+      const hourly = {
+        fetchProfile: { intervalMinutes: 60, offIntervalMinutes: null, window: null },
+      }
+      const starved = await kit.reporting(
+        { minIntervalHours: 1000, nextAttemptSql: "clock_timestamp() - interval '3 hours'" },
+        hourly,
+      )
+      const late = await kit.reporting(
+        { minIntervalHours: 1, nextAttemptSql: "clock_timestamp() - interval '30 minutes'" },
+        hourly,
+      )
+      const unscheduled = await kit.reporting(
+        { nextAttemptSql: "clock_timestamp() - interval '400 hours'" },
+        { fetchProfile: null },
+      )
       expect((await listed(starved))?.reasons).toEqual(['OVERDUE'])
-      expect((await listed(defaulted))?.reasons).toEqual(['OVERDUE'])
       expect(await listed(late)).toBeUndefined()
+      // A null profile (owner, Q8) has no next slot, so it is never overdue.
+      expect(await listed(unscheduled)).toBeUndefined()
+    })
+
+    it('U1b AC 6: the listing`s next-due is the ledger`s next slot for the row it finished', async () => {
+      const berlin = {
+        intervalMinutes: 60,
+        offIntervalMinutes: 180,
+        window: {
+          timeZone: 'Europe/Berlin',
+          days: ['MON', 'TUE', 'WED', 'THU', 'FRI'] as ('MON' | 'TUE' | 'WED' | 'THU' | 'FRI')[],
+          from: '08:00',
+          to: '19:00',
+        },
+      }
+      // Two failures already: this failure caps it, so the listing shows it (FAILURE_CAP).
+      const s = await kit.reporting({ consecutiveFailures: 2 }, { fetchProfile: berlin })
+      const run = await kit.claimOne(s)
+      await ledger.finish(run, { outcome: 'FAILED', errorCode: 'UPSTREAM' })
+      const { rows } = await session.admin.query(
+        `SELECT r.ended_at, s.manifest_id FROM job_collection_runs r JOIN job_sources s ON s.id = r.source_id
+          WHERE r.id = $1`,
+        [run.runId],
+      )
+      const expected = nextSlot(rows[0].ended_at as Date, berlin, {
+        floorMinutes: 0,
+        slowdownLevel: 0,
+        staggerKey: rows[0].manifest_id as string,
+      })
+      expect(await listed(s)).toMatchObject({
+        reasons: ['FAILURE_CAP'],
+        nextAttemptAt: expected.toISOString(),
+      })
     })
 
     it('an overdue source that is disabled or paused by an admin is not starved, so not listed', async () => {

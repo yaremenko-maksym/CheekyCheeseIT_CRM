@@ -9,7 +9,6 @@ import {
   type HostBan,
   type SqlExecutor,
   banTargetOf,
-  cadenceHoursAtFloor,
   claimHostSlot,
   hostBanStatement,
   hostOpenPredicate,
@@ -686,41 +685,6 @@ describe('hostOpenPredicate and readHostPaused', () => {
   })
 })
 
-describe('cadenceHoursAtFloor (AC 5)', () => {
-  it('runs a stored interval below the floor at the floor, and says so', () => {
-    expect(cadenceHoursAtFloor(1, 6, 24)).toEqual({ hours: 6, clamped: true })
-    expect(cadenceHoursAtFloor(5, 6, 24)).toEqual({ hours: 6, clamped: true })
-  })
-
-  it('keeps an interval at or above the floor', () => {
-    expect(cadenceHoursAtFloor(6, 6, 24)).toEqual({ hours: 6, clamped: false })
-    expect(cadenceHoursAtFloor(48, 6, 24)).toEqual({ hours: 48, clamped: false })
-    expect(cadenceHoursAtFloor(8760, 0, 24)).toEqual({ hours: 8760, clamped: false })
-  })
-
-  it('a NULL stored interval runs at the default, raised to the floor', () => {
-    expect(cadenceHoursAtFloor(null, 6, 24)).toEqual({ hours: 24, clamped: false })
-    expect(cadenceHoursAtFloor(null, 30, 24)).toEqual({ hours: 30, clamped: false })
-  })
-
-  it('an unusable stored interval is replaced by the default and reported', () => {
-    for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 8761]) {
-      expect(cadenceHoursAtFloor(bad, 6, 24), String(bad)).toEqual({ hours: 24, clamped: true })
-    }
-  })
-
-  it('refuses an unusable default or floor', () => {
-    for (const bad of [0, 1.5, Number.NaN, 8761]) {
-      expect(() => cadenceHoursAtFloor(1, 0, bad)).toThrow('cadenceHoursAtFloor: invalid default')
-    }
-    for (const bad of [-1, 1.5, Number.NaN, 8761]) {
-      expect(() => cadenceHoursAtFloor(1, bad, 24)).toThrow('cadenceHoursAtFloor: invalid floor')
-    }
-    expect(cadenceHoursAtFloor(1, 8760, 1)).toEqual({ hours: 8760, clamped: true })
-    expect(cadenceHoursAtFloor(1, 0, 8760)).toEqual({ hours: 1, clamped: false })
-  })
-})
-
 describe('SR-L-20: no application clock in the ban or claim path', () => {
   afterEach(() => {
     vi.useRealTimers()
@@ -743,7 +707,6 @@ describe('SR-L-20: no application clock in the ban or claim path', () => {
         ban: render(hostBanStatement(ban({ retryAfter: header }))),
         parse: parseRetryAfter(header),
         slot: await claimHostSlot(tx, 'remotive.com', { rate: null, floorHours: 0 }),
-        floor: cadenceHoursAtFloor(1, 6, 24),
       }
     }
     vi.useFakeTimers()

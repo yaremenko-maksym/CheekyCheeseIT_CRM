@@ -335,35 +335,3 @@ export async function readHostPaused(
   )
   return new Map(rows.map((r) => [String(r['id']), r['paused'] !== false]))
 }
-
-// ---------------------------------------------------------------------------
-// The interval floor
-// ---------------------------------------------------------------------------
-
-/** The longest interval anyone may set: a year. */
-const MAX_INTERVAL_HOURS = 8760
-
-// `Number.isInteger` is false for null and for anything that is not a number.
-const validHours = (n: number | null): n is number =>
-  Number.isInteger(n) && (n as number) >= 1 && (n as number) <= MAX_INTERVAL_HOURS
-
-/**
- * The cadence a source actually runs at (T8, #1139 SR-L-3): its stored `min_interval_hours`,
- * raised to the provider's `minIntervalHoursFloor`. A NULL or unusable stored value falls back to
- * the manifest entry's own interval. `clamped` reports that the stored value was raised or
- * replaced, so the caller can record it.
- */
-export function cadenceHoursAtFloor(
-  stored: number | null,
-  floorHours: number,
-  defaultHours: number,
-): { hours: number; clamped: boolean } {
-  if (!validHours(defaultHours)) throw new RangeError('cadenceHoursAtFloor: invalid default')
-  if (!Number.isInteger(floorHours) || floorHours < 0 || floorHours > MAX_INTERVAL_HOURS) {
-    throw new RangeError('cadenceHoursAtFloor: invalid floor')
-  }
-  const usable = validHours(stored)
-  const base = usable ? stored : defaultHours
-  const hours = Math.max(base, floorHours)
-  return { hours, clamped: hours !== stored && stored !== null }
-}

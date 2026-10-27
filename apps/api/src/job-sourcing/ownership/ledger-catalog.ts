@@ -1,6 +1,7 @@
 import type { JobSourceType } from '@crm/shared'
 import type { ActivationFacts } from '../registry/activation'
 import type { BanScope, HostPolicy } from '../scheduling/host-policy'
+import type { FetchProfile } from '../scheduling/next-slot'
 
 /**
  * What the run ledger must know about the manifest (r5 Task 2.5 T3), as a port.
@@ -21,8 +22,11 @@ export interface LedgerCatalogEntry {
   entryReadiness(at: Date): 'CANDIDATE' | 'BLOCKED' | 'LEGACY'
   /** The type's manifest declares a quota: a source of it without a meter fails closed. */
   readonly quotaDeclared: boolean
-  /** The entry's default cadence (`intervalHours`), used when the stored interval is unusable. */
-  readonly intervalHours: number
+  /**
+   * When the entry is next due (source fetch strategy U1b): `nextSlot`'s profile. `null` = never
+   * scheduled (owner, Q8): a scheduled claim refuses it and a finish leaves no next attempt.
+   */
+  readonly fetchProfile: FetchProfile | null
   /** The type's `minIntervalHoursFloor`. */
   readonly floorHours: number
   /**

@@ -105,7 +105,7 @@ describe('createProductionLedger', () => {
     expect(LEDGER.catalog.entry('remotive.api.software-dev')).toMatchObject({
       type: 'REMOTIVE_API',
       floorHours: 6,
-      intervalHours: 24,
+      fetchProfile: { fixedSlots: { timeZone: 'Europe/Kyiv', times: ['09:00'] } },
       quotaDeclared: false,
       banScope: 'HOST',
     })

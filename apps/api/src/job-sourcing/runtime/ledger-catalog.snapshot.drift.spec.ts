@@ -117,7 +117,7 @@ describe('the production ledger catalog (T7)', () => {
     const orphan = catalogFromSnapshot({
       types: [],
       entries: [
-        { id: 'x', type: 'REMOTIVE_API', blockerCodes: [], deadlines: [], intervalHours: 1 },
+        { id: 'x', type: 'REMOTIVE_API', blockerCodes: [], deadlines: [], fetchProfile: null },
       ],
       hosts: [],
     })

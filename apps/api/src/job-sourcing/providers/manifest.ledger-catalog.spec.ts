@@ -25,7 +25,12 @@ describe('buildLedgerCatalog', () => {
     expect(e).toMatchObject({
       type: 'REMOTIVE_API',
       quotaDeclared: false,
-      intervalHours: 24,
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+        fixedSlots: { timeZone: 'Europe/Kyiv', times: ['09:00'] },
+      },
       floorHours: 6,
     })
     expect(e?.activationFacts(NOW)).toEqual({
@@ -44,8 +49,10 @@ describe('buildLedgerCatalog', () => {
     expect(catalog.entry('jsearch.rapidapi.backend')?.quotaDeclared).toBe(true)
     expect(catalog.entry('jooble.api.senior-developer-remote')).toMatchObject({
       quotaDeclared: true,
-      intervalHours: 168,
+      fetchProfile: { intervalMinutes: 10080, window: { days: ['MON'] } },
     })
+    // Owner Q8: a deferred type's entry carries a null profile through to the ledger.
+    expect(catalog.entry('hn-hiring.thread.latest')?.fetchProfile).toBeNull()
   })
 
   it('an unverified payload is reported, not hidden', () => {
