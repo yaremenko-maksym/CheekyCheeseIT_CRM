@@ -206,6 +206,13 @@ describe('reconcileReason sensitivity at equal roster size', () => {
   })
 })
 
+describe('reconcileReason pinned value', () => {
+  it('is the first 16 hex chars of sha256 over the sorted JSON (literals computed outside the code)', () => {
+    // sha256('[]') starts 4f53cda18c2baa0c; the roster half is sha256 of the sorted key list.
+    expect(reconcileReason(live, [])).toBe('RECONCILE:5c0bf4154b6695e7:4f53cda18c2baa0c')
+  })
+})
+
 describe('constants', () => {
   it('pins MP-05 batch and the SR-M-2 period', () => {
     expect(RECONCILE_PAGE_SIZE).toBe(200)
