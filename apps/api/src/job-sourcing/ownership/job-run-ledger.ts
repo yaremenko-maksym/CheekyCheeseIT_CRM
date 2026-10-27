@@ -18,7 +18,7 @@ import {
 import type { JobSourceRegistry } from '../registry/job-source-registry'
 import { MAX_EARLY_DUE_SLACK_MS } from '../scheduling/due-policy'
 import { dueSourcesPredicate } from '../scheduling/due-sources.query'
-import { type SqlExecutor, cadenceHoursAtFloor, claimHostSlot } from '../scheduling/host-state'
+import { type SqlExecutor, claimHostSlot } from '../scheduling/host-state'
 import type { LedgerCatalog } from './ledger-catalog'
 import {
   type ClaimRefusal,
@@ -29,6 +29,7 @@ import {
   claimGate,
   endingEffect,
   manualTermRefusal,
+  nextAttemptAt,
   refusalWrite,
   resolveLedgerOptions,
   validateEnding,
@@ -302,7 +303,7 @@ export class JobRunLedger {
           if (row === undefined) return { kind: 'EMPTY' as const }
           const sourceId = String(row['id'])
           tried.push(sourceId)
-          const verdict = await this.gateAndHost(tx, row)
+          const verdict = await this.gateAndHost(tx, row, true)
           if (verdict.kind === 'REFUSED') {
             await this.writeRefusal(tx, sourceId, verdict.reason, verdict.opensAt)
             return { kind: 'REFUSED' as const, refusal: { sourceId, reason: verdict.reason } }
@@ -365,7 +366,7 @@ export class JobRunLedger {
         }
         const term = manualTermRefusal(row)
         if (term !== null) throw new Rollback(term)
-        const verdict = await this.gateAndHost(tx, row)
+        const verdict = await this.gateAndHost(tx, row, false)
         if (verdict.kind === 'REFUSED') throw new Rollback(verdict.reason)
         const run = await this.insertRun(tx, row, cycle, input.owner, verdict.adapterVersion)
         return { kind: 'CLAIMED' as const, run }
@@ -405,6 +406,7 @@ export class JobRunLedger {
   private async gateAndHost(
     tx: DrizzleTx,
     row: Row,
+    scheduled: boolean,
   ): Promise<
     | { kind: 'GRANTED'; adapterVersion: string }
     | { kind: 'REFUSED'; reason: ClaimRefusal; opensAt: Date | null }
@@ -416,7 +418,7 @@ export class JobRunLedger {
     const dbNow = instant(row['db_now'])
     if (dbNow === null) throw new Error('claim: the database clock was unreadable')
     const meterKey = typeof row['meter_key'] === 'string' ? row['meter_key'] : null
-    const gate = claimGate({ adapter, entry, dbNow, meterKey })
+    const gate = claimGate({ adapter, entry, dbNow, meterKey, scheduled })
     if (gate !== null) return { kind: 'REFUSED', reason: gate, opensAt: null }
     const hostKey = row['host_key']
     const policy = typeof hostKey === 'string' ? this.catalog.hostPolicy(hostKey) : undefined
@@ -440,9 +442,11 @@ export class JobRunLedger {
     const write = refusalWrite(reason, opensAt)
     if (write.kind === 'NONE') return
     const next =
-      write.kind === 'UNTIL'
-        ? sql`${write.at.toISOString()}::timestamptz`
-        : sql`clock_timestamp() + make_interval(secs => ${this.options.refusalRecheckMs / 1000})`
+      write.kind === 'NEVER'
+        ? sql`NULL::timestamptz`
+        : write.kind === 'UNTIL'
+          ? sql`${write.at.toISOString()}::timestamptz`
+          : sql`clock_timestamp() + make_interval(secs => ${this.options.refusalRecheckMs / 1000})`
     await tx.execute(
       sql`UPDATE job_sources SET last_error_code = ${reason}, next_attempt_at = ${next}, updated_at = clock_timestamp() WHERE id = ${sourceId}::uuid`,
     )
@@ -651,7 +655,7 @@ export class JobRunLedger {
     ending: RunEnding,
   ): Promise<boolean> {
     const { rows: src } = await tx.execute(
-      sql`SELECT manifest_id, min_interval_hours, consecutive_failures FROM job_sources WHERE id = ${head.sourceId}::uuid FOR UPDATE`,
+      sql`SELECT manifest_id, consecutive_failures FROM job_sources WHERE id = ${head.sourceId}::uuid FOR UPDATE`,
     )
     const source = src[0]
     if (source === undefined) throw new Error('endRun: the run`s source vanished')
@@ -666,6 +670,12 @@ export class JobRunLedger {
     const run = locked[0]
     if (run === undefined) return false
     await settleRunReservations(tx, head.runId, meters)
+    // U1b: the database clock, read ONCE after every lock is held, is both the run's `ended_at` and
+    // the `now` its next slot is computed from (ADR U1b).
+    const { rows: clock } = await tx.execute(sql`SELECT clock_timestamp() AS db_now`)
+    const dbNow = instant(clock[0]?.['db_now'])
+    if (dbNow === null) throw new Error('endRun: the database clock was unreadable')
+    const endedAt = sql`${dbNow.toISOString()}::timestamptz`
     const message =
       ending.errorMessage === undefined || ending.errorMessage === null
         ? null
@@ -673,10 +683,14 @@ export class JobRunLedger {
     await tx.execute(
       sql`UPDATE job_collection_runs
              SET outcome = ${ending.outcome}::job_collection_outcome, error_code = ${ending.errorCode},
-                 error_message = ${message}, ended_at = clock_timestamp(), updated_at = clock_timestamp()
+                 error_message = ${message}, ended_at = ${endedAt}, updated_at = clock_timestamp()
            WHERE id = ${head.runId}::uuid`,
     )
-    await this.account(tx, head, source, ending, run['paged'] === true, Number(run['received']) > 0)
+    await this.account(tx, head, source, ending, {
+      dbNow,
+      paged: run['paged'] === true,
+      nonEmpty: Number(run['received']) > 0,
+    })
     return true
   }
 
@@ -686,18 +700,15 @@ export class JobRunLedger {
     head: { sourceId: string; accountKey: string },
     source: Row,
     ending: RunEnding,
-    paged: boolean,
-    nonEmpty: boolean,
+    at: { dbNow: Date; paged: boolean; nonEmpty: boolean },
   ): Promise<void> {
+    const { paged, nonEmpty } = at
     const manifestId = source['manifest_id']
     const entry = typeof manifestId === 'string' ? this.catalog.entry(manifestId) : undefined
-    const stored = source['min_interval_hours']
-    const { hours } = cadenceHoursAtFloor(
-      typeof stored === 'number' ? stored : null,
-      entry?.floorHours ?? 0,
-      entry?.intervalHours ?? 24,
-    )
-    const cadence = sql`clock_timestamp() + make_interval(hours => ${hours})`
+    // U1b: the entry's next slot (`nextSlot`), never `min_interval_hours`; NULL for a null profile,
+    // which the due predicate never selects ("A NULL next_attempt_at is not due").
+    const slot = nextAttemptAt(at.dbNow, String(manifestId), entry)
+    const cadence = slot === null ? sql`NULL::timestamptz` : sql`${slot.toISOString()}::timestamptz`
     const effect = endingEffect(ending.outcome, ending.errorCode, paged)
     const id = head.sourceId
     if (effect === 'SUCCESS') {
@@ -726,7 +737,8 @@ export class JobRunLedger {
     // Compile-time exhaustiveness: a new EndingEffect fails here until it is given its own write.
     const remaining: 'NEUTRAL' | 'COST_STOP' = effect
     const next =
-      remaining === 'COST_STOP'
+      // GREATEST ignores a NULL, so a null-profile source must not reach it: it stays unscheduled.
+      remaining === 'COST_STOP' && slot !== null
         ? sql`GREATEST(${cadence}, (SELECT max(m.resets_at) FROM job_account_meters m WHERE m.account_key = ${head.accountKey}))`
         : cadence
     await tx.execute(

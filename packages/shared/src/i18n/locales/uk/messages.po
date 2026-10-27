@@ -3246,6 +3246,11 @@ msgstr "Для сеньйора й адміністратора доступни
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SENIOR_MIN_TECHNOLOGIES"
+msgstr "Сеньйору потрібно щонайменше 3 різні технології"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_NOT_FOUND"
 msgstr "Сеньйора не знайдено"
 
@@ -6999,6 +7004,10 @@ msgstr "Максимум"
 msgid "Примітки"
 msgstr "Примітки"
 
+#: apps/web/app/components/ui/month-picker.tsx
+msgid "Рік зарплати"
+msgstr "Рік зарплати"
+
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Проєкти сеньйорів команд"
 msgstr "Проєкти сеньйорів команд"
@@ -7249,6 +7258,7 @@ msgstr "Розгорнути"
 msgid "Контракт підписано, номер {0}"
 msgstr "Контракт підписано, номер {0}"
 
+#: apps/web/app/components/ui/month-picker.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/SalaryFields.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
@@ -8885,6 +8895,10 @@ msgstr "Частка за проєктом «{projectName}»"
 msgid "Ваша частка: {0}% · сеньйор: {1}"
 msgstr "Ваша частка: {0}% · сеньйор: {1}"
 
+#: apps/web/app/components/ui/month-picker.tsx
+msgid "Місяць зарплати"
+msgstr "Місяць зарплати"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Користувачі"
 msgstr "Користувачі"
@@ -10286,6 +10300,7 @@ msgstr "Попередній перегляд PDF — {roleLabel}"
 msgid "Сеньйор:"
 msgstr "Сеньйор:"
 
+#: apps/web/app/components/ui/month-picker.tsx
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Рік"
 msgstr "Рік"
@@ -11627,6 +11642,10 @@ msgstr "Редагувати вакансію"
 msgid "Сеньйор"
 msgstr "Сеньйор"
 
+#: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
+msgid "Не збережено: сеньйору потрібно щонайменше 3 різні технології"
+msgstr "Не збережено: сеньйору потрібно щонайменше 3 різні технології"
+
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "РНОКПП (10 цифр)"
 msgstr "РНОКПП (10 цифр)"
@@ -11998,6 +12017,11 @@ msgstr "Вкажіть зарплату або частку сеньйора —
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.SENDER_RECEIVER_SAME"
 msgstr "Відправник і отримувач не можуть збігатися"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.SENIOR_MIN_TECHNOLOGIES"
+msgstr "Сеньйору потрібно щонайменше 3 різні технології"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

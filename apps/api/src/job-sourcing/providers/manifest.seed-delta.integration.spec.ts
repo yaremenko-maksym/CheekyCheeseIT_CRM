@@ -12,6 +12,7 @@ import {
   SEED_DELTA_FILE,
   generateHostKeyDelta,
   generateSeedDelta,
+  rollbackCadenceHours,
   seedDeltaLocations,
 } from './manifest.seed-sql'
 
@@ -138,7 +139,7 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
         manifest_version: e.manifestVersion,
         policy_version: e.policyVersion,
         config_version: e.configVersion,
-        min_interval_hours: e.intervalHours,
+        min_interval_hours: rollbackCadenceHours(e.fetchProfile),
         budget_limit: e.budget?.limit ?? null,
         budget_window: e.budget?.window ?? null,
         readiness: r.status === 'BLOCKED' ? 'BLOCKED' : 'CANDIDATE',

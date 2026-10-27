@@ -1,6 +1,7 @@
 import { Trans, useLingui } from '@lingui/react/macro'
 import { cn } from '@/lib/utils'
 import { Label } from '@/components/ui/label'
+import { MonthPickerField } from '@/components/ui/month-picker'
 import {
   Select,
   SelectContent,
@@ -31,7 +32,10 @@ export function SalaryFields({
   const { t } = useLingui()
   return (
     <div className="space-y-1.5">
-      <div className="grid grid-cols-2 gap-3">
+      <div
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+        data-testid="create-transaction-salary-grid"
+      >
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">
             <Trans>Співробітник</Trans>
@@ -69,28 +73,19 @@ export function SalaryFields({
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">
+          <Label
+            id="create-transaction-salary-month-label"
+            htmlFor="create-transaction-salary-month-trigger"
+            className="text-xs text-muted-foreground"
+          >
             <Trans>Місяць</Trans>
           </Label>
-          <input
-            type="month"
+          <MonthPickerField
+            id="create-transaction-salary-month-trigger"
+            aria-labelledby="create-transaction-salary-month-label"
             value={salaryMonth}
-            onChange={(e) => setSalaryMonth(e.target.value)}
-            onClick={(e) => e.currentTarget.showPicker?.()}
-            onFocus={(e) => e.currentTarget.showPicker?.()}
+            onChange={setSalaryMonth}
             data-testid="create-transaction-salary-month"
-            className={cn(
-              'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors',
-              'placeholder:text-muted-foreground',
-              'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-              'disabled:cursor-not-allowed disabled:opacity-50',
-              'cursor-pointer',
-              '[color-scheme:dark]',
-              '[&::-webkit-calendar-picker-indicator]:opacity-60',
-              '[&::-webkit-calendar-picker-indicator]:cursor-pointer',
-              '[&::-webkit-calendar-picker-indicator]:invert',
-              '[&::-webkit-calendar-picker-indicator]:hover:opacity-100',
-            )}
           />
         </div>
       </div>

@@ -1979,6 +1979,7 @@ describe('UsersService.createUser — SENIOR', () => {
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
+      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
     })
 
     expect(result.role).toBe('SENIOR')
@@ -2006,6 +2007,7 @@ describe('UsersService.createUser — SENIOR', () => {
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
+      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
       hrIds: ['hr-1', 'hr-2'],
       accountantId: 'acc-1',
     })
@@ -2031,6 +2033,7 @@ describe('UsersService.createUser — SENIOR', () => {
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
+      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
       hrIds: ['hr-1'],
       accountantId: null,
     })
@@ -2052,6 +2055,7 @@ describe('UsersService.createUser — SENIOR', () => {
       email: senior.email,
       displayName: 'Ivan Drago',
       role: 'SENIOR',
+      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
     })
 
     const insertMock = db.db.insert as ReturnType<typeof vi.fn>
@@ -2074,6 +2078,7 @@ describe('UsersService.createUser — SENIOR', () => {
         email: senior.email,
         displayName: 'Dup',
         role: 'SENIOR',
+        techStack: ['TypeScript', 'Go', 'PostgreSQL'],
         actorRole: 'ADMIN',
         actorId: 'actor-test-id',
       }),
@@ -2144,6 +2149,7 @@ describe('UsersService.createUser — profile fields', () => {
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
+      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
       seniorSharePercent: 60,
     })
 
@@ -2161,6 +2167,7 @@ describe('UsersService.createUser — profile fields', () => {
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
+      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
     })
 
     expect(result.seniorSharePercent).toBe(26)
@@ -2232,6 +2239,51 @@ describe('UsersService.createUser — profile fields', () => {
 // `archived-entitlement.unit.spec.ts`'s own `updateProfile` coverage
 // (which checks the OTHER direction: entitlement columns stay untouched).
 // ---------------------------------------------------------------------------
+
+describe('UsersService.updateProfile — SENIOR technology floor on a self-edit', () => {
+  const self = (role: string, techStack: string[] | null) =>
+    makeDb({ existingUser: makeUser({ id: 'user-1', role, techStack }) })
+
+  it('a SENIOR cutting their own stack below 3 is refused and nothing is written', async () => {
+    const db = self('SENIOR', ['React', 'Go', 'AWS'])
+    const service = makeUsersService(db)
+    await expect(
+      service.updateProfile('user-1', { techStack: ['React', 'React', 'Go'] }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'SENIOR_MIN_TECHNOLOGIES', statusCode: 400 }),
+    })
+    expect(db.db.update).not.toHaveBeenCalled()
+  })
+
+  it('a SENIOR growing 3 -> 4 is written; a legacy SENIOR resubmitting the same 2 passes', async () => {
+    const grow = self('SENIOR', ['React', 'Go', 'AWS'])
+    await makeUsersService(grow).updateProfile('user-1', {
+      techStack: ['React', 'Go', 'AWS', 'Docker'],
+    })
+    const growSet = (grow.db.update as ReturnType<typeof vi.fn>).mock.results[0]?.value
+      ?.set as ReturnType<typeof vi.fn>
+    expect(growSet).toHaveBeenCalledWith(
+      expect.objectContaining({ techStack: ['React', 'Go', 'AWS', 'Docker'] }),
+    )
+    const legacy = self('SENIOR', ['React', 'Go'])
+    await makeUsersService(legacy).updateProfile('user-1', { techStack: ['React', 'Go'] })
+    expect(legacy.db.update).toHaveBeenCalledTimes(1)
+  })
+
+  it('a JUNIOR may keep a single technology', async () => {
+    const db = self('JUNIOR', null)
+    await makeUsersService(db).updateProfile('user-1', { techStack: ['React'] })
+    expect(db.db.update).toHaveBeenCalledTimes(1)
+  })
+
+  it('a missing caller row with techStack -> 404 USER_NOT_FOUND before any write', async () => {
+    const db = makeDb({ existingUser: undefined })
+    await expect(
+      makeUsersService(db).updateProfile('user-1', { techStack: ['a', 'b', 'c'] }),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'USER_NOT_FOUND' }) })
+    expect(db.db.update).not.toHaveBeenCalled()
+  })
+})
 
 describe('UsersService.updateProfile — locale (task-i18n-stage2)', () => {
   it('sets locale when provided', async () => {

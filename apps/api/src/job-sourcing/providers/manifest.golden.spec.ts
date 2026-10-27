@@ -3,6 +3,7 @@ import { FIXTURE_ROOT } from '../../test/fixture-provenance'
 import { buildManifest, type Manifest } from './manifest'
 import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
 import { MANIFEST_DEFINITIONS } from './manifest.definitions'
+import { rollbackCadenceHours } from './manifest.seed-sql'
 
 /**
  * The hand-authored half of the manifest, pinned as a table.
@@ -94,7 +95,7 @@ type EntryRow = [
   type: string,
   config: Record<string, unknown>,
   namespace: string,
-  intervalHours: number,
+  seedHours: number,
   budget: { limit: number; window: 'DAY' | 'MONTH' } | null,
 ]
 
@@ -341,9 +342,12 @@ describe('the hand-authored half of the manifest, pinned', () => {
     expect(manifest().types.map((t) => t.type)).toEqual(TYPES.map((r) => r[0]))
   })
 
-  it.each(ENTRIES)('%s: type, stored config, namespace, interval, budget', (...row) => {
+  // U1b: the cadence column is now the seed's `min_interval_hours` (`rollbackCadenceHours`), unchanged
+  // for every entry; the profile itself is pinned in manifest.fetch-profile.spec.ts.
+  it.each(ENTRIES)('%s: type, stored config, namespace, seed hours, budget', (...row) => {
     const e = manifest().entries.find((x) => x.id === row[0])!
-    expect([e.id, e.type, e.config, e.namespace, e.intervalHours, e.budget]).toEqual(row)
+    const hours = rollbackCadenceHours(e.fetchProfile)
+    expect([e.id, e.type, e.config, e.namespace, hours, e.budget]).toEqual(row)
     expect([e.configVersion, e.manifestVersion, e.policyVersion]).toEqual([1, 1, 1])
   })
 

@@ -58,7 +58,7 @@ const makeDbUser = (id: string, role: string) => ({
   googleId: `g-${id}`,
   telegram: null,
   phone: null,
-  techStack: null,
+  techStack: ['TypeScript', 'Go', 'PostgreSQL'],
   seniorSharePercent: 26,
   dropSharePercent: 5,
   monthlySalary: null,
@@ -191,5 +191,38 @@ describe('UsersService.changeRole — SEC-03: privilege escalation guard', () =>
 
     const result = await service.changeRole(juniorId, 'SENIOR', ADMIN_ID)
     expect(result.role).toBe('SENIOR')
+  })
+
+  it('SENIOR floor: JUNIOR with fewer than 3 distinct technologies -> SENIOR is refused, nothing written', async () => {
+    const juniorId = 'jjjjjjjj-jjjj-4jjj-jjjj-000000000002'
+    for (const techStack of [null, ['React', 'Go'], ['a', 'a', 'a']]) {
+      const existing = { ...makeDbUser(juniorId, 'JUNIOR'), techStack }
+      const db = makeDb({ existingUser: existing, updatedUser: makeDbUser(juniorId, 'SENIOR') })
+      const service = makeUsersService(db)
+      await expect(service.changeRole(juniorId, 'SENIOR', ADMIN_ID)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'SENIOR_MIN_TECHNOLOGIES', statusCode: 400 }),
+      })
+      expect(db.db.update).not.toHaveBeenCalled()
+    }
+  })
+
+  it('SENIOR floor: re-asserting SENIOR on a legacy SENIOR with 1 technology is not a promotion, so it passes', async () => {
+    const seniorId = 'ssssssss-ssss-4sss-ssss-000000000002'
+    const existing = { ...makeDbUser(seniorId, 'SENIOR'), techStack: ['React'] }
+    const db = makeDb({ existingUser: existing, updatedUser: existing })
+    const service = makeUsersService(db)
+    await expect(service.changeRole(seniorId, 'SENIOR', ADMIN_ID)).resolves.toMatchObject({
+      role: 'SENIOR',
+    })
+  })
+
+  it('SENIOR floor: a SENIOR with 1 technology -> JUNIOR is unaffected', async () => {
+    const seniorId = 'ssssssss-ssss-4sss-ssss-000000000001'
+    const existing = { ...makeDbUser(seniorId, 'SENIOR'), techStack: ['React'] }
+    const db = makeDb({ existingUser: existing, updatedUser: makeDbUser(seniorId, 'JUNIOR') })
+    const service = makeUsersService(db)
+    await expect(service.changeRole(seniorId, 'JUNIOR', ADMIN_ID)).resolves.toMatchObject({
+      role: 'JUNIOR',
+    })
   })
 })

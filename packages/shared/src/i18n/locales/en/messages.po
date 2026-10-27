@@ -3246,6 +3246,11 @@ msgstr "Seniors and admins can only be paid to USDT ERC-20"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SENIOR_MIN_TECHNOLOGIES"
+msgstr "A senior needs at least 3 different technologies"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_NOT_FOUND"
 msgstr "Senior not found"
 
@@ -6999,6 +7004,10 @@ msgstr "Maximum"
 msgid "Примітки"
 msgstr "Notes"
 
+#: apps/web/app/components/ui/month-picker.tsx
+msgid "Рік зарплати"
+msgstr "Salary year"
+
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Проєкти сеньйорів команд"
 msgstr "Team seniors' projects"
@@ -7249,6 +7258,7 @@ msgstr "Expand"
 msgid "Контракт підписано, номер {0}"
 msgstr "Contract No. {0} signed"
 
+#: apps/web/app/components/ui/month-picker.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/SalaryFields.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
@@ -8885,6 +8895,10 @@ msgstr "Share in project “{projectName}”"
 msgid "Ваша частка: {0}% · сеньйор: {1}"
 msgstr "Your share: {0}% · senior: {1}"
 
+#: apps/web/app/components/ui/month-picker.tsx
+msgid "Місяць зарплати"
+msgstr "Salary month"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Користувачі"
 msgstr "Users"
@@ -10286,6 +10300,7 @@ msgstr "PDF preview — {roleLabel}"
 msgid "Сеньйор:"
 msgstr "Senior:"
 
+#: apps/web/app/components/ui/month-picker.tsx
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Рік"
 msgstr "Year"
@@ -11627,6 +11642,10 @@ msgstr "Edit vacancy"
 msgid "Сеньйор"
 msgstr "Senior"
 
+#: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
+msgid "Не збережено: сеньйору потрібно щонайменше 3 різні технології"
+msgstr "Not saved: a senior needs at least 3 different technologies"
+
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "РНОКПП (10 цифр)"
 msgstr "Tax ID (RNOKPP, 10 digits)"
@@ -11998,6 +12017,11 @@ msgstr "Enter the salary or the senior's share — at least one of the two"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.SENDER_RECEIVER_SAME"
 msgstr "Sender and receiver cannot be the same"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.SENIOR_MIN_TECHNOLOGIES"
+msgstr "A senior needs at least 3 different technologies"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

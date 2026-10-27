@@ -15,6 +15,7 @@ import {
 } from './manifest'
 import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
 import { MANIFEST_DEFINITIONS } from './manifest.definitions'
+import { attemptsIn } from './manifest.fetch-profile'
 import {
   HN_OWNER_DECISION,
   isWellFormedDecision,
@@ -248,13 +249,14 @@ describe('Remotive and Jobgether, by name (AC3: the addendum gives both a decisi
     const remotive = m.entries.filter((e) => e.type === 'REMOTIVE_API')
     const perRun = typeOf(m, 'REMOTIVE_API').requestsPerRun
     expect(perRun).toBe(1)
-    // 3 categories, one run every 24 h each: a hand-counted 3, under the vendor's "about 4 a day".
-    expect(
-      maxPerDay(
-        remotive.map((e) => e.intervalHours),
-        perRun,
-      ),
-    ).toBe(3)
+    // U1b: 3 categories, one fixed Kyiv slot each (09:00, 13:00, 17:00): a hand-counted 3, under
+    // the vendor's "about 4 a day".
+    expect(remotive.map((e) => e.fetchProfile?.fixedSlots?.times)).toEqual([
+      ['09:00'],
+      ['13:00'],
+      ['17:00'],
+    ])
+    expect(remotive.reduce((n, e) => n + attemptsIn(e.fetchProfile, 24 * 60) * perRun, 0)).toBe(3)
     expect(REMOTIVE_OWNER_DECISION.scope).toContain('never more than 2 a minute')
   })
 
@@ -274,26 +276,30 @@ describe('Remotive and Jobgether, by name (AC3: the addendum gives both a decisi
     },
   )
 
-  it('the 6 h floor protects ONE entry only: it refuses 5 h, and says nothing about the total across entries', () => {
+  it('the 6 h floor refuses 5 h for one entry, and (U1b) the host`s 4 a day now refuses the total', () => {
+    const every = (h: number) => ({
+      intervalMinutes: h * 60,
+      offIntervalMinutes: null,
+      window: null,
+    })
     expect(
       refusal(
         build('REMOTIVE_API', (d) => ({
           ...d,
-          entries: [{ ...d.entries[0]!, intervalHours: 5 }],
+          entries: [{ ...d.entries[0]!, fetchProfile: every(5) }],
         })),
       ).code,
     ).toBe('CADENCE_INVALID')
-    // Three entries at the floor are each accepted by the builder although together they exceed 4 a day.
-    const m = build('REMOTIVE_API', (d) => ({
-      ...d,
-      entries: d.entries.map((e) => ({ ...e, intervalHours: 6 })),
-    }))()
+    // Three entries at the floor: each passes the floor, together 12 a day against the host's 4.
+    expect(maxPerDay([6, 6, 6], 1)).toBe(12)
     expect(
-      maxPerDay(
-        m.entries.filter((e) => e.type === 'REMOTIVE_API').map((e) => e.intervalHours),
-        1,
-      ),
-    ).toBe(12)
+      refusal(
+        build('REMOTIVE_API', (d) => ({
+          ...d,
+          entries: d.entries.map((e) => ({ ...e, fetchProfile: every(6) })),
+        })),
+      ).code,
+    ).toBe('HOST_RATE_INVALID')
   })
 })
 

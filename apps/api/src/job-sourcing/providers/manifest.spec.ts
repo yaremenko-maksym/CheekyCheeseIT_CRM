@@ -70,6 +70,12 @@ const manifest = {
   },
 }
 const entry = (id: string) => manifest.entries.find((e) => e.id === id)!
+/** A fetch profile with no window: `minutes` apart, every day (U1b). */
+const every = (minutes: number) => ({
+  intervalMinutes: minutes,
+  offIntervalMinutes: null,
+  window: null,
+})
 const type = (t: string) => manifest.types.find((x) => x.type === t)!
 
 /** Written out, not derived: the 34 stable ids, in manifest order (types by schema order). */
@@ -251,9 +257,7 @@ describe('the 31 types: one explicit disposition each', () => {
         buildManifest({
           ...real(),
           definitions: MANIFEST_DEFINITIONS.map((d) =>
-            d.type === 'DICE_HTML'
-              ? { ...d, entries: [{ id: 'dice.html.x', config: {}, intervalHours: 24 }] }
-              : d,
+            d.type === 'DICE_HTML' ? { ...d, entries: [{ id: 'dice.html.x', config: {} }] } : d,
           ),
         }),
       ),
@@ -1135,7 +1139,7 @@ describe("quota accounts: consistent units, and a limit that is the provider's, 
           ...d,
           entries: d.entries.map((e) => ({
             ...e,
-            intervalHours: 6,
+            fetchProfile: every(360),
             budget: { limit: 200, window: 'MONTH' as const },
           })),
         })),
@@ -1156,7 +1160,11 @@ describe("quota accounts: consistent units, and a limit that is the provider's, 
         requestsPerRun: 5,
         quota: { ...d.quota!, limit },
         entries: [
-          { ...d.entries[0]!, intervalHours: 6, budget: { limit: 120, window: 'MONTH' as const } },
+          {
+            ...d.entries[0]!,
+            fetchProfile: every(360),
+            budget: { limit: 120, window: 'MONTH' as const },
+          },
         ],
       }))
     expect(sized(600)).not.toThrow()
@@ -1218,56 +1226,51 @@ describe("quota accounts: consistent units, and a limit that is the provider's, 
   })
 })
 
-describe('cadence', () => {
-  it('records the intentions: daily by default, Jooble weekly, TheirStack every 4 days', () => {
-    expect(entry('remoteok.api.latest').intervalHours).toBe(24)
-    expect(entry('jooble.api.senior-developer-remote').intervalHours).toBe(168)
-    expect(entry('theirstack.api.senior').intervalHours).toBe(96)
+describe('cadence (U1b: the fetch profile)', () => {
+  it('records the intentions: hourly boards, Jooble and TheirStack on Mondays only', () => {
+    expect(entry('remoteok.api.latest').fetchProfile?.intervalMinutes).toBe(60)
+    expect(entry('jooble.api.senior-developer-remote').fetchProfile?.window?.days).toEqual(['MON'])
+    expect(entry('theirstack.api.senior').fetchProfile?.window?.days).toEqual(['MON'])
   })
 
   it("refuses an interval under a provider's own floor, at the floor and one under it", () => {
     const at = (h: number) =>
       withDefinition('REMOTIVE_API', (d) => ({
         ...d,
-        entries: [{ ...d.entries[0]!, intervalHours: h }],
+        entries: [{ ...d.entries[0]!, fetchProfile: every(h * 60) }],
       }))
     expect(at(6)).not.toThrow()
     expect(refusal(at(5))).toEqual(
       refused(
         'CADENCE_INVALID',
-        "remotive.api.software-dev: 5 h is under the 6 h the provider's terms allow",
+        "remotive.api.software-dev: 300 min between attempts is under the 6 h the provider's terms allow",
       ),
     )
   })
 
-  it.each([0, -1, 1.5])('refuses an interval of %s hours', (h) => {
+  it.each([0, -1, 1.5])('refuses an interval of %s minutes', (m) => {
     expect(
-      refusal(
-        withDefinition('REMOTEOK_API', (d) => ({
-          ...d,
-          entries: [{ ...d.entries[0]!, intervalHours: h }],
-        })),
-      ),
+      refusal(withDefinition('REMOTEOK_API', (d) => ({ ...d, fetchProfile: every(m) }))),
     ).toEqual(
       refused(
-        'CADENCE_INVALID',
-        `remoteok.api.latest: intervalHours ${h} is not a positive integer`,
+        'FETCH_PROFILE_INVALID',
+        /^FETCH_PROFILE_INVALID: remoteok\.api\.latest: profile\.intervalMinutes: /,
       ),
     )
   })
 
   it('refuses a monthly budget the schedule would exhaust: at the budget is fine, one run over is not', () => {
-    // 168 h apart is 4 runs a month.
+    // Mondays only: at most 5 in any 30 days.
     const budget = (limit: number) =>
       withDefinition('JOOBLE_API', (d) => ({
         ...d,
         entries: [{ ...d.entries[0]!, budget: { limit, window: 'MONTH' as const } }],
       }))
-    expect(budget(4)).not.toThrow()
-    expect(refusal(budget(3))).toEqual(
+    expect(budget(5)).not.toThrow()
+    expect(refusal(budget(4))).toEqual(
       refused(
         'CADENCE_INVALID',
-        'jooble.api.senior-developer-remote: 4 scheduled runs a month exceed its own budget of 3',
+        'jooble.api.senior-developer-remote: 5 scheduled runs a month exceed its own budget of 4',
       ),
     )
   })
@@ -1534,7 +1537,7 @@ describe('exact behaviour: constants, markers and boundaries', () => {
         refusal(
           withDefinition('DOU_RSS', (d) => ({
             ...d,
-            entries: [{ id: 'dou.rss.x', config: {}, intervalHours: 24 }],
+            entries: [{ id: 'dou.rss.x', config: {} }],
           })),
         ),
       ).toEqual(
@@ -1722,12 +1725,13 @@ describe('exact behaviour: constants, markers and boundaries', () => {
         ),
       })
 
-    it('an account shared by two types is charged for both: 4 + 30 = 34 requests a month', () => {
-      expect(sharedBy(34)().types.filter((t) => t.quota?.account === 'shared:test')).toHaveLength(2)
-      expect(refusal(sharedBy(33))).toEqual(
+    // U1b: Jooble's Mondays count as at most 5 in any 30 days; Reed is daily, 30.
+    it('an account shared by two types is charged for both: 5 + 30 = 35 requests a month', () => {
+      expect(sharedBy(35)().types.filter((t) => t.quota?.account === 'shared:test')).toHaveLength(2)
+      expect(refusal(sharedBy(34))).toEqual(
         refused(
           'QUOTA_INCONSISTENT',
-          'shared:test: the schedule needs 34 requests a month against a limit of 33',
+          'shared:test: the schedule needs 35 requests a month against a limit of 34',
         ),
       )
     })
@@ -1753,11 +1757,17 @@ describe('exact behaviour: constants, markers and boundaries', () => {
     const remoteok = (intervalHours: number, budget?: { limit: number; window: 'DAY' | 'MONTH' }) =>
       withDefinition('REMOTEOK_API', (d) => ({
         ...d,
-        entries: [{ ...d.entries[0]!, intervalHours, ...(budget ? { budget } : {}) }],
+        entries: [
+          {
+            ...d.entries[0]!,
+            fetchProfile: every(intervalHours * 60),
+            ...(budget ? { budget } : {}),
+          },
+        ],
       }))
 
     it('an interval of one hour is valid', () => {
-      expect(remoteok(1)().entries[0]!.intervalHours).toBe(1)
+      expect(remoteok(1)().entries[0]!.fetchProfile?.intervalMinutes).toBe(60)
     })
 
     it('a daily budget is checked against runs a day: 2 runs fit a budget of 2, not of 1', () => {

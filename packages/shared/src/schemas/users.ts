@@ -5,6 +5,7 @@ import { tabKeySchema, actionKeySchema } from './view-permissions'
 import { withSalaryFloor } from './money'
 import { pendingSeniorShareSchema } from './pending-share'
 import { localeSchema } from '../i18n/locales'
+import { canonicalStackKeywords } from '../utils/stack-keywords'
 
 export const roleSchema = z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
 
@@ -31,6 +32,28 @@ const telegramSchema = z
 
 const phoneSchema = z.string().max(30)
 const techStackSchema = z.array(z.string().min(1).max(50)).max(50)
+
+/**
+ * A SENIOR needs at least this many DISTINCT technologies: vacancy relevance is
+ * matched against the senior's stack (owner decision 2026-10-25: HR sees only the
+ * vacancies relevant to the team's senior), and fewer make that match too weak.
+ */
+export const SENIOR_MIN_TECHNOLOGIES = 3
+
+/**
+ * The single definition of the SENIOR technology floor. Counted with the vacancy
+ * matcher's own normalisation (`canonicalStackKeywords`), so blanks, duplicates
+ * and aliases of one technology ("node" / "Node.js") count once. The API runs it
+ * in the service body (typed error `SENIOR_MIN_TECHNOLOGIES`); the web forms run
+ * it inline (message `zod.SENIOR_MIN_TECHNOLOGIES`).
+ */
+export const seniorTechStackSchema = z
+  .array(z.string())
+  .nullable()
+  .refine(
+    (stack) => canonicalStackKeywords(stack).length >= SENIOR_MIN_TECHNOLOGIES,
+    'zod.SENIOR_MIN_TECHNOLOGIES',
+  )
 
 export const userProfileSchema = z.object({
   id: z.string().uuid(),

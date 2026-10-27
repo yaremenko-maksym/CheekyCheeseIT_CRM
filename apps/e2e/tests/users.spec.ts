@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test'
 import { test, expect, ALL_USERS, USERS, mockAuthAs } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
+import { addTechnologies } from './fixtures/senior-tech'
 
 // ---------------------------------------------------------------------------
 // Helper: fill and submit the Create SENIOR form, capturing the POST body
@@ -13,12 +14,23 @@ import { loadMessages, assertInCatalog } from '../fixtures/catalog'
  */
 const VALID_USDT_WALLET = '0x' + '0'.repeat(40)
 
+/**
+ * Opens the create dialog only once the list has rendered: a click that lands while the
+ * route is still loading is lost and the dialog never opens (same guard as
+ * users-refactor.spec.ts; reproduced on origin/main as "waiting for user-dialog-name").
+ */
+async function openCreateDialog(page: Page): Promise<void> {
+  await expect(page.getByTestId('users-list')).toBeVisible()
+  await page.getByTestId('users-create-button').click()
+}
+
 async function createSeniorViaDialog(page: Page): Promise<Record<string, unknown>> {
   const uk = await loadMessages('uk')
   const postReq = page.waitForRequest(
     (req) => req.url().includes('/api/users') && req.method() === 'POST',
   )
 
+  await expect(page.getByTestId('users-list')).toBeVisible()
   await page.getByRole('button', { name: /додати/i }).click()
   await page.getByPlaceholder('user@cheekycheese.dev').fill('newsenior@cheekycheese.dev')
   await page.getByTestId('user-dialog-name').fill('New Senior Dev')
@@ -38,6 +50,9 @@ async function createSeniorViaDialog(page: Page): Promise<Record<string, unknown
   // JUNIOR, HR, ACCOUNTANT). Without it the superRefine check in
   // createUserSchema fails client-side and the wizard blocks advance.
   await page.getByTestId('user-dialog-legal-full-name').fill('Сеніор Тестовий Іванович')
+
+  // A SENIOR needs at least 3 distinct technologies (shared floor).
+  await addTechnologies(page)
 
   // ut-14: SENIOR/ADMIN are USDT-only; `walletUsdtErc20` is required by the
   // shared `refineRequisitePresence` rule. Without it the safeParse fails
@@ -206,7 +221,7 @@ test.describe('Users management page', () => {
   test.describe('Create user', () => {
     test('opens create dialog with correct title', async ({ asAdmin: page }) => {
       await page.goto('/users')
-      await page.getByTestId('users-create-button').click()
+      await openCreateDialog(page)
       await expect(page.getByTestId('user-dialog')).toBeVisible()
       await expect(page.getByRole('heading', { name: /новий користувач/i })).toBeVisible()
     })
@@ -218,7 +233,7 @@ test.describe('Users management page', () => {
         (req) => req.url().includes('/api/users') && req.method() === 'POST',
       )
 
-      await page.getByTestId('users-create-button').click()
+      await openCreateDialog(page)
       await page.getByPlaceholder('user@cheekycheese.dev').fill('newuser@cheekycheese.dev')
       await page.getByTestId('user-dialog-name').fill('New User')
 
@@ -247,7 +262,7 @@ test.describe('Users management page', () => {
 
     test('validation: invalid email shows error on blur', async ({ asAdmin: page }) => {
       await page.goto('/users')
-      await page.getByTestId('users-create-button').click()
+      await openCreateDialog(page)
       const emailInput = page.getByPlaceholder('user@cheekycheese.dev')
       await emailInput.fill('not-an-email')
       await emailInput.blur()
@@ -256,7 +271,7 @@ test.describe('Users management page', () => {
 
     test('validation: empty display name shows error on blur', async ({ asAdmin: page }) => {
       await page.goto('/users')
-      await page.getByTestId('users-create-button').click()
+      await openCreateDialog(page)
       const nameInput = page.getByTestId('user-dialog-name')
       await nameInput.focus()
       await nameInput.blur()
@@ -265,7 +280,7 @@ test.describe('Users management page', () => {
 
     test('validation: invalid telegram shows error on blur', async ({ asAdmin: page }) => {
       await page.goto('/users')
-      await page.getByTestId('users-create-button').click()
+      await openCreateDialog(page)
       // Use a value that actually fails the shared telegram regex
       // (`^@?[a-zA-Z0-9_]{5,32}$`). "notelegram" matches it (10 latin chars,
       // optional `@`), so the previous test never surfaced an error. "no!"
@@ -283,7 +298,7 @@ test.describe('Users management page', () => {
         (req) => req.url().includes('/api/users') && req.method() === 'POST',
       )
 
-      await page.getByTestId('users-create-button').click()
+      await openCreateDialog(page)
       await page.getByPlaceholder('user@cheekycheese.dev').fill('senior2@cheekycheese.dev')
       await page.getByTestId('user-dialog-name').fill('Another Senior')
 
@@ -295,6 +310,7 @@ test.describe('Users management page', () => {
 
       // A3-3: legalFullName required for SENIOR (contract-eligible role).
       await page.getByTestId('user-dialog-legal-full-name').fill('Сеніор Другий Іванович')
+      await addTechnologies(page)
 
       // ut-14: SENIOR/ADMIN are USDT-only; without `walletUsdtErc20` the
       // shared `refineRequisitePresence` blocks safeParse and no POST fires.
@@ -315,7 +331,7 @@ test.describe('Users management page', () => {
       })
 
       await page.goto('/users')
-      await page.getByTestId('users-create-button').click()
+      await openCreateDialog(page)
       await expect(page.getByTestId('user-dialog')).toBeVisible()
       await page
         .getByTestId('user-dialog')
@@ -492,7 +508,7 @@ test.describe('Users management page', () => {
       })
 
       await page.goto('/users')
-      await page.getByTestId('users-create-button').click()
+      await openCreateDialog(page)
       await page.getByPlaceholder('user@cheekycheese.dev').fill('existing@cheekycheese.dev')
       await page.getByTestId('user-dialog-name').fill('Existing User')
       // A3-3: legalFullName required for JUNIOR (contract-eligible).
@@ -559,7 +575,7 @@ test.describe('Users management page', () => {
     }) => {
       const uk = await loadMessages('uk')
       await page.goto('/users')
-      await page.getByTestId('users-create-button').click()
+      await openCreateDialog(page)
 
       await page.getByTestId('user-dialog-role-trigger').click()
       await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
@@ -576,7 +592,7 @@ test.describe('Users management page', () => {
     }) => {
       const uk = await loadMessages('uk')
       await page.goto('/users')
-      await page.getByTestId('users-create-button').click()
+      await openCreateDialog(page)
       await page.getByTestId('user-dialog-role-trigger').click()
       await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
@@ -591,7 +607,7 @@ test.describe('Users management page', () => {
     test('ADMIN: validation error when no HR selected (ut-16)', async ({ asAdmin: page }) => {
       const uk = await loadMessages('uk')
       await page.goto('/users')
-      await page.getByTestId('users-create-button').click()
+      await openCreateDialog(page)
       await page.getByPlaceholder('user@cheekycheese.dev').fill('newsenior2@cheekycheese.dev')
       await page.getByTestId('user-dialog-name').fill('Another Senior')
       await page.getByTestId('user-dialog-role-trigger').click()

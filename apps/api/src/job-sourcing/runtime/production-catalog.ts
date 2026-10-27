@@ -1,6 +1,7 @@
 import type { JobSourceType } from '@crm/shared'
 import type { LedgerCatalog, LedgerCatalogEntry } from '../ownership/ledger-catalog'
 import type { BanScope, HostPolicy } from '../scheduling/host-policy'
+import type { FetchProfile } from '../scheduling/next-slot'
 import { LEDGER_CATALOG_SNAPSHOT } from './ledger-catalog.snapshot'
 
 /**
@@ -36,7 +37,7 @@ export interface SnapshotEntry {
   readonly type: JobSourceType
   readonly blockerCodes: readonly string[]
   readonly deadlines: readonly SnapshotDeadline[]
-  readonly intervalHours: number
+  readonly fetchProfile: FetchProfile | null
 }
 
 export interface SnapshotHost {
@@ -88,7 +89,7 @@ export function catalogFromSnapshot(snapshot: LedgerCatalogSnapshot): LedgerCata
       },
       entryReadiness: (at) => snapshotReadinessAt(e, at).status,
       quotaDeclared: t.quotaDeclared,
-      intervalHours: e.intervalHours,
+      fetchProfile: e.fetchProfile,
       floorHours: t.floorHours,
       banScope: t.banScope,
     })

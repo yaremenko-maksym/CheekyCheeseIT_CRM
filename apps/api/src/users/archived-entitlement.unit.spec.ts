@@ -384,7 +384,11 @@ describe('archived-entitlement — the two writers that legitimately bypass the 
   const forbidden = new Set<string>(ENTITLEMENT_FIELDS)
 
   it('updateProfile writes no entitlement column', async () => {
-    const { db, setFn } = makeDb({ selects: [], updateReturns: [{ id: 'u1' }] })
+    // updateProfile reads the caller's own row (SENIOR technology floor) when techStack is sent.
+    const { db, setFn } = makeDb({
+      selects: [[{ ...active, id: 'u1', role: 'JUNIOR' }]],
+      updateReturns: [{ id: 'u1' }],
+    })
     const svc = makeService(db)
 
     await svc.updateProfile('u1', {

@@ -1,7 +1,7 @@
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, UserPlus } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import { z } from 'zod'
@@ -34,6 +34,8 @@ import {
 import { ShareSlider } from '@/components/ui/share-slider'
 import { toast } from 'sonner'
 import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
+import { seniorTechStackError } from '@/components/users/user-dialog/validation'
+import { focusFirstInvalid } from '@/lib/focus-first-invalid'
 import { normalizeTelegram } from '../normalize-telegram'
 
 type UserOption = {
@@ -55,11 +57,14 @@ async function fetchAllUsers(): Promise<UserOption[]> {
 function Field({
   label,
   error,
+  errorId,
   required,
   children,
 }: {
   label: string
   error?: string | undefined
+  /** `id` of the error line, for the control's `aria-describedby`. */
+  errorId?: string | undefined
   required?: boolean | undefined
   children: React.ReactNode
 }) {
@@ -70,7 +75,11 @@ function Field({
         {required && <span className="ml-0.5 text-destructive">*</span>}
       </Label>
       {children}
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && (
+        <p id={errorId} role={errorId ? 'alert' : undefined} className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
     </div>
   )
 }
@@ -143,7 +152,12 @@ export function HrCreateSeniorDialog({
     },
   })
 
+  const techErrorId = useId()
   const form = useForm({
+    // UX-M-2: after a failed submit, take the user to the first invalid control.
+    onSubmitInvalid: () => {
+      requestAnimationFrame(() => focusFirstInvalid(document.querySelector('[role="dialog"]')))
+    },
     defaultValues: {
       email: '',
       displayName: '',
@@ -270,18 +284,32 @@ export function HrCreateSeniorDialog({
             </form.Field>
 
             {/* Tech Stack */}
-            <form.Field name="techStack">
-              {(field) => (
-                <Field label={t`Технології`}>
-                  <TechAutocompleteInput
-                    value={field.state.value}
-                    onChange={field.handleChange}
-                    onBlur={field.handleBlur}
-                    placeholder={t`Почніть вводити: React, Node.js…`}
-                  />
-                </Field>
+            {/* A SENIOR needs at least 3 distinct technologies (shared rule). */}
+            <form.Subscribe selector={(s) => s.submissionAttempts}>
+              {(attempts) => (
+                <form.Field
+                  name="techStack"
+                  validators={{ onSubmit: ({ value }) => seniorTechStackError('SENIOR', value) }}
+                >
+                  {(field) => {
+                    // Recomputed after the first submit, so it follows every change.
+                    const err =
+                      attempts > 0 ? seniorTechStackError('SENIOR', field.state.value) : undefined
+                    return (
+                      <Field label={t`Технології`} error={err} errorId={techErrorId}>
+                        <TechAutocompleteInput
+                          value={field.state.value}
+                          onChange={field.handleChange}
+                          onBlur={field.handleBlur}
+                          placeholder={t`Почніть вводити: React, Node.js…`}
+                          errorId={err ? techErrorId : undefined}
+                        />
+                      </Field>
+                    )
+                  }}
+                </form.Field>
               )}
-            </form.Field>
+            </form.Subscribe>
 
             {/* Telegram */}
             <form.Field
