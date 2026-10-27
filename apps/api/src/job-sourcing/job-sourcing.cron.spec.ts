@@ -298,9 +298,15 @@ describe('the 08:00 sweep (U3)', () => {
     expect(lookahead).toBeLessThanOrEqual(200)
   })
 
-  it('a throwing step never rejects the sweep', async () => {
+  it('a throwing step never rejects the sweep, and is named in the log', async () => {
     const b = build({ openCycle: () => Promise.reject(new Error('boom')) })
+    const errors = vi
+      .spyOn((b.svc as unknown as { logger: { error: () => void } }).logger, 'error')
+      .mockImplementation(() => undefined)
     await expect(b.svc.handleSweep()).resolves.toBeUndefined()
+    expect(errors.mock.calls.map((c) => String(c[0]))).toContainEqual(
+      expect.stringMatching(/^Job sourcing cron step failed \[sweep: openCycle\]/),
+    )
     expect(b.worker.startDue).not.toHaveBeenCalled()
     expect(b.calls).toContain('sweep')
   })
@@ -425,16 +431,36 @@ describe('the window needs a ledger AND a worker AND a cycle', () => {
   it('ledger without a worker: cycle opened and recovery run, but no window and no close', async () => {
     const b = build({})
     const svc = new JobSourcingCronService(b.service as never, b.ledger as never)
+    const errors = vi
+      .spyOn((svc as unknown as { logger: { error: () => void } }).logger, 'error')
+      .mockImplementation(() => undefined)
     await svc.handleHtmlCollection()
     expect(b.ledger.openCycle).toHaveBeenCalledTimes(1)
     expect(b.ledger.recoverExpired).toHaveBeenCalledTimes(1)
     expect(b.ledger.closeCycle).not.toHaveBeenCalled()
+    // skipped on purpose, not attempted and failed
+    expect(errors).not.toHaveBeenCalled()
   })
 
   it('a worker without a ledger does nothing and does not throw', async () => {
     const b = build({})
     const svc = new JobSourcingCronService(b.service as never, undefined, b.worker as never)
+    const errors = vi
+      .spyOn((svc as unknown as { logger: { error: () => void } }).logger, 'error')
+      .mockImplementation(() => undefined)
     await expect(svc.handleHtmlCollection()).resolves.toBeUndefined()
+    await expect(svc.handleTick()).resolves.toBeUndefined()
+    expect(b.worker.startDue).not.toHaveBeenCalled()
+    expect(errors).not.toHaveBeenCalled()
+  })
+
+  it('a cycle that failed to open with a worker present: no window, nothing logged beyond the open', async () => {
+    const b = build({ openCycle: () => Promise.reject(new Error('boom')) })
+    const errors = vi
+      .spyOn((b.svc as unknown as { logger: { error: () => void } }).logger, 'error')
+      .mockImplementation(() => undefined)
+    await b.svc.handleTick()
+    expect(errors).toHaveBeenCalledTimes(1)
     expect(b.worker.startDue).not.toHaveBeenCalled()
   })
 })

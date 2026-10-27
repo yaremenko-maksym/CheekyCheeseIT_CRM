@@ -35,7 +35,9 @@ describe('dueSourcesPredicate, the sweep variant (U3, rendered)', () => {
   })
 
   it('refuses a sweep on a manual trigger and a cycle id that is not a uuid', () => {
-    expect(() => dueSourcesPredicate('MANUAL', { sweepCycleId: CYCLE })).toThrow(RangeError)
+    expect(() => dueSourcesPredicate('MANUAL', { sweepCycleId: CYCLE })).toThrow(
+      'invalid sweep cycle',
+    )
     expect(() => dueSourcesPredicate('SCHEDULED', { sweepCycleId: 'x' })).toThrow(RangeError)
     expect(() => dueSourcesPredicate('SCHEDULED', { sweepCycleId: `${CYCLE}x` })).toThrow(
       RangeError,
