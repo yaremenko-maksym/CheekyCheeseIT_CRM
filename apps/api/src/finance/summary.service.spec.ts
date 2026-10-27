@@ -519,6 +519,27 @@ describe('SummaryService.getAccountantSummary — query shape + row mapping', ()
     })
   })
 
+  it('throws, naming the row, when the aggregate finds a PAID money row with a NULL tx_date (CR-M-1)', async () => {
+    const { svc } = makeDb({
+      accountantRows: [
+        {
+          pendingCount: 0,
+          pendingAmount: 0,
+          validatedCount: 0,
+          validatedAmount: 0,
+          paidAmount: 52,
+          recipientCount: 1,
+          nullTxDateId: '7c1d0000-0000-4000-8000-0000000000aa',
+        },
+      ],
+    })
+    await expect(svc.getAccountantSummary(user('ACCOUNTANT'))).rejects.toThrow(
+      new Error(
+        'getAccountantSummary: transaction 7c1d0000-0000-4000-8000-0000000000aa has a NULL tx_date',
+      ),
+    )
+  })
+
   it('an empty aggregate result (no row) degrades to zeros', async () => {
     const { svc } = makeDb({ accountantRows: [] })
     await expect(svc.getAccountantSummary(user('ADMIN'))).resolves.toEqual({
