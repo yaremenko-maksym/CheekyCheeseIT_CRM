@@ -452,13 +452,19 @@ export class SummaryService {
         // is compared as a date-only value (`tx_date >= dateStart`, UTC
         // midnight). There is no `created_at` fallback: every writer persists a
         // Kyiv business-day `tx_date` and the legacy NULL rows were backfilled.
-        // A NULL `tx_date` (a broken invariant) never satisfies the comparison,
-        // so it is EXCLUDED here, while the graph throws on it.
+        // A NULL `tx_date` is a broken invariant: like the graph, this tile
+        // fails loud on it (see `nullTxDateId` below) instead of silently
+        // understating the sum.
         // Lower bound only, as before: a future-dated row still counts.
         paidAmount:
           sql<number>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'PAID' and ${paidEligibleTypes} and ${transactions.txDate} >= ${dateStart}), 0)`.mapWith(
             Number,
           ),
+        // One PAID money row the tile would have to date but cannot (NULL
+        // `tx_date`), or NULL when there is none.
+        nullTxDateId: sql<
+          string | null
+        >`min(${transactions.id}::text) filter (where ${transactions.status} = 'PAID' and ${paidEligibleTypes} and ${transactions.txDate} is null)`,
         recipientCount:
           sql<number>`count(distinct coalesce(${transactions.receiverId}, ${transactions.senderId})) filter (where ${incomeTypes})`.mapWith(
             Number,
@@ -469,6 +475,10 @@ export class SummaryService {
       // scan to non-deleted rows — every FILTER (WHERE ...) clause above runs
       // against this, so one WHERE here covers all five KPI buckets at once.
       .where(isNull(transactions.deletedAt))
+
+    if (row?.nullTxDateId) {
+      throw new Error(`getAccountantSummary: transaction ${row.nullTxDateId} has a NULL tx_date`)
+    }
 
     return {
       pendingValidation: {

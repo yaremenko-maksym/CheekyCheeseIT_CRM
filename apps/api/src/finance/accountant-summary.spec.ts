@@ -51,6 +51,8 @@ interface AggregateStubRow {
   paidAmount: number
   /** COUNT(DISTINCT COALESCE(receiver_id, sender_id)) over income rows */
   recipientCount: number
+  /** One PAID money row with a NULL tx_date (broken invariant), else null */
+  nullTxDateId: string | null
 }
 
 /**
@@ -71,6 +73,7 @@ function makeStub(
     validatedAmount: 0,
     paidAmount: 0,
     recipientCount: 0,
+    nullTxDateId: null,
   },
 ) {
   const dbStub = {
@@ -128,6 +131,21 @@ describe('getAccountantSummary — RBAC guard (AC3)', () => {
       paidThisMonth: { amount: 0 },
       recipientCount: 0,
     })
+  })
+
+  it('fails loud, naming the row, when a PAID money row has a NULL tx_date (no silent exclusion)', async () => {
+    const svc = makeStub({
+      pendingCount: 0,
+      pendingAmount: 0,
+      validatedCount: 0,
+      validatedAmount: 0,
+      paidAmount: 2000,
+      recipientCount: 1,
+      nullTxDateId: 'ac111111-0000-4000-cc00-0000000000ff',
+    })
+    await expect(svc.getAccountantSummary(user('ACCOUNTANT'))).rejects.toThrow(
+      'getAccountantSummary: transaction ac111111-0000-4000-cc00-0000000000ff has a NULL tx_date',
+    )
   })
 })
 
