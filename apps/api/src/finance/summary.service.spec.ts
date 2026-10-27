@@ -543,6 +543,7 @@ describe('SummaryService.getAccountantSummary — query shape + row mapping', ()
       'validatedCount',
       'validatedAmount',
       'paidAmount',
+      'nullTxDateId',
       'recipientCount',
     ])
     const pend = `"transactions"."status" = 'PENDING' and "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME')`
@@ -557,8 +558,9 @@ describe('SummaryService.getAccountantSummary — query shape + row mapping', ()
     )
     // CR-809-H-2 + backlog 338: the PAID window keys on the BUSINESS month, like
     // `transactionBusinessMonth` in the monthly graph: `tx_date` against the
-    // date-only month start ($1). No `created_at` fallback any more, so a NULL
-    // `tx_date` is excluded. The `val` fragment above legitimately keys on
+    // date-only month start ($1). No `created_at` fallback any more; a NULL
+    // `tx_date` PAID money row is found by `nullTxDateId` and makes the call
+    // throw (CR-M-1). The `val` fragment above legitimately keys on
     // `validated_at` (an audit instant) against the Kyiv month-start instant.
     expect(compiled.paidAmount!.sql).toBe(
       `coalesce(sum("transactions"."amount") filter (where "transactions"."status" = 'PAID' and "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME', 'PAYOUT', 'PAYOUT_ADMIN', 'PAYOUT_DROP', 'PAYOUT_CONFIRMED') and "transactions"."tx_date" >= $1), 0)`,
@@ -566,6 +568,10 @@ describe('SummaryService.getAccountantSummary — query shape + row mapping', ()
     expect(compiled.recipientCount!.sql).toBe(
       `count(distinct coalesce("transactions"."receiver_id", "transactions"."sender_id")) filter (where "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME'))`,
     )
+    expect(compiled.nullTxDateId!.sql).toBe(
+      `min("transactions"."id"::text) filter (where "transactions"."status" = 'PAID' and "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME', 'PAYOUT', 'PAYOUT_ADMIN', 'PAYOUT_DROP', 'PAYOUT_CONFIRMED') and "transactions"."tx_date" is null)`,
+    )
+    expect(compiled.nullTxDateId!.params).toEqual([])
     // March 2026 in Kyiv starts at 22:00Z on 28 Feb (UTC+2, DST not yet begun).
     for (const k of ['validatedCount', 'validatedAmount']) {
       expect(compiled[k]!.params).toEqual([new Date('2026-02-28T22:00:00.000Z')])
