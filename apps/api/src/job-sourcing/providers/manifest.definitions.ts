@@ -1,4 +1,6 @@
+import type { FetchProfile } from '../scheduling/next-slot'
 import type { EntryDefinition, PolicyDeadline, QuotaDeclaration, TypeDefinition } from './manifest'
+import { FIXED_SLOTS_INTERVAL_MINUTES } from './manifest.fetch-profile'
 import { ARBEITNOW_SOURCE_STATUS } from './sources/arbeitnow.provider'
 import { JOBGETHER_SOURCE_STATUS } from './sources/jobgether.provider'
 import { HN_SOURCE_STATUS } from './sources/hn-hiring.provider'
@@ -85,28 +87,66 @@ const RECRUITEE_DEADLINES: readonly PolicyDeadline[] = [
 // Entry builders
 // ---------------------------------------------------------------------------
 
-const DAILY = 24
-
 const legacy = (
   id: string,
   config: Record<string, unknown>,
   extra: Partial<EntryDefinition> = {},
-): EntryDefinition => ({ id, config, legacySeed: true, intervalHours: DAILY, ...extra })
+): EntryDefinition => ({ id, config, legacySeed: true, ...extra })
 
 const fresh = (
   id: string,
   config: Record<string, unknown>,
   extra: Partial<EntryDefinition> = {},
-): EntryDefinition => ({ id, config, intervalHours: DAILY, ...extra })
+): EntryDefinition => ({ id, config, ...extra })
 
-/** An ATS board whose owner is evidenced by the named fixtures' `EVIDENCE:` tokens. */
+// ---------------------------------------------------------------------------
+// Fetch profiles (source fetch strategy ADR, section 8; owner Q1, Q2, Q8)
+// ---------------------------------------------------------------------------
+
+const WEEKDAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI'] as const
+
+/** `interval` / `off` minutes, inside / outside 08:00-19:00 Mon-Fri in `timeZone` (owner, Q2). */
+const workingHours = (timeZone: string, interval: number, off: number | null): FetchProfile => ({
+  intervalMinutes: interval,
+  offIntervalMinutes: off,
+  window: { timeZone, days: [...WEEKDAYS], from: '08:00', to: '19:00' },
+})
+
+/** Once a day, at the stagger minute after 00:00 UTC: today's cadence, for the unchanged types. */
+const DAILY: FetchProfile = { intervalMinutes: 24 * 60, offIntervalMinutes: null, window: null }
+
+/**
+ * One attempt every Monday in the Kyiv working day. `intervalMinutes` is NOT this cadence (the window
+ * holds one slot whatever it is): it only carries the legacy seed hours `rollbackCadenceHours`
+ * derives (168 for Jooble, 96 for TheirStack), so the committed seed delta stays byte-identical.
+ */
+const mondays = (intervalMinutes: number): FetchProfile => ({
+  intervalMinutes,
+  offIntervalMinutes: null,
+  window: { timeZone: 'Europe/Kyiv', days: ['MON'], from: '08:00', to: '19:00' },
+})
+
+/** A fixed local time in Kyiv, once a day (Remotive, one entry per slot; Himalayas, sweep only). */
+const kyivAt = (time: string): FetchProfile => ({
+  intervalMinutes: FIXED_SLOTS_INTERVAL_MINUTES,
+  offIntervalMinutes: null,
+  window: null,
+  fixedSlots: { timeZone: 'Europe/Kyiv', times: [time] },
+})
+
+/** An ATS board, hourly in its employer's working day, every 3 h outside (section 8). */
 const board = (
   id: string,
   config: Record<string, unknown>,
   fixtures: readonly string[],
   name: string,
+  timeZone: string,
   domain: string | null = null,
-): EntryDefinition => fresh(id, config, { ownership: { fixtures, name, domain } })
+): EntryDefinition =>
+  fresh(id, config, {
+    ownership: { fixtures, name, domain },
+    fetchProfile: workingHours(timeZone, 60, 180),
+  })
 
 const blockedHtml = (type: string, provider: string): TypeDefinition => ({
   type,
@@ -154,6 +194,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: 'latest-feed',
     scopeKind: 'LATEST_FEED',
     hostKey: () => 'remoteok.com',
+    // A global feed; its postings are mostly US-hours, so the working day is New York's (A1).
+    fetchProfile: workingHours('America/New_York', 60, 180),
     entries: [legacy('remoteok.api.latest', {})],
   },
   {
@@ -173,10 +215,15 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     hostRate: { perMinute: 2, perDay: 4 },
     // The provider advises at most about four requests a day (provenance notes): six hours apart.
     minIntervalHoursFloor: 6,
+    // Section 8: one fixed Kyiv slot per entry, 3 of the host's 4 a day (one left for a manual run).
     entries: [
-      legacy('remotive.api.software-dev', { category: 'software-dev' }),
-      legacy('remotive.api.devops', { category: 'devops' }),
-      legacy('remotive.api.data', { category: 'data' }),
+      legacy(
+        'remotive.api.software-dev',
+        { category: 'software-dev' },
+        { fetchProfile: kyivAt('09:00') },
+      ),
+      legacy('remotive.api.devops', { category: 'devops' }, { fetchProfile: kyivAt('13:00') }),
+      legacy('remotive.api.data', { category: 'data' }, { fetchProfile: kyivAt('17:00') }),
     ],
   },
   {
@@ -189,6 +236,9 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: 'browse',
     scopeKind: 'BROWSE',
     hostKey: () => 'himalayas.app',
+    // "Sweep only (once a day)": the slot is the sweep's own 08:00 Kyiv, so a sweep run and the
+    // tick never both claim it (the sweep's finish moves the slot to the next day).
+    fetchProfile: kyivAt('08:00'),
     entries: [fresh('himalayas.api.browse', {})],
   },
   {
@@ -201,6 +251,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: 'feed',
     scopeKind: 'FEED_WINDOW',
     hostKey: () => 'jobicy.com',
+    // The entry reads the Europe feed: Berlin's working day.
+    fetchProfile: workingHours('Europe/Berlin', 120, 240),
     entries: [
       legacy('jobicy.api.engineering-europe', {
         count: 100,
@@ -221,6 +273,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'PAGED_FEED',
     hostKey: () => 'www.arbeitnow.com',
     requestsPerRun: 5,
+    // A routine run reads page 1 only; full pages only in the sweep (section 8).
+    fetchProfile: { ...workingHours('Europe/Berlin', 120, null), routinePages: 1 },
     entries: [legacy('arbeitnow.api.feed', { maxPages: 5 })],
   },
   {
@@ -250,6 +304,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'PAGED_FEED',
     hostKey: () => 'jobgether.com',
     requestsPerRun: 5,
+    // Owner, Q8: connected at the very end; never scheduled until then.
+    fetchProfile: null,
     entries: [fresh('jobgether.api.jobs', {})],
   },
   {
@@ -265,6 +321,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'THREAD',
     hostKey: () => 'hn.algolia.com',
     requestsPerRun: 2,
+    // Owner, Q8: connected at the very end; never scheduled until then.
+    fetchProfile: null,
     entries: [legacy('hn-hiring.thread.latest', {})],
   },
   {
@@ -286,14 +344,22 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
         { board: 'stripe' },
         ['stripe-board.json'],
         'Stripe',
+        'America/Los_Angeles',
         'stripe.com',
       ),
-      board('greenhouse.board.airbnb', { board: 'airbnb' }, ['airbnb-board.json'], 'Airbnb'),
+      board(
+        'greenhouse.board.airbnb',
+        { board: 'airbnb' },
+        ['airbnb-board.json'],
+        'Airbnb',
+        'America/Los_Angeles',
+      ),
       board(
         'greenhouse.board.cloudflare',
         { board: 'cloudflare' },
         ['cloudflare-board.json'],
         'Cloudflare',
+        'America/Los_Angeles',
       ),
     ],
   },
@@ -314,18 +380,21 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
         { board: 'spotify' },
         ['spotify-page1.json', 'spotify-page2.json'],
         'Spotify',
+        'Europe/Stockholm',
       ),
       board(
         'lever.board.eu.siteimprove',
         { board: 'siteimprove', region: 'eu' },
         ['siteimprove-eu-board.json'],
         'Siteimprove',
+        'Europe/Copenhagen',
       ),
       board(
         'lever.board.quantco-',
         { board: 'quantco-' },
         ['quantco-trailing-hyphen-board.json'],
         'QuantCo',
+        'Europe/Berlin',
       ),
     ],
   },
@@ -340,8 +409,21 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'BOARD',
     hostKey: () => 'api.ashbyhq.com',
     entries: [
-      board('ashby.board.linear', { board: 'linear' }, ['linear-board.json'], 'Linear'),
-      board('ashby.board.supabase', { board: 'supabase' }, ['supabase-board.json'], 'Supabase'),
+      // Both under 5 MB (linear 0.46 MB measured; supabase not measured), so the ordinary 60 / 180.
+      board(
+        'ashby.board.linear',
+        { board: 'linear' },
+        ['linear-board.json'],
+        'Linear',
+        'America/Los_Angeles',
+      ),
+      board(
+        'ashby.board.supabase',
+        { board: 'supabase' },
+        ['supabase-board.json'],
+        'Supabase',
+        'America/Los_Angeles',
+      ),
     ],
   },
   {
@@ -362,12 +444,14 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
         { board: 'huggingface' },
         ['huggingface-account.json'],
         'Hugging Face',
+        'America/New_York',
       ),
       board(
         'workable.board.hirefellows',
         { board: 'hirefellows' },
         ['hirefellows-account.json'],
         'Hire Fellows',
+        'Asia/Bahrain',
       ),
     ],
   },
@@ -388,6 +472,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     // (NO_API_CAPTURE) until a real capture of the postings API payload is committed under the name
     // below. The first real call within the owner's permission (a controlled smoke) would clear it.
     payloadFixtures: ['postings-list.json'],
+    // Owner, Q8: connected at the very end; never scheduled until then.
+    fetchProfile: null,
     entries: [],
   },
   {
@@ -404,7 +490,15 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     // pauses every tenant; a 403 is one tenant's own answer and bans only that source (SR-M-24).
     hostKey: () => 'recruitee.com',
     banScope: 'SOURCE',
-    entries: [board('recruitee.board.bunq', { board: 'bunq' }, ['bunq-offers.json'], 'bunq')],
+    entries: [
+      board(
+        'recruitee.board.bunq',
+        { board: 'bunq' },
+        ['bunq-offers.json'],
+        'bunq',
+        'Europe/Amsterdam',
+      ),
+    ],
   },
   {
     type: 'PERSONIO_ATS',
@@ -425,12 +519,14 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
         { board: 'westwing', language: 'en' },
         ['westwing-en.xml'],
         'Westwing',
+        'Europe/Berlin',
       ),
       board(
         'personio.board.personio',
         { board: 'personio', language: 'en' },
         ['personio-en.xml'],
         'Personio',
+        'Europe/Berlin',
       ),
     ],
   },
@@ -450,7 +546,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
       legacy(
         'jooble.api.senior-developer-remote',
         { keywords: 'senior developer', location: 'remote' },
-        { intervalHours: 168, budget: { limit: 6, window: 'MONTH' } },
+        // Weekly, as the 168 h it had; the grid cannot say "every 7 days" any other way.
+        { fetchProfile: mondays(168 * 60), budget: { limit: 6, window: 'MONTH' } },
       ),
     ],
   },
@@ -466,6 +563,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'SEARCH',
     hostKey: () => 'jsearch.p.rapidapi.com',
     quota: JSEARCH_ACCOUNT,
+    fetchProfile: DAILY,
     entries: [
       legacy(
         'jsearch.rapidapi.backend',
@@ -500,7 +598,9 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
       legacy(
         'theirstack.api.senior',
         { limit: 25, seniority: ['senior'] },
-        { intervalHours: 96, budget: { limit: 8, window: 'MONTH' } },
+        // Was every 96 h; a daily grid cannot repeat every 4 days, and two weekdays would exceed the
+        // 8 a month, so weekly (fewer runs, never more). The interval keeps the seed's 96 h.
+        { fetchProfile: mondays(96 * 60), budget: { limit: 8, window: 'MONTH' } },
       ),
     ],
   },
@@ -516,6 +616,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'CATEGORY',
     hostKey: () => 'www.themuse.com',
     requestsPerRun: 5,
+    // Blocked (section 8: no schedule change); the daily cadence it had.
+    fetchProfile: DAILY,
     entries: [
       legacy('muse.api.software-engineering-senior', {
         category: 'Software Engineering',
@@ -536,6 +638,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'SEARCH',
     hostKey: () => 'www.reed.co.uk',
     quota: REED_ACCOUNT,
+    fetchProfile: DAILY,
     entries: [
       legacy('reed.api.senior-developer-remote', {
         keywords: 'senior developer',
@@ -553,6 +656,17 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: 'rss-primary-keyword',
     scopeKind: 'FEED_WINDOW',
     hostKey: () => 'djinni.co',
+    // 100 newest, about 3.1 h at peak: any gap over about 3 h loses postings, so 120 off-window.
+    fetchProfile: {
+      intervalMinutes: 60,
+      offIntervalMinutes: 120,
+      window: {
+        timeZone: 'Europe/Kyiv',
+        days: [...WEEKDAYS, 'SAT', 'SUN'],
+        from: '08:00',
+        to: '20:00',
+      },
+    },
     entries: [
       fresh('djinni.rss.python', { primaryKeyword: 'Python' }),
       fresh('djinni.rss.rust', { primaryKeyword: 'Rust' }),
@@ -568,6 +682,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: 'rss',
     scopeKind: 'FEED_WINDOW',
     hostKey: () => 'weworkremotely.com',
+    // A Chicago-based board (A1 on the region).
+    fetchProfile: workingHours('America/Chicago', 180, 360),
     entries: [
       fresh('wwr.rss.all-jobs', {}),
       fresh('wwr.rss.devops', { category: 'remote-devops-sysadmin-jobs' }),
@@ -583,6 +699,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: 'wp-job-manager-feed',
     scopeKind: 'FEED_WINDOW',
     hostKey: () => 'euremotejobs.com',
+    // Blocked (section 8: no schedule change); the daily cadence it had.
+    fetchProfile: DAILY,
     entries: [legacy('euremotejobs.rss.feed', {})],
   },
   blockedHtml('JUSTJOIN_HTML', 'JustJoin.it'),

@@ -37,7 +37,7 @@ export function buildLedgerCatalog(manifest: Manifest): LedgerCatalog {
         },
         entryReadiness: (at) => readinessAt(e, at).status,
         quotaDeclared: t.quota !== null,
-        intervalHours: e.intervalHours,
+        fetchProfile: e.fetchProfile,
         floorHours: t.minIntervalHoursFloor,
         banScope: t.banScope,
       })
@@ -77,7 +77,7 @@ export function buildLedgerCatalogSnapshot(manifest: Manifest): LedgerCatalogSna
       type: e.type,
       blockerCodes: e.blockers.map((b) => b.code),
       deadlines: deadlinesOf(e.deadlines),
-      intervalHours: e.intervalHours,
+      fetchProfile: e.fetchProfile,
     })),
     // Every key here is carried by an entry, so `hostPolicyOf` always has a policy for it.
     hosts: hostKeys.map((hostKey): SnapshotHost => ({

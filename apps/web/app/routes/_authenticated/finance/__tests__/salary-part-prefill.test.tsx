@@ -71,6 +71,12 @@ vi.mock('../api', async (orig) => {
 
 import { Route } from '../index'
 
+// The salary month is now two selects (month name + year), not a native month input.
+function expectSalaryMonth(month: string, year: string) {
+  expect(screen.getByTestId('create-transaction-salary-month-select')).toHaveTextContent(month)
+  expect(screen.getByTestId('create-transaction-salary-year-select')).toHaveTextContent(year)
+}
+
 function renderPage() {
   const Page = (Route as unknown as { options: { component: React.ComponentType } }).options
     .component
@@ -94,7 +100,7 @@ describe('finance page — "Add salary part" prefill (SPEC-L-2)', () => {
     fireEvent.click(button)
 
     await waitFor(() => {
-      expect(screen.getByTestId('create-transaction-salary-month')).toHaveValue('2026-09')
+      expectSalaryMonth('Вересень', '2026')
     })
     const comboTexts = screen.getAllByRole('combobox').map((el) => el.textContent?.trim())
     expect(comboTexts).toContain('USD')

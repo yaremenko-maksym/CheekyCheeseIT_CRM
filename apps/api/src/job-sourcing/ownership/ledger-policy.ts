@@ -5,6 +5,7 @@ import {
   MAX_CONSECUTIVE_FAILURES,
   MAX_CONSECUTIVE_FAILURES_CEILING,
 } from '../scheduling/due-policy'
+import { nextSlot } from '../scheduling/next-slot'
 import type { LedgerCatalogEntry } from './ledger-catalog'
 
 /**
@@ -29,6 +30,8 @@ export const CLAIM_REFUSALS = [
   'HOST_BUSY',
   'HOST_RATE_GAP',
   'HOST_DAILY_CAP',
+  // U1b: the entry's fetch profile is null (owner, Q8): never claimed by schedule.
+  'NOT_SCHEDULED',
 ] as const
 export type ClaimRefusal = (typeof CLAIM_REFUSALS)[number]
 
@@ -41,6 +44,11 @@ export interface GateInput {
   readonly dbNow: Date
   /** The meter's account key through `account_meter_id`, or null when there is no meter row. */
   readonly meterKey: string | null
+  /**
+   * U1b: true for a SCHEDULED claim, false for a manual one. Required (CR-M-1): only an explicit
+   * `false` skips the null-profile refusal, so a caller that omits it fails closed.
+   */
+  readonly scheduled: boolean
 }
 
 /**
@@ -65,11 +73,43 @@ export function claimGate(input: GateInput): ClaimRefusal | null {
     return 'TRANSPORT_NOT_WIRED'
   }
   if (entry.quotaDeclared && input.meterKey === null) return 'METER_MISSING'
+  if (input.scheduled !== false && entry.fetchProfile === null) return 'NOT_SCHEDULED'
   return null
+}
+
+/**
+ * The slow-down level `nextSlot` is given. ADR section 4's `job_sources.slowdown_level` is U2's DDL;
+ * until it exists every source runs at level 0, and U2 replaces this constant with the column.
+ */
+export const SLOWDOWN_LEVEL_BEFORE_U2 = 0
+
+const DAY_MS = 24 * 3_600_000
+
+/**
+ * U1b (source fetch strategy ADR, sections 2-3): the `next_attempt_at` a finish writes, from the
+ * entry's fetch profile at the database clock `dbNow`, with the provider floor in minutes and the
+ * manifest id as the stagger key. `null` for a null profile: the source has no next scheduled
+ * attempt. An entry the catalog does not hold keeps the daily cadence it had before U1b (its claim
+ * is refused `MANIFEST_ENTRY_MISSING` anyway). `min_interval_hours` is not an input.
+ */
+export function nextAttemptAt(
+  dbNow: Date,
+  manifestId: string,
+  entry: LedgerCatalogEntry | undefined,
+): Date | null {
+  if (entry === undefined) return new Date(dbNow.getTime() + DAY_MS)
+  if (entry.fetchProfile === null) return null
+  return nextSlot(dbNow, entry.fetchProfile, {
+    floorMinutes: entry.floorHours * 60,
+    slowdownLevel: SLOWDOWN_LEVEL_BEFORE_U2,
+    staggerKey: manifestId,
+  })
 }
 
 export type RefusalWrite =
   | { readonly kind: 'NONE' }
+  /** `next_attempt_at = NULL`: never due by schedule again (a NULL is not due). */
+  | { readonly kind: 'NEVER' }
   | { readonly kind: 'RECHECK' }
   | { readonly kind: 'UNTIL'; readonly at: Date }
 
@@ -87,6 +127,10 @@ const HOST_TIMED: ReadonlySet<ClaimRefusal> = new Set([
  */
 export function refusalWrite(reason: ClaimRefusal, opensAt: Date | null): RefusalWrite {
   if (reason === 'HOST_BUSY') return { kind: 'NONE' }
+  // U1b, CR-M-2: "a null profile means never scheduled" (ADR section 1). One write, then the row is
+  // never picked again; its first slot comes from the finish of the supervised manual run that
+  // connects it (U12, section 8a), which computes `nextSlot` from the profile it then has.
+  if (reason === 'NOT_SCHEDULED') return { kind: 'NEVER' }
   if (HOST_TIMED.has(reason) && opensAt !== null) return { kind: 'UNTIL', at: opensAt }
   return { kind: 'RECHECK' }
 }

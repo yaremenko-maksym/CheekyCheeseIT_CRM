@@ -64,15 +64,29 @@ function uniqueSuffix(): string {
 
 /**
  * A random YYYY-MM far outside the seed data's real range (2025/2026) and
- * spread across ~720 combinations — `createSalary` enforces ONE reminder per
- * (receiver, month), so a fixed month would collide across repeated test
- * runs (and with itself across `--repeat-each`). Random, not sequential, so
- * parallel workers can't collide either.
+ * spread across ~720 combinations. `createSalary` does NOT reject a second
+ * salary part for the same (receiver, month) - it records it as another part -
+ * but a fixed month would pile every run's rows onto a single (receiver,
+ * month). Random, not sequential, so repeated runs, `--repeat-each` and
+ * parallel workers spread across months.
  */
 function randomSalaryMonth(): string {
   const year = 2030 + Math.floor(Math.random() * 60)
   const month = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0')
   return `${year}-${month}`
+}
+
+/**
+ * A random (year, month) the create-transaction month picker offers
+ * (currentYear-3 .. currentYear+1). The picker cannot reach the far-future
+ * months `randomSalaryMonth` uses. The API does not reject a second salary part
+ * for the same (receiver, month) - it records it as another part - so a repeat
+ * of a month across runs is harmless and no retry is needed.
+ */
+function randomPickerMonth(): { year: number; month: string } {
+  const year = new Date().getFullYear() - 3 + Math.floor(Math.random() * 5)
+  const month = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0')
+  return { year, month }
 }
 
 /** A tiny valid 1x1 PNG — avoids depending on an on-disk fixture asset. */
@@ -284,17 +298,24 @@ test.describe('Transaction receipts — create-block без чека (mandatory)
     await dialog.getByTestId('create-transaction-receiver-trigger').click()
     await page.getByRole('option').first().click()
     await dialog.getByPlaceholder('0.00').fill('900')
-    // createSalary enforces one reminder per (receiver, month) — the dialog
-    // defaults to last calendar month, which could collide with a prior test
-    // run's reminder for whichever receiver happens to be "first" in the
-    // list. Force a random far-future month so this test never collides with
-    // itself or with any other spec/run.
-    await dialog.getByTestId('create-transaction-salary-month').fill(randomSalaryMonth())
-
     // No receipt input at all for SALARY.
     await expect(dialog.getByTestId('receipt-input-url-field')).not.toBeAttached()
 
+    const { year, month } = randomPickerMonth()
+    await dialog.getByTestId('create-transaction-salary-year-select').click()
+    await page.getByTestId(`salary-year-option-${year}`).click()
+    await dialog.getByTestId('create-transaction-salary-month-select').click()
+    await page.getByTestId(`salary-month-option-${month}`).click()
+
+    // Inspect the create response so a real failure (500, validation, network)
+    // reports its status and body instead of a bare dialog timeout.
+    const createResponse = page.waitForResponse(
+      (r) => r.url().endsWith('/transactions/salary') && r.request().method() === 'POST',
+    )
     await dialog.getByTestId('create-transaction-submit').click()
+    const res = await createResponse
+    if (!res.ok())
+      throw new Error(`POST /transactions/salary -> ${res.status()}: ${await res.text()}`)
     await expect(dialog).not.toBeVisible()
   })
 })

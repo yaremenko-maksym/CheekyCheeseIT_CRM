@@ -251,63 +251,47 @@ describe('SalaryFields', () => {
     expect(screen.queryByTestId('create-transaction-error-receiver')).not.toBeInTheDocument()
   })
 
-  it('the month input shows the month and reports changes', () => {
+  it('the month field shows the Ukrainian month name + year of the value', () => {
+    renderField()
+    expect(screen.getByTestId('create-transaction-salary-month-select')).toHaveTextContent(
+      'Березень',
+    )
+    expect(screen.getByTestId('create-transaction-salary-year-select')).toHaveTextContent('2025')
+  })
+
+  it('choosing a month reports a complete YYYY-MM', async () => {
     const props = renderField()
-    const month = screen.getByTestId('create-transaction-salary-month') as HTMLInputElement
-    expect(month.value).toBe('2025-03')
-    fireEvent.change(month, { target: { value: '2025-04' } })
+    fireEvent.click(screen.getByTestId('create-transaction-salary-month-select'))
+    fireEvent.click(await screen.findByTestId('salary-month-option-04'))
     expect(props.setSalaryMonth).toHaveBeenCalledWith('2025-04')
   })
 
-  it('the month input carries its full control + dark picker styling', () => {
+  it('choosing a year keeps the month and reports YYYY-MM', async () => {
+    const props = renderField()
+    fireEvent.click(screen.getByTestId('create-transaction-salary-year-select'))
+    fireEvent.click(await screen.findByTestId('salary-year-option-2024'))
+    expect(props.setSalaryMonth).toHaveBeenCalledWith('2024-03')
+  })
+
+  it('renders no native month input (nothing carries the YYYY-MM display value)', () => {
     renderField()
-    expect(screen.getByTestId('create-transaction-salary-month')).toHaveClass(
-      'flex',
-      'h-9',
-      'w-full',
-      'rounded-md',
-      'border',
-      'border-input',
-      'bg-transparent',
-      'px-3',
-      'py-1',
-      'text-sm',
-      'shadow-sm',
-      'transition-colors',
-      'placeholder:text-muted-foreground',
-      'focus-visible:outline-none',
-      'focus-visible:ring-1',
-      'focus-visible:ring-ring',
-      'disabled:cursor-not-allowed',
-      'disabled:opacity-50',
-      'cursor-pointer',
-      '[color-scheme:dark]',
-      '[&::-webkit-calendar-picker-indicator]:opacity-60',
-      '[&::-webkit-calendar-picker-indicator]:cursor-pointer',
-      '[&::-webkit-calendar-picker-indicator]:invert',
-      '[&::-webkit-calendar-picker-indicator]:hover:opacity-100',
+    expect(screen.queryByDisplayValue('2025-03')).not.toBeInTheDocument()
+  })
+
+  it('the month group is named by the visible "Місяць" label', () => {
+    renderField()
+    expect(screen.getByRole('group', { name: 'Місяць' })).toHaveAttribute(
+      'data-testid',
+      'create-transaction-salary-month',
     )
   })
 
-  it('click and focus open the native picker when the browser has one', () => {
+  it('stacks the receiver and month fields in one column below sm, two from sm', () => {
     renderField()
-    const month = screen.getByTestId('create-transaction-salary-month') as HTMLInputElement
-    const showPicker = vi.fn()
-    month.showPicker = showPicker
-    fireEvent.click(month)
-    expect(showPicker).toHaveBeenCalledTimes(1)
-    fireEvent.focus(month)
-    expect(showPicker).toHaveBeenCalledTimes(2)
-  })
-
-  it('click and focus are harmless in a browser without showPicker', () => {
-    renderField()
-    const month = screen.getByTestId('create-transaction-salary-month') as HTMLInputElement
-    expect(month.showPicker).toBeUndefined()
-    expect(() => {
-      fireEvent.click(month)
-      fireEvent.focus(month)
-    }).not.toThrow()
+    expect(screen.getByTestId('create-transaction-salary-grid')).toHaveClass(
+      'grid-cols-1',
+      'sm:grid-cols-2',
+    )
   })
 })
 
