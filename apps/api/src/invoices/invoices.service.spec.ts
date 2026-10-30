@@ -593,7 +593,7 @@ function tx(overrides: Partial<TxRow> = {}): TxRow {
     invoiceDocumentId: overrides.invoiceDocumentId ?? null,
     salaryMonth: overrides.salaryMonth ?? null,
     // tx_date is NOT NULL (backlog 338). A fixed business date that never equals
-    // createdAt, so a `txDate ?? createdAt` fallback cannot pass unnoticed (CR-M-1).
+    // createdAt, so code that uses createdAt instead of txDate is caught (CR-M-1).
     txDate: overrides.txDate ?? new Date('2026-01-15T00:00:00.000Z'),
     createdAt: overrides.createdAt ?? new Date(),
   }
@@ -1293,7 +1293,7 @@ describe('InvoicesService', () => {
             currency: 'USDT',
             payoutRequestId: 'req-sign-happy',
             // CR-M-1: a business date distinct from createdAt, so the PDF date
-            // assertion below fails if a `txDate ?? createdAt` fallback returns.
+            // assertion below fails if createdAt is used instead of txDate.
             txDate: new Date('2026-05-20T00:00:00.000Z'),
             createdAt: new Date('2026-05-25T09:00:00.000Z'),
           }),
