@@ -320,6 +320,16 @@ describe('one employer, one board', () => {
     ).toBeUndefined()
   })
 
+  it('says which key repeats and which board holds it', () => {
+    const claimed = new Map<string, string>()
+    claimedGen('greenhouse', [stripe], claimed)
+    expect(() =>
+      claimedGen('lever', [{ ...stripe, token: 'x', domain: null, employer: 'STRIPE' }], claimed),
+    ).toThrow(
+      'DUPLICATE_EMPLOYER: lever.board.x repeats employer:stripe already listed as greenhouse.board.stripe',
+    )
+  })
+
   it('refuses the same domain under a second provider; a distinct one is fine', () => {
     const claimed = new Map<string, string>()
     claimedGen('greenhouse', [stripe], claimed)
@@ -361,6 +371,13 @@ describe('stronger evidence rules', () => {
   ])('refuses a domain with %s', (_n, domain) => {
     expect(codeOf(() => generate([{ ...stripe, domain }]))).toBe('BOARD_LINE_INVALID')
     expect(codeOf(() => generate([{ ...stripe, domain: 'api.stripe.com' }]))).toBeUndefined()
+  })
+
+  it('accepts a one-letter label and refuses a name over 253 characters', () => {
+    expect(codeOf(() => generate([{ ...stripe, domain: 'x.io' }]))).toBeUndefined()
+    const long = `${`${'a'.repeat(60)}.`.repeat(5)}com`
+    expect(long.length).toBeGreaterThan(253)
+    expect(codeOf(() => generate([{ ...stripe, domain: long }]))).toBe('BOARD_LINE_INVALID')
   })
 
   it('refuses an employer shorter than 3 characters; 3 is fine', () => {
