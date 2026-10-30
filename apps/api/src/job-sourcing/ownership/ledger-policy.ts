@@ -142,7 +142,9 @@ export function refusalWrite(reason: ClaimRefusal, opensAt: Date | null): Refusa
  * must skip it -- the sweep does, because the tick is the only path to Remotive's 09/13/17 slots).
  * An unknown entry is not sweepable: the sweep fails closed.
  */
-export function isSweepable(entry: Pick<LedgerCatalogEntry, 'fetchProfile'> | undefined): boolean {
+export function isSweepable<E extends Pick<LedgerCatalogEntry, 'fetchProfile'>>(
+  entry: E | undefined,
+): entry is E {
   return entry?.fetchProfile != null && entry.fetchProfile.fixedSlots === undefined
 }
 

@@ -463,7 +463,7 @@ export class JobRunLedger {
     const floors: number[] = []
     for (const id of rows.map((r) => String(r['manifest_id']))) {
       const entry = this.catalog.entry(id)
-      if (entry === undefined || !isSweepable(entry)) continue
+      if (!isSweepable(entry)) continue
       ids.push(id)
       floors.push(Math.ceil(entry.floorHours * 60))
     }
@@ -939,9 +939,8 @@ export function toTextArray(values: readonly string[]): SQL {
   return sql`${`{${quoted.join(',')}}`}::text[]`
 }
 
-/** An int[] parameter of non-negative safe integers. */
+/** An int[] parameter. The callers pass whole minutes; anything else fails in Postgres's cast. */
 function toIntArray(values: readonly number[]): SQL {
-  for (const v of values) if (!Number.isSafeInteger(v) || v < 0) throw new RangeError('not a count')
   return sql`${`{${values.join(',')}}`}::int[]`
 }
 
