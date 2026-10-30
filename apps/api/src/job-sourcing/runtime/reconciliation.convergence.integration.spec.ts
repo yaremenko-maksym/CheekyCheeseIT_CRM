@@ -22,7 +22,7 @@ import type { RunHandle } from '../ownership/run-ownership'
 import { saveObservationPage } from '../store/source-record.store'
 import { loadRoster } from './recompute-inputs'
 import { RecomputeWorker, createRecomputeSteps } from './recompute-worker'
-import { periodBucket, reconcileOnce, reconcileReason } from './reconciliation'
+import { periodBucket, reconcileOnce } from './reconciliation'
 
 /**
  * r5 Task 4.6 S4b round 3 (CR-M-2, SR-M-1): the sweep and the recompute worker converge on a real
@@ -47,10 +47,22 @@ let seq = 0
 const oppIds: string[] = []
 
 /** A record, resolved and evaluated to its first match; returns the opportunity id. */
-async function opportunity(nativeId: string): Promise<string> {
+async function opportunity(nativeId: string, rowless = false): Promise<string> {
   seq += 1
+  const base = observation({ namespace: NAMESPACE, nativeId, version: 'v1', tag: TAG })
+  // A posting no senior's stack can match: the verdict is a plain mismatch, which writes no rows.
+  const obs = rowless
+    ? {
+        ...base,
+        normalized: {
+          ...base.normalized,
+          title: 'Senior Zzznomatch Engineer',
+          tags: ['zzznomatch'],
+        },
+      }
+    : base
   const [saved] = await saveObservationPage(db, run, {
-    observations: [observation({ namespace: NAMESPACE, nativeId, version: 'v1', tag: TAG })],
+    observations: [obs],
     checkpoint: specCheckpoint(seq),
   })
   const recordId = saved?.recordId as string
@@ -191,28 +203,68 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 0, enqueued: 0, skipped: 0 })
     }, 60_000)
 
-    it('CR-M-2: a verdict with no match rows is enqueued once, not on every sweep', async () => {
-      const o = await opportunity('zero-rows')
-      await session.admin.query(`DELETE FROM job_opportunity_matches WHERE opportunity_id = $1`, [
-        o,
-      ])
-      // The state a legitimately row-less verdict leaves behind: a DONE row under the sweep's reason.
-      const live = (await loadRoster(db)).versions
-      const { rows } = await session.admin.query(
-        `SELECT revision FROM job_opportunities WHERE id = $1`,
-        [o],
+    it('CR-M-5: a genuinely row-less verdict converges: the worker writes the DONE row, the next sweeps enqueue nothing', async () => {
+      const o = await opportunity('zero-rows', true)
+      const none = () =>
+        session.admin.query(`SELECT 1 FROM job_opportunity_matches WHERE opportunity_id = $1`, [o])
+      // Evaluated by the worker (opportunity() ran it) and it wrote no rows for anyone.
+      expect((await none()).rowCount).toBe(0)
+      expect((await dirtyOf(o)).length).toBe(0) // no sweep row yet
+
+      expect(await sweep(o)).toMatchObject({ stale: 1, enqueued: 1, skipped: 0 })
+      expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+      expect((await none()).rowCount).toBe(0) // still row-less after the recompute
+      const rows = await dirtyOf(o)
+      expect(rows.map((r) => r.status)).toEqual(['DONE']) // produced by the worker, not inserted here
+      const { rows: done } = await session.admin.query(
+        `SELECT completed_at, claim_owner, last_error_code FROM job_dirty_work WHERE id = $1`,
+        [rows[0]?.id],
       )
-      await session.admin.query(
-        `INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason, status, completed_at)
-       VALUES ('OPPORTUNITY', $1, $2, $3, 'DONE', now())`,
-        [o, rows[0].revision, reconcileReason(live, [])],
-      )
-      expect(await sweep(o)).toMatchObject({ stale: 1, enqueued: 0, skipped: 1 })
+      expect(done[0].completed_at).not.toBeNull()
+      expect(done[0].last_error_code).toBeNull()
+
+      expect(await sweep(o)).toMatchObject({ stale: 1, enqueued: 0, skipped: 1, gaveUp: 0 })
       expect(await sweep(o, T0 + 5 * PERIOD_MS)).toMatchObject({
         stale: 1,
         enqueued: 0,
         skipped: 1,
       })
+      expect((await dirtyOf(o)).length).toBe(1)
+    }, 60_000)
+
+    it('CR-M-4 / SR-M-3: an always-failing opportunity is retried up to the cap, then no more; a new revision resets it', async () => {
+      const o = await opportunity('poison')
+      await makeStale(o)
+      const failPending = () =>
+        session.admin.query(
+          `UPDATE job_dirty_work SET status = 'FAILED', retry_count = 5, completed_at = now(),
+                last_error_code = 'RECOMPUTE_ERROR', claim_owner = NULL, lease_expires_at = NULL
+          WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 AND status = 'PENDING'`,
+          [o],
+        )
+      const enqueuedPerPeriod: number[] = []
+      const gaveUpPerPeriod: number[] = []
+      let lastGaveUpIds: readonly string[] = []
+      for (let k = 0; k < 5; k += 1) {
+        const r = await sweep(o, T0 + k * PERIOD_MS)
+        enqueuedPerPeriod.push(r.enqueued)
+        gaveUpPerPeriod.push(r.gaveUp)
+        lastGaveUpIds = r.gaveUpIds
+        await failPending()
+      }
+      expect(enqueuedPerPeriod).toEqual([1, 1, 1, 0, 0])
+      expect(gaveUpPerPeriod).toEqual([0, 0, 0, 1, 1])
+      expect(lastGaveUpIds).toEqual([o])
+      const rows = await dirtyOf(o)
+      expect(rows).toHaveLength(3)
+      expect(rows.every((r) => r.status === 'FAILED')).toBe(true)
+
+      // A new revision is a new target_version: the lineage starts again.
+      await session.admin.query(
+        `UPDATE job_opportunities SET revision = revision + 1 WHERE id = $1`,
+        [o],
+      )
+      expect(await sweep(o, T0 + 5 * PERIOD_MS)).toMatchObject({ enqueued: 1, gaveUp: 0 })
     }, 60_000)
 
     it('SR-M-1 (a): a CLAIMED row with an expired lease is recovered, then recomputed', async () => {
