@@ -182,7 +182,9 @@ describe('the page query', () => {
   it('adds no id filter by default and scopes to onlyIds when given', async () => {
     const all = dbOf([])
     await reconcileOnce(all)
-    expect(rendered(all.execute.mock.calls[0]?.[0]).sql).not.toContain('jsonb_array_elements_text')
+    const unscoped = rendered(all.execute.mock.calls[0]?.[0]).sql
+    expect(unscoped).not.toContain('jsonb_array_elements_text')
+    expect(unscoped).toContain('WHERE o.id > $1::uuid  ORDER BY o.id LIMIT $2')
     const scoped = dbOf([])
     await reconcileOnce(scoped, { onlyIds: [id(5), id(6)] })
     const q = rendered(scoped.execute.mock.calls[0]?.[0])
@@ -293,6 +295,14 @@ describe('reconcileOnce with dirty history', () => {
     await reconcileOnce(dbOf([opp(1, [], 3, failedRow(base))]), { now: () => NOW })
     expect(enqueue.mock.calls[0]?.[4]).toBe(`${base}:${periodBucket(NOW)}`)
   })
+  it('a dirty entry that is not a [status, reason] pair is that opportunity only', async () => {
+    for (const bad of [['PENDING'], ['PENDING', 'r', 'extra'], 'PENDING']) {
+      enqueue.mockClear()
+      const r = await reconcileOnce(dbOf([opp(1, [], 3, [bad]), opp(2)]))
+      expect(r).toMatchObject({ failed: 1, enqueued: 1 })
+    }
+  })
+
   it('an unreadable dirty column is that opportunity only', async () => {
     const r = await reconcileOnce(dbOf([opp(1, [], 3, 'garbage'), opp(2)]))
     expect(r).toMatchObject({ failed: 1, enqueued: 1 })
