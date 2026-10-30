@@ -378,10 +378,14 @@ describe.skipIf(!hasDatabaseUrl())(
         drop_share_percent: number
         drop_share_percent_source: string
         drop_cascade_origin: boolean
+        tx_date: Date
       }>(`SELECT * FROM transactions WHERE source_income_transaction_id = $1`, [incomeId])
       expect(created).toHaveLength(1)
       const row = created[0]!
       expect(row.type).toBe('DROP_PENDING_PAYOUT')
+      // tx_date is NOT NULL (backlog 338): the IOU carries the source income's tx_date,
+      // as bookCompanyObligations does for a live admin income.
+      expect(row.tx_date.toISOString()).toBe(new Date(SAFE_BEFORE_CUTOFF_ISO).toISOString())
       expect(row.status).toBe('PENDING_PAYMENT')
       expect(parseFloat(row.amount)).toBeCloseTo(50, 6) // 1000 * 5%
       expect(row.currency).toBe('USDT')
