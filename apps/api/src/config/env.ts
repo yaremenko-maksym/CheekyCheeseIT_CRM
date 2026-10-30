@@ -165,6 +165,14 @@ const envSchema = z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
 
+    // JOB_MATCH_RECONCILIATION_ENABLED: switch for the periodic match reconciliation (r5 Task 4.6
+    //   S4b): sweep every RECONCILE_PERIOD_HOURS, enqueue stale opportunities, drain the recompute
+    //   worker. **Default false**: unlike the collection crons (always on) it activates the
+    //   recompute worker's writes to `job_opportunity_matches`, which nothing reads yet.
+    JOB_MATCH_RECONCILIATION_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
+      .default(false),
+
     THROTTLER_TTL_MS: z.coerce.number().int().min(1_000).default(60_000),
     THROTTLER_LIMIT: z.coerce.number().int().min(1).default(100),
     THROTTLE_RELAXED: z
