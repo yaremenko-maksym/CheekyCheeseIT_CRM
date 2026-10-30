@@ -204,6 +204,8 @@ describe.skipIf(!hasDatabaseUrl())(
         // createSeniorIncome/declareUsdtProjectIncome in transactions.service.ts.
         receiverId: ARTEM.id,
         createdBy: ARTEM.id,
+        // tx_date is NOT NULL (backlog 338); the value a real writer persists.
+        txDate: resolveTransactionDate(null),
       }
       await db.insert(transactions).values([
         { ...baseTx, id: TX_URL, status: 'VALIDATED', currency: 'USD' },
