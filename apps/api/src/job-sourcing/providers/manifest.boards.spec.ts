@@ -108,6 +108,10 @@ describe('the board generator', () => {
     )
   })
 
+  it('writes a nested field path with dots', () => {
+    expect(() => generate([{ ...stripe, evidence: [''] }])).toThrow(/line 1: evidence\.0: /)
+  })
+
   it('reports every problem of a line, separated by a semicolon', () => {
     expect(() => generate([{ ...stripe, timeZone: undefined, employer: undefined }])).toThrow(
       /: (timeZone|employer): [^;]*; (timeZone|employer): /,
