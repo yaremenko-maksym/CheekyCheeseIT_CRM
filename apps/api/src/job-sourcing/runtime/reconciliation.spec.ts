@@ -192,13 +192,13 @@ describe('isStale across rows and reason across orders', () => {
 })
 
 describe('reconcileReason sensitivity at equal roster size', () => {
-  const base = reconcileReason(live, [])
   const roster = (profile: string, exclusion: string, id = S1) =>
     new Map([
       [id, { profile, exclusion }],
       [S2, { profile: 'p2', exclusion: 'e2' }],
     ])
   it('changes with any senior id, profile or exclusion version', () => {
+    const base = reconcileReason(live, [])
     expect(reconcileReason(roster('p1', 'e1'), [])).toBe(base)
     expect(reconcileReason(roster('X', 'e1'), [])).not.toBe(base)
     expect(reconcileReason(roster('p1', 'X'), [])).not.toBe(base)
