@@ -33,6 +33,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-onchain-payment-integrity (HOLE 2) — CROSS-PATH double-spend, real DB.
@@ -204,6 +205,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: owner.id,
           seniorSharePercent: 26,
           createdBy: owner.id,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       const pr = await svc.createPayoutRequest([income!.id], owner)
@@ -809,6 +811,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: SENIOR.id,
           salaryMonth: takenMonth,
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null),
         })
         const [editable] = await dbSvc.db
           .insert(transactions)
@@ -820,6 +823,7 @@ describe.skipIf(!hasDatabaseUrl())(
             receiverId: SENIOR.id,
             salaryMonth: freeMonth,
             createdBy: ADMIN.id,
+            txDate: resolveTransactionDate(null),
           })
           .returning()
 

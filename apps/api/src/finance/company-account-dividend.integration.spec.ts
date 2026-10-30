@@ -13,6 +13,7 @@ import { computeCompanyAccountBalanceFromLedger } from './company-account-balanc
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * MED (audit 2026-06-27) — createDividend BALANCE GATE + TOCTOU (real DB).
@@ -167,6 +168,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USDT',
         senderId: SENIOR.id,
         createdBy: ADMIN.id,
+        txDate: resolveTransactionDate(null),
       })
     }
 

@@ -5,7 +5,7 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import { Test } from '@nestjs/testing'
 import cookie from '@fastify/cookie'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { and, gte, inArray, sql } from 'drizzle-orm'
+import { and, gte, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser, AccountantSummaryDto as AccountantSummaryDtoT } from '@crm/shared'
@@ -19,6 +19,7 @@ import { TransactionsService } from './transactions.service'
 import { projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * ACCOUNTANT Sprint 1 — accountant-summary real-backend integration spec
@@ -124,7 +125,7 @@ const TX_SALARY_PENDING = 'ac111111-0000-4000-cc00-000000000009' // SALARY PENDI
 const TX_DEDUP_PARTY = 'ac111111-0000-4000-cc00-00000000000a' // 2nd SENIOR_INCOME for SENIOR → dedup, no new party
 // CR-809-H-2 fixtures — the two rows where createdAt and the business date
 // disagree across a month boundary. These are the ONLY rows in this spec that
-// can tell `created_at` and `coalesce(tx_date, created_at)` apart, so they are
+// can tell `created_at` and `tx_date` apart, so they are
 // what makes the window column observable at all.
 const TX_PAID_BACKDATED_OUT = 'ac111111-0000-4000-cc00-00000000000b' // PAID 1111, created THIS month, dated LAST month → OUT
 const TX_PAID_BACKDATED_IN = 'ac111111-0000-4000-cc00-00000000000c' // PAID 2222, created LAST month, dated THIS month → IN
@@ -339,6 +340,7 @@ describe.skipIf(!hasDatabaseUrl())(
           projectId: PROJ_ID,
           createdAt: thisMonth,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null, thisMonth),
         },
         {
           id: TX_PENDING_2,
@@ -351,6 +353,7 @@ describe.skipIf(!hasDatabaseUrl())(
           projectId: PROJ_ID,
           createdAt: thisMonth,
           createdBy: DROP.id,
+          txDate: resolveTransactionDate(null, thisMonth),
         },
         {
           id: TX_VALIDATED_THIS,
@@ -364,6 +367,7 @@ describe.skipIf(!hasDatabaseUrl())(
           validatedAt: thisMonth,
           createdAt: thisMonth,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null, thisMonth),
         },
         {
           id: TX_VALIDATED_OLD,
@@ -377,6 +381,7 @@ describe.skipIf(!hasDatabaseUrl())(
           validatedAt: lastMonth,
           createdAt: lastMonth,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null, lastMonth),
         },
         {
           id: TX_PAID_THIS,
@@ -388,6 +393,7 @@ describe.skipIf(!hasDatabaseUrl())(
           projectId: PROJ_ID,
           createdAt: thisMonth,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null, thisMonth),
         },
         // ── Sprint 2 boundary fixtures — every row below must be EXCLUDED by the
         //    SQL aggregation, so it adds NOTHING to the deltas asserted later. ──
@@ -402,6 +408,7 @@ describe.skipIf(!hasDatabaseUrl())(
           projectId: PROJ_ID,
           createdAt: lastMonth,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null, lastMonth),
         },
         // VALIDATED but validatedAt IS NULL → excluded from validatedThisMonth
         // (the `validated_at is not null` predicate). createdAt this month so only
@@ -418,6 +425,7 @@ describe.skipIf(!hasDatabaseUrl())(
           validatedAt: null,
           createdAt: thisMonth,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null, thisMonth),
         },
         // EXPENSE PENDING → not validatable income → excluded from
         // pendingValidation AND recipientCount.
@@ -431,6 +439,7 @@ describe.skipIf(!hasDatabaseUrl())(
           projectId: PROJ_ID,
           createdAt: thisMonth,
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null, thisMonth),
         },
         // SALARY PENDING → not validatable income → excluded from
         // pendingValidation AND recipientCount.
@@ -445,6 +454,7 @@ describe.skipIf(!hasDatabaseUrl())(
           projectId: PROJ_ID,
           createdAt: thisMonth,
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null, thisMonth),
         },
         // ── CR-809-H-2: createdAt and the business date on opposite sides of
         //    the month boundary. Both directions, because a window keyed on the
@@ -496,6 +506,7 @@ describe.skipIf(!hasDatabaseUrl())(
           validatedAt: lastMonth,
           createdAt: lastMonth,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null, lastMonth),
         },
       ])
     }, 30_000)
@@ -601,7 +612,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
       // Δ paidThisMonth: +4222 = TX_PAID_THIS (2000, created + dated this month)
       // + TX_PAID_BACKDATED_IN (2222, created last month, DATED this month).
-      // Excluded: TX_PAID_OLD (6666, last month, no txDate) and
+      // Excluded: TX_PAID_OLD (6666, created + dated last month) and
       // TX_PAID_BACKDATED_OUT (1111, created this month, DATED last month).
       // CR-809-H-2: windowed on `created_at` this delta would be 3111
       // (2000 + 1111) — the two numbers differ by exactly the backdated rows,
@@ -632,8 +643,8 @@ describe.skipIf(!hasDatabaseUrl())(
     it('excludes PAID rows created in a previous month from paidThisMonth', async () => {
       const base = baseline!
       const body = await summaryAsAdmin()
-      // TX_PAID_OLD (6666, lastMonth, NO txDate → coalesce falls back to
-      // created_at) must NOT appear. The expected 4222 is TX_PAID_THIS (2000) +
+      // TX_PAID_OLD (6666, created and dated last month, the tx_date the writer
+      // persists) must NOT appear. The expected 4222 is TX_PAID_THIS (2000) +
       // TX_PAID_BACKDATED_IN (2222); a regressed month filter would surface
       // 6666 on top of it.
       expect(Math.round((body.paidThisMonth.amount - base.paidThisMonth.amount) * 100) / 100).toBe(
@@ -689,7 +700,7 @@ describe.skipIf(!hasDatabaseUrl())(
               TX_PAID_BACKDATED_IN,
               TX_PAID_BACKDATED_OUT,
             ]),
-            gte(sql`coalesce(${transactions.txDate}, ${transactions.createdAt})`, monthStart),
+            gte(transactions.txDate, monthStart),
           ),
         )
       expect(rows.map((r) => r.id).sort()).toEqual([TX_PAID_BACKDATED_IN, TX_PAID_THIS].sort())

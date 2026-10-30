@@ -14,6 +14,7 @@ import type { InvoicesService } from '../invoices/invoices.service'
 import { salaryMonthInitializations, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * Multipart salary + salary-cron idempotency (real DB).
@@ -540,6 +541,7 @@ describe.skipIf(!hasDatabaseUrl())(
           salaryOrigin: 'Manual' as never,
           idempotencyKey: randomUUID(),
           createdBy: MAKSYM_ID,
+          txDate: resolveTransactionDate(null),
         }),
       ).rejects.toMatchObject({
         cause: { code: '23514', constraint: 'ck_transactions_salary_origin_domain' },
@@ -559,6 +561,7 @@ describe.skipIf(!hasDatabaseUrl())(
           salaryOrigin: 'MANUAL',
           idempotencyKey: null,
           createdBy: MAKSYM_ID,
+          txDate: resolveTransactionDate(null),
         }),
       ).rejects.toMatchObject({
         cause: {
@@ -579,6 +582,7 @@ describe.skipIf(!hasDatabaseUrl())(
         salaryMonth: MONTH,
         salaryOrigin: null,
         createdBy: MAKSYM_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       await svc.createMonthlySalaries(MONTH)

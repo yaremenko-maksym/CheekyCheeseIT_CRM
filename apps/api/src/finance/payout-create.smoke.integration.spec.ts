@@ -21,6 +21,7 @@ import type { NbuCurrencyService } from './nbu-currency.service'
 import { companyAccount, payoutRequests, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-ut-followups2 AC5 — smoke-test: POST /payout-requests from SENIOR → 2xx.
@@ -250,6 +251,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: SENIOR.id,
           seniorSharePercent: 26,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
 
@@ -285,6 +287,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: ADMIN.id,
           seniorSharePercent: 0,
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
 

@@ -36,6 +36,7 @@ import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import type { TransactionsService } from './transactions.service'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 const ADMIN_1: SessionUser = {
   id: 'ad100000-0000-4000-aa00-000000000001',
@@ -116,6 +117,7 @@ describe.skipIf(!hasDatabaseUrl())(
           currency: 'USDT',
           senderLabel: 'Client Co',
           createdBy: ADMIN_1.id,
+          txDate: resolveTransactionDate(null),
         })
         .onConflictDoNothing()
     })

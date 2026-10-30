@@ -14,6 +14,7 @@ import { computeCompanyAccountBalanceFromLedger } from './company-account-balanc
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-salary-pay-flow — salary funding source moved from CREATE to PAY (real DB).
@@ -189,6 +190,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USDT',
         senderId: SENIOR.id,
         createdBy: SENIOR.id,
+        txDate: resolveTransactionDate(null),
       })
     }
 

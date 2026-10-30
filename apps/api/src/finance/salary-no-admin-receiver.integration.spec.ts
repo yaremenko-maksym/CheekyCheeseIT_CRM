@@ -21,6 +21,7 @@ import type { InvoicesService } from '../invoices/invoices.service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-salary-no-admin-receiver (security-MED #222) — real-DB integration spec.
@@ -282,6 +283,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USDT',
         senderId: SENIOR_RECEIVER.id,
         createdBy: ADMIN_CALLER.id,
+        txDate: resolveTransactionDate(null),
       })
     }, 30_000)
 

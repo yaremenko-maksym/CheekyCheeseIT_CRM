@@ -26,6 +26,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from '../finance/transaction-date.util'
 
 /**
  * PR-2 unified documents list — real backend integration spec.
@@ -381,6 +382,7 @@ describe.skipIf(!hasDatabaseUrl())('PR-2 documents unified list — real backend
         receiverId: ADMIN.id,
         invoiceDocumentId: DOC_INVOICE_ID,
         createdBy: ADMIN.id,
+        txDate: resolveTransactionDate(null),
       })
       .onConflictDoNothing()
 
@@ -412,6 +414,7 @@ describe.skipIf(!hasDatabaseUrl())('PR-2 documents unified list — real backend
         receiverId: ADMIN.id,
         receiptDocumentId: DOC_RECEIPT_ID,
         createdBy: ADMIN.id,
+        txDate: resolveTransactionDate(null),
       })
       .onConflictDoNothing()
   }, 30_000)

@@ -52,6 +52,7 @@ import type { HrAccessService } from '../common/hr-access.service'
 import { documents, transactions } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -302,6 +303,7 @@ describe.skipIf(!hasDatabaseUrl())(
           validatedBy: ADMIN.id,
           validatedAt: new Date('2026-01-01'),
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null),
         })
         .onConflictDoUpdate({
           target: transactions.id,
@@ -336,6 +338,7 @@ describe.skipIf(!hasDatabaseUrl())(
           validatedBy: ADMIN.id,
           validatedAt: new Date('2026-01-01'),
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null),
         })
         .onConflictDoUpdate({
           target: transactions.id,
@@ -462,6 +465,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: ARTEM.id,
           receiptDocumentId: null,
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null),
         })
         .onConflictDoNothing()
 

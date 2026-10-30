@@ -14,6 +14,7 @@ import type { NbuCurrencyService } from './nbu-currency.service'
 import { companyAccount, payoutRequests, projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * Audit 2026-06-28 (#5) — REAL-DB integration: a DROP payout must bundle incomes
@@ -182,6 +183,7 @@ describe.skipIf(!hasDatabaseUrl())(
           recipientId: DROP.id,
           projectId,
           createdBy: DROP.id,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       return income!.id

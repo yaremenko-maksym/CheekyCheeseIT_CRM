@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { roundShareAmount } from './transactions.service'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-admin-income-drop-backfill — REAL-DB integration for the manual
@@ -205,9 +206,9 @@ async function seedIncome(
 
 async function seedUntaggedDropShareRow(id: string, projectId: string): Promise<void> {
   await query(
-    `INSERT INTO transactions (id, type, status, amount, currency, sender_label, receiver_id, recipient_id, project_id, created_by, drop_share_percent, drop_share_percent_source)
-     VALUES ($1, 'DROP_PENDING_PAYOUT', 'PENDING_PAYMENT', '25', 'USDT', 'COMPANY', $2, $2, $3, $4, 5, 'USER_DEFAULT')`,
-    [id, DROP_ID, projectId, ADMIN_ID],
+    `INSERT INTO transactions (id, type, status, amount, currency, sender_label, receiver_id, recipient_id, project_id, created_by, drop_share_percent, drop_share_percent_source, tx_date)
+     VALUES ($1, 'DROP_PENDING_PAYOUT', 'PENDING_PAYMENT', '25', 'USDT', 'COMPANY', $2, $2, $3, $4, 5, 'USER_DEFAULT', $5)`,
+    [id, DROP_ID, projectId, ADMIN_ID, resolveTransactionDate(null)],
   )
 }
 
@@ -216,9 +217,9 @@ async function seedUntaggedDropShareRow(id: string, projectId: string): Promise<
  * FOP-period artefact the ambiguity guard must now catch. */
 async function seedDropIncome(projectId: string): Promise<void> {
   await query(
-    `INSERT INTO transactions (type, status, amount, currency, receiver_id, recipient_id, project_id, created_by, drop_share_percent, drop_share_percent_source)
-     VALUES ('DROP_INCOME', 'VALIDATED', '400', 'USDT', $1, $1, $2, $1, 5, 'USER_DEFAULT')`,
-    [DROP_ID, projectId],
+    `INSERT INTO transactions (type, status, amount, currency, receiver_id, recipient_id, project_id, created_by, drop_share_percent, drop_share_percent_source, tx_date)
+     VALUES ('DROP_INCOME', 'VALIDATED', '400', 'USDT', $1, $1, $2, $1, 5, 'USER_DEFAULT', $3)`,
+    [DROP_ID, projectId, resolveTransactionDate(null)],
   )
 }
 
@@ -652,9 +653,9 @@ describe.skipIf(!hasDatabaseUrl())(
       // the pre-fix `NOT IN` predicate this alone would zero out EVERY
       // candidate in the whole database.
       await query(
-        `INSERT INTO transactions (type, status, amount, currency, sender_label, receiver_id, recipient_id, project_id, created_by, drop_share_percent, drop_share_percent_source)
-       VALUES ('DROP_PENDING_PAYOUT', 'PENDING_PAYMENT', '1', 'USDT', 'COMPANY', $1, $1, NULL, $2, 5, 'USER_DEFAULT')`,
-        [DROP_ID, ADMIN_ID],
+        `INSERT INTO transactions (type, status, amount, currency, sender_label, receiver_id, recipient_id, project_id, created_by, drop_share_percent, drop_share_percent_source, tx_date)
+       VALUES ('DROP_PENDING_PAYOUT', 'PENDING_PAYMENT', '1', 'USDT', 'COMPANY', $1, $1, NULL, $2, 5, 'USER_DEFAULT', $3)`,
+        [DROP_ID, ADMIN_ID, resolveTransactionDate(null)],
       )
 
       await pool!.query(APPLY_SQL)

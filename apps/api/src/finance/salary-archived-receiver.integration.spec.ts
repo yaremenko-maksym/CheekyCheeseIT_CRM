@@ -34,6 +34,7 @@ import type { InvoicesService } from '../invoices/invoices.service'
 import { transactionAuditLog, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 // Far-future month: no live cron data or other spec can collide with it.
 const MONTH = '2099-11'
@@ -265,6 +266,7 @@ describe.skipIf(!hasDatabaseUrl())('salary — archived receiver barrier (E-1, r
         salaryMonth: MONTH,
         fundingSource: null,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
       .returning()
 
@@ -309,6 +311,7 @@ describe.skipIf(!hasDatabaseUrl())('salary — archived receiver barrier (E-1, r
         salaryMonth: MONTH,
         fundingSource: null,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
       .returning()
 

@@ -20,6 +20,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-drop-payout-currency — REAL-DB integration proving the AC3 invariant
@@ -185,6 +186,7 @@ describe.skipIf(!hasDatabaseUrl())(
         dropSharePercent: 26,
         dropSharePercentSource: 'PROJECT',
         createdBy: ADMIN.id,
+        txDate: resolveTransactionDate(null),
       })
       await dbSvc.db.insert(pendingObligations).values({
         id: OBLIGATION_ID,
@@ -274,6 +276,7 @@ describe.skipIf(!hasDatabaseUrl())(
         amount: '100000',
         currency: 'USDT',
         createdBy: ADMIN.id,
+        txDate: resolveTransactionDate(null),
       })
     }, 30_000)
 

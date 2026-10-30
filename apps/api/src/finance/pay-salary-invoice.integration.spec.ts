@@ -17,6 +17,7 @@ import { companyAccount, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-review-followup #2b — invoice auto-create on BOTH paySalary funding paths.
@@ -234,6 +235,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USDT',
         senderId: ADMIN.id,
         createdBy: ADMIN.id,
+        txDate: resolveTransactionDate(null),
       })
     }
 

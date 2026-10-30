@@ -13,6 +13,7 @@ import type { EtherscanService } from './etherscan.service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * BIZ-19 — createDividend idempotency: duplicate submission with the same
@@ -142,6 +143,7 @@ describe.skipIf(!hasDatabaseUrl())('BIZ-19 — createDividend idempotency-key (r
       currency: 'USDT' as never,
       senderId: SENIOR.id,
       createdBy: ADMIN.id,
+      txDate: resolveTransactionDate(null),
     })
   }
 

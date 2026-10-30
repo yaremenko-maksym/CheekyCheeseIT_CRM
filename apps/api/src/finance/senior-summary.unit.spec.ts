@@ -408,14 +408,22 @@ describe('getSeniorSummary — senior-share income math (AC1)', () => {
     expect(r.seniorShareIncome.currency).toBe('USD')
   })
 
-  it('uses createdAt for the month window when txDate is null', async () => {
+  it('refuses a NULL txDate instead of using createdAt for the month (backlog 338)', async () => {
     const svc = makeService({
       selfUser: { seniorSharePercent: 50 },
-      paidIncome: [{ amount: '200', seniorSharePercent: 50, txDate: null, createdAt: thisMonth }],
+      paidIncome: [
+        {
+          id: 'inc-undated',
+          amount: '200',
+          seniorSharePercent: 50,
+          txDate: null,
+          createdAt: thisMonth,
+        },
+      ],
     })
-    const r = await svc.getSeniorSummary(user('SENIOR'))
-    expect(r.seniorShareIncome.total).toBeCloseTo(100, 6)
-    expect(r.seniorShareIncome.thisMonth).toBeCloseTo(100, 6)
+    await expect(svc.getSeniorSummary(user('SENIOR'))).rejects.toThrow(
+      'transactionBusinessMonth: transaction inc-undated has a NULL tx_date',
+    )
   })
 
   it('ignores non-finite amounts defensively', async () => {

@@ -7,8 +7,8 @@
 -- not (`bookCompanyObligations`, the IOU rows of a drop-project payout paid without a date,
 -- and the monthly salary cron) are fixed in the same PR as this file (#1158, SR-H-1), so
 -- the code that ships with it writes no NULL tx_date. Older rows may still carry NULL, and
--- readers fall back to the Kyiv month of created_at
--- (`transactionBusinessMonth` -> `kyivMonthOf`). This file gives those rows the value
+-- readers fell back to the Kyiv month of created_at (`transactionBusinessMonth`; that
+-- fallback was removed once production held 0 NULL rows). This file gives those rows the value
 -- `resolveTransactionDate(null, created_at)` would persist for a new row:
 --   - Kyiv day == UTC day of created_at  -> created_at itself (the real instant);
 --   - otherwise (Kyiv already a day ahead, 21:00/22:00Z..24:00Z) -> UTC midnight of the

@@ -40,6 +40,7 @@ import {
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * DROP RBAC — real-backend integration spec (real DB, no mocks).
@@ -461,6 +462,7 @@ describe.skipIf(!hasDatabaseUrl())(
             projectId: PROJ_B_ID,
             payoutRequestId: PAYOUT_REQ_B_ID,
             createdBy: DROP_B.id,
+            txDate: resolveTransactionDate(null),
           },
           {
             id: PAYOUT_B_ID,
@@ -473,6 +475,7 @@ describe.skipIf(!hasDatabaseUrl())(
             projectId: PROJ_B_ID,
             payoutRequestId: PAYOUT_REQ_B_ID,
             createdBy: DROP_B.id,
+            txDate: resolveTransactionDate(null),
           },
           // task-drop-sees-own-obligations: Drop B's booked-but-unpaid company IOU
           // (admin-USDT declare path). This is the "victim" figure that must NEVER
@@ -489,6 +492,7 @@ describe.skipIf(!hasDatabaseUrl())(
             recipientId: DROP_B.id,
             projectId: PROJ_B_ID,
             createdBy: MAKSYM.id,
+            txDate: resolveTransactionDate(null),
           },
         ])
         .onConflictDoNothing()
@@ -553,6 +557,7 @@ describe.skipIf(!hasDatabaseUrl())(
             txHash: '0x' + 'a'.repeat(64),
             projectId: PROJ_A_ID,
             createdBy: DROP_A.id,
+            txDate: resolveTransactionDate(null),
           },
           // task-drop-sees-own-obligations: the core bug this spec pins. A booked
           // company IOU (admin-USDT declare / drop-payout cascade) the OLD
@@ -571,6 +576,7 @@ describe.skipIf(!hasDatabaseUrl())(
             recipientId: DROP_A.id,
             projectId: PROJ_A_ID,
             createdBy: MAKSYM.id,
+            txDate: resolveTransactionDate(null),
           },
           // Settled obligation — same lifecycle as a DROP_PENDING_PAYOUT that
           // settleByCompany flipped IN PLACE to PAYOUT_DROP/PAID (never a second
@@ -587,6 +593,7 @@ describe.skipIf(!hasDatabaseUrl())(
             recipientId: DROP_A.id,
             projectId: PROJ_A_ID,
             createdBy: MAKSYM.id,
+            txDate: resolveTransactionDate(null),
           },
         ])
         .onConflictDoNothing()

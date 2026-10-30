@@ -3,11 +3,13 @@ import {
   addCalendarMonths,
   businessMonthWindow,
   kyivDayOf,
-  kyivMonthOf,
   kyivToday,
   latestSettleBusinessDay,
   transactionBusinessDay,
 } from './kyiv-day'
+
+/** The Kyiv month of an instant, for the window-edge assertions below. */
+const kyivMonthAt = (at: Date) => kyivDayOf(at).slice(0, 7)
 
 /**
  * Retro business-day clock (CR-867-L-1 / SR-809-L-1): month math on the Kyiv
@@ -15,14 +17,6 @@ import {
  * host timezone. The TZ matrix in vitest.config.mts runs this file under the
  * host TZ, Europe/Kyiv and America/Los_Angeles.
  */
-describe('kyivMonthOf', () => {
-  it('buckets by the Kyiv month, not the UTC month, on the Kyiv 1st', () => {
-    // Kyiv 2026-08-01 01:30 EEST = UTC 2026-07-31 22:30
-    expect(kyivMonthOf(new Date('2026-07-31T22:30:00Z'))).toBe('2026-08')
-    expect(kyivMonthOf(new Date('2026-07-31T20:59:00Z'))).toBe('2026-07')
-  })
-})
-
 describe('addCalendarMonths', () => {
   it('subtracts months by calendar parts', () => {
     expect(addCalendarMonths('2026-10-15', -3)).toBe('2026-07-15')
@@ -296,13 +290,13 @@ describe('businessMonthWindow', () => {
     expect(iso(w.instantEnd)).toBe('2026-12-31T22:00:00.000Z')
   })
 
-  it('the instant window agrees with kyivMonthOf at both edges', () => {
+  it('the instant window agrees with the Kyiv day at both edges', () => {
     for (const month of ['2026-01', '2026-03', '2026-07', '2026-10', '2026-12']) {
       const w = businessMonthWindow(month)
-      expect(kyivMonthOf(w.instantStart)).toBe(month)
-      expect(kyivMonthOf(new Date(w.instantStart.getTime() - 1))).not.toBe(month)
-      expect(kyivMonthOf(new Date(w.instantEnd.getTime() - 1))).toBe(month)
-      expect(kyivMonthOf(w.instantEnd)).not.toBe(month)
+      expect(kyivMonthAt(w.instantStart)).toBe(month)
+      expect(kyivMonthAt(new Date(w.instantStart.getTime() - 1))).not.toBe(month)
+      expect(kyivMonthAt(new Date(w.instantEnd.getTime() - 1))).toBe(month)
+      expect(kyivMonthAt(w.instantEnd)).not.toBe(month)
     }
   })
 

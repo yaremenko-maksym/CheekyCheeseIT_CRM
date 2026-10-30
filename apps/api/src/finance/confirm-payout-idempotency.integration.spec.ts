@@ -34,6 +34,7 @@ import type { NbuCurrencyService } from './nbu-currency.service'
 import { companyAccount, payoutRequests, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 // ── Personas (stable IDs, namespaced to this spec) ────────────────────────
 // HIGH-4 fix: IDs must be valid UUID v4 format (8-4-4-4-12 hex groups).
@@ -173,6 +174,7 @@ describe.skipIf(!hasDatabaseUrl())(
           // the constraint". No test in this file asserted on this field.
           payoutRequestId: payoutRequestId ?? null,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       return payout!.id
