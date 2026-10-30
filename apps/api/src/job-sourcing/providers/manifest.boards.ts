@@ -25,7 +25,9 @@ import { type EntryDefinition, ManifestError } from './manifest'
  * `hostRate` is declared for the board types until U11 adds the request-counting host budget.
  */
 
-const HOSTNAME_PATTERN = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/
+// `www.` is refused: the same site as the bare domain, and the duplicate key would otherwise miss it.
+const HOSTNAME_PATTERN =
+  /^(?!www\.)(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/
 
 const TOKEN_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/
 
@@ -34,8 +36,20 @@ export const BOARD_ADDED_BY = ['manual', 'discovery', 'proposal'] as const
 const boardLineSchema = z
   .object({
     token: z.string().regex(TOKEN_PATTERN),
-    /** At least 3 characters: the evidence check looks for the whole name in a capture's notes. */
-    employer: z.string().min(3).max(200),
+    /**
+     * Normalised once here (trim, inner whitespace collapsed), so the duplicate key and the capture
+     * match both see the same form. At least 3 characters, and a letter or digit among them.
+     */
+    employer: z
+      .string()
+      .transform((v) => v.trim().replace(/\s+/g, ' '))
+      .pipe(
+        z
+          .string()
+          .min(3)
+          .max(200)
+          .regex(/[\p{L}\p{N}]/u),
+      ),
     /** `null` is stated, not omitted. A hostname: lowercase labels, a dot, no scheme, path or port. */
     domain: z.string().regex(HOSTNAME_PATTERN).nullable(),
     /** An IANA zone; the builder's profile check refuses an unknown one. */

@@ -380,6 +380,53 @@ describe('stronger evidence rules', () => {
     expect(codeOf(() => generate([{ ...stripe, domain: long }]))).toBe('BOARD_LINE_INVALID')
   })
 
+  it('normalises the employer: trailing and inner whitespace do not make a different employer', () => {
+    expect(generate([{ ...stripe, employer: '  Stripe  ' }])[0]!.ownership!.name).toBe('Stripe')
+    expect(generate([{ ...stripe, employer: 'Stripe   Inc' }])[0]!.ownership!.name).toBe(
+      'Stripe Inc',
+    )
+    const claimed = new Map<string, string>()
+    boardEntries({
+      prefix: 'greenhouse',
+      lines: [{ ...stripe, domain: null, employer: 'Stripe Inc' }],
+      profileFor: PROFILE,
+      claimed,
+    })
+    expect(
+      codeOf(() =>
+        boardEntries({
+          prefix: 'lever',
+          lines: [{ ...stripe, token: 'x', domain: null, employer: 'Stripe  Inc ' }],
+          profileFor: PROFILE,
+          claimed,
+        }),
+      ),
+    ).toBe('DUPLICATE_EMPLOYER')
+    expect(
+      codeOf(() =>
+        boardEntries({
+          prefix: 'lever',
+          lines: [{ ...stripe, token: 'x', domain: null, employer: 'Stripe Ltd' }],
+          profileFor: PROFILE,
+          claimed,
+        }),
+      ),
+    ).toBeUndefined()
+  })
+
+  it.each(['   ', '---', '...'])('refuses the employer %j (no letter or digit)', (employer) => {
+    expect(codeOf(() => generate([{ ...stripe, employer }]))).toBe('BOARD_LINE_INVALID')
+    expect(codeOf(() => generate([{ ...stripe, employer: 'Ab1' }]))).toBeUndefined()
+  })
+
+  it('refuses a www. domain (it would dodge the duplicate key); the bare domain is fine', () => {
+    expect(codeOf(() => generate([{ ...stripe, domain: 'www.stripe.com' }]))).toBe(
+      'BOARD_LINE_INVALID',
+    )
+    expect(codeOf(() => generate([{ ...stripe, domain: 'stripe.com' }]))).toBeUndefined()
+    expect(codeOf(() => generate([{ ...stripe, domain: 'wwwx.stripe.com' }]))).toBeUndefined()
+  })
+
   it('refuses an employer shorter than 3 characters; 3 is fine', () => {
     expect(codeOf(() => generate([{ ...stripe, employer: 'ab' }]))).toBe('BOARD_LINE_INVALID')
     expect(codeOf(() => generate([{ ...stripe, employer: 'abc' }]))).toBeUndefined()

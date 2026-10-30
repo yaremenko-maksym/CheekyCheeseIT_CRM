@@ -141,9 +141,9 @@ const kyivAt = (time: string): FetchProfile => ({
   fixedSlots: { timeZone: 'Europe/Kyiv', times: [time] },
 })
 
-/** An ATS board's profile: hourly in its employer's working day, every 3 h outside (section 8). */
 /** One map for every provider's board file: the same employer under two ATS types is refused. */
 const CLAIMED_BOARDS = new Map<string, string>()
+/** An ATS board's profile: hourly in its employer's working day, every 3 h outside (section 8). */
 const BOARD_PROFILE = (timeZone: string): FetchProfile => workingHours(timeZone, 60, 180)
 
 const blockedHtml = (type: string, provider: string): TypeDefinition => ({
