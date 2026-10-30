@@ -18,10 +18,14 @@ import { MATCH_RULE_VERSION, type SeniorVersions, loadRoster } from './recompute
  * to the next tick) and its caller drains at most `RECONCILE_MAX_DRAIN_BATCHES` x 200 = 2,000 dirty
  * rows (the backlog carries over). With P = `RECONCILE_PERIOD_HOURS` (6 h) the bound is
  *   P x (ceil(N / 100,000) + ceil(S / 2,000))   for N opportunities, S of them stale at once,
- * i.e. one period when N <= 100,000 and S <= 2,000, and 50 further periods (300 h) for the worst
- * case S = 100,000. The drain cap is deliberately not raised: each batch is 200 transactions on
- * the database every other cron shares, and a roster change that stales most opportunities is the
- * rare case. A reader of `job_opportunity_matches` must still check the live roster itself.
+ * i.e. at most 2 x P (12 h) when N <= 100,000 and S <= 2,000 (one tick sweeps and enqueues, the
+ * next drains), and 51 x P (306 h) for the worst case N = S = 100,000. The drain cap is
+ * deliberately not raised: each batch is 200 transactions on the database every other cron
+ * shares, and a roster change that stales most opportunities is the rare case.
+ * EXCEPTION BY DESIGN (CR-M-4, SR-M-3): an opportunity whose recompute fails every time never
+ * converges. After `RECONCILE_MAX_FAILED_PERIODS` failed rows in its lineage the sweep stops
+ * re-enqueueing it (see GIVING UP); it is retried only after its revision or the roster changes.
+ * A reader of `job_opportunity_matches` must still check the live roster itself.
  *
  * SCOPE. Every opportunity, whatever its age or availability: no date window. That is a superset
  * of "active and claimed" (there is no claim table yet); a closed one recomputes to EXCLUDED.
@@ -35,6 +39,13 @@ import { MATCH_RULE_VERSION, type SeniorVersions, loadRoster } from './recompute
  *   - a FAILED/DEFERRED row with that reason   -> enqueue again under the base reason plus the
  *     period index, a fresh key each period, so a failure retries at most once per period;
  *   - otherwise                                -> enqueue under the base reason.
+ *
+ * GIVING UP (CR-M-4, SR-M-3). A FAILED row has already burned the store's attempts (5), and nothing
+ * prunes `job_dirty_work`, so retrying a poisoned opportunity every period would add ~4 rows a day
+ * for it for ever. Once the lineage holds `RECONCILE_MAX_FAILED_PERIODS` FAILED/DEFERRED rows the
+ * sweep stops and reports the opportunity as gave-up. The cap resets by itself: a new revision is a
+ * new `target_version`, and a roster or stored-state change is a new reason digest.
+ *
  * The cron also runs `recoverExpiredDirty` first, so a crashed worker's expired lease becomes
  * PENDING (or FAILED, then retried as above) instead of staying CLAIMED for good.
  *
@@ -49,6 +60,15 @@ export const RECONCILE_PAGE_SIZE = 200
 export const RECONCILE_PERIOD_HOURS = 6
 /** Pages one call may scan; the rest resumes from the returned cursor (bounded tick). */
 export const RECONCILE_MAX_PAGES = 500
+
+/**
+ * Failed rows in one lineage after which the sweep stops retrying. Each row is already 5 store
+ * attempts; one transient outage costs one or two rows, so three consecutive failed periods (18 h)
+ * is a persistent fault, and the cost of a poisoned opportunity is bounded at 3 rows (15 attempts).
+ */
+export const RECONCILE_MAX_FAILED_PERIODS = 3
+/** Ids of given-up opportunities one report lists (counts are exact; the list is for the log). */
+export const RECONCILE_GAVE_UP_IDS_MAX = 20
 
 /** Dirty rows the cron's drain may process per tick: batches x `DIRTY_BATCH_DEFAULT` (200). */
 export const RECONCILE_MAX_DRAIN_BATCHES = 10
@@ -78,7 +98,19 @@ export function enqueueReason(
   const same = dirty.filter((d) => d.reason === baseReason || d.reason.startsWith(`${baseReason}:`))
   if (same.some((d) => d.status === 'DONE')) return null
   if (same.length === 0) return baseReason
+  if (hasGivenUp(dirty, baseReason)) return null
   return `${baseReason}:${periodBucket(nowMs)}`
+}
+
+/** True when the lineage holds the cap of FAILED/DEFERRED rows and no row is in flight or DONE. */
+export function hasGivenUp(dirty: readonly DirtyRow[], baseReason: string): boolean {
+  const lineage = dirty.filter(
+    (d) => d.reason === baseReason || d.reason.startsWith(`${baseReason}:`),
+  )
+  if (dirty.some((d) => d.status === 'PENDING' || d.status === 'CLAIMED')) return false
+  if (lineage.some((d) => d.status === 'DONE')) return false
+  const failed = lineage.filter((d) => d.status === 'FAILED' || d.status === 'DEFERRED').length
+  return failed >= RECONCILE_MAX_FAILED_PERIODS
 }
 
 function parseDirty(raw: unknown): DirtyRow[] {
@@ -114,6 +146,10 @@ export interface ReconcileReport {
   readonly failed: number
   /** Stale opportunities not enqueued: already in flight or already repaired (see DEDUPLICATION). */
   readonly skipped: number
+  /** Stale opportunities the sweep gave up on (cap reached); a subset of `skipped`. */
+  readonly gaveUp: number
+  /** Up to `RECONCILE_GAVE_UP_IDS_MAX` of their ids, for the log. */
+  readonly gaveUpIds: readonly string[]
   readonly pages: number
   /** `null`: the sweep reached the end. Otherwise pass it back to resume. */
   readonly cursor: string | null
@@ -185,6 +221,8 @@ export async function reconcileOnce(
   let enqueued = 0
   let failed = 0
   let skipped = 0
+  let gaveUp = 0
+  const gaveUpIds: string[] = []
   let pages = 0
   const now = options.now ?? Date.now
   const only =
@@ -208,11 +246,15 @@ export async function reconcileOnce(
       scanned += 1
       let reason: string | null = null
       let wasStale = false
+      let gaveUpHere = false
       try {
         const matches = parseMatches(row['matches'])
         if (isStale(matches, live)) {
           wasStale = true
-          reason = enqueueReason(parseDirty(row['dirty']), reconcileReason(live, matches), now())
+          const dirty = parseDirty(row['dirty'])
+          const base = reconcileReason(live, matches)
+          reason = enqueueReason(dirty, base, now())
+          gaveUpHere = reason === null && hasGivenUp(dirty, base)
         }
       } catch {
         failed += 1
@@ -222,6 +264,10 @@ export async function reconcileOnce(
       stale += 1
       if (reason === null) {
         skipped += 1
+        if (gaveUpHere) {
+          gaveUp += 1
+          if (gaveUpIds.length < RECONCILE_GAVE_UP_IDS_MAX) gaveUpIds.push(String(row['id']))
+        }
         continue
       }
       try {
@@ -240,8 +286,8 @@ export async function reconcileOnce(
       }
     }
     if (rows.length < pageSize)
-      return { scanned, stale, enqueued, failed, skipped, pages, cursor: null }
+      return { scanned, stale, enqueued, failed, skipped, gaveUp, gaveUpIds, pages, cursor: null }
     cursor = String((rows[rows.length - 1] as Record<string, unknown>)['id'])
   }
-  return { scanned, stale, enqueued, failed, skipped, pages, cursor }
+  return { scanned, stale, enqueued, failed, skipped, gaveUp, gaveUpIds, pages, cursor }
 }

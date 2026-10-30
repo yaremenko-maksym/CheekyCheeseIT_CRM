@@ -25,8 +25,9 @@ export const RECONCILE_RECOVER_BATCH = 1000
  * STALENESS (SR-M-2, CR-M-1, SPEC-L-1): not "one period". A tick sweeps at most 100,000 opportunities
  * and drains at most RECONCILE_MAX_DRAIN_BATCHES x 200 = 2,000 dirty rows; both carry over to the
  * next tick. The bound is P x (ceil(N / 100,000) + ceil(S / 2,000)) with P = RECONCILE_PERIOD_HOURS
- * (6 h): one period for up to 2,000 stale rows, up to 50 more periods (300 h) when 100,000 are
- * stale at once. The drain cap is documented rather than raised (it is 200 transactions per batch
+ * (6 h): at most 2 x P (12 h) for N <= 100,000 and S <= 2,000, and 51 x P (306 h) when N = S = 100,000.
+ * An opportunity that fails every recompute never converges by design: after
+ * RECONCILE_MAX_FAILED_PERIODS failed rows the sweep gives up and this cron logs one warn line. The drain cap is documented rather than raised (it is 200 transactions per batch
  * on a database every other cron shares). Full derivation: `runtime/reconciliation.ts`.
  * RECOVERY (SR-M-1): each tick first returns expired CLAIMED leases to the queue
  * (`recoverExpiredDirty`), so a crashed worker's rows are retried, not stuck.
@@ -63,6 +64,11 @@ export class JobMatchReconciliationCronService {
       this.cursor = report.cursor
       const drained = await this.drain()
       // Counts only, no personal data.
+      if (report.gaveUp > 0)
+        this.logger.warn(
+          `Match reconciliation: gave up on ${report.gaveUp} opportunity(ies) after repeated failed ` +
+            `recomputes (ids: ${report.gaveUpIds.join(',')})`,
+        )
       this.logger.log(
         `Match reconciliation: scanned=${report.scanned} stale=${report.stale} ` +
           `enqueued=${report.enqueued} skipped=${report.skipped} failed=${report.failed} pages=${report.pages} ` +

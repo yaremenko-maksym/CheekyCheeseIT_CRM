@@ -15,7 +15,10 @@ import {
   RECONCILE_MAX_DRAIN_BATCHES,
   RECONCILE_PAGE_SIZE,
   RECONCILE_PERIOD_HOURS,
+  RECONCILE_GAVE_UP_IDS_MAX,
+  RECONCILE_MAX_FAILED_PERIODS,
   enqueueReason,
+  hasGivenUp,
   isStale,
   periodBucket,
   reconcileOnce,
@@ -309,10 +312,64 @@ describe('reconcileOnce with dirty history', () => {
   })
 })
 
+describe('giving up on a poisoned opportunity (CR-M-4, SR-M-3)', () => {
+  const failed = (reason: string) => ({ status: 'FAILED', reason })
+  const lineage = (n: number) =>
+    Array.from({ length: n }, (_, i) => failed(i === 0 ? BASE : `${BASE}:p${i}`))
+
+  it('retries below the cap and stops at it', () => {
+    expect(RECONCILE_MAX_FAILED_PERIODS).toBe(3)
+    expect(enqueueReason(lineage(2), BASE, NOW)).toBe(`${BASE}:${periodBucket(NOW)}`)
+    expect(hasGivenUp(lineage(2), BASE)).toBe(false)
+    expect(enqueueReason(lineage(3), BASE, NOW)).toBeNull()
+    expect(hasGivenUp(lineage(3), BASE)).toBe(true)
+  })
+  it('counts DEFERRED rows, and only rows of its own lineage', () => {
+    const mixed = [failed(BASE), { status: 'DEFERRED', reason: `${BASE}:a` }, failed(`${BASE}:b`)]
+    expect(hasGivenUp(mixed, BASE)).toBe(true)
+    const other = [
+      failed(BASE),
+      failed('RECONCILE:other:digest'),
+      failed('RECONCILE:other:digest:x'),
+    ]
+    expect(hasGivenUp(other, BASE)).toBe(false)
+    expect(enqueueReason(other, BASE, NOW)).toBe(`${BASE}:${periodBucket(NOW)}`)
+  })
+  it('is not "given up" while a row is in flight or once one is DONE', () => {
+    expect(hasGivenUp([...lineage(3), { status: 'PENDING', reason: 'REVISION' }], BASE)).toBe(false)
+    expect(hasGivenUp([...lineage(3), { status: 'DONE', reason: `${BASE}:z` }], BASE)).toBe(false)
+  })
+  it('the report counts them and lists at most the id cap', async () => {
+    // The reason of an opportunity with no rows is the same for all: read it from a probe sweep.
+    const probe = dbOf([opp(1)])
+    await reconcileOnce(probe)
+    const base = String(enqueue.mock.calls[0]?.[4])
+    enqueue.mockClear()
+    const rows = Array.from({ length: RECONCILE_GAVE_UP_IDS_MAX + 3 }, (_, i) =>
+      opp(i + 1, [], 3, [
+        ['FAILED', base],
+        ['FAILED', `${base}:a`],
+        ['FAILED', `${base}:b`],
+      ]),
+    )
+    const r = await reconcileOnce(dbOf(rows), { pageSize: 100 })
+    expect(r.gaveUp).toBe(RECONCILE_GAVE_UP_IDS_MAX + 3)
+    expect(r.gaveUpIds).toHaveLength(RECONCILE_GAVE_UP_IDS_MAX)
+    expect(r.gaveUpIds[0]).toBe(id(1))
+    expect(r).toMatchObject({ enqueued: 0, skipped: RECONCILE_GAVE_UP_IDS_MAX + 3 })
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+  it('an in-flight or repaired opportunity is skipped but not counted as given up', async () => {
+    const r = await reconcileOnce(dbOf([opp(1, [], 3, [['PENDING', 'REVISION']])]))
+    expect(r).toMatchObject({ skipped: 1, gaveUp: 0, gaveUpIds: [] })
+  })
+})
+
 describe('constants', () => {
   it('pins MP-05 batch and the SR-M-2 period', () => {
     expect(RECONCILE_PAGE_SIZE).toBe(200)
     expect(RECONCILE_PERIOD_HOURS).toBe(6)
     expect(RECONCILE_MAX_DRAIN_BATCHES).toBe(10)
+    expect(RECONCILE_GAVE_UP_IDS_MAX).toBe(20)
   })
 })

@@ -25,6 +25,8 @@ const report = (over: Record<string, unknown> = {}) => ({
   enqueued: 2,
   failed: 0,
   skipped: 0,
+  gaveUp: 0,
+  gaveUpIds: [] as string[],
   pages: 1,
   cursor: null,
   ...over,
@@ -199,5 +201,21 @@ describe('JobMatchReconciliationCronService', () => {
     await svc.handleReconciliation()
     expect(reconcile).not.toHaveBeenCalled()
     expect(error).toHaveBeenCalledTimes(1)
+  })
+
+  it('warns once with ids and counts when the sweep gave up on opportunities', async () => {
+    reconcile.mockResolvedValue(report({ gaveUp: 2, gaveUpIds: ['a', 'b'] }))
+    const { svc } = make()
+    await svc.handleReconciliation()
+    expect(warn).toHaveBeenCalledTimes(1)
+    const line = String(warn.mock.calls[0]?.[0])
+    expect(line).toContain('gave up on 2 opportunity(ies)')
+    expect(line).toContain('ids: a,b')
+  })
+
+  it('does not warn when nothing was given up', async () => {
+    const { svc } = make()
+    await svc.handleReconciliation()
+    expect(warn).not.toHaveBeenCalled()
   })
 })
