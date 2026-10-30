@@ -97,7 +97,8 @@ describe('countDue, the sweep scope (U3)', () => {
     expect(count.sql).toContain(
       'rr.started_at >= (SELECT c.started_at FROM job_collection_cycles c WHERE c.id = $',
     )
-    expect(count.params).toContain(600)
+    // CR-M-3: one tick period plus one tick window, in seconds
+    expect(count.params).toContain(1140)
     // the floors, in minutes, aligned with the ids: 0 and 1.5 h
     expect(count.params).toContain('{0,90}')
     expect(count.sql).toMatch(/AS f\(id, minutes\)\s+WHERE f\.id = job_sources\.manifest_id/)

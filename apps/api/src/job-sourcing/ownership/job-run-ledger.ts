@@ -94,10 +94,14 @@ export interface SweepScope {
 }
 
 /**
- * CR-M-1 / SR-M-1: a run started this long before the sweep cycle opened, or later, counts as the
- * source's run "around the sweep" (one tick period: the 07:50 tick and every later one).
+ * CR-M-1 / SR-M-1 / CR-M-3: a run started this long before the sweep cycle opened, or later, counts
+ * as the source's run "around the sweep". One tick period (10 min) PLUS one tick window (9 min):
+ * a run of the 07:50 tick starts anywhere in 07:50..07:59 (its window), and both that claim and
+ * the sweep cycle's opening carry cron and latency jitter. Anchored on the sweep cycle's own
+ * `started_at`, a plain 10-minute window made the 07:50 tick's first claims a coin flip. Tied to
+ * `TICK_WINDOW_MS` by the cron spec; the ledger does not import the cron module.
  */
-export const SWEEP_RECENT_RUN_MS = 10 * 60_000
+export const SWEEP_RECENT_RUN_MS = 19 * 60_000
 
 export type ManualClaim =
   | { readonly kind: 'CLAIMED'; readonly run: ClaimedRun }
@@ -449,9 +453,10 @@ export class JobRunLedger {
    * (`isSweepable`: an interval profile, no fixed slots) and minus the window's skipped sources.
    * The profile lives in code, so the entries are resolved here from the stored manifest ids.
    *
-   * CR-M-1 / SR-M-1: a source is swept ONCE around the sweep (owner, Q4 option A). The sweep also
-   * skips a source with ANY run (any cycle) started since one tick period before the sweep cycle
-   * opened (`SWEEP_RECENT_RUN_MS`: the 07:50, 08:00 and later ticks), or inside its provider floor
+   * CR-M-1 / SR-M-1 / CR-M-3: a source is swept ONCE around the sweep (ADR section 5 as amended by
+   * Master). The sweep also skips a source with ANY run (any cycle) started since
+   * `SWEEP_RECENT_RUN_MS` (19 min) before the sweep cycle opened (the 07:50 tick, wherever in its
+   * window it claimed, and every later tick), or inside its provider floor
    * (`floorHours`, which a cadence-free claim would otherwise bypass).
    */
   private async sweepPredicate(sweep: SweepScope): Promise<SQL> {

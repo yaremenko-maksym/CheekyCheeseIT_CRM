@@ -14,6 +14,7 @@ import {
   tickTriggerKey,
 } from './job-sourcing.cron'
 import { DEFAULT_JOB_COLLECTION_WINDOW_MS } from '../config/env'
+import { SWEEP_RECENT_RUN_MS } from './ownership/job-run-ledger'
 
 /**
  * r5 Task 2.5 T5, the pure side: decorators, the cron expressions resolved in Europe/Kyiv across
@@ -224,6 +225,10 @@ describe('the tick (U3)', () => {
       'close',
     ])
     expect(b.service.collectAll).not.toHaveBeenCalled()
+  })
+
+  it('CR-M-3: the sweep`s recent-run window is one tick period plus one tick window', () => {
+    expect(SWEEP_RECENT_RUN_MS).toBe(10 * 60_000 + TICK_WINDOW_MS)
   })
 
   it('its window is 9 minutes, whatever JOB_COLLECTION_WINDOW_MS says', async () => {

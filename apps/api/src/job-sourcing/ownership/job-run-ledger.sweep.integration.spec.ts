@@ -17,7 +17,7 @@ import {
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageRun, ageSource } from '../../test/run-aging'
 import type { FetchProfile } from '../scheduling/next-slot'
-import { type ClaimedRun, JobRunLedger, toTextArray } from './job-run-ledger'
+import { type ClaimedRun, JobRunLedger, SWEEP_RECENT_RUN_MS, toTextArray } from './job-run-ledger'
 
 /**
  * Source fetch strategy U3 (ADR docs/architecture/2026-10-25-source-fetch-strategy.md, unit U3):
@@ -359,7 +359,34 @@ describe.skipIf(!hasDatabaseUrl())('U3: the sweep and the tick claim, as crm_app
     expect(await fx.runs(s)).toHaveLength(1)
   })
 
-  it('a run older than one tick period does not stop the sweep; one inside the provider floor does', async () => {
+  it('CR-M-3: the 07:50 tick edge and the window boundary, anchored on the sweep cycle start', async () => {
+    const edge = await kit.reporting({}, { fetchProfile: HOURLY })
+    const atBoundary = await kit.reporting({}, { fetchProfile: HOURLY })
+    const pastBoundary = await kit.reporting({}, { fetchProfile: HOURLY })
+    const ids = [edge, atBoundary, pastBoundary]
+    const ticked = await claimOnce(await cycle(), ids)
+    expect(ticked.claimed).toHaveLength(3)
+    const sweepId = await cycle()
+    const startedBefore = async (sourceId: string, ms: number) => {
+      const { rowCount } = await session.admin.query(
+        `UPDATE job_collection_runs
+            SET started_at = (SELECT started_at FROM job_collection_cycles WHERE id = $2)
+                             - make_interval(secs => $3::double precision / 1000)
+          WHERE source_id = $1`,
+        [sourceId, sweepId, ms],
+      )
+      expect(rowCount).toBe(1)
+    }
+    // the 07:50 tick claimed it a second before the window edge of the old 10-minute rule
+    await startedBefore(edge, 10 * 60_000 + 1_000)
+    await startedBefore(atBoundary, SWEEP_RECENT_RUN_MS)
+    await startedBefore(pastBoundary, SWEEP_RECENT_RUN_MS + 1_000)
+    // edge and boundary already ran around the sweep; only the run past the window is swept again
+    expect(sourcesOf(await sweepAll(sweepId, ids))).toEqual([pastBoundary])
+    expect(SWEEP_RECENT_RUN_MS).toBe(19 * 60_000)
+  })
+
+  it('a run older than the recent-run window does not stop the sweep; one inside the provider floor does', async () => {
     const plain = await kit.reporting({}, { fetchProfile: HOURLY })
     const floored = await kit.reporting({}, { fetchProfile: HOURLY, floorHours: 2 })
     const tickId = await cycle()
