@@ -6383,3 +6383,29 @@ and Remotive's third-party clause. Revisit if a provider objects.
 
 Sources: PR #1175 and #1176 review rounds; `docs/architecture/2026-10-25-source-fetch-strategy.md`
 (Owner decisions, Open questions).
+
+---
+
+## 343. Source-fetch tick: routinePages, tick-cycle retention, shared host budget (2026-10-30)
+
+From the PR #1189 reviews (SR-M-1, CR-M-1, SPEC-M-1). Three gaps that the tick unit leaves to later units.
+
+**(i) A tick reads every page, not `routinePages`.** The strategy ADR says a tick reads the profile's
+`routinePages` and a sweep reads all pages. Today the run context carries no page limit, so a tick reads
+as many pages as the adapter allows. Before Arbeitnow (`routinePages: 1`) is registered, one unit must
+pass the profile's `routinePages` into the run context and have adapters honour it. Owner: the Arbeitnow
+adapter/registration unit. Verify: a spec runs a tick and a sweep against a fake adapter that serves
+several pages; the tick requests `routinePages` pages and the sweep requests all.
+
+**(ii) Tick cycles have no retention.** The tick opens up to 144 cycle rows a day (about 53,000 a year).
+Decide which unit deletes or archives closed tick cycles and their keys (U2 or U4), and by what age.
+Verify: after the retention job runs, closed tick cycles older than the chosen age are gone while sweep
+cycles and runs still reference valid cycles.
+
+**(iii) The per-host budget is not enforced.** Board types declare no `hostRate` today, so the shared
+limit of 2 requests a minute per multi-board host (owner decision 11) has no effect until U11 declares it.
+Until then boards are limited only by the per-source rules. Verify: a spec with two sources on one host
+shows the second refused with `HOST_RATE_GAP` inside the gap; it fails today and passes after U11.
+
+Sources: PR #1189 reviews; `docs/architecture/2026-10-25-source-fetch-strategy.md` (section 5, Owner
+decision 11, unit U11).
