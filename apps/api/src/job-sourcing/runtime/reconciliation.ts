@@ -109,8 +109,8 @@ export function hasGivenUp(dirty: readonly DirtyRow[], baseReason: string): bool
   )
   if (dirty.some((d) => d.status === 'PENDING' || d.status === 'CLAIMED')) return false
   if (lineage.some((d) => d.status === 'DONE')) return false
-  const failed = lineage.filter((d) => d.status === 'FAILED' || d.status === 'DEFERRED').length
-  return failed >= RECONCILE_MAX_FAILED_PERIODS
+  // Nothing in flight and nothing DONE: every lineage row left is FAILED or DEFERRED.
+  return lineage.length >= RECONCILE_MAX_FAILED_PERIODS
 }
 
 function parseDirty(raw: unknown): DirtyRow[] {
@@ -244,27 +244,24 @@ export async function reconcileOnce(
     pages += 1
     for (const row of rows) {
       scanned += 1
-      let reason: string | null = null
-      let wasStale = false
-      let gaveUpHere = false
+      let verdict: { reason: string | null; gaveUp: boolean } | null = null
       try {
         const matches = parseMatches(row['matches'])
         if (isStale(matches, live)) {
-          wasStale = true
           const dirty = parseDirty(row['dirty'])
           const base = reconcileReason(live, matches)
-          reason = enqueueReason(dirty, base, now())
-          gaveUpHere = reason === null && hasGivenUp(dirty, base)
+          verdict = { reason: enqueueReason(dirty, base, now()), gaveUp: hasGivenUp(dirty, base) }
         }
       } catch {
         failed += 1
         continue
       }
-      if (!wasStale) continue
+      if (verdict === null) continue
       stale += 1
+      const reason = verdict.reason
       if (reason === null) {
         skipped += 1
-        if (gaveUpHere) {
+        if (verdict.gaveUp) {
           gaveUp += 1
           if (gaveUpIds.length < RECONCILE_GAVE_UP_IDS_MAX) gaveUpIds.push(String(row['id']))
         }

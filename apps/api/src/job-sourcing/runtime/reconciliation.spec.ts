@@ -337,6 +337,7 @@ describe('giving up on a poisoned opportunity (CR-M-4, SR-M-3)', () => {
   })
   it('is not "given up" while a row is in flight or once one is DONE', () => {
     expect(hasGivenUp([...lineage(3), { status: 'PENDING', reason: 'REVISION' }], BASE)).toBe(false)
+    expect(hasGivenUp([...lineage(3), { status: 'CLAIMED', reason: 'REVISION' }], BASE)).toBe(false)
     expect(hasGivenUp([...lineage(3), { status: 'DONE', reason: `${BASE}:z` }], BASE)).toBe(false)
   })
   it('the report counts them and lists at most the id cap', async () => {
