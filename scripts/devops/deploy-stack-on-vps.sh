@@ -2232,6 +2232,30 @@ echo "==> job record store applied successfully"
 # The one-time tx_date Kyiv backfill (backlog 338) was applied on production 2026-10-26 and
 # de-wired; it is listed in KNOWN_NOT_WIRED. Its backup table stays (privilege class E).
 
+# ── transactions.tx_date NOT NULL (backlog 338, final step, owner-approved 2026-10-26) ──
+# Permanent constraint, PERMANENTLY wired: idempotent (already NOT NULL -> NOTICE, no write),
+# so every deploy re-asserts it. Fail-loud: any NULL tx_date RAISES and stops the deploy
+# here, before the container swap, while the old API keeps serving. Creates no relation.
+# Rollback of the schema: ALTER TABLE public.transactions ALTER COLUMN tx_date DROP NOT NULL;
+# Source: apps/api/drizzle/manual/2026-10-27_transactions_tx_date_not_null.sql
+TX_DATE_NOT_NULL_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-27_transactions_tx_date_not_null.sql"
+
+if [ ! -f "$TX_DATE_NOT_NULL_FILE" ]; then
+  echo "ERROR: DDL file not found at $TX_DATE_NOT_NULL_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying transactions.tx_date NOT NULL (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$TX_DATE_NOT_NULL_FILE"
+echo "==> transactions.tx_date NOT NULL applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file
