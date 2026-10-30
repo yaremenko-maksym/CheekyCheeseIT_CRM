@@ -673,7 +673,10 @@ already done.
 `tx_date`**, so a writer that tries one now fails its insert instead of persisting it. The file stays wired
 permanently: it is idempotent (already NOT NULL prints a NOTICE and writes nothing) and, on its first apply, RAISES
 with the NULL-row count if any row still has `tx_date IS NULL`, failing the deploy before the container swap. Run
-the query above before that first deploy. Schema rollback, if ever needed (owner, through `ssh crm-vps`):
+the query above before that first deploy. The file also sets `lock_timeout = '10s'`: if the still-serving old API
+holds a lock on `transactions` longer than that, the step fails with `lock_not_available` (55P03) instead of
+queueing every read and write behind the ALTER. That failure is harmless — nothing was changed, the deploy stops
+before the swap and the old API keeps serving — so simply retry the deploy. Schema rollback, if ever needed (owner, through `ssh crm-vps`):
 `ALTER TABLE public.transactions ALTER COLUMN tx_date DROP NOT NULL;` — then de-wire the file, or the next deploy
 re-adds the constraint. Rolling back only the API image needs no schema rollback: every image since #1158 writes a
 non-null `tx_date`.

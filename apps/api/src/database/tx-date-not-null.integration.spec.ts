@@ -155,6 +155,29 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await rowCount()).toBe(3)
     })
 
+    it('fails fast (lock_timeout, 55P03) instead of queueing behind a lock the old API holds', async () => {
+      await pool.query(
+        `UPDATE transactions SET tx_date = '2026-10-02T00:00:00.000Z' WHERE tx_date IS NULL`,
+      )
+      // An open transaction of the still-serving API: any read of transactions holds
+      // ACCESS SHARE, which conflicts with the ALTER's ACCESS EXCLUSIVE.
+      const holder = await pool.connect()
+      try {
+        await holder.query('BEGIN')
+        await holder.query('SELECT count(*) FROM transactions')
+        const started = Date.now()
+        await expect(applyMigration()).rejects.toMatchObject({ code: '55P03' })
+        const waitedMs = Date.now() - started
+        // Bounded by the file's 10s lock_timeout, not by the holder.
+        expect(waitedMs).toBeGreaterThanOrEqual(9_000)
+        expect(waitedMs).toBeLessThan(20_000)
+      } finally {
+        await holder.query('ROLLBACK')
+        holder.release()
+      }
+      expect(await isNotNull()).toBe(false)
+    }, 40_000)
+
     it('with 0 NULL rows the column becomes NOT NULL without rewriting data', async () => {
       await pool.query(
         `UPDATE transactions SET tx_date = '2026-10-02T00:00:00.000Z' WHERE tx_date IS NULL`,

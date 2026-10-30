@@ -2236,6 +2236,8 @@ echo "==> job record store applied successfully"
 # Permanent constraint, PERMANENTLY wired: idempotent (already NOT NULL -> NOTICE, no write),
 # so every deploy re-asserts it. Fail-loud: any NULL tx_date RAISES and stops the deploy
 # here, before the container swap, while the old API keeps serving. Creates no relation.
+# lock_timeout 10s (in the file): a lock held by the old API fails this step (55P03)
+# instead of queueing every query on transactions; nothing changed, retry the deploy.
 # Rollback of the schema: ALTER TABLE public.transactions ALTER COLUMN tx_date DROP NOT NULL;
 # Source: apps/api/drizzle/manual/2026-10-27_transactions_tx_date_not_null.sql
 TX_DATE_NOT_NULL_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-27_transactions_tx_date_not_null.sql"

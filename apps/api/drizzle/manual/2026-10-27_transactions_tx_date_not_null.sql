@@ -12,17 +12,26 @@
 --
 -- SAFETY
 --   - One DO block = one transaction under any invocation; it commits whole or not at all.
+--     Apply it with --single-transaction (as the deploy does) so the SET LOCAL below
+--     shares that transaction; without it, SET LOCAL warns and has no effect.
 --   - Fail-loud pre-check: RAISE EXCEPTION if any row still has tx_date IS NULL (soft-deleted
 --     rows included). The message carries the count only — the deploy log is public.
 --   - Idempotent: when the column is already NOT NULL the file prints a NOTICE and writes
 --     nothing, so it stays wired on every deploy and re-asserts the constraint.
 --   - No data rewrite. SET NOT NULL scans the table once under ACCESS EXCLUSIVE; the
 --     table is small (hundreds of rows), so the lock is held for milliseconds.
+--   - `lock_timeout` (10s, transaction-local) bounds the wait for that lock. The old API
+--     keeps serving during the deploy; if one of its transactions holds a lock on
+--     transactions longer than 10s, this file FAILS (lock_not_available) instead of
+--     queueing every read and write behind the ALTER. The deploy stops before the
+--     container swap and the old API keeps serving; retry the deploy.
 --
 -- ROLLBACK (schema): ALTER TABLE public.transactions ALTER COLUMN tx_date DROP NOT NULL;
 --   Rolling back the API IMAGE alone is safe without it: every image since #1158 writes a
 --   non-null tx_date on every insert path, so an older image never trips the constraint.
 -- =============================================================================
+
+SET LOCAL lock_timeout = '10s';
 
 DO $$
 DECLARE
