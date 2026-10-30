@@ -464,7 +464,7 @@ export class InvoicesService {
       projectNames,
       contractNumber,
       salaryMonth: tx.salaryMonth ?? null,
-      txDate: tx.txDate ?? tx.createdAt,
+      txDate: tx.txDate,
     }
 
     // ---- Insert COUNTERPARTY signature ----

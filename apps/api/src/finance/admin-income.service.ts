@@ -552,7 +552,7 @@ export class AdminIncomeService {
           projectId: data.projectId,
           companyName: project.companyName,
           createdBy: currentUser.id,
-          txDate: tx!.txDate ?? tx!.createdAt,
+          txDate: tx!.txDate,
           // task-admin-income-drop-backfill: this row's own id — the ONE call
           // site that always knows its source income (it just inserted it, in
           // this same db transaction). Lets a future query answer "does this

@@ -226,6 +226,10 @@ describe.skipIf(!hasDatabaseUrl())(
       const { pushSchema } = await import('drizzle-kit/api')
       const pushed = await pushSchema(schema, db as never)
       await pushed.apply()
+      // schema.ts now declares tx_date NOT NULL (2026-10-27_transactions_tx_date_not_null.sql).
+      // The backfill ran on production BEFORE that constraint, against a nullable column, so
+      // this scratch database is put back into that historical shape to replay it faithfully.
+      await pool.query('ALTER TABLE transactions ALTER COLUMN tx_date DROP NOT NULL')
 
       const instance = Object.create(DatabaseService.prototype) as DatabaseService
       Object.assign(instance, { pool, db })

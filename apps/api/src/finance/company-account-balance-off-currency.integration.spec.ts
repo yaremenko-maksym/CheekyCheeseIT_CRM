@@ -130,6 +130,7 @@ describe.skipIf(!hasDatabaseUrl())(
         db,
         {
           id: TX_OFF_CURRENCY_EXPENSE,
+          txDate: resolveTransactionDate(null),
           type: 'EXPENSE',
           status: 'PAID',
           amount: '250',
@@ -179,6 +180,7 @@ describe.skipIf(!hasDatabaseUrl())(
         db,
         {
           id: TX_REVERTED_OFF_CURRENCY,
+          txDate: resolveTransactionDate(null),
           type: 'SENIOR_PENDING_PAYOUT',
           status: 'PENDING_PAYMENT',
           amount: '260',
@@ -208,6 +210,7 @@ describe.skipIf(!hasDatabaseUrl())(
         db,
         {
           id: TX_REVERTED_UNLABELLED,
+          txDate: resolveTransactionDate(null),
           type: 'DROP_PENDING_PAYOUT',
           status: 'PENDING_PAYMENT',
           amount: '100',
@@ -331,6 +334,7 @@ describe.skipIf(!hasDatabaseUrl())(
         db,
         {
           id: TX_OFF_CURRENCY_EXPENSE,
+          txDate: resolveTransactionDate(null),
           type: 'EXPENSE',
           status: 'PAID',
           amount: '250',
@@ -446,6 +450,7 @@ describe.skipIf(!hasDatabaseUrl())(
         db,
         {
           id: TX_OFF_CURRENCY_EXPENSE,
+          txDate: resolveTransactionDate(null),
           type: 'EXPENSE',
           status: 'PAID',
           amount: '250',

@@ -23,8 +23,8 @@
  *   - the inclusive edges: `from` from that day's 00:00:00 UTC, `to` through
  *     its 23:59:59.999 — including a row at noon on the `to` day, the
  *     regression MED review finding code-review-2 fixed;
- *   - rows with a NULL `tx_date` (everything predating #809) still window by
- *     `created_at` through the coalesce fallback;
+ *   - a row entered without a chosen date windows by the date its writer stamped
+ *     (tx_date is NOT NULL since backlog 338, so the old NULL fallback is gone);
  *   - ordering is newest-business-date first, so the page order matches the
  *     date column the client renders;
  *   - `txDate` reaches the DTO, for incomes and for payments.
@@ -48,6 +48,7 @@ import { DropSelfService } from './drop-self.service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 const DROP_USER: SessionUser = {
   id: 'bd700000-0000-4000-aa00-000000000001',
@@ -65,8 +66,8 @@ const DROP_USER: SessionUser = {
 // the two are deliberately on opposite sides for the first two.
 const IN_BY_TXDATE = 'bd700001-0000-4000-b000-000000000001' // created JULY, dated 15 JUN → IN
 const OUT_BY_TXDATE = 'bd700001-0000-4000-b000-000000000002' // created 15 JUN, dated JULY → OUT
-const IN_BY_FALLBACK = 'bd700001-0000-4000-b000-000000000003' // created 10 JUN, NO tx_date → IN
-const OUT_BY_FALLBACK = 'bd700001-0000-4000-b000-000000000004' // created MAY, NO tx_date → OUT
+const IN_BY_FALLBACK = 'bd700001-0000-4000-b000-000000000003' // created 10 JUN, no chosen date → IN
+const OUT_BY_FALLBACK = 'bd700001-0000-4000-b000-000000000004' // created MAY, no chosen date → OUT
 const EDGE_FROM_FIRST_INSTANT = 'bd700001-0000-4000-b000-000000000005' // dated 01 JUN 00:00:00.000 → IN
 const EDGE_FROM_ONE_MS_BEFORE = 'bd700001-0000-4000-b000-000000000006' // dated 31 MAY 23:59:59.999 → OUT
 const EDGE_TO_NOON = 'bd700001-0000-4000-b000-000000000007' // dated 30 JUN 12:30 → IN
@@ -160,7 +161,9 @@ describe.skipIf(!hasDatabaseUrl())(
         recipientId: DROP_USER.id,
         senderLabel: 'BD Client Co',
         createdAt: new Date(createdAt),
-        txDate: txDate ? new Date(txDate) : null,
+        // tx_date is NOT NULL (backlog 338): a row entered without a chosen date
+        // stores what the writer persists for it.
+        txDate: txDate ? new Date(txDate) : resolveTransactionDate(null, new Date(createdAt)),
         createdBy: DROP_USER.id,
       })
 
@@ -204,7 +207,7 @@ describe.skipIf(!hasDatabaseUrl())(
           currency: 'USDT',
           senderId: DROP_USER.id,
           createdAt: new Date('2026-08-01T09:00:00.000Z'),
-          txDate: null,
+          txDate: resolveTransactionDate(null, new Date('2026-08-01T09:00:00.000Z')),
           createdBy: DROP_USER.id,
         },
       ])
@@ -241,10 +244,10 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await juneIds()).not.toContain(OUT_BY_TXDATE)
     })
 
-    it('windows a NULL tx_date row by created_at through the coalesce fallback', async () => {
+    it('windows a row entered without a chosen date by the day its writer stamped', async () => {
       const ids = await juneIds()
-      // Every row predating #809 has a NULL tx_date; without the fallback they
-      // would all vanish from every window at once.
+      // tx_date is NOT NULL since backlog 338; a row entered without a date carries
+      // the writer's stamp (its created_at Kyiv day), so it windows by that day.
       expect(ids).toContain(IN_BY_FALLBACK)
       expect(ids).not.toContain(OUT_BY_FALLBACK)
     })
@@ -311,10 +314,11 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(parsed.createdAt).toBe('2026-07-05T09:00:00.000Z')
     })
 
-    it('exposes txDate as null for a row that predates custom dates', async () => {
+    it('exposes the writer-stamped txDate for a row entered without a chosen date', async () => {
       const res = await svc.getDropSelfIncomes(DROP_USER, q({ ...JUNE, limit: 100 }))
       const row = res.items.find((i) => i.id === IN_BY_FALLBACK)
-      expect(dropIncomeDtoSchema.parse(row).txDate).toBeNull()
+      // Kyiv day == UTC day of created_at (09:00Z), so the writer stores created_at itself.
+      expect(dropIncomeDtoSchema.parse(row).txDate).toBe('2026-06-10T09:00:00.000Z')
     })
 
     it('exposes txDate on a payment row and parses against the shared schema', async () => {
@@ -322,7 +326,7 @@ describe.skipIf(!hasDatabaseUrl())(
       const dated = items.find((p) => p.id === PAYMENT_DATED)
       const undated = items.find((p) => p.id === PAYMENT_UNDATED)
       expect(dropPaymentDtoSchema.parse(dated).txDate).toBe('2026-06-20T00:00:00.000Z')
-      expect(dropPaymentDtoSchema.parse(undated).txDate).toBeNull()
+      expect(dropPaymentDtoSchema.parse(undated).txDate).toBe('2026-08-01T09:00:00.000Z')
     })
 
     // ── self-scope is unchanged by any of the above ─────────────────────────

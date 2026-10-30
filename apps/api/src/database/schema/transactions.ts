@@ -486,8 +486,10 @@ export const transactions = pgTable(
       notes: string | null
       txDate: string | 'AUTO'
     }>(),
-    // User-specified transaction date (defaults to creation time if not provided)
-    txDate: timestamp('tx_date', { withTimezone: true }),
+    // Business date of the transaction. NOT NULL since backlog 338
+    // (drizzle/manual/2026-10-27_transactions_tx_date_not_null.sql); every insert path sets it,
+    // via `resolveTransactionDate` when the caller gives none.
+    txDate: timestamp('tx_date', { withTimezone: true }).notNull(),
     createdBy: uuid('created_by')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
