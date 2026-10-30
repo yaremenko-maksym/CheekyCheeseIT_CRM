@@ -93,6 +93,12 @@ export interface SweepScope {
   readonly skipIds: readonly string[]
 }
 
+/**
+ * CR-M-1 / SR-M-1: a run started this long before the sweep cycle opened, or later, counts as the
+ * source's run "around the sweep" (one tick period: the 07:50 tick and every later one).
+ */
+export const SWEEP_RECENT_RUN_MS = 10 * 60_000
+
 export type ManualClaim =
   | { readonly kind: 'CLAIMED'; readonly run: ClaimedRun }
   | { readonly kind: 'REFUSED'; readonly reason: ManualRefusal }
@@ -334,7 +340,13 @@ export class JobRunLedger {
           tried.push(sourceId)
           const verdict = await this.gateAndHost(tx, row, true)
           if (verdict.kind === 'REFUSED') {
-            await this.writeRefusal(tx, sourceId, verdict.reason, verdict.opensAt)
+            await this.writeRefusal(
+              tx,
+              sourceId,
+              verdict.reason,
+              verdict.opensAt,
+              input.sweep !== undefined,
+            )
             return { kind: 'REFUSED' as const, refusal: { sourceId, reason: verdict.reason } }
           }
           const run = await this.insertRun(tx, row, cycle, input.owner, verdict.adapterVersion)
@@ -436,21 +448,38 @@ export class JobRunLedger {
    * U3: the sweep predicate (ADR section 5) narrowed to the sweepable manifest entries
    * (`isSweepable`: an interval profile, no fixed slots) and minus the window's skipped sources.
    * The profile lives in code, so the entries are resolved here from the stored manifest ids.
+   *
+   * CR-M-1 / SR-M-1: a source is swept ONCE around the sweep (owner, Q4 option A). The sweep also
+   * skips a source with ANY run (any cycle) started since one tick period before the sweep cycle
+   * opened (`SWEEP_RECENT_RUN_MS`: the 07:50, 08:00 and later ticks), or inside its provider floor
+   * (`floorHours`, which a cadence-free claim would otherwise bypass).
    */
   private async sweepPredicate(sweep: SweepScope): Promise<SQL> {
     const { rows } = await this.db.execute(
       sql`SELECT DISTINCT manifest_id FROM job_sources WHERE manifest_id IS NOT NULL`,
     )
     // The query excludes NULL; an id the catalog does not know is not sweepable (fail closed).
-    const sweepable = rows
-      .map((r) => String(r['manifest_id']))
-      .filter((id) => isSweepable(this.catalog.entry(id)))
+    const ids: string[] = []
+    const floors: number[] = []
+    for (const id of rows.map((r) => String(r['manifest_id']))) {
+      const entry = this.catalog.entry(id)
+      if (entry === undefined || !isSweepable(entry)) continue
+      ids.push(id)
+      floors.push(Math.ceil(entry.floorHours * 60))
+    }
     const due = dueSourcesPredicate('SCHEDULED', {
       maxConsecutiveFailures: this.options.maxConsecutiveFailures,
       sweepCycleId: sweep.cycleId,
     })
-    return sql`${due} AND job_sources.manifest_id = ANY(${toTextArray(sweepable)})
-      AND NOT (job_sources.id = ANY(${toUuidArray(sweep.skipIds)}))`
+    return sql`${due} AND job_sources.manifest_id = ANY(${toTextArray(ids)})
+      AND NOT (job_sources.id = ANY(${toUuidArray(sweep.skipIds)}))
+      AND NOT EXISTS (SELECT 1 FROM job_collection_runs rr
+        WHERE rr.source_id = job_sources.id
+          AND (rr.started_at >= (SELECT c.started_at FROM job_collection_cycles c WHERE c.id = ${sweep.cycleId}::uuid)
+                 - make_interval(secs => ${SWEEP_RECENT_RUN_MS / 1000})
+               OR rr.started_at > clock_timestamp() - make_interval(mins => (
+                 SELECT f.minutes FROM unnest(${toTextArray(ids)}, ${toIntArray(floors)}) AS f(id, minutes)
+                  WHERE f.id = job_sources.manifest_id))))`
   }
 
   /** Steps 2 and 3 on the locked row: the gates, then T8's host slot with the CATALOG's policy. */
@@ -483,21 +512,31 @@ export class JobRunLedger {
     }
   }
 
-  /** The refusal write-back of a SCHEDULED claim; never touches `consecutive_failures`. */
+  /**
+   * The refusal write-back of a SCHEDULED claim; never touches `consecutive_failures`. A SWEEP
+   * refusal never moves `next_attempt_at` EARLIER (SR-M-1): the sweep picks sources that are not
+   * due by their own slot, and pulling one forward to a host gap would hand it to the next tick,
+   * a second run beside the sweep's own retry.
+   */
   private async writeRefusal(
     tx: DrizzleTx,
     sourceId: string,
     reason: ClaimRefusal,
     opensAt: Date | null,
+    swept: boolean,
   ): Promise<void> {
     const write = refusalWrite(reason, opensAt)
     if (write.kind === 'NONE') return
+    const moved =
+      write.kind === 'UNTIL'
+        ? sql`${write.at.toISOString()}::timestamptz`
+        : sql`clock_timestamp() + make_interval(secs => ${this.options.refusalRecheckMs / 1000})`
     const next =
       write.kind === 'NEVER'
         ? sql`NULL::timestamptz`
-        : write.kind === 'UNTIL'
-          ? sql`${write.at.toISOString()}::timestamptz`
-          : sql`clock_timestamp() + make_interval(secs => ${this.options.refusalRecheckMs / 1000})`
+        : swept
+          ? sql`GREATEST(job_sources.next_attempt_at, ${moved})`
+          : moved
     await tx.execute(
       sql`UPDATE job_sources SET last_error_code = ${reason}, next_attempt_at = ${next}, updated_at = clock_timestamp() WHERE id = ${sourceId}::uuid`,
     )
@@ -894,10 +933,16 @@ function toTypeArray(types: readonly string[]): SQL {
   return sql`${`{${types.join(',')}}`}::text[]`
 }
 
-/** A text[] parameter as an array literal, every element quoted and escaped. */
-function toTextArray(values: readonly string[]): SQL {
+/** A text[] parameter as an array literal, every element quoted and escaped. Exported for its spec. */
+export function toTextArray(values: readonly string[]): SQL {
   const quoted = values.map((v) => `"${v.replace(/[\\"]/g, (c) => `\\${c}`)}"`)
   return sql`${`{${quoted.join(',')}}`}::text[]`
+}
+
+/** An int[] parameter of non-negative safe integers. */
+function toIntArray(values: readonly number[]): SQL {
+  for (const v of values) if (!Number.isSafeInteger(v) || v < 0) throw new RangeError('not a count')
+  return sql`${`{${values.join(',')}}`}::int[]`
 }
 
 /** A uuid[] parameter: drizzle would spread a JS array into a row constructor, so pass it as text. */

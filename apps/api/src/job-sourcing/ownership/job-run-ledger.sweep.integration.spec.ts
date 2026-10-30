@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
@@ -16,7 +17,7 @@ import {
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageRun, ageSource } from '../../test/run-aging'
 import type { FetchProfile } from '../scheduling/next-slot'
-import { type ClaimedRun, JobRunLedger } from './job-run-ledger'
+import { type ClaimedRun, JobRunLedger, toTextArray } from './job-run-ledger'
 
 /**
  * Source fetch strategy U3 (ADR docs/architecture/2026-10-25-source-fetch-strategy.md, unit U3):
@@ -372,10 +373,26 @@ describe.skipIf(!hasDatabaseUrl())('U3: the sweep and the tick claim, as crm_app
     expect(await fx.runs(floored)).toHaveLength(1)
   })
 
-  it('CR-M-2: a manifest id with a quote, a backslash, a comma and braces round-trips through the sweep scope', async () => {
-    const odd = `t3.spec.${TAG}.q"b\\c,d{e}`
-    const s = await kit.reporting({ manifestId: odd }, { fetchProfile: HOURLY })
-    expect(await fx.manifestIdOf(s)).toBe(odd)
+  it('CR-M-2: toTextArray round-trips a quote, a backslash, a comma, braces and NULL through Postgres', async () => {
+    // job_sources.manifest_id is constrained to [a-z0-9._:-], so these never reach the sweep from
+    // the table; the escaping is defensive and is proven here against Postgres's own array parser.
+    const values = [
+      'plain',
+      'q"uote',
+      'back\\slash',
+      'com,ma',
+      '{brace}',
+      'NULL',
+      ' sp ',
+      '',
+      'a\\"b',
+    ]
+    const db = drizzle(session.pool, { schema })
+    const { rows } = await db.execute(sql`SELECT ${toTextArray(values)} AS a`)
+    expect(rows[0]?.['a']).toEqual(values)
+    // and the allowed punctuation of a real manifest id goes through the sweep scope itself
+    const colon = `t3.spec.${TAG}:x-y_z`
+    const s = await kit.reporting({ manifestId: colon }, { fetchProfile: HOURLY })
     expect(sourcesOf(await sweepAll(await cycle(), [s]))).toEqual([s])
   })
 })

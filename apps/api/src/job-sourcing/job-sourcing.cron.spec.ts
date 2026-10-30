@@ -427,6 +427,48 @@ describe('step failures are named in the log', () => {
   })
 })
 
+describe('the handler arguments are computed inside the step guard (review LOW)', () => {
+  it('a config read that throws never rejects the sweep or the 02:30 handler; nothing is claimed', async () => {
+    const b = build({})
+    const svc = new JobSourcingCronService(
+      b.service as never,
+      b.ledger as never,
+      b.worker as never,
+      {
+        get: () => {
+          throw new Error('config down')
+        },
+      } as never,
+    )
+    vi.spyOn(
+      (svc as unknown as { logger: { error: () => void } }).logger,
+      'error',
+    ).mockImplementation(() => undefined)
+    await expect(svc.handleSweep()).resolves.toBeUndefined()
+    await expect(svc.handleHtmlCollection()).resolves.toBeUndefined()
+    expect(b.worker.startDue).not.toHaveBeenCalled()
+  })
+
+  it('a trigger key that cannot be computed never rejects any ledger handler', async () => {
+    const b = build({})
+    vi.spyOn(
+      (b.svc as unknown as { logger: { error: () => void } }).logger,
+      'error',
+    ).mockImplementation(() => undefined)
+    // the tick's formatter is built at module load: break its method, then the constructor
+    vi.spyOn(Intl.DateTimeFormat.prototype, 'formatToParts').mockImplementation(() => {
+      throw new RangeError('no tz data')
+    })
+    vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function () {
+      throw new RangeError('no tz data')
+    } as never)
+    await expect(b.svc.handleSweep()).resolves.toBeUndefined()
+    await expect(b.svc.handleHtmlCollection()).resolves.toBeUndefined()
+    await expect(b.svc.handleTick()).resolves.toBeUndefined()
+    expect(b.ledger.openCycle).not.toHaveBeenCalled()
+  })
+})
+
 describe('the window needs a ledger AND a worker AND a cycle', () => {
   it('ledger without a worker: cycle opened and recovery run, but no window and no close', async () => {
     const b = build({})

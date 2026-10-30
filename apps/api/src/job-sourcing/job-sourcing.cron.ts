@@ -114,8 +114,8 @@ export class JobSourcingCronService {
   @Cron(HTML_COLLECTION_CRON, { timeZone: CRON_TIME_ZONE })
   async handleHtmlCollection(): Promise<void> {
     await this.runHandler('daily-html', HTML_COLLECTION_TYPES, {
-      triggerKey: this.triggerKey('daily-html'),
-      windowMs: this.windowMs(),
+      triggerKey: () => this.triggerKey('daily-html'),
+      windowMs: () => this.windowMs(),
     })
   }
 
@@ -123,8 +123,8 @@ export class JobSourcingCronService {
   @Cron(TICK_CRON, { timeZone: CRON_TIME_ZONE })
   async handleTick(): Promise<void> {
     await this.runHandler('tick', API_COLLECTION_TYPES, {
-      triggerKey: tickTriggerKey(new Date()),
-      windowMs: this.tuning.tickWindowMs,
+      triggerKey: () => tickTriggerKey(new Date()),
+      windowMs: () => this.tuning.tickWindowMs,
     })
   }
 
@@ -135,8 +135,8 @@ export class JobSourcingCronService {
   @Cron(SWEEP_CRON, { timeZone: CRON_TIME_ZONE })
   async handleSweep(): Promise<void> {
     await this.runHandler('sweep', API_COLLECTION_TYPES, {
-      triggerKey: this.triggerKey('sweep'),
-      windowMs: this.windowMs(),
+      triggerKey: () => this.triggerKey('sweep'),
+      windowMs: () => this.windowMs(),
       sweep: true,
     })
   }
@@ -157,14 +157,15 @@ export class JobSourcingCronService {
   private async runHandler(
     name: string,
     types: readonly JobSourceType[],
-    run: { triggerKey: string; windowMs: number; sweep?: true },
+    // Thunks: computed inside the steps, so a throw is logged, never a rejected @Cron handler.
+    run: { triggerKey: () => string; windowMs: () => number; sweep?: true },
   ): Promise<void> {
     const startedAt = performance.now()
     const ledger = this.ledger
     const worker = this.worker
     if (ledger === undefined) return
     const opened = await this.step(`${name}: openCycle`, () =>
-      ledger.openCycle({ trigger: 'SCHEDULED', triggerKey: run.triggerKey }),
+      ledger.openCycle({ trigger: 'SCHEDULED', triggerKey: run.triggerKey() }),
     )
     await this.step(`${name}: recoverExpired`, () => ledger.recoverExpired())
     await this.step(`${name}: sweepOrphanReservations`, () => ledger.sweepOrphanReservations())
@@ -175,7 +176,7 @@ export class JobSourcingCronService {
         {
           cycleId: opened.cycleId,
           types,
-          windowMs: run.windowMs,
+          windowMs: run.windowMs(),
           intervalMs: this.tuning.intervalMs,
           onlyIds: this.tuning.onlyIds,
           startedAt,

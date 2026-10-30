@@ -49,15 +49,16 @@ describe('countDue, the sweep scope (U3)', () => {
   const catalog = {
     entry: (id: string) =>
       ({
-        'm.interval': { fetchProfile: interval },
-        'm"q\\b': { fetchProfile: interval },
+        'm.interval': { fetchProfile: interval, floorHours: 0 },
+        'm"q\\b': { fetchProfile: interval, floorHours: 1.5 },
         'm.fixed': {
           fetchProfile: {
             ...interval,
             fixedSlots: { timeZone: 'Europe/Kyiv', times: ['08:00'] },
           },
+          floorHours: 6,
         },
-        'm.null': { fetchProfile: null },
+        'm.null': { fetchProfile: null, floorHours: 0 },
       })[id],
     hostPolicy: () => undefined,
   }
@@ -92,6 +93,14 @@ describe('countDue, the sweep scope (U3)', () => {
     expect(count.params).toContain('{"m.interval","m\\"q\\\\b"}')
     expect(count.params).toContain(`{${ID}}`)
     expect(count.params).toContain(CYCLE)
+    // CR-M-1 / SR-M-1: no run since one tick period before the cycle opened, nor inside the floor
+    expect(count.sql).toContain(
+      'rr.started_at >= (SELECT c.started_at FROM job_collection_cycles c WHERE c.id = $',
+    )
+    expect(count.params).toContain(600)
+    // the floors, in minutes, aligned with the ids: 0 and 1.5 h
+    expect(count.params).toContain('{0,90}')
+    expect(count.sql).toMatch(/AS f\(id, minutes\)\s+WHERE f\.id = job_sources\.manifest_id/)
   })
 
   it('without a sweep it never reads the manifest ids', async () => {
