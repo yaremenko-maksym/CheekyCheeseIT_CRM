@@ -101,6 +101,7 @@ export type ManifestErrorCode =
   | 'FETCH_PROFILE_INVALID'
   | 'BOARD_LINE_INVALID'
   | 'DUPLICATE_BOARD'
+  | 'DUPLICATE_EMPLOYER'
 
 /** Every refusal the manifest makes carries a code a test can assert on, not a message to match. */
 export class ManifestError extends Error {
@@ -744,6 +745,8 @@ function checkHostDay(def: TypeDefinition, profiles: readonly (FetchProfile | nu
   }
 }
 
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
 function ownershipOf(
   def: TypeDefinition,
   e: EntryDefinition,
@@ -766,14 +769,21 @@ function ownershipOf(
     return token
   })
   const strength = [...OWNERSHIP_STRENGTH].reverse().find((s) => tokens.includes(s))!
-  const claimedLower = e.ownership.name.toLowerCase()
-  if (!named.some((f) => f.notes.toLowerCase().includes(claimedLower))) {
+  const claimedName = new RegExp(
+    `(?<![a-z0-9])${escapeRegExp(e.ownership.name.toLowerCase())}(?![a-z0-9])`,
+  )
+  if (!named.some((f) => claimedName.test(f.notes.toLowerCase()))) {
     throw new ManifestError(
       'OWNER_NOT_IN_EVIDENCE',
       `${e.id}: "${e.ownership.name}" appears in none of its fixtures' notes`,
     )
   }
-  if (e.ownership.domain !== null && !named.some((f) => f.notes.includes(e.ownership!.domain!))) {
+  // A host boundary: `stripe.com` is in `api.stripe.com` but not in `notstripe.com` or `stripe.com.evil.io`.
+  const claimedHost =
+    e.ownership.domain === null
+      ? null
+      : new RegExp(`(?<![a-z0-9-])${escapeRegExp(e.ownership.domain)}(?![a-z0-9-]|\\.[a-z0-9])`)
+  if (claimedHost !== null && !named.some((f) => claimedHost.test(f.notes))) {
     throw new ManifestError(
       'OWNER_NOT_IN_EVIDENCE',
       `${e.id}: domain ${e.ownership.domain} appears in none of its fixtures' notes`,

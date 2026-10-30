@@ -17,10 +17,15 @@ import { type EntryDefinition, ManifestError } from './manifest'
  *    `NO_BOARD_EVIDENCE` blocker, which the ledger reads as `entryReadiness` BLOCKED. The blocker goes
  *    away only when a PR names committed captures (the supervised smoke's output) that the builder
  *    then reads, and checks the employer against.
+ *
+ * The evidence check proves only that a committed capture names the employer (whole-word match); a
+ * human PR review still judges that the capture is authentic.
+ *
+ * Per-host request rate (owner decision Q11) is NOT enforced here or by any board type today: no
+ * `hostRate` is declared for the board types until U11 adds the request-counting host budget.
  */
 
-/** Owner decision 11: 2 requests a minute per multi-board host (120 an hour). */
-export const HOST_REQUESTS_PER_MINUTE = 2
+const HOSTNAME_PATTERN = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/
 
 const TOKEN_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/
 
@@ -29,9 +34,10 @@ export const BOARD_ADDED_BY = ['manual', 'discovery', 'proposal'] as const
 const boardLineSchema = z
   .object({
     token: z.string().regex(TOKEN_PATTERN),
-    employer: z.string().min(1).max(200),
-    /** `null` is stated, not omitted: a board whose employer has no known domain says so. */
-    domain: z.string().min(1).max(253).nullable(),
+    /** At least 3 characters: the evidence check looks for the whole name in a capture's notes. */
+    employer: z.string().min(3).max(200),
+    /** `null` is stated, not omitted. A hostname: lowercase labels, a dot, no scheme, path or port. */
+    domain: z.string().regex(HOSTNAME_PATTERN).nullable(),
     /** An IANA zone; the builder's profile check refuses an unknown one. */
     timeZone: z.string().min(1),
     /** Lever only: the API region. */
@@ -57,9 +63,19 @@ export interface BoardEntriesInput {
   readonly lines: unknown
   /** The provider's default profile, given the board's zone (ADR 8a). */
   readonly profileFor: (timeZone: string) => FetchProfile
+  /**
+   * Shared by every provider's call: employer name (case-insensitive) and domain already claimed by
+   * a board, so the same employer under two ATS types is refused (DUPLICATE_EMPLOYER).
+   */
+  readonly claimed?: Map<string, string>
 }
 
-export function boardEntries({ prefix, lines, profileFor }: BoardEntriesInput): EntryDefinition[] {
+export function boardEntries({
+  prefix,
+  lines,
+  profileFor,
+  claimed,
+}: BoardEntriesInput): EntryDefinition[] {
   if (!Array.isArray(lines)) {
     throw new ManifestError('BOARD_LINE_INVALID', `${prefix}: a board file holds an array of lines`)
   }
@@ -77,6 +93,22 @@ export function boardEntries({ prefix, lines, profileFor }: BoardEntriesInput): 
     const id = `${prefix}.board.${b.region === undefined ? '' : `${b.region}.`}${b.token}`
     if (seen.has(id)) throw new ManifestError('DUPLICATE_BOARD', `${id} is listed twice`)
     seen.add(id)
+    if (claimed !== undefined) {
+      const keys = [
+        `employer:${b.employer.toLowerCase()}`,
+        ...(b.domain === null ? [] : [`domain:${b.domain}`]),
+      ]
+      for (const key of keys) {
+        const other = claimed.get(key)
+        if (other !== undefined) {
+          throw new ManifestError(
+            'DUPLICATE_EMPLOYER',
+            `${id} repeats ${key} already listed as ${other}`,
+          )
+        }
+      }
+      for (const key of keys) claimed.set(key, id)
+    }
     return {
       id,
       config: {
@@ -90,20 +122,4 @@ export function boardEntries({ prefix, lines, profileFor }: BoardEntriesInput): 
         : { ownership: { fixtures: b.evidence, name: b.employer, domain: b.domain } }),
     }
   })
-}
-
-/**
- * The arithmetic of a host's budget (ADR 8a): `boards` list requests, `perMinute` allowed. A sweep
- * (one list request of every board) takes `boards / perMinute` minutes, so a board is asked about
- * every sweep, and never more often than its profile says.
- */
-export function hostSweep(boards: number, perMinute: number) {
-  if (!(perMinute > 0)) throw new RangeError('hostSweep: the budget must be positive')
-  const sweepMinutes = boards / perMinute
-  return {
-    sweepMinutes,
-    intervalHours: sweepMinutes / 60,
-    /** `max(profile interval, sweep)`: freshness degrades with scale; the request rate does not grow. */
-    effectiveIntervalMinutes: (profileMinutes: number) => Math.max(profileMinutes, sweepMinutes),
-  }
 }

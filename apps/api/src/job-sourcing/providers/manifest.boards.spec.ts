@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { FIXTURE_ROOT } from '../../test/fixture-provenance'
 import { buildManifest, ManifestError, readinessAt } from './manifest'
 import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
-import { boardEntries, HOST_REQUESTS_PER_MINUTE, hostSweep } from './manifest.boards'
+import { boardEntries } from './manifest.boards'
 import { MANIFEST_DEFINITIONS } from './manifest.definitions'
 import { buildLedgerCatalogSnapshot } from './manifest.ledger-catalog'
 
@@ -260,32 +260,126 @@ describe('AC 1: the 13 migrated boards are the 13 hand-written ones', () => {
   })
 })
 
-describe('AC (e): the watchlist arithmetic at scale (owner, Q11: 2 requests a minute per host)', () => {
-  it('the decided budget is 2 a minute', () => {
-    expect(HOST_REQUESTS_PER_MINUTE).toBe(2)
+describe('ADR 8a watchlist arithmetic (documentation, not a production constant)', () => {
+  // Owner Q11's 2 requests a minute is a starting value that U11's request-counting host budget owns.
+  // Nothing enforces a per-host rate today (no `hostRate` on the board types); this table only pins
+  // the ADR's numbers: a sweep takes boards / perMinute minutes.
+  it.each([
+    [200, 100, 1.7],
+    [1000, 500, 8.3],
+    [13, 6.5, 0.11],
+  ])('%i boards at 2 a minute: a sweep of %f minutes (%f hours)', (boards, minutes, hours) => {
+    expect(boards / 2).toBe(minutes)
+    expect(minutes / 60).toBeCloseTo(hours, 1)
+  })
+})
+
+describe('AC 1: ownership of the 13 boards (employer, domain, fixtures)', () => {
+  const EXPECTED_OWNERSHIP: ReadonlyArray<readonly [string, string, string | null, string[]]> = [
+    ['greenhouse.board.stripe', 'Stripe', 'stripe.com', ['stripe-board.json']],
+    ['greenhouse.board.airbnb', 'Airbnb', null, ['airbnb-board.json']],
+    ['greenhouse.board.cloudflare', 'Cloudflare', null, ['cloudflare-board.json']],
+    ['lever.board.spotify', 'Spotify', null, ['spotify-page1.json', 'spotify-page2.json']],
+    ['lever.board.eu.siteimprove', 'Siteimprove', null, ['siteimprove-eu-board.json']],
+    ['lever.board.quantco-', 'QuantCo', null, ['quantco-trailing-hyphen-board.json']],
+    ['ashby.board.linear', 'Linear', null, ['linear-board.json']],
+    ['ashby.board.supabase', 'Supabase', null, ['supabase-board.json']],
+    ['workable.board.huggingface', 'Hugging Face', null, ['huggingface-account.json']],
+    ['workable.board.hirefellows', 'Hire Fellows', null, ['hirefellows-account.json']],
+    ['recruitee.board.bunq', 'bunq', null, ['bunq-offers.json']],
+    ['personio.board.westwing', 'Westwing', null, ['westwing-en.xml']],
+    ['personio.board.personio', 'Personio', null, ['personio-en.xml']],
+  ]
+  it('names these employers, domains and captures', () => {
+    const got = MANIFEST_DEFINITIONS.flatMap((d) => d.entries)
+      .filter((e) => e.id.includes('.board.'))
+      .map((e) => [e.id, e.ownership?.name, e.ownership?.domain, e.ownership?.fixtures])
+    expect(got).toEqual(EXPECTED_OWNERSHIP.map((r) => [...r]))
+  })
+})
+
+describe('one employer, one board', () => {
+  const claimedGen = (prefix: string, lines: unknown, claimed: Map<string, string>) =>
+    boardEntries({ prefix, lines, profileFor: PROFILE, claimed })
+  it('refuses the same employer name (any case) under a second provider; a distinct one is fine', () => {
+    const claimed = new Map<string, string>()
+    claimedGen('greenhouse', [stripe], claimed)
+    expect(
+      codeOf(() =>
+        claimedGen('lever', [{ ...stripe, token: 'x', domain: null, employer: 'STRIPE' }], claimed),
+      ),
+    ).toBe('DUPLICATE_EMPLOYER')
+    expect(
+      codeOf(() =>
+        claimedGen(
+          'lever',
+          [{ ...stripe, token: 'x', domain: null, employer: 'Initech' }],
+          claimed,
+        ),
+      ),
+    ).toBeUndefined()
   })
 
-  it('200 boards: a sweep of 100 minutes, a board asked every 1.7 hours', () => {
-    const s = hostSweep(200, HOST_REQUESTS_PER_MINUTE)
-    expect(s.sweepMinutes).toBe(100)
-    expect(s.intervalHours).toBeCloseTo(1.7, 1)
+  it('refuses the same domain under a second provider; a distinct one is fine', () => {
+    const claimed = new Map<string, string>()
+    claimedGen('greenhouse', [stripe], claimed)
+    expect(
+      codeOf(() => claimedGen('ashby', [{ ...stripe, token: 'x', employer: 'Other Co' }], claimed)),
+    ).toBe('DUPLICATE_EMPLOYER')
+    expect(
+      codeOf(() =>
+        claimedGen(
+          'ashby',
+          [{ ...stripe, token: 'x', employer: 'Other Co', domain: 'other.com' }],
+          claimed,
+        ),
+      ),
+    ).toBeUndefined()
   })
 
-  it('1,000 boards: a sweep of 500 minutes, a board asked every 8.3 hours', () => {
-    const s = hostSweep(1000, HOST_REQUESTS_PER_MINUTE)
-    expect(s.sweepMinutes).toBe(500)
-    expect(s.intervalHours).toBeCloseTo(8.3, 1)
+  it('the 13 current boards trip nothing (the manifest builds)', () => {
+    expect(
+      codeOf(() =>
+        buildManifest({
+          definitions: MANIFEST_DEFINITIONS,
+          adapters: MANIFEST_VALIDATION_ADAPTERS,
+          fixtureRoot: FIXTURE_ROOT,
+        }),
+      ),
+    ).toBeUndefined()
+  })
+})
+
+describe('stronger evidence rules', () => {
+  it.each([
+    ['a scheme', 'https://stripe.com'],
+    ['a path', 'stripe.com/jobs'],
+    ['a port', 'stripe.com:443'],
+    ['upper case', 'Stripe.com'],
+    ['a single label', 'stripe'],
+    ['a leading dot', '.stripe.com'],
+  ])('refuses a domain with %s', (_n, domain) => {
+    expect(codeOf(() => generate([{ ...stripe, domain }]))).toBe('BOARD_LINE_INVALID')
+    expect(codeOf(() => generate([{ ...stripe, domain: 'api.stripe.com' }]))).toBeUndefined()
   })
 
-  it('13 boards fit the hourly profile: the budget does not stretch the interval', () => {
-    const s = hostSweep(13, HOST_REQUESTS_PER_MINUTE)
-    expect(s.sweepMinutes).toBe(6.5)
-    expect(s.effectiveIntervalMinutes(60)).toBe(60)
-    expect(hostSweep(200, 2).effectiveIntervalMinutes(60)).toBe(100)
+  it('refuses an employer shorter than 3 characters; 3 is fine', () => {
+    expect(codeOf(() => generate([{ ...stripe, employer: 'ab' }]))).toBe('BOARD_LINE_INVALID')
+    expect(codeOf(() => generate([{ ...stripe, employer: 'abc' }]))).toBeUndefined()
   })
 
-  it('refuses a budget that is not positive', () => {
-    expect(() => hostSweep(10, 0)).toThrow('hostSweep: the budget must be positive')
-    expect(() => hostSweep(10, Number.NaN)).toThrow(RangeError)
+  // stripe-board.json's notes name "Stripe" and stripe.com; whole-token matching is what these pin.
+  it('an employer that is only part of a word in the notes is refused; the whole word passes', () => {
+    expect(codeOf(() => buildWith([{ ...stripe, employer: 'Strip' }]))).toBe(
+      'OWNER_NOT_IN_EVIDENCE',
+    )
+    expect(codeOf(() => buildWith([stripe]))).toBeUndefined()
+  })
+
+  it('a domain that is only the tail of another host is refused; the real host passes', () => {
+    expect(codeOf(() => buildWith([{ ...stripe, domain: 'ripe.com' }]))).toBe(
+      'OWNER_NOT_IN_EVIDENCE',
+    )
+    expect(codeOf(() => buildWith([stripe]))).toBeUndefined()
   })
 })

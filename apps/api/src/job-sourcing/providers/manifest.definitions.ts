@@ -142,6 +142,8 @@ const kyivAt = (time: string): FetchProfile => ({
 })
 
 /** An ATS board's profile: hourly in its employer's working day, every 3 h outside (section 8). */
+/** One map for every provider's board file: the same employer under two ATS types is refused. */
+const CLAIMED_BOARDS = new Map<string, string>()
 const BOARD_PROFILE = (timeZone: string): FetchProfile => workingHours(timeZone, 60, 180)
 
 const blockedHtml = (type: string, provider: string): TypeDefinition => ({
@@ -338,6 +340,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
       prefix: 'greenhouse',
       lines: GREENHOUSE_BOARDS,
       profileFor: BOARD_PROFILE,
+      claimed: CLAIMED_BOARDS,
     }),
   },
   {
@@ -351,7 +354,12 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'BOARD',
     // Two regions, two API hosts, two data sets: each region is its own scope.
     hostKey: (config) => LEVER_HOSTS[config['region'] as keyof typeof LEVER_HOSTS],
-    entries: boardEntries({ prefix: 'lever', lines: LEVER_BOARDS, profileFor: BOARD_PROFILE }),
+    entries: boardEntries({
+      prefix: 'lever',
+      lines: LEVER_BOARDS,
+      profileFor: BOARD_PROFILE,
+      claimed: CLAIMED_BOARDS,
+    }),
   },
   {
     type: 'ASHBY_ATS',
@@ -363,7 +371,12 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: 'posting-api',
     scopeKind: 'BOARD',
     hostKey: () => 'api.ashbyhq.com',
-    entries: boardEntries({ prefix: 'ashby', lines: ASHBY_BOARDS, profileFor: BOARD_PROFILE }),
+    entries: boardEntries({
+      prefix: 'ashby',
+      lines: ASHBY_BOARDS,
+      profileFor: BOARD_PROFILE,
+      claimed: CLAIMED_BOARDS,
+    }),
   },
   {
     type: 'WORKABLE_ATS',
@@ -381,6 +394,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
       prefix: 'workable',
       lines: WORKABLE_BOARDS,
       profileFor: BOARD_PROFILE,
+      claimed: CLAIMED_BOARDS,
     }),
   },
   {
@@ -422,6 +436,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
       prefix: 'recruitee',
       lines: RECRUITEE_BOARDS,
       profileFor: BOARD_PROFILE,
+      claimed: CLAIMED_BOARDS,
     }),
   },
   {
@@ -441,6 +456,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
       prefix: 'personio',
       lines: PERSONIO_BOARDS,
       profileFor: BOARD_PROFILE,
+      claimed: CLAIMED_BOARDS,
     }),
   },
   {
