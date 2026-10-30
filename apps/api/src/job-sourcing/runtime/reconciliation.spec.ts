@@ -12,9 +12,12 @@ vi.mock('./recompute-inputs', () => ({
 }))
 
 import {
+  RECONCILE_MAX_DRAIN_BATCHES,
   RECONCILE_PAGE_SIZE,
   RECONCILE_PERIOD_HOURS,
+  enqueueReason,
   isStale,
+  periodBucket,
   reconcileOnce,
   reconcileReason,
 } from './reconciliation'
@@ -40,10 +43,11 @@ function dbOf(...pages: Record<string, unknown>[][]) {
   const execute = vi.fn(async (_q: unknown) => ({ rows: queue.shift() ?? [] }))
   return { execute }
 }
-const opp = (n: number, matches: unknown = [], revision = 3) => ({
+const opp = (n: number, matches: unknown = [], revision = 3, dirty: unknown = []) => ({
   id: id(n),
   revision,
   matches,
+  dirty,
 })
 
 beforeEach(() => {
@@ -213,9 +217,77 @@ describe('reconcileReason pinned value', () => {
   })
 })
 
+const BASE = 'RECONCILE:aaaaaaaaaaaaaaaa:bbbbbbbbbbbbbbbb'
+const NOW = Date.UTC(2026, 9, 27, 12, 0, 0)
+
+describe('enqueueReason (SR-M-1 deduplication and retry)', () => {
+  it('enqueues under the base reason when the opportunity has no dirty row', () => {
+    expect(enqueueReason([], BASE, NOW)).toBe(BASE)
+  })
+  it('skips while a PENDING or CLAIMED row exists, whatever its reason', () => {
+    expect(enqueueReason([{ status: 'PENDING', reason: 'REVISION' }], BASE, NOW)).toBeNull()
+    expect(enqueueReason([{ status: 'CLAIMED', reason: BASE }], BASE, NOW)).toBeNull()
+  })
+  it('skips when the lineage already has a DONE row (also the zero-match-rows verdict)', () => {
+    expect(enqueueReason([{ status: 'DONE', reason: BASE }], BASE, NOW)).toBeNull()
+    expect(
+      enqueueReason(
+        [
+          { status: 'FAILED', reason: BASE },
+          { status: 'DONE', reason: `${BASE}:abc` },
+        ],
+        BASE,
+        NOW,
+      ),
+    ).toBeNull()
+  })
+  it('ignores a DONE row of another reason', () => {
+    expect(enqueueReason([{ status: 'DONE', reason: 'REVISION' }], BASE, NOW)).toBe(BASE)
+    expect(enqueueReason([{ status: 'DONE', reason: `${BASE}X` }], BASE, NOW)).toBe(BASE)
+  })
+  it('retries a FAILED or DEFERRED row under a fresh per-period key', () => {
+    expect(enqueueReason([{ status: 'FAILED', reason: BASE }], BASE, NOW)).toBe(
+      `${BASE}:${periodBucket(NOW)}`,
+    )
+    expect(enqueueReason([{ status: 'DEFERRED', reason: BASE }], BASE, NOW)).toBe(
+      `${BASE}:${periodBucket(NOW)}`,
+    )
+  })
+  it('the retry key changes every period, not within one, and stays within 100 characters', () => {
+    const failed = [{ status: 'FAILED', reason: BASE }]
+    const six = 6 * 3_600_000
+    expect(periodBucket(NOW)).toBe(Math.floor(NOW / six).toString(36))
+    expect(periodBucket(NOW + 1)).toBe(periodBucket(NOW))
+    expect(periodBucket(NOW + six)).not.toBe(periodBucket(NOW))
+    expect((enqueueReason(failed, BASE, NOW) as string).length).toBeLessThanOrEqual(100)
+  })
+})
+
+describe('reconcileOnce with dirty history', () => {
+  it('counts a stale opportunity already in flight as skipped, not enqueued', async () => {
+    const r = await reconcileOnce(dbOf([opp(1, [], 3, [['PENDING', 'REVISION']]), opp(2)]))
+    expect(r).toMatchObject({ stale: 2, enqueued: 1, skipped: 1 })
+    expect(enqueue).toHaveBeenCalledTimes(1)
+  })
+  it('re-enqueues a FAILED one under the period key given by the clock', async () => {
+    const failedRow = (reason: string) => [['FAILED', reason]]
+    const first = await reconcileOnce(dbOf([opp(1)]), { now: () => NOW })
+    const base = String(enqueue.mock.calls[0]?.[4])
+    expect(first.enqueued).toBe(1)
+    enqueue.mockClear()
+    await reconcileOnce(dbOf([opp(1, [], 3, failedRow(base))]), { now: () => NOW })
+    expect(enqueue.mock.calls[0]?.[4]).toBe(`${base}:${periodBucket(NOW)}`)
+  })
+  it('an unreadable dirty column is that opportunity only', async () => {
+    const r = await reconcileOnce(dbOf([opp(1, [], 3, 'garbage'), opp(2)]))
+    expect(r).toMatchObject({ failed: 1, enqueued: 1 })
+  })
+})
+
 describe('constants', () => {
   it('pins MP-05 batch and the SR-M-2 period', () => {
     expect(RECONCILE_PAGE_SIZE).toBe(200)
     expect(RECONCILE_PERIOD_HOURS).toBe(6)
+    expect(RECONCILE_MAX_DRAIN_BATCHES).toBe(10)
   })
 })

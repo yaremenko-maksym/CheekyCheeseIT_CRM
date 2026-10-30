@@ -2,6 +2,11 @@ import { Logger } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const reconcile = vi.fn()
+const recover = vi.fn()
+vi.mock('./ownership/dirty-work.store', async (orig) => ({
+  ...(await orig<typeof import('./ownership/dirty-work.store')>()),
+  recoverExpiredDirty: (...a: unknown[]) => recover(...a),
+}))
 vi.mock('./runtime/reconciliation', async (orig) => ({
   ...(await orig<typeof import('./runtime/reconciliation')>()),
   reconcileOnce: (...a: unknown[]) => reconcile(...a),
@@ -10,14 +15,16 @@ vi.mock('./runtime/reconciliation', async (orig) => ({
 import {
   JobMatchReconciliationCronService,
   MATCH_RECONCILIATION_CRON,
-  RECONCILE_MAX_DRAIN_BATCHES,
+  RECONCILE_RECOVER_BATCH,
 } from './job-match-reconciliation.cron'
+import { RECONCILE_MAX_DRAIN_BATCHES } from './runtime/reconciliation'
 
 const report = (over: Record<string, unknown> = {}) => ({
   scanned: 5,
   stale: 2,
   enqueued: 2,
   failed: 0,
+  skipped: 0,
   pages: 1,
   cursor: null,
   ...over,
@@ -42,6 +49,8 @@ let warn: ReturnType<typeof vi.spyOn>
 let error: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
   reconcile.mockReset()
+  recover.mockReset()
+  recover.mockResolvedValue({ requeued: 0, failed: 0 })
   reconcile.mockResolvedValue(report())
   log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {})
   warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
@@ -73,13 +82,13 @@ describe('JobMatchReconciliationCronService', () => {
     expect(reconcile).not.toHaveBeenCalled()
   })
 
-  it('sweeps, drains until a batch claims nothing, and logs counts only', async () => {
+  it('sweeps, drains until a short batch, and logs counts only', async () => {
     const { svc, db, runOnce } = make(true, [200, 7])
     await svc.handleReconciliation()
     expect(reconcile).toHaveBeenCalledWith(db.db, { cursor: null })
-    expect(runOnce).toHaveBeenCalledTimes(3)
+    expect(runOnce).toHaveBeenCalledTimes(2)
     const line = String(log.mock.calls[0]?.[0])
-    expect(line).toContain('scanned=5 stale=2 enqueued=2 failed=0 pages=1')
+    expect(line).toContain('scanned=5 stale=2 enqueued=2 skipped=0 failed=0 pages=1')
     expect(line).toContain('recomputed=207')
     expect(line).toMatch(/durationMs=\d+/)
   })
@@ -158,5 +167,37 @@ describe('JobMatchReconciliationCronService', () => {
     expect(String(error.mock.calls[0]?.[0])).toContain(
       'Match reconciliation failed; will retry next tick',
     )
+  })
+
+  it('a full batch continues the drain and a short one stops it', async () => {
+    const { svc, runOnce } = make(true, [200, 200, 199, 200])
+    await svc.handleReconciliation()
+    expect(runOnce).toHaveBeenCalledTimes(3)
+  })
+
+  it('SR-M-1: recovers expired leases first, in the same tick, before sweeping', async () => {
+    const order: string[] = []
+    recover.mockImplementation(async () => {
+      order.push('recover')
+      return { requeued: 3, failed: 1 }
+    })
+    reconcile.mockImplementation(async () => {
+      order.push('sweep')
+      return report()
+    })
+    const { svc, db } = make()
+    await svc.handleReconciliation()
+    expect(order).toEqual(['recover', 'sweep'])
+    expect(recover).toHaveBeenCalledWith(db.db, { batchSize: RECONCILE_RECOVER_BATCH })
+    const line = String(log.mock.calls[0]?.[0])
+    expect(line).toContain('recoveredRequeued=3 recoveredFailed=1')
+  })
+
+  it('a recovery failure is logged like any tick failure and the sweep does not run', async () => {
+    recover.mockRejectedValueOnce(new Error('db down'))
+    const { svc } = make()
+    await svc.handleReconciliation()
+    expect(reconcile).not.toHaveBeenCalled()
+    expect(error).toHaveBeenCalledTimes(1)
   })
 })
