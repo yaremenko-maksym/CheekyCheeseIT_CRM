@@ -796,6 +796,7 @@ describe.skipIf(!hasDatabaseUrl())(
           dbSvc.db,
           {
             id: 'ca110000-0000-4000-ee00-000000000003',
+            txDate: resolveTransactionDate(null),
             type: 'EXPENSE',
             status: 'PAID',
             amount: '250',
