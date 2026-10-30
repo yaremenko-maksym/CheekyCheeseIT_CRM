@@ -14,6 +14,7 @@ import {
   specRegistry,
 } from '../../test/ledger-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
+import { ageRun, ageSource } from '../../test/run-aging'
 import type { FetchProfile } from '../scheduling/next-slot'
 import { type ClaimedRun, JobRunLedger } from './job-run-ledger'
 
@@ -66,6 +67,36 @@ async function sweepAll(cycleId: string, ids: readonly string[]): Promise<Claime
 }
 
 const sourcesOf = (runs: readonly ClaimedRun[]) => runs.map((r) => r.sourceId).sort()
+
+/** One sweep or tick claim of these rows; every run it claims is finished at once. */
+async function claimOnce(
+  cycleId: string,
+  ids: readonly string[],
+  sweep?: { skipIds: string[] },
+): Promise<{ claimed: ClaimedRun[]; refused: { sourceId: string; reason: string }[] }> {
+  const out = await ledger.claimDue({
+    cycleId,
+    owner: 'spec-worker',
+    limit: 10,
+    onlyIds: ids,
+    ...(sweep === undefined ? {} : { sweep: { cycleId, skipIds: sweep.skipIds } }),
+  })
+  for (const run of out.claimed) {
+    await ledger.finish(handleOf(run), { outcome: 'SUCCEEDED', errorCode: null })
+  }
+  return out
+}
+
+/** Time passes for a host and its source together: the stored instants move back by `ms`. */
+async function passTime(hostKey: string, sourceId: string, ms: number): Promise<void> {
+  await session.admin.query(
+    `UPDATE job_source_hosts
+        SET last_claimed_at = last_claimed_at - make_interval(secs => $2::double precision / 1000)
+      WHERE host_key = $1`,
+    [hostKey, ms],
+  )
+  await ageSource(session.admin, sourceId, ms)
+}
 
 describe.skipIf(!hasDatabaseUrl())('U3: the sweep and the tick claim, as crm_app', () => {
   beforeAll(async () => {
@@ -285,5 +316,66 @@ describe.skipIf(!hasDatabaseUrl())('U3: the sweep and the tick claim, as crm_app
     })
     expect(sourcesOf(tick.claimed)).toEqual([himalayas])
     expect(await fx.runs(himalayas)).toHaveLength(1)
+  })
+
+  it('SR-M-1: a sweep refused HOST_RATE_GAP, then a tick, then the sweep retry: exactly ONE run', async () => {
+    const host = fx.host(`gap-${randomUUID().slice(0, 6)}`)
+    const s = await kit.reporting(
+      { hostKey: host, nextAttemptSql: "clock_timestamp() + interval '1 day'" },
+      { fetchProfile: HOURLY },
+      { rate: { perMinute: 1, perDay: 100 }, floorHours: 0 },
+    )
+    // another source of the host was claimed a moment ago: the host gap is open for 60 s
+    await session.admin.query(
+      `INSERT INTO job_source_hosts (host_key, last_claimed_at) VALUES ($1, clock_timestamp())`,
+      [host],
+    )
+    const before = (await fx.sourceRow(s)).next_in_s ?? -1
+    const sweepId = await cycle()
+    const refused = await claimOnce(sweepId, [s], { skipIds: [] })
+    expect(refused.refused).toEqual([{ sourceId: s, reason: 'HOST_RATE_GAP' }])
+    // (a) the sweep's refusal does not pull a not-due source forward
+    expect((await fx.sourceRow(s)).next_in_s ?? -1).toBeGreaterThan(before - 60)
+    await passTime(host, s, 2 * 60_000)
+    // the 08:10 tick: the source is still not due by its own slot
+    const tick = await claimOnce(await cycle(), [s])
+    await passTime(host, s, 2 * 60_000)
+    // the sweep retries the host-timed refusal (SWEEP_RETRIED) once the gap is open
+    const retry = await claimOnce(sweepId, [s], { skipIds: [] })
+    expect(tick.claimed.length + retry.claimed.length).toBe(1)
+    expect(await fx.runs(s)).toHaveLength(1)
+  })
+
+  it('SR-M-1 / CR-M-1: a source the 08:00 tick ran is not swept again at 08:05', async () => {
+    const s = await kit.reporting({}, { fetchProfile: HOURLY })
+    const tick = await claimOnce(await cycle(), [s])
+    expect(sourcesOf(tick.claimed)).toEqual([s])
+    const sweepId = await cycle()
+    expect(await sweepAll(sweepId, [s])).toEqual([])
+    expect(await ledger.countDue({ onlyIds: [s], sweep: { cycleId: sweepId, skipIds: [] } })).toBe(
+      0,
+    )
+    expect(await fx.runs(s)).toHaveLength(1)
+  })
+
+  it('a run older than one tick period does not stop the sweep; one inside the provider floor does', async () => {
+    const plain = await kit.reporting({}, { fetchProfile: HOURLY })
+    const floored = await kit.reporting({}, { fetchProfile: HOURLY, floorHours: 2 })
+    const tickId = await cycle()
+    const earlier = await claimOnce(tickId, [plain, floored])
+    expect(earlier.claimed).toHaveLength(2)
+    // the tick ran 30 minutes before the sweep opened
+    for (const run of earlier.claimed)
+      await ageRun(session.admin, run.runId, 30 * 60_000, 'started_at')
+    const swept = await sweepAll(await cycle(), [plain, floored])
+    expect(sourcesOf(swept)).toEqual([plain])
+    expect(await fx.runs(floored)).toHaveLength(1)
+  })
+
+  it('CR-M-2: a manifest id with a quote, a backslash, a comma and braces round-trips through the sweep scope', async () => {
+    const odd = `t3.spec.${TAG}.q"b\\c,d{e}`
+    const s = await kit.reporting({ manifestId: odd }, { fetchProfile: HOURLY })
+    expect(await fx.manifestIdOf(s)).toBe(odd)
+    expect(sourcesOf(await sweepAll(await cycle(), [s]))).toEqual([s])
   })
 })

@@ -314,7 +314,7 @@ describe.skipIf(!hasDatabaseUrl())('the daily collection handlers against Postgr
     expect(listed?.reasons).toContain('OVERDUE')
   })
 
-  it('AC 3, 9: two replicas run the handler at once: one claim per source, one cycle row', async () => {
+  it('AC 3, 9; U3 AC 5 (SPEC-L-2): two concurrent handleTick() calls share one cycle row and claim each source once', async () => {
     const sources = [await src('JOBICY_API'), await src('JOBICY_API'), await src('JOBICY_API')]
     const ids = sources.map((s) => s.sourceId)
     await Promise.all([handler(ids, 3_000).svc.handleTick(), handler(ids, 3_000).svc.handleTick()])
