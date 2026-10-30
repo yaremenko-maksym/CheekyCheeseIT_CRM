@@ -64,10 +64,10 @@ describe('the board generator', () => {
   it('puts a Lever region in the id and the config, and a Personio language in the config', () => {
     const [eu] = generate([{ ...stripe, token: 'siteimprove', region: 'eu' }], 'lever')
     expect(eu!.id).toBe('lever.board.eu.siteimprove')
-    expect(eu!.config).toEqual({ board: 'siteimprove', region: 'eu' })
+    expect(eu!.config).toStrictEqual({ board: 'siteimprove', region: 'eu' })
     const [de] = generate([{ ...stripe, token: 'westwing', language: 'en' }], 'personio')
     expect(de!.id).toBe('personio.board.westwing')
-    expect(de!.config).toEqual({ board: 'westwing', language: 'en' })
+    expect(de!.config).toStrictEqual({ board: 'westwing', language: 'en' })
   })
 
   it('a line with evidence null has no ownership and is flagged as awaiting evidence', () => {
@@ -93,8 +93,40 @@ describe('the board generator', () => {
     expect(codeOf(() => generate([stripe]))).toBeUndefined()
   })
 
-  it('refuses a list that is not an array', () => {
-    expect(codeOf(() => generate(stripe))).toBe('BOARD_LINE_INVALID')
+  it('refuses a list that is not an array, saying which provider', () => {
+    expect(() => generate(stripe)).toThrow(
+      'BOARD_LINE_INVALID: greenhouse: a board file holds an array of lines',
+    )
+  })
+
+  it('names the provider, the line number and the field of a refused line', () => {
+    expect(() => generate([stripe, { ...stripe, timeZone: undefined }])).toThrow(
+      /^BOARD_LINE_INVALID: greenhouse line 2: timeZone: /,
+    )
+    expect(() => generate([{ ...stripe, enabled: true }])).toThrow(
+      /^BOARD_LINE_INVALID: greenhouse line 1: line: Unrecognized key/,
+    )
+  })
+
+  it('reports every problem of a line, separated by a semicolon', () => {
+    expect(() => generate([{ ...stripe, timeZone: undefined, employer: undefined }])).toThrow(
+      /: (timeZone|employer): [^;]*; (timeZone|employer): /,
+    )
+  })
+
+  it.each(['en1', '1en', 'EN', 'eng', 'e'])('refuses the Personio language %s', (language) => {
+    expect(codeOf(() => generate([{ ...stripe, language }], 'personio'))).toBe('BOARD_LINE_INVALID')
+    expect(codeOf(() => generate([{ ...stripe, language: 'de' }], 'personio'))).toBeUndefined()
+  })
+
+  it('says which board is listed twice', () => {
+    expect(() => generate([stripe, stripe])).toThrow(
+      'DUPLICATE_BOARD: greenhouse.board.stripe is listed twice',
+    )
+  })
+
+  it('a plain line has a config of the token alone (no empty region or language)', () => {
+    expect(generate([stripe])[0]!.config).toStrictEqual({ board: 'stripe' })
   })
 
   it('refuses a duplicate token, but not the same token in another Lever region', () => {
@@ -150,6 +182,9 @@ describe('board lines through the manifest build', () => {
     const r = readinessAt(without!, new Date())
     expect(r.status).toBe('BLOCKED')
     expect(r.blockers.map((b) => b.code)).toEqual(['NO_BOARD_EVIDENCE'])
+    expect(r.blockers[0]!.detail).toBe(
+      'no capture of this board is committed; its first request is a supervised smoke',
+    )
     expect(without!.ownership).toBeNull()
     const snap = buildLedgerCatalogSnapshot(m)
     expect(snap.entries.find((e) => e.id === 'greenhouse.board.airbnb')!.blockerCodes).toEqual([
@@ -246,6 +281,7 @@ describe('AC (e): the watchlist arithmetic at scale (owner, Q11: 2 requests a mi
   })
 
   it('refuses a budget that is not positive', () => {
-    expect(() => hostSweep(10, 0)).toThrow(RangeError)
+    expect(() => hostSweep(10, 0)).toThrow('hostSweep: the budget must be positive')
+    expect(() => hostSweep(10, Number.NaN)).toThrow(RangeError)
   })
 })
