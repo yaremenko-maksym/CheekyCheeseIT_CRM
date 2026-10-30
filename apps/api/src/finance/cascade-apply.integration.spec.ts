@@ -26,6 +26,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-cascade-apply (task 3 of the paid-transaction-edit-cascade
@@ -380,6 +381,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
       currency: 'USDT',
       senderLabel: DEPOSIT_LABEL,
       createdBy: MAKSYM_ID,
+      txDate: resolveTransactionDate(null),
     })
   })
 
@@ -917,6 +919,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         // Deliberately NOT set: this is the pre-#599 epoch.
         settledAmount: null,
         originalAmount: null,
+        txDate: resolveTransactionDate(null),
       })
       .returning()
     await dbSvc.db

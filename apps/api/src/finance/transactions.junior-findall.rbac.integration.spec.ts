@@ -46,6 +46,7 @@ import { makeTransactionsService } from './__test-helpers__/make-transactions-se
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 // ---------------------------------------------------------------------------
 // Constants — test personas
@@ -202,6 +203,7 @@ describe.skipIf(!hasDatabaseUrl())(
           senderId: SENIOR_1.id,
           receiverId: JUNIOR_1.id,
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null),
         })
         .onConflictDoNothing()
 
@@ -217,6 +219,7 @@ describe.skipIf(!hasDatabaseUrl())(
           senderId: null,
           receiverId: SENIOR_1.id,
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null),
         })
         .onConflictDoNothing()
 
@@ -232,6 +235,7 @@ describe.skipIf(!hasDatabaseUrl())(
           senderId: SENIOR_1.id,
           receiverId: JUNIOR_2.id,
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null),
         })
         .onConflictDoNothing()
     })

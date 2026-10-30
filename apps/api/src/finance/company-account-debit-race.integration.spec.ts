@@ -14,6 +14,7 @@ import { computeCompanyAccountBalanceFromLedger } from './company-account-balanc
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * MED-1 (TOCTOU) — company-account debits must be SERIALIZED.
@@ -177,6 +178,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USDT',
         senderId: ADMIN.id,
         createdBy: ADMIN.id,
+        txDate: resolveTransactionDate(null),
       })
     }
 
@@ -196,6 +198,7 @@ describe.skipIf(!hasDatabaseUrl())(
           salaryMonth: '2026-06',
           fundingSource: 'COMPANY_ACCOUNT',
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       return row!.id

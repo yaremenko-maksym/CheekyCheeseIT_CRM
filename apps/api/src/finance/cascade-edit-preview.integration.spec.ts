@@ -28,6 +28,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-cascade-resolver-preview (task 2 of the paid-transaction-edit-cascade
@@ -298,6 +299,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USDT',
         senderLabel: DEPOSIT_LABEL,
         createdBy: MAKSYM_ID,
+        txDate: resolveTransactionDate(null),
       })
     })
 
@@ -676,6 +678,7 @@ describe.skipIf(!hasDatabaseUrl())(
           senderId: SENIOR.id,
           fundingSource: 'COMPANY_ACCOUNT',
           createdBy: MAKSYM_ID,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
 
@@ -709,6 +712,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: SENIOR.id,
           payoutRequestId: payoutRequest!.id,
           createdBy: MAKSYM_ID,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
 

@@ -353,8 +353,9 @@ export const MANUAL_DDL_RELATIONS: Record<string, { file: string | null; why: st
  * Tables the Drizzle schema DECLARES whose forward DDL is still STAGED in
  * `drizzle/manual-staged/`. EMPTY BY DESIGN: the record-store tables were promoted to
  * `drizzle/manual/` by Task 4.6 S0, so no relation is staged today. The mechanism stays for the
- * next manual-staged file, `manual-staged/2026-10-25_tx_date_kyiv_backfill.sql`, which is not
- * yet wired into the deploy.
+ * next file that is staged before its wiring PR. (The tx_date Kyiv-day backfill is not staged: it
+ * lives in `drizzle/manual/`, was wired into the deploy by #1174, applied once on production, then
+ * de-wired by #1181 and listed in `KNOWN_NOT_WIRED`; its backup table is classified above.)
  *
  * WHY THIS EXISTS: until a DevOps wiring PR moves a file to `drizzle/manual/`, production
  * does not have its tables. A plain class grant names them unconditionally

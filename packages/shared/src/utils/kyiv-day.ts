@@ -110,16 +110,6 @@ export function latestSettleBusinessDay(sourceBusinessDay: string): string {
 }
 
 /**
- * The Kyiv calendar month of an instant, as `YYYY-MM`. The month-bucketing
- * counterpart of `kyivDayOf`: between 00:00 and 02:00/03:00 Kyiv on the 1st the
- * UTC month is still the previous one, so `toISOString().slice(0, 7)` mis-files
- * the row. Derived from `kyivDayOf` so there is still ONE definition of the day.
- */
-export function kyivMonthOf(at: Date): string {
-  return kyivDayOf(at).slice(0, 7)
-}
-
-/**
  * Shift a `YYYY-MM-DD` day by whole calendar months, clamping the day to the
  * last day of the target month (31 May - 3 months = 28 Feb, not 3 Mar).
  *
@@ -155,18 +145,19 @@ function kyivMonthStartInstant(month: string): Date {
 }
 
 /**
- * The bounds a reader needs to select the rows of ONE business month, mirroring
- * `transactionBusinessMonth` exactly (backlog 338): a row is in month M iff
- *   - `tx_date` IS NOT NULL and its UTC-midnight month is M
- *       -> `tx_date >= dateStart AND tx_date < dateEnd`, or
- *   - `tx_date` IS NULL and the KYIV month of `created_at` is M
- *       -> `created_at >= instantStart AND created_at < instantEnd`.
- * A single `coalesce(tx_date, created_at)` against one window cannot express
- * this: the two branches live on different clocks.
+ * The bounds a reader needs to select the rows of ONE business month (backlog
+ * 338). Two clocks, one per kind of column:
+ *   - a DATE-ONLY business value (`tx_date`, stored at UTC midnight) is in month
+ *     M iff `tx_date >= dateStart AND tx_date < dateEnd` — the same month
+ *     `transactionBusinessMonth` gives it;
+ *   - a real INSTANT (an audit timestamp such as `validated_at`) is in the KYIV
+ *     month M iff `instant >= instantStart AND instant < instantEnd`.
+ * `tx_date` is never NULL (every writer persists a Kyiv business day and the
+ * legacy NULL rows were backfilled), so there is no `created_at` fallback.
  *
- * `dateStart`/`dateEnd` are UTC midnights (date-only values are stored that way);
- * `instantStart`/`instantEnd` are the real instants Kyiv midnight falls on, which
- * is 22:00Z or 21:00Z of the previous UTC day depending on DST. All half-open.
+ * `dateStart`/`dateEnd` are UTC midnights; `instantStart`/`instantEnd` are the
+ * real instants Kyiv midnight falls on, which is 22:00Z or 21:00Z of the previous
+ * UTC day depending on DST. All half-open.
  */
 export interface BusinessMonthWindow {
   month: string

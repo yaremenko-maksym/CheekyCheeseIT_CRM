@@ -3,7 +3,7 @@ import { ArrowLeftRight, Coins, TrendingUp, Wallet } from 'lucide-react'
 import { msg } from '@lingui/core/macro'
 import type { MessageDescriptor } from '@lingui/core'
 import type { TransactionType } from '@crm/shared'
-import { addCalendarMonths, currencySchema, kyivMonthOf, roundShareAmount } from '@crm/shared'
+import { addCalendarMonths, currencySchema, kyivDayOf, roundShareAmount } from '@crm/shared'
 import { TYPE_LABEL_MESSAGES } from '../../../constants'
 
 // UI-level transaction kind for THIS dialog. `DIVIDEND` is a synthetic option —
@@ -121,10 +121,11 @@ export function getRate(currency: Currency, rates: ExchangeRate | undefined): nu
 
 // Previous calendar month on the KYIV business-day clock (the same clock the
 // rest of the finance forms use; the browser zone must not move the default).
-// Pure calendar arithmetic anchored on day 1, so 29-31 never overflows into
-// the current month (`setMonth(getMonth() - 1)` on 31 Oct gave 2026-10).
+// Pure calendar arithmetic that clamps the day (31 Oct - 1 month = 30 Sep), so
+// 29-31 never overflows into the current month (`setMonth(getMonth() - 1)` on
+// 31 Oct gave 2026-10).
 export function defaultSalaryMonth(now: Date = new Date()): string {
-  return addCalendarMonths(`${kyivMonthOf(now)}-01`, -1).slice(0, 7)
+  return addCalendarMonths(kyivDayOf(now), -1).slice(0, 7)
 }
 
 // "Add salary part" prefill: the NOMINAL currency of the source row

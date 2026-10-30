@@ -51,6 +51,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 const CONSTRAINT_NAME = 'ck_transactions_sender_ne_receiver'
 
@@ -128,6 +129,7 @@ describe.skipIf(!hasDatabaseUrl())(
           senderId: USER_A_ID,
           receiverId: USER_B_ID,
           createdBy: USER_A_ID,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       expect(row).toBeDefined()
@@ -145,6 +147,7 @@ describe.skipIf(!hasDatabaseUrl())(
           senderId: USER_A_ID,
           receiverId: USER_A_ID,
           createdBy: USER_A_ID,
+          txDate: resolveTransactionDate(null),
         }),
       ).rejects.toMatchObject({
         // drizzle-orm wraps query failures in a DrizzleQueryError — the
@@ -177,6 +180,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: null,
           receiverLabel: 'Office supplies',
           createdBy: USER_A_ID,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       expect(row).toBeDefined()
@@ -195,6 +199,7 @@ describe.skipIf(!hasDatabaseUrl())(
           senderId: null,
           receiverId: USER_B_ID,
           createdBy: USER_A_ID,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       expect(row).toBeDefined()
@@ -215,6 +220,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: null,
           receiverLabel: 'Office supplies',
           createdBy: USER_A_ID,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       expect(row).toBeDefined()
@@ -251,6 +257,7 @@ describe.skipIf(!hasDatabaseUrl())(
           senderId: USER_B_ID,
           receiverId: USER_B_ID,
           createdBy: USER_A_ID,
+          txDate: resolveTransactionDate(null),
         }),
       ).rejects.toMatchObject({ cause: { code: '23514', constraint: CONSTRAINT_NAME } })
     })

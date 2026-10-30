@@ -48,6 +48,7 @@ import { ZodExceptionFilter } from '../zod-exception.filter'
 import { InvoicesController } from './invoices.controller'
 import { InvoicePdfService } from './invoice-pdf.service'
 import { InvoicesService } from './invoices.service'
+import { resolveTransactionDate } from '../finance/transaction-date.util'
 
 /** In-memory S3 fake — copied from invoice-signature-integrity.integration.spec.ts. */
 class FakeS3Service {
@@ -153,6 +154,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USD',
         receiverId: JUNIOR_ID,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
       await invoicesService.autoCreateForSalary(txId)
 

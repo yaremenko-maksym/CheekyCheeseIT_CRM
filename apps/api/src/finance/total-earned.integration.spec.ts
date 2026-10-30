@@ -19,6 +19,7 @@ import { NbuCurrencyService } from './nbu-currency.service'
 import { projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * total-earned — real-backend integration spec (real Postgres, no mocks).
@@ -333,6 +334,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: JUNIOR.id,
           salaryMonth: '2025-11',
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null),
         },
         {
           id: TX_JUNIOR_SALARY_PAID_2,
@@ -344,6 +346,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: JUNIOR.id,
           salaryMonth: '2025-12',
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null),
         },
         {
           id: TX_JUNIOR_SALARY_PENDING,
@@ -355,6 +358,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: JUNIOR.id,
           salaryMonth: '2026-01',
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null),
         },
         {
           id: TX_HR_SALARY_PAID,
@@ -366,6 +370,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: HR.id,
           salaryMonth: '2025-12',
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null),
         },
         {
           id: TX_SENIOR_INCOME_PAID,
@@ -376,6 +381,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: SENIOR.id,
           projectId: PROJ_ID,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null),
         },
         {
           id: TX_SENIOR_INCOME_VALIDATED,
@@ -386,6 +392,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: SENIOR.id,
           projectId: PROJ_ID,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null),
         },
         {
           id: TX_DROP_PAYOUT_PAID,
@@ -398,6 +405,7 @@ describe.skipIf(!hasDatabaseUrl())(
           recipientId: DROP.id,
           projectId: PROJ_ID,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null),
         },
         // task-sender-receiver-invariant (backlog A-2, 2026-08-18): the
         // TX_DROP_PAYOUT_SELF_REF fixture (senderId === receiverId === DROP.id)
@@ -419,6 +427,7 @@ describe.skipIf(!hasDatabaseUrl())(
           recipientId: DROP.id,
           projectId: PROJ_ID,
           createdBy: DROP.id,
+          txDate: resolveTransactionDate(null),
         },
         {
           id: TX_DROP_INCOME_PENDING,
@@ -430,6 +439,7 @@ describe.skipIf(!hasDatabaseUrl())(
           recipientId: DROP.id,
           projectId: PROJ_ID,
           createdBy: DROP.id,
+          txDate: resolveTransactionDate(null),
         },
         {
           // DIRECT admin→drop DROP_INCOME — senderId set, no PAYOUT_DROP slice. COUNTED.
@@ -443,6 +453,7 @@ describe.skipIf(!hasDatabaseUrl())(
           recipientId: DROP.id,
           projectId: PROJ_ID,
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null),
         },
       ])
     }, 30_000)

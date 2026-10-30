@@ -32,13 +32,19 @@ describe('formatTransactionBusinessDate', () => {
 describe('transactionBusinessMonth', () => {
   it('reads a date-only (UTC-midnight) txDate by its own UTC month', () => {
     const txDate = new Date('2026-08-01T00:00:00.000Z')
-    const createdAt = new Date('2026-09-20T10:00:00.000Z')
-    expect(transactionBusinessMonth({ txDate, createdAt })).toBe('2026-08')
+    expect(transactionBusinessMonth({ id: 'tx-1', txDate })).toBe('2026-08')
   })
 
-  it('falls back to the KYIV month of createdAt, not the UTC month, on the Kyiv 1st', () => {
-    const createdAt = new Date('2026-07-31T22:30:00.000Z') // Kyiv 2026-08-01 01:30
-    expect(transactionBusinessMonth({ txDate: null, createdAt })).toBe('2026-08')
+  it('files a row written at 22:30Z on a month end under the Kyiv business month', () => {
+    // The writer persists the Kyiv day (2026-08-01 01:30 Kyiv) as UTC midnight.
+    const txDate = resolveTransactionDate(undefined, new Date('2026-07-31T22:30:00.000Z'))
+    expect(transactionBusinessMonth({ id: 'tx-1', txDate })).toBe('2026-08')
+  })
+
+  it('throws on a NULL txDate (backlog 338: no createdAt fallback), naming the row', () => {
+    expect(() => transactionBusinessMonth({ id: 'tx-9', txDate: null })).toThrow(
+      'transactionBusinessMonth: transaction tx-9 has a NULL tx_date',
+    )
   })
 })
 

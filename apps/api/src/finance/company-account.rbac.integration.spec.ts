@@ -21,6 +21,7 @@ import { EtherscanService } from './etherscan.service'
 import { companyAccount, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 // ── REAL controller under test (green-wash fix H2) ──────────────────────────
 // We exercise the PRODUCTION `CompanyAccountController` directly — NOT a sentinel
@@ -423,6 +424,7 @@ describe.skipIf(!hasDatabaseUrl())(
           senderLabel: SENIOR.displayName,
           txHash: '0x' + 'a'.repeat(64),
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null),
         })
       }, 15_000)
 

@@ -15,6 +15,7 @@ import { companyAccount, payoutRequests, transactions, users } from '../database
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
 import { sweepOrphanConsumedTxHashes } from './__test-helpers__/consumed-tx-hashes'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * Audit 2026-06-27 (LOW #6) — manualConfirmPayout TOCTOU (real DB).
@@ -148,6 +149,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: SENIOR.id,
           seniorSharePercent: 26,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       const pr = await svc.createPayoutRequest([income!.id], SENIOR)

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Pool } from 'pg'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from '../finance/transaction-date.util'
 
 /**
  * AC2 — BIZ-11 Drizzle-builder domain constraints (real DB).
@@ -136,10 +137,10 @@ describe.skipIf(!hasDatabaseUrl())(
       }
 
       const [txRow] = await query<{ id: string }>(
-        `INSERT INTO transactions (type, status, amount, currency, sender_label, created_by)
-       VALUES ('SENIOR_INCOME', 'PAID', '1000', 'USDT', $1, $2)
+        `INSERT INTO transactions (type, status, amount, currency, sender_label, created_by, tx_date)
+       VALUES ('SENIOR_INCOME', 'PAID', '1000', 'USDT', $1, $2, $3)
        RETURNING id`,
-        [SPEC_TAG, ADMIN_USER_ID],
+        [SPEC_TAG, ADMIN_USER_ID, resolveTransactionDate(null)],
       )
       const sourceTxId = txRow!.id
 
@@ -173,10 +174,10 @@ describe.skipIf(!hasDatabaseUrl())(
       if (idxRows.length === 0) return
 
       const [txRow] = await query<{ id: string }>(
-        `INSERT INTO transactions (type, status, amount, currency, sender_label, created_by)
-       VALUES ('SENIOR_INCOME', 'PAID', '1000', 'USDT', $1, $2)
+        `INSERT INTO transactions (type, status, amount, currency, sender_label, created_by, tx_date)
+       VALUES ('SENIOR_INCOME', 'PAID', '1000', 'USDT', $1, $2, $3)
        RETURNING id`,
-        [SPEC_TAG, ADMIN_USER_ID],
+        [SPEC_TAG, ADMIN_USER_ID, resolveTransactionDate(null)],
       )
       const sourceTxId = txRow!.id
 
