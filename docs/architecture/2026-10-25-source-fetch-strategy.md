@@ -65,6 +65,25 @@ the draft is in git history.
     that `fixedSlots` ignores the stagger and excludes window and off grid).
   - If PR #1179 changes before it merges, this bullet describes the PR as written, not main.
 
+**2026-10-30 (section 5, the sweep, as built in U3, PR #1186).** The sweep predicate above is amended
+in two ways. Owner Q4 option A stands: every enabled interval-profile source is **listed once a day** by
+the 08:00 sweep. It is listed once, not fetched twice, because the tick fires at about 08:00 too.
+
+- **A source with a recent run is skipped.** The sweep passes over a source that has any run (any cycle,
+  any status, manual included) started since the window before the sweep cycle opened. That window is one
+  tick period plus a margin against cron jitter (the margin was added in fix round 2). A source the
+  07:50 or 08:00 tick already ran is not fetched again.
+- **A source inside its provider floor is skipped.** A cadence-free claim would otherwise bypass the floor.
+- **A sweep refusal never moves a source earlier.** Refusals that are retried (`HOST_RATE_GAP` and the
+  like) write `next_attempt_at` as the later of the stored value and the new one. `HOST_BUSY` writes
+  nothing. `NOT_SCHEDULED` writes `NULL`.
+- **A refused claim writes no run row,** so it never counts as "ran recently".
+
+Why: without the first two, the sweep and the tick together spent two requests a day per source on
+providers with a quota or a floor. Decided in the PR #1186 reviews (CR-M-1, SR-M-1).
+Verification: the sweep spec holds a source with a run older than one tick period (swept) beside one
+inside its floor (not swept).
+
 ## Owner decisions of 2026-10-26
 
 | #   | Question                          | Decision                                                                                                                                                                                                                                                                                                    |
