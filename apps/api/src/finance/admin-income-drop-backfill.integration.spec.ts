@@ -716,12 +716,14 @@ describe.skipIf(!hasDatabaseUrl())(
 
       // A raw second INSERT bypassing the apply script's own SELECT predicate
       // entirely — simulates a genuinely concurrent second run racing past the
-      // predicate check. Must be rejected by the DB itself.
+      // predicate check. Must be rejected by the DB itself. It carries a tx_date
+      // (NOT NULL since backlog 338) so the unique index is the only thing that
+      // can reject it.
       await expect(
         query(
-          `INSERT INTO transactions (type, status, amount, currency, sender_label, receiver_id, recipient_id, project_id, created_by, source_income_transaction_id)
-         VALUES ('DROP_PENDING_PAYOUT', 'PENDING_PAYMENT', '999', 'USDT', 'COMPANY', $1, $1, $2, $3, $4)`,
-          [DROP_ID, P_CANDIDATE, ADMIN_ID, incomeId],
+          `INSERT INTO transactions (type, status, amount, currency, sender_label, receiver_id, recipient_id, project_id, created_by, source_income_transaction_id, tx_date)
+         VALUES ('DROP_PENDING_PAYOUT', 'PENDING_PAYMENT', '999', 'USDT', 'COMPANY', $1, $1, $2, $3, $4, $5)`,
+          [DROP_ID, P_CANDIDATE, ADMIN_ID, incomeId, resolveTransactionDate(null)],
         ),
       ).rejects.toThrow(/uq_transactions_source_income_drop_link/)
 
