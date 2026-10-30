@@ -240,7 +240,7 @@ export class InvoiceCreationService {
     // Resolve txDate for the invoice payload. The PAYOUT row itself is what
     // the SENIOR signed on-chain — its txDate (= request paid moment) is
     // the most precise stamp.
-    const txDate = payoutTx.txDate ?? payoutTx.createdAt
+    const txDate = payoutTx.txDate
     // ADMIN doesn't sign contracts (see signed_contracts CHECK constraint).
     // Counterparty is JUNIOR/HR/ACCOUNTANT/SENIOR/DROP in practice; defensive null for ADMIN.
     const contractNumber =
@@ -405,7 +405,7 @@ export class InvoiceCreationService {
       currency: tx.currency,
       projectName,
       salaryMonth: tx.salaryMonth ?? null,
-      txDate: tx.txDate ?? tx.createdAt,
+      txDate: tx.txDate,
     }
     const counterpartyInfo = buildCounterpartyInfo(counterpartyRow)
     const verifyUrl = this.deps.buildVerifyUrl(tx.id)

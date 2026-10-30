@@ -72,7 +72,7 @@ interface TxRow {
   payoutRequestId?: string | null
   invoiceDocumentId: string | null
   salaryMonth: string | null
-  txDate: Date | null
+  txDate: Date
   createdAt: Date
 }
 
@@ -592,7 +592,8 @@ function tx(overrides: Partial<TxRow> = {}): TxRow {
     payoutRequestId: overrides.payoutRequestId ?? null,
     invoiceDocumentId: overrides.invoiceDocumentId ?? null,
     salaryMonth: overrides.salaryMonth ?? null,
-    txDate: overrides.txDate ?? null,
+    // tx_date is NOT NULL (backlog 338); a writer given no date stores "now".
+    txDate: overrides.txDate ?? overrides.createdAt ?? new Date(),
     createdAt: overrides.createdAt ?? new Date(),
   }
 }
