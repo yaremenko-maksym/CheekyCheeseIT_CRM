@@ -314,10 +314,10 @@ describe('event-loop yield (AC 6)', () => {
       return 'DONE'
     })
 
-  it('yields every 50 rows: the loop runs between stretches, and the max lag is a fraction of the no-yield control', async () => {
+  it('yields every 50 rows: probe ticks within [2, 6], and the no-yield control has 0 ticks', async () => {
     expect(RECOMPUTE_YIELD_EVERY).toBe(50)
-    // Measured back to back so both runs share the machine's load (wall-clock specs flake on
-    // absolute thresholds under load; the ratio and the tick count do not).
+    // Measured back to back so both runs share the machine's load. Only the tick count is
+    // load-independent, so it carries the proof; wall-clock thresholds flake under load.
     const yielding = await maxLag(() => worker(spinning()).runOnce())
     const control = await maxLag(() => worker(spinning(), { yieldEvery: ROWS }).runOnce())
     // 200 rows x 4 ms = 800 ms of CPU work in four 50-row stretches.
@@ -330,7 +330,9 @@ describe('event-loop yield (AC 6)', () => {
     // first yield in the check phase of the same loop iteration, before any timer can run.
     expect(yielding.ticks).toBeGreaterThanOrEqual(2)
     expect(yielding.ticks).toBeLessThanOrEqual(6)
-    expect(yielding.lag).toBeLessThan(control.lag * 0.6)
+    // No wall-clock lag ratio here: it flaked under CI load (601 ms vs a 563 ms bound), and the
+    // tick count already separates the mutants. Yield on every row gives ~200 ticks; never
+    // yielding gives 0; a missing counter reset yields once, so 1 tick: too few.
   })
 })
 
