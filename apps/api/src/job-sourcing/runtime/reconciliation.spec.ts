@@ -179,6 +179,21 @@ describe('the page query', () => {
     expect(rendered(db.execute.mock.calls[1]?.[0]).params).toEqual([id(2), 2])
   })
 
+  it('adds no id filter by default and scopes to onlyIds when given', async () => {
+    const all = dbOf([])
+    await reconcileOnce(all)
+    expect(rendered(all.execute.mock.calls[0]?.[0]).sql).not.toContain('jsonb_array_elements_text')
+    const scoped = dbOf([])
+    await reconcileOnce(scoped, { onlyIds: [id(5), id(6)] })
+    const q = rendered(scoped.execute.mock.calls[0]?.[0])
+    expect(q.sql).toContain('o.id IN (SELECT jsonb_array_elements_text($2::jsonb)::uuid)')
+    expect(q.params).toEqual([
+      '00000000-0000-0000-0000-000000000000',
+      JSON.stringify([id(5), id(6)]),
+      200,
+    ])
+  })
+
   it('accepts a page size of exactly 1', async () => {
     await expect(reconcileOnce(dbOf([]), { pageSize: 1 })).resolves.toMatchObject({ pages: 1 })
   })

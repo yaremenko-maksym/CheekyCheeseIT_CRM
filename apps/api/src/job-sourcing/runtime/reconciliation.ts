@@ -100,6 +100,8 @@ export interface ReconcileOptions {
   readonly maxPages?: number
   /** Resume after this opportunity id (the previous report's `cursor`). */
   readonly cursor?: string | null
+  /** Sweep only these opportunities (a scoped run; tests use it so they touch nothing else). */
+  readonly onlyIds?: readonly string[]
   /** The clock, for the retry period index; tests pass a fixed one. */
   readonly now?: () => number
 }
@@ -185,6 +187,10 @@ export async function reconcileOnce(
   let skipped = 0
   let pages = 0
   const now = options.now ?? Date.now
+  const only =
+    options.onlyIds === undefined
+      ? sql``
+      : sql`AND o.id IN (SELECT jsonb_array_elements_text(${JSON.stringify(options.onlyIds)}::jsonb)::uuid)`
   while (pages < maxPages) {
     const { rows } = await db.execute(
       sql`SELECT o.id, o.revision,
@@ -195,7 +201,7 @@ export async function reconcileOnce(
                              FROM job_dirty_work w
                             WHERE w.entity_kind = 'OPPORTUNITY' AND w.entity_id = o.id
                               AND w.target_version = o.revision), '[]'::jsonb) AS dirty
-            FROM job_opportunities o WHERE o.id > ${cursor}::uuid ORDER BY o.id LIMIT ${pageSize}`,
+            FROM job_opportunities o WHERE o.id > ${cursor}::uuid ${only} ORDER BY o.id LIMIT ${pageSize}`,
     )
     pages += 1
     for (const row of rows) {
