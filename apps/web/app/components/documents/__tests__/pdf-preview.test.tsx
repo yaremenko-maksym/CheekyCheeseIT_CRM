@@ -120,6 +120,28 @@ describe.each([
   })
 })
 
+describe('PdfPreview on iOS', () => {
+  afterEach(async () => {
+    vi.unstubAllGlobals()
+    await loadCatalog('uk')
+  })
+
+  it('AC3: renders «Відкрити PDF» anchor to the blob and no iframe', async () => {
+    await loadCatalog('uk')
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
+      platform: 'iPhone',
+      maxTouchPoints: 5,
+    })
+    renderPreview({ blobUrl: 'blob:x', isLoading: false, hasError: false })
+    expect(screen.queryByTitle('Попередній перегляд: document.pdf')).toBeNull()
+    const open = screen.getByRole('link', { name: 'Відкрити PDF' })
+    expect(open.getAttribute('href')).toBe('blob:x')
+    expect(open.getAttribute('target')).toBe('_blank')
+    expect(screen.getByText('Вбудований перегляд PDF недоступний на цьому пристрої')).toBeTruthy()
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Download from blob — regression (AC7)
 // ---------------------------------------------------------------------------

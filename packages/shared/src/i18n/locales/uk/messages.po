@@ -8680,6 +8680,10 @@ msgstr "Відкрити рахунок {typeLabel} на {0}"
 msgid "Генерується автоматично з назви. Можна редагувати."
 msgstr "Генерується автоматично з назви. Можна редагувати."
 
+#: apps/web/app/components/documents/pdf-preview.tsx
+msgid "Вбудований перегляд PDF недоступний на цьому пристрої"
+msgstr "Вбудований перегляд PDF недоступний на цьому пристрої"
+
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "До активної версії"
 msgstr "До активної версії"
@@ -12140,6 +12144,7 @@ msgstr "Обов’язкова для всіх вакансій — викор�
 msgid "Звичайний"
 msgstr "Звичайний"
 
+#: apps/web/app/components/documents/pdf-preview.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Відкрити PDF"
 msgstr "Відкрити PDF"
