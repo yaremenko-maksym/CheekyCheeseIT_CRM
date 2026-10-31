@@ -170,9 +170,22 @@ function payloadToPosting(payload: unknown): NormalizedPosting {
 }
 
 /**
- * T1 — enqueue one LEGACY_POSTING delivery row per element of the COMPLETE array, one transaction,
- * `ON CONFLICT (consumer, identity, version) DO NOTHING`. An item the observation validator would
- * refuse still enqueues here: the legacy feed never depends on the store (ADR "complete array").
+ * First-write-wins over a within-feed TWIN: when the provider array carries the same fingerprint
+ * twice (the same vacancy with an edited description), keep only the FIRST occurrence — exactly what
+ * `persistPostings` does flag-off (the first is created, the rest are duplicates). Two rows for one
+ * fingerprint would otherwise share a `created_at` and let T3's "enqueue order" drain pick the second
+ * (losing first-write-wins). The observation store (T2) still sees the complete array; this dedupe is
+ * the legacy consumer's only.
+ */
+export function firstPerFingerprint(postings: readonly NormalizedPosting[]): NormalizedPosting[] {
+  const seen = new Set<string>()
+  return postings.filter((p) => (seen.has(p.fingerprint) ? false : (seen.add(p.fingerprint), true)))
+}
+
+/**
+ * T1 — enqueue one LEGACY_POSTING delivery row per posting (first-per-fingerprint, see above), one
+ * transaction, `ON CONFLICT (consumer, identity, version) DO NOTHING`. An item the observation
+ * validator would refuse still enqueues here: the legacy feed never depends on the store.
  */
 export async function enqueueLegacyPostings(
   db: Db,
@@ -180,13 +193,14 @@ export async function enqueueLegacyPostings(
   postings: readonly NormalizedPosting[],
 ): Promise<void> {
   if (postings.length === 0) return
+  const unique = firstPerFingerprint(postings)
   await db.transaction(async (tx) => {
     await assertOwned(tx, run.handle)
     await assertLegacyBridgeRun(tx, run)
     await tx
       .insert(jobBridgeDeliveries)
       .values(
-        postings.map((p) => ({
+        unique.map((p) => ({
           sourceId: run.sourceId,
           provider: run.sourceType,
           consumer: 'LEGACY_POSTING' as const,

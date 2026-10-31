@@ -8,6 +8,8 @@ import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import {
+  jobBridgeDeliveries,
+  jobCollectionRuns,
   jobExclusionFilters,
   jobPostings,
   jobSources,
@@ -22,6 +24,8 @@ import { hasDatabaseUrl } from '../test/require-real-db'
 import { DouRssProvider } from './dou.provider'
 import { JobSourcingService } from './job-sourcing.service'
 import { BRIDGE_FLAG_VALUES, bridgeConfig } from './bridge-flag.test-helper'
+import { JobRunLedger } from './ownership/job-run-ledger'
+import { SpecCatalog, specRegistry } from '../test/ledger-fixtures'
 
 /**
  * DOU golden characterization — the DB-touching half (r5 compatibility fixture gate).
@@ -148,6 +152,10 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
     async function cleanPostings(): Promise<void> {
       const db = dbSvc.db
       await db.delete(jobSuggestions).where(inArray(jobSuggestions.seniorId, SENIOR_IDS))
+      // Flag-on leaves bridge rows + runs; delete them children-first (bridge rows RESTRICT the run,
+      // runs RESTRICT the source) so this source stays deletable in afterAll.
+      await db.delete(jobBridgeDeliveries).where(eq(jobBridgeDeliveries.sourceId, SOURCE_ID))
+      await db.delete(jobCollectionRuns).where(eq(jobCollectionRuns.sourceId, SOURCE_ID))
       await db.delete(jobPostings).where(inArray(jobPostings.fingerprint, GOLDEN_FINGERPRINTS))
     }
 
@@ -159,11 +167,17 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       Object.assign(dbSvc, { pool, db })
 
       provider = new FixtureDouProvider()
+      // S6d: the flag-on path routes through collectViaBridge, which needs the run ledger; flag-off
+      // never touches it. The registry marks DOU as LEGACY (reporting arg lists REMOTIVE_API only).
+      const ledger = flagOn
+        ? new JobRunLedger(db, specRegistry(['REMOTIVE_API']), new SpecCatalog())
+        : undefined
       service = new JobSourcingService(
         dbSvc,
         new HrAccessService(dbSvc),
         provider,
         bridgeConfig(flagOn),
+        ledger,
       )
 
       await db

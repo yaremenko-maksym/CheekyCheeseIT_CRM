@@ -24,14 +24,9 @@ export function bridgeEnding(err: unknown): RunEnding {
   if (err instanceof JobSourceBudgetExhaustedError) {
     return { outcome: 'PARTIAL', errorCode: 'COST_STOP', errorMessage: message }
   }
-  // Stryker disable all: the contention run-ending. The contention STOP is asserted by
-  // job-sourcing-budget-contention.spec (the thrown JobSourceBudgetContentionError); its
-  // CANCELLED/CANCELLED ending mirrors the exhausted/zero/upstream endings that
-  // compat-barrier.spec's finish-ending describe asserts directly.
   if (err instanceof JobSourceBudgetContentionError) {
     return { outcome: 'CANCELLED', errorCode: 'CANCELLED', errorMessage: message }
   }
-  // Stryker restore all
   if (err instanceof ZeroPostingsError) {
     return { outcome: 'FAILED', errorCode: 'PARSE_DRIFT', errorMessage: message }
   }

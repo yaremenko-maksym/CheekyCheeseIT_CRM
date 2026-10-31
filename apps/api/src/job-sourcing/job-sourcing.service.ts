@@ -931,23 +931,23 @@ export class JobSourcingService {
     source: BudgetedSource,
     actor: string | undefined,
   ): Promise<JobCollectionResultDto> {
-    // Stryker disable all: the claim/cycle orchestration (the no-ledger guard, the LEGACY-kind and
-    // provider checks, openCycle's MANUAL/SCHEDULED branch, the claim and its refusal, the run handle)
-    // is exercised end-to-end by compat-barrier.integration and bridge-delivery.integration; the
-    // mutation gate runs the UNIT suite only, which reaches only the fake-ledger CLAIMED path and
-    // asserts the budget order and the failure endings separately (compat-barrier.spec). See
-    // mutation-gate-integration-specs.md.
     const ledger = this.ledger
     if (ledger === undefined) {
       throw new Error('JOB_QUEUE_BRIDGE_ENABLED is on but no run ledger is wired')
     }
 
     // T7 / SR-M-23: the LEGACY path refuses a reporting type before any ledger or budget write.
+    // The three guards below duplicate collectLegacy's (flag-off, already pinned); flag-on they are
+    // reachable only with a non-LEGACY/unregistered type, which the hand-built unit harness (a
+    // bare-DOU registry) cannot construct — the refusal is proven by bridge-delivery.integration.
+    // Stryker disable next-line all: see above (integration-covered, mutation-gate-integration-specs.md).
     const kind = this.registry.get(source.type)?.contract
+    // Stryker disable next-line all: see above (integration-covered).
     if (kind !== undefined && kind !== 'LEGACY') throw new NotLegacySourceError(source.type)
     const provider = this.registry.legacyProvider(source.type)
     // LANG-1: English, repo policy. The flag-off `collectLegacy` keeps its pre-existing Russian
     // string on main (untouched); this is a new occurrence in the flag-on path.
+    // Stryker disable next-line all: see above (integration-covered).
     if (!provider) throw new BadRequestException(`No provider for source ${source.type}`)
 
     // The CYCLE's trigger is how the collection was initiated, not the source's trigger-mode
@@ -971,12 +971,18 @@ export class JobSourcingService {
       cycleId,
       owner: this.bridgeOwner(),
       sourceId: source.id,
+      // Stryker disable next-line all: spreading `{ actor: undefined }` equals spreading `{}` here
+      // (claimLegacyRun reads `.actor`, undefined either way); actor PRESENCE is asserted by the
+      // compat-barrier.spec cycle/claim orchestration test.
       ...(actor !== undefined ? { actor } : {}),
     })
     if (claim.kind === 'REFUSED') {
       throw new Error(`DOU run not claimed (${claim.reason}) — nothing fetched, zero units spent`)
     }
+    // Stryker disable next-line all: the run handle is consumed only on the delivery path, which runs
+    // against a real DB (bridge-delivery.integration + compat-barrier.integration).
     const run: BridgeRun = {
+      // Stryker disable next-line all: see above (integration-covered).
       handle: {
         runId: claim.run.runId,
         ownerToken: claim.run.ownerToken,
@@ -986,8 +992,9 @@ export class JobSourcingService {
       sourceType: source.type,
     }
 
+    // Stryker disable next-line all: the initial SUCCEEDED ending is the final value only on the
+    // integration-covered success path; every unit failure path overwrites it via bridgeEnding.
     let ending: RunEnding = { outcome: 'SUCCEEDED', errorCode: null }
-    // Stryker restore all
     try {
       await this.chargeBudget(source)
 
@@ -1004,10 +1011,6 @@ export class JobSourcingService {
         )
       }
 
-      // Stryker disable all: T1-T5 (enqueue, store, the two per-row drains, lastCollectedAt) and the
-      // result DTO run only against a real database; they are proven by bridge-delivery.integration
-      // (drains, crash matrix, DTO counts) and compat-barrier.integration (parity, roster-once, the
-      // T2-failure case). The unit gate cannot execute a transaction, so it never reaches this block.
       // T1 — the COMPLETE array to the legacy posting consumer, before the store (ADR ordering).
       await enqueueLegacyPostings(this.db.db, run, postings)
       // T2 — the observation store, best-effort: a failure is logged and NEVER fails the DOU run
@@ -1030,7 +1033,6 @@ export class JobSourcingService {
         filtered: 0,
         suggestionsCreated,
       }
-      // Stryker restore all
     } catch (err: unknown) {
       ending = bridgeEnding(err)
       throw err
@@ -1047,10 +1049,6 @@ export class JobSourcingService {
     }
   }
 
-  // Stryker disable all: the bridge helpers. The owner-token and trigger-key string formats are
-  // cosmetic (no unit test can observe the exact string); buildRoster runs only inside the
-  // integration-covered delivery region — the roster-once query-count is asserted by
-  // compat-barrier.integration (mutation-gate-integration-specs.md).
   /** The bridge run's owner token (OWNER regex: `[a-z0-9][a-z0-9._-]{0,63}`). */
   private bridgeOwner(): string {
     return `dou-bridge-${process.pid}`
@@ -1058,6 +1056,8 @@ export class JobSourcingService {
 
   /** `dou-bridge:(MANUAL:<actor>|SCHEDULED):<Kyiv date>` — one cycle per day shared across DOU sources. */
   private bridgeTriggerKey(actor: string | undefined): string {
+    // Stryker disable next-line all: the timezone only shifts the day boundary of a per-day dedupe
+    // key; the key's shape (MANUAL:<actor>:<date> vs SCHEDULED:<date>) is asserted by compat-barrier.spec.
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv' }).format(new Date())
     return actor !== undefined ? `dou-bridge:MANUAL:${actor}:${day}` : `dou-bridge:SCHEDULED:${day}`
   }
@@ -1072,7 +1072,6 @@ export class JobSourcingService {
     return roster
   }
 
-  // Stryker restore all
   private async collectLegacy(source: BudgetedSource): Promise<JobCollectionResultDto> {
     // ONE ROUTING (r5 Task 2.5 T7, SR-M-23): this is the LEGACY path. A type registered on the
     // reporting contract runs only through the run ledger and its worker; here it is refused before

@@ -465,3 +465,73 @@ describe('Compat barrier — flag ON: the run ends with the ADR-mapped outcome/c
     expect(ending).toMatchObject({ outcome: 'PARTIAL', errorCode: 'COST_STOP' })
   })
 })
+
+describe('Compat barrier — flag ON: cycle/claim orchestration', () => {
+  const ACTOR = '00000000-0000-4000-8000-0000000000ac'
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('throws loudly when the flag is on and no ledger is wired', async () => {
+    const provider = {
+      type: 'DOU_RSS',
+      collect: vi.fn().mockResolvedValue([]),
+    } as unknown as DouRssProvider
+    const db = {
+      db: { update: vi.fn(), select: vi.fn() },
+    } as unknown as DatabaseService
+    const service = new JobSourcingService(
+      db,
+      {} as unknown as HrAccessService,
+      provider,
+      bridgeConfig(true),
+      // no ledger
+    )
+    await expect(service.collectSource(dayRow())).rejects.toThrow(/no run ledger is wired/)
+  })
+
+  it('an actor opens a MANUAL cycle and claims with that actor; no actor opens a SCHEDULED cycle', async () => {
+    const ledger = fakeBridgeLedger({ sourceId: SOURCE_ID })
+    const ocSpy = vi.spyOn(ledger, 'openCycle')
+    const clSpy = vi.spyOn(ledger, 'claimLegacyRun')
+    const { service } = makeHarness(() => Promise.resolve([]), [], true, ledger)
+
+    await service.collectSource(dayRow(), ACTOR).catch(() => undefined)
+    expect(ocSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        trigger: 'MANUAL',
+        actor: ACTOR,
+        triggerKey: expect.stringMatching(/^dou-bridge:MANUAL:.+:\d{4}-\d{2}-\d{2}$/) as unknown,
+      }),
+    )
+    expect(clSpy.mock.calls.at(-1)![0]).toMatchObject({
+      actor: ACTOR,
+      sourceId: SOURCE_ID,
+      owner: expect.stringMatching(/^dou-bridge-\d+$/) as unknown,
+    })
+
+    await service.collectSource(dayRow()).catch(() => undefined)
+    expect(ocSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        trigger: 'SCHEDULED',
+        triggerKey: expect.stringMatching(/^dou-bridge:SCHEDULED:\d{4}-\d{2}-\d{2}$/) as unknown,
+      }),
+    )
+    expect(clSpy.mock.calls.at(-1)![0].actor).toBeUndefined()
+  })
+
+  it('a REFUSED claim throws before the budget is charged (zero units, no fetch)', async () => {
+    const ledger = fakeBridgeLedger({ sourceId: SOURCE_ID })
+    vi.spyOn(ledger, 'claimLegacyRun').mockResolvedValue({ kind: 'REFUSED', reason: 'DISABLED' })
+    const { service, written, collect } = makeHarness(() => Promise.resolve([]), [], true, ledger)
+
+    await expect(service.collectSource(dayRow())).rejects.toThrow(/not claimed/)
+    expect(written).toEqual([])
+    expect(collect).not.toHaveBeenCalled()
+  })
+})

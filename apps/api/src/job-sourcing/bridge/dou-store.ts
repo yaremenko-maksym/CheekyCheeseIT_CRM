@@ -24,10 +24,6 @@ type Db = NodePgDatabase<typeof schema>
  * (`validatedCheckpointSchema`) and never resumes a LEGACY run from it.
  */
 export function douCheckpoint(): ValidatedCheckpoint {
-  // Stryker disable all: a fixed marker checkpoint for a single full-feed DOU fetch. The ledger's
-  // writer only structurally validates it and never resumes a LEGACY run from it, so the literal
-  // values are not observable by any unit test; the T2 write that uses it is covered by
-  // compat-barrier.integration (the "T2 store failure swallowed" and parity cases).
   return {
     configVersion: 1,
     policyVersion: 1,
@@ -35,7 +31,24 @@ export function douCheckpoint(): ValidatedCheckpoint {
     position: { kind: 'CURSOR', page: 1, cursor: 'dou-full-feed' },
     completedAt: new Date(),
   }
-  // Stryker restore all
+}
+
+/**
+ * The pure half of T2 (covers the S6e mapping): map the DOU postings to observations, counting the
+ * items the validator refuses. No DB. Kept separate so it is unit-testable (the store write is not).
+ */
+export function mapDouObservations(postings: readonly NormalizedPosting[]): {
+  observations: SourceObservation[]
+  refused: number
+} {
+  const observations: SourceObservation[] = []
+  let refused = 0
+  for (const p of postings) {
+    const mapped = buildSourceObservation(douPostingToRawObservation(p))
+    if (mapped.ok) observations.push(mapped.observation)
+    else refused += 1
+  }
+  return { observations, refused }
 }
 
 /**
@@ -50,29 +63,24 @@ export async function storeObservations(
   postings: readonly NormalizedPosting[],
   log: (message: string) => void,
 ): Promise<void> {
-  // Stryker disable all: the store write runs only against a real DB; it is covered by
-  // compat-barrier.integration (the "T2 store failure swallowed" and parity cases). The unit gate
-  // cannot execute a transaction (mutation-gate-integration-specs.md).
   try {
-    const observations: SourceObservation[] = []
-    let refused = 0
-    for (const p of postings) {
-      const mapped = buildSourceObservation(douPostingToRawObservation(p))
-      if (mapped.ok) observations.push(mapped.observation)
-      else refused += 1
-    }
+    const { observations, refused } = mapDouObservations(postings)
     if (refused > 0) {
       log(`DOU observation mapping skipped ${refused} item(s) the validator refused`)
     }
+    // Stryker disable next-line all: the empty-page skip's "always skip" variant is only observable
+    // on a non-empty page, which is the store path — covered by compat-barrier.integration (parity).
     if (observations.length === 0) return
     const page: SavedPage = { observations, checkpoint: douCheckpoint() }
+    // Stryker disable next-line all: the page write runs only against a real DB — covered by
+    // compat-barrier.integration (parity + the T2-failure case); the unit gate cannot run a tx.
     for (const chunk of chunkPage(page)) {
       await saveObservationPage(db, run.handle, chunk)
     }
   } catch (err: unknown) {
-    log(
-      `DOU observation store write failed (run not failed): ${err instanceof Error ? err.message : String(err)}`,
-    )
+    const detail = err instanceof Error ? err.message : String(err)
+    // Stryker disable next-line all: the catch fires only on a real store-write failure — asserted
+    // by compat-barrier.integration "T2 store failure swallowed"; unreachable under the unit gate.
+    log(`DOU observation store write failed (run not failed): ${detail}`)
   }
-  // Stryker restore all
 }

@@ -1,10 +1,39 @@
 import { describe, expect, it } from 'vitest'
+import type { NormalizedPosting } from '../job-source.provider'
 import { RunFencedError } from '../ownership/run-ownership'
 import {
   PostingUnresolvableError,
   bridgeResultCounts,
+  firstPerFingerprint,
   isTerminalDeliveryError,
 } from './bridge-delivery'
+
+describe('firstPerFingerprint (within-feed twin → first-write-wins)', () => {
+  const p = (fingerprint: string, descriptionMd: string): NormalizedPosting =>
+    ({
+      sourceType: 'DOU_RSS',
+      externalId: fingerprint,
+      url: `https://jobs.dou.ua/${fingerprint}/`,
+      title: 'T',
+      companyName: 'C',
+      companyNameNormalized: 'c',
+      location: null,
+      descriptionMd,
+      publishedAt: null,
+      fingerprint,
+    }) as NormalizedPosting
+
+  it('keeps the FIRST occurrence of each fingerprint, in array order', () => {
+    const out = firstPerFingerprint([p('a', 'first'), p('b', 'x'), p('a', 'edited')])
+    expect(out.map((x) => x.fingerprint)).toEqual(['a', 'b'])
+    expect(out.find((x) => x.fingerprint === 'a')!.descriptionMd).toBe('first')
+  })
+
+  it('passes an already-unique list through unchanged', () => {
+    const list = [p('a', '1'), p('b', '2')]
+    expect(firstPerFingerprint(list)).toEqual(list)
+  })
+})
 
 describe('bridgeResultCounts (CR-M-2)', () => {
   it('a normal collection: duplicates = fetched - created - invalid (parity)', () => {

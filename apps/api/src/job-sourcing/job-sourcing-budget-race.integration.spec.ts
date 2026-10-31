@@ -4,13 +4,21 @@ import { Pool } from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
-import { jobPostings, jobSources, jobSuggestions } from '../database/schema'
+import {
+  jobBridgeDeliveries,
+  jobCollectionRuns,
+  jobPostings,
+  jobSources,
+  jobSuggestions,
+} from '../database/schema'
 import * as schema from '../database/schema'
 import { DouRssProvider } from './dou.provider'
 import type { NormalizedPosting } from './job-source.provider'
 import { JobSourceBudgetExhaustedError } from './source-budget.error'
 import { JobSourcingService } from './job-sourcing.service'
 import { BRIDGE_FLAG_VALUES, bridgeConfig } from './bridge-flag.test-helper'
+import { JobRunLedger } from './ownership/job-run-ledger'
+import { SpecCatalog, specRegistry } from '../test/ledger-fixtures'
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
@@ -142,6 +150,14 @@ async function cleanupCreatedRows(dbSvc: DatabaseService): Promise<void> {
   if (postingIds.length > 0) {
     await dbSvc.db.delete(jobSuggestions).where(inArray(jobSuggestions.postingId, postingIds))
   }
+  // Flag-on leaves bridge rows + runs; delete them children-first (bridge rows RESTRICT the run,
+  // runs RESTRICT the source) so the afterAll source delete succeeds.
+  await dbSvc.db
+    .delete(jobBridgeDeliveries)
+    .where(inArray(jobBridgeDeliveries.sourceId, [...SOURCE_IDS]))
+  await dbSvc.db
+    .delete(jobCollectionRuns)
+    .where(inArray(jobCollectionRuns.sourceId, [...SOURCE_IDS]))
   await dbSvc.db.delete(jobPostings).where(inArray(jobPostings.sourceId, [...SOURCE_IDS]))
 }
 
@@ -185,11 +201,17 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       Object.assign(dbSvc, { pool, db })
 
       provider = new CannedProvider()
+      // S6d: the flag-on path routes through collectViaBridge, which needs the run ledger; flag-off
+      // never touches it. The registry marks DOU as LEGACY (reporting arg lists REMOTIVE_API only).
+      const ledger = flagOn
+        ? new JobRunLedger(db, specRegistry(['REMOTIVE_API']), new SpecCatalog())
+        : undefined
       service = new JobSourcingService(
         dbSvc,
         new HrAccessService(dbSvc),
         provider,
         bridgeConfig(flagOn),
+        ledger,
       )
     }, 30_000)
 
@@ -369,7 +391,12 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       // before an ADMIN deleted the source.
       await dbSvc.db.delete(jobSources).where(eq(jobSources.id, SOURCE_C_ID))
 
-      await expect(service.collectSource({ ...staleSnapshot })).rejects.toThrow(/удалён/)
+      // Both flags REFUSE and never reach the provider — the MED-1 intent. The refusal POINT differs:
+      // flag-off `collectLegacy` hits it in `chargeBudget`'s `!fresh` branch (/удалён/); flag-on
+      // `collectViaBridge` claims BEFORE charge, so a gone source is refused at the claim (NOT_FOUND).
+      await expect(service.collectSource({ ...staleSnapshot })).rejects.toThrow(
+        flagOn ? /not claimed/ : /удалён/,
+      )
 
       // The assertion that names the actual risk MED-1 is about: not merely
       // "did collectSource reject" but "was the PAID provider call reached at
