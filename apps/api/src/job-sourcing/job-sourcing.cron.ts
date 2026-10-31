@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config'
 import { Cron } from '@nestjs/schedule'
 import { DEFAULT_JOB_COLLECTION_WINDOW_MS, type Env } from '../config/env'
 import { dbErrorLogSuffix, safeErrorStack } from '../database/pg-errors'
+import { JobSourceHealthService } from './health/job-source-health.service'
 import { JobSourcingService } from './job-sourcing.service'
 import { JobRunLedger } from './ownership/job-run-ledger'
 import { runCollectionWindow } from './runtime/collection-window'
@@ -103,6 +104,9 @@ export class JobSourcingCronService {
     @Optional() @Inject(JobRunLedger) private readonly ledger?: JobRunLedger,
     @Optional() @Inject(JobRunWorker) private readonly worker?: JobRunWorker,
     @Optional() @Inject(ConfigService) private readonly config?: ConfigService<Env, true>,
+    // U4: the detector pass at the end of each tick window. Optional, like the ledger and worker:
+    // a unit context without it simply runs no pass.
+    @Optional() @Inject(JobSourceHealthService) private readonly health?: JobSourceHealthService,
   ) {}
 
   /** U3: the legacy DOU collection and retention only; the API types moved to the tick and the sweep. */
@@ -126,6 +130,14 @@ export class JobSourcingCronService {
       triggerKey: () => tickTriggerKey(new Date()),
       windowMs: () => this.tuning.tickWindowMs,
     })
+    // U4: the detector pass runs at the END of the tick window, once the runs of this tick are
+    // finished. A failure is logged, never rethrown (see the class doc), so a pass error cannot
+    // kill the scheduler or the next tick.
+    if (this.health !== undefined) {
+      // Stryker disable next-line StringLiteral: the step label is a diagnostic string surfaced only
+      // in an error log; no behaviour depends on its value.
+      await this.step('tick: health detector pass', () => this.health!.runDetectorPass())
+    }
   }
 
   /**

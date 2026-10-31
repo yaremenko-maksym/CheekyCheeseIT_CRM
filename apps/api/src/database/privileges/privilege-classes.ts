@@ -253,10 +253,20 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'vacancies',
     'vacancy_applications',
   ],
-  // The five audit logs the API only ever inserts into. Re-checked 2026-10-18 by the
+  // The audit logs the API only ever inserts into. Re-checked 2026-10-18 by the
   // search the ADR §2 prescribes: no `.update(…)` / `.delete(…)` and no raw
   // UPDATE/DELETE/TRUNCATE against any of them in `apps/api/src` outside specs.
   'A-log': [
+    // Source-fetch-strategy U4: the append-only health event log. SELECT+INSERT is exactly the
+    // ADR's class for it; its forward DDL (`manual-staged/2026-10-31_job_source_health_events.sql`)
+    // also installs ENABLE ALWAYS triggers refusing every UPDATE/DELETE/TRUNCATE. It is A-log
+    // rather than B deliberately: class B inherits the crm_retention_owner SELECT+DELETE grant
+    // (RETENTION_OWNER_CLASSES), and this log has no retention path — it is evidence, never pruned
+    // (ADR "Rollback"). STAGED (not on production until the U4-D wiring PR), so it is listed in
+    // STAGED_RELATIONS below; part 9 of the check asserts triggers on class B only, so the triggers
+    // are pinned by the catalog check once U4-D promotes it to B and declares them in
+    // `appendOnlyTriggers`.
+    'job_source_health_events',
     'meeting_recorder_audit_log',
     'project_audit_log',
     'team_audit_log',
@@ -375,6 +385,12 @@ export const MANUAL_DDL_RELATIONS: Record<string, { file: string | null; why: st
  * `manual-staged/`, so a stale entry cannot outlive the move.
  */
 export const STAGED_RELATIONS: Record<string, { file: string }> = {
+  // Source-fetch-strategy U4: the Drizzle schema declares `jobSourceHealthEvents`, but its forward
+  // DDL is staged until the U4-D wiring PR moves it to `manual/`. Until then production has no such
+  // table, so its A-log grant is emitted guarded by `to_regclass` and the check marks it OPTIONAL.
+  job_source_health_events: {
+    file: 'drizzle/manual-staged/2026-10-31_job_source_health_events.sql',
+  },
   job_bridge_deliveries: { file: 'drizzle/manual-staged/2026-10-31_job_bridge_deliveries.sql' },
 }
 

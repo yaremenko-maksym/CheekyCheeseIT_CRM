@@ -118,6 +118,7 @@ BEGIN
     ('users', 'A', false),
     ('vacancies', 'A', false),
     ('vacancy_applications', 'A', false),
+    ('job_source_health_events', 'A-log', true),
     ('meeting_recorder_audit_log', 'A-log', false),
     ('project_audit_log', 'A-log', false),
     ('team_audit_log', 'A-log', false),
@@ -240,6 +241,7 @@ BEGIN
     ('users', 'A', false),
     ('vacancies', 'A', false),
     ('vacancy_applications', 'A', false),
+    ('job_source_health_events', 'A-log', true),
     ('meeting_recorder_audit_log', 'A-log', false),
     ('project_audit_log', 'A-log', false),
     ('team_audit_log', 'A-log', false),
@@ -531,6 +533,7 @@ BEGIN
     ('users', 'A', false),
     ('vacancies', 'A', false),
     ('vacancy_applications', 'A', false),
+    ('job_source_health_events', 'A-log', true),
     ('meeting_recorder_audit_log', 'A-log', false),
     ('project_audit_log', 'A-log', false),
     ('team_audit_log', 'A-log', false),
@@ -734,6 +737,7 @@ BEGIN
     ('users', 'A', false),
     ('vacancies', 'A', false),
     ('vacancy_applications', 'A', false),
+    ('job_source_health_events', 'A-log', true),
     ('meeting_recorder_audit_log', 'A-log', false),
     ('project_audit_log', 'A-log', false),
     ('team_audit_log', 'A-log', false),
@@ -1107,7 +1111,7 @@ $check$;
 DO $ok$
 BEGIN
   RAISE NOTICE 'db-privileges check passed: % relations classified, roles %, %, %',
-    82, 'crm_app', 'crm_collector', 'crm_retention_owner';
+    83, 'crm_app', 'crm_collector', 'crm_retention_owner';
 END
 $ok$;
 

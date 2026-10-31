@@ -153,6 +153,14 @@ GRANT SELECT, INSERT ON TABLE
   public.transaction_audit_log,
   public.user_audit_log
   TO crm_app;
+-- staged relations (drizzle/manual-staged/): granted only where they exist.
+DO $staged$
+BEGIN
+  IF to_regclass('public.job_source_health_events') IS NOT NULL THEN
+    GRANT SELECT, INSERT ON TABLE public.job_source_health_events TO crm_app;
+  END IF;
+END
+$staged$;
 --   crm_collector: nothing.
 --   crm_retention_owner: nothing.
 
