@@ -40,7 +40,7 @@ to rely on, there is a thing that exists afterwards, and checking it costs one c
 | a CI check          | "the checks pass"               | `gh pr checks` **lists** checks at all — a count — and only then their conclusions    |
 | **your own commit** | "it touches only _these_ files" | `git diff --cached --name-only` **before** committing, `git show --stat HEAD` after   |
 
-Check the staged set **before** committing (`git diff --cached --name-only`) and assert after (`git show --stat HEAD`). `git add` by name is necessary, not sufficient: the index is a whole-tree snapshot, so a commit can carry stale copies of files you never staged and silently revert another worktree's work.
+Check the staged set **before** committing (`git diff --cached --name-only`) and assert after (`git show --stat HEAD`). `git add` by name is necessary, not sufficient: the index is a whole-tree snapshot, so a commit can carry stale copies of files you never staged and silently revert another worktree's work. Fetching first does not reveal it: a sibling's commit reached through the shared local ref is already an ancestor, so nothing is behind-upstream.
 
 State the artifact, not the outcome: a sentence a reader can check in one command beats one they must believe (`Pushed: <branch> @ <sha>` is this device).
 

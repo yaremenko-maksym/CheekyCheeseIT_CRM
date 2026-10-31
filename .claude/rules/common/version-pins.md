@@ -35,7 +35,7 @@ comments** — link here.
 ### Backend
 
 - **NestJS:** 11 (current LTS).
-- **Fastify:** `^5.8.5` — forced via `pnpm.overrides` (conflict with `@fastify/helmet`).
+- **Fastify:** `^5.12.6` — forced via `pnpm.overrides` (conflict with `@fastify/helmet`).
 - **Drizzle ORM:** `^0.45.0` + a compatible Drizzle Kit.
 - **Zod:** v4 (NOT v3 — `.transform` / `.parse` syntax differs).
 - **standardwebhooks:** `1.1.1` EXACT — signature semantics are protocol-critical and this version is

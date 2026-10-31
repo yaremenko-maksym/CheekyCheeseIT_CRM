@@ -41,6 +41,16 @@ tasks are here.
 
 The artifact decides (task files); intuition is only a hint. Mostly "no" → single-pipeline.
 
+### Decision 2 — code-work vs read-only breadth-first audit
+
+If the task is a **survey / audit of ≥3 independent controller-modules, the material exceeds one
+context window, WITHOUT writing code** (RBAC sweep, dead-code, security surface, "how X works across
+the whole repo"):
+
+→ **AUDIT-FANOUT** via the skill `codebase-audit` (N × haiku explore in waves of ≤ 3-4 → opus synth).
+The engine — the Workflow tool OR `superpowers:dispatching-parallel-agents`. This is the ONLY case
+with genuinely new value over Master's direct dispatch.
+
 ### DEFAULT-DENY
 
 No decision matched explicitly → **SINGLE-PIPELINE / one agent**. A parallel fan-out is launched ONLY

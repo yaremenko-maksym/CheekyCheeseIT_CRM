@@ -89,7 +89,7 @@ In a worktree the block is lifted — the Coder _technically_ can overwrite anyt
 
 ### Verify MAIN is clean after each Coder (MANDATORY)
 
-The zone hook does NOT catch a Coder that writes into MAIN by an absolute path, so Master MUST,So Master MUST, after EACH finished
+The zone hook does NOT catch a Coder that writes into MAIN by an absolute path, so Master MUST, after EACH finished
 Coder, verify that the MAIN checkout is clean:
 
 ```bash

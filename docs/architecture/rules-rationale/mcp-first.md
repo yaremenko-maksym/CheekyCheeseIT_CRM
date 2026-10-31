@@ -15,22 +15,17 @@ Narrative blocks removed verbatim from the always-on rule to cut per-request byt
 
 ---
 
-## Sources
+### Sources (formerly the rule's Sources section)
 
 CLAUDE.md "MCP servers — USE FIRST" · Phase 2.5 activation of the `eslint` MCP:
 `docs/architecture/2026-06-03-phase2.5-deliverable.md` · ADR
 `docs/architecture/2026-05-31-ecc-migration-design.md` §2.7 (MCP configs).
-_(This rule is catalog and mechanism throughout — it has no separate rationale file.)_
 
 ---
 
 graphify is an **addition**, not a replacement. It is built locally and code-only (AST, no model call,
 nothing leaves the machine) by `scripts/devops/build-graphify.sh` (~45 s) into the gitignored
 `graphify-out/`.
-
-## Moved from the rule 2026-10-31
-
-Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
 
 ## Native tools (when MCP does not fit)
 

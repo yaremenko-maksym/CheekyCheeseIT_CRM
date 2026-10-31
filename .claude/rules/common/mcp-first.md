@@ -3,6 +3,8 @@
 **Status:** Always-on
 **Applies to:** All agents (Coder, AutoTest, Reviewer, DevOps, Legal, Architect, plus ECC-imported agents) + Master (orchestrator)
 
+> Rationale: `docs/architecture/rules-rationale/mcp-first.md`
+
 ---
 
 ## The rule
