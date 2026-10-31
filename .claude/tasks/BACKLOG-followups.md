@@ -6412,3 +6412,25 @@ shows the second refused with `HOST_RATE_GAP` inside the gap; it fails today and
 
 Sources: PR #1189 reviews; `docs/architecture/2026-10-25-source-fetch-strategy.md` (section 5, Owner
 decision 11, unit U11).
+
+## 344. pnpm-audit exceptions: the "build/dev-only" tier is asserted once, never re-checked (2026-10-31)
+
+From the PR #1195 security review (SR-M-1 and one LOW). Codebase Gardener run of 2026-10-31.
+
+**(i) The tier is not enforced.** `check-pnpm-audit.mjs` matches an exception by GHSA id only. A group
+whose `tier` says "build/dev-only" (today: minimatch GHSA-g3hv-75wg-m249, glob GHSA-3g3m-2fjr-6pw4) stays
+accepted even if a later dependency puts that module on a production path, and the reason text goes stale
+silently. Fix: for every group with a build/dev-only tier, the guard reads `pnpm-lock.yaml` and fails when
+any installed version of a listed module lacks `dev: true`. Owner: DevOps (guard + its test in
+`scripts/devops/tests/`). Verify: a fixture lockfile where one listed module is a production dependency
+makes the guard exit non-zero naming the module; today it exits 0.
+
+**(ii) Reason wording.** The minimatch group's reason names "lint/format tooling" for the 10.2.5 chains;
+one chain is `@stryker-mutator/core`. The 5.1.9 chain reaches the PWA build through `workbox-build`, not
+`vite-plugin-pwa` directly. Correct the text in the same change; the tier and the verdict are unaffected.
+
+**(iii) Recheck.** Both exceptions carry a free-text recheck date of 2026-12-01; nothing expires them.
+Verify: `pnpm audit` on that date — if `@lingui/cli`, `@nestjs/cli`, `workbox-build` or eslint ship on
+minimatch >=11.0.1 / glob >=14.0.2, bump and delete the groups.
+
+Sources: PR #1195 reviews; `scripts/devops/pnpm-audit-runbook.md` Step 4.
