@@ -40,7 +40,7 @@ out by a ledger it does not heartbeat into — is kept by section 1's neutral ac
 | F1  | `JobSourcingService.collectSource` is the legacy seam: kind check (`NotLegacySourceError`) → `chargeBudget` → `provider.collect(config)` → zero postings throws and leaves `lastCollectedAt` → `persistPostings` → `createSuggestions(created)` → write `lastCollectedAt`. No transaction spans these steps.                                                     |
 | F2  | `persistPostings` returns only the **created** rows (`ON CONFLICT (fingerprint) DO NOTHING RETURNING`); a duplicate is a count. `createSuggestions` is called with that list. So a crash after `persistPostings` and before `createSuggestions` loses those suggestions **for good**: the rerun sees every row as a duplicate and calls `createSuggestions([])`. |
 | F3  | `JobRunLedger.claimSource` and `claimGate` refuse every non-`REPORTING` kind with `NOT_ACTIVATABLE`. DOU is `LEGACY`, has `manifest_id` NULL and `host_key` NULL.                                                                                                                                                                                                |
-| F4  | `JobRunLedger.endRun` → `account` writes `job_sources` failure columns (`consecutive_failures`, `cooldown_until`, `next_attempt_at`, `last_success_at`) and never `last_collected_at`. `recoverExpired` ends an expired run `FAILED` / `LEASE_EXPIRED`, which counts as a failure.                                                                               |
+| F4  | `JobRunLedger.endRun` → `account` writes `job_sources` failure columns (`consecutive_failures`, `cooldown_until`, `next_attempt_at`, `last_success_at`, `last_nonempty_at`, `last_error_code`; a neutral or cost-stop ending still writes `next_attempt_at` and `last_error_code`) and never `last_collected_at`. `recoverExpired` ends an expired run `FAILED` / `LEASE_EXPIRED`, which counts as a failure.                                                                               |
 | F5  | `job_collection_runs` has no column or CHECK that needs a manifest. Two partial unique indexes allow one `STARTED` run per source and per account key. A source with no meter gets the synthetic account key `#source:<id>`.                                                                                                                                     |
 | F6  | `write-gate.spec.ts` makes the ledger the only writer of the run row and the scheduling columns. A new claim path must live in `JobRunLedger`.                                                                                                                                                                                                                   |
 | F7  | `saveObservationPage` (the S1 page write) needs a run handle: `assertOwned`, then observations, then `writePageCheckpoint`, in one transaction. Identity is `(provider, namespace, identityKey)`; `MAX_OBSERVATIONS_PER_PAGE` is 500.                                                                                                                            |
@@ -88,22 +88,24 @@ exhausted source costs ZERO requests").
 
 ### Golden behaviour → new path
 
-| Golden behaviour (pinned today)                             | Flag off  | Flag on                                                                                                   |
-| ----------------------------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------- |
-| One unit written before the provider is asked               | unchanged | unchanged: `chargeBudget` runs after the claim and before `provider.collect`                              |
-| The provider throws → the unit stays spent                  | unchanged | unchanged; the run ends `FAILED` / `UPSTREAM` (run row only)                                              |
-| Zero postings → failure, unit spent, `lastCollectedAt` kept | unchanged | same `Error` thrown, so `collectAll` reports it the same way; the run ends `FAILED` / `PARSE_DRIFT`       |
-| Exhausted source → typed stop, zero requests                | unchanged | `chargeBudget` throws `JobSourceBudgetExhaustedError` as today; the run ends `CANCELLED` / `COST_STOP`    |
-| Contention → `JobSourceBudgetContentionError`               | unchanged | unchanged; the run ends `CANCELLED` / `COST_STOP`                                                         |
-| Unlimited source is never charged                           | unchanged | unchanged: `resolveBudget` returns `limited: false` before any write                                      |
-| Window rollover restarts the count at one                   | unchanged | unchanged (same function)                                                                                 |
-| Twenty sequential clicks spend twenty units                 | unchanged | unchanged: each run ends before the next click                                                            |
-| Two **concurrent** collections both run                     | unchanged | **changes:** the second gets `JobSourceRunBusyError` and spends zero units (owner question Q2, section 7) |
-| `collectAll` isolates a failing source                      | unchanged | unchanged: every new error is caught by the existing loop; deliberate stops take the warn branch          |
+| Behaviour                                                   | Pinned today?                       | Flag off  | Flag on                                                                                                          |
+| ----------------------------------------------------------- | ----------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------- |
+| One unit written before the provider is asked               | yes (compat barrier)                | unchanged | unchanged: `chargeBudget` runs after the claim and before `provider.collect`                                     |
+| The provider throws → the unit stays spent                  | yes (compat barrier)                | unchanged | unchanged; the run ends `FAILED` / `UPSTREAM` (run row only)                                                     |
+| Zero postings → failure, unit spent, `lastCollectedAt` kept | yes (compat barrier, DOU golden)    | unchanged | same `Error` thrown, so `collectAll` reports it the same way; the run ends `FAILED` / `PARSE_DRIFT`              |
+| Exhausted source → typed stop, zero requests                | yes (budget specs)                  | unchanged | `chargeBudget` throws `JobSourceBudgetExhaustedError` as today; the run ends `PARTIAL` / `COST_STOP`             |
+| Contention → `JobSourceBudgetContentionError`               | yes (budget contention spec)        | unchanged | unchanged; no request was made and the budget is not spent, so the run ends `CANCELLED` / `CANCELLED`            |
+| Unlimited source is never charged                           | yes (compat barrier)                | unchanged | unchanged: `resolveBudget` returns `limited: false` before any write                                             |
+| Window rollover restarts the count at one                   | yes (compat barrier)                | unchanged | unchanged (same function)                                                                                        |
+| Twenty sequential clicks spend twenty units                 | **no** — new test in S6a            | unchanged | unchanged: each run ends before the next click                                                                   |
+| Two **concurrent** collections                              | **no** — new test in S6a (flag off) | both run  | **the one deliberate divergence:** the second gets `JobSourceRunBusyError` and spends zero units (Q2, section 7) |
+| `collectAll` isolates a failing source                      | yes (collect-all specs)             | unchanged | unchanged: every new error is caught by the existing loop; deliberate stops take the warn branch                 |
 
-The error code per row is a proposal for S6c. `validateEnding` decides which codes each outcome
-admits, and S6c may pick another code from `COLLECTION_ERROR_CODES` if that table refuses one. No
-new code is needed.
+The pairs are the ones `validateEnding` accepts: `PARTIAL` admits only `PAGE_CAP` / `COST_STOP` /
+`DEADLINE`, `CANCELLED` admits only `CANCELLED`, and `FAILED` admits any known code except
+`LEASE_EXPIRED`. Exhaustion is a cost stop. Contention is not: nothing was spent, so it is a
+cancellation. Under the LEGACY branch, both end the run row only; the `endingEffect` they select is
+not applied to `job_sources`. No new code is needed.
 
 **Rejected alternatives.**
 
@@ -198,7 +200,9 @@ one live owner per source.
 
 **Who drains after a crash.** The next DOU run of the same source: the 05:00 cron or an ADMIN click.
 So a crash delays suggestions by at most one cycle. It never loses them. No separate drain worker
-is added: YAGNI for one daily feed of about 25 items.
+is added: YAGNI for one daily feed of about 25 items. **The drain runs only after a successful
+fetch.** It sits after `provider.collect` and the zero-postings check. While DOU is down or returns
+nothing, pending suggestion rows wait. They are delayed, not lost (risk R3).
 
 ### Ordering: why legacy enqueue comes before the store write
 
@@ -207,7 +211,9 @@ persist step: it runs before anything new evaluates a record (the dirty/recomput
 what T2 wrote). The **legacy** consumers are not evaluation. They are today's product, and they must
 not fail because the new store refuses something. So T1 runs first. A T2 failure is logged and
 recorded on the run row as a lower `received`, and it **does not fail the DOU run** (owner question
-Q3). Item-level: the DOU → observation mapping skips an item the validator refuses and counts it in
+Q3). The run row's counters have one writer: `write-gate.spec.ts` bars the service from writing
+`job_collection_runs`. So the T2-failure count goes through a ledger-side writer, `writePageProgress`
+or a new sibling in `JobRunLedger` (S6e), never a direct service UPDATE. Item-level: the DOU → observation mapping skips an item the validator refuses and counts it in
 `invalid`. It never drops the item from T1.
 
 **Rejected alternatives.**
@@ -233,13 +239,13 @@ Q3). Item-level: the DOU → observation mapping skips an item the validator ref
 ### Decision D-3 (confidence: **HIGH** on keys and class, **MED** on the column set)
 
 ```sql
--- staged as apps/api/drizzle/manual/<date>_job_bridge_deliveries.sql (STAGED first, see below)
+-- staged as apps/api/drizzle/manual-staged/<date>_job_bridge_deliveries.sql; S6f moves it to manual/
 CREATE TYPE job_bridge_consumer AS ENUM ('LEGACY_POSTING', 'LEGACY_SUGGESTION');
 CREATE TYPE job_bridge_status   AS ENUM ('PENDING', 'DONE', 'INVALID');
 
 CREATE TABLE IF NOT EXISTS job_bridge_deliveries (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  source_id           uuid NOT NULL REFERENCES job_sources(id) ON DELETE CASCADE,
+  source_id           uuid REFERENCES job_sources(id) ON DELETE SET NULL,   -- OPEN (S6b), see below
   provider            job_source_type NOT NULL,
   consumer            job_bridge_consumer NOT NULL,
   identity_key        text NOT NULL,            -- the posting fingerprint
@@ -273,6 +279,15 @@ CREATE INDEX IF NOT EXISTS ix_job_bridge_pending
   the run rows: runs are kept, so nothing is lost, and a purge of runs must not erase delivery
   evidence silently. **Check at S6b:** does any run-retention path delete `job_collection_runs`?
   If one does, use `SET NULL` on `delivered_by_run` and keep `enqueued_by_run`.
+- **OPEN — `source_id` on source deletion (decide in S6b, together with the run-retention check
+  above).** `job_postings.source_id` is `ON DELETE SET NULL`, so postings outlive a deleted source.
+  A `CASCADE` here would erase that source's `PENDING` deliveries while its postings survive. That
+  is silent loss of exactly the fact this table exists to keep. **Recommendation: `SET NULL`**,
+  nullable, matching `job_postings`. The evidence survives, and an ADMIN can still delete a source.
+  A pending row whose source is gone is inert, because the drain selects by `source_id`. S6g's
+  runbook lists such rows with one query. `RESTRICT` is rejected: it would block deleting a source
+  forever once it has any delivery row, `DONE` rows included, and nothing else in job sourcing
+  blocks an ADMIN delete that way.
 - **A purged posting reappearing.** After the delivery row cascades away, the next collection of
   the same feed item enqueues a fresh row, the insert creates the posting again, and seniors get a
   fresh `NEW` suggestion. That is today's behaviour ("undecided ones are purged and re-offered as
@@ -297,19 +312,28 @@ CREATE INDEX IF NOT EXISTS ix_job_bridge_pending
 1. **S6b — staged.** The file and its Drizzle declaration land, with a forward-DDL integration spec
    that applies the file twice and compares the catalog with `db:push` (the
    `job-record-store-forward-ddl` precedent). `check-prod-ddl-wiring.py` passes, because a staged
-   file is not under `manual/`. Nothing reaches production.
-2. **S6f — promoted (DevOps, owner A3 go).** Move the file into `drizzle/manual/`, then wire
-   `deploy.yml` the way S0 wired `2026-10-25_job_record_store.sql`:
-   - add the file to the rollback preflight list (a hard requirement);
-   - add an SCP copy step;
-   - apply it with `psql -v ON_ERROR_STOP=1 --single-transaction` **after** the record-store file
-     and **before** `2026-10-18_db_grants.sql`;
-   - the privileges catalog check (`2026-10-18_db_privileges_check.sql`) runs after the grants and
-     must pass;
-   - remove the table from `STAGED_RELATIONS`.
+   file lives in `drizzle/manual-staged/`, not `manual/`. Nothing reaches production.
+2. **S6f — promoted (DevOps, owner A3 go).** Do what S0 did for `2026-10-25_job_record_store.sql`.
+   The file set below is the #1171 diff:
+   - **move** the file `manual-staged/` → `manual/` as a pure rename (no byte changes);
+   - `.github/workflows/deploy.yml`: add the file to the rollback preflight list (a hard
+     requirement) and add an SCP copy step;
+   - `scripts/devops/deploy-stack-on-vps.sh`: add an apply block. It checks the file exists (fails
+     loud if scp flattened the tree), then applies it with
+     `psql -v ON_ERROR_STOP=1 --single-transaction` **after** the record-store block and **before**
+     `2026-10-18_db_grants.sql`;
+   - privileges: remove the table from `STAGED_RELATIONS` in `privilege-classes.ts`; **regenerate**
+     `2026-10-18_db_grants.sql` and `2026-10-18_db_privileges_check.sql` from it; update
+     `privilege-classes.spec.ts` / `generate-privilege-sql.spec.ts`. The catalog check runs after the
+     grants and must pass;
+   - `scripts/devops/check-prod-ddl-wiring.py`: register the file as wired;
+   - the forward-DDL spec: point it at the new path;
+   - `docs/runbooks/deployment.md`: add the line for the new DDL step.
 3. **Order against the code.** The bridged code path (S6d) needs the table only with the flag on.
-   With the flag off it never touches the table, so S6d may merge and deploy **before** S6f. The
-   flag stays off in production until S6f is deployed (Q4).
+   With the flag off it never touches the table, so S6d may merge and deploy before S6f. **S6f
+   ships only after S6d** is merged and green flag-on in CI (Q1): the schema goes to production for
+   a reader that exists. S6b staging may precede both. The flag stays off in production until S6f
+   is deployed (Q4).
 
 ### DDL rollback
 
@@ -318,7 +342,8 @@ The table is additive and nothing outside the bridge reads it.
 - **Code rollback** = flag off. No DDL is touched.
 - **Schema rollback** (owner-run, only after the flag has been off for a full cycle):
   `DROP TABLE IF EXISTS job_bridge_deliveries; DROP TYPE IF EXISTS job_bridge_status; DROP TYPE IF EXISTS job_bridge_consumer;`
-  — **plus** a reverse commit that removes the file from `deploy.yml` and its preflight list.
+  — **plus** a reverse commit that undoes the S6f file set (`deploy.yml` preflight + SCP, the
+  `deploy-stack-on-vps.sh` apply block, the regenerated privilege files, the wiring check).
   Otherwise the next deploy re-creates the table.
 - **Loss.** Dropping the table loses any `PENDING` suggestion rows. Section 4's flag-off drain rule
   is what makes that loss zero.
