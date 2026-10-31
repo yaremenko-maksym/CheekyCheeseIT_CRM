@@ -49,7 +49,7 @@ export class JobSourceHealthService {
   private readonly logger = new Logger(JobSourceHealthService.name)
 
   constructor(
-    private readonly database: DatabaseService,
+    @Inject(DatabaseService) private readonly database: DatabaseService,
     // U5a: optional like the cron's collaborators — a unit context without it writes events only.
     @Optional()
     @Inject(SourceHealthAlertService)

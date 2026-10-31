@@ -14,7 +14,7 @@
  * The whole body runs under `NotificationsService.emitInTx`, a savepoint: a failure here is logged
  * and reported, and never rolls back the health event.
  */
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { NOTIFICATION_TITLES } from '@crm/shared'
 import { users } from '../../database/schema'
@@ -36,7 +36,8 @@ const KYIV = 'Europe/Kyiv'
 
 @Injectable()
 export class SourceHealthAlertService {
-  constructor(private readonly notifications: NotificationsService) {}
+  // Explicit token: the test transformer emits no `design:paramtypes`.
+  constructor(@Inject(NotificationsService) private readonly notifications: NotificationsService) {}
 
   /** Enqueues the alerts for one transition; resolves once they are written (or swallowed). */
   async alertOnTransition(tx: DrizzleTx, t: AlertTransition): Promise<void> {

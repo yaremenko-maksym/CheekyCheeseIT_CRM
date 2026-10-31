@@ -4,9 +4,11 @@ import { describe, expect, it } from 'vitest'
 import { AuthModule } from '../auth/auth.module'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseModule } from '../database/database.module'
+import { NotificationsModule } from '../notifications/notifications.module'
 import { DatabaseService } from '../database/database.service'
 import { DouRssProvider } from './dou.provider'
 import { JobSourcingModule } from './job-sourcing.module'
+import { StubNotificationsModule } from './stub-notifications-module.test-helper'
 import { JobSourcingService } from './job-sourcing.service'
 import { JobSourceRegistry } from './registry/job-source-registry'
 
@@ -33,6 +35,8 @@ describe('JobSourcingModule wiring (the path production uses)', () => {
       .useModule(StubGlobalsModule)
       .overrideModule(AuthModule)
       .useModule(StubAuthModule)
+      .overrideModule(NotificationsModule)
+      .useModule(StubNotificationsModule)
       .compile()
 
     const registry = moduleRef.get(JobSourceRegistry)

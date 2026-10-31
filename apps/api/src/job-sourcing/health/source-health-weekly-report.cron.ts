@@ -14,7 +14,7 @@
  * the window, EXCLUDING records first seen in the source's first run (the backlog, not news) —
  * ADR section 9. A source with no such record reports "not measurable" (null), not a number.
  */
-import { Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { NOTIFICATION_TITLES, type WeeklySourceRow } from '@crm/shared'
@@ -55,8 +55,8 @@ export class SourceHealthWeeklyReportCron {
   private readonly logger = new Logger(SourceHealthWeeklyReportCron.name)
 
   constructor(
-    private readonly database: DatabaseService,
-    private readonly notifications: NotificationsService,
+    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(NotificationsService) private readonly notifications: NotificationsService,
   ) {}
 
   @Cron(WEEKLY_REPORT_CRON, { timeZone: TIME_ZONE })

@@ -199,6 +199,56 @@ describe('три замороженных типа — реестр, не зам
     expect(NOTIFICATION_TITLE_MESSAGES.VACANCY_APPLICATION.message).toBe('Новий відгук на вакансію')
   })
 
+  it('SOURCE_HEALTH_ALERT: деталь називає джерело і стан, обома мовами', () => {
+    const data = notificationDataSchemaFor('SOURCE_HEALTH_ALERT').parse({
+      sourceName: 'remotive_api',
+      state: 'CAPPED',
+    })
+    expect(describeNotification('SOURCE_HEALTH_ALERT', data, UK)).toBe(
+      'remotive_api — забагато збоїв поспіль, потрібне скидання',
+    )
+    expect(describeNotification('SOURCE_HEALTH_ALERT', data, EN)).toBe(
+      'remotive_api — too many failures in a row, a reset is needed',
+    )
+    // The state is a closed set: a healthy state is not an alert.
+    expect(
+      notificationDataSchemaFor('SOURCE_HEALTH_ALERT').safeParse({
+        sourceName: 'remotive_api',
+        state: 'HEALTHY',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('SOURCE_HEALTH_WEEKLY_REPORT: деталь рахує джерела і ті, де змінився стан', () => {
+    const row = {
+      name: 'remotive_api',
+      state: 'HEALTHY',
+      transitions: 0,
+      runs: 140,
+      freshnessP50Min: 12,
+      freshnessP90Min: 95,
+      requests: 150,
+      bytes: 2_500_000,
+    }
+    const data = notificationDataSchemaFor('SOURCE_HEALTH_WEEKLY_REPORT').parse({
+      weekStart: '2026-10-26',
+      sources: [row, { ...row, name: 'jobicy_api', state: 'FAILING', transitions: 2 }],
+    })
+    expect(describeNotification('SOURCE_HEALTH_WEEKLY_REPORT', data, UK)).toBe(
+      'Тиждень з 2026-10-26: джерел — 2, зі зміною стану — 1',
+    )
+    expect(describeNotification('SOURCE_HEALTH_WEEKLY_REPORT', data, EN)).toBe(
+      'Week starting 2026-10-26: sources — 2, with a state change — 1',
+    )
+    // The stored row is bounded: a malformed date is refused.
+    expect(
+      notificationDataSchemaFor('SOURCE_HEALTH_WEEKLY_REPORT').safeParse({
+        weekStart: '26.10.2026',
+        sources: [],
+      }).success,
+    ).toBe(false)
+  })
+
   it('три замороженных типа несут неймспейс `notification.<TYPE>.title` в id заголовка', () => {
     expect(NOTIFICATION_TITLE_MESSAGES.INVOICE_SIGNED.id).toBe('notification.INVOICE_SIGNED.title')
     expect(NOTIFICATION_TITLE_MESSAGES.INVOICE_SIGN_REQUIRED.id).toBe(
