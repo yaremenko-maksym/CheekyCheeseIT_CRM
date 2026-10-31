@@ -77,6 +77,11 @@ describe('boardTokenFromUrl', () => {
     // the bare host has no tenant
     expect(boardTokenFromUrl('https://recruitee.com/')).toBeNull()
     expect(boardTokenFromUrl('https://jobs.personio.de/')).toBeNull()
+    // a path on a subdomain-shaped host is not a token, nor is a subdomain of a path-shaped host
+    expect(boardTokenFromUrl('https://recruitee.com/acme')).toBeNull()
+    expect(boardTokenFromUrl('https://jobs.personio.de/acme')).toBeNull()
+    expect(boardTokenFromUrl('https://x.boards.greenhouse.io/acme')).toBeNull()
+    expect(boardTokenFromUrl('https://x.apply.workable.com/acme')).toBeNull()
   })
 })
 
@@ -136,7 +141,7 @@ describe('discoverBoardTokens', () => {
           matches: 2,
         }),
         row({
-          urls: ['https://boards.greenhouse.io/acme/jobs/2'],
+          urls: ['https://example.com/not-a-board', 'https://boards.greenhouse.io/acme/jobs/2'],
           opportunity_id: 'o1',
           matches: 2,
         }),
