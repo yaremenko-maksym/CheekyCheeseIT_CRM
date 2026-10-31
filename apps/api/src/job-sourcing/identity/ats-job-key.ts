@@ -33,24 +33,24 @@ export interface AtsJobKey {
   key: string
 }
 
-const GH_HOST = /^(?:job-)?boards\.(?:eu\.)?greenhouse\.io$/
+export const GH_HOST = /^(?:job-)?boards\.(?:eu\.)?greenhouse\.io$/
 const GH_PATH = /^\/([a-z0-9][a-z0-9_-]*)\/jobs\/([0-9]+)(?:\/|$)/i
 const GH_EMBED_PATH = /^\/embed\/job_app\/?$/
 const NAME_ONLY = /^[a-z0-9][a-z0-9_-]*$/i
 const DIGITS_ONLY = /^[0-9]+$/
-const LEVER_HOST = /^jobs\.(?:eu\.)?lever\.co$/
+export const LEVER_HOST = /^jobs\.(?:eu\.)?lever\.co$/
 const LEVER_PATH =
   /^\/([a-z0-9][a-z0-9_-]*)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/apply)?\/?$/i
-const ASHBY_HOST = /^jobs\.ashbyhq\.com$/
+export const ASHBY_HOST = /^jobs\.ashbyhq\.com$/
 const ASHBY_PATH =
   /^\/([a-z0-9][a-z0-9_-]*)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/application)?\/?$/i
-const WORKABLE_HOST = /^apply\.workable\.com$/
+export const WORKABLE_HOST = /^apply\.workable\.com$/
 const WORKABLE_PATH = /^\/([a-z0-9][a-z0-9_-]*)\/j\/([a-z0-9]{6,20})(?:\/apply)?\/?$/i
 const SR_HOST = /^(?:jobs|careers)\.smartrecruiters\.com$/
 const SR_PATH = /^\/([a-z0-9][a-z0-9_-]*)\/([0-9]+)(?:-[^/]*)?\/?$/i
-const RECRUITEE_HOST = /^(?!www\.)([a-z0-9][a-z0-9_-]*)\.recruitee\.com$/
+export const RECRUITEE_HOST = /^(?!www\.)([a-z0-9][a-z0-9_-]*)\.recruitee\.com$/
 const RECRUITEE_PATH = /^\/o\/([a-z0-9][a-z0-9-]*)(?:\/|$)/i
-const PERSONIO_HOST = /^([a-z0-9][a-z0-9_-]*)\.jobs\.personio\.(de|com)$/
+export const PERSONIO_HOST = /^([a-z0-9][a-z0-9_-]*)\.jobs\.personio\.(de|com)$/
 const PERSONIO_PATH = /^\/job\/([0-9]+)\/?$/
 
 const VENDOR_HOSTS = [
