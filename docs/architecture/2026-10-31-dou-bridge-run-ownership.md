@@ -368,11 +368,67 @@ until the flag is on again. Nothing is lost — the rows are durable — but the
 
 ## 5. Backfill (slice S7)
 
-_(pending)_
+### Decision D-5 (confidence: **MED** — the shape is clear; the run-handle mechanics need a PoC in S7)
+
+The S6 bridge feeds the observation store only for postings collected **after** the flag goes on.
+S7 brings the existing `job_postings` DOU rows into the store. Each `job_postings` row becomes one
+source record, keyed **by fingerprint**:
+
+- **Explicit legacy namespace.** Records are written under a dedicated namespace (for example
+  `legacy-job-postings`), never the live DOU namespace. Two consequences:
+  - a backfilled record and a live one never collide by accident;
+  - the link from a backfilled record to a live one is the cross-source identity machinery's job
+    (Task 4.5 canonical store), not an overwrite.
+- **Preserved, never rewritten:** `job_postings.id`, every `job_suggestions` row and its status
+  (`NEW` / `APPLIED` / `REJECTED`), and the queue-v2 columns. S7 writes **only** to the store
+  tables and to `job_bridge_deliveries`. It updates and deletes nothing in `job_postings` or
+  `job_suggestions`.
+- **No re-offer.** For each backfilled posting, S7 inserts the `LEGACY_POSTING` delivery row as
+  `DONE` / `DUPLICATE` with the existing `posting_id`, and **no** suggestion row. A later live
+  collection of the same item and version is then a no-op in T1, which is what today does for a
+  known fingerprint.
+- **Reruns reconcile only.** Every write is `ON CONFLICT DO NOTHING` on the store's natural keys
+  and the delivery key. A rerun adds only the rows that are missing and reports counts
+  `{ seen, created, alreadyPresent, refused }`. A row the observation validator refuses is
+  counted and listed by fingerprint, not fixed.
+- **Run handle.** `saveObservationPage` needs an owned run. S7 claims a `claimLegacyRun` run on the
+  DOU source under a `MANUAL` cycle whose actor is the ADMIN who started it, in pages of at most
+  `MAX_OBSERVATIONS_PER_PAGE`, with a checkpoint (last fingerprint) so a crash resumes. It is
+  mutually exclusive with a live DOU run by the single-flight index. **PoC point:** whether a
+  backfill run ending must also be neutral to `job_sources` (yes, by section 1's LEGACY branch), and
+  whether the run lease survives a large page (it should: heartbeat per page).
+
+**Its own risks.**
+
+- It touches production data at volume, so it is critical-path and owner A3 (Q6).
+- It is a long run inside the 05:00 window, so it must not run at 05:00: it would hold DOU's
+  single-flight slot.
+- Purge interaction: a posting purged while S7 runs cascades its delivery row away, so the
+  backfilled record exists without a posting. That is harmless: the store keeps history, and a
+  re-collection re-creates the posting.
+- Dry-run first: `--dry-run` prints the counts and writes nothing.
 
 ## 6. Slice plan
 
-_(pending)_
+### Decision D-6 (confidence: **HIGH** on order, **MED** on sizes)
+
+Ordered so the barrier lands first. "Dark" means it ships with the flag off and changes nothing in
+production. Every slice is its own PR on `origin/main`; each states `depends_on` in its task file.
+
+| Slice   | What (files by symbol)                                                                                                                                                                                                                                                                    | AC (abridged)                                                                                                                                                                                                                                       | depends_on | Tier                 | Critical path / security-review       | DDL / owner go                       | Ships dark?                |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | -------------------- | ------------------------------------- | ------------------------------------ | -------------------------- |
+| **S6a** | Flag `JOB_QUEUE_BRIDGE_ENABLED` in the env schema + `.env.example` (DevOps line); injected into `JobSourcingService`; the barrier suites parameterised flag off/on; the `it.todo` replaced by the harness                                                                                  | (1) flag defaults off, parses like `JOB_MATCH_RECONCILIATION_ENABLED`; (2) every barrier case runs both ways and passes; (3) the off-branch makes no ledger / bridge call (recording double); (4) "a refused claim spends zero units" written as a pending case for S6d | —          | sonnet               | budget path → **yes** (light, haiku)  | none                                 | yes                        |
+| **S6b** | Staged DDL file + Drizzle declaration of `job_bridge_deliveries` + `PRIVILEGE_CLASSES.A` / `STAGED_RELATIONS` + forward-DDL spec                                                                                                                                                         | (1) file applies twice, catalog == `db:push`; (2) every CHECK has a refusing case; (3) privileges spec green; (4) `check-prod-ddl-wiring.py` green                                                                                                     | —          | sonnet               | migration → **yes**                   | staged only, nothing to prod         | yes                        |
+| **S6c** | `JobRunLedger.claimLegacyRun`; LEGACY branch in `account` (run row only) used by `finish` and `recoverExpired`; `JobSourceRunBusyError`; `write-gate.spec.ts` updated                                                                                                                       | (1) LEGACY claimed, REPORTING refused by `claimLegacyRun`, LEGACY still refused by `claimSource` / `claimDue`; (2) busy → typed stop; (3) finish / recovery of a LEGACY run leaves every `job_sources` column unchanged (real-DB); (4) epoch / lease / fencing as for reporting runs | S6a        | **opus**             | run ownership → **yes**               | none (F5)                            | yes (nothing calls it)     |
+| **S6d** | `collectSource` flag-on branch: cycle, claim, `chargeBudget`, provider, T1 / T3 / T4 drains, `lastCollectedAt`, `finish` in a `finally`; `createSuggestions` and the per-row insert take a transaction executor; `collectAll` threads the MANUAL actor                                     | (1) barrier parity flag on; (2) one fault-injection test per crash row of section 2; (3) a pending suggestion row from a crashed run is drained by the next run; (4) `createSuggestions` is never called with an empty list on a retry; (5) new sources never produce `LEGACY_*` rows | S6b, S6c   | **opus**             | budget + run ownership → **yes**      | needs the S6b table in test DBs only | yes (flag off in prod)     |
+| **S6e** | DOU `NormalizedPosting` → `SourceObservation` mapping (pure) + T2 store write, best-effort, counted on the run row                                                                                                                                                                         | (1) mapping golden over the DOU fixture; (2) a refused item is counted, never dropped from T1; (3) a T2 failure does not fail the run; (4) yield every 50 observations (benchmark, per plan)                                                          | S6d        | sonnet               | no (no money / RBAC)                  | none                                 | yes                        |
+| **S6f** | DevOps: promote the DDL into `drizzle/manual/` + `deploy.yml` wiring (preflight list, SCP, single-tx apply before grants, privileges check)                                                                                                                                               | (1) the S0 checklist; (2) a dry deploy on scratch applies it once and reruns as a no-op                                                                                                                                                               | S6b        | sonnet               | prod DDL → **yes**                    | **A3 owner go (Q1)**                 | n/a (schema only)          |
+| **S6g** | Runbook: flag-on / flag-off procedure (the flag-off drain rule), what to watch on the run rows; optional retention of old `DONE` rows                                                                                                                                                     | (1) runbook lines exist; (2) if retention is added, its SQL keeps `PENDING` rows                                                                                                                                                                      | S6d, S6f   | haiku (docs)         | no                                    | none                                 | n/a                        |
+| *flip*  | Owner sets `JOB_QUEUE_BRIDGE_ENABLED=true` in production                                                                                                                                                                                                                                  | barrier green flag on in CI; S6f deployed; one manual DOU collection watched                                                                                                                                                                          | S6d–S6g    | —                    | —                                     | **A3 owner (Q4)**                    | —                          |
+| **S7**  | Backfill (section 5)                                                                                                                                                                                                                                                                       | idempotent rerun; ids / suggestions / statuses unchanged (checksums before / after); dry-run first                                                                                                                                                    | flip       | **opus**             | prod data → **yes**                   | **A3 owner (Q6)**                    | dry-run first              |
+
+**Parallelism.** S6a and S6b share no files and may run as one wave of two. S6c waits for S6a,
+because it relies on the harness. S6e and S6f may run in parallel after their dependencies.
 
 ## 7. Risks and owner questions
 
