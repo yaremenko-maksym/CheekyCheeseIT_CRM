@@ -66,6 +66,15 @@ const render = (s: unknown) => new PgDialect().sqlToQuery(s as SQL).sql
 type Table = Parameters<typeof getTableConfig>[0]
 
 const names = (t: Table) => getTableConfig(t).columns.map((c) => c.name)
+/** Source fetch strategy U2: the run metric columns, in their `ADD COLUMN` order. */
+const U2_RUN_METRICS = [
+  'request_count',
+  'bytes_read',
+  'last_http_status',
+  'newest_item_published_at',
+  'envelope_fingerprint',
+  'validators_seen',
+] as const
 const col = (t: Table, n: string) => {
   const c = getTableConfig(t).columns.find((x) => x.name === n)
   if (!c) throw new Error(`no column ${n}`)
@@ -390,9 +399,26 @@ describe('job_collection_runs (AC2)', () => {
     // No default: a key the database invented would be one no other run shares,
     // and the per-account slot would then lock nothing. The writer must name it.
     expect(c.hasDefault).toBe(false)
-    // LAST, where the forward DDL's `ADD COLUMN` puts it — the forward-DDL spec
-    // compares column order between that path and `db:push`.
-    expect(names(jobCollectionRuns).at(-1)).toBe('account_key')
+    // LAST before U2's metric columns, where the forward DDLs' `ADD COLUMN` put them — the
+    // forward-DDL spec compares column order between that path and `db:push`.
+    expect(names(jobCollectionRuns).slice(-7)).toEqual(['account_key', ...U2_RUN_METRICS])
+  })
+
+  it('U2: six nullable metric columns with no default, appended after account_key', () => {
+    const types = U2_RUN_METRICS.map((name) => {
+      const c = col(jobCollectionRuns, name)
+      expect(c.notNull, name).toBe(false)
+      expect(c.hasDefault, name).toBe(false)
+      return c.getSQLType()
+    })
+    expect(types).toEqual([
+      'integer',
+      'bigint',
+      'smallint',
+      'timestamp with time zone',
+      'text',
+      'boolean',
+    ])
   })
 
   it('admits only a real meter key or the synthetic #source:<uuid> as an account key (2.5 T1b)', () => {

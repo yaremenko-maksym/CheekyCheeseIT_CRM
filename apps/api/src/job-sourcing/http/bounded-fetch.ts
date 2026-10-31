@@ -42,6 +42,11 @@ export interface BoundedFetchOptions {
   timeoutMs?: number
   /** Per-host spacing between requests, default 1000 ms. */
   minGapMs?: number
+  /**
+   * U2: told, for the final (non-redirect) response, whether it carried a validator (`ETag` or
+   * `Last-Modified`), whatever its status. Reads headers of a request that happens anyway.
+   */
+  onValidators?: (seen: boolean) => void
 }
 
 /**
@@ -222,6 +227,8 @@ export async function boundedFetchText(url: string, opts: BoundedFetchOptions): 
         await response.body?.cancel()
         throw err
       }
+
+      opts.onValidators?.(response.headers.has('etag') || response.headers.has('last-modified'))
 
       if (REFUSAL_STATUSES.has(response.status)) {
         await response.body?.cancel()

@@ -213,7 +213,11 @@ function feedPagedSpec<TConfig extends SourceConfigFields>(
       if (!document.ok) return document
       const feed = readFeed(document.value)
       return feed.ok
-        ? { ok: true, value: feed.feed }
+        ? {
+            ok: true,
+            value: feed.feed,
+            fingerprint: document.fingerprint,
+          }
         : { ok: false, code: 'PARSE_DRIFT', message: `feed: ${feed.reason}` }
     },
     pageRequest: (config, at) => ({

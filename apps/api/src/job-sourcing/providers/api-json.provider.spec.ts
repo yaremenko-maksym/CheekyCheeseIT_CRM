@@ -13,6 +13,7 @@ import {
   UNBUILT_REQUEST_URL,
 } from './api-json.provider'
 import { DEFAULT_API_JSON_LIMITS } from './api-json.limits'
+import { jsonEnvelopeFingerprint } from './envelope-fingerprint'
 import {
   type CachedResponse,
   type CollectionContext,
@@ -3493,5 +3494,20 @@ describe('collectPages validates the cap it consumes (SR-M-5)', () => {
     const h = harness({ pages: [onePage([job('1')])] })
     await collectPages(bare(10 * 1024 * 1024), config(), h.ctx)
     expect(h.sent[0]?.maxBytes).toBe(10_485_760)
+  })
+})
+
+describe('U2: a JSON page`s envelope fingerprint reaches the context', () => {
+  it('is the fingerprint of the page body`s field names', async () => {
+    const page = onePage([job('1')])
+    const h = harness({ pages: [page] })
+    const seen: string[] = []
+    h.ctx.observeEnvelope = (fp) => {
+      seen.push(fp)
+    }
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatch(/^[0-9a-f]{64}$/)
+    expect(seen[0]).toBe(jsonEnvelopeFingerprint(page.body))
   })
 })

@@ -350,7 +350,18 @@ export async function writePageCheckpoint(
     received: page.observations.length,
     unique: records.size,
     created: saved.filter((s) => s.createdRecord).length,
+    newestPublishedAt: newestPublishedAt(page.observations),
   })
+}
+
+/** U2: the newest `publishedAt` among the observations, or null when none carries one. */
+export function newestPublishedAt(observations: readonly SourceObservation[]): Date | null {
+  let newest: Date | null = null
+  for (const o of observations) {
+    const at = o.normalized.publishedAt
+    if (at != null && (newest === null || at.getTime() > newest.getTime())) newest = at
+  }
+  return newest
 }
 
 export interface PageWriteOptions {

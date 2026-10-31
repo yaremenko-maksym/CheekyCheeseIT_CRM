@@ -11,7 +11,9 @@ import {
   type XmlFailureReason,
   type XmlPort,
   XmlPortError,
+  xmlPort,
 } from '../xml'
+import { xmlEnvelopeFingerprint } from './envelope-fingerprint'
 import { baseSourceConfigSchema } from './api-json.provider'
 import { markValidated, UnvalidatedConfigError } from './reporting-provider'
 import {
@@ -523,5 +525,18 @@ describe('defineXmlProvider', () => {
       f.ctx,
     )
     expect(batch.requests.at(-1)?.error?.message).toBe('MALFORMED: from the injected port')
+  })
+})
+
+describe('U2: an XML page`s envelope fingerprint reaches the context', () => {
+  it('is the fingerprint of the document`s element and attribute names', async () => {
+    const f = fakeCollectionContext({ responses: [{ bodyText: PERSONIO }] })
+    const seen: string[] = []
+    f.ctx.observeEnvelope = (fp) => {
+      seen.push(fp)
+    }
+    await collectXmlPages(personioSpec(), config(), f.ctx)
+    const root = xmlPort.parseDocument(new TextEncoder().encode(PERSONIO)).root
+    expect(seen).toEqual([xmlEnvelopeFingerprint(root)])
   })
 })

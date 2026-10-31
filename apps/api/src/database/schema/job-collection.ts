@@ -25,12 +25,14 @@
 import { sql } from 'drizzle-orm'
 import {
   bigint,
+  boolean,
   check,
   foreignKey,
   index,
   integer,
   jsonb,
   pgTable,
+  smallint,
   text,
   timestamp,
   unique,
@@ -262,8 +264,34 @@ export const jobCollectionRuns = pgTable(
      * the only intended writer.
      */
     accountKey: text('account_key').notNull(),
+    /*
+     * Source fetch strategy U2 (ADR 2026-10-25 section 10): the run's metrics, written by
+     * the ledger's `finish` (and, for `newest_item_published_at`, by each page write).
+     * NULL = not written: a run ended by recovery, or one that predates U2. LAST on
+     * purpose, after `account_key`: production gets them from the staged
+     * `2026-10-31_job_run_metrics_slowdown.sql` (`ADD COLUMN` appends).
+     */
+    /** Requests the run's context handed to the transport. */
+    requestCount: integer('request_count'),
+    /** UTF-8 bytes of the bodies the run read. */
+    bytesRead: bigint('bytes_read', { mode: 'number' }),
+    /** The HTTP status of the run's last answered request; NULL when none was answered. */
+    lastHttpStatus: smallint('last_http_status'),
+    /** The newest `published_at` among the observations the run saved. */
+    newestItemPublishedAt: timestamp('newest_item_published_at', { withTimezone: true }),
+    /** sha256 hex of the sorted set of field names the run's first decoded response carried. */
+    envelopeFingerprint: text('envelope_fingerprint'),
+    /** Whether any response of the run carried `ETag` or `Last-Modified` (ADR section 7). */
+    validatorsSeen: boolean('validators_seen'),
   },
   (t) => [
+    check(
+      'ck_job_collection_runs_metrics_bounded',
+      sql`(${t.requestCount} IS NULL OR ${t.requestCount} >= 0)
+        AND (${t.bytesRead} IS NULL OR ${t.bytesRead} >= 0)
+        AND (${t.lastHttpStatus} IS NULL OR ${t.lastHttpStatus} BETWEEN 100 AND 599)
+        AND (${t.envelopeFingerprint} IS NULL OR ${t.envelopeFingerprint} ~ '^[0-9a-f]{64}$')`,
+    ),
     foreignKey({
       name: 'fk_job_collection_runs_source',
       columns: [t.sourceId],

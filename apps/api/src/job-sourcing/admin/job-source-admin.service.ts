@@ -72,7 +72,7 @@ export class JobSourceAdminService {
     this.assertAdmin(actor)
     const { rows } = await this.database.db.execute(sql`
       SELECT * FROM (
-        SELECT s.id, s.type, s.host_key, s.consecutive_failures, s.last_error_code, s.next_attempt_at,
+        SELECT s.id, s.type, s.host_key, s.consecutive_failures, s.last_error_code, s.next_attempt_at, s.slowdown_level,
                s.manifest_id,
                (extract(epoch FROM clock_timestamp()) * 1000)::float8 AS now_ms,
                (extract(epoch FROM s.next_attempt_at) * 1000)::float8 AS next_attempt_ms,
@@ -116,18 +116,20 @@ export class JobSourceAdminService {
 
   /**
    * Overdue: two whole slots of the source's own schedule have passed since it was due (DB clock).
-   * U1b: the slots are the ledger's own (`nextAttemptAt`: the profile, the floor, the manifest id),
-   * so the listing and the ledger never disagree; `min_interval_hours` is not read. A null-profile
+   * U1b: the slots are the ledger's own (`nextAttemptAt`: the profile, the floor, the manifest id,
+   * and since U2 the source's slow-down level), so the listing and the ledger never disagree; `min_interval_hours` is not read. A null-profile
    * source has no next slot and is never overdue.
    */
   private overdueAtFloor(r: Record<string, unknown>): boolean {
     const manifestId = String(r['manifest_id'])
     // A NULL manifest id resolves to no entry: the ledger's daily fallback.
     const entry = this.ledger.catalog.entry(manifestId)
-    const first = nextAttemptAt(new Date(Number(r['next_attempt_ms'])), manifestId, entry)
+    const level = Number(r['slowdown_level'])
+    const first = nextAttemptAt(new Date(Number(r['next_attempt_ms'])), manifestId, entry, level)
     // A first slot implies a profile, so the second exists too.
     return (
-      first !== null && Number(r['now_ms']) > nextAttemptAt(first, manifestId, entry)!.getTime()
+      first !== null &&
+      Number(r['now_ms']) > nextAttemptAt(first, manifestId, entry, level)!.getTime()
     )
   }
 }

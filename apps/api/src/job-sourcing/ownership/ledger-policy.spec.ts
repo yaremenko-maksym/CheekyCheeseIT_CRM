@@ -15,9 +15,10 @@ import {
   claimGate,
   endingEffect,
   isSweepable,
+  MAX_SLOWDOWN_LEVEL,
   nextAttemptAt,
+  nextSlowdownLevel,
   refusalWrite,
-  SLOWDOWN_LEVEL_BEFORE_U2,
   resolveLedgerOptions,
   validateEnding,
 } from './ledger-policy'
@@ -134,7 +135,7 @@ describe('U1b: nextAttemptAt — the cadence a finish writes, from the profile',
   const key = 't.berlin'
 
   it('is nextSlot with the database clock, the floor in minutes, level 0 and the manifest id', () => {
-    const at = nextAttemptAt(TUE_1020_BERLIN, key, entry({ fetchProfile: berlin }))
+    const at = nextAttemptAt(TUE_1020_BERLIN, key, entry({ fetchProfile: berlin }), 0)
     expect(at).toEqual(
       nextSlot(TUE_1020_BERLIN, berlin, { floorMinutes: 0, slowdownLevel: 0, staggerKey: key }),
     )
@@ -144,7 +145,12 @@ describe('U1b: nextAttemptAt — the cadence a finish writes, from the profile',
   })
 
   it('the provider floor (hours) pushes the slot at least that far out', () => {
-    const at = nextAttemptAt(TUE_1020_BERLIN, key, entry({ fetchProfile: berlin, floorHours: 6 }))
+    const at = nextAttemptAt(
+      TUE_1020_BERLIN,
+      key,
+      entry({ fetchProfile: berlin, floorHours: 6 }),
+      0,
+    )
     expect(at!.getTime() - TUE_1020_BERLIN.getTime()).toBeGreaterThan(6 * 3_600_000)
     expect(at!.getTime() - TUE_1020_BERLIN.getTime()).toBeLessThanOrEqual(7 * 3_600_000)
   })
@@ -157,22 +163,73 @@ describe('U1b: nextAttemptAt — the cadence a finish writes, from the profile',
       fixedSlots: { timeZone: 'Europe/Kyiv', times: ['09:00'] },
     }
     expect(
-      nextAttemptAt(TUE_1020_BERLIN, key, entry({ fetchProfile: remotive, floorHours: 6 })),
+      nextAttemptAt(TUE_1020_BERLIN, key, entry({ fetchProfile: remotive, floorHours: 6 }), 0),
     ).toEqual(new Date('2027-03-10T07:00:00.000Z'))
   })
 
   it('a null profile leaves no next attempt', () => {
-    expect(nextAttemptAt(TUE_1020_BERLIN, key, entry({ fetchProfile: null }))).toBeNull()
+    expect(nextAttemptAt(TUE_1020_BERLIN, key, entry({ fetchProfile: null }), 0)).toBeNull()
   })
 
   it('an entry the catalog does not hold falls back to the daily cadence of before', () => {
-    expect(nextAttemptAt(TUE_1020_BERLIN, key, undefined)).toEqual(
+    expect(nextAttemptAt(TUE_1020_BERLIN, key, undefined, 0)).toEqual(
       new Date('2027-03-10T09:20:00.000Z'),
     )
   })
 
-  it('the slow-down level is 0 until U2 adds the column', () => {
-    expect(SLOWDOWN_LEVEL_BEFORE_U2).toBe(0)
+  it('U2: the slow-down level is passed to nextSlot; level 1 skips one slot of the hourly grid', () => {
+    const level0 = nextAttemptAt(TUE_1020_BERLIN, key, entry({ fetchProfile: berlin }), 0)!
+    const level1 = nextAttemptAt(TUE_1020_BERLIN, key, entry({ fetchProfile: berlin }), 1)!
+    expect(level1).toEqual(
+      nextSlot(TUE_1020_BERLIN, berlin, { floorMinutes: 0, slowdownLevel: 1, staggerKey: key }),
+    )
+    // One 60-minute slot later than level 0, hand-counted from the gap 60 x (2^1 - 1).
+    expect(level1.getTime() - level0.getTime()).toBe(60 * 60_000)
+  })
+
+  it('U2: a null profile stays unscheduled whatever the level', () => {
+    expect(nextAttemptAt(TUE_1020_BERLIN, key, entry({ fetchProfile: null }), 3)).toBeNull()
+  })
+})
+
+describe('U2: nextSlowdownLevel — ADR section 4', () => {
+  it.each(['RATE_LIMIT', 'UPSTREAM', 'TRANSIENT_NETWORK'] as const)(
+    'a run ending %s raises the level by one',
+    (code) => {
+      expect(nextSlowdownLevel(0, code, 'FAILURE')).toBe(1)
+      expect(nextSlowdownLevel(2, code, 'FAILURE')).toBe(3)
+    },
+  )
+
+  it('never rises above 4', () => {
+    expect(nextSlowdownLevel(4, 'RATE_LIMIT', 'FAILURE')).toBe(4)
+  })
+
+  it('a clean run (SUCCESS effect) lowers it by one, never below 0', () => {
+    expect(nextSlowdownLevel(3, null, 'SUCCESS')).toBe(2)
+    expect(nextSlowdownLevel(1, null, 'SUCCESS')).toBe(0)
+    expect(nextSlowdownLevel(0, null, 'SUCCESS')).toBe(0)
+  })
+
+  it.each([
+    ['ACCESS_POLICY', 'FAILURE'],
+    ['PARSE_DRIFT', 'FAILURE'],
+    ['LEASE_EXPIRED', 'FAILURE'],
+    ['PAGE_CAP', 'NEUTRAL'],
+    ['PAGE_CAP', 'FAILURE'],
+    ['COST_STOP', 'COST_STOP'],
+    ['CANCELLED', 'NEUTRAL'],
+  ] as const)('any other ending (%s, %s) leaves it unchanged', (code, effect) => {
+    expect(nextSlowdownLevel(2, code, effect)).toBe(2)
+  })
+
+  it('a stored value outside 0..4 is clamped back into it', () => {
+    expect(nextSlowdownLevel(9, 'RATE_LIMIT', 'FAILURE')).toBe(4)
+    expect(nextSlowdownLevel(-3, null, 'SUCCESS')).toBe(0)
+  })
+
+  it('MAX_SLOWDOWN_LEVEL is 4, the CHECK of job_sources.slowdown_level', () => {
+    expect(MAX_SLOWDOWN_LEVEL).toBe(4)
   })
 })
 

@@ -127,6 +127,15 @@ const PART_6_INDEXES = ['idx_job_sources_host_key'] as const
 const PART_6_JOB_SOURCES_COLUMNS = ['host_key']
 /** The tables PART_6 creates. Declared in `job-sourcing.ts`, which is not a store module. */
 const PART_6_TABLES = ['job_source_hosts']
+/**
+ * Source fetch strategy U2. The six run metric columns and `job_sources.slowdown_level`, each with
+ * its CHECK, are declared in Drizzle, so the `db:push` reference carries them, and production gets
+ * them ONLY through this file. Applied after PART_6, as the deploy will. STAGED (`readPart` falls
+ * back to `manual-staged/`).
+ */
+const PART_7_MIGRATION = '2026-10-31_job_run_metrics_slowdown.sql'
+/** The `job_sources` column PART_7 adds: not one of part 1's, so not in its header list. */
+const PART_7_JOB_SOURCES_COLUMNS = ['slowdown_level']
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
 const SCHEMA = 'ddl_job_opportunities_store'
 /** Its own schema, so the migration path cannot disturb the fresh-path comparison. */
@@ -196,7 +205,7 @@ const PRE_STORE_ENUMS = [
 ]
 
 /** Tripwires on the DERIVED expectation — they fail if the reference side shifts. */
-const EXPECTED = { tables: 19, enums: 19, jobSourcesColumns: 19, indexes: 44 } as const
+const EXPECTED = { tables: 19, enums: 19, jobSourcesColumns: 20, indexes: 44 } as const
 /** The standalone indexes beyond part 2's 44: T1's two (PART_5) and T8's one (PART_6). */
 const LATER_INDEXES = [...PART_5_INDEXES, ...PART_6_INDEXES]
 
@@ -576,7 +585,7 @@ async function applyParts(client: PoolClient, parts: readonly string[]): Promise
  * PART_5 (Task 2.5 T1); it is kept so the history of the tests that call it reads on.
  */
 const applyBothParts = (client: PoolClient): Promise<void> =>
-  applyParts(client, [PART_1, PART_2, PART_5_MIGRATION, PART_6_MIGRATION])
+  applyParts(client, [PART_1, PART_2, PART_5_MIGRATION, PART_6_MIGRATION, PART_7_MIGRATION])
 const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 
 /**
@@ -953,9 +962,10 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     const validated = afterFirstApply.constraints.filter(
       (r) => r['table_name'] === 'job_sources' && r['kind'] === 'c',
     )
-    // Part 1's 11, plus T8's `ck_job_sources_host_key_format` (PART_6), validated against
-    // the same three rows (all with a NULL key, which the CHECK admits).
-    expect(validated).toHaveLength(12)
+    // Part 1's 11, plus T8's `ck_job_sources_host_key_format` (PART_6) and U2's
+    // `ck_job_sources_slowdown_level_range` (PART_7), validated against the same three rows (all
+    // with a NULL key and the default level 0, which the CHECKs admit).
+    expect(validated).toHaveLength(13)
     expect(validated.map((r) => r['name'])).toContain('ck_job_sources_host_key_format')
     expect(validated.every((r) => r['validated'] === true)).toBe(true)
   })
@@ -1012,8 +1022,10 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
       const namesAdded = reference.columns
         .filter((r) => r['table_name'] === 'job_sources')
         .map((r) => String(r['column_name']))
-        // T8's column arrives through PART_6, not part 1, so part 1's header does not list it.
+        // T8's column arrives through PART_6 and U2's through PART_7, not part 1, so part 1's
+        // header does not list them.
         .filter((name) => !PART_6_JOB_SOURCES_COLUMNS.includes(name))
+        .filter((name) => !PART_7_JOB_SOURCES_COLUMNS.includes(name))
       expect(namesInHeader.sort()).toEqual(namesAdded.sort())
 
       // The assertion is on POSTGRES'S OWN message, not on the constraint name (CR-L-6).
@@ -1218,7 +1230,13 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
 
     beforeAll(async () => {
       await buildPreStoreStub(client, MIGRATION_SCHEMA)
-      await applyParts(client, [PART_1, PART_2, PART_5_MIGRATION, PART_6_MIGRATION])
+      await applyParts(client, [
+        PART_1,
+        PART_2,
+        PART_5_MIGRATION,
+        PART_6_MIGRATION,
+        PART_7_MIGRATION,
+      ])
       beforeMigration = await readCatalog(client, MIGRATION_SCHEMA)
       await applyParts(client, [PART_3_MIGRATION])
       // r5 Task 1.4b-iii — the ONE pre-change state this spec can rebuild without git

@@ -29,7 +29,7 @@ type Day = (typeof DAYS)[number]
 const MINUTE_MS = 60_000
 const DAY_MS = 24 * 60 * MINUTE_MS
 const MAX_INTERVAL_MINUTES = 7 * 24 * 60
-const MAX_SLOWDOWN_LEVEL = 4
+export const MAX_SLOWDOWN_LEVEL = 4
 const MINUTES_PER_DAY = 24 * 60
 const SLOWDOWN_INTERVAL_CAP_MINUTES = MINUTES_PER_DAY
 /** Today plus 7 more local days: a weekly-only profile always finds its slot inside it. */

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { fakeCollectionContext } from '../../test/fake-collection-context'
@@ -797,5 +798,31 @@ describe('defineRssProvider', () => {
     await expect(
       provider.collectReport(config() as ReturnType<typeof provider.parseConfig>, f.ctx),
     ).rejects.toThrow(UnvalidatedConfigError)
+  })
+})
+
+describe('U2: the feed`s envelope fingerprint reaches the context', () => {
+  it('element and attribute names of the feed, hashed (hand-listed)', async () => {
+    const f = fakeCollectionContext({
+      responses: [{ bodyText: rss(item('g1', 'https://jobs.example.com/1')) }],
+      now: NOW,
+    })
+    const seen: string[] = []
+    f.ctx.observeEnvelope = (fp) => {
+      seen.push(fp)
+    }
+    await collectFeedPages(spec(), config(), f.ctx)
+    const names = [
+      '@isPermaLink',
+      '@version',
+      'author',
+      'channel',
+      'guid',
+      'item',
+      'link',
+      'rss',
+      'title',
+    ]
+    expect(seen).toEqual([createHash('sha256').update(JSON.stringify(names)).digest('hex')])
   })
 })

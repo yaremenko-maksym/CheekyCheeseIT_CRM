@@ -925,3 +925,27 @@ describe('T6: typed statuses and Retry-After', () => {
     await expect(boundedFetchText(U, o)).resolves.toBe('secret error body')
   })
 })
+
+describe('boundedFetchText onValidators (U2)', () => {
+  const url = 'https://api.example.test/x'
+  const seen = async (headers: Record<string, string>, status = 200): Promise<boolean[]> => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(resp('{}', { status, url, headers })))
+    const calls: boolean[] = []
+    await boundedFetchText(url, {
+      allowedHosts: hosts,
+      minGapMs: 0,
+      onValidators: (s) => calls.push(s),
+    }).catch(() => undefined)
+    return calls
+  }
+
+  it('reports an ETag, a Last-Modified, or neither, once per final response', async () => {
+    expect(await seen({ etag: '"v1"' })).toEqual([true])
+    expect(await seen({ 'last-modified': 'Wed, 21 Oct 2026 07:28:00 GMT' })).toEqual([true])
+    expect(await seen({ 'content-type': 'application/json' })).toEqual([false])
+  })
+
+  it('reports on a non-2xx answer too (a 404 with an ETag)', async () => {
+    expect(await seen({ etag: '"v1"' }, 404)).toEqual([true])
+  })
+})
