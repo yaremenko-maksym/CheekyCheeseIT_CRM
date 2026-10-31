@@ -7,7 +7,11 @@ import {
   type CrmAppSession,
   openCrmAppSession,
 } from '../../database/__test-helpers__/crm-app-session'
+import { ApprovalsService } from '../../approvals/approvals.service'
+import { DatabaseService } from '../../database/database.service'
 import * as schema from '../../database/schema'
+import { makeNotificationsStub } from '../../notifications/__test-helpers__/notifications-stub'
+import { ProjectInterviewSeedService } from '../../projects/project-interview-seed.service'
 import {
   LedgerFixtures,
   LedgerKit,
@@ -192,6 +196,15 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
       await session.admin.query(`DELETE FROM job_exclusion_filters WHERE id = ANY($1::uuid[])`, [
         exclusions,
       ])
+      await session.admin.query(`DELETE FROM approvals WHERE subject_id = ANY($1::uuid[])`, [
+        projects,
+      ])
+      await session.admin.query(`DELETE FROM project_members WHERE project_id = ANY($1::uuid[])`, [
+        projects,
+      ])
+      await session.admin.query(`DELETE FROM project_audit_log WHERE target_id = ANY($1::uuid[])`, [
+        projects,
+      ])
       await session.admin.query(`DELETE FROM projects WHERE id = ANY($1::uuid[])`, [projects])
       await cleanupStore(session.admin, PREFIX, TAG)
       await fx.cleanup()
@@ -295,6 +308,37 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
     projects.push(p)
     await drain()
     expect(of(await matches(o), d)).toEqual({ [d]: 'EXCLUDED' })
+  }, 120_000)
+
+  it('CR-H-1: a HIRED interview project for the employer excludes its senior (real seed service)', async () => {
+    const h = await senior('h', true)
+    const o = oppIds[0]!
+    await write((tx) => markSeniorDirty(tx, h, 'senior.team'))
+    await drain()
+    expect(of(await matches(o), h)).toEqual({ [h]: 'LEAD' })
+    const dbSvc = Object.assign(Object.create(DatabaseService.prototype) as DatabaseService, {
+      pool: session.pool,
+      db,
+    })
+    const seed = new ProjectInterviewSeedService(
+      dbSvc,
+      new ApprovalsService(dbSvc, makeNotificationsStub()),
+      makeNotificationsStub() as never,
+    )
+    const interview = {
+      id: randomUUID(),
+      seniorId: h,
+      hrId: null,
+      companyName: 'Acme',
+      stage: 'HIRED',
+      notesDomain: 'ai',
+      senior: null,
+    } as unknown as Parameters<ProjectInterviewSeedService['createFromInterview']>[0]
+    const actor = { id: users[0]!, role: 'ADMIN' } as never
+    const project = await db.transaction((tx) => seed.createFromInterview(interview, actor, tx))
+    projects.push(project!.id)
+    await drain()
+    expect(of(await matches(o), h)).toEqual({ [h]: 'EXCLUDED' })
   }, 120_000)
 
   it('AC 1: a rolled-back write leaves neither the write nor a dirty row, per producer', async () => {

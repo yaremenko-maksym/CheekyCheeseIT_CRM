@@ -19,6 +19,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { getTableName, type SQL } from 'drizzle-orm'
 import { UsersService } from './users.service'
+import { markSeniorDirty } from '../job-sourcing/dirty-producers'
 // r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
 vi.mock('../job-sourcing/dirty-producers')
 
@@ -291,6 +292,12 @@ describe('UsersService.rejoinTeam — CREATE_NEW', () => {
         dropTeamId: 'drop-ignored',
       }),
     ).resolves.toEqual({ teamId: NEW_TEAM_ID })
+    // r5 4.6 S5 (CR-M-2): the rejoining senior is marked dirty inside the team-creation tx.
+    expect(vi.mocked(markSeniorDirty)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      SENIOR_ID,
+      'senior.team',
+    )
     expect(h.log).toEqual([
       USER_SELECT,
       MEMBERSHIP_SELECT,

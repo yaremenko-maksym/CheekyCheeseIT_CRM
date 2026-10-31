@@ -26,6 +26,7 @@ import {
   uniqueViolation,
   usersInsertValues,
 } from '../test/create-user-harness'
+import { markSeniorDirty } from '../job-sourcing/dirty-producers'
 // r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
 vi.mock('../job-sourcing/dirty-producers')
 
@@ -557,6 +558,12 @@ describe('UsersService.createUser — team / project linkage (post-commit, plain
         hrIds: ['hr-1', 'hr-2'],
         accountantId: 'acc-1',
       }),
+    )
+    // r5 4.6 S5 (CR-M-2): the new senior is marked dirty inside the membership transaction.
+    expect(vi.mocked(markSeniorDirty)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      'user-new',
+      'senior.team',
     )
     const tail = h.log.slice(h.log.findIndex((e) => e.op === 'audit') + 1)
     expect(tail).toEqual([

@@ -20,6 +20,7 @@ import type { AuditLogService } from './audit-log.service'
 import type { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+import { markUserEditDirty } from '../job-sourcing/dirty-producers'
 // r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
 vi.mock('../job-sourcing/dirty-producers')
 
@@ -196,6 +197,14 @@ describe('UsersService.changeRole — SEC-03: privilege escalation guard', () =>
 
     const result = await service.changeRole(juniorId, 'SENIOR', ADMIN_ID)
     expect(result.role).toBe('SENIOR')
+    // r5 4.6 S5 (CR-M-2): the hook runs on the transaction handle, never on the root db.
+    const [handle, ...rest] = vi.mocked(markUserEditDirty).mock.calls.at(-1)!
+    expect(handle).not.toBe(db.db)
+    expect(rest).toEqual([
+      juniorId,
+      expect.objectContaining({ role: 'JUNIOR' }),
+      { role: 'SENIOR', updatedAt: expect.any(Date) },
+    ])
   })
 
   it('SENIOR floor: JUNIOR with fewer than 3 distinct technologies -> SENIOR is refused, nothing written', async () => {

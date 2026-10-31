@@ -18,6 +18,7 @@ import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
+import { markProjectClientDirty } from '../job-sourcing/dirty-producers'
 // r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
 vi.mock('../job-sourcing/dirty-producers')
 
@@ -147,6 +148,8 @@ describe('ProjectsService.create — optional field mapping (pre-existing, reloc
     const { service, getCapturedValues } = buildHarness()
     await service.create(MINIMAL_DTO, ADMIN)
     expect(getCapturedValues()!['status']).toBe('DRAFT')
+    // r5 4.6 S5 (CR-M-2): the new project is marked PROJECT_CLIENT-dirty inside the create tx.
+    expect(vi.mocked(markProjectClientDirty).mock.calls.at(-1)?.[2]).toBe('project.create')
   })
 
   it('Д1: the approval is proposed to exactly [seniorId] when there is no drop', async () => {

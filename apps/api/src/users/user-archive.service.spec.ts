@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { projectMembers, projects, teamMembers, teams, users, type User } from '../database/schema'
 import { UserArchiveService } from './user-archive.service'
+import { markSeniorDirty } from '../job-sourcing/dirty-producers'
 // r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
 vi.mock('../job-sourcing/dirty-producers')
 
@@ -133,6 +134,7 @@ describe('UserArchiveService.archive cascade', () => {
       [user('SENIOR')],
     ])
     await svc.archive('u1', 'a1')
+    expect(vi.mocked(markSeniorDirty)).toHaveBeenLastCalledWith(tx, 'u1', 'senior.archive')
     expect(updates.map((u) => u.table)).toEqual([users, teams, projects, projects])
     expect(updates[1]!.set.archivedAt).toBeInstanceOf(Date)
     expect(updates[1]!.set.updatedAt).toBeInstanceOf(Date)
@@ -295,6 +297,7 @@ describe('UserArchiveService.unarchive / unarchivePairTx', () => {
       [user('SENIOR')],
     ])
     await svc.unarchive('u1', 'a1')
+    expect(vi.mocked(markSeniorDirty)).toHaveBeenLastCalledWith(tx, 'u1', 'senior.unarchive')
     expect(updates.map((u) => u.table)).toEqual([users, teams])
     expect(updates[1]!.set.archivedAt).toBeNull()
     expect(updates[1]!.set.updatedAt).toBeInstanceOf(Date)

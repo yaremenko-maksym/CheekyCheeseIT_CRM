@@ -21,6 +21,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { getTableName, type SQL } from 'drizzle-orm'
 import { UsersService } from './users.service'
+import { markUserEditDirty } from '../job-sourcing/dirty-producers'
 // r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
 vi.mock('../job-sourcing/dirty-producers')
 
@@ -264,6 +265,13 @@ describe('UsersService.adminUpdateUser — ADMIN-target protection (before any o
   it('an ADMIN self-edit resubmitting role ADMIN is allowed (set carries role ADMIN)', async () => {
     const h = makeHarness({ existing: admin() })
     await edit(h, { role: 'ADMIN', displayName: 'Me' }, 'target-1')
+    // r5 4.6 S5 (CR-M-2): the hook receives the row before the write and the written set.
+    expect(vi.mocked(markUserEditDirty)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      'target-1',
+      expect.objectContaining({ role: 'ADMIN' }),
+      expect.objectContaining({ role: 'ADMIN', displayName: 'Me' }),
+    )
     expect(userUpdateSet(h.log)).toEqual({
       updatedAt: FIXED_NOW,
       role: 'ADMIN',

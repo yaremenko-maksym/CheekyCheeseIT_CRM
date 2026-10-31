@@ -22,6 +22,7 @@ import type { SessionUser } from '@crm/shared'
 import { TeamAuditLogService } from './team-audit-log.service'
 import { TeamsService } from './teams.service'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+import { markSeniorDirty } from '../job-sourcing/dirty-producers'
 // r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
 vi.mock('../job-sourcing/dirty-producers')
 
@@ -330,6 +331,10 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
     await expect(
       service.create('Team X', seniorUser.id, [hrUser.id], accUser.id, adminUser),
     ).resolves.toBeDefined()
+    // r5 4.6 S5 (CR-M-2): the new team's senior is marked dirty inside the create transaction.
+    const [handle, ...rest] = vi.mocked(markSeniorDirty).mock.calls.at(-1)!
+    expect(handle).not.toBe(db.db)
+    expect(rest).toEqual([seniorUser.id, 'senior.team'])
   })
 
   it('AC1h: HR caller is always forbidden — create is ADMIN-only (HIGH-2 fix)', async () => {
