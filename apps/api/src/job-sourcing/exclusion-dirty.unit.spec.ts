@@ -25,9 +25,13 @@ const row = {
 
 function harness(inserted: unknown[]) {
   const deleted: unknown[] = []
+  const values: unknown[] = []
   const tx = {
     insert: () => ({
-      values: () => ({ onConflictDoNothing: () => ({ returning: async () => inserted }) }),
+      values: (v: unknown) => {
+        values.push(v)
+        return { onConflictDoNothing: () => ({ returning: async () => inserted }) }
+      },
     }),
     delete: () => ({
       where: async (cond: unknown) => {
@@ -45,17 +49,26 @@ function harness(inserted: unknown[]) {
     },
   }
   const svc = new JobSourcingService(db as never, {} as never, new JobSourceRegistry([]))
-  return { svc, tx, deleted }
+  return { svc, tx, deleted, values }
 }
 
 describe('JobSourcingService exclusion producers (S5)', () => {
   beforeEach(() => vi.mocked(markExclusionDirty).mockClear())
 
   it('createExclusion marks the new exclusion dirty on the insert transaction', async () => {
-    const { svc, tx } = harness([row])
+    const { svc, tx, values } = harness([row])
     await expect(
-      svc.createExclusion({ scope: 'GLOBAL', kind: 'COMPANY', value: 'Acme' } as never, admin),
+      svc.createExclusion({ scope: 'GLOBAL', kind: 'COMPANY', value: '  Acme  ' } as never, admin),
     ).resolves.toMatchObject({ id: ID, scope: 'GLOBAL', origin: 'MANUAL' })
+    expect(values).toEqual([
+      {
+        seniorId: null,
+        kind: 'COMPANY',
+        value: 'Acme',
+        normalizedValue: 'acme',
+        createdBy: 'admin-1',
+      },
+    ])
     expect(vi.mocked(markExclusionDirty).mock.calls).toEqual([[tx, ID, 'exclusion.create']])
   })
 
