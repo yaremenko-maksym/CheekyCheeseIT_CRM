@@ -30,21 +30,21 @@ export const HEALTH_THRESHOLDS = {
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-/** The median of a non-empty list, or null when there is nothing to take it of. */
-function median(values: readonly number[]): number | null {
+/** The median of a non-empty list, or null when there is nothing to take it of. Exported for test. */
+export function median(values: readonly number[]): number | null {
   if (values.length === 0) return null
   const sorted = [...values].sort((a, b) => a - b)
   const mid = Math.floor(sorted.length / 2)
   return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!
 }
 
-/** A run's duration, or null while it is unfinished. */
-function durationMs(run: RunFact): number | null {
+/** A run's duration, or null while it is unfinished. Exported for test. */
+export function durationMs(run: RunFact): number | null {
   return run.endedAt === null ? null : run.endedAt.getTime() - run.startedAt.getTime()
 }
 
-/** Finished runs only, newest first — the base of every detector but the deadline one. */
-function answered(s: HealthSnapshot): RunFact[] {
+/** Finished runs only, newest first — the base of every detector but the deadline one. Exported for test. */
+export function answered(s: HealthSnapshot): RunFact[] {
   return s.runs.filter((r) => r.endedAt !== null)
 }
 
