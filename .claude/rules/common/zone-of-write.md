@@ -69,9 +69,7 @@ Each entry below is one zone row: **may** / **may NOT**.
 - may: `.claude/tasks/task-legal-*`, `docs/legal/**`, `.claude/knowledge/legal/**`
 - may NOT: `apps/**`, `packages/**`, `.claude/agents/**`, prod code, `.github/workflows/**`
 
-> **The AutoTest boundary runs between the test and the product code, not between directories.** The
-> danger was never that AutoTest edits specs — it is that it edits **product code** to make a test go
-> green. That is what is forbidden.
+> **The AutoTest boundary runs between the test and the product code, not between directories** — editing product code to turn a test green is what is forbidden.
 >
 > **Overlaps that are intentional, not gaps:** `ui-ux-designer` ↔ `manual-qa` both write cosmetic in
 > `apps/web/**` / `apps/landing/**` — the designer per the design spec (Mode B/D), manual-qa fixes what
@@ -128,15 +126,7 @@ the first edit check `git -C <worktree> status`; do NOT write to main-repo absol
   tests on the hooks he owns) and `tests/lib/command-corpus.txt`. Everything else in
   `scripts/devops/**` — DevOps. The reverse does **not** hold: DevOps does not edit
   `.claude/hooks/**`.
-- **Why the corpus is listed** (added 2026-10-21, PR #1067): it is the input data of the hook
-  tests — `test-pre-bash-*.sh`, plus `test-hook-command-corpus.sh` and `compare-hooks-to-ref.sh`,
-  which read the same corpus and match no `test-pre-*` glob — and its own header requires rows to
-  be added whenever the shared command analyzer is touched. Splitting the data from the tests that
-  read it would put an Architect test in one PR and the rows it asserts against in someone else's.
-  The original glob simply predates anyone noticing the data file — the question was asked and
-  answered once, and is written down here so it is not re-answered differently next time. The two
-  extra readers are named deliberately: an earlier edition of this line said "and nothing else",
-  which was false and is the kind of claim that rots unnoticed.
+- Why the corpus is listed (PR #1067) and the three named readers: rationale file.
 
 If an edit goes beyond these boundaries too — `.blocked.md`, like everyone.
 

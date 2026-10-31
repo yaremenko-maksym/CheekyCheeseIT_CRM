@@ -69,3 +69,20 @@ different channels. `agent-isolation.md` rules 7–8 use the third instance of i
 
 - PR #504 (2026-08-11) — the lost glyph-check bypass finding.
 - `docs/architecture/2026-08-17-agent-collision-mechanics.md` §AC7–AC9.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+The existing rule "all H/M/L findings are resolved before merge" (`feedback_reviewer_findings`,
+aggregate verdict in `contracts.md`) is **not duplicated** here: it is about the _result_ (nothing
+left unclosed), while this file is about the _channel_ (nothing lost along the way). A lost finding
+passes the first rule unnoticed, because it is simply not in the list that gets reconciled.
+
+
+---
+
+**Decision: the arithmetic reconciliation above + the `Findings:` control line, which makes that
+reconciliation a one-liner. No CI parser.** The three reasons (nothing to compare against; it would
+catch formatting rather than loss; the cheap part already gives ~the whole effect) and the condition
+under which to reconsider are in the rationale file.

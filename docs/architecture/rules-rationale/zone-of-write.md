@@ -98,3 +98,25 @@ zones were created (an agent edits prod code to make a test go green).
 - PR #625 (2026-09-01) — tests-on-hooks exception, finding CR-M-2.
 - ADR `docs/architecture/2026-06-16-agent-infra-wisdom-transfer.md` FM-2 — the mandatory
   "verify MAIN is clean after each Coder" post-check (the hook does not catch absolute-path writes).
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+- **Why the corpus is listed** (added 2026-10-21, PR #1067): it is the input data of the hook
+  tests — `test-pre-bash-*.sh`, plus `test-hook-command-corpus.sh` and `compare-hooks-to-ref.sh`,
+  which read the same corpus and match no `test-pre-*` glob — and its own header requires rows to
+  be added whenever the shared command analyzer is touched. Splitting the data from the tests that
+  read it would put an Architect test in one PR and the rows it asserts against in someone else's.
+  The original glob simply predates anyone noticing the data file — the question was asked and
+  answered once, and is written down here so it is not re-answered differently next time. The two
+  extra readers are named deliberately: an earlier edition of this line said "and nothing else",
+  which was false and is the kind of claim that rots unnoticed.
+
+
+---
+
+> **The AutoTest boundary runs between the test and the product code, not between directories.** The
+> danger was never that AutoTest edits specs — it is that it edits **product code** to make a test go
+> green. That is what is forbidden.
+>

@@ -16,15 +16,7 @@ is an explicit failure (better than a silent skip).
 
 In the final report — state which skills you invoked. Master checks.
 
-**The mapping below is the source of truth for triggers**, and it is kept here in full. `when_to_use`
-in each `SKILL.md` and the skill listing's `description` are both **mirrors** of it: they say when a
-skill applies to its own reader, while this mapping is the only place that states the trigger, the
-skill and **which agents it binds** together. When changing a trigger, edit BOTH: the entry here and
-`when_to_use` in the skill.
-
-A skill's `description` must stay within the operator's `skillListingMaxDescChars` (currently 300) or
-it is silently cut in the listing — so the description cannot be relied on to carry a full trigger,
-and this mapping is not derivable from the listing.
+**The mapping below is the source of truth for triggers**: it alone states trigger, skill and which agents it binds. `when_to_use` in each `SKILL.md` and the listing `description` mirror it — change a trigger in BOTH places. A `description` over `skillListingMaxDescChars` (300) is silently cut, so the listing cannot carry a full trigger.
 
 Each entry reads `trigger → skill · agents it applies to`.
 
@@ -105,15 +97,7 @@ ls .claude/skills/
 grep -rn '`[a-z-]*:\?[a-z-]*`' .claude/rules/common/skills-invocation.md
 ```
 
-Reconcile line by line. Two catches that change the answer:
-
-1. **A skill may exist but not fit.** The built-in `security-review` is a **slash command**
-   `/security-review`, not a bundled skill, and its prompt fails in an agent environment where
-   `origin/HEAD` is not configured. **There is no name collision:** slash commands and
-   `Skill(<name>)` are different invocation registries, so `Skill('security-review')` resolves
-   unambiguously to our project-local `.claude/skills/security-review/`.
-2. **`simplify` is a real bundled skill** (`skills/bundled/simplify.ts`), so the prefix-less
-   reference in the trigger table is correct and must not be "fixed" to a pack prefix.
+Reconcile line by line. Two catches (details: rationale file): the built-in `security-review` is a slash command, not a skill — `Skill('security-review')` resolves to the project-local one; `simplify` is a real bundled skill, so it stays prefix-less.
 
 ## Workflow surface policy
 
@@ -125,9 +109,9 @@ Reconcile line by line. Two catches that change the answer:
 
 ## Anti-patterns
 
-- **A mandatory table in `<agent>.md` without an up-to-date trigger** — the skill becomes "discoverable in theory" but never invoked. Master during an agent review checks: `grep skill-name .claude/agents/*.md`.
-- **A "remember" pattern instead of `Skill(name)`** — each skill's content evolves; sessions without invocation work with stale knowledge.
-- **Creating a SKILL.md with < 3 substantive patterns** — the Phase 4 deliverable filtered 3 candidate skills as SKIP. Do not create empty shells.
+- A mandatory table in `<agent>.md` needs an up-to-date trigger: check with `grep skill-name .claude/agents/*.md`.
+- Invoke `Skill(name)` rather than "remembering" a pattern; skill content evolves.
+- Create a SKILL.md only with ≥ 3 substantive patterns.
 
 ## Related rules
 

@@ -30,3 +30,10 @@ it is written, so coordinate rot has no time to occur.
 - `mattpocock/skills` — `triage/AGENT-BRIEF.md` ("durability over precision").
 - ADR `docs/architecture/2026-08-22-afk-pipeline-migration.md` item 9.
 - Session 2026-08-17 — the backlog coordinate re-verification cost.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+The error is not in precision but in the **choice of carrier for precision**: a path and a line number
+are a property of the working copy at the moment of writing, not a property of the finding.

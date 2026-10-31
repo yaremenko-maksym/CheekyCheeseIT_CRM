@@ -45,9 +45,7 @@ vision: ✓ /team, /team/$teamId    # ONLY for UI tasks — affected routes
 
 Claude PreToolUse:Bash hook `.claude/hooks/pre-bash-coder-push-gate.sh` (id
 `pre:bash:coder-push-gate`) blocks `git push` if the last commit **on any branch** does not contain an
-`ac_verified:` line. Do not bypass — finish the AC. It is a PreToolUse hook rather than husky because
-in a fresh `isolation=worktree` worktree the husky hooks are silently skipped (`.husky/_/` gitignored,
-generated only on `pnpm install`).
+`ac_verified:` line. Do not bypass — finish the AC.
 
 **The gate closes everything but three exceptions:** `main` / `master` (not a work branch), and
 `architect/*` and `legal/*` (their tasks have no AC list in the task file). The cost of each exception
@@ -62,8 +60,7 @@ Test: `scripts/devops/tests/test-pre-bash-coder-push-gate.sh` (28 cases, by exec
 
 Claude PreToolUse:Bash hook `.claude/hooks/pre-bash-prettier-gate.sh` (id `pre:bash:prettier-gate`)
 blocks `git push` if the files changed vs `origin/main` (`ts/tsx/js/jsx/json/md/yml`) did not pass
-`prettier --check` — a local mirror of the CI gate `check-no-skip-hooks.yml`. Same reason as above:
-in a fresh worktree the pre-commit `lint-staged → prettier --write` is silently skipped.
+`prettier --check` — a local mirror of the CI gate `check-no-skip-hooks.yml`.
 
 It resolves prettier worktree-safe (local `.bin` → MAIN-repo `.bin` via git-common-dir → `pnpm exec`);
 if prettier is unreachable — **fail-loud BLOCK** with the instruction `pnpm install`, not a silent

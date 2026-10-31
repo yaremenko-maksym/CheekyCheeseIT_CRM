@@ -229,3 +229,74 @@ syntax error also exits 2.
 - `docs/architecture/2026-08-17-agent-collision-mechanics.md` — analysis of all seven cases, verification runs, rejected options.
 - Incidents: PR #493 (shared reviewer directory), #497 (dispatch without isolation), #544 (wiping a foreign worktree), #545 (shared scratch DB), #547 (`pkill` by mask), #551 (mutating a foreign tree).
 - 2026-09-02 — the opaque-variable worktree loop; origin of `WORKTREE-OPAQUE`.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+## What the harness already does itself (do not duplicate)
+
+| Command                                  | Result                |
+| ---------------------------------------- | --------------------- |
+| `git -C <foreign path> status`           | the harness refuses   |
+| `cd <foreign path> && git rev-parse ...` | the harness refuses   |
+| `cd <foreign worktree> && ls`            | **executes** — a hole |
+| `git worktree remove <foreign worktree>` | **executes** — a hole |
+| `pkill -f <pattern>`                     | **executes** — a hole |
+
+The built-in protection is **only git-specific and only for isolated agents**. A non-isolated agent
+is protected by nothing, and file and process operations are not covered at all. These three holes
+are closed by `pre:bash:cross-agent-blast`.
+
+
+---
+
+A **literal** path, and a name of your own (`co-pr1024`, not `checkout`): the scratchpad is shared,
+so `checkout` is a name your siblings use too, and only a literal path can be recorded as yours
+(rule 6). Not in another agent's working directory and not in a shared checkout. The hook does not block
+reading a foreign tree, but it is still a bad idea: the tree of a live agent changes under you, and
+you will not see it.
+
+
+---
+
+**The session scratchpad is SHARED with the other agents of your session** — one flat directory
+holding every sibling's checkout. So a scratch path proves nothing about whose it is, and the hook
+answers "mine" from a record instead: it writes `<agent_id> <path>` when it sees you create a
+worktree at a path that is **literal, absolute, below the scratchpad root, and not already there**,
+and permits removing only what is recorded against you (`WORKTREE-UNRECORDED` otherwise). The last
+condition is why an `add` aimed at a tree that already exists records nothing: a hook runs before
+git, so a path git is about to refuse is not a path you created. Practical consequence — expand the
+variable once and use the literal for both steps:
+
+```bash
+echo "$SCRATCH"                                          # once, to get the literal
+git worktree add --detach /abs/scratch/co-pr1024 <sha>   # recorded as yours
+git worktree remove --force /abs/scratch/co-pr1024       # permitted
+```
+
+A sibling's checkout, a path created through an unexpanded variable, and a re-dispatched instance of
+yourself all stay refused — none of them is a tree you can know is free.
+
+**Your own — remove it by an explicit path, not a variable.** The hook cannot expand `"$w"` and so
+cannot say whose directory it is; an opaque path gets the refusal `WORKTREE-OPAQUE`. Cleanup in a
+batch — expand (`echo "$w"`) and remove one by one: then the foreign directory will be named by name,
+not wiped.
+
+
+---
+
+The smoke test first does `bash -n` on both hooks and requires of a blocked case not only exit code 2
+but also the body `{"decision":"block"}`: a syntax error in a hook also gives exit code 2 and is
+otherwise indistinguishable from an honest block.
+
+
+---
+
+## The cost of a false positive
+
+Both hooks decide by the **first token of a command segment**, not by a substring of the whole string.
+So `grep -rn "pkill" .claude/hooks/` and `echo "do not run pkill"` pass, while `pgrep -f ... | xargs
+kill -9` (the owner's documented sweep) is not touched at all. `WORKTREE-OPAQUE` is the one exception
+that refuses by unverifiability rather than danger — its justification and scope limits are in the
+rationale file. **Do not extend that pattern to ordinary mutators.**

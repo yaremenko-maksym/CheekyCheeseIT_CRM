@@ -16,17 +16,7 @@ The harness cuts an agent off after **600 s with nothing written to its stream**
 **silence**, not work: a forty-minute task that reports every few minutes survives, a twelve-minute
 one that reports nothing does not.
 
-**Silence comes from two sources, and the second one has no subprocess in it:**
-
-| Source        | What produces it                                                                                                                    |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| **waiting**   | environment provisioning, a dev-server boot, a full suite in the foreground, a whole-file read                                      |
-| **producing** | a long think; composing a large file in one tool call; two suites run back to back with nothing written between them; a long report |
-
-The waiting half is the half that looks dangerous, and it is the half agents already guard. **The
-producing half killed three of the five agents cut on 2026-10-20** — one of them after it had
-correctly backgrounded its long command, because the silence came from the writing that followed the
-wait rather than from the wait.
+Silence comes from **waiting** (provisioning, dev-server boot, a foreground suite, a whole-file read) and from **producing** (a long think; composing a large file in one call; two suites back to back; a long report). Producing has no subprocess in it.
 
 ## The unit of safety is a pushed commit
 
@@ -55,8 +45,7 @@ Pushed: <branch> @ <sha>          (or: Pushed: nothing — <why>)
 - **Announce a long step before taking it.** The output that saves you is the one written before the
   quiet part starts.
 - **Produce in pieces, and end each piece with a push.** A large file is a skeleton pushed first,
-  then one section per call. The 231-line canary workflow of 2026-10-20 was lost once as a single
-  compose and then completed in seven `wip:` pushes — same file, same agent role, opposite outcome.
+  then one section per call.
 - **Start anything long with `run_in_background: true`**, then check with **single bounded probes**
   (one `curl --max-time 5`, one `gh pr checks`, re-issued later), never a polling loop —
   `pre:bash:unbounded-wait` refuses one anyway (`light-track.md`).
@@ -72,9 +61,7 @@ Pushed: <branch> @ <sha>          (or: Pushed: nothing — <why>)
 | An agent whose last heartbeat is minutes before its report, with nothing pushed on its branch                                                                                                          | Master at acceptance                 |
 | A foreground Bash call expected to run minutes (install, full suite, dev server)                                                                                                                       | the agent, before sending it         |
 
-The ledger is what separates **cut** from **finished and silent** without relying on anybody's
-attentiveness: a cut agent's heartbeats stop mid-stretch, and the gap between its last heartbeat and
-its death is the silence that killed it, measured rather than inferred.
+The ledger separates **cut** from **finished and silent**: a cut agent's heartbeats stop mid-stretch.
 
 ## Related rules
 

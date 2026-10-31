@@ -185,3 +185,32 @@ So it is handled the way `agent-isolation.md` handles the same class of problem 
 no mechanic either, and is made observable by a mandatory report line. An assertion Master checks in
 one command (`git ls-remote origin <branch>`) beats an inference, and a missing line is treated as a
 missing verdict rather than as a silence to interpret.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+**Silence comes from two sources, and the second one has no subprocess in it:**
+
+| Source        | What produces it                                                                                                                    |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **waiting**   | environment provisioning, a dev-server boot, a full suite in the foreground, a whole-file read                                      |
+| **producing** | a long think; composing a large file in one tool call; two suites run back to back with nothing written between them; a long report |
+
+The waiting half is the half that looks dangerous, and it is the half agents already guard. **The
+producing half killed three of the five agents cut on 2026-10-20** — one of them after it had
+correctly backgrounded its long command, because the silence came from the writing that followed the
+wait rather than from the wait.
+
+
+---
+
+ The 231-line canary workflow of 2026-10-20 was lost once as a single
+  compose and then completed in seven `wip:` pushes — same file, same agent role, opposite outcome.
+
+
+---
+
+The ledger is what separates **cut** from **finished and silent** without relying on anybody's
+attentiveness: a cut agent's heartbeats stop mid-stretch, and the gap between its last heartbeat and
+its death is the silence that killed it, measured rather than inferred.

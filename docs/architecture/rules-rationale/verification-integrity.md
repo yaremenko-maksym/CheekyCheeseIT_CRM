@@ -428,3 +428,92 @@ change.
 - **The review that reopened the gate decision:** code review of this change, findings CR-H-1
   (the measurement did not reproduce), CR-H-2 (the withdrawn prescription claim) and CR-H-3 (the
   instance-1 contradiction).
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+Eight instances in one day, across agents and the orchestrator alike. They are not eight bugs. They
+are two shapes, and the shapes need different answers:
+
+
+---
+
+**Two instruments in this repo already draw the line**, and they are the model for both halves. The
+mutation gate saw Stryker exit 0 having written no report and refused, saying so in as many words:
+_the run did not complete, so nothing was verified._ It did not infer a pass from a zero. And
+`ensure-node.sh` refuses outright rather than falling back to the wrong Node, on the stated grounds
+that a loud refusal is an acceptable failure mode while **a green gate on the wrong runtime is not**.
+Everything below is that line, generalised.
+
+
+---
+
+The last row is the one people skip, because a claim about your own diff feels like a memory rather
+than a measurement. It is a measurement. **The index is a whole-tree snapshot, not a diff against
+HEAD**, so a commit can carry stale copies of files you never staged in this session — and on a
+branch ref shared with another worktree, that silently reverts someone else's work. `git add` by
+explicit name is necessary and **not sufficient**.
+
+**Check the staged set before you commit, not only the commit afterwards.**
+`git diff --cached --name-only` already lists the sibling's file while it is still only staged, which
+is one step earlier and one `--amend` cheaper than discovering it in `git show --stat HEAD`. Use the
+first to prevent and the second to assert. Fetching first does not help either: a sibling's commit
+reached through the shared local ref is already an ancestor, so nothing is behind-upstream.
+
+
+---
+
+**The project already owns this device**, unnamed, in the `Pushed: <branch> @ <sha>` line required by
+`stream-watchdog.md`: a claim about a push, replaced by **an assertion checkable in one command**.
+(The `Findings: … (N)` line in `review-findings-transfer.md` is a cousin rather than the same thing —
+it reconciles a _count_ across a handoff, not an artifact against an exit status — but it is the same
+instinct: make the reader able to check instead of believe.) That is the generalisation, and it is
+the whole of (B):
+
+> **State the artifact, not the outcome.** A sentence a reader can check in one command beats a
+> sentence they have to believe.
+
+
+---
+
+**Measured:** the Bash tool's shell in this environment is **zsh** (`$0` is `/bin/zsh`, and
+`BASH_VERSION` is unset). So zsh's word rules apply to every command any agent sends, whatever the
+command text looks like.
+
+> **Write `${VAR}:path`, never `$VAR:path`.** After a bare `$VAR`, zsh reads what follows the colon
+> as a modifier of the expansion and mangles the word into something that does not name what you
+> meant. **Quoting does not help; braces do.**
+
+**Reproduced**, from a plain Bash call: `$REV:apps/x.ts` expanded to
+`<cwd>/HEADpps/x.ts` — the `:a` was consumed as the "absolute path" modifier and the surviving text
+was glued to a path that exists nowhere. Double-quoting the whole word changed nothing; `${REV}`
+fixed it.
+
+With form 1 that is the complete failure: the mangled argument names a nonexistent object, the error
+goes to the discarded channel, the counter prints `0`, and the `0` is reported as a fact about the
+code. A sibling already lives in `light-track.md` — `kill $VAR` does not word-split in zsh, and the
+resulting failure is itself masked by `2>/dev/null`. Same family, same cure: brace the expansion, and
+do not throw away the error.
+
+---
+
+
+---
+
+Form 1 and the zsh trap **are** mechanised, because the first attempt to reject a gate here rested on
+a measurement that was itself an instance of this class (a regex whose flag-cluster pattern never
+matched `grep -qE`, and which enumerated `wc -l` while missing `wc -w`). Corrected, the conjunction
+occurs **twice in `scripts/`, `.github/` and `.claude/hooks/`** — and **8 times repository-wide**, of which
+**3 are shapes this hook would actually report** (two of them vendored under `skills/ecc/`). One of the two in the
+first set was a latent defect of exactly this shape in one of our own guards. Both commands and both
+figures are in the rationale, so the numbers can be re-run.
+
+
+---
+
+**It is advisory by decision, not by weakness.** Service probes (`curl`, `nc`, `ssh-keyscan`,
+`pg_isready`) are deliberately not readers, because a probe's producer is _expected_ to fail — that
+is the one legitimate occurrence of this shape in the repo, and refusing it would trade a cheap,
+recoverable miss for the credibility of the whole hook layer. Form 2, form 3, and the shape inside
+an authored script are **not** covered; the rationale says why and what would cover them.

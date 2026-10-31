@@ -67,14 +67,7 @@ does not, the effect is achieved by choosing the tier — do not invent a separa
 **For agents use the lower versions: Opus 4.8 / Sonnet 4.6 / Haiku 4.5. Sonnet 5+, Opus 5+, Fable —
 ONLY for really complex tasks, not by default.**
 
-The catch: the tier aliases (`sonnet`/`opus` in `Agent()` and in frontmatter) resolve to the
-**newest** version (5.x). Two separate levers:
-
-- **The tier** (haiku < sonnet < opus < fable) — from `Agent(model=)`. The MAIN saving: minimal
-  sufficient tier, never fable.
-- **The minor version** (4.x vs 5.x behind the alias) — set by the Claude Code config (default model /
-  subagents), NOT by a dispatch parameter (the enum accepts only tier aliases). Keep the default on
-  4.x; 5+/fable deliberately and rarely.
+The tier aliases resolve to the **newest** version (5.x). Two levers: the **tier** (`Agent(model=)`: minimal sufficient, never fable) and the **minor version** (set by the Claude Code config, not by a dispatch parameter) — keep the default on 4.x.
 
 ## Dynamic overrides — Master passes `model=` into `Agent()`
 
@@ -111,13 +104,9 @@ migrations, `*.spec.ts` **with new logic**, everything in critical-path zones.
 2. Master records the chosen tier in that field **and** in the dispatch prompt.
 3. Dispatch without `model=` → Master adds the parameter itself per this rule.
 
-## USER main session (recommendation; chosen via `/model`)
+## USER main session
 
-- **Fable 5** — system audits, architectural decisions, complex cross-module debugging, meta-optimizations of processes.
-- **Opus 4.8** — ordinary orchestration days (may use `/fast`). **Loop mode (merge on readiness, fix
-  rounds, CI monitors) is an orchestration day by definition**, not an audit: the session switches to
-  Opus before the cycle starts.
-- **Sonnet 4.6** — the light track: docs, small edits, routine operations.
+Tier by `/model`: Fable 5 — audits, architecture; Opus 4.8 — orchestration and loop mode; Sonnet 4.6 — light track. (Detail: rationale file.)
 
 ## The orchestrator's token diet
 
@@ -133,11 +122,7 @@ The expensive thing is not the intellect, but **the number of turns × the conte
 
 ## How we know it is violated
 
-A turn of the orchestrator whose body is one sentence "waiting for …" after a monitor event; a
-monitor with an `echo` on every check; a fix-task with a control line `(N)` at N > 12 without
-splitting; a loop-mode session on Fable (visible in the model menu). Checked by eye over the
-transcript — there is no gate, and none is needed: the cost of a violation is counted in tokens
-after the fact, not caught before.
+Checked by eye over the transcript — no gate. Violations: an orchestrator turn that only says "waiting for …" after a monitor event; a monitor that echoes on every check; a fix task with `(N)` > 12 without splitting; a loop-mode session on Fable.
 
 ## Related rules
 

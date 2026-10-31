@@ -10,10 +10,7 @@
 
 ## Why
 
-The hook `pre:edit-write:suggest-compact`
-(`.claude/hooks/pre-edit-write-suggest-compact.sh`) already **triggers** the thought of a compact, but
-does not say what to do. Without a tree the agent compacts by default — and gets a fresh session, confidently
-wrong about a decision the summary flattened.
+The hook `pre:edit-write:suggest-compact` triggers the thought of a compact; this tree says what to do.
 
 A **phase** is a chunk of work within a session: reconnaissance, implementation, verification. The
 definition is deliberately fuzzy: a phase ends where you think "okay, done with this".
@@ -54,17 +51,7 @@ needs.
 **A compact is the default, but not the first impulse.** It is at the bottom because the five
 questions above are cheaper or more precise.
 
-## Primary source and secondary source
-
-Everything but "continue" turns the **primary source** (the session as it was) into a **secondary**
-one (the summary). The trade is always of one form:
-
-| Source                      | Information | Noise | Room to maneuver |
-| --------------------------- | ----------- | ----- | ---------------- |
-| Primary (continue)          | full        | much  | little           |
-| Secondary (compact/handoff) | lossy       | less  | much             |
-
-That is why question 1 comes first: you pay for the loss only when staying costs more than you save.
+Everything but "continue" turns the **primary source** (the session as it was) into a lossy **secondary** one (summary); pay that loss only when staying costs more. (Trade table: rationale file.)
 
 ## How we know it is violated
 

@@ -13,8 +13,6 @@ A record with a lifespan of months, written as "`mutation-gate.mjs:154`", stops 
 anyone gets to it, and **does not announce it**. Verification then costs more than the original
 finding.
 
-The error is not in precision but in the **choice of carrier for precision**: a path and a line number
-are a property of the working copy at the moment of writing, not a property of the finding.
 
 ## The rule
 

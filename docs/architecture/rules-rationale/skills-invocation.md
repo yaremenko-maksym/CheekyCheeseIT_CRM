@@ -107,3 +107,37 @@ The PM dispatch skill was removed 2026-10-05 along with the PM agent, bringing t
 - ADR `docs/architecture/2026-05-31-ecc-migration-design.md` §2.4 (lessons → skills)
 - `docs/architecture/2026-06-16-agent-infra-wisdom-transfer.md` D2 (`when_to_use` mirror)
 - Superpowers framework: `~/.claude/plugins/cache/claude-plugins-official/superpowers/`
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+**The mapping below is the source of truth for triggers**, and it is kept here in full. `when_to_use`
+in each `SKILL.md` and the skill listing's `description` are both **mirrors** of it: they say when a
+skill applies to its own reader, while this mapping is the only place that states the trigger, the
+skill and **which agents it binds** together. When changing a trigger, edit BOTH: the entry here and
+`when_to_use` in the skill.
+
+A skill's `description` must stay within the operator's `skillListingMaxDescChars` (currently 300) or
+it is silently cut in the listing — so the description cannot be relied on to carry a full trigger,
+and this mapping is not derivable from the listing.
+
+
+---
+
+Reconcile line by line. Two catches that change the answer:
+
+1. **A skill may exist but not fit.** The built-in `security-review` is a **slash command**
+   `/security-review`, not a bundled skill, and its prompt fails in an agent environment where
+   `origin/HEAD` is not configured. **There is no name collision:** slash commands and
+   `Skill(<name>)` are different invocation registries, so `Skill('security-review')` resolves
+   unambiguously to our project-local `.claude/skills/security-review/`.
+2. **`simplify` is a real bundled skill** (`skills/bundled/simplify.ts`), so the prefix-less
+   reference in the trigger table is correct and must not be "fixed" to a pack prefix.
+
+
+---
+
+- **A mandatory table in `<agent>.md` without an up-to-date trigger** — the skill becomes "discoverable in theory" but never invoked. Master during an agent review checks: `grep skill-name .claude/agents/*.md`.
+- **A "remember" pattern instead of `Skill(name)`** — each skill's content evolves; sessions without invocation work with stale knowledge.
+- **Creating a SKILL.md with < 3 substantive patterns** — the Phase 4 deliverable filtered 3 candidate skills as SKIP. Do not create empty shells.
