@@ -956,7 +956,7 @@ export class JobSourcingService {
     actor?: string,
   ): Promise<JobCollectionResultDto> {
     return this.queueBridgeEnabled
-      ? this.collectViaBridge(source, trigger, actor)
+      ? this.collectViaBridge(source, actor)
       : this.collectLegacy(source)
   }
 
@@ -971,7 +971,6 @@ export class JobSourcingService {
    */
   private async collectViaBridge(
     source: BudgetedSource,
-    trigger: JobSourceTriggerMode,
     actor: string | undefined,
   ): Promise<JobCollectionResultDto> {
     const ledger = this.ledger
@@ -985,10 +984,13 @@ export class JobSourcingService {
     const provider = this.registry.legacyProvider(source.type)
     if (!provider) throw new BadRequestException(`Нет провайдера для источника ${source.type}`)
 
-    const triggerKey = this.bridgeTriggerKey(trigger, actor)
+    // The CYCLE's trigger is how the collection was initiated, not the source's trigger-mode
+    // filter: an ADMIN click carries an actor (a MANUAL cycle); the cron and any system caller
+    // carry none (a SCHEDULED cycle). `claimLegacyRun` matches the same actor against the cycle.
+    const triggerKey = this.bridgeTriggerKey(actor)
     const { cycleId } = await ledger.openCycle(
-      trigger === 'MANUAL'
-        ? { trigger: 'MANUAL', triggerKey, actor: actor as string }
+      actor !== undefined
+        ? { trigger: 'MANUAL', triggerKey, actor }
         : { trigger: 'SCHEDULED', triggerKey },
     )
 
@@ -1033,9 +1035,7 @@ export class JobSourcingService {
       // (Q3). Its counters go through the ledger-side writer, never a direct service UPDATE.
       await this.storeObservations(run, postings)
       // T3 / T4 — the per-row drains; the roster is read ONCE per pass (AC6, O(S) not O(P×S)).
-      const { created, duplicate, invalid } = await drainPostings(this.db.db, run, (m) =>
-        this.logger.warn(m),
-      )
+      const { created, invalid } = await drainPostings(this.db.db, run, (m) => this.logger.warn(m))
       const roster = await this.buildRoster()
       const suggestionsCreated = await drainSuggestions(this.db.db, run, roster)
 
@@ -1045,11 +1045,16 @@ export class JobSourcingService {
         .set({ lastCollectedAt: new Date(), updatedAt: new Date() })
         .where(eq(jobSources.id, source.id))
 
+      // The DTO counts match the legacy path (barrier parity): every fetched posting is created,
+      // invalid, or a duplicate. The bridge dedupes a re-collection at the delivery layer (a
+      // survivor's DONE row is not re-drained, a feed-internal repeat collapses at T1), so its
+      // duplicates are the fetched that this run neither created nor refused — the same identity
+      // `created + duplicates + invalid === fetched` that `persistPostings` keeps per run.
       return {
         sourceType: source.type,
         fetched: postings.length,
         created,
-        duplicates: duplicate,
+        duplicates: postings.length - created - invalid,
         invalid,
         merged: 0,
         filtered: 0,
@@ -1076,12 +1081,10 @@ export class JobSourcingService {
     return `dou-bridge-${process.pid}`
   }
 
-  /** `dou-bridge:<trigger>[:<actor>]:<Kyiv date>` — one cycle per day shared across DOU sources. */
-  private bridgeTriggerKey(trigger: JobSourceTriggerMode, actor: string | undefined): string {
+  /** `dou-bridge:(MANUAL:<actor>|SCHEDULED):<Kyiv date>` — one cycle per day shared across DOU sources. */
+  private bridgeTriggerKey(actor: string | undefined): string {
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv' }).format(new Date())
-    return trigger === 'MANUAL'
-      ? `dou-bridge:MANUAL:${actor ?? 'none'}:${day}`
-      : `dou-bridge:${trigger}:${day}`
+    return actor !== undefined ? `dou-bridge:MANUAL:${actor}:${day}` : `dou-bridge:SCHEDULED:${day}`
   }
 
   /** The eligible seniors and each one's exclusion set, read ONCE per drain pass (AC6). */
