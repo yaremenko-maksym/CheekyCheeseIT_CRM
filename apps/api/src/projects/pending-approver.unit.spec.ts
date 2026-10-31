@@ -510,7 +510,8 @@ describe('ProjectsService.update — seniorApprovalPending/dropApprovalPending o
     expect(vi.mocked(markProjectEditDirty)).toHaveBeenLastCalledWith(
       expect.anything(),
       PROJECT_ID,
-      expect.objectContaining({ name: expect.any(String) }),
+      expect.objectContaining({ id: PROJECT_ID }),
+      expect.objectContaining({ name: 'Renamed while still DRAFT' }),
     )
   })
 

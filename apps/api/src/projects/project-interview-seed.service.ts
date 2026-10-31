@@ -64,11 +64,8 @@ export class ProjectInterviewSeedService {
     interview: Interview & { senior: User | null },
     currentUser: SessionUser,
     tx?: DrizzleTx,
-  ): Promise<typeof projects.$inferSelect | undefined> {
-    // r5 4.6 S5: the project and its roster dirty row commit together even for a tx-less caller.
-    if (!tx)
-      return this.db.db.transaction((t) => this.createFromInterview(interview, currentUser, t))
-    const conn = tx
+  ) {
+    const conn = tx ?? this.db.db
     const domain = interview.notesDomain ?? 'Other'
 
     const [project] = await conn
@@ -101,6 +98,7 @@ export class ProjectInterviewSeedService {
 
     if (!project) return project
     // CR-H-1: a new project with a senior and a client changes that senior's derived exclusions.
+    // On `conn`: the caller's transaction (`InterviewsService.move`, the only caller, passes one).
     await markProjectClientDirty(conn, project.id, 'project.create')
 
     // security-review round 2 (SR-H-6). Open the approval proposal in the
