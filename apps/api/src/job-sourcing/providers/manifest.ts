@@ -99,6 +99,9 @@ export type ManifestErrorCode =
   | 'HOST_RATE_INVALID'
   | 'DETAIL_INVALID'
   | 'FETCH_PROFILE_INVALID'
+  | 'BOARD_LINE_INVALID'
+  | 'DUPLICATE_BOARD'
+  | 'DUPLICATE_EMPLOYER'
 
 /** Every refusal the manifest makes carries a code a test can assert on, not a message to match. */
 export class ManifestError extends Error {
@@ -159,6 +162,8 @@ export type BlockerCode =
   | 'STATUS_CONSTANT_BLOCKED'
   | 'AUTH_DEADLINE_PASSED'
   | 'POLICY_EXPIRED'
+  /** An ENTRY blocker (U8a): a board line with no committed capture yet, so no first supervised smoke. */
+  | 'NO_BOARD_EVIDENCE'
 
 export interface Blocker {
   readonly code: BlockerCode
@@ -237,6 +242,11 @@ export interface EntryDefinition {
     readonly name: string
     readonly domain: string | null
   }
+  /**
+   * A board line with `evidence: null` (U8a): the entry carries the `NO_BOARD_EVIDENCE` blocker, so
+   * its ledger readiness is BLOCKED and it is never due, until a PR names a committed capture.
+   */
+  readonly awaitingEvidence?: true
 }
 
 export interface TypeDefinition {
@@ -735,6 +745,8 @@ function checkHostDay(def: TypeDefinition, profiles: readonly (FetchProfile | nu
   }
 }
 
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
 function ownershipOf(
   def: TypeDefinition,
   e: EntryDefinition,
@@ -757,14 +769,21 @@ function ownershipOf(
     return token
   })
   const strength = [...OWNERSHIP_STRENGTH].reverse().find((s) => tokens.includes(s))!
-  const claimedLower = e.ownership.name.toLowerCase()
-  if (!named.some((f) => f.notes.toLowerCase().includes(claimedLower))) {
+  const claimedName = new RegExp(
+    `(?<![a-z0-9])${escapeRegExp(e.ownership.name.toLowerCase())}(?![a-z0-9])`,
+  )
+  if (!named.some((f) => claimedName.test(f.notes.toLowerCase()))) {
     throw new ManifestError(
       'OWNER_NOT_IN_EVIDENCE',
       `${e.id}: "${e.ownership.name}" appears in none of its fixtures' notes`,
     )
   }
-  if (e.ownership.domain !== null && !named.some((f) => f.notes.includes(e.ownership!.domain!))) {
+  // A host boundary: `stripe.com` is in `api.stripe.com` but not in `notstripe.com` or `stripe.com.evil.io`.
+  const claimedHost =
+    e.ownership.domain === null
+      ? null
+      : new RegExp(`(?<![a-z0-9-])${escapeRegExp(e.ownership.domain)}(?![a-z0-9-]|\\.[a-z0-9])`)
+  if (claimedHost !== null && !named.some((f) => claimedHost.test(f.notes))) {
     throw new ManifestError(
       'OWNER_NOT_IN_EVIDENCE',
       `${e.id}: domain ${e.ownership.domain} appears in none of its fixtures' notes`,
@@ -992,7 +1011,17 @@ export function buildManifest(input: BuildInput): Manifest {
           ownership !== null && ownership.verified
             ? { name: ownership.claimedName, domain: ownership.claimedDomain }
             : null,
-        blockers,
+        blockers:
+          e.awaitingEvidence === true
+            ? [
+                ...blockers,
+                {
+                  code: 'NO_BOARD_EVIDENCE',
+                  detail:
+                    'no capture of this board is committed; its first request is a supervised smoke',
+                },
+              ]
+            : blockers,
         deadlines: def.deadlines ?? [],
         ownerDecisions,
       })

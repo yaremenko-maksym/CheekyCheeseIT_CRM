@@ -14,12 +14,31 @@ import {
   backoffMs,
   claimGate,
   endingEffect,
+  isSweepable,
   nextAttemptAt,
   refusalWrite,
   SLOWDOWN_LEVEL_BEFORE_U2,
   resolveLedgerOptions,
   validateEnding,
 } from './ledger-policy'
+
+describe('isSweepable (U3)', () => {
+  it('only an interval profile is swept: not a null profile, not fixed slots, not an unknown entry', () => {
+    const interval = { intervalMinutes: 60, offIntervalMinutes: 180, window: null }
+    expect(isSweepable({ fetchProfile: interval })).toBe(true)
+    expect(isSweepable({ fetchProfile: { ...interval, routinePages: 1 } })).toBe(true)
+    expect(isSweepable({ fetchProfile: null })).toBe(false)
+    expect(
+      isSweepable({
+        fetchProfile: {
+          ...interval,
+          fixedSlots: { timeZone: 'Europe/Kyiv', times: ['08:00'] },
+        },
+      }),
+    ).toBe(false)
+    expect(isSweepable(undefined)).toBe(false)
+  })
+})
 
 /**
  * The pure half of the run ledger (r5 Task 2.5 T3): the claim gates, the failure-accounting table

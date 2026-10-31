@@ -43,6 +43,75 @@ describe('closeCycle', () => {
   })
 })
 
+describe('countDue, the sweep scope (U3)', () => {
+  const CYCLE = '1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e'
+  const interval = { intervalMinutes: 60, offIntervalMinutes: null, window: null }
+  const catalog = {
+    entry: (id: string) =>
+      ({
+        'm.interval': { fetchProfile: interval, floorHours: 0 },
+        'm"q\\b': { fetchProfile: interval, floorHours: 1.5 },
+        'm.fixed': {
+          fetchProfile: {
+            ...interval,
+            fixedSlots: { timeZone: 'Europe/Kyiv', times: ['08:00'] },
+          },
+          floorHours: 6,
+        },
+        'm.null': { fetchProfile: null, floorHours: 0 },
+      })[id],
+    hostPolicy: () => undefined,
+  }
+
+  it('counts with the sweep predicate, over the sweepable manifest ids only, minus the skipped sources', async () => {
+    const execute = vi.fn(async (q: SQL) =>
+      dialect.sqlToQuery(q).sql.includes('DISTINCT manifest_id')
+        ? {
+            rows: [
+              { manifest_id: 'm.interval' },
+              { manifest_id: 'm"q\\b' },
+              { manifest_id: 'm.fixed' },
+              { manifest_id: 'm.null' },
+              { manifest_id: 'm.unknown' },
+            ],
+          }
+        : { rows: [{ n: 4 }] },
+    )
+    const ledger = new JobRunLedger({ execute } as never, {} as never, catalog as never)
+    expect(await ledger.countDue({ sweep: { cycleId: CYCLE, skipIds: [ID] } })).toBe(4)
+    expect(execute).toHaveBeenCalledTimes(2)
+    const first = dialect.sqlToQuery(execute.mock.calls[0]![0])
+    expect(first.sql).toBe(
+      'SELECT DISTINCT manifest_id FROM job_sources WHERE manifest_id IS NOT NULL',
+    )
+    const count = dialect.sqlToQuery(execute.mock.calls[1]![0])
+    expect(count.sql).not.toContain('<= clock_timestamp() +')
+    expect(count.sql).toContain('sr.cycle_id = $')
+    expect(count.sql).toMatch(/job_sources\.manifest_id = ANY\(\$\d+::text\[\]\)/)
+    expect(count.sql).toMatch(/NOT \(job_sources\.id = ANY\(\$\d+::uuid\[\]\)\)/)
+    // only the two interval entries, each quoted, the quote and the backslash escaped
+    expect(count.params).toContain('{"m.interval","m\\"q\\\\b"}')
+    expect(count.params).toContain(`{${ID}}`)
+    expect(count.params).toContain(CYCLE)
+    // CR-M-1 / SR-M-1: no run since one tick period before the cycle opened, nor inside the floor
+    expect(count.sql).toContain(
+      'rr.started_at >= (SELECT c.started_at FROM job_collection_cycles c WHERE c.id = $',
+    )
+    // CR-M-3: one tick period plus one tick window, in seconds
+    expect(count.params).toContain(1140)
+    // the floors, in minutes, aligned with the ids: 0 and 1.5 h
+    expect(count.params).toContain('{0,90}')
+    expect(count.sql).toMatch(/AS f\(id, minutes\)\s+WHERE f\.id = job_sources\.manifest_id/)
+  })
+
+  it('without a sweep it never reads the manifest ids', async () => {
+    const execute = vi.fn(async (_q: SQL) => ({ rows: [{ n: 1 }] }))
+    const ledger = new JobRunLedger({ execute } as never, {} as never, catalog as never)
+    await ledger.countDue({})
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('countDue', () => {
   it('counts the sources the scheduled due predicate admits, narrowed by nothing by default', async () => {
     const { ledger, last } = ledgerOver([{ n: 7 }])

@@ -119,6 +119,8 @@ function handler(
   } as never)
   svc.tuning.intervalMs = 100
   svc.tuning.onlyIds = ids
+  // U3: the API types moved from 05:00 to the tick; its 9-minute window is shortened for specs
+  svc.tuning.tickWindowMs = windowMs
   return { svc, worker }
 }
 
@@ -193,7 +195,10 @@ describe.skipIf(!hasDatabaseUrl())('the daily collection handlers against Postgr
     await w.admin.query(`DELETE FROM job_collection_runs WHERE source_id = ANY($1::uuid[])`, [
       w.fx.sourceIds,
     ])
-    await w.admin.query(`DELETE FROM job_collection_cycles WHERE trigger_key LIKE 'daily-%'`)
+    await w.admin.query(
+      `DELETE FROM job_collection_cycles
+        WHERE trigger_key LIKE 'daily-%' OR trigger_key LIKE 'tick:%' OR trigger_key LIKE 'sweep:%'`,
+    )
   }
 
   beforeEach(() => {
@@ -217,16 +222,43 @@ describe.skipIf(!hasDatabaseUrl())('the daily collection handlers against Postgr
     expect(rows[0].db).not.toBe('crm_db')
   })
 
-  it('02:30 claims HTML types only, 05:00 API types only; each closes its cycle', async () => {
+  it('U3 AC 3: the 08:00 sweep runs every interval-profile source once (a slot tomorrow included), never a null profile; firing again the same day runs nothing', async () => {
+    const tomorrow = await src('JOBICY_API')
+    const due = await src('JOBICY_API')
+    seq += 1
+    const nullKey = `t5-${TAG}-${seq}`
+    const unscheduled = await w.source({
+      type: 'JOBICY_API',
+      config: { key: nullKey },
+      entry: { fetchProfile: null },
+    })
+    await w.admin.query(
+      `UPDATE job_sources SET next_attempt_at = clock_timestamp() + interval '1 day' WHERE id = $1`,
+      [tomorrow.sourceId],
+    )
+    const ids = [tomorrow.sourceId, due.sourceId, unscheduled.sourceId]
+    await handler(ids, 6_000).svc.handleSweep()
+    expect([...ran].sort()).toEqual([tomorrow.key, due.key].sort())
+    expect(await dailyCycleCount('sweep')).toBe(1)
+    await handler(ids, 2_000).svc.handleSweep()
+    expect(ran).toHaveLength(2)
+    expect(await runsOf(tomorrow.sourceId)).toHaveLength(1)
+    expect(await runsOf(unscheduled.sourceId)).toEqual([])
+    // the 05:00 handler runs no API-type source any more (U3 AC 1)
+    await handler(ids, 2_000).svc.handleDailyCollection()
+    expect(ran).toHaveLength(2)
+  })
+
+  it('02:30 claims HTML types only, the tick API types only; each closes its cycle', async () => {
     const html = await src('JUSTJOIN_HTML')
     const api = await src('JOBICY_API')
     const ids = [html.sourceId, api.sourceId]
     await handler(ids, 3_000).svc.handleHtmlCollection()
     expect(ran).toEqual([html.key])
-    await handler(ids, 3_000).svc.handleDailyCollection()
+    await handler(ids, 3_000).svc.handleTick()
     expect(ran).toEqual([html.key, api.key])
     expect(await dailyCycleCount('daily-html')).toBe(1)
-    expect(await dailyCycleCount('daily-api')).toBe(1)
+    expect(await dailyCycleCount('tick')).toBe(1)
     const cycles = await cyclesOf(ids)
     expect(cycles).toHaveLength(2)
     expect(cycles.every((c) => c.status === 'CLOSED' && c.has_closed_at)).toBe(true)
@@ -238,7 +270,7 @@ describe.skipIf(!hasDatabaseUrl())('the daily collection handlers against Postgr
     const b = await src('JOBICY_API', hostKey)
     const g = gate(a.key)
     const t0 = Date.now()
-    const done = handler([a.sourceId, b.sourceId], 6_000).svc.handleDailyCollection()
+    const done = handler([a.sourceId, b.sourceId], 6_000).svc.handleTick()
     await new Promise((r) => setTimeout(r, 500))
     expect(ran).toEqual([a.key]) // B waits: the host has a run
     expect(await runsOf(b.sourceId)).toHaveLength(0)
@@ -265,7 +297,7 @@ describe.skipIf(!hasDatabaseUrl())('the daily collection handlers against Postgr
     )
     gate(a.key) // never opened inside the window
     const t0 = Date.now()
-    await handler([a.sourceId, b.sourceId], 1_500).svc.handleDailyCollection()
+    await handler([a.sourceId, b.sourceId], 1_500).svc.handleTick()
     const elapsed = Date.now() - t0
     expect(elapsed).toBeGreaterThanOrEqual(1_400)
     expect(elapsed).toBeLessThan(2_300)
@@ -282,16 +314,13 @@ describe.skipIf(!hasDatabaseUrl())('the daily collection handlers against Postgr
     expect(listed?.reasons).toContain('OVERDUE')
   })
 
-  it('AC 3, 9: two replicas run the handler at once: one claim per source, one cycle row', async () => {
+  it('AC 3, 9; U3 AC 5 (SPEC-L-2): two concurrent handleTick() calls share one cycle row and claim each source once', async () => {
     const sources = [await src('JOBICY_API'), await src('JOBICY_API'), await src('JOBICY_API')]
     const ids = sources.map((s) => s.sourceId)
-    await Promise.all([
-      handler(ids, 3_000).svc.handleDailyCollection(),
-      handler(ids, 3_000).svc.handleDailyCollection(),
-    ])
+    await Promise.all([handler(ids, 3_000).svc.handleTick(), handler(ids, 3_000).svc.handleTick()])
     expect([...ran].sort()).toEqual(sources.map((s) => s.key).sort())
     for (const s of sources) expect(await runsOf(s.sourceId)).toHaveLength(1)
-    expect(await dailyCycleCount('daily-api')).toBe(1)
+    expect(await dailyCycleCount('tick')).toBe(1)
     const cycles = await cyclesOf(ids)
     expect(cycles).toHaveLength(1)
     expect(cycles[0]).toMatchObject({ status: 'CLOSED', has_closed_at: true })
@@ -308,7 +337,7 @@ describe.skipIf(!hasDatabaseUrl())('the daily collection handlers against Postgr
     })
     expect(claimed).toHaveLength(1)
     await ageRun(w.admin, claimed[0]!.runId, 60_000)
-    await handler([fresh.sourceId], 2_000).svc.handleDailyCollection()
+    await handler([fresh.sourceId], 2_000).svc.handleTick()
     expect((await runsOf(stale.sourceId))[0]).toMatchObject({
       outcome: 'FAILED',
       error_code: 'LEASE_EXPIRED',
@@ -330,7 +359,7 @@ describe.skipIf(!hasDatabaseUrl())('the daily collection handlers against Postgr
     })
     expect(claimed).toHaveLength(1)
     const ids = [x.sourceId, ...queued.map((q) => q.sourceId), other.sourceId]
-    const done = handler(ids, 15_000).svc.handleDailyCollection()
+    const done = handler(ids, 15_000).svc.handleTick()
     await new Promise((r) => setTimeout(r, 800))
     // the first call already claimed the other host's source; none of the 12 ran
     expect(ran).toEqual([other.key])
@@ -378,7 +407,7 @@ describe.skipIf(!hasDatabaseUrl())('the daily collection handlers against Postgr
   it('SPEC-M-1: a source refused HOST_RATE_GAP whose gap opens inside the window is claimed in the same window', async () => {
     const { a, b } = await rateGapped(12) // one claim per 5 s on the host
     const t0 = Date.now()
-    await handler([a.sourceId, b.sourceId], 15_000).svc.handleDailyCollection()
+    await handler([a.sourceId, b.sourceId], 15_000).svc.handleTick()
     const elapsed = Date.now() - t0
     expect(ran).toHaveLength(2) // A, then B once the gap opened: not DRAINED with B left for tomorrow
     expect((await runsOf(b.sourceId))[0]).toMatchObject({ outcome: 'SUCCEEDED' })
@@ -389,7 +418,7 @@ describe.skipIf(!hasDatabaseUrl())('the daily collection handlers against Postgr
   it('SPEC-M-1: a gap that opens beyond the window ends the window DRAINED, the source left for the next day', async () => {
     const { a, b } = await rateGapped(1) // one claim per minute
     const t0 = Date.now()
-    await handler([a.sourceId, b.sourceId], 4_000).svc.handleDailyCollection()
+    await handler([a.sourceId, b.sourceId], 4_000).svc.handleTick()
     expect(Date.now() - t0).toBeLessThan(3_000)
     expect(ran).toHaveLength(1)
     expect(await runsOf(b.sourceId)).toHaveLength(0)
@@ -408,7 +437,7 @@ describe.skipIf(!hasDatabaseUrl())('the daily collection handlers against Postgr
       if (unwired) w.registerAdapter(new ReportingAdapter({ type: 'REED_API' } as never))
       const s = await w.source({ type: 'REED_API', config: { key: `t5-${TAG}-${reason}` } })
       const t0 = Date.now()
-      await handler([s.sourceId], 6_000).svc.handleDailyCollection()
+      await handler([s.sourceId], 6_000).svc.handleTick()
       expect(Date.now() - t0).toBeLessThan(2_500) // not the whole window
       expect(await runsOf(s.sourceId)).toHaveLength(0)
       expect(await sourceState(s.sourceId)).toMatchObject({ last_error_code: reason, far: true })
@@ -441,7 +470,7 @@ describe.skipIf(!hasDatabaseUrl())('the daily collection handlers against Postgr
     }
     const worker = w.worker({ recordBan }, OPTIONS)
     const t0 = Date.now()
-    await handler([s.sourceId], 10_000, worker).svc.handleDailyCollection()
+    await handler([s.sourceId], 10_000, worker).svc.handleTick()
     const elapsed = Date.now() - t0
     expect(calls).toBe(4)
     expect(worker.activeRuns).toBe(0) // the slot was freed
