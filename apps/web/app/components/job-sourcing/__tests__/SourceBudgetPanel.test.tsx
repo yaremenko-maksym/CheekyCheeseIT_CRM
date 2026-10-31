@@ -32,7 +32,6 @@ const source = (over: Partial<JobSourceDto> = {}): JobSourceDto => ({
   enabled: true,
   triggerMode: 'SCHEDULED',
   lastCollectedAt: '2026-08-12T05:00:00.000Z',
-  minIntervalHours: null,
   disabledReason: null,
   budget: {
     state: 'UNLIMITED',
