@@ -14,8 +14,9 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { AlertTriangle, Download, FileText, Loader2 } from 'lucide-react'
+import { AlertTriangle, Download, ExternalLink, FileText, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { detectIos } from '@/lib/is-ios'
 import { cn } from '@/lib/utils'
 
 export interface PdfPreviewProps {
@@ -41,6 +42,8 @@ export function PdfPreview({
   testId = 'document-pdf-preview',
 }: PdfPreviewProps) {
   const { t } = useLingui()
+  // iOS WebKit fires iframe onLoad for blob PDFs but paints nothing → skip the iframe.
+  const [isIos] = useState(detectIos)
   const [iframeReady, setIframeReady] = useState(false)
   const [iframeFallback, setIframeFallback] = useState(false)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -76,8 +79,11 @@ export function PdfPreview({
     }
   }, [timeoutRefStable])
 
-  const showLoader = isLoading || (blobUrl !== null && !iframeReady && !iframeFallback && !hasError)
-  const showIframe = blobUrl !== null && !hasError && !iframeFallback
+  const showLoader =
+    isLoading || (blobUrl !== null && !iframeReady && !iframeFallback && !hasError && !isIos)
+  const showIframe = blobUrl !== null && !hasError && !iframeFallback && !isIos
+  // Stryker disable next-line ConditionalExpression: equivalent mutant, the JSX below re-checks `blobUrl` (also narrows the type for href)
+  const showFallback = blobUrl !== null && !hasError && (iframeFallback || isIos)
 
   return (
     <div
@@ -117,13 +123,35 @@ export function PdfPreview({
       )}
 
       {/* Fallback: iframe заблокирован Chrome — кнопка «Завантажити PDF» */}
-      {iframeFallback && blobUrl && !hasError && (
-        <div className="flex flex-col items-center gap-3 p-6 text-center">
+      {showFallback && blobUrl && (
+        <div className="flex w-full max-w-full flex-col items-center gap-3 p-6 text-center">
           <FileText className="h-12 w-12 text-muted-foreground/60" />
-          <p className="text-sm text-muted-foreground">
-            <Trans>Браузер заблокував вбудований перегляд PDF</Trans>
+          <p className="text-sm text-balance text-muted-foreground">
+            {isIos ? (
+              <Trans>Вбудований перегляд PDF недоступний на цьому пристрої</Trans>
+            ) : (
+              <Trans>Браузер заблокував вбудований перегляд PDF</Trans>
+            )}
           </p>
-          <Button size="sm" variant="outline" asChild>
+          {isIos && (
+            <Button size="lg" className="min-h-11 w-full sm:w-auto" asChild>
+              <a
+                href={blobUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid={`${testId}-open`}
+              >
+                <ExternalLink className="mr-1.5 h-4 w-4" />
+                <Trans>Відкрити PDF</Trans>
+              </a>
+            </Button>
+          )}
+          <Button
+            size={isIos ? 'lg' : 'sm'}
+            variant="outline"
+            className={isIos ? 'min-h-11 w-full sm:w-auto' : undefined}
+            asChild
+          >
             <a href={blobUrl} download={filename} target="_blank" rel="noopener noreferrer">
               <Download className="mr-1.5 h-4 w-4" />
               <Trans>Завантажити PDF</Trans>

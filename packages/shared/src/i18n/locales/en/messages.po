@@ -8680,6 +8680,10 @@ msgstr "Open the {typeLabel} invoice for {0}"
 msgid "Генерується автоматично з назви. Можна редагувати."
 msgstr "Generated automatically from the title. You can edit it."
 
+#: apps/web/app/components/documents/pdf-preview.tsx
+msgid "Вбудований перегляд PDF недоступний на цьому пристрої"
+msgstr "Embedded PDF preview is not available on this device"
+
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "До активної версії"
 msgstr "Back to active version"
@@ -12140,6 +12144,7 @@ msgstr "Required for every vacancy — used in Google markup."
 msgid "Звичайний"
 msgstr "Normal"
 
+#: apps/web/app/components/documents/pdf-preview.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Відкрити PDF"
 msgstr "Open PDF"
