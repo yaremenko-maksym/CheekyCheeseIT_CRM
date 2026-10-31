@@ -82,6 +82,7 @@ export function PdfPreview({
   const showLoader =
     isLoading || (blobUrl !== null && !iframeReady && !iframeFallback && !hasError && !isIos)
   const showIframe = blobUrl !== null && !hasError && !iframeFallback && !isIos
+  // Stryker disable next-line ConditionalExpression: equivalent mutant, the JSX below re-checks `blobUrl` (also narrows the type for href)
   const showFallback = blobUrl !== null && !hasError && (iframeFallback || isIos)
 
   return (

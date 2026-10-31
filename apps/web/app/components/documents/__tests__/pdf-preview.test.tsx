@@ -17,7 +17,7 @@
  *   AC7. handleDownload НЕ вызывает downloadQuery.refetch() для PDF
  */
 
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, fireEvent } from '@testing-library/react'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { PdfPreview, type PdfPreviewProps } from '../pdf-preview'
@@ -120,25 +120,154 @@ describe.each([
   })
 })
 
+const UK = {
+  loading: 'Завантаження PDF…',
+  iframeTitle: 'Попередній перегляд: document.pdf',
+  blocked: 'Браузер заблокував вбудований перегляд PDF',
+  iosCopy: 'Вбудований перегляд PDF недоступний на цьому пристрої',
+  open: 'Відкрити PDF',
+  download: 'Завантажити PDF',
+  error: 'Не вдалося завантажити PDF — спробуйте відкрити файл ще раз',
+}
+
+function stubDevice(kind: 'iphone' | 'desktop') {
+  vi.stubGlobal(
+    'navigator',
+    kind === 'iphone'
+      ? {
+          userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
+          platform: 'iPhone',
+          maxTouchPoints: 5,
+        }
+      : { userAgent: 'Mozilla/5.0 (Windows NT 10.0)', platform: 'Win32', maxTouchPoints: 0 },
+  )
+}
+
 describe('PdfPreview on iOS', () => {
+  beforeEach(async () => {
+    await loadCatalog('uk')
+    stubDevice('iphone')
+  })
   afterEach(async () => {
     vi.unstubAllGlobals()
     await loadCatalog('uk')
   })
 
-  it('AC3: renders «Відкрити PDF» anchor to the blob and no iframe', async () => {
-    await loadCatalog('uk')
-    vi.stubGlobal('navigator', {
-      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
-      platform: 'iPhone',
-      maxTouchPoints: 5,
-    })
+  it('AC3: renders «Відкрити PDF» anchor to the blob, no iframe, no loader', () => {
     renderPreview({ blobUrl: 'blob:x', isLoading: false, hasError: false })
-    expect(screen.queryByTitle('Попередній перегляд: document.pdf')).toBeNull()
-    const open = screen.getByRole('link', { name: 'Відкрити PDF' })
-    expect(open.getAttribute('href')).toBe('blob:x')
-    expect(open.getAttribute('target')).toBe('_blank')
-    expect(screen.getByText('Вбудований перегляд PDF недоступний на цьому пристрої')).toBeTruthy()
+    expect(screen.queryByTitle(UK.iframeTitle)).toBeNull()
+    expect(screen.queryByText(UK.loading)).toBeNull()
+    expect(screen.queryByText(UK.blocked)).toBeNull()
+    const open = screen.getByRole('link', { name: UK.open })
+    expect(open).toHaveAttribute('href', 'blob:x')
+    expect(open).toHaveAttribute('target', '_blank')
+    expect(open).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(open).not.toHaveAttribute('download')
+    expect(screen.getByTestId('document-pdf-preview-open')).toBe(open)
+    expect(screen.getByText(UK.iosCopy)).toBeInTheDocument()
+  })
+
+  it('uses a custom testId for the open button', () => {
+    renderPreview({ blobUrl: 'blob:x', isLoading: false, hasError: false, testId: 'custom' })
+    expect(screen.getByTestId('custom-open')).toHaveAttribute('href', 'blob:x')
+  })
+
+  it('both buttons are >= 44px touch targets (lg, min-h-11, full width on mobile)', () => {
+    renderPreview({ blobUrl: 'blob:x', isLoading: false, hasError: false, filename: 'a.pdf' })
+    for (const name of [UK.open, UK.download]) {
+      const link = screen.getByRole('link', { name })
+      expect(link).toHaveClass('min-h-11', 'w-full', 'sm:w-auto', 'h-11')
+      expect(link).not.toHaveClass('h-8')
+    }
+    expect(screen.getByRole('link', { name: UK.download })).toHaveAttribute('download', 'a.pdf')
+  })
+
+  it('still shows the loader while the blob is fetching (no blobUrl)', () => {
+    renderPreview({ blobUrl: null, isLoading: true, hasError: false })
+    expect(screen.getByText(UK.loading)).toBeInTheDocument()
+    expect(screen.queryByTestId('document-pdf-preview-open')).toBeNull()
+  })
+
+  it('shows nothing actionable without a blobUrl', () => {
+    renderPreview({ blobUrl: null, isLoading: false, hasError: false })
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.queryByText(UK.iosCopy)).toBeNull()
+  })
+
+  it('hasError wins: only the error block, no open button', () => {
+    renderPreview({ blobUrl: 'blob:x', isLoading: false, hasError: true })
+    expect(screen.getByTestId('document-pdf-preview-error')).toBeInTheDocument()
+    expect(screen.queryByTestId('document-pdf-preview-open')).toBeNull()
+    expect(screen.queryByText(UK.iosCopy)).toBeNull()
+    expect(screen.queryByText(UK.loading)).toBeNull()
+  })
+})
+
+describe('PdfPreview on desktop (state matrix)', () => {
+  beforeEach(async () => {
+    await loadCatalog('uk')
+    stubDevice('desktop')
+    vi.useFakeTimers()
+  })
+  afterEach(async () => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    await loadCatalog('uk')
+  })
+
+  it('blob present, iframe not ready: loader + invisible iframe, no fallback', () => {
+    renderPreview({ blobUrl: 'blob:x', isLoading: false, hasError: false })
+    expect(screen.getByText(UK.loading)).toBeInTheDocument()
+    expect(screen.getByTitle(UK.iframeTitle)).toHaveClass('invisible')
+    expect(screen.queryByText(UK.blocked)).toBeNull()
+    expect(screen.queryByRole('link')).toBeNull()
+  })
+
+  it('iframe onLoad: loader gone, iframe visible, still no fallback', () => {
+    renderPreview({ blobUrl: 'blob:x', isLoading: false, hasError: false })
+    fireEvent.load(screen.getByTitle(UK.iframeTitle))
+    expect(screen.queryByText(UK.loading)).toBeNull()
+    expect(screen.getByTitle(UK.iframeTitle)).not.toHaveClass('invisible')
+    expect(screen.queryByText(UK.blocked)).toBeNull()
+  })
+
+  it('after the 3 s iframe timeout: fallback only (download), no iframe, no loader, no open button', () => {
+    renderPreview({ blobUrl: 'blob:x', isLoading: false, hasError: false, filename: 'a.pdf' })
+    act(() => {
+      vi.advanceTimersByTime(3000)
+    })
+    expect(screen.queryByTitle(UK.iframeTitle)).toBeNull()
+    expect(screen.queryByText(UK.loading)).toBeNull()
+    expect(screen.getByText(UK.blocked)).toBeInTheDocument()
+    expect(screen.queryByText(UK.iosCopy)).toBeNull()
+    expect(screen.queryByTestId('document-pdf-preview-open')).toBeNull()
+    expect(screen.queryByRole('link', { name: UK.open })).toBeNull()
+    const dl = screen.getByRole('link', { name: UK.download })
+    expect(dl).toHaveClass('h-8', 'text-xs')
+    expect(dl).not.toHaveClass('min-h-11')
+    expect(dl).not.toHaveClass('h-11')
+    expect(dl).not.toHaveClass('w-full')
+  })
+
+  it('hasError with a blob: only the error block', () => {
+    renderPreview({ blobUrl: 'blob:x', isLoading: false, hasError: true })
+    expect(screen.getByTestId('document-pdf-preview-error')).toBeInTheDocument()
+    expect(screen.queryByTitle(UK.iframeTitle)).toBeNull()
+    expect(screen.queryByText(UK.loading)).toBeNull()
+    expect(screen.queryByText(UK.blocked)).toBeNull()
+    expect(screen.queryByRole('link')).toBeNull()
+  })
+
+  it('hasError arriving while in fallback state replaces the fallback block', () => {
+    const props = { blobUrl: 'blob:x', isLoading: false, hasError: false }
+    const { rerender } = renderPreview(props)
+    act(() => {
+      vi.advanceTimersByTime(3000)
+    })
+    expect(screen.getByText(UK.blocked)).toBeInTheDocument()
+    rerender(<PdfPreview {...props} hasError />)
+    expect(screen.queryByText(UK.blocked)).toBeNull()
+    expect(screen.getByTestId('document-pdf-preview-error')).toBeInTheDocument()
   })
 })
 
