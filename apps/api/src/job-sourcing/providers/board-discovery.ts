@@ -35,13 +35,18 @@ import {
 
 export type BoardProvider = 'greenhouse' | 'lever' | 'ashby' | 'workable' | 'recruitee' | 'personio'
 
+/** `boards.greenhouse.io/<token>/...`: the first path segment. */
+const fromPath = (_hostMatch: RegExpExecArray, url: URL) => url.pathname.split('/')[1]
+/** `<token>.recruitee.com`: group 1 of the host pattern. */
+const fromHost = (hostMatch: RegExpExecArray) => hostMatch[1]
+
 interface BoardUrlShape {
   readonly provider: BoardProvider
   readonly kind: AtsBoardKind
   /** The host patterns `ats-job-key` already treats as this vendor's board hosts (EU variants included). */
   readonly host: RegExp
-  /** `path`: the token is the first path segment; `subdomain`: group 1 of the host pattern. */
-  readonly tokenAt: 'path' | 'subdomain'
+  /** Where the board token sits in a URL whose host matched. */
+  readonly tokenOf: (hostMatch: RegExpExecArray, url: URL) => string | undefined
   /** Substring the SQL prefilter looks for; looser than `host` on purpose, the parse is the gate. */
   readonly like: string
 }
@@ -52,36 +57,36 @@ export const BOARD_URL_SHAPES: readonly BoardUrlShape[] = [
     provider: 'greenhouse',
     kind: GREENHOUSE_KIND,
     host: GH_HOST,
-    tokenAt: 'path',
+    tokenOf: fromPath,
     like: 'greenhouse.io',
   },
-  { provider: 'lever', kind: LEVER_KIND, host: LEVER_HOST, tokenAt: 'path', like: 'lever.co' },
+  { provider: 'lever', kind: LEVER_KIND, host: LEVER_HOST, tokenOf: fromPath, like: 'lever.co' },
   {
     provider: 'ashby',
     kind: ASHBY_KIND,
     host: ASHBY_HOST,
-    tokenAt: 'path',
+    tokenOf: fromPath,
     like: 'jobs.ashbyhq.com',
   },
   {
     provider: 'workable',
     kind: WORKABLE_KIND,
     host: WORKABLE_HOST,
-    tokenAt: 'path',
+    tokenOf: fromPath,
     like: 'apply.workable.com',
   },
   {
     provider: 'recruitee',
     kind: RECRUITEE_KIND,
     host: RECRUITEE_HOST,
-    tokenAt: 'subdomain',
+    tokenOf: fromHost,
     like: 'recruitee.com',
   },
   {
     provider: 'personio',
     kind: PERSONIO_KIND,
     host: PERSONIO_HOST,
-    tokenAt: 'subdomain',
+    tokenOf: fromHost,
     like: 'jobs.personio.',
   },
 ]
@@ -100,10 +105,11 @@ export function boardTokenFromUrl(raw: string): BoardRef | null {
     return null
   }
   if (url.protocol !== 'https:') return null
-  for (const { provider, kind, host, tokenAt } of BOARD_URL_SHAPES) {
+  for (const { provider, kind, host, tokenOf } of BOARD_URL_SHAPES) {
     const m = host.exec(url.hostname)
     if (m === null) continue
-    const candidate = tokenAt === 'path' ? url.pathname.split('/')[1] : m[1]
+    const candidate = tokenOf(m, url)
+    // Stryker disable next-line ConditionalExpression: a URL pathname always has a segment after the first slash and the host patterns always capture, so undefined is unreachable; the check is for the type
     if (candidate === undefined) continue
     const token = candidate.toLowerCase()
     if (token.length <= kind.slugMaxChars && kind.slugPattern.test(token)) {
