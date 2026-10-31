@@ -94,9 +94,13 @@ function ledgerOver(answer: (text: string) => Rows | Error) {
     if (a instanceof Error) throw a
     return { rows: a }
   })
+  // The meter / reservation reads go through drizzle's builder: every chain resolves to no rows.
+  const chain: unknown = new Proxy(() => undefined, {
+    get: (_t, p) => (p === 'then' ? (resolve: (v: unknown) => void) => resolve([]) : () => chain),
+  })
   const transaction = vi.fn(async (fn: (tx: unknown) => Promise<unknown>, config: unknown) => {
     expect(config).toEqual({ isolationLevel: 'read committed' })
-    return fn({ execute })
+    return fn({ execute, select: () => chain })
   })
   const ledger = new JobRunLedger({ execute, transaction } as never, registry, {
     entry: () => undefined,
