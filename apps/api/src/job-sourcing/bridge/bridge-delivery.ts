@@ -34,7 +34,8 @@ export interface BridgeRun {
 /** One eligible senior and their exclusion set, read ONCE per drain pass (ADR batching, AC6). */
 export interface RosterSenior {
   readonly seniorId: string
-  readonly exclusions: readonly JobExclusionDto[]
+  /** Mutable to match `findMatchingExclusion`'s parameter (it only reads the list). */
+  readonly exclusions: JobExclusionDto[]
 }
 
 export interface PostingDrainResult {
