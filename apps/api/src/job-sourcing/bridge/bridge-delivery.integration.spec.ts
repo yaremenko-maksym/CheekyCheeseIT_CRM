@@ -19,6 +19,7 @@ import {
   drainPostings,
   drainSuggestions,
   enqueueLegacyPostings,
+  markCollected,
 } from './bridge-delivery'
 import { contentVersion } from './content-version'
 
@@ -345,5 +346,52 @@ describe.skipIf(!hasDatabaseUrl())('bridge delivery drains against Postgres (S6d
     const claim = await ledger.claimLegacyRun({ cycleId, owner: 'dou-bridge', sourceId: s })
     expect(claim).toMatchObject({ kind: 'REFUSED', reason: 'NOT_ACTIVATABLE' })
     expect(await bridgeRows(s, 'LEGACY_POSTING')).toHaveLength(0)
+  })
+
+  it('CR-M-1: a transient DB fault leaves the row PENDING (not INVALID); the next run drains it', async () => {
+    const s = await fx.source({ type: 'DOU_RSS', manifestId: null, hostKey: null })
+    const run = await claimRun(s)
+    await enqueueLegacyPostings(db, run, [douPosting()])
+
+    // A db whose per-row transaction rejects with a transient pg fault (deadlock 40P01).
+    const transient = Object.assign(new Error('deadlock detected'), {
+      code: '40P01',
+      severity: 'ERROR',
+    })
+    const flaky = {
+      select: db.select.bind(db),
+      transaction: () => Promise.reject(transient),
+    } as unknown as typeof db
+
+    await expect(drainPostings(flaky, run, () => undefined)).rejects.toThrow(/deadlock/)
+    // Re-thrown, NOT marked INVALID: the row is still PENDING and no posting was created.
+    expect((await bridgeRows(s, 'LEGACY_POSTING'))[0].status).toBe('PENDING')
+    expect(await postingCount(s)).toBe(0)
+
+    // The next run drains it cleanly.
+    const r = await drainPostings(db, run, () => undefined)
+    expect(r).toMatchObject({ created: 1, invalid: 0 })
+    expect((await bridgeRows(s, 'LEGACY_POSTING'))[0].status).toBe('DONE')
+  })
+
+  it('CR-M-4: markCollected is fenced — a lost-lease executor writes no last_collected_at', async () => {
+    const s = await fx.source({ type: 'DOU_RSS', manifestId: null, hostKey: null })
+    const run = await claimRun(s)
+    const fenced: BridgeRun = { ...run, handle: { ...run.handle, ownerToken: 'superseded-token' } }
+
+    await expect(markCollected(db, fenced)).rejects.toThrow()
+    const { rows } = await session.admin.query(
+      `SELECT last_collected_at FROM job_sources WHERE id = $1`,
+      [s],
+    )
+    expect(rows[0].last_collected_at).toBeNull()
+
+    // The real owner writes it.
+    await markCollected(db, run)
+    const after = await session.admin.query(
+      `SELECT last_collected_at FROM job_sources WHERE id = $1`,
+      [s],
+    )
+    expect(after.rows[0].last_collected_at).not.toBeNull()
   })
 })

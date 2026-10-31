@@ -2,12 +2,42 @@ import type { JobExclusionDto, JobSourceType } from '@crm/shared'
 import { and, asc, eq } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type * as schema from '../../database/schema'
-import { jobBridgeDeliveries, jobPostings, jobSuggestions } from '../../database/schema'
-import { describeDbError } from '../../database/pg-errors'
+import { jobBridgeDeliveries, jobPostings, jobSources, jobSuggestions } from '../../database/schema'
+import { describeDbError, findPgError } from '../../database/pg-errors'
 import { findMatchingExclusion } from '../filtering'
 import type { NormalizedPosting } from '../job-source.provider'
-import { assertOwned, type RunHandle } from '../ownership/run-ownership'
+import { assertOwned, isRunFenced, type RunHandle } from '../ownership/run-ownership'
 import { contentVersion } from './content-version'
+
+/**
+ * A posting delivery whose job_postings row could be neither inserted (ON CONFLICT DO NOTHING) nor
+ * read back by fingerprint — a data-level dead end for THIS version, so the row is marked INVALID
+ * (terminal) rather than retried forever. A changed item gets a new content version and a fresh row.
+ */
+export class PostingUnresolvableError extends Error {
+  constructor(readonly fingerprint: string) {
+    super(`posting fingerprint ${fingerprint} neither created nor found`)
+    this.name = 'PostingUnresolvableError'
+  }
+}
+
+/**
+ * CR-M-1: does this error mean the DELIVERY ROW itself is bad (mark INVALID, terminal, that row
+ * only) rather than the infrastructure being momentarily unavailable? Only a data-level failure is
+ * terminal: a Postgres data-exception (SQLSTATE class 22) or integrity-constraint violation (class
+ * 23), or the explicit unresolvable-posting dead end. A fencing/lost-lease error and any transient
+ * fault (deadlock 40P01, lock timeout 55P03, a connection blip, anything with no pg error at all)
+ * is NOT terminal — it is re-thrown so the row stays PENDING and the next DOU run retries it. A
+ * transient fault must never silently drop a posting from the legacy feed.
+ */
+export function isTerminalDeliveryError(err: unknown): boolean {
+  if (isRunFenced(err)) return false
+  if (err instanceof PostingUnresolvableError) return true
+  const pg = findPgError(err)
+  if (pg === null) return false
+  const sqlClass = String(pg['code']).slice(0, 2)
+  return sqlClass === '22' || sqlClass === '23'
+}
 
 /**
  * r5 Task 4.6 S6d — the durable bridge delivery (ADR `2026-10-31-dou-bridge-run-ownership.md`,
@@ -42,6 +72,22 @@ export interface PostingDrainResult {
   readonly created: number
   readonly duplicate: number
   readonly invalid: number
+}
+
+/**
+ * CR-M-2: the collection DTO's per-run counts. In a normal collection every fetched posting is
+ * created, invalid, or a duplicate, so `fetched - created - invalid` is the duplicate count
+ * `persistPostings` keeps (barrier parity). After a crash the drain also delivers a predecessor's
+ * leftover PENDING rows, so `created` can exceed `fetched`; the clamp keeps `duplicates` at zero (and
+ * non-negative, as `JobCollectionResultDto.duplicates` requires) — there were no duplicates among
+ * the fetched set in that recovery case.
+ */
+export function bridgeResultCounts(
+  fetched: number,
+  created: number,
+  invalid: number,
+): { fetched: number; created: number; invalid: number; duplicates: number } {
+  return { fetched, created, invalid, duplicates: Math.max(0, fetched - created - invalid) }
 }
 
 /** The job_postings insert columns, from the stored NormalizedPosting payload. */
@@ -183,8 +229,7 @@ export async function drainPostings(
             .from(jobPostings)
             .where(eq(jobPostings.fingerprint, posting.fingerprint))
             .limit(1)
-          if (!existing)
-            throw new Error(`posting fingerprint ${posting.fingerprint} neither created nor found`)
+          if (!existing) throw new PostingUnresolvableError(posting.fingerprint)
           postingId = existing.id
           kind = 'DUPLICATE'
         }
@@ -203,6 +248,10 @@ export async function drainPostings(
       if (outcome === 'CREATED') created += 1
       else duplicate += 1
     } catch (err: unknown) {
+      // CR-M-1: a fencing/lost-lease or transient-infrastructure error must NOT terminally drop the
+      // posting — re-throw so the row stays PENDING and the next DOU run retries it. Only a
+      // data-level failure marks the row INVALID (terminal, this row only).
+      if (!isTerminalDeliveryError(err)) throw err
       invalid += 1
       const reason = describeDbError(err) ?? (err instanceof Error ? err.message : String(err))
       log(`Bridge posting delivery ${row.id} refused, marked INVALID: ${reason}`)
@@ -284,4 +333,20 @@ export async function drainSuggestions(
     total += inserted
   }
   return total
+}
+
+/**
+ * T5 — stamp `last_collected_at`, FENCED (CR-M-4). Every bridge write is owned (ADR): a run that lost
+ * its lease between the last drain tx and T5 fails `assertOwned` here and writes nothing, so a
+ * superseded executor cannot mark the source collected.
+ */
+export async function markCollected(db: Db, run: BridgeRun): Promise<void> {
+  await db.transaction(async (tx) => {
+    await assertOwned(tx, run.handle)
+    const now = new Date()
+    await tx
+      .update(jobSources)
+      .set({ lastCollectedAt: now, updatedAt: now })
+      .where(eq(jobSources.id, run.sourceId))
+  }, READ_COMMITTED)
 }

@@ -66,9 +66,11 @@ import { LEGACY_RUN_ADAPTER_VERSION } from './ownership/legacy-run-claim'
 import {
   type BridgeRun,
   type RosterSenior,
+  bridgeResultCounts,
   drainPostings,
   drainSuggestions,
   enqueueLegacyPostings,
+  markCollected,
 } from './bridge/bridge-delivery'
 import { douPostingToRawObservation } from './bridge/dou-observation'
 import { type SourceObservation, buildSourceObservation } from './normalize/observation'
@@ -1062,23 +1064,14 @@ export class JobSourcingService {
       const roster = await this.buildRoster()
       const suggestionsCreated = await drainSuggestions(this.db.db, run, roster)
 
-      // T5 — only after T3 and T4 drained without a throw (the unchanged legacy rule).
-      await this.db.db
-        .update(jobSources)
-        .set({ lastCollectedAt: new Date(), updatedAt: new Date() })
-        .where(eq(jobSources.id, source.id))
+      // T5 — fenced, only after T3 and T4 drained without a throw (the unchanged legacy rule).
+      await markCollected(this.db.db, run)
 
-      // The DTO counts match the legacy path (barrier parity): every fetched posting is created,
-      // invalid, or a duplicate. The bridge dedupes a re-collection at the delivery layer (a
-      // survivor's DONE row is not re-drained, a feed-internal repeat collapses at T1), so its
-      // duplicates are the fetched that this run neither created nor refused — the same identity
-      // `created + duplicates + invalid === fetched` that `persistPostings` keeps per run.
+      // The DTO counts (barrier parity + the CR-M-2 non-negative clamp) are derived by
+      // `bridgeResultCounts`, tested directly in bridge-delivery.unit.
       return {
         sourceType: source.type,
-        fetched: postings.length,
-        created,
-        duplicates: postings.length - created - invalid,
-        invalid,
+        ...bridgeResultCounts(postings.length, created, invalid),
         merged: 0,
         filtered: 0,
         suggestionsCreated,
