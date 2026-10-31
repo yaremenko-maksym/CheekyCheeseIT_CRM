@@ -22,7 +22,7 @@ const PROFILE = {
 }
 
 const ROW = {
-  id: '11111111-1111-1111-1111-111111111111',
+  id: '11111111-1111-4111-8111-111111111111',
   type: 'REMOTIVE_API',
   enabled: true,
   state: 'HEALTHY',
@@ -48,9 +48,9 @@ describe('createJobSourceNoteSchema', () => {
   })
 
   it('refuses unknown keys', () => {
-    expect(
-      createJobSourceNoteSchema.safeParse({ note: 'ok', kind: 'TRANSITION' }).success,
-    ).toBe(false)
+    expect(createJobSourceNoteSchema.safeParse({ note: 'ok', kind: 'TRANSITION' }).success).toBe(
+      false,
+    )
   })
 })
 
@@ -60,9 +60,9 @@ describe('jobSourceProfileSummarySchema', () => {
   })
 
   it('rejects a non-positive interval', () => {
-    expect(jobSourceProfileSummarySchema.safeParse({ ...PROFILE, intervalMinutes: 0 }).success).toBe(
-      false,
-    )
+    expect(
+      jobSourceProfileSummarySchema.safeParse({ ...PROFILE, intervalMinutes: 0 }).success,
+    ).toBe(false)
   })
 })
 
@@ -82,7 +82,7 @@ describe('jobSourceDetailSchema', () => {
       source: ROW,
       runs: [
         {
-          id: '22222222-2222-2222-2222-222222222222',
+          id: '22222222-2222-4222-8222-222222222222',
           startedAt: '2026-10-30T10:00:00.000Z',
           endedAt: '2026-10-30T10:00:05.000Z',
           outcome: 'SUCCEEDED',
@@ -99,7 +99,7 @@ describe('jobSourceDetailSchema', () => {
       ],
       events: [
         {
-          id: '33333333-3333-3333-3333-333333333333',
+          id: '33333333-3333-4333-8333-333333333333',
           at: '2026-10-29T10:00:00.000Z',
           kind: 'TRANSITION',
           fromState: 'HEALTHY',
@@ -114,7 +114,7 @@ describe('jobSourceDetailSchema', () => {
           correlation: 'NO_CHANGE',
         },
         {
-          id: '44444444-4444-4444-4444-444444444444',
+          id: '44444444-4444-4444-8444-444444444444',
           at: '2026-10-29T12:00:00.000Z',
           kind: 'NOTE',
           fromState: null,

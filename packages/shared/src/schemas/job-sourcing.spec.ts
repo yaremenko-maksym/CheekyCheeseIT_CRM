@@ -177,7 +177,6 @@ describe('the source DTO keeps its shape', () => {
     enabled: true,
     triggerMode: 'SCHEDULED' as const,
     lastCollectedAt: null,
-    minIntervalHours: null,
     disabledReason: null,
     budget,
   }
@@ -370,7 +369,9 @@ describe('vacancy-queue contract pins', () => {
     })
   })
 
-  it('a source carries cadence and a bounded disabled reason', () => {
+  it('a source carries a bounded disabled reason', () => {
+    // `minIntervalHours` was removed in U7 (the cadence now lives on the ADMIN source page as
+    // `jobSourceProfileSummarySchema`); only the disabled-reason bound remains on this DTO.
     const src = (over: Record<string, unknown>) =>
       jobSourceSchema.safeParse({
         id: UUID,
@@ -378,7 +379,6 @@ describe('vacancy-queue contract pins', () => {
         enabled: false,
         triggerMode: 'SCHEDULED',
         lastCollectedAt: null,
-        minIntervalHours: null,
         disabledReason: null,
         budget: {
           state: 'UNLIMITED',
@@ -390,13 +390,8 @@ describe('vacancy-queue contract pins', () => {
         },
         ...over,
       }).success
-    expect(src({ minIntervalHours: 24 })).toBe(true)
-    expect(src({ minIntervalHours: 1 })).toBe(true)
-    expect(src({ minIntervalHours: 0 })).toBe(false)
-    expect(src({ minIntervalHours: 1.5 })).toBe(false)
     expect(src({ disabledReason: 'x'.repeat(500) })).toBe(true)
     expect(src({ disabledReason: 'x'.repeat(501) })).toBe(false)
-    expect(src({ minIntervalHours: undefined })).toBe(false)
     expect(src({ disabledReason: undefined })).toBe(false)
   })
 
