@@ -7,6 +7,10 @@
  *
  * All thresholds live in `HEALTH_THRESHOLDS` below — the one place section 10 says they live,
  * so they are tunable without a migration.
+ *
+ * `outcome` matters (CR-M-1): a FAILED or CANCELLED run is not an empty answer, is not a board
+ * going quiet, and must not deflate the volume baseline. "Received volume" and "a clean empty
+ * answer" are read from runs that actually fetched (`SUCCEEDED` / `PARTIAL`), never from failures.
  */
 import type { HealthReason, HealthSnapshot, RunFact } from './types'
 
@@ -48,6 +52,16 @@ export function answered(s: HealthSnapshot): RunFact[] {
   return s.runs.filter((r) => r.endedAt !== null)
 }
 
+/** Runs that actually fetched data: a clean or partial success. Failures never count as volume. */
+function fetched(runs: readonly RunFact[]): RunFact[] {
+  return runs.filter((r) => r.outcome === 'SUCCEEDED' || r.outcome === 'PARTIAL')
+}
+
+/** A clean complete fetch — the only run that can be a genuine "empty answer". */
+function isSuccess(run: RunFact): boolean {
+  return run.outcome === 'SUCCEEDED'
+}
+
 /** A `304 Not Modified` run: a clean no-change answer, never an empty one (AC 4). */
 function isNotModified(run: RunFact): boolean {
   return run.lastHttpStatus === 304
@@ -55,10 +69,11 @@ function isNotModified(run: RunFact): boolean {
 
 /**
  * Volume drop — `received` over 24 h below 30% of the 14-day median for the same weekday,
- * given at least 7 distinct days of history.
+ * given at least 7 distinct days of history. Only fetched runs count: a failed run brings back
+ * nothing and must not deflate the baseline (CR-M-1).
  */
 export function detectVolumeDrop(s: HealthSnapshot): readonly HealthReason[] {
-  const runs = answered(s)
+  const runs = fetched(answered(s))
   const perDay = new Map<string, { received: number; weekday: number }>()
   for (const run of runs) {
     const key = run.startedAt.toISOString().slice(0, 10)
@@ -74,10 +89,8 @@ export function detectVolumeDrop(s: HealthSnapshot): readonly HealthReason[] {
     .filter(([key, v]) => key !== todayKey && v.weekday === todayWeekday)
     .map(([, v]) => v.received)
   const baseline = median(sameWeekdayPast)
-  // Stryker disable next-line all: a readability guard with no observable effect — a null or
-  // non-positive baseline already yields [] at the comparison below (0.3 * null === 0 in JS, and
-  // received24h is a sum of non-negative counts, so `received24h < 0` is false either way).
-  if (baseline === null || baseline <= 0) return []
+  // Stryker disable next-line ConditionalExpression,EqualityOperator: this null check is a type-checker requirement, redundant with the comparison below — `0.3 * null` is 0 and `received24h` is a sum of non-negative counts, so a null baseline yields [] either way. The 30% behaviour is pinned by the 29/30 boundary test.
+  if (baseline === null) return []
 
   const received24h = runs
     .filter((r) => s.now.getTime() - r.startedAt.getTime() < DAY_MS)
@@ -92,9 +105,7 @@ export function detectVolumeDrop(s: HealthSnapshot): readonly HealthReason[] {
 export function detectSilence(s: HealthSnapshot): readonly HealthReason[] {
   const runs = answered(s)
   const withCreated = runs.filter((r) => r.created > 0)
-  // Stryker disable next-line ConditionalExpression: with fewer than two new-item runs the gap
-  // list below is empty and the `medianGap <= 0` guard returns [] regardless, so skipping this
-  // early return changes nothing; it is kept because reading `withCreated[0]` later assumes a run.
+  // Stryker disable next-line ConditionalExpression: with fewer than two new-item runs the gap list below is empty and the `medianGap <= 0` guard returns [] regardless, so skipping this early return changes nothing; it is kept because `withCreated[0]` later assumes a run. The `< 2` boundary is pinned by the one-run and two-run tests.
   if (withCreated.length < 2) return []
   // newest first; the gap between each consecutive pair of new-item runs.
   const gaps = withCreated
@@ -104,22 +115,20 @@ export function detectSilence(s: HealthSnapshot): readonly HealthReason[] {
   const medianGap = median(gaps)!
   if (medianGap <= 0) return []
   const sinceLastNew = s.now.getTime() - withCreated[0]!.startedAt.getTime()
-  const stillReceiving = runs.some((r) => r.received > 0)
+  const stillReceiving = fetched(runs).some((r) => r.received > 0)
   return sinceLastNew > HEALTH_THRESHOLDS.silenceGapMultiple * medianGap && stillReceiving
     ? ['NO_NEW_ITEMS']
     : []
 }
 
 /**
- * Empty answer — `received = 0` (not a 304) on the two most recent runs of a source whose
- * 14-day median is above 0. A 304 run is filtered out before the window is read (AC 4).
+ * Empty answer — a clean fetch (`SUCCEEDED`) that returned `received = 0` (not a 304) on the two
+ * most recent such runs, of a source whose 14-day median is above 0. A FAILED run is not an empty
+ * answer, so only successes are read (CR-M-1); a 304 is filtered out (AC 4).
  */
 export function detectEmptyResponse(s: HealthSnapshot): readonly HealthReason[] {
-  const base = answered(s).filter((r) => !isNotModified(r))
-  // Stryker disable next-line ConditionalExpression,EqualityOperator: EMPTY_RESPONSE can only fire
-  // when the 14-day median is above 0, which needs at least one non-empty run in addition to the two
-  // recent empties — so firing always has base.length >= 3 and this length-2 boundary is never the
-  // deciding factor; the guard stays only to bound `.slice(0, 2)` meaningfully.
+  const base = answered(s).filter((r) => isSuccess(r) && !isNotModified(r))
+  // Stryker disable next-line ConditionalExpression,EqualityOperator: EMPTY_RESPONSE needs a 14-day median above 0, i.e. at least one non-empty success beyond the two empties, so firing always has base.length >= 3 — this length-2 boundary never decides. It bounds `.slice(0, 2)` meaningfully.
   if (base.length < HEALTH_THRESHOLDS.emptyResponseRuns) return []
   const recentAllEmpty = base
     .slice(0, HEALTH_THRESHOLDS.emptyResponseRuns)
@@ -131,7 +140,8 @@ export function detectEmptyResponse(s: HealthSnapshot): readonly HealthReason[] 
 
 /**
  * Format drift — an ending `PARSE_DRIFT`, `invalid / received` above 10%, or a changed
- * `envelope_fingerprint` between the two most recent runs that carried one.
+ * `envelope_fingerprint` between the two most recent runs that carried one. Read off the latest
+ * answered run (a failed parse is itself drift, so no outcome filter here).
  */
 export function detectFormatDrift(s: HealthSnapshot): readonly HealthReason[] {
   const runs = answered(s)
@@ -169,41 +179,29 @@ export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[]
   const latest = runs[0]
   if (latest === undefined) return []
   const reasons: HealthReason[] = []
+  const dur = (r: RunFact): number => r.endedAt!.getTime() - r.startedAt.getTime()
 
-  // `runs` are finished, so every duration is a number (no null branch to leave untested).
-  const duration = (r: RunFact): number => r.endedAt!.getTime() - r.startedAt.getTime()
-  const medianDuration = median(runs.map(duration).filter((d) => d > 0))
-  // Stryker disable ConditionalExpression,LogicalOperator: a null median means no positive-duration
-  // history, and then the latest run's own duration is 0 too, so bypassing the null guard yields
-  // `0 > 0` = false — no observable effect. Only the `>` comparison is behavioural, and it is pinned
-  // by the 3x-boundary and zero-duration tests. (A block, not `next-line`: prettier re-wraps the if.)
+  const medianDuration = median(runs.map(dur).filter((d) => d > 0))
+  // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent — a null duration median means no run (including the latest, which is one of `runs`) has a positive duration, so the `>` comparison below is 0 > 0 whether this guard runs or not. The behavioural `>` is on the next line and is pinned by the 3x-boundary and zero-duration tests.
+  const hasDurationBaseline = medianDuration !== null
   if (
-    medianDuration !== null &&
-    duration(latest) > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianDuration
+    hasDurationBaseline &&
+    dur(latest) > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianDuration!
   )
     reasons.push('SLOW')
-  // Stryker restore ConditionalExpression,LogicalOperator
 
   const bytes = runs.map((r) => r.bytesRead)
-  // Stryker disable ConditionalExpression,EqualityOperator,LogicalOperator,MethodExpression: this
-  // line only narrows null out of `bytes` for the type-checker — `null > 0` is already false, so
-  // every mutation of the null handling is masked by the `> 0` filter on the next line and cannot
-  // be observed. The behavioural cases ("a 0-byte run is not a faster baseline", "a latest with no
-  // byte history does not fire") are pinned by the zero-byte and 3x-boundary tests on that filter.
-  const nonNullBytes = bytes.filter((b): b is number => b !== null)
-  // Stryker restore ConditionalExpression,EqualityOperator,LogicalOperator,MethodExpression
-  const medianBytes = median(nonNullBytes.filter((b) => b > 0))
-  // Stryker disable ConditionalExpression,LogicalOperator: a null latest `bytesRead` coerces to 0
-  // (`null > x` is false), and a null median means no positive-byte history — which, since the
-  // latest is itself in `runs`, implies the latest had no bytes either, so both null guards are
-  // unobservable. The `>` comparison is behavioural and is pinned by a test.
+  // Stryker disable next-line ConditionalExpression: `!== null` is a type-checker requirement, redundant with `> 0` (null > 0 is false), so mutating it to `true` leaves the filter output unchanged. The `> 0` filtering (a 0-byte read is not a smaller baseline) is pinned by the zero-byte test.
+  const positiveBytes = bytes.filter((b): b is number => b !== null && b > 0)
+  const medianBytes = median(positiveBytes)
+  // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent — a null byte median means the latest run had no positive bytes either, so the `>` comparison below is against 0; behaviour pinned by the payload-history and 3x tests.
+  const hasByteBaseline = medianBytes !== null
   if (
+    hasByteBaseline &&
     latest.bytesRead !== null &&
-    medianBytes !== null &&
-    latest.bytesRead > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianBytes
+    latest.bytesRead > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianBytes!
   )
     reasons.push('PAYLOAD_GROWTH')
-  // Stryker restore ConditionalExpression,LogicalOperator
   return reasons
 }
 
@@ -224,15 +222,16 @@ export function detectStaleFeed(s: HealthSnapshot): readonly HealthReason[] {
 }
 
 /**
- * Board gone — an employer board answers 404 or zero jobs now, after having had some.
+ * Board gone — an employer board answers 404, or a clean fetch returns zero jobs, now, after
+ * having had some. A FAILED latest run (a transient error) is not a board going quiet (CR-M-1).
  */
 export function detectBoardGone(s: HealthSnapshot): readonly HealthReason[] {
   if (!s.isEmployerBoard) return []
   const runs = answered(s)
   const latest = runs[0]
   if (latest === undefined) return []
-  const goneNow = latest.lastHttpStatus === 404 || latest.received === 0
-  const hadSome = runs.slice(1).some((r) => r.received > 0)
+  const goneNow = latest.lastHttpStatus === 404 || (isSuccess(latest) && latest.received === 0)
+  const hadSome = fetched(runs.slice(1)).some((r) => r.received > 0)
   return goneNow && hadSome ? ['BOARD_GONE'] : []
 }
 

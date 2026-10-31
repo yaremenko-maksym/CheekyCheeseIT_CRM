@@ -619,6 +619,60 @@ describe('detector boundaries and guards', () => {
   })
 })
 
+describe('CR-M-1: failed runs are not volume, not empty answers, not board-gone', () => {
+  it('EMPTY_RESPONSE ignores FAILED runs — only a clean success with received 0 counts', () => {
+    // The two most recent runs FAILED with received 0; the successful history is non-empty.
+    const runs = [
+      run({ startedAt: new Date(NOW.getTime() - 1 * DAY_MS), received: 0, outcome: 'FAILED' }),
+      run({ startedAt: new Date(NOW.getTime() - 2 * DAY_MS), received: 0, outcome: 'FAILED' }),
+      run({ startedAt: new Date(NOW.getTime() - 3 * DAY_MS), received: 50 }),
+      run({ startedAt: new Date(NOW.getTime() - 4 * DAY_MS), received: 50 }),
+      run({ startedAt: new Date(NOW.getTime() - 5 * DAY_MS), received: 50 }),
+    ]
+    expect(detectEmptyResponse(snap(runs))).toEqual([])
+  })
+
+  it('EMPTY_RESPONSE still fires on two clean successes with received 0', () => {
+    const runs = [
+      run({ startedAt: new Date(NOW.getTime() - 1 * DAY_MS), received: 0, outcome: 'SUCCEEDED' }),
+      run({ startedAt: new Date(NOW.getTime() - 2 * DAY_MS), received: 0, outcome: 'SUCCEEDED' }),
+      run({ startedAt: new Date(NOW.getTime() - 3 * DAY_MS), received: 50 }),
+      run({ startedAt: new Date(NOW.getTime() - 4 * DAY_MS), received: 50 }),
+    ]
+    expect(detectEmptyResponse(snap(runs))).toContain('EMPTY_RESPONSE')
+  })
+
+  it('BOARD_GONE does not fire on a FAILED latest run (a transient error is not a board going quiet)', () => {
+    const runs = [
+      run({ startedAt: NOW, received: 0, outcome: 'FAILED' }),
+      run({ startedAt: new Date(NOW.getTime() - DAY_MS), received: 12 }),
+    ]
+    expect(detectBoardGone(snap(runs, { isEmployerBoard: true }))).toEqual([])
+  })
+
+  it('the volume baseline excludes failed runs rather than letting their zeros deflate it', () => {
+    // Seven same-weekday successes (100) and seven same-weekday failed-only days (received 0).
+    // With failures excluded the baseline is 100, so today's 25 is a drop; if the zeros counted the
+    // baseline would be ~50 and 25 would not read as a drop.
+    const history: ReturnType<typeof run>[] = []
+    for (let w = 1; w <= 7; w++) {
+      history.push(run({ startedAt: new Date(NOW.getTime() - w * 7 * DAY_MS), received: 100 }))
+    }
+    for (let w = 8; w <= 14; w++) {
+      // Further-back Thursdays (same weekday as NOW) whose only run FAILED with received 0.
+      history.push(
+        run({
+          startedAt: new Date(NOW.getTime() - w * 7 * DAY_MS),
+          received: 0,
+          outcome: 'FAILED',
+        }),
+      )
+    }
+    const today = run({ startedAt: NOW, received: 25 })
+    expect(detectVolumeDrop(snap([today, ...history]))).toContain('VOLUME_DROP')
+  })
+})
+
 describe('runDetectors', () => {
   it('returns the distinct union of fired reasons', () => {
     const runs = [

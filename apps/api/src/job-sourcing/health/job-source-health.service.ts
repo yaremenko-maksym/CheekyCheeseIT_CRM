@@ -9,12 +9,10 @@
  *
  * The detectors are pure (`detectors.ts`); this is the only part that touches the database.
  *
- * DEFERRED, and why it does not block any U4 AC: the three manifest-derived facts
- * (`isEmployerBoard`, `freshnessMaxAgeMs`, `policyDeadline`) are passed conservatively (false /
- * null) until the manifest surface that carries board-ness, per-provider freshness and policy
- * deadlines is wired (a follow-up consumed by U7 / U5a). The detectors already accept and test
- * them; until then `STALE_FEED`, `BOARD_GONE` and `DEADLINE_NEAR` do not fire from the pass. Every
- * reason that reads only run data — including `EMPTY_RESPONSE` and its 304 rule (AC 4) — does.
+ * The three manifest-derived facts (`isEmployerBoard`, `freshnessMaxAgeMs`, `policyDeadline`) are
+ * wired from the source's `type` via `provider-facts.ts` (CR-M-4), so `BOARD_GONE`, `STALE_FEED`
+ * and `DEADLINE_NEAR` are live in production, not dead. A provider with no freshness/deadline fact
+ * declared simply does not fire those two — conservative, and widened by a one-line table edit.
  */
 import { Injectable, Logger } from '@nestjs/common'
 import { and, desc, eq, gte, inArray } from 'drizzle-orm'
@@ -31,17 +29,14 @@ import {
 import { MAX_CONSECUTIVE_FAILURES } from '../scheduling/due-policy'
 import { classifyHealth } from './classify-health'
 import { runDetectors } from './detectors'
+import { freshnessMaxAgeMsFor, isEmployerBoard, policyDeadlineFor } from './provider-facts'
 import { REPORTING_TYPES } from './reporting-types'
-import type { HealthSnapshot, HealthStateFacts, RunFact } from './types'
+import { buildEvidence, firstBadRunId, lastGoodRunId, type PassRun } from './run-provenance'
+import type { HealthSnapshot, HealthStateFacts } from './types'
 
 const WINDOW_DAYS = 14
 const DAY_MS = 86_400_000
 const ERROR_SAMPLE_MAX = 500
-
-/** A run row as the pass reads it: the detector fields plus the provenance the event records. */
-interface PassRun extends RunFact {
-  readonly errorMessage: string | null
-}
 
 export interface DetectorPassResult {
   readonly sources: number
@@ -64,6 +59,7 @@ export class JobSourceHealthService {
     const sources = await db
       .select({
         id: jobSources.id,
+        type: jobSources.type,
         adminState: jobSources.adminState,
         readiness: jobSources.readiness,
         consecutiveFailures: jobSources.consecutiveFailures,
@@ -140,26 +136,14 @@ export class JobSourceHealthService {
       hosts.filter((h) => h.pausedUntil !== null && h.pausedUntil > now).map((h) => h.hostKey),
     )
 
-    // The latest TRANSITION per source: ordered newest first, the first row seen per source wins.
-    const transitions = await db
-      .select({
-        sourceId: jobSourceHealthEvents.sourceId,
-        toState: jobSourceHealthEvents.toState,
-        reasonCode: jobSourceHealthEvents.reasonCode,
-      })
-      .from(jobSourceHealthEvents)
-      .where(
-        and(
-          inArray(jobSourceHealthEvents.sourceId, sourceIds),
-          eq(jobSourceHealthEvents.kind, 'TRANSITION'),
-        ),
-      )
-      .orderBy(jobSourceHealthEvents.sourceId, desc(jobSourceHealthEvents.at))
+    // The CURRENT state of each source is its latest TRANSITION. ONE bounded query (CR-H-1):
+    // `DISTINCT ON (source_id) … ORDER BY source_id, at DESC` returns exactly one row per source —
+    // the newest — served by the `(source_id, at DESC)` index, so the read does not grow with the
+    // append-only log's row count. `latestStates` is pinned by the integration spec (a source with
+    // many events yields a single current-state row).
     const latestBySource = new Map<string, { toState: string | null; reasonCode: string | null }>()
-    for (const t of transitions) {
-      if (!latestBySource.has(t.sourceId)) {
-        latestBySource.set(t.sourceId, { toState: t.toState, reasonCode: t.reasonCode })
-      }
+    for (const t of await this.latestStates(sourceIds)) {
+      latestBySource.set(t.sourceId, { toState: t.toState, reasonCode: t.reasonCode })
     }
 
     let eventsWritten = 0
@@ -168,9 +152,9 @@ export class JobSourceHealthService {
       const snapshot: HealthSnapshot = {
         now,
         runs,
-        isEmployerBoard: false,
-        freshnessMaxAgeMs: null,
-        policyDeadline: null,
+        isEmployerBoard: isEmployerBoard(source.type),
+        freshnessMaxAgeMs: freshnessMaxAgeMsFor(source.type),
+        policyDeadline: policyDeadlineFor(source.type),
       }
       const facts: HealthStateFacts = {
         adminState: source.adminState,
@@ -193,13 +177,10 @@ export class JobSourceHealthService {
         fromState: prevState,
         toState: verdict.state,
         reasonCode: verdict.reasonCode,
-        // Small by construction (≤11 short reason codes plus two scalars), so it is always within
-        // the 8192-char evidence CHECK; no truncation branch to leave untested.
-        evidence: {
-          reasons: facts.reasons,
-          consecutiveFailures: source.consecutiveFailures,
-          latestRunId: latestRun?.runId ?? null,
-        },
+        // The metric values against the baseline, plus the reasons and run ids (ADR section 10).
+        // Small by construction (a handful of short codes + a few scalars), so always within the
+        // 8192-char evidence CHECK; no truncation branch to leave untested.
+        evidence: buildEvidence(runs, facts.reasons, source.consecutiveFailures),
         firstBadRunId: firstBadRunId(runs),
         lastGoodRunId: lastGoodRunId(runs),
         adapterVersion: latestRun?.adapterVersion ?? null,
@@ -212,26 +193,28 @@ export class JobSourceHealthService {
     this.logger.log(`health detector pass: ${sources.length} sources, ${eventsWritten} event(s)`)
     return { sources: sources.length, eventsWritten }
   }
-}
 
-/** The most recent run that brought items in and did not fail — the last good reading. */
-function lastGoodRunId(runs: readonly PassRun[]): string | null {
-  return (
-    runs.find((r) => r.received > 0 && (r.outcome === 'SUCCEEDED' || r.outcome === 'PARTIAL'))
-      ?.runId ?? null
-  )
-}
-
-/** The oldest run of the current head streak of bad readings (failed, or empty and not a 304). */
-function firstBadRunId(runs: readonly PassRun[]): string | null {
-  const isBad = (r: PassRun): boolean =>
-    r.outcome === 'FAILED' ||
-    r.outcome === 'CANCELLED' ||
-    (r.received === 0 && r.lastHttpStatus !== 304)
-  let bad: string | null = null
-  for (const r of runs) {
-    if (!isBad(r)) break
-    bad = r.runId
+  /**
+   * The current state of each source — its latest TRANSITION — in ONE query (CR-H-1). `DISTINCT ON
+   * (source_id)` with `ORDER BY source_id, at DESC` returns a single row per source regardless of
+   * how many events it has accumulated, served by the `(source_id, at DESC)` index.
+   */
+  private async latestStates(
+    sourceIds: readonly string[],
+  ): Promise<{ sourceId: string; toState: string | null; reasonCode: string | null }[]> {
+    return this.database.db
+      .selectDistinctOn([jobSourceHealthEvents.sourceId], {
+        sourceId: jobSourceHealthEvents.sourceId,
+        toState: jobSourceHealthEvents.toState,
+        reasonCode: jobSourceHealthEvents.reasonCode,
+      })
+      .from(jobSourceHealthEvents)
+      .where(
+        and(
+          inArray(jobSourceHealthEvents.sourceId, [...sourceIds]),
+          eq(jobSourceHealthEvents.kind, 'TRANSITION'),
+        ),
+      )
+      .orderBy(jobSourceHealthEvents.sourceId, desc(jobSourceHealthEvents.at))
   }
-  return bad
 }
