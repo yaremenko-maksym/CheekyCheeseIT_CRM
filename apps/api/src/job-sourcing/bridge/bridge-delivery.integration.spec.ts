@@ -25,6 +25,7 @@ import {
   markCollected,
 } from './bridge-delivery'
 import { contentVersion } from './content-version'
+import { mapDouObservations } from './dou-store'
 
 /**
  * r5 Task 4.6 S6d — the durable bridge drains (T1 / T3 / T4) against a REAL Postgres, AS `crm_app`.
@@ -185,6 +186,39 @@ describe.skipIf(!hasDatabaseUrl())('bridge delivery drains against Postgres (S6d
     const run2 = await claimRun(s)
     await enqueueLegacyPostings(db, run2, postings)
     expect((await bridgeRows(s, 'LEGACY_POSTING')).length).toBe(3)
+  })
+
+  it('T1 (CR-M-1): a within-feed twin (one fingerprint, two content versions) enqueues ONLY the first occurrence, not the raw array', async () => {
+    const s = await fx.source({ type: 'DOU_RSS', manifestId: null, hostKey: null })
+    const run = await claimRun(s)
+    const fp = `fp-${TAG}-twin`
+    const url = `https://jobs.dou.ua/${TAG}/vacancies/twin/`
+    // A realistic twin: the same vacancy (same url → same fingerprint) with an edited description.
+    const first = douPosting({
+      fingerprint: fp,
+      url,
+      externalId: url,
+      descriptionMd: 'FIRST — kept',
+    })
+    const second = douPosting({
+      fingerprint: fp,
+      url,
+      externalId: url,
+      descriptionMd: 'SECOND — edit',
+    })
+    expect(contentVersion(first)).not.toBe(contentVersion(second)) // two distinct versions
+
+    await enqueueLegacyPostings(db, run, [first, second])
+
+    // The deduped set, not the raw array: exactly ONE row, carrying the FIRST occurrence's version.
+    // (Enqueuing the raw array would insert two LEGACY_POSTING rows — the mutant this kills.)
+    const rows = await bridgeRows(s, 'LEGACY_POSTING')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].content_version).toBe(contentVersion(first))
+    expect(rows[0].content_version).not.toBe(contentVersion(second))
+
+    // T2/observation is NOT deduped — the mapper sees the complete array (both twin elements).
+    expect(mapDouObservations([first, second]).observations).toHaveLength(2)
   })
 
   it('T3: a CREATED posting inserts job_postings + a PENDING suggestion row; a re-drain skips the DONE row', async () => {
