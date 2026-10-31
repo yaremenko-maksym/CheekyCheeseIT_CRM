@@ -3,8 +3,7 @@
 **Status:** Always-on
 **Applies to:** All agents. Master/orchestrator classifies when setting a task; the executor applies it when it hits a fork.
 
-> Rationale, the pre-rule state of human checkpoints and provenance:
-> `docs/architecture/rules-rationale/autonomy-levels.md`
+> Rationale: `docs/architecture/rules-rationale/autonomy-levels.md`
 
 ---
 
@@ -82,9 +81,7 @@ Format rules:
 | The decision brief has no question answerable by a command                        | the brief's author before sending |
 | The whole task stalled on one A3 question, though there were independent branches | Master during monitoring          |
 
-A decision made without a line is indistinguishable from a decision that was forgotten: **the line is
-the observability**. It is the same device as the control line `Findings: … (N)` in
-`review-findings-transfer.md` — arithmetic instead of attentiveness.
+
 
 ## What this does NOT change
 

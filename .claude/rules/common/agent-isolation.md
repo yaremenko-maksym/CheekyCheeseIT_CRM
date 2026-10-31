@@ -3,8 +3,7 @@
 **Status:** Always-on (2 hooks + report lines; see "How we know it is violated")
 **Applies to:** all agents and everyone who dispatches agents (Master / orchestrator)
 
-> Rationale, the seven-incident analysis, verification runs and the false-positive cost essay:
-> `docs/architecture/rules-rationale/agent-isolation.md`
+> Rationale: `docs/architecture/rules-rationale/agent-isolation.md`
 
 ---
 
@@ -105,14 +104,12 @@ only a fact obtained by a command.
 
 A rule without observability is not a rule. For each one above:
 
-- 1 — Hook `pre:agent:dispatch-isolation` (matcher `Agent|Task`) — refusal on dispatch — The refusal is visible to the dispatcher immediately. Duplicate layer: Master after EACH agent checks `git status --porcelain` of the main checkout
-- 2 — The hook passes read-only types silently — A case in the smoke test; a regression is caught by a run
-- 3 — The same hook: an absolute path of the form `/tmp/rev<PR>` in the prompt → refusal — A refusal on dispatch + a `Checkout:` line in the reviewer's report (two identical paths from two reviewers = a collision, visible in the aggregate)
-- 4 — Hook `pre:bash:cross-agent-blast` predicate `FOREIGN-WORKTREE` — A refusal at the moment of the command
-- 5 — The same hook, predicate `BROADCAST-KILL` — A refusal at the moment of the command
-- 6 — The same hook, predicates `WORKTREE-REMOVE` / `WORKTREE-PRUNE` / `WORKTREE-OPAQUE` / `WORKTREE-UNRECORDED` — A refusal at the moment of the command. `OPAQUE` — "the path is not a literal, ownership is not verifiable"; `UNRECORDED` — "the path is in the shared scratchpad and no record ties it to you": both distinguish "could not verify" from "verified"
-- 7 — There is no mechanic (the agent may not notice the loss) → **a mandatory line in the report** — An agent's report without a `Worktree: <path> (verified)` line = the reconciliation was not done. The absence is visible to Master at acceptance
-- 8 — The same report line — Same
+- 1, 3 — `pre:agent:dispatch-isolation` (matcher `Agent|Task`) refuses at dispatch, including an absolute `/tmp/rev<PR>` path in the prompt. Duplicate layer: Master checks `git status --porcelain` of the main checkout after EACH agent; a `Checkout:` line in a reviewer's report (two identical paths = a collision).
+- 2 — the same hook passes read-only types silently (smoke-test case).
+- 4 — `pre:bash:cross-agent-blast`, predicate `FOREIGN-WORKTREE`.
+- 5 — same hook, `BROADCAST-KILL`.
+- 6 — same hook, `WORKTREE-REMOVE` / `WORKTREE-PRUNE` / `WORKTREE-OPAQUE` (path not literal, ownership unverifiable) / `WORKTREE-UNRECORDED` (in the shared scratchpad, no record ties it to you).
+- 7, 8 — no mechanic: the report line below. No line = the reconciliation was not done; Master returns the agent.
 
 **The report line (mandatory for write-agents and for reviewers that made a checkout):**
 

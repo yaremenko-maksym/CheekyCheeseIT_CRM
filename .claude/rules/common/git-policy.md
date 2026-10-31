@@ -3,8 +3,7 @@
 **Status:** Always-on
 **Applies to:** All write-agents (Coder, AutoTest, DevOps), with applicable subset for Master / Architect / Reviewer when they touch git.
 
-> Rationale, the `--no-verify` recurrence RCA, why the gate's allowlist was inverted and why the
-> scope enumeration was removed: `docs/architecture/rules-rationale/git-policy.md`
+> Rationale: `docs/architecture/rules-rationale/git-policy.md`
 
 ---
 
@@ -79,10 +78,7 @@ The final commit — without `wip:`, with `ac_verified:`.
 
 ## Pushing feature branches: `DATABASE_URL=` empty (data-safety)
 
-ALWAYS push local feature branches as `DATABASE_URL= git push` (the variable empty). The pre-push hook
-runs tests; without a scope the integration specs connect to the libpq default (the live `crm_db`!)
-and may (a) fail on a missing QA fixture, (b) theoretically touch USER's UT data, (c) catch a CPU
-timeout under load. An empty `DATABASE_URL` → integration specs graceful-skip, the push is safe.
+ALWAYS push local feature branches as `DATABASE_URL= git push` (the variable empty). The pre-push hook runs tests; an empty `DATABASE_URL` makes integration specs graceful-skip, so the push never touches the live `crm_db`.
 
 ## Conventional commits scopes (for the project)
 

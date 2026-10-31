@@ -73,3 +73,27 @@ survey exceeding one context window.
 - Augment Code "When Multi-Agent AI Is Overkill" (5-gate independence; ≥3 independent modules before parallel).
 - Anthropic cookbook "orchestrator-workers" (orchestrator-worker vs fan-out vs routing).
 - Audit of the agent architecture 2026-06-22 (workflow `agent-architecture-audit`).
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+A helper heuristic if on the edge: independent? disjoint files? specifiable without another's
+in-flight output? no sequential deps? is there review bandwidth? Mostly "no" → single-pipeline. **The
+artifact decides (task files); the questions are only a hint.**
+
+### Decision 2 — code-work vs read-only breadth-first audit
+
+If the task is a **survey / audit of ≥3 independent controller-modules, the material exceeds one
+context window, WITHOUT writing code** (RBAC sweep, dead-code, security surface, "how X works across
+the whole repo"):
+
+→ **AUDIT-FANOUT** via the skill `codebase-audit` (N × haiku explore in waves of ≤ 3-4 → opus synth).
+The engine — the Workflow tool OR `superpowers:dispatching-parallel-agents`. This is the ONLY case
+with genuinely new value over Master's direct dispatch.
+
+
+---
+
+- **Procedural** (orchestrator judgment), modeled on `design-gate.md`: routing is a DECISION, not a
+  violation; a blocking hook would give a false negative on legitimate edge cases.

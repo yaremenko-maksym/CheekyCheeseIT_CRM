@@ -35,14 +35,7 @@ Never use Bash where a suitable MCP exists.
 
 ## Native tools (when MCP does not fit)
 
-| Tool    | When                                              | When NOT                              |
-| ------- | ------------------------------------------------- | ------------------------------------- |
-| `Read`  | A specific file whole / a line range              | Search (there is ast-grep)            |
-| `Edit`  | Pointed edits in an existing file                 | Full rewrite (use `Write`)            |
-| `Write` | Create a new file / full rewrite                  | Without a `Read` of the existing file |
-| `Bash`  | `git`, `gh`, `pnpm`, operations without an MCP    | Where an MCP exists                   |
-| `Agent` | Parallel / isolated task (Master → agents)        | Simple single-file tasks              |
-| `Skill` | Invoking superpowers (see `skills-invocation.md`) | —                                     |
+`Read` a file / line range (not for search); `Edit` pointed edits; `Write` new file or full rewrite (never without a `Read` of the existing file); `Bash` for `git`, `gh`, `pnpm` and ops without an MCP; `Agent` for parallel / isolated tasks (not simple single-file ones); `Skill` for superpowers (`skills-invocation.md`).
 
 ## graphify alongside codegraph (by file type)
 

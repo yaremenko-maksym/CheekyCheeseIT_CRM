@@ -3,8 +3,7 @@
 **Status:** Always-on
 **Applies to:** All agents and contributors
 
-> Rationale, the build incidents behind each pin and upgrade preconditions:
-> `docs/architecture/rules-rationale/version-pins.md`
+> Rationale: `docs/architecture/rules-rationale/version-pins.md`
 
 ---
 

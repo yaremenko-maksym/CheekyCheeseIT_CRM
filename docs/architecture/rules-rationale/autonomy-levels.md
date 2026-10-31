@@ -63,3 +63,11 @@ core rule are what make it checkable at acceptance.
 - Owner request 2026-08-22 — remote work, no human-at-keyboard assumption.
 - `mattpocock/skills` — `grilling` (frontier), `loop-me` (batched brief).
 - ADR `docs/architecture/2026-08-22-afk-pipeline-migration.md`.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+A decision made without a line is indistinguishable from a decision that was forgotten: **the line is
+the observability**. It is the same device as the control line `Findings: … (N)` in
+`review-findings-transfer.md` — arithmetic instead of attentiveness.

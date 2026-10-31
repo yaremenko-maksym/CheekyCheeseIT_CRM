@@ -30,3 +30,18 @@ _(This rule is catalog and mechanism throughout — it has no separate rationale
 graphify is an **addition**, not a replacement. It is built locally and code-only (AST, no model call,
 nothing leaves the machine) by `scripts/devops/build-graphify.sh` (~45 s) into the gitignored
 `graphify-out/`.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+## Native tools (when MCP does not fit)
+
+| Tool    | When                                              | When NOT                              |
+| ------- | ------------------------------------------------- | ------------------------------------- |
+| `Read`  | A specific file whole / a line range              | Search (there is ast-grep)            |
+| `Edit`  | Pointed edits in an existing file                 | Full rewrite (use `Write`)            |
+| `Write` | Create a new file / full rewrite                  | Without a `Read` of the existing file |
+| `Bash`  | `git`, `gh`, `pnpm`, operations without an MCP    | Where an MCP exists                   |
+| `Agent` | Parallel / isolated task (Master → agents)        | Simple single-file tasks              |
+| `Skill` | Invoking superpowers (see `skills-invocation.md`) | —                                     |

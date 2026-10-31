@@ -3,7 +3,7 @@
 **Status:** Always-on
 **Applies to:** Everyone who writes to the backlog, `.out-of-scope/`, an ADR, `memory/*/lessons.md`, the body of a closed issue.
 
-> Rationale and provenance: `docs/architecture/rules-rationale/doc-durability.md`
+> Rationale: `docs/architecture/rules-rationale/doc-durability.md`
 
 ---
 

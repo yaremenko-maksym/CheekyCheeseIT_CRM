@@ -120,3 +120,20 @@ Narrative blocks removed verbatim from the always-on rule to cut per-request byt
 > danger was never that AutoTest edits specs — it is that it edits **product code** to make a test go
 > green. That is what is forbidden.
 >
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+- **Golden rules and `RULES.md`** — the Architect edits them when the inter-agent mechanics change (a
+  new hook, a new always-on rule, a new mandatory startup step). This is not "the agent's business
+  logic" but the contract of the environment in which the agent works.
+- **`.claude/settings*.json`** — the Architect's zone **by necessity**: a hook that is not registered
+  does not exist. Writing there is allowed **only** for hook registration; `permissions`,
+  `enabledPlugins`, `env` — not his.
+
+
+---
+
+- **The Architect's diffs still go through review** — a zone extension changes what does not require
+  `.blocked.md`, not what does not require review.

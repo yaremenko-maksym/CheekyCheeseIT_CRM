@@ -3,8 +3,7 @@
 **Status:** Always-on
 **Applies to:** All agents (Coder, AutoTest, Reviewer, DevOps, Legal, Architect, plus ECC-imported agents) + Master (orchestrator)
 
-> Rationale, the 2026-07-28 table-drift incident, the workflow-surface-policy quote and Phase 4
-> provenance: `docs/architecture/rules-rationale/skills-invocation.md`
+> Rationale: `docs/architecture/rules-rationale/skills-invocation.md`
 
 ---
 
@@ -103,9 +102,7 @@ Reconcile line by line. Two catches (details: rationale file): the built-in `sec
 
 `commands/` is NOT used in this repo. Workflow knowledge lives in:
 
-1. `.claude/skills/<name>/SKILL.md` — invocable knowledge primitives.
-2. `.claude/agents/<agent>.md` — per-agent workflow / golden rules / mandatory tables.
-3. `.claude/rules/common/*.md` — cross-cutting standards (this file and its neighbours).
+Workflow knowledge lives in `.claude/skills/<name>/SKILL.md` (invocable), `.claude/agents/<agent>.md` (workflow / golden rules) and `.claude/rules/common/*.md` (cross-cutting standards).
 
 ## Anti-patterns
 

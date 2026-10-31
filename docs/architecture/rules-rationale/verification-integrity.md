@@ -517,3 +517,18 @@ figures are in the rationale, so the numbers can be re-run.
 is the one legitimate occurrence of this shape in the repo, and refusing it would trade a cheap,
 recoverable miss for the credibility of the whole hook layer. Form 2, form 3, and the shape inside
 an authored script are **not** covered; the rationale says why and what would cover them.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+   The earlier half of the chain had already taken effect, which is what makes this one dangerous
+   rather than merely confusing. (`wc -l` is **not** like this — it exits 0 on empty input. The
+   hazard there is the `0` itself, form 1, not the status.)
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+- `.claude/rules/common/stream-watchdog.md` — the `Pushed: <branch> @ <sha>` line: this device, applied to durability.
+- `.claude/rules/common/review-findings-transfer.md` — the `Findings: … (N)` control line: this device, applied to a channel.

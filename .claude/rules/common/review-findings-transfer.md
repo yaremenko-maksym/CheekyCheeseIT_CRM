@@ -3,15 +3,13 @@
 **Status:** Always-on (procedural gate; observability — identifier reconciliation, see below)
 **Applies to:** code-reviewer, security-reviewer, spec-reviewer, copy-reviewer, ui-ux-designer (Mode B), manual-qa — all number; Master / orchestrator transfer; Coder / any executor of a fix task reports
 
-> Rationale, the PR #504 incident and why there is no mechanical CI gate:
-> `docs/architecture/rules-rationale/review-findings-transfer.md`
+> Rationale: `docs/architecture/rules-rationale/review-findings-transfer.md`
 
 ---
 
 ## Why
 
-We have gates on code, tests, guards, measurements — and not one on "all review findings reached the
-task". The review → fix-task channel rested on attentiveness, and it failed.
+The review → fix-task channel had no gate and rested on attentiveness; it failed (PR #504).
 
 The rule "all H/M/L findings are resolved before merge" (`contracts.md`) covers the *result*; this file covers the *channel* — a lost finding is not in the list that gets reconciled.
 

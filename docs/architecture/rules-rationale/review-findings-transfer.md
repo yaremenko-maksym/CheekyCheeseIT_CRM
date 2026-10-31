@@ -86,3 +86,10 @@ passes the first rule unnoticed, because it is simply not in the list that gets 
 reconciliation a one-liner. No CI parser.** The three reasons (nothing to compare against; it would
 catch formatting rather than loss; the cheap part already gives ~the whole effect) and the condition
 under which to reconsider are in the rationale file.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+We have gates on code, tests, guards, measurements — and not one on "all review findings reached the
+task". The review → fix-task channel rested on attentiveness, and it failed.

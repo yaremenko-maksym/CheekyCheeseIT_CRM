@@ -3,8 +3,7 @@
 **Status:** Always-on
 **Applies to:** All agents (Coder, AutoTest, Reviewer, DevOps, Legal, Architect, plus any ECC-imported agents invoked in this project) + Master (orchestrator)
 
-> Rationale, the supersession history and why the filename stays `russian-language.md`:
-> `docs/architecture/rules-rationale/russian-language.md`
+> Rationale: `docs/architecture/rules-rationale/russian-language.md`
 
 ---
 

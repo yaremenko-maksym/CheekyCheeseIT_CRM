@@ -72,3 +72,11 @@ Three layers:
 3. A launchd-reaper every 30 min finishes off node processes of a worktree older than 6h or with a
    removed worktree (install: `scripts/devops/install-devserver-reaper.sh`; dry-run:
    `REAPER_DRY_RUN=1 scripts/devops/reap-zombie-devservers.sh`).
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+- **Heavy Coders (each boots vite+api + full Vitest) + a live UT stack** → CPU starvation →
+  pre-push timeout flakes (NOT code). Before push — sweep the zombie dev ports of finished agents:
+  `for p in 3010 3011 3014 3016 3017 3018; do lsof -ti tcp:$p; done` → kill (preserving live :3000/:3001).

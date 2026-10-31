@@ -300,3 +300,16 @@ So `grep -rn "pkill" .claude/hooks/` and `echo "do not run pkill"` pass, while `
 kill -9` (the owner's documented sweep) is not touched at all. `WORKTREE-OPAQUE` is the one exception
 that refuses by unverifiability rather than danger — its justification and scope limits are in the
 rationale file. **Do not extend that pattern to ordinary mutators.**
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+- 1 — Hook `pre:agent:dispatch-isolation` (matcher `Agent|Task`) — refusal on dispatch — The refusal is visible to the dispatcher immediately. Duplicate layer: Master after EACH agent checks `git status --porcelain` of the main checkout
+- 2 — The hook passes read-only types silently — A case in the smoke test; a regression is caught by a run
+- 3 — The same hook: an absolute path of the form `/tmp/rev<PR>` in the prompt → refusal — A refusal on dispatch + a `Checkout:` line in the reviewer's report (two identical paths from two reviewers = a collision, visible in the aggregate)
+- 4 — Hook `pre:bash:cross-agent-blast` predicate `FOREIGN-WORKTREE` — A refusal at the moment of the command
+- 5 — The same hook, predicate `BROADCAST-KILL` — A refusal at the moment of the command
+- 6 — The same hook, predicates `WORKTREE-REMOVE` / `WORKTREE-PRUNE` / `WORKTREE-OPAQUE` / `WORKTREE-UNRECORDED` — A refusal at the moment of the command. `OPAQUE` — "the path is not a literal, ownership is not verifiable"; `UNRECORDED` — "the path is in the shared scratchpad and no record ties it to you": both distinguish "could not verify" from "verified"
+- 7 — There is no mechanic (the agent may not notice the loss) → **a mandatory line in the report** — An agent's report without a `Worktree: <path> (verified)` line = the reconciliation was not done. The absence is visible to Master at acceptance
+- 8 — The same report line — Same

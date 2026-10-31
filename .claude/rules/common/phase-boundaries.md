@@ -3,8 +3,7 @@
 **Status:** Always-on
 **Applies to:** All agents and the Master session. The decision is made **at the phase boundary**, not mid-work.
 
-> Rationale, provenance and the primary/secondary-source trade:
-> `docs/architecture/rules-rationale/phase-boundaries.md`
+> Rationale: `docs/architecture/rules-rationale/phase-boundaries.md`
 
 ---
 

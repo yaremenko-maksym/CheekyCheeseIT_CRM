@@ -3,8 +3,7 @@
 **Status:** Always-on (enforced by hook + Reviewer)
 **Applies to:** All write-agents (Coder, AutoTest, DevOps, Architect, ui-ux-designer, manual-qa, legal) + Master (orchestrator). `code-reviewer` / `security-reviewer` — read-only to code.
 
-> Rationale, the 2026-08-17 precedent audit, the architect-zone history and why tests on hooks live
-> in the DevOps directory: `docs/architecture/rules-rationale/zone-of-write.md`
+> Rationale: `docs/architecture/rules-rationale/zone-of-write.md`
 
 ---
 
@@ -110,17 +109,12 @@ the first edit check `git -C <worktree> status`; do NOT write to main-repo absol
 
 ## Architect-specific boundaries
 
-- **Golden rules and `RULES.md`** — the Architect edits them when the inter-agent mechanics change (a
-  new hook, a new always-on rule, a new mandatory startup step). This is not "the agent's business
-  logic" but the contract of the environment in which the agent works.
-- **`.claude/settings*.json`** — the Architect's zone **by necessity**: a hook that is not registered
-  does not exist. Writing there is allowed **only** for hook registration; `permissions`,
-  `enabledPlugins`, `env` — not his.
+- **Golden rules and `RULES.md`** — the Architect edits them when inter-agent mechanics change (a new hook, an always-on rule, a mandatory startup step).
+- **`.claude/settings*.json`** — **only** hook registration; `permissions`, `enabledPlugins`, `env` are not his.
 - **`.github/workflows/**`** — only **additive\*\* process gates. Everything that touches deploy,
   build, or prod secrets stays DevOps.
 - **The Architect still does NOT rewrite** task setup / a task's business logic (Master's zone via `.claude/tasks/`).
-- **The Architect's diffs still go through review** — a zone extension changes what does not require
-  `.blocked.md`, not what does not require review.
+- The Architect's diffs still go through review.
 - **Tests on hooks:** the Architect writes in `scripts/devops/` **only**
   `check-guard-tests-exist.sh` (the meta-guard over his own hooks), `tests/test-pre-*.sh` (the
   tests on the hooks he owns) and `tests/lib/command-corpus.txt`. Everything else in

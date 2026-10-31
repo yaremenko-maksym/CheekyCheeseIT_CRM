@@ -4,9 +4,7 @@
 know it is violated")
 **Applies to:** every agent (the one at risk) and everyone who dispatches one
 
-> Rationale — the seven cuts of 2026-10-17, the five of 2026-10-20 that happened with this rule
-> already injected into every one of those agents, and why the answer is a hook rather than a fifth
-> paragraph: `docs/architecture/rules-rationale/stream-watchdog.md`
+> Rationale: `docs/architecture/rules-rationale/stream-watchdog.md`
 
 ---
 

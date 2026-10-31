@@ -6,8 +6,7 @@ violated".
 **Applies to:** every agent and the orchestrator — anyone who reads a command's result and acts on it.
 This is the one rule that binds the reader of an output, not the writer of a file.
 
-> Rationale, the eight instances of 2026-10-21 as measured facts, and the measurement that reopened
-> both candidate gates: `docs/architecture/rules-rationale/verification-integrity.md`
+> Rationale: `docs/architecture/rules-rationale/verification-integrity.md`
 
 ---
 
@@ -70,9 +69,7 @@ silence into a positive finding.
 2. **`grep -c` inside an `&&` chain.** `grep` exits non-zero when it matches nothing — **`-c` does
    not change that**, so `grep -c` prints `0` _and_ fails. Inside an `&&` chain that terminates it:
    everything after silently does not run, and the absence of output reads as "nothing to report".
-   The earlier half of the chain had already taken effect, which is what makes this one dangerous
-   rather than merely confusing. (`wc -l` is **not** like this — it exits 0 on empty input. The
-   hazard there is the `0` itself, form 1, not the status.)
+   (`wc -l` exits 0 on empty input; its hazard is the `0` itself, form 1.)
 3. **A terminating condition that is also true before the thing starts.** "Nothing is pending" is
    true of a job whose steps have not been created yet. A wait that ends on an absence will end
    immediately, and report the empty state as a result.
@@ -129,8 +126,8 @@ It is advisory by decision: service probes (`curl`, `nc`, `ssh-keyscan`, `pg_isr
 
 ## Related rules
 
-- `.claude/rules/common/stream-watchdog.md` — the `Pushed: <branch> @ <sha>` line: this device, applied to durability.
-- `.claude/rules/common/review-findings-transfer.md` — the `Findings: … (N)` control line: this device, applied to a channel.
+- `.claude/rules/common/stream-watchdog.md` — the `Pushed:` line.
+- `.claude/rules/common/review-findings-transfer.md` — the `Findings: … (N)` line.
 - `.claude/rules/common/mutation-gate-integration-specs.md` — why "no report" is more serious than "not caught".
 - `.claude/rules/common/light-track.md` — `pre:bash:unbounded-wait`, and the zsh `kill $VAR` gotcha masked by `2>/dev/null`.
 - `.claude/rules/common/doc-durability.md` — a long-lived record states behaviour and a verification condition.

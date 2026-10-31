@@ -141,3 +141,11 @@ Reconcile line by line. Two catches that change the answer:
 - **A mandatory table in `<agent>.md` without an up-to-date trigger** — the skill becomes "discoverable in theory" but never invoked. Master during an agent review checks: `grep skill-name .claude/agents/*.md`.
 - **A "remember" pattern instead of `Skill(name)`** — each skill's content evolves; sessions without invocation work with stale knowledge.
 - **Creating a SKILL.md with < 3 substantive patterns** — the Phase 4 deliverable filtered 3 candidate skills as SKIP. Do not create empty shells.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+1. `.claude/skills/<name>/SKILL.md` — invocable knowledge primitives.
+2. `.claude/agents/<agent>.md` — per-agent workflow / golden rules / mandatory tables.
+3. `.claude/rules/common/*.md` — cross-cutting standards (this file and its neighbours).

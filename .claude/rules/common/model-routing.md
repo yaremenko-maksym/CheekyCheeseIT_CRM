@@ -3,8 +3,7 @@
 **Status:** Always-on
 **Applies to:** Master (dispatch via `Agent()`), all agents, USER sessions
 
-> Rationale, the 2026-09-21 token measurement, price table and superseded editions:
-> `docs/architecture/rules-rationale/model-routing.md`
+> Rationale: `docs/architecture/rules-rationale/model-routing.md`
 
 ---
 

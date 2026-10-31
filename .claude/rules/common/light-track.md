@@ -3,8 +3,7 @@
 **Status:** Always-on
 **Applies to:** USER sessions (Master). Agents (Coder/AutoTest/DevOps/...) work only on the full track (Master orchestration: task file → dispatch → PR → review).
 
-> Rationale, the zombie-devserver and unbounded-wait incidents:
-> `docs/architecture/rules-rationale/light-track.md`
+> Rationale: `docs/architecture/rules-rationale/light-track.md`
 
 ---
 
@@ -54,9 +53,7 @@ When dispatching agents in parallel (Master session):
 - **Ceiling ≈ 3-4 simultaneous starts.** 5+ agents launched in ONE message (a startup burst of the
   first API calls) → some get `API Error: 529 Overloaded` and die on start (0 tool_uses). Dispatch in
   waves of 2-3, stagger them; 529-killed ones just restart (they did no work).
-- **Heavy Coders (each boots vite+api + full Vitest) + a live UT stack** → CPU starvation →
-  pre-push timeout flakes (NOT code). Before push — sweep the zombie dev ports of finished agents:
-  `for p in 3010 3011 3014 3016 3017 3018; do lsof -ti tcp:$p; done` → kill (preserving live :3000/:3001).
+- Heavy Coders + a live UT stack → CPU starvation → pre-push timeout flakes. Before push, sweep zombie dev ports of finished agents: `for p in 3010 3011 3014 3016 3017 3018; do lsof -ti tcp:$p; done` → kill (keep live :3000/:3001).
 - **`DATABASE_URL= git push`** (empty) for feature branches — integration specs graceful-skip, do not
   hit the live `crm_db` and do not catch a CPU timeout (see `git-policy.md`).
 
