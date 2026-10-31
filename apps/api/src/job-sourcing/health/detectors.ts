@@ -184,16 +184,20 @@ export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[]
 
   const medianDuration = median(runs.map(dur).filter((d) => d > 0))
   if (
+    // Stryker disable next-line ConditionalExpression: redundant guard — a null median means no run had a positive duration, so dur(latest) <= 0 and the threshold check below is already false. Verified: mutating `medianDuration !== null` to `true` passes all 77 health tests. (The `=> false` direction stays killed by the SLOW-fires test; Stryker cannot scope a single direction, so this inherently covers the true/false pair.)
     medianDuration !== null &&
     dur(latest) > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianDuration
   ) {
     reasons.push('SLOW')
   }
 
+  // Stryker disable next-line ConditionalExpression: the `b !== null` guard is redundant with `> 0` (a null is never `> 0`) and exists only to narrow the type to `number`; forcing it true keeps the same set. Verified: mutating `b !== null` to `true` passes all 77 health tests. This directive also covers the ConditionalExpression form of `> 0`, whose positivity stays pinned by the live EqualityOperator mutant and the zero-byte-runs test.
   const positiveBytes = runs.map((r) => r.bytesRead).filter((b): b is number => b !== null && b > 0)
   const medianBytes = median(positiveBytes)
   if (
+    // Stryker disable next-line ConditionalExpression,LogicalOperator: redundant guard — a null median means no positive byte reading anywhere (latest included), so the threshold check is already false; and swapping this first `&&` for `||` cannot differ, because `medianBytes !== null` and `latest.bytesRead !== null` are never true-apart when the threshold is reachable (a positive latest.bytesRead is itself in the median). Verified: mutating to `true` and to `(medianBytes !== null || latest.bytesRead !== null) && …` both pass all 77 health tests.
     medianBytes !== null &&
+    // Stryker disable next-line ConditionalExpression: redundant — when medianBytes is non-null but latest.bytesRead is null, the threshold check is already false (`null > positive` is false). Verified: mutating `latest.bytesRead !== null` to `true` passes all 77 health tests. The second `&&` (LogicalOperator) is left live — it is observable and killed.
     latest.bytesRead !== null &&
     latest.bytesRead > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianBytes
   ) {
