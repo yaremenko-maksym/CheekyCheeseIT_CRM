@@ -61,6 +61,56 @@ import { markExclusionDirty } from './dirty-producers'
 import { JobSourceRegistry } from './registry/job-source-registry'
 import { type TypeFilter, sourceAcceptsTrigger, typePassesFilter } from './scheduling/due-policy'
 import { resolveRegistry } from './registry/production-registry'
+import { JobRunLedger, type RunEnding, type SavedPage } from './ownership/job-run-ledger'
+import { LEGACY_RUN_ADAPTER_VERSION } from './ownership/legacy-run-claim'
+import {
+  type BridgeRun,
+  type RosterSenior,
+  drainPostings,
+  drainSuggestions,
+  enqueueLegacyPostings,
+} from './bridge/bridge-delivery'
+import { douPostingToRawObservation } from './bridge/dou-observation'
+import { type SourceObservation, buildSourceObservation } from './normalize/observation'
+import { chunkPage, saveObservationPage } from './store/source-record.store'
+import type { ValidatedCheckpoint } from './providers/reporting-provider'
+
+/** The LEGACY (DOU) bridge found a feed empty — a feed-format drift, not a quiet day. */
+class ZeroPostingsError extends Error {}
+
+/**
+ * The run-row ending a thrown error selects, per the ADR §1 golden table. Every pair is one
+ * `validateEnding` accepts; under the LEGACY branch the `endingEffect` is NOT applied to
+ * `job_sources` (no cap, no backoff — the SR-M-17 guarantee).
+ */
+function bridgeEnding(err: unknown): RunEnding {
+  const message = err instanceof Error ? err.message.slice(0, 500) : String(err).slice(0, 500)
+  if (err instanceof JobSourceBudgetExhaustedError) {
+    return { outcome: 'PARTIAL', errorCode: 'COST_STOP', errorMessage: message }
+  }
+  if (err instanceof JobSourceBudgetContentionError) {
+    return { outcome: 'CANCELLED', errorCode: 'CANCELLED', errorMessage: message }
+  }
+  if (err instanceof ZeroPostingsError) {
+    return { outcome: 'FAILED', errorCode: 'PARSE_DRIFT', errorMessage: message }
+  }
+  return { outcome: 'FAILED', errorCode: 'UPSTREAM', errorMessage: message }
+}
+
+/**
+ * The T2 page checkpoint for a DOU run. DOU is a single full-feed fetch, not a paginated cursor, so
+ * the position is a fixed marker; the ledger's writer only structurally validates it
+ * (`validatedCheckpointSchema`) and never resumes a LEGACY run from it.
+ */
+function douCheckpoint(): ValidatedCheckpoint {
+  return {
+    configVersion: 1,
+    policyVersion: 1,
+    adapterVersion: LEGACY_RUN_ADAPTER_VERSION,
+    position: { kind: 'CURSOR', page: 1, cursor: 'dou-full-feed' },
+    completedAt: new Date(),
+  }
+}
 
 /**
  * Job sourcing — task-job-sourcing-slice1.
@@ -178,6 +228,9 @@ export class JobSourcingService {
     @Inject(HrAccessService) private readonly hrAccess: HrAccessService,
     @Inject(JobSourceRegistry) adapters: JobSourceRegistry | DouRssProvider,
     @Optional() @Inject(ConfigService) private readonly config?: ConfigService<Env, true>,
+    // S6d: the run ledger the flag-on (bridge) path claims and finishes a DOU run through. Optional
+    // so hand-built flag-OFF specs still construct the service; the flag-on path asserts it.
+    @Optional() @Inject(JobRunLedger) private readonly ledger?: JobRunLedger,
   ) {
     this.registry = resolveRegistry(adapters)
     // Read ONCE, at construction (never per request). Absent ConfigService (hand-built specs) = OFF.
@@ -897,13 +950,183 @@ export class JobSourcingService {
    * the top of the LEGACY path (ADR 2026-10-31-dou-bridge-run-ownership D-4): until S6c/S6d the
    * bridge path is the legacy body, so both values behave identically.
    */
-  async collectSource(source: BudgetedSource): Promise<JobCollectionResultDto> {
-    return this.queueBridgeEnabled ? this.collectViaBridge(source) : this.collectLegacy(source)
+  async collectSource(
+    source: BudgetedSource,
+    trigger: JobSourceTriggerMode = 'SCHEDULED',
+    actor?: string,
+  ): Promise<JobCollectionResultDto> {
+    return this.queueBridgeEnabled
+      ? this.collectViaBridge(source, actor)
+      : this.collectLegacy(source)
   }
 
-  /** Flag ON. S6c/S6d replace this body with the run-ledger + bridge flow. */
-  private collectViaBridge(source: BudgetedSource): Promise<JobCollectionResultDto> {
-    return this.collectLegacy(source)
+  /**
+   * Flag ON — the durable bridge (ADR `2026-10-31-dou-bridge-run-ownership.md`, sections 1-2). The
+   * order, each step named by its symbol:
+   *
+   *   openCycle → claimLegacyRun (refused/busy → typed stop, ZERO units) → chargeBudget (ONE unit,
+   *   before the provider) → provider.collect → T1 enqueue → T2 store (best-effort, Q3) → T3 posting
+   *   drain → T4 suggestion drain → T5 lastCollectedAt (only after T3+T4 without a throw) →
+   *   finish in a `finally` (run-row-only LEGACY ending; `job_sources` is never written here).
+   */
+  private async collectViaBridge(
+    source: BudgetedSource,
+    actor: string | undefined,
+  ): Promise<JobCollectionResultDto> {
+    const ledger = this.ledger
+    if (ledger === undefined) {
+      throw new Error('JOB_QUEUE_BRIDGE_ENABLED is on but no run ledger is wired')
+    }
+
+    // T7 / SR-M-23: the LEGACY path refuses a reporting type before any ledger or budget write.
+    const kind = this.registry.get(source.type)?.contract
+    if (kind !== undefined && kind !== 'LEGACY') throw new NotLegacySourceError(source.type)
+    const provider = this.registry.legacyProvider(source.type)
+    if (!provider) throw new BadRequestException(`Нет провайдера для источника ${source.type}`)
+
+    // The CYCLE's trigger is how the collection was initiated, not the source's trigger-mode
+    // filter: an ADMIN click carries an actor (a MANUAL cycle); the cron and any system caller
+    // carry none (a SCHEDULED cycle). `claimLegacyRun` matches the same actor against the cycle.
+    const triggerKey = this.bridgeTriggerKey(actor)
+    const { cycleId } = await ledger.openCycle(
+      actor !== undefined
+        ? { trigger: 'MANUAL', triggerKey, actor }
+        : { trigger: 'SCHEDULED', triggerKey },
+    )
+
+    // Claim BEFORE charge: a refused or busy claim must cost ZERO units (ADR §1, Q2). A second
+    // concurrent collection throws `JobSourceRunBusyError` from inside the claim (single-flight
+    // 23505) before the budget is touched.
+    const claim = await ledger.claimLegacyRun({
+      cycleId,
+      owner: this.bridgeOwner(),
+      sourceId: source.id,
+      ...(actor !== undefined ? { actor } : {}),
+    })
+    if (claim.kind === 'REFUSED') {
+      throw new Error(`DOU run not claimed (${claim.reason}) — nothing fetched, zero units spent`)
+    }
+    const run: BridgeRun = {
+      handle: {
+        runId: claim.run.runId,
+        ownerToken: claim.run.ownerToken,
+        fencingEpoch: claim.run.fencingEpoch,
+      },
+      sourceId: source.id,
+      sourceType: source.type,
+    }
+
+    let ending: RunEnding = { outcome: 'SUCCEEDED', errorCode: null }
+    try {
+      await this.chargeBudget(source)
+
+      const config = (source.config ?? {}) as Record<string, unknown>
+      const postings = await provider.collect(config)
+      if (postings.length === 0) {
+        throw new ZeroPostingsError(
+          `Source ${source.type} returned 0 usable postings — feed format changed, source is ` +
+            'down, or every entry was rejected. lastCollectedAt left unchanged.',
+        )
+      }
+
+      // T1 — the COMPLETE array to the legacy posting consumer, before the store (ADR ordering).
+      await enqueueLegacyPostings(this.db.db, run, postings)
+      // T2 — the observation store, best-effort: a failure is logged and NEVER fails the DOU run
+      // (Q3). Its counters go through the ledger-side writer, never a direct service UPDATE.
+      await this.storeObservations(run, postings)
+      // T3 / T4 — the per-row drains; the roster is read ONCE per pass (AC6, O(S) not O(P×S)).
+      const { created, invalid } = await drainPostings(this.db.db, run, (m) => this.logger.warn(m))
+      const roster = await this.buildRoster()
+      const suggestionsCreated = await drainSuggestions(this.db.db, run, roster)
+
+      // T5 — only after T3 and T4 drained without a throw (the unchanged legacy rule).
+      await this.db.db
+        .update(jobSources)
+        .set({ lastCollectedAt: new Date(), updatedAt: new Date() })
+        .where(eq(jobSources.id, source.id))
+
+      // The DTO counts match the legacy path (barrier parity): every fetched posting is created,
+      // invalid, or a duplicate. The bridge dedupes a re-collection at the delivery layer (a
+      // survivor's DONE row is not re-drained, a feed-internal repeat collapses at T1), so its
+      // duplicates are the fetched that this run neither created nor refused — the same identity
+      // `created + duplicates + invalid === fetched` that `persistPostings` keeps per run.
+      return {
+        sourceType: source.type,
+        fetched: postings.length,
+        created,
+        duplicates: postings.length - created - invalid,
+        invalid,
+        merged: 0,
+        filtered: 0,
+        suggestionsCreated,
+      }
+    } catch (err: unknown) {
+      ending = bridgeEnding(err)
+      throw err
+    } finally {
+      // A finish hiccup on an already-successful delivery must not turn it into a failure; recovery
+      // neutral-ends a still-STARTED LEGACY run later, and `lastCollectedAt` is already written.
+      try {
+        await ledger.finish(run.handle, ending)
+      } catch (finishErr: unknown) {
+        this.logger.warn(
+          `DOU run finish failed: ${finishErr instanceof Error ? finishErr.message : String(finishErr)}`,
+        )
+      }
+    }
+  }
+
+  /** The bridge run's owner token (OWNER regex: `[a-z0-9][a-z0-9._-]{0,63}`). */
+  private bridgeOwner(): string {
+    return `dou-bridge-${process.pid}`
+  }
+
+  /** `dou-bridge:(MANUAL:<actor>|SCHEDULED):<Kyiv date>` — one cycle per day shared across DOU sources. */
+  private bridgeTriggerKey(actor: string | undefined): string {
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv' }).format(new Date())
+    return actor !== undefined ? `dou-bridge:MANUAL:${actor}:${day}` : `dou-bridge:SCHEDULED:${day}`
+  }
+
+  /** The eligible seniors and each one's exclusion set, read ONCE per drain pass (AC6). */
+  private async buildRoster(): Promise<RosterSenior[]> {
+    const seniorIds = await this.findEligibleSeniorIds()
+    const roster: RosterSenior[] = []
+    for (const seniorId of seniorIds) {
+      roster.push({ seniorId, exclusions: await this.buildExclusionSet(seniorId) })
+    }
+    return roster
+  }
+
+  /**
+   * T2 — map the DOU postings to observations and write them to the store (chunked), best-effort.
+   * An item the validator refuses is skipped and logged; a store-write failure is logged and the
+   * DOU run is NOT failed (Q3). Covers the S6e *mapping* (S6e keeps the golden + the 50-item yield).
+   */
+  private async storeObservations(
+    run: BridgeRun,
+    postings: readonly NormalizedPosting[],
+  ): Promise<void> {
+    try {
+      const observations: SourceObservation[] = []
+      let refused = 0
+      for (const p of postings) {
+        const mapped = buildSourceObservation(douPostingToRawObservation(p))
+        if (mapped.ok) observations.push(mapped.observation)
+        else refused += 1
+      }
+      if (refused > 0) {
+        this.logger.warn(`DOU observation mapping skipped ${refused} item(s) the validator refused`)
+      }
+      if (observations.length === 0) return
+      const page: SavedPage = { observations, checkpoint: douCheckpoint() }
+      for (const chunk of chunkPage(page)) {
+        await saveObservationPage(this.db.db, run.handle, chunk)
+      }
+    } catch (err: unknown) {
+      this.logger.warn(
+        `DOU observation store write failed (run not failed): ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
   }
 
   private async collectLegacy(source: BudgetedSource): Promise<JobCollectionResultDto> {
@@ -978,7 +1201,9 @@ export class JobSourcingService {
    */
   async collectAllAsActor(actor: SessionUser): Promise<JobCollectionRunDto> {
     this.assertCanManageSources(actor)
-    return this.collectAll('MANUAL')
+    // S6d: a MANUAL cycle names its actor (the ADMIN who clicked); the flag-on bridge threads it
+    // into `claimLegacyRun`, which checks it against the cycle's `requested_by`.
+    return this.collectAll('MANUAL', {}, actor.id)
   }
 
   /**
@@ -989,6 +1214,7 @@ export class JobSourcingService {
   async collectAll(
     trigger: JobSourceTriggerMode = 'SCHEDULED',
     filter: TypeFilter = {},
+    actor?: string,
   ): Promise<JobCollectionRunDto> {
     const all = await this.db.db.select().from(jobSources).where(eq(jobSources.enabled, true))
     const sources = all.filter(
@@ -1004,7 +1230,7 @@ export class JobSourcingService {
 
     for (const source of sources) {
       try {
-        results.push(await this.collectSource(source))
+        results.push(await this.collectSource(source, trigger, actor))
       } catch (err: unknown) {
         // Sanitized + capped BEFORE it can reach the response schema — a raw
         // library message is both too long for the wire contract (turning this

@@ -7,7 +7,9 @@ import type { HrAccessService } from '../common/hr-access.service'
 import type { DouRssProvider } from './dou.provider'
 import { JobSourceBudgetExhaustedError } from './source-budget.error'
 import { JobSourcingService, type BudgetedSource } from './job-sourcing.service'
-import { BRIDGE_FLAG_VALUES, bridgeConfig } from './bridge-flag.test-helper'
+import { BRIDGE_FLAG_VALUES, bridgeConfig, fakeBridgeLedger } from './bridge-flag.test-helper'
+import type { JobRunLedger } from './ownership/job-run-ledger'
+import { JobSourceRunBusyError } from './ownership/legacy-run-claim'
 
 /**
  * Compatibility barrier (r5 Task 4.6a) — the ONE-UNIT BUDGET ARITHMETIC and the C-05 zero-postings
@@ -49,7 +51,12 @@ function dayRow(over: Partial<Row> = {}): Row {
 }
 
 /** A database double that WINS every compare-and-set and records what was written, in order. */
-function makeHarness(collectImpl: () => Promise<unknown[]>, listRows: Row[] = [], flagOn = false) {
+function makeHarness(
+  collectImpl: () => Promise<unknown[]>,
+  listRows: Row[] = [],
+  flagOn = false,
+  ledger: JobRunLedger | undefined = flagOn ? fakeBridgeLedger({ sourceId: SOURCE_ID }) : undefined,
+) {
   const events: string[] = []
   const written: Array<Record<string, unknown>> = []
   const update = vi.fn().mockImplementation(() => ({
@@ -76,6 +83,7 @@ function makeHarness(collectImpl: () => Promise<unknown[]>, listRows: Row[] = []
     {} as unknown as HrAccessService,
     provider,
     bridgeConfig(flagOn),
+    ledger,
   )
   return { service, events, written, collect, update, select }
 }
@@ -278,12 +286,26 @@ describe.each(BRIDGE_FLAG_VALUES)('Compat barrier — new pins (bridge flag %s)'
   })
 
   if (flagOn) {
-    // Flag ON diverges here from S6c/S6d (ADR 2026-10-31-dou-bridge-run-ownership, section 1 table):
-    // the second concurrent collection of the same source gets JobSourceRunBusyError and spends
-    // ZERO units. Asserted per flag value, not by parity.
-    it.todo(
-      'flag ON: two concurrent collections of one source -> the second throws JobSourceRunBusyError and spends zero units (S6c/S6d)',
-    )
+    // Flag ON diverges here (ADR 2026-10-31-dou-bridge-run-ownership, section 1 table / Q2): a
+    // single-flight-refused claim (a second concurrent collection) throws JobSourceRunBusyError
+    // BEFORE the budget is charged, so it spends ZERO units and never asks the provider. The real
+    // concurrent race against the single-flight index is the integration barrier; this pins the
+    // order — refused claim, then no charge.
+    it('flag ON: a busy claim is refused before the budget -> JobSourceRunBusyError, zero units, no fetch', async () => {
+      const { service, written, collect } = makeHarness(
+        () => Promise.resolve([]),
+        [],
+        true,
+        fakeBridgeLedger({ claimBusy: true, sourceId: SOURCE_ID }),
+      )
+
+      await expect(service.collectSource(dayRow({ budgetUsed: 0 }))).rejects.toBeInstanceOf(
+        JobSourceRunBusyError,
+      )
+
+      expect(written).toEqual([])
+      expect(collect).not.toHaveBeenCalled()
+    })
   } else {
     it('flag OFF: two concurrent collections of one source BOTH proceed -- two provider calls, two units', async () => {
       let release: () => void = () => undefined
@@ -353,6 +375,7 @@ describe('Compat barrier — the flag is read once and the OFF branch touches on
       {} as unknown as HrAccessService,
       provider,
       config,
+      fakeBridgeLedger({ sourceId: SOURCE_ID }),
     )
     return { service, touched, tables }
   }

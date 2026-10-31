@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
@@ -22,6 +22,20 @@ import { DouRssProvider } from './dou.provider'
 import { JobSourcingService, POSTING_RETENTION_DAYS } from './job-sourcing.service'
 import { JobSourceBudgetExhaustedError } from './source-budget.error'
 import { BRIDGE_FLAG_VALUES, bridgeConfig } from './bridge-flag.test-helper'
+import { JobRunLedger } from './ownership/job-run-ledger'
+import { JobSourceRunBusyError } from './ownership/legacy-run-claim'
+import { SpecCatalog, specRegistry } from '../test/ledger-fixtures'
+import * as recordStore from './store/source-record.store'
+
+/** The staged bridge table, pushed into the scratch DB so the flag-on path can enqueue/drain. */
+const BRIDGE_DDL = join(
+  __dirname,
+  '..',
+  '..',
+  'drizzle',
+  'manual-staged',
+  '2026-10-31_job_bridge_deliveries.sql',
+)
 
 /**
  * Compatibility barrier (r5 Task 4.6a) — the DB-touching half. Pins, on real SQL and the REAL
@@ -136,21 +150,34 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       const db = dbSvc.db
       await db.delete(jobSuggestions).where(inArray(jobSuggestions.seniorId, SENIOR_IDS))
       await db.delete(jobPostings).where(eq(jobPostings.sourceId, SOURCE_ID))
+      // Flag-on artifacts, deleted children-first (bridge rows RESTRICT the run they cite; runs
+      // RESTRICT the source). The run delete cascades its page-membership rows.
+      await pool.query(`DELETE FROM job_bridge_deliveries WHERE source_id = $1`, [SOURCE_ID])
+      await pool.query(`DELETE FROM job_collection_runs WHERE source_id = $1`, [SOURCE_ID])
     }
 
     beforeAll(async () => {
       pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
       await pool.query('SELECT 1')
+      // The staged bridge table (idempotent CREATE IF NOT EXISTS) so the flag-on path can deliver.
+      await pool.query(readFileSync(BRIDGE_DDL, 'utf8'))
       const db = drizzle(pool, { schema })
       dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
       Object.assign(dbSvc, { pool, db })
 
       provider = new FixtureDouProvider()
+      // Flag ON routes through collectViaBridge, which claims and finishes a DOU run through the
+      // ledger; flag OFF never touches it. The registry marks DOU as LEGACY (the reporting arg lists
+      // only REMOTIVE_API), which is exactly what claimLegacyRun requires.
+      const ledger = flagOn
+        ? new JobRunLedger(db, specRegistry(['REMOTIVE_API']), new SpecCatalog())
+        : undefined
       service = new JobSourcingService(
         dbSvc,
         new HrAccessService(dbSvc),
         provider,
         bridgeConfig(flagOn),
+        ledger,
       )
 
       await db
@@ -486,6 +513,10 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       } finally {
         await dbSvc.db.delete(jobSuggestions).where(inArray(jobSuggestions.seniorId, SENIOR_IDS))
         await dbSvc.db.delete(jobPostings).where(eq(jobPostings.sourceId, neighbour!.id))
+        // Flag-on: the neighbour collected under a run; clear its bridge rows and run (children
+        // first) before the source, which both RESTRICT.
+        await pool.query(`DELETE FROM job_bridge_deliveries WHERE source_id = $1`, [neighbour!.id])
+        await pool.query(`DELETE FROM job_collection_runs WHERE source_id = $1`, [neighbour!.id])
         await dbSvc.db.delete(jobSources).where(eq(jobSources.id, neighbour!.id))
       }
     })
@@ -565,12 +596,57 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
         expect(new Set(fingerprints).size).toBe(fingerprints.length)
       })
     } else {
-      it.todo(
-        'flag ON: two concurrent collections of one source -> the second throws JobSourceRunBusyError and spends zero units (S6c/S6d)',
-      )
+      it('flag ON: two concurrent collections of one source -> the second throws JobSourceRunBusyError and spends zero extra units', async () => {
+        await dbSvc.db
+          .update(jobSources)
+          .set({ budgetLimit: 5, budgetWindow: 'MONTH' })
+          .where(eq(jobSources.id, SOURCE_ID))
+
+        const results = await Promise.allSettled([
+          service.collectSource(await sourceRow()),
+          service.collectSource(await sourceRow()),
+        ])
+
+        const statuses = results.map((r) => r.status).sort()
+        expect(statuses).toEqual(['fulfilled', 'rejected'])
+        const rejected = results.find((r) => r.status === 'rejected') as PromiseRejectedResult
+        expect(rejected.reason).toBeInstanceOf(JobSourceRunBusyError)
+        // Single-flight: the loser was refused at the claim, BEFORE the budget or the provider — one
+        // unit spent, one fetch made, one set of postings.
+        expect((await sourceRow()).budgetUsed).toBe(1)
+        expect(provider.fetchCalls).toBe(1)
+        const fingerprints = (await myPostings()).map((p) => p.fingerprint)
+        expect(new Set(fingerprints).size).toBe(fingerprints.length)
+      })
+
+      it('flag ON: the roster + exclusions are read ONCE per drain pass (O(S), not O(P×S))', async () => {
+        const spy = vi.spyOn(
+          service as unknown as { buildExclusionSet: (id: string) => Promise<unknown> },
+          'buildExclusionSet',
+        )
+        const result = await service.collectSource(source)
+        expect(result.created).toBeGreaterThan(1) // P > 1 postings in the golden feed
+        // O(S), not O(P×S): each eligible senior's exclusion set is read AT MOST ONCE per pass, no
+        // matter how many postings are drained. The call count equals the distinct senior count.
+        const seniorArgs = spy.mock.calls.map((c) => c[0])
+        expect(seniorArgs.length).toBe(new Set(seniorArgs).size)
+        spy.mockRestore()
+      })
+
+      it('flag ON: a T2 observation-store failure is swallowed — the legacy delivery still succeeds (Q3)', async () => {
+        const spy = vi
+          .spyOn(recordStore, 'saveObservationPage')
+          .mockRejectedValue(new Error('observation store down'))
+
+        const result = await service.collectSource(source)
+
+        // The store write failed, but T1/T3/T4 still delivered: postings and suggestions are there.
+        expect(spy).toHaveBeenCalled()
+        expect(result.created).toBeGreaterThan(0)
+        expect(result.suggestionsCreated).toBeGreaterThan(0)
+        expect((await myPostings()).length).toBe(result.created)
+        spy.mockRestore()
+      })
     }
   },
 )
-
-// Kept as is for S6d, which replaces it. Outside the describe.each so it prints once.
-it.todo('flag-on variant: add when the queue flag is wired (Task 4.6d)')
