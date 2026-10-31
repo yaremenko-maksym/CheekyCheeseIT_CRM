@@ -118,7 +118,108 @@ new code is needed.
 
 ## 2. The durable bridge
 
-_(pending)_
+### Decision D-2 (confidence: **HIGH** on the delivery-row design, **MED** on the store-write ordering)
+
+**One delivery row per (consumer, identity, version).** Table `job_bridge_deliveries` (section 3):
+
+- **identity** — the DOU posting's `fingerprint`. It is already the legacy dedupe key, it is
+  `sha256("DOU_RSS|<canonical url>")`, and the golden spec pins it.
+- **consumer** — `LEGACY_POSTING` (the `persistPostings` row write) or `LEGACY_SUGGESTION` (the
+  `createSuggestions` fan-out).
+- **version** — a content hash of the `NormalizedPosting` exactly as the provider returned it.
+  It is not the store's `observation_seq`, so the legacy feed **never depends on the new store**: an
+  item the observation validator refuses still reaches the legacy consumers (the "complete array"
+  clause).
+- **payload** — that `NormalizedPosting`. The posting consumer needs it, and the record may not
+  exist.
+- **checkpoint** — the row's own status (`PENDING` → `DONE` | `INVALID`), written **in the same
+  transaction as the consumer's effect**. This is the consumer checkpoint of the plan: an effect and
+  its checkpoint commit together or not at all.
+
+### The flow with the flag on (after `provider.collect` returned `postings`)
+
+```
+T1  enqueue          one tx: assertOwned(run); INSERT one LEGACY_POSTING row per element of the
+                     COMPLETE postings array, ON CONFLICT (consumer, identity, version) DO NOTHING
+T2  observation      saveObservationPage(run, DOU postings mapped to observations, checkpoint)
+    store            -- chunked by chunkPage; a failure is logged and counted, never fatal (below)
+T3  posting drain    for each PENDING LEGACY_POSTING row of this SOURCE (not only this run), in
+                     enqueue order, one tx per row:
+                       assertOwned(run)
+                       INSERT job_postings … ON CONFLICT (fingerprint) DO NOTHING RETURNING id
+                       created → INSERT LEGACY_SUGGESTION row (PENDING, posting_id = id)
+                       UPDATE this row → DONE, outcome CREATED | DUPLICATE, posting_id
+                     a row the database refuses → separate tx marks it INVALID (today's MED-2
+                     per-row isolation: one bad row costs that row, loudly logged)
+T4  suggestion       for each PENDING LEGACY_SUGGESTION row of this source, one tx per row:
+    drain              assertOwned(run); the createSuggestions body for [that posting], inside
+                       the tx; UPDATE this row → DONE, suggestions_created = n
+T5  lastCollectedAt  only after T3 and T4 drained without a thrown error (unchanged rule)
+```
+
+**`createSuggestions` gets the right input on retry.** Today's suggestion input is "the rows this
+call happened to create" (F2), and it exists only in memory. Here it is a persisted fact: the
+`LEGACY_SUGGESTION` row holds the `posting_id`, written in the same transaction as the posting
+insert that created it. After a crash, the retry finds a `PENDING` row and offers that posting.
+Calling `createSuggestions([])` recovers nothing: the empty list is the symptom of the lost fact,
+not a retry of it.
+
+**Legacy semantics are kept, not re-derived.** A `DUPLICATE` posting gets no suggestion row, so a
+re-collection creates no further suggestions (golden). First write wins: a changed description makes
+a new version, the insert is `DUPLICATE`, nothing is updated (golden). Exclusions and eligibility are
+evaluated when the suggestion row is drained. Today they are evaluated in the same call, so they
+differ only after a crash. `APPLIED` / `REJECTED` stay safe: the unique `(posting_id, senior_id)`
+index with `DO NOTHING` never rewrites an answered suggestion.
+
+**New sources never leak into legacy suggestions.** Only `claimLegacyRun` runs can enqueue a
+`LEGACY_*` row. T1 asserts that the run's source kind is `LEGACY` and the row's `provider` equals
+the run's source type. The drain repeats the check. A reporting adapter has no code path to this
+table. A CHECK constraint pins `provider = 'DOU_RSS'` until a second legacy source exists (section 3).
+
+### Crash points — why each retry is idempotent
+
+| Crash after …                              | State left                                                    | What the next DOU run does                                                                                                     |
+| ------------------------------------------ | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `chargeBudget`, before T1                  | unit spent, run `STARTED`                                     | recovery ends the run (neutral). Nothing is delivered; the next run fetches again and spends its own unit, as today            |
+| T1 (enqueue)                               | `PENDING` posting rows                                        | its T1 inserts the same keys → `DO NOTHING`; its T3 drains the old and new rows together                                        |
+| T2 (store)                                 | records/revisions saved                                       | store idempotence (same content → no new revision; run membership PK) — Task 4.5's own tests                                   |
+| a T3 row commits (**after legacy write**)  | `job_postings` row + `DONE` + `PENDING` suggestion row        | the `DONE` row is skipped; the `PENDING` suggestion row is drained                                                              |
+| a T3 row's insert, before its commit       | nothing (one tx)                                              | the row is still `PENDING`; the insert re-runs and gets the same answer                                                        |
+| a T4 row's commit (**after suggestion**)   | suggestions + `DONE`                                          | skipped                                                                                                                         |
+| T4 inserts, **before the checkpoint**      | nothing (one tx)                                              | re-drained. Even outside a tx the unique index makes the re-insert a no-op; only the `suggestions_created` count would be lower |
+| T5 (`lastCollectedAt`), before `finish`    | delivered, run `STARTED`                                      | recovery ends the run as the neutral run-row ending. `job_sources` is untouched, as section 1 says                             |
+
+A fenced executor — lease lost, successor claimed — fails `assertOwned` inside every T1/T3/T4
+transaction, so two executors never drain the same row at once. The single-flight index guarantees
+one live owner per source.
+
+**Who drains after a crash.** The next DOU run of the same source: the 05:00 cron or an ADMIN click.
+So a crash delays suggestions by at most one cycle. It never loses them. No separate drain worker
+is added: YAGNI for one daily feed of about 25 items.
+
+### Ordering: why legacy enqueue comes before the store write
+
+The plan says "persist valid records before evaluating". For the **new** pipeline, T2 is that
+persist step: it runs before anything new evaluates a record (the dirty/recompute worker reads only
+what T2 wrote). The **legacy** consumers are not evaluation. They are today's product, and they must
+not fail because the new store refuses something. So T1 runs first. A T2 failure is logged and
+recorded on the run row as a lower `received`, and it **does not fail the DOU run** (owner question
+Q3). Item-level: the DOU → observation mapping skips an item the validator refuses and counts it in
+`invalid`. It never drops the item from T1.
+
+**Rejected alternatives.**
+
+- _Mark suggestions by re-reading which postings have no suggestion rows._ "Has no suggestions" is
+  also true for a posting every senior excluded and for an ineligible team. Such a rule would offer
+  those postings again. Rejected: it re-derives a fact instead of recording it.
+- _Run `persistPostings` + `createSuggestions` in one big transaction._ Locks the
+  suggestions table for the whole fan-out (seniors × postings). It also drops the per-row isolation
+  of MED-2: one bad row would roll back the batch. Rejected.
+- _Key the version on the store's `observation_seq`._ Couples the live feed to the new store's
+  validator and to its availability. Rejected.
+- _A generic outbox with a separate worker process._ The class-C collector role and its worker are
+  not shipped (privilege classes C/D empty). Draining in the run that owns the source needs no new
+  process. Rejected for now. The table shape allows a worker later.
 
 ## 3. DDL sketch (not applied — owner A3 go required)
 
