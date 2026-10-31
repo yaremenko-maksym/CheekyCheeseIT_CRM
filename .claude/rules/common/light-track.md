@@ -3,8 +3,7 @@
 **Status:** Always-on
 **Applies to:** USER sessions (Master). Agents (Coder/AutoTest/DevOps/...) work only on the full track (Master orchestration: task file → dispatch → PR → review).
 
-> Rationale, the zombie-devserver and unbounded-wait incidents:
-> `docs/architecture/rules-rationale/light-track.md`
+> Rationale: `docs/architecture/rules-rationale/light-track.md`
 
 ---
 
@@ -54,23 +53,13 @@ When dispatching agents in parallel (Master session):
 - **Ceiling ≈ 3-4 simultaneous starts.** 5+ agents launched in ONE message (a startup burst of the
   first API calls) → some get `API Error: 529 Overloaded` and die on start (0 tool_uses). Dispatch in
   waves of 2-3, stagger them; 529-killed ones just restart (they did no work).
-- **Heavy Coders (each boots vite+api + full Vitest) + a live UT stack** → CPU starvation →
-  pre-push timeout flakes (NOT code). Before push — sweep the zombie dev ports of finished agents:
-  `for p in 3010 3011 3014 3016 3017 3018; do lsof -ti tcp:$p; done` → kill (preserving live :3000/:3001).
+- Heavy Coders + a live UT stack → CPU starvation → pre-push timeout flakes. Before push, sweep zombie dev ports of finished agents: `for p in 3010 3011 3014 3016 3017 3018; do lsof -ti tcp:$p; done` → kill (keep live :3000/:3001).
 - **`DATABASE_URL= git push`** (empty) for feature branches — integration specs graceful-skip, do not
   hit the live `crm_db` and do not catch a CPU timeout (see `git-policy.md`).
 
-### Zombie prevention (mechanics instead of discipline)
+### Zombie prevention
 
-Three layers:
-
-1. Dev servers in a worktree/scratchpad start ONLY via `scripts/devops/dev-ttl.sh -- <cmd>` (TTL
-   self-destruct of the process group, default 4h);
-2. The hook `pre:bash:devserver-ttl-gate` blocks a bare `nest start` / `vite` / `pnpm dev` /
-   `node dist/main` in `.claude/worktrees/**` and the claude-scratchpad;
-3. A launchd-reaper every 30 min finishes off node processes of a worktree older than 6h or with a
-   removed worktree (install: `scripts/devops/install-devserver-reaper.sh`; dry-run:
-   `REAPER_DRY_RUN=1 scripts/devops/reap-zombie-devservers.sh`).
+Dev servers in a worktree/scratchpad start ONLY via `scripts/devops/dev-ttl.sh -- <cmd>` (TTL self-destruct, default 4h); hook `pre:bash:devserver-ttl-gate` blocks a bare `nest start` / `vite` / `pnpm dev` / `node dist/main` there; a launchd reaper every 30 min kills worktree node processes older than 6h or with a removed worktree (install: `scripts/devops/install-devserver-reaper.sh`; dry-run: `REAPER_DRY_RUN=1 scripts/devops/reap-zombie-devservers.sh`).
 
 Manual sweep when needed: `pgrep -f 'worktrees[/]agent-' | xargs kill -9` — specifically `xargs`: in
 zsh `kill $VAR` does NOT split (fails with "illegal pid" — and this is masked by `2>/dev/null`).

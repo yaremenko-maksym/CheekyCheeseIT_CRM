@@ -42,3 +42,10 @@ needs them inline (see `docs/architecture/rules-rationale/model-routing.md`).
 - Owner decision 2026-10-05: English collaboration (colleague works in English); Russian only in the owner's personal chat.
 - Owner decision 2026-09-19: product i18n `uk` + `en` via Lingui — spec `docs/superpowers/specs/2026-09-19-crm-i18n-design.md`.
 - Superseded: ADR `docs/architecture/2026-05-31-ecc-migration-design.md` §4.1 and its Q7 Option C decision.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+**ECC-imported agents:** if their output reaches the repo or the owner, it is English — the same rule
+as every other agent.

@@ -3,8 +3,7 @@
 **Status:** Always-on (2 hooks + report lines; see "How we know it is violated")
 **Applies to:** all agents and everyone who dispatches agents (Master / orchestrator)
 
-> Rationale, the seven-incident analysis, verification runs and the false-positive cost essay:
-> `docs/architecture/rules-rationale/agent-isolation.md`
+> Rationale: `docs/architecture/rules-rationale/agent-isolation.md`
 
 ---
 
@@ -13,27 +12,14 @@
 > **An agent's session directory is derived from the agent's own identifier and is never inherited
 > from the orchestrator.**
 
-Why that is the cure: **an agent's working directory is reset to its session's directory between Bash
-calls** (a property of the harness, not a bug). So a `cd` at the start of work is **not retained**,
-and an agent that was not issued its own directory returns to the shared one on every next call. The
-reset is harmless by itself — it is harmful exactly when the session directory is shared.
+The harness resets an agent's working directory to its session directory between Bash calls, so a `cd` is not retained; harmless unless that directory is shared.
 
 In practice: a write-agent gets `isolation="worktree"`; a reviewer gets its own checkout in its own
 scratchpad, and only when it really needs one.
 
-## What the harness already does itself (do not duplicate)
+## What the harness already covers
 
-| Command                                  | Result                |
-| ---------------------------------------- | --------------------- |
-| `git -C <foreign path> status`           | the harness refuses   |
-| `cd <foreign path> && git rev-parse ...` | the harness refuses   |
-| `cd <foreign worktree> && ls`            | **executes** — a hole |
-| `git worktree remove <foreign worktree>` | **executes** — a hole |
-| `pkill -f <pattern>`                     | **executes** — a hole |
-
-The built-in protection is **only git-specific and only for isolated agents**. A non-isolated agent
-is protected by nothing, and file and process operations are not covered at all. These three holes
-are closed by `pre:bash:cross-agent-blast`.
+It refuses `git -C <foreign path>` and `cd <foreign> && git ...` for isolated agents only. It does **not** stop `cd <foreign worktree> && ls`, `git worktree remove <foreign worktree>`, or `pkill -f <pattern>`; `pre:bash:cross-agent-blast` closes those three. (Command-by-command table: rationale file.)
 
 ## Rules
 
@@ -72,11 +58,7 @@ echo "$SCRATCH"                                                  # expand it onc
 git worktree add --detach /abs/scratch/co-pr<N> <sha of the real PR commit>
 ```
 
-A **literal** path, and a name of your own (`co-pr1024`, not `checkout`): the scratchpad is shared,
-so `checkout` is a name your siblings use too, and only a literal path can be recorded as yours
-(rule 6). Not in another agent's working directory and not in a shared checkout. The hook does not block
-reading a foreign tree, but it is still a bad idea: the tree of a live agent changes under you, and
-you will not see it.
+Use a **literal** path and a name of your own (`co-pr1024`, not `checkout` — siblings use that too), in your own checkout, never in another agent's tree or a shared one.
 
 ### 5. Processes — only your own, by PID
 
@@ -89,14 +71,7 @@ prerogative, not the task's.
 An agent does not see other agents and **cannot reasonably judge** whether a foreign worktree is
 abandoned. Your own — remove it, a foreign one — report to the orchestrator.
 
-**The session scratchpad is SHARED with the other agents of your session** — one flat directory
-holding every sibling's checkout. So a scratch path proves nothing about whose it is, and the hook
-answers "mine" from a record instead: it writes `<agent_id> <path>` when it sees you create a
-worktree at a path that is **literal, absolute, below the scratchpad root, and not already there**,
-and permits removing only what is recorded against you (`WORKTREE-UNRECORDED` otherwise). The last
-condition is why an `add` aimed at a tree that already exists records nothing: a hook runs before
-git, so a path git is about to refuse is not a path you created. Practical consequence — expand the
-variable once and use the literal for both steps:
+**The scratchpad is SHARED with sibling agents**, so a scratch path proves nothing about ownership. The hook records `<agent_id> <path>` when you create a worktree at a path that is literal, absolute, below the scratchpad root, and not already there, and permits removing only what is recorded against you (`WORKTREE-UNRECORDED` otherwise). Expand the variable once and use the literal for both steps:
 
 ```bash
 echo "$SCRATCH"                                          # once, to get the literal
@@ -104,13 +79,7 @@ git worktree add --detach /abs/scratch/co-pr1024 <sha>   # recorded as yours
 git worktree remove --force /abs/scratch/co-pr1024       # permitted
 ```
 
-A sibling's checkout, a path created through an unexpanded variable, and a re-dispatched instance of
-yourself all stay refused — none of them is a tree you can know is free.
-
-**Your own — remove it by an explicit path, not a variable.** The hook cannot expand `"$w"` and so
-cannot say whose directory it is; an opaque path gets the refusal `WORKTREE-OPAQUE`. Cleanup in a
-batch — expand (`echo "$w"`) and remove one by one: then the foreign directory will be named by name,
-not wiped.
+Remove your own tree by an explicit path, never a variable (`WORKTREE-OPAQUE`); batch cleanup — expand, then remove one by one. A sibling's checkout, a path made through an unexpanded variable, and a re-dispatched instance of yourself stay refused.
 
 ### 7. The worktree vanished — stop and report
 
@@ -132,14 +101,12 @@ only a fact obtained by a command.
 
 A rule without observability is not a rule. For each one above:
 
-- 1 — Hook `pre:agent:dispatch-isolation` (matcher `Agent|Task`) — refusal on dispatch — The refusal is visible to the dispatcher immediately. Duplicate layer: Master after EACH agent checks `git status --porcelain` of the main checkout
-- 2 — The hook passes read-only types silently — A case in the smoke test; a regression is caught by a run
-- 3 — The same hook: an absolute path of the form `/tmp/rev<PR>` in the prompt → refusal — A refusal on dispatch + a `Checkout:` line in the reviewer's report (two identical paths from two reviewers = a collision, visible in the aggregate)
-- 4 — Hook `pre:bash:cross-agent-blast` predicate `FOREIGN-WORKTREE` — A refusal at the moment of the command
-- 5 — The same hook, predicate `BROADCAST-KILL` — A refusal at the moment of the command
-- 6 — The same hook, predicates `WORKTREE-REMOVE` / `WORKTREE-PRUNE` / `WORKTREE-OPAQUE` / `WORKTREE-UNRECORDED` — A refusal at the moment of the command. `OPAQUE` — "the path is not a literal, ownership is not verifiable"; `UNRECORDED` — "the path is in the shared scratchpad and no record ties it to you": both distinguish "could not verify" from "verified"
-- 7 — There is no mechanic (the agent may not notice the loss) → **a mandatory line in the report** — An agent's report without a `Worktree: <path> (verified)` line = the reconciliation was not done. The absence is visible to Master at acceptance
-- 8 — The same report line — Same
+- 1, 3 — `pre:agent:dispatch-isolation` (matcher `Agent|Task`) refuses at dispatch, including an absolute `/tmp/rev<PR>` path in the prompt. Duplicate layer: Master checks `git status --porcelain` of the main checkout after EACH agent; a `Checkout:` line in a reviewer's report (two identical paths = a collision).
+- 2 — the same hook passes read-only types silently (smoke-test case).
+- 4 — `pre:bash:cross-agent-blast`, predicate `FOREIGN-WORKTREE`.
+- 5 — same hook, `BROADCAST-KILL`.
+- 6 — same hook, `WORKTREE-REMOVE` / `WORKTREE-PRUNE` / `WORKTREE-OPAQUE` (path not literal, ownership unverifiable) / `WORKTREE-UNRECORDED` (in the shared scratchpad, no record ties it to you).
+- 7, 8 — no mechanic: the report line below. No line = the reconciliation was not done; Master returns the agent.
 
 **The report line (mandatory for write-agents and for reviewers that made a checkout):**
 
@@ -161,17 +128,11 @@ a step inside a **required** check. Each hook also has its own cases in `scripts
 because the meta-guard `check-guard-tests-exist.sh` reads the hook list from `.claude/settings.json`
 and requires a negative case from every hook that can refuse.
 
-The smoke test first does `bash -n` on both hooks and requires of a blocked case not only exit code 2
-but also the body `{"decision":"block"}`: a syntax error in a hook also gives exit code 2 and is
-otherwise indistinguishable from an honest block.
+The smoke test also requires, of a blocked case, the body `{"decision":"block"}` (rationale file).
 
-## The cost of a false positive
+## False positives
 
-Both hooks decide by the **first token of a command segment**, not by a substring of the whole string.
-So `grep -rn "pkill" .claude/hooks/` and `echo "do not run pkill"` pass, while `pgrep -f ... | xargs
-kill -9` (the owner's documented sweep) is not touched at all. `WORKTREE-OPAQUE` is the one exception
-that refuses by unverifiability rather than danger — its justification and scope limits are in the
-rationale file. **Do not extend that pattern to ordinary mutators.**
+Both hooks decide by the **first token of a command segment**, not a substring: `grep -rn "pkill" .claude/hooks/` and `echo "do not run pkill"` pass. `WORKTREE-OPAQUE` is the one exception that refuses by unverifiability; do not extend that pattern to ordinary mutators (rationale file).
 
 ## Related rules
 

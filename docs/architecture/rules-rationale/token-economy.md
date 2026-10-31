@@ -229,3 +229,12 @@ commands live in the skill, loaded on demand (progressive disclosure, `writing-f
 Whether an agent read "too much" is a judgement over a transcript, not a pattern in a command; a hook
 would refuse legitimate reads. Observability is the `Token-economy:` report line plus reviewer checks
 (same device as `Worktree:` / `Pushed:`).
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+- **Context Mode** is installed for the owner's own session only. Its `ctx_*` tools are **not granted to any
+  agent**: they execute code outside every `pre:bash:*` / zone hook, so they would bypass `zone-of-write.md`,
+  `live-db-access.md` and `agent-isolation.md` (SR-H-2, PR #1157). Granting them needs a guard hook on
+  `mcp__plugin_context-mode_context-mode__ctx_*` first — an A3 owner decision.

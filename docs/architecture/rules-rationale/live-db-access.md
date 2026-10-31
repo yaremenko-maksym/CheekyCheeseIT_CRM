@@ -47,3 +47,10 @@ guards do not touch, so the mitigation has to be procedural and stated next to t
 - PR #589 — two HIGH findings only verifiable against real data; also the PII-in-report lapse.
 - Incident 2026-08-18: the live `crm_db` wiped by a seed via an inherited environment variable (item 140, closed by PR #576/#579).
 - PR #561 — the precedent for narrowing a guard rather than tightening it.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+All three catch **destructive** operations. A plain `psql` / `SELECT` catches nothing — and that is
+now **intentional**, not a gap: reading is allowed.

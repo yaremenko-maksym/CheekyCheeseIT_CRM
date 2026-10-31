@@ -3,8 +3,7 @@
 **Status:** Always-on
 **Applies to:** All agents and contributors
 
-> Rationale, the build incidents behind each pin and upgrade preconditions:
-> `docs/architecture/rules-rationale/version-pins.md`
+> Rationale: `docs/architecture/rules-rationale/version-pins.md`
 
 ---
 
@@ -36,16 +35,13 @@ comments** — link here.
 ### Backend
 
 - **NestJS:** 11 (current LTS).
-- **Fastify:** `^5.8.5` — forced via `pnpm.overrides` (conflict with `@fastify/helmet`).
+- **Fastify:** `^5.12.6` — forced via `pnpm.overrides` (conflict with `@fastify/helmet`).
 - **Drizzle ORM:** `^0.45.0` + a compatible Drizzle Kit.
 - **Zod:** v4 (NOT v3 — `.transform` / `.parse` syntax differs).
 - **standardwebhooks:** `1.1.1` EXACT — signature semantics are protocol-critical and this version is
   verified against the meeting-recorder extension. Do not use a range.
 - **`@rgrove/parse-xml`:** `5.0.0` EXACT (ISC) — the XML parser behind job-sourcing feed ingestion.
-  Exact rather than a caret range because the adoption verdict rests on **one fact a minor release
-  could remove**: the library never parses the internal subset of a `<!DOCTYPE>`, so XXE and entity
-  expansion are unreachable by absence of capability rather than by a default. Read the changelog
-  before any bump; do not bump on green CI. **Two options are pinned by the wrapper, not by config**
+  Exact because the adoption verdict rests on one fact a minor release could remove: the library never parses a `<!DOCTYPE>` internal subset, so XXE/entity expansion are unreachable. Read the changelog before any bump; do not bump on green CI. **Two options are pinned by the wrapper, not by config**
   (so do not go looking for them in a config file): `ignoreUndefinedEntities` stays **`false`** — a
   drift gate, since `true` makes a feed with an undefined entity parse "successfully" into a literal
   `&x;` — and `resolveUndefinedEntity` is **never supplied**, that being the only route by which
@@ -74,22 +70,11 @@ comments** — link here.
 - **Do NOT change the Node major version** without an explicit DevOps task + CI matrix update.
 - **Do NOT replace Fastify with Express** in the API — `@nestjs/platform-fastify` baseline + helmet/CORS integration.
 - **Do NOT widen `@rgrove/parse-xml` to a range, and do NOT bump it on green CI** — the pin carries a
-  security verdict that green CI does not re-derive. It also makes **Node ≥ 22.12** a hard floor
-  _inside_ the Node 22 line: a drop below that minor is not covered by the "major version" rule above
-  and fails at runtime.
+  security verdict that green CI does not re-derive. Node ≥ 22.12 is a hard floor inside the Node 22 line.
 
-## Why these pins (brief context)
+## Why these pins
 
-- **Vite 6 vs 7:** `@tanstack/router-plugin` is compatible only with Vite 6 as of `^1.168`.
-- **TanStack version match:** pnpm strict peer-deps validation breaks on mismatch — `pnpm install` fails.
-- **Fastify override:** `@fastify/helmet` requires Fastify 5, while NestJS 11 tries to resolve `^4`.
-  Without the override — a runtime crash on API startup.
-- **Node 22 LTS:** a prerequisite for Lingui 6 (ESM-only, requires ≥ 22.19 — on 20 `pnpm install`
-  failed with `EBADENGINE`).
-- **`@rgrove/parse-xml` 5.0.0 EXACT:** unusually for a pin, the claim behind it is **falsifiable in
-  code** — `parse-xml.adapter.locality.spec.ts` asserts the exact version string, the installed
-  version and the ISC licence, so a silent bump or a licence change fails a test instead of going
-  unnoticed.
+One line each (Vite 6 vs 7, TanStack match, Fastify override, Node 22, parse-xml falsifiable pin): rationale file.
 
 ## Related rules
 
