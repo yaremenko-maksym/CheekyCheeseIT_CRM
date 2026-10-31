@@ -9,7 +9,7 @@ import {
   JobSourceBudgetExhaustedError,
 } from './source-budget.error'
 import { JobSourcingService, type BudgetedSource } from './job-sourcing.service'
-import { BRIDGE_FLAG_VALUES, bridgeConfig } from './bridge-flag.test-helper'
+import { BRIDGE_FLAG_VALUES, bridgeConfig, fakeBridgeLedger } from './bridge-flag.test-helper'
 
 /**
  * Backlog #61 — `chargeBudget`'s tail branch used to throw
@@ -123,7 +123,15 @@ function makeService(
     },
   } as unknown as DatabaseService
   const hrAccess = {} as unknown as HrAccessService
-  return new JobSourcingService(db, hrAccess, provider, bridgeConfig(flagOn))
+  // S6d: flag-on routes through collectViaBridge, which needs a ledger. Every case here refuses at
+  // chargeBudget before T1, so a claim/finish double is enough; the real drains are integration.
+  return new JobSourcingService(
+    db,
+    hrAccess,
+    provider,
+    bridgeConfig(flagOn),
+    flagOn ? fakeBridgeLedger({ sourceId: SOURCE_ID }) : undefined,
+  )
 }
 
 describe.each(BRIDGE_FLAG_VALUES)(

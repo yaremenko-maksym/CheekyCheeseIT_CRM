@@ -61,6 +61,18 @@ import { markExclusionDirty } from './dirty-producers'
 import { JobSourceRegistry } from './registry/job-source-registry'
 import { type TypeFilter, sourceAcceptsTrigger, typePassesFilter } from './scheduling/due-policy'
 import { resolveRegistry } from './registry/production-registry'
+import { JobRunLedger, type RunEnding } from './ownership/job-run-ledger'
+import {
+  type BridgeRun,
+  type RosterSenior,
+  bridgeResultCounts,
+  drainPostings,
+  drainSuggestions,
+  enqueueLegacyPostings,
+  markCollected,
+} from './bridge/bridge-delivery'
+import { ZeroPostingsError, bridgeEnding } from './bridge/bridge-ending'
+import { storeObservations } from './bridge/dou-store'
 
 /**
  * Job sourcing — task-job-sourcing-slice1.
@@ -178,6 +190,9 @@ export class JobSourcingService {
     @Inject(HrAccessService) private readonly hrAccess: HrAccessService,
     @Inject(JobSourceRegistry) adapters: JobSourceRegistry | DouRssProvider,
     @Optional() @Inject(ConfigService) private readonly config?: ConfigService<Env, true>,
+    // S6d: the run ledger the flag-on (bridge) path claims and finishes a DOU run through. Optional
+    // so hand-built flag-OFF specs still construct the service; the flag-on path asserts it.
+    @Optional() @Inject(JobRunLedger) private readonly ledger?: JobRunLedger,
   ) {
     this.registry = resolveRegistry(adapters)
     // Read ONCE, at construction (never per request). Absent ConfigService (hand-built specs) = OFF.
@@ -897,13 +912,164 @@ export class JobSourcingService {
    * the top of the LEGACY path (ADR 2026-10-31-dou-bridge-run-ownership D-4): until S6c/S6d the
    * bridge path is the legacy body, so both values behave identically.
    */
-  async collectSource(source: BudgetedSource): Promise<JobCollectionResultDto> {
-    return this.queueBridgeEnabled ? this.collectViaBridge(source) : this.collectLegacy(source)
+  async collectSource(source: BudgetedSource, actor?: string): Promise<JobCollectionResultDto> {
+    return this.queueBridgeEnabled
+      ? this.collectViaBridge(source, actor)
+      : this.collectLegacy(source)
   }
 
-  /** Flag ON. S6c/S6d replace this body with the run-ledger + bridge flow. */
-  private collectViaBridge(source: BudgetedSource): Promise<JobCollectionResultDto> {
-    return this.collectLegacy(source)
+  /**
+   * Flag ON — the durable bridge (ADR `2026-10-31-dou-bridge-run-ownership.md`, sections 1-2). The
+   * order, each step named by its symbol:
+   *
+   *   openCycle → claimLegacyRun (refused/busy → typed stop, ZERO units) → chargeBudget (ONE unit,
+   *   before the provider) → provider.collect → T1 enqueue → T2 store (best-effort, Q3) → T3 posting
+   *   drain → T4 suggestion drain → T5 lastCollectedAt (only after T3+T4 without a throw) →
+   *   finish in a `finally` (run-row-only LEGACY ending; `job_sources` is never written here).
+   */
+  private async collectViaBridge(
+    source: BudgetedSource,
+    actor: string | undefined,
+  ): Promise<JobCollectionResultDto> {
+    const ledger = this.ledger
+    if (ledger === undefined) {
+      throw new Error('JOB_QUEUE_BRIDGE_ENABLED is on but no run ledger is wired')
+    }
+
+    // T7 / SR-M-23: the LEGACY path refuses a reporting type before any ledger or budget write.
+    // The three guards below duplicate collectLegacy's (flag-off, already pinned); flag-on they are
+    // reachable only with a non-LEGACY/unregistered type, which the hand-built unit harness (a
+    // bare-DOU registry) cannot construct — the refusal is proven by bridge-delivery.integration.
+    // Stryker disable next-line all: see above (integration-covered, mutation-gate-integration-specs.md).
+    const kind = this.registry.get(source.type)?.contract
+    // Stryker disable next-line all: see above (integration-covered).
+    if (kind !== undefined && kind !== 'LEGACY') throw new NotLegacySourceError(source.type)
+    const provider = this.registry.legacyProvider(source.type)
+    // LANG-1: English, repo policy. The flag-off `collectLegacy` keeps its pre-existing Russian
+    // string on main (untouched); this is a new occurrence in the flag-on path.
+    // Stryker disable next-line all: see above (integration-covered).
+    if (!provider) throw new BadRequestException(`No provider for source ${source.type}`)
+
+    // The CYCLE's trigger is how the collection was initiated, not the source's trigger-mode
+    // filter: an ADMIN click carries an actor (a MANUAL cycle); the cron and any system caller
+    // carry none (a SCHEDULED cycle). `claimLegacyRun` matches the same actor against the cycle.
+    // SPEC-L-2 INVARIANT: actor presence IS the MANUAL/SCHEDULED split. Today's only callers are the
+    // cron (`collectAll()`, no actor → SCHEDULED) and `collectAllAsActor` (actor.id → MANUAL). A
+    // future caller that passes a MANUAL intent WITHOUT an actor would, flag-on, throw at `openCycle`
+    // (a manual cycle needs its actor) — deliberately loud, never a silent attribution change.
+    const triggerKey = this.bridgeTriggerKey(actor)
+    const { cycleId } = await ledger.openCycle(
+      actor !== undefined
+        ? { trigger: 'MANUAL', triggerKey, actor }
+        : { trigger: 'SCHEDULED', triggerKey },
+    )
+
+    // Claim BEFORE charge: a refused or busy claim must cost ZERO units (ADR §1, Q2). A second
+    // concurrent collection throws `JobSourceRunBusyError` from inside the claim (single-flight
+    // 23505) before the budget is touched.
+    const claim = await ledger.claimLegacyRun({
+      cycleId,
+      owner: this.bridgeOwner(),
+      sourceId: source.id,
+      // Stryker disable next-line all: spreading `{ actor: undefined }` equals spreading `{}` here
+      // (claimLegacyRun reads `.actor`, undefined either way); actor PRESENCE is asserted by the
+      // compat-barrier.spec cycle/claim orchestration test.
+      ...(actor !== undefined ? { actor } : {}),
+    })
+    if (claim.kind === 'REFUSED') {
+      throw new Error(`DOU run not claimed (${claim.reason}) — nothing fetched, zero units spent`)
+    }
+    // Stryker disable next-line all: the run handle is consumed only on the delivery path, which runs
+    // against a real DB (bridge-delivery.integration + compat-barrier.integration).
+    const run: BridgeRun = {
+      // Stryker disable next-line all: see above (integration-covered).
+      handle: {
+        runId: claim.run.runId,
+        ownerToken: claim.run.ownerToken,
+        fencingEpoch: claim.run.fencingEpoch,
+      },
+      sourceId: source.id,
+      sourceType: source.type,
+    }
+
+    // Stryker disable next-line all: the initial SUCCEEDED ending is the final value only on the
+    // integration-covered success path; every unit failure path overwrites it via bridgeEnding.
+    let ending: RunEnding = { outcome: 'SUCCEEDED', errorCode: null }
+    try {
+      await this.chargeBudget(source)
+
+      const config = (source.config ?? {}) as Record<string, unknown>
+      const postings = await provider.collect(config)
+      // Stryker disable next-line ConditionalExpression: the `true` mutant (always treat as empty)
+      // only changes the NON-empty path — the delivery/success path, which runs only against a real
+      // DB (bridge-delivery.integration / compat-barrier.integration). The empty path is asserted by
+      // compat-barrier.spec's finish-ending "zero postings -> FAILED / PARSE_DRIFT".
+      if (postings.length === 0) {
+        throw new ZeroPostingsError(
+          `Source ${source.type} returned 0 usable postings — feed format changed, source is ` +
+            'down, or every entry was rejected. lastCollectedAt left unchanged.',
+        )
+      }
+
+      // T1 — the COMPLETE array to the legacy posting consumer, before the store (ADR ordering).
+      await enqueueLegacyPostings(this.db.db, run, postings)
+      // T2 — the observation store, best-effort: a failure is logged and NEVER fails the DOU run
+      // (Q3). Its counters go through the ledger-side writer, never a direct service UPDATE.
+      await storeObservations(this.db.db, run, postings, (m) => this.logger.warn(m))
+      // T3 / T4 — the per-row drains; the roster is read ONCE per pass (AC6, O(S) not O(P×S)).
+      const { created, invalid } = await drainPostings(this.db.db, run, (m) => this.logger.warn(m))
+      const roster = await this.buildRoster()
+      const suggestionsCreated = await drainSuggestions(this.db.db, run, roster)
+
+      // T5 — fenced, only after T3 and T4 drained without a throw (the unchanged legacy rule).
+      await markCollected(this.db.db, run)
+
+      // The DTO counts (barrier parity + the CR-M-2 non-negative clamp) are derived by
+      // `bridgeResultCounts`, tested directly in bridge-delivery.unit.
+      return {
+        sourceType: source.type,
+        ...bridgeResultCounts(postings.length, created, invalid),
+        merged: 0,
+        filtered: 0,
+        suggestionsCreated,
+      }
+    } catch (err: unknown) {
+      ending = bridgeEnding(err)
+      throw err
+    } finally {
+      // A finish hiccup on an already-successful delivery must not turn it into a failure; recovery
+      // neutral-ends a still-STARTED LEGACY run later, and `lastCollectedAt` is already written.
+      try {
+        await ledger.finish(run.handle, ending)
+      } catch (finishErr: unknown) {
+        this.logger.warn(
+          `DOU run finish failed: ${finishErr instanceof Error ? finishErr.message : String(finishErr)}`,
+        )
+      }
+    }
+  }
+
+  /** The bridge run's owner token (OWNER regex: `[a-z0-9][a-z0-9._-]{0,63}`). */
+  private bridgeOwner(): string {
+    return `dou-bridge-${process.pid}`
+  }
+
+  /** `dou-bridge:(MANUAL:<actor>|SCHEDULED):<Kyiv date>` — one cycle per day shared across DOU sources. */
+  private bridgeTriggerKey(actor: string | undefined): string {
+    // Stryker disable next-line all: the timezone only shifts the day boundary of a per-day dedupe
+    // key; the key's shape (MANUAL:<actor>:<date> vs SCHEDULED:<date>) is asserted by compat-barrier.spec.
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv' }).format(new Date())
+    return actor !== undefined ? `dou-bridge:MANUAL:${actor}:${day}` : `dou-bridge:SCHEDULED:${day}`
+  }
+
+  /** The eligible seniors and each one's exclusion set, read ONCE per drain pass (AC6). */
+  private async buildRoster(): Promise<RosterSenior[]> {
+    const seniorIds = await this.findEligibleSeniorIds()
+    const roster: RosterSenior[] = []
+    for (const seniorId of seniorIds) {
+      roster.push({ seniorId, exclusions: await this.buildExclusionSet(seniorId) })
+    }
+    return roster
   }
 
   private async collectLegacy(source: BudgetedSource): Promise<JobCollectionResultDto> {
@@ -978,7 +1144,9 @@ export class JobSourcingService {
    */
   async collectAllAsActor(actor: SessionUser): Promise<JobCollectionRunDto> {
     this.assertCanManageSources(actor)
-    return this.collectAll('MANUAL')
+    // S6d: a MANUAL cycle names its actor (the ADMIN who clicked); the flag-on bridge threads it
+    // into `claimLegacyRun`, which checks it against the cycle's `requested_by`.
+    return this.collectAll('MANUAL', {}, actor.id)
   }
 
   /**
@@ -989,6 +1157,7 @@ export class JobSourcingService {
   async collectAll(
     trigger: JobSourceTriggerMode = 'SCHEDULED',
     filter: TypeFilter = {},
+    actor?: string,
   ): Promise<JobCollectionRunDto> {
     const all = await this.db.db.select().from(jobSources).where(eq(jobSources.enabled, true))
     const sources = all.filter(
@@ -1004,7 +1173,7 @@ export class JobSourcingService {
 
     for (const source of sources) {
       try {
-        results.push(await this.collectSource(source))
+        results.push(await this.collectSource(source, actor))
       } catch (err: unknown) {
         // Sanitized + capped BEFORE it can reach the response schema — a raw
         // library message is both too long for the wire contract (turning this
