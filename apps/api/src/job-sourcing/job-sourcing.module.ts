@@ -10,6 +10,7 @@ import { DouRssProvider } from './dou.provider'
 import { JobMatchReconciliationCronService } from './job-match-reconciliation.cron'
 import { JobQueueActionRetentionCronService } from './job-queue-action-retention.cron'
 import { JobSourcingController } from './job-sourcing.controller'
+import { JobSourceHealthService } from './health/job-source-health.service'
 import { JobSourcingCronService } from './job-sourcing.cron'
 import { JobSourcingService } from './job-sourcing.service'
 import { JobSourceRegistry } from './registry/job-source-registry'
@@ -51,6 +52,8 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     JobSourcingService,
     JobSourceAdminService,
     JobSourcingCronService,
+    // U4: the health detector pass, injected (optional) into the tick handler.
+    JobSourceHealthService,
     JobQueueActionRetentionCronService,
     // r5 Task 4.6 S4b: periodic reconciliation + drain of the recompute worker; flag default OFF.
     JobMatchReconciliationCronService,

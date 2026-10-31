@@ -277,6 +277,22 @@ describe('the tick (U3)', () => {
     expect(tickTriggerKey(new Date('2027-10-31T00:13:00Z'))).toBe('tick:2027-10-31T03:10')
     expect(tickTriggerKey(new Date('2027-10-31T01:13:00Z'))).toBe('tick:2027-10-31T03:10')
   })
+
+  it('U4: runs the health detector pass once at the end of the tick window, and the sweep does not', async () => {
+    const b = build({})
+    const runDetectorPass = vi.fn(async () => ({ sources: 0, eventsWritten: 0 }))
+    const svc = new JobSourcingCronService(
+      b.service as never,
+      b.ledger as never,
+      b.worker as never,
+      { get: () => 200 } as never,
+      { runDetectorPass } as never,
+    )
+    await svc.handleTick()
+    expect(runDetectorPass).toHaveBeenCalledTimes(1)
+    await svc.handleSweep()
+    expect(runDetectorPass).toHaveBeenCalledTimes(1) // the pass is tick-only, not the sweep
+  })
 })
 
 describe('the 08:00 sweep (U3)', () => {
