@@ -1,5 +1,12 @@
 import type { FetchProfile } from '../scheduling/next-slot'
 import type { EntryDefinition, PolicyDeadline, QuotaDeclaration, TypeDefinition } from './manifest'
+import { boardEntries } from './manifest.boards'
+import { ASHBY_BOARDS } from './boards/ashby.boards'
+import { GREENHOUSE_BOARDS } from './boards/greenhouse.boards'
+import { LEVER_BOARDS } from './boards/lever.boards'
+import { PERSONIO_BOARDS } from './boards/personio.boards'
+import { RECRUITEE_BOARDS } from './boards/recruitee.boards'
+import { WORKABLE_BOARDS } from './boards/workable.boards'
 import { FIXED_SLOTS_INTERVAL_MINUTES } from './manifest.fetch-profile'
 import { ARBEITNOW_SOURCE_STATUS } from './sources/arbeitnow.provider'
 import { JOBGETHER_SOURCE_STATUS } from './sources/jobgether.provider'
@@ -134,19 +141,10 @@ const kyivAt = (time: string): FetchProfile => ({
   fixedSlots: { timeZone: 'Europe/Kyiv', times: [time] },
 })
 
-/** An ATS board, hourly in its employer's working day, every 3 h outside (section 8). */
-const board = (
-  id: string,
-  config: Record<string, unknown>,
-  fixtures: readonly string[],
-  name: string,
-  timeZone: string,
-  domain: string | null = null,
-): EntryDefinition =>
-  fresh(id, config, {
-    ownership: { fixtures, name, domain },
-    fetchProfile: workingHours(timeZone, 60, 180),
-  })
+/** One map for every provider's board file: the same employer under two ATS types is refused. */
+const CLAIMED_BOARDS = new Map<string, string>()
+/** An ATS board's profile: hourly in its employer's working day, every 3 h outside (section 8). */
+const BOARD_PROFILE = (timeZone: string): FetchProfile => workingHours(timeZone, 60, 180)
 
 const blockedHtml = (type: string, provider: string): TypeDefinition => ({
   type,
@@ -338,30 +336,12 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     // ADR 6a: U10 flips this to ON_DEMAND; until then the adapter reads `content=true`.
     detailMode: 'IN_LIST',
     detailPerRun: 5,
-    entries: [
-      board(
-        'greenhouse.board.stripe',
-        { board: 'stripe' },
-        ['stripe-board.json'],
-        'Stripe',
-        'America/Los_Angeles',
-        'stripe.com',
-      ),
-      board(
-        'greenhouse.board.airbnb',
-        { board: 'airbnb' },
-        ['airbnb-board.json'],
-        'Airbnb',
-        'America/Los_Angeles',
-      ),
-      board(
-        'greenhouse.board.cloudflare',
-        { board: 'cloudflare' },
-        ['cloudflare-board.json'],
-        'Cloudflare',
-        'America/Los_Angeles',
-      ),
-    ],
+    entries: boardEntries({
+      prefix: 'greenhouse',
+      lines: GREENHOUSE_BOARDS,
+      profileFor: BOARD_PROFILE,
+      claimed: CLAIMED_BOARDS,
+    }),
   },
   {
     type: 'LEVER_ATS',
@@ -374,29 +354,12 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'BOARD',
     // Two regions, two API hosts, two data sets: each region is its own scope.
     hostKey: (config) => LEVER_HOSTS[config['region'] as keyof typeof LEVER_HOSTS],
-    entries: [
-      board(
-        'lever.board.spotify',
-        { board: 'spotify' },
-        ['spotify-page1.json', 'spotify-page2.json'],
-        'Spotify',
-        'Europe/Stockholm',
-      ),
-      board(
-        'lever.board.eu.siteimprove',
-        { board: 'siteimprove', region: 'eu' },
-        ['siteimprove-eu-board.json'],
-        'Siteimprove',
-        'Europe/Copenhagen',
-      ),
-      board(
-        'lever.board.quantco-',
-        { board: 'quantco-' },
-        ['quantco-trailing-hyphen-board.json'],
-        'QuantCo',
-        'Europe/Berlin',
-      ),
-    ],
+    entries: boardEntries({
+      prefix: 'lever',
+      lines: LEVER_BOARDS,
+      profileFor: BOARD_PROFILE,
+      claimed: CLAIMED_BOARDS,
+    }),
   },
   {
     type: 'ASHBY_ATS',
@@ -408,23 +371,12 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: 'posting-api',
     scopeKind: 'BOARD',
     hostKey: () => 'api.ashbyhq.com',
-    entries: [
-      // Both under 5 MB (linear 0.46 MB measured; supabase not measured), so the ordinary 60 / 180.
-      board(
-        'ashby.board.linear',
-        { board: 'linear' },
-        ['linear-board.json'],
-        'Linear',
-        'America/Los_Angeles',
-      ),
-      board(
-        'ashby.board.supabase',
-        { board: 'supabase' },
-        ['supabase-board.json'],
-        'Supabase',
-        'America/Los_Angeles',
-      ),
-    ],
+    entries: boardEntries({
+      prefix: 'ashby',
+      lines: ASHBY_BOARDS,
+      profileFor: BOARD_PROFILE,
+      claimed: CLAIMED_BOARDS,
+    }),
   },
   {
     type: 'WORKABLE_ATS',
@@ -438,22 +390,12 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'BOARD',
     // Every tenant is a path on ONE host (`workableAllowedHosts`), so one key for all of them.
     hostKey: () => workableAllowedHosts()[0]!,
-    entries: [
-      board(
-        'workable.board.huggingface',
-        { board: 'huggingface' },
-        ['huggingface-account.json'],
-        'Hugging Face',
-        'America/New_York',
-      ),
-      board(
-        'workable.board.hirefellows',
-        { board: 'hirefellows' },
-        ['hirefellows-account.json'],
-        'Hire Fellows',
-        'Asia/Bahrain',
-      ),
-    ],
+    entries: boardEntries({
+      prefix: 'workable',
+      lines: WORKABLE_BOARDS,
+      profileFor: BOARD_PROFILE,
+      claimed: CLAIMED_BOARDS,
+    }),
   },
   {
     type: 'SMARTRECRUITERS_ATS',
@@ -490,15 +432,12 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     // pauses every tenant; a 403 is one tenant's own answer and bans only that source (SR-M-24).
     hostKey: () => 'recruitee.com',
     banScope: 'SOURCE',
-    entries: [
-      board(
-        'recruitee.board.bunq',
-        { board: 'bunq' },
-        ['bunq-offers.json'],
-        'bunq',
-        'Europe/Amsterdam',
-      ),
-    ],
+    entries: boardEntries({
+      prefix: 'recruitee',
+      lines: RECRUITEE_BOARDS,
+      profileFor: BOARD_PROFILE,
+      claimed: CLAIMED_BOARDS,
+    }),
   },
   {
     type: 'PERSONIO_ATS',
@@ -513,22 +452,12 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     // a provider-wide limit pauses every tenant; a 403 bans only that source (SR-M-24).
     hostKey: (config) => `personio.${String(config['tld'])}`,
     banScope: 'SOURCE',
-    entries: [
-      board(
-        'personio.board.westwing',
-        { board: 'westwing', language: 'en' },
-        ['westwing-en.xml'],
-        'Westwing',
-        'Europe/Berlin',
-      ),
-      board(
-        'personio.board.personio',
-        { board: 'personio', language: 'en' },
-        ['personio-en.xml'],
-        'Personio',
-        'Europe/Berlin',
-      ),
-    ],
+    entries: boardEntries({
+      prefix: 'personio',
+      lines: PERSONIO_BOARDS,
+      profileFor: BOARD_PROFILE,
+      claimed: CLAIMED_BOARDS,
+    }),
   },
   {
     type: 'JOOBLE_API',
