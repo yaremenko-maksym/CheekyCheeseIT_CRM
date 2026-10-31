@@ -73,3 +73,23 @@ survey exceeding one context window.
 - Augment Code "When Multi-Agent AI Is Overkill" (5-gate independence; ≥3 independent modules before parallel).
 - Anthropic cookbook "orchestrator-workers" (orchestrator-worker vs fan-out vs routing).
 - Audit of the agent architecture 2026-06-22 (workflow `agent-architecture-audit`).
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+A helper heuristic if on the edge: independent? disjoint files? specifiable without another's
+in-flight output? no sequential deps? is there review bandwidth? Mostly "no" → single-pipeline. **The
+artifact decides (task files); the questions are only a hint.**
+
+---
+
+- **Procedural** (orchestrator judgment), modeled on `design-gate.md`: routing is a DECISION, not a
+  violation; a blocking hook would give a false negative on legitimate edge cases.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+- Startup-burst guard (≥5 `Agent()` in one message → 529 / CPU starvation) — procedural (the end of
+  Decision 1: waves of ≤ 3-4).

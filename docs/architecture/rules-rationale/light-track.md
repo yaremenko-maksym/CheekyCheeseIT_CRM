@@ -56,3 +56,27 @@ An agent that relies on the call timeout as its bound gets exactly the 25-hour o
 - ADR `docs/architecture/2026-06-16-agent-infra-wisdom-transfer.md` FM-1 / FM-6 / FM-7 — concurrency ceiling, `DATABASE_URL=` empty.
 - Incident 2026-07-24 + PR #403 — zombie devservers, three-layer fix.
 - Incidents 2026-09-21 / 09-24 / 09-25 — unbounded waits; origin of `pre:bash:unbounded-wait`.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+### Zombie prevention (mechanics instead of discipline)
+
+Three layers:
+
+1. Dev servers in a worktree/scratchpad start ONLY via `scripts/devops/dev-ttl.sh -- <cmd>` (TTL
+   self-destruct of the process group, default 4h);
+2. The hook `pre:bash:devserver-ttl-gate` blocks a bare `nest start` / `vite` / `pnpm dev` /
+   `node dist/main` in `.claude/worktrees/**` and the claude-scratchpad;
+3. A launchd-reaper every 30 min finishes off node processes of a worktree older than 6h or with a
+   removed worktree (install: `scripts/devops/install-devserver-reaper.sh`; dry-run:
+   `REAPER_DRY_RUN=1 scripts/devops/reap-zombie-devservers.sh`).
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+- **Heavy Coders (each boots vite+api + full Vitest) + a live UT stack** → CPU starvation →
+  pre-push timeout flakes (NOT code). Before push — sweep the zombie dev ports of finished agents:
+  `for p in 3010 3011 3014 3016 3017 3018; do lsof -ti tcp:$p; done` → kill (preserving live :3000/:3001).

@@ -187,7 +187,9 @@ function row(o: Record<string, unknown>) {
     payoutRequestId: null,
     invoiceDocumentId: null,
     salaryMonth: null,
-    txDate: null,
+    // tx_date is NOT NULL (backlog 338); a day distinct from createdAt so a test
+    // that sees createdAt instead of txDate fails.
+    txDate: new Date('2026-03-04T00:00:00Z'),
     createdAt: new Date('2026-03-05T10:00:00Z'),
     ...o,
   }
@@ -319,8 +321,8 @@ describe('InvoiceCreationService.autoCreate (via the SENIOR_INCOME / SALARY trig
         currency: 'USDT',
         projectName: 'Alpha',
         salaryMonth: null,
-        // txDate NULL -> falls back to createdAt
-        txDate: new Date('2026-03-05T10:00:00Z'),
+        // the row's own txDate, never its createdAt
+        txDate: new Date('2026-03-04T00:00:00Z'),
       },
       company: COMPANY_INFO,
       counterparty: SENIOR_INFO,
@@ -432,6 +434,7 @@ describe('InvoiceCreationService.autoCreateForPayout', () => {
       senderId: SENIOR_ID,
       receiverId: null,
       payoutRequestId: 'req-1',
+      txDate: new Date('2026-03-30T00:00:00Z'),
       createdAt: new Date('2026-03-31T10:00:00Z'),
       ...o,
     })
@@ -585,7 +588,7 @@ describe('InvoiceCreationService.autoCreateForPayout', () => {
         projectNames: ['Beta', 'Alpha'],
         contractNumber: 'CHK-123',
         salaryMonth: '2026-03',
-        txDate: new Date('2026-03-31T10:00:00Z'),
+        txDate: new Date('2026-03-30T00:00:00Z'),
       },
       company: COMPANY_INFO,
       counterparty: SENIOR_INFO,

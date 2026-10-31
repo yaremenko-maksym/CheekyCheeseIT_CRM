@@ -3,8 +3,7 @@
 **Status:** Always-on (enforcement **procedural** — orchestrator judgment, NOT a blocking hook)
 **Applies to:** Master (USER session) — the one who makes the launch decision. Executor agents do not run this tree.
 
-> Rationale, the sources behind the thresholds and the integration model's history:
-> `docs/architecture/rules-rationale/orchestration-routing.md`
+> Rationale: `docs/architecture/rules-rationale/orchestration-routing.md`
 
 ---
 
@@ -40,9 +39,7 @@ orchestration", NOT a separate artifact.
 → **otherwise** → **SINGLE-PIPELINE**: the ordinary sequential Master track (coder → review). Most
 tasks are here.
 
-A helper heuristic if on the edge: independent? disjoint files? specifiable without another's
-in-flight output? no sequential deps? is there review bandwidth? Mostly "no" → single-pipeline. **The
-artifact decides (task files); the questions are only a hint.**
+The artifact decides (task files); intuition is only a hint. Mostly "no" → single-pipeline.
 
 ### Decision 2 — code-work vs read-only breadth-first audit
 
@@ -78,14 +75,11 @@ the compounding-context tax of a fan-out. A full fan-out — only on genuine bre
 
 ## Enforcement and tracking
 
-- **Procedural** (orchestrator judgment), modeled on `design-gate.md`: routing is a DECISION, not a
-  violation; a blocking hook would give a false negative on legitimate edge cases.
+- **Procedural** (orchestrator judgment): routing is a DECISION, not a violation; no blocking hook.
 - **Tracking — in the task file / Master's notes**: a non-standard track (wave / audit) is marked with
   a `routing_decision` line — `{ track: "wave-fanout" | "audit-fanout", reason }` (like an A1 decision
   per `autonomy-levels.md`). The standard track (light-track / single-pipeline) is not logged, so as
   not to make noise.
-- Startup-burst guard (≥5 `Agent()` in one message → 529 / CPU starvation) — procedural (the end of
-  Decision 1: waves of ≤ 3-4).
 
 ## Red lines (inherited by any fan-out / workflow)
 

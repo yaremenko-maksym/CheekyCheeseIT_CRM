@@ -122,7 +122,8 @@ usdt_drop_incomes AS (
     t.id AS income_id,
     t.project_id,
     t.amount,
-    t.created_by
+    t.created_by,
+    t.tx_date
   FROM transactions t
   JOIN projects p ON p.id = t.project_id
   CROSS JOIN bounds b
@@ -187,6 +188,7 @@ SELECT
   u.project_id,
   u.amount,
   u.created_by,
+  u.tx_date,
   p.drop_id,
   COALESCE(p.drop_share_percent_override, d.drop_share_percent, 5) AS resolved_percent,
   CASE
@@ -225,14 +227,18 @@ WITH ins AS (
   INSERT INTO transactions (
     type, status, amount, currency, sender_id, sender_label, receiver_id,
     recipient_id, project_id, drop_cascade_origin, drop_share_percent,
-    drop_share_percent_source, notes, created_by, source_income_transaction_id
+    drop_share_percent_source, notes, created_by, source_income_transaction_id,
+    -- tx_date is NOT NULL since 2026-10-27_transactions_tx_date_not_null.sql. The live
+    -- writer (bookCompanyObligations, called from admin-income) gives the drop IOU the
+    -- source income's txDate, so the backfill does the same.
+    tx_date
   )
   SELECT
     'DROP_PENDING_PAYOUT', 'PENDING_PAYMENT', tgt.share_amount, 'USDT', NULL,
     'COMPANY', tgt.drop_id, tgt.drop_id, tgt.project_id, false,
     tgt.resolved_percent, tgt.percent_source,
     'Backfill 2026-08-12 (task-admin-income-drop-backfill) — historical drop IOU for admin-income ' || tgt.income_id,
-    tgt.created_by, tgt.income_id
+    tgt.created_by, tgt.income_id, tgt.tx_date
   FROM _aidb_targets tgt
   RETURNING id AS created_id, source_income_transaction_id AS income_id
 )

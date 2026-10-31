@@ -3,8 +3,7 @@
 **Status:** Always-on
 **Applies to:** All agents (Coder, AutoTest, DevOps, code-reviewer, security-reviewer, manual-qa, Master)
 
-> Rationale, why the absolute prohibition was replaced rather than tightened, and the 2026-08-18
-> wipe incident: `docs/architecture/rules-rationale/live-db-access.md`
+> Rationale: `docs/architecture/rules-rationale/live-db-access.md`
 
 ---
 
@@ -51,8 +50,7 @@ Same-named databases in them are different databases.
 - `.claude/hooks/pre-bash-live-db-guard.sh` (id `pre:bash:live-db-guard`) — blocks starting a dev
   server against the live database.
 
-All three catch **destructive** operations. A plain `psql` / `SELECT` catches nothing — and that is
-now **intentional**, not a gap: reading is allowed.
+All three catch **destructive** operations; reading is intentionally allowed.
 
 ## Related rules
 

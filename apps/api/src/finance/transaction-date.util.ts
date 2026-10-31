@@ -57,9 +57,10 @@ export function formatTransactionBusinessDate(date: Date): string {
  * A `txDate` is a date-only business value encoded at UTC midnight (see above),
  * so its own UTC month IS the business month. Every writer persists a Kyiv
  * business day and the legacy NULL rows were backfilled (backlog 338), so there
- * is no `createdAt` fallback any more. The column is still nullable in the
- * schema, so a NULL here is a broken invariant: it fails loud rather than
- * quietly filing money under some other clock's month.
+ * is no `createdAt` fallback any more. The column is NOT NULL since
+ * 2026-10-27_transactions_tx_date_not_null.sql; the guard stays for raw-SQL rows
+ * and test doubles: a NULL here is a broken invariant, so it fails loud rather
+ * than quietly filing money under some other clock's month.
  */
 export function transactionBusinessMonth(tx: { id: string; txDate: Date | null }): string {
   if (!tx.txDate) {

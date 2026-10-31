@@ -409,9 +409,11 @@ describe.skipIf(!hasDatabaseUrl())(
       })
     })
 
-    // ── backlog 338: a NULL-tx_date row floors on the Kyiv day of created_at ────
+    // ── backlog 338: a legacy row floors on the Kyiv day of created_at ─────────
+    // tx_date is NOT NULL now; a legacy row carries the value the 2026-10-25 Kyiv
+    // backfill wrote for it, i.e. resolveTransactionDate(null, created_at).
 
-    it('NULL tx_date: paying on the Kyiv day of created_at (the picker minimum) succeeds, the day before is refused', async () => {
+    it('legacy (backfilled) tx_date: paying on the Kyiv day of created_at (the picker minimum) succeeds, the day before is refused', async () => {
       await cleanup()
       const legacyPending = async (createdAt: string) => {
         const pending = await svc.createSalary(
@@ -424,10 +426,14 @@ describe.skipIf(!hasDatabaseUrl())(
           },
           ADMIN,
         )
-        // A legacy row: no business date, only the creation instant.
+        // A legacy row: no chosen business date, only the creation instant, so it
+        // holds what the backfill persisted for it.
         await dbSvc.db
           .update(transactions)
-          .set({ txDate: null, createdAt: new Date(createdAt) })
+          .set({
+            txDate: resolveTransactionDate(null, new Date(createdAt)),
+            createdAt: new Date(createdAt),
+          })
           .where(eq(transactions.id, pending.id))
         return pending.id
       }

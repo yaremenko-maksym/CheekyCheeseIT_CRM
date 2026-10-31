@@ -7,6 +7,7 @@ import { DatabaseService } from '../database/database.service'
 import { JobSourceAdminController } from './admin/job-source-admin.controller'
 import { JobSourceAdminService } from './admin/job-source-admin.service'
 import { DouRssProvider } from './dou.provider'
+import { JobMatchReconciliationCronService } from './job-match-reconciliation.cron'
 import { JobQueueActionRetentionCronService } from './job-queue-action-retention.cron'
 import { JobSourcingController } from './job-sourcing.controller'
 import { JobSourcingCronService } from './job-sourcing.cron'
@@ -51,6 +52,8 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     JobSourceAdminService,
     JobSourcingCronService,
     JobQueueActionRetentionCronService,
+    // r5 Task 4.6 S4b: periodic reconciliation + drain of the recompute worker; flag default OFF.
+    JobMatchReconciliationCronService,
     DouRssProvider,
     {
       provide: JobSourceRegistry,
@@ -81,8 +84,7 @@ import { JobRunLedger } from './ownership/job-run-ledger'
         { token: ConfigService, optional: true },
       ],
     },
-    // r5 Task 4.6 S4a: the dirty-work recompute consumer. Provided, not scheduled: S4b adds the
-    // periodic reconciliation that calls `runOnce`.
+    // r5 Task 4.6 S4a: the dirty-work recompute consumer; S4b's reconciliation cron calls `runOnce`.
     {
       provide: RecomputeWorker,
       useFactory: (db: DatabaseService) =>

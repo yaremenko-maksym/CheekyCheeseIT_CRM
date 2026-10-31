@@ -3,8 +3,7 @@
 **Status:** Always-on (enforced by hook + Reviewer)
 **Applies to:** All write-agents (Coder, AutoTest, DevOps, Architect, ui-ux-designer, manual-qa, legal) + Master (orchestrator). `code-reviewer` / `security-reviewer` — read-only to code.
 
-> Rationale, the 2026-08-17 precedent audit, the architect-zone history and why tests on hooks live
-> in the DevOps directory: `docs/architecture/rules-rationale/zone-of-write.md`
+> Rationale: `docs/architecture/rules-rationale/zone-of-write.md`
 
 ---
 
@@ -69,9 +68,7 @@ Each entry below is one zone row: **may** / **may NOT**.
 - may: `.claude/tasks/task-legal-*`, `docs/legal/**`, `.claude/knowledge/legal/**`
 - may NOT: `apps/**`, `packages/**`, `.claude/agents/**`, prod code, `.github/workflows/**`
 
-> **The AutoTest boundary runs between the test and the product code, not between directories.** The
-> danger was never that AutoTest edits specs — it is that it edits **product code** to make a test go
-> green. That is what is forbidden.
+> **The AutoTest boundary runs between the test and the product code, not between directories** — editing product code to turn a test green is what is forbidden.
 >
 > **Overlaps that are intentional, not gaps:** `ui-ux-designer` ↔ `manual-qa` both write cosmetic in
 > `apps/web/**` / `apps/landing/**` — the designer per the design spec (Mode B/D), manual-qa fixes what
@@ -92,9 +89,7 @@ In a worktree the block is lifted — the Coder _technically_ can overwrite anyt
 
 ### Verify MAIN is clean after each Coder (MANDATORY)
 
-A Coder in `isolation=worktree` on the first Write sometimes writes into the MAIN repo by an absolute
-path (it copies main-repo paths from codegraph / the task file).
-`pre-edit-write-zone-of-write.sh` does NOT catch this case. So Master MUST, after EACH finished
+The zone hook does NOT catch a Coder that writes into MAIN by an absolute path, so Master MUST, after EACH finished
 Coder, verify that the MAIN checkout is clean:
 
 ```bash
@@ -112,31 +107,18 @@ the first edit check `git -C <worktree> status`; do NOT write to main-repo absol
 
 ## Architect-specific boundaries
 
-- **Golden rules and `RULES.md`** — the Architect edits them when the inter-agent mechanics change (a
-  new hook, a new always-on rule, a new mandatory startup step). This is not "the agent's business
-  logic" but the contract of the environment in which the agent works.
-- **`.claude/settings*.json`** — the Architect's zone **by necessity**: a hook that is not registered
-  does not exist. Writing there is allowed **only** for hook registration; `permissions`,
-  `enabledPlugins`, `env` — not his.
+- **Golden rules and `RULES.md`** — the Architect edits them when inter-agent mechanics change (a new hook, an always-on rule, a mandatory startup step).
+- **`.claude/settings*.json`** — **only** hook registration; `permissions`, `enabledPlugins`, `env` are not his.
 - **`.github/workflows/**`** — only **additive\*\* process gates. Everything that touches deploy,
   build, or prod secrets stays DevOps.
 - **The Architect still does NOT rewrite** task setup / a task's business logic (Master's zone via `.claude/tasks/`).
-- **The Architect's diffs still go through review** — a zone extension changes what does not require
-  `.blocked.md`, not what does not require review.
+- The Architect's diffs still go through review.
 - **Tests on hooks:** the Architect writes in `scripts/devops/` **only**
   `check-guard-tests-exist.sh` (the meta-guard over his own hooks), `tests/test-pre-*.sh` (the
   tests on the hooks he owns) and `tests/lib/command-corpus.txt`. Everything else in
   `scripts/devops/**` — DevOps. The reverse does **not** hold: DevOps does not edit
   `.claude/hooks/**`.
-- **Why the corpus is listed** (added 2026-10-21, PR #1067): it is the input data of the hook
-  tests — `test-pre-bash-*.sh`, plus `test-hook-command-corpus.sh` and `compare-hooks-to-ref.sh`,
-  which read the same corpus and match no `test-pre-*` glob — and its own header requires rows to
-  be added whenever the shared command analyzer is touched. Splitting the data from the tests that
-  read it would put an Architect test in one PR and the rows it asserts against in someone else's.
-  The original glob simply predates anyone noticing the data file — the question was asked and
-  answered once, and is written down here so it is not re-answered differently next time. The two
-  extra readers are named deliberately: an earlier edition of this line said "and nothing else",
-  which was false and is the kind of claim that rots unnoticed.
+- Why the corpus is listed (PR #1067) and the three named readers: rationale file.
 
 If an edit goes beyond these boundaries too — `.blocked.md`, like everyone.
 
