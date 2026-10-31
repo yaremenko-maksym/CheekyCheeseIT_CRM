@@ -113,13 +113,11 @@ Narrative blocks removed verbatim from the always-on rule to cut per-request byt
   extra readers are named deliberately: an earlier edition of this line said "and nothing else",
   which was false and is the kind of claim that rots unnoticed.
 
-
 ---
 
 > **The AutoTest boundary runs between the test and the product code, not between directories.** The
 > danger was never that AutoTest edits specs — it is that it edits **product code** to make a test go
 > green. That is what is forbidden.
->
 
 ## Moved from the rule 2026-10-31
 
@@ -132,8 +130,15 @@ Narrative blocks removed verbatim from the always-on rule to cut per-request byt
   does not exist. Writing there is allowed **only** for hook registration; `permissions`,
   `enabledPlugins`, `env` — not his.
 
-
 ---
 
 - **The Architect's diffs still go through review** — a zone extension changes what does not require
   `.blocked.md`, not what does not require review.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+A Coder in `isolation=worktree` on the first Write sometimes writes into the MAIN repo by an absolute
+path (it copies main-repo paths from codegraph / the task file).
+`pre-edit-write-zone-of-write.sh` does NOT catch this case.

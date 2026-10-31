@@ -12,10 +12,7 @@
 > **An agent's session directory is derived from the agent's own identifier and is never inherited
 > from the orchestrator.**
 
-Why that is the cure: **an agent's working directory is reset to its session's directory between Bash
-calls** (a property of the harness, not a bug). So a `cd` at the start of work is **not retained**,
-and an agent that was not issued its own directory returns to the shared one on every next call. The
-reset is harmless by itself — it is harmful exactly when the session directory is shared.
+The harness resets an agent's working directory to its session directory between Bash calls, so a `cd` is not retained; harmless unless that directory is shared.
 
 In practice: a write-agent gets `isolation="worktree"`; a reviewer gets its own checkout in its own
 scratchpad, and only when it really needs one.

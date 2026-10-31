@@ -40,8 +40,7 @@ Pushed: <branch> @ <sha>          (or: Pushed: nothing — <why>)
 
 ## Break the silence
 
-- **Announce a long step before taking it.** The output that saves you is the one written before the
-  quiet part starts.
+- **Announce a long step before taking it.**
 - **Produce in pieces, and end each piece with a push.** A large file is a skeleton pushed first,
   then one section per call.
 - **Start anything long with `run_in_background: true`**, then check with **single bounded probes**
@@ -67,6 +66,4 @@ The ledger separates **cut** from **finished and silent**: a cut agent's heartbe
 - `.claude/rules/common/light-track.md` — `pre:bash:unbounded-wait`, and how to wait correctly.
 - `.claude/rules/common/agent-isolation.md` — why the worktree the work sits in is removable at all.
 - `.claude/skills/dev-flow-resilience/SKILL.md` — recovery **after** a cut (sentinel, write-then-post).
-- `.claude/rules/common/verification-integrity.md` — the `Pushed:` line generalised: assert the
-  artifact, never the exit status. A push that reported exit 0 without reaching origin is instance 2
-  of that class, and it is what this line exists to make visible.
+- `.claude/rules/common/verification-integrity.md` — the `Pushed:` line (assert the artifact, never the exit status).

@@ -7,13 +7,11 @@ Narrative blocks removed verbatim from the always-on rule to cut per-request byt
 - Not an MCP server on purpose: a second server adds its tool set to every agent's context for
   questions asked rarely. Do not register `graphify-mcp`.
 
-
 ---
 
 - Shell coverage is uneven: scripts that dispatch through variables and loops (for example
   `run-guard-tests.sh`) yield almost no edges — static extraction, not a bug. An empty answer there
   means "unknown", not "nothing calls it".
-
 
 ---
 
@@ -23,7 +21,6 @@ CLAUDE.md "MCP servers — USE FIRST" · Phase 2.5 activation of the `eslint` MC
 `docs/architecture/2026-06-03-phase2.5-deliverable.md` · ADR
 `docs/architecture/2026-05-31-ecc-migration-design.md` §2.7 (MCP configs).
 _(This rule is catalog and mechanism throughout — it has no separate rationale file.)_
-
 
 ---
 

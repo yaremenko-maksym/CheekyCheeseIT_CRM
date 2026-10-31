@@ -45,10 +45,16 @@ one (the summary). The trade is always of one form:
 
 That is why question 1 comes first: you pay for the loss only when staying costs more than you save.
 
-
 ---
 
 The hook `pre:edit-write:suggest-compact`
 (`.claude/hooks/pre-edit-write-suggest-compact.sh`) already **triggers** the thought of a compact, but
 does not say what to do. Without a tree the agent compacts by default — and gets a fresh session, confidently
 wrong about a decision the summary flattened.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+These are judgments, not gates. The value is in asking the five questions **in order** and **at the
+boundary**, not in the objectivity of each.

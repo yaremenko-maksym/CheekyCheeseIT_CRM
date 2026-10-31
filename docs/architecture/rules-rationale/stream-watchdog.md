@@ -202,15 +202,26 @@ producing half killed three of the five agents cut on 2026-10-20** — one of th
 correctly backgrounded its long command, because the silence came from the writing that followed the
 wait rather than from the wait.
 
-
 ---
 
- The 231-line canary workflow of 2026-10-20 was lost once as a single
-  compose and then completed in seven `wip:` pushes — same file, same agent role, opposite outcome.
-
+The 231-line canary workflow of 2026-10-20 was lost once as a single
+compose and then completed in seven `wip:` pushes — same file, same agent role, opposite outcome.
 
 ---
 
 The ledger is what separates **cut** from **finished and silent** without relying on anybody's
 attentiveness: a cut agent's heartbeats stop mid-stretch, and the gap between its last heartbeat and
 its death is the silence that killed it, measured rather than inferred.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+the `Pushed:` line generalised: assert the
+artifact, never the exit status. A push that reported exit 0 without reaching origin is instance 2
+of that class, and it is what this line exists to make visible.
+
+---
+
+The output that saves you is the one written before the
+quiet part starts.

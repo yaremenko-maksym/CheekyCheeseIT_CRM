@@ -71,3 +71,17 @@ Narrative blocks removed verbatim from the always-on rule to cut per-request byt
 A decision made without a line is indistinguishable from a decision that was forgotten: **the line is
 the observability**. It is the same device as the control line `Findings: … (N)` in
 `review-findings-transfer.md` — arithmetic instead of attentiveness.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+A launched reconnaissance is an unresolved premise, so only the questions **below it in the tree**
+wait, while the rest of the frontier is asked now.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+The autonomy axis does not weaken cost-of-error, it is
+built on top of it: where

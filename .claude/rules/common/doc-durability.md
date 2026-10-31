@@ -13,7 +13,6 @@ A record with a lifespan of months, written as "`mutation-gate.mjs:154`", stops 
 anyone gets to it, and **does not announce it**. Verification then costs more than the original
 finding.
 
-
 ## The rule
 
 A record with a lifespan of **more than one day** describes:

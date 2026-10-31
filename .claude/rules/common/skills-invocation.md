@@ -87,14 +87,7 @@ A `<pack>:<skill>` row can become unfulfillable when an upstream pack changes co
 nothing binds the table to what lies on disk. CI cannot catch it (runners have no operator
 `~/.claude/plugins`), so this is a **procedural** check — run it when editing this table or updating plugins:
 
-```bash
-# what the superpowers pack actually carries
-ls "$(find ~/.claude/plugins -maxdepth 6 -type d -path '*superpowers*' -name skills | head -1)"
-# what lies project-local
-ls .claude/skills/
-# all skill references in working files
-grep -rn '`[a-z-]*:\?[a-z-]*`' .claude/rules/common/skills-invocation.md
-```
+Compare `ls` of the superpowers pack's `skills` dir (under `~/.claude/plugins`), `ls .claude/skills/`, and `grep -rn` of skill references in this file.
 
 Reconcile line by line. Two catches (details: rationale file): the built-in `security-review` is a slash command, not a skill — `Skill('security-review')` resolves to the project-local one; `simplify` is a real bundled skill, so it stays prefix-less.
 

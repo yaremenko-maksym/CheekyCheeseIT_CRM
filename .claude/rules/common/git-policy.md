@@ -53,8 +53,6 @@ is spelled out in the hook's header — read it **before** adding a fourth.
 A branch that honestly has nothing to verify (screenshots, notes) has two answers, both an assertion
 rather than a bypass: `wip:` in the commit subject, or `ac_verified: n/a (<why>)`.
 
-Test: `scripts/devops/tests/test-pre-bash-coder-push-gate.sh` (28 cases, by execution).
-
 ## Prettier pre-push gate (catch formatting BEFORE push)
 
 Claude PreToolUse:Bash hook `.claude/hooks/pre-bash-prettier-gate.sh` (id `pre:bash:prettier-gate`)

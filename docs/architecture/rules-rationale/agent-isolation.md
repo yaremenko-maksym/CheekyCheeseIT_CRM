@@ -248,7 +248,6 @@ The built-in protection is **only git-specific and only for isolated agents**. A
 is protected by nothing, and file and process operations are not covered at all. These three holes
 are closed by `pre:bash:cross-agent-blast`.
 
-
 ---
 
 A **literal** path, and a name of your own (`co-pr1024`, not `checkout`): the scratchpad is shared,
@@ -256,7 +255,6 @@ so `checkout` is a name your siblings use too, and only a literal path can be re
 (rule 6). Not in another agent's working directory and not in a shared checkout. The hook does not block
 reading a foreign tree, but it is still a bad idea: the tree of a live agent changes under you, and
 you will not see it.
-
 
 ---
 
@@ -283,13 +281,11 @@ cannot say whose directory it is; an opaque path gets the refusal `WORKTREE-OPAQ
 batch — expand (`echo "$w"`) and remove one by one: then the foreign directory will be named by name,
 not wiped.
 
-
 ---
 
 The smoke test first does `bash -n` on both hooks and requires of a blocked case not only exit code 2
 but also the body `{"decision":"block"}`: a syntax error in a hook also gives exit code 2 and is
 otherwise indistinguishable from an honest block.
-
 
 ---
 
@@ -313,3 +309,12 @@ Narrative blocks removed verbatim from the always-on rule to cut per-request byt
 - 6 — The same hook, predicates `WORKTREE-REMOVE` / `WORKTREE-PRUNE` / `WORKTREE-OPAQUE` / `WORKTREE-UNRECORDED` — A refusal at the moment of the command. `OPAQUE` — "the path is not a literal, ownership is not verifiable"; `UNRECORDED` — "the path is in the shared scratchpad and no record ties it to you": both distinguish "could not verify" from "verified"
 - 7 — There is no mechanic (the agent may not notice the loss) → **a mandatory line in the report** — An agent's report without a `Worktree: <path> (verified)` line = the reconciliation was not done. The absence is visible to Master at acceptance
 - 8 — The same report line — Same
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+Why that is the cure: **an agent's working directory is reset to its session's directory between Bash
+calls** (a property of the harness, not a bug). So a `cd` at the start of work is **not retained**,
+and an agent that was not issued its own directory returns to the shared one on every next call. The
+reset is harmless by itself — it is harmful exactly when the session directory is shared.

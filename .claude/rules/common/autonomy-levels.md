@@ -27,17 +27,13 @@ owner, but **not every one** must he see personally: next — the classifier.
 | **A2 — accumulate and ask** | Irreversible, but **does not block** the rest of the work. Or reversible, but the redo is expensive                                              | Finishes everything that does not depend on the answer. Puts the question in a **decision brief**. At the end of the phase — one batch in one message |
 | **A3 — stop**               | Irreversible **and** blocking. Money, prod data, legal, publication outward, deletion, everything from critical-path zones (`contracts.md` §2.1) | Asks immediately, no auto-acceptance. **Only this branch** stalls; neighbouring frontier tasks go on                                                  |
 
-**Critical-path zones automatically give A3.** The autonomy axis does not weaken cost-of-error, it is
-built on top of it: where critical-path zones (`contracts.md` §2.1) require a security-reviewer, a
+**Critical-path zones automatically give A3.** Where critical-path zones (`contracts.md` §2.1) require a security-reviewer, a
 decision cannot be A1.
 
 **In doubt between A1 and A2 — take A2.** In doubt between A2 and A3 — take A3. An error toward the
 question costs a delay; an error the other way costs a rollback.
 
 ## The subtree is blocked, not the session
-
-A launched reconnaissance is an unresolved premise, so only the questions **below it in the tree**
-wait, while the rest of the frontier is asked now.
 
 With questions to the owner it is the same. A3 stops the branch depending on the answer — not the
 whole task, and certainly not neighbouring tasks. An agent that stalled entirely because of one A3
@@ -80,8 +76,6 @@ Format rules:
 | The PR body has an "Assumptions" block with exactly these lines                   | code-reviewer                     |
 | The decision brief has no question answerable by a command                        | the brief's author before sending |
 | The whole task stalled on one A3 question, though there were independent branches | Master during monitoring          |
-
-
 
 ## What this does NOT change
 

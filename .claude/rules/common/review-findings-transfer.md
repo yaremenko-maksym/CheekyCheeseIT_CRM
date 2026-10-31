@@ -11,7 +11,7 @@
 
 The review → fix-task channel had no gate and rested on attentiveness; it failed (PR #504).
 
-The rule "all H/M/L findings are resolved before merge" (`contracts.md`) covers the *result*; this file covers the *channel* — a lost finding is not in the list that gets reconciled.
+The rule "all H/M/L findings are resolved before merge" (`contracts.md`) covers the _result_; this file covers the _channel_ — a lost finding is not in the list that gets reconciled.
 
 ---
 
@@ -91,5 +91,4 @@ A mismatch is not "probably a trifle" but an unclosed finding until proof to the
 - `.claude/rules/common/agent-isolation.md` — an adjacent channel without a gate (the same family of defects).
 - `.claude/skills/code-review-discipline/SKILL.md` §7 — how to number when writing a review.
 - `.claude/agents/contracts.md` §4 — aggregate verdict; "all H/M/L closed before merge" (the result, not the channel).
-- `.claude/rules/common/verification-integrity.md` — the `Findings: … (N)` control line generalised:
-  an assertion a reader can check in one command, in place of a claim they must believe.
+- `.claude/rules/common/verification-integrity.md` — the `Findings: … (N)` line as a checkable assertion.

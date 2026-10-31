@@ -89,9 +89,7 @@ In a worktree the block is lifted — the Coder _technically_ can overwrite anyt
 
 ### Verify MAIN is clean after each Coder (MANDATORY)
 
-A Coder in `isolation=worktree` on the first Write sometimes writes into the MAIN repo by an absolute
-path (it copies main-repo paths from codegraph / the task file).
-`pre-edit-write-zone-of-write.sh` does NOT catch this case. So Master MUST, after EACH finished
+The zone hook does NOT catch a Coder that writes into MAIN by an absolute path, so Master MUST,So Master MUST, after EACH finished
 Coder, verify that the MAIN checkout is clean:
 
 ```bash

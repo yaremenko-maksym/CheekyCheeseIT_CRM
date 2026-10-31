@@ -53,8 +53,6 @@ does not, the effect is achieved by choosing the tier — do not invent a separa
 - `security-reviewer` — **haiku** for text-only/low-logic migrations (checklist); **sonnet**/**opus** only for a really risky surface (new auth logic, money movement, crypto contracts)
 - **Mechanical re-check** of one closed finding — **haiku** — a reconciliation of a fact, not judgment
 
-- The orchestrator verifies the aggregate itself: a cheap reviewer + orchestrator reconciliation is
-  cheaper than an expensive reviewer.
 - **Authoring vs review:** generating a quality bilingual catalog — `sonnet`. **Review/verification**
   (checking against the list that there are no Russianisms) is mechanics, carried by `haiku`.
 - Haiku in the re-check row reconciles **the execution of a concrete item**; it does not issue the
@@ -109,15 +107,7 @@ Tier by `/model`: Fable 5 — audits, architecture; Opus 4.8 — orchestration a
 
 ## The orchestrator's token diet
 
-The expensive thing is not the intellect, but **the number of turns × the context size**.
-
-- The orchestrator's model: a loop/orchestration day — **Opus**; Fable — audit/architecture/complex debug
-- CI/deploy monitors — **Only terminal events**: one output on completion (result + head + `mergeStateStatus`), not on every check
-- A non-terminal event — **Do not answer with text.** An "I'm waiting" turn is an error, not politeness
-- A fix round for a coder — **≤ ~10 findings**; more — 2–3 coders by file groups (disjoint)
-- Agent mechanics — **haiku** + an auto-gate: merge `origin/main`, cleanup, edits by an exact list
-- Delta review rounds — copy-reviewer on the **delta** (checking its own findings are closed) — `model="sonnet"`; the first copy round and any security round — Opus
-- Permanent context — The orchestrator's memory index — compact: closed projects older than a quarter into an archive file not loaded into the session
+Cost = turns × context size. Loop/orchestration day — Opus; Fable only for audit/architecture/complex debug. CI/deploy monitors emit only terminal events (result + head + `mergeStateStatus`); a non-terminal event gets no text turn. A coder fix round ≤ ~10 findings (more → 2–3 coders by disjoint file groups). Agent mechanics — haiku. Delta review rounds — copy-reviewer on the delta, `model="sonnet"`; the first copy round and any security round — Opus. Keep the orchestrator's memory index compact (closed projects older than a quarter go to an archive file).
 
 ## How we know it is violated
 

@@ -1,8 +1,6 @@
 # Rule: An instrument that did not look reports nothing, not a negative
 
-**Status:** Always-on. Half of it is mechanised: the **advisory** hook
-`pre:bash:swallowed-failure` (never refuses). The rest is procedural — see "How we know it is
-violated".
+**Status:** Always-on. Mechanised in part: the **advisory** hook `pre:bash:swallowed-failure` (never refuses); the rest is procedural.
 **Applies to:** every agent and the orchestrator — anyone who reads a command's result and acts on it.
 This is the one rule that binds the reader of an output, not the writer of a file.
 
@@ -64,8 +62,7 @@ silence into a positive finding.
 
 1. **`producer 2>/dev/null | counter`.** The producer's error went to the discarded channel; the
    counter counted an empty input and printed `0`. **`0` means both "nothing matched" and "nothing
-   was read", and the two are not distinguishable at the consumer.** Read as "the symbol is absent"
-   when the truth was "the file was never opened".
+   was read", and the two are not distinguishable at the consumer.**
 2. **`grep -c` inside an `&&` chain.** `grep` exits non-zero when it matches nothing — **`-c` does
    not change that**, so `grep -c` prints `0` _and_ fails. Inside an `&&` chain that terminates it:
    everything after silently does not run, and the absence of output reads as "nothing to report".
@@ -109,8 +106,7 @@ missing.
 | A number offered as proof of an absence comes with proof the input was read                      | reviewer                       |
 | A wait that ended on an absence proves the thing had started                                     | the author, before reporting   |
 
-A claim without its assertion is indistinguishable from a claim that was never checked — which is
-the defect itself, one level up.
+A claim without its assertion is indistinguishable from a claim never checked.
 
 ## The mechanism: `pre:bash:swallowed-failure` (advisory)
 

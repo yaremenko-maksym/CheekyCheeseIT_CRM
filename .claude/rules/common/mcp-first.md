@@ -75,4 +75,3 @@ graphify is an **addition**: built locally, code-only, by `scripts/devops/build-
 
 - `.claude/rules/common/eslint-mcp-first.md` — details of the ESLint MCP replacement for the post-edit hook.
 - Superpowers skills invocation — `.claude/rules/common/skills-invocation.md`.
-

@@ -60,8 +60,7 @@ Everything but "continue" turns the **primary source** (the session as it was) i
   visible in the logs.
 - A `/clear` before a phase that then re-asks what was already decided — a lost primary source.
 
-These are judgments, not gates. The value is in asking the five questions **in order** and **at the
-boundary**, not in the objectivity of each.
+These are judgments, not gates: ask the five questions **in order** and **at the boundary**.
 
 ## Related rules
 

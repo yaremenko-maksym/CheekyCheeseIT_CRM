@@ -91,14 +91,13 @@ code reached CI and reddened #259 / #261 / #263.
 
 Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
 
- It is a PreToolUse hook rather than husky because
+It is a PreToolUse hook rather than husky because
 in a fresh `isolation=worktree` worktree the husky hooks are silently skipped (`.husky/_/` gitignored,
 generated only on `pnpm install`).
 
-
 ---
 
- Same reason as above:
+Same reason as above:
 in a fresh worktree the pre-commit `lint-staged → prettier --write` is silently skipped.
 
 ## Moved from the rule 2026-10-31
@@ -109,3 +108,9 @@ The pre-push hook
 runs tests; without a scope the integration specs connect to the libpq default (the live `crm_db`!)
 and may (a) fail on a missing QA fixture, (b) theoretically touch USER's UT data, (c) catch a CPU
 timeout under load. An empty `DATABASE_URL` → integration specs graceful-skip, the push is safe.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+Test: `scripts/devops/tests/test-pre-bash-coder-push-gate.sh` (28 cases, by execution).

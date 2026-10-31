@@ -70,8 +70,6 @@ the compounding-context tax of a fan-out. A full fan-out — only on genuine bre
   a `routing_decision` line — `{ track: "wave-fanout" | "audit-fanout", reason }` (like an A1 decision
   per `autonomy-levels.md`). The standard track (light-track / single-pipeline) is not logged, so as
   not to make noise.
-- Startup-burst guard (≥5 `Agent()` in one message → 529 / CPU starvation) — procedural (the end of
-  Decision 1: waves of ≤ 3-4).
 
 ## Red lines (inherited by any fan-out / workflow)
 

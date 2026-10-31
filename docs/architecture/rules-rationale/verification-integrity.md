@@ -436,7 +436,6 @@ Narrative blocks removed verbatim from the always-on rule to cut per-request byt
 Eight instances in one day, across agents and the orchestrator alike. They are not eight bugs. They
 are two shapes, and the shapes need different answers:
 
-
 ---
 
 **Two instruments in this repo already draw the line**, and they are the model for both halves. The
@@ -445,7 +444,6 @@ _the run did not complete, so nothing was verified._ It did not infer a pass fro
 `ensure-node.sh` refuses outright rather than falling back to the wrong Node, on the stated grounds
 that a loud refusal is an acceptable failure mode while **a green gate on the wrong runtime is not**.
 Everything below is that line, generalised.
-
 
 ---
 
@@ -461,7 +459,6 @@ is one step earlier and one `--amend` cheaper than discovering it in `git show -
 first to prevent and the second to assert. Fetching first does not help either: a sibling's commit
 reached through the shared local ref is already an ancestor, so nothing is behind-upstream.
 
-
 ---
 
 **The project already owns this device**, unnamed, in the `Pushed: <branch> @ <sha>` line required by
@@ -473,7 +470,6 @@ the whole of (B):
 
 > **State the artifact, not the outcome.** A sentence a reader can check in one command beats a
 > sentence they have to believe.
-
 
 ---
 
@@ -498,7 +494,6 @@ do not throw away the error.
 
 ---
 
-
 ---
 
 Form 1 and the zsh trap **are** mechanised, because the first attempt to reject a gate here rested on
@@ -508,7 +503,6 @@ occurs **twice in `scripts/`, `.github/` and `.claude/hooks/`** — and **8 time
 **3 are shapes this hook would actually report** (two of them vendored under `skills/ecc/`). One of the two in the
 first set was a latent defect of exactly this shape in one of our own guards. Both commands and both
 figures are in the rationale, so the numbers can be re-run.
-
 
 ---
 
@@ -522,9 +516,9 @@ an authored script are **not** covered; the rationale says why and what would co
 
 Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
 
-   The earlier half of the chain had already taken effect, which is what makes this one dangerous
-   rather than merely confusing. (`wc -l` is **not** like this — it exits 0 on empty input. The
-   hazard there is the `0` itself, form 1, not the status.)
+The earlier half of the chain had already taken effect, which is what makes this one dangerous
+rather than merely confusing. (`wc -l` is **not** like this — it exits 0 on empty input. The
+hazard there is the `0` itself, form 1, not the status.)
 
 ## Moved from the rule 2026-10-31
 
@@ -532,3 +526,23 @@ Narrative blocks removed verbatim from the always-on rule to cut per-request byt
 
 - `.claude/rules/common/stream-watchdog.md` — the `Pushed: <branch> @ <sha>` line: this device, applied to durability.
 - `.claude/rules/common/review-findings-transfer.md` — the `Findings: … (N)` control line: this device, applied to a channel.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+**Status:** Always-on. Half of it is mechanised: the **advisory** hook
+`pre:bash:swallowed-failure` (never refuses). The rest is procedural — see "How we know it is
+violated".
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+was read", and the two are not distinguishable at the consumer.** Read as "the symbol is absent"
+when the truth was "the file was never opened".
+
+---
+
+A claim without its assertion is indistinguishable from a claim that was never checked — which is
+the defect itself, one level up.

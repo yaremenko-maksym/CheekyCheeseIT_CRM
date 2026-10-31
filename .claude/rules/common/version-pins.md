@@ -70,9 +70,7 @@ comments** — link here.
 - **Do NOT change the Node major version** without an explicit DevOps task + CI matrix update.
 - **Do NOT replace Fastify with Express** in the API — `@nestjs/platform-fastify` baseline + helmet/CORS integration.
 - **Do NOT widen `@rgrove/parse-xml` to a range, and do NOT bump it on green CI** — the pin carries a
-  security verdict that green CI does not re-derive. It also makes **Node ≥ 22.12** a hard floor
-  _inside_ the Node 22 line: a drop below that minor is not covered by the "major version" rule above
-  and fails at runtime.
+  security verdict that green CI does not re-derive. Node ≥ 22.12 is a hard floor inside the Node 22 line.
 
 ## Why these pins
 

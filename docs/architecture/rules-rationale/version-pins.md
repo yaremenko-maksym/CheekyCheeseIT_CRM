@@ -143,10 +143,17 @@ Narrative blocks removed verbatim from the always-on rule to cut per-request byt
   version and the ISC licence, so a silent bump or a licence change fails a test instead of going
   unnoticed.
 
-
 ---
 
 Exact rather than a caret range because the adoption verdict rests on **one fact a minor release
-  could remove**: the library never parses the internal subset of a `<!DOCTYPE>`, so XXE and entity
-  expansion are unreachable by absence of capability rather than by a default. Read the changelog
-  before any bump; do not bump on green CI.
+could remove**: the library never parses the internal subset of a `<!DOCTYPE>`, so XXE and entity
+expansion are unreachable by absence of capability rather than by a default. Read the changelog
+before any bump; do not bump on green CI.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+It also makes **Node ≥ 22.12** a hard floor
+_inside_ the Node 22 line: a drop below that minor is not covered by the "major version" rule above
+and fails at runtime.

@@ -124,7 +124,6 @@ Narrative blocks removed verbatim from the always-on rule to cut per-request byt
   Opus before the cycle starts.
 - **Sonnet 4.6** — the light track: docs, small edits, routine operations.
 
-
 ---
 
 The catch: the tier aliases (`sonnet`/`opus` in `Agent()` and in frontmatter) resolve to the
@@ -136,7 +135,6 @@ The catch: the tier aliases (`sonnet`/`opus` in `Agent()` and in frontmatter) re
   subagents), NOT by a dispatch parameter (the enum accepts only tier aliases). Keep the default on
   4.x; 5+/fable deliberately and rarely.
 
-
 ---
 
 A turn of the orchestrator whose body is one sentence "waiting for …" after a monitor event; a
@@ -144,3 +142,24 @@ monitor with an `echo` on every check; a fix-task with a control line `(N)` at N
 splitting; a loop-mode session on Fable (visible in the model menu). Checked by eye over the
 transcript — there is no gate, and none is needed: the cost of a violation is counted in tokens
 after the fact, not caught before.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+The expensive thing is not the intellect, but **the number of turns × the context size**.
+
+- The orchestrator's model: a loop/orchestration day — **Opus**; Fable — audit/architecture/complex debug
+- CI/deploy monitors — **Only terminal events**: one output on completion (result + head + `mergeStateStatus`), not on every check
+- A non-terminal event — **Do not answer with text.** An "I'm waiting" turn is an error, not politeness
+- A fix round for a coder — **≤ ~10 findings**; more — 2–3 coders by file groups (disjoint)
+- Agent mechanics — **haiku** + an auto-gate: merge `origin/main`, cleanup, edits by an exact list
+- Delta review rounds — copy-reviewer on the **delta** (checking its own findings are closed) — `model="sonnet"`; the first copy round and any security round — Opus
+- Permanent context — The orchestrator's memory index — compact: closed projects older than a quarter into an archive file not loaded into the session
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+- The orchestrator verifies the aggregate itself: a cheap reviewer + orchestrator reconciliation is
+  cheaper than an expensive reviewer.

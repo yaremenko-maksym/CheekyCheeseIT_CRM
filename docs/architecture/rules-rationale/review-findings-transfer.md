@@ -79,7 +79,6 @@ aggregate verdict in `contracts.md`) is **not duplicated** here: it is about the
 left unclosed), while this file is about the _channel_ (nothing lost along the way). A lost finding
 passes the first rule unnoticed, because it is simply not in the list that gets reconciled.
 
-
 ---
 
 **Decision: the arithmetic reconciliation above + the `Findings:` control line, which makes that
@@ -93,3 +92,10 @@ Narrative blocks removed verbatim from the always-on rule to cut per-request byt
 
 We have gates on code, tests, guards, measurements — and not one on "all review findings reached the
 task". The review → fix-task channel rested on attentiveness, and it failed.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+the `Findings: … (N)` control line generalised:
+an assertion a reader can check in one command, in place of a claim they must believe.

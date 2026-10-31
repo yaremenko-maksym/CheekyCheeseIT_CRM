@@ -122,7 +122,6 @@ A skill's `description` must stay within the operator's `skillListingMaxDescChar
 it is silently cut in the listing — so the description cannot be relied on to carry a full trigger,
 and this mapping is not derivable from the listing.
 
-
 ---
 
 Reconcile line by line. Two catches that change the answer:
@@ -134,7 +133,6 @@ Reconcile line by line. Two catches that change the answer:
    unambiguously to our project-local `.claude/skills/security-review/`.
 2. **`simplify` is a real bundled skill** (`skills/bundled/simplify.ts`), so the prefix-less
    reference in the trigger table is correct and must not be "fixed" to a pack prefix.
-
 
 ---
 
@@ -149,3 +147,16 @@ Narrative blocks removed verbatim from the always-on rule to cut per-request byt
 1. `.claude/skills/<name>/SKILL.md` — invocable knowledge primitives.
 2. `.claude/agents/<agent>.md` — per-agent workflow / golden rules / mandatory tables.
 3. `.claude/rules/common/*.md` — cross-cutting standards (this file and its neighbours).
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+```bash
+# what the superpowers pack actually carries
+ls "$(find ~/.claude/plugins -maxdepth 6 -type d -path '*superpowers*' -name skills | head -1)"
+# what lies project-local
+ls .claude/skills/
+# all skill references in working files
+grep -rn '`[a-z-]*:\?[a-z-]*`' .claude/rules/common/skills-invocation.md
+```

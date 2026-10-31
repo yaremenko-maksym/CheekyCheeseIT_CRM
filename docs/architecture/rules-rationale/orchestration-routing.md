@@ -92,8 +92,14 @@ the whole repo"):
 The engine — the Workflow tool OR `superpowers:dispatching-parallel-agents`. This is the ONLY case
 with genuinely new value over Master's direct dispatch.
 
-
 ---
 
 - **Procedural** (orchestrator judgment), modeled on `design-gate.md`: routing is a DECISION, not a
   violation; a blocking hook would give a false negative on legitimate edge cases.
+
+## Moved from the rule 2026-10-31
+
+Narrative blocks removed verbatim from the always-on rule to cut per-request bytes. Nothing normative was removed.
+
+- Startup-burst guard (≥5 `Agent()` in one message → 529 / CPU starvation) — procedural (the end of
+  Decision 1: waves of ≤ 3-4).
