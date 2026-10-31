@@ -382,6 +382,23 @@ describe('detectStaleFeed', () => {
     const runs = [run({ startedAt: NOW, newestItemPublishedAt: null })]
     expect(detectStaleFeed(snap(runs, { freshnessMaxAgeMs: DAY_MS }))).toEqual([])
   })
+
+  it('finds the true maximum even when it sits in the middle of the run list', () => {
+    // The freshest item (1 day old) is neither first nor last; with a 2-day allowance it is fresh,
+    // so no stale. Picking the first, the last, or the minimum instead would all read as stale.
+    const runs = [
+      run({ startedAt: NOW, newestItemPublishedAt: new Date(NOW.getTime() - 5 * DAY_MS) }),
+      run({
+        startedAt: new Date(NOW.getTime() - DAY_MS),
+        newestItemPublishedAt: new Date(NOW.getTime() - 1 * DAY_MS),
+      }),
+      run({
+        startedAt: new Date(NOW.getTime() - 2 * DAY_MS),
+        newestItemPublishedAt: new Date(NOW.getTime() - 3 * DAY_MS),
+      }),
+    ]
+    expect(detectStaleFeed(snap(runs, { freshnessMaxAgeMs: 2 * DAY_MS }))).toEqual([])
+  })
 })
 
 describe('detectBoardGone', () => {

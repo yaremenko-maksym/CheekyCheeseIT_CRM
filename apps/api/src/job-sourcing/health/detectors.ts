@@ -98,8 +98,8 @@ export function detectSilence(s: HealthSnapshot): readonly HealthReason[] {
   if (withCreated.length < 2) return []
   // newest first; the gap between each consecutive pair of new-item runs.
   const gaps = withCreated
-    .slice(0, -1)
-    .map((r, i) => r.startedAt.getTime() - withCreated[i + 1]!.startedAt.getTime())
+    .slice(1)
+    .map((r, i) => withCreated[i]!.startedAt.getTime() - r.startedAt.getTime())
   // `withCreated.length >= 2` guarantees at least one gap, so the median is a number.
   const medianGap = median(gaps)!
   if (medianGap <= 0) return []
@@ -124,8 +124,9 @@ export function detectEmptyResponse(s: HealthSnapshot): readonly HealthReason[] 
   const recentAllEmpty = base
     .slice(0, HEALTH_THRESHOLDS.emptyResponseRuns)
     .every((r) => r.received === 0)
-  const baseline = median(base.map((r) => r.received))
-  return recentAllEmpty && baseline !== null && baseline > 0 ? ['EMPTY_RESPONSE'] : []
+  // `base` is non-empty here (the guard above), so the median is a number.
+  const baseline = median(base.map((r) => r.received))!
+  return recentAllEmpty && baseline > 0 ? ['EMPTY_RESPONSE'] : []
 }
 
 /**
@@ -172,30 +173,29 @@ export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[]
   // `runs` are finished, so every duration is a number (no null branch to leave untested).
   const duration = (r: RunFact): number => r.endedAt!.getTime() - r.startedAt.getTime()
   const medianDuration = median(runs.map(duration).filter((d) => d > 0))
-  // Stryker disable next-line ConditionalExpression: when there is no positive-duration history the
-  // median is null, but then the latest run's own duration is 0 too (all runs instant), so
-  // `0 > 3 * 0` is false and dropping this guard changes nothing.
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: a null median means no
+  // positive-duration history, and then the latest run's own duration is 0 too, so the guard's
+  // bypass yields `0 > 0` = false — no observable effect. Only the `>` comparison is behavioural,
+  // and it is pinned by the 3x-boundary and zero-duration tests.
   if (
     medianDuration !== null &&
     duration(latest) > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianDuration
-  ) {
+  )
     reasons.push('SLOW')
-  }
 
   const medianBytes = median(
     runs.map((r) => r.bytesRead).filter((b): b is number => b !== null && b > 0),
   )
-  // Stryker disable next-line ConditionalExpression: a null latest `bytesRead` coerces to 0 in the
-  // comparison (`null > x` is false for x > 0), so this guard has no observable effect; the
-  // `medianBytes !== null` guard beside it DOES (a latest with bytes but no byte history), and is
-  // pinned by a test.
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: a null latest `bytesRead`
+  // coerces to 0 (`null > x` is false), and a null median means no positive-byte history — which,
+  // since the latest is itself in `runs`, implies the latest had no bytes either, so both null
+  // guards are unobservable. The `>` comparison is behavioural and is pinned by a test.
   if (
     latest.bytesRead !== null &&
     medianBytes !== null &&
     latest.bytesRead > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianBytes
-  ) {
+  )
     reasons.push('PAYLOAD_GROWTH')
-  }
   return reasons
 }
 
@@ -205,11 +205,12 @@ export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[]
  */
 export function detectStaleFeed(s: HealthSnapshot): readonly HealthReason[] {
   if (s.freshnessMaxAgeMs === null) return []
-  const newest = answered(s)
+  const seen = answered(s)
     .map((r) => r.newestItemPublishedAt)
     .filter((d): d is Date => d !== null)
-    .reduce<Date | null>((max, d) => (max === null || d > max ? d : max), null)
-  if (newest === null) return []
+  if (seen.length === 0) return []
+  // The freshest item across every run (no null-seeded accumulator — `seen` is non-empty).
+  const newest = seen.reduce((a, b) => (a > b ? a : b))
   return s.now.getTime() - newest.getTime() > s.freshnessMaxAgeMs ? ['STALE_FEED'] : []
 }
 
