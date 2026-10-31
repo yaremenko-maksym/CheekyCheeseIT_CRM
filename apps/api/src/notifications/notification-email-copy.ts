@@ -273,6 +273,7 @@ const BODIES: {
           source: s.name,
           state: s.state,
           // A zero is not a fact worth a clause in a healthy source's line.
+          // Stryker disable next-line StringLiteral: the ICU select branches only on 'yes'; 'no' and '' both take `other` and render byte-identical text in uk and en (checked with renderMessage).
           hasChanges: s.transitions > 0 ? 'yes' : 'no',
           transitions: s.transitions,
           runs: s.runs,

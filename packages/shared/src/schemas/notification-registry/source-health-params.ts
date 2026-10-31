@@ -5,20 +5,18 @@ import type { Locale } from '../../i18n'
  * two surfaces cannot word the same event differently.
  */
 
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
-
 /**
  * A day for people, by the reader's locale (`26 жовтня` / `October 26`), never raw ISO.
- * A bare `YYYY-MM-DD` is already a Kyiv calendar date and is formatted as written; an instant is
- * placed on the Kyiv calendar first (the company's day, as the 09:00 report and the email cap use).
+ * Always placed on the Kyiv calendar (the company's day, as the 09:00 report and the email cap use).
+ * A bare `YYYY-MM-DD` parses as UTC midnight, which is 02:00 or 03:00 of the SAME date in Kyiv, so
+ * one path serves both a date and an instant.
  */
 export function formatDay(value: string, locale: Locale): string {
-  const dateOnly = DATE_ONLY.test(value)
   return new Intl.DateTimeFormat(locale, {
     day: 'numeric',
     month: 'long',
-    timeZone: dateOnly ? 'UTC' : 'Europe/Kyiv',
-  }).format(new Date(dateOnly ? `${value}T00:00:00Z` : value))
+    timeZone: 'Europe/Kyiv',
+  }).format(new Date(value))
 }
 
 export interface SourceAlertFacts {
@@ -31,7 +29,7 @@ export interface SourceAlertFacts {
 /**
  * Parameters of the alert sentence. `hasCount` selects the branch (like `hasProject` elsewhere in
  * the registry): the CAPPED sentence names the failure count and the day they began only when the
- * event carried both.
+ * event carried BOTH.
  */
 export function sourceAlertParams(d: SourceAlertFacts, locale: Locale) {
   const counted = d.failures != null && d.since != null

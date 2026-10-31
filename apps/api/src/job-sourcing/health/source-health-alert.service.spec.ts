@@ -154,6 +154,23 @@ describe('SourceHealthAlertService.alertOnTransition', () => {
     }
   })
 
+  it('a racing duplicate of a DEGRADED/SCHEMA_DRIFT entry is recognised by its reason too', async () => {
+    const dup = harness({ before: { state: 'DEGRADED', reason: 'SCHEMA_DRIFT' } })
+    await dup.service.alertOnTransition(
+      dup.tx,
+      transition({ to: { state: 'DEGRADED', reason: 'SCHEMA_DRIFT' } }),
+    )
+    expect(dup.createManyInTx).not.toHaveBeenCalled()
+
+    // From DEGRADED for another reason, entering schema drift IS an entry.
+    const entry2 = harness({ before: { state: 'DEGRADED', reason: 'SLOW' } })
+    await entry2.service.alertOnTransition(
+      entry2.tx,
+      transition({ to: { state: 'DEGRADED', reason: 'SCHEMA_DRIFT' } }),
+    )
+    expect(entry2.createManyInTx).toHaveBeenCalledTimes(1)
+  })
+
   it('trusts the log under the lock, not the pass: a first-ever event into a bad state is an entry', async () => {
     const h = harness({ before: null })
     await h.service.alertOnTransition(h.tx, transition({ to: { state: 'EMPTY', reason: null } }))
