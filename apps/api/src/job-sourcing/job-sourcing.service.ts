@@ -1122,7 +1122,8 @@ export class JobSourcingService {
         enabled: row.enabled,
         triggerMode: row.triggerMode,
         lastCollectedAt: row.lastCollectedAt?.toISOString() ?? null,
-        minIntervalHours: row.minIntervalHours,
+        // `minIntervalHours` dropped from the DTO in U7 (stale since U1b); the cadence is now on the
+        // ADMIN source page as a profile summary (JobSourceAdminService.listSourceHealth).
         disabledReason: row.disabledReason,
         budget: {
           // Stated, not inferred by the client (MED-4).

@@ -11,7 +11,10 @@ import {
 } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import {
+  createJobSourceNoteSchema,
   excludedJobSourceListSchema,
+  jobSourceDetailSchema,
+  jobSourceOperationalListSchema,
   resetJobSourceFailuresSchema,
   type SessionUser,
 } from '@crm/shared'
@@ -42,6 +45,42 @@ export class JobSourceAdminController {
   @Roles('ADMIN')
   async listExcluded(@CurrentUser() user: SessionUser) {
     return excludedJobSourceListSchema.parse({ items: await this.service.listExcluded(user) })
+  }
+
+  /**
+   * U7 source page — every source with its current health state, freshness and cadence summary.
+   * Static `sources/health` so it never collides with the `sources/:id` detail below. Read only.
+   */
+  @Get('sources/health')
+  @Roles('ADMIN')
+  async listSourceHealth(@CurrentUser() user: SessionUser) {
+    return jobSourceOperationalListSchema.parse({
+      items: await this.service.listSourceHealth(user),
+    })
+  }
+
+  /** U7 source page — one source's run timeline + health-event log + correlation hints. Read only. */
+  @Get('sources/:id')
+  @Roles('ADMIN')
+  async sourceDetail(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
+    return jobSourceDetailSchema.parse(await this.service.sourceDetail(id, user))
+  }
+
+  /**
+   * U7 source page — append an ADMIN note as an immutable `NOTE` health event. Throttled like the
+   * other admin writes: a held-down button must not flood the append-only log.
+   */
+  @Post('sources/:id/notes')
+  @Roles('ADMIN')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(204)
+  async addNote(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ): Promise<void> {
+    const dto = createJobSourceNoteSchema.parse(body)
+    await this.service.addNote(id, dto, user)
   }
 
   /**
