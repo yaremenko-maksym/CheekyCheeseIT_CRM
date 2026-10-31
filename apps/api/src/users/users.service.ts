@@ -531,11 +531,14 @@ export class UsersService {
     }
     if (data.locale !== undefined) set.locale = data.locale
 
-    const rows = await this.db.db.transaction(async (tx) => {
-      const written = await tx.update(users).set(set).where(eq(users.id, id)).returning()
-      if (written[0] && 'techStack' in set) await markSeniorDirty(tx, id, 'senior.stack') // r5 4.6 S5
-      return written
-    })
+    // r5 4.6 S5: a stack edit commits with its roster dirty row.
+    const rows = !('techStack' in set)
+      ? await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
+      : await this.db.db.transaction(async (tx) => {
+          const written = await tx.update(users).set(set).where(eq(users.id, id)).returning()
+          if (written[0]) await markSeniorDirty(tx, id, 'senior.stack')
+          return written
+        })
     const updated = rows[0]
     if (!updated) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     return updated

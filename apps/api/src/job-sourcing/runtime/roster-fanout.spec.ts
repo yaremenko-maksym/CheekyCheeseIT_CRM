@@ -110,7 +110,7 @@ describe('fanOutDirty', () => {
 
   it('a continuation resumes after its cursor and keeps the root reason', async () => {
     const { tx, inserts, seen } = scripted(3, [{ id: opp(5), revision: 4 }])
-    await fanOutDirty(tx, work({ id: 'cont', reason: `fanout:${ROW}:${opp(4)}` }))
+    await fanOutDirty(tx, work({ id: opp(99), reason: `fanout:${ROW}:${opp(4)}` }))
     expect(inserts).toEqual([['OPPORTUNITY', opp(5), 4, `fanout:${ROW}`]])
     expect(seen.find((s) => s.sql.includes('FROM job_opportunities'))!.params[0]).toBe(opp(4))
   })

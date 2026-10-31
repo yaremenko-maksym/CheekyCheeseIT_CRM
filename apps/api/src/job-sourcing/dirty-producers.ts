@@ -72,13 +72,17 @@ export async function markExclusionDirty(
 /** The project columns `deriveProjectExclusions` / `loadRoster` read (archive does not count). */
 const PROJECT_CLIENT_COLUMNS = ['name', 'companyName', 'seniorId'] as const
 
+/** True when a project UPDATE writes a column the derived exclusions read. */
+export const touchesProjectClient = (set: Readonly<Record<string, unknown>>): boolean =>
+  PROJECT_CLIENT_COLUMNS.some((c) => c in set)
+
 /** A project UPDATE (`set` is what it wrote): dirty only when it wrote a client-deriving column. */
 export async function markProjectEditDirty(
   tx: SqlExecutor,
   projectId: string,
   set: Readonly<Record<string, unknown>>,
 ): Promise<boolean> {
-  if (!PROJECT_CLIENT_COLUMNS.some((c) => c in set)) return false
+  if (!touchesProjectClient(set)) return false
   await markProjectClientDirty(tx, projectId, 'project.client')
   return true
 }

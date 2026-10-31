@@ -109,6 +109,9 @@ function makeDb({
       update: updateFn,
       delete: vi.fn(),
       query: {},
+      // r5 4.6 S5: the role write runs in a transaction; this one passes through to the same mocks.
+      transaction: (cb: (tx: unknown) => Promise<unknown>) =>
+        cb({ select: selectFn, update: updateFn }),
     } as unknown as NodePgDatabase<typeof schema>,
   }
 }

@@ -49,7 +49,11 @@ import {
   resolveOverrideEffective,
 } from './project-share.util'
 import type { DrizzleTx } from '../database/types'
-import { markProjectClientDirty, markProjectEditDirty } from '../job-sourcing/dirty-producers'
+import {
+  markProjectClientDirty,
+  markProjectEditDirty,
+  touchesProjectClient,
+} from '../job-sourcing/dirty-producers'
 
 @Injectable()
 export class ProjectsService {
@@ -569,10 +573,13 @@ export class ProjectsService {
     // through `proposeSeniorShareChange` below instead (SENIOR must confirm).
     const updateData = buildProjectUpdateData(data, resolvedDropId, dropOverrideEffective)
 
-    await this.db.db.transaction(async (tx) => {
-      await tx.update(projects).set(updateData).where(eq(projects.id, id))
-      await markProjectEditDirty(tx, id, updateData) // r5 4.6 S5: in the update's tx
-    })
+    // r5 4.6 S5: an edit of a client-deriving column commits with its roster dirty row.
+    if (touchesProjectClient(updateData))
+      await this.db.db.transaction(async (tx) => {
+        await tx.update(projects).set(updateData).where(eq(projects.id, id))
+        await markProjectEditDirty(tx, id, updateData)
+      })
+    else await this.db.db.update(projects).set(updateData).where(eq(projects.id, id))
 
     // task-pending-share (position 5): a REQUESTED change to the SENIOR
     // share override opens a proposal instead of applying immediately — no

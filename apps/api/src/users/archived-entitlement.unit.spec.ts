@@ -86,7 +86,10 @@ function makeDb(opts: { selects: unknown[][]; updateReturns?: unknown[] }) {
   const setFn = vi.fn().mockReturnValue({ where: whereUpdate })
   const update = vi.fn().mockReturnValue({ set: setFn })
 
-  const db = { db: { select, update } } as never
+  // r5 4.6 S5: a write that may move the roster runs in a transaction; this one passes through.
+  const inner: Record<string, unknown> = { select, update }
+  inner.transaction = (cb: (tx: unknown) => Promise<unknown>) => cb(inner)
+  const db = { db: inner } as never
   return { db, select, update, setFn, whereUpdate }
 }
 
