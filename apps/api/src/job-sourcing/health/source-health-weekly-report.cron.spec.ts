@@ -123,8 +123,9 @@ describe('weeklyAggregateSql', () => {
     const from = new Date('2026-10-26T07:00:00.000Z')
     const q = new PgDialect().sqlToQuery(weeklyAggregateSql(from, NOW))
     expect(q.params).toEqual([...REPORTING_TYPES, from, NOW, from, NOW, from, NOW])
+    const placeholders = REPORTING_TYPES.map((_, i) => `$${i + 1}`).join(', ')
     for (const fragment of [
-      'FROM job_sources WHERE type IN (',
+      `FROM job_sources WHERE type IN (${placeholders})`,
       'FROM job_collection_runs',
       'started_at >= ',
       'sum(request_count)',

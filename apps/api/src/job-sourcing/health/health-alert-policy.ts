@@ -30,7 +30,7 @@ export function alertStateOf(ref: StateRef): AlertState | null {
 /** The state entered, or `null` when this transition is not an entry into an alerting state. */
 export function isAlertEntry(from: StateRef, to: StateRef): AlertState | null {
   const entered = alertStateOf(to)
-  if (entered === null) return null
+  // `entered` is null for a non-alerting target, and so is the answer in that case.
   return alertStateOf(from) === entered ? null : entered
 }
 

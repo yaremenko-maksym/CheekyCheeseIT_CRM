@@ -36,18 +36,18 @@ const KYIV = 'Europe/Kyiv'
 
 /**
  * The earlier TRANSITION events of this source on the Kyiv day of `t.at` (this event excluded),
- * each with the `(state, reason)` it came from. The log stores only the reason of the state an
- * event entered, so the previous reason comes from `lag()` over the source's own history.
+ * each with the state it came from (`lag()` over the source's own history; the log stores only the
+ * state an event entered). The PREVIOUS reason is not needed: consecutive events always differ in
+ * `(state, reason)`, so "was in DEGRADED/SCHEMA_DRIFT and entered DEGRADED/SCHEMA_DRIFT" cannot occur.
  * Exported so a unit spec can pin the statement; its behaviour is
  * `source-health-alerts.integration.spec.ts`.
  */
 export function earlierEventsTodaySql(t: AlertTransition): SQL {
   return sql`
-    SELECT prev_state, prev_reason, to_state, reason_code
+    SELECT prev_state, to_state, reason_code
       FROM (
         SELECT id, at, to_state, reason_code,
-               lag(to_state) OVER w AS prev_state,
-               lag(reason_code) OVER w AS prev_reason
+               lag(to_state) OVER w AS prev_state
           FROM job_source_health_events
          WHERE source_id = ${t.sourceId} AND kind = 'TRANSITION' AND at <= ${t.at}
         WINDOW w AS (ORDER BY at, id)
@@ -89,7 +89,7 @@ export class SourceHealthAlertService {
       const r = row as Record<string, string | null>
       return (
         isAlertEntry(
-          { state: r['prev_state'] ?? null, reason: r['prev_reason'] ?? null },
+          { state: r['prev_state'] ?? null, reason: null },
           { state: r['to_state'] ?? null, reason: r['reason_code'] ?? null },
         ) !== null
       )

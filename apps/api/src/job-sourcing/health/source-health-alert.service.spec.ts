@@ -32,7 +32,7 @@ function transition(over: Partial<AlertTransition> = {}): AlertTransition {
 function harness(
   opts: {
     admins?: string[]
-    earlier?: { prev: string | null; to: string; prevReason?: string; reason?: string }[]
+    earlier?: { prev: string | null; to: string; reason?: string }[]
   } = {},
 ) {
   const admins = (opts.admins ?? [ADMIN_A, ADMIN_B]).map((id) => ({ id }))
@@ -40,7 +40,6 @@ function harness(
   const execute = vi.fn().mockResolvedValue({
     rows: (opts.earlier ?? []).map((e) => ({
       prev_state: e.prev,
-      prev_reason: e.prevReason ?? null,
       to_state: e.to,
       reason_code: e.reason ?? null,
     })),
@@ -138,24 +137,15 @@ describe('SourceHealthAlertService.alertOnTransition', () => {
     expect(h.createManyInTx.mock.calls[0]![1][0].skipEmail).toBe(false)
   })
 
-  it('DEGRADED counts as an entry only when it ENTERS the SCHEMA_DRIFT reason', async () => {
-    const drift = {
-      prev: 'DEGRADED',
-      prevReason: 'SLOW',
-      to: 'DEGRADED',
-      reason: 'SCHEMA_DRIFT',
-    }
-    const exitDrift = {
-      prev: 'DEGRADED',
-      prevReason: 'SCHEMA_DRIFT',
-      to: 'DEGRADED',
-      reason: 'SLOW',
-    }
-    const used = harness({ earlier: [drift, exitDrift, drift, exitDrift, drift, exitDrift] })
+  it('DEGRADED counts as an entry only with the SCHEMA_DRIFT reason', async () => {
+    const drift = { prev: 'HEALTHY', to: 'DEGRADED', reason: 'SCHEMA_DRIFT' }
+    const recovery = { prev: 'DEGRADED', to: 'HEALTHY' }
+    const used = harness({ earlier: [drift, recovery, drift, recovery, drift, recovery] })
     await used.service.alertOnTransition(used.tx, transition())
     expect(used.createManyInTx.mock.calls[0]![1][0].skipEmail).toBe(true)
 
-    const unused = harness({ earlier: [exitDrift, exitDrift, exitDrift, exitDrift] })
+    const slow = { prev: 'HEALTHY', to: 'DEGRADED', reason: 'SLOW' }
+    const unused = harness({ earlier: [slow, recovery, slow, recovery, slow, recovery] })
     await unused.service.alertOnTransition(unused.tx, transition())
     expect(unused.createManyInTx.mock.calls[0]![1][0].skipEmail).toBe(false)
   })
@@ -168,7 +158,6 @@ describe('SourceHealthAlertService.alertOnTransition', () => {
       'FROM job_source_health_events',
       "kind = 'TRANSITION'",
       'lag(to_state) OVER w AS prev_state',
-      'lag(reason_code) OVER w AS prev_reason',
       'WINDOW w AS (ORDER BY at, id)',
       'at <= $2',
       'id <> $3',
