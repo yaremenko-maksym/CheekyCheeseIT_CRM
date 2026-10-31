@@ -20,6 +20,7 @@ import { MAX_EARLY_DUE_SLACK_MS } from '../scheduling/due-policy'
 import { dueSourcesPredicate } from '../scheduling/due-sources.query'
 import { type SqlExecutor, claimHostSlot } from '../scheduling/host-state'
 import type { LedgerCatalog } from './ledger-catalog'
+import { type LegacyClaimInput, claimLegacy, isLegacyKind } from './legacy-run-claim'
 import {
   type ClaimRefusal,
   type LedgerOptions,
@@ -439,6 +440,21 @@ export class JobRunLedger {
     }
   }
 
+  /** Task 4.6 S6c: the LEGACY (DOU) claim, `claimLegacy` in `legacy-run-claim.ts` (ADR D-1). */
+  async claimLegacyRun(input: LegacyClaimInput): Promise<ManualClaim> {
+    this.assertOwner(input.owner)
+    if (!UUID.test(input.sourceId)) return { kind: 'REFUSED', reason: 'NOT_FOUND' }
+    return claimLegacy(input, {
+      db: this.db,
+      registry: this.registry,
+      lockTimeoutMs: this.options.claimLockTimeoutMs,
+      runAccountKey: RUN_ACCOUNT_KEY,
+      readCycle: (id) => this.readCycle(id),
+      insertRun: (tx, row, cycle, version) => this.insertRun(tx, row, cycle, input.owner, version),
+      sqlState: pgCode,
+    })
+  }
+
   /** Step 1 of a scheduled claim: one due source, locked, skipping the ones already tried. */
   private async pickDue(
     tx: DrizzleTx,
@@ -764,7 +780,7 @@ export class JobRunLedger {
     ending: RunEnding,
   ): Promise<boolean> {
     const { rows: src } = await tx.execute(
-      sql`SELECT manifest_id, consecutive_failures, slowdown_level FROM job_sources WHERE id = ${head.sourceId}::uuid FOR UPDATE`,
+      sql`SELECT type, manifest_id, consecutive_failures, slowdown_level FROM job_sources WHERE id = ${head.sourceId}::uuid FOR UPDATE`,
     )
     const source = src[0]
     if (source === undefined) throw new Error('endRun: the run`s source vanished')
@@ -816,6 +832,8 @@ export class JobRunLedger {
     ending: RunEnding,
     at: { dbNow: Date; paged: boolean; nonEmpty: boolean },
   ): Promise<void> {
+    // Task 4.6 S6c (ADR Q5): a LEGACY run ends on its run row only -- no cap, no backoff (SR-M-17).
+    if (isLegacyKind(this.registry.get(source['type'] as JobSourceType))) return
     const { paged, nonEmpty } = at
     const manifestId = source['manifest_id']
     const entry = typeof manifestId === 'string' ? this.catalog.entry(manifestId) : undefined

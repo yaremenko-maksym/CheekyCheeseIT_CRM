@@ -164,6 +164,23 @@ describe('the write gate (T3 AC 7)', () => {
     expect(store).toMatch(/\bwritePageProgress\(tx, h, owned,/)
   })
 
+  it('Task 4.6 S6c: the LEGACY claim file writes no table of its own; the run row is the ledger`s insertRun', () => {
+    // The write gate's own concern: the claim file must not write a run row or a ledger-owned
+    // `job_sources` column itself (`writeWindows`, robust to reformatting). That the LEGACY *ending*
+    // performs NO `UPDATE job_sources` and reaches the run row only through `insertRun` is a
+    // behavioural fact, pinned by the recording-double / SQL-capture tests in
+    // `legacy-run-claim.spec.ts` ("the run-row-only ending") and the real-DB snapshot specs — not
+    // by grepping the ledger's source here.
+    const read = (f: string) => readFileSync(join(SRC, f), 'utf8')
+    const claim = read('job-sourcing/ownership/legacy-run-claim.ts')
+    expect(writeWindows(claim, 'job_collection_runs', 'jobCollectionRuns')).toEqual([])
+    expect(writeWindows(claim, 'job_sources', 'jobSources')).toEqual([])
+    // Secondary tripwire (stable symbol markers, not bracket shapes): the run row is reached only
+    // through the ledger's `insertRun`, so the one-writer invariant above is not bypassed.
+    expect(claim).toMatch(/steps\.insertRun\(/)
+    expect(read(LEDGER)).toMatch(/claimLegacy\(input, \{/)
+  })
+
   describe('it fails on a foreign writer', () => {
     it.each([
       [

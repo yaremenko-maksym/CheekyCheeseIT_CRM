@@ -70,7 +70,9 @@ is `LEGACY` gets a run-row-only ending.** The run row records outcome, error cod
 `job_sources` is not written at all — no `consecutive_failures`, no cooldown, no `next_attempt_at`,
 no `last_error_code`. The same branch applies in `recoverExpired`. So the failure cap and backoff
 never apply to DOU, which is the property SR-M-17 protected. `last_collected_at` stays the
-service's write, as today.
+service's write, as today. (This is about the **ending**. The **claim** still stamps
+`last_attempt_at` / `updated_at` through the shared `insertRun` of step 5, exactly as a reporting
+claim does; neither is a cap/backoff column, and a refused claim writes nothing.)
 
 **The order in `collectSource` with the flag on** (each step is named by today's symbol):
 
