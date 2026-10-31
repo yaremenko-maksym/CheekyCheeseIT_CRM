@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   answered,
+  fetched,
   detectAccessChange,
   detectBoardGone,
   detectDeadlineNear,
@@ -75,6 +76,21 @@ describe('median', () => {
   it('takes the middle value when the count is odd, after sorting', () => {
     expect(median([10, 1, 2])).toBe(2)
     expect(median([5, 1, 3])).toBe(3)
+  })
+})
+
+describe('fetched', () => {
+  it('counts both a clean success and a PARTIAL success, and nothing else', () => {
+    const succeeded = run({ startedAt: NOW, outcome: 'SUCCEEDED' })
+    const partial = run({ startedAt: NOW, outcome: 'PARTIAL' })
+    const failed = run({ startedAt: NOW, outcome: 'FAILED' })
+    const cancelled = run({ startedAt: NOW, outcome: 'CANCELLED' })
+    expect(fetched([succeeded, partial, failed, cancelled])).toEqual([succeeded, partial])
+  })
+
+  it('a PARTIAL run alone still counts as a fetch', () => {
+    const partial = run({ startedAt: NOW, outcome: 'PARTIAL' })
+    expect(fetched([partial])).toEqual([partial])
   })
 })
 

@@ -52,8 +52,8 @@ export function answered(s: HealthSnapshot): RunFact[] {
   return s.runs.filter((r) => r.endedAt !== null)
 }
 
-/** Runs that actually fetched data: a clean or partial success. Failures never count as volume. */
-function fetched(runs: readonly RunFact[]): RunFact[] {
+/** Runs that actually fetched data: a clean or partial success. Failures never count as volume. Exported for test. */
+export function fetched(runs: readonly RunFact[]): RunFact[] {
   return runs.filter((r) => r.outcome === 'SUCCEEDED' || r.outcome === 'PARTIAL')
 }
 
