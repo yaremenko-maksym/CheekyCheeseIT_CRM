@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   createJobSourceNoteSchema,
+  jobHealthReasonSchema,
+  jobHealthStateSchema,
+  jobSourceCorrelationSchema,
   jobSourceDetailSchema,
   jobSourceOperationalListSchema,
+  jobSourceOperationalRowSchema,
   jobSourceProfileSummarySchema,
+  jobSourceRunSchema,
   jobSourceSchema,
 } from './index'
 
@@ -132,6 +137,106 @@ describe('jobSourceDetailSchema', () => {
     })
     expect(parsed.events[0]?.correlation).toBe('NO_CHANGE')
     expect(parsed.events[1]?.note).toBe('provider confirmed an auth change')
+  })
+})
+
+describe('the health vocabularies are the exact ADR section-10 lists', () => {
+  it('eight states, in order', () => {
+    expect(jobHealthStateSchema.options).toEqual([
+      'BLOCKED',
+      'CAPPED',
+      'PAUSED',
+      'FAILING',
+      'EMPTY',
+      'DEGRADED',
+      'SILENT',
+      'HEALTHY',
+    ])
+  })
+
+  it('eleven detector reasons', () => {
+    expect(jobHealthReasonSchema.options).toEqual([
+      'VOLUME_DROP',
+      'NO_NEW_ITEMS',
+      'EMPTY_RESPONSE',
+      'SCHEMA_DRIFT',
+      'ACCESS_CHANGED',
+      'THROTTLED',
+      'SLOW',
+      'PAYLOAD_GROWTH',
+      'STALE_FEED',
+      'BOARD_GONE',
+      'DEADLINE_NEAR',
+    ])
+  })
+
+  it('three correlation hints', () => {
+    expect(jobSourceCorrelationSchema.options).toEqual([
+      'ADAPTER_CHANGE',
+      'CONFIG_CHANGE',
+      'NO_CHANGE',
+    ])
+  })
+})
+
+describe('jobSourceProfileSummarySchema — field bounds', () => {
+  it('accepts a valid HH:MM window time and rejects out-of-range / mis-formatted ones', () => {
+    const withTime = (from: string) =>
+      jobSourceProfileSummarySchema.safeParse({ ...PROFILE, window: { ...PROFILE.window, from } })
+        .success
+    expect(withTime('00:00')).toBe(true)
+    expect(withTime('23:59')).toBe(true)
+    expect(withTime('24:00')).toBe(false) // hour out of range
+    expect(withTime('09:60')).toBe(false) // minute out of range
+    expect(withTime('9:00')).toBe(false) // not zero-padded
+    // Anchored at BOTH ends: junk before (kills a dropped `^`) and after (a dropped `$`).
+    expect(withTime('x09:00')).toBe(false)
+    expect(withTime('09:00x')).toBe(false)
+  })
+
+  it('accepts all seven weekdays and rejects an empty day list', () => {
+    const withDays = (days: string[]) =>
+      jobSourceProfileSummarySchema.safeParse({ ...PROFILE, window: { ...PROFILE.window, days } })
+        .success
+    expect(withDays(['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'])).toBe(true)
+    expect(withDays(['FUNDAY'])).toBe(false)
+    expect(withDays([])).toBe(false)
+  })
+
+  it('rejects an empty fixedSlotTimes array (min 1) but accepts null', () => {
+    const withFixed = (fixedSlotTimes: unknown) =>
+      jobSourceProfileSummarySchema.safeParse({ ...PROFILE, window: null, fixedSlotTimes }).success
+    expect(withFixed(null)).toBe(true)
+    expect(withFixed(['08:30'])).toBe(true)
+    expect(withFixed([])).toBe(false)
+  })
+})
+
+describe('the list/row/run schemas enforce their shape (not an empty object)', () => {
+  it('an empty object is rejected by each', () => {
+    expect(jobSourceOperationalRowSchema.safeParse({}).success).toBe(false)
+    expect(jobSourceOperationalListSchema.safeParse({}).success).toBe(false)
+    expect(jobSourceRunSchema.safeParse({}).success).toBe(false)
+  })
+
+  it('a run parses and keeps its nullable counts', () => {
+    const run = jobSourceRunSchema.parse({
+      id: '22222222-2222-4222-8222-222222222222',
+      startedAt: '2026-10-30T10:00:00.000Z',
+      endedAt: null,
+      outcome: 'STARTED',
+      received: null,
+      created: null,
+      invalid: null,
+      requestCount: null,
+      bytesRead: null,
+      lastHttpStatus: null,
+      newestItemPublishedAt: null,
+      adapterVersion: null,
+      configVersion: null,
+    })
+    expect(run.outcome).toBe('STARTED')
+    expect(run.received).toBeNull()
   })
 })
 
