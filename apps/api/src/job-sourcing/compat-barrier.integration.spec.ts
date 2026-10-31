@@ -89,7 +89,11 @@ class FixtureDouProvider extends DouRssProvider {
   }
 }
 
-/** Flag-off snapshot, read by the flag-on parity assertion (describe.each runs false before true). */
+/**
+ * Flag-off snapshot, read by the flag-on parity assertion. ORDER DEPENDENCY: describe.each runs
+ * false before true in file order; if the flag-off recording did not run (shuffle, `-t` filter) the
+ * parity test fails on its `toBeDefined` guard instead of passing falsely.
+ */
 const snapshots = new Map<boolean, unknown>()
 
 const URL_OF = (tail: string) => `https://jobs.dou.ua/companies/${tail}`
@@ -532,6 +536,9 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
     it.runIf(flagOn)(
       'PARITY: the flag-on snapshot equals the flag-off snapshot of the same fixture',
       () => {
+        // ORDER DEPENDENCY: relies on the flag-off block (and its recording test) running first in
+        // this file. A shuffled or `-t`-filtered run leaves the Map empty and fails loudly on the
+        // `toBeDefined` guard below; it cannot pass falsely.
         const off = snapshots.get(false)
         expect(off, 'the flag-off variant of this fixture must have run first').toBeDefined()
         expect(snapshots.get(true)).toEqual(off)
@@ -562,7 +569,8 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
         'flag ON: two concurrent collections of one source -> the second throws JobSourceRunBusyError and spends zero units (S6c/S6d)',
       )
     }
-
-    it.todo('flag-on variant: add when the queue flag is wired (Task 4.6d)')
   },
 )
+
+// Kept as is for S6d, which replaces it. Outside the describe.each so it prints once.
+it.todo('flag-on variant: add when the queue flag is wired (Task 4.6d)')
