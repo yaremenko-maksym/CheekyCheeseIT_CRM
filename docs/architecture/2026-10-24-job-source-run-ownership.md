@@ -14,6 +14,8 @@ is registered; the phase-3 adapters stay inert in production until then. The tab
 gained the `RUN_FENCED` row (T7). The follow-up ADR `2026-10-25-source-fetch-strategy.md` replaces the two
 daily handlers of T5 in part.
 
+**Amendment (2026-10-31, Task 4.6 S6c).** SR-M-17 ("DOU stays outside the ledger") and T7 AC 15 now hold only while `JOB_QUEUE_BRIDGE_ENABLED` is off; with it on, DOU gets a run row through `JobRunLedger.claimLegacyRun` and a run-row-only ending (no failure cap, no backoff) — see `2026-10-31-dou-bridge-run-ownership.md`.
+
 ## Context — the measured facts
 
 Plan r5, Task 2.5, requires PostgreSQL-backed run ownership and tells the implementer to compare the

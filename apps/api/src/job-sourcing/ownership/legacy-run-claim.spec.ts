@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { specRegistry } from '../../test/ledger-fixtures'
 import { JobSourceDeliberateStopError } from '../source-budget.error'
 import { JobRunLedger } from './job-run-ledger'
+import { validateEnding } from './ledger-policy'
 import {
   JobSourceRunBusyError,
   LEGACY_RUN_ADAPTER_VERSION,
@@ -60,6 +61,26 @@ describe('legacyClaimRefusal', () => {
     expect(isLegacyKind(dou)).toBe(true)
     expect(isLegacyKind(registry.get('REMOTIVE_API'))).toBe(false)
     expect(isLegacyKind(undefined)).toBe(false)
+  })
+})
+
+describe('validateEnding over the DOU bridge ADR`s "Golden behaviour" table (AC 5)', () => {
+  it.each([
+    ['provider throws', 'FAILED', 'UPSTREAM'],
+    ['zero postings', 'FAILED', 'PARSE_DRIFT'],
+    ['exhausted budget', 'PARTIAL', 'COST_STOP'],
+    ['budget contention', 'CANCELLED', 'CANCELLED'],
+    ['a clean run', 'SUCCEEDED', null],
+  ] as const)('accepts %s: %s / %s', (_l, outcome, code) => {
+    expect(() => validateEnding(outcome, code)).not.toThrow()
+  })
+
+  it.each([
+    ['PARTIAL', 'CANCELLED'],
+    ['CANCELLED', 'COST_STOP'],
+    ['FAILED', 'LEASE_EXPIRED'],
+  ] as const)('refuses the swapped pair %s / %s', (outcome, code) => {
+    expect(() => validateEnding(outcome, code)).toThrow(RangeError)
   })
 })
 
