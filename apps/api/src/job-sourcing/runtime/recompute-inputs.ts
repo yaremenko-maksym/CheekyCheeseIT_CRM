@@ -343,11 +343,12 @@ export function rosterVersions(
  * transaction (which holds the opportunity and has checked `revision` is current). Neither the
  * upsert nor the delete ever touches a row of a NEWER revision.
  *
- * STALENESS UNTIL S5 (SR-M-2): only a new opportunity revision enqueues a recompute. A senior's
- * archive, team change or new exclusion does NOT (that is S5, pending decision D2), so a row
- * written here can outlive the roster it was computed from. Until S5 ships, a reader MUST check
- * the live roster and compare `senior_profile_version` / `exclusion_version` with the current
- * hashes (`rosterVersions`) before serving a row.
+ * STALENESS (SR-M-2): since S5 a senior's stack / role / archive / team change, an exclusion and a
+ * project client change enqueue a recompute of every opportunity in the write's own transaction
+ * (`dirty-producers.ts`, `roster-fanout.ts`), so a row converges once the queue drains. Between the
+ * write and the drain a row can still describe the old roster, and a write made outside the hooked
+ * services is caught only by the reconciliation sweep, so a reader MUST still compare
+ * `senior_profile_version` / `exclusion_version` with the live hashes (`rosterVersions`).
  */
 export async function installMatches(
   tx: SqlExecutor,

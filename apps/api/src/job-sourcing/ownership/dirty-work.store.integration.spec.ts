@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { JobDirtyWorkEntityKind } from '@crm/shared'
+import { sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import type { PoolClient } from 'pg'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -13,7 +14,9 @@ import {
   claimDirtyBatch,
   type ClaimOptions,
   completeDirty,
+  currentDerivedVersion,
   DirtyWorkFencedError,
+  enqueueDerivedDirty,
   enqueueDirty,
   failDirty,
   recoverExpiredDirty,
@@ -293,17 +296,78 @@ describe.skipIf(!hasDatabaseUrl())('dirty-work claim store (r5 Task 4.6 S3)', ()
     expect(got.every((w) => ids.includes(w.id))).toBe(true)
   })
 
-  it('CR-M-2: kinds without a version source are never claimed; kinds narrow the claim', async () => {
-    // The SENIOR row is the oldest of all, so only the kind filter keeps it out of the claim.
+  it('CR-M-2 / S5: the derived kinds are claimed by default; kinds narrow the claim', async () => {
+    // The SENIOR row is the oldest of all: since S5 it has a version source and is claimed first.
     const [senior] = await seed(1, { kind: 'SENIOR', daysEarlier: 365 })
     const [opp] = await seed(1)
     const [rec] = await seed(1, { kind: 'SOURCE_RECORD', daysEarlier: 1 })
-    const [first] = await claimMine('kinds-default', 1)
-    expect(first!.id).toBe(rec)
     const [narrowed] = await claimMine('kinds-opp', 1, { kinds: ['OPPORTUNITY'] })
     expect(narrowed!.id).toBe(opp)
-    const s = await row(senior!)
-    expect([s.status, s.claim_owner]).toEqual(['PENDING', null])
+    const [first] = await claimMine('kinds-default', 1)
+    expect(first!.id).toBe(senior)
+    const r = await row(rec!)
+    expect([r.status, r.claim_owner]).toEqual(['PENDING', null])
+  })
+
+  it('S5 AC 2/3: derived versions increase per entity; only the newest row completes DONE', async () => {
+    const entity = randomUUID()
+    // Same-transaction, same-timestamp writes, a delete and a restore: versions still climb.
+    const versions = await app.transaction(async (tx) => {
+      const out: number[] = []
+      for (const reason of ['create', 'delete', 'restore', 'create'])
+        out.push(
+          (await enqueueDerivedDirty(tx, 'EXCLUSION', entity, `${REASON}:${reason}`)).version,
+        )
+      return out
+    })
+    expect(versions).toEqual([1, 2, 3, 4])
+    expect(await currentDerivedVersion(app, 'EXCLUSION', entity)).toBe(4)
+    await ageMine()
+    const got = await claimMine('derived', 4, { kinds: ['EXCLUSION'] })
+    const outcomes = new Map<number, string>()
+    for (const w of got) outcomes.set(w.targetVersion, await completeDirty(app, w))
+    expect([...outcomes].sort((a, b) => a[0] - b[0])).toEqual([
+      [1, 'DEFERRED'],
+      [2, 'DEFERRED'],
+      [3, 'DEFERRED'],
+      [4, 'DONE'],
+    ])
+    const { rows } = await session.admin.query(
+      `SELECT target_version::int AS v, last_error_code FROM job_dirty_work
+        WHERE entity_id = $1 ORDER BY 1`,
+      [entity],
+    )
+    expect(rows.map((r) => r.last_error_code)).toEqual([
+      'VERSION_STALE',
+      'VERSION_STALE',
+      'VERSION_STALE',
+      null,
+    ])
+  })
+
+  it('S5: concurrent producers of one entity get distinct versions (advisory lock)', async () => {
+    const entity = randomUUID()
+    const run = () =>
+      app.transaction(async (tx) => {
+        const r = await enqueueDerivedDirty(tx, 'SENIOR', entity, `${REASON}:same`)
+        // Hold the lock a little, so the other producer must wait for this commit.
+        await tx.execute(sql`SELECT pg_sleep(0.05)`)
+        return r
+      })
+    const results = await Promise.all([run(), run(), run()])
+    expect(results.map((r) => r.version).sort()).toEqual([1, 2, 3])
+    expect(results.every((r) => r.inserted)).toBe(true)
+  })
+
+  it('S5 AC 1: a rolled-back producer leaves no derived row', async () => {
+    const entity = randomUUID()
+    await expect(
+      app.transaction(async (tx) => {
+        await enqueueDerivedDirty(tx, 'PROJECT_CLIENT', entity, `${REASON}:rollback`)
+        throw new Error('the write failed')
+      }),
+    ).rejects.toThrow('the write failed')
+    expect(await currentDerivedVersion(app, 'PROJECT_CLIENT', entity)).toBe(0)
   })
 
   it('CR-M-3: enqueueDirty records the cycle id; a duplicate keeps the first row', async () => {

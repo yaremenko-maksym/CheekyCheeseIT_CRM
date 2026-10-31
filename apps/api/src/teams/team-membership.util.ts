@@ -4,6 +4,7 @@ import type { SessionUser } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { teamMembers, teams, users } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
+import { markSeniorDirty } from '../job-sourcing/dirty-producers'
 import type { NotificationsService } from '../notifications/notifications.service'
 import { isHrOfTeam } from './team-access.util'
 import type { TeamAuditLogService } from './team-audit-log.service'
@@ -131,6 +132,7 @@ export async function addTeamMember(
     }
     await deps.db.transaction(async (tx) => {
       await tx.update(teamMembers).set({ leftAt: null }).where(eq(teamMembers.id, existing.id))
+      await markSeniorDirty(tx, userId, 'senior.team')
       await notify(tx)
     })
     return
@@ -138,6 +140,7 @@ export async function addTeamMember(
 
   await deps.db.transaction(async (tx) => {
     await tx.insert(teamMembers).values({ teamId, userId })
+    await markSeniorDirty(tx, userId, 'senior.team')
     await notify(tx)
   })
 }

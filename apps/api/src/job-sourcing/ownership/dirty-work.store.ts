@@ -46,15 +46,37 @@ const REASON_MAX = 100
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /**
- * The entity's current version, by kind. Only kinds with a producer have a version source; the
- * others (SENIOR, EXCLUSION, PROJECT_CLIENT) get one with their producer slice, and until then a
- * completion of such a row is refused rather than guessed.
+ * DERIVED VERSION (r5 Task 4.6 S5, decision D2: no DDL, no version column). SENIOR, EXCLUSION and
+ * PROJECT_CLIENT have no revision of their own, so their version is the entity's own enqueue
+ * count: the highest `target_version` among its `job_dirty_work` rows. A producer enqueues
+ * `max + 1` under a per-entity advisory lock (`enqueueDerivedDirty`), so the counter
+ *   - never decreases: nothing prunes `job_dirty_work` (pinned by `dirty-work.retention-guard.spec.ts`;
+ *     the rule a future retention must follow is at `NEW_STORE_CLEANUP_DISABLED`) and no statement
+ *     rewrites `target_version`;
+ *     an entity's delete / archive / restore is just one more enqueue, never a reset;
+ *   - is time-free: two writes in the same microsecond, or a clock stepping back, still get
+ *     distinct, increasing versions (an `updated_at` function cannot promise that);
+ *   - is cheap: one index probe on `idx_job_dirty_work_entity (entity_kind, entity_id)`.
+ * A row completes DONE only while it is the entity's newest row; an older one is DEFERRED
+ * (VERSION_STALE) because the newer row redoes its work. The entity row itself may be gone
+ * (a deleted exclusion still has to be fanned out), so ENTITY_MISSING never applies here.
  */
+const DERIVED_VERSION = sql`SELECT max(d.target_version) FROM job_dirty_work d
+  WHERE d.entity_kind = w.entity_kind AND d.entity_id = w.entity_id`
+
+/** The entity's current version, by kind. A kind with no version source is refused. */
 const CURRENT_VERSION: Partial<Record<JobDirtyWorkEntityKind, SQL>> = {
   // Correlated on `w`, the dirty row being completed (see `complete`).
   SOURCE_RECORD: sql`SELECT observation_seq FROM job_source_record_heads WHERE source_record_id = w.entity_id`,
   OPPORTUNITY: sql`SELECT revision FROM job_opportunities WHERE id = w.entity_id`,
+  SENIOR: DERIVED_VERSION,
+  EXCLUSION: DERIVED_VERSION,
+  PROJECT_CLIENT: DERIVED_VERSION,
 }
+
+/** The kinds whose version is derived from their own dirty rows. */
+export const DERIVED_VERSION_KINDS = ['SENIOR', 'EXCLUSION', 'PROJECT_CLIENT'] as const
+export type DerivedVersionKind = (typeof DERIVED_VERSION_KINDS)[number]
 
 /**
  * The kinds a claim hands out by default: exactly those `completeDirty` can finish. A row of any
@@ -155,6 +177,15 @@ export const dirtyWorkStatements = {
         ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING
         RETURNING id`,
 
+  /** Serialises the producers of one derived entity until their transaction ends. */
+  lockDerived: (kind: DerivedVersionKind, id: string): SQL =>
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${`job_dirty_work:${kind}:${id}`}, 0))`,
+
+  /** The derived version an entity is at now: 0 before its first enqueue. */
+  derivedVersion: (kind: DerivedVersionKind, id: string): SQL =>
+    sql`SELECT coalesce(max(target_version), 0) AS v FROM job_dirty_work
+         WHERE entity_kind = ${kind} AND entity_id = ${id}::uuid`,
+
   claim: (
     owner: string,
     batchSize: number,
@@ -242,6 +273,45 @@ export async function enqueueDirty(
     dirtyWorkStatements.enqueue(k, entityId, version, reason, cycleId ?? null),
   )
   return { inserted: rows.length > 0 }
+}
+
+function derivedKind(kind: JobDirtyWorkEntityKind): DerivedVersionKind {
+  const k = jobDirtyWorkEntityKindSchema.parse(kind)
+  if (!(DERIVED_VERSION_KINDS as readonly string[]).includes(k))
+    throw new DirtyKindUnsupportedError(k)
+  return k as DerivedVersionKind
+}
+
+/** The entity's current derived version (see DERIVED VERSION); 0 before its first enqueue. */
+export async function currentDerivedVersion(
+  db: SqlExecutor,
+  kind: JobDirtyWorkEntityKind,
+  entityId: string,
+): Promise<number> {
+  const k = derivedKind(kind)
+  if (!UUID.test(entityId)) throw new RangeError('entityId must be a lowercase uuid')
+  const { rows } = await db.execute(dirtyWorkStatements.derivedVersion(k, entityId))
+  return Number(rows[0]?.['v'] ?? 0)
+}
+
+/**
+ * Enqueue dirty work for a SENIOR / EXCLUSION / PROJECT_CLIENT at the next derived version, in the
+ * producer's transaction. The advisory lock makes `max + 1` safe under READ COMMITTED: a second
+ * producer of the same entity waits for the first to commit and then sees its row, so two writes
+ * never share a version and an `ON CONFLICT` can never swallow the later one.
+ */
+export async function enqueueDerivedDirty(
+  tx: SqlExecutor,
+  kind: JobDirtyWorkEntityKind,
+  entityId: string,
+  reason: string,
+): Promise<{ inserted: boolean; version: number }> {
+  const k = derivedKind(kind)
+  if (!UUID.test(entityId)) throw new RangeError('entityId must be a lowercase uuid')
+  await tx.execute(dirtyWorkStatements.lockDerived(k, entityId))
+  const version = (await currentDerivedVersion(tx, k, entityId)) + 1
+  const { inserted } = await enqueueDirty(tx, k, entityId, version, reason)
+  return { inserted, version }
 }
 
 /** The kinds a claim may name: at least one, each with a version source. */

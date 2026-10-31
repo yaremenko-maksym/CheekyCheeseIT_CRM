@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import { apiError } from '../common/api-error'
 import type { DatabaseService } from '../database/database.service'
 import { userEmails, type User } from '../database/schema'
+import { markUserEditDirty } from '../job-sourcing/dirty-producers'
 import type { DrizzleTx } from '../database/types'
 import { assertEmailAvailable } from './user-emails.util'
 import {
@@ -189,6 +190,7 @@ export class AdminUserUpdateService {
       // form, unchanged `role` and `monthlySalary` included, and must not be
       // blocked (that edit is settlement, not a new entitlement).
       const u = await updateUserRow(tx, id, existing, set)
+      await markUserEditDirty(tx, id, existing, set)
 
       // task-pending-share (position 5): a requested base-share change opens
       // a proposal instead of writing `seniorSharePercent` directly — see

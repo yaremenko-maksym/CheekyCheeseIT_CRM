@@ -16,6 +16,9 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { TeamsService } from './teams.service'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+import { markSeniorDirty } from '../job-sourcing/dirty-producers'
+// r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
+vi.mock('../job-sourcing/dirty-producers')
 
 const adminUser: SessionUser = {
   id: 'admin-1',
@@ -486,6 +489,9 @@ describe('TeamsService.addSeniorToDropTeam', () => {
       }),
     }))
     await expect(svc.addSeniorToDropTeam('team-1', 'sn-1')).resolves.toBeUndefined()
+    // r5 4.6 S5 (CR-M-2): the attached senior is marked dirty (this mock's transaction hands the
+    // same object through, so the handle itself is proven by the real-DB services spec).
+    expect(vi.mocked(markSeniorDirty)).toHaveBeenLastCalledWith(db, 'sn-1', 'senior.team')
   })
 })
 

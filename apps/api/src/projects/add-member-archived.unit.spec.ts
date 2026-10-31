@@ -24,6 +24,8 @@ import { projectMembers } from '../database/schema'
 import { compileWhere } from '../finance/__test-helpers__/drizzle-where-introspection'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
+// r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
+vi.mock('../job-sourcing/dirty-producers')
 
 const ADMIN: SessionUser = {
   id: '22222222-0000-4000-aa00-000000000001',
@@ -225,8 +227,7 @@ describe('MED-3 — createFromInterview does not seat dismissed teammates', () =
     await makeService(db).createFromInterview(interview, ADMIN)
 
     const teammateQuery = findManyArgs[1] as
-      | { with?: { user?: { columns?: Record<string, boolean> } } }
-      | undefined
+      { with?: { user?: { columns?: Record<string, boolean> } } } | undefined
     expect(teammateQuery?.with?.user?.columns).toEqual({
       id: true,
       role: true,

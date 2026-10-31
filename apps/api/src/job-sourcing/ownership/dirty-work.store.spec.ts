@@ -3,8 +3,11 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
+  CLAIMABLE_KINDS,
   claimDirtyBatch,
   completeDirty,
+  currentDerivedVersion,
+  enqueueDerivedDirty,
   DirtyKindUnsupportedError,
   DirtyWorkFencedError,
   type DirtyWorkHandle,
@@ -136,15 +139,33 @@ describe('claimDirtyBatch', () => {
     expect(seen[0]!.sql).toContain('FOR UPDATE SKIP LOCKED')
     expect(seen[0]!.sql).toContain("WHERE status = 'PENDING'")
     expect(seen[0]!.sql).toContain('fencing_epoch = d.fencing_epoch + 1')
-    // Default kinds: exactly those with a version source (CR-M-2).
-    expect(seen[0]!.sql).toContain('AND entity_kind IN ($1, $2)')
-    expect(seen[0]!.params).toEqual(['SOURCE_RECORD', 'OPPORTUNITY', 200, 'w', 300_000])
+    // Default kinds: exactly those with a version source (CR-M-2); since S5, all five.
+    expect(seen[0]!.sql).toContain('AND entity_kind IN ($1, $2, $3, $4, $5)')
+    expect(seen[0]!.params).toEqual([
+      'SOURCE_RECORD',
+      'OPPORTUNITY',
+      'SENIOR',
+      'EXCLUSION',
+      'PROJECT_CLIENT',
+      200,
+      'w',
+      300_000,
+    ])
   })
 
   it('passes an explicit batch size and lease', async () => {
     const { tx, seen } = scripted()
     await claimDirtyBatch(tx, { owner: 'w', batchSize: 1000, leaseMs: 3_600_000 })
-    expect(seen[0]!.params).toEqual(['SOURCE_RECORD', 'OPPORTUNITY', 1000, 'w', 3_600_000])
+    expect(seen[0]!.params).toEqual([
+      'SOURCE_RECORD',
+      'OPPORTUNITY',
+      'SENIOR',
+      'EXCLUSION',
+      'PROJECT_CLIENT',
+      1000,
+      'w',
+      3_600_000,
+    ])
   })
 
   it('claims only the kinds it is given', async () => {
@@ -163,15 +184,23 @@ describe('claimDirtyBatch', () => {
   })
 
   it.each(['SENIOR', 'EXCLUSION', 'PROJECT_CLIENT'] as const)(
-    'refuses to claim kind %s, which completeDirty could not finish',
+    'S5: claims kind %s now that it has a derived version source',
     async (kind) => {
       const { tx, seen } = scripted()
-      const err = claimDirtyBatch(tx, { owner: 'w', kinds: ['OPPORTUNITY', kind] })
-      await expect(err).rejects.toBeInstanceOf(DirtyKindUnsupportedError)
-      await expect(err).rejects.toThrow(`dirty work of kind ${kind} has no version source yet`)
-      expect(seen).toHaveLength(0)
+      await claimDirtyBatch(tx, { owner: 'w', kinds: ['OPPORTUNITY', kind] })
+      expect(seen[0]!.params).toEqual(expect.arrayContaining(['OPPORTUNITY', kind]))
     },
   )
+
+  it('S5: claims every kind by default, the derived ones included', () => {
+    expect([...CLAIMABLE_KINDS].sort()).toEqual([
+      'EXCLUSION',
+      'OPPORTUNITY',
+      'PROJECT_CLIENT',
+      'SENIOR',
+      'SOURCE_RECORD',
+    ])
+  })
 
   it('refuses an unknown kind before any SQL', async () => {
     const { tx, seen } = scripted()
@@ -281,17 +310,13 @@ describe('completeDirty', () => {
   })
 
   it.each(['SENIOR', 'EXCLUSION', 'PROJECT_CLIENT'] as const)(
-    'refuses kind %s, which has no version source, before any SQL',
+    'S5: reads kind %s at its derived version: the newest of its own dirty rows',
     async (entityKind) => {
-      const { tx, seen } = scripted([{ status: 'DONE' }])
-      const err = completeDirty(tx, handle({ entityKind }))
-      await expect(err).rejects.toBeInstanceOf(DirtyKindUnsupportedError)
-      await expect(err).rejects.toMatchObject({
-        name: 'DirtyKindUnsupportedError',
-        code: 'DIRTY_KIND_UNSUPPORTED',
-        message: `dirty work of kind ${entityKind} has no version source yet`,
-      })
-      expect(seen).toHaveLength(0)
+      const { tx, seen } = scripted([{ status: 'DEFERRED' }])
+      await expect(completeDirty(tx, handle({ entityKind }))).resolves.toBe('DEFERRED')
+      expect(seen[0]!.sql).toContain(
+        'SELECT max(d.target_version) FROM job_dirty_work d\n  WHERE d.entity_kind = w.entity_kind AND d.entity_id = w.entity_id',
+      )
     },
   )
 
@@ -372,6 +397,95 @@ describe('failDirty', () => {
       DirtyWorkFencedError,
     )
     expect(seen).toHaveLength(0)
+  })
+})
+
+describe('enqueueDerivedDirty (S5, decision D2)', () => {
+  /** An executor holding one entity's dirty rows in memory: lock, max, insert. */
+  function ledger() {
+    const versions: number[] = []
+    const seen: string[] = []
+    const tx: SqlExecutor = {
+      execute: (q: SQL) => {
+        const { sql: text, params } = render(q)
+        seen.push(text)
+        if (text.includes('pg_advisory_xact_lock')) return Promise.resolve({ rows: [{}] })
+        if (text.includes('coalesce(max(target_version), 0)'))
+          return Promise.resolve({ rows: [{ v: versions.length ? Math.max(...versions) : 0 }] })
+        versions.push(Number(params[2]))
+        return Promise.resolve({ rows: [{ id: ID }] })
+      },
+    }
+    return { tx, versions, seen }
+  }
+
+  it('locks the entity, reads its version, inserts the next one', async () => {
+    const { tx, seen, versions } = ledger()
+    await expect(enqueueDerivedDirty(tx, 'SENIOR', ENTITY, 'senior.archive')).resolves.toEqual({
+      inserted: true,
+      version: 1,
+    })
+    expect(seen).toHaveLength(3)
+    expect(seen[0]).toContain('pg_advisory_xact_lock(hashtextextended(')
+    expect(seen[1]).toContain('WHERE entity_kind = $1 AND entity_id = $2::uuid')
+    expect(seen[2]).toContain('INSERT INTO job_dirty_work')
+    expect(versions).toEqual([1])
+  })
+
+  it('names the kind and entity in the lock key', () => {
+    const q = render(dirtyWorkStatements.lockDerived('EXCLUSION', ENTITY))
+    expect(q.params).toEqual([`job_dirty_work:EXCLUSION:${ENTITY}`])
+  })
+
+  it('AC 2 (property): any sequence of enqueues yields strictly increasing versions', async () => {
+    const reasons = ['create', 'delete', 'archive', 'restore', 'create', 'create']
+    for (let run = 0; run < 25; run += 1) {
+      const { tx, versions } = ledger()
+      // A pseudo-random sequence of writes, the same reason repeating (same-timestamp updates).
+      const n = 1 + ((run * 7) % 13)
+      for (let i = 0; i < n; i += 1)
+        await enqueueDerivedDirty(
+          tx,
+          'PROJECT_CLIENT',
+          ENTITY,
+          reasons[(run + i) % reasons.length]!,
+        )
+      expect(versions).toEqual(Array.from({ length: n }, (_, i) => i + 1))
+    }
+  })
+
+  it.each(['SOURCE_RECORD', 'OPPORTUNITY'] as const)(
+    'refuses kind %s, which has its own version, before any SQL',
+    async (kind) => {
+      const { tx, seen } = ledger()
+      const err = enqueueDerivedDirty(tx, kind, ENTITY, 'R')
+      await expect(err).rejects.toBeInstanceOf(DirtyKindUnsupportedError)
+      await expect(err).rejects.toThrow(`dirty work of kind ${kind} has no version source yet`)
+      await expect(currentDerivedVersion(tx, kind, ENTITY)).rejects.toMatchObject({
+        code: 'DIRTY_KIND_UNSUPPORTED',
+      })
+      expect(seen).toHaveLength(0)
+    },
+  )
+
+  it('refuses a malformed entity id before any SQL', async () => {
+    const { tx, seen } = ledger()
+    await expect(enqueueDerivedDirty(tx, 'SENIOR', 'nope', 'R')).rejects.toThrow(
+      new RangeError('entityId must be a lowercase uuid'),
+    )
+    await expect(currentDerivedVersion(tx, 'SENIOR', `x${ENTITY}`)).rejects.toThrow(
+      new RangeError('entityId must be a lowercase uuid'),
+    )
+    expect(seen).toHaveLength(0)
+  })
+
+  it('reads 0 when the aggregate returns no row at all', async () => {
+    await expect(currentDerivedVersion(scripted([]).tx, 'SENIOR', ENTITY)).resolves.toBe(0)
+  })
+
+  it('reads 0 for an entity with no rows', async () => {
+    const { tx } = ledger()
+    await expect(currentDerivedVersion(tx, 'EXCLUSION', ENTITY)).resolves.toBe(0)
   })
 })
 

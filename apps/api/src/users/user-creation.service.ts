@@ -11,6 +11,7 @@ import {
   type User,
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
+import { markSeniorDirty } from '../job-sourcing/dirty-producers'
 import type { TeamsService } from '../teams/teams.service'
 import type { AuditLogService } from './audit-log.service'
 import type { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
@@ -272,9 +273,13 @@ export class UserCreationService {
             ...enrolledHrIds(data),
             ...(data.accountantId ? [data.accountantId] : []),
           ]
-          for (const userId of memberIds) {
-            await this.db.db.insert(teamMembers).values({ teamId: team.id, userId })
-          }
+          // r5 4.6 S5: the memberships and the senior's roster dirty row commit together.
+          await this.db.db.transaction(async (tx) => {
+            for (const userId of memberIds) {
+              await tx.insert(teamMembers).values({ teamId: team.id, userId })
+            }
+            await markSeniorDirty(tx, created.id, 'senior.team')
+          })
         }
       }
     }

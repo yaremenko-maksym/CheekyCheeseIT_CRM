@@ -1,5 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { and, eq, isNull } from 'drizzle-orm'
+import { markSeniorDirty } from '../job-sourcing/dirty-producers'
 import { apiError } from '../common/api-error'
 import type { DatabaseService } from '../database/database.service'
 import { teamMembers, teams, type User } from '../database/schema'
@@ -98,6 +99,7 @@ export class RejoinTeamService {
       for (const userId of memberIds) {
         await tx.insert(teamMembers).values({ teamId: team.id, userId })
       }
+      await markSeniorDirty(tx, seniorId, 'senior.team')
       return { teamId: team.id }
     })
   }

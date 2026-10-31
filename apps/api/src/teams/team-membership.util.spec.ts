@@ -4,7 +4,10 @@ import type { SQL } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { teamMembers } from '../database/schema'
+import { markSeniorDirty } from '../job-sourcing/dirty-producers'
 import { addTeamMember, removeTeamMember, type TeamMembershipDeps } from './team-membership.util'
+// r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
+vi.mock('../job-sourcing/dirty-producers')
 
 const dialect = new PgDialect()
 const render = (cond: SQL) => dialect.sqlToQuery(cond)
@@ -257,6 +260,8 @@ describe('addTeamMember', () => {
     const q = render(m.updates[0]!.where)
     expect(q.sql).toBe('"team_members"."id" = $1')
     expect(q.params).toEqual(['row-9'])
+    // r5 4.6 S5: the reactivation marks the roster dirty on the same transaction handle.
+    expect(vi.mocked(markSeniorDirty).mock.calls.at(-1)).toEqual([m.tx, 'u1', 'senior.team'])
     expect(m.emitInTx).toHaveBeenCalledTimes(1)
     expect(m.emitInTx.mock.calls[0]![0]).toBe(m.tx)
     expect(m.createManyInTx).toHaveBeenCalledTimes(1)
@@ -277,6 +282,8 @@ describe('addTeamMember', () => {
     expect(m.updates).toHaveLength(0)
     expect(m.inserts).toEqual([{ table: teamMembers, values: { teamId: 'T9', userId: 'u7' } }])
     expect(m.emitInTx.mock.calls[0]![0]).toBe(m.tx)
+    // r5 4.6 S5: the roster dirty row is enqueued on the SAME transaction handle as the insert.
+    expect(vi.mocked(markSeniorDirty).mock.calls.at(-1)).toEqual([m.tx, 'u7', 'senior.team'])
   })
 })
 

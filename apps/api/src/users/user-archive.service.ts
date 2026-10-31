@@ -1,5 +1,6 @@
 import { ForbiddenException, HttpStatus, Inject, Injectable, forwardRef } from '@nestjs/common'
 import { and, eq, inArray, isNull, ne } from 'drizzle-orm'
+import { markSeniorDirty } from '../job-sourcing/dirty-producers'
 import type { ArchiveImpact, ArchivePendingTransaction, SessionUser } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
@@ -74,6 +75,7 @@ export class UserArchiveService {
       const now = new Date()
 
       await tx.update(users).set({ archivedAt: now, updatedAt: now }).where(eq(users.id, id))
+      await markSeniorDirty(tx, id, 'senior.archive')
 
       if (user.role === 'SENIOR') {
         // Pair-archive: senior's team + projects. SENIOR's own team_member row is NOT touched.
@@ -294,6 +296,7 @@ export class UserArchiveService {
     const previousArchivedAt = user.archivedAt
 
     await tx.update(users).set({ archivedAt: null, updatedAt: now }).where(eq(users.id, id))
+    await markSeniorDirty(tx, id, 'senior.unarchive')
 
     await this.auditLogService.record(
       {

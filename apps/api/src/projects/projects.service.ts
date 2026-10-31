@@ -49,6 +49,11 @@ import {
   resolveOverrideEffective,
 } from './project-share.util'
 import type { DrizzleTx } from '../database/types'
+import {
+  markProjectClientDirty,
+  markProjectEditDirty,
+  touchesProjectClient,
+} from '../job-sourcing/dirty-producers'
 
 @Injectable()
 export class ProjectsService {
@@ -360,6 +365,7 @@ export class ProjectsService {
         .returning()
       // Stryker disable next-line ConditionalExpression: defensive-only — a single-row `.insert(...).values({...}).returning()` with no `WHERE` cannot return an empty array on a real Postgres (it either inserts the one row or the whole INSERT throws), so no mock or integration fixture can construct the `!inserted` branch without lying about what Postgres does. Same class as the "practically unreachable, kept for type-narrowing" defensive branches already accepted elsewhere in this codebase (e.g. `pending-settlement.service.ts`'s own `if (!source)` comment).
       if (!inserted) throw new Error('Failed to insert project')
+      await markProjectClientDirty(tx, inserted.id, 'project.create') // r5 4.6 S5
 
       const approvalRows = await this.approvals.proposeInTx(tx, {
         subjectType: ProjectsService.APPROVAL_SUBJECT_TYPE,
@@ -567,7 +573,13 @@ export class ProjectsService {
     // through `proposeSeniorShareChange` below instead (SENIOR must confirm).
     const updateData = buildProjectUpdateData(data, resolvedDropId, dropOverrideEffective)
 
-    await this.db.db.update(projects).set(updateData).where(eq(projects.id, id))
+    // r5 4.6 S5: an edit of a client-deriving column commits with its roster dirty row.
+    if (touchesProjectClient(updateData, project))
+      await this.db.db.transaction(async (tx) => {
+        await tx.update(projects).set(updateData).where(eq(projects.id, id))
+        await markProjectEditDirty(tx, id, project, updateData)
+      })
+    else await this.db.db.update(projects).set(updateData).where(eq(projects.id, id))
 
     // task-pending-share (position 5): a REQUESTED change to the SENIOR
     // share override opens a proposal instead of applying immediately — no

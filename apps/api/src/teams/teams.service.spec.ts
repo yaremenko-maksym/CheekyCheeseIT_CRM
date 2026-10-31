@@ -6,6 +6,8 @@ import type { SessionUser } from '@crm/shared'
 import { TeamAuditLogService } from './team-audit-log.service'
 import { TeamsService } from './teams.service'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+// r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
+vi.mock('../job-sourcing/dirty-producers')
 
 type DrizzleDb = { db: NodePgDatabase<typeof schema> }
 

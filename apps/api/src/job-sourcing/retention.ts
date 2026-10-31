@@ -50,6 +50,19 @@ export interface RetentionPolicy {
  */
 export const NEW_STORE_CLEANUP_DISABLED: RetentionPolicy = { newStoreCleanupEnabled: false }
 
+/*
+ * FUTURE RETENTION RULE for `job_dirty_work` (r5 Task 4.6 S5, CR-M-3 / SR-L-3). Nothing deletes
+ * from that table today, and `ownership/dirty-work.retention-guard.spec.ts` fails the build if
+ * anything starts to. The reason: the version of a SENIOR / EXCLUSION / PROJECT_CLIENT entity is
+ * DERIVED as the highest `target_version` among its own rows (DERIVED VERSION in
+ * `ownership/dirty-work.store.ts`). A cleanup that removed an entity's newest row would reset that
+ * counter, so an older row could look current or a new one be swallowed by `ON CONFLICT`. Whoever
+ * adds retention here MUST keep the newest row per (entity_kind, entity_id) of those three kinds,
+ * may delete only terminal rows (DONE / DEFERRED / FAILED), and updates the guard spec with it.
+ * Fan-out OPPORTUNITY rows (`fanout:<root>`) are the bulk of the growth and are safe to purge once
+ * terminal.
+ */
+
 export interface RetentionRow {
   collectedAt: Date
   queueStatus: 'NEW' | 'IN_PROGRESS' | 'DISMISSED'

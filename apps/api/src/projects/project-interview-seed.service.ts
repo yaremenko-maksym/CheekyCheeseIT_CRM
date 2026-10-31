@@ -12,6 +12,7 @@ import {
   type User,
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
+import { markProjectClientDirty } from '../job-sourcing/dirty-producers'
 import { NotificationsService } from '../notifications/notifications.service'
 import { PROJECT_APPROVAL_SUBJECT_TYPE } from './project-access.service'
 
@@ -96,6 +97,9 @@ export class ProjectInterviewSeedService {
       .returning()
 
     if (!project) return project
+    // CR-H-1: a new project with a senior and a client changes that senior's derived exclusions.
+    // On `conn`: the caller's transaction (`InterviewsService.move`, the only caller, passes one).
+    await markProjectClientDirty(conn, project.id, 'project.create')
 
     // security-review round 2 (SR-H-6). Open the approval proposal in the
     // SAME connection as the insert above — when the caller passed a `tx`

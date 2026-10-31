@@ -19,6 +19,14 @@ import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
+// r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
+import { markProjectEditDirty } from '../job-sourcing/dirty-producers'
+vi.mock('../job-sourcing/dirty-producers', async (importOriginal) => ({
+  // The real column predicate decides whether the update opens a transaction; the enqueue is inert.
+  ...(await importOriginal<typeof import('../job-sourcing/dirty-producers')>()),
+  markProjectClientDirty: vi.fn(),
+  markProjectEditDirty: vi.fn(),
+}))
 
 const SENIOR_ID = 'senior-1'
 const DROP_ID = 'drop-1'
@@ -458,6 +466,8 @@ describe('ProjectsService.update — seniorApprovalPending/dropApprovalPending o
             where: (_expr: unknown) => Promise.resolve(),
           }),
         }),
+        // r5 4.6 S5: a client-column edit runs in a transaction; it passes through to `update`.
+        transaction: (cb: (tx: unknown) => Promise<unknown>) => cb(db.db),
       },
     }
     const auditLog = { record: vi.fn(async () => undefined) }
@@ -496,6 +506,13 @@ describe('ProjectsService.update — seniorApprovalPending/dropApprovalPending o
     expect(approvals.getPendingApproverIds).toHaveBeenCalledWith('PROJECT', [PROJECT_ID])
     expect(result.seniorApprovalPending).toBe(true)
     expect(result.dropApprovalPending).toBe(true)
+    // r5 4.6 S5: a rename touches a client-deriving column -> marked dirty in the update's tx.
+    expect(vi.mocked(markProjectEditDirty)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      PROJECT_ID,
+      expect.objectContaining({ id: PROJECT_ID }),
+      expect.objectContaining({ name: 'Renamed while still DRAFT' }),
+    )
   })
 
   it('getPendingApproverIds is never called when the patched project is ACTIVE (same guard as findOne/findAll)', async () => {

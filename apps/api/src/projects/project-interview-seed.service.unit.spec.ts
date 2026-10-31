@@ -13,6 +13,9 @@ import { projectMembers, projects } from '../database/schema'
 import { compileWhere } from '../finance/__test-helpers__/drizzle-where-introspection'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
+import { markProjectClientDirty } from '../job-sourcing/dirty-producers'
+// r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
+vi.mock('../job-sourcing/dirty-producers')
 
 const ACTOR = { id: 'actor-1', role: 'ADMIN' } as unknown as SessionUser
 const SENIOR_ID = 'senior-1'
@@ -70,6 +73,10 @@ describe('ProjectInterviewSeedService', () => {
     const result = await seed.createFromInterview(interview, ACTOR)
 
     expect(result?.id).toBe('p-1')
+    // r5 4.6 S5 (CR-H-1): the new project's client is marked dirty on the insert's connection.
+    const [conn, ...rest] = vi.mocked(markProjectClientDirty).mock.calls.at(-1)!
+    expect(rest).toEqual(['p-1', 'project.create'])
+    expect(vi.mocked(proposeInTx).mock.calls.at(-1)![0]).toBe(conn)
     expect(inserted[0]).toMatchObject({
       domain: 'Other',
       status: 'DRAFT',
@@ -120,11 +127,13 @@ describe('ProjectInterviewSeedService', () => {
 
   it('returns early without proposing when the insert yields no row', async () => {
     const { seed, proposeInTx, findManyArgs } = makeSeed({ returned: [] })
+    vi.mocked(markProjectClientDirty).mockClear()
 
     const result = await seed.createFromInterview(interview, ACTOR)
 
     expect(result).toBeUndefined()
     expect(proposeInTx).not.toHaveBeenCalled()
+    expect(markProjectClientDirty).not.toHaveBeenCalled()
     expect(findManyArgs).toHaveLength(0)
   })
 

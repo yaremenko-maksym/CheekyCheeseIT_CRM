@@ -14,6 +14,8 @@ import { ProjectsService } from './projects.service'
 import type { NotificationsService } from '../notifications/notifications.service'
 import { makePassThroughEmitInTx } from '../notifications/__test-helpers__/notifications-stub'
 import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
+// r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
+vi.mock('../job-sourcing/dirty-producers')
 
 const ADMIN: SessionUser = {
   id: 'admin-1',
