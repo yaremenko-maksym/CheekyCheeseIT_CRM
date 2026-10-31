@@ -77,7 +77,7 @@ export function detectVolumeDrop(s: HealthSnapshot): readonly HealthReason[] {
   if (baseline === null || baseline <= 0) return []
 
   const received24h = runs
-    .filter((r) => s.now.getTime() - r.startedAt.getTime() <= DAY_MS)
+    .filter((r) => s.now.getTime() - r.startedAt.getTime() < DAY_MS)
     .reduce((sum, r) => sum + r.received, 0)
   return received24h < HEALTH_THRESHOLDS.volumeDropRatio * baseline ? ['VOLUME_DROP'] : []
 }
