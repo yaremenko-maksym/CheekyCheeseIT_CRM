@@ -92,9 +92,23 @@ describe('JobRunWorker.startDue', () => {
     claimDue.mockClear()
     const second = await worker.startDue({ cycleId: 'cyc' })
     expect(second.claimed).toBe(0)
+    expect(second.refused).toEqual([])
     expect(await second.settled).toEqual([])
     expect(claimDue).not.toHaveBeenCalled()
     release()
+  })
+
+  it('U3: passes a sweep scope through to the claim and hands back its refusals', async () => {
+    const { worker, claimDue } = build([])
+    const refusal = { sourceId: 's1', reason: 'NOT_ACTIVATABLE' }
+    claimDue.mockResolvedValueOnce({ claimed: [], refused: [refusal] })
+    const sweep = { cycleId: 'cyc', skipIds: ['s0'] }
+    const started = await worker.startDue({ cycleId: 'cyc', sweep })
+    expect(started.refused).toEqual([refusal])
+    expect(claimDue.mock.calls[0]?.[0]).toMatchObject({ cycleId: 'cyc', sweep })
+    // no sweep given: no sweep key at all (the ledger reads its presence)
+    await worker.startDue({ cycleId: 'cyc' })
+    expect(claimDue.mock.calls[1]?.[0]).not.toHaveProperty('sweep')
   })
 
   it('frees the slots a claim held when the claim throws', async () => {

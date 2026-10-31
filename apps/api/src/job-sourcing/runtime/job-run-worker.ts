@@ -3,7 +3,7 @@ import { Logger } from '@nestjs/common'
 import { sql } from 'drizzle-orm'
 import type { BoundedFetchOptions } from '../http/bounded-fetch'
 import type { AccountMeter, MeterDb } from '../metering/account-meter.store'
-import type { ClaimedRun, JobRunLedger, RunEnding } from '../ownership/job-run-ledger'
+import type { ClaimRefused, ClaimedRun, JobRunLedger, RunEnding } from '../ownership/job-run-ledger'
 import type { LedgerCatalog } from '../ownership/ledger-catalog'
 import { type RunHandle, isRunFenced } from '../ownership/run-ownership'
 import {
@@ -354,20 +354,24 @@ export class JobRunWorker {
     cycleId: string
     onlyIds?: readonly string[]
     onlyTypes?: readonly JobSourceType[]
-  }): Promise<{ claimed: number; settled: Promise<RunReport[]> }> {
+    /** U3: claim with the sweep predicate (the ledger's `claimDue` `sweep`). */
+    sweep?: { readonly cycleId: string; readonly skipIds: readonly string[] }
+  }): Promise<{ claimed: number; refused: ClaimRefused[]; settled: Promise<RunReport[]> }> {
     await this.start()
     const free = this.options.poolSize - this.active
-    if (free < 1) return { claimed: 0, settled: Promise.resolve([]) }
+    if (free < 1) return { claimed: 0, refused: [], settled: Promise.resolve([]) }
     // The slots are held WHILE the claim runs, so two passes at once cannot both claim them.
     this.active += free
     let claimed: ClaimedRun[]
+    let refused: ClaimRefused[]
     try {
-      ;({ claimed } = await this.deps.ledger.claimDue({
+      ;({ claimed, refused } = await this.deps.ledger.claimDue({
         cycleId: input.cycleId,
         owner: this.options.owner,
         limit: free,
         onlyIds: input.onlyIds,
         onlyTypes: input.onlyTypes,
+        ...(input.sweep === undefined ? {} : { sweep: input.sweep }),
       }))
     } finally {
       this.active -= free
@@ -375,6 +379,7 @@ export class JobRunWorker {
     // `runClaimed` takes its slot synchronously, before this pass yields again.
     return {
       claimed: claimed.length,
+      refused,
       settled: Promise.all(claimed.map((run) => this.runClaimed(run))),
     }
   }

@@ -28,6 +28,7 @@ import {
   backoffMs,
   claimGate,
   endingEffect,
+  isSweepable,
   manualTermRefusal,
   nextAttemptAt,
   refusalWrite,
@@ -85,6 +86,22 @@ export interface ClaimRefused {
   readonly sourceId: string
   readonly reason: ClaimRefusal
 }
+
+/** Source fetch strategy U3: a sweep claim or count -- its cycle and the sources it skips. */
+export interface SweepScope {
+  readonly cycleId: string
+  readonly skipIds: readonly string[]
+}
+
+/**
+ * CR-M-1 / SR-M-1 / CR-M-3: a run started this long before the sweep cycle opened, or later, counts
+ * as the source's run "around the sweep". One tick period (10 min) PLUS one tick window (9 min):
+ * a run of the 07:50 tick starts anywhere in 07:50..07:59 (its window), and both that claim and
+ * the sweep cycle's opening carry cron and latency jitter. Anchored on the sweep cycle's own
+ * `started_at`, a plain 10-minute window made the 07:50 tick's first claims a coin flip. Tied to
+ * `TICK_WINDOW_MS` by the cron spec; the ledger does not import the cron module.
+ */
+export const SWEEP_RECENT_RUN_MS = 19 * 60_000
 
 export type ManualClaim =
   | { readonly kind: 'CLAIMED'; readonly run: ClaimedRun }
@@ -249,15 +266,23 @@ export class JobRunLedger {
     readonly onlyIds?: readonly string[] | undefined
     readonly onlyTypes?: readonly JobSourceType[] | undefined
     readonly lookaheadMs?: number | undefined
+    /** U3: count with the sweep predicate of that cycle, minus the window's skipped sources. */
+    readonly sweep?: SweepScope | undefined
   }): Promise<number> {
     const lookahead = Math.min(
       Math.max(0, Math.floor(input.lookaheadMs ?? 0)),
       MAX_EARLY_DUE_SLACK_MS,
     )
+    const predicate =
+      input.sweep === undefined
+        ? dueSourcesPredicate('SCHEDULED', {
+            maxConsecutiveFailures: this.options.maxConsecutiveFailures,
+            cadenceSlackMs: lookahead,
+          })
+        : await this.sweepPredicate(input.sweep)
     const { rows } = await this.db.execute(
       sql`SELECT count(*)::int AS n FROM job_sources
-          WHERE ${dueSourcesPredicate('SCHEDULED', { maxConsecutiveFailures: this.options.maxConsecutiveFailures, cadenceSlackMs: lookahead })}
-            AND ${scopeOf(input.onlyIds, input.onlyTypes)}`,
+          WHERE ${predicate} AND ${scopeOf(input.onlyIds, input.onlyTypes)}`,
     )
     return Number(rows[0]?.['n'] ?? 0)
   }
@@ -281,6 +306,11 @@ export class JobRunLedger {
     readonly onlyIds?: readonly string[] | undefined
     /** T5: a handler claims its own type set only (API types at 05:00, HTML types at 02:30). */
     readonly onlyTypes?: readonly JobSourceType[] | undefined
+    /**
+     * U3: claim with the sweep predicate (ADR section 5) instead of the cadence term. Its `cycleId`
+     * must be this claim's cycle.
+     */
+    readonly sweep?: SweepScope | undefined
   }): Promise<{ claimed: ClaimedRun[]; refused: ClaimRefused[] }> {
     this.assertOwner(input.owner)
     if (!Number.isSafeInteger(input.limit) || input.limit < 0) {
@@ -288,6 +318,15 @@ export class JobRunLedger {
     }
     const cycle = await this.readCycle(input.cycleId)
     if (cycle.trigger !== 'SCHEDULED') throw new RangeError('claimDue: needs a scheduled cycle')
+    if (input.sweep !== undefined && input.sweep.cycleId !== cycle.id) {
+      throw new RangeError('claimDue: the sweep names another cycle')
+    }
+    const predicate =
+      input.sweep === undefined
+        ? dueSourcesPredicate('SCHEDULED', {
+            maxConsecutiveFailures: this.options.maxConsecutiveFailures,
+          })
+        : await this.sweepPredicate(input.sweep)
     const claimed: ClaimedRun[] = []
     const refused: ClaimRefused[] = []
     const tried: string[] = []
@@ -299,13 +338,19 @@ export class JobRunLedger {
       const triedBefore = tried.length
       try {
         const step = await this.db.transaction(async (tx) => {
-          const row = await this.pickDue(tx, tried, input.onlyIds, input.onlyTypes)
+          const row = await this.pickDue(tx, predicate, tried, input.onlyIds, input.onlyTypes)
           if (row === undefined) return { kind: 'EMPTY' as const }
           const sourceId = String(row['id'])
           tried.push(sourceId)
           const verdict = await this.gateAndHost(tx, row, true)
           if (verdict.kind === 'REFUSED') {
-            await this.writeRefusal(tx, sourceId, verdict.reason, verdict.opensAt)
+            await this.writeRefusal(
+              tx,
+              sourceId,
+              verdict.reason,
+              verdict.opensAt,
+              input.sweep !== undefined,
+            )
             return { kind: 'REFUSED' as const, refusal: { sourceId, reason: verdict.reason } }
           }
           const run = await this.insertRun(tx, row, cycle, input.owner, verdict.adapterVersion)
@@ -383,6 +428,7 @@ export class JobRunLedger {
   /** Step 1 of a scheduled claim: one due source, locked, skipping the ones already tried. */
   private async pickDue(
     tx: DrizzleTx,
+    predicate: SQL,
     tried: readonly string[],
     onlyIds: readonly string[] | undefined,
     onlyTypes: readonly JobSourceType[] | undefined,
@@ -392,7 +438,7 @@ export class JobRunLedger {
       sql`SELECT job_sources.*, ${RUN_ACCOUNT_KEY} AS run_account_key, ${METER_KEY} AS meter_key,
             clock_timestamp() AS db_now
           FROM job_sources
-          WHERE ${dueSourcesPredicate('SCHEDULED', { maxConsecutiveFailures: this.options.maxConsecutiveFailures })}
+          WHERE ${predicate}
             AND ${NOT_RUNNING} AND ${HOST_IDLE}
             AND NOT (job_sources.id = ANY(${toUuidArray(tried)})) AND ${scope}
           ORDER BY job_sources.next_attempt_at, job_sources.id
@@ -400,6 +446,45 @@ export class JobRunLedger {
           LIMIT 1`,
     )
     return rows[0]
+  }
+
+  /**
+   * U3: the sweep predicate (ADR section 5) narrowed to the sweepable manifest entries
+   * (`isSweepable`: an interval profile, no fixed slots) and minus the window's skipped sources.
+   * The profile lives in code, so the entries are resolved here from the stored manifest ids.
+   *
+   * CR-M-1 / SR-M-1 / CR-M-3: a source is swept ONCE around the sweep (ADR section 5 as amended by
+   * Master). The sweep also skips a source with ANY run (any cycle) started since
+   * `SWEEP_RECENT_RUN_MS` (19 min) before the sweep cycle opened (the 07:50 tick, wherever in its
+   * window it claimed, and every later tick), or inside its provider floor
+   * (`floorHours`, which a cadence-free claim would otherwise bypass).
+   */
+  private async sweepPredicate(sweep: SweepScope): Promise<SQL> {
+    const { rows } = await this.db.execute(
+      sql`SELECT DISTINCT manifest_id FROM job_sources WHERE manifest_id IS NOT NULL`,
+    )
+    // The query excludes NULL; an id the catalog does not know is not sweepable (fail closed).
+    const ids: string[] = []
+    const floors: number[] = []
+    for (const id of rows.map((r) => String(r['manifest_id']))) {
+      const entry = this.catalog.entry(id)
+      if (!isSweepable(entry)) continue
+      ids.push(id)
+      floors.push(Math.ceil(entry.floorHours * 60))
+    }
+    const due = dueSourcesPredicate('SCHEDULED', {
+      maxConsecutiveFailures: this.options.maxConsecutiveFailures,
+      sweepCycleId: sweep.cycleId,
+    })
+    return sql`${due} AND job_sources.manifest_id = ANY(${toTextArray(ids)})
+      AND NOT (job_sources.id = ANY(${toUuidArray(sweep.skipIds)}))
+      AND NOT EXISTS (SELECT 1 FROM job_collection_runs rr
+        WHERE rr.source_id = job_sources.id
+          AND (rr.started_at >= (SELECT c.started_at FROM job_collection_cycles c WHERE c.id = ${sweep.cycleId}::uuid)
+                 - make_interval(secs => ${SWEEP_RECENT_RUN_MS / 1000})
+               OR rr.started_at > clock_timestamp() - make_interval(mins => (
+                 SELECT f.minutes FROM unnest(${toTextArray(ids)}, ${toIntArray(floors)}) AS f(id, minutes)
+                  WHERE f.id = job_sources.manifest_id))))`
   }
 
   /** Steps 2 and 3 on the locked row: the gates, then T8's host slot with the CATALOG's policy. */
@@ -432,21 +517,31 @@ export class JobRunLedger {
     }
   }
 
-  /** The refusal write-back of a SCHEDULED claim; never touches `consecutive_failures`. */
+  /**
+   * The refusal write-back of a SCHEDULED claim; never touches `consecutive_failures`. A SWEEP
+   * refusal never moves `next_attempt_at` EARLIER (SR-M-1): the sweep picks sources that are not
+   * due by their own slot, and pulling one forward to a host gap would hand it to the next tick,
+   * a second run beside the sweep's own retry.
+   */
   private async writeRefusal(
     tx: DrizzleTx,
     sourceId: string,
     reason: ClaimRefusal,
     opensAt: Date | null,
+    swept: boolean,
   ): Promise<void> {
     const write = refusalWrite(reason, opensAt)
     if (write.kind === 'NONE') return
+    const moved =
+      write.kind === 'UNTIL'
+        ? sql`${write.at.toISOString()}::timestamptz`
+        : sql`clock_timestamp() + make_interval(secs => ${this.options.refusalRecheckMs / 1000})`
     const next =
       write.kind === 'NEVER'
         ? sql`NULL::timestamptz`
-        : write.kind === 'UNTIL'
-          ? sql`${write.at.toISOString()}::timestamptz`
-          : sql`clock_timestamp() + make_interval(secs => ${this.options.refusalRecheckMs / 1000})`
+        : swept
+          ? sql`GREATEST(job_sources.next_attempt_at, ${moved})`
+          : moved
     await tx.execute(
       sql`UPDATE job_sources SET last_error_code = ${reason}, next_attempt_at = ${next}, updated_at = clock_timestamp() WHERE id = ${sourceId}::uuid`,
     )
@@ -841,6 +936,17 @@ function scopeOf(
 function toTypeArray(types: readonly string[]): SQL {
   for (const t of types) if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(t)) throw new RangeError('not a type')
   return sql`${`{${types.join(',')}}`}::text[]`
+}
+
+/** A text[] parameter as an array literal, every element quoted and escaped. Exported for its spec. */
+export function toTextArray(values: readonly string[]): SQL {
+  const quoted = values.map((v) => `"${v.replace(/[\\"]/g, (c) => `\\${c}`)}"`)
+  return sql`${`{${quoted.join(',')}}`}::text[]`
+}
+
+/** An int[] parameter. The callers pass whole minutes; anything else fails in Postgres's cast. */
+function toIntArray(values: readonly number[]): SQL {
+  return sql`${`{${values.join(',')}}`}::int[]`
 }
 
 /** A uuid[] parameter: drizzle would spread a JS array into a row constructor, so pass it as text. */
