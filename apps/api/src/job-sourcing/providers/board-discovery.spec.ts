@@ -1,9 +1,11 @@
+import type { Pool } from 'pg'
 import { describe, expect, it } from 'vitest'
 import {
   BOARD_URL_SHAPES,
   boardTokenFromUrl,
   discoverBoardTokens,
   knownBoardTokens,
+  queryablePool,
   type DiscoveryRow,
   type Queryable,
 } from './board-discovery'
@@ -18,6 +20,33 @@ describe('boardTokenFromUrl', () => {
     ['https://apply.workable.com/acme/j/ABC/', 'workable', 'acme'],
   ])('%s -> %s:%s', (url, provider, token) => {
     expect(boardTokenFromUrl(url)).toEqual({ provider, token })
+  })
+
+  it.each([
+    ['https://job-boards.greenhouse.io/acme/jobs/1', 'greenhouse', 'acme'],
+    ['https://boards.eu.greenhouse.io/acme/jobs/1', 'greenhouse', 'acme'],
+    ['https://job-boards.eu.greenhouse.io/acme/jobs/1', 'greenhouse', 'acme'],
+    ['https://jobs.eu.lever.co/acme/abc', 'lever', 'acme'],
+    ['https://acme.jobs.personio.com/job/1', 'personio', 'acme'],
+  ])('also reads the hosts ats-job-key treats as board hosts: %s', (url, provider, token) => {
+    expect(boardTokenFromUrl(url)).toEqual({ provider, token })
+  })
+
+  it('lists a single DNS label such as help or api as a candidate (reviewed by a human)', () => {
+    expect(boardTokenFromUrl('https://help.recruitee.com/')).toEqual({
+      provider: 'recruitee',
+      token: 'help',
+    })
+    expect(boardTokenFromUrl('https://api.jobs.personio.de/')).toEqual({
+      provider: 'personio',
+      token: 'api',
+    })
+    expect(boardTokenFromUrl('https://boards.greenhouse.io/embed/job_app')).toEqual({
+      provider: 'greenhouse',
+      token: 'embed',
+    })
+    // the one label ats-job-key's own recruitee pattern already refuses
+    expect(boardTokenFromUrl('https://www.recruitee.com/')).toBeNull()
   })
 
   it('has exactly the six providers', () => {
@@ -97,12 +126,12 @@ describe('knownBoardTokens', () => {
     expect([...known]).toEqual(['ashby:ok'])
   })
 
-  it('reads lines it is given, ignoring regional lever boards', () => {
+  it('reads every line it is given, regional ones included', () => {
     const known = knownBoardTokens({
       lever: [{ token: 'a' }, { token: 'b', region: 'eu' }],
       ashby: [{ token: 'c' }],
     })
-    expect([...known].sort()).toEqual(['ashby:c', 'lever:a'])
+    expect([...known].sort()).toEqual(['ashby:c', 'lever:a', 'lever:b'])
   })
 })
 
@@ -127,6 +156,20 @@ const db = (rows: DiscoveryRow[]) => {
   }
   return q
 }
+
+describe('queryablePool', () => {
+  it('passes text and values through and returns only the rows', async () => {
+    const calls: unknown[][] = []
+    const r = row({ urls: ['https://jobs.lever.co/a/1'] })
+    const fake = (text: string, values?: unknown[]) => {
+      calls.push([text, values])
+      return Promise.resolve({ rows: [r], rowCount: 1 })
+    }
+    const q = queryablePool({ query: fake as Pool['query'] })
+    expect(await q.query('SELECT 1', [1])).toEqual({ rows: [r] })
+    expect(calls).toEqual([['SELECT 1', [1]]])
+  })
+})
 
 describe('discoverBoardTokens', () => {
   it('counts a token once across URL variants and records, per distinct opportunity', async () => {
@@ -189,6 +232,33 @@ describe('discoverBoardTokens', () => {
     ])
   })
 
+  it('does not return a token that a board file lists only as a regional (EU) board', async () => {
+    const known = knownBoardTokens({ lever: [{ token: 'eu-only', region: 'eu' }] })
+    const out = await discoverBoardTokens(
+      db([
+        row({ urls: ['https://jobs.lever.co/eu-only/1'], opportunity_id: 'o1' }),
+        row({ urls: ['https://jobs.eu.lever.co/eu-only/2'], opportunity_id: 'o2' }),
+        row({ urls: ['https://jobs.lever.co/other/1'], opportunity_id: 'o3' }),
+      ]),
+      known,
+    )
+    expect(out.map((o) => o.token)).toEqual(['other'])
+  })
+
+  it('discovers tokens seen only under job-boards.greenhouse.io or jobs.personio.com', async () => {
+    const out = await discoverBoardTokens(
+      db([
+        row({ urls: ['https://job-boards.greenhouse.io/ghonly/jobs/1'], opportunity_id: 'o1' }),
+        row({ urls: ['https://pe-only.jobs.personio.com/job/1'], opportunity_id: 'o2' }),
+      ]),
+      new Set(),
+    )
+    expect(out.map((o) => `${o.provider}:${o.token}`).sort()).toEqual([
+      'greenhouse:ghonly',
+      'personio:pe-only',
+    ])
+  })
+
   it('lists a token with no linked opportunity with zero counts', async () => {
     const out = await discoverBoardTokens(
       db([row({ urls: ['https://jobs.lever.co/solo/1'] })]),
@@ -203,12 +273,12 @@ describe('discoverBoardTokens', () => {
     expect(d.values).toEqual([
       [
         [
-          '%boards.greenhouse.io%',
-          '%jobs.lever.co%',
+          '%greenhouse.io%',
+          '%lever.co%',
           '%jobs.ashbyhq.com%',
           '%apply.workable.com%',
           '%recruitee.com%',
-          '%jobs.personio.de%',
+          '%jobs.personio.%',
         ],
       ],
     ])

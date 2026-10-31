@@ -1,3 +1,12 @@
+import type { Pool } from 'pg'
+import {
+  ASHBY_HOST,
+  GH_HOST,
+  LEVER_HOST,
+  PERSONIO_HOST,
+  RECRUITEE_HOST,
+  WORKABLE_HOST,
+} from '../identity/ats-job-key'
 import { ASHBY_BOARDS } from './boards/ashby.boards'
 import { GREENHOUSE_BOARDS } from './boards/greenhouse.boards'
 import { LEVER_BOARDS } from './boards/lever.boards'
@@ -29,19 +38,52 @@ export type BoardProvider = 'greenhouse' | 'lever' | 'ashby' | 'workable' | 'rec
 interface BoardUrlShape {
   readonly provider: BoardProvider
   readonly kind: AtsBoardKind
-  readonly host: string
-  /** `path`: the token is the first path segment; `subdomain`: the one label left of the host. */
+  /** The host patterns `ats-job-key` already treats as this vendor's board hosts (EU variants included). */
+  readonly host: RegExp
+  /** `path`: the token is the first path segment; `subdomain`: group 1 of the host pattern. */
   readonly tokenAt: 'path' | 'subdomain'
+  /** Substring the SQL prefilter looks for; looser than `host` on purpose, the parse is the gate. */
+  readonly like: string
 }
 
-/** The public board URL shapes of ADR 8a. */
+/** The public board URL shapes of ADR 8a, hosts from `ats-job-key`. */
 export const BOARD_URL_SHAPES: readonly BoardUrlShape[] = [
-  { provider: 'greenhouse', kind: GREENHOUSE_KIND, host: 'boards.greenhouse.io', tokenAt: 'path' },
-  { provider: 'lever', kind: LEVER_KIND, host: 'jobs.lever.co', tokenAt: 'path' },
-  { provider: 'ashby', kind: ASHBY_KIND, host: 'jobs.ashbyhq.com', tokenAt: 'path' },
-  { provider: 'workable', kind: WORKABLE_KIND, host: 'apply.workable.com', tokenAt: 'path' },
-  { provider: 'recruitee', kind: RECRUITEE_KIND, host: 'recruitee.com', tokenAt: 'subdomain' },
-  { provider: 'personio', kind: PERSONIO_KIND, host: 'jobs.personio.de', tokenAt: 'subdomain' },
+  {
+    provider: 'greenhouse',
+    kind: GREENHOUSE_KIND,
+    host: GH_HOST,
+    tokenAt: 'path',
+    like: 'greenhouse.io',
+  },
+  { provider: 'lever', kind: LEVER_KIND, host: LEVER_HOST, tokenAt: 'path', like: 'lever.co' },
+  {
+    provider: 'ashby',
+    kind: ASHBY_KIND,
+    host: ASHBY_HOST,
+    tokenAt: 'path',
+    like: 'jobs.ashbyhq.com',
+  },
+  {
+    provider: 'workable',
+    kind: WORKABLE_KIND,
+    host: WORKABLE_HOST,
+    tokenAt: 'path',
+    like: 'apply.workable.com',
+  },
+  {
+    provider: 'recruitee',
+    kind: RECRUITEE_KIND,
+    host: RECRUITEE_HOST,
+    tokenAt: 'subdomain',
+    like: 'recruitee.com',
+  },
+  {
+    provider: 'personio',
+    kind: PERSONIO_KIND,
+    host: PERSONIO_HOST,
+    tokenAt: 'subdomain',
+    like: 'jobs.personio.',
+  },
 ]
 
 export interface BoardRef {
@@ -59,12 +101,9 @@ export function boardTokenFromUrl(raw: string): BoardRef | null {
   }
   if (url.protocol !== 'https:') return null
   for (const { provider, kind, host, tokenAt } of BOARD_URL_SHAPES) {
-    let candidate: string | undefined
-    if (tokenAt === 'path' && url.hostname === host) {
-      candidate = url.pathname.split('/')[1]
-    } else if (tokenAt === 'subdomain' && url.hostname.endsWith(`.${host}`)) {
-      candidate = url.hostname.slice(0, -(host.length + 1))
-    }
+    const m = host.exec(url.hostname)
+    if (m === null) continue
+    const candidate = tokenAt === 'path' ? url.pathname.split('/')[1] : m[1]
     if (candidate === undefined) continue
     const token = candidate.toLowerCase()
     if (token.length <= kind.slugMaxChars && kind.slugPattern.test(token)) {
@@ -86,21 +125,21 @@ const COMMITTED_BOARDS: BoardLines = {
 }
 
 /**
- * `provider:token` of every board file line. A Lever EU board is a different board from the global
- * one of the same token, and discovery only reads the global shape, so those lines are left out.
+ * `provider:token` of EVERY board file line, regional ones (Lever EU) included: a token a file
+ * already lists is never offered again, whichever deployment's URL named it.
  */
 export function knownBoardTokens(files: BoardLines = COMMITTED_BOARDS): Set<string> {
   const known = new Set<string>()
   for (const [provider, lines] of Object.entries(files)) {
     for (const line of lines ?? []) {
-      const { token, region } = line as { token?: unknown; region?: unknown }
-      if (typeof token === 'string' && region === undefined) known.add(`${provider}:${token}`)
+      const { token } = line as { token?: unknown }
+      if (typeof token === 'string') known.add(`${provider}:${token}`)
     }
   }
   return known
 }
 
-export interface DiscoveryRow {
+export type DiscoveryRow = {
   /** The record's non-null URLs (original, display, application). */
   urls: string[]
   opportunity_id: string | null
@@ -111,6 +150,16 @@ export interface DiscoveryRow {
 /** What a `pg` Pool or client offers; the one seam of this module. */
 export interface Queryable {
   query(text: string, values?: unknown[]): Promise<{ rows: DiscoveryRow[] }>
+}
+
+/** Typed adapter over a `pg` Pool: the row type is checked, no cast. */
+export function queryablePool(pool: Pick<Pool, 'query'>): Queryable {
+  return {
+    query: async (text, values) => {
+      const { rows } = await pool.query<DiscoveryRow>(text, values)
+      return { rows }
+    },
+  }
 }
 
 export interface DiscoveredBoard extends BoardRef {
@@ -132,7 +181,7 @@ export async function discoverBoardTokens(
   db: Queryable,
   known: ReadonlySet<string> = knownBoardTokens(),
 ): Promise<DiscoveredBoard[]> {
-  const patterns = BOARD_URL_SHAPES.map((s) => `%${s.host}%`)
+  const patterns = BOARD_URL_SHAPES.map((s) => `%${s.like}%`)
   const { rows } = await db.query(DISCOVERY_SQL, [patterns])
   // provider:token -> opportunity id -> matches; one entry per opportunity however many URLs named it
   const found = new Map<string, { ref: BoardRef; opportunities: Map<string, number> }>()

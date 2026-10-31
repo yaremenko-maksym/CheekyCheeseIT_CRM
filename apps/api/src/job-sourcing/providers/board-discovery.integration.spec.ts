@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { assertRealDbSchema, hasDatabaseUrl } from '../../test/require-real-db'
-import { discoverBoardTokens, type Queryable } from './board-discovery'
+import { assertSeedTargetIsDisposable, looksDisposable } from '../../database/seed-db-guard'
+import { discoverBoardTokens, queryablePool } from './board-discovery'
 
 /**
  * Board discovery against a REAL Postgres (ADR 8a, U8b). Seeds records with a URL of each of the six
@@ -17,8 +18,13 @@ import { discoverBoardTokens, type Queryable } from './board-discovery'
  */
 const TAG = `u8b-${randomUUID().slice(0, 8)}`
 
-let pool: Pool
-const q = (text: string, params: unknown[] = []) => pool.query(text, params)
+let pool: Pool | undefined
+let verifiedScratch = false
+const conn = (): Pool => {
+  if (pool === undefined) throw new Error('no connection: the scratch-DB guard did not pass')
+  return pool
+}
+const q = (text: string, params: unknown[] = []) => conn().query(text, params)
 
 const COUNT_TABLES = [
   'job_source_records',
@@ -89,19 +95,29 @@ async function opportunity(recordIds: string[], matches: Array<'LEAD' | 'TRIAGE'
 
 describe.skipIf(!hasDatabaseUrl())('board discovery (real Postgres)', () => {
   beforeAll(async () => {
+    // Throws (suite FAILS, nothing is seeded) unless the target is a disposable database. Checked on
+    // the URL before any connection, then on the database the connection really reached.
+    assertSeedTargetIsDisposable(process.env['DATABASE_URL'] ?? '', process.env)
     await assertRealDbSchema([
       { table: 'job_source_records', column: 'application_url' },
       { table: 'job_opportunity_sources', column: 'unlinked_at' },
     ])
     pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-  })
-
-  it('is connected to a database that is not the live one', async () => {
     const { rows } = await q('SELECT current_database() AS db, version() AS v')
-    expect(rows[0].db).not.toBe('crm_db')
+    if (!looksDisposable(rows[0].db as string)) {
+      throw new Error(
+        `refusing to seed: connected to ${String(rows[0].db)}, not a scratch database`,
+      )
+    }
+    verifiedScratch = true
   })
 
   afterAll(async () => {
+    // Cleanup deletes only after the guard proved the target disposable.
+    if (!verifiedScratch) {
+      await pool?.end()
+      return
+    }
     await q(
       `DELETE FROM job_opportunity_matches WHERE opportunity_id IN
              (SELECT id FROM job_opportunities WHERE title LIKE $1)`,
@@ -115,11 +131,11 @@ describe.skipIf(!hasDatabaseUrl())('board discovery (real Postgres)', () => {
     await q(`DELETE FROM job_opportunities WHERE title LIKE $1`, [`${TAG}%`])
     await q(`DELETE FROM job_source_records WHERE namespace = $1`, [`${TAG}-ns`])
     await q(`DELETE FROM users WHERE email LIKE $1`, [`${TAG}-%`])
-    await pool.end()
+    await conn().end()
   })
 
   it('returns the six tokens, not the seventh, drops a known one, counts distinct opportunities', async () => {
-    const r1 = await record({ original: `https://boards.greenhouse.io/${TAG}-gh/jobs/1` })
+    const r1 = await record({ original: `https://job-boards.greenhouse.io/${TAG}-gh/jobs/1` })
     const r2 = await record({ display: `https://jobs.lever.co/${TAG}-lv/x` })
     const r3 = await record({ application: `https://jobs.ashbyhq.com/${TAG}-ab/x` })
     const r4 = await record({ original: `https://${TAG}-rc.recruitee.com/o/x` })
@@ -138,7 +154,7 @@ describe.skipIf(!hasDatabaseUrl())('board discovery (real Postgres)', () => {
     void [r3, r4, r5, r6, r7]
 
     const before = await counts()
-    const out = await discoverBoardTokens(pool as unknown as Queryable)
+    const out = await discoverBoardTokens(queryablePool(conn()))
     const after = await counts()
     expect(after).toEqual(before)
 
@@ -166,7 +182,7 @@ describe.skipIf(!hasDatabaseUrl())('board discovery (real Postgres)', () => {
       `UPDATE job_opportunity_sources SET unlinked_at = now(), unlink_reason = 'u8b' WHERE opportunity_id = $1`,
       [o],
     )
-    const out = await discoverBoardTokens(pool as unknown as Queryable)
+    const out = await discoverBoardTokens(queryablePool(conn()))
     expect(out.find((x) => x.token === `${TAG.toLowerCase()}-unlinked`)).toMatchObject({
       opportunities: 0,
       matches: 0,
