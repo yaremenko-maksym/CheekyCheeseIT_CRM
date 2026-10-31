@@ -194,7 +194,14 @@ export const dataSchemas = {
   VACANCY_APPLICATION: z.object({ vacancyTitle: objectName }),
   // Source fetch strategy U5a. The source is named by its manifest id (or type), an object name,
   // never a person; no URL and no error text rides here (the notification goes to a personal inbox).
-  SOURCE_HEALTH_ALERT: z.object({ sourceName: objectName, state: alertStateSchema }),
+  // `failures` / `since`: how many consecutive failures and since when (the first failing run), for
+  // the CAPPED sentence; both are absent when the event does not carry them.
+  SOURCE_HEALTH_ALERT: z.object({
+    sourceName: objectName,
+    state: alertStateSchema,
+    failures: nonNegativeInt.nullable().optional(),
+    since: z.string().datetime().nullable().optional(),
+  }),
   SOURCE_HEALTH_WEEKLY_REPORT: z.object({
     weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     sources: z.array(weeklySourceRowSchema).max(WEEKLY_REPORT_MAX_SOURCES),

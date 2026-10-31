@@ -4965,12 +4965,12 @@ msgstr "Деталі — у CRM."
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.SOURCE_HEALTH_ALERT.line"
-msgstr "Джерело «{source}»: {state, select, FAILING {запити завершуються помилкою.} CAPPED {забагато збоїв поспіль, потрібне скидання.} BLOCKED {джерело заблоковане.} EMPTY {порожня відповідь.} PAUSED {хост на паузі через обмеження.} other {змінився формат відповіді.}}"
+msgstr "Джерело «{source}»: {state, select, FAILING {запити завершуються помилкою.} CAPPED {{hasCount, select, yes {{failures, plural, one {# збій} few {# збої} many {# збоїв} other {# збою}} поспіль з {since}, потрібне скидання.} other {забагато збоїв поспіль, потрібне скидання.}}} BLOCKED {джерело заблоковане.} EMPTY {порожня відповідь.} PAUSED {хост на паузі через обмеження.} other {змінився формат відповіді.}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.SOURCE_HEALTH_ALERT.subject"
-msgstr "Проблема з джерелом вакансій «{source}»"
+msgstr "Збій джерела вакансій «{source}»"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
@@ -4980,17 +4980,17 @@ msgstr "Тиждень з {weekStart}."
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.SOURCE_HEALTH_WEEKLY_REPORT.line.measured"
-msgstr "{source}: {state, select, BLOCKED {заблоковане} CAPPED {потрібне скидання} PAUSED {на паузі} FAILING {збої} EMPTY {порожня відповідь} DEGRADED {погіршене} SILENT {без нових вакансій} other {справне}}; змін стану — {transitions}; запусків — {runs}; свіжість: медіана {p50} хв, 90-й перцентиль {p90} хв; запитів — {requests}; отримано — {megabytes} МБ."
+msgstr "{source}: {state, select, BLOCKED {заблоковане} CAPPED {потрібне скидання} PAUSED {на паузі} FAILING {збої} EMPTY {порожня відповідь} DEGRADED {погіршене} SILENT {без нових вакансій} other {справне}}{hasChanges, select, yes {; змін стану — {transitions}} other {}}; запусків — {runs}; свіжість: медіана {p50} хв, 90-й перцентиль {p90} хв; запитів — {requests}; отримано — {megabytes} МБ."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.SOURCE_HEALTH_WEEKLY_REPORT.line.unmeasured"
-msgstr "{source}: {state, select, BLOCKED {заблоковане} CAPPED {потрібне скидання} PAUSED {на паузі} FAILING {збої} EMPTY {порожня відповідь} DEGRADED {погіршене} SILENT {без нових вакансій} other {справне}}; змін стану — {transitions}; запусків — {runs}; свіжість не вимірюється; запитів — {requests}; отримано — {megabytes} МБ."
+msgstr "{source}: {state, select, BLOCKED {заблоковане} CAPPED {потрібне скидання} PAUSED {на паузі} FAILING {збої} EMPTY {порожня відповідь} DEGRADED {погіршене} SILENT {без нових вакансій} other {справне}}{hasChanges, select, yes {; змін стану — {transitions}} other {}}; запусків — {runs}; свіжість не вимірюється; запитів — {requests}; отримано — {megabytes} МБ."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.SOURCE_HEALTH_WEEKLY_REPORT.subject"
-msgstr "Тижневий звіт про джерела вакансій"
+msgstr "Тижневий звіт джерел"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
@@ -8310,7 +8310,7 @@ msgstr "Пропозиція щодо частки"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.SOURCE_HEALTH_ALERT.detail"
-msgstr "{source} — {state, select, FAILING {запити завершуються помилкою} CAPPED {забагато збоїв поспіль, потрібне скидання} BLOCKED {джерело заблоковане} EMPTY {порожня відповідь} PAUSED {хост на паузі через обмеження} other {змінився формат відповіді}}"
+msgstr "{source} — {state, select, FAILING {запити завершуються помилкою} CAPPED {{hasCount, select, yes {{failures, plural, one {# збій} few {# збої} many {# збоїв} other {# збою}} поспіль з {since}, потрібне скидання} other {забагато збоїв поспіль, потрібне скидання}}} BLOCKED {джерело заблоковане} EMPTY {порожня відповідь} PAUSED {хост на паузі через обмеження} other {змінився формат відповіді}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry/messages.ts

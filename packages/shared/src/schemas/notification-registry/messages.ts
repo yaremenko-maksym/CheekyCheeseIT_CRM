@@ -336,7 +336,9 @@ export const DETAIL_MESSAGES = {
     message:
       '{source} — {state, select, ' +
       'FAILING {запити завершуються помилкою} ' +
-      'CAPPED {забагато збоїв поспіль, потрібне скидання} ' +
+      'CAPPED {{hasCount, select, ' +
+      'yes {{failures, plural, one {# збій} few {# збої} many {# збоїв} other {# збою}} поспіль з {since}, потрібне скидання} ' +
+      'other {забагато збоїв поспіль, потрібне скидання}}} ' +
       'BLOCKED {джерело заблоковане} ' +
       'EMPTY {порожня відповідь} ' +
       'PAUSED {хост на паузі через обмеження} ' +

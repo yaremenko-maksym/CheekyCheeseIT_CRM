@@ -70,6 +70,7 @@ export {
   SUBJECT_ARCHIVED_LABELS,
   SUBJECT_MISSING_LABELS,
 } from './notification-registry/messages'
+export { formatDay, sourceAlertParams } from './notification-registry/source-health-params'
 export {
   describeNotification,
   notificationActions,

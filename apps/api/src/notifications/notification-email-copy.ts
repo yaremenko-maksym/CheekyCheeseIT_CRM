@@ -52,6 +52,8 @@ import {
   ACTION_LABELS,
   createI18n,
   EMAIL_NOTIFICATION_MESSAGES as M,
+  formatDay,
+  sourceAlertParams,
   isActionRequiredNotificationType,
   isNewNotificationType,
   MISC_MESSAGES,
@@ -255,7 +257,7 @@ const BODIES: {
   SOURCE_HEALTH_ALERT: (d, i18n) => ({
     subject: renderMessage(i18n, M.sourceAlertSubject, { source: d.sourceName }),
     lines: [
-      renderMessage(i18n, M.sourceAlertLine, { source: d.sourceName, state: d.state }),
+      renderMessage(i18n, M.sourceAlertLine, sourceAlertParams(d, i18n.locale as Locale)),
       renderMessage(i18n, M.sharedDetailsLine),
     ],
   }),
@@ -263,11 +265,15 @@ const BODIES: {
   SOURCE_HEALTH_WEEKLY_REPORT: (d, i18n) => ({
     subject: renderMessage(i18n, M.sourceWeeklySubject),
     lines: [
-      renderMessage(i18n, M.sourceWeeklyHeadLine, { weekStart: d.weekStart }),
+      renderMessage(i18n, M.sourceWeeklyHeadLine, {
+        weekStart: formatDay(d.weekStart, i18n.locale as Locale),
+      }),
       ...d.sources.map((s) => {
         const params = {
           source: s.name,
           state: s.state,
+          // A zero is not a fact worth a clause in a healthy source's line.
+          hasChanges: s.transitions > 0 ? 'yes' : 'no',
           transitions: s.transitions,
           runs: s.runs,
           requests: s.requests,

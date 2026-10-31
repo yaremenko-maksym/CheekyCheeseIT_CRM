@@ -13,6 +13,7 @@ import {
   SUBJECT_ARCHIVED_LABELS,
   SUBJECT_MISSING_LABELS,
   describeNotification,
+  formatDay,
   notificationActions,
   notificationDataSchemaFor,
   notificationSubjectTypeSchema,
@@ -199,7 +200,7 @@ describe('три замороженных типа — реестр, не зам
     expect(NOTIFICATION_TITLE_MESSAGES.VACANCY_APPLICATION.message).toBe('Новий відгук на вакансію')
   })
 
-  it('SOURCE_HEALTH_ALERT: деталь називає джерело і стан, обома мовами', () => {
+  it('SOURCE_HEALTH_ALERT: the detail names the source and the state, in both languages', () => {
     const data = notificationDataSchemaFor('SOURCE_HEALTH_ALERT').parse({
       sourceName: 'remotive_api',
       state: 'CAPPED',
@@ -219,7 +220,7 @@ describe('три замороженных типа — реестр, не зам
     ).toBe(false)
   })
 
-  it('SOURCE_HEALTH_WEEKLY_REPORT: деталь рахує джерела і ті, де змінився стан', () => {
+  it('SOURCE_HEALTH_WEEKLY_REPORT: the detail counts the sources and those whose state changed', () => {
     const row = {
       name: 'remotive_api',
       state: 'HEALTHY',
@@ -239,10 +240,10 @@ describe('три замороженных типа — реестр, не зам
       ],
     })
     expect(describeNotification('SOURCE_HEALTH_WEEKLY_REPORT', data, UK)).toBe(
-      'Тиждень з 2026-10-26: джерел — 3, зі зміною стану — 2',
+      'Тиждень з 26 жовтня: джерел — 3, зі зміною стану — 2',
     )
     expect(describeNotification('SOURCE_HEALTH_WEEKLY_REPORT', data, EN)).toBe(
-      'Week starting 2026-10-26: sources — 3, with a state change — 2',
+      'Week starting October 26: sources — 3, with a state change — 2',
     )
     // The stored row is bounded: a malformed date is refused, anchored at both ends.
     for (const weekStart of ['26.10.2026', 'x2026-10-26', '2026-10-26x']) {
@@ -287,6 +288,63 @@ describe('три замороженных типа — реестр, не зам
       ).toBe(false)
     },
   )
+
+  it('SOURCE_HEALTH_ALERT CAPPED: names the failure count (with the right plural) and the day they began', () => {
+    const base = { sourceName: 'remotive_api', state: 'CAPPED', since: '2026-10-28T08:15:00.000Z' }
+    const render = (failures: number, i18n: typeof UK) =>
+      describeNotification(
+        'SOURCE_HEALTH_ALERT',
+        notificationDataSchemaFor('SOURCE_HEALTH_ALERT').parse({ ...base, failures }),
+        i18n,
+      )
+    expect(render(5, UK)).toBe('remotive_api — 5 збоїв поспіль з 28 жовтня, потрібне скидання')
+    expect(render(1, UK)).toBe('remotive_api — 1 збій поспіль з 28 жовтня, потрібне скидання')
+    expect(render(2, UK)).toBe('remotive_api — 2 збої поспіль з 28 жовтня, потрібне скидання')
+    expect(render(5, EN)).toBe(
+      'remotive_api — 5 failures in a row since October 28, a reset is needed',
+    )
+    expect(render(1, EN)).toBe(
+      'remotive_api — 1 failure in a row since October 28, a reset is needed',
+    )
+    // Without the facts the sentence stays whole and says nothing it does not know.
+    const bare = notificationDataSchemaFor('SOURCE_HEALTH_ALERT').parse({
+      sourceName: 'remotive_api',
+      state: 'CAPPED',
+    })
+    expect(describeNotification('SOURCE_HEALTH_ALERT', bare, EN)).toBe(
+      'remotive_api — too many failures in a row, a reset is needed',
+    )
+  })
+
+  it('formatDay: a bare date is formatted as written, an instant on the Kyiv calendar, by locale', () => {
+    expect(formatDay('2026-10-26', 'uk')).toBe('26 жовтня')
+    expect(formatDay('2026-10-26', 'en')).toBe('October 26')
+    // 23:30 UTC on 27 October is already 28 October in Kyiv (UTC+2 after the clocks went back).
+    expect(formatDay('2026-10-27T22:30:00.000Z', 'en')).toBe('October 28')
+    expect(formatDay('2026-10-27T21:30:00.000Z', 'en')).toBe('October 27')
+  })
+
+  it('the rendered TITLE comes from the catalog in the reader language, not from the stored column (COPY-H-1)', () => {
+    const stored = {
+      type: 'SOURCE_HEALTH_ALERT',
+      title: 'Збій джерела вакансій',
+      body: null,
+      link: null,
+      subjectType: null,
+      subjectId: null,
+      data: { sourceName: 'remotive_api', state: 'FAILING' },
+    }
+    expect(renderNotification(stored, EN).title).toBe('Job source failure')
+    expect(renderNotification(stored, UK).title).toBe('Збій джерела вакансій')
+    const weekly = {
+      ...stored,
+      type: 'SOURCE_HEALTH_WEEKLY_REPORT',
+      title: 'Тижневий звіт джерел',
+      data: { weekStart: '2026-10-26', sources: [] },
+    }
+    expect(renderNotification(weekly, EN).title).toBe('Weekly source report')
+    expect(renderNotification(weekly, UK).title).toBe('Тижневий звіт джерел')
+  })
 
   it('три замороженных типа несут неймспейс `notification.<TYPE>.title` в id заголовка', () => {
     expect(NOTIFICATION_TITLE_MESSAGES.INVOICE_SIGNED.id).toBe('notification.INVOICE_SIGNED.title')
@@ -416,7 +474,7 @@ describe('реестр сообщений — источник для i18n:extra
       SOURCE_HEALTH_ALERT: {
         id: 'notification.SOURCE_HEALTH_ALERT.detail',
         message:
-          '{source} — {state, select, FAILING {запити завершуються помилкою} CAPPED {забагато збоїв поспіль, потрібне скидання} BLOCKED {джерело заблоковане} EMPTY {порожня відповідь} PAUSED {хост на паузі через обмеження} other {змінився формат відповіді}}',
+          '{source} — {state, select, FAILING {запити завершуються помилкою} CAPPED {{hasCount, select, yes {{failures, plural, one {# збій} few {# збої} many {# збоїв} other {# збою}} поспіль з {since}, потрібне скидання} other {забагато збоїв поспіль, потрібне скидання}}} BLOCKED {джерело заблоковане} EMPTY {порожня відповідь} PAUSED {хост на паузі через обмеження} other {змінився формат відповіді}}',
       },
       SOURCE_HEALTH_WEEKLY_REPORT: {
         id: 'notification.SOURCE_HEALTH_WEEKLY_REPORT.detail',

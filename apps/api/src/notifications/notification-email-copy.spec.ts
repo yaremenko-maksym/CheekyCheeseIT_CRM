@@ -258,10 +258,12 @@ describe.each(LOCALES)('%s: пятнадцать писем — страж §11'
     },
   )
 
-  it('SOURCE_HEALTH_WEEKLY_REPORT: несёт счётчики источников, но не суммы денег и не людей', () => {
+  it('SOURCE_HEALTH_WEEKLY_REPORT: only the BODY carries counts; the subject and the button stay digit-free (CR-M-3)', () => {
     const mail = render('SOURCE_HEALTH_WEEKLY_REPORT', locale)
     expect(mail.text).toContain('140')
     expect(mail.text).not.toMatch(/USDT|1500/)
+    expect(mail.subject).not.toMatch(/[0-9]/)
+    expect(mail.buttonLabel).not.toMatch(/[0-9]/)
   })
 
   it.each(NEW_NOTIFICATION_TYPES)('%s: не называет людей', (type) => {
@@ -401,13 +403,13 @@ const GOLDEN: Record<Locale, Golden> = {
       button: 'Відкрити',
     },
     SOURCE_HEALTH_ALERT: {
-      subject: 'Проблема з джерелом вакансій «remotive_api»',
+      subject: 'Збій джерела вакансій «remotive_api»',
       text: 'Джерело «remotive_api»: запити завершуються помилкою.\nДеталі — у CRM.',
       button: 'Відкрити CRM',
     },
     SOURCE_HEALTH_WEEKLY_REPORT: {
-      subject: 'Тижневий звіт про джерела вакансій',
-      text: 'Тиждень з 2026-10-26.\nremotive_api: справне; змін стану — 2; запусків — 140; свіжість: медіана 12 хв, 90-й перцентиль 95 хв; запитів — 150; отримано — 2.5 МБ.\njobicy_api: збої; змін стану — 1; запусків — 30; свіжість не вимірюється; запитів — 30; отримано — 0 МБ.',
+      subject: 'Тижневий звіт джерел',
+      text: 'Тиждень з 26 жовтня.\nremotive_api: справне; змін стану — 2; запусків — 140; свіжість: медіана 12 хв, 90-й перцентиль 95 хв; запитів — 150; отримано — 2.5 МБ.\njobicy_api: збої; змін стану — 1; запусків — 30; свіжість не вимірюється; запитів — 30; отримано — 0 МБ.',
       button: 'Відкрити CRM',
     },
   },
@@ -478,13 +480,13 @@ const GOLDEN: Record<Locale, Golden> = {
       button: 'Open',
     },
     SOURCE_HEALTH_ALERT: {
-      subject: 'Job source problem: “remotive_api”',
+      subject: 'Job source failure: “remotive_api”',
       text: 'Source “remotive_api”: requests are failing.\nDetails are in the CRM.',
       button: 'Open the CRM',
     },
     SOURCE_HEALTH_WEEKLY_REPORT: {
-      subject: 'Weekly job source report',
-      text: 'Week starting 2026-10-26.\nremotive_api: healthy; state changes: 2; runs: 140; freshness: median 12 min, 90th percentile 95 min; requests: 150; received: 2.5 MB.\njobicy_api: failing; state changes: 1; runs: 30; freshness not measurable; requests: 30; received: 0 MB.',
+      subject: 'Weekly source report',
+      text: 'Week starting October 26.\nremotive_api: healthy; state changes: 2; runs: 140; freshness: median 12 min, 90th percentile 95 min; requests: 150; received: 2.5 MB.\njobicy_api: failing; state changes: 1; runs: 30; freshness not measurable; requests: 30; received: 0 MB.',
       button: 'Open the CRM',
     },
   },
@@ -541,7 +543,7 @@ describe.each(LOCALES)('%s: ветки, которых в таблице эта�
     expect(mail.text).toBe(`${want.line1}\n${want.line2}\n\n${want.button}: ${mail.buttonHref}`)
   })
 
-  it('SOURCE_HEALTH_WEEKLY_REPORT: свіжість названа лише коли є ОБИДВІ цифри', () => {
+  it('SOURCE_HEALTH_WEEKLY_REPORT: freshness is named only when BOTH figures exist', () => {
     const row = {
       name: 'remotive_api',
       state: 'HEALTHY',
@@ -569,6 +571,57 @@ describe.each(LOCALES)('%s: ветки, которых в таблице эта�
         locale === 'uk' ? 'свіжість не вимірюється' : 'freshness not measurable',
       )
     }
+  })
+
+  it('SOURCE_HEALTH_ALERT CAPPED: the line names the failure count and the day they began, whole sentences', () => {
+    const capped = {
+      ...sourceFor('SOURCE_HEALTH_ALERT'),
+      data: {
+        sourceName: 'remotive_api',
+        state: 'CAPPED',
+        failures: 5,
+        since: '2026-10-28T08:15:00.000Z',
+      },
+    }
+    const bare = { ...capped, data: { sourceName: 'remotive_api', state: 'CAPPED' } }
+    const want = {
+      uk: {
+        counted: 'Джерело «remotive_api»: 5 збоїв поспіль з 28 жовтня, потрібне скидання.',
+        bare: 'Джерело «remotive_api»: забагато збоїв поспіль, потрібне скидання.',
+      },
+      en: {
+        counted: 'Source “remotive_api”: 5 failures in a row since October 28, a reset is needed.',
+        bare: 'Source “remotive_api”: too many failures in a row, a reset is needed.',
+      },
+    }[locale]
+    expect(renderWith(capped, locale).text.split('\n')[0]).toBe(want.counted)
+    expect(renderWith(bare, locale).text.split('\n')[0]).toBe(want.bare)
+  })
+
+  it('SOURCE_HEALTH_WEEKLY_REPORT: a source with no state changes drops the zero clause', () => {
+    const mail = renderWith(
+      {
+        ...sourceFor('SOURCE_HEALTH_WEEKLY_REPORT'),
+        data: {
+          weekStart: '2026-10-26',
+          sources: [
+            {
+              name: 'remotive_api',
+              state: 'HEALTHY',
+              transitions: 0,
+              runs: 140,
+              freshnessP50Min: 12,
+              freshnessP90Min: 95,
+              requests: 150,
+              bytes: 2_500_000,
+            },
+          ],
+        },
+      },
+      locale,
+    )
+    expect(mail.text).toContain(locale === 'uk' ? 'справне; запусків — 140' : 'healthy; runs: 140')
+    expect(mail.text).not.toContain(locale === 'uk' ? 'змін стану' : 'state changes')
   })
 
   it('валидированный доход — своя тема и своё тело', () => {

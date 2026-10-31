@@ -176,14 +176,16 @@ export const EMAIL_NOTIFICATION_MESSAGES = {
   // U5a: the alert names the source (an object) and the state; no URL, no error text, no people.
   sourceAlertSubject: /* i18n */ {
     id: 'email.notification.SOURCE_HEALTH_ALERT.subject',
-    message: 'Проблема з джерелом вакансій «{source}»',
+    message: 'Збій джерела вакансій «{source}»',
   },
   sourceAlertLine: /* i18n */ {
     id: 'email.notification.SOURCE_HEALTH_ALERT.line',
     message:
       'Джерело «{source}»: {state, select, ' +
       'FAILING {запити завершуються помилкою.} ' +
-      'CAPPED {забагато збоїв поспіль, потрібне скидання.} ' +
+      'CAPPED {{hasCount, select, ' +
+      'yes {{failures, plural, one {# збій} few {# збої} many {# збоїв} other {# збою}} поспіль з {since}, потрібне скидання.} ' +
+      'other {забагато збоїв поспіль, потрібне скидання.}}} ' +
       'BLOCKED {джерело заблоковане.} ' +
       'EMPTY {порожня відповідь.} ' +
       'PAUSED {хост на паузі через обмеження.} ' +
@@ -191,7 +193,7 @@ export const EMAIL_NOTIFICATION_MESSAGES = {
   },
   sourceWeeklySubject: /* i18n */ {
     id: 'email.notification.SOURCE_HEALTH_WEEKLY_REPORT.subject',
-    message: 'Тижневий звіт про джерела вакансій',
+    message: 'Тижневий звіт джерел',
   },
   sourceWeeklyHeadLine: /* i18n */ {
     id: 'email.notification.SOURCE_HEALTH_WEEKLY_REPORT.head',
@@ -205,7 +207,8 @@ export const EMAIL_NOTIFICATION_MESSAGES = {
       '{source}: {state, select, ' +
       'BLOCKED {заблоковане} CAPPED {потрібне скидання} PAUSED {на паузі} FAILING {збої} ' +
       'EMPTY {порожня відповідь} DEGRADED {погіршене} SILENT {без нових вакансій} ' +
-      'other {справне}}; змін стану — {transitions}; запусків — {runs}; ' +
+      'other {справне}}{hasChanges, select, yes {; змін стану — {transitions}} other {}}; ' +
+      'запусків — {runs}; ' +
       'свіжість: медіана {p50} хв, 90-й перцентиль {p90} хв; ' +
       'запитів — {requests}; отримано — {megabytes} МБ.',
   },
@@ -215,7 +218,8 @@ export const EMAIL_NOTIFICATION_MESSAGES = {
       '{source}: {state, select, ' +
       'BLOCKED {заблоковане} CAPPED {потрібне скидання} PAUSED {на паузі} FAILING {збої} ' +
       'EMPTY {порожня відповідь} DEGRADED {погіршене} SILENT {без нових вакансій} ' +
-      'other {справне}}; змін стану — {transitions}; запусків — {runs}; ' +
+      'other {справне}}{hasChanges, select, yes {; змін стану — {transitions}} other {}}; ' +
+      'запусків — {runs}; ' +
       'свіжість не вимірюється; запитів — {requests}; отримано — {megabytes} МБ.',
   },
   sharedAmountAndDetailsLine: /* i18n */ {

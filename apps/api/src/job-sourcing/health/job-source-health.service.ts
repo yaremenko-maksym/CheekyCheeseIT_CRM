@@ -179,6 +179,7 @@ export class JobSourceHealthService {
       if (verdict.state === prevState && verdict.reasonCode === prevReason) continue
 
       const latestRun = runs[0]
+      const firstBad = firstBadRunId(runs)
       // The event and its ADMIN alerts (U5a) commit together; the alert path is a savepoint inside
       // (`emitInTx`), so a failure there can never roll the event back.
       await db.transaction(async (tx) => {
@@ -194,7 +195,7 @@ export class JobSourceHealthService {
             // 10). Small by construction (a handful of short codes + a few scalars), so always
             // within the 8192-char evidence CHECK; no truncation branch to leave untested.
             evidence: buildEvidence(runs, facts.reasons, source.consecutiveFailures, now),
-            firstBadRunId: firstBadRunId(runs),
+            firstBadRunId: firstBad,
             lastGoodRunId: lastGoodRunId(runs),
             adapterVersion: latestRun?.adapterVersion ?? null,
             configVersion: latestRun?.configVersion ?? null,
@@ -208,8 +209,9 @@ export class JobSourceHealthService {
           at: event.at,
           sourceId: source.id,
           sourceName: source.manifestId ?? source.type,
-          from: { state: prevState, reason: prevReason },
           to: { state: verdict.state, reason: verdict.reasonCode },
+          failures: source.consecutiveFailures,
+          since: runs.find((r) => r.runId === firstBad)?.startedAt ?? null,
         })
       })
       eventsWritten++
