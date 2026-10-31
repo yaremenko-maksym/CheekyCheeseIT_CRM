@@ -27,6 +27,7 @@ import { TosService } from '../tos/tos.service'
 import { ApprovalsService } from '../approvals/approvals.service'
 import type { Locale } from '@crm/shared'
 import { NotificationsService } from '../notifications/notifications.service'
+import { markSeniorDirty, markUserEditDirty } from '../job-sourcing/dirty-producers'
 import { AuditLogService } from './audit-log.service'
 import {
   assertAdminTargetEditableForRoleChange,
@@ -530,7 +531,11 @@ export class UsersService {
     }
     if (data.locale !== undefined) set.locale = data.locale
 
-    const rows = await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
+    const rows = await this.db.db.transaction(async (tx) => {
+      const written = await tx.update(users).set(set).where(eq(users.id, id)).returning()
+      if (written[0] && 'techStack' in set) await markSeniorDirty(tx, id, 'senior.stack') // r5 4.6 S5
+      return written
+    })
     const updated = rows[0]
     if (!updated) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     return updated
@@ -606,7 +611,12 @@ export class UsersService {
     // salary, so flipping a dismissed employee back to JUNIOR/HR re-opens an
     // accrual they cannot earn. Enforced in `updateUserRow`, not inline, so
     // `PATCH /:id` (adminUpdateUser) cannot disagree with `PATCH /:id/role`.
-    return this.updateUserRow(this.db.db, id, existing, { role, updatedAt: new Date() })
+    const set = { role, updatedAt: new Date() }
+    return this.db.db.transaction(async (tx) => {
+      const updated = await this.updateUserRow(tx, id, existing, set)
+      await markUserEditDirty(tx, id, existing.role, set) // r5 4.6 S5: in the write's tx
+      return updated
+    })
   }
 
   changeSalary(

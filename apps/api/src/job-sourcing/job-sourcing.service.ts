@@ -57,6 +57,7 @@ import {
 } from './source-budget.error'
 import { toSafeFailureMessage } from './safe-failure-message'
 import type { NormalizedPosting } from './job-source.provider'
+import { markExclusionDirty } from './dirty-producers'
 import { JobSourceRegistry } from './registry/job-source-registry'
 import { type TypeFilter, sourceAcceptsTrigger, typePassesFilter } from './scheduling/due-policy'
 import { resolveRegistry } from './registry/production-registry'
@@ -305,17 +306,22 @@ export class JobSourcingService {
       seniorId = await this.assertCanAccessSenior(user, dto.seniorId ?? undefined)
     }
 
-    const [row] = await this.db.db
-      .insert(jobExclusionFilters)
-      .values({
-        seniorId,
-        kind: dto.kind,
-        value: dto.value.trim(),
-        normalizedValue,
-        createdBy: user.id,
-      })
-      .onConflictDoNothing()
-      .returning()
+    // r5 4.6 S5: the exclusion and its dirty row commit together (a duplicate enqueues nothing).
+    const [row] = await this.db.db.transaction(async (tx) => {
+      const rows = await tx
+        .insert(jobExclusionFilters)
+        .values({
+          seniorId,
+          kind: dto.kind,
+          value: dto.value.trim(),
+          normalizedValue,
+          createdBy: user.id,
+        })
+        .onConflictDoNothing()
+        .returning()
+      if (rows[0]) await markExclusionDirty(tx, rows[0].id, 'exclusion.create')
+      return rows
+    })
 
     if (row) {
       return {
@@ -389,7 +395,10 @@ export class JobSourcingService {
       }
     }
 
-    await this.db.db.delete(jobExclusionFilters).where(eq(jobExclusionFilters.id, id))
+    await this.db.db.transaction(async (tx) => {
+      await tx.delete(jobExclusionFilters).where(eq(jobExclusionFilters.id, id))
+      await markExclusionDirty(tx, id, 'exclusion.delete') // r5 4.6 S5: in the delete's tx
+    })
   }
 
   // -------------------------------------------------------------------------

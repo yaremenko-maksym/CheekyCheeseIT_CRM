@@ -18,6 +18,7 @@ import {
   isActiveMemberOfTeam as isActiveMemberOfTeamRead,
   wasFormerMemberOfTeam as wasFormerMemberOfTeamRead,
 } from './team-membership-read.util'
+import { markSeniorDirty } from '../job-sourcing/dirty-producers'
 import { addTeamMember, removeTeamMember } from './team-membership.util'
 import type { TeamMembershipDeps } from './team-membership.util'
 import type { ProjectWithMembers } from './team-mapping.util'
@@ -96,6 +97,7 @@ export class TeamsService {
       for (const userId of memberIds) {
         await tx.insert(teamMembers).values({ teamId: inserted.id, userId })
       }
+      await markSeniorDirty(tx, seniorId, 'senior.team')
 
       return inserted
     })
@@ -477,6 +479,7 @@ export class TeamsService {
         .update(teamMembers)
         .set({ leftAt: now })
         .where(eq(teamMembers.id, seniorMember.id))
+      await markSeniorDirty(handle, seniorMember.userId, 'senior.team')
       // MED-1 (security-review round 4, follow-up to #436): record the
       // detach with role='SENIOR' — this is now the POSITIVE evidence
       // `TeamsService.wasFormerMemberOfTeam` requires (see its docblock).
@@ -609,6 +612,7 @@ export class TeamsService {
           .update(teamMembers)
           .set({ leftAt: now })
           .where(eq(teamMembers.id, currentSenior.id))
+        await markSeniorDirty(tx, currentSenior.userId, 'senior.team')
         // MED-1 (security-review round 4, follow-up to #436): record the
         // detach with role='SENIOR' — the POSITIVE evidence
         // `TeamsService.wasFormerMemberOfTeam` now requires (see its
@@ -629,6 +633,7 @@ export class TeamsService {
       }
 
       await tx.insert(teamMembers).values({ teamId, userId: newSeniorId })
+      await markSeniorDirty(tx, newSeniorId, 'senior.team')
       const updated = await tx
         .update(teams)
         .set({ updatedAt: now })
@@ -655,7 +660,9 @@ export class TeamsService {
    * arg is supplied when callers want atomicity with their outer flow.
    */
   async addSeniorToDropTeam(teamId: string, seniorId: string, tx?: DrizzleTx): Promise<void> {
-    const handle = tx ?? this.db.db
+    // The membership and its dirty row (r5 4.6 S5) commit together even for a tx-less caller.
+    if (!tx) return this.db.db.transaction((t) => this.addSeniorToDropTeam(teamId, seniorId, t))
+    const handle = tx
     const team = await handle
       .select()
       .from(teams)
@@ -691,5 +698,6 @@ export class TeamsService {
     }
 
     await handle.insert(teamMembers).values({ teamId, userId: seniorId })
+    await markSeniorDirty(handle, seniorId, 'senior.team')
   }
 }
