@@ -57,6 +57,7 @@ export {
   notificationDataSchemaFor,
   notificationTextPreview,
   type NotificationDataByType,
+  type WeeklySourceRow,
 } from './notification-registry/data'
 export {
   ACTION_LABELS,
