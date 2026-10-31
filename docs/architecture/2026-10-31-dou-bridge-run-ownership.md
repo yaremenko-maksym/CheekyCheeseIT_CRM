@@ -315,7 +315,8 @@ CREATE INDEX IF NOT EXISTS ix_job_bridge_pending
    `job-record-store-forward-ddl` precedent). `check-prod-ddl-wiring.py` passes, because a staged
    file lives in `drizzle/manual-staged/`, not `manual/`. Nothing reaches production.
 2. **S6f — promoted (DevOps, owner A3 go).** Do what S0 did for `2026-10-25_job_record_store.sql`.
-   The file set below is the #1171 diff:
+   The list below maps all 12 files of the #1171 diff (`gh pr diff 1171 --name-only`), each to its
+   counterpart for the bridge table:
    - **move** the file `manual-staged/` → `manual/` as a pure rename (no byte changes);
    - `.github/workflows/deploy.yml`: add the file to the rollback preflight list (a hard
      requirement) and add an SCP copy step;
@@ -329,6 +330,9 @@ CREATE INDEX IF NOT EXISTS ix_job_bridge_pending
      grants and must pass;
    - `scripts/devops/check-prod-ddl-wiring.py`: register the file as wired;
    - the forward-DDL spec: point it at the new path;
+   - the Drizzle schema file that declares `jobBridgeDeliveries` (S6b chooses it; the
+     record-store precedent is `schema/job-identity.ts`): **header comment update only**, from the
+     staged path to the wired path;
    - `docs/runbooks/deployment.md`: add the line for the new DDL step.
 3. **Order against the code.** The bridged code path (S6d) needs the table only with the flag on.
    With the flag off it never touches the table, so S6d may merge and deploy before S6f. **S6f
@@ -465,10 +469,14 @@ precedes both. S6e and S6f may run in parallel once their dependencies are met.
 
 Classified per `autonomy-levels.md`. Its rule: a decision in a critical-path zone (`contracts.md`
 §2.1) is A3 automatically, whether or not the flag can reverse it. Reversibility lowers the level
-only **outside** those zones. Prod DDL and new tables (Q1), a prod env change that activates the
-budget path (Q4) and prod data (Q6) are A3. So are the budget-spend rule (Q2) and the failure-cap /
-spend bound (Q5): quota spend is the "finance / rates" zone, which is why S6a, S6c and S6d carry a
-mandatory security review. Q3 alone is A2. It decides only how a write to a dark table that nothing
+only **outside** those zones. Q1 (a new table shipped to production) matches the zone "Drizzle
+migrations / new tables" directly. Q6 (prod data) and Q4 (an outward prod change) are A3 under
+`autonomy-levels.md`'s own A3 row. Q2 (the budget-spend rule) and Q5 (the failure cap, an
+account-level spend bound) are **not** a zone match. The §2.1 "finance" zone is about money. They
+are A3 by a **conservative reading by analogy**: the source budget is a cost-bearing control over
+paid provider quota, and a wrong spend rule is not undone by a revert once the quota is gone. The
+rule's tie-break ("in doubt between A2 and A3, take A3") points the same way. The same analogy is
+why S6a, S6c and S6d request a security review. Q3 alone is A2. It decides only how a write to a dark table that nothing
 reads is error-handled. No money, RBAC, prod-data shape or migration rides on it, and a wrong
 answer costs one flag-guarded PR.
 
