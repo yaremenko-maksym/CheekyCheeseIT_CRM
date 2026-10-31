@@ -536,7 +536,7 @@ export class UsersService {
       ? await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
       : await this.db.db.transaction(async (tx) => {
           const written = await tx.update(users).set(set).where(eq(users.id, id)).returning()
-          if (written[0]) await markSeniorDirty(tx, id, 'senior.stack')
+          await markSeniorDirty(tx, id, 'senior.stack') // a missing or non-SENIOR user: no-op
           return written
         })
     const updated = rows[0]

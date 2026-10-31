@@ -47,10 +47,9 @@ export function fanoutCursor(work: Pick<ClaimedDirtyWork, 'id' | 'reason'>): {
   root: string
   after: string
 } {
-  if (work.reason.startsWith(ROOT)) {
-    const [root, after] = work.reason.slice(ROOT.length).split(':')
-    if (root !== undefined && after !== undefined) return { root, after }
-  }
+  const parts = work.reason.split(':')
+  if (parts.length === 3 && `${parts[0]}:` === ROOT)
+    return { root: `${parts[1]}`, after: `${parts[2]}` }
   return { root: work.id, after: NIL_UUID }
 }
 
@@ -86,12 +85,14 @@ export async function fanOutDirty(
   )
   let enqueued = 0
   let skipped = 0
+  let last = after
   for (const r of rows) {
+    last = String(r['id'])
     try {
       const { inserted } = await enqueueDirty(
         tx,
         'OPPORTUNITY',
-        String(r['id']),
+        last,
         Number(r['revision']),
         `${ROOT}${root}`,
       )
@@ -104,7 +105,6 @@ export async function fanOutDirty(
   }
   const continued = rows.length === pageSize
   if (continued) {
-    const last = String(rows[rows.length - 1]?.['id'])
     await enqueueDirty(
       tx,
       work.entityKind,

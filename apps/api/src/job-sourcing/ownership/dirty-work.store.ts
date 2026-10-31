@@ -289,7 +289,7 @@ export async function currentDerivedVersion(
   const k = derivedKind(kind)
   if (!UUID.test(entityId)) throw new RangeError('entityId must be a lowercase uuid')
   const { rows } = await db.execute(dirtyWorkStatements.derivedVersion(k, entityId))
-  return Number(rows[0]?.['v'])
+  return Number(rows[0]?.['v'] ?? 0)
 }
 
 /**

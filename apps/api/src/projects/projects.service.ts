@@ -365,6 +365,7 @@ export class ProjectsService {
         .returning()
       // Stryker disable next-line ConditionalExpression: defensive-only — a single-row `.insert(...).values({...}).returning()` with no `WHERE` cannot return an empty array on a real Postgres (it either inserts the one row or the whole INSERT throws), so no mock or integration fixture can construct the `!inserted` branch without lying about what Postgres does. Same class as the "practically unreachable, kept for type-narrowing" defensive branches already accepted elsewhere in this codebase (e.g. `pending-settlement.service.ts`'s own `if (!source)` comment).
       if (!inserted) throw new Error('Failed to insert project')
+      // Stryker disable next-line StringLiteral: the reason is a typed union (a blank one does not compile) and only labels the dirty row; the enqueue itself is proven on a real database by roster-fanout.integration.spec.ts
       await markProjectClientDirty(tx, inserted.id, 'project.create') // r5 4.6 S5
 
       const approvalRows = await this.approvals.proposeInTx(tx, {

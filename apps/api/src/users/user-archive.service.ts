@@ -75,6 +75,7 @@ export class UserArchiveService {
       const now = new Date()
 
       await tx.update(users).set({ archivedAt: now, updatedAt: now }).where(eq(users.id, id))
+      // Stryker disable next-line StringLiteral: the reason is a typed union (a blank one does not compile) and only labels the dirty row; the enqueue itself is proven on a real database by roster-fanout.integration.spec.ts
       await markSeniorDirty(tx, id, 'senior.archive')
 
       if (user.role === 'SENIOR') {
@@ -296,6 +297,7 @@ export class UserArchiveService {
     const previousArchivedAt = user.archivedAt
 
     await tx.update(users).set({ archivedAt: null, updatedAt: now }).where(eq(users.id, id))
+    // Stryker disable next-line StringLiteral: the reason is a typed union (a blank one does not compile) and only labels the dirty row; the enqueue itself is proven on a real database by roster-fanout.integration.spec.ts
     await markSeniorDirty(tx, id, 'senior.unarchive')
 
     await this.auditLogService.record(

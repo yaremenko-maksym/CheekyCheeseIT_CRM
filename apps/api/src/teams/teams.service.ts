@@ -97,6 +97,7 @@ export class TeamsService {
       for (const userId of memberIds) {
         await tx.insert(teamMembers).values({ teamId: inserted.id, userId })
       }
+      // Stryker disable next-line StringLiteral: the reason is a typed union (a blank one does not compile) and only labels the dirty row; the enqueue itself is proven on a real database by roster-fanout.integration.spec.ts
       await markSeniorDirty(tx, seniorId, 'senior.team')
 
       return inserted
@@ -698,6 +699,7 @@ export class TeamsService {
     }
 
     await handle.insert(teamMembers).values({ teamId, userId: seniorId })
+    // Stryker disable next-line StringLiteral: the reason is a typed union (a blank one does not compile) and only labels the dirty row; the enqueue itself is proven on a real database by roster-fanout.integration.spec.ts
     await markSeniorDirty(handle, seniorId, 'senior.team')
   }
 }

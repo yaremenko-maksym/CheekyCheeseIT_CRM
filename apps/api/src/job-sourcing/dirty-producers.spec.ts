@@ -75,7 +75,9 @@ describe('markRoleDirty', () => {
 describe('markUserEditDirty', () => {
   it('a role change wins over a stack edit in the same write (one row)', async () => {
     const { tx, inserts } = scripted()
-    await markUserEditDirty(tx, ID, 'JUNIOR', { role: 'SENIOR', techStack: ['Go'] })
+    await expect(
+      markUserEditDirty(tx, ID, 'JUNIOR', { role: 'SENIOR', techStack: ['Go'] }),
+    ).resolves.toBe(true)
     expect(rows(inserts)).toEqual([['SENIOR', ID, 5, 'senior.role']])
   })
 

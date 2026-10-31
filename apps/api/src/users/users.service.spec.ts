@@ -13,6 +13,7 @@ import { REDACTED_TOKEN, type AuditLogService } from './audit-log.service'
 import { hashInviteToken } from './invite-token.util'
 import type { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
+import { markSeniorDirty } from '../job-sourcing/dirty-producers'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
 // r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
@@ -2266,6 +2267,12 @@ describe('UsersService.updateProfile — SENIOR technology floor on a self-edit'
       ?.set as ReturnType<typeof vi.fn>
     expect(growSet).toHaveBeenCalledWith(
       expect.objectContaining({ techStack: ['React', 'Go', 'AWS', 'Docker'] }),
+    )
+    // r5 4.6 S5: a stack edit marks the roster dirty in the write's transaction.
+    expect(vi.mocked(markSeniorDirty)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      'user-1',
+      'senior.stack',
     )
     const legacy = self('SENIOR', ['React', 'Go'])
     await makeUsersService(legacy).updateProfile('user-1', { techStack: ['React', 'Go'] })

@@ -3,6 +3,8 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 import type { ClaimedDirtyWork } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
+import type { MeterDb } from '../metering/account-meter.store'
+import { createRecomputeSteps } from './recompute-worker'
 import { FANOUT_PAGE_SIZE, fanOutDirty, fanoutCursor } from './roster-fanout'
 
 /** r5 Task 4.6 S5 — the fan-out pass against a scripted executor (real DB: the integration spec). */
@@ -67,6 +69,13 @@ describe('fanoutCursor', () => {
   it('a malformed fanout reason restarts from the row itself', () => {
     expect(fanoutCursor({ id: ROW, reason: 'fanout:only-root' })).toEqual({ root: ROW, after: NIL })
   })
+
+  it('a three-part reason that is not a fanout continuation starts from the row itself', () => {
+    expect(fanoutCursor({ id: ROW, reason: `other:${ROW}:${opp(1)}` })).toEqual({
+      root: ROW,
+      after: NIL,
+    })
+  })
 })
 
 describe('fanOutDirty', () => {
@@ -93,7 +102,10 @@ describe('fanOutDirty', () => {
       ['OPPORTUNITY', opp(2), 9, `fanout:${ROW}`],
     ])
     const page = seen.find((s) => s.sql.includes('FROM job_opportunities'))!
-    expect(page.sql).toContain('ORDER BY id LIMIT')
+    // Unscoped: no filter at all, only the keyset cursor and the page bound.
+    expect(page.sql.replace(/\s+/g, ' ')).toBe(
+      'SELECT id::text AS id, revision FROM job_opportunities WHERE id > $1::uuid ORDER BY id LIMIT $2',
+    )
     expect(page.params).toEqual([NIL, FANOUT_PAGE_SIZE])
   })
 
@@ -137,12 +149,13 @@ describe('fanOutDirty', () => {
   })
 
   it('a non-validation error aborts the pass (the transaction rolls back)', async () => {
+    const { tx } = scripted(3, [{ id: opp(1), revision: 1 }])
     const boom: SqlExecutor = {
       execute: async (q: SQL) => {
-        const r = dialect.sqlToQuery(q)
-        if (r.sql.includes('coalesce')) return { rows: [{ v: 3 }] }
-        if (r.sql.includes('FROM job_opportunities')) return { rows: [{ id: opp(1), revision: 1 }] }
-        throw new Error('connection lost')
+        // Only the OPPORTUNITY insert fails; everything after it would succeed.
+        if (dialect.sqlToQuery(q).sql.includes('INSERT INTO job_dirty_work'))
+          throw new Error('connection lost')
+        return tx.execute(q)
       },
     }
     await expect(fanOutDirty(boom, work())).rejects.toThrow('connection lost')
@@ -155,4 +168,22 @@ describe('fanOutDirty', () => {
     expect(page.sql).toContain('AND id IN (SELECT jsonb_array_elements_text(')
     expect(page.params).toEqual([NIL, JSON.stringify([opp(1)]), FANOUT_PAGE_SIZE])
   })
+})
+
+describe('createRecomputeSteps routing (S5)', () => {
+  it.each(['SENIOR', 'EXCLUSION', 'PROJECT_CLIENT'] as const)(
+    'a %s row is fanned out, never recomputed as an opportunity',
+    async (entityKind) => {
+      const { tx, seen, inserts } = scripted(3, [{ id: opp(1), revision: 2 }])
+      const db = { transaction: (cb: (t: SqlExecutor) => unknown) => cb(tx) } as unknown as MeterDb
+      const steps = createRecomputeSteps(db, { onlyIds: [opp(1)] })
+      await expect(
+        steps.process(work({ entityKind }), { evaluationTime: new Date(0) }),
+      ).resolves.toBe('DONE')
+      expect(seen.some((q) => q.sql.includes('FOR NO KEY UPDATE'))).toBe(false)
+      expect(inserts).toEqual([['OPPORTUNITY', opp(1), 2, `fanout:${ROW}`]])
+      const page = seen.find((q) => q.sql.includes('FROM job_opportunities'))!
+      expect(page.params).toEqual([NIL, JSON.stringify([opp(1)]), FANOUT_PAGE_SIZE])
+    },
+  )
 })

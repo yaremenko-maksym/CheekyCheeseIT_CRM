@@ -473,8 +473,14 @@ describe('enqueueDerivedDirty (S5, decision D2)', () => {
     await expect(enqueueDerivedDirty(tx, 'SENIOR', 'nope', 'R')).rejects.toThrow(
       new RangeError('entityId must be a lowercase uuid'),
     )
-    await expect(currentDerivedVersion(tx, 'SENIOR', `x${ENTITY}`)).rejects.toThrow(RangeError)
+    await expect(currentDerivedVersion(tx, 'SENIOR', `x${ENTITY}`)).rejects.toThrow(
+      new RangeError('entityId must be a lowercase uuid'),
+    )
     expect(seen).toHaveLength(0)
+  })
+
+  it('reads 0 when the aggregate returns no row at all', async () => {
+    await expect(currentDerivedVersion(scripted([]).tx, 'SENIOR', ENTITY)).resolves.toBe(0)
   })
 
   it('reads 0 for an entity with no rows', async () => {

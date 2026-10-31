@@ -260,6 +260,8 @@ describe('addTeamMember', () => {
     const q = render(m.updates[0]!.where)
     expect(q.sql).toBe('"team_members"."id" = $1')
     expect(q.params).toEqual(['row-9'])
+    // r5 4.6 S5: the reactivation marks the roster dirty on the same transaction handle.
+    expect(vi.mocked(markSeniorDirty).mock.calls.at(-1)).toEqual([m.tx, 'u1', 'senior.team'])
     expect(m.emitInTx).toHaveBeenCalledTimes(1)
     expect(m.emitInTx.mock.calls[0]![0]).toBe(m.tx)
     expect(m.createManyInTx).toHaveBeenCalledTimes(1)

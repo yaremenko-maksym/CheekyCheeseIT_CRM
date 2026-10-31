@@ -99,6 +99,7 @@ export class RejoinTeamService {
       for (const userId of memberIds) {
         await tx.insert(teamMembers).values({ teamId: team.id, userId })
       }
+      // Stryker disable next-line StringLiteral: the reason is a typed union (a blank one does not compile) and only labels the dirty row; the enqueue itself is proven on a real database by roster-fanout.integration.spec.ts
       await markSeniorDirty(tx, seniorId, 'senior.team')
       return { teamId: team.id }
     })
