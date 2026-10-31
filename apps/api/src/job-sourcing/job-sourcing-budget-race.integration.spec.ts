@@ -10,6 +10,7 @@ import { DouRssProvider } from './dou.provider'
 import type { NormalizedPosting } from './job-source.provider'
 import { JobSourceBudgetExhaustedError } from './source-budget.error'
 import { JobSourcingService } from './job-sourcing.service'
+import { BRIDGE_FLAG_VALUES, bridgeConfig } from './bridge-flag.test-helper'
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
@@ -159,209 +160,223 @@ function posting(id: string): NormalizedPosting {
   }
 }
 
-describe.skipIf(!hasDatabaseUrl())('Job sourcing — budget window-reset boundary race (#53)', () => {
-  let pool: Pool
-  let dbSvc: DatabaseService
-  let service: JobSourcingService
-  let provider: CannedProvider
-  /** Always a full calendar day behind whenever this test actually runs. */
-  let yesterday: Date
+describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
+  'Job sourcing — budget window-reset boundary race (#53) (bridge flag %s)',
+  (flagOn) => {
+    let pool: Pool
+    let dbSvc: DatabaseService
+    let service: JobSourcingService
+    let provider: CannedProvider
+    /** Always a full calendar day behind whenever this test actually runs. */
+    let yesterday: Date
 
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      await probe.end()
-    } catch {
-      throw new Error('[job-sourcing budget-race] FAILED — no DB reachable at DATABASE_URL')
-    }
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        await probe.end()
+      } catch {
+        throw new Error('[job-sourcing budget-race] FAILED — no DB reachable at DATABASE_URL')
+      }
 
-    pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-    const db = drizzle(pool, { schema })
-    dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
-    Object.assign(dbSvc, { pool, db })
+      pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+      const db = drizzle(pool, { schema })
+      dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
+      Object.assign(dbSvc, { pool, db })
 
-    provider = new CannedProvider()
-    service = new JobSourcingService(dbSvc, new HrAccessService(dbSvc), provider)
-  }, 30_000)
+      provider = new CannedProvider()
+      service = new JobSourcingService(
+        dbSvc,
+        new HrAccessService(dbSvc),
+        provider,
+        bridgeConfig(flagOn),
+      )
+    }, 30_000)
 
-  beforeEach(async () => {
-    provider.postings = [posting('race-1')]
-    // Yesterday, in a DAY window — `chargeBudget`'s own `new Date()` (real,
-    // unmocked) is always "today" relative to this, so every read of this row
-    // sees a window that has already rolled over.
-    yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    beforeEach(async () => {
+      provider.postings = [posting('race-1')]
+      // Yesterday, in a DAY window — `chargeBudget`'s own `new Date()` (real,
+      // unmocked) is always "today" relative to this, so every read of this row
+      // sees a window that has already rolled over.
+      yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000)
 
-    // Source A: limit 5, "used" 5 in the OLD window — i.e. exhausted under the
-    // stale accounting, but the fresh (rolled-over) window has all 5 units
-    // available. This is the false-refusal shape.
-    await dbSvc.db
-      .insert(jobSources)
-      .values({
-        id: SOURCE_A_ID,
-        type: 'DOU_RSS',
-        config: { category: 'JavaScript', race: 'a' },
-        budgetLimit: 5,
-        budgetWindow: 'DAY',
-        budgetUsed: 5,
-        budgetWindowStartedAt: yesterday,
-      })
-      .onConflictDoUpdate({
-        target: jobSources.id,
-        set: {
+      // Source A: limit 5, "used" 5 in the OLD window — i.e. exhausted under the
+      // stale accounting, but the fresh (rolled-over) window has all 5 units
+      // available. This is the false-refusal shape.
+      await dbSvc.db
+        .insert(jobSources)
+        .values({
+          id: SOURCE_A_ID,
+          type: 'DOU_RSS',
+          config: { category: 'JavaScript', race: 'a' },
           budgetLimit: 5,
           budgetWindow: 'DAY',
           budgetUsed: 5,
           budgetWindowStartedAt: yesterday,
-        },
-      })
+        })
+        .onConflictDoUpdate({
+          target: jobSources.id,
+          set: {
+            budgetLimit: 5,
+            budgetWindow: 'DAY',
+            budgetUsed: 5,
+            budgetWindowStartedAt: yesterday,
+          },
+        })
 
-    // Source B: limit 1, same stale accounting — after ONE successful spend in
-    // the fresh window, there is truly nothing left for a second caller.
-    await dbSvc.db
-      .insert(jobSources)
-      .values({
-        id: SOURCE_B_ID,
-        type: 'DOU_RSS',
-        config: { category: 'JavaScript', race: 'b' },
-        budgetLimit: 1,
-        budgetWindow: 'DAY',
-        budgetUsed: 1,
-        budgetWindowStartedAt: yesterday,
-      })
-      .onConflictDoUpdate({
-        target: jobSources.id,
-        set: {
+      // Source B: limit 1, same stale accounting — after ONE successful spend in
+      // the fresh window, there is truly nothing left for a second caller.
+      await dbSvc.db
+        .insert(jobSources)
+        .values({
+          id: SOURCE_B_ID,
+          type: 'DOU_RSS',
+          config: { category: 'JavaScript', race: 'b' },
           budgetLimit: 1,
           budgetWindow: 'DAY',
           budgetUsed: 1,
           budgetWindowStartedAt: yesterday,
-        },
-      })
+        })
+        .onConflictDoUpdate({
+          target: jobSources.id,
+          set: {
+            budgetLimit: 1,
+            budgetWindow: 'DAY',
+            budgetUsed: 1,
+            budgetWindowStartedAt: yesterday,
+          },
+        })
 
-    // Source C: MED-1 fixture — re-seeded here so it exists at the start of
-    // its own test even though that test deletes it mid-run.
-    await dbSvc.db
-      .insert(jobSources)
-      .values({
-        id: SOURCE_C_ID,
-        type: 'DOU_RSS',
-        config: { category: 'JavaScript', race: 'c' },
-        budgetLimit: 5,
-        budgetWindow: 'DAY',
-        budgetUsed: 5,
-        budgetWindowStartedAt: yesterday,
-      })
-      .onConflictDoUpdate({
-        target: jobSources.id,
-        set: {
+      // Source C: MED-1 fixture — re-seeded here so it exists at the start of
+      // its own test even though that test deletes it mid-run.
+      await dbSvc.db
+        .insert(jobSources)
+        .values({
+          id: SOURCE_C_ID,
+          type: 'DOU_RSS',
+          config: { category: 'JavaScript', race: 'c' },
           budgetLimit: 5,
           budgetWindow: 'DAY',
           budgetUsed: 5,
           budgetWindowStartedAt: yesterday,
-        },
+        })
+        .onConflictDoUpdate({
+          target: jobSources.id,
+          set: {
+            budgetLimit: 5,
+            budgetWindow: 'DAY',
+            budgetUsed: 5,
+            budgetWindowStartedAt: yesterday,
+          },
+        })
+    })
+
+    afterEach(async () => {
+      await cleanupCreatedRows(dbSvc)
+    })
+
+    afterAll(async () => {
+      await cleanupCreatedRows(dbSvc)
+      await dbSvc.db.delete(jobSources).where(inArray(jobSources.id, [...SOURCE_IDS]))
+      await pool.end()
+    }, 30_000)
+
+    it('a second caller holding a STALE pre-rollover snapshot still succeeds when the fresh window has room', async () => {
+      const staleSnapshot = {
+        id: SOURCE_A_ID,
+        type: 'DOU_RSS' as const,
+        config: { category: 'JavaScript', race: 'a' },
+        budgetLimit: 5,
+        budgetWindow: 'DAY' as const,
+        budgetUsed: 5, // the OLD window's spent counter — both callers read this
+        budgetWindowStartedAt: yesterday,
+      }
+
+      // Caller 1 — writes the row from budgetUsed=5(stale) to budgetUsed=1(fresh).
+      await expect(service.collectSource({ ...staleSnapshot })).resolves.toMatchObject({
+        created: 1,
       })
-  })
 
-  afterEach(async () => {
-    await cleanupCreatedRows(dbSvc)
-  })
+      // Caller 2 — SAME stale snapshot (budgetUsed=5). Under the pre-fix code
+      // this throws JobSourceBudgetExhaustedError immediately: its CAS predicate
+      // (budgetUsed=5) no longer matches the row (now budgetUsed=1), and the old
+      // code treated a lost CAS as "exhausted" unconditionally.
+      await expect(service.collectSource({ ...staleSnapshot })).resolves.toMatchObject({
+        created: 1,
+      })
 
-  afterAll(async () => {
-    await cleanupCreatedRows(dbSvc)
-    await dbSvc.db.delete(jobSources).where(inArray(jobSources.id, [...SOURCE_IDS]))
-    await pool.end()
-  }, 30_000)
+      const [row] = await dbSvc.db.select().from(jobSources).where(eq(jobSources.id, SOURCE_A_ID))
+      // Both callers actually spent — the fresh window started at 0 and now
+      // carries 2 units used, not 1 (which a silently-dropped second charge
+      // would produce) and not refused (which the bug produced).
+      expect(row!.budgetUsed).toBe(2)
+    })
 
-  it('a second caller holding a STALE pre-rollover snapshot still succeeds when the fresh window has room', async () => {
-    const staleSnapshot = {
-      id: SOURCE_A_ID,
-      type: 'DOU_RSS' as const,
-      config: { category: 'JavaScript', race: 'a' },
-      budgetLimit: 5,
-      budgetWindow: 'DAY' as const,
-      budgetUsed: 5, // the OLD window's spent counter — both callers read this
-      budgetWindowStartedAt: yesterday,
-    }
+    it('CONTROL: genuine exhaustion still refuses — the fix is a retry, not a bypass', async () => {
+      const staleSnapshot = {
+        id: SOURCE_B_ID,
+        type: 'DOU_RSS' as const,
+        config: { category: 'JavaScript', race: 'b' },
+        budgetLimit: 1,
+        budgetWindow: 'DAY' as const,
+        budgetUsed: 1,
+        budgetWindowStartedAt: yesterday,
+      }
 
-    // Caller 1 — writes the row from budgetUsed=5(stale) to budgetUsed=1(fresh).
-    await expect(service.collectSource({ ...staleSnapshot })).resolves.toMatchObject({ created: 1 })
+      // Caller 1 spends the ONE unit the fresh window has.
+      await expect(service.collectSource({ ...staleSnapshot })).resolves.toMatchObject({
+        created: 1,
+      })
 
-    // Caller 2 — SAME stale snapshot (budgetUsed=5). Under the pre-fix code
-    // this throws JobSourceBudgetExhaustedError immediately: its CAS predicate
-    // (budgetUsed=5) no longer matches the row (now budgetUsed=1), and the old
-    // code treated a lost CAS as "exhausted" unconditionally.
-    await expect(service.collectSource({ ...staleSnapshot })).resolves.toMatchObject({ created: 1 })
+      // Caller 2, same stale snapshot — this time there is genuinely nothing
+      // left after caller 1's spend. Must still refuse.
+      await expect(service.collectSource({ ...staleSnapshot })).rejects.toThrow(
+        JobSourceBudgetExhaustedError,
+      )
 
-    const [row] = await dbSvc.db.select().from(jobSources).where(eq(jobSources.id, SOURCE_A_ID))
-    // Both callers actually spent — the fresh window started at 0 and now
-    // carries 2 units used, not 1 (which a silently-dropped second charge
-    // would produce) and not refused (which the bug produced).
-    expect(row!.budgetUsed).toBe(2)
-  })
+      const [row] = await dbSvc.db.select().from(jobSources).where(eq(jobSources.id, SOURCE_B_ID))
+      expect(row!.budgetUsed).toBe(1)
+    })
 
-  it('CONTROL: genuine exhaustion still refuses — the fix is a retry, not a bypass', async () => {
-    const staleSnapshot = {
-      id: SOURCE_B_ID,
-      type: 'DOU_RSS' as const,
-      config: { category: 'JavaScript', race: 'b' },
-      budgetLimit: 1,
-      budgetWindow: 'DAY' as const,
-      budgetUsed: 1,
-      budgetWindowStartedAt: yesterday,
-    }
+    /**
+     * MED-1, security review round on #532. The `!fresh` branch (source
+     * deleted between our read and our re-read) used to `return` — i.e.
+     * "nothing to charge or refuse" — which let `collectSource` fall straight
+     * through into `provider.collect()` with NO budget accounted for at all.
+     * Backlog #48's rule does not carve out an exception for "the row vanished
+     * for a reason I don't understand": a limiter facing input it cannot make
+     * sense of must refuse, not proceed. Reproduced deterministically — no
+     * concurrency needed — by deleting the row between building a stale
+     * snapshot and calling `collectSource` with it: the very first
+     * compare-and-set then matches nothing (the id itself is gone), forcing
+     * the re-read, which is exactly the `!fresh` branch.
+     */
+    it('MED-1 (#532 review): a source deleted mid-charge REFUSES instead of falling through to the provider', async () => {
+      const staleSnapshot = {
+        id: SOURCE_C_ID,
+        type: 'DOU_RSS' as const,
+        config: { category: 'JavaScript', race: 'c' },
+        budgetLimit: 5,
+        budgetWindow: 'DAY' as const,
+        budgetUsed: 5,
+        budgetWindowStartedAt: yesterday,
+      }
 
-    // Caller 1 spends the ONE unit the fresh window has.
-    await expect(service.collectSource({ ...staleSnapshot })).resolves.toMatchObject({ created: 1 })
+      const callsBefore = provider.collectCallCount
 
-    // Caller 2, same stale snapshot — this time there is genuinely nothing
-    // left after caller 1's spend. Must still refuse.
-    await expect(service.collectSource({ ...staleSnapshot })).rejects.toThrow(
-      JobSourceBudgetExhaustedError,
-    )
+      // Delete the row BEFORE chargeBudget ever runs — the stale snapshot still
+      // "remembers" it as it was, exactly like a caller that read it a moment
+      // before an ADMIN deleted the source.
+      await dbSvc.db.delete(jobSources).where(eq(jobSources.id, SOURCE_C_ID))
 
-    const [row] = await dbSvc.db.select().from(jobSources).where(eq(jobSources.id, SOURCE_B_ID))
-    expect(row!.budgetUsed).toBe(1)
-  })
+      await expect(service.collectSource({ ...staleSnapshot })).rejects.toThrow(/удалён/)
 
-  /**
-   * MED-1, security review round on #532. The `!fresh` branch (source
-   * deleted between our read and our re-read) used to `return` — i.e.
-   * "nothing to charge or refuse" — which let `collectSource` fall straight
-   * through into `provider.collect()` with NO budget accounted for at all.
-   * Backlog #48's rule does not carve out an exception for "the row vanished
-   * for a reason I don't understand": a limiter facing input it cannot make
-   * sense of must refuse, not proceed. Reproduced deterministically — no
-   * concurrency needed — by deleting the row between building a stale
-   * snapshot and calling `collectSource` with it: the very first
-   * compare-and-set then matches nothing (the id itself is gone), forcing
-   * the re-read, which is exactly the `!fresh` branch.
-   */
-  it('MED-1 (#532 review): a source deleted mid-charge REFUSES instead of falling through to the provider', async () => {
-    const staleSnapshot = {
-      id: SOURCE_C_ID,
-      type: 'DOU_RSS' as const,
-      config: { category: 'JavaScript', race: 'c' },
-      budgetLimit: 5,
-      budgetWindow: 'DAY' as const,
-      budgetUsed: 5,
-      budgetWindowStartedAt: yesterday,
-    }
-
-    const callsBefore = provider.collectCallCount
-
-    // Delete the row BEFORE chargeBudget ever runs — the stale snapshot still
-    // "remembers" it as it was, exactly like a caller that read it a moment
-    // before an ADMIN deleted the source.
-    await dbSvc.db.delete(jobSources).where(eq(jobSources.id, SOURCE_C_ID))
-
-    await expect(service.collectSource({ ...staleSnapshot })).rejects.toThrow(/удалён/)
-
-    // The assertion that names the actual risk MED-1 is about: not merely
-    // "did collectSource reject" but "was the PAID provider call reached at
-    // all". A mutant that throws for the wrong reason, or throws AFTER
-    // `provider.collect()` has already run, would still satisfy
-    // `.rejects.toThrow` above — only this call-count check catches that.
-    expect(provider.collectCallCount).toBe(callsBefore)
-  })
-})
+      // The assertion that names the actual risk MED-1 is about: not merely
+      // "did collectSource reject" but "was the PAID provider call reached at
+      // all". A mutant that throws for the wrong reason, or throws AFTER
+      // `provider.collect()` has already run, would still satisfy
+      // `.rejects.toThrow` above — only this call-count check catches that.
+      expect(provider.collectCallCount).toBe(callsBefore)
+    })
+  },
+)

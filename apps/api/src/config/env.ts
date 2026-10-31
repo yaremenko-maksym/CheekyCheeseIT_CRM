@@ -173,6 +173,13 @@ const envSchema = z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
 
+    // JOB_QUEUE_BRIDGE_ENABLED: switch for the DOU queue bridge (r5 Task 4.6 S6a; ADR
+    //   2026-10-31-dou-bridge-run-ownership, D-4). **Default false** in every environment. Read once
+    //   at JobSourcingService construction; until S6c/S6d the flag-on path is the same code.
+    JOB_QUEUE_BRIDGE_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
+      .default(false),
+
     THROTTLER_TTL_MS: z.coerce.number().int().min(1_000).default(60_000),
     THROTTLER_LIMIT: z.coerce.number().int().min(1).default(100),
     THROTTLE_RELAXED: z
