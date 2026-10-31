@@ -241,18 +241,18 @@ or a new sibling in `JobRunLedger` (S6e), never a direct service UPDATE. Item-le
 
 ```sql
 -- staged as apps/api/drizzle/manual-staged/<date>_job_bridge_deliveries.sql; S6f moves it to manual/
-CREATE TYPE job_bridge_consumer AS ENUM ('LEGACY_POSTING', 'LEGACY_SUGGESTION');
-CREATE TYPE job_bridge_status   AS ENUM ('PENDING', 'DONE', 'INVALID');
+-- No CREATE TYPE: consumer/status are text + CHECK over the ADR's closed sets. See the
+-- "enum -> text+CHECK (ratified S6b)" note below the bullets for why.
 
 CREATE TABLE IF NOT EXISTS job_bridge_deliveries (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   source_id           uuid REFERENCES job_sources(id) ON DELETE SET NULL,   -- OPEN (S6b), see below
   provider            job_source_type NOT NULL,
-  consumer            job_bridge_consumer NOT NULL,
+  consumer            text NOT NULL,            -- CHECK ck_job_bridge_consumer below
   identity_key        text NOT NULL,            -- the posting fingerprint
   content_version     text NOT NULL,            -- sha256 of the NormalizedPosting
   payload             jsonb NOT NULL,           -- the NormalizedPosting (LEGACY_POSTING) / {} (SUGGESTION)
-  status              job_bridge_status NOT NULL DEFAULT 'PENDING',
+  status              text NOT NULL DEFAULT 'PENDING',  -- CHECK ck_job_bridge_status below
   outcome             text,                     -- CREATED | DUPLICATE | <db error class>
   posting_id          uuid REFERENCES job_postings(id) ON DELETE CASCADE,
   suggestions_created integer,
@@ -261,6 +261,8 @@ CREATE TABLE IF NOT EXISTS job_bridge_deliveries (
   attempts            integer NOT NULL DEFAULT 0,
   created_at          timestamptz NOT NULL DEFAULT now(),
   delivered_at        timestamptz,
+  CONSTRAINT ck_job_bridge_consumer        CHECK (consumer IN ('LEGACY_POSTING', 'LEGACY_SUGGESTION')),
+  CONSTRAINT ck_job_bridge_status          CHECK (status IN ('PENDING', 'DONE', 'INVALID')),
   CONSTRAINT ck_job_bridge_legacy_only     CHECK (provider = 'DOU_RSS'),
   CONSTRAINT ck_job_bridge_suggestion_post CHECK (consumer <> 'LEGACY_SUGGESTION' OR posting_id IS NOT NULL),
   CONSTRAINT ck_job_bridge_done_stamped    CHECK ((status = 'PENDING') = (delivered_at IS NULL)),
@@ -308,6 +310,19 @@ CREATE INDEX IF NOT EXISTS ix_job_bridge_pending
   `POSTING_RETENTION_DAYS` may be deleted by the existing retention cron. That is slice S6g's
   choice; it is not needed for correctness.
 
+> **Amended 2026-10-31 (S6b): `consumer` / `status` are `text` + CHECK, not enum types — ratified.**
+> The sketch proposed `CREATE TYPE job_bridge_consumer` / `job_bridge_status`. The shipped DDL
+> (PR #1203) instead declares both columns `text` with the closed-set CHECKs `ck_job_bridge_consumer`
+> and `ck_job_bridge_status`. Three reasons, all pre-existing project constraints: (1) **idempotency**
+> — `CREATE TYPE` has no `IF NOT EXISTS`, so an enum would break the "applies twice, catalog ==
+> `db:push`" forward-DDL requirement that every staged file meets; (2) the **19-enum tripwire** in
+> `job-opportunities-store-forward-ddl.integration.spec.ts` — two new `job_*` enums would trip it;
+> (3) the **`namespace_kind text` precedent** in `2026-10-25_job_record_store.sql`, the same
+> closed-set-as-text pattern already shipped for job sourcing. The keys, the class and the other
+> CHECKs are unchanged, so D-3's HIGH-confidence invariants hold; only the two columns' storage form
+> changed (a MED-confidence detail of the sketch). Accepted by Master, ratified here per SPEC-M-1 on
+> PR #1203.
+
 ### Deploy wiring — the S0 pattern (PR #1171)
 
 1. **S6b — staged.** The file and its Drizzle declaration land, with a forward-DDL integration spec
@@ -345,11 +360,16 @@ CREATE INDEX IF NOT EXISTS ix_job_bridge_pending
 The table is additive and nothing outside the bridge reads it.
 
 - **Code rollback** = flag off. No DDL is touched.
-- **Schema rollback** (owner-run, only after the flag has been off for a full cycle):
-  `DROP TABLE IF EXISTS job_bridge_deliveries; DROP TYPE IF EXISTS job_bridge_status; DROP TYPE IF EXISTS job_bridge_consumer;`
-  — **plus** a reverse commit that undoes the S6f file set (`deploy.yml` preflight + SCP, the
-  `deploy-stack-on-vps.sh` apply block, the regenerated privilege files, the wiring check).
-  Otherwise the next deploy re-creates the table.
+- **Staged rollback (before S6f).** The staged file is never applied to production, so there is
+  nothing to undo there; revert the S6b PR (the staged SQL file, the Drizzle declaration, the
+  `PRIVILEGE_CLASSES.A` / `STAGED_RELATIONS` entries and the forward-DDL spec). Any test DB that
+  applied it is dropped with `DROP TABLE IF EXISTS job_bridge_deliveries;` — one table, no types,
+  because none were created (the enum -> text+CHECK ratification above).
+- **Schema rollback (after S6f, owner-run, only after the flag has been off for a full cycle):**
+  `DROP TABLE IF EXISTS job_bridge_deliveries;` — one statement, no `DROP TYPE` (the columns are
+  `text` + CHECK, so there are no enum types to drop) — **plus** a reverse commit that undoes the
+  S6f file set (`deploy.yml` preflight + SCP, the `deploy-stack-on-vps.sh` apply block, the
+  regenerated privilege files, the wiring check). Otherwise the next deploy re-creates the table.
 - **Loss.** Dropping the table loses any `PENDING` suggestion rows. Section 4's flag-off drain rule
   is what makes that loss zero.
 
@@ -516,13 +536,13 @@ answer costs one flag-guarded PR.
 
 ## Rollback
 
-| Scope                 | Undo                                                                                                    | Expected state                                                            | Verify                                                                                                      |
-| --------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| This ADR              | close the PR, or `git revert <merge sha>`                                                               | docs only; no code or schema depends on it                                | `git show --stat <revert sha>` lists only this file                                                         |
-| Behaviour (after S6d) | follow the flag-off drain rule (section 4), then set `JOB_QUEUE_BRIDGE_ENABLED=false` and redeploy      | DOU runs today's body; no new run rows for DOU                            | no `job_collection_runs` row for the DOU source after the next 05:00; barrier flag-off suite green          |
-| A code slice          | `git revert` of that slice's squash commit                                                              | the previous slice's state; the flag still gates everything               | CI green on the revert; barrier both ways                                                                   |
-| Schema (after S6f)    | section 3 "DDL rollback": drop the objects **and** revert the deploy wiring                             | table and types gone; deploy no longer applies the file                   | `SELECT to_regclass('public.job_bridge_deliveries')` returns NULL; next deploy log has no apply step for it |
-| Backfill (S7)         | delete store rows in the legacy namespace and their `DONE` delivery rows (S7 ships this SQL, owner-run) | live namespace and every `job_postings` / `job_suggestions` row untouched | checksums of `job_postings` / `job_suggestions` equal to those recorded before S7                           |
+| Scope                 | Undo                                                                                                    | Expected state                                                             | Verify                                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| This ADR              | close the PR, or `git revert <merge sha>`                                                               | docs only; no code or schema depends on it                                 | `git show --stat <revert sha>` lists only this file                                                         |
+| Behaviour (after S6d) | follow the flag-off drain rule (section 4), then set `JOB_QUEUE_BRIDGE_ENABLED=false` and redeploy      | DOU runs today's body; no new run rows for DOU                             | no `job_collection_runs` row for the DOU source after the next 05:00; barrier flag-off suite green          |
+| A code slice          | `git revert` of that slice's squash commit                                                              | the previous slice's state; the flag still gates everything                | CI green on the revert; barrier both ways                                                                   |
+| Schema (after S6f)    | section 3 "DDL rollback": drop the table **and** revert the deploy wiring                               | table gone (no enum types were created); deploy no longer applies the file | `SELECT to_regclass('public.job_bridge_deliveries')` returns NULL; next deploy log has no apply step for it |
+| Backfill (S7)         | delete store rows in the legacy namespace and their `DONE` delivery rows (S7 ships this SQL, owner-run) | live namespace and every `job_postings` / `job_suggestions` row untouched  | checksums of `job_postings` / `job_suggestions` equal to those recorded before S7                           |
 
 ## Sources
 

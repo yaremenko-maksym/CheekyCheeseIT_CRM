@@ -164,6 +164,7 @@ export class NotLegacySourceError extends Error {
 export class JobSourcingService {
   private readonly logger = new Logger(JobSourcingService.name)
   private readonly registry: JobSourceRegistry
+  private readonly queueBridgeEnabled: boolean
 
   /**
    * `adapters` is THE registry (the module provides it through `createProductionRegistry`). It also
@@ -179,6 +180,8 @@ export class JobSourcingService {
     @Optional() @Inject(ConfigService) private readonly config?: ConfigService<Env, true>,
   ) {
     this.registry = resolveRegistry(adapters)
+    // Read ONCE, at construction (never per request). Absent ConfigService (hand-built specs) = OFF.
+    this.queueBridgeEnabled = config?.get('JOB_QUEUE_BRIDGE_ENABLED') === true
   }
 
   /**
@@ -889,8 +892,21 @@ export class JobSourcingService {
     throw new JobSourceBudgetContentionError(current.type, CHARGE_BUDGET_MAX_ATTEMPTS)
   }
 
-  /** Run one configured source end to end. */
+  /**
+   * Run one configured source end to end. The only branch on `JOB_QUEUE_BRIDGE_ENABLED` is here, at
+   * the top of the LEGACY path (ADR 2026-10-31-dou-bridge-run-ownership D-4): until S6c/S6d the
+   * bridge path is the legacy body, so both values behave identically.
+   */
   async collectSource(source: BudgetedSource): Promise<JobCollectionResultDto> {
+    return this.queueBridgeEnabled ? this.collectViaBridge(source) : this.collectLegacy(source)
+  }
+
+  /** Flag ON. S6c/S6d replace this body with the run-ledger + bridge flow. */
+  private collectViaBridge(source: BudgetedSource): Promise<JobCollectionResultDto> {
+    return this.collectLegacy(source)
+  }
+
+  private async collectLegacy(source: BudgetedSource): Promise<JobCollectionResultDto> {
     // ONE ROUTING (r5 Task 2.5 T7, SR-M-23): this is the LEGACY path. A type registered on the
     // reporting contract runs only through the run ledger and its worker; here it is refused before
     // the budget, the provider or any request.
