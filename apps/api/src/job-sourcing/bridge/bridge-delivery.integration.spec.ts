@@ -16,6 +16,7 @@ import type { NormalizedPosting } from '../job-source.provider'
 import {
   type BridgeRun,
   type CreateSuggestions,
+  NonLegacyBridgeError,
   type RosterSenior,
   createSuggestionsForPostings,
   drainPostings,
@@ -553,5 +554,27 @@ describe.skipIf(!hasDatabaseUrl())('bridge delivery drains against Postgres (S6d
     await expect(drainSuggestions(db, fenced, roster())).rejects.toThrow()
     expect(await suggestionCount(s)).toBe(0)
     expect((await bridgeRows(s, 'LEGACY_SUGGESTION'))[0].status).toBe('PENDING')
+  })
+
+  it('SR-M-1: the table boundary refuses a non-LEGACY run even with a valid run lease (no service gate)', async () => {
+    const s = await fx.source({ type: 'DOU_RSS', manifestId: null, hostKey: null })
+    const run = await claimRun(s)
+    // A caller that skipped the service gate and handed a run claiming a reporting source type,
+    // under an otherwise-valid lease. The boundary guard must refuse it before any row is written.
+    const contaminated: BridgeRun = { ...run, sourceType: 'REMOTIVE_API' }
+
+    await expect(enqueueLegacyPostings(db, contaminated, [douPosting()])).rejects.toBeInstanceOf(
+      NonLegacyBridgeError,
+    )
+    expect(await bridgeRows(s, 'LEGACY_POSTING')).toHaveLength(0)
+
+    // And the drain repeats the check: a LEGACY row enqueued honestly cannot be drained under a
+    // contaminated run.
+    await enqueueLegacyPostings(db, run, [douPosting()])
+    await expect(drainPostings(db, contaminated, () => undefined)).rejects.toBeInstanceOf(
+      NonLegacyBridgeError,
+    )
+    expect(await postingCount(s)).toBe(0)
+    expect((await bridgeRows(s, 'LEGACY_POSTING')).every((x) => x.status === 'PENDING')).toBe(true)
   })
 })

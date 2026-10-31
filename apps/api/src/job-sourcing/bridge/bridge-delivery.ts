@@ -47,6 +47,44 @@ export function isTerminalDeliveryError(err: unknown): boolean {
 }
 
 /**
+ * The LEGACY providers the bridge may write a `LEGACY_*` row for — today only DOU, which mirrors the
+ * table's `ck_job_bridge_legacy_only` CHECK (`provider = 'DOU_RSS'`). When a second legacy source
+ * ships, this set and that CHECK relax together.
+ */
+const LEGACY_BRIDGE_PROVIDERS: ReadonlySet<JobSourceType> = new Set<JobSourceType>(['DOU_RSS'])
+
+/** SR-M-1: the table boundary was handed a run that is not a LEGACY run of the claimed source. */
+export class NonLegacyBridgeError extends Error {
+  constructor(detail: string) {
+    super(`bridge delivery refused: ${detail}`)
+    this.name = 'NonLegacyBridgeError'
+  }
+}
+
+/**
+ * SR-M-1 (defense-in-depth): enforce the ADR's T1/drain invariant AT THE TABLE BOUNDARY, not only at
+ * the upstream service gate — assert the run's source kind is LEGACY and the row's actual
+ * `job_sources.type` equals `run.sourceType`. A future caller that reaches these helpers without the
+ * service's `collectViaBridge` / `claimLegacyRun` gates still cannot write a `LEGACY_*` row for a
+ * non-LEGACY source.
+ */
+async function assertLegacyBridgeRun(tx: DrizzleTx, run: BridgeRun): Promise<void> {
+  if (!LEGACY_BRIDGE_PROVIDERS.has(run.sourceType)) {
+    throw new NonLegacyBridgeError(`run source type ${run.sourceType} is not a LEGACY provider`)
+  }
+  const [src] = await tx
+    .select({ type: jobSources.type })
+    .from(jobSources)
+    .where(eq(jobSources.id, run.sourceId))
+    .limit(1)
+  if (!src || src.type !== run.sourceType) {
+    throw new NonLegacyBridgeError(
+      `run source type ${run.sourceType} != job_sources.type ${src?.type ?? 'missing'}`,
+    )
+  }
+}
+
+/**
  * r5 Task 4.6 S6d — the durable bridge delivery (ADR `2026-10-31-dou-bridge-run-ownership.md`,
  * section 2). The service's flag-on branch calls T1 enqueue, then the two drains; each is fenced
  * (`assertOwned`) and crash-idempotent per the ADR crash table. New logic lives here, not in the
@@ -141,6 +179,7 @@ export async function enqueueLegacyPostings(
   if (postings.length === 0) return
   await db.transaction(async (tx) => {
     await assertOwned(tx, run.handle)
+    await assertLegacyBridgeRun(tx, run)
     await tx
       .insert(jobBridgeDeliveries)
       .values(
@@ -199,6 +238,7 @@ export async function drainPostings(
     try {
       const outcome = await db.transaction(async (tx): Promise<'CREATED' | 'DUPLICATE'> => {
         await assertOwned(tx, run.handle)
+        await assertLegacyBridgeRun(tx, run)
         const posting = payloadToPosting(row.payload)
         const [ins] = await tx
           .insert(jobPostings)

@@ -61,8 +61,7 @@ import { markExclusionDirty } from './dirty-producers'
 import { JobSourceRegistry } from './registry/job-source-registry'
 import { type TypeFilter, sourceAcceptsTrigger, typePassesFilter } from './scheduling/due-policy'
 import { resolveRegistry } from './registry/production-registry'
-import { JobRunLedger, type RunEnding, type SavedPage } from './ownership/job-run-ledger'
-import { LEGACY_RUN_ADAPTER_VERSION } from './ownership/legacy-run-claim'
+import { JobRunLedger, type RunEnding } from './ownership/job-run-ledger'
 import {
   type BridgeRun,
   type RosterSenior,
@@ -72,59 +71,8 @@ import {
   enqueueLegacyPostings,
   markCollected,
 } from './bridge/bridge-delivery'
-import { douPostingToRawObservation } from './bridge/dou-observation'
-import { type SourceObservation, buildSourceObservation } from './normalize/observation'
-import { chunkPage, saveObservationPage } from './store/source-record.store'
-import type { ValidatedCheckpoint } from './providers/reporting-provider'
-
-/** The LEGACY (DOU) bridge found a feed empty — a feed-format drift, not a quiet day. */
-class ZeroPostingsError extends Error {}
-
-/**
- * The run-row ending a thrown error selects, per the ADR §1 golden table. Every pair is one
- * `validateEnding` accepts; under the LEGACY branch the `endingEffect` is NOT applied to
- * `job_sources` (no cap, no backoff — the SR-M-17 guarantee).
- */
-function bridgeEnding(err: unknown): RunEnding {
-  // Stryker disable next-line MethodExpression: the 500-char cap guards the error_message column
-  // width; every error reaching here is far shorter, so the cap itself is not observable.
-  const message = err instanceof Error ? err.message.slice(0, 500) : String(err).slice(0, 500)
-  if (err instanceof JobSourceBudgetExhaustedError) {
-    return { outcome: 'PARTIAL', errorCode: 'COST_STOP', errorMessage: message }
-  }
-  // Stryker disable all: the contention run-ending. The contention STOP is asserted by
-  // job-sourcing-budget-contention.spec (the thrown JobSourceBudgetContentionError); its
-  // CANCELLED/CANCELLED ending mirrors the exhausted/zero/upstream endings that
-  // compat-barrier.spec's finish-ending describe asserts directly.
-  if (err instanceof JobSourceBudgetContentionError) {
-    return { outcome: 'CANCELLED', errorCode: 'CANCELLED', errorMessage: message }
-  }
-  // Stryker restore all
-  if (err instanceof ZeroPostingsError) {
-    return { outcome: 'FAILED', errorCode: 'PARSE_DRIFT', errorMessage: message }
-  }
-  return { outcome: 'FAILED', errorCode: 'UPSTREAM', errorMessage: message }
-}
-
-/**
- * The T2 page checkpoint for a DOU run. DOU is a single full-feed fetch, not a paginated cursor, so
- * the position is a fixed marker; the ledger's writer only structurally validates it
- * (`validatedCheckpointSchema`) and never resumes a LEGACY run from it.
- */
-function douCheckpoint(): ValidatedCheckpoint {
-  // Stryker disable all: a fixed marker checkpoint for a single full-feed DOU fetch. The ledger's
-  // writer only structurally validates it and never resumes a LEGACY run from it, so the literal
-  // values are not observable by any unit test; the T2 write that uses it is covered by
-  // compat-barrier.integration (the "T2 store failure swallowed" and parity cases).
-  return {
-    configVersion: 1,
-    policyVersion: 1,
-    adapterVersion: LEGACY_RUN_ADAPTER_VERSION,
-    position: { kind: 'CURSOR', page: 1, cursor: 'dou-full-feed' },
-    completedAt: new Date(),
-  }
-  // Stryker restore all
-}
+import { ZeroPostingsError, bridgeEnding } from './bridge/bridge-ending'
+import { storeObservations } from './bridge/dou-store'
 
 /**
  * Job sourcing — task-job-sourcing-slice1.
@@ -998,11 +946,17 @@ export class JobSourcingService {
     const kind = this.registry.get(source.type)?.contract
     if (kind !== undefined && kind !== 'LEGACY') throw new NotLegacySourceError(source.type)
     const provider = this.registry.legacyProvider(source.type)
-    if (!provider) throw new BadRequestException(`Нет провайдера для источника ${source.type}`)
+    // LANG-1: English, repo policy. The flag-off `collectLegacy` keeps its pre-existing Russian
+    // string on main (untouched); this is a new occurrence in the flag-on path.
+    if (!provider) throw new BadRequestException(`No provider for source ${source.type}`)
 
     // The CYCLE's trigger is how the collection was initiated, not the source's trigger-mode
     // filter: an ADMIN click carries an actor (a MANUAL cycle); the cron and any system caller
     // carry none (a SCHEDULED cycle). `claimLegacyRun` matches the same actor against the cycle.
+    // SPEC-L-2 INVARIANT: actor presence IS the MANUAL/SCHEDULED split. Today's only callers are the
+    // cron (`collectAll()`, no actor → SCHEDULED) and `collectAllAsActor` (actor.id → MANUAL). A
+    // future caller that passes a MANUAL intent WITHOUT an actor would, flag-on, throw at `openCycle`
+    // (a manual cycle needs its actor) — deliberately loud, never a silent attribution change.
     const triggerKey = this.bridgeTriggerKey(actor)
     const { cycleId } = await ledger.openCycle(
       actor !== undefined
@@ -1058,7 +1012,7 @@ export class JobSourcingService {
       await enqueueLegacyPostings(this.db.db, run, postings)
       // T2 — the observation store, best-effort: a failure is logged and NEVER fails the DOU run
       // (Q3). Its counters go through the ledger-side writer, never a direct service UPDATE.
-      await this.storeObservations(run, postings)
+      await storeObservations(this.db.db, run, postings, (m) => this.logger.warn(m))
       // T3 / T4 — the per-row drains; the roster is read ONCE per pass (AC6, O(S) not O(P×S)).
       const { created, invalid } = await drainPostings(this.db.db, run, (m) => this.logger.warn(m))
       const roster = await this.buildRoster()
@@ -1094,9 +1048,9 @@ export class JobSourcingService {
   }
 
   // Stryker disable all: the bridge helpers. The owner-token and trigger-key string formats are
-  // cosmetic (no unit test can observe the exact string); buildRoster and storeObservations run only
-  // inside the integration-covered delivery region — the roster-once query-count, the T2-failure
-  // swallow and the parity set are asserted by compat-barrier.integration (mutation-gate-integration-specs.md).
+  // cosmetic (no unit test can observe the exact string); buildRoster runs only inside the
+  // integration-covered delivery region — the roster-once query-count is asserted by
+  // compat-barrier.integration (mutation-gate-integration-specs.md).
   /** The bridge run's owner token (OWNER regex: `[a-z0-9][a-z0-9._-]{0,63}`). */
   private bridgeOwner(): string {
     return `dou-bridge-${process.pid}`
@@ -1116,38 +1070,6 @@ export class JobSourcingService {
       roster.push({ seniorId, exclusions: await this.buildExclusionSet(seniorId) })
     }
     return roster
-  }
-
-  /**
-   * T2 — map the DOU postings to observations and write them to the store (chunked), best-effort.
-   * An item the validator refuses is skipped and logged; a store-write failure is logged and the
-   * DOU run is NOT failed (Q3). Covers the S6e *mapping* (S6e keeps the golden + the 50-item yield).
-   */
-  private async storeObservations(
-    run: BridgeRun,
-    postings: readonly NormalizedPosting[],
-  ): Promise<void> {
-    try {
-      const observations: SourceObservation[] = []
-      let refused = 0
-      for (const p of postings) {
-        const mapped = buildSourceObservation(douPostingToRawObservation(p))
-        if (mapped.ok) observations.push(mapped.observation)
-        else refused += 1
-      }
-      if (refused > 0) {
-        this.logger.warn(`DOU observation mapping skipped ${refused} item(s) the validator refused`)
-      }
-      if (observations.length === 0) return
-      const page: SavedPage = { observations, checkpoint: douCheckpoint() }
-      for (const chunk of chunkPage(page)) {
-        await saveObservationPage(this.db.db, run.handle, chunk)
-      }
-    } catch (err: unknown) {
-      this.logger.warn(
-        `DOU observation store write failed (run not failed): ${err instanceof Error ? err.message : String(err)}`,
-      )
-    }
   }
 
   // Stryker restore all
