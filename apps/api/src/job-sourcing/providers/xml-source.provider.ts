@@ -1,5 +1,6 @@
 import type { ZodType } from 'zod'
 import { DEFAULT_USER_AGENT } from '../http/bounded-fetch'
+import { xmlEnvelopeFingerprint } from './envelope-fingerprint'
 import {
   DEFAULT_XML_LIMITS,
   type XmlDocument,
@@ -199,7 +200,7 @@ export function decodeXmlBody(
     })
     const mojibake = mojibakeDrift(bodyText, document.declaredEncoding)
     if (mojibake !== null) return { ok: false, code: 'PARSE_DRIFT', message: mojibake }
-    return { ok: true, value: document }
+    return { ok: true, value: document, fingerprint: xmlEnvelopeFingerprint(document.root) }
   } catch (error) {
     if (error instanceof XmlPortError) {
       return {

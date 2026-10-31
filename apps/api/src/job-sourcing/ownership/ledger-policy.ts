@@ -5,7 +5,7 @@ import {
   MAX_CONSECUTIVE_FAILURES,
   MAX_CONSECUTIVE_FAILURES_CEILING,
 } from '../scheduling/due-policy'
-import { nextSlot } from '../scheduling/next-slot'
+import { MAX_SLOWDOWN_LEVEL, nextSlot } from '../scheduling/next-slot'
 import type { LedgerCatalogEntry } from './ledger-catalog'
 
 /**
@@ -77,31 +77,51 @@ export function claimGate(input: GateInput): ClaimRefusal | null {
   return null
 }
 
+export { MAX_SLOWDOWN_LEVEL }
+
+/** The endings that slow a source down (ADR section 4): the provider is struggling, not refusing. */
+const SLOWING_CODES: ReadonlySet<CollectionErrorCode> = new Set([
+  'RATE_LIMIT',
+  'UPSTREAM',
+  'TRANSIENT_NETWORK',
+])
+
 /**
- * The slow-down level `nextSlot` is given. ADR section 4's `job_sources.slowdown_level` is U2's DDL;
- * until it exists every source runs at level 0, and U2 replaces this constant with the column.
+ * U2 (source fetch strategy ADR, section 4): the `job_sources.slowdown_level` a finish writes.
+ * +1 when the run ended `RATE_LIMIT`, `UPSTREAM` or `TRANSIENT_NETWORK`; -1 after a clean run (the
+ * `SUCCESS` effect); any other ending leaves it. Always within 0..`MAX_SLOWDOWN_LEVEL`, the CHECK
+ * `ck_job_sources_slowdown_level_range`.
  */
-export const SLOWDOWN_LEVEL_BEFORE_U2 = 0
+export function nextSlowdownLevel(
+  current: number,
+  code: CollectionErrorCode | null,
+  effect: EndingEffect,
+): number {
+  const step = code !== null && SLOWING_CODES.has(code) ? 1 : effect === 'SUCCESS' ? -1 : 0
+  return Math.min(MAX_SLOWDOWN_LEVEL, Math.max(0, current + step))
+}
 
 const DAY_MS = 24 * 3_600_000
 
 /**
  * U1b (source fetch strategy ADR, sections 2-3): the `next_attempt_at` a finish writes, from the
- * entry's fetch profile at the database clock `dbNow`, with the provider floor in minutes and the
- * manifest id as the stagger key. `null` for a null profile: the source has no next scheduled
- * attempt. An entry the catalog does not hold keeps the daily cadence it had before U1b (its claim
- * is refused `MANIFEST_ENTRY_MISSING` anyway). `min_interval_hours` is not an input.
+ * entry's fetch profile at the database clock `dbNow`, with the provider floor in minutes, the
+ * source's slow-down level (U2) and the manifest id as the stagger key. `null` for a null profile:
+ * the source has no next scheduled attempt. An entry the catalog does not hold keeps the daily
+ * cadence it had before U1b (its claim is refused `MANIFEST_ENTRY_MISSING` anyway).
+ * `min_interval_hours` is not an input.
  */
 export function nextAttemptAt(
   dbNow: Date,
   manifestId: string,
   entry: LedgerCatalogEntry | undefined,
+  slowdownLevel: number,
 ): Date | null {
   if (entry === undefined) return new Date(dbNow.getTime() + DAY_MS)
   if (entry.fetchProfile === null) return null
   return nextSlot(dbNow, entry.fetchProfile, {
     floorMinutes: entry.floorHours * 60,
-    slowdownLevel: SLOWDOWN_LEVEL_BEFORE_U2,
+    slowdownLevel,
     staggerKey: manifestId,
   })
 }

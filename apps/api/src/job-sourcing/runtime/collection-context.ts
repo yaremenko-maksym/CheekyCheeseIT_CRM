@@ -11,7 +11,7 @@ import {
   SourceRateLimitedError,
 } from '../http/source-errors'
 import type { AccountMeter } from '../metering/account-meter.store'
-import type { ClaimedRun, SavedPage } from '../ownership/job-run-ledger'
+import type { ClaimedRun, RunMetrics, SavedPage } from '../ownership/job-run-ledger'
 import type { RunHandle } from '../ownership/run-ownership'
 import {
   type CachedResponse,
@@ -56,6 +56,10 @@ import { type HostBan, banTargetOf } from '../scheduling/host-state'
  * "a detail 404 is an answer" path is reachable and a 5xx is the adapter's `UPSTREAM`, never
  * `TRANSIENT_NETWORK`. There is no retry here or in the transport: a failed request is retried by
  * the next run, on cadence and backoff (T3), so one run never multiplies its requests.
+ * U2 METRICS. Each request handed to the transport is counted, with the UTF-8 bytes of the body it
+ * returned, the status of the last answered request, and whether any answer carried a validator
+ * (the transport's `onValidators`, ADR section 7 step 1: observed, not yet used); `metrics()` is
+ * what the worker hands to `finish`.
  * Headers and validators are not surfaced: a response carries no headers and no ETag, so the cache
  * below never holds a validator and no conditional request is sent.
  *
@@ -144,6 +148,8 @@ export interface RunControl {
   renewLease(sentAt: number): void
   /** The context's monotonic clock, for the heartbeat's `sentAt`. */
   monotonicNow(): number
+  /** U2: what the run's requests amounted to so far, for `finish` (ADR section 10). */
+  metrics(): RunMetrics
   /**
    * Wait for every ban write already started, so `state` is final; from then on a ban write that
    * fails is the context's own to log and retry (CR-M-6 / SR-L-3). Never rejects. Gives up after
@@ -183,6 +189,13 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
   let unrecordedBan: HostBan | null = null
   let permits = 0
   let leaseDeadline = mono() + input.leaseMs
+  // U2 run metrics: every request handed to the transport, the bodies it returned, the status of
+  // the last answered one, whether any carried a validator, and the first envelope fingerprint.
+  let requestCount = 0
+  let bytesRead = 0
+  let lastHttpStatus: number | null = null
+  let validatorsSeen = false
+  let envelopeFingerprint: string | null = null
   const logger = deps.logger
   /** Ban writes in progress, and whether the worker has drained them (CR-M-6 / SR-L-3). */
   const pending = new Set<Promise<void>>()
@@ -280,6 +293,9 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
     deadline: input.deadline,
     now,
     secrets: input.secrets,
+    observeEnvelope(fingerprint) {
+      envelopeFingerprint ??= fingerprint
+    },
     async fetchText(request): Promise<FetchedText> {
       assertOpen()
       if (now().getTime() >= input.deadline.getTime()) {
@@ -301,13 +317,28 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
       // already on the wire when the run closes (deadline, lost lease, cancel) can still be refused
       // by the host, and that ban is recorded even though nobody awaits the answer any more. When
       // the request is still awaited, the pause is written BEFORE the adapter sees the refusal.
+      requestCount += 1
       const answer = transport(request.url, {
         allowedHosts: input.allowedHosts,
         ...transportOptionsFor(request),
-      }).catch(async (error: unknown) => {
-        if (isRefusal(error)) await track(onRefusal(error))
-        throw error
-      })
+        onValidators: (seen) => {
+          validatorsSeen ||= seen
+        },
+      }).then(
+        (body) => {
+          bytesRead += Buffer.byteLength(body)
+          lastHttpStatus = 200
+          return body
+        },
+        async (error: unknown) => {
+          if (error instanceof SourceHttpStatusError) lastHttpStatus = error.status
+          if (isRefusal(error)) {
+            lastHttpStatus = error instanceof SourceBlockedError ? error.status : 429
+            await track(onRefusal(error))
+          }
+          throw error
+        },
+      )
       // When the race below is lost to a close, nobody awaits `answer`: its failure is expected.
       answer.catch(() => undefined)
       try {
@@ -371,6 +402,13 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
       leaseDeadline = Math.max(leaseDeadline, sentAt + input.leaseMs)
     },
     monotonicNow: mono,
+    metrics: () => ({
+      requestCount,
+      bytesRead,
+      lastHttpStatus,
+      envelopeFingerprint,
+      validatorsSeen,
+    }),
     drain: async (timeoutMs) => {
       // CR-M-1: bounded. A write that never settles must not keep the run from `finish`.
       let timer: ReturnType<typeof setTimeout> | undefined

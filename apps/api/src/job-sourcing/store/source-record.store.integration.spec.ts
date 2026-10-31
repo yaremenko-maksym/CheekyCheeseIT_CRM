@@ -523,6 +523,7 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
             received: 0,
             unique: 0,
             created: 0,
+            newestPublishedAt: null,
           }),
         ),
     ]) {

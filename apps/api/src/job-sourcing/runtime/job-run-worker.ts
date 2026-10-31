@@ -487,7 +487,11 @@ export class JobRunWorker {
     // (CR-M-1): nothing renews the lease here, so a hung write must not hold the run from finish.
     await control?.drain(this.options.deadlineGraceMs)
     const state = control?.state ?? { closed: null, banCode: null, unrecordedBan: null }
-    const ending = endingOf(settled, state, secrets)
+    // U2: the run's metrics ride on the ending; a run whose context was never built has none.
+    const ending = {
+      ...endingOf(settled, state, secrets),
+      ...(control !== null && { metrics: control.metrics() }),
+    }
     let finished = true
     try {
       await this.deps.ledger.finish(handle, ending)

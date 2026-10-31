@@ -1338,6 +1338,11 @@ export interface CollectionContext {
   /** Values that must never appear in a report. Redaction happens before anything is reported. */
   secrets: readonly string[]
   fetchText(request: FetchRequest): Promise<FetchedText>
+  /**
+   * U2: the envelope fingerprint of a decoded response (`envelope-fingerprint.ts`); the run keeps
+   * the first one it is given. Optional, so a context that records no metrics need not offer it.
+   */
+  observeEnvelope?(fingerprint: string): void
   meter: {
     /** RESERVED before any I/O (the store's own ordering). Returns `null` when the budget refuses,
      * which is a COST_STOP, not an error. */

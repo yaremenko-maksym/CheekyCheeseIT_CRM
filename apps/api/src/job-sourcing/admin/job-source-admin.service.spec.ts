@@ -47,6 +47,10 @@ function harness(rows: Record<string, unknown>[] = [], resetRows: unknown[] = [{
     },
   })
   catalog.add('unscheduled.entry', { fetchProfile: null })
+  catalog.add('hourly.entry', {
+    floorHours: 0,
+    fetchProfile: { intervalMinutes: 60, offIntervalMinutes: null, window: null },
+  })
   const ledger = new JobRunLedger(database.db as unknown as MeterDb, specRegistry([]), catalog)
   return {
     service: new JobSourceAdminService(database, ledger),
@@ -66,6 +70,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   last_error_code: 'LEASE_EXPIRED',
   manifest_id: null,
   min_interval_hours: 24,
+  slowdown_level: 0,
   now_ms: NEXT + 5 * 24 * HOUR,
   next_attempt_ms: NEXT,
   paused_until_ms: null,
@@ -118,6 +123,22 @@ describe('listExcluded — the row mapping', () => {
     const at = (hours: number) =>
       row({ overdue: true, manifest_id: 'remotive.api.software-dev', now_ms: NEXT + hours * HOUR })
     const h = harness([at(143), at(144), at(145)])
+    const out = await h.service.listExcluded(ADMIN)
+    expect(out.map((r) => r.reasons)).toEqual([['OVERDUE']])
+  })
+
+  it('U2: OVERDUE reads the source`s slow-down level, as the ledger`s own slots do', async () => {
+    // Hourly grid, no floor. At level 0 the two slots after NEXT fall within NEXT + 2 h, so
+    // NEXT + 4 h is overdue. At level 2 each slot is more than 3 h (60 x (2^2 - 1)) after the
+    // previous one, so the second falls past NEXT + 6 h: NEXT + 4 h is not overdue.
+    const at = (level: number) =>
+      row({
+        overdue: true,
+        manifest_id: 'hourly.entry',
+        slowdown_level: level,
+        now_ms: NEXT + 4 * HOUR,
+      })
+    const h = harness([at(0), at(2)])
     const out = await h.service.listExcluded(ADMIN)
     expect(out.map((r) => r.reasons)).toEqual([['OVERDUE']])
   })

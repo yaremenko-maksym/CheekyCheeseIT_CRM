@@ -987,6 +987,14 @@ describe('the heartbeat, the deadline and the end of a run', () => {
       outcome: 'PARTIAL',
       errorCode: 'DEADLINE',
       errorMessage: 'the run reached its deadline',
+      // U2: the run's context counted what it sent; this adapter stopped before any request.
+      metrics: {
+        requestCount: 0,
+        bytesRead: 0,
+        lastHttpStatus: null,
+        envelopeFingerprint: null,
+        validatorsSeen: false,
+      },
     })
     expect(r?.outcome).toBe('PARTIAL')
     expect(elapsed).toBeGreaterThanOrEqual(110)

@@ -11,6 +11,7 @@ import {
   MAX_OBSERVATIONS_PER_PAGE,
   type PageChunk,
   chunkPage,
+  newestPublishedAt,
   saveObservation,
   saveObservationPage,
 } from './source-record.store'
@@ -276,5 +277,35 @@ describe('the dirty-work producer (Task 4.6 S4a, AC 8)', () => {
       new RangeError('saveObservations: an observation of another source type'),
     )
     expect(enqueues([...single.seen.statements, ...paged.seen.statements])).toEqual([])
+  })
+})
+
+describe('newestPublishedAt (U2: savePage keeps the newest published_at seen)', () => {
+  const at = (iso: string | null, n: number) => {
+    const o = observation({ namespace: 'ns', nativeId: `n${n}`, tag: 't' })
+    return {
+      ...o,
+      normalized: { ...o.normalized, publishedAt: iso === null ? null : new Date(iso) },
+    }
+  }
+
+  it('is the newest of the page, wherever it sits', () => {
+    const page = [
+      at('2026-10-30T10:00:00Z', 1),
+      at('2026-10-31T09:00:00Z', 2),
+      at(null, 3),
+      at('2026-10-29T00:00:00Z', 4),
+    ]
+    expect(newestPublishedAt(page)).toEqual(new Date('2026-10-31T09:00:00Z'))
+  })
+
+  it('is null for an empty page and for a page with no published_at', () => {
+    expect(newestPublishedAt([])).toBeNull()
+    expect(newestPublishedAt([at(null, 1), at(null, 2)])).toBeNull()
+  })
+
+  it('an equal later instant keeps the first (no change of value)', () => {
+    const page = [at('2026-10-31T09:00:00Z', 1), at('2026-10-31T09:00:00Z', 2)]
+    expect(newestPublishedAt(page)).toBe(page[0]!.normalized.publishedAt)
   })
 })

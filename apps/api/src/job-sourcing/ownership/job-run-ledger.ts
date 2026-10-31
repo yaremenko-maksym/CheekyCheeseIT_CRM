@@ -31,6 +31,7 @@ import {
   isSweepable,
   manualTermRefusal,
   nextAttemptAt,
+  nextSlowdownLevel,
   refusalWrite,
   resolveLedgerOptions,
   validateEnding,
@@ -116,6 +117,19 @@ export interface RunEnding {
   readonly errorCode: CollectionErrorCode | null
   /** Sanitized sentence, never an upstream body; cut to the column's 500 characters. */
   readonly errorMessage?: string | null
+  /** U2: what the run's context counted. Absent (recovery), the metric columns stay NULL. */
+  readonly metrics?: RunMetrics
+}
+
+/** U2 (ADR section 10): the run metrics `finish` writes onto `job_collection_runs`. */
+export interface RunMetrics {
+  readonly requestCount: number
+  readonly bytesRead: number
+  /** The last answered request's HTTP status; null when no request was answered. */
+  readonly lastHttpStatus: number | null
+  /** sha256 hex of the first decoded response's field names; null when none was decoded. */
+  readonly envelopeFingerprint: string | null
+  readonly validatorsSeen: boolean
 }
 
 export interface SavedPage {
@@ -750,7 +764,7 @@ export class JobRunLedger {
     ending: RunEnding,
   ): Promise<boolean> {
     const { rows: src } = await tx.execute(
-      sql`SELECT manifest_id, consecutive_failures FROM job_sources WHERE id = ${head.sourceId}::uuid FOR UPDATE`,
+      sql`SELECT manifest_id, consecutive_failures, slowdown_level FROM job_sources WHERE id = ${head.sourceId}::uuid FOR UPDATE`,
     )
     const source = src[0]
     if (source === undefined) throw new Error('endRun: the run`s source vanished')
@@ -775,10 +789,15 @@ export class JobRunLedger {
       ending.errorMessage === undefined || ending.errorMessage === null
         ? null
         : ending.errorMessage.slice(0, ERROR_MESSAGE_MAX)
+    const m = ending.metrics
     await tx.execute(
       sql`UPDATE job_collection_runs
              SET outcome = ${ending.outcome}::job_collection_outcome, error_code = ${ending.errorCode},
-                 error_message = ${message}, ended_at = ${endedAt}, updated_at = clock_timestamp()
+                 error_message = ${message}, ended_at = ${endedAt}, updated_at = clock_timestamp(),
+                 request_count = ${m?.requestCount ?? null}::integer, bytes_read = ${m?.bytesRead ?? null}::bigint,
+                 last_http_status = ${m?.lastHttpStatus ?? null}::smallint,
+                 envelope_fingerprint = ${m?.envelopeFingerprint ?? null}::text,
+                 validators_seen = ${m?.validatorsSeen ?? null}::boolean
            WHERE id = ${head.runId}::uuid`,
     )
     await this.account(tx, head, source, ending, {
@@ -800,15 +819,18 @@ export class JobRunLedger {
     const { paged, nonEmpty } = at
     const manifestId = source['manifest_id']
     const entry = typeof manifestId === 'string' ? this.catalog.entry(manifestId) : undefined
+    const effect = endingEffect(ending.outcome, ending.errorCode, paged)
+    // U2 (ADR section 4): the level this ending moves the source to, and the slot it produces.
+    const level = nextSlowdownLevel(Number(source['slowdown_level']), ending.errorCode, effect)
     // U1b: the entry's next slot (`nextSlot`), never `min_interval_hours`; NULL for a null profile,
     // which the due predicate never selects ("A NULL next_attempt_at is not due").
-    const slot = nextAttemptAt(at.dbNow, String(manifestId), entry)
+    const slot = nextAttemptAt(at.dbNow, String(manifestId), entry, level)
     const cadence = slot === null ? sql`NULL::timestamptz` : sql`${slot.toISOString()}::timestamptz`
-    const effect = endingEffect(ending.outcome, ending.errorCode, paged)
     const id = head.sourceId
     if (effect === 'SUCCESS') {
       await tx.execute(
         sql`UPDATE job_sources SET consecutive_failures = 0, cooldown_until = NULL, next_attempt_at = ${cadence},
+              slowdown_level = ${level},
               last_success_at = clock_timestamp(),
               last_nonempty_at = CASE WHEN ${nonEmpty} THEN clock_timestamp() ELSE last_nonempty_at END,
               last_error_code = NULL, last_error_message = NULL, updated_at = clock_timestamp()
@@ -824,7 +846,7 @@ export class JobRunLedger {
         sql`UPDATE job_sources SET consecutive_failures = consecutive_failures + 1,
               cooldown_until = clock_timestamp() + make_interval(secs => ${backoffS}),
               next_attempt_at = ${cadence}, last_error_code = ${ending.errorCode},
-              updated_at = clock_timestamp()
+              slowdown_level = ${level}, updated_at = clock_timestamp()
             WHERE id = ${id}::uuid`,
       )
       return
@@ -903,6 +925,8 @@ export async function writePageProgress(
     received: number
     unique: number
     created: number
+    /** U2: the newest `published_at` among the page's observations; null when none carried one. */
+    newestPublishedAt: Date | null
   },
 ): Promise<void> {
   if (owned.runId !== h.runId) throw new RunFencedError('the owned run is not this handle`s run')
@@ -910,11 +934,14 @@ export async function writePageProgress(
     page.checkpoint === null
       ? null
       : JSON.stringify(validatedCheckpointSchema.parse(page.checkpoint))
+  const newest = page.newestPublishedAt?.toISOString() ?? null
+  // GREATEST ignores a NULL on either side, so the column keeps the newest instant any page saw.
   const { rows } = await tx.execute(
     sql`UPDATE job_collection_runs
            SET checkpoint = COALESCE(${checkpoint}::jsonb, checkpoint), received = received + ${page.received},
                created = created + ${page.created}, unchanged = unchanged + ${page.unique - page.created},
-               duplicates = duplicates + ${page.received - page.unique}, updated_at = clock_timestamp()
+               duplicates = duplicates + ${page.received - page.unique}, updated_at = clock_timestamp(),
+               newest_item_published_at = GREATEST(newest_item_published_at, ${newest}::timestamptz)
          WHERE ${ownershipPredicate(h)} RETURNING 1 AS ok`,
   )
   if (rows.length !== 1) throw new RunFencedError()

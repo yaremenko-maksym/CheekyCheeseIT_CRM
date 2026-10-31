@@ -12,6 +12,7 @@ import {
 } from '../normalize/observation'
 import { type ApiJsonLimits, DEFAULT_API_JSON_LIMITS } from './api-json.limits'
 import { parseBoundedJson } from './bounded-json'
+import { jsonEnvelopeFingerprint } from './envelope-fingerprint'
 import {
   assertValidatedConfig,
   buildCollectionBatch,
@@ -152,7 +153,13 @@ export type PageLimits = Pick<ApiJsonLimits, 'maxPages' | 'maxItemsPerPage'>
  * (`PAYLOAD_TOO_LARGE`), and the two are actioned differently.
  */
 export type DecodedEnvelope<TEnvelope> =
-  { ok: true; value: TEnvelope } | { ok: false; code: CollectionErrorCode; message: string }
+  | {
+      ok: true
+      value: TEnvelope
+      /** U2: the response's envelope fingerprint (`envelope-fingerprint.ts`), when the binding computed one. */
+      fingerprint?: string
+    }
+  | { ok: false; code: CollectionErrorCode; message: string }
 
 /**
  * ONE adapter, as data — FORMAT-NEUTRAL. The loop's view of a source.
@@ -1103,6 +1110,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
       if (!envelope.ok) {
         failure = { code: envelope.code, message: envelope.message, status }
       } else {
+        if (envelope.fingerprint !== undefined) ctx.observeEnvelope?.(envelope.fingerprint)
         const pageResult = await observePage(
           spec,
           config,
@@ -1424,7 +1432,7 @@ function decodeJsonEnvelope<TEnvelope>(
       message: `envelope: ${envelope.error.issues[0]?.message ?? 'did not match'}`,
     }
   }
-  return { ok: true, value: envelope.data }
+  return { ok: true, value: envelope.data, fingerprint: jsonEnvelopeFingerprint(parsed.value) }
 }
 
 /**

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { SourceBlockedError, SourceRateLimitedError } from '../http/source-errors'
+import {
+  SourceBlockedError,
+  SourceHttpStatusError,
+  SourceRateLimitedError,
+} from '../http/source-errors'
 import type { AccountMeter } from '../metering/account-meter.store'
 import type { ClaimedRun } from '../ownership/job-run-ledger'
 import type { HostBan } from '../scheduling/host-state'
@@ -187,9 +191,88 @@ describe('send permits (AC 6)', () => {
           method: 'POST',
           body: '{}',
           maxBytes: 10,
+          onValidators: expect.any(Function),
         },
       },
     ])
+  })
+})
+
+describe('run metrics (U2 AC 2)', () => {
+  const bodies = ['{"jobs":[]}', 'ąę-€', '']
+
+  it('a run of 3 requests records request_count 3 and bytes_read equal to the three bodies', async () => {
+    let i = 0
+    const w = world({ input: { meter: null }, transport: async () => bodies[i++] as string })
+    for (let n = 0; n < 3; n += 1) await w.ctx.fetchText(REQ)
+    // 11 + 8 (ą, ę: 2 bytes each; -: 1; €: 3) + 0, counted by hand.
+    expect(w.metrics()).toEqual({
+      requestCount: 3,
+      bytesRead: 19,
+      lastHttpStatus: 200,
+      envelopeFingerprint: null,
+      validatorsSeen: false,
+    })
+  })
+
+  it('a fresh context has counted nothing', () => {
+    const w = world({ input: { meter: null } })
+    expect(w.metrics()).toEqual({
+      requestCount: 0,
+      bytesRead: 0,
+      lastHttpStatus: null,
+      envelopeFingerprint: null,
+      validatorsSeen: false,
+    })
+  })
+
+  it('a non-2xx answer counts its status and no bytes; any validator seen stays seen', async () => {
+    let call = 0
+    const w = world({
+      input: { meter: null },
+      transport: async (_url, opts) => {
+        call += 1
+        opts.onValidators?.(call === 1)
+        if (call === 2) throw new SourceHttpStatusError('jsearch.p.rapidapi.com', 503)
+        return 'ok'
+      },
+    })
+    await w.ctx.fetchText(REQ)
+    await w.ctx.fetchText(REQ)
+    expect(w.metrics()).toMatchObject({
+      requestCount: 2,
+      bytesRead: 2,
+      lastHttpStatus: 503,
+      validatorsSeen: true,
+    })
+  })
+
+  it.each([
+    [new SourceRateLimitedError('jsearch.p.rapidapi.com', null), 429],
+    [new SourceBlockedError('jsearch.p.rapidapi.com', 451, null), 451],
+  ])('a refusal is the last status (%s)', async (error, status) => {
+    const w = world({
+      input: { meter: null },
+      transport: async () => {
+        throw error
+      },
+    })
+    await w.ctx.fetchText(REQ).catch(() => undefined)
+    expect(w.metrics()).toMatchObject({ requestCount: 1, lastHttpStatus: status })
+  })
+
+  it('the run keeps the FIRST envelope fingerprint it is given', () => {
+    const w = world({ input: { meter: null } })
+    w.ctx.observeEnvelope?.('a'.repeat(64))
+    w.ctx.observeEnvelope?.('b'.repeat(64))
+    expect(w.metrics().envelopeFingerprint).toBe('a'.repeat(64))
+  })
+
+  it('a request refused before the transport (closed context) is not counted', async () => {
+    const w = world({ input: { meter: null } })
+    w.close('CANCELLED')
+    await w.ctx.fetchText(REQ).catch(() => undefined)
+    expect(w.metrics().requestCount).toBe(0)
   })
 })
 
