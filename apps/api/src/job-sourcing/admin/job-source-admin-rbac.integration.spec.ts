@@ -94,7 +94,34 @@ describe.skipIf(!hasDatabaseUrl())('T9 admin endpoints — real-controller RBAC'
   let jwt: JwtService
   let pool: Pool
   let capped: string
+  let freshSource: string
+  let freshCycle: string
   let service: JobSourceAdminService
+
+  const DAY_MS = 86_400_000
+  const insertFreshRun = (
+    sourceId: string,
+    cycleId: string,
+    startedDaysAgo: number,
+    newestItemDaysAgo: number,
+  ) =>
+    pool.query(
+      `INSERT INTO job_collection_runs
+         (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, outcome,
+          received, created, unchanged, last_http_status, started_at, ended_at, account_key,
+          bytes_read, newest_item_published_at)
+       VALUES ($1, $2, $3, 1, 'remotive_api-1', 'SCHEDULED', 'SUCCEEDED',
+               1, 0, 1, 200, $4, $5, $6, 1000, $7)`,
+      [
+        sourceId,
+        cycleId,
+        `att-${randomUUID()}`,
+        new Date(Date.now() - startedDaysAgo * DAY_MS).toISOString(),
+        new Date(Date.now() - startedDaysAgo * DAY_MS + 2_000).toISOString(),
+        `#source:${sourceId}`,
+        new Date(Date.now() - newestItemDaysAgo * DAY_MS).toISOString(),
+      ],
+    )
 
   const signFor = (u: SessionUser) => jwt.sign({ id: u.id, email: u.email, role: u.role })
 
@@ -157,6 +184,21 @@ describe.skipIf(!hasDatabaseUrl())('T9 admin endpoints — real-controller RBAC'
       .returning({ id: jobSources.id })
     capped = row?.id ?? ''
 
+    // CR-M-1: a source with two runs — one OUTSIDE the 14-day freshness window carrying a NEWER
+    // item, one INSIDE it carrying an OLDER item. A correct bound reports the in-window item.
+    const [fr] = await db
+      .insert(jobSources)
+      .values({ type: 'REMOTIVE_API', config: { t9fresh: true } })
+      .returning({ id: jobSources.id })
+    freshSource = fr?.id ?? ''
+    const { rows: cyc } = await pool.query(
+      `INSERT INTO job_collection_cycles (trigger, trigger_key) VALUES ('SCHEDULED', $1) RETURNING id`,
+      [`t9fresh:${randomUUID()}`],
+    )
+    freshCycle = cyc[0].id as string
+    await insertFreshRun(freshSource, freshCycle, 20, 1) // out of window, newer item
+    await insertFreshRun(freshSource, freshCycle, 2, 10) // in window, older item
+
     const moduleRef = await Test.createTestingModule({ imports: [AdminRbacTestModule] })
       .overrideGuard(RolesGuard)
       .useValue(new RolesGuard(new Reflector()))
@@ -180,6 +222,13 @@ describe.skipIf(!hasDatabaseUrl())('T9 admin endpoints — real-controller RBAC'
           .delete(schema.jobSourceHealthEvents)
           .where(eq(schema.jobSourceHealthEvents.sourceId, capped))
         await dbSvcRef.db.delete(jobSources).where(eq(jobSources.id, capped))
+      }
+      if (freshSource) {
+        // Runs FK the source (RESTRICT) — remove them before the source, then the cycle.
+        await pool.query(`DELETE FROM job_collection_runs WHERE source_id = $1`, [freshSource])
+        await dbSvcRef.db.delete(jobSources).where(eq(jobSources.id, freshSource))
+        if (freshCycle)
+          await pool.query(`DELETE FROM job_collection_cycles WHERE id = $1`, [freshCycle])
       }
       await dbSvcRef.db.delete(users).where(
         inArray(
@@ -333,6 +382,15 @@ describe.skipIf(!hasDatabaseUrl())('T9 admin endpoints — real-controller RBAC'
       ).items.find((i) => i.id === capped)
       // No health event and no manifest id on this seed → both null (not a crash, not a default).
       expect(row).toMatchObject({ state: null, profileSummary: null })
+    })
+
+    it('CR-M-1: freshness ignores runs older than the 14-day window', async () => {
+      const row = (await service.listSourceHealth(ADMIN)).find((r) => r.id === freshSource)
+      expect(row).toBeDefined()
+      // The in-window run's item (10 days ago), NOT the out-of-window run's newer item (1 day ago).
+      const tenDaysAgoMs = Date.now() - 10 * 86_400_000
+      const reported = new Date(row!.newestItemPublishedAt!).getTime()
+      expect(Math.abs(reported - tenDaysAgoMs)).toBeLessThan(60_000)
     })
 
     it('GET sources/:id → 200, with empty run/event lists for a fresh source', async () => {

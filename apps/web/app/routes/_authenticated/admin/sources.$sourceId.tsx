@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
+import { useForm } from '@tanstack/react-form'
 import { ArrowLeft } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import {
@@ -33,21 +34,30 @@ function useDateTime() {
   }
 }
 
+function outcomeBadgeVariant(outcome: string): 'status-active' | 'destructive' | 'secondary' {
+  if (outcome === 'SUCCEEDED') return 'status-active'
+  if (outcome === 'FAILED') return 'destructive'
+  return 'secondary'
+}
+
 function RunRow({ run, fmt }: { run: JobSourceRunDto; fmt: (iso: string | null) => string }) {
+  const { outcomeLabel } = useSourceHealthLabels()
   return (
     <li
       className="flex flex-col gap-1 rounded-md border border-border/50 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between"
       data-testid="job-source-run-row"
     >
-      <span className="font-medium text-foreground">{fmt(run.startedAt)}</span>
-      <span className="flex flex-wrap gap-x-3 gap-y-0.5 text-muted-foreground">
-        <span>{run.outcome}</span>
-        <span>
+      <span className="font-medium text-foreground tabular-nums">{fmt(run.startedAt)}</span>
+      <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-muted-foreground">
+        <Badge variant={outcomeBadgeVariant(run.outcome)}>{outcomeLabel(run.outcome)}</Badge>
+        <span className="tabular-nums">
           <Trans>
             отримано {run.received ?? 0}, нових {run.created ?? 0}, відхилено {run.invalid ?? 0}
           </Trans>
         </span>
-        {run.lastHttpStatus !== null && <span>HTTP {run.lastHttpStatus}</span>}
+        {run.lastHttpStatus !== null && (
+          <span className="tabular-nums">HTTP {run.lastHttpStatus}</span>
+        )}
         {run.adapterVersion && <span>adapter {run.adapterVersion}</span>}
       </span>
     </li>
@@ -62,7 +72,10 @@ function EventRow({
   fmt: (iso: string | null) => string
 }) {
   const { stateLabel, reasonLabel, correlationLabel } = useSourceHealthLabels()
-  const correlation = correlationLabel(event.correlation)
+  const correlation = correlationLabel(event.correlation, {
+    adapterVersion: event.adapterVersion,
+    configVersion: event.configVersion,
+  })
 
   return (
     <li
@@ -70,7 +83,7 @@ function EventRow({
       data-testid="job-source-event-row"
       data-event-kind={event.kind}
     >
-      <span className="text-muted-foreground">{fmt(event.at)}</span>
+      <span className="text-muted-foreground tabular-nums">{fmt(event.at)}</span>
       {event.kind === 'TRANSITION' ? (
         <div className="flex flex-col gap-1">
           <span className="flex flex-wrap items-center gap-2">
@@ -84,7 +97,7 @@ function EventRow({
           </span>
           {correlation && <span className="text-muted-foreground">{correlation}</span>}
           {event.errorSample && (
-            <span className="break-words font-mono text-[11px] text-muted-foreground">
+            <span className="break-words font-mono text-xs text-muted-foreground">
               {event.errorSample}
             </span>
           )}
@@ -104,56 +117,92 @@ function EventRow({
 function NoteForm({ sourceId }: { sourceId: string }) {
   const { t } = useLingui()
   const addNote = useAddJobSourceNote(sourceId)
-  const [note, setNote] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  // The field value lives in TanStack Form (project rule); only the announced result is local state.
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
 
-  function submit() {
-    const parsed = createJobSourceNoteSchema.safeParse({ note })
-    if (!parsed.success) {
-      setError(t`Введіть нотатку (до 500 символів).`)
-      return
-    }
-    setError(null)
-    addNote.mutate(parsed.data.note, {
-      onSuccess: () => setNote(''),
-    })
-  }
+  const form = useForm({
+    defaultValues: { note: '' },
+    onSubmit: ({ value }) => {
+      const parsed = createJobSourceNoteSchema.safeParse({ note: value.note })
+      if (!parsed.success) return
+      setResult(null)
+      addNote.mutate(parsed.data.note, {
+        onSuccess: () => {
+          form.reset()
+          setResult({ ok: true, text: t`Нотатку додано` })
+        },
+        onError: () => setResult({ ok: false, text: t`Не вдалося додати нотатку` }),
+      })
+    },
+  })
 
   return (
-    <div className="flex flex-col gap-2" data-testid="job-source-note-form">
+    <form
+      data-testid="job-source-note-form"
+      className="flex flex-col gap-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        void form.handleSubmit()
+      }}
+    >
       <label htmlFor="source-note" className="text-sm font-medium text-foreground">
         <Trans>Додати нотатку</Trans>
       </label>
       <p className="text-xs text-muted-foreground">
         <Trans>
-          Нотатки незмінні й залишаються в історії джерела — зафіксуйте оголошення провайдера або
-          рішення.
+          Нотатку не можна редагувати — вона залишається в історії джерела. Зафіксуйте оголошення
+          провайдера або рішення.
         </Trans>
       </p>
-      <Textarea
-        id="source-note"
-        value={note}
-        maxLength={500}
-        rows={3}
-        placeholder={t`Напр.: провайдер повідомив про зміну автентифікації`}
-        onChange={(e) => {
-          setNote(e.target.value)
-          setError(null)
+      <form.Field
+        name="note"
+        validators={{
+          onChange: ({ value }) =>
+            createJobSourceNoteSchema.safeParse({ note: value }).success
+              ? undefined
+              : t`Введіть нотатку (до 500 символів).`,
         }}
-        aria-invalid={!!error}
-        aria-describedby={error ? 'source-note-error' : undefined}
-      />
-      {error && (
-        <p id="source-note-error" className="text-xs text-destructive">
-          {error}
-        </p>
-      )}
+      >
+        {(field) => {
+          const fieldError =
+            field.state.meta.errors.length > 0 ? String(field.state.meta.errors[0]) : null
+          return (
+            <>
+              <Textarea
+                id="source-note"
+                value={field.state.value}
+                maxLength={500}
+                rows={3}
+                placeholder={t`Напр.: провайдер повідомив про зміну автентифікації`}
+                onBlur={field.handleBlur}
+                onChange={(e) => field.handleChange(e.target.value)}
+                aria-invalid={!!fieldError}
+                aria-describedby={fieldError ? 'source-note-error' : undefined}
+              />
+              {fieldError && (
+                <p id="source-note-error" role="alert" className="text-xs text-destructive">
+                  {fieldError}
+                </p>
+              )}
+            </>
+          )
+        }}
+      </form.Field>
       <div>
-        <Button size="sm" disabled={addNote.isPending} onClick={submit}>
+        <Button type="submit" size="sm" disabled={addNote.isPending}>
           {addNote.isPending ? t`Збереження…` : t`Зберегти нотатку`}
         </Button>
       </div>
-    </div>
+      {/* The save result is shown AND announced (UX-M-2): a success via role=status, a failure via role=alert. */}
+      {result && (
+        <p
+          role={result.ok ? 'status' : 'alert'}
+          className={result.ok ? 'text-xs text-muted-foreground' : 'text-xs text-destructive'}
+        >
+          {result.text}
+        </p>
+      )}
+    </form>
   )
 }
 
@@ -168,7 +217,7 @@ function SourceDetailPage() {
       <Link
         to="/admin/sources"
         data-testid="back-button"
-        className="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        className="inline-flex min-h-6 w-fit items-center gap-1.5 py-1 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
         <Trans>Усі джерела</Trans>
@@ -183,7 +232,7 @@ function SourceDetailPage() {
       )}
 
       {isError && !isLoading && (
-        <p className="text-sm text-destructive" data-testid="job-source-detail-error">
+        <p role="alert" className="text-sm text-destructive" data-testid="job-source-detail-error">
           <Trans>Не вдалося завантажити джерело.</Trans>
         </p>
       )}
@@ -192,7 +241,9 @@ function SourceDetailPage() {
         <>
           <header className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-lg font-semibold text-foreground">{data.source.type}</h2>
+              <h2 className="font-mono text-lg font-semibold text-foreground">
+                {data.source.type}
+              </h2>
               <Badge variant={stateBadgeVariant(data.source.state)}>
                 {stateLabel(data.source.state)}
               </Badge>
@@ -213,15 +264,17 @@ function SourceDetailPage() {
               </div>
               <div className="flex gap-1">
                 <dt>
-                  <Trans>Останній збір:</Trans>
+                  <Trans>Останній запуск:</Trans>
                 </dt>
-                <dd className="text-foreground">{fmt(data.source.lastCollectedAt)}</dd>
+                <dd className="text-foreground tabular-nums">{fmt(data.source.lastCollectedAt)}</dd>
               </div>
               <div className="flex gap-1">
                 <dt>
                   <Trans>Остання вакансія:</Trans>
                 </dt>
-                <dd className="text-foreground">{fmt(data.source.newestItemPublishedAt)}</dd>
+                <dd className="text-foreground tabular-nums">
+                  {fmt(data.source.newestItemPublishedAt)}
+                </dd>
               </div>
             </dl>
           </header>

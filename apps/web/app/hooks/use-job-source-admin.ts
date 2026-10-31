@@ -1,6 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
-import { useLingui } from '@lingui/react/macro'
 import {
   createJobSourceNoteSchema,
   jobSourceDetailSchema,
@@ -9,7 +7,6 @@ import {
   type JobSourceOperationalListDto,
 } from '@crm/shared'
 import { api } from '@/lib/axios'
-import { getUserFacingErrorMessage } from '@/lib/axios-utils'
 
 /**
  * Source-fetch-strategy U7 — the ADMIN source page.
@@ -54,8 +51,9 @@ export function useJobSourceDetail(id: string | undefined, enabled = true) {
 /** Append an ADMIN note as an immutable NOTE health event, then refresh the timeline. */
 export function useAddJobSourceNote(id: string) {
   const queryClient = useQueryClient()
-  const { t } = useLingui()
 
+  // Feedback (success/error) is announced by the caller (the note form's role=status/alert region),
+  // so this hook only performs the write and refreshes the timeline.
   return useMutation<void, unknown, string>({
     mutationFn: async (note) => {
       // Validate before the request so a blank note never leaves the browser.
@@ -64,10 +62,6 @@ export function useAddJobSourceNote(id: string) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: jobSourceDetailQueryKey(id) })
-      toast.success(t`Нотатку додано`)
-    },
-    onError: (error) => {
-      toast.error(getUserFacingErrorMessage(error))
     },
   })
 }

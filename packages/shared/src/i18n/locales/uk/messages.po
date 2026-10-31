@@ -378,6 +378,10 @@ msgstr "Усі поля заповнено"
 msgid "За датою початку"
 msgstr "За датою початку"
 
+#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
+msgid "Без змін адаптера чи конфігурації з нашого боку"
+msgstr "Без змін адаптера чи конфігурації з нашого боку"
+
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "Зміна реквізитів"
 msgstr "Зміна реквізитів"
@@ -813,10 +817,6 @@ msgstr "Змін немає — вміст ідентичний поточній
 msgid "Місце роботи {position}"
 msgstr "Місце роботи {position}"
 
-#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
-msgid "Останній збір:"
-msgstr "Останній збір:"
-
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Порожня відповідь"
 msgstr "Порожня відповідь"
@@ -921,10 +921,6 @@ msgstr "Призупинено"
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Не вдалося завантажити співбесіди."
 msgstr "Не вдалося завантажити співбесіди."
-
-#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
-msgid "Без змін з нашого боку"
-msgstr "Без змін з нашого боку"
 
 #: apps/web/app/routes/_authenticated/finance/cascade-preview.ts
 msgid "Перегляд недоступний — помилка на нашому боці, спробуйте пізніше"
@@ -1511,10 +1507,6 @@ msgstr "Прийнято: {0}"
 msgid "Налаштувати секрет"
 msgstr "Налаштувати секрет"
 
-#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
-msgid "Нотатки незмінні й залишаються в історії джерела — зафіксуйте оголошення провайдера або рішення."
-msgstr "Нотатки незмінні й залишаються в історії джерела — зафіксуйте оголошення провайдера або рішення."
-
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
@@ -1807,7 +1799,7 @@ msgstr "Редагування вакансії"
 msgid "Введіть посилання на зображення"
 msgstr "Введіть посилання на зображення"
 
-#: apps/web/app/hooks/use-job-source-admin.ts
+#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "Нотатку додано"
 msgstr "Нотатку додано"
 
@@ -3841,6 +3833,10 @@ msgstr "Проєкт <0>{entityName}</0> піде в архів, від ньог
 msgid "Додати посилання"
 msgstr "Додати посилання"
 
+#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
+msgid "Останній запуск:"
+msgstr "Останній запуск:"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Оплата частки CheekyCheeseIT"
 msgstr "Оплата частки CheekyCheeseIT"
@@ -4373,6 +4369,10 @@ msgstr "Вакансію приховано"
 msgid "Завантажити файл"
 msgstr "Завантажити файл"
 
+#: apps/web/app/routes/_authenticated/admin/sources.index.tsx
+msgid "Запуск: {lastRun}"
+msgstr "Запуск: {lastRun}"
+
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Відновити пов’язане"
 msgstr "Відновити пов’язане"
@@ -4401,6 +4401,10 @@ msgstr "Не вдалося завантажити PDF попереднього 
 #: apps/web/app/routes/_authenticated/projects/ProjectHero.tsx
 msgid "Ставка"
 msgstr "Ставка"
+
+#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
+msgid "Нотатку не можна редагувати — вона залишається в історії джерела. Зафіксуйте оголошення провайдера або рішення."
+msgstr "Нотатку не можна редагувати — вона залишається в історії джерела. Зафіксуйте оголошення провайдера або рішення."
 
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
 msgid "— виберіть сеньйора —"
@@ -4611,10 +4615,6 @@ msgstr "Трудовий договір (очікує підпису)"
 msgid "Підтвердження видалення учасника зі складу проєкту."
 msgstr "Підтвердження видалення учасника зі складу проєкту."
 
-#: apps/web/app/routes/_authenticated/admin/sources.index.tsx
-msgid "Збір: {lastSeen}"
-msgstr "Збір: {lastSeen}"
-
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 msgid "Створення транзакції"
 msgstr "Створення транзакції"
@@ -4704,6 +4704,10 @@ msgstr "Прив’язати дропа"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Для підтвердження введіть {confirmInputLabel}:"
 msgstr "Для підтвердження введіть {confirmInputLabel}:"
+
+#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
+msgid "Частково"
+msgstr "Частково"
 
 #. placeholder {0}: invoice.signatures.length
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
@@ -5444,6 +5448,11 @@ msgstr "Ті самі розділи і той самий експорт у PDF 
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "Авто (100 − sharePercent)"
 msgstr "Авто (100 − sharePercent)"
+
+#. placeholder {0}: versions.configVersion
+#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
+msgid "Почалося зі зміни конфігурації на версію {0}"
+msgstr "Почалося зі зміни конфігурації на версію {0}"
 
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Середньомісячна виручка за весь час роботи компанії."
@@ -7786,6 +7795,10 @@ msgstr "Прикріплення підтверджувального докум
 msgid "{0} · #{1} від {2}"
 msgstr "{0} · #{1} від {2}"
 
+#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
+msgid "Не вдалося додати нотатку"
+msgstr "Не вдалося додати нотатку"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
@@ -8714,10 +8727,6 @@ msgstr "Оплату підтверджено"
 msgid "Скасувати пропозицію"
 msgstr "Скасувати пропозицію"
 
-#: apps/web/app/routes/_authenticated/admin/sources.index.tsx
-msgid "Збору ще не було"
-msgstr "Збору ще не було"
-
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 msgid "ФОП"
 msgstr "ФОП"
@@ -9566,6 +9575,10 @@ msgstr "Запис зникне з цієї співбесіди та повер
 msgid "{projectsCount, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}"
 msgstr "{projectsCount, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}"
 
+#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
+msgid "Успішно"
+msgstr "Успішно"
+
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 msgid "Повернути в чернетку"
@@ -9981,6 +9994,10 @@ msgstr "Оновити доступ"
 msgid "Власна"
 msgstr "Власна"
 
+#: apps/web/app/routes/_authenticated/admin/sources.index.tsx
+msgid "Ще не запускалося"
+msgstr "Ще не запускалося"
+
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Підписи"
@@ -10311,6 +10328,10 @@ msgstr "Telegram-канал команди"
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Транскрипт ще обробляється."
 msgstr "Транскрипт ще обробляється."
+
+#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
+msgid "Виконується"
+msgstr "Виконується"
 
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Не вдалося створити вакансію. Спробуйте ще раз"
@@ -11937,6 +11958,10 @@ msgid "Користувача відновлено"
 msgstr "Користувача відновлено"
 
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
+msgid "Помилка"
+msgstr "Помилка"
+
+#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Мовчить"
 msgstr "Мовчить"
 
@@ -12367,6 +12392,11 @@ msgstr "Освіта"
 msgid "кожні {0} год"
 msgstr "кожні {0} год"
 
+#. placeholder {0}: versions.adapterVersion
+#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
+msgid "Почалося зі зміни адаптера на {0}"
+msgstr "Почалося зі зміни адаптера на {0}"
+
 #: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Для вирівнювання"
 msgstr "Для вирівнювання"
@@ -12382,6 +12412,10 @@ msgstr "Звичайний"
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Відкрити PDF"
 msgstr "Відкрити PDF"
+
+#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
+msgid "Скасовано"
+msgstr "Скасовано"
 
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "<0>{{{key}}}</0> — додана, але не використовується в тексті"

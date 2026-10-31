@@ -3,6 +3,7 @@ import { ChevronRight } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { JobSourceOperationalRowDto } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useJobSourceHealth } from '@/hooks/use-job-source-admin'
 import {
@@ -14,7 +15,7 @@ export const Route = createFileRoute('/_authenticated/admin/sources/')({
   component: SourcesHealthPage,
 })
 
-/** Relative freshness ("2 год тому"), the operational signal — absent when we have never collected. */
+/** Relative freshness ("2 hours ago"), the operational signal — absent when we have never run. */
 function useFreshness() {
   const { i18n } = useLingui()
   return (iso: string | null): string | null => {
@@ -39,7 +40,7 @@ function SourceRow({
   fresh: (iso: string | null) => string | null
 }) {
   const { stateLabel, reasonLabel, profileSummaryText } = useSourceHealthLabels()
-  const lastSeen = fresh(source.lastCollectedAt)
+  const lastRun = fresh(source.lastCollectedAt)
   const newest = fresh(source.newestItemPublishedAt)
 
   return (
@@ -53,7 +54,7 @@ function SourceRow({
     >
       <div className="flex min-w-0 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-foreground">{source.type}</span>
+          <span className="font-mono text-sm text-foreground">{source.type}</span>
           <Badge variant={stateBadgeVariant(source.state)}>{stateLabel(source.state)}</Badge>
           {source.reasonCode && (
             <span className="text-xs text-muted-foreground">{reasonLabel(source.reasonCode)}</span>
@@ -64,10 +65,10 @@ function SourceRow({
             </Badge>
           )}
         </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground tabular-nums">
           <span>{profileSummaryText(source.profileSummary)}</span>
           <span>
-            {lastSeen ? <Trans>Збір: {lastSeen}</Trans> : <Trans>Збору ще не було</Trans>}
+            {lastRun ? <Trans>Запуск: {lastRun}</Trans> : <Trans>Ще не запускалося</Trans>}
           </span>
           {newest && (
             <span>
@@ -104,19 +105,16 @@ function SourcesHealthPage() {
 
       {isError && !isLoading && (
         <div
+          role="alert"
           className="flex flex-col items-start gap-2 rounded-lg border border-destructive/40 px-4 py-3 text-sm text-destructive"
           data-testid="job-source-admin-error"
         >
           <span>
             <Trans>Не вдалося завантажити стан джерел.</Trans>
           </span>
-          <button
-            type="button"
-            className="text-xs underline underline-offset-2"
-            onClick={() => void refetch()}
-          >
+          <Button size="sm" variant="outline" onClick={() => void refetch()}>
             <Trans>Повторити</Trans>
-          </button>
+          </Button>
         </div>
       )}
 

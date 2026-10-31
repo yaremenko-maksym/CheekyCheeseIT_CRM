@@ -63,12 +63,31 @@ describe('useSourceHealthLabels', () => {
     expect(l.reasonLabel(null)).toBe('')
   })
 
-  it('labels every correlation hint, and null as empty', () => {
+  it('labels every correlation hint (with and without a version subject), null as empty', () => {
     const l = labels()
+    // Without versions: the generic fallback.
     expect(l.correlationLabel('ADAPTER_CHANGE')).toBe('Почалося зі зміни версії адаптера')
     expect(l.correlationLabel('CONFIG_CHANGE')).toBe('Почалося зі зміни конфігурації')
-    expect(l.correlationLabel('NO_CHANGE')).toBe('Без змін з нашого боку')
+    // With versions: the hint names the specific adapter/config version (COPY-M-2).
+    expect(
+      l.correlationLabel('ADAPTER_CHANGE', { adapterVersion: 'remotive-2', configVersion: 4 }),
+    ).toBe('Почалося зі зміни адаптера на remotive-2')
+    expect(
+      l.correlationLabel('CONFIG_CHANGE', { adapterVersion: 'remotive-2', configVersion: 4 }),
+    ).toBe('Почалося зі зміни конфігурації на версію 4')
+    // NO_CHANGE states exactly what was compared (COPY-M-3), nothing broader.
+    expect(l.correlationLabel('NO_CHANGE')).toBe('Без змін адаптера чи конфігурації з нашого боку')
     expect(l.correlationLabel(null)).toBe('')
+  })
+
+  it('labels every run outcome, and an unknown one as its raw code', () => {
+    const l = labels()
+    expect(l.outcomeLabel('STARTED')).toBe('Виконується')
+    expect(l.outcomeLabel('PARTIAL')).toBe('Частково')
+    expect(l.outcomeLabel('SUCCEEDED')).toBe('Успішно')
+    expect(l.outcomeLabel('FAILED')).toBe('Помилка')
+    expect(l.outcomeLabel('CANCELLED')).toBe('Скасовано')
+    expect(l.outcomeLabel('WAT')).toBe('WAT')
   })
 
   it('formats a windowed cadence with hours and localized days', () => {

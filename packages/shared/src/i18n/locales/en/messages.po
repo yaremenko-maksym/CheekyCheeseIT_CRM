@@ -378,6 +378,10 @@ msgstr "All fields are filled in"
 msgid "За датою початку"
 msgstr "By start date"
 
+#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
+msgid "Без змін адаптера чи конфігурації з нашого боку"
+msgstr "No adapter or config change on our side"
+
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "Зміна реквізитів"
 msgstr "Change payout details"
@@ -813,10 +817,6 @@ msgstr "No changes — the content is identical to the current version."
 msgid "Місце роботи {position}"
 msgstr "Job {position}"
 
-#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
-msgid "Останній збір:"
-msgstr "Last collected:"
-
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Порожня відповідь"
 msgstr "Empty response"
@@ -921,10 +921,6 @@ msgstr "Paused"
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Не вдалося завантажити співбесіди."
 msgstr "Couldn't load interviews."
-
-#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
-msgid "Без змін з нашого боку"
-msgstr "No change on our side"
 
 #: apps/web/app/routes/_authenticated/finance/cascade-preview.ts
 msgid "Перегляд недоступний — помилка на нашому боці, спробуйте пізніше"
@@ -1511,10 +1507,6 @@ msgstr "Accepted: {0}"
 msgid "Налаштувати секрет"
 msgstr "Set up secret"
 
-#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
-msgid "Нотатки незмінні й залишаються в історії джерела — зафіксуйте оголошення провайдера або рішення."
-msgstr "Notes are immutable and stay in the source's history — record a provider announcement or a decision."
-
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
@@ -1807,7 +1799,7 @@ msgstr "Editing the vacancy"
 msgid "Введіть посилання на зображення"
 msgstr "Enter an image link"
 
-#: apps/web/app/hooks/use-job-source-admin.ts
+#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "Нотатку додано"
 msgstr "Note added"
 
@@ -3583,7 +3575,7 @@ msgstr "Proposed by {proposer}"
 
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Зростання відповіді"
-msgstr "Payload growth"
+msgstr "Responses growing"
 
 #: apps/web/app/components/user-profile/tabs/InterviewsTab.tsx
 msgid "Дошка співбесід цього сеньйора"
@@ -3840,6 +3832,10 @@ msgstr "The project <0>{entityName}</0> will be archived, and <1>{0, plural, one
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Додати посилання"
 msgstr "Add a link"
+
+#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
+msgid "Останній запуск:"
+msgstr "Last run:"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Оплата частки CheekyCheeseIT"
@@ -4373,6 +4369,10 @@ msgstr "Vacancy hidden"
 msgid "Завантажити файл"
 msgstr "Upload a file"
 
+#: apps/web/app/routes/_authenticated/admin/sources.index.tsx
+msgid "Запуск: {lastRun}"
+msgstr "Run: {lastRun}"
+
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Відновити пов’язане"
 msgstr "Restore linked items"
@@ -4401,6 +4401,10 @@ msgstr "Could not load the preview PDF"
 #: apps/web/app/routes/_authenticated/projects/ProjectHero.tsx
 msgid "Ставка"
 msgstr "Rate"
+
+#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
+msgid "Нотатку не можна редагувати — вона залишається в історії джерела. Зафіксуйте оголошення провайдера або рішення."
+msgstr "A note can't be edited — it stays in the source's history. Record a provider announcement or a decision."
 
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
 msgid "— виберіть сеньйора —"
@@ -4611,10 +4615,6 @@ msgstr "Employment contract (awaiting signature)"
 msgid "Підтвердження видалення учасника зі складу проєкту."
 msgstr "Confirm removing the member from the project."
 
-#: apps/web/app/routes/_authenticated/admin/sources.index.tsx
-msgid "Збір: {lastSeen}"
-msgstr "Collected: {lastSeen}"
-
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 msgid "Створення транзакції"
 msgstr "Creating a transaction"
@@ -4704,6 +4704,10 @@ msgstr "Attach a drop"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Для підтвердження введіть {confirmInputLabel}:"
 msgstr "To confirm, enter the {confirmInputLabel}:"
+
+#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
+msgid "Частково"
+msgstr "Partial"
 
 #. placeholder {0}: invoice.signatures.length
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
@@ -5444,6 +5448,11 @@ msgstr "The same sections and the same PDF export — recognition just saves tim
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "Авто (100 − sharePercent)"
 msgstr "Auto (100 − sharePercent)"
+
+#. placeholder {0}: versions.configVersion
+#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
+msgid "Почалося зі зміни конфігурації на версію {0}"
+msgstr "Began with a config change to version {0}"
 
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Середньомісячна виручка за весь час роботи компанії."
@@ -7786,6 +7795,10 @@ msgstr "Attaching a supporting document to the transaction"
 msgid "{0} · #{1} від {2}"
 msgstr "{0} · #{1} of {2}"
 
+#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
+msgid "Не вдалося додати нотатку"
+msgstr "Could not add the note"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
@@ -8714,10 +8727,6 @@ msgstr "The payment has been confirmed"
 msgid "Скасувати пропозицію"
 msgstr "Cancel the proposal"
 
-#: apps/web/app/routes/_authenticated/admin/sources.index.tsx
-msgid "Збору ще не було"
-msgstr "Not collected yet"
-
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 msgid "ФОП"
 msgstr "FOP"
@@ -9566,6 +9575,10 @@ msgstr "The recording will be removed from this interview and returned to the li
 msgid "{projectsCount, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}"
 msgstr "{projectsCount, plural, one {# project} other {# projects}}"
 
+#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
+msgid "Успішно"
+msgstr "Succeeded"
+
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 msgid "Повернути в чернетку"
@@ -9981,6 +9994,10 @@ msgstr "Refresh access"
 msgid "Власна"
 msgstr "Custom"
 
+#: apps/web/app/routes/_authenticated/admin/sources.index.tsx
+msgid "Ще не запускалося"
+msgstr "Not run yet"
+
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Підписи"
@@ -9996,7 +10013,7 @@ msgstr "Active projects"
 
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Змінився формат"
-msgstr "Schema drift"
+msgstr "Format changed"
 
 #. placeholder {0}: totals.pendingProjects
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
@@ -10311,6 +10328,10 @@ msgstr "Team Telegram channel"
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Транскрипт ще обробляється."
 msgstr "The transcript is still being processed."
+
+#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
+msgid "Виконується"
+msgstr "Running"
 
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Не вдалося створити вакансію. Спробуйте ще раз"
@@ -11937,6 +11958,10 @@ msgid "Користувача відновлено"
 msgstr "User restored"
 
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
+msgid "Помилка"
+msgstr "Failed"
+
+#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Мовчить"
 msgstr "Silent"
 
@@ -12367,6 +12392,11 @@ msgstr "Education"
 msgid "кожні {0} год"
 msgstr "every {0} h"
 
+#. placeholder {0}: versions.adapterVersion
+#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
+msgid "Почалося зі зміни адаптера на {0}"
+msgstr "Began with an adapter change to {0}"
+
 #: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Для вирівнювання"
 msgstr "To even out"
@@ -12382,6 +12412,10 @@ msgstr "Normal"
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Відкрити PDF"
 msgstr "Open PDF"
+
+#: apps/web/app/components/job-sourcing/use-source-health-labels.ts
+msgid "Скасовано"
+msgstr "Cancelled"
 
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "<0>{{{key}}}</0> — додана, але не використовується в тексті"

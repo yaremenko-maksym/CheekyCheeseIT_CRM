@@ -12,7 +12,7 @@ import type {
   ResetJobSourceFailuresDto,
   SessionUser,
 } from '@crm/shared'
-import { and, desc, eq, inArray, max, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, max, sql } from 'drizzle-orm'
 import { DatabaseService } from '../../database/database.service'
 // Schema tables through the barrel (never the individual modules): the ordered-import
 // `public` circular-init trap documented in job-source-health.service.ts.
@@ -25,6 +25,18 @@ import { correlateEvents, summarizeProfile } from './source-page-derivation'
 /** How many recent runs / events the detail page carries — bounded, newest first. */
 const DETAIL_RUN_LIMIT = 50
 const DETAIL_EVENT_LIMIT = 100
+
+/**
+ * The freshness aggregate (`max(newest_item_published_at)`) is restricted to this recent window of
+ * runs, so the list load never scans the whole (unbounded, ever-growing) `job_collection_runs`
+ * history (CR-M-1). 14 days matches U4's detector window, and is served by the
+ * `(source_id, started_at)` index. A source silent longer than this reports no fresh item, which is
+ * the honest answer the page should show.
+ */
+const FRESHNESS_WINDOW_DAYS = 14
+const DAY_MS = 86_400_000
+const freshnessWindowStart = (now: Date): Date =>
+  new Date(now.getTime() - FRESHNESS_WINDOW_DAYS * DAY_MS)
 
 /**
  * ADMIN controls over the run ledger (r5 Task 2.5 T9; ADR
@@ -173,6 +185,7 @@ export class JobSourceAdminService {
     if (sources.length === 0) return []
 
     const ids = sources.map((s) => s.id)
+    const windowStart = freshnessWindowStart(new Date())
     const latest = await this.latestTransitions(ids)
     const freshness = await db
       .select({
@@ -180,7 +193,13 @@ export class JobSourceAdminService {
         newest: max(jobCollectionRuns.newestItemPublishedAt),
       })
       .from(jobCollectionRuns)
-      .where(inArray(jobCollectionRuns.sourceId, ids))
+      // Bounded to the recent window (CR-M-1): never a full-history scan.
+      .where(
+        and(
+          inArray(jobCollectionRuns.sourceId, ids),
+          gte(jobCollectionRuns.startedAt, windowStart),
+        ),
+      )
       .groupBy(jobCollectionRuns.sourceId)
     const newestById = new Map(freshness.map((f) => [f.sourceId, f.newest]))
 
@@ -207,7 +226,13 @@ export class JobSourceAdminService {
     const [fresh] = await db
       .select({ newest: max(jobCollectionRuns.newestItemPublishedAt) })
       .from(jobCollectionRuns)
-      .where(eq(jobCollectionRuns.sourceId, s.id))
+      // Same bounded window as the list (CR-M-1).
+      .where(
+        and(
+          eq(jobCollectionRuns.sourceId, s.id),
+          gte(jobCollectionRuns.startedAt, freshnessWindowStart(new Date())),
+        ),
+      )
     const source = this.rowOf(s, latest.get(s.id), fresh?.newest ?? null)
 
     const runRows = await db

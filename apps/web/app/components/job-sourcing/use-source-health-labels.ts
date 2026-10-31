@@ -65,17 +65,46 @@ export function useSourceHealthLabels() {
     }
   }
 
-  /** The correlation hint (ADR section 10): what moved when the health changed. */
-  const correlationLabel = (correlation: JobSourceCorrelation | null): string => {
+  /**
+   * The correlation hint (ADR section 10): what moved on our side when the health changed. Names the
+   * specific adapter/config version the event carries (COPY-M-2). `NO_CHANGE` states exactly what the
+   * derivation compared — adapter and config version — and nothing more (COPY-M-3).
+   */
+  const correlationLabel = (
+    correlation: JobSourceCorrelation | null,
+    versions?: { adapterVersion: string | null; configVersion: number | null },
+  ): string => {
     switch (correlation) {
       case 'ADAPTER_CHANGE':
-        return t`Почалося зі зміни версії адаптера`
+        return versions?.adapterVersion
+          ? t`Почалося зі зміни адаптера на ${versions.adapterVersion}`
+          : t`Почалося зі зміни версії адаптера`
       case 'CONFIG_CHANGE':
-        return t`Почалося зі зміни конфігурації`
+        return versions?.configVersion != null
+          ? t`Почалося зі зміни конфігурації на версію ${versions.configVersion}`
+          : t`Почалося зі зміни конфігурації`
       case 'NO_CHANGE':
-        return t`Без змін з нашого боку`
+        return t`Без змін адаптера чи конфігурації з нашого боку`
       case null:
         return ''
+    }
+  }
+
+  /** Localized outcome of a collection run (UX-L-3): an enum rendered as a word, not a raw code. */
+  const outcomeLabel = (outcome: string): string => {
+    switch (outcome) {
+      case 'STARTED':
+        return t`Виконується`
+      case 'PARTIAL':
+        return t`Частково`
+      case 'SUCCEEDED':
+        return t`Успішно`
+      case 'FAILED':
+        return t`Помилка`
+      case 'CANCELLED':
+        return t`Скасовано`
+      default:
+        return outcome
     }
   }
 
@@ -117,7 +146,7 @@ export function useSourceHealthLabels() {
     return interval
   }
 
-  return { stateLabel, reasonLabel, correlationLabel, profileSummaryText }
+  return { stateLabel, reasonLabel, correlationLabel, outcomeLabel, profileSummaryText }
 }
 
 /** Non-localized: the house Badge variant for a health state (severity → colour). */
