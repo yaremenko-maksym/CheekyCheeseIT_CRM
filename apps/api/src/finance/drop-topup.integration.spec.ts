@@ -26,6 +26,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-drop-topup (task 3b of the paid-transaction-edit-cascade decomposition)
@@ -381,6 +382,7 @@ describe.skipIf(!hasDatabaseUrl())('task-drop-topup — closing a drop remainder
       currency: 'USDT',
       senderLabel: DEPOSIT_LABEL,
       createdBy: MAKSYM_ID,
+      txDate: resolveTransactionDate(null),
     })
   })
 

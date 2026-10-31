@@ -21,6 +21,7 @@ import { withIsolatedOffCurrencyRow } from './__test-helpers__/off-currency-fixt
 import { companyAccount, projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-salary-company-account — company-account LEDGER + RECONCILIATION (real DB).
@@ -184,6 +185,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USDT',
         senderId: SENIOR.id,
         createdBy: ADMIN.id,
+        txDate: resolveTransactionDate(null),
       })
     }
 
@@ -431,6 +433,7 @@ describe.skipIf(!hasDatabaseUrl())(
           fundingSource: 'COMPANY_ACCOUNT',
           createdBy: ADMIN.id,
           notes: OFF_CURRENCY_FIXTURE_NOTES,
+          txDate: resolveTransactionDate(null),
         })
         try {
           // Baseline captured AFTER the fixture row is committed (the fixture
@@ -612,6 +615,7 @@ describe.skipIf(!hasDatabaseUrl())(
           fundingSource: 'COMPANY_ACCOUNT',
           createdBy: ADMIN.id,
           notes: OFF_CURRENCY_FIXTURE_NOTES,
+          txDate: resolveTransactionDate(null),
         })
         try {
           await expect(
@@ -650,6 +654,7 @@ describe.skipIf(!hasDatabaseUrl())(
             currency: 'USDT',
             senderId: SENIOR.id,
             createdBy: ADMIN.id,
+            txDate: resolveTransactionDate(null),
           },
           {
             type: 'PAYOUT',
@@ -659,6 +664,7 @@ describe.skipIf(!hasDatabaseUrl())(
             senderId: SENIOR.id,
             fundingSource: 'COMPANY_ACCOUNT',
             createdBy: ADMIN.id,
+            txDate: resolveTransactionDate(null),
           },
           {
             type: 'ADMIN_INCOME',
@@ -668,6 +674,7 @@ describe.skipIf(!hasDatabaseUrl())(
             receiverId: ADMIN.id,
             fundingSource: 'COMPANY_ACCOUNT',
             createdBy: ADMIN.id,
+            txDate: resolveTransactionDate(null),
           },
           {
             type: 'DIVIDEND_TO_ADMIN',
@@ -676,6 +683,7 @@ describe.skipIf(!hasDatabaseUrl())(
             currency: 'USDT',
             receiverId: ADMIN.id,
             createdBy: ADMIN.id,
+            txDate: resolveTransactionDate(null),
           },
           {
             type: 'SALARY',
@@ -686,6 +694,7 @@ describe.skipIf(!hasDatabaseUrl())(
             salaryMonth: '2026-06',
             fundingSource: 'COMPANY_ACCOUNT',
             createdBy: ADMIN.id,
+            txDate: resolveTransactionDate(null),
           },
           {
             type: 'EXPENSE',
@@ -695,6 +704,7 @@ describe.skipIf(!hasDatabaseUrl())(
             senderId: null,
             fundingSource: 'COMPANY_ACCOUNT',
             createdBy: ADMIN.id,
+            txDate: resolveTransactionDate(null),
           },
         ])
 
@@ -723,6 +733,7 @@ describe.skipIf(!hasDatabaseUrl())(
             currency: 'USDT',
             senderId: SENIOR.id,
             createdBy: ADMIN.id,
+            txDate: resolveTransactionDate(null),
           },
           // ADMIN_PERSONAL salary — must NOT debit the company balance.
           {
@@ -734,6 +745,7 @@ describe.skipIf(!hasDatabaseUrl())(
             salaryMonth: '2026-06',
             fundingSource: 'ADMIN_PERSONAL',
             createdBy: ADMIN.id,
+            txDate: resolveTransactionDate(null),
           },
           // Legacy expense (NULL funding) — must NOT debit.
           {
@@ -743,6 +755,7 @@ describe.skipIf(!hasDatabaseUrl())(
             currency: 'USD',
             senderId: ADMIN.id,
             createdBy: ADMIN.id,
+            txDate: resolveTransactionDate(null),
           },
           // Legacy admin income (NULL funding) — must NOT credit.
           {
@@ -752,6 +765,7 @@ describe.skipIf(!hasDatabaseUrl())(
             currency: 'USD',
             receiverId: ADMIN.id,
             createdBy: ADMIN.id,
+            txDate: resolveTransactionDate(null),
           },
         ])
         // Only the +500 deposit moved OUR scoped contribution; the ADMIN_PERSONAL
@@ -782,6 +796,7 @@ describe.skipIf(!hasDatabaseUrl())(
           dbSvc.db,
           {
             id: 'ca110000-0000-4000-ee00-000000000003',
+            txDate: resolveTransactionDate(null),
             type: 'EXPENSE',
             status: 'PAID',
             amount: '250',

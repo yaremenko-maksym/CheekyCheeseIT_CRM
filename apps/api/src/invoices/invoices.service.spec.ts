@@ -72,7 +72,7 @@ interface TxRow {
   payoutRequestId?: string | null
   invoiceDocumentId: string | null
   salaryMonth: string | null
-  txDate: Date | null
+  txDate: Date
   createdAt: Date
 }
 
@@ -592,7 +592,9 @@ function tx(overrides: Partial<TxRow> = {}): TxRow {
     payoutRequestId: overrides.payoutRequestId ?? null,
     invoiceDocumentId: overrides.invoiceDocumentId ?? null,
     salaryMonth: overrides.salaryMonth ?? null,
-    txDate: overrides.txDate ?? null,
+    // tx_date is NOT NULL (backlog 338). A fixed business date that never equals
+    // createdAt, so code that uses createdAt instead of txDate is caught (CR-M-1).
+    txDate: overrides.txDate ?? new Date('2026-01-15T00:00:00.000Z'),
     createdAt: overrides.createdAt ?? new Date(),
   }
 }
@@ -1290,6 +1292,10 @@ describe('InvoicesService', () => {
             amount: '740',
             currency: 'USDT',
             payoutRequestId: 'req-sign-happy',
+            // CR-M-1: a business date distinct from createdAt, so the PDF date
+            // assertion below fails if createdAt is used instead of txDate.
+            txDate: new Date('2026-05-20T00:00:00.000Z'),
+            createdAt: new Date('2026-05-25T09:00:00.000Z'),
           }),
           tx({
             id: 'inc-sign-happy',
@@ -1353,10 +1359,14 @@ describe('InvoicesService', () => {
         h.pdfService.generateSignableInvoicePdf as unknown as {
           mock: { calls: unknown[][] }
         }
-      ).mock.calls[0]?.[0] as { transaction: { amount: string; currency: string } }
+      ).mock.calls[0]?.[0] as {
+        transaction: { amount: string; currency: string; txDate: Date }
+      }
       expect(pdfArgs.transaction.amount).toBe('1000.000000')
       expect(pdfArgs.transaction.currency).toBe('USD')
       expect(pdfArgs.transaction.currency).not.toBe('USDT')
+      // The PDF prints the row's business date (tx_date is NOT NULL), never createdAt.
+      expect(pdfArgs.transaction.txDate.toISOString()).toBe('2026-05-20T00:00:00.000Z')
     })
 
     // security-review round 6 (PR #600, MED-H mutation-gate closure): the

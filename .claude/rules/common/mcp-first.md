@@ -3,6 +3,8 @@
 **Status:** Always-on
 **Applies to:** All agents (Coder, AutoTest, Reviewer, DevOps, Legal, Architect, plus ECC-imported agents) + Master (orchestrator)
 
+> Rationale: `docs/architecture/rules-rationale/mcp-first.md`
+
 ---
 
 ## The rule
@@ -35,20 +37,11 @@ Never use Bash where a suitable MCP exists.
 
 ## Native tools (when MCP does not fit)
 
-| Tool    | When                                              | When NOT                              |
-| ------- | ------------------------------------------------- | ------------------------------------- |
-| `Read`  | A specific file whole / a line range              | Search (there is ast-grep)            |
-| `Edit`  | Pointed edits in an existing file                 | Full rewrite (use `Write`)            |
-| `Write` | Create a new file / full rewrite                  | Without a `Read` of the existing file |
-| `Bash`  | `git`, `gh`, `pnpm`, operations without an MCP    | Where an MCP exists                   |
-| `Agent` | Parallel / isolated task (Master → agents)        | Simple single-file tasks              |
-| `Skill` | Invoking superpowers (see `skills-invocation.md`) | —                                     |
+`Read` a file / line range (not for search); `Edit` pointed edits; `Write` new file or full rewrite (never without a `Read` of the existing file); `Bash` for `git`, `gh`, `pnpm` and ops without an MCP; `Agent` for parallel / isolated tasks (not simple single-file ones); `Skill` for superpowers (`skills-invocation.md`).
 
 ## graphify alongside codegraph (by file type)
 
-graphify is an **addition**, not a replacement. It is built locally and code-only (AST, no model call,
-nothing leaves the machine) by `scripts/devops/build-graphify.sh` (~45 s) into the gitignored
-`graphify-out/`.
+graphify is an **addition**: built locally, code-only, by `scripts/devops/build-graphify.sh` into the gitignored `graphify-out/`.
 
 | File type                                   | Tool                                                                                                                                           |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -58,13 +51,10 @@ nothing leaves the machine) by `scripts/devops/build-graphify.sh` (~45 s) into t
 | `.md`                                       | **neither tool.** graphify does not index markdown (that would need a model pass, declined) and codegraph does not either; use `Read` / `Grep` |
 
 - Rebuild before relying on it: it does not watch files. `graph.json` records `built_at_commit`.
-- Not an MCP server on purpose: a second server adds its tool set to every agent's context for
-  questions asked rarely. Do not register `graphify-mcp`.
+- Do not register `graphify-mcp` (a second server adds its tool set to every agent's context).
 - Run `graphify affected "<symbol>" --depth 1` for "who calls this"; depth 2 prints transitive
   callers formatted like direct ones.
-- Shell coverage is uneven: scripts that dispatch through variables and loops (for example
-  `run-guard-tests.sh`) yield almost no edges — static extraction, not a bug. An empty answer there
-  means "unknown", not "nothing calls it".
+- Shell coverage is uneven: an empty answer on dispatch-through-variable scripts means "unknown", not "nothing calls it".
 - Always run `graphify extract` with `--code-only`; without it the tool sends file contents to a model.
   Never pass `--no-gitignore` or `--postgres` (the first indexes gitignored files, the second reads the
   live database). Never run `graphify label`, and never run `cluster-only` without `--no-label` (both
@@ -87,10 +77,3 @@ nothing leaves the machine) by `scripts/devops/build-graphify.sh` (~45 s) into t
 
 - `.claude/rules/common/eslint-mcp-first.md` — details of the ESLint MCP replacement for the post-edit hook.
 - Superpowers skills invocation — `.claude/rules/common/skills-invocation.md`.
-
-## Sources
-
-CLAUDE.md "MCP servers — USE FIRST" · Phase 2.5 activation of the `eslint` MCP:
-`docs/architecture/2026-06-03-phase2.5-deliverable.md` · ADR
-`docs/architecture/2026-05-31-ecc-migration-design.md` §2.7 (MCP configs).
-_(This rule is catalog and mechanism throughout — it has no separate rationale file.)_

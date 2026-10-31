@@ -3,7 +3,7 @@
 **Status:** Always-on
 **Applies to:** Everyone who writes to the backlog, `.out-of-scope/`, an ADR, `memory/*/lessons.md`, the body of a closed issue.
 
-> Rationale and provenance: `docs/architecture/rules-rationale/doc-durability.md`
+> Rationale: `docs/architecture/rules-rationale/doc-durability.md`
 
 ---
 
@@ -12,9 +12,6 @@
 A record with a lifespan of months, written as "`mutation-gate.mjs:154`", stops being true before
 anyone gets to it, and **does not announce it**. Verification then costs more than the original
 finding.
-
-The error is not in precision but in the **choice of carrier for precision**: a path and a line number
-are a property of the working copy at the moment of writing, not a property of the finding.
 
 ## The rule
 

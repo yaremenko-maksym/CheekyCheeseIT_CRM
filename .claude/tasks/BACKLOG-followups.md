@@ -6211,6 +6211,10 @@ Sources: PR #1133 review round 1 (code-reviewer CR-M-2, spec-reviewer SPEC-M-1, 
 - **Owner decisions this leaves.** (1) Move the server floor for NULL-`txDate` rows to the Kyiv business day (closes QA-LOW-1 and the two dialogs above in one change). (2) Backfill NULL `txDate` — a production-data operation — which would make the whole class, and the `kyivMonthOf` fallback branch, disappear.
 - **Addendum 2026-10-25 — both owner decisions approved; the fallback removal is the last step.** The backfill is staged in `apps/api/drizzle/manual-staged/` (PR #1158) and needs a DevOps PR to wire it; the NULL-`txDate` writers (company IOU rows, the salary cron) now persist a date. Delete the `kyivMonthOf` fallback, and the NULL branch of `businessMonthWindow`, only after the owner confirms on production that `SELECT count(*) FROM transactions WHERE tx_date IS NULL` returns 0 once the new API version is live. Verification: no reference to `kyivMonthOf` remains and the graph, tiles and senior stats still agree for a month-boundary row.
 - **Follow-up 2026-10-26 — de-wire the backfill (`ci/dewire-tx-date-kyiv-backfill`). DONE 2026-10-26.** The backfill was applied on production by deploy run 40319307008 (verified read-only: 0 NULL `tx_date`, backup table present) and then de-wired: the deploy no longer copies, applies or rollback-requires the file, which now sits in `KNOWN_NOT_WIRED` and stays in `drizzle/manual/` as history; the backup table is kept (privilege class E). Rollback to an image older than #1174 is allowed again, but only to one that writes no NULL `tx_date` — the first image containing #1159 (`810aabe3c`) or newer. The runbook keeps the NULL-count query as a manual health check, since no deploy step catches a returning NULL any more. Verification: `check-prod-ddl-wiring.py` is green and `grep` for the file name in `.github/workflows/deploy.yml` and `scripts/devops/deploy-stack-on-vps.sh` finds nothing. Original text: PR #1174 wires `2026-10-25_tx_date_kyiv_backfill.sql` into every deploy as a hard-required, run-once step (its backup table `_tx_date_kyiv_backfill_backup_20261025` is the run marker). Once the first production apply has succeeded, remove its apply block from `deploy-stack-on-vps.sh`, its copy step and rollback-preflight entry from `deploy.yml`, and its runbook mirror and apply-order entries, and add the file to `KNOWN_NOT_WIRED` with a reason, all in one PR. De-wiring is also the mandatory FIRST step of any rollback of the backfill. Verification: `check-prod-ddl-wiring.py` is green, and a `grep` for the file name in `.github/workflows/deploy.yml` and `scripts/devops/deploy-stack-on-vps.sh` finds nothing.
+- **Done 2026-10-26 — the month-level fallback is removed (`refactor/remove-kyiv-month-of-fallback`).** Precondition held: production had 0 NULL `tx_date` rows after the backfill. Behaviour now: the `@crm/shared` month helper `kyivMonthOf` no longer exists ("the Kyiv month of now" is the first seven characters of `kyivDayOf`); `transactionBusinessMonth` keys a row only by its `txDate` and **throws** on a NULL one, naming the row, so the summary graph and the senior stats fail loud instead of filing money under another clock; the accountant `paidThisMonth` tile compares `tx_date` alone and **throws** too when a PAID money row has a NULL `tx_date`, naming the row (`getAccountantSummary: transaction <id> has a NULL tx_date`), so no view silently understates the month; `businessMonthWindow` keeps both bound pairs, the date-only pair for `tx_date` and the instant pair for `validated_at`. Verification: `git grep kyivMonthOf -- apps packages` finds nothing, and the real-Postgres agreement spec proves the graph, the tiles and the senior stats file a row written at 22:30Z on 31 October (with the Kyiv-day `tx_date` the writer persists) in November; a `getAccountantSummary` unit case feeds an aggregate row naming a NULL-`tx_date` PAID row and asserts the exact error above. **Still open:** (1) a `NOT NULL` constraint on `transactions.tx_date` is an owner-gated production migration, not done; (2) the day-level `transactionBusinessDay` keeps its `createdAt` fallback because payout requests without a transaction call it with no `txDate` at all; (3) display and list-ordering readers (`txDate ?? createdAt`, and the `coalesce(tx_date, created_at)` sort/filter backed by an expression index) and the income-compliance month check still carry the coalesce: harmless with 0 NULL rows, removable together with (1).
+- **Follow-up 2026-10-30 (PR #1188, `transactions.tx_date` NOT NULL).** Tighten txDate to non-nullable in the shared response zod schemas, web readers and mapper ternaries; verification: typecheck passes with txDate typed Date and no `txDate ?? null`/`txDate ? ... : null` branch remains in apps/web, apps/api mappers and packages/shared.
+- **Closure 2026-10-30 — entry 338 is complete on production.** `transactions.tx_date` is NOT NULL (PR #1188, applied by the deploy of `281b3b1e5`; verified read-only: `is_nullable` is NO, 0 NULL rows). What is still open from this entry, all non-blocking: (1) the type tightening above; (2) QA-LOW-1's two related dialogs now read a non-null Kyiv day, so confirm with a test per dialog under both tz projects that `payoutMinDate` and `settleMinDate` agree with the server floor; (3) `ValidateDialog` and `TransactionDetailDialog` still format `createdAt`/`txDate` in the browser zone for display: verification, a `21:30Z` row shows the same calendar day in the table cell and in both dialogs under `TZ=Europe/Kyiv` and `TZ=America/Los_Angeles`; (4) the dialog trigger height is 36px on mobile (UX-L-1 of the month picker): verification, every dialog `Select` trigger is at least 44px high below the `sm` breakpoint; (5) the finance list shows the salary month as a raw `YYYY-MM` string: verification, with the `uk` locale the list shows a localized month name; (6) the manual script `2026-08-12_admin_income_drop_backfill_apply.sql` now carries `tx_date` and stays de-wired: no action unless it is ever wired.
+- **Unrelated flake found while closing 338.** The api unit spec for the job-sourcing recompute worker asserts an event-loop yield by wall-clock time (a 576 ms threshold exceeded at 609 ms on a loaded CI runner). Verification: the spec passes 20 times in a row under artificial CPU load, or asserts yield behaviour without a wall-clock bound.
 
 ## 339. The Arbeitnow 8 MiB cap is a declaration until Task 2.5 wires the transport (2026-10-24)
 
@@ -6382,3 +6386,51 @@ and Remotive's third-party clause. Revisit if a provider objects.
 
 Sources: PR #1175 and #1176 review rounds; `docs/architecture/2026-10-25-source-fetch-strategy.md`
 (Owner decisions, Open questions).
+
+---
+
+## 343. Source-fetch tick: routinePages, tick-cycle retention, shared host budget (2026-10-30)
+
+From the PR #1189 reviews (SR-M-1, CR-M-1, SPEC-M-1). Three gaps that the tick unit leaves to later units.
+
+**(i) A tick reads every page, not `routinePages`.** The strategy ADR says a tick reads the profile's
+`routinePages` and a sweep reads all pages. Today the run context carries no page limit, so a tick reads
+as many pages as the adapter allows. Before Arbeitnow (`routinePages: 1`) is registered, one unit must
+pass the profile's `routinePages` into the run context and have adapters honour it. Owner: the Arbeitnow
+adapter/registration unit. Verify: a spec runs a tick and a sweep against a fake adapter that serves
+several pages; the tick requests `routinePages` pages and the sweep requests all.
+
+**(ii) Tick cycles have no retention.** The tick opens up to 144 cycle rows a day (about 53,000 a year).
+Decide which unit deletes or archives closed tick cycles and their keys (U2 or U4), and by what age.
+Verify: after the retention job runs, closed tick cycles older than the chosen age are gone while sweep
+cycles and runs still reference valid cycles.
+
+**(iii) The per-host budget is not enforced.** Board types declare no `hostRate` today, so the shared
+limit of 2 requests a minute per multi-board host (owner decision 11) has no effect until U11 declares it.
+Until then boards are limited only by the per-source rules. Verify: a spec with two sources on one host
+shows the second refused with `HOST_RATE_GAP` inside the gap; it fails today and passes after U11.
+
+Sources: PR #1189 reviews; `docs/architecture/2026-10-25-source-fetch-strategy.md` (section 5, Owner
+decision 11, unit U11).
+
+## 344. pnpm-audit exceptions: the "build/dev-only" tier is asserted once, never re-checked (2026-10-31)
+
+From the PR #1195 security review (SR-M-1 and one LOW). Codebase Gardener run of 2026-10-31.
+
+**(i) The tier is not enforced.** `check-pnpm-audit.mjs` matches an exception by GHSA id only. A group
+whose `tier` says "build/dev-only" (today: minimatch GHSA-g3hv-75wg-m249, glob GHSA-3g3m-2fjr-6pw4) stays
+accepted even if a later dependency puts that module on a production path, and the reason text goes stale
+silently. Fix: for every group with a build/dev-only tier, the guard reads `pnpm-lock.yaml` and fails when
+any installed version of a listed module lacks `dev: true`. Owner: DevOps (guard + its test in
+`scripts/devops/tests/`). Verify: a fixture lockfile where one listed module is a production dependency
+makes the guard exit non-zero naming the module; today it exits 0.
+
+**(ii) Reason wording.** The minimatch group's reason names "lint/format tooling" for the 10.2.5 chains;
+one chain is `@stryker-mutator/core`. The 5.1.9 chain reaches the PWA build through `workbox-build`, not
+`vite-plugin-pwa` directly. Correct the text in the same change; the tier and the verdict are unaffected.
+
+**(iii) Recheck.** Both exceptions carry a free-text recheck date of 2026-12-01; nothing expires them.
+Verify: `pnpm audit` on that date — if `@lingui/cli`, `@nestjs/cli`, `workbox-build` or eslint ship on
+minimatch >=11.0.1 / glob >=14.0.2, bump and delete the groups.
+
+Sources: PR #1195 reviews; `scripts/devops/pnpm-audit-runbook.md` Step 4.

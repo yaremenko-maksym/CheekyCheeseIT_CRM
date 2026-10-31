@@ -28,6 +28,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-drop-share-override-and-receiver — REAL-DB integration for the admin-USDT
@@ -451,6 +452,7 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
       currency: 'USDT',
       senderLabel: DEPOSIT_LABEL,
       createdBy: MAKSYM_ID,
+      txDate: resolveTransactionDate(null),
     })
   })
 
@@ -639,6 +641,7 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
         dropSharePercent: DROP_SHARE,
         dropSharePercentSource: 'USER_DEFAULT',
         createdBy: DROP.id,
+        txDate: resolveTransactionDate(null),
       })
       .returning()
     const pr = await svc.createPayoutRequest([income!.id], DROP)
@@ -1006,6 +1009,7 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
         dropSharePercent: DROP_OVERRIDE,
         dropSharePercentSource: 'PROJECT',
         createdBy: DROP.id,
+        txDate: resolveTransactionDate(null),
       })
       .returning()
     await svc.createPayoutRequest([income!.id], DROP)
@@ -1073,6 +1077,7 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
           projectId: USDT_DROP_PROJECT,
           dropSharePercent: 5,
           createdBy: DROP.id,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       const pr = await svc.createPayoutRequest([payoutIncome!.id], DROP)
@@ -1148,6 +1153,7 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
           projectId: USDT_DROP_PROJECT,
           dropSharePercent: 5,
           createdBy: DROP.id,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       const pr = await svc.createPayoutRequest([payoutIncome!.id], DROP)

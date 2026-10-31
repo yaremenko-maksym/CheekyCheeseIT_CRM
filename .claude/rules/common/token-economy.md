@@ -3,9 +3,7 @@
 **Status:** Always-on (procedural — observability is the report line below; the RTK hook is advisory and never refuses)
 **Applies to:** All agents (Coder, AutoTest, Reviewers, DevOps, Legal, Architect, ui-ux-designer, manual-qa, plus ECC-imported agents) + Master
 
-> Rationale, the four ideas this rule adapts, the third-party tools adopted (RTK, Caveman, Ponytail, Context Mode), install state, and
-> what would remove them: `docs/architecture/rules-rationale/token-economy.md`
-> Playbook (commands, examples, the code-restraint ladder): skill `token-economy`.
+> Rationale: `docs/architecture/rules-rationale/token-economy.md`
 
 ---
 
@@ -47,10 +45,7 @@ add `2>/dev/null` to a command whose output is evidence.
 
 - **RTK** (hook `pre:bash:rtk-rewrite`, fail-open, fixed binary path, rewrite sanity-checked) compacts Bash output. When output is evidence you must
   read verbatim — a failing test, a diff you will cite, an error — prefix it with `RTK_DISABLED=1` (e.g. `RTK_DISABLED=1 git diff`); `rtk bypass|run|test|err|summary` are refused by `pre:bash:rtk-exec-gate`.
-- **Context Mode** is installed for the owner's own session only. Its `ctx_*` tools are **not granted to any
-  agent**: they execute code outside every `pre:bash:*` / zone hook, so they would bypass `zone-of-write.md`,
-  `live-db-access.md` and `agent-isolation.md` (SR-H-2, PR #1157). Granting them needs a guard hook on
-  `mcp__plugin_context-mode_context-mode__ctx_*` first — an A3 owner decision.
+- **Context Mode** is for the owner's own session only. Its `ctx_*` tools are **not granted to any agent**: they run code outside every `pre:bash:*` / zone hook (SR-H-2, PR #1157). Granting them needs a guard hook first — an A3 owner decision.
 - **Caveman** runs in `lite` (`.caveman.json`); the never-compressed list above still wins.
 - Install state and pins: `docs/architecture/rules-rationale/token-economy.md` → Install status.
 

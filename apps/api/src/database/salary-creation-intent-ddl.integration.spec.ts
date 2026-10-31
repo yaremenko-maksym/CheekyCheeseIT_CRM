@@ -26,6 +26,7 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
 import { splitSqlStatements } from './manual-sql-statements'
+import { resolveTransactionDate } from '../finance/transaction-date.util'
 
 const INTENT_SQL = join(
   import.meta.dirname,
@@ -86,10 +87,10 @@ describe.skipIf(!hasDatabaseUrl())('salary_creation_intent manual DDL (real DB)'
     await q(
       `INSERT INTO transactions (id, type, status, amount, currency, created_by,
                                  salary_month, salary_origin, idempotency_key,
-                                 salary_creation_intent, created_at, updated_at)
+                                 salary_creation_intent, created_at, updated_at, tx_date)
        VALUES ($1, 'SALARY', 'PENDING', '1500.000000', 'USD', $2,
-               '2099-09', 'MANUAL', $3, $4::jsonb, now(), now())`,
-      [txId, createdBy, randomUUID(), JSON.stringify(INTENT)],
+               '2099-09', 'MANUAL', $3, $4::jsonb, now(), now(), $5)`,
+      [txId, createdBy, randomUUID(), JSON.stringify(INTENT), resolveTransactionDate(null)],
     )
   })
 

@@ -3,20 +3,17 @@
 **Status:** Always-on (procedural gate; observability — identifier reconciliation, see below)
 **Applies to:** code-reviewer, security-reviewer, spec-reviewer, copy-reviewer, ui-ux-designer (Mode B), manual-qa — all number; Master / orchestrator transfer; Coder / any executor of a fix task reports
 
-> Rationale, the PR #504 incident and why there is no mechanical CI gate:
-> `docs/architecture/rules-rationale/review-findings-transfer.md`
+> Rationale: `docs/architecture/rules-rationale/review-findings-transfer.md`
 
 ---
 
 ## Why
 
-We have gates on code, tests, guards, measurements — and not one on "all review findings reached the
-task". The review → fix-task channel rested on attentiveness, and it failed.
+The review → fix-task channel had no gate and rested on attentiveness; it failed (PR #504).
 
-The existing rule "all H/M/L findings are resolved before merge" (`feedback_reviewer_findings`,
-aggregate verdict in `contracts.md`) is **not duplicated** here: it is about the _result_ (nothing
-left unclosed), while this file is about the _channel_ (nothing lost along the way). A lost finding
-passes the first rule unnoticed, because it is simply not in the list that gets reconciled.
+The rule "all H/M/L findings are resolved before merge" (`contracts.md`) covers the _result_; this file covers the _channel_ — a lost finding is not in the list that gets reconciled.
+
+---
 
 ## The rule
 
@@ -87,15 +84,11 @@ A mismatch is not "probably a trifle" but an unclosed finding until proof to the
 
 ## Mechanical check — deliberately NOT a CI gate
 
-**Decision: the arithmetic reconciliation above + the `Findings:` control line, which makes that
-reconciliation a one-liner. No CI parser.** The three reasons (nothing to compare against; it would
-catch formatting rather than loss; the cheap part already gives ~the whole effect) and the condition
-under which to reconsider are in the rationale file.
+**Decision:** arithmetic reconciliation + the `Findings:` control line; no CI parser (reasons and the reconsider condition: rationale file).
 
 ## Related rules
 
 - `.claude/rules/common/agent-isolation.md` — an adjacent channel without a gate (the same family of defects).
 - `.claude/skills/code-review-discipline/SKILL.md` §7 — how to number when writing a review.
 - `.claude/agents/contracts.md` §4 — aggregate verdict; "all H/M/L closed before merge" (the result, not the channel).
-- `.claude/rules/common/verification-integrity.md` — the `Findings: … (N)` control line generalised:
-  an assertion a reader can check in one command, in place of a claim they must believe.
+- `.claude/rules/common/verification-integrity.md` — the `Findings: … (N)` line as a checkable assertion.

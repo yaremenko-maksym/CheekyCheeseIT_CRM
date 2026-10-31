@@ -21,6 +21,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-drop-share-pending-parity — REAL-DB integration for the manual backfill
@@ -292,6 +293,7 @@ describe.skipIf(!hasDatabaseUrl())('drop-share-pending-parity backfill script (r
         payoutRequestId: pr!.id,
         txHash: '0x' + 'a'.repeat(64),
         createdBy: DROP_A.id,
+        txDate: resolveTransactionDate(null),
       })
       .returning()
     return { txId: tx!.id, payoutRequestId: pr!.id }
@@ -320,6 +322,7 @@ describe.skipIf(!hasDatabaseUrl())('drop-share-pending-parity backfill script (r
         // safe"; this seed represents a row we KNOW is safe).
         dropCascadeOrigin: false,
         createdBy: ADMIN.id,
+        txDate: resolveTransactionDate(null),
       })
       .returning()
     return { txId: tx!.id }
@@ -354,6 +357,7 @@ describe.skipIf(!hasDatabaseUrl())('drop-share-pending-parity backfill script (r
         projectId: PROJECT_ID,
         payoutRequestId: pr!.id,
         createdBy: DROP_A.id,
+        txDate: resolveTransactionDate(null),
       })
       .returning()
     return { txId: tx!.id }

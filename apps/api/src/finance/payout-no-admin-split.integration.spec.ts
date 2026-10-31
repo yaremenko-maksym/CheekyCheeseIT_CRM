@@ -26,6 +26,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * fix/payout-credits-company-account (Variant A) — REAL-DB integration proving
@@ -276,6 +277,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: owner.id,
           seniorSharePercent: 26,
           createdBy: owner.id,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       const pr = await svc.createPayoutRequest([income!.id], owner)
@@ -327,6 +329,7 @@ describe.skipIf(!hasDatabaseUrl())(
           projectId: DROP_PROJECT_ID,
           payoutRequestId: pr!.id,
           createdBy: DROP.id,
+          txDate: resolveTransactionDate(null),
         },
         {
           type: 'PAYOUT',
@@ -338,6 +341,7 @@ describe.skipIf(!hasDatabaseUrl())(
           projectId: DROP_PROJECT_ID,
           payoutRequestId: pr!.id,
           createdBy: DROP.id,
+          txDate: resolveTransactionDate(null),
         },
       ])
       return { requestId: pr!.id, payable: parseFloat(payable) }

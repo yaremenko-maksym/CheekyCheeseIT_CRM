@@ -3,8 +3,7 @@
 **Status:** Always-on
 **Applies to:** Master (dispatch via `Agent()`), all agents, USER sessions
 
-> Rationale, the 2026-09-21 token measurement, price table and superseded editions:
-> `docs/architecture/rules-rationale/model-routing.md`
+> Rationale: `docs/architecture/rules-rationale/model-routing.md`
 
 ---
 
@@ -54,8 +53,6 @@ does not, the effect is achieved by choosing the tier — do not invent a separa
 - `security-reviewer` — **haiku** for text-only/low-logic migrations (checklist); **sonnet**/**opus** only for a really risky surface (new auth logic, money movement, crypto contracts)
 - **Mechanical re-check** of one closed finding — **haiku** — a reconciliation of a fact, not judgment
 
-- The orchestrator verifies the aggregate itself: a cheap reviewer + orchestrator reconciliation is
-  cheaper than an expensive reviewer.
 - **Authoring vs review:** generating a quality bilingual catalog — `sonnet`. **Review/verification**
   (checking against the list that there are no Russianisms) is mechanics, carried by `haiku`.
 - Haiku in the re-check row reconciles **the execution of a concrete item**; it does not issue the
@@ -67,14 +64,7 @@ does not, the effect is achieved by choosing the tier — do not invent a separa
 **For agents use the lower versions: Opus 4.8 / Sonnet 4.6 / Haiku 4.5. Sonnet 5+, Opus 5+, Fable —
 ONLY for really complex tasks, not by default.**
 
-The catch: the tier aliases (`sonnet`/`opus` in `Agent()` and in frontmatter) resolve to the
-**newest** version (5.x). Two separate levers:
-
-- **The tier** (haiku < sonnet < opus < fable) — from `Agent(model=)`. The MAIN saving: minimal
-  sufficient tier, never fable.
-- **The minor version** (4.x vs 5.x behind the alias) — set by the Claude Code config (default model /
-  subagents), NOT by a dispatch parameter (the enum accepts only tier aliases). Keep the default on
-  4.x; 5+/fable deliberately and rarely.
+The tier aliases resolve to the **newest** version (5.x). Two levers: the **tier** (`Agent(model=)`: minimal sufficient, never fable) and the **minor version** (set by the Claude Code config, not by a dispatch parameter) — keep the default on 4.x.
 
 ## Dynamic overrides — Master passes `model=` into `Agent()`
 
@@ -111,33 +101,17 @@ migrations, `*.spec.ts` **with new logic**, everything in critical-path zones.
 2. Master records the chosen tier in that field **and** in the dispatch prompt.
 3. Dispatch without `model=` → Master adds the parameter itself per this rule.
 
-## USER main session (recommendation; chosen via `/model`)
+## USER main session
 
-- **Fable 5** — system audits, architectural decisions, complex cross-module debugging, meta-optimizations of processes.
-- **Opus 4.8** — ordinary orchestration days (may use `/fast`). **Loop mode (merge on readiness, fix
-  rounds, CI monitors) is an orchestration day by definition**, not an audit: the session switches to
-  Opus before the cycle starts.
-- **Sonnet 4.6** — the light track: docs, small edits, routine operations.
+Tier by `/model`: Fable 5 — audits, architecture; Opus 4.8 — orchestration and loop mode; Sonnet 4.6 — light track. (Detail: rationale file.)
 
 ## The orchestrator's token diet
 
-The expensive thing is not the intellect, but **the number of turns × the context size**.
-
-- The orchestrator's model: a loop/orchestration day — **Opus**; Fable — audit/architecture/complex debug
-- CI/deploy monitors — **Only terminal events**: one output on completion (result + head + `mergeStateStatus`), not on every check
-- A non-terminal event — **Do not answer with text.** An "I'm waiting" turn is an error, not politeness
-- A fix round for a coder — **≤ ~10 findings**; more — 2–3 coders by file groups (disjoint)
-- Agent mechanics — **haiku** + an auto-gate: merge `origin/main`, cleanup, edits by an exact list
-- Delta review rounds — copy-reviewer on the **delta** (checking its own findings are closed) — `model="sonnet"`; the first copy round and any security round — Opus
-- Permanent context — The orchestrator's memory index — compact: closed projects older than a quarter into an archive file not loaded into the session
+Cost = turns × context size. Loop/orchestration day — Opus; Fable only for audit/architecture/complex debug. CI/deploy monitors emit only terminal events (result + head + `mergeStateStatus`); a non-terminal event gets no text turn. A coder fix round ≤ ~10 findings (more → 2–3 coders by disjoint file groups). Agent mechanics — haiku. Delta review rounds — copy-reviewer on the delta, `model="sonnet"`; the first copy round and any security round — Opus. Keep the orchestrator's memory index compact (closed projects older than a quarter go to an archive file).
 
 ## How we know it is violated
 
-A turn of the orchestrator whose body is one sentence "waiting for …" after a monitor event; a
-monitor with an `echo` on every check; a fix-task with a control line `(N)` at N > 12 without
-splitting; a loop-mode session on Fable (visible in the model menu). Checked by eye over the
-transcript — there is no gate, and none is needed: the cost of a violation is counted in tokens
-after the fact, not caught before.
+Checked by eye over the transcript — no gate. Violations: an orchestrator turn that only says "waiting for …" after a monitor event; a monitor that echoes on every check; a fix task with `(N)` > 12 without splitting; a loop-mode session on Fable.
 
 ## Related rules
 

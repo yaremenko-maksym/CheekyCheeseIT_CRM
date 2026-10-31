@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { roundShareAmount } from './transactions.service'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-admin-income-drop-backfill — REAL-DB integration for the manual
@@ -205,9 +206,9 @@ async function seedIncome(
 
 async function seedUntaggedDropShareRow(id: string, projectId: string): Promise<void> {
   await query(
-    `INSERT INTO transactions (id, type, status, amount, currency, sender_label, receiver_id, recipient_id, project_id, created_by, drop_share_percent, drop_share_percent_source)
-     VALUES ($1, 'DROP_PENDING_PAYOUT', 'PENDING_PAYMENT', '25', 'USDT', 'COMPANY', $2, $2, $3, $4, 5, 'USER_DEFAULT')`,
-    [id, DROP_ID, projectId, ADMIN_ID],
+    `INSERT INTO transactions (id, type, status, amount, currency, sender_label, receiver_id, recipient_id, project_id, created_by, drop_share_percent, drop_share_percent_source, tx_date)
+     VALUES ($1, 'DROP_PENDING_PAYOUT', 'PENDING_PAYMENT', '25', 'USDT', 'COMPANY', $2, $2, $3, $4, 5, 'USER_DEFAULT', $5)`,
+    [id, DROP_ID, projectId, ADMIN_ID, resolveTransactionDate(null)],
   )
 }
 
@@ -216,9 +217,9 @@ async function seedUntaggedDropShareRow(id: string, projectId: string): Promise<
  * FOP-period artefact the ambiguity guard must now catch. */
 async function seedDropIncome(projectId: string): Promise<void> {
   await query(
-    `INSERT INTO transactions (type, status, amount, currency, receiver_id, recipient_id, project_id, created_by, drop_share_percent, drop_share_percent_source)
-     VALUES ('DROP_INCOME', 'VALIDATED', '400', 'USDT', $1, $1, $2, $1, 5, 'USER_DEFAULT')`,
-    [DROP_ID, projectId],
+    `INSERT INTO transactions (type, status, amount, currency, receiver_id, recipient_id, project_id, created_by, drop_share_percent, drop_share_percent_source, tx_date)
+     VALUES ('DROP_INCOME', 'VALIDATED', '400', 'USDT', $1, $1, $2, $1, 5, 'USER_DEFAULT', $3)`,
+    [DROP_ID, projectId, resolveTransactionDate(null)],
   )
 }
 
@@ -377,10 +378,14 @@ describe.skipIf(!hasDatabaseUrl())(
         drop_share_percent: number
         drop_share_percent_source: string
         drop_cascade_origin: boolean
+        tx_date: Date
       }>(`SELECT * FROM transactions WHERE source_income_transaction_id = $1`, [incomeId])
       expect(created).toHaveLength(1)
       const row = created[0]!
       expect(row.type).toBe('DROP_PENDING_PAYOUT')
+      // tx_date is NOT NULL (backlog 338): the IOU carries the source income's tx_date,
+      // as bookCompanyObligations does for a live admin income.
+      expect(row.tx_date.toISOString()).toBe(new Date(SAFE_BEFORE_CUTOFF_ISO).toISOString())
       expect(row.status).toBe('PENDING_PAYMENT')
       expect(parseFloat(row.amount)).toBeCloseTo(50, 6) // 1000 * 5%
       expect(row.currency).toBe('USDT')
@@ -652,9 +657,9 @@ describe.skipIf(!hasDatabaseUrl())(
       // the pre-fix `NOT IN` predicate this alone would zero out EVERY
       // candidate in the whole database.
       await query(
-        `INSERT INTO transactions (type, status, amount, currency, sender_label, receiver_id, recipient_id, project_id, created_by, drop_share_percent, drop_share_percent_source)
-       VALUES ('DROP_PENDING_PAYOUT', 'PENDING_PAYMENT', '1', 'USDT', 'COMPANY', $1, $1, NULL, $2, 5, 'USER_DEFAULT')`,
-        [DROP_ID, ADMIN_ID],
+        `INSERT INTO transactions (type, status, amount, currency, sender_label, receiver_id, recipient_id, project_id, created_by, drop_share_percent, drop_share_percent_source, tx_date)
+       VALUES ('DROP_PENDING_PAYOUT', 'PENDING_PAYMENT', '1', 'USDT', 'COMPANY', $1, $1, NULL, $2, 5, 'USER_DEFAULT', $3)`,
+        [DROP_ID, ADMIN_ID, resolveTransactionDate(null)],
       )
 
       await pool!.query(APPLY_SQL)
@@ -711,12 +716,14 @@ describe.skipIf(!hasDatabaseUrl())(
 
       // A raw second INSERT bypassing the apply script's own SELECT predicate
       // entirely — simulates a genuinely concurrent second run racing past the
-      // predicate check. Must be rejected by the DB itself.
+      // predicate check. Must be rejected by the DB itself. It carries a tx_date
+      // (NOT NULL since backlog 338) so the unique index is the only thing that
+      // can reject it.
       await expect(
         query(
-          `INSERT INTO transactions (type, status, amount, currency, sender_label, receiver_id, recipient_id, project_id, created_by, source_income_transaction_id)
-         VALUES ('DROP_PENDING_PAYOUT', 'PENDING_PAYMENT', '999', 'USDT', 'COMPANY', $1, $1, $2, $3, $4)`,
-          [DROP_ID, P_CANDIDATE, ADMIN_ID, incomeId],
+          `INSERT INTO transactions (type, status, amount, currency, sender_label, receiver_id, recipient_id, project_id, created_by, source_income_transaction_id, tx_date)
+         VALUES ('DROP_PENDING_PAYOUT', 'PENDING_PAYMENT', '999', 'USDT', 'COMPANY', $1, $1, $2, $3, $4, $5)`,
+          [DROP_ID, P_CANDIDATE, ADMIN_ID, incomeId, resolveTransactionDate(null)],
         ),
       ).rejects.toThrow(/uq_transactions_source_income_drop_link/)
 

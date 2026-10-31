@@ -24,6 +24,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-payout-company-wallet (Phase 8 v2) — backend integration against REAL
@@ -218,9 +219,9 @@ describe.skipIf(!hasDatabaseUrl())(
           currency: 'USDT',
           receiverId: owner.id,
           seniorSharePercent: sharePercent,
-          ...(dates?.incomeTxDate
-            ? { txDate: new Date(`${dates.incomeTxDate}T00:00:00.000Z`) }
-            : {}),
+          txDate: dates?.incomeTxDate
+            ? new Date(`${dates.incomeTxDate}T00:00:00.000Z`)
+            : resolveTransactionDate(null),
           createdBy: owner.id,
         })
         .returning()
@@ -827,6 +828,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: SENIOR.id,
           seniorSharePercent: 26,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       const [usdIncome] = await dbSvc.db
@@ -839,6 +841,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: SENIOR.id,
           seniorSharePercent: 26,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
 
@@ -876,6 +879,7 @@ describe.skipIf(!hasDatabaseUrl())(
             receiverId: SENIOR.id,
             seniorSharePercent: 26,
             createdBy: SENIOR.id,
+            txDate: resolveTransactionDate(null),
           })
           .returning()
         await expect(svc.createPayoutRequest([income!.id], SENIOR)).rejects.toThrow()

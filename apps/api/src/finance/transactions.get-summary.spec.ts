@@ -131,6 +131,7 @@ function makePaidDropIncome(receiverId: string): TxStub {
     senderId: null,
     receiverId,
     createdAt: new Date('2025-01-15'),
+    txDate: new Date('2025-01-15'),
   }
 }
 
@@ -154,7 +155,9 @@ function tx(overrides: Partial<TxStub> & { type: string }): TxStub {
     createdAt: new Date('2026-06-01T00:00:00Z'),
     currency: 'USD',
     fundingSource: null,
-    txDate: null,
+    // backlog 338: every stored row carries a business date; a row written on
+    // `createdAt`'s day is dated that day unless the override says otherwise.
+    txDate: overrides.createdAt ?? new Date('2026-06-01T00:00:00Z'),
     recipientId: null,
     ...overrides,
   }
@@ -379,9 +382,10 @@ describe('getSummary — #9: monthly buckets by txDate', () => {
     expect(result.monthly.find((m) => m.month === '2026-06')).toBeUndefined()
   })
 
-  it('falls back to createdAt when txDate is null', async () => {
+  it('refuses a NULL txDate instead of falling back to createdAt (backlog 338)', async () => {
     const svc = makeStub([
       tx({
+        id: 'tx-undated',
         type: 'ADMIN_INCOME',
         amount: '500',
         createdAt: new Date('2026-06-15T00:00:00Z'),
@@ -389,8 +393,9 @@ describe('getSummary — #9: monthly buckets by txDate', () => {
         receiverId: 'admin-x',
       }),
     ])
-    const result = await svc.getSummary(user('ADMIN'))
-    expect(result.monthly.find((m) => m.month === '2026-06')?.income).toBeCloseTo(500, 6)
+    await expect(svc.getSummary(user('ADMIN'))).rejects.toThrow(
+      'transactionBusinessMonth: transaction tx-undated has a NULL tx_date',
+    )
   })
 })
 

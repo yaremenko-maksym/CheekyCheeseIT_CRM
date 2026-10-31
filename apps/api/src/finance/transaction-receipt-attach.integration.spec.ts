@@ -39,6 +39,7 @@ import type { HrAccessService } from '../common/hr-access.service'
 import { documents, transactions, transactionAuditLog } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 // ── Users (seed ids, mirror receipt-replace.integration.spec.ts) ─────────────
 
@@ -203,6 +204,8 @@ describe.skipIf(!hasDatabaseUrl())(
         // createSeniorIncome/declareUsdtProjectIncome in transactions.service.ts.
         receiverId: ARTEM.id,
         createdBy: ARTEM.id,
+        // tx_date is NOT NULL (backlog 338); the value a real writer persists.
+        txDate: resolveTransactionDate(null),
       }
       await db.insert(transactions).values([
         { ...baseTx, id: TX_URL, status: 'VALIDATED', currency: 'USD' },
@@ -392,6 +395,7 @@ describe.skipIf(!hasDatabaseUrl())(
           salaryMonth: '2026-07',
           receiverId: ARTEM.id,
           createdBy: ADMIN.id,
+          txDate: resolveTransactionDate(null),
         }),
       ).resolves.toBeDefined()
 

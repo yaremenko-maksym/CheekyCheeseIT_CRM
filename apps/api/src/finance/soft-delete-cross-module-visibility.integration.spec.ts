@@ -69,6 +69,7 @@ import type { DepositVerification, EtherscanService } from './etherscan.service'
 import { withDerivedMinorUnits, type ScriptedVerification } from './__test-helpers__/etherscan-fake'
 import { InvoicesService } from '../invoices/invoices.service'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 const ADMIN_1: SessionUser = {
   id: 'ad200000-0000-4000-aa00-000000000001',
@@ -220,6 +221,7 @@ describe.skipIf(!hasDatabaseUrl())(
         invoiceDocumentId: PRIVILEGED_SALARY_DOC_ID,
         salaryMonth: '2026-08',
         createdBy: ADMIN_1.id,
+        txDate: resolveTransactionDate(null),
       })
 
       // A PAID SENIOR_INCOME with an invoice already generated (auto-create
@@ -236,6 +238,7 @@ describe.skipIf(!hasDatabaseUrl())(
         receiverId: SENIOR_1.id,
         invoiceDocumentId: INVOICE_DOC_ID,
         createdBy: ADMIN_1.id,
+        txDate: resolveTransactionDate(null),
       })
 
       // A PENDING COMPANY_DEPOSIT owned by SENIOR_1. `txHash` is deliberately
@@ -252,6 +255,7 @@ describe.skipIf(!hasDatabaseUrl())(
         senderLabel: SENIOR_1.displayName,
         txHash: DEPOSIT_HASH,
         createdBy: SENIOR_1.id,
+        txDate: resolveTransactionDate(null),
       })
 
       const existingAccount = await db.query.companyAccount.findFirst()

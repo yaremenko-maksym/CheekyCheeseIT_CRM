@@ -21,6 +21,7 @@ import type { NbuCurrencyService } from './nbu-currency.service'
 import { companyAccount, payoutRequests, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-payout-company-wallet (Phase 8 v2) — REAL-controller RBAC integration for
@@ -305,6 +306,7 @@ describe.skipIf(!hasDatabaseUrl())(
           receiverId: SENIOR.id,
           seniorSharePercent: 26,
           createdBy: SENIOR.id,
+          txDate: resolveTransactionDate(null),
         })
         .returning()
       const pr = await svc.createPayoutRequest([income!.id], SENIOR)

@@ -29,6 +29,7 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
 import { splitSqlStatements } from './manual-sql-statements'
+import { resolveTransactionDate } from '../finance/transaction-date.util'
 
 const PREPARE_SQL = join(
   import.meta.dirname,
@@ -63,10 +64,17 @@ async function insertSalary(month: string, origin: string | null): Promise<strin
   await q(
     `INSERT INTO transactions (id, type, status, amount, currency, created_by,
                                receiver_id, salary_month, salary_origin, idempotency_key,
-                               created_at, updated_at)
+                               created_at, updated_at, tx_date)
      VALUES ($1, 'SALARY', 'PENDING', '500.000000', 'USD', $2,
-             $2, $3, $4, $5, now(), now())`,
-    [id, createdBy, month, origin, origin === 'MANUAL' ? randomUUID() : null],
+             $2, $3, $4, $5, now(), now(), $6)`,
+    [
+      id,
+      createdBy,
+      month,
+      origin,
+      origin === 'MANUAL' ? randomUUID() : null,
+      resolveTransactionDate(null),
+    ],
   )
   createdTxIds.push(id)
   return id

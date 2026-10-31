@@ -3,8 +3,7 @@
 **Status:** Always-on
 **Applies to:** All agents (Coder, AutoTest, Reviewer, DevOps, Legal, Architect, plus any ECC-imported agents invoked in this project) + Master (orchestrator)
 
-> Rationale, the supersession history and why the filename stays `russian-language.md`:
-> `docs/architecture/rules-rationale/russian-language.md`
+> Rationale: `docs/architecture/rules-rationale/russian-language.md`
 
 ---
 
@@ -59,8 +58,7 @@ migrated, its existing Russian strings are left untouched; **new and changed** s
 **Landing:** `apps/landing` ships in five languages (en/uk/ru/es/pt) through its own dictionary
 mechanism; this file does not change it.
 
-**ECC-imported agents:** if their output reaches the repo or the owner, it is English — the same rule
-as every other agent.
+ECC-imported agents follow the same rule.
 
 ## Enforcement and verification
 

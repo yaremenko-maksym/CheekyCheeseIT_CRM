@@ -12,6 +12,7 @@ import { TransactionsService } from './transactions.service'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-salary-pay-amount — paying a salary with a hand-entered amount (real DB).
@@ -203,6 +204,7 @@ describe.skipIf(!HAS_DB_URL)(
         currency: 'USDT',
         senderId: SENIOR.id,
         createdBy: SENIOR.id,
+        txDate: resolveTransactionDate(null),
       })
     }
 

@@ -12,6 +12,7 @@ import { withIsolatedOffCurrencyRow } from './__test-helpers__/off-currency-fixt
 import { hasDatabaseUrl } from '../test/require-real-db'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * C-3 (mega-audit wave 2, AC8) — company-account off-currency integrity
@@ -129,6 +130,7 @@ describe.skipIf(!hasDatabaseUrl())(
         db,
         {
           id: TX_OFF_CURRENCY_EXPENSE,
+          txDate: resolveTransactionDate(null),
           type: 'EXPENSE',
           status: 'PAID',
           amount: '250',
@@ -178,6 +180,7 @@ describe.skipIf(!hasDatabaseUrl())(
         db,
         {
           id: TX_REVERTED_OFF_CURRENCY,
+          txDate: resolveTransactionDate(null),
           type: 'SENIOR_PENDING_PAYOUT',
           status: 'PENDING_PAYMENT',
           amount: '260',
@@ -207,6 +210,7 @@ describe.skipIf(!hasDatabaseUrl())(
         db,
         {
           id: TX_REVERTED_UNLABELLED,
+          txDate: resolveTransactionDate(null),
           type: 'DROP_PENDING_PAYOUT',
           status: 'PENDING_PAYMENT',
           amount: '100',
@@ -246,6 +250,7 @@ describe.skipIf(!hasDatabaseUrl())(
           settledCurrency: null,
           receiverId: ADMIN_ID,
           createdBy: ADMIN_ID,
+          txDate: resolveTransactionDate(null),
         },
         {
           id: TX_SETTLED_OK,
@@ -258,6 +263,7 @@ describe.skipIf(!hasDatabaseUrl())(
           settledCurrency: 'USDT',
           receiverId: ADMIN_ID,
           createdBy: ADMIN_ID,
+          txDate: resolveTransactionDate(null),
         },
       ])
 
@@ -278,6 +284,7 @@ describe.skipIf(!hasDatabaseUrl())(
         settledCurrency: null,
         receiverId: ADMIN_ID,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       await expect(computeCompanyAccountBalanceFromLedger(db)).resolves.toEqual(expect.any(Number))
@@ -292,6 +299,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'USDT',
         senderId: ADMIN_ID,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       await expect(computeCompanyAccountBalanceFromLedger(db)).resolves.not.toThrow()
@@ -309,6 +317,7 @@ describe.skipIf(!hasDatabaseUrl())(
         currency: 'UAH',
         senderId: ADMIN_ID,
         createdBy: ADMIN_ID,
+        txDate: resolveTransactionDate(null),
       })
 
       await expect(computeCompanyAccountBalanceFromLedger(db)).resolves.not.toThrow()
@@ -325,6 +334,7 @@ describe.skipIf(!hasDatabaseUrl())(
         db,
         {
           id: TX_OFF_CURRENCY_EXPENSE,
+          txDate: resolveTransactionDate(null),
           type: 'EXPENSE',
           status: 'PAID',
           amount: '250',
@@ -440,6 +450,7 @@ describe.skipIf(!hasDatabaseUrl())(
         db,
         {
           id: TX_OFF_CURRENCY_EXPENSE,
+          txDate: resolveTransactionDate(null),
           type: 'EXPENSE',
           status: 'PAID',
           amount: '250',
