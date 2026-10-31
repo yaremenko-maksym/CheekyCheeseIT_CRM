@@ -16,7 +16,8 @@
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/database/seed.ts",
     "db:privileges:generate": "tsx src/database/privileges/write-privilege-sql.ts",
-    "job-sources:manifest:generate": "tsx src/job-sourcing/providers/manifest.generate.ts"
+    "job-sources:manifest:generate": "tsx src/job-sourcing/providers/manifest.generate.ts",
+    "job-sources:boards:discover": "tsx src/job-sourcing/providers/board-discovery.cli.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",

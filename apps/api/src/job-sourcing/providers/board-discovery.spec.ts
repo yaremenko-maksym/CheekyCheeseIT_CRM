@@ -84,7 +84,7 @@ describe('knownBoardTokens', () => {
   it('lists the committed boards as provider:token', () => {
     const known = knownBoardTokens()
     expect(known.has('ashby:linear')).toBe(true)
-    expect(known.size).toBeGreaterThanOrEqual(13)
+    expect(known.has('ashby:supabase')).toBe(true)
   })
 
   it('reads lines it is given, ignoring regional lever boards', () => {
