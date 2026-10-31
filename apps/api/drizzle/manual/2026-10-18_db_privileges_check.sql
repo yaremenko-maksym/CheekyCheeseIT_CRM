@@ -63,6 +63,7 @@ BEGIN
     ('invoice_signatures', 'A', false),
     ('job_account_meter_reservations', 'A', false),
     ('job_account_meters', 'A', false),
+    ('job_bridge_deliveries', 'A', true),
     ('job_collection_cycles', 'A', false),
     ('job_collection_runs', 'A', false),
     ('job_dirty_work', 'A', false),
@@ -184,6 +185,7 @@ BEGIN
     ('invoice_signatures', 'A', false),
     ('job_account_meter_reservations', 'A', false),
     ('job_account_meters', 'A', false),
+    ('job_bridge_deliveries', 'A', true),
     ('job_collection_cycles', 'A', false),
     ('job_collection_runs', 'A', false),
     ('job_dirty_work', 'A', false),
@@ -474,6 +476,7 @@ BEGIN
     ('invoice_signatures', 'A', false),
     ('job_account_meter_reservations', 'A', false),
     ('job_account_meters', 'A', false),
+    ('job_bridge_deliveries', 'A', true),
     ('job_collection_cycles', 'A', false),
     ('job_collection_runs', 'A', false),
     ('job_dirty_work', 'A', false),
@@ -676,6 +679,7 @@ BEGIN
     ('invoice_signatures', 'A', false),
     ('job_account_meter_reservations', 'A', false),
     ('job_account_meters', 'A', false),
+    ('job_bridge_deliveries', 'A', true),
     ('job_collection_cycles', 'A', false),
     ('job_collection_runs', 'A', false),
     ('job_dirty_work', 'A', false),
@@ -1103,7 +1107,7 @@ $check$;
 DO $ok$
 BEGIN
   RAISE NOTICE 'db-privileges check passed: % relations classified, roles %, %, %',
-    81, 'crm_app', 'crm_collector', 'crm_retention_owner';
+    82, 'crm_app', 'crm_collector', 'crm_retention_owner';
 END
 $ok$;
 
