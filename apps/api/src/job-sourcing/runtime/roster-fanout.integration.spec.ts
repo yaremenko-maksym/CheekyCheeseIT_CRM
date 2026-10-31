@@ -96,7 +96,8 @@ async function pin(): Promise<number> {
 
 /** Worker runs over this spec's rows until none is pending; the summed report. */
 async function drain(pageSize?: number) {
-  const total = { passes: 0, claimed: 0, done: 0, deferred: 0, failed: 0, retried: 0 }
+  const total = { passes: 0, claimed: 0, done: 0, deferred: 0, failed: 0, retried: 0, errors: [''] }
+  total.errors = []
   for (let i = 0; i < 20; i += 1) {
     const n = await pin()
     if (n === 0) return total
@@ -110,6 +111,13 @@ async function drain(pageSize?: number) {
     total.deferred += r.deferred
     total.failed += r.failed
     total.retried += r.retried
+    // The FAILED / retried rows' codes, so a failing assertion names its cause.
+    const { rows } = await session.admin.query(
+      `SELECT entity_kind || ':' || last_error_code AS e FROM job_dirty_work
+        WHERE last_error_code IS NOT NULL AND status IN ('FAILED', 'PENDING') AND (${MINE})`,
+      mineParams(),
+    )
+    total.errors.push(...rows.map((x) => String(x.e)))
   }
   throw new Error('the spec queue did not drain in 20 passes')
 }
@@ -207,7 +215,7 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
       expect(await markSeniorDirty(tx, b, 'senior.team')).toBe(true)
     })
     const joined = await drain()
-    expect(joined.failed).toBe(0)
+    expect([joined.failed, joined.errors]).toEqual([0, []])
     expect(joined.claimed).toBeGreaterThanOrEqual(2) // the SENIOR row, then the OPPORTUNITY row
     expect(of(await matches(o), a, b)).toEqual({ [a]: 'LEAD', [b]: 'LEAD' })
 
@@ -318,7 +326,7 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
     await write((tx) => markSeniorDirty(tx, f, 'senior.team'))
     // Page size 1 over this spec's opportunities: the pass continues instead of finishing at once.
     const r = await drain(1)
-    expect(r.failed).toBe(0)
+    expect([r.failed, r.errors]).toEqual([0, []])
     const { rows } = await session.admin.query(
       `SELECT reason, status, target_version::int AS v FROM job_dirty_work
         WHERE entity_kind = 'SENIOR' AND entity_id = $1 ORDER BY created_at, id`,

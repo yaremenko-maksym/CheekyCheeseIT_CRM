@@ -152,7 +152,7 @@ describe('fanOutDirty', () => {
     const { tx, seen } = scripted(3, [])
     await fanOutDirty(tx, work(), { onlyIds: [opp(1)] })
     const page = seen.find((s) => s.sql.includes('FROM job_opportunities'))!
-    expect(page.sql).toContain('AND id = ANY(')
-    expect(page.params).toContain(FANOUT_PAGE_SIZE)
+    expect(page.sql).toContain('AND id IN (SELECT jsonb_array_elements_text(')
+    expect(page.params).toEqual([NIL, JSON.stringify([opp(1)]), FANOUT_PAGE_SIZE])
   })
 })

@@ -81,7 +81,7 @@ export async function fanOutDirty(
   const { rows } = await tx.execute(
     sql`SELECT id::text AS id, revision FROM job_opportunities
          WHERE id > ${after}::uuid
-           ${opts.onlyIds === undefined ? sql`` : sql`AND id = ANY(${[...opts.onlyIds]}::uuid[])`}
+           ${opts.onlyIds === undefined ? sql`` : sql`AND id IN (SELECT jsonb_array_elements_text(${JSON.stringify(opts.onlyIds)}::jsonb)::uuid)`}
          ORDER BY id LIMIT ${pageSize}`,
   )
   let enqueued = 0
