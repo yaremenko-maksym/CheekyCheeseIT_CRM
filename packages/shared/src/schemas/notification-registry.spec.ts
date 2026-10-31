@@ -47,14 +47,14 @@ const base = {
   subjectArchived: false,
 }
 
-describe('тринадцать типов — реестр', () => {
+describe('пятнадцать типов — реестр', () => {
   // task-i18n-stage4-task6: 13 = 10 исходных + 3 замороженных типа (инвойсы,
   // вакансии), зарегистрированных в `NEW_NOTIFICATION_TYPES`. Порядок — по
   // группам (`INFORMING_NOTIFICATION_TYPES`, `ACTION_REQUIRED_NOTIFICATION_
   // TYPES`, `ADMIN_NOTIFICATION_TYPES`), «три старых» больше НЕ дублируются
   // литералом в `notifications.ts` — иначе `z.enum` несёт повторяющиеся
   // значения.
-  it('enum несёт ровно тринадцать типов, по группам', () => {
+  it('enum несёт ровно пятнадцать типов, по группам', () => {
     expect(notificationTypeSchema.options).toEqual([
       'TRANSACTION_ADDED',
       'TRANSACTION_STATUS_CHANGED',
@@ -69,12 +69,14 @@ describe('тринадцать типов — реестр', () => {
       'APPROVAL_CONFIRMED',
       'APPROVAL_REJECTED',
       'INVOICE_SIGNED',
+      'SOURCE_HEALTH_ALERT',
+      'SOURCE_HEALTH_WEEKLY_REPORT',
     ])
   })
 
-  it('у каждого из тринадцати есть легаси-заголовок без точки на конце', () => {
+  it('у каждого из пятнадцати есть легаси-заголовок без точки на конце', () => {
     const titles = Object.entries(NOTIFICATION_TITLES)
-    expect(titles).toHaveLength(13)
+    expect(titles).toHaveLength(15)
     for (const [type, title] of titles) {
       expect(title.length, type).toBeGreaterThan(0)
       expect(title.endsWith('.'), type).toBe(false)
@@ -106,7 +108,7 @@ describe('тринадцать типов — реестр', () => {
    * маршрута кнопки письма (`/pending`), см. комментарий к
    * `INFORMING_NOTIFICATION_TYPES`.
    */
-  it('заголовки реестра (все 13 типов, uk и en) помещаются в бюджет попапа целиком (COPY-M-2/SPEC-M-1, ≤27 знаков, ~202px Inter 14 medium)', () => {
+  it('заголовки реестра (все 15 типов, uk и en) помещаются в бюджет попапа целиком (COPY-M-2/SPEC-M-1, ≤27 знаков, ~202px Inter 14 medium)', () => {
     expect([...ACTION_REQUIRED_NOTIFICATION_TYPES]).toEqual([
       'PROJECT_CONFIRM_REQUIRED',
       'SHARE_CONFIRM_REQUIRED',
@@ -227,7 +229,7 @@ describe('три замороженных типа — реестр, не зам
  * как проверка перевода — перевод проверяет `copy-reviewer`).
  */
 describe('реестр сообщений — источник для i18n:extract (прямые ассерты на .message/.id)', () => {
-  it('NOTIFICATION_TITLE_MESSAGES — все тринадцать заголовков', () => {
+  it('NOTIFICATION_TITLE_MESSAGES — все пятнадцать заголовков', () => {
     const expected: Record<string, string> = {
       TRANSACTION_ADDED: 'Вам додали транзакцію',
       TRANSACTION_STATUS_CHANGED: 'Рішення щодо доходу',
@@ -245,6 +247,8 @@ describe('реестр сообщений — источник для i18n:extra
       // COPY-M-1 (copy-review круг 1, #714): «Рахунок на підпис».
       INVOICE_SIGN_REQUIRED: 'Рахунок на підпис',
       VACANCY_APPLICATION: 'Новий відгук на вакансію',
+      SOURCE_HEALTH_ALERT: 'Збій джерела вакансій',
+      SOURCE_HEALTH_WEEKLY_REPORT: 'Тижневий звіт джерел',
     }
     for (const [type, message] of Object.entries(expected)) {
       const descriptor =
@@ -254,7 +258,7 @@ describe('реестр сообщений — источник для i18n:extra
     }
   })
 
-  it('DETAIL_MESSAGES — все четырнадцать шаблонов деталей', () => {
+  it('DETAIL_MESSAGES — все шестнадцать шаблонов деталей', () => {
     const expected: Record<string, { id: string; message: string }> = {
       // SR-L-1 (security-review круг 1, #714): `hasProject` вместо ветвления
       // по значению `projectName` — см. doc-комментарий в notification-registry.ts.
@@ -320,6 +324,15 @@ describe('реестр сообщений — источник для i18n:extra
         id: 'notification.INVOICE_SIGNED.detail',
         message: '{money} · {counterpartyName}',
       },
+      SOURCE_HEALTH_ALERT: {
+        id: 'notification.SOURCE_HEALTH_ALERT.detail',
+        message:
+          '{source} — {state, select, FAILING {запити завершуються помилкою} CAPPED {забагато збоїв поспіль, потрібне скидання} BLOCKED {джерело заблоковане} EMPTY {порожня відповідь} PAUSED {хост на паузі через обмеження} other {змінився формат відповіді}}',
+      },
+      SOURCE_HEALTH_WEEKLY_REPORT: {
+        id: 'notification.SOURCE_HEALTH_WEEKLY_REPORT.detail',
+        message: 'Тиждень з {weekStart}: джерел — {total}, зі зміною стану — {changed}',
+      },
     }
     expect(Object.keys(DETAIL_MESSAGES).sort()).toEqual(Object.keys(expected).sort())
     for (const [key, exp] of Object.entries(expected)) {
@@ -329,7 +342,7 @@ describe('реестр сообщений — источник для i18n:extra
     }
   })
 
-  it('ACTION_LABELS — все одиннадцать подписей кнопок (кроме APPROVAL_*)', () => {
+  it('ACTION_LABELS — все тринадцать подписей кнопок (кроме APPROVAL_*)', () => {
     const expected: Record<string, string> = {
       TRANSACTION_ADDED: 'Відкрити фінанси',
       TRANSACTION_STATUS_CHANGED: 'Відкрити фінанси',
@@ -342,6 +355,8 @@ describe('реестр сообщений — источник для i18n:extra
       INVOICE_SIGNED: 'Відкрити рахунок',
       INVOICE_SIGN_REQUIRED: 'Підписати рахунок',
       VACANCY_APPLICATION: 'Відкрити вакансію',
+      SOURCE_HEALTH_ALERT: 'Відкрити CRM',
+      SOURCE_HEALTH_WEEKLY_REPORT: 'Відкрити CRM',
     }
     expect(Object.keys(ACTION_LABELS).sort()).toEqual(Object.keys(expected).sort())
     for (const [type, message] of Object.entries(expected)) {

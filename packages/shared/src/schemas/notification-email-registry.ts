@@ -173,6 +173,51 @@ export const EMAIL_NOTIFICATION_MESSAGES = {
     id: 'email.notification.VACANCY_APPLICATION.subject',
     message: 'Новий відгук на вакансію «{vacancyTitle}»',
   },
+  // U5a: the alert names the source (an object) and the state; no URL, no error text, no people.
+  sourceAlertSubject: /* i18n */ {
+    id: 'email.notification.SOURCE_HEALTH_ALERT.subject',
+    message: 'Проблема з джерелом вакансій «{source}»',
+  },
+  sourceAlertLine: /* i18n */ {
+    id: 'email.notification.SOURCE_HEALTH_ALERT.line',
+    message:
+      'Джерело «{source}»: {state, select, ' +
+      'FAILING {запити завершуються помилкою.} ' +
+      'CAPPED {забагато збоїв поспіль, потрібне скидання.} ' +
+      'BLOCKED {джерело заблоковане.} ' +
+      'EMPTY {порожня відповідь.} ' +
+      'PAUSED {хост на паузі через обмеження.} ' +
+      'other {змінився формат відповіді.}}',
+  },
+  sourceWeeklySubject: /* i18n */ {
+    id: 'email.notification.SOURCE_HEALTH_WEEKLY_REPORT.subject',
+    message: 'Тижневий звіт про джерела вакансій',
+  },
+  sourceWeeklyHeadLine: /* i18n */ {
+    id: 'email.notification.SOURCE_HEALTH_WEEKLY_REPORT.head',
+    message: 'Тиждень з {weekStart}.',
+  },
+  // Two whole sentences instead of one with a glued freshness fragment: a source with no record
+  // first seen in the week has no freshness to report, and says so.
+  sourceWeeklyLineMeasured: /* i18n */ {
+    id: 'email.notification.SOURCE_HEALTH_WEEKLY_REPORT.line.measured',
+    message:
+      '{source}: {state, select, ' +
+      'BLOCKED {заблоковане} CAPPED {потрібне скидання} PAUSED {на паузі} FAILING {збої} ' +
+      'EMPTY {порожня відповідь} DEGRADED {погіршене} SILENT {без нових вакансій} ' +
+      'other {справне}}; змін стану — {transitions}; запусків — {runs}; ' +
+      'свіжість: медіана {p50} хв, 90-й перцентиль {p90} хв; ' +
+      'запитів — {requests}; отримано — {megabytes} МБ.',
+  },
+  sourceWeeklyLineUnmeasured: /* i18n */ {
+    id: 'email.notification.SOURCE_HEALTH_WEEKLY_REPORT.line.unmeasured',
+    message:
+      '{source}: {state, select, ' +
+      'BLOCKED {заблоковане} CAPPED {потрібне скидання} PAUSED {на паузі} FAILING {збої} ' +
+      'EMPTY {порожня відповідь} DEGRADED {погіршене} SILENT {без нових вакансій} ' +
+      'other {справне}}; змін стану — {transitions}; запусків — {runs}; ' +
+      'свіжість не вимірюється; запитів — {requests}; отримано — {megabytes} МБ.',
+  },
   sharedAmountAndDetailsLine: /* i18n */ {
     id: 'email.notification.shared.amountAndDetails',
     message: 'Сума й деталі — у CRM.',

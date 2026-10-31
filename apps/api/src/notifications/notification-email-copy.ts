@@ -248,6 +248,41 @@ const BODIES: {
     subject: renderMessage(i18n, M.vacancyApplicationSubject, { vacancyTitle: d.vacancyTitle }),
     lines: [renderMessage(i18n, M.sharedDetailsLine)],
   }),
+
+  // U5a, ADMIN only (the producer's recipient rule). The only types whose email carries more than
+  // the object name: source ids and counts are operational data for ADMINs, with no person and no
+  // URL in them.
+  SOURCE_HEALTH_ALERT: (d, i18n) => ({
+    subject: renderMessage(i18n, M.sourceAlertSubject, { source: d.sourceName }),
+    lines: [
+      renderMessage(i18n, M.sourceAlertLine, { source: d.sourceName, state: d.state }),
+      renderMessage(i18n, M.sharedDetailsLine),
+    ],
+  }),
+
+  SOURCE_HEALTH_WEEKLY_REPORT: (d, i18n) => ({
+    subject: renderMessage(i18n, M.sourceWeeklySubject),
+    lines: [
+      renderMessage(i18n, M.sourceWeeklyHeadLine, { weekStart: d.weekStart }),
+      ...d.sources.map((s) => {
+        const params = {
+          source: s.name,
+          state: s.state,
+          transitions: s.transitions,
+          runs: s.runs,
+          requests: s.requests,
+          megabytes: Math.round(s.bytes / 100_000) / 10,
+        }
+        return s.freshnessP50Min === null || s.freshnessP90Min === null
+          ? renderMessage(i18n, M.sourceWeeklyLineUnmeasured, params)
+          : renderMessage(i18n, M.sourceWeeklyLineMeasured, {
+              ...params,
+              p50: s.freshnessP50Min,
+              p90: s.freshnessP90Min,
+            })
+      }),
+    ],
+  }),
 }
 
 type ApprovalSubjectKind = 'PROJECT' | 'PROJECT_SHARE' | 'BASE_SHARE'

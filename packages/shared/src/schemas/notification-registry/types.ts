@@ -100,9 +100,22 @@ export const ADMIN_NOTIFICATION_TYPES = [
   'INVOICE_SIGNED',
 ] as const
 
+/**
+ * Operational alerts for ADMIN users only (source fetch strategy U5a, ADR 2026-10-25 section 11):
+ * a job source entering a bad health state, and the Monday report. Deliberately NOT in
+ * `ADMIN_NOTIFICATION_TYPES`: that group is "decisions on your proposals" in the settings tab,
+ * and these are neither a proposal nor configurable there. The producer sends them to active
+ * ADMIN users only; the type itself carries no recipient rule.
+ */
+export const OPERATIONS_NOTIFICATION_TYPES = [
+  'SOURCE_HEALTH_ALERT',
+  'SOURCE_HEALTH_WEEKLY_REPORT',
+] as const
+
 export const NEW_NOTIFICATION_TYPES = [
   ...INFORMING_NOTIFICATION_TYPES,
   ...ACTION_REQUIRED_NOTIFICATION_TYPES,
   ...ADMIN_NOTIFICATION_TYPES,
+  ...OPERATIONS_NOTIFICATION_TYPES,
 ] as const
 export type NewNotificationType = (typeof NEW_NOTIFICATION_TYPES)[number]

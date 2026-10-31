@@ -65,6 +65,9 @@ export const NOTIFICATION_TITLES: Record<NewNotificationType, string> = {
   INVOICE_SIGNED: 'Рахунок підписано',
   INVOICE_SIGN_REQUIRED: 'Рахунок на підпис',
   VACANCY_APPLICATION: 'Новий відгук на вакансію',
+  // U5a: Ukrainian like the frozen three; the producer writes it straight into `title`.
+  SOURCE_HEALTH_ALERT: 'Збій джерела вакансій',
+  SOURCE_HEALTH_WEEKLY_REPORT: 'Тижневий звіт джерел',
 }
 
 /**
@@ -137,6 +140,14 @@ export const NOTIFICATION_TITLE_MESSAGES: Record<NewNotificationType, MessageDes
   VACANCY_APPLICATION: /* i18n */ {
     id: 'notification.VACANCY_APPLICATION.title',
     message: 'Новий відгук на вакансію',
+  },
+  SOURCE_HEALTH_ALERT: /* i18n */ {
+    id: 'notification.SOURCE_HEALTH_ALERT.title',
+    message: 'Збій джерела вакансій',
+  },
+  SOURCE_HEALTH_WEEKLY_REPORT: /* i18n */ {
+    id: 'notification.SOURCE_HEALTH_WEEKLY_REPORT.title',
+    message: 'Тижневий звіт джерел',
   },
 }
 
@@ -318,6 +329,23 @@ export const DETAIL_MESSAGES = {
     id: 'notification.INVOICE_SIGNED.detail',
     message: '{money} · {counterpartyName}',
   },
+  // U5a: one whole sentence per state (a `select`, not glued fragments); the source leads, as the
+  // object leads in the other details. The same states are named in the email lines.
+  SOURCE_HEALTH_ALERT: /* i18n */ {
+    id: 'notification.SOURCE_HEALTH_ALERT.detail',
+    message:
+      '{source} — {state, select, ' +
+      'FAILING {запити завершуються помилкою} ' +
+      'CAPPED {забагато збоїв поспіль, потрібне скидання} ' +
+      'BLOCKED {джерело заблоковане} ' +
+      'EMPTY {порожня відповідь} ' +
+      'PAUSED {хост на паузі через обмеження} ' +
+      'other {змінився формат відповіді}}',
+  },
+  SOURCE_HEALTH_WEEKLY_REPORT: /* i18n */ {
+    id: 'notification.SOURCE_HEALTH_WEEKLY_REPORT.detail',
+    message: 'Тиждень з {weekStart}: джерел — {total}, зі зміною стану — {changed}',
+  },
 } satisfies Record<string, MessageDescriptor>
 
 /**
@@ -374,6 +402,15 @@ export const ACTION_LABELS: Record<
   VACANCY_APPLICATION: /* i18n */ {
     id: 'notification.action.VACANCY_APPLICATION',
     message: 'Відкрити вакансію',
+  },
+  // U5a: both carry no link yet (the source page is unit U7), so the label is the generic open.
+  SOURCE_HEALTH_ALERT: /* i18n */ {
+    id: 'notification.action.SOURCE_HEALTH_ALERT',
+    message: 'Відкрити CRM',
+  },
+  SOURCE_HEALTH_WEEKLY_REPORT: /* i18n */ {
+    id: 'notification.action.SOURCE_HEALTH_WEEKLY_REPORT',
+    message: 'Відкрити CRM',
   },
 }
 

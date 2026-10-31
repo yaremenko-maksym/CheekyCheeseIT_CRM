@@ -4964,6 +4964,36 @@ msgstr "Details are in the CRM."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.SOURCE_HEALTH_ALERT.line"
+msgstr "Source “{source}”: {state, select, FAILING {requests are failing.} CAPPED {too many failures in a row, a reset is needed.} BLOCKED {the source is blocked.} EMPTY {the answer is empty.} PAUSED {the host is paused after a limit.} other {the response format has changed.}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.SOURCE_HEALTH_ALERT.subject"
+msgstr "Job source problem: “{source}”"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.SOURCE_HEALTH_WEEKLY_REPORT.head"
+msgstr "Week starting {weekStart}."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.SOURCE_HEALTH_WEEKLY_REPORT.line.measured"
+msgstr "{source}: {state, select, BLOCKED {blocked} CAPPED {reset needed} PAUSED {paused} FAILING {failing} EMPTY {empty answer} DEGRADED {degraded} SILENT {no new jobs} other {healthy}}; state changes: {transitions}; runs: {runs}; freshness: median {p50} min, 90th percentile {p90} min; requests: {requests}; received: {megabytes} MB."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.SOURCE_HEALTH_WEEKLY_REPORT.line.unmeasured"
+msgstr "{source}: {state, select, BLOCKED {blocked} CAPPED {reset needed} PAUSED {paused} FAILING {failing} EMPTY {empty answer} DEGRADED {degraded} SILENT {no new jobs} other {healthy}}; state changes: {transitions}; runs: {runs}; freshness not measurable; requests: {requests}; received: {megabytes} MB."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.SOURCE_HEALTH_WEEKLY_REPORT.subject"
+msgstr "Weekly job source report"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.TEAM_MEMBER_ADDED.line"
 msgstr "The team roster is in the CRM."
 
@@ -8142,6 +8172,16 @@ msgstr "Open proposal"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry/messages.ts
+msgid "notification.action.SOURCE_HEALTH_ALERT"
+msgstr "Open the CRM"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry/messages.ts
+msgid "notification.action.SOURCE_HEALTH_WEEKLY_REPORT"
+msgstr "Open the CRM"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.action.TEAM_MEMBER_ADDED"
 msgstr "Open team"
 
@@ -8266,6 +8306,26 @@ msgstr "{change} · project {hasProject, select, no {untitled} other {{projectNa
 #: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.SHARE_CONFIRM_REQUIRED.title"
 msgstr "Share proposal"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry/messages.ts
+msgid "notification.SOURCE_HEALTH_ALERT.detail"
+msgstr "{source} — {state, select, FAILING {requests are failing} CAPPED {too many failures in a row, a reset is needed} BLOCKED {the source is blocked} EMPTY {the answer is empty} PAUSED {the host is paused after a limit} other {the response format has changed}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry/messages.ts
+msgid "notification.SOURCE_HEALTH_ALERT.title"
+msgstr "Job source failure"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry/messages.ts
+msgid "notification.SOURCE_HEALTH_WEEKLY_REPORT.detail"
+msgstr "Week starting {weekStart}: sources — {total}, with a state change — {changed}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry/messages.ts
+msgid "notification.SOURCE_HEALTH_WEEKLY_REPORT.title"
+msgstr "Weekly source report"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry/messages.ts

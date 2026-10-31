@@ -262,6 +262,21 @@ export function describeNotification<T extends NewNotificationType>(
         vacancyTitle: d.vacancyTitle,
       })
     }
+    case 'SOURCE_HEALTH_ALERT': {
+      const d = data as NotificationDataByType['SOURCE_HEALTH_ALERT']
+      return renderMessage(i18n, DETAIL_MESSAGES.SOURCE_HEALTH_ALERT, {
+        source: d.sourceName,
+        state: d.state,
+      })
+    }
+    case 'SOURCE_HEALTH_WEEKLY_REPORT': {
+      const d = data as NotificationDataByType['SOURCE_HEALTH_WEEKLY_REPORT']
+      return renderMessage(i18n, DETAIL_MESSAGES.SOURCE_HEALTH_WEEKLY_REPORT, {
+        weekStart: d.weekStart,
+        total: d.sources.length,
+        changed: d.sources.filter((s) => s.transitions > 0).length,
+      })
+    }
     default: {
       // CR-M-1 (код-ревью круг 1): одиннадцатый (теперь — четырнадцатый) тип
       // обязан ЛОМАТЬ КОМПИЛЯЦИЮ здесь, а не молча проваливаться в чужую форму.
