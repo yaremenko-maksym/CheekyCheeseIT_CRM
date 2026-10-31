@@ -53,20 +53,23 @@ interface RunSeed {
   received: number
   created?: number
   lastHttpStatus?: number
+  outcome?: 'SUCCEEDED' | 'FAILED'
 }
 
-/** A terminal (SUCCEEDED) run; dispositions balanced so ck_succeeded_complete holds. */
-async function insertRun(sourceId: string, cycleId: string, seed: RunSeed): Promise<void> {
+/** A terminal run; for SUCCEEDED the dispositions are balanced so ck_succeeded_complete holds. */
+async function insertRun(sourceId: string, cycleId: string, seed: RunSeed): Promise<string> {
   const startedAt = new Date(NOW.getTime() - seed.daysAgo * DAY_MS)
   const endedAt = new Date(startedAt.getTime() + 2_000)
+  const outcome = seed.outcome ?? 'SUCCEEDED'
   const created = seed.created ?? 0
-  const unchanged = seed.received - created
-  await admin.query(
+  const unchanged = outcome === 'SUCCEEDED' ? seed.received - created : 0
+  const { rows } = await admin.query(
     `INSERT INTO job_collection_runs
        (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, outcome,
         received, created, unchanged, last_http_status, started_at, ended_at, account_key)
-     VALUES ($1, $2, $3, 1, 'remotive_api-1', 'SCHEDULED', 'SUCCEEDED',
-             $4, $5, $6, $7, $8, $9, $10)`,
+     VALUES ($1, $2, $3, 1, 'remotive_api-1', 'SCHEDULED', $11,
+             $4, $5, $6, $7, $8, $9, $10)
+     RETURNING id`,
     [
       sourceId,
       cycleId,
@@ -78,8 +81,10 @@ async function insertRun(sourceId: string, cycleId: string, seed: RunSeed): Prom
       startedAt.toISOString(),
       endedAt.toISOString(),
       `#source:${sourceId}`,
+      outcome,
     ],
   )
+  return rows[0].id as string
 }
 
 async function eventsFor(sourceId: string) {
@@ -176,5 +181,35 @@ describe.skipIf(!hasDatabaseUrl())('U4 detector pass', () => {
 
     const emptyEvents = await eventsFor(empty)
     expect(emptyEvents.at(-1)).toMatchObject({ to_state: 'EMPTY', reason_code: 'EMPTY_RESPONSE' })
+  })
+
+  it('records the runs that bracket the change and the evidence', async () => {
+    const sourceId = await fx.source({
+      type: 'REMOTIVE_API',
+      hostKey: null,
+      consecutiveFailures: 1,
+    })
+    const cycle = await makeCycle()
+    // Newest is a failed run; the one before it is the last good reading.
+    const badRun = await insertRun(sourceId, cycle, {
+      daysAgo: 1,
+      received: 0,
+      outcome: 'FAILED',
+      lastHttpStatus: 500,
+    })
+    const goodRun = await insertRun(sourceId, cycle, { daysAgo: 2, received: 40, created: 1 })
+
+    await health.runDetectorPass(NOW)
+
+    const { rows } = await admin.query(
+      `SELECT to_state, first_bad_run_id, last_good_run_id, evidence
+         FROM job_source_health_events WHERE source_id = $1 ORDER BY at DESC LIMIT 1`,
+      [sourceId],
+    )
+    expect(rows[0].to_state).toBe('FAILING')
+    expect(rows[0].first_bad_run_id).toBe(badRun)
+    expect(rows[0].last_good_run_id).toBe(goodRun)
+    expect(rows[0].evidence).toMatchObject({ consecutiveFailures: 1 })
+    expect(Array.isArray(rows[0].evidence.reasons)).toBe(true)
   })
 })

@@ -31,7 +31,6 @@ import type { HealthSnapshot, HealthStateFacts, RunFact } from './types'
 const WINDOW_DAYS = 14
 const DAY_MS = 86_400_000
 const ERROR_SAMPLE_MAX = 500
-const EVIDENCE_MAX = 8192
 
 /** The reporting (ledger-driven) source types: every API type but the legacy DOU and the HTML set. */
 const REPORTING_TYPES = jobSourceTypeSchema.options.filter(
@@ -193,11 +192,13 @@ export class JobSourceHealthService {
         fromState: prevState,
         toState: verdict.state,
         reasonCode: verdict.reasonCode,
-        evidence: boundedEvidence({
+        // Small by construction (≤11 short reason codes plus two scalars), so it is always within
+        // the 8192-char evidence CHECK; no truncation branch to leave untested.
+        evidence: {
           reasons: facts.reasons,
           consecutiveFailures: source.consecutiveFailures,
           latestRunId: latestRun?.runId ?? null,
-        }),
+        },
         firstBadRunId: firstBadRunId(runs),
         lastGoodRunId: lastGoodRunId(runs),
         adapterVersion: latestRun?.adapterVersion ?? null,
@@ -232,9 +233,4 @@ function firstBadRunId(runs: readonly PassRun[]): string | null {
     bad = r.runId
   }
   return bad
-}
-
-/** The evidence JSON, guaranteed within the 8192-character CHECK (truncated reasons if ever huge). */
-function boundedEvidence(evidence: Record<string, unknown>): Record<string, unknown> {
-  return JSON.stringify(evidence).length <= EVIDENCE_MAX ? evidence : { truncated: true }
 }
