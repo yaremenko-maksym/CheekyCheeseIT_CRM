@@ -87,6 +87,11 @@ describe('knownBoardTokens', () => {
     expect(known.has('ashby:supabase')).toBe(true)
   })
 
+  it('ignores a line without a string token', () => {
+    const known = knownBoardTokens({ ashby: [{ token: 1 }, {}, { token: 'ok' }] })
+    expect([...known]).toEqual(['ashby:ok'])
+  })
+
   it('reads lines it is given, ignoring regional lever boards', () => {
     const known = knownBoardTokens({
       lever: [{ token: 'a' }, { token: 'b', region: 'eu' }],
@@ -97,23 +102,25 @@ describe('knownBoardTokens', () => {
 })
 
 const row = (over: Partial<DiscoveryRow>): DiscoveryRow => ({
-  original_url: null,
-  display_url: null,
-  application_url: null,
+  urls: [],
   opportunity_id: null,
   matches: 0,
   ...over,
 })
 
-const db = (rows: DiscoveryRow[]): Queryable & { sql: string[] } => {
+const db = (rows: DiscoveryRow[]) => {
   const sql: string[] = []
-  return {
+  const values: unknown[][] = []
+  const q: Queryable & { sql: string[]; values: unknown[][] } = {
     sql,
-    query: (text) => {
+    values,
+    query: (text, vals) => {
       sql.push(text)
+      values.push(vals ?? [])
       return Promise.resolve({ rows })
     },
-  } as Queryable & { sql: string[] }
+  }
+  return q
 }
 
 describe('discoverBoardTokens', () => {
@@ -121,22 +128,24 @@ describe('discoverBoardTokens', () => {
     const out = await discoverBoardTokens(
       db([
         row({
-          original_url: 'https://boards.greenhouse.io/Acme/jobs/1',
-          display_url: 'https://boards.greenhouse.io/acme/jobs/1?gh_src=x',
+          urls: [
+            'https://boards.greenhouse.io/Acme/jobs/1',
+            'https://boards.greenhouse.io/acme/jobs/1?gh_src=x',
+          ],
           opportunity_id: 'o1',
           matches: 2,
         }),
         row({
-          application_url: 'https://boards.greenhouse.io/acme/jobs/2',
+          urls: ['https://boards.greenhouse.io/acme/jobs/2'],
           opportunity_id: 'o1',
           matches: 2,
         }),
         row({
-          original_url: 'https://boards.greenhouse.io/acme/jobs/3',
+          urls: ['https://boards.greenhouse.io/acme/jobs/3'],
           opportunity_id: 'o2',
           matches: 1,
         }),
-        row({ original_url: 'https://boards.greenhouse.io/acme/jobs/4' }),
+        row({ urls: ['https://boards.greenhouse.io/acme/jobs/4'] }),
       ]),
       new Set(),
     )
@@ -146,8 +155,8 @@ describe('discoverBoardTokens', () => {
   it('omits tokens already in a board file but not the same token under another provider', async () => {
     const out = await discoverBoardTokens(
       db([
-        row({ original_url: 'https://jobs.lever.co/acme/1', opportunity_id: 'o1' }),
-        row({ original_url: 'https://jobs.ashbyhq.com/acme/1', opportunity_id: 'o2' }),
+        row({ urls: ['https://jobs.lever.co/acme/1'], opportunity_id: 'o1' }),
+        row({ urls: ['https://jobs.ashbyhq.com/acme/1'], opportunity_id: 'o2' }),
       ]),
       new Set(['lever:acme']),
     )
@@ -157,30 +166,57 @@ describe('discoverBoardTokens', () => {
   it('orders by opportunities, then matches, then provider and token', async () => {
     const out = await discoverBoardTokens(
       db([
-        row({ original_url: 'https://jobs.lever.co/b/1', opportunity_id: 'o1', matches: 1 }),
-        row({ original_url: 'https://jobs.lever.co/a/1', opportunity_id: 'o2', matches: 1 }),
-        row({ original_url: 'https://jobs.lever.co/c/1', opportunity_id: 'o3', matches: 5 }),
-        row({ original_url: 'https://jobs.lever.co/d/1', opportunity_id: 'o4', matches: 1 }),
-        row({ original_url: 'https://jobs.lever.co/d/2', opportunity_id: 'o5', matches: 1 }),
+        row({ urls: ['https://jobs.lever.co/b/1'], opportunity_id: 'o1', matches: 1 }),
+        row({ urls: ['https://jobs.lever.co/a/1'], opportunity_id: 'o2', matches: 1 }),
+        row({ urls: ['https://jobs.lever.co/c/1'], opportunity_id: 'o3', matches: 5 }),
+        row({ urls: ['https://jobs.lever.co/d/1'], opportunity_id: 'o4', matches: 1 }),
+        row({ urls: ['https://jobs.lever.co/d/2'], opportunity_id: 'o5', matches: 1 }),
+        row({ urls: ['https://jobs.ashbyhq.com/a/1'], opportunity_id: 'o6', matches: 1 }),
       ]),
       new Set(),
     )
-    expect(out.map((o) => o.token)).toEqual(['d', 'c', 'a', 'b'])
+    expect(out.map((o) => `${o.provider}:${o.token}`)).toEqual([
+      'lever:d',
+      'lever:c',
+      'ashby:a',
+      'lever:a',
+      'lever:b',
+    ])
   })
 
   it('lists a token with no linked opportunity with zero counts', async () => {
     const out = await discoverBoardTokens(
-      db([row({ original_url: 'https://jobs.lever.co/solo/1' })]),
+      db([row({ urls: ['https://jobs.lever.co/solo/1'] })]),
       new Set(),
     )
     expect(out).toEqual([{ provider: 'lever', token: 'solo', opportunities: 0, matches: 0 }])
   })
 
-  it('sends one SELECT and nothing else', async () => {
+  it('asks for the six board hosts, nothing else', async () => {
+    const d = db([])
+    await discoverBoardTokens(d, new Set())
+    expect(d.values).toEqual([
+      [
+        [
+          '%boards.greenhouse.io%',
+          '%jobs.lever.co%',
+          '%jobs.ashbyhq.com%',
+          '%apply.workable.com%',
+          '%recruitee.com%',
+          '%jobs.personio.de%',
+        ],
+      ],
+    ])
+  })
+
+  it('sends one SELECT over the three URL columns and nothing else', async () => {
     const d = db([])
     await discoverBoardTokens(d, new Set())
     expect(d.sql).toHaveLength(1)
     expect(d.sql[0]).toMatch(/^\s*SELECT\b/i)
+    for (const c of ['original_url', 'display_url', 'application_url']) {
+      expect(d.sql[0]).toContain(`r.${c} ILIKE ANY($1)`)
+    }
     expect(d.sql[0]).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE|ALTER|CREATE|DROP)\b/i)
   })
 })

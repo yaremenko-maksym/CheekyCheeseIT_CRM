@@ -60,9 +60,9 @@ export function boardTokenFromUrl(raw: string): BoardRef | null {
   if (url.protocol !== 'https:') return null
   for (const { provider, kind, host, tokenAt } of BOARD_URL_SHAPES) {
     let candidate: string | undefined
-    if (tokenAt === 'path') {
-      if (url.hostname === host) candidate = url.pathname.split('/')[1]
-    } else if (url.hostname.endsWith(`.${host}`)) {
+    if (tokenAt === 'path' && url.hostname === host) {
+      candidate = url.pathname.split('/')[1]
+    } else if (tokenAt === 'subdomain' && url.hostname.endsWith(`.${host}`)) {
       candidate = url.hostname.slice(0, -(host.length + 1))
     }
     if (candidate === undefined) continue
@@ -101,9 +101,8 @@ export function knownBoardTokens(files: BoardLines = COMMITTED_BOARDS): Set<stri
 }
 
 export interface DiscoveryRow {
-  original_url: string | null
-  display_url: string | null
-  application_url: string | null
+  /** The record's non-null URLs (original, display, application). */
+  urls: string[]
   opportunity_id: string | null
   /** LEAD or TRIAGE rows of the linked opportunity (EXCLUDED is not a match). */
   matches: number
@@ -119,16 +118,14 @@ export interface DiscoveredBoard extends BoardRef {
   readonly matches: number
 }
 
-const URL_COLUMNS = ['original_url', 'display_url', 'application_url'] as const
-
 // Cheap prefilter so the database hands back only candidate rows; the parse above is the real gate.
-const DISCOVERY_SQL = `SELECT r.original_url, r.display_url, r.application_url,
+const DISCOVERY_SQL = `SELECT array_remove(ARRAY[r.original_url, r.display_url, r.application_url], NULL) AS urls,
   l.opportunity_id,
   COALESCE((SELECT count(*) FROM job_opportunity_matches m
             WHERE m.opportunity_id = l.opportunity_id AND m.outcome <> 'EXCLUDED'), 0)::int AS matches
 FROM job_source_records r
 LEFT JOIN job_opportunity_sources l ON l.source_record_id = r.id AND l.unlinked_at IS NULL
-WHERE ${URL_COLUMNS.map((c) => `r.${c} ILIKE ANY($1)`).join(' OR ')}`
+WHERE r.original_url ILIKE ANY($1) OR r.display_url ILIKE ANY($1) OR r.application_url ILIKE ANY($1)`
 
 /** Board tokens in stored record URLs that no board file lists, with distinct opportunity and match counts. */
 export async function discoverBoardTokens(
@@ -141,9 +138,8 @@ export async function discoverBoardTokens(
   const found = new Map<string, { ref: BoardRef; opportunities: Map<string, number> }>()
   for (const row of rows) {
     const refs = new Map<string, BoardRef>()
-    for (const column of URL_COLUMNS) {
-      const raw = row[column]
-      const ref = raw === null ? null : boardTokenFromUrl(raw)
+    for (const url of row.urls) {
+      const ref = boardTokenFromUrl(url)
       if (ref !== null) refs.set(`${ref.provider}:${ref.token}`, ref)
     }
     for (const [key, ref] of refs) {
