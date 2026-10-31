@@ -232,22 +232,61 @@ describe('три замороженных типа — реестр, не зам
     }
     const data = notificationDataSchemaFor('SOURCE_HEALTH_WEEKLY_REPORT').parse({
       weekStart: '2026-10-26',
-      sources: [row, { ...row, name: 'jobicy_api', state: 'FAILING', transitions: 2 }],
+      sources: [
+        row,
+        { ...row, name: 'jobicy_api', state: 'FAILING', transitions: 2 },
+        { ...row, name: 'himalayas_api', state: 'EMPTY', transitions: 1 },
+      ],
     })
     expect(describeNotification('SOURCE_HEALTH_WEEKLY_REPORT', data, UK)).toBe(
-      'Тиждень з 2026-10-26: джерел — 2, зі зміною стану — 1',
+      'Тиждень з 2026-10-26: джерел — 3, зі зміною стану — 2',
     )
     expect(describeNotification('SOURCE_HEALTH_WEEKLY_REPORT', data, EN)).toBe(
-      'Week starting 2026-10-26: sources — 2, with a state change — 1',
+      'Week starting 2026-10-26: sources — 3, with a state change — 2',
     )
-    // The stored row is bounded: a malformed date is refused.
-    expect(
-      notificationDataSchemaFor('SOURCE_HEALTH_WEEKLY_REPORT').safeParse({
-        weekStart: '26.10.2026',
-        sources: [],
-      }).success,
-    ).toBe(false)
+    // The stored row is bounded: a malformed date is refused, anchored at both ends.
+    for (const weekStart of ['26.10.2026', 'x2026-10-26', '2026-10-26x']) {
+      expect(
+        notificationDataSchemaFor('SOURCE_HEALTH_WEEKLY_REPORT').safeParse({
+          weekStart,
+          sources: [],
+        }).success,
+        weekStart,
+      ).toBe(false)
+    }
   })
+
+  it.each(['FAILING', 'CAPPED', 'BLOCKED', 'EMPTY', 'PAUSED', 'DEGRADED'])(
+    'SOURCE_HEALTH_ALERT accepts the alerting state %s',
+    (state) => {
+      expect(
+        notificationDataSchemaFor('SOURCE_HEALTH_ALERT').safeParse({ sourceName: 's', state })
+          .success,
+      ).toBe(true)
+    },
+  )
+
+  it.each(['BLOCKED', 'CAPPED', 'PAUSED', 'FAILING', 'EMPTY', 'DEGRADED', 'SILENT', 'HEALTHY'])(
+    'a weekly report row accepts the health state %s, and not a made-up one',
+    (state) => {
+      const schema = notificationDataSchemaFor('SOURCE_HEALTH_WEEKLY_REPORT')
+      const row = {
+        name: 's',
+        state,
+        transitions: 0,
+        runs: 0,
+        freshnessP50Min: null,
+        freshnessP90Min: null,
+        requests: 0,
+        bytes: 0,
+      }
+      expect(schema.safeParse({ weekStart: '2026-10-26', sources: [row] }).success).toBe(true)
+      expect(
+        schema.safeParse({ weekStart: '2026-10-26', sources: [{ ...row, state: 'BROKEN' }] })
+          .success,
+      ).toBe(false)
+    },
+  )
 
   it('три замороженных типа несут неймспейс `notification.<TYPE>.title` в id заголовка', () => {
     expect(NOTIFICATION_TITLE_MESSAGES.INVOICE_SIGNED.id).toBe('notification.INVOICE_SIGNED.title')
