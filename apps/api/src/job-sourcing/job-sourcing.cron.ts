@@ -134,6 +134,8 @@ export class JobSourcingCronService {
     // finished. A failure is logged, never rethrown (see the class doc), so a pass error cannot
     // kill the scheduler or the next tick.
     if (this.health !== undefined) {
+      // Stryker disable next-line StringLiteral: the step label is a diagnostic string surfaced only
+      // in an error log; no behaviour depends on its value.
       await this.step('tick: health detector pass', () => this.health!.runDetectorPass())
     }
   }
