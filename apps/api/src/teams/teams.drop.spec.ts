@@ -16,6 +16,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { TeamsService } from './teams.service'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+// r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
+vi.mock('../job-sourcing/dirty-producers')
 
 const adminUser: SessionUser = {
   id: 'admin-1',

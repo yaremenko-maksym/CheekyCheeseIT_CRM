@@ -19,6 +19,8 @@ import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
+// r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
+vi.mock('../job-sourcing/dirty-producers')
 
 const SENIOR_ID = 'senior-1'
 const DROP_ID = 'drop-1'

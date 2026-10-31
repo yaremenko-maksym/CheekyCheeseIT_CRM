@@ -55,6 +55,8 @@ import {
 import { UsersService } from './users.service'
 import { compileWhere } from '../finance/__test-helpers__/drizzle-where-introspection'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+// r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
+vi.mock('../job-sourcing/dirty-producers')
 
 const ARCHIVED_AT = new Date('2026-01-31T00:00:00.000Z')
 

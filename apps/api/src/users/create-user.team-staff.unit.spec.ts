@@ -4,7 +4,7 @@
  * creation-time share pin. Same recording-double harness as the
  * characterization spec (create-user.unit.spec.ts).
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   CREATED,
   baseInput,
@@ -15,6 +15,8 @@ import {
   type CreateUserInput,
   type Log,
 } from '../test/create-user-harness'
+// r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
+vi.mock('../job-sourcing/dirty-producers')
 
 const senior = { ...CREATED, role: 'SENIOR' }
 const STAFF = {

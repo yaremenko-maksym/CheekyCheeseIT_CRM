@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { teamMembers } from '../database/schema'
 import { addTeamMember, removeTeamMember, type TeamMembershipDeps } from './team-membership.util'
+// r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
+vi.mock('../job-sourcing/dirty-producers')
 
 const dialect = new PgDialect()
 const render = (cond: SQL) => dialect.sqlToQuery(cond)

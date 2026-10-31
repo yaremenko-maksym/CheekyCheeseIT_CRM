@@ -21,6 +21,8 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { getTableName, type SQL } from 'drizzle-orm'
 import { UsersService } from './users.service'
+// r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
+vi.mock('../job-sourcing/dirty-producers')
 
 const dialect = new PgDialect()
 const compile = (cond: SQL | undefined) => {

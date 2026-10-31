@@ -9,6 +9,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { projectMembers, projects, teamMembers, teams, users, type User } from '../database/schema'
 import { UserArchiveService } from './user-archive.service'
+// r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
+vi.mock('../job-sourcing/dirty-producers')
 
 type Row = Record<string, unknown>
 type Update = { table: unknown; set: Row }

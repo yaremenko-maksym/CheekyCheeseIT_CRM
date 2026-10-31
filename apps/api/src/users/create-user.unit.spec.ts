@@ -26,6 +26,8 @@ import {
   uniqueViolation,
   usersInsertValues,
 } from '../test/create-user-harness'
+// r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
+vi.mock('../job-sourcing/dirty-producers')
 
 const FIXED_NOW = new Date('2026-03-04T05:06:07.000Z')
 
