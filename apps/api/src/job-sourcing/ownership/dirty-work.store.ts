@@ -50,7 +50,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * PROJECT_CLIENT have no revision of their own, so their version is the entity's own enqueue
  * count: the highest `target_version` among its `job_dirty_work` rows. A producer enqueues
  * `max + 1` under a per-entity advisory lock (`enqueueDerivedDirty`), so the counter
- *   - never decreases: nothing prunes `job_dirty_work` and no statement rewrites `target_version`;
+ *   - never decreases: nothing prunes `job_dirty_work` (pinned by `dirty-work.retention-guard.spec.ts`;
+ *     the rule a future retention must follow is at `NEW_STORE_CLEANUP_DISABLED`) and no statement
+ *     rewrites `target_version`;
  *     an entity's delete / archive / restore is just one more enqueue, never a reset;
  *   - is time-free: two writes in the same microsecond, or a clock stepping back, still get
  *     distinct, increasing versions (an `updated_at` function cannot promise that);

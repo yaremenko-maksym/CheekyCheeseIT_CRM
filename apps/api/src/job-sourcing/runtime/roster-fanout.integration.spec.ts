@@ -31,6 +31,7 @@ import {
 import { JobRunLedger } from '../ownership/job-run-ledger'
 import type { RunHandle } from '../ownership/run-ownership'
 import { saveObservationPage } from '../store/source-record.store'
+import { claimDirtyBatch } from '../ownership/dirty-work.store'
 import { RecomputeWorker, createRecomputeSteps } from './recompute-worker'
 
 /**
@@ -193,6 +194,10 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
     if (session === undefined) return
     try {
       await session.admin.query(`DELETE FROM job_dirty_work WHERE ${MINE}`, mineParams())
+      await session.admin.query(
+        `DELETE FROM job_queue_assignments WHERE assignee_id = ANY($1::uuid[])`,
+        [users],
+      )
       await session.admin.query(`DELETE FROM job_exclusion_filters WHERE id = ANY($1::uuid[])`, [
         exclusions,
       ])
@@ -341,6 +346,46 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
     expect(of(await matches(o), h)).toEqual({ [h]: 'EXCLUDED' })
   }, 120_000)
 
+  it('SR-M-2: scope is ACTIVE + CLAIMED; N saves between worker runs leave one pending row each', async () => {
+    const closed = await opportunity('closed')
+    const claimed = await opportunity('claimed-closed')
+    await session.admin.query(
+      `UPDATE job_opportunities SET availability = 'CLOSED' WHERE id = ANY($1::uuid[])`,
+      [[closed, claimed]],
+    )
+    await session.admin.query(
+      `INSERT INTO job_queue_assignments (opportunity_id, scope_kind, assignee_id)
+       VALUES ($1, 'STUDIO', $2)`,
+      [claimed, users[0]],
+    )
+    const g = await senior('g', true)
+    // Three save -> fan-out cycles; the OPPORTUNITY rows they enqueue stay PENDING in between.
+    const steps = createRecomputeSteps(db, { onlyIds: oppIds })
+    const fanOutOnly = {
+      ...steps,
+      claim: (owner: string, n: number) =>
+        claimDirtyBatch(db, { owner, batchSize: n, kinds: ['SENIOR'] }),
+    }
+    for (let i = 0; i < 3; i += 1) {
+      await write((tx) => markSeniorDirty(tx, g, 'senior.team'))
+      await pin()
+      const r = await new RecomputeWorker(fanOutOnly, { owner: PREFIX, batchSize: 1 }).runOnce()
+      expect([r.claimed, r.done, r.failed]).toEqual([1, 1, 0])
+    }
+    const pending = await session.admin.query(
+      `SELECT entity_id, count(*)::int AS n FROM job_dirty_work
+        WHERE entity_kind = 'OPPORTUNITY' AND status = 'PENDING' AND entity_id = ANY($1::uuid[])
+        GROUP BY entity_id`,
+      [oppIds],
+    )
+    const byOpp = Object.fromEntries(pending.rows.map((r) => [String(r.entity_id), Number(r.n)]))
+    expect(byOpp[closed]).toBeUndefined() // CLOSED and unclaimed: out of scope
+    expect(byOpp[claimed]).toBe(1) // CLOSED but claimed: in scope
+    for (const o of oppIds.filter((x) => x !== closed)) expect(byOpp[o]).toBe(1)
+    await drain()
+    expect(of(await matches(oppIds[0]!), g)).toEqual({ [g]: 'LEAD' })
+  }, 120_000)
+
   it('AC 1: a rolled-back write leaves neither the write nor a dirty row, per producer', async () => {
     const e = await senior('e', false)
     const fail = (work: (tx: Tx) => Promise<unknown>) =>
@@ -384,9 +429,21 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
       [f],
     )
     // The producer row and one continuation per full page, all at version 1, all DONE.
-    expect(rows.length).toBe(oppIds.length + 1)
+    // In-scope opportunities only (ACTIVE or CLAIMED; an earlier case closed one, unclaimed).
+    const { rows: scoped } = await session.admin.query(
+      `SELECT o.id::text AS id FROM job_opportunities o
+        WHERE o.id = ANY($1::uuid[])
+          AND (o.availability IN ('OPEN', 'UNKNOWN')
+               OR EXISTS (SELECT 1 FROM job_queue_assignments a
+                           WHERE a.opportunity_id = o.id AND a.state = 'TAKEN'))`,
+      [oppIds],
+    )
+    const inScope = scoped.map((x) => String(x.id))
+    expect(inScope.length).toBeGreaterThan(1)
+    expect(rows.length).toBe(inScope.length + 1)
     expect(rows.every((x) => x.v === 1 && x.status === 'DONE')).toBe(true)
-    for (const o of oppIds) expect(of(await matches(o), f)).toEqual({ [f]: 'LEAD' })
+    // Every in-scope opportunity was recomputed for `f` (LEAD when open; EXCLUDED when closed but claimed).
+    for (const o of inScope) expect(Object.keys(of(await matches(o), f))).toEqual([f])
     expect(oppIds).toContain(o2)
     // Idempotent: one root never enqueues the same OPPORTUNITY row twice.
     const { rows: dup } = await session.admin.query(

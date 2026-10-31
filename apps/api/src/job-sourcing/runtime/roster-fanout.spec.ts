@@ -31,8 +31,15 @@ interface Seen {
   readonly params: unknown[]
 }
 
-/** Current derived version `current`; `opps` as the page; every insert recorded. */
-function scripted(current: number, opps: { id: string; revision: number }[]) {
+interface Page {
+  readonly paged: number
+  readonly invalid?: number
+  readonly enqueued?: number
+  readonly last?: string
+}
+
+/** Current derived version `current`; the page statement answers `page`; inserts recorded. */
+function scripted(current: number, page: Page) {
   const seen: Seen[] = []
   const inserts: unknown[][] = []
   const tx: SqlExecutor = {
@@ -41,7 +48,10 @@ function scripted(current: number, opps: { id: string; revision: number }[]) {
       seen.push(r)
       if (r.sql.includes('coalesce(max(target_version), 0)'))
         return Promise.resolve({ rows: [{ v: current }] })
-      if (r.sql.includes('FROM job_opportunities')) return Promise.resolve({ rows: opps })
+      if (r.sql.includes('WITH page AS'))
+        return Promise.resolve({
+          rows: [{ invalid: 0, enqueued: page.paged, last: null, ...page }],
+        })
       if (r.sql.includes('INSERT INTO job_dirty_work')) {
         inserts.push(r.params.slice(0, 4))
         return Promise.resolve({ rows: [{ id: 'x' }] })
@@ -51,7 +61,8 @@ function scripted(current: number, opps: { id: string; revision: number }[]) {
       return Promise.resolve({ rows: [] })
     },
   }
-  return { tx, seen, inserts }
+  const page_ = () => seen.find((q) => q.sql.includes('WITH page AS'))
+  return { tx, seen, inserts, page: page_ }
 }
 
 describe('fanoutCursor', () => {
@@ -80,7 +91,7 @@ describe('fanoutCursor', () => {
 
 describe('fanOutDirty', () => {
   it('a stale row completes without reading or enqueueing anything', async () => {
-    const { tx, seen, inserts } = scripted(4, [{ id: opp(1), revision: 1 }])
+    const { tx, inserts, page } = scripted(4, { paged: 1 })
     await expect(fanOutDirty(tx, work())).resolves.toEqual({
       outcome: 'DONE',
       enqueued: 0,
@@ -88,73 +99,64 @@ describe('fanOutDirty', () => {
       continued: false,
     })
     expect(inserts).toEqual([])
-    expect(seen.some((s) => s.sql.includes('FROM job_opportunities'))).toBe(false)
+    expect(page()).toBeUndefined()
   })
 
-  it('a partial page enqueues every opportunity at its revision under fanout:<root>', async () => {
-    const { tx, inserts, seen } = scripted(3, [
-      { id: opp(1), revision: 2 },
-      { id: opp(2), revision: 9 },
-    ])
-    await expect(fanOutDirty(tx, work())).resolves.toMatchObject({ enqueued: 2, continued: false })
-    expect(inserts).toEqual([
-      ['OPPORTUNITY', opp(1), 2, `fanout:${ROW}`],
-      ['OPPORTUNITY', opp(2), 9, `fanout:${ROW}`],
-    ])
-    const page = seen.find((s) => s.sql.includes('FROM job_opportunities'))!
-    // Unscoped: no filter at all, only the keyset cursor and the page bound.
-    expect(page.sql.replace(/\s+/g, ' ')).toBe(
-      'SELECT id::text AS id, revision FROM job_opportunities WHERE id > $1::uuid ORDER BY id LIMIT $2',
-    )
-    expect(page.params).toEqual([NIL, FANOUT_PAGE_SIZE])
+  it('one statement per page: ACTIVE + CLAIMED scope, PENDING dedupe, idempotent reason', async () => {
+    const { tx, inserts, page } = scripted(3, { paged: 2, enqueued: 2 })
+    await expect(fanOutDirty(tx, work())).resolves.toEqual({
+      outcome: 'DONE',
+      enqueued: 2,
+      skipped: 0,
+      continued: false,
+    })
+    expect(inserts).toEqual([]) // no per-opportunity statement, no continuation
+    const sql = page()!.sql.replace(/\s+/g, ' ')
+    expect(sql).toContain("o.availability IN ('OPEN', 'UNKNOWN')")
+    expect(sql).toContain("a.opportunity_id = o.id AND a.state = 'TAKEN'")
+    expect(sql).toContain("d.target_version = p.revision AND d.status = 'PENDING'")
+    expect(sql).toContain('WHERE p.revision >= 1')
+    expect(sql).toContain('ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING')
+    expect(sql).not.toContain('jsonb_array_elements_text')
+    expect(page()!.params).toEqual([NIL, FANOUT_PAGE_SIZE, `fanout:${ROW}`])
   })
 
   it('AC 5: a full page continues from its last id at the SAME version, then completes', async () => {
-    const page = [1, 2, 3].map((i) => ({ id: opp(i), revision: 1 }))
-    const { tx, inserts } = scripted(3, page)
+    const { tx, inserts } = scripted(3, { paged: 3, last: opp(3) })
     await expect(fanOutDirty(tx, work(), { pageSize: 3 })).resolves.toMatchObject({
       enqueued: 3,
       continued: true,
       outcome: 'DONE',
     })
-    expect(inserts.at(-1)).toEqual(['SENIOR', SENIOR, 3, `fanout:${ROW}:${opp(3)}`])
+    expect(inserts).toEqual([['SENIOR', SENIOR, 3, `fanout:${ROW}:${opp(3)}`]])
   })
 
   it('a continuation resumes after its cursor and keeps the root reason', async () => {
-    const { tx, inserts, seen } = scripted(3, [{ id: opp(5), revision: 4 }])
+    const { tx, page } = scripted(3, { paged: 1 })
     await fanOutDirty(tx, work({ id: opp(99), reason: `fanout:${ROW}:${opp(4)}` }))
-    expect(inserts).toEqual([['OPPORTUNITY', opp(5), 4, `fanout:${ROW}`]])
-    expect(seen.find((s) => s.sql.includes('FROM job_opportunities'))!.params[0]).toBe(opp(4))
+    expect(page()!.params).toEqual([opp(4), FANOUT_PAGE_SIZE, `fanout:${ROW}`])
   })
 
-  it('AC 5: one opportunity with an impossible revision is skipped; the pass goes on', async () => {
-    const { tx, inserts } = scripted(3, [
-      { id: opp(1), revision: 0 },
-      { id: opp(2), revision: 1 },
-    ])
-    await expect(fanOutDirty(tx, work())).resolves.toMatchObject({ enqueued: 1, skipped: 1 })
-    expect(inserts).toEqual([['OPPORTUNITY', opp(2), 1, `fanout:${ROW}`]])
+  it('AC 5: opportunities with an impossible revision are skipped and counted; the pass goes on', async () => {
+    const { tx } = scripted(3, { paged: 2, invalid: 1, enqueued: 1 })
+    await expect(fanOutDirty(tx, work())).resolves.toEqual({
+      outcome: 'DONE',
+      enqueued: 1,
+      skipped: 1,
+      continued: false,
+    })
   })
 
-  it('a duplicate (re-run pass) counts as not enqueued', async () => {
-    const { tx } = scripted(3, [{ id: opp(1), revision: 1 }])
-    const dup: SqlExecutor = {
-      execute: async (q: SQL) => {
-        const r = dialect.sqlToQuery(q)
-        if (r.sql.includes('INSERT INTO job_dirty_work')) return { rows: [] }
-        return tx.execute(q)
-      },
-    }
-    await expect(fanOutDirty(dup, work())).resolves.toMatchObject({ enqueued: 0, skipped: 0 })
+  it('SR-M-2: already-pending or duplicate opportunities count as not enqueued', async () => {
+    const { tx } = scripted(3, { paged: 2, enqueued: 0 })
+    await expect(fanOutDirty(tx, work())).resolves.toMatchObject({ enqueued: 0, skipped: 0 })
   })
 
-  it('a non-validation error aborts the pass (the transaction rolls back)', async () => {
-    const { tx } = scripted(3, [{ id: opp(1), revision: 1 }])
+  it('AC 5: a database error aborts the pass (the transaction rolls back)', async () => {
+    const { tx } = scripted(3, { paged: 1 })
     const boom: SqlExecutor = {
       execute: async (q: SQL) => {
-        // Only the OPPORTUNITY insert fails; everything after it would succeed.
-        if (dialect.sqlToQuery(q).sql.includes('INSERT INTO job_dirty_work'))
-          throw new Error('connection lost')
+        if (dialect.sqlToQuery(q).sql.includes('WITH page AS')) throw new Error('connection lost')
         return tx.execute(q)
       },
     }
@@ -162,11 +164,15 @@ describe('fanOutDirty', () => {
   })
 
   it('scopes the page to onlyIds when given', async () => {
-    const { tx, seen } = scripted(3, [])
+    const { tx, page } = scripted(3, { paged: 0 })
     await fanOutDirty(tx, work(), { onlyIds: [opp(1)] })
-    const page = seen.find((s) => s.sql.includes('FROM job_opportunities'))!
-    expect(page.sql).toContain('AND id IN (SELECT jsonb_array_elements_text(')
-    expect(page.params).toEqual([NIL, JSON.stringify([opp(1)]), FANOUT_PAGE_SIZE])
+    expect(page()!.sql).toContain('AND o.id IN (SELECT jsonb_array_elements_text(')
+    expect(page()!.params).toEqual([
+      NIL,
+      JSON.stringify([opp(1)]),
+      FANOUT_PAGE_SIZE,
+      `fanout:${ROW}`,
+    ])
   })
 })
 
@@ -174,16 +180,19 @@ describe('createRecomputeSteps routing (S5)', () => {
   it.each(['SENIOR', 'EXCLUSION', 'PROJECT_CLIENT'] as const)(
     'a %s row is fanned out, never recomputed as an opportunity',
     async (entityKind) => {
-      const { tx, seen, inserts } = scripted(3, [{ id: opp(1), revision: 2 }])
+      const { tx, seen, page } = scripted(3, { paged: 1 })
       const db = { transaction: (cb: (t: SqlExecutor) => unknown) => cb(tx) } as unknown as MeterDb
       const steps = createRecomputeSteps(db, { onlyIds: [opp(1)] })
       await expect(
         steps.process(work({ entityKind }), { evaluationTime: new Date(0) }),
       ).resolves.toBe('DONE')
       expect(seen.some((q) => q.sql.includes('FOR NO KEY UPDATE'))).toBe(false)
-      expect(inserts).toEqual([['OPPORTUNITY', opp(1), 2, `fanout:${ROW}`]])
-      const page = seen.find((q) => q.sql.includes('FROM job_opportunities'))!
-      expect(page.params).toEqual([NIL, JSON.stringify([opp(1)]), FANOUT_PAGE_SIZE])
+      expect(page()!.params).toEqual([
+        NIL,
+        JSON.stringify([opp(1)]),
+        FANOUT_PAGE_SIZE,
+        `fanout:${ROW}`,
+      ])
     },
   )
 })
