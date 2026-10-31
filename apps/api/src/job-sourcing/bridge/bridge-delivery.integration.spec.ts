@@ -15,7 +15,9 @@ import type { ClaimedRun } from '../ownership/job-run-ledger'
 import type { NormalizedPosting } from '../job-source.provider'
 import {
   type BridgeRun,
+  type CreateSuggestions,
   type RosterSenior,
+  createSuggestionsForPostings,
   drainPostings,
   drainSuggestions,
   enqueueLegacyPostings,
@@ -393,5 +395,163 @@ describe.skipIf(!hasDatabaseUrl())('bridge delivery drains against Postgres (S6d
       [s],
     )
     expect(after.rows[0].last_collected_at).not.toBeNull()
+  })
+
+  // ── SPEC-M-1 / SPEC-M-2 / SPEC-M-3: the remaining crash rows + real fault injection ──────────
+
+  const transientPg = (msg: string) =>
+    Object.assign(new Error(msg), { code: '40P01', severity: 'ERROR' })
+
+  /** A db that delegates to `real`, but whose Nth `transaction` call rejects (a mid-drain crash). */
+  function throwOnNthTransaction(n: number, err: Error): typeof db {
+    const realTx = db.transaction.bind(db)
+    let count = 0
+    return {
+      select: db.select.bind(db),
+      transaction: ((fn: unknown, opts: unknown) => {
+        count += 1
+        return count === n
+          ? Promise.reject(err)
+          : (realTx as (f: unknown, o: unknown) => Promise<unknown>)(fn, opts)
+      }) as unknown as typeof db.transaction,
+    } as unknown as typeof db
+  }
+
+  it('crash AFTER chargeBudget before T1 (nothing enqueued): the next run enqueues and delivers — nothing lost', async () => {
+    const s = await fx.source({ type: 'DOU_RSS', manifestId: null, hostKey: null })
+    const crashed = await claimRun(s)
+    // chargeBudget happened upstream; nothing was enqueued before the crash.
+    await ledger.finish(crashed.handle, { outcome: 'FAILED', errorCode: 'UPSTREAM' })
+    expect(await bridgeRows(s, 'LEGACY_POSTING')).toHaveLength(0)
+
+    const next = await claimRun(s)
+    await enqueueLegacyPostings(db, next, [douPosting()])
+    expect(await drainPostings(db, next, () => undefined)).toMatchObject({ created: 1, invalid: 0 })
+    expect(await drainSuggestions(db, next, roster())).toBe(1)
+  })
+
+  it('crash BEFORE a T3 commit (a real throw on the 2nd row): that row + the rest stay PENDING, the next run creates them', async () => {
+    const s = await fx.source({ type: 'DOU_RSS', manifestId: null, hostKey: null })
+    const run = await claimRun(s)
+    await enqueueLegacyPostings(db, run, [douPosting(), douPosting(), douPosting()])
+
+    // Row 1 commits; row 2's transaction throws before it can commit; the drain aborts.
+    await expect(
+      drainPostings(throwOnNthTransaction(2, transientPg('mid-T3 crash')), run, () => undefined),
+    ).rejects.toThrow(/mid-T3/)
+    expect(await postingCount(s)).toBe(1) // only row 1 committed
+    const afterCrash = await bridgeRows(s, 'LEGACY_POSTING')
+    expect(afterCrash.filter((x) => x.status === 'PENDING')).toHaveLength(2)
+    expect(afterCrash.filter((x) => x.status === 'INVALID')).toHaveLength(0) // NOT dropped
+
+    // The next run drains the two that rolled back.
+    const pr = await drainPostings(db, run, () => undefined)
+    expect(pr).toMatchObject({ created: 2, invalid: 0 })
+    expect(await postingCount(s)).toBe(3)
+  })
+
+  it('crash BEFORE a T4 checkpoint (a real throw mid-drain): createSuggestions is NEVER called with [], the row stays PENDING, the retry completes', async () => {
+    const s = await fx.source({ type: 'DOU_RSS', manifestId: null, hostKey: null })
+    const run = await claimRun(s)
+    await enqueueLegacyPostings(db, run, [douPosting(), douPosting()])
+    await drainPostings(db, run, () => undefined) // 2 CREATED + 2 PENDING suggestion rows
+
+    const calledWith: number[] = []
+    let c = 0
+    const spy: CreateSuggestions = async (tx, postings, r) => {
+      calledWith.push(postings.length)
+      c += 1
+      if (c === 2) throw transientPg('mid-T4 crash')
+      return createSuggestionsForPostings(tx, postings, r)
+    }
+    await expect(drainSuggestions(db, run, roster(), spy)).rejects.toThrow(/mid-T4/)
+    // The fan-out is only ever handed a real posting — never an empty list (AC4).
+    expect(calledWith.length).toBeGreaterThan(0)
+    expect(calledWith.every((len) => len > 0)).toBe(true)
+    const sug = await bridgeRows(s, 'LEGACY_SUGGESTION')
+    expect(sug.filter((x) => x.status === 'DONE')).toHaveLength(1)
+    expect(sug.filter((x) => x.status === 'PENDING')).toHaveLength(1)
+
+    // The retry (real fan-out) completes the pending row; no duplicate suggestions.
+    expect(await drainSuggestions(db, run, roster())).toBe(1)
+    expect((await bridgeRows(s, 'LEGACY_SUGGESTION')).every((x) => x.status === 'DONE')).toBe(true)
+    expect(await suggestionCount(s)).toBe(2)
+  })
+
+  it('crash AFTER a T4 commit: the DONE suggestion row is skipped by the next run (no duplicate)', async () => {
+    const s = await fx.source({ type: 'DOU_RSS', manifestId: null, hostKey: null })
+    const run = await claimRun(s)
+    await enqueueLegacyPostings(db, run, [douPosting()])
+    await drainPostings(db, run, () => undefined)
+    expect(await drainSuggestions(db, run, roster())).toBe(1)
+
+    // "Crash" after the T4 commit, before finish; the next run re-drains.
+    expect(await drainSuggestions(db, run, roster())).toBe(0)
+    expect(await suggestionCount(s)).toBe(1)
+  })
+
+  it('crash at T5 before finish (delivered, run STARTED): the next run re-enqueues DO NOTHING and re-drains to a no-op', async () => {
+    const s = await fx.source({ type: 'DOU_RSS', manifestId: null, hostKey: null })
+    const crashed = await claimRun(s)
+    const postings = [douPosting(), douPosting()]
+    await enqueueLegacyPostings(db, crashed, postings)
+    await drainPostings(db, crashed, () => undefined)
+    await drainSuggestions(db, crashed, roster())
+    await markCollected(db, crashed) // T5 written, then "crash" before finish
+    await ledger.finish(crashed.handle, { outcome: 'FAILED', errorCode: 'UPSTREAM' }) // recovery ends it
+    expect(await postingCount(s)).toBe(2)
+    expect(await suggestionCount(s)).toBe(2)
+
+    const next = await claimRun(s)
+    await enqueueLegacyPostings(db, next, postings) // same keys → DO NOTHING
+    expect(await drainPostings(db, next, () => undefined)).toMatchObject({ created: 0, invalid: 0 })
+    expect(await drainSuggestions(db, next, roster())).toBe(0)
+    expect(await postingCount(s)).toBe(2)
+    expect(await suggestionCount(s)).toBe(2)
+  })
+
+  it('SPEC-M-3: an APPLIED suggestion is never rewritten when its row re-drains (ON CONFLICT DO NOTHING)', async () => {
+    const s = await fx.source({ type: 'DOU_RSS', manifestId: null, hostKey: null })
+    const run = await claimRun(s)
+    await enqueueLegacyPostings(db, run, [douPosting()])
+    await drainPostings(db, run, () => undefined)
+    await drainSuggestions(db, run, roster())
+    const sug = (await bridgeRows(s, 'LEGACY_SUGGESTION'))[0]
+    // The senior answers APPLIED, then the delivery row is forced back to PENDING (a re-drain).
+    await session.admin.query(
+      `UPDATE job_suggestions SET status = 'APPLIED', status_changed_at = now()
+         WHERE posting_id = $1 AND senior_id = $2`,
+      [sug.posting_id, seniorId],
+    )
+    await session.admin.query(
+      `UPDATE job_bridge_deliveries SET status = 'PENDING', delivered_at = NULL WHERE id IN
+         (SELECT id FROM job_bridge_deliveries WHERE source_id = $1 AND consumer = 'LEGACY_SUGGESTION')`,
+      [s],
+    )
+
+    expect(await drainSuggestions(db, run, roster())).toBe(0) // the unique index refuses the re-insert
+    const answered = await session.admin.query(
+      `SELECT status FROM job_suggestions WHERE posting_id = $1 AND senior_id = $2`,
+      [sug.posting_id, seniorId],
+    )
+    expect(answered.rows[0].status).toBe('APPLIED') // NOT rewritten to NEW
+  })
+
+  it('SPEC-M-3: a fenced (lost-lease) executor fails assertOwned inside T3 and T4 and writes nothing', async () => {
+    const s = await fx.source({ type: 'DOU_RSS', manifestId: null, hostKey: null })
+    const run = await claimRun(s)
+    await enqueueLegacyPostings(db, run, [douPosting()])
+    const fenced: BridgeRun = { ...run, handle: { ...run.handle, ownerToken: 'superseded-token' } }
+
+    // T3 under a fenced run: assertOwned rejects (RunFencedError re-thrown, not INVALID), nothing written.
+    await expect(drainPostings(db, fenced, () => undefined)).rejects.toThrow()
+    expect(await postingCount(s)).toBe(0)
+    expect((await bridgeRows(s, 'LEGACY_POSTING'))[0].status).toBe('PENDING')
+
+    // Drain T3 as the real owner, then T4 under the fenced run: no suggestions written.
+    await drainPostings(db, run, () => undefined)
+    await expect(drainSuggestions(db, fenced, roster())).rejects.toThrow()
+    expect(await suggestionCount(s)).toBe(0)
+    expect((await bridgeRows(s, 'LEGACY_SUGGESTION'))[0].status).toBe('PENDING')
   })
 })

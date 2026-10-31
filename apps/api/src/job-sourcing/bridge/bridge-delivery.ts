@@ -2,7 +2,14 @@ import type { JobExclusionDto, JobSourceType } from '@crm/shared'
 import { and, asc, eq } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type * as schema from '../../database/schema'
-import { jobBridgeDeliveries, jobPostings, jobSources, jobSuggestions } from '../../database/schema'
+import {
+  type JobPosting,
+  jobBridgeDeliveries,
+  jobPostings,
+  jobSources,
+  jobSuggestions,
+} from '../../database/schema'
+import type { DrizzleTx } from '../../database/types'
 import { describeDbError, findPgError } from '../../database/pg-errors'
 import { findMatchingExclusion } from '../filtering'
 import type { NormalizedPosting } from '../job-source.provider'
@@ -273,16 +280,49 @@ export async function drainPostings(
   return { created, duplicate, invalid }
 }
 
+/** The suggestion fan-out for the drained postings — the seam T4 drains through (SPEC-M-2 spies it). */
+export type CreateSuggestions = (
+  tx: DrizzleTx,
+  postings: readonly JobPosting[],
+  roster: readonly RosterSenior[],
+) => Promise<number>
+
+/**
+ * The `createSuggestions` body for the drained postings, inside the caller's transaction: offer each
+ * posting to every roster senior its exclusions do not match, `ON CONFLICT (posting_id, senior_id) DO
+ * NOTHING` (so an already-answered APPLIED/REJECTED suggestion is never rewritten). Returns the count
+ * inserted.
+ */
+export const createSuggestionsForPostings: CreateSuggestions = async (tx, postings, roster) => {
+  let n = 0
+  for (const posting of postings) {
+    const candidates = roster
+      .filter((s) => findMatchingExclusion(posting, s.exclusions) === null)
+      .map((s) => ({ postingId: posting.id, seniorId: s.seniorId }))
+    if (candidates.length > 0) {
+      const rows = await tx
+        .insert(jobSuggestions)
+        .values(candidates)
+        .onConflictDoNothing()
+        .returning({ id: jobSuggestions.id })
+      n += rows.length
+    }
+  }
+  return n
+}
+
 /**
  * T4 — for each PENDING LEGACY_SUGGESTION row of the source, one tx per row: assertOwned; the
- * createSuggestions body for that one posting, INSIDE the tx, against the roster read ONCE (AC6);
- * the row → DONE, suggestions_created. The row's existence IS the retry input, so the fan-out is
- * never called with an empty list (AC4). Returns the total suggestions created.
+ * `createSuggestions` body for that one posting, INSIDE the tx, against the roster read ONCE (AC6);
+ * the row → DONE, suggestions_created. The row's existence (with its posting_id) IS the retry input,
+ * so `createSuggestions` is only ever called with a real posting, never an empty list (AC4) — a row
+ * whose posting vanished is marked DONE without a fan-out. Returns the total suggestions created.
  */
 export async function drainSuggestions(
   db: Db,
   run: BridgeRun,
   roster: readonly RosterSenior[],
+  createSuggestions: CreateSuggestions = createSuggestionsForPostings,
 ): Promise<number> {
   const pending = await db
     .select({ id: jobBridgeDeliveries.id, postingId: jobBridgeDeliveries.postingId })
@@ -305,20 +345,8 @@ export async function drainSuggestions(
         .from(jobPostings)
         .where(eq(jobPostings.id, row.postingId as string))
         .limit(1)
-      let n = 0
-      if (posting) {
-        const candidates = roster
-          .filter((s) => findMatchingExclusion(posting, s.exclusions) === null)
-          .map((s) => ({ postingId: posting.id, seniorId: s.seniorId }))
-        if (candidates.length > 0) {
-          const rows = await tx
-            .insert(jobSuggestions)
-            .values(candidates)
-            .onConflictDoNothing()
-            .returning({ id: jobSuggestions.id })
-          n = rows.length
-        }
-      }
+      // Only ever call the fan-out with the real posting this row carries — never an empty list.
+      const n = posting ? await createSuggestions(tx, [posting], roster) : 0
       await tx
         .update(jobBridgeDeliveries)
         .set({
