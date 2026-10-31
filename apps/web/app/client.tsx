@@ -53,18 +53,18 @@ if (typeof window !== 'undefined') {
   })
 }
 
-// Отложенная перезагрузка открытых вкладок при редеплое (новый SW берёт управление).
+// Deferred reload of open tabs on redeploy (a new SW takes control).
 //
-// VitePWA (autoUpdate + skipWaiting + clientsClaim) устанавливает новый SW в фоне,
-// но открытая вкладка продолжает работать на старом JS-бандле в памяти.
-//   1. controllerchange — новый SW стал контроллером. Помечаем reload как pending
-//      (только если контроллер был при загрузке). Пока вкладка видима — НЕ
-//      перезагружаем (иначе reload через 2-3 с после открытия и посреди работы).
-//   2. Reload выполняется, когда вкладка скрыта: сразу, если уже hidden в момент
-//      события, иначе на ближайшем visibilitychange → hidden.
-//   3. registration.update() каждые 60 с — idle-вкладки иначе не узнают о редеплое.
-// Устаревшие lazy-чанки по-прежнему ловит vite:preloadError (см. выше).
-// Логика guard'а — в ./lib/sw-reload (покрыта unit-тестами).
+// VitePWA (autoUpdate + skipWaiting + clientsClaim) installs the new SW in the
+// background, but an open tab keeps running the old JS bundle from memory.
+//   1. controllerchange: the new SW became the controller. Mark the reload as
+//      pending (only if a controller existed at load). While the tab is visible
+//      do NOT reload (otherwise the page reloads 2-3 s after opening and mid-use).
+//   2. The reload runs once the tab is hidden: immediately if it is already
+//      hidden when the event fires, otherwise on the next visibilitychange to hidden.
+//   3. registration.update() every 60 s: idle tabs would not learn of a redeploy otherwise.
+// Stale lazy chunks are still caught by vite:preloadError (see above).
+// The guard logic lives in ./lib/sw-reload (covered by unit tests).
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   try {
     const hadControllerAtLoad = navigator.serviceWorker.controller !== null
