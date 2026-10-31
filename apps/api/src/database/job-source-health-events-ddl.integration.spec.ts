@@ -112,7 +112,12 @@ describe.skipIf(!hasDatabaseUrl())('U4 staged DDL: job_source_health_events', ()
     try {
       await client?.query(`SET search_path = public`)
       await client?.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`)
-      // Leave no residue in public: drop the health rows this suite inserted and the triggers it added.
+      // The append-only trigger refuses the cleanup DELETE, and the health rows' FK would then
+      // block fx.cleanup() from deleting their sources. Disable the guard (owner only) and clear
+      // the rows this suite appended, so the fixtures can be removed.
+      await client
+        ?.query(`ALTER TABLE ${TABLE} DISABLE TRIGGER trg_job_source_health_events_append_only`)
+        .catch(() => undefined)
       await client?.query(`DELETE FROM ${TABLE} WHERE true`).catch(() => undefined)
       client?.release()
       await fx?.cleanup()
@@ -226,15 +231,15 @@ describe.skipIf(!hasDatabaseUrl())('U4 staged DDL: job_source_health_events', ()
       `INSERT INTO ${TABLE} (source_id, kind, to_state) VALUES ($1, 'TRANSITION', 'HEALTHY')`,
       [sourceId],
     )
-    // restrict_violation is '2F004'; assert the class rather than the message.
+    // restrict_violation is '23001'; assert the class rather than the message.
     expect(
       await sqlstate(() =>
         client.query(`UPDATE ${TABLE} SET note = 'x' WHERE source_id = $1`, [sourceId]),
       ),
-    ).toBe('2F004')
+    ).toBe('23001')
     expect(
       await sqlstate(() => client.query(`DELETE FROM ${TABLE} WHERE source_id = $1`, [sourceId])),
-    ).toBe('2F004')
-    expect(await sqlstate(() => client.query(`TRUNCATE ${TABLE}`))).toBe('2F004')
+    ).toBe('23001')
+    expect(await sqlstate(() => client.query(`TRUNCATE ${TABLE}`))).toBe('23001')
   })
 })
