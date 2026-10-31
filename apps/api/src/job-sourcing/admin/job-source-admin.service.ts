@@ -20,23 +20,11 @@ import { jobCollectionRuns, jobSourceHealthEvents, jobSources, users } from '../
 import { JobRunLedger } from '../ownership/job-run-ledger'
 import { CLAIM_REFUSALS, nextAttemptAt } from '../ownership/ledger-policy'
 import { MAX_CONSECUTIVE_FAILURES } from '../scheduling/due-policy'
-import { correlateEvents, summarizeProfile } from './source-page-derivation'
+import { correlateEvents, freshnessWindowStart, summarizeProfile } from './source-page-derivation'
 
 /** How many recent runs / events the detail page carries — bounded, newest first. */
 const DETAIL_RUN_LIMIT = 50
 const DETAIL_EVENT_LIMIT = 100
-
-/**
- * The freshness aggregate (`max(newest_item_published_at)`) is restricted to this recent window of
- * runs, so the list load never scans the whole (unbounded, ever-growing) `job_collection_runs`
- * history (CR-M-1). 14 days matches U4's detector window, and is served by the
- * `(source_id, started_at)` index. A source silent longer than this reports no fresh item, which is
- * the honest answer the page should show.
- */
-const FRESHNESS_WINDOW_DAYS = 14
-const DAY_MS = 86_400_000
-const freshnessWindowStart = (now: Date): Date =>
-  new Date(now.getTime() - FRESHNESS_WINDOW_DAYS * DAY_MS)
 
 /**
  * ADMIN controls over the run ledger (r5 Task 2.5 T9; ADR

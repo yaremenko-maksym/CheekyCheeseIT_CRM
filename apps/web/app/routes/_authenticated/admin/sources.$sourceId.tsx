@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { useAddJobSourceNote, useJobSourceDetail } from '@/hooks/use-job-source-admin'
 import {
+  outcomeBadgeVariant,
   stateBadgeVariant,
   useSourceHealthLabels,
 } from '@/components/job-sourcing/use-source-health-labels'
@@ -32,12 +33,6 @@ function useDateTime() {
       d,
     )
   }
-}
-
-function outcomeBadgeVariant(outcome: string): 'status-active' | 'destructive' | 'secondary' {
-  if (outcome === 'SUCCEEDED') return 'status-active'
-  if (outcome === 'FAILED') return 'destructive'
-  return 'secondary'
 }
 
 function RunRow({ run, fmt }: { run: JobSourceRunDto; fmt: (iso: string | null) => string }) {

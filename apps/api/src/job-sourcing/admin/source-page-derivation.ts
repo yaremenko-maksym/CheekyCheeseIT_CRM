@@ -6,10 +6,24 @@ import type {
 import type { FetchProfile } from '../scheduling/next-slot'
 
 /**
- * Source-fetch-strategy U7 — the two PURE derivations the source page needs, split out of the
- * service so they are tested without a database (the service's DB-gated specs would leave these
- * mutants alive in the mutation gate otherwise).
+ * Source-fetch-strategy U7 — the PURE derivations the source page needs, split out of the service so
+ * they are tested without a database (the service's DB-gated specs would leave these mutants alive in
+ * the mutation gate otherwise).
  */
+
+/**
+ * The freshness aggregate (`max(newest_item_published_at)`) is restricted to this recent window of
+ * runs, so the list load never scans the whole (unbounded, ever-growing) `job_collection_runs`
+ * history (CR-M-1). 14 days matches U4's detector window and is served by the `(source_id,
+ * started_at)` index.
+ */
+export const FRESHNESS_WINDOW_DAYS = 14
+const DAY_MS = 86_400_000
+
+/** The lower bound of the freshness window: `now − FRESHNESS_WINDOW_DAYS`. */
+export function freshnessWindowStart(now: Date): Date {
+  return new Date(now.getTime() - FRESHNESS_WINDOW_DAYS * DAY_MS)
+}
 
 /**
  * The cadence summary that replaced `minIntervalHours` (U7): the manifest's `FetchProfile`, flattened

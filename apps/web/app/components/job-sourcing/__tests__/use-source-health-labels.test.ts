@@ -2,7 +2,11 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import type { JobSourceProfileSummary } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
-import { stateBadgeVariant, useSourceHealthLabels } from '../use-source-health-labels'
+import {
+  outcomeBadgeVariant,
+  stateBadgeVariant,
+  useSourceHealthLabels,
+} from '../use-source-health-labels'
 
 /**
  * Source-fetch-strategy U7 — the page's health vocabulary. `uk` is the source locale, so the labels
@@ -21,6 +25,13 @@ describe('stateBadgeVariant (pure severity → colour)', () => {
     expect(stateBadgeVariant('PAUSED')).toBe('destructive')
     expect(stateBadgeVariant('BLOCKED')).toBe('destructive')
     expect(stateBadgeVariant(null)).toBe('secondary')
+  })
+
+  it('maps run outcomes to a house variant', () => {
+    expect(outcomeBadgeVariant('SUCCEEDED')).toBe('status-active')
+    expect(outcomeBadgeVariant('FAILED')).toBe('destructive')
+    expect(outcomeBadgeVariant('PARTIAL')).toBe('secondary')
+    expect(outcomeBadgeVariant('STARTED')).toBe('secondary')
   })
 })
 

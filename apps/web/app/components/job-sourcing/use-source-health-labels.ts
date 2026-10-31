@@ -167,3 +167,10 @@ export function stateBadgeVariant(state: JobHealthState | null): BadgeVariant {
       return 'secondary'
   }
 }
+
+/** Non-localized: the house Badge variant for a run outcome (succeeded = active, failed = destructive). */
+export function outcomeBadgeVariant(outcome: string): BadgeVariant {
+  if (outcome === 'SUCCEEDED') return 'status-active'
+  if (outcome === 'FAILED') return 'destructive'
+  return 'secondary'
+}

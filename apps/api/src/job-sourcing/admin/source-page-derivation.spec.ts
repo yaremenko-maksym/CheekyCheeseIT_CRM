@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { JobSourceTimelineEventDto } from '@crm/shared'
 import type { FetchProfile } from '../scheduling/next-slot'
-import { correlateEvents, summarizeProfile } from './source-page-derivation'
+import {
+  correlateEvents,
+  FRESHNESS_WINDOW_DAYS,
+  freshnessWindowStart,
+  summarizeProfile,
+} from './source-page-derivation'
 
 /**
  * Source-fetch-strategy U7 — the pure page derivations. DB-free so the mutation gate reaches them:
@@ -39,6 +44,14 @@ describe('summarizeProfile', () => {
     expect(summary?.window).toBeNull()
     expect(summary?.fixedSlotTimes).toEqual(['08:30'])
     expect(summary?.offIntervalMinutes).toBeNull()
+  })
+})
+
+describe('freshnessWindowStart', () => {
+  it('is exactly 14 days before now', () => {
+    expect(FRESHNESS_WINDOW_DAYS).toBe(14)
+    const now = new Date('2026-10-31T00:00:00.000Z')
+    expect(freshnessWindowStart(now).toISOString()).toBe('2026-10-17T00:00:00.000Z')
   })
 })
 
