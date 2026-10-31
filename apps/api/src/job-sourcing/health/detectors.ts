@@ -89,7 +89,7 @@ export function detectVolumeDrop(s: HealthSnapshot): readonly HealthReason[] {
     .filter(([key, v]) => key !== todayKey && v.weekday === todayWeekday)
     .map(([, v]) => v.received)
   const baseline = median(sameWeekdayPast)
-  // Stryker disable next-line ConditionalExpression,EqualityOperator: this null check is a type-checker requirement, redundant with the comparison below — `0.3 * null` is 0 and `received24h` is a sum of non-negative counts, so a null baseline yields [] either way. The 30% behaviour is pinned by the 29/30 boundary test.
+  // Stryker disable next-line ConditionalExpression: only the "never return" direction is equivalent — a null baseline then reaches `received24h < 0.3 * null` which is `< 0`, false for a non-negative sum, so it yields [] anyway (the guard is a type-checker narrowing). The `===`→`!==` EqualityOperator and the 30% comparison stay live and are pinned by the no-baseline and 29/30 tests.
   if (baseline === null) return []
 
   const received24h = runs
@@ -177,31 +177,28 @@ export function detectAccessChange(s: HealthSnapshot): readonly HealthReason[] {
 export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[] {
   const runs = answered(s)
   const latest = runs[0]
+  // Stryker disable next-line ConditionalExpression: equivalent — with no runs the medians below are null, both baseline checks are false, and `latest` is only read when a median exists, so the function returns [] whether this early return runs or not. It is a type-checker narrowing for `latest`.
   if (latest === undefined) return []
   const reasons: HealthReason[] = []
   const dur = (r: RunFact): number => r.endedAt!.getTime() - r.startedAt.getTime()
 
   const medianDuration = median(runs.map(dur).filter((d) => d > 0))
-  // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent — a null duration median means no run (including the latest, which is one of `runs`) has a positive duration, so the `>` comparison below is 0 > 0 whether this guard runs or not. The behavioural `>` is on the next line and is pinned by the 3x-boundary and zero-duration tests.
-  const hasDurationBaseline = medianDuration !== null
   if (
-    hasDurationBaseline &&
-    dur(latest) > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianDuration!
-  )
+    medianDuration !== null &&
+    dur(latest) > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianDuration
+  ) {
     reasons.push('SLOW')
+  }
 
-  const bytes = runs.map((r) => r.bytesRead)
-  // Stryker disable next-line ConditionalExpression: `!== null` is a type-checker requirement, redundant with `> 0` (null > 0 is false), so mutating it to `true` leaves the filter output unchanged. The `> 0` filtering (a 0-byte read is not a smaller baseline) is pinned by the zero-byte test.
-  const positiveBytes = bytes.filter((b): b is number => b !== null && b > 0)
+  const positiveBytes = runs.map((r) => r.bytesRead).filter((b): b is number => b !== null && b > 0)
   const medianBytes = median(positiveBytes)
-  // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent — a null byte median means the latest run had no positive bytes either, so the `>` comparison below is against 0; behaviour pinned by the payload-history and 3x tests.
-  const hasByteBaseline = medianBytes !== null
   if (
-    hasByteBaseline &&
+    medianBytes !== null &&
     latest.bytesRead !== null &&
-    latest.bytesRead > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianBytes!
-  )
+    latest.bytesRead > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianBytes
+  ) {
     reasons.push('PAYLOAD_GROWTH')
+  }
   return reasons
 }
 
