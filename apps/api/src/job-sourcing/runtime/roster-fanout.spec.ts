@@ -118,6 +118,8 @@ describe('fanOutDirty', () => {
     expect(sql).toContain('WHERE p.revision >= 1')
     expect(sql).toContain('ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING')
     expect(sql).not.toContain('jsonb_array_elements_text')
+    // Unscoped: the scope clause is followed directly by the order, nothing in between.
+    expect(sql).toContain("a.state = 'TAKEN')) ORDER BY o.id LIMIT $2")
     expect(page()!.params).toEqual([NIL, FANOUT_PAGE_SIZE, `fanout:${ROW}`])
   })
 
