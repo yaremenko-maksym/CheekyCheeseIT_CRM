@@ -423,3 +423,45 @@ describe('Compat barrier — the flag is read once and the OFF branch touches on
     expect(viaBridgeOff).not.toHaveBeenCalled()
   })
 })
+
+describe('Compat barrier — flag ON: the run ends with the ADR-mapped outcome/code (finish in a finally)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  /** Drive a flag-on collection that throws, and return the single RunEnding `finish` received. */
+  async function endingOf(collectImpl: () => Promise<unknown[]>, row = dayRow()) {
+    const ledger = fakeBridgeLedger({ sourceId: SOURCE_ID })
+    const finishSpy = vi.spyOn(ledger, 'finish')
+    const { service } = makeHarness(collectImpl, [], true, ledger)
+    await service.collectSource(row).catch(() => undefined)
+    expect(finishSpy).toHaveBeenCalledTimes(1)
+    return finishSpy.mock.calls[0]![1]
+  }
+
+  it('zero postings -> FAILED / PARSE_DRIFT', async () => {
+    expect(await endingOf(() => Promise.resolve([]))).toEqual({
+      outcome: 'FAILED',
+      errorCode: 'PARSE_DRIFT',
+      errorMessage: expect.stringContaining('0 usable postings'),
+    })
+  })
+
+  it('the provider throws -> FAILED / UPSTREAM', async () => {
+    expect(await endingOf(() => Promise.reject(new Error('dou is down')))).toEqual({
+      outcome: 'FAILED',
+      errorCode: 'UPSTREAM',
+      errorMessage: 'dou is down',
+    })
+  })
+
+  it('an exhausted source -> PARTIAL / COST_STOP', async () => {
+    const ending = await endingOf(() => Promise.resolve([]), dayRow({ budgetUsed: 10 }))
+    expect(ending).toMatchObject({ outcome: 'PARTIAL', errorCode: 'COST_STOP' })
+  })
+})

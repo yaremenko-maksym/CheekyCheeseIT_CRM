@@ -16,6 +16,7 @@ export function bridgeConfig(flagOn: boolean): ConfigService<Env, true> {
   } as unknown as ConfigService<Env, true>
 }
 
+// Stryker disable next-line StringLiteral: a placeholder id for a TEST double; no product behaviour reads it.
 const FAKE_SOURCE_ID = '00000000-0000-4000-8000-0000000000f0'
 
 /**
@@ -28,6 +29,7 @@ const FAKE_SOURCE_ID = '00000000-0000-4000-8000-0000000000f0'
 export function fakeBridgeLedger(
   opts: { claimBusy?: boolean; sourceId?: string } = {},
 ): JobRunLedger {
+  // Stryker disable next-line LogicalOperator: a TEST double's id default; callers pass their own id.
   const sourceId = opts.sourceId ?? FAKE_SOURCE_ID
   return {
     openCycle: async () => ({ cycleId: '00000000-0000-4000-8000-0000000000c0' }),

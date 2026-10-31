@@ -49,6 +49,46 @@ describe('contentVersion', () => {
       contentVersion(douPosting()),
     )
   })
+
+  it('changes when any other hashed content field changes', () => {
+    const base = contentVersion(douPosting())
+    for (const over of [
+      { companyName: 'Globex' },
+      { companyNameNormalized: 'globex' },
+      { url: 'https://jobs.dou.ua/companies/acme/vacancies/99/' },
+      { externalId: 'other' },
+      { location: 'Lviv' },
+      { remote: false },
+      { employmentType: 'PART_TIME' },
+      { seniorityHint: 'JUNIOR' },
+      { publishedAt: new Date('2026-10-29T08:00:00.000Z') },
+      { tags: ['rust'] },
+    ] satisfies Partial<NormalizedPosting>[]) {
+      expect(contentVersion(douPosting(over)), JSON.stringify(over)).not.toBe(base)
+    }
+  })
+
+  it('normalizes an absent optional field to the same version as an explicit null (the ?? null fallbacks)', () => {
+    expect(contentVersion(douPosting({ remote: undefined }))).toBe(
+      contentVersion(douPosting({ remote: null })),
+    )
+    expect(contentVersion(douPosting({ employmentType: undefined }))).toBe(
+      contentVersion(douPosting({ employmentType: null })),
+    )
+    expect(contentVersion(douPosting({ seniorityHint: undefined }))).toBe(
+      contentVersion(douPosting({ seniorityHint: null })),
+    )
+  })
+
+  it('a null publishedAt hashes without throwing (the optional-chaining guard)', () => {
+    expect(contentVersion(douPosting({ publishedAt: null }))).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('de-duplicates tags before hashing (the Set)', () => {
+    expect(contentVersion(douPosting({ tags: ['node', 'node', 'typescript'] }))).toBe(
+      contentVersion(douPosting({ tags: ['node', 'typescript'] })),
+    )
+  })
 })
 
 describe('douPostingToRawObservation', () => {
@@ -68,5 +108,54 @@ describe('douPostingToRawObservation', () => {
     const raw = douPostingToRawObservation(douPosting())
     expect(raw.provider).toBe('DOU_RSS')
     expect(raw.adapterVersion.length).toBeGreaterThan(0)
+  })
+
+  it('maps each field through verbatim, with absent optionals as null and absent tags as []', () => {
+    const raw = douPostingToRawObservation(
+      douPosting({
+        url: 'https://jobs.dou.ua/u/',
+        title: 'T',
+        companyName: 'Co',
+        location: 'Kyiv',
+        descriptionMd: 'D',
+        remote: undefined,
+        employmentType: undefined,
+        seniorityHint: undefined,
+        tags: undefined,
+      }),
+    )
+    expect(raw.namespace).toBe(DOU_NAMESPACE)
+    expect(raw.url).toBe('https://jobs.dou.ua/u/')
+    expect(raw.title).toBe('T')
+    expect(raw.companyName).toBe('Co')
+    expect(raw.location).toBe('Kyiv')
+    expect(raw.description).toBe('D')
+    expect(raw.descriptionKind).toBe('text')
+    expect(raw.remote).toBeNull()
+    expect(raw.employmentType).toBeNull()
+    expect(raw.seniorityHint).toBeNull()
+    expect(raw.tags).toEqual([])
+  })
+
+  it('passes a concrete optional field through unchanged (not the null fallback)', () => {
+    const raw = douPostingToRawObservation(
+      douPosting({
+        remote: true,
+        employmentType: 'FULL_TIME',
+        seniorityHint: 'SENIOR',
+        tags: ['go'],
+      }),
+    )
+    expect(raw.remote).toBe(true)
+    expect(raw.employmentType).toBe('FULL_TIME')
+    expect(raw.seniorityHint).toBe('SENIOR')
+    expect(raw.tags).toEqual(['go'])
+  })
+
+  it('emits a PUBLISHED date only when the posting carries one', () => {
+    expect(douPostingToRawObservation(douPosting()).dates).toEqual([
+      { semantics: 'PUBLISHED', contract: 'ISO_ZONED', raw: '2026-10-30T08:00:00.000Z' },
+    ])
+    expect(douPostingToRawObservation(douPosting({ publishedAt: null })).dates).toEqual([])
   })
 })

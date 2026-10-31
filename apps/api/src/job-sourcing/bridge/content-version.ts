@@ -26,6 +26,8 @@ export function contentVersion(posting: NormalizedPosting): string {
     remote: posting.remote ?? null,
     employmentType: posting.employmentType ?? null,
     seniorityHint: posting.seniorityHint ?? null,
+    // Stryker disable next-line LogicalOperator: `tags ?? []` is equivalent — `new Set(undefined)`
+    // and `new Set([])` are both empty, so the hash is identical whether tags is absent or empty.
     tags: [...new Set(posting.tags ?? [])].sort(),
   }
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex')
