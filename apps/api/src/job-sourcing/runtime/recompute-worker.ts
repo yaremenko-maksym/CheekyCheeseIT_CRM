@@ -25,6 +25,7 @@ import {
   loadOpportunity,
   loadRoster,
 } from './recompute-inputs'
+import { fanOutDirty } from './roster-fanout'
 
 /**
  * The dirty-work recompute consumer (r5 Task 4.6 S4a). One `runOnce` claims a batch through the
@@ -34,6 +35,9 @@ import {
  *                  enqueues the OPPORTUNITY row it affects, so the record is PERSISTED before
  *                  anything is evaluated; a crash in between leaves that row pending.
  *   OPPORTUNITY    load the current revision and the roster, `evaluate`, install the matches.
+ *   SENIOR, EXCLUSION, PROJECT_CLIENT (S5)
+ *                  fan out: enqueue an OPPORTUNITY row for every opportunity, one bounded page
+ *                  per pass (`roster-fanout.ts`); the next batch recomputes them.
  *
  * VERSIONS. A row whose target version is no longer current is completed without work (the store
  * marks it DEFERRED / VERSION_STALE; a newer row exists). Output is installed only in a
@@ -281,10 +285,12 @@ function recomputeOpportunity(
 export function createRecomputeSteps(db: MeterDb): RecomputeSteps {
   return {
     claim: (owner, batchSize) => claimDirtyBatch(db, { owner, batchSize }),
-    process: (work, batch) =>
-      work.entityKind === 'SOURCE_RECORD'
-        ? resolveSourceRecord(db, work)
-        : recomputeOpportunity(db, work, batch),
+    process: (work, batch) => {
+      if (work.entityKind === 'SOURCE_RECORD') return resolveSourceRecord(db, work)
+      if (work.entityKind === 'OPPORTUNITY') return recomputeOpportunity(db, work, batch)
+      // SENIOR / EXCLUSION / PROJECT_CLIENT (S5): enqueue the opportunities, then complete.
+      return inTx(db, async (tx) => (await fanOutDirty(tx, work)).outcome)
+    },
     fail: (work, code, opts) => failDirty(db, work, code, opts),
   }
 }

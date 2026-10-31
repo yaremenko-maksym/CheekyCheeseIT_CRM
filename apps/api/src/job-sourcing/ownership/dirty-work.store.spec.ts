@@ -139,15 +139,33 @@ describe('claimDirtyBatch', () => {
     expect(seen[0]!.sql).toContain('FOR UPDATE SKIP LOCKED')
     expect(seen[0]!.sql).toContain("WHERE status = 'PENDING'")
     expect(seen[0]!.sql).toContain('fencing_epoch = d.fencing_epoch + 1')
-    // Default kinds: exactly those with a version source (CR-M-2).
-    expect(seen[0]!.sql).toContain('AND entity_kind IN ($1, $2)')
-    expect(seen[0]!.params).toEqual(['SOURCE_RECORD', 'OPPORTUNITY', 200, 'w', 300_000])
+    // Default kinds: exactly those with a version source (CR-M-2); since S5, all five.
+    expect(seen[0]!.sql).toContain('AND entity_kind IN ($1, $2, $3, $4, $5)')
+    expect(seen[0]!.params).toEqual([
+      'SOURCE_RECORD',
+      'OPPORTUNITY',
+      'SENIOR',
+      'EXCLUSION',
+      'PROJECT_CLIENT',
+      200,
+      'w',
+      300_000,
+    ])
   })
 
   it('passes an explicit batch size and lease', async () => {
     const { tx, seen } = scripted()
     await claimDirtyBatch(tx, { owner: 'w', batchSize: 1000, leaseMs: 3_600_000 })
-    expect(seen[0]!.params).toEqual(['SOURCE_RECORD', 'OPPORTUNITY', 1000, 'w', 3_600_000])
+    expect(seen[0]!.params).toEqual([
+      'SOURCE_RECORD',
+      'OPPORTUNITY',
+      'SENIOR',
+      'EXCLUSION',
+      'PROJECT_CLIENT',
+      1000,
+      'w',
+      3_600_000,
+    ])
   })
 
   it('claims only the kinds it is given', async () => {
