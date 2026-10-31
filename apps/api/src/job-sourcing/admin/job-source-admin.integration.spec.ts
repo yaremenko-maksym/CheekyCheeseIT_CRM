@@ -239,9 +239,10 @@ describe.skipIf(!hasDatabaseUrl())('T9 ADMIN reset + excluded listing, as crm_ap
           WHERE r.id = $1`,
         [run.runId],
       )
+      // U2: an UPSTREAM ending raises the slow-down level 0 -> 1, and the slot follows it.
       const expected = nextSlot(rows[0].ended_at as Date, berlin, {
         floorMinutes: 0,
-        slowdownLevel: 0,
+        slowdownLevel: 1,
         staggerKey: rows[0].manifest_id as string,
       })
       expect(await listed(s)).toMatchObject({
