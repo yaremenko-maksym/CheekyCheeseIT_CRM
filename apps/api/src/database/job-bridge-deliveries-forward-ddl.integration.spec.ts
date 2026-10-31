@@ -290,6 +290,31 @@ describe.skipIf(!hasDatabaseUrl())(
       expect((await readCatalog(SCHEMA)).indexes).toEqual(ref.indexes)
     })
 
+    it('the same positive control covers the FK-child index this PR added', async () => {
+      const ref = await readCatalog('public')
+      await client.query(`DROP INDEX ${SCHEMA}.idx_job_bridge_deliveries_posting`)
+      expect((await readCatalog(SCHEMA)).indexes).not.toEqual(ref.indexes)
+      await applyFile()
+      expect((await readCatalog(SCHEMA)).indexes).toEqual(ref.indexes)
+    })
+
+    it('the closing check names all three indexes, so none can be silently dropped from the guard', () => {
+      // SPEC-L-1: `CREATE INDEX IF NOT EXISTS` recreates an absent index on every normal apply, so
+      // the closing check's index branches (like the unique-index branch) are defence-in-depth —
+      // they fire only over a same-named table whose columns block the CREATE. The guard still has
+      // to NAME each index, or a later edit could drop the posting index and the check would miss
+      // it. Asserted against the shipped file text rather than a contrived catalog.
+      const guard = readFileSync(FILE, 'utf8')
+      const block = guard.slice(guard.indexOf('DO $check$'))
+      for (const name of [
+        'uq_job_bridge_delivery',
+        'ix_job_bridge_pending',
+        'idx_job_bridge_deliveries_posting',
+      ]) {
+        expect(block).toContain(`'.${name}'`)
+      }
+    })
+
     it('refuses to finish over a same-named table that lacks the intended constraints', async () => {
       await client.query(`DROP TABLE ${SCHEMA}.${TABLE}`)
       // Every column, no constraint: each IF NOT EXISTS is a no-op and only the final check sees it.

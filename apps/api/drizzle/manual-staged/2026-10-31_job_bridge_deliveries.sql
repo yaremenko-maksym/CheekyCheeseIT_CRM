@@ -147,6 +147,9 @@ BEGIN
   IF to_regclass(current_schema() || '.ix_job_bridge_pending') IS NULL THEN
     missing := concat_ws(', ', missing, 'ix_job_bridge_pending');
   END IF;
+  IF to_regclass(current_schema() || '.idx_job_bridge_deliveries_posting') IS NULL THEN
+    missing := concat_ws(', ', missing, 'idx_job_bridge_deliveries_posting');
+  END IF;
   IF missing IS NOT NULL THEN
     RAISE EXCEPTION 'job_bridge_deliveries DDL: constraint(s) % missing — a same-named table predates this file', missing;
   END IF;
