@@ -386,6 +386,58 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
     expect(of(await matches(oppIds[0]!), g)).toEqual({ [g]: 'LEAD' })
   }, 120_000)
 
+  it('SR-M-2 dedupe: an unclaimed PENDING row suppresses the enqueue; a CLAIMED one does not', async () => {
+    await drain()
+    const o = oppIds[0]!
+    const { rows: rev } = await session.admin.query(
+      `SELECT revision FROM job_opportunities WHERE id = $1`,
+      [o],
+    )
+    const revision = Number(rev[0].revision)
+    const { rows: probe } = await session.admin.query(
+      `INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason)
+       VALUES ('OPPORTUNITY', $1, $2, $3) RETURNING id`,
+      [o, revision, `${PREFIX}-dedupe-probe`],
+    )
+    const probeId = String(probe[0].id)
+    const k = await senior('k', true)
+    const fanOutOnly = {
+      ...createRecomputeSteps(db, { onlyIds: [o] }),
+      claim: (owner: string, n: number) =>
+        claimDirtyBatch(db, { owner, batchSize: n, kinds: ['SENIOR'] }),
+    }
+    const fanOutOnce = async () => {
+      await write((tx) => markSeniorDirty(tx, k, 'senior.team'))
+      await pin()
+      const r = await new RecomputeWorker(fanOutOnly, { owner: PREFIX, batchSize: 1 }).runOnce()
+      expect([r.claimed, r.done, r.failed]).toEqual([1, 1, 0])
+    }
+    const fanoutRows = async () =>
+      Number(
+        (
+          await session.admin.query(
+            `SELECT count(*)::int AS n FROM job_dirty_work
+              WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 AND reason LIKE 'fanout:%'
+                AND target_version = $2`,
+            [o, revision],
+          )
+        ).rows[0].n,
+      )
+    const before = await fanoutRows()
+    await fanOutOnce()
+    expect(await fanoutRows()).toBe(before) // the unclaimed PENDING probe already covers it
+    // The probe is now in flight: it may have read the roster before this write.
+    await session.admin.query(
+      `UPDATE job_dirty_work SET status = 'CLAIMED', claim_owner = 'probe-holder',
+              claimed_at = clock_timestamp(), lease_expires_at = clock_timestamp() + interval '1 hour',
+              fencing_epoch = fencing_epoch + 1
+        WHERE id = $1`,
+      [probeId],
+    )
+    await fanOutOnce()
+    expect(await fanoutRows()).toBe(before + 1)
+  }, 120_000)
+
   it('AC 1: a rolled-back write leaves neither the write nor a dirty row, per producer', async () => {
     const e = await senior('e', false)
     const fail = (work: (tx: Tx) => Promise<unknown>) =>
