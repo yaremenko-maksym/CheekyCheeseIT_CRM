@@ -10,6 +10,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  smallint,
   text,
   timestamp,
   unique,
@@ -213,8 +214,17 @@ export const jobSources = pgTable(
      * (`ALTER TABLE … ADD COLUMN` appends).
      */
     hostKey: text('host_key'),
+    /**
+     * Source fetch strategy U2 (ADR 2026-10-25 section 4): the slow-down level 0..4. The
+     * ledger's `finish` raises it by one when a run ends `RATE_LIMIT`, `UPSTREAM` or
+     * `TRANSIENT_NETWORK`, lowers it by one after a clean run, and `nextSlot` multiplies
+     * the interval by `2^level` (capped at 24 h). Production gets it from the staged
+     * `2026-10-31_job_run_metrics_slowdown.sql` (`ADD COLUMN` appends, so it stays LAST).
+     */
+    slowdownLevel: smallint('slowdown_level').notNull().default(0),
   },
   (t) => [
+    check('ck_job_sources_slowdown_level_range', sql`${t.slowdownLevel} BETWEEN 0 AND 4`),
     // T8: the HOST_BUSY lookup and the daily count find the host's sources by key.
     index('idx_job_sources_host_key').on(t.hostKey),
     check(
