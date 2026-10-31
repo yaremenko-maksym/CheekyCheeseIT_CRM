@@ -216,7 +216,7 @@ function feedPagedSpec<TConfig extends SourceConfigFields>(
         ? {
             ok: true,
             value: feed.feed,
-            ...(document.fingerprint !== undefined && { fingerprint: document.fingerprint }),
+            fingerprint: document.fingerprint,
           }
         : { ok: false, code: 'PARSE_DRIFT', message: `feed: ${feed.reason}` }
     },

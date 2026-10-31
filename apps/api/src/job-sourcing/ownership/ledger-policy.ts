@@ -80,7 +80,7 @@ export function claimGate(input: GateInput): ClaimRefusal | null {
 export { MAX_SLOWDOWN_LEVEL }
 
 /** The endings that slow a source down (ADR section 4): the provider is struggling, not refusing. */
-const SLOWING_CODES: ReadonlySet<CollectionErrorCode> = new Set([
+const SLOWING_CODES: ReadonlySet<CollectionErrorCode | null> = new Set<CollectionErrorCode | null>([
   'RATE_LIMIT',
   'UPSTREAM',
   'TRANSIENT_NETWORK',
@@ -97,7 +97,7 @@ export function nextSlowdownLevel(
   code: CollectionErrorCode | null,
   effect: EndingEffect,
 ): number {
-  const step = code !== null && SLOWING_CODES.has(code) ? 1 : effect === 'SUCCESS' ? -1 : 0
+  const step = SLOWING_CODES.has(code) ? 1 : effect === 'SUCCESS' ? -1 : 0
   return Math.min(MAX_SLOWDOWN_LEVEL, Math.max(0, current + step))
 }
 

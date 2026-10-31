@@ -261,6 +261,21 @@ describe('run metrics (U2 AC 2)', () => {
     expect(w.metrics()).toMatchObject({ requestCount: 1, lastHttpStatus: status })
   })
 
+  it('a request that got no answer (a network error) leaves the last status as it was', async () => {
+    let call = 0
+    const w = world({
+      input: { meter: null },
+      transport: async () => {
+        call += 1
+        if (call === 2) throw new Error('socket hang up')
+        return 'ok'
+      },
+    })
+    await w.ctx.fetchText(REQ)
+    await w.ctx.fetchText(REQ).catch(() => undefined)
+    expect(w.metrics()).toMatchObject({ requestCount: 2, bytesRead: 2, lastHttpStatus: 200 })
+  })
+
   it('the run keeps the FIRST envelope fingerprint it is given', () => {
     const w = world({ input: { meter: null } })
     w.ctx.observeEnvelope?.('a'.repeat(64))

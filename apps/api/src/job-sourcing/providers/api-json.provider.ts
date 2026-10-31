@@ -157,7 +157,7 @@ export type DecodedEnvelope<TEnvelope> =
       ok: true
       value: TEnvelope
       /** U2: the response's envelope fingerprint (`envelope-fingerprint.ts`), when the binding computed one. */
-      fingerprint?: string
+      fingerprint?: string | undefined
     }
   | { ok: false; code: CollectionErrorCode; message: string }
 

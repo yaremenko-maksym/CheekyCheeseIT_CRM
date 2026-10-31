@@ -225,3 +225,31 @@ describe('a decodeEnvelope that throws ends the attempt with a report', () => {
     })
   })
 })
+
+describe('U2: a decoded envelope`s fingerprint reaches the context', () => {
+  const observed = async (fingerprint: string | undefined) => {
+    const f = fakeCollectionContext({ now: NOW, responses: [{ bodyText: BODY }] })
+    const seen: (string | undefined)[] = []
+    f.ctx.observeEnvelope = (fp) => {
+      seen.push(fp)
+    }
+    const s = spec({
+      decodeEnvelope: (bodyText) => ({
+        ok: true,
+        value: z.object({ ids: z.array(z.string()) }).parse(JSON.parse(bodyText)),
+        fingerprint,
+      }),
+    })
+    const batch = await collectPages(s, config(), f.ctx)
+    expect(batch.outcome).toBe('SUCCEEDED')
+    return seen
+  }
+
+  it('a decoder that computed one hands it to observeEnvelope, once per decoded page', async () => {
+    expect(await observed('f'.repeat(64))).toEqual(['f'.repeat(64)])
+  })
+
+  it('a decoder that computed none reports nothing', async () => {
+    expect(await observed(undefined)).toEqual([])
+  })
+})

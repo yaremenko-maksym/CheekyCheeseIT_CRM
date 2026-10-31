@@ -5,6 +5,7 @@ import { identityObservations, specCheckpoint } from '../../test/ledger-fixtures
 import { observation } from '../../test/record-store-fixtures'
 import type { MeterDb } from '../metering/account-meter.store'
 import type { SourceObservation } from '../normalize/observation'
+import { writePageProgress } from '../ownership/job-run-ledger'
 import { RunFencedError } from '../ownership/run-ownership'
 import { LockContentionError } from './lock-order'
 import {
@@ -307,5 +308,37 @@ describe('newestPublishedAt (U2: savePage keeps the newest published_at seen)', 
   it('an equal later instant keeps the first (no change of value)', () => {
     const page = [at('2026-10-31T09:00:00Z', 1), at('2026-10-31T09:00:00Z', 2)]
     expect(newestPublishedAt(page)).toBe(page[0]!.normalized.publishedAt)
+  })
+})
+
+describe('writePageProgress: the counters and the newest published_at (U2)', () => {
+  const OWNED = { runId: H.runId, accountKey: 'a', sourceId: 's' }
+  const write = async (newestPublishedAt: Date | null) => {
+    const { db, seen } = recordingDb(owned)
+    await db.transaction((tx) =>
+      writePageProgress(tx as never, H, OWNED, {
+        checkpoint: null,
+        received: 7,
+        unique: 5,
+        created: 2,
+        newestPublishedAt,
+      }),
+    )
+    return seen.statements.at(-1)!
+  }
+
+  it('binds received, created, unchanged = unique - created, duplicates = received - unique', async () => {
+    const update = await write(null)
+    expect(update.params.slice(1, 5)).toEqual([7, 2, 3, 2])
+  })
+
+  it('keeps the newest published_at with GREATEST, the instant bound as ISO text', async () => {
+    const at = new Date('2026-10-31T09:00:00.000Z')
+    const update = await write(at)
+    expect(update.sql).toMatch(
+      /newest_item_published_at = GREATEST\(newest_item_published_at, \$6::timestamptz\)/,
+    )
+    expect(update.params[5]).toBe('2026-10-31T09:00:00.000Z')
+    expect((await write(null)).params[5]).toBeNull()
   })
 })
