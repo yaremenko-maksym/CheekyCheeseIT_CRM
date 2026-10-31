@@ -515,11 +515,13 @@ export class UsersService {
     if (data.displayName !== undefined) set.displayName = data.displayName
     if ('telegram' in data) set.telegram = data.telegram ?? null
     if ('phone' in data) set.phone = data.phone ?? null
+    let stackChanged = false
     if ('techStack' in data) {
       // SENIOR technology floor on a self-edit of the stack (an unchanged resubmit passes).
       const self = await this.findById(id)
       if (!self) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
-      if (techStackChanged(data.techStack, self.techStack)) {
+      stackChanged = techStackChanged(data.techStack, self.techStack)
+      if (stackChanged) {
         assertSeniorTechFloor(self.role, data.techStack ?? null)
       }
       set.techStack = data.techStack ?? null
@@ -531,8 +533,8 @@ export class UsersService {
     }
     if (data.locale !== undefined) set.locale = data.locale
 
-    // r5 4.6 S5: a stack edit commits with its roster dirty row.
-    const rows = !('techStack' in set)
+    // r5 4.6 S5: a REAL stack change commits with its roster dirty row (CR-M-1).
+    const rows = !stackChanged
       ? await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
       : await this.db.db.transaction(async (tx) => {
           const written = await tx.update(users).set(set).where(eq(users.id, id)).returning()
@@ -617,7 +619,7 @@ export class UsersService {
     const set = { role, updatedAt: new Date() }
     return this.db.db.transaction(async (tx) => {
       const updated = await this.updateUserRow(tx, id, existing, set)
-      await markUserEditDirty(tx, id, existing.role, set) // r5 4.6 S5: in the write's tx
+      await markUserEditDirty(tx, id, existing, set) // r5 4.6 S5: in the write's tx
       return updated
     })
   }

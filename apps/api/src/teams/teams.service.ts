@@ -18,7 +18,7 @@ import {
   isActiveMemberOfTeam as isActiveMemberOfTeamRead,
   wasFormerMemberOfTeam as wasFormerMemberOfTeamRead,
 } from './team-membership-read.util'
-import { markSeniorDirty } from '../job-sourcing/dirty-producers'
+import { markSeniorDirty, markSeniorsDirty } from '../job-sourcing/dirty-producers'
 import { addTeamMember, removeTeamMember } from './team-membership.util'
 import type { TeamMembershipDeps } from './team-membership.util'
 import type { ProjectWithMembers } from './team-mapping.util'
@@ -613,7 +613,6 @@ export class TeamsService {
           .update(teamMembers)
           .set({ leftAt: now })
           .where(eq(teamMembers.id, currentSenior.id))
-        await markSeniorDirty(tx, currentSenior.userId, 'senior.team')
         // MED-1 (security-review round 4, follow-up to #436): record the
         // detach with role='SENIOR' — the POSITIVE evidence
         // `TeamsService.wasFormerMemberOfTeam` now requires (see its
@@ -634,7 +633,9 @@ export class TeamsService {
       }
 
       await tx.insert(teamMembers).values({ teamId, userId: newSeniorId })
-      await markSeniorDirty(tx, newSeniorId, 'senior.team')
+      // Both seniors, locked in sorted id order (SR-L-2).
+      const swapped = currentSenior ? [currentSenior.userId, newSeniorId] : [newSeniorId]
+      await markSeniorsDirty(tx, swapped, 'senior.team')
       const updated = await tx
         .update(teams)
         .set({ updatedAt: now })

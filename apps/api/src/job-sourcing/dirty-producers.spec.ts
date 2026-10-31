@@ -7,6 +7,7 @@ import {
   markProjectEditDirty,
   markRoleDirty,
   markSeniorDirty,
+  markSeniorsDirty,
   markUserEditDirty,
 } from './dirty-producers'
 import type { SqlExecutor } from './scheduling/host-state'
@@ -76,7 +77,7 @@ describe('markUserEditDirty', () => {
   it('a role change wins over a stack edit in the same write (one row)', async () => {
     const { tx, inserts } = scripted()
     await expect(
-      markUserEditDirty(tx, ID, 'JUNIOR', { role: 'SENIOR', techStack: ['Go'] }),
+      markUserEditDirty(tx, ID, { role: 'JUNIOR' }, { role: 'SENIOR', techStack: ['Go'] }),
     ).resolves.toBe(true)
     expect(rows(inserts)).toEqual([['SENIOR', ID, 5, 'senior.role']])
   })
@@ -84,15 +85,36 @@ describe('markUserEditDirty', () => {
   it('a stack edit of a SENIOR is senior.stack; an unchanged role is not a role change', async () => {
     const { tx, inserts } = scripted('SENIOR')
     await expect(
-      markUserEditDirty(tx, ID, 'SENIOR', { role: 'SENIOR', techStack: ['Go'] }),
+      markUserEditDirty(
+        tx,
+        ID,
+        { role: 'SENIOR', techStack: ['Rust'] },
+        { role: 'SENIOR', techStack: ['Go'] },
+      ),
     ).resolves.toBe(true)
+    expect(rows(inserts)).toEqual([['SENIOR', ID, 5, 'senior.stack']])
+  })
+
+  it('CR-M-1: an unchanged stack resubmit enqueues nothing', async () => {
+    const { tx, inserts } = scripted('SENIOR')
+    const existing = { role: 'SENIOR', techStack: ['Go', 'Rust'] }
+    await expect(markUserEditDirty(tx, ID, existing, { techStack: ['Go', 'Rust'] })).resolves.toBe(
+      false,
+    )
+    await expect(
+      markUserEditDirty(tx, ID, { role: 'SENIOR', techStack: null }, { techStack: [] }),
+    ).resolves.toBe(false)
+    expect(inserts).toEqual([])
+    await expect(markUserEditDirty(tx, ID, existing, { techStack: ['Go'] })).resolves.toBe(true)
     expect(rows(inserts)).toEqual([['SENIOR', ID, 5, 'senior.stack']])
   })
 
   it('any other edit enqueues nothing', async () => {
     const { tx, inserts } = scripted()
-    await expect(markUserEditDirty(tx, ID, 'SENIOR', { telegram: '@x' })).resolves.toBe(false)
-    await expect(markUserEditDirty(tx, ID, 'JUNIOR', { role: 'HR' })).resolves.toBe(false)
+    await expect(markUserEditDirty(tx, ID, { role: 'SENIOR' }, { telegram: '@x' })).resolves.toBe(
+      false,
+    )
+    await expect(markUserEditDirty(tx, ID, { role: 'JUNIOR' }, { role: 'HR' })).resolves.toBe(false)
     expect(inserts).toEqual([])
   })
 })
@@ -118,16 +140,50 @@ describe('exclusion and project producers', () => {
     'a project update writing %s is project.client',
     async (column) => {
       const { tx, inserts } = scripted()
-      await expect(markProjectEditDirty(tx, ID, { [column]: 'x', updatedAt: 1 })).resolves.toBe(
-        true,
-      )
+      await expect(
+        markProjectEditDirty(tx, ID, { [column]: 'old' }, { [column]: 'x', updatedAt: 1 }),
+      ).resolves.toBe(true)
       expect(rows(inserts)).toEqual([['PROJECT_CLIENT', ID, 5, 'project.client']])
     },
   )
 
   it('a project update writing none of them enqueues nothing', async () => {
     const { tx, inserts } = scripted()
-    await expect(markProjectEditDirty(tx, ID, { rate: 10, archivedAt: null })).resolves.toBe(false)
+    await expect(markProjectEditDirty(tx, ID, {}, { rate: 10, archivedAt: null })).resolves.toBe(
+      false,
+    )
+    // CR-M-1: the column is present but its value did not change.
+    const same = { name: 'Acme', companyName: 'Acme Ltd', seniorId: ID }
+    await expect(markProjectEditDirty(tx, ID, same, { ...same, rate: 10 })).resolves.toBe(false)
     expect(inserts).toEqual([])
+  })
+})
+
+describe('SR-L-1 / SR-L-2: id case and lock order', () => {
+  const UPPER = ID.toUpperCase()
+
+  it('an uppercase route id is lowercased before it reaches the store', async () => {
+    const { tx, inserts } = scripted('SENIOR')
+    await expect(markSeniorDirty(tx, UPPER, 'senior.archive')).resolves.toBe(true)
+    await markRoleDirty(tx, UPPER, 'SENIOR', 'HR')
+    await markExclusionDirty(tx, UPPER, 'exclusion.delete')
+    await markProjectClientDirty(tx, UPPER, 'project.create')
+    expect(inserts.map((p) => p[1])).toEqual([ID, ID, ID, ID])
+  })
+
+  it('several seniors are locked in sorted id order, each once', async () => {
+    const A = '00000000-0000-4000-8000-00000000000a'
+    const B = '00000000-0000-4000-8000-00000000000b'
+    const locks: unknown[] = []
+    const { tx } = scripted('SENIOR')
+    const spy: SqlExecutor = {
+      execute: (q: SQL) => {
+        const r = dialect.sqlToQuery(q)
+        if (r.sql.includes('pg_advisory_xact_lock')) locks.push(r.params[0])
+        return tx.execute(q)
+      },
+    }
+    await expect(markSeniorsDirty(spy, [B, A.toUpperCase(), B], 'senior.team')).resolves.toBe(2)
+    expect(locks).toEqual([`job_dirty_work:SENIOR:${A}`, `job_dirty_work:SENIOR:${B}`])
   })
 })

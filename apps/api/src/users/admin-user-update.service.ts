@@ -190,7 +190,7 @@ export class AdminUserUpdateService {
       // form, unchanged `role` and `monthlySalary` included, and must not be
       // blocked (that edit is settlement, not a new entitlement).
       const u = await updateUserRow(tx, id, existing, set)
-      await markUserEditDirty(tx, id, existing.role, set)
+      await markUserEditDirty(tx, id, existing, set)
 
       // task-pending-share (position 5): a requested base-share change opens
       // a proposal instead of writing `seniorSharePercent` directly — see

@@ -12,6 +12,7 @@ import {
   type User,
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
+import { markProjectClientDirty } from '../job-sourcing/dirty-producers'
 import { NotificationsService } from '../notifications/notifications.service'
 import { PROJECT_APPROVAL_SUBJECT_TYPE } from './project-access.service'
 
@@ -63,8 +64,11 @@ export class ProjectInterviewSeedService {
     interview: Interview & { senior: User | null },
     currentUser: SessionUser,
     tx?: DrizzleTx,
-  ) {
-    const conn = tx ?? this.db.db
+  ): Promise<typeof projects.$inferSelect | undefined> {
+    // r5 4.6 S5: the project and its roster dirty row commit together even for a tx-less caller.
+    if (!tx)
+      return this.db.db.transaction((t) => this.createFromInterview(interview, currentUser, t))
+    const conn = tx
     const domain = interview.notesDomain ?? 'Other'
 
     const [project] = await conn
@@ -96,6 +100,8 @@ export class ProjectInterviewSeedService {
       .returning()
 
     if (!project) return project
+    // CR-H-1: a new project with a senior and a client changes that senior's derived exclusions.
+    await markProjectClientDirty(conn, project.id, 'project.create')
 
     // security-review round 2 (SR-H-6). Open the approval proposal in the
     // SAME connection as the insert above — when the caller passed a `tx`

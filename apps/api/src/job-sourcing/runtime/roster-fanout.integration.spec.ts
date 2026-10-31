@@ -222,7 +222,14 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
     // STACK EDIT: `b` no longer knows Go -> no match row for `b`.
     await write(async (tx) => {
       await tx.execute(sql`UPDATE users SET tech_stack = ARRAY['Cobol'] WHERE id = ${b}`)
-      expect(await markUserEditDirty(tx, b, 'SENIOR', { techStack: ['Cobol'] })).toBe(true)
+      expect(
+        await markUserEditDirty(
+          tx,
+          b,
+          { role: 'SENIOR', techStack: ['Go'] },
+          { techStack: ['Cobol'] },
+        ),
+      ).toBe(true)
     })
     await drain()
     expect(of(await matches(o), a, b)).toEqual({ [a]: 'LEAD' })
@@ -305,7 +312,7 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
     })
     await fail(async (tx) => {
       await tx.execute(sql`UPDATE users SET role = 'HR' WHERE id = ${e}`)
-      expect(await markUserEditDirty(tx, e, 'SENIOR', { role: 'HR' })).toBe(true)
+      expect(await markUserEditDirty(tx, e, { role: 'SENIOR' }, { role: 'HR' })).toBe(true)
     })
     const ghost = randomUUID()
     await fail((tx) => markExclusionDirty(tx, ghost, 'exclusion.create'))

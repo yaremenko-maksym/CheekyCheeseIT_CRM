@@ -575,10 +575,10 @@ export class ProjectsService {
     const updateData = buildProjectUpdateData(data, resolvedDropId, dropOverrideEffective)
 
     // r5 4.6 S5: an edit of a client-deriving column commits with its roster dirty row.
-    if (touchesProjectClient(updateData))
+    if (touchesProjectClient(updateData, project))
       await this.db.db.transaction(async (tx) => {
         await tx.update(projects).set(updateData).where(eq(projects.id, id))
-        await markProjectEditDirty(tx, id, updateData)
+        await markProjectEditDirty(tx, id, project, updateData)
       })
     else await this.db.db.update(projects).set(updateData).where(eq(projects.id, id))
 
