@@ -148,6 +148,8 @@ T3  posting drain    for each PENDING LEGACY_POSTING row of this SOURCE (not onl
                        assertOwned(run)
                        INSERT job_postings … ON CONFLICT (fingerprint) DO NOTHING RETURNING id
                        created → INSERT LEGACY_SUGGESTION row (PENDING, posting_id = id)
+                       duplicate → SELECT the existing id by fingerprint (it must be stored:
+                         see "A purged posting reappearing", section 3)
                        UPDATE this row → DONE, outcome CREATED | DUPLICATE, posting_id
                      a row the database refuses → separate tx marks it INVALID (today's MED-2
                      per-row isolation: one bad row costs that row, loudly logged)
@@ -223,11 +225,146 @@ Q3). Item-level: the DOU → observation mapping skips an item the validator ref
 
 ## 3. DDL sketch (not applied — owner A3 go required)
 
-_(pending)_
+> **SKETCH.** Nothing below is applied, staged or wired by this ADR. Promoting it to production
+> deploy wiring (slice S6f) needs an explicit owner **A3 go** (owner question Q1). The column list
+> is the design. S6b may rename columns, but must keep the keys, the CHECKs and the class.
+
+### Decision D-3 (confidence: **HIGH** on keys and class, **MED** on the column set)
+
+```sql
+-- staged as apps/api/drizzle/manual/<date>_job_bridge_deliveries.sql (STAGED first, see below)
+CREATE TYPE job_bridge_consumer AS ENUM ('LEGACY_POSTING', 'LEGACY_SUGGESTION');
+CREATE TYPE job_bridge_status   AS ENUM ('PENDING', 'DONE', 'INVALID');
+
+CREATE TABLE IF NOT EXISTS job_bridge_deliveries (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_id           uuid NOT NULL REFERENCES job_sources(id) ON DELETE CASCADE,
+  provider            job_source_type NOT NULL,
+  consumer            job_bridge_consumer NOT NULL,
+  identity_key        text NOT NULL,            -- the posting fingerprint
+  content_version     text NOT NULL,            -- sha256 of the NormalizedPosting
+  payload             jsonb NOT NULL,           -- the NormalizedPosting (LEGACY_POSTING) / {} (SUGGESTION)
+  status              job_bridge_status NOT NULL DEFAULT 'PENDING',
+  outcome             text,                     -- CREATED | DUPLICATE | <db error class>
+  posting_id          uuid REFERENCES job_postings(id) ON DELETE CASCADE,
+  suggestions_created integer,
+  enqueued_by_run     uuid NOT NULL REFERENCES job_collection_runs(id) ON DELETE RESTRICT,
+  delivered_by_run    uuid REFERENCES job_collection_runs(id) ON DELETE RESTRICT,
+  attempts            integer NOT NULL DEFAULT 0,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  delivered_at        timestamptz,
+  CONSTRAINT ck_job_bridge_legacy_only     CHECK (provider = 'DOU_RSS'),
+  CONSTRAINT ck_job_bridge_suggestion_post CHECK (consumer <> 'LEGACY_SUGGESTION' OR posting_id IS NOT NULL),
+  CONSTRAINT ck_job_bridge_done_stamped    CHECK ((status = 'PENDING') = (delivered_at IS NULL)),
+  CONSTRAINT ck_job_bridge_payload_size    CHECK (pg_column_size(payload) <= 65536)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_job_bridge_delivery
+  ON job_bridge_deliveries (consumer, identity_key, content_version);
+CREATE INDEX IF NOT EXISTS ix_job_bridge_pending
+  ON job_bridge_deliveries (source_id, consumer, created_at) WHERE status = 'PENDING';
+```
+
+- **Keys.** The unique index is the delivery identity: identity / consumer / version. A suggestion
+  row's `content_version` is its posting row's, so a posting yields at most one suggestion row.
+  The partial index serves the drain, which reads only `PENDING`.
+- **`ON DELETE` choices.** `CASCADE` from `job_postings`: retention (`purgeStalePostings`) deletes
+  unanswered postings, and a delivery row of a purged posting has no meaning. `RESTRICT` from
+  the run rows: runs are kept, so nothing is lost, and a purge of runs must not erase delivery
+  evidence silently. **Check at S6b:** does any run-retention path delete `job_collection_runs`?
+  If one does, use `SET NULL` on `delivered_by_run` and keep `enqueued_by_run`.
+- **A purged posting reappearing.** After the delivery row cascades away, the next collection of
+  the same feed item enqueues a fresh row, the insert creates the posting again, and seniors get a
+  fresh `NEW` suggestion. That is today's behaviour ("undecided ones are purged and re-offered as
+  fresh NEW", compat-barrier integration spec), so it is preserved. It works **only if a
+  `DUPLICATE` row also stores the existing `posting_id`**. Otherwise that row survives the purge and
+  its unique key makes the re-enqueue a no-op, so the purged posting is never re-offered. S6b adds
+  `CHECK (consumer <> 'LEGACY_POSTING' OR status <> 'DONE' OR posting_id IS NOT NULL)`.
+- **`INVALID` is terminal per version.** The refusals MED-2 isolates are payload refusals, so they
+  are deterministic: the same version would fail again. A changed item has a new version and is
+  tried again. Today, by contrast, every run retries the same refused item and logs it again. The
+  log line goes, the outcome does not change.
+- **Privilege class `A`**, like every job-sourcing table (F9): `crm_app` gets SELECT / INSERT /
+  UPDATE / DELETE, `crm_collector` nothing. Add the table to `PRIVILEGE_CLASSES.A` and, while staged,
+  to `STAGED_RELATIONS`.
+- **Growth.** About 25 posting rows + up to 25 suggestion rows per day, each with one payload that
+  is bounded (≤ 64 KiB by CHECK; real DOU items are a few KiB). `DONE` rows older than
+  `POSTING_RETENTION_DAYS` may be deleted by the existing retention cron. That is slice S6g's
+  choice; it is not needed for correctness.
+
+### Deploy wiring — the S0 pattern (PR #1171)
+
+1. **S6b — staged.** The file and its Drizzle declaration land, with a forward-DDL integration spec
+   that applies the file twice and compares the catalog with `db:push` (the
+   `job-record-store-forward-ddl` precedent). `check-prod-ddl-wiring.py` passes, because a staged
+   file is not under `manual/`. Nothing reaches production.
+2. **S6f — promoted (DevOps, owner A3 go).** Move the file into `drizzle/manual/`, then wire
+   `deploy.yml` the way S0 wired `2026-10-25_job_record_store.sql`:
+   - add the file to the rollback preflight list (a hard requirement);
+   - add an SCP copy step;
+   - apply it with `psql -v ON_ERROR_STOP=1 --single-transaction` **after** the record-store file
+     and **before** `2026-10-18_db_grants.sql`;
+   - the privileges catalog check (`2026-10-18_db_privileges_check.sql`) runs after the grants and
+     must pass;
+   - remove the table from `STAGED_RELATIONS`.
+3. **Order against the code.** The bridged code path (S6d) needs the table only with the flag on.
+   With the flag off it never touches the table, so S6d may merge and deploy **before** S6f. The
+   flag stays off in production until S6f is deployed (Q4).
+
+### DDL rollback
+
+The table is additive and nothing outside the bridge reads it.
+
+- **Code rollback** = flag off. No DDL is touched.
+- **Schema rollback** (owner-run, only after the flag has been off for a full cycle):
+  `DROP TABLE IF EXISTS job_bridge_deliveries; DROP TYPE IF EXISTS job_bridge_status; DROP TYPE IF EXISTS job_bridge_consumer;`
+  — **plus** a reverse commit that removes the file from `deploy.yml` and its preflight list.
+  Otherwise the next deploy re-creates the table.
+- **Loss.** Dropping the table loses any `PENDING` suggestion rows. Section 4's flag-off drain rule
+  is what makes that loss zero.
 
 ## 4. The compatibility barrier and the flag
 
-_(pending)_
+### Decision D-4 (confidence: **HIGH**)
+
+**Flag:** `JOB_QUEUE_BRIDGE_ENABLED`, a boolean in the API env schema (`apps/api/src/config/env.ts`).
+It is parsed with the same `preprocess` as `JOB_MATCH_RECONCILIATION_ENABLED`, `.default(false)`,
+and documented in `.env.example` (DevOps). It is **read once at module construction** and injected
+into `JobSourcingService`; there is no per-request read. The only branch on it is in
+`collectSource`, at the top of the LEGACY path: off → today's body, byte for byte; on → the
+section 1 + 2 path. Nothing else reads it. A spec asserts that the off-branch makes no ledger call
+and no bridge-table query (a recording double, like the compat-barrier harness).
+
+**What "barrier first" means given F8.** Most fixtures already exist. S6a closes the gap, and no
+behaviour slice merges before S6a is green. The barrier = these suites, run **with the flag off AND
+on** (a `describe.each` over the flag, real Postgres for the integration ones):
+
+| Golden behaviour (plan list)                       | Existing pin                                                       | Gap to close in S6a                                                         |
+| -------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| DOU normalisations                                 | `dou-golden.spec.ts` (parse, normalize, truncation, NUL)           | none (pure functions; the flag cannot reach them) — run once                 |
+| fingerprints                                       | `dou-golden.spec.ts` dedupe identity block                         | none — run once                                                             |
+| posting → suggestion decisions                     | `dou-golden.integration.spec.ts` suggestion block                  | flag-on variant                                                             |
+| eligibility / exclusion results                    | both DOU golden specs                                              | flag-on variant                                                             |
+| legacy ranking                                     | `compat-barrier.integration.spec.ts` ranking block                 | flag-on variant                                                             |
+| APPLIED / REJECTED preservation                    | `compat-barrier.integration.spec.ts` purge + re-collection         | flag-on variant                                                             |
+| trigger modes                                      | `compat-barrier.integration.spec.ts`, `due-policy.spec.ts`         | flag-on variant of the integration case                                     |
+| one-unit budget arithmetic                         | `compat-barrier.spec.ts`, budget contention/race specs             | flag-on variant; **plus** "a refused claim spends zero units"                |
+| crash around legacy write / suggestion / checkpoint | none                                                              | new in S6d, flag-on only (section 2 table) — fault injection per crash point |
+
+**Controlled inputs.** Every barrier case uses a fixed clock (the existing `NOW` constants) and
+compares rows by **fingerprint and content**, never by generated `id`. Where an id must be fixed
+(run, cycle), the spec passes it in through the existing `onlyIds` / seam pattern. A
+`gen_random_uuid()` value is never asserted. The flag-on variant compares its row set and counts with
+the flag-off result of the same fixture: **parity is the assertion**, not a second hand-written
+expectation.
+
+**Until S6d lands, the flag-on run is the same code**, so S6a's flag-on variant is green
+trivially. That is the point: it is the harness. From S6c onward every slice must keep both
+variants green, and the `it.todo` in the compat-barrier integration spec is replaced by real cases.
+
+**Flag-off drain rule** (for rollback safety). Before an operator turns the flag off, they run
+one manual DOU collection with the flag still on. Its T3/T4 drains every `PENDING` row. A runbook
+line records it (S6g). If the flag is turned off with rows still pending, those suggestions wait
+until the flag is on again. Nothing is lost — the rows are durable — but they are delayed.
 
 ## 5. Backfill (slice S7)
 
