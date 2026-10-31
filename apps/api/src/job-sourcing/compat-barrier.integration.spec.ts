@@ -21,6 +21,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
 import { DouRssProvider } from './dou.provider'
 import { JobSourcingService, POSTING_RETENTION_DAYS } from './job-sourcing.service'
 import { JobSourceBudgetExhaustedError } from './source-budget.error'
+import { BRIDGE_FLAG_VALUES, bridgeConfig } from './bridge-flag.test-helper'
 
 /**
  * Compatibility barrier (r5 Task 4.6a) — the DB-touching half. Pins, on real SQL and the REAL
@@ -37,9 +38,9 @@ import { JobSourceBudgetExhaustedError } from './source-budget.error'
  * rows have fingerprints no other spec owns (dou-golden.integration.spec.ts cleans up by golden
  * fingerprint; sharing them would race when files run in parallel).
  *
- * QUEUE FLAG: none exists in product code today. These tests prove the legacy path only; the
- * flag-on variant is NOT exercised (see the `it.todo` at the end). Adding it needs the flag wired
- * first (Task 4.6d), it is not a parameter flip.
+ * QUEUE FLAG (S6a): the whole suite runs for `JOB_QUEUE_BRIDGE_ENABLED` off AND on. Until S6c/S6d
+ * the flag-on path is the same code; the parity test at the end compares both variants' stored rows
+ * by fingerprint and content (never by id). The flag-on `it.todo` at the end stays for S6d.
  *
  * Scratch DB only (inline DATABASE_URL, never crm_db). Skipped when DATABASE_URL is unset.
  */
@@ -88,11 +89,14 @@ class FixtureDouProvider extends DouRssProvider {
   }
 }
 
+/** Flag-off snapshot, read by the flag-on parity assertion (describe.each runs false before true). */
+const snapshots = new Map<boolean, unknown>()
+
 const URL_OF = (tail: string) => `https://jobs.dou.ua/companies/${tail}`
 
-describe.skipIf(!hasDatabaseUrl())(
-  'Compat barrier — legacy DOU path, queue flag does not exist yet: real DB',
-  () => {
+describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
+  'Compat barrier — legacy DOU path: real DB (bridge flag %s)',
+  (flagOn) => {
     let pool: Pool
     let dbSvc: DatabaseService
     let service: JobSourcingService
@@ -138,7 +142,12 @@ describe.skipIf(!hasDatabaseUrl())(
       Object.assign(dbSvc, { pool, db })
 
       provider = new FixtureDouProvider()
-      service = new JobSourcingService(dbSvc, new HrAccessService(dbSvc), provider)
+      service = new JobSourcingService(
+        dbSvc,
+        new HrAccessService(dbSvc),
+        provider,
+        bridgeConfig(flagOn),
+      )
 
       await db
         .insert(users)
@@ -476,6 +485,83 @@ describe.skipIf(!hasDatabaseUrl())(
         await dbSvc.db.delete(jobSources).where(eq(jobSources.id, neighbour!.id))
       }
     })
+
+    /**
+     * What a collection over the golden feed leaves behind, keyed by FINGERPRINT and content --
+     * never by generated id. Both flag variants record theirs; the flag-on variant's assertion IS
+     * the comparison with the flag-off result of the same fixture (parity).
+     */
+    async function collectionSnapshot() {
+      const result = await service.collectSource(source)
+      const postings = (await myPostings())
+        .map((p) => ({
+          fingerprint: p.fingerprint,
+          externalId: p.externalId,
+          url: p.url,
+          title: p.title,
+          companyName: p.companyName,
+          location: p.location,
+          descriptionMd: p.descriptionMd,
+          publishedAt: p.publishedAt?.toISOString() ?? null,
+        }))
+        .sort((a, b) => a.fingerprint.localeCompare(b.fingerprint))
+      const byId = new Map((await myPostings()).map((p) => [p.id, p.fingerprint]))
+      const suggestions = (
+        await dbSvc.db
+          .select({
+            seniorId: jobSuggestions.seniorId,
+            postingId: jobSuggestions.postingId,
+            status: jobSuggestions.status,
+          })
+          .from(jobSuggestions)
+          .where(inArray(jobSuggestions.seniorId, SENIOR_IDS))
+      )
+        .map((s) => `${s.seniorId}|${byId.get(s.postingId) ?? 'unknown'}|${s.status}`)
+        .sort()
+      const row = await sourceRow()
+      return { result, postings, suggestions, budgetUsed: row.budgetUsed }
+    }
+
+    it('PARITY: a collection over the golden feed leaves the same postings, suggestions and counts under flag off and on', async () => {
+      const snapshot = await collectionSnapshot()
+      expect(snapshot.postings.length).toBeGreaterThan(0)
+      expect(snapshot.suggestions.length).toBeGreaterThan(0)
+      snapshots.set(flagOn, snapshot)
+    })
+
+    it.runIf(flagOn)(
+      'PARITY: the flag-on snapshot equals the flag-off snapshot of the same fixture',
+      () => {
+        const off = snapshots.get(false)
+        expect(off, 'the flag-off variant of this fixture must have run first').toBeDefined()
+        expect(snapshots.get(true)).toEqual(off)
+      },
+    )
+
+    if (!flagOn) {
+      it('flag OFF: two concurrent collections of one source BOTH proceed -- two fetches, two units, one set of postings', async () => {
+        await dbSvc.db
+          .update(jobSources)
+          .set({ budgetLimit: 5, budgetWindow: 'MONTH' })
+          .where(eq(jobSources.id, SOURCE_ID))
+
+        const results = await Promise.allSettled([
+          service.collectSource(await sourceRow()),
+          service.collectSource(await sourceRow()),
+        ])
+
+        expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled'])
+        expect(provider.fetchCalls).toBe(2)
+        expect((await sourceRow()).budgetUsed).toBe(2)
+        // Both runs wrote the same fingerprints: the unique key left exactly one row each.
+        const fingerprints = (await myPostings()).map((p) => p.fingerprint)
+        expect(new Set(fingerprints).size).toBe(fingerprints.length)
+      })
+    } else {
+      it.todo(
+        'flag ON: two concurrent collections of one source -> the second throws JobSourceRunBusyError and spends zero units (S6c/S6d)',
+      )
+    }
 
     it.todo('flag-on variant: add when the queue flag is wired (Task 4.6d)')
   },
