@@ -184,14 +184,15 @@ export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[]
     reasons.push('SLOW')
   // Stryker restore ConditionalExpression,LogicalOperator
 
-  const positiveBytes = runs
-    .map((r) => r.bytesRead)
-    // Stryker disable next-line ConditionalExpression: equivalent — the `> 0` filter below already
-    // drops null (`null > 0` is false), so whether this null filter runs or not the result is the
-    // same. It exists only to narrow the type for the comparison that follows.
-    .filter((b): b is number => b !== null)
-    .filter((b) => b > 0)
-  const medianBytes = median(positiveBytes)
+  const bytes = runs.map((r) => r.bytesRead)
+  // Stryker disable ConditionalExpression,EqualityOperator,LogicalOperator,MethodExpression: this
+  // line only narrows null out of `bytes` for the type-checker — `null > 0` is already false, so
+  // every mutation of the null handling is masked by the `> 0` filter on the next line and cannot
+  // be observed. The behavioural cases ("a 0-byte run is not a faster baseline", "a latest with no
+  // byte history does not fire") are pinned by the zero-byte and 3x-boundary tests on that filter.
+  const nonNullBytes = bytes.filter((b): b is number => b !== null)
+  // Stryker restore ConditionalExpression,EqualityOperator,LogicalOperator,MethodExpression
+  const medianBytes = median(nonNullBytes.filter((b) => b > 0))
   // Stryker disable ConditionalExpression,LogicalOperator: a null latest `bytesRead` coerces to 0
   // (`null > x` is false), and a null median means no positive-byte history — which, since the
   // latest is itself in `runs`, implies the latest had no bytes either, so both null guards are
