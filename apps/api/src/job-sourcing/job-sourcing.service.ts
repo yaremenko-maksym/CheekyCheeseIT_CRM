@@ -181,7 +181,7 @@ export class JobSourcingService {
   ) {
     this.registry = resolveRegistry(adapters)
     // Read ONCE, at construction (never per request). Absent ConfigService (hand-built specs) = OFF.
-    this.queueBridgeEnabled = config?.get('JOB_QUEUE_BRIDGE_ENABLED', { infer: true }) === true
+    this.queueBridgeEnabled = config?.get('JOB_QUEUE_BRIDGE_ENABLED') === true
   }
 
   /**
