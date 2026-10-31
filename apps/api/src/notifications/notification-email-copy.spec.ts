@@ -541,6 +541,36 @@ describe.each(LOCALES)('%s: ветки, которых в таблице эта�
     expect(mail.text).toBe(`${want.line1}\n${want.line2}\n\n${want.button}: ${mail.buttonHref}`)
   })
 
+  it('SOURCE_HEALTH_WEEKLY_REPORT: свіжість названа лише коли є ОБИДВІ цифри', () => {
+    const row = {
+      name: 'remotive_api',
+      state: 'HEALTHY',
+      transitions: 0,
+      runs: 1,
+      requests: 1,
+      bytes: 0,
+    }
+    for (const [p50, p90] of [
+      [null, 95],
+      [12, null],
+    ]) {
+      const mail = renderWith(
+        {
+          ...sourceFor('SOURCE_HEALTH_WEEKLY_REPORT'),
+          data: {
+            weekStart: '2026-10-26',
+            sources: [{ ...row, freshnessP50Min: p50, freshnessP90Min: p90 }],
+          },
+        },
+        locale,
+      )
+      expect(mail.text).not.toContain('null')
+      expect(mail.text).toContain(
+        locale === 'uk' ? 'свіжість не вимірюється' : 'freshness not measurable',
+      )
+    }
+  })
+
   it('валидированный доход — своя тема и своё тело', () => {
     const mail = renderWith(
       {

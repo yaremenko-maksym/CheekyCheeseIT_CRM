@@ -30,7 +30,8 @@ export function alertStateOf(ref: StateRef): AlertState | null {
 /** The state entered, or `null` when this transition is not an entry into an alerting state. */
 export function isAlertEntry(from: StateRef, to: StateRef): AlertState | null {
   const entered = alertStateOf(to)
-  return entered !== null && alertStateOf(from) !== entered ? entered : null
+  if (entered === null) return null
+  return alertStateOf(from) === entered ? null : entered
 }
 
 /** `earlierAlertsToday` = alerting entries of the same source earlier in the same Kyiv day. */

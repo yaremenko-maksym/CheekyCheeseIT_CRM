@@ -1,8 +1,13 @@
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 import { NOTIFICATION_TITLES } from '@crm/shared'
 import type { DrizzleTx } from '../../database/types'
 import type { NotificationsService } from '../../notifications/notifications.service'
-import { SourceHealthAlertService, type AlertTransition } from './source-health-alert.service'
+import {
+  earlierEventsTodaySql,
+  SourceHealthAlertService,
+  type AlertTransition,
+} from './source-health-alert.service'
 
 /**
  * Unit seam: what the service hands to `NotificationsService` (who, what, with or without email).
@@ -25,16 +30,19 @@ function transition(over: Partial<AlertTransition> = {}): AlertTransition {
 }
 
 function harness(
-  opts: { admins?: string[]; earlier?: { prev: string | null; to: string }[] } = {},
+  opts: {
+    admins?: string[]
+    earlier?: { prev: string | null; to: string; prevReason?: string; reason?: string }[]
+  } = {},
 ) {
   const admins = (opts.admins ?? [ADMIN_A, ADMIN_B]).map((id) => ({ id }))
   const where = vi.fn().mockResolvedValue(admins)
   const execute = vi.fn().mockResolvedValue({
     rows: (opts.earlier ?? []).map((e) => ({
       prev_state: e.prev,
-      prev_reason: null,
+      prev_reason: e.prevReason ?? null,
       to_state: e.to,
-      reason_code: null,
+      reason_code: e.reason ?? null,
     })),
   })
   const tx = { select: () => ({ from: () => ({ where }) }), execute } as unknown as DrizzleTx
@@ -121,6 +129,53 @@ describe('SourceHealthAlertService.alertOnTransition', () => {
     })
     await h.service.alertOnTransition(h.tx, transition())
     expect(h.createManyInTx.mock.calls[0]![1][0].skipEmail).toBe(false)
+  })
+
+  it('a reason-only change inside one state is not an entry, so it never uses up the email budget', async () => {
+    const reasonOnly = { prev: 'FAILING', to: 'FAILING', reason: 'ACCESS_CHANGED' }
+    const h = harness({ earlier: [reasonOnly, reasonOnly, reasonOnly] })
+    await h.service.alertOnTransition(h.tx, transition())
+    expect(h.createManyInTx.mock.calls[0]![1][0].skipEmail).toBe(false)
+  })
+
+  it('DEGRADED counts as an entry only when it ENTERS the SCHEMA_DRIFT reason', async () => {
+    const drift = {
+      prev: 'DEGRADED',
+      prevReason: 'SLOW',
+      to: 'DEGRADED',
+      reason: 'SCHEMA_DRIFT',
+    }
+    const exitDrift = {
+      prev: 'DEGRADED',
+      prevReason: 'SCHEMA_DRIFT',
+      to: 'DEGRADED',
+      reason: 'SLOW',
+    }
+    const used = harness({ earlier: [drift, exitDrift, drift, exitDrift, drift, exitDrift] })
+    await used.service.alertOnTransition(used.tx, transition())
+    expect(used.createManyInTx.mock.calls[0]![1][0].skipEmail).toBe(true)
+
+    const unused = harness({ earlier: [exitDrift, exitDrift, exitDrift, exitDrift] })
+    await unused.service.alertOnTransition(unused.tx, transition())
+    expect(unused.createManyInTx.mock.calls[0]![1][0].skipEmail).toBe(false)
+  })
+
+  it('reads the earlier events of this source on the Kyiv day, this event excluded (statement pinned)', () => {
+    const t = transition()
+    const q = new PgDialect().sqlToQuery(earlierEventsTodaySql(t))
+    expect(q.params).toEqual([t.sourceId, t.at, t.eventId, 'Europe/Kyiv', t.at, 'Europe/Kyiv'])
+    for (const fragment of [
+      'FROM job_source_health_events',
+      "kind = 'TRANSITION'",
+      'lag(to_state) OVER w AS prev_state',
+      'lag(reason_code) OVER w AS prev_reason',
+      'WINDOW w AS (ORDER BY at, id)',
+      'at <= $2',
+      'id <> $3',
+      '(at AT TIME ZONE $4)::date = ($5::timestamptz AT TIME ZONE $6)::date',
+    ]) {
+      expect(q.sql, fragment).toContain(fragment)
+    }
   })
 
   it('sends to no one when there is no active admin (the query already excludes archived users)', async () => {

@@ -6,7 +6,7 @@
  * event and its alerts commit together. What it decides, in order:
  *  1. is this transition an ENTRY into an alerting state (`isAlertEntry`)? A source that stays in
  *     the state writes no event at all, so it never reaches here;
- *  2. who: active ADMIN users only (`role = 'ADMIN'`, not archived);
+ *  2. who: active ADMIN users only (`activeAdminIds`);
  *  3. email or in-app only: at most 3 alert emails per source per Kyiv day, counted from the event
  *     log itself (the alerting entries of this source earlier the same Kyiv day), so no counter
  *     can drift from the log.
@@ -15,11 +15,11 @@
  * and reported, and never rolls back the health event.
  */
 import { Inject, Injectable } from '@nestjs/common'
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { sql, type SQL } from 'drizzle-orm'
 import { NOTIFICATION_TITLES } from '@crm/shared'
-import { users } from '../../database/schema'
 import type { DrizzleTx } from '../../database/types'
 import { NotificationsService } from '../../notifications/notifications.service'
+import { activeAdminIds } from './active-admins'
 import { emailBudgetLeft, isAlertEntry, type StateRef } from './health-alert-policy'
 
 export interface AlertTransition {
@@ -34,6 +34,28 @@ export interface AlertTransition {
 
 const KYIV = 'Europe/Kyiv'
 
+/**
+ * The earlier TRANSITION events of this source on the Kyiv day of `t.at` (this event excluded),
+ * each with the `(state, reason)` it came from. The log stores only the reason of the state an
+ * event entered, so the previous reason comes from `lag()` over the source's own history.
+ * Exported so a unit spec can pin the statement; its behaviour is
+ * `source-health-alerts.integration.spec.ts`.
+ */
+export function earlierEventsTodaySql(t: AlertTransition): SQL {
+  return sql`
+    SELECT prev_state, prev_reason, to_state, reason_code
+      FROM (
+        SELECT id, at, to_state, reason_code,
+               lag(to_state) OVER w AS prev_state,
+               lag(reason_code) OVER w AS prev_reason
+          FROM job_source_health_events
+         WHERE source_id = ${t.sourceId} AND kind = 'TRANSITION' AND at <= ${t.at}
+        WINDOW w AS (ORDER BY at, id)
+      ) e
+     WHERE id <> ${t.eventId}
+       AND (at AT TIME ZONE ${KYIV})::date = (${t.at}::timestamptz AT TIME ZONE ${KYIV})::date`
+}
+
 @Injectable()
 export class SourceHealthAlertService {
   // Explicit token: the test transformer emits no `design:paramtypes`.
@@ -45,14 +67,11 @@ export class SourceHealthAlertService {
     if (entered === null) return
     await this.notifications.emitInTx(tx, async (sp) => {
       const emailAllowed = emailBudgetLeft(await this.earlierEntriesToday(sp, t))
-      const admins = await sp
-        .select({ id: users.id })
-        .from(users)
-        .where(and(eq(users.role, 'ADMIN'), isNull(users.archivedAt)))
+      const admins = await activeAdminIds(sp)
       await this.notifications.createManyInTx(
         sp,
-        admins.map((a) => ({
-          userId: a.id,
+        admins.map((userId) => ({
+          userId,
           type: 'SOURCE_HEALTH_ALERT' as const,
           title: NOTIFICATION_TITLES.SOURCE_HEALTH_ALERT,
           data: { sourceName: t.sourceName, state: entered },
@@ -64,24 +83,8 @@ export class SourceHealthAlertService {
     })
   }
 
-  /**
-   * Alerting entries of this source EARLIER in the Kyiv day of `t.at` (this event excluded). Each
-   * earlier event's previous `(state, reason)` comes from the log with `lag()`, because the log
-   * stores only the reason of the state it entered.
-   */
   private async earlierEntriesToday(sp: DrizzleTx, t: AlertTransition): Promise<number> {
-    const result = await sp.execute(sql`
-      SELECT id, prev_state, prev_reason, to_state, reason_code
-        FROM (
-          SELECT id, at, to_state, reason_code,
-                 lag(to_state) OVER w AS prev_state,
-                 lag(reason_code) OVER w AS prev_reason
-            FROM job_source_health_events
-           WHERE source_id = ${t.sourceId} AND kind = 'TRANSITION' AND at <= ${t.at}
-          WINDOW w AS (ORDER BY at, id)
-        ) e
-       WHERE id <> ${t.eventId}
-         AND (at AT TIME ZONE ${KYIV})::date = (${t.at}::timestamptz AT TIME ZONE ${KYIV})::date`)
+    const result = await sp.execute(earlierEventsTodaySql(t))
     return result.rows.filter((row) => {
       const r = row as Record<string, string | null>
       return (
