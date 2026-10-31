@@ -184,9 +184,14 @@ export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[]
     reasons.push('SLOW')
   // Stryker restore ConditionalExpression,LogicalOperator
 
-  const medianBytes = median(
-    runs.map((r) => r.bytesRead).filter((b): b is number => b !== null && b > 0),
-  )
+  const positiveBytes = runs
+    .map((r) => r.bytesRead)
+    // Stryker disable next-line ConditionalExpression: equivalent — the `> 0` filter below already
+    // drops null (`null > 0` is false), so whether this null filter runs or not the result is the
+    // same. It exists only to narrow the type for the comparison that follows.
+    .filter((b): b is number => b !== null)
+    .filter((b) => b > 0)
+  const medianBytes = median(positiveBytes)
   // Stryker disable ConditionalExpression,LogicalOperator: a null latest `bytesRead` coerces to 0
   // (`null > x` is false), and a null median means no positive-byte history — which, since the
   // latest is itself in `runs`, implies the latest had no bytes either, so both null guards are

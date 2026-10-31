@@ -19,9 +19,15 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { and, desc, eq, gte, inArray } from 'drizzle-orm'
 import { DatabaseService } from '../../database/database.service'
-import { jobCollectionRuns } from '../../database/schema/job-collection'
-import { jobSourceHealthEvents } from '../../database/schema/job-health'
-import { jobSourceHosts, jobSources } from '../../database/schema/job-sourcing'
+// Import schema tables through the barrel, never the individual modules: a single schema file
+// imported out of order triggers the `public` circular-init (`transactions.deletedAt` undefined),
+// which broke job-sourcing.cron.spec once this service was wired into the cron.
+import {
+  jobCollectionRuns,
+  jobSourceHealthEvents,
+  jobSourceHosts,
+  jobSources,
+} from '../../database/schema'
 import { MAX_CONSECUTIVE_FAILURES } from '../scheduling/due-policy'
 import { classifyHealth } from './classify-health'
 import { runDetectors } from './detectors'
