@@ -25,7 +25,7 @@ import {
   loadOpportunity,
   loadRoster,
 } from './recompute-inputs'
-import { fanOutDirty } from './roster-fanout'
+import { type FanoutOptions, fanOutDirty } from './roster-fanout'
 
 /**
  * The dirty-work recompute consumer (r5 Task 4.6 S4a). One `runOnce` claims a batch through the
@@ -282,14 +282,14 @@ function recomputeOpportunity(
 }
 
 /** The real port: the S3 store, the canonical store and the recompute inputs. */
-export function createRecomputeSteps(db: MeterDb): RecomputeSteps {
+export function createRecomputeSteps(db: MeterDb, fanout: FanoutOptions = {}): RecomputeSteps {
   return {
     claim: (owner, batchSize) => claimDirtyBatch(db, { owner, batchSize }),
     process: (work, batch) => {
       if (work.entityKind === 'SOURCE_RECORD') return resolveSourceRecord(db, work)
       if (work.entityKind === 'OPPORTUNITY') return recomputeOpportunity(db, work, batch)
       // SENIOR / EXCLUSION / PROJECT_CLIENT (S5): enqueue the opportunities, then complete.
-      return inTx(db, async (tx) => (await fanOutDirty(tx, work)).outcome)
+      return inTx(db, async (tx) => (await fanOutDirty(tx, work, fanout)).outcome)
     },
     fail: (work, code, opts) => failDirty(db, work, code, opts),
   }

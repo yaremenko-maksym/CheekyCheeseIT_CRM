@@ -54,6 +54,12 @@ export function fanoutCursor(work: Pick<ClaimedDirtyWork, 'id' | 'reason'>): {
   return { root: work.id, after: NIL_UUID }
 }
 
+export interface FanoutOptions {
+  readonly pageSize?: number
+  /** Fan out only to these opportunities (a scoped run; tests use it so they touch nothing else). */
+  readonly onlyIds?: readonly string[]
+}
+
 export interface FanoutResult {
   readonly outcome: CompleteOutcome
   readonly enqueued: number
@@ -65,15 +71,18 @@ export interface FanoutResult {
 export async function fanOutDirty(
   tx: SqlExecutor,
   work: ClaimedDirtyWork,
-  pageSize = FANOUT_PAGE_SIZE,
+  opts: FanoutOptions = {},
 ): Promise<FanoutResult> {
+  const pageSize = opts.pageSize ?? FANOUT_PAGE_SIZE
   const current = await currentDerivedVersion(tx, work.entityKind, work.entityId)
   if (current !== work.targetVersion)
     return { outcome: await completeDirty(tx, work), enqueued: 0, skipped: 0, continued: false }
   const { root, after } = fanoutCursor(work)
   const { rows } = await tx.execute(
     sql`SELECT id::text AS id, revision FROM job_opportunities
-         WHERE id > ${after}::uuid ORDER BY id LIMIT ${pageSize}`,
+         WHERE id > ${after}::uuid
+           ${opts.onlyIds === undefined ? sql`` : sql`AND id = ANY(${[...opts.onlyIds]}::uuid[])`}
+         ORDER BY id LIMIT ${pageSize}`,
   )
   let enqueued = 0
   let skipped = 0
