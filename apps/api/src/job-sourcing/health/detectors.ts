@@ -173,29 +173,31 @@ export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[]
   // `runs` are finished, so every duration is a number (no null branch to leave untested).
   const duration = (r: RunFact): number => r.endedAt!.getTime() - r.startedAt.getTime()
   const medianDuration = median(runs.map(duration).filter((d) => d > 0))
-  // Stryker disable next-line ConditionalExpression,LogicalOperator: a null median means no
-  // positive-duration history, and then the latest run's own duration is 0 too, so the guard's
-  // bypass yields `0 > 0` = false — no observable effect. Only the `>` comparison is behavioural,
-  // and it is pinned by the 3x-boundary and zero-duration tests.
+  // Stryker disable ConditionalExpression,LogicalOperator: a null median means no positive-duration
+  // history, and then the latest run's own duration is 0 too, so bypassing the null guard yields
+  // `0 > 0` = false — no observable effect. Only the `>` comparison is behavioural, and it is pinned
+  // by the 3x-boundary and zero-duration tests. (A block, not `next-line`: prettier re-wraps the if.)
   if (
     medianDuration !== null &&
     duration(latest) > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianDuration
   )
     reasons.push('SLOW')
+  // Stryker restore ConditionalExpression,LogicalOperator
 
   const medianBytes = median(
     runs.map((r) => r.bytesRead).filter((b): b is number => b !== null && b > 0),
   )
-  // Stryker disable next-line ConditionalExpression,LogicalOperator: a null latest `bytesRead`
-  // coerces to 0 (`null > x` is false), and a null median means no positive-byte history — which,
-  // since the latest is itself in `runs`, implies the latest had no bytes either, so both null
-  // guards are unobservable. The `>` comparison is behavioural and is pinned by a test.
+  // Stryker disable ConditionalExpression,LogicalOperator: a null latest `bytesRead` coerces to 0
+  // (`null > x` is false), and a null median means no positive-byte history — which, since the
+  // latest is itself in `runs`, implies the latest had no bytes either, so both null guards are
+  // unobservable. The `>` comparison is behavioural and is pinned by a test.
   if (
     latest.bytesRead !== null &&
     medianBytes !== null &&
     latest.bytesRead > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianBytes
   )
     reasons.push('PAYLOAD_GROWTH')
+  // Stryker restore ConditionalExpression,LogicalOperator
   return reasons
 }
 
@@ -209,9 +211,10 @@ export function detectStaleFeed(s: HealthSnapshot): readonly HealthReason[] {
     .map((r) => r.newestItemPublishedAt)
     .filter((d): d is Date => d !== null)
   if (seen.length === 0) return []
-  // The freshest item across every run (no null-seeded accumulator — `seen` is non-empty).
-  const newest = seen.reduce((a, b) => (a > b ? a : b))
-  return s.now.getTime() - newest.getTime() > s.freshnessMaxAgeMs ? ['STALE_FEED'] : []
+  // The freshest item across every run — `Math.max` over the instants, so there is no comparison
+  // operator to leave half-tested (`seen` is non-empty).
+  const newest = Math.max(...seen.map((d) => d.getTime()))
+  return s.now.getTime() - newest > s.freshnessMaxAgeMs ? ['STALE_FEED'] : []
 }
 
 /**

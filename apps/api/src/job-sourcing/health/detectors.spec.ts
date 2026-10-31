@@ -266,6 +266,16 @@ describe('detectFormatDrift', () => {
     ).toEqual([])
   })
 
+  it('compares only the fingerprinted runs: a null-fingerprint run between two equal ones is skipped', () => {
+    // Without the `!== null` filter the leading null would read as a change against 'a'.
+    const runs = [
+      run({ startedAt: NOW, envelopeFingerprint: null }),
+      run({ startedAt: new Date(NOW.getTime() - DAY_MS), envelopeFingerprint: 'a'.repeat(64) }),
+      run({ startedAt: new Date(NOW.getTime() - 2 * DAY_MS), envelopeFingerprint: 'a'.repeat(64) }),
+    ]
+    expect(detectFormatDrift(snap(runs))).toEqual([])
+  })
+
   it('does not fire on a clean run, and does not fire with no runs', () => {
     expect(detectFormatDrift(snap([run({ startedAt: NOW, received: 100, invalid: 2 })]))).toEqual(
       [],
