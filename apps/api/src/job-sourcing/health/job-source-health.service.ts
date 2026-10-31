@@ -17,7 +17,6 @@
  * reason that reads only run data — including `EMPTY_RESPONSE` and its 304 rule (AC 4) — does.
  */
 import { Injectable, Logger } from '@nestjs/common'
-import { jobSourceTypeSchema } from '@crm/shared'
 import { and, desc, eq, gte, inArray } from 'drizzle-orm'
 import { DatabaseService } from '../../database/database.service'
 import { jobCollectionRuns } from '../../database/schema/job-collection'
@@ -26,16 +25,12 @@ import { jobSourceHosts, jobSources } from '../../database/schema/job-sourcing'
 import { MAX_CONSECUTIVE_FAILURES } from '../scheduling/due-policy'
 import { classifyHealth } from './classify-health'
 import { runDetectors } from './detectors'
+import { REPORTING_TYPES } from './reporting-types'
 import type { HealthSnapshot, HealthStateFacts, RunFact } from './types'
 
 const WINDOW_DAYS = 14
 const DAY_MS = 86_400_000
 const ERROR_SAMPLE_MAX = 500
-
-/** The reporting (ledger-driven) source types: every API type but the legacy DOU and the HTML set. */
-const REPORTING_TYPES = jobSourceTypeSchema.options.filter(
-  (t) => !t.endsWith('_HTML') && t !== 'DOU_RSS',
-)
 
 /** A run row as the pass reads it: the detector fields plus the provenance the event records. */
 interface PassRun extends RunFact {

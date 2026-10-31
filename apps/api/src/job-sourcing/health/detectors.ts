@@ -95,8 +95,9 @@ export function detectSilence(s: HealthSnapshot): readonly HealthReason[] {
   for (let i = 0; i < withCreated.length - 1; i++) {
     gaps.push(withCreated[i]!.startedAt.getTime() - withCreated[i + 1]!.startedAt.getTime())
   }
-  const medianGap = median(gaps)
-  if (medianGap === null || medianGap <= 0) return []
+  // `withCreated.length >= 2` guarantees at least one gap, so the median is a number.
+  const medianGap = median(gaps)!
+  if (medianGap <= 0) return []
   const sinceLastNew = s.now.getTime() - withCreated[0]!.startedAt.getTime()
   const stillReceiving = runs.some((r) => r.received > 0)
   return sinceLastNew > HEALTH_THRESHOLDS.silenceGapMultiple * medianGap && stillReceiving
@@ -159,14 +160,12 @@ export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[]
   if (latest === undefined) return []
   const reasons: HealthReason[] = []
 
-  const latestDuration = durationMs(latest)
-  const medianDuration = median(
-    runs.map(durationMs).filter((d): d is number => d !== null && d > 0),
-  )
+  // `runs` are finished, so every duration is a number (no null branch to leave untested).
+  const duration = (r: RunFact): number => r.endedAt!.getTime() - r.startedAt.getTime()
+  const medianDuration = median(runs.map(duration).filter((d) => d > 0))
   if (
-    latestDuration !== null &&
     medianDuration !== null &&
-    latestDuration > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianDuration
+    duration(latest) > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianDuration
   ) {
     reasons.push('SLOW')
   }

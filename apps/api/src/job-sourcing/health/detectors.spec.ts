@@ -457,6 +457,72 @@ describe('detectDeadlineNear', () => {
   })
 })
 
+describe('detector boundaries and guards', () => {
+  it('volume drop counts a run from 23h ago toward today (the 24h window), excluding 25h ago', () => {
+    // Baseline 100 (past Thursdays). Today: a small run now + a big run 23h ago. Both are inside
+    // 24h, so the volume is high and it must NOT fire. If the 24h window shrank, the 23h run would
+    // drop out and it would falsely fire.
+    const pastThursdays = Array.from({ length: 10 }, (_, i) =>
+      run({ startedAt: new Date(NOW.getTime() - (i + 1) * DAY_MS), received: 100 }),
+    )
+    const today = run({ startedAt: NOW, received: 5 })
+    const bigWithin24h = run({
+      startedAt: new Date(NOW.getTime() - 23 * 3_600_000),
+      received: 1_000,
+    })
+    expect(detectVolumeDrop(snap([today, bigWithin24h, ...pastThursdays]))).toEqual([])
+  })
+
+  it('silence does not fire when the median gap between new items is zero', () => {
+    // Two new-item runs at the SAME instant → gap 0 → not a measurable cadence.
+    const sameInstant = new Date(NOW.getTime() - 5 * DAY_MS)
+    const runs = [
+      run({ startedAt: sameInstant, created: 2, received: 40 }),
+      run({ startedAt: sameInstant, created: 2, received: 40 }),
+    ]
+    expect(detectSilence(snap(runs))).toEqual([])
+  })
+
+  it('silence fires even when one recent run received nothing (some, not every, must receive)', () => {
+    const newItemRuns = [10, 11, 12].map((d) =>
+      run({ startedAt: new Date(NOW.getTime() - d * DAY_MS), created: 3, received: 50 }),
+    )
+    const recent = [
+      run({ startedAt: new Date(NOW.getTime() - DAY_MS), created: 0, received: 0 }),
+      run({ startedAt: new Date(NOW.getTime() - 2 * DAY_MS), created: 0, received: 40 }),
+    ]
+    expect(detectSilence(snap([...recent, ...newItemRuns]))).toContain('NO_NEW_ITEMS')
+  })
+
+  it('slowdown does not fire when no run has a positive duration', () => {
+    const instant = daily(6).map((r) => ({ ...r, endedAt: r.startedAt, bytesRead: 1_000 }))
+    expect(detectSlowdownGrowth(snap(instant))).not.toContain('SLOW')
+  })
+
+  it('stale fires on the freshest of several old items, not only the latest run', () => {
+    // Two runs, both older than the allowance; the newer-of-the-two still breaches it → stale.
+    const runs = [
+      run({ startedAt: NOW, newestItemPublishedAt: new Date(NOW.getTime() - 5 * DAY_MS) }),
+      run({
+        startedAt: new Date(NOW.getTime() - DAY_MS),
+        newestItemPublishedAt: new Date(NOW.getTime() - 3 * DAY_MS),
+      }),
+    ]
+    expect(detectStaleFeed(snap(runs, { freshnessMaxAgeMs: DAY_MS }))).toContain('STALE_FEED')
+  })
+
+  it('empty answer fires on the two most recent empties over a non-empty median', () => {
+    const runs = [
+      run({ startedAt: NOW, received: 0 }),
+      run({ startedAt: new Date(NOW.getTime() - DAY_MS), received: 0 }),
+      run({ startedAt: new Date(NOW.getTime() - 2 * DAY_MS), received: 80 }),
+      run({ startedAt: new Date(NOW.getTime() - 3 * DAY_MS), received: 80 }),
+      run({ startedAt: new Date(NOW.getTime() - 4 * DAY_MS), received: 80 }),
+    ]
+    expect(detectEmptyResponse(snap(runs))).toContain('EMPTY_RESPONSE')
+  })
+})
+
 describe('runDetectors', () => {
   it('returns the distinct union of fired reasons', () => {
     const runs = [
