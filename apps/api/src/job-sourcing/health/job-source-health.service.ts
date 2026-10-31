@@ -180,7 +180,7 @@ export class JobSourceHealthService {
         // The metric values against the baseline, plus the reasons and run ids (ADR section 10).
         // Small by construction (a handful of short codes + a few scalars), so always within the
         // 8192-char evidence CHECK; no truncation branch to leave untested.
-        evidence: buildEvidence(runs, facts.reasons, source.consecutiveFailures),
+        evidence: buildEvidence(runs, facts.reasons, source.consecutiveFailures, now),
         firstBadRunId: firstBadRunId(runs),
         lastGoodRunId: lastGoodRunId(runs),
         adapterVersion: latestRun?.adapterVersion ?? null,
