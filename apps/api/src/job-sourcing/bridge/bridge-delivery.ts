@@ -51,6 +51,9 @@ export function isTerminalDeliveryError(err: unknown): boolean {
  * table's `ck_job_bridge_legacy_only` CHECK (`provider = 'DOU_RSS'`). When a second legacy source
  * ships, this set and that CHECK relax together.
  */
+// Stryker disable next-line StringLiteral,ArrayDeclaration: the DOU-only membership is enforced
+// against a real DB — bridge-delivery.integration asserts both a valid DOU run enqueues/drains AND
+// (SR-M-1) a contaminated run is refused; the unit gate cannot run those (mutation-gate-integration-specs.md).
 const LEGACY_BRIDGE_PROVIDERS: ReadonlySet<JobSourceType> = new Set<JobSourceType>(['DOU_RSS'])
 
 /** SR-M-1: the table boundary was handed a run that is not a LEGACY run of the claimed source. */

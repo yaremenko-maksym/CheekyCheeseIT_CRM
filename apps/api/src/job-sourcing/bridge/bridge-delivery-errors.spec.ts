@@ -49,7 +49,18 @@ describe('isTerminalDeliveryError (CR-M-1)', () => {
   })
 
   it('marks the unresolvable-posting dead end terminal', () => {
-    expect(isTerminalDeliveryError(new PostingUnresolvableError('fp-x'))).toBe(true)
+    const err = new PostingUnresolvableError('fp-x')
+    expect(isTerminalDeliveryError(err)).toBe(true)
+    expect(err.name).toBe('PostingUnresolvableError')
+    expect(err.message).toContain('fp-x')
+    expect(err.message).toContain('neither created nor found')
+  })
+
+  it('fencing wins even when the error also carries a pg constraint cause (re-throw, not INVALID)', () => {
+    // The `isRunFenced` branch must short-circuit BEFORE the pg-class check: a lost-lease error whose
+    // cause happens to be a 23xxx must still be re-thrown (PENDING), never terminally dropped.
+    const fencedWithPgCause = Object.assign(new RunFencedError(), { cause: pgError('23505') })
+    expect(isTerminalDeliveryError(fencedWithPgCause)).toBe(false)
   })
 
   it('does NOT mark a transient infrastructure fault terminal — it must be retried', () => {
