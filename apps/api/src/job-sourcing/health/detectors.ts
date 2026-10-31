@@ -74,6 +74,9 @@ export function detectVolumeDrop(s: HealthSnapshot): readonly HealthReason[] {
     .filter(([key, v]) => key !== todayKey && v.weekday === todayWeekday)
     .map(([, v]) => v.received)
   const baseline = median(sameWeekdayPast)
+  // Stryker disable next-line all: a readability guard with no observable effect — a null or
+  // non-positive baseline already yields [] at the comparison below (0.3 * null === 0 in JS, and
+  // received24h is a sum of non-negative counts, so `received24h < 0` is false either way).
   if (baseline === null || baseline <= 0) return []
 
   const received24h = runs
@@ -89,12 +92,14 @@ export function detectVolumeDrop(s: HealthSnapshot): readonly HealthReason[] {
 export function detectSilence(s: HealthSnapshot): readonly HealthReason[] {
   const runs = answered(s)
   const withCreated = runs.filter((r) => r.created > 0)
+  // Stryker disable next-line ConditionalExpression: with fewer than two new-item runs the gap
+  // list below is empty and the `medianGap <= 0` guard returns [] regardless, so skipping this
+  // early return changes nothing; it is kept because reading `withCreated[0]` later assumes a run.
   if (withCreated.length < 2) return []
-  // newest first; gaps between consecutive new-item runs.
-  const gaps: number[] = []
-  for (let i = 0; i < withCreated.length - 1; i++) {
-    gaps.push(withCreated[i]!.startedAt.getTime() - withCreated[i + 1]!.startedAt.getTime())
-  }
+  // newest first; the gap between each consecutive pair of new-item runs.
+  const gaps = withCreated
+    .slice(0, -1)
+    .map((r, i) => r.startedAt.getTime() - withCreated[i + 1]!.startedAt.getTime())
   // `withCreated.length >= 2` guarantees at least one gap, so the median is a number.
   const medianGap = median(gaps)!
   if (medianGap <= 0) return []
@@ -111,6 +116,10 @@ export function detectSilence(s: HealthSnapshot): readonly HealthReason[] {
  */
 export function detectEmptyResponse(s: HealthSnapshot): readonly HealthReason[] {
   const base = answered(s).filter((r) => !isNotModified(r))
+  // Stryker disable next-line ConditionalExpression,EqualityOperator: EMPTY_RESPONSE can only fire
+  // when the 14-day median is above 0, which needs at least one non-empty run in addition to the two
+  // recent empties — so firing always has base.length >= 3 and this length-2 boundary is never the
+  // deciding factor; the guard stays only to bound `.slice(0, 2)` meaningfully.
   if (base.length < HEALTH_THRESHOLDS.emptyResponseRuns) return []
   const recentAllEmpty = base
     .slice(0, HEALTH_THRESHOLDS.emptyResponseRuns)
@@ -163,6 +172,9 @@ export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[]
   // `runs` are finished, so every duration is a number (no null branch to leave untested).
   const duration = (r: RunFact): number => r.endedAt!.getTime() - r.startedAt.getTime()
   const medianDuration = median(runs.map(duration).filter((d) => d > 0))
+  // Stryker disable next-line ConditionalExpression: when there is no positive-duration history the
+  // median is null, but then the latest run's own duration is 0 too (all runs instant), so
+  // `0 > 3 * 0` is false and dropping this guard changes nothing.
   if (
     medianDuration !== null &&
     duration(latest) > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianDuration
@@ -173,6 +185,10 @@ export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[]
   const medianBytes = median(
     runs.map((r) => r.bytesRead).filter((b): b is number => b !== null && b > 0),
   )
+  // Stryker disable next-line ConditionalExpression: a null latest `bytesRead` coerces to 0 in the
+  // comparison (`null > x` is false for x > 0), so this guard has no observable effect; the
+  // `medianBytes !== null` guard beside it DOES (a latest with bytes but no byte history), and is
+  // pinned by a test.
   if (
     latest.bytesRead !== null &&
     medianBytes !== null &&

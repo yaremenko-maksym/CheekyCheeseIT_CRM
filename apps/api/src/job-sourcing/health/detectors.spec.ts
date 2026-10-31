@@ -401,10 +401,28 @@ describe('detectBoardGone', () => {
     expect(detectBoardGone(snap(runs, { isEmployerBoard: true }))).toContain('BOARD_GONE')
   })
 
-  it('fires on a 404 now after having had some, even if the status is not zero-received', () => {
+  it('fires on a 404 now even when that run still reported some received (404 OR zero, not AND)', () => {
     const runs = [
-      run({ startedAt: NOW, received: 0, lastHttpStatus: 404 }),
+      run({ startedAt: NOW, received: 3, lastHttpStatus: 404 }),
       run({ startedAt: new Date(NOW.getTime() - DAY_MS), received: 12 }),
+    ]
+    expect(detectBoardGone(snap(runs, { isEmployerBoard: true }))).toContain('BOARD_GONE')
+  })
+
+  it('reads prior runs (not the latest) for "had some": latest-only history does not count', () => {
+    // Latest 404 but with received > 0; every PRIOR run had zero → never had some → no board-gone.
+    const runs = [
+      run({ startedAt: NOW, received: 5, lastHttpStatus: 404 }),
+      run({ startedAt: new Date(NOW.getTime() - DAY_MS), received: 0 }),
+    ]
+    expect(detectBoardGone(snap(runs, { isEmployerBoard: true }))).toEqual([])
+  })
+
+  it('fires when some (not every) prior run had jobs', () => {
+    const runs = [
+      run({ startedAt: NOW, received: 0 }),
+      run({ startedAt: new Date(NOW.getTime() - DAY_MS), received: 7 }),
+      run({ startedAt: new Date(NOW.getTime() - 2 * DAY_MS), received: 0 }),
     ]
     expect(detectBoardGone(snap(runs, { isEmployerBoard: true }))).toContain('BOARD_GONE')
   })
@@ -509,6 +527,57 @@ describe('detector boundaries and guards', () => {
       }),
     ]
     expect(detectStaleFeed(snap(runs, { freshnessMaxAgeMs: DAY_MS }))).toContain('STALE_FEED')
+  })
+
+  it('format drift does not divide by zero: a zero-received run with invalids does not fire', () => {
+    // Without the `received > 0` guard this would be Infinity > 0.1 and fire falsely.
+    expect(detectFormatDrift(snap([run({ startedAt: NOW, received: 0, invalid: 5 })]))).toEqual([])
+  })
+
+  it('silence is exactly at the 4x boundary: 4x does not fire, just over does', () => {
+    // Median gap 1 day; last new item exactly 4 days ago → 4 is not > 4 → no fire.
+    const atFourX = [4, 5, 6].map((d) =>
+      run({ startedAt: new Date(NOW.getTime() - d * DAY_MS), created: 3, received: 40 }),
+    )
+    expect(detectSilence(snap(atFourX))).toEqual([])
+    const justOver = [4.001, 5, 6].map((d) =>
+      run({ startedAt: new Date(NOW.getTime() - d * DAY_MS), created: 3, received: 40 }),
+    )
+    expect(detectSilence(snap(justOver))).toContain('NO_NEW_ITEMS')
+  })
+
+  it('silence fires with exactly two new-item runs spaced far apart', () => {
+    const runs = [
+      run({ startedAt: new Date(NOW.getTime() - 10 * DAY_MS), created: 2, received: 40 }),
+      run({ startedAt: new Date(NOW.getTime() - 12 * DAY_MS), created: 2, received: 40 }),
+    ]
+    expect(detectSilence(snap(runs))).toContain('NO_NEW_ITEMS')
+  })
+
+  it('access change does not throw when no run carried a status', () => {
+    expect(detectAccessChange(snap([run({ startedAt: NOW, lastHttpStatus: null })]))).toEqual([])
+  })
+
+  it('payload growth needs a byte history: a latest with bytes but no prior byte reading does not fire', () => {
+    const noByteHistory = daily(5).map((r) => ({ ...r, bytesRead: null }))
+    const latest = run({ startedAt: NOW, bytesRead: 5_000 })
+    expect(detectSlowdownGrowth(snap([latest, ...noByteHistory]))).not.toContain('PAYLOAD_GROWTH')
+  })
+
+  it('slowdown excludes zero-duration runs from the median (they are not a faster baseline)', () => {
+    // One real 1000ms run, several instant runs, latest 2500ms. Against the real baseline (1000)
+    // 2500 is not > 3x, so no SLOW. If instant runs counted, the median would collapse and it would fire.
+    const instant = daily(6).map((r) => ({ ...r, endedAt: r.startedAt }))
+    const real = run({
+      startedAt: new Date(NOW.getTime() - 7 * DAY_MS),
+      endedAt: new Date(NOW.getTime() - 7 * DAY_MS + 1_000),
+    })
+    const latest = run({ startedAt: NOW, endedAt: new Date(NOW.getTime() + 2_500) })
+    expect(detectSlowdownGrowth(snap([latest, real, ...instant]))).not.toContain('SLOW')
+  })
+
+  it('deadline exactly now does not fire (remaining must be strictly positive)', () => {
+    expect(detectDeadlineNear(snap([], { policyDeadline: new Date(NOW.getTime()) }))).toEqual([])
   })
 
   it('empty answer fires on the two most recent empties over a non-empty median', () => {
