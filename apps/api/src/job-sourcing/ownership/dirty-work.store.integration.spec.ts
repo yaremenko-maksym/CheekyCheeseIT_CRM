@@ -446,4 +446,52 @@ describe.skipIf(!hasDatabaseUrl())('dirty-work claim store (r5 Task 4.6 S3)', ()
       ])
     }
   })
+
+  /**
+   * SFS U10 (SPEC-L-1): the detail-fetch claim takes the oldest rows first and never more than
+   * `batchSize`, so a run honours its per-type `detailPerRun` budget and drains the backlog fairly.
+   */
+  it('U10: claims oldest-first and stops at batchSize', async () => {
+    const ns = `u10ord-${TAG}`
+    const recAt = async (daysEarlier: number): Promise<string> => {
+      const { rows } = await session.admin.query(
+        `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key)
+         VALUES ('GREENHOUSE_ATS', $1, 'NATIVE_ID', $2) RETURNING id`,
+        [ns, `${ns}:${randomUUID()}`],
+      )
+      const id = String(rows[0].id)
+      await enqueueDirty(app, 'SOURCE_RECORD', id, 1, DETAIL_FETCH)
+      // Date the row deterministically so the three sort oldest-first, ahead of any real queue row.
+      await session.admin.query(
+        `UPDATE job_dirty_work SET created_at = $1::timestamptz - make_interval(days => $2)
+          WHERE entity_id = $3`,
+        [PAST, daysEarlier, id],
+      )
+      return id
+    }
+    // oldest, middle, newest
+    const oldest = await recAt(3)
+    const middle = await recAt(2)
+    const newest = await recAt(1)
+    try {
+      const claimed = await claimDetailFetchForSource(app, {
+        owner: 'u10-order',
+        source: { type: 'GREENHOUSE_ATS', namespace: ns },
+        batchSize: 2,
+      })
+      // Exactly batchSize rows, and the two oldest, in created_at order.
+      expect(claimed.map((w) => w.entityId)).toEqual([oldest, middle])
+      // The newest stays PENDING — it was beyond the budget.
+      const { rows } = await session.admin.query(
+        `SELECT status FROM job_dirty_work WHERE entity_id = $1`,
+        [newest],
+      )
+      expect(rows).toEqual([{ status: 'PENDING' }])
+    } finally {
+      await session.admin.query(`DELETE FROM job_dirty_work WHERE entity_id = ANY($1::uuid[])`, [
+        [oldest, middle, newest],
+      ])
+      await session.admin.query(`DELETE FROM job_source_records WHERE namespace = $1`, [ns])
+    }
+  })
 })

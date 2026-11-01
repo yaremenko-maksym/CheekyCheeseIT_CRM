@@ -200,9 +200,16 @@ function projectScope(scope: Scope, ctx: ProjectionContext): ScopeProjection | n
   // TRIAGE needs the studio-level posting to be unknown-stack, the scope's own view to hold a
   // matchable senior, and for a team the grant. The stack is unknown either because the list
   // carries no signal (`lowInformation`) or because the detail that would carry it is pending
-  // (U10): a tag alone makes `lowInformation` false, but a list-only record's stack is still
-  // unknown, so without this the posting would be silently NO_MATCH on stack grounds.
-  const stackUnknown = scope.view.lowInformation || ctx.detailPending
+  // (U10) AND the list offered no stack-judging signal of its own: a department tag alone makes
+  // `lowInformation` false but does not judge the stack, so a detail-pending record is still
+  // unknown-stack. A keyword hit or a requirements statement, by contrast, IS a verdict — then a
+  // `coreMismatch` is genuine and must win, so `detailPending` does not lift it to TRIAGE. (A LEAD
+  // is already returned above, so `detailPending` can never downgrade one.)
+  const detailUnjudged =
+    ctx.detailPending &&
+    !scope.view.evidenceSurfaces.keywordHit &&
+    !scope.view.evidenceSurfaces.requirements
+  const stackUnknown = scope.view.lowInformation || detailUnjudged
   if (!stackUnknown || !scope.triage) return null
   const unknownStack = scope.view.lowInformation
     ? reason('UNKNOWN_STACK', ['no tags, requirements or keyword hit'])
@@ -359,11 +366,16 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
   // (one pass bucketed by senior id) when the roster grows past a few hundred.
   const detailPending = input.detailPending === true
   const ctx = { layer1, revision, evaluationTime: input.evaluationTime, detailPending }
+  // Team triage follows the studio: a detail-pending posting is unknown-stack for the studio only
+  // when the list gave the studio no stack-judging signal either (no union keyword hit, no
+  // requirements). A real studio verdict (a hit or a requirements statement) keeps grants closed.
+  const studioUnjudged =
+    detailPending && !tech.evidenceSurfaces.keywordHit && !tech.evidenceSurfaces.requirements
   const scopes = buildScopes(
     tech,
     profiles,
     new Set(input.teamTriageGrants),
-    tech.lowInformation || detailPending,
+    tech.lowInformation || studioUnjudged,
   )
   const studio = projectScope(scopes.studio, ctx)
   const projections = [

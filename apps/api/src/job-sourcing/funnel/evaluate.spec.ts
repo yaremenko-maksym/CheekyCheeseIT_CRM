@@ -1007,20 +1007,50 @@ describe('evaluate: detail on demand — pending detail never excludes on stack 
     expect(r.kind).toBe('EVALUATED')
     const ev = evaluated(r)
     expect(ev.status).toBe('TRIAGE')
-    expect(projectionsForViewer(ev, { role: 'ADMIN' })).toMatchObject([
-      { scope: 'STUDIO', status: 'TRIAGE', score: null },
-    ])
+    const studio = projection(ev, 'STUDIO')
+    expect(studio).toMatchObject({ status: 'TRIAGE', score: null })
+    // SPEC-M-1 #1: a department tag defeats `lowInformation` (it is NOT stack evidence), yet the
+    // posting is still TRIAGE because the detail is pending and the tag judged no stack.
+    expect(studio?.tech.lowInformation).toBe(false)
+    expect(studio?.tech.evidenceSurfaces).toMatchObject({ tags: true, keywordHit: false })
+    // SPEC-M-1 #2: the senior shows `coreMismatch` (stated a stack, none core-hit), and even so the
+    // detail-pending posting is TRIAGE — a tag-only `coreMismatch` is not a real stack verdict.
+    expect(studio?.tech.seniors.every((s) => s.coreMismatch)).toBe(true)
   })
 
-  it('a granted HR team sees the pending item as TRIAGE; an ungranted team sees nothing', () => {
+  it('a granted HR team sees the pending item as TRIAGE; an ungranted team sees nothing (CR-M-2)', () => {
     const hr = (teamId: string | null) => ({ role: 'HR', teamId }) as const
     const r = evaluate(
       input({ revision: pendingRevision(), detailPending: true, teamTriageGrants: [TEAM_1] }),
     )
     const a = projectionsForViewer(r, hr(TEAM_1))
     expect(a).toHaveLength(1)
-    expect(a[0]).toMatchObject({ scope: `TEAM:${TEAM_1}`, status: 'TRIAGE' })
+    expect(a[0]).toMatchObject({ scope: `TEAM:${TEAM_1}`, status: 'TRIAGE', score: null })
+    expect(a[0]?.reasons.map((x) => x.code)).toEqual(['UNKNOWN_STACK', 'TEAM_TRIAGE_GRANT'])
+    // An ungranted team, and any team with no matchable senior, see nothing.
     expect(projectionsForViewer(r, hr(TEAM_2))).toEqual([])
+    expect(projectionsForViewer(r, hr(TEAM_3))).toEqual([])
+  })
+
+  it('SPEC-M-1 #3: detailPending does NOT override a genuine coreMismatch — a stated-stack mismatch stays NO_MATCH', () => {
+    // The list carries a requirements statement whose stack none of the roster core-matches. That
+    // is a real verdict, so `coreMismatch` wins and the posting stays NO_MATCH despite the pending
+    // flag; `detailPending` only lifts a record the list could NOT judge (no hit, no requirements).
+    const r = evaluated(
+      evaluate(
+        input({
+          revision: pendingRevision({
+            fields: {
+              ...pendingRevision().fields,
+              descriptionMd: 'Requirements: senior Rust engineer with deep systems experience.',
+            },
+          }),
+          detailPending: true,
+        }),
+      ),
+    )
+    expect(r.status).toBe('NO_MATCH')
+    expect(r.projections).toEqual([])
   })
 
   it('title-level exclusions still apply even with detailPending (a global keyword hit EXCLUDES)', () => {
