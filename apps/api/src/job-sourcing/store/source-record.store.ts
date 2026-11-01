@@ -242,20 +242,27 @@ async function writeObservation(
  * transaction. The record store owns `job_source_records`, so the availability write lives here
  * rather than in the counter updater. The evidence is `.parse()`d at this trust boundary before it
  * reaches the column (the column default `{}` is not valid evidence by design).
+ *
+ * Guarded by `availability IS DISTINCT FROM 'CLOSED'` (CR-M-1 / SR-M-1): an already-CLOSED record is
+ * neither re-closed nor its evidence/`availability_checked_at` clobbered, and the returned flag lets
+ * the caller skip a duplicate opportunity enqueue. The caller must hold the record row lock
+ * (`FOR UPDATE`) so a concurrent observation writer cannot re-list the record between read and write.
  */
 export async function closeRecordByInventory(
   tx: SqlExecutor,
   recordId: string,
   evidence: AvailabilityEvidence,
-): Promise<void> {
+): Promise<boolean> {
   const parsed = availabilityEvidenceSchema.parse(evidence)
-  await tx.execute(
+  const { rows } = await tx.execute(
     sql`UPDATE job_source_records
            SET availability = 'CLOSED'::job_availability,
                availability_evidence = ${JSON.stringify(parsed)}::jsonb,
                availability_checked_at = clock_timestamp(), updated_at = clock_timestamp()
-         WHERE id = ${recordId}::uuid`,
+         WHERE id = ${recordId}::uuid AND availability IS DISTINCT FROM 'CLOSED'::job_availability
+       RETURNING id`,
   )
+  return rows.length > 0
 }
 
 /** The page cap, checked before any round trip (security LOW, round 2). */

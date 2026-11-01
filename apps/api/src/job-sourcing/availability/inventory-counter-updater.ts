@@ -19,6 +19,7 @@
  * state machine and the owner-frozen D4 floor stay in `derive-availability.ts`; this file only maps
  * rows and persists.
  */
+import { Logger } from '@nestjs/common'
 import {
   type AvailabilityEvidence,
   availabilityEvidenceSchema,
@@ -38,6 +39,8 @@ import {
 } from './derive-availability'
 
 const READ_COMMITTED = { isolationLevel: 'read committed' } as const
+
+const logger = new Logger('InventoryCounterUpdater')
 
 /** `job_dirty_work.reason` of the opportunity recompute a record closure enqueues (<= 100 chars). */
 export const INVENTORY_CLOSE_REASON = 'RECORD_INVENTORY_CLOSED'
@@ -165,7 +168,23 @@ export interface RunRow {
   readonly cycleId: string | null
 }
 
-async function readRuns(tx: SqlExecutor, input: InventoryUpdateInput): Promise<RunRow[]> {
+/**
+ * The VALID runs the fold needs, ascending (CR-H-1 / security "unbounded history read"): only
+ * `SUCCEEDED` + `FULL_INVENTORY` runs matter to the pure fn (every other run is a no-op there), so
+ * they are filtered in SQL; and when a counter row already exists, only runs AFTER its watermark
+ * (`observedAt > lastMissAt`) are read — the same runs the S8b replay guard would keep anyway, so a
+ * cold start cannot turn purged old history into false misses and the per-run presence probe is
+ * bounded, not O(history).
+ */
+async function readRuns(
+  tx: SqlExecutor,
+  input: InventoryUpdateInput,
+  sinceObservedAt: string | null,
+): Promise<RunRow[]> {
+  const watermark =
+    sinceObservedAt === null
+      ? sql``
+      : sql` AND coalesce(r.ended_at, r.started_at) > ${sinceObservedAt}::timestamptz`
   const { rows } = await tx.execute(
     sql`SELECT r.id, r.outcome, r.coverage, r.config_version, r.received, r.cycle_id,
                coalesce(r.ended_at, r.started_at) AS observed_at,
@@ -174,6 +193,8 @@ async function readRuns(tx: SqlExecutor, input: InventoryUpdateInput): Promise<R
                  AS record_present
           FROM job_collection_runs r
          WHERE r.source_id = ${input.sourceId}::uuid AND r.config_version = ${input.configVersion}
+           AND r.outcome = 'SUCCEEDED'::job_collection_outcome
+           AND r.coverage = 'FULL_INVENTORY'::job_collection_coverage${watermark}
          ORDER BY coalesce(r.ended_at, r.started_at) ASC, r.id ASC`,
   )
   return rows.map((r) => {
@@ -227,6 +248,10 @@ export interface Fold {
  * Fold the runs through the pure fn. A write kind (advance/reset/close) marks the counter dirty and
  * carries it forward; a close records its evidence, a later reset/advance clears it (the record
  * reappeared or the chain restarted); review flags the source but does not change the counter.
+ *
+ * `net` and `close` are kept consistent (LOW, security "net mislabel"): a `review` after a `close`
+ * flags `reviewed` but must NOT relabel `net` away from `close` — the record is still being closed,
+ * so a pending close always wins the net label.
  */
 export function fold(initial: InventoryMissCounter | null, runs: readonly RunRow[]): Fold {
   let counter = initial
@@ -238,12 +263,13 @@ export function fold(initial: InventoryMissCounter | null, runs: readonly RunRow
     const t = transitionInventoryMissCounter(counter, fact)
     counter = t.next
     if (t.kind === 'unchanged') continue
-    net = t.kind
     if (t.kind === 'review') {
       reviewed = true
+      if (close === null) net = 'review'
       continue
     }
     dirty = true
+    net = t.kind
     close = t.kind === 'close' ? { evidence: t.evidence, cycleId } : null
   }
   return { net, counter, dirty, reviewed, close }
@@ -305,6 +331,29 @@ async function enqueueOwners(
 }
 
 /**
+ * Lock the source record and verify it belongs to `sourceId` (SR-M-1 / SR-M-2). The `FOR UPDATE OF r`
+ * serialises with the observation writer (which locks the same row), so a run still in flight that
+ * re-lists the record commits BEFORE this reads the runs — no false close on a reappearing record.
+ * The record↔source tie is (source_type, namespace), the only link a MISSING record has to a board:
+ * a mismatched (sourceId, sourceRecordId) pair matches no row and is refused, never closing an
+ * arbitrary record.
+ */
+async function lockAndVerifyRecord(tx: SqlExecutor, input: InventoryUpdateInput): Promise<void> {
+  const { rows } = await tx.execute(
+    sql`SELECT r.id
+          FROM job_source_records r
+          JOIN job_sources s ON s.id = ${input.sourceId}::uuid
+         WHERE r.id = ${input.sourceRecordId}::uuid
+           AND r.source_type = s.type AND r.namespace = s.namespace
+         FOR UPDATE OF r`,
+  )
+  if (rows.length === 0)
+    throw new RangeError(
+      'inventory-miss: the source record does not belong to the given source (mismatched or missing)',
+    )
+}
+
+/**
  * Update the record's missing-inventory counter from its run history and, on a net close, mark it
  * CLOSED and enqueue its opportunity — all in one transaction. Idempotent: the S8b replay watermark
  * makes a re-run over the same runs a no-op, and the dirty-work `ON CONFLICT` dedups the enqueue.
@@ -315,9 +364,10 @@ export async function updateInventoryMissCounter(
 ): Promise<InventoryUpdateResult> {
   assertInput(input)
   return db.transaction(async (tx) => {
+    await lockAndVerifyRecord(tx, input)
     const stored = await readCounter(tx, input)
     const initial = stored ?? seedCounter(input, await readBaseline(tx, input))
-    const runs = await readRuns(tx, input)
+    const runs = await readRuns(tx, input, stored?.lastMissAt ?? null)
     const result = fold(initial, runs)
 
     let persisted = false
@@ -330,10 +380,16 @@ export async function updateInventoryMissCounter(
     if (result.close !== null) {
       // Parse at the write boundary before any side effect (the store re-parses defensively).
       const evidence = availabilityEvidenceSchema.parse(result.close.evidence)
-      await closeRecordByInventory(tx, input.sourceRecordId, evidence)
-      await enqueueOwners(tx, input.sourceRecordId, result.close.cycleId)
-      closed = true
+      // Guarded: an already-CLOSED record returns false → no duplicate enqueue (CR-M-1 / SR-M-1).
+      closed = await closeRecordByInventory(tx, input.sourceRecordId, evidence)
+      if (closed) await enqueueOwners(tx, input.sourceRecordId, result.close.cycleId)
     }
+
+    // Structured trace, no PII — board/config/counts only (SPEC-M-1).
+    const trace = `board=${input.board} configVersion=${input.configVersion} consecutiveMisses=${result.counter?.consecutiveMisses ?? 0} inventorySize=${result.counter?.lastInventorySize ?? 0} scanned=${runs.length}`
+    if (result.close !== null)
+      logger.log(`inventory-miss close${closed ? '' : ' (no-op, already closed)'}: ${trace}`)
+    else if (result.reviewed) logger.warn(`inventory-miss review: ${trace}`)
 
     return {
       net: result.net,
