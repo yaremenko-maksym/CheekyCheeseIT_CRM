@@ -122,6 +122,8 @@ function world(
     row?: Record<string, unknown> | null
     entry?: 'MISSING'
     policy?: 'MISSING'
+    /** U11: when set, the host declares this request budget (so the run gets a runtime ceiling). */
+    requestBudget?: { perMinute: number; perHour: number }
     deps?: Partial<WorkerDeps>
     options?: Partial<WorkerOptions>
     registry?: JobSourceRegistry
@@ -234,7 +236,11 @@ function world(
       hostPolicy: (key) =>
         opts.policy === 'MISSING' || key !== 'h.example'
           ? undefined
-          : { rate: null, floorHours: 5 },
+          : {
+              rate: null,
+              floorHours: 5,
+              ...(opts.requestBudget ? { requestBudget: opts.requestBudget } : {}),
+            },
     },
     db,
     recordBan: async (ban) => {
@@ -918,6 +924,49 @@ describe('the heartbeat, the deadline and the end of a run', () => {
     const [r] = await w.worker.runDue({ cycleId: uuid(1) })
     expect(r?.outcome).toBe('SUCCEEDED')
     expect(beats).toBeGreaterThan(5)
+  })
+
+  it('U11: a run on a host WITH a request budget is capped at its requestsPerRun (the 2nd request is refused)', async () => {
+    let sends = 0
+    const w = world({
+      // entry.requestsPerRun is 1; the budget makes the runtime ceiling apply.
+      requestBudget: { perMinute: 5, perHour: 100 },
+      deps: {
+        transport: async () => {
+          sends += 1
+          return 'ok'
+        },
+      },
+      collect: async (_c, ctx) => {
+        await ctx.fetchText({ url: 'https://h.example/x' })
+        await ctx.fetchText({ url: 'https://h.example/x' }) // refused before I/O: ceiling is 1
+        return batch('EXHAUSTED')
+      },
+    })
+    const [r] = await w.worker.runDue({ cycleId: uuid(1) })
+    expect(r?.outcome).toBe('FAILED')
+    expect(w.finishes[0]?.ending.errorCode).toBe('REQUEST_CEILING')
+    expect(sends).toBe(1)
+  })
+
+  it('U11: a run on a host with NO budget is UNLIMITED — both requests are sent (T7/U2 unchanged)', async () => {
+    let sends = 0
+    const w = world({
+      deps: {
+        transport: async () => {
+          sends += 1
+          return 'ok'
+        },
+      },
+      collect: async (_c, ctx) => {
+        await ctx.fetchText({ url: 'https://h.example/x' })
+        await ctx.fetchText({ url: 'https://h.example/x' })
+        return batch('EXHAUSTED')
+      },
+    })
+    const [r] = await w.worker.runDue({ cycleId: uuid(1) })
+    expect(r?.outcome).toBe('SUCCEEDED')
+    expect(sends).toBe(2)
   })
 
   it('a heartbeat that cannot reach the database is not a fence, and is not an unhandled error', async () => {
