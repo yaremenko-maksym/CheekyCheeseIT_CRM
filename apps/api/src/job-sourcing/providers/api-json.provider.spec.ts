@@ -113,6 +113,8 @@ interface PageResponse {
   /** Lowercased response headers — how a `last-modified` validator reaches the loop. */
   headers?: Record<string, string>
   throws?: unknown
+  /** U6b: the context itself sent the validators this response answers. */
+  conditional?: true
 }
 
 interface Harness {
@@ -201,6 +203,7 @@ function harness(opts: {
         bodyText: page.bodyText ?? JSON.stringify(page.body ?? { jobs: [], next: null }),
         headers: page.headers ?? {},
         etag: page.etag ?? null,
+        ...(page.conditional && { conditional: true as const }),
       }
     },
     meter: {
@@ -1128,6 +1131,32 @@ describe('conditional requests', () => {
 
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.observations).toHaveLength(1)
+  })
+
+  it('U6b: a 304 to validators the context sent ends the run clean and saves nothing', async () => {
+    const h = harness({ pages: [{ status: 304, conditional: true }] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.coverage).toBe('PARTIAL')
+    expect(batch.observations).toEqual([])
+    expect(batch.counts.raw).toBe(0)
+    expect(batch.checkpoint).toBeNull()
+    expect(h.saved).toEqual([])
+    expect(h.sent).toHaveLength(1)
+    expect(batch.requests).toHaveLength(1)
+    expect(batch.requests[0]).toMatchObject({ status: 304, error: null })
+  })
+
+  it('U6b: a metered 304 settles its reservation as used', async () => {
+    const h = harness({ pages: [{ status: 304, conditional: true }] })
+    await collectJsonPages(
+      makeSpec({ meter: { unit: 'REQUEST', amountPerRequest: 1 } }),
+      config(),
+      h.ctx,
+    )
+
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED' }])
   })
 
   it('treats a 304 we never sent a validator for as drift', async () => {

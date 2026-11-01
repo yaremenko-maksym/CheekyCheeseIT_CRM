@@ -1050,7 +1050,14 @@ export function isBuiltBatch(value: unknown): value is CollectionBatch {
 
 /** Why an attempt stopped. `EXHAUSTED` is the only one that can carry SUCCEEDED. */
 export type StopReason =
-  'EXHAUSTED' | 'PAGE_CAP' | 'CURSOR_CYCLE' | 'ERROR' | 'CANCELLED' | 'COST_STOP'
+  | 'EXHAUSTED'
+  | 'PAGE_CAP'
+  | 'CURSOR_CYCLE'
+  | 'ERROR'
+  | 'CANCELLED'
+  | 'COST_STOP'
+  // U6b: the host answered 304 to the validators we sent. A clean run that read nothing.
+  | 'NOT_MODIFIED'
 
 export interface DerivationFacts {
   stop: StopReason
@@ -1106,6 +1113,7 @@ export function deriveOutcome(facts: DerivationFacts): CollectionOutcome {
     case 'EXHAUSTED':
     case 'PAGE_CAP':
     case 'CURSOR_CYCLE':
+    case 'NOT_MODIFIED':
       return 'SUCCEEDED'
     default: {
       const unexpected: never = facts.stop
@@ -1134,6 +1142,8 @@ export function deriveCoverage(facts: DerivationFacts): CollectionCoverage {
   if (outcome !== 'SUCCEEDED') return 'PARTIAL'
   if (facts.counts.invalid > 0 || facts.counts.quarantined > 0) return 'PARTIAL'
   if (facts.resumed) return 'PARTIAL'
+  // A 304 read no inventory, so it claims none: the run is clean, the coverage is not full.
+  if (facts.stop === 'NOT_MODIFIED') return 'PARTIAL'
   const truncated = facts.stop === 'PAGE_CAP' || facts.stop === 'CURSOR_CYCLE'
   if (truncated) return facts.scope.query !== null ? 'WINDOW' : 'PARTIAL'
   if (facts.scope.window !== null || facts.scope.query !== null) return 'WINDOW'

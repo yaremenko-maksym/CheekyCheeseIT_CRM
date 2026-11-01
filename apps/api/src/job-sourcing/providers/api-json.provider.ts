@@ -927,6 +927,8 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     let bodyText = ''
     let status: number
     let failure: PageAttemptFailure | null = null
+    // U6b: the context sent validators and the host answered 304 — nothing changed, nothing to read.
+    let notModified = false
     // A `let` because a cached validator rewrites it, and it is read by the reports below — which
     // are outside the span, so it cannot live inside the try.
     let request: FetchRequest = withByteCap(pageRequest.request, requestMaxBytes)
@@ -1000,6 +1002,8 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
       } else if (status === 304 && cached !== null) {
         // A valid 304 reuses the stored body rather than refetching it.
         bodyText = cached.bodyText
+      } else if (status === 304 && response.conditional === true) {
+        notModified = true
       } else if (status === 304) {
         failure = {
           code: 'PARSE_DRIFT',
@@ -1103,6 +1107,26 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
         }
         reservation = null
       }
+    }
+
+    if (notModified) {
+      requests.push(
+        buildRequestReport(
+          {
+            attempt: 1,
+            page: at.page,
+            url: reportedUrl(pageRequest),
+            status,
+            startedAt,
+            endedAt: ctx.now(),
+            cost,
+            error: null,
+          },
+          ctx.secrets,
+        ),
+      )
+      stop = 'NOT_MODIFIED'
+      break
     }
 
     if (failure === null) {
