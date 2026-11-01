@@ -11,10 +11,12 @@ import {
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
+  claimDetailFetchForSource,
   claimDirtyBatch,
   type ClaimOptions,
   completeDirty,
   currentDerivedVersion,
+  DETAIL_FETCH,
   DirtyWorkFencedError,
   enqueueDerivedDirty,
   enqueueDirty,
@@ -389,5 +391,59 @@ describe.skipIf(!hasDatabaseUrl())('dirty-work claim store (r5 Task 4.6 S3)', ()
       { v: 1, cycle_id: cycleId },
       { v: 2, cycle_id: null },
     ])
+  })
+
+  /**
+   * SFS U10 (ADR 6a, change #1/#4): a detail-fetch claim is filtered to the run's own source
+   * (`source_type` + `namespace`), and the `(kind, entity, version, reason)` unique key makes a
+   * second enqueue of the same record version a no-op — the detail is fetched once.
+   */
+  it("U10: claims only the source's pending DETAIL_FETCH rows, and enqueues once per version", async () => {
+    const ns = `u10-${TAG}`
+    const otherNs = `u10-other-${TAG}`
+    // A source record of ours, and one of another namespace (same type) that must be excluded.
+    const rec = async (namespace: string): Promise<string> => {
+      const { rows } = await session.admin.query(
+        `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key)
+         VALUES ('GREENHOUSE_ATS', $1, 'NATIVE_ID', $2) RETURNING id`,
+        [namespace, `${namespace}:${randomUUID()}`],
+      )
+      return String(rows[0].id)
+    }
+    const mine = await rec(ns)
+    const other = await rec(otherNs)
+    try {
+      // Fetch once: the second enqueue of version 1 is a no-op.
+      expect(await enqueueDirty(app, 'SOURCE_RECORD', mine, 1, DETAIL_FETCH)).toEqual({
+        inserted: true,
+      })
+      expect(await enqueueDirty(app, 'SOURCE_RECORD', mine, 1, DETAIL_FETCH)).toEqual({
+        inserted: false,
+      })
+      // A row for another source of the same type — must not be claimed by our source's run.
+      await enqueueDirty(app, 'SOURCE_RECORD', other, 1, DETAIL_FETCH)
+
+      const claimed = await claimDetailFetchForSource(app, {
+        owner: 'u10-worker',
+        source: { type: 'GREENHOUSE_ATS', namespace: ns },
+        batchSize: 10,
+      })
+      expect(claimed).toHaveLength(1)
+      expect(claimed[0]).toMatchObject({ entityId: mine, reason: DETAIL_FETCH, targetVersion: 1 })
+
+      // The other source's row stays PENDING.
+      const { rows: otherRows } = await session.admin.query(
+        `SELECT status FROM job_dirty_work WHERE entity_id = $1`,
+        [other],
+      )
+      expect(otherRows).toEqual([{ status: 'PENDING' }])
+    } finally {
+      await session.admin.query(`DELETE FROM job_dirty_work WHERE entity_id = ANY($1::uuid[])`, [
+        [mine, other],
+      ])
+      await session.admin.query(`DELETE FROM job_source_records WHERE namespace = ANY($1)`, [
+        [ns, otherNs],
+      ])
+    }
   })
 })
