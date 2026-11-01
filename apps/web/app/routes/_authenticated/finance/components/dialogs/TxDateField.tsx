@@ -63,7 +63,7 @@ export function TxDateField({ value, stored, reason, onChange, onReasonChange }:
               onChange={(e) => onReasonChange(e.target.value)}
               maxLength={500}
               data-testid="admin-edit-tx-date-reason-input"
-              placeholder={i18n._(REASON_PLACEHOLDER, { days: BACKDATE_LIMIT_DAYS })}
+              placeholder={i18n._(REASON_PLACEHOLDER.id, { days: BACKDATE_LIMIT_DAYS })}
               className="min-h-[44px] sm:min-h-0 sm:h-9 text-sm"
             />
           </motion.div>
