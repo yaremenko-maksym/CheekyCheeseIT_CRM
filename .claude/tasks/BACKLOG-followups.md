@@ -6433,4 +6433,78 @@ one chain is `@stryker-mutator/core`. The 5.1.9 chain reaches the PWA build thro
 Verify: `pnpm audit` on that date — if `@lingui/cli`, `@nestjs/cli`, `workbox-build` or eslint ship on
 minimatch >=11.0.1 / glob >=14.0.2, bump and delete the groups.
 
+## 345. Source-fetch units U1b–U11: deferred LOW/MED findings not held in #342/#343 (2026-11-01)
+
+**Open.** A sweep (2026-11-01) of the review threads of the merged source-fetch units beyond U1a/U6a
+(#342) and the U3 tick gaps (#343) — U1b (#1179), U3 (#1186), U8b (#1199), U2 (#1200), U4 (#1205),
+U5a (#1208), U7 (#1209), U11 (#1211), U6b (#1216). U1b's deferred items (`SPEC-L-1/2/3/5`) were all ADR
+amendments that have since landed, and U6b deferred only per-page validator handling (its own A1, named
+below). The remaining gaps, each by symbol/behaviour with a verification condition:
+
+**(i) U4-D append-only triggers on an A-log table, not class B (U4 #1205; owner decision 2026-11-01).**
+`job_source_health_events` is A-log (`crm_app` `SELECT`+`INSERT` only); the owner decided on 2026-11-01
+it stays A-log and gets no retention `DELETE`, because class B carries a `crm_retention_owner`
+`SELECT`+`DELETE` grant that contradicts append-only evidence. But the deploy catalog check's
+append-only-trigger assertion is coded to fire on class-B tables, so U4 deferred declaring the trigger
+names to U4-D "by promoting to class B" — now forbidden. U4-D must make that assertion cover an A-log
+table without granting any `DELETE`. Owner: DevOps + security, go-live gated. Verify: on a scratch DB
+built as `crm_app`, the deploy catalog check asserts the append-only triggers on
+`job_source_health_events` while its grants stay `SELECT`+`INSERT` only (no `DELETE`/`TRUNCATE`).
+
+**(ii) Health-metric fidelity limits accepted into merged behaviour (U2 #1200 CR-M-1 / SPEC-L-1/2/3;
+read knowingly by U4 #1205).** Three run-metric semantics were accepted as-is and U4's detectors read
+them: `envelope_fingerprint` is the union of field names over only the **first decoded response**, so
+an optional or dynamic-id-keyed field shifts it with no real format change (a false `SCHEMA_DRIFT`) and
+a shape change on page 2+ is invisible to the detector; `bytes_read` is the decoded UTF-8 length, not
+wire bytes, so it diverges under compression (feeds `PAYLOAD_GROWTH`); `last_http_status` collapses
+every 2xx to 200. Revisit when a detector needs higher fidelity. Verify: a detector-fidelity task adds a
+spec showing `envelope_fingerprint` stable under optional/dynamic keys and sensitive to a page-2 shape
+change, `bytes_read` reconciled against wire bytes under compression, and exact status preserved where a
+consumer needs it.
+
+**(iii) Discovery output carries no region (U8b #1199 CR-M-3).** `BoardRef` has no region field, so an
+EU board token (`jobs.eu.lever.co`, `boards.eu.greenhouse.io`) is reported under the global board name.
+Acceptable while discovery output is human-reviewed before it becomes a board line; add a `region` field
+only if the discovery output is ever auto-ingested. Verify: once a `region` field exists, the discovery
+query over a seeded EU-host record reports the region; today it reports the global name.
+
+**(iv) Freshness `UPDATED` exclusion not wired (U5a #1208 SPEC-M-1).** The weekly freshness aggregate
+(`weeklyAggregateSql`, its `fresh` CTE) does not apply the ADR section-9 `publishedAtMeaning: 'UPDATED'`
+exclusion, because no manifest carries that field and no source is UPDATED today. When
+`publishedAtMeaning` lands, UPDATED sources must be reported "not measurable" rather than a misleading
+freshness figure. Verify: a seeded UPDATED source is reported "not measurable" in the weekly aggregate.
+
+**(v) Residual Russian comments in the notification module (U5a #1208).** About 460 pre-existing Russian
+comment lines remain across the notification-registry files and `notification-email-copy.ts`, untouched
+by U5a; the English-in-repo policy (`russian-language.md`) wants them translated in a cleanup pass.
+Verify: a Cyrillic search over those files returns nothing.
+
+**(vi) SILENT threshold has no help affordance (U7 #1209 COPY-L-2).** The compact source list/detail on
+the ADMIN source page surfaces no tooltip or help for the SILENT («Мовчить») threshold. When a
+details/help affordance is added, surface the threshold there. Verify: the source page exposes the
+SILENT threshold through a help/tooltip affordance.
+
+**(vii) Greenhouse `requestsPerRun` vs the host budget when detail-on-demand lands (U11 #1211 SR-H-1b).**
+Every board type sends one request a run today (`detailMode: 'IN_LIST'`), so `requestsPerRun: 1` is the
+current ceiling. When U10 switches Greenhouse to `ON_DEMAND` (`detailPerRun: 5`), Greenhouse's
+`requestsPerRun` must rise to cover list + detail and the per-host request budget must be revisited — a
+5-request run does not fit a 2-a-minute budget, and `assertPolicy` fails loud on
+`requestsPerRun > perMinute`. Owner: U10 / the owner. Verify: with Greenhouse `ON_DEMAND` and
+`detailPerRun: 5`, `assertPolicy` passes only when `requestsPerRun` and the host budget are consistent.
+
+**(viii) U6b per-page validators are future work (U6b #1216 SPEC-L-2, author A1).** Conditional
+validators are stored and sent only by a fresh whole read of a single-page resource (`observeSinglePage`);
+a source that grows to two pages is re-read in full and its validators dropped. A per-page conditional
+design is deferred. Verify: a spec shows a multi-page source sending validators per page once the design
+lands; today it sends none.
+
+**(ix) Minor ADR wording (U3 #1186 SPEC-L-3).** The U3 sweep amendment says a recent run is skipped
+within "one tick period plus a margin against cron jitter"; the implemented margin is one tick window
+(pinned by the cron spec). A future docs pass should make the ADR wording exact. Verify: the ADR's
+sweep-skip window matches the margin the cron spec asserts.
+
+Sources: review threads / PR bodies of #1179, #1186, #1199, #1200, #1205, #1208, #1209, #1211, #1216;
+`docs/architecture/2026-10-25-source-fetch-strategy.md` (2026-11-01 amendment, section 9, section 10,
+sections U2/U4/U8b/U11).
+
 Sources: PR #1195 reviews; `scripts/devops/pnpm-audit-runbook.md` Step 4.
