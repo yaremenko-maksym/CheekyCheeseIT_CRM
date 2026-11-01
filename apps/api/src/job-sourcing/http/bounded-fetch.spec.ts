@@ -339,6 +339,38 @@ describe('boundedFetchText — manual redirects (SR-H-1 / CR-M-1)', () => {
       boundedFetchText('https://api.example.test/x', { allowedHosts: hosts, minGapMs: 0 }),
     ).rejects.toThrow(/redirect without location/)
   })
+
+  it('SR-M-4: calls onHop before each redirect hop (not the initial), once per real extra request', async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(redirect(302, '/1'))
+      .mockResolvedValueOnce(redirect(302, '/2'))
+      .mockResolvedValueOnce(resp('end', { status: 200, url: 'https://api.example.test/2' }))
+    vi.stubGlobal('fetch', f)
+    const onHop = vi.fn()
+    await expect(
+      boundedFetchText('https://api.example.test/x', { allowedHosts: hosts, minGapMs: 0, onHop }),
+    ).resolves.toBe('end')
+    // Three real requests (initial + two redirects); onHop counted the two redirect hops.
+    expect(f).toHaveBeenCalledTimes(3)
+    expect(onHop).toHaveBeenCalledTimes(2)
+  })
+
+  it('SR-M-4: a throwing onHop stops the chain before the next hop reaches the host (fail-closed)', async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(redirect(302, '/1'))
+      .mockResolvedValueOnce(resp('end', { status: 200, url: 'https://api.example.test/1' }))
+    vi.stubGlobal('fetch', f)
+    const onHop = vi.fn(() => {
+      throw new Error('ceiling reached')
+    })
+    await expect(
+      boundedFetchText('https://api.example.test/x', { allowedHosts: hosts, minGapMs: 0, onHop }),
+    ).rejects.toThrow('ceiling reached')
+    // Only the initial request was sent; the redirect hop was refused before its fetch.
+    expect(f).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('boundedFetchText — URL hardening (SR-M-2)', () => {

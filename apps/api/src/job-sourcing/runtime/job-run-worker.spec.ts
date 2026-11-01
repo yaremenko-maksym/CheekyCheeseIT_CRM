@@ -229,6 +229,7 @@ function world(
               fetchProfile: { intervalMinutes: 1440, offIntervalMinutes: null, window: null },
               floorHours: 0,
               banScope: 'SOURCE',
+              requestsPerRun: 1,
             },
       hostPolicy: (key) =>
         opts.policy === 'MISSING' || key !== 'h.example'

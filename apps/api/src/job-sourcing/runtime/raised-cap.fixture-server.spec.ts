@@ -79,6 +79,7 @@ async function runOnce(type: JobSourceType): Promise<CollectionBatch> {
       floorHours: 0,
       banScope: undefined,
       allowedHosts: adapter.allowedHostsFor(config),
+      requestsPerRun: 100,
       meter: null,
       secrets: [],
       policyVersion: 1,

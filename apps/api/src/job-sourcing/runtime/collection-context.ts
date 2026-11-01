@@ -177,6 +177,14 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
   const mono = deps.monotonicNow ?? (() => performance.now())
   const now = deps.now ?? (() => new Date())
   const { run, meter } = input
+  // U11 (CR-M-5): the ceiling only bounds requests if `requestsPerRun` is a positive whole number; a
+  // NaN or fractional value would compare false forever and fail OPEN. Refuse to build on a bad one,
+  // before any claim or fetch.
+  if (!Number.isSafeInteger(input.requestsPerRun) || input.requestsPerRun < 1) {
+    throw new RangeError(
+      `buildCollectionContext: requestsPerRun must be a positive integer, got ${String(input.requestsPerRun)}`,
+    )
+  }
   const handle: RunHandle = {
     runId: run.runId,
     ownerToken: run.ownerToken,
@@ -234,6 +242,16 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
     if (mono() >= leaseDeadline) {
       close('FENCED')
       throw new ContextRefusedError('RUN_FENCED', 'the run`s lease passed before this request')
+    }
+  }
+
+  /** U11 (SR-H-1 / SR-M-4): refuse once the run has sent its `requestsPerRun` requests (hops incl.). */
+  const assertCeiling = () => {
+    if (requestCount >= input.requestsPerRun) {
+      throw new ContextRefusedError(
+        'REQUEST_CEILING',
+        `the run reached its request ceiling of ${input.requestsPerRun}`,
+      )
     }
   }
 
@@ -313,12 +331,7 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
       // U11 (SR-H-1): a true upper bound. The run may send at most its declared `requestsPerRun`
       // requests; the next one is refused BEFORE any I/O and before a permit is consumed, so the
       // per-host budget (which counts a STARTED run as that figure) can never be breached.
-      if (requestCount >= input.requestsPerRun) {
-        throw new ContextRefusedError(
-          'REQUEST_CEILING',
-          `the run reached its request ceiling of ${input.requestsPerRun}`,
-        )
-      }
+      assertCeiling()
       if (meter !== null) {
         if (permits < 1) {
           throw new ContextRefusedError(
@@ -338,6 +351,12 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
         ...transportOptionsFor(request),
         onValidators: (seen) => {
           validatorsSeen ||= seen
+        },
+        // SR-M-4: each redirect hop is a real request. Count it against the ceiling and refuse the
+        // hop that would exceed it BEFORE the transport sends it (the initial hop is counted above).
+        onHop: () => {
+          assertCeiling()
+          requestCount += 1
         },
       }).then(
         (body) => {

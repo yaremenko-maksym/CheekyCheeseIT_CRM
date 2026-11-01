@@ -77,6 +77,7 @@ function world(over: { input?: Partial<ContextInput>; transport?: ContextDeps['t
     floorHours: 0,
     banScope: undefined,
     allowedHosts: ['jsearch.p.rapidapi.com'],
+    requestsPerRun: 100,
     meter,
     secrets: ['k'],
     policyVersion: 1,
@@ -154,6 +155,44 @@ describe('send permits (AC 6)', () => {
     expect(w.events.filter((e) => e.startsWith('send:'))).toHaveLength(2)
   })
 
+  it('U11 (SR-M-4): each redirect hop counts against the run (N redirects => N+1 requests)', async () => {
+    const w = world({
+      input: { meter: null, requestsPerRun: 5 },
+      transport: async (_url, opts) => {
+        opts.onHop?.() // redirect hop 1
+        opts.onHop?.() // redirect hop 2
+        return 'ok'
+      },
+    })
+    await w.ctx.fetchText(REQ)
+    // one initial request (counted by the context) + two redirect hops.
+    expect(w.metrics().requestCount).toBe(3)
+  })
+
+  it('U11 (SR-M-4): a redirect chain that would exceed requestsPerRun is refused before the over-limit hop', async () => {
+    const reached: number[] = []
+    const w = world({
+      input: { meter: null, requestsPerRun: 2 },
+      transport: async (_url, opts) => {
+        opts.onHop?.() // hop 1: count reaches 2
+        reached.push(1)
+        opts.onHop?.() // hop 2: ceiling -> throws BEFORE this hop is sent
+        reached.push(2)
+        return 'ok'
+      },
+    })
+    expect((await refusal(w.ctx.fetchText(REQ))).code).toBe('REQUEST_CEILING')
+    // the second redirect hop's send never happened; only one initial + one redirect were counted.
+    expect(reached).toEqual([1])
+    expect(w.metrics().requestCount).toBe(2)
+  })
+
+  it('CR-M-5: buildCollectionContext refuses a requestsPerRun that is not a positive safe integer', () => {
+    for (const bad of [Number.NaN, 1.5, 0, -1, Number.POSITIVE_INFINITY, 2 ** 53]) {
+      expect(() => world({ input: { requestsPerRun: bad } }), String(bad)).toThrow(RangeError)
+    }
+  })
+
   it('a metered reconcile settles on the account meter', async () => {
     const w = world()
     await w.ctx.meter.reconcile({ id: 'r1', unit: 'REQUEST', amount: 1 }, 'USED')
@@ -213,6 +252,7 @@ describe('send permits (AC 6)', () => {
           body: '{}',
           maxBytes: 10,
           onValidators: expect.any(Function),
+          onHop: expect.any(Function),
         },
       },
     ])
@@ -319,6 +359,7 @@ function baseInput(): ContextInput {
     floorHours: 0,
     banScope: undefined,
     allowedHosts: ['jsearch.p.rapidapi.com'],
+    requestsPerRun: 100,
     meter: null,
     secrets: [],
     policyVersion: 1,

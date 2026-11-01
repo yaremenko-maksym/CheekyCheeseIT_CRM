@@ -66,6 +66,7 @@ function world(over: {
     floorHours: 0,
     banScope: undefined,
     allowedHosts: [HOST],
+    requestsPerRun: 100,
     meter: null,
     secrets: [],
     policyVersion: 1,
