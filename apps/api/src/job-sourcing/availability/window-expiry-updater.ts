@@ -24,10 +24,12 @@ import {
   lockAndVerifyRecord,
 } from './inventory-counter-updater'
 
+// Stryker disable next-line StringLiteral: the logger context is a cosmetic label in log output only; no behaviour depends on it, so there is nothing to assert
 const logger = new Logger('WindowExpiryUpdater')
 const READ_COMMITTED = { isolationLevel: 'read committed' } as const
 
 /** `job_dirty_work.reason` of the opportunity recompute a record expiry enqueues (<= 100 chars). */
+// Stryker disable next-line StringLiteral: the persisted reason string is observed by the integration spec (dirtyCount filters on it), which the unit mutation run does not execute
 export const WINDOW_EXPIRE_REASON = 'RECORD_WINDOW_EXPIRED'
 
 export interface WindowRun {
