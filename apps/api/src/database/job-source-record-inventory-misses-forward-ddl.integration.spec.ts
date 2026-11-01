@@ -9,7 +9,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * r5 Task 4.6 S8a — the STAGED forward DDL
- * `manual-staged/2026-11-01_job_source_record_inventory_misses.sql` against the `db:push` reference
+ * `manual/2026-11-01_job_source_record_inventory_misses.sql` against the `db:push` reference
  * (ADR 2026-11-01 Decision 5). The reference is `public` (pushed from the Drizzle schema); the
  * candidate is a scratch schema holding a stub of the parent `job_source_records`, into which the
  * file is applied as the deploy would (one transaction). Columns, constraints and indexes must be
@@ -17,7 +17,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  * constraints. The table is STAGED, so the generated grants emit a `to_regclass`-guarded block.
  */
 const DRIZZLE = join(__dirname, '..', '..', 'drizzle')
-const FILE = join(DRIZZLE, 'manual-staged', '2026-11-01_job_source_record_inventory_misses.sql')
+const FILE = join(DRIZZLE, 'manual', '2026-11-01_job_source_record_inventory_misses.sql')
 const SCHEMA = 'ddl_job_inventory_misses'
 const TABLE = 'job_source_record_inventory_misses'
 const PARENTS = ['job_source_records']
@@ -246,7 +246,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
     it('the table is STAGED and the grants give crm_app exactly the class-A privileges where it exists', async () => {
       expect(STAGED_RELATIONS[TABLE]?.file).toBe(
-        'drizzle/manual-staged/2026-11-01_job_source_record_inventory_misses.sql',
+        'drizzle/manual/2026-11-01_job_source_record_inventory_misses.sql',
       )
       // `public` holds the db:push table; the shipped (guarded) grants block ran in this database.
       expect(await heldPrivileges()).toEqual(CLASS_A)

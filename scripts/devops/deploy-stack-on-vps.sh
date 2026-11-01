@@ -2280,6 +2280,28 @@ docker compose \
   < "$JOB_BRIDGE_DELIVERIES_FILE"
 echo "==> job bridge deliveries applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-01_job_source_record_inventory_misses.sql
+# Creates the D4 missing-inventory counter (Task 4.6 S8a); MUST precede the grants file below
+# (its privileges check now requires the table) and follow the record store (FK). The feature
+# stays dark: JOB_AVAILABILITY_RECONCILE_ENABLED is default OFF.
+JOB_INVENTORY_MISSES_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-01_job_source_record_inventory_misses.sql"
+
+if [ ! -f "$JOB_INVENTORY_MISSES_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_INVENTORY_MISSES_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job inventory misses (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$JOB_INVENTORY_MISSES_FILE"
+echo "==> job inventory misses applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file

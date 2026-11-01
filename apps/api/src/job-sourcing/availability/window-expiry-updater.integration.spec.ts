@@ -15,7 +15,7 @@ import {
 
 /**
  * r5 Task 4.6 S8e — the WINDOW expiry adapter against a real Postgres, as `crm_app`. REMOTIVE_API is
- * the provider with a 24 h freshness allowance. The path writes NO counter row, so the staged
+ * the provider with a 24 h freshness allowance. The path writes NO counter row, so the
  * `job_source_record_inventory_misses` table is neither needed nor applied here.
  * Every test creates its own fixtures and removes them in `afterEach`.
  */
