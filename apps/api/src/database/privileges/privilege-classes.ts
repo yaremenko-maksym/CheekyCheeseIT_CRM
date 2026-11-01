@@ -191,7 +191,7 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'invoice_signatures',
     'job_account_meter_reservations',
     'job_account_meters',
-    // Task 4.6 S6b: DOU bridge delivery ledger; the API's bridge (S6d) writes it. STAGED (below).
+    // Task 4.6 S6b: DOU bridge delivery ledger; the API's bridge (S6d) writes it. Promoted to manual/ (Task 4.6 S6f).
     'job_bridge_deliveries',
     'job_collection_cycles',
     'job_collection_runs',
@@ -363,8 +363,9 @@ export const MANUAL_DDL_RELATIONS: Record<string, { file: string | null; why: st
 
 /**
  * Tables the Drizzle schema DECLARES whose forward DDL is still STAGED in
- * `drizzle/manual-staged/`. Today: `job_bridge_deliveries` (Task 4.6 S6b), promoted by slice S6f.
- * (The record-store tables were promoted to `drizzle/manual/` by Task 4.6 S0. The tx_date Kyiv-day
+ * `drizzle/manual-staged/`. Today: `job_source_health_events` (source-fetch-strategy U4).
+ * (`job_bridge_deliveries` (Task 4.6 S6b) was promoted to `drizzle/manual/` by slice S6f. The
+ * record-store tables were promoted to `drizzle/manual/` by Task 4.6 S0. The tx_date Kyiv-day
  * backfill is not staged: it
  * lives in `drizzle/manual/`, was wired into the deploy by #1174, applied once on production, then
  * de-wired by #1181 and listed in `KNOWN_NOT_WIRED`; its backup table is classified above.)
@@ -391,7 +392,6 @@ export const STAGED_RELATIONS: Record<string, { file: string }> = {
   job_source_health_events: {
     file: 'drizzle/manual-staged/2026-10-31_job_source_health_events.sql',
   },
-  job_bridge_deliveries: { file: 'drizzle/manual-staged/2026-10-31_job_bridge_deliveries.sql' },
 }
 
 /**
