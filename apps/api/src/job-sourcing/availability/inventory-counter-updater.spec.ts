@@ -130,8 +130,11 @@ describe('assertInput', () => {
   it('rejects a non-uuid sourceRecordId', () => {
     expect(() => assertInput({ ...ok, sourceRecordId: 'not-a-uuid' })).toThrow(/sourceRecordId/)
   })
-  it('rejects a uuid with trailing junk (anchor)', () => {
+  it('rejects a uuid with trailing junk (end anchor)', () => {
     expect(() => assertInput({ ...ok, sourceRecordId: `${run(1)}zz` })).toThrow(/sourceRecordId/)
+  })
+  it('rejects a uuid with leading junk (start anchor)', () => {
+    expect(() => assertInput({ ...ok, sourceRecordId: `zz${run(1)}` })).toThrow(/sourceRecordId/)
   })
   it('rejects a uuid with a non-hex character', () => {
     expect(() => assertInput({ ...ok, sourceRecordId: run(1).replace(/^0/, 'g') })).toThrow(
@@ -143,6 +146,9 @@ describe('assertInput', () => {
   })
   it('rejects a blank board', () => {
     expect(() => assertInput({ ...ok, board: '   ' })).toThrow(/board/)
+  })
+  it('accepts a board of exactly 200 chars (boundary)', () => {
+    expect(() => assertInput({ ...ok, board: 'b'.repeat(200) })).not.toThrow()
   })
   it('rejects a board over 200 chars', () => {
     expect(() => assertInput({ ...ok, board: 'b'.repeat(201) })).toThrow(/board/)
