@@ -91,13 +91,18 @@ describe('AdminEditTransactionDialog — failed-save feedback', () => {
     expect(screen.getByTestId('admin-edit-tx-date-reason-input')).not.toHaveAttribute(
       'aria-invalid',
     )
+    expect(screen.queryByTestId('admin-edit-tx-date-reason-error')).toBeNull()
   })
 
   it('marks and focuses the reason field when the reason is required', async () => {
     const alert = await saveBackdated('FINANCE_TX_DATE_EDIT_REASON_REQUIRED')
     const input = screen.getByTestId('admin-edit-tx-date-reason-input')
     expect(input).toHaveAttribute('aria-invalid', 'true')
-    expect(input).toHaveAttribute('aria-describedby', alert.id)
+    const inline = screen.getByTestId('admin-edit-tx-date-reason-error')
+    expect(alert.textContent).toBeTruthy()
+    expect(inline).toHaveTextContent(alert.textContent ?? 'missing')
+    expect(input).toHaveAttribute('aria-describedby', inline.id)
+    expect(input).toHaveClass('border-destructive')
     await waitFor(() => expect(input).toHaveFocus())
   })
 

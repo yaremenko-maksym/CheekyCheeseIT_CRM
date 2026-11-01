@@ -634,6 +634,7 @@ export function AdminEditTransactionDialog({
                     if (mutation.isError) mutation.reset() // QA-MED-1; never mid-save (CR-M-7)
                   }}
                   invalid={reasonRequired}
+                  errorMessage={submitError}
                 />
               )}
 

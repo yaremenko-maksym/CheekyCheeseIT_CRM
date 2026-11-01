@@ -4,7 +4,7 @@ import { Trans, useLingui } from '@lingui/react/macro'
 import { BACKDATE_LIMIT_DAYS } from '@crm/shared'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { getApiErrorCode } from '@/lib/axios-utils'
-import { SUBMIT_ERROR_ID } from './SubmitErrorBanner'
+import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { DatePickerField } from '@/components/ui/date-picker'
@@ -21,7 +21,11 @@ interface TxDateFieldProps {
   onReasonChange: (reason: string) => void
   /** The last save was refused for a missing reason: mark the field and focus it. */
   invalid?: boolean
+  /** Same text as the failed-save banner, repeated under the field (the banner may be below the fold). */
+  errorMessage?: string | null | undefined
 }
+
+const REASON_ERROR_ID = 'admin-edit-tx-date-reason-error'
 
 export const isReasonRequiredError = (err: unknown) =>
   getApiErrorCode(err) === 'FINANCE_TX_DATE_EDIT_REASON_REQUIRED'
@@ -38,6 +42,7 @@ export function TxDateField({
   onChange,
   onReasonChange,
   invalid = false,
+  errorMessage,
 }: TxDateFieldProps) {
   const { i18n } = useLingui()
   const changed = !!value && value !== stored
@@ -80,14 +85,26 @@ export function TxDateField({
               id="admin-edit-tx-date-reason-field"
               ref={reasonRef}
               aria-invalid={invalid || undefined}
-              aria-describedby={invalid ? SUBMIT_ERROR_ID : undefined}
+              aria-describedby={invalid && errorMessage ? REASON_ERROR_ID : undefined}
               value={reason}
               onChange={(e) => onReasonChange(e.target.value)}
               maxLength={500}
               data-testid="admin-edit-tx-date-reason-input"
               placeholder={i18n._(REASON_PLACEHOLDER.id, { days: BACKDATE_LIMIT_DAYS })}
-              className="min-h-[44px] sm:min-h-0 sm:h-9 text-sm"
+              className={cn(
+                'min-h-[44px] sm:min-h-0 sm:h-9 text-sm',
+                invalid && 'border-destructive focus-visible:ring-destructive',
+              )}
             />
+            {invalid && errorMessage && (
+              <p
+                id={REASON_ERROR_ID}
+                data-testid="admin-edit-tx-date-reason-error"
+                className="text-xs text-destructive"
+              >
+                {errorMessage}
+              </p>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

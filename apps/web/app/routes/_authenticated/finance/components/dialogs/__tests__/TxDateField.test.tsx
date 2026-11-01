@@ -95,4 +95,24 @@ describe('TxDateField', () => {
     })
     expect(onReasonChange).toHaveBeenCalledWith('late statement')
   })
+
+  it('renders the error text under the reason input, wired by aria-describedby', () => {
+    renderField({ value: '2026-08-01', invalid: true, errorMessage: 'Вкажіть причину' })
+    const input = screen.getByTestId('admin-edit-tx-date-reason-input')
+    const msg = screen.getByTestId('admin-edit-tx-date-reason-error')
+    expect(msg).toHaveTextContent('Вкажіть причину')
+    expect(msg).not.toHaveAttribute('role')
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(input).toHaveAttribute('aria-describedby', msg.id)
+    expect(input).toHaveClass('border-destructive')
+    expect(msg).toHaveClass('text-destructive')
+  })
+
+  it('shows no inline error and no destructive style when not invalid', () => {
+    renderField({ value: '2026-08-01' })
+    expect(screen.queryByTestId('admin-edit-tx-date-reason-error')).toBeNull()
+    expect(screen.getByTestId('admin-edit-tx-date-reason-input')).not.toHaveClass(
+      'border-destructive',
+    )
+  })
 })
