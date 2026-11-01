@@ -128,6 +128,12 @@ export interface ContextInput {
   /** The type's ban scope (SR-M-24); absent bans the host. */
   readonly banScope: BanScope | undefined
   readonly allowedHosts: readonly string[]
+  /**
+   * U11 (SR-H-1): the most requests this run may send, the run's type `requestsPerRun`. The per-host
+   * budget counts a STARTED run as this figure, so the run must not be able to exceed it — the
+   * `requestsPerRun`+1-th `fetchText` is refused before any I/O. Must be a positive integer.
+   */
+  readonly requestsPerRun: number
   /** `null` for an unmetered source: no permit, reservations are local and free. */
   readonly meter: AccountMeter | null
   readonly secrets: readonly string[]
@@ -304,6 +310,15 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
       }
       // SR-L-22: the lease is re-validated before a permit is consumed.
       assertLease()
+      // U11 (SR-H-1): a true upper bound. The run may send at most its declared `requestsPerRun`
+      // requests; the next one is refused BEFORE any I/O and before a permit is consumed, so the
+      // per-host budget (which counts a STARTED run as that figure) can never be breached.
+      if (requestCount >= input.requestsPerRun) {
+        throw new ContextRefusedError(
+          'REQUEST_CEILING',
+          `the run reached its request ceiling of ${input.requestsPerRun}`,
+        )
+      }
       if (meter !== null) {
         if (permits < 1) {
           throw new ContextRefusedError(

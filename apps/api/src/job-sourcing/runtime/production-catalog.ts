@@ -30,6 +30,8 @@ export interface SnapshotType {
   readonly quotaDeclared: boolean
   readonly floorHours: number
   readonly banScope: BanScope
+  /** U11 (SR-H-1): the most requests one run of this type may send. Defaults to 1. */
+  readonly requestsPerRun: number
 }
 
 export interface SnapshotEntry {
@@ -92,6 +94,7 @@ export function catalogFromSnapshot(snapshot: LedgerCatalogSnapshot): LedgerCata
       fetchProfile: e.fetchProfile,
       floorHours: t.floorHours,
       banScope: t.banScope,
+      requestsPerRun: t.requestsPerRun,
     })
   }
   const hosts = new Map(snapshot.hosts.map((h) => [h.hostKey, h.policy]))

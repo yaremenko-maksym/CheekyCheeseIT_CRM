@@ -30,6 +30,12 @@ export interface LedgerCatalogEntry {
   /** The type's `minIntervalHoursFloor`. */
   readonly floorHours: number
   /**
+   * U11 (SR-H-1): the most requests one run of this type may send, enforced at runtime by the
+   * collection context so the per-host budget is a true upper bound. Defaults to 1 for a list-only
+   * type.
+   */
+  readonly requestsPerRun: number
+  /**
    * T7 (SR-M-24): what a 403 bans. Absent reads as `HOST` -- anything but a literal `SOURCE` scope
    * bans the host key, so an entry that forgot it fails toward stopping.
    */

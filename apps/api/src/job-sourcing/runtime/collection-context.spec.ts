@@ -133,6 +133,23 @@ describe('send permits (AC 6)', () => {
     expect(w.events).toEqual(['reserve', 'markSent', `send:${REQ.url}`])
   })
 
+  it('U11 (SR-H-1): a run sends at most its requestsPerRun requests; the next is refused before I/O', async () => {
+    const w = world({ input: { meter: null, requestsPerRun: 1 } })
+    await w.ctx.fetchText(REQ)
+    const refused = await refusal(w.ctx.fetchText(REQ))
+    expect(refused).toMatchObject({ name: 'ContextRefusedError', code: 'REQUEST_CEILING' })
+    // the (requestsPerRun+1)-th request never reached the transport
+    expect(w.events.filter((e) => e.startsWith('send:'))).toHaveLength(1)
+  })
+
+  it('U11 (SR-H-1): a two-request run sends two, then refuses the third before I/O', async () => {
+    const w = world({ input: { meter: null, requestsPerRun: 2 } })
+    await w.ctx.fetchText(REQ)
+    await w.ctx.fetchText(REQ)
+    expect((await refusal(w.ctx.fetchText(REQ))).code).toBe('REQUEST_CEILING')
+    expect(w.events.filter((e) => e.startsWith('send:'))).toHaveLength(2)
+  })
+
   it('a metered reconcile settles on the account meter', async () => {
     const w = world()
     await w.ctx.meter.reconcile({ id: 'r1', unit: 'REQUEST', amount: 1 }, 'USED')

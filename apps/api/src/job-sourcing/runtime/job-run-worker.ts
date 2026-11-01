@@ -466,6 +466,7 @@ export class JobRunWorker {
           floorHours: policy.floorHours,
           banScope: entry.banScope,
           allowedHosts: adapter.allowedHostsFor(config),
+          requestsPerRun: entry.requestsPerRun,
           meter,
           secrets,
           policyVersion: row.policyVersion,

@@ -244,8 +244,12 @@ function assertPolicy(policy: HostPolicy): void {
     if (!ok(budget.perMinute) || !ok(budget.perHour) || budget.perHour < budget.perMinute) {
       throw new RangeError('claimHostSlot: invalid budget')
     }
-    if (policy.requestsPerRun !== undefined && !ok(policy.requestsPerRun)) {
-      throw new RangeError('claimHostSlot: invalid requestsPerRun')
+    const perRun = policy.requestsPerRun ?? 1
+    if (!ok(perRun)) throw new RangeError('claimHostSlot: invalid requestsPerRun')
+    // CR-M-2: a run that alone sends more than the minute budget could never be claimed -- a silent
+    // forever-refusal. Fail loud here (a misconfiguration), not at every claim.
+    if (perRun > budget.perMinute) {
+      throw new RangeError('claimHostSlot: requestsPerRun exceeds the per-minute budget')
     }
   }
 }
@@ -272,23 +276,29 @@ FROM job_source_hosts h WHERE h.host_key = ${hostKey}`,
 SELECT (SELECT count(*) FROM w)::int AS claims,
   (SELECT started_at + interval '24 hours' FROM w ORDER BY started_at
     OFFSET GREATEST((SELECT count(*) FROM w) - ${perDay}, 0) LIMIT 1) AS opens_at`,
-  // U11: the requests on the host across each trailing window. A STARTED run has no `request_count`
-  // yet, so its `perRun` EXPECTED requests count instead (and it is counted whatever its age: it is
-  // in flight now). A finished run counts its recorded `request_count`, only inside the window.
-  // `opens_at` is the oldest in-window finished run leaving that window -- the earliest the budget
-  // could free; a claim still over budget then is simply refused again (opensAt is advisory, only
-  // ever written to `next_attempt_at`, never compared here).
+  // U11: the requests on the host across each trailing window, as a TRUE upper bound.
+  //  - A STARTED run is in flight: counted whatever its age, at its `perRun` EXPECTED requests
+  //    (SR-H-1 bounds the real requests a run sends to that figure at runtime).
+  //  - A finished run counts its recorded `request_count`, but NULL (a LEASE_EXPIRED / crashed /
+  //    pre-U2 run that never recorded one) is read as `perRun`, never 0 (SR-H-2 / CR-M-1): an
+  //    unknown count must not under-count the window.
+  //  - A finished run's window membership is keyed on `ended_at`, not `started_at` (SR-M-3): its
+  //    requests landed around when it ENDED, so a run that started long ago but ended inside the
+  //    window still counts. STARTED runs have a NULL `ended_at` and are caught by the outcome test.
+  // `opens_at` is the oldest in-window finished run leaving that window by `ended_at` -- the earliest
+  // the budget could free; a claim still over budget then is simply refused again (opensAt is
+  // advisory, only ever written to `next_attempt_at`, never compared here).
   budget: (hostKey: string, perRun: number): SQL =>
-    sql`WITH r AS (SELECT x.outcome, x.request_count, x.started_at
+    sql`WITH r AS (SELECT x.outcome, x.request_count, x.ended_at
            FROM job_collection_runs x JOIN job_sources s ON s.id = x.source_id
            WHERE s.host_key = ${hostKey}
-             AND (x.outcome = 'STARTED' OR x.started_at > clock_timestamp() - interval '1 hour'))
-SELECT COALESCE(sum(request_count) FILTER (WHERE outcome <> 'STARTED' AND started_at > clock_timestamp() - interval '1 minute'), 0)::int
+             AND (x.outcome = 'STARTED' OR x.ended_at > clock_timestamp() - interval '1 hour'))
+SELECT COALESCE(sum(COALESCE(request_count, ${perRun})) FILTER (WHERE outcome <> 'STARTED' AND ended_at > clock_timestamp() - interval '1 minute'), 0)::int
     + count(*) FILTER (WHERE outcome = 'STARTED')::int * ${perRun} AS minute_used,
-  COALESCE(sum(request_count) FILTER (WHERE outcome <> 'STARTED'), 0)::int
+  COALESCE(sum(COALESCE(request_count, ${perRun})) FILTER (WHERE outcome <> 'STARTED'), 0)::int
     + count(*) FILTER (WHERE outcome = 'STARTED')::int * ${perRun} AS hour_used,
-  min(started_at) FILTER (WHERE outcome <> 'STARTED' AND started_at > clock_timestamp() - interval '1 minute') + interval '1 minute' AS minute_opens_at,
-  min(started_at) FILTER (WHERE outcome <> 'STARTED') + interval '1 hour' AS hour_opens_at
+  min(ended_at) FILTER (WHERE outcome <> 'STARTED' AND ended_at > clock_timestamp() - interval '1 minute') + interval '1 minute' AS minute_opens_at,
+  min(ended_at) FILTER (WHERE outcome <> 'STARTED') + interval '1 hour' AS hour_opens_at
 FROM r`,
   stamp: (hostKey: string): SQL =>
     sql`UPDATE job_source_hosts SET last_claimed_at = clock_timestamp() WHERE host_key = ${hostKey}`,

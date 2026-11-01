@@ -49,6 +49,7 @@ export class SpecCatalog implements LedgerCatalog {
       // Once a day, at the manifest id's stagger minute after 00:00 UTC (U1b).
       fetchProfile: { intervalMinutes: 24 * 60, offIntervalMinutes: null, window: null },
       floorHours: 0,
+      requestsPerRun: 1,
       activationFacts: () => READY,
       entryReadiness: () => 'CANDIDATE',
       ...over,

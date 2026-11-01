@@ -12,6 +12,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 1,
     },
     {
       type: 'REMOTIVE_API',
@@ -21,6 +22,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 6,
       banScope: 'HOST',
+      requestsPerRun: 1,
     },
     {
       type: 'HIMALAYAS_API',
@@ -30,6 +32,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 1,
     },
     {
       type: 'JOBICY_API',
@@ -39,6 +42,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 1,
     },
     {
       type: 'ARBEITNOW_API',
@@ -48,6 +52,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 5,
     },
     {
       type: 'JOBGETHER_API',
@@ -57,6 +62,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 5,
     },
     {
       type: 'HN_HIRING',
@@ -66,6 +72,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 2,
     },
     {
       type: 'GREENHOUSE_ATS',
@@ -75,6 +82,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 1,
     },
     {
       type: 'LEVER_ATS',
@@ -84,6 +92,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 1,
     },
     {
       type: 'ASHBY_ATS',
@@ -93,6 +102,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 1,
     },
     {
       type: 'WORKABLE_ATS',
@@ -102,6 +112,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 1,
     },
     {
       type: 'RECRUITEE_ATS',
@@ -116,6 +127,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 0,
       banScope: 'SOURCE',
+      requestsPerRun: 1,
     },
     {
       type: 'PERSONIO_ATS',
@@ -125,6 +137,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 0,
       banScope: 'SOURCE',
+      requestsPerRun: 1,
     },
     {
       type: 'JOOBLE_API',
@@ -134,6 +147,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: true,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 1,
     },
     {
       type: 'JSEARCH_API',
@@ -143,6 +157,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: true,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 1,
     },
     {
       type: 'THEIRSTACK_API',
@@ -152,6 +167,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: true,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 1,
     },
     {
       type: 'MUSE_API',
@@ -161,6 +177,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 5,
     },
     {
       type: 'REED_API',
@@ -170,6 +187,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: true,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 1,
     },
     {
       type: 'DJINNI_RSS',
@@ -179,6 +197,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 1,
     },
     {
       type: 'WWR_RSS',
@@ -188,6 +207,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 1,
     },
     {
       type: 'EUREMOTEJOBS_RSS',
@@ -197,6 +217,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       quotaDeclared: false,
       floorHours: 0,
       banScope: 'HOST',
+      requestsPerRun: 1,
     },
   ],
   entries: [

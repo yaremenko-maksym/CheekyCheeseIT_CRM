@@ -40,6 +40,7 @@ export function buildLedgerCatalog(manifest: Manifest): LedgerCatalog {
         fetchProfile: e.fetchProfile,
         floorHours: t.minIntervalHoursFloor,
         banScope: t.banScope,
+        requestsPerRun: t.requestsPerRun,
       })
     }
   }
@@ -71,6 +72,7 @@ export function buildLedgerCatalogSnapshot(manifest: Manifest): LedgerCatalogSna
         quotaDeclared: t.quota !== null,
         floorHours: t.minIntervalHoursFloor,
         banScope: t.banScope,
+        requestsPerRun: t.requestsPerRun,
       })),
     entries: manifest.entries.map((e) => ({
       id: e.id,
