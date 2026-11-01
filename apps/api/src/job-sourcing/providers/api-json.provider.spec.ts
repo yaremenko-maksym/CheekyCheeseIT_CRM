@@ -1188,6 +1188,36 @@ describe('conditional requests', () => {
     expect(h.singlePage.count).toBe(0)
   })
 
+  it('U6b: a run that persisted one page and then failed on the next is not a single-page run', async () => {
+    const h = harness({
+      pages: [{ body: { jobs: [job('1')], next: 'c2' } }, { status: 500 }],
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.outcome).toBe('PARTIAL')
+    expect(h.singlePage.count).toBe(0)
+  })
+
+  it('U6b: a run stopped by its page cap after one page is not a single-page run', async () => {
+    const h = harness({ pages: [{ body: { jobs: [job('1')], next: 'c2' } }] })
+    const batch = await collectJsonPages(makeSpec({ limits: { maxPages: 1 } }), config(), h.ctx)
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(h.saved).toHaveLength(1)
+    expect(h.singlePage.count).toBe(0)
+  })
+
+  it('U6b: only a 304 is a not-modified answer, whatever else the response claims', async () => {
+    const h = harness({
+      pages: [{ status: 200, conditional: true, body: { jobs: [job('1')], next: null } }],
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.observations).toHaveLength(1)
+    expect(batch.requests[0]).toMatchObject({ status: 200, error: null })
+    expect(h.saved).toHaveLength(1)
+  })
+
   it('U6b: a single page that then fails to persist is not a single-page run', async () => {
     const h = harness({ pages: [onePage([job('1')])], savePageFailsOnPage: 1 })
     await collectJsonPages(makeSpec(), config(), h.ctx)
