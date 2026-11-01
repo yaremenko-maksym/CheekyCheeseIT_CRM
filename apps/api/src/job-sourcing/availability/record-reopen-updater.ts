@@ -87,6 +87,7 @@ export async function reopenObservedRecord(
     }
     // Structured trace, no PII (board/config only).
     logger.log(
+      // Stryker disable next-line StringLiteral: log text only; no behaviour depends on it, so there is nothing to assert
       `record-reopen reopened=${reopened}: board=${input.board} configVersion=${input.configVersion}`,
     )
     return { reopened }
