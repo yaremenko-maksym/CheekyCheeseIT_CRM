@@ -34,7 +34,8 @@ import type { RecomputeSteps } from './recompute-worker'
  *   OPPORTUNITY    re-derive availability with `deriveOpportunityAvailability` over the ACTIVE
  *                  `job_opportunity_sources` records' availability, and when it changed write it and
  *                  bump `revision` in ONE transaction. Existing matches / suggestion decisions are
- *                  NOT touched (S8f proves a close -> reopen cycle preserves them). Unchanged availability writes nothing (idempotent — AC6).
+ *                  NOT touched (S8f proves a close -> reopen cycle preserves them).
+ *                  Unchanged availability writes nothing (idempotent — AC6).
  *
  * COEXISTENCE (documented, not enforced). The S4a match worker claims the same SOURCE_RECORD /
  * OPPORTUNITY kinds for DIFFERENT work (canonical resolution / match recompute), and the claim

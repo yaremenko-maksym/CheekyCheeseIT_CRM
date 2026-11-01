@@ -366,6 +366,31 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
     expect((await recordRow(recordId)).availability).toBe('CLOSED')
   })
 
+  it('SR-M-1: a slow run that started before the close but ended after it does not reopen (no flap)', async () => {
+    const sourceId = await newSource()
+    const cycleId = await newCycle()
+    const closedAt = new Date(Date.now() - HOUR)
+    const recordId = await newRecord('CLOSED', closedAt)
+    const oppId = await newOpportunity()
+    await link(recordId, oppId)
+    // Started 2h ago (before the close), ended 10 min ago (after it).
+    const slow = await addRun(sourceId, cycleId, Date.now() - 600_000)
+    await q(`UPDATE job_collection_runs SET started_at = $2::timestamptz WHERE id = $1`, [
+      slow,
+      new Date(Date.now() - 2 * HOUR).toISOString(),
+    ])
+    await list(slow, recordId)
+
+    expect(await reopenObservedRecord(db, input(sourceId, recordId))).toEqual({ reopened: false })
+    expect((await recordRow(recordId)).availability).toBe('CLOSED')
+    expect(await reopenRows(oppId)).toEqual([])
+
+    // A run that STARTED after the close does reopen it.
+    const fresh = await addRun(sourceId, cycleId, Date.now())
+    await list(fresh, recordId)
+    expect(await reopenObservedRecord(db, input(sourceId, recordId))).toEqual({ reopened: true })
+  })
+
   it('AC1: a PARTIAL-coverage run that lists the record reopens it (listed = observed open)', async () => {
     const sourceId = await newSource()
     const cycleId = await newCycle()

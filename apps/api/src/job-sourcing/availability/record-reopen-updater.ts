@@ -48,6 +48,10 @@ export async function reopenObservedRecord(
 ): Promise<RecordReopenResult> {
   return db.transaction(async (tx) => {
     await lockAndVerifyRecord(tx, input)
+    // SR-M-1: the basis is the run's START time, the same one `writeObservation`'s `notOlder` gate
+    // uses (`run.started_at >= head.observed_at`). A slow run that started before the close but
+    // ended after it is "older" to that gate, so it must not reopen the record here either, or the
+    // record would flap closed/open and bump the opportunity revision each time.
     const { rows } = await tx.execute(
       sql`SELECT cr.id, cr.cycle_id, cr.coverage::text AS coverage,
                  coalesce(cr.ended_at, cr.started_at) AS observed_at
@@ -59,9 +63,9 @@ export async function reopenObservedRecord(
              AND cr.source_id = ${input.sourceId}::uuid
              AND cr.config_version = ${input.configVersion}
              AND cr.outcome = 'SUCCEEDED'::job_collection_outcome
-             AND coalesce(cr.ended_at, cr.started_at)
+             AND cr.started_at
                  > coalesce(rec.availability_checked_at, '-infinity'::timestamptz)
-           ORDER BY coalesce(cr.ended_at, cr.started_at) DESC, cr.id DESC
+           ORDER BY cr.started_at DESC, cr.id DESC
            LIMIT 1`,
     )
     const run = rows[0]

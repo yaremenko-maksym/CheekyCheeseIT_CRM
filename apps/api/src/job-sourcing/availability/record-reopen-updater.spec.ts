@@ -43,6 +43,9 @@ describe('reopenObservedRecord (Task 4.6 S8f)', () => {
     expect(select).toContain(`cr.outcome = 'SUCCEEDED'::job_collection_outcome`)
     expect(select).toContain('> coalesce(rec.availability_checked_at')
     expect(select).toContain('JOIN job_run_records jr')
+    // SR-M-1: the START time, never the end time, is the observation basis.
+    expect(select).toMatch(/AND cr\.started_at\s+> coalesce\(rec\.availability_checked_at/)
+    expect(select).toContain('ORDER BY cr.started_at DESC')
     // No run listed it since it closed: nothing is written, nothing enqueued.
     expect(statements).toHaveLength(2)
   })
