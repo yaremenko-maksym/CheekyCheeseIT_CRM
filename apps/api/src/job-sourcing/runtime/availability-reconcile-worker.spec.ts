@@ -10,6 +10,10 @@ const fail = vi.fn()
 vi.mock('../availability/inventory-counter-updater', () => ({
   updateInventoryMissCounter: (...a: unknown[]) => updateInventory(...a),
 }))
+const reopen = vi.fn()
+vi.mock('../availability/record-reopen-updater', () => ({
+  reopenObservedRecord: (...a: unknown[]) => reopen(...a),
+}))
 const readWindowRun = vi.fn()
 const expireWindow = vi.fn()
 vi.mock('../availability/window-expiry-updater', () => ({
@@ -65,6 +69,7 @@ function dbOf(...rowSets: Record<string, unknown>[][]) {
 
 beforeEach(() => {
   updateInventory.mockReset().mockResolvedValue({})
+  reopen.mockReset().mockResolvedValue({ reopened: false })
   readWindowRun.mockReset().mockResolvedValue(null)
   expireWindow.mockReset().mockResolvedValue({ expired: true })
   claim.mockReset().mockResolvedValue([])
@@ -164,6 +169,37 @@ describe('reconcileSourceRecordAvailability', () => {
     await reconcileSourceRecordAvailability(dbOf([row]).db as never, work('SOURCE_RECORD', REC))
     expect(expireWindow).toHaveBeenCalledTimes(2)
     expect(updateInventory).toHaveBeenCalledTimes(1)
+  })
+
+  it('S8f: reopens a re-listed record BEFORE the counter / window path sees it', async () => {
+    const row = {
+      source_id: 'src-1',
+      source_type: 'GREENHOUSE_ATS',
+      namespace: 'a',
+      config_version: 2,
+    }
+    const order: string[] = []
+    reopen.mockImplementation(async () => order.push('reopen'))
+    updateInventory.mockImplementation(async () => order.push('counter'))
+    await reconcileSourceRecordAvailability(dbOf([row]).db as never, work('SOURCE_RECORD', REC))
+    expect(order).toEqual(['reopen', 'counter'])
+    expect(reopen).toHaveBeenCalledWith(expect.anything(), {
+      sourceRecordId: REC,
+      sourceId: 'src-1',
+      board: 'GREENHOUSE_ATS:a',
+      configVersion: 2,
+    })
+
+    order.length = 0
+    expireWindow.mockImplementation(async () => order.push('window'))
+    readWindowRun.mockResolvedValueOnce({ runId: 'r', cycleId: null, observedAt: 'x' })
+    await reconcileSourceRecordAvailability(dbOf([row]).db as never, work('SOURCE_RECORD', REC))
+    expect(order).toEqual(['reopen', 'window'])
+  })
+
+  it('S8f: an orphan record is not reopened', async () => {
+    await reconcileSourceRecordAvailability(dbOf([]).db as never, work('SOURCE_RECORD', REC))
+    expect(reopen).not.toHaveBeenCalled()
   })
 
   it('skips the updater for an orphan record but still completes the row', async () => {

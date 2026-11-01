@@ -11,6 +11,7 @@ import { LockContentionError } from './lock-order'
 import {
   MAX_OBSERVATIONS_PER_PAGE,
   expireRecordByWindow,
+  reopenRecord,
   type PageChunk,
   chunkPage,
   newestPublishedAt,
@@ -253,6 +254,54 @@ describe('the dirty-work producer (Task 4.6 S4a, AC 8)', () => {
     expect(enqueues(seen.statements)).toEqual([])
   })
 
+  describe('S8f: a CLOSED/EXPIRED record listed again', () => {
+    const REV = '00000000-0000-4000-8000-0000000000b1'
+    /** The record is locked at `availability`; its head holds REV (same content => not advanced). */
+    const relisted =
+      (availability: string, notOlder = true, latest = REV) =>
+      (q: Query) => {
+        if (/SELECT availability::text AS availability FROM job_source_records/.test(q.sql))
+          return { rows: [{ availability }] }
+        if (/^\s*SELECT latest_revision_id/.test(q.sql))
+          return { rows: [{ latest_revision_id: latest, not_older: notOlder }] }
+        if (/^\s*UPDATE job_source_record_heads/.test(q.sql))
+          return { rows: [{ observation_seq: 3 }] }
+        return firstObservation(CYCLE)(q)
+      }
+
+    it.each(['CLOSED', 'EXPIRED'])(
+      '%s + unchanged content enqueues one per-run RECORD_RELISTED row at the head sequence',
+      async (availability) => {
+        const { db, seen } = recordingDb(relisted(availability))
+        await saveObservationPage(db, H, page)
+        expect(enqueues(seen.statements).map((e) => e.params)).toEqual([
+          ['SOURCE_RECORD', RECORD, 3, `RECORD_RELISTED:${H.runId}`, CYCLE],
+        ])
+      },
+    )
+
+    it.each(['OPEN', 'UNKNOWN'])(
+      '%s + unchanged content enqueues nothing',
+      async (availability) => {
+        const { db, seen } = recordingDb(relisted(availability))
+        await saveObservationPage(db, H, page)
+        expect(enqueues(seen.statements)).toEqual([])
+      },
+    )
+
+    it('an older observation (a slow run) of a CLOSED record enqueues nothing', async () => {
+      const { db, seen } = recordingDb(relisted('CLOSED', false))
+      await saveObservationPage(db, H, page)
+      expect(enqueues(seen.statements)).toEqual([])
+    })
+
+    it('changed content of a CLOSED record enqueues SOURCE_REVISION only (no second row)', async () => {
+      const { db, seen } = recordingDb(relisted('CLOSED', true, 'another-revision'))
+      await saveObservationPage(db, H, page)
+      expect(enqueues(seen.statements).map((e) => e.params[3])).toEqual(['SOURCE_REVISION'])
+    })
+  })
+
   it('the single-observation write enqueues in the caller transaction too', async () => {
     const { db, seen } = recordingDb(firstObservation(CYCLE))
     await db.transaction((tx) => saveObservation(tx, H, page.observations[0] as SourceObservation))
@@ -382,5 +431,45 @@ describe('expireRecordByWindow (Task 4.6 S8e, CR-M-3)', () => {
       kind: 'WINDOW_DROPPED',
     } as never)
     expect(ok).toBe(false)
+  })
+})
+
+describe('reopenRecord (Task 4.6 S8f)', () => {
+  const base = {
+    runId: '00000000-0000-4000-8000-000000000001',
+    board: 'b',
+    configVersion: 1,
+    observedAt: '2026-11-01T00:00:00.000Z',
+  }
+  const open = { ...base, kind: 'OBSERVED_OPEN', basis: 'OBSERVED' } as never
+
+  it.each([
+    ['WINDOW_DROPPED', { ...base, kind: 'WINDOW_DROPPED' }],
+    ['DETAIL_GONE', { ...base, kind: 'DETAIL_GONE', httpStatus: 404, adapterVersion: 'v1' }],
+  ])('rejects %s evidence and writes nothing', async (_k, evidence) => {
+    const execute = vi.fn()
+    await expect(reopenRecord({ execute } as never, base.runId, evidence as never)).rejects.toThrow(
+      /only OBSERVED_OPEN/,
+    )
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('writes OPEN with the evidence, guarded to CLOSED and EXPIRED only, touching one table', async () => {
+    const execute = vi.fn(async (_q: unknown) => ({ rows: [{ id: 'r' }] }))
+    expect(await reopenRecord({ execute } as never, base.runId, open)).toBe(true)
+    expect(execute).toHaveBeenCalledTimes(1)
+    const { sql: text, params } = new PgDialect().sqlToQuery(execute.mock.calls[0][0] as SQL)
+    expect(text).toContain(`SET availability = 'OPEN'::job_availability`)
+    expect(text).toContain(
+      `availability IN ('CLOSED'::job_availability, 'EXPIRED'::job_availability)`,
+    )
+    expect(text).toContain('UPDATE job_source_records')
+    expect(text).not.toMatch(/job_opportunity_matches|job_suggestions/)
+    expect(params[0]).toContain('"kind":"OBSERVED_OPEN"')
+  })
+
+  it('returns false when the guard matched no row (already open)', async () => {
+    const execute = vi.fn(async (_q: unknown) => ({ rows: [] }))
+    expect(await reopenRecord({ execute } as never, base.runId, open)).toBe(false)
   })
 })
