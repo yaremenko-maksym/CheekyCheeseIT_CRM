@@ -89,6 +89,7 @@ const METRICS = {
   lastHttpStatus: 200,
   envelopeFingerprint: null,
   validatorsSeen: false,
+  nextValidators: null,
 } as const
 
 describe.skipIf(!hasDatabaseUrl())('the LEGACY claim against Postgres, as crm_app (S6c)', () => {

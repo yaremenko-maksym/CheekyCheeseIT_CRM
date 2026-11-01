@@ -1044,6 +1044,7 @@ describe('the heartbeat, the deadline and the end of a run', () => {
         lastHttpStatus: null,
         envelopeFingerprint: null,
         validatorsSeen: false,
+        nextValidators: null,
       },
     })
     expect(r?.outcome).toBe('PARTIAL')
