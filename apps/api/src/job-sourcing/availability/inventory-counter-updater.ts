@@ -40,6 +40,7 @@ import {
 
 const READ_COMMITTED = { isolationLevel: 'read committed' } as const
 
+// Stryker disable next-line StringLiteral: the logger context is a cosmetic label in log output only; no behaviour depends on it, so there is nothing to assert
 const logger = new Logger('InventoryCounterUpdater')
 
 /** `job_dirty_work.reason` of the opportunity recompute a record closure enqueues (<= 100 chars). */
