@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { JobMeterUnit, JobMeterWindow, JobSourceType } from '@crm/shared'
 import { type SQL, sql } from 'drizzle-orm'
 import type { DrizzleTx } from '../../database/types'
-import { type StoredValidators } from '../http/stored-validators'
+import { type StoredValidators, parseStoredValidators } from '../http/stored-validators'
 import {
   type AccountMeter,
   type MeterDb,
@@ -625,6 +625,16 @@ export class JobRunLedger {
     await tx.execute(
       sql`UPDATE job_sources SET last_attempt_at = clock_timestamp(), updated_at = clock_timestamp() WHERE id = ${sourceId}::uuid`,
     )
+    // U6b: what the source's latest SUCCEEDED run (same config and adapter version) stored. Not the
+    // inherited resume checkpoint above -- a succeeded run's checkpoint is deliberately never
+    // inherited -- and not in it, so the "a page was saved" comparison in `endRun` is untouched.
+    const { rows: stored } = await tx.execute(
+      sql`SELECT r.checkpoint->'validators' AS validators
+            FROM job_collection_runs r JOIN job_sources s ON s.id = r.source_id
+           WHERE r.source_id = ${sourceId}::uuid AND r.outcome = 'SUCCEEDED'
+             AND r.config_version = s.config_version AND r.adapter_version = ${adapterVersion}
+           ORDER BY r.fencing_epoch DESC LIMIT 1`,
+    )
     const cp = run['checkpoint']
     const empty = cp === null || (typeof cp === 'object' && Object.keys(cp as object).length === 0)
     return {
@@ -637,6 +647,7 @@ export class JobRunLedger {
       accountKey: String(run['account_key']),
       sourceType: row['type'] as JobSourceType,
       checkpoint: empty ? null : cp,
+      validators: parseStoredValidators(stored[0]?.['validators']),
     }
   }
 
@@ -818,6 +829,11 @@ export class JobRunLedger {
         ? null
         : ending.errorMessage.slice(0, ERROR_MESSAGE_MAX)
     const m = ending.metrics
+    // U6b: a SUCCEEDED run stores the validators its first request showed (or drops the stored
+    // ones); any other ending leaves the checkpoint as it is.
+    const validatorsPatch = JSON.stringify(
+      m?.nextValidators == null ? {} : { validators: m.nextValidators },
+    )
     await tx.execute(
       sql`UPDATE job_collection_runs
              SET outcome = ${ending.outcome}::job_collection_outcome, error_code = ${ending.errorCode},
@@ -825,7 +841,9 @@ export class JobRunLedger {
                  request_count = ${m?.requestCount ?? null}::integer, bytes_read = ${m?.bytesRead ?? null}::bigint,
                  last_http_status = ${m?.lastHttpStatus ?? null}::smallint,
                  envelope_fingerprint = ${m?.envelopeFingerprint ?? null}::text,
-                 validators_seen = ${m?.validatorsSeen ?? null}::boolean
+                 validators_seen = ${m?.validatorsSeen ?? null}::boolean,
+                 checkpoint = CASE WHEN ${ending.outcome === 'SUCCEEDED' && m !== undefined}
+                   THEN (checkpoint - 'validators') || ${validatorsPatch}::jsonb ELSE checkpoint END
            WHERE id = ${head.runId}::uuid`,
     )
     await this.account(tx, head, source, ending, {

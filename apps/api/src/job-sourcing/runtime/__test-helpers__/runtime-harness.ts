@@ -34,6 +34,8 @@ export interface SeenRequest {
   readonly host: string
   readonly path: string
   readonly method: string
+  /** The request headers received (lower-cased names; non-enumerable, read by conditional-request specs). */
+  readonly headers: Readonly<Record<string, string | string[] | undefined>>
 }
 
 export type FixtureAnswer =
@@ -49,11 +51,17 @@ export interface FixtureServer {
 export async function startFixtureServer(): Promise<FixtureServer> {
   const hanging = new Set<ServerResponse>()
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    const seen: SeenRequest = {
-      host: String(req.headers['x-fixture-host'] ?? ''),
-      path: req.url ?? '',
-      method: req.method ?? 'GET',
-    }
+    // `headers` is non-enumerable, so the specs that `toEqual` a whole request keep comparing
+    // host/path/method.
+    const seen = Object.defineProperty(
+      {
+        host: String(req.headers['x-fixture-host'] ?? ''),
+        path: req.url ?? '',
+        method: req.method ?? 'GET',
+      },
+      'headers',
+      { value: req.headers },
+    ) as SeenRequest
     fixture.requests.push(seen)
     void Promise.resolve(fixture.answer(seen)).then((a) => {
       if (a === 'HANG') {
