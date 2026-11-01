@@ -106,6 +106,13 @@ export type CounterTransition =
   | { kind: 'review'; next: InventoryMissCounter | null }
   | { kind: 'close'; next: InventoryMissCounter; evidence: AvailabilityEvidence }
 
+/**
+ * Evidence is parsed through `availabilityEvidenceSchema` in the spec only: the S8d persisting caller
+ * MUST `.parse()` it before writing.
+ *
+ * `lastInventorySize` is the baseline for the >50% drop guard: the HIGHEST size seen in the current
+ * chain (so step-shrinking 100 -> 50 -> 25 trips review), kept through a reset, never <= 0.
+ */
 export function transitionInventoryMissCounter(
   current: InventoryMissCounter | null,
   run: InventoryRunFact,
@@ -114,6 +121,21 @@ export function transitionInventoryMissCounter(
   const sameScope =
     current === null || (current.board === run.board && current.configVersion === run.configVersion)
   if (!valid || !sameScope) return { kind: 'unchanged', next: current }
+
+  // A replayed or out-of-order run must not count as another miss (SR-H-1).
+  if (
+    current !== null &&
+    current.lastMissRunId !== null &&
+    (run.runId === current.lastMissRunId ||
+      Date.parse(run.observedAt) <= Date.parse(current.lastMissAt ?? run.observedAt))
+  ) {
+    return { kind: 'unchanged', next: current }
+  }
+
+  // Drop guard runs before the present-reset so a collapsed run never touches the counter (SR-M-1).
+  if (current !== null && run.inventorySize < current.lastInventorySize * MIN_INVENTORY_FRACTION) {
+    return { kind: 'review', next: current }
+  }
 
   if (run.recordPresent) {
     if (current === null || current.consecutiveMisses === 0)
@@ -127,14 +149,12 @@ export function transitionInventoryMissCounter(
         firstMissAt: null,
         lastMissRunId: null,
         lastMissAt: null,
-        lastInventorySize: run.inventorySize,
       },
     }
   }
 
-  if (current !== null && run.inventorySize < current.lastInventorySize * MIN_INVENTORY_FRACTION) {
-    return { kind: 'review', next: current }
-  }
+  // An empty inventory is a collection fault, never a mass closure; no baseline <= 0 (SR-H-2).
+  if (run.inventorySize <= 0) return { kind: 'review', next: current }
 
   const chain = current !== null && current.consecutiveMisses > 0 ? current : null
   const consecutiveMisses = (chain?.consecutiveMisses ?? 0) + 1
@@ -148,7 +168,7 @@ export function transitionInventoryMissCounter(
     firstMissAt,
     lastMissRunId: run.runId,
     lastMissAt: run.observedAt,
-    lastInventorySize: run.inventorySize,
+    lastInventorySize: Math.max(chain?.lastInventorySize ?? 0, run.inventorySize),
   }
 
   const spanMs = Date.parse(run.observedAt) - Date.parse(firstMissAt)

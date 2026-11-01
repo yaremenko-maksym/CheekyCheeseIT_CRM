@@ -246,7 +246,10 @@ describe('transitionInventoryMissCounter', () => {
     })
 
     it('after a reset the next miss starts a fresh chain at 1', () => {
-      const reset = transitionInventoryMissCounter(chain(2), run({ recordPresent: true }))
+      const reset = transitionInventoryMissCounter(
+        chain(2),
+        run({ recordPresent: true, observedAt: hoursAfter(5) }),
+      )
       const r = transitionInventoryMissCounter(
         reset.next,
         run({ runId: RUN(9), observedAt: hoursAfter(40) }),
@@ -281,6 +284,107 @@ describe('transitionInventoryMissCounter', () => {
         kind: 'unchanged',
         next: null,
       })
+    })
+  })
+
+  describe('fix round 1 (security)', () => {
+    it('SR-H-1: replay of the latest run is unchanged', () => {
+      const cur = chain(2, { lastMissRunId: RUN(3), lastMissAt: hoursAfter(25) })
+      expect(
+        transitionInventoryMissCounter(cur, run({ runId: RUN(3), observedAt: hoursAfter(30) })),
+      ).toEqual({ kind: 'unchanged', next: cur })
+    })
+
+    it('SR-H-1: an older or equal observedAt (new runId) is unchanged', () => {
+      const cur = chain(2, { lastMissRunId: RUN(3), lastMissAt: hoursAfter(25) })
+      for (const h of [24, 25]) {
+        expect(
+          transitionInventoryMissCounter(cur, run({ runId: RUN(4), observedAt: hoursAfter(h) })),
+        ).toEqual({ kind: 'unchanged', next: cur })
+      }
+      expect(
+        transitionInventoryMissCounter(cur, run({ runId: RUN(4), observedAt: hoursAfter(26) }))
+          .kind,
+      ).toBe('close')
+    })
+
+    it('SR-H-1: a replayed present run does not reset', () => {
+      const cur = chain(2, { lastMissRunId: RUN(3), lastMissAt: hoursAfter(25) })
+      expect(
+        transitionInventoryMissCounter(
+          cur,
+          run({ runId: RUN(3), recordPresent: true, observedAt: hoursAfter(30) }),
+        ).kind,
+      ).toBe('unchanged')
+    })
+
+    it('SR-H-2: a single empty run (no counter) => review, no advance', () => {
+      expect(transitionInventoryMissCounter(null, run({ inventorySize: 0 }))).toEqual({
+        kind: 'review',
+        next: null,
+      })
+    })
+
+    it('SR-H-2: three empty runs over 48h never close', () => {
+      let cur: InventoryMissCounter | null = null
+      for (const [i, h] of [0, 24, 48].entries()) {
+        const r = transitionInventoryMissCounter(
+          cur,
+          run({ runId: RUN(i + 1), inventorySize: 0, observedAt: hoursAfter(h) }),
+        )
+        expect(r.kind).toBe('review')
+        cur = r.next
+      }
+      expect(cur).toBeNull()
+    })
+
+    it('SR-H-2: empty run after a chain with a zero baseline is review', () => {
+      const cur = chain(2, { lastInventorySize: 0 })
+      expect(
+        transitionInventoryMissCounter(cur, run({ inventorySize: 0, observedAt: hoursAfter(30) })),
+      ).toEqual({ kind: 'review', next: cur })
+    })
+
+    it('SR-M-1: step-shrink 100 -> 60 -> 30 trips review (baseline is the chain max)', () => {
+      const a = transitionInventoryMissCounter(null, run({ inventorySize: 100 }))
+      const b = transitionInventoryMissCounter(
+        a.next,
+        run({ runId: RUN(2), inventorySize: 60, observedAt: hoursAfter(10) }),
+      )
+      expect(b.kind).toBe('advance')
+      expect(b.next?.lastInventorySize).toBe(100)
+      const c = transitionInventoryMissCounter(
+        b.next,
+        run({ runId: RUN(3), inventorySize: 30, observedAt: hoursAfter(25) }),
+      )
+      expect(c).toEqual({ kind: 'review', next: b.next })
+    })
+
+    it('SR-M-1: a present record on a collapsed run => review, baseline untouched', () => {
+      const cur = chain(2)
+      expect(
+        transitionInventoryMissCounter(
+          cur,
+          run({ recordPresent: true, inventorySize: 10, observedAt: hoursAfter(5) }),
+        ),
+      ).toEqual({ kind: 'review', next: cur })
+    })
+
+    it('SR-M-1: a normal reset keeps the baseline', () => {
+      const r = transitionInventoryMissCounter(
+        chain(2),
+        run({ recordPresent: true, inventorySize: 80, observedAt: hoursAfter(5) }),
+      )
+      expect(r.kind).toBe('reset')
+      expect(r.next?.lastInventorySize).toBe(100)
+    })
+
+    it('baseline rises with a larger inventory inside a chain', () => {
+      const r = transitionInventoryMissCounter(
+        chain(1),
+        run({ inventorySize: 120, observedAt: hoursAfter(2) }),
+      )
+      expect(r.next?.lastInventorySize).toBe(120)
     })
   })
 })
