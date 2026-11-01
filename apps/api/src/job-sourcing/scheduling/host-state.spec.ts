@@ -670,8 +670,10 @@ FROM r`)
       render(hostSlotStatements.budget(key, 1)).sql,
     ]
 
-    it('grants a budget host under budget: ensure, lock, read, budget, then stamp', async () => {
-      const used = { minute_used: 1, hour_used: 1, minute_opens_at: null, hour_opens_at: null }
+    it('grants a budget host at the exact minute AND hour boundary: ensure, lock, read, budget, stamp', async () => {
+      // minute 1 + own 1 = 2 = perMinute; hour 119 + own 1 = 120 = perHour. Both exactly at the
+      // budget grant (the comparison is `>`, not `>=`).
+      const used = { minute_used: 1, hour_used: 119, minute_opens_at: null, hour_opens_at: null }
       const { tx, seen, params } = scripted([[], [{}], [open], [used], []])
       await expect(claimHostSlot(tx, 'boards.io', budgetPolicy)).resolves.toEqual({ granted: true })
       expect(seen).toEqual([
@@ -731,6 +733,37 @@ FROM r`)
         granted: false,
         reason: 'HOST_REQUEST_BUDGET',
       })
+    })
+
+    it('a missing budget row refuses HOST_REQUEST_BUDGET, never throws on the absent columns', async () => {
+      const { tx } = scripted([[], [{}], [open], []])
+      await expect(claimHostSlot(tx, 'boards.io', budgetPolicy)).resolves.toEqual({
+        granted: false,
+        reason: 'HOST_REQUEST_BUDGET',
+        opensAt: null,
+      })
+    })
+
+    it('accepts a budget whose hour equals its minute (perHour is not required to be larger)', async () => {
+      const used = { minute_used: 0, hour_used: 0, minute_opens_at: null, hour_opens_at: null }
+      const { tx } = scripted([[], [{}], [open], [used], []])
+      const policy = { rate: null, floorHours: 0, requestBudget: { perMinute: 2, perHour: 2 } }
+      expect(await claimHostSlot(tx, 'boards.io', policy)).toEqual({ granted: true })
+    })
+
+    it('throws on an invalid requestsPerRun beside a budget, before any SQL', async () => {
+      for (const requestsPerRun of [0, 1.5, -1, Number.NaN]) {
+        const { tx, seen } = scripted([])
+        await expect(
+          claimHostSlot(tx, 'boards.io', {
+            rate: null,
+            floorHours: 0,
+            requestBudget: { perMinute: 2, perHour: 120 },
+            requestsPerRun,
+          }),
+        ).rejects.toThrow('claimHostSlot: invalid requestsPerRun')
+        expect(seen).toEqual([])
+      }
     })
 
     it('a paused budget host is still refused HOST_PAUSED before the budget is read', async () => {

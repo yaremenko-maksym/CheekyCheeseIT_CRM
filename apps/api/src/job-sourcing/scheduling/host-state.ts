@@ -347,6 +347,8 @@ export async function claimHostSlot(
       return refuse('HOST_REQUEST_BUDGET', used?.['minute_opens_at'])
     }
     if (!Number.isInteger(hour) || hour + perRun > policy.requestBudget.perHour) {
+      // Stryker disable next-line OptionalChaining: line reached only after the minute check
+      // passed, which requires `used` to be a present row, so `?.` is never exercised here.
       return refuse('HOST_REQUEST_BUDGET', used?.['hour_opens_at'])
     }
   }

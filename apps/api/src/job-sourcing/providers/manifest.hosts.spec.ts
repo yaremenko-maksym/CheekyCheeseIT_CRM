@@ -167,11 +167,14 @@ describe('hostPolicyOf request budget (U11)', () => {
     { type: 'GREENHOUSE_ATS', hostKey: 'shared.boards' },
     { type: 'LEVER_ATS', hostKey: 'shared.boards' },
     { type: 'GREENHOUSE_ATS', hostKey: 'greenhouse.only' },
+    // A second, budget-less type on the same host must not disturb the merge (it must not be read
+    // as a budget of its own, which would try to intersect with a null figure).
+    { type: 'JOBICY_API', hostKey: 'greenhouse.only' },
     { type: 'JOBICY_API', hostKey: 'jobicy.com' },
   ] as const
   const m = { types, entries }
 
-  it('carries the declared budget and the run size for a single-type host', () => {
+  it('carries the declared budget, and a budget-less co-tenant leaves it untouched', () => {
     expect(hostPolicyOf(m, 'greenhouse.only')).toEqual({
       rate: null,
       floorHours: 0,
