@@ -412,7 +412,10 @@ export const jobSourceSchema = z.object({
   enabled: z.boolean(),
   triggerMode: jobSourceTriggerModeSchema,
   lastCollectedAt: z.string().datetime().nullable(),
-  minIntervalHours: z.number().int().positive().nullable(),
+  // `minIntervalHours` was removed in U7 (source fetch strategy): U1b stopped it from driving
+  // cadence, leaving a stale field no reader used. The cadence now appears on the ADMIN source page
+  // as `jobSourceProfileSummarySchema` (job-source-admin.ts). The `min_interval_hours` COLUMN stays
+  // until U9 drops it on the owner's separate word.
   disabledReason: z.string().max(500).nullable(),
   budget: jobSourceBudgetSchema,
 })

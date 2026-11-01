@@ -119,6 +119,9 @@ describe('AdminTemplatesRoot — ADMIN tab bar', () => {
     expect(screen.getByRole('button', { name: 'Компанія' })).toHaveTextContent('Компанія')
     expect(screen.getByRole('button', { name: 'Увійти як' })).toHaveTextContent('Увійти як')
     expect(screen.getByRole('button', { name: 'Інтеграції' })).toHaveTextContent('Інтеграції')
+    // U7: the «Джерела» tab carries a distinct aria-label («Джерела вакансій») from its
+    // visible text («Джерела») — assert both so a mutated label or ariaLabel fails.
+    expect(screen.getByRole('button', { name: 'Джерела вакансій' })).toHaveTextContent('Джерела')
   })
 
   it('renders the Outlet for child routes', () => {
@@ -136,6 +139,7 @@ describe('AdminTemplatesRoot — ADMIN tab bar', () => {
     ['wallet', 'Компанія'],
     ['login-as', 'Увійти як'],
     ['integrations', 'Інтеграції'],
+    ['sources', 'Джерела вакансій'],
   ])('clicking the %s tab navigates to /admin/%s', async (value, label) => {
     const user = userEvent.setup()
     render(<AdminTemplatesRoot />)
@@ -226,5 +230,6 @@ describe('AdminTemplatesRoot — ADMIN tab bar', () => {
     expect(screen.getByTestId('admin-templates-tab-wallet')).toHaveTextContent('Компанія')
     expect(screen.getByTestId('admin-templates-tab-login-as')).toHaveTextContent('Увійти як')
     expect(screen.getByTestId('admin-templates-tab-integrations')).toHaveTextContent('Інтеграції')
+    expect(screen.getByTestId('admin-templates-tab-sources')).toHaveTextContent('Джерела')
   })
 })

@@ -162,7 +162,6 @@ describe('legacy DTOs are untouched (C-01)', () => {
       enabled: true,
       triggerMode: 'SCHEDULED',
       lastCollectedAt: null,
-      minIntervalHours: null,
       disabledReason: null,
       budget: {
         state: 'ACTIVE',

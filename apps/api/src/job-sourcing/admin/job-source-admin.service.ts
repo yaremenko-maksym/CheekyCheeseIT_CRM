@@ -1,15 +1,30 @@
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import type {
+  CreateJobSourceNoteDto,
   ExcludedJobSourceDto,
+  JobHealthReason,
+  JobHealthState,
+  JobSourceDetailDto,
   JobSourceExclusionReason,
+  JobSourceOperationalRowDto,
+  JobSourceRunDto,
+  JobSourceTimelineEventDto,
   ResetJobSourceFailuresDto,
   SessionUser,
 } from '@crm/shared'
-import { sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, max, sql } from 'drizzle-orm'
 import { DatabaseService } from '../../database/database.service'
+// Schema tables through the barrel (never the individual modules): the ordered-import
+// `public` circular-init trap documented in job-source-health.service.ts.
+import { jobCollectionRuns, jobSourceHealthEvents, jobSources, users } from '../../database/schema'
 import { JobRunLedger } from '../ownership/job-run-ledger'
 import { CLAIM_REFUSALS, nextAttemptAt } from '../ownership/ledger-policy'
 import { MAX_CONSECUTIVE_FAILURES } from '../scheduling/due-policy'
+import { correlateEvents, freshnessWindowStart, summarizeProfile } from './source-page-derivation'
+
+/** How many recent runs / events the detail page carries — bounded, newest first. */
+const DETAIL_RUN_LIMIT = 50
+const DETAIL_EVENT_LIMIT = 100
 
 /**
  * ADMIN controls over the run ledger (r5 Task 2.5 T9; ADR
@@ -131,5 +146,223 @@ export class JobSourceAdminService {
       first !== null &&
       Number(r['now_ms']) > nextAttemptAt(first, manifestId, entry, level)!.getTime()
     )
+  }
+
+  // -------------------------------------------------------------------------
+  // Source-fetch-strategy U7 — the ADMIN source page
+  // -------------------------------------------------------------------------
+
+  /**
+   * Every source with its CURRENT health state (the `to_state` of its latest TRANSITION; null when
+   * none recorded), its freshness (when we last ran, and the newest item the provider has published)
+   * and its cadence summary (replacing the stale `minIntervalHours`). Read only.
+   */
+  async listSourceHealth(actor: SessionUser): Promise<JobSourceOperationalRowDto[]> {
+    this.assertAdmin(actor)
+    const db = this.database.db
+    const sources = await db
+      .select({
+        id: jobSources.id,
+        type: jobSources.type,
+        enabled: jobSources.enabled,
+        manifestId: jobSources.manifestId,
+        lastCollectedAt: jobSources.lastCollectedAt,
+      })
+      .from(jobSources)
+      .orderBy(jobSources.type, jobSources.id)
+    if (sources.length === 0) return []
+
+    const ids = sources.map((s) => s.id)
+    const windowStart = freshnessWindowStart(new Date())
+    const latest = await this.latestTransitions(ids)
+    const freshness = await db
+      .select({
+        sourceId: jobCollectionRuns.sourceId,
+        newest: max(jobCollectionRuns.newestItemPublishedAt),
+      })
+      .from(jobCollectionRuns)
+      // Bounded to the recent window (CR-M-1): never a full-history scan.
+      .where(
+        and(
+          inArray(jobCollectionRuns.sourceId, ids),
+          gte(jobCollectionRuns.startedAt, windowStart),
+        ),
+      )
+      .groupBy(jobCollectionRuns.sourceId)
+    const newestById = new Map(freshness.map((f) => [f.sourceId, f.newest]))
+
+    return sources.map((s) => this.rowOf(s, latest.get(s.id), newestById.get(s.id) ?? null))
+  }
+
+  /** One source's run timeline + health-event log, with the correlation hint on each TRANSITION. */
+  async sourceDetail(sourceId: string, actor: SessionUser): Promise<JobSourceDetailDto> {
+    this.assertAdmin(actor)
+    const db = this.database.db
+    const [s] = await db
+      .select({
+        id: jobSources.id,
+        type: jobSources.type,
+        enabled: jobSources.enabled,
+        manifestId: jobSources.manifestId,
+        lastCollectedAt: jobSources.lastCollectedAt,
+      })
+      .from(jobSources)
+      .where(eq(jobSources.id, sourceId))
+    if (!s) throw new NotFoundException('Job source not found')
+
+    const latest = await this.latestTransitions([s.id])
+    const [fresh] = await db
+      .select({ newest: max(jobCollectionRuns.newestItemPublishedAt) })
+      .from(jobCollectionRuns)
+      // Same bounded window as the list (CR-M-1).
+      .where(
+        and(
+          eq(jobCollectionRuns.sourceId, s.id),
+          gte(jobCollectionRuns.startedAt, freshnessWindowStart(new Date())),
+        ),
+      )
+    const source = this.rowOf(s, latest.get(s.id), fresh?.newest ?? null)
+
+    const runRows = await db
+      .select({
+        id: jobCollectionRuns.id,
+        startedAt: jobCollectionRuns.startedAt,
+        endedAt: jobCollectionRuns.endedAt,
+        outcome: jobCollectionRuns.outcome,
+        received: jobCollectionRuns.received,
+        created: jobCollectionRuns.created,
+        invalid: jobCollectionRuns.invalid,
+        requestCount: jobCollectionRuns.requestCount,
+        bytesRead: jobCollectionRuns.bytesRead,
+        lastHttpStatus: jobCollectionRuns.lastHttpStatus,
+        newestItemPublishedAt: jobCollectionRuns.newestItemPublishedAt,
+        adapterVersion: jobCollectionRuns.adapterVersion,
+        configVersion: jobCollectionRuns.configVersion,
+      })
+      .from(jobCollectionRuns)
+      .where(eq(jobCollectionRuns.sourceId, s.id))
+      .orderBy(desc(jobCollectionRuns.startedAt))
+      .limit(DETAIL_RUN_LIMIT)
+
+    const eventRows = await db
+      .select({
+        id: jobSourceHealthEvents.id,
+        at: jobSourceHealthEvents.at,
+        kind: jobSourceHealthEvents.kind,
+        fromState: jobSourceHealthEvents.fromState,
+        toState: jobSourceHealthEvents.toState,
+        reasonCode: jobSourceHealthEvents.reasonCode,
+        adapterVersion: jobSourceHealthEvents.adapterVersion,
+        configVersion: jobSourceHealthEvents.configVersion,
+        httpStatus: jobSourceHealthEvents.httpStatus,
+        errorSample: jobSourceHealthEvents.errorSample,
+        actorName: users.displayName,
+        note: jobSourceHealthEvents.note,
+      })
+      .from(jobSourceHealthEvents)
+      .leftJoin(users, eq(users.id, jobSourceHealthEvents.actorId))
+      .where(eq(jobSourceHealthEvents.sourceId, s.id))
+      .orderBy(desc(jobSourceHealthEvents.at))
+      .limit(DETAIL_EVENT_LIMIT)
+
+    return {
+      source,
+      runs: runRows.map((r): JobSourceRunDto => ({
+        id: r.id,
+        startedAt: r.startedAt.toISOString(),
+        endedAt: r.endedAt?.toISOString() ?? null,
+        outcome: r.outcome,
+        received: r.received,
+        created: r.created,
+        invalid: r.invalid,
+        requestCount: r.requestCount,
+        bytesRead: r.bytesRead,
+        lastHttpStatus: r.lastHttpStatus,
+        newestItemPublishedAt: r.newestItemPublishedAt?.toISOString() ?? null,
+        adapterVersion: r.adapterVersion,
+        configVersion: r.configVersion,
+      })),
+      events: correlateEvents(
+        eventRows.map((e): JobSourceTimelineEventDto => ({
+          id: e.id,
+          at: e.at.toISOString(),
+          kind: e.kind === 'NOTE' ? 'NOTE' : 'TRANSITION',
+          fromState: e.fromState as JobHealthState | null,
+          toState: e.toState as JobHealthState | null,
+          reasonCode: e.reasonCode as JobHealthReason | null,
+          adapterVersion: e.adapterVersion,
+          configVersion: e.configVersion,
+          httpStatus: e.httpStatus,
+          errorSample: e.errorSample,
+          actorName: e.actorName ?? null,
+          note: e.note,
+          correlation: null,
+        })),
+      ),
+    }
+  }
+
+  /**
+   * Append an ADMIN note as a `NOTE` health event — immutable (the table forbids `UPDATE`/`DELETE`).
+   * The note is already bounded + non-blank by the controller's Zod `.parse()`.
+   */
+  async addNote(sourceId: string, body: CreateJobSourceNoteDto, actor: SessionUser): Promise<void> {
+    this.assertAdmin(actor)
+    const [s] = await this.database.db
+      .select({ id: jobSources.id })
+      .from(jobSources)
+      .where(eq(jobSources.id, sourceId))
+    if (!s) throw new NotFoundException('Job source not found')
+    await this.database.db.insert(jobSourceHealthEvents).values({
+      sourceId: s.id,
+      kind: 'NOTE',
+      actorId: actor.id,
+      note: body.note,
+    })
+  }
+
+  /** The latest TRANSITION per source, in one bounded query (the `(source_id, at desc)` index). */
+  private async latestTransitions(
+    sourceIds: readonly string[],
+  ): Promise<Map<string, { toState: string | null; reasonCode: string | null }>> {
+    const rows = await this.database.db
+      .selectDistinctOn([jobSourceHealthEvents.sourceId], {
+        sourceId: jobSourceHealthEvents.sourceId,
+        toState: jobSourceHealthEvents.toState,
+        reasonCode: jobSourceHealthEvents.reasonCode,
+      })
+      .from(jobSourceHealthEvents)
+      .where(
+        and(
+          inArray(jobSourceHealthEvents.sourceId, [...sourceIds]),
+          eq(jobSourceHealthEvents.kind, 'TRANSITION'),
+        ),
+      )
+      .orderBy(jobSourceHealthEvents.sourceId, desc(jobSourceHealthEvents.at))
+    return new Map(rows.map((r) => [r.sourceId, { toState: r.toState, reasonCode: r.reasonCode }]))
+  }
+
+  private rowOf(
+    s: {
+      id: string
+      type: JobSourceOperationalRowDto['type']
+      enabled: boolean
+      manifestId: string | null
+      lastCollectedAt: Date | null
+    },
+    transition: { toState: string | null; reasonCode: string | null } | undefined,
+    newestItem: Date | null,
+  ): JobSourceOperationalRowDto {
+    const entry = s.manifestId !== null ? this.ledger.catalog.entry(s.manifestId) : undefined
+    return {
+      id: s.id,
+      type: s.type,
+      enabled: s.enabled,
+      state: (transition?.toState ?? null) as JobHealthState | null,
+      reasonCode: (transition?.reasonCode ?? null) as JobHealthReason | null,
+      lastCollectedAt: s.lastCollectedAt?.toISOString() ?? null,
+      newestItemPublishedAt: newestItem?.toISOString() ?? null,
+      profileSummary: entry ? summarizeProfile(entry.fetchProfile, entry.floorHours) : null,
+    }
   }
 }

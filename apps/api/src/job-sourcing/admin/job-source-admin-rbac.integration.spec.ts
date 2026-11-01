@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { Global, Module } from '@nestjs/common'
+import { ForbiddenException, Global, Module } from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
 import { JwtModule, JwtService } from '@nestjs/jwt'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
@@ -94,6 +94,34 @@ describe.skipIf(!hasDatabaseUrl())('T9 admin endpoints — real-controller RBAC'
   let jwt: JwtService
   let pool: Pool
   let capped: string
+  let freshSource: string
+  let freshCycle: string
+  let service: JobSourceAdminService
+
+  const DAY_MS = 86_400_000
+  const insertFreshRun = (
+    sourceId: string,
+    cycleId: string,
+    startedDaysAgo: number,
+    newestItemDaysAgo: number,
+  ) =>
+    pool.query(
+      `INSERT INTO job_collection_runs
+         (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, outcome,
+          received, created, unchanged, last_http_status, started_at, ended_at, account_key,
+          bytes_read, newest_item_published_at)
+       VALUES ($1, $2, $3, 1, 'remotive_api-1', 'SCHEDULED', 'SUCCEEDED',
+               1, 0, 1, 200, $4, $5, $6, 1000, $7)`,
+      [
+        sourceId,
+        cycleId,
+        `att-${randomUUID()}`,
+        new Date(Date.now() - startedDaysAgo * DAY_MS).toISOString(),
+        new Date(Date.now() - startedDaysAgo * DAY_MS + 2_000).toISOString(),
+        `#source:${sourceId}`,
+        new Date(Date.now() - newestItemDaysAgo * DAY_MS).toISOString(),
+      ],
+    )
 
   const signFor = (u: SessionUser) => jwt.sign({ id: u.id, email: u.email, role: u.role })
 
@@ -110,6 +138,21 @@ describe.skipIf(!hasDatabaseUrl())('T9 admin endpoints — real-controller RBAC'
 
   const resetUrl = (id: string) => `/api/job-sourcing/admin/sources/${id}/reset-failures`
   const LIST_URL = '/api/job-sourcing/admin/sources/excluded'
+  // U7 source page
+  const HEALTH_URL = '/api/job-sourcing/admin/sources/health'
+  const detailUrl = (id: string) => `/api/job-sourcing/admin/sources/${id}`
+  const notesUrl = (id: string) => `/api/job-sourcing/admin/sources/${id}/notes`
+
+  const noteRows = async (sourceId: string) =>
+    dbSvcRef.db
+      .select({
+        kind: schema.jobSourceHealthEvents.kind,
+        actorId: schema.jobSourceHealthEvents.actorId,
+        note: schema.jobSourceHealthEvents.note,
+        toState: schema.jobSourceHealthEvents.toState,
+      })
+      .from(schema.jobSourceHealthEvents)
+      .where(eq(schema.jobSourceHealthEvents.sourceId, sourceId))
 
   const rowOf = async (id: string) => {
     const [row] = await dbSvcRef.db
@@ -141,6 +184,21 @@ describe.skipIf(!hasDatabaseUrl())('T9 admin endpoints — real-controller RBAC'
       .returning({ id: jobSources.id })
     capped = row?.id ?? ''
 
+    // CR-M-1: a source with two runs — one OUTSIDE the 14-day freshness window carrying a NEWER
+    // item, one INSIDE it carrying an OLDER item. A correct bound reports the in-window item.
+    const [fr] = await db
+      .insert(jobSources)
+      .values({ type: 'REMOTIVE_API', config: { t9fresh: true } })
+      .returning({ id: jobSources.id })
+    freshSource = fr?.id ?? ''
+    const { rows: cyc } = await pool.query(
+      `INSERT INTO job_collection_cycles (trigger, trigger_key) VALUES ('SCHEDULED', $1) RETURNING id`,
+      [`t9fresh:${randomUUID()}`],
+    )
+    freshCycle = cyc[0].id as string
+    await insertFreshRun(freshSource, freshCycle, 20, 1) // out of window, newer item
+    await insertFreshRun(freshSource, freshCycle, 2, 10) // in window, older item
+
     const moduleRef = await Test.createTestingModule({ imports: [AdminRbacTestModule] })
       .overrideGuard(RolesGuard)
       .useValue(new RolesGuard(new Reflector()))
@@ -152,11 +210,26 @@ describe.skipIf(!hasDatabaseUrl())('T9 admin endpoints — real-controller RBAC'
     await app.init()
     await app.getHttpAdapter().getInstance().ready()
     jwt = moduleRef.get(JwtService)
+    service = moduleRef.get(JobSourceAdminService)
   })
 
   afterAll(async () => {
     if (dbSvcRef !== undefined) {
-      if (capped) await dbSvcRef.db.delete(jobSources).where(eq(jobSources.id, capped))
+      if (capped) {
+        // Health events FK the source AND the actor with onDelete RESTRICT, so the NOTE rows a
+        // test wrote must go before the source and the users.
+        await dbSvcRef.db
+          .delete(schema.jobSourceHealthEvents)
+          .where(eq(schema.jobSourceHealthEvents.sourceId, capped))
+        await dbSvcRef.db.delete(jobSources).where(eq(jobSources.id, capped))
+      }
+      if (freshSource) {
+        // Runs FK the source (RESTRICT) — remove them before the source, then the cycle.
+        await pool.query(`DELETE FROM job_collection_runs WHERE source_id = $1`, [freshSource])
+        await dbSvcRef.db.delete(jobSources).where(eq(jobSources.id, freshSource))
+        if (freshCycle)
+          await pool.query(`DELETE FROM job_collection_cycles WHERE id = $1`, [freshCycle])
+      }
       await dbSvcRef.db.delete(users).where(
         inArray(
           users.id,
@@ -240,6 +313,130 @@ describe.skipIf(!hasDatabaseUrl())('T9 admin endpoints — real-controller RBAC'
       expect(row?.history).toEqual([
         expect.objectContaining({ kind: 'RESET_FAILURES', actor: ADMIN.id, reason: 'fixed' }),
       ])
+    })
+  })
+
+  // ---- U7 source page: the three new endpoints ------------------------------
+
+  describe('U7 AC1: the controller guard refuses every non-ADMIN role', () => {
+    for (const p of NON_ADMIN) {
+      it(`${p.role}: GET sources/health → 403`, async () => {
+        expect(await request('GET', HEALTH_URL, p)).toEqual({
+          status: 403,
+          code: GUARD_REFUSAL_CODE,
+        })
+      })
+
+      it(`${p.role}: GET sources/:id → 403`, async () => {
+        expect(await request('GET', detailUrl(capped), p)).toEqual({
+          status: 403,
+          code: GUARD_REFUSAL_CODE,
+        })
+      })
+
+      it(`${p.role}: POST a note → 403, and no NOTE event is written`, async () => {
+        expect(await request('POST', notesUrl(capped), p, { note: 'sneaky' })).toEqual({
+          status: 403,
+          code: GUARD_REFUSAL_CODE,
+        })
+        expect(await noteRows(capped)).toEqual([])
+      })
+    }
+
+    it('without a session: all three → 401', async () => {
+      expect((await app.inject({ method: 'GET', url: HEALTH_URL })).statusCode).toBe(401)
+      expect((await app.inject({ method: 'GET', url: detailUrl(capped) })).statusCode).toBe(401)
+      expect(
+        (await app.inject({ method: 'POST', url: notesUrl(capped), payload: { note: 'x' } }))
+          .statusCode,
+      ).toBe(401)
+    })
+  })
+
+  describe('U7 AC1: the SERVICE BODY refuses a non-ADMIN directly, not only the guard', () => {
+    for (const p of NON_ADMIN) {
+      it(`${p.role}: listSourceHealth / sourceDetail / addNote all throw Forbidden`, async () => {
+        await expect(service.listSourceHealth(p)).rejects.toBeInstanceOf(ForbiddenException)
+        await expect(service.sourceDetail(capped, p)).rejects.toBeInstanceOf(ForbiddenException)
+        await expect(service.addNote(capped, { note: 'direct' }, p)).rejects.toBeInstanceOf(
+          ForbiddenException,
+        )
+        // And the refused write left the log empty.
+        expect(await noteRows(capped)).toEqual([])
+      })
+    }
+  })
+
+  describe('U7 AC2 + the ADMIN control', () => {
+    it('GET sources/health → 200, the capped source listed with a null state and null profile', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: HEALTH_URL,
+        cookies: { jwt: signFor(ADMIN) },
+      })
+      expect(res.statusCode).toBe(200)
+      const row = (
+        JSON.parse(res.body) as {
+          items: { id: string; state: string | null; profileSummary: unknown }[]
+        }
+      ).items.find((i) => i.id === capped)
+      // No health event and no manifest id on this seed → both null (not a crash, not a default).
+      expect(row).toMatchObject({ state: null, profileSummary: null })
+    })
+
+    it('CR-M-1: freshness ignores runs older than the 14-day window', async () => {
+      const row = (await service.listSourceHealth(ADMIN)).find((r) => r.id === freshSource)
+      expect(row).toBeDefined()
+      // The in-window run's item (10 days ago), NOT the out-of-window run's newer item (1 day ago).
+      const tenDaysAgoMs = Date.now() - 10 * 86_400_000
+      const reported = new Date(row!.newestItemPublishedAt!).getTime()
+      expect(Math.abs(reported - tenDaysAgoMs)).toBeLessThan(60_000)
+    })
+
+    it('GET sources/:id → 200, with empty run/event lists for a fresh source', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: detailUrl(capped),
+        cookies: { jwt: signFor(ADMIN) },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.body) as {
+        source: { id: string }
+        runs: unknown[]
+        events: unknown[]
+      }
+      expect(body.source.id).toBe(capped)
+      expect(body.runs).toEqual([])
+      expect(body.events).toEqual([])
+    })
+
+    it('a malformed UUID on detail / notes → 400', async () => {
+      expect((await request('GET', detailUrl('not-a-uuid'), ADMIN)).status).toBe(400)
+      expect((await request('POST', notesUrl('not-a-uuid'), ADMIN, { note: 'x' })).status).toBe(400)
+    })
+
+    it('a blank / over-long note → 400, nothing written', async () => {
+      expect((await request('POST', notesUrl(capped), ADMIN, { note: '   ' })).status).toBe(400)
+      expect(
+        (await request('POST', notesUrl(capped), ADMIN, { note: 'x'.repeat(501) })).status,
+      ).toBe(400)
+      expect(await noteRows(capped)).toEqual([])
+    })
+
+    it('POST a note → 204, stored as an immutable NOTE event naming the ADMIN', async () => {
+      expect(
+        (await request('POST', notesUrl(capped), ADMIN, { note: '  provider outage  ' })).status,
+      ).toBe(204)
+      // Stored trimmed, kind NOTE, the ADMIN as actor, and no transition fields (AC2).
+      expect(await noteRows(capped)).toEqual([
+        { kind: 'NOTE', actorId: ADMIN.id, note: 'provider outage', toState: null },
+      ])
+      // Immutable: the controller exposes no PATCH/PUT/DELETE for a note — a second POST only
+      // appends, it cannot edit the first.
+      await request('POST', notesUrl(capped), ADMIN, { note: 'second' })
+      const rows = await noteRows(capped)
+      expect(rows).toHaveLength(2)
+      expect(rows.map((r) => r.note).sort()).toEqual(['provider outage', 'second'])
     })
   })
 })
