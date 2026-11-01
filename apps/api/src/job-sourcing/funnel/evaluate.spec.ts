@@ -974,3 +974,87 @@ describe('evaluate: exact outputs', () => {
     expect(bad({ revisionId: 7 })).toMatchObject({ code: 'INVALID_REVISION' })
   })
 })
+
+/**
+ * SFS U10 (ADR 6a) precondition: a record whose description is absent BECAUSE its detail is
+ * pending (an ON_DEMAND source, list-only ingest) is never excluded on stack grounds; at worst
+ * it is TRIAGE with the stack unknown, so it is enriched and re-evaluated. Title-level exclusions
+ * still apply. Without `detailPending`, nothing changes.
+ */
+describe('evaluate: detail on demand — pending detail never excludes on stack grounds (U10)', () => {
+  // Empty body, a department tag (not a stack keyword), a title without a stack keyword: the stack
+  // can only be in the description, which has not been fetched. lowInformation is false (a tag
+  // exists), so without the rule this record is silently NO_MATCH.
+  const pendingRevision = (over: Partial<CanonicalRevision> = {}): CanonicalRevision =>
+    javaRevision({
+      fields: {
+        ...javaRevision().fields,
+        title: 'Senior Developer',
+        descriptionMd: '',
+        tags: ['engineering'],
+      },
+      ...over,
+    })
+
+  it('without the flag a tagged, stack-silent posting is lost (NO_MATCH) — the bug the rule fixes', () => {
+    const r = evaluated(evaluate(input({ revision: pendingRevision() })))
+    expect(r.status).toBe('NO_MATCH')
+    expect(r.projections).toEqual([])
+  })
+
+  it('with detailPending the same posting is TRIAGE at the studio, never EXCLUDED (AC 7)', () => {
+    const r = evaluate(input({ revision: pendingRevision(), detailPending: true }))
+    expect(r.kind).toBe('EVALUATED')
+    const ev = evaluated(r)
+    expect(ev.status).toBe('TRIAGE')
+    expect(projectionsForViewer(ev, { role: 'ADMIN' })).toMatchObject([
+      { scope: 'STUDIO', status: 'TRIAGE', score: null },
+    ])
+  })
+
+  it('a granted HR team sees the pending item as TRIAGE; an ungranted team sees nothing', () => {
+    const hr = (teamId: string | null) => ({ role: 'HR', teamId }) as const
+    const r = evaluate(
+      input({ revision: pendingRevision(), detailPending: true, teamTriageGrants: [TEAM_1] }),
+    )
+    const a = projectionsForViewer(r, hr(TEAM_1))
+    expect(a).toHaveLength(1)
+    expect(a[0]).toMatchObject({ scope: `TEAM:${TEAM_1}`, status: 'TRIAGE' })
+    expect(projectionsForViewer(r, hr(TEAM_2))).toEqual([])
+  })
+
+  it('title-level exclusions still apply even with detailPending (a global keyword hit EXCLUDES)', () => {
+    const r = evaluate(
+      input({
+        revision: pendingRevision({
+          fields: { ...pendingRevision().fields, title: 'Senior Casino Developer' },
+        }),
+        detailPending: true,
+        exclusions: [exclusion({ kind: 'KEYWORD', value: 'casino', normalizedValue: 'casino' })],
+      }),
+    )
+    expect(r.kind).toBe('EXCLUDED')
+  })
+
+  it('a closed posting stays EXCLUDED even with detailPending', () => {
+    const r = evaluate(
+      input({ revision: pendingRevision({ availability: 'CLOSED' }), detailPending: true }),
+    )
+    expect(r.kind).toBe('EXCLUDED')
+  })
+
+  it('a detail-pending posting that still has a LEAD on list fields stays a LEAD (not downgraded)', () => {
+    // java in the title: a keyword hit on list fields, so the stack is known despite the pending detail.
+    const r = evaluated(
+      evaluate(
+        input({
+          revision: pendingRevision({
+            fields: { ...pendingRevision().fields, title: 'Senior Java Developer' },
+          }),
+          detailPending: true,
+        }),
+      ),
+    )
+    expect(r.status).toBe('LEAD')
+  })
+})
