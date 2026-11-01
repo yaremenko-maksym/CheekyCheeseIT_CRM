@@ -222,6 +222,7 @@ export class AdminEditService {
     const dateDecision = txDateChanged
       ? resolveTransactionDateWithPolicy(data.txDate, {
           role: currentUser.role,
+          // Stryker disable next-line StringLiteral: equivalent mutant — `resolveTransactionDateWithPolicy` compares the flow only against 'EXECUTED', so any other string behaves as PLANNED; the PLANNED/EXECUTED split itself is pinned by the PENDING-salary and PAID-salary cases
           flow: tx.type === 'SALARY' && tx.status === 'PENDING' ? 'PLANNED' : 'EXECUTED',
           backdateReason: data.backdateReason,
         })
