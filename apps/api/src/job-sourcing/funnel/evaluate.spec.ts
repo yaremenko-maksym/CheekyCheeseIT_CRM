@@ -1009,6 +1009,14 @@ describe('evaluate: detail on demand — pending detail never excludes on stack 
     expect(ev.status).toBe('TRIAGE')
     const studio = projection(ev, 'STUDIO')
     expect(studio).toMatchObject({ status: 'TRIAGE', score: null })
+    // The TRIAGE reason names the pending detail, not the usual "no tags/keyword hit".
+    expect(studio?.reasons).toEqual([
+      {
+        code: 'UNKNOWN_STACK',
+        evidence: ['detail pending: description not loaded'],
+        ruleVersion: EVALUATE_RULE_VERSION,
+      },
+    ])
     // SPEC-M-1 #1: a department tag defeats `lowInformation` (it is NOT stack evidence), yet the
     // posting is still TRIAGE because the detail is pending and the tag judged no stack.
     expect(studio?.tech.lowInformation).toBe(false)
@@ -1030,6 +1038,25 @@ describe('evaluate: detail on demand — pending detail never excludes on stack 
     // An ungranted team, and any team with no matchable senior, see nothing.
     expect(projectionsForViewer(r, hr(TEAM_2))).toEqual([])
     expect(projectionsForViewer(r, hr(TEAM_3))).toEqual([])
+  })
+
+  it('a granted team gets no pending-detail triage once the studio has a keyword hit elsewhere (CR-M-2)', () => {
+    // java in the title → the java seniors (TEAM_1) LEAD, so the STUDIO is judged, not unknown-stack.
+    // A detail-pending flag must not then hand an unknown-stack triage to a granted python team.
+    const hr = (teamId: string | null) => ({ role: 'HR', teamId }) as const
+    const r = evaluate(
+      input({
+        revision: pendingRevision({
+          fields: { ...pendingRevision().fields, title: 'Senior Java Developer' },
+        }),
+        detailPending: true,
+        teamTriageGrants: [TEAM_2],
+      }),
+    )
+    expect(evaluated(r).status).toBe('LEAD')
+    expect(projectionsForViewer(r, hr(TEAM_1)).map((p) => p.status)).toEqual(['LEAD'])
+    // The granted python team sees nothing: the studio was judged by the java hit.
+    expect(projectionsForViewer(r, hr(TEAM_2))).toEqual([])
   })
 
   it('SPEC-M-1 #3: detailPending does NOT override a genuine coreMismatch — a stated-stack mismatch stays NO_MATCH', () => {
