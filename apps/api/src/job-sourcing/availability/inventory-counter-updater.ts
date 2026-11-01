@@ -160,7 +160,7 @@ async function readBaseline(tx: SqlExecutor, input: InventoryUpdateInput): Promi
   return base == null ? null : Number(base)
 }
 
-interface RunRow {
+export interface RunRow {
   readonly fact: InventoryRunFact
   readonly cycleId: string | null
 }
@@ -195,7 +195,7 @@ async function readRuns(tx: SqlExecutor, input: InventoryUpdateInput): Promise<R
 }
 
 /** Seed a drop-guard baseline when no row exists so the >50% guard protects the first miss. */
-function seedCounter(
+export function seedCounter(
   input: InventoryUpdateInput,
   baseline: number | null,
 ): InventoryMissCounter | null {
@@ -212,7 +212,7 @@ function seedCounter(
   }
 }
 
-interface Fold {
+export interface Fold {
   readonly net: CounterTransition['kind']
   readonly counter: InventoryMissCounter | null
   readonly dirty: boolean
@@ -228,7 +228,7 @@ interface Fold {
  * carries it forward; a close records its evidence, a later reset/advance clears it (the record
  * reappeared or the chain restarted); review flags the source but does not change the counter.
  */
-function fold(initial: InventoryMissCounter | null, runs: readonly RunRow[]): Fold {
+export function fold(initial: InventoryMissCounter | null, runs: readonly RunRow[]): Fold {
   let counter = initial
   let net: CounterTransition['kind'] = 'unchanged'
   let dirty = false
