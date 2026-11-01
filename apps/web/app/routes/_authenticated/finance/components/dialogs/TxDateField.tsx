@@ -41,7 +41,7 @@ export function TxDateField({ value, stored, reason, onChange, onReasonChange }:
             onChange={(e) => onReasonChange(e.target.value)}
             maxLength={500}
             data-testid="admin-edit-tx-date-reason-input"
-            placeholder={t`Обов'язково для дат старших за 31 день`}
+            placeholder={t`Для дат старших за 31 день`}
             className="h-9 text-sm"
           />
         </div>

@@ -3679,10 +3679,6 @@ msgstr "Досягнення — по одному в рядку"
 msgid "Аналіз скасовано"
 msgstr "Аналіз скасовано"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
-msgid "Обов'язково для дат старших за 31 день"
-msgstr "Обов'язково для дат старших за 31 день"
-
 #. placeholder {0}: currentTos.version + 1
 #. placeholder {1}: currentTos.version
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
@@ -11947,6 +11943,10 @@ msgstr "Найкращий місяць"
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySheet.tsx
 msgid "Редагувати вакансію"
 msgstr "Редагувати вакансію"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
+msgid "Для дат старших за 31 день"
+msgstr "Для дат старших за 31 день"
 
 #: apps/web/app/components/projects/ProjectRow.tsx
 #: apps/web/app/components/ui/role-select.tsx

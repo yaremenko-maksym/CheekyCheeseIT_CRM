@@ -580,6 +580,33 @@ describe('AdminEditService.adminUpdateTransaction — business date', () => {
     })
   })
 
+  it('refuses a future day on a PAID salary — only a PENDING salary is PLANNED', async () => {
+    const ctx = makeCtx({ row: { type: 'SALARY', status: 'PAID', salaryMonth: '2026-10' } })
+    await expect(
+      ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-11-05' }, ADMIN),
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_TX_DATE_IN_FUTURE' } })
+    expect(ctx.updates).toHaveLength(0)
+  })
+
+  it('takes the oldest day of the 31-day window without a reason, one day older needs one', async () => {
+    const edge = makeCtx()
+    await edge.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-10-01' }, ADMIN)
+    expect((txUpdate(edge).set.txDate as Date).toISOString().slice(0, 10)).toBe('2026-10-01')
+    expect(journal(edge, 'TX_DATE_BACKDATED')).toHaveLength(0)
+
+    const past = makeCtx()
+    await expect(
+      past.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-09-30' }, ADMIN),
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED' } })
+  })
+
+  it('treats a null date as "no date sent"', async () => {
+    const ctx = makeCtx()
+    await ctx.svc.adminUpdateTransaction(TX_ID, { notes: 'x', txDate: null }, ADMIN)
+    expect(txUpdate(ctx).set).not.toHaveProperty('txDate')
+    expect(dateJournal(ctx)).toHaveLength(0)
+  })
+
   it('still refuses a non-ADMIN who sends a date', async () => {
     const ctx = makeCtx()
     await expect(

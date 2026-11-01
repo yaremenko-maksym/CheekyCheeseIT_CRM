@@ -3679,10 +3679,6 @@ msgstr "Achievements — one per line"
 msgid "Аналіз скасовано"
 msgstr "Analysis cancelled"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
-msgid "Обов'язково для дат старших за 31 день"
-msgstr "Required for dates older than 31 days"
-
 #. placeholder {0}: currentTos.version + 1
 #. placeholder {1}: currentTos.version
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
@@ -11947,6 +11943,10 @@ msgstr "Best month"
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySheet.tsx
 msgid "Редагувати вакансію"
 msgstr "Edit vacancy"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
+msgid "Для дат старших за 31 день"
+msgstr "For dates older than 31 days"
 
 #: apps/web/app/components/projects/ProjectRow.tsx
 #: apps/web/app/components/ui/role-select.tsx
