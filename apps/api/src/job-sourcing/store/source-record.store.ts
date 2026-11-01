@@ -265,6 +265,35 @@ export async function closeRecordByInventory(
   return rows.length > 0
 }
 
+/**
+ * Mark a source record EXPIRED by the WINDOW-drop path (r5 Task 4.6 S8e), inside the caller's
+ * transaction; sibling of `closeRecordByInventory` with the same lock discipline (the caller holds
+ * `FOR UPDATE`). Only `WINDOW_DROPPED` evidence is accepted, so this can never write CLOSED, and a
+ * CLOSED record is never downgraded to EXPIRED (closure is the stronger, evidence-backed state).
+ * Guarded by `availability IS DISTINCT FROM 'EXPIRED'`: a repeat neither rewrites the evidence nor
+ * lets the caller enqueue twice.
+ */
+export async function expireRecordByWindow(
+  tx: SqlExecutor,
+  recordId: string,
+  evidence: AvailabilityEvidence,
+): Promise<boolean> {
+  const parsed = availabilityEvidenceSchema.parse(evidence)
+  if (parsed.kind !== 'WINDOW_DROPPED')
+    throw new RangeError('expireRecordByWindow: only WINDOW_DROPPED evidence may expire a record')
+  const { rows } = await tx.execute(
+    sql`UPDATE job_source_records
+           SET availability = 'EXPIRED'::job_availability,
+               availability_evidence = ${JSON.stringify(parsed)}::jsonb,
+               availability_checked_at = clock_timestamp(), updated_at = clock_timestamp()
+         WHERE id = ${recordId}::uuid
+           AND availability IS DISTINCT FROM 'EXPIRED'::job_availability
+           AND availability IS DISTINCT FROM 'CLOSED'::job_availability
+       RETURNING id`,
+  )
+  return rows.length > 0
+}
+
 /** The page cap, checked before any round trip (security LOW, round 2). */
 function assertPageSize(observations: readonly SourceObservation[]): void {
   if (observations.length > MAX_OBSERVATIONS_PER_PAGE)

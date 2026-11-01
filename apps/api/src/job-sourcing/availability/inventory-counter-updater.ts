@@ -308,10 +308,11 @@ async function persistCounter(
 }
 
 /** Enqueue every active owning opportunity of the record for recompute (S4a/S8d re-derive it). */
-async function enqueueOwners(
+export async function enqueueOwners(
   tx: SqlExecutor,
   sourceRecordId: string,
   cycleId: string | null,
+  reason: string = INVENTORY_CLOSE_REASON,
 ): Promise<void> {
   const { rows } = await tx.execute(
     sql`SELECT os.opportunity_id, o.revision
@@ -325,7 +326,7 @@ async function enqueueOwners(
       'OPPORTUNITY',
       String(row['opportunity_id']),
       Number(row['revision']),
-      INVENTORY_CLOSE_REASON,
+      reason,
       cycleId ?? undefined,
     )
   }
@@ -339,7 +340,10 @@ async function enqueueOwners(
  * a mismatched (sourceId, sourceRecordId) pair matches no row and is refused, never closing an
  * arbitrary record.
  */
-async function lockAndVerifyRecord(tx: SqlExecutor, input: InventoryUpdateInput): Promise<void> {
+export async function lockAndVerifyRecord(
+  tx: SqlExecutor,
+  input: InventoryUpdateInput,
+): Promise<void> {
   const { rows } = await tx.execute(
     sql`SELECT r.id
           FROM job_source_records r
