@@ -88,6 +88,30 @@ describe('availabilityEvidenceSchema', () => {
     ).toBe(false)
   })
 
+  it('bounds the text fields: blank is refused, the maximum length is the edge', () => {
+    const ok = (patch: Record<string, unknown>, from: object = dropped) =>
+      availabilityEvidenceSchema.safeParse({ ...from, ...patch }).success
+    expect(ok({ board: '   ' })).toBe(false)
+    expect(ok({ board: 'b'.repeat(200) })).toBe(true)
+    expect(ok({ board: 'b'.repeat(201) })).toBe(false)
+    expect(ok({ adapterVersion: '   ' }, gone)).toBe(false)
+    expect(ok({ adapterVersion: 'v'.repeat(100) }, gone)).toBe(true)
+    expect(ok({ adapterVersion: 'v'.repeat(101) }, gone)).toBe(false)
+    expect(ok({ runId: 'not-a-uuid' })).toBe(false)
+  })
+
+  it('a threshold shortfall is reported on consecutiveMisses with a readable message', () => {
+    const r = availabilityEvidenceSchema.safeParse({
+      ...missing,
+      consecutiveMisses: 2,
+      requiredMisses: 3,
+    })
+    expect(r.success).toBe(false)
+    const issue = r.success ? undefined : r.error.issues[0]
+    expect(issue?.path).toEqual(['consecutiveMisses'])
+    expect(issue?.message).toBe('closing evidence must have reached the miss threshold')
+  })
+
   it('the column default {} is not valid evidence (the writer must always set a kind)', () => {
     expect(availabilityEvidenceSchema.safeParse({}).success).toBe(false)
   })
