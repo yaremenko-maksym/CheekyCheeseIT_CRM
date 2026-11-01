@@ -53,3 +53,33 @@ describe('JOB_AVAILABILITY_RECONCILE_ENABLED (r5 Task 4.6 S8d)', () => {
     expect(env.JOB_AVAILABILITY_RECONCILE_ENABLED).toBe(false)
   })
 })
+
+describe('CR-M-1 / SR-M-1: mutual exclusion with the match reconciliation flag', () => {
+  it('REFUSES TO BOOT when both flags are true (fail-loud, not a silent skip)', () => {
+    expect(() =>
+      validateEnv({
+        ...BASE_DEV,
+        JOB_AVAILABILITY_RECONCILE_ENABLED: 'true',
+        JOB_MATCH_RECONCILIATION_ENABLED: 'true',
+      }),
+    ).toThrow(/JOB_AVAILABILITY_RECONCILE_ENABLED: .*must not both be true/)
+  })
+
+  it('boots with only the availability flag on', () => {
+    const env = validateEnv({ ...BASE_DEV, JOB_AVAILABILITY_RECONCILE_ENABLED: 'true' })
+    expect(env.JOB_AVAILABILITY_RECONCILE_ENABLED).toBe(true)
+    expect(env.JOB_MATCH_RECONCILIATION_ENABLED).toBe(false)
+  })
+
+  it('boots with only the match flag on', () => {
+    const env = validateEnv({ ...BASE_DEV, JOB_MATCH_RECONCILIATION_ENABLED: 'true' })
+    expect(env.JOB_MATCH_RECONCILIATION_ENABLED).toBe(true)
+    expect(env.JOB_AVAILABILITY_RECONCILE_ENABLED).toBe(false)
+  })
+
+  it('boots with both flags off (the default)', () => {
+    const env = validateEnv({ ...BASE_DEV })
+    expect(env.JOB_AVAILABILITY_RECONCILE_ENABLED).toBe(false)
+    expect(env.JOB_MATCH_RECONCILIATION_ENABLED).toBe(false)
+  })
+})

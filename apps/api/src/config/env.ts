@@ -574,6 +574,19 @@ const envSchema = z
       path: ['TELEMETRY_SESSION_SALT'],
     },
   )
+  // r5 Task 4.6 S8d (CR-M-1 / SR-M-1): the availability and match reconciliation consumers claim the
+  // SAME job_dirty_work kinds (SOURCE_RECORD / OPPORTUNITY) and cannot filter by reason, so if BOTH
+  // flags are on each marks the other's rows DONE — silent, unrecoverable work loss. Refuse to boot
+  // (fail-loud), never a silent skip-tick. Until a reason/kind-partitioned claim lands, exactly one
+  // of these consumers may be enabled at a time.
+  .refine(
+    (env) => !(env.JOB_AVAILABILITY_RECONCILE_ENABLED && env.JOB_MATCH_RECONCILIATION_ENABLED),
+    {
+      message:
+        'JOB_AVAILABILITY_RECONCILE_ENABLED and JOB_MATCH_RECONCILIATION_ENABLED must not both be true: both consume the same job_dirty_work kinds, so each would silently complete the other’s rows. Enable exactly one until a reason-partitioned claim exists.',
+      path: ['JOB_AVAILABILITY_RECONCILE_ENABLED'],
+    },
+  )
 
 export type Env = z.infer<typeof envSchema>
 

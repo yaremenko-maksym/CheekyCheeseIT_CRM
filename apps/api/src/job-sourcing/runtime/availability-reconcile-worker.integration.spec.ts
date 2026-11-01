@@ -343,6 +343,35 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
     expect(dup2.inserted).toBe(false)
   })
 
+  it('CR-M-2: running the worker twice over the same rows does not double-apply (idempotent)', async () => {
+    const sourceId = await newSource()
+    const recordId = await newRecord()
+    const oppId = await newOpportunity()
+    await link(recordId, oppId)
+    const cycleId = await newCycle()
+    await addAbsentRun(sourceId, cycleId, 0)
+    await addAbsentRun(sourceId, cycleId, DAY / 2)
+    await addAbsentRun(sourceId, cycleId, DAY + 1)
+    await enqueueRecord(recordId)
+
+    await runMine()
+    await runMine() // a second sweep over whatever is still pending
+
+    // The S8c updater ran exactly once: the counter is at 3, not 6; the record stays CLOSED.
+    expect(Number((await counterRow(recordId))?.['consecutive_misses'])).toBe(3)
+    const { rows } = await q(`SELECT availability FROM job_source_records WHERE id = $1`, [
+      recordId,
+    ])
+    expect(String(rows[0].availability)).toBe('CLOSED')
+    // The close-path enqueued its owning opportunity exactly once (ON CONFLICT dedup, no duplicate).
+    const { rows: dw } = await q(
+      `SELECT count(*)::int AS n FROM job_dirty_work
+        WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 AND reason = $2`,
+      [oppId, INVENTORY_CLOSE_REASON],
+    )
+    expect(Number(dw[0].n)).toBe(1)
+  })
+
   it('AC5: a per-row failure does not abort the batch — an orphan record is skipped, a good opp proceeds', async () => {
     const orphan = await newRecord() // no source row with this namespace yet
     const r1 = await newRecord('CLOSED')

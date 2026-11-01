@@ -10,7 +10,8 @@ const fail = vi.fn()
 vi.mock('../availability/inventory-counter-updater', () => ({
   updateInventoryMissCounter: (...a: unknown[]) => updateInventory(...a),
 }))
-vi.mock('../ownership/dirty-work.store', () => ({
+vi.mock('../ownership/dirty-work.store', async (orig) => ({
+  ...(await orig<typeof import('../ownership/dirty-work.store')>()),
   claimDirtyBatch: (...a: unknown[]) => claim(...a),
   completeDirty: (...a: unknown[]) => complete(...a),
   failDirty: (...a: unknown[]) => fail(...a),
@@ -24,6 +25,7 @@ import {
   resolveInventoryInput,
 } from './availability-reconcile-worker'
 import type { ClaimedDirtyWork } from '../ownership/dirty-work.store'
+import { RecomputeWorker } from './recompute-worker'
 
 const dialect = new PgDialect()
 const render = (q: unknown) => dialect.sqlToQuery(q as SQL).sql
@@ -197,5 +199,44 @@ describe('createAvailabilityReconcileSteps', () => {
     const w = work('OPPORTUNITY', OPP)
     await createAvailabilityReconcileSteps(db as never).fail(w, 'CODE', { maxAttempts: 1 })
     expect(fail).toHaveBeenCalledWith(db, w, 'CODE', { maxAttempts: 1 })
+  })
+})
+
+describe('CR-M-2: batch resilience when a row throws mid-process', () => {
+  const OPP2 = '0000000c-0000-4000-8000-000000000003'
+
+  it('fails/retries the throwing row through the store and still finishes the rest of the batch', async () => {
+    const workA = work('OPPORTUNITY', OPP, 3)
+    const workB = work('OPPORTUNITY', OPP2, 3)
+    claim.mockResolvedValueOnce([workA, workB])
+    // The first row's transaction throws; the second succeeds (OPEN -> CLOSED -> bump).
+    const okTx = {
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [{ revision: 3, availability: 'OPEN' }] })
+        .mockResolvedValueOnce({ rows: [{ availability: 'CLOSED' }] })
+        .mockResolvedValue({ rows: [] }),
+    }
+    let txCall = 0
+    const db = {
+      execute: vi.fn(),
+      transaction: vi.fn(async (fn: (tx: unknown) => unknown) => {
+        txCall += 1
+        if (txCall === 1) throw new Error('boom mid-process')
+        return fn(okTx)
+      }),
+    }
+    const worker = new RecomputeWorker(createAvailabilityReconcileSteps(db as never), {
+      owner: 'o',
+      batchSize: 10,
+    })
+
+    const report = await worker.runOnce()
+
+    expect(report).toMatchObject({ claimed: 2, done: 1, retried: 1, failed: 0, fenced: 0 })
+    // The throwing row went through the store's fail path (retryable, not aborting the batch).
+    expect(fail).toHaveBeenCalledTimes(1)
+    expect(fail.mock.calls[0]?.[1]).toBe(workA)
+    expect(complete).toHaveBeenCalledTimes(1)
   })
 })
