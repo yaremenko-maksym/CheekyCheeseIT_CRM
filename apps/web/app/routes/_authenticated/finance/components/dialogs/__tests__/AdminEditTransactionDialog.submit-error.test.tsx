@@ -1,5 +1,5 @@
 /** AdminEditTransactionDialog — failed-save banner and reason-field a11y (QA-MED-1). */
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -107,5 +107,40 @@ describe('AdminEditTransactionDialog — failed-save feedback', () => {
     fireEvent.change(input, { target: { value: 'bank statement' } })
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
     expect(input).not.toHaveAttribute('aria-invalid')
+  })
+
+  // CR-M-7 — typing in the reason field mid-save must not reset the mutation
+  // (isPending -> false would re-enable Save and allow a duplicate PATCH).
+  it('keeps Save disabled and does not re-submit while a save is pending', async () => {
+    let resolveSave: (value: unknown) => void = () => {}
+    adminUpdateTransactionMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSave = resolve
+      }),
+    )
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <AdminEditTransactionDialog tx={TX} onClose={() => {}} />
+      </QueryClientProvider>,
+      { wrapper: I18nTestProvider },
+    )
+    fireEvent.change(screen.getByTestId('admin-edit-tx-date'), { target: { value: '2026-08-01' } })
+    const save = screen.getByTestId('admin-edit-save')
+    fireEvent.click(save)
+    await waitFor(() => expect(adminUpdateTransactionMock).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(save).toBeDisabled())
+
+    fireEvent.change(screen.getByTestId('admin-edit-tx-date-reason-input'), {
+      target: { value: 'typing while saving' },
+    })
+    // react-query batches observer notifications onto a later tick.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    expect(save).toBeDisabled()
+    fireEvent.click(save)
+    expect(adminUpdateTransactionMock).toHaveBeenCalledTimes(1)
+    resolveSave({})
   })
 })

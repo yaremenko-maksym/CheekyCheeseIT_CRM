@@ -380,14 +380,11 @@ export function AdminEditTransactionDialog({
   // fold into the field-reset effect near the top: that effect runs before
   // `mutation` exists (it needs `tx`), so the same intent lives in two places.
   // Without it `mutation.error` outlived the switch and greeted the NEXT
-  // transaction with a red banner about the previous one, before the operator
-  // touched anything. Same family as UX-2, which cleared the leftover when the
-  // preview was refreshed but not when the dialog changed subject.
+  // transaction with a red banner about the previous one. Same family as UX-2.
   const resetMutation = mutation.reset
-  // Editing the reason also clears a refusal about it (QA-MED-1).
   useEffect(() => {
     resetMutation()
-  }, [tx, resetMutation, backdateReason])
+  }, [tx, resetMutation])
 
   // COPY-M-10 (copy-review, MED, PR #613 round 3): `cascadeSaveErrorMessage`
   // (`cascade-preview.ts`), not the project's general `getApiErrorMessage` —
@@ -632,7 +629,10 @@ export function AdminEditTransactionDialog({
                   stored={storedTxDate(tx)}
                   reason={backdateReason}
                   onChange={setTxDate}
-                  onReasonChange={setBackdateReason}
+                  onReasonChange={(r) => {
+                    setBackdateReason(r)
+                    if (mutation.isError) mutation.reset() // QA-MED-1; never mid-save (CR-M-7)
+                  }}
                   invalid={reasonRequired}
                 />
               )}
