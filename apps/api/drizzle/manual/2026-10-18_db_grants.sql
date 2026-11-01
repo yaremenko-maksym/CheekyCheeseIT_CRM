@@ -136,7 +136,6 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.vacancies,
   public.vacancy_applications
   TO crm_app;
--- staged relations (drizzle/manual-staged/): granted only where they exist.
 --   crm_collector: nothing.
 --   crm_retention_owner: nothing.
 
