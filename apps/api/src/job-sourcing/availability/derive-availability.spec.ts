@@ -255,6 +255,27 @@ describe('transitionInventoryMissCounter', () => {
       expect(r.next).toMatchObject({ consecutiveMisses: 1, firstMissRunId: RUN(9) })
     })
 
+    it('present with a zero-miss counter is unchanged, not a reset', () => {
+      const zero = chain(0, { firstMissRunId: null, firstMissAt: null })
+      expect(transitionInventoryMissCounter(zero, run({ recordPresent: true }))).toEqual({
+        kind: 'unchanged',
+        next: zero,
+      })
+    })
+
+    it('a zero-miss counter with stale chain pointers starts a fresh chain from this run', () => {
+      const r = transitionInventoryMissCounter(
+        chain(0),
+        run({ runId: RUN(7), observedAt: hoursAfter(50) }),
+      )
+      expect(r.kind).toBe('advance')
+      expect(r.next).toMatchObject({
+        consecutiveMisses: 1,
+        firstMissRunId: RUN(7),
+        firstMissAt: hoursAfter(50),
+      })
+    })
+
     it('present with no chain is unchanged', () => {
       expect(transitionInventoryMissCounter(null, run({ recordPresent: true }))).toEqual({
         kind: 'unchanged',
