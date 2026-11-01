@@ -240,12 +240,168 @@ actually helps here, it does not hurt.)
 
 ## Decision 5 — DDL sketch (staged, not applied)
 
+**Decision (HIGH shape; the prod promote is owner-A3).** Nothing new is needed for availability
+evidence itself: `job_source_records.availability`, `.availabilityEvidence` (jsonb) and
+`.availabilityCheckedAt` already exist, as does `job_opportunities.availability` and the GIN/btree
+`idx_job_opportunities_availability`. S8 adds **one additive table** for the D4 counter and reuses
+`job_dirty_work` for the worker queue.
+
+Sketch (final column names set in the slice; **not applied here**):
+
+```
+job_source_record_inventory_misses
+  source_record_id   uuid    FK -> job_source_records(id) ON DELETE CASCADE
+  board              text    not null           -- the FULL_INVENTORY-capable source scope
+  config_version     integer not null           -- a bump resets the chain (see D4)
+  consecutive_misses integer not null default 0  CHECK >= 0
+  first_miss_run_id  uuid    not null            -- the run that opened the current chain
+  first_miss_at      timestamptz not null        -- for the >=24h span test
+  last_miss_run_id   uuid    not null
+  last_miss_at       timestamptz not null
+  last_inventory_size integer not null           -- for the >50%-drop guard
+  updated_at         timestamptz not null default now()
+  UNIQUE (source_record_id, board, config_version)
+```
+
+- **Privilege class:** service-role read/write only; no end-user path writes it. It is derived
+  bookkeeping, never user input.
+- **No availability column changes**, so the risky part (the `CLOSED`/`EXPIRED` producer) touches only
+  data already present — the DDL surface is one new table, additive, droppable with no value loss
+  **until** it has accumulated counter state in prod (after which a drop loses in-flight chains; that
+  is the A3 point, mirroring source-fetch U9's "a dropped column cannot be restored" reasoning).
+- **Promote path = S0/S6f staged-then-promote.** The SQL ships **staged** in
+  `apps/api/drizzle/manual-staged/` with a **DevOps companion** that applies it in one supervised run
+  (the pattern U2-D/U4-D/U8-D already use for prod-data-path DDL). **Nothing flips in prod without a
+  later owner A3**, mirroring the DOU bridge posture: the schema lands dark, the worker ships behind
+  its config/flag off, and the owner flips it on in its own slice.
+
+**Owner-A3 points marked:** (a) applying the staged DDL in prod; (b) enabling the reconciliation
+worker (first the inventory path, later the 404/410 path); (c) any later drop of the counter table
+once it holds prod state.
+
+**Rejected alternative.** _Put the counter on `job_source_records` as columns._ Rejected: the counter
+is per `(record, board, config_version)` and resets on a config bump, so it is a child of the run
+regime, not a property of the record; a separate table keeps the reset/clear semantics clean and lets
+a drop/rebuild of counter logic avoid touching the records table.
+
 ## Decision 6 — slice plan S8a..S8g
+
+Ordered so the schema/evidence lands **dark first** and the reconciliation worker last; the 404/410
+path is behind the collection-layer gate. Each slice: files by symbol · AC gist · depends_on · model
+· critical-path/security-review · DDL/owner-go · ships-dark.
+
+- **S8a — dark schema + evidence shape.** Staged DDL for `job_source_record_inventory_misses`
+  (+ DevOps companion); the `availabilityEvidence` payload shape (a shared Zod schema in
+  `@crm/shared` job-sourcing) for the evidence kinds. _depends_on:_ none. _model:_ sonnet.
+  _critical-path:_ yes (new table on the sourcing data path) → security-review. _DDL:_ staged,
+  owner-A3 to apply. _ships-dark:_ yes (table unused until S8d).
+- **S8b — availability derivation (pure).** `deriveRecordAvailability` and
+  `deriveOpportunityAvailability` (most-open over active `job_opportunity_sources`), plus the D4
+  counter transition function (pure over run facts + current counter row). _depends_on:_ S8a.
+  _model:_ sonnet. _critical-path:_ yes → security-review (closure logic). _DDL:_ none.
+  _ships-dark:_ yes (pure, not wired).
+- **S8c — the inventory-counter updater.** On each collection run result, advance/reset the counter
+  per D4 (reads `job_collection_runs`), apply the >50%-drop-to-review guard, and on reaching the
+  threshold write the record `CLOSED` with evidence + bump the opportunity (enqueue dirty).
+  _depends_on:_ S8b. _model:_ opus (finance-adjacent care: metered boards, closure correctness) OR
+  sonnet with security-review. _critical-path:_ yes → security-review. _DDL:_ none. _ships-dark:_
+  behind worker-enable flag (owner-A3).
+- **S8d — the reconciliation worker + enqueue/consume.** A dirty-work consumer
+  (`entity_kind = OPPORTUNITY`/`SOURCE_RECORD`) that applies derivations, writes evidence, re-derives
+  opportunity availability and bumps `revision`; bounded/resumable like `reconcileOnce`. _depends_on:_
+  S8b, S8c. _model:_ opus. _critical-path:_ yes → security-review. _DDL:_ none. _ships-dark:_ behind
+  flag.
+- **S8e — aggregator-expiry (`EXPIRED`) path.** Window-drop detection for `WINDOW` sources (a record
+  not seen for its source's expected window → `EXPIRED`, never `CLOSED`); reuses the `STALE_FEED`/
+  window signals. _depends_on:_ S8b, S8d. _model:_ sonnet. _critical-path:_ yes → security-review.
+  _DDL:_ none. _ships-dark:_ behind flag.
+- **S8f — reopen + funnel/consumer verification.** Prove reopen bumps `revision` and preserves
+  `job_opportunity_matches`/suggestion decisions; regression tests that `AVAILABILITY_CLOSED` is
+  produced and that a reopened opportunity re-surfaces preserved decisions. _depends_on:_ S8d.
+  _model:_ sonnet. _critical-path:_ yes (RBAC/data-integrity of suggestion state) → security-review.
+  _DDL:_ none. _ships-dark:_ behind flag.
+- **S8g — the 404/410 detail-closure path. GATED on U10.** Wire the metered/bounded/resumable detail
+  re-fetch runner to the dirty-work queue; per-board tested `GONE` contract (Greenhouse first); a
+  `GONE` writes the record `CLOSED` with `DETAIL_GONE` evidence. **Does not start until U10 (detail
+  runner + `detailMode = ON_DEMAND` flip) merges.** _depends_on:_ **U10 (external to S8)**, S8d.
+  _model:_ opus. _critical-path:_ yes → security-review. _DDL:_ none (uses existing meter path).
+  _ships-dark:_ behind flag, Greenhouse-only on day one.
+
+**Collection-layer dependency gate, restated for the plan:** S8a–S8f depend only on inputs that
+exist on `origin/main` today (coverage classification, run ledger, dirty-work queue, availability
+columns, funnel consumer). **S8g is the only slice blocked**, on U10. Recommend starting S8a–S8c now;
+schedule S8g after U10.
 
 ## Consequences
 
+- **Positive.** Closure/expiry become evidenced, auditable decisions at both grains; the funnel stops
+  serving ended openings as leads without any new consumer work (the consumer already exists); the
+  inventory path needs **no new collection work** (it reads the existing ledger); the worker reuses a
+  proven queue, lease and idempotence contract.
+- **Cost / trade-offs.** One new table and a new worker to operate; the D4 rule means a genuinely
+  closed job on a `FULL_INVENTORY` board stays `OPEN`/`UNKNOWN` for up to 3 sweeps / >=24h before the
+  inventory path closes it — deliberate, to avoid false closures. The 404/410 path is faster but is
+  gated on U10, so until then closure on ATS boards is inventory-paced only.
+- **Risk surface.** Closure is a correctness-sensitive, user-visible decision (a wrongly-closed job is
+  a lost lead); every closing slice is critical-path and takes a security-review. Metered re-fetch
+  (S8g) spends real request budget — bounded and reservation-gated.
+
 ## Rollback
+
+Per slice, finest first:
+
+- **A single slice PR:** `git revert <merge-sha>` (code slices carry no applied DDL).
+- **The staged DDL (S8a):** it is applied only by the DevOps companion in a supervised run; before
+  that, reverting the staged file is a no-op on prod. After it is applied, dropping
+  `job_source_record_inventory_misses` loses only derived counter state (no opportunity/record value
+  is in it) — an owner-A3 decision, mirroring source-fetch U9.
+- **The worker:** it ships behind a config/flag off by default; disabling the flag stops all
+  `CLOSED`/`EXPIRED` production immediately without a deploy. Availability rows already written stay;
+  to fully unwind, a one-off supervised SQL resets affected records to `UNKNOWN` with a revert
+  evidence row (prepared for the owner, not run by an agent — `live-db-access.md`).
+- **Verification after any rollback:** `SELECT count(*) FROM job_source_record_inventory_misses` is 0
+  or the table is absent; no record/opportunity has `availabilityEvidence` naming a reverted run; the
+  funnel no longer excludes on `AVAILABILITY_CLOSED` for the affected set.
 
 ## Risks and owner questions (A2/A3)
 
+1. **(A3) Enabling the worker in prod flips a user-visible decision.** Closure removes leads from the
+   funnel. _Recommendation:_ land S8a–S8f dark; owner flips the inventory path on first (slowest,
+   safest), watches one board, then the rest. No auto-enable.
+2. **(A3) Applying the staged counter DDL in prod.** Standard S0/S6f promote. _Recommendation:_ apply
+   via the DevOps companion in a supervised run when S8a is reviewed; owner gives the go.
+3. **(A2) Per-source D4 threshold overrides.** Defaults `3` / `24h` / `50%` are frozen; some noisy
+   boards may warrant looser values. _Recommendation:_ ship the defaults; expose per-source config so
+   a board can be tuned later without code — no blocker now.
+4. **(A2) Scope of S8g at U10.** Greenhouse is the only adapter with a detail contract. _Recommendation:_
+   ship S8g Greenhouse-only; add a board's `GONE` contract as that board's detail adapter lands. Do
+   not block S8g on all-board coverage.
+5. **(A2) `EXPIRED` window per aggregator.** Each `WINDOW` source needs an "expected to still be
+   visible for" horizon to detect a window-drop. _Recommendation:_ derive from the source's observed
+   median gap (the health layer already computes one) rather than a hand-set constant; confirm at S8e.
+
 ## Sources
+
+- `apps/api/src/database/schema/enums.ts` — `jobAvailabilityEnum`, `jobCollectionCoverageEnum`,
+  `jobCollectionOutcomeEnum`, `jobDirtyWorkEntityKindEnum`.
+- `apps/api/src/database/schema/job-opportunities.ts` — `jobSourceRecords` (`availability`,
+  `availabilityEvidence`, `availabilityCheckedAt`), `jobOpportunities` (`availability`, `revision`),
+  `jobOpportunitySources` (active-link uniqueness), `jobOpportunityMatches` (`opportunityRevision`).
+- `apps/api/src/database/schema/job-collection.ts` — `jobCollectionRuns` (`sourceId`, `cycleId`,
+  `configVersion`, `coverage`, `outcome`, `sourceConfigSnapshot`), `jobDirtyWork`.
+- `apps/api/src/job-sourcing/providers/reporting-provider.ts` — `deriveCoverage`,
+  `buildCollectionBatch` (the single coverage producer; non-SUCCEEDED can never be `FULL_INVENTORY`).
+- `apps/api/src/job-sourcing/providers/sources/greenhouse.provider.ts` — `greenhouseDetailRequest`,
+  `parseGreenhouseDetail`, `fetchGreenhouseDetail`, the `FOUND | GONE | FAILED` sum type; "not called
+  by the routine run: U10 wires the trigger".
+- `apps/api/src/job-sourcing/providers/manifest.definitions.ts` / `manifest.ts` — `detailMode`
+  `IN_LIST -> ON_DEMAND` flips at U10 (ADR 6a).
+- `apps/api/src/job-sourcing/runtime/reconciliation.ts` — `reconcileOnce` (the bounded/resumable
+  dirty-work sweep S8 mirrors); `apps/api/src/job-sourcing/ownership/dirty-work.store.ts` —
+  `enqueueDirty`, derived-version idempotence.
+- `apps/api/src/job-sourcing/funnel/evaluate.ts` — the existing `AVAILABILITY_CLOSED` consumer.
+- `apps/api/src/job-sourcing/health/detectors.ts` — source-grain `BOARD_GONE` / `STALE_FEED`.
+- `docs/architecture/2026-10-25-source-fetch-strategy.md` — coverage classification, the
+  staged-DDL + DevOps-companion promote pattern, U9 "dropped column cannot be restored" (the A3 model).
+- `docs/superpowers/plans/2026-10-10-vacancy-sourcing-plan.r5.md` — Task 4.6 "Availability
+  reconciliation" requirements; owner decision D4 (frozen thresholds).
