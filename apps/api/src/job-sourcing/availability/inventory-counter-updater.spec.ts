@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { InventoryMissCounter } from './derive-availability'
 import {
+  INVENTORY_CLOSE_REASON,
   type RunRow,
+  assertInput,
   fold,
   parseInventoryRunFact,
   rowToCounter,
@@ -84,11 +86,17 @@ describe('rowToCounter (paired-pointer invariant)', () => {
       lastInventorySize: 100,
     })
   })
-  it('rejects a half-null last-miss pointer', () => {
+  it('rejects a half-null last-miss pointer (at null, runId set)', () => {
     expect(() => rowToCounter({ ...base, last_miss_at: null })).toThrow(/half-null last-miss/)
   })
-  it('rejects a half-null first-miss pointer', () => {
+  it('rejects a half-null last-miss pointer (runId null, at set)', () => {
+    expect(() => rowToCounter({ ...base, last_miss_run_id: null })).toThrow(/half-null last-miss/)
+  })
+  it('rejects a half-null first-miss pointer (runId null, at set)', () => {
     expect(() => rowToCounter({ ...base, first_miss_run_id: null })).toThrow(/half-null first-miss/)
+  })
+  it('rejects a half-null first-miss pointer (at null, runId set)', () => {
+    expect(() => rowToCounter({ ...base, first_miss_at: null })).toThrow(/half-null first-miss/)
   })
 })
 
@@ -106,11 +114,50 @@ describe('seedCounter (drop-guard baseline)', () => {
       lastInventorySize: 100,
     })
   })
-  it('returns null with no baseline', () => {
-    expect(seedCounter(input, null)).toBeNull()
-  })
-  it('returns null for a non-positive baseline', () => {
+  it('returns null for a zero baseline (no healthy run)', () => {
     expect(seedCounter(input, 0)).toBeNull()
+  })
+  it('returns null for a negative baseline', () => {
+    expect(seedCounter(input, -1)).toBeNull()
+  })
+})
+
+describe('assertInput', () => {
+  const ok = { sourceRecordId: run(1), sourceId: run(2), board: BOARD, configVersion: 1 }
+  it('accepts a well-formed input', () => {
+    expect(() => assertInput(ok)).not.toThrow()
+  })
+  it('rejects a non-uuid sourceRecordId', () => {
+    expect(() => assertInput({ ...ok, sourceRecordId: 'not-a-uuid' })).toThrow(/sourceRecordId/)
+  })
+  it('rejects a uuid with trailing junk (anchor)', () => {
+    expect(() => assertInput({ ...ok, sourceRecordId: `${run(1)}zz` })).toThrow(/sourceRecordId/)
+  })
+  it('rejects a uuid with a non-hex character', () => {
+    expect(() => assertInput({ ...ok, sourceRecordId: run(1).replace(/^0/, 'g') })).toThrow(
+      /sourceRecordId/,
+    )
+  })
+  it('rejects a non-uuid sourceId', () => {
+    expect(() => assertInput({ ...ok, sourceId: 'nope' })).toThrow(/sourceId/)
+  })
+  it('rejects a blank board', () => {
+    expect(() => assertInput({ ...ok, board: '   ' })).toThrow(/board/)
+  })
+  it('rejects a board over 200 chars', () => {
+    expect(() => assertInput({ ...ok, board: 'b'.repeat(201) })).toThrow(/board/)
+  })
+  it('rejects a non-positive configVersion', () => {
+    expect(() => assertInput({ ...ok, configVersion: 0 })).toThrow(/configVersion/)
+  })
+  it('rejects a non-integer configVersion', () => {
+    expect(() => assertInput({ ...ok, configVersion: 1.5 })).toThrow(/configVersion/)
+  })
+})
+
+describe('INVENTORY_CLOSE_REASON', () => {
+  it('is the exact dirty-work reason the worker dedups on', () => {
+    expect(INVENTORY_CLOSE_REASON).toBe('RECORD_INVENTORY_CLOSED')
   })
 })
 

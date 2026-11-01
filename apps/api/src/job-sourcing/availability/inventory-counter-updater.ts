@@ -87,7 +87,7 @@ export interface InventoryUpdateResult {
   readonly counter: InventoryMissCounter | null
 }
 
-function assertInput(input: InventoryUpdateInput): void {
+export function assertInput(input: InventoryUpdateInput): void {
   if (!UUID.test(input.sourceRecordId))
     throw new RangeError('sourceRecordId must be a lowercase uuid')
   if (!UUID.test(input.sourceId)) throw new RangeError('sourceId must be a lowercase uuid')
@@ -144,10 +144,10 @@ async function readCounter(
 /**
  * The previous healthy inventory size for this board + configVersion (the highest VALID
  * FULL_INVENTORY `received` seen), used to seed the drop-guard baseline when no counter row exists
- * yet so the >50% guard applies on the FIRST miss too (S8b addendum). Null when no healthy run
- * exists — a bounded gap documented in Assumptions.
+ * yet so the >50% guard applies on the FIRST miss too (S8b addendum). 0 when no healthy run
+ * exists — a bounded gap documented in Assumptions; `seedCounter` then opens no seed.
  */
-async function readBaseline(tx: SqlExecutor, input: InventoryUpdateInput): Promise<number | null> {
+async function readBaseline(tx: SqlExecutor, input: InventoryUpdateInput): Promise<number> {
   const { rows } = await tx.execute(
     sql`SELECT max(received)::int AS base
           FROM job_collection_runs
@@ -157,7 +157,7 @@ async function readBaseline(tx: SqlExecutor, input: InventoryUpdateInput): Promi
            AND received > 0`,
   )
   const base = rows[0]?.['base']
-  return base == null ? null : Number(base)
+  return base == null ? 0 : Number(base)
 }
 
 export interface RunRow {
@@ -197,9 +197,9 @@ async function readRuns(tx: SqlExecutor, input: InventoryUpdateInput): Promise<R
 /** Seed a drop-guard baseline when no row exists so the >50% guard protects the first miss. */
 export function seedCounter(
   input: InventoryUpdateInput,
-  baseline: number | null,
+  baseline: number,
 ): InventoryMissCounter | null {
-  if (baseline === null || baseline <= 0) return null
+  if (baseline <= 0) return null
   return {
     board: input.board,
     configVersion: input.configVersion,
