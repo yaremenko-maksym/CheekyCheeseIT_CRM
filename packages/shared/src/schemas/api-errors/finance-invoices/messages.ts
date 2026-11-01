@@ -352,6 +352,10 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
       message:
         'Дату цієї транзакції не можна змінити: оплату підтверджено в блокчейні, її проведено з рахунку компанії або за нею вже є розрахунки',
     },
+    FINANCE_TX_DATE_EDIT_REASON_REQUIRED: /* i18n */ {
+      id: 'api-error.FINANCE_TX_DATE_EDIT_REASON_REQUIRED',
+      message: 'Дата надто далеко в минулому — вкажіть причину в полі «Причина зміни дати»',
+    },
     FINANCE_PAYOUT_SINGLE_PROJECT_ONLY: /* i18n */ {
       id: 'api-error.FINANCE_PAYOUT_SINGLE_PROJECT_ONLY',
       message: 'Виплата має охоплювати лише один проєкт',

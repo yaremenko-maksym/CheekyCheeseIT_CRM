@@ -56,7 +56,16 @@ describe('TxDateField', () => {
     expect(screen.getByTestId('admin-edit-tx-date-reason')).toBeInTheDocument()
     expect(screen.getByTestId('admin-edit-tx-date-reason-input')).toHaveAttribute(
       'placeholder',
-      'Для дат старших за 31 день',
+      'Для дат давніших за 31 день',
+    )
+  })
+
+  it('renders the window hint in English from the shared limit', async () => {
+    await loadCatalog('en')
+    renderField({ value: '2026-08-01' })
+    expect(screen.getByTestId('admin-edit-tx-date-reason-input')).toHaveAttribute(
+      'placeholder',
+      'For dates older than 31 days',
     )
   })
 

@@ -558,7 +558,7 @@ describe('AdminEditService.adminUpdateTransaction — business date', () => {
     const ctx = makeCtx()
     await expect(
       ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-08-01' }, ADMIN),
-    ).rejects.toMatchObject({ response: { code: 'FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED' } })
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_TX_DATE_EDIT_REASON_REQUIRED' } })
     expect(ctx.updates).toHaveLength(0)
     expect(ctx.inserts).toHaveLength(0)
   })
@@ -597,7 +597,7 @@ describe('AdminEditService.adminUpdateTransaction — business date', () => {
     const past = makeCtx()
     await expect(
       past.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-09-30' }, ADMIN),
-    ).rejects.toMatchObject({ response: { code: 'FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED' } })
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_TX_DATE_EDIT_REASON_REQUIRED' } })
   })
 
   it('treats a null date as "no date sent"', async () => {
@@ -624,6 +624,58 @@ describe('AdminEditService.adminUpdateTransaction — business date', () => {
     const ctx = makeCtx({ row: { status: 'PAID', txHash: '0xabc' } })
     await ctx.svc.adminUpdateTransaction(TX_ID, { notes: 'x', txDate: '2026-10-20' }, ADMIN)
     expect(txUpdate(ctx).set).not.toHaveProperty('txDate')
+  })
+
+  // SR-M-4 — the lock must also see a hash claimed by THIS request, not only a stored one.
+  const claimingTransition = () => ({
+    txHashPatch: { txHash: '0xfeed' },
+    claimHash: '0xfeed',
+    staleClaim: false,
+  })
+
+  it('refuses a changed day in the same request that claims an on-chain hash', async () => {
+    const ctx = makeCtx({ row: { type: 'ADMIN_INCOME', status: 'PAID' } })
+    ctx.onChainClaim.resolveReceiptHashTransition.mockResolvedValue(claimingTransition())
+    await expect(
+      ctx.svc.adminUpdateTransaction(
+        TX_ID,
+        { receiptExternalUrl: 'https://etherscan.io/tx/0xfeed', txDate: '2026-10-25' },
+        ADMIN,
+      ),
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_TX_DATE_LOCKED_ROW' } })
+    expect(ctx.updates).toHaveLength(0)
+    expect(ctx.inserts).toHaveLength(0)
+    expect(consumeTxHashMock).not.toHaveBeenCalled()
+  })
+
+  it('still claims a hash when the request re-sends the stored day', async () => {
+    const ctx = makeCtx({ row: { type: 'ADMIN_INCOME', status: 'PAID' } })
+    ctx.onChainClaim.resolveReceiptHashTransition.mockResolvedValue(claimingTransition())
+    await ctx.svc.adminUpdateTransaction(
+      TX_ID,
+      { receiptExternalUrl: 'https://etherscan.io/tx/0xfeed', txDate: '2026-10-20' },
+      ADMIN,
+    )
+    const set = txUpdate(ctx).set
+    expect(set.txHash).toBe('0xfeed')
+    expect(set).not.toHaveProperty('txDate')
+    expect(consumeTxHashMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('binds a date move to a row that is still unclaimed and not company-funded', async () => {
+    const ctx = makeCtx()
+    await ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-10-25' }, ADMIN)
+    const query = dialect.sqlToQuery(txUpdate(ctx).where as never)
+    expect(query.sql).toContain('"tx_hash" is null')
+    expect(query.params).toContain('COMPANY_ACCOUNT')
+  })
+
+  it('does not add the date-lock predicates to an edit that keeps the day', async () => {
+    const ctx = makeCtx()
+    await ctx.svc.adminUpdateTransaction(TX_ID, { notes: 'x', txDate: '2026-10-20' }, ADMIN)
+    const query = dialect.sqlToQuery(txUpdate(ctx).where as never)
+    expect(query.sql).not.toContain('"tx_hash" is null')
+    expect(query.params).not.toContain('COMPANY_ACCOUNT')
   })
 
   it('voids and reissues the invoice after a date move', async () => {

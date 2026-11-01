@@ -46,6 +46,7 @@ export {
   extractOnChainTxHash,
   SALARY_PAID_AMOUNT_WARN_THRESHOLD,
   salaryPaidAmountDeviation,
+  BACKDATE_LIMIT_DAYS,
 } from './finance/validation'
 export {
   transactionSchema,

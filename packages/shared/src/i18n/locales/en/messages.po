@@ -2804,6 +2804,11 @@ msgstr "This date is too far back and needs a documented reason — it can't be 
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_EDIT_REASON_REQUIRED"
+msgstr "This date is too far back — enter a reason in the “Reason for changing the date” field"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_DATE_IN_FUTURE"
 msgstr "A completed operation can't have a future date"
 
@@ -5267,6 +5272,10 @@ msgstr "Restoring…"
 #: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
 msgid "Додаткові змінні (заповніть нижче):"
 msgstr "Additional variables (fill in below):"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
+msgid "Для дат давніших за {days, plural, one {# день} few {# дні} many {# днів} other {# дня}}"
+msgstr "For dates older than {days, plural, one {# day} other {# days}}"
 
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Не вдалося завантажити фінансове зведення"
@@ -11948,10 +11957,6 @@ msgstr "Best month"
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySheet.tsx
 msgid "Редагувати вакансію"
 msgstr "Edit vacancy"
-
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
-msgid "Для дат старших за 31 день"
-msgstr "For dates older than 31 days"
 
 #: apps/web/app/components/projects/ProjectRow.tsx
 #: apps/web/app/components/ui/role-select.tsx

@@ -1,8 +1,14 @@
+import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
+import { BACKDATE_LIMIT_DAYS } from '@crm/shared'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { DatePickerField } from '@/components/ui/date-picker'
+
+// A module-level `msg` plural, not the `plural()` macro: the latter breaks under
+// Stryker instrumentation (see DropDashboard). `days` is the server's window.
+const REASON_PLACEHOLDER = msg`Для дат давніших за {days, plural, one {# день} few {# дні} many {# днів} other {# дня}}`
 
 interface TxDateFieldProps {
   value: string
@@ -18,7 +24,7 @@ interface TxDateFieldProps {
  * older than the backdating window and rejects otherwise.
  */
 export function TxDateField({ value, stored, reason, onChange, onReasonChange }: TxDateFieldProps) {
-  const { t } = useLingui()
+  const { i18n } = useLingui()
   const changed = !!value && value !== stored
   const shouldReduceMotion = useReducedMotion()
 
@@ -57,7 +63,7 @@ export function TxDateField({ value, stored, reason, onChange, onReasonChange }:
               onChange={(e) => onReasonChange(e.target.value)}
               maxLength={500}
               data-testid="admin-edit-tx-date-reason-input"
-              placeholder={t`Для дат старших за 31 день`}
+              placeholder={i18n._(REASON_PLACEHOLDER, { days: BACKDATE_LIMIT_DAYS })}
               className="min-h-[44px] sm:min-h-0 sm:h-9 text-sm"
             />
           </motion.div>

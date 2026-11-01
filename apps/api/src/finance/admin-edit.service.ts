@@ -27,6 +27,11 @@ import {
   transactions,
 } from '../database/schema'
 import { InvoicesService, type InvoiceReissueOutcome } from '../invoices/invoices.service'
+import {
+  assertTxDateNotClaimedInRequest,
+  resolveAdminEditTxDate,
+  txDateSnapshotPredicates,
+} from './admin-edit-tx-date.helper'
 import { EditCascadeService } from './edit-cascade.service'
 import { isRegistryConflict } from './finance-predicates.util'
 import { consumeTxHash } from './onchain-tx'
@@ -34,8 +39,7 @@ import { OnChainClaimService } from './onchain-claim.service'
 import { assertReceiptDocumentBindable } from './receipt.util'
 import { accountsForSalaryMonthSql } from './salary-origin'
 import { backdateAuditRow } from './transaction-date-audit.util'
-import { resolveTransactionDateWithPolicy } from './transaction-date-policy'
-import { formatTransactionBusinessDate, sourceBusinessDay } from './transaction-date.util'
+import { formatTransactionBusinessDate } from './transaction-date.util'
 import { assertTransactionWritable } from './transaction-visibility.util'
 
 /**
@@ -199,34 +203,8 @@ export class AdminEditService {
       )
     }
 
-    // The business date moves ONLY `tx_date` — no amount, rate, accumulator or
-    // cascade. Change-based like the guards above: the form re-sends the stored
-    // day on every save, and a legacy row older than the backdating window must
-    // still accept a notes-only edit. Only a day that differs reaches the policy.
-    const storedBusinessDay = data.txDate ? sourceBusinessDay(tx) : null
-    const txDateChanged = !!data.txDate && data.txDate !== storedBusinessDay
-    // SR-M-2 / SR-M-3 (owner decision, 2026-11-01): a date is NOT movable on a
-    // row whose day is a fact someone else holds. An on-chain-verified
-    // payment (claimed `tx_hash`) and a company-account row would drift away
-    // from the real transfer day (the block-timestamp clause of D-2 is still
-    // unimplemented), and a row that already carries settlements could end up
-    // dated AFTER the payments made against it.
-    if (
-      txDateChanged &&
-      (tx.txHash || tx.fundingSource === 'COMPANY_ACCOUNT' || tx.settledAmount !== null)
-    ) {
-      throw apiError('FINANCE_TX_DATE_LOCKED_ROW', HttpStatus.BAD_REQUEST)
-    }
-    // A scheduled salary is the one PLANNED row; everything else records
-    // something that already happened and so cannot be future-dated.
-    const dateDecision = txDateChanged
-      ? resolveTransactionDateWithPolicy(data.txDate, {
-          role: currentUser.role,
-          // Stryker disable next-line StringLiteral: equivalent mutant — `resolveTransactionDateWithPolicy` compares the flow only against 'EXECUTED', so any other string behaves as PLANNED; the PLANNED/EXECUTED split itself is pinned by the PENDING-salary and PAID-salary cases
-          flow: tx.type === 'SALARY' && tx.status === 'PENDING' ? 'PLANNED' : 'EXECUTED',
-          backdateReason: data.backdateReason,
-        })
-      : undefined
+    const txDate = resolveAdminEditTxDate(tx, data, currentUser.role)
+    const dateDecision = txDate.decision
 
     // task-cascade-apply (task 3, AC2) — editing the amount of a PAID row is
     // never a bare UPDATE: it moves money that derivative rows were computed
@@ -360,6 +338,8 @@ export class AdminEditService {
             claimHash: null,
             staleClaim: false,
           }
+
+    assertTxDateNotClaimedInRequest(txDate, transition.claimHash)
 
     // task-cascade-apply (task 3, AC11) — produced INSIDE the DB transaction,
     // consumed AFTER it commits. `undefined` ⇔ no cascade ran, which is also
@@ -555,6 +535,7 @@ export class AdminEditService {
               // `settleByCompany`'s flip (pending-settlement.service.ts).
               sql`${transactions.settledAmount} IS NOT DISTINCT FROM ${tx.settledAmount}::numeric`,
               ...sourceMonthSnapshotPredicates,
+              ...txDateSnapshotPredicates(txDate),
             ),
           )
           .returning({ id: transactions.id })
@@ -739,7 +720,7 @@ export class AdminEditService {
               }),
               ...(dateDecision && {
                 txDate: {
-                  before: storedBusinessDay,
+                  before: txDate.storedBusinessDay,
                   after: formatTransactionBusinessDate(dateDecision.txDate),
                 },
               }),
