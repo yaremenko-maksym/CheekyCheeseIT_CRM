@@ -197,6 +197,18 @@ describe('fold', () => {
     expect(f.close?.cycleId).toBe('00000000-0000-4000-8000-0000000000c3')
   })
 
+  it('a >50% drop after a close keeps net=close (no mislabel), close still pending', () => {
+    const f = fold(null, [
+      missRun(1, 0),
+      missRun(2, DAY / 2),
+      missRun(3, DAY + 1),
+      missRun(4, DAY + 2, 10), // collapsed inventory after the close -> review
+    ])
+    expect(f.net).toBe('close')
+    expect(f.close).not.toBeNull()
+    expect(f.reviewed).toBe(true)
+  })
+
   it('a present run after a close resets the chain and clears the close', () => {
     const f = fold(null, [
       missRun(1, 0),

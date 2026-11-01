@@ -52,24 +52,32 @@ async function newCycle(): Promise<string> {
   return String(rows[0].id)
 }
 
-async function newSource(): Promise<string> {
+async function newSource(ns: string): Promise<string> {
   const { rows } = await q(
-    `INSERT INTO job_sources (type, config, config_version)
-     VALUES ('GREENHOUSE_ATS', jsonb_build_object('tag', $1::text), ${CONFIG}) RETURNING id`,
-    [tag()],
+    `INSERT INTO job_sources (type, namespace, config, config_version)
+     VALUES ('GREENHOUSE_ATS', $1, jsonb_build_object('tag', $1::text), ${CONFIG}) RETURNING id`,
+    [ns],
   )
   sources.push(String(rows[0].id))
   return String(rows[0].id)
 }
 
-async function newRecord(): Promise<string> {
+async function newRecord(ns: string): Promise<string> {
   const { rows } = await q(
     `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key)
      VALUES ('GREENHOUSE_ATS', $1, 'NATIVE_ID', $2) RETURNING id, availability`,
-    [`ns-${tag()}`, `key-${tag()}`],
+    [ns, `key-${tag()}`],
   )
   records.push(String(rows[0].id))
   return String(rows[0].id)
+}
+
+/** A source and a record that belong together (same provider + namespace), and their board key. */
+async function seedPair(): Promise<{ sourceId: string; recordId: string; board: string }> {
+  const ns = `ns-${tag()}`
+  const sourceId = await newSource(ns)
+  const recordId = await newRecord(ns)
+  return { sourceId, recordId, board: `GREENHOUSE_ATS:${ns}` }
 }
 
 async function newRevision(recordId: string): Promise<string> {
@@ -236,13 +244,9 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
     await session?.close()
   })
 
-  const boardFor = (sourceId: string) => `GREENHOUSE_ATS:${sourceId.slice(0, 8)}`
-
   it('advance: a single absent FULL_INVENTORY run writes a fresh counter row', async () => {
-    const sourceId = await newSource()
-    const recordId = await newRecord()
+    const { sourceId, recordId, board } = await seedPair()
     const cycleId = await newCycle()
-    const board = boardFor(sourceId)
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY })
 
     const res = await updateInventoryMissCounter(db, {
@@ -260,12 +264,10 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
   })
 
   it('close: three absent runs >=24h apart mark the record CLOSED and enqueue its opportunity, atomically', async () => {
-    const sourceId = await newSource()
-    const recordId = await newRecord()
+    const { sourceId, recordId, board } = await seedPair()
     const cycleId = await newCycle()
     const oppId = await newOpportunity()
     await linkRecord(recordId, oppId)
-    const board = boardFor(sourceId)
     await addRun({ sourceId, cycleId, received: 100, observedMs: 0 })
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY / 2 })
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY + 1 })
@@ -288,12 +290,10 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
   })
 
   it('close atomicity: a failed record write rolls back the counter and the enqueue', async () => {
-    const sourceId = await newSource()
-    const recordId = await newRecord()
+    const { sourceId, recordId, board } = await seedPair()
     const cycleId = await newCycle()
     const oppId = await newOpportunity()
     await linkRecord(recordId, oppId)
-    const board = boardFor(sourceId)
     await addRun({ sourceId, cycleId, received: 100, observedMs: 0 })
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY / 2 })
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY + 1 })
@@ -315,10 +315,8 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
   })
 
   it('reset: a present run UPDATEs the row in place, keeping the baseline and advancing the watermark, never deleting', async () => {
-    const sourceId = await newSource()
-    const recordId = await newRecord()
+    const { sourceId, recordId, board } = await seedPair()
     const cycleId = await newCycle()
-    const board = boardFor(sourceId)
     await insertCounter(recordId, board, { consecutive_misses: 2, last_inventory_size: 100 })
     const revisionId = await newRevision(recordId)
     const presentRunId = await addRun({ sourceId, cycleId, received: 90, observedMs: 2 * DAY })
@@ -340,10 +338,8 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
   })
 
   it('review: a >50% inventory drop reviews without writing a counter row', async () => {
-    const sourceId = await newSource()
-    const recordId = await newRecord()
+    const { sourceId, recordId, board } = await seedPair()
     const cycleId = await newCycle()
-    const board = boardFor(sourceId)
     // Prior healthy inventory sizes seed the drop-guard baseline (100); the record is present there.
     const revisionId = await newRevision(recordId)
     const healthy = await addRun({ sourceId, cycleId, received: 100, observedMs: 0 })
@@ -363,10 +359,8 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
   })
 
   it('unchanged: a present-only run writes nothing', async () => {
-    const sourceId = await newSource()
-    const recordId = await newRecord()
+    const { sourceId, recordId, board } = await seedPair()
     const cycleId = await newCycle()
-    const board = boardFor(sourceId)
     const revisionId = await newRevision(recordId)
     const runId = await addRun({ sourceId, cycleId, received: 100, observedMs: DAY })
     await addMembership(runId, recordId, revisionId)
@@ -383,12 +377,10 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
   })
 
   it('idempotent: re-running the close over the same runs does not double-advance or double-enqueue', async () => {
-    const sourceId = await newSource()
-    const recordId = await newRecord()
+    const { sourceId, recordId, board } = await seedPair()
     const cycleId = await newCycle()
     const oppId = await newOpportunity()
     await linkRecord(recordId, oppId)
-    const board = boardFor(sourceId)
     await addRun({ sourceId, cycleId, received: 100, observedMs: 0 })
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY / 2 })
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY + 1 })
@@ -399,16 +391,15 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
 
     expect(first.net).toBe('close')
     expect(second.net).toBe('unchanged')
+    expect(second.persisted).toBe(false)
     expect(Number((await counterRow(recordId, board))?.['consecutive_misses'])).toBe(3)
     expect(await dirtyForOpp(oppId)).toHaveLength(1)
     expect((await recordState(recordId)).availability).toBe('CLOSED')
   })
 
   it('config change: a run under a new configVersion opens a new row and leaves the old chain untouched', async () => {
-    const sourceId = await newSource()
-    const recordId = await newRecord()
+    const { sourceId, recordId, board } = await seedPair()
     const cycleId = await newCycle()
-    const board = boardFor(sourceId)
     // An existing chain under configVersion 1.
     await insertCounter(recordId, board, { config_version: 1, consecutive_misses: 2 })
     // A run under configVersion 2 (a different observation regime).
@@ -430,5 +421,101 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
     expect(rows).toHaveLength(2)
     expect(Number(rows[0].consecutive_misses)).toBe(2) // config 1 untouched
     expect(Number(rows[1].consecutive_misses)).toBe(1) // config 2 fresh chain
+  })
+
+  it('trimmed read ignores pre-watermark and non-FULL_INVENTORY runs (CR-H-1)', async () => {
+    const { sourceId, recordId, board } = await seedPair()
+    const cycleId = await newCycle()
+    // A stored chain at 1 miss, watermark at DAY.
+    await insertCounter(recordId, board, {
+      consecutive_misses: 1,
+      first_miss_run_id: '00000000-0000-4000-8000-0000000000e1',
+      first_miss_at: new Date(DAY).toISOString(),
+      last_miss_run_id: '00000000-0000-4000-8000-0000000000e2',
+      last_miss_at: new Date(DAY).toISOString(),
+      last_inventory_size: 100,
+    })
+    // Pre-watermark valid miss — must be dropped by the watermark filter.
+    await addRun({ sourceId, cycleId, received: 100, observedMs: DAY / 2 })
+    // A WINDOW run after the watermark — must be dropped by the coverage filter.
+    await addRun({ sourceId, cycleId, received: 100, observedMs: DAY + 10, coverage: 'WINDOW' })
+    // The only run the fold should count: one valid absent miss after the watermark.
+    await addRun({ sourceId, cycleId, received: 100, observedMs: 2 * DAY })
+
+    const res = await updateInventoryMissCounter(db, {
+      sourceRecordId: recordId,
+      sourceId,
+      board,
+      configVersion: CONFIG,
+    })
+
+    expect(res.net).toBe('advance')
+    expect(Number((await counterRow(recordId, board))?.['consecutive_misses'])).toBe(2)
+  })
+
+  it('a second close over a new later miss is a no-op: record stays CLOSED, no duplicate enqueue (CR-M-1)', async () => {
+    const { sourceId, recordId, board } = await seedPair()
+    const cycleId = await newCycle()
+    const oppId = await newOpportunity()
+    await linkRecord(recordId, oppId)
+    await addRun({ sourceId, cycleId, received: 100, observedMs: 0 })
+    await addRun({ sourceId, cycleId, received: 100, observedMs: DAY / 2 })
+    await addRun({ sourceId, cycleId, received: 100, observedMs: DAY + 1 })
+    const input = { sourceRecordId: recordId, sourceId, board, configVersion: CONFIG }
+
+    const first = await updateInventoryMissCounter(db, input)
+    expect(first).toMatchObject({ net: 'close', closed: true })
+    // A new absent miss after the watermark re-derives a close, but the record is already CLOSED.
+    await addRun({ sourceId, cycleId, received: 100, observedMs: 3 * DAY })
+    const second = await updateInventoryMissCounter(db, input)
+
+    expect(second.net).toBe('close')
+    expect(second.closed).toBe(false) // guarded: not re-closed
+    expect(await dirtyForOpp(oppId)).toHaveLength(1) // not re-enqueued
+    expect((await recordState(recordId)).availability).toBe('CLOSED')
+    expect(Number((await counterRow(recordId, board))?.['consecutive_misses'])).toBe(4)
+  })
+
+  it('refuses a mismatched (sourceId, sourceRecordId) pair — never closes an arbitrary record (SR-M-2)', async () => {
+    const a = await seedPair()
+    const b = await seedPair() // a different source + namespace
+    const cycleId = await newCycle()
+    await addRun({ sourceId: a.sourceId, cycleId, received: 100, observedMs: 0 })
+
+    await expect(
+      updateInventoryMissCounter(db, {
+        sourceRecordId: a.recordId,
+        sourceId: b.sourceId,
+        board: a.board,
+        configVersion: CONFIG,
+      }),
+    ).rejects.toThrow(/does not belong/)
+    expect((await recordState(a.recordId)).availability).not.toBe('CLOSED')
+    expect(await counterRow(a.recordId, a.board)).toBeUndefined()
+  })
+
+  it('enqueue atomicity: a failed opportunity enqueue rolls back the counter and the close', async () => {
+    const { sourceId, recordId, board } = await seedPair()
+    const cycleId = await newCycle()
+    const oppId = await newOpportunity()
+    await linkRecord(recordId, oppId)
+    await addRun({ sourceId, cycleId, received: 100, observedMs: 0 })
+    await addRun({ sourceId, cycleId, received: 100, observedMs: DAY / 2 })
+    await addRun({ sourceId, cycleId, received: 100, observedMs: DAY + 1 })
+
+    await expect(
+      session.withPrivilegeWithdrawn('INSERT', 'job_dirty_work', () =>
+        updateInventoryMissCounter(db, {
+          sourceRecordId: recordId,
+          sourceId,
+          board,
+          configVersion: CONFIG,
+        }),
+      ),
+    ).rejects.toThrow()
+
+    expect(await counterRow(recordId, board)).toBeUndefined()
+    expect((await recordState(recordId)).availability).not.toBe('CLOSED')
+    expect(await dirtyForOpp(oppId)).toHaveLength(0)
   })
 })
