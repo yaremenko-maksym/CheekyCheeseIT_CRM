@@ -2258,6 +2258,28 @@ docker compose \
   < "$TX_DATE_NOT_NULL_FILE"
 echo "==> transactions.tx_date NOT NULL applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-10-31_job_bridge_deliveries.sql
+# Creates the DOU bridge delivery ledger (Task 4.6 S6f); MUST precede the grants file below
+# (its privileges check now requires the table). The feature stays dark: JOB_QUEUE_BRIDGE_ENABLED
+# is default OFF.
+JOB_BRIDGE_DELIVERIES_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-31_job_bridge_deliveries.sql"
+
+if [ ! -f "$JOB_BRIDGE_DELIVERIES_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_BRIDGE_DELIVERIES_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job bridge deliveries (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$JOB_BRIDGE_DELIVERIES_FILE"
+echo "==> job bridge deliveries applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file
