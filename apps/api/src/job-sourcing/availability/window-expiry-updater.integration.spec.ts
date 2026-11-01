@@ -123,7 +123,7 @@ async function dirtyCount(oppId: string): Promise<number> {
   const { rows } = await q(
     `SELECT count(*)::int AS n FROM job_dirty_work
       WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 AND reason = $2`,
-    [oppId, WINDOW_EXPIRE_REASON],
+    [oppId, 'RECORD_WINDOW_EXPIRED'],
   )
   return Number(rows[0].n)
 }
@@ -168,6 +168,10 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
 
   afterAll(async () => {
     await session?.close()
+  })
+
+  it('pins the persisted dirty-work reason literal', () => {
+    expect(WINDOW_EXPIRE_REASON).toBe('RECORD_WINDOW_EXPIRED')
   })
 
   it('readLatestWindowRun: WINDOW latest run => run; FULL_INVENTORY latest => null', async () => {

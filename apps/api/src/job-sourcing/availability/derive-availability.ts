@@ -77,8 +77,10 @@ export function deriveRecordAvailability(
 /** Strictly older than the allowance (same comparison as STALE_FEED); no allowance or no last-seen = inside. */
 function isOutsideWindow(facts: RecordObservationFacts): boolean {
   const { lastSeenAt, freshnessMaxAgeMs } = facts
-  // Stryker disable next-line ConditionalExpression: the lastSeenAt half is type narrowing only; Date.parse(null) is NaN so the comparison is false anyway and the outcome is identical
-  if (lastSeenAt == null || freshnessMaxAgeMs == null) return false
+  // No allowance: never expire. NOT suppressed - mutated, `age > null` coerces to 0 and would false-expire.
+  if (freshnessMaxAgeMs == null) return false
+  // Stryker disable next-line ConditionalExpression: type narrowing only; Date.parse(null) is NaN so the comparison is false anyway and the outcome is identical
+  if (lastSeenAt == null) return false
   const age = Date.parse(facts.observedAt) - Date.parse(lastSeenAt)
   return age > freshnessMaxAgeMs
 }

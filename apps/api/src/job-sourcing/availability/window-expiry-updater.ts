@@ -29,7 +29,7 @@ const logger = new Logger('WindowExpiryUpdater')
 const READ_COMMITTED = { isolationLevel: 'read committed' } as const
 
 /** `job_dirty_work.reason` of the opportunity recompute a record expiry enqueues (<= 100 chars). */
-// Stryker disable next-line StringLiteral: the persisted reason string is observed by the integration spec (dirtyCount filters on it), which the unit mutation run does not execute
+// Stryker disable next-line StringLiteral: the persisted reason string is observed by the integration spec (dirtyCount filters on 'RECORD_WINDOW_EXPIRED' spelled out, plus an explicit literal pin); the unit mutation run does not execute that spec
 export const WINDOW_EXPIRE_REASON = 'RECORD_WINDOW_EXPIRED'
 
 export interface WindowRun {

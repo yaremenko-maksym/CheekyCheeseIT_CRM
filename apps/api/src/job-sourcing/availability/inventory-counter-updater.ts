@@ -354,7 +354,7 @@ export async function lockAndVerifyRecord(
   )
   if (rows.length === 0)
     throw new RangeError(
-      'inventory-miss: the source record does not belong to the given source (mismatched or missing)',
+      'availability reconcile: the source record does not belong to the given source (mismatched or missing)',
     )
 }
 

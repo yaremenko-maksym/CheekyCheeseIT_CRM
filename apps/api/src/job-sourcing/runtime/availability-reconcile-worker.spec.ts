@@ -141,6 +141,31 @@ describe('reconcileSourceRecordAvailability', () => {
     expect(updateInventory).toHaveBeenCalledTimes(1)
   })
 
+  it('routing follows the latest run coverage: WINDOW then FULL_INVENTORY flips the path', async () => {
+    const row = {
+      source_id: 'src-1',
+      source_type: 'REMOTIVE_API',
+      namespace: 'x',
+      config_version: 2,
+    }
+    const run = { runId: 'run-1', cycleId: null, observedAt: '2026-11-01T00:00:00.000Z' }
+    // Latest valid run is WINDOW -> expiry path only.
+    readWindowRun.mockResolvedValueOnce(run)
+    await reconcileSourceRecordAvailability(dbOf([row]).db as never, work('SOURCE_RECORD', REC))
+    expect(expireWindow).toHaveBeenCalledTimes(1)
+    expect(updateInventory).not.toHaveBeenCalled()
+    // A later FULL_INVENTORY run makes readLatestWindowRun null -> counter path only.
+    readWindowRun.mockResolvedValueOnce(null)
+    await reconcileSourceRecordAvailability(dbOf([row]).db as never, work('SOURCE_RECORD', REC))
+    expect(expireWindow).toHaveBeenCalledTimes(1)
+    expect(updateInventory).toHaveBeenCalledTimes(1)
+    // And back to WINDOW -> expiry again.
+    readWindowRun.mockResolvedValueOnce(run)
+    await reconcileSourceRecordAvailability(dbOf([row]).db as never, work('SOURCE_RECORD', REC))
+    expect(expireWindow).toHaveBeenCalledTimes(2)
+    expect(updateInventory).toHaveBeenCalledTimes(1)
+  })
+
   it('skips the updater for an orphan record but still completes the row', async () => {
     const { db } = dbOf([])
     await reconcileSourceRecordAvailability(db as never, work('SOURCE_RECORD', REC))
