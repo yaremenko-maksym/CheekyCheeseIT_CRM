@@ -13,6 +13,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'REMOTIVE_API',
@@ -23,6 +25,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 6,
       banScope: 'HOST',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'HIMALAYAS_API',
@@ -33,6 +37,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'JOBICY_API',
@@ -43,6 +49,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'ARBEITNOW_API',
@@ -53,6 +61,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 5,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'JOBGETHER_API',
@@ -63,6 +73,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 5,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'HN_HIRING',
@@ -73,6 +85,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 2,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'GREENHOUSE_ATS',
@@ -83,6 +97,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: 5,
     },
     {
       type: 'LEVER_ATS',
@@ -93,6 +109,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'ASHBY_ATS',
@@ -103,6 +121,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'WORKABLE_ATS',
@@ -113,6 +133,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'RECRUITEE_ATS',
@@ -128,6 +150,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'SOURCE',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'PERSONIO_ATS',
@@ -138,6 +162,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'SOURCE',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'JOOBLE_API',
@@ -148,6 +174,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'JSEARCH_API',
@@ -158,6 +186,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'THEIRSTACK_API',
@@ -168,6 +198,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'MUSE_API',
@@ -178,6 +210,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 5,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'REED_API',
@@ -188,6 +222,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'DJINNI_RSS',
@@ -198,6 +234,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'WWR_RSS',
@@ -208,6 +246,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
     {
       type: 'EUREMOTEJOBS_RSS',
@@ -218,6 +258,8 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       floorHours: 0,
       banScope: 'HOST',
       requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
     },
   ],
   entries: [

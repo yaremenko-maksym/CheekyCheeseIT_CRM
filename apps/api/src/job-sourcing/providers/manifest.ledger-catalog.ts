@@ -41,12 +41,16 @@ export function buildLedgerCatalog(manifest: Manifest): LedgerCatalog {
         floorHours: t.minIntervalHoursFloor,
         banScope: t.banScope,
         requestsPerRun: t.requestsPerRun,
+        detailMode: t.detailMode,
+        detailPerRun: t.detailPerRun,
       })
     }
   }
+  const onDemand = manifest.types.filter((t) => t.detailMode === 'ON_DEMAND').map((t) => t.type)
   return {
     entry: (manifestId) => entries.get(manifestId),
     hostPolicy: (hostKey) => hostPolicyOf(manifest, hostKey),
+    onDemandTypes: () => onDemand,
   }
 }
 
@@ -73,6 +77,8 @@ export function buildLedgerCatalogSnapshot(manifest: Manifest): LedgerCatalogSna
         floorHours: t.minIntervalHoursFloor,
         banScope: t.banScope,
         requestsPerRun: t.requestsPerRun,
+        detailMode: t.detailMode,
+        detailPerRun: t.detailPerRun,
       })),
     entries: manifest.entries.map((e) => ({
       id: e.id,
