@@ -189,7 +189,9 @@ describe('send permits (AC 6)', () => {
 
   it('CR-M-5: buildCollectionContext refuses a requestsPerRun that is not a positive safe integer', () => {
     for (const bad of [Number.NaN, 1.5, 0, -1, Number.POSITIVE_INFINITY, 2 ** 53]) {
-      expect(() => world({ input: { requestsPerRun: bad } }), String(bad)).toThrow(RangeError)
+      expect(() => world({ input: { requestsPerRun: bad } }), String(bad)).toThrow(
+        /requestsPerRun must be a positive integer/,
+      )
     }
   })
 
