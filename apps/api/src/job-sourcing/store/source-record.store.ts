@@ -34,6 +34,8 @@ const READ_COMMITTED = { isolationLevel: 'read committed' } as const
 const RECORD_ATTEMPTS = 3
 /** `job_dirty_work.reason` of a moved latest pointer. */
 export const SOURCE_REVISION_REASON = 'SOURCE_REVISION'
+/** Reason prefix (`:<runId>` follows) of a CLOSED/EXPIRED record listed again, content unchanged. */
+export const RECORD_RELISTED_REASON = 'RECORD_RELISTED'
 /**
  * The most observations one page may write (SR-M-4, CR-M-4): the page holds every record lock
  * until it commits and costs about eight statements per observation. Adapter pages may be larger
@@ -129,7 +131,12 @@ async function writeObservation(
   //    COMMITTED a statement that waited for the lock re-checks only the locked row, so a head
   //    joined into the locking statement would be the pre-wait snapshot, and a waiter would act
   //    on the head the lock holder just replaced. A new statement sees what the holder committed.
-  await tx.execute(sql`SELECT 1 FROM job_source_records WHERE id = ${record.id}::uuid FOR UPDATE`)
+  const { rows: locked } = await tx.execute(
+    sql`SELECT availability::text AS availability FROM job_source_records
+         WHERE id = ${record.id}::uuid FOR UPDATE`,
+  )
+  const wasClosed =
+    locked[0]?.['availability'] === 'CLOSED' || locked[0]?.['availability'] === 'EXPIRED'
   const readHead = async () =>
     (
       await tx.execute(
@@ -226,6 +233,19 @@ async function writeObservation(
       SOURCE_REVISION_REASON,
       cycleId,
     )
+  // S8f: unchanged content of a CLOSED/EXPIRED record does not advance the head, so no
+  // SOURCE_REVISION work exists to carry the "seen again" fact to the availability worker. One row
+  // per run (the run id is in the reason: the key is unique per reason, and a record may close and
+  // reappear many times at the same sequence). Inert until that worker runs behind its flag.
+  else if (wasClosed && notOlder)
+    await enqueueDirty(
+      tx,
+      'SOURCE_RECORD',
+      record.id,
+      targetVersion,
+      `${RECORD_RELISTED_REASON}:${owned.runId}`,
+      cycleId,
+    )
   return {
     recordId: record.id,
     revisionId,
@@ -289,6 +309,34 @@ export async function expireRecordByWindow(
          WHERE id = ${recordId}::uuid
            AND availability IS DISTINCT FROM 'EXPIRED'::job_availability
            AND availability IS DISTINCT FROM 'CLOSED'::job_availability
+       RETURNING id`,
+  )
+  return rows.length > 0
+}
+
+/**
+ * REOPEN a CLOSED or EXPIRED source record observed OPEN again (r5 Task 4.6 S8f), inside the
+ * caller's transaction; the reverse of `closeRecordByInventory` / `expireRecordByWindow` with the
+ * same lock discipline (the caller holds `FOR UPDATE`). Only `OBSERVED_OPEN` evidence is accepted.
+ * Guarded to the two reversible states: an already-OPEN (or UNKNOWN) record is untouched, so a
+ * repeat neither rewrites the evidence nor lets the caller enqueue twice. It writes only
+ * `job_source_records`: matches and suggestion decisions are not this function's to touch.
+ */
+export async function reopenRecord(
+  tx: SqlExecutor,
+  recordId: string,
+  evidence: AvailabilityEvidence,
+): Promise<boolean> {
+  const parsed = availabilityEvidenceSchema.parse(evidence)
+  if (parsed.kind !== 'OBSERVED_OPEN')
+    throw new RangeError('reopenRecord: only OBSERVED_OPEN evidence may reopen a record')
+  const { rows } = await tx.execute(
+    sql`UPDATE job_source_records
+           SET availability = 'OPEN'::job_availability,
+               availability_evidence = ${JSON.stringify(parsed)}::jsonb,
+               availability_checked_at = clock_timestamp(), updated_at = clock_timestamp()
+         WHERE id = ${recordId}::uuid
+           AND availability IN ('CLOSED'::job_availability, 'EXPIRED'::job_availability)
        RETURNING id`,
   )
   return rows.length > 0
