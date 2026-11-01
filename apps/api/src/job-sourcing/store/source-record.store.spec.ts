@@ -374,4 +374,13 @@ describe('expireRecordByWindow (Task 4.6 S8e, CR-M-3)', () => {
     expect(text).toContain(`'EXPIRED'::job_availability`)
     expect(text).not.toContain(`SET availability = 'CLOSED'`)
   })
+
+  it('returns false when the guard matched no row (already expired or closed)', async () => {
+    const execute = vi.fn(async (_q: unknown) => ({ rows: [] }))
+    const ok = await expireRecordByWindow({ execute } as never, base.runId, {
+      ...base,
+      kind: 'WINDOW_DROPPED',
+    } as never)
+    expect(ok).toBe(false)
+  })
 })
