@@ -1560,3 +1560,56 @@ REPO=yaremenko-maksym/CheekyCheeseIT_CRM scripts/devops/check-deploy-freshness.s
 When adding a `workspace:*` dependency to `apps/api`, the same package needs
 `COPY` of its `package.json` and sources plus a `pnpm --filter <pkg> build` in
 `apps/api/Dockerfile` (builder stage), before `@crm/api build`.
+
+## 14. DOU bridge (`job_bridge_deliveries`) — flag flip and rollback
+
+Governs the environment flag `JOB_QUEUE_BRIDGE_ENABLED` (default **off**) and the durable
+delivery table `job_bridge_deliveries`. Source: ADR `docs/architecture/2026-10-31-dou-bridge-run-ownership.md`
+(sections 2, 4, 7 Q4). The flip itself is an owner action (A3, Q4).
+
+### 14.1 Preconditions for the flip
+
+1. The S6f deploy is live, so the table exists in prod. Verify read-only:
+   `SELECT to_regclass('job_bridge_deliveries');` must return a non-null name.
+2. CI barrier is green with the flag on (the compat-barrier suite runs both variants).
+3. `JOB_QUEUE_BRIDGE_ENABLED` is currently off, or absent.
+
+### 14.2 Flip on
+
+1. Set `JOB_QUEUE_BRIDGE_ENABLED=true` in the prod environment (the GitHub Secrets / env
+   contract, section 3). Do not commit the value.
+2. Redeploy or restart the api. The flag is read once at construction, so a running process
+   keeps its old value until it is restarted.
+3. Trigger ONE manual DOU collection from the ADMIN UI, then watch it (14.3).
+4. Keep it on. Turning it off again is the rollback path in 14.4.
+
+### 14.3 What to watch after the flip
+
+- The LEGACY run ends run-row-only: no `job_sources` cap or backoff is applied to DOU.
+- Delivery rows move `PENDING` -> `DONE`. Count rows by `status` and `consumer` (read-only
+  SELECT) after the manual run.
+- `createSuggestions` is fed the posting, never an empty array.
+- `lastCollectedAt` advances only after the T3/T4 drains complete without a thrown error.
+- Signals to inspect: a row stuck `PENDING` after a completed run, or any `INVALID` row.
+  An `INVALID` row is terminal for its version and is not retried until the item changes.
+
+### 14.4 Flag-off drain rule — a hard precondition for turning the flag off
+
+**Before** setting `JOB_QUEUE_BRIDGE_ENABLED=false`, run one manual DOU collection with the
+flag STILL ON. Its T3/T4 drains must empty every `PENDING` row. Only then turn the flag off
+and redeploy. Do not skip this step.
+
+If the flag is turned off with rows still `PENDING`, those suggestions WAIT until the flag is
+on again. They are delayed, not lost, because the rows are durable. Re-enabling the flag
+drains them.
+
+### 14.5 Follow-ups (named, not implemented)
+
+- **(a) Optional retention of old `DONE` delivery rows.** Any retention cron for
+  `job_bridge_deliveries` MUST keep every `PENDING` row. It must also not delete a posting that
+  a `PENDING` row points at, which interacts with `POSTING_RETENTION_DAYS`. Retention is not
+  needed for correctness.
+- **(b) Drain-blocking non-terminal error (S6d availability item).** A persistent non-terminal
+  error on one delivery row (not SQLSTATE 22/23) currently re-throws and blocks the whole drain
+  for that source until the next run. This is an alerting and availability item to track. It
+  delays suggestions for the source; it does not lose them.
