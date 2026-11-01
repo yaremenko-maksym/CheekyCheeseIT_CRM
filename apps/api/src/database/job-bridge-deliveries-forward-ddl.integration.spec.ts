@@ -325,6 +325,9 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('the staged grant block is a no-op where its table does not exist', async () => {
+      // CR-M-1: a generator-path smoke check — the table is promoted, so nothing in the shipped
+      // files is staged any more; this proves `stagedGrantSql` still emits a guarded, harmless
+      // block for a future manual-staged relation.
       await expect(
         client.query(stagedGrantSql(['job_s6f_absent_relation'], ['SELECT'], ROLES.app)),
       ).resolves.toBeDefined()
