@@ -203,7 +203,7 @@ export class AdminEditService {
     // cascade. Change-based like the guards above: the form re-sends the stored
     // day on every save, and a legacy row older than the backdating window must
     // still accept a notes-only edit. Only a day that differs reaches the policy.
-    const storedBusinessDay = sourceBusinessDay(tx)
+    const storedBusinessDay = data.txDate ? sourceBusinessDay(tx) : null
     const txDateChanged = !!data.txDate && data.txDate !== storedBusinessDay
     // A scheduled salary is the one PLANNED row; everything else records
     // something that already happened and so cannot be future-dated.
