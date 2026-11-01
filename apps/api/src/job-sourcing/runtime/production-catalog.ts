@@ -1,6 +1,6 @@
 import type { JobSourceType } from '@crm/shared'
 import type { LedgerCatalog, LedgerCatalogEntry } from '../ownership/ledger-catalog'
-import type { DetailMode } from '../providers/detail-mode'
+import { type DetailMode, onDemandTypesOf } from '../providers/detail-mode'
 import type { BanScope, HostPolicy } from '../scheduling/host-policy'
 import type { FetchProfile } from '../scheduling/next-slot'
 import { LEDGER_CATALOG_SNAPSHOT } from './ledger-catalog.snapshot'
@@ -105,7 +105,7 @@ export function catalogFromSnapshot(snapshot: LedgerCatalogSnapshot): LedgerCata
     })
   }
   const hosts = new Map(snapshot.hosts.map((h) => [h.hostKey, h.policy]))
-  const onDemand = snapshot.types.filter((t) => t.detailMode === 'ON_DEMAND').map((t) => t.type)
+  const onDemand = onDemandTypesOf(snapshot.types)
   return {
     entry: (manifestId) => entries.get(manifestId),
     hostPolicy: (hostKey) => hosts.get(hostKey),

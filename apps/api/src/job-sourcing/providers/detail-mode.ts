@@ -5,3 +5,13 @@
  */
 export const DETAIL_MODES = ['IN_LIST', 'ON_DEMAND'] as const
 export type DetailMode = (typeof DETAIL_MODES)[number]
+
+/**
+ * SFS U10: the types whose `detailMode` is `ON_DEMAND`. One helper for both catalog builders (the
+ * manifest one and the production snapshot one) so the rule lives in a single tested place.
+ */
+export function onDemandTypesOf<T extends { readonly type: S; readonly detailMode: DetailMode }, S>(
+  types: readonly T[],
+): S[] {
+  return types.filter((t) => t.detailMode === 'ON_DEMAND').map((t) => t.type)
+}

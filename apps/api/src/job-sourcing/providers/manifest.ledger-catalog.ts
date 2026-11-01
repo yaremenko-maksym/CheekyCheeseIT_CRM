@@ -4,6 +4,7 @@ import type {
   SnapshotDeadline,
   SnapshotHost,
 } from '../runtime/production-catalog'
+import { onDemandTypesOf } from './detail-mode'
 import { type Manifest, type PolicyDeadline, readinessAt } from './manifest'
 import { type HostPolicy, hostPolicyOf } from './manifest.hosts'
 
@@ -46,7 +47,7 @@ export function buildLedgerCatalog(manifest: Manifest): LedgerCatalog {
       })
     }
   }
-  const onDemand = manifest.types.filter((t) => t.detailMode === 'ON_DEMAND').map((t) => t.type)
+  const onDemand = onDemandTypesOf(manifest.types)
   return {
     entry: (manifestId) => entries.get(manifestId),
     hostPolicy: (hostKey) => hostPolicyOf(manifest, hostKey),
