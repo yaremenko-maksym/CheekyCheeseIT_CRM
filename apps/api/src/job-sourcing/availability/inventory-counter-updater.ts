@@ -106,7 +106,7 @@ function assertInput(input: InventoryUpdateInput): void {
 export function rowToCounter(row: Record<string, unknown>): InventoryMissCounter {
   const str = (v: unknown): string | null => (v == null ? null : String(v))
   const iso = (v: unknown): string | null =>
-    v == null ? null : v instanceof Date ? v.toISOString() : String(v)
+    v == null ? null : new Date(v as string | number | Date).toISOString()
   const firstMissRunId = str(row['first_miss_run_id'])
   const firstMissAt = iso(row['first_miss_at'])
   const lastMissRunId = str(row['last_miss_run_id'])
@@ -187,7 +187,7 @@ async function readRuns(tx: SqlExecutor, input: InventoryUpdateInput): Promise<R
         coverage: r['coverage'],
         recordPresent: r['record_present'] === true,
         inventorySize: Number(r['received']),
-        observedAt: observedAt instanceof Date ? observedAt.toISOString() : String(observedAt),
+        observedAt: new Date(observedAt as string | number | Date).toISOString(),
       }),
       cycleId: r['cycle_id'] == null ? null : String(r['cycle_id']),
     }

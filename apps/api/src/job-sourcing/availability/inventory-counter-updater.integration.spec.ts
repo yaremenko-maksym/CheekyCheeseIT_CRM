@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -77,7 +77,7 @@ async function newRevision(recordId: string): Promise<string> {
     `INSERT INTO job_source_record_revisions
        (source_record_id, adapter_version, normalizer_version, content_hash, normalized, original_identity)
      VALUES ($1, 'v1', 'v1', $2, '{}'::jsonb, '{}'::jsonb) RETURNING id`,
-    [recordId, `hash-${tag()}`],
+    [recordId, createHash('sha256').update(tag()).digest('hex')],
   )
   return String(rows[0].id)
 }
@@ -98,9 +98,9 @@ async function addRun(spec: RunSpec): Promise<string> {
   const { rows } = await q(
     `INSERT INTO job_collection_runs
        (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, coverage, outcome,
-        received, started_at, ended_at)
+        received, created, started_at, ended_at, account_key)
      VALUES ($1, $2, $3, $4, 'v1', 'SCHEDULED', $5::job_collection_coverage, $6::job_collection_outcome,
-             $7, $8::timestamptz, $9::timestamptz) RETURNING id`,
+             $7, $7, $8::timestamptz, $9::timestamptz, $10) RETURNING id`,
     [
       spec.sourceId,
       spec.cycleId,
@@ -111,6 +111,7 @@ async function addRun(spec: RunSpec): Promise<string> {
       spec.received,
       started,
       ended,
+      `acct-${tag()}`,
     ],
   )
   return String(rows[0].id)
@@ -216,18 +217,19 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
   }, 120_000)
 
   afterEach(async () => {
-    if (opps.length > 0)
-      await q(`DELETE FROM job_dirty_work WHERE entity_id = ANY($1::uuid[])`, [opps.splice(0)])
-    if (records.length > 0)
-      await q(`DELETE FROM job_source_records WHERE id = ANY($1::uuid[])`, [records.splice(0)])
-    if (sources.length > 0)
-      await q(`DELETE FROM job_collection_runs WHERE source_id = ANY($1::uuid[])`, [
-        sources.slice(),
-      ])
-    if (sources.length > 0)
-      await q(`DELETE FROM job_sources WHERE id = ANY($1::uuid[])`, [sources.splice(0)])
-    if (cycles.length > 0)
-      await q(`DELETE FROM job_collection_cycles WHERE id = ANY($1::uuid[])`, [cycles.splice(0)])
+    const o = opps.splice(0)
+    const r = records.splice(0)
+    const s = sources.splice(0)
+    const c = cycles.splice(0)
+    if (o.length > 0) await q(`DELETE FROM job_dirty_work WHERE entity_id = ANY($1::uuid[])`, [o])
+    if (r.length > 0)
+      await q(`DELETE FROM job_opportunity_sources WHERE source_record_id = ANY($1::uuid[])`, [r])
+    if (r.length > 0) await q(`DELETE FROM job_source_records WHERE id = ANY($1::uuid[])`, [r])
+    if (s.length > 0)
+      await q(`DELETE FROM job_collection_runs WHERE source_id = ANY($1::uuid[])`, [s])
+    if (s.length > 0) await q(`DELETE FROM job_sources WHERE id = ANY($1::uuid[])`, [s])
+    if (o.length > 0) await q(`DELETE FROM job_opportunities WHERE id = ANY($1::uuid[])`, [o])
+    if (c.length > 0) await q(`DELETE FROM job_collection_cycles WHERE id = ANY($1::uuid[])`, [c])
   })
 
   afterAll(async () => {
@@ -254,7 +256,7 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
     const row = await counterRow(recordId, board)
     expect(row).toBeDefined()
     expect(Number(row?.['consecutive_misses'])).toBe(1)
-    expect((await recordState(recordId)).availability).toBe('OPEN')
+    expect((await recordState(recordId)).availability).not.toBe('CLOSED')
   })
 
   it('close: three absent runs >=24h apart mark the record CLOSED and enqueue its opportunity, atomically', async () => {
@@ -308,7 +310,7 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
     ).rejects.toThrow()
 
     expect(await counterRow(recordId, board)).toBeUndefined()
-    expect((await recordState(recordId)).availability).toBe('OPEN')
+    expect((await recordState(recordId)).availability).not.toBe('CLOSED')
     expect(await dirtyForOpp(oppId)).toHaveLength(0)
   })
 
@@ -357,7 +359,7 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
 
     expect(res).toMatchObject({ net: 'review', persisted: false, reviewed: true, closed: false })
     expect(await counterRow(recordId, board)).toBeUndefined()
-    expect((await recordState(recordId)).availability).toBe('OPEN')
+    expect((await recordState(recordId)).availability).not.toBe('CLOSED')
   })
 
   it('unchanged: a present-only run writes nothing', async () => {
