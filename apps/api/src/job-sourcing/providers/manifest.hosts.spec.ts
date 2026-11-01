@@ -4,6 +4,7 @@ import {
   hostKeyProblems,
   hostPolicyOf,
   hostRateProblem,
+  hostRequestBudgetProblem,
   isValidHostKey,
 } from './manifest.hosts'
 
@@ -80,6 +81,33 @@ describe('hostRateProblem (AC 13)', () => {
   })
 })
 
+describe('hostRequestBudgetProblem (U11)', () => {
+  it('accepts whole figures in range with perHour at least perMinute', () => {
+    expect(hostRequestBudgetProblem({ perMinute: 2, perHour: 120 })).toBeNull()
+    expect(hostRequestBudgetProblem({ perMinute: 1, perHour: 1 })).toBeNull()
+    expect(hostRequestBudgetProblem({ perMinute: 1000, perHour: 60_000 })).toBeNull()
+  })
+
+  it('refuses figures out of range or not integers', () => {
+    expect(hostRequestBudgetProblem({ perMinute: 0, perHour: 120 })).toBe(
+      'perMinute 0 is not an integer from 1 to 1000',
+    )
+    expect(hostRequestBudgetProblem({ perMinute: 1001, perHour: 2000 })).not.toBeNull()
+    expect(hostRequestBudgetProblem({ perMinute: 1.5, perHour: 120 })).not.toBeNull()
+    expect(hostRequestBudgetProblem({ perMinute: 2, perHour: 0 })).toBe(
+      'perHour 0 is not an integer from 1 to 60000',
+    )
+    expect(hostRequestBudgetProblem({ perMinute: 2, perHour: 60_001 })).not.toBeNull()
+    expect(hostRequestBudgetProblem({ perMinute: 2, perHour: Number.NaN })).not.toBeNull()
+  })
+
+  it('refuses an hour budget below the minute budget', () => {
+    expect(hostRequestBudgetProblem({ perMinute: 10, perHour: 5 })).toBe(
+      'perHour 5 is below perMinute 10',
+    )
+  })
+})
+
 describe('hostPolicyOf', () => {
   const types = [
     { type: 'REMOTIVE_API', hostRate: { perMinute: 2, perDay: 4 }, minIntervalHoursFloor: 6 },
@@ -113,6 +141,55 @@ describe('hostPolicyOf', () => {
 
   it('a key no entry carries has no policy', () => {
     expect(hostPolicyOf(m, 'nowhere.example')).toBeUndefined()
+  })
+})
+
+describe('hostPolicyOf request budget (U11)', () => {
+  const types = [
+    {
+      type: 'GREENHOUSE_ATS',
+      hostRate: null,
+      minIntervalHoursFloor: 0,
+      hostRequestBudget: { perMinute: 2, perHour: 120 },
+      requestsPerRun: 1,
+    },
+    // A second type sharing the host, stricter on the minute and sending 5 requests a run.
+    {
+      type: 'LEVER_ATS',
+      hostRate: null,
+      minIntervalHoursFloor: 0,
+      hostRequestBudget: { perMinute: 1, perHour: 200 },
+      requestsPerRun: 5,
+    },
+    { type: 'JOBICY_API', hostRate: null, minIntervalHoursFloor: 0 },
+  ] as const
+  const entries = [
+    { type: 'GREENHOUSE_ATS', hostKey: 'shared.boards' },
+    { type: 'LEVER_ATS', hostKey: 'shared.boards' },
+    { type: 'GREENHOUSE_ATS', hostKey: 'greenhouse.only' },
+    { type: 'JOBICY_API', hostKey: 'jobicy.com' },
+  ] as const
+  const m = { types, entries }
+
+  it('carries the declared budget and the run size for a single-type host', () => {
+    expect(hostPolicyOf(m, 'greenhouse.only')).toEqual({
+      rate: null,
+      floorHours: 0,
+      requestBudget: { perMinute: 2, perHour: 120 },
+    })
+  })
+
+  it('takes the strictest of each budget figure and the largest run size when a host is shared', () => {
+    expect(hostPolicyOf(m, 'shared.boards')).toEqual({
+      rate: null,
+      floorHours: 0,
+      requestBudget: { perMinute: 1, perHour: 120 },
+      requestsPerRun: 5,
+    })
+  })
+
+  it('omits the U11 fields entirely for a host with no declared budget', () => {
+    expect(hostPolicyOf(m, 'jobicy.com')).toEqual({ rate: null, floorHours: 0 })
   })
 })
 

@@ -614,6 +614,7 @@ describe('claimHostSlot (against a scripted executor)', () => {
       'HOST_BUSY',
       'HOST_RATE_GAP',
       'HOST_DAILY_CAP',
+      'HOST_REQUEST_BUDGET',
     ])
   })
 
@@ -637,9 +638,123 @@ FROM job_source_hosts h WHERE h.host_key = $3`)
 SELECT (SELECT count(*) FROM w)::int AS claims,
   (SELECT started_at + interval '24 hours' FROM w ORDER BY started_at
     OFFSET GREATEST((SELECT count(*) FROM w) - $2, 0) LIMIT 1) AS opens_at`)
+    const budget = render(hostSlotStatements.budget('a.b', 7))
+    expect(budget.params).toEqual(['a.b', 7, 7])
+    expect(budget.sql).toBe(`WITH r AS (SELECT x.outcome, x.request_count, x.started_at
+           FROM job_collection_runs x JOIN job_sources s ON s.id = x.source_id
+           WHERE s.host_key = $1
+             AND (x.outcome = 'STARTED' OR x.started_at > clock_timestamp() - interval '1 hour'))
+SELECT COALESCE(sum(request_count) FILTER (WHERE outcome <> 'STARTED' AND started_at > clock_timestamp() - interval '1 minute'), 0)::int
+    + count(*) FILTER (WHERE outcome = 'STARTED')::int * $2 AS minute_used,
+  COALESCE(sum(request_count) FILTER (WHERE outcome <> 'STARTED'), 0)::int
+    + count(*) FILTER (WHERE outcome = 'STARTED')::int * $3 AS hour_used,
+  min(started_at) FILTER (WHERE outcome <> 'STARTED' AND started_at > clock_timestamp() - interval '1 minute') + interval '1 minute' AS minute_opens_at,
+  min(started_at) FILTER (WHERE outcome <> 'STARTED') + interval '1 hour' AS hour_opens_at
+FROM r`)
     expect(render(hostSlotStatements.stamp('a.b')).sql).toBe(
       'UPDATE job_source_hosts SET last_claimed_at = clock_timestamp() WHERE host_key = $1',
     )
+  })
+
+  describe('the request budget (U11)', () => {
+    const AT2 = new Date('2026-10-25T00:01:00.000Z')
+    const budgetPolicy = {
+      rate: null,
+      floorHours: 0,
+      requestBudget: { perMinute: 2, perHour: 120 },
+    }
+    const budgetStatements = (key: string) => [
+      render(hostSlotStatements.ensureRow(key)).sql,
+      render(hostSlotStatements.lock(key)).sql,
+      render(hostSlotStatements.read(key, 0)).sql,
+      render(hostSlotStatements.budget(key, 1)).sql,
+    ]
+
+    it('grants a budget host under budget: ensure, lock, read, budget, then stamp', async () => {
+      const used = { minute_used: 1, hour_used: 1, minute_opens_at: null, hour_opens_at: null }
+      const { tx, seen, params } = scripted([[], [{}], [open], [used], []])
+      await expect(claimHostSlot(tx, 'boards.io', budgetPolicy)).resolves.toEqual({ granted: true })
+      expect(seen).toEqual([
+        ...budgetStatements('boards.io'),
+        render(hostSlotStatements.stamp('boards.io')).sql,
+      ])
+      // The budget statement carries the host key and perRun (defaulting to 1) twice.
+      expect(params[3]).toEqual(['boards.io', 1, 1])
+    })
+
+    it('refuses when this claim`s own request would exceed the minute budget, with the minute opening', async () => {
+      const used = { minute_used: 2, hour_used: 2, minute_opens_at: AT2, hour_opens_at: AT2 }
+      const { tx, seen } = scripted([[], [{}], [open], [used]])
+      await expect(claimHostSlot(tx, 'boards.io', budgetPolicy)).resolves.toEqual({
+        granted: false,
+        reason: 'HOST_REQUEST_BUDGET',
+        opensAt: AT2,
+      })
+      expect(seen).toHaveLength(4)
+    })
+
+    it('refuses on the hour budget when the minute is fine, with the hour opening', async () => {
+      const used = { minute_used: 0, hour_used: 120, minute_opens_at: null, hour_opens_at: AT2 }
+      const { tx } = scripted([[], [{}], [open], [used]])
+      await expect(claimHostSlot(tx, 'boards.io', budgetPolicy)).resolves.toEqual({
+        granted: false,
+        reason: 'HOST_REQUEST_BUDGET',
+        opensAt: AT2,
+      })
+    })
+
+    it('a budget host is not refused HOST_BUSY: a STARTED run is counted by the budget, not blocked', async () => {
+      const used = { minute_used: 1, hour_used: 1, minute_opens_at: null, hour_opens_at: null }
+      const { tx } = scripted([[], [{}], [{ ...open, busy: true }], [used], []])
+      expect(await claimHostSlot(tx, 'boards.io', budgetPolicy)).toEqual({ granted: true })
+    })
+
+    it('the claim`s own perRun is added, so a run sending 5 is refused against a budget of 4', async () => {
+      const used = { minute_used: 0, hour_used: 0, minute_opens_at: null, hour_opens_at: null }
+      const { tx, params } = scripted([[], [{}], [open], [used]])
+      const policy = {
+        rate: null,
+        floorHours: 0,
+        requestBudget: { perMinute: 4, perHour: 400 },
+        requestsPerRun: 5,
+      }
+      expect(await claimHostSlot(tx, 'boards.io', policy)).toMatchObject({
+        granted: false,
+        reason: 'HOST_REQUEST_BUDGET',
+      })
+      expect(params[3]).toEqual(['boards.io', 5, 5])
+    })
+
+    it('fails closed: an unreadable count refuses, never claims', async () => {
+      const { tx } = scripted([[], [{}], [open], [{ minute_used: 'x', hour_used: 1 }]])
+      expect(await claimHostSlot(tx, 'boards.io', budgetPolicy)).toMatchObject({
+        granted: false,
+        reason: 'HOST_REQUEST_BUDGET',
+      })
+    })
+
+    it('a paused budget host is still refused HOST_PAUSED before the budget is read', async () => {
+      const { tx, seen } = scripted([[], [{}], [{ ...open, paused: true, paused_until: AT2 }]])
+      expect(await claimHostSlot(tx, 'boards.io', budgetPolicy)).toMatchObject({
+        reason: 'HOST_PAUSED',
+      })
+      expect(seen).toHaveLength(3)
+    })
+
+    it('throws on an unusable budget instead of claiming without one', async () => {
+      for (const requestBudget of [
+        { perMinute: 0, perHour: 120 },
+        { perMinute: 2, perHour: 0 },
+        { perMinute: 1.5, perHour: 120 },
+        { perMinute: 10, perHour: 5 },
+      ]) {
+        const { tx, seen } = scripted([])
+        await expect(
+          claimHostSlot(tx, 'boards.io', { rate: null, floorHours: 0, requestBudget }),
+        ).rejects.toThrow('claimHostSlot: invalid budget')
+        expect(seen).toEqual([])
+      }
+    })
   })
 })
 

@@ -331,6 +331,7 @@ describe('claimGate — step 2 of the claim, on the locked row (SR-H-5)', () => 
       'HOST_BUSY',
       'HOST_RATE_GAP',
       'HOST_DAILY_CAP',
+      'HOST_REQUEST_BUDGET',
       'NOT_SCHEDULED',
     ])
   })
@@ -343,7 +344,7 @@ describe('refusalWrite — what a scheduled refusal commits', () => {
     expect(refusalWrite('HOST_BUSY', opens)).toEqual({ kind: 'NONE' })
   })
 
-  it.each(['HOST_PAUSED', 'HOST_RATE_GAP', 'HOST_DAILY_CAP'] as const)(
+  it.each(['HOST_PAUSED', 'HOST_RATE_GAP', 'HOST_DAILY_CAP', 'HOST_REQUEST_BUDGET'] as const)(
     '%s moves next_attempt_at to when the slot opens',
     (reason) => {
       expect(refusalWrite(reason, opens)).toEqual({ kind: 'UNTIL', at: opens })
