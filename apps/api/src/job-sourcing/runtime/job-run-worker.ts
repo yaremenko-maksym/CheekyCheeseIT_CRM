@@ -466,7 +466,9 @@ export class JobRunWorker {
           floorHours: policy.floorHours,
           banScope: entry.banScope,
           allowedHosts: adapter.allowedHostsFor(config),
-          requestsPerRun: entry.requestsPerRun,
+          // U11: the runtime ceiling applies ONLY to a host that declares a request budget (the
+          // board hosts). A host with no budget is unlimited, exactly as T7/U2 behaved before U11.
+          requestsPerRun: policy.requestBudget != null ? entry.requestsPerRun : null,
           meter,
           secrets,
           policyVersion: row.policyVersion,

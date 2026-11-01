@@ -195,6 +195,21 @@ describe('send permits (AC 6)', () => {
     }
   })
 
+  it('U11 regression: a host with no budget (requestsPerRun null) is UNLIMITED — no ceiling, no hop counting', async () => {
+    let onHopSupplied = false
+    const w = world({
+      input: { meter: null, requestsPerRun: null },
+      transport: async (_url, opts) => {
+        if (opts.onHop) onHopSupplied = true
+        return 'ok'
+      },
+    })
+    for (let i = 0; i < 10; i += 1) await w.ctx.fetchText(REQ)
+    // The transport is given no onHop (redirects are not counted), and nothing is ever refused.
+    expect(onHopSupplied).toBe(false)
+    expect(w.metrics().requestCount).toBe(10)
+  })
+
   it('a metered reconcile settles on the account meter', async () => {
     const w = world()
     await w.ctx.meter.reconcile({ id: 'r1', unit: 'REQUEST', amount: 1 }, 'USED')

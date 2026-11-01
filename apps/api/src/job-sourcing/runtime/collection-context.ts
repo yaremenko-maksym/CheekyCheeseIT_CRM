@@ -129,11 +129,13 @@ export interface ContextInput {
   readonly banScope: BanScope | undefined
   readonly allowedHosts: readonly string[]
   /**
-   * U11 (SR-H-1): the most requests this run may send, the run's type `requestsPerRun`. The per-host
-   * budget counts a STARTED run as this figure, so the run must not be able to exceed it — the
-   * `requestsPerRun`+1-th `fetchText` is refused before any I/O. Must be a positive integer.
+   * U11 (SR-H-1): the most requests this run may send, for a host that declares a request budget
+   * (the per-host budget counts a STARTED run as this figure, so the run must not exceed it — the
+   * `requestsPerRun`+1-th request, redirect hops included, is refused before any I/O). A positive
+   * integer for a budget host; `null` for a host with NO declared budget, where the run is UNLIMITED
+   * exactly as before U11 — the ceiling and the per-hop counting are both OFF.
    */
-  readonly requestsPerRun: number
+  readonly requestsPerRun: number | null
   /** `null` for an unmetered source: no permit, reservations are local and free. */
   readonly meter: AccountMeter | null
   readonly secrets: readonly string[]
@@ -180,7 +182,10 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
   // U11 (CR-M-5): the ceiling only bounds requests if `requestsPerRun` is a positive whole number; a
   // NaN or fractional value would compare false forever and fail OPEN. Refuse to build on a bad one,
   // before any claim or fetch.
-  if (!Number.isSafeInteger(input.requestsPerRun) || input.requestsPerRun < 1) {
+  if (
+    input.requestsPerRun !== null &&
+    (!Number.isSafeInteger(input.requestsPerRun) || input.requestsPerRun < 1)
+  ) {
     throw new RangeError(
       `buildCollectionContext: requestsPerRun must be a positive integer, got ${String(input.requestsPerRun)}`,
     )
@@ -245,9 +250,12 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
     }
   }
 
-  /** U11 (SR-H-1 / SR-M-4): refuse once the run has sent its `requestsPerRun` requests (hops incl.). */
+  /**
+   * U11 (SR-H-1 / SR-M-4): refuse once the run has sent its `requestsPerRun` requests (hops incl.).
+   * A `null` ceiling (a host with no declared budget) never refuses: the run is unlimited, as pre-U11.
+   */
   const assertCeiling = () => {
-    if (requestCount >= input.requestsPerRun) {
+    if (input.requestsPerRun !== null && requestCount >= input.requestsPerRun) {
       throw new ContextRefusedError(
         'REQUEST_CEILING',
         `the run reached its request ceiling of ${input.requestsPerRun}`,
@@ -354,10 +362,16 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
         },
         // SR-M-4: each redirect hop is a real request. Count it against the ceiling and refuse the
         // hop that would exceed it BEFORE the transport sends it (the initial hop is counted above).
-        onHop: () => {
-          assertCeiling()
-          requestCount += 1
-        },
+        // Only a budget host (non-null ceiling) counts hops; a host with no budget behaves as pre-U11
+        // (one count per `fetchText`, redirects free) so T7/U2 multi-request runs are untouched.
+        ...(input.requestsPerRun !== null
+          ? {
+              onHop: () => {
+                assertCeiling()
+                requestCount += 1
+              },
+            }
+          : {}),
       }).then(
         (body) => {
           bytesRead += Buffer.byteLength(body)
