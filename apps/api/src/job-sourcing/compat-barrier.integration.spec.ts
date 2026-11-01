@@ -27,13 +27,13 @@ import { JobSourceRunBusyError } from './ownership/legacy-run-claim'
 import { SpecCatalog, specRegistry } from '../test/ledger-fixtures'
 import * as recordStore from './store/source-record.store'
 
-/** The staged bridge table, pushed into the scratch DB so the flag-on path can enqueue/drain. */
+/** The bridge table DDL (promoted to manual/ by S6f), pushed into the scratch DB so the flag-on path can enqueue/drain. */
 const BRIDGE_DDL = join(
   __dirname,
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-10-31_job_bridge_deliveries.sql',
 )
 
