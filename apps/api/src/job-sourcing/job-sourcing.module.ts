@@ -7,6 +7,7 @@ import { DatabaseService } from '../database/database.service'
 import { JobSourceAdminController } from './admin/job-source-admin.controller'
 import { JobSourceAdminService } from './admin/job-source-admin.service'
 import { DouRssProvider } from './dou.provider'
+import { JobAvailabilityReconciliationCronService } from './job-availability-reconciliation.cron'
 import { JobMatchReconciliationCronService } from './job-match-reconciliation.cron'
 import { JobQueueActionRetentionCronService } from './job-queue-action-retention.cron'
 import { JobSourcingController } from './job-sourcing.controller'
@@ -19,6 +20,10 @@ import { JobSourcingService } from './job-sourcing.service'
 import { JobSourceRegistry } from './registry/job-source-registry'
 import { createProductionRegistry } from './registry/production-registry'
 import { JobRunWorker } from './runtime/job-run-worker'
+import {
+  AVAILABILITY_RECONCILE_WORKER,
+  createAvailabilityReconcileSteps,
+} from './runtime/availability-reconcile-worker'
 import { RecomputeWorker, createRecomputeSteps } from './runtime/recompute-worker'
 import {
   createProductionLedger,
@@ -63,6 +68,8 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     JobQueueActionRetentionCronService,
     // r5 Task 4.6 S4b: periodic reconciliation + drain of the recompute worker; flag default OFF.
     JobMatchReconciliationCronService,
+    // r5 Task 4.6 S8d: periodic availability reconciliation drain; flag default OFF, ships dark.
+    JobAvailabilityReconciliationCronService,
     DouRssProvider,
     {
       provide: JobSourceRegistry,
@@ -99,6 +106,16 @@ import { JobRunLedger } from './ownership/job-run-ledger'
       useFactory: (db: DatabaseService) =>
         new RecomputeWorker(createRecomputeSteps(lateBoundDb(db)), {
           owner: `recompute-${process.pid}`,
+        }),
+      inject: [DatabaseService],
+    },
+    // r5 Task 4.6 S8d: the availability consumer instance the reconciliation cron drains. A distinct
+    // token from RecomputeWorker — same claim loop, the availability port.
+    {
+      provide: AVAILABILITY_RECONCILE_WORKER,
+      useFactory: (db: DatabaseService) =>
+        new RecomputeWorker(createAvailabilityReconcileSteps(lateBoundDb(db)), {
+          owner: `availability-reconcile-${process.pid}`,
         }),
       inject: [DatabaseService],
     },
