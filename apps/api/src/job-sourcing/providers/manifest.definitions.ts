@@ -31,22 +31,18 @@ import { THEIRSTACK_SOURCE_STATUS } from './sources/theirstack.provider'
 import { WORKINGNOMADS_SOURCE_STATUS } from './sources/workingnomads.provider'
 
 /**
- * The request-counting budget every multi-board host (`scopeKind: 'BOARD'`) starts at (U11, ADR
- * section 8; owner decision 11, 2026-10-26): 2 requests a minute, 120 an hour, per host key. A raise
- * is a manual edit of this value after two weeks without a refusal from that host — never automatic.
- */
-const BOARD_REQUEST_BUDGET: TypeDefinition['hostRequestBudget'] = { perMinute: 2, perHour: 120 }
-
-/**
- * Every board type lists in ONE request a run today (`detailMode: 'IN_LIST'`), so its real current
- * maximum is 1 (SR-H-1b). The collection context enforces this ceiling at runtime, and
- * `claimHostSlot` counts an in-flight run as this figure, so the budget above is a true upper bound.
+ * Every multi-board host (`scopeKind: 'BOARD'`) carries the same two U11 figures, inline on each
+ * type below (ADR section 8; owner decision 11, 2026-10-26):
+ *  - `hostRequestBudget: { perMinute: 2, perHour: 120 }` per host key — the ban-safety floor. A raise
+ *    is a manual edit after two weeks without a refusal from that host, never automatic.
+ *  - `requestsPerRun: 1` — a board lists in ONE request a run today (`detailMode: 'IN_LIST'`), so its
+ *    real current maximum is 1 (SR-H-1b). The collection context enforces this ceiling at runtime and
+ *    `claimHostSlot` counts an in-flight run as this figure, so the budget is a TRUE upper bound.
  * WHEN U10 wires Greenhouse detail-on-demand (`detailPerRun: 5`), Greenhouse's `requestsPerRun` MUST
- * rise to cover the detail fetches, and the per-host budget MUST be revisited then: a 5-request run
- * does not fit a 2-a-minute budget (`assertPolicy` fails loud on `requestsPerRun > perMinute`).
- * That re-tuning is U10's / the owner's to make (BACKLOG-followups).
+ * rise to cover the detail fetches AND the per-host budget MUST be revisited then: a 5-request run
+ * does not fit a 2-a-minute budget (`assertPolicy` fails loud on `requestsPerRun > perMinute`). That
+ * re-tuning is U10's / the owner's to make (a backlog follow-up).
  */
-const BOARD_REQUESTS_PER_RUN = 1
 
 /**
  * The hand-authored half of the manifest: what CANNOT be read from the repository. Everything that
@@ -350,8 +346,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'job-board-api',
     scopeKind: 'BOARD',
-    hostRequestBudget: BOARD_REQUEST_BUDGET,
-    requestsPerRun: BOARD_REQUESTS_PER_RUN,
+    hostRequestBudget: { perMinute: 2, perHour: 120 },
+    requestsPerRun: 1,
     hostKey: () => 'boards-api.greenhouse.io',
     // ADR 6a: U10 flips this to ON_DEMAND; until then the adapter reads `content=true`.
     detailMode: 'IN_LIST',
@@ -372,8 +368,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'postings-api',
     scopeKind: 'BOARD',
-    hostRequestBudget: BOARD_REQUEST_BUDGET,
-    requestsPerRun: BOARD_REQUESTS_PER_RUN,
+    hostRequestBudget: { perMinute: 2, perHour: 120 },
+    requestsPerRun: 1,
     // Two regions, two API hosts, two data sets: each region is its own scope.
     hostKey: (config) => LEVER_HOSTS[config['region'] as keyof typeof LEVER_HOSTS],
     entries: boardEntries({
@@ -392,8 +388,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'posting-api',
     scopeKind: 'BOARD',
-    hostRequestBudget: BOARD_REQUEST_BUDGET,
-    requestsPerRun: BOARD_REQUESTS_PER_RUN,
+    hostRequestBudget: { perMinute: 2, perHour: 120 },
+    requestsPerRun: 1,
     hostKey: () => 'api.ashbyhq.com',
     entries: boardEntries({
       prefix: 'ashby',
@@ -412,8 +408,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'widget-accounts',
     scopeKind: 'BOARD',
-    hostRequestBudget: BOARD_REQUEST_BUDGET,
-    requestsPerRun: BOARD_REQUESTS_PER_RUN,
+    hostRequestBudget: { perMinute: 2, perHour: 120 },
+    requestsPerRun: 1,
     // Every tenant is a path on ONE host (`workableAllowedHosts`), so one key for all of them.
     hostKey: () => workableAllowedHosts()[0]!,
     entries: boardEntries({
@@ -433,8 +429,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'posting-api',
     scopeKind: 'BOARD',
-    hostRequestBudget: BOARD_REQUEST_BUDGET,
-    requestsPerRun: BOARD_REQUESTS_PER_RUN,
+    hostRequestBudget: { perMinute: 2, perHour: 120 },
+    requestsPerRun: 1,
     hostKey: () => smartrecruitersAllowedHosts()[0]!,
     // No entries: no board was ever captured. The only committed fixture is the host's robots.txt,
     // which is not the postings API payload. The owner accepted the robots.txt risk on 2026-10-24,
@@ -456,8 +452,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'careers-site-api',
     scopeKind: 'BOARD',
-    hostRequestBudget: BOARD_REQUEST_BUDGET,
-    requestsPerRun: BOARD_REQUESTS_PER_RUN,
+    hostRequestBudget: { perMinute: 2, perHour: 120 },
+    requestsPerRun: 1,
     // Tenant subdomains (`{board}.recruitee.com`): the provider's apex, so a provider-wide limit
     // pauses every tenant; a 403 is one tenant's own answer and bans only that source (SR-M-24).
     hostKey: () => 'recruitee.com',
@@ -478,8 +474,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'xml-feed',
     scopeKind: 'BOARD',
-    hostRequestBudget: BOARD_REQUEST_BUDGET,
-    requestsPerRun: BOARD_REQUESTS_PER_RUN,
+    hostRequestBudget: { perMinute: 2, perHour: 120 },
+    requestsPerRun: 1,
     // Tenant subdomains (`{board}.jobs.personio.{tld}`): the apex of the tld the adapter uses, so
     // a provider-wide limit pauses every tenant; a 403 bans only that source (SR-M-24).
     hostKey: (config) => `personio.${String(config['tld'])}`,

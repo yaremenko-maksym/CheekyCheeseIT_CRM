@@ -137,7 +137,11 @@ describe('send permits (AC 6)', () => {
     const w = world({ input: { meter: null, requestsPerRun: 1 } })
     await w.ctx.fetchText(REQ)
     const refused = await refusal(w.ctx.fetchText(REQ))
-    expect(refused).toMatchObject({ name: 'ContextRefusedError', code: 'REQUEST_CEILING' })
+    expect(refused).toMatchObject({
+      name: 'ContextRefusedError',
+      code: 'REQUEST_CEILING',
+      message: 'the run reached its request ceiling of 1',
+    })
     // the (requestsPerRun+1)-th request never reached the transport
     expect(w.events.filter((e) => e.startsWith('send:'))).toHaveLength(1)
   })
