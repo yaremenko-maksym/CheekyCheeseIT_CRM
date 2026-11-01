@@ -33,6 +33,9 @@ import { consumeTxHash } from './onchain-tx'
 import { OnChainClaimService } from './onchain-claim.service'
 import { assertReceiptDocumentBindable } from './receipt.util'
 import { accountsForSalaryMonthSql } from './salary-origin'
+import { backdateAuditRow } from './transaction-date-audit.util'
+import { resolveTransactionDateWithPolicy } from './transaction-date-policy'
+import { formatTransactionBusinessDate, sourceBusinessDay } from './transaction-date.util'
 import { assertTransactionWritable } from './transaction-visibility.util'
 
 /**
@@ -79,6 +82,10 @@ export class AdminEditService {
       receiptExternalUrl?: string | null | undefined
       category?: string | undefined
       salaryMonth?: string | undefined
+      /** Business day `YYYY-MM-DD`; consulted only when it differs from the stored day. */
+      txDate?: string | null | undefined
+      /** Justification for dating the row beyond the backdating window (policy D-2). */
+      backdateReason?: string | null | undefined
       /** task-cascade-apply (task 3) — the token `GET :id/edit-preview` returned. */
       cascadeVersion?: string | undefined
     },
@@ -191,6 +198,22 @@ export class AdminEditService {
         HttpStatus.BAD_REQUEST,
       )
     }
+
+    // The business date moves ONLY `tx_date` — no amount, rate, accumulator or
+    // cascade. Change-based like the guards above: the form re-sends the stored
+    // day on every save, and a legacy row older than the backdating window must
+    // still accept a notes-only edit. Only a day that differs reaches the policy.
+    const storedBusinessDay = sourceBusinessDay(tx)
+    const txDateChanged = !!data.txDate && data.txDate !== storedBusinessDay
+    // A scheduled salary is the one PLANNED row; everything else records
+    // something that already happened and so cannot be future-dated.
+    const dateDecision = txDateChanged
+      ? resolveTransactionDateWithPolicy(data.txDate, {
+          role: currentUser.role,
+          flow: tx.type === 'SALARY' && tx.status === 'PENDING' ? 'PLANNED' : 'EXECUTED',
+          backdateReason: data.backdateReason,
+        })
+      : undefined
 
     // task-cascade-apply (task 3, AC2) — editing the amount of a PAID row is
     // never a bare UPDATE: it moves money that derivative rows were computed
@@ -466,6 +489,7 @@ export class AdminEditService {
             ...transition.txHashPatch,
             ...(data.category !== undefined && { receiverLabel: data.category }),
             ...(data.salaryMonth !== undefined && { salaryMonth: data.salaryMonth }),
+            ...(dateDecision && { txDate: dateDecision.txDate }),
             updatedAt: new Date(),
           })
           // SR-H-1 (security-review round 4) — re-assert the state every
@@ -644,7 +668,13 @@ export class AdminEditService {
         // above but never reached this condition — a salary moved between
         // months left no journal trail at all. Added to both the condition
         // and the metadata below.
-        if (amountChanged || currencyChanged || receiverLabelChanged || salaryMonthChanged) {
+        if (
+          amountChanged ||
+          currencyChanged ||
+          receiverLabelChanged ||
+          salaryMonthChanged ||
+          dateDecision
+        ) {
           await dbtx.insert(transactionAuditLog).values({
             actorId: currentUser.impersonatorId ?? currentUser.id,
             targetId: id,
@@ -694,8 +724,27 @@ export class AdminEditService {
               ...(salaryMonthChanged && {
                 salaryMonth: { before: tx.salaryMonth, after: data.salaryMonth },
               }),
+              ...(dateDecision && {
+                txDate: {
+                  before: storedBusinessDay,
+                  after: formatTransactionBusinessDate(dateDecision.txDate),
+                },
+              }),
             },
           })
+        }
+
+        // D-2: an out-of-window backdate carries its justification on the
+        // trail, in the same transaction as the date it justifies.
+        if (dateDecision?.backdateReason) {
+          await dbtx.insert(transactionAuditLog).values(
+            backdateAuditRow({
+              targetId: id,
+              actor: currentUser,
+              txDate: dateDecision.txDate,
+              backdateReason: dateDecision.backdateReason,
+            }),
+          )
         }
 
         if (transition.claimHash) {

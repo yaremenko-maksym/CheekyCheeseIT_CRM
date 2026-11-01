@@ -304,6 +304,9 @@ export const adminUpdateTransactionSchema = z
     ...receiptFields,
     category: z.string().min(1).max(255).optional(),
     salaryMonth: salaryMonthSchema.optional(),
+    // The business date. Change-based on the server: the form always sends it,
+    // and only a day that differs from the stored one reaches the date policy.
+    ...transactionBusinessDateFields,
     /**
      * task-cascade-apply (task 3) — the optimistic-locking token
      * `GET /transactions/:id/edit-preview` handed back

@@ -39,6 +39,8 @@ import {
 } from '../../constants'
 import { CascadeImpactPanel } from './CascadeImpactPanel'
 import { changedSalaryMonth } from './changed-salary-month'
+import { changedTxDatePayload, storedTxDate } from './changed-tx-date'
+import { TxDateField } from './TxDateField'
 import {
   ReceiptInput,
   receiptStateFromDocument,
@@ -67,6 +69,8 @@ export function AdminEditTransactionDialog({
   // Stryker disable next-line StringLiteral: unobservable — the mount effect below sets this from `tx` before any render can read it (same shape as the `debouncedAmount` suppression a few lines down), AND the field that displays it is itself gated on `tx?.type === 'EXPENSE'`, so a `tx == null` mount never renders it either way
   const [category, setCategory] = useState('')
   const [salaryMonth, setSalaryMonth] = useState('')
+  const [txDate, setTxDate] = useState('')
+  const [backdateReason, setBackdateReason] = useState('')
   // Stryker disable next-line StringLiteral: unobservable — the mount effect below sets this from `tx` before any render can read it, the same shape as the documented `useState` default in SettleSeniorPayoutDialog
   const [debouncedAmount, setDebouncedAmount] = useState('')
   /** The server's 409 text, verbatim — set when the plan on screen was overtaken. */
@@ -92,6 +96,8 @@ export function AdminEditTransactionDialog({
     }
     setCategory(tx.receiverLabel ?? '')
     setSalaryMonth(tx.salaryMonth ?? '')
+    setTxDate(storedTxDate(tx))
+    setBackdateReason('')
     setDebouncedAmount(parseFloat(tx.amount).toString())
     setStaleMessage(null)
     setCascadePanelEngaged(false)
@@ -319,6 +325,8 @@ export function AdminEditTransactionDialog({
         ...(tx?.type === 'EXPENSE' && { category }),
         // Only when the operator changed it (SR-M-1) — see changedSalaryMonth.
         ...(changedMonth !== undefined && { salaryMonth: changedMonth }),
+        // Only a day that differs from the stored one — see changedTxDatePayload.
+        ...changedTxDatePayload(tx!, txDate, backdateReason),
       })
     },
     onError: (err) => {
@@ -612,6 +620,16 @@ export function AdminEditTransactionDialog({
                   }}
                   staleMessage={staleMessage}
                   // Stryker disable next-line OptionalChaining: unreachable — this JSX only renders under the leading `!!tx &&` guard above, so `tx` is non-null wherever this expression is evaluated (CP-23 covers the closed dialog)
+                />
+              )}
+
+              {tx && (
+                <TxDateField
+                  value={txDate}
+                  stored={storedTxDate(tx)}
+                  reason={backdateReason}
+                  onChange={setTxDate}
+                  onReasonChange={setBackdateReason}
                 />
               )}
 
