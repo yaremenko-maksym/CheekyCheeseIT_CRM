@@ -632,8 +632,8 @@ export class JobRunLedger {
     // U6b: what the source's latest SUCCEEDED run (same config and adapter version) stored. Not the
     // inherited resume checkpoint above -- a succeeded run's checkpoint is deliberately never
     // inherited -- and not in it, so the "a page was saved" comparison in `endRun` is untouched.
-    // Stryker disable next-line StringLiteral: raw SQL text -- only a real Postgres can tell it apart; job-run-worker.conditional.integration.spec.ts runs it against one
     const { rows: stored } = await tx.execute(
+      // Stryker disable next-line StringLiteral: raw SQL text -- only a real Postgres can tell it apart; job-run-worker.conditional.integration.spec.ts runs it against one
       sql`SELECT r.checkpoint->'validators' AS validators
             FROM job_collection_runs r JOIN job_sources s ON s.id = r.source_id
            WHERE r.source_id = ${sourceId}::uuid AND r.outcome = 'SUCCEEDED'
@@ -847,8 +847,8 @@ export class JobRunLedger {
     // U6b: a SUCCEEDED run stores the validators its first request showed (or drops the stored
     // ones); the SQL leaves the checkpoint alone for any other ending (patch NULL).
     const patch = validatorsPatchOf(ending.outcome, m)
-    // Stryker disable next-line StringLiteral: raw SQL text -- only a real Postgres can tell it apart; job-run-worker.conditional.integration.spec.ts runs it against one
     await tx.execute(
+      // Stryker disable next-line StringLiteral: raw SQL text -- only a real Postgres can tell it apart; job-run-worker.conditional.integration.spec.ts runs it against one
       sql`UPDATE job_collection_runs
              SET checkpoint = CASE WHEN ${patch}::text IS NULL THEN checkpoint
                                    ELSE (checkpoint - 'validators') || ${patch}::jsonb END
