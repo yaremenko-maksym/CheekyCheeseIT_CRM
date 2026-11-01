@@ -705,6 +705,10 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       policy: {
         rate: null,
         floorHours: 0,
+        requestBudget: {
+          perMinute: 2,
+          perHour: 120,
+        },
       },
     },
     {
@@ -712,6 +716,10 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       policy: {
         rate: null,
         floorHours: 0,
+        requestBudget: {
+          perMinute: 2,
+          perHour: 120,
+        },
       },
     },
     {
@@ -719,6 +727,10 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       policy: {
         rate: null,
         floorHours: 0,
+        requestBudget: {
+          perMinute: 2,
+          perHour: 120,
+        },
       },
     },
     {
@@ -733,6 +745,10 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       policy: {
         rate: null,
         floorHours: 0,
+        requestBudget: {
+          perMinute: 2,
+          perHour: 120,
+        },
       },
     },
     {
@@ -740,6 +756,10 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       policy: {
         rate: null,
         floorHours: 0,
+        requestBudget: {
+          perMinute: 2,
+          perHour: 120,
+        },
       },
     },
     {
@@ -803,6 +823,10 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       policy: {
         rate: null,
         floorHours: 0,
+        requestBudget: {
+          perMinute: 2,
+          perHour: 120,
+        },
       },
     },
     {
@@ -810,6 +834,10 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       policy: {
         rate: null,
         floorHours: 0,
+        requestBudget: {
+          perMinute: 2,
+          perHour: 120,
+        },
       },
     },
     {
