@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { JobMeterUnit, JobMeterWindow, JobSourceType } from '@crm/shared'
 import { type SQL, sql } from 'drizzle-orm'
 import type { DrizzleTx } from '../../database/types'
+import { type StoredValidators } from '../http/stored-validators'
 import {
   type AccountMeter,
   type MeterDb,
@@ -82,6 +83,12 @@ export interface ClaimedRun extends RunHandle {
   readonly sourceType: JobSourceType
   /** The checkpoint the claim chose ("Crash resume"), or null for a fresh start. */
   readonly checkpoint: unknown
+  /**
+   * U6b: the validators the source's latest SUCCEEDED run (same config and adapter version) stored
+   * in its checkpoint, or null. A run that did not succeed stores none, so these always describe a
+   * state some run read to the end.
+   */
+  readonly validators?: StoredValidators | null
 }
 
 export interface ClaimRefused {
@@ -131,6 +138,11 @@ export interface RunMetrics {
   /** sha256 hex of the first decoded response's field names; null when none was decoded. */
   readonly envelopeFingerprint: string | null
   readonly validatorsSeen: boolean
+  /**
+   * U6b: the validators of the run's first request, for `finish` to store in the checkpoint when
+   * the run SUCCEEDED; null when that response showed none (the stored ones are then dropped).
+   */
+  readonly nextValidators: StoredValidators | null
 }
 
 export interface SavedPage {

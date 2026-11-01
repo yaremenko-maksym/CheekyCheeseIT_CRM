@@ -980,4 +980,18 @@ describe('boundedFetchText onValidators (U2)', () => {
   it('reports on a non-2xx answer too (a 404 with an ETag)', async () => {
     expect(await seen({ etag: '"v1"' }, 404)).toEqual([true])
   })
+
+  it('U6b: hands over the header values verbatim, null for an absent one', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(resp('{}', { url, headers: { etag: 'W/"v1"' } })),
+    )
+    const shown: unknown[] = []
+    await boundedFetchText(url, {
+      allowedHosts: hosts,
+      minGapMs: 0,
+      onValidators: (_seen, validators) => shown.push(validators),
+    })
+    expect(shown).toEqual([{ etag: 'W/"v1"', lastModified: null }])
+  })
 })

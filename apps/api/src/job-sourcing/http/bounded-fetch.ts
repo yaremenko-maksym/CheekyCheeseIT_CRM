@@ -44,9 +44,13 @@ export interface BoundedFetchOptions {
   minGapMs?: number
   /**
    * U2: told, for the final (non-redirect) response, whether it carried a validator (`ETag` or
-   * `Last-Modified`), whatever its status. Reads headers of a request that happens anyway.
+   * `Last-Modified`), whatever its status. Reads headers of a request that happens anyway. U6b: the
+   * second argument carries the verbatim header values, for the run checkpoint.
    */
-  onValidators?: (seen: boolean) => void
+  onValidators?: (
+    seen: boolean,
+    validators: { etag: string | null; lastModified: string | null },
+  ) => void
   /**
    * U11 (SR-M-4): called once BEFORE each redirect hop's request (not the initial one — the caller
    * counts that). Each manual redirect is a real request to the host, so the caller counts it against
@@ -238,7 +242,9 @@ export async function boundedFetchText(url: string, opts: BoundedFetchOptions): 
         throw err
       }
 
-      opts.onValidators?.(response.headers.has('etag') || response.headers.has('last-modified'))
+      const etag = response.headers.get('etag')
+      const lastModified = response.headers.get('last-modified')
+      opts.onValidators?.(etag !== null || lastModified !== null, { etag, lastModified })
 
       if (REFUSAL_STATUSES.has(response.status)) {
         await response.body?.cancel()

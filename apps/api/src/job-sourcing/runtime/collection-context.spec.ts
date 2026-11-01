@@ -290,6 +290,7 @@ describe('run metrics (U2 AC 2)', () => {
       lastHttpStatus: 200,
       envelopeFingerprint: null,
       validatorsSeen: false,
+      nextValidators: null,
     })
   })
 
@@ -301,6 +302,7 @@ describe('run metrics (U2 AC 2)', () => {
       lastHttpStatus: null,
       envelopeFingerprint: null,
       validatorsSeen: false,
+      nextValidators: null,
     })
   })
 
@@ -310,7 +312,7 @@ describe('run metrics (U2 AC 2)', () => {
       input: { meter: null },
       transport: async (_url, opts) => {
         call += 1
-        opts.onValidators?.(call === 1)
+        opts.onValidators?.(call === 1, { etag: null, lastModified: null })
         if (call === 2) throw new SourceHttpStatusError('jsearch.p.rapidapi.com', 503)
         return 'ok'
       },

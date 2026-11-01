@@ -1295,6 +1295,11 @@ export interface FetchedText {
   headers: Readonly<Record<string, string>>
   /** Validator for conditional requests; `null` when the provider sent none. */
   etag: string | null
+  /**
+   * U6b: true only when the context itself sent the stored validators of this request, so a `304`
+   * is the answer to a question it asked. Absent otherwise: a `304` nobody asked for stays a drift.
+   */
+  conditional?: true
 }
 
 export interface FetchRequest {
