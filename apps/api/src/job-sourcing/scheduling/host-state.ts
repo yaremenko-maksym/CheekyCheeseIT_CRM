@@ -205,6 +205,7 @@ export const HOST_REFUSALS = [
   'HOST_BUSY',
   'HOST_RATE_GAP',
   'HOST_DAILY_CAP',
+  'HOST_REQUEST_BUDGET',
 ] as const
 export type HostRefusal = (typeof HOST_REFUSALS)[number]
 
@@ -233,10 +234,20 @@ function refuse(reason: HostRefusal, opensAt: unknown = null): HostSlot {
 }
 
 function assertPolicy(policy: HostPolicy): void {
-  const rate = policy.rate
-  if (rate === null) return
   const ok = (n: number) => Number.isInteger(n) && n >= 1
-  if (!ok(rate.perMinute) || !ok(rate.perDay)) throw new RangeError('claimHostSlot: invalid rate')
+  const rate = policy.rate
+  if (rate !== null && (!ok(rate.perMinute) || !ok(rate.perDay))) {
+    throw new RangeError('claimHostSlot: invalid rate')
+  }
+  const budget = policy.requestBudget
+  if (budget != null) {
+    if (!ok(budget.perMinute) || !ok(budget.perHour) || budget.perHour < budget.perMinute) {
+      throw new RangeError('claimHostSlot: invalid budget')
+    }
+    if (policy.requestsPerRun !== undefined && !ok(policy.requestsPerRun)) {
+      throw new RangeError('claimHostSlot: invalid requestsPerRun')
+    }
+  }
 }
 
 /** The statements of `claimHostSlot`, in order. Exported so their text is pinned by a unit test. */
@@ -261,6 +272,24 @@ FROM job_source_hosts h WHERE h.host_key = ${hostKey}`,
 SELECT (SELECT count(*) FROM w)::int AS claims,
   (SELECT started_at + interval '24 hours' FROM w ORDER BY started_at
     OFFSET GREATEST((SELECT count(*) FROM w) - ${perDay}, 0) LIMIT 1) AS opens_at`,
+  // U11: the requests on the host across each trailing window. A STARTED run has no `request_count`
+  // yet, so its `perRun` EXPECTED requests count instead (and it is counted whatever its age: it is
+  // in flight now). A finished run counts its recorded `request_count`, only inside the window.
+  // `opens_at` is the oldest in-window finished run leaving that window -- the earliest the budget
+  // could free; a claim still over budget then is simply refused again (opensAt is advisory, only
+  // ever written to `next_attempt_at`, never compared here).
+  budget: (hostKey: string, perRun: number): SQL =>
+    sql`WITH r AS (SELECT x.outcome, x.request_count, x.started_at
+           FROM job_collection_runs x JOIN job_sources s ON s.id = x.source_id
+           WHERE s.host_key = ${hostKey}
+             AND (x.outcome = 'STARTED' OR x.started_at > clock_timestamp() - interval '1 hour'))
+SELECT COALESCE(sum(request_count) FILTER (WHERE outcome <> 'STARTED' AND started_at > clock_timestamp() - interval '1 minute'), 0)::int
+    + count(*) FILTER (WHERE outcome = 'STARTED')::int * ${perRun} AS minute_used,
+  COALESCE(sum(request_count) FILTER (WHERE outcome <> 'STARTED'), 0)::int
+    + count(*) FILTER (WHERE outcome = 'STARTED')::int * ${perRun} AS hour_used,
+  min(started_at) FILTER (WHERE outcome <> 'STARTED' AND started_at > clock_timestamp() - interval '1 minute') + interval '1 minute' AS minute_opens_at,
+  min(started_at) FILTER (WHERE outcome <> 'STARTED') + interval '1 hour' AS hour_opens_at
+FROM r`,
   stamp: (hostKey: string): SQL =>
     sql`UPDATE job_source_hosts SET last_claimed_at = clock_timestamp() WHERE host_key = ${hostKey}`,
 }
@@ -274,9 +303,12 @@ SELECT (SELECT count(*) FROM w)::int AS claims,
  * 2. The host row is inserted if missing (`ON CONFLICT DO NOTHING`), then locked. Two claimers of a
  *    missing row serialize at the INSERT: the second waits on the first's uncommitted index entry,
  *    then finds the committed row (ADR T8 (b)).
- * 3. Refused while paused (`HOST_PAUSED`), while any `STARTED` run exists on a source of this host
- *    (`HOST_BUSY`), and, for a host with a rate, inside the per-minute gap (`HOST_RATE_GAP`) or at
- *    `perDay` claims in the trailing 24 h (`HOST_DAILY_CAP`).
+ * 3. Refused while paused (`HOST_PAUSED`); while any `STARTED` run exists on a source of this host
+ *    (`HOST_BUSY`) UNLESS the host declares a request budget (then concurrency is allowed and the
+ *    budget is the limiter, U11); for a host with a rate, inside the per-minute gap
+ *    (`HOST_RATE_GAP`) or at `perDay` claims in the trailing 24 h (`HOST_DAILY_CAP`); and for a host
+ *    with a request budget, when the trailing-window requests plus this claim's own would exceed it
+ *    (`HOST_REQUEST_BUDGET`).
  * 4. Granted: `last_claimed_at` is stamped under the lock.
  */
 export async function claimHostSlot(
@@ -293,7 +325,9 @@ export async function claimHostSlot(
   if (state === undefined) throw new Error('claimHostSlot: the host row vanished under its lock')
   // Fail closed: only a literal `false` from the database means "not blocked".
   if (state['paused'] !== false) return refuse('HOST_PAUSED', state['paused_until'])
-  if (state['busy'] !== false) return refuse('HOST_BUSY')
+  // A host with a request budget (U11) allows concurrent runs: the budget below counts the in-flight
+  // STARTED runs, so it is the limiter, not `HOST_BUSY`. A host without one keeps T8's one-at-a-time.
+  if (policy.requestBudget == null && state['busy'] !== false) return refuse('HOST_BUSY')
   if (policy.rate !== null) {
     if (state['in_gap'] !== false) return refuse('HOST_RATE_GAP', state['gap_ends_at'])
     const day = (await tx.execute(hostSlotStatements.daily(hostKey, policy.rate.perDay))).rows[0]
@@ -301,6 +335,19 @@ export async function claimHostSlot(
     // A missing or unreadable count is never read as "no claims".
     if (!Number.isInteger(claims) || claims >= policy.rate.perDay) {
       return refuse('HOST_DAILY_CAP', day?.['opens_at'])
+    }
+  }
+  if (policy.requestBudget != null) {
+    const perRun = policy.requestsPerRun ?? 1
+    const used = (await tx.execute(hostSlotStatements.budget(hostKey, perRun))).rows[0]
+    const minute = Number(used?.['minute_used'])
+    const hour = Number(used?.['hour_used'])
+    // Fail closed: an unreadable count refuses, never claims. The claim's own `perRun` is added.
+    if (!Number.isInteger(minute) || minute + perRun > policy.requestBudget.perMinute) {
+      return refuse('HOST_REQUEST_BUDGET', used?.['minute_opens_at'])
+    }
+    if (!Number.isInteger(hour) || hour + perRun > policy.requestBudget.perHour) {
+      return refuse('HOST_REQUEST_BUDGET', used?.['hour_opens_at'])
     }
   }
   await tx.execute(hostSlotStatements.stamp(hostKey))
