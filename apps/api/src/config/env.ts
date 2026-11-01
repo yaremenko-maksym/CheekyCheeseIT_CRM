@@ -173,6 +173,17 @@ const envSchema = z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
 
+    // JOB_AVAILABILITY_RECONCILE_ENABLED: switch for the periodic availability reconciliation (r5
+    //   Task 4.6 S8d): drain the dirty-work queue through the S8b/S8c machinery (SOURCE_RECORD ->
+    //   inventory-counter updater; OPPORTUNITY -> re-derive availability + bump revision).
+    //   **Default false**, DISTINCT from JOB_MATCH_RECONCILIATION_ENABLED: it ships dark and must
+    //   NOT be on against the same queue as the match reconciliation (both claim the same kinds).
+    //   Flag-on preconditions (S8c review): SR-M-3 (reopen/S8f merged first) and SR-M-4
+    //   ((source_type, namespace) unique + non-empty namespace for inventory-enabled sources).
+    JOB_AVAILABILITY_RECONCILE_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
+      .default(false),
+
     // JOB_QUEUE_BRIDGE_ENABLED: switch for the DOU queue bridge (r5 Task 4.6 S6a; ADR
     //   2026-10-31-dou-bridge-run-ownership, D-4). **Default false** in every environment. Read once
     //   at JobSourcingService construction; until S6c/S6d the flag-on path is the same code.
