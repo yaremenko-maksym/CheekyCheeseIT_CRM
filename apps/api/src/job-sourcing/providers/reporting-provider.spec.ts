@@ -154,6 +154,15 @@ describe('the error names', () => {
   })
 })
 
+describe('U6b: a NOT_MODIFIED stop', () => {
+  it('is a clean run that claims no inventory, even over an unwindowed, unresumed scope', () => {
+    const f = facts({ stop: 'NOT_MODIFIED', pagesCompleted: 0, resumed: false })
+    expect(deriveCoverage(f)).toBe('PARTIAL')
+    // the same facts, exhausted, WOULD claim the full inventory: the stop reason is what refuses it
+    expect(deriveCoverage({ ...f, stop: 'EXHAUSTED' })).toBe('FULL_INVENTORY')
+  })
+})
+
 describe('deriveOutcome', () => {
   /**
    * The reason `deriveOutcome` is an exhaustive switch and not a fall-through. A stop reason it
@@ -185,6 +194,7 @@ describe('deriveOutcome', () => {
   it('reports SUCCEEDED for our OWN bounds — a page cap and a cursor cycle are not failures', () => {
     expect(deriveOutcome(facts({ stop: 'PAGE_CAP' }))).toBe('SUCCEEDED')
     expect(deriveOutcome(facts({ stop: 'CURSOR_CYCLE' }))).toBe('SUCCEEDED')
+    expect(deriveOutcome(facts({ stop: 'NOT_MODIFIED' }))).toBe('SUCCEEDED')
   })
 
   it('reports SUCCEEDED for an exhausted scope that returned nothing at all', () => {

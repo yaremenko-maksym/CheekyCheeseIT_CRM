@@ -1050,7 +1050,14 @@ export function isBuiltBatch(value: unknown): value is CollectionBatch {
 
 /** Why an attempt stopped. `EXHAUSTED` is the only one that can carry SUCCEEDED. */
 export type StopReason =
-  'EXHAUSTED' | 'PAGE_CAP' | 'CURSOR_CYCLE' | 'ERROR' | 'CANCELLED' | 'COST_STOP'
+  | 'EXHAUSTED'
+  | 'PAGE_CAP'
+  | 'CURSOR_CYCLE'
+  | 'ERROR'
+  | 'CANCELLED'
+  | 'COST_STOP'
+  // U6b: the host answered 304 to the validators we sent. A clean run that read nothing.
+  | 'NOT_MODIFIED'
 
 export interface DerivationFacts {
   stop: StopReason
@@ -1106,6 +1113,7 @@ export function deriveOutcome(facts: DerivationFacts): CollectionOutcome {
     case 'EXHAUSTED':
     case 'PAGE_CAP':
     case 'CURSOR_CYCLE':
+    case 'NOT_MODIFIED':
       return 'SUCCEEDED'
     default: {
       const unexpected: never = facts.stop
@@ -1134,6 +1142,8 @@ export function deriveCoverage(facts: DerivationFacts): CollectionCoverage {
   if (outcome !== 'SUCCEEDED') return 'PARTIAL'
   if (facts.counts.invalid > 0 || facts.counts.quarantined > 0) return 'PARTIAL'
   if (facts.resumed) return 'PARTIAL'
+  // A 304 read no inventory, so it claims none: the run is clean, the coverage is not full.
+  if (facts.stop === 'NOT_MODIFIED') return 'PARTIAL'
   const truncated = facts.stop === 'PAGE_CAP' || facts.stop === 'CURSOR_CYCLE'
   if (truncated) return facts.scope.query !== null ? 'WINDOW' : 'PARTIAL'
   if (facts.scope.window !== null || facts.scope.query !== null) return 'WINDOW'
@@ -1295,6 +1305,11 @@ export interface FetchedText {
   headers: Readonly<Record<string, string>>
   /** Validator for conditional requests; `null` when the provider sent none. */
   etag: string | null
+  /**
+   * U6b: true only when the context itself sent the stored validators of this request, so a `304`
+   * is the answer to a question it asked. Absent otherwise: a `304` nobody asked for stays a drift.
+   */
+  conditional?: true
 }
 
 export interface FetchRequest {
@@ -1346,6 +1361,13 @@ export interface CollectionContext {
    * the first one it is given. Optional, so a context that records no metrics need not offer it.
    */
   observeEnvelope?(fingerprint: string): void
+  /**
+   * U6b: the collection loop calls this when the run was a FRESH, whole read of a resource that
+   * fits one page (exactly one page, exhausted, not resumed). Only such a run's validators may be
+   * stored: a 304 then legitimately means the whole resource is unchanged. A paged or resumed run
+   * must never be answered "not modified" for page 1 alone. Optional, like `observeEnvelope`.
+   */
+  observeSinglePage?(): void
   meter: {
     /** RESERVED before any I/O (the store's own ordering). Returns `null` when the budget refuses,
      * which is a COST_STOP, not an error. */

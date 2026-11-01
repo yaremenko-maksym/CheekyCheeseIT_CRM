@@ -6,6 +6,11 @@ import {
   transportOptionsFor,
 } from '../http/bounded-fetch'
 import {
+  type StoredValidators,
+  conditionalHeadersOf,
+  validatorsOf,
+} from '../http/stored-validators'
+import {
   SourceBlockedError,
   SourceHttpStatusError,
   SourceRateLimitedError,
@@ -214,6 +219,13 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
   let bytesRead = 0
   let lastHttpStatus: number | null = null
   let validatorsSeen = false
+  // U6b: the validators this run was handed, and those to store if it succeeds. The FIRST request
+  // is the only one that sends or records them; a run that makes none carries the stored ones on.
+  // Stored only by a run that was a whole, fresh read of a one-page resource (`observeSinglePage`):
+  // a 304 to page 1 of a paged run would otherwise end it with pages 2..N unread.
+  const storedValidators = run.validators ?? null
+  let nextValidators: StoredValidators | null = storedValidators
+  let answeredFirst: { shown: StoredValidators | null } | null = null
   let envelopeFingerprint: string | null = null
   const logger = deps.logger
   /** Ban writes in progress, and whether the worker has drained them (CR-M-6 / SR-L-3). */
@@ -328,6 +340,9 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
     observeEnvelope(fingerprint) {
       envelopeFingerprint ??= fingerprint
     },
+    observeSinglePage() {
+      if (answeredFirst !== null) nextValidators = answeredFirst.shown
+    },
     async fetchText(request): Promise<FetchedText> {
       assertOpen()
       if (now().getTime() >= input.deadline.getTime()) {
@@ -353,12 +368,24 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
       // already on the wire when the run closes (deadline, lost lease, cancel) can still be refused
       // by the host, and that ban is recorded even though nobody awaits the answer any more. When
       // the request is still awaited, the pause is written BEFORE the adapter sees the refusal.
+      const first = requestCount === 0
       requestCount += 1
+      const conditional =
+        first &&
+        storedValidators !== null &&
+        request.method !== 'POST' &&
+        request.url === storedValidators.url
+      const options = transportOptionsFor(request)
+      let shown: StoredValidators | null = null
       const answer = transport(request.url, {
         allowedHosts: input.allowedHosts,
-        ...transportOptionsFor(request),
-        onValidators: (seen) => {
+        ...options,
+        ...(conditional && {
+          headers: { ...options.headers, ...conditionalHeadersOf(storedValidators) },
+        }),
+        onValidators: (seen, validators) => {
           validatorsSeen ||= seen
+          shown = validatorsOf(request.url, validators)
         },
         // SR-M-4: each redirect hop is a real request. Count it against the ceiling and refuse the
         // hop that would exceed it BEFORE the transport sends it (the initial hop is counted above).
@@ -376,6 +403,11 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
         (body) => {
           bytesRead += Buffer.byteLength(body)
           lastHttpStatus = 200
+          if (first) {
+            answeredFirst = { shown }
+            // Unless the loop calls `observeSinglePage`, this run stores nothing and drops the old.
+            nextValidators = null
+          }
           return body
         },
         async (error: unknown) => {
@@ -395,7 +427,15 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
       } catch (error) {
         // Any other status is the adapter's answer (T6): its status, never its body.
         if (error instanceof SourceHttpStatusError) {
-          return { status: error.status, bodyText: '', headers: {}, etag: null }
+          // U6b: a 304 to the validators WE sent is a conditional answer; the stored ones stand.
+          const asked = error.status === 304 && conditional
+          return {
+            status: error.status,
+            bodyText: '',
+            headers: {},
+            etag: null,
+            ...(asked && { conditional: true as const }),
+          }
         }
         // A refusal of THIS request: the run is latched already; now abort its signal too.
         if (isRefusal(error)) controller.abort(closed)
@@ -456,6 +496,7 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
       lastHttpStatus,
       envelopeFingerprint,
       validatorsSeen,
+      nextValidators,
     }),
     drain: async (timeoutMs) => {
       // CR-M-1: bounded. A write that never settles must not keep the run from `finish`.

@@ -3,6 +3,11 @@ import type { JobMeterUnit, JobMeterWindow, JobSourceType } from '@crm/shared'
 import { type SQL, sql } from 'drizzle-orm'
 import type { DrizzleTx } from '../../database/types'
 import {
+  type StoredValidators,
+  parseStoredValidators,
+  validatorsPatchOf,
+} from '../http/stored-validators'
+import {
   type AccountMeter,
   type MeterDb,
   createAccountMeter,
@@ -82,6 +87,12 @@ export interface ClaimedRun extends RunHandle {
   readonly sourceType: JobSourceType
   /** The checkpoint the claim chose ("Crash resume"), or null for a fresh start. */
   readonly checkpoint: unknown
+  /**
+   * U6b: the validators the source's latest SUCCEEDED run (same config and adapter version) stored
+   * in its checkpoint, or null. A run that did not succeed stores none, so these always describe a
+   * state some run read to the end.
+   */
+  readonly validators?: StoredValidators | null
 }
 
 export interface ClaimRefused {
@@ -131,6 +142,11 @@ export interface RunMetrics {
   /** sha256 hex of the first decoded response's field names; null when none was decoded. */
   readonly envelopeFingerprint: string | null
   readonly validatorsSeen: boolean
+  /**
+   * U6b: the validators of the run's first request, for `finish` to store in the checkpoint when
+   * the run SUCCEEDED; null when that response showed none (the stored ones are then dropped).
+   */
+  readonly nextValidators: StoredValidators | null
 }
 
 export interface SavedPage {
@@ -613,6 +629,17 @@ export class JobRunLedger {
     await tx.execute(
       sql`UPDATE job_sources SET last_attempt_at = clock_timestamp(), updated_at = clock_timestamp() WHERE id = ${sourceId}::uuid`,
     )
+    // U6b: what the source's latest SUCCEEDED run (same config and adapter version) stored. Not the
+    // inherited resume checkpoint above -- a succeeded run's checkpoint is deliberately never
+    // inherited -- and not in it, so the "a page was saved" comparison in `endRun` is untouched.
+    const { rows: stored } = await tx.execute(
+      // Stryker disable next-line StringLiteral: raw SQL text -- only a real Postgres can tell it apart; job-run-worker.conditional.integration.spec.ts runs it against one
+      sql`SELECT r.checkpoint->'validators' AS validators
+            FROM job_collection_runs r JOIN job_sources s ON s.id = r.source_id
+           WHERE r.source_id = ${sourceId}::uuid AND r.outcome = 'SUCCEEDED'
+             AND r.config_version = s.config_version AND r.adapter_version = ${adapterVersion}
+           ORDER BY r.fencing_epoch DESC LIMIT 1`,
+    )
     const cp = run['checkpoint']
     const empty = cp === null || (typeof cp === 'object' && Object.keys(cp as object).length === 0)
     return {
@@ -625,6 +652,7 @@ export class JobRunLedger {
       accountKey: String(run['account_key']),
       sourceType: row['type'] as JobSourceType,
       checkpoint: empty ? null : cp,
+      validators: parseStoredValidators(stored[0]?.['validators']),
     }
   }
 
@@ -814,6 +842,16 @@ export class JobRunLedger {
                  last_http_status = ${m?.lastHttpStatus ?? null}::smallint,
                  envelope_fingerprint = ${m?.envelopeFingerprint ?? null}::text,
                  validators_seen = ${m?.validatorsSeen ?? null}::boolean
+           WHERE id = ${head.runId}::uuid`,
+    )
+    // U6b: a SUCCEEDED run stores the validators its first request showed (or drops the stored
+    // ones); the SQL leaves the checkpoint alone for any other ending (patch NULL).
+    const patch = validatorsPatchOf(ending.outcome, m)
+    await tx.execute(
+      // Stryker disable next-line StringLiteral: raw SQL text -- only a real Postgres can tell it apart; job-run-worker.conditional.integration.spec.ts runs it against one
+      sql`UPDATE job_collection_runs
+             SET checkpoint = CASE WHEN ${patch}::text IS NULL THEN checkpoint
+                                   ELSE (checkpoint - 'validators') || ${patch}::jsonb END
            WHERE id = ${head.runId}::uuid`,
     )
     await this.account(tx, head, source, ending, {
