@@ -46,7 +46,7 @@ let db: NodePgDatabase<typeof schema>
 let seniorId: string
 let seq = 0
 
-const STAGED_DDL = join(process.cwd(), 'drizzle/manual-staged/2026-10-31_job_bridge_deliveries.sql')
+const BRIDGE_DDL = join(process.cwd(), 'drizzle/manual/2026-10-31_job_bridge_deliveries.sql')
 
 function douPosting(over: Partial<NormalizedPosting> = {}): NormalizedPosting {
   seq += 1
@@ -136,7 +136,7 @@ async function suggestionCount(sourceId: string): Promise<number> {
 describe.skipIf(!hasDatabaseUrl())('bridge delivery drains against Postgres (S6d)', () => {
   beforeAll(async () => {
     session = await openCrmAppSession()
-    await session.admin.query(readFileSync(STAGED_DDL, 'utf8'))
+    await session.admin.query(readFileSync(BRIDGE_DDL, 'utf8'))
     fx = new LedgerFixtures(session.admin, TAG)
     db = drizzle(session.pool, { schema })
     ledger = new JobRunLedger(db, specRegistry(['REMOTIVE_API']), new SpecCatalog())

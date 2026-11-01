@@ -3,24 +3,24 @@ import { join } from 'node:path'
 import type { PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type CrmAppSession, openCrmAppSession } from './__test-helpers__/crm-app-session'
-import { GRANTS_FILE } from './privileges/generate-privilege-sql'
-import { ROLES, STAGED_RELATIONS } from './privileges/privilege-classes'
+import { stagedGrantSql } from './privileges/generate-privilege-sql'
+import { ROLES } from './privileges/privilege-classes'
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * r5 Task 4.6 S6b — the STAGED forward DDL `2026-10-31_job_bridge_deliveries.sql` against the
- * `db:push` reference (ADR 2026-10-31 D-3). The reference is `public` (pushed from the Drizzle
- * schema); the candidate is a scratch schema holding stubs of the three parent tables, into which
- * the file is applied as the deploy would (one transaction). `search_path` is
- * `<scratch>, public` so the file resolves the existing `job_source_type` enum from `public` and
- * the parents from the stubs. Columns, constraints and indexes must be equal; a second apply
- * changes nothing; the closing check refuses a same-named table without the constraints; the
- * shipped grants file's STAGED block grants class A where the table exists and is a no-op where
- * it does not. When S6f promotes the file, point FILE at `manual/` and replace the staged-block
- * tests with the plain-grant assertion (the record-store spec is the model).
+ * r5 Task 4.6 S6b — the forward DDL (promoted from `manual-staged/` by Task 4.6 S6f)
+ * `2026-10-31_job_bridge_deliveries.sql` against the `db:push` reference (ADR 2026-10-31 D-3). The
+ * reference is `public` (pushed from the Drizzle schema); the candidate is a scratch schema holding
+ * stubs of the three parent tables, into which the file is applied as the deploy would (one
+ * transaction). `search_path` is `<scratch>, public` so the file resolves the existing
+ * `job_source_type` enum from `public` and the parents from the stubs. Columns, constraints and
+ * indexes must be equal; a second apply changes nothing; the closing check refuses a same-named
+ * table without the constraints. The grants file requires the table to exist (it is promoted to
+ * `drizzle/manual/` and no longer staged), so it gives `crm_app` the class-A privileges
+ * unconditionally; the staged-grant mechanism is exercised only through `stagedGrantSql` below.
  */
 const DRIZZLE = join(__dirname, '..', '..', 'drizzle')
-const FILE = join(DRIZZLE, 'manual-staged', '2026-10-31_job_bridge_deliveries.sql')
+const FILE = join(DRIZZLE, 'manual', '2026-10-31_job_bridge_deliveries.sql')
 const SCHEMA = 'ddl_job_bridge_deliveries'
 const TABLE = 'job_bridge_deliveries'
 const PARENTS = ['job_sources', 'job_postings', 'job_collection_runs']
@@ -86,15 +86,6 @@ async function applyFile(): Promise<void> {
     await client.query('ROLLBACK')
     throw e
   }
-}
-
-/** The STAGED block of the shipped grants file, verbatim: the statement the deploy runs. */
-function shippedStagedBlock(): string {
-  const text = readFileSync(join(DRIZZLE, 'manual', GRANTS_FILE), 'utf8')
-  const start = text.indexOf('DO $staged$')
-  const end = text.indexOf('$staged$;', start + 'DO $staged$'.length)
-  if (start < 0 || end < 0) throw new Error(`${GRANTS_FILE} has no staged grant block`)
-  return text.slice(start, end + '$staged$;'.length)
 }
 
 async function heldPrivileges(): Promise<string[]> {
@@ -329,39 +320,17 @@ describe.skipIf(!hasDatabaseUrl())(
       await applyFile()
     })
 
-    it('is STAGED: classified class A, and its file is the staged one', () => {
-      expect(STAGED_RELATIONS[TABLE]).toEqual({
-        file: 'drizzle/manual-staged/2026-10-31_job_bridge_deliveries.sql',
-      })
-    })
-
     it('the shipped grants give crm_app exactly the class-A privileges on the table', async () => {
       expect(await heldPrivileges()).toEqual(CLASS_A)
     })
 
-    it('the shipped staged block grants class A where the table exists', async () => {
-      await client.query('BEGIN')
-      try {
-        await client.query(`REVOKE ALL ON TABLE public.${TABLE} FROM ${ROLES.app}`)
-        expect(await heldPrivileges()).toEqual([])
-        await client.query(shippedStagedBlock())
-        expect(await heldPrivileges()).toEqual(CLASS_A)
-      } finally {
-        await client.query('ROLLBACK')
-      }
-    })
-
-    it('the shipped staged block is a no-op where the table does not exist', async () => {
-      await client.query('BEGIN')
-      try {
-        await client.query(`ALTER TABLE public.${TABLE} RENAME TO ${TABLE}_away`)
-        expect(
-          (await client.query(`SELECT to_regclass('public.${TABLE}') AS r`)).rows[0].r,
-        ).toBeNull()
-        await expect(client.query(shippedStagedBlock())).resolves.toBeDefined()
-      } finally {
-        await client.query('ROLLBACK')
-      }
+    it('the staged grant block is a no-op where its table does not exist', async () => {
+      // CR-M-1: a generator-path smoke check — the table is promoted, so nothing in the shipped
+      // files is staged any more; this proves `stagedGrantSql` still emits a guarded, harmless
+      // block for a future manual-staged relation.
+      await expect(
+        client.query(stagedGrantSql(['job_s6f_absent_relation'], ['SELECT'], ROLES.app)),
+      ).resolves.toBeDefined()
     })
   },
 )

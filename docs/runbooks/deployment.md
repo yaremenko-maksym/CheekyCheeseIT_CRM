@@ -1108,6 +1108,7 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-10-24_job_sources_host_keys.sql \
     apps/api/drizzle/manual/2026-10-25_job_record_store.sql \
     apps/api/drizzle/manual/2026-10-27_transactions_tx_date_not_null.sql \
+    apps/api/drizzle/manual/2026-10-31_job_bridge_deliveries.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \
