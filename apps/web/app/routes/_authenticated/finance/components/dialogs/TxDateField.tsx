@@ -1,4 +1,5 @@
 import { Trans, useLingui } from '@lingui/react/macro'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { DatePickerField } from '@/components/ui/date-picker'
@@ -19,33 +20,49 @@ interface TxDateFieldProps {
 export function TxDateField({ value, stored, reason, onChange, onReasonChange }: TxDateFieldProps) {
   const { t } = useLingui()
   const changed = !!value && value !== stored
+  const shouldReduceMotion = useReducedMotion()
 
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs text-muted-foreground">
+      <Label htmlFor="admin-edit-tx-date-trigger" className="text-xs text-muted-foreground">
         <Trans>Дата транзакції</Trans>
       </Label>
       <DatePickerField
+        id="admin-edit-tx-date-trigger"
         value={value}
         onChange={onChange}
-        className="h-9 text-sm"
+        className="min-h-[44px] sm:min-h-0 sm:h-9 text-sm"
         data-testid="admin-edit-tx-date"
       />
-      {changed && (
-        <div className="space-y-1.5" data-testid="admin-edit-tx-date-reason">
-          <Label className="text-xs text-muted-foreground">
-            <Trans>Причина зміни дати</Trans>
-          </Label>
-          <Input
-            value={reason}
-            onChange={(e) => onReasonChange(e.target.value)}
-            maxLength={500}
-            data-testid="admin-edit-tx-date-reason-input"
-            placeholder={t`Для дат старших за 31 день`}
-            className="h-9 text-sm"
-          />
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {changed && (
+          <motion.div
+            key="admin-edit-tx-date-reason"
+            initial={{ opacity: 0, height: 0, y: -4 }}
+            animate={{ opacity: 1, height: 'auto', y: 0 }}
+            {...(!shouldReduceMotion && { exit: { opacity: 0, height: 0, y: -4 } })}
+            transition={{ duration: shouldReduceMotion ? 0 : 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="overflow-hidden space-y-1.5"
+            data-testid="admin-edit-tx-date-reason"
+          >
+            <Label
+              htmlFor="admin-edit-tx-date-reason-field"
+              className="text-xs text-muted-foreground"
+            >
+              <Trans>Причина зміни дати</Trans>
+            </Label>
+            <Input
+              id="admin-edit-tx-date-reason-field"
+              value={reason}
+              onChange={(e) => onReasonChange(e.target.value)}
+              maxLength={500}
+              data-testid="admin-edit-tx-date-reason-input"
+              placeholder={t`Для дат старших за 31 день`}
+              className="min-h-[44px] sm:min-h-0 sm:h-9 text-sm"
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
