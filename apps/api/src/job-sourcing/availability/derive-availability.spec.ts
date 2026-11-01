@@ -259,7 +259,12 @@ describe('transitionInventoryMissCounter', () => {
     })
 
     it('present with a zero-miss counter is unchanged, not a reset', () => {
-      const zero = chain(0, { firstMissRunId: null, firstMissAt: null })
+      const zero = chain(0, {
+        firstMissRunId: null,
+        firstMissAt: null,
+        lastMissRunId: null,
+        lastMissAt: null,
+      })
       expect(transitionInventoryMissCounter(zero, run({ recordPresent: true }))).toEqual({
         kind: 'unchanged',
         next: zero,

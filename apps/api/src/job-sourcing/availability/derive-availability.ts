@@ -133,6 +133,8 @@ export function transitionInventoryMissCounter(
   }
 
   // Drop guard runs before the present-reset so a collapsed run never touches the counter (SR-M-1).
+  // Limit: no drop guard on the first miss when current===null; bounded by the 3x FULL_INVENTORY/24h
+  // floor (it cannot close alone). A per-board baseline is S8c's job.
   if (current !== null && run.inventorySize < current.lastInventorySize * MIN_INVENTORY_FRACTION) {
     return { kind: 'review', next: current }
   }
