@@ -87,7 +87,7 @@ export async function reopenObservedRecord(
     }
     // Structured trace, no PII (board/config only).
     logger.log(
-      `record-reopen${reopened ? '' : ' (no-op, already open)'}: board=${input.board} configVersion=${input.configVersion}`,
+      `record-reopen reopened=${reopened}: board=${input.board} configVersion=${input.configVersion}`,
     )
     return { reopened }
   }, READ_COMMITTED)
