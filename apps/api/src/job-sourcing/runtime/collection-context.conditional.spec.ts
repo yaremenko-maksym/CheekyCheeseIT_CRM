@@ -162,31 +162,50 @@ describe('U6b: a 304', () => {
 })
 
 describe('U6b: the validators to store', () => {
-  it('records what the first 200 carried, keyed by its URL', async () => {
+  it('records what the first 200 carried, keyed by its URL, once the run is a single page', async () => {
     const w = world(ok({ etag: '"v2"', lastModified: null }), null)
     await w.ctx.fetchText({ url: URL1 })
+    w.ctx.observeSinglePage?.()
     expect(w.metrics().nextValidators).toEqual({ url: URL1, etag: '"v2"', lastModified: null })
+  })
+
+  it('stores nothing for a run that was not a single page, and drops the stored ones (CR-M-2, CR-M-3)', async () => {
+    const w = world(ok({ etag: '"v2"', lastModified: null }), STORED)
+    await w.ctx.fetchText({ url: URL1 })
+    await w.ctx.fetchText({ url: `${URL1}?page=2` })
+    expect(w.metrics().nextValidators).toBeNull()
   })
 
   it('replaces stored validators with those of the new 200, and drops them when it carries none', async () => {
     const fresh = world(ok({ etag: '"v2"', lastModified: null }), STORED)
     await fresh.ctx.fetchText({ url: URL1 })
+    fresh.ctx.observeSinglePage?.()
     expect(fresh.metrics().nextValidators).toMatchObject({ etag: '"v2"' })
     const bare = world(ok(), STORED)
     await bare.ctx.fetchText({ url: URL1 })
+    bare.ctx.observeSinglePage?.()
     expect(bare.metrics().nextValidators).toBeNull()
+  })
+
+  it('a single-page mark with no answered first request changes nothing', async () => {
+    const w = world(notModified, STORED)
+    await w.ctx.fetchText({ url: URL1 })
+    w.ctx.observeSinglePage?.()
+    expect(w.metrics().nextValidators).toEqual(STORED)
   })
 
   it('ignores validators of later requests', async () => {
     const w = world(ok({ etag: '"p2"', lastModified: null }), null)
     await w.ctx.fetchText({ url: URL1 })
     await w.ctx.fetchText({ url: `${URL1}?page=2` })
+    w.ctx.observeSinglePage?.()
     expect(w.metrics().nextValidators).toMatchObject({ url: URL1 })
   })
 
   it('does not store anything for a value that cannot be sent back as a header', async () => {
     const w = world(ok({ etag: '"a"\r\nx: y', lastModified: null }), null)
     await w.ctx.fetchText({ url: URL1 })
+    w.ctx.observeSinglePage?.()
     expect(w.metrics().nextValidators).toBeNull()
   })
 

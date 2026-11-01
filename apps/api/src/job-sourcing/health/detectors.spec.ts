@@ -704,3 +704,60 @@ describe('runDetectors', () => {
     expect(runDetectors(snap([run({ startedAt: NOW, received: 50 })]))).toEqual([])
   })
 })
+
+describe('U6b: a 304 run trips no detector (CR-H-1, SPEC-L-1)', () => {
+  const notModified = (startedAt: Date) =>
+    run({ startedAt, received: 0, lastHttpStatus: 304, bytesRead: 0 })
+
+  it('BOARD_GONE: the first 304 of an employer board is not a board going quiet', () => {
+    const runs = [
+      notModified(NOW),
+      run({ startedAt: new Date(NOW.getTime() - DAY_MS), received: 12 }),
+    ]
+    expect(detectBoardGone(snap(runs, { isEmployerBoard: true }))).toEqual([])
+  })
+
+  it('BOARD_GONE: a genuine zero still fires beside the 304 guard', () => {
+    const runs = [
+      run({ startedAt: NOW, received: 0 }),
+      notModified(new Date(NOW.getTime() - DAY_MS)),
+      run({ startedAt: new Date(NOW.getTime() - 2 * DAY_MS), received: 12 }),
+    ]
+    expect(detectBoardGone(snap(runs, { isEmployerBoard: true }))).toContain('BOARD_GONE')
+  })
+
+  it('VOLUME_DROP: a window of 304 runs is not a drop', () => {
+    const runs = daily(14, (i) =>
+      i === 0 ? { received: 0, lastHttpStatus: 304, bytesRead: 0 } : { received: 100 },
+    )
+    expect(detectVolumeDrop(snap(runs))).toEqual([])
+  })
+
+  it('VOLUME_DROP: 304 runs do not drag the same-weekday baseline down', () => {
+    // Thursdays are i = 0 (today, low), 7 and 14 (both 304s) and 21 (a real 100). Counting the
+    // 304s the same-weekday median is 0 and nothing could fire; excluded, the one real Thursday
+    // sets the baseline at 100 and 10 is a drop.
+    const runs = daily(28, (i) => {
+      if (i === 0) return { received: 10 }
+      if (i === 7 || i === 14) return { received: 0, lastHttpStatus: 304, bytesRead: 0 }
+      return { received: 100 }
+    })
+    expect(detectVolumeDrop(snap(runs))).toContain('VOLUME_DROP')
+  })
+
+  it('VOLUME_DROP: a real low run beside a 304 in the window still fires', () => {
+    const base = daily(14, (i) => ({ received: i === 0 ? 10 : 100 }))
+    const withNotModified = [notModified(new Date(NOW.getTime() - 1_000)), ...base]
+    expect(detectVolumeDrop(snap(withNotModified))).toContain('VOLUME_DROP')
+  })
+
+  it('a 304 run after healthy history trips none of EMPTY_RESPONSE / BOARD_GONE / VOLUME_DROP', () => {
+    const runs = daily(14, (i) =>
+      i < 2 ? { received: 0, lastHttpStatus: 304, bytesRead: 0 } : { received: 100 },
+    )
+    const reasons = runDetectors(snap(runs, { isEmployerBoard: true }))
+    expect(reasons).not.toContain('EMPTY_RESPONSE')
+    expect(reasons).not.toContain('BOARD_GONE')
+    expect(reasons).not.toContain('VOLUME_DROP')
+  })
+})

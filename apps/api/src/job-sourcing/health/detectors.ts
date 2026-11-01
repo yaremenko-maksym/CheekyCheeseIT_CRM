@@ -73,7 +73,9 @@ function isNotModified(run: RunFact): boolean {
  * nothing and must not deflate the baseline (CR-M-1).
  */
 export function detectVolumeDrop(s: HealthSnapshot): readonly HealthReason[] {
-  const runs = fetched(answered(s))
+  const allRuns = fetched(answered(s))
+  // U6b: a 304 read nothing because nothing changed. It is no volume, and must not drag the baseline.
+  const runs = allRuns.filter((r) => !isNotModified(r))
   const perDay = new Map<string, { received: number; weekday: number }>()
   for (const run of runs) {
     const key = run.startedAt.toISOString().slice(0, 10)
@@ -92,9 +94,10 @@ export function detectVolumeDrop(s: HealthSnapshot): readonly HealthReason[] {
   // Stryker disable next-line ConditionalExpression: only the "never return" direction is equivalent — a null baseline then reaches `received24h < 0.3 * null` which is `< 0`, false for a non-negative sum, so it yields [] anyway (the guard is a type-checker narrowing). The `===`→`!==` EqualityOperator and the 30% comparison stay live and are pinned by the no-baseline and 29/30 tests.
   if (baseline === null) return []
 
-  const received24h = runs
-    .filter((r) => s.now.getTime() - r.startedAt.getTime() < DAY_MS)
-    .reduce((sum, r) => sum + r.received, 0)
+  const recent = allRuns.filter((r) => s.now.getTime() - r.startedAt.getTime() < DAY_MS)
+  // A window that only heard "not modified" is an unchanged source, not a quiet one.
+  if (recent.length > 0 && recent.every(isNotModified)) return []
+  const received24h = recent.reduce((sum, r) => sum + r.received, 0)
   return received24h < HEALTH_THRESHOLDS.volumeDropRatio * baseline ? ['VOLUME_DROP'] : []
 }
 
@@ -231,7 +234,9 @@ export function detectBoardGone(s: HealthSnapshot): readonly HealthReason[] {
   const runs = answered(s)
   const latest = runs[0]
   if (latest === undefined) return []
-  const goneNow = latest.lastHttpStatus === 404 || (isSuccess(latest) && latest.received === 0)
+  const goneNow =
+    latest.lastHttpStatus === 404 ||
+    (isSuccess(latest) && !isNotModified(latest) && latest.received === 0)
   const hadSome = fetched(runs.slice(1)).some((r) => r.received > 0)
   return goneNow && hadSome ? ['BOARD_GONE'] : []
 }

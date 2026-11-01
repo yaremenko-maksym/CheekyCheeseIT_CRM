@@ -125,6 +125,8 @@ interface Harness {
   /** Every outgoing request, so the conditional-request header can be asserted. */
   sent: FetchRequest[]
   cache: Map<string, CachedResponse>
+  /** U6b: how many times the loop told the context the run was a single page. */
+  singlePage: { count: number }
 }
 
 /**
@@ -175,6 +177,7 @@ function harness(opts: {
   const reconciles: Array<{ id: string; resolution: ReservationResolution; incurred?: number }> = []
   const saved: ValidatedCheckpoint[] = []
   const cache = new Map<string, CachedResponse>(Object.entries(opts.cacheSeed ?? {}))
+  const singlePage = { count: 0 }
   const controller = new AbortController()
   if (opts.aborted === true) controller.abort()
   let fetches = 0
@@ -187,6 +190,9 @@ function harness(opts: {
     deadline: opts.deadline ?? new Date('2030-01-01T00:00:00Z'),
     now: () => opts.now ?? new Date('2026-10-20T10:00:00Z'),
     secrets: opts.secrets ?? [],
+    observeSinglePage() {
+      singlePage.count += 1
+    },
     async fetchText(request) {
       const page = opts.pages[fetches]
       fetches += 1
@@ -277,7 +283,7 @@ function harness(opts: {
     },
   }
 
-  return { ctx, calls, reconciles, saved, sent, cache }
+  return { ctx, calls, reconciles, saved, sent, cache, singlePage }
 }
 
 const onePage = (jobs: unknown[]) => ({ body: { jobs, next: null } })
@@ -1146,6 +1152,47 @@ describe('conditional requests', () => {
     expect(h.sent).toHaveLength(1)
     expect(batch.requests).toHaveLength(1)
     expect(batch.requests[0]).toMatchObject({ status: 304, error: null })
+  })
+
+  it('U6b: a fresh run that read exactly one page and exhausted tells the context it was a single page', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.singlePage.count).toBe(1)
+  })
+
+  it('U6b: a paged run (CR-M-2) never claims to be a single page', async () => {
+    const h = harness({
+      pages: [{ body: { jobs: [job('1')], next: 'c2' } }, onePage([job('2')])],
+    })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.saved).toHaveLength(2)
+    expect(h.singlePage.count).toBe(0)
+  })
+
+  it('U6b: a crash-resumed run that exhausts after one page is not a single-page run (CR-M-3)', async () => {
+    const h = harness({
+      pages: [onePage([job('2')])],
+      stored: {
+        configVersion: 1,
+        policyVersion: 1,
+        adapterVersion: 'test-1',
+        position: { kind: 'CURSOR', page: 1, cursor: 'c2' },
+        completedAt: new Date('2026-10-20T09:00:00Z'),
+      },
+    })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.saved).toHaveLength(1)
+    expect(h.singlePage.count).toBe(0)
+  })
+
+  it('U6b: a single page that then fails to persist is not a single-page run', async () => {
+    const h = harness({ pages: [onePage([job('1')])], savePageFailsOnPage: 1 })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.singlePage.count).toBe(0)
   })
 
   it('U6b: a metered 304 settles its reservation as used', async () => {

@@ -221,8 +221,11 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
   let validatorsSeen = false
   // U6b: the validators this run was handed, and those to store if it succeeds. The FIRST request
   // is the only one that sends or records them; a run that makes none carries the stored ones on.
+  // Stored only by a run that was a whole, fresh read of a one-page resource (`observeSinglePage`):
+  // a 304 to page 1 of a paged run would otherwise end it with pages 2..N unread.
   const storedValidators = run.validators ?? null
   let nextValidators: StoredValidators | null = storedValidators
+  let answeredFirst: { shown: StoredValidators | null } | null = null
   let envelopeFingerprint: string | null = null
   const logger = deps.logger
   /** Ban writes in progress, and whether the worker has drained them (CR-M-6 / SR-L-3). */
@@ -337,6 +340,9 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
     observeEnvelope(fingerprint) {
       envelopeFingerprint ??= fingerprint
     },
+    observeSinglePage() {
+      if (answeredFirst !== null) nextValidators = answeredFirst.shown
+    },
     async fetchText(request): Promise<FetchedText> {
       assertOpen()
       if (now().getTime() >= input.deadline.getTime()) {
@@ -397,7 +403,11 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
         (body) => {
           bytesRead += Buffer.byteLength(body)
           lastHttpStatus = 200
-          if (first) nextValidators = shown
+          if (first) {
+            answeredFirst = { shown }
+            // Unless the loop calls `observeSinglePage`, this run stores nothing and drops the old.
+            nextValidators = null
+          }
           return body
         },
         async (error: unknown) => {

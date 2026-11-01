@@ -1363,6 +1363,9 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     break
   }
 
+  // U6b: only a fresh run that read the whole resource in one page may have its validators stored.
+  if (stop === 'EXHAUSTED' && pagesCompleted === 1 && !resumed) ctx.observeSinglePage?.()
+
   return buildCollectionBatch({
     observations,
     facts: { stop, pagesCompleted, counts, scope, resumed },

@@ -1361,6 +1361,13 @@ export interface CollectionContext {
    * the first one it is given. Optional, so a context that records no metrics need not offer it.
    */
   observeEnvelope?(fingerprint: string): void
+  /**
+   * U6b: the collection loop calls this when the run was a FRESH, whole read of a resource that
+   * fits one page (exactly one page, exhausted, not resumed). Only such a run's validators may be
+   * stored: a 304 then legitimately means the whole resource is unchanged. A paged or resumed run
+   * must never be answered "not modified" for page 1 alone. Optional, like `observeEnvelope`.
+   */
+  observeSinglePage?(): void
   meter: {
     /** RESERVED before any I/O (the store's own ordering). Returns `null` when the budget refuses,
      * which is a COST_STOP, not an error. */
