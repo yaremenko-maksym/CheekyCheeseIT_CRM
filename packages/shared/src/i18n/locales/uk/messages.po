@@ -3679,6 +3679,10 @@ msgstr "Досягнення — по одному в рядку"
 msgid "Аналіз скасовано"
 msgstr "Аналіз скасовано"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
+msgid "Обов'язково для дат старших за 31 день"
+msgstr "Обов'язково для дат старших за 31 день"
+
 #. placeholder {0}: currentTos.version + 1
 #. placeholder {1}: currentTos.version
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
@@ -7654,6 +7658,10 @@ msgstr "Джуніора призначено"
 msgid "Попередня"
 msgstr "Попередня"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
+msgid "Причина зміни дати"
+msgstr "Причина зміни дати"
+
 #. placeholder {0}: application.fullName
 #: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
 msgid "Попередній перегляд резюме кандидата {0}"
@@ -9273,6 +9281,7 @@ msgid "Частка за замовчуванням: пропозицію від
 msgstr "Частка за замовчуванням: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
 msgid "Дата транзакції"
 msgstr "Дата транзакції"
 

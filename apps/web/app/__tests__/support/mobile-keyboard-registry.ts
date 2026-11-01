@@ -438,6 +438,8 @@ export const EXEMPT_FIELDS: Record<string, string> = {
     'Free-text reason typed before deleting a transaction — a human-readable justification, not a data value.',
   'testid:restore-tx-reason-input':
     'Free-text reason typed before restoring a deleted transaction.',
+  'testid:admin-edit-tx-date-reason-input':
+    'Free-text justification typed when an admin moves a transaction date beyond the backdating window — a human-readable reason, not a data value.',
 
   // ---- task-pending-share: pending senior-share-change rejection reason —
   //      projects/$projectId.tsx (project override) + user-profile
