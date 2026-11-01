@@ -4,9 +4,11 @@ import { describe, expect, it } from 'vitest'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
   CLAIMABLE_KINDS,
+  claimDetailFetchForSource,
   claimDirtyBatch,
   completeDirty,
   currentDerivedVersion,
+  DETAIL_FETCH,
   enqueueDerivedDirty,
   DirtyKindUnsupportedError,
   DirtyWorkFencedError,
@@ -525,5 +527,82 @@ describe('dirtyWorkStatements', () => {
     const s = render(dirtyWorkStatements.claim('w', 5, 1000, ['OPPORTUNITY'])).sql
     expect(s).toContain('ORDER BY created_at, id')
     expect(s).toContain("SET status = 'CLAIMED'")
+  })
+})
+
+/** SFS U10: the DETAIL_FETCH reason and the source-filtered claim statement. */
+describe('DETAIL_FETCH source-filtered claim (U10)', () => {
+  it('names the detail-fetch reason', () => {
+    expect(DETAIL_FETCH).toBe('DETAIL_FETCH')
+  })
+
+  it('filters to one source by type + namespace, oldest-first, within the batch limit', () => {
+    const { sql: s, params } = render(
+      dirtyWorkStatements.claimDetailForSource('w', 'GREENHOUSE_ATS', 'acme-board', 5, 1000),
+    )
+    expect(s).toContain('JOIN job_source_records sr ON sr.id = d.entity_id')
+    expect(s).toContain("d.entity_kind = 'SOURCE_RECORD'")
+    expect(s).toContain('d.reason = $')
+    expect(s).toContain('sr.source_type = $')
+    expect(s).toContain('::job_source_type')
+    expect(s).toContain('sr.namespace = $')
+    expect(s).toContain('ORDER BY d.created_at, d.id')
+    expect(s).toContain('FOR UPDATE OF d SKIP LOCKED')
+    expect(s).toContain("SET status = 'CLAIMED'")
+    expect(s).toContain('fencing_epoch = d.fencing_epoch + 1')
+    // The reason, type and namespace are bound params (never inlined).
+    expect(params).toContain('DETAIL_FETCH')
+    expect(params).toContain('GREENHOUSE_ATS')
+    expect(params).toContain('acme-board')
+  })
+
+  it('validates its arguments before touching the database', async () => {
+    const src = { type: 'GREENHOUSE_ATS', namespace: 'x' } as const
+    // A blank owner, a non-string namespace, and out-of-range batch/lease each throw by name.
+    await expect(
+      claimDetailFetchForSource(scripted().tx, { owner: '', source: src }),
+    ).rejects.toThrow(RangeError)
+    await expect(
+      claimDetailFetchForSource(scripted().tx, {
+        owner: 'w',
+        source: { type: 'GREENHOUSE_ATS', namespace: 42 as unknown as string },
+      }),
+    ).rejects.toThrow(/namespace must be a string/)
+    await expect(
+      claimDetailFetchForSource(scripted().tx, { owner: 'w', source: src, batchSize: 0 }),
+    ).rejects.toThrow(/batchSize must be an integer/)
+    await expect(
+      claimDetailFetchForSource(scripted().tx, { owner: 'w', source: src, leaseMs: 0 }),
+    ).rejects.toThrow(/leaseMs must be an integer/)
+  })
+
+  it('maps the claimed rows to handles', async () => {
+    const { tx } = scripted([
+      {
+        id: ID,
+        entity_kind: 'SOURCE_RECORD',
+        entity_id: ENTITY,
+        target_version: 3,
+        reason: DETAIL_FETCH,
+        fencing_epoch: 2,
+        retry_count: 0,
+      },
+    ])
+    const claimed = await claimDetailFetchForSource(tx, {
+      owner: 'w',
+      source: { type: 'GREENHOUSE_ATS', namespace: 'acme-board' },
+    })
+    expect(claimed).toEqual([
+      {
+        id: ID,
+        owner: 'w',
+        fencingEpoch: 2,
+        entityKind: 'SOURCE_RECORD',
+        entityId: ENTITY,
+        targetVersion: 3,
+        reason: DETAIL_FETCH,
+        retryCount: 0,
+      },
+    ])
   })
 })

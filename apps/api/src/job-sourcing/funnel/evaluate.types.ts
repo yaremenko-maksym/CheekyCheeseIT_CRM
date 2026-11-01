@@ -62,6 +62,14 @@ export interface EvaluateInput {
   teamTriageGrants: readonly string[]
   /** REQUIRED: an omitted flag must not read as "everything loaded". Pass `[]` when it all was. */
   unavailable: readonly UnavailableInput[]
+  /**
+   * SFS U10 (ADR 6a): the revision is list-only because its detail is pending for an ON_DEMAND
+   * source (`description_sha256` NULL, the detail not yet fetched). Its stack can only be in the
+   * unfetched description, so it is never excluded on stack grounds — at worst TRIAGE with the
+   * stack unknown, so it is enriched and re-evaluated. Title-level exclusions still apply. Default
+   * false: an IN_LIST source, or a record whose detail is present, evaluates unchanged.
+   */
+  detailPending?: boolean
 }
 
 /** `SENIOR:<id>`, `TEAM:<id>` or `STUDIO`. */

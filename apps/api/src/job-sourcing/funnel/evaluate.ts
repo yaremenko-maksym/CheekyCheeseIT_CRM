@@ -167,6 +167,8 @@ interface ProjectionContext {
   layer1: Layer1Result
   revision: CanonicalRevision
   evaluationTime: Date
+  /** U10: the stack is unknown because the detail is pending — triage, never a stack exclusion. */
+  detailPending: boolean
 }
 
 function projectScope(scope: Scope, ctx: ProjectionContext): ScopeProjection | null {
@@ -195,16 +197,30 @@ function projectScope(scope: Scope, ctx: ProjectionContext): ScopeProjection | n
       reasons: [reason('TECH_MATCH', sorted([...keywords]) as [string, ...string[]])],
     }
   }
-  // TRIAGE needs the studio-level posting to be unknown-stack (built into `scope.triage` for a team),
-  // the scope's own view to hold a matchable senior without evidence, and for a team the grant.
-  if (!scope.view.lowInformation || !scope.triage) return null
+  // TRIAGE needs the studio-level posting to be unknown-stack, the scope's own view to hold a
+  // matchable senior, and for a team the grant. The stack is unknown either because the list
+  // carries no signal (`lowInformation`) or because the detail that would carry it is pending
+  // (U10) AND the list offered no stack-judging signal of its own: a department tag alone makes
+  // `lowInformation` false but does not judge the stack, so a detail-pending record is still
+  // unknown-stack. A keyword hit or a requirements statement, by contrast, IS a verdict — then a
+  // `coreMismatch` is genuine and must win, so `detailPending` does not lift it to TRIAGE. (A LEAD
+  // is already returned above, so `detailPending` can never downgrade one.)
+  const detailUnjudged =
+    ctx.detailPending &&
+    !scope.view.evidenceSurfaces.keywordHit &&
+    !scope.view.evidenceSurfaces.requirements
+  const stackUnknown = scope.view.lowInformation || detailUnjudged
+  if (!stackUnknown || !scope.triage) return null
+  const unknownStack = scope.view.lowInformation
+    ? reason('UNKNOWN_STACK', ['no tags, requirements or keyword hit'])
+    : reason('UNKNOWN_STACK', ['detail pending: description not loaded'])
   return {
     ...base,
     status: 'TRIAGE',
     score: null,
     rankWarnings: [],
     reasons: [
-      reason('UNKNOWN_STACK', ['no tags, requirements or keyword hit']),
+      unknownStack,
       ...(scope.key.startsWith('TEAM:') ? [reason('TEAM_TRIAGE_GRANT', [scope.key])] : []),
     ],
   }
@@ -348,8 +364,19 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
   // shortcut: `buildScopes` calls `forViewer` once per senior, per team and for the studio, each
   // re-filtering the senior list: O(S * (S + T)) per record. Fine for tens of seniors; upgrade
   // (one pass bucketed by senior id) when the roster grows past a few hundred.
-  const ctx = { layer1, revision, evaluationTime: input.evaluationTime }
-  const scopes = buildScopes(tech, profiles, new Set(input.teamTriageGrants), tech.lowInformation)
+  const detailPending = input.detailPending === true
+  const ctx = { layer1, revision, evaluationTime: input.evaluationTime, detailPending }
+  // Team triage follows the studio: a detail-pending posting is unknown-stack for the studio only
+  // when the list gave the studio no stack-judging signal either (no union keyword hit, no
+  // requirements). A real studio verdict (a hit or a requirements statement) keeps grants closed.
+  const studioUnjudged =
+    detailPending && !tech.evidenceSurfaces.keywordHit && !tech.evidenceSurfaces.requirements
+  const scopes = buildScopes(
+    tech,
+    profiles,
+    new Set(input.teamTriageGrants),
+    tech.lowInformation || studioUnjudged,
+  )
   const studio = projectScope(scopes.studio, ctx)
   const projections = [
     ...scopes.seniors.map((scope) => projectScope(scope, ctx)),

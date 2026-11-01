@@ -2,6 +2,8 @@ import {
   type JobDirtyWorkEntityKind,
   jobDirtyWorkEntityKindSchema,
   jobErrorCodeSchema,
+  type JobSourceType,
+  jobSourceTypeSchema,
 } from '@crm/shared'
 import { type SQL, sql } from 'drizzle-orm'
 import { JOB_HANDLE_MAX } from '../../database/schema/job-patterns'
@@ -40,6 +42,13 @@ export const VERSION_STALE = 'VERSION_STALE'
 export const ENTITY_MISSING = 'ENTITY_MISSING'
 /** `last_error_code` written by recovery for a lease that expired. */
 export const LEASE_EXPIRED = 'LEASE_EXPIRED'
+/**
+ * SFS U10 (ADR 6a): the free-text `reason` of a SOURCE_RECORD dirty row that asks a run to fetch a
+ * posting's detail on demand. No DDL — `reason` is free text (`ck_job_dirty_work_reason_*`), and
+ * the `(entity_kind, entity_id, target_version, reason)` unique key makes a second enqueue for the
+ * same record version a no-op: the detail is fetched once.
+ */
+export const DETAIL_FETCH = 'DETAIL_FETCH'
 /** `ck_job_dirty_work_reason_bounded`. */
 const REASON_MAX = 100
 
@@ -211,6 +220,35 @@ export const dirtyWorkStatements = {
      RETURNING d.id, d.entity_kind, d.entity_id, d.target_version, d.reason, d.fencing_epoch,
                d.retry_count`,
 
+  /**
+   * SFS U10: claim up to `batchSize` PENDING `DETAIL_FETCH` rows whose SOURCE_RECORD belongs to one
+   * source (its `source_type` and `namespace`), oldest first, skipping rows another claimer holds.
+   * `FOR UPDATE OF d` locks only the dirty row, never the joined source record.
+   */
+  claimDetailForSource: (
+    owner: string,
+    sourceType: JobSourceType,
+    namespace: string,
+    batchSize: number,
+    leaseMs: number,
+  ): SQL =>
+    sql`WITH picked AS (
+          SELECT d.id FROM job_dirty_work d
+            JOIN job_source_records sr ON sr.id = d.entity_id
+           WHERE d.status = 'PENDING' AND d.entity_kind = 'SOURCE_RECORD' AND d.reason = ${DETAIL_FETCH}
+             AND sr.source_type = ${sourceType}::job_source_type AND sr.namespace = ${namespace}
+           ORDER BY d.created_at, d.id
+           LIMIT ${batchSize}
+           FOR UPDATE OF d SKIP LOCKED)
+        UPDATE job_dirty_work d
+           SET status = 'CLAIMED', claim_owner = ${owner}, claimed_at = clock_timestamp(),
+               lease_expires_at = clock_timestamp() + ${leaseMs}::int * interval '1 millisecond',
+               fencing_epoch = d.fencing_epoch + 1
+          FROM picked
+         WHERE d.id = picked.id
+     RETURNING d.id, d.entity_kind, d.entity_id, d.target_version, d.reason, d.fencing_epoch,
+               d.retry_count`,
+
   complete: (h: DirtyWorkHandle, current: SQL): SQL =>
     sql`WITH cur AS (SELECT (${current}) AS v FROM job_dirty_work w WHERE w.id = ${h.id}::uuid)
         UPDATE job_dirty_work
@@ -340,6 +378,51 @@ export async function claimDirtyBatch(
     dirtyWorkStatements.claim(opts.owner, batchSize, leaseMs, kinds),
   )
   // The batch is picked oldest-first; the order of the returned rows carries no meaning.
+  return rows.map((r) => ({
+    id: String(r['id']),
+    owner: opts.owner,
+    fencingEpoch: Number(r['fencing_epoch']),
+    entityKind: jobDirtyWorkEntityKindSchema.parse(r['entity_kind']),
+    entityId: String(r['entity_id']),
+    targetVersion: Number(r['target_version']),
+    reason: String(r['reason']),
+    retryCount: Number(r['retry_count']),
+  }))
+}
+
+export interface ClaimDetailOptions {
+  readonly owner: string
+  /** The source whose pending detail rows this run may fetch: its type and namespace. */
+  readonly source: { readonly type: JobSourceType; readonly namespace: string }
+  readonly batchSize?: number
+  readonly leaseMs?: number
+}
+
+/**
+ * SFS U10 (ADR 6a, change #4): claim up to `batchSize` PENDING `DETAIL_FETCH` rows whose record
+ * shares this run's source (`source_type` + `namespace`), oldest first, skipping rows held by
+ * another claimer. The run then fetches each posting's detail inside its own ledger run, so a
+ * row's fetch is bound by every rule of the source's run (host budget, fencing, byte caps).
+ */
+export async function claimDetailFetchForSource(
+  db: SqlExecutor,
+  opts: ClaimDetailOptions,
+): Promise<ClaimedDirtyWork[]> {
+  assertOwner(opts.owner)
+  const sourceType = jobSourceTypeSchema.parse(opts.source.type)
+  if (typeof opts.source.namespace !== 'string')
+    throw new RangeError('source.namespace must be a string')
+  const batchSize = boundedInt('batchSize', opts.batchSize ?? DIRTY_BATCH_DEFAULT, DIRTY_BATCH_MAX)
+  const leaseMs = boundedInt('leaseMs', opts.leaseMs ?? DIRTY_LEASE_DEFAULT_MS, DIRTY_LEASE_MAX_MS)
+  const { rows } = await db.execute(
+    dirtyWorkStatements.claimDetailForSource(
+      opts.owner,
+      sourceType,
+      opts.source.namespace,
+      batchSize,
+      leaseMs,
+    ),
+  )
   return rows.map((r) => ({
     id: String(r['id']),
     owner: opts.owner,
