@@ -42,7 +42,7 @@ export function TxDateField({ value, stored, reason, onChange, onReasonChange }:
             animate={{ opacity: 1, height: 'auto', y: 0 }}
             {...(!shouldReduceMotion && { exit: { opacity: 0, height: 0, y: -4 } })}
             transition={{ duration: shouldReduceMotion ? 0 : 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="overflow-hidden space-y-1.5"
+            className="-mx-0.5 -mb-0.5 space-y-1.5 overflow-hidden px-0.5 pb-0.5"
             data-testid="admin-edit-tx-date-reason"
           >
             <Label
