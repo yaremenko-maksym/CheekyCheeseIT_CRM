@@ -589,4 +589,55 @@ describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
     expect(classifyFailure(err)).toEqual({ code: 'ROSTER_NOT_READY', poison: false })
     expect(did(/job_opportunity_matches/)).toEqual([])
   })
+
+  describe('U10 (ADR 6a): enqueue DETAIL_FETCH for a wanted opportunity (AC1 enqueue-half, AC3)', () => {
+    const REC = '00000000-0000-4000-8000-0000000000a1'
+    const withMissing = () =>
+      world({
+        opportunity: opportunityRow({ on_demand_missing: [{ recordId: REC, version: 5 }] }),
+      })
+
+    it('a LEAD/TRIAGE opportunity enqueues one DETAIL_FETCH per backing ON_DEMAND record', async () => {
+      const { db, did } = recordingDb(withMissing())
+      await createRecomputeSteps(db, {}, ['GREENHOUSE_ATS']).process(work(1), batchAt())
+      // The ON_DEMAND types reach loadOpportunity's detail subquery (threaded, not dropped).
+      expect(did(/FROM job_opportunities o/)[0]?.sql).toMatch(/r\.source_type IN/)
+      const [enqueue] = did(/INSERT INTO job_dirty_work/)
+      expect(enqueue?.params).toEqual(
+        expect.arrayContaining(['SOURCE_RECORD', REC, 5, 'DETAIL_FETCH']),
+      )
+      // Fetch once: the insert carries the ON CONFLICT no-op on (kind, entity, version, reason).
+      expect(enqueue?.sql).toMatch(
+        /ON CONFLICT \(entity_kind, entity_id, target_version, reason\) DO NOTHING/,
+      )
+    })
+
+    it('enqueues nothing and emits no detail subquery when no source type is ON_DEMAND', async () => {
+      const { db, did } = recordingDb(world({}))
+      await createRecomputeSteps(db).process(work(1), batchAt())
+      expect(did(/FROM job_opportunities o/)[0]?.sql).not.toMatch(/r\.source_type IN/)
+      expect(did(/INSERT INTO job_dirty_work/)).toEqual([])
+    })
+
+    it('enqueues nothing when the opportunity is not wanted (EXCLUDED), even with a record missing detail', async () => {
+      evaluate.mockReturnValueOnce({
+        kind: 'EXCLUDED',
+        audit: { excluded: [] },
+      } as unknown as ReturnType<typeof funnel.evaluate>)
+      const { db, did } = recordingDb(withMissing())
+      await createRecomputeSteps(db, {}, ['GREENHOUSE_ATS']).process(work(1), batchAt())
+      expect(did(/INSERT INTO job_dirty_work/)).toEqual([])
+    })
+
+    it('enqueues nothing when EVALUATED has no projection (no senior wanted it)', async () => {
+      evaluate.mockReturnValueOnce({
+        kind: 'EVALUATED',
+        projections: [],
+        audit: { excluded: [] },
+      } as unknown as ReturnType<typeof funnel.evaluate>)
+      const { db, did } = recordingDb(withMissing())
+      await createRecomputeSteps(db, {}, ['GREENHOUSE_ATS']).process(work(1), batchAt())
+      expect(did(/INSERT INTO job_dirty_work/)).toEqual([])
+    })
+  })
 })

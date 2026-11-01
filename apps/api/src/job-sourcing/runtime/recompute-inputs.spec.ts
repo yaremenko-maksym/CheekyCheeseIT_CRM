@@ -524,6 +524,44 @@ describe('loadOpportunity', () => {
     const { tx: bare } = recording(() => [row({ application_url: null, source_url: null })])
     expect((await loadOpportunity(bare, OPP))?.canonical.url).toBe('')
   })
+
+  describe('detail on demand (U10)', () => {
+    const REC = '00000000-0000-4000-8000-0000000000a1'
+
+    it('no ON_DEMAND types: the detail column is a constant empty array and detailPending is false', async () => {
+      const { tx, statements } = recording(() => [row()])
+      const loaded = await loadOpportunity(tx, OPP)
+      expect(loaded?.detailPending).toBe(false)
+      expect(loaded?.onDemandMissing).toEqual([])
+      expect(statements[0]?.sql).not.toMatch(/description_sha256 IS NULL/)
+      expect(statements[0]?.sql).toMatch(/'\[\]'::jsonb AS on_demand_missing/)
+    })
+
+    it('ON_DEMAND types add the missing-detail subquery, bound to each type, null description, not FAILED', async () => {
+      const { tx, statements } = recording(() => [
+        row({ on_demand_missing: [{ recordId: REC, version: 5 }] }),
+      ])
+      const loaded = await loadOpportunity(tx, OPP, ['GREENHOUSE_ATS', 'HIMALAYAS_API'])
+      expect(loaded?.detailPending).toBe(true)
+      expect(loaded?.onDemandMissing).toEqual([{ recordId: REC, version: 5 }])
+      const query = statements[0]
+      expect(query?.sql).toMatch(/r\.source_type IN/)
+      // Each type is a separate, comma-separated cast (the join separator is load-bearing).
+      expect(query?.sql).toMatch(/::job_source_type,\s*\$\d+::job_source_type/)
+      expect(query?.sql).toMatch(/v\.description_sha256 IS NULL/)
+      expect(query?.sql).toMatch(/d\.target_version = h\.observation_seq/)
+      expect(query?.sql).toMatch(/d\.status = 'FAILED'/)
+      expect(query?.params).toEqual(expect.arrayContaining(['GREENHOUSE_ATS', 'HIMALAYAS_API']))
+      expect(query?.params).toContain('DETAIL_FETCH')
+    })
+
+    it('an ON_DEMAND type with nothing missing leaves detailPending false', async () => {
+      const { tx } = recording(() => [row({ on_demand_missing: [] })])
+      const loaded = await loadOpportunity(tx, OPP, ['GREENHOUSE_ATS'])
+      expect(loaded?.detailPending).toBe(false)
+      expect(loaded?.onDemandMissing).toEqual([])
+    })
+  })
 })
 
 describe('installMatches', () => {

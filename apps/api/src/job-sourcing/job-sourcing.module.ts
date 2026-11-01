@@ -24,6 +24,7 @@ import {
   AVAILABILITY_RECONCILE_WORKER,
   createAvailabilityReconcileSteps,
 } from './runtime/availability-reconcile-worker'
+import { productionLedgerCatalog } from './runtime/production-catalog'
 import { RecomputeWorker, createRecomputeSteps } from './runtime/recompute-worker'
 import {
   createProductionLedger,
@@ -104,9 +105,12 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     {
       provide: RecomputeWorker,
       useFactory: (db: DatabaseService) =>
-        new RecomputeWorker(createRecomputeSteps(lateBoundDb(db)), {
-          owner: `recompute-${process.pid}`,
-        }),
+        // U10: pass the ON_DEMAND source types so a wanted opportunity enqueues one DETAIL_FETCH per
+        // backing ON_DEMAND record (empty until a source's manifest is flipped — ADR 6a, step 10).
+        new RecomputeWorker(
+          createRecomputeSteps(lateBoundDb(db), {}, productionLedgerCatalog().onDemandTypes()),
+          { owner: `recompute-${process.pid}` },
+        ),
       inject: [DatabaseService],
     },
     // r5 Task 4.6 S8d: the availability consumer instance the reconciliation cron drains. A distinct

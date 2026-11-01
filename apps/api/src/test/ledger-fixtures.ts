@@ -42,6 +42,14 @@ export class SpecCatalog implements LedgerCatalog {
     return this.policies.get(hostKey)
   }
 
+  onDemandTypes(): JobSourceType[] {
+    return [
+      ...new Set(
+        [...this.entries.values()].filter((e) => e.detailMode === 'ON_DEMAND').map((e) => e.type),
+      ),
+    ]
+  }
+
   add(manifestId: string, over: Partial<LedgerCatalogEntry> = {}): void {
     this.entries.set(manifestId, {
       type: 'REMOTIVE_API',
