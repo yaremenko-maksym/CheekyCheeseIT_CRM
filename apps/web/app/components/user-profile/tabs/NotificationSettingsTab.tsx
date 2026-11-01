@@ -27,7 +27,7 @@ import {
   ADMIN_NOTIFICATION_TYPES,
   API_ERROR_MESSAGES,
   INFORMING_NOTIFICATION_TYPES,
-  NEW_NOTIFICATION_TYPES,
+  CONFIGURABLE_NOTIFICATION_TYPES,
   NOTIFICATION_TITLE_MESSAGES,
   renderMessage,
   type NewNotificationType,
@@ -64,7 +64,7 @@ export interface PreferenceGroup {
   rows: PreferenceRow[]
 }
 
-const KNOWN_TYPES = new Set<string>(NEW_NOTIFICATION_TYPES as readonly string[])
+const KNOWN_TYPES = new Set<string>(CONFIGURABLE_NOTIFICATION_TYPES as readonly string[])
 const ACTION_REQUIRED_SET = new Set<string>(ACTION_REQUIRED_NOTIFICATION_TYPES as readonly string[])
 const ADMIN_SET = new Set<string>(ADMIN_NOTIFICATION_TYPES as readonly string[])
 const INFORMING_SET = new Set<string>(INFORMING_NOTIFICATION_TYPES as readonly string[])
@@ -610,7 +610,7 @@ function MobileStack({
 // Loading / error states (design spec §6.1/§7)
 // ---------------------------------------------------------------------------
 
-const SKELETON_ROW_COUNT = NEW_NOTIFICATION_TYPES.length
+const SKELETON_ROW_COUNT = CONFIGURABLE_NOTIFICATION_TYPES.length
 
 function LoadingState() {
   return (

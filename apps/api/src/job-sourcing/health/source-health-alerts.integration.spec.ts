@@ -45,6 +45,8 @@ let admin: Pool
 let fx: LedgerFixtures
 let health: JobSourceHealthService
 let alerts: SourceHealthAlertService
+/** Database clock at the start of this file: everything this file's alerts created is newer. */
+let startedAt: Date
 const userIds: string[] = []
 const NOW = new Date('2026-02-01T12:00:00.000Z')
 
@@ -81,6 +83,10 @@ async function alertsFor(manifestId: string): Promise<AlertRow[]> {
     [manifestId],
   )
   return rows
+}
+
+function plusMinutes(iso: string, minutes: number): string {
+  return new Date(Date.parse(iso) + minutes * 60_000).toISOString()
 }
 
 /** One transition at a FIXED instant, written and alerted in one transaction, as the pass does. */
@@ -133,6 +139,7 @@ describe.skipIf(!hasDatabaseUrl())('U5a ADMIN alerts on health transitions', () 
     await admin.query('BEGIN')
     await admin.query(readFileSync(STAGED_FILE, 'utf8'))
     await admin.query('COMMIT')
+    startedAt = (await admin.query(`SELECT clock_timestamp() AS t`)).rows[0].t as Date
     fx = new LedgerFixtures(admin, `u5a${Date.now().toString(36)}`)
     const notifications = new NotificationsService(
       session.databaseService,
@@ -158,7 +165,14 @@ describe.skipIf(!hasDatabaseUrl())('U5a ADMIN alerts on health transitions', () 
       for (const id of fx?.sourceIds ?? []) {
         await admin.query(`DELETE FROM job_source_health_events WHERE source_id = $1`, [id])
       }
-      // notifications and notification_emails cascade with the user.
+      // The detector pass and the alerts reach EVERY active admin of a shared database, seeded ones
+      // included, and a seeded admin outlives this file. Remove what this file created (the email
+      // rows cascade), or later specs (the email drain) find a pile of due QUEUED rows.
+      await admin.query(
+        `DELETE FROM notifications WHERE type = 'SOURCE_HEALTH_ALERT' AND created_at >= $1`,
+        [startedAt],
+      )
+      // notifications and notification_emails of the users made here cascade with them.
       for (const id of userIds) await admin.query(`DELETE FROM users WHERE id = $1`, [id])
       await fx?.cleanup()
     } finally {
@@ -220,15 +234,15 @@ describe.skipIf(!hasDatabaseUrl())('U5a ADMIN alerts on health transitions', () 
     const sourceId = await fx.source({ type: 'REMOTIVE_API', hostKey: null })
     const name = await fx.manifestIdOf(sourceId)
     // 10:00 to 11:00 on 10 March 2026 in Kyiv (UTC+2): one Kyiv day.
-    for (const hhmm of ['08:00', '08:20', '08:40', '09:00']) {
-      await fire(sourceId, name, `2026-03-10T${hhmm}:00Z`, 'HEALTHY', 'FAILING')
-      await fire(
-        sourceId,
-        name,
-        `2026-03-10T${hhmm.replace(/:00$/, ':10')}:00Z`,
-        'FAILING',
-        'HEALTHY',
-      )
+    for (const entryAt of [
+      '2026-03-10T08:00:00Z',
+      '2026-03-10T08:20:00Z',
+      '2026-03-10T08:40:00Z',
+      '2026-03-10T09:00:00Z',
+    ]) {
+      await fire(sourceId, name, entryAt, 'HEALTHY', 'FAILING')
+      // The recovery is always 10 minutes after its entry: no two events ever share an instant.
+      await fire(sourceId, name, plusMinutes(entryAt, 10), 'FAILING', 'HEALTHY')
     }
     const rows = await alertsFor(name)
     for (const adminId of [activeAdminA, activeAdminB]) {
@@ -250,13 +264,7 @@ describe.skipIf(!hasDatabaseUrl())('U5a ADMIN alerts on health transitions', () 
     ]
     for (const at of entries) {
       await fire(sourceId, name, at, 'HEALTHY', 'FAILING')
-      await fire(
-        sourceId,
-        name,
-        new Date(Date.parse(at) + 5 * 60_000).toISOString(),
-        'FAILING',
-        'HEALTHY',
-      )
+      await fire(sourceId, name, plusMinutes(at, 5), 'FAILING', 'HEALTHY')
     }
     const mine = (await alertsFor(name)).filter((r) => r.user_id === activeAdminA)
     expect(mine.map((r) => r.email_rows)).toEqual([1, 1, 1, 0, 1])

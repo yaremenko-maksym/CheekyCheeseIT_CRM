@@ -1,7 +1,7 @@
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
-import { NEW_NOTIFICATION_TYPES, notificationPreferencesResponseSchema } from '@crm/shared'
+import { CONFIGURABLE_NOTIFICATION_TYPES, notificationPreferencesResponseSchema } from '@crm/shared'
 import { NotificationPreferencesService } from './notification-preferences.service'
 
 /** Текст SQL-фрагмента — единственный способ увидеть, что в нём написано. */
@@ -83,14 +83,22 @@ function makeService(seed: { userId: string; type: string; emailEnabled: boolean
 }
 
 describe('чтение настроек', () => {
-  it('отдаёт все типы (NEW_NOTIFICATION_TYPES), даже когда в базе пусто', async () => {
+  it('отдаёт все типы (CONFIGURABLE_NOTIFICATION_TYPES), даже когда в базе пусто', async () => {
     const { service } = makeService()
     const result = await service.listForUser('u-1')
 
-    expect(result.items).toHaveLength(NEW_NOTIFICATION_TYPES.length)
+    expect(result.items).toHaveLength(CONFIGURABLE_NOTIFICATION_TYPES.length)
     // Ответ обязан пройти собственную форму — иначе сервер волен прислать
     // клиенту `locked`, не совпадающий с типом.
     expect(() => notificationPreferencesResponseSchema.parse(result)).not.toThrow()
+  })
+
+  it('the operational source-health types are never listed, for any user', async () => {
+    const { service } = makeService()
+    const types = (await service.listForUser('u-1')).items.map((i) => i.type)
+    expect(types).toHaveLength(13)
+    expect(types).not.toContain('SOURCE_HEALTH_ALERT')
+    expect(types).not.toContain('SOURCE_HEALTH_WEEKLY_REPORT')
   })
 
   it('без записей всё включено', async () => {

@@ -18,7 +18,7 @@ import { Injectable } from '@nestjs/common'
 import { eq, sql } from 'drizzle-orm'
 import {
   isEmailChannelLocked,
-  NEW_NOTIFICATION_TYPES,
+  CONFIGURABLE_NOTIFICATION_TYPES,
   type NotificationPreferencesResponse,
   type UpdateNotificationPreferencesInput,
 } from '@crm/shared'
@@ -47,7 +47,7 @@ export class NotificationPreferencesService {
     const stored = new Map(rows.map((r) => [r.type, r.emailEnabled]))
 
     return {
-      items: NEW_NOTIFICATION_TYPES.map((type) => {
+      items: CONFIGURABLE_NOTIFICATION_TYPES.map((type) => {
         const locked = isEmailChannelLocked(type)
         return {
           type,

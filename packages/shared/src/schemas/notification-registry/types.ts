@@ -112,10 +112,20 @@ export const OPERATIONS_NOTIFICATION_TYPES = [
   'SOURCE_HEALTH_WEEKLY_REPORT',
 ] as const
 
-export const NEW_NOTIFICATION_TYPES = [
+/**
+ * The types a person can switch the email channel of (`GET/PUT /notifications/preferences`). The
+ * operational source-health types are NOT among them: they go to active ADMIN users only, are
+ * decided by the system, and listing them for every role would hand SENIOR/JUNIOR/HR/ACCOUNTANT/
+ * DROP a switch for a message they can never receive.
+ */
+export const CONFIGURABLE_NOTIFICATION_TYPES = [
   ...INFORMING_NOTIFICATION_TYPES,
   ...ACTION_REQUIRED_NOTIFICATION_TYPES,
   ...ADMIN_NOTIFICATION_TYPES,
+] as const
+
+export const NEW_NOTIFICATION_TYPES = [
+  ...CONFIGURABLE_NOTIFICATION_TYPES,
   ...OPERATIONS_NOTIFICATION_TYPES,
 ] as const
 export type NewNotificationType = (typeof NEW_NOTIFICATION_TYPES)[number]

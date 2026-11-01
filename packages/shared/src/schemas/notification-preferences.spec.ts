@@ -3,7 +3,8 @@ import {
   ACTION_REQUIRED_NOTIFICATION_TYPES,
   ADMIN_NOTIFICATION_TYPES,
   INFORMING_NOTIFICATION_TYPES,
-  NEW_NOTIFICATION_TYPES,
+  CONFIGURABLE_NOTIFICATION_TYPES,
+  OPERATIONS_NOTIFICATION_TYPES,
 } from './notification-registry'
 import {
   isEmailChannelLocked,
@@ -23,6 +24,24 @@ import {
  * «выключено» для такого типа не должна существовать ни в базе, ни в теле
  * запроса, и запрет обязан читаться одинаково сервером и клиентом (7b).
  */
+describe('operational types are not user-configurable', () => {
+  it('the source-health types are not in the configurable set, and the PUT refuses them', () => {
+    expect([...OPERATIONS_NOTIFICATION_TYPES]).toEqual([
+      'SOURCE_HEALTH_ALERT',
+      'SOURCE_HEALTH_WEEKLY_REPORT',
+    ])
+    for (const type of OPERATIONS_NOTIFICATION_TYPES) {
+      expect((CONFIGURABLE_NOTIFICATION_TYPES as readonly string[]).includes(type)).toBe(false)
+      expect(
+        updateNotificationPreferencesSchema.safeParse({ items: [{ type, emailEnabled: false }] })
+          .success,
+        type,
+      ).toBe(false)
+    }
+    expect(CONFIGURABLE_NOTIFICATION_TYPES).toHaveLength(13)
+  })
+})
+
 describe('isEmailChannelLocked', () => {
   it('заперт для каждого типа, требующего действия', () => {
     for (const type of ACTION_REQUIRED_NOTIFICATION_TYPES) {
@@ -45,7 +64,7 @@ describe('isEmailChannelLocked', () => {
   })
 
   it('ровно три типа заперты — не больше и не меньше', () => {
-    const locked = NEW_NOTIFICATION_TYPES.filter((t) => isEmailChannelLocked(t))
+    const locked = CONFIGURABLE_NOTIFICATION_TYPES.filter((t) => isEmailChannelLocked(t))
     expect(locked).toEqual([
       'PROJECT_CONFIRM_REQUIRED',
       'SHARE_CONFIRM_REQUIRED',
@@ -83,9 +102,9 @@ describe('updateNotificationPreferencesSchema', () => {
   it('отвергает неизвестный тип', () => {
     // task-i18n-stage4-task6: `INVOICE_SIGN_REQUIRED`/`INVOICE_SIGNED`/
     // `VACANCY_APPLICATION` — больше НЕ «три старых типа без письма»: они
-    // зарегистрированы в `NEW_NOTIFICATION_TYPES` (см. notification-registry.ts)
+    // зарегистрированы в `CONFIGURABLE_NOTIFICATION_TYPES` (см. notification-registry.ts)
     // и ТЕПЕРЬ настраиваются как любой другой тип. Тест проверяет ровно то,
-    // что было раньше — отказ на типе вне `NEW_NOTIFICATION_TYPES` вовсе, —
+    // что было раньше — отказ на типе вне `CONFIGURABLE_NOTIFICATION_TYPES` вовсе, —
     // просто уже не этим представителем.
     const result = updateNotificationPreferencesSchema.safeParse({
       items: [{ type: 'SOMETHING_FROM_THE_FUTURE', emailEnabled: false }],
@@ -163,8 +182,8 @@ describe('updateNotificationPreferencesSchema', () => {
     })
     const empty = updateNotificationPreferencesSchema.safeParse({ items: [] })
     const tooMany = updateNotificationPreferencesSchema.safeParse({
-      items: Array.from({ length: NEW_NOTIFICATION_TYPES.length + 1 }, (_, i) => ({
-        type: NEW_NOTIFICATION_TYPES[i % NEW_NOTIFICATION_TYPES.length]!,
+      items: Array.from({ length: CONFIGURABLE_NOTIFICATION_TYPES.length + 1 }, (_, i) => ({
+        type: CONFIGURABLE_NOTIFICATION_TYPES[i % CONFIGURABLE_NOTIFICATION_TYPES.length]!,
         emailEnabled: true,
       })),
     })
@@ -200,8 +219,8 @@ describe('updateNotificationPreferencesSchema', () => {
     // COPY-L-6: `.max(...)` без своего сообщения отдавал дефолт Zod
     // («Too big: expected array to have <=10 items»).
     const result = updateNotificationPreferencesSchema.safeParse({
-      items: Array.from({ length: NEW_NOTIFICATION_TYPES.length + 1 }, (_, i) => ({
-        type: NEW_NOTIFICATION_TYPES[i % NEW_NOTIFICATION_TYPES.length]!,
+      items: Array.from({ length: CONFIGURABLE_NOTIFICATION_TYPES.length + 1 }, (_, i) => ({
+        type: CONFIGURABLE_NOTIFICATION_TYPES[i % CONFIGURABLE_NOTIFICATION_TYPES.length]!,
         emailEnabled: true,
       })),
     })
@@ -211,16 +230,16 @@ describe('updateNotificationPreferencesSchema', () => {
 })
 
 describe('notificationPreferencesResponseSchema', () => {
-  it('несёт все типы (NEW_NOTIFICATION_TYPES) с признаком locked', () => {
+  it('несёт все типы (CONFIGURABLE_NOTIFICATION_TYPES) с признаком locked', () => {
     const payload = {
-      items: NEW_NOTIFICATION_TYPES.map((type) => ({
+      items: CONFIGURABLE_NOTIFICATION_TYPES.map((type) => ({
         type,
         emailEnabled: true,
         locked: isEmailChannelLocked(type),
       })),
     }
     const parsed = notificationPreferencesResponseSchema.parse(payload)
-    expect(parsed.items).toHaveLength(NEW_NOTIFICATION_TYPES.length)
+    expect(parsed.items).toHaveLength(CONFIGURABLE_NOTIFICATION_TYPES.length)
   })
 
   it('отвергает ответ, где у запертого типа письмо выключено', () => {
@@ -267,14 +286,14 @@ describe('notificationPreferencesResponseSchema', () => {
 describe('notificationPreferencesResponseClientSchema', () => {
   it('accepts all known types, same as the strict schema', () => {
     const payload = {
-      items: NEW_NOTIFICATION_TYPES.map((type) => ({
+      items: CONFIGURABLE_NOTIFICATION_TYPES.map((type) => ({
         type,
         emailEnabled: true,
         locked: isEmailChannelLocked(type),
       })),
     }
     const parsed = notificationPreferencesResponseClientSchema.parse(payload)
-    expect(parsed.items).toHaveLength(NEW_NOTIFICATION_TYPES.length)
+    expect(parsed.items).toHaveLength(CONFIGURABLE_NOTIFICATION_TYPES.length)
   })
 
   it('accepts a well-formed item whose type is genuinely unknown', () => {

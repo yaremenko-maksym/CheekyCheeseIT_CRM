@@ -36,6 +36,8 @@ let session: CrmAppSession
 let admin: Pool
 let fx: LedgerFixtures
 let cron: SourceHealthWeeklyReportCron
+/** Database clock at the start of this file: every report it created is newer. */
+let startedAt: Date
 const userIds: string[] = []
 const namespaces: string[] = []
 
@@ -87,6 +89,7 @@ describe.skipIf(!hasDatabaseUrl())('U5a weekly ADMIN report', () => {
     await admin.query('BEGIN')
     await admin.query(readFileSync(STAGED_FILE, 'utf8'))
     await admin.query('COMMIT')
+    startedAt = (await admin.query(`SELECT clock_timestamp() AS t`)).rows[0].t as Date
     fx = new LedgerFixtures(admin, `u5aw${Date.now().toString(36)}`)
     const notifications = new NotificationsService(
       session.databaseService,
@@ -177,6 +180,12 @@ describe.skipIf(!hasDatabaseUrl())('U5a weekly ADMIN report', () => {
         await admin.query(`DELETE FROM job_collection_runs WHERE source_id = $1`, [id])
       }
       await admin.query(`DELETE FROM job_collection_cycles WHERE trigger_key LIKE 'u5aw:%'`)
+      // The report goes to EVERY active admin of a shared database, seeded ones included, and a
+      // seeded admin outlives this file: remove what this file created (the email rows cascade).
+      await admin.query(
+        `DELETE FROM notifications WHERE type = 'SOURCE_HEALTH_WEEKLY_REPORT' AND created_at >= $1`,
+        [startedAt],
+      )
       for (const id of userIds) await admin.query(`DELETE FROM users WHERE id = $1`, [id])
       await fx?.cleanup()
     } finally {

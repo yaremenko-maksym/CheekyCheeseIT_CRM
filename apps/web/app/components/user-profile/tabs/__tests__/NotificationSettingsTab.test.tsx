@@ -20,7 +20,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { i18n } from '@lingui/core'
 import {
   API_ERROR_MESSAGES,
-  NEW_NOTIFICATION_TYPES,
+  CONFIGURABLE_NOTIFICATION_TYPES,
   NOTIFICATION_TITLE_MESSAGES,
 } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
@@ -82,7 +82,7 @@ beforeEach(async () => {
 })
 
 describe('NotificationSettingsTab — loading/error states', () => {
-  it('renders one skeleton row per NEW_NOTIFICATION_TYPES entry on both layouts while loading', () => {
+  it('renders one skeleton row per CONFIGURABLE_NOTIFICATION_TYPES entry on both layouts while loading', () => {
     queryState = { data: undefined, isLoading: true, isError: false, refetch: refetchMock }
     render(<NotificationSettingsTab />, { wrapper: I18nTestProvider })
     const desktopSkeletons = within(
@@ -91,11 +91,11 @@ describe('NotificationSettingsTab — loading/error states', () => {
     // header-less skeleton table — every row is a skeleton row (design spec
     // §6.1: identical bars, no fake group headers while loading).
     // task-i18n-stage4-task6: count is derived, not literal — `SKELETON_ROW_
-    // COUNT` in the component reads `NEW_NOTIFICATION_TYPES.length`, which
+    // COUNT` in the component reads `CONFIGURABLE_NOTIFICATION_TYPES.length`, which
     // grew from 10 to 13 (three frozen types registered).
-    expect(desktopSkeletons).toHaveLength(NEW_NOTIFICATION_TYPES.length)
+    expect(desktopSkeletons).toHaveLength(CONFIGURABLE_NOTIFICATION_TYPES.length)
     expect(screen.getAllByTestId('notification-settings-loading-mobile-row')).toHaveLength(
-      NEW_NOTIFICATION_TYPES.length,
+      CONFIGURABLE_NOTIFICATION_TYPES.length,
     )
   })
 
