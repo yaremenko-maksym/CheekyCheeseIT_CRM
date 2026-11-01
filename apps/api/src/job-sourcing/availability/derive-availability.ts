@@ -128,6 +128,7 @@ export function transitionInventoryMissCounter(
   // A replayed or out-of-order run must not count as another miss (SR-H-1).
   if (
     current !== null &&
+    // Stryker disable next-line ConditionalExpression: type narrowing only; Date.parse(null) is NaN so the comparison is false anyway and the outcome is identical
     current.lastMissAt !== null &&
     (run.runId === current.lastMissRunId ||
       Date.parse(run.observedAt) <= Date.parse(current.lastMissAt))
