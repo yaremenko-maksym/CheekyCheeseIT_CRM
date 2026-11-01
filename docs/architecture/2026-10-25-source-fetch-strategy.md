@@ -7,7 +7,8 @@
 (ADMIN alerts) was re-asked in plain words and answered the same day**, as were the two questions that
 arose from his answers (11 and 12). **Every question is now decided**, and the owner also kept the
 schedules of the four quota APIs (decision 13). This file replaces the draft proposal of 2026-10-25 that stood at the same path;
-the draft is in git history.
+the draft is in git history. See the **2026-11-01 amendment** for the health-log privilege-class
+decision (A-log, not class B) and the deferral of the U2-D / U4-D deploy wiring to go-live.
 
 ## Amendments
 
@@ -83,6 +84,25 @@ Why: without the first two, the sweep and the tick together spent two requests a
 providers with a quota or a floor. Decided in the PR #1186 reviews (CR-M-1, SR-M-1).
 Verification: the sweep spec holds a source with a run older than one tick period (swept) beside one
 inside its floor (not swept).
+
+**2026-11-01 (owner decision on the health-log privilege class; the staged-DDL deploy wiring deferred to go-live).**
+
+- **`job_source_health_events` stays append-only with no retention `DELETE`, and is not promoted to
+  privilege class B.** As built in U4 (PR #1205) the table is classified **A-log**: `crm_app` holds
+  `SELECT` and `INSERT` only, and its append-only triggers refuse every `UPDATE`, `DELETE` and
+  `TRUNCATE`. Class B was considered only because the deploy catalog check asserts append-only triggers
+  on class-B tables; but class B carries a `crm_retention_owner` `SELECT`+`DELETE` grant (the
+  retention-owner classes), and a retention `DELETE` contradicts the append-only design — this log is
+  evidence, never pruned (see "Rollback", U4). **The owner decided on 2026-11-01 to keep it A-log and
+  not grant any retention `DELETE`.**
+- **U2-D and U4-D — the staged-DDL deploy wiring for U2's run columns / `slowdown_level` and U4's health
+  table — are deferred to go-live.** U2 and U4 shipped their SQL staged in
+  `apps/api/drizzle/manual-staged/` and merged; the A-log privilege manifest for the health table is
+  already in the merged code. Only the DevOps companion step that moves each staged file to `manual/`
+  and adds its apply line to the deploy stack is held, gated behind U12 and the owner's "go".
+- **The open engineering detail this leaves for U4-D:** because the table stays A-log, U4-D must make the
+  catalog check's append-only-trigger assertion cover an A-log table rather than relying on class-B
+  membership, and must do so without granting a retention `DELETE`. Recorded in the backlog.
 
 ## Owner decisions of 2026-10-26
 
@@ -728,7 +748,10 @@ NOW (no DDL, no open question):
   change: moves the file to `manual/`; adds its apply step to `scripts/devops/deploy-stack-on-vps.sh`
   **after its predecessor** (the store migration for U2, U2's file for U4); passes `--single-transaction`;
   adds it to the hard-required file list and the scp source list; and adds the runbook entry. The
-  wiring gate `check-prod-ddl-wiring.py` then enforces it. **U10 needs no DDL** (the dirty-work `reason`
+  wiring gate `check-prod-ddl-wiring.py` then enforces it. **U2-D and U4-D are deferred to go-live
+  (2026-11-01 amendment): their staged SQL is merged, only the deploy apply step waits. U4-D keeps
+  `job_source_health_events` A-log — not class B — and must therefore assert its append-only triggers in
+  the catalog check without granting a retention `DELETE`.** **U10 needs no DDL** (the dirty-work `reason`
   is free text, the entity kind `SOURCE_RECORD` exists); U10 verifies this on a scratch database before
   writing code, and if it is wrong it becomes a staged file with a companion.
 - **Real-Postgres** in every DB unit means a scratch database built from the migrations, connected **as
@@ -967,11 +990,21 @@ true at it, on a scratch database), and a source whose connecting run did not ha
 
 ## Open questions
 
-**None.** Questions 6, 11 and 12 were answered by the owner on 2026-10-26 (decisions 6, 11 and 12 in the
-table at the top). The questions as asked are in the history of this file (PR #1172). One thing is still
-outside any decision and stays so: **a key for each blocked quota API** (JSearch, Reed, Jooble,
-TheirStack) must be provisioned and the `KEY_REQUIRED` block lifted before any of their schedules can
-spend a request (decision 13).
+**No decision-brief question is open.** Questions 6 (ADMIN alerts), 11 (host request rate) and 12 (board
+batch approval) were answered by the owner on 2026-10-26 (decisions 6, 11 and 12 in the table above),
+and U5a (PR #1208, Q6), U11 (PR #1211, Q11) and U8c's contract (Q12) are built to those answers; the
+2026-11-01 amendment records the health-log privilege-class decision. The questions as asked are in the
+history of this file (PR #1172).
+
+What still waits on the owner or on go-live — these are **deferred actions, not open decisions**:
+
+- **A key for each blocked quota API** (JSearch, Reed, Jooble, TheirStack): provisioned and the
+  `KEY_REQUIRED` block lifted before any of their schedules can spend a request (decision 13).
+- **Connecting the three deferred sources** — SmartRecruiters, Jobgether, Hacker News (U12, Q8) — waits
+  on the owner's explicit "go". The policy is decided (connect them last, each first live call a
+  supervised smoke); only the trigger is outstanding.
+- **The U2-D and U4-D deploy wiring** is deferred to go-live (2026-11-01 amendment): the staged DDL and
+  the A-log privilege manifest are merged, only the deploy apply step waits.
 
 ## Assumptions (A1, decided and recorded)
 
