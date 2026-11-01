@@ -68,7 +68,7 @@ function SourceRow({
         <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground tabular-nums">
           <span>{profileSummaryText(source.profileSummary)}</span>
           <span>
-            {lastRun ? <Trans>Запуск: {lastRun}</Trans> : <Trans>Ще не запускалося</Trans>}
+            {lastRun ? <Trans>Останній запуск: {lastRun}</Trans> : <Trans>Ще не запускалося</Trans>}
           </span>
           {newest && (
             <span>

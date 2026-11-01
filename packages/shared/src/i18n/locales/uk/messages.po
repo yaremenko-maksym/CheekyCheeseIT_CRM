@@ -4369,10 +4369,6 @@ msgstr "Вакансію приховано"
 msgid "Завантажити файл"
 msgstr "Завантажити файл"
 
-#: apps/web/app/routes/_authenticated/admin/sources.index.tsx
-msgid "Запуск: {lastRun}"
-msgstr "Запуск: {lastRun}"
-
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Відновити пов’язане"
 msgstr "Відновити пов’язане"
@@ -10206,6 +10202,11 @@ msgstr "Не вдалося додати запис. Спробуйте ще р�
 msgid "Опубліковано: {0}"
 msgstr "Опубліковано: {0}"
 
+#. placeholder {0}: run.adapterVersion
+#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
+msgid "адаптер {0}"
+msgstr "адаптер {0}"
+
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Не вдалося завантажити неприв'язані записи."
 msgstr "Не вдалося завантажити неприв'язані записи."
@@ -10785,6 +10786,10 @@ msgstr "Запис додано"
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Підключення вимкнено"
 msgstr "Підключення вимкнено"
+
+#: apps/web/app/routes/_authenticated/admin/sources.index.tsx
+msgid "Останній запуск: {lastRun}"
+msgstr "Останній запуск: {lastRun}"
 
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Найнято за місяць"

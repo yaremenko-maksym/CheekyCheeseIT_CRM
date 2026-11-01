@@ -53,7 +53,11 @@ function RunRow({ run, fmt }: { run: JobSourceRunDto; fmt: (iso: string | null) 
         {run.lastHttpStatus !== null && (
           <span className="tabular-nums">HTTP {run.lastHttpStatus}</span>
         )}
-        {run.adapterVersion && <span>adapter {run.adapterVersion}</span>}
+        {run.adapterVersion && (
+          <span>
+            <Trans>адаптер {run.adapterVersion}</Trans>
+          </span>
+        )}
       </span>
     </li>
   )
