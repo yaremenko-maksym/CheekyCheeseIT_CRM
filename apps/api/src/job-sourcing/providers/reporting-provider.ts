@@ -64,6 +64,9 @@ export const COLLECTION_ERROR_CODES = [
   'LEASE_EXPIRED',
   // a fetch was attempted without a committed markSent (T7's send-permit guard).
   'NOT_MARKED_SENT',
+  // U11 (SR-H-1): a run tried to send more than its declared `requestsPerRun`; the request is
+  // refused before I/O so the per-host budget stays a true upper bound.
+  'REQUEST_CEILING',
   // r5 Task 2.5 T7 (SR-M-21): the host refused a request and its ban could not be written; the
   // worker writes it again after `finish`.
   'HOST_BAN_UNRECORDED',

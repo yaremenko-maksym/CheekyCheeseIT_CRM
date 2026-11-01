@@ -47,6 +47,13 @@ export interface BoundedFetchOptions {
    * `Last-Modified`), whatever its status. Reads headers of a request that happens anyway.
    */
   onValidators?: (seen: boolean) => void
+  /**
+   * U11 (SR-M-4): called once BEFORE each redirect hop's request (not the initial one — the caller
+   * counts that). Each manual redirect is a real request to the host, so the caller counts it against
+   * the run's request ceiling and the per-host budget. If it throws, the hop is NOT sent (fail-closed):
+   * the throw propagates out of `boundedFetchText` before the next `fetch`.
+   */
+  onHop?: () => void
 }
 
 /**
@@ -180,6 +187,9 @@ export async function boundedFetchText(url: string, opts: BoundedFetchOptions): 
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     for (let hop = 0; ; hop++) {
+      // SR-M-4: a redirect hop is a real request. The caller counts it (and may refuse it before it
+      // is sent) — the initial hop is the caller's own, already counted.
+      if (hop > 0) opts.onHop?.()
       const host = assertAllowed(currentUrl, opts.allowedHosts)
       await throttle(host, minGapMs)
 

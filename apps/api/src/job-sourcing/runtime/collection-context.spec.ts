@@ -77,6 +77,7 @@ function world(over: { input?: Partial<ContextInput>; transport?: ContextDeps['t
     floorHours: 0,
     banScope: undefined,
     allowedHosts: ['jsearch.p.rapidapi.com'],
+    requestsPerRun: 100,
     meter,
     secrets: ['k'],
     policyVersion: 1,
@@ -131,6 +132,82 @@ describe('send permits (AC 6)', () => {
       message: 'a metered request was attempted without a committed markSent',
     })
     expect(w.events).toEqual(['reserve', 'markSent', `send:${REQ.url}`])
+  })
+
+  it('U11 (SR-H-1): a run sends at most its requestsPerRun requests; the next is refused before I/O', async () => {
+    const w = world({ input: { meter: null, requestsPerRun: 1 } })
+    await w.ctx.fetchText(REQ)
+    const refused = await refusal(w.ctx.fetchText(REQ))
+    expect(refused).toMatchObject({
+      name: 'ContextRefusedError',
+      code: 'REQUEST_CEILING',
+      message: 'the run reached its request ceiling of 1',
+    })
+    // the (requestsPerRun+1)-th request never reached the transport
+    expect(w.events.filter((e) => e.startsWith('send:'))).toHaveLength(1)
+  })
+
+  it('U11 (SR-H-1): a two-request run sends two, then refuses the third before I/O', async () => {
+    const w = world({ input: { meter: null, requestsPerRun: 2 } })
+    await w.ctx.fetchText(REQ)
+    await w.ctx.fetchText(REQ)
+    expect((await refusal(w.ctx.fetchText(REQ))).code).toBe('REQUEST_CEILING')
+    expect(w.events.filter((e) => e.startsWith('send:'))).toHaveLength(2)
+  })
+
+  it('U11 (SR-M-4): each redirect hop counts against the run (N redirects => N+1 requests)', async () => {
+    const w = world({
+      input: { meter: null, requestsPerRun: 5 },
+      transport: async (_url, opts) => {
+        opts.onHop?.() // redirect hop 1
+        opts.onHop?.() // redirect hop 2
+        return 'ok'
+      },
+    })
+    await w.ctx.fetchText(REQ)
+    // one initial request (counted by the context) + two redirect hops.
+    expect(w.metrics().requestCount).toBe(3)
+  })
+
+  it('U11 (SR-M-4): a redirect chain that would exceed requestsPerRun is refused before the over-limit hop', async () => {
+    const reached: number[] = []
+    const w = world({
+      input: { meter: null, requestsPerRun: 2 },
+      transport: async (_url, opts) => {
+        opts.onHop?.() // hop 1: count reaches 2
+        reached.push(1)
+        opts.onHop?.() // hop 2: ceiling -> throws BEFORE this hop is sent
+        reached.push(2)
+        return 'ok'
+      },
+    })
+    expect((await refusal(w.ctx.fetchText(REQ))).code).toBe('REQUEST_CEILING')
+    // the second redirect hop's send never happened; only one initial + one redirect were counted.
+    expect(reached).toEqual([1])
+    expect(w.metrics().requestCount).toBe(2)
+  })
+
+  it('CR-M-5: buildCollectionContext refuses a requestsPerRun that is not a positive safe integer', () => {
+    for (const bad of [Number.NaN, 1.5, 0, -1, Number.POSITIVE_INFINITY, 2 ** 53]) {
+      expect(() => world({ input: { requestsPerRun: bad } }), String(bad)).toThrow(
+        /requestsPerRun must be a positive integer/,
+      )
+    }
+  })
+
+  it('U11 regression: a host with no budget (requestsPerRun null) is UNLIMITED — no ceiling, no hop counting', async () => {
+    let onHopSupplied = false
+    const w = world({
+      input: { meter: null, requestsPerRun: null },
+      transport: async (_url, opts) => {
+        if (opts.onHop) onHopSupplied = true
+        return 'ok'
+      },
+    })
+    for (let i = 0; i < 10; i += 1) await w.ctx.fetchText(REQ)
+    // The transport is given no onHop (redirects are not counted), and nothing is ever refused.
+    expect(onHopSupplied).toBe(false)
+    expect(w.metrics().requestCount).toBe(10)
   })
 
   it('a metered reconcile settles on the account meter', async () => {
@@ -192,6 +269,7 @@ describe('send permits (AC 6)', () => {
           body: '{}',
           maxBytes: 10,
           onValidators: expect.any(Function),
+          onHop: expect.any(Function),
         },
       },
     ])
@@ -298,6 +376,7 @@ function baseInput(): ContextInput {
     floorHours: 0,
     banScope: undefined,
     allowedHosts: ['jsearch.p.rapidapi.com'],
+    requestsPerRun: 100,
     meter: null,
     secrets: [],
     policyVersion: 1,

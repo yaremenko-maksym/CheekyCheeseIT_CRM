@@ -85,21 +85,28 @@ async function cycle(): Promise<string> {
   return rows[0].id as string
 }
 
-/** A run of `sourceId`, STARTED (holding a lease) or terminal, started `agoSql` before now. */
+/**
+ * A run of `sourceId`, STARTED (holding a lease) or terminal, started `agoSql` before now. A
+ * terminal run may record a `requestCount` (U11); a STARTED run never does (it is in flight).
+ */
 async function run(
   sourceId: string,
   outcome: 'STARTED' | 'SUCCEEDED',
   agoSql = "interval '1 minute'",
+  requestCount: number | null = null,
+  endedAgoSql = agoSql,
 ) {
   const started = outcome === 'STARTED'
+  // A terminal run's `ended_at` is `now - endedAgoSql` (the budget keys finished runs on it, U11
+  // SR-M-3); a STARTED run has none. `started_at` is `now - agoSql` (the daily cap keys on it).
   await ADMIN_DB().query(
     `INSERT INTO job_collection_runs
        (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, outcome,
-        owner_token, lease_expires_at, ended_at, started_at, account_key)
+        owner_token, lease_expires_at, ended_at, started_at, account_key, request_count)
      VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', $4::job_collection_outcome,
              $5, CASE WHEN $6 THEN clock_timestamp() + interval '5 minutes' END,
-             CASE WHEN $6 THEN NULL ELSE clock_timestamp() END,
-             clock_timestamp() - ${agoSql}, '#source:' || $1::uuid::text)`,
+             CASE WHEN $6 THEN NULL ELSE clock_timestamp() - ${endedAgoSql} END,
+             clock_timestamp() - ${agoSql}, '#source:' || $1::uuid::text, $7)`,
     [
       sourceId,
       await cycle(),
@@ -107,6 +114,7 @@ async function run(
       outcome,
       started ? `owner-${RUN}` : null,
       started,
+      requestCount,
     ],
   )
 }
@@ -333,6 +341,144 @@ describe.skipIf(!hasDatabaseUrl())(
         )
         expect(Number(rows[0].s)).toBeGreaterThan(3500)
         expect(Number(rows[0].s)).toBeLessThan(3700)
+      })
+    })
+
+    describe('U11 AC: the request-counting host budget', () => {
+      const budget = (perMinute: number, perHour: number): HostPolicy => ({
+        rate: null,
+        floorHours: 0,
+        requestBudget: { perMinute, perHour },
+      })
+
+      it('AC 1: a 4/min budget grants at most 4 of 6 due one-request boards in a minute; the rest wait in next_attempt_at order', async () => {
+        const key = host('u11ac1')
+        // Six sources on the host, staggered so the due order (next_attempt_at ASC) is deterministic.
+        const ids: string[] = []
+        for (let i = 0; i < 6; i += 1) {
+          ids.push(
+            await source(key, {
+              next_attempt_at_sql: `clock_timestamp() - interval '${20 - i} minutes'`,
+            }),
+          )
+        }
+        const granted: string[] = []
+        for (let i = 0; i < 6; i += 1) {
+          const due = (await findDueSources(app, 'SCHEDULED', { onlyIds: ids })).map((r) => r.id)
+          const remaining = due.filter((id) => !granted.includes(id))
+          if (remaining.length === 0) break
+          const pick = remaining[0]!
+          const slot = await inClaimTx((tx) => claimHostSlot(tx, key, budget(4, 120)))
+          if (!slot.granted) break
+          granted.push(pick)
+          // Mimic the ledger + finish: one request recorded, the source leaves the due window.
+          await run(pick, 'SUCCEEDED', "interval '1 second'", 1)
+          await ADMIN_DB().query(
+            `UPDATE job_sources SET next_attempt_at = clock_timestamp() + interval '1 day' WHERE id = $1`,
+            [pick],
+          )
+        }
+        expect(granted).toEqual(ids.slice(0, 4))
+        // The fifth claim is refused for budget; the two unclaimed stay due, in next_attempt_at order.
+        expect(await inClaimTx((tx) => claimHostSlot(tx, key, budget(4, 120)))).toMatchObject({
+          granted: false,
+          reason: 'HOST_REQUEST_BUDGET',
+        })
+        const stillDue = (await findDueSources(app, 'SCHEDULED', { onlyIds: ids })).map((r) => r.id)
+        expect(stillDue).toEqual(ids.slice(4))
+        // SPEC-M-1: once the minute passes (the finished runs leave the minute window by ended_at),
+        // the two that waited ARE claimed, in next_attempt_at order — the "claimed later" half.
+        await ADMIN_DB().query(
+          `UPDATE job_collection_runs SET ended_at = clock_timestamp() - interval '61 seconds'
+           WHERE source_id = ANY($1::uuid[])`,
+          [granted],
+        )
+        const later = (await findDueSources(app, 'SCHEDULED', { onlyIds: ids })).map((r) => r.id)
+        expect(later).toEqual(ids.slice(4))
+        for (const id of later) {
+          expect(await inClaimTx((tx) => claimHostSlot(tx, key, budget(4, 120)))).toEqual({
+            granted: true,
+          })
+          await run(id, 'SUCCEEDED', "interval '1 second'", 1)
+        }
+      })
+
+      it('AC 2: a STARTED run`s expected request counts against the budget, and a budget host is not HOST_BUSY', async () => {
+        const key = host('u11ac2')
+        const a = await source(key)
+        const b = await source(key)
+        // One in-flight run: 1 expected + this claim`s own 1 = 2 = the budget → granted. A budget
+        // host allows the concurrency that T8`s HOST_BUSY would refuse.
+        await run(a, 'STARTED')
+        expect(await inClaimTx((tx) => claimHostSlot(tx, key, budget(2, 120)))).toEqual({
+          granted: true,
+        })
+        // A second in-flight run: 2 expected + own 1 = 3 > 2 → refused for budget, not HOST_BUSY.
+        await run(b, 'STARTED')
+        expect(await inClaimTx((tx) => claimHostSlot(tx, key, budget(2, 120)))).toMatchObject({
+          granted: false,
+          reason: 'HOST_REQUEST_BUDGET',
+        })
+      })
+
+      it('AC 2: the hour window counts finished requests across the trailing hour, not just the minute', async () => {
+        const key = host('u11ac2h')
+        const a = await source(key)
+        // Five finished requests spread across the hour but outside the last minute.
+        await run(a, 'SUCCEEDED', "interval '50 minutes'", 3)
+        await run(a, 'SUCCEEDED', "interval '40 minutes'", 2)
+        // Minute is clear; hour has 5. perHour 6: 5 + own 1 = 6 → granted.
+        expect(await inClaimTx((tx) => claimHostSlot(tx, key, budget(2, 6)))).toEqual({
+          granted: true,
+        })
+        // perHour 5: 5 + own 1 = 6 > 5 → refused on the hour window.
+        const slot = await inClaimTx((tx) => claimHostSlot(tx, key, budget(2, 5)))
+        expect(slot).toMatchObject({ granted: false, reason: 'HOST_REQUEST_BUDGET' })
+        // It opens when the oldest counted request (50 min ago) leaves the hour window: ~10 min.
+        const opensAt = (slot as { opensAt: Date }).opensAt
+        const { rows } = await ADMIN_DB().query(
+          `SELECT extract(epoch FROM $1::timestamptz - clock_timestamp())::float8 AS s`,
+          [opensAt],
+        )
+        expect(Number(rows[0].s)).toBeGreaterThan(500)
+        expect(Number(rows[0].s)).toBeLessThan(700)
+      })
+
+      it('SR-H-2 / CR-M-1: a finished run with a NULL request_count counts as its perRun, never 0', async () => {
+        const key = host('u11srh2')
+        const a = await source(key)
+        // A LEASE_EXPIRED / crashed / pre-U2 run: terminal, in the minute window, no request_count.
+        await run(a, 'SUCCEEDED', "interval '5 seconds'", null)
+        // perMinute 1: the NULL-count run is read as perRun(1), so 1 + own 1 = 2 > 1 → refused.
+        // Were it read as 0, it would wrongly grant (0 + 1 = 1).
+        expect(await inClaimTx((tx) => claimHostSlot(tx, key, budget(1, 120)))).toMatchObject({
+          granted: false,
+          reason: 'HOST_REQUEST_BUDGET',
+        })
+      })
+
+      it('SR-M-3: a run that started over a minute ago but ended inside it still counts in the minute window', async () => {
+        const key = host('u11srm3')
+        const a = await source(key)
+        // started 2 minutes ago, ended 10 seconds ago, one request.
+        await run(a, 'SUCCEEDED', "interval '2 minutes'", 1, "interval '10 seconds'")
+        // perMinute 1: the finished run is in the minute window by ended_at, so 1 + own 1 = 2 > 1.
+        // Keyed on started_at it would have dropped out and wrongly granted.
+        expect(await inClaimTx((tx) => claimHostSlot(tx, key, budget(1, 120)))).toMatchObject({
+          granted: false,
+          reason: 'HOST_REQUEST_BUDGET',
+        })
+      })
+
+      it('AC 3: a host with no declared budget behaves as T8 — a STARTED run refuses HOST_BUSY, not budget', async () => {
+        const key = host('u11ac3')
+        const a = await source(key)
+        await run(a, 'STARTED')
+        expect(await inClaimTx((tx) => claimHostSlot(tx, key, NO_RATE))).toEqual({
+          granted: false,
+          reason: 'HOST_BUSY',
+          opensAt: null,
+        })
       })
     })
 

@@ -18,8 +18,10 @@ import {
   type BanScope,
   type HostKeyOf,
   type HostRate,
+  type HostRequestBudget,
   MAX_FLOOR_HOURS,
   hostRateProblem,
+  hostRequestBudgetProblem,
   isValidHostKey,
 } from './manifest.hosts'
 import { isWellFormedDecision, liftsUnclear, type OwnerDecision } from './owner-decisions'
@@ -97,6 +99,7 @@ export type ManifestErrorCode =
   | 'HOST_KEY_MISSING'
   | 'HOST_KEY_INVALID'
   | 'HOST_RATE_INVALID'
+  | 'HOST_REQUEST_BUDGET_INVALID'
   | 'DETAIL_INVALID'
   | 'FETCH_PROFILE_INVALID'
   | 'BOARD_LINE_INVALID'
@@ -286,6 +289,12 @@ export interface TypeDefinition {
   /** A provider rate the cadence cannot express. `perDay` needs `requestsPerRun` of 1. */
   readonly hostRate?: HostRate
   /**
+   * A request-counting host budget (U11, ADR section 8), for a multi-board host whose request rate
+   * must be limited independently of the cadence. Owner decision 11: a multi-board host starts at
+   * `{ perMinute: 2, perHour: 120 }`; a raise is a manual edit here, never automatic.
+   */
+  readonly hostRequestBudget?: HostRequestBudget
+  /**
    * Owner decisions about this source (`owner-decisions.ts`), recorded BESIDE the provenance, which
    * keeps saying what the terms say. An `ACCEPT_RISK` decision for this type's `endpointVariant`
    * lifts an `UNCLEAR` permission and nothing else.
@@ -471,6 +480,7 @@ export interface ManifestType {
   readonly minIntervalHoursFloor: number
   readonly banScope: BanScope
   readonly hostRate: HostRate | null
+  readonly hostRequestBudget: HostRequestBudget | null
   readonly status: { readonly symbol: string; readonly value: StatusConstant } | null
   readonly blockers: readonly Blocker[]
   readonly deadlines: readonly PolicyDeadline[]
@@ -671,6 +681,12 @@ function checkHostDeclaration(def: TypeDefinition): void {
       'CADENCE_INVALID',
       `${def.type}: minIntervalHoursFloor ${floor} is not an integer from 0 to ${MAX_FLOOR_HOURS}`,
     )
+  }
+  if (def.hostRequestBudget !== undefined) {
+    const budgetProblem = hostRequestBudgetProblem(def.hostRequestBudget)
+    if (budgetProblem !== null) {
+      throw new ManifestError('HOST_REQUEST_BUDGET_INVALID', `${def.type}: ${budgetProblem}`)
+    }
   }
   if (def.hostRate === undefined) return
   const problem = hostRateProblem(def.hostRate, def.requestsPerRun ?? 1)
@@ -931,6 +947,7 @@ export function buildManifest(input: BuildInput): Manifest {
       minIntervalHoursFloor: def.minIntervalHoursFloor ?? 0,
       banScope: def.banScope ?? 'HOST',
       hostRate: def.hostRate ?? null,
+      hostRequestBudget: def.hostRequestBudget ?? null,
       status: def.status ?? null,
       blockers,
       deadlines: def.deadlines ?? [],

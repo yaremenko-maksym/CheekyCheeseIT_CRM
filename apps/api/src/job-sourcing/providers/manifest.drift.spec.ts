@@ -405,6 +405,25 @@ describe('T8: every reporting source has a host key that scopes what it really r
     )
   })
 
+  it('U11: the build refuses an out-of-range or inverted hostRequestBudget', () => {
+    const rebuilt = (type: string, over: Record<string, unknown>) => () =>
+      buildManifest({
+        definitions: MANIFEST_DEFINITIONS.map((d) => (d.type === type ? { ...d, ...over } : d)),
+        adapters: MANIFEST_VALIDATION_ADAPTERS,
+        fixtureRoot: FIXTURE_ROOT,
+      })
+    expect(
+      rebuilt('GREENHOUSE_ATS', { hostRequestBudget: { perMinute: 0, perHour: 120 } }),
+    ).toThrow(
+      'HOST_REQUEST_BUDGET_INVALID: GREENHOUSE_ATS: perMinute 0 is not an integer from 1 to 1000',
+    )
+    expect(rebuilt('LEVER_ATS', { hostRequestBudget: { perMinute: 10, perHour: 5 } })).toThrow(
+      'HOST_REQUEST_BUDGET_INVALID: LEVER_ATS: perHour 5 is below perMinute 10',
+    )
+    // The real 2/120 budget on the board types builds without complaint.
+    expect(rebuilt('GREENHOUSE_ATS', {})).not.toThrow()
+  })
+
   it('the build refuses a reporting type with no key, and an entry whose key is not a host name', () => {
     const rebuilt = (over: Record<string, unknown>) => () =>
       buildManifest({

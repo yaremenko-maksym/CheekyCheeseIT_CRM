@@ -74,6 +74,7 @@ function context() {
       floorHours: 0,
       banScope: undefined,
       allowedHosts: HOSTS,
+      requestsPerRun: 100,
       meter: null,
       secrets: [],
       policyVersion: 1,

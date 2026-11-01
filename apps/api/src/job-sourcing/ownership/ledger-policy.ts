@@ -30,6 +30,8 @@ export const CLAIM_REFUSALS = [
   'HOST_BUSY',
   'HOST_RATE_GAP',
   'HOST_DAILY_CAP',
+  // U11: the host's request budget would be exceeded by this claim.
+  'HOST_REQUEST_BUDGET',
   // U1b: the entry's fetch profile is null (owner, Q8): never claimed by schedule.
   'NOT_SCHEDULED',
 ] as const
@@ -137,6 +139,7 @@ const HOST_TIMED: ReadonlySet<ClaimRefusal> = new Set([
   'HOST_PAUSED',
   'HOST_RATE_GAP',
   'HOST_DAILY_CAP',
+  'HOST_REQUEST_BUDGET',
 ])
 
 /**

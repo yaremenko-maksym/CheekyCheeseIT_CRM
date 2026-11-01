@@ -17,9 +17,9 @@
  * (it is data, not a registry): the caller passes `hostPolicyOf(manifest, key)` in.
  */
 import type { JobSourceType } from '@crm/shared'
-import type { HostPolicy, HostRate } from '../scheduling/host-policy'
+import type { HostPolicy, HostRate, HostRequestBudget } from '../scheduling/host-policy'
 
-export type { BanScope, HostPolicy, HostRate } from '../scheduling/host-policy'
+export type { BanScope, HostPolicy, HostRate, HostRequestBudget } from '../scheduling/host-policy'
 export { isValidHostKey } from '../scheduling/host-policy'
 
 export type HostKeyOf = (config: Readonly<Record<string, unknown>>) => string
@@ -28,6 +28,9 @@ export type HostKeyOf = (config: Readonly<Record<string, unknown>>) => string
 export const MAX_FLOOR_HOURS = 720
 const MAX_PER_MINUTE = 60
 const MAX_PER_DAY = 10_000
+/** The largest request-budget figures we accept (a typo bound, not a measured limit). */
+const MAX_BUDGET_PER_MINUTE = 1_000
+const MAX_BUDGET_PER_HOUR = 60_000
 
 /** Why a rate declaration is refused, or null when it is valid for a type of `requestsPerRun`. */
 export function hostRateProblem(rate: HostRate, requestsPerRun: number): string | null {
@@ -44,10 +47,32 @@ export function hostRateProblem(rate: HostRate, requestsPerRun: number): string 
   return null
 }
 
+/**
+ * Why a request-budget declaration is refused, or null when it is valid (U11). Both figures are
+ * whole numbers in range, and an hour cannot allow fewer requests than a minute.
+ */
+export function hostRequestBudgetProblem(budget: HostRequestBudget): string | null {
+  const bad = (n: number, max: number) => !Number.isInteger(n) || n < 1 || n > max
+  if (bad(budget.perMinute, MAX_BUDGET_PER_MINUTE)) {
+    return `perMinute ${budget.perMinute} is not an integer from 1 to ${MAX_BUDGET_PER_MINUTE}`
+  }
+  if (bad(budget.perHour, MAX_BUDGET_PER_HOUR)) {
+    return `perHour ${budget.perHour} is not an integer from 1 to ${MAX_BUDGET_PER_HOUR}`
+  }
+  if (budget.perHour < budget.perMinute) {
+    return `perHour ${budget.perHour} is below perMinute ${budget.perMinute}`
+  }
+  return null
+}
+
 export interface HostedType {
   readonly type: JobSourceType
   readonly hostRate: HostRate | null
   readonly minIntervalHoursFloor: number
+  /** The request budget the type declares (U11), or null/absent when none. */
+  readonly hostRequestBudget?: HostRequestBudget | null
+  /** The requests one run of the type sends (U11); absent reads as 1. */
+  readonly requestsPerRun?: number
 }
 
 export interface HostedEntry {
@@ -70,19 +95,43 @@ export function hostPolicyOf(
   if (typesOnHost.size === 0) return undefined
   let rate: HostRate | null = null
   let floorHours = 0
+  let budget: HostRequestBudget | null = null
+  let perRun = 1
   for (const t of manifest.types) {
     if (!typesOnHost.has(t.type)) continue
     floorHours = Math.max(floorHours, t.minIntervalHoursFloor)
-    if (t.hostRate === null) continue
-    rate =
-      rate === null
-        ? t.hostRate
-        : {
-            perMinute: Math.min(rate.perMinute, t.hostRate.perMinute),
-            perDay: Math.min(rate.perDay, t.hostRate.perDay),
-          }
+    // The expected requests of a run is the largest any type on the host declares (fail toward
+    // counting MORE against the budget, never less).
+    perRun = Math.max(perRun, t.requestsPerRun ?? 1)
+    if (t.hostRate !== null) {
+      rate =
+        rate === null
+          ? t.hostRate
+          : {
+              perMinute: Math.min(rate.perMinute, t.hostRate.perMinute),
+              perDay: Math.min(rate.perDay, t.hostRate.perDay),
+            }
+    }
+    const b = t.hostRequestBudget ?? null
+    if (b !== null) {
+      // Two types on one host take the SMALLER of each budget figure, so sharing never loosens it.
+      budget =
+        budget === null
+          ? b
+          : {
+              perMinute: Math.min(budget.perMinute, b.perMinute),
+              perHour: Math.min(budget.perHour, b.perHour),
+            }
+    }
   }
-  return { rate, floorHours }
+  // Only carry the U11 fields when they say something, so a host with no budget is `{ rate,
+  // floorHours }` exactly as before and the generated snapshot does not grow for every host.
+  return {
+    rate,
+    floorHours,
+    ...(budget !== null ? { requestBudget: budget } : {}),
+    ...(budget !== null && perRun > 1 ? { requestsPerRun: perRun } : {}),
+  }
 }
 
 /** One observed request: the real host an entry's adapter reached, and the entry's key. */
