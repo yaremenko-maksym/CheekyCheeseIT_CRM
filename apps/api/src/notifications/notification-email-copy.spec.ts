@@ -81,6 +81,32 @@ const DATA: Record<NewNotificationType, unknown> = {
   INVOICE_SIGNED: { counterpartyName: PERSON, amount: '1500.000000', currency: 'USDT' },
   INVOICE_SIGN_REQUIRED: { amount: '1500.000000', currency: 'USDT' },
   VACANCY_APPLICATION: { vacancyTitle: 'Senior Frontend Engineer' },
+  SOURCE_HEALTH_ALERT: { sourceName: 'remotive_api', state: 'FAILING' },
+  SOURCE_HEALTH_WEEKLY_REPORT: {
+    weekStart: '2026-10-26',
+    sources: [
+      {
+        name: 'remotive_api',
+        state: 'HEALTHY',
+        transitions: 2,
+        runs: 140,
+        freshnessP50Min: 12,
+        freshnessP90Min: 95,
+        requests: 150,
+        bytes: 2_500_000,
+      },
+      {
+        name: 'jobicy_api',
+        state: 'FAILING',
+        transitions: 1,
+        runs: 30,
+        freshnessP50Min: null,
+        freshnessP90Min: null,
+        requests: 30,
+        bytes: 0,
+      },
+    ],
+  },
 }
 
 const SUBJECT_TYPE: Record<NewNotificationType, NotificationEmailSource['subjectType']> = {
@@ -99,6 +125,9 @@ const SUBJECT_TYPE: Record<NewNotificationType, NotificationEmailSource['subject
   INVOICE_SIGNED: null,
   INVOICE_SIGN_REQUIRED: null,
   VACANCY_APPLICATION: null,
+  // U5a: no subject page exists yet (the source page is unit U7), so the button opens the CRM.
+  SOURCE_HEALTH_ALERT: null,
+  SOURCE_HEALTH_WEEKLY_REPORT: null,
 }
 
 const SUBJECT_ID = '33333333-3333-4333-8333-333333333333'
@@ -149,8 +178,8 @@ const CYRILLIC = /[А-Яа-яЁёІіЇїЄєҐґ]/
 // ---------------------------------------------------------------------------
 
 describe('структурные пины — маршрут и каркас не зависят от языка', () => {
-  it('ровно тринадцать типов: четырнадцатый обязан упасть здесь, а не молча уйти без шаблона', () => {
-    expect(NEW_NOTIFICATION_TYPES).toHaveLength(13)
+  it('ровно пятнадцать типов: шестнадцатый обязан упасть здесь, а не молча уйти без шаблона', () => {
+    expect(NEW_NOTIFICATION_TYPES).toHaveLength(15)
   })
 
   const HREF: Record<NewNotificationType, string> = {
@@ -167,6 +196,8 @@ describe('структурные пины — маршрут и каркас н�
     INVOICE_SIGNED: `${FRONTEND}/documents/tx-1`,
     INVOICE_SIGN_REQUIRED: `${FRONTEND}/documents/tx-1`,
     VACANCY_APPLICATION: `${FRONTEND}/vacancies/vac-1`,
+    SOURCE_HEALTH_ALERT: `${FRONTEND}/`,
+    SOURCE_HEALTH_WEEKLY_REPORT: `${FRONTEND}/`,
   }
 
   describe.each(LOCALES)('%s', (locale) => {
@@ -203,7 +234,7 @@ describe('структурные пины — маршрут и каркас н�
 // Страж §10/§11 — в обеих локалях
 // ---------------------------------------------------------------------------
 
-describe.each(LOCALES)('%s: тринадцать писем — страж §11', (locale) => {
+describe.each(LOCALES)('%s: пятнадцать писем — страж §11', (locale) => {
   it.each(NEW_NOTIFICATION_TYPES)('%s: есть тема, текст и разметка', (type) => {
     const mail = render(type, locale)
     expect(mail.subject.length).toBeGreaterThan(0)
@@ -211,15 +242,28 @@ describe.each(LOCALES)('%s: тринадцать писем — страж §11'
     expect(mail.html).toContain('<!DOCTYPE html>')
   })
 
-  it.each(NEW_NOTIFICATION_TYPES)('%s: ни одной цифры — ни суммы, ни процента', (type) => {
-    const mail = render(type, locale)
-    // Данные образца НЕСУТ и сумму, и проценты (см. DATA выше). Любая цифра в выводе означает,
-    // что шаблон их подставил, — то, что §11 запрещает прямым текстом.
+  // The weekly report is the ONE letter that carries counts: an ADMIN-only operational report
+  // (runs, requests, freshness). It has its own digit test below; the rule here is about money.
+  it.each(NEW_NOTIFICATION_TYPES.filter((t) => t !== 'SOURCE_HEALTH_WEEKLY_REPORT'))(
+    '%s: ни одной цифры — ни суммы, ни процента',
+    (type) => {
+      const mail = render(type, locale)
+      // Данные образца НЕСУТ и сумму, и проценты (см. DATA выше). Любая цифра в выводе означает,
+      // что шаблон их подставил, — то, что §11 запрещает прямым текстом.
+      expect(mail.subject).not.toMatch(/[0-9]/)
+      // Из текстовой версии убирается сам адрес: в нём цифры законны (идентификатор объекта).
+      expect(mail.text.replace(mail.buttonHref, '')).not.toMatch(/[0-9]/)
+      // В разметке цифры законны (цвета, пиксели, ссылка) — проверяется только ВИДИМЫЙ текст.
+      expect(visibleText(mail.html)).not.toMatch(/[0-9]/)
+    },
+  )
+
+  it('SOURCE_HEALTH_WEEKLY_REPORT: only the BODY carries counts; the subject and the button stay digit-free (CR-M-3)', () => {
+    const mail = render('SOURCE_HEALTH_WEEKLY_REPORT', locale)
+    expect(mail.text).toContain('140')
+    expect(mail.text).not.toMatch(/USDT|1500/)
     expect(mail.subject).not.toMatch(/[0-9]/)
-    // Из текстовой версии убирается сам адрес: в нём цифры законны (идентификатор объекта).
-    expect(mail.text.replace(mail.buttonHref, '')).not.toMatch(/[0-9]/)
-    // В разметке цифры законны (цвета, пиксели, ссылка) — проверяется только ВИДИМЫЙ текст.
-    expect(visibleText(mail.html)).not.toMatch(/[0-9]/)
+    expect(mail.buttonLabel).not.toMatch(/[0-9]/)
   })
 
   it.each(NEW_NOTIFICATION_TYPES)('%s: не называет людей', (type) => {
@@ -358,6 +402,16 @@ const GOLDEN: Record<Locale, Golden> = {
       text: 'Деталі — у CRM.',
       button: 'Відкрити',
     },
+    SOURCE_HEALTH_ALERT: {
+      subject: 'Збій джерела вакансій «remotive_api»',
+      text: 'Джерело «remotive_api»: запити завершуються помилкою.\nДеталі — у CRM.',
+      button: 'Відкрити CRM',
+    },
+    SOURCE_HEALTH_WEEKLY_REPORT: {
+      subject: 'Тижневий звіт джерел',
+      text: 'Тиждень з 26 жовтня.\nremotive_api: справне; змін стану — 2; запусків — 140; свіжість: медіана 12 хв, 90-й перцентиль 95 хв; запитів — 150; отримано — 2.5 МБ.\njobicy_api: збої; змін стану — 1; запусків — 30; свіжість не вимірюється; запитів — 30; отримано — 0 МБ.',
+      button: 'Відкрити CRM',
+    },
   },
   en: {
     TRANSACTION_ADDED: {
@@ -425,6 +479,16 @@ const GOLDEN: Record<Locale, Golden> = {
       text: 'Details are in the CRM.',
       button: 'Open',
     },
+    SOURCE_HEALTH_ALERT: {
+      subject: 'Job source failure: “remotive_api”',
+      text: 'Source “remotive_api”: requests are failing.\nDetails are in the CRM.',
+      button: 'Open the CRM',
+    },
+    SOURCE_HEALTH_WEEKLY_REPORT: {
+      subject: 'Weekly source report',
+      text: 'Week starting October 26.\nremotive_api: healthy; state changes: 2; runs: 140; freshness: median 12 min, 90th percentile 95 min; requests: 150; received: 2.5 MB.\njobicy_api: failing; state changes: 1; runs: 30; freshness not measurable; requests: 30; received: 0 MB.',
+      button: 'Open the CRM',
+    },
   },
 }
 
@@ -477,6 +541,87 @@ describe.each(LOCALES)('%s: ветки, которых в таблице эта�
     const want = SHARE_BASE[locale]
     expect(mail.subject).toBe(want.subject)
     expect(mail.text).toBe(`${want.line1}\n${want.line2}\n\n${want.button}: ${mail.buttonHref}`)
+  })
+
+  it('SOURCE_HEALTH_WEEKLY_REPORT: freshness is named only when BOTH figures exist', () => {
+    const row = {
+      name: 'remotive_api',
+      state: 'HEALTHY',
+      transitions: 0,
+      runs: 1,
+      requests: 1,
+      bytes: 0,
+    }
+    for (const [p50, p90] of [
+      [null, 95],
+      [12, null],
+    ]) {
+      const mail = renderWith(
+        {
+          ...sourceFor('SOURCE_HEALTH_WEEKLY_REPORT'),
+          data: {
+            weekStart: '2026-10-26',
+            sources: [{ ...row, freshnessP50Min: p50, freshnessP90Min: p90 }],
+          },
+        },
+        locale,
+      )
+      expect(mail.text).not.toContain('null')
+      expect(mail.text).toContain(
+        locale === 'uk' ? 'свіжість не вимірюється' : 'freshness not measurable',
+      )
+    }
+  })
+
+  it('SOURCE_HEALTH_ALERT CAPPED: the line names the failure count and the day they began, whole sentences', () => {
+    const capped = {
+      ...sourceFor('SOURCE_HEALTH_ALERT'),
+      data: {
+        sourceName: 'remotive_api',
+        state: 'CAPPED',
+        failures: 5,
+        since: '2026-10-28T08:15:00.000Z',
+      },
+    }
+    const bare = { ...capped, data: { sourceName: 'remotive_api', state: 'CAPPED' } }
+    const want = {
+      uk: {
+        counted: 'Джерело «remotive_api»: 5 збоїв поспіль з 28 жовтня, потрібне скидання.',
+        bare: 'Джерело «remotive_api»: забагато збоїв поспіль, потрібне скидання.',
+      },
+      en: {
+        counted: 'Source “remotive_api”: 5 failures in a row since October 28, a reset is needed.',
+        bare: 'Source “remotive_api”: too many failures in a row, a reset is needed.',
+      },
+    }[locale]
+    expect(renderWith(capped, locale).text.split('\n')[0]).toBe(want.counted)
+    expect(renderWith(bare, locale).text.split('\n')[0]).toBe(want.bare)
+  })
+
+  it('SOURCE_HEALTH_WEEKLY_REPORT: a source with no state changes drops the zero clause', () => {
+    const mail = renderWith(
+      {
+        ...sourceFor('SOURCE_HEALTH_WEEKLY_REPORT'),
+        data: {
+          weekStart: '2026-10-26',
+          sources: [
+            {
+              name: 'remotive_api',
+              state: 'HEALTHY',
+              transitions: 0,
+              runs: 140,
+              freshnessP50Min: 12,
+              freshnessP90Min: 95,
+              requests: 150,
+              bytes: 2_500_000,
+            },
+          ],
+        },
+      },
+      locale,
+    )
+    expect(mail.text).toContain(locale === 'uk' ? 'справне; запусків — 140' : 'healthy; runs: 140')
+    expect(mail.text).not.toContain(locale === 'uk' ? 'змін стану' : 'state changes')
   })
 
   it('валидированный доход — своя тема и своё тело', () => {

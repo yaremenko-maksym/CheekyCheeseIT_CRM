@@ -52,6 +52,8 @@ import {
   ACTION_LABELS,
   createI18n,
   EMAIL_NOTIFICATION_MESSAGES as M,
+  formatDay,
+  sourceAlertParams,
   isActionRequiredNotificationType,
   isNewNotificationType,
   MISC_MESSAGES,
@@ -247,6 +249,46 @@ const BODIES: {
   VACANCY_APPLICATION: (d, i18n) => ({
     subject: renderMessage(i18n, M.vacancyApplicationSubject, { vacancyTitle: d.vacancyTitle }),
     lines: [renderMessage(i18n, M.sharedDetailsLine)],
+  }),
+
+  // U5a, ADMIN only (the producer's recipient rule). The only types whose email carries more than
+  // the object name: source ids and counts are operational data for ADMINs, with no person and no
+  // URL in them.
+  SOURCE_HEALTH_ALERT: (d, i18n) => ({
+    subject: renderMessage(i18n, M.sourceAlertSubject, { source: d.sourceName }),
+    lines: [
+      renderMessage(i18n, M.sourceAlertLine, sourceAlertParams(d, i18n.locale as Locale)),
+      renderMessage(i18n, M.sharedDetailsLine),
+    ],
+  }),
+
+  SOURCE_HEALTH_WEEKLY_REPORT: (d, i18n) => ({
+    subject: renderMessage(i18n, M.sourceWeeklySubject),
+    lines: [
+      renderMessage(i18n, M.sourceWeeklyHeadLine, {
+        weekStart: formatDay(d.weekStart, i18n.locale as Locale),
+      }),
+      ...d.sources.map((s) => {
+        const params = {
+          source: s.name,
+          state: s.state,
+          // A zero is not a fact worth a clause in a healthy source's line.
+          // Stryker disable next-line StringLiteral: the ICU select branches only on 'yes'; 'no' and '' both take `other` and render byte-identical text in uk and en (checked with renderMessage).
+          hasChanges: s.transitions > 0 ? 'yes' : 'no',
+          transitions: s.transitions,
+          runs: s.runs,
+          requests: s.requests,
+          megabytes: Math.round(s.bytes / 100_000) / 10,
+        }
+        return s.freshnessP50Min === null || s.freshnessP90Min === null
+          ? renderMessage(i18n, M.sourceWeeklyLineUnmeasured, params)
+          : renderMessage(i18n, M.sourceWeeklyLineMeasured, {
+              ...params,
+              p50: s.freshnessP50Min,
+              p90: s.freshnessP90Min,
+            })
+      }),
+    ],
   }),
 }
 

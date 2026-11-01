@@ -10,7 +10,10 @@ import { DouRssProvider } from './dou.provider'
 import { JobMatchReconciliationCronService } from './job-match-reconciliation.cron'
 import { JobQueueActionRetentionCronService } from './job-queue-action-retention.cron'
 import { JobSourcingController } from './job-sourcing.controller'
+import { NotificationsModule } from '../notifications/notifications.module'
 import { JobSourceHealthService } from './health/job-source-health.service'
+import { SourceHealthAlertService } from './health/source-health-alert.service'
+import { SourceHealthWeeklyReportCron } from './health/source-health-weekly-report.cron'
 import { JobSourcingCronService } from './job-sourcing.cron'
 import { JobSourcingService } from './job-sourcing.service'
 import { JobSourceRegistry } from './registry/job-source-registry'
@@ -46,7 +49,7 @@ import { JobRunLedger } from './ownership/job-run-ledger'
  * and discovers every `@Cron` in the application.
  */
 @Module({
-  imports: [DatabaseModule, AuthModule],
+  imports: [DatabaseModule, AuthModule, NotificationsModule],
   controllers: [JobSourcingController, JobSourceAdminController],
   providers: [
     JobSourcingService,
@@ -54,6 +57,9 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     JobSourcingCronService,
     // U4: the health detector pass, injected (optional) into the tick handler.
     JobSourceHealthService,
+    // U5a: the ADMIN alert on entering a bad state (called by the pass) and the Monday report.
+    SourceHealthAlertService,
+    SourceHealthWeeklyReportCron,
     JobQueueActionRetentionCronService,
     // r5 Task 4.6 S4b: periodic reconciliation + drain of the recompute worker; flag default OFF.
     JobMatchReconciliationCronService,

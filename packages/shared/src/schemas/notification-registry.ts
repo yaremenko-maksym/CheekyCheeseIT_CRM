@@ -44,8 +44,10 @@
 export {
   ACTION_REQUIRED_NOTIFICATION_TYPES,
   ADMIN_NOTIFICATION_TYPES,
+  CONFIGURABLE_NOTIFICATION_TYPES,
   INFORMING_NOTIFICATION_TYPES,
   NEW_NOTIFICATION_TYPES,
+  OPERATIONS_NOTIFICATION_TYPES,
   isActionRequiredNotificationType,
   notificationSubjectTypeSchema,
   type NewNotificationType,
@@ -57,6 +59,7 @@ export {
   notificationDataSchemaFor,
   notificationTextPreview,
   type NotificationDataByType,
+  type WeeklySourceRow,
 } from './notification-registry/data'
 export {
   ACTION_LABELS,
@@ -69,6 +72,7 @@ export {
   SUBJECT_ARCHIVED_LABELS,
   SUBJECT_MISSING_LABELS,
 } from './notification-registry/messages'
+export { formatDay, sourceAlertParams } from './notification-registry/source-health-params'
 export {
   describeNotification,
   notificationActions,

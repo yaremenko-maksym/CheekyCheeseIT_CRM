@@ -13,6 +13,7 @@ import {
   SUBJECT_ARCHIVED_LABELS,
   SUBJECT_MISSING_LABELS,
   describeNotification,
+  formatDay,
   notificationActions,
   notificationDataSchemaFor,
   notificationSubjectTypeSchema,
@@ -47,14 +48,14 @@ const base = {
   subjectArchived: false,
 }
 
-describe('тринадцать типов — реестр', () => {
+describe('пятнадцать типов — реестр', () => {
   // task-i18n-stage4-task6: 13 = 10 исходных + 3 замороженных типа (инвойсы,
   // вакансии), зарегистрированных в `NEW_NOTIFICATION_TYPES`. Порядок — по
   // группам (`INFORMING_NOTIFICATION_TYPES`, `ACTION_REQUIRED_NOTIFICATION_
   // TYPES`, `ADMIN_NOTIFICATION_TYPES`), «три старых» больше НЕ дублируются
   // литералом в `notifications.ts` — иначе `z.enum` несёт повторяющиеся
   // значения.
-  it('enum несёт ровно тринадцать типов, по группам', () => {
+  it('enum несёт ровно пятнадцать типов, по группам', () => {
     expect(notificationTypeSchema.options).toEqual([
       'TRANSACTION_ADDED',
       'TRANSACTION_STATUS_CHANGED',
@@ -69,12 +70,14 @@ describe('тринадцать типов — реестр', () => {
       'APPROVAL_CONFIRMED',
       'APPROVAL_REJECTED',
       'INVOICE_SIGNED',
+      'SOURCE_HEALTH_ALERT',
+      'SOURCE_HEALTH_WEEKLY_REPORT',
     ])
   })
 
-  it('у каждого из тринадцати есть легаси-заголовок без точки на конце', () => {
+  it('у каждого из пятнадцати есть легаси-заголовок без точки на конце', () => {
     const titles = Object.entries(NOTIFICATION_TITLES)
-    expect(titles).toHaveLength(13)
+    expect(titles).toHaveLength(15)
     for (const [type, title] of titles) {
       expect(title.length, type).toBeGreaterThan(0)
       expect(title.endsWith('.'), type).toBe(false)
@@ -106,7 +109,7 @@ describe('тринадцать типов — реестр', () => {
    * маршрута кнопки письма (`/pending`), см. комментарий к
    * `INFORMING_NOTIFICATION_TYPES`.
    */
-  it('заголовки реестра (все 13 типов, uk и en) помещаются в бюджет попапа целиком (COPY-M-2/SPEC-M-1, ≤27 знаков, ~202px Inter 14 medium)', () => {
+  it('заголовки реестра (все 15 типов, uk и en) помещаются в бюджет попапа целиком (COPY-M-2/SPEC-M-1, ≤27 знаков, ~202px Inter 14 medium)', () => {
     expect([...ACTION_REQUIRED_NOTIFICATION_TYPES]).toEqual([
       'PROJECT_CONFIRM_REQUIRED',
       'SHARE_CONFIRM_REQUIRED',
@@ -197,6 +200,152 @@ describe('три замороженных типа — реестр, не зам
     expect(NOTIFICATION_TITLE_MESSAGES.VACANCY_APPLICATION.message).toBe('Новий відгук на вакансію')
   })
 
+  it('SOURCE_HEALTH_ALERT: the detail names the source and the state, in both languages', () => {
+    const data = notificationDataSchemaFor('SOURCE_HEALTH_ALERT').parse({
+      sourceName: 'remotive_api',
+      state: 'CAPPED',
+    })
+    expect(describeNotification('SOURCE_HEALTH_ALERT', data, UK)).toBe(
+      'remotive_api — забагато збоїв поспіль, потрібне скидання',
+    )
+    expect(describeNotification('SOURCE_HEALTH_ALERT', data, EN)).toBe(
+      'remotive_api — too many failures in a row, a reset is needed',
+    )
+    // The state is a closed set: a healthy state is not an alert.
+    expect(
+      notificationDataSchemaFor('SOURCE_HEALTH_ALERT').safeParse({
+        sourceName: 'remotive_api',
+        state: 'HEALTHY',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('SOURCE_HEALTH_WEEKLY_REPORT: the detail counts the sources and those whose state changed', () => {
+    const row = {
+      name: 'remotive_api',
+      state: 'HEALTHY',
+      transitions: 0,
+      runs: 140,
+      freshnessP50Min: 12,
+      freshnessP90Min: 95,
+      requests: 150,
+      bytes: 2_500_000,
+    }
+    const data = notificationDataSchemaFor('SOURCE_HEALTH_WEEKLY_REPORT').parse({
+      weekStart: '2026-10-26',
+      sources: [
+        row,
+        { ...row, name: 'jobicy_api', state: 'FAILING', transitions: 2 },
+        { ...row, name: 'himalayas_api', state: 'EMPTY', transitions: 1 },
+      ],
+    })
+    expect(describeNotification('SOURCE_HEALTH_WEEKLY_REPORT', data, UK)).toBe(
+      'Тиждень з 26 жовтня: джерел — 3, зі зміною стану — 2',
+    )
+    expect(describeNotification('SOURCE_HEALTH_WEEKLY_REPORT', data, EN)).toBe(
+      'Week starting October 26: sources — 3, with a state change — 2',
+    )
+    // The stored row is bounded: a malformed date is refused, anchored at both ends.
+    for (const weekStart of ['26.10.2026', 'x2026-10-26', '2026-10-26x']) {
+      expect(
+        notificationDataSchemaFor('SOURCE_HEALTH_WEEKLY_REPORT').safeParse({
+          weekStart,
+          sources: [],
+        }).success,
+        weekStart,
+      ).toBe(false)
+    }
+  })
+
+  it.each(['FAILING', 'CAPPED', 'BLOCKED', 'EMPTY', 'PAUSED', 'DEGRADED'])(
+    'SOURCE_HEALTH_ALERT accepts the alerting state %s',
+    (state) => {
+      expect(
+        notificationDataSchemaFor('SOURCE_HEALTH_ALERT').safeParse({ sourceName: 's', state })
+          .success,
+      ).toBe(true)
+    },
+  )
+
+  it.each(['BLOCKED', 'CAPPED', 'PAUSED', 'FAILING', 'EMPTY', 'DEGRADED', 'SILENT', 'HEALTHY'])(
+    'a weekly report row accepts the health state %s, and not a made-up one',
+    (state) => {
+      const schema = notificationDataSchemaFor('SOURCE_HEALTH_WEEKLY_REPORT')
+      const row = {
+        name: 's',
+        state,
+        transitions: 0,
+        runs: 0,
+        freshnessP50Min: null,
+        freshnessP90Min: null,
+        requests: 0,
+        bytes: 0,
+      }
+      expect(schema.safeParse({ weekStart: '2026-10-26', sources: [row] }).success).toBe(true)
+      expect(
+        schema.safeParse({ weekStart: '2026-10-26', sources: [{ ...row, state: 'BROKEN' }] })
+          .success,
+      ).toBe(false)
+    },
+  )
+
+  it('SOURCE_HEALTH_ALERT CAPPED: names the failure count (with the right plural) and the day they began', () => {
+    const base = { sourceName: 'remotive_api', state: 'CAPPED', since: '2026-10-28T08:15:00.000Z' }
+    const render = (failures: number, i18n: typeof UK) =>
+      describeNotification(
+        'SOURCE_HEALTH_ALERT',
+        notificationDataSchemaFor('SOURCE_HEALTH_ALERT').parse({ ...base, failures }),
+        i18n,
+      )
+    expect(render(5, UK)).toBe('remotive_api — 5 збоїв поспіль з 28 жовтня, потрібне скидання')
+    expect(render(1, UK)).toBe('remotive_api — 1 збій поспіль з 28 жовтня, потрібне скидання')
+    expect(render(2, UK)).toBe('remotive_api — 2 збої поспіль з 28 жовтня, потрібне скидання')
+    expect(render(5, EN)).toBe(
+      'remotive_api — 5 failures in a row since October 28, a reset is needed',
+    )
+    expect(render(1, EN)).toBe(
+      'remotive_api — 1 failure in a row since October 28, a reset is needed',
+    )
+    // Without the facts the sentence stays whole and says nothing it does not know.
+    const bare = notificationDataSchemaFor('SOURCE_HEALTH_ALERT').parse({
+      sourceName: 'remotive_api',
+      state: 'CAPPED',
+    })
+    expect(describeNotification('SOURCE_HEALTH_ALERT', bare, EN)).toBe(
+      'remotive_api — too many failures in a row, a reset is needed',
+    )
+  })
+
+  it('formatDay: a bare date is formatted as written, an instant on the Kyiv calendar, by locale', () => {
+    expect(formatDay('2026-10-26', 'uk')).toBe('26 жовтня')
+    expect(formatDay('2026-10-26', 'en')).toBe('October 26')
+    // 23:30 UTC on 27 October is already 28 October in Kyiv (UTC+2 after the clocks went back).
+    expect(formatDay('2026-10-27T22:30:00.000Z', 'en')).toBe('October 28')
+    expect(formatDay('2026-10-27T21:30:00.000Z', 'en')).toBe('October 27')
+  })
+
+  it('the rendered TITLE comes from the catalog in the reader language, not from the stored column (COPY-H-1)', () => {
+    const stored = {
+      type: 'SOURCE_HEALTH_ALERT',
+      title: 'Збій джерела вакансій',
+      body: null,
+      link: null,
+      subjectType: null,
+      subjectId: null,
+      data: { sourceName: 'remotive_api', state: 'FAILING' },
+    }
+    expect(renderNotification(stored, EN).title).toBe('Job source failure')
+    expect(renderNotification(stored, UK).title).toBe('Збій джерела вакансій')
+    const weekly = {
+      ...stored,
+      type: 'SOURCE_HEALTH_WEEKLY_REPORT',
+      title: 'Тижневий звіт джерел',
+      data: { weekStart: '2026-10-26', sources: [] },
+    }
+    expect(renderNotification(weekly, EN).title).toBe('Weekly source report')
+    expect(renderNotification(weekly, UK).title).toBe('Тижневий звіт джерел')
+  })
+
   it('три замороженных типа несут неймспейс `notification.<TYPE>.title` в id заголовка', () => {
     expect(NOTIFICATION_TITLE_MESSAGES.INVOICE_SIGNED.id).toBe('notification.INVOICE_SIGNED.title')
     expect(NOTIFICATION_TITLE_MESSAGES.INVOICE_SIGN_REQUIRED.id).toBe(
@@ -227,7 +376,7 @@ describe('три замороженных типа — реестр, не зам
  * как проверка перевода — перевод проверяет `copy-reviewer`).
  */
 describe('реестр сообщений — источник для i18n:extract (прямые ассерты на .message/.id)', () => {
-  it('NOTIFICATION_TITLE_MESSAGES — все тринадцать заголовков', () => {
+  it('NOTIFICATION_TITLE_MESSAGES — все пятнадцать заголовков', () => {
     const expected: Record<string, string> = {
       TRANSACTION_ADDED: 'Вам додали транзакцію',
       TRANSACTION_STATUS_CHANGED: 'Рішення щодо доходу',
@@ -245,6 +394,8 @@ describe('реестр сообщений — источник для i18n:extra
       // COPY-M-1 (copy-review круг 1, #714): «Рахунок на підпис».
       INVOICE_SIGN_REQUIRED: 'Рахунок на підпис',
       VACANCY_APPLICATION: 'Новий відгук на вакансію',
+      SOURCE_HEALTH_ALERT: 'Збій джерела вакансій',
+      SOURCE_HEALTH_WEEKLY_REPORT: 'Тижневий звіт джерел',
     }
     for (const [type, message] of Object.entries(expected)) {
       const descriptor =
@@ -254,7 +405,7 @@ describe('реестр сообщений — источник для i18n:extra
     }
   })
 
-  it('DETAIL_MESSAGES — все четырнадцать шаблонов деталей', () => {
+  it('DETAIL_MESSAGES — все шестнадцать шаблонов деталей', () => {
     const expected: Record<string, { id: string; message: string }> = {
       // SR-L-1 (security-review круг 1, #714): `hasProject` вместо ветвления
       // по значению `projectName` — см. doc-комментарий в notification-registry.ts.
@@ -320,6 +471,15 @@ describe('реестр сообщений — источник для i18n:extra
         id: 'notification.INVOICE_SIGNED.detail',
         message: '{money} · {counterpartyName}',
       },
+      SOURCE_HEALTH_ALERT: {
+        id: 'notification.SOURCE_HEALTH_ALERT.detail',
+        message:
+          '{source} — {state, select, FAILING {запити завершуються помилкою} CAPPED {{hasCount, select, yes {{failures, plural, one {# збій} few {# збої} many {# збоїв} other {# збою}} поспіль з {since}, потрібне скидання} other {забагато збоїв поспіль, потрібне скидання}}} BLOCKED {джерело заблоковане} EMPTY {порожня відповідь} PAUSED {хост на паузі через обмеження} other {змінився формат відповіді}}',
+      },
+      SOURCE_HEALTH_WEEKLY_REPORT: {
+        id: 'notification.SOURCE_HEALTH_WEEKLY_REPORT.detail',
+        message: 'Тиждень з {weekStart}: джерел — {total}, зі зміною стану — {changed}',
+      },
     }
     expect(Object.keys(DETAIL_MESSAGES).sort()).toEqual(Object.keys(expected).sort())
     for (const [key, exp] of Object.entries(expected)) {
@@ -329,7 +489,7 @@ describe('реестр сообщений — источник для i18n:extra
     }
   })
 
-  it('ACTION_LABELS — все одиннадцать подписей кнопок (кроме APPROVAL_*)', () => {
+  it('ACTION_LABELS — все тринадцать подписей кнопок (кроме APPROVAL_*)', () => {
     const expected: Record<string, string> = {
       TRANSACTION_ADDED: 'Відкрити фінанси',
       TRANSACTION_STATUS_CHANGED: 'Відкрити фінанси',
@@ -342,6 +502,8 @@ describe('реестр сообщений — источник для i18n:extra
       INVOICE_SIGNED: 'Відкрити рахунок',
       INVOICE_SIGN_REQUIRED: 'Підписати рахунок',
       VACANCY_APPLICATION: 'Відкрити вакансію',
+      SOURCE_HEALTH_ALERT: 'Відкрити CRM',
+      SOURCE_HEALTH_WEEKLY_REPORT: 'Відкрити CRM',
     }
     expect(Object.keys(ACTION_LABELS).sort()).toEqual(Object.keys(expected).sort())
     for (const [type, message] of Object.entries(expected)) {

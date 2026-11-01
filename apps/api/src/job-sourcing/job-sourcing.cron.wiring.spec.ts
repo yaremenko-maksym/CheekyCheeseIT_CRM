@@ -7,9 +7,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { AuthModule } from '../auth/auth.module'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseModule } from '../database/database.module'
+import { NotificationsModule } from '../notifications/notifications.module'
 import { DatabaseService } from '../database/database.service'
 import { JobSourcingCronService } from './job-sourcing.cron'
 import { JobSourcingModule } from './job-sourcing.module'
+import { StubNotificationsModule } from './stub-notifications-module.test-helper'
 
 /**
  * r5 Task 2.5 T5 — the REAL container hands the cron service the REAL ledger, worker and config.
@@ -68,6 +70,8 @@ describe('JobSourcingCronService, booted', () => {
       .useModule(StubGlobalsModule)
       .overrideModule(AuthModule)
       .useModule(StubAuthModule)
+      .overrideModule(NotificationsModule)
+      .useModule(StubNotificationsModule)
       .compile()
     await moduleRef.init()
 

@@ -14,7 +14,7 @@
  * and `DEADLINE_NEAR` are live in production, not dead. A provider with no freshness/deadline fact
  * declared simply does not fire those two — conservative, and widened by a one-line table edit.
  */
-import { Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { and, desc, eq, gte, inArray } from 'drizzle-orm'
 import { DatabaseService } from '../../database/database.service'
 // Import schema tables through the barrel, never the individual modules: a single schema file
@@ -29,6 +29,7 @@ import {
 import { MAX_CONSECUTIVE_FAILURES } from '../scheduling/due-policy'
 import { classifyHealth } from './classify-health'
 import { runDetectors } from './detectors'
+import { SourceHealthAlertService } from './source-health-alert.service'
 import { freshnessMaxAgeMsFor, isEmployerBoard, policyDeadlineFor } from './provider-facts'
 import { REPORTING_TYPES } from './reporting-types'
 import { buildEvidence, firstBadRunId, lastGoodRunId, type PassRun } from './run-provenance'
@@ -47,7 +48,13 @@ export interface DetectorPassResult {
 export class JobSourceHealthService {
   private readonly logger = new Logger(JobSourceHealthService.name)
 
-  constructor(private readonly database: DatabaseService) {}
+  constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
+    // U5a: optional like the cron's collaborators — a unit context without it writes events only.
+    @Optional()
+    @Inject(SourceHealthAlertService)
+    private readonly alerts?: SourceHealthAlertService,
+  ) {}
 
   /**
    * One pass over every reporting source. Returns how many sources were classified and how many
@@ -64,6 +71,7 @@ export class JobSourceHealthService {
         readiness: jobSources.readiness,
         consecutiveFailures: jobSources.consecutiveFailures,
         hostKey: jobSources.hostKey,
+        manifestId: jobSources.manifestId,
       })
       .from(jobSources)
       .where(inArray(jobSources.type, REPORTING_TYPES))
@@ -171,22 +179,40 @@ export class JobSourceHealthService {
       if (verdict.state === prevState && verdict.reasonCode === prevReason) continue
 
       const latestRun = runs[0]
-      await db.insert(jobSourceHealthEvents).values({
-        sourceId: source.id,
-        kind: 'TRANSITION',
-        fromState: prevState,
-        toState: verdict.state,
-        reasonCode: verdict.reasonCode,
-        // The metric values against the baseline, plus the reasons and run ids (ADR section 10).
-        // Small by construction (a handful of short codes + a few scalars), so always within the
-        // 8192-char evidence CHECK; no truncation branch to leave untested.
-        evidence: buildEvidence(runs, facts.reasons, source.consecutiveFailures, now),
-        firstBadRunId: firstBadRunId(runs),
-        lastGoodRunId: lastGoodRunId(runs),
-        adapterVersion: latestRun?.adapterVersion ?? null,
-        configVersion: latestRun?.configVersion ?? null,
-        httpStatus: latestRun?.lastHttpStatus ?? null,
-        errorSample: latestRun?.errorMessage?.slice(0, ERROR_SAMPLE_MAX) ?? null,
+      const firstBad = firstBadRunId(runs)
+      // The event and its ADMIN alerts (U5a) commit together; the alert path is a savepoint inside
+      // (`emitInTx`), so a failure there can never roll the event back.
+      await db.transaction(async (tx) => {
+        const [event] = await tx
+          .insert(jobSourceHealthEvents)
+          .values({
+            sourceId: source.id,
+            kind: 'TRANSITION',
+            fromState: prevState,
+            toState: verdict.state,
+            reasonCode: verdict.reasonCode,
+            // The metric values against the baseline, plus the reasons and run ids (ADR section
+            // 10). Small by construction (a handful of short codes + a few scalars), so always
+            // within the 8192-char evidence CHECK; no truncation branch to leave untested.
+            evidence: buildEvidence(runs, facts.reasons, source.consecutiveFailures, now),
+            firstBadRunId: firstBad,
+            lastGoodRunId: lastGoodRunId(runs),
+            adapterVersion: latestRun?.adapterVersion ?? null,
+            configVersion: latestRun?.configVersion ?? null,
+            httpStatus: latestRun?.lastHttpStatus ?? null,
+            errorSample: latestRun?.errorMessage?.slice(0, ERROR_SAMPLE_MAX) ?? null,
+          })
+          .returning({ id: jobSourceHealthEvents.id, at: jobSourceHealthEvents.at })
+        if (event === undefined || this.alerts === undefined) return
+        await this.alerts.alertOnTransition(tx, {
+          eventId: event.id,
+          at: event.at,
+          sourceId: source.id,
+          sourceName: source.manifestId ?? source.type,
+          to: { state: verdict.state, reason: verdict.reasonCode },
+          failures: source.consecutiveFailures,
+          since: runs.find((r) => r.runId === firstBad)?.startedAt ?? null,
+        })
       })
       eventsWritten++
     }

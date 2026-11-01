@@ -5,9 +5,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { AuthModule } from '../auth/auth.module'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseModule } from '../database/database.module'
+import { NotificationsModule } from '../notifications/notifications.module'
 import { DatabaseService } from '../database/database.service'
 import { JobSourceAdminService } from './admin/job-source-admin.service'
 import { JobSourcingModule } from './job-sourcing.module'
+import { StubNotificationsModule } from './stub-notifications-module.test-helper'
 import { JobRunWorker } from './runtime/job-run-worker'
 import { RecomputeWorker } from './runtime/recompute-worker'
 
@@ -58,6 +60,8 @@ describe('JobSourcingModule, booted: the ledger reaches the database the app ope
       .useModule(StubGlobalsModule)
       .overrideModule(AuthModule)
       .useModule(StubAuthModule)
+      .overrideModule(NotificationsModule)
+      .useModule(StubNotificationsModule)
       .compile()
     await moduleRef.init()
 

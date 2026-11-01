@@ -10,6 +10,7 @@ import {
   SUBJECT_ARCHIVED_LABELS,
   SUBJECT_MISSING_LABELS,
 } from './messages'
+import { formatDay, sourceAlertParams } from './source-health-params'
 import type { NewNotificationType, NotificationSubjectType } from './types'
 
 // ---------------------------------------------------------------------------
@@ -260,6 +261,18 @@ export function describeNotification<T extends NewNotificationType>(
       const d = data as NotificationDataByType['VACANCY_APPLICATION']
       return renderMessage(i18n, DETAIL_MESSAGES.VACANCY_APPLICATION, {
         vacancyTitle: d.vacancyTitle,
+      })
+    }
+    case 'SOURCE_HEALTH_ALERT': {
+      const d = data as NotificationDataByType['SOURCE_HEALTH_ALERT']
+      return renderMessage(i18n, DETAIL_MESSAGES.SOURCE_HEALTH_ALERT, sourceAlertParams(d, locale))
+    }
+    case 'SOURCE_HEALTH_WEEKLY_REPORT': {
+      const d = data as NotificationDataByType['SOURCE_HEALTH_WEEKLY_REPORT']
+      return renderMessage(i18n, DETAIL_MESSAGES.SOURCE_HEALTH_WEEKLY_REPORT, {
+        weekStart: formatDay(d.weekStart, locale),
+        total: d.sources.length,
+        changed: d.sources.filter((s) => s.transitions > 0).length,
       })
     }
     default: {

@@ -136,6 +136,21 @@ describe('createInTx ставит письмо в очередь', () => {
     })
   })
 
+  it('skipEmail: the notification is written and no queue row is (U5a: the per-source email budget)', async () => {
+    const h = makeHarness()
+    await h.service.createInTx(h.tx as never, { ...informingInput(), skipEmail: true })
+
+    expect(h.notifications).toHaveLength(1)
+    expect(h.emails).toHaveLength(0)
+  })
+
+  it('skipEmail: false leaves the email queued, exactly as without the flag', async () => {
+    const h = makeHarness()
+    await h.service.createInTx(h.tx as never, { ...informingInput(), skipEmail: false })
+
+    expect(h.emails).toHaveLength(1)
+  })
+
   it('строка встаёт QUEUED без единой причины пропуска', async () => {
     const h = makeHarness()
     await h.service.createInTx(h.tx as never, informingInput())

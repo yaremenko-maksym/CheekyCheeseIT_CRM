@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import {
   isActionRequiredNotificationType,
-  NEW_NOTIFICATION_TYPES,
+  CONFIGURABLE_NOTIFICATION_TYPES,
   type NewNotificationType,
 } from './notification-registry'
 
@@ -28,10 +28,10 @@ import {
  */
 
 /**
- * Типы, у которых настройка почты существует — ровно `NEW_NOTIFICATION_TYPES`.
+ * Типы, у которых настройка почты существует — ровно `CONFIGURABLE_NOTIFICATION_TYPES`.
  *
  * task-i18n-stage4-task6: три ранее «замороженных» типа (инвойсы, вакансии)
- * зарегистрированы в `NEW_NOTIFICATION_TYPES` (см. `notification-registry.ts`)
+ * зарегистрированы в `CONFIGURABLE_NOTIFICATION_TYPES` (см. `notification-registry.ts`)
  * и настраиваются наравне с остальными — до этой задачи у них не было ни
  * шаблона, ни настройки письма вовсе.
  *
@@ -39,7 +39,7 @@ import {
  * значения по-английски («Invalid option: expected one of …»), и это первое,
  * что человек увидит, если 7b пошлёт устаревший тип из старого бандла.
  */
-export const configurableNotificationTypeSchema = z.enum(NEW_NOTIFICATION_TYPES, {
+export const configurableNotificationTypeSchema = z.enum(CONFIGURABLE_NOTIFICATION_TYPES, {
   message: 'zod.NOTIFICATION_TYPE_UNKNOWN',
 })
 export type ConfigurableNotificationType = z.infer<typeof configurableNotificationTypeSchema>
@@ -74,7 +74,7 @@ export const updateNotificationPreferencesSchema = z.object({
     // 7b, а не разработчик, читающий лог (COPY-L-6, copy-review PR #673
     // круг 2) — отсюда коды, а не диагностический английский.
     .min(1, 'zod.AT_LEAST_ONE_PREFERENCE')
-    .max(NEW_NOTIFICATION_TYPES.length, 'zod.TOO_MANY_PREFERENCES')
+    .max(CONFIGURABLE_NOTIFICATION_TYPES.length, 'zod.TOO_MANY_PREFERENCES')
     // task-i18n-stage4-task5: coded keys, resolved through `ZOD_ERROR_MESSAGES`
     // like every other migrated schema (`ZodExceptionFilter` sends the English
     // fallback over HTTP, the client renders by locale — same mechanism as the
@@ -115,7 +115,7 @@ export type NotificationPreferencesResponse = z.infer<typeof notificationPrefere
 // Client-side leniency — SR-M-1/CR-M-2 (fix-round 2, PR #675), same pattern
 // as `pendingResponseClientSchema` (`pending.ts`, COPY-L-6 / PR #667 round 4):
 // the schema above stays STRICT server-side (the API only ever emits types
-// it built itself from `NEW_NOTIFICATION_TYPES` — a stray one there is a
+// it built itself from `CONFIGURABLE_NOTIFICATION_TYPES` — a stray one there is a
 // server bug, not version skew). 7b's own AC2 requires an unrecognised
 // `type` to degrade to ONE generic row, not crash the whole tab — but
 // `.parse()`-ing the STRICT schema on the client would throw on exactly that
@@ -125,7 +125,7 @@ export type NotificationPreferencesResponse = z.infer<typeof notificationPrefere
 // variant accepts that one extra shape.
 // ---------------------------------------------------------------------------
 
-const KNOWN_PREFERENCE_TYPES: readonly string[] = NEW_NOTIFICATION_TYPES
+const KNOWN_PREFERENCE_TYPES: readonly string[] = CONFIGURABLE_NOTIFICATION_TYPES
 
 /**
  * An item whose `type` is NOT one of the ten known types. `locked`/

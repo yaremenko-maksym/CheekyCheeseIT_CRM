@@ -185,6 +185,36 @@ const SOURCE_ROWS: ReadonlyArray<readonly [keyof typeof M, string, string]> = [
     'Новий відгук на вакансію «{vacancyTitle}»',
   ],
   [
+    'sourceAlertSubject',
+    'email.notification.SOURCE_HEALTH_ALERT.subject',
+    'Збій джерела вакансій «{source}»',
+  ],
+  [
+    'sourceAlertLine',
+    'email.notification.SOURCE_HEALTH_ALERT.line',
+    'Джерело «{source}»: {state, select, FAILING {запити завершуються помилкою.} CAPPED {{hasCount, select, yes {{failures, plural, one {# збій} few {# збої} many {# збоїв} other {# збою}} поспіль з {since}, потрібне скидання.} other {забагато збоїв поспіль, потрібне скидання.}}} BLOCKED {джерело заблоковане.} EMPTY {порожня відповідь.} PAUSED {хост на паузі через обмеження.} other {змінився формат відповіді.}}',
+  ],
+  [
+    'sourceWeeklySubject',
+    'email.notification.SOURCE_HEALTH_WEEKLY_REPORT.subject',
+    'Тижневий звіт джерел',
+  ],
+  [
+    'sourceWeeklyHeadLine',
+    'email.notification.SOURCE_HEALTH_WEEKLY_REPORT.head',
+    'Тиждень з {weekStart}.',
+  ],
+  [
+    'sourceWeeklyLineMeasured',
+    'email.notification.SOURCE_HEALTH_WEEKLY_REPORT.line.measured',
+    '{source}: {state, select, BLOCKED {заблоковане} CAPPED {потрібне скидання} PAUSED {на паузі} FAILING {збої} EMPTY {порожня відповідь} DEGRADED {погіршене} SILENT {без нових вакансій} other {справне}}{hasChanges, select, yes {; змін стану — {transitions}} other {}}; запусків — {runs}; свіжість: медіана {p50} хв, 90-й перцентиль {p90} хв; запитів — {requests}; отримано — {megabytes} МБ.',
+  ],
+  [
+    'sourceWeeklyLineUnmeasured',
+    'email.notification.SOURCE_HEALTH_WEEKLY_REPORT.line.unmeasured',
+    '{source}: {state, select, BLOCKED {заблоковане} CAPPED {потрібне скидання} PAUSED {на паузі} FAILING {збої} EMPTY {порожня відповідь} DEGRADED {погіршене} SILENT {без нових вакансій} other {справне}}{hasChanges, select, yes {; змін стану — {transitions}} other {}}; запусків — {runs}; свіжість не вимірюється; запитів — {requests}; отримано — {megabytes} МБ.',
+  ],
+  [
     'sharedAmountAndDetailsLine',
     'email.notification.shared.amountAndDetails',
     'Сума й деталі — у CRM.',
@@ -196,7 +226,7 @@ const SOURCE_ROWS: ReadonlyArray<readonly [keyof typeof M, string, string]> = [
 
 describe('EMAIL_NOTIFICATION_MESSAGES — direct pins of id and uk source', () => {
   it('covers every key of the registry, no more, no fewer', () => {
-    expect(SOURCE_ROWS).toHaveLength(42)
+    expect(SOURCE_ROWS).toHaveLength(48)
     expect(Object.keys(M).sort()).toEqual(SOURCE_ROWS.map(([k]) => k).sort())
   })
   it.each(SOURCE_ROWS)('%s: id and uk source', (key, id, uk) => {
@@ -420,7 +450,14 @@ describe('catalog hygiene', () => {
   })
   it.each(['uk', 'en'] as const)('%s: no digits (privacy: no amounts/percentages)', (loc) => {
     const i18n = createI18n(loc)
-    for (const k of keys) {
+    // The two weekly-report lines are the ONE exception: an ADMIN-only operational report whose
+    // counts arrive as parameters (the catalog text itself holds only the "90th percentile" label).
+    // No money, no percentage of money, no person — the rule above exists for those.
+    const operationalAdminReport = new Set<string>([
+      'sourceWeeklyLineMeasured',
+      'sourceWeeklyLineUnmeasured',
+    ])
+    for (const k of keys.filter((key) => !operationalAdminReport.has(key))) {
       expect(renderMessage(i18n, M[k], PARAMS)).not.toMatch(/[0-9]/)
     }
   })

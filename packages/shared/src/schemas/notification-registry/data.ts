@@ -104,6 +104,39 @@ const percent = z.number().int().min(0).max(100).nullable()
  */
 const approvalId = z.string().uuid()
 
+/** The health states of a job source (ADR section 10); the alerting subset is `alertStateSchema`. */
+export const sourceHealthStateSchema = z.enum([
+  'BLOCKED',
+  'CAPPED',
+  'PAUSED',
+  'FAILING',
+  'EMPTY',
+  'DEGRADED',
+  'SILENT',
+  'HEALTHY',
+])
+
+/** States that alert an ADMIN on entry (section 11; DEGRADED only with reason SCHEMA_DRIFT). */
+const alertStateSchema = z.enum(['FAILING', 'CAPPED', 'BLOCKED', 'EMPTY', 'PAUSED', 'DEGRADED'])
+
+/** About 40 sources today; the cap bounds the stored row, not the product. */
+const WEEKLY_REPORT_MAX_SOURCES = 200
+
+const nonNegativeInt = z.number().int().nonnegative()
+
+const weeklySourceRowSchema = z.object({
+  name: objectName,
+  state: sourceHealthStateSchema,
+  transitions: nonNegativeInt,
+  runs: nonNegativeInt,
+  /** Minutes; `null` = not measurable (no record first seen in the week). */
+  freshnessP50Min: nonNegativeInt.nullable(),
+  freshnessP90Min: nonNegativeInt.nullable(),
+  requests: nonNegativeInt,
+  bytes: nonNegativeInt,
+})
+export type WeeklySourceRow = z.infer<typeof weeklySourceRowSchema>
+
 export const dataSchemas = {
   TRANSACTION_ADDED: z.object({
     ...moneyFields,
@@ -159,6 +192,20 @@ export const dataSchemas = {
   INVOICE_SIGNED: z.object({ counterpartyName: objectName, ...moneyFields }),
   INVOICE_SIGN_REQUIRED: z.object({ ...moneyFields }),
   VACANCY_APPLICATION: z.object({ vacancyTitle: objectName }),
+  // Source fetch strategy U5a. The source is named by its manifest id (or type), an object name,
+  // never a person; no URL and no error text rides here (the notification goes to a personal inbox).
+  // `failures` / `since`: how many consecutive failures and since when (the first failing run), for
+  // the CAPPED sentence; both are absent when the event does not carry them.
+  SOURCE_HEALTH_ALERT: z.object({
+    sourceName: objectName,
+    state: alertStateSchema,
+    failures: nonNegativeInt.nullable().optional(),
+    since: z.string().datetime().nullable().optional(),
+  }),
+  SOURCE_HEALTH_WEEKLY_REPORT: z.object({
+    weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    sources: z.array(weeklySourceRowSchema).max(WEEKLY_REPORT_MAX_SOURCES),
+  }),
 } satisfies Record<NewNotificationType, z.ZodType>
 
 export type NotificationDataByType = {

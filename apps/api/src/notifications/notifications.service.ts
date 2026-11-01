@@ -67,6 +67,13 @@ export type CreateNotificationInput = {
    * заново, и глушить его было бы потерянным подтверждением.
    */
   dedupeKey?: string | null
+  /**
+   * In-app only: no `notification_emails` row is written. For a producer with its own email budget
+   * (U5a: at most 3 source-health alert emails per source per Kyiv day) — every other producer
+   * leaves this unset and keeps the "a row always exists" invariant. A skipped email leaves no
+   * `SKIPPED` row because every `skip_reason` value is a recipient/channel fact, and a budget is not.
+   */
+  skipEmail?: boolean
 }
 
 @Injectable()
@@ -199,7 +206,9 @@ export class NotificationsService {
     // может появиться только ПОСЛЕ него — и только если оно действительно
     // появилось (погашенное идемпотентностью вернулось выше как `null`, и
     // второго письма не будет).
-    await this.enqueueEmailInTx(tx, row.id, values.userId, values.type)
+    if (input.skipEmail !== true) {
+      await this.enqueueEmailInTx(tx, row.id, values.userId, values.type)
+    }
 
     return this.mapNotification(row, 'active')
   }
