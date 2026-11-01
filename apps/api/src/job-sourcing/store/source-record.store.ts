@@ -1,3 +1,4 @@
+import { type AvailabilityEvidence, availabilityEvidenceSchema } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import type { MeterDb } from '../metering/account-meter.store'
 import type { SourceObservation } from '../normalize/observation'
@@ -234,6 +235,27 @@ async function writeObservation(
     advanced,
     superseded: false,
   }
+}
+
+/**
+ * Mark a source record CLOSED by the missing-inventory path (r5 Task 4.6 S8c), inside the caller's
+ * transaction. The record store owns `job_source_records`, so the availability write lives here
+ * rather than in the counter updater. The evidence is `.parse()`d at this trust boundary before it
+ * reaches the column (the column default `{}` is not valid evidence by design).
+ */
+export async function closeRecordByInventory(
+  tx: SqlExecutor,
+  recordId: string,
+  evidence: AvailabilityEvidence,
+): Promise<void> {
+  const parsed = availabilityEvidenceSchema.parse(evidence)
+  await tx.execute(
+    sql`UPDATE job_source_records
+           SET availability = 'CLOSED'::job_availability,
+               availability_evidence = ${JSON.stringify(parsed)}::jsonb,
+               availability_checked_at = clock_timestamp(), updated_at = clock_timestamp()
+         WHERE id = ${recordId}::uuid`,
+  )
 }
 
 /** The page cap, checked before any round trip (security LOW, round 2). */
