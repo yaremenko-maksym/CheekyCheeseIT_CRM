@@ -40,7 +40,8 @@ import {
 import { CascadeImpactPanel } from './CascadeImpactPanel'
 import { changedSalaryMonth } from './changed-salary-month'
 import { changedTxDatePayload, storedTxDate } from './changed-tx-date'
-import { TxDateField } from './TxDateField'
+import { TxDateField, isReasonRequiredError } from './TxDateField'
+import { SubmitErrorBanner } from './SubmitErrorBanner'
 import {
   ReceiptInput,
   receiptStateFromDocument,
@@ -383,9 +384,10 @@ export function AdminEditTransactionDialog({
   // touched anything. Same family as UX-2, which cleared the leftover when the
   // preview was refreshed but not when the dialog changed subject.
   const resetMutation = mutation.reset
+  // Editing the reason also clears a refusal about it (QA-MED-1).
   useEffect(() => {
     resetMutation()
-  }, [tx, resetMutation])
+  }, [tx, resetMutation, backdateReason])
 
   // COPY-M-10 (copy-review, MED, PR #613 round 3): `cascadeSaveErrorMessage`
   // (`cascade-preview.ts`), not the project's general `getApiErrorMessage` —
@@ -399,6 +401,7 @@ export function AdminEditTransactionDialog({
   const error = mutation.error ? cascadeSaveErrorMessage(mutation.error) : null
   // A 409 is rendered by the panel, in place, not duplicated as a red line.
   const submitError = staleMessage ? null : error
+  const reasonRequired = !!submitError && isReasonRequiredError(mutation.error)
   // `canSaveCascadeEdit(undefined)` is `true` on purpose — an ordinary,
   // non-cascade edit must never be blocked by this feature. That is why the
   // in-flight case needs its own clause: on a cascade edit with no answer yet,
@@ -630,6 +633,7 @@ export function AdminEditTransactionDialog({
                   reason={backdateReason}
                   onChange={setTxDate}
                   onReasonChange={setBackdateReason}
+                  invalid={reasonRequired}
                 />
               )}
 
@@ -724,12 +728,7 @@ export function AdminEditTransactionDialog({
                 />
               </div>
 
-              {submitError && (
-                <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  {submitError}
-                </div>
-              )}
+              {submitError && <SubmitErrorBanner message={submitError} scroll={!reasonRequired} />}
             </div>
           )}
         </CrmDialogBody>

@@ -1,7 +1,10 @@
+import { useEffect, useRef } from 'react'
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { BACKDATE_LIMIT_DAYS } from '@crm/shared'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { getApiErrorCode } from '@/lib/axios-utils'
+import { SUBMIT_ERROR_ID } from './SubmitErrorBanner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { DatePickerField } from '@/components/ui/date-picker'
@@ -16,17 +19,33 @@ interface TxDateFieldProps {
   reason: string
   onChange: (txDate: string) => void
   onReasonChange: (reason: string) => void
+  /** The last save was refused for a missing reason: mark the field and focus it. */
+  invalid?: boolean
 }
+
+export const isReasonRequiredError = (err: unknown) =>
+  getApiErrorCode(err) === 'FINANCE_TX_DATE_EDIT_REASON_REQUIRED'
 
 /**
  * Business date of the transaction. The reason input appears only once the day
  * differs from the stored one: the server asks for it when the new date is
  * older than the backdating window and rejects otherwise.
  */
-export function TxDateField({ value, stored, reason, onChange, onReasonChange }: TxDateFieldProps) {
+export function TxDateField({
+  value,
+  stored,
+  reason,
+  onChange,
+  onReasonChange,
+  invalid = false,
+}: TxDateFieldProps) {
   const { i18n } = useLingui()
   const changed = !!value && value !== stored
   const shouldReduceMotion = useReducedMotion()
+  const reasonRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (invalid) reasonRef.current?.focus()
+  }, [invalid])
 
   return (
     <div className="space-y-1.5">
@@ -59,6 +78,9 @@ export function TxDateField({ value, stored, reason, onChange, onReasonChange }:
             </Label>
             <Input
               id="admin-edit-tx-date-reason-field"
+              ref={reasonRef}
+              aria-invalid={invalid || undefined}
+              aria-describedby={invalid ? SUBMIT_ERROR_ID : undefined}
               value={reason}
               onChange={(e) => onReasonChange(e.target.value)}
               maxLength={500}
