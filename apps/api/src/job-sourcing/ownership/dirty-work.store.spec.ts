@@ -143,12 +143,15 @@ describe('claimDirtyBatch', () => {
     expect(seen[0]!.sql).toContain('fencing_epoch = d.fencing_epoch + 1')
     // Default kinds: exactly those with a version source (CR-M-2); since S5, all five.
     expect(seen[0]!.sql).toContain('AND entity_kind IN ($1, $2, $3, $4, $5)')
+    // SFS U10 (CR-M-1 / SPEC-M-2): the generic consumer never sweeps a DETAIL_FETCH row.
+    expect(seen[0]!.sql).toContain('AND reason <> $6')
     expect(seen[0]!.params).toEqual([
       'SOURCE_RECORD',
       'OPPORTUNITY',
       'SENIOR',
       'EXCLUSION',
       'PROJECT_CLIENT',
+      DETAIL_FETCH,
       200,
       'w',
       300_000,
@@ -164,6 +167,7 @@ describe('claimDirtyBatch', () => {
       'SENIOR',
       'EXCLUSION',
       'PROJECT_CLIENT',
+      DETAIL_FETCH,
       1000,
       'w',
       3_600_000,
@@ -174,7 +178,9 @@ describe('claimDirtyBatch', () => {
     const { tx, seen } = scripted()
     await claimDirtyBatch(tx, { owner: 'w', kinds: ['OPPORTUNITY'] })
     expect(seen[0]!.sql).toContain('AND entity_kind IN ($1)')
-    expect(seen[0]!.params).toEqual(['OPPORTUNITY', 200, 'w', 300_000])
+    // CR-M-1: the DETAIL_FETCH exclusion rides on every generic claim, whatever the kinds.
+    expect(seen[0]!.sql).toContain('AND reason <> $2')
+    expect(seen[0]!.params).toEqual(['OPPORTUNITY', DETAIL_FETCH, 200, 'w', 300_000])
   })
 
   it('refuses an empty kind list before any SQL', async () => {

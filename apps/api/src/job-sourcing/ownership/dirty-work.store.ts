@@ -195,6 +195,12 @@ export const dirtyWorkStatements = {
     sql`SELECT coalesce(max(target_version), 0) AS v FROM job_dirty_work
          WHERE entity_kind = ${kind} AND entity_id = ${id}::uuid`,
 
+  /**
+   * The generic consumer claim (recompute, reconciliation, availability). SFS U10 (CR-M-1 /
+   * SPEC-M-2): it NEVER hands out a `DETAIL_FETCH` row — those are a source run's own tail
+   * (`claimDetailForSource`), not the generic recompute/reconcile consumer's, so excluding the
+   * reason here keeps a detail row from being swept by whoever claims SOURCE_RECORD rows.
+   */
   claim: (
     owner: string,
     batchSize: number,
@@ -208,6 +214,7 @@ export const dirtyWorkStatements = {
                kinds.map((k) => sql`${k}`),
                sql`, `,
              )})
+             AND reason <> ${DETAIL_FETCH}
            ORDER BY created_at, id
            LIMIT ${batchSize}
            FOR UPDATE SKIP LOCKED)
