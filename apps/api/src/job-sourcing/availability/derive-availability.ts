@@ -26,13 +26,19 @@ export interface RecordObservationFacts {
   configVersion: number
   /** ISO datetime. */
   observedAt: string
+  /** WINDOW only: when the record was last seen (`job_source_records.last_observed_at`), ISO. */
+  lastSeenAt?: string | null
+  /** WINDOW only: the source's freshness allowance (`freshnessMaxAgeMsFor`); null/absent = none. */
+  freshnessMaxAgeMs?: number | null
 }
 
 export type RecordAvailabilityDecision =
   | { kind: 'open'; availability: 'OPEN'; evidence: AvailabilityEvidence }
   /** Absent from a FULL_INVENTORY inventory: feeds the D4 counter, never closes by itself. */
   | { kind: 'miss' }
-  /** Not decided here (the WINDOW/PARTIAL expiry path is S8e). */
+  /** WINDOW coverage: not seen within the source freshness window. Visibility loss, never CLOSED. */
+  | { kind: 'expired'; availability: 'EXPIRED'; evidence: AvailabilityEvidence }
+  /** Not decided here (PARTIAL, or a WINDOW record still inside its window / with no allowance). */
   | { kind: 'unchanged' }
 
 export function deriveRecordAvailability(
@@ -52,8 +58,31 @@ export function deriveRecordAvailability(
       },
     }
   }
-  // EXPIRED (window-drop) is S8e: absence outside a full inventory decides nothing here.
-  return facts.coverage === 'FULL_INVENTORY' ? { kind: 'miss' } : { kind: 'unchanged' }
+  if (facts.coverage === 'FULL_INVENTORY') return { kind: 'miss' }
+  if (facts.coverage === 'WINDOW' && isOutsideWindow(facts))
+    return {
+      kind: 'expired',
+      availability: 'EXPIRED',
+      evidence: {
+        kind: 'WINDOW_DROPPED',
+        runId: facts.runId,
+        board: facts.board,
+        configVersion: facts.configVersion,
+        observedAt: facts.observedAt,
+      },
+    }
+  return { kind: 'unchanged' }
+}
+
+/** Strictly older than the allowance (same comparison as STALE_FEED); no allowance or no last-seen = inside. */
+function isOutsideWindow(facts: RecordObservationFacts): boolean {
+  const { lastSeenAt, freshnessMaxAgeMs } = facts
+  // No allowance: never expire. NOT suppressed - mutated, `age > null` coerces to 0 and would false-expire.
+  if (freshnessMaxAgeMs == null) return false
+  // Stryker disable next-line ConditionalExpression: type narrowing only; Date.parse(null) is NaN so the comparison is false anyway and the outcome is identical
+  if (lastSeenAt == null) return false
+  const age = Date.parse(facts.observedAt) - Date.parse(lastSeenAt)
+  return age > freshnessMaxAgeMs
 }
 
 // ---------- 2. opportunity-grain ----------

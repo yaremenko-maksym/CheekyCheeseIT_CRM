@@ -1,6 +1,6 @@
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { identityObservations, specCheckpoint } from '../../test/ledger-fixtures'
 import { observation } from '../../test/record-store-fixtures'
 import type { MeterDb } from '../metering/account-meter.store'
@@ -10,6 +10,7 @@ import { RunFencedError } from '../ownership/run-ownership'
 import { LockContentionError } from './lock-order'
 import {
   MAX_OBSERVATIONS_PER_PAGE,
+  expireRecordByWindow,
   type PageChunk,
   chunkPage,
   newestPublishedAt,
@@ -340,5 +341,46 @@ describe('writePageProgress: the counters and the newest published_at (U2)', () 
     )
     expect(update.params[5]).toBe('2026-10-31T09:00:00.000Z')
     expect((await write(null)).params[5]).toBeNull()
+  })
+})
+
+describe('expireRecordByWindow (Task 4.6 S8e, CR-M-3)', () => {
+  const base = {
+    runId: '00000000-0000-4000-8000-000000000001',
+    board: 'b',
+    configVersion: 1,
+    observedAt: '2026-11-01T00:00:00.000Z',
+  }
+
+  it.each([
+    ['OBSERVED_OPEN', { ...base, kind: 'OBSERVED_OPEN', basis: 'OBSERVED' }],
+    ['DETAIL_GONE', { ...base, kind: 'DETAIL_GONE', httpStatus: 404, adapterVersion: 'v1' }],
+  ])('rejects %s evidence and writes nothing', async (_k, evidence) => {
+    const execute = vi.fn()
+    await expect(
+      expireRecordByWindow({ execute } as never, base.runId, evidence as never),
+    ).rejects.toThrow(/only WINDOW_DROPPED/)
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('writes EXPIRED (never CLOSED) for WINDOW_DROPPED evidence', async () => {
+    const execute = vi.fn(async (_q: unknown) => ({ rows: [{ id: 'r' }] }))
+    const ok = await expireRecordByWindow({ execute } as never, base.runId, {
+      ...base,
+      kind: 'WINDOW_DROPPED',
+    } as never)
+    expect(ok).toBe(true)
+    const text = new PgDialect().sqlToQuery(execute.mock.calls[0][0] as SQL).sql
+    expect(text).toContain(`'EXPIRED'::job_availability`)
+    expect(text).not.toContain(`SET availability = 'CLOSED'`)
+  })
+
+  it('returns false when the guard matched no row (already expired or closed)', async () => {
+    const execute = vi.fn(async (_q: unknown) => ({ rows: [] }))
+    const ok = await expireRecordByWindow({ execute } as never, base.runId, {
+      ...base,
+      kind: 'WINDOW_DROPPED',
+    } as never)
+    expect(ok).toBe(false)
   })
 })

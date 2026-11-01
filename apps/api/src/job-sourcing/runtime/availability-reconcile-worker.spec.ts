@@ -10,6 +10,12 @@ const fail = vi.fn()
 vi.mock('../availability/inventory-counter-updater', () => ({
   updateInventoryMissCounter: (...a: unknown[]) => updateInventory(...a),
 }))
+const readWindowRun = vi.fn()
+const expireWindow = vi.fn()
+vi.mock('../availability/window-expiry-updater', () => ({
+  readLatestWindowRun: (...a: unknown[]) => readWindowRun(...a),
+  expireWindowRecord: (...a: unknown[]) => expireWindow(...a),
+}))
 vi.mock('../ownership/dirty-work.store', async (orig) => ({
   ...(await orig<typeof import('../ownership/dirty-work.store')>()),
   claimDirtyBatch: (...a: unknown[]) => claim(...a),
@@ -59,6 +65,8 @@ function dbOf(...rowSets: Record<string, unknown>[][]) {
 
 beforeEach(() => {
   updateInventory.mockReset().mockResolvedValue({})
+  readWindowRun.mockReset().mockResolvedValue(null)
+  expireWindow.mockReset().mockResolvedValue({ expired: true })
   claim.mockReset().mockResolvedValue([])
   complete.mockReset().mockResolvedValue('DONE')
   fail.mockReset().mockResolvedValue('RETRY')
@@ -102,6 +110,60 @@ describe('reconcileSourceRecordAvailability', () => {
     })
     expect(complete).toHaveBeenCalledWith(db, w)
     expect(outcome).toBe('DONE')
+  })
+
+  it('routes a WINDOW source to the expiry path and never the miss counter', async () => {
+    const { db } = dbOf([
+      { source_id: 'src-1', source_type: 'REMOTIVE_API', namespace: 'x', config_version: 2 },
+    ])
+    const run = { runId: 'run-1', cycleId: null, observedAt: '2026-11-01T00:00:00.000Z' }
+    readWindowRun.mockResolvedValue(run)
+    const w = work('SOURCE_RECORD', REC)
+    expect(await reconcileSourceRecordAvailability(db as never, w)).toBe('DONE')
+    const input = {
+      sourceRecordId: REC,
+      sourceId: 'src-1',
+      board: 'REMOTIVE_API:x',
+      configVersion: 2,
+    }
+    expect(readWindowRun).toHaveBeenCalledWith(db, input)
+    expect(expireWindow).toHaveBeenCalledWith(db, input, run)
+    expect(updateInventory).not.toHaveBeenCalled()
+    expect(complete).toHaveBeenCalledWith(db, w)
+  })
+
+  it('a non-WINDOW source does not call the expiry path', async () => {
+    const { db } = dbOf([
+      { source_id: 'src-1', source_type: 'GREENHOUSE_ATS', namespace: 'acme', config_version: 2 },
+    ])
+    await reconcileSourceRecordAvailability(db as never, work('SOURCE_RECORD', REC))
+    expect(expireWindow).not.toHaveBeenCalled()
+    expect(updateInventory).toHaveBeenCalledTimes(1)
+  })
+
+  it('routing follows the latest run coverage: WINDOW then FULL_INVENTORY flips the path', async () => {
+    const row = {
+      source_id: 'src-1',
+      source_type: 'REMOTIVE_API',
+      namespace: 'x',
+      config_version: 2,
+    }
+    const run = { runId: 'run-1', cycleId: null, observedAt: '2026-11-01T00:00:00.000Z' }
+    // Latest valid run is WINDOW -> expiry path only.
+    readWindowRun.mockResolvedValueOnce(run)
+    await reconcileSourceRecordAvailability(dbOf([row]).db as never, work('SOURCE_RECORD', REC))
+    expect(expireWindow).toHaveBeenCalledTimes(1)
+    expect(updateInventory).not.toHaveBeenCalled()
+    // A later FULL_INVENTORY run makes readLatestWindowRun null -> counter path only.
+    readWindowRun.mockResolvedValueOnce(null)
+    await reconcileSourceRecordAvailability(dbOf([row]).db as never, work('SOURCE_RECORD', REC))
+    expect(expireWindow).toHaveBeenCalledTimes(1)
+    expect(updateInventory).toHaveBeenCalledTimes(1)
+    // And back to WINDOW -> expiry again.
+    readWindowRun.mockResolvedValueOnce(run)
+    await reconcileSourceRecordAvailability(dbOf([row]).db as never, work('SOURCE_RECORD', REC))
+    expect(expireWindow).toHaveBeenCalledTimes(2)
+    expect(updateInventory).toHaveBeenCalledTimes(1)
   })
 
   it('skips the updater for an orphan record but still completes the row', async () => {

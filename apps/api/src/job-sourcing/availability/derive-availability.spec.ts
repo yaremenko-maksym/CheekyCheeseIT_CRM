@@ -67,13 +67,76 @@ describe('deriveRecordAvailability', () => {
   })
 
   it.each(['WINDOW', 'PARTIAL'] as const)(
-    'absent under %s => unchanged (EXPIRED is S8e)',
+    'absent under %s with no window facts => unchanged',
     (coverage) => {
       expect(deriveRecordAvailability({ ...base, coverage, present: false })).toEqual({
         kind: 'unchanged',
       })
     },
   )
+
+  describe('WINDOW expiry (S8e)', () => {
+    const HOUR = 3_600_000
+    const win = {
+      ...base,
+      coverage: 'WINDOW' as const,
+      present: false,
+      freshnessMaxAgeMs: 24 * HOUR,
+    }
+    const seen = (hoursBefore: number) =>
+      new Date(Date.parse(T0) - hoursBefore * HOUR).toISOString()
+
+    it('last seen beyond the allowance => EXPIRED with parsing WINDOW_DROPPED evidence', () => {
+      const d = deriveRecordAvailability({ ...win, lastSeenAt: seen(24.001) })
+      expect(d.kind).toBe('expired')
+      if (d.kind !== 'expired') throw new Error('unreachable')
+      expect(d.availability).toBe('EXPIRED')
+      expect(d.evidence).toEqual({
+        kind: 'WINDOW_DROPPED',
+        runId: RUN(1),
+        board: 'acme',
+        configVersion: 1,
+        observedAt: T0,
+      })
+      expect(availabilityEvidenceSchema.parse(d.evidence)).toEqual(d.evidence)
+    })
+
+    it('exactly at the allowance is still inside the window', () => {
+      expect(deriveRecordAvailability({ ...win, lastSeenAt: seen(24) })).toEqual({
+        kind: 'unchanged',
+      })
+    })
+
+    it('seen within the window => unchanged', () => {
+      expect(deriveRecordAvailability({ ...win, lastSeenAt: seen(1) })).toEqual({
+        kind: 'unchanged',
+      })
+    })
+
+    it.each([
+      ['no allowance (null)', { freshnessMaxAgeMs: null, lastSeenAt: seen(999) }],
+      ['no allowance (absent)', { freshnessMaxAgeMs: undefined, lastSeenAt: seen(999) }],
+      ['no last-seen (null)', { lastSeenAt: null }],
+      ['no last-seen (absent)', { lastSeenAt: undefined }],
+    ])('%s => unchanged', (_n, over) => {
+      expect(deriveRecordAvailability({ ...win, ...over })).toEqual({ kind: 'unchanged' })
+    })
+
+    it('present under WINDOW stays OPEN even when stale', () => {
+      expect(deriveRecordAvailability({ ...win, present: true, lastSeenAt: seen(999) }).kind).toBe(
+        'open',
+      )
+    })
+
+    it.each(['FULL_INVENTORY', 'PARTIAL'] as const)(
+      '%s never expires, however stale',
+      (coverage) => {
+        const d = deriveRecordAvailability({ ...win, coverage, lastSeenAt: seen(999) })
+        expect(d.kind).not.toBe('expired')
+        expect(d.kind).toBe(coverage === 'FULL_INVENTORY' ? 'miss' : 'unchanged')
+      },
+    )
+  })
 })
 
 describe('deriveOpportunityAvailability', () => {

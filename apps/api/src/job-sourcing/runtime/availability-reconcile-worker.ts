@@ -2,6 +2,7 @@ import type { JobAvailability } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { updateInventoryMissCounter } from '../availability/inventory-counter-updater'
 import { deriveOpportunityAvailability } from '../availability/derive-availability'
+import { expireWindowRecord, readLatestWindowRun } from '../availability/window-expiry-updater'
 import type { MeterDb } from '../metering/account-meter.store'
 import {
   type ClaimedDirtyWork,
@@ -92,15 +93,21 @@ export async function resolveInventoryInput(
 }
 
 /**
- * SOURCE_RECORD: run the S8c inventory-counter updater for the record, then complete the row. Two
- * transactions (the updater owns its own), safe because the updater is idempotent on replay.
+ * SOURCE_RECORD: route by the source's latest valid run coverage, then complete the row. A WINDOW
+ * source goes through the S8e window-drop derivation (EXPIRED, never the miss counter); anything
+ * else runs the S8c inventory-counter updater. Two transactions (the updater owns its own), safe
+ * because both paths are idempotent on replay.
  */
 export async function reconcileSourceRecordAvailability(
   db: MeterDb,
   work: ClaimedDirtyWork,
 ): Promise<CompleteOutcome> {
   const input = await resolveInventoryInput(db, work.entityId)
-  if (input !== null) await updateInventoryMissCounter(db, input)
+  if (input !== null) {
+    const windowRun = await readLatestWindowRun(db, input)
+    if (windowRun !== null) await expireWindowRecord(db, input, windowRun)
+    else await updateInventoryMissCounter(db, input)
+  }
   return completeDirty(db, work)
 }
 
