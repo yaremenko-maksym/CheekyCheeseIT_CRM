@@ -110,8 +110,11 @@ export type CounterTransition =
  * Evidence is parsed through `availabilityEvidenceSchema` in the spec only: the S8d persisting caller
  * MUST `.parse()` it before writing.
  *
- * `lastInventorySize` is the baseline for the >50% drop guard: the HIGHEST size seen in the current
- * chain (so step-shrinking 100 -> 50 -> 25 trips review), kept through a reset, never <= 0.
+ * `lastInventorySize` is the baseline for the >50% drop guard: the HIGHEST size ever seen for this
+ * counter (so step-shrinking 100 -> 50 -> 25 trips review), kept through a reset, never <= 0.
+ * `lastMissRunId` / `lastMissAt` double as the replay watermark: the last run processed, advanced by
+ * a miss AND by a reset, so old runs replayed after a reset cannot rebuild a chain. A `reset` zeroes
+ * only the miss chain (S8d must UPDATE the row, never delete it).
  */
 export function transitionInventoryMissCounter(
   current: InventoryMissCounter | null,
@@ -125,9 +128,9 @@ export function transitionInventoryMissCounter(
   // A replayed or out-of-order run must not count as another miss (SR-H-1).
   if (
     current !== null &&
-    current.lastMissRunId !== null &&
+    current.lastMissAt !== null &&
     (run.runId === current.lastMissRunId ||
-      Date.parse(run.observedAt) <= Date.parse(current.lastMissAt ?? run.observedAt))
+      Date.parse(run.observedAt) <= Date.parse(current.lastMissAt))
   ) {
     return { kind: 'unchanged', next: current }
   }
@@ -149,8 +152,9 @@ export function transitionInventoryMissCounter(
         consecutiveMisses: 0,
         firstMissRunId: null,
         firstMissAt: null,
-        lastMissRunId: null,
-        lastMissAt: null,
+        lastMissRunId: run.runId,
+        lastMissAt: run.observedAt,
+        lastInventorySize: Math.max(current.lastInventorySize, run.inventorySize),
       },
     }
   }
@@ -170,7 +174,7 @@ export function transitionInventoryMissCounter(
     firstMissAt,
     lastMissRunId: run.runId,
     lastMissAt: run.observedAt,
-    lastInventorySize: Math.max(chain?.lastInventorySize ?? 0, run.inventorySize),
+    lastInventorySize: Math.max(current?.lastInventorySize ?? 0, run.inventorySize),
   }
 
   const spanMs = Date.parse(run.observedAt) - Date.parse(firstMissAt)

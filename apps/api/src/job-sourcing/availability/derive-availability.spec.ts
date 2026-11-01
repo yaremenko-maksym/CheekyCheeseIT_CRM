@@ -230,19 +230,86 @@ describe('transitionInventoryMissCounter', () => {
   })
 
   describe('present resets', () => {
-    it('a chain resets to 0, clearing the chain pointers', () => {
+    it('a chain resets: chain zeroed, watermark moved to the reset run, baseline kept', () => {
       const r = transitionInventoryMissCounter(
         chain(2),
-        run({ recordPresent: true, observedAt: hoursAfter(5) }),
+        run({ runId: RUN(5), recordPresent: true, observedAt: hoursAfter(5) }),
       )
       expect(r.kind).toBe('reset')
       expect(r.next).toMatchObject({
         consecutiveMisses: 0,
         firstMissRunId: null,
         firstMissAt: null,
+        lastMissRunId: RUN(5),
+        lastMissAt: hoursAfter(5),
+        lastInventorySize: 100,
+      })
+    })
+
+    it('SR-M-3: miss@100, present, miss@50, miss@25, miss@25 reviews and never closes', () => {
+      const seq: [string, boolean, number, number][] = [
+        [RUN(1), false, 100, 0],
+        [RUN(2), true, 100, 5],
+        [RUN(3), false, 50, 30],
+        [RUN(4), false, 25, 55],
+        [RUN(5), false, 25, 80],
+      ]
+      let cur: InventoryMissCounter | null = null
+      const kinds: string[] = []
+      for (const [runId, recordPresent, inventorySize, h] of seq) {
+        const r = transitionInventoryMissCounter(
+          cur,
+          run({ runId, recordPresent, inventorySize, observedAt: hoursAfter(h) }),
+        )
+        kinds.push(r.kind)
+        cur = r.next
+      }
+      expect(kinds).toEqual(['advance', 'reset', 'advance', 'review', 'review'])
+      expect(cur?.lastInventorySize).toBe(100)
+    })
+
+    it('baseline does not decay on advance after a reset', () => {
+      const reset = transitionInventoryMissCounter(
+        chain(2),
+        run({ runId: RUN(5), recordPresent: true, observedAt: hoursAfter(5) }),
+      )
+      const r = transitionInventoryMissCounter(
+        reset.next,
+        run({ runId: RUN(6), inventorySize: 60, observedAt: hoursAfter(10) }),
+      )
+      expect(r.next?.lastInventorySize).toBe(100)
+    })
+
+    it('SR-M-2: after a reset, old miss runs replayed ascending never close', () => {
+      const reset = transitionInventoryMissCounter(
+        chain(2),
+        run({ runId: RUN(5), recordPresent: true, observedAt: hoursAfter(60) }),
+      )
+      let cur = reset.next
+      for (const [id, h] of [
+        [11, 2],
+        [12, 30],
+        [13, 55],
+      ] as const) {
+        const r = transitionInventoryMissCounter(
+          cur,
+          run({ runId: RUN(id), observedAt: hoursAfter(h) }),
+        )
+        expect(r).toEqual({ kind: 'unchanged', next: cur })
+        cur = r.next
+      }
+    })
+
+    it('a counter with no watermark (null pointers) still accepts a miss', () => {
+      const bare = chain(0, {
+        firstMissRunId: null,
+        firstMissAt: null,
         lastMissRunId: null,
         lastMissAt: null,
       })
+      expect(transitionInventoryMissCounter(bare, run({ observedAt: hoursAfter(1) })).kind).toBe(
+        'advance',
+      )
     })
 
     it('after a reset the next miss starts a fresh chain at 1', () => {
