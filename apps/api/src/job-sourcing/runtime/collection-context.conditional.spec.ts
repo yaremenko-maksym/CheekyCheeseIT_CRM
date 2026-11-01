@@ -138,6 +138,20 @@ describe('U6b: a 304', () => {
     expect(w.metrics()).toMatchObject({ lastHttpStatus: 304, nextValidators: STORED })
   })
 
+  it.each([404, 500])(
+    'a %i to the validators we sent is not a conditional answer',
+    async (status) => {
+      const w = world(async () => {
+        throw new SourceHttpStatusError(HOST, status)
+      }, STORED)
+      const answer = await w.ctx.fetchText({ url: URL1 })
+      expect(answer.status).toBe(status)
+      expect(answer.conditional).toBeUndefined()
+      // a failed first request leaves the stored validators as they were
+      expect(w.metrics().nextValidators).toEqual(STORED)
+    },
+  )
+
   it('is NOT conditional when the context sent no validators (a host answering 304 unasked)', async () => {
     const w = world(notModified, null)
     const answer = await w.ctx.fetchText({ url: URL1 })

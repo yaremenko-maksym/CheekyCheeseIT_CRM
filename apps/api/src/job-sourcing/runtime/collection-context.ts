@@ -379,7 +379,7 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
         }),
         onValidators: (seen, validators) => {
           validatorsSeen ||= seen
-          if (first) shown = validatorsOf(request.url, validators)
+          shown = validatorsOf(request.url, validators)
         },
         // SR-M-4: each redirect hop is a real request. Count it against the ceiling and refuse the
         // hop that would exceed it BEFORE the transport sends it (the initial hop is counted above).

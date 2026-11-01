@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto'
 import type { JobMeterUnit, JobMeterWindow, JobSourceType } from '@crm/shared'
 import { type SQL, sql } from 'drizzle-orm'
 import type { DrizzleTx } from '../../database/types'
-import { type StoredValidators, parseStoredValidators } from '../http/stored-validators'
+import {
+  type StoredValidators,
+  parseStoredValidators,
+  validatorsPatchOf,
+} from '../http/stored-validators'
 import {
   type AccountMeter,
   type MeterDb,
@@ -628,6 +632,7 @@ export class JobRunLedger {
     // U6b: what the source's latest SUCCEEDED run (same config and adapter version) stored. Not the
     // inherited resume checkpoint above -- a succeeded run's checkpoint is deliberately never
     // inherited -- and not in it, so the "a page was saved" comparison in `endRun` is untouched.
+    // Stryker disable next-line StringLiteral: raw SQL text -- only a real Postgres can tell it apart; job-run-worker.conditional.integration.spec.ts runs it against one
     const { rows: stored } = await tx.execute(
       sql`SELECT r.checkpoint->'validators' AS validators
             FROM job_collection_runs r JOIN job_sources s ON s.id = r.source_id
@@ -829,11 +834,6 @@ export class JobRunLedger {
         ? null
         : ending.errorMessage.slice(0, ERROR_MESSAGE_MAX)
     const m = ending.metrics
-    // U6b: a SUCCEEDED run stores the validators its first request showed (or drops the stored
-    // ones); any other ending leaves the checkpoint as it is.
-    const validatorsPatch = JSON.stringify(
-      m?.nextValidators == null ? {} : { validators: m.nextValidators },
-    )
     await tx.execute(
       sql`UPDATE job_collection_runs
              SET outcome = ${ending.outcome}::job_collection_outcome, error_code = ${ending.errorCode},
@@ -841,9 +841,17 @@ export class JobRunLedger {
                  request_count = ${m?.requestCount ?? null}::integer, bytes_read = ${m?.bytesRead ?? null}::bigint,
                  last_http_status = ${m?.lastHttpStatus ?? null}::smallint,
                  envelope_fingerprint = ${m?.envelopeFingerprint ?? null}::text,
-                 validators_seen = ${m?.validatorsSeen ?? null}::boolean,
-                 checkpoint = CASE WHEN ${ending.outcome === 'SUCCEEDED' && m !== undefined}
-                   THEN (checkpoint - 'validators') || ${validatorsPatch}::jsonb ELSE checkpoint END
+                 validators_seen = ${m?.validatorsSeen ?? null}::boolean
+           WHERE id = ${head.runId}::uuid`,
+    )
+    // U6b: a SUCCEEDED run stores the validators its first request showed (or drops the stored
+    // ones); the SQL leaves the checkpoint alone for any other ending (patch NULL).
+    const patch = validatorsPatchOf(ending.outcome, m)
+    // Stryker disable next-line StringLiteral: raw SQL text -- only a real Postgres can tell it apart; job-run-worker.conditional.integration.spec.ts runs it against one
+    await tx.execute(
+      sql`UPDATE job_collection_runs
+             SET checkpoint = CASE WHEN ${patch}::text IS NULL THEN checkpoint
+                                   ELSE (checkpoint - 'validators') || ${patch}::jsonb END
            WHERE id = ${head.runId}::uuid`,
     )
     await this.account(tx, head, source, ending, {

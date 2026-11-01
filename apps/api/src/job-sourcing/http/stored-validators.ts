@@ -48,3 +48,19 @@ export function conditionalHeadersOf(stored: StoredValidators): Record<string, s
     ...(stored.lastModified !== null && { 'if-modified-since': stored.lastModified }),
   }
 }
+
+/**
+ * The JSON `finish` merges into the run's checkpoint, or `null` to leave the checkpoint alone.
+ * Only a SUCCEEDED run that kept metrics writes: it replaces the stored validators with the ones
+ * its first request showed, or drops them (`{}`) when that response showed none. A run that did
+ * not succeed read a state it did not finish reading, so nothing it saw is trusted.
+ */
+export function validatorsPatchOf(
+  outcome: string,
+  metrics: { readonly nextValidators: StoredValidators | null } | undefined,
+): string | null {
+  if (outcome !== 'SUCCEEDED' || metrics === undefined) return null
+  return JSON.stringify(
+    metrics.nextValidators === null ? {} : { validators: metrics.nextValidators },
+  )
+}
