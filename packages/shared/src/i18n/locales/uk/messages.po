@@ -2814,6 +2814,11 @@ msgstr "Вкажіть коректну дату транзакції — так
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_LOCKED_ROW"
+msgstr "Дату цієї транзакції не можна змінити: оплату підтверджено в блокчейні, її проведено з рахунку компанії або за нею вже є розрахунки"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_DATE_TOO_OLD"
 msgstr "Дата транзакції надто давня — таку операцію може внести лише адміністратор"
 

@@ -532,7 +532,7 @@ describe('AdminEditService.adminUpdateTransaction — business date', () => {
   })
 
   it('changes the date of a PAID row without touching amount, rate or accumulator', async () => {
-    const ctx = makeCtx({ row: { status: 'PAID', settledAmount: '100.000000' } })
+    const ctx = makeCtx({ row: { status: 'PAID' } })
     await ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-10-22' }, ADMIN)
     const set = txUpdate(ctx).set
     expect((set.txDate as Date).toISOString().slice(0, 10)).toBe('2026-10-22')
@@ -605,6 +605,49 @@ describe('AdminEditService.adminUpdateTransaction — business date', () => {
     await ctx.svc.adminUpdateTransaction(TX_ID, { notes: 'x', txDate: null }, ADMIN)
     expect(txUpdate(ctx).set).not.toHaveProperty('txDate')
     expect(dateJournal(ctx)).toHaveLength(0)
+  })
+
+  it.each([
+    ['an on-chain-verified row (claimed tx_hash)', { txHash: '0xabc' }],
+    ['a company-account row', { fundingSource: 'COMPANY_ACCOUNT' }],
+    ['a row that already carries settlements', { settledAmount: '40.000000' }],
+  ])('locks the date of %s and writes nothing', async (_label, row) => {
+    const ctx = makeCtx({ row: { status: 'PAID', ...row } })
+    await expect(
+      ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-10-25' }, ADMIN),
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_TX_DATE_LOCKED_ROW' } })
+    expect(ctx.updates).toHaveLength(0)
+    expect(ctx.inserts).toHaveLength(0)
+  })
+
+  it('does not lock a locked row for an edit that sends its stored day', async () => {
+    const ctx = makeCtx({ row: { status: 'PAID', txHash: '0xabc' } })
+    await ctx.svc.adminUpdateTransaction(TX_ID, { notes: 'x', txDate: '2026-10-20' }, ADMIN)
+    expect(txUpdate(ctx).set).not.toHaveProperty('txDate')
+  })
+
+  it('voids and reissues the invoice after a date move', async () => {
+    const ctx = makeCtx({ row: { status: 'PAID' } })
+    await expect(
+      ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-10-25' }, ADMIN),
+    ).resolves.toEqual({ id: TX_ID })
+    expect(ctx.invoices.voidAndReissueInvoiceForAmountEdit).toHaveBeenCalledTimes(1)
+    expect(ctx.invoices.voidAndReissueInvoiceForAmountEdit).toHaveBeenCalledWith(TX_ID, ADMIN.id)
+  })
+
+  it('does not touch the invoice when the day is unchanged', async () => {
+    const ctx = makeCtx({ row: { status: 'PAID' } })
+    await ctx.svc.adminUpdateTransaction(TX_ID, { notes: 'x', txDate: '2026-10-20' }, ADMIN)
+    expect(ctx.invoices.voidAndReissueInvoiceForAmountEdit).not.toHaveBeenCalled()
+  })
+
+  it('reports an incomplete invoice reissue after a date move instead of a clean success', async () => {
+    const ctx = makeCtx({ row: { status: 'PAID' } })
+    ctx.invoices.voidAndReissueInvoiceForAmountEdit.mockResolvedValue('VOID_FAILED' as never)
+    await expect(
+      ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-10-25' }, ADMIN),
+    ).resolves.toMatchObject({ id: TX_ID, invoiceReissueIncomplete: 'MANUAL_CHECK' })
+    expect(journal(ctx, 'INVOICE_REISSUE_FAILED')).toHaveLength(1)
   })
 
   it('still refuses a non-ADMIN who sends a date', async () => {

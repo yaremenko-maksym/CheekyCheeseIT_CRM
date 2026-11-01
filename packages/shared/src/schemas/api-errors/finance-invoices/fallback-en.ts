@@ -122,6 +122,8 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
   FINANCE_TX_DATE_TOO_OLD: 'This date is too far in the past — ask an admin to record it',
   FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED:
     "This date is too far back and needs a documented reason — it can't be recorded from this screen",
+  FINANCE_TX_DATE_LOCKED_ROW:
+    "This transaction's date can't be changed: its payment is confirmed on-chain, comes from the company account, or already has settlements",
   FINANCE_PAYOUT_SINGLE_PROJECT_ONLY: 'A payout must cover only one project',
   FINANCE_COMPANY_WALLET_NOT_CONFIGURED: "The company wallet isn't configured",
   FINANCE_NBU_RATE_UNAVAILABLE: 'The NBU exchange rate is unavailable — try again later',

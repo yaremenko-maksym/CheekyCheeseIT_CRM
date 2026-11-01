@@ -347,6 +347,11 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
       message:
         'Дата надто далеко в минулому, і для неї потрібна причина — з цього екрана таку дату внести не можна',
     },
+    FINANCE_TX_DATE_LOCKED_ROW: /* i18n */ {
+      id: 'api-error.FINANCE_TX_DATE_LOCKED_ROW',
+      message:
+        'Дату цієї транзакції не можна змінити: оплату підтверджено в блокчейні, її проведено з рахунку компанії або за нею вже є розрахунки',
+    },
     FINANCE_PAYOUT_SINGLE_PROJECT_ONLY: /* i18n */ {
       id: 'api-error.FINANCE_PAYOUT_SINGLE_PROJECT_ONLY',
       message: 'Виплата має охоплювати лише один проєкт',

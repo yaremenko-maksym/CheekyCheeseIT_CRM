@@ -2814,6 +2814,11 @@ msgstr "The transaction date isn't a valid date"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_LOCKED_ROW"
+msgstr "This transaction's date can't be changed: its payment is confirmed on-chain, comes from the company account, or already has settlements"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_DATE_TOO_OLD"
 msgstr "This date is too far in the past — ask an admin to record it"
 

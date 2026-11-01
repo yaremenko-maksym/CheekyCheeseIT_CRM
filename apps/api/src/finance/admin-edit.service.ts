@@ -205,6 +205,18 @@ export class AdminEditService {
     // still accept a notes-only edit. Only a day that differs reaches the policy.
     const storedBusinessDay = data.txDate ? sourceBusinessDay(tx) : null
     const txDateChanged = !!data.txDate && data.txDate !== storedBusinessDay
+    // SR-M-2 / SR-M-3 (owner decision, 2026-11-01): a date is NOT movable on a
+    // row whose day is a fact someone else holds. An on-chain-verified
+    // payment (claimed `tx_hash`) and a company-account row would drift away
+    // from the real transfer day (the block-timestamp clause of D-2 is still
+    // unimplemented), and a row that already carries settlements could end up
+    // dated AFTER the payments made against it.
+    if (
+      txDateChanged &&
+      (tx.txHash || tx.fundingSource === 'COMPANY_ACCOUNT' || tx.settledAmount !== null)
+    ) {
+      throw apiError('FINANCE_TX_DATE_LOCKED_ROW', HttpStatus.BAD_REQUEST)
+    }
     // A scheduled salary is the one PLANNED row; everything else records
     // something that already happened and so cannot be future-dated.
     const dateDecision = txDateChanged
@@ -806,8 +818,17 @@ export class AdminEditService {
     // was voided and never replaced re-issues it (below).
     const actorId = currentUser.impersonatorId ?? currentUser.id
     const failedStages: Array<{ id: string; stage: 'VOID' | 'REISSUE' }> = []
-    if (cascadeApplied) {
-      for (const reissueId of [id, ...cascadeApplied.changedDerivativeIds]) {
+    // SR-M-1 (owner decision, 2026-11-01): the invoice PDF is stamped from
+    // `tx_date`, so a date move voids the counterparty-signed document and
+    // issues a fresh one — the same path an amount cascade takes. A row with no
+    // invoice answers `NOT_NEEDED`.
+    const reissueIds = cascadeApplied
+      ? [id, ...cascadeApplied.changedDerivativeIds]
+      : dateDecision
+        ? [id]
+        : []
+    if (reissueIds.length > 0) {
+      for (const reissueId of reissueIds) {
         let outcome: InvoiceReissueOutcome | undefined
         try {
           outcome = await this.invoicesService.voidAndReissueInvoiceForAmountEdit(
