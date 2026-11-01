@@ -6,8 +6,8 @@
  *                           must hand to a legacy consumer: the `job_postings` insert
  *                           (LEGACY_POSTING) and the senior suggestions (LEGACY_SUGGESTION).
  *
- * The forward DDL is `drizzle/manual-staged/2026-10-31_job_bridge_deliveries.sql` (STAGED, not
- * applied by the deploy; promotion is slice S6f); `job-bridge-deliveries-forward-ddl.integration.spec.ts`
+ * The forward DDL is `drizzle/manual/2026-10-31_job_bridge_deliveries.sql` (wired into the deploy by
+ * slice S6f); `job-bridge-deliveries-forward-ddl.integration.spec.ts`
  * compares it with `db:push`. Nothing reads or writes the table yet (S6d / S6e).
  *
  * `consumer` and `status` are text + CHECK rather than the enum types the ADR sketch names: the
