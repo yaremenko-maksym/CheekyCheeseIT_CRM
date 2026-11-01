@@ -1228,7 +1228,13 @@ jobs:
             # спек, только на новых строках. Ставится сюда по содержанию
             # (одна поверхность), а не по длительности: auth-nav и после
             # добавления остаётся далеко от критического пути misc (~5:26-5:53).
-            files: tests/auth.spec.ts tests/navigation.spec.ts tests/app-shell-responsive.spec.ts tests/crm-tab-title.spec.ts tests/e2e-origin-agnostic-guard.spec.ts tests/notifications-popup-overflow.spec.ts tests/notification-types.spec.ts
+            #
+            # tests/job-source-admin-responsive.spec.ts (U7 AC3, PR #1209): the
+            # job-source admin page at 320/768/1024/1440 — a mock-based responsive
+            # check (page.route only, no DB), same pattern as
+            # tests/app-shell-responsive.spec.ts here. Placed by content (one
+            # responsive/shell-layout surface), not by duration.
+            files: tests/auth.spec.ts tests/navigation.spec.ts tests/app-shell-responsive.spec.ts tests/crm-tab-title.spec.ts tests/e2e-origin-agnostic-guard.spec.ts tests/notifications-popup-overflow.spec.ts tests/notification-types.spec.ts tests/job-source-admin-responsive.spec.ts
           - name: team-users
             # tests/locale-switcher.spec.ts (task-i18n-stage2, Task 7): the
             # profile-overview language switcher (own profile only) — task
