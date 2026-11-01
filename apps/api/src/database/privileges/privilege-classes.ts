@@ -216,6 +216,9 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'job_source_hosts',
     // Task 4.5: per-record observation order; the API's record store writes it. Promoted to manual/ (Task 4.6 S0).
     'job_source_record_heads',
+    // Task 4.6 S8a: the D4 missing-inventory counter; the S8d worker (service role) reads and writes it.
+    // STAGED (STAGED_RELATIONS below) until the owner-A3 wiring PR moves its DDL to manual/.
+    'job_source_record_inventory_misses',
     'job_source_record_revisions',
     'job_source_records',
     'job_sources',
@@ -363,7 +366,8 @@ export const MANUAL_DDL_RELATIONS: Record<string, { file: string | null; why: st
 
 /**
  * Tables the Drizzle schema DECLARES whose forward DDL is still STAGED in
- * `drizzle/manual-staged/`. Today: `job_source_health_events` (source-fetch-strategy U4).
+ * `drizzle/manual-staged/`. Today: `job_source_health_events` (source-fetch-strategy U4) and
+ * `job_source_record_inventory_misses` (Task 4.6 S8a).
  * (`job_bridge_deliveries` (Task 4.6 S6b) was promoted to `drizzle/manual/` by slice S6f. The
  * record-store tables were promoted to `drizzle/manual/` by Task 4.6 S0. The tx_date Kyiv-day
  * backfill is not staged: it
@@ -391,6 +395,11 @@ export const STAGED_RELATIONS: Record<string, { file: string }> = {
   // table, so its A-log grant is emitted guarded by `to_regclass` and the check marks it OPTIONAL.
   job_source_health_events: {
     file: 'drizzle/manual-staged/2026-10-31_job_source_health_events.sql',
+  },
+  // Task 4.6 S8a: the D4 missing-inventory counter, dark until the S8d worker; applied only by the
+  // owner-A3 DevOps wiring PR.
+  job_source_record_inventory_misses: {
+    file: 'drizzle/manual-staged/2026-11-01_job_source_record_inventory_misses.sql',
   },
 }
 

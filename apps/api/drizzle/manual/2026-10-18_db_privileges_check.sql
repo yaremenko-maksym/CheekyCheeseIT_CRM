@@ -82,6 +82,7 @@ BEGIN
     ('job_run_records', 'A', false),
     ('job_source_hosts', 'A', false),
     ('job_source_record_heads', 'A', false),
+    ('job_source_record_inventory_misses', 'A', true),
     ('job_source_record_revisions', 'A', false),
     ('job_source_records', 'A', false),
     ('job_sources', 'A', false),
@@ -205,6 +206,7 @@ BEGIN
     ('job_run_records', 'A', false),
     ('job_source_hosts', 'A', false),
     ('job_source_record_heads', 'A', false),
+    ('job_source_record_inventory_misses', 'A', true),
     ('job_source_record_revisions', 'A', false),
     ('job_source_records', 'A', false),
     ('job_sources', 'A', false),
@@ -497,6 +499,7 @@ BEGIN
     ('job_run_records', 'A', false),
     ('job_source_hosts', 'A', false),
     ('job_source_record_heads', 'A', false),
+    ('job_source_record_inventory_misses', 'A', true),
     ('job_source_record_revisions', 'A', false),
     ('job_source_records', 'A', false),
     ('job_sources', 'A', false),
@@ -701,6 +704,7 @@ BEGIN
     ('job_run_records', 'A', false),
     ('job_source_hosts', 'A', false),
     ('job_source_record_heads', 'A', false),
+    ('job_source_record_inventory_misses', 'A', true),
     ('job_source_record_revisions', 'A', false),
     ('job_source_records', 'A', false),
     ('job_sources', 'A', false),
@@ -1111,7 +1115,7 @@ $check$;
 DO $ok$
 BEGIN
   RAISE NOTICE 'db-privileges check passed: % relations classified, roles %, %, %',
-    83, 'crm_app', 'crm_collector', 'crm_retention_owner';
+    84, 'crm_app', 'crm_collector', 'crm_retention_owner';
 END
 $ok$;
 
