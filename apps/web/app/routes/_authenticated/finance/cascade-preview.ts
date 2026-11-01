@@ -21,7 +21,12 @@ import {
   type CascadeLedgerFactReason,
   type CurrencyEnum,
 } from '@crm/shared'
-import { extractBackendMessage, getAxiosStatus } from '@/lib/axios-utils'
+import {
+  extractBackendMessage,
+  getAxiosStatus,
+  parseApiErrorEnvelope,
+  translateApiError,
+} from '@/lib/axios-utils'
 
 /**
  * Does editing `tx`'s amount to `parsedAmount` need a cascade preview at all —
@@ -264,6 +269,12 @@ const CASCADE_SAVE_FORBIDDEN_MESSAGE = msg`Не вдалося зберегти 
 const CASCADE_SAVE_SERVER_ERROR_MESSAGE = msg`Не вдалося зберегти — помилка на нашому боці, спробуйте пізніше`
 
 export function cascadeSaveErrorMessage(err: unknown): string {
+  // CR-M-6: an API error envelope translates by `code` (same step as
+  // `getApiErrorMessage`'s priority 0); otherwise its English fallback
+  // `message` would reach a uk user verbatim.
+  const envelope = parseApiErrorEnvelope(err)
+  if (envelope) return translateApiError(envelope.code, envelope.params)
+
   const backendMessage = extractBackendMessage(err)
   if (backendMessage !== undefined) return backendMessage
 

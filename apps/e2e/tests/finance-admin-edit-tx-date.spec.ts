@@ -29,8 +29,8 @@ function daysSince(day: string): number {
   return Math.round((todayUtc - Date.UTC(y, m - 1, d)) / DAY_MS)
 }
 
-// The envelope `message` the API sends (the English fallback of the code); the dialog's
-// error banner shows the backend message verbatim.
+// The envelope `message` the API sends is the English fallback of the code; the dialog
+// translates by `code` (CR-M-6), so the banner must show the uk catalog text instead.
 const LOCKED_MESSAGE =
   "This transaction's date can't be changed: its payment is confirmed on-chain, comes from the company account, or already has settlements"
 const REASON_REQUIRED_MESSAGE =
@@ -183,7 +183,11 @@ test.describe('Finance — admin edit of the transaction date (ADMIN)', () => {
     await pickDate(asAdmin, STORED_DAY, OUT_OF_WINDOW_DAY)
     await dialog.getByTestId('admin-edit-save').click()
 
-    await expect(dialog.getByText(REASON_REQUIRED_MESSAGE)).toBeVisible()
+    const uk = await loadMessages('uk')
+    await expect(
+      dialog.getByText(uk['api-error.FINANCE_TX_DATE_EDIT_REASON_REQUIRED']!),
+    ).toBeVisible()
+    await expect(dialog.getByText(REASON_REQUIRED_MESSAGE)).toHaveCount(0)
     await expect(dialog).toBeVisible()
     expect(patches).toHaveLength(1)
     expect(patches[0]).toMatchObject({ txDate: OUT_OF_WINDOW_DAY })
@@ -222,7 +226,9 @@ test.describe('Finance — admin edit of the transaction date (ADMIN)', () => {
     await pickDate(asAdmin, STORED_DAY, IN_WINDOW_DAY)
     await dialog.getByTestId('admin-edit-save').click()
 
-    await expect(dialog.getByText(LOCKED_MESSAGE)).toBeVisible()
+    const uk = await loadMessages('uk')
+    await expect(dialog.getByText(uk['api-error.FINANCE_TX_DATE_LOCKED_ROW']!)).toBeVisible()
+    await expect(dialog.getByText(LOCKED_MESSAGE)).toHaveCount(0)
     await expect(dialog).toBeVisible()
     expect(patches).toHaveLength(1)
   })
