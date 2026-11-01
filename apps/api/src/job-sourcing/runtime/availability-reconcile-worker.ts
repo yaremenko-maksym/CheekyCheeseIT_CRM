@@ -2,6 +2,7 @@ import type { JobAvailability } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { updateInventoryMissCounter } from '../availability/inventory-counter-updater'
 import { deriveOpportunityAvailability } from '../availability/derive-availability'
+import { reopenObservedRecord } from '../availability/record-reopen-updater'
 import { expireWindowRecord, readLatestWindowRun } from '../availability/window-expiry-updater'
 import type { MeterDb } from '../metering/account-meter.store'
 import {
@@ -33,8 +34,8 @@ import type { RecomputeSteps } from './recompute-worker'
  *   OPPORTUNITY    re-derive availability with `deriveOpportunityAvailability` over the ACTIVE
  *                  `job_opportunity_sources` records' availability, and when it changed write it and
  *                  bump `revision` in ONE transaction. Existing matches / suggestion decisions are
- *                  NOT touched (that preservation is S8f's guarantee; here we just never destroy
- *                  them). Unchanged availability writes nothing (idempotent — AC6).
+ *                  NOT touched (S8f proves a close -> reopen cycle preserves them).
+ *                  Unchanged availability writes nothing (idempotent — AC6).
  *
  * COEXISTENCE (documented, not enforced). The S4a match worker claims the same SOURCE_RECORD /
  * OPPORTUNITY kinds for DIFFERENT work (canonical resolution / match recompute), and the claim
@@ -93,7 +94,7 @@ export async function resolveInventoryInput(
 }
 
 /**
- * SOURCE_RECORD: route by the source's latest valid run coverage, then complete the row. A WINDOW
+ * SOURCE_RECORD: reopen a re-listed CLOSED/EXPIRED record (S8f), then route by the source's latest valid run coverage, then complete the row. A WINDOW
  * source goes through the S8e window-drop derivation (EXPIRED, never the miss counter); anything
  * else runs the S8c inventory-counter updater. Two transactions (the updater owns its own), safe
  * because both paths are idempotent on replay.
@@ -104,6 +105,9 @@ export async function reconcileSourceRecordAvailability(
 ): Promise<CompleteOutcome> {
   const input = await resolveInventoryInput(db, work.entityId)
   if (input !== null) {
+    // S8f: a CLOSED/EXPIRED record listed again reopens FIRST (own tx, idempotent), so the counter
+    // and window paths below see an OPEN record and never re-close it from stale history.
+    await reopenObservedRecord(db, input)
     const windowRun = await readLatestWindowRun(db, input)
     if (windowRun !== null) await expireWindowRecord(db, input, windowRun)
     else await updateInventoryMissCounter(db, input)

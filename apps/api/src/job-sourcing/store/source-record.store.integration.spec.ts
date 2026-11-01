@@ -282,6 +282,60 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
     expect(twice?.checkpoint).toMatchObject({ position: { page: 3 } })
   })
 
+  it('S8f: unchanged content of a CLOSED/EXPIRED record enqueues one RECORD_RELISTED row per run; an OPEN one none', async () => {
+    const namespace = ns()
+    const first = await run()
+    await saveObservationPage(db, first, {
+      observations: [obs(namespace, 'back', 'A')],
+      checkpoint: specCheckpoint(1),
+    })
+    const relisted = async () => {
+      const { rows } = await session.admin.query(
+        `SELECT d.reason, d.target_version::int AS v FROM job_dirty_work d
+           JOIN job_source_records r ON r.id = d.entity_id
+          WHERE r.namespace = $1 AND d.entity_kind = 'SOURCE_RECORD' AND d.reason LIKE 'RECORD_RELISTED:%'
+          ORDER BY d.reason`,
+        [namespace],
+      )
+      return rows as { reason: string; v: number }[]
+    }
+    const second = await run()
+    await saveObservationPage(db, second, {
+      observations: [obs(namespace, 'back', 'A')],
+      checkpoint: specCheckpoint(1),
+    })
+    expect(await relisted()).toEqual([]) // OPEN: nothing to reopen
+
+    await session.admin.query(
+      `UPDATE job_source_records SET availability = 'CLOSED' WHERE namespace = $1`,
+      [namespace],
+    )
+    const third = await run()
+    await saveObservationPage(db, third, {
+      observations: [obs(namespace, 'back', 'A')],
+      checkpoint: specCheckpoint(1),
+    })
+    // Same page content again in the same run: the per-run reason dedups.
+    await saveObservationPage(db, third, {
+      observations: [obs(namespace, 'back', 'A')],
+      checkpoint: specCheckpoint(2),
+    })
+    expect(await relisted()).toEqual([{ reason: `RECORD_RELISTED:${third.runId}`, v: 1 }])
+
+    await session.admin.query(
+      `UPDATE job_source_records SET availability = 'EXPIRED' WHERE namespace = $1`,
+      [namespace],
+    )
+    const fourth = await run()
+    await saveObservationPage(db, fourth, {
+      observations: [obs(namespace, 'back', 'A')],
+      checkpoint: specCheckpoint(1),
+    })
+    expect((await relisted()).map((r) => r.reason)).toEqual(
+      [`RECORD_RELISTED:${third.runId}`, `RECORD_RELISTED:${fourth.runId}`].sort(),
+    )
+  })
+
   it('CR-M-1: after a crash between chunks the successor replays the page; each run counts what it persisted', async () => {
     const namespace = ns()
     const source = await kit.reporting()
