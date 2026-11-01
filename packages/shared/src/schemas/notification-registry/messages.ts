@@ -2,27 +2,24 @@ import type { MessageDescriptor } from '@lingui/core'
 import type { NewNotificationType, NotificationSubjectType } from './types'
 
 // ---------------------------------------------------------------------------
-// Заголовки — нейтральные, без цифр, пригодные для письма
+// Titles — neutral, without digits, safe for an email
 // ---------------------------------------------------------------------------
 
 /**
- * ЛЕГАСИ. Тип и текст остаются РУССКИМИ для десяти исходных ключей — вне
- * периметра task-i18n-stage4-task6 (SPEC-H-2/SPEC-H-3): шесть производителей
- * (`approvals.service.ts`, `employee-contracts.service.ts`,
- * `transactions.service.ts`, `projects.service.ts`, `teams.service.ts`,
- * `users.service.ts`) пишут этот текст в НЕ читаемую для показа колонку
- * `notifications.title` (см. doc-комментарий над `NOTIFICATION_TITLE_MESSAGES`
- * ниже), плюс `NotificationSettingsTab.tsx` использует его как ярлык ТИПА в
- * списке настроек. Ни один из этих файлов не входит в Task 6 — трогать
- * значения тут для НИХ означало бы менять то, что не читается ни одним путём
- * показа, с риском typecheck вне периметра PR.
+ * LEGACY. The type and the text stay RUSSIAN for the ten original keys — outside the perimeter of
+ * task-i18n-stage4-task6 (SPEC-H-2/SPEC-H-3): six producers (`approvals.service.ts`,
+ * `employee-contracts.service.ts`, `transactions.service.ts`, `projects.service.ts`,
+ * `teams.service.ts`, `users.service.ts`) write this text into the `notifications.title` column,
+ * which is NOT read for display (see the doc comment above `NOTIFICATION_TITLE_MESSAGES` below),
+ * and `NotificationSettingsTab.tsx` uses it as the TYPE label in the settings list. None of those
+ * files is part of Task 6 — changing the values here for THEM would change something no display
+ * path reads, at the risk of a typecheck failure outside the PR perimeter.
  *
- * Три новых ключа (замороженные типы) — компилятор требует их ЗДЕСЬ тоже
- * (`Record` закрыт по `NewNotificationType`): текст УЖЕ украинский (SPEC-H-3
- * fix-раунд 2 — легаси НЕ источник перевода для канона ниже, только
- * историческая точка отсчёта смысла), тот же, что в `NOTIFICATION_TITLE_MESSAGES`,
- * без i18n-обёртки — производители трёх замороженных типов кладут его в
- * `title` НАПРЯМУЮ (Step 5 плана).
+ * The three newer keys (the frozen types) — the compiler requires them HERE too (the `Record` is
+ * closed over `NewNotificationType`): the text is ALREADY Ukrainian (SPEC-H-3 fix round 2 — the
+ * legacy text is NOT the source of translation for the canon below, only the historical reference
+ * point for the meaning), the same as in `NOTIFICATION_TITLE_MESSAGES`, without an i18n wrapper —
+ * the producers of the three frozen types put it into `title` DIRECTLY (Step 5 of the plan).
  */
 export const NOTIFICATION_TITLES: Record<NewNotificationType, string> = {
   // COPY-L-1 (copy-review круг 1, #664): голос группы «вас добавили…» —
