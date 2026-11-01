@@ -745,6 +745,11 @@ describe('U6b: a 304 run trips no detector (CR-H-1, SPEC-L-1)', () => {
     expect(detectVolumeDrop(snap(runs))).toContain('VOLUME_DROP')
   })
 
+  it('VOLUME_DROP: a silent window (no run at all in 24 h) still fires; only an all-304 window is exempt', () => {
+    const noRunToday = daily(15).slice(1)
+    expect(detectVolumeDrop(snap(noRunToday))).toContain('VOLUME_DROP')
+  })
+
   it('VOLUME_DROP: a real low run beside a 304 in the window still fires', () => {
     const base = daily(14, (i) => ({ received: i === 0 ? 10 : 100 }))
     const withNotModified = [notModified(new Date(NOW.getTime() - 1_000)), ...base]
