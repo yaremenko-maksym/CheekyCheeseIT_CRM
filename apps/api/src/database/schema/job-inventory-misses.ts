@@ -6,8 +6,8 @@
  *                                        FULL_INVENTORY runs that did not list a record, per
  *                                        (record, board, config version).
  *
- * The forward DDL is STAGED: `drizzle/manual-staged/2026-11-01_job_source_record_inventory_misses.sql`
- * (listed in STAGED_RELATIONS); `job-source-record-inventory-misses-forward-ddl.integration.spec.ts`
+ * The forward DDL is `drizzle/manual/2026-11-01_job_source_record_inventory_misses.sql`
+ * (wired into the deploy by Task 4.6 S8a); `job-source-record-inventory-misses-forward-ddl.integration.spec.ts`
  * compares it with `db:push`. Nothing reads or writes the table yet (the reconciliation worker is
  * S8d). The run ids are evidence pointers, deliberately not foreign keys.
  */

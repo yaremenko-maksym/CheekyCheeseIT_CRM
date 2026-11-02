@@ -8,16 +8,17 @@ import { ROLES, STAGED_RELATIONS } from './privileges/privilege-classes'
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * r5 Task 4.6 S8a — the STAGED forward DDL
- * `manual-staged/2026-11-01_job_source_record_inventory_misses.sql` against the `db:push` reference
+ * r5 Task 4.6 S8a — the forward DDL
+ * `manual/2026-11-01_job_source_record_inventory_misses.sql` against the `db:push` reference
  * (ADR 2026-11-01 Decision 5). The reference is `public` (pushed from the Drizzle schema); the
  * candidate is a scratch schema holding a stub of the parent `job_source_records`, into which the
  * file is applied as the deploy would (one transaction). Columns, constraints and indexes must be
  * equal; a second apply changes nothing; the closing check refuses a same-named table without the
- * constraints. The table is STAGED, so the generated grants emit a `to_regclass`-guarded block.
+ * constraints. The table is in `drizzle/manual/` (deploy-wired), so the generated grants grant it
+ * unconditionally; the staged-grant mechanism is exercised only through `stagedGrantSql` below.
  */
 const DRIZZLE = join(__dirname, '..', '..', 'drizzle')
-const FILE = join(DRIZZLE, 'manual-staged', '2026-11-01_job_source_record_inventory_misses.sql')
+const FILE = join(DRIZZLE, 'manual', '2026-11-01_job_source_record_inventory_misses.sql')
 const SCHEMA = 'ddl_job_inventory_misses'
 const TABLE = 'job_source_record_inventory_misses'
 const PARENTS = ['job_source_records']
@@ -244,15 +245,14 @@ describe.skipIf(!hasDatabaseUrl())(
       await applyFile()
     })
 
-    it('the table is STAGED and the grants give crm_app exactly the class-A privileges where it exists', async () => {
-      expect(STAGED_RELATIONS[TABLE]?.file).toBe(
-        'drizzle/manual-staged/2026-11-01_job_source_record_inventory_misses.sql',
-      )
-      // `public` holds the db:push table; the shipped (guarded) grants block ran in this database.
+    it('the table is promoted (no longer staged) and the shipped grants give crm_app exactly the class-A privileges', async () => {
+      expect(STAGED_RELATIONS[TABLE]).toBeUndefined()
+      // `public` holds the db:push table; the shipped grants ran in this database.
       expect(await heldPrivileges()).toEqual(CLASS_A)
     })
 
     it('the staged grant block is a no-op where its table does not exist', async () => {
+      // Generator-path smoke check: nothing shipped is staged for this table any more.
       await expect(
         client.query(stagedGrantSql(['job_s8a_absent_relation'], ['SELECT'], ROLES.app)),
       ).resolves.toBeDefined()

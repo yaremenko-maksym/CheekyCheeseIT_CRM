@@ -30,7 +30,7 @@ const STAGED_SQL = join(
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-11-01_job_source_record_inventory_misses.sql',
 )
 const DAY = 24 * 60 * 60 * 1000
