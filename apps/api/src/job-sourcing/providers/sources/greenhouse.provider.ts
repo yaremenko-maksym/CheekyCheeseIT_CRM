@@ -1,10 +1,15 @@
 import { z } from 'zod'
-import { ORIGINAL_LIMITS } from '../../normalize/observation'
+import { ORIGINAL_LIMITS, buildSourceObservation } from '../../normalize/observation'
 import { type ApiJsonSourceSpec, defineApiJsonProvider } from '../api-json.provider'
 import { DEFAULT_API_JSON_LIMITS } from '../api-json.limits'
 import { parseBoundedJson } from '../bounded-json'
 import type { DetailMode } from '../detail-mode'
-import type { CollectionContext, FetchRequest } from '../reporting-provider'
+import type {
+  CollectionContext,
+  DetailOutcome,
+  DetailTarget,
+  FetchRequest,
+} from '../reporting-provider'
 import { atsBoardConfigSchema, atsBoardSlug, GREENHOUSE_KIND, presentStrings } from './ats-config'
 import { boundedString, dateRaw, optionalString, positiveSafeInt, urlString } from './as'
 
@@ -57,6 +62,8 @@ import { boundedString, dateRaw, optionalString, positiveSafeInt, urlString } fr
  */
 
 export const GREENHOUSE_ADAPTER_VERSION = 'greenhouse-1'
+/** ON_DEMAND identity (ADR 6a): the revision identity changes when the mode flips. */
+export const GREENHOUSE_ADAPTER_VERSION_ON_DEMAND = 'greenhouse-2'
 const HOST = 'boards-api.greenhouse.io'
 
 /**
@@ -147,7 +154,7 @@ export const greenhouseSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
  */
 const onDemandSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
   ...greenhouseSpec,
-  adapterVersion: 'greenhouse-2',
+  adapterVersion: GREENHOUSE_ADAPTER_VERSION_ON_DEMAND,
   pageRequest: (config: Config) => ({
     request: { url: listUrl(config.board), headers: { accept: 'application/json' } },
     cacheKey: 'board',
@@ -178,9 +185,45 @@ function mapGreenhouseItem(item: Item, config: Config) {
 
 export const greenhouseProvider = defineApiJsonProvider(greenhouseSpec)
 
-/** The provider for a mode. U10 passes the manifest's `detailMode`; `greenhouseProvider` is `IN_LIST`. */
+/**
+ * The provider for a mode. U10 passes the manifest's `detailMode`; `greenhouseProvider` is `IN_LIST`.
+ * An `ON_DEMAND` provider additionally carries `collectDetail` (ADR 6a, change #9); an `IN_LIST` one
+ * never does, so the run worker's detail tail is unreachable for it.
+ */
 export const createGreenhouseProvider = (mode: DetailMode) =>
-  defineApiJsonProvider(mode === 'IN_LIST' ? greenhouseSpec : onDemandSpec)
+  mode === 'IN_LIST'
+    ? defineApiJsonProvider(greenhouseSpec)
+    : { ...defineApiJsonProvider(onDemandSpec), collectDetail: greenhouseCollectDetail }
+
+/**
+ * Fetch one posting's detail inside the run's context, then build it into a `SourceObservation`
+ * THROUGH `buildSourceObservation` (which wraps `buildNormalizedPosting`) — never a store or renderer
+ * (ADR 6a, #9). A transport refusal thrown by `ctx.fetchText` propagates untouched (it ends the run
+ * and pauses the host). A posting that does not build is a `PARSE_DRIFT` with no message: the parser's
+ * fragment never reaches a log or the database.
+ */
+async function greenhouseCollectDetail(
+  config: Config,
+  record: DetailTarget,
+  ctx: CollectionContext,
+): Promise<DetailOutcome> {
+  // `detailIdSchema` (z.number().int().min(1)) already rejects NaN, 0, non-integers and anything
+  // past the safe-integer range, so one check covers every unusable native id.
+  const id = Number(record.nativeId)
+  if (!detailIdSchema.safeParse(id).success) {
+    return { kind: 'FAILED', code: 'PARSE_DRIFT', status: 0 }
+  }
+  const detail = await fetchGreenhouseDetail(ctx, config, id)
+  if (detail.kind === 'GONE') return { kind: 'GONE' }
+  if (detail.kind === 'FAILED') return { kind: 'FAILED', code: detail.code, status: detail.status }
+  const built = buildSourceObservation({
+    ...detail.fields,
+    provider: 'GREENHOUSE_ATS',
+    adapterVersion: GREENHOUSE_ADAPTER_VERSION_ON_DEMAND,
+  })
+  if (!built.ok) return { kind: 'FAILED', code: 'PARSE_DRIFT', status: 200 }
+  return { kind: 'FOUND', observation: built.observation }
+}
 
 // ---------------------------------------------------------------------------
 // Detail by id (ADR 6a). Not called by the routine run: U10 wires the trigger.
