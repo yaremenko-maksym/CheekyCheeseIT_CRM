@@ -206,5 +206,87 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(loaded?.detailPending).toBe(false)
       expect(loaded?.onDemandMissing).toEqual([])
     })
+
+    /**
+     * AC4-TTL (ADR 6a step 4): advance the record to a NEW latest revision — with a description
+     * (`withDescription`, as a detail-write does) or without (a fresh list observation) — stored
+     * `ageDays` ago, and move the head to it. Returns the new `observation_seq`.
+     */
+    async function advanceRevision(
+      recordId: string,
+      opts: { withDescription: boolean; ageDays: number },
+    ): Promise<number> {
+      const { rows: head } = await session.admin.query(
+        `SELECT latest_revision_id, observation_seq FROM job_source_record_heads WHERE source_record_id = $1`,
+        [recordId],
+      )
+      const latestRev = head[0].latest_revision_id as string
+      const nextSeq = Number(head[0].observation_seq) + 1
+      let blobSha: string | null = null
+      if (opts.withDescription) {
+        blobSha = createHash('sha256').update(`u10ttl-${TAG}-${recordId}-${nextSeq}`).digest('hex')
+        await session.admin.query(
+          `INSERT INTO job_text_blobs (sha256, text) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [blobSha, `Detail description ${nextSeq}.`],
+        )
+      }
+      const { rows: rev } = await session.admin.query(
+        `INSERT INTO job_source_record_revisions
+           (source_record_id, adapter_version, normalizer_version, content_hash, normalized,
+            original_identity, description_sha256, received_at)
+         SELECT source_record_id, adapter_version, normalizer_version, content_hash || $2,
+                normalized, original_identity, $3, clock_timestamp() - make_interval(days => $4)
+           FROM job_source_record_revisions WHERE id = $1 RETURNING id`,
+        [latestRev, `-v${nextSeq}`, blobSha, opts.ageDays],
+      )
+      await session.admin.query(
+        `UPDATE job_source_record_heads
+            SET latest_revision_id = $2, observation_seq = $3, observed_at = clock_timestamp()
+          WHERE source_record_id = $1`,
+        [recordId, rev[0].id, nextSeq],
+      )
+      return nextSeq
+    }
+
+    it('AC4-TTL: a detail aged over 14 days is onDemandStale (not detail-pending, not missing)', async () => {
+      const { recordId, opportunityId } = await makeOpportunity('ttl-aged')
+      const seq = await advanceRevision(recordId, { withDescription: true, ageDays: 20 })
+      const loaded = await loadOpportunity(db, opportunityId, [TYPE])
+      // present description -> not missing, evaluable -> not detail-pending; but aged -> a re-fetch target
+      expect(loaded?.onDemandMissing).toEqual([])
+      expect(loaded?.detailPending).toBe(false)
+      expect(loaded?.onDemandStale).toEqual([{ recordId, version: seq }])
+    })
+
+    it('AC4-TTL: a detail younger than 14 days is NOT re-fetched', async () => {
+      const { recordId, opportunityId } = await makeOpportunity('ttl-fresh')
+      await advanceRevision(recordId, { withDescription: true, ageDays: 3 })
+      const loaded = await loadOpportunity(db, opportunityId, [TYPE])
+      expect(loaded?.onDemandStale).toEqual([])
+      expect(loaded?.onDemandMissing).toEqual([])
+      expect(loaded?.detailPending).toBe(false)
+    })
+
+    it('AC4-TTL: idempotent — a DETAIL_FETCH already queued at the current version is not re-surfaced', async () => {
+      const { recordId, opportunityId } = await makeOpportunity('ttl-idem')
+      const seq = await advanceRevision(recordId, { withDescription: true, ageDays: 20 })
+      await enqueueDirty(db, 'SOURCE_RECORD', recordId, seq, DETAIL_FETCH)
+      const loaded = await loadOpportunity(db, opportunityId, [TYPE])
+      expect(loaded?.onDemandStale).toEqual([])
+    })
+
+    it('AC4 (b-list-change): a new NULL-description list revision after a settled fetch is missing again', async () => {
+      const { recordId, opportunityId, version } = await makeOpportunity('list-change')
+      // the detail was fetched and settled at the first list version
+      await enqueueDirty(db, 'SOURCE_RECORD', recordId, version, DETAIL_FETCH)
+      await setStatus(recordId, 'DEFERRED')
+      // a NEW list observation arrives: a revision WITHOUT a description, advancing the head
+      const seq = await advanceRevision(recordId, { withDescription: false, ageDays: 0 })
+      const loaded = await loadOpportunity(db, opportunityId, [TYPE])
+      // the existing machinery re-surfaces it as MISSING at the new version (list-change re-fetch)
+      expect(loaded?.onDemandMissing).toEqual([{ recordId, version: seq }])
+      expect(loaded?.detailPending).toBe(true)
+      expect(loaded?.onDemandStale).toEqual([])
+    })
   },
 )
