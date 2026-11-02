@@ -408,7 +408,8 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
   it('SR-H-2: resolves via source_id to the CORRECT source when two share (type, namespace)', async () => {
     // Two global sources sharing (JSEARCH_API, NAMESPACE), differing only by config_version — the
     // exact shape (three JSearch namespace='' queries) that made the old (type, namespace) JOIN pick
-    // an arbitrary source. JSEARCH_API is a non-inventory type, so SR-M-4's unique index does not apply.
+    // an arbitrary source (`ORDER BY s.id LIMIT 1`, i.e. the LOWER uuid). JSEARCH_API is a
+    // non-inventory type, so SR-M-4's unique index does not apply.
     const { rows: s1 } = await q(
       `INSERT INTO job_sources (type, namespace, config, config_version)
        VALUES ('JSEARCH_API', $1, jsonb_build_object('q', 'one'), 4) RETURNING id`,
@@ -419,24 +420,35 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
        VALUES ('JSEARCH_API', $1, jsonb_build_object('q', 'two'), 7) RETURNING id`,
       [NAMESPACE],
     )
-    const source2 = String(s2[0].id)
+    // CR-M-2: point the record DETERMINISTICALLY at the GREATER-uuid source — the one the old
+    // arbitrary `ORDER BY s.id LIMIT 1` (lower uuid) would NOT pick. Canonical-lowercase uuids sort
+    // identically as JS strings and as Postgres `uuid`, so this is stable. Reverting the resolver to
+    // that JOIN then resolves to the wrong source (and its config_version), failing this test on
+    // EVERY run — not only the ~half where the greater uuid happened to be inserted second.
+    const srcLow = { id: String(s1[0].id), config: 4 }
+    const srcHigh = { id: String(s2[0].id), config: 7 }
+    const target = srcLow.id > srcHigh.id ? srcLow : srcHigh // greater uuid = NOT the arbitrary pick
+    const arbitraryPick = srcLow.id > srcHigh.id ? srcHigh : srcLow
+    expect(target.id).not.toBe(arbitraryPick.id) // two distinct sources really exist
+    expect(target.config).not.toBe(arbitraryPick.config) // a wrong pick => a wrong config_version
+
     const { rows: rec } = await q(
       `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key, source_id)
        VALUES ('JSEARCH_API', $1, 'NATIVE_ID', $2, $3::uuid) RETURNING id`,
-      [NAMESPACE, `key-${tag()}`, source2],
+      [NAMESPACE, `key-${tag()}`, target.id],
     )
     const recordId = String(rec[0].id)
 
     const input = await resolveInventoryInput(db, recordId)
 
-    // The record points at s2, so the resolve returns s2 — its config_version (7), never s1's (4).
+    // The record points at the greater-uuid source, so the resolve returns exactly it — never the
+    // arbitrary (lower-uuid) source nor its config_version.
     expect(input).toEqual({
       sourceRecordId: recordId,
-      sourceId: source2,
+      sourceId: target.id,
       board: `JSEARCH_API:${NAMESPACE}`,
-      configVersion: 7,
+      configVersion: target.config,
     })
-    expect(String(s1[0].id)).not.toBe(source2) // both really exist and differ
   })
 
   it('SR-H-2: a NULL source_id record resolves to null (fail closed)', async () => {
@@ -444,36 +456,63 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
     expect(await resolveInventoryInput(db, orphan)).toBeNull()
   })
 
-  it('SR-H-2: the backfill populates an existing NULL row from its earliest observing run', async () => {
-    const sourceId = await newSource()
-    const recordId = await newRecord('UNKNOWN', null) // pre-backfill: source_id is NULL
+  it('SR-H-2: the backfill picks the earliest observing run, breaking ties on run.id (CR-M-3/SPEC-L-3)', async () => {
     const cycleId = await newCycle()
-    // A run of `sourceId` that observed this record (the run<->record link + its revision).
-    const { rows: run } = await q(
-      `INSERT INTO job_collection_runs
-         (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, coverage, outcome,
-          received, created, started_at, ended_at, account_key)
-       VALUES ($1, $2, $3, ${CONFIG}, 'v1', 'SCHEDULED', 'FULL_INVENTORY', 'SUCCEEDED',
-               1, 1, now() - interval '1 hour', now(), $4) RETURNING id`,
-      [sourceId, cycleId, `attempt-${tag()}`, `acct-${tag()}`],
-    )
-    const { rows: revn } = await q(
-      `INSERT INTO job_source_record_revisions
-         (source_record_id, adapter_version, normalizer_version, content_hash, normalized, original_identity)
-       VALUES ($1, 'v1', 'v1', repeat('a', 64), '{}'::jsonb, '{}'::jsonb) RETURNING id`,
-      [recordId],
-    )
-    await q(
-      `INSERT INTO job_run_records (run_id, source_record_id, revision_id) VALUES ($1, $2, $3)`,
-      [String(run[0].id), recordId, String(revn[0].id)],
-    )
+    // A SUCCEEDED run of `sourceId` that observed `recordId` at `startedAt` (run + revision + link).
+    const observe = async (
+      sourceId: string,
+      recordId: string,
+      startedAt: Date,
+    ): Promise<string> => {
+      const { rows: run } = await q(
+        `INSERT INTO job_collection_runs
+           (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, coverage, outcome,
+            received, created, started_at, ended_at, account_key)
+         VALUES ($1, $2, $3, ${CONFIG}, 'v1', 'SCHEDULED', 'FULL_INVENTORY', 'SUCCEEDED',
+                 1, 1, $4::timestamptz, $4::timestamptz, $5) RETURNING id`,
+        [sourceId, cycleId, `attempt-${tag()}`, startedAt.toISOString(), `acct-${tag()}`],
+      )
+      const runId = String(run[0].id)
+      const { rows: revn } = await q(
+        `INSERT INTO job_source_record_revisions
+           (source_record_id, adapter_version, normalizer_version, content_hash, normalized, original_identity)
+         VALUES ($1, 'v1', 'v1', md5(random()::text) || md5(random()::text), '{}'::jsonb, '{}'::jsonb) RETURNING id`,
+        [recordId],
+      )
+      await q(
+        `INSERT INTO job_run_records (run_id, source_record_id, revision_id) VALUES ($1, $2, $3)`,
+        [runId, recordId, String(revn[0].id)],
+      )
+      return runId
+    }
+
+    // Record A: observed by a LATER run of `srcLate` and an EARLIER run of `srcEarly`. The backfill's
+    // `ORDER BY run.started_at` must pick srcEarly — a removed/DESC-flipped order would pick srcLate.
+    const srcEarly = await newSource()
+    const srcLate = await newSource()
+    const recA = await newRecord('UNKNOWN', null) // pre-backfill: source_id is NULL
+    await observe(srcLate, recA, new Date('2026-01-02T00:00:00.000Z'))
+    await observe(srcEarly, recA, new Date('2026-01-01T00:00:00.000Z'))
+
+    // Record B: two runs with the SAME started_at from two sources. `ORDER BY run.started_at, run.id`
+    // breaks the tie on the LOWER run.id — dropping `, run.id` makes the pick non-deterministic.
+    const srcB1 = await newSource()
+    const srcB2 = await newSource()
+    const recB = await newRecord('UNKNOWN', null)
+    const sameTs = new Date('2026-03-01T00:00:00.000Z')
+    const runB1 = await observe(srcB1, recB, sameTs)
+    const runB2 = await observe(srcB2, recB, sameTs)
+    // Canonical-lowercase uuids order identically as JS strings and as Postgres `uuid`.
+    const lowerRunSource = runB1 < runB2 ? srcB1 : srcB2
 
     // Apply the promoted migration (idempotent ADD COLUMN / FK / index + the backfill UPDATE).
     await session.admin.query(readFileSync(BACKFILL_SQL, 'utf8'))
 
-    const { rows: after } = await q(`SELECT source_id FROM job_source_records WHERE id = $1`, [
-      recordId,
-    ])
-    expect(String(after[0].source_id)).toBe(sourceId)
+    const sourceOf = async (recordId: string): Promise<string> => {
+      const { rows } = await q(`SELECT source_id FROM job_source_records WHERE id = $1`, [recordId])
+      return String(rows[0].source_id)
+    }
+    expect(await sourceOf(recA)).toBe(srcEarly) // earliest started_at wins, never srcLate
+    expect(await sourceOf(recB)).toBe(lowerRunSource) // equal started_at => lower run.id breaks the tie
   })
 })

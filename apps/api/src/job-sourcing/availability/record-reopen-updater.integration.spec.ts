@@ -319,7 +319,7 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
     async (availability) => {
       const sourceId = await newSource()
       const closedAt = new Date(Date.now() - DAY)
-      const recordId = await newRecord(availability, closedAt)
+      const recordId = await newRecord(availability, closedAt, sourceId)
       const oppId = await newOpportunity()
       await link(recordId, oppId)
       const cycleId = await newCycle()
@@ -345,7 +345,7 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
   it('AC1: no run listed it since it closed => stays CLOSED, nothing enqueued', async () => {
     const sourceId = await newSource()
     const cycleId = await newCycle()
-    const recordId = await newRecord('CLOSED', new Date(Date.now() - HOUR))
+    const recordId = await newRecord('CLOSED', new Date(Date.now() - HOUR), sourceId)
     const oppId = await newOpportunity()
     await link(recordId, oppId)
     // Listed BEFORE it closed, and a later run that did not list it.
@@ -361,7 +361,7 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
   it('AC1: a FAILED run, or another config version, is not an observation', async () => {
     const sourceId = await newSource()
     const cycleId = await newCycle()
-    const recordId = await newRecord('CLOSED', new Date(Date.now() - DAY))
+    const recordId = await newRecord('CLOSED', new Date(Date.now() - DAY), sourceId)
     const failed = await addRun(sourceId, cycleId, Date.now() - HOUR, { outcome: 'FAILED' })
     const other = await addRun(sourceId, cycleId, Date.now() - HOUR, { configVersion: 2 })
     await list(failed, recordId)
@@ -375,7 +375,7 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
     const sourceId = await newSource()
     const cycleId = await newCycle()
     const closedAt = new Date(Date.now() - HOUR)
-    const recordId = await newRecord('CLOSED', closedAt)
+    const recordId = await newRecord('CLOSED', closedAt, sourceId)
     const oppId = await newOpportunity()
     await link(recordId, oppId)
     // Started 2h ago (before the close), ended 10 min ago (after it).
@@ -399,7 +399,7 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
   it('AC1: a PARTIAL-coverage run that lists the record reopens it (listed = observed open)', async () => {
     const sourceId = await newSource()
     const cycleId = await newCycle()
-    const recordId = await newRecord('EXPIRED', new Date(Date.now() - DAY))
+    const recordId = await newRecord('EXPIRED', new Date(Date.now() - DAY), sourceId)
     const run = await addRun(sourceId, cycleId, Date.now() - HOUR, { coverage: 'PARTIAL' })
     await list(run, recordId)
     expect(await reopenObservedRecord(db, input(sourceId, recordId))).toEqual({ reopened: true })
@@ -408,7 +408,7 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
   it('AC5: idempotent — a second call rewrites nothing and enqueues nothing more', async () => {
     const sourceId = await newSource()
     const cycleId = await newCycle()
-    const recordId = await newRecord('CLOSED', new Date(Date.now() - DAY))
+    const recordId = await newRecord('CLOSED', new Date(Date.now() - DAY), sourceId)
     const oppId = await newOpportunity()
     await link(recordId, oppId)
     await list(await addRun(sourceId, cycleId, Date.now() - HOUR), recordId)
@@ -425,7 +425,7 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
   it('an already-OPEN record is never touched', async () => {
     const sourceId = await newSource()
     const cycleId = await newCycle()
-    const recordId = await newRecord('OPEN')
+    const recordId = await newRecord('OPEN', null, sourceId)
     await list(await addRun(sourceId, cycleId, Date.now() - HOUR), recordId)
     expect(await reopenObservedRecord(db, input(sourceId, recordId))).toEqual({ reopened: false })
     expect((await recordRow(recordId)).evidence).toEqual({})

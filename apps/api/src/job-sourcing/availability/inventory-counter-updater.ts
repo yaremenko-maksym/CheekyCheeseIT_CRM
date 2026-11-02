@@ -333,12 +333,14 @@ export async function enqueueOwners(
 }
 
 /**
- * Lock the source record and verify it belongs to `sourceId` (SR-M-1 / SR-M-2). The `FOR UPDATE OF r`
- * serialises with the observation writer (which locks the same row), so a run still in flight that
- * re-lists the record commits BEFORE this reads the runs — no false close on a reappearing record.
- * The record↔source tie is (source_type, namespace), the only link a MISSING record has to a board:
- * a mismatched (sourceId, sourceRecordId) pair matches no row and is refused, never closing an
- * arbitrary record.
+ * Lock the source record and verify it belongs to `sourceId` (SR-M-1 / SR-M-2 / SR-H-2). The
+ * `FOR UPDATE OF r` serialises with the observation writer (which locks the same row), so a run still
+ * in flight that re-lists the record commits BEFORE this reads the runs — no false close on a
+ * reappearing record. The record↔source tie is the record's EXPLICIT `source_id` FK (SR-H-2), not the
+ * ambiguous `(source_type, namespace)` pair two sibling sources can legitimately share: a mismatched
+ * or NULL `source_id` matches no row and is refused, never closing an arbitrary record. The resolver
+ * (`resolveInventoryInput`) fails closed on a NULL `source_id`, so every caller reaching here already
+ * carries a non-NULL `source_id` resolved from this same column.
  */
 export async function lockAndVerifyRecord(
   tx: SqlExecutor,
@@ -347,9 +349,8 @@ export async function lockAndVerifyRecord(
   const { rows } = await tx.execute(
     sql`SELECT r.id
           FROM job_source_records r
-          JOIN job_sources s ON s.id = ${input.sourceId}::uuid
          WHERE r.id = ${input.sourceRecordId}::uuid
-           AND r.source_type = s.type AND r.namespace = s.namespace
+           AND r.source_id = ${input.sourceId}::uuid
          FOR UPDATE OF r`,
   )
   if (rows.length === 0)

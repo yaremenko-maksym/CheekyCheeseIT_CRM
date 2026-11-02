@@ -62,21 +62,23 @@ async function newSource(ns: string): Promise<string> {
   return String(rows[0].id)
 }
 
-async function newRecord(ns: string): Promise<string> {
+async function newRecord(ns: string, sourceId: string | null = null): Promise<string> {
+  // SR-H-2: the record↔source tie is the explicit source_id FK; lockAndVerifyRecord now matches on it,
+  // so a record that belongs to a source must carry that source's id (the worker path stamps it).
   const { rows } = await q(
-    `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key)
-     VALUES ('GREENHOUSE_ATS', $1, 'NATIVE_ID', $2) RETURNING id, availability`,
-    [ns, `key-${tag()}`],
+    `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key, source_id)
+     VALUES ('GREENHOUSE_ATS', $1, 'NATIVE_ID', $2, $3::uuid) RETURNING id, availability`,
+    [ns, `key-${tag()}`, sourceId],
   )
   records.push(String(rows[0].id))
   return String(rows[0].id)
 }
 
-/** A source and a record that belong together (same provider + namespace), and their board key. */
+/** A source and a record that belong together (same provider + namespace + source_id), and their board key. */
 async function seedPair(): Promise<{ sourceId: string; recordId: string; board: string }> {
   const ns = `ns-${tag()}`
   const sourceId = await newSource(ns)
-  const recordId = await newRecord(ns)
+  const recordId = await newRecord(ns, sourceId)
   return { sourceId, recordId, board: `GREENHOUSE_ATS:${ns}` }
 }
 
@@ -492,6 +494,31 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
     ).rejects.toThrow(/does not belong/)
     expect((await recordState(a.recordId)).availability).not.toBe('CLOSED')
     expect(await counterRow(a.recordId, a.board)).toBeUndefined()
+  })
+
+  it('refuses a sibling source sharing (source_type, namespace) but a different source_id — closes the SR-H-2 ambiguity (SPEC-M-1)', async () => {
+    // Two sources with the SAME (GREENHOUSE_ATS, ns); the record belongs to `owner`. The old verify
+    // joined on (source_type, namespace), so the `sibling` would have matched and wrongly closed the
+    // record — this asserts the FK (source_id) tie now refuses it. Reverting to the (type,namespace)
+    // predicate makes this test fail (the sibling would pass).
+    const ns = `ns-${tag()}`
+    const owner = await newSource(ns)
+    const sibling = await newSource(ns) // same (type, namespace), different id
+    const recordId = await newRecord(ns, owner)
+    const board = `GREENHOUSE_ATS:${ns}`
+    const cycleId = await newCycle()
+    await addRun({ sourceId: sibling, cycleId, received: 100, observedMs: 0 })
+
+    await expect(
+      updateInventoryMissCounter(db, {
+        sourceRecordId: recordId,
+        sourceId: sibling,
+        board,
+        configVersion: CONFIG,
+      }),
+    ).rejects.toThrow(/does not belong/)
+    expect((await recordState(recordId)).availability).not.toBe('CLOSED')
+    expect(await counterRow(recordId, board)).toBeUndefined()
   })
 
   it('enqueue atomicity: a failed opportunity enqueue rolls back the counter and the close', async () => {

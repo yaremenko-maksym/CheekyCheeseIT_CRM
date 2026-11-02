@@ -147,7 +147,7 @@ const PART_8_MIGRATION = '2026-11-02_job_sources_inventory_uniqueness.sql'
 /** The index PART_8 creates; the reference counts it beside part 2's, PART_5's and PART_6's. */
 const PART_8_INDEXES = ['uq_job_sources_inventory_type_namespace'] as const
 /**
- * SR-H-2 (PR #1227). `job_source_records.source_id` (nullable), its RESTRICT FK
+ * SR-H-2 (PR #1227). `job_source_records.source_id` (nullable), its ON DELETE SET NULL FK
  * `fk_job_source_records_source` and the index `idx_job_source_records_source` are declared in
  * Drizzle (`job-opportunities.ts`), so the `db:push` reference carries them, and production gets them
  * ONLY through this file. Applied after PART_8, as the deploy will. PROMOTED (lives in `manual/`),
