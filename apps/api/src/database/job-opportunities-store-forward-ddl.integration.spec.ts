@@ -146,6 +146,16 @@ const PART_7_JOB_SOURCES_COLUMNS = ['slowdown_level']
 const PART_8_MIGRATION = '2026-11-02_job_sources_inventory_uniqueness.sql'
 /** The index PART_8 creates; the reference counts it beside part 2's, PART_5's and PART_6's. */
 const PART_8_INDEXES = ['uq_job_sources_inventory_type_namespace'] as const
+/**
+ * SR-H-2 (PR #1227). `job_source_records.source_id` (nullable), its ON DELETE SET NULL FK
+ * `fk_job_source_records_source` and the index `idx_job_source_records_source` are declared in
+ * Drizzle (`job-opportunities.ts`), so the `db:push` reference carries them, and production gets them
+ * ONLY through this file. Applied after PART_8, as the deploy will. PROMOTED (lives in `manual/`),
+ * so `readPart` finds it directly. Adds ONE column and ONE index to `job_source_records`.
+ */
+const PART_9_MIGRATION = '2026-11-02_job_source_records_source_id.sql'
+/** The index PART_9 creates; the reference counts it beside the earlier parts'. */
+const PART_9_INDEXES = ['idx_job_source_records_source'] as const
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
 const SCHEMA = 'ddl_job_opportunities_store'
 /** Its own schema, so the migration path cannot disturb the fresh-path comparison. */
@@ -217,10 +227,10 @@ const PRE_STORE_ENUMS = [
 /** Tripwires on the DERIVED expectation — they fail if the reference side shifts. */
 const EXPECTED = { tables: 19, enums: 19, jobSourcesColumns: 20, indexes: 44 } as const
 /**
- * The standalone indexes beyond part 2's 44: T1's two (PART_5), T8's one (PART_6) and SR-M-4's one
- * (PART_8). PART_7 adds columns only, no index.
+ * The standalone indexes beyond part 2's 44: T1's two (PART_5), T8's one (PART_6), SR-M-4's one
+ * (PART_8) and SR-H-2's one (PART_9). PART_7 adds columns only, no index.
  */
-const LATER_INDEXES = [...PART_5_INDEXES, ...PART_6_INDEXES, ...PART_8_INDEXES]
+const LATER_INDEXES = [...PART_5_INDEXES, ...PART_6_INDEXES, ...PART_8_INDEXES, ...PART_9_INDEXES]
 
 const STAGED_DIR = join(__dirname, '..', '..', 'drizzle', 'manual-staged')
 const readPart = (name: string): string =>
@@ -605,6 +615,7 @@ const applyBothParts = (client: PoolClient): Promise<void> =>
     PART_6_MIGRATION,
     PART_7_MIGRATION,
     PART_8_MIGRATION,
+    PART_9_MIGRATION,
   ])
 const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 
@@ -642,6 +653,8 @@ async function buildPreStoreStub(client: PoolClient, schema: string): Promise<vo
   // of the comparison.
   await client.query(`CREATE TABLE users (id uuid PRIMARY KEY)`)
   await client.query(`CREATE TABLE teams (id uuid PRIMARY KEY)`)
+  // Empty source tables so PART_9's backfill UPDATE resolves (matches no rows => no-op).
+  await client.query(`CREATE TABLE job_run_records (run_id uuid, source_record_id uuid)`)
 
   const baseColumns = await client.query(
     `SELECT a.attname,
@@ -770,9 +783,9 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         WHERE n.nspname = $1 AND c.relkind = 'r' ORDER BY c.relname`,
       [SCHEMA],
     )
-    // The three stubs are what `buildPreStoreStub` creates to stand in for production.
+    // The stubs are what `buildPreStoreStub` creates to stand in for production.
     expect(tables.rows.map((r: { name: string }) => r.name)).toEqual(
-      [...STORE_TABLES, 'job_sources', 'teams', 'users'].sort(),
+      [...STORE_TABLES, 'job_sources', 'teams', 'users', 'job_run_records'].sort(),
     )
 
     const types = await client.query(
@@ -1258,6 +1271,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         PART_6_MIGRATION,
         PART_7_MIGRATION,
         PART_8_MIGRATION,
+        PART_9_MIGRATION,
       ])
       beforeMigration = await readCatalog(client, MIGRATION_SCHEMA)
       await applyParts(client, [PART_3_MIGRATION])

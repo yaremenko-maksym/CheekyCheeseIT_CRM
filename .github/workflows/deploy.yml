@@ -673,6 +673,7 @@ jobs:
             apps/api/drizzle/manual/2026-10-27_transactions_tx_date_not_null.sql \
             apps/api/drizzle/manual/2026-10-31_job_bridge_deliveries.sql \
             apps/api/drizzle/manual/2026-11-01_job_source_record_inventory_misses.sql \
+            apps/api/drizzle/manual/2026-11-02_job_source_records_source_id.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -2765,6 +2766,19 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-11-01_job_source_record_inventory_misses.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-11-01_job_source_record_inventory_misses.sql
+
+      - name: Copy job source record source_id DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-02_job_source_records_source_id.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-02_job_source_records_source_id.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-02_job_source_records_source_id.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the

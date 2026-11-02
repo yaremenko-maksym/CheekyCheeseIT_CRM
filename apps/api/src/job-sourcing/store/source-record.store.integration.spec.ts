@@ -652,6 +652,21 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
     expect((await storeCounts(session.admin, namespace)).records).toBe(0)
   })
 
+  it('SR-H-2: a new record carries the creating run source as source_id', async () => {
+    const namespace = ns()
+    const h = await run()
+    const expectedSource = await sourceOf(h.runId)
+    const [saved] = await saveObservationPage(db, h, {
+      observations: [obs(namespace, 'srh2')],
+      checkpoint: specCheckpoint(1),
+    })
+    const { rows } = await session.admin.query(
+      `SELECT source_id FROM job_source_records WHERE id = $1`,
+      [saved!.recordId],
+    )
+    expect(String(rows[0].source_id)).toBe(expectedSource)
+  })
+
   it('AC 10: created no legacy suggestion or posting', async () => {
     expect(await legacyCounts(session.admin)).toEqual(legacyBefore)
   })

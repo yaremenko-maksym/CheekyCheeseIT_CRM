@@ -95,13 +95,17 @@ async function recordIdFor(
   o: SourceObservation,
   sourceUrl: string,
   applicationUrl: string | null,
+  sourceId: string,
 ): Promise<{ id: string; created: boolean }> {
   const id = o.identity
   for (let attempt = 1; attempt <= RECORD_ATTEMPTS; attempt += 1) {
+    // SR-H-2: stamp the creating source on the NEW row only (ON CONFLICT DO NOTHING keeps the
+    // first creator's source_id). The availability resolver reads this column and fails closed
+    // when it is NULL — a record created before this writer stays NULL until the backfill.
     const { rows } = await tx.execute(
-      sql`INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key, source_url, application_url)
+      sql`INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key, source_url, application_url, source_id)
           VALUES (${id.provider}::job_source_type, ${id.namespace}, ${id.identityKind}::job_identity_kind,
-                  ${id.identityKey}, ${sourceUrl}, ${applicationUrl})
+                  ${id.identityKey}, ${sourceUrl}, ${applicationUrl}, ${sourceId}::uuid)
           ON CONFLICT (source_type, namespace, identity_key) DO NOTHING
           RETURNING id`,
     )
@@ -124,7 +128,7 @@ async function writeObservation(
   o: SourceObservation,
 ): Promise<SavedObservation> {
   const p = revisionPayload(o)
-  const record = await recordIdFor(tx, o, p.sourceUrl, p.applicationUrl)
+  const record = await recordIdFor(tx, o, p.sourceUrl, p.applicationUrl, owned.sourceId)
   const run = sql`(SELECT started_at FROM job_collection_runs WHERE id = ${owned.runId}::uuid)`
 
   // 3. Lock the record, THEN read its head in a separate statement (R2-CR-M-1): under READ
