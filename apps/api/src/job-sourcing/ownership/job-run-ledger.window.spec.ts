@@ -151,7 +151,8 @@ describe('claimDue, the sweep/detailPass guard and scope (U10)', () => {
   const catalog = { onDemandTypes: () => ['REMOTIVE_API'], entry: () => undefined }
 
   // A recording transaction surfaces the predicate `pickDue` runs (the only place the chosen claim
-  // predicate is observable at unit level); it returns no row, so the claim loop breaks at once.
+  // predicate is observable at unit level); it returns no row, so the claim loop breaks at once. The
+  // failure cap is a non-default 5 so the cadence term's bound params are distinguishable.
   function claimLedger() {
     const picks: ReturnType<typeof dialect.sqlToQuery>[] = []
     const execute = vi.fn(async (q: SQL) => {
@@ -169,7 +170,9 @@ describe('claimDue, the sweep/detailPass guard and scope (U10)', () => {
           },
         }),
     )
-    const ledger = new JobRunLedger({ execute, transaction } as never, {} as never, catalog as never)
+    const ledger = new JobRunLedger({ execute, transaction } as never, {} as never, catalog as never, {
+      maxConsecutiveFailures: 5,
+    })
     return { ledger, execute, picks }
   }
 
@@ -196,7 +199,18 @@ describe('claimDue, the sweep/detailPass guard and scope (U10)', () => {
     await expect(
       ledger.claimDue(claim({ sweep: { cycleId: CYCLE, skipIds: [] } })),
     ).resolves.toEqual({ claimed: [], refused: [] })
+    // The sweep predicate, not the cadence one (its manifest-id scoping) nor the detail-pass one.
+    expect(picks[0]?.sql).toContain('manifest_id = ANY(')
     expect(picks[0]?.sql).not.toContain("dw.reason = 'DETAIL_FETCH'")
+  })
+
+  it('a plain claim (no sweep, no detailPass) picks with the cadence predicate, at the ledger failure cap', async () => {
+    const { ledger, picks } = claimLedger()
+    await expect(ledger.claimDue(claim({}))).resolves.toEqual({ claimed: [], refused: [] })
+    // The cadence predicate: the SCHEDULED trigger-mode term, this ledger's cap, no sweep scoping.
+    expect(picks[0]?.sql).not.toContain('manifest_id = ANY(')
+    expect(picks[0]?.params).toContain('SCHEDULED')
+    expect(picks[0]?.params).toContain(5)
   })
 
   it('sweep and detailPass together are refused before the cycle is read', async () => {

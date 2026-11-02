@@ -90,9 +90,13 @@ async function makeOpportunity(
   // DETAIL_FETCH of its own: this spec controls the row states explicitly below.
   const steps = createRecomputeSteps(db)
   const worker = new RecomputeWorker(steps, { owner: `u10dp-${TAG}`, batchSize: 50 })
-  // SOURCE_RECORD -> (resolve, enqueue OPPORTUNITY) ; OPPORTUNITY -> (evaluate, install).
-  await worker.runOnce()
-  await worker.runOnce()
+  // SOURCE_RECORD -> (resolve, enqueue OPPORTUNITY) ; OPPORTUNITY -> (evaluate, install). Two passes
+  // suffice for this record alone, but the dirty-work queue is shared with the rest of the suite, so
+  // drain until nothing more is claimed (bounded) — otherwise leftover rows consume the two passes
+  // and this record's OPPORTUNITY stays unprocessed (seen as a dropped opportunity on the first call).
+  for (let i = 0; i < 10 && (await worker.runOnce()).claimed > 0; i += 1) {
+    /* keep draining the shared queue */
+  }
   const { rows } = await session.admin.query(
     `SELECT s.opportunity_id, h.observation_seq
        FROM job_opportunity_sources s
@@ -100,10 +104,13 @@ async function makeOpportunity(
       WHERE s.source_record_id = $1 AND s.unlinked_at IS NULL`,
     [recordId],
   )
+  if (rows[0] === undefined) {
+    throw new Error(`makeOpportunity(${nativeId}): no linked opportunity formed for record ${recordId}`)
+  }
   return {
     recordId,
-    opportunityId: rows[0]?.opportunity_id as string,
-    version: Number(rows[0]?.observation_seq),
+    opportunityId: rows[0].opportunity_id as string,
+    version: Number(rows[0].observation_seq),
   }
 }
 
@@ -230,14 +237,19 @@ describe.skipIf(!hasDatabaseUrl())(
           [blobSha, `Detail description ${nextSeq}.`],
         )
       }
+      // A fresh 64-hex content_hash per revision: unique, and valid under
+      // ck_job_source_record_revisions_content_hash_hex (appending a '-vN' suffix is non-hex).
+      const contentHash = createHash('sha256')
+        .update(`u10ttl-${TAG}-${recordId}-${nextSeq}`)
+        .digest('hex')
       const { rows: rev } = await session.admin.query(
         `INSERT INTO job_source_record_revisions
            (source_record_id, adapter_version, normalizer_version, content_hash, normalized,
             original_identity, description_sha256, received_at)
-         SELECT source_record_id, adapter_version, normalizer_version, content_hash || $2,
+         SELECT source_record_id, adapter_version, normalizer_version, $2,
                 normalized, original_identity, $3, clock_timestamp() - make_interval(days => $4)
            FROM job_source_record_revisions WHERE id = $1 RETURNING id`,
-        [latestRev, `-v${nextSeq}`, blobSha, opts.ageDays],
+        [latestRev, contentHash, blobSha, opts.ageDays],
       )
       await session.admin.query(
         `UPDATE job_source_record_heads
