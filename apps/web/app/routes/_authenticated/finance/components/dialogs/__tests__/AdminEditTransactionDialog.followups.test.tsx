@@ -183,10 +183,7 @@ describe('AdminEditTransactionDialog — follow-ups', () => {
     }
     unmount()
     renderDialog({ ...TX, type: 'SALARY', salaryMonth: '2026-10' } as TransactionDto)
-    expect(screen.getByTestId('admin-edit-salary-month-input')).toHaveClass(
-      'min-h-[44px]',
-      'sm:min-h-0',
-    )
+    expect(screen.getByPlaceholderText('2025-03')).toHaveClass('min-h-[44px]', 'sm:min-h-0')
   })
 
   // UX-M-2 — the date of on-chain / company-funded / settled rows is not editable.

@@ -476,7 +476,6 @@ export function AdminEditTransactionDialog({
                     onChange={(e) => setSalaryMonth(e.target.value)}
                     placeholder="2025-03"
                     className="min-h-[44px] sm:min-h-0 sm:h-9 text-sm"
-                    data-testid="admin-edit-salary-month-input"
                     disabled={isPaidRow}
                   />
                   {/* Its own note, under its own field: two locked controls with
