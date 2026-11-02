@@ -466,14 +466,23 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
       sourceId: string,
       recordId: string,
       startedAt: Date,
+      explicitRunId?: string,
     ): Promise<string> => {
       const { rows: run } = await q(
         `INSERT INTO job_collection_runs
            (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, coverage, outcome,
-            received, created, started_at, ended_at, account_key)
+            received, created, started_at, ended_at, account_key, id)
          VALUES ($1, $2, $3, ${CONFIG}, 'v1', 'SCHEDULED', 'FULL_INVENTORY', 'SUCCEEDED',
-                 1, 1, $4::timestamptz, $4::timestamptz, $5) RETURNING id`,
-        [sourceId, cycleId, `attempt-${tag()}`, startedAt.toISOString(), `acct-${tag()}`],
+                 1, 1, $4::timestamptz, $4::timestamptz, $5, COALESCE($6::uuid, gen_random_uuid()))
+         RETURNING id`,
+        [
+          sourceId,
+          cycleId,
+          `attempt-${tag()}`,
+          startedAt.toISOString(),
+          `acct-${tag()}`,
+          explicitRunId ?? null,
+        ],
       )
       const runId = String(run[0].id)
       const { rows: revn } = await q(
@@ -498,15 +507,16 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
     await observe(srcEarly, recA, new Date('2026-01-01T00:00:00.000Z'))
 
     // Record B: two runs with the SAME started_at from two sources. `ORDER BY run.started_at, run.id`
-    // breaks the tie on the LOWER run.id — dropping `, run.id` makes the pick non-deterministic.
-    const srcB1 = await newSource('b1')
-    const srcB2 = await newSource('b2')
+    // breaks the tie on the LOWER run.id. Fixed ids, HIGH-id run inserted FIRST: a dropped `, run.id`
+    // falls back to physical insertion order and picks srcHigh, so that mutant dies deterministically.
+    const LOW_RUN_ID = '00000000-0000-4000-8000-00000000d0a1'
+    const HIGH_RUN_ID = 'ffffffff-ffff-4fff-8fff-fffffffffd0a'
+    const srcHigh = await newSource('b-high')
+    const srcLow = await newSource('b-low')
     const recB = await newRecord('UNKNOWN', null)
     const sameTs = new Date('2026-03-01T00:00:00.000Z')
-    const runB1 = await observe(srcB1, recB, sameTs)
-    const runB2 = await observe(srcB2, recB, sameTs)
-    // Canonical-lowercase uuids order identically as JS strings and as Postgres `uuid`.
-    const lowerRunSource = runB1 < runB2 ? srcB1 : srcB2
+    await observe(srcHigh, recB, sameTs, HIGH_RUN_ID)
+    await observe(srcLow, recB, sameTs, LOW_RUN_ID)
 
     // Apply the promoted migration (idempotent ADD COLUMN / FK / index + the backfill UPDATE).
     await session.admin.query(readFileSync(BACKFILL_SQL, 'utf8'))
@@ -516,6 +526,6 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
       return String(rows[0].source_id)
     }
     expect(await sourceOf(recA)).toBe(srcEarly) // earliest started_at wins, never srcLate
-    expect(await sourceOf(recB)).toBe(lowerRunSource) // equal started_at => lower run.id breaks the tie
+    expect(await sourceOf(recB)).toBe(srcLow) // equal started_at => lower run.id breaks the tie
   })
 })
