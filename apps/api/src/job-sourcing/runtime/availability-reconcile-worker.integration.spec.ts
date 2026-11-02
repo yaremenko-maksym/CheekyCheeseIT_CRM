@@ -12,7 +12,10 @@ import { hasDatabaseUrl } from '../../test/require-real-db'
 import { INVENTORY_CLOSE_REASON } from '../availability/inventory-counter-updater'
 import { enqueueDirty } from '../ownership/dirty-work.store'
 import { type RecomputeSteps, RecomputeWorker } from './recompute-worker'
-import { createAvailabilityReconcileSteps } from './availability-reconcile-worker'
+import {
+  createAvailabilityReconcileSteps,
+  resolveInventoryInput,
+} from './availability-reconcile-worker'
 
 /**
  * r5 Task 4.6 S8d — the availability reconciliation worker against a real Postgres, as `crm_app`.
@@ -32,6 +35,15 @@ const STAGED_SQL = join(
   'drizzle',
   'manual',
   '2026-11-01_job_source_record_inventory_misses.sql',
+)
+const BACKFILL_SQL = join(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  'drizzle',
+  'manual',
+  '2026-11-02_job_source_records_source_id.sql',
 )
 const DAY = 24 * 60 * 60 * 1000
 const CONFIG = 1
@@ -61,11 +73,16 @@ async function newSource(): Promise<string> {
   return String(rows[0].id)
 }
 
-async function newRecord(availability = 'UNKNOWN'): Promise<string> {
+async function newRecord(
+  availability = 'UNKNOWN',
+  sourceId: string | null = null,
+): Promise<string> {
+  // SR-H-2: a record resolves to its source through source_id. SOURCE_RECORD-path tests pass the
+  // creating source; a record left without one (orphan) is the fail-closed case.
   const { rows } = await q(
-    `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key, availability)
-     VALUES ('GREENHOUSE_ATS', $1, 'NATIVE_ID', $2, $3::job_availability) RETURNING id`,
-    [NAMESPACE, `key-${tag()}`, availability],
+    `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key, availability, source_id)
+     VALUES ('GREENHOUSE_ATS', $1, 'NATIVE_ID', $2, $3::job_availability, $4::uuid) RETURNING id`,
+    [NAMESPACE, `key-${tag()}`, availability, sourceId],
   )
   return String(rows[0].id)
 }
@@ -251,7 +268,7 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
 
   it('AC1: a SOURCE_RECORD dirty row reaches the S8c updater and advances the counter', async () => {
     const sourceId = await newSource()
-    const recordId = await newRecord()
+    const recordId = await newRecord('UNKNOWN', sourceId)
     const cycleId = await newCycle()
     await addAbsentRun(sourceId, cycleId, DAY)
     await enqueueRecord(recordId)
@@ -263,7 +280,7 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
 
   it('AC1: three absent FULL_INVENTORY runs close the record and enqueue its opportunity', async () => {
     const sourceId = await newSource()
-    const recordId = await newRecord()
+    const recordId = await newRecord('UNKNOWN', sourceId)
     const oppId = await newOpportunity()
     await link(recordId, oppId)
     const cycleId = await newCycle()
@@ -345,7 +362,7 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
 
   it('CR-M-2: running the worker twice over the same rows does not double-apply (idempotent)', async () => {
     const sourceId = await newSource()
-    const recordId = await newRecord()
+    const recordId = await newRecord('UNKNOWN', sourceId)
     const oppId = await newOpportunity()
     await link(recordId, oppId)
     const cycleId = await newCycle()
@@ -373,7 +390,7 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
   })
 
   it('AC5: a per-row failure does not abort the batch — an orphan record is skipped, a good opp proceeds', async () => {
-    const orphan = await newRecord() // no source row with this namespace yet
+    const orphan = await newRecord() // NULL source_id — the fail-closed case
     const r1 = await newRecord('CLOSED')
     const oppId = await newOpportunity()
     await link(r1, oppId)
@@ -385,5 +402,78 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
     expect(report.claimed).toBe(2)
     expect(report.failed).toBe(0)
     expect((await oppRow(oppId)).availability).toBe('CLOSED')
+  })
+
+  // ── SR-H-2 (PR #1227): explicit source_id, no arbitrary pick ──────────────────────────────────
+  it('SR-H-2: resolves via source_id to the CORRECT source when two share (type, namespace)', async () => {
+    // Two global sources sharing (JSEARCH_API, NAMESPACE), differing only by config_version — the
+    // exact shape (three JSearch namespace='' queries) that made the old (type, namespace) JOIN pick
+    // an arbitrary source. JSEARCH_API is a non-inventory type, so SR-M-4's unique index does not apply.
+    const { rows: s1 } = await q(
+      `INSERT INTO job_sources (type, namespace, config, config_version)
+       VALUES ('JSEARCH_API', $1, jsonb_build_object('q', 'one'), 4) RETURNING id`,
+      [NAMESPACE],
+    )
+    const { rows: s2 } = await q(
+      `INSERT INTO job_sources (type, namespace, config, config_version)
+       VALUES ('JSEARCH_API', $1, jsonb_build_object('q', 'two'), 7) RETURNING id`,
+      [NAMESPACE],
+    )
+    const source2 = String(s2[0].id)
+    const { rows: rec } = await q(
+      `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key, source_id)
+       VALUES ('JSEARCH_API', $1, 'NATIVE_ID', $2, $3::uuid) RETURNING id`,
+      [NAMESPACE, `key-${tag()}`, source2],
+    )
+    const recordId = String(rec[0].id)
+
+    const input = await resolveInventoryInput(db, recordId)
+
+    // The record points at s2, so the resolve returns s2 — its config_version (7), never s1's (4).
+    expect(input).toEqual({
+      sourceRecordId: recordId,
+      sourceId: source2,
+      board: `JSEARCH_API:${NAMESPACE}`,
+      configVersion: 7,
+    })
+    expect(String(s1[0].id)).not.toBe(source2) // both really exist and differ
+  })
+
+  it('SR-H-2: a NULL source_id record resolves to null (fail closed)', async () => {
+    const orphan = await newRecord() // default: NULL source_id
+    expect(await resolveInventoryInput(db, orphan)).toBeNull()
+  })
+
+  it('SR-H-2: the backfill populates an existing NULL row from its earliest observing run', async () => {
+    const sourceId = await newSource()
+    const recordId = await newRecord('UNKNOWN', null) // pre-backfill: source_id is NULL
+    const cycleId = await newCycle()
+    // A run of `sourceId` that observed this record (the run<->record link + its revision).
+    const { rows: run } = await q(
+      `INSERT INTO job_collection_runs
+         (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, coverage, outcome,
+          received, created, started_at, ended_at, account_key)
+       VALUES ($1, $2, $3, ${CONFIG}, 'v1', 'SCHEDULED', 'FULL_INVENTORY', 'SUCCEEDED',
+               1, 1, now() - interval '1 hour', now(), $4) RETURNING id`,
+      [sourceId, cycleId, `attempt-${tag()}`, `acct-${tag()}`],
+    )
+    const { rows: revn } = await q(
+      `INSERT INTO job_source_record_revisions
+         (source_record_id, adapter_version, normalizer_version, content_hash, normalized, original_identity)
+       VALUES ($1, 'v1', 'v1', repeat('a', 64), '{}'::jsonb, '{}'::jsonb) RETURNING id`,
+      [recordId],
+    )
+    await q(
+      `INSERT INTO job_run_records (run_id, source_record_id, revision_id) VALUES ($1, $2, $3)`,
+      [String(run[0].id), recordId, String(revn[0].id)],
+    )
+
+    // Apply the promoted migration (idempotent ADD COLUMN / FK / index + the backfill UPDATE).
+    await session.admin.query(readFileSync(BACKFILL_SQL, 'utf8'))
+
+    const { rows: after } = await q(`SELECT source_id FROM job_source_records WHERE id = $1`, [
+      recordId,
+    ])
+    expect(String(after[0].source_id)).toBe(sourceId)
   })
 })
