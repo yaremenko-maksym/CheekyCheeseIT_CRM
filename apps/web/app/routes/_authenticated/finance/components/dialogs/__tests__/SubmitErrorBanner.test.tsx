@@ -28,15 +28,10 @@ describe('SubmitErrorBanner', () => {
     expect(alert).toHaveAttribute('id', 'admin-edit-submit-error')
   })
 
-  it('scrolls itself into view once by default, smoothly and minimally', () => {
+  it('scrolls itself into view once, smoothly and minimally', () => {
     render(<SubmitErrorBanner message="boom" />)
     expect(scrollIntoView).toHaveBeenCalledTimes(1)
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' })
-  })
-
-  it('does not scroll when scroll={false}', () => {
-    render(<SubmitErrorBanner message="boom" scroll={false} />)
-    expect(scrollIntoView).not.toHaveBeenCalled()
   })
 
   it('jumps instead of animating under reduced motion', () => {
@@ -51,11 +46,5 @@ describe('SubmitErrorBanner', () => {
     expect(scrollIntoView).toHaveBeenCalledTimes(1)
     rerender(<SubmitErrorBanner message="two" />)
     expect(scrollIntoView).toHaveBeenCalledTimes(2)
-  })
-
-  it('scrolls when scroll flips from false to true', () => {
-    const { rerender } = render(<SubmitErrorBanner message="one" scroll={false} />)
-    rerender(<SubmitErrorBanner message="one" scroll />)
-    expect(scrollIntoView).toHaveBeenCalledTimes(1)
   })
 })

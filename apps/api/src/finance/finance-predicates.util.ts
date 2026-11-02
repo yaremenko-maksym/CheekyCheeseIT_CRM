@@ -2,16 +2,6 @@ import { COMPANY_ACCOUNT_LABEL } from '@crm/shared'
 import { uniqueViolationConstraint } from '../database/pg-errors'
 
 /**
- * MED-Q (security-review round 6) — is THIS unique violation the on-chain
- * registry, or something else entirely?
- *
- * Mapping any 23505 to «хеш уже использован» hands the user a confident,
- * wrong explanation: an unrelated unique constraint can fail in the same
- * transaction and must not be reported as a tx hash the operator never
- * touched. Same failure the payout cascade already avoids with an
- * allow-list of index names — the receipt entrances now share it.
- */
-/**
  * SR-M-2 / SR-M-3 (owner decision, 2026-11-01): may an admin edit move this
  * row's business date? NOT when the day is a fact someone else holds — an
  * on-chain-verified payment (stored `tx_hash`), a company-account row, or a row
@@ -27,6 +17,16 @@ export function isTxDateLocked(row: {
   return !!row.txHash || row.fundingSource === 'COMPANY_ACCOUNT' || row.settledAmount !== null
 }
 
+/**
+ * MED-Q (security-review round 6) — is THIS unique violation the on-chain
+ * registry, or something else entirely?
+ *
+ * Mapping any 23505 to «хеш уже использован» hands the user a confident,
+ * wrong explanation: an unrelated unique constraint can fail in the same
+ * transaction and must not be reported as a tx hash the operator never
+ * touched. Same failure the payout cascade already avoids with an
+ * allow-list of index names — the receipt entrances now share it.
+ */
 export function isRegistryConflict(err: unknown): boolean {
   const constraint = uniqueViolationConstraint(err)
   return (

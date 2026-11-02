@@ -102,7 +102,7 @@ _Note: Raw hex values are strictly forbidden; all styling resolves to the CSS va
 ### 5.3 Paid / Locked Row State
 
 - The server returns `isDateLocked` on the transaction DTO (ADMIN viewers only; every other role gets `false`) from the same predicate the save guard uses.
-- When `isDateLocked` is true the date trigger is disabled and a muted helper note (`admin-edit-tx-date-locked-note`) explains why; no reason field is shown, and saving other fields still works without `txDate`.
+- When `isDateLocked` is true the date trigger is disabled and a muted helper note (`admin-edit-tx-date-locked-note`) explains why (uk _«Дату не можна змінити: оплату підтверджено в блокчейні, вона надійшла з рахунку компанії або вже є розрахунки»_; en _"The date can't be changed: payment is confirmed on-chain, comes from the company account, or already settled"_); no reason field is shown, and saving other fields still works without `txDate`.
 - The server guard still enforces the lock on submit (`FINANCE_TX_DATE_LOCKED_ROW`), covering stale clients.
 
 ### 5.4 Server Error States
@@ -111,7 +111,7 @@ Server errors returned upon save failure render in the dialog's shared error ban
 
 1. **`FINANCE_TX_DATE_LOCKED_ROW`**:
    - Cause: Attempted date change on an immutable row.
-   - Ukrainian: _«Дату цієї транзакції не можна змінити: оплату підтверджено в блокчейні, її проведено з рахунку компанії або за нею вже є розрахунки»_
+   - Ukrainian: _«Дату цієї транзакції не можна змінити: оплату підтверджено в блокчейні, вона надійшла з рахунку компанії або за нею вже є розрахунки»_
    - English: _"This transaction's date can't be changed: its payment is confirmed on-chain, comes from the company account, or already has settlements"_
 2. **`FINANCE_TX_DATE_EDIT_REASON_REQUIRED`** (edit screen; the create flows keep `FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED`):
    - Cause: Backdating beyond 31 days without providing a reason.
