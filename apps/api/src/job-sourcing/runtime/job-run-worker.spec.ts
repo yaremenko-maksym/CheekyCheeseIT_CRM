@@ -11,6 +11,7 @@ import {
   type CollectionBatch,
   type CollectionContext,
   type CollectionErrorCode,
+  type DetailOutcome,
   type ReportingJobSourceProvider,
   type ValidatedCheckpoint,
   buildCollectionBatch,
@@ -19,12 +20,14 @@ import {
 import { JobSourceRegistry } from '../registry/job-source-registry'
 import { ReportingAdapter } from '../registry/registered-adapter'
 import type { HostBan } from '../scheduling/host-state'
+import type { DetailTailPort, DetailTailPortDeps } from './detail-tail'
 import {
   type WorkerDeps,
   type WorkerOptions,
   RunSetupError,
   FREE_PLAN_METERS,
   JobRunWorker,
+  detailOnlyBatch,
   MeterBindingRefusedError,
   endingOf,
   meterWindowsFor,
@@ -97,6 +100,8 @@ const RUN_ROW = {
   policy_version: 4,
   host_key: 'h.example',
   manifest_id: 'm1',
+  namespace: 'ns',
+  adapter_version: 'r-1',
   meter_account_key: null,
   meter_unit: null,
   meter_window: null,
@@ -127,6 +132,10 @@ function world(
     deps?: Partial<WorkerDeps>
     options?: Partial<WorkerOptions>
     registry?: JobSourceRegistry
+    /** U10: make the adapter an ON_DEMAND one (a provider that carries `collectDetail`). */
+    collectDetail?: ReportingJobSourceProvider['collectDetail']
+    /** U10: the catalog entry's `detailPerRun` (the tail is built only when this is >= 1). */
+    detailPerRun?: number
   } = {},
 ) {
   const log: string[] = []
@@ -145,6 +154,7 @@ function world(
       return raw as never
     },
     collectReport: (config, ctx) => (opts.collect ?? (async () => batch('EXHAUSTED')))(config, ctx),
+    ...(opts.collectDetail ? { collectDetail: opts.collectDetail } : {}),
   }
   const db = {
     async execute(query: SQL) {
@@ -232,6 +242,7 @@ function world(
               floorHours: 0,
               banScope: 'SOURCE',
               requestsPerRun: 1,
+              ...(opts.detailPerRun === undefined ? {} : { detailPerRun: opts.detailPerRun }),
             },
       hostPolicy: (key) =>
         opts.policy === 'MISSING' || key !== 'h.example'
@@ -1134,6 +1145,137 @@ describe('the manual path and the pool boundaries', () => {
     release()
     release()
     await Promise.all([first, second])
+  })
+})
+
+describe('U10 detail tail wiring (ADR 6a #4)', () => {
+  function withPort() {
+    const calls = { claim: 0 }
+    let received: DetailTailPortDeps | undefined
+    const port: DetailTailPort = {
+      claim: async () => {
+        calls.claim += 1
+        return []
+      },
+      writeFound: async () => 'DONE',
+      recordGone: async () => undefined,
+      fail: async () => 'RETRY',
+    }
+    const factory = (d: DetailTailPortDeps) => {
+      received = d
+      return port
+    }
+    return { factory, calls, deps: () => received }
+  }
+  const onDemand = async (): Promise<DetailOutcome> => ({ kind: 'GONE' })
+
+  it('runs the tail after a SUCCEEDED list and builds the port from the run row', async () => {
+    const t = withPort()
+    const w = world({
+      collectDetail: onDemand,
+      detailPerRun: 5,
+      collect: async () => batch('EXHAUSTED'),
+      deps: { detailTailPortFactory: t.factory },
+    })
+    await w.worker.runDue({ cycleId: uuid(1) })
+    expect(t.calls.claim).toBe(1)
+    expect(w.log).toContain('finish:SUCCEEDED')
+    // The port's source and evidence fields come from the run row (namespace, adapter_version).
+    expect(t.deps()).toMatchObject({
+      source: { type: 'REMOTIVE_API', namespace: 'ns' },
+      adapterVersion: 'r-1',
+      configVersion: 3,
+    })
+    expect(t.deps()?.runId).toBe(claimed(1).runId)
+  })
+
+  it('does not run the tail when the list did not succeed', async () => {
+    const t = withPort()
+    const w = world({
+      collectDetail: onDemand,
+      detailPerRun: 5,
+      collect: async () => batch('ERROR'),
+      deps: { detailTailPortFactory: t.factory },
+    })
+    await w.worker.runDue({ cycleId: uuid(1) })
+    expect(t.calls.claim).toBe(0)
+  })
+
+  it('builds the tail at the boundary detailPerRun === 1', async () => {
+    const t = withPort()
+    const w = world({
+      collectDetail: onDemand,
+      detailPerRun: 1,
+      collect: async () => batch('EXHAUSTED'),
+      deps: { detailTailPortFactory: t.factory },
+    })
+    await w.worker.runDue({ cycleId: uuid(1) })
+    expect(t.calls.claim).toBe(1)
+  })
+
+  it('DETAIL_ONLY runs the tail with NO list request and finishes SUCCEEDED', async () => {
+    const t = withPort()
+    let listed = false
+    const w = world({
+      collectDetail: onDemand,
+      detailPerRun: 5,
+      collect: async () => {
+        listed = true
+        return batch('EXHAUSTED')
+      },
+      deps: { detailTailPortFactory: t.factory },
+    })
+    await w.worker.runDue({ cycleId: uuid(1), scope: 'DETAIL_ONLY' })
+    expect(listed).toBe(false)
+    expect(t.calls.claim).toBe(1)
+    expect(w.log).toContain('finish:SUCCEEDED')
+  })
+
+  it('an IN_LIST adapter under DETAIL_ONLY still lists (it has no tail to run instead)', async () => {
+    let listed = false
+    const w = world({
+      detailPerRun: 5,
+      collect: async () => {
+        listed = true
+        return batch('EXHAUSTED')
+      },
+    })
+    await w.worker.runDue({ cycleId: uuid(1), scope: 'DETAIL_ONLY' })
+    expect(listed).toBe(true)
+  })
+
+  it('builds no tail port for an IN_LIST adapter (no collectDetail)', async () => {
+    let built = 0
+    const w = world({
+      detailPerRun: 5,
+      deps: { detailTailPortFactory: () => ({ built: built++ }) as never },
+    })
+    await w.worker.runDue({ cycleId: uuid(1) })
+    expect(built).toBe(0)
+  })
+
+  it('builds no tail port when detailPerRun is 0, even for an ON_DEMAND adapter', async () => {
+    let built = 0
+    const w = world({
+      collectDetail: onDemand,
+      detailPerRun: 0,
+      deps: { detailTailPortFactory: () => ({ built: built++ }) as never },
+    })
+    await w.worker.runDue({ cycleId: uuid(1) })
+    expect(built).toBe(0)
+  })
+})
+
+describe('detailOnlyBatch', () => {
+  it('is a clean SUCCEEDED batch with no observations and PARTIAL coverage', () => {
+    const b = detailOnlyBatch('acme', 7)
+    expect(b.outcome).toBe('SUCCEEDED')
+    expect(b.coverage).toBe('PARTIAL')
+    expect(b.observations).toEqual([])
+    expect(b.requests).toEqual([])
+    expect(b.invalidSamples).toEqual([])
+    expect(b.counts).toEqual({ raw: 0, normalized: 0, invalid: 0, quarantined: 0, discarded: 0 })
+    expect(b.scope).toEqual({ namespace: 'acme', query: null, configVersion: 7, window: null })
   })
 })
 
