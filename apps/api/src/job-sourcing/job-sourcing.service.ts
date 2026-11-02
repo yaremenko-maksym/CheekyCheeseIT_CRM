@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  HttpStatus,
   Inject,
   Injectable,
   Logger,
@@ -20,6 +21,7 @@ import type {
   JobSourceType,
   JobSuggestionDto,
   JobSuggestionListDto,
+  OpenJobOpportunityResult,
   SessionUser,
   UpdateJobSuggestionStatusDto,
 } from '@crm/shared'
@@ -57,7 +59,11 @@ import {
 } from './source-budget.error'
 import { toSafeFailureMessage } from './safe-failure-message'
 import type { NormalizedPosting } from './job-source.provider'
+import { apiError } from '../common/api-error'
 import { markExclusionDirty } from './dirty-producers'
+import { DETAIL_FETCH, enqueueDirty } from './ownership/dirty-work.store'
+import { loadOpportunity } from './runtime/recompute-inputs'
+import { productionLedgerCatalog } from './runtime/production-catalog'
 import { JobSourceRegistry } from './registry/job-source-registry'
 import { type TypeFilter, sourceAcceptsTrigger, typePassesFilter } from './scheduling/due-policy'
 import { resolveRegistry } from './registry/production-registry'
@@ -665,6 +671,94 @@ export class JobSourcingService {
 
     if (!row) throw new NotFoundException('Предложение не найдено')
     return this.mapSuggestion(row)
+  }
+
+  /**
+   * SFS U10 (ADR 6a, step 2 "Want"): HR / SENIOR / ADMIN opens an opportunity. If its backing
+   * ON_DEMAND records have no description yet, this enqueues one `DETAIL_FETCH` per record — a
+   * database write only, NEVER an external call; the dirty-work unique key makes a second open a
+   * no-op (fetch once). RBAC lives HERE, not only on the controller decorator (the #157/#158
+   * lesson): the viewer must be allowed to see the opportunity — a SENIOR only when it is a LEAD or
+   * TRIAGE for them, an HR only when it is for a senior in one of their active teams, an ADMIN
+   * always. The 403 is pinned by job-sourcing-rbac.integration.spec against a real database, because
+   * a mocked E2E cannot prove a backend guard.
+   */
+  async openOpportunity(
+    opportunityId: string,
+    user: SessionUser,
+  ): Promise<OpenJobOpportunityResult> {
+    // SR-M-1 (open-scope): authorize against the LIVE roster, never a historical match. A
+    // `job_opportunity_matches` row persists past the evaluation that wrote it, so a senior who has
+    // since been archived or left every team, or a match left at a now-superseded opportunity
+    // revision, must NOT grant visibility. The join mirrors `findEligibleSeniorIds` (active,
+    // non-archived SENIOR, in an active team) and requires the match to be at the opportunity's
+    // CURRENT revision — the same "relevant to a senior of the viewer's team" scope `listSuggestions`
+    // enforces, so open and list never diverge.
+    const { rows } = await this.db.db.execute(
+      sql`SELECT DISTINCT m.senior_id
+            FROM job_opportunity_matches m
+            JOIN job_opportunities o ON o.id = m.opportunity_id
+            JOIN users u ON u.id = m.senior_id
+           WHERE m.opportunity_id = ${opportunityId}::uuid
+             AND m.outcome IN ('LEAD', 'TRIAGE')
+             AND m.opportunity_revision = o.revision
+             AND u.role = 'SENIOR' AND u.archived_at IS NULL
+             AND EXISTS (SELECT 1 FROM team_members tm
+                          WHERE tm.user_id = u.id AND tm.left_at IS NULL)`,
+    )
+    const seniorIds = rows.map((r) => String(r['senior_id']))
+    // SR existence-oracle: "not in anyone's live queue" and "out of your scope" must be
+    // INDISTINGUISHABLE — both the SAME `JOB_OPPORTUNITY_NOT_FOUND` 404, never a 403 — or a SENIOR /
+    // HR could probe whether another team's opportunity exists. The empty case is 404 for EVERYONE,
+    // ADMIN included (an opportunity no live eligible senior matches is in nobody's queue).
+    if (seniorIds.length === 0) throw apiError('JOB_OPPORTUNITY_NOT_FOUND', HttpStatus.NOT_FOUND)
+    await this.assertOpportunityVisible(user, seniorIds)
+
+    const onDemandTypes = productionLedgerCatalog().onDemandTypes()
+    const loaded = await loadOpportunity(this.db.db, opportunityId, onDemandTypes)
+    if (loaded === null) throw apiError('JOB_OPPORTUNITY_NOT_FOUND', HttpStatus.NOT_FOUND)
+
+    let detailEnqueued = 0
+    if (loaded.onDemandMissing.length > 0) {
+      await this.db.db.transaction(async (tx) => {
+        for (const rec of loaded.onDemandMissing) {
+          const { inserted } = await enqueueDirty(
+            tx,
+            'SOURCE_RECORD',
+            rec.recordId,
+            rec.version,
+            DETAIL_FETCH,
+          )
+          if (inserted) detailEnqueued += 1
+        }
+      })
+    }
+    return { opportunityId, detailEnqueued, detailPending: loaded.detailPending }
+  }
+
+  /**
+   * The viewer may open an opportunity relevant to any of these (already live-filtered) seniors.
+   * On failure it raises the SAME 404 as "no match" (the existence-oracle fix): a SENIOR only their
+   * own queue, an HR only their teams' seniors, an ADMIN any. The message is the English api-error
+   * fallback — the client re-translates by `code` (language policy), never a hand-written string.
+   */
+  private async assertOpportunityVisible(
+    user: SessionUser,
+    seniorIds: readonly string[],
+  ): Promise<void> {
+    const notFound = () => apiError('JOB_OPPORTUNITY_NOT_FOUND', HttpStatus.NOT_FOUND)
+    if (user.role === 'ADMIN') return
+    if (user.role === 'SENIOR') {
+      if (!seniorIds.includes(user.id)) throw notFound()
+      return
+    }
+    if (user.role === 'HR') {
+      for (const seniorId of seniorIds) {
+        if (await this.hrAccess.hrSharesActiveTeamWith(user.id, seniorId)) return
+      }
+      throw notFound()
+    }
+    throw notFound()
   }
 
   // -------------------------------------------------------------------------

@@ -62,6 +62,27 @@ export function encodeIdentityTuple(parts: readonly unknown[]): string {
   return JSON.stringify(parts)
 }
 
+/**
+ * SFS U10 (ADR 6a): recover a stored record's native id for an on-demand detail fetch. Only a
+ * `NATIVE_ID` record has one — the tuple is `[version, 'NATIVE_ID', provider, namespace, nativeId]`,
+ * so the native id is its last element. A `URL_FALLBACK` record (no native id) returns null, and so
+ * does a key that does not decode to that shape: the caller then cannot fetch its detail by id.
+ */
+export function nativeIdFromIdentityKey(identityKind: string, identityKey: string): string | null {
+  if (identityKind !== 'NATIVE_ID') return null
+  let parts: readonly unknown[]
+  try {
+    const parsed: unknown = JSON.parse(identityKey)
+    if (!Array.isArray(parsed)) return null
+    parts = parsed
+  } catch {
+    return null
+  }
+  if (parts.length !== 5) return null
+  const nativeId = parts[4]
+  return typeof nativeId === 'string' && nativeId.length > 0 ? nativeId : null
+}
+
 /** NFC + trim; the namespace is additionally case-folded (hosts/accounts are case-insensitive). */
 function normalizeNamespace(raw: string): string | null {
   const ns = raw.normalize('NFC').trim().toLowerCase()

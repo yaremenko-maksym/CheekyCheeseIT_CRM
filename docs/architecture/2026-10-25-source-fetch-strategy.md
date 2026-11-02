@@ -399,14 +399,11 @@ remaining requests are counted in the host budget like any other.
 
 **One rule changes in evaluation** (phase 4's `evaluate`): an opportunity whose description is absent
 **because its detail is pending** is never `EXCLUDED` on stack grounds; at worst it is `TRIAGE` with the
-stack unknown, so it is enriched and evaluated again. Title-level exclusions still apply. Without this
-rule, list-only sources would lose every match the description would have found.
-
-"coreMismatch wins" (SPEC-L-1): `detailPending` only lifts a record the list could **not** judge
-(no keyword hit, no requirements statement). When the list already asserted the stack — a keyword
-hit or a requirements statement that the roster does not satisfy — that is a real `coreMismatch`, and
-it **beats** `detailPending`: the opportunity stays `NO_MATCH`, not lifted to `TRIAGE`. The detail
-would not overturn a stack the list already stated.
+stack unknown, so it is enriched and evaluated again. Title-level exclusions still apply, and a real
+`coreMismatch` wins over `detailPending` (SPEC-L-1): the lift reaches only a record the list could
+**not** judge, so a keyword hit or a requirements statement the roster does not satisfy keeps the
+opportunity `NO_MATCH`. Without this rule, list-only sources would lose every match the description
+would have found.
 
 **Precondition for switching any source to `ON_DEMAND`** (added 2026-10-26 from the U6a security review,
 SR-M-1). The rule above must be **implemented and tested before any source's manifest `detailMode` becomes
@@ -417,7 +414,15 @@ through `buildNormalizedPosting` and never straight to a store or a renderer; U1
 version `greenhouse-2` (the revision identity changes once the mode flips); the JSON parser's error
 fragment (up to 200 characters in a `PARSE_DRIFT` detail) stays out of logs and persistence. State at
 2026-10-26: Greenhouse U6a landed (PR #1176) as list-only `ON_DEMAND`-capable, and the manifest keeps it
-`IN_LIST`.
+`IN_LIST`. State at 2026-11-02: U10 part 3 landed the INERT consumer machinery — the run-worker detail
+tail (every list-and-detail run fetches its source's pending `DETAIL_FETCH` rows inside the ledger run;
+the `DETAIL_ONLY` run scope exists for a no-list pass), the write-through as a new revision, the failure
+mapping (GONE → `DETAIL_GONE` availability evidence, else an attempt), and the HR-open enqueue endpoint.
+It stays inert: the manifest keeps Greenhouse `IN_LIST`, so no adapter carries `collectDetail` and the
+tail never fires. Deferred to follow-ups: the 08:30 `DETAIL_ONLY` detail-pass cron and its ledger claim
+predicate (CR-M-4's partial index lands with it), the 14-day staleness re-fetch enqueue, and the degrade
+view (it belongs to the U5b HR queue / opportunity view / digest, which this slice unblocks but does not
+build).
 
 ### 7. Conditional requests: observe first, then use
 

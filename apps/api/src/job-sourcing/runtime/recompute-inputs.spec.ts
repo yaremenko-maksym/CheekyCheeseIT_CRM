@@ -537,7 +537,7 @@ describe('loadOpportunity', () => {
       expect(statements[0]?.sql).toMatch(/'\[\]'::jsonb AS on_demand_missing/)
     })
 
-    it('ON_DEMAND types add the missing-detail subquery, bound to each type, null description, not FAILED', async () => {
+    it('ON_DEMAND types add the missing-detail subquery, bound to each type, null description, no settled row (CR-M-3)', async () => {
       const { tx, statements } = recording(() => [
         row({ on_demand_missing: [{ recordId: REC, version: 5 }] }),
       ])
@@ -550,7 +550,10 @@ describe('loadOpportunity', () => {
       expect(query?.sql).toMatch(/::job_source_type,\s*\$\d+::job_source_type/)
       expect(query?.sql).toMatch(/v\.description_sha256 IS NULL/)
       expect(query?.sql).toMatch(/d\.target_version = h\.observation_seq/)
-      expect(query?.sql).toMatch(/d\.status = 'FAILED'/)
+      // CR-M-3 / SPEC-M-3: a record stops being pending once its current-version row has settled in
+      // ANY terminal state, not only FAILED (a GONE/empty detail leaves DONE with no description).
+      expect(query?.sql).toMatch(/d\.status IN \('DONE', 'DEFERRED', 'FAILED'\)/)
+      expect(query?.sql).not.toMatch(/d\.status = 'FAILED'/)
       expect(query?.params).toEqual(expect.arrayContaining(['GREENHOUSE_ATS', 'HIMALAYAS_API']))
       expect(query?.params).toContain('DETAIL_FETCH')
     })

@@ -216,11 +216,16 @@ async function greenhouseCollectDetail(
   const detail = await fetchGreenhouseDetail(ctx, config, id)
   if (detail.kind === 'GONE') return { kind: 'GONE' }
   if (detail.kind === 'FAILED') return { kind: 'FAILED', code: detail.code, status: detail.status }
-  const built = buildSourceObservation({
-    ...detail.fields,
-    provider: 'GREENHOUSE_ATS',
-    adapterVersion: GREENHOUSE_ADAPTER_VERSION_ON_DEMAND,
-  })
+  const built = buildSourceObservation(
+    {
+      ...detail.fields,
+      provider: 'GREENHOUSE_ATS',
+      adapterVersion: GREENHOUSE_ADAPTER_VERSION_ON_DEMAND,
+    },
+    // CR-M-1 / SPEC-L-2: judge dates against the run clock, like the list path
+    // (api-json.provider `buildSourceObservation(raw, { now: ctx.now() })`), never the wall clock.
+    { now: ctx.now() },
+  )
   if (!built.ok) return { kind: 'FAILED', code: 'PARSE_DRIFT', status: 200 }
   return { kind: 'FOUND', observation: built.observation }
 }

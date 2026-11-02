@@ -181,9 +181,14 @@ const REPRESENTATIVE = sql`
 
 /**
  * U10 (ADR 6a): the backing ON_DEMAND records whose current revision has no description and whose
- * detail is not FAILED — the DETAIL_FETCH enqueue targets, and the reason the opportunity is
- * `detailPending`. Empty expression when no type is ON_DEMAND (the pre-U10 default), so the query
- * costs nothing until a source is flipped.
+ * current-version DETAIL_FETCH row has NOT settled — the enqueue targets, and the reason the
+ * opportunity is `detailPending`. A row at the current version is settled once it is DONE, DEFERRED
+ * or FAILED (CR-M-3 / SPEC-M-3): a successful fetch that carried a description writes a new revision
+ * (so `description_sha256 IS NULL` is already false), but a 404 GONE or an empty-description detail
+ * leaves no description, yet must STOP being detail-pending — otherwise the opportunity would be
+ * perpetually lifted off stack exclusion and never resolved. A PENDING/CLAIMED row (fetch not yet
+ * settled) still counts. Empty expression when no type is ON_DEMAND (the pre-U10 default), so the
+ * query costs nothing until a source is flipped.
  */
 function onDemandMissingExpr(onDemandTypes: readonly JobSourceType[]): SQL {
   if (onDemandTypes.length === 0) return sql`'[]'::jsonb`
@@ -203,7 +208,7 @@ function onDemandMissingExpr(onDemandTypes: readonly JobSourceType[]): SQL {
        AND NOT EXISTS (SELECT 1 FROM job_dirty_work d
                         WHERE d.entity_kind = 'SOURCE_RECORD' AND d.entity_id = r.id
                           AND d.reason = ${DETAIL_FETCH} AND d.target_version = h.observation_seq
-                          AND d.status = 'FAILED')), '[]'::jsonb)`
+                          AND d.status IN ('DONE', 'DEFERRED', 'FAILED'))), '[]'::jsonb)`
 }
 
 function parseOnDemandMissing(value: unknown): OnDemandMissing[] {
