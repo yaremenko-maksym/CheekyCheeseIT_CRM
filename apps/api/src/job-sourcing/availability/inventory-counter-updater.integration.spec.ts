@@ -497,15 +497,31 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
   })
 
   it('refuses a sibling source sharing (source_type, namespace) but a different source_id — closes the SR-H-2 ambiguity (SPEC-M-1)', async () => {
-    // Two sources with the SAME (GREENHOUSE_ATS, ns); the record belongs to `owner`. The old verify
-    // joined on (source_type, namespace), so the `sibling` would have matched and wrongly closed the
-    // record — this asserts the FK (source_id) tie now refuses it. Reverting to the (type,namespace)
-    // predicate makes this test fail (the sibling would pass).
+    // Two sources with the SAME (type, namespace); the record belongs to `owner`. The old verify joined
+    // on (source_type, namespace), so the `sibling` would have matched and wrongly closed the record —
+    // this asserts the FK (source_id) tie refuses it. JSEARCH_API (non-inventory) is used because
+    // GREENHOUSE_ATS allows one source per (type, namespace) (uq_job_sources_inventory_type_namespace,
+    // SR-M-4); the two sources differ by config (uq_job_sources_type_config).
     const ns = `ns-${tag()}`
-    const owner = await newSource(ns)
-    const sibling = await newSource(ns) // same (type, namespace), different id
-    const recordId = await newRecord(ns, owner)
-    const board = `GREENHOUSE_ATS:${ns}`
+    const jsearch = async (query: string): Promise<string> => {
+      const { rows } = await q(
+        `INSERT INTO job_sources (type, namespace, config, config_version)
+         VALUES ('JSEARCH_API', $1, jsonb_build_object('q', $2::text), ${CONFIG}) RETURNING id`,
+        [ns, query],
+      )
+      sources.push(String(rows[0].id))
+      return String(rows[0].id)
+    }
+    const owner = await jsearch('one')
+    const sibling = await jsearch('two') // same (type, namespace), different id
+    const { rows: rec } = await q(
+      `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key, source_id)
+       VALUES ('JSEARCH_API', $1, 'NATIVE_ID', $2, $3::uuid) RETURNING id`,
+      [ns, `key-${tag()}`, owner],
+    )
+    const recordId = String(rec[0].id)
+    records.push(recordId)
+    const board = `JSEARCH_API:${ns}`
     const cycleId = await newCycle()
     await addRun({ sourceId: sibling, cycleId, received: 100, observedMs: 0 })
 

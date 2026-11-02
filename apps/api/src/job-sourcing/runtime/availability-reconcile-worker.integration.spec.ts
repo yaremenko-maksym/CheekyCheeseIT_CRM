@@ -64,11 +64,14 @@ const MINE = `entity_id IN (SELECT id FROM job_source_records WHERE namespace = 
                      JOIN job_source_records r ON r.id = s.source_record_id
                     WHERE r.namespace = '${NAMESPACE}')`
 
-async function newSource(): Promise<string> {
+// `distinct` makes a source its own identity: GREENHOUSE_ATS allows one source per (type, namespace)
+// (uq_job_sources_inventory_type_namespace), so several sources in one namespace must be a
+// non-inventory type (JSEARCH_API) told apart by config (uq_job_sources_type_config).
+async function newSource(distinct?: string): Promise<string> {
   const { rows } = await q(
     `INSERT INTO job_sources (type, namespace, config, config_version)
-     VALUES ('GREENHOUSE_ATS', $1, jsonb_build_object('ns', $1::text), ${CONFIG}) RETURNING id`,
-    [NAMESPACE],
+     VALUES ($2, $1, jsonb_build_object('ns', $1::text, 'd', $3::text), ${CONFIG}) RETURNING id`,
+    [NAMESPACE, distinct ? 'JSEARCH_API' : 'GREENHOUSE_ATS', distinct ?? ''],
   )
   return String(rows[0].id)
 }
@@ -488,16 +491,16 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
 
     // Record A: observed by a LATER run of `srcLate` and an EARLIER run of `srcEarly`. The backfill's
     // `ORDER BY run.started_at` must pick srcEarly — a removed/DESC-flipped order would pick srcLate.
-    const srcEarly = await newSource()
-    const srcLate = await newSource()
+    const srcEarly = await newSource('early')
+    const srcLate = await newSource('late')
     const recA = await newRecord('UNKNOWN', null) // pre-backfill: source_id is NULL
     await observe(srcLate, recA, new Date('2026-01-02T00:00:00.000Z'))
     await observe(srcEarly, recA, new Date('2026-01-01T00:00:00.000Z'))
 
     // Record B: two runs with the SAME started_at from two sources. `ORDER BY run.started_at, run.id`
     // breaks the tie on the LOWER run.id — dropping `, run.id` makes the pick non-deterministic.
-    const srcB1 = await newSource()
-    const srcB2 = await newSource()
+    const srcB1 = await newSource('b1')
+    const srcB2 = await newSource('b2')
     const recB = await newRecord('UNKNOWN', null)
     const sameTs = new Date('2026-03-01T00:00:00.000Z')
     const runB1 = await observe(srcB1, recB, sameTs)
