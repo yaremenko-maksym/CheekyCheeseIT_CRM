@@ -121,6 +121,9 @@ class Config:
     alert_email_to: str | None = None
     signal_tmpdir: Path = DEFAULT_SIGNAL_TMPDIR
     skip_weekdays: frozenset[int] = slot.SKIP_ISO_WEEKDAYS
+    # SIGNAL_SENDER_KEY_SELF_HEAL: False = alert-only on a group-send
+    # StackOverflowError, account.db is never opened (signal_plus.senderkey).
+    sender_key_self_heal: bool = True
 
     def masked_account(self) -> str:
         return mask_secret(self.signal_account)
@@ -143,6 +146,9 @@ class Config:
         handover_raw = optional("HANDOVER_TIME") or "08:00"
         signal_tmpdir_raw = optional("SIGNAL_TMPDIR")
         skip_weekdays_raw = optional("SIGNAL_SKIP_WEEKDAYS")
+        self_heal_raw = optional("SIGNAL_SENDER_KEY_SELF_HEAL") or "1"
+        if self_heal_raw not in ("0", "1"):
+            raise ConfigError(f"SIGNAL_SENDER_KEY_SELF_HEAL={self_heal_raw!r} must be 0 or 1")
 
         return cls(
             signal_account=require("SIGNAL_ACCOUNT"),
@@ -158,6 +164,7 @@ class Config:
             alert_email_to=optional("ALERT_EMAIL_TO"),
             signal_tmpdir=Path(signal_tmpdir_raw) if signal_tmpdir_raw else DEFAULT_SIGNAL_TMPDIR,
             skip_weekdays=_parse_skip_weekdays(skip_weekdays_raw),
+            sender_key_self_heal=self_heal_raw == "1",
         )
 
 

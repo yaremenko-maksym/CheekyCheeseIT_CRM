@@ -34,9 +34,11 @@ class State:
     last_update_attempt_date: dt.date | None = None
     installed_version: str | None = None
     last_error: str | None = None
+    # Once-per-day guard for the sender-key self-heal (signal_plus.senderkey).
+    last_heal_date: dt.date | None = None
 
 
-_DATE_FIELDS = {"last_success_date", "handover_date", "last_update_attempt_date"}
+_DATE_FIELDS = {"last_success_date", "handover_date", "last_update_attempt_date", "last_heal_date"}
 
 
 def _to_json_dict(state: State) -> dict:

@@ -323,3 +323,31 @@ def test_config_for_account_works_without_signal_accounts_set():
     env = dict(REQUIRED_ENV)  # plain single-account env, no SIGNAL_ACCOUNTS
     cfg = config_for_account("+380500000000", env)
     assert cfg.signal_account == "+380500000000"
+
+
+# task-signal-plus-senderkey-self-heal: SIGNAL_SENDER_KEY_SELF_HEAL
+# (default 1 = enabled; 0 = alert only, never touch account.db).
+
+
+def test_sender_key_self_heal_defaults_to_enabled_when_unset():
+    assert Config.from_env(dict(REQUIRED_ENV)).sender_key_self_heal is True
+
+
+@pytest.mark.parametrize("raw,expected", [("1", True), ("0", False), ("", True), (" 0 ", False)])
+def test_sender_key_self_heal_parses_0_and_1(raw, expected):
+    env = dict(REQUIRED_ENV, SIGNAL_SENDER_KEY_SELF_HEAL=raw)
+    assert Config.from_env(env).sender_key_self_heal is expected
+
+
+@pytest.mark.parametrize("raw", ["yes", "true", "2", "off"])
+def test_sender_key_self_heal_rejects_anything_but_0_or_1(raw):
+    env = dict(REQUIRED_ENV, SIGNAL_SENDER_KEY_SELF_HEAL=raw)
+    with pytest.raises(ConfigError, match="SIGNAL_SENDER_KEY_SELF_HEAL"):
+        Config.from_env(env)
+
+
+def test_sender_key_self_heal_flag_reaches_every_multi_account_config():
+    env = dict(
+        REQUIRED_ENV, SIGNAL_ACCOUNTS="+380501111111,+380502222222", SIGNAL_SENDER_KEY_SELF_HEAL="0"
+    )
+    assert [c.sender_key_self_heal for c in resolve_configs(env)] == [False, False]
