@@ -59,6 +59,27 @@ import { users } from './users'
  * an admin store an arbitrary URL here would turn the collector into an SSRF
  * primitive. The endpoint is a constant in the provider implementation.
  */
+/**
+ * SR-M-4: the FULL_INVENTORY-capable source types — the ATS board adapters whose
+ * `SourceCoverageScope` is built with `query === null && window === null`, the only shape from which
+ * `reporting-provider.ts` `deriveCoverage` returns `FULL_INVENTORY`. The `(type, namespace)`
+ * uniqueness index and the non-empty-namespace CHECK key directly on this list (no stored flag), so
+ * they are self-maintaining. The forward DDL inlines the same list; the invariant integration spec
+ * loops over every member, so a drop or typo on either side fails a test.
+ */
+export const INVENTORY_SOURCE_TYPES = [
+  'GREENHOUSE_ATS',
+  'LEVER_ATS',
+  'ASHBY_ATS',
+  'WORKABLE_ATS',
+  'SMARTRECRUITERS_ATS',
+  'RECRUITEE_ATS',
+  'PERSONIO_ATS',
+] as const
+
+/** The same list as a Postgres IN-list literal, shared by the index predicate and the CHECK. */
+const INVENTORY_SOURCE_TYPES_SQL = INVENTORY_SOURCE_TYPES.map((t) => `'${t}'`).join(', ')
+
 export const jobSources = pgTable(
   'job_sources',
   {
@@ -222,6 +243,9 @@ export const jobSources = pgTable(
      * `2026-10-31_job_run_metrics_slowdown.sql` (`ADD COLUMN` appends, so it stays LAST).
      */
     slowdownLevel: smallint('slowdown_level').notNull().default(0),
+  },
+  (t) => [
+    check('ck_job_sources_slowdown_level_range', sql`${t.slowdownLevel} BETWEEN 0 AND 4`),
     /**
      * SR-M-4 (STAGED/DARK). The availability-reconcile worker ties an inventory record to its source
      * by `JOIN job_sources s ON s.type = r.source_type AND s.namespace = r.namespace`
@@ -230,36 +254,30 @@ export const jobSources = pgTable(
      * queries legitimately share `(JSEARCH_API, namespace='')` differing only by `config` (already
      * keyed by `uq_job_sources_type_config`), and they are WINDOW sources that never feed an inventory.
      *
-     * So the uniqueness is scoped to the FULL_INVENTORY-capable sources only, marked by this column.
-     * "Inventory-enabled" is derived from the provider code, not a run property: a source produces a
+     * So the uniqueness is scoped to the FULL_INVENTORY-capable source TYPES. The predicate is keyed
+     * directly on `type IN (…)` — NOT on a stored `inventory_enabled` flag (SR-H-1): a flag set only by
+     * a one-shot backfill is a maintenance hole, since the manifest seed and app code never set it, so
+     * any ATS source created later would default to unprotected. Keying on the type list is
+     * self-maintaining — a new ATS source of these types is inside the guard the moment it is inserted.
+     *
+     * The type set is derived from the provider code, not a run property: a source produces a
      * `FULL_INVENTORY` run (reporting-provider.ts `deriveCoverage`) only when its `SourceCoverageScope`
      * has `query === null && window === null`. The sole providers that build such a scope are the seven
-     * ATS board adapters (greenhouse / lever / ashby / workable / smartrecruiters / recruitee / personio);
-     * every other provider sets a non-null scope `query` (or `window`) marker to force WINDOW. The prod
-     * backfill in `drizzle/manual-staged/2026-11-02_job_sources_inventory_uniqueness.sql` sets this true
-     * for exactly those `type`s.
+     * ATS board adapters (`INVENTORY_SOURCE_TYPES`); every other provider sets a non-null scope `query`
+     * (or `window`) marker to force WINDOW.
      *
-     * STAGED/DARK: the forward DDL lives in `manual-staged/`, NOT applied in production. Promote + deploy
-     * wiring is a separate step gated on a prod `(type, namespace)` duplicate audit among would-be
-     * inventory_enabled sources. Column added LAST so the staged `ADD COLUMN` appends.
+     * STAGED/DARK: the forward DDL lives in `manual-staged/`, NOT applied in production. Promote +
+     * deploy wiring is a separate step gated on a prod `(type, namespace)` duplicate audit among these
+     * ATS types (which must also catch an existing ATS row with an empty namespace — SR-M-1).
      */
-    // Stryker disable next-line StringLiteral,BooleanLiteral: a COLUMN NAME and its NOT NULL/DEFAULT — they live in the database, so no unit test can observe them; the prod DDL declares the same identifier in manual-staged/2026-11-02_job_sources_inventory_uniqueness.sql and job-sources-inventory-uniqueness-ddl.integration.spec.ts reads through them against a real Postgres
-    inventoryEnabled: boolean('inventory_enabled').notNull().default(false),
-  },
-  (t) => [
-    check('ck_job_sources_slowdown_level_range', sql`${t.slowdownLevel} BETWEEN 0 AND 4`),
-    // SR-M-4: `(type, namespace)` is unique ONLY among FULL_INVENTORY-capable sources, so the
-    // availability worker's `(source_type, namespace)` JOIN resolves to one row. Global WINDOW
-    // sources (JSearch's three seeded queries, namespace='') are excluded by the partial predicate
-    // and stay keyed only by `uq_job_sources_type_config`.
     uniqueIndex('uq_job_sources_inventory_type_namespace')
       .on(t.type, t.namespace)
-      .where(sql`${t.inventoryEnabled}`),
-    // An inventory-enabled source MUST carry a real namespace (one board), or the JOIN key is empty
-    // and the row collapses onto the global bucket it was meant to be distinguished from.
+      .where(sql`${t.type} IN (${sql.raw(INVENTORY_SOURCE_TYPES_SQL)})`),
+    // A full-inventory source MUST carry a real namespace (one board), or the JOIN key is empty and
+    // the row collapses onto the global bucket it was meant to be distinguished from.
     check(
       'ck_job_sources_inventory_namespace_nonempty',
-      sql`NOT ${t.inventoryEnabled} OR length(${t.namespace}) > 0`,
+      sql`${t.type} NOT IN (${sql.raw(INVENTORY_SOURCE_TYPES_SQL)}) OR length(${t.namespace}) > 0`,
     ),
     // T8: the HOST_BUSY lookup and the daily count find the host's sources by key.
     index('idx_job_sources_host_key').on(t.hostKey),

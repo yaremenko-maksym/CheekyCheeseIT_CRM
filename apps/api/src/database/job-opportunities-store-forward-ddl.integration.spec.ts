@@ -137,15 +137,13 @@ const PART_7_MIGRATION = '2026-10-31_job_run_metrics_slowdown.sql'
 /** The `job_sources` column PART_7 adds: not one of part 1's, so not in its header list. */
 const PART_7_JOB_SOURCES_COLUMNS = ['slowdown_level']
 /**
- * SR-M-4 (STAGED/DARK). `job_sources.inventory_enabled` with the partial unique index
- * `uq_job_sources_inventory_type_namespace` and the partial CHECK
- * `ck_job_sources_inventory_namespace_nonempty` are declared in Drizzle, so the `db:push` reference
- * carries them, and production would get them ONLY through this file. Applied after PART_7, as the
- * deploy would. STAGED (`readPart` falls back to `manual-staged/`).
+ * SR-M-4 (STAGED/DARK). The partial unique index `uq_job_sources_inventory_type_namespace` and the
+ * partial CHECK `ck_job_sources_inventory_namespace_nonempty` (both keyed on `type IN (…)`, NO
+ * column) are declared in Drizzle, so the `db:push` reference carries them, and production would get
+ * them ONLY through this file. Applied after PART_7, as the deploy would. STAGED (`readPart` falls
+ * back to `manual-staged/`). Adds NO `job_sources` column.
  */
 const PART_8_MIGRATION = '2026-11-02_job_sources_inventory_uniqueness.sql'
-/** The `job_sources` column PART_8 adds: not one of part 1's, so not in its header list. */
-const PART_8_JOB_SOURCES_COLUMNS = ['inventory_enabled']
 /** The index PART_8 creates; the reference counts it beside part 2's, PART_5's and PART_6's. */
 const PART_8_INDEXES = ['uq_job_sources_inventory_type_namespace'] as const
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
@@ -217,7 +215,7 @@ const PRE_STORE_ENUMS = [
 ]
 
 /** Tripwires on the DERIVED expectation — they fail if the reference side shifts. */
-const EXPECTED = { tables: 19, enums: 19, jobSourcesColumns: 21, indexes: 44 } as const
+const EXPECTED = { tables: 19, enums: 19, jobSourcesColumns: 20, indexes: 44 } as const
 /**
  * The standalone indexes beyond part 2's 44: T1's two (PART_5), T8's one (PART_6) and SR-M-4's one
  * (PART_8). PART_7 adds columns only, no index.
@@ -987,7 +985,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     // Part 1's 11, plus T8's `ck_job_sources_host_key_format` (PART_6), U2's
     // `ck_job_sources_slowdown_level_range` (PART_7) and SR-M-4's
     // `ck_job_sources_inventory_namespace_nonempty` (PART_8), validated against the same three rows
-    // (all with a NULL key, the default level 0 and inventory_enabled false, which the CHECKs admit).
+    // (all with a NULL key, the default level 0, and a non-ATS type so the SR-M-4 CHECK admits them).
     expect(validated).toHaveLength(14)
     expect(validated.map((r) => r['name'])).toContain('ck_job_sources_host_key_format')
     expect(validated.every((r) => r['validated'] === true)).toBe(true)
@@ -1045,11 +1043,10 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
       const namesAdded = reference.columns
         .filter((r) => r['table_name'] === 'job_sources')
         .map((r) => String(r['column_name']))
-        // T8's column arrives through PART_6, U2's through PART_7 and SR-M-4's through PART_8, not
-        // part 1, so part 1's header does not list them.
+        // T8's column arrives through PART_6 and U2's through PART_7, not part 1, so part 1's
+        // header does not list them. PART_8 (SR-M-4) adds no column.
         .filter((name) => !PART_6_JOB_SOURCES_COLUMNS.includes(name))
         .filter((name) => !PART_7_JOB_SOURCES_COLUMNS.includes(name))
-        .filter((name) => !PART_8_JOB_SOURCES_COLUMNS.includes(name))
       expect(namesInHeader.sort()).toEqual(namesAdded.sort())
 
       // The assertion is on POSTGRES'S OWN message, not on the constraint name (CR-L-6).

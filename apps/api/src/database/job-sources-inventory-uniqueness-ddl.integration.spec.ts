@@ -9,21 +9,25 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  * SR-M-4 (STAGED/DARK) — the staged forward DDL
  * `manual-staged/2026-11-02_job_sources_inventory_uniqueness.sql` against a REAL Postgres.
  *
+ * There is NO `inventory_enabled` column (SR-H-1): the partial unique index and the partial CHECK
+ * key directly on `type IN (<the 7 ATS board types>)`, so they are self-maintaining.
+ *
  * AC 4 (forward DDL reproduces db:push): the file is applied TWICE into a scratch schema holding a
- * stub of `job_sources`, as the deploy would (one transaction each). The new objects it creates —
- * the `inventory_enabled` column, the partial unique index and the partial CHECK — equal what
- * `db:push` declares in `public`; the second apply changes nothing; it refuses to finish over a
- * same-named column of another type; and the backfill marks the ATS board types and nothing else.
+ * stub of `job_sources`, as the deploy would (one transaction each). The two objects it creates —
+ * the partial unique index and the partial CHECK — equal what `db:push` declares in `public`; the
+ * second apply changes nothing; and it refuses to finish over a same-named index of another shape.
  *
  * AC 5 (the invariant, on the db:push `public` table, inside BEGIN/ROLLBACK so nothing persists):
- *  - two inventory_enabled sources with the same `(type, namespace)` and DISTINCT configs are
- *    rejected by `uq_job_sources_inventory_type_namespace` (not the pre-existing type/config index);
- *  - two global `inventory_enabled = false` sources sharing `(type, '')` are ALLOWED;
- *  - an inventory_enabled source with `namespace = ''` is rejected by the CHECK.
+ *  - for EVERY one of the seven ATS board types, two rows with the same `(type, namespace)` and
+ *    DISTINCT configs are rejected by `uq_job_sources_inventory_type_namespace` (so a drop or typo
+ *    in the SQL IN-list fails here);
+ *  - two global sources sharing `(JSEARCH_API, '')` are ALLOWED (outside the predicate);
+ *  - an ATS source with `namespace = ''` is rejected by the CHECK.
  *
- * NEVER `crm_db`:
+ * All inserts run as the MIGRATION OWNER (`session.admin`), not as `crm_app`: these are constraint
+ * probes, and the constraints bind every role. NEVER `crm_db`:
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/<scratch> \
- *     pnpm --filter @crm/api exec vitest run job-sources-inventory-uniqueness-ddl.integration
+ *     pnpm --filter @crm/api exec vitest run job-sources-inventory-uniqueness-ddl.integration.spec
  */
 const FILE = join(
   __dirname,
@@ -37,6 +41,20 @@ const SCHEMA = 'ddl_job_sources_inventory_uniqueness'
 const TABLE = 'job_sources'
 const INDEX = 'uq_job_sources_inventory_type_namespace'
 const CHECK = 'ck_job_sources_inventory_namespace_nonempty'
+/**
+ * The seven FULL_INVENTORY-capable ATS board types, stated INDEPENDENTLY of the schema/SQL (the
+ * task-file derivation). The per-type loop below asserts each one is guarded, so a drop or typo in
+ * the SQL IN-list leaves that type's collision un-rejected and fails a test (SPEC-L-1).
+ */
+const ATS_TYPES = [
+  'GREENHOUSE_ATS',
+  'LEVER_ATS',
+  'ASHBY_ATS',
+  'WORKABLE_ATS',
+  'SMARTRECRUITERS_ATS',
+  'RECRUITEE_ATS',
+  'PERSONIO_ATS',
+] as const
 
 let session: CrmAppSession
 let client: PoolClient
@@ -54,18 +72,8 @@ async function applyFile(): Promise<void> {
   }
 }
 
-/** The three objects this file adds, read from one schema and schema-normalised for comparison. */
+/** The two objects this file adds, read from one schema and schema-normalised for comparison. */
 async function addedObjects(schema: string) {
-  const { rows: column } = await client.query(
-    `SELECT a.attname AS name, format_type(a.atttypid, a.atttypmod) AS type,
-            a.attnotnull AS not_null, pg_get_expr(d.adbin, d.adrelid) AS default_expr
-       FROM pg_attribute a
-       JOIN pg_class c ON c.oid = a.attrelid
-       JOIN pg_namespace n ON n.oid = c.relnamespace
-       LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
-      WHERE n.nspname = $1 AND c.relname = $2 AND a.attname = 'inventory_enabled' AND NOT a.attisdropped`,
-    [schema, TABLE],
-  )
   const { rows: check } = await client.query(
     `SELECT k.conname AS name, k.convalidated AS validated, pg_get_constraintdef(k.oid) AS def
        FROM pg_constraint k
@@ -84,7 +92,6 @@ async function addedObjects(schema: string) {
     [schema, TABLE, INDEX],
   )
   return {
-    column: column[0],
     check: check.map((r) => ({ ...r, def: unqualify(String(r['def']), schema) }))[0],
     index: index.map((r) => ({ ...r, def: unqualify(String(r['def']), schema) }))[0],
   }
@@ -125,7 +132,7 @@ describe.skipIf(!hasDatabaseUrl())(
          config jsonb NOT NULL DEFAULT '{}'::jsonb,
          namespace text NOT NULL DEFAULT '')`,
       )
-      // One ATS row (backfilled true) and one global row (stays false).
+      // An ATS row (inside the predicate, real namespace) and a global row (outside it).
       await client.query(
         `INSERT INTO ${SCHEMA}.${TABLE} (type, namespace) VALUES ('GREENHOUSE_ATS', 'greenhouse:acme')`,
       )
@@ -146,33 +153,18 @@ describe.skipIf(!hasDatabaseUrl())(
       }
     })
 
-    it('AC 4: the column, partial index and partial CHECK equal what db:push declares', async () => {
+    it('AC 4: the partial index and partial CHECK equal what db:push declares', async () => {
       const ours = await addedObjects(SCHEMA)
       const pushed = await addedObjects('public')
-      expect(ours.column).toMatchObject({
-        name: 'inventory_enabled',
-        type: 'boolean',
-        not_null: true,
-        default_expr: 'false',
-      })
-      // The index is UNIQUE and PARTIAL (the predicate is the whole point of the design).
-      expect(String(ours.index.def)).toMatch(/CREATE UNIQUE INDEX .* WHERE inventory_enabled$/)
+      // The index is UNIQUE and PARTIAL, keyed on the type list (the predicate is the design).
+      expect(String(ours.index.def)).toMatch(/CREATE UNIQUE INDEX .* WHERE \(type = ANY/)
+      expect(String(ours.index.def)).toContain('GREENHOUSE_ATS')
       expect(ours.check).toMatchObject({ validated: true })
       expect(String(ours.check.def)).toContain('length(namespace) > 0')
+      expect(String(ours.check.def)).toContain('PERSONIO_ATS')
       // Equal to db:push, object for object.
-      expect(ours.column).toEqual(pushed.column)
       expect(ours.index).toEqual(pushed.index)
       expect(ours.check).toEqual(pushed.check)
-    })
-
-    it('AC 4: the backfill marks exactly the ATS board types', async () => {
-      const { rows } = await client.query(
-        `SELECT type::text AS type, inventory_enabled FROM ${SCHEMA}.${TABLE} ORDER BY type`,
-      )
-      expect(rows).toEqual([
-        { type: 'GREENHOUSE_ATS', inventory_enabled: true },
-        { type: 'JSEARCH_API', inventory_enabled: false },
-      ])
     })
 
     it('AC 4: the second apply succeeds and changes nothing', async () => {
@@ -186,7 +178,8 @@ describe.skipIf(!hasDatabaseUrl())(
       // closing check can see that the existing index is not the intended partial-unique one.
       await client.query(`DROP INDEX ${SCHEMA}.${INDEX}`)
       await client.query(
-        `CREATE INDEX ${INDEX} ON ${SCHEMA}.${TABLE} USING btree (type, namespace) WHERE inventory_enabled`,
+        `CREATE INDEX ${INDEX} ON ${SCHEMA}.${TABLE} USING btree (type, namespace)
+           WHERE type IN ('GREENHOUSE_ATS')`,
       )
       await expect(applyFile()).rejects.toThrow(
         /uq_job_sources_inventory_type_namespace is missing/,
@@ -196,29 +189,30 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await addedObjects(SCHEMA)).toEqual(await addedObjects('public'))
     })
 
-    it('AC 5: two inventory_enabled sources with the same (type, namespace) are rejected by the partial index', async () => {
-      await client.query('BEGIN')
-      try {
-        const row = (n: number) => ({
-          type: `'GREENHOUSE_ATS'`,
-          namespace: `'greenhouse:acme'`,
-          inventory_enabled: 'true',
-          config: `'{"n": ${n}}'::jsonb`, // distinct config, so the pre-existing (type, config) index cannot fire
-        })
-        expect(await insertSource(row(1))).toBeNull()
-        expect(await insertSource(row(2))).toBe(INDEX)
-      } finally {
-        await client.query('ROLLBACK')
+    it('AC 5: EVERY ATS board type is guarded — a colliding (type, namespace) pair is rejected by the index', async () => {
+      for (const type of ATS_TYPES) {
+        await client.query('BEGIN')
+        try {
+          const row = (n: number) => ({
+            type: `'${type}'`,
+            namespace: `'board:acme'`,
+            // distinct config, so the pre-existing (type, config) index cannot be what fires
+            config: `'{"n": ${n}}'::jsonb`,
+          })
+          expect(await insertSource(row(1))).toBeNull()
+          expect(await insertSource(row(2)), `${type} must be guarded by ${INDEX}`).toBe(INDEX)
+        } finally {
+          await client.query('ROLLBACK')
+        }
       }
     })
 
-    it("AC 5: two global inventory_enabled=false sources sharing (type, '') are allowed", async () => {
+    it("AC 5: two global sources sharing (JSEARCH_API, '') are allowed (outside the predicate)", async () => {
       await client.query('BEGIN')
       try {
         const row = (n: number) => ({
           type: `'JSEARCH_API'`,
           namespace: `''`,
-          inventory_enabled: 'false',
           config: `'{"q": ${n}}'::jsonb`,
         })
         expect(await insertSource(row(1))).toBeNull()
@@ -228,14 +222,13 @@ describe.skipIf(!hasDatabaseUrl())(
       }
     })
 
-    it('AC 5: an inventory_enabled source with an empty namespace is rejected by the CHECK', async () => {
+    it('AC 5: an ATS source with an empty namespace is rejected by the CHECK', async () => {
       await client.query('BEGIN')
       try {
         expect(
           await insertSource({
             type: `'GREENHOUSE_ATS'`,
             namespace: `''`,
-            inventory_enabled: 'true',
             config: `'{"n": 99}'::jsonb`,
           }),
         ).toBe(CHECK)
