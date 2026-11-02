@@ -248,8 +248,12 @@ export function greenhouseDetailRequest(board: string, id: number): FetchRequest
   if (!detailIdSchema.safeParse(id).success || !Number.isSafeInteger(id)) {
     throw new Error('greenhouse detail: invalid id')
   }
+  // SR-L-1 (before-flip, defense-in-depth): percent-encode both path segments. No behaviour change
+  // for valid inputs — `board` is slug-validated (atsBoardSlug) and `id` is a positive safe integer,
+  // so neither carries a character encodeURIComponent would alter — but the ON_DEMAND flip makes this
+  // the detail path, so the segments are encoded unconditionally rather than trusted.
   return {
-    url: `https://${HOST}/v1/boards/${board}/jobs/${id}`,
+    url: `https://${HOST}/v1/boards/${encodeURIComponent(board)}/jobs/${encodeURIComponent(id)}`,
     headers: { accept: 'application/json' },
     maxBytes: GREENHOUSE_LIMITS.maxBytes,
   }
