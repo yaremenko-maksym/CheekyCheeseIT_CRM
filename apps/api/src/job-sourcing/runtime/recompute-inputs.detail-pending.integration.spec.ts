@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
@@ -73,7 +73,7 @@ function noDescriptionObservation(nativeId: string): SourceObservation {
     evidence: [],
     adapterVersion: 'remotive_api-1',
     normalizerVersion: 'n1',
-    contentHash: `u10dp-${TAG}-${nativeId}`,
+    contentHash: createHash('sha256').update(`u10dp-${TAG}-${nativeId}`).digest('hex'),
   }
 }
 
@@ -108,8 +108,9 @@ async function makeOpportunity(
 }
 
 async function setStatus(recordId: string, status: string): Promise<void> {
+  // A terminal status is paired with `completed_at` (ck_job_dirty_work_terminal_pair).
   await session.admin.query(
-    `UPDATE job_dirty_work SET status = $2
+    `UPDATE job_dirty_work SET status = $2, completed_at = clock_timestamp()
       WHERE entity_kind = 'SOURCE_RECORD' AND entity_id = $1 AND reason = $3`,
     [recordId, status, DETAIL_FETCH],
   )

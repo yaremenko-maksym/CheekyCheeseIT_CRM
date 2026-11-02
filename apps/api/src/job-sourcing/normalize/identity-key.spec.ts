@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildIdentity, encodeIdentityTuple, IDENTITY_KEY_VERSION } from './identity-key'
+import {
+  buildIdentity,
+  encodeIdentityTuple,
+  IDENTITY_KEY_VERSION,
+  nativeIdFromIdentityKey,
+} from './identity-key'
 
 /** A deliberately naive encoder: what we must NOT ship. Used only to prove the fixtures can collide. */
 const naiveJoin = (parts: readonly string[]) => parts.join('|')
@@ -142,5 +147,54 @@ describe('buildIdentity: persisted key layout and limits (literal expectations)'
       ok: false,
       reason: 'NO_IDENTITY',
     })
+  })
+})
+
+describe('nativeIdFromIdentityKey (U10 detail fetch)', () => {
+  const base = { provider: 'GREENHOUSE_ATS' as const, namespace: 'acme', url: null }
+
+  it('recovers the native id of a NATIVE_ID record from its stored key', () => {
+    const r = buildIdentity({ ...base, nativeId: '8102684' })
+    if (!r.ok) throw new Error('expected a NATIVE_ID identity')
+    expect(nativeIdFromIdentityKey('NATIVE_ID', r.identity.identityKey)).toBe('8102684')
+  })
+
+  it('returns null for a URL_FALLBACK record (no native id to fetch by)', () => {
+    const r = buildIdentity({ ...base, nativeId: null, url: 'https://boards.example/jobs/x' })
+    if (!r.ok) throw new Error('expected a URL_FALLBACK identity')
+    expect(r.identity.identityKind).toBe('URL_FALLBACK')
+    expect(nativeIdFromIdentityKey('URL_FALLBACK', r.identity.identityKey)).toBeNull()
+  })
+
+  // The kind guard must still refuse a non-NATIVE_ID kind even when the key WOULD decode to an id.
+  it('refuses a non-NATIVE_ID kind even with a NATIVE_ID-shaped key', () => {
+    const nativeKey = encodeIdentityTuple([IDENTITY_KEY_VERSION, 'NATIVE_ID', 'X', 'ns', '8102684'])
+    expect(nativeIdFromIdentityKey('NATIVE_ID', nativeKey)).toBe('8102684')
+    expect(nativeIdFromIdentityKey('URL_FALLBACK', nativeKey)).toBeNull()
+  })
+
+  it('returns null for a key that is not valid JSON', () => {
+    expect(nativeIdFromIdentityKey('NATIVE_ID', 'not json')).toBeNull()
+  })
+
+  it('returns null for JSON that is not an array (even a 5-character string)', () => {
+    // A bare string parses but is not a tuple; its `[4]` would be a character if the array guard fell.
+    expect(nativeIdFromIdentityKey('NATIVE_ID', JSON.stringify('abcde'))).toBeNull()
+    expect(nativeIdFromIdentityKey('NATIVE_ID', JSON.stringify({ 4: 'x' }))).toBeNull()
+  })
+
+  it('returns null for an array whose length is not exactly 5', () => {
+    expect(nativeIdFromIdentityKey('NATIVE_ID', JSON.stringify(['a', 'b']))).toBeNull()
+    // A 6-element array whose [4] is a non-empty string: refused on length, not read.
+    const six = [IDENTITY_KEY_VERSION, 'NATIVE_ID', 'X', 'ns', 'theid', 'extra']
+    expect(nativeIdFromIdentityKey('NATIVE_ID', JSON.stringify(six))).toBeNull()
+  })
+
+  it('returns null when the native id slot is not a non-empty string', () => {
+    const emptyId = encodeIdentityTuple([IDENTITY_KEY_VERSION, 'NATIVE_ID', 'X', 'ns', ''])
+    expect(nativeIdFromIdentityKey('NATIVE_ID', emptyId)).toBeNull()
+    // A non-string in the slot (an array has a `.length`, so a weakened type check would return it).
+    const nonString = JSON.stringify([IDENTITY_KEY_VERSION, 'NATIVE_ID', 'X', 'ns', ['x', 'y']])
+    expect(nativeIdFromIdentityKey('NATIVE_ID', nonString)).toBeNull()
   })
 })
