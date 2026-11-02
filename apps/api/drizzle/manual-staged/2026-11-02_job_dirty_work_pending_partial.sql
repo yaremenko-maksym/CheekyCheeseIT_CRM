@@ -1,0 +1,46 @@
+-- =============================================================================
+-- Generic-pending partial index excluding the detail backlog (CR-M-4) — prod forward DDL (STAGED)
+-- =============================================================================
+--
+-- WHAT THIS FILE DOES
+-- -------------------
+--   `idx_job_dirty_work_pending_generic`: a PARTIAL btree index on `(status, created_at)` WHERE
+--   `reason <> 'DETAIL_FETCH'` — a mirror of `idx_job_dirty_work_pending` that omits the detail
+--   backlog. After the ON_DEMAND flip (step #10) the generic pending claimers filter
+--   `reason <> 'DETAIL_FETCH'` and would otherwise scan over every queued DETAIL_FETCH row on the
+--   full `(status, created_at)` index; this partial index lets the planner skip that backlog.
+--
+-- The Drizzle declaration is `jobDirtyWork` (schema/job-collection.ts, index
+-- `idx_job_dirty_work_pending_generic`); job-dirty-work-pending-partial-ddl.integration.spec.ts
+-- applies this file into a scratch schema and asserts the index exists with exactly this partial
+-- predicate and equals what `db:push` declares in `public`.
+--
+-- WHY CONCURRENTLY, AND WHY NO TRANSACTION / NO CLOSING CHECK BLOCK
+-- ----------------------------------------------------------------
+-- `job_dirty_work` is a hot queue; building this index must not take an exclusive lock on it, so it
+-- is `CREATE INDEX CONCURRENTLY`, exactly as the other `job_dirty_work` indexes are built in
+-- manual/2026-10-17_job_opportunities_store_indexes.sql. `CREATE INDEX CONCURRENTLY` CANNOT run
+-- inside a transaction block, so this file carries NO `SET LOCAL` / `BEGIN` / `DO $$` closing-check
+-- wrapper (those staged files that do are all transactional, non-CONCURRENTLY DDL) and MUST be
+-- applied as its own autocommit statement — the deploy wiring runs it that way, and the drift spec
+-- sends it as a single query outside any BEGIN.
+--
+-- RE-RUNNABLE: `IF NOT EXISTS` makes a second apply a no-op. (With CONCURRENTLY there is no closing
+-- check, so a same-named index of ANOTHER shape would be left in place by `IF NOT EXISTS`; the drift
+-- spec's equality-with-db:push assertion is the guard against that drift, run in CI.)
+--
+-- WHY THIS FILE IS STAGED, NOT IN manual/
+-- ---------------------------------------
+-- Production DDL ships staged (backlog 337). It is DARK: `manual-staged/` is never applied in prod.
+-- The promote + deploy wiring is a SEPARATE later step (the U2-D/U4-D go-live family), deferred with
+-- the rest of the detail-on-demand flip (nothing buildable today needs this index in prod — every
+-- source is IN_LIST, so there is no DETAIL_FETCH backlog yet).
+--
+-- No grant: `job_dirty_work` is an existing relation; `crm_app`'s table-level grants already cover
+-- its indexes. This is an additive index on an existing table, not a new table, so it is NOT in
+-- STAGED_RELATIONS; the forward-DDL integration spec is its coverage.
+-- =============================================================================
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_job_dirty_work_pending_generic"
+  ON "job_dirty_work" USING btree ("status", "created_at")
+  WHERE "reason" <> 'DETAIL_FETCH';
