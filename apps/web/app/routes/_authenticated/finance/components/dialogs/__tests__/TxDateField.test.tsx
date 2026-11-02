@@ -115,4 +115,50 @@ describe('TxDateField', () => {
       'border-destructive',
     )
   })
+
+  it('marks the reason input with the stable describedby id and base classes', () => {
+    renderField({ value: '2026-08-01', invalid: true, errorMessage: 'm' })
+    const input = screen.getByTestId('admin-edit-tx-date-reason-input')
+    expect(input).toHaveAttribute('aria-describedby', 'admin-edit-tx-date-reason-error')
+    expect(screen.getByTestId('admin-edit-tx-date-reason-error')).toHaveAttribute(
+      'id',
+      'admin-edit-tx-date-reason-error',
+    )
+    expect(input).toHaveClass('min-h-[44px]', 'text-sm')
+  })
+
+  it('omits aria-describedby when invalid without a message', () => {
+    renderField({ value: '2026-08-01', invalid: true })
+    expect(screen.getByTestId('admin-edit-tx-date-reason-input')).not.toHaveAttribute(
+      'aria-describedby',
+    )
+  })
+
+  it('omits aria-describedby and the error when a message arrives without invalid', () => {
+    renderField({ value: '2026-08-01', errorMessage: 'm' })
+    expect(screen.getByTestId('admin-edit-tx-date-reason-input')).not.toHaveAttribute(
+      'aria-describedby',
+    )
+    expect(screen.queryByTestId('admin-edit-tx-date-reason-error')).toBeNull()
+  })
+
+  it('focuses the reason input when it becomes invalid, and not before', () => {
+    const props = {
+      value: '2026-08-01',
+      stored: '2026-10-20',
+      reason: '',
+      onChange: vi.fn(),
+      onReasonChange: vi.fn(),
+    }
+    const { rerender } = render(<TxDateField {...props} />, { wrapper: I18nTestProvider })
+    const input = screen.getByTestId('admin-edit-tx-date-reason-input')
+    expect(input).not.toHaveFocus()
+    rerender(<TxDateField {...props} invalid />)
+    expect(input).toHaveFocus()
+  })
+
+  it('does not throw when invalid while the reason input is not rendered', () => {
+    expect(() => renderField({ invalid: true })).not.toThrow()
+    expect(screen.queryByTestId('admin-edit-tx-date-reason-input')).toBeNull()
+  })
 })
