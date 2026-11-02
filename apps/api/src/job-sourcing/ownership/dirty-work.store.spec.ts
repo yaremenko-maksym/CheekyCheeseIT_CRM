@@ -554,6 +554,12 @@ describe('DETAIL_FETCH source-filtered claim (U10)', () => {
     expect(s).toContain('sr.namespace = $')
     expect(s).toContain('ORDER BY d.created_at, d.id')
     expect(s).toContain('FOR UPDATE OF d SKIP LOCKED')
+    // CR-M-3 (perf): the source filter BOUNDS the scan — it precedes LIMIT, so a run never scans
+    // other sources' pending rows up to the batch limit before discarding them.
+    const limitAt = s.indexOf('LIMIT')
+    expect(limitAt).toBeGreaterThan(-1)
+    expect(s.indexOf('sr.source_type = $')).toBeLessThan(limitAt)
+    expect(s.indexOf('sr.namespace = $')).toBeLessThan(limitAt)
     expect(s).toContain("SET status = 'CLAIMED'")
     expect(s).toContain('fencing_epoch = d.fencing_epoch + 1')
     // The reason, type and namespace are bound params (never inlined).
