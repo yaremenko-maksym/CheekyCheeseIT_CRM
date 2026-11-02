@@ -60,21 +60,22 @@ signal-plus                    # daemon: repeats forever, one cycle per day, for
 Everything is env-driven (`signal_plus/config.py`) — nothing is hardcoded,
 no secret is ever in source. Full reference: `.env.example`.
 
-| Variable                     | Required | Purpose                                                                                                                                                                                               |
-| ---------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SIGNAL_ACCOUNTS`            | no       | comma-separated E.164 list — several accounts served by one container (multi-account). When set, `SIGNAL_ACCOUNT` is ignored and each account gets its own derived state file and its own random slot |
-| `SIGNAL_ACCOUNT`             | yes\*    | the single sending account (masked in logs). \*Required only when `SIGNAL_ACCOUNTS` is unset                                                                                                          |
-| `SIGNAL_GROUP_ID`            | yes      | target group (shared by all accounts)                                                                                                                                                                 |
-| `SIGNAL_CLI_BIN`             | yes      | path to the `signal-cli` executable to run                                                                                                                                                            |
-| `STATE_FILE`                 | yes      | path to the JSON idempotency/state file                                                                                                                                                               |
-| `SIGNAL_DATA_DIR`            | no       | volume root for auto-update (unset = auto-update off)                                                                                                                                                 |
-| `SIGNAL_CLI_GPG_FINGERPRINT` | no       | required release-signature fingerprint (unset = auto-update off)                                                                                                                                      |
-| `SIGNAL_ALERT_RECIPIENT`     | no       | personal DM alert recipient (unset = that layer skipped)                                                                                                                                              |
-| `HANDOVER_TIME`              | no       | handover cutoff, `HH:MM` Kyiv, default `08:00`                                                                                                                                                        |
-| `SIGNAL_SKIP_WEEKDAYS`       | no       | ISO weekdays (1=Mon..7=Sun) to skip entirely, comma-separated, default `7`                                                                                                                            |
-| `RESEND_API_KEY`             | no       | Resend API key for the handover email (unset = that layer skipped)                                                                                                                                    |
-| `ALERT_EMAIL_FROM`           | no       | sender, default `site@cheekycheese.tech`                                                                                                                                                              |
-| `ALERT_EMAIL_TO`             | no       | handover email recipient (unset = that layer skipped)                                                                                                                                                 |
+| Variable                      | Required | Purpose                                                                                                                                                                                               |
+| ----------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SIGNAL_ACCOUNTS`             | no       | comma-separated E.164 list — several accounts served by one container (multi-account). When set, `SIGNAL_ACCOUNT` is ignored and each account gets its own derived state file and its own random slot |
+| `SIGNAL_ACCOUNT`              | yes\*    | the single sending account (masked in logs). \*Required only when `SIGNAL_ACCOUNTS` is unset                                                                                                          |
+| `SIGNAL_GROUP_ID`             | yes      | target group (shared by all accounts)                                                                                                                                                                 |
+| `SIGNAL_CLI_BIN`              | yes      | path to the `signal-cli` executable to run                                                                                                                                                            |
+| `STATE_FILE`                  | yes      | path to the JSON idempotency/state file                                                                                                                                                               |
+| `SIGNAL_DATA_DIR`             | no       | volume root for auto-update (unset = auto-update off)                                                                                                                                                 |
+| `SIGNAL_CLI_GPG_FINGERPRINT`  | no       | required release-signature fingerprint (unset = auto-update off)                                                                                                                                      |
+| `SIGNAL_ALERT_RECIPIENT`      | no       | personal DM alert recipient (unset = that layer skipped)                                                                                                                                              |
+| `HANDOVER_TIME`               | no       | handover cutoff, `HH:MM` Kyiv, default `08:00`                                                                                                                                                        |
+| `SIGNAL_SKIP_WEEKDAYS`        | no       | ISO weekdays (1=Mon..7=Sun) to skip entirely, comma-separated, default `7`                                                                                                                            |
+| `SIGNAL_SENDER_KEY_SELF_HEAL` | no       | `1` (default) heal a group-send `StackOverflowError` once per day; `0` = alert only, never open `account.db`                                                                                          |
+| `RESEND_API_KEY`              | no       | Resend API key for the handover email (unset = that layer skipped)                                                                                                                                    |
+| `ALERT_EMAIL_FROM`            | no       | sender, default `site@cheekycheese.tech`                                                                                                                                                              |
+| `ALERT_EMAIL_TO`              | no       | handover email recipient (unset = that layer skipped)                                                                                                                                                 |
 
 ## Несколько участников (multi-account)
 
@@ -286,6 +287,43 @@ A successful auto-update is explicitly **not** routed through the `ERROR`
 alert (`signal_plus.alert.notify_stale_pin`): it logs `INFO old -> new` and
 sends only the personal-DM layer (if configured), as a heads-up that the
 image's pinned binary is now behind, not as an incident.
+
+## StackOverflowError / sender-key self-heal
+
+signal-cli 0.14.7 (native image) crashes with `java.lang.StackOverflowError`
+when sending to a v2 group whose `sender_key` state is corrupt (upstream
+AsamK/signal-cli#2101, #2113). Retrying never helps, so a group send failing
+with that error skips the generic 5× backoff (`signal_plus.senderkey`,
+`signal_plus.cli._handle_stack_overflow`):
+
+1. At most once per account per day (`last_heal_date` in the state file,
+   persisted before the retry): locate the account's DB via
+   `$SIGNAL_DATA_DIR/data/accounts.json` →
+   `$SIGNAL_DATA_DIR/data/<path>.d/account.db`, match the roll-call group by the
+   base64-decoded `SIGNAL_GROUP_ID` (exactly one `group_v2` row, never by name),
+   `PRAGMA wal_checkpoint(TRUNCATE)`, back the DB up, then delete only that
+   group's `sender_key` + `sender_key_shared` rows in one transaction. Signal
+   re-distributes a fresh sender key on the next send by itself; membership,
+   master key, identities and sessions are not touched.
+2. Retry the send once. Success → an `INFO` DM ("sender-key self-heal
+   performed", masked account + row count).
+3. Heal disabled / failed / already tried today / retry still failing → an
+   immediate `ERROR` alert through all layers ("StackOverflowError in group
+   send; self-heal <disabled|failed|already tried today|done>"), without
+   waiting for the handover cutoff. The daemon keeps running; the slot and
+   once-per-day semantics are unchanged.
+
+Anything unexpected (entry missing in `accounts.json`, no DB file, 0 or 2
+matching groups, a busy WAL, any sqlite/OS error) fails closed: nothing is
+deleted. Logs and alerts carry only the masked account and counts.
+
+**Backups** land next to the DB as `account.db.bak-<YYYYmmdd-HHMMSS>` (mode
+`0600`, on the `signal_data` volume); only the newest 3 are kept. To roll
+back, stop the container and copy a backup over `account.db` (removing
+`account.db-wal` / `account.db-shm`).
+
+**Disable** with `SIGNAL_SENDER_KEY_SELF_HEAL=0` — the service then never
+opens `account.db` and only alerts loudly. `--test` and DM alerts never heal.
 
 ## Секреты: отзыв и скоуп
 
