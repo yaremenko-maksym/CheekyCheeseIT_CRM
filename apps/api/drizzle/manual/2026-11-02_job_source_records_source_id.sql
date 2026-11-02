@@ -73,6 +73,7 @@ DO $fk$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'fk_job_source_records_source'
+       AND conrelid = 'job_source_records'::regclass
   ) THEN
     ALTER TABLE job_source_records
       ADD CONSTRAINT fk_job_source_records_source FOREIGN KEY (source_id)
@@ -90,7 +91,7 @@ UPDATE job_source_records r
        FROM job_run_records jrr
        JOIN job_collection_runs run ON run.id = jrr.run_id
       WHERE jrr.source_record_id = r.id
-      ORDER BY run.started_at
+      ORDER BY run.started_at, run.id
       LIMIT 1
    )
  WHERE r.source_id IS NULL;
@@ -109,6 +110,7 @@ BEGIN
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'fk_job_source_records_source'
+       AND conrelid = 'job_source_records'::regclass
   ) THEN
     missing := missing || 'constraint fk_job_source_records_source, ';
   END IF;

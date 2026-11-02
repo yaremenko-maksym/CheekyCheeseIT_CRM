@@ -2303,7 +2303,7 @@ docker compose \
 echo "==> job inventory misses applied successfully"
 
 # Source: apps/api/drizzle/manual/2026-11-02_job_source_records_source_id.sql
-# Adds job_source_records.source_id + RESTRICT FK + index and backfills existing rows (SR-H-2,
+# Adds job_source_records.source_id + ON DELETE SET NULL FK + index and backfills existing rows (SR-H-2,
 # PR #1227). The writer INSERTs source_id, so the column must exist in prod when the new image
 # ships. Creates no grantable relation (ALTER + index on an already-granted table), so it grants
 # nothing and may sit either side of the grants file; applied here after the record store.

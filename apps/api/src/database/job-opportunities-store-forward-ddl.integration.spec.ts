@@ -655,9 +655,6 @@ async function buildPreStoreStub(client: PoolClient, schema: string): Promise<vo
   await client.query(`CREATE TABLE teams (id uuid PRIMARY KEY)`)
   // Empty source tables so PART_9's backfill UPDATE resolves (matches no rows => no-op).
   await client.query(`CREATE TABLE job_run_records (run_id uuid, source_record_id uuid)`)
-  await client.query(
-    `CREATE TABLE job_collection_runs (id uuid, source_id uuid, started_at timestamptz)`,
-  )
 
   const baseColumns = await client.query(
     `SELECT a.attname,
@@ -788,14 +785,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     )
     // The stubs are what `buildPreStoreStub` creates to stand in for production.
     expect(tables.rows.map((r: { name: string }) => r.name)).toEqual(
-      [
-        ...STORE_TABLES,
-        'job_sources',
-        'teams',
-        'users',
-        'job_run_records',
-        'job_collection_runs',
-      ].sort(),
+      [...STORE_TABLES, 'job_sources', 'teams', 'users', 'job_run_records'].sort(),
     )
 
     const types = await client.query(
