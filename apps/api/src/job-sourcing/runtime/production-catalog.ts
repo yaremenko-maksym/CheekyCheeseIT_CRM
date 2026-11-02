@@ -1,5 +1,6 @@
 import type { JobSourceType } from '@crm/shared'
 import type { LedgerCatalog, LedgerCatalogEntry } from '../ownership/ledger-catalog'
+import { type DetailMode, onDemandTypesOf } from '../providers/detail-mode'
 import type { BanScope, HostPolicy } from '../scheduling/host-policy'
 import type { FetchProfile } from '../scheduling/next-slot'
 import { LEDGER_CATALOG_SNAPSHOT } from './ledger-catalog.snapshot'
@@ -32,6 +33,10 @@ export interface SnapshotType {
   readonly banScope: BanScope
   /** U11 (SR-H-1): the most requests one run of this type may send. Defaults to 1. */
   readonly requestsPerRun: number
+  /** SFS U10 (ADR 6a): `IN_LIST` (default) or `ON_DEMAND`. */
+  readonly detailMode: DetailMode
+  /** `ON_DEMAND` only: detail fetches a run claims after its list; `null` for `IN_LIST`. */
+  readonly detailPerRun: number | null
 }
 
 export interface SnapshotEntry {
@@ -95,12 +100,16 @@ export function catalogFromSnapshot(snapshot: LedgerCatalogSnapshot): LedgerCata
       floorHours: t.floorHours,
       banScope: t.banScope,
       requestsPerRun: t.requestsPerRun,
+      detailMode: t.detailMode,
+      detailPerRun: t.detailPerRun,
     })
   }
   const hosts = new Map(snapshot.hosts.map((h) => [h.hostKey, h.policy]))
+  const onDemand = onDemandTypesOf(snapshot.types)
   return {
     entry: (manifestId) => entries.get(manifestId),
     hostPolicy: (hostKey) => hosts.get(hostKey),
+    onDemandTypes: () => onDemand,
   }
 }
 

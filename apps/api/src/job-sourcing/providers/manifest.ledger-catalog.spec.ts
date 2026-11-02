@@ -45,6 +45,15 @@ describe('buildLedgerCatalog', () => {
     expect(catalog.entry('remotive.api.no-such-entry')).toBeUndefined()
   })
 
+  it('U10: carries detailMode/detailPerRun, and lists no ON_DEMAND type until a source is flipped', () => {
+    // Greenhouse declares detailPerRun ahead of the flip but stays IN_LIST (ADR 6a; the flip is U10 #10).
+    expect(catalog.entry('greenhouse.board.stripe')).toMatchObject({
+      detailMode: 'IN_LIST',
+      detailPerRun: 5,
+    })
+    expect(catalog.onDemandTypes()).toEqual([])
+  })
+
   it('a type that declares a quota is marked metered, with its own interval', () => {
     expect(catalog.entry('jsearch.rapidapi.backend')?.quotaDeclared).toBe(true)
     expect(catalog.entry('jooble.api.senior-developer-remote')).toMatchObject({

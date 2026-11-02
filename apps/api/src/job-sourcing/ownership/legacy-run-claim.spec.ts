@@ -126,6 +126,7 @@ function ledgerOver(answer: (text: string) => Rows | Error) {
   const ledger = new JobRunLedger({ execute, transaction } as never, registry, {
     entry: () => undefined,
     hostPolicy: () => undefined,
+    onDemandTypes: () => [],
   } as never)
   return { ledger, seen, params, transaction }
 }

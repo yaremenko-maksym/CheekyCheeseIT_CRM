@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
-import type { JobExclusionDto } from '@crm/shared'
+import type { JobExclusionDto, JobSourceType } from '@crm/shared'
 import { type SQL, sql } from 'drizzle-orm'
 import { type SeniorProjectRow, deriveProjectExclusions, manualExclusionDto } from '../filtering'
+import { DETAIL_FETCH } from '../ownership/dirty-work.store'
 import {
   type Availability,
   type CanonicalRevision,
@@ -58,11 +59,26 @@ export interface RosterInputs {
 }
 
 /** One opportunity at its current revision, shaped for `evaluate`. */
+/** SFS U10 (ADR 6a): a backing ON_DEMAND record awaiting its detail — the enqueue target. */
+export interface OnDemandMissing {
+  readonly recordId: string
+  /** The record's current `observation_seq`: the DETAIL_FETCH row's `target_version`. */
+  readonly version: number
+}
+
 export interface LoadedOpportunity {
   readonly revision: number
   readonly canonical: CanonicalRevision
   /** Teams holding an unrevoked, unexpired triage grant for this opportunity. */
   readonly teamTriageGrants: readonly string[]
+  /**
+   * SFS U10: the description is absent because a backing ON_DEMAND record's detail is still expected
+   * (not yet fetched, not FAILED). `evaluate` reads this so such a posting is never EXCLUDED on stack
+   * grounds (AC7). False when no source is ON_DEMAND (`onDemandTypes` empty, the pre-U10 default).
+   */
+  readonly detailPending: boolean
+  /** The backing ON_DEMAND records lacking a description and not FAILED: the DETAIL_FETCH targets. */
+  readonly onDemandMissing: readonly OnDemandMissing[]
 }
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : [])
@@ -163,15 +179,52 @@ const REPRESENTATIVE = sql`
    ORDER BY c.prio, c.record_id
    LIMIT 1`
 
+/**
+ * U10 (ADR 6a): the backing ON_DEMAND records whose current revision has no description and whose
+ * detail is not FAILED — the DETAIL_FETCH enqueue targets, and the reason the opportunity is
+ * `detailPending`. Empty expression when no type is ON_DEMAND (the pre-U10 default), so the query
+ * costs nothing until a source is flipped.
+ */
+function onDemandMissingExpr(onDemandTypes: readonly JobSourceType[]): SQL {
+  if (onDemandTypes.length === 0) return sql`'[]'::jsonb`
+  const types = sql.join(
+    onDemandTypes.map((t) => sql`${t}::job_source_type`),
+    sql`, `,
+  )
+  return sql`COALESCE((
+    SELECT jsonb_agg(jsonb_build_object('recordId', r.id, 'version', h.observation_seq) ORDER BY r.id)
+      FROM job_opportunity_sources s
+      JOIN job_source_records r ON r.id = s.source_record_id
+      JOIN job_source_record_heads h ON h.source_record_id = r.id
+      JOIN job_source_record_revisions v ON v.id = h.latest_revision_id
+     WHERE s.opportunity_id = o.id AND s.unlinked_at IS NULL
+       AND r.source_type IN (${types})
+       AND v.description_sha256 IS NULL
+       AND NOT EXISTS (SELECT 1 FROM job_dirty_work d
+                        WHERE d.entity_kind = 'SOURCE_RECORD' AND d.entity_id = r.id
+                          AND d.reason = ${DETAIL_FETCH} AND d.target_version = h.observation_seq
+                          AND d.status = 'FAILED')), '[]'::jsonb)`
+}
+
+function parseOnDemandMissing(value: unknown): OnDemandMissing[] {
+  if (!Array.isArray(value)) return []
+  return value.map((r) => ({
+    recordId: String((r as Row)['recordId']),
+    version: Number((r as Row)['version']),
+  }))
+}
+
 /** The opportunity at its current revision, or null when it does not exist. */
 export async function loadOpportunity(
   db: SqlExecutor,
   opportunityId: string,
+  onDemandTypes: readonly JobSourceType[] = [],
 ): Promise<LoadedOpportunity | null> {
   const { rows } = await db.execute(
     sql`SELECT o.id, o.revision, o.title, o.employer_name, o.location, o.stack_keywords,
                o.application_url, o.availability, o.first_seen_at, b.text AS description,
                rep.normalized, rep.evidence, rep.source_type, rep.source_url,
+               ${onDemandMissingExpr(onDemandTypes)} AS on_demand_missing,
                ARRAY(SELECT t.team_id::text FROM job_opportunity_team_triage t
                       WHERE t.opportunity_id = o.id AND t.revoked_at IS NULL
                         AND t.expires_at > clock_timestamp() ORDER BY t.team_id) AS grants
@@ -203,9 +256,12 @@ export async function loadOpportunity(
       : {}),
   }
   const revision = Number(o['revision'])
+  const onDemandMissing = parseOnDemandMissing(o['on_demand_missing'])
   return {
     revision,
     teamTriageGrants: strings(o['grants']),
+    detailPending: onDemandMissing.length > 0,
+    onDemandMissing,
     canonical: {
       opportunityId,
       revisionId: String(revision),

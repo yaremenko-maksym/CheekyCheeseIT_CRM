@@ -241,6 +241,7 @@ function world(
               floorHours: 5,
               ...(opts.requestBudget ? { requestBudget: opts.requestBudget } : {}),
             },
+      onDemandTypes: () => [],
     },
     db,
     recordBan: async (ban) => {

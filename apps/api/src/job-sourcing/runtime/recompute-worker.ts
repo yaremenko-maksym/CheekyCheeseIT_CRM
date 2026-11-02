@@ -1,3 +1,4 @@
+import type { JobSourceType } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { findPgError } from '../../database/pg-errors'
 import { type Evaluated, type Excluded, evaluate } from '../funnel/evaluate'
@@ -5,12 +6,14 @@ import type { MeterDb } from '../metering/account-meter.store'
 import {
   type ClaimedDirtyWork,
   type CompleteOutcome,
+  DETAIL_FETCH,
   DIRTY_BATCH_DEFAULT,
   DirtyWorkFencedError,
   type FailOutcome,
   type RetryOptions,
   claimDirtyBatch,
   completeDirty,
+  enqueueDirty,
   failDirty,
 } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
@@ -244,6 +247,7 @@ function verdictOf(
       exclusions: roster.exclusions,
       teamTriageGrants: loaded.teamTriageGrants,
       unavailable: [],
+      detailPending: loaded.detailPending,
     })
   } catch {
     throw new RecomputePoisonError('EVALUATION_THREW')
@@ -263,6 +267,7 @@ function recomputeOpportunity(
   db: MeterDb,
   work: ClaimedDirtyWork,
   batch: RecomputeBatch,
+  onDemandTypes: readonly JobSourceType[],
 ): Promise<CompleteOutcome> {
   return inTx(db, async (tx) => {
     const { rows } = await tx.execute(
@@ -273,21 +278,34 @@ function recomputeOpportunity(
     // Missing or moved on: nothing to compute, the store records ENTITY_MISSING / VERSION_STALE.
     if (Number(rows[0]?.['revision']) !== work.targetVersion) return completeDirty(tx, work)
     // Locked above at the target revision, so it exists.
-    const loaded = (await loadOpportunity(tx, work.entityId)) as LoadedOpportunity
+    const loaded = (await loadOpportunity(tx, work.entityId, onDemandTypes)) as LoadedOpportunity
     const roster = await loadRoster(tx)
     const verdict = verdictOf(work, batch, loaded, roster)
     await installMatches(tx, work.entityId, work.targetVersion, verdict, roster)
+    // SFS U10 (ADR 6a, "Want"): an opportunity that came out LEAD or TRIAGE for any senior enqueues
+    // one DETAIL_FETCH per backing ON_DEMAND record whose detail is still missing. The dirty row's
+    // unique key makes a second enqueue a no-op: the detail is fetched once.
+    if (verdict.kind === 'EVALUATED' && verdict.projections.length > 0) {
+      for (const rec of loaded.onDemandMissing) {
+        await enqueueDirty(tx, 'SOURCE_RECORD', rec.recordId, rec.version, DETAIL_FETCH)
+      }
+    }
     return completeDirty(tx, work)
   })
 }
 
 /** The real port: the S3 store, the canonical store and the recompute inputs. */
-export function createRecomputeSteps(db: MeterDb, fanout: FanoutOptions = {}): RecomputeSteps {
+export function createRecomputeSteps(
+  db: MeterDb,
+  fanout: FanoutOptions = {},
+  onDemandTypes: readonly JobSourceType[] = [],
+): RecomputeSteps {
   return {
     claim: (owner, batchSize) => claimDirtyBatch(db, { owner, batchSize }),
     process: (work, batch) => {
       if (work.entityKind === 'SOURCE_RECORD') return resolveSourceRecord(db, work)
-      if (work.entityKind === 'OPPORTUNITY') return recomputeOpportunity(db, work, batch)
+      if (work.entityKind === 'OPPORTUNITY')
+        return recomputeOpportunity(db, work, batch, onDemandTypes)
       // SENIOR / EXCLUSION / PROJECT_CLIENT (S5): enqueue the opportunities, then complete.
       return inTx(db, async (tx) => (await fanOutDirty(tx, work, fanout)).outcome)
     },

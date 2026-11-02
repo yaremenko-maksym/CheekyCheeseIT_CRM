@@ -1436,10 +1436,43 @@ export interface CachedResponse {
   bodyText: string
 }
 
+/** SFS U10 (ADR 6a): which posting a detail fetch is for — the record's native id, nothing else. */
+export interface DetailTarget {
+  readonly nativeId: string
+}
+
+/**
+ * SFS U10 (ADR 6a, change #9): the outcome of one on-demand detail fetch, judged by status first.
+ * `FOUND` carries a built `SourceObservation` — `FOUND.fields` has already gone through
+ * `buildNormalizedPosting` (via `buildSourceObservation`), never straight to a store. `GONE` is a
+ * 404 (the posting is gone: availability evidence, never retried). `FAILED` counts an attempt. It
+ * carries NO message BY DESIGN: a parser's error fragment stays out of logs and persistence.
+ */
+export type DetailOutcome =
+  | { readonly kind: 'FOUND'; readonly observation: SourceObservation }
+  | { readonly kind: 'GONE' }
+  | {
+      readonly kind: 'FAILED'
+      readonly code: 'UPSTREAM' | 'PARSE_DRIFT' | 'PAYLOAD_TOO_LARGE'
+      readonly status: number
+    }
+
 export interface ReportingJobSourceProvider<
   TConfig extends ValidatedSourceConfig = ValidatedSourceConfig,
 > {
   readonly type: import('@crm/shared').JobSourceType
   parseConfig(raw: unknown): TConfig
   collectReport(config: TConfig, ctx: CollectionContext): Promise<CollectionBatch>
+  /**
+   * SFS U10 (ADR 6a): fetch one posting's detail on demand, inside the run's ledger context (so the
+   * host budget, ceiling, ban, fencing and byte caps all apply). Present only on an `ON_DEMAND`
+   * adapter; absent otherwise (an `IN_LIST` source has no detail to fetch). A transport refusal
+   * (401/403/429/451) is thrown by `ctx.fetchText` and propagates — it ends the run and pauses the
+   * host, exactly like the list phase.
+   */
+  collectDetail?(
+    config: TConfig,
+    record: DetailTarget,
+    ctx: CollectionContext,
+  ): Promise<DetailOutcome>
 }

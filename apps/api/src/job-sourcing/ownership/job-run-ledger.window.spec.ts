@@ -61,6 +61,7 @@ describe('countDue, the sweep scope (U3)', () => {
         'm.null': { fetchProfile: null, floorHours: 0 },
       })[id],
     hostPolicy: () => undefined,
+    onDemandTypes: () => [],
   }
 
   it('counts with the sweep predicate, over the sweepable manifest ids only, minus the skipped sources', async () => {

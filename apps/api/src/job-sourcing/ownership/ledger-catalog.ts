@@ -1,4 +1,5 @@
 import type { JobSourceType } from '@crm/shared'
+import type { DetailMode } from '../providers/detail-mode'
 import type { ActivationFacts } from '../registry/activation'
 import type { BanScope, HostPolicy } from '../scheduling/host-policy'
 import type { FetchProfile } from '../scheduling/next-slot'
@@ -40,6 +41,14 @@ export interface LedgerCatalogEntry {
    * bans the host key, so an entry that forgot it fails toward stopping.
    */
   readonly banScope?: BanScope
+  /**
+   * SFS U10 (ADR 6a): `ON_DEMAND` reads the list without the description and fetches each posting's
+   * detail on demand; `IN_LIST` (the default) carries it in the list. The run worker's detail tail
+   * runs only for an `ON_DEMAND` entry. Absent reads as `IN_LIST` (a pre-U10 fake needs no change).
+   */
+  readonly detailMode?: DetailMode
+  /** `ON_DEMAND` only: how many pending detail fetches one run claims after its list phase; else `null`. */
+  readonly detailPerRun?: number | null
 }
 
 export interface LedgerCatalog {
@@ -47,4 +56,6 @@ export interface LedgerCatalog {
   entry(manifestId: string): LedgerCatalogEntry | undefined
   /** The merged policy of a host key, or undefined (the claim refuses it, fail closed). */
   hostPolicy(hostKey: string): HostPolicy | undefined
+  /** SFS U10: the source types whose `detailMode` is `ON_DEMAND` (empty until a source is flipped). */
+  onDemandTypes(): readonly JobSourceType[]
 }

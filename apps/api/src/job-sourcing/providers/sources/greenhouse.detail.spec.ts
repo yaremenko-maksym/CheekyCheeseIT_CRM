@@ -227,3 +227,86 @@ describe('fetchGreenhouseDetail', () => {
     await expect(fetchGreenhouseDetail(f.ctx, config(), 8102684)).rejects.toBe(boom)
   })
 })
+
+describe('collectDetail (ON_DEMAND, ADR 6a #9)', () => {
+  const provider = createGreenhouseProvider('ON_DEMAND')
+  const cfg = () => provider.parseConfig({ configVersion: 1, board: 'airbnb' })
+  const found = JSON.stringify(captured()[0])
+  const target = { nativeId: '8102684' }
+  const run = () => {
+    if (provider.collectDetail === undefined)
+      throw new Error('ON_DEMAND provider must have collectDetail')
+    return provider.collectDetail.bind(provider)
+  }
+
+  it('an IN_LIST provider has no collectDetail; an ON_DEMAND one does', () => {
+    expect(createGreenhouseProvider('IN_LIST').collectDetail).toBeUndefined()
+    expect(createGreenhouseProvider('ON_DEMAND').collectDetail).toBeDefined()
+  })
+
+  it('FOUND: builds an observation through buildNormalizedPosting, with the description and greenhouse-2', async () => {
+    const f = fakeCollectionContext({ now: NOW, responses: [{ bodyText: found }] })
+    const r = await run()(cfg(), target, f.ctx)
+    expect(f.sent).toEqual([greenhouseDetailRequest('airbnb', 8102684)])
+    expect(r.kind).toBe('FOUND')
+    if (r.kind !== 'FOUND') return
+    expect(r.observation.adapterVersion).toBe('greenhouse-2')
+    expect(r.observation.identity.provider).toBe('GREENHOUSE_ATS')
+    expect(r.observation.normalized.title).toBe('Tech Lead Manager, Oracle ERP')
+    // The detail fetch filled the description the list-only revision lacked.
+    expect(r.observation.normalized.descriptionMd.length).toBeGreaterThan(100)
+  })
+
+  it('404 is GONE', async () => {
+    const f = fakeCollectionContext({ now: NOW, responses: [{ status: 404 }] })
+    expect(await run()(cfg(), target, f.ctx)).toEqual({ kind: 'GONE' })
+  })
+
+  it('a 500 is FAILED UPSTREAM carrying only kind/code/status — never the message (out of persistence)', async () => {
+    const f = fakeCollectionContext({ now: NOW, responses: [{ status: 500, bodyText: found }] })
+    expect(await run()(cfg(), target, f.ctx)).toEqual({
+      kind: 'FAILED',
+      code: 'UPSTREAM',
+      status: 500,
+    })
+  })
+
+  it('a non-JSON body is FAILED PARSE_DRIFT with no message fragment', async () => {
+    const f = fakeCollectionContext({ now: NOW, responses: [{ bodyText: '<html>' }] })
+    const r = await run()(cfg(), target, f.ctx)
+    expect(r).toEqual({ kind: 'FAILED', code: 'PARSE_DRIFT', status: 200 })
+    expect(Object.keys(r)).not.toContain('message')
+  })
+
+  it('a posting that cannot be built (missing company) is FAILED PARSE_DRIFT, not stored', async () => {
+    const { company_name: _c, ...noCompany } = JSON.parse(found) as Record<string, unknown>
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: JSON.stringify(noCompany) }],
+    })
+    const cfgNoEmployer = provider.parseConfig({ configVersion: 1, board: 'airbnb' })
+    const r = await run()(cfgNoEmployer, target, f.ctx)
+    expect(r).toMatchObject({ kind: 'FAILED', code: 'PARSE_DRIFT' })
+  })
+
+  it('an unparseable native id is FAILED before any request', async () => {
+    const f = fakeCollectionContext({ now: NOW, responses: [{ bodyText: found }] })
+    const r = await run()(cfg(), { nativeId: 'not-a-number' }, f.ctx)
+    expect(r).toMatchObject({ kind: 'FAILED', code: 'PARSE_DRIFT' })
+    expect(f.sent).toEqual([])
+  })
+
+  it('a native id past the safe-integer range is FAILED before any request (never fetched or thrown)', async () => {
+    const f = fakeCollectionContext({ now: NOW, responses: [{ bodyText: found }] })
+    // 2^53 is not a valid int for z.int().min(1), so it is refused before any request or throw.
+    const r = await run()(cfg(), { nativeId: '9007199254740992' }, f.ctx)
+    expect(r).toMatchObject({ kind: 'FAILED', code: 'PARSE_DRIFT' })
+    expect(f.sent).toEqual([])
+  })
+
+  it('a transport refusal propagates (the run stops and bans the host)', async () => {
+    const boom = new Error('refused')
+    const f = fakeCollectionContext({ now: NOW, responses: [{ throws: boom }] })
+    await expect(run()(cfg(), target, f.ctx)).rejects.toBe(boom)
+  })
+})

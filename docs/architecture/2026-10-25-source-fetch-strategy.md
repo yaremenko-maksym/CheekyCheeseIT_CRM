@@ -402,6 +402,12 @@ remaining requests are counted in the host budget like any other.
 stack unknown, so it is enriched and evaluated again. Title-level exclusions still apply. Without this
 rule, list-only sources would lose every match the description would have found.
 
+"coreMismatch wins" (SPEC-L-1): `detailPending` only lifts a record the list could **not** judge
+(no keyword hit, no requirements statement). When the list already asserted the stack — a keyword
+hit or a requirements statement that the roster does not satisfy — that is a real `coreMismatch`, and
+it **beats** `detailPending`: the opportunity stays `NO_MATCH`, not lifted to `TRIAGE`. The detail
+would not overturn a stack the list already stated.
+
 **Precondition for switching any source to `ON_DEMAND`** (added 2026-10-26 from the U6a security review,
 SR-M-1). The rule above must be **implemented and tested before any source's manifest `detailMode` becomes
 `'ON_DEMAND'`**. The tests: a posting with an empty body, a department tag and a title without a stack
