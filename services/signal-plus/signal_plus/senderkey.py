@@ -21,7 +21,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -77,10 +76,18 @@ def _locate_account_db(data_dir: Path, account: str) -> Path | None:
     return data_dir / "data" / f"{path}.d" / "account.db"
 
 
-def _backup(db: Path) -> None:
+def _backup(conn: sqlite3.Connection, db: Path) -> None:
+    """Consistent snapshot (sqlite backup API, WAL included) into a file that
+    is created 0600 from the first byte: it holds key material, so it must
+    never exist with a wider mode, not even briefly."""
     backup = db.with_name(f"{db.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}")
-    shutil.copy2(db, backup)
-    os.chmod(backup, 0o600)  # holds key material, whatever the source mode was
+    fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    os.close(fd)
+    dest = sqlite3.connect(backup)
+    try:
+        conn.backup(dest)
+    finally:
+        dest.close()
     for stale in sorted(db.parent.glob(f"{db.name}.bak-*"))[:-BACKUPS_KEPT]:
         stale.unlink()
 
@@ -111,7 +118,7 @@ def _heal(config: Config) -> HealOutcome:
             return HealOutcome(False, f"expected exactly 1 matching group, found {len(rows)}")
         distribution_id = rows[0][0]
 
-        _backup(db)
+        _backup(conn, db)
 
         with conn:  # one transaction: both deletes or neither
             sk = conn.execute("DELETE FROM sender_key WHERE distribution_id = ?", (distribution_id,)).rowcount

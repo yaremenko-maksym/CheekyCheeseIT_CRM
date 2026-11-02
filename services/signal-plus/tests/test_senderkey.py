@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import sqlite3
 import stat
 
@@ -93,6 +94,46 @@ def test_heal_writes_a_backup_with_the_pre_delete_content(tmp_path, data_dir):
     assert count_rows(backups[0], "sender_key", ROLLCALL_DIST_ID) == 1
     assert count_rows(backups[0], "sender_key_shared", ROLLCALL_DIST_ID) == 30
     assert stat.S_IMODE(backups[0].stat().st_mode) == 0o600
+
+
+def test_backup_is_0600_from_creation_whatever_the_umask(tmp_path, data_dir, monkeypatch):
+    db = build_signal_data(data_dir)
+
+    def _no_chmod(*a, **k):  # a copy-then-chmod implementation would fail here
+        raise AssertionError("backup must not rely on chmod")
+
+    monkeypatch.setattr(senderkey.os, "chmod", _no_chmod)
+    old = os.umask(0)  # most permissive: a plain open(…, 0o666) would be 0666
+    try:
+        outcome = senderkey.heal_group_sender_key(_config(tmp_path))
+    finally:
+        os.umask(old)
+
+    assert outcome.healed is True
+    (backup,) = db.parent.glob("account.db.bak-*")
+    assert stat.S_IMODE(backup.stat().st_mode) == 0o600
+
+
+def test_backup_is_a_consistent_sqlite_snapshot_including_wal(tmp_path, data_dir):
+    db = build_signal_data(data_dir)
+    # A committed row that only lives in the WAL while this connection stays open.
+    live = sqlite3.connect(db)
+    live.execute("PRAGMA wal_autocheckpoint=0")
+    live.execute("INSERT INTO session (address, record) VALUES ('wal-only', x'02')")
+    live.commit()
+    try:
+        senderkey.heal_group_sender_key(_config(tmp_path))
+    finally:
+        live.close()
+
+    (backup,) = db.parent.glob("account.db.bak-*")
+    snap = sqlite3.connect(backup)
+    try:
+        assert snap.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert snap.execute("SELECT COUNT(*) FROM session WHERE address='wal-only'").fetchone()[0] == 1
+        assert snap.execute("SELECT COUNT(*) FROM sender_key WHERE distribution_id=?", (ROLLCALL_DIST_ID,)).fetchone()[0] == 1
+    finally:
+        snap.close()
 
 
 def test_heal_keeps_only_the_newest_three_backups(tmp_path, data_dir):
@@ -270,7 +311,7 @@ def test_never_raises_when_the_backup_cannot_be_written(tmp_path, data_dir, monk
     def _boom(*a, **k):
         raise PermissionError("read-only volume")
 
-    monkeypatch.setattr(senderkey.shutil, "copy2", _boom)
+    monkeypatch.setattr(senderkey.os, "open", _boom)
 
     outcome = senderkey.heal_group_sender_key(_config(tmp_path))
 

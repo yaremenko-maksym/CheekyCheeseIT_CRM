@@ -1,9 +1,14 @@
 """Test helper: a temp signal-cli data dir with a REAL sqlite account.db.
 
-The DDL mirrors signal-cli 0.14.7's ``AccountDatabase`` for the three tables
-the sender-key self-heal reads/writes: STRICT tables, BLOB ids. Other tables
-(identity, session, ...) are represented by one ``session`` stand-in so a test
-can prove the heal never touches anything outside the two sender-key tables.
+The DDL below is the real signal-cli 0.14.7 schema of the three tables the
+sender-key self-heal touches (probed read-only from the production account.db
+2026-11-02; journal_mode=wal, group_id 32-byte BLOB, distribution_id 16-byte
+BLOB). Other tables (identity, session, ...) are represented by one ``session``
+stand-in so a test can prove the heal never touches anything else.
+
+    CREATE TABLE group_v2 (_id INTEGER PRIMARY KEY, storage_id BLOB UNIQUE, storage_record BLOB, group_id BLOB UNIQUE NOT NULL, master_key BLOB NOT NULL, group_data BLOB, distribution_id BLOB UNIQUE NOT NULL, endorsement_expiration_time INTEGER NOT NULL DEFAULT 0, blocked INTEGER NOT NULL DEFAULT FALSE, profile_sharing INTEGER NOT NULL DEFAULT FALSE, permission_denied INTEGER NOT NULL DEFAULT FALSE) STRICT;
+    CREATE TABLE sender_key (_id INTEGER PRIMARY KEY, address TEXT NOT NULL, device_id INTEGER NOT NULL, distribution_id BLOB NOT NULL, record BLOB NOT NULL, created_timestamp INTEGER NOT NULL, UNIQUE(address, device_id, distribution_id)) STRICT;
+    CREATE TABLE sender_key_shared (_id INTEGER PRIMARY KEY, address TEXT NOT NULL, device_id INTEGER NOT NULL, distribution_id BLOB NOT NULL, timestamp INTEGER NOT NULL, UNIQUE(address, device_id, distribution_id)) STRICT;
 """
 from __future__ import annotations
 
@@ -14,36 +19,9 @@ import sqlite3
 from pathlib import Path
 
 SCHEMA = """
-CREATE TABLE group_v2 (
-  _id INTEGER PRIMARY KEY,
-  group_id BLOB UNIQUE NOT NULL,
-  master_key BLOB NOT NULL,
-  group_data BLOB,
-  distribution_id BLOB UNIQUE NOT NULL,
-  blocked INTEGER NOT NULL DEFAULT FALSE,
-  permission_denied INTEGER NOT NULL DEFAULT FALSE,
-  profile_sharing INTEGER NOT NULL DEFAULT FALSE,
-  endorsement_expiration_time INTEGER NOT NULL DEFAULT 0
-) STRICT;
-CREATE TABLE sender_key (
-  _id INTEGER PRIMARY KEY,
-  account_id_type INTEGER NOT NULL,
-  address TEXT NOT NULL,
-  device_id INTEGER NOT NULL,
-  distribution_id BLOB NOT NULL,
-  record BLOB NOT NULL,
-  created_timestamp INTEGER NOT NULL,
-  UNIQUE(account_id_type, address, device_id, distribution_id)
-) STRICT;
-CREATE TABLE sender_key_shared (
-  _id INTEGER PRIMARY KEY,
-  account_id_type INTEGER NOT NULL,
-  address TEXT NOT NULL,
-  device_id INTEGER NOT NULL,
-  distribution_id BLOB NOT NULL,
-  timestamp INTEGER NOT NULL,
-  UNIQUE(account_id_type, address, device_id, distribution_id)
-) STRICT;
+CREATE TABLE group_v2 (_id INTEGER PRIMARY KEY, storage_id BLOB UNIQUE, storage_record BLOB, group_id BLOB UNIQUE NOT NULL, master_key BLOB NOT NULL, group_data BLOB, distribution_id BLOB UNIQUE NOT NULL, endorsement_expiration_time INTEGER NOT NULL DEFAULT 0, blocked INTEGER NOT NULL DEFAULT FALSE, profile_sharing INTEGER NOT NULL DEFAULT FALSE, permission_denied INTEGER NOT NULL DEFAULT FALSE) STRICT;
+CREATE TABLE sender_key (_id INTEGER PRIMARY KEY, address TEXT NOT NULL, device_id INTEGER NOT NULL, distribution_id BLOB NOT NULL, record BLOB NOT NULL, created_timestamp INTEGER NOT NULL, UNIQUE(address, device_id, distribution_id)) STRICT;
+CREATE TABLE sender_key_shared (_id INTEGER PRIMARY KEY, address TEXT NOT NULL, device_id INTEGER NOT NULL, distribution_id BLOB NOT NULL, timestamp INTEGER NOT NULL, UNIQUE(address, device_id, distribution_id)) STRICT;
 CREATE TABLE session (
   _id INTEGER PRIMARY KEY,
   address TEXT NOT NULL,
@@ -108,15 +86,15 @@ def build_signal_data(
                 (gid, bytes([i]) * 32, dist),
             )
             conn.execute(
-                "INSERT INTO sender_key (account_id_type, address, device_id, distribution_id, record, created_timestamp)"
-                " VALUES (0, ?, 1, ?, ?, 1)",
+                "INSERT INTO sender_key (address, device_id, distribution_id, record, created_timestamp)"
+                " VALUES (?, 1, ?, ?, 1)",
                 (f"self-{i}", dist, b"record"),
             )
             shared = rollcall_shared_rows if dist == ROLLCALL_DIST_ID else 2
             for n in range(shared):
                 conn.execute(
-                    "INSERT INTO sender_key_shared (account_id_type, address, device_id, distribution_id, timestamp)"
-                    " VALUES (0, ?, 1, ?, 1)",
+                    "INSERT INTO sender_key_shared (address, device_id, distribution_id, timestamp)"
+                    " VALUES (?, 1, ?, 1)",
                     (f"member-{i}-{n}", dist),
                 )
         conn.execute("INSERT INTO session (address, record) VALUES ('peer', x'01')")
