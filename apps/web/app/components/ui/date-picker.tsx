@@ -80,7 +80,13 @@ export function DatePickerField({
           </span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
+      {/* Collision-aware: on a short viewport (<= ~500px high) the 6-week grid would be clipped, so it
+          is capped to the space Radix reports as available and scrolls inside. */}
+      <PopoverContent
+        className="w-auto p-0 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto"
+        align="start"
+        collisionPadding={8}
+      >
         <Calendar
           mode="single"
           selected={selected}

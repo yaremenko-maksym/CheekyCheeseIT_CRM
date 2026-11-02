@@ -6,15 +6,21 @@ vi.mock('@/components/ui/date-picker', () => ({
   DatePickerField: ({
     value,
     onChange,
+    disabled,
+    'aria-describedby': describedBy,
     'data-testid': dataTestId,
   }: {
     value: string
     onChange: (value: string) => void
+    disabled?: boolean
+    'aria-describedby'?: string
     'data-testid'?: string
   }) => (
     <input
       type="date"
       value={value}
+      disabled={disabled}
+      aria-describedby={describedBy}
       data-testid={dataTestId}
       onChange={(event) => onChange(event.target.value)}
     />
@@ -101,11 +107,26 @@ describe('TxDateField', () => {
     const input = screen.getByTestId('admin-edit-tx-date-reason-input')
     const msg = screen.getByTestId('admin-edit-tx-date-reason-error')
     expect(msg).toHaveTextContent('Вкажіть причину')
-    expect(msg).not.toHaveAttribute('role')
+    expect(msg).toHaveAttribute('role', 'alert')
     expect(input).toHaveAttribute('aria-invalid', 'true')
     expect(input).toHaveAttribute('aria-describedby', msg.id)
     expect(input).toHaveClass('border-destructive')
     expect(msg).toHaveClass('text-destructive')
+  })
+
+  it('locked: disables the date trigger, shows the note and never the reason field', () => {
+    renderField({ value: '2026-08-01', locked: true })
+    expect(screen.getByTestId('admin-edit-tx-date')).toBeDisabled()
+    const note = screen.getByTestId('admin-edit-tx-date-locked-note')
+    expect(screen.getByTestId('admin-edit-tx-date')).toHaveAttribute('aria-describedby', note.id)
+    expect(screen.queryByTestId('admin-edit-tx-date-reason')).toBeNull()
+  })
+
+  it('unlocked: trigger enabled, no note, no describedby', () => {
+    renderField({ value: '2026-08-01' })
+    expect(screen.getByTestId('admin-edit-tx-date')).not.toBeDisabled()
+    expect(screen.getByTestId('admin-edit-tx-date')).not.toHaveAttribute('aria-describedby')
+    expect(screen.queryByTestId('admin-edit-tx-date-locked-note')).toBeNull()
   })
 
   it('shows no inline error and no destructive style when not invalid', () => {

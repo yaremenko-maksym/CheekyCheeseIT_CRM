@@ -100,7 +100,8 @@ describe('AdminEditTransactionDialog — failed-save feedback', () => {
     expect(input).toHaveAttribute('aria-invalid', 'true')
     const inline = screen.getByTestId('admin-edit-tx-date-reason-error')
     expect(alert.textContent).toBeTruthy()
-    expect(inline).toHaveTextContent(alert.textContent ?? 'missing')
+    expect(alert).toBe(inline) // the inline message is the only alert
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
     expect(input).toHaveAttribute('aria-describedby', inline.id)
     expect(input).toHaveClass('border-destructive')
     await waitFor(() => expect(input).toHaveFocus())

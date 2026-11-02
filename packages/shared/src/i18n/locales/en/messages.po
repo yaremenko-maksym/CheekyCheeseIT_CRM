@@ -10642,7 +10642,7 @@ msgid "Пошук співбесіди"
 msgstr "Search interviews"
 
 #. placeholder {0}: i18n._(CASCADE_PREVIEW_LEAD_IN_MESSAGE)
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/use-cascade-preview-state.ts
 msgid "{0} — перевірте з’єднання"
 msgstr "{0} — check your connection"
 
@@ -11846,6 +11846,10 @@ msgstr "All parties' signatures are present. The PDF content is unchanged since 
 #: apps/web/app/lib/axios-utils.ts
 msgid "Файл занадто великий."
 msgstr "The file is too large."
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
+msgid "Дату не можна змінити: оплату підтверджено в блокчейні, її проведено з рахунку компанії або вже є розрахунки"
+msgstr "The date can't be changed: payment is confirmed on-chain, made from the company account, or already settled"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Замінити token"

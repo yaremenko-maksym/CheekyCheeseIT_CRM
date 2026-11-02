@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
@@ -116,7 +116,12 @@ export function AdminEditTransactionDialog({
   // rate. Same classifier the server asks (`paidRowAmountLockReason`).
   const amountLockReason = paidRowAmountLockReason(tx)
 
+  // QA-LOW-1 — set synchronously before `mutate`: two clicks in one tick never see the disabled button.
+  const submittingRef = useRef(false)
   const mutation = useMutation({
+    onSettled: () => {
+      submittingRef.current = false
+    },
     mutationFn: () => {
       const amt = parseStrictAmount(amount)
       // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: pre-existing defence-in-depth guard, unchanged by this PR (i18n-3d-pr3 translated only the message text) — no test drives an invalid amount past the Save button's own disabled-state gates to reach this throw, same as the sibling suppressions elsewhere in this file.
@@ -285,6 +290,7 @@ export function AdminEditTransactionDialog({
                 onCurrencyChange={setCurrency}
                 disableCurrency={isPaidRow}
                 disableAmount={amountLockReason !== null}
+                inputClassName="min-h-[44px] sm:min-h-0 sm:h-9"
               />
               {amountLockReason !== null && (
                 <p
@@ -392,7 +398,7 @@ export function AdminEditTransactionDialog({
                     // a red «сохранение не удалось» line from the previous
                     // attempt at the same time — the same two-contradictory-
                     // answers defect as COPY-H-1, one screen down.
-                    mutation.reset()
+                    if (mutation.isError) mutation.reset() // never mid-save
                     refetchPreview()
                   }}
                   staleMessage={staleMessage}
@@ -411,6 +417,7 @@ export function AdminEditTransactionDialog({
                     if (mutation.isError) mutation.reset() // QA-MED-1; never mid-save (CR-M-7)
                   }}
                   invalid={reasonRequired}
+                  locked={tx.isDateLocked === true}
                   errorMessage={submitError}
                 />
               )}
@@ -434,7 +441,7 @@ export function AdminEditTransactionDialog({
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
                     placeholder={t`Категорія витрати`}
-                    className="h-9 text-sm"
+                    className="min-h-[44px] sm:min-h-0 sm:h-9 text-sm"
                     data-testid="admin-edit-expense-category-input"
                   />
                   <div className="flex flex-wrap gap-1.5">
@@ -468,7 +475,8 @@ export function AdminEditTransactionDialog({
                     value={salaryMonth}
                     onChange={(e) => setSalaryMonth(e.target.value)}
                     placeholder="2025-03"
-                    className="h-9 text-sm"
+                    className="min-h-[44px] sm:min-h-0 sm:h-9 text-sm"
+                    data-testid="admin-edit-salary-month-input"
                     disabled={isPaidRow}
                   />
                   {/* Its own note, under its own field: two locked controls with
@@ -506,7 +514,8 @@ export function AdminEditTransactionDialog({
                 />
               </div>
 
-              {submitError && <SubmitErrorBanner message={submitError} scroll={!reasonRequired} />}
+              {/* The reason-required message lives inline under the field (COPY-LOW-1). */}
+              {submitError && !reasonRequired && <SubmitErrorBanner message={submitError} />}
             </div>
           )}
         </CrmDialogBody>
@@ -559,7 +568,11 @@ export function AdminEditTransactionDialog({
           {isEditable && (
             <Button
               size="sm"
-              onClick={() => mutation.mutate()}
+              onClick={() => {
+                if (submittingRef.current) return
+                submittingRef.current = true
+                mutation.mutate()
+              }}
               disabled={mutation.isPending || cascadeSaveBlocked || !!staleMessage}
               data-testid="admin-edit-save"
             >

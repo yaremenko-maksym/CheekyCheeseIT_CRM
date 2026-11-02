@@ -23,8 +23,11 @@ interface TxDateFieldProps {
   invalid?: boolean
   /** Same text as the failed-save banner, repeated under the field (the banner may be below the fold). */
   errorMessage?: string | null | undefined
+  /** On-chain, company-funded or settled row: the server refuses any date change. */
+  locked?: boolean
 }
 
+const LOCKED_NOTE_ID = 'admin-edit-tx-date-locked-note-text'
 const REASON_ERROR_ID = 'admin-edit-tx-date-reason-error'
 
 export const isReasonRequiredError = (err: unknown) =>
@@ -43,9 +46,10 @@ export function TxDateField({
   onReasonChange,
   invalid = false,
   errorMessage,
+  locked = false,
 }: TxDateFieldProps) {
   const { i18n } = useLingui()
-  const changed = !!value && value !== stored
+  const changed = !locked && !!value && value !== stored
   const shouldReduceMotion = useReducedMotion()
   const reasonRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -63,7 +67,21 @@ export function TxDateField({
         onChange={onChange}
         className="min-h-[44px] sm:min-h-0 sm:h-9 text-sm"
         data-testid="admin-edit-tx-date"
+        disabled={locked}
+        {...(locked && { 'aria-describedby': LOCKED_NOTE_ID })}
       />
+      {locked && (
+        <p
+          id={LOCKED_NOTE_ID}
+          data-testid="admin-edit-tx-date-locked-note"
+          className="text-xs text-muted-foreground"
+        >
+          <Trans>
+            Дату не можна змінити: оплату підтверджено в блокчейні, її проведено з рахунку компанії
+            або вже є розрахунки
+          </Trans>
+        </p>
+      )}
       <AnimatePresence initial={false}>
         {changed && (
           <motion.div
@@ -99,6 +117,7 @@ export function TxDateField({
             {invalid && errorMessage && (
               <p
                 id={REASON_ERROR_ID}
+                role="alert"
                 data-testid="admin-edit-tx-date-reason-error"
                 className="text-xs text-destructive"
               >

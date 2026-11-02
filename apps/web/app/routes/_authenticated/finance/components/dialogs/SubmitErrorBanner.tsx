@@ -29,6 +29,7 @@ export function SubmitErrorBanner({
       ref={ref}
       id={SUBMIT_ERROR_ID}
       role="alert"
+      aria-live="polite"
       className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
     >
       <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />

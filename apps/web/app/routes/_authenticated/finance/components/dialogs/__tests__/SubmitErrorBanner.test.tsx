@@ -15,6 +15,11 @@ beforeEach(() => {
 })
 
 describe('SubmitErrorBanner', () => {
+  it('is a polite live region as well (spec 6.5)', () => {
+    render(<SubmitErrorBanner message="boom" />)
+    expect(screen.getByRole('alert')).toHaveAttribute('aria-live', 'polite')
+  })
+
   it('is an alert with the stable anchor id', () => {
     render(<SubmitErrorBanner message="boom" />)
     const alert = screen.getByRole('alert')

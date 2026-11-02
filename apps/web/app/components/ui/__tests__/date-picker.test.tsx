@@ -126,6 +126,16 @@ describe('DatePickerField — minDate/maxDate bounds (owner addendum, 2026-08)',
     expect(panel.getByRole('button', { name: /, 29-е серпня 2026/ })).not.toBeDisabled()
   })
 
+  it('caps the popover to the available viewport height and scrolls inside (short screens)', async () => {
+    const user = userEvent.setup({ delay: null })
+    renderPicker({ value: '2026-08-07', onChange: () => {} })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
+    expect(screen.getByRole('dialog')).toHaveClass(
+      'max-h-[var(--radix-popover-content-available-height)]',
+      'overflow-y-auto',
+    )
+  })
+
   it('with ONLY minDate passed, there is no upper bound', async () => {
     const user = userEvent.setup({ delay: null })
     renderPicker({ value: '2026-08-07', onChange: () => {}, minDate: '2026-08-05' })
