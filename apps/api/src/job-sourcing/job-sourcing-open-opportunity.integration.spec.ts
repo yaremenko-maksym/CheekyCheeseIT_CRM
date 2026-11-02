@@ -166,8 +166,24 @@ describe.skipIf(!hasDatabaseUrl())('openOpportunity RBAC against Postgres (U10 #
         checkpoint: specCheckpoint(seq),
       })
       const recordId = saved?.recordId as string
-      await worker.runOnce() // SOURCE_RECORD -> opportunity row
-      await worker.runOnce() // OPPORTUNITY -> evaluate + install the LEAD match
+      // The recompute queue (`job_dirty_work`) is SHARED and claimed oldest-first regardless of
+      // owner (`claimDirtyBatch`). Under the full integration suite a backlog of earlier specs'
+      // PENDING rows sits AHEAD of this record, so a fixed number of passes cannot guarantee the
+      // worker ever reaches it (the CI failure this fixes: two passes claimed only backlog, the
+      // SOURCE_RECORD row stayed PENDING, no `job_opportunity_sources` row was ever written). Drain
+      // the queue to quiescence instead: the SOURCE_RECORD pass links the opportunity and enqueues
+      // its OPPORTUNITY row, a later pass installs the LEAD match. Bounded so a wedged queue fails
+      // loudly rather than looping forever.
+      let drained = false
+      for (let pass = 0; pass < 200; pass++) {
+        const { claimed } = await worker.runOnce()
+        if (claimed === 0) {
+          drained = true
+          break
+        }
+      }
+      if (!drained)
+        throw new Error(`recompute queue did not drain within the pass budget for ${recordId}`)
       const { rows } = await session.admin.query(
         `SELECT opportunity_id FROM job_opportunity_sources WHERE source_record_id = $1 AND unlinked_at IS NULL`,
         [recordId],

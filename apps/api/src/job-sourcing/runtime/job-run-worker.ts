@@ -570,18 +570,22 @@ export class JobRunWorker {
         // `detailPerRun` 0/undefined) it is a pure no-op pass. The scope is checked BEFORE the
         // no-tail branch so a no-tail source can no longer fall through to a full list request.
         work = async () => {
+          // Stryker disable next-line ConditionalExpression: forcing this guard to `true` is an equivalent mutant. `detailPort === null` holds EXACTLY when `adapter.provider.collectDetail === undefined || detailPerRun < 1`, the identical condition on which `runDetailTail` (the body of `runTail`) returns ZERO before touching the port. So `runTail(null)` is an unconditional no-op: no DB write, no port call, same returned batch. (The `false` variant — never running the tail for a real port — IS killed by the "DETAIL_ONLY runs the tail" test; only `true` is equivalent, but the directive is per line+mutator.)
           if (detailPort !== null) await runTail(detailPort)
           return detailOnlyBatch(row.namespace, row.configVersion)
         }
-      } else if (detailPort === null) {
-        // IN_LIST (no `collectDetail`): the original list-only work, unchanged and inert for U10.
-        work = listWork
       } else {
-        // A sweep / tick / routine run: the list, then the tail — only if the list succeeded.
-        work = async () => {
-          const batch = await listWork()
-          if (batch.outcome === 'SUCCEEDED') await runTail(detailPort)
-          return batch
+        // Stryker disable next-line ConditionalExpression: forcing this guard to `false` is an equivalent mutant. It would route an IN_LIST run (detailPort === null) into the sweep branch below, whose only extra step is `runTail(detailPort)` — i.e. `runTail(null)`, an unconditional no-op (same reasoning as the DETAIL_ONLY guard above). So list-then-(no-op) === list; no test can distinguish the two. (The `true` variant — skipping the tail for a real port on a sweep — IS killed by the "runs the tail after a SUCCEEDED list" test.)
+        if (detailPort === null) {
+          // IN_LIST (no `collectDetail`): the original list-only work, unchanged and inert for U10.
+          work = listWork
+        } else {
+          // A sweep / tick / routine run: the list, then the tail — only if the list succeeded.
+          work = async () => {
+            const batch = await listWork()
+            if (batch.outcome === 'SUCCEEDED') await runTail(detailPort)
+            return batch
+          }
         }
       }
       settled = await this.collect(control, work, handle)
