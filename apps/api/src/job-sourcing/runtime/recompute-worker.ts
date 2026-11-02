@@ -24,6 +24,7 @@ import {
   type LoadedOpportunity,
   RecomputePoisonError,
   type RosterInputs,
+  detailFetchTargets,
   installMatches,
   loadOpportunity,
   loadRoster,
@@ -286,13 +287,10 @@ function recomputeOpportunity(
     // one DETAIL_FETCH per backing ON_DEMAND record whose detail is still missing. The dirty row's
     // unique key makes a second enqueue a no-op: the detail is fetched once.
     if (verdict.kind === 'EVALUATED' && verdict.projections.length > 0) {
-      for (const rec of loaded.onDemandMissing) {
-        await enqueueDirty(tx, 'SOURCE_RECORD', rec.recordId, rec.version, DETAIL_FETCH)
-      }
-      // U10 (ADR 6a step 4, #6 / AC4-TTL): re-fetch a cached detail aged past DETAIL_STALE_DAYS. Same
-      // "still wanted" gate (an EVALUATED opportunity projected for a senior); the unique key makes a
-      // second enqueue a no-op until the next detail-write advances the record's version.
-      for (const rec of loaded.onDemandStale) {
+      // Missing first, then stale (ADR 6a step 4, #6 / AC4-TTL: a cached detail aged past
+      // DETAIL_STALE_DAYS is re-fetched under the same "still wanted" gate). A stale record's unique
+      // key makes a second enqueue a no-op until the next detail-write advances its version.
+      for (const rec of detailFetchTargets(loaded)) {
         await enqueueDirty(tx, 'SOURCE_RECORD', rec.recordId, rec.version, DETAIL_FETCH)
       }
     }
