@@ -154,8 +154,10 @@ export const jobSourceRecords = pgTable(
      *
      * NULLABLE on purpose: pre-existing rows are backfilled best-effort by
      * 2026-11-02_job_source_records_source_id.sql, and a NOT NULL tightening is a follow-up
-     * (noted in that file and the PR). RESTRICT, like the other provenance FKs here:
-     * retiring a source is an administrative state, never a DELETE.
+     * (noted in that file and the PR). ON DELETE SET NULL is the fail-closed resolver's
+     * natural partner: no product code deletes job_sources (prod-identical to RESTRICT), but
+     * if a source row ever goes away, its records' source_id becomes NULL and the resolver
+     * already treats NULL as "unknown source" and skips — never guessing a replacement.
      *
      * LAST on purpose: production gets it from the promoted ALTER
      * (`2026-11-02_job_source_records_source_id.sql`, `ADD COLUMN` appends), and
@@ -169,13 +171,13 @@ export const jobSourceRecords = pgTable(
     // the same native job resolve to this one row.
     unique('uq_job_source_records_identity').on(t.sourceType, t.namespace, t.identityKey),
     index('idx_job_source_records_last_observed').on(t.lastObservedAt),
-    // FK child index: the RESTRICT probe on a source retire, and the resolver's `s.id = r.source_id`.
+    // FK child index: the ON DELETE SET NULL probe on a source delete, and the resolver's `s.id = r.source_id`.
     index('idx_job_source_records_source').on(t.sourceId),
     foreignKey({
       name: 'fk_job_source_records_source',
       columns: [t.sourceId],
       foreignColumns: [jobSources.id],
-    }).onDelete('restrict'),
+    }).onDelete('set null'),
     // At least one non-whitespace character ('' / '   ' / tabs / newlines all rejected).
     check('ck_job_source_records_identity_key_nonempty', sql`${t.identityKey} ~ '[^[:space:]]'`),
     foreignKey({

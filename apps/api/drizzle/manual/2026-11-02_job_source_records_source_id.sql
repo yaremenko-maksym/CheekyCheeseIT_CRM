@@ -4,8 +4,8 @@
 --
 -- WHAT THIS FILE DOES
 -- -------------------
--- Adds `job_source_records.source_id` (nullable uuid) + a RESTRICT FK to `job_sources(id)` + the
--- child index `idx_job_source_records_source`, then backfills existing rows.
+-- Adds `job_source_records.source_id` (nullable uuid) + an ON DELETE SET NULL FK to `job_sources(id)`
+-- + the child index `idx_job_source_records_source`, then backfills existing rows.
 --
 -- WHY (PR #1227 review, SR-H-2): the availability-reconcile worker resolved a record onto its
 -- source by `JOIN job_sources s ON s.type = r.source_type AND s.namespace = r.namespace ... ORDER BY
@@ -19,10 +19,12 @@
 --   * Column: nullable uuid. NULLABLE on purpose — a NOT NULL tightening is a follow-up once every
 --     row carries one (backfill below is best-effort). A NULL means "unknown source": the resolver
 --     treats such a record as an orphan and completes its dirty row as a no-op.
---   * FK: source_id -> job_sources(id) ON DELETE RESTRICT (retiring a source is an administrative
---     state, never a DELETE — the same rule job_collection_runs' FK encodes).
---   * Index: idx_job_source_records_source on (source_id) — the RESTRICT child probe, and the
---     resolver's join key.
+--   * FK: source_id -> job_sources(id) ON DELETE SET NULL. No product code deletes job_sources, so
+--     the action is prod-identical to RESTRICT; SET NULL is the fail-closed resolver's natural
+--     partner — if a source row ever is deleted, its records' source_id becomes NULL and the
+--     resolver already treats NULL as "unknown source" and skips, never guessing a replacement.
+--   * Index: idx_job_source_records_source on (source_id) — the ON DELETE SET NULL child probe, and
+--     the resolver's join key.
 --
 -- BACKFILL (runs on a POPULATED prod table): each existing NULL row is set to the source of the
 -- EARLIEST run that observed it, read through the run<->record link table `job_run_records`
@@ -74,7 +76,7 @@ BEGIN
   ) THEN
     ALTER TABLE job_source_records
       ADD CONSTRAINT fk_job_source_records_source FOREIGN KEY (source_id)
-      REFERENCES job_sources (id) ON DELETE RESTRICT;
+      REFERENCES job_sources (id) ON DELETE SET NULL;
   END IF;
 END
 $fk$;
