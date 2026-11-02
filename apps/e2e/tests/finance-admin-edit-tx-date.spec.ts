@@ -184,9 +184,14 @@ test.describe('Finance — admin edit of the transaction date (ADMIN)', () => {
     await dialog.getByTestId('admin-edit-save').click()
 
     const uk = await loadMessages('uk')
-    await expect(
-      dialog.getByText(uk['api-error.FINANCE_TX_DATE_EDIT_REASON_REQUIRED']!),
-    ).toBeVisible()
+    // The message is intentionally shown twice (QA-MED-4): inline under the reason field
+    // and in the submit-error banner — assert each, scoped.
+    const message = uk['api-error.FINANCE_TX_DATE_EDIT_REASON_REQUIRED']!
+    const reasonInput = dialog.getByTestId('admin-edit-tx-date-reason-input')
+    await expect(dialog.getByTestId('admin-edit-tx-date-reason-error')).toHaveText(message)
+    await expect(dialog.getByRole('alert')).toHaveText(message)
+    await expect(reasonInput).toHaveAttribute('aria-invalid', 'true')
+    await expect(reasonInput).toBeFocused()
     await expect(dialog.getByText(REASON_REQUIRED_MESSAGE)).toHaveCount(0)
     await expect(dialog).toBeVisible()
     expect(patches).toHaveLength(1)
