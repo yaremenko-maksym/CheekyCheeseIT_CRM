@@ -203,6 +203,19 @@ export const transactionSchema = z.object({
   notes: z.string().nullable(),
   salaryMonth: z.string().nullable(), // YYYY-MM
   txDate: z.string().datetime().nullable(),
+  /**
+   * UX-M-2 / QA-LOW-3 — `true` when the admin edit would refuse a change of
+   * `txDate` on this row (`FINANCE_TX_DATE_LOCKED_ROW`), so the form can disable
+   * the date field instead of letting the save fail. Computed server-side by the
+   * same predicate the edit guard uses (`isTxDateLocked`).
+   *
+   * RBAC: only an ADMIN viewer gets the real value — only an ADMIN can edit the
+   * date. Every other viewer gets `false`, so the flag cannot be read as a proxy
+   * for the lock causes (on-chain hash, company-account funding, settlements).
+   * `.optional()` keeps pre-existing fixtures valid; `undefined` reads as "not
+   * locked" and the server guard stays authoritative.
+   */
+  isDateLocked: z.boolean().optional(),
   // Drop role - phase 2. Optional, nullable explicit recipient pointer for
   // transactions whose intended payee is NOT the senior on the row (e.g.
   // PAYOUT_DROP whose receiverId is the DROP user). Existing types
