@@ -214,6 +214,23 @@ def notify_stale_pin(
         logger.exception("stale-pin notification DM failed")
 
 
+def notify_sender_key_healed(config: Config, rows_deleted: int, *, run=subprocess.run) -> None:
+    """INFO, not ERROR (same reasoning as :func:`notify_stale_pin`): the
+    sender-key self-heal worked and today's "+" went out, so only the
+    personal-DM layer is used. Carries the masked account and a row count only."""
+    message = (
+        f"INFO: [{config.masked_account()}] sender-key self-heal performed after a "
+        f"StackOverflowError in group send ({rows_deleted} rows deleted); today's + was sent"
+    )
+    logger.info(message)
+    if not config.signal_alert_recipient:
+        return
+    try:
+        send_personal_alert(config, message, run=run)
+    except Exception:
+        logger.exception("sender-key self-heal notification DM failed")
+
+
 # ---------------------------------------------------------------------------
 # Requirement 9 (rewritten in full in the task file, 2026-09-03, owner
 # decision quoted verbatim): "если сервис не успевает до 8 утра, то нужно

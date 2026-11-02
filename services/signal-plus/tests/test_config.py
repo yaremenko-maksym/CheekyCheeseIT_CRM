@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import time
 from pathlib import Path
 
@@ -323,3 +324,34 @@ def test_config_for_account_works_without_signal_accounts_set():
     env = dict(REQUIRED_ENV)  # plain single-account env, no SIGNAL_ACCOUNTS
     cfg = config_for_account("+380500000000", env)
     assert cfg.signal_account == "+380500000000"
+
+
+# task-signal-plus-senderkey-self-heal: SIGNAL_SENDER_KEY_SELF_HEAL
+# (default 1 = enabled; 0 = alert only, never touch account.db).
+
+
+def test_sender_key_self_heal_defaults_to_enabled_when_unset():
+    assert Config.from_env(dict(REQUIRED_ENV)).sender_key_self_heal is True
+
+
+@pytest.mark.parametrize("raw,expected", [("1", True), ("0", False), ("", True), (" 0 ", False)])
+def test_sender_key_self_heal_parses_0_and_1(raw, expected):
+    env = dict(REQUIRED_ENV, SIGNAL_SENDER_KEY_SELF_HEAL=raw)
+    assert Config.from_env(env).sender_key_self_heal is expected
+
+
+@pytest.mark.parametrize("raw", ["yes", "true", "2", "off"])
+def test_sender_key_self_heal_invalid_value_warns_and_falls_back_to_enabled(raw, caplog):
+    # A typo on an optional switch must not stop the daemon (and cost the daily "+").
+    env = dict(REQUIRED_ENV, SIGNAL_SENDER_KEY_SELF_HEAL=raw)
+    with caplog.at_level(logging.WARNING, logger="signal_plus"):
+        cfg = Config.from_env(env)
+    assert cfg.sender_key_self_heal is True
+    assert "SIGNAL_SENDER_KEY_SELF_HEAL" in caplog.text
+
+
+def test_sender_key_self_heal_flag_reaches_every_multi_account_config():
+    env = dict(
+        REQUIRED_ENV, SIGNAL_ACCOUNTS="+380501111111,+380502222222", SIGNAL_SENDER_KEY_SELF_HEAL="0"
+    )
+    assert [c.sender_key_self_heal for c in resolve_configs(env)] == [False, False]

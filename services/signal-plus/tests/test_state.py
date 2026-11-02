@@ -97,3 +97,41 @@ def test_none_fields_round_trip_as_none(tmp_path):
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert raw["last_success_date"] is None
     assert load(path) == State()
+
+
+# task-signal-plus-senderkey-self-heal: `last_heal_date` (once-per-day guard
+# for the sender-key self-heal), same shape as `last_update_attempt_date`.
+
+
+def test_last_heal_date_round_trips_as_iso_date(tmp_path):
+    path = tmp_path / "state.json"
+    save(path, State(last_heal_date=dt.date(2026, 11, 2)))
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["last_heal_date"] == "2026-11-02"
+    assert load(path).last_heal_date == dt.date(2026, 11, 2)
+
+
+def test_old_state_file_without_last_heal_date_still_loads(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text(
+        json.dumps(
+            {
+                "last_success_date": "2026-11-01",
+                "handover_date": None,
+                "last_update_attempt_date": None,
+                "installed_version": None,
+                "last_error": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+    st = load(path)
+    assert st.last_heal_date is None
+    assert st.last_success_date == dt.date(2026, 11, 1)
+
+
+def test_last_heal_date_that_is_not_an_iso_date_fails_loudly(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text(json.dumps({"last_heal_date": "yesterday"}), encoding="utf-8")
+    with pytest.raises(StateError):
+        load(path)
