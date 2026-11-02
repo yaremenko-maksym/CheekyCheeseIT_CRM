@@ -42,6 +42,7 @@ import {
   jobSeniorityEnum,
   jobSourceTypeEnum,
 } from './enums'
+import { jobSources } from './job-sourcing'
 import { teams, users } from './users'
 
 /**
@@ -142,12 +143,39 @@ export const jobSourceRecords = pgTable(
     availabilityCheckedAt: timestamp('availability_checked_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    /**
+     * SR-H-2 (r5 Task 4.6): the source that created this record, set once on the
+     * insert. The availability worker resolves a record onto its source through THIS
+     * column (`availability-reconcile-worker.ts resolveInventoryInput`), not through the
+     * ambiguous `(source_type, namespace)` JOIN: two global sources (e.g. the seeded
+     * JSearch queries) legitimately share `(JSEARCH_API, '')`, so that JOIN picked an
+     * ARBITRARY source. The resolver now reads `s.id = r.source_id` and FAILS CLOSED on a
+     * NULL — a dirty row for a record without a source completes as a no-op, never guessing.
+     *
+     * NULLABLE on purpose: pre-existing rows are backfilled best-effort by
+     * 2026-11-02_job_source_records_source_id.sql, and a NOT NULL tightening is a follow-up
+     * (noted in that file and the PR). RESTRICT, like the other provenance FKs here:
+     * retiring a source is an administrative state, never a DELETE.
+     *
+     * LAST on purpose: production gets it from the promoted ALTER
+     * (`2026-11-02_job_source_records_source_id.sql`, `ADD COLUMN` appends), and
+     * `job-opportunities-store-forward-ddl.integration.spec.ts` compares column ORDER
+     * between that path and `db:push`. Declared earlier, the two catalogs would disagree.
+     */
+    sourceId: uuid('source_id'),
   },
   (t) => [
     // Discovery queries are observations, not identity: two configs that see
     // the same native job resolve to this one row.
     unique('uq_job_source_records_identity').on(t.sourceType, t.namespace, t.identityKey),
     index('idx_job_source_records_last_observed').on(t.lastObservedAt),
+    // FK child index: the RESTRICT probe on a source retire, and the resolver's `s.id = r.source_id`.
+    index('idx_job_source_records_source').on(t.sourceId),
+    foreignKey({
+      name: 'fk_job_source_records_source',
+      columns: [t.sourceId],
+      foreignColumns: [jobSources.id],
+    }).onDelete('restrict'),
     // At least one non-whitespace character ('' / '   ' / tabs / newlines all rejected).
     check('ck_job_source_records_identity_key_nonempty', sql`${t.identityKey} ~ '[^[:space:]]'`),
     foreignKey({

@@ -64,12 +64,14 @@ export interface ResolvedInventoryInput {
 }
 
 /**
- * Map a source record to its inventory-counter key. The record↔source tie is `(source_type,
- * namespace)` (the same tie `updateInventoryMissCounter` verifies), so the board key is
- * `${source_type}:${namespace}` and the configVersion is the source's current `config_version` —
- * the convention the S8c integration spec established, and the one this first caller fixes. Returns
- * `null` when the record has no matching source (orphan / not yet linked): there is nothing to
- * reconcile, so the dirty row is simply completed.
+ * Map a source record to its inventory-counter key. The record↔source tie is the record's EXPLICIT
+ * `source_id` (SR-H-2), not the `(source_type, namespace)` JOIN it used to be: two global sources
+ * (e.g. the seeded JSearch queries) legitimately share `(JSEARCH_API, '')`, so that JOIN picked an
+ * ARBITRARY source (`ORDER BY s.id LIMIT 1`). The board key is still `${source_type}:${namespace}`
+ * and the configVersion the resolved source's current `config_version`. Returns `null` when the
+ * record has no source — an orphan, or a row written before the `source_id` writer and not yet
+ * backfilled: the resolver FAILS CLOSED (the inner JOIN yields no row on a NULL `source_id`), so the
+ * dirty row is simply completed as a no-op rather than reconciled against a guessed source.
  */
 export async function resolveInventoryInput(
   db: SqlExecutor,
@@ -78,10 +80,8 @@ export async function resolveInventoryInput(
   const { rows } = await db.execute(
     sql`SELECT s.id AS source_id, s.type::text AS source_type, s.namespace, s.config_version
           FROM job_source_records r
-          JOIN job_sources s ON s.type = r.source_type AND s.namespace = r.namespace
-         WHERE r.id = ${sourceRecordId}::uuid
-         ORDER BY s.id
-         LIMIT 1`,
+          JOIN job_sources s ON s.id = r.source_id
+         WHERE r.id = ${sourceRecordId}::uuid`,
   )
   const row = rows[0]
   if (row === undefined) return null
