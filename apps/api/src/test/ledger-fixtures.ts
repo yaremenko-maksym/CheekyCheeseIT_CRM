@@ -1,6 +1,24 @@
 import { randomUUID } from 'node:crypto'
 import type { JobSourceType } from '@crm/shared'
 import type { Pool } from 'pg'
+
+/**
+ * SR-M-4: the FULL_INVENTORY ATS source types that `ck_job_sources_inventory_namespace_nonempty`
+ * requires a non-empty namespace for. Kept as a LOCAL literal rather than imported from
+ * `schema/job-sourcing.ts` on purpose: importing a VALUE from the schema pulls the whole Drizzle
+ * module graph into every unit spec that loads this fixture and trips the finance/transactions
+ * circular initialisation. Drift is caught by the integration suite — an ATS type missing here
+ * would be seeded with namespace='' and rejected by the CHECK.
+ */
+const INVENTORY_SOURCE_TYPES: readonly JobSourceType[] = [
+  'GREENHOUSE_ATS',
+  'LEVER_ATS',
+  'ASHBY_ATS',
+  'WORKABLE_ATS',
+  'SMARTRECRUITERS_ATS',
+  'RECRUITEE_ATS',
+  'PERSONIO_ATS',
+]
 import type { JobSourceProvider } from '../job-sourcing/job-source.provider'
 import type { SourceObservation } from '../job-sourcing/normalize/observation'
 import type { ClaimedRun, JobRunLedger } from '../job-sourcing/ownership/job-run-ledger'
@@ -80,6 +98,13 @@ export function specRegistry(
 
 export interface SourceSeed {
   type?: JobSourceType
+  /**
+   * The board/account scope. Defaults to '' (global) — EXCEPT for the FULL_INVENTORY ATS types
+   * (`INVENTORY_SOURCE_TYPES`), which get a deterministic non-empty slug, because
+   * `ck_job_sources_inventory_namespace_nonempty` (SR-M-4) rejects an ATS source with an empty
+   * namespace. Pass a value to override.
+   */
+  namespace?: string
   manifestId?: string | null
   hostKey?: string | null
   enabled?: boolean
@@ -118,17 +143,25 @@ export class LedgerFixtures {
     const id = randomUUID()
     this.seq += 1
     this.sourceIds.push(id)
+    const type = seed.type ?? 'REMOTIVE_API'
+    // SR-M-4: an ATS source MUST carry a non-empty namespace (one board), or the partial CHECK
+    // rejects it. Derive a deterministic, per-call-unique slug (so two ATS sources of the same type
+    // do not collide on the partial unique index either); non-inventory types keep '' (global).
+    const namespace =
+      seed.namespace ??
+      (INVENTORY_SOURCE_TYPES.includes(type) ? `board-${this.tag}-${this.seq}` : '')
     await this.admin.query(
-      `INSERT INTO job_sources (id, type, config, manifest_id, enabled, admin_state, trigger_mode,
-                                next_attempt_at, consecutive_failures, host_key, account_meter_id,
-                                min_interval_hours)
-       VALUES ($1, $2::job_source_type, $3::jsonb, $4, $5, $6::job_source_admin_state,
-               $7::job_source_trigger_mode, ${seed.nextAttemptSql ?? "clock_timestamp() - interval '1 hour'"},
-               $8, $9, $10, $11)`,
+      `INSERT INTO job_sources (id, type, config, namespace, manifest_id, enabled, admin_state,
+                                trigger_mode, next_attempt_at, consecutive_failures, host_key,
+                                account_meter_id, min_interval_hours)
+       VALUES ($1, $2::job_source_type, $3::jsonb, $4, $5, $6, $7::job_source_admin_state,
+               $8::job_source_trigger_mode, ${seed.nextAttemptSql ?? "clock_timestamp() - interval '1 hour'"},
+               $9, $10, $11, $12)`,
       [
         id,
-        seed.type ?? 'REMOTIVE_API',
+        type,
         JSON.stringify({ t3spec: this.tag, n: this.seq }),
+        namespace,
         seed.manifestId === undefined ? this.manifestId() : seed.manifestId,
         seed.enabled ?? true,
         seed.adminState ?? 'ACTIVE',

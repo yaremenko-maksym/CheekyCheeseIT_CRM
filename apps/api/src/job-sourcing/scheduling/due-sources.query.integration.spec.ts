@@ -91,6 +91,9 @@ describe.skipIf(!hasDatabaseUrl())('due query vs pure isDue over a seeded mix (T
         id: id(s.n),
         type: s.type,
         config: { t4: s.label },
+        // SR-M-4: ATS types need a non-empty namespace (ck_job_sources_inventory_namespace_nonempty);
+        // harmless for the non-ATS rows and irrelevant to the due-ness this spec asserts.
+        namespace: `t4-due-${s.n}`,
         manifestId: `t4.due.row${s.n}`,
         enabled: true,
         adminState: 'ACTIVE',
