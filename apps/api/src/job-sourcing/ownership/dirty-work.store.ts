@@ -277,6 +277,16 @@ export const dirtyWorkStatements = {
          WHERE ${heldBy(h)}
      RETURNING status`,
 
+  // CR-M-6: a holder voluntarily hands an untried claimed row back to PENDING WITHOUT spending an
+  // attempt (no `retry_count` bump) and without bumping the epoch (it is not fencing anyone — it owns
+  // the row). Used when a tail aborts (ban/deadline/fence) before it reached rows it had claimed:
+  // those rows must stay retryable, unlike a lease that expired under a dead worker (`recover`).
+  release: (h: DirtyWorkHandle): SQL =>
+    sql`UPDATE job_dirty_work
+           SET status = 'PENDING', claim_owner = NULL, lease_expires_at = NULL
+         WHERE ${heldBy(h)}
+     RETURNING status`,
+
   recover: (batchSize: number, maxAttempts: number): SQL =>
     sql`WITH expired AS (
           SELECT id FROM job_dirty_work
@@ -477,6 +487,16 @@ export async function failDirty(
   const status = rows[0]?.['status']
   if (status === undefined) throw new DirtyWorkFencedError()
   return status === 'FAILED' ? 'FAILED' : 'RETRY'
+}
+
+/**
+ * CR-M-6: hand an untried held row back to PENDING without spending an attempt. A stale handle is a
+ * no-op (someone else already recovered or re-claimed it), never a throw: release is best-effort
+ * recovery, not a holder-only mutation like `complete` / `fail`.
+ */
+export async function releaseDirty(tx: SqlExecutor, h: DirtyWorkHandle): Promise<void> {
+  assertHandle(h)
+  await tx.execute(dirtyWorkStatements.release(h))
 }
 
 /**

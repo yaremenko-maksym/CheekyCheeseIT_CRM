@@ -23,6 +23,7 @@ import {
   jobSourceListSchema,
   jobSuggestionListSchema,
   jobSuggestionSchema,
+  openJobOpportunityResultSchema,
   type SessionUser,
   updateJobSuggestionStatusSchema,
 } from '@crm/shared'
@@ -84,6 +85,18 @@ export class JobSourcingController {
   ) {
     const dto = updateJobSuggestionStatusSchema.parse(body)
     return jobSuggestionSchema.parse(await this.service.updateStatus(id, dto, user))
+  }
+
+  /**
+   * SFS U10 (ADR 6a, step 2 "Want"): open one opportunity. If its ON_DEMAND detail is missing, this
+   * enqueues a fetch (a DB write, never an external call; fetch-once). HR/SENIOR/ADMIN only, and the
+   * per-opportunity SCOPE (HR only their teams' seniors, SENIOR only their own queue) is enforced in
+   * the service body — pinned by job-sourcing-rbac.integration.spec, a mocked E2E cannot prove it.
+   */
+  @Post('opportunities/:id/open')
+  @Roles('ADMIN', 'HR', 'SENIOR')
+  async openOpportunity(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
+    return openJobOpportunityResultSchema.parse(await this.service.openOpportunity(id, user))
   }
 
   /** Studio-wide + personal + project-derived exclusions for one senior. */

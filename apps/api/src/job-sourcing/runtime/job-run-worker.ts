@@ -8,6 +8,8 @@ import type { LedgerCatalog } from '../ownership/ledger-catalog'
 import { type RunHandle, isRunFenced } from '../ownership/run-ownership'
 import {
   type CollectionBatch,
+  type CollectionCounts,
+  buildCollectionBatch,
   collectionCodeOf,
   type CollectionErrorCode,
   redactText,
@@ -17,6 +19,54 @@ import type { JobSourceRegistry } from '../registry/job-source-registry'
 import { chunkPage, saveObservationPage } from '../store/source-record.store'
 import type { HostBan } from '../scheduling/host-state'
 import { ContextRefusedError, type RunControl, buildCollectionContext } from './collection-context'
+import {
+  type DetailTailPort,
+  type DetailTailPortDeps,
+  createDetailTailPort,
+  runDetailTail,
+} from './detail-tail'
+
+/**
+ * SFS U10 (ADR 6a): a run's scope. `LIST_AND_DETAIL` (the default) reads the list, then runs the
+ * detail tail on this source's pending on-demand fetches. `DETAIL_ONLY` is the 08:30 detail pass:
+ * the tail alone, with NO list request. Both run the tail only for an `ON_DEMAND` adapter (one that
+ * carries `collectDetail`); for every other source the tail is a no-op, so the scope is inert.
+ */
+export type RunScope = 'LIST_AND_DETAIL' | 'DETAIL_ONLY'
+
+const ZERO_COUNTS: CollectionCounts = {
+  raw: 0,
+  normalized: 0,
+  invalid: 0,
+  quarantined: 0,
+  discarded: 0,
+}
+
+/**
+ * The batch of a `DETAIL_ONLY` run: it read NO list inventory, exactly like a 304, so it is a clean
+ * SUCCEEDED attempt with no observations and a PARTIAL coverage (it claims no inventory). The detail
+ * fetches it made ride on the ending's metrics, not here. Pure, so it is unit-tested directly.
+ */
+export function detailOnlyBatch(namespace: string, configVersion: number): CollectionBatch {
+  return buildCollectionBatch({
+    observations: [],
+    facts: {
+      stop: 'NOT_MODIFIED',
+      pagesCompleted: 0,
+      counts: ZERO_COUNTS,
+      scope: { namespace, query: null, configVersion, window: null },
+      // Stryker disable next-line BooleanLiteral: in `deriveCoverage` the `if (facts.resumed)` check
+      // sits just BEFORE the `NOT_MODIFIED` guard and BOTH return 'PARTIAL', so flipping this to true
+      // only changes which of the two consecutive guards returns the same coverage — no observable of
+      // the batch changes, and nothing else reads `resumed`. false is the honest value (a detail-only
+      // run resumes nothing). Proven equivalent.
+      resumed: false,
+    },
+    requests: [],
+    checkpoint: null,
+    invalidSamples: [],
+  })
+}
 
 /**
  * THE RUN WORKER (r5 Task 2.5 T7; ADR 2026-10-24-job-source-run-ownership.md, T7). It runs
@@ -93,6 +143,11 @@ export interface WorkerDeps {
    * never an exception's own text. Default: the Nest logger.
    */
   readonly logger?: Pick<Logger, 'error' | 'warn'> | undefined
+  /**
+   * SFS U10: builds the detail tail's DB port. Default `createDetailTailPort`; a test injects a
+   * fake so the tail wiring (scope branching, list-then-tail) can be exercised without a database.
+   */
+  readonly detailTailPortFactory?: (deps: DetailTailPortDeps) => DetailTailPort
 }
 
 /** A thrown value's class name, the only part of a foreign error the worker logs. */
@@ -153,6 +208,10 @@ interface RunRow {
   policyVersion: number
   hostKey: string
   manifestId: string
+  /** U10: the source's namespace, the scope of its on-demand detail fetches. */
+  namespace: string
+  /** U10: the adapter version this run was claimed under, recorded in DETAIL_GONE evidence. */
+  adapterVersion: string
   meter: {
     accountKey: string
     unit: JobMeterUnit
@@ -341,6 +400,8 @@ export class JobRunWorker {
     cycleId: string
     onlyIds?: readonly string[]
     onlyTypes?: readonly JobSourceType[]
+    /** U10: `DETAIL_ONLY` runs each claimed source's detail tail with no list request. */
+    scope?: RunScope
   }): Promise<RunReport[]> {
     return (await this.startDue(input)).settled
   }
@@ -356,6 +417,8 @@ export class JobRunWorker {
     onlyTypes?: readonly JobSourceType[]
     /** U3: claim with the sweep predicate (the ledger's `claimDue` `sweep`). */
     sweep?: { readonly cycleId: string; readonly skipIds: readonly string[] }
+    /** U10: the scope every run of this pass uses (default `LIST_AND_DETAIL`). */
+    scope?: RunScope
   }): Promise<{ claimed: number; refused: ClaimRefused[]; settled: Promise<RunReport[]> }> {
     await this.start()
     const free = this.options.poolSize - this.active
@@ -380,7 +443,7 @@ export class JobRunWorker {
     return {
       claimed: claimed.length,
       refused,
-      settled: Promise.all(claimed.map((run) => this.runClaimed(run))),
+      settled: Promise.all(claimed.map((run) => this.runClaimed(run, input.scope))),
     }
   }
 
@@ -406,17 +469,17 @@ export class JobRunWorker {
     return { kind: 'RAN' as const, report: await this.runClaimed(claim.run) }
   }
 
-  /** Run one claimed run to its end. Never throws. */
-  async runClaimed(run: ClaimedRun): Promise<RunReport> {
+  /** Run one claimed run to its end. Never throws. `scope` undefined reads as `LIST_AND_DETAIL`. */
+  async runClaimed(run: ClaimedRun, scope?: RunScope): Promise<RunReport> {
     this.active += 1
     try {
-      return await this.execute(run)
+      return await this.execute(run, scope)
     } finally {
       this.active -= 1
     }
   }
 
-  private async execute(run: ClaimedRun): Promise<RunReport> {
+  private async execute(run: ClaimedRun, scope?: RunScope): Promise<RunReport> {
     const handle: RunHandle = {
       runId: run.runId,
       ownerToken: run.ownerToken,
@@ -477,11 +540,55 @@ export class JobRunWorker {
           pageWriteTimeoutMs: this.options.heartbeatMs,
         },
       )
-      settled = await this.collect(
-        control,
-        () => adapter.provider.collectReport(config, control!.ctx),
-        handle,
-      )
+      // U10 (ADR 6a, #4): the detail tail. Present only for an `ON_DEMAND` adapter (one that carries
+      // `collectDetail`) with a positive `detailPerRun`; for every other source it is null and the
+      // scope is inert. Writes go through the run handle, so the fetches obey the host budget, ban,
+      // fencing, byte caps and deadline exactly like the list phase.
+      const detailPerRun = entry.detailPerRun ?? 0
+      const makePort = this.deps.detailTailPortFactory ?? createDetailTailPort
+      const detailPort =
+        adapter.provider.collectDetail !== undefined && detailPerRun >= 1
+          ? makePort({
+              db: this.deps.db,
+              owner: this.options.owner,
+              source: { type: run.sourceType, namespace: row.namespace },
+              handle,
+              runId: run.runId,
+              adapterVersion: row.adapterVersion,
+              configVersion: row.configVersion,
+              now: this.now,
+              leaseMs: this.deps.ledger.options.leaseMs,
+            })
+          : null
+      const runTail = (port: DetailTailPort) =>
+        runDetailTail(adapter.provider, config, control!.ctx, port, detailPerRun)
+      const listWork = () => adapter.provider.collectReport(config, control!.ctx)
+      let work: () => Promise<CollectionBatch>
+      if (scope === 'DETAIL_ONLY') {
+        // CR-M-7 / SPEC-M-1: a DETAIL_ONLY run reads NO list request, regardless of the port
+        // (section 6a + `RunScope` doc). With a tail port it runs the tail; with none (IN_LIST, or
+        // `detailPerRun` 0/undefined) it is a pure no-op pass. The scope is checked BEFORE the
+        // no-tail branch so a no-tail source can no longer fall through to a full list request.
+        work = async () => {
+          // Stryker disable next-line ConditionalExpression: forcing this guard to `true` is an equivalent mutant. `detailPort === null` holds EXACTLY when `adapter.provider.collectDetail === undefined || detailPerRun < 1`, the identical condition on which `runDetailTail` (the body of `runTail`) returns ZERO before touching the port. So `runTail(null)` is an unconditional no-op: no DB write, no port call, same returned batch. (The `false` variant — never running the tail for a real port — IS killed by the "DETAIL_ONLY runs the tail" test; only `true` is equivalent, but the directive is per line+mutator.)
+          if (detailPort !== null) await runTail(detailPort)
+          return detailOnlyBatch(row.namespace, row.configVersion)
+        }
+      } else {
+        // Stryker disable next-line ConditionalExpression: forcing this guard to `false` is an equivalent mutant. It would route an IN_LIST run (detailPort === null) into the sweep branch below, whose only extra step is `runTail(detailPort)` — i.e. `runTail(null)`, an unconditional no-op (same reasoning as the DETAIL_ONLY guard above). So list-then-(no-op) === list; no test can distinguish the two. (The `true` variant — skipping the tail for a real port on a sweep — IS killed by the "runs the tail after a SUCCEEDED list" test.)
+        if (detailPort === null) {
+          // IN_LIST (no `collectDetail`): the original list-only work, unchanged and inert for U10.
+          work = listWork
+        } else {
+          // A sweep / tick / routine run: the list, then the tail — only if the list succeeded.
+          work = async () => {
+            const batch = await listWork()
+            if (batch.outcome === 'SUCCEEDED') await runTail(detailPort)
+            return batch
+          }
+        }
+      }
+      settled = await this.collect(control, work, handle)
     } catch (error) {
       settled = { kind: 'THREW', error }
     }
@@ -591,8 +698,9 @@ export class JobRunWorker {
 
   private async readRun(runId: string): Promise<RunRow> {
     const { rows } = await this.deps.db.execute(
-      sql`SELECT r.config_version, r.source_config_snapshot AS config, s.policy_version, s.host_key,
-                 s.manifest_id, m.account_key AS meter_account_key, m.unit AS meter_unit,
+      sql`SELECT r.config_version, r.source_config_snapshot AS config, r.adapter_version,
+                 s.policy_version, s.host_key, s.manifest_id, s.namespace,
+                 m.account_key AS meter_account_key, m.unit AS meter_unit,
                  m.window_kind AS meter_window, m.limit_amount AS meter_limit
             FROM job_collection_runs r
             JOIN job_sources s ON s.id = r.source_id
@@ -613,6 +721,8 @@ export class JobRunWorker {
       policyVersion: Number(r['policy_version']),
       hostKey,
       manifestId,
+      namespace: String(r['namespace'] ?? ''),
+      adapterVersion: String(r['adapter_version'] ?? ''),
       meter:
         typeof r['meter_account_key'] === 'string'
           ? {

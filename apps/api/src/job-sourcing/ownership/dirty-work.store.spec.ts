@@ -534,6 +534,24 @@ describe('dirtyWorkStatements', () => {
     expect(s).toContain('ORDER BY created_at, id')
     expect(s).toContain("SET status = 'CLAIMED'")
   })
+
+  // CR-M-6: a voluntary release hands a held row back to PENDING WITHOUT spending an attempt
+  // (no `retry_count` bump) and without clearing it as completed. The SET clause distinguishes it
+  // from `fail`/`recover` (which bump `retry_count` and may write `completed_at`).
+  it('releases a held row back to PENDING without spending an attempt or completing it', () => {
+    const q = render(dirtyWorkStatements.release(handle()))
+    const setClause = q.sql.slice(q.sql.indexOf('SET'), q.sql.indexOf('WHERE'))
+    expect(setClause).toContain("status = 'PENDING'")
+    expect(setClause).toContain('claim_owner = NULL')
+    expect(setClause).toContain('lease_expires_at = NULL')
+    // The whole point of CR-M-6: the SET clause neither counts an attempt nor marks completion.
+    expect(setClause).not.toContain('retry_count')
+    expect(setClause).not.toContain('completed_at')
+    expect(setClause).not.toContain('last_error_code')
+    // It targets exactly the held row (the handle's id is a bound param), returning its status.
+    expect(q.sql).toContain('RETURNING status')
+    expect(q.params).toContain(ID)
+  })
 })
 
 /** SFS U10: the DETAIL_FETCH reason and the source-filtered claim statement. */
