@@ -21,7 +21,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from signal_plus import alert, signal as signal_cli, slot, state, updater
+from signal_plus import alert, senderkey, signal as signal_cli, slot, state, updater
 from signal_plus.config import Config, config_for_account, resolve_configs
 from signal_plus.state import State
 
@@ -127,6 +127,55 @@ def _attempt_send_once(config: Config, message: str, *, run) -> signal_cli.Signa
     return signal_cli.send_group_message(config, message, run=run)
 
 
+def _handle_stack_overflow(
+    config: Config,
+    message: str,
+    state_obj: State,
+    *,
+    today,
+    run,
+    alert_script_path: Path,
+) -> tuple[bool, State]:
+    """A group send died with java.lang.StackOverflowError (signal-cli 0.14.7,
+    corrupt sender_key state of that group). Retrying never helps this class,
+    so: heal once per day, persist the guard BEFORE the single retry
+    (crash-safe, same pattern as the auto-update guard), and otherwise alert
+    loudly right away instead of waiting for the handover cutoff."""
+    if not config.sender_key_self_heal:
+        status = "disabled"
+    elif state_obj.last_heal_date == today:
+        status = "already tried today"
+    else:
+        try:
+            outcome = senderkey.heal_group_sender_key(config)
+        except Exception:  # documented never to raise; the daemon must not die if it does
+            logger.exception("sender-key self-heal raised unexpectedly")
+            outcome = senderkey.HealOutcome(False, "unexpected error")
+        state_obj = replace(state_obj, last_heal_date=today)
+        state.save(config.state_file, state_obj)
+
+        if outcome.healed:
+            status = "done"
+            retry = _attempt_send_once(config, message, run=run)
+            if retry.ok:
+                alert.notify_sender_key_healed(config, outcome.rows_deleted, run=run)
+                return True, state_obj
+            last_error = _first_line_for_state(retry.output.strip()) or f"send exited {retry.returncode}"
+            state_obj = replace(state_obj, last_error=last_error)
+            logger.warning("send still failed after sender-key self-heal: %s", last_error)
+        else:
+            status = "failed"
+
+    alert.raise_alert(
+        config,
+        f"ERROR: [{config.masked_account()}] StackOverflowError in group send; self-heal {status}",
+        issue_extra_env=_issue_alert_env("sender-key-stack-overflow"),
+        script_path=alert_script_path,
+        run=run,
+    )
+    return False, state_obj
+
+
 def send_with_retries_and_update(
     config: Config,
     message: str,
@@ -139,6 +188,7 @@ def send_with_retries_and_update(
     tmp_dir: Path,
     attempts: int = DEFAULT_RETRY_ATTEMPTS,
     base_delay: float = DEFAULT_RETRY_BASE_DELAY_SECONDS,
+    alert_script_path: Path = alert.DEFAULT_POST_MERGE_ALERT_SCRIPT,
 ) -> tuple[bool, State]:
     """One full attempt cycle: receive+send with retries/backoff (requirement
     5), auto-updating at most once if signal-cli reports the exact
@@ -157,6 +207,13 @@ def send_with_retries_and_update(
         last_error = _first_line_for_state(result.output.strip()) or f"send exited {result.returncode}"
         state_obj = replace(state_obj, last_error=last_error)
         logger.warning("send attempt %d/%d failed: %s", attempt, attempts, last_error)
+
+        # This loop only ever sends to config.signal_group_id (the roll-call
+        # group); --test and DM alerts never come through here.
+        if senderkey.is_stack_overflow_error(result.output):
+            return _handle_stack_overflow(
+                config, message, state_obj, today=today, run=run, alert_script_path=alert_script_path
+            )
 
         if updater.is_outdated_client_error(result.output) and not updater.already_attempted_today(
             state_obj, today
@@ -301,6 +358,7 @@ def run_cycle(
             sleep_fn=sleep_fn,
             http_get=http_get,
             tmp_dir=tmp_dir,
+            alert_script_path=alert_script_path,
         )
         if ok:
             state.save(config.state_file, replace(st, last_success_date=today))
