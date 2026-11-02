@@ -719,9 +719,13 @@ export class JobSourcingService {
     if (loaded === null) throw apiError('JOB_OPPORTUNITY_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     let detailEnqueued = 0
-    if (loaded.onDemandMissing.length > 0) {
+    // U10: the records to (re-)fetch — those missing a detail (AC7) and those whose cached detail has
+    // aged past DETAIL_STALE_DAYS (ADR 6a step 4, #6 / AC4-TTL). Both enqueue at the record's current
+    // observation_seq; the unique key dedups. HR opening the opportunity IS the "still wanted" gate.
+    const toFetch = [...loaded.onDemandMissing, ...loaded.onDemandStale]
+    if (toFetch.length > 0) {
       await this.db.db.transaction(async (tx) => {
-        for (const rec of loaded.onDemandMissing) {
+        for (const rec of toFetch) {
           const { inserted } = await enqueueDirty(
             tx,
             'SOURCE_RECORD',

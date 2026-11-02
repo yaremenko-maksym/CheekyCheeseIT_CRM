@@ -289,6 +289,12 @@ function recomputeOpportunity(
       for (const rec of loaded.onDemandMissing) {
         await enqueueDirty(tx, 'SOURCE_RECORD', rec.recordId, rec.version, DETAIL_FETCH)
       }
+      // U10 (ADR 6a step 4, #6 / AC4-TTL): re-fetch a cached detail aged past DETAIL_STALE_DAYS. Same
+      // "still wanted" gate (an EVALUATED opportunity projected for a senior); the unique key makes a
+      // second enqueue a no-op until the next detail-write advances the record's version.
+      for (const rec of loaded.onDemandStale) {
+        await enqueueDirty(tx, 'SOURCE_RECORD', rec.recordId, rec.version, DETAIL_FETCH)
+      }
     }
     return completeDirty(tx, work)
   })
