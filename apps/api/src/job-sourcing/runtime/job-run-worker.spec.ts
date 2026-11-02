@@ -1160,6 +1160,7 @@ describe('U10 detail tail wiring (ADR 6a #4)', () => {
       writeFound: async () => 'DONE',
       recordGone: async () => undefined,
       fail: async () => 'RETRY',
+      release: async () => undefined,
     }
     const factory = (d: DetailTailPortDeps) => {
       received = d
