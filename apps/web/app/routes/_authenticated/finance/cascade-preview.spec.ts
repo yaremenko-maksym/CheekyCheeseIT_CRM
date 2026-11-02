@@ -434,7 +434,7 @@ describe('cascadeSaveErrorMessage — COPY-M-10, the red line matches the plan a
     expect(
       cascadeSaveErrorMessage(envelopeError('FINANCE_TX_DATE_LOCKED_ROW', 'English fallback')),
     ).toBe(
-      'Дату цієї транзакції не можна змінити: оплату підтверджено в блокчейні, її проведено з рахунку компанії або за нею вже є розрахунки',
+      'Дату цієї транзакції не можна змінити: оплату підтверджено в блокчейні, вона надійшла з рахунку компанії або за нею вже є розрахунки',
     )
   })
 

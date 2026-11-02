@@ -350,7 +350,7 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     FINANCE_TX_DATE_LOCKED_ROW: /* i18n */ {
       id: 'api-error.FINANCE_TX_DATE_LOCKED_ROW',
       message:
-        'Дату цієї транзакції не можна змінити: оплату підтверджено в блокчейні, її проведено з рахунку компанії або за нею вже є розрахунки',
+        'Дату цієї транзакції не можна змінити: оплату підтверджено в блокчейні, вона надійшла з рахунку компанії або за нею вже є розрахунки',
     },
     FINANCE_TX_DATE_EDIT_REASON_REQUIRED: /* i18n */ {
       id: 'api-error.FINANCE_TX_DATE_EDIT_REASON_REQUIRED',
