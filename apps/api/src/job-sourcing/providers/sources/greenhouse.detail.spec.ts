@@ -257,6 +257,28 @@ describe('collectDetail (ON_DEMAND, ADR 6a #9)', () => {
     expect(r.observation.normalized.descriptionMd.length).toBeGreaterThan(100)
   })
 
+  it('CR-M-1: dates are judged against the run clock (ctx.now), not the wall clock', async () => {
+    // `updated_at` sits AFTER ctx.now (NOW = 2026-10-26) + the 24h future tolerance, but BEFORE the
+    // real wall clock. So the UPDATED date is FUTURE only if the run clock was used; with the wall
+    // clock (the pre-fix bug) it is a past date and carries no DATE_UNCERTAIN evidence.
+    const runClockFuture = {
+      ...(JSON.parse(found) as Job),
+      updated_at: '2026-10-29T00:00:00+00:00',
+    }
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: JSON.stringify(runClockFuture) }],
+    })
+    const r = await run()(cfg(), target, f.ctx)
+    expect(r.kind).toBe('FOUND')
+    if (r.kind !== 'FOUND') return
+    expect(r.observation.evidence).toContainEqual({
+      field: 'date.UPDATED',
+      kind: 'DATE_UNCERTAIN',
+      detail: 'FUTURE',
+    })
+  })
+
   it('404 is GONE', async () => {
     const f = fakeCollectionContext({ now: NOW, responses: [{ status: 404 }] })
     expect(await run()(cfg(), target, f.ctx)).toEqual({ kind: 'GONE' })
