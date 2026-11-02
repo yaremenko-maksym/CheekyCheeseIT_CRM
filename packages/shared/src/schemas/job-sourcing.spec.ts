@@ -21,6 +21,7 @@ import {
   jobSourceTriggerModeSchema,
   jobSuggestionListSchema,
   jobSuggestionSchema,
+  openJobOpportunityResultSchema,
 } from './job-sourcing'
 import { MAX_STACK_KEYWORD_CHARS, MAX_STACK_KEYWORDS } from '../utils/stack-keywords'
 
@@ -56,6 +57,43 @@ const suggestion = (over: Record<string, unknown> = {}) => ({
     collectedAt: '2026-08-12T09:00:00.000Z',
   },
   ...over,
+})
+
+describe('openJobOpportunityResultSchema (U10 HR-open)', () => {
+  const valid = {
+    opportunityId: '00000000-0000-4000-8000-0000000000a1',
+    detailEnqueued: 2,
+    detailPending: true,
+  }
+
+  it('accepts a well-formed result', () => {
+    expect(openJobOpportunityResultSchema.safeParse(valid).success).toBe(true)
+  })
+
+  it('requires a uuid opportunityId', () => {
+    expect(
+      openJobOpportunityResultSchema.safeParse({ ...valid, opportunityId: 'nope' }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a negative or non-integer detailEnqueued', () => {
+    expect(openJobOpportunityResultSchema.safeParse({ ...valid, detailEnqueued: -1 }).success).toBe(
+      false,
+    )
+    expect(
+      openJobOpportunityResultSchema.safeParse({ ...valid, detailEnqueued: 1.5 }).success,
+    ).toBe(false)
+  })
+
+  it('requires a boolean detailPending', () => {
+    expect(
+      openJobOpportunityResultSchema.safeParse({ ...valid, detailPending: 'yes' }).success,
+    ).toBe(false)
+  })
+
+  it('refuses an empty object (every field is required)', () => {
+    expect(openJobOpportunityResultSchema.safeParse({}).success).toBe(false)
+  })
 })
 
 describe('matchScore is a share, so it is bounded at BOTH ends', () => {

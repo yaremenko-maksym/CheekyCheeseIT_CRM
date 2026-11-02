@@ -276,6 +276,19 @@ export const updateJobSuggestionStatusSchema = z.object({
   status: z.enum(['APPLIED', 'REJECTED']),
 })
 
+/**
+ * SFS U10 (ADR 6a, step 2 "Want"): the result of HR/SENIOR/ADMIN opening an opportunity. Opening
+ * enqueues one `DETAIL_FETCH` per backing ON_DEMAND record whose detail is still missing — a
+ * database write only, never an external call, de-duplicated by the dirty-work unique key (fetch
+ * once). `detailEnqueued` counts the rows this call inserted; `detailPending` is whether the
+ * opportunity still awaits any detail (so the view shows the degrade state until the pass runs).
+ */
+export const openJobOpportunityResultSchema = z.object({
+  opportunityId: z.string().uuid(),
+  detailEnqueued: z.number().int().nonnegative(),
+  detailPending: z.boolean(),
+})
+
 // ---------------------------------------------------------------------------
 // Exclusion filters
 // ---------------------------------------------------------------------------
@@ -1702,6 +1715,7 @@ export type JobExclusionOrigin = z.infer<typeof jobExclusionOriginSchema>
 export type JobPostingDto = z.infer<typeof jobPostingSchema>
 export type JobSuggestionDto = z.infer<typeof jobSuggestionSchema>
 export type JobSuggestionListDto = z.infer<typeof jobSuggestionListSchema>
+export type OpenJobOpportunityResult = z.infer<typeof openJobOpportunityResultSchema>
 export type UpdateJobSuggestionStatusDto = z.infer<typeof updateJobSuggestionStatusSchema>
 export type JobExclusionDto = z.infer<typeof jobExclusionSchema>
 export type JobExclusionListDto = z.infer<typeof jobExclusionListSchema>
