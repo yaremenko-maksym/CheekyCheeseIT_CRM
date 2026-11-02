@@ -181,15 +181,17 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await addedObjects(SCHEMA)).toEqual(before)
     })
 
-    it('AC 4: refuses to finish over a same-named column of another type, and rolls back', async () => {
-      await client.query(`ALTER TABLE ${SCHEMA}.${TABLE} DROP CONSTRAINT ${CHECK}`)
+    it('AC 4: refuses to finish over a same-named NON-unique index, and a rebuild repairs it', async () => {
+      // The `CREATE UNIQUE INDEX IF NOT EXISTS` is a no-op when the NAME already exists, so only the
+      // closing check can see that the existing index is not the intended partial-unique one.
       await client.query(`DROP INDEX ${SCHEMA}.${INDEX}`)
-      await client.query(`ALTER TABLE ${SCHEMA}.${TABLE} DROP COLUMN inventory_enabled`)
-      await client.query(`ALTER TABLE ${SCHEMA}.${TABLE} ADD COLUMN inventory_enabled text`)
-      await expect(applyFile()).rejects.toThrow(
-        /inventory_enabled is missing, nullable, not boolean/,
+      await client.query(
+        `CREATE INDEX ${INDEX} ON ${SCHEMA}.${TABLE} USING btree (type, namespace) WHERE inventory_enabled`,
       )
-      await client.query(`ALTER TABLE ${SCHEMA}.${TABLE} DROP COLUMN inventory_enabled`)
+      await expect(applyFile()).rejects.toThrow(
+        /uq_job_sources_inventory_type_namespace is missing/,
+      )
+      await client.query(`DROP INDEX ${SCHEMA}.${INDEX}`)
       await applyFile()
       expect(await addedObjects(SCHEMA)).toEqual(await addedObjects('public'))
     })
