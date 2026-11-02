@@ -1268,6 +1268,7 @@ PINNED_SINGLE_TX_FILES = {
     "2026-10-25_job_record_store.sql",
     "2026-10-31_job_bridge_deliveries.sql",
     "2026-11-01_job_source_record_inventory_misses.sql",
+    "2026-11-02_job_source_records_source_id.sql",
 }
 
 
