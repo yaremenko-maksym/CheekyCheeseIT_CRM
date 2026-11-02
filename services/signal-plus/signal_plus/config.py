@@ -27,12 +27,15 @@ re-implementing this.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 from dataclasses import dataclass
 from datetime import time
 from pathlib import Path
 
 from signal_plus import slot
+
+logger = logging.getLogger("signal_plus")
 
 
 class ConfigError(ValueError):
@@ -148,7 +151,9 @@ class Config:
         skip_weekdays_raw = optional("SIGNAL_SKIP_WEEKDAYS")
         self_heal_raw = optional("SIGNAL_SENDER_KEY_SELF_HEAL") or "1"
         if self_heal_raw not in ("0", "1"):
-            raise ConfigError(f"SIGNAL_SENDER_KEY_SELF_HEAL={self_heal_raw!r} must be 0 or 1")
+            # A typo on an optional switch must not stop the daemon (and cost the daily "+").
+            logger.warning("SIGNAL_SENDER_KEY_SELF_HEAL=%r is not 0 or 1; using the default 1", self_heal_raw)
+            self_heal_raw = "1"
 
         return cls(
             signal_account=require("SIGNAL_ACCOUNT"),

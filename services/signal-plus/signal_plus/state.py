@@ -36,9 +36,12 @@ class State:
     last_error: str | None = None
     # Once-per-day guard for the sender-key self-heal (signal_plus.senderkey).
     last_heal_date: dt.date | None = None
+    # Once-per-day guard for the specific "self-heal disabled" alert (no heal
+    # runs in that mode, so last_heal_date never moves).
+    last_overflow_alert_date: dt.date | None = None
 
 
-_DATE_FIELDS = {"last_success_date", "handover_date", "last_update_attempt_date", "last_heal_date"}
+_DATE_FIELDS = {"last_success_date", "handover_date", "last_update_attempt_date", "last_heal_date", "last_overflow_alert_date"}
 
 
 def _to_json_dict(state: State) -> dict:

@@ -142,9 +142,18 @@ def _handle_stack_overflow(
     (crash-safe, same pattern as the auto-update guard), and otherwise alert
     loudly right away instead of waiting for the handover cutoff."""
     if not config.sender_key_self_heal:
+        if state_obj.last_overflow_alert_date == today:
+            logger.warning("StackOverflowError in group send; self-heal disabled (already alerted today)")
+            return False, state_obj
         status = "disabled"
+        state_obj = replace(state_obj, last_overflow_alert_date=today)
+        state.save(config.state_file, state_obj)
     elif state_obj.last_heal_date == today:
-        status = "already tried today"
+        # Every later ~300 s re-attempt of the cycle lands here: the specific
+        # alert was sent by the call that healed; run_cycle's generic
+        # "all retry attempts failed" alert carries the repeats.
+        logger.warning("StackOverflowError in group send; self-heal already tried today")
+        return False, state_obj
     else:
         try:
             outcome = senderkey.heal_group_sender_key(config)
@@ -155,14 +164,20 @@ def _handle_stack_overflow(
         state.save(config.state_file, state_obj)
 
         if outcome.healed:
-            status = "done"
             retry = _attempt_send_once(config, message, run=run)
             if retry.ok:
                 alert.notify_sender_key_healed(config, outcome.rows_deleted, run=run)
                 return True, state_obj
+            # Not re-checked for the outdated-client signature here on purpose:
+            # last_error keeps it and the next cycle's main loop (first attempt)
+            # runs the usual once-a-day auto-update on it.
             last_error = _first_line_for_state(retry.output.strip()) or f"send exited {retry.returncode}"
             state_obj = replace(state_obj, last_error=last_error)
             logger.warning("send still failed after sender-key self-heal: %s", last_error)
+            if senderkey.is_stack_overflow_error(retry.output):
+                status = "done; retry still overflowed"
+            else:
+                status = f"done; retry failed with a different error: {last_error}"
         else:
             status = "failed"
 

@@ -72,7 +72,7 @@ no secret is ever in source. Full reference: `.env.example`.
 | `SIGNAL_ALERT_RECIPIENT`      | no       | personal DM alert recipient (unset = that layer skipped)                                                                                                                                              |
 | `HANDOVER_TIME`               | no       | handover cutoff, `HH:MM` Kyiv, default `08:00`                                                                                                                                                        |
 | `SIGNAL_SKIP_WEEKDAYS`        | no       | ISO weekdays (1=Mon..7=Sun) to skip entirely, comma-separated, default `7`                                                                                                                            |
-| `SIGNAL_SENDER_KEY_SELF_HEAL` | no       | `1` (default) heal a group-send `StackOverflowError` once per day; `0` = alert only, never open `account.db`                                                                                          |
+| `SIGNAL_SENDER_KEY_SELF_HEAL` | no       | `1` (default) heal a group-send `StackOverflowError` once per day; `0` = alert only, never open `account.db`; any other value logs a warning and uses `1`                                             |
 | `RESEND_API_KEY`              | no       | Resend API key for the handover email (unset = that layer skipped)                                                                                                                                    |
 | `ALERT_EMAIL_FROM`            | no       | sender, default `site@cheekycheese.tech`                                                                                                                                                              |
 | `ALERT_EMAIL_TO`              | no       | handover email recipient (unset = that layer skipped)                                                                                                                                                 |
@@ -307,10 +307,15 @@ with that error skips the generic 5× backoff (`signal_plus.senderkey`,
    master key, identities and sessions are not touched.
 2. Retry the send once. Success → an `INFO` DM ("sender-key self-heal
    performed", masked account + row count).
-3. Heal disabled / failed / already tried today / retry still failing → an
-   immediate `ERROR` alert through all layers ("StackOverflowError in group
-   send; self-heal <disabled|failed|already tried today|done>"), without
-   waiting for the handover cutoff. The daemon keeps running; the slot and
+3. Heal disabled / failed / retry still failing → one immediate `ERROR`
+   alert through all layers, on the call that attempted the heal (once; once
+   per day when disabled — `last_overflow_alert_date`): "StackOverflowError in
+   group send; self-heal <disabled|failed|done; retry still overflowed|done;
+   retry failed with a different error: <masked first line>>". Later ~300 s
+   re-attempts the same day only log a warning; the generic "all retry
+   attempts failed" alert carries the repeats. A post-heal retry failing with
+   the outdated-client message is not auto-updated in that call; the next
+   cycle's first attempt does it. The daemon keeps running; the slot and
    once-per-day semantics are unchanged.
 
 Anything unexpected (entry missing in `accounts.json`, no DB file, 0 or 2

@@ -160,9 +160,12 @@ def test_still_overflowing_after_heal_alerts_loudly_and_stops(config, db):
     assert st.last_heal_date == TODAY
 
 
-def test_second_overflow_same_day_does_not_heal_again(config, db, monkeypatch):
+def test_second_overflow_same_day_does_not_heal_again_or_fire_a_specific_alert(
+    config, db, monkeypatch, caplog
+):
     _forbid_heal(monkeypatch)
-    run = ScriptedRun([_ok(), OVERFLOW, _ok()])
+    caplog.set_level(logging.WARNING, logger="signal_plus")
+    run = ScriptedRun([_ok(), OVERFLOW])
     sleeps: list[float] = []
 
     ok, st = _send(config, run, state_obj=State(last_heal_date=TODAY), sleep_calls=sleeps)
@@ -170,9 +173,84 @@ def test_second_overflow_same_day_does_not_heal_again(config, db, monkeypatch):
     assert ok is False
     assert sleeps == []
     assert len(_group_sends(run)) == 1
-    [loud] = _dm_messages(run)
-    assert "self-heal already tried today" in loud
+    assert _dm_messages(run) == []  # run_cycle's generic alert carries the repeats
+    assert "self-heal already tried today" in caplog.text
     assert count_rows(db, "sender_key", ROLLCALL_DIST_ID) == 1
+
+
+def test_two_cycles_fire_exactly_one_specific_alert(config, db):
+    run = ScriptedRun(
+        [_ok(), OVERFLOW, _ok(), OVERFLOW, _ok()]  # cycle 1: recv, send, heal, recv, retry send, loud DM
+        + [_ok(), OVERFLOW]  # cycle 2 (300 s later): recv, send -> already healed today
+    )
+
+    ok1, st = _send(config, run)
+    ok2, st = _send(config, run, state_obj=st)
+
+    assert (ok1, ok2) == (False, False)
+    assert run.results == []
+    [loud] = _dm_messages(run)  # one specific alert across both cycles
+    assert "self-heal done" in loud
+
+
+def test_two_cycles_with_heal_disabled_fire_one_specific_alert_per_day(config, db):
+    cfg = replace(config, sender_key_self_heal=False)
+    run = ScriptedRun([_ok(), OVERFLOW, _ok(), _ok(), OVERFLOW])  # recv, send, loud DM, recv, send
+
+    _, st = _send(cfg, run)
+    assert load_state(cfg.state_file).last_overflow_alert_date == TODAY
+    _, st = _send(cfg, run, state_obj=st)
+
+    assert run.results == []
+    [loud] = _dm_messages(run)
+    assert "self-heal disabled" in loud
+
+
+def test_disabled_alert_fires_again_the_next_day(config, db):
+    cfg = replace(config, sender_key_self_heal=False)
+    run = ScriptedRun([_ok(), OVERFLOW, _ok()])
+
+    _send(cfg, run, state_obj=State(last_overflow_alert_date=date(2026, 11, 1)))
+
+    assert len(_dm_messages(run)) == 1
+
+
+def test_retry_failing_with_a_different_error_says_so(config, db):
+    run = ScriptedRun([_ok(), OVERFLOW, _ok(), _fail("connection refused\nsecond line"), _ok()])
+
+    ok, st = _send(config, run)
+
+    assert ok is False
+    [loud] = _dm_messages(run)
+    assert "self-heal done; retry failed with a different error: connection refused" in loud
+    assert "second line" not in loud  # first line only
+    assert "still overflowed" not in loud
+    assert st.last_error == "connection refused"
+
+
+def test_retry_still_overflowing_says_so(config, db):
+    run = ScriptedRun([_ok(), OVERFLOW, _ok(), OVERFLOW, _ok()])
+
+    _send(config, run)
+
+    [loud] = _dm_messages(run)
+    assert "self-heal done; retry still overflowed" in loud
+    assert "different error" not in loud
+
+
+def test_outdated_client_on_the_post_heal_retry_is_deferred_to_the_next_cycle(config, db):
+    from signal_plus.updater import OUTDATED_CLIENT_MESSAGE
+
+    outdated = (1, "", f"Error loading state file: {OUTDATED_CLIENT_MESSAGE} (IOException)")
+    run = ScriptedRun([_ok(), OVERFLOW, _ok(), outdated, _ok()])
+
+    ok, st = _send(config, run)  # _no_network: no update attempt in this call
+
+    assert ok is False
+    assert st.last_update_attempt_date is None
+    assert OUTDATED_CLIENT_MESSAGE in st.last_error  # the next cycle's main loop sees it first
+    [loud] = _dm_messages(run)
+    assert "retry failed with a different error" in loud
 
 
 def test_heal_from_a_previous_day_does_not_block_todays_heal(config, db):

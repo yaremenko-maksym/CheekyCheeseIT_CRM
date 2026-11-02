@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import time
 from pathlib import Path
 
@@ -340,10 +341,13 @@ def test_sender_key_self_heal_parses_0_and_1(raw, expected):
 
 
 @pytest.mark.parametrize("raw", ["yes", "true", "2", "off"])
-def test_sender_key_self_heal_rejects_anything_but_0_or_1(raw):
+def test_sender_key_self_heal_invalid_value_warns_and_falls_back_to_enabled(raw, caplog):
+    # A typo on an optional switch must not stop the daemon (and cost the daily "+").
     env = dict(REQUIRED_ENV, SIGNAL_SENDER_KEY_SELF_HEAL=raw)
-    with pytest.raises(ConfigError, match="SIGNAL_SENDER_KEY_SELF_HEAL"):
-        Config.from_env(env)
+    with caplog.at_level(logging.WARNING, logger="signal_plus"):
+        cfg = Config.from_env(env)
+    assert cfg.sender_key_self_heal is True
+    assert "SIGNAL_SENDER_KEY_SELF_HEAL" in caplog.text
 
 
 def test_sender_key_self_heal_flag_reaches_every_multi_account_config():
