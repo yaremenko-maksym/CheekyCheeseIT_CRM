@@ -62,13 +62,18 @@ async function newSource(): Promise<string> {
 }
 
 /** A record at `availability`, closed/expired at `checkedAt` (the instant a run must follow). */
-async function newRecord(availability: string, checkedAt: Date | null = null): Promise<string> {
+async function newRecord(
+  availability: string,
+  checkedAt: Date | null = null,
+  sourceId: string | null = null,
+): Promise<string> {
+  // The worker path fails closed on a NULL source_id, so those cases stamp the owning source.
   const { rows } = await q(
     `INSERT INTO job_source_records
-       (source_type, namespace, identity_kind, identity_key, availability, availability_checked_at)
-     VALUES ('GREENHOUSE_ATS', $1, 'NATIVE_ID', $2, $3::job_availability, $4::timestamptz)
+       (source_type, namespace, identity_kind, identity_key, availability, availability_checked_at, source_id)
+     VALUES ('GREENHOUSE_ATS', $1, 'NATIVE_ID', $2, $3::job_availability, $4::timestamptz, $5::uuid)
      RETURNING id`,
-    [NAMESPACE, `key-${tag()}`, availability, checkedAt?.toISOString() ?? null],
+    [NAMESPACE, `key-${tag()}`, availability, checkedAt?.toISOString() ?? null, sourceId],
   )
   return String(rows[0].id)
 }
@@ -447,7 +452,7 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
   it('AC2/AC3: close -> reopen through the worker re-derives the opportunity, bumps revision, keeps matches byte-identical', async () => {
     const sourceId = await newSource()
     const cycleId = await newCycle()
-    const recordId = await newRecord('OPEN')
+    const recordId = await newRecord('OPEN', null, sourceId)
     const oppId = await newOpportunity()
     await link(recordId, oppId)
     await q(`UPDATE job_opportunities SET availability = 'OPEN' WHERE id = $1`, [oppId])
@@ -496,7 +501,7 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
   it('AC1: an EXPIRED record listed by a later WINDOW run is reopened by the worker, not re-expired', async () => {
     const sourceId = await newSource()
     const cycleId = await newCycle()
-    const recordId = await newRecord('EXPIRED', new Date(Date.now() - DAY))
+    const recordId = await newRecord('EXPIRED', new Date(Date.now() - DAY), sourceId)
     const oppId = await newOpportunity()
     await link(recordId, oppId)
     await q(`UPDATE job_opportunities SET availability = 'EXPIRED' WHERE id = $1`, [oppId])
