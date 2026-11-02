@@ -2302,6 +2302,29 @@ docker compose \
   < "$JOB_INVENTORY_MISSES_FILE"
 echo "==> job inventory misses applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-02_job_source_records_source_id.sql
+# Adds job_source_records.source_id + ON DELETE SET NULL FK + index and backfills existing rows (SR-H-2,
+# PR #1227). The writer INSERTs source_id, so the column must exist in prod when the new image
+# ships. Creates no grantable relation (ALTER + index on an already-granted table), so it grants
+# nothing and may sit either side of the grants file; applied here after the record store.
+JOB_SOURCE_ID_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-02_job_source_records_source_id.sql"
+
+if [ ! -f "$JOB_SOURCE_ID_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_SOURCE_ID_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job source record source_id (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$JOB_SOURCE_ID_FILE"
+echo "==> job source record source_id applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file

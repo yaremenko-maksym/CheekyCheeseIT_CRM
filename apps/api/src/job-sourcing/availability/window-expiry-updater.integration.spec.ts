@@ -48,16 +48,19 @@ async function seed(opts: {
   )
   const sourceId = String(s.rows[0].id)
   sources.push(sourceId)
+  // SR-H-2: the record↔source tie is the explicit source_id FK (lockAndVerifyRecord matches on it),
+  // so a record belonging to this source must carry its id.
   const r = await q(
     `INSERT INTO job_source_records
-       (source_type, namespace, identity_kind, identity_key, last_observed_at, availability)
-     VALUES ($1::job_source_type, $2, 'NATIVE_ID', $3, $4::timestamptz, $5::job_availability) RETURNING id`,
+       (source_type, namespace, identity_kind, identity_key, last_observed_at, availability, source_id)
+     VALUES ($1::job_source_type, $2, 'NATIVE_ID', $3, $4::timestamptz, $5::job_availability, $6::uuid) RETURNING id`,
     [
       type,
       ns,
       `key-${tag()}`,
       new Date(NOW - opts.lastSeenHoursAgo * HOUR).toISOString(),
       opts.availability ?? 'OPEN',
+      sourceId,
     ],
   )
   const recordId = String(r.rows[0].id)

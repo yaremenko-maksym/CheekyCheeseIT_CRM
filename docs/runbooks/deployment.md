@@ -649,6 +649,7 @@ rather than trust the numbers, they shift whenever a file is added above):
 | 58       | `2026-10-24_job_sources_host_keys.sql`                 | Needs `job_source_hosts` (57) and the delta's `manifest_id` (56). One transaction                                         |
 | 59       | `2026-10-25_job_record_store.sql`                      | Creates the job record-store tables, so before the grants. One transaction                                                |
 | 60       | `2026-10-27_transactions_tx_date_not_null.sql`         | Permanent, idempotent; fails the deploy on any NULL `tx_date` before the swap. Creates no relation. One transaction       |
+| 60b      | `2026-11-02_job_source_records_source_id.sql`          | Adds `job_source_records.source_id` + FK + index, backfills; after the record store, grants nothing. One transaction      |
 | 61       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                   |
 | 62       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                         |
 | 65       | `2026-10-18_db_privileges_check.sql`                   | First run: before the container swap, so a drift fails while the old API serves                                           |
@@ -1110,6 +1111,7 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-10-27_transactions_tx_date_not_null.sql \
     apps/api/drizzle/manual/2026-10-31_job_bridge_deliveries.sql \
     apps/api/drizzle/manual/2026-11-01_job_source_record_inventory_misses.sql \
+    apps/api/drizzle/manual/2026-11-02_job_source_records_source_id.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \

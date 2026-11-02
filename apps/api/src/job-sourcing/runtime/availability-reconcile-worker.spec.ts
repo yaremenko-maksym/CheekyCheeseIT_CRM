@@ -89,12 +89,15 @@ describe('resolveInventoryInput', () => {
       board: 'GREENHOUSE_ATS:acme',
       configVersion: 4,
     })
-    // The resolve reads the record and joins its source on (source_type, namespace).
+    // SR-H-2: the resolve reads the record and joins its source on the EXPLICIT source_id — not the
+    // ambiguous (source_type, namespace) pair — and no longer picks an arbitrary one with ORDER BY.
     expect(sqls[0]).toContain('FROM job_source_records')
     expect(sqls[0]).toContain('JOIN job_sources')
+    expect(sqls[0]).toContain('s.id = r.source_id')
+    expect(sqls[0].toLowerCase()).not.toContain('order by')
   })
 
-  it('is null when the record has no matching source', async () => {
+  it('is null when the record has no source (orphan / NULL source_id — fail closed)', async () => {
     const { db } = dbOf([])
     expect(await resolveInventoryInput(db as never, REC)).toBeNull()
   })
