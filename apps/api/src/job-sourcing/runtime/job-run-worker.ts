@@ -417,6 +417,8 @@ export class JobRunWorker {
     onlyTypes?: readonly JobSourceType[]
     /** U3: claim with the sweep predicate (the ledger's `claimDue` `sweep`). */
     sweep?: { readonly cycleId: string; readonly skipIds: readonly string[] }
+    /** U10: claim with the DETAIL_ONLY-pass predicate (the ledger's `claimDue` `detailPass`). */
+    detailPass?: { readonly cycleId: string }
     /** U10: the scope every run of this pass uses (default `LIST_AND_DETAIL`). */
     scope?: RunScope
   }): Promise<{ claimed: number; refused: ClaimRefused[]; settled: Promise<RunReport[]> }> {
@@ -435,6 +437,7 @@ export class JobRunWorker {
         onlyIds: input.onlyIds,
         onlyTypes: input.onlyTypes,
         ...(input.sweep === undefined ? {} : { sweep: input.sweep }),
+        ...(input.detailPass === undefined ? {} : { detailPass: input.detailPass }),
       }))
     } finally {
       this.active -= free

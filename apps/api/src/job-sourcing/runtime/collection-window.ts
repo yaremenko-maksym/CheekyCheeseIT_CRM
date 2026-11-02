@@ -50,6 +50,12 @@ export interface CollectionWindowInput {
    * the rest of it, unless the refusal is one a later pass can outlive (`SWEEP_RETRIED`).
    */
   readonly sweep?: boolean
+  /**
+   * SFS U10 (ADR 6a, step 3): claim and count with the DETAIL_ONLY-pass predicate (detail-capable
+   * sources with a pending DETAIL_FETCH row, once per cycle) AND run every claim with scope
+   * `DETAIL_ONLY` (no list request). Mutually exclusive with `sweep`.
+   */
+  readonly detailPass?: boolean
 }
 
 /** Refusals that end when another run ends or a host gap opens: the sweep tries those again. */
@@ -91,6 +97,9 @@ export async function runCollectionWindow(
   const skipped = new Set<string>()
   const sweep = (): { sweep: { cycleId: string; skipIds: string[] } } | Record<string, never> =>
     input.sweep === true ? { sweep: { cycleId: input.cycleId, skipIds: [...skipped] } } : {}
+  // U10: the detail pass's claim/count scope and (for the claim only) the DETAIL_ONLY run scope.
+  const detailPass = (): { detailPass: { cycleId: string } } | Record<string, never> =>
+    input.detailPass === true ? { detailPass: { cycleId: input.cycleId } } : {}
   let iterations = 0
   let claimed = 0
   let ended: WindowSummary['ended'] = 'WINDOW'
@@ -122,6 +131,8 @@ export async function runCollectionWindow(
           onlyTypes: input.types,
           ...(input.onlyIds === undefined ? {} : { onlyIds: input.onlyIds }),
           ...sweep(),
+          ...detailPass(),
+          ...(input.detailPass === true ? { scope: 'DETAIL_ONLY' as const } : {}),
         })
         .catch((error: unknown) => {
           // Another replica closed the shared cycle: nothing more can be claimed under it.
@@ -156,6 +167,7 @@ export async function runCollectionWindow(
           lookaheadMs: remaining(),
           ...(input.onlyIds === undefined ? {} : { onlyIds: input.onlyIds }),
           ...sweep(),
+          ...detailPass(),
         }),
       )
       if (due === undefined || due === 0) {

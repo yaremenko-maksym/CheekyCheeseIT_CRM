@@ -107,6 +107,15 @@ export interface SweepScope {
 }
 
 /**
+ * SFS U10 (ADR 6a, step 3): the 08:30 DETAIL_ONLY pass's claim/count scope. Its cycle keys the
+ * once-per-cycle term (the detail-pass predicate reuses the sweep's "not run in this cycle" shape),
+ * so a second pass on the same `detail:<date>` cycle re-claims nothing.
+ */
+export interface DetailPassScope {
+  readonly cycleId: string
+}
+
+/**
  * CR-M-1 / SR-M-1 / CR-M-3: a run started this long before the sweep cycle opened, or later, counts
  * as the source's run "around the sweep". One tick period (10 min) PLUS one tick window (9 min):
  * a run of the 07:50 tick starts anywhere in 07:50..07:59 (its window), and both that claim and
@@ -299,18 +308,25 @@ export class JobRunLedger {
     readonly lookaheadMs?: number | undefined
     /** U3: count with the sweep predicate of that cycle, minus the window's skipped sources. */
     readonly sweep?: SweepScope | undefined
+    /** U10 (ADR 6a, step 3): count with the DETAIL_ONLY-pass predicate of that cycle. */
+    readonly detailPass?: DetailPassScope | undefined
   }): Promise<number> {
+    if (input.sweep !== undefined && input.detailPass !== undefined) {
+      throw new RangeError('countDue: sweep and detailPass are mutually exclusive')
+    }
     const lookahead = Math.min(
       Math.max(0, Math.floor(input.lookaheadMs ?? 0)),
       MAX_EARLY_DUE_SLACK_MS,
     )
     const predicate =
-      input.sweep === undefined
-        ? dueSourcesPredicate('SCHEDULED', {
-            maxConsecutiveFailures: this.options.maxConsecutiveFailures,
-            cadenceSlackMs: lookahead,
-          })
-        : await this.sweepPredicate(input.sweep)
+      input.detailPass !== undefined
+        ? this.detailPassPredicate(input.detailPass)
+        : input.sweep === undefined
+          ? dueSourcesPredicate('SCHEDULED', {
+              maxConsecutiveFailures: this.options.maxConsecutiveFailures,
+              cadenceSlackMs: lookahead,
+            })
+          : await this.sweepPredicate(input.sweep)
     const { rows } = await this.db.execute(
       sql`SELECT count(*)::int AS n FROM job_sources
           WHERE ${predicate} AND ${scopeOf(input.onlyIds, input.onlyTypes)}`,
@@ -342,22 +358,36 @@ export class JobRunLedger {
      * must be this claim's cycle.
      */
     readonly sweep?: SweepScope | undefined
+    /**
+     * U10 (ADR 6a, step 3): claim with the DETAIL_ONLY-pass predicate (detail-capable sources with a
+     * pending DETAIL_FETCH row) instead of the cadence term. Mutually exclusive with `sweep`; its
+     * `cycleId` must be this claim's cycle.
+     */
+    readonly detailPass?: DetailPassScope | undefined
   }): Promise<{ claimed: ClaimedRun[]; refused: ClaimRefused[] }> {
     this.assertOwner(input.owner)
     if (!Number.isSafeInteger(input.limit) || input.limit < 0) {
       throw new RangeError('claimDue: invalid limit')
+    }
+    if (input.sweep !== undefined && input.detailPass !== undefined) {
+      throw new RangeError('claimDue: sweep and detailPass are mutually exclusive')
     }
     const cycle = await this.readCycle(input.cycleId)
     if (cycle.trigger !== 'SCHEDULED') throw new RangeError('claimDue: needs a scheduled cycle')
     if (input.sweep !== undefined && input.sweep.cycleId !== cycle.id) {
       throw new RangeError('claimDue: the sweep names another cycle')
     }
+    if (input.detailPass !== undefined && input.detailPass.cycleId !== cycle.id) {
+      throw new RangeError('claimDue: the detail pass names another cycle')
+    }
     const predicate =
-      input.sweep === undefined
-        ? dueSourcesPredicate('SCHEDULED', {
-            maxConsecutiveFailures: this.options.maxConsecutiveFailures,
-          })
-        : await this.sweepPredicate(input.sweep)
+      input.detailPass !== undefined
+        ? this.detailPassPredicate(input.detailPass)
+        : input.sweep === undefined
+          ? dueSourcesPredicate('SCHEDULED', {
+              maxConsecutiveFailures: this.options.maxConsecutiveFailures,
+            })
+          : await this.sweepPredicate(input.sweep)
     const claimed: ClaimedRun[] = []
     const refused: ClaimRefused[] = []
     const tried: string[] = []
@@ -531,6 +561,39 @@ export class JobRunLedger {
                OR rr.started_at > clock_timestamp() - make_interval(mins => (
                  SELECT f.minutes FROM unnest(${toTextArray(ids)}, ${toIntArray(floors)}) AS f(id, minutes)
                   WHERE f.id = job_sources.manifest_id))))`
+  }
+
+  /**
+   * U10 (ADR 6a, step 3; AC5 + SPEC-M-1): the DETAIL_ONLY-pass predicate. A source is claimable iff
+   *   - it passes the base due gates (enabled, ACTIVE, manifest, trigger policy, failure cap,
+   *     cooldown, host) and has NOT run in this cycle — the sweep's cadence-free shape reused via
+   *     `sweepCycleId`, so a second pass on `detail:<date>` re-claims nothing (idempotency);
+   *   - its TYPE is one the catalog reports as `ON_DEMAND` (`onDemandTypes()`) — detail-capable
+   *     (SPEC-M-1: the DETAIL_ONLY no-list behaviour is for tail-capable adapters only, enforced at
+   *     the claim too, not just in the worker/CR-M-7). This set is EMPTY until a source is flipped
+   *     (#10), so today the predicate matches zero and the 08:30 pass is inert; AND
+   *   - it has >=1 PENDING `DETAIL_FETCH` dirty-work row for a `job_source_records` of its own
+   *     `source_type` + `namespace` — the SAME join `claimDetailForSource` (dirty-work.store) uses.
+   *
+   * Pure/synchronous: `onDemandTypes()` is read from the in-memory catalog, not the database.
+   */
+  private detailPassPredicate(scope: DetailPassScope): SQL {
+    const onDemand = this.catalog.onDemandTypes()
+    const due = dueSourcesPredicate('SCHEDULED', {
+      maxConsecutiveFailures: this.options.maxConsecutiveFailures,
+      // Drops the cadence term and adds "not run in this cycle" + "next_attempt_at IS NOT NULL".
+      sweepCycleId: scope.cycleId,
+    })
+    // `DETAIL_FETCH` is dirty-work.store's exported reason constant, matched literally here (as its
+    // own SQL does) to avoid a store->ledger import.
+    return sql`${due}
+      AND job_sources.type::text = ANY(${toTextArray([...onDemand])})
+      AND EXISTS (SELECT 1 FROM job_dirty_work dw
+                    JOIN job_source_records dsr ON dsr.id = dw.entity_id
+                   WHERE dw.status = 'PENDING' AND dw.entity_kind = 'SOURCE_RECORD'
+                     AND dw.reason = 'DETAIL_FETCH'
+                     AND dsr.source_type = job_sources.type
+                     AND dsr.namespace = job_sources.namespace)`
   }
 
   /** Steps 2 and 3 on the locked row: the gates, then T8's host slot with the CATALOG's policy. */
