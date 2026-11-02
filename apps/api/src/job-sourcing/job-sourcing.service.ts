@@ -753,9 +753,14 @@ export class JobSourcingService {
       return
     }
     if (user.role === 'HR') {
-      for (const seniorId of seniorIds) {
-        if (await this.hrAccess.hrSharesActiveTeamWith(user.id, seniorId)) return
-      }
+      // CR-M-10: one bounded query for the HR's whole active-team roster, then an in-memory
+      // intersection — not `hrSharesActiveTeamWith` once per matched senior. `getActiveTeamPeers`
+      // covers SENIOR targets (seniors are `team_members` rows) and the seniorIds here are already
+      // role='SENIOR', so no JUNIOR-via-project gap applies.
+      const peerIds = new Set(
+        (await this.hrAccess.getActiveTeamPeers(user.id)).map((p) => p.userId),
+      )
+      if (seniorIds.some((id) => peerIds.has(id))) return
       throw notFound()
     }
     throw notFound()

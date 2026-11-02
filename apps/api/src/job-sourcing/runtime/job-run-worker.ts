@@ -55,9 +55,11 @@ export function detailOnlyBatch(namespace: string, configVersion: number): Colle
       pagesCompleted: 0,
       counts: ZERO_COUNTS,
       scope: { namespace, query: null, configVersion, window: null },
-      // Stryker disable next-line BooleanLiteral: `deriveCoverage` returns at its `NOT_MODIFIED`
-      // guard before it reads `resumed`, so this value cannot change any observable of the batch;
-      // false is the honest value (a detail-only run resumes nothing). Proven equivalent.
+      // Stryker disable next-line BooleanLiteral: in `deriveCoverage` the `if (facts.resumed)` check
+      // sits just BEFORE the `NOT_MODIFIED` guard and BOTH return 'PARTIAL', so flipping this to true
+      // only changes which of the two consecutive guards returns the same coverage — no observable of
+      // the batch changes, and nothing else reads `resumed`. false is the honest value (a detail-only
+      // run resumes nothing). Proven equivalent.
       resumed: false,
     },
     requests: [],
@@ -562,15 +564,18 @@ export class JobRunWorker {
         runDetailTail(adapter.provider, config, control!.ctx, port, detailPerRun)
       const listWork = () => adapter.provider.collectReport(config, control!.ctx)
       let work: () => Promise<CollectionBatch>
-      if (detailPort === null) {
-        // IN_LIST (no `collectDetail`): the original list-only work, unchanged and inert for U10.
-        work = listWork
-      } else if (scope === 'DETAIL_ONLY') {
-        // The 08:30 detail pass: the tail alone, NO list request (section 6a).
+      if (scope === 'DETAIL_ONLY') {
+        // CR-M-7 / SPEC-M-1: a DETAIL_ONLY run reads NO list request, regardless of the port
+        // (section 6a + `RunScope` doc). With a tail port it runs the tail; with none (IN_LIST, or
+        // `detailPerRun` 0/undefined) it is a pure no-op pass. The scope is checked BEFORE the
+        // no-tail branch so a no-tail source can no longer fall through to a full list request.
         work = async () => {
-          await runTail(detailPort)
+          if (detailPort !== null) await runTail(detailPort)
           return detailOnlyBatch(row.namespace, row.configVersion)
         }
+      } else if (detailPort === null) {
+        // IN_LIST (no `collectDetail`): the original list-only work, unchanged and inert for U10.
+        work = listWork
       } else {
         // A sweep / tick / routine run: the list, then the tail — only if the list succeeded.
         work = async () => {
