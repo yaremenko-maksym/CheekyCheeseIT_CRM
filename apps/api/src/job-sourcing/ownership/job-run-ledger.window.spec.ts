@@ -145,46 +145,73 @@ describe('countDue, the detailPass scope (U10)', () => {
   })
 })
 
-describe('claimDue, the sweep/detailPass guard (U10)', () => {
+describe('claimDue, the sweep/detailPass guard and scope (U10)', () => {
   const CYCLE = '1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e'
-  const catalog = { onDemandTypes: () => ['REMOTIVE_API'] }
-  const scheduledCycle = [{ id: CYCLE, trigger: 'SCHEDULED', requested_by: null }]
+  const OTHER = '2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f'
+  const catalog = { onDemandTypes: () => ['REMOTIVE_API'], entry: () => undefined }
 
-  function claimLedger(cycleRows: Record<string, unknown>[]) {
-    const execute = vi.fn(async (_q: SQL) => ({ rows: cycleRows }))
-    const transaction = vi.fn(async () => ({ kind: 'EMPTY' as const }))
-    const ledger = new JobRunLedger(
-      { execute, transaction } as never,
-      {} as never,
-      catalog as never,
+  // A recording transaction surfaces the predicate `pickDue` runs (the only place the chosen claim
+  // predicate is observable at unit level); it returns no row, so the claim loop breaks at once.
+  function claimLedger() {
+    const picks: ReturnType<typeof dialect.sqlToQuery>[] = []
+    const execute = vi.fn(async (q: SQL) => {
+      const text = dialect.sqlToQuery(q).sql
+      if (/FROM job_collection_cycles/.test(text))
+        return { rows: [{ id: CYCLE, trigger: 'SCHEDULED', requested_by: null }] }
+      return { rows: [] } // sweepPredicate's DISTINCT manifest_id read, etc.
+    })
+    const transaction = vi.fn(
+      async (fn: (tx: { execute: (q: SQL) => Promise<{ rows: unknown[] }> }) => unknown) =>
+        fn({
+          execute: async (q: SQL) => {
+            picks.push(dialect.sqlToQuery(q))
+            return { rows: [] }
+          },
+        }),
     )
-    return { ledger, execute, transaction }
+    const ledger = new JobRunLedger({ execute, transaction } as never, {} as never, catalog as never)
+    return { ledger, execute, picks }
   }
 
-  it('a detailPass-only claim proceeds past the guard (no mutual-exclusivity throw)', async () => {
-    const { ledger } = claimLedger(scheduledCycle)
+  const claim = (extra: Record<string, unknown>) => ({
+    cycleId: CYCLE,
+    owner: 'detail-worker',
+    limit: 1,
+    ...extra,
+  })
+
+  it('a detailPass-only claim proceeds and picks with the detail-pass predicate (the DETAIL_FETCH join)', async () => {
+    const { ledger, picks } = claimLedger()
+    await expect(ledger.claimDue(claim({ detailPass: { cycleId: CYCLE } }))).resolves.toEqual({
+      claimed: [],
+      refused: [],
+    })
+    // The claim's candidate query carries the detail-pass predicate, not the cadence/sweep one.
+    expect(picks[0]?.sql).toContain("dw.reason = 'DETAIL_FETCH'")
+    expect(picks[0]?.sql).toContain('dsr.namespace = job_sources.namespace')
+  })
+
+  it('a sweep-only claim proceeds with the sweep predicate: no mutual-exclusivity throw, no detailPass dereference', async () => {
+    const { ledger, picks } = claimLedger()
     await expect(
-      ledger.claimDue({
-        cycleId: CYCLE,
-        owner: 'detail-worker',
-        limit: 1,
-        detailPass: { cycleId: CYCLE },
-      }),
+      ledger.claimDue(claim({ sweep: { cycleId: CYCLE, skipIds: [] } })),
     ).resolves.toEqual({ claimed: [], refused: [] })
+    expect(picks[0]?.sql).not.toContain("dw.reason = 'DETAIL_FETCH'")
   })
 
   it('sweep and detailPass together are refused before the cycle is read', async () => {
-    const { ledger, execute } = claimLedger(scheduledCycle)
+    const { ledger, execute } = claimLedger()
     await expect(
-      ledger.claimDue({
-        cycleId: CYCLE,
-        owner: 'detail-worker',
-        limit: 1,
-        sweep: { cycleId: CYCLE, skipIds: [] },
-        detailPass: { cycleId: CYCLE },
-      }),
+      ledger.claimDue(claim({ sweep: { cycleId: CYCLE, skipIds: [] }, detailPass: { cycleId: CYCLE } })),
     ).rejects.toThrow('mutually exclusive')
     expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('a detailPass claim naming another cycle is refused', async () => {
+    const { ledger } = claimLedger()
+    await expect(ledger.claimDue(claim({ detailPass: { cycleId: OTHER } }))).rejects.toThrow(
+      /another cycle/,
+    )
   })
 })
 
