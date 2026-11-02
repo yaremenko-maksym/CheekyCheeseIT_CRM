@@ -111,6 +111,16 @@ describe('JobRunWorker.startDue', () => {
     expect(claimDue.mock.calls[1]?.[0]).not.toHaveProperty('sweep')
   })
 
+  it('U10: passes a detailPass scope through to the claim, and omits the key when not given', async () => {
+    const { worker, claimDue } = build([])
+    const detailPass = { cycleId: 'cyc' }
+    await worker.startDue({ cycleId: 'cyc', detailPass })
+    expect(claimDue.mock.calls[0]?.[0]).toMatchObject({ cycleId: 'cyc', detailPass })
+    // no detailPass given: no detailPass key at all (the ledger reads its presence)
+    await worker.startDue({ cycleId: 'cyc' })
+    expect(claimDue.mock.calls[1]?.[0]).not.toHaveProperty('detailPass')
+  })
+
   it('frees the slots a claim held when the claim throws', async () => {
     const { worker, claimDue } = build([])
     claimDue.mockRejectedValueOnce(new Error('db down'))

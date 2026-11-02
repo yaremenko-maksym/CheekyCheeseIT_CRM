@@ -387,11 +387,12 @@ describe('the 08:30 detail pass (U10)', () => {
       sweep?: unknown
       scope?: unknown
     }
-    expect(claim.detailPass).toBeDefined()
+    // The scope carries THIS cycle's id, not an empty object (collection-window builds it).
+    expect(claim.detailPass).toEqual({ cycleId: 'cyc-1' })
     expect(claim.sweep).toBeUndefined()
     expect(claim.scope).toBe('DETAIL_ONLY')
     const count = b.ledger.countDue.mock.calls[0]?.[0] as { detailPass?: unknown; sweep?: unknown }
-    expect(count.detailPass).toBeDefined()
+    expect(count.detailPass).toEqual({ cycleId: 'cyc-1' })
     expect(count.sweep).toBeUndefined()
   })
 

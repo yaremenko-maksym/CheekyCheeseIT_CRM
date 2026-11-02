@@ -113,6 +113,81 @@ describe('countDue, the sweep scope (U3)', () => {
   })
 })
 
+/**
+ * U10 (ADR 6a step 3; AC5 + SPEC-M-1): the DETAIL_ONLY-pass scope of `countDue` / `claimDue`. The
+ * mutation gate runs unit-only, so the branch that selects the detail-pass predicate and the
+ * sweep/detailPass mutual-exclusivity guard are pinned here; the real-Postgres claim is
+ * `job-run-ledger.detail-pass.integration.spec.ts`.
+ */
+describe('countDue, the detailPass scope (U10)', () => {
+  const CYCLE = '1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e'
+  const catalog = { onDemandTypes: () => ['REMOTIVE_API'] }
+
+  it('counts with the detail-pass predicate: the ON_DEMAND types, this cycle, a pending DETAIL_FETCH join', async () => {
+    const execute = vi.fn(async (_q: SQL) => ({ rows: [{ n: 3 }] }))
+    const ledger = new JobRunLedger({ execute } as never, {} as never, catalog as never)
+    expect(await ledger.countDue({ detailPass: { cycleId: CYCLE } })).toBe(3)
+    const q = dialect.sqlToQuery(execute.mock.calls[0]![0])
+    // The detail-pass predicate, not the cadence/sweep one: the dirty-work DETAIL_FETCH join.
+    expect(q.sql).toContain("dw.reason = 'DETAIL_FETCH'")
+    expect(q.sql).toContain('dsr.namespace = job_sources.namespace')
+    expect(q.sql).toContain('job_sources.type::text = ANY(')
+    expect(q.params).toContain('{REMOTIVE_API}')
+    expect(q.params).toContain(CYCLE) // threaded as the sweepCycleId "not run in this cycle" term
+  })
+
+  it('sweep and detailPass together are refused before any query', async () => {
+    const { ledger, execute } = ledgerOver([{ n: 0 }])
+    await expect(
+      ledger.countDue({ sweep: { cycleId: CYCLE, skipIds: [] }, detailPass: { cycleId: CYCLE } }),
+    ).rejects.toThrow('mutually exclusive')
+    expect(execute).not.toHaveBeenCalled()
+  })
+})
+
+describe('claimDue, the sweep/detailPass guard (U10)', () => {
+  const CYCLE = '1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e'
+  const catalog = { onDemandTypes: () => ['REMOTIVE_API'] }
+  const scheduledCycle = [{ id: CYCLE, trigger: 'SCHEDULED', requested_by: null }]
+
+  function claimLedger(cycleRows: Record<string, unknown>[]) {
+    const execute = vi.fn(async (_q: SQL) => ({ rows: cycleRows }))
+    const transaction = vi.fn(async () => ({ kind: 'EMPTY' as const }))
+    const ledger = new JobRunLedger(
+      { execute, transaction } as never,
+      {} as never,
+      catalog as never,
+    )
+    return { ledger, execute, transaction }
+  }
+
+  it('a detailPass-only claim proceeds past the guard (no mutual-exclusivity throw)', async () => {
+    const { ledger } = claimLedger(scheduledCycle)
+    await expect(
+      ledger.claimDue({
+        cycleId: CYCLE,
+        owner: 'detail-worker',
+        limit: 1,
+        detailPass: { cycleId: CYCLE },
+      }),
+    ).resolves.toEqual({ claimed: [], refused: [] })
+  })
+
+  it('sweep and detailPass together are refused before the cycle is read', async () => {
+    const { ledger, execute } = claimLedger(scheduledCycle)
+    await expect(
+      ledger.claimDue({
+        cycleId: CYCLE,
+        owner: 'detail-worker',
+        limit: 1,
+        sweep: { cycleId: CYCLE, skipIds: [] },
+        detailPass: { cycleId: CYCLE },
+      }),
+    ).rejects.toThrow('mutually exclusive')
+    expect(execute).not.toHaveBeenCalled()
+  })
+})
+
 describe('countDue', () => {
   it('counts the sources the scheduled due predicate admits, narrowed by nothing by default', async () => {
     const { ledger, last } = ledgerOver([{ n: 7 }])
