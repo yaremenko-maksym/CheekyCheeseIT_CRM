@@ -238,6 +238,17 @@ export const DETAIL_STALE_DAYS = 14
  * Separate from `onDemandMissingExpr` on purpose: a stale-but-present opportunity is still evaluable,
  * so it must NOT become `detailPending` (that lifts it off stack exclusion). Empty when no type is
  * ON_DEMAND, so the query costs nothing until a source is flipped.
+ *
+ * KNOWN LIMITATION (CR-M-3 / SPEC-M-2, deferred to U10 flip-on #10). The guard suppresses a version
+ * that has ANY DETAIL_FETCH row, so the TTL fires at most once per frozen `observation_seq`: an
+ * IDENTICAL detail re-fetch does not advance the seq, so the settled DETAIL_FETCH at that seq blocks
+ * a re-enqueue (the unique key is `ON CONFLICT DO NOTHING`), and `received_at` is first-stored, not a
+ * refresh clock. A correct recurrence needs a dedicated detail-freshness anchor independent of
+ * `received_at` (which feeds `chooseCanonical`'s cross-member tiebreak, `compareClaims`) AND a
+ * re-enqueue path the frozen-version idempotency does not swallow — a new column / staged DDL, so it
+ * lands with the ON_DEMAND switch (#10), where this machinery first becomes live (it is inert until
+ * a source is flipped). Changing only the status filter here would re-surface the row every recompute
+ * into a swallowed enqueue, no recurrence — so the guard is left as-is until the anchor exists.
  */
 function onDemandStaleExpr(onDemandTypes: readonly JobSourceType[]): SQL {
   if (onDemandTypes.length === 0) return sql`'[]'::jsonb`

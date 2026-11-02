@@ -93,13 +93,16 @@ export async function runCollectionWindow(
   const startedAt = input.startedAt ?? now()
   const remaining = (): number => input.windowMs - (now() - startedAt)
   const pending = new Set<Promise<unknown>>()
-  // Sweep only: sources refused in this window, never re-picked or counted in it.
+  // Sweep OR detail pass: sources refused in this window, never re-picked or counted in it (CR-M-2).
   const skipped = new Set<string>()
   const sweep = (): { sweep: { cycleId: string; skipIds: string[] } } | Record<string, never> =>
     input.sweep === true ? { sweep: { cycleId: input.cycleId, skipIds: [...skipped] } } : {}
   // U10: the detail pass's claim/count scope and (for the claim only) the DETAIL_ONLY run scope.
-  const detailPass = (): { detailPass: { cycleId: string } } | Record<string, never> =>
-    input.detailPass === true ? { detailPass: { cycleId: input.cycleId } } : {}
+  // CR-M-2: carries the same skip set as the sweep, so a refused source is not re-picked or counted.
+  const detailPass = ():
+    | { detailPass: { cycleId: string; skipIds: string[] } }
+    | Record<string, never> =>
+    input.detailPass === true ? { detailPass: { cycleId: input.cycleId, skipIds: [...skipped] } } : {}
   let iterations = 0
   let claimed = 0
   let ended: WindowSummary['ended'] = 'WINDOW'
@@ -145,7 +148,9 @@ export async function runCollectionWindow(
       break
     }
     if (started !== undefined) {
-      if (input.sweep === true) {
+      // CR-M-2: both cadence-free passes skip a source they refused with a reason a later pass
+      // cannot outlive; a host-timed refusal (SWEEP_RETRIED) is left claimable for when its gap opens.
+      if (input.sweep === true || input.detailPass === true) {
         for (const r of started.refused) if (!SWEEP_RETRIED.has(r.reason)) skipped.add(r.sourceId)
       }
       claimedNow = started.claimed

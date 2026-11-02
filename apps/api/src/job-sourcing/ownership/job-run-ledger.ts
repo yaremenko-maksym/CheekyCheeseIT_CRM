@@ -113,6 +113,12 @@ export interface SweepScope {
  */
 export interface DetailPassScope {
   readonly cycleId: string
+  /**
+   * CR-M-2: sources the running detail window already refused with a reason it cannot outlive;
+   * the predicate drops them so a refused source is neither re-picked nor counted as due within
+   * the window. Absent (a one-shot claim/count) = skip nothing. Mirrors `SweepScope.skipIds`.
+   */
+  readonly skipIds?: readonly string[]
 }
 
 /**
@@ -410,7 +416,10 @@ export class JobRunLedger {
               sourceId,
               verdict.reason,
               verdict.opensAt,
-              input.sweep !== undefined,
+              // CR-H-1 / SR-M-1: the detail pass is cadence-free like the sweep, so its refusal must
+              // never pull a source's `next_attempt_at` EARLIER (that would hand the REGULAR run a
+              // second claim beside its own slot). Both cadence-free claims are "swept".
+              input.sweep !== undefined || input.detailPass !== undefined,
             )
             return { kind: 'REFUSED' as const, refusal: { sourceId, reason: verdict.reason } }
           }
@@ -588,6 +597,7 @@ export class JobRunLedger {
     // own SQL does) to avoid a store->ledger import.
     return sql`${due}
       AND job_sources.type::text = ANY(${toTextArray([...onDemand])})
+      AND NOT (job_sources.id = ANY(${toUuidArray(scope.skipIds ?? [])}))
       AND EXISTS (SELECT 1 FROM job_dirty_work dw
                     JOIN job_source_records dsr ON dsr.id = dw.entity_id
                    WHERE dw.status = 'PENDING' AND dw.entity_kind = 'SOURCE_RECORD'
