@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   API_COLLECTION_CRON,
   API_COLLECTION_TYPES,
+  DETAIL_PASS_CRON,
   HTML_COLLECTION_CRON,
   HTML_COLLECTION_TYPES,
   DEFAULT_WINDOW_INTERVAL_MS,
@@ -70,12 +71,27 @@ describe('schedules (AC 1)', () => {
       cronTime: '0 8 * * *',
       timeZone: 'Europe/Kyiv',
     })
-    expect([API_COLLECTION_CRON, HTML_COLLECTION_CRON, TICK_CRON, SWEEP_CRON]).toEqual([
-      '0 5 * * *',
-      '30 2 * * *',
-      '*/10 * * * *',
-      '0 8 * * *',
-    ])
+    // SFS U10 (ADR 6a, step 3): the 08:30 weekday DETAIL_ONLY pass.
+    expect(optionsOf(proto.handleDetailPass)).toMatchObject({
+      cronTime: '30 8 * * 1-5',
+      timeZone: 'Europe/Kyiv',
+    })
+    expect([
+      API_COLLECTION_CRON,
+      HTML_COLLECTION_CRON,
+      TICK_CRON,
+      SWEEP_CRON,
+      DETAIL_PASS_CRON,
+    ]).toEqual(['0 5 * * *', '30 2 * * *', '*/10 * * * *', '0 8 * * *', '30 8 * * 1-5'])
+  })
+
+  it('U10: the detail pass fires at 08:30 Kyiv on weekdays and skips the weekend to Monday', () => {
+    // A Wednesday 12:00Z -> next is Thursday 08:30 Kyiv (06:00Z winter window: 08:30 EET = 06:30Z).
+    expect(nextUtc(proto.handleDetailPass, '2027-01-13T12:00:00Z')).toBe('2027-01-14T06:30:00.000Z')
+    // Friday 2027-01-15 12:00Z -> the next weekday fire is Monday 2027-01-18 08:30 EET (06:30Z).
+    expect(nextUtc(proto.handleDetailPass, '2027-01-15T12:00:00Z')).toBe('2027-01-18T06:30:00.000Z')
+    // Across the spring jump: 08:30 EEST = 05:30Z.
+    expect(nextUtc(proto.handleDetailPass, '2027-03-29T12:00:00Z')).toBe('2027-03-30T05:30:00.000Z')
   })
 
   it('U3: the sweep fires at 08:00 Kyiv across both 2027 transitions; the tick every 10 minutes', () => {
@@ -157,10 +173,23 @@ function build(over: {
     countDue: vi.fn(async (_i: { lookaheadMs?: number }) => over.countDue ?? 0),
   }
   const worker = {
-    startDue: vi.fn(async (i: { onlyTypes: readonly string[]; sweep?: unknown }) => {
-      calls.push(`claim:${i.onlyTypes[0]}${i.sweep === undefined ? '' : ':sweep'}`)
-      return { claimed: 0, refused: [], settled: Promise.resolve([]) }
-    }),
+    startDue: vi.fn(
+      async (i: {
+        onlyTypes: readonly string[]
+        sweep?: unknown
+        detailPass?: unknown
+        scope?: unknown
+      }) => {
+        const tag =
+          i.sweep !== undefined
+            ? ':sweep'
+            : i.detailPass !== undefined
+              ? `:detail:${String(i.scope)}`
+              : ''
+        calls.push(`claim:${i.onlyTypes[0]}${tag}`)
+        return { claimed: 0, refused: [], settled: Promise.resolve([]) }
+      },
+    ),
     activeRuns: 0,
   }
   const service = {
@@ -330,6 +359,52 @@ describe('the 08:00 sweep (U3)', () => {
     )
     expect(b.worker.startDue).not.toHaveBeenCalled()
     expect(b.calls).toContain('sweep')
+  })
+})
+
+describe('the 08:30 detail pass (U10)', () => {
+  it('runs open -> recover -> sweepOrphans -> window in DETAIL_ONLY mode (API types) -> close, keyed detail:<Kyiv date>', async () => {
+    // 2027-03-30 is a Tuesday; 08:30 EEST = 05:30Z.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2027-03-30T05:30:00Z') })
+    const b = build({})
+    await b.svc.handleDetailPass()
+    expect(b.calls).toEqual([
+      'open:detail:2027-03-30',
+      'recover',
+      'sweep',
+      'recover',
+      `claim:${API_COLLECTION_TYPES[0]}:detail:DETAIL_ONLY`,
+      'close',
+    ])
+    expect(b.service.collectAll).not.toHaveBeenCalled()
+  })
+
+  it('claims and counts with the detailPass scope, never the sweep scope', async () => {
+    const b = build({})
+    await b.svc.handleDetailPass()
+    const claim = b.worker.startDue.mock.calls[0]?.[0] as {
+      detailPass?: unknown
+      sweep?: unknown
+      scope?: unknown
+    }
+    expect(claim.detailPass).toBeDefined()
+    expect(claim.sweep).toBeUndefined()
+    expect(claim.scope).toBe('DETAIL_ONLY')
+    const count = b.ledger.countDue.mock.calls[0]?.[0] as { detailPass?: unknown; sweep?: unknown }
+    expect(count.detailPass).toBeDefined()
+    expect(count.sweep).toBeUndefined()
+  })
+
+  it('a throwing step never rejects the detail pass, and is named in the log', async () => {
+    const b = build({ openCycle: () => Promise.reject(new Error('boom')) })
+    const errors = vi
+      .spyOn((b.svc as unknown as { logger: { error: () => void } }).logger, 'error')
+      .mockImplementation(() => undefined)
+    await expect(b.svc.handleDetailPass()).resolves.toBeUndefined()
+    expect(errors.mock.calls.map((c) => String(c[0]))).toContainEqual(
+      expect.stringMatching(/^Job sourcing cron step failed \[detail: openCycle\]/),
+    )
+    expect(b.worker.startDue).not.toHaveBeenCalled()
   })
 })
 
