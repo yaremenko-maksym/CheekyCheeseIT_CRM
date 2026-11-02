@@ -158,6 +158,39 @@ describe('AdminEditTransactionDialog — follow-ups', () => {
     expect(screen.getByTestId('admin-edit-save')).toBeDisabled()
   })
 
+  // The cascade panel belongs to the row it was engaged on (moved hook state resets per tx).
+  it('does not carry the cascade panel over to the next transaction', async () => {
+    const PAID = { ...TX, status: 'PAID', currency: 'USDT', amount: '20000' } as TransactionDto
+    getEditCascadePreviewMock.mockResolvedValue({
+      editable: true,
+      blockedReason: null,
+      plan: {
+        sourceId: PAID.id,
+        sourceAmountChanged: true,
+        oldSourceAmount: 20000,
+        newSourceAmount: 25000,
+        sourceCurrency: 'USDT',
+        derivatives: [],
+        sourceWarnings: [],
+      },
+      version: 'v1',
+    })
+    const { rerender } = renderDialog(PAID)
+    fireEvent.change(screen.getByTestId('amount-currency-amount-input'), {
+      target: { value: '25000' },
+    })
+    await screen.findByTestId('cascade-impact-panel')
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <AdminEditTransactionDialog
+          tx={{ ...PAID, id: 'tx-other', amount: '9000' } as TransactionDto}
+          onClose={() => {}}
+        />
+      </QueryClientProvider>,
+    )
+    await waitFor(() => expect(screen.queryByTestId('cascade-impact-panel')).toBeNull())
+  })
+
   // COPY-LOW-1 — one message, inline, announced; no second copy in a banner.
   it('shows the reason-required message once, inline, as the only alert', async () => {
     adminUpdateTransactionMock.mockRejectedValueOnce(

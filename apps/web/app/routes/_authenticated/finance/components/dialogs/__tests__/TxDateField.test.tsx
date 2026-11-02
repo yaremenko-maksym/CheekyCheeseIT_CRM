@@ -119,6 +119,7 @@ describe('TxDateField', () => {
     expect(screen.getByTestId('admin-edit-tx-date')).toBeDisabled()
     const note = screen.getByTestId('admin-edit-tx-date-locked-note')
     expect(screen.getByTestId('admin-edit-tx-date')).toHaveAttribute('aria-describedby', note.id)
+    expect(note.id).toBe('admin-edit-tx-date-locked-note-text')
     expect(screen.queryByTestId('admin-edit-tx-date-reason')).toBeNull()
   })
 
