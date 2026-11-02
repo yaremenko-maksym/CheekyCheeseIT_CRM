@@ -232,12 +232,7 @@ const EXPECTED = { tables: 19, enums: 19, jobSourcesColumns: 20, indexes: 44 } a
  * The standalone indexes beyond part 2's 44: T1's two (PART_5), T8's one (PART_6), SR-M-4's one
  * (PART_8) and CR-M-4's one (PART_9). PART_7 adds columns only, no index.
  */
-const LATER_INDEXES = [
-  ...PART_5_INDEXES,
-  ...PART_6_INDEXES,
-  ...PART_8_INDEXES,
-  ...PART_9_INDEXES,
-]
+const LATER_INDEXES = [...PART_5_INDEXES, ...PART_6_INDEXES, ...PART_8_INDEXES, ...PART_9_INDEXES]
 
 const STAGED_DIR = join(__dirname, '..', '..', 'drizzle', 'manual-staged')
 const readPart = (name: string): string =>

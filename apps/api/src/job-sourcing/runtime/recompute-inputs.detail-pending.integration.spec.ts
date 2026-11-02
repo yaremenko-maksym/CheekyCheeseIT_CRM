@@ -105,7 +105,9 @@ async function makeOpportunity(
     [recordId],
   )
   if (rows[0] === undefined) {
-    throw new Error(`makeOpportunity(${nativeId}): no linked opportunity formed for record ${recordId}`)
+    throw new Error(
+      `makeOpportunity(${nativeId}): no linked opportunity formed for record ${recordId}`,
+    )
   }
   return {
     recordId,

@@ -170,9 +170,14 @@ describe('claimDue, the sweep/detailPass guard and scope (U10)', () => {
           },
         }),
     )
-    const ledger = new JobRunLedger({ execute, transaction } as never, {} as never, catalog as never, {
-      maxConsecutiveFailures: 5,
-    })
+    const ledger = new JobRunLedger(
+      { execute, transaction } as never,
+      {} as never,
+      catalog as never,
+      {
+        maxConsecutiveFailures: 5,
+      },
+    )
     return { ledger, execute, picks }
   }
 
@@ -216,7 +221,9 @@ describe('claimDue, the sweep/detailPass guard and scope (U10)', () => {
   it('sweep and detailPass together are refused before the cycle is read', async () => {
     const { ledger, execute } = claimLedger()
     await expect(
-      ledger.claimDue(claim({ sweep: { cycleId: CYCLE, skipIds: [] }, detailPass: { cycleId: CYCLE } })),
+      ledger.claimDue(
+        claim({ sweep: { cycleId: CYCLE, skipIds: [] }, detailPass: { cycleId: CYCLE } }),
+      ),
     ).rejects.toThrow('mutually exclusive')
     expect(execute).not.toHaveBeenCalled()
   })
