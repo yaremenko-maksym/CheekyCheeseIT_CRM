@@ -26,6 +26,13 @@ function isRealCalendarDate(value: string): boolean {
 export const MIN_TRANSACTION_BUSINESS_YEAR = 2020
 export const MAX_TRANSACTION_BUSINESS_YEAR = 2100
 
+/**
+ * Owner decision D-2: how far back (in days) a non-privileged role may date a
+ * row; beyond it ADMIN/ACCOUNTANT need a reason. Enforced by the server policy
+ * (`transaction-date-policy.ts`); shared so UI hints cannot drift from it.
+ */
+export const BACKDATE_LIMIT_DAYS = 31
+
 function isWithinBusinessYearWindow(value: string): boolean {
   const year = Number(value.slice(0, 4))
   return year >= MIN_TRANSACTION_BUSINESS_YEAR && year <= MAX_TRANSACTION_BUSINESS_YEAR

@@ -49,6 +49,14 @@ function axiosError(status: number, message?: string): unknown {
   }
 }
 
+/** An axios error whose body is the API error envelope (`apiError()` shape). */
+function envelopeError(code: string, message: string): unknown {
+  return {
+    isAxiosError: true,
+    response: { status: 400, data: { statusCode: 400, code, message, params: {} } },
+  }
+}
+
 /** A bare error with no `response` at all — a real network/CORS/timeout failure. */
 function networkError(): unknown {
   return { isAxiosError: true }
@@ -414,6 +422,36 @@ describe('cascadeSaveErrorMessage — COPY-M-10, the red line matches the plan a
     expect(cascadeSaveErrorMessage(axiosError(400, 'Некорректная сумма для этой строки'))).toBe(
       'Некорректная сумма для этой строки',
     )
+  })
+
+  it('SE-1b. an API error envelope is translated by code (uk), never the English fallback message', async () => {
+    await loadCatalog('uk')
+    expect(
+      cascadeSaveErrorMessage(
+        envelopeError('FINANCE_TX_DATE_EDIT_REASON_REQUIRED', 'English fallback'),
+      ),
+    ).toBe('Дата надто далеко в минулому — вкажіть причину в полі «Причина зміни дати»')
+    expect(
+      cascadeSaveErrorMessage(envelopeError('FINANCE_TX_DATE_LOCKED_ROW', 'English fallback')),
+    ).toBe(
+      'Дату цієї транзакції не можна змінити: оплату підтверджено в блокчейні, її проведено з рахунку компанії або за нею вже є розрахунки',
+    )
+  })
+
+  it('SE-1c. the same envelope translates to en under the en locale', async () => {
+    await loadCatalog('en')
+    try {
+      expect(
+        cascadeSaveErrorMessage(envelopeError('FINANCE_TX_DATE_EDIT_REASON_REQUIRED', 'ignored')),
+      ).toBe(
+        'This date is too far back — enter a reason in the “Reason for changing the date” field',
+      )
+      expect(cascadeSaveErrorMessage(envelopeError('FINANCE_TX_DATE_LOCKED_ROW', 'ignored'))).toBe(
+        "This transaction's date can't be changed: its payment is confirmed on-chain, comes from the company account, or already has settlements",
+      )
+    } finally {
+      await loadCatalog('uk')
+    }
   })
 
   it('SE-2. a plain client-thrown Error (the amount-validation check) keeps its OWN message', () => {

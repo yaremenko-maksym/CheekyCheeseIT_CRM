@@ -136,7 +136,7 @@ function isGenericHttpReasonPhrase(message: string): boolean {
  * failure to report, just "no envelope here", so callers fall through to
  * the prose-based paths below.
  */
-function parseApiErrorEnvelope(err: unknown) {
+export function parseApiErrorEnvelope(err: unknown) {
   if (err === null || typeof err !== 'object') return undefined
   const data = (err as { response?: { data?: unknown } }).response?.data
   const result = apiErrorEnvelopeSchema.safeParse(data)

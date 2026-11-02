@@ -2804,6 +2804,11 @@ msgstr "Дата надто далеко в минулому, і для неї �
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_EDIT_REASON_REQUIRED"
+msgstr "Дата надто далеко в минулому — вкажіть причину в полі «Причина зміни дати»"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_DATE_IN_FUTURE"
 msgstr "Для виконаної операції дата не може бути в майбутньому"
 
@@ -2811,6 +2816,11 @@ msgstr "Для виконаної операції дата не може бут
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_DATE_INVALID"
 msgstr "Вкажіть коректну дату транзакції — такої дати не існує"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_LOCKED_ROW"
+msgstr "Дату цієї транзакції не можна змінити: оплату підтверджено в блокчейні, її проведено з рахунку компанії або за нею вже є розрахунки"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
@@ -5263,6 +5273,10 @@ msgstr "Відновлення…"
 msgid "Додаткові змінні (заповніть нижче):"
 msgstr "Додаткові змінні (заповніть нижче):"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
+msgid "Для дат давніших за {days, plural, one {# день} few {# дні} many {# днів} other {# дня}}"
+msgstr "Для дат давніших за {days, plural, one {# день} few {# дні} many {# днів} other {# дня}}"
+
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Не вдалося завантажити фінансове зведення"
 msgstr "Не вдалося завантажити фінансове зведення"
@@ -7654,6 +7668,10 @@ msgstr "Джуніора призначено"
 msgid "Попередня"
 msgstr "Попередня"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
+msgid "Причина зміни дати"
+msgstr "Причина зміни дати"
+
 #. placeholder {0}: application.fullName
 #: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
 msgid "Попередній перегляд резюме кандидата {0}"
@@ -9273,6 +9291,7 @@ msgid "Частка за замовчуванням: пропозицію від
 msgstr "Частка за замовчуванням: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
 msgid "Дата транзакції"
 msgstr "Дата транзакції"
 

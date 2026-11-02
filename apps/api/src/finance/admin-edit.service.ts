@@ -27,12 +27,19 @@ import {
   transactions,
 } from '../database/schema'
 import { InvoicesService, type InvoiceReissueOutcome } from '../invoices/invoices.service'
+import {
+  assertTxDateNotClaimedInRequest,
+  resolveAdminEditTxDate,
+  txDateSnapshotPredicates,
+} from './admin-edit-tx-date.helper'
 import { EditCascadeService } from './edit-cascade.service'
 import { isRegistryConflict } from './finance-predicates.util'
 import { consumeTxHash } from './onchain-tx'
 import { OnChainClaimService } from './onchain-claim.service'
 import { assertReceiptDocumentBindable } from './receipt.util'
 import { accountsForSalaryMonthSql } from './salary-origin'
+import { backdateAuditRow } from './transaction-date-audit.util'
+import { formatTransactionBusinessDate } from './transaction-date.util'
 import { assertTransactionWritable } from './transaction-visibility.util'
 
 /**
@@ -79,6 +86,10 @@ export class AdminEditService {
       receiptExternalUrl?: string | null | undefined
       category?: string | undefined
       salaryMonth?: string | undefined
+      /** Business day `YYYY-MM-DD`; consulted only when it differs from the stored day. */
+      txDate?: string | null | undefined
+      /** Justification for dating the row beyond the backdating window (policy D-2). */
+      backdateReason?: string | null | undefined
       /** task-cascade-apply (task 3) — the token `GET :id/edit-preview` returned. */
       cascadeVersion?: string | undefined
     },
@@ -191,6 +202,9 @@ export class AdminEditService {
         HttpStatus.BAD_REQUEST,
       )
     }
+
+    const txDate = resolveAdminEditTxDate(tx, data, currentUser.role)
+    const dateDecision = txDate.decision
 
     // task-cascade-apply (task 3, AC2) — editing the amount of a PAID row is
     // never a bare UPDATE: it moves money that derivative rows were computed
@@ -324,6 +338,8 @@ export class AdminEditService {
             claimHash: null,
             staleClaim: false,
           }
+
+    assertTxDateNotClaimedInRequest(txDate, transition.claimHash)
 
     // task-cascade-apply (task 3, AC11) — produced INSIDE the DB transaction,
     // consumed AFTER it commits. `undefined` ⇔ no cascade ran, which is also
@@ -466,6 +482,7 @@ export class AdminEditService {
             ...transition.txHashPatch,
             ...(data.category !== undefined && { receiverLabel: data.category }),
             ...(data.salaryMonth !== undefined && { salaryMonth: data.salaryMonth }),
+            ...(dateDecision && { txDate: dateDecision.txDate }),
             updatedAt: new Date(),
           })
           // SR-H-1 (security-review round 4) — re-assert the state every
@@ -518,6 +535,7 @@ export class AdminEditService {
               // `settleByCompany`'s flip (pending-settlement.service.ts).
               sql`${transactions.settledAmount} IS NOT DISTINCT FROM ${tx.settledAmount}::numeric`,
               ...sourceMonthSnapshotPredicates,
+              ...txDateSnapshotPredicates(txDate),
             ),
           )
           .returning({ id: transactions.id })
@@ -644,7 +662,13 @@ export class AdminEditService {
         // above but never reached this condition — a salary moved between
         // months left no journal trail at all. Added to both the condition
         // and the metadata below.
-        if (amountChanged || currencyChanged || receiverLabelChanged || salaryMonthChanged) {
+        if (
+          amountChanged ||
+          currencyChanged ||
+          receiverLabelChanged ||
+          salaryMonthChanged ||
+          dateDecision
+        ) {
           await dbtx.insert(transactionAuditLog).values({
             actorId: currentUser.impersonatorId ?? currentUser.id,
             targetId: id,
@@ -694,8 +718,27 @@ export class AdminEditService {
               ...(salaryMonthChanged && {
                 salaryMonth: { before: tx.salaryMonth, after: data.salaryMonth },
               }),
+              ...(dateDecision && {
+                txDate: {
+                  before: txDate.storedBusinessDay,
+                  after: formatTransactionBusinessDate(dateDecision.txDate),
+                },
+              }),
             },
           })
+        }
+
+        // D-2: an out-of-window backdate carries its justification on the
+        // trail, in the same transaction as the date it justifies.
+        if (dateDecision?.backdateReason) {
+          await dbtx.insert(transactionAuditLog).values(
+            backdateAuditRow({
+              targetId: id,
+              actor: currentUser,
+              txDate: dateDecision.txDate,
+              backdateReason: dateDecision.backdateReason,
+            }),
+          )
         }
 
         if (transition.claimHash) {
@@ -757,8 +800,17 @@ export class AdminEditService {
     // was voided and never replaced re-issues it (below).
     const actorId = currentUser.impersonatorId ?? currentUser.id
     const failedStages: Array<{ id: string; stage: 'VOID' | 'REISSUE' }> = []
-    if (cascadeApplied) {
-      for (const reissueId of [id, ...cascadeApplied.changedDerivativeIds]) {
+    // SR-M-1 (owner decision, 2026-11-01): the invoice PDF is stamped from
+    // `tx_date`, so a date move voids the counterparty-signed document and
+    // issues a fresh one — the same path an amount cascade takes. A row with no
+    // invoice answers `NOT_NEEDED`.
+    const reissueIds = cascadeApplied
+      ? [id, ...cascadeApplied.changedDerivativeIds]
+      : dateDecision
+        ? [id]
+        : []
+    if (reissueIds.length > 0) {
+      for (const reissueId of reissueIds) {
         let outcome: InvoiceReissueOutcome | undefined
         try {
           outcome = await this.invoicesService.voidAndReissueInvoiceForAmountEdit(

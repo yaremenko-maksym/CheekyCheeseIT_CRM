@@ -39,6 +39,9 @@ import {
 } from '../../constants'
 import { CascadeImpactPanel } from './CascadeImpactPanel'
 import { changedSalaryMonth } from './changed-salary-month'
+import { changedTxDatePayload, storedTxDate } from './changed-tx-date'
+import { TxDateField, isReasonRequiredError } from './TxDateField'
+import { SubmitErrorBanner } from './SubmitErrorBanner'
 import {
   ReceiptInput,
   receiptStateFromDocument,
@@ -67,6 +70,9 @@ export function AdminEditTransactionDialog({
   // Stryker disable next-line StringLiteral: unobservable — the mount effect below sets this from `tx` before any render can read it (same shape as the `debouncedAmount` suppression a few lines down), AND the field that displays it is itself gated on `tx?.type === 'EXPENSE'`, so a `tx == null` mount never renders it either way
   const [category, setCategory] = useState('')
   const [salaryMonth, setSalaryMonth] = useState('')
+  const [txDate, setTxDate] = useState('')
+  // Stryker disable next-line StringLiteral: equivalent — the mount effect on [tx] calls setBackdateReason('') before any observer can read the initial value
+  const [backdateReason, setBackdateReason] = useState('')
   // Stryker disable next-line StringLiteral: unobservable — the mount effect below sets this from `tx` before any render can read it, the same shape as the documented `useState` default in SettleSeniorPayoutDialog
   const [debouncedAmount, setDebouncedAmount] = useState('')
   /** The server's 409 text, verbatim — set when the plan on screen was overtaken. */
@@ -92,6 +98,8 @@ export function AdminEditTransactionDialog({
     }
     setCategory(tx.receiverLabel ?? '')
     setSalaryMonth(tx.salaryMonth ?? '')
+    setTxDate(storedTxDate(tx))
+    setBackdateReason('')
     setDebouncedAmount(parseFloat(tx.amount).toString())
     setStaleMessage(null)
     setCascadePanelEngaged(false)
@@ -319,6 +327,8 @@ export function AdminEditTransactionDialog({
         ...(tx?.type === 'EXPENSE' && { category }),
         // Only when the operator changed it (SR-M-1) — see changedSalaryMonth.
         ...(changedMonth !== undefined && { salaryMonth: changedMonth }),
+        // Only a day that differs from the stored one — see changedTxDatePayload.
+        ...changedTxDatePayload(tx!, txDate, backdateReason),
       })
     },
     onError: (err) => {
@@ -371,9 +381,7 @@ export function AdminEditTransactionDialog({
   // fold into the field-reset effect near the top: that effect runs before
   // `mutation` exists (it needs `tx`), so the same intent lives in two places.
   // Without it `mutation.error` outlived the switch and greeted the NEXT
-  // transaction with a red banner about the previous one, before the operator
-  // touched anything. Same family as UX-2, which cleared the leftover when the
-  // preview was refreshed but not when the dialog changed subject.
+  // transaction with a red banner about the previous one. Same family as UX-2.
   const resetMutation = mutation.reset
   useEffect(() => {
     resetMutation()
@@ -391,6 +399,7 @@ export function AdminEditTransactionDialog({
   const error = mutation.error ? cascadeSaveErrorMessage(mutation.error) : null
   // A 409 is rendered by the panel, in place, not duplicated as a red line.
   const submitError = staleMessage ? null : error
+  const reasonRequired = !!submitError && isReasonRequiredError(mutation.error)
   // `canSaveCascadeEdit(undefined)` is `true` on purpose — an ordinary,
   // non-cascade edit must never be blocked by this feature. That is why the
   // in-flight case needs its own clause: on a cascade edit with no answer yet,
@@ -615,6 +624,21 @@ export function AdminEditTransactionDialog({
                 />
               )}
 
+              {tx && (
+                <TxDateField
+                  value={txDate}
+                  stored={storedTxDate(tx)}
+                  reason={backdateReason}
+                  onChange={setTxDate}
+                  onReasonChange={(r) => {
+                    setBackdateReason(r)
+                    if (mutation.isError) mutation.reset() // QA-MED-1; never mid-save (CR-M-7)
+                  }}
+                  invalid={reasonRequired}
+                  errorMessage={submitError}
+                />
+              )}
+
               {/* Expense category — owner override 2026-09-28 (i18n-3d-pr3):
                   FREE TEXT, not a closed Select. `receiverLabel` on prod
                   EXPENSE rows carries 16 distinct operator-authored values
@@ -706,12 +730,7 @@ export function AdminEditTransactionDialog({
                 />
               </div>
 
-              {submitError && (
-                <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  {submitError}
-                </div>
-              )}
+              {submitError && <SubmitErrorBanner message={submitError} scroll={!reasonRequired} />}
             </div>
           )}
         </CrmDialogBody>

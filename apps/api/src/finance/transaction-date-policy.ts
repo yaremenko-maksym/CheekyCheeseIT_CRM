@@ -1,5 +1,5 @@
 import { HttpStatus } from '@nestjs/common'
-import { kyivDayOf } from '@crm/shared'
+import { BACKDATE_LIMIT_DAYS, kyivDayOf } from '@crm/shared'
 import type { SessionUser } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { resolveTransactionDate } from './transaction-date.util'
@@ -101,8 +101,8 @@ import { resolveTransactionDate } from './transaction-date.util'
  * finished article.
  */
 
-/** Owner decision D-2: how far back a non-privileged role may date a row. */
-export const BACKDATE_LIMIT_DAYS = 31
+// Owner decision D-2 — the window lives in `@crm/shared` so UI hints cannot drift from it.
+export { BACKDATE_LIMIT_DAYS }
 
 const MS_PER_DAY = 86_400_000
 
@@ -136,6 +136,12 @@ export type TransactionDatePolicy = {
    * consumed, so the call site writes it to the audit log.
    */
   backdateReason?: string | null | undefined
+  /**
+   * The refusal for a missing reason. The create flows keep the default; the
+   * ADMIN edit screen has a reason field and names it (COPY-M-2/M-3).
+   */
+  reasonRequiredCode?:
+    'FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED' | 'FINANCE_TX_DATE_EDIT_REASON_REQUIRED' | undefined
   now?: Date | undefined
 }
 
@@ -192,7 +198,10 @@ export function resolveTransactionDateWithPolicy(
 
   const reason = policy.backdateReason?.trim()
   if (!reason) {
-    throw apiError('FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED', HttpStatus.BAD_REQUEST)
+    throw apiError(
+      policy.reasonRequiredCode ?? 'FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED',
+      HttpStatus.BAD_REQUEST,
+    )
   }
 
   return { txDate, backdateReason: reason }

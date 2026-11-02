@@ -10,7 +10,7 @@
  */
 import { ForbiddenException } from '@nestjs/common'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { AdminEditService } from './admin-edit.service'
 
@@ -55,6 +55,8 @@ function txRow(overrides: Record<string, unknown> = {}) {
     settledAmount: null,
     deletedAt: null,
     payoutRequestId: null,
+    txDate: new Date('2026-10-20T00:00:00.000Z'),
+    createdAt: new Date('2026-10-20T08:00:00.000Z'),
     ...overrides,
   }
 }
@@ -487,5 +489,228 @@ describe('AdminEditService.adminUpdateTransaction — result', () => {
       id: TX_ID,
       invoiceReissueIncomplete: 'MANUAL_CHECK',
     })
+  })
+})
+
+describe('AdminEditService.adminUpdateTransaction — business date', () => {
+  const NOW = new Date('2026-11-01T10:00:00.000Z')
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const dateJournal = (ctx: ReturnType<typeof makeCtx>) =>
+    journal(ctx, 'AMOUNT_OR_RECEIVER_CHANGE').filter(
+      (j) => 'txDate' in (j.values.metadata as object),
+    )
+  const MONEY_COLUMNS = ['amount', 'currency', 'originalAmount', 'exchangeRate', 'settledAmount']
+
+  it('leaves tx_date and the journal alone when the stored day is re-sent', async () => {
+    // A legacy row far outside the backdating window must still take a notes edit.
+    const ctx = makeCtx({ row: { txDate: new Date('2025-01-05T00:00:00.000Z') } })
+    await ctx.svc.adminUpdateTransaction(TX_ID, { notes: 'x', txDate: '2025-01-05' }, ADMIN)
+    expect(txUpdate(ctx).set).not.toHaveProperty('txDate')
+    expect(dateJournal(ctx)).toHaveLength(0)
+    expect(journal(ctx, 'TX_DATE_BACKDATED')).toHaveLength(0)
+  })
+
+  it('writes a changed day, journals before/after, and touches no money column', async () => {
+    const ctx = makeCtx()
+    await ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-10-25' }, ADMIN)
+    const set = txUpdate(ctx).set
+    expect((set.txDate as Date).toISOString().slice(0, 10)).toBe('2026-10-25')
+    for (const col of MONEY_COLUMNS) expect(set).not.toHaveProperty(col)
+    expect(dateJournal(ctx)).toHaveLength(1)
+    expect(dateJournal(ctx)[0]!.values.metadata).toMatchObject({
+      txDate: { before: '2026-10-20', after: '2026-10-25' },
+    })
+    expect(journal(ctx, 'TX_DATE_BACKDATED')).toHaveLength(0)
+  })
+
+  it('changes the date of a PAID row without touching amount, rate or accumulator', async () => {
+    const ctx = makeCtx({ row: { status: 'PAID' } })
+    await ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-10-22' }, ADMIN)
+    const set = txUpdate(ctx).set
+    expect((set.txDate as Date).toISOString().slice(0, 10)).toBe('2026-10-22')
+    for (const col of MONEY_COLUMNS) expect(set).not.toHaveProperty(col)
+    expect(ctx.updates.filter((u) => u.table === 'pending_obligations')).toHaveLength(0)
+  })
+
+  it('refuses a future day on an executed row', async () => {
+    const ctx = makeCtx()
+    await expect(
+      ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-11-05' }, ADMIN),
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_TX_DATE_IN_FUTURE' } })
+    expect(ctx.updates).toHaveLength(0)
+  })
+
+  it('allows a future day on a scheduled (PENDING) salary', async () => {
+    const ctx = makeCtx({ row: { type: 'SALARY', status: 'PENDING', salaryMonth: '2026-10' } })
+    await ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-11-05' }, ADMIN)
+    expect((txUpdate(ctx).set.txDate as Date).toISOString().slice(0, 10)).toBe('2026-11-05')
+  })
+
+  it('demands a reason beyond the 31-day window and writes nothing without it', async () => {
+    const ctx = makeCtx()
+    await expect(
+      ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-08-01' }, ADMIN),
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_TX_DATE_EDIT_REASON_REQUIRED' } })
+    expect(ctx.updates).toHaveLength(0)
+    expect(ctx.inserts).toHaveLength(0)
+  })
+
+  it('stores a reason-backed backdate and journals the reason', async () => {
+    const ctx = makeCtx()
+    await ctx.svc.adminUpdateTransaction(
+      TX_ID,
+      { txDate: '2026-08-01', backdateReason: '  late bank statement  ' },
+      ADMIN,
+    )
+    expect((txUpdate(ctx).set.txDate as Date).toISOString().slice(0, 10)).toBe('2026-08-01')
+    const rows = journal(ctx, 'TX_DATE_BACKDATED')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.values).toMatchObject({
+      targetId: TX_ID,
+      actorId: ADMIN.id,
+      metadata: { txDate: '2026-08-01', backdateReason: 'late bank statement' },
+    })
+  })
+
+  it('refuses a future day on a PAID salary — only a PENDING salary is PLANNED', async () => {
+    const ctx = makeCtx({ row: { type: 'SALARY', status: 'PAID', salaryMonth: '2026-10' } })
+    await expect(
+      ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-11-05' }, ADMIN),
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_TX_DATE_IN_FUTURE' } })
+    expect(ctx.updates).toHaveLength(0)
+  })
+
+  it('takes the oldest day of the 31-day window without a reason, one day older needs one', async () => {
+    const edge = makeCtx()
+    await edge.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-10-01' }, ADMIN)
+    expect((txUpdate(edge).set.txDate as Date).toISOString().slice(0, 10)).toBe('2026-10-01')
+    expect(journal(edge, 'TX_DATE_BACKDATED')).toHaveLength(0)
+
+    const past = makeCtx()
+    await expect(
+      past.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-09-30' }, ADMIN),
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_TX_DATE_EDIT_REASON_REQUIRED' } })
+  })
+
+  it('treats a null date as "no date sent"', async () => {
+    const ctx = makeCtx()
+    await ctx.svc.adminUpdateTransaction(TX_ID, { notes: 'x', txDate: null }, ADMIN)
+    expect(txUpdate(ctx).set).not.toHaveProperty('txDate')
+    expect(dateJournal(ctx)).toHaveLength(0)
+  })
+
+  it.each([
+    ['an on-chain-verified row (claimed tx_hash)', { txHash: '0xabc' }],
+    ['a company-account row', { fundingSource: 'COMPANY_ACCOUNT' }],
+    ['a row that already carries settlements', { settledAmount: '40.000000' }],
+  ])('locks the date of %s and writes nothing', async (_label, row) => {
+    const ctx = makeCtx({ row: { status: 'PAID', ...row } })
+    await expect(
+      ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-10-25' }, ADMIN),
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_TX_DATE_LOCKED_ROW' } })
+    expect(ctx.updates).toHaveLength(0)
+    expect(ctx.inserts).toHaveLength(0)
+  })
+
+  it('does not lock a locked row for an edit that sends its stored day', async () => {
+    const ctx = makeCtx({ row: { status: 'PAID', txHash: '0xabc' } })
+    await ctx.svc.adminUpdateTransaction(TX_ID, { notes: 'x', txDate: '2026-10-20' }, ADMIN)
+    expect(txUpdate(ctx).set).not.toHaveProperty('txDate')
+  })
+
+  // SR-M-4 — the lock must also see a hash claimed by THIS request, not only a stored one.
+  const claimingTransition = () => ({
+    txHashPatch: { txHash: '0xfeed' },
+    claimHash: '0xfeed',
+    staleClaim: false,
+  })
+
+  it('refuses a changed day in the same request that claims an on-chain hash', async () => {
+    const ctx = makeCtx({ row: { type: 'ADMIN_INCOME', status: 'PAID' } })
+    ctx.onChainClaim.resolveReceiptHashTransition.mockResolvedValue(claimingTransition())
+    await expect(
+      ctx.svc.adminUpdateTransaction(
+        TX_ID,
+        { receiptExternalUrl: 'https://etherscan.io/tx/0xfeed', txDate: '2026-10-25' },
+        ADMIN,
+      ),
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_TX_DATE_LOCKED_ROW' } })
+    expect(ctx.updates).toHaveLength(0)
+    expect(ctx.inserts).toHaveLength(0)
+    expect(consumeTxHashMock).not.toHaveBeenCalled()
+  })
+
+  it('still claims a hash when the request re-sends the stored day', async () => {
+    const ctx = makeCtx({ row: { type: 'ADMIN_INCOME', status: 'PAID' } })
+    ctx.onChainClaim.resolveReceiptHashTransition.mockResolvedValue(claimingTransition())
+    await ctx.svc.adminUpdateTransaction(
+      TX_ID,
+      { receiptExternalUrl: 'https://etherscan.io/tx/0xfeed', txDate: '2026-10-20' },
+      ADMIN,
+    )
+    const set = txUpdate(ctx).set
+    expect(set.txHash).toBe('0xfeed')
+    expect(set).not.toHaveProperty('txDate')
+    expect(consumeTxHashMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('binds a date move to a row that is still unclaimed and not company-funded', async () => {
+    const ctx = makeCtx()
+    await ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-10-25' }, ADMIN)
+    const query = dialect.sqlToQuery(txUpdate(ctx).where as never)
+    expect(query.sql).toContain('"tx_hash" is null')
+    expect(query.params).toContain('COMPANY_ACCOUNT')
+  })
+
+  it('does not add the date-lock predicates to an edit that keeps the day', async () => {
+    const ctx = makeCtx()
+    await ctx.svc.adminUpdateTransaction(TX_ID, { notes: 'x', txDate: '2026-10-20' }, ADMIN)
+    const query = dialect.sqlToQuery(txUpdate(ctx).where as never)
+    expect(query.sql).not.toContain('"tx_hash" is null')
+    expect(query.params).not.toContain('COMPANY_ACCOUNT')
+  })
+
+  it('voids and reissues the invoice after a date move', async () => {
+    const ctx = makeCtx({ row: { status: 'PAID' } })
+    await expect(
+      ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-10-25' }, ADMIN),
+    ).resolves.toEqual({ id: TX_ID })
+    expect(ctx.invoices.voidAndReissueInvoiceForAmountEdit).toHaveBeenCalledTimes(1)
+    expect(ctx.invoices.voidAndReissueInvoiceForAmountEdit).toHaveBeenCalledWith(TX_ID, ADMIN.id)
+  })
+
+  it('does not touch the invoice when the day is unchanged', async () => {
+    const ctx = makeCtx({ row: { status: 'PAID' } })
+    await ctx.svc.adminUpdateTransaction(TX_ID, { notes: 'x', txDate: '2026-10-20' }, ADMIN)
+    expect(ctx.invoices.voidAndReissueInvoiceForAmountEdit).not.toHaveBeenCalled()
+  })
+
+  it('reports an incomplete invoice reissue after a date move instead of a clean success', async () => {
+    const ctx = makeCtx({ row: { status: 'PAID' } })
+    ctx.invoices.voidAndReissueInvoiceForAmountEdit.mockResolvedValue('VOID_FAILED' as never)
+    await expect(
+      ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-10-25' }, ADMIN),
+    ).resolves.toMatchObject({ id: TX_ID, invoiceReissueIncomplete: 'MANUAL_CHECK' })
+    expect(journal(ctx, 'INVOICE_REISSUE_FAILED')).toHaveLength(1)
+  })
+
+  it('still refuses a non-ADMIN who sends a date', async () => {
+    const ctx = makeCtx()
+    await expect(
+      ctx.svc.adminUpdateTransaction(
+        TX_ID,
+        { txDate: '2026-10-25' },
+        { ...ADMIN, role: 'ACCOUNTANT' },
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException)
+    expect(ctx.findFirst).not.toHaveBeenCalled()
   })
 })
