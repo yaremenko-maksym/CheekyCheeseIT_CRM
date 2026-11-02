@@ -54,12 +54,6 @@ import { users } from './users'
 // (https-only URLs, markdown-without-raw-HTML descriptions).
 
 /**
- * A configured feed. `config` holds ONLY source-specific knobs (for DOU: the
- * category, validated against an allow-list) — deliberately NOT a URL: letting
- * an admin store an arbitrary URL here would turn the collector into an SSRF
- * primitive. The endpoint is a constant in the provider implementation.
- */
-/**
  * SR-M-4: the FULL_INVENTORY-capable source types — the ATS board adapters whose
  * `SourceCoverageScope` is built with `query === null && window === null`, the only shape from which
  * `reporting-provider.ts` `deriveCoverage` returns `FULL_INVENTORY`. The `(type, namespace)`
@@ -80,6 +74,12 @@ export const INVENTORY_SOURCE_TYPES = [
 /** The same list as a Postgres IN-list literal, shared by the index predicate and the CHECK. */
 const INVENTORY_SOURCE_TYPES_SQL = INVENTORY_SOURCE_TYPES.map((t) => `'${t}'`).join(', ')
 
+/**
+ * A configured feed. `config` holds ONLY source-specific knobs (for DOU: the
+ * category, validated against an allow-list) — deliberately NOT a URL: letting
+ * an admin store an arbitrary URL here would turn the collector into an SSRF
+ * primitive. The endpoint is a constant in the provider implementation.
+ */
 export const jobSources = pgTable(
   'job_sources',
   {
