@@ -57,8 +57,6 @@ export interface DetailTailReport {
   readonly unfetchable: number
   /** FOUND whose observation identity did not match the claimed record (CR-M-9: failed, no retry). */
   readonly mismatched: number
-  /** Untried rows released back to PENDING because the tail aborted before reaching them (CR-M-6). */
-  readonly released: number
 }
 
 const ZERO: DetailTailReport = {
@@ -70,7 +68,6 @@ const ZERO: DetailTailReport = {
   deferred: 0,
   unfetchable: 0,
   mismatched: 0,
-  released: 0,
 }
 
 /** One claimed DETAIL_FETCH row with the native id recovered from its record's identity. */
@@ -161,7 +158,6 @@ export async function runDetailTail<C extends ValidatedSourceConfig>(
     if (untried.length > 0) {
       try {
         await port.release(untried)
-        report.released = untried.length
       } catch {
         // Best-effort: a failed release leaves those rows to lease-expiry recovery (the prior
         // behaviour). The original abort error, not this one, must end the run.
