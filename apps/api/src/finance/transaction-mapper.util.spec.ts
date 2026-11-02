@@ -210,3 +210,32 @@ describe('mapTx — every other field identical for both viewer classes', () => 
     expect(dto.recipientId).toBeNull()
   })
 })
+
+describe('mapTx — isDateLocked (UX-M-2): real value for ADMIN only', () => {
+  const open = { txHash: null, fundingSource: null, settledAmount: null }
+
+  it.each([
+    ['a stored tx hash', { txHash: '0xhash' }],
+    ['company-account funding', { fundingSource: 'COMPANY_ACCOUNT' }],
+    ['a settlement accumulator', { settledAmount: '50.00' }],
+  ])('is true for ADMIN on a row locked by %s', (_cause, lock) => {
+    const tx = makeTx({ ...open, ...lock } as never)
+    expect(mapTx(tx, viewer('ADMIN')).isDateLocked).toBe(true)
+  })
+
+  it('is false for ADMIN on an unlocked row', () => {
+    expect(mapTx(makeTx(open as never), viewer('ADMIN')).isDateLocked).toBe(false)
+  })
+
+  it.each(['ACCOUNTANT', 'SENIOR', 'JUNIOR', 'HR', 'DROP'] as SessionUser['role'][])(
+    'is false for %s even on a row locked by every cause',
+    (role) => {
+      const tx = makeTx({
+        txHash: '0xhash',
+        fundingSource: 'COMPANY_ACCOUNT',
+        settledAmount: '50.00',
+      } as never)
+      expect(mapTx(tx, viewer(role)).isDateLocked).toBe(false)
+    },
+  )
+})

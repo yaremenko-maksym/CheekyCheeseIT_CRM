@@ -1,6 +1,6 @@
 import type { SessionUser } from '@crm/shared'
 import type { Transaction } from '../database/schema'
-import { isInternalCompanySide } from './finance-predicates.util'
+import { isInternalCompanySide, isTxDateLocked } from './finance-predicates.util'
 
 export type TxWithRelations = Transaction & {
   // task-counterparty-role-masking: `role` is joined so mapTx can tell whether
@@ -127,6 +127,11 @@ export function mapTx(tx: TxWithRelations, viewer: SessionUser) {
     notes: tx.notes,
     salaryMonth: tx.salaryMonth,
     txDate: tx.txDate ? tx.txDate.toISOString() : null,
+    // UX-M-2 / QA-LOW-3 — the admin edit form disables the date on a row the
+    // guard would refuse. Allowlist: only ADMIN (the one role that can move a
+    // date) gets the real answer; everyone else gets `false`, so the flag can
+    // never act as a proxy for a lock cause hidden from them.
+    isDateLocked: viewer.role === 'ADMIN' && isTxDateLocked(tx),
     // Drop role - phase 2. Optional explicit recipient — populated on
     // PAYOUT_DROP today; null on every legacy row. Exposing on the DTO so
     // the frontend list/detail views can distinguish drop payouts cleanly.

@@ -11,6 +11,22 @@ import { uniqueViolationConstraint } from '../database/pg-errors'
  * touched. Same failure the payout cascade already avoids with an
  * allow-list of index names — the receipt entrances now share it.
  */
+/**
+ * SR-M-2 / SR-M-3 (owner decision, 2026-11-01): may an admin edit move this
+ * row's business date? NOT when the day is a fact someone else holds — an
+ * on-chain-verified payment (stored `tx_hash`), a company-account row, or a row
+ * that already carries settlements. The ONE source for both the edit guard
+ * (`resolveAdminEditTxDate`) and the DTO flag `isDateLocked` (`mapTx`), so the
+ * form can never offer a change the server refuses.
+ */
+export function isTxDateLocked(row: {
+  txHash: string | null
+  fundingSource: string | null
+  settledAmount: string | null
+}): boolean {
+  return !!row.txHash || row.fundingSource === 'COMPANY_ACCOUNT' || row.settledAmount !== null
+}
+
 export function isRegistryConflict(err: unknown): boolean {
   const constraint = uniqueViolationConstraint(err)
   return (
