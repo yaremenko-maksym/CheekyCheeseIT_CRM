@@ -2820,7 +2820,7 @@ msgstr "Вкажіть коректну дату транзакції — так
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_DATE_LOCKED_ROW"
-msgstr "Дату цієї транзакції не можна змінити: оплату підтверджено в блокчейні, її проведено з рахунку компанії або за нею вже є розрахунки"
+msgstr "Дату цієї транзакції не можна змінити: оплату підтверджено в блокчейні, вона надійшла з рахунку компанії або за нею вже є розрахунки"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
@@ -5391,6 +5391,10 @@ msgstr "Сітка"
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Підписуємо…"
 msgstr "Підписуємо…"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
+msgid "Дату не можна змінити: оплату підтверджено в блокчейні, вона надійшла з рахунку компанії або вже є розрахунки"
+msgstr "Дату не можна змінити: оплату підтверджено в блокчейні, вона надійшла з рахунку компанії або вже є розрахунки"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Немає доступних команд дропа."
@@ -10642,7 +10646,7 @@ msgid "Пошук співбесіди"
 msgstr "Пошук співбесіди"
 
 #. placeholder {0}: i18n._(CASCADE_PREVIEW_LEAD_IN_MESSAGE)
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/use-cascade-preview-state.ts
 msgid "{0} — перевірте з’єднання"
 msgstr "{0} — перевірте з’єднання"
 

@@ -330,6 +330,34 @@ describe.skipIf(!HAS_DB_URL)(
       })
     })
 
+    describe('isDateLocked on the read DTO (UX-M-2) — the same rule the guard applies', () => {
+      it.each([
+        ['a claimed tx_hash', { txHash: TX_HASH }],
+        ['COMPANY_ACCOUNT funding', { fundingSource: 'COMPANY_ACCOUNT' as const }],
+        ['settlements', { settledAmount: '40.000000' }],
+      ])(
+        'a row locked by %s reads true for ADMIN, false for its SENIOR party, and the guard still refuses',
+        async (_n, over) => {
+          const id = await seedExpense({ receiverId: SENIOR.id, ...over })
+          expect((await svc.findOne(id, ADMIN)).isDateLocked).toBe(true)
+          expect((await svc.findOne(id, SENIOR)).isDateLocked).toBe(false)
+          await expect(
+            svc.adminUpdateTransaction(id, { txDate: IN_WINDOW_DAY }, ADMIN),
+          ).rejects.toMatchObject({
+            response: expect.objectContaining({ code: 'FINANCE_TX_DATE_LOCKED_ROW' }),
+          })
+        },
+      )
+
+      it('an unlocked row reads false for ADMIN, and the date move it promises succeeds', async () => {
+        const id = await seedExpense({ receiverId: SENIOR.id })
+        expect((await svc.findOne(id, ADMIN)).isDateLocked).toBe(false)
+        const edited = await svc.adminUpdateTransaction(id, { txDate: IN_WINDOW_DAY }, ADMIN)
+        expect(edited.isDateLocked).toBe(false)
+        expect(await storedDay(id)).toBe(IN_WINDOW_DAY)
+      })
+    })
+
     it('a request that claims a tx_hash AND moves the date is refused as locked; neither lands', async () => {
       // Only a COMPANY_ACCOUNT ADMIN_INCOME row consumes a transfer, so only it can claim a
       // hash; its stored funding source trips the same code first, so this pins the combined

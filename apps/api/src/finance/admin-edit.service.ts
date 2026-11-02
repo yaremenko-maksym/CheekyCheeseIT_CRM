@@ -10,23 +10,21 @@ import { and, eq, isNull, sql } from 'drizzle-orm'
 import type { CascadePlan, SessionUser } from '@crm/shared'
 import {
   PAID_ROW_LOCKED_FIELD_ERROR_CODES,
-  accountsForSalaryMonth,
   amountsDiffer,
   computeCascadeVersion,
   floorAmountAtAccumulator,
-  isAutomaticSalaryOrigin,
   isCascadeAmountEdit,
   resolveEditCascade,
 } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
+import { pendingObligations, transactionAuditLog, transactions } from '../database/schema'
+import { InvoicesService } from '../invoices/invoices.service'
 import {
-  pendingObligations,
-  salaryMonthInitializations,
-  transactionAuditLog,
-  transactions,
-} from '../database/schema'
-import { InvoicesService, type InvoiceReissueOutcome } from '../invoices/invoices.service'
+  repairInvoicesAfterAdminEdit,
+  type AdminEditResult,
+} from './admin-edit-invoice-repair.helper'
+import { migrateSalaryMonthMarker } from './admin-edit-salary-month.helper'
 import {
   assertTxDateNotClaimedInRequest,
   resolveAdminEditTxDate,
@@ -37,23 +35,9 @@ import { isRegistryConflict } from './finance-predicates.util'
 import { consumeTxHash } from './onchain-tx'
 import { OnChainClaimService } from './onchain-claim.service'
 import { assertReceiptDocumentBindable } from './receipt.util'
-import { accountsForSalaryMonthSql } from './salary-origin'
 import { backdateAuditRow } from './transaction-date-audit.util'
 import { formatTransactionBusinessDate } from './transaction-date.util'
 import { assertTransactionWritable } from './transaction-visibility.util'
-
-/**
- * SR-M-1 — which stage of an invoice void/re-issue failed, if any. `undefined`
- * (a caller or double that reports nothing) is not a failure: the only
- * failures are the ones someone actually reported.
- */
-function invoiceFailureStage(
-  outcome: InvoiceReissueOutcome | undefined,
-): 'VOID' | 'REISSUE' | null {
-  if (outcome === 'VOID_FAILED') return 'VOID'
-  if (outcome === 'REISSUE_FAILED') return 'REISSUE'
-  return null
-}
 
 /**
  * ADMIN edit of any non-payout transaction: BIZ-18 guards, the paid-amount edit
@@ -94,7 +78,7 @@ export class AdminEditService {
       cascadeVersion?: string | undefined
     },
     currentUser: SessionUser,
-  ): Promise<{ id: string; invoiceReissueIncomplete?: 'SELF_REPAIRABLE' | 'MANUAL_CHECK' }> {
+  ): Promise<AdminEditResult> {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
     const tx = await this.db.db.query.transactions.findFirst({
@@ -558,99 +542,14 @@ export class AdminEditService {
           throw apiError('FINANCE_ROW_STATE_CHANGED_WHILE_EDITING', HttpStatus.BAD_REQUEST)
         }
 
-        // Multipart salary: before this feature, the receiver/month unique
-        // index itself was cron idempotency. Moving an unpaid salary row to
-        // another month therefore automatically freed the old month. The
-        // durable marker must preserve that behaviour for legacy/CRON rows or
-        // an admin correction would leave a stale marker behind and cron would
-        // silently skip the now-empty old month forever.
-        //
-        // SR-795-M-1 / owner decision D-3: a MANUAL part is now ALSO a marker
-        // owner — the first part recorded for a receiver/month claims the slot
-        // so cron skips that month (see `createSalary`). So a manual part moved
-        // to another month has to carry its marker with it, exactly like a
-        // legacy/CRON row, or the old month stays claimed with no salary in it
-        // and cron skips it forever. Only ADJUSTED rows own nothing: one became
-        // ADJUSTED precisely because another row already held that month.
-        if (
-          salaryMonthChanged &&
-          tx.type === 'SALARY' &&
-          tx.receiverId &&
-          tx.salaryMonth &&
-          data.salaryMonth &&
-          accountsForSalaryMonth(tx.salaryOrigin)
-        ) {
-          const claimedTarget = await dbtx
-            .insert(salaryMonthInitializations)
-            .values({
-              receiverId: tx.receiverId,
-              salaryMonth: data.salaryMonth,
-              initializedBy: currentUser.impersonatorId ?? currentUser.id,
-            })
-            .onConflictDoNothing({
-              target: [
-                salaryMonthInitializations.receiverId,
-                salaryMonthInitializations.salaryMonth,
-              ],
-            })
-            .returning({ id: salaryMonthInitializations.id })
-
-          // If the destination was already initialized, another automatic or
-          // legacy salary already owns that month. The moved row remains an
-          // operator correction of an automatic row but no longer owns the
-          // automatic slot. SR-795-M-3 (PR #868): ADJUSTED, not MANUAL — a
-          // MANUAL salary must carry an idempotency key
-          // (ck_transactions_manual_salary_idempotency_key) and a cron/legacy
-          // row has none, so MANUAL here was a CHECK violation (500).
-          //
-          // Only an AUTOMATIC row is reclassified. A MANUAL part keeps its
-          // origin: it carries an idempotency key and a persisted creation
-          // intent (`salary_creation_intent`), and both describe a manual
-          // request that an admin moving its month does not retract. It simply
-          // arrives at the destination without the marker, which is the same
-          // position as any second manual part of an already-claimed month.
-          if (claimedTarget.length === 0 && isAutomaticSalaryOrigin(tx.salaryOrigin)) {
-            await dbtx
-              .update(transactions)
-              .set({ salaryOrigin: 'ADJUSTED' })
-              .where(eq(transactions.id, id))
-          }
-
-          // Keep the old marker only when another raw row still accounts for
-          // that month. Deliberately include soft-deleted rows: deleting a
-          // salary is an audit event, not permission for cron to resurrect it
-          // (same invariant as createMonthlySalaries).
-          //
-          // CR-795-M-7 / D-3: the predicate is the shared "accounts for the
-          // month" fragment, which — unlike the automatic-component one this
-          // query used before — also counts a MANUAL part. It has to: since the
-          // first manual part of a month claims the marker, a sibling manual
-          // part left behind in the old month is exactly the evidence that the
-          // old month is still accounted for.
-          const [oldMonthEvidence] = await dbtx
-            .select({ id: transactions.id })
-            .from(transactions)
-            .where(
-              and(
-                eq(transactions.type, 'SALARY'),
-                eq(transactions.receiverId, tx.receiverId),
-                eq(transactions.salaryMonth, tx.salaryMonth),
-                accountsForSalaryMonthSql(),
-              ),
-            )
-            .limit(1)
-
-          if (!oldMonthEvidence) {
-            await dbtx
-              .delete(salaryMonthInitializations)
-              .where(
-                and(
-                  eq(salaryMonthInitializations.receiverId, tx.receiverId),
-                  eq(salaryMonthInitializations.salaryMonth, tx.salaryMonth),
-                ),
-              )
-          }
-        }
+        // Salary-month marker migration — see `migrateSalaryMonthMarker`.
+        await migrateSalaryMonthMarker(
+          dbtx,
+          tx,
+          data.salaryMonth,
+          salaryMonthChanged,
+          currentUser.impersonatorId ?? currentUser.id,
+        )
 
         // task-soft-delete-and-money-audit (AC5): "изменение суммы/получателя"
         // — the money-defining fields this endpoint can mutate. Only written
@@ -779,122 +678,16 @@ export class AdminEditService {
       throw err
     }
 
-    // task-cascade-apply (task 3, AC11) — an amount edit invalidates every
-    // invoice built on the old figure. `voidAndReissueInvoiceForAmountEdit`
-    // (task 4, PR #600) marks the signed document void and issues a fresh one;
-    // this is its first and only caller.
-    //
-    // OUTSIDE the DB transaction on purpose: that method opens its OWN
-    // transaction with `FOR UPDATE`, so calling it from inside this one would
-    // self-deadlock. A PDF/S3 hiccup must not undo a cascade that has already
-    // committed — so a failure does not throw.
-    //
-    // SR-M-1 (security-review, PR #721): but it is no longer SILENT either.
-    // Before, a failed void left the old, counterparty-signed invoice live
-    // (the public QR check still confirmed the old figure) and a failed
-    // re-issue left a salary with no invoice forever — both visible only in
-    // the server log. Now each failure is a journal line
-    // (`INVOICE_REISSUE_FAILED`) and the response carries
-    // `invoiceReissueIncomplete`, so the edit is not reported as a clean
-    // success. And the repair exists: re-saving a PAID salary whose invoice
-    // was voided and never replaced re-issues it (below).
-    const actorId = currentUser.impersonatorId ?? currentUser.id
-    const failedStages: Array<{ id: string; stage: 'VOID' | 'REISSUE' }> = []
-    // SR-M-1 (owner decision, 2026-11-01): the invoice PDF is stamped from
-    // `tx_date`, so a date move voids the counterparty-signed document and
-    // issues a fresh one — the same path an amount cascade takes. A row with no
-    // invoice answers `NOT_NEEDED`.
-    const reissueIds = cascadeApplied
-      ? [id, ...cascadeApplied.changedDerivativeIds]
-      : dateDecision
-        ? [id]
-        : []
-    if (reissueIds.length > 0) {
-      for (const reissueId of reissueIds) {
-        let outcome: InvoiceReissueOutcome | undefined
-        try {
-          outcome = await this.invoicesService.voidAndReissueInvoiceForAmountEdit(
-            reissueId,
-            actorId,
-          )
-        } catch (invoiceErr) {
-          this.logger.error(
-            `adminUpdateTransaction: invoice void+reissue failed for transaction=${reissueId}: ${(invoiceErr as Error).message}`,
-            (invoiceErr as Error).stack,
-          )
-          outcome = 'VOID_FAILED'
-        }
-        const stage = invoiceFailureStage(outcome)
-        if (stage) failedStages.push({ id: reissueId, stage })
-      }
-    } else if (tx.type === 'SALARY' && tx.status === 'PAID') {
-      // «Повторное сохранение чинит»: a save that did not move the amount is
-      // the operator's way back to an invoice an earlier edit left broken —
-      // whether the void failed (the old signed document is still current) or
-      // the re-issue did (no document at all). SR-M-3: both stages, so the
-      // toast's advice is actionable in either. A salary that never had an
-      // invoice is left alone (see the method).
-      let outcome: InvoiceReissueOutcome | undefined
-      try {
-        outcome = await this.invoicesService.reissueSalaryInvoiceIfVoided(id, actorId)
-      } catch (invoiceErr) {
-        this.logger.error(
-          `adminUpdateTransaction: salary invoice repair failed for transaction=${id}: ${(invoiceErr as Error).message}`,
-        )
-        outcome = 'REISSUE_FAILED'
-      }
-      const stage = invoiceFailureStage(outcome)
-      if (stage) failedStages.push({ id, stage })
-    }
-
-    // SR-L-5 (security-review round 2) — fire-and-forget, like every other
-    // audit write in this file. The edit itself is already committed: letting
-    // a journal failure throw would turn a saved edit into a 500 AND lose the
-    // `invoiceReissueIncomplete` flag, which is the one thing that tells the
-    // operator to save again.
-    for (const failed of failedStages) {
-      try {
-        await this.db.db.insert(transactionAuditLog).values({
-          actorId,
-          targetId: failed.id,
-          action: 'INVOICE_REISSUE_FAILED',
-          metadata: { stage: failed.stage },
-        })
-      } catch (journalErr) {
-        this.logger.error(
-          `adminUpdateTransaction: could not journal INVOICE_REISSUE_FAILED for transaction=${failed.id} (stage=${failed.stage}): ${(journalErr as Error).message}`,
-        )
-      }
-    }
-
-    if (failedStages.length === 0) return { id }
-    // COPY-M-6 — «save it again» is true for the EDITED salary's own invoice
-    // and false for a derived row, where no repair path exists at all. Asking
-    // the invoice service keeps the promise tied to what it will actually do,
-    // instead of to which row happened to fail.
-    const onlyThisRow = failedStages.every((f) => f.id === id)
-    const repairable = onlyThisRow && (await this.canRepairInvoiceQuietly(id))
-    return {
-      id,
-      invoiceReissueIncomplete: repairable
-        ? ('SELF_REPAIRABLE' as const)
-        : ('MANUAL_CHECK' as const),
-    }
-  }
-
-  /**
-   * COPY-M-6 — only ever asked to pick a MESSAGE, on a path where something
-   * has already failed. A throw here would replace a saved edit with a 500,
-   * so an unanswerable question means «do not promise a repair».
-   */
-  private async canRepairInvoiceQuietly(id: string): Promise<boolean> {
-    try {
-      return await this.invoicesService.canRepairSalaryInvoice(id)
-    } catch (err) {
-      this.logger.error(
-        `adminUpdateTransaction: could not determine invoice repairability for transaction=${id}: ${(err as Error).message}`,
-      )
-      return false
-    }
+    // Post-commit invoice void/re-issue repair — see `repairInvoicesAfterAdminEdit`.
+    return repairInvoicesAfterAdminEdit(
+      { db: this.db, invoicesService: this.invoicesService, logger: this.logger },
+      {
+        id,
+        tx,
+        actorId: currentUser.impersonatorId ?? currentUser.id,
+        cascadeApplied,
+        dateMoved: !!dateDecision,
+      },
+    )
   }
 }
