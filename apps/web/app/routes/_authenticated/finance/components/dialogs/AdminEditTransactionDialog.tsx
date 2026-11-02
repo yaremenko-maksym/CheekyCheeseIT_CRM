@@ -71,6 +71,7 @@ export function AdminEditTransactionDialog({
   const [category, setCategory] = useState('')
   const [salaryMonth, setSalaryMonth] = useState('')
   const [txDate, setTxDate] = useState('')
+  // Stryker disable next-line StringLiteral: equivalent — the mount effect on [tx] calls setBackdateReason('') before any observer can read the initial value
   const [backdateReason, setBackdateReason] = useState('')
   // Stryker disable next-line StringLiteral: unobservable — the mount effect below sets this from `tx` before any render can read it, the same shape as the documented `useState` default in SettleSeniorPayoutDialog
   const [debouncedAmount, setDebouncedAmount] = useState('')

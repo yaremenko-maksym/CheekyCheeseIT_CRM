@@ -21,6 +21,7 @@ export function SubmitErrorBanner({
   const reduceMotion = useReducedMotion()
   useEffect(() => {
     if (scroll)
+      // Stryker disable next-line OptionalChaining: equivalent — the banner div is always rendered, so ref.current is never null when the effect runs
       ref.current?.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' })
   }, [message, scroll, reduceMotion])
   return (
