@@ -16,13 +16,20 @@ import { type ClaimedDetail, type DetailTailPort, runDetailTail } from './detail
 
 const ctx = {} as CollectionContext
 const config = {} as unknown as ValidatedSourceConfig
-const observation = {} as SourceObservation
+// A FOUND observation whose identity key matches the claimed record's default key below (CR-M-9).
+const OBS_KEY = '["v1","NATIVE_ID","REMOTIVE_API","ns","42"]'
+const observation = { identity: { identityKey: OBS_KEY } } as SourceObservation
 
-function claimed(nativeId: string | null, id = 'rec'): ClaimedDetail {
+function claimed(
+  nativeId: string | null,
+  id = 'rec',
+  identityKey: string | null = OBS_KEY,
+): ClaimedDetail {
   return {
     handle: { id, owner: 'w', fencingEpoch: 1 } as ClaimedDetail['handle'],
     recordId: id,
     nativeId,
+    identityKey,
   }
 }
 
@@ -31,6 +38,7 @@ function port(rows: readonly ClaimedDetail[], over: Partial<DetailTailPort> = {}
     write: [] as ClaimedDetail[],
     gone: [] as ClaimedDetail[],
     fail: [] as [ClaimedDetail, string, boolean][],
+    release: [] as ClaimedDetail[][],
   }
   const p: DetailTailPort = {
     claim: vi.fn(async () => rows),
@@ -44,6 +52,9 @@ function port(rows: readonly ClaimedDetail[], over: Partial<DetailTailPort> = {}
     fail: vi.fn(async (r, code, poison) => {
       calls.fail.push([r, code, poison])
       return 'RETRY' as const
+    }),
+    release: vi.fn(async (r) => {
+      calls.release.push([...r])
     }),
     ...over,
   }
@@ -156,5 +167,56 @@ describe('runDetailTail', () => {
     const { p } = port(rows)
     const report = await runDetailTail(provider, config, ctx, p, 5)
     expect(report).toMatchObject({ claimed: 3, fetched: 1, gone: 1, retried: 1 })
+  })
+
+  it('CR-M-6: an aborted tail releases the UNTRIED rows without spending an attempt', async () => {
+    // Three claimed up front; the SECOND throws (a ban). The first is tried; the third was never
+    // tried and must be released (not left to lease-expiry, which would count a spent attempt).
+    const rows = [claimed('1', 'a'), claimed('2', 'b'), claimed('3', 'c')]
+    const boom = new Error('refused')
+    let i = 0
+    const provider = providerWith(async (): Promise<DetailOutcome> => {
+      if (i++ === 1) throw boom
+      return { kind: 'GONE' }
+    })
+    const { p, calls } = port(rows)
+    await expect(runDetailTail(provider, config, ctx, p, 5)).rejects.toBe(boom)
+    // Only the untried row 'c' is released; the in-flight 'b' stays claimed, 'a' was handled.
+    expect(calls.release).toEqual([[rows[2]]])
+    // No `fail` on the untried row: its attempt counter is untouched (the whole point).
+    expect(calls.fail).toEqual([])
+  })
+
+  it('CR-M-6: the LAST row throwing releases nothing (no untried rows remain)', async () => {
+    const rows = [claimed('1', 'a'), claimed('2', 'b')]
+    const boom = new Error('refused')
+    let i = 0
+    const provider = providerWith(async (): Promise<DetailOutcome> => {
+      if (i++ === 1) throw boom
+      return { kind: 'GONE' }
+    })
+    const { p, calls } = port(rows)
+    await expect(runDetailTail(provider, config, ctx, p, 5)).rejects.toBe(boom)
+    expect(calls.release).toEqual([])
+  })
+
+  it('CR-M-9: a FOUND whose observation identity differs from the claimed record is rejected, not written', async () => {
+    // The claimed record's identity key is OTHER_KEY; the adapter returns an observation keyed
+    // OBS_KEY — a different posting. Writing it would duplicate; instead fail loud (poison, no write).
+    const row = claimed('42', 'rec', '["v1","NATIVE_ID","REMOTIVE_API","ns","99"]')
+    const { p, calls } = port([row])
+    const provider = providerWith(async () => ({ kind: 'FOUND', observation }))
+    const report = await runDetailTail(provider, config, ctx, p, 5)
+    expect(calls.write).toEqual([]) // never written → no duplicate record
+    expect(calls.fail).toEqual([[row, 'DETAIL_IDENTITY_MISMATCH', true]]) // poison, never DONE
+    expect(report).toMatchObject({ mismatched: 1, failed: 1, fetched: 0 })
+  })
+
+  it('CR-M-9: a FOUND whose identity matches is written as before', async () => {
+    const { p, calls } = port([claimed('42', 'rec', OBS_KEY)])
+    const provider = providerWith(async () => ({ kind: 'FOUND', observation }))
+    const report = await runDetailTail(provider, config, ctx, p, 5)
+    expect(calls.write).toHaveLength(1)
+    expect(report).toMatchObject({ fetched: 1, mismatched: 0 })
   })
 })

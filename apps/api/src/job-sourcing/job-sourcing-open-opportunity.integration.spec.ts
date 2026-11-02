@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { HttpException } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { HrAccessService } from '../common/hr-access.service'
 import { type CrmAppSession, openCrmAppSession } from '../database/__test-helpers__/crm-app-session'
 import { DatabaseService } from '../database/database.service'
@@ -52,6 +52,53 @@ async function expectNotFound(p: Promise<unknown>): Promise<void> {
     },
   )
 }
+
+/**
+ * CR-M-10: the HR scope check resolves the HR's active-team roster in ONE bounded call
+ * (`getActiveTeamPeers`) and intersects in memory, rather than calling `hrSharesActiveTeamWith` once
+ * per matched senior. DB-free (the private method only touches `hrAccess`), so it runs everywhere.
+ */
+describe('openOpportunity HR scope check is bounded (CR-M-10)', () => {
+  it('uses getActiveTeamPeers once, never hrSharesActiveTeamWith per senior', async () => {
+    const getActiveTeamPeers = vi.fn(async () => [{ userId: 'senX', role: 'SENIOR' as const }])
+    const hrSharesActiveTeamWith = vi.fn(async () => true)
+    const hrAccess = { getActiveTeamPeers, hrSharesActiveTeamWith } as unknown as HrAccessService
+    const svc = new JobSourcingService(
+      {} as unknown as DatabaseService,
+      hrAccess,
+      new JobSourceRegistry([]),
+    )
+    const visible = (
+      svc as unknown as {
+        assertOpportunityVisible: (u: SessionUser, ids: readonly string[]) => Promise<void>
+      }
+    ).assertOpportunityVisible
+    // Three matched seniors; the HR shares a team with the last one only — still one roster query.
+    await visible.call(svc, user('hr1', 'HR'), ['sen1', 'sen2', 'senX'])
+    expect(getActiveTeamPeers).toHaveBeenCalledTimes(1)
+    expect(getActiveTeamPeers).toHaveBeenCalledWith('hr1')
+    expect(hrSharesActiveTeamWith).not.toHaveBeenCalled()
+  })
+
+  it('throws the 404 when the HR shares a team with none of the matched seniors', async () => {
+    const getActiveTeamPeers = vi.fn(async () => [
+      { userId: 'someoneElse', role: 'SENIOR' as const },
+    ])
+    const hrAccess = { getActiveTeamPeers } as unknown as HrAccessService
+    const svc = new JobSourcingService(
+      {} as unknown as DatabaseService,
+      hrAccess,
+      new JobSourceRegistry([]),
+    )
+    const visible = (
+      svc as unknown as {
+        assertOpportunityVisible: (u: SessionUser, ids: readonly string[]) => Promise<void>
+      }
+    ).assertOpportunityVisible
+    await expectNotFound(visible.call(svc, user('hr1', 'HR'), ['sen1', 'sen2']))
+    expect(getActiveTeamPeers).toHaveBeenCalledTimes(1)
+  })
+})
 
 let session: CrmAppSession
 let fx: LedgerFixtures

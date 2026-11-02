@@ -22,6 +22,7 @@ import {
   enqueueDirty,
   failDirty,
   recoverExpiredDirty,
+  releaseDirty,
 } from './dirty-work.store'
 
 /**
@@ -230,6 +231,46 @@ describe.skipIf(!hasDatabaseUrl())('dirty-work claim store (r5 Task 4.6 S3)', ()
     expect((await row(gone.id)).last_error_code).toBe('ENTITY_MISSING')
     // A finished row is not held any more: a second completion is refused.
     await expect(completeDirty(app, by(current))).rejects.toBeInstanceOf(DirtyWorkFencedError)
+  })
+
+  it('CR-M-6: releaseDirty returns a held row to PENDING WITHOUT spending an attempt', async () => {
+    const [id] = await seed(1)
+    const [w] = await claimMine('release-me', 1)
+    expect(w!.id).toBe(id)
+    const claimedRow = await row(id!)
+    expect(claimedRow.status).toBe('CLAIMED')
+
+    await releaseDirty(app, w!)
+    const r = await row(id!)
+    // PENDING again, no retry_count bump (unlike fail / recover), no epoch bump, no owner.
+    expect([r.status, r.retry_count, r.claim_owner, r.completed_at]).toEqual([
+      'PENDING',
+      claimedRow.retry_count,
+      null,
+      null,
+    ])
+    expect(r.fencing_epoch).toBe(claimedRow.fencing_epoch)
+    // Immediately re-claimable (it is the spec's only aged row).
+    await ageMine()
+    const [again] = await claimMine('re-claim', 1)
+    expect(again!.id).toBe(id)
+  })
+
+  it('CR-M-6: releaseDirty on a stale handle is a silent no-op (someone else re-claimed)', async () => {
+    const [id] = await seed(1)
+    const [w] = await claimMine('stale-release', 1)
+    await expireLease(id!)
+    // Recovery fences the old holder (epoch bumps); the old handle no longer owns the row.
+    await recoverExpiredDirty(app, { batchSize: 1, maxAttempts: 5 })
+    const recovered = await row(id!)
+    await expect(releaseDirty(app, w!)).resolves.toBeUndefined()
+    // The recovered row is untouched by the stale release.
+    const after = await row(id!)
+    expect([after.status, after.retry_count, after.fencing_epoch]).toEqual([
+      recovered.status,
+      recovered.retry_count,
+      recovered.fencing_epoch,
+    ])
   })
 
   it('AC 4: failures retry until the budget, then FAILED with last_error_code — never again', async () => {

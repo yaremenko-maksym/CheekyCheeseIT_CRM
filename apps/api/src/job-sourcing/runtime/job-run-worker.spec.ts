@@ -1231,9 +1231,11 @@ describe('U10 detail tail wiring (ADR 6a #4)', () => {
     expect(w.log).toContain('finish:SUCCEEDED')
   })
 
-  it('an IN_LIST adapter under DETAIL_ONLY still lists (it has no tail to run instead)', async () => {
+  it('CR-M-7/SPEC-M-1: DETAIL_ONLY on a no-tail source issues NO list request (reads nothing)', async () => {
     let listed = false
     const w = world({
+      // No collectDetail (IN_LIST) → no tail port; a DETAIL_ONLY run must STILL read no list, not
+      // fall through to a full list request. Pre-CR-M-7 this listed; the `RunScope` doc forbids it.
       detailPerRun: 5,
       collect: async () => {
         listed = true
@@ -1241,7 +1243,8 @@ describe('U10 detail tail wiring (ADR 6a #4)', () => {
       },
     })
     await w.worker.runDue({ cycleId: uuid(1), scope: 'DETAIL_ONLY' })
-    expect(listed).toBe(true)
+    expect(listed).toBe(false)
+    expect(w.log).toContain('finish:SUCCEEDED')
   })
 
   it('builds no tail port for an IN_LIST adapter (no collectDetail)', async () => {
