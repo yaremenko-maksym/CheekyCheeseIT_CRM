@@ -161,6 +161,43 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await claimDetailPass(first, [src.id])).toEqual([])
     })
 
+    it('CR-H-1 / SR-M-1: a detail-pass refusal is recorded as SWEPT — it never pulls next_attempt_at earlier', async () => {
+      // A detail-capable source, due only a day out, on a host whose gap is open for ~60 s: the
+      // detail pass claims it (cadence-free) and is refused HOST_RATE_GAP, whose write-back would
+      // move next_attempt_at to ~now+60s. Recorded as swept (GREATEST), the day-out slot must stand;
+      // an un-swept write would pull it forward and hand the REGULAR run a second claim beside its own.
+      const host = fx.host(`detail-gap-${randomUUID().slice(0, 6)}`)
+      const namespace = `t3spec-${TAG}-${randomUUID().slice(0, 8)}`
+      const id = await kit.reporting(
+        {
+          type: ON_DEMAND_TYPE,
+          namespace,
+          hostKey: host,
+          nextAttemptSql: "clock_timestamp() + interval '1 day'",
+        },
+        { type: ON_DEMAND_TYPE, detailMode: 'ON_DEMAND', detailPerRun: 5 },
+        { rate: { perMinute: 1, perDay: 100 }, floorHours: 0 },
+      )
+      await enqueueDetail(ON_DEMAND_TYPE, namespace)
+      await session.admin.query(
+        `INSERT INTO job_source_hosts (host_key, last_claimed_at) VALUES ($1, clock_timestamp())`,
+        [host],
+      )
+      const before = (await fx.sourceRow(id)).next_in_s ?? -1
+      const cycleId = await cycle()
+      const { claimed, refused } = await ledger.claimDue({
+        cycleId,
+        owner: 'detail-worker',
+        limit: 10,
+        onlyIds: [id],
+        detailPass: { cycleId },
+      })
+      expect(claimed).toEqual([])
+      expect(refused).toEqual([{ sourceId: id, reason: 'HOST_RATE_GAP' }])
+      // swept: the day-out slot is kept (GREATEST), not pulled to ~now+60s
+      expect((await fx.sourceRow(id)).next_in_s ?? -1).toBeGreaterThan(before - 60)
+    })
+
     it('sweep and detailPass are mutually exclusive on both claimDue and countDue', async () => {
       const cycleId = await cycle()
       const scope = { cycleId, skipIds: [] as string[] }

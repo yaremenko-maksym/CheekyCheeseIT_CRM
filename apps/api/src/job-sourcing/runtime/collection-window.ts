@@ -100,9 +100,10 @@ export async function runCollectionWindow(
   // U10: the detail pass's claim/count scope and (for the claim only) the DETAIL_ONLY run scope.
   // CR-M-2: carries the same skip set as the sweep, so a refused source is not re-picked or counted.
   const detailPass = ():
-    | { detailPass: { cycleId: string; skipIds: string[] } }
-    | Record<string, never> =>
-    input.detailPass === true ? { detailPass: { cycleId: input.cycleId, skipIds: [...skipped] } } : {}
+    { detailPass: { cycleId: string; skipIds: string[] } } | Record<string, never> =>
+    input.detailPass === true
+      ? { detailPass: { cycleId: input.cycleId, skipIds: [...skipped] } }
+      : {}
   let iterations = 0
   let claimed = 0
   let ended: WindowSummary['ended'] = 'WINDOW'

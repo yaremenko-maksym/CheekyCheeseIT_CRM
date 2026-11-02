@@ -639,5 +639,55 @@ describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
       await createRecomputeSteps(db, {}, ['GREENHOUSE_ATS']).process(work(1), batchAt())
       expect(did(/INSERT INTO job_dirty_work/)).toEqual([])
     })
+
+    // CR-M-4: the onDemandStale consumer in the worker's enqueue loop had no unit coverage.
+    const STALE = '00000000-0000-4000-8000-0000000000a2'
+    it('AC4-TTL: a LEAD/TRIAGE opportunity enqueues a DETAIL_FETCH for a stale backing record too', async () => {
+      const { db, did } = recordingDb(
+        world({
+          opportunity: opportunityRow({ on_demand_stale: [{ recordId: STALE, version: 9 }] }),
+        }),
+      )
+      await createRecomputeSteps(db, {}, ['GREENHOUSE_ATS']).process(work(1), batchAt())
+      const [enqueue] = did(/INSERT INTO job_dirty_work/)
+      expect(enqueue?.params).toEqual(
+        expect.arrayContaining(['SOURCE_RECORD', STALE, 9, 'DETAIL_FETCH']),
+      )
+    })
+
+    it('enqueues one DETAIL_FETCH per record across both the missing and the stale set', async () => {
+      const { db, did } = recordingDb(
+        world({
+          opportunity: opportunityRow({
+            on_demand_missing: [{ recordId: REC, version: 5 }],
+            on_demand_stale: [{ recordId: STALE, version: 9 }],
+          }),
+        }),
+      )
+      await createRecomputeSteps(db, {}, ['GREENHOUSE_ATS']).process(work(1), batchAt())
+      const inserts = did(/INSERT INTO job_dirty_work/)
+      const targets = inserts.map((q) => [q.params[1], q.params[2]])
+      expect(targets).toEqual(
+        expect.arrayContaining([
+          [REC, 5],
+          [STALE, 9],
+        ]),
+      )
+      expect(inserts).toHaveLength(2)
+    })
+
+    it('a stale record is not enqueued when the opportunity is not wanted (EXCLUDED)', async () => {
+      evaluate.mockReturnValueOnce({
+        kind: 'EXCLUDED',
+        audit: { excluded: [] },
+      } as unknown as ReturnType<typeof funnel.evaluate>)
+      const { db, did } = recordingDb(
+        world({
+          opportunity: opportunityRow({ on_demand_stale: [{ recordId: STALE, version: 9 }] }),
+        }),
+      )
+      await createRecomputeSteps(db, {}, ['GREENHOUSE_ATS']).process(work(1), batchAt())
+      expect(did(/INSERT INTO job_dirty_work/)).toEqual([])
+    })
   })
 })

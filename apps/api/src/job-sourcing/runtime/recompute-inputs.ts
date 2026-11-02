@@ -279,6 +279,18 @@ function parseOnDemandMissing(value: unknown): OnDemandMissing[] {
   }))
 }
 
+/**
+ * U10 (ADR 6a, "Want"): the backing ON_DEMAND records to (re-)fetch a detail for — those still
+ * MISSING one (AC7) followed by those whose cached detail has aged past the TTL (AC4-TTL). The
+ * dirty-work unique key `(entity, version, reason)` dedups, so a record in both sets enqueues once.
+ * The one place the two sets are merged, so `openOpportunity` and any other caller stay in step.
+ */
+export function detailFetchTargets(
+  loaded: Pick<LoadedOpportunity, 'onDemandMissing' | 'onDemandStale'>,
+): readonly OnDemandMissing[] {
+  return [...loaded.onDemandMissing, ...loaded.onDemandStale]
+}
+
 /** The opportunity at its current revision, or null when it does not exist. */
 export async function loadOpportunity(
   db: SqlExecutor,

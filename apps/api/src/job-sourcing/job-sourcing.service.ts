@@ -62,7 +62,7 @@ import type { NormalizedPosting } from './job-source.provider'
 import { apiError } from '../common/api-error'
 import { markExclusionDirty } from './dirty-producers'
 import { DETAIL_FETCH, enqueueDirty } from './ownership/dirty-work.store'
-import { loadOpportunity } from './runtime/recompute-inputs'
+import { detailFetchTargets, loadOpportunity } from './runtime/recompute-inputs'
 import { productionLedgerCatalog } from './runtime/production-catalog'
 import { JobSourceRegistry } from './registry/job-source-registry'
 import { type TypeFilter, sourceAcceptsTrigger, typePassesFilter } from './scheduling/due-policy'
@@ -722,7 +722,7 @@ export class JobSourcingService {
     // U10: the records to (re-)fetch — those missing a detail (AC7) and those whose cached detail has
     // aged past DETAIL_STALE_DAYS (ADR 6a step 4, #6 / AC4-TTL). Both enqueue at the record's current
     // observation_seq; the unique key dedups. HR opening the opportunity IS the "still wanted" gate.
-    const toFetch = [...loaded.onDemandMissing, ...loaded.onDemandStale]
+    const toFetch = detailFetchTargets(loaded)
     if (toFetch.length > 0) {
       await this.db.db.transaction(async (tx) => {
         for (const rec of toFetch) {

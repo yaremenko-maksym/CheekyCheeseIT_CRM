@@ -9,6 +9,7 @@ import {
   MATCH_RULE_VERSION,
   RecomputePoisonError,
   type RosterInputs,
+  detailFetchTargets,
   exclusionVersion,
   installMatches,
   loadOpportunity,
@@ -590,6 +591,70 @@ describe('loadOpportunity', () => {
       expect(statements[0]?.sql).not.toMatch(/description_sha256 IS NOT NULL/)
       expect(statements[0]?.sql).toMatch(/'\[\]'::jsonb AS on_demand_stale/)
     })
+
+    // CR-M-3 / SPEC-M-2 — chosen behaviour: DEFERRED to the ON_DEMAND switch (#10). The staleness
+    // guard suppresses a version that has ANY settled DETAIL_FETCH row (no PENDING/CLAIMED status
+    // filter), so the 14-day TTL fires at most once per frozen observation_seq. A correct recurrence
+    // needs a detail-freshness anchor independent of `received_at` (it feeds compareClaims) plus a
+    // re-enqueue path the frozen-version idempotency key does not swallow — a new column / staged
+    // DDL, surfaced as an A2. This test PINS the current guard so the deferral is explicit and any
+    // future change to the DETAIL_FETCH predicate is deliberate.
+    it('CR-M-3 (deferred to #10): the stale guard has NO status filter — a settled DETAIL_FETCH still suppresses', async () => {
+      const { tx, statements } = recording(() => [
+        row({ on_demand_stale: [{ recordId: REC, version: 9 }] }),
+      ])
+      await loadOpportunity(tx, OPP, ['GREENHOUSE_ATS'])
+      const staleGuard =
+        statements[0]?.sql.match(
+          /description_sha256 IS NOT NULL[\s\S]*?AND NOT EXISTS \(SELECT 1 FROM job_dirty_work d[\s\S]*?d\.reason = \$\d+ AND d\.target_version = h\.observation_seq\)\)/,
+        )?.[0] ?? ''
+      expect(staleGuard).not.toBe('')
+      // The known limitation: the stale guard does NOT scope the NOT EXISTS to in-flight work.
+      expect(staleGuard).not.toMatch(/d\.status IN \('PENDING', 'CLAIMED'\)/)
+    })
+  })
+})
+
+describe('detailFetchTargets (U10, service/worker merge — CR-M-4)', () => {
+  const M1 = '00000000-0000-4000-8000-0000000000b1'
+  const M2 = '00000000-0000-4000-8000-0000000000b2'
+  const S1 = '00000000-0000-4000-8000-0000000000c1'
+
+  it('merges onDemandMissing then onDemandStale, missing first', () => {
+    expect(
+      detailFetchTargets({
+        onDemandMissing: [{ recordId: M1, version: 2 }],
+        onDemandStale: [{ recordId: S1, version: 9 }],
+      }),
+    ).toEqual([
+      { recordId: M1, version: 2 },
+      { recordId: S1, version: 9 },
+    ])
+  })
+
+  it('returns only the missing set when nothing is stale, and vice versa', () => {
+    expect(
+      detailFetchTargets({ onDemandMissing: [{ recordId: M1, version: 2 }], onDemandStale: [] }),
+    ).toEqual([{ recordId: M1, version: 2 }])
+    expect(
+      detailFetchTargets({ onDemandMissing: [], onDemandStale: [{ recordId: S1, version: 9 }] }),
+    ).toEqual([{ recordId: S1, version: 9 }])
+  })
+
+  it('is empty when neither set has a record', () => {
+    expect(detailFetchTargets({ onDemandMissing: [], onDemandStale: [] })).toEqual([])
+  })
+
+  it('keeps every record of both sets (a stale set of two is not truncated)', () => {
+    expect(
+      detailFetchTargets({
+        onDemandMissing: [{ recordId: M1, version: 2 }],
+        onDemandStale: [
+          { recordId: S1, version: 9 },
+          { recordId: M2, version: 4 },
+        ],
+      }),
+    ).toHaveLength(3)
   })
 })
 
