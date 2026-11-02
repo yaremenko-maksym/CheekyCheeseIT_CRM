@@ -1306,7 +1306,7 @@ jobs:
             # is consistently one of the shorter E2E shards (misc/team-users
             # are the longest), so the ~19 extra (fast, mocked) tests here are
             # unlikely to make it the new critical-path leg.
-            files: tests/finance.spec.ts tests/finance-senior-flow.spec.ts tests/company-share-cta.spec.ts tests/finance-funding-source.spec.ts tests/finance-senior-payment-flow.spec.ts tests/finance-smoke-regressions.spec.ts tests/accountant-dashboard.spec.ts tests/phase8-payout-company.spec.ts
+            files: tests/finance.spec.ts tests/finance-senior-flow.spec.ts tests/company-share-cta.spec.ts tests/finance-funding-source.spec.ts tests/finance-senior-payment-flow.spec.ts tests/finance-smoke-regressions.spec.ts tests/accountant-dashboard.spec.ts tests/phase8-payout-company.spec.ts tests/finance-admin-edit-tx-date.spec.ts
           - name: misc
             # tests/job-sourcing-mobile.spec.ts (task-job-sourcing-slice1, PR #493): the "Подбор
             # вакансий" modal on the kanban — same screen/mock-stack shape as
