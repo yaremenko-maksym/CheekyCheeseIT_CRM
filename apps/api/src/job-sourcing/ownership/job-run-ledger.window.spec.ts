@@ -132,7 +132,7 @@ describe('countDue, the detailPass scope (U10)', () => {
     expect(q.sql).toContain("dw.reason = 'DETAIL_FETCH'")
     expect(q.sql).toContain('dsr.namespace = job_sources.namespace')
     expect(q.sql).toContain('job_sources.type::text = ANY(')
-    expect(q.params).toContain('{REMOTIVE_API}')
+    expect(q.params).toContain('{"REMOTIVE_API"}') // toTextArray quotes each element
     expect(q.params).toContain(CYCLE) // threaded as the sweepCycleId "not run in this cycle" term
   })
 

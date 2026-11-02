@@ -564,6 +564,32 @@ describe('loadOpportunity', () => {
       expect(loaded?.detailPending).toBe(false)
       expect(loaded?.onDemandMissing).toEqual([])
     })
+
+    it('AC4-TTL: ON_DEMAND types add the stale-detail subquery (present description, aged past DETAIL_STALE_DAYS, no in-flight fetch) and return it as onDemandStale', async () => {
+      const { tx, statements } = recording(() => [
+        row({ on_demand_stale: [{ recordId: REC, version: 9 }] }),
+      ])
+      const loaded = await loadOpportunity(tx, OPP, ['GREENHOUSE_ATS', 'HIMALAYAS_API'])
+      // The stale set is read from the on_demand_stale column, separate from onDemandMissing.
+      expect(loaded?.onDemandStale).toEqual([{ recordId: REC, version: 9 }])
+      // It never lifts the opportunity off stack exclusion: detailPending tracks missing only.
+      expect(loaded?.detailPending).toBe(false)
+      const query = statements[0]
+      // The stale subquery: the ON_DEMAND types, comma-separated casts, a PRESENT-but-aged revision.
+      expect(query?.sql).toMatch(
+        /source_type IN \(\$\d+::job_source_type, \$\d+::job_source_type\)\s+AND v\.description_sha256 IS NOT NULL\s+AND v\.received_at < clock_timestamp\(\) - make_interval\(days => \$\d+\)/,
+      )
+      expect(query?.sql).toMatch(/AS on_demand_stale/)
+      expect(query?.params).toContain(14) // DETAIL_STALE_DAYS, bound as the interval days
+    })
+
+    it('no ON_DEMAND types: the stale column is a constant empty array too, and onDemandStale is empty', async () => {
+      const { tx, statements } = recording(() => [row()])
+      const loaded = await loadOpportunity(tx, OPP)
+      expect(loaded?.onDemandStale).toEqual([])
+      expect(statements[0]?.sql).not.toMatch(/description_sha256 IS NOT NULL/)
+      expect(statements[0]?.sql).toMatch(/'\[\]'::jsonb AS on_demand_stale/)
+    })
   })
 })
 
