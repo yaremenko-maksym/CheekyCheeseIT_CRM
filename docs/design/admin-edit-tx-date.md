@@ -96,14 +96,14 @@ _Note: Raw hex values are strictly forbidden; all styling resolves to the CSS va
 - Triggered when the operator picks a date where `value !== stored`.
 - Reason field transitions smoothly below the date picker.
 - Label: «Причина зміни дати» (`text-xs text-muted-foreground`).
-- Input: Text input with placeholder «Для дат старших за 31 день» (EN: "For dates older than 31 days"), `maxLength={500}`.
+- Input: Text input with placeholder «Для дат давніших за 31 день» (EN: "For dates older than 31 days"), `maxLength={500}`.
 - Saving the form transmits `{ txDate, backdateReason: reason.trim() }`.
 
 ### 5.3 Paid / Locked Row State
 
-- The locked-row UI (proactively disabling the date picker on open) is NOT implemented in PR #1213 because `TransactionDto` does not expose `txHash`, `fundingSource`, or `settledAmount` to the client.
-- The lock is enforced server-side upon submit and surfaces as the `FINANCE_TX_DATE_LOCKED_ROW` error in the dialog's error banner.
-- Proactive client-side disabling is marked as a follow-up task that requires a server-computed flag (e.g., `isDateLocked`) on `TransactionDto`.
+- The server returns `isDateLocked` on the transaction DTO (ADMIN viewers only; every other role gets `false`) from the same predicate the save guard uses.
+- When `isDateLocked` is true the date trigger is disabled and a muted helper note (`admin-edit-tx-date-locked-note`) explains why (uk _«Дату не можна змінити: оплату підтверджено в блокчейні, вона надійшла з рахунку компанії або вже є розрахунки»_; en _"The date can't be changed: payment is confirmed on-chain, comes from the company account, or already settled"_); no reason field is shown, and saving other fields still works without `txDate`.
+- The server guard still enforces the lock on submit (`FINANCE_TX_DATE_LOCKED_ROW`), covering stale clients.
 
 ### 5.4 Server Error States
 
@@ -111,12 +111,13 @@ Server errors returned upon save failure render in the dialog's shared error ban
 
 1. **`FINANCE_TX_DATE_LOCKED_ROW`**:
    - Cause: Attempted date change on an immutable row.
-   - Ukrainian: _«Дату цієї транзакції не можна змінити: оплату підтверджено в блокчейні, її проведено з рахунку компанії або за нею вже є розрахунки»_
+   - Ukrainian: _«Дату цієї транзакції не можна змінити: оплату підтверджено в блокчейні, вона надійшла з рахунку компанії або за нею вже є розрахунки»_
    - English: _"This transaction's date can't be changed: its payment is confirmed on-chain, comes from the company account, or already has settlements"_
-2. **`FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED`**:
+2. **`FINANCE_TX_DATE_EDIT_REASON_REQUIRED`** (edit screen; the create flows keep `FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED`):
    - Cause: Backdating beyond 31 days without providing a reason.
-   - Ukrainian: _«Дата надто далеко в минулому, і для неї потрібна причина — з цього екрана таку дату внести не можна»_
-   - English: _"This date is too far back and needs a documented reason — it can't be recorded from this screen"_
+   - Rendered inline under the reason field (`role="alert"`, focus + `aria-invalid` + `aria-describedby`); the bottom banner is not shown for this code.
+   - Ukrainian: _«Дата надто далеко в минулому — вкажіть причину в полі «Причина зміни дати»»_
+   - English: _"This date is too far back — enter a reason in the “Reason for changing the date” field"_
 3. **`FINANCE_TX_DATE_IN_FUTURE`**:
    - Cause: Attempted future date on an executed transaction.
    - Ukrainian: _«Для виконаної операції дата не може бути в майбутньому»_
@@ -135,7 +136,7 @@ Server errors returned upon save failure render in the dialog's shared error ban
 1. **SC 1.3.1 Info and Relationships & SC 4.1.2 Name, Role, Value**:
    - Explicit label associations:
      - Date picker label must provide `htmlFor="admin-edit-tx-date-trigger"`, bound to `DatePickerField` button `id="admin-edit-tx-date-trigger"`.
-     - Reason label must provide `htmlFor="admin-edit-tx-date-reason-input"`, bound to `Input` `id="admin-edit-tx-date-reason-input"`.
+     - Reason label must provide `htmlFor="admin-edit-tx-date-reason-field"`, bound to `Input` `id="admin-edit-tx-date-reason-field"`.
    - Date picker trigger must include `aria-haspopup="dialog"` and `aria-expanded="true|false"`.
 2. **SC 2.4.3 Focus Order**:
    - Logical tab flow: Amount -> Currency -> Date Picker -> Reason (when revealed) -> Category / Salary / Receipt / Notes -> Save -> Cancel.
@@ -184,7 +185,7 @@ The reason field revelation must be smooth, layout-stable, and fully respectful 
 1. **Narrow 320px Viewport**:
    - Inside `CrmDialogBody` (`px-6`), available width is 272px.
    - The formatted date string («20 жовт. 2026») takes ~120px, leaving ample room for the calendar icon and button padding.
-   - Reason placeholder «Для дат старших за 31 день» (26 chars) and English «For dates older than 31 days» (28 chars) fit within the 272px input without overflow.
+   - Reason placeholder «Для дат давніших за 31 день» and English «For dates older than 31 days» (28 chars) fit within the 272px input without overflow.
    - Popover Calendar (276px wide) aligns properly via Radix Popover viewport collision bounds.
 2. **500-Character Long Reason String**:
    - Handled via native horizontal text scrolling within the single-line input. The container width remains fixed and does not cause horizontal page overflow.

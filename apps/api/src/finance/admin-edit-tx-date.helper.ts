@@ -3,6 +3,7 @@ import { isNull, sql, type SQL } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { transactions } from '../database/schema'
+import { isTxDateLocked } from './finance-predicates.util'
 import {
   resolveTransactionDateWithPolicy,
   type ResolvedTransactionDate,
@@ -41,10 +42,8 @@ export function resolveAdminEditTxDate(
   // from the real transfer day (the block-timestamp clause of D-2 is still
   // unimplemented), and a row that already carries settlements could end up
   // dated AFTER the payments made against it.
-  if (
-    changed &&
-    (tx.txHash || tx.fundingSource === 'COMPANY_ACCOUNT' || tx.settledAmount !== null)
-  ) {
+  // The predicate is shared with `mapTx`'s `isDateLocked` so the two cannot drift.
+  if (changed && isTxDateLocked(tx)) {
     throw apiError('FINANCE_TX_DATE_LOCKED_ROW', HttpStatus.BAD_REQUEST)
   }
   // A scheduled salary is the one PLANNED row; everything else records

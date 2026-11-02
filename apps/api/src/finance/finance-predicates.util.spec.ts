@@ -1,5 +1,35 @@
 import { COMPANY_ACCOUNT_LABEL } from '@crm/shared'
-import { isInternalCompanySide, isRegistryConflict } from './finance-predicates.util'
+import {
+  isInternalCompanySide,
+  isRegistryConflict,
+  isTxDateLocked,
+} from './finance-predicates.util'
+
+describe('isTxDateLocked (FINANCE_TX_DATE_LOCKED_ROW)', () => {
+  const open = { txHash: null, fundingSource: null, settledAmount: null }
+
+  it('is false on a row with no lock cause', () => {
+    expect(isTxDateLocked(open)).toBe(false)
+    expect(isTxDateLocked({ ...open, fundingSource: 'PERSONAL' })).toBe(false)
+  })
+
+  it('is true on a row with a stored tx hash', () => {
+    expect(isTxDateLocked({ ...open, txHash: '0xabc' })).toBe(true)
+  })
+
+  it('is true on a company-account row', () => {
+    expect(isTxDateLocked({ ...open, fundingSource: 'COMPANY_ACCOUNT' })).toBe(true)
+  })
+
+  it('is true on a row carrying settlements, including a zero accumulator', () => {
+    expect(isTxDateLocked({ ...open, settledAmount: '10.000000' })).toBe(true)
+    expect(isTxDateLocked({ ...open, settledAmount: '0' })).toBe(true)
+  })
+
+  it('treats an empty hash as no hash (same truthiness as the guard always had)', () => {
+    expect(isTxDateLocked({ ...open, txHash: '' })).toBe(false)
+  })
+})
 
 const pgViolation = (constraint: string | undefined) => ({ code: '23505', constraint })
 

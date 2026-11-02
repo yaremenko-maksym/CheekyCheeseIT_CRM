@@ -5392,6 +5392,10 @@ msgstr "Grid"
 msgid "Підписуємо…"
 msgstr "Signing…"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
+msgid "Дату не можна змінити: оплату підтверджено в блокчейні, вона надійшла з рахунку компанії або вже є розрахунки"
+msgstr "The date can't be changed: payment is confirmed on-chain, comes from the company account, or already settled"
+
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Немає доступних команд дропа."
 msgstr "No drop teams available."
@@ -10642,7 +10646,7 @@ msgid "Пошук співбесіди"
 msgstr "Search interviews"
 
 #. placeholder {0}: i18n._(CASCADE_PREVIEW_LEAD_IN_MESSAGE)
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/use-cascade-preview-state.ts
 msgid "{0} — перевірте з’єднання"
 msgstr "{0} — check your connection"
 

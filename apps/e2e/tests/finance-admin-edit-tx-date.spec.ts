@@ -184,12 +184,19 @@ test.describe('Finance — admin edit of the transaction date (ADMIN)', () => {
     await dialog.getByTestId('admin-edit-save').click()
 
     const uk = await loadMessages('uk')
-    // The message is intentionally shown twice (QA-MED-4): inline under the reason field
-    // and in the submit-error banner — assert each, scoped.
+    // COPY-LOW-1: the message is shown once, inline under the reason field (announced via
+    // role=alert); the bottom submit-error banner is not rendered for this code.
     const message = uk['api-error.FINANCE_TX_DATE_EDIT_REASON_REQUIRED']!
     const reasonInput = dialog.getByTestId('admin-edit-tx-date-reason-input')
     await expect(dialog.getByTestId('admin-edit-tx-date-reason-error')).toHaveText(message)
+    await expect(dialog.getByRole('alert')).toHaveCount(1)
     await expect(dialog.getByRole('alert')).toHaveText(message)
+    await expect(dialog.getByTestId('admin-edit-tx-date-reason-error')).toHaveAttribute(
+      'role',
+      'alert',
+    )
+    await expect(dialog.locator('#admin-edit-submit-error')).toHaveCount(0)
+    await expect(dialog.getByText(message)).toHaveCount(1)
     await expect(reasonInput).toHaveAttribute('aria-invalid', 'true')
     await expect(reasonInput).toBeFocused()
     await expect(dialog.getByText(REASON_REQUIRED_MESSAGE)).toHaveCount(0)
@@ -236,6 +243,25 @@ test.describe('Finance — admin edit of the transaction date (ADMIN)', () => {
     await expect(dialog.getByText(LOCKED_MESSAGE)).toHaveCount(0)
     await expect(dialog).toBeVisible()
     expect(patches).toHaveLength(1)
+  })
+
+  test('a row flagged isDateLocked disables the date, explains why, and still saves other fields', async ({
+    asAdmin,
+  }) => {
+    const patches = await mockEdit(
+      asAdmin,
+      expenseRow('tx-date-flag-locked', { txHash: `0x${'cd'.repeat(32)}`, isDateLocked: true }),
+    )
+    const dialog = await openEdit(asAdmin)
+
+    await expect(dialog.getByTestId('admin-edit-tx-date')).toBeDisabled()
+    await expect(dialog.getByTestId('admin-edit-tx-date-locked-note')).toBeVisible()
+    await expect(dialog.getByTestId('admin-edit-tx-date-reason')).toHaveCount(0)
+
+    await dialog.getByTestId('admin-edit-save').click()
+    await expect(dialog).toBeHidden()
+    expect(patches).toHaveLength(1)
+    expect(patches[0]).not.toHaveProperty('txDate')
   })
 
   test('a notes-only save does not send txDate at all', async ({ asAdmin }) => {
