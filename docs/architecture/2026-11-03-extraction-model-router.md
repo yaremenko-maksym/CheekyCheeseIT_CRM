@@ -273,6 +273,17 @@ still uses a backoff, which also bounds how often the start-up refresh can run.
   leaf is ever needed, the API-key header, **never** a `key=` query parameter (URLs end up in logs and errors).
 - **Keys never appear in** `onEvent` payloads, thrown or returned values, internal codes or notes; a 5.4c-1/5.4c-2 test
   seeds a marker key and asserts it is absent from every event and result.
+- **One request builder for every hosted chat request** (SR-H-2). Production calls, refresh probes and chain-check
+  probes all go through the same builder, which always sets the provider's privacy fields: for OpenRouter
+  `provider.data_collection: "deny"` (and `zdr` once confirmed) **plus** `provider.ignore` listing every upstream
+  provider that policy excludes (D2), so an excluded upstream can never serve the request whatever the model id says. A
+  route for which the builder cannot produce its mandatory privacy fields is **disabled**, never sent without them. A
+  test asserts the fields on production, probe and chain-check bodies alike.
+- **Catalogue and listing fetches** (SR-M-8) follow the same transport rules: fixed HTTPS URLs that are package
+  constants (no id, query or user value interpolated); `boundedRequest` with its size cap and `redirect: 'error'`; the
+  key in a header only (for Gemini the API-key header, **never** a `key=` query parameter); the body parsed by a Zod
+  schema that caps the number of entries read (entries beyond the cap are ignored and counted) and the length of every
+  field before any id validation runs.
 
 ### 3.4 Model lists: self-healing, with a pinned fallback (owner decision D6)
 
