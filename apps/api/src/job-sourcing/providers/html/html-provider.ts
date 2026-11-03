@@ -380,10 +380,9 @@ export abstract class HtmlProvider<
     })
     const stageB = await this.runDetailStage(config, attempt, kept)
     const detailStop = stageB.report.stop
-    const stageC =
-      RUN_ENDING_STOPS.has(detailStop)
-        ? { report: { ...EMPTY_MODEL, status: 'SKIPPED' as const, reason: detailStop } }
-        : await this.runModelStage(stageB.enrichments, stageB.modelCandidates, ctx)
+    const stageC = RUN_ENDING_STOPS.has(detailStop)
+      ? { report: { ...EMPTY_MODEL, status: 'SKIPPED' as const, reason: detailStop } }
+      : await this.runModelStage(stageB.enrichments, stageB.modelCandidates, ctx)
     if ('reached' in stageC) await this.settleModelPending(stageB.modelCandidates, stageC.reached)
 
     return {

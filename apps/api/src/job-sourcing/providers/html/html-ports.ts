@@ -34,17 +34,21 @@ export type Sleep = (ms: number, signal?: AbortSignal) => Promise<void>
 
 export const realSleep: Sleep = (ms, signal) =>
   new Promise((resolve, reject) => {
-    signal?.throwIfAborted()
+    if (signal === undefined) {
+      setTimeout(resolve, ms)
+      return
+    }
+    signal.throwIfAborted()
     const onAbort = (): void => {
       clearTimeout(timer)
-      reject(signal?.reason)
+      reject(signal.reason)
     }
     // The listener goes when the wait ends: one run signal outlives many waits.
     const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort)
+      signal.removeEventListener('abort', onAbort)
       resolve()
     }, ms)
-    signal?.addEventListener('abort', onAbort)
+    signal.addEventListener('abort', onAbort)
   })
 
 /**
