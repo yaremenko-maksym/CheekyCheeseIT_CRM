@@ -114,13 +114,26 @@ describe('fanOutDirty', () => {
     const sql = page()!.sql.replace(/\s+/g, ' ')
     expect(sql).toContain("o.availability IN ('OPEN', 'UNKNOWN')")
     expect(sql).toContain("a.opportunity_id = o.id AND a.state = 'TAKEN'")
-    expect(sql).toContain("d.target_version = p.revision AND d.status = 'PENDING'")
+    // S-P1: only a pending MATCH-partition row dedupes; an availability/detail row does not.
+    expect(sql).toContain(
+      "d.target_version = p.revision AND d.status = 'PENDING' AND NOT ((d.reason = $4) OR (starts_with(d.reason, $5) OR starts_with(d.reason, $6) OR d.reason IN ($7, $8, $9))))",
+    )
     expect(sql).toContain('WHERE p.revision >= 1')
     expect(sql).toContain('ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING')
     expect(sql).not.toContain('jsonb_array_elements_text')
     // Unscoped: the scope clause is followed directly by the order, nothing in between.
     expect(sql).toContain("a.state = 'TAKEN')) ORDER BY o.id LIMIT $2")
-    expect(page()!.params).toEqual([NIL, FANOUT_PAGE_SIZE, `fanout:${ROW}`])
+    expect(page()!.params).toEqual([
+      NIL,
+      FANOUT_PAGE_SIZE,
+      `fanout:${ROW}`,
+      'DETAIL_FETCH',
+      'AVAILABILITY:',
+      'RECORD_RELISTED:',
+      'RECORD_INVENTORY_CLOSED',
+      'RECORD_REOPENED',
+      'RECORD_WINDOW_EXPIRED',
+    ])
   })
 
   it('AC 5: a full page continues from its last id at the SAME version, then completes', async () => {

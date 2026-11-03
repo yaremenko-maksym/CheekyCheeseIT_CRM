@@ -4,6 +4,7 @@ import {
   type CompleteOutcome,
   completeDirty,
   currentDerivedVersion,
+  dirtyConsumerPredicate,
   enqueueDirty,
 } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
@@ -30,8 +31,9 @@ import type { SqlExecutor } from '../scheduling/host-state'
  *
  * IDEMPOTENT AND COALESCED. Every OPPORTUNITY row is enqueued at the opportunity's current revision
  * under the reason `fanout:<root id>`, so re-running a pass inserts nothing twice. An opportunity
- * that already has a PENDING (unclaimed) row at its current revision is skipped (SR-M-2): that row
- * has not read the roster yet, so it already covers this change. N roster writes between two
+ * that already has a PENDING (unclaimed) MATCH-partition row at its current revision is skipped
+ * (SR-M-2): that row has not read the roster yet, so it already covers this change. A pending
+ * availability/detail row never recomputes matches, so it does not count (Task 4.6 S-P1). N roster writes between two
  * worker runs therefore leave at most one pending recompute per opportunity.
  *
  * STALE. A row that is no longer the entity's newest is completed without work: the newer row
@@ -103,7 +105,8 @@ export async function fanOutDirty(
        WHERE p.revision >= 1
          AND NOT EXISTS (SELECT 1 FROM job_dirty_work d
                           WHERE d.entity_kind = 'OPPORTUNITY' AND d.entity_id = p.id
-                            AND d.target_version = p.revision AND d.status = 'PENDING')
+                            AND d.target_version = p.revision AND d.status = 'PENDING'
+                            AND ${dirtyConsumerPredicate('MATCH', sql`d.reason`)})
       ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING
       RETURNING 1)
     SELECT (SELECT count(*) FROM page)::int AS paged,
