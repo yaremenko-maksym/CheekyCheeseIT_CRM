@@ -166,3 +166,99 @@ Each is a fact, not a decision; the research task settles it before code.
 | OpenRouter's `provider.data_collection: "deny"` (already sent by the current adapter) and `zdr` leave few or no `:free` endpoints | MED — VCF does not send `deny` and runs on `:free` models |
 | The free tiers' current per-minute and per-day limits | LOW — they change monthly |
 | Each provider's free-tier data terms: prompt retention, training use, human review. The Gemini API terms for unpaid use are believed to allow use for product improvement, including human review | LOW-MED — **legal-relevant**, §4 |
+
+---
+
+## 3. Data and secret model
+
+### 3.1 Where each kind of state lives
+
+| State | Lifetime | Where | Why |
+| --- | --- | --- | --- |
+| Provider API keys (`GEMINI_API_KEY`, `GROQ_API_KEY`, existing `OPENROUTER_API_KEY`; local `LOCAL_MODEL_*`) | process | **Optional env keys in the API env schema, read only by the extraction worker.** Absent key → that route does not exist (VCF: "a provider without a key simply does not take part"). Never in the router config schema's persisted form, a manifest, the DB, a build layer, a report, a log or an error message. Never named `CLOUDFLARE_*` (C-21). | Task 5.2 rule; existing `buildInferenceConfig` pattern (a provider block exists only when its key is present) |
+| Per-provider minimum gap (`nextFreeAt`) | seconds | **Process memory**, inside the leaf | Per-minute limits are per key; one process holds the key |
+| Rotation counter | process | **Process memory** | VCF's design; losing it on restart costs nothing |
+| **Own caps** — our calls per provider per provider-day | provider day | **Postgres, the existing `job_account_meters`** (unit `MODEL_CALL`, window `DAY`, one account key per provider such as `groq:extraction`), reached through the 5.4b `ModelBudgetPort`'s DB adapter, held by the caller; the router asks an `OwnCapPort` the caller injects | The meter table already has an atomic spend guard, frozen limits by policy version and an account-key CHECK that refuses anything resembling a credential. No new table. |
+| **Spent** — "the provider said: no more today" for a model | until the provider's reset (UTC; Pacific for Gemini) | **Process memory** behind a `RouteStatePort` (recommended); alternatives below | |
+| **Retired** — "the provider said: this model is gone" | until the next model-list refresh or process restart | **Process memory** behind the same port | |
+| Usage / cost per call | permanent (metering) | Reported through `onEvent` and the caller's meter commit — never stored by the package | §6.2 |
+
+**The `OwnCapPort` and the shared 20-call cycle budget are different things.** 5.4b reserves one slot of the
+cross-provider cycle budget per extraction; the own cap is a per-provider daily ceiling consulted per **attempt**,
+before a request is spent on a provider. A router call that cascades across three providers uses one cycle slot and up
+to three own-cap units.
+
+### 3.2 Spent / retired state: memory, Postgres or Redis
+
+| Option | For | Against |
+| --- | --- | --- |
+| **Process memory (recommended)** | Smallest; the extractor is one long-lived process, so VCF's reason for persistence (a process per clip) does not apply; the worker holds no DB credential (Task 5.2), so a DB ledger would need a new API-side channel; collection runs a few times a day, so a restart costs at most one wasted request per spent model | Lost on restart; a second worker replica would not share it |
+| Postgres table (`spent` / `retired` rows, reason as a **code**, never a body) | Survives restarts; shared across replicas; consistent with "per-host/account state shared through PostgreSQL" in r5 | A Drizzle migration (critical path: security review); needs a DB credential or an API-side endpoint in the worker path |
+| Redis keys with a TTL at the provider's reset | Expiry is free; Redis already runs | A second store for one feature; the worker would need Redis access; nothing else in r5 keeps per-account state there |
+
+**Recommendation:** memory now, behind a `RouteStatePort` with an in-memory implementation, so a Postgres adapter can
+replace it without touching the router if a second replica appears. **Confidence: HIGH** for the port, **MED** that
+memory stays sufficient (it depends on the worker topology Task 5.2 settles). Owner decision D4 (A2).
+
+### 3.3 Model lists: pinned, never discovered
+
+The plan requires "pinned model/provider/runtime config". VCF instead refreshes its free list daily from the catalogue
+and writes it to a file. For the CRM:
+
+- Each route's model list is **pinned in config** (package constants, overridable only by a reviewed code change).
+- A model the provider retires is skipped for the process lifetime (§3.2); the router never **adds** a model it found
+  in a catalogue.
+- Every hosted model retired ⇒ that route is simply absent; the chain still has the floor. A one-line event reports it
+  so a human updates the pin (VCF's "repair" becomes a reviewed PR in the CRM).
+- VCF's "never wipe the list on a bad probe" carries over as: a route with all models retired is skipped, the config is
+  not rewritten.
+
+**Confidence: HIGH** (follows an explicit plan requirement). Owner decision D6 (A2) only for whether a daily catalogue
+check may at least **alert** on a dead pin.
+
+---
+
+## 4. Privacy constraints that hold for EVERY route
+
+These hold for the local route too; none of them depends on which route answers.
+
+1. **Before the router, always** (5.4a/5.4b, unchanged): `ai-input=no` ⇒ the port is never called; `unspecified`
+   follows an explicit policy argument; contacts stripped (emails, phones, messengers, profile URLs); page text only
+   inside the delimited data block of the user message; input capped. The router has no bypass and no second entry.
+2. **The router logs and stores no text.** Not the input, not the model output, not a provider error body (it can echo
+   the prompt). Events and notes carry route, model, internal code, HTTP status, counts and timings only. This is
+   stricter than VCF.
+3. **Provider flags where the provider supports them:** OpenRouter `provider.data_collection: "deny"` on every request
+   (already sent today) and `zdr` once research confirms the parameter; Groq and Gemini — whatever no-retention /
+   no-training control research finds (none is assumed). A route whose required flag is refused by the provider is a
+   failed attempt, never retried without the flag.
+4. **Free tiers may log prompts or train on them.** Even after contact stripping, the text is a third party's published
+   page. Whether it may go to such a provider is a question of source terms and provider terms, not of code.
+5. **Egress** only to the pinned provider hosts (Task 5.2: "egress allowed to the provider host only"), widened per
+   added provider.
+
+### 4.1 Which source classes may use hosted routes at all — owner decision D1 (A3)
+
+| Option | Meaning | Cost |
+| --- | --- | --- |
+| **H0 — local only for everyone** | Hosted routes off; the router degenerates to the floor | Slowest; no third-party exposure |
+| **H1 — hosted for every source not marked `ai-input=no`** | Widest acceleration | `unspecified` sources and sources whose terms restrict reuse also go out |
+| **H2 — hosted only for allowlisted sources (recommended)** | A per-source policy flag `hostedModelsAllowed`, default **false**; a source is added only after its terms are read (Legal) and its robots `Content-Signal` is not `ai-input=no`; everything else extracts locally | One review per source; the default is the safe one |
+
+Recommendation **H2**: the default is "local", matching "everything works on local by default"; acceleration is
+granted source by source, and a wrong grant is reversed by one flag.
+
+### 4.2 Providers whose free terms allow training or human review — owner decision D2 (A3)
+
+If research confirms that a provider's free tier may use prompts for training or human review (believed true of the
+Gemini API's unpaid tier), the options are: exclude it from extraction; include it only for allowlisted sources whose
+terms Legal has cleared for that use; or include it everywhere hosted is allowed. **Recommendation:** include it only
+for sources Legal clears for that use, otherwise exclude it — the owner chose Gemini for its capacity, and under H2 the
+per-source grant can carry a second bit for "training-permitting providers allowed".
+
+### 4.3 OpenRouter `data_collection: deny` vs the free pool — owner decision D3 (A3)
+
+The current adapter already sends `deny`. If research shows `deny` leaves no usable `:free` endpoint, the choice is:
+keep `deny` (OpenRouter then only serves paid models under the USD limit of Task 5.2, or none) or drop it for free
+models (training allowed on our prompts). **Recommendation:** keep `deny`. The router then falls to Groq / Gemini /
+local; losing an accelerator is cheaper than reversing a privacy default.
