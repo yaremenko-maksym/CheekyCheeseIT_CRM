@@ -168,7 +168,9 @@ const envSchema = z
     // JOB_MATCH_RECONCILIATION_ENABLED: switch for the periodic match reconciliation (r5 Task 4.6
     //   S4b): sweep every RECONCILE_PERIOD_HOURS, enqueue stale opportunities, drain the recompute
     //   worker. **Default false**: unlike the collection crons (always on) it activates the
-    //   recompute worker's writes to `job_opportunity_matches`, which nothing reads yet.
+    //   recompute worker's writes to `job_opportunity_matches`, which nothing reads yet. May run
+    //   alongside JOB_AVAILABILITY_RECONCILE_ENABLED: each consumes its own disjoint `reason`
+    //   partition of `job_dirty_work`.
     JOB_MATCH_RECONCILIATION_ENABLED: z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
@@ -176,8 +178,9 @@ const envSchema = z
     // JOB_AVAILABILITY_RECONCILE_ENABLED: switch for the periodic availability reconciliation (r5
     //   Task 4.6 S8d): drain the dirty-work queue through the S8b/S8c machinery (SOURCE_RECORD ->
     //   inventory-counter updater; OPPORTUNITY -> re-derive availability + bump revision).
-    //   **Default false**, DISTINCT from JOB_MATCH_RECONCILIATION_ENABLED: it ships dark and must
-    //   NOT be on against the same queue as the match reconciliation (both claim the same kinds).
+    //   **Default false**, DISTINCT from JOB_MATCH_RECONCILIATION_ENABLED: it ships dark. Not
+    //   mutually exclusive with it: the two consume disjoint `reason` partitions of `job_dirty_work`
+    //   (S-P1/S-P2), so both may be on.
     //   Flag-on preconditions (S8c review): SR-M-3 (reopen/S8f merged first) and SR-M-4
     //   ((source_type, namespace) unique + non-empty namespace for inventory-enabled sources).
     JOB_AVAILABILITY_RECONCILE_ENABLED: z
@@ -572,19 +575,6 @@ const envSchema = z
       message:
         'TELEMETRY_SESSION_SALT must be overridden in production (the dev default is public — leaving it set defeats session_hash privacy). Generate: openssl rand -hex 32',
       path: ['TELEMETRY_SESSION_SALT'],
-    },
-  )
-  // r5 Task 4.6 S8d (CR-M-1 / SR-M-1): the availability and match reconciliation consumers claim the
-  // SAME job_dirty_work kinds (SOURCE_RECORD / OPPORTUNITY) and cannot filter by reason, so if BOTH
-  // flags are on each marks the other's rows DONE — silent, unrecoverable work loss. Refuse to boot
-  // (fail-loud), never a silent skip-tick. Until a reason/kind-partitioned claim lands, exactly one
-  // of these consumers may be enabled at a time.
-  .refine(
-    (env) => !(env.JOB_AVAILABILITY_RECONCILE_ENABLED && env.JOB_MATCH_RECONCILIATION_ENABLED),
-    {
-      message:
-        'JOB_AVAILABILITY_RECONCILE_ENABLED and JOB_MATCH_RECONCILIATION_ENABLED must not both be true: both consume the same job_dirty_work kinds, so each would silently complete the other’s rows. Enable exactly one until a reason-partitioned claim exists.',
-      path: ['JOB_AVAILABILITY_RECONCILE_ENABLED'],
     },
   )
 
