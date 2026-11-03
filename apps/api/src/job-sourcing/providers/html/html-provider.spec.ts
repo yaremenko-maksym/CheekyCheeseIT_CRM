@@ -20,7 +20,12 @@ import {
   InMemoryEnrichmentState,
   InMemoryHostGate,
 } from './html-ports'
-import { HtmlProvider, type HtmlLimits, type HtmlProviderDeps } from './html-provider'
+import {
+  HtmlProvider,
+  type HtmlLimits,
+  type HtmlProviderDeps,
+  HtmlRequestRefused,
+} from './html-provider'
 
 /*
  * Seams: a fake `fetchText` routed by URL, a fake robots port, a JSON "page" strategy (the base
@@ -101,6 +106,7 @@ function world(opts: {
   const sent: string[] = []
   const robotsChecked: string[] = []
   const reserved: number[] = []
+  const units: string[] = []
   const reconciled: ReservationResolution[] = []
   const saved: ValidatedCheckpoint[] = []
   let marked = 0
@@ -130,6 +136,7 @@ function world(opts: {
           return null
         }
         reserved.push(amount)
+        units.push(unit)
         return { id: `r${reserved.length}`, unit, amount }
       },
       async markSent() {
@@ -167,6 +174,7 @@ function world(opts: {
     robots,
     robotsChecked,
     reserved,
+    units,
     reconciled,
     saved,
     get marked() {
@@ -210,6 +218,10 @@ const config = (query: string | null = null) =>
     configVersion: 1,
     query,
   })
+
+/** The stable error code enrichment state recorded for an item. */
+const errorOf = async (state: EnrichmentStatePort, id: string) =>
+  (await state.get(JSON.stringify(['THEHUB_HTML', 'board', id])))?.error
 
 const page1 = `${BASE}/list?page=1`
 const detailUrl = (id: string) => `${BASE}/jobs/${id}`
@@ -340,6 +352,7 @@ describe('AC1 discovery and detail are separate stages', () => {
     const r = await p.collectHtml(config(), w.ctx)
     expect(parseListing).not.toHaveBeenCalled()
     expect(r.discovery).toMatchObject({ status: 'FAILED', stop: 'PAYLOAD_TOO_LARGE', items: 0 })
+    expect(r.batch.requests[0]?.error?.message).toBe('listing page over the byte cap')
     expect(r.detail.status).toBe('SKIPPED')
   })
 
@@ -457,6 +470,103 @@ describe('AC2 pagination stops on loops with a counted reason', () => {
     const r = await p.collectHtml(config(), w.ctx)
     expect(w.sent).toEqual([`${BASE}/list?page=2&after=c2`, detailUrl('b')])
     expect(r.batch.observations.map((o) => o.identity.nativeId)).toEqual(['b'])
+    // A resumed attempt never saw the pages before it: no stop, yet discovery is PARTIAL.
+    expect(r.discovery).toMatchObject({ status: 'PARTIAL', stop: null })
+  })
+
+  it('an aborted listing is a FAILED discovery', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const w = world({ routes: twoItems() })
+    w.ctx.signal = controller.signal
+    const r = await provider(w).p.collectHtml(config(), w.ctx)
+    expect(r.batch.outcome).toBe('CANCELLED')
+    expect(r.discovery.status).toBe('FAILED')
+    expect(w.sent).toEqual([])
+  })
+
+  it('isolates a null listing item and keeps the rest', async () => {
+    const w = world({
+      routes: {
+        [page1]: { bodyText: listing([null, item('a', 'https://o.example/a')]) },
+      },
+    })
+    const r = await provider(w).p.collectHtml(config(), w.ctx)
+    expect(r.batch.counts).toMatchObject({ raw: 2, invalid: 1, normalized: 1 })
+    expect(r.discovery.status).toBe('PARTIAL')
+  })
+
+  it('bounds the item id at 256 characters', async () => {
+    const ok = 'x'.repeat(256)
+    const w = world({
+      routes: {
+        [page1]: {
+          bodyText: listing([
+            item(ok, 'https://o.example/1'),
+            item('y'.repeat(257), 'https://o.example/2'),
+          ]),
+        },
+      },
+    })
+    const r = await provider(w).p.collectHtml(config(), w.ctx)
+    expect(r.batch.observations.map((o) => o.identity.nativeId)).toEqual([ok])
+    expect(r.batch.counts.invalid).toBe(1)
+  })
+
+  it('an id identity refuses (control character) stays discovery-only, keyed by URL', async () => {
+    const w = world({
+      routes: {
+        [page1]: { bodyText: listing([item('a\tb', '/jobs/ab'), item('c')]) },
+        [detailUrl('c')]: { bodyText: detail({}) },
+      },
+    })
+    const r = await provider(w).p.collectHtml(config(), w.ctx)
+    expect(r.batch.observations.map((o) => o.identity.nativeId)).toEqual([null, 'c'])
+    expect(w.sent).toEqual([page1, detailUrl('c')])
+    expect(r.detail.fetched).toBe(1)
+  })
+
+  it('two refused ids on one URL are an identity collision, not a silent merge', async () => {
+    const w = world({
+      routes: {
+        [page1]: { bodyText: listing([item('a\t1', '/jobs/same'), item('a\t2', '/jobs/same')]) },
+      },
+    })
+    const r = await provider(w).p.collectHtml(config(), w.ctx)
+    expect(r.batch.outcome).not.toBe('SUCCEEDED')
+    expect(r.batch.observations).toEqual([])
+  })
+
+  it('reports a configured window in the scope', async () => {
+    const window = { from: new Date('2026-10-01T00:00:00Z'), to: new Date('2026-10-31T00:00:00Z') }
+    const w = world({ routes: { [page1]: { bodyText: listing([]) } } })
+    const cfg = new TestHtmlProvider({} as HtmlProviderDeps).parseConfig({
+      namespace: 'board',
+      configVersion: 1,
+      window,
+    })
+    const r = await provider(w).p.collectHtml(cfg, w.ctx)
+    expect(r.discovery.scope.window).toEqual(window)
+  })
+
+  it('carries the listing location onto the observation', async () => {
+    const w = world({
+      routes: {
+        [page1]: {
+          bodyText: listing([item('a', 'https://o.example/a', { location: 'Kyiv' })]),
+        },
+      },
+    })
+    const r = await provider(w).p.collectHtml(config(), w.ctx)
+    expect(r.batch.observations[0]?.normalized.location).not.toBeNull()
+  })
+
+  it('names its refusal error', () => {
+    const e = new HtmlRequestRefused('ACCESS_POLICY', 'X')
+    expect(e).toBeInstanceOf(Error)
+    expect(e.name).toBe('HtmlRequestRefused')
+    expect(e.code).toBe('ACCESS_POLICY')
+    expect(e.message).toBe('html request refused: X')
   })
 })
 
@@ -535,11 +645,28 @@ describe('AC3 links: base resolution, approved hosts, posting vs application', (
     expect(r.batch.observations[0]?.applicationUrl).toBeNull()
   })
 
+  it('has no application URL when the listing gives none or an empty one', async () => {
+    const w = world({
+      routes: {
+        [page1]: {
+          bodyText: listing([
+            item('a', 'https://o.example/a'),
+            item('b', 'https://o.example/b', { applicationUrl: '' }),
+            item('c', 'https://o.example/c', { applicationUrl: null }),
+          ]),
+        },
+      },
+    })
+    const r = await provider(w).p.collectHtml(config(), w.ctx)
+    expect(r.batch.observations.map((o) => o.applicationUrl)).toEqual([null, null, null])
+  })
+
   it.each([
     ['credentials', 'https://user:pw@jobs.example/jobs/a'],
     ['an odd scheme', 'javascript:alert(1)'],
     ['plain http', 'http://jobs.example/jobs/a'],
     ['an IP literal', 'https://127.0.0.1/jobs/a'],
+    ['an unparseable host', 'https://[bad/jobs/a'],
   ])('refuses a posting link with %s: quarantined, never fetched', async (_name, link) => {
     const w = world({ routes: { [page1]: { bodyText: listing([item('a', link)]) } } })
     const { p } = provider(w)
@@ -586,7 +713,10 @@ describe('AC3 links: base resolution, approved hosts, posting vs application', (
     })
     const r = await p.collectHtml(config(), w.ctx)
     expect(w.sent).toEqual([page1])
-    expect(r.batch.requests[1]?.error?.message).toBe('html request refused: UNSAFE_SCHEME')
+    expect(r.batch.requests[1]?.error).toEqual({
+      code: 'ACCESS_POLICY',
+      message: 'html request refused: UNSAFE_SCHEME',
+    })
   })
 
   it('refuses to run when the base URL fails the link policy or is not approved', async () => {
@@ -712,8 +842,29 @@ describe('AC4 policy: robots verdicts and the host gap', () => {
         navigationOnly: 0,
         policyReason: `R_${verdict}`,
       })
-      expect(r.detail).toMatchObject({ status: 'SKIPPED', fetched: 0, checkpoint: null })
-      expect(r.model).toMatchObject({ status: 'SKIPPED', reason: 'POLICY_BLOCKED' })
+      expect(r.detail).toEqual({
+        method: 'HTML_DETAIL',
+        status: 'SKIPPED',
+        fetched: 0,
+        unchanged: 0,
+        notDue: 0,
+        failed: 0,
+        policyDenied: 0,
+        navigationOnly: 0,
+        stop: null,
+        checkpoint: null,
+      })
+      expect(r.model).toEqual({
+        method: 'MODEL',
+        status: 'SKIPPED',
+        reason: 'POLICY_BLOCKED',
+        requested: 0,
+        applied: 0,
+        falseIdentity: 0,
+        remainingIds: [],
+      })
+      expect(r.batch.invalidSamples).toEqual([])
+      expect(r.batch.checkpoint).toBeNull()
       expect(r.enrichments).toEqual([])
       expect(r.usage).toEqual({ requests: 0, bytes: 0 })
     },
@@ -941,8 +1092,10 @@ describe('AC5 enrichment state: reuse, invalidation, resume, failures', () => {
     const w = world({
       routes: { [page1]: { bodyText: listing([item('a')]) }, [detailUrl('a')]: { status: 304 } },
     })
-    const r = await provider(w).p.collectHtml(config(), w.ctx)
+    const { p, enrichment } = provider(w)
+    const r = await p.collectHtml(config(), w.ctx)
     expect(r.detail).toMatchObject({ failed: 1, unchanged: 0 })
+    expect(await errorOf(enrichment, 'a')).toBe('HTTP_304')
   })
 
   it('changed content is reparsed and its new hash stored', async () => {
@@ -1074,8 +1227,11 @@ describe('AC5 enrichment state: reuse, invalidation, resume, failures', () => {
         [detailUrl('b')]: { status: 300 },
       },
     })
-    const r = await provider(w).p.collectHtml(config(), w.ctx)
+    const { p, enrichment } = provider(w)
+    const r = await p.collectHtml(config(), w.ctx)
     expect(r.detail).toMatchObject({ fetched: 0, failed: 2 })
+    expect(await errorOf(enrichment, 'a')).toBe('HTTP_199')
+    expect(await errorOf(enrichment, 'b')).toBe('HTTP_300')
   })
 
   it('a detail page the parser throws on is PARSE_DRIFT, retried later, success kept', async () => {
@@ -1320,6 +1476,7 @@ describe('AC7 every subrequest is metered; aggregate caps stop with a checkpoint
     const r = await provider(w).p.collectHtml(config(), w.ctx)
     expect(w.sent).toHaveLength(3)
     expect(w.reserved).toEqual([1, 1, 1])
+    expect(w.units).toEqual(['REQUEST', 'REQUEST', 'REQUEST'])
     expect(w.marked).toBe(3)
     expect(w.reconciled).toEqual(['USED', 'USED', 'USED'])
     expect(r.usage).toEqual({
@@ -1448,12 +1605,47 @@ describe('AC7 every subrequest is metered; aggregate caps stop with a checkpoint
     }).p.collectHtml(config(), w.ctx)
     expect(w.sent).toEqual([page1])
     expect(r.discovery).toMatchObject({ status: 'PARTIAL', stop: 'COST_STOP' })
+    expect(r.batch.requests[1]?.error?.message).toBe('html request refused: BYTE_BUDGET')
   })
 
   it('a detail page over its byte cap fails that item', async () => {
     const w = world({ routes: twoItems({ description: 'x'.repeat(200) }) })
-    const r = await provider(w, { limits: { maxDetailBytes: 50 } }).p.collectHtml(config(), w.ctx)
+    const { p, enrichment } = provider(w, { limits: { maxDetailBytes: 50 } })
+    const r = await p.collectHtml(config(), w.ctx)
     expect(r.detail).toMatchObject({ failed: 1, fetched: 1 })
+    expect(await errorOf(enrichment, 'a')).toBe('PAYLOAD_TOO_LARGE')
+  })
+
+  it('a failed detail still counts against the quota', async () => {
+    const w = world({ routes: { ...twoItems(), [detailUrl('a')]: { status: 500 } } })
+    const r = await provider(w, { limits: { maxDetails: 1 } }).p.collectHtml(config(), w.ctx)
+    expect(w.sent).toEqual([page1, detailUrl('a')])
+    expect(r.detail.checkpoint).toEqual({ reason: 'DETAIL_QUOTA', remainingIds: ['b'] })
+  })
+
+  it('a byte budget spent exactly by the listing stops before any detail', async () => {
+    const body = listing([item('a'), item('b')])
+    const w = world({ routes: twoItems() })
+    const r = await provider(w, {
+      limits: { maxTotalBytes: Buffer.byteLength(body) },
+    }).p.collectHtml(config(), w.ctx)
+    expect(w.sent).toEqual([page1])
+    expect(r.detail.checkpoint).toEqual({ reason: 'BYTE_BUDGET', remainingIds: ['a', 'b'] })
+  })
+
+  it('caps a detail request at the budget left when that is below the detail cap', async () => {
+    const seen: (number | undefined)[] = []
+    const w = world({ routes: twoItems() })
+    const inner = w.ctx.fetchText
+    w.ctx.fetchText = async (req) => {
+      seen.push(req.maxBytes)
+      return inner(req)
+    }
+    const listingBytes = Buffer.byteLength(listing([item('a'), item('b')]))
+    await provider(w, {
+      limits: { maxTotalBytes: listingBytes + 7, maxDetailBytes: 1_000 },
+    }).p.collectHtml(config(), w.ctx)
+    expect(seen.slice(0, 2)).toEqual([listingBytes + 7, 7])
   })
 
   it('accepts a detail page exactly at its byte cap', async () => {
