@@ -10,6 +10,8 @@
  *   - only a board with a TESTED `GONE` contract closes (`DETAIL_GONE_CONTRACT_TYPES`, Greenhouse
  *     only on day one — ADR open question 4, A2). Any other board's `GONE` is treated as `FAILED`
  *     (poisoned, never closes), as Decision 2 requires for an adapter without the contract;
+ *   - a GONE closes only when the same run observed another posting of the board alive (SR-M-1:
+ *     a deleted / renamed board 404s every posting); otherwise the row is retried, nothing closes;
  *   - the close goes through the existing record writer (`closeRecordByInventory`, the S8c
  *     already-CLOSED guard) and the existing owner enqueue (`enqueueOwners`), so the opportunity
  *     grain is re-derived by the S8d availability consumer (most-open over active links, revision
@@ -45,6 +47,9 @@ export const DETAIL_GONE_CLOSE_REASON = `${AVAILABILITY_REASON_PREFIX}DETAIL_GON
 
 /** `last_error_code` of a GONE from a board without a tested contract (treated as FAILED). */
 export const DETAIL_GONE_UNCONTRACTED = 'DETAIL_GONE_UNCONTRACTED'
+
+/** `last_error_code` of a GONE this run could not prove the board alive for (SR-M-1, retried). */
+export const DETAIL_GONE_BOARD_UNCONFIRMED = 'DETAIL_GONE_BOARD_UNCONFIRMED'
 
 /**
  * The boards whose detail adapter has PROVEN the Decision-2 contract (host-pinned request builder,
@@ -87,11 +92,12 @@ export function createDetailGoneClosurePort(
         await base.fail(row, DETAIL_GONE_UNCONTRACTED, true)
         return
       }
-      await deps.db.transaction(async (tx) => {
+      const unconfirmed = await deps.db.transaction(async (tx) => {
         // Hold the record so a concurrent observation writer cannot re-list it between read and write.
         await tx.execute(
           sql`SELECT 1 FROM job_source_records WHERE id = ${row.recordId}::uuid FOR UPDATE`,
         )
+        if (!(await boardObservedAlive(tx, deps, row.recordId))) return true
         await closeRecordByDetailGone(tx, row.recordId, {
           kind: 'DETAIL_GONE',
           // Greenhouse maps only a 404 to GONE (`parseGreenhouseDetail`).
@@ -104,9 +110,36 @@ export function createDetailGoneClosurePort(
           observedAt: deps.now().toISOString(),
         })
         await completeDirty(tx, row.handle)
+        return false
       })
+      // A retryable attempt, not a poison: a later run that does see the board alive may close it;
+      // a dead board exhausts DIRTY_MAX_ATTEMPTS_DEFAULT and the row ends FAILED, nothing closed.
+      if (unconfirmed) await base.fail(row, DETAIL_GONE_BOARD_UNCONFIRMED, false)
     },
   }
+}
+
+/**
+ * SR-M-1 guard: a deleted or renamed board answers 404 for EVERY posting, which is not employer
+ * closure. A GONE closes only when THIS run observed another posting of the same board (its list
+ * phase or an earlier FOUND detail wrote run membership), so the board token is proven alive. A
+ * DETAIL_ONLY run with no FOUND, or a run whose list failed / answered 404 / 304, closes nothing.
+ */
+async function boardObservedAlive(
+  tx: SqlExecutor,
+  deps: DetailTailPortDeps,
+  recordId: string,
+): Promise<boolean> {
+  const { rows } = await tx.execute(
+    sql`SELECT EXISTS (
+          SELECT 1 FROM job_run_records jr
+            JOIN job_source_records sr ON sr.id = jr.source_record_id
+           WHERE jr.run_id = ${deps.runId}::uuid
+             AND sr.source_type = ${deps.source.type}::job_source_type
+             AND sr.namespace = ${deps.source.namespace}
+             AND sr.id <> ${recordId}::uuid) AS alive`,
+  )
+  return rows[0]?.['alive'] === true
 }
 
 /** The run worker's `detailTailPortFactory` for the flag value: OFF is the U10 factory itself. */

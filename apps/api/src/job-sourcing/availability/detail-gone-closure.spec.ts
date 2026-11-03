@@ -7,6 +7,7 @@ import type { ClaimedDetail, DetailTailPort, DetailTailPortDeps } from '../runti
 import { createDetailTailPort } from '../runtime/detail-tail'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
+  DETAIL_GONE_BOARD_UNCONFIRMED,
   DETAIL_GONE_CLOSE_REASON,
   DETAIL_GONE_UNCONTRACTED,
   closeRecordByDetailGone,
@@ -37,12 +38,13 @@ const goneEvidence = {
  * An executor that answers the close UPDATE with `closed` and the owner read with `owners`,
  * recording every statement (sql text + params) in order.
  */
-function scripted({ closed = true, owners = [OPP_A] as string[] } = {}) {
+function scripted({ closed = true, owners = [OPP_A] as string[], alive = true } = {}) {
   const seen: { sql: string; params: unknown[] }[] = []
   const tx: SqlExecutor = {
     execute: (q: SQL) => {
       const r = dialect.sqlToQuery(q)
       seen.push(r)
+      if (r.sql.includes('FROM job_run_records')) return Promise.resolve({ rows: [{ alive }] })
       if (r.sql.includes('UPDATE job_source_records'))
         return Promise.resolve({ rows: closed ? [{ id: RECORD }] : [] })
       if (r.sql.includes('FROM job_opportunity_sources'))
@@ -181,19 +183,41 @@ describe('createDetailGoneClosurePort (flag on)', () => {
     const order = s.seen.map((q) =>
       q.sql.includes('FOR UPDATE')
         ? 'lock'
-        : q.sql.includes('UPDATE job_source_records')
-          ? 'close'
-          : q.sql.includes('INSERT INTO job_dirty_work')
-            ? 'enqueue'
-            : q.sql.includes('UPDATE job_dirty_work')
-              ? 'complete'
-              : 'read',
+        : q.sql.includes('FROM job_run_records')
+          ? 'alive'
+          : q.sql.includes('UPDATE job_source_records')
+            ? 'close'
+            : q.sql.includes('INSERT INTO job_dirty_work')
+              ? 'enqueue'
+              : q.sql.includes('UPDATE job_dirty_work')
+                ? 'complete'
+                : 'read',
     )
-    expect(order).toEqual(['lock', 'close', 'read', 'enqueue', 'complete'])
+    expect(order).toEqual(['lock', 'alive', 'close', 'read', 'enqueue', 'complete'])
     expect(s.seen[0]?.params).toEqual([RECORD])
     const close = s.seen.find((q) => q.sql.includes('UPDATE job_source_records'))
-    expect(JSON.parse(String(close?.params[0]))).toEqual(goneEvidence)
+    const written = JSON.parse(String(close?.params[0])) as Record<string, unknown>
+    expect(written).toEqual(goneEvidence)
+    // CR-L: the S8 board key, asserted as a literal (not the impl's template).
+    expect(written['board']).toBe('GREENHOUSE_ATS:acme')
     expect(s.enqueues()).toEqual([['OPPORTUNITY', OPP_A, 7, DETAIL_GONE_CLOSE_REASON]])
+    // The board-alive probe: this run, this board, another record than the one closing.
+    const probe = s.seen.find((q) => q.sql.includes('FROM job_run_records'))
+    expect(probe?.params).toEqual([RUN, 'GREENHOUSE_ATS', 'acme', RECORD])
+  })
+
+  it('SR-M-1: a board this run did not observe alive never closes: no close, no enqueue, the row is retried (not poisoned)', async () => {
+    const base = baseFake()
+    const s = scripted({ alive: false })
+    const { deps, transaction } = depsFor('GREENHOUSE_ATS', s.tx)
+    await createDetailGoneClosurePort(base, deps).recordGone(row)
+    expect(transaction).toHaveBeenCalledTimes(1)
+    expect(s.seen.some((q) => q.sql.includes('UPDATE job_source_records'))).toBe(false)
+    expect(s.seen.some((q) => q.sql.includes('UPDATE job_dirty_work'))).toBe(false)
+    expect(s.enqueues()).toEqual([])
+    expect(base.fail).toHaveBeenCalledTimes(1)
+    expect(base.fail).toHaveBeenCalledWith(row, DETAIL_GONE_BOARD_UNCONFIRMED, false)
+    expect(DETAIL_GONE_BOARD_UNCONFIRMED).toBe('DETAIL_GONE_BOARD_UNCONFIRMED')
   })
 
   it('a board WITHOUT a tested GONE contract never closes: the row is failed poisoned, no transaction', async () => {
