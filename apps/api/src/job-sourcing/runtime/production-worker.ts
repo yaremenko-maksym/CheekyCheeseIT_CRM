@@ -4,6 +4,7 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import type { Env } from '../../config/env'
 import * as schema from '../../database/schema'
+import { detailTailPortFactory } from '../availability/detail-gone-closure'
 import type { MeterDb } from '../metering/account-meter.store'
 import { JobRunLedger } from '../ownership/job-run-ledger'
 import { secretsForType } from '../quota-credentials'
@@ -112,6 +113,12 @@ export function createProductionWorker(
         await heartbeatPool?.end()
       },
       logger,
+      // S8g: the detail-GONE closure port, dark behind its flag (OFF = the U10 port). Read once at
+      // construction; a context without config gets OFF.
+      detailTailPortFactory: detailTailPortFactory(
+        // Stryker disable next-line ObjectLiteral,BooleanLiteral: `infer` only types the value; the flag read is asserted in production-worker.spec
+        config?.get('JOB_DETAIL_GONE_CLOSURE_ENABLED', { infer: true }) === true,
+      ),
     },
     { owner: `api-${process.pid}`, ...options },
   )

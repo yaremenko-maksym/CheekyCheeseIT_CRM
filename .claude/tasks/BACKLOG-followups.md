@@ -6598,3 +6598,58 @@ grows by roughly one per head advance; compare `EXPLAIN (ANALYZE)` of the match 
 those rows. Read-only on a scratch database only.
 
 Sources: PR S-P2 review (CR-M-1); the ADR's "Growth while availability is off" consequence.
+
+## 348. Task 4.6 S8g (detail-GONE closure): before-flip findings left for the ON_DEMAND flip (#10) (2026-11-03)
+
+**Open.** S8g ships dark behind `JOB_DETAIL_GONE_CLOSURE_ENABLED` (default off) and a Greenhouse-only
+contract list. Every gap below is inert until the Greenhouse `ON_DEMAND` flip (#10), because no source has a
+detail adapter before it, and each belongs with that flip PR, which the owner gates.
+
+**(i) U10's own GONE close stays live with the S8g flag off.** The U10 detail-tail port closes a record on a
+GONE result without a tested adapter contract and without queueing the opportunity for the availability
+consumer. With the S8g flag off the run worker keeps that U10 port. Needs an owner decision at the flip: stop
+the U10 close so closure exists only behind the contract-gated path. The two paths also write a different
+`board` in the `DETAIL_GONE` evidence: U10's close writes the bare namespace, the S8g closure writes the S8
+board key `<source type>:<namespace>` that the inventory and window paths use; align U10 to the S8 key (or
+remove its close) at the flip. Verify: with the flag off and a stub adapter returning GONE, no record is
+closed; any `DETAIL_GONE` evidence present carries a `board` of the form `<source type>:<namespace>`.
+
+**(ii) A posting listed but whose detail returns 404 can flap across runs.** The Greenhouse list and detail
+are served from different caches and can disagree. **The same-run case is closed in S8g (SR-M-2):**
+`createDetailGoneClosurePort` never closes a posting the same run listed; the row is failed retryable with
+`DETAIL_GONE_LISTED_THIS_RUN`. What remains is cross-run precedence: a detail pass that does not list the
+posting (a `DETAIL_ONLY` pass after a FOUND, or a run whose list omitted it) can still close a record that an
+earlier run listed, and the next list run that shows it reopens it. Decide the intended precedence (list
+evidence vs detail GONE) before the flip. Verify: a spec where list and detail disagree across two runs settles
+on one state after two cycles.
+
+**(iii) The closure queues opportunities without a `cycleId`.** The detail port carries no cycle; marked in
+code as a shortcut to fix with #10. Verify: after the flip, rows queued by the closure carry the cycle that
+produced the detail pass.
+
+**(iv) `account()` scope-awareness.** The closure path never calls `endRun` or `account()`, but a detail-only run
+does end through them (SR-M-1 of the U10 work, carried to the flip PR by its owner). Verify at the flip: a
+DETAIL_ONLY ending leaves the list run's `consecutive_failures`, cooldown and stored validators unchanged.
+
+**(v) A deleted or renamed board answers 404 for every posting (SR-M-1 of the S8g review).** Without a guard
+the closure would close every wanted posting of that board (the only limit is the per-run detail cap), and the
+reopen path cannot recover them because the list under the old board token fails too. **Partly closed in
+S8g:** `createDetailGoneClosurePort` closes on GONE only when the same run observed another posting of the
+same board alive (run membership in `job_run_records` from the list phase or an earlier FOUND detail; the
+posting being closed never counts, and if the same run listed that posting the GONE is refused outright with
+`DETAIL_GONE_LISTED_THIS_RUN`, see (ii)); otherwise the row is failed retryable with
+`DETAIL_GONE_BOARD_UNCONFIRMED` and nothing closes, so a dead board exhausts its attempts and ends `FAILED`.
+The proof is scoped by the run: a run belongs to one source and only its own handle writes its membership, so
+a sibling source sharing the board's `(source type, namespace)` cannot vouch (CR-M-3, not a defect). Left for the flip: whether a `DETAIL_ONLY` pass (no list) should ever
+close on GONE (today it closes only after a FOUND in the same pass), and whether to add the run-level stop
+"every posting in a run is 404 → close none" on top. Verify: a spec where every posting 404s against a board
+whose list also 404s or fails closes nothing (`detail-gone-closure.integration.spec` covers the list-died
+case); re-check after the flip with the real Greenhouse adapter and the detail-pass cron.
+
+**(vi) The tail report counts a refused GONE as gone (CR-M-1 of the S8g review).** `runDetailTail` increments
+`gone` after `recordGone` returns, but the S8g port turns an uncontracted GONE into a poisoned failure and an
+unconfirmed-board or listed-this-run GONE into a retryable failure, so `DetailTailReport.gone` over-counts and `failed` /
+`retried` under-count. Fix in the SFS detail tail (owner of `runDetailTail`), e.g. let `recordGone` return
+its outcome. Verify: a tail over one uncontracted GONE reports `gone: 0, failed: 1`.
+
+Sources: S8g coder report; U10 Master hand-off message (freshness anchor and scope-aware `account()` ride with the flip); PR #1249 review (SR-M-1, CR-M-1, CR-L).

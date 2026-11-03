@@ -4,6 +4,7 @@ import type { Env } from '../../config/env'
 import type { MeterDb } from '../metering/account-meter.store'
 import { secretsForType } from '../quota-credentials'
 import { JobSourceRegistry } from '../registry/job-source-registry'
+import { createDetailTailPort } from './detail-tail'
 import { POOL_SIZE_CEILING, type WorkerDeps } from './job-run-worker'
 import {
   createHeartbeatPool,
@@ -153,6 +154,20 @@ describe('createProductionWorker', () => {
         floorHours: 0,
       }),
     ).rejects.toThrow('the database was touched')
+  })
+
+  it('S8g: the detail tail port is the U10 one unless JOB_DETAIL_GONE_CLOSURE_ENABLED is true', () => {
+    const factoryOf = (cfg: ConfigService<Env, true> | undefined) =>
+      depsOf(createProductionWorker(LEDGER, untouchable, new JobSourceRegistry([]), cfg))
+        .detailTailPortFactory
+    expect(factoryOf(undefined)).toBe(createDetailTailPort)
+    expect(factoryOf(config)).toBe(createDetailTailPort)
+    const on = {
+      get: (key: string) => (key === 'JOB_DETAIL_GONE_CLOSURE_ENABLED' ? true : undefined),
+    } as unknown as ConfigService<Env, true>
+    const factory = factoryOf(on)
+    expect(factory).toBeTypeOf('function')
+    expect(factory).not.toBe(createDetailTailPort)
   })
 
   it('reads the type`s credentials through the config it was given', () => {
