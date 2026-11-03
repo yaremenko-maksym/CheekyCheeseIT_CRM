@@ -10,7 +10,10 @@ import {
 } from '../../database/__test-helpers__/crm-app-session'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { AVAILABILITY_REASON_PREFIX, enqueueDirty } from '../ownership/dirty-work.store'
-import { createAvailabilityReconcileSteps } from '../runtime/availability-reconcile-worker'
+import {
+  OPPORTUNITY_AVAILABILITY_CHANGED_REASON,
+  createAvailabilityReconcileSteps,
+} from '../runtime/availability-reconcile-worker'
 import { type RecomputeSteps, RecomputeWorker } from '../runtime/recompute-worker'
 import { RECORD_REOPEN_REASON, reopenObservedRecord } from './record-reopen-updater'
 
@@ -205,11 +208,13 @@ async function pending(): Promise<string[]> {
   return rows.map((r) => String(r.id))
 }
 
+/** The availability worker's pending rows; the S-P2 match successor rows it never claims stay out. */
 async function pin(): Promise<number> {
   const { rowCount } = await q(
     `UPDATE job_dirty_work SET created_at = '2000-01-01T00:00:00Z'::timestamptz + seq * interval '1 ms'
        FROM (SELECT id AS pid, row_number() OVER (ORDER BY entity_kind DESC, created_at, id) AS seq
-               FROM job_dirty_work WHERE status = 'PENDING' AND (${MINE})) p
+               FROM job_dirty_work WHERE status = 'PENDING' AND (${MINE})
+                AND reason <> '${OPPORTUNITY_AVAILABILITY_CHANGED_REASON}') p
       WHERE id = p.pid`,
   )
   return rowCount ?? 0
@@ -498,6 +503,14 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
 
     await runMine() // opportunity -> OPEN, revision bumped
     expect(await oppRow(oppId)).toEqual({ availability: 'OPEN', revision: 3 })
+    // S-P2: each availability bump (close -> 2, reopen -> 3) left a PENDING match row at it.
+    const { rows: successors } = await q(
+      `SELECT target_version::int AS v FROM job_dirty_work
+        WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 AND reason = $2 AND status = 'PENDING'
+        ORDER BY 1`,
+      [oppId, OPPORTUNITY_AVAILABILITY_CHANGED_REASON],
+    )
+    expect(successors.map((r) => r.v)).toEqual([2, 3])
     // The SAME decisions, untouched: not cleared, not recomputed, not re-stamped.
     expect(await matchSnapshot(oppId)).toEqual(preserved)
 

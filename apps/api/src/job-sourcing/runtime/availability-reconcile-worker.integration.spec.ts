@@ -172,12 +172,17 @@ async function pending(): Promise<{ id: string; entity_kind: string; status: str
   return rows as { id: string; entity_kind: string; status: string }[]
 }
 
-/** Date the spec's PENDING rows in 2000 (oldest first) and return how many there are. */
+/**
+ * Date the spec's PENDING availability rows in 2000 (oldest first) and return how many there are.
+ * The S-P2 match successor rows are left out: this worker never claims them, and counting them
+ * would size the batch past the spec's own rows into whatever else is pending.
+ */
 async function pin(): Promise<number> {
   const { rowCount } = await q(
     `UPDATE job_dirty_work SET created_at = '2000-01-01T00:00:00Z'::timestamptz + seq * interval '1 ms'
        FROM (SELECT id AS pid, row_number() OVER (ORDER BY entity_kind DESC, created_at, id) AS seq
-               FROM job_dirty_work WHERE status = 'PENDING' AND (${MINE})) p
+               FROM job_dirty_work WHERE status = 'PENDING' AND (${MINE})
+                AND reason <> '${OPPORTUNITY_AVAILABILITY_CHANGED_REASON}') p
       WHERE id = p.pid`,
   )
   return rowCount ?? 0
