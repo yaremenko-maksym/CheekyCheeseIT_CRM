@@ -49,6 +49,11 @@ describe('guardExtractionResult — evidence quote length (CR-M-3)', () => {
     expect(guardQuotes([span], { company: '  Acme ' })).toEqual({ kept: [span], dropped: 0 })
   })
 
+  it('a short quote padded with spaces still matches its field', () => {
+    const span = { field: 'company', quote: ' Acme' }
+    expect(guardQuotes([span])).toEqual({ kept: [span], dropped: 0 })
+  })
+
   it('a whitespace quote equal to a blank field is not evidence', () => {
     expect(guardQuotes([{ field: 'company', quote: ' ' }], { company: ' ' })).toEqual({
       kept: [],

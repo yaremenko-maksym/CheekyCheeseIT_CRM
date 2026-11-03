@@ -28,7 +28,7 @@ export interface ExtractionPrompt {
   user: string
   /** `PAGE-DATA-<nonce>`; guaranteed absent from the page text it encloses. */
   delimiter: string
-  /** The stripped page text was longer than MAX_MODEL_INPUT_CHARS and was cut. */
+  /** The page was cut: raw text over MAX_RAW_INPUT_CHARS, or stripped text over MAX_MODEL_INPUT_CHARS. */
   truncated: boolean
   contactsRemoved: ContactCounts
 }
