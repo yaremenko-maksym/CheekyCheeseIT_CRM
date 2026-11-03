@@ -17,7 +17,11 @@ import {
 } from '../../test/ledger-fixtures'
 import { cleanupStore, observation, untilBlocked } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
-import { type ClaimedDirtyWork, enqueueDirty } from '../ownership/dirty-work.store'
+import {
+  AVAILABILITY_REASON_PREFIX,
+  type ClaimedDirtyWork,
+  enqueueDirty,
+} from '../ownership/dirty-work.store'
 import { JobRunLedger } from '../ownership/job-run-ledger'
 import type { RunHandle } from '../ownership/run-ownership'
 import { saveObservationPage } from '../store/source-record.store'
@@ -54,10 +58,15 @@ async function record(nativeId: string, version = 'v1'): Promise<string> {
   return saved?.recordId as string
 }
 
-/** The spec's entities: its records and the opportunities they are linked to. */
-const MINE = `entity_id IN (SELECT id FROM job_source_records WHERE namespace = $1)
+/**
+ * The spec's entities: its records and the opportunities they are linked to — match-partition
+ * rows only (S-P2: every producer here also writes an `AVAILABILITY:*` row the match worker never
+ * claims, so it would sit PENDING in every count and status list below).
+ */
+const MINE = `(entity_id IN (SELECT id FROM job_source_records WHERE namespace = $1)
   OR entity_id IN (SELECT s.opportunity_id FROM job_opportunity_sources s
-                     JOIN job_source_records r ON r.id = s.source_record_id WHERE r.namespace = $1)`
+                     JOIN job_source_records r ON r.id = s.source_record_id WHERE r.namespace = $1))
+  AND NOT starts_with(reason, '${AVAILABILITY_REASON_PREFIX}')`
 
 /** Date the spec's PENDING rows in 2000 (oldest first) and return how many there are. */
 async function pin(): Promise<number> {
