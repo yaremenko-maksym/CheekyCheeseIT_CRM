@@ -168,6 +168,18 @@ const PART_9_INDEXES = ['idx_job_source_records_source'] as const
 const PART_10_MIGRATION = '2026-11-02_job_dirty_work_pending_partial.sql'
 /** The index PART_10 creates; the reference counts it beside part 2's, PART_5/6/8/9's. */
 const PART_10_INDEXES = ['idx_job_dirty_work_pending_generic'] as const
+/**
+ * PART_11 — backlog 347 (1) (STAGED/DARK): the reason-partition partial indexes on
+ * `job_dirty_work (status, created_at)`, declared in Drizzle (`job-collection.ts`) so the
+ * `db:push` reference carries them; production gets them ONLY through this file. Applied after
+ * PART_10, as the deploy would; `CREATE INDEX CONCURRENTLY`, run statement-by-statement in
+ * autocommit by `applyParts`, like PART_10.
+ */
+const PART_11_MIGRATION = '2026-11-03_job_dirty_work_partition_partial.sql'
+const PART_11_INDEXES = [
+  'idx_job_dirty_work_pending_match',
+  'idx_job_dirty_work_pending_availability',
+] as const
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
 const SCHEMA = 'ddl_job_opportunities_store'
 /** Its own schema, so the migration path cannot disturb the fresh-path comparison. */
@@ -240,7 +252,8 @@ const PRE_STORE_ENUMS = [
 const EXPECTED = { tables: 19, enums: 19, jobSourcesColumns: 20, indexes: 44 } as const
 /**
  * The standalone indexes beyond part 2's 44: T1's two (PART_5), T8's one (PART_6), SR-M-4's one
- * (PART_8), SR-H-2's one (PART_9) and CR-M-4's one (PART_10). PART_7 adds columns only, no index.
+ * (PART_8), SR-H-2's one (PART_9), CR-M-4's one (PART_10) and backlog 347's two (PART_11).
+ * PART_7 adds columns only, no index.
  */
 const LATER_INDEXES = [
   ...PART_5_INDEXES,
@@ -248,6 +261,7 @@ const LATER_INDEXES = [
   ...PART_8_INDEXES,
   ...PART_9_INDEXES,
   ...PART_10_INDEXES,
+  ...PART_11_INDEXES,
 ]
 
 const STAGED_DIR = join(__dirname, '..', '..', 'drizzle', 'manual-staged')
@@ -635,6 +649,7 @@ const applyBothParts = (client: PoolClient): Promise<void> =>
     PART_8_MIGRATION,
     PART_9_MIGRATION,
     PART_10_MIGRATION,
+    PART_11_MIGRATION,
   ])
 const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 

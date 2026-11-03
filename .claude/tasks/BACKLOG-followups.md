@@ -6576,6 +6576,11 @@ Needed before the availability flag is turned on in production, or earlier if ma
 
 1. a partition-aware partial index (the existing partial index only excludes `DETAIL_FETCH`), a manual-staged
    DDL promoted by the owner; and/or
+   **STAGED: `manual-staged/2026-11-03_job_dirty_work_partition_partial.sql`, owner promotes.** Two
+   partial indexes, `idx_job_dirty_work_pending_match` and `idx_job_dirty_work_pending_availability`,
+   whose predicates are exactly `dirtyConsumerPredicate(<consumer>, reason, { inline: true })`; the claim
+   in `dirtyWorkStatements.claim` now renders that conjunct with inline literals so a generic plan can use
+   them. Verify: `job-dirty-work-partition-partial-ddl.integration.spec` (CI) EXPLAINs the real claim.
 2. retention of unclaimed availability-partition rows past a horizon (an explicit, owner-reviewed rule,
    since the retention-guard spec forbids any deletion from this table by design).
 
