@@ -8,8 +8,9 @@ import {
   type ExtractionPrompt,
 } from './prompt-envelope'
 
-const GATE = assertModelAllowed('yes', { onUnspecified: 'block' })
-if (GATE !== 'ALLOWED') throw new Error('an explicit ai-input=yes must be allowed')
+const decision = assertModelAllowed('yes', { onUnspecified: 'block' })
+if (decision !== 'ALLOWED') throw new Error('an explicit ai-input=yes must be allowed')
+const GATE: GateAllowed = decision
 
 describe('buildExtractionPrompt — the gate decision is required', () => {
   it.each(['BLOCKED_AI_INPUT_NO', 'BLOCKED_AI_INPUT_UNSPECIFIED', 'allowed', ''])(
