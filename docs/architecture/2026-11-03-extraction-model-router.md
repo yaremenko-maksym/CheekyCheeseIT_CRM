@@ -305,30 +305,46 @@ some time before the collection window so a fresh list is in place — rebuilds 
 
 | Provider   | Source of candidates                                                                                                                                                                                               | Probe                                                                                                                                                        |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| OpenRouter | the models catalogue, **free entries only** (prompt and completion price 0)                                                                                                                                        | yes: the current list first, then the largest-context new candidates, at most `PROBE_CAP` (VCF: 10, under a ~50/day free limit), with a pause between probes |
-| Groq       | the models listing, **active** entries with their context (`pickGroqModels`: keep current ids still listed, add at most one largest-context chat model; non-chat ids such as speech, guard or TTS models excluded) | no chat probe — availability comes from the listing (VCF: its problem is rate limits, not staleness)                                                         |
+| OpenRouter | the models catalogue, **free entries only**: prompt and completion price 0 **and** a plain or `:free` id form (price 0 alone is not trusted — a catalogue can list a router or a promotional price; the own caps and OpenRouter's USD key limit of Task 5.2 remain the backstop) | yes: the current list first, then the largest-context new candidates, at most `PROBE_CAP` (VCF: 10, under a ~50/day free limit), with a pause between probes |
+| Groq       | the models listing, **active** entries with their context (`pickGroqModels`: keep current ids still listed, add at most one largest-context chat model; non-chat ids such as speech, guard or TTS models excluded). **CRM restriction (SR-H-1):** because Groq additions are never chat-probed, an addition must also match a **checked-in Groq model-family pattern** (the families 5.4c-0 and MP-03 vetted); anything else is not added | no chat probe — availability comes from the listing (VCF: its problem is rate limits, not staleness)                                                         |
 | Gemini     | the models listing (VCF has no Gemini refresh; this is the CRM's addition, its listing shape settled by 5.4c-0)                                                                                                    | as OpenRouter, within `PROBE_CAP`                                                                                                                            |
 
 - **Verdicts** (`classifyModelStatus`, adopted as-is, plus two CRM codes): 2xx ⇒ `alive`; 404 ⇒ `dead`; 429/503 ⇒
   `transient` (kept — busy is not rotten); timeout, network error or any other status ⇒ `unknown`, **never** `dead`.
-  CRM additions: a probe answered `FLAG_REJECTED` ⇒ the model is **ineligible** (dropped like `dead`, because it cannot
-  serve under our privacy flags); `AUTH` on the catalogue fetch or a probe ⇒ that provider's refresh **fails** and its
+  CRM additions: a probe answered `FLAG_REJECTED` ⇒ **that model** is **ineligible** (dropped like `dead`, because it
+  cannot serve under our privacy flags). A probe's `FLAG_REJECTED` is a **per-model verdict only** and never sets the
+  provider-wide bit (SR-M-4); the provider-wide bit of §5.1 comes only from production requests, so one odd catalogue
+  entry cannot disable a route. `AUTH` on the catalogue fetch or a probe ⇒ that provider's refresh **fails** and its
   previous list is kept.
-- **Selection** (`pickLiveModels`, adopted as-is): drop `dead` / ineligible and every model under
-  `MIN_MANAGED_CONTEXT` (VCF: 16 000 tokens; the CRM sets it to at least the local chunk size, so every managed model
-  fits every chunk); rank `alive` before `transient` before `unknown`, then larger context; keep `TARGET` (VCF: 5).
+- **Selection — VCF's `pickLiveModels` with a CRM ordering change (SR-H-1).** Drop `dead` / ineligible and every model
+  under `MIN_MANAGED_CONTEXT` (VCF: 16 000 tokens; the CRM sets it to at least the local chunk size, so every managed
+  model fits every chunk); keep `TARGET` (VCF: 5). VCF ranks by status then context, which would put a brand-new,
+  unreviewed, large-context candidate **first** for all vacancy text. The CRM instead:
+  - keeps **existing** entries in their current order (dropping the dead / ineligible), and **appends** new candidates
+    at the **tail**, below every existing entry, ranked among themselves by status then context;
+  - **promotes** a new entry above older ones only after it has been `alive` on N consecutive daily refreshes
+    (N = 3 proposed, a package constant), its streak kept in the managed-list file; until then it serves only when every
+    older model of that provider failed;
+  - uses an **effective context** of `min(provider-reported context, the route's configured context window)` for every
+    filter and ranking — a provider-reported number is untrusted input and can never widen what the route accepts.
 - **Never wipe.** If the catalogue fetch fails, or nothing survives, that provider's managed list is **left untouched**
   and the provider counts as failed.
-- **Retirement reset.** Only when **every** provider refreshed successfully, the retired entries are cleared — the
-  fresh probe is the authority (VCF: "one still really gone costs one request tomorrow, then is retired again"). A
-  provider's `AUTH` / `FLAG_REJECTED` bits clear on that provider's own successful refresh (§3.2).
+- **Retirement reset, per provider (SR-M-5).** VCF clears every retirement only when every provider refreshed; one
+  failing provider would then block every other provider's recovery. The CRM clears a provider's retired entries, and
+  its `AUTH` / `FLAG_REJECTED` bits (§3.2), on **that provider's own** successful refresh — the fresh probe of that
+  provider is the authority (VCF: "one still really gone costs one request tomorrow, then is retired again"). A provider
+  that is not configured (no key) or is excluded by policy is **skipped**, not counted as failed.
 - **Independent providers**: one failing never blocks another. The job's result is **failed** if any provider failed
   (VCF: exit 1), which raises a health event; the log lists provider, model ids and verdicts only — never a key, never a
   probe or provider body.
 
 **3. Weekly chain check (secondary signal).** VCF's `checkModelChain` is kept as a separate, cheaper check: one minimal
 probe of every model currently in use, with the same verdict rules. Any `dead` entry raises the durable health flag
-`MODEL_LIST_STALE`; a run with no dead entry clears it. It alerts; it never edits a list — repair is layer 2's job.
+`MODEL_LIST_STALE`; a run with no dead entry clears it, and so does a successful daily refresh that has removed every
+entry the flag named (the repair heals the signal). It alerts; it never edits a list — repair is layer 2's job. Its
+probes obey **every** constraint below exactly as the refresh probes do (SR-M-3): the fixed synthetic prompt, the shared
+request builder with the privacy fields, the provider allowlist and D1–D3 permission, the own caps, the transport rules
+of §3.3; and they carry the same tests (§6.1).
 
 **The managed list is read** per provider through a `managedModels(provider, fallback)` reader: the managed-list file's
 entry for that provider if it is valid and non-empty, else the **pinned fallback list** from the package config. A
@@ -339,18 +355,26 @@ missing, empty or invalid file therefore degrades to the first edition's behavio
 - **Probes carry only a fixed synthetic prompt** — a package constant in VCF's form ("reply only with JSON
   `{"ok":true}`") — never vacancy text, never a page, never anything read from the DB. A test asserts the probe request
   body equals the constant plus the route's flags.
-- **Probes carry the production privacy flags** (OpenRouter `data_collection: deny`, `zdr` when confirmed): a candidate
-  that cannot serve under them answers `FLAG_REJECTED` and is never added. The refresh therefore cannot widen the
-  privacy surface that D3 sets.
+- **Probes are built by the shared request builder** (§3.3): `data_collection: deny`, `zdr` when confirmed, and the
+  `provider.ignore` list of excluded upstreams — exactly the production fields. A candidate that cannot serve under them
+  answers `FLAG_REJECTED` and is never added. The refresh therefore cannot widen the privacy surface that D2 and D3 set.
 - **Providers come only from the checked-in provider allowlist** (`gemini`, `groq`, `openrouter`), and only those that
   are configured (key present) and permitted by D1–D3 (a provider that D2 excludes for every source is not refreshed).
-  A catalogue cannot introduce a provider. Within OpenRouter, a candidate whose id names an upstream provider that
-  policy excludes (for example the Gemini models that D2 excludes, reached through OpenRouter) is filtered out by the
-  same rule.
-- **Model ids are untrusted input** from a hosted listing: each is validated against a strict pattern (letters, digits
-  and `. _ - : /`, bounded length, no leading `/`, no `..`, no whitespace or control characters, no URL scheme)
-  **before** it is probed, stored or logged; a failing id is dropped and counted. Ids are only ever sent as the JSON
-  `model` field, never placed into a URL or a path.
+  A catalogue cannot introduce a provider. **D2 through OpenRouter (SR-H-2):** a model id names the model's **author**,
+  not the **endpoint** that serves it, so filtering ids by prefix does not keep an excluded upstream out. The guarantee
+  is the `provider.ignore` list in every request (production and probe alike) plus `data_collection: deny`; the id
+  filter is kept only as a second, cosmetic layer.
+- **Model ids are untrusted input** from a hosted listing: each is validated **before** it is probed, stored or logged;
+  a failing id is dropped and counted. Ids are only ever sent as the JSON `model` field, never placed into a URL or a
+  path. The pattern (SR-H-1):
+  - common to all providers: letters, digits and `. _ - /` and at most one `:`, bounded length (128), no leading `/`,
+    no `..`, no whitespace or control characters, no URL scheme;
+  - **OpenRouter**: exactly `<author>/<model>` or `<author>/<model>:free` — any other `:` suffix is refused, which
+    excludes the routing and tool variants (`:online` forwards the prompt to a web search, `:extended`, `:nitro`,
+    `:floor`, `:thinking` and any future suffix by default), and the routers themselves (`openrouter/auto` and every id
+    whose author is `openrouter`) are explicitly denied;
+  - **Groq**: the checked-in family pattern of the table above;
+  - **Gemini**: a pattern set by 5.4c-0 from the listing's documented id form.
 - **Probes count against the own caps** (`OwnCapPort`, unit rules of §5.1): a provider whose cap cannot reserve a probe
   is skipped for the day and keeps its list.
 - **Rollback of self-heal alone**: deleting the managed-list file returns every provider to its pinned fallback;
