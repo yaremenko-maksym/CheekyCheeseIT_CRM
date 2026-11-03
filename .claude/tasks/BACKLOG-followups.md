@@ -6596,3 +6596,30 @@ grows by roughly one per head advance; compare `EXPLAIN (ANALYZE)` of the match 
 those rows. Read-only on a scratch database only.
 
 Sources: PR S-P2 review (CR-M-1); the ADR's "Growth while availability is off" consequence.
+
+## 348. Task 4.6 S8g (detail-GONE closure): before-flip findings left for the ON_DEMAND flip (#10) (2026-11-03)
+
+**Open.** S8g ships dark behind `JOB_DETAIL_GONE_CLOSURE_ENABLED` (default off) and a Greenhouse-only
+contract list. Both gaps below are inert until the Greenhouse `ON_DEMAND` flip (#10), because no source has a
+detail adapter before it, and both belong with that flip PR, which the owner gates.
+
+**(i) U10's own GONE close stays live with the S8g flag off.** The U10 detail-tail port closes a record on a
+GONE result without a tested adapter contract and without queueing the opportunity for the availability
+consumer. With the S8g flag off the run worker keeps that U10 port. Needs an owner decision at the flip: stop
+the U10 close so closure exists only behind the contract-gated path. Verify: with the flag off and a stub
+adapter returning GONE, no record is closed.
+
+**(ii) A posting listed but whose detail returns 404 flaps.** If the Greenhouse list still shows a posting whose
+detail returns 404, the reopen path reopens the closed record on the next list run, and the next detail pass
+closes it again. Decide the intended precedence (list evidence vs detail GONE) before the flip. Verify: a spec
+where list and detail disagree settles on one state after two cycles.
+
+**(iii) The closure queues opportunities without a `cycleId`.** The detail port carries no cycle; marked in
+code as a shortcut to fix with #10. Verify: after the flip, rows queued by the closure carry the cycle that
+produced the detail pass.
+
+**(iv) `account()` scope-awareness.** The closure path never calls `endRun` or `account()`, but a detail-only run
+does end through them (SR-M-1 of the U10 work, carried to the flip PR by its owner). Verify at the flip: a
+DETAIL_ONLY ending leaves the list run's `consecutive_failures`, cooldown and stored validators unchanged.
+
+Sources: S8g coder report; U10 Master hand-off message (freshness anchor and scope-aware `account()` ride with the flip).
