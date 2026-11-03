@@ -9,7 +9,7 @@ import {
   openCrmAppSession,
 } from '../../database/__test-helpers__/crm-app-session'
 import { hasDatabaseUrl } from '../../test/require-real-db'
-import { enqueueDirty } from '../ownership/dirty-work.store'
+import { AVAILABILITY_REASON_PREFIX, enqueueDirty } from '../ownership/dirty-work.store'
 import { createAvailabilityReconcileSteps } from '../runtime/availability-reconcile-worker'
 import { type RecomputeSteps, RecomputeWorker } from '../runtime/recompute-worker'
 import { RECORD_REOPEN_REASON, reopenObservedRecord } from './record-reopen-updater'
@@ -464,7 +464,13 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
     await addRun(sourceId, cycleId, 0)
     await addRun(sourceId, cycleId, DAY / 2)
     await addRun(sourceId, cycleId, DAY + 1)
-    await enqueueDirty(db, 'SOURCE_RECORD', recordId, 1, `S8F_CLOSE_${tag()}`)
+    await enqueueDirty(
+      db,
+      'SOURCE_RECORD',
+      recordId,
+      1,
+      `${AVAILABILITY_REASON_PREFIX}S8F_CLOSE_${tag()}`,
+    )
     await runMine() // record -> CLOSED, opportunity enqueued
     await runMine() // opportunity -> CLOSED
     expect((await recordRow(recordId)).availability).toBe('CLOSED')
@@ -474,7 +480,13 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
     // The posting is listed again by a later successful run.
     const back = await addRun(sourceId, cycleId, Date.now() + HOUR)
     await list(back, recordId)
-    await enqueueDirty(db, 'SOURCE_RECORD', recordId, 2, `S8F_RELIST_${tag()}`)
+    await enqueueDirty(
+      db,
+      'SOURCE_RECORD',
+      recordId,
+      2,
+      `${AVAILABILITY_REASON_PREFIX}S8F_RELIST_${tag()}`,
+    )
     await runMine() // record -> OPEN (reopen first; the counter then resets, never re-closes)
     expect((await recordRow(recordId)).availability).toBe('OPEN')
     expect((await recordRow(recordId)).evidence).toMatchObject({
@@ -490,7 +502,13 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
     expect(await matchSnapshot(oppId)).toEqual(preserved)
 
     // A further sweep is a no-op: nothing flips, nothing bumps, nothing re-enqueues.
-    await enqueueDirty(db, 'SOURCE_RECORD', recordId, 3, `S8F_AGAIN_${tag()}`)
+    await enqueueDirty(
+      db,
+      'SOURCE_RECORD',
+      recordId,
+      3,
+      `${AVAILABILITY_REASON_PREFIX}S8F_AGAIN_${tag()}`,
+    )
     await runMine()
     expect((await recordRow(recordId)).availability).toBe('OPEN')
     expect(await oppRow(oppId)).toEqual({ availability: 'OPEN', revision: 3 })
@@ -507,7 +525,13 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
     await q(`UPDATE job_opportunities SET availability = 'EXPIRED' WHERE id = $1`, [oppId])
     const run = await addRun(sourceId, cycleId, Date.now() - HOUR, { coverage: 'WINDOW' })
     await list(run, recordId)
-    await enqueueDirty(db, 'SOURCE_RECORD', recordId, 1, `S8F_WIN_${tag()}`)
+    await enqueueDirty(
+      db,
+      'SOURCE_RECORD',
+      recordId,
+      1,
+      `${AVAILABILITY_REASON_PREFIX}S8F_WIN_${tag()}`,
+    )
 
     await runMine()
     expect((await recordRow(recordId)).availability).toBe('OPEN')

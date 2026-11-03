@@ -10,7 +10,7 @@ import {
 } from '../../database/__test-helpers__/crm-app-session'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { INVENTORY_CLOSE_REASON } from '../availability/inventory-counter-updater'
-import { enqueueDirty } from '../ownership/dirty-work.store'
+import { AVAILABILITY_REASON_PREFIX, enqueueDirty } from '../ownership/dirty-work.store'
 import { type RecomputeSteps, RecomputeWorker } from './recompute-worker'
 import {
   createAvailabilityReconcileSteps,
@@ -202,8 +202,9 @@ async function runMine(): Promise<Awaited<ReturnType<RecomputeWorker['runOnce']>
 }
 
 const enqueueOpp = (id: string, revision: number) =>
-  enqueueDirty(db, 'OPPORTUNITY', id, revision, `AVAIL_OPP_${tag()}`)
-const enqueueRecord = (id: string) => enqueueDirty(db, 'SOURCE_RECORD', id, 1, `AVAIL_REC_${tag()}`)
+  enqueueDirty(db, 'OPPORTUNITY', id, revision, `${AVAILABILITY_REASON_PREFIX}AVAIL_OPP_${tag()}`)
+const enqueueRecord = (id: string) =>
+  enqueueDirty(db, 'SOURCE_RECORD', id, 1, `${AVAILABILITY_REASON_PREFIX}AVAIL_REC_${tag()}`)
 
 describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 4.6 S8d)', () => {
   beforeAll(async () => {
