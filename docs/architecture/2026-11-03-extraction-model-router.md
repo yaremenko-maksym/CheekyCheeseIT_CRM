@@ -229,19 +229,35 @@ touching the router if a second replica appears. Owner decision D4 (A2), narrowe
 - **Data, not code.** JSON validated by a Zod schema on every read; never imported, evaluated or used as a path. An
   unreadable, invalid or oversized file is treated as empty state (for the managed list: the pinned fallback), and the
   event says so.
-- **Atomic replace**: write a temporary file in the same directory, then rename over the old one; a crash mid-write
-  leaves the previous file intact.
-- **Contents**: `provider:model` keys, the internal code, the HTTP status, a timestamp and the provider day. **Never** a
-  provider error body. VCF stores up to 300 characters of the body as the reason; the CRM stores the classified code
-  instead, because a provider body can echo the prompt (§4 item 2). This is the one deliberate departure from the VCF
-  `RetiredStore` shape (`isRetired` / `markRetired` / `list` / `clear` are otherwise adopted as-is).
+- **Schema, strictly bounded** (SR-M-6):
+  - every entry has **structured fields** `provider` and `model` — never one joined `provider:model` string, because
+    model ids themselves contain `:` (`…:free`); log lines may print the pair, the file never parses it back;
+  - `provider` is an enum of the checked-in provider allowlist; `model` must pass the **same** model-id validation as
+    the refresh (§3.4), so a hand-edited or corrupted file cannot smuggle in an id the refresh would have refused;
+  - `code` is an enum of the internal codes, `status` an integer 100–599, timestamps ISO strings, the provider day a
+    `YYYY-MM-DD` string;
+  - an **entry cap** per file (spent and retired: a few hundred; the managed list: `TARGET` per provider) and a byte
+    ceiling checked **before** parsing (tens of KiB); over either ⇒ treated as invalid.
+- **Single writer.** Only the extraction worker writes, and inside it one serialised writer (a promise queue) owns each
+  file: every change is applied to the in-memory state and the whole document is written from it, so two concurrent
+  changes cannot lose each other. A second worker replica is out of scope for files (D4: Postgres then).
+- **Durable atomic replace**: write a temporary file in the same directory with mode `0600`, `fsync` it, rename it over
+  the old file, then `fsync` the directory; a crash at any point leaves either the old or the new file, never a torn
+  one. The files live on the worker's own volume, never on a shared or world-readable path.
+- **Contents**: the fields above. **Never** a provider error body. VCF stores up to 300 characters of the body as the
+  reason; the CRM stores the classified code instead, because a provider body can echo the prompt (§4 item 2). This is
+  the one deliberate departure from the VCF `RetiredStore` behaviour (`isRetired` / `markRetired` / `list` / `clear`
+  are otherwise adopted).
 - **Pruning**: spent entries of past provider days are dropped on load.
 
-**The restart caveat, reduced (REV-L-10).** `AUTH`, `CREDIT` and `FLAG_REJECTED` now persist, so a restart or a crash
-loop does not re-send a refused request. They are cleared by that provider's next successful refresh (a catalogue fetch
-that succeeds with the key proves the key works; a probe that succeeds with the privacy flags proves the flags are
-accepted) or, for `CREDIT`, by the limit's reset. The own-cap unit is still released for these codes (§5.1), and the
-worker's restart policy (Task 5.2) still uses a backoff.
+**The restart caveat, reduced (REV-L-10, SR-M-7).** `AUTH`, `CREDIT` and the provider-wide `FLAG_REJECTED` bit now
+persist, so a restart or a crash loop does not re-send a refused request. They are cleared by that provider's next
+successful refresh (a catalogue fetch that succeeds with the key proves the key works; a probe that succeeds with the
+privacy flags proves the flags are accepted) or, for `CREDIT`, by the limit's reset. **At worker start**, every
+provider carrying a persisted `AUTH` or `FLAG_REJECTED` bit gets an **on-demand refresh** of that provider alone (same
+rules and constraints as the daily one), so a rotated key or a fixed flag is picked up at the next start rather than up
+to a day later. The own-cap unit is still released for these codes (§5.1), and the worker's restart policy (Task 5.2)
+still uses a backoff, which also bounds how often the start-up refresh can run.
 
 ### 3.3 Transport and key hygiene
 
