@@ -1,4 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
+import {
+  SourceBlockedError,
+  SourceHttpStatusError,
+  SourcePayloadTooLargeError,
+  SourceRateLimitedError,
+} from '../../http/source-errors'
 import type { RobotsCheck } from '../../structuring/robots-policy'
 import type {
   HtmlStructurer,
@@ -20,12 +26,7 @@ import {
   InMemoryEnrichmentState,
   InMemoryHostGate,
 } from './html-ports'
-import {
-  HtmlProvider,
-  type HtmlLimits,
-  type HtmlProviderDeps,
-  HtmlRequestRefused,
-} from './html-provider'
+import { HtmlProvider, type HtmlLimits, type HtmlProviderDeps } from './html-provider'
 
 /*
  * Seams: a fake `fetchText` routed by URL, a fake robots port, a JSON "page" strategy (the base
@@ -560,14 +561,6 @@ describe('AC2 pagination stops on loops with a counted reason', () => {
     const r = await provider(w).p.collectHtml(config(), w.ctx)
     expect(r.batch.observations[0]?.normalized.location).not.toBeNull()
   })
-
-  it('names its refusal error', () => {
-    const e = new HtmlRequestRefused('ACCESS_POLICY', 'X')
-    expect(e).toBeInstanceOf(Error)
-    expect(e.name).toBe('HtmlRequestRefused')
-    expect(e.code).toBe('ACCESS_POLICY')
-    expect(e.message).toBe('html request refused: X')
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1005,8 +998,10 @@ describe('AC5 enrichment state: reuse, invalidation, resume, failures', () => {
       nextDueAt: new Date(NOW.getTime() + 72 * 60 * 60 * 1000),
       contentHash: expect.stringMatching(/^[0-9a-f]{64}$/),
       validator: null,
+      url: detailUrl('a'),
       parserVersion: 'p1',
       policyVersion: 1,
+      modelPending: false,
     })
   })
 
@@ -1063,7 +1058,7 @@ describe('AC5 enrichment state: reuse, invalidation, resume, failures', () => {
     expect(rec?.validator).toBe('"v1"')
   })
 
-  it('a conditional 304 is unchanged content and keeps the stored validator and hash', async () => {
+  it('a detail 304 is a failure even when marked conditional: detail requests never ask (CR-M-6)', async () => {
     const enrichment = new InMemoryEnrichmentState()
     const first = world({
       routes: {
@@ -1072,8 +1067,6 @@ describe('AC5 enrichment state: reuse, invalidation, resume, failures', () => {
       },
     })
     await provider(first, { enrichment }).p.collectHtml(config(), first.ctx)
-    const key = JSON.stringify(['THEHUB_HTML', 'board', 'a'])
-    const before = await enrichment.get(key)
     const second = world({
       routes: {
         [page1]: { bodyText: listing([item('a')]) },
@@ -1082,10 +1075,42 @@ describe('AC5 enrichment state: reuse, invalidation, resume, failures', () => {
       now: later,
     })
     const r = await provider(second, { enrichment }).p.collectHtml(config(), second.ctx)
-    expect(r.detail.unchanged).toBe(1)
-    const after = await enrichment.get(key)
-    expect(after?.contentHash).toBe(before?.contentHash)
-    expect(after?.validator).toBe('"v1"')
+    expect(r.detail).toMatchObject({ unchanged: 0, failed: 1 })
+    expect(await errorOf(enrichment, 'a')).toBe('HTTP_304')
+  })
+
+  it('a weak ETag is not a validator: stored as null, never matched', async () => {
+    const enrichment = new InMemoryEnrichmentState()
+    const routes = (body: string) => ({
+      [page1]: { bodyText: listing([item('a')]) },
+      [detailUrl('a')]: { bodyText: body, etag: 'W/"v1"' },
+    })
+    const first = world({ routes: routes(detail({ description: 'A' })) })
+    await provider(first, { enrichment }).p.collectHtml(config(), first.ctx)
+    expect((await enrichment.get(JSON.stringify(['THEHUB_HTML', 'board', 'a'])))?.validator).toBe(
+      null,
+    )
+    const second = world({ routes: routes(detail({ description: 'A2' })), now: later })
+    const r = await provider(second, { enrichment }).p.collectHtml(config(), second.ctx)
+    expect(r.detail).toMatchObject({ unchanged: 0, fetched: 1 })
+  })
+
+  it('a record for another URL is not reused: the item is due and reparsed (SR-L-3)', async () => {
+    const enrichment = new InMemoryEnrichmentState()
+    const first = world({ routes: twoItems({ description: 'A' }) })
+    await provider(first, { enrichment }).p.collectHtml(config(), first.ctx)
+    const moved = 'https://jobs.example/moved/a'
+    const second = world({
+      routes: {
+        [page1]: { bodyText: listing([item('a', moved)]) },
+        [moved]: { bodyText: detail({ description: 'A' }) },
+      },
+      now: new Date(NOW.getTime() + 1000),
+    })
+    const r = await provider(second, { enrichment }).p.collectHtml(config(), second.ctx)
+    expect(second.sent).toEqual([page1, moved])
+    expect(r.detail).toMatchObject({ notDue: 0, unchanged: 0, fetched: 1 })
+    expect((await enrichment.get(JSON.stringify(['THEHUB_HTML', 'board', 'a'])))?.url).toBe(moved)
   })
 
   it('a different ETag with a changed body is reparsed, and the new ETag stored', async () => {
@@ -1196,14 +1221,16 @@ describe('AC5 enrichment state: reuse, invalidation, resume, failures', () => {
       nextDueAt: new Date(NOW.getTime() + 6 * 60 * 60 * 1000),
       contentHash: null,
       validator: null,
+      url: detailUrl('a'),
       parserVersion: 'p1',
       policyVersion: 1,
+      modelPending: false,
     })
     const recB = await enrichment.get(JSON.stringify(['THEHUB_HTML', 'board', 'b']))
     expect(recB?.error).toBe('HTTP_404')
   })
 
-  it('a failure after a success keeps the earlier success, hash and versions', async () => {
+  it('a failure after a success keeps the earlier success time and drops the hash', async () => {
     const enrichment = new InMemoryEnrichmentState()
     const first = world({ routes: twoItems({ description: 'A' }) })
     await provider(first, { enrichment }).p.collectHtml(config(), first.ctx)
@@ -1220,7 +1247,76 @@ describe('AC5 enrichment state: reuse, invalidation, resume, failures', () => {
       lastAttemptAt: later,
       error: 'HTTP_503',
       nextDueAt: new Date(later.getTime() + 6 * 60 * 60 * 1000),
+      contentHash: null,
+      validator: null,
     })
+  })
+
+  it('a success after a failure is never "unchanged": the failed attempt left no hash', async () => {
+    const enrichment = new InMemoryEnrichmentState()
+    const first = world({ routes: twoItems({ description: 'A' }) })
+    await provider(first, { enrichment }).p.collectHtml(config(), first.ctx)
+    const failing = world({
+      routes: { ...twoItems({ description: 'A' }), [detailUrl('a')]: { status: 503 } },
+      now: later,
+    })
+    await provider(failing, { enrichment }).p.collectHtml(config(), failing.ctx)
+    const third = world({
+      routes: twoItems({ description: 'A' }),
+      now: new Date(later.getTime() + 7 * 60 * 60 * 1000),
+    })
+    const r = await provider(third, { enrichment }).p.collectHtml(config(), third.ctx)
+    expect(r.detail).toMatchObject({ fetched: 1, notDue: 1, unchanged: 0 })
+  })
+
+  it('the same unparseable body twice fails twice and never stores its hash (CR-H-2)', async () => {
+    const enrichment = new InMemoryEnrichmentState()
+    const routes = {
+      [page1]: { bodyText: listing([item('a')]) },
+      [detailUrl('a')]: { bodyText: '<x' },
+    }
+    const first = world({ routes })
+    await provider(first, { enrichment }).p.collectHtml(config(), first.ctx)
+    const second = world({ routes, now: new Date(NOW.getTime() + 7 * 60 * 60 * 1000) })
+    const r = await provider(second, { enrichment }).p.collectHtml(config(), second.ctx)
+    expect(r.detail).toMatchObject({ failed: 1, unchanged: 0, fetched: 0 })
+    expect(await enrichment.get(JSON.stringify(['THEHUB_HTML', 'board', 'a']))).toMatchObject({
+      error: 'PARSE_DRIFT',
+      succeededAt: null,
+      contentHash: null,
+      attempts: 2,
+    })
+  })
+
+  it('a failure under a stale version is written under the current one, so its retry window holds (CR-H-3)', async () => {
+    const enrichment = new InMemoryEnrichmentState()
+    const first = world({ routes: twoItems({ description: 'A' }) })
+    await provider(first, { enrichment }).p.collectHtml(config(), first.ctx)
+    const failing = world({
+      routes: { ...twoItems({ description: 'A' }), [detailUrl('a')]: { status: 503 } },
+      policyVersion: 2,
+    })
+    await provider(failing, { enrichment, parserVersion: 'p2' }).p.collectHtml(
+      config(),
+      failing.ctx,
+    )
+    expect(await enrichment.get(JSON.stringify(['THEHUB_HTML', 'board', 'a']))).toMatchObject({
+      parserVersion: 'p2',
+      policyVersion: 2,
+      contentHash: null,
+      validator: null,
+    })
+    const retry = world({
+      routes: twoItems({ description: 'A' }),
+      policyVersion: 2,
+      now: new Date(NOW.getTime() + 60 * 1000),
+    })
+    const r = await provider(retry, { enrichment, parserVersion: 'p2' }).p.collectHtml(
+      config(),
+      retry.ctx,
+    )
+    expect(retry.sent).toEqual([page1])
+    expect(r.detail).toMatchObject({ notDue: 2 })
   })
 
   it('accepts a 2xx at both ends of the range', async () => {
@@ -1552,27 +1648,115 @@ describe('AC7 every subrequest is metered; aggregate caps stop with a checkpoint
     expect(r.detail).toMatchObject({ status: 'COMPLETE', fetched: 2 })
   })
 
-  it('a context refusal during a detail fetch stops the stage with its code; the reservation is UNCERTAIN', async () => {
-    const fenced = Object.assign(new Error('fenced'), { code: 'RUN_FENCED' })
-    const w = world({ routes: { ...twoItems(), [detailUrl('a')]: { throws: fenced } } })
+  it('a coded context refusal during a detail fetch stops the stage with its code; UNCERTAIN', async () => {
+    const ceiling = Object.assign(new Error('ceiling'), { code: 'REQUEST_CEILING' })
+    const w = world({ routes: { ...twoItems(), [detailUrl('a')]: { throws: ceiling } } })
     const r = await provider(w).p.collectHtml(config(), w.ctx)
     expect(w.reconciled).toEqual(['USED', 'UNCERTAIN'])
-    expect(r.detail.checkpoint).toEqual({ reason: 'RUN_FENCED', remainingIds: ['a', 'b'] })
+    expect(r.detail.checkpoint).toEqual({ reason: 'REQUEST_CEILING', remainingIds: ['a', 'b'] })
     expect(r.batch.observations).toHaveLength(2)
   })
 
-  it('an uncoded network error during a detail fetch is TRANSIENT_NETWORK', async () => {
+  it.each([
+    ['a fence', Object.assign(new Error('fenced'), { code: 'RUN_FENCED' })],
+    ['a block', new SourceBlockedError('jobs.example', 403)],
+    ['a rate limit', new SourceRateLimitedError('jobs.example')],
+  ])('%s during a detail fetch ends the run: rethrown, UNCERTAIN (CR-M-3)', async (_n, error) => {
+    const w = world({ routes: { ...twoItems(), [detailUrl('a')]: { throws: error } } })
+    await expect(provider(w).p.collectHtml(config(), w.ctx)).rejects.toBe(error)
+    expect(w.sent).toEqual([page1, detailUrl('a')])
+    expect(w.reconciled).toEqual(['USED', 'UNCERTAIN'])
+  })
+
+  it('any error after the run was aborted is rethrown, not counted as an item failure', async () => {
+    const controller = new AbortController()
+    const w = world({ routes: twoItems() })
+    w.ctx.signal = controller.signal
+    const inner = w.ctx.fetchText
+    w.ctx.fetchText = async (req) => {
+      if (req.url !== detailUrl('a')) return inner(req)
+      controller.abort()
+      throw new Error('aborted')
+    }
+    await expect(provider(w).p.collectHtml(config(), w.ctx)).rejects.toThrow('aborted')
+  })
+
+  it('a fence raised by markSent ends the run with the reservation RELEASED', async () => {
+    const fenced = Object.assign(new Error('fenced'), { code: 'RUN_FENCED' })
+    const w = world({ routes: twoItems() })
+    const markSent = w.ctx.meter.markSent
+    let calls = 0
+    w.ctx.meter.markSent = async (r) => {
+      calls += 1
+      if (calls > 1) throw fenced
+      return markSent(r)
+    }
+    await expect(provider(w).p.collectHtml(config(), w.ctx)).rejects.toBe(fenced)
+    expect(w.sent).toEqual([page1])
+    expect(w.reconciled).toEqual(['USED', 'RELEASED'])
+  })
+
+  it('an uncoded transport error fails that item with a retry date; the next item goes on (SR-L-2)', async () => {
     const w = world({ routes: { ...twoItems(), [detailUrl('a')]: { throws: new Error('reset') } } })
-    const r = await provider(w).p.collectHtml(config(), w.ctx)
-    expect(r.detail.stop).toBe('TRANSIENT_NETWORK')
-    const w2 = world({ routes: { ...twoItems(), [detailUrl('a')]: { throws: null } } })
+    const { p, enrichment } = provider(w)
+    const r = await p.collectHtml(config(), w.ctx)
+    expect(w.sent).toEqual([page1, detailUrl('a'), detailUrl('b')])
+    expect(r.detail).toMatchObject({ stop: null, failed: 1, fetched: 1, status: 'PARTIAL' })
+    expect(w.reconciled).toEqual(['USED', 'UNCERTAIN', 'USED'])
+    expect(await enrichment.get(JSON.stringify(['THEHUB_HTML', 'board', 'a']))).toMatchObject({
+      error: 'TRANSIENT_NETWORK',
+      nextDueAt: new Date(NOW.getTime() + 6 * 60 * 60 * 1000),
+    })
+    const w2 = world({ routes: twoItems() })
+    const inner = w2.ctx.fetchText
     w2.ctx.fetchText = async (req) => {
-      w2.sent.push(req.url)
       if (req.url === detailUrl('a')) throw null
-      return { status: 200, bodyText: listing([item('a'), item('b')]), headers: {}, etag: null }
+      return inner(req)
     }
     const r2 = await provider(w2).p.collectHtml(config(), w2.ctx)
-    expect(r2.detail.stop).toBe('TRANSIENT_NETWORK')
+    expect(r2.detail).toMatchObject({ failed: 1, fetched: 1 })
+  })
+
+  it('a thrown HTTP status error fails only that item, USED; the items after it go on (CR-H-1)', async () => {
+    const w = world({
+      routes: {
+        [page1]: { bodyText: listing([item('a'), item('b'), item('c')]) },
+        [detailUrl('a')]: { bodyText: detail({}) },
+        [detailUrl('b')]: { throws: new SourceHttpStatusError('jobs.example', 404) },
+        [detailUrl('c')]: { bodyText: detail({}) },
+      },
+    })
+    const { p, enrichment } = provider(w)
+    const r = await p.collectHtml(config(), w.ctx)
+    expect(w.sent).toEqual([page1, detailUrl('a'), detailUrl('b'), detailUrl('c')])
+    expect(r.detail).toMatchObject({ stop: null, failed: 1, fetched: 2 })
+    expect(w.reconciled).toEqual(['USED', 'USED', 'USED', 'USED'])
+    expect(await errorOf(enrichment, 'b')).toBe('HTTP_404')
+  })
+
+  it('a thrown payload-too-large fails only that item as PAYLOAD_TOO_LARGE, USED (CR-H-1)', async () => {
+    const tooLarge = new SourcePayloadTooLargeError('jobs.example', 10, 'body')
+    const w = world({ routes: { ...twoItems(), [detailUrl('a')]: { throws: tooLarge } } })
+    const { p, enrichment } = provider(w)
+    const r = await p.collectHtml(config(), w.ctx)
+    expect(r.detail).toMatchObject({ stop: null, failed: 1, fetched: 1 })
+    expect(w.reconciled).toEqual(['USED', 'USED', 'USED'])
+    expect(await errorOf(enrichment, 'a')).toBe('PAYLOAD_TOO_LARGE')
+  })
+
+  it('every request goes out with redirects off; a 301 detail fails as HTTP_301 (SR-M-1)', async () => {
+    const seen: (false | undefined)[] = []
+    const w = world({ routes: { ...twoItems(), [detailUrl('a')]: { status: 301 } } })
+    const inner = w.ctx.fetchText
+    w.ctx.fetchText = async (req) => {
+      seen.push(req.followRedirects)
+      return inner(req)
+    }
+    const { p, enrichment } = provider(w)
+    const r = await p.collectHtml(config(), w.ctx)
+    expect(seen).toEqual([false, false, false])
+    expect(r.detail).toMatchObject({ failed: 1, fetched: 1 })
+    expect(await errorOf(enrichment, 'a')).toBe('HTTP_301')
   })
 
   it('the aggregate byte budget stops detail fetching with a checkpoint', async () => {

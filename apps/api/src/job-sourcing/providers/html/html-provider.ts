@@ -1,18 +1,27 @@
 import { createHash } from 'node:crypto'
 import { type ZodType, z } from 'zod'
+import {
+  SourceBlockedError,
+  SourceHttpStatusError,
+  SourcePayloadTooLargeError,
+  SourceRateLimitedError,
+} from '../../http/source-errors'
 import { checkStoredLink } from '../../normalize/url-policy'
+import { isRunFenced } from '../../ownership/run-ownership'
 import type { AiInputSignal, ModelInputPolicy } from '../../structuring/ai-input-gate'
 import type {
   DiscoveredRecord,
   HtmlStructurer,
   StructurerOutcome,
 } from '../../structuring/html-structurer.port'
+import type { RobotsCheck } from '../../structuring/robots-policy'
 import { collectPages, type DecodedEnvelope, type PageTarget } from '../api-json.provider'
 import {
   assertValidatedConfig,
   buildCollectionBatch,
   buildRequestReport,
   type CollectionBatch,
+  collectionCodeOf,
   type CollectionContext,
   type CollectionErrorCode,
   type FetchedText,
@@ -179,17 +188,6 @@ export interface HtmlProviderDeps {
   readonly limits?: Partial<HtmlLimits>
 }
 
-/** A refusal raised before a request leaves, carrying a collection code the page loop reads. */
-export class HtmlRequestRefused extends Error {
-  constructor(
-    readonly code: CollectionErrorCode,
-    reason: string,
-  ) {
-    super(`html request refused: ${reason}`)
-    this.name = 'HtmlRequestRefused'
-  }
-}
-
 const MAX_ID_CHARS = 256
 const MAX_RAW_LINK_CHARS = 4_096
 const optionalText = z.string().max(20_000).nullable().optional()
@@ -224,7 +222,21 @@ interface ModelCandidate {
   readonly text: string
   readonly aiInput: AiInputSignal
   readonly enrichment: HtmlEnrichment
+  /** The enrichment-state key and the record Stage B wrote, for settling `modelPending`. */
+  readonly key: string
+  readonly record: EnrichmentRecord
 }
+
+/** What `admit` lets through: the checked URL and the robots answer it was admitted under. */
+interface Admitted {
+  readonly url: URL
+  readonly robots: RobotsCheck
+}
+
+type Admission = Admitted | { readonly refused: 'POLICY' | 'BYTE_BUDGET'; readonly reason: string }
+
+/** Detail stops after which the model stage does not run: the run is out of time or permission. */
+const RUN_ENDING_STOPS: ReadonlySet<DetailStop> = new Set(['CANCELLED', 'DEADLINE', 'METER_FAILED'])
 
 /** One discovered item as Stage B sees it. `detailUrl` is null for a navigation-only item. */
 interface DiscoveredItem {
@@ -292,10 +304,8 @@ export abstract class HtmlProvider<
 
     // ALL-ROBOTS-DENIED: the first listing page is refused, so nothing at all is fetched.
     const first = this.listingRequest(config, { page: 1, cursor: null, window: scope.window })
-    const preflight = await this.deps.robots.check(first.url)
-    if (preflight.verdict !== 'ALLOWED') {
-      return this.policyBlocked(scope, first.url, preflight.reason ?? preflight.verdict, ctx)
-    }
+    const preflight = await this.admit(attempt, first.url)
+    if ('refused' in preflight) return this.policyBlocked(scope, first.url, preflight.reason, ctx)
 
     const discovered = new Map<string | null, DiscoveredItem>()
     const linkStats = { rejected: 0, navigationOnly: 0 }
@@ -304,7 +314,7 @@ export abstract class HtmlProvider<
 
     const listingCtx: CollectionContext = {
       ...ctx,
-      fetchText: (request) => this.send(attempt, request),
+      fetchText: (request) => this.transmit(attempt, request),
     }
     const batch = await collectPages(
       {
@@ -318,7 +328,10 @@ export abstract class HtmlProvider<
           const decoded = this.decodeListing(bodyText)
           if (!decoded.ok) return decoded
           // A page whose item ids repeat an earlier page is a loop the cursor check cannot see.
-          const ids = decoded.value.items.map((item) => (item as { id?: unknown } | null)?.id)
+          // Only string ids identify an item: a page of id-less items repeats nothing.
+          const ids = decoded.value.items
+            .map((item) => (item as { id?: unknown } | null)?.id)
+            .filter((id) => typeof id === 'string')
           const key = JSON.stringify(ids)
           if (ids.length > 0 && seenPages.has(key)) {
             duplicatePages += 1
@@ -332,6 +345,7 @@ export abstract class HtmlProvider<
           return decoded
         },
         pageRequest: (cfg, at) => ({ request: this.listingRequest(cfg, at) }),
+        beforeSend: (request) => this.admitListing(attempt, request),
         extractItems: (page) => page.items,
         nextCursor: (page) => page.nextCursor,
         nativeIdOf: (item) => item.id,
@@ -361,7 +375,12 @@ export abstract class HtmlProvider<
       navigationOnly: linkStats.navigationOnly,
     })
     const stageB = await this.runDetailStage(config, attempt, kept)
-    const stageC = await this.runModelStage(stageB.enrichments, stageB.modelCandidates, ctx)
+    const detailStop = stageB.report.stop
+    const stageC =
+      detailStop !== null && RUN_ENDING_STOPS.has(detailStop)
+        ? { report: { ...EMPTY_MODEL, status: 'SKIPPED' as const, reason: detailStop } }
+        : await this.runModelStage(stageB.enrichments, stageB.modelCandidates, ctx)
+    if ('reached' in stageC) await this.settleModelPending(stageB.modelCandidates, stageC.reached)
 
     return {
       batch,
@@ -389,30 +408,87 @@ export abstract class HtmlProvider<
     return checked.url
   }
 
-  /**
-   * The ONE way a request of this provider leaves: robots, approved host, aggregate byte budget and
-   * host gap, in that order, then the context's own fetch. Every refusal happens before any I/O.
+  /*
+   * THE EGRESS, in three steps every request of this provider takes, listing and detail alike:
+   *   admit    — link policy, approved host, robots, aggregate byte budget (no I/O but robots)
+   *   pace     — the host gap, abortable
+   *   transmit — the context's own fetch, redirects NOT followed, capped at the bytes left
+   * The metering (reserve -> markSent) sits between `pace` and `transmit`: the page loop does it
+   * for listings (`beforeSend` runs admit + pace before it reserves), `fetchDetail` for details.
+   * So nothing refused is ever reserved, and nothing is marked sent while it still waits.
    */
-  private async send(attempt: Attempt, request: FetchRequest): Promise<FetchedText> {
-    const checked = checkStoredLink(request.url)
-    if (!checked.ok) throw new HtmlRequestRefused('ACCESS_POLICY', checked.reason)
+
+  /** Never throws: a robots port that fails is a refusal. */
+  private async admit(attempt: Attempt, raw: string): Promise<Admission> {
+    const checked = checkStoredLink(raw)
+    if (!checked.ok) return { refused: 'POLICY', reason: checked.reason }
     if (!attempt.approved.has(checked.url.hostname)) {
-      throw new HtmlRequestRefused('ACCESS_POLICY', 'HOST_NOT_APPROVED')
+      return { refused: 'POLICY', reason: 'HOST_NOT_APPROVED' }
     }
-    const robots = await this.deps.robots.check(checked.url.href)
+    let robots: RobotsCheck
+    try {
+      robots = await this.deps.robots.check(checked.url.href)
+    } catch {
+      return { refused: 'POLICY', reason: 'ROBOTS_FAILED' }
+    }
     if (robots.verdict !== 'ALLOWED') {
-      throw new HtmlRequestRefused('ACCESS_POLICY', robots.reason ?? robots.verdict)
+      return { refused: 'POLICY', reason: robots.reason ?? robots.verdict }
     }
+    if (attempt.bytes >= this.limits.maxTotalBytes) {
+      return { refused: 'BYTE_BUDGET', reason: 'BYTE_BUDGET' }
+    }
+    return { url: checked.url, robots }
+  }
+
+  private pace(attempt: Attempt, admitted: Admitted): Promise<void> {
+    return this.deps.hostGate.acquire(
+      admitted.url.origin,
+      hostGapMs(admitted.robots.crawlDelaySeconds),
+      attempt.ctx.signal,
+    )
+  }
+
+  private async transmit(attempt: Attempt, request: FetchRequest): Promise<FetchedText> {
     const remaining = this.limits.maxTotalBytes - attempt.bytes
-    if (remaining <= 0) throw new HtmlRequestRefused('COST_STOP', 'BYTE_BUDGET')
-    await this.deps.hostGate.acquire(checked.url.origin, hostGapMs(robots.crawlDelaySeconds))
     attempt.requests += 1
     const response = await attempt.ctx.fetchText({
       ...request,
+      // A redirect comes back as its 3xx: its target was never admitted.
+      followRedirects: false,
       maxBytes: Math.min(request.maxBytes ?? remaining, remaining),
     })
     attempt.bytes += Buffer.byteLength(response.bodyText)
     return response
+  }
+
+  /** `beforeSend` for the page loop: a refusal here ends discovery with nothing reserved. */
+  private async admitListing(
+    attempt: Attempt,
+    request: FetchRequest,
+  ): Promise<{ code: CollectionErrorCode; message: string } | null> {
+    const admitted = await this.admit(attempt, request.url)
+    if ('refused' in admitted) {
+      return {
+        code: admitted.refused === 'POLICY' ? 'ACCESS_POLICY' : 'COST_STOP',
+        message: `html request refused: ${admitted.reason}`,
+      }
+    }
+    try {
+      await this.pace(attempt, admitted)
+    } catch {
+      return { code: 'CANCELLED', message: 'html request refused: CANCELLED' }
+    }
+    return null
+  }
+
+  /** A run-ending error: it propagates (detail-tail contract) instead of failing one item. */
+  private endsRun(error: unknown, ctx: CollectionContext): boolean {
+    return (
+      ctx.signal.aborted ||
+      isRunFenced(error) ||
+      error instanceof SourceBlockedError ||
+      error instanceof SourceRateLimitedError
+    )
   }
 
   private decodeListing(bodyText: string): DecodedEnvelope<HtmlListingPage> {
@@ -583,113 +659,142 @@ export abstract class HtmlProvider<
     let admitted = false
 
     for (const item of items) {
-      if (item.detailUrl === null) {
+      const detailUrl = item.detailUrl
+      if (detailUrl === null) {
         counts.navigationOnly += 1
         continue
       }
       const key = this.enrichmentKey(config, item.id)
-      const previous = await this.deps.enrichment.get(key)
-      const now = ctx.now()
-      const reusable =
-        previous !== null &&
-        previous.parserVersion === this.parserVersion &&
-        previous.policyVersion === ctx.policyVersion
-      if (reusable && previous.nextDueAt.getTime() > now.getTime()) {
-        counts.notDue += 1
-        continue
-      }
-      stop ??= this.detailStopBefore(attempt, sent, now)
-      if (stop !== null) {
-        remainingIds.push(item.id)
-        continue
-      }
-
-      const robots = await this.deps.robots.check(item.detailUrl)
-      if (robots.verdict !== 'ALLOWED') {
-        counts.policyDenied += 1
-        continue
-      }
-
-      admitted = true
-
-      const result = await this.fetchDetail(attempt, item.detailUrl, robots.crawlDelaySeconds)
-      if ('stop' in result) {
-        stop = result.stop
-        remainingIds.push(item.id)
-        continue
-      }
-      // Counted against the quota whether the host answered well or badly: it was a request.
-      sent += 1
-      const attempts = (previous?.attempts ?? 0) + 1
-      if ('failure' in result) {
-        counts.failed += 1
-        await this.deps.enrichment.put(key, {
-          attempts,
-          lastAttemptAt: now,
-          succeededAt: previous?.succeededAt ?? null,
-          error: result.failure,
-          nextDueAt: new Date(now.getTime() + this.limits.retryAfterMs),
-          contentHash: previous?.contentHash ?? null,
-          validator: previous?.validator ?? null,
-          parserVersion: previous?.parserVersion ?? this.parserVersion,
-          policyVersion: previous?.policyVersion ?? ctx.policyVersion,
-        })
-        continue
-      }
-
-      const { response } = result
-      const hash = sha256(response.bodyText)
-      const unchanged =
-        reusable &&
-        // `fetchDetail` lets a 304 through only when the context asked the conditional question.
-        (response.status === 304 ||
-          (response.etag !== null && response.etag === previous.validator) ||
-          hash === previous.contentHash)
-      const succeeded: EnrichmentRecord = {
-        attempts,
-        lastAttemptAt: now,
-        succeededAt: now,
-        error: null,
-        nextDueAt: new Date(now.getTime() + this.limits.revisitAfterMs),
-        contentHash: unchanged ? previous.contentHash : hash,
-        validator: response.etag ?? (unchanged ? previous.validator : null),
-        parserVersion: this.parserVersion,
-        policyVersion: ctx.policyVersion,
-      }
-      if (unchanged) {
-        counts.unchanged += 1
-        await this.deps.enrichment.put(key, succeeded)
-        continue
-      }
-
-      let fields: HtmlDetailFields
+      // One item's state port, robots port or malformed record fails that item, never the batch.
       try {
-        fields = definedOnly(this.deps.strategy.parseDetail(response.bodyText))
-      } catch {
-        counts.failed += 1
-        await this.deps.enrichment.put(key, {
-          ...succeeded,
+        const previous = await this.deps.enrichment.get(key)
+        const now = ctx.now()
+        // A record speaks only for this parser, this policy and this URL.
+        const current =
+          previous !== null &&
+          previous.parserVersion === this.parserVersion &&
+          previous.policyVersion === ctx.policyVersion &&
+          previous.url === detailUrl
+            ? previous
+            : null
+        if (current !== null && current.nextDueAt.getTime() > now.getTime()) {
+          counts.notDue += 1
+          continue
+        }
+        stop ??= this.detailStopBefore(attempt, sent, now)
+        if (stop !== null) {
+          remainingIds.push(item.id)
+          continue
+        }
+
+        const admission = await this.admit(attempt, detailUrl)
+        if ('refused' in admission) {
+          if (admission.refused === 'BYTE_BUDGET') {
+            stop = 'BYTE_BUDGET'
+            remainingIds.push(item.id)
+          } else {
+            counts.policyDenied += 1
+          }
+          continue
+        }
+        admitted = true
+        try {
+          await this.pace(attempt, admission)
+        } catch {
+          stop = 'CANCELLED'
+          remainingIds.push(item.id)
+          continue
+        }
+
+        const result = await this.fetchDetail(attempt, admission.url.href)
+        if ('stop' in result) {
+          stop = result.stop
+          remainingIds.push(item.id)
+          continue
+        }
+        // Counted against the quota whether the host answered well or badly: it was a request.
+        sent += 1
+        const base = {
+          attempts: (previous?.attempts ?? 0) + 1,
+          lastAttemptAt: now,
+          url: detailUrl,
+          parserVersion: this.parserVersion,
+          policyVersion: ctx.policyVersion,
+        }
+        // A failure is written under the CURRENT versions, so its retry window applies, and with
+        // no hash: a body that failed is never the reference an unchanged body is reused against.
+        const failure = (error: string): EnrichmentRecord => ({
+          ...base,
           succeededAt: previous?.succeededAt ?? null,
-          error: 'PARSE_DRIFT',
+          error,
           nextDueAt: new Date(now.getTime() + this.limits.retryAfterMs),
+          contentHash: null,
+          validator: null,
+          modelPending: false,
         })
-        continue
-      }
-      counts.fetched += 1
-      await this.deps.enrichment.put(key, succeeded)
-      const methods: Partial<Record<keyof HtmlDetailFields, FieldMethod>> = {}
-      for (const field of Object.keys(fields) as (keyof HtmlDetailFields)[]) {
-        methods[field] = 'DETAIL_HTML'
-      }
-      const enrichment: HtmlEnrichment = { id: item.id, fields, methods, evidence: [] }
-      enrichments.set(item.id, enrichment)
-      if (MODEL_FILLABLE_FIELDS.some((f) => fields[f] === undefined)) {
-        modelCandidates.set(item.id, {
-          url: item.detailUrl,
-          text: response.bodyText,
-          aiInput: robots.aiInput,
-          enrichment,
+        if ('failure' in result) {
+          await this.deps.enrichment.put(key, failure(result.failure))
+          counts.failed += 1
+          continue
+        }
+
+        const { response } = result
+        const hash = sha256(response.bodyText)
+        const validator = strongValidator(response.etag)
+        const unchanged =
+          current !== null &&
+          current.error === null &&
+          !current.modelPending &&
+          ((validator !== null && validator === current.validator) || hash === current.contentHash)
+        const succeeded = (modelPending: boolean): EnrichmentRecord => ({
+          ...base,
+          succeededAt: now,
+          error: null,
+          // An item the model still owes a pass is due again at the retry pace, not the revisit.
+          nextDueAt: new Date(
+            now.getTime() + (modelPending ? this.limits.retryAfterMs : this.limits.revisitAfterMs),
+          ),
+          contentHash: hash,
+          validator,
+          modelPending,
         })
+        if (unchanged) {
+          await this.deps.enrichment.put(key, succeeded(false))
+          counts.unchanged += 1
+          continue
+        }
+
+        let fields: HtmlDetailFields
+        try {
+          fields = definedOnly(this.deps.strategy.parseDetail(response.bodyText))
+        } catch {
+          await this.deps.enrichment.put(key, failure('PARSE_DRIFT'))
+          counts.failed += 1
+          continue
+        }
+        const needsModel = MODEL_FILLABLE_FIELDS.some((f) => fields[f] === undefined)
+        const record = succeeded(needsModel && this.deps.model !== undefined)
+        await this.deps.enrichment.put(key, record)
+        counts.fetched += 1
+        const methods: Partial<Record<keyof HtmlDetailFields, FieldMethod>> = {}
+        for (const field of Object.keys(fields) as (keyof HtmlDetailFields)[]) {
+          methods[field] = 'DETAIL_HTML'
+        }
+        const enrichment: HtmlEnrichment = { id: item.id, fields, methods, evidence: [] }
+        enrichments.set(item.id, enrichment)
+        if (needsModel) {
+          modelCandidates.set(item.id, {
+            url: detailUrl,
+            text: response.bodyText,
+            aiInput: admission.robots.aiInput,
+            enrichment,
+            key,
+            record,
+          })
+        }
+      } catch (error) {
+        if (this.endsRun(error, ctx)) throw error
+        counts.failed += 1
       }
     }
 
@@ -716,24 +821,26 @@ export abstract class HtmlProvider<
     }
   }
 
-  /** The aggregate bounds checked before a detail request is even reserved. */
+  /** The bounds checked before a detail is even admitted. The byte budget is `admit`'s. */
   private detailStopBefore(attempt: Attempt, sent: number, now: Date): DetailStop | null {
     if (attempt.ctx.signal.aborted) return 'CANCELLED'
     if (now.getTime() >= attempt.ctx.deadline.getTime()) return 'DEADLINE'
     if (sent >= this.limits.maxDetails) return 'DETAIL_QUOTA'
-    if (attempt.bytes >= this.limits.maxTotalBytes) return 'BYTE_BUDGET'
     return null
   }
 
   /**
-   * One metered detail request: reserve -> mark sent -> fetch -> reconcile, the store's ordering.
-   * A refusal of the context (fence, ban, deadline) or of the meter STOPS the stage; a bad answer
-   * from the host fails only this item.
+   * One metered detail request, already admitted and paced: reserve -> mark sent -> transmit ->
+   * reconcile, the store's ordering, so UNCERTAIN covers only the send itself. A refusal of the
+   * context or of the meter STOPS the stage; a fence, a ban or a cancel ENDS the run (rethrown);
+   * a bad answer from the host — status, size, a transport blink — fails only this item.
+   *
+   * No conditional request: the context asks its conditional question only on the run's first
+   * request, so a detail 304 is a failure like any other unexpected status.
    */
   private async fetchDetail(
     attempt: Attempt,
     url: string,
-    crawlDelaySeconds: number | null,
   ): Promise<{ response: FetchedText } | { failure: string } | { stop: DetailStop }> {
     const { ctx } = attempt
     let reservation: MeterReservation | null
@@ -748,37 +855,34 @@ export abstract class HtmlProvider<
     try {
       try {
         await ctx.meter.markSent(reservation)
-      } catch {
+      } catch (error) {
+        if (isRunFenced(error)) throw error
         return { stop: 'METER_FAILED' }
       }
       resolution = 'UNCERTAIN'
       let response: FetchedText
       try {
-        const origin = new URL(url).origin
-        await this.deps.hostGate.acquire(origin, hostGapMs(crawlDelaySeconds))
-        attempt.requests += 1
-        response = await ctx.fetchText({
-          url,
-          maxBytes: Math.min(this.limits.maxDetailBytes, this.limits.maxTotalBytes - attempt.bytes),
-        })
+        response = await this.transmit(attempt, { url, maxBytes: this.limits.maxDetailBytes })
       } catch (error) {
-        const code = (error as { code?: unknown } | null)?.code
-        return {
-          stop: typeof code === 'string' ? (code as DetailStop) : 'TRANSIENT_NETWORK',
+        if (this.endsRun(error, ctx)) throw error
+        // The host answered: the request was used, the item failed.
+        if (error instanceof SourceHttpStatusError) {
+          resolution = 'USED'
+          return { failure: `HTTP_${error.status}` }
         }
+        if (error instanceof SourcePayloadTooLargeError) {
+          resolution = 'USED'
+          return { failure: 'PAYLOAD_TOO_LARGE' }
+        }
+        const code = collectionCodeOf(error)
+        return code === null ? { failure: 'TRANSIENT_NETWORK' } : { stop: code }
       }
       resolution = 'USED'
-      const bytes = Buffer.byteLength(response.bodyText)
-      attempt.bytes += bytes
-      // A 304 nobody asked for stays a failure: only the context's own conditional question
-      // makes "not modified" an answer.
-      if (response.status === 304) {
-        return response.conditional === true ? { response } : { failure: 'HTTP_304' }
-      }
+      // A 3xx is here too: the redirect was not followed, its target never admitted.
       if (response.status < 200 || response.status > 299) {
         return { failure: `HTTP_${response.status}` }
       }
-      if (bytes > this.limits.maxDetailBytes) {
+      if (Buffer.byteLength(response.bodyText) > this.limits.maxDetailBytes) {
         return { failure: 'PAYLOAD_TOO_LARGE' }
       }
       return { response }
@@ -799,13 +903,20 @@ export abstract class HtmlProvider<
     enrichments: Map<string, HtmlEnrichment>,
     candidates: Map<string, ModelCandidate>,
     ctx: CollectionContext,
-  ): Promise<{ report: HtmlModelReport }> {
+  ): Promise<{ report: HtmlModelReport; reached: ReadonlySet<string> }> {
     const model = this.deps.model
+    const none = new Set<string>()
     if (model === undefined) {
-      return { report: { ...EMPTY_MODEL, status: 'SKIPPED', reason: 'NOT_CONFIGURED' } }
+      return {
+        report: { ...EMPTY_MODEL, status: 'SKIPPED', reason: 'NOT_CONFIGURED' },
+        reached: none,
+      }
     }
     if (candidates.size === 0) {
-      return { report: { ...EMPTY_MODEL, status: 'SKIPPED', reason: 'NOTHING_TO_FILL' } }
+      return {
+        report: { ...EMPTY_MODEL, status: 'SKIPPED', reason: 'NOTHING_TO_FILL' },
+        reached: none,
+      }
     }
     const records: DiscoveredRecord[] = [...candidates].map(([id, c]) => ({
       id,
@@ -829,11 +940,15 @@ export abstract class HtmlProvider<
           reason: 'PORT_THREW',
           requested: records.length,
         },
+        reached: none,
       }
     }
 
+    // Reached: every record the structurer did not hand back as remaining. A skip by the AI-input
+    // gate is a decision, so it reaches all; budget, outage and a partial pass leave the rest owed.
+    const remainingIds = 'remainingIds' in outcome ? outcome.remainingIds : []
+    const reached = new Set([...candidates.keys()].filter((id) => !remainingIds.includes(id)))
     if (outcome.kind !== 'EXTRACTED' && outcome.kind !== 'PARTIAL') {
-      const remainingIds = 'remainingIds' in outcome ? outcome.remainingIds : []
       return {
         report: {
           ...EMPTY_MODEL,
@@ -842,6 +957,7 @@ export abstract class HtmlProvider<
           requested: records.length,
           remainingIds,
         },
+        reached,
       }
     }
 
@@ -891,8 +1007,28 @@ export abstract class HtmlProvider<
         requested: records.length,
         applied,
         falseIdentity,
-        remainingIds: outcome.kind === 'PARTIAL' ? outcome.remainingIds : [],
+        remainingIds,
       },
+      reached,
+    }
+  }
+
+  /** The items the model stage reached no longer owe it a pass: due again at the revisit pace. */
+  private async settleModelPending(
+    candidates: Map<string, ModelCandidate>,
+    reached: ReadonlySet<string>,
+  ): Promise<void> {
+    for (const [id, { key, record }] of candidates) {
+      if (!record.modelPending || !reached.has(id)) continue
+      try {
+        await this.deps.enrichment.put(key, {
+          ...record,
+          modelPending: false,
+          nextDueAt: new Date(record.lastAttemptAt.getTime() + this.limits.revisitAfterMs),
+        })
+      } catch {
+        // Left pending: the item is offered to the model again, which costs a pass, loses nothing.
+      }
     }
   }
 }
@@ -923,6 +1059,11 @@ function resolveLink(raw: string, base: URL): URL | null {
   // reaches `checkStoredLink` as null, which refuses it as UNPARSEABLE.
   const checked = checkStoredLink(URL.canParse(raw, base.href) ? new URL(raw, base).href : null)
   return checked.ok ? checked.url : null
+}
+
+/** A strong ETag, or null: a weak one (`W/...`) does not promise identical bytes. */
+function strongValidator(etag: string | null): string | null {
+  return etag === null || etag.startsWith('W/') ? null : etag
 }
 
 /** Drop `undefined` and `null` values, so "absent" has one spelling. */

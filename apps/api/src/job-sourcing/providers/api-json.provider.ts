@@ -296,6 +296,11 @@ export interface PagedSourceSpec<TConfig extends SourceConfigFields, TEnvelope, 
     incurredAmount?(bodyText: string): number | null
   }
   readonly overlapMs?: number
+  /**
+   * Optional admission of one page request, awaited BEFORE its reservation: a refusal ends the
+   * attempt with that code and nothing reserved, marked sent or fetched. Must not throw.
+   */
+  beforeSend?(request: FetchRequest): Promise<{ code: CollectionErrorCode; message: string } | null>
 }
 
 /** A JSON adapter: the format-neutral spec, with its body contract spelled as a Zod envelope. */
@@ -880,6 +885,29 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
             endedAt: ctx.now(),
             cost: null,
             error: { code: 'DEADLINE', message: 'the attempt deadline passed before this page' },
+          },
+          ctx.secrets,
+        ),
+      )
+      break
+    }
+
+    // The binding's own admission (robots, host policy, pacing), asked BEFORE anything is reserved:
+    // a request refused here never touches the meter. Absent for every binding but the HTML base.
+    const refusal = await spec.beforeSend?.(pageRequest.request)
+    if (refusal) {
+      stop = refusal.code === 'CANCELLED' ? 'CANCELLED' : 'ERROR'
+      requests.push(
+        buildRequestReport(
+          {
+            attempt: 1,
+            page: at.page,
+            url: reportedUrl(pageRequest),
+            status: null,
+            startedAt,
+            endedAt: ctx.now(),
+            cost: null,
+            error: refusal,
           },
           ctx.secrets,
         ),

@@ -22,11 +22,29 @@ export function hostGapMs(crawlDelaySeconds: number | null): number {
 }
 
 export interface HostGatePort {
-  /** Resolves when a request to `origin` may leave: at least `minGapMs` after the previous one. */
-  acquire(origin: string, minGapMs: number): Promise<void>
+  /**
+   * Resolves when a request to `origin` may leave: at least `minGapMs` after the previous one was
+   * let go (start-to-start). Rejects with the signal's reason when `signal` aborts during the wait,
+   * so a cancelled run never sits out a long Crawl-delay.
+   */
+  acquire(origin: string, minGapMs: number, signal?: AbortSignal): Promise<void>
 }
 
-const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+export type Sleep = (ms: number, signal?: AbortSignal) => Promise<void>
+
+export const realSleep: Sleep = (ms, signal) =>
+  new Promise((resolve, reject) => {
+    signal?.throwIfAborted()
+    const timer = setTimeout(resolve, ms)
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer)
+        reject(signal.reason)
+      },
+      { once: true },
+    )
+  })
 
 /**
  * One process's view of the gap. The slot is RESERVED before the wait, so two concurrent callers
@@ -37,14 +55,14 @@ export class InMemoryHostGate implements HostGatePort {
 
   constructor(
     private readonly clock: () => number = Date.now,
-    private readonly sleep: (ms: number) => Promise<void> = realSleep,
+    private readonly sleep: Sleep = realSleep,
   ) {}
 
-  async acquire(origin: string, minGapMs: number): Promise<void> {
+  async acquire(origin: string, minGapMs: number, signal?: AbortSignal): Promise<void> {
     const now = this.clock()
     const at = Math.max(now, this.nextFreeAt.get(origin) ?? now)
     this.nextFreeAt.set(origin, at + minGapMs)
-    if (at > now) await this.sleep(at - now)
+    if (at > now) await this.sleep(at - now, signal)
   }
 }
 
@@ -62,11 +80,18 @@ export interface EnrichmentRecord {
   readonly nextDueAt: Date
   /** sha256 of the last detail body read, for unchanged-content reuse. */
   readonly contentHash: string | null
-  /** The `ETag` of that body, when the host sent one. */
+  /** The strong `ETag` of that body, when the host sent one. */
   readonly validator: string | null
+  /** The detail URL the hash and validator belong to; a different URL is a different resource. */
+  readonly url: string
   /** A record written under another parser or policy version is not reused. */
   readonly parserVersion: string
   readonly policyVersion: number
+  /**
+   * True while the model stage still owes this item a pass (it was not reached: budget, outage,
+   * a throw). Such an item is reparsed and offered to the model again even when unchanged.
+   */
+  readonly modelPending: boolean
 }
 
 export interface EnrichmentStatePort {
