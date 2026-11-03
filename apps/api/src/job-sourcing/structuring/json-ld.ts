@@ -89,7 +89,8 @@ export interface JsonLdOptions {
 const OPEN_SCRIPT = /<script(?=[\s/>])/gi
 const CLOSE_SCRIPT = /<\/script/gi
 const CLOSE_SCRIPT_LENGTH = '</script'.length
-const LD_JSON_TYPE = /(?<![\w-])type\s*=\s*(?:"application\/ld\+json"|'application\/ld\+json'|application\/ld\+json(?![^\s/>]))/i
+const LD_JSON_TYPE =
+  /(?<![\w-])type\s*=\s*(?:"application\/ld\+json"|'application\/ld\+json'|application\/ld\+json(?![^\s/>]))/i
 
 const BOUND_FAILURE = {
   NOT_JSON: 'MALFORMED_JSON',
@@ -121,7 +122,12 @@ export function extractJobPostings(html: string, opts: JsonLdOptions): JsonLdRes
   const fail = (code: JsonLdFailureCode): void => {
     failures[code] = (failures[code] ?? 0) + 1
   }
-  const finish = (): JsonLdResult => ({ postings, failures, scanned, conflicts: findConflicts(postings) })
+  const finish = (): JsonLdResult => ({
+    postings,
+    failures,
+    scanned,
+    conflicts: findConflicts(postings),
+  })
 
   if (Buffer.byteLength(html) > limits.maxHtmlBytes) {
     fail('HTML_TOO_LARGE')
@@ -203,7 +209,10 @@ function toPosting(
   const strings = (v: unknown, one: (x: unknown) => string | null = clip): string[] =>
     asList(v).flatMap((x) => one(x) ?? [])
   const date = (v: unknown, semantics: 'PUBLISHED' | 'EXPIRY'): ObservedDate | null =>
-    parseSourceDate({ raw: typeof v === 'string' ? v : null, contract: 'ISO_ZONED', semantics }, now)
+    parseSourceDate(
+      { raw: typeof v === 'string' ? v : null, contract: 'ISO_ZONED', semantics },
+      now,
+    )
 
   const idRaw = isRecord(node.identifier) ? node.identifier.value : node.identifier
   const validThrough = date(node.validThrough, 'EXPIRY')
@@ -264,7 +273,8 @@ export function selectByIdentity(
   const matches = postings.filter(
     (p) => (!identifier || p.identifier === identifier) && (!url || p.url === url),
   )
-  if (matches.length === 0) return { kind: 'none' }
+  const [first] = matches
+  if (!first) return { kind: 'none' }
   if (matches.length > 1) return { kind: 'ambiguous', count: matches.length }
-  return { kind: 'match', posting: matches[0] }
+  return { kind: 'match', posting: first }
 }

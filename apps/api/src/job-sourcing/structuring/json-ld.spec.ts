@@ -82,7 +82,10 @@ describe('extractJobPostings: structure', () => {
   })
 
   it('does not descend into a posting', () => {
-    const json = posting({ identifier: 'OUTER', nested: { '@type': 'JobPosting', identifier: 'IN' } })
+    const json = posting({
+      identifier: 'OUTER',
+      nested: { '@type': 'JobPosting', identifier: 'IN' },
+    })
     expect(run(ld(json)).postings.map((p) => p.identifier)).toEqual(['OUTER'])
   })
 
@@ -116,8 +119,12 @@ describe('extractJobPostings: structure', () => {
 
   it('handles a script tag with no attributes before a ld+json one, and </script > closers', () => {
     const body = posting({ identifier: 'T' })
-    expect(run(`<script>1</script><script type="application/ld+json">${body}</script >`).postings).toHaveLength(1)
-    expect(run(`<scripts>x</scripts><script type="application/ld+json">${body}</script>`).postings).toHaveLength(1)
+    expect(
+      run(`<script>1</script><script type="application/ld+json">${body}</script >`).postings,
+    ).toHaveLength(1)
+    expect(
+      run(`<scripts>x</scripts><script type="application/ld+json">${body}</script>`).postings,
+    ).toHaveLength(1)
     expect(run(`<script/type="application/ld+json">${body}</script>`).postings).toHaveLength(1)
   })
 })
@@ -125,7 +132,9 @@ describe('extractJobPostings: structure', () => {
 describe('extractJobPostings: field evidence', () => {
   it('employer: string, {name}, and absent are all handled; posting still returned', () => {
     expect(one(ld(posting({ hiringOrganization: ' Acme ' }))).hiringOrganization).toBe('Acme')
-    expect(one(ld(posting({ hiringOrganization: { name: 'Beta' } }))).hiringOrganization).toBe('Beta')
+    expect(one(ld(posting({ hiringOrganization: { name: 'Beta' } }))).hiringOrganization).toBe(
+      'Beta',
+    )
     const p = one(fixture('no-employer.html'))
     expect(p.hiringOrganization).toBeNull()
     expect(p.title).toBe('Anonymous role')
@@ -152,7 +161,13 @@ describe('extractJobPostings: field evidence', () => {
       ld(
         posting({
           jobLocation: [
-            { address: { addressLocality: 'Lviv', addressRegion: 'Lviv Oblast', addressCountry: 'UA' } },
+            {
+              address: {
+                addressLocality: 'Lviv',
+                addressRegion: 'Lviv Oblast',
+                addressCountry: 'UA',
+              },
+            },
             { address: 'Remote, EU' },
             { address: {} },
             { address: 5 },
@@ -183,7 +198,9 @@ describe('extractJobPostings: field evidence', () => {
   })
 
   it('a far-future datePosted is flagged, not trusted', () => {
-    expect(one(ld(posting({ datePosted: '2026-12-31T00:00:00Z' }))).datePosted?.status).toBe('FUTURE')
+    expect(one(ld(posting({ datePosted: '2026-12-31T00:00:00Z' }))).datePosted?.status).toBe(
+      'FUTURE',
+    )
   })
 })
 
@@ -199,8 +216,9 @@ describe('extractJobPostings: conflicts and failures', () => {
     expect(run(same + same).conflicts).toEqual([])
     expect(run(ld(posting({ title: 'a' })) + ld(posting({ title: 'b' }))).conflicts).toEqual([])
     expect(
-      run(ld(posting({ identifier: 'A', title: 'a' })) + ld(posting({ identifier: 'B', title: 'b' })))
-        .conflicts,
+      run(
+        ld(posting({ identifier: 'A', title: 'a' })) + ld(posting({ identifier: 'B', title: 'b' })),
+      ).conflicts,
     ).toEqual([])
   })
 
@@ -295,7 +313,9 @@ describe('extractJobPostings: conflicts and failures', () => {
     })
     expect(run('<script>var a').failures).toEqual({})
     expect(run('<script type="application/ld+json"').failures).toEqual({})
-    expect(run(`${ld(posting({ identifier: 'K' }))}<script type="application/ld+json">{`).postings).toHaveLength(1)
+    expect(
+      run(`${ld(posting({ identifier: 'K' }))}<script type="application/ld+json">{`).postings,
+    ).toHaveLength(1)
   })
 
   it('long fields are dropped and counted, at exactly the cap', () => {
@@ -346,7 +366,9 @@ describe('selectByIdentity', () => {
   })
 
   it('all supplied criteria must match', () => {
-    expect(selectByIdentity(postings, { identifier: 'J-1', url: 'https://example.invalid/jobs/2' })).toEqual({
+    expect(
+      selectByIdentity(postings, { identifier: 'J-1', url: 'https://example.invalid/jobs/2' }),
+    ).toEqual({
       kind: 'none',
     })
     expect(
