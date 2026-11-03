@@ -35,6 +35,7 @@ import {
   seedDeltaLocations,
   seedRowsOf,
 } from './manifest.seed-sql'
+import type { FetchProfile } from '../scheduling/next-slot'
 import type { ReportingJobSourceProvider } from './reporting-provider'
 import { createJoobleProvider } from './sources/jooble.provider'
 import { createJSearchProvider } from './sources/jsearch.provider'
@@ -327,6 +328,46 @@ async function observations(m: Manifest): Promise<HostObservation[]> {
   }
   return out
 }
+
+/** Zones of fetch profiles that are not a named IANA zone: `Intl` also accepts offsets like `+05:00`, the ADR (2026-10-25) does not. */
+function zoneProblems(entries: readonly { id: string; fetchProfile: FetchProfile | null }[]) {
+  return entries.flatMap((e) =>
+    [e.fetchProfile?.window?.timeZone, e.fetchProfile?.fixedSlots?.timeZone]
+      .filter((z): z is string => z !== undefined && !/^[A-Za-z]/.test(z))
+      .map((z) => `${e.id}: zone ${z} is not a named IANA zone`),
+  )
+}
+
+describe('every fetch profile names an IANA zone, not an offset', () => {
+  it('every manifest entry uses a named zone', () => {
+    expect(manifest.entries.some((e) => e.fetchProfile?.window?.timeZone === 'Europe/Kyiv')).toBe(
+      true,
+    )
+    expect(zoneProblems(manifest.entries)).toEqual([])
+  })
+  it('positive control: an offset zone fails the rule, a named one passes', () => {
+    const win = (timeZone: string): FetchProfile => ({
+      intervalMinutes: 60,
+      offIntervalMinutes: null,
+      window: { timeZone, days: ['MON'], from: '08:00', to: '19:00' },
+    })
+    const fixed = (timeZone: string): FetchProfile => ({
+      intervalMinutes: 1440,
+      offIntervalMinutes: null,
+      window: null,
+      fixedSlots: { timeZone, times: ['09:00'] },
+    })
+    expect(
+      zoneProblems([
+        { id: 'a', fetchProfile: win('+05:00') },
+        { id: 'b', fetchProfile: fixed('-0300') },
+        { id: 'c', fetchProfile: win('Europe/Kyiv') },
+        { id: 'd', fetchProfile: fixed('UTC') },
+        { id: 'e', fetchProfile: null },
+      ]),
+    ).toEqual(['a: zone +05:00 is not a named IANA zone', 'b: zone -0300 is not a named IANA zone'])
+  })
+})
 
 describe('T8: every reporting source has a host key that scopes what it really requests', () => {
   it('every entry carries a valid, non-empty key (the ADR drift rule)', () => {

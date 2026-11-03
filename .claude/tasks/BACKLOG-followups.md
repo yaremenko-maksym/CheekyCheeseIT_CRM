@@ -6358,10 +6358,8 @@ Each item names a symbol or behaviour.
 
 **U1a (`nextSlot`).**
 
-- `gridMinutes` is exported and could loop on a positive step too small to change the value, or on
-  `end = Infinity`. Callers pass finite integers today; bound it or make it module-private.
-- Offset zones such as `+05:00` are accepted by `Intl`, so they pass as zones. Decide whether the manifest
-  drift test should refuse them (the strategy ADR requires a named IANA zone).
+- **Resolved.** `gridMinutes` now refuses a non-integer step and non-safe-integer `first`/`end` (so `end = Infinity` and a step too small to move the value throw `RangeError`); the loop provably ends. It stays exported for its direct spec.
+- **Resolved (A1: refuse).** The manifest drift spec now fails on any fetch-profile zone that is not a named IANA zone (offsets such as `+05:00`), per the strategy ADR; `nextSlot` itself still accepts what `Intl` accepts.
 
 **U6a (Greenhouse adapter).**
 
