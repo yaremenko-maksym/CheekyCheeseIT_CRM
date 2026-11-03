@@ -279,6 +279,9 @@ export const dirtyWorkStatements = {
                kinds.map((k) => sql`${k}`),
                sql`, `,
              )})
+             -- Redundant for both partitions, but it lets the planner match the partial index
+             -- idx_job_dirty_work_pending_generic, whose predicate is exactly this (CR-M-1).
+             AND reason <> ${DETAIL_FETCH}
              AND ${dirtyConsumerPredicate(consumer)}
            ORDER BY created_at, id
            LIMIT ${batchSize}
