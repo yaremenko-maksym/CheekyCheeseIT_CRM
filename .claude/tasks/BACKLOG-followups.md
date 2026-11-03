@@ -6474,7 +6474,7 @@ exclusion, because no manifest carries that field and no source is UPDATED today
 `publishedAtMeaning` lands, UPDATED sources must be reported "not measurable" rather than a misleading
 freshness figure. Verify: a seeded UPDATED source is reported "not measurable" in the weekly aggregate.
 
-**(v) RESOLVED — Residual Russian comments in the notification module (U5a #1208).** The Russian comments in
+**(v) RESOLVED — Residual Russian comments in the notification module (U5a #1208).** The 932 Russian comment lines (measured; the original estimate was about 460) in
 the notification module's non-spec source (the notification-registry services and controller, the email copy
 module, the email cron/repository/outbox, the subject resolver and state service, and the test stub) are
 translated to English, comments only; string literals and product copy are untouched. Verified by a Cyrillic
