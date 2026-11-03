@@ -91,7 +91,8 @@ export const periodBucket = (nowMs: number): string => Math.floor(nowMs / PERIOD
  */
 const matchInFlight = (dirty: readonly DirtyRow[]): boolean =>
   dirty.some(
-    (d) => (d.status === 'PENDING' || d.status === 'CLAIMED') && dirtyConsumerOf(d.reason) === 'MATCH',
+    (d) =>
+      (d.status === 'PENDING' || d.status === 'CLAIMED') && dirtyConsumerOf(d.reason) === 'MATCH',
   )
 
 /**

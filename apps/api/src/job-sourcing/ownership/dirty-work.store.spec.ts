@@ -632,7 +632,7 @@ describe('recoverExpiredDirty', () => {
 
 describe('dirtyWorkStatements', () => {
   it('claims oldest-first within the batch limit', () => {
-    const s = render(dirtyWorkStatements.claim('w', 5, 1000, ['OPPORTUNITY'])).sql
+    const s = render(dirtyWorkStatements.claim('w', 5, 1000, ['OPPORTUNITY'], 'MATCH')).sql
     expect(s).toContain('ORDER BY created_at, id')
     expect(s).toContain("SET status = 'CLAIMED'")
   })
