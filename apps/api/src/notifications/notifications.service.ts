@@ -42,13 +42,13 @@ import { NotificationSubjectStateService } from './notification-subject-state.se
 import { decideEnqueue } from './notification-email-outbox'
 
 /**
- * Что производитель кладёт в запись. §7.1: тип события и идентификаторы
- * объектов — НЕ готовые кнопки и НЕ готовый текст подробностей.
+ * What the producer puts into the record. §7.1: the event type and the identifiers of
+ * objects — NOT ready buttons and NOT ready detail text.
  *
- * `title` при этом остаётся и обязателен: это НЕЙТРАЛЬНЫЙ заголовок без сумм и
- * процентов, один на тип (`NOTIFICATION_TITLES`). Он же — то единственное, что
- * позиция 7 имеет право положить в письмо: письмо уходит на личную почту вне
- * нашего контура, и цифры туда не идут (§10).
+ * `title` remains and is mandatory: it is a NEUTRAL heading without amounts and
+ * percentages, one per type (`NOTIFICATION_TITLES`). It is also the only thing that
+ * item 7 is entitled to put into the email: the email goes to a personal mailbox outside
+ * our perimeter, and figures do not go there (§10).
  */
 export type CreateNotificationInput = {
   userId: string
@@ -59,12 +59,12 @@ export type CreateNotificationInput = {
   subjectType?: NotificationSubjectType | null
   subjectId?: string | null
   secondaryId?: string | null
-  /** Факты события. Форма задана `notificationDataSchemaFor(type)`. */
+  /** Facts of the event. The shape is defined by `notificationDataSchemaFor(type)`. */
   data?: unknown
   /**
-   * Идемпотентность там, где событие может повториться (`<TYPE>:<subjectId>`).
-   * `undefined` = дублей не боимся: повторное предложение доли ОБЯЗАНО спросить
-   * заново, и глушить его было бы потерянным подтверждением.
+   * Idempotency where the event may repeat (`<TYPE>:<subjectId>`).
+   * `undefined` = we do not fear duplicates: a repeated share proposal MUST ask
+   * again, and muting it would be a lost confirmation.
    */
   dedupeKey?: string | null
   /**
@@ -80,13 +80,13 @@ export type CreateNotificationInput = {
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name)
   /**
-   * Не через DI-параметр конструктора намеренно: `NotificationsService`
-   * инстанцируется руками (без Nest-контейнера) в добром десятке спек
-   * (unit и интеграционных) через `new NotificationsService(db, telemetry)`
-   * — третий обязательный параметр сломал бы все разом ради сервиса, у
-   * которого нет собственного состояния и не должно быть DI-жизненного
-   * цикла отдельно от `db`. `OutboxRepository` строит свой экземпляр той же
-   * строкой, тем же приёмом — один класс, два места создания.
+   * Not via a constructor DI parameter on purpose: `NotificationsService`
+   * is instantiated by hand (without the Nest container) in a good dozen specs
+   * (unit and integration) via `new NotificationsService(db, telemetry)`
+   * — a third required parameter would break them all at once, for a service that
+   * has no state of its own and must not have a DI lifecycle separate from `db`.
+   * `OutboxRepository` builds its own instance the same way, by the same device —
+   * one class, two places of creation.
    */
   private readonly subjectStates: NotificationSubjectStateService
 
@@ -111,18 +111,18 @@ export class NotificationsService {
   }
 
   /**
-   * Тот же код, но ВНУТРИ транзакции, которую открыл вызывающий. Именно этим
-   * пользуются производители: «каждый вызов производителя — внутри той же
-   * транзакции, что и событие, либо после её коммита с явным обоснованием;
-   * уведомление о несостоявшемся событии недопустимо». Внутри транзакции это
-   * не дисциплина, а свойство: откатилось событие — откатилась и запись.
+   * The same code, but INSIDE a transaction that the caller opened. This is exactly
+   * what producers rely on: "each producer call happens inside the same transaction
+   * as the event, or after its commit with an explicit justification;
+   * a notification about an event that did not happen is unacceptable". Inside a transaction this is
+   * not discipline but a property: the event rolled back — so did the record.
    *
-   * `create()` выше — тонкая обёртка, открывающая свою транзакцию, чтобы две
-   * точки входа не могли разойтись (тот же приём, что у
+   * `create()` above is a thin wrapper that opens its own transaction, so that two
+   * entry points cannot diverge (the same device as
    * `ApprovalsService.propose` / `proposeInTx`).
    *
-   * Возвращает `null`, когда запись погашена идемпотентностью — вызывающему это
-   * знать не обязательно, но и врать «создал» нельзя.
+   * Returns `null` when the record was absorbed by idempotency — the caller
+   * need not know this, but must not claim "created".
    */
   async createInTx(tx: DrizzleTx, input: CreateNotificationInput): Promise<NotificationDto | null> {
     // Validate link server-side before insert (defence-in-depth: shared schema
@@ -132,27 +132,27 @@ export class NotificationsService {
       if (!result.success) {
         return this.refuse(
           input,
-          // Stryker disable next-line OptionalChaining: issues[0] существует всегда при неудачном разборе — мутант ненаблюдаем
+          // Stryker disable next-line OptionalChaining: issues[0] always exists on a failed parse — the mutant is unobservable
           `Invalid notification link: ${result.error.issues[0]?.message ?? 'invalid'}`,
         )
       }
     }
 
-    // Данные разбираются формой СВОЕГО типа прямо здесь — последний рубеж перед
-    // базой, ровно как со ссылкой выше. Клиент, встретив неразбираемые данные,
-    // покажет общий вид (AC2) и не упадёт; но пропускать в базу заведомо
-    // нечитаемую запись — значит соглашаться, что кнопка у неё не появится.
+    // The data is parsed against the shape of ITS OWN type right here — the last line before
+    // the database, just as with the link above. A client that meets unparseable data
+    // will show the generic view (AC2) and will not crash; but letting a knowingly
+    // unreadable record into the database means accepting that its button will never appear.
     if (isNewNotificationType(input.type) && input.data !== undefined && input.data !== null) {
       const parsed = notificationDataSchemaFor(input.type).safeParse(input.data)
       if (!parsed.success) {
-        // `issues` непустой всегда, когда разбор не удался, — это свойство
-        // самой Zod, а не наше допущение. Значит, снятие `?.` не наблюдается
-        // ничем: списка с нулём причин отказа не порождает ни одна форма, и
-        // запасное «invalid» недостижимо. Оставлено страховкой на случай смены
-        // библиотеки — но проверить его нечем.
+        // `issues` is always non-empty when parsing fails — this is a property of
+        // Zod itself, not our assumption. So removing `?.` is not observable
+        // by anything: no shape produces a list with zero refusal reasons, and
+        // the fallback "invalid" is unreachable. It is kept as insurance in case the library
+        // changes — but there is nothing to test it with.
         return this.refuse(
           input,
-          // Stryker disable next-line OptionalChaining: issues[0] существует всегда при неудачном разборе — мутант ненаблюдаем
+          // Stryker disable next-line OptionalChaining: issues[0] always exists on a failed parse — the mutant is unobservable
           `Invalid notification data for ${input.type}: ${parsed.error.issues[0]?.message ?? 'invalid'}`,
         )
       }
@@ -171,11 +171,11 @@ export class NotificationsService {
       dedupeKey: input.dedupeKey ?? null,
     }
 
-    // Идемпотентность по (type, subjectId, userId): ключ несёт первые два,
-    // частичный уникальный индекс `uq_notifications_user_dedupe` добавляет
-    // получателя. `DO NOTHING` вместо предварительного SELECT — иначе между
-    // проверкой и вставкой остаётся окно, в которое повторная доставка
-    // события пролезает целиком.
+    // Idempotency by (type, subjectId, userId): the key carries the first two,
+    // the partial unique index `uq_notifications_user_dedupe` adds
+    // the recipient. `DO NOTHING` instead of a preliminary SELECT — otherwise between
+    // the check and the insert there remains a window through which a repeated delivery
+    // of the event slips through whole.
     const rows =
       values.dedupeKey === null
         ? await tx.insert(notifications).values(values).returning()
@@ -184,8 +184,8 @@ export class NotificationsService {
             .values(values)
             .onConflictDoNothing({
               target: [notifications.userId, notifications.dedupeKey],
-              // Предикат ЧАСТИЧНОГО индекса — без него Postgres не сопоставит
-              // конфликт с `uq_notifications_user_dedupe` и упадёт на
+              // The predicate of the PARTIAL index — without it Postgres will not match the
+              // conflict with `uq_notifications_user_dedupe` and will fail on
               // «no unique or exclusion constraint matching».
               where: sql`${notifications.dedupeKey} IS NOT NULL`,
             })
@@ -197,15 +197,15 @@ export class NotificationsService {
       throw new Error('Failed to insert notification')
     }
 
-    // Позиция 7a, AC1: письмо встаёт в очередь ТОЙ ЖЕ транзакцией. Не
-    // дисциплина, а свойство: откатилось событие — откатились и уведомление,
-    // и письмо. Письмо о несостоявшемся событии недопустимо ровно так же,
-    // как уведомление о нём.
+    // Item 7a, AC1: the email enters the queue in the SAME transaction. Not a
+    // discipline but a property: the event rolled back — and so did the notification,
+    // and the email. An email about an event that did not happen is unacceptable exactly as
+    // a notification about it is.
     //
-    // Порядок значим: строка очереди ссылается на уведомление, поэтому она
-    // может появиться только ПОСЛЕ него — и только если оно действительно
-    // появилось (погашенное идемпотентностью вернулось выше как `null`, и
-    // второго письма не будет).
+    // The order matters: the queue row references the notification, so it
+    // can appear only AFTER it — and only if it really
+    // appeared (absorbed by idempotency it returned above as `null`, and
+    // there will be no second email).
     if (input.skipEmail !== true) {
       await this.enqueueEmailInTx(tx, row.id, values.userId, values.type)
     }
@@ -214,19 +214,19 @@ export class NotificationsService {
   }
 
   /**
-   * Поставить письмо по уже вставленному уведомлению.
+   * Enqueue an email for an already inserted notification.
    *
-   * **Не имеет права уронить событие** — та же граница, что у `refuse()`
-   * (SR-H-1, security-review круг 1, #664): цена ошибки в КАНАЛЕ не равна
-   * цене ошибки в самом событии. Проект не должен перестать создаваться
-   * из-за того, что очередь писем недоступна. Отказ при этом громкий —
-   * `logger.error` плюс строка в телеметрии, которая доезжает до дайджеста.
+   * **Has no right to break the event** — the same boundary as `refuse()`
+   * (SR-H-1, security-review round 1, #664): the cost of an error in the CHANNEL is not equal to
+   * the cost of an error in the event itself. A project must not stop being created
+   * because the email queue is unavailable. The failure is loud —
+   * `logger.error` plus a row in telemetry that reaches the digest.
    *
-   * В отличие от `refuse()`, здесь достаточно `try/catch` без савепойнта:
-   * весь путь производителя УЖЕ обёрнут во вложенную транзакцию
-   * (`emitInTx`), и ошибка Postgres, абортившая бы транзакцию события,
-   * откатывается до её савепойнта. Собственный савепойнт добавил бы второй
-   * круг отката там, где первый уже есть.
+   * Unlike `refuse()`, a `try/catch` without a savepoint is enough here:
+   * the whole producer path is ALREADY wrapped in a nested transaction
+   * (`emitInTx`), and a Postgres error that would abort the event's transaction
+   * is rolled back to its savepoint. A savepoint of its own would add a second
+   * rollback round where the first already exists.
    */
   private async enqueueEmailInTx(
     tx: DrizzleTx,
@@ -235,14 +235,14 @@ export class NotificationsService {
     type: string,
   ): Promise<void> {
     try {
-      // Настройка канала здесь НЕ читается — её смотрит отправщик, в момент
-      // отправки (§5 задания, SPEC-H-2 / CR-H-2 / SR-M-2). Круг 1 решал это
-      // здесь, и человек, включивший канал между событием и отправкой,
-      // письма уже не получал: строки не было и появиться ей было негде.
+      // The channel setting is NOT read here — the sender checks it at the moment
+      // of sending (§5 of the task, SPEC-H-2 / CR-H-2 / SR-M-2). Round 1 decided this
+      // here, and a person who switched on the channel between the event and the sending
+      // did not get the email: the row did not exist and had nowhere to appear.
       //
-      // Состояние получателя, наоборот, смотрится ОБА раза: архивированному
-      // строка заводится сразу пропущенной (крону она не достанется вовсе), а
-      // архив, случившийся позже, ловит уже отправщик.
+      // The recipient's state, conversely, is checked BOTH times: the archived
+      // row is created already skipped (the cron will not get it at all), and
+      // an archiving that happens later is caught by the sender.
       const [recipient] = await tx
         .select({ archivedAt: users.archivedAt })
         .from(users)
@@ -256,13 +256,13 @@ export class NotificationsService {
           notificationId,
           userId,
           status: decision.status,
-          // Строка заводится ВСЕГДА, даже когда письма не будет: «строки нет»
-          // не отвечает на вопрос, почему сотруднику не пришло письмо про X
-          // (§1 задания — `SKIPPED` + `skip_reason`).
+          // The row is ALWAYS created, even when no email will be sent: "no row"
+          // does not answer why the employee did not get the email about X
+          // (§1 of the task — `SKIPPED` + `skip_reason`).
           skipReason: decision.status === 'SKIPPED' ? decision.skipReason : null,
         })
-        // Одно письмо на уведомление: повторная постановка — ничего, а не
-        // второе письмо. Индекс `uq_notification_emails_notification`.
+        // One email per notification: a repeated enqueue does nothing rather than
+        // produce a second email. The index `uq_notification_emails_notification`.
         .onConflictDoNothing({ target: notificationEmails.notificationId })
         .returning()
     } catch (err) {
@@ -282,26 +282,26 @@ export class NotificationsService {
   }
 
   /**
-   * Уведомление не имеет права вето над событием (SR-H-1, security-review
-   * круг 1).
+   * A notification has no right of veto over the event (SR-H-1, security-review
+   * round 1).
    *
-   * Пять производителей из шести зовут `createInTx` ВНУТРИ транзакции самого
-   * события — это осознанный выбор: «уведомление о несостоявшемся событии
-   * недопустимо». Но у выбора была вторая половина, которую никто не проверял:
-   * пока эта ветка БРОСАЛА, неудачный разбор данных откатывал и саму
-   * транзакцию. Синьор не мог отказать, потому что причина отказа оказалась
-   * длиннее потолка формы уведомления; проект не создавался из-за длины
-   * названия. Цена ошибки в описании события равнялась цене ошибки в самом
-   * событии — несоразмерно.
+   * Five of the six producers call `createInTx` INSIDE the transaction of the
+   * event itself — this is a deliberate choice: "a notification about an event that did not happen
+   * is unacceptable". But the choice had a second half that nobody checked: while
+   * this branch THREW, a failed data parse rolled back the transaction itself.
+   * The senior could not refuse, because the refusal reason turned out to be
+   * longer than the notification form's ceiling; the project was not created because of the length of
+   * the title. The cost of an error in the description of the event equalled the cost of an error in the
+   * event itself — disproportionately.
    *
-   * Поэтому: запись пропускается, событие живёт. Пропуск при этом громкий —
-   * `logger.error` в консоли сервера И строка в телеметрии ошибок, которая
-   * доезжает до дайджеста. Тихо потерянное уведомление было бы вторым концом
-   * той же палки.
+   * Therefore: the record is skipped, the event lives. The skip is loud —
+   * `logger.error` in the server console AND a row in the error telemetry, which
+   * reaches the digest. A silently lost notification would be the other end of
+   * the same stick.
    *
-   * Возвращается `null` — тот же ответ, что и у погашенной идемпотентностью
-   * записи: вызывающему не нужно различать «не создал, потому что дубль» и
-   * «не создал, потому что данные не той формы», а нужно не упасть.
+   * Returns `null` — the same answer as for a record absorbed by idempotency:
+   * the caller need not distinguish "did not create because it is a duplicate" from
+   * "did not create because the data has the wrong shape", but it must not crash.
    */
   private refuse(input: CreateNotificationInput, reason: string): null {
     this.logger.error(
@@ -312,34 +312,34 @@ export class NotificationsService {
       message: `Notification skipped — ${reason}`,
       route: '/api/notifications',
       userId: input.userId,
-      // Ни `title`, ни `data` сюда не едут: дайджест уходит в отдельный
-      // репозиторий, а форма данных уже названа типом и сообщением.
+      // Neither `title` nor `data` travels here: the digest goes into a separate
+      // repository, and the data shape is already named by the type and the message.
       meta: { type: input.type, subjectType: input.subjectType ?? null },
     })
     return null
   }
 
   /**
-   * Путь производителя целиком — во ВЛОЖЕННОЙ транзакции (SR-H-2,
-   * security-review круг 2).
+   * The producer path as a whole — inside a NESTED transaction (SR-H-2,
+   * security-review round 2).
    *
-   * `refuse()` круга 1 снял вето только у ФОРМЫ ДАННЫХ: неудачный `safeParse`
-   * перестал бросать. Всё остальное на пути производителя — резолв адресатов,
-   * сборка payload, сам `INSERT` — вето сохраняло. На `fda3f11f` это ловилось
-   * исполнением: `TypeError` в производителе `createFromInterview` откатывал
-   * переход собеседования в HIRED вместе с созданием проекта.
+   * `refuse()` of round 1 removed the veto only from the DATA SHAPE: a failed `safeParse`
+   * stopped throwing. Everything else on the producer path — resolving recipients,
+   * building the payload, the `INSERT` itself — the veto still covered. At `fda3f11f` this was caught
+   * by execution: a `TypeError` in the `createFromInterview` producer rolled back
+   * the interview's transition to HIRED together with the creation of the project.
    *
-   * Почему вложенная транзакция, а не просто `try/catch`: ошибка Postgres
-   * (например, одинокий суррогат в `jsonb` — SR-M-3) абортит САМУ транзакцию.
-   * Перехват в JS её не воскрешает: любой следующий запрос события упадёт с
+   * Why a nested transaction and not just `try/catch`: a Postgres error
+   * (for example, a lone surrogate in `jsonb` — SR-M-3) aborts the transaction ITSELF.
+   * A JS catch does not revive it: any next query of the event fails with
    * «current transaction is aborted, commands ignored until end of transaction
-   * block». Вложенная транзакция в Drizzle — это `SAVEPOINT` (см.
-   * `node-postgres/session`: `savepoint spN` … `rollback to savepoint spN`), и
-   * откат к ней возвращает транзакцию события в рабочее состояние.
+   * `block`. A nested transaction in Drizzle is a `SAVEPOINT` (see
+   * `node-postgres/session`: `savepoint spN` … `rollback to savepoint spN`), and
+   * rolling back to it returns the event's transaction to a working state.
    *
-   * Инвариант «уведомление о несостоявшемся событии недопустимо» при этом
-   * цел: savepoint вложен В транзакцию события, поэтому откат события
-   * по-прежнему уносит и запись.
+   * The invariant "a notification about an event that did not happen is unacceptable" thereby
+   * stays intact: the savepoint is nested INSIDE the event's transaction, so rolling back the event
+   * still carries away the record too.
    */
   async emitInTx(tx: DrizzleTx, produce: (sp: DrizzleTx) => Promise<void>): Promise<void> {
     try {
@@ -347,19 +347,19 @@ export class NotificationsService {
         await produce(sp)
       })
     } catch (err) {
-      // SR-L-6 (security-review круг 3, #664): весь смысл шва — ничто на
-      // пути производителя не вправе уронить событие. `produce()` этим
-      // свойством уже обладает (см. выше); ЕГО ОБРАБОТЧИК — нет: до этой
-      // правки `logger.error` / `report()` выполнялись уже вне `try`, и
-      // бросок оттуда (например, `this.telemetry` недостижим на собранном
-      // руками сервисе без DI) улетел бы в транзакцию события — то самое
-      // вето, которое `emitInTx` снимает для `produce()`. Наблюдение не
-      // имеет права быть громче самого события, поэтому у него свой,
-      // отдельный `try/catch`.
+      // SR-L-6 (security-review round 3, #664): the whole point of the seam — nothing on
+      // the producer path may break the event. `produce()` already has
+      // this property (see above); ITS HANDLER does not: until this fix
+      // `logger.error` / `report()` ran outside `try`, and
+      // a throw from there (for example, `this.telemetry` unreachable on a service
+      // assembled by hand without DI) would fly into the event's transaction — the very
+      // veto that `emitInTx` lifts for `produce()`. The observation has no
+      // right to be louder than the event itself, so it has its own,
+      // separate `try/catch`.
       try {
-        // Трасса, а не только текст: бросок может случиться ДО сборки
-        // payload, когда ни типа, ни получателя ещё нет, и тогда
-        // единственное, что называет сломавшегося производителя, — стек.
+        // A trace, not only the text: the throw may happen BEFORE the payload is
+        // assembled, when there is not yet a type or a recipient, and then
+        // the only thing that names the broken producer is the stack.
         this.logger.error(
           `Notification producer path failed (event not rolled back): ${
             err instanceof Error ? (err.stack ?? err.message) : String(err)
@@ -367,15 +367,15 @@ export class NotificationsService {
         )
         this.report({
           source: 'API',
-          // В телеметрию — короткая форма: дайджест уходит в отдельный
-          // репозиторий, и стек там не нужен, а `fingerprint` считается от
-          // сообщения.
+          // To telemetry — the short form: the digest goes into a separate
+          // repository, and the stack is not needed there, while `fingerprint` is computed from the
+          // message.
           message: `Notification producer failed — ${String(err)}`,
           route: '/api/notifications',
         })
       } catch (handlerErr) {
-        // Дальше падать некуда: событие продолжается независимо от того,
-        // что случилось с самим наблюдением.
+        // There is nowhere further to fall: the event continues regardless of
+        // what happened to the observation itself.
         this.logger.error(
           `Notification failure handler itself failed (observability lost, event not rolled back): ${
             handlerErr instanceof Error ? handlerErr.message : String(handlerErr)
@@ -386,14 +386,14 @@ export class NotificationsService {
   }
 
   /**
-   * Телеметрия отказа — БЕЗ `await` (SR-L-4, security-review круг 2).
+   * Failure telemetry — WITHOUT `await` (SR-L-4, security-review round 2).
    *
-   * Оба вызывающих работают из-под открытой транзакции события, а
-   * `TelemetryErrorsService` пишет через тот же пул (`max: 10`). Ждать вторую
-   * коннекцию, держа первую под транзакцией, — классическая форма
-   * pool-deadlock, стоит отказам пойти пачкой. Канал наблюдения не имеет права
-   * задержать событие, поэтому запись отпускается в фон, а её собственный
-   * отказ остаётся в журнале.
+   * Both callers work from inside the open event transaction, and
+   * `TelemetryErrorsService` writes through the same pool (`max: 10`). Waiting for a second
+   * connection while holding the first under a transaction is the classic form of
+   * a pool deadlock, should failures arrive in a batch. An observation channel has no right to
+   * delay the event, so the record is released into the background, and its own
+   * failure stays in the journal.
    */
   private report(payload: Parameters<TelemetryErrorsService['recordError']>[0]): void {
     void this.telemetry.recordError(payload).catch((err: unknown) => {
@@ -404,17 +404,17 @@ export class NotificationsService {
   }
 
   /**
-   * Пачка получателей одного события. Отдельный метод, а не цикл на стороне
-   * производителя, потому что «кому уходит» — свойство события, и держать его
-   * в одном месте дешевле, чем повторять цикл в пяти модулях.
+   * The batch of recipients of one event. A separate method, not a loop on the producer's side,
+   * because "who it goes to" is a property of the event, and keeping it
+   * in one place is cheaper than repeating the loop in five modules.
    *
-   * Границы отката (SR-H-2, круг 2). Пачка идёт ВНУТРИ того же savepoint, что
-   * и остальной путь производителя, — значит отказ базы на одном получателе
-   * уносит всю пачку, но не событие. Савепойнт на каждого получателя не
-   * заведён намеренно: получатели одного события отличаются только
-   * идентификатором, и payload, который Postgres отверг у одного, он отвергнет
-   * у всех — цена дробления (savepoint на строку) платилась бы всегда, а
-   * спасала бы только в случае, которого по построению не бывает.
+   * Rollback boundaries (SR-H-2, round 2). The batch runs INSIDE the same savepoint as
+   * the rest of the producer path — so a database failure on one recipient
+   * takes the whole batch, but not the event. A savepoint per recipient is not
+   * introduced deliberately: the recipients of one event differ only by
+   * identifier, and a payload that Postgres rejected for one it will reject
+   * for all — the cost of splitting (a savepoint per row) would always be paid, while
+   * it would help only in a case that by construction does not occur.
    */
   async createManyInTx(tx: DrizzleTx, inputs: CreateNotificationInput[]): Promise<void> {
     for (const input of inputs) {
@@ -457,13 +457,13 @@ export class NotificationsService {
 
     const unreadCount = unreadRows[0]?.count ?? 0
 
-    // §7.4. Считается ЗДЕСЬ, а не на каждой целевой странице: страниц пять, а
-    // список один, и состояние объекта — свойство записи на момент чтения, а
-    // не свойство маршрута.
-    // Состояния приходят СПИСКОМ в порядке строк, а не картой по
-    // идентификатору: карта требовала бы запасного значения на случай
-    // «состояния нет», которого не бывает, — и это запасное значение было бы
-    // веткой, которую не исполняет ни один тест.
+    // §7.4. Computed HERE, not on each target page: there are five pages, and one
+    // list, and the object's state is a property of the record at the moment of reading, and
+    // not a property of the route.
+    // The states arrive as a LIST in row order, not as a map keyed by
+    // identifier: a map would require a fallback value for the case
+    // "no state", which never occurs — and that fallback value would be
+    // a branch that no test executes.
     const states = await this.resolveSubjectStates(userId, rows)
 
     return {
@@ -473,11 +473,11 @@ export class NotificationsService {
   }
 
   /**
-   * Половина §7.4 БЕЗ запросов — только сборка `SubjectRef[]` из строк
-   * уведомления. Решение и запросы живут в `NotificationSubjectStateService`
-   * (бэклог 208): тот же сервис, которым проверяет актуальность крон
-   * (`NotificationEmailCronService`) в момент отправки — ОДИН резолвер на
-   * попап и на письмо, не два расходящихся.
+   * Half of §7.4 WITHOUT queries — only the assembly of `SubjectRef[]` from the rows of the
+   * notification. The decision and the queries live in `NotificationSubjectStateService`
+   * (backlog 208): the same service that the cron uses to check currency
+   * (`NotificationEmailCronService`) at the moment of sending — ONE resolver for the
+   * popup and the email, not two that diverge.
    */
   private async resolveSubjectStates(
     userId: string,
@@ -488,8 +488,8 @@ export class NotificationsService {
       type: r.type,
       subjectType: (r.subjectType as NotificationSubjectType | null) ?? null,
       subjectId: r.subjectId ?? null,
-      // QA-H-1 (круг 3): уведомление опознаёт СТРОКУ согласования, а не её
-      // описание — см. `approvalIdFromData`.
+      // QA-H-1 (round 3): the notification identifies the approval ROW, not its
+      // description — see `approvalIdFromData`.
       approvalId: approvalIdFromData(r.data),
     }))
     return this.subjectStates.resolveMany(userId, refs)
@@ -519,7 +519,7 @@ export class NotificationsService {
 
   /**
    * Mark every unread notification for `userId` as read. Used by the
-   * "Прочитать всё" footer button in the header dropdown. One UPDATE — no
+   * "Mark all as read" footer button in the header dropdown. One UPDATE — no
    * reads required.
    */
   async markAllRead(userId: string): Promise<void> {
@@ -556,16 +556,16 @@ export class NotificationsService {
   // -------------------------------------------------------------------------
 
   /**
-   * Четыре булевых поля DTO выводятся из ОДНОГО состояния и только здесь —
-   * поэтому «исчез и в архиве одновременно» (или «отозвано и уже решено
-   * разом» — ORCH-2, fix-раунд 6, #664) невозможно по построению, а не по
-   * договорённости.
+   * The four boolean DTO fields are derived from ONE state, and only here —
+   * therefore "gone and archived at the same time" (or "withdrawn and already
+   * decided at once" — ORCH-2, fix round 6, #664) is impossible by construction, not by
+   * agreement.
    *
-   * Таблицей, а не парой сравнений: пять состояний и их флаги видны рядом, и
-   * состояние, которого в таблице нет, роняет разбор сразу, а не превращается
-   * молча в «живой». Умолчания у параметра нет намеренно — вызывающий обязан
-   * сказать, о каком состоянии речь (гейт мутаций круга 5: подмена значения по
-   * умолчанию не меняла ни одного теста).
+   * By a table rather than a pair of comparisons: five states and their flags are visible side by side, and
+   * a state missing from the table breaks the parse at once, rather than turning
+   * silently into "live". The parameter has no default on purpose — the caller must
+   * say which state is meant (the mutation gate of round 5: substituting the default
+   * value did not change a single test).
    */
   private static readonly SUBJECT_FLAGS: Record<
     SubjectResolution,
@@ -602,10 +602,10 @@ export class NotificationsService {
     row: typeof notifications.$inferSelect,
     state: SubjectResolution,
   ): NotificationDto {
-    // Явной проверки на `undefined` здесь НЕТ намеренно: таблица покрывает все
-    // пять состояний, `computeSubjectState` роняет разбор на любом другом, а
-    // обращение к полю отсутствующей записи упадёт само. Ветка «а вдруг» была
-    // бы веткой, которую не исполняет ни один тест (гейт мутаций круга 5).
+    // There is no explicit check for `undefined` here on purpose: the table covers all
+    // five states, `computeSubjectState` breaks the parse on any other, and
+    // access to a field of a missing record will fail by itself. A branch of "just in case" would be
+    // a branch that no test executes (the mutation gate of round 5).
     const flags = NotificationsService.SUBJECT_FLAGS[state]
     return {
       id: row.id,

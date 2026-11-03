@@ -6474,10 +6474,12 @@ exclusion, because no manifest carries that field and no source is UPDATED today
 `publishedAtMeaning` lands, UPDATED sources must be reported "not measurable" rather than a misleading
 freshness figure. Verify: a seeded UPDATED source is reported "not measurable" in the weekly aggregate.
 
-**(v) Residual Russian comments in the notification module (U5a #1208).** About 460 pre-existing Russian
-comment lines remain across the notification-registry files and `notification-email-copy.ts`, untouched
-by U5a; the English-in-repo policy (`russian-language.md`) wants them translated in a cleanup pass.
-Verify: a Cyrillic search over those files returns nothing.
+**(v) RESOLVED — Residual Russian comments in the notification module (U5a #1208).** The Russian comments in
+the notification module's non-spec source (the notification-registry services and controller, the email copy
+module, the email cron/repository/outbox, the subject resolver and state service, and the test stub) are
+translated to English, comments only; string literals and product copy are untouched. Verified by a Cyrillic
+search over those sources (no line left) and an AST check that every changed line is a comment token. Spec
+files in the module contain Russian text too; they were out of this item's scope and were not checked.
 
 **(vi) SILENT threshold has no help affordance (U7 #1209 COPY-L-2).** The compact source list/detail on
 the ADMIN source page surfaces no tooltip or help for the SILENT («Мовчить») threshold. When a
