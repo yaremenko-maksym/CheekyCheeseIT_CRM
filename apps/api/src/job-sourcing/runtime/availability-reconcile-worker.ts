@@ -39,11 +39,9 @@ import type { RecomputeSteps } from './recompute-worker'
  *                  NOT touched (S8f proves a close -> reopen cycle preserves them).
  *                  Unchanged availability writes nothing (idempotent — AC6).
  *
- * COEXISTENCE (documented, not enforced). The S4a match worker claims the same SOURCE_RECORD /
- * OPPORTUNITY kinds for DIFFERENT work (canonical resolution / match recompute), and the claim
- * cannot filter by `reason` without touching the store. So this worker must NOT run against the
- * same queue at the same time as `JOB_MATCH_RECONCILIATION_ENABLED`; a reason-partitioned claim is
- * a follow-up. Both ship dark behind separate flags, so no production path is affected today.
+ * COEXISTENCE (safe). The S4a match worker and this worker claim disjoint `reason` partitions of
+ * `job_dirty_work` (reason-partitioned claim, S-P1/S-P2), so neither completes the other's rows and
+ * `JOB_MATCH_RECONCILIATION_ENABLED` may be on at the same time.
  */
 
 const READ_COMMITTED = { isolationLevel: 'read committed' } as const

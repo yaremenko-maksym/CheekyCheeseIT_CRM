@@ -21,8 +21,8 @@ export const AVAILABILITY_MAX_DRAIN_BATCHES = 10
  *
  * FLAG: `JOB_AVAILABILITY_RECONCILE_ENABLED`, default OFF (see `config/env.ts`), distinct from
  * `JOB_MATCH_RECONCILIATION_ENABLED`. When off, the tick is a no-op: the worker never runs, so the
- * S8c close-path's enqueued rows are consumed by nothing until the owner flips the flag — AND the
- * flag must not be on against the same queue as the match reconciliation (see the worker's
+ * S8c close-path's enqueued rows are consumed by nothing until the owner flips the flag. The flag may
+ * be on together with the match reconciliation (disjoint reason partitions; see the worker's
  * COEXISTENCE note).
  *
  * BOUNDED / RESUMABLE / NO-OVERLAP (AC4). The queue IS the cursor: there is no in-memory scan
