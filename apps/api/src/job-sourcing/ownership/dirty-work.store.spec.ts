@@ -179,6 +179,10 @@ describe('dirtyConsumerOf (Task 4.6 S-P1 reason classifier)', () => {
     expect(q('AVAILABILITY').sql).toBe(
       '(starts_with(d.reason, $1) OR starts_with(d.reason, $2) OR d.reason IN ($3, $4, $5))',
     )
+    for (const bad of ['', 'match', 'NOPE'])
+      expect(() => dirtyConsumerPredicate(bad as 'MATCH')).toThrow(
+        new RangeError(`unknown dirty-work consumer: ${bad}`),
+      )
     expect(q('MATCH').sql).toBe(
       'NOT ((d.reason = $1) OR (starts_with(d.reason, $2) OR starts_with(d.reason, $3) OR d.reason IN ($4, $5, $6)))',
     )

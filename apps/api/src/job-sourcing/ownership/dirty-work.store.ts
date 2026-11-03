@@ -107,7 +107,9 @@ export function dirtyConsumerPredicate(consumer: DirtyConsumer, reason: SQL = sq
   )}))`
   if (consumer === 'DETAIL') return detail
   if (consumer === 'AVAILABILITY') return availability
-  return sql`NOT (${detail} OR ${availability})`
+  if (consumer === 'MATCH') return sql`NOT (${detail} OR ${availability})`
+  // A typo'd consumer must not silently become MATCH, the residual (CI-MUT-1).
+  throw new RangeError(`unknown dirty-work consumer: ${String(consumer)}`)
 }
 
 /** The consumers `claimDirtyBatch` serves; DETAIL has its own claim. */
