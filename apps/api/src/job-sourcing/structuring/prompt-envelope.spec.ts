@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { assertModelAllowed, type GateAllowed } from './ai-input-gate'
 import { CONTACT_TOKEN } from './contact-strip'
 import {
   buildExtractionPrompt,
@@ -6,6 +7,25 @@ import {
   MAX_MODEL_INPUT_CHARS,
   type ExtractionPrompt,
 } from './prompt-envelope'
+
+const decision = assertModelAllowed('yes', { onUnspecified: 'block' })
+if (decision !== 'ALLOWED') throw new Error('an explicit ai-input=yes must be allowed')
+const GATE: GateAllowed = decision
+
+describe('buildExtractionPrompt — the gate decision is required', () => {
+  it.each(['BLOCKED_AI_INPUT_NO', 'BLOCKED_AI_INPUT_UNSPECIFIED', 'allowed', ''])(
+    'an untyped caller passing %j instead of the gate decision gets no prompt',
+    (forged) => {
+      expect(() => buildExtractionPrompt(forged as GateAllowed, 'page')).toThrow(/ai-input gate/)
+    },
+  )
+
+  it('the decision assertModelAllowed returns for an allowed source builds the prompt', () => {
+    const allowed = assertModelAllowed('unspecified', { onUnspecified: 'allow' })
+    if (allowed !== 'ALLOWED') throw new Error('unspecified + allow must be allowed')
+    expect(buildExtractionPrompt(allowed, 'page').user).toContain('\npage\n')
+  })
+})
 
 const CAP = MAX_MODEL_INPUT_CHARS
 
@@ -34,7 +54,7 @@ const HOSTILE = [
 
 describe('buildExtractionPrompt — data block', () => {
   it.each(HOSTILE)('hostile content stays inside the data block: %j', (page) => {
-    const prompt = buildExtractionPrompt(page)
+    const prompt = buildExtractionPrompt(GATE, page)
     expect(dataBlock(prompt)).toBe(page.normalize('NFKC'))
     expect(prompt.system).toBe(EXTRACTION_SYSTEM_PROMPT)
     expect(prompt.system).not.toContain(page)
@@ -42,7 +62,7 @@ describe('buildExtractionPrompt — data block', () => {
 
   it('the instruction part never carries page content', () => {
     const page = 'UNIQUE-MARKER-7f3a title: Rust developer'
-    const prompt = buildExtractionPrompt(page)
+    const prompt = buildExtractionPrompt(GATE, page)
     expect(prompt.system).not.toContain('UNIQUE-MARKER-7f3a')
     const beforeBlock = prompt.user.slice(0, prompt.user.indexOf(`<<<${prompt.delimiter}`))
     expect(beforeBlock).not.toContain('UNIQUE-MARKER-7f3a')
@@ -51,27 +71,31 @@ describe('buildExtractionPrompt — data block', () => {
 
   it('the system prompt is a constant that names the data block as untrusted', () => {
     expect(EXTRACTION_SYSTEM_PROMPT).toMatch(/untrusted data/i)
-    expect(buildExtractionPrompt('a').system).toBe(buildExtractionPrompt('b').system)
+    expect(buildExtractionPrompt(GATE, 'a').system).toBe(buildExtractionPrompt(GATE, 'b').system)
   })
 
   it('a nonce found in the page is rejected and a fresh one drawn', () => {
     const nonces = ['deadbeefdeadbeef', 'cafebabecafebabe']
-    const prompt = buildExtractionPrompt('guess: deadbeefdeadbeef', () => nonces.shift() ?? 'x')
+    const prompt = buildExtractionPrompt(
+      GATE,
+      'guess: deadbeefdeadbeef',
+      () => nonces.shift() ?? 'x',
+    )
     expect(prompt.delimiter).toBe('PAGE-DATA-cafebabecafebabe')
     expect(dataBlock(prompt)).toBe('guess: deadbeefdeadbeef')
   })
 
   it('refuses when no fresh nonce can be drawn instead of looping forever', () => {
-    expect(() => buildExtractionPrompt('aaaa', () => 'aa')).toThrow(/delimiter/i)
+    expect(() => buildExtractionPrompt(GATE, 'aaaa', () => 'aa')).toThrow(/delimiter/i)
   })
 
   it('an empty nonce is never accepted', () => {
-    expect(() => buildExtractionPrompt('page', () => '')).toThrow(/delimiter/i)
+    expect(() => buildExtractionPrompt(GATE, 'page', () => '')).toThrow(/delimiter/i)
   })
 
   it('the default nonce is 32 hex chars and differs between calls', () => {
-    const a = buildExtractionPrompt('page').delimiter
-    const b = buildExtractionPrompt('page').delimiter
+    const a = buildExtractionPrompt(GATE, 'page').delimiter
+    const b = buildExtractionPrompt(GATE, 'page').delimiter
     expect(a).toMatch(/^PAGE-DATA-[0-9a-f]{32}$/)
     expect(a).not.toBe(b)
   })
@@ -79,7 +103,7 @@ describe('buildExtractionPrompt — data block', () => {
 
 describe('buildExtractionPrompt — contacts', () => {
   it('strips contacts before the text enters the envelope and reports the counts', () => {
-    const prompt = buildExtractionPrompt('HR: jane@example.com, +380501234567')
+    const prompt = buildExtractionPrompt(GATE, 'HR: jane@example.com, +380501234567')
     expect(dataBlock(prompt)).toBe(`HR: ${CONTACT_TOKEN}, ${CONTACT_TOKEN}`)
     expect(prompt.contactsRemoved).toEqual({ email: 1, phone: 1, messenger: 0, profileUrl: 0 })
   })
@@ -87,7 +111,7 @@ describe('buildExtractionPrompt — contacts', () => {
   it('a contact created by the cut itself is stripped too', () => {
     // 22 digits are not a phone; cut after 12 of them they are.
     const page = 'x'.repeat(CAP - CONTACT_TOKEN.length - 14) + ' +3805012345678901234567'
-    const prompt = buildExtractionPrompt(page)
+    const prompt = buildExtractionPrompt(GATE, page)
     const data = dataBlock(prompt)
     expect(data).not.toContain('380501234567')
     expect(data.endsWith(CONTACT_TOKEN)).toBe(true)
@@ -98,20 +122,20 @@ describe('buildExtractionPrompt — contacts', () => {
 describe('buildExtractionPrompt — input cap', () => {
   it('text exactly at the cap is sent whole', () => {
     const page = 'a'.repeat(CAP)
-    const prompt = buildExtractionPrompt(page)
+    const prompt = buildExtractionPrompt(GATE, page)
     expect(prompt.truncated).toBe(false)
     expect(dataBlock(prompt)).toBe(page)
   })
 
   it('one char over the cap is truncated and flagged', () => {
-    const prompt = buildExtractionPrompt('a'.repeat(CAP + 1))
+    const prompt = buildExtractionPrompt(GATE, 'a'.repeat(CAP + 1))
     expect(prompt.truncated).toBe(true)
     expect(dataBlock(prompt)).toBe('a'.repeat(CAP - CONTACT_TOKEN.length))
   })
 
   it('10x the cap of hostile content stays bounded and inside the block', () => {
     const page = (HOSTILE.join('\n') + '\n').repeat(Math.ceil((10 * CAP) / 200)).slice(0, 10 * CAP)
-    const prompt = buildExtractionPrompt(page)
+    const prompt = buildExtractionPrompt(GATE, page)
     expect(prompt.truncated).toBe(true)
     expect(dataBlock(prompt).length).toBeLessThanOrEqual(CAP)
     expect(prompt.system).toBe(EXTRACTION_SYSTEM_PROMPT)
@@ -119,14 +143,14 @@ describe('buildExtractionPrompt — input cap', () => {
 
   it('never leaves a lone surrogate at the cut', () => {
     const page = 'a'.repeat(CAP - CONTACT_TOKEN.length - 1) + '😀'.repeat(10)
-    const data = dataBlock(buildExtractionPrompt(page))
+    const data = dataBlock(buildExtractionPrompt(GATE, page))
     expect(data).toBe('a'.repeat(CAP - CONTACT_TOKEN.length - 1))
   })
 
   it('the cap is counted after contact stripping', () => {
     const page = 'a'.repeat(CAP - CONTACT_TOKEN.length - 1) + ' x@example.com'
     expect(page.length).toBeGreaterThan(CAP)
-    const prompt = buildExtractionPrompt(page)
+    const prompt = buildExtractionPrompt(GATE, page)
     expect(prompt.truncated).toBe(false)
     expect(dataBlock(prompt).endsWith(CONTACT_TOKEN)).toBe(true)
   })
@@ -138,28 +162,30 @@ describe('buildExtractionPrompt — input cap', () => {
     ['U+10000 (high surrogate 0xD800)', '𐀀'],
     ['U+10FFFF (high surrogate 0xDBFF)', '􏿿'],
   ])('a high surrogate at the cut is dropped: %s', (_name, pair) => {
-    expect(dataBlock(buildExtractionPrompt(atCut(pair)))).toBe('a'.repeat(CUT - 1))
+    expect(dataBlock(buildExtractionPrompt(GATE, atCut(pair)))).toBe('a'.repeat(CUT - 1))
   })
 
   it.each([
     ['U+E000 (above the surrogate range)', ''],
     ['U+D7FF (below the surrogate range)', '퟿'],
   ])('a non-surrogate char at the cut is kept: %s', (_name, char) => {
-    expect(dataBlock(buildExtractionPrompt(atCut(char)))).toBe('a'.repeat(CUT - 1) + char)
+    expect(dataBlock(buildExtractionPrompt(GATE, atCut(char)))).toBe('a'.repeat(CUT - 1) + char)
   })
 })
 
 describe('buildExtractionPrompt — nonce attempts', () => {
   it('a fresh nonce on the 4th attempt is accepted', () => {
     const nonces = ['aa', 'aa', 'aa', 'fresh0001']
-    expect(buildExtractionPrompt('aaaa', () => nonces.shift() ?? '').delimiter).toBe(
+    expect(buildExtractionPrompt(GATE, 'aaaa', () => nonces.shift() ?? '').delimiter).toBe(
       'PAGE-DATA-fresh0001',
     )
   })
 
   it('no 5th attempt: four collisions refuse', () => {
     const nonces = ['aa', 'aa', 'aa', 'aa', 'fresh0001']
-    expect(() => buildExtractionPrompt('aaaa', () => nonces.shift() ?? '')).toThrow(/delimiter/i)
+    expect(() => buildExtractionPrompt(GATE, 'aaaa', () => nonces.shift() ?? '')).toThrow(
+      /delimiter/i,
+    )
   })
 })
 
