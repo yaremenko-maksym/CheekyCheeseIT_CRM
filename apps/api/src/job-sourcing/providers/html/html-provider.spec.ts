@@ -436,6 +436,20 @@ describe('AC2 pagination stops on loops with a counted reason', () => {
     expect(r.detail.status).toBe('SKIPPED')
   })
 
+  it('two pages of id-less items are not a duplicate: only string ids identify an item', async () => {
+    const page2 = `${BASE}/list?page=2&after=c2`
+    const w = world({
+      routes: {
+        [page1]: { bodyText: listing([{ postingUrl: '/x' }, { id: 7 }], 'c2') },
+        [page2]: { bodyText: listing([{ postingUrl: '/y' }, { id: 7 }]) },
+      },
+    })
+    const r = await provider(w).p.collectHtml(config(), w.ctx)
+    expect(w.sent).toEqual([page1, page2])
+    expect(r.discovery.duplicatePages).toBe(0)
+    expect(r.discovery.stops).not.toHaveProperty('CURSOR_CYCLE')
+  })
+
   it('pages with different items continue to the end', async () => {
     const w = world({
       routes: {
@@ -1895,5 +1909,294 @@ describe('AC7 every subrequest is metered; aggregate caps stop with a checkpoint
     const r = await provider(w).p.collectHtml(config(), w.ctx)
     expect(w.sent).toEqual([page1])
     expect(r.detail.checkpoint).toEqual({ reason: 'CANCELLED', remainingIds: ['a', 'b'] })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Review round (5.5a): egress order, port failures, the model owed a pass
+// ---------------------------------------------------------------------------
+
+describe('one egress: admitted and paced before anything is reserved (CR-M-2, CR-M-4, CR-M-5)', () => {
+  const page2 = `${BASE}/list?page=2&after=c2`
+
+  it('a robots-denied page 2 reserves nothing and is never marked sent', async () => {
+    const w = world({
+      routes: { [page1]: { bodyText: listing([item('a', 'https://o.example/a')], 'c2') } },
+      robots: (url) =>
+        url === page2 ? { ...allowed(), verdict: 'DENIED', reason: 'DISALLOWED' } : allowed(),
+    })
+    const r = await provider(w).p.collectHtml(config(), w.ctx)
+    expect(w.sent).toEqual([page1])
+    expect(w.reserved).toEqual([1])
+    expect(w.marked).toBe(1)
+    expect(w.reconciled).toEqual(['USED'])
+    expect(r.discovery).toMatchObject({ status: 'PARTIAL', stop: 'ACCESS_POLICY' })
+    expect(r.batch.requests[1]).toMatchObject({
+      page: 2,
+      status: null,
+      error: { code: 'ACCESS_POLICY', message: 'html request refused: DISALLOWED' },
+    })
+  })
+
+  it('a host-gate wait aborted on page 2 is a CANCELLED stop with nothing reserved', async () => {
+    const w = world({
+      routes: { [page1]: { bodyText: listing([item('a', 'https://o.example/a')], 'c2') } },
+    })
+    let calls = 0
+    const { p } = provider(w, {
+      hostGate: {
+        async acquire() {
+          calls += 1
+          if (calls > 1) throw new Error('aborted')
+        },
+      },
+    })
+    const r = await p.collectHtml(config(), w.ctx)
+    expect(w.reserved).toEqual([1])
+    expect(r.discovery.stop).toBe('CANCELLED')
+    expect(r.batch.requests[1]?.error).toEqual({
+      code: 'CANCELLED',
+      message: 'html request refused: CANCELLED',
+    })
+  })
+
+  it('a host-gate wait aborted before a detail stops the stage CANCELLED, nothing reserved for it', async () => {
+    const w = world({ routes: twoItems() })
+    let calls = 0
+    const { p } = provider(w, {
+      hostGate: {
+        async acquire() {
+          calls += 1
+          if (calls > 1) throw new Error('aborted')
+        },
+      },
+    })
+    const r = await p.collectHtml(config(), w.ctx)
+    expect(w.sent).toEqual([page1])
+    expect(w.reserved).toEqual([1])
+    expect(r.detail.checkpoint).toEqual({ reason: 'CANCELLED', remainingIds: ['a', 'b'] })
+  })
+
+  it('passes the run signal to the host gate on both paths', async () => {
+    const w = world({ routes: twoItems() })
+    const signals: (AbortSignal | undefined)[] = []
+    const { p } = provider(w, {
+      hostGate: {
+        async acquire(_o, _g, signal) {
+          signals.push(signal)
+        },
+      },
+    })
+    await p.collectHtml(config(), w.ctx)
+    expect(signals).toEqual([w.ctx.signal, w.ctx.signal, w.ctx.signal])
+  })
+
+  it('a robots port that throws refuses the request: preflight is a policy block', async () => {
+    const w = world({ routes: twoItems() })
+    w.robots.check.mockRejectedValue(new Error('robots down'))
+    const r = await provider(w).p.collectHtml(config(), w.ctx)
+    expect(w.sent).toEqual([])
+    expect(r.discovery).toMatchObject({ status: 'POLICY_BLOCKED', policyReason: 'ROBOTS_FAILED' })
+  })
+
+  it('a robots port that throws on a detail denies that item only (SR-L-5)', async () => {
+    const w = world({ routes: twoItems() })
+    w.robots.check.mockImplementation(async (url: string) => {
+      if (url === detailUrl('a')) throw new Error('robots down')
+      return allowed()
+    })
+    const r = await provider(w).p.collectHtml(config(), w.ctx)
+    expect(w.sent).toEqual([page1, detailUrl('b')])
+    expect(r.detail).toMatchObject({ policyDenied: 1, fetched: 1, status: 'PARTIAL' })
+  })
+})
+
+describe('a failing state port or a malformed record fails one item, never the batch (SR-L-5)', () => {
+  it('a state port that throws on get fails that item; the rest go on', async () => {
+    const state = new InMemoryEnrichmentState()
+    const enrichment: EnrichmentStatePort = {
+      get: async (key) => {
+        if (key.includes('"a"')) throw new Error('db down')
+        return state.get(key)
+      },
+      put: (key, record) => state.put(key, record),
+    }
+    const w = world({ routes: twoItems() })
+    const r = await provider(w, { enrichment }).p.collectHtml(config(), w.ctx)
+    expect(w.sent).toEqual([page1, detailUrl('b')])
+    expect(r.detail).toMatchObject({ failed: 1, fetched: 1 })
+    expect(r.batch.observations).toHaveLength(2)
+  })
+
+  it('a record whose nextDueAt is not a Date fails that item', async () => {
+    const enrichment = new InMemoryEnrichmentState()
+    const first = world({ routes: twoItems() })
+    await provider(first, { enrichment }).p.collectHtml(config(), first.ctx)
+    const key = JSON.stringify(['THEHUB_HTML', 'board', 'a'])
+    const rec = enrichment.records.get(key)
+    enrichment.records.set(key, { ...rec, nextDueAt: '2026-11-01' } as never)
+    const second = world({ routes: twoItems(), now: new Date(NOW.getTime() + 1000) })
+    const r = await provider(second, { enrichment }).p.collectHtml(config(), second.ctx)
+    expect(r.detail).toMatchObject({ failed: 1, notDue: 1 })
+  })
+
+  it('a state port that throws on put after a fetch fails that item', async () => {
+    const enrichment: EnrichmentStatePort = {
+      get: async () => null,
+      put: async () => {
+        throw new Error('db down')
+      },
+    }
+    const w = world({ routes: twoItems() })
+    const r = await provider(w, { enrichment }).p.collectHtml(config(), w.ctx)
+    expect(r.detail).toMatchObject({ failed: 2, fetched: 0 })
+    expect(r.enrichments).toEqual([])
+  })
+})
+
+describe('the model stage owes a pass until it reaches an item (CR-M-1)', () => {
+  const extracted = (ids: string[]): StructurerOutcome => ({
+    kind: 'EXTRACTED',
+    extractionVersion: 'p1',
+    perRecordIssues: [],
+    records: ids.map((id) => modelRecord(id, { location: 'Kyiv' })),
+  })
+  const key = (id: string) => JSON.stringify(['THEHUB_HTML', 'board', id])
+
+  it('an item the model did not reach stays pending, due at the retry pace, and is offered again', async () => {
+    const enrichment = new InMemoryEnrichmentState()
+    const budget = fakeStructurer({
+      kind: 'BUDGET_EXHAUSTED',
+      cause: 'CYCLE_LIMIT',
+      remainingIds: ['b'],
+      perRecordIssues: [],
+    } as StructurerOutcome)
+    const first = world({ routes: twoItems() })
+    await provider(first, { enrichment, model: { structurer: budget, policy } }).p.collectHtml(
+      config(),
+      first.ctx,
+    )
+    expect(await enrichment.get(key('a'))).toMatchObject({
+      modelPending: false,
+      nextDueAt: new Date(NOW.getTime() + 72 * 60 * 60 * 1000),
+    })
+    expect(await enrichment.get(key('b'))).toMatchObject({
+      modelPending: true,
+      nextDueAt: new Date(NOW.getTime() + 6 * 60 * 60 * 1000),
+    })
+
+    const retryAt = new Date(NOW.getTime() + 6 * 60 * 60 * 1000)
+    const s = fakeStructurer(extracted(['b']))
+    const second = world({ routes: twoItems(), now: retryAt })
+    const r = await provider(second, {
+      enrichment,
+      model: { structurer: s, policy },
+    }).p.collectHtml(config(), second.ctx)
+    expect(second.sent).toEqual([page1, detailUrl('b')])
+    expect(r.detail).toMatchObject({ notDue: 1, fetched: 1, unchanged: 0 })
+    expect(s.calls[0]?.records.map((x) => x.id)).toEqual(['b'])
+    expect(await enrichment.get(key('b'))).toMatchObject({
+      modelPending: false,
+      nextDueAt: new Date(retryAt.getTime() + 72 * 60 * 60 * 1000),
+    })
+  })
+
+  it('a structurer that throws leaves every candidate pending', async () => {
+    const enrichment = new InMemoryEnrichmentState()
+    const w = world({ routes: twoItems() })
+    await provider(w, {
+      enrichment,
+      model: { structurer: fakeStructurer(new Error('boom')), policy },
+    }).p.collectHtml(config(), w.ctx)
+    expect((await enrichment.get(key('a')))?.modelPending).toBe(true)
+    expect((await enrichment.get(key('b')))?.modelPending).toBe(true)
+  })
+
+  it('without a model nothing is pending', async () => {
+    const enrichment = new InMemoryEnrichmentState()
+    const w = world({ routes: twoItems() })
+    await provider(w, { enrichment }).p.collectHtml(config(), w.ctx)
+    expect((await enrichment.get(key('a')))?.modelPending).toBe(false)
+  })
+
+  it('a full detail owes the model nothing', async () => {
+    const enrichment = new InMemoryEnrichmentState()
+    const full = { description: 'd', location: 'l', employmentType: 'e', remote: true }
+    const w = world({ routes: twoItems(full, full) })
+    const s = fakeStructurer(extracted([]))
+    await provider(w, { enrichment, model: { structurer: s, policy } }).p.collectHtml(
+      config(),
+      w.ctx,
+    )
+    expect((await enrichment.get(key('a')))?.modelPending).toBe(false)
+  })
+
+  it('a write-back that fails leaves the item pending and loses nothing else', async () => {
+    const state = new InMemoryEnrichmentState()
+    let puts = 0
+    const enrichment: EnrichmentStatePort = {
+      get: (k) => state.get(k),
+      put: async (k, record) => {
+        puts += 1
+        if (puts > 2) throw new Error('db down')
+        return state.put(k, record)
+      },
+    }
+    const w = world({ routes: twoItems() })
+    const r = await provider(w, {
+      enrichment,
+      model: { structurer: fakeStructurer(extracted(['a', 'b'])), policy },
+    }).p.collectHtml(config(), w.ctx)
+    expect(r.model.status).toBe('COMPLETE')
+    expect((await state.get(key('a')))?.modelPending).toBe(true)
+  })
+
+  it.each(['DEADLINE', 'CANCELLED', 'METER_FAILED'] as const)(
+    'a %s detail stop skips the model stage and leaves its candidates pending',
+    async (reason) => {
+      const enrichment = new InMemoryEnrichmentState()
+      const controller = new AbortController()
+      let now = NOW
+      const w = world({ routes: twoItems() })
+      w.ctx.signal = controller.signal
+      w.ctx.deadline = new Date(NOW.getTime() + 10)
+      w.ctx.now = () => now
+      const inner = w.ctx.fetchText
+      w.ctx.fetchText = async (req) => {
+        const res = await inner(req)
+        if (req.url === detailUrl('a')) {
+          if (reason === 'DEADLINE') now = new Date(NOW.getTime() + 10)
+          if (reason === 'CANCELLED') controller.abort()
+        }
+        return res
+      }
+      let reserves = 0
+      const reserve = w.ctx.meter.reserve
+      w.ctx.meter.reserve = async (unit, amount) => {
+        reserves += 1
+        if (reason === 'METER_FAILED' && reserves > 2) throw new Error('db down')
+        return reserve(unit, amount)
+      }
+      const s = fakeStructurer(extracted(['a']))
+      const r = await provider(w, { enrichment, model: { structurer: s, policy } }).p.collectHtml(
+        config(),
+        w.ctx,
+      )
+      expect(r.detail.stop).toBe(reason)
+      expect(s.calls).toEqual([])
+      expect(r.model).toMatchObject({ status: 'SKIPPED', reason })
+      expect((await enrichment.get(key('a')))?.modelPending).toBe(true)
+    },
+  )
+
+  it('a non-ending detail stop still runs the model stage', async () => {
+    const w = world({ routes: twoItems() })
+    const s = fakeStructurer(extracted(['a']))
+    const r = await provider(w, {
+      model: { structurer: s, policy },
+      limits: { maxDetails: 1 },
+    }).p.collectHtml(config(), w.ctx)
+    expect(r.detail.stop).toBe('DETAIL_QUOTA')
+    expect(s.calls).toHaveLength(1)
   })
 })

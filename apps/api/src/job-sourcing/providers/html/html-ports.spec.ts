@@ -5,6 +5,7 @@ import {
   InMemoryEnrichmentState,
   InMemoryHostGate,
   MIN_HOST_GAP_MS,
+  realSleep,
 } from './html-ports'
 
 describe('hostGapMs', () => {
@@ -101,6 +102,53 @@ describe('InMemoryHostGate (fake clock)', () => {
       await second
       expect(released).toBe(true)
     })
+
+    it('passes the signal to the sleep, and an abort during the wait rejects at once (CR-M-5)', async () => {
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+      const g = new InMemoryHostGate()
+      const controller = new AbortController()
+      await g.acquire('https://a.example', 60_000, controller.signal)
+      const waiting = g.acquire('https://a.example', 60_000, controller.signal)
+      controller.abort(new Error('cancelled'))
+      await expect(waiting).rejects.toThrow('cancelled')
+      expect(vi.getTimerCount()).toBe(0)
+    })
+  })
+})
+
+describe('realSleep', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('rejects at once on an already-aborted signal, without a timer', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] })
+    const controller = new AbortController()
+    controller.abort(new Error('gone'))
+    await expect(realSleep(1_000, controller.signal)).rejects.toThrow('gone')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('resolves after the time without a signal, and is not rejected by a later abort', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const controller = new AbortController()
+    let done = false
+    const slept = realSleep(1_000, controller.signal).then(() => {
+      done = true
+    })
+    await vi.advanceTimersByTimeAsync(999)
+    expect(done).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await slept
+    expect(done).toBe(true)
+    controller.abort()
+    let unsignalled = false
+    const plain = realSleep(5).then(() => {
+      unsignalled = true
+    })
+    await vi.advanceTimersByTimeAsync(5)
+    await plain
+    expect(unsignalled).toBe(true)
   })
 })
 
@@ -116,8 +164,10 @@ describe('InMemoryEnrichmentState', () => {
       nextDueAt: new Date(1),
       contentHash: 'h',
       validator: null,
+      url: 'https://jobs.example/a',
       parserVersion: 'p1',
       policyVersion: 1,
+      modelPending: false,
     }
     await state.put('k', record)
     expect(await state.get('k')).toBe(record)
