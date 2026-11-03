@@ -6511,7 +6511,7 @@ Sources: PR #1195 reviews; `scripts/devops/pnpm-audit-runbook.md` Step 4.
 
 ## 346. Task 4.6 SR-H-2 (explicit `source_id` on `job_source_records`): follow-ups left after the merge (2026-11-02)
 
-**Open (i, ii, v resolved 2026-11-03; iii, iv remain).** SR-H-2 (PR #1230, merged 2026-11-02) replaced the `(source_type, namespace)` guess with an
+**Open (i, ii resolved 2026-11-03; v pinned, owner decision pending; iii, iv remain).** SR-H-2 (PR #1230, merged 2026-11-02) replaced the `(source_type, namespace)` guess with an
 explicit `job_source_records.source_id` foreign key (`ON DELETE SET NULL`), a backfill, a fail-closed
 resolver and `lockAndVerifyRecord` keyed on `source_id`. The three-axis review on the final head was
 clean (security APPROVE, code APPROVE, spec PASS); what it carried out of scope, by symbol/behaviour with
