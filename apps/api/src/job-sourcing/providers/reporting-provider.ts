@@ -1323,6 +1323,12 @@ export interface FetchRequest {
    * past it is REFUSED (`PAYLOAD_TOO_LARGE`), never truncated: nothing partial reaches a parser.
    */
   maxBytes?: number
+  /**
+   * `false`: a redirect is NOT followed — it comes back as its 3xx status, so a caller that checks
+   * every URL it fetches (robots, approved hosts) is never taken to one it did not check. Absent,
+   * the transport follows redirects within its own allow-list, as before.
+   */
+  followRedirects?: false
 }
 
 export interface MeterReservation {
