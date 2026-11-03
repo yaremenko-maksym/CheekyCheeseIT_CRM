@@ -29,12 +29,13 @@ vi.mock('../ownership/dirty-work.store', async (orig) => ({
 
 import {
   AVAILABILITY_CLAIM_KINDS,
+  OPPORTUNITY_AVAILABILITY_CHANGED_REASON,
   createAvailabilityReconcileSteps,
   reconcileOpportunityAvailability,
   reconcileSourceRecordAvailability,
   resolveInventoryInput,
 } from './availability-reconcile-worker'
-import type { ClaimedDirtyWork } from '../ownership/dirty-work.store'
+import { type ClaimedDirtyWork, dirtyConsumerOf } from '../ownership/dirty-work.store'
 import { RecomputeWorker } from './recompute-worker'
 
 const dialect = new PgDialect()
@@ -228,6 +229,42 @@ describe('reconcileOpportunityAvailability', () => {
     expect(update).toBeDefined()
     expect(update).toContain('revision')
     expect(update).toContain('availability')
+  })
+
+  it('S-P2: a bump enqueues a MATCH successor row at the new revision, before the handled row completes', async () => {
+    const { db, execute } = dbOf(
+      [{ revision: 3, availability: 'OPEN' }],
+      [{ availability: 'CLOSED' }],
+      [{ id: 'dddddddd-0000-4000-8000-000000000000' }],
+    )
+    await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
+    const queries = execute.mock.calls.map(([q]) => dialect.sqlToQuery(q as SQL))
+    const at = (re: RegExp) => queries.findIndex((q) => re.test(q.sql))
+    const enqueueAt = at(/INSERT INTO job_dirty_work/)
+    expect(queries[enqueueAt]?.params).toEqual([
+      'OPPORTUNITY',
+      OPP,
+      4,
+      'OPPORTUNITY_AVAILABILITY_CHANGED',
+      null,
+    ])
+    expect(dirtyConsumerOf(OPPORTUNITY_AVAILABILITY_CHANGED_REASON)).toBe('MATCH')
+    // Same transaction, written before `completeDirty` of the handled row and before the bump.
+    const enqueueCall = execute.mock.invocationCallOrder[enqueueAt] as number
+    expect(enqueueCall).toBeLessThan(complete.mock.invocationCallOrder[0] as number)
+    expect(enqueueAt).toBeLessThan(at(/UPDATE job_opportunities/))
+  })
+
+  it('S-P2: no bump, no successor row', async () => {
+    const { db, sqls } = dbOf([{ revision: 3, availability: 'OPEN' }], [{ availability: 'OPEN' }])
+    await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
+    expect(sqls.some((s) => s.includes('INSERT INTO job_dirty_work'))).toBe(false)
+  })
+
+  it('S-P2: a stale target enqueues no successor row (the bump that staled it already did)', async () => {
+    const { db, sqls } = dbOf([{ revision: 4, availability: 'OPEN' }])
+    await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
+    expect(sqls.some((s) => s.includes('INSERT INTO job_dirty_work'))).toBe(false)
   })
 
   it('writes nothing when the derived availability is unchanged (idempotent)', async () => {

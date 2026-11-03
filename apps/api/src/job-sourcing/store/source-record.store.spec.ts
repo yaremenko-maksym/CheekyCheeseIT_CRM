@@ -5,6 +5,7 @@ import { identityObservations, specCheckpoint } from '../../test/ledger-fixtures
 import { observation } from '../../test/record-store-fixtures'
 import type { MeterDb } from '../metering/account-meter.store'
 import type { SourceObservation } from '../normalize/observation'
+import { dirtyConsumerOf } from '../ownership/dirty-work.store'
 import { writePageProgress } from '../ownership/job-run-ledger'
 import { RunFencedError } from '../ownership/run-ownership'
 import { LockContentionError } from './lock-order'
@@ -220,24 +221,31 @@ describe('the dirty-work producer (Task 4.6 S4a, AC 8)', () => {
     const { db, seen } = recordingDb(firstObservation(CYCLE))
     await saveObservationPage(db, H, page)
     expect(seen.transactions).toBe(1)
-    const [enqueue, ...more] = enqueues(seen.statements)
-    expect(more).toEqual([])
-    expect(enqueue?.sql).toMatch(
-      /ON CONFLICT \(entity_kind, entity_id, target_version, reason\) DO NOTHING\s+RETURNING id/,
-    )
-    expect(enqueue?.params).toEqual(['SOURCE_RECORD', RECORD, 1, 'SOURCE_REVISION', CYCLE])
+    const all = enqueues(seen.statements)
+    for (const e of all)
+      expect(e.sql).toMatch(
+        /ON CONFLICT \(entity_kind, entity_id, target_version, reason\) DO NOTHING\s+RETURNING id/,
+      )
+    // S-P2 (ADR 2026-11-02 step 3): one row per consumer, same version, same cycle.
+    expect(all.map((e) => e.params)).toEqual([
+      ['SOURCE_RECORD', RECORD, 1, 'SOURCE_REVISION', CYCLE],
+      ['SOURCE_RECORD', RECORD, 1, 'AVAILABILITY:SOURCE_REVISION', CYCLE],
+    ])
+  })
+
+  it('S-P2: the head-advance rows land one in each consumer partition', async () => {
+    const { db, seen } = recordingDb(firstObservation(CYCLE))
+    await saveObservationPage(db, H, page)
+    expect(enqueues(seen.statements).map((e) => dirtyConsumerOf(String(e.params[3])))).toEqual([
+      'MATCH',
+      'AVAILABILITY',
+    ])
   })
 
   it('a run without a cycle enqueues with a null cycle', async () => {
     const { db, seen } = recordingDb(firstObservation(null))
     await saveObservationPage(db, H, page)
-    expect(enqueues(seen.statements)[0]?.params).toEqual([
-      'SOURCE_RECORD',
-      RECORD,
-      1,
-      'SOURCE_REVISION',
-      null,
-    ])
+    expect(enqueues(seen.statements).map((e) => e.params[4])).toEqual([null, null])
   })
 
   it('content that does not move the pointer enqueues nothing', async () => {
@@ -295,10 +303,13 @@ describe('the dirty-work producer (Task 4.6 S4a, AC 8)', () => {
       expect(enqueues(seen.statements)).toEqual([])
     })
 
-    it('changed content of a CLOSED record enqueues SOURCE_REVISION only (no second row)', async () => {
+    it('changed content of a CLOSED record enqueues the head-advance pair, no RECORD_RELISTED row', async () => {
       const { db, seen } = recordingDb(relisted('CLOSED', true, 'another-revision'))
       await saveObservationPage(db, H, page)
-      expect(enqueues(seen.statements).map((e) => e.params[3])).toEqual(['SOURCE_REVISION'])
+      expect(enqueues(seen.statements).map((e) => e.params[3])).toEqual([
+        'SOURCE_REVISION',
+        'AVAILABILITY:SOURCE_REVISION',
+      ])
     })
   })
 
