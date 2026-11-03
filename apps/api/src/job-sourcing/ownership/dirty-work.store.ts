@@ -96,17 +96,24 @@ export function dirtyConsumerOf(reason: string): DirtyConsumer {
 
 /**
  * The SQL twin of `dirtyConsumerOf`: true for a row of `consumer`'s partition. `starts_with`, not
- * `LIKE`: the `_` in `RECORD_RELISTED` would be a wildcard there.
+ * `LIKE`: the `_` in `RECORD_RELISTED` would be a wildcard there. `inline` renders the reasons as
+ * literals (backlog 347 (1)): the claim needs that so the planner can prove the partial indexes
+ * idx_job_dirty_work_pending_{match,availability} — a bound parameter would match them only in a
+ * custom plan (as CR-M-4). Their WHERE clauses are this exact text; drift fails
+ * job-dirty-work-partition-partial-ddl.integration.spec.ts.
  */
-export function dirtyConsumerPredicate(consumer: DirtyConsumer, reason: SQL = sql`reason`): SQL {
-  const detail = sql`(${reason} = ${DETAIL_FETCH})`
+export function dirtyConsumerPredicate(
+  consumer: DirtyConsumer,
+  reason: SQL = sql`reason`,
+  { inline = false }: { inline?: boolean } = {},
+): SQL {
+  // sql.raw is safe here: every value is a module constant of [A-Z_:] (the spec pins the text).
+  const v = (value: string): SQL => (inline ? sql.raw(`'${value}'`) : sql`${value}`)
+  const detail = sql`(${reason} = ${v(DETAIL_FETCH)})`
   const availability = sql`(${sql.join(
-    availabilityPrefixes().map((p) => sql`starts_with(${reason}, ${p})`),
+    availabilityPrefixes().map((p) => sql`starts_with(${reason}, ${v(p)})`),
     sql` OR `,
-  )} OR ${reason} IN (${sql.join(
-    availabilityReasons().map((r) => sql`${r}`),
-    sql`, `,
-  )}))`
+  )} OR ${reason} IN (${sql.join(availabilityReasons().map(v), sql`, `)}))`
   if (consumer === 'DETAIL') return detail
   if (consumer === 'AVAILABILITY') return availability
   if (consumer === 'MATCH') return sql`NOT (${detail} OR ${availability})`
@@ -288,7 +295,9 @@ export const dirtyWorkStatements = {
              -- A LITERAL, not a bound parameter (CR-M-4): a parameter matches the index only in
              -- a custom plan; a prepared statement's generic plan could not prove the implication.
              AND reason <> ${DETAIL_FETCH_LITERAL}
-             AND ${dirtyConsumerPredicate(consumer)}
+             -- Inline literals too (backlog 347 (1)): this is the exact predicate of
+             -- idx_job_dirty_work_pending_match / _availability, so the claim skips the other pile.
+             AND ${dirtyConsumerPredicate(consumer, sql`reason`, { inline: true })}
            ORDER BY created_at, id
            LIMIT ${batchSize}
            FOR UPDATE SKIP LOCKED)

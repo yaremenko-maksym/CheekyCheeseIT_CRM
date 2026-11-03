@@ -609,6 +609,20 @@ export const jobDirtyWork = pgTable(
     index('idx_job_dirty_work_pending_generic')
       .on(t.status, t.createdAt)
       .where(sql`${t.reason} <> 'DETAIL_FETCH'`),
+    // Backlog 347 (1) (STAGED/DARK): one partial index per `claimDirtyBatch` reason partition, so
+    // the match claim never walks the unclaimed AVAILABILITY pile (and vice versa). Each WHERE is
+    // exactly `dirtyConsumerPredicate(<consumer>, reason, { inline: true })` — not imported here
+    // (the store imports the schema). Prod apply: manual-staged/2026-11-03_job_dirty_work_partition_partial.sql.
+    index('idx_job_dirty_work_pending_match')
+      .on(t.status, t.createdAt)
+      .where(
+        sql`NOT ((${t.reason} = 'DETAIL_FETCH') OR (starts_with(${t.reason}, 'AVAILABILITY:') OR starts_with(${t.reason}, 'RECORD_RELISTED:') OR ${t.reason} IN ('RECORD_INVENTORY_CLOSED', 'RECORD_REOPENED', 'RECORD_WINDOW_EXPIRED')))`,
+      ),
+    index('idx_job_dirty_work_pending_availability')
+      .on(t.status, t.createdAt)
+      .where(
+        sql`(starts_with(${t.reason}, 'AVAILABILITY:') OR starts_with(${t.reason}, 'RECORD_RELISTED:') OR ${t.reason} IN ('RECORD_INVENTORY_CLOSED', 'RECORD_REOPENED', 'RECORD_WINDOW_EXPIRED'))`,
+      ),
     index('idx_job_dirty_work_cycle').on(t.cycleId),
     foreignKey({
       name: 'fk_job_dirty_work_cycle',
