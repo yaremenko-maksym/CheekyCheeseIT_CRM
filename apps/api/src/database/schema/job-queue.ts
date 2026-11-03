@@ -3,7 +3,9 @@
  * DO with an opportunity, as opposed to what a collection FOUND
  * (`job-opportunities.ts`) or how it was collected (`job-collection.ts`).
  *
- *   job_queue_assignments          the studio-wide claim on an opportunity
+ *   job_queue_assignments          a per-senior SUBMISSION to an opportunity
+ *                                  (was the studio-wide claim; widened by the
+ *                                  staged 2026-11-04 forward DDL)
  *   job_queue_dismissals           a TEAM- or STUDIO-scoped "not for us"
  *   job_team_triage_subscriptions  standing ADMIN triage per team
  *   job_queue_actions              audit of every mutation and click (append-only
@@ -31,11 +33,16 @@
  *     ADMIN; a TEAM-scoped row only by an ADMIN or by an HR who is a CURRENT
  *     active member of that team (membership is re-checked inside the write
  *     transaction, not taken from a cached projection);
- *   - release / reassign / suppress / triage grant / triage subscription are
- *     ADMIN-only;
- *   - SR-L-3: a reassignment's TARGET must be eligible too (an active,
- *     non-archived HR or ADMIN who may see that opportunity) — checking only
- *     the acting ADMIN hands a claim to someone outside its scope;
+ *   - suppress / triage grant / triage subscription are ADMIN-only; cancelling
+ *     a submission is its own team's recruiter's or any ADMIN's;
+ *   - a submission's `senior_id` is an active, non-archived SENIOR member of
+ *     the submission's team (re-checked in the write transaction);
+ *   - ADMIN REASSIGN IS DROPPED (owner, 2026-10-18): submissions are per
+ *     senior, so there is nothing to hand over. The former SR-L-3 "reassign
+ *     target must be eligible" obligation is void; no path writes `REASSIGNED`;
+ *   - no team ever learns of another team's activity: a foreign submission,
+ *     dismissal or click is indistinguishable from none (no taken state, no
+ *     count, no name);
  *   - SR-L-3: an EXPIRED published generation is never served
  *     (`expires_at <= now()` means refresh-required, even while it is still
  *     the PUBLISHED row of its scope);
@@ -120,7 +127,8 @@
  *     DELETE — a DELETE is refused with 23503 by design;
  *   - SR-M-5 — ERASURE OF A PERSON: WHAT THIS SCHEMA ALLOWS TODAY. An actor
  *     id CANNOT be removed from these tables: `job_queue_actions.actor_id`,
- *     `job_queue_assignments.assignee_id`, `job_queue_dismissals.dismissed_by`
+ *     `job_queue_assignments.assignee_id` (and, since 2026-11-04,
+ *     `job_queue_assignments.senior_id`), `job_queue_dismissals.dismissed_by`
  *     and `job_team_triage_subscriptions.actor_id` are NOT NULL with a RESTRICT
  *     FK to `users`; `subject_user_id` is forced NOT NULL for REASSIGNED by
  *     `ck_job_queue_actions_subject_user`; the paired actor columns
@@ -188,12 +196,31 @@ const TRIAGE_KINDS = sql.raw(
 )
 
 /**
- * The claim. UNIQUE(opportunity) makes it STUDIO-WIDE (r5 Task 6.3): two
- * concurrent first claims both INSERT and one gets 23505. The row is kept on
- * release, so a later claim is an UPDATE. The schema supplies the `version`
- * column; that a re-take NAMES the expected version in its WHERE clause (the
- * thing that serializes two re-takes — proven by the integration spec's race)
- * is a Phase-6 obligation, as is bumping `version` on every mutation.
+ * A SUBMISSION: one senior logged as submitted to one opportunity (owner
+ * queue-model decision 2026-10-18, r5 §4 "Queue model"; staged forward DDL
+ * `manual-staged/2026-11-04_job_queue_submissions_per_senior.sql`). The table
+ * keeps its Phase-1 name. UNIQUE(opportunity, senior) replaced the shipped
+ * UNIQUE(opportunity): there is NO studio-wide claim any more — several
+ * seniors (of one team or of several) may be submitted to one opportunity
+ * independently, and two concurrent first submissions of the SAME senior both
+ * INSERT and one gets 23505. The row is kept on cancel (`RELEASED`), so a
+ * re-submission is an UPDATE. The schema supplies the `version` column; that a
+ * re-submission NAMES the expected version in its WHERE clause (the thing
+ * that serializes two re-submissions) is a Phase-6 obligation, as is bumping
+ * `version` on every mutation.
+ *
+ * WHY `senior_id` HERE AND NOT A FK TO `job_opportunity_matches`: a match row
+ * is a recomputable PROJECTION (input versions, outcome; cascades away with
+ * its senior) and a triage item may be submitted with no match row at all
+ * ("triage is not a lock", r5 §4). A submission is a recorded fact that must
+ * outlive a recompute, so it names the senior directly (RESTRICT, like every
+ * actor column here) and carries the same (opportunity, senior) key the match
+ * row is keyed on, which is what lets a read join the two.
+ *
+ * `assignee_id` is now the ACTOR who logged the submission, never shown
+ * outside that actor's team. The `reassigned_*` triple is DEAD: ADMIN reassign
+ * was dropped by the same owner decision; the columns stay (always NULL) until
+ * a later cleanup migration, and Phase 6 writes none of them.
  *
  * CR-L-3 — `released_by`, `reassigned_by`, `reassigned_from_id` (and the
  * actor columns of dismissals and subscriptions) are deliberately NOT indexed:
@@ -201,11 +228,15 @@ const TRIAGE_KINDS = sql.raw(
  * check on a user DELETE, which the application never issues (users are
  * archived, not deleted). A manual delete pays a sequential scan, once.
  *
- * PHASE-6 OBLIGATIONS: a claim in STUDIO scope is an ADMIN's; release and
- * reassign are ADMIN-only; "already taken" is shown without the assignee's
- * name outside the viewer's scope (`jobQueueAssignmentSchema` carries no
- * actor and no team for that reason); the take transaction locks the target
- * and its possible-duplicate set in sorted id order.
+ * PHASE-6 OBLIGATIONS: a submission in STUDIO scope is an ADMIN's; a TEAM
+ * submission's `senior_id` must be an active, non-archived SENIOR member of
+ * that team, re-checked inside the write transaction (a CHECK cannot see
+ * membership); a recruiter cancels only their own team's submission, an ADMIN
+ * any; a read never discloses another team's submission in ANY form — no
+ * "already taken" state, no count, no name: foreign activity is
+ * indistinguishable from none (`jobQueueAssignmentSchema` carries no actor and
+ * no team for that reason); the submit transaction locks the target and its
+ * possible-duplicate set in sorted id order.
  */
 export const jobQueueAssignments = pgTable(
   'job_queue_assignments',
@@ -228,17 +259,24 @@ export const jobQueueAssignments = pgTable(
     reassignedFromId: uuid('reassigned_from_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    /**
+     * The senior this submission is for; UNIQUE with the opportunity. Declared
+     * LAST because the staged forward DDL adds it with `ADD COLUMN`, and the
+     * forward-DDL spec compares column ranks with `db:push`.
+     */
+    seniorId: uuid('senior_id').notNull(),
   },
   (t) => [
-    unique('uq_job_queue_assignments_opportunity').on(t.opportunityId),
+    unique('uq_job_queue_assignments_opportunity_senior').on(t.opportunityId, t.seniorId),
     // Workflow state derived from the opportunity: it goes with it.
     foreignKey({
       name: 'fk_job_queue_assignments_opportunity',
       columns: [t.opportunityId],
       foreignColumns: [jobOpportunities.id],
     }).onDelete('cascade'),
-    // RESTRICT: a claim is studio-wide state, not part of a team's view, so
-    // deleting a team must not silently drop it (teams are not deleted by the
+    // RESTRICT: a submission is a recorded fact, not a disposable part of a
+    // team's view, so deleting a team must not silently drop it (teams are
+    // not deleted by the
     // application today; this makes the database say so if one ever is).
     foreignKey({
       name: 'fk_job_queue_assignments_team',
@@ -248,6 +286,12 @@ export const jobQueueAssignments = pgTable(
     foreignKey({
       name: 'fk_job_queue_assignments_assignee',
       columns: [t.assigneeId],
+      foreignColumns: [users.id],
+    }).onDelete('restrict'),
+    // RESTRICT: a submission is a recorded fact; users are archived, not deleted.
+    foreignKey({
+      name: 'fk_job_queue_assignments_senior',
+      columns: [t.seniorId],
       foreignColumns: [users.id],
     }).onDelete('restrict'),
     foreignKey({

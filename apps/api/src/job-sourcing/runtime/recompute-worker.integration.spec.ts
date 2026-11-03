@@ -389,7 +389,8 @@ describe.skipIf(!hasDatabaseUrl())('recompute worker against Postgres (Task 4.6 
       [o],
     )
     await session.admin.query(
-      `INSERT INTO job_queue_assignments (opportunity_id, scope_kind, assignee_id) VALUES ($1, 'STUDIO', $2)`,
+      // senior_id: any user satisfies the FK; this case only needs a TAKEN row to exist.
+      `INSERT INTO job_queue_assignments (opportunity_id, scope_kind, assignee_id, senior_id) VALUES ($1, 'STUDIO', $2, $2)`,
       [o, kit.actor],
     )
     await enqueueDirty(db, 'OPPORTUNITY', o, 2, 'S4A_SPEC')

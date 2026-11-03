@@ -359,8 +359,9 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
       [[closed, claimed]],
     )
     await session.admin.query(
-      `INSERT INTO job_queue_assignments (opportunity_id, scope_kind, assignee_id)
-       VALUES ($1, 'STUDIO', $2)`,
+      // senior_id: any user satisfies the FK; this case only needs a TAKEN row to exist.
+      `INSERT INTO job_queue_assignments (opportunity_id, scope_kind, assignee_id, senior_id)
+       VALUES ($1, 'STUDIO', $2, $2)`,
       [claimed, users[0]],
     )
     const g = await senior('g', true)
