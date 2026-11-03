@@ -34,12 +34,15 @@ Forces:
 ## Decision (summary)
 
 1. **Copy-adapt** VCF's routing patterns into `@crm/inference` behind the unchanged `ExtractionPort` (§2, HIGH).
-2. A third extraction provider value, `router`: pinned hosted routes (Gemini, Groq, OpenRouter) in front of a
-   **required** local floor; rotation, fit filter, own caps, spent/retired skipping, a whole-call deadline that
-   reserves the floor's time (§2.1, §5.2, HIGH).
-3. Keys only as optional worker env keys; own caps on the existing `job_account_meters`; spent/retired state in process
-   memory behind a port (§3, HIGH for the ports, MED for memory sufficing).
-4. Privacy guards stay in front of the router; the router stores and logs no text; which sources and which providers may
+2. A third extraction provider value, `router`: hosted routes from a checked-in provider allowlist (Gemini, Groq,
+   OpenRouter) in front of a **required** local floor; rotation, fit filter, own caps, spent/retired skipping, a
+   whole-call deadline that reserves the floor's time (§2.1, §5.2, HIGH).
+3. Keys only as optional worker env keys; own caps on the existing `job_account_meters`; spent/retired/provider state
+   in a worker state file behind a port (§3.2, HIGH for the port, MED for the file).
+4. **Self-healing model lists** (owner decision D6): request-time retirement, a daily refresh of each provider's
+   managed list from its catalogue with probes on a fixed synthetic prompt, a pinned fallback list, a weekly
+   `MODEL_LIST_STALE` check — adopted from VCF (§3.4, HIGH).
+5. Privacy guards stay in front of the router; the router stores and logs no text; which sources and which providers may
    receive text is the owner's (D1–D3, A3) — the recommended default is local-only per source (§4).
 5. Classification by status and bounded structured error fields, never page text; every fall to local is an event;
    preflight before a model-using cycle (§5, HIGH).
@@ -161,7 +164,8 @@ later fix in VCF can be found and carried over by hand).
 | Ports per policy | `InferenceClient` keeps `extraction` (the full chain) and gains `extractionFor({ hostedProviders })`, which returns an `ExtractionPort` over the same router restricted to the listed hosted providers, the floor always included; an empty list is local-only. One port instance per distinct provider set, built once and reused, so pacing and ledger state stay shared. The request type stays unchanged — it carries no source identity — so the **caller** derives the provider set from the source's policy (§4.1, §4.2): `hostedModelsAllowed` false ⇒ empty; true ⇒ every configured provider minus those D2 excludes for that source. Additive; existing consumers see no change. |
 
 The existing `InferenceModelResolverService` (OpenRouter, cheapest model under guardrails, chosen at runtime) stays as
-it is for `provider: openrouter`. Under `router` the models are **pinned** (§3.3), not chosen by price.
+it is for `provider: openrouter`. Under `router` the models come from each provider's self-healing managed list with a
+pinned fallback (§3.4), not chosen by price.
 
 ### 2.2 What the router does not do
 
@@ -193,8 +197,10 @@ Each is a fact, not a decision; the research task settles it before code.
 | Per-provider minimum gap (`nextFreeAt`)                                                                    | seconds                                              | **Process memory**, inside the leaf                                                                                                                                                                                                                                                                                                                 | Per-minute limits are per key; one process holds the key                                                                                                                 |
 | Rotation counter                                                                                           | process                                              | **Process memory**                                                                                                                                                                                                                                                                                                                                  | VCF's design; losing it on restart costs nothing                                                                                                                         |
 | **Own caps** — our calls per provider per provider-day                                                     | provider day                                         | **Postgres, the existing `job_account_meters`** (unit `MODEL_CALL`, window `DAY`, one account key per provider such as `groq:extraction`), reached through the 5.4b `ModelBudgetPort`'s DB adapter, held by the caller; the router asks an `OwnCapPort` the caller injects                                                                          | The meter table already has an atomic spend guard, frozen limits by policy version and an account-key CHECK that refuses anything resembling a credential. No new table. |
-| **Spent** — "the provider said: no more today" for a model                                                 | until the provider's reset (UTC; Pacific for Gemini) | **Process memory** behind a `RouteStatePort` (recommended); alternatives below                                                                                                                                                                                                                                                                      |                                                                                                                                                                          |
-| **Retired** — "the provider said: this model is gone"                                                      | until the next model-list refresh or process restart | **Process memory** behind the same port                                                                                                                                                                                                                                                                                                             |                                                                                                                                                                          |
+| **Spent** — "the provider said: no more today" for a model | until the provider's reset (UTC; Pacific for Gemini) | **Worker state file**, write-through behind a `RouteStatePort` (§3.2) | Survives restarts without a DB credential |
+| **Retired** — "the provider said: this model is gone" (`retiredAnswer`) | until the next successful daily refresh (§3.4) — **not** cleared by a restart | **Worker state file**, same port | Owner decision D6: retirement must hold across restarts until the fresh probe, the authority, clears it |
+| **Provider-level bits** — `AUTH`, `CREDIT`, `FLAG_REJECTED` | `CREDIT` until the limit's reset; `AUTH` and `FLAG_REJECTED` until that provider's next successful refresh | **Worker state file**, same port | REV-L-10: a restart or a crash loop no longer re-spends a refused request |
+| **Managed model list** — the self-healed ordered model ids per provider | until the next successful refresh of that provider | **Worker managed-list file** (§3.4), read with the pinned list as fallback | Owner decision D6 |
 | Usage / cost per call                                                                                      | permanent (metering)                                 | Reported through `onEvent` and the caller's meter commit — never stored by the package                                                                                                                                                                                                                                                              | §6.2                                                                                                                                                                     |
 
 **The `OwnCapPort` and the shared 20-call cycle budget are different things.** 5.4b reserves one slot of the
@@ -202,26 +208,42 @@ cross-provider cycle budget per extraction; the own cap is a per-provider daily 
 before a request is spent on a provider. A router call that cascades across three providers uses one cycle slot and
 one own-cap unit per HTTP request it sends, retries included (unit rules: §5.1).
 
-### 3.2 Spent / retired state: memory, Postgres or Redis
+### 3.2 Route state (spent, retired, provider bits): where it persists
 
-| Option                                                                        | For                                                                                                                                                                                                                                                                                                                      | Against                                                                                                                |
-| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| **Process memory (recommended)**                                              | Smallest; the extractor is one long-lived process, so VCF's reason for persistence (a process per clip) does not apply; the worker holds no DB credential (Task 5.2), so a DB ledger would need a new API-side channel; collection runs a few times a day, so a restart costs at most one wasted request per spent model | Lost on restart; a second worker replica would not share it                                                            |
-| Postgres table (`spent` / `retired` rows, reason as a **code**, never a body) | Survives restarts; shared across replicas; consistent with "per-host/account state shared through PostgreSQL" in r5                                                                                                                                                                                                      | A Drizzle migration (critical path: security review); needs a DB credential or an API-side endpoint in the worker path |
-| Redis keys with a TTL at the provider's reset                                 | Expiry is free; Redis already runs                                                                                                                                                                                                                                                                                       | A second store for one feature; the worker would need Redis access; nothing else in r5 keeps per-account state there   |
+D6 (owner, below) requires retirement to hold across restarts until the daily refresh clears it, so plain process
+memory — the first edition's recommendation — no longer suffices.
 
-**Recommendation:** memory now, behind a `RouteStatePort` with an in-memory implementation, so a Postgres adapter can
-replace it without touching the router if a second replica appears. **Confidence: HIGH** for the port, **MED** that
-memory stays sufficient (it depends on the worker topology Task 5.2 settles). Owner decision D4 (A2).
+| Option | For | Against |
+| --- | --- | --- |
+| **Worker state file, write-through (recommended)** | Survives restarts; needs no DB credential (the worker has none, Task 5.2) and no new service; one small JSON document on the worker's persistent data volume, beside the managed-list file (§3.4); the in-memory map stays the read path, every change is written through | Not shared by a second worker replica; needs a persistent volume (Task 5.2 provisions it) |
+| Postgres table (rows with the reason as a **code**, never a body) | Shared across replicas; consistent with "per-host/account state shared through PostgreSQL" in r5 | A Drizzle migration (critical path); needs a DB credential or an API-side endpoint in the worker path |
+| Redis keys with a TTL at the provider's reset | Expiry is free; Redis already runs | A second store for one feature; the worker would need Redis access |
+| Process memory only | Smallest | **Fails D6**: a restart forgets retirements before the refresh has replaced the list |
 
-**The restart caveat.** Memory also forgets `AUTH`, `CREDIT` and `FLAG_REJECTED`. One restart costs one refused
-request per affected provider; a **crash loop** repeats that cost on every restart and repeats the loud event, which is
-noise but also the signal. Two guards keep it bounded without a store: the own-cap unit is released for these codes
-(§5.1), so a crash loop does not drain a provider's daily cap; and the worker's restart policy (Task 5.2) must use a
-backoff, so a loop cannot turn into a request storm. If a crash loop is ever observed in practice, persisting only
-these three provider-level bits (provider, code, until) is the first step of D4's Postgres option.
+**Recommendation:** the worker state file behind the `RouteStatePort`, so a Postgres adapter can replace it without
+touching the router if a second replica appears. Owner decision D4 (A2), narrowed by D6 to "which persistent store".
+**Confidence: HIGH** for the port, **MED** for the file (depends on the volume Task 5.2 provisions).
 
-### 3.4 Transport and key hygiene
+**State-file rules** (the same for the managed-list file):
+
+- **Data, not code.** JSON validated by a Zod schema on every read; never imported, evaluated or used as a path. An
+  unreadable, invalid or oversized file is treated as empty state (for the managed list: the pinned fallback), and the
+  event says so.
+- **Atomic replace**: write a temporary file in the same directory, then rename over the old one; a crash mid-write
+  leaves the previous file intact.
+- **Contents**: `provider:model` keys, the internal code, the HTTP status, a timestamp and the provider day. **Never** a
+  provider error body. VCF stores up to 300 characters of the body as the reason; the CRM stores the classified code
+  instead, because a provider body can echo the prompt (§4 item 2). This is the one deliberate departure from the VCF
+  `RetiredStore` shape (`isRetired` / `markRetired` / `list` / `clear` are otherwise adopted as-is).
+- **Pruning**: spent entries of past provider days are dropped on load.
+
+**The restart caveat, reduced (REV-L-10).** `AUTH`, `CREDIT` and `FLAG_REJECTED` now persist, so a restart or a crash
+loop does not re-send a refused request. They are cleared by that provider's next successful refresh (a catalogue fetch
+that succeeds with the key proves the key works; a probe that succeeds with the privacy flags proves the flags are
+accepted) or, for `CREDIT`, by the limit's reset. The own-cap unit is still released for these codes (§5.1), and the
+worker's restart policy (Task 5.2) still uses a backoff.
+
+### 3.3 Transport and key hygiene
 
 - **Hosted hosts** are HTTPS package constants; no env or config can point a hosted route elsewhere.
 - **The local URL** comes from env, so it is validated when the config is parsed: `http` or `https` only, no
@@ -236,21 +258,79 @@ these three provider-level bits (provider, code, until) is the first step of D4'
 - **Keys never appear in** `onEvent` payloads, thrown or returned values, internal codes or notes; a 5.4c-1/5.4c-2 test
   seeds a marker key and asserts it is absent from every event and result.
 
-### 3.3 Model lists: pinned, never discovered
+### 3.4 Model lists: self-healing, with a pinned fallback (owner decision D6)
 
-The plan requires "pinned model/provider/runtime config". VCF instead refreshes its free list daily from the catalogue
-and writes it to a file. For the CRM:
+**Owner decision, 2026-11-03:** the available-model list **must self-heal** after a model dies, by the VCF mechanism.
+This replaces the first edition's "pinned, alert only, never rewrite". It amends the plan's "pinned
+model/provider/runtime config" for hosted model ids: what stays pinned is the **provider allowlist**, the hosts, the
+privacy flags, the local runtime and a **fallback model list** per provider; the hosted model ids in use become managed
+data. (Master records the amendment in the plan.)
 
-- Each route's model list is **pinned in config** (package constants, overridable only by a reviewed code change).
-- A model the provider retires is skipped for the process lifetime (§3.2); the router never **adds** a model it found
-  in a catalogue.
-- Every hosted model retired ⇒ that route is simply absent; the chain still has the floor. A one-line event reports it
-  so a human updates the pin (VCF's "repair" becomes a reviewed PR in the CRM).
-- VCF's "never wipe the list on a bad probe" carries over as: a route with all models retired is skipped, the config is
-  not rewritten.
+Three layers, adopted from VCF in this order of authority:
 
-**Confidence: HIGH** (follows an explicit plan requirement). Owner decision D6 (A2) only for whether a daily catalogue
-check may at least **alert** on a dead pin.
+**1. Request-time retirement (immediate).** A response classified `RETIRED` (`retiredAnswer`: status 404 and a body
+naming a model or an endpoint, checked after `FLAG_REJECTED`, §5.1) marks `<provider>:<model>` retired through the
+`RouteStatePort` (persisted, §3.2). The current call moves to the next model at once; every later call skips the model
+until the next successful refresh.
+
+**2. Daily refresh (repair).** A daily job in the extraction worker's existing scheduler — no new infrastructure, run
+some time before the collection window so a fresh list is in place — rebuilds each provider's list:
+
+| Provider | Source of candidates | Probe |
+| --- | --- | --- |
+| OpenRouter | the models catalogue, **free entries only** (prompt and completion price 0) | yes: the current list first, then the largest-context new candidates, at most `PROBE_CAP` (VCF: 10, under a ~50/day free limit), with a pause between probes |
+| Groq | the models listing, **active** entries with their context (`pickGroqModels`: keep current ids still listed, add at most one largest-context chat model; non-chat ids such as speech, guard or TTS models excluded) | no chat probe — availability comes from the listing (VCF: its problem is rate limits, not staleness) |
+| Gemini | the models listing (VCF has no Gemini refresh; this is the CRM's addition, its listing shape settled by 5.4c-0) | as OpenRouter, within `PROBE_CAP` |
+
+- **Verdicts** (`classifyModelStatus`, adopted as-is, plus two CRM codes): 2xx ⇒ `alive`; 404 ⇒ `dead`; 429/503 ⇒
+  `transient` (kept — busy is not rotten); timeout, network error or any other status ⇒ `unknown`, **never** `dead`.
+  CRM additions: a probe answered `FLAG_REJECTED` ⇒ the model is **ineligible** (dropped like `dead`, because it cannot
+  serve under our privacy flags); `AUTH` on the catalogue fetch or a probe ⇒ that provider's refresh **fails** and its
+  previous list is kept.
+- **Selection** (`pickLiveModels`, adopted as-is): drop `dead` / ineligible and every model under
+  `MIN_MANAGED_CONTEXT` (VCF: 16 000 tokens; the CRM sets it to at least the local chunk size, so every managed model
+  fits every chunk); rank `alive` before `transient` before `unknown`, then larger context; keep `TARGET` (VCF: 5).
+- **Never wipe.** If the catalogue fetch fails, or nothing survives, that provider's managed list is **left untouched**
+  and the provider counts as failed.
+- **Retirement reset.** Only when **every** provider refreshed successfully, the retired entries are cleared — the
+  fresh probe is the authority (VCF: "one still really gone costs one request tomorrow, then is retired again"). A
+  provider's `AUTH` / `FLAG_REJECTED` bits clear on that provider's own successful refresh (§3.2).
+- **Independent providers**: one failing never blocks another. The job's result is **failed** if any provider failed
+  (VCF: exit 1), which raises a health event; the log lists provider, model ids and verdicts only — never a key, never a
+  probe or provider body.
+
+**3. Weekly chain check (secondary signal).** VCF's `checkModelChain` is kept as a separate, cheaper check: one minimal
+probe of every model currently in use, with the same verdict rules. Any `dead` entry raises the durable health flag
+`MODEL_LIST_STALE`; a run with no dead entry clears it. It alerts; it never edits a list — repair is layer 2's job.
+
+**The managed list is read** per provider through a `managedModels(provider, fallback)` reader: the managed-list file's
+entry for that provider if it is valid and non-empty, else the **pinned fallback list** from the package config. A
+missing, empty or invalid file therefore degrades to the first edition's behaviour, never to an empty chain.
+
+**Constraints the refresh must hold** (the privacy and security surface of self-heal):
+
+- **Probes carry only a fixed synthetic prompt** — a package constant in VCF's form ("reply only with JSON
+  `{"ok":true}`") — never vacancy text, never a page, never anything read from the DB. A test asserts the probe request
+  body equals the constant plus the route's flags.
+- **Probes carry the production privacy flags** (OpenRouter `data_collection: deny`, `zdr` when confirmed): a candidate
+  that cannot serve under them answers `FLAG_REJECTED` and is never added. The refresh therefore cannot widen the
+  privacy surface that D3 sets.
+- **Providers come only from the checked-in provider allowlist** (`gemini`, `groq`, `openrouter`), and only those that
+  are configured (key present) and permitted by D1–D3 (a provider that D2 excludes for every source is not refreshed).
+  A catalogue cannot introduce a provider. Within OpenRouter, a candidate whose id names an upstream provider that
+  policy excludes (for example the Gemini models that D2 excludes, reached through OpenRouter) is filtered out by the
+  same rule.
+- **Model ids are untrusted input** from a hosted listing: each is validated against a strict pattern (letters, digits
+  and `. _ - : /`, bounded length, no leading `/`, no `..`, no whitespace or control characters, no URL scheme)
+  **before** it is probed, stored or logged; a failing id is dropped and counted. Ids are only ever sent as the JSON
+  `model` field, never placed into a URL or a path.
+- **Probes count against the own caps** (`OwnCapPort`, unit rules of §5.1): a provider whose cap cannot reserve a probe
+  is skipped for the day and keeps its list.
+- **Rollback of self-heal alone**: deleting the managed-list file returns every provider to its pinned fallback;
+  disabling the job stops repairs while request-time retirement still works.
+
+**Confidence: HIGH** for the mechanism (VCF runs it daily); **MED** for the Gemini listing (not in VCF, 5.4c-0
+confirms the shape).
 
 ---
 
@@ -455,9 +535,9 @@ MP-03 gates enablement, as the plan already says.
 | **D1** | Which sources may send text to hosted models at all                                                                | **A3** (external send)                  | **H2:** per-source allowlist, default local-only; a source joins after Legal reads its terms and robots do not say `ai-input=no`               | The flag is; text already sent is not |
 | **D2** | May a provider whose free tier can train on or human-review prompts (believed: Gemini unpaid) receive vacancy text | **A3** (external send, legal)           | Only for sources Legal clears for that use; otherwise exclude it from extraction                                                               | Same                                  |
 | **D3** | Keep OpenRouter `data_collection: deny` even if it empties the free pool                                           | **A3** (privacy default, external send) | Keep `deny`                                                                                                                                    | Same                                  |
-| **D4** | Spent/retired state: process memory, Postgres table, or Redis                                                      | A2                                      | Memory behind a `RouteStatePort`; Postgres adapter only when a second worker replica appears                                                   | Yes — swap the adapter                |
+| **D4** | Which persistent store holds route state and the managed list (memory alone is ruled out by D6) | A2 | Worker state files (write-through, atomic replace) behind the `RouteStatePort`; Postgres adapter only when a second worker replica appears | Yes — swap the adapter |
 | **D5** | Own daily caps per provider                                                                                        | A2                                      | 50 % of each provider's published free limit (5.4c-0 supplies the numbers), frozen as `MODEL_CALL` / `DAY` meter limits under a policy version | Yes — a new policy version            |
-| **D6** | May a daily catalogue check alert on a dead pinned model                                                           | A2                                      | Yes, alert only; never rewrite the pin                                                                                                         | Yes                                   |
+| **D6** | Model list after a model dies | **Decided by the owner 2026-11-03** | **Self-heal** by the VCF mechanism: request-time retirement, daily refresh with a pinned fallback, weekly stale check (§3.4) — replaces "alert only" | Yes — delete the managed-list file / disable the job |
 | **D7** | Adoption shape                                                                                                     | A2                                      | Option A, copy-adapt into `@crm/inference` (approving this ADR answers it)                                                                     | Yes — revert the PRs                  |
 
 D1–D3 block **only** sending text to hosted providers: the hosted phase of MP-03 (§6.2) and enabling hosted routes
@@ -474,10 +554,11 @@ Model tier per `model-routing.md`. Every code task: Coder in its own worktree, c
 | ----------------------------- | ------------------------------------------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **5.4c-0** Provider facts     | `external-research` by Master or a sonnet agent; Legal (opus) for the terms questions | ADR approved         | Settles every row of §2.3 with a primary source and an expiry date; the per-provider error formats that the fixtures copy; Legal's read of each provider's free-tier data terms (feeds D2)                                                                                                                                                                                                                       |
 | **5.4c-1** Classified leaf    | coder · sonnet, medium                                                                | 5.4c-0               | Widen the OpenAI-compatible call to return the internal codes of §5.1; privacy flags and structured-output mode per route capability; per-provider fixtures; no router yet; public behaviour of `local` / `openrouter` unchanged (their specs stay green)                                                                                                                                                        |
-| **5.4c-2** Router core        | coder · **opus**, high                                                                | 5.4c-1               | Config schema (`router`, local route required), fit filter, rotation, cascade, deadline reserve, floor, `RouteStatePort` (memory), `OwnCapPort` seam, `onEvent`, `extractionFor`, the input-ceiling helper, local-URL validation (§3.4); tests of §6.1                                                                                                                                                           |
+| **5.4c-2** Router core        | coder · **opus**, high                                                                | 5.4c-1               | Config schema (`router`, local route required), fit filter, rotation, cascade, deadline reserve, floor, `RouteStatePort` (memory), `OwnCapPort` seam, `onEvent`, `extractionFor`, the input-ceiling helper, local-URL validation (§3.3); `RouteStatePort` file adapter (§3.2); request-time retirement and the `managedModels` reader with the pinned fallback (§3.4); tests of §6.1                                                                                                                                                           |
+| **5.4c-2b** Model self-heal + daily refresh | coder · **opus**, high (security surface: untrusted model ids, probes leaving the host, a persisted file) | 5.4c-2, 5.4c-0 (catalogue and listing shapes) | §3.4 layers 2 and 3: the daily refresh job in the worker's existing scheduler (catalogue fetch per allowlisted provider, `PROBE_CAP`, `classifyModelStatus` + `FLAG_REJECTED`/`AUTH`, `pickLiveModels`, `pickGroqModels`, model-id validation, never-wipe, atomic managed-list write, retirement reset only when every provider succeeded, failed-job health event), the fixed probe prompt with production flags, the weekly chain check and `MODEL_LIST_STALE`; probes through the `OwnCapPort`; no key or body in any log. Hosted probes run only for providers D1–D3 permit |
 | **5.4c-3** API wiring         | coder · **opus**, high                                                                | 5.4c-2, 5.4b         | Optional env keys (`GEMINI_API_KEY`, `GROQ_API_KEY`), `INFERENCE_EXTRACTION_PROVIDER=router`, `buildInferenceConfig` mapping, the `OwnCapPort` adapter over `job_account_meters`, source-policy provider sets for `extractionFor` (§4.1, §4.2), the **mandatory** `onEvent` consumer of §5.3 (durable floor-fall counter, "hosted routes dead" health flag, periodic re-emit); no log line carries a key or text |
 | **5.4c-4** Preflight + health | coder · sonnet, medium                                                                | 5.4c-2               | Preflight before a model-using cycle; "model unreachable" health signal; deterministic stages unaffected                                                                                                                                                                                                                                                                                                         |
-| **5.4c-5** Hosted enablement  | DevOps · sonnet + human-only (keys, egress)                                           | D1–D3, MP-03, 5.4c-3 | Keys provisioned by the owner; egress allowlist per provider host; source allowlist entries; controlled smoke per route (Task 5.2)                                                                                                                                                                                                                                                                               |
+| **5.4c-5** Hosted enablement  | DevOps · sonnet + human-only (keys, egress)                                           | D1–D3, MP-03, 5.4c-2b, 5.4c-3 | Keys provisioned by the owner; egress allowlist per provider host (catalogue endpoints included); the worker's persistent data volume for the state and managed-list files; source allowlist entries; controlled smoke per route (Task 5.2)                                                                                                                                                                                                                                                                               |
 | **5.4c-6** Small dose         | coder · sonnet                                                                        | MP-03 shows the need | §5.4 hand-back and field-group decomposition for the local model                                                                                                                                                                                                                                                                                                                                                 |
 
 MP-03 itself (the labelled-set measurement) stays the plan's M1 spike; 5.4c-2 provides its hooks. Its local phase can
@@ -490,9 +571,10 @@ run after 5.4b and 5.4c-2; its hosted phase waits for D1–D3 (§6.2).
 - **Positive.** The owner's chain arrives behind the unchanged `ExtractionPort`; 5.4b and every caller are untouched.
   Local-only is the working default from the first PR; hosted routes are additive and granted per source. Pacing below
   the providers' limits makes "refused" the exception. Every fall and every failure is an event with a code.
-- **Negative.** Logic similar to VCF's is maintained twice, by hand. In-memory ledgers forget on restart (at most one
-  wasted request per spent model). Pinned model lists need a human PR when the free catalogue churns — deliberately.
-  Three providers mean three sets of terms, keys and egress rules to keep current.
+- **Negative.** Logic similar to VCF's is maintained twice, by hand. The worker needs a persistent volume for two small
+  state files. The hosted model ids in use change without a PR (D6): a refresh can add a model nobody reviewed — bounded
+  by the provider allowlist, free-only filtering, the production privacy flags on every probe, id validation and
+  `TARGET`. Three providers mean three sets of terms, keys and egress rules to keep current.
 - **Risks.** Provider error formats change silently: a per-day 429 read as `BUSY` costs a few wasted requests, not a
   failure (the cascade moves on), and the fixtures make the drift visible when updated. The privacy flags may shrink the
   free pool to nothing (D3): the floor still answers. The local model may be too weak for the full schema: MP-03
