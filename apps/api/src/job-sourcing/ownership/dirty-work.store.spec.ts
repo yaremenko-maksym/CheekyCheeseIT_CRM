@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { INVENTORY_CLOSE_REASON } from '../availability/inventory-counter-updater'
 import { RECORD_REOPEN_REASON } from '../availability/record-reopen-updater'
 import { WINDOW_EXPIRE_REASON } from '../availability/window-expiry-updater'
+import { OPPORTUNITY_AVAILABILITY_CHANGED_REASON } from '../runtime/availability-reconcile-worker'
 import type { SqlExecutor } from '../scheduling/host-state'
 import { CANONICAL_REVISION_REASON } from '../store/canonical.store'
 import { RECORD_RELISTED_REASON, SOURCE_REVISION_REASON } from '../store/source-record.store'
@@ -170,6 +171,8 @@ describe('dirtyConsumerOf (Task 4.6 S-P1 reason classifier)', () => {
     expect(dirtyConsumerOf(SOURCE_REVISION_REASON)).toBe('MATCH')
     expect(dirtyConsumerOf(CANONICAL_REVISION_REASON)).toBe('MATCH')
     expect(dirtyConsumerOf(DETAIL_FETCH)).toBe('DETAIL')
+    // S-P2: the availability bump's successor row must land in MATCH, never AVAILABILITY.
+    expect(dirtyConsumerOf(OPPORTUNITY_AVAILABILITY_CHANGED_REASON)).toBe('MATCH')
   })
 
   it('renders the SQL twin per consumer over a given column', () => {

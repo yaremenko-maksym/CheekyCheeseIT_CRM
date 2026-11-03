@@ -1,7 +1,7 @@
 import { type SQL, sql } from 'drizzle-orm'
 import { IDENTITY_RULES_VERSION, canAttach } from '../identity/resolver'
 import type { MeterDb } from '../metering/account-meter.store'
-import { enqueueDirty } from '../ownership/dirty-work.store'
+import { AVAILABILITY_REASON_PREFIX, enqueueDirty } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
   type ActiveLink,
@@ -262,8 +262,16 @@ const fieldValues = (c: CanonicalFields) => sql`
   stack_keywords = ${textArray(c.stackKeywords)},
   field_revisions = ${JSON.stringify(c.fieldRevisions)}::jsonb`
 
+/**
+ * Every new revision matters to both consumers, so it yields one row per partition (S-P2, ADR
+ * 2026-11-02 step 3): match re-evaluates, availability re-derives over the new member set.
+ */
 async function enqueueOpportunity(tx: SqlExecutor, id: string, revision: number): Promise<void> {
-  await enqueueDirty(tx, 'OPPORTUNITY', id, revision, CANONICAL_REVISION_REASON)
+  for (const reason of [
+    CANONICAL_REVISION_REASON,
+    `${AVAILABILITY_REASON_PREFIX}${CANONICAL_REVISION_REASON}`,
+  ])
+    await enqueueDirty(tx, 'OPPORTUNITY', id, revision, reason)
 }
 
 /** A new opportunity from one member (the default: distinct). Revision 1, enqueued. */

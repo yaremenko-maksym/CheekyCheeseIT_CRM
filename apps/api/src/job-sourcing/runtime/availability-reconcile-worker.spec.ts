@@ -35,7 +35,7 @@ import {
   reconcileSourceRecordAvailability,
   resolveInventoryInput,
 } from './availability-reconcile-worker'
-import { type ClaimedDirtyWork, dirtyConsumerOf } from '../ownership/dirty-work.store'
+import type { ClaimedDirtyWork } from '../ownership/dirty-work.store'
 import { RecomputeWorker } from './recompute-worker'
 
 const dialect = new PgDialect()
@@ -248,7 +248,8 @@ describe('reconcileOpportunityAvailability', () => {
       'OPPORTUNITY_AVAILABILITY_CHANGED',
       null,
     ])
-    expect(dirtyConsumerOf(OPPORTUNITY_AVAILABILITY_CHANGED_REASON)).toBe('MATCH')
+    // Its MATCH classification is pinned in dirty-work.store.spec (this spec mocks the producers).
+    expect(OPPORTUNITY_AVAILABILITY_CHANGED_REASON).toBe('OPPORTUNITY_AVAILABILITY_CHANGED')
     // Same transaction, written before `completeDirty` of the handled row and before the bump.
     const enqueueCall = execute.mock.invocationCallOrder[enqueueAt] as number
     expect(enqueueCall).toBeLessThan(complete.mock.invocationCallOrder[0] as number)
