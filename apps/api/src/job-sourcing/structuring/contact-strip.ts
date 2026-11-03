@@ -83,8 +83,12 @@ const PHONE = [
   .join('|')
 const PHONE_END = String.raw`(?![\p{L}\p{N}]|[.\-]\p{N})`
 
-/** Applied in this order: links before the bare forms they contain (`wa.me/380…` is not a phone). */
-const RULES: ReadonlyArray<readonly [RegExp, keyof ContactCounts]> = [
+/**
+ * Applied in this order: links before the bare forms they contain (`wa.me/380…` is not a phone).
+ * Compiled per call (cheap next to the scan): a malformed pattern then fails the call that uses it,
+ * not the module import — which the mutation gate could not attribute to a test.
+ */
+const rules = (): ReadonlyArray<readonly [RegExp, keyof ContactCounts]> => [
   [new RegExp(MAILTO, 'giu'), 'email'],
   [new RegExp(TEL, 'giu'), 'phone'],
   [new RegExp(MESSENGER_LINK, 'giu'), 'messenger'],
@@ -99,7 +103,7 @@ export function stripContacts(input: string): StrippedText {
   const removed: ContactCounts = { email: 0, phone: 0, messenger: 0, profileUrl: 0 }
   // NFKC folds fullwidth `＠`/`．`/digits to ASCII before matching; then drop what hides a contact.
   let text = input.normalize('NFKC').replace(INVISIBLE, '').replace(CONTROL, '')
-  for (const [pattern, kind] of RULES) {
+  for (const [pattern, kind] of rules()) {
     text = text.replace(pattern, () => {
       removed[kind] += 1
       return CONTACT_TOKEN
