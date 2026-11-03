@@ -11,6 +11,8 @@ const MODULES = [
   'ai-input-gate.ts',
   'prompt-envelope.ts',
   'extraction-result-guard.ts',
+  'html-structurer.port.ts',
+  'model-budget.port.ts',
 ]
 const ALLOWED_IMPORTS = new Set([
   'zod',
@@ -18,6 +20,15 @@ const ALLOWED_IMPORTS = new Set([
   'node:crypto',
   './contact-strip',
   './ai-input-gate',
+  './extraction-result-guard',
+])
+/** The adapter composes the guards around the port: it may name the port's TYPES, nothing else of it. */
+const ADAPTER = 'model-structurer.ts'
+const ADAPTER_IMPORTS = new Set([
+  ...ALLOWED_IMPORTS,
+  './html-structurer.port',
+  './model-budget.port',
+  './prompt-envelope',
 ])
 const FORBIDDEN_TOKENS = [
   /\bfetch\s*\(/,
@@ -51,6 +62,23 @@ describe('structuring guards — import boundary', () => {
     const text = source(file)
     for (const token of FORBIDDEN_TOKENS) {
       expect(text, `${file} matches ${token}`).not.toMatch(token)
+    }
+  })
+
+  it(`${ADAPTER} reaches @crm/inference by a type-only import, and no network or env`, () => {
+    const text = source(ADAPTER)
+    const imports = [...text.matchAll(/^import\b([^'"]*?)from\s+['"]([^'"]+)['"]/gm)]
+    expect(text).not.toMatch(/^\s*import\s+['"]/m)
+    const inference = imports.filter((m) => m[2] === '@crm/inference')
+    expect(inference).toHaveLength(1)
+    expect(inference[0]?.[1]?.trimStart(), 'must be `import type`').toMatch(/^type\s/)
+    const others = imports.filter((m) => m[2] !== '@crm/inference').map((m) => m[2])
+    expect(others.length).toBeGreaterThan(3)
+    for (const specifier of others) {
+      expect(ADAPTER_IMPORTS, `${ADAPTER} imports ${specifier}`).toContain(specifier)
+    }
+    for (const token of FORBIDDEN_TOKENS.filter((t) => t.source !== '@crm\\/inference')) {
+      expect(text, `${ADAPTER} matches ${token}`).not.toMatch(token)
     }
   })
 

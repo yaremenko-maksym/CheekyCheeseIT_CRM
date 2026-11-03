@@ -116,7 +116,7 @@ export class ModelStructurer implements HtmlStructurer {
     const { extractionVersion } = request
     const records: StructuredRecord[] = []
     const perRecordIssues: RecordIssue[] = []
-    let succeeded = 0
+    let anySucceeded = false
     let firstFailure: RecordFailureCode | null = null
     for (const [index, record] of request.records.entries()) {
       const attempt = await this.attempt(gate, record, request.signal)
@@ -142,13 +142,13 @@ export class ModelStructurer implements HtmlStructurer {
           droppedEvidence: 0,
         })
       } else {
-        succeeded += 1
+        anySucceeded = true
         records.push(...attempt.records)
         if (attempt.issue !== null) perRecordIssues.push(attempt.issue)
       }
     }
     // Every record's reply was unusable: the extractor, not the page, failed.
-    if (firstFailure !== null && succeeded === 0) {
+    if (firstFailure !== null && !anySucceeded) {
       return { kind: 'EXTRACTOR_FAILED', code: firstFailure, remainingIds: [] }
     }
     return { kind: 'EXTRACTED', extractionVersion, records, perRecordIssues }
