@@ -159,6 +159,29 @@ describe('stripContacts — bounded time on hostile input', () => {
   })
 })
 
+describe('stripContacts — US phone forms (F1)', () => {
+  it.each(['(555)123-4567', '(555) 123-4567', '555-123-4567', '555.123.4567', '(555)-123-4567'])(
+    '%j is stripped',
+    (phone) => {
+      const result = stripContacts(`Call ${phone} today`)
+      expect(result.text).toBe(`Call ${T} today`)
+      expect(result.removed).toEqual({ ...emptyCounts, phone: 1 })
+    },
+  )
+
+  it.each([
+    'https://example.com/jobs/5551234567/view',
+    'https://example.com/jobs?id=5551234567&x=1',
+    'https://example.com/v/(555)123-4567',
+    'Release 2024.123.4567 is out',
+    'Build 10.555.123.4567',
+    'ref 5551234567',
+    '555123-4567',
+  ])('%j survives', (input) => {
+    expect(stripContacts(input)).toEqual({ text: input, removed: emptyCounts })
+  })
+})
+
 describe('stripContacts — token and repetition', () => {
   it('the replacement is the fixed, non-empty token "[contact]"', () => {
     expect(stripContacts('hr@example.com').text).toBe('[contact]')

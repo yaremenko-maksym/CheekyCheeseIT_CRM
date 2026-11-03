@@ -74,7 +74,8 @@ const PHONE = [
       String.raw`00${D}(?:[ .\-]?${D}){8,13}`, // 00 international prefix
       String.raw`380${D}{9}`, // UA without +
       String.raw`\(?0${D}{2}\)?[ .\-]?${D}{3}[ .\-]?${D}{2}[ .\-]?${D}{2}`, // UA 0XX XXX XX XX
-      String.raw`\(?${D}{3}\)?[ .\-]${D}{3}[ .\-]${D}{4}`, // US (XXX) XXX-XXXX
+      // US: `(XXX)XXX-XXXX` (separator optional after the paren) or `XXX-XXX-XXXX`.
+      String.raw`(?:\(${D}{3}\)[ .\-]?|${D}{3}[ .\-])${D}{3}[ .\-]${D}{4}`,
       String.raw`${D}{3}[ \-]${D}{3}[ \-]${D}{3}`, // PL XXX XXX XXX
     ].join('|') +
     ')',
