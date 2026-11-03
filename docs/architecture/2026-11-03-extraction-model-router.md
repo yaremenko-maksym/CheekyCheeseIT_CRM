@@ -93,3 +93,76 @@ adopts both under explicit names:
   the route supports it, local Zod validation always, and no code-fence fallback.
 - **The Claude CLI executor, images, the WSL gateway resolution, Ollama's native API, the env-supplied model lists and
   the providers that need a card** (VCF already rejects Cerebras and Together; the CRM does not add them either).
+
+---
+
+## 2. How to adopt it: three options
+
+All three keep `ExtractionPort` unchanged, so 5.4b and every future consumer are untouched.
+
+### Option A — copy-adapt the patterns into `@crm/inference` (recommended)
+
+Re-implement the mechanisms of §1.1 inside `@crm/inference` against its own contracts: `FetchLike` and
+`boundedRequest` for transport, `sendChatCompletion` for the OpenAI-compatible call, `runExtraction` for parse + one
+correction retry + Zod validation, `InferenceErrorCode` for the public result. VCF's code is the reference, its
+constants are the starting values, and each adopted mechanism names its VCF origin in a code comment (provenance, so a
+later fix in VCF can be found and carried over by hand).
+
+- **For:** one runtime and one set of conventions (Zod v4, "never throws", bounded transport, no provider host from
+  env); the CRM's privacy rules apply from the first line; testable through the package's existing fake-fetch seam; no
+  cross-repo coupling.
+- **Against:** two copies of similar logic evolve separately; VCF fixes do not flow automatically.
+- **Size:** the router core is small (cascade, fit, rotation, floor: VCF does it in under 100 lines); the bulk is
+  failure classification and its fixtures.
+- **Confidence: HIGH** — the patterns run daily in VCF and the target seam already exists.
+
+### Option B — extract a shared package used by both projects
+
+- **Against, decisively:** the projects differ in runtime mode (VCF runs TypeScript by type-stripping, which forbids
+  some syntax), storage (synchronous SQLite vs Postgres), error contract (VCF throws, `@crm/inference` never throws)
+  and privacy rules. A shared package needs a publish channel the repo does not have (pnpm 7 workspace, no private
+  registry), makes a CRM release depend on a personal project's release, and the truly shared surface is little more
+  than the cascade loop.
+- **Confidence: HIGH** that it costs more than it saves.
+
+### Option C — call VCF's executor across processes (sidecar)
+
+- **Against, decisively:** CRM production would depend on a personal project's uptime and on the owner's machine;
+  vacancy text would cross into a process that logs provider bodies; hosted keys would live in a second repository; no
+  CRM gate reviews that path.
+- **Confidence: HIGH** that it is the wrong shape.
+
+**Decision (proposed): Option A.**
+
+### 2.1 Shape inside `@crm/inference`
+
+| Element | Behaviour |
+| --- | --- |
+| Config | `extraction.provider` gains a third value, `router` (additive; `local` and `openrouter` keep their exact behaviour). The `router` block lists **routes** in priority order. Each route has a provider id (`gemini`, `groq`, `openrouter`, `local`), its API key (hosted only), a **pinned** ordered model list, its context window, its structured-output capability (`json_schema` / `json_object` / none), its minimum call gap and `rotate`. The local route is required and always last; the schema refuses a router config without it. |
+| Hosts | Package constants, as today (no base-URL env); the local route keeps its env URL. |
+| Route leaf | One OpenAI-compatible leaf for every provider, built on `sendChatCompletion` widened to return an **internal classified failure** (§5) instead of collapsing everything into `PROVIDER_ERROR`. Gemini uses its OpenAI-compatible endpoint if research confirms strict-schema support there (§2.3); otherwise a small native leaf with the same contract. |
+| Router | `createRouterExtractionAdapter(config, deps)` returns an `ExtractionPort`. Per call: fit filter → rotation among rotatable hosted routes → cascade through hosted routes → local floor. A whole-call deadline caps the sum of per-attempt timeouts (VCF's `boundExecutor` lesson). |
+| Deps (seams) | `fetchImpl`, `now`, `sleep`, a `RouteStatePort` (§3.2), an optional `OwnCapPort` (§3.1) and `onEvent` (§6.2). |
+| Public result | Unchanged: `{ ok: true, data, usage? }` or `{ ok: false, code: InferenceErrorCode }`. Internal codes never leave the package, exactly as `MODEL_UNAVAILABLE` does not today. |
+| Input ceiling | An exported pure helper returns the largest input the configured **local** route accepts; the 5.4b chunker sizes chunks to it, so the floor can always answer (§1.2, dosing). |
+
+The existing `InferenceModelResolverService` (OpenRouter, cheapest model under guardrails, chosen at runtime) stays as
+it is for `provider: openrouter`. Under `router` the models are **pinned** (§3.3), not chosen by price.
+
+### 2.2 What the router does not do
+
+It does not strip contacts, check `ai-input`, build the prompt envelope, reserve the shared 20-call cycle budget, chunk
+by record boundary, or check URL grounding. Those stay in 5.4a/5.4b **in front of** the port. The router sees
+already-stripped, already-permitted text and returns schema-validated data; the result guard still runs after it.
+
+### 2.3 Facts this ADR could not check (no network) — settled by task 5.4c-0
+
+Each is a fact, not a decision; the research task settles it before code.
+
+| Claim | Confidence now |
+| --- | --- |
+| Gemini exposes an OpenAI-compatible chat-completions endpoint that accepts `response_format` with a JSON schema | MED |
+| Groq accepts strict `json_schema` on the free models it lists, and marks per-day 429s in a structured error field | MED |
+| OpenRouter's `provider.data_collection: "deny"` (already sent by the current adapter) and `zdr` leave few or no `:free` endpoints | MED — VCF does not send `deny` and runs on `:free` models |
+| The free tiers' current per-minute and per-day limits | LOW — they change monthly |
+| Each provider's free-tier data terms: prompt retention, training use, human review. The Gemini API terms for unpaid use are believed to allow use for product improvement, including human review | LOW-MED — **legal-relevant**, §4 |
