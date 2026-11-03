@@ -16,7 +16,7 @@ import { z } from 'zod'
  *   active window always holds a slot (CR-M-1); with a shorter interval the ADR's instants are unchanged.
  * - `routinePages` is a positive integer (ADR gives no bound); `nextSlot` ignores it.
  * - The zone check is `Intl`'s: it also accepts offset zones such as `+05:00`; the profile's `timeZone`
- *   is meant to be an IANA name, and the manifest drift test (U1b) is where a stricter rule belongs.
+ *   is meant to be an IANA name, and the manifest drift test (manifest.drift.spec) refuses offset zones.
  * - `floorMinutes` is at most one year.
  * - `fixedSlots` ignores the stagger, and may not be combined with a window or an off interval.
  * - The slow-down gap uses the interval of the period `now` falls in (the active interval when the
@@ -222,6 +222,11 @@ const insideWindow = (s: Shape, day: Day, minute: number): boolean =>
 export function gridMinutes(first: number, step: number, end: number): number[] {
   if (!(Number.isFinite(step) && step > 0))
     throw new RangeError(`grid step must be positive, got ${step}`)
+  // Safe integers make `m += step` strictly increase and `end` finite, so the loop provably ends.
+  if (!Number.isSafeInteger(step))
+    throw new RangeError(`grid step must be a positive integer, got ${step}`)
+  if (!(Number.isSafeInteger(first) && Number.isSafeInteger(end)))
+    throw new RangeError('grid bounds must be safe integers')
   const out: number[] = []
   for (let m = first; m < end; m += step) out.push(m)
   return out

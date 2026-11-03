@@ -321,9 +321,9 @@ describe('AC 8: invalid input is refused with a typed error, never clamped', () 
   // "no slot in 8 days" profile now returns one, and the guard is exercised with a shape that has none.
   const emptyShape: Shape = {
     zone: 'UTC',
-    days: ['MON'],
+    days: [],
     from: 480,
-    to: 480,
+    to: 540,
     interval: 60,
     off: null,
     fixed: null,
@@ -345,7 +345,7 @@ describe('AC 8: invalid input is refused with a typed error, never clamped', () 
   })
 
   it('searches the threshold day and seven more, no further', () => {
-    const monday: Shape = { ...emptyShape, to: 540 } // MON 08:00-09:00, stagger 0 -> 08:00
+    const monday: Shape = { ...emptyShape, days: ['MON'] } // MON 08:00-09:00, stagger 0 -> 08:00
     const tuesday = Date.UTC(2027, 0, 12, 12) // Tue 12:00: next Monday is 6 days ahead
     expect(firstSlotAfter(monday, 0, tuesday, 6).toISOString()).toBe('2027-01-18T08:00:00.000Z')
     expect(() => firstSlotAfter(monday, 0, tuesday, 5)).toThrow(/no slot within 6 local days/)
@@ -658,6 +658,18 @@ describe('review round 1', () => {
     it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])('refuses step %j', (step) => {
       expect(() => gridMinutes(0, step, 10)).toThrow(RangeError)
       expect(() => gridMinutes(0, step, 10)).toThrow(`grid step must be positive, got ${step}`)
+    })
+    it('refuses integers beyond the safe range, where adding 1 no longer moves the value', () => {
+      expect(() => gridMinutes(2 ** 60, 1, 2 ** 61)).toThrow('grid bounds must be safe integers')
+    })
+    it.each([Number.POSITIVE_INFINITY, Number.NaN, 1.5])('refuses end %j', (end) => {
+      expect(() => gridMinutes(0, 10, end)).toThrow('grid bounds must be safe integers')
+    })
+    it.each([Number.NEGATIVE_INFINITY, Number.NaN, 0.5])('refuses first %j', (first) => {
+      expect(() => gridMinutes(first, 10, 30)).toThrow('grid bounds must be safe integers')
+    })
+    it('refuses a non-integer step', () => {
+      expect(() => gridMinutes(0, 0.5, 3)).toThrow('grid step must be a positive integer')
     })
     it('refuses a null step (an absent off interval must never reach the grid)', () => {
       expect(() => gridMinutes(0, null as never, 10)).toThrow(RangeError)
