@@ -11,6 +11,7 @@ import { RECORD_RELISTED_REASON, SOURCE_REVISION_REASON } from '../store/source-
 import {
   dirtyConsumerOf,
   dirtyConsumerPredicate,
+  reasonLiteral,
   CLAIMABLE_KINDS,
   claimDetailFetchForSource,
   claimDirtyBatch,
@@ -183,12 +184,45 @@ describe('dirtyConsumerOf (Task 4.6 S-P1 reason classifier)', () => {
       '(starts_with(d.reason, $1) OR starts_with(d.reason, $2) OR d.reason IN ($3, $4, $5))',
     )
     for (const bad of ['', 'match', 'NOPE'])
-      expect(() => dirtyConsumerPredicate(bad as 'MATCH')).toThrow(
+      expect(() => dirtyConsumerPredicate(bad as 'MATCH', sql`reason`)).toThrow(
         new RangeError(`unknown dirty-work consumer: ${bad}`),
       )
     expect(q('MATCH').sql).toBe(
       'NOT ((d.reason = $1) OR (starts_with(d.reason, $2) OR starts_with(d.reason, $3) OR d.reason IN ($4, $5, $6)))',
     )
+  })
+
+  // Backlog 347 (1): the inline form carries no bound parameter, so the partial indexes
+  // idx_job_dirty_work_pending_{match,availability} stay provable in a generic plan too.
+  it('renders the inline (literal) SQL twin with no bound parameters', () => {
+    const q = (c: 'MATCH' | 'AVAILABILITY' | 'DETAIL') =>
+      render(dirtyConsumerPredicate(c, sql`reason`, { inline: true }))
+    expect(q('DETAIL')).toEqual({ sql: "(reason = 'DETAIL_FETCH')", params: [] })
+    expect(q('AVAILABILITY')).toEqual({
+      sql: "(starts_with(reason, 'AVAILABILITY:') OR starts_with(reason, 'RECORD_RELISTED:') OR reason IN ('RECORD_INVENTORY_CLOSED', 'RECORD_REOPENED', 'RECORD_WINDOW_EXPIRED'))",
+      params: [],
+    })
+    expect(q('MATCH')).toEqual({
+      sql: "NOT ((reason = 'DETAIL_FETCH') OR (starts_with(reason, 'AVAILABILITY:') OR starts_with(reason, 'RECORD_RELISTED:') OR reason IN ('RECORD_INVENTORY_CLOSED', 'RECORD_REOPENED', 'RECORD_WINDOW_EXPIRED')))",
+      params: [],
+    })
+  })
+
+  // SR-L-1: only [A-Z_:] ever reaches sql.raw; each case breaks one part of the pattern.
+  it.each(["'A", "A'", "A'B", '', 'a', 'A B', 'A;--'])(
+    'refuses to inline a reason outside [A-Z_:]: %j',
+    (bad) => {
+      expect(() => reasonLiteral(bad)).toThrow(
+        new RangeError(`not an inlinable dirty-work reason: ${bad}`),
+      )
+    },
+  )
+
+  it('inlines a reason of [A-Z_:] as a quoted literal', () => {
+    expect(render(reasonLiteral('RECORD_RELISTED:'))).toEqual({
+      sql: "'RECORD_RELISTED:'",
+      params: [],
+    })
   })
 })
 
@@ -203,15 +237,6 @@ describe('claimDirtyBatch', () => {
     retry_count: 1,
   })
 
-  // Task 4.6 S-P1: the availability-partition reasons, as literals (an independent source: the
-  // classifier derives them from the producers' constants, so a drift there fails here).
-  const AVAIL = [
-    'AVAILABILITY:',
-    'RECORD_RELISTED:',
-    'RECORD_INVENTORY_CLOSED',
-    'RECORD_REOPENED',
-    'RECORD_WINDOW_EXPIRED',
-  ]
   /** The rendered claim with whitespace collapsed and the SQL comment lines dropped. */
   const flat = (s: string) =>
     s
@@ -220,9 +245,11 @@ describe('claimDirtyBatch', () => {
       .join(' ')
       .replace(/\s+/g, ' ')
   // CR-M-1: `reason <> DETAIL_FETCH` first (the partial index's predicate), then the partition.
-  // CR-M-4: that conjunct is an inline literal, so it carries no bound parameter.
-  const MATCH_SQL = (n: number) =>
-    `AND reason <> 'DETAIL_FETCH' AND NOT ((reason = $${n}) OR (starts_with(reason, $${n + 1}) OR starts_with(reason, $${n + 2}) OR reason IN ($${n + 3}, $${n + 4}, $${n + 5}))) ORDER BY`
+  // CR-M-4 / backlog 347 (1): both are inline literals, so neither carries a bound parameter and
+  // the planner can prove the partial indexes' predicates even in a generic plan.
+  const AVAIL_SQL =
+    "(starts_with(reason, 'AVAILABILITY:') OR starts_with(reason, 'RECORD_RELISTED:') OR reason IN ('RECORD_INVENTORY_CLOSED', 'RECORD_REOPENED', 'RECORD_WINDOW_EXPIRED'))"
+  const MATCH_SQL = `AND reason <> 'DETAIL_FETCH' AND NOT ((reason = 'DETAIL_FETCH') OR ${AVAIL_SQL}) ORDER BY`
 
   it('defaults to a batch of 200 and a five-minute lease, SKIP LOCKED', async () => {
     const { tx, seen } = scripted()
@@ -232,15 +259,13 @@ describe('claimDirtyBatch', () => {
     expect(seen[0]!.sql).toContain('fencing_epoch = d.fencing_epoch + 1')
     // Default kinds: exactly those with a version source (CR-M-2); since S5, all five.
     // S-P1: the match partition — neither DETAIL_FETCH (CR-M-1) nor an availability reason.
-    expect(flat(seen[0]!.sql)).toContain(`AND entity_kind IN ($1, $2, $3, $4, $5) ${MATCH_SQL(6)}`)
+    expect(flat(seen[0]!.sql)).toContain(`AND entity_kind IN ($1, $2, $3, $4, $5) ${MATCH_SQL}`)
     expect(seen[0]!.params).toEqual([
       'SOURCE_RECORD',
       'OPPORTUNITY',
       'SENIOR',
       'EXCLUSION',
       'PROJECT_CLIENT',
-      DETAIL_FETCH,
-      ...AVAIL,
       200,
       'w',
       300_000,
@@ -261,8 +286,6 @@ describe('claimDirtyBatch', () => {
       'SENIOR',
       'EXCLUSION',
       'PROJECT_CLIENT',
-      DETAIL_FETCH,
-      ...AVAIL,
       1000,
       'w',
       3_600_000,
@@ -274,8 +297,8 @@ describe('claimDirtyBatch', () => {
     await claimDirtyBatch(tx, { owner: 'w', consumer: 'MATCH', kinds: ['OPPORTUNITY'] })
     expect(seen[0]!.sql).toContain('AND entity_kind IN ($1)')
     // CR-M-1: the DETAIL_FETCH exclusion rides on every match claim, whatever the kinds.
-    expect(flat(seen[0]!.sql)).toContain(`AND entity_kind IN ($1) ${MATCH_SQL(2)}`)
-    expect(seen[0]!.params).toEqual(['OPPORTUNITY', DETAIL_FETCH, ...AVAIL, 200, 'w', 300_000])
+    expect(flat(seen[0]!.sql)).toContain(`AND entity_kind IN ($1) ${MATCH_SQL}`)
+    expect(seen[0]!.params).toEqual(['OPPORTUNITY', 200, 'w', 300_000])
   })
 
   it('S-P1: the availability consumer claims only the availability partition', async () => {
@@ -283,10 +306,10 @@ describe('claimDirtyBatch', () => {
     await claimDirtyBatch(tx, { owner: 'w', consumer: 'AVAILABILITY', kinds: ['OPPORTUNITY'] })
     // CR-M-1: the redundant DETAIL_FETCH exclusion is there for the partial index here too.
     expect(flat(seen[0]!.sql)).toContain(
-      "AND entity_kind IN ($1) AND reason <> 'DETAIL_FETCH' AND (starts_with(reason, $2) OR starts_with(reason, $3) OR reason IN ($4, $5, $6)) ORDER BY",
+      `AND entity_kind IN ($1) AND reason <> 'DETAIL_FETCH' AND ${AVAIL_SQL} ORDER BY`,
     )
     expect(seen[0]!.sql).not.toContain('NOT (')
-    expect(seen[0]!.params).toEqual(['OPPORTUNITY', ...AVAIL, 200, 'w', 300_000])
+    expect(seen[0]!.params).toEqual(['OPPORTUNITY', 200, 'w', 300_000])
   })
 
   it.each([
