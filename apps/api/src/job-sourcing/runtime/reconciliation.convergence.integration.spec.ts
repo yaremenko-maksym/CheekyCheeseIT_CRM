@@ -272,7 +272,11 @@ describe.skipIf(!hasDatabaseUrl())(
       await makeStale(o)
       await sweep(o)
       await pin()
-      const claimed = await claimDirtyBatch(db, { owner: `crashed-${TAG}`, batchSize: 1 })
+      const claimed = await claimDirtyBatch(db, {
+        owner: `crashed-${TAG}`,
+        batchSize: 1,
+        consumer: 'MATCH',
+      })
       expect(claimed.map((c) => c.entityId)).toEqual([o])
       // Held under a live lease: the sweep leaves it alone.
       expect(await sweep(o)).toMatchObject({ stale: 1, enqueued: 0, skipped: 1 })

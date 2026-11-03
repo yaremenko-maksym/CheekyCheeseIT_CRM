@@ -364,7 +364,7 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
     const fanOutOnly = {
       ...steps,
       claim: (owner: string, n: number) =>
-        claimDirtyBatch(db, { owner, batchSize: n, kinds: ['SENIOR'] }),
+        claimDirtyBatch(db, { owner, batchSize: n, kinds: ['SENIOR'], consumer: 'MATCH' }),
     }
     for (let i = 0; i < 3; i += 1) {
       await write((tx) => markSeniorDirty(tx, g, 'senior.team'))
@@ -404,7 +404,7 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
     const fanOutOnly = {
       ...createRecomputeSteps(db, { onlyIds: [o] }),
       claim: (owner: string, n: number) =>
-        claimDirtyBatch(db, { owner, batchSize: n, kinds: ['SENIOR'] }),
+        claimDirtyBatch(db, { owner, batchSize: n, kinds: ['SENIOR'], consumer: 'MATCH' }),
     }
     const fanOutOnce = async () => {
       await write((tx) => markSeniorDirty(tx, k, 'senior.team'))
