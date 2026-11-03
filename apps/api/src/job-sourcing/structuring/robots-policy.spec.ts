@@ -184,6 +184,42 @@ describe('absent or forbidden robots.txt', () => {
   })
 })
 
+describe('crawl-delay ceiling', () => {
+  const withDelay = (v: string) => setup(ok(`User-agent: *\nCrawl-delay: ${v}\nDisallow: /p\n`))
+
+  it('exposes a delay of exactly 86400 s', async () => {
+    const r = await withDelay('86400').policy.check('https://a.test/x')
+    expect([r.verdict, r.crawlDelaySeconds]).toEqual(['ALLOWED', 86400])
+  })
+
+  it.each(['86401', '2147483648', '9'.repeat(310), '9'.repeat(400)])(
+    'pauses on a delay of %s',
+    async (v) => {
+      const { policy } = withDelay(v)
+      const r = await policy.check('https://a.test/x')
+      expect(r).toEqual({
+        verdict: 'PAUSED',
+        reason: 'CRAWL_DELAY_TOO_LONG',
+        crawlDelaySeconds: null,
+        aiInput: 'unspecified',
+      })
+      // also for a path the rules disallow, and again from the cache
+      expect((await policy.check('https://a.test/p')).verdict).toBe('PAUSED')
+    },
+  )
+
+  it('pauses on an infinite delay', async () => {
+    expect(Number('9'.repeat(310))).toBe(Infinity)
+    const r = await withDelay('9'.repeat(310)).policy.check('https://a.test/x')
+    expect(r.verdict).toBe('PAUSED')
+  })
+
+  it('still honours a zero delay', async () => {
+    const r = await withDelay('0').policy.check('https://a.test/x')
+    expect([r.verdict, r.crawlDelaySeconds]).toEqual(['ALLOWED', 0])
+  })
+})
+
 describe('24 h cache', () => {
   it('answers from the cache inside the window, per URL and per path', async () => {
     const { policy, fetchRobots } = setup()

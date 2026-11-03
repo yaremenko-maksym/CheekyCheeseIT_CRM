@@ -20,6 +20,12 @@ import {
  * request `<origin>/robots.txt` through the egress client. This file imports no transport.
  */
 
+/** The longest Crawl-delay we honour: one day. Anything longer (or not finite) pauses the origin. */
+export const MAX_CRAWL_DELAY_SECONDS = 86_400
+
+const isHonourableDelay = (seconds: number) =>
+  Number.isFinite(seconds) && seconds <= MAX_CRAWL_DELAY_SECONDS
+
 /** RFC 9309 2.3.1.4: a cached copy is used for at most 24 hours. */
 export const ROBOTS_CACHE_MS = 24 * 60 * 60 * 1000
 
@@ -84,6 +90,12 @@ export class RobotsPolicy {
     const loaded = await this.load(url.origin)
     if (!loaded.ok) return loaded.check
     const { resolved } = loaded
+    const delay = resolved.crawlDelaySeconds
+    // A delay no scheduler can honour (a 310-digit value parses to Infinity, and past 2^31-1 ms
+    // setTimeout fires at once) pauses the origin instead of being exposed to the caller.
+    if (delay !== null && !isHonourableDelay(delay)) {
+      return refusal('PAUSED', 'CRAWL_DELAY_TOO_LONG')
+    }
     const allowed = isPathAllowed(resolved, url.pathname + url.search)
     return {
       verdict: allowed ? 'ALLOWED' : 'DENIED',
@@ -120,6 +132,9 @@ export class RobotsPolicy {
       }
     }
     const body = missing ? '' : response.bodyText
+    // Deliberate: RFC 9309 lets a crawler parse the first 500 KiB of a larger file, but a file this
+    // size is not a normal robots.txt, and the rules past the cut may be the ones that forbid us.
+    // Fail closed (stricter than the RFC) rather than act on a prefix. parseRobots still truncates.
     if (Buffer.byteLength(body) > MAX_ROBOTS_BYTES) {
       return { ok: false, check: refusal('UNREACHABLE_DENIED', 'OVERSIZE') }
     }
