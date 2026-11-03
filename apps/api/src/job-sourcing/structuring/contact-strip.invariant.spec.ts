@@ -10,6 +10,39 @@ function digitsOf(text: string): string {
     .replace(/\D/g, '')
 }
 
+/** What a reader sees: NFKC, invisible characters gone, case ignored. */
+function visible(text: string): string {
+  return text
+    .normalize('NFKC')
+    .replace(/\p{Default_Ignorable_Code_Point}/gu, '')
+    .toLowerCase()
+}
+
+/**
+ * The corpus is the oracle of the invariant below: a contact that is not on its page, or a page
+ * with nothing seeded, makes "no seeded contact survives" pass without testing anything.
+ */
+describe('contact corpus — every seeded contact is really on its page', () => {
+  it('page names are distinct and non-blank', () => {
+    const names = CONTACT_PAGES.map((page) => page.name.trim())
+    expect(names.every((name) => name !== '')).toBe(true)
+    expect(new Set(names).size).toBe(CONTACT_PAGES.length)
+  })
+
+  it.each(CONTACT_PAGES)('$name: seeds at least one contact and one phone', (page) => {
+    expect(page.contacts.length).toBeGreaterThan(0)
+    expect(page.phones.length).toBeGreaterThan(0)
+  })
+
+  it.each(CONTACT_PAGES)('$name: each seeded contact and phone occurs in the text', (page) => {
+    const text = visible(page.text)
+    for (const seeded of [...page.contacts, ...page.phones]) {
+      expect(seeded.trim(), page.name).not.toBe('')
+      expect(text, seeded).toContain(visible(seeded))
+    }
+  })
+})
+
 describe('stripContacts — corpus invariant', () => {
   it.each(CONTACT_PAGES)('$name: no seeded contact survives', ({ text, contacts, phones }) => {
     const out = stripContacts(text).text
