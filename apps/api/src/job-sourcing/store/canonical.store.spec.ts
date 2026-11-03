@@ -2,6 +2,7 @@ import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 import type { MeterDb } from '../metering/account-meter.store'
+import { dirtyConsumerOf } from '../ownership/dirty-work.store'
 import { LockContentionError } from './lock-order'
 import {
   CanonicalStateError,
@@ -141,10 +142,16 @@ describe('own-transaction wrappers (Task 4.6 / S2)', () => {
     await releaseTokenTx(db, actor, 'k', 'why')
     expect(seen.transactions).toBe(1)
     const enqueue = seen.queries.filter((q) => /INSERT INTO job_dirty_work/.test(q.sql))
+    // S-P2 (ADR 2026-11-02 step 3): one row per consumer at the new revision.
     expect(enqueue.map((q) => q.params)).toEqual([
       ['OPPORTUNITY', OPP, 7, 'CANONICAL_REVISION', null],
+      ['OPPORTUNITY', OPP, 7, 'AVAILABILITY:CANONICAL_REVISION', null],
     ])
-    expect(enqueue[0]?.sql).toMatch(/DO NOTHING\s+RETURNING id/)
+    expect(enqueue.map((q) => dirtyConsumerOf(String(q.params[3])))).toEqual([
+      'MATCH',
+      'AVAILABILITY',
+    ])
+    for (const q of enqueue) expect(q.sql).toMatch(/DO NOTHING\s+RETURNING id/)
   })
 
   it('an unrelated database error is not retried', async () => {

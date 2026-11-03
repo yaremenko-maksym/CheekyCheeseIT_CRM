@@ -31,7 +31,7 @@ import {
 import { JobRunLedger } from '../ownership/job-run-ledger'
 import type { RunHandle } from '../ownership/run-ownership'
 import { saveObservationPage } from '../store/source-record.store'
-import { claimDirtyBatch } from '../ownership/dirty-work.store'
+import { AVAILABILITY_REASON_PREFIX, claimDirtyBatch } from '../ownership/dirty-work.store'
 import { RecomputeWorker, createRecomputeSteps } from './recompute-worker'
 
 /**
@@ -86,13 +86,18 @@ const MINE = `entity_id = ANY($2::uuid[])
   OR entity_id IN (SELECT s.opportunity_id FROM job_opportunity_sources s
                      JOIN job_source_records r ON r.id = s.source_record_id WHERE r.namespace = $1)`
 const mineParams = () => [NAMESPACE, [...users, ...exclusions, ...projects]]
+/**
+ * The match worker's rows only: the record/canonical producers also write `AVAILABILITY:*` rows
+ * (S-P2) the match worker never claims, so `drain` would never see an empty queue with them in.
+ */
+const MATCH_ONLY = `NOT starts_with(reason, '${AVAILABILITY_REASON_PREFIX}')`
 
 /** Date this spec's pending rows in 2000 so a claim of exactly that many takes only them. */
 async function pin(): Promise<number> {
   const { rowCount } = await session.admin.query(
     `UPDATE job_dirty_work SET created_at = '2000-01-01T00:00:00Z'::timestamptz + seq * interval '1 ms'
        FROM (SELECT id AS pid, row_number() OVER (ORDER BY created_at, id) AS seq
-               FROM job_dirty_work WHERE status = 'PENDING' AND (${MINE})) p
+               FROM job_dirty_work WHERE status = 'PENDING' AND (${MINE}) AND ${MATCH_ONLY}) p
       WHERE id = p.pid`,
     mineParams(),
   )
@@ -375,6 +380,7 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
     const pending = await session.admin.query(
       `SELECT entity_id, count(*)::int AS n FROM job_dirty_work
         WHERE entity_kind = 'OPPORTUNITY' AND status = 'PENDING' AND entity_id = ANY($1::uuid[])
+          AND ${MATCH_ONLY}
         GROUP BY entity_id`,
       [oppIds],
     )

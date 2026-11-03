@@ -2,7 +2,7 @@ import { type AvailabilityEvidence, availabilityEvidenceSchema } from '@crm/shar
 import { sql } from 'drizzle-orm'
 import type { MeterDb } from '../metering/account-meter.store'
 import type { SourceObservation } from '../normalize/observation'
-import { enqueueDirty } from '../ownership/dirty-work.store'
+import { AVAILABILITY_REASON_PREFIX, enqueueDirty } from '../ownership/dirty-work.store'
 import { type SavedPage, writePageProgress } from '../ownership/job-run-ledger'
 import { type OwnedRun, type RunHandle, assertOwned } from '../ownership/run-ownership'
 import type { SqlExecutor } from '../scheduling/host-state'
@@ -227,16 +227,15 @@ async function writeObservation(
         ON CONFLICT (run_id, source_record_id) DO NOTHING`,
   )
 
-  // 7. Dirty work in the producer's transaction, at the record's new observation sequence.
+  // 7. Dirty work in the producer's transaction, at the record's new observation sequence. A head
+  //    advance matters to both consumers, so it yields one row per partition (S-P2, ADR
+  //    2026-11-02 step 3): `reason` is in the unique key, so the pair coexists and each dedups.
   if (advanced)
-    await enqueueDirty(
-      tx,
-      'SOURCE_RECORD',
-      record.id,
-      targetVersion,
+    for (const reason of [
       SOURCE_REVISION_REASON,
-      cycleId,
-    )
+      `${AVAILABILITY_REASON_PREFIX}${SOURCE_REVISION_REASON}`,
+    ])
+      await enqueueDirty(tx, 'SOURCE_RECORD', record.id, targetVersion, reason, cycleId)
   // S8f: unchanged content of a CLOSED/EXPIRED record does not advance the head, so no
   // SOURCE_REVISION work exists to carry the "seen again" fact to the availability worker. One row
   // per run (the run id is in the reason: the key is unique per reason, and a record may close and

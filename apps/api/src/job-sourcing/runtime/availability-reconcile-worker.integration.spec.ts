@@ -10,9 +10,14 @@ import {
 } from '../../database/__test-helpers__/crm-app-session'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { INVENTORY_CLOSE_REASON } from '../availability/inventory-counter-updater'
-import { AVAILABILITY_REASON_PREFIX, enqueueDirty } from '../ownership/dirty-work.store'
+import {
+  AVAILABILITY_REASON_PREFIX,
+  dirtyConsumerOf,
+  enqueueDirty,
+} from '../ownership/dirty-work.store'
 import { type RecomputeSteps, RecomputeWorker } from './recompute-worker'
 import {
+  OPPORTUNITY_AVAILABILITY_CHANGED_REASON,
   createAvailabilityReconcileSteps,
   resolveInventoryInput,
 } from './availability-reconcile-worker'
@@ -167,12 +172,17 @@ async function pending(): Promise<{ id: string; entity_kind: string; status: str
   return rows as { id: string; entity_kind: string; status: string }[]
 }
 
-/** Date the spec's PENDING rows in 2000 (oldest first) and return how many there are. */
+/**
+ * Date the spec's PENDING availability rows in 2000 (oldest first) and return how many there are.
+ * The S-P2 match successor rows are left out: this worker never claims them, and counting them
+ * would size the batch past the spec's own rows into whatever else is pending.
+ */
 async function pin(): Promise<number> {
   const { rowCount } = await q(
     `UPDATE job_dirty_work SET created_at = '2000-01-01T00:00:00Z'::timestamptz + seq * interval '1 ms'
        FROM (SELECT id AS pid, row_number() OVER (ORDER BY entity_kind DESC, created_at, id) AS seq
-               FROM job_dirty_work WHERE status = 'PENDING' AND (${MINE})) p
+               FROM job_dirty_work WHERE status = 'PENDING' AND (${MINE})
+                AND reason <> '${OPPORTUNITY_AVAILABILITY_CHANGED_REASON}') p
       WHERE id = p.pid`,
   )
   return rowCount ?? 0
@@ -326,6 +336,39 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
     expect(await oppRow(oppId)).toEqual({ availability: 'CLOSED', revision: 2 })
     // The stale match row persists as history — its recorded revision is untouched (not cleared).
     expect(await matchRevision(oppId)).toBe(1)
+  })
+
+  it('S-P2 invariant: an availability bump leaves a PENDING MATCH row at the new revision; the handled row is DONE', async () => {
+    const r1 = await newRecord('CLOSED')
+    const oppId = await newOpportunity()
+    await link(r1, oppId)
+    await enqueueOpp(oppId, 1)
+
+    await runMine()
+
+    expect(await oppRow(oppId)).toEqual({ availability: 'CLOSED', revision: 2 })
+    const { rows } = await q(
+      `SELECT target_version::int AS v, reason, status, last_error_code FROM job_dirty_work
+        WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 ORDER BY target_version, reason`,
+      [oppId],
+    )
+    expect(
+      rows.map((r) => [r.v, dirtyConsumerOf(String(r.reason)), r.status, r.last_error_code]),
+    ).toEqual([
+      [1, 'AVAILABILITY', 'DONE', null],
+      [2, 'MATCH', 'PENDING', null],
+    ])
+    expect(String(rows[1]?.reason)).toBe(OPPORTUNITY_AVAILABILITY_CHANGED_REASON)
+
+    // Unchanged on the next pass (re-enqueued at the new revision): no bump, no further match row.
+    await enqueueOpp(oppId, 2)
+    await runMine()
+    const { rows: match } = await q(
+      `SELECT target_version::int AS v FROM job_dirty_work
+        WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 AND reason = $2`,
+      [oppId, OPPORTUNITY_AVAILABILITY_CHANGED_REASON],
+    )
+    expect(match.map((r) => r.v)).toEqual([2])
   })
 
   it('AC2: most-open keeps the opportunity OPEN when one active record is OPEN', async () => {

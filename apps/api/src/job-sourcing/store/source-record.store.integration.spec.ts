@@ -24,6 +24,7 @@ import {
 } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageRun, ageSource } from '../../test/run-aging'
+import { dirtyConsumerOf } from '../ownership/dirty-work.store'
 import { JobRunLedger, type SavedPage, writePageProgress } from '../ownership/job-run-ledger'
 import { type RunHandle, RunFencedError, assertOwned } from '../ownership/run-ownership'
 import { LockContentionError } from './lock-order'
@@ -70,12 +71,13 @@ async function latestOf(namespace: string): Promise<string | null> {
   return rows[0]?.latest_revision_id ?? null
 }
 
-async function dirtyVersions(namespace: string): Promise<number[]> {
+/** The versions of one reason's rows (the match row by default; S-P2 writes a pair per advance). */
+async function dirtyVersions(namespace: string, reason = 'SOURCE_REVISION'): Promise<number[]> {
   const { rows } = await session.admin.query(
     `SELECT d.target_version::int AS v FROM job_dirty_work d
        JOIN job_source_records r ON r.id = d.entity_id
-      WHERE r.namespace = $1 AND d.entity_kind = 'SOURCE_RECORD' ORDER BY 1`,
-    [namespace],
+      WHERE r.namespace = $1 AND d.entity_kind = 'SOURCE_RECORD' AND d.reason = $2 ORDER BY 1`,
+    [namespace, reason],
   )
   return rows.map((r) => r.v as number)
 }
@@ -163,7 +165,7 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
       records: 1,
       revisions: 1,
       memberships: 2,
-      dirty: 1,
+      dirty: 2, // one advance -> one row per consumer partition (S-P2)
     })
     const { rows } = await session.admin.query(
       `SELECT count(DISTINCT run_id)::int AS runs FROM job_run_records m
@@ -213,6 +215,39 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
     expect(same?.advanced).toBe(false)
     expect(await dirtyVersions(namespace)).toEqual([1, 2, 3])
     expect(await storeCounts(session.admin, namespace)).toMatchObject({ records: 1, revisions: 2 })
+  })
+
+  it('S-P2 invariant: every head advance leaves a PENDING row in BOTH partitions at its version; a replay adds none', async () => {
+    const namespace = ns()
+    const h = await run()
+    const pageOf = (version: string, n: number) => ({
+      observations: [obs(namespace, 'both', version)],
+      checkpoint: specCheckpoint(n),
+    })
+    await saveObservationPage(db, h, pageOf('A', 1))
+    await saveObservationPage(db, h, pageOf('B', 2))
+    const pending = async () => {
+      const { rows } = await session.admin.query(
+        `SELECT d.reason, d.target_version::int AS v FROM job_dirty_work d
+           JOIN job_source_records r ON r.id = d.entity_id
+          WHERE r.namespace = $1 AND d.entity_kind = 'SOURCE_RECORD' AND d.status = 'PENDING'
+          ORDER BY 2, 1`,
+        [namespace],
+      )
+      return rows.map((r) => [r.v as number, r.reason as string, dirtyConsumerOf(r.reason)])
+    }
+    const expected = [
+      [1, 'AVAILABILITY:SOURCE_REVISION', 'AVAILABILITY'],
+      [1, 'SOURCE_REVISION', 'MATCH'],
+      [2, 'AVAILABILITY:SOURCE_REVISION', 'AVAILABILITY'],
+      [2, 'SOURCE_REVISION', 'MATCH'],
+    ]
+    expect(await pending()).toEqual(expected)
+    // Same content again: no advance, and the unique key (with reason) dedups both partitions.
+    const [same] = await saveObservationPage(db, h, pageOf('B', 3))
+    expect(same?.advanced).toBe(false)
+    expect(await pending()).toEqual(expected)
+    expect(await dirtyVersions(namespace, 'AVAILABILITY:SOURCE_REVISION')).toEqual([1, 2])
   })
 
   it('CR-M-3 / R2-CR-M-2: A, B, A in one page writes all three and ends on A', async () => {
@@ -532,7 +567,7 @@ describe.skipIf(!hasDatabaseUrl())('source-record store (Task 4.5, real Postgres
       records: 2,
       revisions: 2,
       memberships: 2,
-      dirty: 2,
+      dirty: 4, // two advances x one row per consumer partition (S-P2); the replay adds none
     })
     const after = (await fx.runs(await sourceOf(h.runId)))[0]
     expect(after?.checkpoint).toMatchObject({ position: { page: 7 } })

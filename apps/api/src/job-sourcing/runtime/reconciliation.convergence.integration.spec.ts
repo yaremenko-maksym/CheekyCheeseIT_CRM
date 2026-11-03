@@ -16,7 +16,11 @@ import {
 } from '../../test/ledger-fixtures'
 import { cleanupStore, observation } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
-import { claimDirtyBatch, recoverExpiredDirty } from '../ownership/dirty-work.store'
+import {
+  AVAILABILITY_REASON_PREFIX,
+  claimDirtyBatch,
+  recoverExpiredDirty,
+} from '../ownership/dirty-work.store'
 import { JobRunLedger } from '../ownership/job-run-ledger'
 import type { RunHandle } from '../ownership/run-ownership'
 import { saveObservationPage } from '../store/source-record.store'
@@ -73,9 +77,12 @@ async function opportunity(nativeId: string, rowless = false): Promise<string> {
   return o
 }
 
-const MINE = `entity_id IN (SELECT id FROM job_source_records WHERE namespace = $1)
+// Match-partition rows only: the producers also write `AVAILABILITY:*` rows (S-P2) that the match
+// worker never claims, so counting them would size a batch for work it cannot get.
+const MINE = `(entity_id IN (SELECT id FROM job_source_records WHERE namespace = $1)
   OR entity_id IN (SELECT s.opportunity_id FROM job_opportunity_sources s
-                     JOIN job_source_records r ON r.id = s.source_record_id WHERE r.namespace = $1)`
+                     JOIN job_source_records r ON r.id = s.source_record_id WHERE r.namespace = $1))
+  AND NOT starts_with(reason, '${AVAILABILITY_REASON_PREFIX}')`
 
 async function pin(): Promise<number> {
   const { rowCount } = await session.admin.query(

@@ -10,6 +10,7 @@ import {
   type CompleteOutcome,
   claimDirtyBatch,
   completeDirty,
+  enqueueDirty,
   failDirty,
 } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
@@ -33,7 +34,8 @@ import type { RecomputeSteps } from './recompute-worker'
  *                  row is re-claimed after its lease expires and the updater re-runs as a no-op.
  *   OPPORTUNITY    re-derive availability with `deriveOpportunityAvailability` over the ACTIVE
  *                  `job_opportunity_sources` records' availability, and when it changed write it and
- *                  bump `revision` in ONE transaction. Existing matches / suggestion decisions are
+ *                  bump `revision` in ONE transaction, with a MATCH successor row at the new
+ *                  revision (S-P2) so match re-evaluates. Existing matches / suggestion decisions are
  *                  NOT touched (S8f proves a close -> reopen cycle preserves them).
  *                  Unchanged availability writes nothing (idempotent — AC6).
  *
@@ -54,6 +56,12 @@ export const AVAILABILITY_RECONCILE_WORKER = Symbol('AVAILABILITY_RECONCILE_WORK
  * PROJECT_CLIENT fan-out rows are the match worker's and are left untouched.
  */
 export const AVAILABILITY_CLAIM_KINDS = ['SOURCE_RECORD', 'OPPORTUNITY'] as const
+
+/**
+ * `job_dirty_work.reason` of the match row an availability revision bump leaves behind (S-P2).
+ * Deliberately NOT `AVAILABILITY:`-prefixed: it belongs to the MATCH partition.
+ */
+export const OPPORTUNITY_AVAILABILITY_CHANGED_REASON = 'OPPORTUNITY_AVAILABILITY_CHANGED'
 
 /** What the S8c updater needs, resolved from a bare SOURCE_RECORD dirty row. */
 export interface ResolvedInventoryInput {
@@ -133,9 +141,10 @@ export async function readActiveRecordStates(
 /**
  * OPPORTUNITY: lock the opportunity, re-derive availability from its active records, complete the
  * row (DONE while its revision is still current), then — only when the derived availability
- * CHANGED — write it and bump `revision`, all in one transaction. The row is completed BEFORE the
- * bump so a real change still reports DONE rather than DEFERRED; the bump is the Decision-4 signal
- * for downstream (matches/funnel) to re-read. Matches and suggestion decisions are never touched.
+ * CHANGED — enqueue the match successor row, write it and bump `revision`, all in one transaction.
+ * The row is completed BEFORE the bump so a real change still reports DONE rather than DEFERRED;
+ * the successor row is the Decision-4 signal for match to re-read. Matches and suggestion decisions
+ * are never touched here.
  */
 export function reconcileOpportunityAvailability(
   db: MeterDb,
@@ -152,12 +161,22 @@ export function reconcileOpportunityAvailability(
       return completeDirty(tx, work)
     const current = String(row['availability']) as JobAvailability
     const next = deriveOpportunityAvailability(await readActiveRecordStates(tx, work.entityId))
+    if (next === current) return completeDirty(tx, work)
+    // S-P2 successor row (ADR 2026-11-02 step 4): the bump stales any match row at the current
+    // revision, so a MATCH row at the new one goes in first. The row lock above holds `revision`
+    // at `targetVersion`, so the bump below lands exactly on `targetVersion + 1`.
+    await enqueueDirty(
+      tx,
+      'OPPORTUNITY',
+      work.entityId,
+      work.targetVersion + 1,
+      OPPORTUNITY_AVAILABILITY_CHANGED_REASON,
+    )
     const outcome = await completeDirty(tx, work)
-    if (next !== current)
-      await tx.execute(
-        sql`UPDATE job_opportunities SET availability = ${next}, revision = revision + 1
-             WHERE id = ${work.entityId}::uuid`,
-      )
+    await tx.execute(
+      sql`UPDATE job_opportunities SET availability = ${next}, revision = revision + 1
+           WHERE id = ${work.entityId}::uuid`,
+    )
     return outcome
   }, READ_COMMITTED)
 }
