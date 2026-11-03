@@ -6558,3 +6558,29 @@ listing it, pins the intended outcome (stay closed, or follow the sibling's runs
 
 Sources: PR #1230 review threads (security/code/spec, final head); prod deploy log of 2026-11-02 for the
 `UPDATE 0` backfill result.
+
+## 347. Task 4.6 dirty-work partition (S-P1/S-P2): unclaimed `AVAILABILITY:*` rows accumulate with the availability flag off (2026-11-03)
+
+Found by: code review of the S-P2 producer fan-out (CR-M-1). Accepted trade-off of ADR
+`2026-11-02-dirty-work-reason-partitioned-claim` (owner decision OD-2: write availability rows even while
+the availability flag is off), recorded here because its cost is behavioural and unbounded.
+
+Behaviour: after S-P2, every head advance of a source record and every canonical opportunity revision
+writes an extra `job_dirty_work` row in the AVAILABILITY partition. While `JOB_AVAILABILITY_RECONCILE_ENABLED`
+is off nobody claims them, and nothing prunes `job_dirty_work`. The match claim orders by `created_at`
+and filters its partition afterwards, so it re-scans the oldest unclaimed availability rows on every
+claim; cost per claim grows with the pile, for as long as the flag stays off (including the whole window
+between the S-P2 deploy and the S-P3 exclusion removal).
+
+Needed before the availability flag is turned on in production, or earlier if match claim latency rises:
+
+1. a partition-aware partial index (the existing partial index only excludes `DETAIL_FETCH`), a manual-staged
+   DDL promoted by the owner; and/or
+2. retention of unclaimed availability-partition rows past a horizon (an explicit, owner-reviewed rule,
+   since the retention-guard spec forbids any deletion from this table by design).
+
+Verify: with the availability flag off, the count of PENDING rows whose reason starts with `AVAILABILITY:`
+grows by roughly one per head advance; compare `EXPLAIN (ANALYZE)` of the match claim with and without
+those rows. Read-only on a scratch database only.
+
+Sources: PR S-P2 review (CR-M-1); the ADR's "Growth while availability is off" consequence.
