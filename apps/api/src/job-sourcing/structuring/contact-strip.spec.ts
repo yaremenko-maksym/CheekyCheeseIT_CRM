@@ -158,3 +158,21 @@ describe('stripContacts — bounded time on hostile input', () => {
     expect(performance.now() - started).toBeLessThan(2_000)
   })
 })
+
+describe('stripContacts — token and repetition', () => {
+  it('the replacement is the fixed, non-empty token "[contact]"', () => {
+    expect(stripContacts('hr@example.com').text).toBe('[contact]')
+  })
+
+  it('every tel: link is replaced, in any case', () => {
+    const result = stripContacts('TEL:+380501234567 and tel:+48512345678')
+    expect(result.text).toBe(`${T} and ${T}`)
+    expect(result.removed.phone).toBe(2)
+  })
+
+  it('every handle is replaced, in any case', () => {
+    const result = stripContacts('@Jane_Doe and @HR_team')
+    expect(result.text).toBe(`${T} and ${T}`)
+    expect(result.removed.messenger).toBe(2)
+  })
+})

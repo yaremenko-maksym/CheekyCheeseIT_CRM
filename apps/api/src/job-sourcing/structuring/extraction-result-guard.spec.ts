@@ -261,3 +261,34 @@ describe('guardExtractionResult — whole-output failures', () => {
     expect(okResult(raw).records).toHaveLength(1)
   })
 })
+
+describe('guardExtractionResult — counters and URL tokens', () => {
+  it('model-supplied nulls and absent keys are not counted as nulled URLs or dropped evidence', () => {
+    const absent = okResult(output([{ uncertainty: 0.5 }]))
+    expect(absent.nulledUrls).toBe(0)
+    expect(absent.droppedEvidence).toBe(0)
+    const explicit = okResult(output([{ ...FULL_RECORD, postingUrl: null, applyUrl: null }]))
+    expect(explicit.nulledUrls).toBe(0)
+  })
+
+  it('an https URL embedded in an http link is not evidence of its own', () => {
+    const ctx = {
+      evidenceText: 'Track: http://tracker.example.com/r?u=https://other.example.com/job',
+      verifiedUrls: [],
+    }
+    const result = okResult(
+      output([{ ...FULL_RECORD, applyUrl: 'https://other.example.com/job' }]),
+      ctx,
+    )
+    expect(result.records[0]?.applyUrl).toBeNull()
+  })
+
+  it('a run of trailing punctuation after an evidence URL is not part of it', () => {
+    const ctx = { evidenceText: 'Apply at https://apply.example.com/x?!.', verifiedUrls: [] }
+    const result = okResult(
+      output([{ ...FULL_RECORD, applyUrl: 'https://apply.example.com/x' }]),
+      ctx,
+    )
+    expect(result.records[0]?.applyUrl).toBe('https://apply.example.com/x')
+  })
+})

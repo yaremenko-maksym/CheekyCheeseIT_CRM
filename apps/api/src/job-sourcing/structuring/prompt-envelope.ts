@@ -68,7 +68,8 @@ export function buildExtractionPrompt(
   let nonce = ''
   for (let attempt = 0; attempt < MAX_NONCE_ATTEMPTS && nonce === ''; attempt += 1) {
     const candidate = makeNonce()
-    if (candidate !== '' && !text.includes(candidate)) nonce = candidate
+    // `''` is always "included", so an empty nonce is rejected here too.
+    if (!text.includes(candidate)) nonce = candidate
   }
   if (nonce === '')
     throw new Error('could not choose a page-data delimiter absent from the page text')

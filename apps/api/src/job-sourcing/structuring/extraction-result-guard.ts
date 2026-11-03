@@ -84,7 +84,8 @@ function evidenceUrls(evidenceText: string): Set<string> {
  * must be the JSON object itself: a fenced block is a failure, there is no fence-stripping fallback.
  */
 export function guardExtractionResult(raw: string, ctx: ExtractionContext): ExtractionGuardResult {
-  if (Buffer.byteLength(raw, 'utf8') > MAX_MODEL_OUTPUT_BYTES) {
+  // byteLength defaults to UTF-8.
+  if (Buffer.byteLength(raw) > MAX_MODEL_OUTPUT_BYTES) {
     return { ok: false, reason: 'OUTPUT_TOO_LARGE' }
   }
   let parsed: unknown
@@ -97,12 +98,12 @@ export function guardExtractionResult(raw: string, ctx: ExtractionContext): Extr
   if (!output.success) return { ok: false, reason: 'SCHEMA_INVALID' }
 
   const known = evidenceUrls(ctx.evidenceText)
-  const checkUrl = (value: unknown): string | null =>
-    typeof value === 'string' &&
-    externalHttpsUrlSchema.safeParse(value).success &&
-    (known.has(value) || ctx.verifiedUrls.includes(value))
-      ? value
+  const checkUrl = (value: unknown): string | null => {
+    const url = externalHttpsUrlSchema.safeParse(value)
+    return url.success && (known.has(url.data) || ctx.verifiedUrls.includes(url.data))
+      ? url.data
       : null
+  }
 
   const records: ExtractionRecord[] = []
   let droppedRecords = 0
