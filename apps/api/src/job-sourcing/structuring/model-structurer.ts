@@ -24,12 +24,11 @@ export const DEFAULT_STRUCTURER_TIMEOUT_MS = 120_000
 const ANY_JSON = z.unknown()
 
 type Attempt =
-  | { kind: 'done'; records: StructuredRecord[]; issue: RecordIssue | null }
-  | { kind: 'failed'; code: RecordFailureCode }
-  | { kind: 'stop'; stop: StructurerStop }
+  | { records: StructuredRecord[]; issue: RecordIssue | null }
+  | { failed: RecordFailureCode }
+  | { stop: StructurerStop }
 
 const stopWith = (code: ExtractorStopCode): Attempt => ({
-  kind: 'stop',
   stop: { kind: 'EXTRACTOR_FAILED', code },
 })
 
@@ -38,11 +37,11 @@ const stopWith = (code: ExtractorStopCode): Attempt => ({
  * error messages never are, so a page saying "quota" cannot look like exhaustion.
  */
 const BY_INFERENCE_CODE: Readonly<Record<InferenceErrorCode, Attempt>> = {
-  RATE_LIMITED: { kind: 'stop', stop: { kind: 'BUDGET_EXHAUSTED', cause: 'RATE_LIMITED' } },
-  NOT_CONFIGURED: { kind: 'stop', stop: { kind: 'MODEL_UNAVAILABLE', code: 'NOT_CONFIGURED' } },
-  PROVIDER_ERROR: { kind: 'stop', stop: { kind: 'MODEL_UNAVAILABLE', code: 'PROVIDER_ERROR' } },
+  RATE_LIMITED: { stop: { kind: 'BUDGET_EXHAUSTED', cause: 'RATE_LIMITED' } },
+  NOT_CONFIGURED: { stop: { kind: 'MODEL_UNAVAILABLE', code: 'NOT_CONFIGURED' } },
+  PROVIDER_ERROR: { stop: { kind: 'MODEL_UNAVAILABLE', code: 'PROVIDER_ERROR' } },
   TIMEOUT: stopWith('TIMEOUT'),
-  INVALID_OUTPUT: { kind: 'failed', code: 'INVALID_OUTPUT' },
+  INVALID_OUTPUT: { failed: 'INVALID_OUTPUT' },
 }
 
 function classify(code: InferenceErrorCode): Attempt {
@@ -50,8 +49,7 @@ function classify(code: InferenceErrorCode): Attempt {
   return Object.hasOwn(BY_INFERENCE_CODE, code) ? BY_INFERENCE_CODE[code] : stopWith('UNKNOWN_CODE')
 }
 
-type Settled<T> =
-  { kind: 'done'; value: T } | { kind: 'stopped'; code: 'TIMEOUT' | 'PORT_THREW' | 'CANCELLED' }
+type Settled<T> = { value: T } | { stopped: 'TIMEOUT' | 'PORT_THREW' | 'CANCELLED' }
 
 /**
  * Waits for `work` at most `timeoutMs`, or until `signal` aborts. The port takes no signal, so an
@@ -68,12 +66,12 @@ function settle<T>(
       clearTimeout(timer)
       signal?.removeEventListener('abort', onAbort)
     }
-    const onAbort = (): void => finish({ kind: 'stopped', code: 'CANCELLED' })
-    const timer = setTimeout(() => finish({ kind: 'stopped', code: 'TIMEOUT' }), timeoutMs)
+    const onAbort = (): void => finish({ stopped: 'CANCELLED' })
+    const timer = setTimeout(() => finish({ stopped: 'TIMEOUT' }), timeoutMs)
     signal?.addEventListener('abort', onAbort)
     work.then(
-      (value) => finish({ kind: 'done', value }),
-      () => finish({ kind: 'stopped', code: 'PORT_THREW' }),
+      (value) => finish({ value }),
+      () => finish({ stopped: 'PORT_THREW' }),
     )
   })
 }
@@ -120,7 +118,7 @@ export class ModelStructurer implements HtmlStructurer {
     let firstFailure: RecordFailureCode | null = null
     for (const [index, record] of request.records.entries()) {
       const attempt = await this.attempt(gate, record, request.signal)
-      if (attempt.kind === 'stop') {
+      if ('stop' in attempt) {
         const remainingIds = request.records.slice(index).map(({ id }) => id)
         if (index === 0) return { ...attempt.stop, remainingIds }
         return {
@@ -132,11 +130,11 @@ export class ModelStructurer implements HtmlStructurer {
           stoppedBy: attempt.stop,
         }
       }
-      if (attempt.kind === 'failed') {
-        firstFailure ??= attempt.code
+      if ('failed' in attempt) {
+        firstFailure ??= attempt.failed
         perRecordIssues.push({
           id: record.id,
-          failure: attempt.code,
+          failure: attempt.failed,
           droppedRecords: 0,
           nulledUrls: 0,
           droppedEvidence: 0,
@@ -164,7 +162,7 @@ export class ModelStructurer implements HtmlStructurer {
     const { port, budget } = this.options
     const reservation = budget.reserve()
     if (reservation === null) {
-      return { kind: 'stop', stop: { kind: 'BUDGET_EXHAUSTED', cause: 'CYCLE_LIMIT' } }
+      return { stop: { kind: 'BUDGET_EXHAUSTED', cause: 'CYCLE_LIMIT' } }
     }
     let usable: { usage?: ModelUsage } | null = null
     try {
@@ -173,7 +171,7 @@ export class ModelStructurer implements HtmlStructurer {
         resolve(port.extract({ input: prompt.user, instruction: prompt.system, schema: ANY_JSON }))
       })
       const settled = await settle(call, this.timeoutMs, signal)
-      if (settled.kind === 'stopped') return stopWith(settled.code)
+      if ('stopped' in settled) return stopWith(settled.stopped)
       const result = settled.value
       if (!result.ok) return classify(result.code)
 
@@ -183,17 +181,16 @@ export class ModelStructurer implements HtmlStructurer {
       } catch {
         // A BigInt or a cycle: not JSON, handled below.
       }
-      if (raw === undefined) return { kind: 'failed', code: 'NOT_JSON' }
+      if (raw === undefined) return { failed: 'NOT_JSON' }
       const guarded = guardExtractionResult(raw, {
         evidenceText: prompt.user,
         verifiedUrls: [record.url],
       })
-      if (!guarded.ok) return { kind: 'failed', code: guarded.reason }
+      if (!guarded.ok) return { failed: guarded.reason }
 
       usable = result
       const { droppedRecords, nulledUrls, droppedEvidence } = guarded
       return {
-        kind: 'done',
         records: guarded.records.map((extracted) => ({
           ...extracted,
           sourceId: record.id,
