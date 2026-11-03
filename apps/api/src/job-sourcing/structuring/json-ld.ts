@@ -87,7 +87,7 @@ export interface JsonLdOptions {
 }
 
 const OPEN_SCRIPT = /<script(?=[\s/>])/gi
-const CLOSE_SCRIPT = /<\/script/gi
+const CLOSE_SCRIPT = /<\/script(?=[\s/>])/gi
 const LD_JSON_TYPE =
   /(?<![\w-])type\s*=\s*(?:"application\/ld\+json"|'application\/ld\+json'|application\/ld\+json(?![^\s/>]))/i
 

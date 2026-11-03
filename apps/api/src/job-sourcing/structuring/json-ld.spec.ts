@@ -245,6 +245,20 @@ describe('extractJobPostings: conflicts and failures', () => {
     expect(r.scanned.parsedScripts).toBe(1)
   })
 
+  it('an end-tag lookalike (</scripture>, </scripts>) does not end the element', () => {
+    const r = run(
+      ld(posting({ identifier: 'L', description: 'a </scripture> b </scripts> c </script2' })),
+    )
+    expect(r.failures).toEqual({})
+    expect(r.postings[0]?.description).toBe('a </scripture> b </scripts> c </script2')
+    for (const closer of ['</script >', '</script/>', '</SCRIPT\n>']) {
+      expect(
+        run(`<script type="application/ld+json">${posting({ identifier: 'C' })}${closer}`).postings,
+        closer,
+      ).toHaveLength(1)
+    }
+  })
+
   it('escaped terminators are decoded after the parse', () => {
     const r = run(fixture('escaped-terminator.html'))
     expect(r.failures).toEqual({})
