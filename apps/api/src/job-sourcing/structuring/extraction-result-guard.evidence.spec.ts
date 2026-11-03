@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { expectScaling, SCALING_TEST_TIMEOUT_MS } from './__test-helpers__/scaling'
 import { guardExtractionResult, MIN_EVIDENCE_QUOTE_CHARS } from './extraction-result-guard'
 
 /** CR-M-3: a quote proves a field only if it is long enough to be specific, or is the field itself. */
@@ -151,6 +152,35 @@ describe('guardExtractionResult — evidence must be about its field (SR-M-7)', 
       dropped: 1,
     })
   })
+})
+
+describe('guardExtractionResult — evidence cost (SR-M-9)', () => {
+  // Each quote is a passage at the start of a long description. Normalising the value once per
+  // record keeps the cost linear in the reply; once per quote it grows as quotes x value length.
+  const QUOTE = 'We hire a Senior Rust Engineer'
+  const ctx = { evidenceText: QUOTE, verifiedUrls: [] }
+
+  function reply(valueChars: number, quotes: number): string {
+    const description = QUOTE + ' x'.repeat(valueChars / 2)
+    const evidence = Array.from({ length: quotes }, () => ({ field: 'description', quote: QUOTE }))
+    const record = { title: 'Senior Rust Engineer', description, uncertainty: 0.1, evidence }
+    return JSON.stringify({ extractionVersion: 'v1', records: Array(50).fill(record) })
+  }
+
+  it(
+    '4x the value length and 4x the quotes cost about 4x, not 16x',
+    () => {
+      const small = reply(4_900, 25)
+      const big = reply(19_900, 100)
+      expect(guardExtractionResult(big, ctx)).toMatchObject({ ok: true, droppedEvidence: 0 })
+      expectScaling(
+        () => guardExtractionResult(small, ctx),
+        () => guardExtractionResult(big, ctx),
+        8,
+      )
+    },
+    SCALING_TEST_TIMEOUT_MS,
+  )
 })
 
 describe('guardExtractionResult — URL evidence (SR-M-7)', () => {

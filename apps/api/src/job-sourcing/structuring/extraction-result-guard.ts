@@ -137,13 +137,16 @@ export function guardExtractionResult(raw: string, ctx: ExtractionContext): Extr
     nulledUrls += Number(urls.postingUrl === null && postingUrl != null)
     nulledUrls += Number(urls.applyUrl === null && applyUrl != null)
     const fields = { ...facts, ...urls }
+    // Normalised once per record, not per quote: a value can be 20 000 chars and quoted 100 times.
+    const statedValues = new Map<string, string>()
+    for (const [field, value] of Object.entries(fields)) {
+      if (typeof value === 'string') statedValues.set(field, normalise(value))
+    }
     const quoted = evidence.filter((span) => {
-      const value = fields[span.field]
-      // Only a stated string can be proved: a boolean, a null or a nulled URL never has evidence.
-      if (typeof value !== 'string') return false
+      const stated = statedValues.get(span.field)
+      // Only a stated string can be proved: a boolean, a null, a blank or a nulled URL never has evidence.
+      if (!stated) return false
       const quote = normalise(span.quote)
-      const stated = normalise(value)
-      if (stated === '') return false
       // The quote names the value; a text field may also be proved by a passage of it (a long
       // description cannot be quoted whole). A URL must be quoted whole.
       const related =
