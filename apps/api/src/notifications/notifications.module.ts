@@ -2,22 +2,22 @@
  * NotificationsModule — in-app notifications API.
  *
  * Exports `NotificationsService` so every emitter can inject it directly
- * without re-importing DatabaseModule. С позиции 6 таких эмиттеров пять:
- * finance/transactions, teams, projects, users, approvals и contracts.
+ * without re-importing DatabaseModule. Since position 6 there are five such emitters:
+ * finance/transactions, teams, projects, users, approvals and contracts.
  *
- * AuthModule ЗДЕСЬ НЕ ИМПОРТИРУЕТСЯ — и это правка позиции 6, а не упущение.
- * Он стоял тут «ради JwtAuthGuard», но guard глобальный (`APP_GUARD` в
- * `AppModule`), а контроллер не объявляет ни одного `@UseGuards`: из
- * AuthModule ему нужен только декоратор `@CurrentUser`, а декоратор — не
- * провайдер и импорта модуля не требует. Ровно так же устроен, например,
- * `LegendsModule` — тоже JWT-защищённый контроллер без импорта AuthModule.
+ * AuthModule is NOT IMPORTED HERE — and this is a fix from position 6, not an oversight.
+ * It stood here "for the sake of JwtAuthGuard", but the guard is global (`APP_GUARD` in
+ * `AppModule`), and the controller declares no `@UseGuards` at all: from
+ * AuthModule it needs only the `@CurrentUser` decorator, and a decorator is not
+ * a provider and does not require a module import. The same holds, for example, for
+ * `LegendsModule` — also a JWT-protected controller without importing AuthModule.
  *
- * Пока модуль был листом графа, лишний импорт ничего не стоил. Как только
- * пять модулей стали импортировать НАС, он замкнул кольцо
- * users → notifications → auth → users, и `app.module.container.spec.ts`
- * поймал это немедленно («The module at index [1] of the UsersModule
- * "imports" array is undefined»). Снять ненужное ребро честнее, чем
- * обвешивать пять импортов `forwardRef`, скрывая цикл вместо его удаления.
+ * While the module was a leaf of the graph, an extra import cost nothing. As soon as
+ * five modules began importing US, it closed the ring
+ * users → notifications → auth → users, and `app.module.container.spec.ts`
+ * caught it immediately ("The module at index [1] of the UsersModule
+ * "imports" array is undefined"). Removing the unneeded edge is more honest than
+ * wrapping five imports in `forwardRef`, hiding the cycle instead of removing it.
  */
 import { Module } from '@nestjs/common'
 import { ScheduleModule } from '@nestjs/schedule'
@@ -31,28 +31,28 @@ import { NotificationsController } from './notifications.controller'
 import { NotificationsService } from './notifications.service'
 
 @Module({
-  // TelemetryModule — канал, в который уходит пропущенное уведомление
-  // (SR-H-1): разбор данных больше не бросает, а значит отказ обязан быть
-  // виден снаружи процесса, иначе он становится тихой потерей. Кольца это не
-  // заводит: TelemetryModule зависит только от `ScheduleModule`, про
-  // уведомления он не знает.
+  // TelemetryModule — the channel into which a skipped notification goes
+  // (SR-H-1): data parsing no longer throws, so a refusal must be
+  // visible outside the process, otherwise it becomes a silent loss. The import cycle does not
+  // hooks up: TelemetryModule depends only on `ScheduleModule` and knows
+  // nothing about notifications.
   //
-  // Позиция 7a добавила два импорта:
-  //   - `MailerModule` — тот же `ResendMailerService`, что у формы контакта и
-  //     приглашений. Импортировать ради него `ContactModule` нельзя: получилось
-  //     бы кольцо notifications → contact → vacancies → notifications (см.
+  // Position 7a added two imports:
+  //   - `MailerModule` — the same `ResendMailerService` as the contact form and
+  //     invitations. Importing `ContactModule` for its sake is not possible: it would produce
+  //     the ring notifications → contact → vacancies → notifications (see
   //     `mailer.module.ts`).
-  //   - `ScheduleModule.forRoot()` — для `@Cron` отправщика, тот же приём, что
-  //     в `TelemetryModule` и `VacanciesModule`.
+  //   - `ScheduleModule.forRoot()` — for the sender's `@Cron`, the same device as
+  //     in `TelemetryModule` and `VacanciesModule`.
   imports: [DatabaseModule, TelemetryModule, MailerModule, ScheduleModule.forRoot()],
   controllers: [NotificationsController],
   providers: [
     NotificationsService,
     NotificationPreferencesService,
     NotificationEmailCronService,
-    // Шов отправщика: крон знает `OutboxGateway`, а не drizzle (см.
-    // `notification-email.cron.ts`). Токен нужен потому, что интерфейс
-    // TypeScript не переживает компиляцию и внедряться по типу не может.
+    // The sender's seam: the cron knows `OutboxGateway`, not drizzle (see
+    // `notification-email.cron.ts`). The token is needed because the interface
+    // does not survive TypeScript compilation and cannot be injected by type.
     { provide: OUTBOX_GATEWAY, useClass: OutboxRepository },
   ],
   exports: [NotificationsService],

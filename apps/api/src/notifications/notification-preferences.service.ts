@@ -1,17 +1,17 @@
 /**
- * Настройки каналов — позиция 7a, §3 решение 6 («каналы настраивает сам
- * сотрудник»).
+ * Channel settings — position 7a, §3 decision 6 («channels are configured by the
+ * employee»).
  *
- * RBAC здесь ровно один и он структурный: **каждый метод берёт `userId` из
- * сессии и ничем другим не параметризован.** Идентификатора пользователя нет
- * ни в пути, ни в теле запроса, поэтому чужие настройки нельзя ни прочитать,
- * ни записать — не потому, что проверка это запрещает, а потому, что назвать
- * чужого некому (`security-review`, паттерн 2: авторизация живёт в теле
- * сервиса, и судить о ней по контроллеру нельзя — здесь судить не о чем).
+ * RBAC here is exactly one rule, and it is structural: **every method takes `userId` from the
+ * session and is not parameterized by anything else.** The user identifier is absent from the
+ * path and from the request body, so others' settings can be neither read nor
+ * written — not because a check forbids it, but because there is no one to name
+ * as the other party (`security-review`, pattern 2: authorization lives in the service
+ * body, and it cannot be judged from the controller — there is nothing here to judge).
  *
- * Ролевых различий нет намеренно: настройка своей почты — не привилегия. Все
- * шесть ролей (`ADMIN`, `SENIOR`, `JUNIOR`, `HR`, `ACCOUNTANT`, `DROP`)
- * работают с ней одинаково, что и проверяется живьём в
+ * No role differences by design: setting one's own email is not a privilege. All
+ * six roles (`ADMIN`, `SENIOR`, `JUNIOR`, `HR`, `ACCOUNTANT`, `DROP`)
+ * work with it identically, which is verified live in
  * `notification-preferences.rbac.integration.spec.ts`.
  */
 import { Injectable } from '@nestjs/common'
@@ -30,10 +30,10 @@ export class NotificationPreferencesService {
   constructor(private readonly db: DatabaseService) {}
 
   /**
-   * Все десять типов, а не только те, у кого есть строка.
+   * All ten types, not only those that have a row.
    *
-   * Клиент не должен знать умолчание: знай он его, оно было бы записано в
-   * двух местах и однажды разошлось бы.
+   * The client must not know the default: if it did, the default would be written in
+   * two places and would eventually diverge.
    */
   async listForUser(userId: string): Promise<NotificationPreferencesResponse> {
     const rows = await this.db.db
@@ -51,10 +51,10 @@ export class NotificationPreferencesService {
         const locked = isEmailChannelLocked(type)
         return {
           type,
-          // Запертый тип отдаётся включённым ВСЕГДА, даже если в базе лежит
-          // «выключено» (строка от прежней версии или вписанная руками).
-          // Иначе человек видел бы выключенный переключатель и продолжал
-          // получать письма — то есть интерфейс врал бы о состоянии системы.
+          // A locked type is always returned as enabled, even if the database holds
+          // "disabled" (a row from an earlier version or one entered by hand).
+          // Otherwise a person would see a disabled toggle and keep
+          // receiving emails — that is, the interface would lie about the state of the system.
           emailEnabled: locked ? true : (stored.get(type) ?? true),
           locked,
         }
@@ -63,13 +63,13 @@ export class NotificationPreferencesService {
   }
 
   /**
-   * Записать отличия от умолчания и вернуть новое состояние целиком.
+   * Write the differences from the default and return the new state in full.
    *
-   * Разбор (`updateNotificationPreferencesSchema`) уже отверг попытку
-   * выключить запертый тип — до этого метода такой запрос не доходит. Здесь
-   * поэтому нет второй проверки того же: две проверки одного правила в разных
-   * местах расходятся молча, а чтение (`listForUser`) и постановка в очередь
-   * (`shouldQueueEmail`) и так игнорируют «выключено» у запертого типа.
+   * Parsing (`updateNotificationPreferencesSchema`) has already rejected an attempt to
+   * disable a locked type — such a request never reaches this method. Here
+   * there is therefore no second check of the same thing: two checks of one rule in different
+   * places silently diverge, while reading (`listForUser`) and queueing
+   * (`shouldQueueEmail`) already ignore "disabled" for a locked type.
    */
   async updateForUser(
     userId: string,
@@ -79,14 +79,14 @@ export class NotificationPreferencesService {
       await this.db.db
         .insert(notificationPreferences)
         .values(input.items.map((i) => ({ userId, type: i.type, emailEnabled: i.emailEnabled })))
-        // Одна строка на пару (пользователь, тип) — индекс
-        // `uq_notification_preferences_user_type`. Повторная правка
-        // перезаписывает, а не плодит.
+        // One row per pair (user, type) — the index
+        // `uq_notification_preferences_user_type`. A repeated edit
+        // overwrites rather than multiplies.
         .onConflictDoUpdate({
           target: [notificationPreferences.userId, notificationPreferences.type],
           set: {
-            // `excluded` — значение из отвергнутой вставки, то есть то, что
-            // прислал клиент.
+            // `excluded` — the value from the rejected insert, that is, what
+            // the client sent.
             emailEnabled: sql`excluded.email_enabled`,
             updatedAt: new Date(),
           },

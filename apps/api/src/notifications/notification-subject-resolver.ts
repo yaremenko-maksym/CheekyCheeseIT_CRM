@@ -1,98 +1,98 @@
 /**
- * §7.4 «Деградация»: уведомление живёт дольше, чем то, о чём оно. Проект
- * архивировали, документ удалили, согласование погашено через `supersededAt` —
- * кнопка обязана вести к честному «объекта больше нет», а не в белый экран.
+ * §7.4 "Degradation": a notification outlives the thing it is about. The project
+ * was archived, the document deleted, the approval closed via `supersededAt` —
+ * the button must lead to an honest "the object no longer exists", not to a blank screen.
  *
- * Здесь — ЧИСТАЯ половина этого правила: какие объекты надо проверить, какие
- * строки согласования прочитать и как из результатов проверок получается
- * ответ «объекта больше нет». Половина с запросами живёт в
- * `NotificationsService.resolveSubjectMissing` — ей нужна база, и она тривиальна
- * ровно потому, что решение принимается здесь.
+ * Here — the PURE half of this rule: which objects must be checked, which
+ * approval rows to read, and how the answer "the object no longer exists" is
+ * obtained from the check results. The half with queries lives in
+ * `NotificationsService.resolveSubjectMissing` — it needs the database, and it is trivial
+ * precisely because the decision is taken here.
  *
- * Разделение не косметическое: гейт мутаций гоняет только unit-прогон и не
- * видит интеграционных спек (`.claude/rules/common/mutation-gate-integration-specs.md`),
- * так что правило, спрятанное внутри метода с запросами, осталось бы
- * непроверенным. Здесь оно проверяется без базы вообще.
+ * The split is not cosmetic: the mutation gate runs only the unit run and does not
+ * see integration specs (`.claude/rules/common/mutation-gate-integration-specs.md`),
+ * so a rule hidden inside a method with queries would remain
+ * unchecked. Here it is checked without a database at all.
  */
 import type { ApprovalStatus, NotificationSubjectType } from '@crm/shared'
 
 /**
- * Состояние объекта, о котором уведомление.
+ * The state of the object the notification is about.
  *
- * QA-M-3 / QA-L-2 (manual-qa круг 2, #664): раньше здесь был булев ответ
- * «строка есть / строки нет», и архивированный проект попадал в «есть» —
- * кнопка оставалась активной, а джун, чьё членство завершилось каскадом
- * архивации, приезжал на страницу с текстом «Вас ещё не добавили в проект».
- * Ложь про событие, которое БЫЛО. Архив — третий ответ, а не разновидность
- * одного из двух: объект цел, но работа по нему закончена.
+ * QA-M-3 / QA-L-2 (manual-qa round 2, #664): previously this was a boolean answer
+ * "row exists / no row", and an archived project fell into "exists" —
+ * the button stayed active, and a junior whose membership ended by the cascade of
+ * archiving landed on a page saying "You have not been added to the project yet".
+ * A lie about an event that HAPPENED. Archived is a third answer, not a variant of
+ * one of the two: the object is intact, but the work on it is finished.
  *
- * Отсутствие в карте — «объекта больше нет»; поэтому вариантов здесь два, а
- * состояний у строки три.
+ * Absence from the map — "the object no longer exists"; therefore there are two variants here, and
+ * the row has three states.
  */
 export type SubjectState = 'active' | 'archived'
 
-/** Строка уведомления в объёме, достаточном для решения. */
+/** The notification row in the scope sufficient for the decision. */
 export type SubjectRef = {
   userId: string
   type: string
   subjectType: NotificationSubjectType | null
   subjectId: string | null
   /**
-   * QA-H-1 (manual-qa круг 3, #664): идентификатор КОНКРЕТНОЙ строки
-   * `approvals`, о которой это уведомление. Берётся из `data.approvalId`
-   * (`approvalIdFromData`), кладётся производителем. `null` — строка написана
-   * сборкой, которая его ещё не клала (см. `computeSubjectState`).
+   * QA-H-1 (manual-qa round 3, #664): the identifier of the SPECIFIC `approvals` row
+   * that this notification is about. Taken from `data.approvalId`
+   * (`approvalIdFromData`), put there by the producer. `null` — the row was written by
+   * an assembly that did not yet put it there (see `computeSubjectState`).
    */
   approvalId: string | null
 }
 
 /**
- * Типы, чья актуальность зависит от живости строки согласования.
+ * Types whose currency depends on the liveness of the approval row.
  *
- * QA-H-1 (manual-qa круг 3, #664). Здесь стоял `approvalSubjectTypeFor`,
- * который возвращал ВИД согласования (`PROJECT` / `PROJECT_SENIOR_SHARE` /
- * `USER_SENIOR_SHARE`) — он был частью ключа, которым уведомление
- * сопоставлялось со строкой `approvals`. Ключом была тройка «вид + объект +
- * подтверждающий», и в ней не было ничего, что различало бы ПОКОЛЕНИЯ: два
- * предложения по одной и той же доле одному и тому же синьору давали один и
- * тот же ключ. Живой прогон показал цену: предложить 30%, потом 35% — и оба
- * уведомления показываются активными, с разными процентами и двумя рабочими
- * кнопками.
+ * QA-H-1 (manual-qa round 3, #664). Here there was `approvalSubjectTypeFor`,
+ * which returned the KIND of approval (`PROJECT` / `PROJECT_SENIOR_SHARE` /
+ * `USER_SENIOR_SHARE`) — it was part of the key by which a notification
+ * was matched to an `approvals` row. The key was the triple "kind + object + approver",
+ * approver", and nothing in it distinguished GENERATIONS: two
+ * proposals on the same share to the same senior gave one and the
+ * same key. Live testing showed the cost: propose 30%, then 35% — and both
+ * notifications show as active, with different percentages and two working
+ * buttons.
  *
- * Теперь опознаётся СТРОКА (`approvalId` в данных), а не её описание,
- * поэтому виду согласования здесь делать нечего: остался вопрос «этот тип
- * вообще про согласование?», а на него отвечает `boolean`. Заодно исчезла
- * дублирующая карта видов, которую надо было держать в согласии с тремя
- * константами в `ProjectsService` / `UsersService`.
+ * Now the ROW is recognised (`approvalId` in the data), not its description,
+ * so there is nothing left for the approval kind to do here: the question "is this type
+ * about an approval at all?" remains, and a `boolean` answers it. A duplicate
+ * kind map, which had to be kept in agreement with the three
+ * constants in `ProjectsService` / `UsersService`, also disappeared.
  */
 export function awaitsApproval(type: string): boolean {
   return type === 'PROJECT_CONFIRM_REQUIRED' || type === 'SHARE_CONFIRM_REQUIRED'
 }
 
 /**
- * Форма `uuid`, которую `approvals.id` несёт как колонку в Postgres —
- * НЕ строгая v4-проверка (версия/вариант не важны здесь, важна форма записи).
- * Тот же класс проверки, что `z.string().uuid()`, без зависимости от Zod в
- * резолвере (SR-M-18, security-review круг 6, #664).
+ * The `uuid` shape that `approvals.id` carries as a column in Postgres —
+ * NOT a strict v4 check (version and variant do not matter here, the form of the record does).
+ * The same class of check as `z.string().uuid()`, without a dependency on Zod in the
+ * resolver (SR-M-18, security-review round 6, #664).
  */
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
- * Идентификатор строки согласования из данных уведомления (`data.approvalId`).
+ * The approval row identifier from the notification data (`data.approvalId`).
  *
- * `data` — `jsonb`, то есть `unknown` по определению: форму гарантирует Zod на
- * записи (`notificationDataSchemaFor`), а не чтение. Поэтому здесь разбор, а
- * не приведение типа: строка, чьи данные не той формы, обязана приехать без
- * идентификатора, а не уронить чтение всего списка (AC2 — тот же принцип, что
- * у `renderNotification`).
+ * `data` is `jsonb`, that is, `unknown` by definition: the shape is guaranteed by Zod at
+ * write time (`notificationDataSchemaFor`), not at read time. Therefore parsing here, and
+ * not a type cast: a row whose data has the wrong shape must arrive without
+ * the identifier, rather than breaking the read of the whole list (AC2 — the same principle as
+ * in `renderNotification`).
  *
- * SR-M-18 (security-review круг 6, #664). Значение уходит дальше в
- * `inArray(approvals.id, …)` — колонку `uuid`. Строка любой другой формы
- * доедет до Postgres как параметр сравнения и уронит запрос ошибкой `22P02`,
- * а с ним весь `GET /api/notifications` этого пользователя, а не одну строку
- * (ровно то, что первый абзац обещает не допускать). Форма проверяется здесь
- * же, где и тип — не той формы значит без идентификатора, тем же путём, что
- * «не строка» или «пустая».
+ * SR-M-18 (security-review round 6, #664). The value goes further into
+ * `inArray(approvals.id, …)` — a `uuid` column. A row of any other shape
+ * would reach Postgres as a comparison parameter and break the query with error `22P02`,
+ * and with it the whole `GET /api/notifications` of this user, rather than one row
+ * (exactly what the first paragraph promises to prevent). The shape is checked here,
+ * in the same place as the type — the wrong shape means no identifier, by the same path as
+ * "not a string" or "empty".
  */
 export function approvalIdFromData(data: unknown): string | null {
   if (typeof data !== 'object' || data === null) return null
@@ -100,7 +100,7 @@ export function approvalIdFromData(data: unknown): string | null {
   return typeof value === 'string' && UUID_SHAPE.test(value) ? value : null
 }
 
-/** Группирует идентификаторы по виду объекта — по одному запросу на вид. */
+/** Groups identifiers by object kind — one query per kind. */
 export function groupSubjectIds(rows: SubjectRef[]): Map<NotificationSubjectType, string[]> {
   const byType = new Map<NotificationSubjectType, Set<string>>()
   for (const row of rows) {
@@ -113,20 +113,20 @@ export function groupSubjectIds(rows: SubjectRef[]): Map<NotificationSubjectType
 }
 
 /**
- * ORCH-2 (fix-раунд 6, #664). Строка `approvals` с `supersededAt IS NULL`
- * (иначе её здесь не было бы — см. запрос в `NotificationsService`)
- * классифицируется в одно из двух: ЖИВАЯ (ещё ждёт ответа) или РЕШЁННАЯ (этот
- * же подтверждающий уже ответил, но генерацию никто не гасил). Разница важна
- * для подписи: живая даёт активную кнопку, решённая — «Решение уже принято»,
- * а всё остальное (нет строки вовсе, либо она погашена, либо `CANCELLED`) —
- * «Решение больше не требуется» (COPY-M-9, круг 3; см. `computeSubjectState`).
+ * ORCH-2 (fix round 6, #664). An `approvals` row with `supersededAt IS NULL`
+ * (otherwise it would not be here — see the query in `NotificationsService`)
+ * is classified into one of two: LIVE (still awaiting a reply) or RESOLVED (the same
+ * approver has already replied, but nobody cancelled the generation). The difference matters
+ * for the label: the live one gives an active button, the resolved one "Decision already made",
+ * and everything else (no row at all, or it is closed, or `CANCELLED`) —
+ * "Decision no longer required" (COPY-M-9, round 3; see `computeSubjectState`).
  *
- * Разбор ИСЧЕРПЫВАЮЩИЙ, тем же приёмом, что у `computeSubjectState` ниже:
- * `CANCELLED` сегодня всегда приходит С супersededAt (`cancelInTx` ставит оба
- * поля одной записью), то есть под фильтром `isNull(supersededAt)` такая
- * строка уже не должна встретиться, — но это инвариант СЕРВИСА, а не базы (нет
- * CHECK-ограничения), и явная ветка здесь defensively не даёт ему молча стать
- * «живым», если инвариант когда-нибудь нарушат.
+ * The parse is EXHAUSTIVE, by the same device as `computeSubjectState` below:
+ * `CANCELLED` today always arrives WITH `supersededAt` (`cancelInTx` sets both fields in
+ * one record), so under the filter `isNull(supersededAt)` such a row
+ * should no longer occur — but this is an invariant of the SERVICE, not of the database (there is no
+ * CHECK constraint), and the explicit branch here defensively keeps it from silently becoming
+ * "live" if the invariant is ever broken.
  */
 export type ApprovalRowClassification = 'live' | 'decided' | 'superseded'
 
@@ -147,8 +147,8 @@ export function classifyApprovalRow(status: ApprovalStatus): ApprovalRowClassifi
 }
 
 /**
- * Какие строки согласования надо прочитать для этой пачки уведомлений — по
- * идентификаторам, без повторов (одним запросом на весь список).
+ * Which approval rows must be read for this batch of notifications — by
+ * identifiers, without repeats (in one query for the whole list).
  */
 export function approvalIdsToCheck(rows: SubjectRef[]): string[] {
   const seen = new Set<string>()
@@ -161,33 +161,33 @@ export function approvalIdsToCheck(rows: SubjectRef[]): string[] {
 }
 
 /**
- * Итог. Пять ответов вместо трёх (ORCH-2, fix-раунд 6, #664, расширяет
+ * Summary. Five answers instead of three (ORCH-2, fix round 6, #664, extends
  * QA-M-3/QA-L-2):
- *   - `missing` — объект исчез (строки нет среди найденных);
- *   - `archived` — объект цел, но работа по нему закончена (QA-M-3/QA-L-2);
- *   - `approvalDecided` — объект жив, это уведомление про согласование, и
- *     ЭТОТ подтверждающий уже ответил (`classifyApprovalRow` → `decided`), но
- *     генерацию никто не гасил — вопрос закрыт с его стороны;
- *   - `approvalSuperseded` — объект жив, уведомление про согласование, а
- *     живого ответа для этого подтверждающего больше нет: предложение
- *     отозвали, пересоздали, погасил отказ соседа, либо строки не нашлось
- *     вовсе;
- *   - `active` — всё на месте, кнопка ведёт куда обещает.
+ *   - `missing` — the object has vanished (no row among those found);
+ *   - `archived` — the object is intact, but the work on it is finished (QA-M-3/QA-L-2);
+ *   - `approvalDecided` — the object is alive, this notification is about an approval, and
+ *     THIS approver has already replied (`classifyApprovalRow` → `decided`), but
+ *     nobody cancelled the generation — the question is closed on their side;
+ *   - `approvalSuperseded` — the object is alive, the notification is about an approval, but
+ *     there is no longer a live reply for this approver: the offer
+ *     was withdrawn, re-created, closed by a neighbour's refusal, or the row was not found
+ *     at all;
+ *   - `active` — everything is in place, the button leads where it promises.
  *
- * Раньше два последних состояния были одним «missing» — «Проект удалён» на
- * ЖИВОМ проекте, чьё предложение просто отозвали. Та же ложь, которую
- * QA-M-3/QA-L-2 нашёл для архива, только для согласования: подпись обязана
- * описывать то, что произошло, а не одалживать чужой смысл у соседнего
- * состояния.
+ * Previously the last two states were one "missing" — "Project deleted" on a
+ * LIVE project whose offer had simply been withdrawn. The same lie that
+ * QA-M-3/QA-L-2 found for the archive, only for the approval: the label must
+ * describe what happened, rather than borrowing a foreign meaning from a neighbouring
+ * state.
  *
- * Строка БЕЗ структурного объекта (три старых типа) — не «исчезла»: у неё
- * никогда и не было объекта, её кнопка идёт по сохранённой ссылке.
+ * A row WITHOUT a structural object (three legacy types) — is not "gone": it
+ * never had an object; its button follows the stored link.
  *
- * Порядок проверок содержателен, а не случаен: состояние ОБЪЕКТА решает
- * раньше живости согласования. Подпись выводится из вида объекта («Проект в
- * архиве»), и сказать про архивный проект «Проект удалён» (или «Предложение
- * отозвано») только потому, что предложение по нему погашено, — ровно та
- * ложь, ради которой заведена находка.
+ * The order of checks is meaningful, not accidental: the OBJECT's state decides
+ * before the approval's liveness. The label is derived from the object's kind ("Project in
+ * the archive"), and to say "Project deleted" (or "Proposal withdrawn") about an archived project
+ * only because the proposal on it was closed — exactly the lie the finding was made for.
+ * (the lie that the finding was raised to catch).
  */
 export type SubjectResolution = SubjectState | 'missing' | 'approvalSuperseded' | 'approvalDecided'
 
@@ -200,14 +200,14 @@ export function computeSubjectState(
   if (row.subjectType === null || row.subjectId === null) return 'active'
   const state = statesByType.get(row.subjectType)?.get(row.subjectId)
   if (state === undefined) return 'missing'
-  // Разбор ИСЧЕРПЫВАЮЩИЙ, а не парой сравнений, и это не украшение: состояние
-  // собирается вручную из колонки `archived_at` (`loadSubjectStates`), и
-  // значение, которого мы не ждём, обязано ронять разбор, а не превращаться
-  // молча в «живой» — молча это активная кнопка на объекте, про который
-  // ничего не известно. Тот же приём, что у `describeNotification` (CR-M-1).
-  // Гейт мутаций круга 5: при паре сравнений один из двух литералов всегда
-  // оставался непроверенным — какой именно, зависело от того, с каким из них
-  // сравнивают.
+  // The parse is EXHAUSTIVE, not a pair of comparisons, and this is no decoration: the state
+  // is assembled by hand from the `archived_at` column (`loadSubjectStates`), and
+  // a value we do not expect must break the parse rather than turn
+  // silently into "live" — silently that is an active button on an object about which
+  // nothing is known. The same device as `describeNotification` (CR-M-1).
+  // Mutation gate of round 5: with a pair of comparisons one of the two literals always
+  // remained unchecked — which one depended on which of them was
+  // compared against.
   switch (state) {
     case 'archived':
       return 'archived'
@@ -219,19 +219,19 @@ export function computeSubjectState(
     }
   }
   if (!awaitsApproval(row.type)) return 'active'
-  // QA-H-1: уведомление без идентификатора строки согласования опознать
-  // нечем — и сказать про него «решение больше не требуется» значило бы
-  // утверждать факт, которого мы не знаем. Кнопка остаётся: она ведёт на
-  // страницу объекта, где настоящее состояние предложения и показано. Такую
-  // строку может написать только сборка до этого круга — оба производителя
-  // кладут идентификатор, и форма данных (`notificationDataSchemaFor`) его
-  // требует.
+  // QA-H-1: a notification without an approval-row identifier cannot be recognised —
+  // and to say "a decision is no longer required" about it would mean
+  // asserting a fact we do not know. The button stays: it leads to the object's
+  // page, where the real state of the proposal is shown. Such a row
+  // can be written only by an assembly predating this round — both producers
+  // put in the identifier, and the data shape (`notificationDataSchemaFor`) makes it
+  // mandatory.
   if (row.approvalId === null) return 'active'
   if (liveApprovalIds.has(row.approvalId)) return 'active'
-  // ORCH-2: «решено» проверяется ОТДЕЛЬНО от «нет живой строки вовсе» — тот
-  // же приём, что различил архив и удаление. Ответившему подтверждающему
-  // говорят, что он уже ответил, а не что предложение отозвали у него из-под
-  // рук.
+  // ORCH-2: "resolved" is checked SEPARATELY from "no live row at all" — the same
+  // device that distinguished archive and deletion. The replied approver is
+  // told that they have already replied, not that the proposal was withdrawn from under
+  // their hands.
   if (decidedApprovalIds.has(row.approvalId)) return 'approvalDecided'
   return 'approvalSuperseded'
 }

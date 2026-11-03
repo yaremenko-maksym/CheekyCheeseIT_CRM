@@ -1,28 +1,28 @@
 /**
- * Отправщик писем по очереди `notification_emails` — позиция 7a, AC2.
+ * Email sender for the `notification_emails` queue — position 7a, AC2.
  *
- * Каждые пятнадцать секунд: взять пачку созревших строк, собрать письмо из
- * уведомления, отправить через `ResendMailerService`, отметить исход.
+ * Every fifteen seconds: take a batch of due rows, build an email from the
+ * notification, send it via `ResendMailerService`, record the outcome.
  *
- * **Шов — `OutboxGateway`, а не drizzle.** Всё, что отправщик делает с базой,
- * названо четырьмя операциями (`claimDue` / `addressesFor` / `markSent` /
- * `markFailed` / `scheduleRetry`). Это позволяет юнит-тесту проверять
- * ПОВЕДЕНИЕ («после пятой попытки строка хоронится»), а не форму SQL: мок
- * цепочки drizzle краснел бы на любом переписывании того же запроса, то есть
- * пиннинговал бы реализацию. Настоящий SQL — `FOR UPDATE SKIP LOCKED` и
- * предикат частичного индекса — проверяется на живой Postgres в
- * `notification-email-delivery.integration.spec.ts`, потому что ни того, ни
- * другого мок доказать не может по построению.
+ * **Seam — `OutboxGateway`, not drizzle.** Everything the sender does with the database
+ * is named as four operations (`claimDue` / `addressesFor` / `markSent` /
+ * `markFailed` / `scheduleRetry`). This lets the unit test check BEHAVIOUR
+ * ("after the fifth attempt the row is buried"), not the SQL shape: a mock of the
+ * drizzle chain would go red on any rewrite of the same query, that is, it would
+ * pin the implementation. The real SQL — `FOR UPDATE SKIP LOCKED` and the
+ * partial-index predicate — is checked on a live Postgres in
+ * `notification-email-delivery.integration.spec.ts`, because neither of these
+ * can be proven by a mock by construction.
  *
- * **Захват — аренда, а не статус.** `claimDue` одним оператором двигает
- * `next_attempt_at` вперёд и увеличивает `attempts`, оставляя статус QUEUED.
- * Упавший посреди HTTP-запроса процесс не оставляет строк, застрявших в
- * промежуточном состоянии: аренда истекает, и строка возвращается в очередь
- * сама, без отдельного сборщика мусора.
+ * **Claim is a lease, not a status.** `claimDue` in one statement moves
+ * `next_attempt_at` forward and increments `attempts`, leaving the status QUEUED.
+ * A process that crashes in the middle of an HTTP request leaves no rows stuck in an
+ * intermediate state: the lease expires and the row returns to the queue
+ * by itself, without a separate garbage collector.
  *
- * **HTTP — вне транзакции.** Держать транзакцию открытой на время запроса к
- * стороннему API значит держать коннекцию пула столько, сколько отвечает
- * чужой сервер. Захват коммитится, отправка идёт после него.
+ * **HTTP — outside a transaction.** Keeping a transaction open for the duration of a request to a
+ * third-party API means holding a pool connection for as long as the
+ * foreign server takes to answer. The claim commits; sending happens after it.
  */
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
@@ -42,27 +42,27 @@ import {
   type SkipReason,
 } from './notification-email-outbox'
 
-/** Сколько строк берётся за один проход. */
+/** How many rows are taken per pass. */
 export const CLAIM_BATCH_SIZE = 20
 
-/** Строка очереди вместе с уведомлением, из которого собирается письмо. */
+/** A queue row together with the notification the email is built from. */
 export interface ClaimedEmail {
   id: string
   userId: string
-  /** Уже увеличенное захватом число попыток: 1 на первом проходе. */
+  /** The attempt count already incremented by the claim: 1 on the first pass. */
   attempts: number
   notification: NotificationEmailSource
 }
 
-/** Всё, что отправщику нужно от базы. Реализация — `OutboxRepository`. */
+/** Everything the sender needs from the database. The implementation is `OutboxRepository`. */
 export interface OutboxGateway {
   claimDue(limit: number): Promise<ClaimedEmail[]>
   deliveryContextFor(userId: string, type: string): Promise<DeliveryContext>
   /**
-   * Состояние объекта письма — бэклог 208. Зовётся ТОЛЬКО для типов,
-   * требующих действия (`isActionRequiredNotificationType`, см. `deliver()`
-   * ниже); для информирующих и админских писем `deliver()` этот метод не
-   * вызывает вовсе, тем же резолвером, что и попап
+   * The state of the email object — backlog 208. Called ONLY for types
+   * that require action (`isActionRequiredNotificationType`, see `deliver()`
+   * below); for informational and admin emails `deliver()` does not call this
+   * method at all, using the same resolver as the popup
    * (`NotificationSubjectStateService.resolveOne`).
    */
   resolveSubjectState(
@@ -76,15 +76,15 @@ export interface OutboxGateway {
 }
 
 /**
- * Проход, идущий дольше этого, считается зависшим, и следующий тик начинает
- * работу, не дожидаясь его.
+ * A pass running longer than this is considered hung, and the next tick starts
+ * work without waiting for it.
  *
- * Пять минут — с запасом больше самого долгого возможного прохода: двадцать
- * строк по десять секунд таймаута к провайдеру дают чуть больше трёх минут в
- * худшем случае. Без этого срока флаг «идёт» становится вечным от одного
- * зависшего `await` (SR-L-4): `finally` его снимет, а если не снимет —
- * отправщик умолкает навсегда и молча, что для канала, доносящего «вас ждёт
- * решение», хуже двух одновременных проходов.
+ * Five minutes — with a margin above the longest possible pass: twenty
+ * rows at a ten-second timeout per provider call give a bit over three minutes in the
+ * worst case. Without this deadline the "running" flag becomes eternal because of one
+ * hung `await` (SR-L-4): `finally` clears it, but if it does not —
+ * the sender falls silent forever and silently, which for a channel that delivers "a decision
+ * is waiting for you" is worse than two simultaneous passes.
  */
 export const SWEEP_STUCK_AFTER_MS = 5 * 60_000
 
@@ -95,20 +95,20 @@ export class NotificationEmailCronService {
   private readonly logger = new Logger(NotificationEmailCronService.name)
   private readonly frontendUrl: string
   /**
-   * Куда приходит ответ на письмо. Публичный ящик, а не адрес получателя
-   * (SR-M-3): «ответ на наши письма приходит в публичный ящик» — та же
-   * конвенция, что у приглашения (`personal-email-invite-mailer.service.ts`).
-   * Круг 1 ставил сюда личный адрес самого читателя, и ответ уходил ему же.
+   * Where replies to the email go. The public mailbox, not the recipient's address
+   * (SR-M-3): "replies to our emails go to the public mailbox" — the same
+   * convention as the invitation (`personal-email-invite-mailer.service.ts`).
+   * Round 1 put the reader's own personal address here, and replies went to them.
    */
   private readonly replyTo: string
-  /** Ключа нет — предупредить ОДИН раз, а не четыре раза в минуту. */
+  /** No key — warn ONCE, not four times a minute. */
   private warnedUnconfigured = false
   /**
-   * Когда начался текущий проход, либо `null` — прохода нет.
+   * When the current pass started, or `null` — there is no pass.
    *
-   * Метка времени, а не флаг: флаг отвечает только на «идёт ли», и зависший
-   * проход делает ответ вечным (SR-L-4). Метка отвечает ещё и на «давно ли», а
-   * снимается она СВОИМ проходом — см. `handleDue`.
+   * A timestamp, not a flag: a flag answers only "is it running", and a hung
+   * pass makes the answer eternal (SR-L-4). A timestamp also answers "for how long", and
+   * it is cleared by ITS OWN pass — see `handleDue`.
    */
   private runningSince: number | null = null
 
@@ -118,31 +118,31 @@ export class NotificationEmailCronService {
     private readonly telemetry: TelemetryErrorsService,
     config: ConfigService<Env, true>,
   ) {
-    // `{ infer: true }` — подсказка ТИПАМ (`ConfigService<Env, true>` выводит
-    // тип значения по ключу). На исполнение она не влияет никак: `get()`
-    // вернёт то же значение и с `{}`, и с `{ infer: false }`, и без второго
-    // аргумента вовсе. Проверить это тестом нечем — наблюдаемой разницы не
-    // существует; само ИМЯ ключа при этом под тестом (заглушка настроек в
-    // спеке отвечает только на `FRONTEND_URL`).
-    // Stryker disable next-line ObjectLiteral,BooleanLiteral: `infer` — подсказка компилятору, у неё нет наблюдаемого поведения во время исполнения
+    // `{ infer: true }` — a hint to the TYPES (`ConfigService<Env, true>` derives the
+    // value type from the key). It has no effect on execution at all: `get()`
+    // returns the same value with `{}`, with `{ infer: false }`, and without a second
+    // argument at all. There is nothing to test this with — no observable difference
+    // exists; the key's NAME itself is under test (the settings stub in the spec
+    // answers only `FRONTEND_URL`).
+    // Stryker disable next-line ObjectLiteral,BooleanLiteral: `infer` is a compiler hint with no observable runtime behaviour
     this.frontendUrl = config.get('FRONTEND_URL', { infer: true })
-    // Stryker disable next-line ObjectLiteral,BooleanLiteral: то же — `infer` не меняет исполнение
+    // Stryker disable next-line ObjectLiteral,BooleanLiteral: same — `infer` does not change execution
     this.replyTo = config.get('CONTACT_PUBLIC_EMAIL', { infer: true })
   }
 
   /**
-   * Пятнадцать секунд — компромисс между «письмо пришло, пока человек ещё
-   * смотрит в почту» и стоимостью пустого запроса к индексу. Запрос по
-   * частичному индексу на пустой очереди — это одна страница индекса.
+   * Fifteen seconds — a compromise between "the email arrives while the person is still
+   * looking at their mail" and the cost of an empty query on the index. A query on the
+   * partial index over an empty queue is a single index page.
    */
   @Cron('*/15 * * * * *')
   async handleDue(): Promise<void> {
     const startedAt = Date.now()
     if (this.runningSince !== null) {
       if (startedAt - this.runningSince < SWEEP_STUCK_AFTER_MS) return
-      // Пять минут — не «наверное, ещё идёт», а «что-то не отпустило».
-      // Громко, потому что молчащий отправщик выглядит точно так же, как
-      // пустая очередь.
+      // Five minutes — not "probably still running" but "something did not release it".
+      // Loud, because a silent sender looks exactly like
+      // an empty queue.
       this.logger.warn(
         `Previous notification email sweep has not finished in ${SWEEP_STUCK_AFTER_MS / 60_000} minutes — starting a new one`,
       )
@@ -151,22 +151,22 @@ export class NotificationEmailCronService {
     try {
       await this.drainOnce()
     } catch (err: unknown) {
-      // Необработанный отказ в `@Cron`-обработчике молча убивает планировщик
-      // для ВСЕХ кронов процесса — тот же довод, что у
-      // `TelemetryRetentionCronService` и `VacanciesRetentionCronService`.
+      // An unhandled failure in a `@Cron` handler silently kills the scheduler
+      // for ALL crons of the process — the same argument as for
+      // `TelemetryRetentionCronService` and `VacanciesRetentionCronService`.
       this.logger.error(
         `Notification email sweep failed — retrying on the next tick${dbErrorLogSuffix(err)}`,
         safeErrorStack(err),
       )
     } finally {
-      // Снимает ТОЛЬКО свою метку. Иначе зависший проход, доехав до `finally`
-      // после того как его сменили, открыл бы дорогу третьему одновременному —
-      // то есть лечение зависания плодило бы проходы.
+      // Clears ONLY its own marker. Otherwise a hung pass, reaching `finally`
+      // after its marker was replaced, would open the road for a third simultaneous one —
+      // that is, curing a hang would multiply passes.
       if (this.runningSince === startedAt) this.runningSince = null
     }
   }
 
-  /** Один проход. Отдельно от `handleDue` — чтобы тест не ждал планировщика. */
+  /** One pass. Separate from `handleDue` — so that a test does not wait for the scheduler. */
   async drainOnce(): Promise<void> {
     if (!this.mailer.isConfigured) {
       if (!this.warnedUnconfigured) {
@@ -176,8 +176,8 @@ export class NotificationEmailCronService {
             'Rows stay QUEUED with zero attempts and will go out as soon as the key appears.',
         )
       }
-      // Ни одной попытки: строку НЕ берём, `attempts` не растёт, и потолок в
-      // пять попыток не тратится на отсутствие ключа.
+      // Not a single attempt: the row is NOT taken, `attempts` does not grow, and the ceiling of
+      // five attempts is not spent on a missing key.
       return
     }
 
@@ -188,19 +188,19 @@ export class NotificationEmailCronService {
   }
 
   private async deliver(item: ClaimedEmail): Promise<void> {
-    // Состояние получателя и его настройка читаются ЗДЕСЬ, в момент отправки,
-    // а не при постановке в очередь (§5 задания). Между событием и этой
-    // строкой прошло до пятнадцати секунд, а при ретраях — часы: человека
-    // успели уволить, а канал — включить или выключить.
+    // The recipient's state and setting are read HERE, at the moment of sending,
+    // not at enqueueing (§5 of the task). Between the event and this
+    // row up to fifteen seconds have passed, and with retries — hours: the person
+    // may have been dismissed, and the channel switched on or off.
     const context = await this.outbox.deliveryContextFor(item.userId, item.notification.type)
-    // Актуальность ОБЪЕКТА — бэклог 208, тем же приёмом, что и настройка
-    // канала: читается здесь, а не на постановке, потому что предложение
-    // могло погаснуть в этом самом окне. Только для трёх типов, требующих
-    // действия (`isActionRequiredNotificationType`) — письмо о случившемся
-    // ФАКТЕ (информирующие и админские типы) не устаревает оттого, что
-    // объект, о котором оно рассказывает, потом исчез или архивировался: тот
-    // же принцип, по которому попап не прячет карточку архивной команды, а
-    // помечает её архивной.
+    // The OBJECT's currency — backlog 208, by the same device as the channel
+    // setting: read here, not at enqueueing, because the proposal
+    // could have gone stale in this very window. Only for the three types requiring
+    // action (`isActionRequiredNotificationType`) — an email about a FACT that happened
+    // (informational and admin types) does not go stale because the
+    // object it reports on later disappeared or was archived: the same
+    // principle by which the popup does not hide an archived team's card, but
+    // marks it as archived.
     const subjectState = isActionRequiredNotificationType(item.notification.type)
       ? await this.outbox.resolveSubjectState(item.userId, item.notification)
       : undefined
@@ -208,22 +208,22 @@ export class NotificationEmailCronService {
     try {
       decision = decideDelivery(item.notification.type, { ...context, subjectState })
     } catch (err: unknown) {
-      // SR-L-1: `decideDelivery` бросает, если для action-required типа
-      // `subjectState` не пришёл определённым — это ошибка ВЫЗЫВАЮЩЕГО
-      // (текущий шлюз его подставляет всегда, см. условие выше; исключение —
-      // оборонительный рубеж на случай, если реализация `OutboxGateway`
-      // когда-нибудь ошибётся). Строка уходит в `FAILED`, а не проглатывается
-      // молча и не оставляет проход без остатка пачки: без этого catch
-      // исключение вылетело бы из `deliver()` наружу и оборвало бы
-      // необработанные строки текущего прохода до следующего тика.
+      // SR-L-1: `decideDelivery` throws if for an action-required type
+      // `subjectState` did not arrive defined — this is a CALLER error
+      // (the current gateway always supplies it, see the condition above; the exception is a
+      // defensive last line for the case that an `OutboxGateway` implementation
+      // someday gets it wrong). The row goes to `FAILED`, rather than being swallowed
+      // silently and leaving the pass with a remainder of the batch: without this catch the
+      // exception would fly out of `deliver()` and cut short
+      // the unprocessed rows of the current pass until the next tick.
       const reason = err instanceof Error ? err.message : 'unknown'
       await this.outbox.markFailed(item.id, reason)
       this.logger.error(`decideDelivery failed for id=${item.id}: ${reason}`)
-      // SR-L-3: тот же терминальный след, что у «сдались после N попыток»
-      // ниже — без него эта ветка `FAILED` не попадает в дайджест, и владелец
-      // узнаёт о ней только вручную читая `notification_emails` (§7.2). Ни
-      // адреса, ни текста письма: причина уже без PII (см. `decideDelivery`),
-      // а `type` — один из `ACTION_REQUIRED_NOTIFICATION_TYPES`.
+      // SR-L-3: the same terminal trace as "gave up after N attempts"
+      // below — without it this `FAILED` branch does not reach the digest, and the owner
+      // learns of it only by reading `notification_emails` by hand (§7.2). Neither
+      // the address nor the email text: the reason is already PII-free (see `decideDelivery`),
+      // and `type` is one of `ACTION_REQUIRED_NOTIFICATION_TYPES`.
       void this.telemetry
         .recordError({
           source: 'API',
@@ -243,19 +243,19 @@ export class NotificationEmailCronService {
       this.logSkip(item.id, decision.skipReason)
       return
     }
-    // `stripCrlf` на адресе получателя тоже (SR-L-7, security-review PR #673
-    // круг 2) — не только на `subject`/`reply_to`. Адрес приходит из
-    // `user_emails.email` (`varchar`, без CHECK-констрейнта); форму
-    // гарантирует только разбор запроса, а в базу можно попасть и мимо него
-    // (тот же довод, которым в `decideDelivery` оставлен последний рубеж для
-    // `emailEnabled`). Значение переиспользуется и для отправки, и для
-    // `markSent` — журнал доставки хранит ровно то, что реально ушло.
+    // `stripCrlf` on the recipient address too (SR-L-7, security-review PR #673
+    // round 2) — not only on `subject`/`reply_to`. The address comes from
+    // `user_emails.email` (`varchar`, no CHECK constraint); the shape is
+    // guaranteed only by request parsing, and data can reach the database bypassing it
+    // (the same argument by which `decideDelivery` keeps a last line of defence for
+    // `emailEnabled`). The value is reused both for sending and for
+    // `markSent` — the delivery journal stores exactly what was actually sent.
     const to = stripCrlf(decision.to)
 
-    // Язык — получателя ЭТОЙ строки, прочитанный в момент отправки вместе с архивом и
-    // адресом (`deliveryContextFor`). Рендерер строит свой `createI18n(locale)` на вызов:
-    // в кроне между письмами много `await`, и глобальная активация сменила бы язык
-    // посреди сборки соседнего письма.
+    // The language — of THIS row's recipient, read at the moment of sending together with the archive and
+    // the address (`deliveryContextFor`). The renderer builds its own `createI18n(locale)` per call:
+    // in the cron there are many `await`s between emails, and a global activation would switch the language
+    // midway through assembling a neighbouring email.
     const mail = renderNotificationEmail(item.notification, {
       frontendUrl: this.frontendUrl,
       locale: context.locale,
@@ -264,19 +264,19 @@ export class NotificationEmailCronService {
     try {
       await this.mailer.send({
         to: [to],
-        // `stripCrlf` на всё, что уезжает в ЗАГОЛОВОК письма — тот же контроль
-        // и та же причина, что в `contact.service.ts` (SR-M-1): имя проекта
-        // приходит из пользовательского ввода, где перевод строки разрешён
-        // валидацией, а заголовок, собранный из двух строк, — приглашение
-        // подсунуть лишний. Тело письма этого не требует: там перевод строки
-        // законен и безвреден.
+        // `stripCrlf` on everything that goes into the email's HEADER — the same control
+        // and the same reason as in `contact.service.ts` (SR-M-1): the project name
+        // comes from user input, where a line break is allowed by
+        // validation, while a header assembled from two lines lets an attacker
+        // inject an extra one. The email body does not need this: a line break
+        // there is legal and harmless.
         subject: stripCrlf(mail.subject),
         text: mail.text,
         html: mail.html,
-        // Ответ на письмо приходит в ПУБЛИЧНЫЙ ящик, как у приглашения
-        // (SR-M-3). Ставить сюда адрес самого читателя значило бы, что его
-        // ответ уйдёт ему же, а личный адрес вдобавок поедет в заголовке
-        // исходящего письма.
+        // The reply to the email goes to the PUBLIC mailbox, like the invitation's
+        // (SR-M-3). Putting the reader's own address here would mean their
+        // reply goes to them, and the personal address would additionally travel in the header
+        // of the outgoing email.
         replyTo: stripCrlf(this.replyTo),
       })
       await this.outbox.markSent(item.id, to)
@@ -287,8 +287,8 @@ export class NotificationEmailCronService {
         this.logger.error(
           `Email undelivered after ${MAX_EMAIL_ATTEMPTS} attempts: ${reason} [id=${item.id}]${dbErrorLogSuffix(err)}`,
         )
-        // Сдались — это событие для дайджеста: человек не узнал о том, о чём
-        // должен был. Ни адрес, ни текст туда не едут.
+        // Giving up is an event for the digest: the person did not learn about what they
+        // should have. Neither the address nor the text goes there.
         void this.telemetry
           .recordError({
             source: 'API',
@@ -311,15 +311,15 @@ export class NotificationEmailCronService {
   }
 
   /**
-   * След пропуска в журнале — одной строкой и одним уровнем на все пять
-   * причин.
+   * The trace of a skip in the journal — one line and one level for all five
+   * reasons.
    *
-   * `warn`, а не `error`: штатный исход (уволен, сам выключил, тип без
-   * письма, объект устарел), и разводить уровни по причине значило бы
-   * заводить второе правило рядом с `skip_reason`, которое разошлось бы с ним
-   * при первой новой причине. Кому нужен разбор — читает колонку, а не уровень
-   * журнальной строки. Адреса в строке нет: только идентификатор строки
-   * очереди, как и во всех остальных строках этого файла.
+   * `warn`, not `error`: the routine outcome (dismissed, switched off by the person, a type without
+   * an email, the object is stale), and splitting levels by reason would mean
+   * creating a second rule next to `skip_reason` that would diverge from it
+   * at the first new reason. Whoever needs the breakdown reads the column, not the level.
+   * journal row. There is no address in the row: only the identifier of the queue row,
+   * as in every other row of this file.
    */
   private logSkip(id: string, reason: SkipReason): void {
     this.logger.warn(`Email skipped (${reason}) [id=${id}]`)
@@ -327,19 +327,19 @@ export class NotificationEmailCronService {
 }
 
 /**
- * Причина отказа БЕЗ тела ответа провайдера.
+ * The reason for failure WITHOUT the provider's response body.
  *
- * `ResendMailerService.send` бросает `Error` с текстом `Resend API HTTP
- * <статус>: <кусок тела>`, и этот кусок для отвергнутого адреса цитирует сам
- * адрес — то есть ровно те данные, которых этот проект не пишет ни в журнал,
- * ни в базу. Оставляем статус (по нему видно «битый запрос» против «провайдер
- * лежит»), в остальных случаях — имя класса ошибки.
+ * `ResendMailerService.send` throws an `Error` with the text `Resend API HTTP
+ * <status>: <piece of body>`, and for a rejected address this piece quotes the address itself —
+ * that is, exactly the data this project writes neither to the journal
+ * nor to the database. We keep the status (it shows "bad request" versus "provider
+ * is down"); in other cases — the error class name.
  *
- * Тот же приём и та же причина, что в
+ * The same device and the same reason as in
  * `personal-email-invite-mailer.service.ts` (LOW-3, security-review PR #623).
- * Скопирован, а не вынесен: там он приватная деталь одного сервиса, и общий
- * хелпер на два вызывающих связал бы почту приглашений с почтой уведомлений
- * ради восьми строк. Появится третий — вынести.
+ * Copied, not extracted: there it is a private detail of one service, and a shared
+ * helper for two callers would tie invitation mail to notification mail
+ * for the sake of eight lines. When a third appears — extract it.
  */
 function safeErrorReason(err: unknown): string {
   if (err instanceof Error) {

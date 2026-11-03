@@ -1,22 +1,22 @@
 /**
- * Решения очереди писем — чистыми функциями, отдельно от сервиса и крона.
+ * Decisions of the email queue as pure functions, separate from the service and the cron.
  *
- * Почему отдельно: гейт мутаций не исполняет ни одной интеграционной спеки
- * (`.claude/rules/common/mutation-gate-integration-specs.md`), а ошибиться
- * здесь дороже всего. «Заводить ли строку» молча теряет единственный канал,
- * доходящий до закрытой вкладки; «слать ли и куда» шлёт письмо не тому
- * человеку — в том числе уволенному, на личную почту. Все функции проверяются
- * юнит-тестом, который гейт видит.
+ * Why separate: the mutation gate runs no integration spec at all
+ * (`.claude/rules/common/mutation-gate-integration-specs.md`), and a mistake
+ * here is the most costly. "Whether to create a row" silently loses the only channel that
+ * reaches a closed tab; "whether to send and where" sends an email to the wrong
+ * person — including a dismissed one, to a personal address. Every function is checked by a
+ * unit test, which the gate sees.
  *
- * **Два момента решения, а не один.** Постановка (`decideEnqueue`) знает
- * только тип события и то, жив ли получатель. Отправка (`decideDelivery`)
- * знает ещё и настройку канала, и адреса — и именно она решает, уйдёт ли
- * письмо. Так требует задание (§5: «Отправщик проверяет настройку в момент
- * отправки, не при постановке в очередь»), и причина не формальная: между
- * событием и отправкой проходит до пятнадцати секунд, а при ретраях — часы.
- * Человек, включивший канал в этом окне, письмо получает; выключивший — не
- * получает. Решение, принятое на постановке, обе эти правки игнорирует
- * молча.
+ * **Two decision points, not one.** Enqueueing (`decideEnqueue`) knows
+ * only the event type and whether the recipient is alive. Delivery (`decideDelivery`)
+ * also knows the channel setting and the addresses — and it is that which decides whether
+ * the email goes out. The task requires this (§5: "The sender checks the setting at the moment
+ * of sending, not at enqueueing"), and the reason is not formal: between
+ * the event and the sending up to fifteen seconds pass, and with retries — hours.
+ * A person who enabled the channel within this window gets the email; one who disabled it does not.
+ * A decision taken at enqueueing ignores both of these edits
+ * silently.
  */
 import {
   isActionRequiredNotificationType,
@@ -27,24 +27,24 @@ import {
 } from '@crm/shared'
 import type { SubjectResolution } from './notification-subject-resolver'
 
-/** Потолок попыток. Шестой не будет — строка уходит в `FAILED`. */
+/** Attempt ceiling. The sixth will not happen — the row goes to `FAILED`. */
 export const MAX_EMAIL_ATTEMPTS = 5
 
 /**
- * SR-M-1 / CR-M-1 (security-review + code-review круг 1, PR #714). Три
- * замороженных типа (task-i18n-stage4-task6) попали в `NEW_NOTIFICATION_TYPES`
- * этим самым PR — и `isNewNotificationType()` ниже, до этого исключения, молча
- * включала им письма: `INVOICE_SIGN_REQUIRED` контрагенту, `INVOICE_SIGNED`
- * админу, `VACANCY_APPLICATION` каждому ADMIN/HR (последнее — с анонимной
- * публичной формы). Регистрация типа в реестре уведомлений и включение НОВОГО
- * ВНЕШНЕГО канала отправки (письмо на личную почту) — разные решения
- * (`autonomy-levels.md`: внешняя отправка вне A1); тексты писем для этих трёх
- * типов и не прошли copy-review как письма (`notification-email-copy.ts`
- * даёт им только заглушки на украинском, Task 7 их мигрирует).
+ * SR-M-1 / CR-M-1 (security-review + code-review round 1, PR #714). Three
+ * frozen types (task-i18n-stage4-task6) got into `NEW_NOTIFICATION_TYPES`
+ * in this very PR — and `isNewNotificationType()` below, before this exclusion, silently
+ * enabled emails for them: `INVOICE_SIGN_REQUIRED` to the counterparty, `INVOICE_SIGNED`
+ * to the admin, `VACANCY_APPLICATION` to each ADMIN/HR (the last one from an anonymous
+ * public form). Registering a type in the notification registry and enabling a NEW
+ * EXTERNAL delivery channel (email to a personal address) are different decisions
+ * (`autonomy-levels.md`: external sending is outside A1); the email texts for these three
+ * types have not passed copy review as emails (`notification-email-copy.ts`)
+ * gives them only Ukrainian placeholders; Task 7 will migrate them).
  *
- * Поведение писем в ЭТОМ PR — ровно как на `origin/main`, где этих трёх типов
- * не существовало: явный список здесь отвязывает «есть письмо» от
- * `isNewNotificationType()`, а не полагается на побочный эффект регистрации.
+ * The email behaviour in THIS PR is exactly as on `origin/main`, where these three types
+ * did not exist: the explicit list here decouples "there is an email" from
+ * `isNewNotificationType()`, rather than relying on a side effect of registration.
  */
 const NOTIFICATION_TYPES_WITHOUT_EMAIL_TEMPLATE = new Set<NewNotificationType>([
   'INVOICE_SIGNED',
@@ -53,35 +53,35 @@ const NOTIFICATION_TYPES_WITHOUT_EMAIL_TEMPLATE = new Set<NewNotificationType>([
 ])
 
 /**
- * «У типа есть шаблон письма» — старый тип (до реестра) тоже не имеет.
+ * "The type has an email template" — an old type (predating the registry) does not either.
  *
- * Типовой предикат (`type is NewNotificationType`), не просто `boolean`:
- * `decideDelivery` ниже сужает `type` этим вызовом и передаёт его дальше в
- * `isEmailChannelLocked(type: NewNotificationType)` — обычный `boolean` не
- * сужал бы тип, и звонок ниже перестал бы компилироваться (тот же узкий
- * контракт, что раньше держал `isNewNotificationType` в одиночку).
+ * A type predicate (`type is NewNotificationType`), not a plain `boolean`:
+ * `decideDelivery` below narrows `type` by this call and passes it further to
+ * `isEmailChannelLocked(type: NewNotificationType)` — a plain `boolean` would not
+ * narrow the type, and the call below would stop compiling (the same narrow
+ * contract that `isNewNotificationType` once held alone).
  */
 function hasEmailTemplate(type: string): type is NewNotificationType {
   return isNewNotificationType(type) && !NOTIFICATION_TYPES_WITHOUT_EMAIL_TEMPLATE.has(type)
 }
 
 /**
- * Почему письма не будет. Отличает «не смогли отправить» (`FAILED`) от «не
- * полагалось отправлять» (`SKIPPED` + причина) — без этого различия вопрос
- * «почему сотруднику не пришло письмо про X» не имеет ответа в данных
+ * Why there is no email. Distinguishes "could not send" (`FAILED`) from "not
+ * was supposed to be sent (`SKIPPED` + reason) — without this distinction the question
+ * "why did the employee not receive the email about X" has no answer in the data
  * (SPEC-H-1 / CR-H-1 / SR-L-2).
  *
- * Дубль типа `notification_email_skip_reason` из `schema.ts` — намеренный и
- * под тестом: `notification-email-outbox.spec.ts` сверяет этот перечень с
- * `notificationEmailSkipReasonEnum.enumValues`. Иначе пришлось бы тащить
- * drizzle в модуль, который специально не знает про базу.
+ * A copy of the `notification_email_skip_reason` type from `schema.ts` — deliberate and
+ * under test: `notification-email-outbox.spec.ts` checks this list against
+ * `notificationEmailSkipReasonEnum.enumValues`. Otherwise we would have to drag
+ * drizzle into a module that deliberately knows nothing about the database.
  *
- * `STALE` (бэклог 208) — согласование или контракт, о котором письмо,
- * перестали быть актуальными между постановкой в очередь и отправкой:
- * предложение отозвали, пересоздали, погасил отказ соседа, либо контракт уже
- * подписан. Отличается от `CHANNEL_OFF` тем, что не про настройку человека, а
- * от `LEGACY_TYPE` — тем, что у типа есть и шаблон, и объект, просто объект
- * больше не ждёт ответа.
+ * `STALE` (backlog 208) — the approval or contract the email is about has
+ * ceased to be current between enqueueing and sending:
+ * the offer was withdrawn or re-created, a counterparty's refusal settled it, or the contract is already
+ * signed. Differs from `CHANNEL_OFF` in that it is not about the person's setting, and
+ * from `LEGACY_TYPE` — in that the type has both a template and an object, but the object
+ * no longer waits for a reply.
  */
 export const SKIP_REASONS = [
   'NO_ADDRESS',
@@ -93,41 +93,41 @@ export const SKIP_REASONS = [
 export type SkipReason = (typeof SKIP_REASONS)[number]
 
 /**
- * Сколько ждать перед следующей попыткой после `attempt`-й неудачи.
+ * How long to wait before the next attempt after the `attempt`-th failure.
  *
- * `min(2^attempts, 60)` минут — задание, §2, дословно: 2/4/8/16/32/60. Две
- * минуты на первой неудаче, а не одна: типовой отказ здесь — `429` или
- * пятисотка провайдера, и повтор через минуту означает пять попыток за пять
- * минут, то есть пять отказов вместо одного. Потолок нужен, чтобы пятая
- * попытка случилась в тот же рабочий день.
+ * `min(2^attempts, 60)` minutes — the task's §2 verbatim: 2/4/8/16/32/60. Two
+ * minutes at the first failure, not one: the typical failure here is a provider `429` or
+ * a 500, and a retry after one minute would mean five attempts in five minutes,
+ * that is, five failures instead of one. The ceiling is needed so that the fifth
+ * attempt happens within the same working day.
  */
 export function backoffMs(attempt: number): number {
   const minute = 60_000
   return Math.min(minute * 2 ** attempt, 60 * minute)
 }
 
-/** Что делать со строкой очереди в момент записи уведомления. */
+/** What to do with an outbox row at the moment a notification is written. */
 export type EnqueueDecision =
   | { status: 'QUEUED' }
   | { status: 'SKIPPED'; skipReason: Extract<SkipReason, 'LEGACY_TYPE' | 'USER_ARCHIVED'> }
 
 /**
- * Заводить ли строку очереди и в каком состоянии.
+ * Whether to create an outbox row, and in what state.
  *
- * Строка заводится ВСЕГДА — вопрос только в статусе. «Строки нет» не
- * отвечает на вопрос, почему письма не было: ровно за этим ответом заказаны
- * `SKIPPED` и `skip_reason` (§1 задания).
+ * The row is ALWAYS created — the only question is the status. "No row" does not
+ * answer why no email was sent: `SKIPPED` and `skip_reason` exist precisely to answer that
+ * (§1 of the task).
  *
- * Настройку канала эта функция не принимает и принимать не должна — см.
- * заголовок файла.
+ * This function does not accept the channel setting and must not — see
+ * the file header.
  */
 export function decideEnqueue(type: string, recipientArchived: boolean): EnqueueDecision {
-  // Порядок причин: у типа, писем не имеющего ВОВСЕ (легаси-типы до реестра,
-  // и — SR-M-1/CR-M-1, PR #714 — три замороженных типа этого PR, у которых
-  // ЕСТЬ шаблон текста в попапе, но ещё нет утверждённого шаблона ПИСЬМА, см.
-  // `hasEmailTemplate` выше), вопрос «кто получатель» не встаёт. Ни шаблона,
-  // ни настройки у него нет, и след «письма этому типу не положены» точнее,
-  // чем след про состояние человека.
+  // Order of reasons: a type with NO email at all (legacy types predating the registry,
+  // and — SR-M-1/CR-M-1, PR #714 — the three frozen types of this PR, which HAVE popup text
+  // but no approved EMAIL template yet, see `hasEmailTemplate` above) never raises the
+  // "who is the recipient" question. There is neither a template nor a setting for it,
+  // and the trace "emails are not due for this type" is more precise
+  // than a trace about the person's state.
   if (!hasEmailTemplate(type)) return { status: 'SKIPPED', skipReason: 'LEGACY_TYPE' }
   if (recipientArchived) return { status: 'SKIPPED', skipReason: 'USER_ARCHIVED' }
   return { status: 'QUEUED' }
@@ -138,40 +138,40 @@ export interface AddressRow {
   kind: 'WORK' | 'PERSONAL'
 }
 
-/** Всё о получателе, что нужно знать в момент отправки. */
+/** Everything about the recipient that is needed at the moment of sending. */
 export interface DeliveryContext {
-  /** `users.archived_at IS NOT NULL` — то есть человек уволен. */
+  /** `users.archived_at IS NOT NULL` — that is, the person has been dismissed. */
   archived: boolean
   addresses: readonly AddressRow[]
   /**
-   * Запись настройки ЭТОГО типа, если человек её менял; `null` — записи нет.
+   * The record of THIS type's setting if the person changed it; `null` — no record.
    *
-   * Отсутствие записи означает «письма идут»: умолчание «выключено» означало
-   * бы, что подсистема не работает ни для кого, пока каждый не зайдёт в
-   * настройки. Три состояния (`true` / `false` / нет записи) не сводятся к
-   * двум: «включил сам» и «не трогал» ведут себя одинаково сегодня, но
-   * различить их в данных нужно, чтобы смена умолчания не переписала чужой
-   * выбор.
+   * No record means "emails are sent": a default of "disabled" would mean that the
+   * subsystem does not work for anyone until every person opens their
+   * settings. Three states (`true` / `false` / no record) do not collapse into
+   * two: "switched it on myself" and "never touched it" behave the same today, but
+   * they must be distinguishable in the data, so that changing the default does not overwrite someone else's
+   * choice.
    */
   emailEnabled: boolean | null
   /**
-   * Состояние объекта письма, вычисленное ТЕМ ЖЕ резолвером, что и попап
-   * (`computeSubjectState` / `NotificationSubjectStateService`) — бэклог 208.
+   * The state of the email object, computed by the SAME resolver as the popup
+   * (`computeSubjectState` / `NotificationSubjectStateService`) — backlog 208.
    *
-   * `undefined` значит «не проверялось»: для информирующих и админских типов
-   * (§7.2, «письмо о факте не деградирует») вызывающий (крон) резолвер не
-   * зовёт вовсе, и эта функция обязана пропустить их так же, как раньше —
-   * письмо о случившемся факте не устаревает оттого, что сам факт потом
-   * удалили. Для трёх типов, требующих действия
-   * (`isActionRequiredNotificationType`), вызывающий обязан подставить сюда
-   * настоящий ответ резолвера; `'active'` — единственное значение, при
-   * котором письмо всё ещё уходит.
+   * `undefined` means "not checked": for informational and admin types
+   * (§7.2, "a fact-notification email does not degrade") the calling cron does not call the
+   * resolver at all, and this function must skip them just as before —
+   * an email about a fact that has occurred does not go stale because the fact itself was later
+   * deleted. For the three types that require action
+   * (`isActionRequiredNotificationType`) the caller must substitute here
+   * the real resolver answer; `'active'` is the only value at which
+   * the email still goes out.
    */
   subjectState?: SubjectResolution | undefined
   /**
-   * Язык ПОЛУЧАТЕЛЯ на момент отправки (`users.locale`; мусор и «пользователя нет»
-   * дают `uk`). `decideDelivery` его не читает — поле нужно только рендерерам письма,
-   * и на решение «слать ли и куда» влиять не может (закреплено тестом).
+   * The RECIPIENT's language at the moment of sending (`users.locale`; garbage and "no user"
+   * yield `uk`). `decideDelivery` does not read it — the field is needed only by email renderers,
+   * and cannot influence the decision "whether to send and where" (pinned by a test).
    */
   locale: Locale
 }
@@ -179,24 +179,24 @@ export interface DeliveryContext {
 export type SendDecision = { send: true; to: string } | { send: false; skipReason: SkipReason }
 
 /**
- * Уходит ли письмо и на какой адрес — решение в момент отправки.
+ * Whether the email goes out, and to which address — a decision at the moment of sending.
  *
- * Порядок причин задан от самой сильной к самой слабой, и каждая ступень
- * закреплена тестом:
+ * The order of reasons runs from strongest to weakest, and each rung
+ * is pinned by a test:
  *
- * 1. **архив** — увольнение. `JwtAuthGuard` уже отзывает доступ такому
- *    человеку, а письмо — единственный канал, который до него ДОХОДИТ
- *    (SR-H-1). Перебивает всё: причина «уволен» объясняет непришедшее письмо,
- *    «нет адреса» — нет.
- * 2. **старый тип** — письма нет вовсе (ни шаблона, ни настройки).
- * 3. **устарело** (бэклог 208) — объект, о котором письмо, больше не ждёт
- *    ответа: согласование отозвали/решили, контракт уже подписан. Раньше
- *    настройки канала — письмо о несостоявшемся событии недопустимо
- *    независимо от того, включён ли канал (§7.2).
- * 4. **выключенный канал** — человек так решил (AC6). Отличается от «нет
- *    адреса» тем, что не требует ничьего вмешательства.
- * 5. **нет адреса** — единственная причина, которая означает пробел в данных
- *    и требует действия администратора.
+ * 1. **archived** — dismissal. `JwtAuthGuard` already revokes access for such a
+ *    person, and the email is the only channel that still REACHES them
+ *    (SR-H-1). It overrides everything: the reason "dismissed" explains the missing email,
+ *    "no address" does not.
+ * 2. **legacy type** — there is no email at all (neither template nor setting).
+ * 3. **stale** (backlog 208) — the object the email is about no longer awaits
+ *    a reply: the approval was withdrawn or decided, the contract is already signed. Earlier
+ *    the channel setting — an email about an event that did not happen is unacceptable
+ *    regardless of whether the channel is enabled (§7.2).
+ * 4. **channel off** — the person decided so (AC6). Differs from "no address"
+ *    in that it requires nobody's intervention.
+ * 5. **no address** — the only reason that signals a gap in the data
+ *    and requires administrator action.
  */
 export function decideDelivery(type: string, ctx: DeliveryContext): SendDecision {
   if (ctx.archived) return { send: false, skipReason: 'USER_ARCHIVED' }
@@ -204,17 +204,17 @@ export function decideDelivery(type: string, ctx: DeliveryContext): SendDecision
   // see its doc comment above `NOTIFICATION_TYPES_WITHOUT_EMAIL_TEMPLATE`.
   if (!hasEmailTemplate(type)) return { send: false, skipReason: 'LEGACY_TYPE' }
   if (isActionRequiredNotificationType(type)) {
-    // SR-L-1 (PR #678, круг 2): для action-required типа `subjectState`
-    // ОБЯЗАН прийти определённым — единственный вызывающий, умеющий его не
-    // передать (крон), уже подставляет его всегда через
-    // `isActionRequiredNotificationType` в `deliver()`. `undefined` здесь —
-    // не «не проверялось» (как для информирующих типов), а ошибка ВЫЗЫВАЮЩЕГО:
-    // fail-loud throw, а не молчаливый `SKIPPED/STALE` — письмо, пропавшее
-    // из-за бага, не должно быть неотличимо в данных от письма о
-    // несуществующем согласовании (`decideDelivery` не маскирует одно под
-    // другое). Крон ловит это исключение и переводит строку в `FAILED` с
-    // текстом ошибки в `last_error` (без PII — сообщение называет только тип
-    // уведомления).
+    // SR-L-1 (PR #678, round 2): for an action-required type `subjectState`
+    // MUST arrive defined — the only caller able to omit it
+    // (the cron) already always passes it via
+    // `isActionRequiredNotificationType` in `deliver()`. Here `undefined` is
+    // not "not checked" (as for informational types) but an error of the CALLER:
+    // a fail-loud throw, not a silent `SKIPPED/STALE` — an email lost to a bug must not
+    // be indistinguishable in the data from an email about a nonexistent approval
+    // (`decideDelivery` does not disguise one as the other). The cron catches this
+    // exception and moves the row to `FAILED` with the error text in
+    // `last_error` (no PII — the message names only the notification type
+    // ).
     if (ctx.subjectState === undefined) {
       throw new Error(
         `decideDelivery: subjectState is required for action-required type "${type}" but was not passed`,
@@ -224,10 +224,10 @@ export function decideDelivery(type: string, ctx: DeliveryContext): SendDecision
       return { send: false, skipReason: 'STALE' }
     }
   }
-  // Запертый тип игнорирует запись целиком — §3: «письма про подтверждения и
-  // подписи отключить нельзя… иначе процесс встаёт молча». Такая запись не
-  // проходит разбор запроса, но в базу может попасть мимо API (руками,
-  // миграцией, прежней версией), и последний рубеж — здесь.
+  // A locked type ignores the record entirely — §3: "emails about confirmations and
+  // signatures cannot be switched off… otherwise the process silently stops". Such a record does not
+  // pass request parsing, but it can reach the database bypassing the API (by hand,
+  // by migration, by a prior version), and the last line of defence is here.
   if (ctx.emailEnabled === false && !isEmailChannelLocked(type)) {
     return { send: false, skipReason: 'CHANNEL_OFF' }
   }
@@ -237,29 +237,29 @@ export function decideDelivery(type: string, ctx: DeliveryContext): SendDecision
 }
 
 /**
- * Куда слать: личный адрес, если он есть, иначе рабочий.
+ * Where to send: the personal address if there is one, otherwise the work address.
  *
- * Личный предпочитается независимо от `verified_at` — спека §5 о личном
- * адресе прямым текстом: «адрес существует, письма на него идут, войти по
- * нему нельзя». Подтверждение открывает ВХОД, а не почту.
+ * The personal one is preferred regardless of `verified_at` — the spec's §5 on the personal
+ * address states it plainly: "the address exists, emails go to it, but you cannot sign in with
+ * it." Verification opens the SIGN-IN, not the mailbox.
  *
- * Цена ошибки в адресе ограничена конструкцией письма: оно не содержит ни
- * сумм, ни процентов, ни имён (§10, `notification-email-copy.ts`), поэтому
- * опечатка раскрывает только сам факт «для вас есть запрос в CRM».
+ * The cost of an error in the address is limited by the construction of the email: it contains neither
+ * amounts, nor percentages, nor names (§10, `notification-email-copy.ts`), so
+ * a typo reveals only the fact "there is a request for you in the CRM".
  */
 export function pickEmailAddress(rows: readonly AddressRow[]): string | null {
-  // Второй проверки вида здесь НЕТ, и это не небрежность.
+  // There is no second check of this kind here, and this is not carelessness.
   //
-  // У `user_email_kind` ровно два значения, личное отобрано строкой выше —
-  // значит любая оставшаяся строка рабочая, и `kind === 'WORK'` было бы
-  // условием, которое не может оказаться ложным. Мутационный гейт это и
-  // показал: «всегда истина» на нём неотличима от самой проверки, а подавить
-  // ТОЛЬКО эту половину нечем — `disable next-line` глушит и вторую, которую
-  // тест как раз ловит.
+  // `user_email_kind` has exactly two values, and the personal one was singled out by the row above —
+  // so any remaining row is a work one, and `kind === 'WORK'` would be
+  // a condition that cannot be false. The mutation gate showed exactly this: "always true" there is
+  // indistinguishable from the check itself, and there is no way to suppress ONLY this half —
+  // `disable next-line` silences the second one too, which the
+  // test does catch.
   //
-  // Инвариант «видов ровно два» держится не комментарием: его проверяет
-  // `notification-email-outbox.spec.ts` прямо на `userEmailKindEnum`. Добавят
-  // третий вид — тест покраснеет здесь, и выбор адреса придётся переписать
-  // осознанно, а не обнаружить письмо о деньгах, ушедшее не туда.
+  // The invariant "exactly two kinds" is not held up by a comment: `notification-email-outbox.spec.ts`
+  // checks it directly against `userEmailKindEnum`. If someone adds a
+  // third kind, the test goes red here and the address choice must be rewritten
+  // deliberately, rather than discovering an email about money that went to the wrong place.
   return rows.find((r) => r.kind === 'PERSONAL')?.email ?? rows[0]?.email ?? null
 }

@@ -65,15 +65,15 @@ export class NotificationsController {
   }
 
   // ---------------------------------------------------------------------------
-  // GET /api/notifications/preferences   (позиция 7a)
+  // GET /api/notifications/preferences   (position 7a)
   // ---------------------------------------------------------------------------
-  // Стоит ВЫШЕ `:id/read` по той же причине, что и `read-all`: иначе
-  // `ParseUUIDPipe` попытается прочитать «preferences» как UUID.
+  // It stands ABOVE `:id/read` for the same reason as `read-all`: otherwise
+  // `ParseUUIDPipe` would try to read "preferences" as a UUID.
   //
-  // Идентификатора пользователя нет ни в пути, ни в теле: обе ручки работают
-  // с настройками ТОГО, КТО СПРОСИЛ. Чужие настройки нельзя ни прочитать, ни
-  // записать не потому, что проверка это запрещает, а потому что назвать
-  // чужого нечем.
+  // There is no user identifier in either the path or the body: both handlers work
+  // with the settings of WHOEVER ASKED. Others' settings can be neither read nor
+  // written — not because a check forbids it, but because there is no one to name
+  // as the other party.
 
   @Get('preferences')
   getPreferences(@CurrentUser() user: SessionUser) {
@@ -81,18 +81,18 @@ export class NotificationsController {
   }
 
   // ---------------------------------------------------------------------------
-  // PUT /api/notifications/preferences   (позиция 7a; запрет под имперсонацией — бэклог 205)
+  // PUT /api/notifications/preferences   (position 7a; a ban under impersonation — backlog 205)
   // ---------------------------------------------------------------------------
-  // Разбор — `updateNotificationPreferencesSchema`, а не class-validator
-  // (правило проекта). Он же отвергает попытку выключить письмо у типа,
-  // требующего действия: §3, «приглушить можно, выключить нет».
+  // Parsing — `updateNotificationPreferencesSchema`, not class-validator
+  // (the project rule). It also rejects an attempt to switch off an email for a type
+  // that requires action: §3, "muting is allowed, switching off is not".
   //
-  // Бэклог 205 (SR-L-3, security-review PR #673): под «войти как» сессия —
-  // сотрудника, и без этой проверки админ менял бы ЕГО настройки канала от
-  // ЕГО имени, без единого следа «кто». Решение оркестратора (A1,
-  // обратимо): «каналы настраивает сам сотрудник» (§3, решение 6) — значит
-  // под имперсонацией запись запрещена целиком, а не просто аудируется.
-  // `GET` НЕ запрещён — админ вправе видеть, что настроено, не меняя.
+  // Backlog 205 (SR-L-3, security-review PR #673): under "sign in as", the session belongs to
+  // the employee, and without this check an admin would change HIS channel settings on
+  // HIS behalf, without a single trace of "who". Orchestrator decision (A1,
+  // reversible): "channels are configured by the employee himself" (§3, decision 6), so
+  // under impersonation the write is forbidden entirely, not merely audited.
+  // `GET` is NOT forbidden — an admin may see what is configured without changing it.
 
   @Put('preferences')
   updatePreferences(@CurrentUser() user: SessionUser, @Body() body: unknown) {

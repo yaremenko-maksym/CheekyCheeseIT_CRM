@@ -1,12 +1,12 @@
 /**
- * `OutboxGateway` поверх настоящей базы — позиция 7a.
+ * `OutboxGateway` over the real database — position 7a.
  *
- * Отделён от `NotificationEmailCronService` намеренно: крон отвечает за
- * РЕШЕНИЯ (сколько попыток, что считать отказом, когда хоронить), репозиторий
- * — за доступ к данным. Юнит-тест крона мокает этот интерфейс и потому
- * проверяет решения, а не форму SQL; сам SQL проверяется на живой Postgres
- * (`notification-email-delivery.integration.spec.ts`), потому что `FOR UPDATE
- * SKIP LOCKED` и предикат частичного индекса исполняет Postgres, а не мы.
+ * Separated from `NotificationEmailCronService` on purpose: the cron owns
+ * DECISIONS (how many attempts, what counts as failure, when to bury), the repository
+ * owns data access. The cron's unit test mocks this interface and therefore
+ * checks decisions, not the SQL shape; the SQL itself is checked on a live Postgres
+ * (`notification-email-delivery.integration.spec.ts`), because `FOR UPDATE
+ * SKIP LOCKED` and the partial-index predicate are executed by Postgres, not by us.
  */
 import { Injectable } from '@nestjs/common'
 import { and, asc, eq, sql } from 'drizzle-orm'
@@ -26,23 +26,23 @@ import { approvalIdFromData, type SubjectResolution } from './notification-subje
 import { NotificationSubjectStateService } from './notification-subject-state.service'
 
 /**
- * Срок аренды захваченной строки. Больше, чем самый долгий возможный запрос к
- * провайдеру (`FETCH_TIMEOUT_MS` = 10 с) с запасом на очередь пачки: пока
- * аренда не истекла, второй процесс ту же строку не возьмёт. Меньше самой
- * короткой паузы ретрая (минута), поэтому на нормальном пути аренда никогда
- * не определяет, когда строка вернётся в работу, — это делает бэкофф.
+ * Lease term of a claimed row. Longer than the longest possible request to the
+ * provider (`FETCH_TIMEOUT_MS` = 10 s) with a margin for the batch queue: while
+ * the lease has not expired, a second process will not take the same row. Shorter than the
+ * shortest retry pause (one minute), so on the normal path the lease never
+ * decides when a row returns to work — the backoff does that.
  */
 const CLAIM_LEASE_SECONDS = 60
 
 @Injectable()
 export class OutboxRepository implements OutboxGateway {
   /**
-   * Тот же приём, что у `NotificationsService.subjectStates`: не DI-параметр
-   * конструктора, а поле, построенное здесь же, — `new OutboxRepository(db)`
-   * с одним аргументом собирают руками несколько спек
+   * The same device as `NotificationsService.subjectStates`: not a DI parameter of the
+   * constructor but a field built right here — `new OutboxRepository(db)`
+   * with one argument is assembled by hand in several specs
    * (`notification-email.repository.spec.ts`,
-   * `notification-email-delivery.integration.spec.ts`), и добавлять им
-   * второй обязательный параметр ради сервиса без своего состояния незачем.
+   * `notification-email-delivery.integration.spec.ts`), and adding a second required
+   * parameter to them for the sake of a service with no state of its own is pointless.
    */
   private readonly subjectStates: NotificationSubjectStateService
 
@@ -51,16 +51,16 @@ export class OutboxRepository implements OutboxGateway {
   }
 
   /**
-   * Взять созревшие строки в работу.
+   * Take the due rows into work.
    *
-   * Один оператор: `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)`.
-   * `SKIP LOCKED` — то, благодаря чему два процесса API (а в проде их может
-   * стать два) не возьмут одну строку: второй просто пройдёт мимо
-   * заблокированных, вместо того чтобы ждать первого. Без него параллельный
-   * крон либо дублировал бы письма, либо стоял на блокировке.
+   * One statement: `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)`.
+   * `SKIP LOCKED` — the reason two API processes (and in production there may
+   * become two) will not take the same row: the second one simply skips past the
+   * locked rows instead of waiting for the first. Without it a parallel
+   * cron would either duplicate emails or stand waiting on a lock.
    *
-   * Сам `UPDATE` и есть захват: он двигает `next_attempt_at` на срок аренды и
-   * увеличивает `attempts`. Отдельного статуса «в работе» нет — см. заголовок
+   * The UPDATE itself is the claim: it moves `next_attempt_at` by the lease term and
+   * increments `attempts`. There is no separate "in work" status — see the header
    * `notification-email.cron.ts`.
    */
   async claimDue(limit: number): Promise<ClaimedEmail[]> {
@@ -84,8 +84,8 @@ export class OutboxRepository implements OutboxGateway {
     const ids = claimed.rows.map((r) => r.id)
     if (ids.length === 0) return []
 
-    // Содержание письма — отдельным чтением, уже без блокировок: захват
-    // состоялся, и строки никто другой не тронет до конца аренды.
+    // The message content — a separate read, now without locks: the claim
+    // has happened, and no other process touches the rows until the lease ends.
     const rows = await this.db.db
       .select({
         id: notificationEmails.id,
@@ -121,17 +121,17 @@ export class OutboxRepository implements OutboxGateway {
   }
 
   /**
-   * Всё о получателе, что решает судьбу письма в момент отправки: жив ли он,
-   * куда слать, не выключил ли он этот тип.
+   * Everything about the recipient that determines the fate of the email at the moment of sending: whether they are alive,
+   * where to send, whether they switched this type off.
    *
-   * **Одним запросом про человека, а не двумя.** `users LEFT JOIN user_emails`
-   * — именно LEFT: у человека без единого адреса строк соединения нет, и
-   * INNER JOIN не отличил бы «уволен» от «адреса нет», то есть потерял бы
-   * ровно то различие, ради которого заведён `skip_reason`. Строка `users`
-   * при этом есть всегда, пока есть строка очереди (внешний ключ с CASCADE).
+   * **One query about the person, not two.** `users LEFT JOIN user_emails`
+   * — specifically LEFT: a person with no address at all has no join rows, and
+   * an INNER JOIN would not distinguish "dismissed" from "no address", that is, it would lose
+   * exactly the difference for which `skip_reason` was created. The `users` row
+   * is always present while a queue row exists (foreign key with CASCADE).
    *
-   * Настройка читается ТОЛЬКО по нужному типу: читать все отличия человека
-   * ради одного значения значило бы платить за чужие типы на каждом письме.
+   * The setting is read ONLY for the needed type: reading all of a person's differences
+   * for one value would mean paying for others' types on every email.
    */
   async deliveryContextFor(userId: string, type: string): Promise<DeliveryContext> {
     const rows = await this.db.db
@@ -153,34 +153,34 @@ export class OutboxRepository implements OutboxGateway {
       )
 
     return {
-      // Пользователя не нашли вовсе — тогда и адресов нет, и решение выйдет
-      // `NO_ADDRESS`. Отдельной ветки этот случай не заслуживает: строка
-      // очереди уходит вместе с пользователем (`ON DELETE CASCADE`), поэтому
-      // доехать сюда без строки `users` можно только в гонке с удалением.
+      // The user was not found at all — then there are no addresses either, and the decision will be
+      // `NO_ADDRESS`. This case does not merit a separate branch: the queue row
+      // leaves together with the user (`ON DELETE CASCADE`), so
+      // reaching here without a `users` row is possible only in a race with deletion.
       archived: rows[0]?.archivedAt != null,
       addresses: rows.flatMap((r) =>
         r.email !== null && r.kind !== null ? [{ email: r.email, kind: r.kind }] : [],
       ),
       emailEnabled: pref?.emailEnabled ?? null,
-      // Язык ПОЛУЧАТЕЛЯ, читаемый в момент отправки (не постановки): локаль,
-      // сменённая между событием и отправкой или между ретраями, учитывается.
-      // `resolveLocale` — мусор / `null` / «пользователя нет» дают `uk`, не
-      // исключение; крон не читает ни cookie, ни заголовки — у него нет запроса.
+      // The RECIPIENT's language, read at the moment of sending (not enqueueing): a locale
+      // changed between the event and the sending, or between retries, is taken into account.
+      // `resolveLocale` — garbage / `null` / "no user" yield `uk`, not
+      // an exception; the cron reads neither cookies nor headers — it has no request.
       locale: resolveLocale([rows[0]?.locale ?? null]),
     }
   }
 
   /**
-   * Состояние объекта письма — бэклог 208. Вызывается кроном ТОЛЬКО для трёх
-   * типов, требующих действия (`isActionRequiredNotificationType`, гейт живёт
-   * в `NotificationEmailCronService.deliver`, не здесь — см. doc-комментарий
+   * The state of the email's object — backlog 208. Called by the cron ONLY for the three
+   * types requiring action (`isActionRequiredNotificationType`; the gate lives
+   * in `NotificationEmailCronService.deliver`, not here — see the doc comment
    * `OutboxGateway.resolveSubjectState`).
    *
-   * Тем же резолвером, что попап: `SubjectRef` собирается из ровно тех же
-   * четырёх полей, что и в `NotificationsService.resolveSubjectStates`
-   * (`type`, `subjectType`, `subjectId`, `approvalId` из `data`), и запрос
-   * идёт через тот же `NotificationSubjectStateService` — не второй, заново
-   * написанный запрос к тем же таблицам.
+   * Resolved by the same resolver as the popup: the `SubjectRef` is built from exactly the same
+   * four fields as in `NotificationsService.resolveSubjectStates`
+   * (`type`, `subjectType`, `subjectId`, `approvalId` from `data`), and the query
+   * goes through the same `NotificationSubjectStateService` — not a second query
+   * written anew against the same tables.
    */
   async resolveSubjectState(
     userId: string,
@@ -196,14 +196,14 @@ export class OutboxRepository implements OutboxGateway {
   }
 
   /**
-   * `WHERE … status = 'QUEUED'` — тот же предикат и то же обоснование, что у
-   * `scheduleRetry` ниже (SR-L-6, security-review PR #673 круг 2): аренда —
-   * 60 секунд, а пятиминутный байпас зависшего прохода (SR-L-4) на короткое
-   * время может дать двум проходам одну и ту же строку. Без предиката поздний
-   * `markSent` зависшего прохода переписал бы уже терминальную строку (скажем,
-   * `SKIPPED` после того как настройку выключили) обратно в `SENT`, и след
-   * доставки в `notification_emails` — той самой таблице, по которой runbook
-   * 7.2 учит читать результат — начал бы врать.
+   * `WHERE … status = 'QUEUED'` — the same predicate and the same reasoning as
+   * `scheduleRetry` below (SR-L-6, security-review PR #673 round 2): the lease is
+   * 60 seconds, and the five-minute bypass of a hung pass (SR-L-4) for a short
+   * time could give two passes the same row. Without the predicate a late
+   * `markSent` from the hung pass would rewrite an already terminal row (say,
+   * `SKIPPED` after the setting was switched off) back to `SENT`, and the trace
+   * of delivery in `notification_emails` — the very table by which runbook
+   * 7.2 teaches reading the result — would start lying.
    */
   async markSent(id: string, email: string): Promise<void> {
     await this.db.db
@@ -213,14 +213,14 @@ export class OutboxRepository implements OutboxGateway {
   }
 
   /**
-   * Терминально пометить строку «письма не будет» с причиной.
+   * Terminally mark the row "no email will be sent" with a reason.
    *
-   * Не `FAILED`: «не полагалось отправлять» и «не смогли отправить» — разные
-   * факты, и сливать их в один статус значило бы звать чинить выключенный
-   * человеком канал. `last_error` при этом остаётся пустым — ошибки не было.
+   * Not `FAILED`: "was not due to be sent" and "could not send" are different
+   * facts, and merging them into one status would mean calling for a human to fix a
+   * deliberately disabled channel. `last_error` stays empty — there was no error.
    *
-   * `WHERE … status = 'QUEUED'` (SR-L-6) — см. `markSent` выше: та же защита
-   * от того же байпаса, симметричная во все три марка терминального статуса.
+   * `WHERE … status = 'QUEUED'` (SR-L-6) — see `markSent` above: the same guard
+   * against the same bypass, symmetric across all three terminal-status marks.
    */
   async markSkipped(id: string, reason: SkipReason): Promise<void> {
     await this.db.db
@@ -229,7 +229,7 @@ export class OutboxRepository implements OutboxGateway {
       .where(and(eq(notificationEmails.id, id), eq(notificationEmails.status, 'QUEUED')))
   }
 
-  /** `WHERE … status = 'QUEUED'` (SR-L-6) — см. `markSent` выше. */
+  /** `WHERE … status = 'QUEUED'` (SR-L-6) — see `markSent` above. */
   async markFailed(id: string, reason: string): Promise<void> {
     await this.db.db
       .update(notificationEmails)
@@ -238,12 +238,12 @@ export class OutboxRepository implements OutboxGateway {
   }
 
   /**
-   * Вернуть строку в очередь с паузой.
+   * Return the row to the queue with a pause.
    *
-   * `WHERE … status = 'QUEUED'` — не украшение: строку могли похоронить
-   * вручную (или это сделает будущая административная операция), пока шёл
-   * запрос к провайдеру, и воскрешать её отложенной попыткой было бы
-   * неверно.
+   * `WHERE … status = 'QUEUED'` — not decoration: the row could have been buried
+   * manually (or a future administrative operation may do it) while the
+   * request to the provider was in flight, and resurrecting it with a deferred attempt would be
+   * wrong.
    */
   async scheduleRetry(id: string, reason: string, attempts: number): Promise<void> {
     await this.db.db

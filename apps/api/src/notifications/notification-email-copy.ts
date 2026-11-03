@@ -1,51 +1,51 @@
 /**
- * Письма уведомлений — позиция 7a, спека §11 («Тексты писем») и §10
- * («уведомления о деньгах — это раскрытие»); i18n-письма PR1: язык ПОЛУЧАТЕЛЯ.
+ * Notification emails — position 7a, spec §11 ("Email texts") and §10
+ * ("money notifications are disclosure"); i18n emails PR1: the RECIPIENT's language.
  *
- * Каждая фраза — целое сообщение каталога (`EMAIL_NOTIFICATION_MESSAGES` в
- * `@crm/shared`, явные id `email.notification.*`, `uk` — исходник, `en` — второй
- * оригинал в `.po`). Письмо собирается ПО ЛОКАЛИ ПОЛУЧАТЕЛЯ (`users.locale`,
- * читается кроном в момент отправки) через `createI18n(locale)` НА КАЖДЫЙ вызов:
- * ни глобального `i18n.activate`, ни модульного инстанса — в кроне между письмами
- * много `await`, и глобаль сменила бы язык посреди сборки. Ничего не склеивается
- * из фрагментов: варианты «с названием / без», «базовая / проектная доля» — это
- * отдельные целые сообщения, которые выбирает вызывающий.
+ * Each phrase is a whole catalog message (`EMAIL_NOTIFICATION_MESSAGES` in
+ * `@crm/shared`, explicit ids `email.notification.*`, `uk` is the source, `en` is the second
+ * original in `.po`). The email is assembled IN THE RECIPIENT'S LOCALE (`users.locale`,
+ * read by the cron at the moment of sending) through `createI18n(locale)` ON EVERY call:
+ * no global `i18n.activate`, no module-level instance — the cron has many `await`s between emails,
+ * and a global would switch the language midway through assembly. Nothing is glued together
+ * from fragments: the variants "with the name / without" and "base / project share" are
+ * separate whole messages that the caller chooses.
  *
- * Текст НЕ хранится в базе (§7.1): правка формулировки не должна быть правкой
- * данных. Сохранённые `title`/`body` строки уведомления — ДАННЫЕ, а не каталог:
- * для типа, которого шаблон не знает, они печатаются как есть в обеих локалях.
+ * The text is NOT stored in the database (§7.1): editing wording must not be a data edit.
+ * The stored notification `title`/`body` strings are DATA, not the catalog:
+ * for a type the template does not know, they are printed as-is in both locales.
  *
- * Правило, которому подчиняются все тринадцать и которое механически проверяет
- * `notification-email-copy.spec.ts` (в обеих локалях):
+ * The rule that all thirteen obey, and which `notification-email-copy.spec.ts` checks mechanically
+ * (in both locales):
  *
- *   **письмо называет ОБЪЕКТ (проект, команда, контракт, вакансия) и не называет
- *   ни людей, ни цифр.**
+ * **the email names the OBJECT (project, team, contract, vacancy) and names
+ * neither people nor figures.**
  *
- * Первая половина — из §11: темы там прямо содержат «{название}», и без имени
- * объекта читатель не понимает, к чему письмо. Вторая — из §10: письмо уходит
- * на ЛИЧНУЮ почту, вне нашего контура, поэтому ни сумма, ни процент, ни имя
- * коллеги туда не едут. Всё это открывается по кнопке, в CRM.
+ * The first half is from §11: the subjects there literally contain a "{name}" placeholder, and without the
+ * object's name the reader does not understand what the email is about. The second is from §10: the email goes
+ * to a PERSONAL mailbox, outside our perimeter, so neither an amount, nor a percentage, nor a colleague's
+ * name travels there. All of that is opened by the button, in the CRM.
  *
- * Остальные правила §11, каждое отражено тестом:
- *   - **одна кнопка** («„Открыть“ и „Отклонить“ рядом означало бы, что отказ
- *     можно дать не заходя, — а нам нужен след в системе с причиной»);
- *   - **ни благодарностей, ни вежливой рамки** («транзакционное письмо,
- *     которое благодарит, читается как рассылка и попадает в „Промоакции“»);
- *   - **единый префикс «Запит на …» / «Request to …»** у всего, что требует
- *     ответа, — он сообщает, что это предложение, а не свершившийся факт, ещё до
- *     открытия;
- *   - **в письме о смене частки вторая строка снимает испуг** — действует
- *     прежняя частка, новая вступит в силу только после согласия.
+ * The other §11 rules, each reflected in a test:
+ *   - **one button** (Open and Decline side by side would mean a refusal
+ *     could be given without going in — and we need a trace in the system with a reason);
+ *   - **no thanks, no polite framing** (a transactional email that says thank you reads like
+ *     a newsletter and lands in "Promotions");
+ *   - **a single uniform prefix "Request to …" (in the uk locale: the matching Ukrainian prefix)** on everything that requires
+ *     a reply — it signals that this is an offer, not a completed fact, before
+ *     the email is opened;
+ *   - **in an email about a share change the second line removes the alarm** — the
+ *     previous share stays in force; the new one takes effect only after consent.
  *
- * Вёрстка — ОБЩИЙ каркас `common/email-layout.ts`, тот же объект, которым
- * собирается приглашение (`personal-email-invite-mailer.service.ts`): «письма
- * от нас выглядят одним отправителем, на котором почта учится» (§12).
+ * Layout — the SHARED frame `common/email-layout.ts`, the same object from which
+ * the invitation is assembled (`personal-email-invite-mailer.service.ts`): "emails
+ * from us look like one sender, which the mailbox learns" (§12).
  *
- * **Словарь.** Объект решения о деньгах называется ЧАСТКОЮ / «share» — так его
- * называют попап, `/pending`, профиль и `CONTEXT.md` (где «процент дропа» стоит в
- * `_Избегать_`). Прежнее русское исключение «процент» в теме запроса о доле ПО
- * ПРОЕКТУ не пережило миграцию: в языке, где глоссарный термин обязателен,
- * исключению нет основания (допущение A1 плана, copy-reviewer может оспорить).
+ * **Glossary.** The object of a money decision is called a SHARE — that is what
+ * the popup, `/pending`, the profile and `CONTEXT.md` call it (where "drop percentage" is listed under
+ * `_Avoid_`). The earlier Russian exception for the word "percent" in a request about a PROJECT share
+ * did not survive the migration: in a language where the glossary term is mandatory,
+ * the exception has no basis (A1 assumption of the plan; copy-reviewer may dispute it).
  */
 import type { I18n } from '@lingui/core'
 import {
@@ -71,15 +71,15 @@ import { escapeHtml } from '../common/escape-html'
 import { stripCrlf } from '../common/strip-crlf'
 
 /**
- * Экран, где на запрос можно ОТВЕТИТЬ (позиция 7c, #667).
+ * The screen where the request can be ANSWERED (position 7c, #667).
  *
- * Ссылка письма для трёх типов, требующих действия, ведёт сюда, а не на объект:
- * на `/projects/:id` кнопок подтверждения нет, и письмо «Запрос на добавление
- * проекта» приводило бы читателя туда, где ответить нечем (SPEC-H-3 / CR-H-4).
+ * The email link for the three types that require action leads here, not to the object:
+ * `/projects/:id` has no confirmation buttons, and an email titled "Request to add
+ * a project" would lead the reader to a place where there is nothing to answer (SPEC-H-3 / CR-H-4).
  */
 const PENDING_PATH = '/pending'
 
-/** Строка уведомления в том объёме, который нужен письму. */
+/** The notification row in the scope the email needs. */
 export interface NotificationEmailSource {
   type: string
   title: string
@@ -94,44 +94,44 @@ export interface RenderedNotificationEmail {
   subject: string
   text: string
   html: string
-  /** Абсолютный адрес единственной кнопки. */
+  /** The absolute address of the single button. */
   buttonHref: string
   buttonLabel: string
 }
 
 interface RenderOptions {
-  /** Корень CRM без хвостового слэша (`FRONTEND_URL`). */
+  /** The CRM root without a trailing slash (`FRONTEND_URL`). */
   frontendUrl: string
   /**
-   * Язык ПОЛУЧАТЕЛЯ. Обязателен и без дефолта: забытый вызывающий обязан упасть на
-   * typecheck, а не молча отправить `uk`. Рендерер сам строит `createI18n(locale)`,
-   * поэтому передать ему чужой активированный инстанс нельзя.
+   * The RECIPIENT's language. Required and without a default: a forgetful caller must fail
+   * typecheck rather than silently send `uk`. The renderer builds `createI18n(locale)` itself,
+   * so a foreign activated instance cannot be passed to it.
    */
   locale: Locale
 }
 
-/** Тело письма: одна-две строки. Вторая существует только там, где она снимает испуг. */
+/** Email body: one or two lines. The second exists only where it removes the alarm. */
 interface Body {
   subject: string
   lines: string[]
 }
 
 /**
- * Заголовок и строки по типу события.
+ * Title and lines per event type.
  *
- * Каждая функция получает УЖЕ разобранные данные своей формы. Разбор — на
- * вызывающем (`renderNotificationEmail`), чтобы неразобравшаяся строка
- * деградировала в общий вид, а не роняла отправку: письмо зовёт в CRM, и
- * потерять единственный канал, доходящий до закрытой вкладки, дороже, чем
- * отправить письмо без имени проекта.
+ * Each function receives ALREADY parsed data of its own shape. Parsing happens in the
+ * caller (`renderNotificationEmail`), so that an unparseable row
+ * degrades to the generic view instead of breaking the send: the email invites to the CRM, and
+ * losing the only channel that reaches a closed tab is costlier than
+ * sending an email without the project name.
  */
 const BODIES: {
   [K in NewNotificationType]: (d: NotificationDataByType[K], i18n: I18n) => Body
 } = {
   TRANSACTION_ADDED: (d, i18n) => ({
-    // Имя проекта — с 24-го знака, а не с 35-го (COPY-L-2): в списке входящих
-    // на телефоне видно около сорока, и обрезается ровно то единственное, чем
-    // два таких письма различаются.
+    // The project name — from the 24th character, not the 35th (COPY-L-2): in the inbox list
+    // on a phone about forty characters are visible, and the thing that tells two such emails apart
+    // is exactly what gets cut off.
     subject:
       d.projectName === null
         ? renderMessage(i18n, M.transactionAddedSubject)
@@ -140,12 +140,12 @@ const BODIES: {
   }),
 
   TRANSACTION_STATUS_CHANGED: (d, i18n) => ({
-    // Статус — не сумма и не процент, и он единственное, ради чего письмо
-    // читают. Прятать его значило бы слать письмо «случилось что-то».
+    // The status is neither an amount nor a percentage, and it is the one thing the email is
+    // read for. Hiding it would mean sending an email that says "something happened".
     //
-    // Актор НЕ назван (COPY-H-2): валидацию дохода делает бухгалтер ИЛИ админ
-    // (`@Roles('ADMIN', 'ACCOUNTANT')` на `PATCH :id/validate`), а в `data`
-    // этого типа актора нет вовсе.
+    // The actor is NOT named (COPY-H-2): income validation is done by the accountant OR the admin
+    // (`@Roles('ADMIN', 'ACCOUNTANT')` on `PATCH :id/validate`), and the `data`
+    // of this type has no actor at all.
     subject:
       d.status === 'VALIDATED'
         ? renderMessage(i18n, M.statusValidatedSubject)
@@ -157,8 +157,8 @@ const BODIES: {
   }),
 
   TEAM_MEMBER_ADDED: (d, i18n) => ({
-    // Тело НЕ пересказывает тему (COPY-M-1): человек, открывший письмо и не
-    // узнавший ничего нового, так и учится не открывать следующие.
+    // The body does NOT restate the subject (COPY-M-1): a person who opens the email and
+    // learns nothing new is taught not to open the next ones.
     subject: renderMessage(i18n, M.teamMemberAddedSubject, { teamName: d.teamName }),
     lines: [renderMessage(i18n, M.teamMemberAddedLine)],
   }),
@@ -169,8 +169,8 @@ const BODIES: {
   }),
 
   TEAM_NEW_MEMBER: (d, i18n) => ({
-    // Имя новичка остаётся в CRM: письмо не называет людей (§10 — объём
-    // того, что уходит на личную почту, держим минимальным).
+    // The newcomer's name stays in the CRM: the email does not name people (§10 — we keep
+    // what goes to a personal mailbox to a minimum).
     subject: renderMessage(i18n, M.teamNewMemberSubject, { teamName: d.teamName }),
     lines: [renderMessage(i18n, M.teamNewMemberLine)],
   }),
@@ -184,11 +184,11 @@ const BODIES: {
   }),
 
   SHARE_CONFIRM_REQUIRED: (d, i18n) => {
-    // Вид доли решает, а не только имя проекта: форма данных допускает пару
-    // «BASE + уцелевшее имя», и читай мы одно имя, базовое предложение
-    // представилось бы проектным. Достаточно ЛЮБОЙ из двух причин обойтись без
-    // имени (`scope === 'BASE'` ИЛИ `projectName === null`): тема «по проекту «»» —
-    // мусор.
+    // The share kind decides, not only the project name: the data shape allows a pair
+    // "BASE + the surviving name", and if we read one name, a base proposal
+    // would be presented as a project one. ANY of two reasons is enough to do without
+    // the name (`scope === 'BASE'` OR `projectName === null`): the subject "for project «»" is
+    // garbage.
     const projectName = d.scope === 'BASE' ? null : d.projectName
     return {
       subject:
@@ -199,20 +199,20 @@ const BODIES: {
         projectName === null
           ? renderMessage(i18n, M.shareConfirmLine1Base)
           : renderMessage(i18n, M.shareConfirmLine1Project, { projectName }),
-        // §11: «Без этого человек, увидев тему, решает, что у него уже что-то
-        // изменили».
+        // §11: "Without this, the person who sees the subject decides that something of theirs
+        // has changed".
         renderMessage(i18n, M.shareConfirmLine2),
       ],
     }
   },
 
   DOCUMENT_SIGN_REQUIRED: (_d, i18n) => ({
-    // §11 предлагал «{тип документа} за {период}», но период в данных
-    // отсутствует: производитель кладёт `documentKind: 'EMPLOYEE_CONTRACT'`
-    // (`employee-contracts.service.ts`) — у договора с сотрудником периода
-    // нет. Двоеточие с одним словом после него читается как недозаполненный
-    // шаблон (COPY-L-4), поэтому слот убран, а префикс «Запит на …» —
-    // остался: он и сообщает, что ждут ответа.
+    // §11 proposed "{document type} for {period}", but the period is absent from the data:
+    // the producer puts `documentKind: 'EMPLOYEE_CONTRACT'`
+    // (`employee-contracts.service.ts`) — an employee contract has no period.
+    // A colon with a single word after it reads as an unfinished template (COPY-L-4),
+    // so the slot was removed, but the uniform "Request to …" prefix
+    // was kept: it is what signals that a reply is awaited.
     subject: renderMessage(i18n, M.documentSignSubject),
     lines: [renderMessage(i18n, M.documentSignLine)],
   }),
@@ -224,18 +224,18 @@ const BODIES: {
 
   APPROVAL_REJECTED: (d, i18n) => ({
     subject: renderMessage(i18n, M.approvalRejectedSubject),
-    // Причина отказа — в CRM: это слова конкретного человека о деньгах,
-    // и уходить на личную почту им незачем (§10).
+    // The refusal reason lives in the CRM: these are a specific person's words about money,
+    // and there is no reason to send them to a personal mailbox (§10).
     lines: [
       rejectedLine(d.subjectKind, d.subjectTitle, i18n),
       renderMessage(i18n, M.approvalReasonLine),
     ],
   }),
 
-  // Инвойсы и вакансии: письма не уходят на личную почту
-  // (`notification-email-outbox.ts`, `LEGACY_TYPE`), но `BODIES` обязан нести запись
-  // для каждого `NewNotificationType`, и прямой вызов рендерера обязан работать.
-  // §10/§11: ни PII, ни цифр — название вакансии это имя объекта, а не человек.
+  // Invoices and vacancies: emails do not go to a personal mailbox
+  // (`notification-email-outbox.ts`, `LEGACY_TYPE`), but `BODIES` must carry an entry
+  // for every `NewNotificationType`, and a direct call to the renderer must work.
+  // §10/§11: no PII, no figures — a vacancy title is the object's name, not a person.
   INVOICE_SIGNED: (_d, i18n) => ({
     subject: renderMessage(i18n, M.invoiceSignedSubject),
     lines: [renderMessage(i18n, M.sharedDetailsLine)],
@@ -294,37 +294,37 @@ const BODIES: {
 
 type ApprovalSubjectKind = 'PROJECT' | 'PROJECT_SHARE' | 'BASE_SHARE'
 
-/** Пара целых предложений: с названием объекта и без него (снимок его не сохранил). */
+/** A pair of whole sentences: with the object's name and without it (the snapshot did not store it). */
 interface ApprovalPair {
   titled: typeof M.acceptedProject
   untitled: typeof M.acceptedProjectUntitled
 }
 
 /**
- * Два письма админу — ДВЕ карты предложений и два входа (`acceptedLine` /
- * `rejectedLine`), а не одна функция с параметром решения.
+ * Two emails to the admin — TWO maps of sentences and two entries (`acceptedLine` /
+ * `rejectedLine`), not a single function with a decision parameter.
  *
- * Так сделано ради наблюдаемости, и это не догадка: параметр из двух значений
- * порождает мутанта, которого нельзя убить по построению. Ветвление
- * `decision === 'ACCEPTED' ? … : …` даёт одну и ту же строку для ЛЮБОГО
- * не-`'ACCEPTED'` значения, поэтому литерал `'REJECTED'` на месте вызова можно
- * заменить пустой строкой, и ни один тест этого не заметит — гейт мутаций так и
- * доложил. Входы остаются двумя, различие несёт сама карта.
+ * This is done for observability, and it is not a guess: a parameter of two values
+ * produces a mutant that cannot be killed by construction. The branch
+ * `decision === 'ACCEPTED' ? … : …` gives the same string for ANY
+ * non-`'ACCEPTED'` value, so the literal `'REJECTED'` at the call site could be
+ * replaced with an empty string, and no test would notice — the mutation gate reported exactly
+ * that. The entries stay two; the difference is carried by the map itself.
  *
- * Каждое предложение — ЦЕЛОЕ сообщение каталога: прежняя склейка фрагментов
- * («в проекте» + «X» …) заменена выбором готовой фразы, потому что фрагмент
- * нельзя перевести отдельно от предложения, в которое он вставлен.
+ * Each sentence is a WHOLE catalog message: the earlier gluing of fragments
+ * ("in the project" + "X" …) was replaced by choosing a ready phrase, because a fragment
+ * cannot be translated separately from the sentence it is inserted into.
  *
- * Сотрудник не назван по имени (то же правило, что и везде), назван ОБЪЕКТ
- * решения — по нему админ и понимает, о каком из своих предложений речь.
- * Глагол получил свой объект (COPY-M-3): принимают ПРЕДЛОЖЕНИЕ, а «принял
- * проект» в этой предметной области значит «утвердил проект целиком», что
- * делает админ, а не тот, кого в проект позвали.
+ * The employee is not named (the same rule as everywhere); the decision's OBJECT is named —
+ * that is how the admin understands which of their proposals is meant.
+ * The verb got its object (COPY-M-3): one accepts the PROPOSAL, while "accepted
+ * the project" in this domain means "approved the project as a whole", which
+ * is done by the admin, not by the person who was invited to the project.
  */
 const ACCEPTED: Record<ApprovalSubjectKind, ApprovalPair> = {
   PROJECT: { titled: M.acceptedProject, untitled: M.acceptedProjectUntitled },
   PROJECT_SHARE: { titled: M.acceptedProjectShare, untitled: M.acceptedProjectShareUntitled },
-  // У базовой доли названия нет по построению: обе ветки — одна и та же фраза.
+  // A base share has no name by construction: both branches are the same sentence.
   BASE_SHARE: { titled: M.acceptedBaseShare, untitled: M.acceptedBaseShare },
 }
 
@@ -363,11 +363,11 @@ function rejectedLine(
 }
 
 /**
- * Подпись кнопки письма. Информирующие типы берут ту же подпись, что и попап
- * (`ACTION_LABELS` — один словарь на оба канала, отдельной копии в письме нет);
- * решения админу различают вид объекта: USER — решение по
- * базовой доле сотрудника (профиль), иначе — проект; всё остальное — общее
- * «Відкрити» / «Open».
+ * The email button label. Informational types take the same label as the popup
+ * (`ACTION_LABELS` — one dictionary for both channels; there is no separate copy in the email);
+ * the admin's decision emails distinguish the kind of object: USER — a decision on the
+ * employee's base share (profile), otherwise — a project; everything else — the common
+ * generic "Open" label (in both locales).
  */
 function emailActionLabelFor(
   type: string,
@@ -391,16 +391,16 @@ function emailActionLabelFor(
   ) {
     return renderMessage(i18n, ACTION_LABELS[type])
   }
-  // Незарегистрированный (легаси) тип с адресом объекта — общее «Открыть».
+  // An unregistered (legacy) type with an object address — the generic "Open".
   return renderMessage(i18n, MISC_MESSAGES.open)
 }
 
 /**
- * Кнопка письма — маршрут через `notificationHref` (чистая функция, локали не
- * знает), подпись — через `emailActionLabelFor`. Структура ровно прежняя: НЕ
- * `notificationActions()` реестра — тот для легаси-типов предпочитает `link`
- * паре `subjectType/subjectId` и поменял бы адреса (закреплено структурными
- * пинами `buttonHref` в спеке).
+ * The email button — the route via `notificationHref` (a pure function, the locale does not
+ * know), the label via `emailActionLabelFor`. The structure is exactly as before: NOT
+ * the registry's `notificationActions()` — that one prefers `link` for legacy types over the
+ * `subjectType/subjectId` pair, and would change addresses (pinned by the structural
+ * `buttonHref` pins in the spec).
  */
 function emailAction(
   source: NotificationEmailSource,
@@ -412,7 +412,7 @@ function emailAction(
       label: emailActionLabelFor(source.type, source.subjectType, i18n),
     }
   }
-  // Stryker disable next-line ConditionalExpression: `source.link` at this point is only ever `null` or a string — forcing this branch always-true when `source.link` is null returns `{ href: null, label: <open> }`, and the caller's own `action?.href ?? '/'` / `action?.href == null ? <open CRM> : ...` fallbacks make that byte-identical to returning `null` here (see "без ссылки кнопка называется «Open the CRM»" in the spec) — no observable difference either way.
+  // Stryker disable next-line ConditionalExpression: at this point `source.link` is only ever `null` or a string. Forcing this branch always-true when `source.link` is null returns `{ href: null, label: <open> }`, and the caller's own `action?.href ?? '/'` / `action?.href == null ? <open CRM> : ...` fallbacks make that byte-identical to returning `null` here (see the spec case where a button without a link is labelled "Open the CRM") — no observable difference either way.
   if (source.link !== null) {
     return { href: source.link, label: renderMessage(i18n, MISC_MESSAGES.open) }
   }
@@ -420,35 +420,35 @@ function emailAction(
 }
 
 /**
- * Собрать письмо из строки уведомления на языке получателя.
+ * Build an email from a notification row in the recipient's language.
  *
- * Никогда не возвращает `null`: тип, которого шаблон не знает, и данные не
- * той формы дают письмо по сохранённым заголовку и ссылке. Отправка — это
- * канал, а не пересказ события; молча не отправить хуже, чем отправить
- * короче.
+ * Never returns `null`: a type the template does not know, and data of an unexpected
+ * shape, produce an email from the stored title and link. Sending is a
+ * channel, not a retelling of the event; silently not sending is worse than sending
+ * a shorter one.
  */
 export function renderNotificationEmail(
   source: NotificationEmailSource,
   opts: RenderOptions,
 ): RenderedNotificationEmail {
   const root = opts.frontendUrl.replace(/\/$/, '')
-  // Свой инстанс на каждое письмо — никакого общего состояния между получателями.
+  // A fresh instance for each email — no shared state between recipients.
   const i18n = createI18n(opts.locale)
 
-  // Три типа, требующих ответа, ведут на `/pending` — экран, где ответ вообще
-  // можно дать (задание, п.4 и «Уточнения оркестратора»; SPEC-H-3 / CR-H-4).
-  // Круг 1 звал `notificationActions()` без различения и получал путь к
-  // ОБЪЕКТУ: для `PROJECT_CONFIRM_REQUIRED` это `/projects/:id`, где кнопок
-  // подтверждения нет вовсе, а для `DOCUMENT_SIGN_REQUIRED` — `/onboarding`.
+  // The three types that require a reply lead to `/pending` — the screen where a reply can
+  // actually be given (task, item 4 and "Orchestrator clarifications"; SPEC-H-3 / CR-H-4).
+  // Round 1 called `notificationActions()` without distinguishing and got a path to the
+  // OBJECT: for `PROJECT_CONFIRM_REQUIRED` that is `/projects/:id`, where there are no
+  // confirmation buttons at all, and for `DOCUMENT_SIGN_REQUIRED` — `/onboarding`.
   //
-  // Подпись — «Відповісти на запит» (COPY-L-5): «Відкрити проєкт» на кнопке,
-  // ведущей на список запросов, называла бы не то, что откроется.
+  // The label is "Respond to the request" (COPY-L-5): "Open the project" on a button
+  // leading to the list of requests would name something other than what opens.
   const action = isActionRequiredNotificationType(source.type)
     ? { href: PENDING_PATH, label: renderMessage(i18n, M.sharedRespondButton) }
     : emailAction(source, i18n)
-  // Кнопка одна, и вести ей есть куда всегда: объекту 15 секунд от роду, а
-  // состояния «объекта больше нет» письмо по построению не застаёт. Корень
-  // CRM — запасной путь для старого типа без сохранённой ссылки.
+  // The button is one, and there is always somewhere for it to lead: the object is 15 seconds old, and
+  // the "object no longer exists" state is not something the email can catch by construction. The root
+  // of the CRM is the fallback for an old type without a stored link.
   const buttonHref = `${root}${action?.href ?? '/'}`
   const buttonLabel =
     action?.href == null ? renderMessage(i18n, M.sharedOpenCrmButton) : action.label
@@ -456,20 +456,20 @@ export function renderNotificationEmail(
   const body = composeBody(source, i18n)
 
   return {
-    // `stripCrlf`: тема уезжает в ЗАГОЛОВОК письма, а имя объекта приходит из
-    // пользовательского ввода, где `z.string().max(255)` перевод строки
-    // разрешает (SR-M-1, та же защита и та же причина, что в
-    // `contact.service.ts`). Тело этого не требует — там перевод строки
-    // законен.
+    // `stripCrlf`: the subject goes into the email's HEADER, and the object name comes from
+    // user input, where `z.string().max(255)` allows a line break
+    // (SR-M-1, the same guard and the same reason as in
+    // `contact.service.ts`). The body does not need it — a line break there
+    // is legal.
     subject: stripCrlf(body.subject),
-    // Подпись кнопки перед адресом (COPY-L-1): в html читатель видит
-    // подпись, в text — голый адрес, и одна подпись делает текстовую версию
-    // равной по внятности.
+    // The button label before the address (COPY-L-1): in html the reader sees
+    // the label, in text — a bare address, and a single label makes the text version
+    // equally clear.
     text: [...body.lines, '', `${buttonLabel}: ${buttonHref}`].join('\n'),
     html: renderEmailLayout({
       blocks: body.lines.map((line, i) => ({
         html: escapeHtml(line),
-        // У последней строки отступ больше — она отделяет текст от кнопки.
+        // The last line is indented more — it separates the text from the button.
         spaceAfter: i === body.lines.length - 1 ? 24 : 16,
       })),
       button: { href: buttonHref, label: buttonLabel },
@@ -487,16 +487,16 @@ function composeBody(source: NotificationEmailSource, i18n: I18n): Body {
       const build = BODIES[source.type] as (d: unknown, i18n: I18n) => Body
       return build(parsed.data, i18n)
     }
-    // Форма данных изменилась, а строка осталась старой. Заголовок типа —
-    // нейтральный по построению (`NOTIFICATION_TITLE_MESSAGES`), поэтому он
-    // безопасен и как тема, и как единственная строка.
+    // The data shape changed, but the row stayed old. The type's title
+    // is neutral by construction (`NOTIFICATION_TITLE_MESSAGES`), so it
+    // is safe both as a subject and as the single line.
     return {
       subject: renderMessage(i18n, NOTIFICATION_TITLE_MESSAGES[source.type]),
       lines: [renderMessage(i18n, M.sharedDetailsLine)],
     }
   }
-  // Тип, которого шаблон ещё не знает: сохранённые `title`/`body` — ДАННЫЕ,
-  // печатаются как есть в любой локали; общая заглушка — из каталога.
+  // A type the template does not yet know: the stored `title`/`body` are DATA,
+  // printed as-is in any locale; the common placeholder comes from the catalog.
   return {
     subject: source.title,
     lines: [source.body ?? renderMessage(i18n, M.sharedDetailsLine)],
