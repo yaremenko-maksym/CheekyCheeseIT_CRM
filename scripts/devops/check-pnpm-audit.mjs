@@ -192,6 +192,7 @@ function retryDelayMs(attempt) {
 
 const AUDIT_FIXTURE_ARG = process.argv[2]
 const EXCEPTIONS_FIXTURE_ARG = process.argv[3]
+const LOCKFILE_ARG = process.argv[4]
 
 // Marker so `loadAuditJson()` can tell "every retry attempt produced nothing
 // parseable" apart from any other kind of thrown error.
@@ -324,12 +325,44 @@ function loadExceptions() {
     }
   }
 
-  return { auditLevel, byGhsa, invalidGroups }
+  return { auditLevel, byGhsa, invalidGroups, groups: parsed.exceptions ?? [] }
+}
+
+/**
+ * Tier enforcement: a group whose `tier` says build/dev-only is only valid while every installed
+ * version of its module is flagged `dev: true` in the pnpm lockfile (v5.x `/name/ver` and v6
+ * `/name@ver` keys; peer suffixes ignored). Returns one finding per non-dev version.
+ */
+function parseLockfilePackages(text) {
+  const pkgs = []
+  let cur
+  for (const line of text.split('\n')) {
+    const key = line.match(/^ {2}'?\/((?:@[^/@]+\/)?[^/@]+)[/@](\d[^_:'()]*)/)
+    if (key) {
+      cur = { name: key[1], version: key[2], dev: false }
+      pkgs.push(cur)
+    } else if (/^ {2}\S/.test(line)) {
+      cur = undefined
+    } else if (cur && /^ {4}dev: true\s*$/.test(line)) {
+      cur.dev = true
+    }
+  }
+  return pkgs
+}
+
+function findTierViolations(exceptionGroups) {
+  const modules = new Set(
+    exceptionGroups.filter((g) => /build|dev/i.test(g.tier ?? '') && g.module).map((g) => g.module),
+  )
+  if (modules.size === 0) return []
+  const lockPath = LOCKFILE_ARG ?? path.join(REPO_ROOT, 'pnpm-lock.yaml')
+  const pkgs = parseLockfilePackages(readFileSync(lockPath, 'utf8'))
+  return pkgs.filter((p) => modules.has(p.name) && !p.dev)
 }
 
 function main() {
   const audit = loadAuditJson()
-  const { auditLevel, byGhsa, invalidGroups } = loadExceptions()
+  const { auditLevel, byGhsa, invalidGroups, groups } = loadExceptions()
   const thresholdRank = SEVERITY_RANK[auditLevel] ?? SEVERITY_RANK[DEFAULT_AUDIT_LEVEL]
 
   // MED-2 (security-review PR #536 round 2): the `advisories` key must
@@ -472,6 +505,18 @@ function main() {
     )
     console.log('advisory is accepted — reachability tier (prod-runtime / build / tests),')
     console.log('what actually reaches it, and (if applicable) the fix path deferred.')
+    console.log('')
+  }
+
+  const tierViolations = findTierViolations(groups)
+  if (tierViolations.length > 0) {
+    failed = true
+    console.log('FAIL: an exception group is tiered build/dev-only, but pnpm-lock.yaml installs')
+    console.log('these module versions WITHOUT `dev: true` (they reach a production path):')
+    for (const v of tierViolations) console.log(`   ${v.name}@${v.version}`)
+    console.log('')
+    console.log('Fix: remove the production path, or re-triage the advisory as prod-reachable')
+    console.log('(fix/override it) instead of keeping the build/dev-only exception.')
     console.log('')
   }
 

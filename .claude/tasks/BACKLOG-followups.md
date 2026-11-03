@@ -6415,6 +6415,8 @@ decision 11, unit U11).
 
 ## 344. pnpm-audit exceptions: the "build/dev-only" tier is asserted once, never re-checked (2026-10-31)
 
+**Status 2026-11-03: (i) and (ii) RESOLVED** on branch chore/r5-4.6-pnpm-audit-tier-guard: `findTierViolations` in `check-pnpm-audit.mjs` now fails naming `module@version` when a build/dev-only group's module is installed without `dev: true` (lockfile path is an optional 4th argv, tests in `test-check-pnpm-audit.sh`); the minimatch reason now names `@stryker-mutator/core` and the `workbox-build` chain. **(iii) stays open** (recheck 2026-12-01).
+
 From the PR #1195 security review (SR-M-1 and one LOW). Codebase Gardener run of 2026-10-31.
 
 **(i) The tier is not enforced.** `check-pnpm-audit.mjs` matches an exception by GHSA id only. A group

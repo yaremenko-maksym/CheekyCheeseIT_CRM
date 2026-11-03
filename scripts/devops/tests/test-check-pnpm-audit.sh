@@ -258,4 +258,48 @@ assert_green "the real pnpm-audit-exceptions.json shipped in this repo is well-f
   --not-contains "no (or too short a) reason" \
   -- node "$GUARD" "$CLEAN_AUDIT" "$REAL_EXCEPTIONS"
 
+# ── Tier enforcement: build/dev-only group vs the lockfile's `dev:` flag (backlog 344 i) ──
+# The guard's 4th argument is a lockfile path; fixtures are throwaway lockfiles.
+TIER_AUDIT="$WS/tier-audit.json"
+printf '{"advisories": {%s}}' "$(one_advisory_json 1 listed-mod high GHSA-tier-aaaa-bbbb)" >"$TIER_AUDIT"
+TIER_EXCEPTIONS="$WS/tier-exceptions.json"
+cat >"$TIER_EXCEPTIONS" <<'JSON'
+{"audit_level": "moderate", "exceptions": [{"module": "listed-mod", "tier": "build/dev-only",
+ "reason": "Fixture reason that is comfortably longer than the minimum meaningful length.",
+ "ghsa_ids": ["GHSA-tier-aaaa-bbbb"]}]}
+JSON
+PROD_LOCK="$WS/prod-lock.yaml"
+cat >"$PROD_LOCK" <<'YAML'
+lockfileVersion: 5.4
+
+packages:
+
+  /listed-mod/1.0.0:
+    resolution: {integrity: sha512-x}
+    dev: true
+
+  /listed-mod/2.0.0:
+    resolution: {integrity: sha512-y}
+    dev: false
+
+  /other/1.0.0:
+    resolution: {integrity: sha512-z}
+    dev: false
+YAML
+DEV_LOCK="$WS/dev-lock.yaml"
+sed 's/dev: false/dev: true/' "$PROD_LOCK" >"$DEV_LOCK"
+
+assert_red "build/dev-only module installed without dev: true names module and version" \
+  --contains "listed-mod@2.0.0" \
+  --not-contains "listed-mod@1.0.0" \
+  -- node "$GUARD" "$TIER_AUDIT" "$TIER_EXCEPTIONS" "$PROD_LOCK"
+
+assert_green "build/dev-only module with every version dev: true passes" \
+  --contains "OK:" \
+  -- node "$GUARD" "$TIER_AUDIT" "$TIER_EXCEPTIONS" "$DEV_LOCK"
+
+assert_green "the real repo lockfile satisfies the shipped build/dev-only tiers" \
+  --contains "OK:" \
+  -- node "$GUARD" "$CLEAN_AUDIT" "$REAL_EXCEPTIONS"
+
 guard_test_summary "test-check-pnpm-audit.sh"
