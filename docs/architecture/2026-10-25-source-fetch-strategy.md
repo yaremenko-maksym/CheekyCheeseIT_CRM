@@ -384,7 +384,7 @@ once, and never for one already enriched.
    re-evaluation through the dirty-work queue, which may drop the opportunity. **It is fetched again
    only** when the list shows the posting changed (a new list version, for Greenhouse its `updated_at`)
    and the opportunity is still wanted, or when the stored detail is older than **14 days** and still
-   wanted. That is the TTL.
+   wanted. That is the TTL. **Known limitation (carried to the ON_DEMAND flip, #10).** As implemented in part 3b, the 14-day staleness re-fetch fires at most once per list version of a record: an identical re-fetch keeps the stored revision's received time (the first-stored time feeds the canonical tie-break, so it must not be bumped) and does not advance the record's observation version, so the settled `DETAIL_FETCH` work row at that version swallows a second enqueue. A correct recurrence needs a dedicated detail-freshness anchor (a new column, staged DDL) and an enqueue path that the frozen-version idempotency does not swallow; it is carried to the ON_DEMAND flip, where the machinery first becomes live (inert today because no source is ON_DEMAND). Owner-approved carry, 2026-11-02.
 5. **Failure.** A 401, 403, 429 or 451 ends the run and pauses the host (T8, unchanged); the claimed row
    is recovered on lease expiry and retried after the pause. A 404 is the adapter's answer: the posting
    is gone, recorded as availability evidence, never retried. Anything else counts an attempt; after
