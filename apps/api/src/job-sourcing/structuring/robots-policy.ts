@@ -44,12 +44,6 @@ interface CacheEntry {
   resolved: ResolvedRobots
 }
 
-const NO_ROBOTS: ResolvedRobots = {
-  rules: [],
-  crawlDelaySeconds: null,
-  signals: { aiTrain: 'unspecified', search: 'unspecified', aiInput: 'unspecified' },
-}
-
 const refusal = (verdict: RobotsVerdict, reason: string): RobotsCheck => ({
   verdict,
   reason,
@@ -78,7 +72,7 @@ export class RobotsPolicy {
       try {
         target = new URL(link, base.url).href
       } catch {
-        return refusal('DENIED', 'UNPARSEABLE')
+        // `target` stays the raw text, which checkStoredLink below refuses as UNPARSEABLE too.
       }
     }
 
@@ -115,18 +109,22 @@ export class RobotsPolicy {
     }
 
     const { status } = response
-    if (status === 404 || status === 410) return this.remember(origin, NO_ROBOTS)
-    if (status === 401 || status === 403 || status === 429) {
-      return { ok: false, check: refusal('PAUSED', `HTTP_${status}`) }
+    // 404 / 410: no robots.txt, everything allowed (RFC 9309 2.3.1.3). Its body is not read.
+    const missing = status === 404 || status === 410
+    if (!missing) {
+      if (status === 401 || status === 403 || status === 429) {
+        return { ok: false, check: refusal('PAUSED', `HTTP_${status}`) }
+      }
+      if (status < 200 || status > 299) {
+        return { ok: false, check: refusal('UNREACHABLE_DENIED', `HTTP_${status}`) }
+      }
     }
-    if (status < 200 || status > 299) {
-      return { ok: false, check: refusal('UNREACHABLE_DENIED', `HTTP_${status}`) }
-    }
-    if (Buffer.byteLength(response.bodyText, 'utf8') > MAX_ROBOTS_BYTES) {
+    const body = missing ? '' : response.bodyText
+    if (Buffer.byteLength(body) > MAX_ROBOTS_BYTES) {
       return { ok: false, check: refusal('UNREACHABLE_DENIED', 'OVERSIZE') }
     }
 
-    const parsed = parseRobots(response.bodyText)
+    const parsed = parseRobots(body)
     if (parsed.meaningfulLines > 0 && parsed.recognisedLines === 0) {
       return { ok: false, check: refusal('UNREACHABLE_DENIED', 'UNPARSEABLE_BODY') }
     }

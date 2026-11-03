@@ -27,11 +27,16 @@ export interface RobotsRule {
 }
 
 interface RobotsGroup {
-  agents: string[]
+  agents: Set<string>
   rules: RobotsRule[]
   crawlDelays: number[]
-  signalPairs: Array<{ key: string; value: string }>
+  /** Content-Signal key -> value; `null` once the key has been given more than once. */
+  signals: Map<string, string | null>
 }
+
+/** Record a Content-Signal pair; a second mention of a key, whatever it says, voids it. */
+const noteSignal = (into: Map<string, string | null>, key: string, value: string | null) =>
+  into.set(key, into.has(key) ? null : value)
 
 export interface ParsedRobots {
   groups: RobotsGroup[]
@@ -63,21 +68,23 @@ const KNOWN = new Set([
 ])
 const SIGNAL_FIELDS = { 'ai-train': 'aiTrain', search: 'search', 'ai-input': 'aiInput' } as const
 const DELAY = /^\d+(\.\d+)?$/
-const LITERAL = /[A-Za-z0-9\-._~:/?[\]@!$&'()*+,;=]/
+// URI characters kept as written. A bare `%` is here too: a malformed escape stays literal.
+const LITERAL = /[A-Za-z0-9\-._~:/?[\]@!$&'()*+,;=%]/
 const UNRESERVED = /[A-Za-z0-9\-._~]/
-const HEX2 = /^[0-9A-Fa-f]{2}$/
-const isLineBreak = (byte: number | undefined) => byte === 0x0a || byte === 0x0d
+// Tested on the exact 3-character window `%XY`, so no anchors are needed.
+const ESCAPE = /%[0-9A-Fa-f]{2}/
 
 /** Keep at most MAX_ROBOTS_BYTES; when the cut lands inside a line, drop that half line. */
 function capText(text: string): { text: string; truncated: boolean } {
-  const bytes = Buffer.from(text, 'utf8')
+  const bytes = Buffer.from(text)
   if (bytes.length <= MAX_ROBOTS_BYTES) return { text, truncated: false }
   let kept = bytes.subarray(0, MAX_ROBOTS_BYTES)
-  if (!isLineBreak(kept[kept.length - 1]) && !isLineBreak(bytes[MAX_ROBOTS_BYTES])) {
-    const lastBreak = Math.max(kept.lastIndexOf(0x0a), kept.lastIndexOf(0x0d))
-    kept = kept.subarray(0, lastBreak + 1)
+  const next = bytes[MAX_ROBOTS_BYTES]
+  // The cut is clean when the next byte starts a line break; otherwise the last line is partial.
+  if (next !== 0x0a && next !== 0x0d) {
+    kept = kept.subarray(0, Math.max(kept.lastIndexOf(0x0a), kept.lastIndexOf(0x0d)) + 1)
   }
-  return { text: kept.toString('utf8'), truncated: true }
+  return { text: kept.toString(), truncated: true }
 }
 
 /**
@@ -89,20 +96,19 @@ function capText(text: string): { text: string; truncated: boolean } {
 function normalise(input: string): string {
   let out = ''
   for (let i = 0; i < input.length;) {
-    const ch = input[i] as string
-    if (ch === '%' && HEX2.test(input.slice(i + 1, i + 3))) {
-      const hex = input.slice(i + 1, i + 3)
+    const window = input.slice(i, i + 3)
+    if (ESCAPE.test(window)) {
+      const hex = window.slice(1)
       const decoded = String.fromCharCode(parseInt(hex, 16))
       out += UNRESERVED.test(decoded) ? decoded : `%${hex.toUpperCase()}`
       i += 3
       continue
     }
-    const point = input.codePointAt(i) as number
-    const char = String.fromCodePoint(point)
-    if (LITERAL.test(char) || char === '%') {
+    const char = String.fromCodePoint(input.codePointAt(i) as number)
+    if (LITERAL.test(char)) {
       out += char
     } else {
-      for (const byte of Buffer.from(char, 'utf8')) {
+      for (const byte of Buffer.from(char)) {
         out += `%${byte.toString(16).toUpperCase().padStart(2, '0')}`
       }
     }
@@ -115,12 +121,14 @@ export function parseRobots(raw: string): ParsedRobots {
   const { text, truncated } = capText(raw)
   const groups: RobotsGroup[] = []
   const preambleDelays: number[] = []
+  // The group that receives rules; `open` is it only while the last directive was a User-agent
+  // line, so the next User-agent line joins the same group instead of starting another.
   let current: RobotsGroup | null = null
-  // True while the last directive was a User-agent line: the next one joins the same group.
-  let collectingAgents = false
+  let open: RobotsGroup | null = null
   let meaningfulLines = 0
   let recognisedLines = 0
 
+  // The regex below holds a literal U+FEFF (byte-order mark); an editor may render it invisibly.
   for (const rawLine of text.replace(/^﻿/, '').split(/\r\n|\r|\n/)) {
     const hash = rawLine.indexOf('#')
     const line = (hash === -1 ? rawLine : rawLine.slice(0, hash)).trim()
@@ -135,54 +143,50 @@ export function parseRobots(raw: string): ParsedRobots {
     recognisedLines += 1
 
     if (name === 'user-agent') {
-      if (!collectingAgents || current === null) {
-        current = { agents: [], rules: [], crawlDelays: [], signalPairs: [] }
-        groups.push(current)
+      if (open === null) {
+        open = { agents: new Set(), rules: [], crawlDelays: [], signals: new Map() }
+        groups.push(open)
       }
-      current.agents.push(value.toLowerCase())
-      collectingAgents = true
+      open.agents.add(value.toLowerCase())
+      current = open
       continue
     }
     if (name === 'sitemap') continue
+    open = null
+
     if (current === null) {
       if (name === 'crawl-delay' && DELAY.test(value)) preambleDelays.push(Number(value))
-      continue
-    }
-    collectingAgents = false
-
-    if (name === 'allow' || name === 'disallow') {
+    } else if (name === 'allow' || name === 'disallow') {
       if (value !== '') current.rules.push({ allow: name === 'allow', pattern: normalise(value) })
     } else if (name === 'crawl-delay') {
       if (DELAY.test(value)) current.crawlDelays.push(Number(value))
     } else {
       for (const part of value.split(',')) {
-        const eq = part.trim().indexOf('=')
-        if (eq <= 0) continue
-        const pair = part.trim()
-        current.signalPairs.push({
-          key: pair.slice(0, eq).trim().toLowerCase(),
-          value: pair
+        const eq = part.indexOf('=')
+        if (eq === -1) continue
+        noteSignal(
+          current.signals,
+          part.slice(0, eq).trim().toLowerCase(),
+          part
             .slice(eq + 1)
             .trim()
             .toLowerCase(),
-        })
+        )
       }
     }
   }
   return { groups, preambleDelays, truncated, meaningfulLines, recognisedLines }
 }
 
-function resolveSignals(pairs: ReadonlyArray<{ key: string; value: string }>): ContentSignals {
+function resolveSignals(merged: ReadonlyMap<string, string | null>): ContentSignals {
   const signals: ContentSignals = {
     aiTrain: 'unspecified',
     search: 'unspecified',
     aiInput: 'unspecified',
   }
   for (const [key, field] of Object.entries(SIGNAL_FIELDS)) {
-    const own = pairs.filter((p) => p.key === key)
-    // A repeated key is ambiguous even when the copies agree: unspecified, never yes.
-    const only = own.length === 1 ? (own[0] as { value: string }).value : ''
-    if (only === 'yes' || only === 'no') signals[field] = only
+    const value = merged.get(key)
+    if (value === 'yes' || value === 'no') signals[field] = value
   }
   return signals
 }
@@ -192,13 +196,17 @@ function resolveSignals(pairs: ReadonlyArray<{ key: string; value: string }>): C
  */
 export function resolveRobots(parsed: ParsedRobots, productToken: string): ResolvedRobots {
   const token = productToken.toLowerCase()
-  const named = parsed.groups.filter((g) => g.agents.includes(token))
-  const groups = named.length > 0 ? named : parsed.groups.filter((g) => g.agents.includes('*'))
+  const named = parsed.groups.filter((g) => g.agents.has(token))
+  const groups = named.length > 0 ? named : parsed.groups.filter((g) => g.agents.has('*'))
   const delays = [...parsed.preambleDelays, ...groups.flatMap((g) => g.crawlDelays)]
+  const signals = new Map<string, string | null>()
+  for (const group of groups) {
+    for (const [key, value] of group.signals) noteSignal(signals, key, value)
+  }
   return {
     rules: groups.flatMap((g) => g.rules),
     crawlDelaySeconds: delays.length > 0 ? Math.max(...delays) : null,
-    signals: resolveSignals(groups.flatMap((g) => g.signalPairs)),
+    signals: resolveSignals(signals),
   }
 }
 

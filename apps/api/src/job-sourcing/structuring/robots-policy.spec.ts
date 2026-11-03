@@ -156,6 +156,12 @@ describe('absent or forbidden robots.txt', () => {
     })
   })
 
+  it('ignores whatever body a 404 carries', async () => {
+    const html = '<html>Not found</html>' + 'x'.repeat(MAX_ROBOTS_BYTES)
+    const r = await setup(status(404, html)).policy.check('https://a.test/x')
+    expect(r.verdict).toBe('ALLOWED')
+  })
+
   it.each([401, 403, 429])('pauses on %i, never reading it as a ban or a permit', async (code) => {
     const r = await setup(status(code)).policy.check('https://a.test/x')
     expect([r.verdict, r.reason]).toEqual(['PAUSED', `HTTP_${code}`])

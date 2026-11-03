@@ -243,6 +243,11 @@ describe('line syntax', () => {
     expect(allowed('User-agent: *\nNoindex: /a', '/a')).toBe(true)
   })
 
+  it('counts a line without a colon as meaningful but never as a directive', () => {
+    const p = parseRobots('User-agent: *\nDisallowx\nsitemap\n  \n\t\n# c\n   # c\n')
+    expect([p.meaningfulLines, p.recognisedLines]).toEqual([3, 1])
+  })
+
   it('counts what it recognised, for the unparseable check', () => {
     expect(parseRobots('# only a comment\n\n').meaningfulLines).toBe(0)
     const html = parseRobots('<html><body>Not found</body></html>')
@@ -281,15 +286,99 @@ describe('size cap (RFC 9309 2.5)', () => {
     expect(parseRobots(body).truncated).toBe(true)
   })
 
-  it('drops the line the cut lands in, so a half rule never applies', () => {
-    const head = 'User-agent: *\nDisallow: /keep\n'
-    const pad = '#'.repeat(MAX_ROBOTS_BYTES - head.length - 13)
-    // The cut falls inside `Allow: /secret/deeper`, leaving `Allow: /secr`.
-    const parsed = parseRobots(`${head}${pad}\nAllow: /secret/deeper\n`)
+  // Builds a body whose last kept line ends exactly at the cap, followed by `after`.
+  const capped = (lastLine: string, after: string, eol = '\n') => {
+    const first = 'User-agent: *'
+    const fixed = `${first}${eol}`.length + `${eol}Disallow: /keep${eol}`.length + lastLine.length
+    const pad = '#'.repeat(MAX_ROBOTS_BYTES - fixed)
+    return `${first}${eol}${pad}${eol}Disallow: /keep${eol}${lastLine}${after}`
+  }
+
+  it.each(['\n', '\r'])('drops the line the cut lands in, so a half rule never applies', (eol) => {
+    const parsed = parseRobots(capped('Allow: /secr', `et/deeper${eol}`, eol))
     expect(parsed.truncated).toBe(true)
-    const r = resolveRobots(parsed, TOKEN)
-    expect(isPathAllowed(r, '/secret')).toBe(true)
-    expect(r.rules).toHaveLength(1)
+    // exactly the complete line before the cut survives, unchanged
+    expect(resolveRobots(parsed, TOKEN).rules).toEqual([{ allow: false, pattern: '/keep' }])
+  })
+
+  it.each(['\n', '\r', '\r\n'])('keeps a line that ends exactly at the cap (%j follows)', (eol) => {
+    const parsed = parseRobots(capped('Disallow: /last', `${eol}Disallow: /after${eol}`, eol))
+    expect(parsed.truncated).toBe(true)
+    const patterns = resolveRobots(parsed, TOKEN).rules.map((r) => r.pattern)
+    expect(patterns).toEqual(['/keep', '/last'])
+  })
+
+  it('keeps a line when the cap falls right after its line break', () => {
+    const parsed = parseRobots(capped('Disallow: /last\n', 'Disallow: /after\n'))
+    expect(resolveRobots(parsed, TOKEN).rules.map((r) => r.pattern)).toEqual(['/keep', '/last'])
+  })
+
+  it('keeps nothing of a single oversize line', () => {
+    const parsed = parseRobots('x'.repeat(MAX_ROBOTS_BYTES + 10))
+    expect(parsed.truncated).toBe(true)
+    expect(parsed.meaningfulLines).toBe(0)
+  })
+})
+
+describe('pattern normalisation, as stored', () => {
+  const patterns = (value: string) =>
+    resolve(`User-agent: *\nDisallow: ${value}`).rules.map((r) => r.pattern)
+
+  it.each([
+    ['/plain/path?x=1', '/plain/path?x=1'],
+    ['/a b', '/a%20b'],
+    ['/a%7bb', '/a%7Bb'],
+    ['/%7Euser', '/~user'],
+    ['/%61%2D%2e%5f%7e%30%39%5A', '/a-._~09Z'],
+    ['/é', '/%C3%A9'],
+    ['/😀', '/%F0%9F%98%80'],
+    ['/a\u0001b', '/a%01b'],
+    ['/a%zz', '/a%zz'],
+    ['/a%', '/a%'],
+    ['/a%1', '/a%1'],
+    ['/%%41', '/%A'],
+    ['/a%2Ab', '/a%2Ab'],
+    ['/*$', '/*$'],
+    ['/{id}', '/%7Bid%7D'],
+  ])('%s -> %s', (value, expected) => {
+    expect(patterns(value)).toEqual([expected])
+  })
+
+  it('removes only a leading byte-order mark', () => {
+    expect(resolve('﻿User-agent: *\nDisallow: /a').rules).toHaveLength(1)
+    expect(patterns('/a﻿b')).toEqual(['/a%EF%BB%BFb'])
+  })
+})
+
+describe('group and directive corner cases', () => {
+  it('gives every agent of a shared group the same rules', () => {
+    const t = 'User-agent: first\nUser-agent: second\nDisallow: /shared\n'
+    expect(allowed(t, '/shared', 'first')).toBe(false)
+    expect(allowed(t, '/shared', 'second')).toBe(false)
+  })
+
+  it('keeps agents of one group together across a Sitemap line, and reads no signal from it', () => {
+    const t =
+      'User-agent: first\nSitemap: https://a.test/s?search=yes\nUser-agent: second\nDisallow: /shared\n'
+    expect(allowed(t, '/shared', 'first')).toBe(false)
+    expect(allowed(t, '/shared', 'second')).toBe(false)
+    expect(resolve(`User-agent: *\nSitemap: https://a.test/?search=yes`).signals.search).toBe(
+      'unspecified',
+    )
+  })
+
+  it('does not read a delay from a preamble line that is not Crawl-delay', () => {
+    expect(resolve('Disallow: 5\nAllow: 3\nUser-agent: *').crawlDelaySeconds).toBeNull()
+  })
+
+  it('reads a two-digit fraction as a delay', () => {
+    expect(resolve('User-agent: *\nCrawl-delay: 1.25').crawlDelaySeconds).toBe(1.25)
+  })
+
+  it('ignores a pair with no equals sign instead of reading a key out of it', () => {
+    expect(resolve('User-agent: *\nContent-Signal: ai-input=yes, ai-inputx').signals.aiInput).toBe(
+      'yes',
+    )
   })
 })
 
