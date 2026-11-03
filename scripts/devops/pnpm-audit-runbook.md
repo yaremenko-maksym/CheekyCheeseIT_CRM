@@ -183,7 +183,10 @@ all — the advisory still gates), so a vague reason does not even buy you
 anything. A group whose `tier` says build/dev-only is also re-checked against
 `pnpm-lock.yaml` on every run: if any installed version of its `module` lacks
 `dev: true` (it reached a production path), the guard fails naming
-`module@version`, whatever the GHSA match says. Write what Step 1 found: the reachability tier (prod-runtime /
+`module@version`, whatever the GHSA match says. The check fails closed: an
+unreadable lockfile, a lockfileVersion other than 5.x/6.x, zero parsed
+packages, or a listed module with no lockfile entry (prune the stale group)
+also fails. Only the exact tier `build/dev-only` opts in. Write what Step 1 found: the reachability tier (prod-runtime /
 build-only / test-only), the exact command that proved it (`pnpm why <pkg>
 -r` output, quoted or summarized), and — if the vulnerable code path is
 technically reachable but never exercised (like the `@xmldom/xmldom` case:

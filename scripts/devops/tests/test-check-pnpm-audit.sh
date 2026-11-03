@@ -302,4 +302,71 @@ assert_green "the real repo lockfile satisfies the shipped build/dev-only tiers"
   --contains "OK:" \
   -- node "$GUARD" "$CLEAN_AUDIT" "$REAL_EXCEPTIONS"
 
+# ── Tier cross-check: fail-closed paths (CR-H-1 / M-2 / M-3 / M-4) ──
+mk_exceptions() { # $1 = file, $2 = tier, $3 = module
+  cat >"$1" <<JSON
+{"audit_level": "moderate", "exceptions": [{"module": "$3", "tier": "$2",
+ "reason": "Fixture reason that is comfortably longer than the minimum meaningful length.",
+ "ghsa_ids": ["GHSA-tier-aaaa-bbbb"]}]}
+JSON
+}
+
+ABSENT_EXC="$WS/absent-exc.json"
+mk_exceptions "$ABSENT_EXC" "build/dev-only" "missing-mod"
+assert_red "listed module with ZERO lockfile entries fails closed" \
+  --contains "missing-mod: no entry in the lockfile" \
+  -- node "$GUARD" "$TIER_AUDIT" "$ABSENT_EXC" "$DEV_LOCK"
+
+EMPTY_LOCK="$WS/empty-lock.yaml"
+printf 'lockfileVersion: 5.4\n\npackages:\n\n' >"$EMPTY_LOCK"
+assert_red "lockfile with an empty packages section fails closed" \
+  --contains "no packages parsed" \
+  -- node "$GUARD" "$TIER_AUDIT" "$TIER_EXCEPTIONS" "$EMPTY_LOCK"
+
+V9_LOCK="$WS/v9-lock.yaml"
+printf "lockfileVersion: '9.0'\n\npackages:\n\n  listed-mod@1.0.0:\n    resolution: {integrity: sha512-x}\n\n" >"$V9_LOCK"
+assert_red "unsupported lockfileVersion (9.0, keys without leading slash) fails closed" \
+  --contains "unsupported lockfileVersion" \
+  -- node "$GUARD" "$TIER_AUDIT" "$TIER_EXCEPTIONS" "$V9_LOCK"
+
+assert_red "unreadable lockfile prints a FAIL line, not a stack trace" \
+  --contains "cannot read lockfile" \
+  --not-contains "node:fs" \
+  -- node "$GUARD" "$TIER_AUDIT" "$TIER_EXCEPTIONS" "$WS/does-not-exist.yaml"
+
+PEER_LOCK="$WS/peer-lock.yaml"
+cat >"$PEER_LOCK" <<'YAML'
+lockfileVersion: 5.4
+
+packages:
+
+  /@scope/listed-scoped/1.2.3_react@18.0.0:
+    resolution: {integrity: sha512-x}
+    dev: false
+
+  /listed-mod/1.0.0_peer@2.0.0:
+    resolution: {integrity: sha512-y}
+    dev: true
+YAML
+SCOPED_EXC="$WS/scoped-exc.json"
+mk_exceptions "$SCOPED_EXC" "build/dev-only" "@scope/listed-scoped"
+assert_red "scoped name with a peer-suffixed key is parsed and flagged" \
+  --contains "@scope/listed-scoped@1.2.3" \
+  -- node "$GUARD" "$TIER_AUDIT" "$SCOPED_EXC" "$PEER_LOCK"
+assert_green "peer-suffixed dev: true key passes" \
+  --contains "OK:" \
+  -- node "$GUARD" "$TIER_AUDIT" "$TIER_EXCEPTIONS" "$PEER_LOCK"
+
+V6_LOCK="$WS/v6-lock.yaml"
+printf "lockfileVersion: '6.0'\n\npackages:\n\n  /listed-mod@1.0.0(peer@2.0.0):\n    resolution: {integrity: sha512-x}\n    dev: false\n\n" >"$V6_LOCK"
+assert_red "v6-format key (/name@ver) without dev: true is flagged" \
+  --contains "listed-mod@1.0.0" \
+  -- node "$GUARD" "$TIER_AUDIT" "$TIER_EXCEPTIONS" "$V6_LOCK"
+
+OTHER_TIER_EXC="$WS/other-tier-exc.json"
+mk_exceptions "$OTHER_TIER_EXC" "prod-runtime" "listed-mod"
+assert_green "a group with a different tier is ignored by the cross-check (even on a prod lockfile)" \
+  --contains "OK:" \
+  -- node "$GUARD" "$TIER_AUDIT" "$OTHER_TIER_EXC" "$PROD_LOCK"
+
 guard_test_summary "test-check-pnpm-audit.sh"

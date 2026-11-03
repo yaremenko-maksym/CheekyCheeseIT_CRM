@@ -350,14 +350,41 @@ function parseLockfilePackages(text) {
   return pkgs
 }
 
+// Exact tier string(s) that opt a group into the lockfile cross-check.
+const DEV_ONLY_TIERS = new Set(['build/dev-only'])
+// Lockfile majors whose `/name/ver` (v5) or `/name@ver` (v6) keys parseLockfilePackages understands.
+const SUPPORTED_LOCKFILE_MAJORS = new Set(['5', '6'])
+
+/**
+ * Fail-closed: returns one message per problem. An unreadable, unsupported-format or empty-parse
+ * lockfile, or a listed module with ZERO lockfile entries (an absent module cannot be proven
+ * dev-only; prune the group instead), is a problem — never a silent pass.
+ */
 function findTierViolations(exceptionGroups) {
   const modules = new Set(
-    exceptionGroups.filter((g) => /build|dev/i.test(g.tier ?? '') && g.module).map((g) => g.module),
+    exceptionGroups.filter((g) => DEV_ONLY_TIERS.has(g.tier) && g.module).map((g) => g.module),
   )
   if (modules.size === 0) return []
   const lockPath = LOCKFILE_ARG ?? path.join(REPO_ROOT, 'pnpm-lock.yaml')
-  const pkgs = parseLockfilePackages(readFileSync(lockPath, 'utf8'))
-  return pkgs.filter((p) => modules.has(p.name) && !p.dev)
+  let text
+  try {
+    text = readFileSync(lockPath, 'utf8')
+  } catch (err) {
+    return [`cannot read lockfile ${lockPath}: ${err.code ?? err.message}`]
+  }
+  const major = text.match(/^lockfileVersion:\s*'?(\d+)\./m)?.[1]
+  if (!SUPPORTED_LOCKFILE_MAJORS.has(major)) {
+    return [`unsupported lockfileVersion (major ${major ?? 'missing'}); parser supports 5.x and 6.x`]
+  }
+  const pkgs = parseLockfilePackages(text)
+  if (pkgs.length === 0) return ['no packages parsed from the lockfile; cross-check cannot run']
+  const problems = []
+  for (const mod of modules) {
+    const found = pkgs.filter((p) => p.name === mod)
+    if (found.length === 0) problems.push(`${mod}: no entry in the lockfile (stale group? prune it)`)
+    for (const p of found) if (!p.dev) problems.push(`${p.name}@${p.version}: installed without dev: true`)
+  }
+  return problems
 }
 
 function main() {
@@ -511,9 +538,9 @@ function main() {
   const tierViolations = findTierViolations(groups)
   if (tierViolations.length > 0) {
     failed = true
-    console.log('FAIL: an exception group is tiered build/dev-only, but pnpm-lock.yaml installs')
-    console.log('these module versions WITHOUT `dev: true` (they reach a production path):')
-    for (const v of tierViolations) console.log(`   ${v.name}@${v.version}`)
+    console.log('FAIL: build/dev-only tier cross-check against the lockfile failed (a module that')
+    console.log('reaches a production path, or a lockfile the guard cannot verify):')
+    for (const v of tierViolations) console.log(`   ${v}`)
     console.log('')
     console.log('Fix: remove the production path, or re-triage the advisory as prod-reachable')
     console.log('(fix/override it) instead of keeping the build/dev-only exception.')
