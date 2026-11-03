@@ -1,8 +1,15 @@
-import type { SQL } from 'drizzle-orm'
+import { type SQL, sql } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
+import { INVENTORY_CLOSE_REASON } from '../availability/inventory-counter-updater'
+import { RECORD_REOPEN_REASON } from '../availability/record-reopen-updater'
+import { WINDOW_EXPIRE_REASON } from '../availability/window-expiry-updater'
 import type { SqlExecutor } from '../scheduling/host-state'
+import { CANONICAL_REVISION_REASON } from '../store/canonical.store'
+import { RECORD_RELISTED_REASON, SOURCE_REVISION_REASON } from '../store/source-record.store'
 import {
+  dirtyConsumerOf,
+  dirtyConsumerPredicate,
   CLAIMABLE_KINDS,
   claimDetailFetchForSource,
   claimDirtyBatch,
@@ -124,6 +131,60 @@ describe('enqueueDirty', () => {
   })
 })
 
+describe('dirtyConsumerOf (Task 4.6 S-P1 reason classifier)', () => {
+  const RUN = '5c1e0b2a-9d8f-4e7a-8b6c-2d3e4f5a6b7c'
+  it.each([
+    // DETAIL — the source run's own tail.
+    ['DETAIL_FETCH', 'DETAIL'],
+    // AVAILABILITY — the explicit namespace and the legacy availability-only reasons.
+    ['AVAILABILITY:SOURCE_REVISION', 'AVAILABILITY'],
+    ['AVAILABILITY:CANONICAL_REVISION', 'AVAILABILITY'],
+    [`RECORD_RELISTED:${RUN}`, 'AVAILABILITY'],
+    ['RECORD_INVENTORY_CLOSED', 'AVAILABILITY'],
+    ['RECORD_REOPENED', 'AVAILABILITY'],
+    ['RECORD_WINDOW_EXPIRED', 'AVAILABILITY'],
+    // MATCH — the residual: every match producer and any unknown reason.
+    ['SOURCE_REVISION', 'MATCH'],
+    ['CANONICAL_REVISION', 'MATCH'],
+    [`fanout:${RUN}`, 'MATCH'],
+    [`fanout:${RUN}:${RUN}`, 'MATCH'],
+    ['RECONCILE:0123456789abcdef:fedcba9876543210', 'MATCH'],
+    ['senior.profile', 'MATCH'],
+    ['OPPORTUNITY_AVAILABILITY_CHANGED', 'MATCH'],
+    ['SOMETHING_NEW', 'MATCH'],
+    // Near misses stay MATCH: a prefix needs its colon, an exact name has no suffix.
+    ['RECORD_RELISTED', 'MATCH'],
+    ['AVAILABILITY', 'MATCH'],
+    ['RECORD_REOPENED:x', 'MATCH'],
+    ['DETAIL_FETCH:x', 'MATCH'],
+    ['xAVAILABILITY:y', 'MATCH'],
+  ] as const)('%s -> %s', (reason, consumer) => {
+    expect(dirtyConsumerOf(reason)).toBe(consumer)
+  })
+
+  it('derives its availability reasons from the producers’ exported constants', () => {
+    expect(dirtyConsumerOf(`${RECORD_RELISTED_REASON}:${RUN}`)).toBe('AVAILABILITY')
+    expect(dirtyConsumerOf(INVENTORY_CLOSE_REASON)).toBe('AVAILABILITY')
+    expect(dirtyConsumerOf(RECORD_REOPEN_REASON)).toBe('AVAILABILITY')
+    expect(dirtyConsumerOf(WINDOW_EXPIRE_REASON)).toBe('AVAILABILITY')
+    expect(dirtyConsumerOf(SOURCE_REVISION_REASON)).toBe('MATCH')
+    expect(dirtyConsumerOf(CANONICAL_REVISION_REASON)).toBe('MATCH')
+    expect(dirtyConsumerOf(DETAIL_FETCH)).toBe('DETAIL')
+  })
+
+  it('renders the SQL twin per consumer over a given column', () => {
+    const q = (c: 'MATCH' | 'AVAILABILITY' | 'DETAIL') =>
+      render(dirtyConsumerPredicate(c, sql`d.reason`))
+    expect(q('DETAIL')).toEqual({ sql: '(d.reason = $1)', params: [DETAIL_FETCH] })
+    expect(q('AVAILABILITY').sql).toBe(
+      '(starts_with(d.reason, $1) OR starts_with(d.reason, $2) OR d.reason IN ($3, $4, $5))',
+    )
+    expect(q('MATCH').sql).toBe(
+      'NOT ((d.reason = $1) OR (starts_with(d.reason, $2) OR starts_with(d.reason, $3) OR d.reason IN ($4, $5, $6)))',
+    )
+  })
+})
+
 describe('claimDirtyBatch', () => {
   const row = (id: string, epoch: number) => ({
     id,
@@ -135,16 +196,28 @@ describe('claimDirtyBatch', () => {
     retry_count: 1,
   })
 
+  // Task 4.6 S-P1: the availability-partition reasons, as literals (an independent source: the
+  // classifier derives them from the producers' constants, so a drift there fails here).
+  const AVAIL = [
+    'AVAILABILITY:',
+    'RECORD_RELISTED:',
+    'RECORD_INVENTORY_CLOSED',
+    'RECORD_REOPENED',
+    'RECORD_WINDOW_EXPIRED',
+  ]
+  const MATCH_SQL = (n: number) =>
+    `AND NOT ((reason = $${n}) OR (starts_with(reason, $${n + 1}) OR starts_with(reason, $${n + 2}) OR reason IN ($${n + 3}, $${n + 4}, $${n + 5})))`
+
   it('defaults to a batch of 200 and a five-minute lease, SKIP LOCKED', async () => {
     const { tx, seen } = scripted()
-    await claimDirtyBatch(tx, { owner: 'w' })
+    await claimDirtyBatch(tx, { owner: 'w', consumer: 'MATCH' })
     expect(seen[0]!.sql).toContain('FOR UPDATE SKIP LOCKED')
     expect(seen[0]!.sql).toContain("WHERE status = 'PENDING'")
     expect(seen[0]!.sql).toContain('fencing_epoch = d.fencing_epoch + 1')
     // Default kinds: exactly those with a version source (CR-M-2); since S5, all five.
     expect(seen[0]!.sql).toContain('AND entity_kind IN ($1, $2, $3, $4, $5)')
-    // SFS U10 (CR-M-1 / SPEC-M-2): the generic consumer never sweeps a DETAIL_FETCH row.
-    expect(seen[0]!.sql).toContain('AND reason <> $6')
+    // S-P1: the match partition — neither DETAIL_FETCH (CR-M-1) nor an availability reason.
+    expect(seen[0]!.sql).toContain(MATCH_SQL(6))
     expect(seen[0]!.params).toEqual([
       'SOURCE_RECORD',
       'OPPORTUNITY',
@@ -152,6 +225,7 @@ describe('claimDirtyBatch', () => {
       'EXCLUSION',
       'PROJECT_CLIENT',
       DETAIL_FETCH,
+      ...AVAIL,
       200,
       'w',
       300_000,
@@ -160,7 +234,12 @@ describe('claimDirtyBatch', () => {
 
   it('passes an explicit batch size and lease', async () => {
     const { tx, seen } = scripted()
-    await claimDirtyBatch(tx, { owner: 'w', batchSize: 1000, leaseMs: 3_600_000 })
+    await claimDirtyBatch(tx, {
+      owner: 'w',
+      consumer: 'MATCH',
+      batchSize: 1000,
+      leaseMs: 3_600_000,
+    })
     expect(seen[0]!.params).toEqual([
       'SOURCE_RECORD',
       'OPPORTUNITY',
@@ -168,6 +247,7 @@ describe('claimDirtyBatch', () => {
       'EXCLUSION',
       'PROJECT_CLIENT',
       DETAIL_FETCH,
+      ...AVAIL,
       1000,
       'w',
       3_600_000,
@@ -176,16 +256,38 @@ describe('claimDirtyBatch', () => {
 
   it('claims only the kinds it is given', async () => {
     const { tx, seen } = scripted()
-    await claimDirtyBatch(tx, { owner: 'w', kinds: ['OPPORTUNITY'] })
+    await claimDirtyBatch(tx, { owner: 'w', consumer: 'MATCH', kinds: ['OPPORTUNITY'] })
     expect(seen[0]!.sql).toContain('AND entity_kind IN ($1)')
-    // CR-M-1: the DETAIL_FETCH exclusion rides on every generic claim, whatever the kinds.
-    expect(seen[0]!.sql).toContain('AND reason <> $2')
-    expect(seen[0]!.params).toEqual(['OPPORTUNITY', DETAIL_FETCH, 200, 'w', 300_000])
+    // CR-M-1: the DETAIL_FETCH exclusion rides on every match claim, whatever the kinds.
+    expect(seen[0]!.sql).toContain(MATCH_SQL(2))
+    expect(seen[0]!.params).toEqual(['OPPORTUNITY', DETAIL_FETCH, ...AVAIL, 200, 'w', 300_000])
+  })
+
+  it('S-P1: the availability consumer claims only the availability partition', async () => {
+    const { tx, seen } = scripted()
+    await claimDirtyBatch(tx, { owner: 'w', consumer: 'AVAILABILITY', kinds: ['OPPORTUNITY'] })
+    expect(seen[0]!.sql).toContain(
+      'AND (starts_with(reason, $2) OR starts_with(reason, $3) OR reason IN ($4, $5, $6))',
+    )
+    expect(seen[0]!.sql).not.toContain('NOT (')
+    expect(seen[0]!.params).toEqual(['OPPORTUNITY', ...AVAIL, 200, 'w', 300_000])
+  })
+
+  it.each([
+    ['no consumer', undefined],
+    ['the DETAIL partition (it has its own claim)', 'DETAIL'],
+    ['an unknown consumer', 'NOPE'],
+  ])('S-P1: refuses %s before any SQL', async (_label, consumer) => {
+    const { tx, seen } = scripted()
+    const err = claimDirtyBatch(tx, { owner: 'w', consumer: consumer as 'MATCH' })
+    await expect(err).rejects.toThrow(RangeError)
+    await expect(err).rejects.toThrow('consumer must be MATCH or AVAILABILITY')
+    expect(seen).toHaveLength(0)
   })
 
   it('refuses an empty kind list before any SQL', async () => {
     const { tx, seen } = scripted()
-    await expect(claimDirtyBatch(tx, { owner: 'w', kinds: [] })).rejects.toThrow(
+    await expect(claimDirtyBatch(tx, { owner: 'w', consumer: 'MATCH', kinds: [] })).rejects.toThrow(
       new RangeError('kinds must name at least one kind'),
     )
     expect(seen).toHaveLength(0)
@@ -195,7 +297,7 @@ describe('claimDirtyBatch', () => {
     'S5: claims kind %s now that it has a derived version source',
     async (kind) => {
       const { tx, seen } = scripted()
-      await claimDirtyBatch(tx, { owner: 'w', kinds: ['OPPORTUNITY', kind] })
+      await claimDirtyBatch(tx, { owner: 'w', consumer: 'MATCH', kinds: ['OPPORTUNITY', kind] })
       expect(seen[0]!.params).toEqual(expect.arrayContaining(['OPPORTUNITY', kind]))
     },
   )
@@ -213,7 +315,7 @@ describe('claimDirtyBatch', () => {
   it('refuses an unknown kind before any SQL', async () => {
     const { tx, seen } = scripted()
     await expect(
-      claimDirtyBatch(tx, { owner: 'w', kinds: ['NOPE' as 'OPPORTUNITY'] }),
+      claimDirtyBatch(tx, { owner: 'w', consumer: 'MATCH', kinds: ['NOPE' as 'OPPORTUNITY'] }),
     ).rejects.toThrow()
     expect(seen).toHaveLength(0)
   })
@@ -234,7 +336,7 @@ describe('claimDirtyBatch', () => {
     ],
   ])('refuses %s before any SQL', async (_label, over, message) => {
     const { tx, seen } = scripted()
-    const err = claimDirtyBatch(tx, { owner: 'w', ...over })
+    const err = claimDirtyBatch(tx, { owner: 'w', consumer: 'MATCH', ...over })
     await expect(err).rejects.toThrow(RangeError)
     await expect(err).rejects.toThrow(message)
     expect(seen).toHaveLength(0)
@@ -246,7 +348,7 @@ describe('claimDirtyBatch', () => {
     ['a non-string owner', 42 as unknown as string],
   ])('refuses %s', async (_label, owner) => {
     const { tx, seen } = scripted()
-    const err = claimDirtyBatch(tx, { owner })
+    const err = claimDirtyBatch(tx, { owner, consumer: 'MATCH' })
     await expect(err).rejects.toThrow(RangeError)
     await expect(err).rejects.toThrow('owner must be 1..200 characters')
     expect(seen).toHaveLength(0)
@@ -254,14 +356,14 @@ describe('claimDirtyBatch', () => {
 
   it('accepts a 200-character owner', async () => {
     const { tx, seen } = scripted()
-    await claimDirtyBatch(tx, { owner: 'o'.repeat(200) })
+    await claimDirtyBatch(tx, { owner: 'o'.repeat(200), consumer: 'MATCH' })
     expect(seen).toHaveLength(1)
   })
 
   it('maps rows to numeric handles carrying the owner', async () => {
     const later = '1b6a6f6e-8f43-4c55-9c4a-6c3f3e1f2a10'
     const { tx } = scripted([row(later, 5)])
-    const got = await claimDirtyBatch(tx, { owner: 'w' })
+    const got = await claimDirtyBatch(tx, { owner: 'w', consumer: 'MATCH' })
     expect(got).toHaveLength(1)
     expect(got[0]).toEqual({
       id: later,
