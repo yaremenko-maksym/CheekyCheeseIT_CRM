@@ -24,6 +24,7 @@ import {
   untilBlocked as untilBlockedOn,
 } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
+import { dirtyConsumerOf } from '../ownership/dirty-work.store'
 import { JobRunLedger } from '../ownership/job-run-ledger'
 import type { RunHandle } from '../ownership/run-ownership'
 import {
@@ -336,15 +337,50 @@ describe.skipIf(!hasDatabaseUrl())('canonical store (Task 4.5, real Postgres)', 
         [[a, b]],
       )
       expect(rows[0].n).toBe(2)
-      // Every membership change advanced a revision and enqueued re-evaluation for it.
-      const { rows: dirty } = await session.admin.query(
-        `SELECT o.id FROM job_opportunities o
-          WHERE o.id = ANY($1::uuid[]) AND NOT EXISTS (
-            SELECT 1 FROM job_dirty_work d WHERE d.entity_kind = 'OPPORTUNITY' AND d.entity_id = o.id
-              AND d.target_version = o.revision AND d.reason = 'CANONICAL_REVISION')`,
-        [[merged, split]],
-      )
-      expect(dirty).toEqual([])
+      // Every membership change advanced a revision and enqueued re-evaluation for it — for BOTH
+      // consumers (S-P2 invariant: a PENDING row of each partition at the current revision).
+      for (const reason of ['CANONICAL_REVISION', 'AVAILABILITY:CANONICAL_REVISION']) {
+        const { rows: dirty } = await session.admin.query(
+          `SELECT o.id FROM job_opportunities o
+            WHERE o.id = ANY($1::uuid[]) AND NOT EXISTS (
+              SELECT 1 FROM job_dirty_work d WHERE d.entity_kind = 'OPPORTUNITY' AND d.entity_id = o.id
+                AND d.target_version = o.revision AND d.reason = $2 AND d.status = 'PENDING')`,
+          [[merged, split], reason],
+        )
+        expect({ reason, dirty }).toEqual({ reason, dirty: [] })
+      }
+    })
+
+    it('S-P2: a canonical revision yields one PENDING row per partition at it; a replay adds none', async () => {
+      const a = await record({ nativeId: 'sp2' })
+      await resolveRecordsTx(db, [a])
+      const [{ opportunity_id: opp }] = (await activeOf(a)) as [{ opportunity_id: string }]
+      const state = async () => {
+        const { rows } = await session.admin.query(
+          `SELECT d.target_version::int AS v, d.reason,
+                  (SELECT revision::int FROM job_opportunities WHERE id = $1) AS revision
+             FROM job_dirty_work d
+            WHERE d.entity_kind = 'OPPORTUNITY' AND d.entity_id = $1 AND d.status = 'PENDING'
+            ORDER BY 1, 2`,
+          [opp],
+        )
+        const versionsOf = (consumer: string) =>
+          rows.filter((r) => dirtyConsumerOf(r.reason) === consumer).map((r) => r.v as number)
+        return {
+          revision: rows[0]?.revision as number,
+          match: versionsOf('MATCH'),
+          availability: versionsOf('AVAILABILITY'),
+          reasons: [...new Set(rows.map((r) => r.reason as string))].sort(),
+        }
+      }
+      const first = await state()
+      // Every revision the store wrote has its row in BOTH partitions, the current one included.
+      expect(first.reasons).toEqual(['AVAILABILITY:CANONICAL_REVISION', 'CANONICAL_REVISION'])
+      expect(first.availability).toEqual(first.match)
+      expect(first.match).toContain(first.revision)
+      // Resolving the same record again changes nothing: no revision, no new row in either partition.
+      await resolveRecordsTx(db, [a])
+      expect(await state()).toEqual(first)
     })
 
     it('refuses a non-ADMIN actor at the mint and a forged one at the call', async () => {
