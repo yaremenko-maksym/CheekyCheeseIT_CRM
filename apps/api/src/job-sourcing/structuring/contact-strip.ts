@@ -62,14 +62,19 @@ const PROFILE_URL = [
   String.raw`${HOST_START}(?:www\.|m\.)?(?:github\.com|gitlab\.com|x\.com|twitter\.com|facebook\.com|fb\.com|instagram\.com|vk\.com)\/${SEGMENT}${SINGLE_SEGMENT_END}`,
 ].join('|')
 
-/** `@`, `[at]`, `(at)`, `{at}`, `[@]`, the bare word ` at `, or `@` URL/HTML-encoded (once or twice). */
-const AT = String.raw`(?:\s*[\[({]\s*(?:at|@)\s*[\])}]\s*|\s+at\s+|\s*(?:@|%40|&(?:amp;)?#0*64;|&#x0*40;|&commat;)\s*)`
+/**
+ * An HTML entity whose `&` may itself be escaped up to twice (`&amp;amp;#64;`): pages that
+ * HTML-encode already encoded text. Bounded, so the scan stays linear.
+ */
+const ENTITY = String.raw`&(?:amp;){0,2}`
+/** `@`, `[at]`, `(at)`, `{at}`, `[@]`, the bare word ` at `, `%40`, or `@` as a decimal/hex/named entity. */
+const AT = String.raw`(?:\s*[\[({]\s*(?:at|@)\s*[\])}]\s*|\s+at\s+|\s*(?:@|%40|${ENTITY}(?:#0*64;|#x0*40;|commat;))\s*)`
 /**
  * `.` / ideographic `。` / `,`, `[dot]`, `(dot)`, `{dot}`, `[.]`, the bare word ` dot `, a dot with
- * a space before it (`gmail . com`), or `.` URL/HTML-encoded. A dot glued to the left
- * (`example.com. Next`) takes no space after it, so a sentence-ending email keeps the next word.
+ * a space before it (`gmail . com`), `%2e`, or `.` as a decimal/hex/named entity. A dot glued to
+ * the left (`example.com. Next`) takes no space after it, so a sentence-ending email keeps the next word.
  */
-const DOT = String.raw`(?:\s*[\[({]\s*(?:dot|[.。])\s*[\])}]\s*|\s+dot\s+|[ \t]+[.。][ \t]*|[.。,]|%2e|&(?:amp;)?#0*46;|&#x0*2e;|&period;)`
+const DOT = String.raw`(?:\s*[\[({]\s*(?:dot|[.。])\s*[\])}]\s*|\s+dot\s+|[ \t]+[.。][ \t]*|[.。,]|%2e|${ENTITY}(?:#0*46;|#x0*2e;|period;))`
 const LABEL = String.raw`[\p{L}\p{N}\-]{1,63}`
 /** `jane dot doe`: the ` dot ` inside a local part takes 1–3 spaces each side (bounded, see EMAIL). */
 const LOCAL = String.raw`[\p{L}\p{N}._%+\-]+(?:\s{1,3}dot\s{1,3}[\p{L}\p{N}._%+\-]+)*`

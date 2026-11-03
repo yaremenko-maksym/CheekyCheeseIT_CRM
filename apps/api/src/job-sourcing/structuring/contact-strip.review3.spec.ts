@@ -40,6 +40,17 @@ const EMAILS: readonly string[] = [
   'jane@gmail&amp;#46;com',
   'jane&amp;#64;gmail.com',
   'jane@gmail,com',
+  // SR-M-8: double-encoded `&` before decimal, hex and named forms
+  'jane&amp;amp;#x40;gmail.com',
+  'jane@gmail&amp;amp;#x2e;com',
+  'jane&amp;amp;commat;gmail.com',
+  'jane@gmail&amp;amp;period;com',
+  'jane&amp;amp;#64;gmail.com',
+  'jane@gmail&amp;amp;#46;com',
+  'jane&amp;#x40;gmail.com',
+  'jane@gmail&amp;#x2e;com',
+  'jane&amp;commat;gmail.com',
+  'jane@gmail&amp;period;com',
 ]
 
 const MESSENGERS: ReadonlyArray<readonly [string, string]> = [

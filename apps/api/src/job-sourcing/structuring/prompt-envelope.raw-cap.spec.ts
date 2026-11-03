@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { expectScaling, SCALING_TEST_TIMEOUT_MS } from './__fixtures__/scaling'
+import { expectScaling, SCALING_TEST_TIMEOUT_MS } from './__test-helpers__/scaling'
 import { CONTACT_TOKEN } from './contact-strip'
 import {
   buildExtractionPrompt,
