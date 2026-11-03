@@ -265,6 +265,12 @@ describe('extractJobPostings: conflicts and failures', () => {
     expect(r.postings[0].title).toBe('a</script>b <script>')
   })
 
+  it('the \\u003c escape form of a terminator is decoded after the parse', () => {
+    const r = run(fixture('unicode-escaped-terminator.html'))
+    expect(r.failures).toEqual({})
+    expect(r.postings.map((p) => p.title)).toEqual(['a</script>b </SCRIPT >'])
+  })
+
   it('no JSON-LD is an empty result, not an error', () => {
     const r = run(fixture('no-jsonld.html'))
     expect(r).toEqual({
@@ -341,11 +347,148 @@ describe('extractJobPostings: conflicts and failures', () => {
       UNTERMINATED_SCRIPT: 1,
     })
     expect(run('<script>var a').failures).toEqual({})
-    expect(run('<script type="application/ld+json"').failures).toEqual({})
-    expect(run('<script type="application/ld+json" defer').failures).toEqual({})
+    for (const html of [
+      '<script type="application/ld+json"',
+      '<script type="application/ld+json" defer',
+      '<script defer type="application/ld+json"',
+      '<script type=application/ld+json',
+      'x <script data-a="a>b" type="application/ld+json" ',
+    ]) {
+      expect(run(html).failures, html).toEqual({ UNTERMINATED_OPEN_TAG: 1 })
+    }
+    for (const html of ['<script', '<script defer', '<script type="text/plain"']) {
+      expect(run(html).failures, html).toEqual({})
+    }
     expect(
       run(`${ld(posting({ identifier: 'K' }))}<script type="application/ld+json">{`).postings,
     ).toHaveLength(1)
+  })
+
+  it('open tag is read quote-aware: ">" in a value does not hide type; type text in another value does not match', () => {
+    const body = posting({ identifier: 'Q' })
+    for (const attrs of [
+      `data-x="a>b" type="application/ld+json"`,
+      `data-x='a>b' type='application/ld+json'`,
+      `data-x="type='x'" TYPE = " Application/LD+JSON "`,
+      `type="application/ld+json" type="text/plain"`,
+    ]) {
+      expect(run(`<script ${attrs}>${body}</script>`).postings, attrs).toHaveLength(1)
+    }
+    for (const attrs of [
+      `data-x='type="application/ld+json"'`,
+      `data-x="type=application/ld+json"`,
+      `type="text/plain" type="application/ld+json"`,
+      `type type="application/ld+json"`,
+      `type`,
+    ]) {
+      expect(run(`<script ${attrs}>${body}</script>`).postings, attrs).toHaveLength(0)
+    }
+    // text before the tag never leaks into its attributes
+    expect(run(`type="application/ld+json" <script>${body}</script>`).postings).toHaveLength(0)
+    expect(run(`<script data-x="a>b">${body}</script>`).failures).toEqual({})
+  })
+
+  it('keeps the raw JSON value of every field alongside the normalised one', () => {
+    const src = {
+      identifier: { '@type': 'PropertyValue', value: ' V ' },
+      url: 'https://example.invalid/x',
+      title: 'T',
+      name: 'N',
+      hiringOrganization: { name: ' Acme ' },
+      description: 'D',
+      jobLocationType: 'TELECOMMUTE',
+      jobLocation: { address: 'Kyiv' },
+      applicantLocationRequirements: [{ name: 'PL' }],
+      employmentType: ['FULL_TIME'],
+      skills: 'ts',
+      datePosted: '2026-10-01T00:00:00Z',
+      validThrough: '2026-12-01T00:00:00Z',
+    }
+    const p = one(ld(posting(src)))
+    expect(p.raw).toEqual(src)
+    expect(p.identifier).toBe('V')
+    expect(p.hiringOrganization).toBe('Acme')
+    expect(p.issues).toEqual([])
+    expect(one(ld(posting())).raw.hiringOrganization).toBeUndefined()
+  })
+
+  it('a present-but-unusable field is an issue, distinct from an absent one', () => {
+    const p = one(
+      ld(
+        posting({
+          hiringOrganization: 'y'.repeat(11),
+          identifier: true,
+          url: '   ',
+          title: { nope: 1 },
+          description: 5,
+          jobLocationType: null,
+          datePosted: 20261001,
+          validThrough: 'garbage',
+        }),
+      ),
+      { maxFieldChars: 10 },
+    )
+    expect(p.hiringOrganization).toBeNull()
+    expect(p.raw.hiringOrganization).toBe('y'.repeat(11))
+    expect(p.issues).toEqual([
+      { field: 'identifier', code: 'FIELD_INVALID' },
+      { field: 'title', code: 'FIELD_INVALID' },
+      { field: 'hiringOrganization', code: 'FIELD_TOO_LONG' },
+      { field: 'description', code: 'FIELD_INVALID' },
+      { field: 'datePosted', code: 'FIELD_INVALID' },
+    ])
+    const r = run(ld(posting({ identifier: true })))
+    expect(r.failures).toEqual({ FIELD_INVALID: 1 })
+    expect(one(ld(posting())).issues).toEqual([])
+  })
+
+  it('every field names itself in its own issue', () => {
+    const L = 'x'.repeat(11)
+    const tooLong: Array<[string, Record<string, unknown>]> = [
+      ['identifier', { identifier: L }],
+      ['url', { url: L }],
+      ['title', { title: L }],
+      ['hiringOrganization', { hiringOrganization: { name: L } }],
+      ['jobLocationType', { jobLocationType: L }],
+      ['jobLocation', { jobLocation: { address: L } }],
+      ['jobLocation', { jobLocation: { address: { addressLocality: L } } }],
+      ['jobLocation', { jobLocation: { address: { addressRegion: L } } }],
+      ['jobLocation', { jobLocation: { address: { addressCountry: L } } }],
+      ['applicantLocationRequirements', { applicantLocationRequirements: [{ name: L }] }],
+      ['employmentType', { employmentType: [L] }],
+      ['skills', { skills: [L] }],
+    ]
+    for (const [field, extra] of tooLong) {
+      const p = one(ld(posting(extra)), { maxFieldChars: 10 })
+      expect(p.issues, JSON.stringify(extra)).toEqual([{ field, code: 'FIELD_TOO_LONG' }])
+    }
+    const d = one(ld(posting({ description: 'x'.repeat(6) })), { maxDescriptionChars: 5 })
+    expect(d.issues).toEqual([{ field: 'description', code: 'FIELD_TOO_LONG' }])
+
+    for (const field of [
+      'url',
+      'title',
+      'hiringOrganization',
+      'description',
+      'jobLocationType',
+      'datePosted',
+      'validThrough',
+    ]) {
+      const p = one(ld(posting({ [field]: 5 })))
+      expect(p.issues, field).toEqual([{ field, code: 'FIELD_INVALID' }])
+    }
+    expect(one(ld(posting({ identifier: false }))).issues).toEqual([
+      { field: 'identifier', code: 'FIELD_INVALID' },
+    ])
+    expect(one(ld(posting({ name: 5 }))).issues).toEqual([
+      { field: 'title', code: 'FIELD_INVALID' },
+    ])
+  })
+
+  it('list items that are too long are flagged under their field', () => {
+    const p = one(ld(posting({ skills: ['ok', 'z'.repeat(11)] })), { maxFieldChars: 10 })
+    expect(p.skills).toEqual(['ok'])
+    expect(p.issues).toEqual([{ field: 'skills', code: 'FIELD_TOO_LONG' }])
   })
 
   it('long fields are dropped and counted, at exactly the cap', () => {
@@ -412,6 +555,22 @@ describe('selectByIdentity', () => {
     expect(selectByIdentity(postings, {})).toEqual({ kind: 'none' })
     expect(selectByIdentity(postings, { identifier: '', url: '' })).toEqual({ kind: 'none' })
     expect(selectByIdentity([], { identifier: 'J-1' })).toEqual({ kind: 'none' })
+  })
+
+  it('byte-identical duplicates are one posting (consistent with conflicts); different ones stay ambiguous', () => {
+    const a = ld(posting({ identifier: 'S', title: 't' }))
+    const same = run(a + a + a)
+    expect(same.conflicts).toEqual([])
+    expect(selectByIdentity(same.postings, { identifier: 'S' })).toEqual({
+      kind: 'match',
+      posting: same.postings[0],
+    })
+    const mixed = run(a + a + ld(posting({ identifier: 'S', title: 'other' })))
+    expect(mixed.conflicts).toEqual(['S'])
+    expect(selectByIdentity(mixed.postings, { identifier: 'S' })).toEqual({
+      kind: 'ambiguous',
+      count: 2,
+    })
   })
 
   it('a conflicting page is ambiguous, not resolved by position', () => {

@@ -46,12 +46,36 @@ export type JsonLdFailureCode =
   | 'HTML_TOO_LARGE'
   | 'TOO_MANY_SCRIPTS'
   | 'UNTERMINATED_SCRIPT'
+  | 'UNTERMINATED_OPEN_TAG'
   | 'MALFORMED_JSON'
   | 'SCRIPT_TOO_LARGE'
   | 'TOO_DEEP'
   | 'TOO_MANY_NODES'
   | 'TOTAL_NODES_EXCEEDED'
   | 'FIELD_TOO_LONG'
+  | 'FIELD_INVALID'
+
+/** A field that WAS present in the source but could not be normalised; distinct from absent. */
+export interface JsonLdFieldIssue {
+  field: string
+  code: 'FIELD_TOO_LONG' | 'FIELD_INVALID'
+}
+
+const RAW_FIELDS = [
+  'identifier',
+  'url',
+  'title',
+  'name',
+  'hiringOrganization',
+  'description',
+  'jobLocationType',
+  'jobLocation',
+  'applicantLocationRequirements',
+  'employmentType',
+  'skills',
+  'datePosted',
+  'validThrough',
+] as const
 
 export interface JsonLdJobPosting {
   identifier: string | null
@@ -71,6 +95,10 @@ export interface JsonLdJobPosting {
   validThrough: ObservedDate | null
   /** `validThrough` parsed AND before `now`; null when there is no usable `validThrough`. */
   expired: boolean | null
+  /** The source JSON value of every field read above, untouched (undefined when absent). */
+  raw: Record<(typeof RAW_FIELDS)[number], unknown>
+  /** Fields present in the source that normalised to nothing. Absent fields are not listed. */
+  issues: JsonLdFieldIssue[]
 }
 
 export interface JsonLdResult {
@@ -88,8 +116,38 @@ export interface JsonLdOptions {
 
 const OPEN_SCRIPT = /<script(?=[\s/>])/gi
 const CLOSE_SCRIPT = /<\/script(?=[\s/>])/gi
-const LD_JSON_TYPE =
-  /(?<![\w-])type\s*=\s*(?:"application\/ld\+json"|'application\/ld\+json'|application\/ld\+json(?![^\s/>]))/i
+// One attribute of an open tag: name, then an optional double-quoted, single-quoted or bare value.
+const ATTRIBUTE = /([^\s/>=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]*)))?/y
+
+/**
+ * Reads an open tag quote-aware: a `>` inside a quoted value does not end it, and only real
+ * attribute names are keys (the first occurrence of a name wins, as in HTML). `end` is the index of
+ * the closing `>`, or -1 when the input ends inside the tag.
+ * shortcut: an unterminated quote is read as a bare value up to the next `>`, upgrade if a
+ * source is seen to rely on the browser's "swallow to EOF" behaviour.
+ */
+function readOpenTag(
+  html: string,
+  from: number,
+): { end: number; attrs: Map<string, string | undefined> } {
+  const attrs = new Map<string, string | undefined>()
+  let i = from
+  // Stryker disable next-line EqualityOperator: at i === html.length neither branch can act (no '>', the sticky attribute match fails at end of input), so `<=` only adds one empty iteration.
+  while (i < html.length) {
+    if (html[i] === '>') return { end: i, attrs }
+    ATTRIBUTE.lastIndex = i
+    const m = ATTRIBUTE.exec(html)
+    if (!m) {
+      i += 1
+      continue
+    }
+    const [, name, dq, sq, bare] = m
+    const key = String(name).toLowerCase()
+    if (!attrs.has(key)) attrs.set(key, dq ?? sq ?? bare)
+    i = ATTRIBUTE.lastIndex
+  }
+  return { end: -1, attrs }
+}
 
 const BOUND_FAILURE = {
   NOT_JSON: 'MALFORMED_JSON',
@@ -153,9 +211,13 @@ export function extractJobPostings(html: string, opts: JsonLdOptions): JsonLdRes
     OPEN_SCRIPT.lastIndex = pos
     const open = OPEN_SCRIPT.exec(html)
     if (!open) break
-    const tagEnd = html.indexOf('>', open.index)
-    if (tagEnd === -1) break
-    const isLd = LD_JSON_TYPE.test(html.slice(open.index, tagEnd))
+    const tag = readOpenTag(html, open.index + open[0].length)
+    const tagEnd = tag.end
+    const isLd = tag.attrs.get('type')?.trim().toLowerCase() === 'application/ld+json'
+    if (tagEnd === -1) {
+      if (isLd) fail('UNTERMINATED_OPEN_TAG')
+      break
+    }
     CLOSE_SCRIPT.lastIndex = tagEnd
     const close = CLOSE_SCRIPT.exec(html)
     if (!close) {
@@ -192,58 +254,107 @@ function toPosting(
   now: Date,
   fail: (code: JsonLdFailureCode) => void,
 ): JsonLdJobPosting {
-  const clip = (v: unknown, cap: number = limits.maxFieldChars): string | null => {
+  const issues: JsonLdFieldIssue[] = []
+  const flagged = (field: string): boolean => issues.some((i) => i.field === field)
+  const note = (field: string, code: JsonLdFieldIssue['code']): void => {
+    issues.push({ field, code })
+    fail(code)
+  }
+  const clip = (field: string, v: unknown, cap: number = limits.maxFieldChars): string | null => {
     if (typeof v !== 'string') return null
     const s = v.trim()
     if (s.length === 0) return null
     if (s.length > cap) {
-      fail('FIELD_TOO_LONG')
+      note(field, 'FIELD_TOO_LONG')
       return null
     }
     return s
   }
-  const nameOf = (v: unknown): string | null => clip(isRecord(v) ? v.name : v)
-  const strings = (v: unknown, one: (x: unknown) => string | null = clip): string[] =>
+  const nameOf = (field: string, v: unknown): string | null => clip(field, isRecord(v) ? v.name : v)
+  const strings = (v: unknown, one: (x: unknown) => string | null): string[] =>
     asList(v).flatMap((x) => one(x) ?? [])
-  const date = (v: unknown, semantics: 'PUBLISHED' | 'EXPIRY'): ObservedDate | null =>
-    parseSourceDate(
-      { raw: typeof v === 'string' ? v : null, contract: 'ISO_ZONED', semantics },
-      now,
+  // A present, non-blank source value that normalised to nothing (and was not already flagged as
+  // too long) is an invalid field, not an absent one.
+  const checked = <T>(field: string, raw: unknown, value: T | null): T | null => {
+    const present = raw !== undefined && raw !== null && !(typeof raw === 'string' && !raw.trim())
+    if (value === null && present && !flagged(field)) note(field, 'FIELD_INVALID')
+    return value
+  }
+  const date = (
+    field: string,
+    v: unknown,
+    semantics: 'PUBLISHED' | 'EXPIRY',
+  ): ObservedDate | null =>
+    checked(
+      field,
+      v,
+      parseSourceDate(
+        { raw: typeof v === 'string' ? v : null, contract: 'ISO_ZONED', semantics },
+        now,
+      ),
     )
 
   const idRaw = isRecord(node.identifier) ? node.identifier.value : node.identifier
-  const validThrough = date(node.validThrough, 'EXPIRY')
+  const validThrough = date('validThrough', node.validThrough, 'EXPIRY')
   const address = (place: unknown): string | null => {
     const a = isRecord(place) ? place.address : null
-    if (typeof a === 'string') return clip(a)
+    if (typeof a === 'string') return clip('jobLocation', a)
     if (!isRecord(a)) return null
-    const parts = [clip(a.addressLocality), clip(a.addressRegion), nameOf(a.addressCountry)]
+    const parts = [
+      clip('jobLocation', a.addressLocality),
+      clip('jobLocation', a.addressRegion),
+      nameOf('jobLocation', a.addressCountry),
+    ]
     return parts.flatMap((p) => p ?? []).join(', ') || null
   }
+  const titleRaw = node.title ?? node.name
 
   return {
-    identifier: clip(typeof idRaw === 'number' ? String(idRaw) : idRaw),
-    url: clip(node.url),
-    title: clip(node.title ?? node.name),
-    hiringOrganization: nameOf(node.hiringOrganization),
-    description: clip(node.description, limits.maxDescriptionChars),
-    jobLocationType: clip(node.jobLocationType),
+    identifier: checked(
+      'identifier',
+      idRaw,
+      clip('identifier', typeof idRaw === 'number' ? String(idRaw) : idRaw),
+    ),
+    url: checked('url', node.url, clip('url', node.url)),
+    title: checked('title', titleRaw, clip('title', titleRaw)),
+    hiringOrganization: checked(
+      'hiringOrganization',
+      node.hiringOrganization,
+      nameOf('hiringOrganization', node.hiringOrganization),
+    ),
+    description: checked(
+      'description',
+      node.description,
+      clip('description', node.description, limits.maxDescriptionChars),
+    ),
+    jobLocationType: checked(
+      'jobLocationType',
+      node.jobLocationType,
+      clip('jobLocationType', node.jobLocationType),
+    ),
     jobLocations: strings(node.jobLocation, address),
-    applicantLocationRequirements: strings(node.applicantLocationRequirements, nameOf),
-    employmentType: strings(node.employmentType),
-    skills: strings(node.skills),
-    datePosted: date(node.datePosted, 'PUBLISHED'),
+    applicantLocationRequirements: strings(node.applicantLocationRequirements, (x) =>
+      nameOf('applicantLocationRequirements', x),
+    ),
+    employmentType: strings(node.employmentType, (x) => clip('employmentType', x)),
+    skills: strings(node.skills, (x) => clip('skills', x)),
+    datePosted: date('datePosted', node.datePosted, 'PUBLISHED'),
     validThrough,
     expired: validThrough?.status === 'OK' ? validThrough.value.getTime() < now.getTime() : null,
+    raw: Object.fromEntries(RAW_FIELDS.map((f) => [f, node[f]])) as JsonLdJobPosting['raw'],
+    issues,
   }
 }
+
+/** Two postings are "the same" iff this key is equal; shared by conflict detection and selection. */
+const sameness = (p: JsonLdJobPosting): string => JSON.stringify(p)
 
 function findConflicts(postings: JsonLdJobPosting[]): string[] {
   const seen = new Map<string, Set<string>>()
   for (const p of postings) {
     if (p.identifier === null) continue
     const variants = seen.get(p.identifier) ?? new Set<string>()
-    variants.add(JSON.stringify(p))
+    variants.add(sameness(p))
     seen.set(p.identifier, variants)
   }
   return [...seen].filter(([, variants]) => variants.size > 1).map(([id]) => id)
@@ -267,9 +378,14 @@ export function selectByIdentity(
 ): IdentitySelection {
   const { identifier, url } = query
   if (!identifier && !url) return { kind: 'none' }
-  const matches = postings.filter(
-    (p) => (!identifier || p.identifier === identifier) && (!url || p.url === url),
-  )
+  // Byte-identical duplicates are one posting (no conflict); only DIFFERENT matches are ambiguous.
+  const distinct = new Map<string, JsonLdJobPosting>()
+  for (const p of postings) {
+    if ((!identifier || p.identifier === identifier) && (!url || p.url === url)) {
+      distinct.set(sameness(p), p)
+    }
+  }
+  const matches = [...distinct.values()]
   const [first] = matches
   if (!first) return { kind: 'none' }
   if (matches.length > 1) return { kind: 'ambiguous', count: matches.length }
