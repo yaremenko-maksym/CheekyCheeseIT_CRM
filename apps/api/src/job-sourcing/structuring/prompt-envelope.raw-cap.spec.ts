@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { expectScaling, SCALING_TEST_TIMEOUT_MS } from './__test-helpers__/scaling'
+import { assertModelAllowed } from './ai-input-gate'
 import { CONTACT_TOKEN } from './contact-strip'
 import {
   buildExtractionPrompt,
@@ -8,12 +9,15 @@ import {
   RAW_CUT_TAIL_DROP,
 } from './prompt-envelope'
 
+const GATE = assertModelAllowed('yes', { onUnspecified: 'block' })
+if (GATE !== 'ALLOWED') throw new Error('an explicit ai-input=yes must be allowed')
+
 const CAP = MAX_MODEL_INPUT_CHARS
 const RAW = MAX_RAW_INPUT_CHARS
 const ZWSP = '​'
 
 function data(page: string): { text: string; truncated: boolean } {
-  const prompt = buildExtractionPrompt(page)
+  const prompt = buildExtractionPrompt(GATE, page)
   const open = `<<<${prompt.delimiter}\n`
   const start = prompt.user.indexOf(open) + open.length
   const end = prompt.user.lastIndexOf(`\n${prompt.delimiter}>>>`)

@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import type { GateAllowed } from './ai-input-gate'
 import { type ContactCounts, CONTACT_TOKEN, stripContacts } from './contact-strip'
 
 /** Page text sent to a model is capped at this many UTF-16 units, counted after contact stripping. */
@@ -54,9 +55,12 @@ function cutAt(text: string, max: number): string {
  * does not contain it, so no page content can close the block or open a second one.
  */
 export function buildExtractionPrompt(
+  gate: GateAllowed,
   pageText: string,
   makeNonce: () => string = randomNonce,
 ): ExtractionPrompt {
+  // The type already demands the gate's decision; this also holds for an untyped (cast) caller.
+  if (gate !== 'ALLOWED') throw new Error('the ai-input gate did not allow model input')
   // Raw cap BEFORE NFKC (inside stripContacts): one char can expand up to 18x (U+FDFA).
   const rawCut = pageText.length > MAX_RAW_INPUT_CHARS
   const stripped = stripContacts(rawCut ? cutAt(pageText, MAX_RAW_INPUT_CHARS) : pageText)

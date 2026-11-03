@@ -12,7 +12,13 @@ const MODULES = [
   'prompt-envelope.ts',
   'extraction-result-guard.ts',
 ]
-const ALLOWED_IMPORTS = new Set(['zod', '@crm/shared', 'node:crypto', './contact-strip'])
+const ALLOWED_IMPORTS = new Set([
+  'zod',
+  '@crm/shared',
+  'node:crypto',
+  './contact-strip',
+  './ai-input-gate',
+])
 const FORBIDDEN_TOKENS = [
   /\bfetch\s*\(/,
   /\bprocess\.env\b/,

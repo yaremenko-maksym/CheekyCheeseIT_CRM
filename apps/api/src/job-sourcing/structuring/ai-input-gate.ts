@@ -11,7 +11,16 @@ export interface ModelInputPolicy {
   readonly onUnspecified: 'allow' | 'block'
 }
 
-export type ModelGateDecision = 'ALLOWED' | 'BLOCKED_AI_INPUT_NO' | 'BLOCKED_AI_INPUT_UNSPECIFIED'
+declare const gateAllowedBrand: unique symbol
+/**
+ * `'ALLOWED'`, branded: only `assertModelAllowed` produces it and `buildExtractionPrompt` requires
+ * it, so no wiring can build a model prompt without asking the gate first.
+ */
+export type GateAllowed = 'ALLOWED' & { readonly [gateAllowedBrand]: true }
+
+export type ModelGateDecision = GateAllowed | 'BLOCKED_AI_INPUT_NO' | 'BLOCKED_AI_INPUT_UNSPECIFIED'
+
+const ALLOWED = 'ALLOWED' as GateAllowed
 
 /**
  * Fails closed: only an exact `'yes'`, or an exact `'unspecified'` with an exact `'allow'`, is
@@ -21,7 +30,7 @@ export function assertModelAllowed(
   aiInput: AiInputSignal,
   policy: ModelInputPolicy,
 ): ModelGateDecision {
-  if (aiInput === 'yes') return 'ALLOWED'
+  if (aiInput === 'yes') return ALLOWED
   if (aiInput !== 'unspecified') return 'BLOCKED_AI_INPUT_NO'
-  return policy.onUnspecified === 'allow' ? 'ALLOWED' : 'BLOCKED_AI_INPUT_UNSPECIFIED'
+  return policy.onUnspecified === 'allow' ? ALLOWED : 'BLOCKED_AI_INPUT_UNSPECIFIED'
 }
