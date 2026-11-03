@@ -36,7 +36,7 @@
  * DB calls are stubbed with vitest vi.fn() — no real Postgres connection.
  */
 import { ForbiddenException } from '@nestjs/common'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import type { NbuCurrencyService } from './nbu-currency.service'
@@ -500,6 +500,16 @@ describe('validateTransaction — DROP_INCOME flip-only (task-drop-payout-compan
 })
 
 describe('createPayoutRequest (#7)', () => {
+  // The date policy rejects EXECUTED dates older than BACKDATE_LIMIT_DAYS vs the real clock;
+  // pin only Date so the hard-coded 2026-09/10 dates stay inside the window (09-02..10-03).
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-03T12:00:00.000Z'))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('throws ForbiddenException for non-SENIOR roles', async () => {
     // db.transaction is not reached — role check fires first
     const svc = makeService()

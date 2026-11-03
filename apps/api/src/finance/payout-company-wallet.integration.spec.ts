@@ -4,7 +4,7 @@ import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
@@ -202,6 +202,14 @@ describe.skipIf(!hasDatabaseUrl())(
       return (await companySvc.getAccount(ADMIN)).balance
     }
 
+    // The date policy rejects EXECUTED dates older than BACKDATE_LIMIT_DAYS (31) vs the real clock.
+    // Pin ONLY Date (pg timers and DB now() stay real) so hard-coded 2026-10-0x dates stay in
+    // the window (09-05..10-05) and none is in the future.
+    function pinClock(): void {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
+    }
+
     // Seed a VALIDATED SENIOR_INCOME (USDT) owned by the senior, then create a
     // payout_request for it. Returns { requestId, payable }.
     async function seedPayout(
@@ -288,6 +296,11 @@ describe.skipIf(!hasDatabaseUrl())(
       verifyScript.clear()
     })
 
+    // Restores the Date pinned by `pinClock` in the date-bearing tests below.
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
     afterAll(async () => {
       try {
         await clearAll()
@@ -317,6 +330,7 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('on-chain confirm stores the operator-selected payment date on the PAYOUT row', async () => {
+      pinClock()
       const { requestId, payable } = await seedPayout(SENIOR, '1000', 26, {
         incomeTxDate: '2026-10-01',
         payoutTxDate: '2026-10-02',
@@ -338,6 +352,7 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('on-chain confirm rejects a payment date before the PAYOUT business date', async () => {
+      pinClock()
       const { requestId, payable } = await seedPayout(SENIOR, '1000', 26, {
         incomeTxDate: '2026-10-01',
         payoutTxDate: '2026-10-03',
@@ -641,6 +656,7 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('manual-confirm stores the operator-selected payment date on the PAYOUT row', async () => {
+      pinClock()
       const { requestId } = await seedPayout(SENIOR, '1000', 26, {
         incomeTxDate: '2026-10-01',
         payoutTxDate: '2026-10-02',
