@@ -145,6 +145,7 @@ later fix in VCF can be found and carried over by hand).
 | Deps (seams) | `fetchImpl`, `now`, `sleep`, a `RouteStatePort` (§3.2), an optional `OwnCapPort` (§3.1) and `onEvent` (§6.2). |
 | Public result | Unchanged: `{ ok: true, data, usage? }` or `{ ok: false, code: InferenceErrorCode }`. Internal codes never leave the package, exactly as `MODEL_UNAVAILABLE` does not today. |
 | Input ceiling | An exported pure helper returns the largest input the configured **local** route accepts; the 5.4b chunker sizes chunks to it, so the floor can always answer (§1.2, dosing). |
+| Two ports, one router | `InferenceClient` keeps `extraction` (the full chain) and gains `extractionLocalOnly` (the same router built with the floor alone). The request type stays unchanged — it carries no source identity — so the **caller** picks the port from the source's hosted-model policy (§4.1). Additive; existing consumers see no change. |
 
 The existing `InferenceModelResolverService` (OpenRouter, cheapest model under guardrails, chosen at runtime) stays as
 it is for `provider: openrouter`. Under `router` the models are **pinned** (§3.3), not chosen by price.
@@ -262,3 +263,105 @@ The current adapter already sends `deny`. If research shows `deny` leaves no usa
 keep `deny` (OpenRouter then only serves paid models under the USD limit of Task 5.2, or none) or drop it for free
 models (training allowed on our prompts). **Recommendation:** keep `deny`. The router then falls to Groq / Gemini /
 local; losing an accelerator is cheaper than reversing a privacy default.
+
+---
+
+## 5. Failure semantics
+
+### 5.1 Classification (internal codes; one table for every hosted leaf)
+
+Classification uses the HTTP status first, then a **bounded** read (first 2 000 characters, as `isModelUnavailable`
+does today) of the provider's **documented structured error fields** — never the page text, never a free-text regex
+over a whole body. The body is discarded after classification.
+
+| Internal code | Signal (to be pinned per provider by 5.4c-0 fixtures) | Router action | Ledger |
+| --- | --- | --- | --- |
+| `OK` | 2xx, envelope valid, output passes Zod after at most one correction retry (`runExtraction`) | return | own cap committed |
+| `BUSY` | 429 without a per-day marker; 503 | wait out a short bounded backoff on the same model (VCF Gemini: 9 s, 25 s) **only if** the call deadline allows; then next model / next route | none |
+| `SPENT_DAY` | 429 with a per-day marker (Groq per-day token/request limits, OpenRouter free-models-per-day, Gemini per-day quota id) | next model / next route | model spent until the provider's reset |
+| `CREDIT` | 402 / insufficient credit or key limit reached (OpenRouter USD limit of Task 5.2) | next route | whole provider spent until the limit's reset; a loud event (limit pause) |
+| `RETIRED` | 404 naming the model or an endpoint (`retiredAnswer`; a bare 404 is `TRANSPORT`, so a wrong base URL never retires everything) | next model | model retired for the process |
+| `AUTH` | 401 / 403 | next route | whole provider disabled for the process; loud event — a key problem is never read as "spent" |
+| `REFUSED` | a safety block or content filter (OpenAI-compatible `finish_reason: content_filter`; Gemini block reason) | next route; **not** retried on the same provider | none (it is about this input, not the model) |
+| `INVALID_OUTPUT` | non-JSON, fenced, schema-invalid after the one correction retry, over 2 MiB | next model (VCF `answerFits`: an answer that would fail later is passed over now) | none |
+| `TIMEOUT` | per-attempt timeout | next route | none; own cap unit stays spent (the request may have been billed) |
+| `TRANSPORT` | network error, other 4xx/5xx, envelope invalid | next route | none |
+
+The literal word "quota" (or any other word) in the **page** never changes a classification: the page is input, not a
+provider response. A 5.4b test already pins this at the port boundary; 5.4c repeats it at the leaf.
+
+### 5.2 Pacing and dosing, as one algorithm
+
+Per `extract` call:
+
+1. **Deadline.** Start a whole-call deadline. Reserve the local route's own timeout out of it: the hosted cascade may
+   only use what is left, so the floor is never starved (VCF summed per-request timeouts until `boundExecutor` existed).
+2. **Candidates.** Hosted routes that have a key, at least one model not spent / retired, are not disabled, and whose
+   context window fits the input (fit filter). The input is already sized to the local window by the caller, so the
+   floor always fits.
+3. **Rotation.** Among rotatable candidates, the next one in the per-process rotation goes first; the rest keep their
+   configured order (VCF `createBalancedChainExecutor`). A non-rotatable route (for example a provider whose allowance is
+   reserved for something else) is only a fallback.
+4. **Per attempt.** Ask the `OwnCapPort` for one unit of this provider's day; refused ⇒ skip the provider without a
+   request. Wait out the provider's minimum gap (VCF: 3 s for OpenAI-compatible providers, 7 s for Gemini). Send with
+   the provider's privacy flags and structured-output mode. Classify (§5.1).
+5. **Floor.** Every hosted candidate exhausted, filtered or refused ⇒ the local route, with no own cap and no gap, under
+   its own reserved time. Emit `FELL_TO_LOCAL` with the list of `(route, code)` that led there.
+6. **Result.** The first `OK` wins. If the floor also fails, the public code is the floor's (`TIMEOUT`,
+   `INVALID_OUTPUT` or `PROVIDER_ERROR`); `NOT_CONFIGURED` only when not even the floor is configured.
+
+Own-cap values sit **below** each provider's published free limit, so the provider never reaches its refusal state;
+`SPENT_DAY` is then the exception that corrects a wrong cap, not the normal stop. Values: D5.
+
+### 5.3 "Slow, never a silent failure"
+
+- A fall to local is an event, never silence.
+- **Preflight** (VCF pattern, adopted as-is): before a collection cycle that will use model extraction, one trivial call
+  to the local route; 4 attempts at 10 / 30 / 60 s gaps. No answer ⇒ the model stage of that cycle does not start, no
+  record is marked as extracted or "nothing found", and a durable health signal "model unreachable" is raised (the
+  r5 job-sourcing health surface is the candidate home; 5.4c-4 confirms it). The deterministic HTTP/JSON-LD stages
+  still run — the VCF rule "a check written for one step must not cost the others".
+- A floor failure on a record returns the 5.4b outcome `MODEL_UNAVAILABLE` / `EXTRACTOR_FAILED` with the remaining IDs;
+  the record stays due, never closed.
+- `AUTH` and `CREDIT` raise a loud event once per process, not per call.
+
+### 5.4 Small-dose decomposition (conditional)
+
+If MP-03 shows the local model cannot answer the full extraction schema reliably on a chunk that fits its window, the
+VCF hand-back pattern applies: the router returns an internal "small dose needed" result instead of sending the full
+schema to the local model, and the caller asks the local model a field-group decomposition read by code. **Not built
+until MP-03 shows the need** (task 5.4c-6).
+
+---
+
+## 6. Test strategy and MP-03 hooks
+
+### 6.1 Without keys, without network
+
+- **Seam:** the package's existing `fetchImpl` (`FetchLike`), plus injected `now` and `sleep` — the same seams the
+  OpenRouter adapter tests use today. No env, no DB.
+- **Fixtures per provider**, one file per provider with a case per row of §5.1: status, headers and a minimal body.
+  They are **hand-written from each provider's published error format** (5.4c-0 cites the source of each) and contain no
+  real prompt, no real page, no key, no account id. Recording live traffic is not part of the test strategy; the
+  controlled smoke of Task 5.2 runs once per route by the owner and is never turned into a fixture unscrubbed.
+- **Router tests** with scripted leaves: rotation order across successive calls; a non-rotatable route never first;
+  fit filter drops a small-context route and keeps the floor; own cap refused ⇒ no request sent (fetch call count 0);
+  spent model skipped on the next call; retired model skipped for the process; `AUTH` disables the provider once and
+  emits once; the deadline reserve guarantees the floor is called even when every hosted attempt hangs (fake timers);
+  floor failure ⇒ the floor's public code; the word "quota" in the input changes nothing; no event payload ever contains
+  input or body text (assert on a seeded marker string).
+- **Leaf tests** per fixture: classification table, privacy flags present in every request body, structured-output mode
+  per capability, no key in any thrown or returned value.
+- **Mutation gate** (Stryker, unit scope) on the classification and the router core: 0 survivors, as for 5.4a/5.4b.
+
+### 6.2 MP-03 measurement hooks
+
+`deps.onEvent(event)` receives, per attempt and per call: route, provider, model, internal code, HTTP status, input
+characters, total tokens, cost when the provider reports it, attempt latency, whole-call latency, and whether the floor
+answered. **No text.** The package does not aggregate; the caller (and the MP-03 harness) does.
+
+The MP-03 harness (a read-only spike, not product code) runs the labelled set of 50 detail pages through
+`extractionLocalOnly` and through single-route routers (one hosted route + floor disabled), then computes outside the
+package: field accuracy against the labels, grounding and invented-URL rate (through the 5.4a result guard),
+schema-valid rate, latency p50/p95, cost per page, and the floor-fall rate of the full chain. MP-03 gates enablement,
+as the plan already says.
