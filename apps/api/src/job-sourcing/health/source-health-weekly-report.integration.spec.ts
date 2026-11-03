@@ -12,7 +12,10 @@ import { makeTelemetryErrorsStub } from '../../telemetry/__test-helpers__/teleme
 import { LedgerFixtures } from '../../test/ledger-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { JobSourceHealthService } from './job-source-health.service'
-import { SourceHealthWeeklyReportCron } from './source-health-weekly-report.cron'
+import {
+  SourceHealthWeeklyReportCron,
+  weeklyAggregateSql,
+} from './source-health-weekly-report.cron'
 
 /**
  * Source-fetch-strategy U5a — the Monday ADMIN report against a REAL Postgres, as `crm_app`.
@@ -139,9 +142,9 @@ describe.skipIf(!hasDatabaseUrl())('U5a weekly ADMIN report', () => {
     const yesterday = now - DAY_MS
     const seed = async (seen: number, publishedBefore: number) => {
       const { rows: rec } = await admin.query(
-        `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key, first_seen_at)
-         VALUES ('REMOTIVE_API', $1, 'NATIVE_ID', $2, $3) RETURNING id`,
-        [ns, JSON.stringify([randomUUID()]), new Date(seen).toISOString()],
+        `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key, first_seen_at, source_id)
+         VALUES ('REMOTIVE_API', $1, 'NATIVE_ID', $2, $3, $4) RETURNING id`,
+        [ns, JSON.stringify([randomUUID()]), new Date(seen).toISOString(), sourceId],
       )
       await admin.query(
         `INSERT INTO job_source_record_revisions
@@ -217,5 +220,68 @@ describe.skipIf(!hasDatabaseUrl())('U5a weekly ADMIN report', () => {
   it('a second run of the same Monday (another replica) adds nothing', async () => {
     await cron.run(new Date())
     expect(await reportsOf(activeAdmin)).toHaveLength(1)
+  })
+
+  it('attributes freshness by source_id: two sources sharing (type, namespace) each use their own records; NULL source_id counts for none', async () => {
+    const ns = `u5aw-shared-${randomUUID()}`
+    namespaces.push(ns)
+    // JSEARCH_API is non-inventory: two sources may share (type, namespace).
+    const a = await fx.source({ type: 'JSEARCH_API', hostKey: null, namespace: ns })
+    const b = await fx.source({ type: 'JSEARCH_API', hostKey: null, namespace: ns })
+    const { rows: cyc } = await admin.query(
+      `INSERT INTO job_collection_cycles (trigger, trigger_key) VALUES ('SCHEDULED', $1) RETURNING id`,
+      [`u5aw:${randomUUID()}`],
+    )
+    const now = Date.now()
+    // Each source's FIRST run ended 5 days ago, so a record first seen yesterday is not backlog.
+    for (const id of [a, b]) {
+      const started = new Date(now - 5 * DAY_MS)
+      await admin.query(
+        `INSERT INTO job_collection_runs
+           (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, outcome,
+            received, created, unchanged, started_at, ended_at, account_key)
+         VALUES ($1, $2, $3, 1, 'jsearch_api-1', 'SCHEDULED', 'SUCCEEDED', 0, 0, 0, $4, $5, $6)`,
+        [
+          id,
+          cyc[0].id,
+          `att-${randomUUID()}`,
+          started.toISOString(),
+          new Date(started.getTime() + 2_000).toISOString(),
+          `#source:${id}`,
+        ],
+      )
+    }
+    const seed = async (owner: string | null, publishedBeforeMin: number) => {
+      const seen = now - DAY_MS
+      const { rows: rec } = await admin.query(
+        `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key, first_seen_at, source_id)
+         VALUES ('JSEARCH_API', $1, 'NATIVE_ID', $2, $3, $4) RETURNING id`,
+        [ns, JSON.stringify([randomUUID()]), new Date(seen).toISOString(), owner],
+      )
+      await admin.query(
+        `INSERT INTO job_source_record_revisions
+           (source_record_id, adapter_version, normalizer_version, content_hash, normalized,
+            original_identity, published_at)
+         VALUES ($1, 'jsearch_api-1', 'n1', $2, '{}'::jsonb, '{}'::jsonb, $3)`,
+        [rec[0].id, 'b'.repeat(64), new Date(seen - publishedBeforeMin * MIN_MS).toISOString()],
+      )
+    }
+    await seed(a, 10) // source A: one record, 10 minutes old -> p50 = p90 = 10
+    await seed(b, 1_000) // source B: one record, 1000 minutes old -> p50 = p90 = 1000
+    await seed(null, 50_000) // NULL source_id: attributed to neither source
+
+    const nowDate = new Date(now + 1_000)
+    const result = await session.databaseService.db.execute(
+      weeklyAggregateSql(new Date(now - 7 * DAY_MS), nowDate),
+    )
+    const rows = result.rows as unknown as {
+      name: string
+      p50: number | null
+      p90: number | null
+    }[]
+    const nameA = await fx.manifestIdOf(a)
+    const nameB = await fx.manifestIdOf(b)
+    expect(rows.find((r) => r.name === nameA)).toMatchObject({ p50: 10, p90: 10 })
+    expect(rows.find((r) => r.name === nameB)).toMatchObject({ p50: 1_000, p90: 1_000 })
   })
 })

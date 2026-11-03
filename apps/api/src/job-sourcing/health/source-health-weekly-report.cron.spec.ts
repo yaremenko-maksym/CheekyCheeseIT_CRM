@@ -137,9 +137,12 @@ describe('weeklyAggregateSql', () => {
       'ORDER BY v.received_seq ASC LIMIT 1',
       'first_rev.published_at IS NOT NULL',
       'min(ended_at)',
+      // SR-H-2 / backlog 346 (i): records attribute by source_id, never by the (type, namespace) pair.
+      'JOIN job_source_records r ON r.source_id = s.id',
     ]) {
       expect(q.sql, fragment).toContain(fragment)
     }
+    expect(q.sql).not.toMatch(/r.namespace|r.source_type/)
   })
 })
 

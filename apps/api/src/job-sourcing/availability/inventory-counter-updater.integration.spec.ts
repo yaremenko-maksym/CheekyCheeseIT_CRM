@@ -9,7 +9,12 @@ import {
   openCrmAppSession,
 } from '../../database/__test-helpers__/crm-app-session'
 import { hasDatabaseUrl } from '../../test/require-real-db'
-import { INVENTORY_CLOSE_REASON, updateInventoryMissCounter } from './inventory-counter-updater'
+import {
+  INVENTORY_CLOSE_REASON,
+  lockAndVerifyRecord,
+  updateInventoryMissCounter,
+} from './inventory-counter-updater'
+import { reopenObservedRecord } from './record-reopen-updater'
 
 /**
  * r5 Task 4.6 S8c — the missing-inventory counter DB adapter against a real Postgres, as `crm_app`.
@@ -535,6 +540,70 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
     ).rejects.toThrow(/does not belong/)
     expect((await recordState(recordId)).availability).not.toBe('CLOSED')
     expect(await counterRow(recordId, board)).toBeUndefined()
+  })
+
+  it('lockAndVerifyRecord refuses a record whose source_id is NULL (fail-closed on SQL NULL semantics)', async () => {
+    const ns = `ns-${tag()}`
+    const sourceId = await newSource(ns)
+    const recordId = await newRecord(ns, null) // NULL source_id: belongs to no source
+    await expect(
+      db.transaction((tx) =>
+        lockAndVerifyRecord(tx, {
+          sourceRecordId: recordId,
+          sourceId,
+          board: `GREENHOUSE_ATS:${ns}`,
+          configVersion: CONFIG,
+        }),
+      ),
+    ).rejects.toThrow(/does not belong/)
+  })
+
+  it('PINS A DELIBERATE RULE (SR-H-2, backlog 346 v): reconcile follows the OWNER source runs only — a sibling JSEARCH_API source still listing the record does not keep it open or reopen it', async () => {
+    // Current, intentional behaviour, not a bug fix: the owner is the source that created the record
+    // (job_source_records.source_id). If the owner stops listing an identity a sibling (same type and
+    // namespace) still lists, the record closes and STAYS closed until the OWNER lists it again.
+    const ns = `ns-${tag()}`
+    const jsearch = async (query: string): Promise<string> => {
+      const { rows } = await q(
+        `INSERT INTO job_sources (type, namespace, config, config_version)
+         VALUES ('JSEARCH_API', $1, jsonb_build_object('q', $2::text), ${CONFIG}) RETURNING id`,
+        [ns, query],
+      )
+      sources.push(String(rows[0].id))
+      return String(rows[0].id)
+    }
+    const owner = await jsearch('one')
+    const sibling = await jsearch('two')
+    const { rows: rec } = await q(
+      `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key, source_id)
+       VALUES ('JSEARCH_API', $1, 'NATIVE_ID', $2, $3::uuid) RETURNING id`,
+      [ns, `key-${tag()}`, owner],
+    )
+    const recordId = String(rec[0].id)
+    records.push(recordId)
+    const board = `JSEARCH_API:${ns}`
+    const cycleId = await newCycle()
+    // The owner's three runs do not list the record (absent)...
+    await addRun({ sourceId: owner, cycleId, received: 100, observedMs: 0 })
+    await addRun({ sourceId: owner, cycleId, received: 100, observedMs: DAY / 2 })
+    await addRun({ sourceId: owner, cycleId, received: 100, observedMs: DAY + 1 })
+    const input = { sourceRecordId: recordId, sourceId: owner, board, configVersion: CONFIG }
+    expect(await updateInventoryMissCounter(db, input)).toMatchObject({
+      net: 'close',
+      closed: true,
+    })
+
+    // ...while the sibling lists it in a run that started AFTER the close.
+    const siblingRun = await addRun({
+      sourceId: sibling,
+      cycleId,
+      received: 100,
+      observedMs: Date.now() + DAY / 24,
+    })
+    await addMembership(siblingRun, recordId, await newRevision(recordId))
+
+    expect(await reopenObservedRecord(db, input)).toEqual({ reopened: false })
+    expect((await recordState(recordId)).availability).toBe('CLOSED')
   })
 
   it('enqueue atomicity: a failed opportunity enqueue rolls back the counter and the close', async () => {
