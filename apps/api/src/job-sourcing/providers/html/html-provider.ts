@@ -613,7 +613,7 @@ export abstract class HtmlProvider<
       admitted = true
 
       const result = await this.fetchDetail(attempt, item.detailUrl, robots.crawlDelaySeconds)
-      if (result.kind === 'STOP') {
+      if ('stop' in result) {
         stop = result.stop
         remainingIds.push(item.id)
         continue
@@ -621,13 +621,13 @@ export abstract class HtmlProvider<
       // Counted against the quota whether the host answered well or badly: it was a request.
       sent += 1
       const attempts = (previous?.attempts ?? 0) + 1
-      if (result.kind === 'FAILED') {
+      if ('failure' in result) {
         counts.failed += 1
         await this.deps.enrichment.put(key, {
           attempts,
           lastAttemptAt: now,
           succeededAt: previous?.succeededAt ?? null,
-          error: result.code,
+          error: result.failure,
           nextDueAt: new Date(now.getTime() + this.limits.retryAfterMs),
           contentHash: previous?.contentHash ?? null,
           validator: previous?.validator ?? null,
@@ -734,26 +734,22 @@ export abstract class HtmlProvider<
     attempt: Attempt,
     url: string,
     crawlDelaySeconds: number | null,
-  ): Promise<
-    | { kind: 'OK'; response: FetchedText }
-    | { kind: 'FAILED'; code: string }
-    | { kind: 'STOP'; stop: DetailStop }
-  > {
+  ): Promise<{ response: FetchedText } | { failure: string } | { stop: DetailStop }> {
     const { ctx } = attempt
     let reservation: MeterReservation | null
     try {
       reservation = await ctx.meter.reserve('REQUEST', 1)
     } catch {
-      return { kind: 'STOP', stop: 'METER_FAILED' }
+      return { stop: 'METER_FAILED' }
     }
-    if (reservation === null) return { kind: 'STOP', stop: 'COST_STOP' }
+    if (reservation === null) return { stop: 'COST_STOP' }
 
     let resolution: ReservationResolution = 'RELEASED'
     try {
       try {
         await ctx.meter.markSent(reservation)
       } catch {
-        return { kind: 'STOP', stop: 'METER_FAILED' }
+        return { stop: 'METER_FAILED' }
       }
       resolution = 'UNCERTAIN'
       let response: FetchedText
@@ -768,7 +764,6 @@ export abstract class HtmlProvider<
       } catch (error) {
         const code = (error as { code?: unknown } | null)?.code
         return {
-          kind: 'STOP',
           stop: typeof code === 'string' ? (code as DetailStop) : 'TRANSIENT_NETWORK',
         }
       }
@@ -778,17 +773,15 @@ export abstract class HtmlProvider<
       // A 304 nobody asked for stays a failure: only the context's own conditional question
       // makes "not modified" an answer.
       if (response.status === 304) {
-        return response.conditional === true
-          ? { kind: 'OK', response }
-          : { kind: 'FAILED', code: 'HTTP_304' }
+        return response.conditional === true ? { response } : { failure: 'HTTP_304' }
       }
       if (response.status < 200 || response.status > 299) {
-        return { kind: 'FAILED', code: `HTTP_${response.status}` }
+        return { failure: `HTTP_${response.status}` }
       }
       if (bytes > this.limits.maxDetailBytes) {
-        return { kind: 'FAILED', code: 'PAYLOAD_TOO_LARGE' }
+        return { failure: 'PAYLOAD_TOO_LARGE' }
       }
-      return { kind: 'OK', response }
+      return { response }
     } finally {
       try {
         await ctx.meter.reconcile(reservation, resolution)
@@ -926,14 +919,9 @@ const EMPTY_MODEL: Omit<HtmlModelReport, 'status' | 'reason'> = {
 
 /** A link from page text, resolved against the validated base and held to `checkStoredLink`. */
 function resolveLink(raw: string, base: URL): URL | null {
-  let href: string
-  try {
-    // No trim: the URL parser already strips leading/trailing C0 and space.
-    href = new URL(raw, base).href
-  } catch {
-    return null
-  }
-  const checked = checkStoredLink(href)
+  // No trim: the URL parser already strips leading/trailing C0 and space. An unparseable link
+  // reaches `checkStoredLink` as null, which refuses it as UNPARSEABLE.
+  const checked = checkStoredLink(URL.canParse(raw, base.href) ? new URL(raw, base).href : null)
   return checked.ok ? checked.url : null
 }
 

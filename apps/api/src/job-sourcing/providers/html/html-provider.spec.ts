@@ -1088,6 +1088,22 @@ describe('AC5 enrichment state: reuse, invalidation, resume, failures', () => {
     expect(after?.validator).toBe('"v1"')
   })
 
+  it('a different ETag with a changed body is reparsed, and the new ETag stored', async () => {
+    const enrichment = new InMemoryEnrichmentState()
+    const routes = (body: string, etag: string) => ({
+      [page1]: { bodyText: listing([item('a')]) },
+      [detailUrl('a')]: { bodyText: body, etag },
+    })
+    const first = world({ routes: routes(detail({ description: 'A' }), '"v1"') })
+    await provider(first, { enrichment }).p.collectHtml(config(), first.ctx)
+    const second = world({ routes: routes(detail({ description: 'A2' }), '"v2"'), now: later })
+    const r = await provider(second, { enrichment }).p.collectHtml(config(), second.ctx)
+    expect(r.detail).toMatchObject({ fetched: 1, unchanged: 0 })
+    expect((await enrichment.get(JSON.stringify(['THEHUB_HTML', 'board', 'a'])))?.validator).toBe(
+      '"v2"',
+    )
+  })
+
   it('an unasked-for 304 is a failure, not unchanged content', async () => {
     const w = world({
       routes: { [page1]: { bodyText: listing([item('a')]) }, [detailUrl('a')]: { status: 304 } },
