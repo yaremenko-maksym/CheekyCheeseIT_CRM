@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const enqueue = vi.fn()
 const roster = vi.fn()
-vi.mock('../ownership/dirty-work.store', () => ({
+vi.mock('../ownership/dirty-work.store', async (orig) => ({
+  ...(await orig<typeof import('../ownership/dirty-work.store')>()),
   enqueueDirty: (...a: unknown[]) => enqueue(...a),
 }))
 vi.mock('./recompute-inputs', () => ({

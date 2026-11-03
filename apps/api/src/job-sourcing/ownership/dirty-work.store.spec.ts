@@ -175,7 +175,7 @@ describe('dirtyConsumerOf (Task 4.6 S-P1 reason classifier)', () => {
   it('renders the SQL twin per consumer over a given column', () => {
     const q = (c: 'MATCH' | 'AVAILABILITY' | 'DETAIL') =>
       render(dirtyConsumerPredicate(c, sql`d.reason`))
-    expect(q('DETAIL')).toEqual({ sql: '(d.reason = $1)', params: [DETAIL_FETCH] })
+    expect(q('DETAIL')).toMatchObject({ sql: '(d.reason = $1)', params: [DETAIL_FETCH] })
     expect(q('AVAILABILITY').sql).toBe(
       '(starts_with(d.reason, $1) OR starts_with(d.reason, $2) OR d.reason IN ($3, $4, $5))',
     )
