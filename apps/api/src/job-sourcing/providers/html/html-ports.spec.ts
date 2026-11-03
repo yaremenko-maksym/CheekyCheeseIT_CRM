@@ -129,6 +129,18 @@ describe('realSleep', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('removes its abort listener when the wait ends', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const controller = new AbortController()
+    const add = vi.spyOn(controller.signal, 'addEventListener')
+    const remove = vi.spyOn(controller.signal, 'removeEventListener')
+    const slept = realSleep(10, controller.signal)
+    await vi.advanceTimersByTimeAsync(10)
+    await slept
+    expect(add).toHaveBeenCalledTimes(1)
+    expect(remove).toHaveBeenCalledWith('abort', add.mock.calls[0]?.[1])
+  })
+
   it('resolves after the time without a signal, and is not rejected by a later abort', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const controller = new AbortController()

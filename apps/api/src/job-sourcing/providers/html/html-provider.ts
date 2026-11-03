@@ -236,7 +236,11 @@ interface Admitted {
 type Admission = Admitted | { readonly refused: 'POLICY' | 'BYTE_BUDGET'; readonly reason: string }
 
 /** Detail stops after which the model stage does not run: the run is out of time or permission. */
-const RUN_ENDING_STOPS: ReadonlySet<DetailStop> = new Set(['CANCELLED', 'DEADLINE', 'METER_FAILED'])
+const RUN_ENDING_STOPS: ReadonlySet<DetailStop | null> = new Set([
+  'CANCELLED',
+  'DEADLINE',
+  'METER_FAILED',
+])
 
 /** One discovered item as Stage B sees it. `detailUrl` is null for a navigation-only item. */
 interface DiscoveredItem {
@@ -377,7 +381,7 @@ export abstract class HtmlProvider<
     const stageB = await this.runDetailStage(config, attempt, kept)
     const detailStop = stageB.report.stop
     const stageC =
-      detailStop !== null && RUN_ENDING_STOPS.has(detailStop)
+      RUN_ENDING_STOPS.has(detailStop)
         ? { report: { ...EMPTY_MODEL, status: 'SKIPPED' as const, reason: detailStop } }
         : await this.runModelStage(stageB.enrichments, stageB.modelCandidates, ctx)
     if ('reached' in stageC) await this.settleModelPending(stageB.modelCandidates, stageC.reached)

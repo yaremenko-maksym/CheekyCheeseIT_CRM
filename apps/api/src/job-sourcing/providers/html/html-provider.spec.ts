@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import {
   SourceBlockedError,
@@ -1266,6 +1267,29 @@ describe('AC5 enrichment state: reuse, invalidation, resume, failures', () => {
     })
   })
 
+  it('a record carrying an error is never the reference for "unchanged", even with a hash', async () => {
+    const enrichment = new InMemoryEnrichmentState()
+    const body = detail({ description: 'A' })
+    enrichment.records.set(JSON.stringify(['THEHUB_HTML', 'board', 'a']), {
+      attempts: 1,
+      lastAttemptAt: NOW,
+      succeededAt: null,
+      error: 'HTTP_500',
+      nextDueAt: NOW,
+      contentHash: createHash('sha256').update(body).digest('hex'),
+      validator: null,
+      url: detailUrl('a'),
+      parserVersion: 'p1',
+      policyVersion: 1,
+      modelPending: false,
+    })
+    const w = world({
+      routes: { [page1]: { bodyText: listing([item('a')]) }, [detailUrl('a')]: { bodyText: body } },
+    })
+    const r = await provider(w, { enrichment }).p.collectHtml(config(), w.ctx)
+    expect(r.detail).toMatchObject({ unchanged: 0, fetched: 1 })
+  })
+
   it('a success after a failure is never "unchanged": the failed attempt left no hash', async () => {
     const enrichment = new InMemoryEnrichmentState()
     const first = world({ routes: twoItems({ description: 'A' }) })
@@ -1954,6 +1978,7 @@ describe('one egress: admitted and paced before anything is reserved (CR-M-2, CR
     const r = await p.collectHtml(config(), w.ctx)
     expect(w.reserved).toEqual([1])
     expect(r.discovery.stop).toBe('CANCELLED')
+    expect(r.batch.outcome).toBe('CANCELLED')
     expect(r.batch.requests[1]?.error).toEqual({
       code: 'CANCELLED',
       message: 'html request refused: CANCELLED',
@@ -1997,6 +2022,22 @@ describe('one egress: admitted and paced before anything is reserved (CR-M-2, CR
     const r = await provider(w).p.collectHtml(config(), w.ctx)
     expect(w.sent).toEqual([])
     expect(r.discovery).toMatchObject({ status: 'POLICY_BLOCKED', policyReason: 'ROBOTS_FAILED' })
+  })
+
+  it('a robots port that throws on page 2 is an ACCESS_POLICY stop, nothing reserved', async () => {
+    const w = world({
+      routes: { [page1]: { bodyText: listing([item('a', 'https://o.example/a')], 'c2') } },
+    })
+    w.robots.check.mockImplementation(async (url: string) => {
+      if (url === page2) throw new Error('robots down')
+      return allowed()
+    })
+    const r = await provider(w).p.collectHtml(config(), w.ctx)
+    expect(w.reserved).toEqual([1])
+    expect(r.batch.requests[1]?.error).toEqual({
+      code: 'ACCESS_POLICY',
+      message: 'html request refused: ROBOTS_FAILED',
+    })
   })
 
   it('a robots port that throws on a detail denies that item only (SR-L-5)', async () => {
