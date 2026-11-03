@@ -76,33 +76,69 @@ function settle<T>(
   })
 }
 
+/**
+ * Resolves when an abandoned call settles, or after `capMs` at the latest. The port takes no
+ * AbortSignal (follow-up), so a timed-out call may still be running at the provider.
+ */
+function holdUntilSettled(call: Promise<unknown>, capMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, capMs)
+    const done = (): void => {
+      clearTimeout(timer)
+      resolve()
+    }
+    call.then(done, done)
+  })
+}
+
+/** The inference adapters' own HTTP timeout (`DEFAULT_TIMEOUT_MS` there, pinned by a spec). */
+export const PORT_HTTP_TIMEOUT_MS = 60_000
+/** How long an abandoned call keeps its route busy at most: the adapter has given up by then. */
+export const DEFAULT_ABANDONED_HOLD_MS = PORT_HTTP_TIMEOUT_MS + 5_000
+/** Node clamps a larger timer delay to 1 ms. */
+export const MAX_TIMER_MS = 2 ** 31 - 1
+
+function timerMs(name: string, value: number): number {
+  if (!Number.isInteger(value) || value <= 0 || value > MAX_TIMER_MS) {
+    throw new Error(`${name} must be an integer in 1..${MAX_TIMER_MS}, got ${String(value)}`)
+  }
+  return value
+}
+
 export interface ModelStructurerOptions {
   readonly port: ExtractionPort
   /** Shared by every HTML provider of the cycle. */
   readonly budget: ModelBudgetPort
   readonly timeoutMs?: number
+  /** After a timeout or an abort, the route stays busy until the call settles or this elapses. */
+  readonly abandonedHoldMs?: number
 }
 
 /**
- * `HtmlStructurer` over an `ExtractionPort`. One instance per model route: its runs are queued, so a
- * route has one call in flight. Per record: gate → contact strip + envelope (input cap) → budget
- * reserve → extract with timeout → result guard (output cap). Persists nothing.
+ * `HtmlStructurer` over an `ExtractionPort`. One instance per model route: its runs are queued, and
+ * an abandoned call keeps the queue held, so a route has one call in flight. Per record: gate →
+ * contact strip + envelope (input cap) → budget reserve → extract with timeout → result guard
+ * (output cap). Persists nothing.
  */
 export class ModelStructurer implements HtmlStructurer {
   private readonly timeoutMs: number
+  private readonly abandonedHoldMs: number
   private queue: Promise<unknown> = Promise.resolve()
+  /** The last abandoned call's hold; already resolved when nothing was abandoned. */
+  private held: Promise<void> = Promise.resolve()
 
   constructor(private readonly options: ModelStructurerOptions) {
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_STRUCTURER_TIMEOUT_MS
-    if (!Number.isSafeInteger(this.timeoutMs) || this.timeoutMs <= 0) {
-      throw new Error(`timeoutMs must be a positive integer, got ${String(this.timeoutMs)}`)
-    }
+    this.timeoutMs = timerMs('timeoutMs', options.timeoutMs ?? DEFAULT_STRUCTURER_TIMEOUT_MS)
+    this.abandonedHoldMs = timerMs(
+      'abandonedHoldMs',
+      options.abandonedHoldMs ?? DEFAULT_ABANDONED_HOLD_MS,
+    )
   }
 
   structure(request: HtmlStructurerRequest): Promise<StructurerOutcome> {
     const run = this.queue.then(() => this.run(request))
-    // A failed run must not block the route's queue.
-    this.queue = run.catch(() => undefined)
+    // A failed run must not block the route's queue; an abandoned call holds it.
+    this.queue = run.catch(() => undefined).then(() => this.held)
     return run
   }
 
@@ -120,7 +156,7 @@ export class ModelStructurer implements HtmlStructurer {
       const attempt = await this.attempt(gate, record, request.signal)
       if ('stop' in attempt) {
         const remainingIds = request.records.slice(index).map(({ id }) => id)
-        if (index === 0) return { ...attempt.stop, remainingIds }
+        if (index === 0) return { ...attempt.stop, remainingIds, perRecordIssues }
         return {
           kind: 'PARTIAL',
           extractionVersion,
@@ -145,9 +181,9 @@ export class ModelStructurer implements HtmlStructurer {
         if (attempt.issue !== null) perRecordIssues.push(attempt.issue)
       }
     }
-    // Every record's reply was unusable: the extractor, not the page, failed.
+    // Every record's reply was unusable: the extractor, not the page, failed. The issues name them.
     if (firstFailure !== null && !anySucceeded) {
-      return { kind: 'EXTRACTOR_FAILED', code: firstFailure, remainingIds: [] }
+      return { kind: 'EXTRACTOR_FAILED', code: firstFailure, remainingIds: [], perRecordIssues }
     }
     return { kind: 'EXTRACTED', extractionVersion, records, perRecordIssues }
   }
@@ -164,16 +200,33 @@ export class ModelStructurer implements HtmlStructurer {
     if (reservation === null) {
       return { stop: { kind: 'BUDGET_EXHAUSTED', cause: 'CYCLE_LIMIT' } }
     }
-    let usable: { usage?: ModelUsage } | null = null
+    let call: Promise<ExtractionResult<unknown>>
     try {
-      // The executor turns a synchronous throw from the port into a rejection.
-      const call = new Promise<ExtractionResult<unknown>>((resolve) => {
-        resolve(port.extract({ input: prompt.user, instruction: prompt.system, schema: ANY_JSON }))
-      })
+      call = Promise.resolve(
+        port.extract({ input: prompt.user, instruction: prompt.system, schema: ANY_JSON }),
+      )
+    } catch {
+      // Thrown before any promise existed: no request was sent, the slot goes back.
+      budget.release(reservation)
+      return stopWith('PORT_THREW')
+    }
+    // A request may have reached the provider and be billed: the slot is consumed unless proven
+    // otherwise. A timeout or an abort is uncertain, so it is consumed too.
+    let sent = true
+    let usage: ModelUsage | undefined
+    try {
       const settled = await settle(call, this.timeoutMs, signal)
-      if ('stopped' in settled) return stopWith(settled.stopped)
+      if ('stopped' in settled) {
+        this.held = holdUntilSettled(call, this.abandonedHoldMs)
+        return stopWith(settled.stopped)
+      }
       const result = settled.value
-      if (!result.ok) return classify(result.code)
+      if (!result.ok) {
+        // NOT_CONFIGURED: the adapter had no route or key, so nothing was sent.
+        sent = result.code !== 'NOT_CONFIGURED'
+        return classify(result.code)
+      }
+      usage = result.usage
 
       let raw: string | undefined
       try {
@@ -188,7 +241,6 @@ export class ModelStructurer implements HtmlStructurer {
       })
       if (!guarded.ok) return { failed: guarded.reason }
 
-      usable = result
       const { droppedRecords, nulledUrls, droppedEvidence } = guarded
       return {
         records: guarded.records.map((extracted) => ({
@@ -203,9 +255,9 @@ export class ModelStructurer implements HtmlStructurer {
             : null,
       }
     } finally {
-      // Exactly one settlement per reservation: only a usable reply consumes the slot.
-      if (usable === null) budget.release(reservation)
-      else budget.commit(reservation, usable.usage)
+      // Exactly one settlement per reservation.
+      if (sent) budget.commit(reservation, usage)
+      else budget.release(reservation)
     }
   }
 }

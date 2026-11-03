@@ -64,7 +64,8 @@ export type StructurerStop =
 
 /**
  * `remainingIds`: the records not processed, in request order, for the caller to persist and resume.
- * A stop before any record was processed returns the stop itself; after one, PARTIAL.
+ * A stop before any record was processed returns the stop itself; after one, PARTIAL. When every
+ * record failed, EXTRACTOR_FAILED carries their issues (`perRecordIssues` names the failed ids).
  */
 export type StructurerOutcome =
   | {
@@ -76,7 +77,10 @@ export type StructurerOutcome =
   | { readonly kind: 'SKIPPED_AI_INPUT_NO' }
   /** `ai-input` unspecified and the caller's policy says block. */
   | { readonly kind: 'SKIPPED_AI_INPUT_UNSPECIFIED' }
-  | (StructurerStop & { readonly remainingIds: readonly string[] })
+  | (StructurerStop & {
+      readonly remainingIds: readonly string[]
+      readonly perRecordIssues: readonly RecordIssue[]
+    })
   | {
       readonly kind: 'PARTIAL'
       readonly extractionVersion: string

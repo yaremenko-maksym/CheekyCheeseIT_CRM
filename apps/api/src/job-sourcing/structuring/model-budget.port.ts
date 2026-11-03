@@ -12,9 +12,9 @@ export interface ModelUsage {
 }
 
 /**
- * Reserve a call BEFORE making it. Every reservation ends exactly once: `commit` when the call
- * produced a usable result, `release` on every other path (failure, timeout, cancellation), which
- * returns the slot to the cycle.
+ * Reserve a call BEFORE making it. Every reservation ends exactly once: `commit` once a request may
+ * have reached the provider (any reply, a timeout, an abort: it may be billed), `release` only when
+ * no request was sent, which returns the slot to the cycle.
  */
 export interface ModelBudgetPort {
   reserve(): Reservation | null

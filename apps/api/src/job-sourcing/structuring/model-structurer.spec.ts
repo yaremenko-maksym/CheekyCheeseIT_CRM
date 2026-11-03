@@ -1,11 +1,22 @@
-import type { ExtractionPort, ExtractionRequest, ExtractionResult } from '@crm/inference'
+import {
+  DEFAULT_TIMEOUT_MS,
+  type ExtractionPort,
+  type ExtractionRequest,
+  type ExtractionResult,
+} from '@crm/inference'
 import { getEventListeners } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CONTACT_PAGES } from './__fixtures__/contact-pages'
 import type { AiInputSignal, ModelInputPolicy } from './ai-input-gate'
 import type { DiscoveredRecord, HtmlStructurerRequest } from './html-structurer.port'
 import { InMemoryModelBudget } from './model-budget.port'
-import { DEFAULT_STRUCTURER_TIMEOUT_MS, ModelStructurer } from './model-structurer'
+import {
+  DEFAULT_ABANDONED_HOLD_MS,
+  DEFAULT_STRUCTURER_TIMEOUT_MS,
+  MAX_TIMER_MS,
+  ModelStructurer,
+  PORT_HTTP_TIMEOUT_MS,
+} from './model-structurer'
 import { EXTRACTION_SYSTEM_PROMPT } from './prompt-envelope'
 
 type Reply = ExtractionResult<unknown> | Promise<ExtractionResult<unknown>>
@@ -250,28 +261,50 @@ describe('ModelStructurer — result guard', () => {
     expect(calls).toHaveLength(1)
   })
 
-  it.each<[string, () => Reply, string]>([
-    ['undefined data', () => ({ ok: true, data: undefined }), 'NOT_JSON'],
-    ['a BigInt', () => ({ ok: true, data: { n: 1n } }), 'NOT_JSON'],
+  it.each<[string, () => Reply, string, number]>([
+    ['undefined data', () => ({ ok: true, data: undefined }), 'NOT_JSON', 0],
+    ['a BigInt', () => ({ ok: true, data: { n: 1n } }), 'NOT_JSON', 0],
     [
       'a fenced block',
       () => ({ ok: true, data: '```json\n{"records":[]}\n```' }),
       'SCHEMA_INVALID',
+      0,
     ],
-    ['no records array', () => ({ ok: true, data: { extractionVersion: 'v' } }), 'SCHEMA_INVALID'],
+    [
+      'no records array',
+      () => ({ ok: true, data: { extractionVersion: 'v' } }),
+      'SCHEMA_INVALID',
+      0,
+    ],
     [
       'over 2 MiB',
       () => modelOutput([{ ...GOOD, description: 'x'.repeat(2 * 1024 * 1024) }]),
       'OUTPUT_TOO_LARGE',
+      11,
     ],
-    ['only invalid records', () => modelOutput([{ title: 1 }]), 'NO_VALID_RECORD'],
-    ['the port gave up parsing', () => ({ ok: false, code: 'INVALID_OUTPUT' }), 'INVALID_OUTPUT'],
-  ])('%s ⇒ EXTRACTOR_FAILED and the slot is released', async (_name, reply, code) => {
-    const { structurer, budget } = setup(reply)
-    const outcome = await structurer.structure(request([rec('1')]))
-    expect(outcome).toEqual({ kind: 'EXTRACTOR_FAILED', code, remainingIds: [] })
-    expect(budget.snapshot()).toEqual(CLEAN)
-  })
+    ['only invalid records', () => modelOutput([{ title: 1 }]), 'NO_VALID_RECORD', 11],
+    [
+      'the port gave up parsing',
+      () => ({ ok: false, code: 'INVALID_OUTPUT' }),
+      'INVALID_OUTPUT',
+      0,
+    ],
+  ])(
+    '%s ⇒ EXTRACTOR_FAILED naming the record; the billed call consumes the slot',
+    async (_name, reply, code, totalTokens) => {
+      const { structurer, budget } = setup(reply)
+      const outcome = await structurer.structure(request([rec('1')]))
+      expect(outcome).toEqual({
+        kind: 'EXTRACTOR_FAILED',
+        code,
+        remainingIds: [],
+        perRecordIssues: [
+          { id: '1', failure: code, droppedRecords: 0, nulledUrls: 0, droppedEvidence: 0 },
+        ],
+      })
+      expect(budget.snapshot()).toEqual({ committed: 1, reserved: 0, totalTokens })
+    },
+  )
 
   it('a bad reply ends that record only; the next record is still extracted', async () => {
     const { structurer, calls } = setup((_req, call) =>
@@ -288,7 +321,7 @@ describe('ModelStructurer — result guard', () => {
     })
   })
 
-  it('when every record fails, the first failure is reported', async () => {
+  it('when every record fails, the first failure is the code and every failed id is listed', async () => {
     const { structurer } = setup((_req, call) =>
       call === 1 ? { ok: true, data: undefined } : { ok: true, data: {} },
     )
@@ -296,6 +329,16 @@ describe('ModelStructurer — result guard', () => {
       kind: 'EXTRACTOR_FAILED',
       code: 'NOT_JSON',
       remainingIds: [],
+      perRecordIssues: [
+        { id: '1', failure: 'NOT_JSON', droppedRecords: 0, nulledUrls: 0, droppedEvidence: 0 },
+        {
+          id: '2',
+          failure: 'SCHEMA_INVALID',
+          droppedRecords: 0,
+          nulledUrls: 0,
+          droppedEvidence: 0,
+        },
+      ],
     })
   })
 })
@@ -303,22 +346,23 @@ describe('ModelStructurer — result guard', () => {
 describe('ModelStructurer — failure classification (by InferenceErrorCode only)', () => {
   const QUOTA_PAGE = `${PAGE}\nYour quota is exceeded. Rate limit reached. 429 Too Many Requests. Unauthorized.`
 
-  it.each<[string, Record<string, unknown>]>([
-    ['RATE_LIMITED', { kind: 'BUDGET_EXHAUSTED', cause: 'RATE_LIMITED' }],
-    ['NOT_CONFIGURED', { kind: 'MODEL_UNAVAILABLE', code: 'NOT_CONFIGURED' }],
-    ['PROVIDER_ERROR', { kind: 'MODEL_UNAVAILABLE', code: 'PROVIDER_ERROR' }],
-    ['TIMEOUT', { kind: 'EXTRACTOR_FAILED', code: 'TIMEOUT' }],
-    ['QUOTA_EXCEEDED', { kind: 'EXTRACTOR_FAILED', code: 'UNKNOWN_CODE' }],
-    ['toString', { kind: 'EXTRACTOR_FAILED', code: 'UNKNOWN_CODE' }],
-  ])('%s stops the run with %j, page text notwithstanding', async (code, stop) => {
+  // committed: whether the call may have reached the provider (only NOT_CONFIGURED sends nothing).
+  it.each<[string, Record<string, unknown>, number]>([
+    ['RATE_LIMITED', { kind: 'BUDGET_EXHAUSTED', cause: 'RATE_LIMITED' }, 1],
+    ['NOT_CONFIGURED', { kind: 'MODEL_UNAVAILABLE', code: 'NOT_CONFIGURED' }, 0],
+    ['PROVIDER_ERROR', { kind: 'MODEL_UNAVAILABLE', code: 'PROVIDER_ERROR' }, 1],
+    ['TIMEOUT', { kind: 'EXTRACTOR_FAILED', code: 'TIMEOUT' }, 1],
+    ['QUOTA_EXCEEDED', { kind: 'EXTRACTOR_FAILED', code: 'UNKNOWN_CODE' }, 1],
+    ['toString', { kind: 'EXTRACTOR_FAILED', code: 'UNKNOWN_CODE' }, 1],
+  ])('%s stops the run with %j, page text notwithstanding', async (code, stop, committed) => {
     for (const text of [PAGE, QUOTA_PAGE]) {
       const { structurer, calls, budget } = setup(
         () => ({ ok: false, code }) as ExtractionResult<unknown>,
       )
       const outcome = await structurer.structure(request([rec('1', text), rec('2', text)]))
-      expect(outcome).toEqual({ ...stop, remainingIds: ['1', '2'] })
+      expect(outcome).toEqual({ ...stop, remainingIds: ['1', '2'], perRecordIssues: [] })
       expect(calls).toHaveLength(1)
-      expect(budget.snapshot()).toEqual(CLEAN)
+      expect(budget.snapshot()).toEqual({ committed, reserved: 0, totalTokens: 0 })
     }
   })
 
@@ -364,6 +408,7 @@ describe('ModelStructurer — budget', () => {
       kind: 'BUDGET_EXHAUSTED',
       cause: 'CYCLE_LIMIT',
       remainingIds: ['1', '2'],
+      perRecordIssues: [],
     })
     expect(calls).toHaveLength(0)
   })
@@ -380,35 +425,55 @@ describe('ModelStructurer — budget', () => {
     expect(outcome).toMatchObject({ kind: 'PARTIAL', remainingIds: ['4'] })
   })
 
-  it.each<[string, () => Reply]>([
-    ['a thrown error', () => Promise.reject(new Error('boom'))],
-    [
-      'a synchronous throw',
-      () => {
-        throw new Error('sync boom')
-      },
-    ],
-  ])('%s ⇒ EXTRACTOR_FAILED{PORT_THREW}, slot released', async (_name, reply) => {
-    const { structurer, budget } = setup(reply)
+  it('badly answered calls are paid calls: a budget of 3 allows 3, the rest remain', async () => {
+    const { structurer, calls, budget } = setup(() => ({ ok: false, code: 'INVALID_OUTPUT' }), 3)
+    const records = Array.from({ length: 50 }, (_, i) => rec(String(i)))
+    const outcome = await structurer.structure(request(records))
+    expect(calls).toHaveLength(3)
+    expect(outcome).toMatchObject({
+      kind: 'PARTIAL',
+      records: [],
+      perRecordIssues: [{ id: '0' }, { id: '1' }, { id: '2' }],
+      remainingIds: records.slice(3).map(({ id }) => id),
+      stoppedBy: { kind: 'BUDGET_EXHAUSTED', cause: 'CYCLE_LIMIT' },
+    })
+    expect(budget.snapshot()).toEqual({ committed: 3, reserved: 0, totalTokens: 0 })
+  })
+
+  it('a rejected call may have been sent: EXTRACTOR_FAILED{PORT_THREW}, slot consumed', async () => {
+    const { structurer, budget } = setup(() => Promise.reject(new Error('boom')))
     await expect(structurer.structure(request([rec('1')]))).resolves.toEqual({
       kind: 'EXTRACTOR_FAILED',
       code: 'PORT_THREW',
       remainingIds: ['1'],
+      perRecordIssues: [],
+    })
+    expect(budget.snapshot()).toEqual({ committed: 1, reserved: 0, totalTokens: 0 })
+  })
+
+  it('a synchronous throw sent nothing: EXTRACTOR_FAILED{PORT_THREW}, slot released', async () => {
+    const { structurer, budget } = setup(() => {
+      throw new Error('sync boom')
+    })
+    await expect(structurer.structure(request([rec('1')]))).resolves.toEqual({
+      kind: 'EXTRACTOR_FAILED',
+      code: 'PORT_THREW',
+      remainingIds: ['1'],
+      perRecordIssues: [],
     })
     expect(budget.snapshot()).toEqual(CLEAN)
   })
 
-  it('no leak after N failures: 50 failing calls fit a budget of 1', async () => {
-    const { structurer, calls, budget } = setup(() => ({ ok: false, code: 'INVALID_OUTPUT' }), 1)
-    const records = Array.from({ length: 50 }, (_, i) => rec(String(i)))
-    await structurer.structure(request(records))
+  it('no leak when nothing is sent: 50 NOT_CONFIGURED runs fit a budget of 1', async () => {
+    const { structurer, calls, budget } = setup(() => ({ ok: false, code: 'NOT_CONFIGURED' }), 1)
+    for (let i = 0; i < 50; i += 1) await structurer.structure(request([rec(String(i))]))
     expect(calls).toHaveLength(50)
     expect(budget.snapshot()).toEqual(CLEAN)
   })
 })
 
 describe('ModelStructurer — timeout and cancellation', () => {
-  it('a hung endpoint ⇒ EXTRACTOR_FAILED{TIMEOUT} at the default 120 000 ms, slot released', async () => {
+  it('a hung endpoint ⇒ EXTRACTOR_FAILED{TIMEOUT} at the default 120 000 ms, slot consumed', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     expect(DEFAULT_STRUCTURER_TIMEOUT_MS).toBe(120_000)
     const { structurer, budget } = setup(never)
@@ -418,8 +483,13 @@ describe('ModelStructurer — timeout and cancellation', () => {
     expect(outcome).toBeUndefined()
     expect(budget.snapshot()).toEqual({ committed: 0, reserved: 1, totalTokens: 0 })
     await vi.advanceTimersByTimeAsync(1)
-    expect(outcome).toEqual({ kind: 'EXTRACTOR_FAILED', code: 'TIMEOUT', remainingIds: ['1', '2'] })
-    expect(budget.snapshot()).toEqual(CLEAN)
+    expect(outcome).toEqual({
+      kind: 'EXTRACTOR_FAILED',
+      code: 'TIMEOUT',
+      remainingIds: ['1', '2'],
+      perRecordIssues: [],
+    })
+    expect(budget.snapshot()).toEqual({ committed: 1, reserved: 0, totalTokens: 0 })
   })
 
   it('honours a configured timeout and ignores a late reply', async () => {
@@ -433,7 +503,9 @@ describe('ModelStructurer — timeout and cancellation', () => {
     await expect(pending).resolves.toMatchObject({ kind: 'EXTRACTOR_FAILED', code: 'TIMEOUT' })
     answer(modelOutput([GOOD]))
     await vi.advanceTimersByTimeAsync(0)
-    expect(budget.snapshot()).toEqual(CLEAN)
+    expect(budget.snapshot()).toEqual({ committed: 1, reserved: 0, totalTokens: 0 })
+    // The late reply also ended the route's hold: no timer is left.
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('a settled call leaves no timer and no abort listener behind', async () => {
@@ -445,7 +517,7 @@ describe('ModelStructurer — timeout and cancellation', () => {
     expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
   })
 
-  it('abort during a call ⇒ CANCELLED, slot released', async () => {
+  it('abort during a call ⇒ CANCELLED, slot consumed', async () => {
     const controller = new AbortController()
     const { structurer, budget } = setup(never)
     const pending = structurer.structure(request([rec('1')], { signal: controller.signal }))
@@ -455,8 +527,9 @@ describe('ModelStructurer — timeout and cancellation', () => {
       kind: 'EXTRACTOR_FAILED',
       code: 'CANCELLED',
       remainingIds: ['1'],
+      perRecordIssues: [],
     })
-    expect(budget.snapshot()).toEqual(CLEAN)
+    expect(budget.snapshot()).toEqual({ committed: 1, reserved: 0, totalTokens: 0 })
   })
 
   it('an aborted signal makes no further call: PARTIAL after a processed record', async () => {
@@ -497,6 +570,53 @@ describe('ModelStructurer — one call in flight per route', () => {
     expect(outcomes.map((o) => o.kind)).toEqual(['EXTRACTED', 'EXTRACTED'])
   })
 
+  it('the adapter HTTP timeout constant is the package value; the default hold adds a margin', () => {
+    expect(PORT_HTTP_TIMEOUT_MS).toBe(DEFAULT_TIMEOUT_MS)
+    expect(DEFAULT_ABANDONED_HOLD_MS).toBe(65_000)
+  })
+
+  it('an abandoned call holds the route until the hold cap (default 65 000 ms)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { structurer, calls } = setup((_req, call) => (call === 1 ? never() : ok()))
+    const first = structurer.structure(request([rec('1')]))
+    await vi.advanceTimersByTimeAsync(DEFAULT_STRUCTURER_TIMEOUT_MS)
+    await expect(first).resolves.toMatchObject({ code: 'TIMEOUT' })
+    let second: unknown
+    void structurer.structure(request([rec('2')])).then((o) => (second = o))
+    await vi.advanceTimersByTimeAsync(64_999)
+    expect(calls).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(calls).toHaveLength(2)
+    expect(second).toMatchObject({ kind: 'EXTRACTED' })
+  })
+
+  it('an abandoned call that settles late frees the route at once', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    let fail: (e: Error) => void = () => undefined
+    const fake = fakePort((_req, call) =>
+      call === 1 ? new Promise((_resolve, reject) => (fail = reject)) : ok(),
+    )
+    const budget = new InMemoryModelBudget(5)
+    const structurer = new ModelStructurer({
+      port: fake.port,
+      budget,
+      timeoutMs: 1_000,
+      abandonedHoldMs: 30_000,
+    })
+    const first = structurer.structure(request([rec('1')]))
+    await vi.advanceTimersByTimeAsync(1_000)
+    await expect(first).resolves.toMatchObject({ code: 'TIMEOUT' })
+    let second: unknown
+    void structurer.structure(request([rec('2')])).then((o) => (second = o))
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(fake.calls).toHaveLength(1)
+    fail(new Error('late'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fake.calls).toHaveLength(2)
+    expect(second).toMatchObject({ kind: 'EXTRACTED' })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('a run that throws does not block the next one', async () => {
     const { structurer } = setup(ok)
     const broken = { ...request([]), records: null } as unknown as HtmlStructurerRequest
@@ -506,10 +626,29 @@ describe('ModelStructurer — one call in flight per route', () => {
     })
   })
 
-  it.each([0, -1, 1.5, Number.NaN])('rejects timeoutMs %s', (timeoutMs) => {
+  it.each(['timeoutMs', 'abandonedHoldMs'] as const)(
+    '%s accepts 1 and 2^31-1 (the largest timer delay Node honours)',
+    (name) => {
+      const { port } = fakePort(ok)
+      expect(MAX_TIMER_MS).toBe(2_147_483_647)
+      for (const value of [1, 2_147_483_647]) {
+        expect(
+          () => new ModelStructurer({ port, budget: new InMemoryModelBudget(), [name]: value }),
+        ).not.toThrow()
+      }
+    },
+  )
+
+  it.each(
+    (['timeoutMs', 'abandonedHoldMs'] as const).flatMap((name) =>
+      [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648].map(
+        (value) => [name, value] as const,
+      ),
+    ),
+  )('rejects %s = %s', (name, value) => {
     const { port } = fakePort(ok)
     expect(
-      () => new ModelStructurer({ port, budget: new InMemoryModelBudget(), timeoutMs }),
-    ).toThrow(/positive integer/)
+      () => new ModelStructurer({ port, budget: new InMemoryModelBudget(), [name]: value }),
+    ).toThrow(new RegExp(`^${name} must be an integer in 1\\.\\.2147483647, got `))
   })
 })

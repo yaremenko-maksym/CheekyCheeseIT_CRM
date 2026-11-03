@@ -16,7 +16,7 @@ export const EXTRACTION_SYSTEM_PROMPT = [
 
 /**
  * The inference port cuts the user message at this many chars (`MAX_EXTRACTION_INPUT_CHARS` in
- * `@crm/inference`, pinned by a spec: imported by value it would pull network code in here). The
+ * the inference package, pinned by a spec: imported by value it would pull network code in here). The
  * whole prompt (instruction, framing, data) fits in it, so that cut never reaches the closing
  * delimiter.
  */
