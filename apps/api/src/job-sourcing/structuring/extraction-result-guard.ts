@@ -15,9 +15,9 @@ function nonWhitespaceLength(text: string): number {
   return text.replace(/\s/g, '').length
 }
 
-/** Case and whitespace runs do not change what a quote says. */
+/** Case and whitespace runs do not change what a quote says (upper case folds `ß` to `SS`). */
 function normalise(text: string): string {
-  return text.toLowerCase().replace(/\s+/g, ' ').trim()
+  return text.toUpperCase().replace(/\s+/g, ' ').trim()
 }
 
 const URL_FIELDS: ReadonlySet<string> = new Set(['postingUrl', 'applyUrl'])

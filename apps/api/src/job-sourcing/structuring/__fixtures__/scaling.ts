@@ -2,6 +2,8 @@ import { expect } from 'vitest'
 
 /** A hang, not a slow machine: the only wall-clock bound, deliberately loose. */
 const ABSOLUTE_CAP_MS = 30_000
+/** Per-test timeout for a scaling test: it runs the work six times, under instrumentation too. */
+export const SCALING_TEST_TIMEOUT_MS = 120_000
 /** Absorbs timer noise and GC when the small input takes a few milliseconds. */
 const SLACK_MS = 50
 const RUNS = 3

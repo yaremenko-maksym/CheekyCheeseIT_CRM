@@ -8,6 +8,7 @@ const CTX = { evidenceText: EVIDENCE, verifiedUrls: [] }
 function guardQuotes(
   evidence: ReadonlyArray<{ field: string; quote: string }>,
   record: Record<string, unknown> = {},
+  evidenceText = EVIDENCE,
 ) {
   const raw = JSON.stringify({
     extractionVersion: 'v1',
@@ -15,7 +16,7 @@ function guardQuotes(
       { title: 'Senior Rust Engineer', company: 'Acme', uncertainty: 0.2, ...record, evidence },
     ],
   })
-  const result = guardExtractionResult(raw, CTX)
+  const result = guardExtractionResult(raw, { ...CTX, evidenceText })
   if (!result.ok) throw new Error(`expected ok, got ${result.reason}`)
   return { kept: result.records[0]?.evidence ?? [], dropped: result.droppedEvidence }
 }
@@ -119,6 +120,21 @@ describe('guardExtractionResult — evidence must be about its field (SR-M-7)', 
     })
   })
 
+  it('case is compared by full case folding: STRASSE quotes Straße', () => {
+    const span = { field: 'company', quote: 'STRASSE GMBH' }
+    const page = 'Employer: STRASSE GMBH, Berlin.'
+    expect(guardQuotes([span], { company: 'Straße GmbH' }, page)).toEqual({
+      kept: [span],
+      dropped: 0,
+    })
+  })
+
+  it('whitespace collapses to one space, never to nothing: words stay apart', () => {
+    expect(
+      guardQuotes([{ field: 'company', quote: 'Senior Rust' }], { company: 'SeniorRust' }),
+    ).toEqual({ kept: [], dropped: 1 })
+  })
+
   it('a passage of a long text value is evidence', () => {
     const span = { field: 'description', quote: 'Engineer at Acme' }
     const description = 'We hire a Senior Rust Engineer at Acme, Lviv, for a payments team.'
@@ -144,20 +160,31 @@ describe('guardExtractionResult — URL evidence (SR-M-7)', () => {
   function guardUrlQuotes(evidence: ReadonlyArray<{ field: string; quote: string }>) {
     const raw = JSON.stringify({
       extractionVersion: 'v1',
-      records: [{ title: 'Senior Rust Engineer', applyUrl: URL, uncertainty: 0.1, evidence }],
+      records: [
+        {
+          title: 'Senior Rust Engineer',
+          postingUrl: URL,
+          applyUrl: URL,
+          uncertainty: 0.1,
+          evidence,
+        },
+      ],
     })
     const result = guardExtractionResult(raw, ctx)
     if (!result.ok) throw new Error(`expected ok, got ${result.reason}`)
     return { kept: result.records[0]?.evidence ?? [], dropped: result.droppedEvidence }
   }
 
-  it('a quote containing the whole URL is evidence', () => {
-    const span = { field: 'applyUrl', quote: `Apply: ${URL}` }
-    expect(guardUrlQuotes([span])).toEqual({ kept: [span], dropped: 0 })
-  })
+  it.each(['postingUrl', 'applyUrl'])(
+    'a quote containing the whole URL is evidence for %s',
+    (field) => {
+      const span = { field, quote: `Apply: ${URL}` }
+      expect(guardUrlQuotes([span])).toEqual({ kept: [span], dropped: 0 })
+    },
+  )
 
-  it('a part of the URL is not evidence', () => {
-    expect(guardUrlQuotes([{ field: 'applyUrl', quote: 'https://acme.io/jobs' }])).toEqual({
+  it.each(['postingUrl', 'applyUrl'])('a part of the URL is not evidence for %s', (field) => {
+    expect(guardUrlQuotes([{ field, quote: 'https://acme.io/jobs' }])).toEqual({
       kept: [],
       dropped: 1,
     })

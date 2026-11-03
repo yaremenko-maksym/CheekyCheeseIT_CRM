@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest'
-import { expectScaling } from './__fixtures__/scaling'
+import { expectScaling, SCALING_TEST_TIMEOUT_MS } from './__fixtures__/scaling'
 import { CONTACT_TOKEN, stripContacts } from './contact-strip'
 
 /**
@@ -245,13 +245,17 @@ describe('stripContacts — review round: linear time on the shapes that went qu
     ['a@b dot b dot …', (n) => 'a@b' + ' dot b'.repeat(n), 70_000],
     ['digits with U+2015', (n) => '1―'.repeat(n), 200_000],
     ['tel. + spaced digits', (n) => 'тел.' + '1 '.repeat(n), 200_000],
-  ])('%s grows linearly', (_name, hostile, n) => {
-    const small = hostile(n / 4)
-    const big = hostile(n)
-    expectScaling(
-      () => stripContacts(small),
-      () => stripContacts(big),
-      8,
-    )
-  })
+  ])(
+    '%s grows linearly',
+    (_name, hostile, n) => {
+      const small = hostile(n / 4)
+      const big = hostile(n)
+      expectScaling(
+        () => stripContacts(small),
+        () => stripContacts(big),
+        8,
+      )
+    },
+    SCALING_TEST_TIMEOUT_MS,
+  )
 })
