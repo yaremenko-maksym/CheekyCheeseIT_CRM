@@ -53,7 +53,7 @@ cat >"$VALID_EXCEPTIONS" <<'JSON'
   "exceptions": [
     {
       "module": "evil-pkg",
-      "tier": "build",
+      "tier": "test-only",
       "reason": "fixture: reachable only through the mutation-testing devDependency chain, never a runtime path, verified with pnpm why evil-pkg -r",
       "ghsa_ids": ["GHSA-aaaa-bbbb-cccc"]
     }
@@ -75,7 +75,7 @@ cat >"$NO_REASON_EXCEPTIONS" <<'JSON'
   "exceptions": [
     {
       "module": "evil-pkg",
-      "tier": "build",
+      "tier": "test-only",
       "reason": "",
       "ghsa_ids": ["GHSA-aaaa-bbbb-cccc"]
     }
@@ -97,7 +97,7 @@ cat >"$SHORT_REASON_EXCEPTIONS" <<'JSON'
   "exceptions": [
     {
       "module": "evil-pkg",
-      "tier": "build",
+      "tier": "test-only",
       "reason": "n/a",
       "ghsa_ids": ["GHSA-aaaa-bbbb-cccc"]
     }
@@ -257,5 +257,149 @@ REAL_EXCEPTIONS="$GUARD_DIR/pnpm-audit-exceptions.json"
 assert_green "the real pnpm-audit-exceptions.json shipped in this repo is well-formed" \
   --not-contains "no (or too short a) reason" \
   -- node "$GUARD" "$CLEAN_AUDIT" "$REAL_EXCEPTIONS"
+
+# ── Tier enforcement: build/dev-only group vs the lockfile's `dev:` flag (backlog 344 i) ──
+# The guard's 4th argument is a lockfile path; fixtures are throwaway lockfiles.
+TIER_AUDIT="$WS/tier-audit.json"
+printf '{"advisories": {%s}}' "$(one_advisory_json 1 listed-mod high GHSA-tier-aaaa-bbbb)" >"$TIER_AUDIT"
+TIER_EXCEPTIONS="$WS/tier-exceptions.json"
+cat >"$TIER_EXCEPTIONS" <<'JSON'
+{"audit_level": "moderate", "exceptions": [{"module": "listed-mod", "tier": "build/dev-only",
+ "reason": "Fixture reason that is comfortably longer than the minimum meaningful length.",
+ "ghsa_ids": ["GHSA-tier-aaaa-bbbb"]}]}
+JSON
+PROD_LOCK="$WS/prod-lock.yaml"
+cat >"$PROD_LOCK" <<'YAML'
+lockfileVersion: 5.4
+
+packages:
+
+  /listed-mod/1.0.0:
+    resolution: {integrity: sha512-x}
+    dev: true
+
+  /listed-mod/2.0.0:
+    resolution: {integrity: sha512-y}
+    dev: false
+
+  /other/1.0.0:
+    resolution: {integrity: sha512-z}
+    dev: false
+YAML
+DEV_LOCK="$WS/dev-lock.yaml"
+sed 's/dev: false/dev: true/' "$PROD_LOCK" >"$DEV_LOCK"
+
+assert_red "build/dev-only module installed without dev: true names module and version" \
+  --contains "listed-mod@2.0.0" \
+  --not-contains "listed-mod@1.0.0" \
+  -- node "$GUARD" "$TIER_AUDIT" "$TIER_EXCEPTIONS" "$PROD_LOCK"
+
+assert_green "build/dev-only module with every version dev: true passes" \
+  --contains "OK:" \
+  -- node "$GUARD" "$TIER_AUDIT" "$TIER_EXCEPTIONS" "$DEV_LOCK"
+
+assert_green "the real repo lockfile satisfies the shipped build/dev-only tiers" \
+  --contains "OK:" \
+  -- node "$GUARD" "$CLEAN_AUDIT" "$REAL_EXCEPTIONS"
+
+# ── Tier cross-check: fail-closed paths (CR-H-1 / M-2 / M-3 / M-4) ──
+mk_exceptions() { # $1 = file, $2 = tier, $3 = module
+  cat >"$1" <<JSON
+{"audit_level": "moderate", "exceptions": [{"module": "$3", "tier": "$2",
+ "reason": "Fixture reason that is comfortably longer than the minimum meaningful length.",
+ "ghsa_ids": ["GHSA-tier-aaaa-bbbb"]}]}
+JSON
+}
+
+ABSENT_EXC="$WS/absent-exc.json"
+mk_exceptions "$ABSENT_EXC" "build/dev-only" "missing-mod"
+assert_red "listed module with ZERO lockfile entries fails closed" \
+  --contains "missing-mod: no entry in the lockfile" \
+  -- node "$GUARD" "$TIER_AUDIT" "$ABSENT_EXC" "$DEV_LOCK"
+
+EMPTY_LOCK="$WS/empty-lock.yaml"
+printf 'lockfileVersion: 5.4\n\npackages:\n\n' >"$EMPTY_LOCK"
+assert_red "lockfile with an empty packages section fails closed" \
+  --contains "no packages parsed" \
+  -- node "$GUARD" "$TIER_AUDIT" "$TIER_EXCEPTIONS" "$EMPTY_LOCK"
+
+V9_LOCK="$WS/v9-lock.yaml"
+printf "lockfileVersion: '9.0'\n\npackages:\n\n  listed-mod@1.0.0:\n    resolution: {integrity: sha512-x}\n\n" >"$V9_LOCK"
+assert_red "unsupported lockfileVersion (9.0, keys without leading slash) fails closed" \
+  --contains "unsupported lockfileVersion" \
+  -- node "$GUARD" "$TIER_AUDIT" "$TIER_EXCEPTIONS" "$V9_LOCK"
+
+assert_red "unreadable lockfile prints a FAIL line, not a stack trace" \
+  --contains "cannot read lockfile" \
+  --not-contains "node:fs" \
+  -- node "$GUARD" "$TIER_AUDIT" "$TIER_EXCEPTIONS" "$WS/does-not-exist.yaml"
+
+PEER_LOCK="$WS/peer-lock.yaml"
+cat >"$PEER_LOCK" <<'YAML'
+lockfileVersion: 5.4
+
+packages:
+
+  /@scope/listed-scoped/1.2.3_react@18.0.0:
+    resolution: {integrity: sha512-x}
+    dev: false
+
+  /listed-mod/1.0.0_peer@2.0.0:
+    resolution: {integrity: sha512-y}
+    dev: true
+YAML
+SCOPED_EXC="$WS/scoped-exc.json"
+mk_exceptions "$SCOPED_EXC" "build/dev-only" "@scope/listed-scoped"
+assert_red "scoped name with a peer-suffixed key is parsed and flagged" \
+  --contains "@scope/listed-scoped@1.2.3" \
+  -- node "$GUARD" "$TIER_AUDIT" "$SCOPED_EXC" "$PEER_LOCK"
+assert_green "peer-suffixed dev: true key passes" \
+  --contains "OK:" \
+  -- node "$GUARD" "$TIER_AUDIT" "$TIER_EXCEPTIONS" "$PEER_LOCK"
+
+V6_LOCK="$WS/v6-lock.yaml"
+printf "lockfileVersion: '6.0'\n\npackages:\n\n  /listed-mod@1.0.0(peer@2.0.0):\n    resolution: {integrity: sha512-x}\n    dev: false\n\n" >"$V6_LOCK"
+assert_red "v6-format key (/name@ver) without dev: true is flagged" \
+  --contains "listed-mod@1.0.0" \
+  -- node "$GUARD" "$TIER_AUDIT" "$TIER_EXCEPTIONS" "$V6_LOCK"
+
+OTHER_TIER_EXC="$WS/other-tier-exc.json"
+mk_exceptions "$OTHER_TIER_EXC" "prod-runtime" "listed-mod"
+assert_green "a group with a different tier is ignored by the cross-check (even on a prod lockfile)" \
+  --contains "OK:" \
+  -- node "$GUARD" "$TIER_AUDIT" "$OTHER_TIER_EXC" "$PROD_LOCK"
+
+# ── SR-M-1: unknown / wrong-case / missing tier is not an exception ──
+CASE_TIER_EXC="$WS/case-tier-exc.json"
+mk_exceptions "$CASE_TIER_EXC" "Build/dev-only" "listed-mod"
+assert_red "wrong-case tier 'Build/dev-only' fails closed, naming the group" \
+  --contains "unknown or missing tier" \
+  --contains "module: listed-mod" \
+  -- node "$GUARD" "$TIER_AUDIT" "$CASE_TIER_EXC" "$PROD_LOCK"
+
+NO_TIER_EXC="$WS/no-tier-exc.json"
+cat >"$NO_TIER_EXC" <<'JSON'
+{"audit_level": "moderate", "exceptions": [{"module": "listed-mod",
+ "reason": "Fixture reason that is comfortably longer than the minimum meaningful length.",
+ "ghsa_ids": ["GHSA-tier-aaaa-bbbb"]}]}
+JSON
+assert_red "a group with no tier fails closed, naming the group" \
+  --contains "unknown or missing tier" \
+  --contains "module: listed-mod" \
+  -- node "$GUARD" "$TIER_AUDIT" "$NO_TIER_EXC" "$PROD_LOCK"
+
+# ── SR-M-2: the advisory's module must equal the group's module ──
+EVIL_AUDIT="$WS/evil-audit.json"
+printf '{"advisories": {%s}}' "$(one_advisory_json 1 evil-prod-pkg high GHSA-tier-aaaa-bbbb)" >"$EVIL_AUDIT"
+assert_red "a GHSA id listed under module X cannot cover an advisory for module Y" \
+  --contains "evil-prod-pkg" \
+  --contains "DIFFERENT module" \
+  -- node "$GUARD" "$EVIL_AUDIT" "$TIER_EXCEPTIONS" "$DEV_LOCK"
+
+LOW_EVIL_AUDIT="$WS/low-evil-audit.json"
+printf '{"advisories": {%s}}' "$(one_advisory_json 1 evil-prod-pkg low GHSA-tier-aaaa-bbbb)" >"$LOW_EVIL_AUDIT"
+assert_red "module mismatch fails even below the severity threshold" \
+  --contains "DIFFERENT module" \
+  -- node "$GUARD" "$LOW_EVIL_AUDIT" "$TIER_EXCEPTIONS" "$DEV_LOCK"
 
 guard_test_summary "test-check-pnpm-audit.sh"

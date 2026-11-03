@@ -192,6 +192,7 @@ function retryDelayMs(attempt) {
 
 const AUDIT_FIXTURE_ARG = process.argv[2]
 const EXCEPTIONS_FIXTURE_ARG = process.argv[3]
+const LOCKFILE_ARG = process.argv[4]
 
 // Marker so `loadAuditJson()` can tell "every retry attempt produced nothing
 // parseable" apart from any other kind of thrown error.
@@ -312,11 +313,16 @@ function loadExceptions() {
 
   const byGhsa = new Map()
   const invalidGroups = []
+  const badTierGroups = []
 
   for (const group of parsed.exceptions ?? []) {
     const reason = group.reason ?? ''
-    const valid = meaningfulLength(reason) >= MIN_REASON_LENGTH
-    if (!valid) {
+    // SR-M-1: an unknown/missing tier is not an exception (fail closed, exact-case match).
+    const tierOk = ALLOWED_TIERS.has(group.tier)
+    const valid = meaningfulLength(reason) >= MIN_REASON_LENGTH && tierOk
+    if (!tierOk) {
+      badTierGroups.push({ module: group.module ?? '(unknown module)', tier: group.tier })
+    } else if (!valid) {
       invalidGroups.push({ module: group.module ?? '(unknown module)', reason })
     }
     for (const ghsa of group.ghsa_ids ?? []) {
@@ -324,12 +330,74 @@ function loadExceptions() {
     }
   }
 
-  return { auditLevel, byGhsa, invalidGroups }
+  return { auditLevel, byGhsa, invalidGroups, badTierGroups, groups: parsed.exceptions ?? [] }
+}
+
+/**
+ * Tier enforcement: a group whose `tier` says build/dev-only is only valid while every installed
+ * version of its module is flagged `dev: true` in the pnpm lockfile (v5.x `/name/ver` and v6
+ * `/name@ver` keys; peer suffixes ignored). Returns one finding per non-dev version.
+ */
+function parseLockfilePackages(text) {
+  const pkgs = []
+  let cur
+  for (const line of text.split('\n')) {
+    const key = line.match(/^ {2}'?\/((?:@[^/@]+\/)?[^/@]+)[/@](\d[^_:'()]*)/)
+    if (key) {
+      cur = { name: key[1], version: key[2], dev: false }
+      pkgs.push(cur)
+    } else if (/^ {2}\S/.test(line)) {
+      cur = undefined
+    } else if (cur && /^ {4}dev: true\s*$/.test(line)) {
+      cur.dev = true
+    }
+  }
+  return pkgs
+}
+
+// Exact tier string(s) that opt a group into the lockfile cross-check.
+const DEV_ONLY_TIERS = new Set(['build/dev-only'])
+// Every tier an exception group may declare (exact, case-sensitive). Only build/dev-only is
+// cross-checked against the lockfile; the others are reachability claims verified by hand.
+const ALLOWED_TIERS = new Set([...DEV_ONLY_TIERS, 'prod-runtime', 'test-only'])
+// Lockfile majors whose `/name/ver` (v5) or `/name@ver` (v6) keys parseLockfilePackages understands.
+const SUPPORTED_LOCKFILE_MAJORS = new Set(['5', '6'])
+
+/**
+ * Fail-closed: returns one message per problem. An unreadable, unsupported-format or empty-parse
+ * lockfile, or a listed module with ZERO lockfile entries (an absent module cannot be proven
+ * dev-only; prune the group instead), is a problem — never a silent pass.
+ */
+function findTierViolations(exceptionGroups) {
+  const modules = new Set(
+    exceptionGroups.filter((g) => DEV_ONLY_TIERS.has(g.tier) && g.module).map((g) => g.module),
+  )
+  if (modules.size === 0) return []
+  const lockPath = LOCKFILE_ARG ?? path.join(REPO_ROOT, 'pnpm-lock.yaml')
+  let text
+  try {
+    text = readFileSync(lockPath, 'utf8')
+  } catch (err) {
+    return [`cannot read lockfile ${lockPath}: ${err.code ?? err.message}`]
+  }
+  const major = text.match(/^lockfileVersion:\s*'?(\d+)\./m)?.[1]
+  if (!SUPPORTED_LOCKFILE_MAJORS.has(major)) {
+    return [`unsupported lockfileVersion (major ${major ?? 'missing'}); parser supports 5.x and 6.x`]
+  }
+  const pkgs = parseLockfilePackages(text)
+  if (pkgs.length === 0) return ['no packages parsed from the lockfile; cross-check cannot run']
+  const problems = []
+  for (const mod of modules) {
+    const found = pkgs.filter((p) => p.name === mod)
+    if (found.length === 0) problems.push(`${mod}: no entry in the lockfile (stale group? prune it)`)
+    for (const p of found) if (!p.dev) problems.push(`${p.name}@${p.version}: installed without dev: true`)
+  }
+  return problems
 }
 
 function main() {
   const audit = loadAuditJson()
-  const { auditLevel, byGhsa, invalidGroups } = loadExceptions()
+  const { auditLevel, byGhsa, invalidGroups, badTierGroups, groups } = loadExceptions()
   const thresholdRank = SEVERITY_RANK[auditLevel] ?? SEVERITY_RANK[DEFAULT_AUDIT_LEVEL]
 
   // MED-2 (security-review PR #536 round 2): the `advisories` key must
@@ -365,6 +433,7 @@ function main() {
   const belowThreshold = [] // not covered, but below the gate's severity floor
   const unknownSeverity = [] // MED-3: severity string we don't recognize — never silently below-threshold
   const seenGhsa = new Set()
+  const moduleMismatches = [] // SR-M-2: valid exception for this GHSA id, but a different module
 
   for (const adv of advisories) {
     const ghsa = adv.github_advisory_id
@@ -372,8 +441,12 @@ function main() {
     const exc = ghsa ? byGhsa.get(ghsa) : undefined
 
     if (exc && exc.valid) {
-      accepted.push({ adv, exc })
-      continue
+      // SR-M-2: the GHSA id alone is not enough — the advisory must be about the group's module.
+      if (exc.module === adv.module_name) {
+        accepted.push({ adv, exc })
+        continue
+      }
+      moduleMismatches.push({ adv, exc })
     }
 
     // MED-3 (security-review PR #536 round 2): an unrecognized severity
@@ -472,6 +545,36 @@ function main() {
     )
     console.log('advisory is accepted — reachability tier (prod-runtime / build / tests),')
     console.log('what actually reaches it, and (if applicable) the fix path deferred.')
+    console.log('')
+  }
+
+  if (badTierGroups.length > 0) {
+    failed = true
+    console.log(`FAIL: exception group(s) with an unknown or missing tier (allowed: ${[...ALLOWED_TIERS].join(', ')}):`)
+    for (const g of badTierGroups) console.log(`   module: ${g.module}  tier: ${JSON.stringify(g.tier)}`)
+    console.log('')
+  }
+
+  if (moduleMismatches.length > 0) {
+    failed = true
+    console.log('FAIL: an advisory matched an exception by GHSA id but for a DIFFERENT module:')
+    for (const { adv, exc } of moduleMismatches) {
+      console.log(
+        `   ${adv.module_name} (${adv.github_advisory_id}) vs exception group module ${exc.module}`,
+      )
+    }
+    console.log('')
+  }
+
+  const tierViolations = findTierViolations(groups)
+  if (tierViolations.length > 0) {
+    failed = true
+    console.log('FAIL: build/dev-only tier cross-check against the lockfile failed (a module that')
+    console.log('reaches a production path, or a lockfile the guard cannot verify):')
+    for (const v of tierViolations) console.log(`   ${v}`)
+    console.log('')
+    console.log('Fix: remove the production path, or re-triage the advisory as prod-reachable')
+    console.log('(fix/override it) instead of keeping the build/dev-only exception.')
     console.log('')
   }
 
