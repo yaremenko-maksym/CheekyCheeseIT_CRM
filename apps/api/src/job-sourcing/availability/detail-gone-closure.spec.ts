@@ -45,6 +45,7 @@ function scripted({
   owners = [OPP_A] as string[],
   alive = true,
   listed = false,
+  probeRows = undefined as Record<string, unknown>[] | undefined,
 } = {}) {
   const seen: { sql: string; params: unknown[] }[] = []
   const tx: SqlExecutor = {
@@ -52,7 +53,7 @@ function scripted({
       const r = dialect.sqlToQuery(q)
       seen.push(r)
       if (r.sql.includes('FROM job_run_records'))
-        return Promise.resolve({ rows: [{ listed, alive }] })
+        return Promise.resolve({ rows: probeRows ?? [{ listed, alive }] })
       if (r.sql.includes('UPDATE job_source_records'))
         return Promise.resolve({ rows: closed ? [{ id: RECORD }] : [] })
       if (r.sql.includes('FROM job_opportunity_sources'))
@@ -247,6 +248,40 @@ describe('createDetailGoneClosurePort (flag on)', () => {
       expect(base.fail).toHaveBeenCalledWith(row, DETAIL_GONE_LISTED_THIS_RUN, false)
     },
   )
+
+  it('a probe that returns NO row fails closed: board unconfirmed, retried, no close, no throw', async () => {
+    const base = baseFake()
+    const s = scripted({ probeRows: [] })
+    const { deps } = depsFor('GREENHOUSE_ATS', s.tx)
+    await expect(createDetailGoneClosurePort(base, deps).recordGone(row)).resolves.toBeUndefined()
+    expect(s.seen.some((q) => q.sql.includes('UPDATE job_source_records'))).toBe(false)
+    expect(s.seen.some((q) => q.sql.includes('UPDATE job_dirty_work'))).toBe(false)
+    expect(s.enqueues()).toEqual([])
+    expect(base.fail).toHaveBeenCalledWith(row, DETAIL_GONE_BOARD_UNCONFIRMED, false)
+  })
+
+  it.each([
+    // Each read on its own: a missing flag is false, never truthy by accident.
+    ['only listed=true', { listed: true }, DETAIL_GONE_LISTED_THIS_RUN],
+    ['listed=false, alive absent', { listed: false }, DETAIL_GONE_BOARD_UNCONFIRMED],
+    ['listed absent, alive=false', { alive: false }, DETAIL_GONE_BOARD_UNCONFIRMED],
+  ])('a partial probe row (%s) refuses with the matching code', async (_label, probe, code) => {
+    const base = baseFake()
+    const s = scripted({ probeRows: [probe] })
+    const { deps } = depsFor('GREENHOUSE_ATS', s.tx)
+    await createDetailGoneClosurePort(base, deps).recordGone(row)
+    expect(s.seen.some((q) => q.sql.includes('UPDATE job_source_records'))).toBe(false)
+    expect(base.fail).toHaveBeenCalledWith(row, code, false)
+  })
+
+  it('listed absent with alive=true still closes (absent listed reads as not listed)', async () => {
+    const base = baseFake()
+    const s = scripted({ probeRows: [{ alive: true }] })
+    const { deps } = depsFor('GREENHOUSE_ATS', s.tx)
+    await createDetailGoneClosurePort(base, deps).recordGone(row)
+    expect(s.seen.some((q) => q.sql.includes('UPDATE job_source_records'))).toBe(true)
+    expect(base.fail).not.toHaveBeenCalled()
+  })
 
   it('both refusal codes are valid typed error codes (failDirty parses them)', () => {
     expect(DETAIL_GONE_LISTED_THIS_RUN).toBe('DETAIL_GONE_LISTED_THIS_RUN')
