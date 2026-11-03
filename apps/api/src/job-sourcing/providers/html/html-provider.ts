@@ -217,6 +217,15 @@ const sha256 = (text: string): string => createHash('sha256').update(text).diges
 const strictestAiInput = (signals: readonly AiInputSignal[]): AiInputSignal =>
   signals.includes('no') ? 'no' : signals.includes('unspecified') ? 'unspecified' : 'yes'
 
+/** A Stage B result that left a fillable field empty: what Stage C needs to fill it. */
+interface ModelCandidate {
+  readonly url: string
+  /** The detail page text, passed to the structurer and nowhere else. */
+  readonly text: string
+  readonly aiInput: AiInputSignal
+  readonly enrichment: HtmlEnrichment
+}
+
 /** One discovered item as Stage B sees it. `detailUrl` is null for a navigation-only item. */
 interface DiscoveredItem {
   readonly id: string
@@ -288,7 +297,7 @@ export abstract class HtmlProvider<
       return this.policyBlocked(scope, first.url, preflight.reason ?? preflight.verdict, ctx)
     }
 
-    const discovered = new Map<string, DiscoveredItem>()
+    const discovered = new Map<string | null, DiscoveredItem>()
     const linkStats = { rejected: 0, navigationOnly: 0 }
     const seenPages = new Set<string>()
     let duplicatePages = 0
@@ -338,9 +347,13 @@ export abstract class HtmlProvider<
     )
 
     // Only what the batch KEPT is enriched: an item of a page that never landed was not discovered.
-    const kept = batch.observations
-      .map((o) => (o.identity.nativeId === null ? undefined : discovered.get(o.identity.nativeId)))
-      .filter((d): d is DiscoveredItem => d !== undefined)
+    // An item identity keyed on its URL (`nativeId` null: the id was refused) has no stable key
+    // for enrichment state, so it stays discovery-only.
+    const kept: DiscoveredItem[] = []
+    for (const observation of batch.observations) {
+      const found = discovered.get(observation.identity.nativeId)
+      if (found !== undefined) kept.push(found)
+    }
 
     const discovery = this.discoveryReport(batch, scope, {
       duplicatePages,
@@ -348,7 +361,7 @@ export abstract class HtmlProvider<
       navigationOnly: linkStats.navigationOnly,
     })
     const stageB = await this.runDetailStage(config, attempt, kept)
-    const stageC = await this.runModelStage(stageB.enrichments, stageB.modelCandidates, kept, ctx)
+    const stageC = await this.runModelStage(stageB.enrichments, stageB.modelCandidates, ctx)
 
     return {
       batch,
@@ -436,10 +449,8 @@ export abstract class HtmlProvider<
     } else {
       stats.navigationOnly += 1
     }
-    const application =
-      item.applicationUrl === undefined || item.applicationUrl === null
-        ? null
-        : resolveLink(item.applicationUrl, base)
+    // Never fetched: an application URL is navigation by definition.
+    const application = item.applicationUrl ? resolveLink(item.applicationUrl, base) : null
     return {
       discovered: { id: item.id, detailUrl },
       fields: {
@@ -495,6 +506,7 @@ export abstract class HtmlProvider<
         pagesCompleted: 0,
         counts: { raw: 0, normalized: 0, invalid: 0, quarantined: 0, discarded: 0 },
         scope,
+        // Stryker disable next-line BooleanLiteral: equivalent — stop ERROR with zero pages derives outcome FAILED, and deriveCoverage returns PARTIAL for every non-SUCCEEDED outcome before it reads resumed, so true and false build the same batch.
         resumed: false,
       },
       requests: [
@@ -551,11 +563,11 @@ export abstract class HtmlProvider<
   ): Promise<{
     report: HtmlDetailReport
     enrichments: Map<string, HtmlEnrichment>
-    modelCandidates: Map<string, { text: string; aiInput: AiInputSignal }>
+    modelCandidates: Map<string, ModelCandidate>
   }> {
     const { ctx } = attempt
     const enrichments = new Map<string, HtmlEnrichment>()
-    const modelCandidates = new Map<string, { text: string; aiInput: AiInputSignal }>()
+    const modelCandidates = new Map<string, ModelCandidate>()
     const counts = {
       fetched: 0,
       unchanged: 0,
@@ -567,6 +579,8 @@ export abstract class HtmlProvider<
     const remainingIds: string[] = []
     let stop: DetailStop | null = null
     let sent = 0
+    /** Did robots allow any detail at all? None allowed (and some denied) is a policy block. */
+    let admitted = false
 
     for (const item of items) {
       if (item.detailUrl === null) {
@@ -596,13 +610,16 @@ export abstract class HtmlProvider<
         continue
       }
 
+      admitted = true
+
       const result = await this.fetchDetail(attempt, item.detailUrl, robots.crawlDelaySeconds)
-      sent += result.sent ? 1 : 0
       if (result.kind === 'STOP') {
         stop = result.stop
         remainingIds.push(item.id)
         continue
       }
+      // Counted against the quota whether the host answered well or badly: it was a request.
+      sent += 1
       const attempts = (previous?.attempts ?? 0) + 1
       if (result.kind === 'FAILED') {
         counts.failed += 1
@@ -624,7 +641,8 @@ export abstract class HtmlProvider<
       const hash = sha256(response.bodyText)
       const unchanged =
         reusable &&
-        ((response.status === 304 && response.conditional === true) ||
+        // `fetchDetail` lets a 304 through only when the context asked the conditional question.
+        (response.status === 304 ||
           (response.etag !== null && response.etag === previous.validator) ||
           hash === previous.contentHash)
       const succeeded: EnrichmentRecord = {
@@ -663,19 +681,24 @@ export abstract class HtmlProvider<
       for (const field of Object.keys(fields) as (keyof HtmlDetailFields)[]) {
         methods[field] = 'DETAIL_HTML'
       }
-      enrichments.set(item.id, { id: item.id, fields, methods, evidence: [] })
+      const enrichment: HtmlEnrichment = { id: item.id, fields, methods, evidence: [] }
+      enrichments.set(item.id, enrichment)
       if (MODEL_FILLABLE_FIELDS.some((f) => fields[f] === undefined)) {
-        modelCandidates.set(item.id, { text: response.bodyText, aiInput: robots.aiInput })
+        modelCandidates.set(item.id, {
+          url: item.detailUrl,
+          text: response.bodyText,
+          aiInput: robots.aiInput,
+          enrichment,
+        })
       }
     }
 
-    const attempted = counts.fetched + counts.unchanged + counts.failed
     const status: StageStatus =
       items.length === 0
         ? 'SKIPPED'
         : stop !== null
           ? 'PARTIAL'
-          : counts.policyDenied > 0 && attempted === 0
+          : counts.policyDenied > 0 && !admitted
             ? 'POLICY_BLOCKED'
             : counts.failed > 0 || counts.policyDenied > 0
               ? 'PARTIAL'
@@ -712,25 +735,25 @@ export abstract class HtmlProvider<
     url: string,
     crawlDelaySeconds: number | null,
   ): Promise<
-    | { kind: 'OK'; sent: true; response: FetchedText }
-    | { kind: 'FAILED'; sent: boolean; code: string }
-    | { kind: 'STOP'; sent: boolean; stop: DetailStop }
+    | { kind: 'OK'; response: FetchedText }
+    | { kind: 'FAILED'; code: string }
+    | { kind: 'STOP'; stop: DetailStop }
   > {
     const { ctx } = attempt
     let reservation: MeterReservation | null
     try {
       reservation = await ctx.meter.reserve('REQUEST', 1)
     } catch {
-      return { kind: 'STOP', sent: false, stop: 'METER_FAILED' }
+      return { kind: 'STOP', stop: 'METER_FAILED' }
     }
-    if (reservation === null) return { kind: 'STOP', sent: false, stop: 'COST_STOP' }
+    if (reservation === null) return { kind: 'STOP', stop: 'COST_STOP' }
 
     let resolution: ReservationResolution = 'RELEASED'
     try {
       try {
         await ctx.meter.markSent(reservation)
       } catch {
-        return { kind: 'STOP', sent: false, stop: 'METER_FAILED' }
+        return { kind: 'STOP', stop: 'METER_FAILED' }
       }
       resolution = 'UNCERTAIN'
       let response: FetchedText
@@ -746,23 +769,26 @@ export abstract class HtmlProvider<
         const code = (error as { code?: unknown } | null)?.code
         return {
           kind: 'STOP',
-          sent: true,
           stop: typeof code === 'string' ? (code as DetailStop) : 'TRANSIENT_NETWORK',
         }
       }
       resolution = 'USED'
       const bytes = Buffer.byteLength(response.bodyText)
       attempt.bytes += bytes
-      if (response.status === 304 && response.conditional === true) {
-        return { kind: 'OK', sent: true, response }
+      // A 304 nobody asked for stays a failure: only the context's own conditional question
+      // makes "not modified" an answer.
+      if (response.status === 304) {
+        return response.conditional === true
+          ? { kind: 'OK', response }
+          : { kind: 'FAILED', code: 'HTTP_304' }
       }
       if (response.status < 200 || response.status > 299) {
-        return { kind: 'FAILED', sent: true, code: `HTTP_${response.status}` }
+        return { kind: 'FAILED', code: `HTTP_${response.status}` }
       }
       if (bytes > this.limits.maxDetailBytes) {
-        return { kind: 'FAILED', sent: true, code: 'PAYLOAD_TOO_LARGE' }
+        return { kind: 'FAILED', code: 'PAYLOAD_TOO_LARGE' }
       }
-      return { kind: 'OK', sent: true, response }
+      return { kind: 'OK', response }
     } finally {
       try {
         await ctx.meter.reconcile(reservation, resolution)
@@ -778,8 +804,7 @@ export abstract class HtmlProvider<
 
   private async runModelStage(
     enrichments: Map<string, HtmlEnrichment>,
-    candidates: Map<string, { text: string; aiInput: AiInputSignal }>,
-    discovered: readonly DiscoveredItem[],
+    candidates: Map<string, ModelCandidate>,
     ctx: CollectionContext,
   ): Promise<{ report: HtmlModelReport }> {
     const model = this.deps.model
@@ -789,10 +814,9 @@ export abstract class HtmlProvider<
     if (candidates.size === 0) {
       return { report: { ...EMPTY_MODEL, status: 'SKIPPED', reason: 'NOTHING_TO_FILL' } }
     }
-    const urlById = new Map(discovered.map((d) => [d.id, d.detailUrl]))
     const records: DiscoveredRecord[] = [...candidates].map(([id, c]) => ({
       id,
-      url: urlById.get(id) ?? '',
+      url: c.url,
       text: c.text,
     }))
     let outcome: StructurerOutcome
@@ -815,7 +839,6 @@ export abstract class HtmlProvider<
       }
     }
 
-    const requested = new Set(candidates.keys())
     if (outcome.kind !== 'EXTRACTED' && outcome.kind !== 'PARTIAL') {
       const remainingIds = 'remainingIds' in outcome ? outcome.remainingIds : []
       return {
@@ -833,22 +856,23 @@ export abstract class HtmlProvider<
     let falseIdentity = 0
     const done = new Set<string>()
     for (const record of outcome.records) {
-      if (!requested.has(record.sourceId)) {
+      // FALSE IDENTITY: the model named a record discovery never sent it. Dropped, never fetched.
+      const candidate = candidates.get(record.sourceId)
+      if (candidate === undefined) {
         falseIdentity += 1
         continue
       }
       if (done.has(record.sourceId)) continue
       done.add(record.sourceId)
-      const current = enrichments.get(record.sourceId)
-      if (current === undefined) continue
-      const fields = { ...current.fields }
-      const methods = { ...current.methods }
+      const fields = { ...candidate.enrichment.fields }
+      const methods = { ...candidate.enrichment.methods }
       const filled: string[] = []
       const fill = <K extends (typeof MODEL_FILLABLE_FIELDS)[number]>(
         field: K,
         value: HtmlDetailFields[K] | null,
       ) => {
-        if (fields[field] !== undefined || value === null || value === undefined) return
+        // Deterministic values win: the model only fills what Stage B left empty.
+        if (fields[field] !== undefined || value === null) return
         fields[field] = value
         methods[field] = 'MODEL'
         filled.push(field)
@@ -880,9 +904,8 @@ export abstract class HtmlProvider<
   }
 }
 
-const EMPTY_DETAIL: HtmlDetailReport = {
+const EMPTY_DETAIL: Omit<HtmlDetailReport, 'status'> = {
   method: 'HTML_DETAIL',
-  status: 'SKIPPED',
   fetched: 0,
   unchanged: 0,
   notDue: 0,
@@ -893,10 +916,8 @@ const EMPTY_DETAIL: HtmlDetailReport = {
   checkpoint: null,
 }
 
-const EMPTY_MODEL: HtmlModelReport = {
+const EMPTY_MODEL: Omit<HtmlModelReport, 'status' | 'reason'> = {
   method: 'MODEL',
-  status: 'SKIPPED',
-  reason: null,
   requested: 0,
   applied: 0,
   falseIdentity: 0,
@@ -907,7 +928,8 @@ const EMPTY_MODEL: HtmlModelReport = {
 function resolveLink(raw: string, base: URL): URL | null {
   let href: string
   try {
-    href = new URL(raw.trim(), base).href
+    // No trim: the URL parser already strips leading/trailing C0 and space.
+    href = new URL(raw, base).href
   } catch {
     return null
   }
