@@ -133,6 +133,22 @@ describe('greenhouseDetailRequest', () => {
       expect(() => greenhouseDetailRequest('airbnb', id)).toThrow(/id/)
     },
   )
+
+  // SR-L-1 (before-flip, defense-in-depth). Both path segments are percent-encoded. The accepted
+  // inputs cannot carry a character encodeURIComponent would alter — `board` is atsBoardSlug
+  // (lowercase/digits/hyphen, length-bounded) and `id` is a positive safe integer — so for every
+  // valid input the encoded URL is byte-for-byte the plain one. The encoding closes the finding
+  // unconditionally ahead of the ON_DEMAND flip that makes this the live detail path.
+  it('percent-encodes both path segments, a no-op for the constrained inputs', () => {
+    const slug = 'my-board'
+    expect(greenhouseDetailRequest(slug, 8102684).url).toBe(
+      `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(slug)}/jobs/${encodeURIComponent(8102684)}`,
+    )
+    // The valid inputs are already URL-safe: the encoded URL equals the unencoded one.
+    expect(greenhouseDetailRequest(slug, 8102684).url).toBe(
+      'https://boards-api.greenhouse.io/v1/boards/my-board/jobs/8102684',
+    )
+  })
 })
 
 describe('parseGreenhouseDetail', () => {

@@ -346,3 +346,59 @@ describe('runCollectionWindow, sweep mode (source fetch strategy U3)', () => {
     expect([...SWEEP_RETRIED].sort()).toEqual(['HOST_BUSY', 'HOST_RATE_GAP'])
   })
 })
+
+describe('runCollectionWindow, detail pass (SFS U10, ADR 6a step 3)', () => {
+  it('CR-M-2: a detail-pass source refused with a non-retriable reason is skipped for the rest of the window, and stops being counted', async () => {
+    let pass = 0
+    const d = deps({
+      startDue: () => {
+        pass += 1
+        return Promise.resolve({
+          claimed: 0,
+          refused:
+            pass === 1
+              ? [
+                  { sourceId: 's-blocked', reason: 'NOT_ACTIVATABLE' as const },
+                  { sourceId: 's-busy', reason: 'HOST_BUSY' as const },
+                  { sourceId: 's-gap', reason: 'HOST_RATE_GAP' as const },
+                ]
+              : [],
+          settled: Promise.resolve([]),
+        })
+      },
+      // Without the skip set the refused source would keep counting as due and the window would
+      // re-pick it every interval for the whole pass; once skipped, the count falls to 0 and drains.
+      countDue: () => Promise.resolve(pass < 2 ? 1 : 0),
+    })
+    const summary = await runCollectionWindow(d, { ...input, detailPass: true })
+    expect(summary).toMatchObject({ ended: 'DRAINED', iterations: 2 })
+    // first claim: the detail-pass scope with an empty skip set, and the DETAIL_ONLY run scope
+    expect(d.worker.startDue.mock.calls[0]?.[0]).toStrictEqual({
+      cycleId: 'c1',
+      onlyTypes: ['ARBEITNOW_API'],
+      detailPass: { cycleId: 'c1', skipIds: [] },
+      scope: 'DETAIL_ONLY',
+    })
+    // second claim and the count both carry the persistent refusal; the busy host and gap are retried
+    expect(d.worker.startDue.mock.calls[1]?.[0]).toMatchObject({
+      detailPass: { cycleId: 'c1', skipIds: ['s-blocked'] },
+    })
+    expect(d.ledger.countDue.mock.calls[0]?.[0]).toMatchObject({
+      detailPass: { cycleId: 'c1', skipIds: ['s-blocked'] },
+    })
+  })
+
+  it('outside detail-pass mode no detailPass scope is sent', async () => {
+    const d = deps({
+      startDue: () =>
+        Promise.resolve({
+          claimed: 0,
+          refused: [{ sourceId: 's-blocked', reason: 'NOT_ACTIVATABLE' as const }],
+          settled: Promise.resolve([]),
+        }),
+    })
+    await runCollectionWindow(d, input)
+    expect(d.worker.startDue.mock.calls[0]?.[0]).not.toHaveProperty('detailPass')
+    expect(d.ledger.countDue.mock.calls[0]?.[0]).not.toHaveProperty('detailPass')
+  })
+})

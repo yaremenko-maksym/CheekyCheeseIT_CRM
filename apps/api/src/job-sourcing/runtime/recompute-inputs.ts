@@ -79,6 +79,15 @@ export interface LoadedOpportunity {
   readonly detailPending: boolean
   /** The backing ON_DEMAND records lacking a description and not FAILED: the DETAIL_FETCH targets. */
   readonly onDemandMissing: readonly OnDemandMissing[]
+  /**
+   * SFS U10 (ADR 6a step 4, #6 / AC4-TTL): backing ON_DEMAND records whose detail IS present but was
+   * stored over `DETAIL_STALE_DAYS` ago — the staleness re-fetch targets. These do NOT make the
+   * opportunity `detailPending` (it has a description and is evaluable; marking it pending would lift
+   * it off stack exclusion for no reason). They are enqueued at the current `observation_seq`, which
+   * the detail-write advanced past the original fetch's version, so the re-enqueue is NEW, not an
+   * idempotency no-op. Empty when no source is ON_DEMAND.
+   */
+  readonly onDemandStale: readonly OnDemandMissing[]
 }
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : [])
@@ -211,12 +220,75 @@ function onDemandMissingExpr(onDemandTypes: readonly JobSourceType[]): SQL {
                           AND d.status IN ('DONE', 'DEFERRED', 'FAILED'))), '[]'::jsonb)`
 }
 
+/**
+ * U10 (ADR 6a step 4, #6 / AC4-TTL): the TTL after which a cached ON_DEMAND detail is re-fetched
+ * even when the list has not changed. The spec's 14 days (source-fetch-strategy.md §6a step 4 + the
+ * TTL note). A plain constant, not an env knob: the value is a product rule, not an operational dial.
+ */
+export const DETAIL_STALE_DAYS = 14
+
+/**
+ * U10 (ADR 6a step 4): the backing ON_DEMAND records whose CURRENT revision HAS a description but was
+ * stored (its `received_at`) over `DETAIL_STALE_DAYS` ago — the staleness re-fetch targets. Shape
+ * mirrors `onDemandMissingExpr`: the SAME current-version settled/in-flight guard (so a version with
+ * an in-flight or already-settled DETAIL_FETCH is not re-surfaced), but keyed on a PRESENT-but-aged
+ * latest revision rather than a missing one. The detail-write advances `observation_seq` past the
+ * fetch that carried the description, so the aged latest revision's `observation_seq` carries NO
+ * DETAIL_FETCH row yet — the re-enqueue at it is new, and idempotent against a second pass.
+ * Separate from `onDemandMissingExpr` on purpose: a stale-but-present opportunity is still evaluable,
+ * so it must NOT become `detailPending` (that lifts it off stack exclusion). Empty when no type is
+ * ON_DEMAND, so the query costs nothing until a source is flipped.
+ *
+ * KNOWN LIMITATION (CR-M-3 / SPEC-M-2, deferred to U10 flip-on #10). The guard suppresses a version
+ * that has ANY DETAIL_FETCH row, so the TTL fires at most once per frozen `observation_seq`: an
+ * IDENTICAL detail re-fetch does not advance the seq, so the settled DETAIL_FETCH at that seq blocks
+ * a re-enqueue (the unique key is `ON CONFLICT DO NOTHING`), and `received_at` is first-stored, not a
+ * refresh clock. A correct recurrence needs a dedicated detail-freshness anchor independent of
+ * `received_at` (which feeds `chooseCanonical`'s cross-member tiebreak, `compareClaims`) AND a
+ * re-enqueue path the frozen-version idempotency does not swallow — a new column / staged DDL, so it
+ * lands with the ON_DEMAND switch (#10), where this machinery first becomes live (it is inert until
+ * a source is flipped). Changing only the status filter here would re-surface the row every recompute
+ * into a swallowed enqueue, no recurrence — so the guard is left as-is until the anchor exists.
+ */
+function onDemandStaleExpr(onDemandTypes: readonly JobSourceType[]): SQL {
+  if (onDemandTypes.length === 0) return sql`'[]'::jsonb`
+  const types = sql.join(
+    onDemandTypes.map((t) => sql`${t}::job_source_type`),
+    sql`, `,
+  )
+  return sql`COALESCE((
+    SELECT jsonb_agg(jsonb_build_object('recordId', r.id, 'version', h.observation_seq) ORDER BY r.id)
+      FROM job_opportunity_sources s
+      JOIN job_source_records r ON r.id = s.source_record_id
+      JOIN job_source_record_heads h ON h.source_record_id = r.id
+      JOIN job_source_record_revisions v ON v.id = h.latest_revision_id
+     WHERE s.opportunity_id = o.id AND s.unlinked_at IS NULL
+       AND r.source_type IN (${types})
+       AND v.description_sha256 IS NOT NULL
+       AND v.received_at < clock_timestamp() - make_interval(days => ${DETAIL_STALE_DAYS})
+       AND NOT EXISTS (SELECT 1 FROM job_dirty_work d
+                        WHERE d.entity_kind = 'SOURCE_RECORD' AND d.entity_id = r.id
+                          AND d.reason = ${DETAIL_FETCH} AND d.target_version = h.observation_seq)), '[]'::jsonb)`
+}
+
 function parseOnDemandMissing(value: unknown): OnDemandMissing[] {
   if (!Array.isArray(value)) return []
   return value.map((r) => ({
     recordId: String((r as Row)['recordId']),
     version: Number((r as Row)['version']),
   }))
+}
+
+/**
+ * U10 (ADR 6a, "Want"): the backing ON_DEMAND records to (re-)fetch a detail for — those still
+ * MISSING one (AC7) followed by those whose cached detail has aged past the TTL (AC4-TTL). The
+ * dirty-work unique key `(entity, version, reason)` dedups, so a record in both sets enqueues once.
+ * The one place the two sets are merged, so `openOpportunity` and any other caller stay in step.
+ */
+export function detailFetchTargets(
+  loaded: Pick<LoadedOpportunity, 'onDemandMissing' | 'onDemandStale'>,
+): readonly OnDemandMissing[] {
+  return [...loaded.onDemandMissing, ...loaded.onDemandStale]
 }
 
 /** The opportunity at its current revision, or null when it does not exist. */
@@ -230,6 +302,7 @@ export async function loadOpportunity(
                o.application_url, o.availability, o.first_seen_at, b.text AS description,
                rep.normalized, rep.evidence, rep.source_type, rep.source_url,
                ${onDemandMissingExpr(onDemandTypes)} AS on_demand_missing,
+               ${onDemandStaleExpr(onDemandTypes)} AS on_demand_stale,
                ARRAY(SELECT t.team_id::text FROM job_opportunity_team_triage t
                       WHERE t.opportunity_id = o.id AND t.revoked_at IS NULL
                         AND t.expires_at > clock_timestamp() ORDER BY t.team_id) AS grants
@@ -262,11 +335,13 @@ export async function loadOpportunity(
   }
   const revision = Number(o['revision'])
   const onDemandMissing = parseOnDemandMissing(o['on_demand_missing'])
+  const onDemandStale = parseOnDemandMissing(o['on_demand_stale'])
   return {
     revision,
     teamTriageGrants: strings(o['grants']),
     detailPending: onDemandMissing.length > 0,
     onDemandMissing,
+    onDemandStale,
     canonical: {
       opportunityId,
       revisionId: String(revision),

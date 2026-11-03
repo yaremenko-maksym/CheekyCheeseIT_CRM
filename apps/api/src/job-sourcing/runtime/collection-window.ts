@@ -50,6 +50,12 @@ export interface CollectionWindowInput {
    * the rest of it, unless the refusal is one a later pass can outlive (`SWEEP_RETRIED`).
    */
   readonly sweep?: boolean
+  /**
+   * SFS U10 (ADR 6a, step 3): claim and count with the DETAIL_ONLY-pass predicate (detail-capable
+   * sources with a pending DETAIL_FETCH row, once per cycle) AND run every claim with scope
+   * `DETAIL_ONLY` (no list request). Mutually exclusive with `sweep`.
+   */
+  readonly detailPass?: boolean
 }
 
 /** Refusals that end when another run ends or a host gap opens: the sweep tries those again. */
@@ -87,10 +93,17 @@ export async function runCollectionWindow(
   const startedAt = input.startedAt ?? now()
   const remaining = (): number => input.windowMs - (now() - startedAt)
   const pending = new Set<Promise<unknown>>()
-  // Sweep only: sources refused in this window, never re-picked or counted in it.
+  // Sweep OR detail pass: sources refused in this window, never re-picked or counted in it (CR-M-2).
   const skipped = new Set<string>()
   const sweep = (): { sweep: { cycleId: string; skipIds: string[] } } | Record<string, never> =>
     input.sweep === true ? { sweep: { cycleId: input.cycleId, skipIds: [...skipped] } } : {}
+  // U10: the detail pass's claim/count scope and (for the claim only) the DETAIL_ONLY run scope.
+  // CR-M-2: carries the same skip set as the sweep, so a refused source is not re-picked or counted.
+  const detailPass = ():
+    { detailPass: { cycleId: string; skipIds: string[] } } | Record<string, never> =>
+    input.detailPass === true
+      ? { detailPass: { cycleId: input.cycleId, skipIds: [...skipped] } }
+      : {}
   let iterations = 0
   let claimed = 0
   let ended: WindowSummary['ended'] = 'WINDOW'
@@ -122,6 +135,8 @@ export async function runCollectionWindow(
           onlyTypes: input.types,
           ...(input.onlyIds === undefined ? {} : { onlyIds: input.onlyIds }),
           ...sweep(),
+          ...detailPass(),
+          ...(input.detailPass === true ? { scope: 'DETAIL_ONLY' as const } : {}),
         })
         .catch((error: unknown) => {
           // Another replica closed the shared cycle: nothing more can be claimed under it.
@@ -134,7 +149,9 @@ export async function runCollectionWindow(
       break
     }
     if (started !== undefined) {
-      if (input.sweep === true) {
+      // CR-M-2: both cadence-free passes skip a source they refused with a reason a later pass
+      // cannot outlive; a host-timed refusal (SWEEP_RETRIED) is left claimable for when its gap opens.
+      if (input.sweep === true || input.detailPass === true) {
         for (const r of started.refused) if (!SWEEP_RETRIED.has(r.reason)) skipped.add(r.sourceId)
       }
       claimedNow = started.claimed
@@ -156,6 +173,7 @@ export async function runCollectionWindow(
           lookaheadMs: remaining(),
           ...(input.onlyIds === undefined ? {} : { onlyIds: input.onlyIds }),
           ...sweep(),
+          ...detailPass(),
         }),
       )
       if (due === undefined || due === 0) {

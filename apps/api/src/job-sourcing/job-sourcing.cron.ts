@@ -18,6 +18,14 @@ export const HTML_COLLECTION_CRON = '30 2 * * *'
 /** Source fetch strategy ADR section 5: the 10-minute tick and the 08:00 sweep (owner, Q3). */
 export const TICK_CRON = '*/10 * * * *'
 export const SWEEP_CRON = '0 8 * * *'
+/**
+ * SFS U10 (ADR 6a, step 3): the 08:30 weekday DETAIL_ONLY pass. It runs AFTER the 08:00 sweep has
+ * enqueued the day's DETAIL_FETCH rows and BEFORE the 09:00 digest, claiming only detail-capable
+ * sources with pending detail work and running them list-free so the digest is enriched. Weekdays
+ * only (`1-5`): the digest is a working-day artifact. Inert until a source is flipped to ON_DEMAND
+ * (#10) — the claim predicate matches zero sources today.
+ */
+export const DETAIL_PASS_CRON = '30 8 * * 1-5'
 /** A tick's window: under its 10-minute period, so two ticks of one replica never overlap. */
 export const TICK_WINDOW_MS = 9 * 60_000
 
@@ -153,6 +161,22 @@ export class JobSourcingCronService {
     })
   }
 
+  /**
+   * U10 (ADR 6a, step 3): the 08:30 weekday DETAIL_ONLY pass. Opens a cycle keyed `detail:<Kyiv
+   * date>` and runs a window whose claims use the detail-pass predicate (detail-capable sources with
+   * a pending DETAIL_FETCH row) and scope DETAIL_ONLY (no list request). Inert today — the predicate
+   * matches zero sources until a source is flipped to ON_DEMAND (#10). Claims over the API type set
+   * (the detail-capable ATS boards are API types); the predicate narrows that to ON_DEMAND types.
+   */
+  @Cron(DETAIL_PASS_CRON, { timeZone: CRON_TIME_ZONE })
+  async handleDetailPass(): Promise<void> {
+    await this.runHandler('detail', API_COLLECTION_TYPES, {
+      triggerKey: () => this.triggerKey('detail'),
+      windowMs: () => this.windowMs(),
+      detailPass: true,
+    })
+  }
+
   private windowMs(): number {
     const value = this.config?.get('JOB_COLLECTION_WINDOW_MS', { infer: true })
     return typeof value === 'number' && value > 0 && value < Number.POSITIVE_INFINITY
@@ -170,7 +194,7 @@ export class JobSourcingCronService {
     name: string,
     types: readonly JobSourceType[],
     // Thunks: computed inside the steps, so a throw is logged, never a rejected @Cron handler.
-    run: { triggerKey: () => string; windowMs: () => number; sweep?: true },
+    run: { triggerKey: () => string; windowMs: () => number; sweep?: true; detailPass?: true },
   ): Promise<void> {
     const startedAt = performance.now()
     const ledger = this.ledger
@@ -193,6 +217,7 @@ export class JobSourcingCronService {
           onlyIds: this.tuning.onlyIds,
           startedAt,
           ...(run.sweep === true ? { sweep: true } : {}),
+          ...(run.detailPass === true ? { detailPass: true } : {}),
         },
       ),
     )

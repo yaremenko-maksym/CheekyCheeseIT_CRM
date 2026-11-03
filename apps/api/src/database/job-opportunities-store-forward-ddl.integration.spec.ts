@@ -156,6 +156,18 @@ const PART_8_INDEXES = ['uq_job_sources_inventory_type_namespace'] as const
 const PART_9_MIGRATION = '2026-11-02_job_source_records_source_id.sql'
 /** The index PART_9 creates; the reference counts it beside the earlier parts'. */
 const PART_9_INDEXES = ['idx_job_source_records_source'] as const
+/**
+ * PART_10 — CR-M-4 (STAGED/DARK): the generic-pending partial index
+ * `idx_job_dirty_work_pending_generic` on `job_dirty_work (status, created_at) WHERE reason <>
+ * 'DETAIL_FETCH'`, declared in Drizzle (`job-collection.ts`), so the `db:push` reference carries it
+ * and production gets it ONLY through this file. Applied after PART_9, as the deploy would. STAGED
+ * (`readPart` falls back to `manual-staged/`). It is the one later part built with `CREATE INDEX
+ * CONCURRENTLY`, which `applyParts` runs statement-by-statement in autocommit (not a transaction),
+ * exactly as part 2's concurrent builds are.
+ */
+const PART_10_MIGRATION = '2026-11-02_job_dirty_work_pending_partial.sql'
+/** The index PART_10 creates; the reference counts it beside part 2's, PART_5/6/8/9's. */
+const PART_10_INDEXES = ['idx_job_dirty_work_pending_generic'] as const
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
 const SCHEMA = 'ddl_job_opportunities_store'
 /** Its own schema, so the migration path cannot disturb the fresh-path comparison. */
@@ -228,9 +240,15 @@ const PRE_STORE_ENUMS = [
 const EXPECTED = { tables: 19, enums: 19, jobSourcesColumns: 20, indexes: 44 } as const
 /**
  * The standalone indexes beyond part 2's 44: T1's two (PART_5), T8's one (PART_6), SR-M-4's one
- * (PART_8) and SR-H-2's one (PART_9). PART_7 adds columns only, no index.
+ * (PART_8), SR-H-2's one (PART_9) and CR-M-4's one (PART_10). PART_7 adds columns only, no index.
  */
-const LATER_INDEXES = [...PART_5_INDEXES, ...PART_6_INDEXES, ...PART_8_INDEXES, ...PART_9_INDEXES]
+const LATER_INDEXES = [
+  ...PART_5_INDEXES,
+  ...PART_6_INDEXES,
+  ...PART_8_INDEXES,
+  ...PART_9_INDEXES,
+  ...PART_10_INDEXES,
+]
 
 const STAGED_DIR = join(__dirname, '..', '..', 'drizzle', 'manual-staged')
 const readPart = (name: string): string =>
@@ -616,6 +634,7 @@ const applyBothParts = (client: PoolClient): Promise<void> =>
     PART_7_MIGRATION,
     PART_8_MIGRATION,
     PART_9_MIGRATION,
+    PART_10_MIGRATION,
   ])
 const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 

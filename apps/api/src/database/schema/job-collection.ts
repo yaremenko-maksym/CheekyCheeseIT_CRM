@@ -600,6 +600,15 @@ export const jobDirtyWork = pgTable(
     index('idx_job_dirty_work_entity').on(t.entityKind, t.entityId),
     // The claim scan: oldest pending first.
     index('idx_job_dirty_work_pending').on(t.status, t.createdAt),
+    // CR-M-4 (STAGED/DARK): a PARTIAL mirror of the pending claim scan that EXCLUDES the detail
+    // backlog (`reason <> 'DETAIL_FETCH'`). After the ON_DEMAND flip the generic pending claimers
+    // filter `reason <> 'DETAIL_FETCH'` against the index above and would scan past every queued
+    // DETAIL_FETCH row; this partial index lets them skip that backlog entirely. Shipped staged —
+    // the prod CONCURRENTLY apply is a separate deploy-wiring step (see
+    // manual-staged/2026-11-02_job_dirty_work_pending_partial.sql).
+    index('idx_job_dirty_work_pending_generic')
+      .on(t.status, t.createdAt)
+      .where(sql`${t.reason} <> 'DETAIL_FETCH'`),
     index('idx_job_dirty_work_cycle').on(t.cycleId),
     foreignKey({
       name: 'fk_job_dirty_work_cycle',
