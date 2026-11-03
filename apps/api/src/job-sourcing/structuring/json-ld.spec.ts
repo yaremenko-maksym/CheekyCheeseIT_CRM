@@ -197,6 +197,21 @@ describe('extractJobPostings: field evidence', () => {
     expect(one(ld(posting({ validThrough: '2026-11-03T00:00:00Z' }))).expired).toBe(false)
   })
 
+  it('dates carry their semantics', () => {
+    const p = one(
+      ld(posting({ datePosted: '2026-10-01T09:00:00Z', validThrough: '2026-12-01T00:00:00Z' })),
+    )
+    expect(p.datePosted?.semantics).toBe('PUBLISHED')
+    expect(p.validThrough?.semantics).toBe('EXPIRY')
+    expect(p.datePosted?.contract).toBe('ISO_ZONED')
+  })
+
+  it('scalars and nulls inside arrays are walked without error', () => {
+    const r = run(ld(`[null, "x", 1, true, ${posting({ identifier: 'Z' })}]`))
+    expect(r.postings.map((p) => p.identifier)).toEqual(['Z'])
+    expect(r.scanned.nodes).toBe(6)
+  })
+
   it('a far-future datePosted is flagged, not trusted', () => {
     expect(one(ld(posting({ datePosted: '2026-12-31T00:00:00Z' }))).datePosted?.status).toBe(
       'FUTURE',
@@ -313,6 +328,7 @@ describe('extractJobPostings: conflicts and failures', () => {
     })
     expect(run('<script>var a').failures).toEqual({})
     expect(run('<script type="application/ld+json"').failures).toEqual({})
+    expect(run('<script type="application/ld+json" defer').failures).toEqual({})
     expect(
       run(`${ld(posting({ identifier: 'K' }))}<script type="application/ld+json">{`).postings,
     ).toHaveLength(1)

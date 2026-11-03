@@ -88,7 +88,6 @@ export interface JsonLdOptions {
 
 const OPEN_SCRIPT = /<script(?=[\s/>])/gi
 const CLOSE_SCRIPT = /<\/script/gi
-const CLOSE_SCRIPT_LENGTH = '</script'.length
 const LD_JSON_TYPE =
   /(?<![\w-])type\s*=\s*(?:"application\/ld\+json"|'application\/ld\+json'|application\/ld\+json(?![^\s/>]))/i
 
@@ -100,11 +99,11 @@ const BOUND_FAILURE = {
 } as const
 
 function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
+  return typeof v === 'object' && v !== null
 }
 
 function asList(v: unknown): unknown[] {
-  return Array.isArray(v) ? v : v === undefined || v === null ? [] : [v]
+  return Array.isArray(v) ? v : [v]
 }
 
 function isJobPosting(node: Record<string, unknown>): boolean {
@@ -143,12 +142,10 @@ export function extractJobPostings(html: string, opts: JsonLdOptions): JsonLdRes
       fail('TOTAL_NODES_EXCEEDED')
       return
     }
-    if (Array.isArray(node)) {
-      node.forEach(walk)
-    } else if (isRecord(node)) {
-      if (isJobPosting(node)) postings.push(toPosting(node, limits, opts.now, fail))
-      else Object.values(node).forEach(walk)
-    }
+    if (!isRecord(node)) return
+    // `isRecord` admits arrays: `Object.values` walks their elements and `@type` is absent.
+    if (isJobPosting(node)) postings.push(toPosting(node, limits, opts.now, fail))
+    else Object.values(node).forEach(walk)
   }
 
   let pos = 0
@@ -159,13 +156,13 @@ export function extractJobPostings(html: string, opts: JsonLdOptions): JsonLdRes
     const tagEnd = html.indexOf('>', open.index)
     if (tagEnd === -1) break
     const isLd = LD_JSON_TYPE.test(html.slice(open.index, tagEnd))
-    CLOSE_SCRIPT.lastIndex = tagEnd + 1
+    CLOSE_SCRIPT.lastIndex = tagEnd
     const close = CLOSE_SCRIPT.exec(html)
     if (!close) {
       if (isLd) fail('UNTERMINATED_SCRIPT')
       break
     }
-    pos = close.index + CLOSE_SCRIPT_LENGTH
+    pos = close.index
     if (!isLd) continue
 
     if (scanned.jsonLdScripts >= limits.maxScripts) {
