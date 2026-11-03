@@ -6581,6 +6581,11 @@ Needed before the availability flag is turned on in production, or earlier if ma
    whose predicates are exactly `dirtyConsumerPredicate(<consumer>, reason, { inline: true })`; the claim
    in `dirtyWorkStatements.claim` now renders that conjunct with inline literals so a generic plan can use
    them. Verify: `job-dirty-work-partition-partial-ddl.integration.spec` (CI) EXPLAINs the real claim.
+   That spec proves the new indexes are usable, not that the planner prefers them over
+   `idx_job_dirty_work_pending_generic` (SPEC-L-1). After the owner promotes the file: compare
+   `EXPLAIN (ANALYZE)` of the match claim with the generic index present, on a database holding an
+   availability pile; if the match index is chosen, decide whether to drop
+   `idx_job_dirty_work_pending_generic` (every extra index is write cost on this hot queue).
 2. retention of unclaimed availability-partition rows past a horizon (an explicit, owner-reviewed rule,
    since the retention-guard spec forbids any deletion from this table by design).
 

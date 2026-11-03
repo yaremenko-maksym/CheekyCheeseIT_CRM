@@ -95,6 +95,16 @@ export function dirtyConsumerOf(reason: string): DirtyConsumer {
 }
 
 /**
+ * A partition reason as an inline SQL literal (SR-L-1): `sql.raw` only ever sees [A-Z_:], so a
+ * future constant carrying a quote or anything else fails loudly instead of reaching the SQL text.
+ */
+export function reasonLiteral(value: string): SQL {
+  if (!/^[A-Z_:]+$/.test(value))
+    throw new RangeError(`not an inlinable dirty-work reason: ${value}`)
+  return sql.raw(`'${value}'`)
+}
+
+/**
  * The SQL twin of `dirtyConsumerOf`: true for a row of `consumer`'s partition. `starts_with`, not
  * `LIKE`: the `_` in `RECORD_RELISTED` would be a wildcard there. `inline` renders the reasons as
  * literals (backlog 347 (1)): the claim needs that so the planner can prove the partial indexes
@@ -104,11 +114,10 @@ export function dirtyConsumerOf(reason: string): DirtyConsumer {
  */
 export function dirtyConsumerPredicate(
   consumer: DirtyConsumer,
-  reason: SQL = sql`reason`,
+  reason: SQL,
   { inline = false }: { inline?: boolean } = {},
 ): SQL {
-  // sql.raw is safe here: every value is a module constant of [A-Z_:] (the spec pins the text).
-  const v = (value: string): SQL => (inline ? sql.raw(`'${value}'`) : sql`${value}`)
+  const v = (value: string): SQL => (inline ? reasonLiteral(value) : sql`${value}`)
   const detail = sql`(${reason} = ${v(DETAIL_FETCH)})`
   const availability = sql`(${sql.join(
     availabilityPrefixes().map((p) => sql`starts_with(${reason}, ${v(p)})`),

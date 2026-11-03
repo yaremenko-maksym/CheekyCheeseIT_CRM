@@ -11,6 +11,7 @@ import { RECORD_RELISTED_REASON, SOURCE_REVISION_REASON } from '../store/source-
 import {
   dirtyConsumerOf,
   dirtyConsumerPredicate,
+  reasonLiteral,
   CLAIMABLE_KINDS,
   claimDetailFetchForSource,
   claimDirtyBatch,
@@ -183,7 +184,7 @@ describe('dirtyConsumerOf (Task 4.6 S-P1 reason classifier)', () => {
       '(starts_with(d.reason, $1) OR starts_with(d.reason, $2) OR d.reason IN ($3, $4, $5))',
     )
     for (const bad of ['', 'match', 'NOPE'])
-      expect(() => dirtyConsumerPredicate(bad as 'MATCH')).toThrow(
+      expect(() => dirtyConsumerPredicate(bad as 'MATCH', sql`reason`)).toThrow(
         new RangeError(`unknown dirty-work consumer: ${bad}`),
       )
     expect(q('MATCH').sql).toBe(
@@ -203,6 +204,23 @@ describe('dirtyConsumerOf (Task 4.6 S-P1 reason classifier)', () => {
     })
     expect(q('MATCH')).toEqual({
       sql: "NOT ((reason = 'DETAIL_FETCH') OR (starts_with(reason, 'AVAILABILITY:') OR starts_with(reason, 'RECORD_RELISTED:') OR reason IN ('RECORD_INVENTORY_CLOSED', 'RECORD_REOPENED', 'RECORD_WINDOW_EXPIRED')))",
+      params: [],
+    })
+  })
+
+  // SR-L-1: only [A-Z_:] ever reaches sql.raw; each case breaks one part of the pattern.
+  it.each(["'A", "A'", "A'B", '', 'a', 'A B', 'A;--'])(
+    'refuses to inline a reason outside [A-Z_:]: %j',
+    (bad) => {
+      expect(() => reasonLiteral(bad)).toThrow(
+        new RangeError(`not an inlinable dirty-work reason: ${bad}`),
+      )
+    },
+  )
+
+  it('inlines a reason of [A-Z_:] as a quoted literal', () => {
+    expect(render(reasonLiteral('RECORD_RELISTED:'))).toEqual({
+      sql: "'RECORD_RELISTED:'",
       params: [],
     })
   })
