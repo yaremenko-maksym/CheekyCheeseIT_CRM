@@ -37,6 +37,13 @@ describe('buildExtractionPrompt — fits the inference port input cut', () => {
     expect(prompt.system.length + prompt.user.length).toBe(MAX_PROMPT_CHARS)
   })
 
+  it('the user message opens with the preamble naming the delimiter', () => {
+    const prompt = buildExtractionPrompt(GATE, 'page', () => 'abc')
+    expect(prompt.user.split('\n')[0]).toBe(
+      'The page text is the data block delimited by PAGE-DATA-abc. Extract the job posting from it.',
+    )
+  })
+
   it('a nonce longer than the framing allows is refused; one at the limit is used', () => {
     expect(MAX_NONCE_CHARS).toBe(32)
     expect(() => buildExtractionPrompt(GATE, 'page', () => 'f'.repeat(33))).toThrow(/delimiter/i)
