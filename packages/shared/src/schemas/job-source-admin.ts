@@ -21,6 +21,23 @@ export const resetJobSourceFailuresSchema = z
   .strict()
 
 /**
+ * r5 Task 6.5: body of `PATCH /job-sourcing/sources/:id`. The switch is the ONLY thing the
+ * endpoint changes: no config, endpoint, quota or readiness key is accepted (`.strict()`).
+ */
+export const setJobSourceEnabledSchema = z.object({ enabled: z.boolean() }).strict()
+
+/**
+ * The PATCH answer. `changed` is false when the source already had the requested value (no audit
+ * entry is written then); `cancelledRuns` counts the in-flight runs a disable ended and fenced.
+ */
+export const jobSourceSwitchResultSchema = z.object({
+  id: z.string().uuid(),
+  enabled: z.boolean(),
+  changed: z.boolean(),
+  cancelledRuns: z.number().int().nonnegative(),
+})
+
+/**
  * Why a source is listed; one source may carry several.
  *  - FAILURE_CAP: `consecutive_failures` reached the cap (three LEASE_EXPIRED endings included).
  *  - HOST_PAUSED: its host's ban pause has not expired.
@@ -54,6 +71,8 @@ export const excludedJobSourceListSchema = z.object({
 })
 
 export type ResetJobSourceFailuresDto = z.infer<typeof resetJobSourceFailuresSchema>
+export type SetJobSourceEnabledDto = z.infer<typeof setJobSourceEnabledSchema>
+export type JobSourceSwitchResultDto = z.infer<typeof jobSourceSwitchResultSchema>
 export type JobSourceExclusionReason = z.infer<typeof jobSourceExclusionReasonSchema>
 export type ExcludedJobSourceDto = z.infer<typeof excludedJobSourceSchema>
 export type ExcludedJobSourceListDto = z.infer<typeof excludedJobSourceListSchema>
