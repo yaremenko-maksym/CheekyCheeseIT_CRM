@@ -76,11 +76,11 @@ describe('guardExtractionResult — evidence quote length (CR-M-3)', () => {
     expect(guardQuotes([{ field: 'location', quote: 'Lviv' }])).toEqual({ kept: [], dropped: 1 })
   })
 
-  it('a short quote for a boolean field is not evidence; a long one is', () => {
+  it('a boolean field never has evidence, short or long (SR-M-7)', () => {
     const long = { field: 'remote', quote: 'Remote: yes' }
     expect(guardQuotes([{ field: 'remote', quote: 'yes' }, long], { remote: true })).toEqual({
-      kept: [long],
-      dropped: 1,
+      kept: [],
+      dropped: 2,
     })
   })
 
@@ -93,6 +93,78 @@ describe('guardExtractionResult — evidence quote length (CR-M-3)', () => {
 
   it('a long quote that is not in the text is still not evidence', () => {
     expect(guardQuotes([{ field: 'title', quote: 'Principal Rust Engineer' }])).toEqual({
+      kept: [],
+      dropped: 1,
+    })
+  })
+})
+
+describe('guardExtractionResult — evidence must be about its field (SR-M-7)', () => {
+  it('an unrelated 8+ char snippet from the page is not evidence', () => {
+    expect(guardQuotes([{ field: 'salary', quote: 'Senior Rust' }], { salary: '6 000 USD' })).toEqual(
+      { kept: [], dropped: 1 },
+    )
+  })
+
+  it('a quote containing the value is evidence', () => {
+    const span = { field: 'salary', quote: 'Salary 6 000 USD' }
+    expect(guardQuotes([span], { salary: '6 000 USD' })).toEqual({ kept: [span], dropped: 0 })
+  })
+
+  it('case and whitespace runs are ignored when relating quote and value', () => {
+    const span = { field: 'title', quote: 'Senior Rust Engineer' }
+    expect(guardQuotes([span], { title: ' senior  RUST\nengineer ' })).toEqual({
+      kept: [span],
+      dropped: 0,
+    })
+  })
+
+  it('a passage of a long text value is evidence', () => {
+    const span = { field: 'description', quote: 'Engineer at Acme' }
+    const description = 'We hire a Senior Rust Engineer at Acme, Lviv, for a payments team.'
+    expect(guardQuotes([span], { description })).toEqual({ kept: [span], dropped: 0 })
+  })
+
+  it('a short quote containing the value but not equal to it is not evidence', () => {
+    expect(guardQuotes([{ field: 'company', quote: 'Acme,' }])).toEqual({ kept: [], dropped: 1 })
+  })
+
+  it('a long page quote for a blank field is not evidence', () => {
+    expect(guardQuotes([{ field: 'company', quote: 'Senior Rust' }], { company: ' ' })).toEqual({
+      kept: [],
+      dropped: 1,
+    })
+  })
+})
+
+describe('guardExtractionResult — URL evidence (SR-M-7)', () => {
+  const URL = 'https://acme.io/jobs/1'
+  const ctx = { evidenceText: `Senior Rust Engineer. Apply: ${URL} today.`, verifiedUrls: [] }
+
+  function guardUrlQuotes(evidence: ReadonlyArray<{ field: string; quote: string }>) {
+    const raw = JSON.stringify({
+      extractionVersion: 'v1',
+      records: [{ title: 'Senior Rust Engineer', applyUrl: URL, uncertainty: 0.1, evidence }],
+    })
+    const result = guardExtractionResult(raw, ctx)
+    if (!result.ok) throw new Error(`expected ok, got ${result.reason}`)
+    return { kept: result.records[0]?.evidence ?? [], dropped: result.droppedEvidence }
+  }
+
+  it('a quote containing the whole URL is evidence', () => {
+    const span = { field: 'applyUrl', quote: `Apply: ${URL}` }
+    expect(guardUrlQuotes([span])).toEqual({ kept: [span], dropped: 0 })
+  })
+
+  it('a part of the URL is not evidence', () => {
+    expect(guardUrlQuotes([{ field: 'applyUrl', quote: 'https://acme.io/jobs' }])).toEqual({
+      kept: [],
+      dropped: 1,
+    })
+  })
+
+  it('an unrelated snippet is not evidence for a URL', () => {
+    expect(guardUrlQuotes([{ field: 'applyUrl', quote: 'Senior Rust' }])).toEqual({
       kept: [],
       dropped: 1,
     })

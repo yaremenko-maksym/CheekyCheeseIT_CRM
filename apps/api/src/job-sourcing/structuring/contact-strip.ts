@@ -43,7 +43,7 @@ const TAIL = String.raw`[^\s<>"'()\[\]]*[^\s<>"'()\[\].,;:!?]`
 const HOST_START = String.raw`(?<![\p{L}\p{N}_.\-])(?:https?:\/\/)?`
 
 const MAILTO = String.raw`(?<![\p{L}\p{N}])mailto:[^\s<>"']+`
-const TEL = String.raw`(?<![\p{L}\p{N}])tel:[^\s<>"']+`
+const TEL = String.raw`(?<![\p{L}\p{N}])(?:tel|callto|sms):[^\s<>"']+`
 
 const MESSENGER_LINK = [
   String.raw`(?<![\p{L}\p{N}])(?:tg|viber|whatsapp|signal):\/\/[^\s<>"']+`,
@@ -59,17 +59,17 @@ const PROFILE_URL = [
   String.raw`${HOST_START}lnkd\.in\/${TAIL}`,
   String.raw`${HOST_START}(?:www\.)?calendly\.com\/${TAIL}`,
   String.raw`${HOST_START}(?:www\.|m\.)?(?:medium\.com|tiktok\.com)\/@${TAIL}`,
-  String.raw`${HOST_START}(?:www\.|m\.)?(?:github\.com|gitlab\.com|x\.com|twitter\.com|facebook\.com|fb\.com|instagram\.com)\/${SEGMENT}${SINGLE_SEGMENT_END}`,
+  String.raw`${HOST_START}(?:www\.|m\.)?(?:github\.com|gitlab\.com|x\.com|twitter\.com|facebook\.com|fb\.com|instagram\.com|vk\.com)\/${SEGMENT}${SINGLE_SEGMENT_END}`,
 ].join('|')
 
-/** `@`, `[at]`, `(at)`, `{at}`, `[@]`, the bare word ` at `, or `@` URL/HTML-encoded. */
-const AT = String.raw`(?:\s*[\[({]\s*(?:at|@)\s*[\])}]\s*|\s+at\s+|\s*(?:@|%40|&#0*64;|&#x0*40;|&commat;)\s*)`
+/** `@`, `[at]`, `(at)`, `{at}`, `[@]`, the bare word ` at `, or `@` URL/HTML-encoded (once or twice). */
+const AT = String.raw`(?:\s*[\[({]\s*(?:at|@)\s*[\])}]\s*|\s+at\s+|\s*(?:@|%40|&(?:amp;)?#0*64;|&#x0*40;|&commat;)\s*)`
 /**
- * `.` / ideographic `。`, `[dot]`, `(dot)`, `{dot}`, `[.]`, the bare word ` dot `, or a dot with
- * a space before it (`gmail . com`). A dot glued to the left (`example.com. Next`) takes no space
- * after it, so a sentence-ending email does not swallow the next word.
+ * `.` / ideographic `。` / `,`, `[dot]`, `(dot)`, `{dot}`, `[.]`, the bare word ` dot `, a dot with
+ * a space before it (`gmail . com`), or `.` URL/HTML-encoded. A dot glued to the left
+ * (`example.com. Next`) takes no space after it, so a sentence-ending email keeps the next word.
  */
-const DOT = String.raw`(?:\s*[\[({]\s*(?:dot|[.。])\s*[\])}]\s*|\s+dot\s+|[ \t]+[.。][ \t]*|[.。])`
+const DOT = String.raw`(?:\s*[\[({]\s*(?:dot|[.。])\s*[\])}]\s*|\s+dot\s+|[ \t]+[.。][ \t]*|[.。,]|%2e|&(?:amp;)?#0*46;|&#x0*2e;|&period;)`
 const LABEL = String.raw`[\p{L}\p{N}\-]{1,63}`
 /** `jane dot doe`: the ` dot ` inside a local part takes 1–3 spaces each side (bounded, see EMAIL). */
 const LOCAL = String.raw`[\p{L}\p{N}._%+\-]+(?:\s{1,3}dot\s{1,3}[\p{L}\p{N}._%+\-]+)*`
@@ -81,8 +81,11 @@ const LOCAL = String.raw`[\p{L}\p{N}._%+\-]+(?:\s{1,3}dot\s{1,3}[\p{L}\p{N}._%+\
 const EMAIL = String.raw`(?<![\p{L}\p{N}._%+\-])(?<!\sdot\s{1,3})${LOCAL}${AT}${LABEL}(?:${DOT}${LABEL})*${DOT}\p{L}{2,24}(?!\p{L})`
 
 const ID = String.raw`[a-z][a-z0-9_.\-]{1,30}[a-z0-9_]`
-/** Without a colon the next word is an id only if it looks like one: `_`, `.` or a digit in it. */
-const MARKED_ID = String.raw`(?=[a-z0-9_.\-]*[_.\d])${ID}`
+/**
+ * Without a colon the next word is an id only if it looks like one: a `_` or a digit in it, a dot
+ * INSIDE it (`jane.doe`, never the sentence dot of `server.`), or a Discord `#1234` after it.
+ */
+const MARKED_ID = String.raw`(?=[a-z0-9_\-]*(?:[_\d]|\.[a-z0-9])|[a-z0-9_.\-]*#\d{4})${ID}`
 /**
  * `Skype: live:jane.doe`, `Telegram: jane_doe`, `Telegram jane_doe`, `TG - jane_doe`,
  * `skype: live:.cid.123abc`, `Discord: jane#1234` — the label goes too.
@@ -103,7 +106,7 @@ const GAP = String.raw`[ .\-‐-―−()]{0,3}`
  * Every quantifier in this look-behind is bounded: it is evaluated at every position of the text,
  * and `[ \t]*:?[ \t]*` made a run of spaces cubic (2 000 spaces: 12 s, measured).
  */
-const PHONE_LABEL = String.raw`(?<=(?<![\p{L}\p{N}])(?:(?:telephone|tel|phone|mobile|mob|call|viber|whatsapp|телефон|тел|моб)\.?|т\.)[ \t]?:?[ \t]{0,3})`
+const PHONE_LABEL = String.raw`(?<=(?<![\p{L}\p{N}])(?:(?:telephone|tel|phones?(?:[ \t]number)?|mobile|mob|call(?:[ \t]me)?|contacts?|fax|viber|whatsapp|телефон|тел|моб)\.?|т\.)[ \t]{0,2}(?:[:\-#]|no\.?)?[ \t]{0,3})`
 const PHONE = [
   // After a phone label anything of 7–15 digits is a phone, even an unseparated run.
   String.raw`${PHONE_LABEL}\+?\(?${D}(?:${GAP}${D}){6,14}`,
@@ -115,8 +118,9 @@ const PHONE = [
       String.raw`00${D}(?:${S}?${D}){8,13}`, // 00 international prefix
       String.raw`380${D}{9}`, // UA without +
       String.raw`\(?0${D}{2}\)?${S}?${D}{3}${S}?${D}{2}${S}?${D}{2}`, // UA 0XX XXX XX XX
-      // US: `(XXX)XXX-XXXX` (separator optional after the paren) or `XXX-XXX-XXXX`.
-      String.raw`(?:\(${D}{3}\)${S}?|${D}{3}${S})${D}{3}${S}${D}{4}`,
+      // US: `(XXX)XXX-XXXX` / `(XXX)XXXXXXX` (separators optional after a paren) or `XXX-XXX-XXXX`.
+      String.raw`(?:\(${D}{3}\)${S}?${D}{3}${S}?|${D}{3}${S}${D}{3}${S})${D}{4}`,
+      String.raw`0${S}${D}{2}${S}${D}{3}${S}${D}{2}${S}${D}{2}`, // UA spaced mobile 0 67 123 45 67
       String.raw`${D}{3}${S}${D}{3}${S}${D}{3}`, // PL XXX XXX XXX
       String.raw`\(?0${D}{2,4}\)?${S}${D}{3,4}${S}?${D}{3,4}`, // UK 020 7946 0958 / 07700 900123, DE 030 12345678
       String.raw`${D}{3}${S}${D}{2}${S}${D}{2}${S}${D}{2}`, // FR/ES XXX XX XX XX

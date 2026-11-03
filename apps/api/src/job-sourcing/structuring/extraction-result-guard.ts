@@ -4,12 +4,23 @@ import { z } from 'zod'
 /** A model reply larger than this is refused unread (UTF-8 bytes). */
 export const MAX_MODEL_OUTPUT_BYTES = 2 * 1024 * 1024
 const MAX_RECORDS = 100
-/** A quote shorter than this (non-whitespace chars) proves nothing unless it is the whole field. */
+/**
+ * A quote shorter than this (non-whitespace chars) proves nothing unless it is the whole field.
+ * Any quote must also be about its field: it contains the value, or (text fields) is a passage of
+ * it; a URL is quoted whole. Booleans, nulls and nulled URLs never have evidence.
+ */
 export const MIN_EVIDENCE_QUOTE_CHARS = 8
 
 function nonWhitespaceLength(text: string): number {
   return text.replace(/\s/g, '').length
 }
+
+/** Case and whitespace runs do not change what a quote says. */
+function normalise(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+const URL_FIELDS: ReadonlySet<string> = new Set(['postingUrl', 'applyUrl'])
 
 /** Absent and `null` both mean "not stated on the page". */
 const fact = (max: number) => z.string().max(max).nullable().default(null)
@@ -127,13 +138,19 @@ export function guardExtractionResult(raw: string, ctx: ExtractionContext): Extr
     nulledUrls += Number(urls.applyUrl === null && applyUrl != null)
     const fields = { ...facts, ...urls }
     const quoted = evidence.filter((span) => {
-      const specific = nonWhitespaceLength(span.quote)
       const value = fields[span.field]
-      // Long enough to be specific, or (when shorter) exactly the field's own non-blank value.
-      const proves =
-        specific >= MIN_EVIDENCE_QUOTE_CHARS ||
-        (specific > 0 && typeof value === 'string' && value.trim() === span.quote.trim())
-      return proves && ctx.evidenceText.includes(span.quote)
+      // Only a stated string can be proved: a boolean, a null or a nulled URL never has evidence.
+      if (typeof value !== 'string') return false
+      const quote = normalise(span.quote)
+      const stated = normalise(value)
+      if (stated === '') return false
+      // The quote names the value; a text field may also be proved by a passage of it (a long
+      // description cannot be quoted whole). A URL must be quoted whole.
+      const related =
+        quote.includes(stated) || (!URL_FIELDS.has(span.field) && stated.includes(quote))
+      // Long enough to be specific, or exactly the value.
+      const specific = nonWhitespaceLength(span.quote) >= MIN_EVIDENCE_QUOTE_CHARS || quote === stated
+      return related && specific && ctx.evidenceText.includes(span.quote)
     })
     droppedEvidence += evidence.length - quoted.length
     records.push({ ...fields, evidence: quoted })
