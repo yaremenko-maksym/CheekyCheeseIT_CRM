@@ -24,9 +24,13 @@ export const MAX_PROMPT_CHARS = 50_000
 /** A longer nonce is refused: the framing size below is computed for this length. */
 export const MAX_NONCE_CHARS = 32
 
+const DELIMITER_PREFIX = 'PAGE-DATA-'
+const PREAMBLE_HEAD = 'The page text is the data block delimited by '
+const PREAMBLE_TAIL = '. Extract the job posting from it.'
+
 function frameUser(delimiter: string, text: string): string {
   return [
-    `The page text is the data block delimited by ${delimiter}. Extract the job posting from it.`,
+    `${PREAMBLE_HEAD}${delimiter}${PREAMBLE_TAIL}`,
     `<<<${delimiter}`,
     text,
     `${delimiter}>>>`,
@@ -34,13 +38,23 @@ function frameUser(delimiter: string, text: string): string {
 }
 
 /**
+ * The user message minus the page text, at the longest nonce: the preamble, three delimiters,
+ * `<<<` and `>>>`, three line breaks. Plain arithmetic (no call) so it is evaluated, and tested
+ * by the exact-fill spec, like any other expression.
+ */
+const MAX_FRAMING_CHARS =
+  PREAMBLE_HEAD.length +
+  PREAMBLE_TAIL.length +
+  3 * (DELIMITER_PREFIX.length + MAX_NONCE_CHARS) +
+  6 +
+  3
+
+/**
  * Page text sent to a model is capped at this many UTF-16 units, counted after contact stripping:
  * what MAX_PROMPT_CHARS leaves after the instruction and the longest possible framing.
  */
 export const MAX_MODEL_INPUT_CHARS =
-  MAX_PROMPT_CHARS -
-  EXTRACTION_SYSTEM_PROMPT.length -
-  frameUser(`PAGE-DATA-${'0'.repeat(MAX_NONCE_CHARS)}`, '').length
+  MAX_PROMPT_CHARS - EXTRACTION_SYSTEM_PROMPT.length - MAX_FRAMING_CHARS
 /** Raw page text beyond this is cut before any normalisation, which bounds the NFKC expansion. */
 export const MAX_RAW_INPUT_CHARS = 4 * MAX_MODEL_INPUT_CHARS
 /**
@@ -118,7 +132,7 @@ export function buildExtractionPrompt(
   if (nonce === '')
     throw new Error('could not choose a page-data delimiter absent from the page text')
 
-  const delimiter = `PAGE-DATA-${nonce}`
+  const delimiter = `${DELIMITER_PREFIX}${nonce}`
   const user = frameUser(delimiter, text)
 
   return {
