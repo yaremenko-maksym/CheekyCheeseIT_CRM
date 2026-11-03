@@ -6511,22 +6511,22 @@ Sources: PR #1195 reviews; `scripts/devops/pnpm-audit-runbook.md` Step 4.
 
 ## 346. Task 4.6 SR-H-2 (explicit `source_id` on `job_source_records`): follow-ups left after the merge (2026-11-02)
 
-**Open.** SR-H-2 (PR #1230, merged 2026-11-02) replaced the `(source_type, namespace)` guess with an
+**Open (i, ii resolved 2026-11-03; v pinned, owner decision pending; iii, iv remain).** SR-H-2 (PR #1230, merged 2026-11-02) replaced the `(source_type, namespace)` guess with an
 explicit `job_source_records.source_id` foreign key (`ON DELETE SET NULL`), a backfill, a fail-closed
 resolver and `lockAndVerifyRecord` keyed on `source_id`. The three-axis review on the final head was
 clean (security APPROVE, code APPROVE, spec PASS); what it carried out of scope, by symbol/behaviour with
 a verification condition:
 
-**(i) The weekly source-health report still attributes records by `(source_type, namespace)`
+**(i) RESOLVED. The weekly source-health report attributed records by `(source_type, namespace)`
 (SPEC-L-2).** In the `source-health-weekly-report` cron, `weeklyAggregateSql` joins `job_source_records`
 to `job_sources` on the type and namespace pair, not on `source_id`, inside its freshness CTE. Where two
 sources legitimately share the pair (non-inventory types such as `JSEARCH_API`; the inventory types are
 unique once the SR-M-4 index is promoted), each source's freshness median and 90th percentile blend the
-records of both. Health metric only, no availability effect. Verify: a spec with two sources sharing
+records of both. Health metric only, no availability effect. Fixed: the freshness CTE joins `job_source_records` on `source_id`; a NULL `source_id` is attributed to no source. Pinned by a `weeklyAggregateSql` unit fragment and a weekly-report integration spec (two `JSEARCH_API` sources sharing the pair, per-source p50/p90, a NULL-`source_id` record counted for neither). Original verify: a spec with two sources sharing
 `(type, namespace)` and records of clearly different ages shows each source's p50 and p90 computed from
 its own records, joined by `source_id`.
 
-**(ii) `lockAndVerifyRecord` has no direct test for a record whose `source_id` is NULL (SR-LOW).**
+**(ii) RESOLVED (direct integration spec added: NULL `source_id` is refused with "does not belong"). `lockAndVerifyRecord` had no direct test for a record whose `source_id` is NULL (SR-LOW).**
 Fail-closed rests on SQL NULL semantics plus the resolver's orphan test. Verify: a spec calls
 `lockAndVerifyRecord` directly with a NULL-`source_id` record and expects the "does not belong" refusal.
 
@@ -6546,7 +6546,7 @@ precondition for the flag flip, not a code change. Verify: before the flip, a re
 `job_source_records` with `source_id IS NULL` against the total is taken and judged acceptable; if
 material, add a heal path.
 
-**(v) A record listed by sibling sources on a non-inventory type is reconciled against its owner only
+**(v) PINNED, behaviour unchanged (owner decision pending). A record listed by sibling sources on a non-inventory type is reconciled against its owner only
 (introduced by SR-H-2 as a deterministic rule; before it the resolver picked an arbitrary source, the one
 with the lowest `job_sources.id`).** The owner is the source that created the record (the writer stamps
 `source_id` on the new row only). `reopenObservedRecord` and `expireWindowRecord` read only the owner's
@@ -6555,6 +6555,8 @@ and stays that way while only the sibling lists it; it reopens only when the own
 Availability correctness, fail-closed, not security.
 Verify: a spec with two `JSEARCH_API` sources listing the same identity, where the owner then stops
 listing it, pins the intended outcome (stay closed, or follow the sibling's runs).
+Done: an inventory-counter integration spec, named as a pin of a deliberate rule, asserts the current outcome (closed by the owner's runs, not reopened by a sibling's later run).
+Owner question: keep owner-only reconcile, or make reconcile follow sibling runs too?
 
 Sources: PR #1230 review threads (security/code/spec, final head); prod deploy log of 2026-11-02 for the
 `UPDATE 0` backfill result.

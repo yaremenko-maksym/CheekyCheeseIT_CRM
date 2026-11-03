@@ -108,7 +108,7 @@ export function weeklyAggregateSql(from: Date, now: Date): SQL {
              round(percentile_cont(0.5) WITHIN GROUP (ORDER BY m))::int AS p50,
              round(percentile_cont(0.9) WITHIN GROUP (ORDER BY m))::int AS p90
         FROM src s
-        JOIN job_source_records r ON r.source_type = s.type AND r.namespace = coalesce(s.namespace, '')
+        JOIN job_source_records r ON r.source_id = s.id
         JOIN LATERAL (
           SELECT published_at FROM job_source_record_revisions v
            WHERE v.source_record_id = r.id ORDER BY v.received_seq ASC LIMIT 1) first_rev ON true
