@@ -3,6 +3,13 @@ import { type ContactCounts, CONTACT_TOKEN, stripContacts } from './contact-stri
 
 /** Page text sent to a model is capped at this many UTF-16 units, counted after contact stripping. */
 export const MAX_MODEL_INPUT_CHARS = 60_000
+/** Raw page text beyond this is cut before any normalisation, which bounds the NFKC expansion. */
+export const MAX_RAW_INPUT_CHARS = 4 * MAX_MODEL_INPUT_CHARS
+/**
+ * After a raw cut, this many trailing chars of the stripped text are withheld: longer than any
+ * contact (an address is at most 254 chars), so a contact split by the raw cut is never sent.
+ */
+export const RAW_CUT_TAIL_DROP = 2_048
 
 /**
  * The only instruction text. A constant: no page content, no nonce, nothing per-request ever lands here.
@@ -50,15 +57,23 @@ export function buildExtractionPrompt(
   pageText: string,
   makeNonce: () => string = randomNonce,
 ): ExtractionPrompt {
-  const stripped = stripContacts(pageText)
-  const truncated = stripped.text.length > MAX_MODEL_INPUT_CHARS
+  // Raw cap BEFORE NFKC (inside stripContacts): one char can expand up to 18x (U+FDFA).
+  const rawCut = pageText.length > MAX_RAW_INPUT_CHARS
+  const stripped = stripContacts(rawCut ? cutAt(pageText, MAX_RAW_INPUT_CHARS) : pageText)
+  const truncated = rawCut || stripped.text.length > MAX_MODEL_INPUT_CHARS
   let text = stripped.text
   const contactsRemoved = { ...stripped.removed }
   if (truncated) {
+    // The raw cut may have split a contact (`jane@exa`), which no pattern then matches. It sits at
+    // the very end of the stripped text, so that tail is never sent.
+    const limit = rawCut
+      ? Math.min(MAX_MODEL_INPUT_CHARS, stripped.text.length - RAW_CUT_TAIL_DROP)
+      : MAX_MODEL_INPUT_CHARS
     // Cutting can turn a non-contact into one (a 22-digit run cut to 12 digits), so strip again.
     // The re-strip can only match at the new end — one match, grown by at most the token length,
     // which the cut leaves room for.
-    const recut = stripContacts(cutAt(text, MAX_MODEL_INPUT_CHARS - CONTACT_TOKEN.length))
+    // `max(0, …)`: a negative end would make `slice` count from the end and keep the split tail.
+    const recut = stripContacts(cutAt(text, Math.max(0, limit - CONTACT_TOKEN.length)))
     text = recut.text
     for (const kind of Object.keys(contactsRemoved) as (keyof ContactCounts)[]) {
       contactsRemoved[kind] += recut.removed[kind]

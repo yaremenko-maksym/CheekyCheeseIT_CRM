@@ -4,6 +4,12 @@ import { z } from 'zod'
 /** A model reply larger than this is refused unread (UTF-8 bytes). */
 export const MAX_MODEL_OUTPUT_BYTES = 2 * 1024 * 1024
 const MAX_RECORDS = 100
+/** A quote shorter than this (non-whitespace chars) proves nothing unless it is the whole field. */
+export const MIN_EVIDENCE_QUOTE_CHARS = 8
+
+function nonWhitespaceLength(text: string): number {
+  return text.replace(/\s/g, '').length
+}
 
 /** Absent and `null` both mean "not stated on the page". */
 const fact = (max: number) => z.string().max(max).nullable().default(null)
@@ -119,9 +125,18 @@ export function guardExtractionResult(raw: string, ctx: ExtractionContext): Extr
     const urls = { postingUrl: checkUrl(postingUrl), applyUrl: checkUrl(applyUrl) }
     nulledUrls += Number(urls.postingUrl === null && postingUrl != null)
     nulledUrls += Number(urls.applyUrl === null && applyUrl != null)
-    const quoted = evidence.filter((span) => ctx.evidenceText.includes(span.quote))
+    const fields = { ...facts, ...urls }
+    const quoted = evidence.filter((span) => {
+      const specific = nonWhitespaceLength(span.quote)
+      const value = fields[span.field]
+      // Long enough to be specific, or (when shorter) exactly the field's own non-blank value.
+      const proves =
+        specific >= MIN_EVIDENCE_QUOTE_CHARS ||
+        (specific > 0 && typeof value === 'string' && value.trim() === span.quote.trim())
+      return proves && ctx.evidenceText.includes(span.quote)
+    })
     droppedEvidence += evidence.length - quoted.length
-    records.push({ ...facts, ...urls, evidence: quoted })
+    records.push({ ...fields, evidence: quoted })
   }
 
   if (records.length === 0 && droppedRecords > 0) return { ok: false, reason: 'NO_VALID_RECORD' }
