@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
@@ -282,6 +282,11 @@ describe.skipIf(!hasDatabaseUrl())(
 
     beforeEach(async () => {
       await seedPendingDropIou()
+    })
+
+    // Restores the Date pinned by the date-of-record test below.
+    afterEach(() => {
+      vi.useRealTimers()
     })
 
     afterAll(async () => {
@@ -566,6 +571,11 @@ describe.skipIf(!hasDatabaseUrl())(
         .set({ createdAt: new Date('2026-01-01T00:00:00Z') })
         .where(eq(pendingObligations.id, OBLIGATION_ID))
 
+      // The date policy rejects EXECUTED dates older than BACKDATE_LIMIT_DAYS (31) without a
+      // backdate reason vs the real clock. Pin ONLY Date (pg timers and DB now() stay real) so
+      // the hard-coded 2026-08-05 stays in the window (07-10..08-10) and not in the future.
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-08-10T12:00:00.000Z'))
       const SELECTED_DATE = '2026-08-05'
       // Date-aware stub: returns a DIFFERENT rate for the selected date than
       // FIXED_RATES (every other test's rate) — the only way this test can
