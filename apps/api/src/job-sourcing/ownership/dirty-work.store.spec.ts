@@ -1,6 +1,7 @@
 import { type SQL, sql } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
+import { DETAIL_GONE_CLOSE_REASON } from '../availability/detail-gone-closure'
 import { INVENTORY_CLOSE_REASON } from '../availability/inventory-counter-updater'
 import { RECORD_REOPEN_REASON } from '../availability/record-reopen-updater'
 import { WINDOW_EXPIRE_REASON } from '../availability/window-expiry-updater'
@@ -169,6 +170,8 @@ describe('dirtyConsumerOf (Task 4.6 S-P1 reason classifier)', () => {
     expect(dirtyConsumerOf(INVENTORY_CLOSE_REASON)).toBe('AVAILABILITY')
     expect(dirtyConsumerOf(RECORD_REOPEN_REASON)).toBe('AVAILABILITY')
     expect(dirtyConsumerOf(WINDOW_EXPIRE_REASON)).toBe('AVAILABILITY')
+    // S8g: the detail-GONE closure's owner enqueue rides the AVAILABILITY: prefix (no new literal).
+    expect(dirtyConsumerOf(DETAIL_GONE_CLOSE_REASON)).toBe('AVAILABILITY')
     expect(dirtyConsumerOf(SOURCE_REVISION_REASON)).toBe('MATCH')
     expect(dirtyConsumerOf(CANONICAL_REVISION_REASON)).toBe('MATCH')
     expect(dirtyConsumerOf(DETAIL_FETCH)).toBe('DETAIL')

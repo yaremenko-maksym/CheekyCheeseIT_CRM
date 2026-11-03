@@ -187,6 +187,15 @@ const envSchema = z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
 
+    // JOB_DETAIL_GONE_CLOSURE_ENABLED: switch for the 404/410 detail-closure path (r5 Task 4.6
+    //   S8g): a tested-contract board's (Greenhouse only) detail GONE closes the record with
+    //   DETAIL_GONE evidence and enqueues its opportunities for the availability consumer; any other
+    //   board's GONE never closes. **Default false**, owner flips. Inert until the ON_DEMAND flip
+    //   (#10): do NOT enable before #10 lands (scope-aware `account()` + detail freshness anchor).
+    JOB_DETAIL_GONE_CLOSURE_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
+      .default(false),
+
     // JOB_QUEUE_BRIDGE_ENABLED: switch for the DOU queue bridge (r5 Task 4.6 S6a; ADR
     //   2026-10-31-dou-bridge-run-ownership, D-4). **Default false** in every environment. Read once
     //   at JobSourcingService construction; until S6c/S6d the flag-on path is the same code.
