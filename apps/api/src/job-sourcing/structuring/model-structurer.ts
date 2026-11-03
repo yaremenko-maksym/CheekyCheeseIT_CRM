@@ -77,12 +77,15 @@ function settle<T>(
 }
 
 /**
- * Resolves when an abandoned call settles, or after `capMs` at the latest. The port takes no
- * AbortSignal (follow-up), so a timed-out call may still be running at the provider.
+ * Started with the call: resolves when the call settles, or `capMs` after it STARTED at the latest.
+ * Follow-up: the port takes no AbortSignal and the OpenRouter `onModelUnavailable` refresh hook is
+ * unbounded, so only a signal threaded through the port can truly stop a call; this cap is a bound.
  */
 function holdUntilSettled(call: Promise<unknown>, capMs: number): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, capMs)
+    // A hold nobody waits on must not delay shutdown.
+    timer.unref()
     const done = (): void => {
       clearTimeout(timer)
       resolve()
@@ -91,10 +94,15 @@ function holdUntilSettled(call: Promise<unknown>, capMs: number): Promise<void> 
   })
 }
 
-/** The inference adapters' own HTTP timeout (`DEFAULT_TIMEOUT_MS` there, pinned by a spec). */
+/** The inference adapters' own HTTP timeout per request (`DEFAULT_TIMEOUT_MS` there, pinned by a spec). */
 export const PORT_HTTP_TIMEOUT_MS = 60_000
-/** How long an abandoned call keeps its route busy at most: the adapter has given up by then. */
-export const DEFAULT_ABANDONED_HOLD_MS = PORT_HTTP_TIMEOUT_MS + 5_000
+/**
+ * HTTP requests one port call can send: the first and one parse retry, both repeated once after a
+ * model swap on MODEL_UNAVAILABLE (OpenRouter adapter; pinned by a spec).
+ */
+export const MAX_REQUESTS_PER_PORT_CALL = 4
+/** How long a call keeps its route busy at most, from its start: every request has timed out by then. */
+export const DEFAULT_ABANDONED_HOLD_MS = PORT_HTTP_TIMEOUT_MS * MAX_REQUESTS_PER_PORT_CALL + 10_000
 /** Node clamps a larger timer delay to 1 ms. */
 export const MAX_TIMER_MS = 2 ** 31 - 1
 
@@ -214,10 +222,12 @@ export class ModelStructurer implements HtmlStructurer {
     // otherwise. A timeout or an abort is uncertain, so it is consumed too.
     let sent = true
     let usage: ModelUsage | undefined
+    // Measured from the call's start: the timeout path must not shorten it.
+    const hold = holdUntilSettled(call, this.abandonedHoldMs)
     try {
       const settled = await settle(call, this.timeoutMs, signal)
       if ('stopped' in settled) {
-        this.held = holdUntilSettled(call, this.abandonedHoldMs)
+        this.held = hold
         return stopWith(settled.stopped)
       }
       const result = settled.value

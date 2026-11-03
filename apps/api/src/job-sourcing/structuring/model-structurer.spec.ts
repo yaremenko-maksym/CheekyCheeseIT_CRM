@@ -1,4 +1,5 @@
 import {
+  createOpenRouterExtractionAdapter,
   DEFAULT_TIMEOUT_MS,
   type ExtractionPort,
   type ExtractionRequest,
@@ -6,6 +7,7 @@ import {
 } from '@crm/inference'
 import { getEventListeners } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { CONTACT_PAGES } from './__fixtures__/contact-pages'
 import type { AiInputSignal, ModelInputPolicy } from './ai-input-gate'
 import type { DiscoveredRecord, HtmlStructurerRequest } from './html-structurer.port'
@@ -13,6 +15,7 @@ import { InMemoryModelBudget } from './model-budget.port'
 import {
   DEFAULT_ABANDONED_HOLD_MS,
   DEFAULT_STRUCTURER_TIMEOUT_MS,
+  MAX_REQUESTS_PER_PORT_CALL,
   MAX_TIMER_MS,
   ModelStructurer,
   PORT_HTTP_TIMEOUT_MS,
@@ -570,12 +573,43 @@ describe('ModelStructurer — one call in flight per route', () => {
     expect(outcomes.map((o) => o.kind)).toEqual(['EXTRACTED', 'EXTRACTED'])
   })
 
-  it('the adapter HTTP timeout constant is the package value; the default hold adds a margin', () => {
+  it('the hold is derived from the package HTTP timeout and the requests one call can send', () => {
     expect(PORT_HTTP_TIMEOUT_MS).toBe(DEFAULT_TIMEOUT_MS)
-    expect(DEFAULT_ABANDONED_HOLD_MS).toBe(65_000)
+    expect(MAX_REQUESTS_PER_PORT_CALL).toBe(4)
+    expect(DEFAULT_ABANDONED_HOLD_MS).toBe(250_000)
   })
 
-  it('an abandoned call holds the route until the hold cap (default 65 000 ms)', async () => {
+  it('one OpenRouter port call sends at most MAX_REQUESTS_PER_PORT_CALL requests (worst case)', async () => {
+    const envelope = (content: string) => JSON.stringify({ choices: [{ message: { content } }] })
+    // Bad JSON, then model gone (404), swap: bad JSON twice; a fifth reply would succeed.
+    const replies = [
+      { status: 200, text: envelope('not json') },
+      { status: 404, text: 'model not found' },
+      { status: 200, text: envelope('not json') },
+      { status: 200, text: envelope('still not json') },
+      { status: 200, text: envelope('{"records":[]}') },
+    ]
+    let requests = 0
+    const port = createOpenRouterExtractionAdapter({
+      apiKey: 'fake-key-for-a-fake-fetch',
+      resolveModelId: () => 'model-a',
+      onModelUnavailable: () => Promise.resolve('model-b'),
+      fetchImpl: (_url, _init) => {
+        const reply = replies[requests] ?? { status: 500, text: '' }
+        requests += 1
+        return Promise.resolve({
+          status: reply.status,
+          body: null,
+          text: () => Promise.resolve(reply.text),
+        })
+      },
+    })
+    const result = await port.extract({ input: 'page', schema: z.unknown() })
+    expect(result).toEqual({ ok: false, code: 'INVALID_OUTPUT' })
+    expect(requests).toBe(MAX_REQUESTS_PER_PORT_CALL)
+  })
+
+  it('a timed-out call holds the route until the cap counted from the call START', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const { structurer, calls } = setup((_req, call) => (call === 1 ? never() : ok()))
     const first = structurer.structure(request([rec('1')]))
@@ -583,11 +617,50 @@ describe('ModelStructurer — one call in flight per route', () => {
     await expect(first).resolves.toMatchObject({ code: 'TIMEOUT' })
     let second: unknown
     void structurer.structure(request([rec('2')])).then((o) => (second = o))
-    await vi.advanceTimersByTimeAsync(64_999)
+    await vi.advanceTimersByTimeAsync(250_000 - DEFAULT_STRUCTURER_TIMEOUT_MS - 1)
     expect(calls).toHaveLength(1)
     await vi.advanceTimersByTimeAsync(1)
     expect(calls).toHaveLength(2)
     expect(second).toMatchObject({ kind: 'EXTRACTED' })
+  })
+
+  it('an early abort does not shorten the hold: the route stays busy 250 000 ms from the start', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const controller = new AbortController()
+    const { structurer, calls } = setup((_req, call) => (call === 1 ? never() : ok()))
+    const first = structurer.structure(request([rec('1')], { signal: controller.signal }))
+    await vi.advanceTimersByTimeAsync(1)
+    controller.abort()
+    await expect(first).resolves.toMatchObject({ code: 'CANCELLED' })
+    void structurer.structure(request([rec('2')]))
+    await vi.advanceTimersByTimeAsync(250_000 - 2)
+    expect(calls).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(calls).toHaveLength(2)
+  })
+
+  it('the hold timer does not keep the process alive', async () => {
+    const timers: ReturnType<typeof setTimeout>[] = []
+    const realSetTimeout = globalThis.setTimeout
+    const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      fn: () => void,
+      ms?: number,
+    ) => {
+      const timer = realSetTimeout(fn, ms)
+      timers.push(timer)
+      return timer
+    }) as typeof setTimeout)
+    const budget = new InMemoryModelBudget(1)
+    const { port } = fakePort(never)
+    const structurer = new ModelStructurer({ port, budget, timeoutMs: 5, abandonedHoldMs: 600_000 })
+    await expect(structurer.structure(request([rec('1')]))).resolves.toMatchObject({
+      code: 'TIMEOUT',
+    })
+    spy.mockRestore()
+    // One hold timer and one timeout timer were started; only the hold is unref'd.
+    expect(timers).toHaveLength(2)
+    expect(timers.map((t) => t.hasRef())).toEqual([false, true])
+    for (const t of timers) clearTimeout(t)
   })
 
   it('an abandoned call that settles late frees the route at once', async () => {
