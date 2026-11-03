@@ -6508,3 +6508,79 @@ Sources: review threads / PR bodies of #1179, #1186, #1199, #1200, #1205, #1208,
 sections U2/U4/U8b/U11).
 
 Sources: PR #1195 reviews; `scripts/devops/pnpm-audit-runbook.md` Step 4.
+
+## 346. Task 4.6 SR-H-2 (explicit `source_id` on `job_source_records`): follow-ups left after the merge (2026-11-02)
+
+**Open.** SR-H-2 (PR #1230, merged 2026-11-02) replaced the `(source_type, namespace)` guess with an
+explicit `job_source_records.source_id` foreign key (`ON DELETE SET NULL`), a backfill, a fail-closed
+resolver and `lockAndVerifyRecord` keyed on `source_id`. The three-axis review on the final head was
+clean (security APPROVE, code APPROVE, spec PASS); what it carried out of scope, by symbol/behaviour with
+a verification condition:
+
+**(i) The weekly source-health report still attributes records by `(source_type, namespace)`
+(SPEC-L-2).** In the `source-health-weekly-report` cron, `weeklyAggregateSql` joins `job_source_records`
+to `job_sources` on the type and namespace pair, not on `source_id`, inside its freshness CTE. Where two
+sources legitimately share the pair (non-inventory types such as `JSEARCH_API`; the inventory types are
+unique once the SR-M-4 index is promoted), each source's freshness median and 90th percentile blend the
+records of both. Health metric only, no availability effect. Verify: a spec with two sources sharing
+`(type, namespace)` and records of clearly different ages shows each source's p50 and p90 computed from
+its own records, joined by `source_id`.
+
+**(ii) `lockAndVerifyRecord` has no direct test for a record whose `source_id` is NULL (SR-LOW).**
+Fail-closed rests on SQL NULL semantics plus the resolver's orphan test. Verify: a spec calls
+`lockAndVerifyRecord` directly with a NULL-`source_id` record and expects the "does not belong" refusal.
+
+**(iii) The promoted DDL header misdescribes the backfill tie-break (CR-LOW / SPEC-L-1).** The header of
+`2026-11-02_job_source_records_source_id.sql` says the backfill picks the earliest `run.started_at`; the
+statement orders by `run.started_at, run.id`. Doc-only, and the file is a deployed critical-path
+migration: correct the comment only when the file is next edited for another reason. Verify: the header
+text names both ordering keys.
+
+**(iv) Residual NULL `source_id` is never healed.** Two classes stay NULL: records the previous image
+created between the migration and the image swap (its writer did not stamp the column), and records whose
+source was later deleted (`ON DELETE SET NULL`). The writer's `ON CONFLICT DO NOTHING` keeps an existing
+row's `source_id` as it is, and the backfill ran once on prod with `UPDATE 0` (no pre-existing record was
+linkable, which also holds for an empty table). The reconcile resolver treats NULL as "unknown source" and
+no-ops the record, so this is inert while `JOB_AVAILABILITY_RECONCILE_ENABLED` is off. It is an owner
+precondition for the flag flip, not a code change. Verify: before the flip, a read-only count of
+`job_source_records` with `source_id IS NULL` against the total is taken and judged acceptable; if
+material, add a heal path.
+
+**(v) A record listed by sibling sources on a non-inventory type is reconciled against its owner only
+(introduced by SR-H-2 as a deterministic rule; before it the resolver picked an arbitrary source, the one
+with the lowest `job_sources.id`).** The owner is the source that created the record (the writer stamps
+`source_id` on the new row only). `reopenObservedRecord` and `expireWindowRecord` read only the owner's
+runs, so if the owner stops listing a record that a sibling still lists, the record can expire or close
+and stays that way while only the sibling lists it; it reopens only when the owner lists it again.
+Availability correctness, fail-closed, not security.
+Verify: a spec with two `JSEARCH_API` sources listing the same identity, where the owner then stops
+listing it, pins the intended outcome (stay closed, or follow the sibling's runs).
+
+Sources: PR #1230 review threads (security/code/spec, final head); prod deploy log of 2026-11-02 for the
+`UPDATE 0` backfill result.
+
+## 347. Task 4.6 dirty-work partition (S-P1/S-P2): unclaimed `AVAILABILITY:*` rows accumulate with the availability flag off (2026-11-03)
+
+Found by: code review of the S-P2 producer fan-out (CR-M-1). Accepted trade-off of ADR
+`2026-11-02-dirty-work-reason-partitioned-claim` (owner decision OD-2: write availability rows even while
+the availability flag is off), recorded here because its cost is behavioural and unbounded.
+
+Behaviour: after S-P2, every head advance of a source record and every canonical opportunity revision
+writes an extra `job_dirty_work` row in the AVAILABILITY partition. While `JOB_AVAILABILITY_RECONCILE_ENABLED`
+is off nobody claims them, and nothing prunes `job_dirty_work`. The match claim orders by `created_at`
+and filters its partition afterwards, so it re-scans the oldest unclaimed availability rows on every
+claim; cost per claim grows with the pile, for as long as the flag stays off (including the whole window
+between the S-P2 deploy and the S-P3 exclusion removal).
+
+Needed before the availability flag is turned on in production, or earlier if match claim latency rises:
+
+1. a partition-aware partial index (the existing partial index only excludes `DETAIL_FETCH`), a manual-staged
+   DDL promoted by the owner; and/or
+2. retention of unclaimed availability-partition rows past a horizon (an explicit, owner-reviewed rule,
+   since the retention-guard spec forbids any deletion from this table by design).
+
+Verify: with the availability flag off, the count of PENDING rows whose reason starts with `AVAILABILITY:`
+grows by roughly one per head advance; compare `EXPLAIN (ANALYZE)` of the match claim with and without
+those rows. Read-only on a scratch database only.
+
+Sources: PR S-P2 review (CR-M-1); the ADR's "Growth while availability is off" consequence.
