@@ -305,7 +305,7 @@ export function createRecomputeSteps(
   onDemandTypes: readonly JobSourceType[] = [],
 ): RecomputeSteps {
   return {
-    claim: (owner, batchSize) => claimDirtyBatch(db, { owner, batchSize }),
+    claim: (owner, batchSize) => claimDirtyBatch(db, { owner, batchSize, consumer: 'MATCH' }),
     process: (work, batch) => {
       if (work.entityKind === 'SOURCE_RECORD') return resolveSourceRecord(db, work)
       if (work.entityKind === 'OPPORTUNITY')

@@ -166,7 +166,12 @@ export function reconcileOpportunityAvailability(
 export function createAvailabilityReconcileSteps(db: MeterDb): RecomputeSteps {
   return {
     claim: (owner, batchSize) =>
-      claimDirtyBatch(db, { owner, batchSize, kinds: AVAILABILITY_CLAIM_KINDS }),
+      claimDirtyBatch(db, {
+        owner,
+        batchSize,
+        kinds: AVAILABILITY_CLAIM_KINDS,
+        consumer: 'AVAILABILITY',
+      }),
     process: (work) => {
       if (work.entityKind === 'SOURCE_RECORD') return reconcileSourceRecordAvailability(db, work)
       if (work.entityKind === 'OPPORTUNITY') return reconcileOpportunityAvailability(db, work)

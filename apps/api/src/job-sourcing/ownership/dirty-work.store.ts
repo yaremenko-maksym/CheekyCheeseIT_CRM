@@ -7,7 +7,11 @@ import {
 } from '@crm/shared'
 import { type SQL, sql } from 'drizzle-orm'
 import { JOB_HANDLE_MAX } from '../../database/schema/job-patterns'
+import { INVENTORY_CLOSE_REASON } from '../availability/inventory-counter-updater'
+import { RECORD_REOPEN_REASON } from '../availability/record-reopen-updater'
+import { WINDOW_EXPIRE_REASON } from '../availability/window-expiry-updater'
 import type { SqlExecutor } from '../scheduling/host-state'
+import { RECORD_RELISTED_REASON } from '../store/source-record.store'
 
 /**
  * The dirty-work claim store (r5 Task 4.6, slice S3): the queue half of the dirty/recompute worker.
@@ -51,6 +55,64 @@ export const LEASE_EXPIRED = 'LEASE_EXPIRED'
 export const DETAIL_FETCH = 'DETAIL_FETCH'
 /** `ck_job_dirty_work_reason_bounded`. */
 const REASON_MAX = 100
+
+/**
+ * REASON PARTITIONS (r5 Task 4.6 S-P1, ADR 2026-11-02-dirty-work-reason-partitioned-claim.md).
+ * Each `job_dirty_work` row belongs to exactly one consumer, decided by its `reason` alone:
+ *   - DETAIL       — `DETAIL_FETCH` (the source run's own tail, `claimDetailFetchForSource`);
+ *   - AVAILABILITY — `AVAILABILITY:*`, or a legacy availability-only reason kept by name
+ *                    (`RECORD_RELISTED:<runId>`, the three `enqueueOwners` reasons);
+ *   - MATCH        — everything else, so every existing and unknown reason stays with match.
+ * `dirtyConsumerOf` (TS) and `dirtyConsumerPredicate` (SQL) read the same two lists below.
+ */
+export type DirtyConsumer = 'MATCH' | 'AVAILABILITY' | 'DETAIL'
+/** The prefix a producer gives a reason meant for the availability consumer only. */
+export const AVAILABILITY_REASON_PREFIX = 'AVAILABILITY:'
+
+// Functions, not constants: the producer modules import this store (an import cycle), so their
+// constants are read at call time, never at module load.
+const availabilityPrefixes = (): readonly string[] => [
+  AVAILABILITY_REASON_PREFIX,
+  `${RECORD_RELISTED_REASON}:`,
+]
+const availabilityReasons = (): readonly string[] => [
+  INVENTORY_CLOSE_REASON,
+  RECORD_REOPEN_REASON,
+  WINDOW_EXPIRE_REASON,
+]
+
+/** The consumer a dirty row of this `reason` belongs to (see REASON PARTITIONS). */
+export function dirtyConsumerOf(reason: string): DirtyConsumer {
+  if (reason === DETAIL_FETCH) return 'DETAIL'
+  if (
+    availabilityPrefixes().some((p) => reason.startsWith(p)) ||
+    availabilityReasons().includes(reason)
+  )
+    return 'AVAILABILITY'
+  return 'MATCH'
+}
+
+/**
+ * The SQL twin of `dirtyConsumerOf`: true for a row of `consumer`'s partition. `starts_with`, not
+ * `LIKE`: the `_` in `RECORD_RELISTED` would be a wildcard there.
+ */
+export function dirtyConsumerPredicate(consumer: DirtyConsumer, reason: SQL = sql`reason`): SQL {
+  const detail = sql`(${reason} = ${DETAIL_FETCH})`
+  const availability = sql`(${sql.join(
+    availabilityPrefixes().map((p) => sql`starts_with(${reason}, ${p})`),
+    sql` OR `,
+  )} OR ${reason} IN (${sql.join(
+    availabilityReasons().map((r) => sql`${r}`),
+    sql`, `,
+  )}))`
+  if (consumer === 'DETAIL') return detail
+  if (consumer === 'AVAILABILITY') return availability
+  return sql`NOT (${detail} OR ${availability})`
+}
+
+/** The consumers `claimDirtyBatch` serves; DETAIL has its own claim. */
+export type ClaimConsumer = Exclude<DirtyConsumer, 'DETAIL'>
+const CLAIM_CONSUMERS: readonly string[] = ['MATCH', 'AVAILABILITY'] satisfies ClaimConsumer[]
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
@@ -110,6 +172,8 @@ export interface ClaimedDirtyWork extends DirtyWorkHandle {
 
 export interface ClaimOptions {
   readonly owner: string
+  /** Whose partition to claim (see REASON PARTITIONS). Required: no default to forget. */
+  readonly consumer: ClaimConsumer
   readonly batchSize?: number
   readonly leaseMs?: number
   /** Kinds to claim; default `CLAIMABLE_KINDS`. A kind with no version source is refused. */
@@ -196,16 +260,17 @@ export const dirtyWorkStatements = {
          WHERE entity_kind = ${kind} AND entity_id = ${id}::uuid`,
 
   /**
-   * The generic consumer claim (recompute, reconciliation, availability). SFS U10 (CR-M-1 /
-   * SPEC-M-2): it NEVER hands out a `DETAIL_FETCH` row — those are a source run's own tail
-   * (`claimDetailForSource`), not the generic recompute/reconcile consumer's, so excluding the
-   * reason here keeps a detail row from being swept by whoever claims SOURCE_RECORD rows.
+   * The partitioned consumer claim (match recompute/reconciliation, availability). It hands out
+   * only `consumer`'s partition (REASON PARTITIONS), so it NEVER hands out a `DETAIL_FETCH` row
+   * (SFS U10 CR-M-1 / SPEC-M-2: those are `claimDetailForSource`'s), and the match and
+   * availability workers never take each other's rows (Task 4.6 S-P1).
    */
   claim: (
     owner: string,
     batchSize: number,
     leaseMs: number,
     kinds: readonly JobDirtyWorkEntityKind[],
+    consumer: ClaimConsumer,
   ): SQL =>
     sql`WITH picked AS (
           SELECT id FROM job_dirty_work
@@ -214,7 +279,7 @@ export const dirtyWorkStatements = {
                kinds.map((k) => sql`${k}`),
                sql`, `,
              )})
-             AND reason <> ${DETAIL_FETCH}
+             AND ${dirtyConsumerPredicate(consumer)}
            ORDER BY created_at, id
            LIMIT ${batchSize}
            FOR UPDATE SKIP LOCKED)
@@ -388,11 +453,13 @@ export async function claimDirtyBatch(
   opts: ClaimOptions,
 ): Promise<ClaimedDirtyWork[]> {
   assertOwner(opts.owner)
+  if (!CLAIM_CONSUMERS.includes(opts.consumer))
+    throw new RangeError('consumer must be MATCH or AVAILABILITY')
   const batchSize = boundedInt('batchSize', opts.batchSize ?? DIRTY_BATCH_DEFAULT, DIRTY_BATCH_MAX)
   const leaseMs = boundedInt('leaseMs', opts.leaseMs ?? DIRTY_LEASE_DEFAULT_MS, DIRTY_LEASE_MAX_MS)
   const kinds = claimKinds(opts.kinds ?? CLAIMABLE_KINDS)
   const { rows } = await db.execute(
-    dirtyWorkStatements.claim(opts.owner, batchSize, leaseMs, kinds),
+    dirtyWorkStatements.claim(opts.owner, batchSize, leaseMs, kinds, opts.consumer),
   )
   // The batch is picked oldest-first; the order of the returned rows carries no meaning.
   return rows.map((r) => ({
