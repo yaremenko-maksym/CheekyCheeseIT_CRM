@@ -313,11 +313,16 @@ function loadExceptions() {
 
   const byGhsa = new Map()
   const invalidGroups = []
+  const badTierGroups = []
 
   for (const group of parsed.exceptions ?? []) {
     const reason = group.reason ?? ''
-    const valid = meaningfulLength(reason) >= MIN_REASON_LENGTH
-    if (!valid) {
+    // SR-M-1: an unknown/missing tier is not an exception (fail closed, exact-case match).
+    const tierOk = ALLOWED_TIERS.has(group.tier)
+    const valid = meaningfulLength(reason) >= MIN_REASON_LENGTH && tierOk
+    if (!tierOk) {
+      badTierGroups.push({ module: group.module ?? '(unknown module)', tier: group.tier })
+    } else if (!valid) {
       invalidGroups.push({ module: group.module ?? '(unknown module)', reason })
     }
     for (const ghsa of group.ghsa_ids ?? []) {
@@ -325,7 +330,7 @@ function loadExceptions() {
     }
   }
 
-  return { auditLevel, byGhsa, invalidGroups, groups: parsed.exceptions ?? [] }
+  return { auditLevel, byGhsa, invalidGroups, badTierGroups, groups: parsed.exceptions ?? [] }
 }
 
 /**
@@ -352,6 +357,9 @@ function parseLockfilePackages(text) {
 
 // Exact tier string(s) that opt a group into the lockfile cross-check.
 const DEV_ONLY_TIERS = new Set(['build/dev-only'])
+// Every tier an exception group may declare (exact, case-sensitive). Only build/dev-only is
+// cross-checked against the lockfile; the others are reachability claims verified by hand.
+const ALLOWED_TIERS = new Set([...DEV_ONLY_TIERS, 'prod-runtime', 'test-only'])
 // Lockfile majors whose `/name/ver` (v5) or `/name@ver` (v6) keys parseLockfilePackages understands.
 const SUPPORTED_LOCKFILE_MAJORS = new Set(['5', '6'])
 
@@ -389,7 +397,7 @@ function findTierViolations(exceptionGroups) {
 
 function main() {
   const audit = loadAuditJson()
-  const { auditLevel, byGhsa, invalidGroups, groups } = loadExceptions()
+  const { auditLevel, byGhsa, invalidGroups, badTierGroups, groups } = loadExceptions()
   const thresholdRank = SEVERITY_RANK[auditLevel] ?? SEVERITY_RANK[DEFAULT_AUDIT_LEVEL]
 
   // MED-2 (security-review PR #536 round 2): the `advisories` key must
@@ -425,6 +433,7 @@ function main() {
   const belowThreshold = [] // not covered, but below the gate's severity floor
   const unknownSeverity = [] // MED-3: severity string we don't recognize — never silently below-threshold
   const seenGhsa = new Set()
+  const moduleMismatches = [] // SR-M-2: valid exception for this GHSA id, but a different module
 
   for (const adv of advisories) {
     const ghsa = adv.github_advisory_id
@@ -432,8 +441,12 @@ function main() {
     const exc = ghsa ? byGhsa.get(ghsa) : undefined
 
     if (exc && exc.valid) {
-      accepted.push({ adv, exc })
-      continue
+      // SR-M-2: the GHSA id alone is not enough — the advisory must be about the group's module.
+      if (exc.module === adv.module_name) {
+        accepted.push({ adv, exc })
+        continue
+      }
+      moduleMismatches.push({ adv, exc })
     }
 
     // MED-3 (security-review PR #536 round 2): an unrecognized severity
@@ -532,6 +545,24 @@ function main() {
     )
     console.log('advisory is accepted — reachability tier (prod-runtime / build / tests),')
     console.log('what actually reaches it, and (if applicable) the fix path deferred.')
+    console.log('')
+  }
+
+  if (badTierGroups.length > 0) {
+    failed = true
+    console.log(`FAIL: exception group(s) with an unknown or missing tier (allowed: ${[...ALLOWED_TIERS].join(', ')}):`)
+    for (const g of badTierGroups) console.log(`   module: ${g.module}  tier: ${JSON.stringify(g.tier)}`)
+    console.log('')
+  }
+
+  if (moduleMismatches.length > 0) {
+    failed = true
+    console.log('FAIL: an advisory matched an exception by GHSA id but for a DIFFERENT module:')
+    for (const { adv, exc } of moduleMismatches) {
+      console.log(
+        `   ${adv.module_name} (${adv.github_advisory_id}) vs exception group module ${exc.module}`,
+      )
+    }
     console.log('')
   }
 

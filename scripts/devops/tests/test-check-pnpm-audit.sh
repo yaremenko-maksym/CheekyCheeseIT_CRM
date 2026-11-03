@@ -53,7 +53,7 @@ cat >"$VALID_EXCEPTIONS" <<'JSON'
   "exceptions": [
     {
       "module": "evil-pkg",
-      "tier": "build",
+      "tier": "test-only",
       "reason": "fixture: reachable only through the mutation-testing devDependency chain, never a runtime path, verified with pnpm why evil-pkg -r",
       "ghsa_ids": ["GHSA-aaaa-bbbb-cccc"]
     }
@@ -75,7 +75,7 @@ cat >"$NO_REASON_EXCEPTIONS" <<'JSON'
   "exceptions": [
     {
       "module": "evil-pkg",
-      "tier": "build",
+      "tier": "test-only",
       "reason": "",
       "ghsa_ids": ["GHSA-aaaa-bbbb-cccc"]
     }
@@ -97,7 +97,7 @@ cat >"$SHORT_REASON_EXCEPTIONS" <<'JSON'
   "exceptions": [
     {
       "module": "evil-pkg",
-      "tier": "build",
+      "tier": "test-only",
       "reason": "n/a",
       "ghsa_ids": ["GHSA-aaaa-bbbb-cccc"]
     }
@@ -368,5 +368,38 @@ mk_exceptions "$OTHER_TIER_EXC" "prod-runtime" "listed-mod"
 assert_green "a group with a different tier is ignored by the cross-check (even on a prod lockfile)" \
   --contains "OK:" \
   -- node "$GUARD" "$TIER_AUDIT" "$OTHER_TIER_EXC" "$PROD_LOCK"
+
+# ── SR-M-1: unknown / wrong-case / missing tier is not an exception ──
+CASE_TIER_EXC="$WS/case-tier-exc.json"
+mk_exceptions "$CASE_TIER_EXC" "Build/dev-only" "listed-mod"
+assert_red "wrong-case tier 'Build/dev-only' fails closed, naming the group" \
+  --contains "unknown or missing tier" \
+  --contains "module: listed-mod" \
+  -- node "$GUARD" "$TIER_AUDIT" "$CASE_TIER_EXC" "$PROD_LOCK"
+
+NO_TIER_EXC="$WS/no-tier-exc.json"
+cat >"$NO_TIER_EXC" <<'JSON'
+{"audit_level": "moderate", "exceptions": [{"module": "listed-mod",
+ "reason": "Fixture reason that is comfortably longer than the minimum meaningful length.",
+ "ghsa_ids": ["GHSA-tier-aaaa-bbbb"]}]}
+JSON
+assert_red "a group with no tier fails closed, naming the group" \
+  --contains "unknown or missing tier" \
+  --contains "module: listed-mod" \
+  -- node "$GUARD" "$TIER_AUDIT" "$NO_TIER_EXC" "$PROD_LOCK"
+
+# ── SR-M-2: the advisory's module must equal the group's module ──
+EVIL_AUDIT="$WS/evil-audit.json"
+printf '{"advisories": {%s}}' "$(one_advisory_json 1 evil-prod-pkg high GHSA-tier-aaaa-bbbb)" >"$EVIL_AUDIT"
+assert_red "a GHSA id listed under module X cannot cover an advisory for module Y" \
+  --contains "evil-prod-pkg" \
+  --contains "DIFFERENT module" \
+  -- node "$GUARD" "$EVIL_AUDIT" "$TIER_EXCEPTIONS" "$DEV_LOCK"
+
+LOW_EVIL_AUDIT="$WS/low-evil-audit.json"
+printf '{"advisories": {%s}}' "$(one_advisory_json 1 evil-prod-pkg low GHSA-tier-aaaa-bbbb)" >"$LOW_EVIL_AUDIT"
+assert_red "module mismatch fails even below the severity threshold" \
+  --contains "DIFFERENT module" \
+  -- node "$GUARD" "$LOW_EVIL_AUDIT" "$TIER_EXCEPTIONS" "$DEV_LOCK"
 
 guard_test_summary "test-check-pnpm-audit.sh"
