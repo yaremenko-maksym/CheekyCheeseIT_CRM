@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const enqueue = vi.fn()
 const roster = vi.fn()
-vi.mock('../ownership/dirty-work.store', () => ({
+vi.mock('../ownership/dirty-work.store', async (orig) => ({
+  ...(await orig<typeof import('../ownership/dirty-work.store')>()),
   enqueueDirty: (...a: unknown[]) => enqueue(...a),
 }))
 vi.mock('./recompute-inputs', () => ({
@@ -334,6 +335,25 @@ describe('giving up on a poisoned opportunity (CR-M-4, SR-M-3)', () => {
     ]
     expect(hasGivenUp(other, BASE)).toBe(false)
     expect(enqueueReason(other, BASE, NOW)).toBe(`${BASE}:${periodBucket(NOW)}`)
+  })
+  it('S-P1: an in-flight availability or detail row neither suppresses the repair nor the cap', () => {
+    for (const reason of [
+      'RECORD_INVENTORY_CLOSED',
+      'RECORD_REOPENED',
+      'RECORD_WINDOW_EXPIRED',
+      'AVAILABILITY:CANONICAL_REVISION',
+      'DETAIL_FETCH',
+    ]) {
+      for (const status of ['PENDING', 'CLAIMED']) {
+        const foreign = { status, reason }
+        expect(enqueueReason([foreign], BASE, NOW)).toBe(BASE)
+        expect(hasGivenUp([...lineage(3), foreign], BASE)).toBe(true)
+      }
+    }
+    // A match-partition row still counts as in flight.
+    expect(enqueueReason([{ status: 'PENDING', reason: 'CANONICAL_REVISION' }], BASE, NOW)).toBe(
+      null,
+    )
   })
   it('is not "given up" while a row is in flight or once one is DONE', () => {
     expect(hasGivenUp([...lineage(3), { status: 'PENDING', reason: 'REVISION' }], BASE)).toBe(false)

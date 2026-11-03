@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { sql } from 'drizzle-orm'
-import { enqueueDirty } from '../ownership/dirty-work.store'
+import { dirtyConsumerOf, enqueueDirty } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
 import { MATCH_RULE_VERSION, type SeniorVersions, loadRoster } from './recompute-inputs'
 
@@ -32,7 +32,8 @@ import { MATCH_RULE_VERSION, type SeniorVersions, loadRoster } from './recompute
  *
  * DEDUPLICATION AND RETRY (SR-M-1). `uq_job_dirty_work_entity_target` is not partial, so the reason
  * decides what a sweep may enqueue for an opportunity at its current revision:
- *   - a PENDING or CLAIMED row exists          -> skip (in flight; the drain or lease recovery owns it);
+ *   - a PENDING or CLAIMED MATCH-partition row -> skip (in flight; the drain or lease recovery owns it;
+ *     an availability/detail row never recomputes matches, so it does not count — Task 4.6 S-P1);
  *   - a DONE row with the same base reason     -> skip (repaired for this exact roster and stored
  *     state; this is also why a verdict that legitimately has zero rows is enqueued once, not every
  *     sweep);
@@ -85,6 +86,16 @@ interface DirtyRow {
 export const periodBucket = (nowMs: number): string => Math.floor(nowMs / PERIOD_MS).toString(36)
 
 /**
+ * A PENDING/CLAIMED row of the MATCH partition (Task 4.6 S-P1): only a match row will redo this
+ * opportunity's matches, so an in-flight availability or detail row must not suppress the repair.
+ */
+const matchInFlight = (dirty: readonly DirtyRow[]): boolean =>
+  dirty.some(
+    (d) =>
+      (d.status === 'PENDING' || d.status === 'CLAIMED') && dirtyConsumerOf(d.reason) === 'MATCH',
+  )
+
+/**
  * The reason to enqueue under, or `null` to skip (see DEDUPLICATION AND RETRY above).
  * `dirty` holds the opportunity's dirty rows at its current revision.
  */
@@ -93,7 +104,7 @@ export function enqueueReason(
   baseReason: string,
   nowMs: number,
 ): string | null {
-  if (dirty.some((d) => d.status === 'PENDING' || d.status === 'CLAIMED')) return null
+  if (matchInFlight(dirty)) return null
   // `base` and `base:<period>` rows are one lineage: a DONE anywhere in it ends the retrying.
   const same = dirty.filter((d) => d.reason === baseReason || d.reason.startsWith(`${baseReason}:`))
   if (same.some((d) => d.status === 'DONE')) return null
@@ -107,7 +118,7 @@ export function hasGivenUp(dirty: readonly DirtyRow[], baseReason: string): bool
   const lineage = dirty.filter(
     (d) => d.reason === baseReason || d.reason.startsWith(`${baseReason}:`),
   )
-  if (dirty.some((d) => d.status === 'PENDING' || d.status === 'CLAIMED')) return false
+  if (matchInFlight(dirty)) return false
   if (lineage.some((d) => d.status === 'DONE')) return false
   // Nothing in flight and nothing DONE: every lineage row left is FAILED or DEFERRED.
   return lineage.length >= RECONCILE_MAX_FAILED_PERIODS

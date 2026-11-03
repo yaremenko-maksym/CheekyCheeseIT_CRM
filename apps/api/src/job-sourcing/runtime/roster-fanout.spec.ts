@@ -12,6 +12,15 @@ const dialect = new PgDialect()
 const ROW = '0b6a6f6e-8f43-4c55-9c4a-6c3f3e1f2a10'
 const SENIOR = '7d9b0d1c-2e5f-4a8b-9c6d-1e2f3a4b5c6d'
 const NIL = '00000000-0000-0000-0000-000000000000'
+/** S-P1: the match-partition predicate's params, ridden by the pending-row dedup. */
+const MATCH_PARAMS = [
+  'DETAIL_FETCH',
+  'AVAILABILITY:',
+  'RECORD_RELISTED:',
+  'RECORD_INVENTORY_CLOSED',
+  'RECORD_REOPENED',
+  'RECORD_WINDOW_EXPIRED',
+]
 const opp = (i: number) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`
 
 const work = (over: Partial<ClaimedDirtyWork> = {}): ClaimedDirtyWork => ({
@@ -114,13 +123,16 @@ describe('fanOutDirty', () => {
     const sql = page()!.sql.replace(/\s+/g, ' ')
     expect(sql).toContain("o.availability IN ('OPEN', 'UNKNOWN')")
     expect(sql).toContain("a.opportunity_id = o.id AND a.state = 'TAKEN'")
-    expect(sql).toContain("d.target_version = p.revision AND d.status = 'PENDING'")
+    // S-P1: only a pending MATCH-partition row dedupes; an availability/detail row does not.
+    expect(sql).toContain(
+      "d.target_version = p.revision AND d.status = 'PENDING' AND NOT ((d.reason = $4) OR (starts_with(d.reason, $5) OR starts_with(d.reason, $6) OR d.reason IN ($7, $8, $9))))",
+    )
     expect(sql).toContain('WHERE p.revision >= 1')
     expect(sql).toContain('ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING')
     expect(sql).not.toContain('jsonb_array_elements_text')
     // Unscoped: the scope clause is followed directly by the order, nothing in between.
     expect(sql).toContain("a.state = 'TAKEN')) ORDER BY o.id LIMIT $2")
-    expect(page()!.params).toEqual([NIL, FANOUT_PAGE_SIZE, `fanout:${ROW}`])
+    expect(page()!.params).toEqual([NIL, FANOUT_PAGE_SIZE, `fanout:${ROW}`, ...MATCH_PARAMS])
   })
 
   it('AC 5: a full page continues from its last id at the SAME version, then completes', async () => {
@@ -136,7 +148,7 @@ describe('fanOutDirty', () => {
   it('a continuation resumes after its cursor and keeps the root reason', async () => {
     const { tx, page } = scripted(3, { paged: 1 })
     await fanOutDirty(tx, work({ id: opp(99), reason: `fanout:${ROW}:${opp(4)}` }))
-    expect(page()!.params).toEqual([opp(4), FANOUT_PAGE_SIZE, `fanout:${ROW}`])
+    expect(page()!.params).toEqual([opp(4), FANOUT_PAGE_SIZE, `fanout:${ROW}`, ...MATCH_PARAMS])
   })
 
   it('AC 5: opportunities with an impossible revision are skipped and counted; the pass goes on', async () => {
@@ -174,6 +186,7 @@ describe('fanOutDirty', () => {
       JSON.stringify([opp(1)]),
       FANOUT_PAGE_SIZE,
       `fanout:${ROW}`,
+      ...MATCH_PARAMS,
     ])
   })
 })
@@ -194,6 +207,7 @@ describe('createRecomputeSteps routing (S5)', () => {
         JSON.stringify([opp(1)]),
         FANOUT_PAGE_SIZE,
         `fanout:${ROW}`,
+        ...MATCH_PARAMS,
       ])
     },
   )

@@ -261,13 +261,14 @@ describe('reconcileOpportunityAvailability', () => {
 })
 
 describe('createAvailabilityReconcileSteps', () => {
-  it('claims only the two availability kinds', async () => {
+  it('claims only the two availability kinds, of the availability partition (S-P1)', async () => {
     const { db } = dbOf()
     await createAvailabilityReconcileSteps(db as never).claim('owner', 50)
     expect(claim).toHaveBeenCalledWith(db, {
       owner: 'owner',
       batchSize: 50,
       kinds: AVAILABILITY_CLAIM_KINDS,
+      consumer: 'AVAILABILITY',
     })
     expect(AVAILABILITY_CLAIM_KINDS).toEqual(['SOURCE_RECORD', 'OPPORTUNITY'])
   })

@@ -364,7 +364,7 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
     const fanOutOnly = {
       ...steps,
       claim: (owner: string, n: number) =>
-        claimDirtyBatch(db, { owner, batchSize: n, kinds: ['SENIOR'] }),
+        claimDirtyBatch(db, { owner, batchSize: n, kinds: ['SENIOR'], consumer: 'MATCH' }),
     }
     for (let i = 0; i < 3; i += 1) {
       await write((tx) => markSeniorDirty(tx, g, 'senior.team'))
@@ -404,7 +404,7 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
     const fanOutOnly = {
       ...createRecomputeSteps(db, { onlyIds: [o] }),
       claim: (owner: string, n: number) =>
-        claimDirtyBatch(db, { owner, batchSize: n, kinds: ['SENIOR'] }),
+        claimDirtyBatch(db, { owner, batchSize: n, kinds: ['SENIOR'], consumer: 'MATCH' }),
     }
     const fanOutOnce = async () => {
       await write((tx) => markSeniorDirty(tx, k, 'senior.team'))
@@ -436,6 +436,51 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
     )
     await fanOutOnce()
     expect(await fanoutRows()).toBe(before + 1)
+  }, 120_000)
+
+  it('S-P1 dedupe: a PENDING availability-partition row does NOT suppress the fan-out enqueue', async () => {
+    await drain()
+    const o = oppIds[0]!
+    const { rows: rev } = await session.admin.query(
+      `SELECT revision FROM job_opportunities WHERE id = $1`,
+      [o],
+    )
+    const revision = Number(rev[0].revision)
+    // Availability rows only: none of them will ever recompute this opportunity's matches.
+    const { rows: probes } = await session.admin.query(
+      `INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason)
+       SELECT 'OPPORTUNITY', $1, $2, r FROM unnest($3::text[]) AS r RETURNING id`,
+      [o, revision, [`AVAILABILITY:${PREFIX}-probe`, 'RECORD_INVENTORY_CLOSED']],
+    )
+    try {
+      const k = await senior('k2', true)
+      const fanOutOnly = {
+        ...createRecomputeSteps(db, { onlyIds: [o] }),
+        claim: (owner: string, n: number) =>
+          claimDirtyBatch(db, { owner, batchSize: n, kinds: ['SENIOR'], consumer: 'MATCH' }),
+      }
+      const fanoutRows = async () =>
+        Number(
+          (
+            await session.admin.query(
+              `SELECT count(*)::int AS n FROM job_dirty_work
+                WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 AND reason LIKE 'fanout:%'
+                  AND target_version = $2`,
+              [o, revision],
+            )
+          ).rows[0].n,
+        )
+      const before = await fanoutRows()
+      await write((tx) => markSeniorDirty(tx, k, 'senior.team'))
+      await pin()
+      const r = await new RecomputeWorker(fanOutOnly, { owner: PREFIX, batchSize: 1 }).runOnce()
+      expect([r.claimed, r.done, r.failed]).toEqual([1, 1, 0])
+      expect(await fanoutRows()).toBe(before + 1)
+    } finally {
+      await session.admin.query(`DELETE FROM job_dirty_work WHERE id = ANY($1::uuid[])`, [
+        probes.map((p: { id: string }) => p.id),
+      ])
+    }
   }, 120_000)
 
   it('AC 1: a rolled-back write leaves neither the write nor a dirty row, per producer', async () => {

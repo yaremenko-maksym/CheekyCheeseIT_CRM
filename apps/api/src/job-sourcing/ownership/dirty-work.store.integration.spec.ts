@@ -109,10 +109,11 @@ async function opportunity(): Promise<string> {
 async function claimMine(
   owner: string,
   n: number,
-  o: Omit<ClaimOptions, 'owner' | 'batchSize'> = {},
+  o: Partial<Omit<ClaimOptions, 'owner' | 'batchSize'>> = {},
   ex: SqlExecutor = app,
 ) {
-  const got = await claimDirtyBatch(ex, { owner, batchSize: n, ...o })
+  // Spec rows carry `REASON`, a MATCH-partition reason (S-P1).
+  const got = await claimDirtyBatch(ex, { owner, batchSize: n, consumer: 'MATCH', ...o })
   expect(got.map((w) => w.reason.startsWith(REASON))).toEqual(got.map(() => true))
   return got
 }
@@ -144,6 +145,58 @@ describe.skipIf(!hasDatabaseUrl())('dirty-work claim store (r5 Task 4.6 S3)', ()
       ])
     } finally {
       await session.close()
+    }
+  })
+
+  it('S-P1: match and availability claims take disjoint partitions of one mixed queue', async () => {
+    // Interleaved ages: every partition has an OLDER row of another partition in front of it, so
+    // a leaky predicate would hand that row out first (each claim asks for exactly its own count).
+    const detail = await seed(1, { kind: 'SOURCE_RECORD', reason: DETAIL_FETCH, daysEarlier: 90 })
+    const availReasons = [
+      `AVAILABILITY:${REASON}`,
+      `RECORD_RELISTED:${REASON}`,
+      'RECORD_INVENTORY_CLOSED',
+      'RECORD_REOPENED',
+      'RECORD_WINDOW_EXPIRED',
+    ]
+    const avail: string[] = []
+    const match: string[] = []
+    for (const [i, reason] of availReasons.entries()) {
+      avail.push(...(await seed(1, { reason, daysEarlier: 80 - i * 10 })))
+      match.push(...(await seed(1, { reason: `${REASON}:m${i}`, daysEarlier: 75 - i * 10 })))
+    }
+    const a: PoolClient = await session.pool.connect()
+    const b: PoolClient = await session.pool.connect()
+    try {
+      await a.query('BEGIN')
+      await b.query('BEGIN')
+      // Both hold their claims uncommitted at once: neither may take the other's rows.
+      const fromMatch = await claimDirtyBatch(drizzle(a), {
+        owner: 'match-w',
+        consumer: 'MATCH',
+        batchSize: match.length,
+        kinds: ['OPPORTUNITY', 'SOURCE_RECORD'],
+      })
+      const fromAvail = await claimDirtyBatch(drizzle(b), {
+        owner: 'avail-w',
+        consumer: 'AVAILABILITY',
+        batchSize: avail.length,
+        kinds: ['OPPORTUNITY', 'SOURCE_RECORD'],
+      })
+      await a.query('COMMIT')
+      await b.query('COMMIT')
+      expect(new Set(fromMatch.map((w) => w.id))).toEqual(new Set(match))
+      expect(new Set(fromAvail.map((w) => w.id))).toEqual(new Set(avail))
+      expect((await row(detail[0]!)).status).toBe('PENDING')
+    } finally {
+      await a.query('ROLLBACK').catch(() => undefined)
+      await b.query('ROLLBACK').catch(() => undefined)
+      a.release()
+      b.release()
+      // The three legacy names carry no `REASON` tag, so `afterEach` would miss them.
+      await session.admin.query(`DELETE FROM job_dirty_work WHERE id = ANY($1::uuid[])`, [
+        [...detail, ...avail],
+      ])
     }
   })
 
