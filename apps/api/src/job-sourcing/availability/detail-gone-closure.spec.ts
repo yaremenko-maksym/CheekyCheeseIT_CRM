@@ -1,3 +1,4 @@
+import { jobErrorCodeSchema } from '@crm/shared'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
@@ -9,6 +10,7 @@ import type { SqlExecutor } from '../scheduling/host-state'
 import {
   DETAIL_GONE_BOARD_UNCONFIRMED,
   DETAIL_GONE_CLOSE_REASON,
+  DETAIL_GONE_LISTED_THIS_RUN,
   DETAIL_GONE_UNCONTRACTED,
   closeRecordByDetailGone,
   createDetailGoneClosurePort,
@@ -38,13 +40,19 @@ const goneEvidence = {
  * An executor that answers the close UPDATE with `closed` and the owner read with `owners`,
  * recording every statement (sql text + params) in order.
  */
-function scripted({ closed = true, owners = [OPP_A] as string[], alive = true } = {}) {
+function scripted({
+  closed = true,
+  owners = [OPP_A] as string[],
+  alive = true,
+  listed = false,
+} = {}) {
   const seen: { sql: string; params: unknown[] }[] = []
   const tx: SqlExecutor = {
     execute: (q: SQL) => {
       const r = dialect.sqlToQuery(q)
       seen.push(r)
-      if (r.sql.includes('FROM job_run_records')) return Promise.resolve({ rows: [{ alive }] })
+      if (r.sql.includes('FROM job_run_records'))
+        return Promise.resolve({ rows: [{ listed, alive }] })
       if (r.sql.includes('UPDATE job_source_records'))
         return Promise.resolve({ rows: closed ? [{ id: RECORD }] : [] })
       if (r.sql.includes('FROM job_opportunity_sources'))
@@ -201,9 +209,9 @@ describe('createDetailGoneClosurePort (flag on)', () => {
     // CR-L: the S8 board key, asserted as a literal (not the impl's template).
     expect(written['board']).toBe('GREENHOUSE_ATS:acme')
     expect(s.enqueues()).toEqual([['OPPORTUNITY', OPP_A, 7, DETAIL_GONE_CLOSE_REASON]])
-    // The board-alive probe: this run, this board, another record than the one closing.
+    // The probe: (1) did THIS run list this very record; (2) did it list another posting of the board.
     const probe = s.seen.find((q) => q.sql.includes('FROM job_run_records'))
-    expect(probe?.params).toEqual([RUN, 'GREENHOUSE_ATS', 'acme', RECORD])
+    expect(probe?.params).toEqual([RUN, RECORD, RUN, 'GREENHOUSE_ATS', 'acme', RECORD])
   })
 
   it('SR-M-1: a board this run did not observe alive never closes: no close, no enqueue, the row is retried (not poisoned)', async () => {
@@ -218,6 +226,36 @@ describe('createDetailGoneClosurePort (flag on)', () => {
     expect(base.fail).toHaveBeenCalledTimes(1)
     expect(base.fail).toHaveBeenCalledWith(row, DETAIL_GONE_BOARD_UNCONFIRMED, false)
     expect(DETAIL_GONE_BOARD_UNCONFIRMED).toBe('DETAIL_GONE_BOARD_UNCONFIRMED')
+  })
+
+  it.each([
+    ['another posting of the board was also observed', true],
+    // (b) the only posting this run observed is the one being closed: no proof the board is alive.
+    ['it is the only posting this run observed', false],
+  ])(
+    'SR-M-2: a posting THIS run listed is never closed on GONE (%s): retried, no close, no enqueue',
+    async (_label, alive) => {
+      const base = baseFake()
+      const s = scripted({ listed: true, alive })
+      const { deps, transaction } = depsFor('GREENHOUSE_ATS', s.tx)
+      await createDetailGoneClosurePort(base, deps).recordGone(row)
+      expect(transaction).toHaveBeenCalledTimes(1)
+      expect(s.seen.some((q) => q.sql.includes('UPDATE job_source_records'))).toBe(false)
+      expect(s.seen.some((q) => q.sql.includes('UPDATE job_dirty_work'))).toBe(false)
+      expect(s.enqueues()).toEqual([])
+      expect(base.fail).toHaveBeenCalledTimes(1)
+      expect(base.fail).toHaveBeenCalledWith(row, DETAIL_GONE_LISTED_THIS_RUN, false)
+    },
+  )
+
+  it('both refusal codes are valid typed error codes (failDirty parses them)', () => {
+    expect(DETAIL_GONE_LISTED_THIS_RUN).toBe('DETAIL_GONE_LISTED_THIS_RUN')
+    for (const code of [
+      DETAIL_GONE_LISTED_THIS_RUN,
+      DETAIL_GONE_BOARD_UNCONFIRMED,
+      DETAIL_GONE_UNCONTRACTED,
+    ])
+      expect(jobErrorCodeSchema.parse(code)).toBe(code)
   })
 
   it('a board WITHOUT a tested GONE contract never closes: the row is failed poisoned, no transaction', async () => {

@@ -37,6 +37,7 @@ import { saveObservationPage } from '../store/source-record.store'
 import {
   DETAIL_GONE_BOARD_UNCONFIRMED,
   DETAIL_GONE_CLOSE_REASON,
+  DETAIL_GONE_LISTED_THIS_RUN,
   DETAIL_GONE_UNCONTRACTED,
   closeRecordByDetailGone,
   detailTailPortFactory,
@@ -54,19 +55,23 @@ import {
 const TAG = randomUUID().slice(0, 8)
 const PREFIX = `s8g-${TAG}`
 /** The boards: a live Greenhouse board, an aggregator, and a Greenhouse board whose list died. */
-type Board = 'GH' | 'AGG' | 'DEAD'
+type Board = 'GH' | 'AGG' | 'DEAD' | 'SOLO'
 const GH: Board = 'GH'
 const AGG: Board = 'AGG'
 const DEAD: Board = 'DEAD'
+/** A Greenhouse board whose run observed exactly one posting: the one being closed (SR-M-2 b). */
+const SOLO: Board = 'SOLO'
 const TYPE: Record<Board, JobSourceType> = {
   GH: 'GREENHOUSE_ATS',
   AGG: 'REMOTIVE_API',
   DEAD: 'GREENHOUSE_ATS',
+  SOLO: 'GREENHOUSE_ATS',
 }
 const NS: Record<Board, string> = {
   GH: `${PREFIX}-gh`,
   AGG: `${PREFIX}-agg`,
   DEAD: `${PREFIX}-dead`,
+  SOLO: `${PREFIX}-solo`,
 }
 
 const ctx = {} as CollectionContext
@@ -109,14 +114,27 @@ function observation(board: Board, nativeId: string): SourceObservation {
   }
 }
 
-/** A list-only record backing one opportunity, with a pending DETAIL_FETCH row. */
-async function seed(board: Board, nativeId: string): Promise<{ recordId: string; oppId: string }> {
+/**
+ * A list-only record backing one opportunity, with a pending DETAIL_FETCH row. It is written through
+ * the board's run, so that run lists it; unless `listedThisRun`, its own run membership is removed so
+ * the record reads as listed by an EARLIER run (the ordinary case a detail pass meets).
+ */
+async function seed(
+  board: Board,
+  nativeId: string,
+  { listedThisRun = false } = {},
+): Promise<{ recordId: string; oppId: string }> {
   const run = runs.get(board) as RunHandle
   const [saved] = await saveObservationPage(db, run, {
     observations: [observation(board, nativeId)],
     checkpoint: specCheckpoint(1),
   })
   const recordId = saved?.recordId as string
+  if (!listedThisRun)
+    await session.admin.query(
+      `DELETE FROM job_run_records WHERE run_id = $1 AND source_record_id = $2`,
+      [run.runId, recordId],
+    )
   await enqueueDirty(db, 'SOURCE_RECORD', recordId, 1, DETAIL_FETCH)
   const { rows } = await session.admin.query(
     `INSERT INTO job_opportunities (title, title_key) VALUES ($1, $1) RETURNING id`,
@@ -196,7 +214,7 @@ describe.skipIf(!hasDatabaseUrl())('S8g detail-GONE closure against Postgres', (
       [`s8g-admin-${TAG}@example.test`],
     )
     kit = new LedgerKit(ledger, fx, catalog, admins[0].id as string)
-    for (const board of [GH, AGG, DEAD])
+    for (const board of [GH, AGG, DEAD, SOLO])
       runs.set(
         board,
         handleOf(
@@ -296,6 +314,17 @@ describe.skipIf(!hasDatabaseUrl())('S8g detail-GONE closure against Postgres', (
     expect((await detailRow(recordId)).status).toBe('DONE')
   })
 
+  it('SR-M-2 (a): a posting THIS run listed open is not closed on a 404 detail, though the board is alive', async () => {
+    const { recordId, oppId } = await seed(GH, 'listed-1', { listedThisRun: true })
+    expect(await tail(GH, { kind: 'GONE' })).toMatchObject({ claimed: 1 })
+    expect((await record(recordId)).availability).not.toBe('CLOSED')
+    expect(await ownerRows(oppId)).toEqual([])
+    expect(await detailRow(recordId)).toMatchObject({
+      status: 'PENDING',
+      last_error_code: DETAIL_GONE_LISTED_THIS_RUN,
+    })
+  })
+
   it('SR-M-1: a board whose list died (every posting 404s, this run observed none) closes nothing; rows retry', async () => {
     const seeded = [
       await seed(DEAD, 'dead-1'),
@@ -315,6 +344,14 @@ describe.skipIf(!hasDatabaseUrl())('S8g detail-GONE closure against Postgres', (
         last_error_code: DETAIL_GONE_BOARD_UNCONFIRMED,
       })
     }
+  })
+
+  it('SR-M-2 (b): a run whose only observed posting is the one being closed is no proof the board is alive', async () => {
+    const { recordId, oppId } = await seed(SOLO, 'solo-1', { listedThisRun: true })
+    expect(await tail(SOLO, { kind: 'GONE' })).toMatchObject({ claimed: 1 })
+    expect((await record(recordId)).availability).not.toBe('CLOSED')
+    expect(await ownerRows(oppId)).toEqual([])
+    expect((await detailRow(recordId)).status).toBe('PENDING')
   })
 
   it('Greenhouse FAILED (5xx / parse drift) is no answer: no transition, no owner row, an attempt counted', async () => {

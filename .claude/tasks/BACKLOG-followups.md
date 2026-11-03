@@ -6612,10 +6612,14 @@ board key `<source type>:<namespace>` that the inventory and window paths use; a
 remove its close) at the flip. Verify: with the flag off and a stub adapter returning GONE, no record is
 closed; any `DETAIL_GONE` evidence present carries a `board` of the form `<source type>:<namespace>`.
 
-**(ii) A posting listed but whose detail returns 404 flaps.** If the Greenhouse list still shows a posting whose
-detail returns 404, the reopen path reopens the closed record on the next list run, and the next detail pass
-closes it again. Decide the intended precedence (list evidence vs detail GONE) before the flip. Verify: a spec
-where list and detail disagree settles on one state after two cycles.
+**(ii) A posting listed but whose detail returns 404 can flap across runs.** The Greenhouse list and detail
+are served from different caches and can disagree. **The same-run case is closed in S8g (SR-M-2):**
+`createDetailGoneClosurePort` never closes a posting the same run listed; the row is failed retryable with
+`DETAIL_GONE_LISTED_THIS_RUN`. What remains is cross-run precedence: a detail pass that does not list the
+posting (a `DETAIL_ONLY` pass after a FOUND, or a run whose list omitted it) can still close a record that an
+earlier run listed, and the next list run that shows it reopens it. Decide the intended precedence (list
+evidence vs detail GONE) before the flip. Verify: a spec where list and detail disagree across two runs settles
+on one state after two cycles.
 
 **(iii) The closure queues opportunities without a `cycleId`.** The detail port carries no cycle; marked in
 code as a shortcut to fix with #10. Verify: after the flip, rows queued by the closure carry the cycle that
@@ -6629,9 +6633,12 @@ DETAIL_ONLY ending leaves the list run's `consecutive_failures`, cooldown and st
 the closure would close every wanted posting of that board (the only limit is the per-run detail cap), and the
 reopen path cannot recover them because the list under the old board token fails too. **Partly closed in
 S8g:** `createDetailGoneClosurePort` closes on GONE only when the same run observed another posting of the
-same board alive (run membership in `job_run_records` from the list phase or an earlier FOUND detail);
-otherwise the row is failed retryable with `DETAIL_GONE_BOARD_UNCONFIRMED` and nothing closes, so a dead board
-exhausts its attempts and ends `FAILED`. Left for the flip: whether a `DETAIL_ONLY` pass (no list) should ever
+same board alive (run membership in `job_run_records` from the list phase or an earlier FOUND detail; the
+posting being closed never counts, and if the same run listed that posting the GONE is refused outright with
+`DETAIL_GONE_LISTED_THIS_RUN`, see (ii)); otherwise the row is failed retryable with
+`DETAIL_GONE_BOARD_UNCONFIRMED` and nothing closes, so a dead board exhausts its attempts and ends `FAILED`.
+The proof is scoped by the run: a run belongs to one source and only its own handle writes its membership, so
+a sibling source sharing the board's `(source type, namespace)` cannot vouch (CR-M-3, not a defect). Left for the flip: whether a `DETAIL_ONLY` pass (no list) should ever
 close on GONE (today it closes only after a FOUND in the same pass), and whether to add the run-level stop
 "every posting in a run is 404 → close none" on top. Verify: a spec where every posting 404s against a board
 whose list also 404s or fails closes nothing (`detail-gone-closure.integration.spec` covers the list-died
@@ -6639,7 +6646,7 @@ case); re-check after the flip with the real Greenhouse adapter and the detail-p
 
 **(vi) The tail report counts a refused GONE as gone (CR-M-1 of the S8g review).** `runDetailTail` increments
 `gone` after `recordGone` returns, but the S8g port turns an uncontracted GONE into a poisoned failure and an
-unconfirmed-board GONE into a retryable failure, so `DetailTailReport.gone` over-counts and `failed` /
+unconfirmed-board or listed-this-run GONE into a retryable failure, so `DetailTailReport.gone` over-counts and `failed` /
 `retried` under-count. Fix in the SFS detail tail (owner of `runDetailTail`), e.g. let `recordGone` return
 its outcome. Verify: a tail over one uncontracted GONE reports `gone: 0, failed: 1`.
 

@@ -11,7 +11,8 @@
  *     only on day one — ADR open question 4, A2). Any other board's `GONE` is treated as `FAILED`
  *     (poisoned, never closes), as Decision 2 requires for an adapter without the contract;
  *   - a GONE closes only when the same run observed another posting of the board alive (SR-M-1:
- *     a deleted / renamed board 404s every posting); otherwise the row is retried, nothing closes;
+ *     a deleted / renamed board 404s every posting), and never for a posting the same run just
+ *     listed open (SR-M-2); otherwise the row is retried, nothing closes;
  *   - the close goes through the existing record writer (`closeRecordByInventory`, the S8c
  *     already-CLOSED guard) and the existing owner enqueue (`enqueueOwners`), so the opportunity
  *     grain is re-derived by the S8d availability consumer (most-open over active links, revision
@@ -50,6 +51,9 @@ export const DETAIL_GONE_UNCONTRACTED = 'DETAIL_GONE_UNCONTRACTED'
 
 /** `last_error_code` of a GONE this run could not prove the board alive for (SR-M-1, retried). */
 export const DETAIL_GONE_BOARD_UNCONFIRMED = 'DETAIL_GONE_BOARD_UNCONFIRMED'
+
+/** `last_error_code` of a GONE for a posting this same run listed open (SR-M-2, retried). */
+export const DETAIL_GONE_LISTED_THIS_RUN = 'DETAIL_GONE_LISTED_THIS_RUN'
 
 /**
  * The boards whose detail adapter has PROVEN the Decision-2 contract (host-pinned request builder,
@@ -92,12 +96,17 @@ export function createDetailGoneClosurePort(
         await base.fail(row, DETAIL_GONE_UNCONTRACTED, true)
         return
       }
-      const unconfirmed = await deps.db.transaction(async (tx) => {
+      const refusal = await deps.db.transaction(async (tx) => {
         // Hold the record so a concurrent observation writer cannot re-list it between read and write.
         await tx.execute(
           sql`SELECT 1 FROM job_source_records WHERE id = ${row.recordId}::uuid FOR UPDATE`,
         )
-        if (!(await boardObservedAlive(tx, deps, row.recordId))) return true
+        const seen = await observedThisRun(tx, deps, row.recordId)
+        // SR-M-2: the list (another cache) just showed this posting open; a GONE now is a
+        // contradiction, not closure. Checked first, so a run whose only observed posting is this
+        // one can never count it as proof the board is alive.
+        if (seen.listed) return DETAIL_GONE_LISTED_THIS_RUN
+        if (!seen.alive) return DETAIL_GONE_BOARD_UNCONFIRMED
         await closeRecordByDetailGone(tx, row.recordId, {
           kind: 'DETAIL_GONE',
           // Greenhouse maps only a 404 to GONE (`parseGreenhouseDetail`).
@@ -110,28 +119,37 @@ export function createDetailGoneClosurePort(
           observedAt: deps.now().toISOString(),
         })
         await completeDirty(tx, row.handle)
-        return false
+        return null
       })
-      // A retryable attempt, not a poison: a later run that does see the board alive may close it;
-      // a dead board exhausts DIRTY_MAX_ATTEMPTS_DEFAULT and the row ends FAILED, nothing closed.
-      if (unconfirmed) await base.fail(row, DETAIL_GONE_BOARD_UNCONFIRMED, false)
+      // A retryable attempt, not a poison: a later run may close it on consistent evidence; a dead
+      // board or a persistent list/detail disagreement exhausts DIRTY_MAX_ATTEMPTS_DEFAULT and the
+      // row ends FAILED, nothing closed.
+      if (refusal !== null) await base.fail(row, refusal, false)
     },
   }
 }
 
 /**
- * SR-M-1 guard: a deleted or renamed board answers 404 for EVERY posting, which is not employer
- * closure. A GONE closes only when THIS run observed another posting of the same board (its list
- * phase or an earlier FOUND detail wrote run membership), so the board token is proven alive. A
- * DETAIL_ONLY run with no FOUND, or a run whose list failed / answered 404 / 304, closes nothing.
+ * What THIS run observed (run membership, written by its list phase or an earlier FOUND detail):
+ *   listed  this very record (SR-M-2: the list showed it open in the same run);
+ *   alive   another posting of the same board (SR-M-1: a deleted or renamed board answers 404 for
+ *           EVERY posting, which is not employer closure; without another observed posting the
+ *           board token is unproven — a DETAIL_ONLY run with no FOUND, or a run whose list failed /
+ *           answered 404 / 304, closes nothing).
+ * CR-M-3: `jr.run_id` is the scope. A ledger run belongs to one source (`job_collection_runs.source_id`)
+ * and membership is written only by that run's own handle, so a sibling source sharing
+ * `(source_type, namespace)` cannot vouch; the type/namespace filter only narrows further.
  */
-async function boardObservedAlive(
+async function observedThisRun(
   tx: SqlExecutor,
   deps: DetailTailPortDeps,
   recordId: string,
-): Promise<boolean> {
+): Promise<{ listed: boolean; alive: boolean }> {
   const { rows } = await tx.execute(
     sql`SELECT EXISTS (
+          SELECT 1 FROM job_run_records
+           WHERE run_id = ${deps.runId}::uuid AND source_record_id = ${recordId}::uuid) AS listed,
+        EXISTS (
           SELECT 1 FROM job_run_records jr
             JOIN job_source_records sr ON sr.id = jr.source_record_id
            WHERE jr.run_id = ${deps.runId}::uuid
@@ -139,7 +157,7 @@ async function boardObservedAlive(
              AND sr.namespace = ${deps.source.namespace}
              AND sr.id <> ${recordId}::uuid) AS alive`,
   )
-  return rows[0]?.['alive'] === true
+  return { listed: rows[0]?.['listed'] === true, alive: rows[0]?.['alive'] === true }
 }
 
 /** The run worker's `detailTailPortFactory` for the flag value: OFF is the U10 factory itself. */
