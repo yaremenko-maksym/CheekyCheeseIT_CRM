@@ -236,8 +236,15 @@ touching the router if a second replica appears. Owner decision D4 (A2), narrowe
     the refresh (§3.4), so a hand-edited or corrupted file cannot smuggle in an id the refresh would have refused;
   - `code` is an enum of the internal codes, `status` an integer 100–599, timestamps ISO strings, the provider day a
     `YYYY-MM-DD` string;
-  - an **entry cap** per file (spent and retired: a few hundred; the managed list: `TARGET` per provider) and a byte
-    ceiling checked **before** parsing (tens of KiB); over either ⇒ treated as invalid.
+  - an **entry cap** per file (spent and retired: a few hundred; the managed list: `TARGET` per provider; probation
+    records: `TARGET` per provider) and a byte ceiling checked **before** parsing (tens of KiB); over either ⇒ treated
+    as invalid;
+  - **probation records** (SR-M-9) live in the **route-state file**, not in the managed-list file: per new model,
+    `provider`, `model`, `aliveStreak` (an integer, schema-bounded to `[0, N]`, clamped on write) and `lastProbeDay`
+    (the UTC day of the last probe that counted). The managed-list file stores only the ordered ids; it carries **no**
+    promotion flag that the reader would trust (§3.4);
+  - **provider records**: the persisted `AUTH` / `CREDIT` / `FLAG_REJECTED` bits with the model the bit was recorded
+    against, and `lastStartupRefreshAt` (SR-M-11).
 - **Single writer.** Only the extraction worker writes, and inside it one serialised writer (a promise queue) owns each
   file: every change is applied to the in-memory state and the whole document is written from it, so two concurrent
   changes cannot lose each other. A second worker replica is out of scope for files (D4: Postgres then).
@@ -250,14 +257,23 @@ touching the router if a second replica appears. Owner decision D4 (A2), narrowe
   are otherwise adopted).
 - **Pruning**: spent entries of past provider days are dropped on load.
 
-**The restart caveat, reduced (REV-L-10, SR-M-7).** `AUTH`, `CREDIT` and the provider-wide `FLAG_REJECTED` bit now
-persist, so a restart or a crash loop does not re-send a refused request. They are cleared by that provider's next
-successful refresh (a catalogue fetch that succeeds with the key proves the key works; a probe that succeeds with the
-privacy flags proves the flags are accepted) or, for `CREDIT`, by the limit's reset. **At worker start**, every
-provider carrying a persisted `AUTH` or `FLAG_REJECTED` bit gets an **on-demand refresh** of that provider alone (same
-rules and constraints as the daily one), so a rotated key or a fixed flag is picked up at the next start rather than up
-to a day later. The own-cap unit is still released for these codes (§5.1), and the worker's restart policy (Task 5.2)
-still uses a backoff, which also bounds how often the start-up refresh can run.
+**The restart caveat, reduced (REV-L-10, SR-M-7, SR-M-11).** `AUTH`, `CREDIT` and the provider-wide `FLAG_REJECTED`
+bit persist, so a restart or a crash loop does not re-send a refused request. What clears each bit is narrow, because
+the wrong proof would re-open a refused route:
+
+| Bit | Cleared only by | Not cleared by |
+| --- | --- | --- |
+| `AUTH` | a **keyed chat probe** to that provider that returns 2xx (the fixed probe prompt, the shared request builder) — this applies to Groq too, which otherwise is not chat-probed | a successful catalogue or listing fetch: OpenRouter's catalogue is public and proves nothing about the key |
+| `FLAG_REJECTED` (provider-wide) | a probe of the **same kind** as the rejected request — a chat completion built by the shared builder with the full production privacy fields — to the **model the bit was recorded against** (or, if that model has since been retired, the provider's current first model), returning 2xx | a probe of any other model, a catalogue fetch, or a probe that lacks any production field |
+| `CREDIT` | the limit's reset | a refresh |
+
+**Start-up refresh.** At worker start, every provider carrying a persisted `AUTH` or `FLAG_REJECTED` bit gets an
+on-demand refresh of that provider alone, under the same rules and constraints as the daily one, so a rotated key or a
+fixed flag is picked up at the next start rather than up to a day later. It is **rate-limited by a persisted
+per-provider `lastStartupRefreshAt`**: if the last start-up refresh of that provider is less than **1 hour** old, the
+start skips it, so a crash loop sends at most one start-up refresh per provider per hour regardless of the restart
+policy. The own-cap unit is still released for these codes (§5.1), and start-up probes count against the own caps like
+any probe.
 
 ### 3.3 Transport and key hygiene
 
@@ -322,9 +338,21 @@ some time before the collection window so a fresh list is in place — rebuilds 
   unreviewed, large-context candidate **first** for all vacancy text. The CRM instead:
   - keeps **existing** entries in their current order (dropping the dead / ineligible), and **appends** new candidates
     at the **tail**, below every existing entry, ranked among themselves by status then context;
-  - **promotes** a new entry above older ones only after it has been `alive` on N consecutive daily refreshes
-    (N = 3 proposed, a package constant), its streak kept in the managed-list file; until then it serves only when every
-    older model of that provider failed;
+  - **promotes** a new entry above older ones only after it has been `alive` on N consecutive **probe days** (N = 3
+    proposed, a package constant). The streak is the probation record in the route-state file (§3.2), bounded to
+    `[0, N]`. Rules (SR-M-9):
+    - a **probe day** is a UTC day on which that model was actually probed; the streak increments by one on an `alive`
+      probe day only if `lastProbeDay` is an earlier day (a second probe on the same day counts once), and resets to 0
+      on a `transient`, `unknown` or ineligible probe day;
+    - a **no-probe day** — the model was not reached under `PROBE_CAP`, the provider was skipped (cap refusal, `AUTH`,
+      fetch failure, policy) or the job did not run — neither increments nor resets the streak;
+    - the reader **recomputes** promotion, never trusts it: an entry is ordered as promoted only if it is in the pinned
+      fallback list or its probation record shows `aliveStreak == N`; an entry without a valid record is on probation.
+      A promotion emits an event naming provider and model, so it is visible;
+    - **Groq is never chat-probed**, so a Groq addition never earns a streak: it stays on probation (tail) until a
+      human adds it to the pinned fallback list by a reviewed change;
+    - until promotion an entry serves only when every older model of that provider failed (see Consequences: in
+      practice that is routine on free tiers);
   - uses an **effective context** of `min(provider-reported context, the route's configured context window)` for every
     filter and ranking — a provider-reported number is untrusted input and can never widen what the route accepts.
 - **Never wipe.** If the catalogue fetch fails, or nothing survives, that provider's managed list is **left untouched**
