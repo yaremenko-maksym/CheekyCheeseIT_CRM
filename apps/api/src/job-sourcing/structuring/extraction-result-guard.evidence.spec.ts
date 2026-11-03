@@ -101,9 +101,9 @@ describe('guardExtractionResult — evidence quote length (CR-M-3)', () => {
 
 describe('guardExtractionResult — evidence must be about its field (SR-M-7)', () => {
   it('an unrelated 8+ char snippet from the page is not evidence', () => {
-    expect(guardQuotes([{ field: 'salary', quote: 'Senior Rust' }], { salary: '6 000 USD' })).toEqual(
-      { kept: [], dropped: 1 },
-    )
+    expect(
+      guardQuotes([{ field: 'salary', quote: 'Senior Rust' }], { salary: '6 000 USD' }),
+    ).toEqual({ kept: [], dropped: 1 })
   })
 
   it('a quote containing the value is evidence', () => {

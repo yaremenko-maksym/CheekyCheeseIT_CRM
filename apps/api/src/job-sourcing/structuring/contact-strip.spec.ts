@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { expectScaling } from './__fixtures__/scaling'
 import { CONTACT_TOKEN, stripContacts } from './contact-strip'
 
 const T = CONTACT_TOKEN
@@ -151,11 +152,15 @@ describe('stripContacts — idempotent', () => {
 })
 
 describe('stripContacts — bounded time on hostile input', () => {
-  it('a 200 000-char run of near-matches finishes quickly', () => {
-    const hostile = 'a.'.repeat(50_000) + '@'.repeat(50_000) + '1 '.repeat(25_000)
-    const started = performance.now()
-    stripContacts(hostile)
-    expect(performance.now() - started).toBeLessThan(2_000)
+  it('a 200 000-char run of near-matches grows linearly', () => {
+    const hostile = (n: number) => 'a.'.repeat(n) + '@'.repeat(n) + '1 '.repeat(n / 2)
+    const small = hostile(12_500)
+    const big = hostile(50_000)
+    expectScaling(
+      () => stripContacts(small),
+      () => stripContacts(big),
+      8,
+    )
   })
 })
 

@@ -149,7 +149,8 @@ export function guardExtractionResult(raw: string, ctx: ExtractionContext): Extr
       const related =
         quote.includes(stated) || (!URL_FIELDS.has(span.field) && stated.includes(quote))
       // Long enough to be specific, or exactly the value.
-      const specific = nonWhitespaceLength(span.quote) >= MIN_EVIDENCE_QUOTE_CHARS || quote === stated
+      const specific =
+        nonWhitespaceLength(span.quote) >= MIN_EVIDENCE_QUOTE_CHARS || quote === stated
       return related && specific && ctx.evidenceText.includes(span.quote)
     })
     droppedEvidence += evidence.length - quoted.length

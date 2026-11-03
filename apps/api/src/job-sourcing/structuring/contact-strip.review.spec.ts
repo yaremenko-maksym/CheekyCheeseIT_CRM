@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest'
+import { expectScaling } from './__fixtures__/scaling'
 import { CONTACT_TOKEN, stripContacts } from './contact-strip'
 
 /**
@@ -234,18 +235,23 @@ describe('stripContacts — review round: linear time on the shapes that went qu
     }
   })
 
-  it.each([
-    ['spaces only', ' '.repeat(400_000)],
-    ['tabs only', '\t'.repeat(400_000)],
-    ['label + spaces', 'tel' + ' '.repeat(400_000)],
-    ['a@b + spaces', 'a@b' + ' '.repeat(400_000)],
-    ['a dot a dot …', 'a dot '.repeat(70_000) + 'b'],
-    ['a@b dot b dot …', 'a@b' + ' dot b'.repeat(70_000)],
-    ['digits with U+2015', '1―'.repeat(200_000)],
-    ['tel. + spaced digits', 'тел.' + '1 '.repeat(200_000)],
-  ])('%s', (_name, hostile) => {
-    const started = performance.now()
-    stripContacts(hostile)
-    expect(performance.now() - started).toBeLessThan(1_500)
+  // `n` is the repeat count of the 4x input; the small input repeats n / 4 times.
+  it.each<readonly [string, (n: number) => string, number]>([
+    ['spaces only', (n) => ' '.repeat(n), 400_000],
+    ['tabs only', (n) => '\t'.repeat(n), 400_000],
+    ['label + spaces', (n) => 'tel' + ' '.repeat(n), 400_000],
+    ['a@b + spaces', (n) => 'a@b' + ' '.repeat(n), 400_000],
+    ['a dot a dot …', (n) => 'a dot '.repeat(n) + 'b', 70_000],
+    ['a@b dot b dot …', (n) => 'a@b' + ' dot b'.repeat(n), 70_000],
+    ['digits with U+2015', (n) => '1―'.repeat(n), 200_000],
+    ['tel. + spaced digits', (n) => 'тел.' + '1 '.repeat(n), 200_000],
+  ])('%s grows linearly', (_name, hostile, n) => {
+    const small = hostile(n / 4)
+    const big = hostile(n)
+    expectScaling(
+      () => stripContacts(small),
+      () => stripContacts(big),
+      8,
+    )
   })
 })

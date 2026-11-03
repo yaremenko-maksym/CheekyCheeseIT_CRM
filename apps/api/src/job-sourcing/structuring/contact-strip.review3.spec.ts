@@ -53,8 +53,8 @@ describe('stripContacts — round 3: these are stripped', () => {
   it.each(PHONES)('phone %j', (input, secret) => {
     const out = stripContacts(input)
     expect(out.text).toContain(T)
-    if (/^\d+$/.test(secret)) expect(digitsOf(out.text)).not.toContain(secret)
-    else expect(out.text.toLowerCase()).not.toContain(secret)
+    const visible = /^\d+$/.test(secret) ? digitsOf(out.text) : out.text.toLowerCase()
+    expect(visible).not.toContain(secret)
     expect(out.removed.phone).toBe(1)
   })
 

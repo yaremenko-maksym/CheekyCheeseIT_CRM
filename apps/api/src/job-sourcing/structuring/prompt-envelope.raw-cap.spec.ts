@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { expectScaling } from './__fixtures__/scaling'
 import { CONTACT_TOKEN } from './contact-strip'
 import {
   buildExtractionPrompt,
@@ -26,9 +27,15 @@ describe('buildExtractionPrompt — raw input cap (before NFKC)', () => {
   })
 
   it('1M chars that NFKC expands 18x stay bounded in time and length', () => {
-    const started = performance.now()
-    const out = data('ﷺ'.repeat(1_000_000))
-    expect(performance.now() - started).toBeLessThan(5_000)
+    const page = 'ﷺ'.repeat(1_000_000)
+    const fourTimes = 'ﷺ'.repeat(4_000_000)
+    // Cut before NFKC, so 4x the input costs about the same, never 4x (factor 3 tells them apart).
+    expectScaling(
+      () => data(page),
+      () => data(fourTimes),
+      3,
+    )
+    const out = data(page)
     expect(out.truncated).toBe(true)
     expect(out.text.length).toBeLessThanOrEqual(CAP)
     expect(out.text.length).toBeGreaterThan(CAP - 100)
