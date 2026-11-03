@@ -255,7 +255,6 @@ function toPosting(
   fail: (code: JsonLdFailureCode) => void,
 ): JsonLdJobPosting {
   const issues: JsonLdFieldIssue[] = []
-  const flagged = (field: string): boolean => issues.some((i) => i.field === field)
   const note = (field: string, code: JsonLdFieldIssue['code']): void => {
     issues.push({ field, code })
     fail(code)
@@ -271,23 +270,23 @@ function toPosting(
     return s
   }
   const nameOf = (field: string, v: unknown): string | null => clip(field, isRecord(v) ? v.name : v)
-  const strings = (v: unknown, one: (x: unknown) => string | null): string[] =>
-    asList(v).flatMap((x) => one(x) ?? [])
-  // A present, non-blank source value that normalised to nothing (and was not already flagged as
-  // too long) is an invalid field, not an absent one.
-  const checked = <T>(field: string, raw: unknown, value: T | null): T | null => {
+  // A present, non-blank source value that normalised to nothing, without `normalise` having
+  // already raised an issue of its own, is an invalid value, not an absent one.
+  const checked = <T>(field: string, raw: unknown, normalise: () => T | null): T | null => {
+    const before = issues.length
+    const value = normalise()
     const present = raw !== undefined && raw !== null && !(typeof raw === 'string' && !raw.trim())
-    if (value === null && present && !flagged(field)) note(field, 'FIELD_INVALID')
+    if (value === null && present && issues.length === before) note(field, 'FIELD_INVALID')
     return value
   }
+  const strings = (field: string, v: unknown, one: (x: unknown) => string | null): string[] =>
+    asList(v).flatMap((x) => checked(field, x, () => one(x)) ?? [])
   const date = (
     field: string,
     v: unknown,
     semantics: 'PUBLISHED' | 'EXPIRY',
   ): ObservedDate | null =>
-    checked(
-      field,
-      v,
+    checked(field, v, () =>
       parseSourceDate(
         { raw: typeof v === 'string' ? v : null, contract: 'ISO_ZONED', semantics },
         now,
@@ -298,46 +297,44 @@ function toPosting(
   const validThrough = date('validThrough', node.validThrough, 'EXPIRY')
   const address = (place: unknown): string | null => {
     const a = isRecord(place) ? place.address : null
-    if (typeof a === 'string') return clip('jobLocation', a)
+    if (typeof a === 'string') return clip('jobLocation.address', a)
     if (!isRecord(a)) return null
+    const part = (sub: string, raw: unknown, read: (f: string) => string | null) =>
+      checked(`jobLocation.${sub}`, raw, () => read(`jobLocation.${sub}`))
     const parts = [
-      clip('jobLocation', a.addressLocality),
-      clip('jobLocation', a.addressRegion),
-      nameOf('jobLocation', a.addressCountry),
+      part('addressLocality', a.addressLocality, (f) => clip(f, a.addressLocality)),
+      part('addressRegion', a.addressRegion, (f) => clip(f, a.addressRegion)),
+      part('addressCountry', a.addressCountry, (f) => nameOf(f, a.addressCountry)),
     ]
     return parts.flatMap((p) => p ?? []).join(', ') || null
   }
   const titleRaw = node.title ?? node.name
 
   return {
-    identifier: checked(
-      'identifier',
-      idRaw,
+    identifier: checked('identifier', idRaw, () =>
       clip('identifier', typeof idRaw === 'number' ? String(idRaw) : idRaw),
     ),
-    url: checked('url', node.url, clip('url', node.url)),
-    title: checked('title', titleRaw, clip('title', titleRaw)),
-    hiringOrganization: checked(
-      'hiringOrganization',
-      node.hiringOrganization,
+    url: checked('url', node.url, () => clip('url', node.url)),
+    title: checked('title', titleRaw, () => clip('title', titleRaw)),
+    hiringOrganization: checked('hiringOrganization', node.hiringOrganization, () =>
       nameOf('hiringOrganization', node.hiringOrganization),
     ),
-    description: checked(
-      'description',
-      node.description,
+    description: checked('description', node.description, () =>
       clip('description', node.description, limits.maxDescriptionChars),
     ),
-    jobLocationType: checked(
-      'jobLocationType',
-      node.jobLocationType,
+    jobLocationType: checked('jobLocationType', node.jobLocationType, () =>
       clip('jobLocationType', node.jobLocationType),
     ),
-    jobLocations: strings(node.jobLocation, address),
-    applicantLocationRequirements: strings(node.applicantLocationRequirements, (x) =>
-      nameOf('applicantLocationRequirements', x),
+    jobLocations: strings('jobLocation', node.jobLocation, address),
+    applicantLocationRequirements: strings(
+      'applicantLocationRequirements',
+      node.applicantLocationRequirements,
+      (x) => nameOf('applicantLocationRequirements', x),
     ),
-    employmentType: strings(node.employmentType, (x) => clip('employmentType', x)),
-    skills: strings(node.skills, (x) => clip('skills', x)),
+    employmentType: strings('employmentType', node.employmentType, (x) =>
+      clip('employmentType', x),
+    ),
+    skills: strings('skills', node.skills, (x) => clip('skills', x)),
     datePosted: date('datePosted', node.datePosted, 'PUBLISHED'),
     validThrough,
     expired: validThrough?.status === 'OK' ? validThrough.value.getTime() < now.getTime() : null,

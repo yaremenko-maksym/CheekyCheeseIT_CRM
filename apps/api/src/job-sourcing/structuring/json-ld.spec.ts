@@ -450,10 +450,10 @@ describe('extractJobPostings: conflicts and failures', () => {
       ['title', { title: L }],
       ['hiringOrganization', { hiringOrganization: { name: L } }],
       ['jobLocationType', { jobLocationType: L }],
-      ['jobLocation', { jobLocation: { address: L } }],
-      ['jobLocation', { jobLocation: { address: { addressLocality: L } } }],
-      ['jobLocation', { jobLocation: { address: { addressRegion: L } } }],
-      ['jobLocation', { jobLocation: { address: { addressCountry: L } } }],
+      ['jobLocation.address', { jobLocation: { address: L } }],
+      ['jobLocation.addressLocality', { jobLocation: { address: { addressLocality: L } } }],
+      ['jobLocation.addressRegion', { jobLocation: { address: { addressRegion: L } } }],
+      ['jobLocation.addressCountry', { jobLocation: { address: { addressCountry: L } } }],
       ['applicantLocationRequirements', { applicantLocationRequirements: [{ name: L }] }],
       ['employmentType', { employmentType: [L] }],
       ['skills', { skills: [L] }],
@@ -483,6 +483,99 @@ describe('extractJobPostings: conflicts and failures', () => {
     expect(one(ld(posting({ name: 5 }))).issues).toEqual([
       { field: 'title', code: 'FIELD_INVALID' },
     ])
+  })
+
+  it('unusable list elements and nested values are FIELD_INVALID; absent and blank are not', () => {
+    const invalid = (field: string) => [{ field, code: 'FIELD_INVALID' }]
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ skills: [5] }, 'skills'],
+      [{ employmentType: 5 }, 'employmentType'],
+      [{ jobLocation: { address: 5 } }, 'jobLocation'],
+      [{ jobLocation: { name: 'no address' } }, 'jobLocation'],
+      [{ jobLocation: { address: {} } }, 'jobLocation'],
+      [{ jobLocation: { address: { addressLocality: '', addressRegion: null } } }, 'jobLocation'],
+      [{ jobLocation: { address: '   ' } }, 'jobLocation'],
+      [{ jobLocation: { address: { addressLocality: 5 } } }, 'jobLocation.addressLocality'],
+      [{ jobLocation: { address: { addressRegion: 5 } } }, 'jobLocation.addressRegion'],
+      [{ jobLocation: { address: { addressCountry: { name: 5 } } } }, 'jobLocation.addressCountry'],
+      [{ applicantLocationRequirements: [{ code: 'PL' }] }, 'applicantLocationRequirements'],
+    ]
+    for (const [extra, field] of cases) {
+      const p = one(ld(posting(extra)))
+      expect(p.issues, JSON.stringify(extra)).toEqual(invalid(field))
+    }
+    const quiet = [
+      {},
+      { skills: null },
+      { skills: [] },
+      { skills: ['', '  ', null] },
+      { employmentType: '' },
+      { jobLocation: null },
+    ]
+    for (const extra of quiet)
+      expect(one(ld(posting(extra))).issues, JSON.stringify(extra)).toEqual([])
+  })
+
+  it('a mixed list keeps the valid elements and flags only the unusable ones, each once', () => {
+    const p = one(
+      ld(posting({ skills: ['a', 5, 'b', true, 'c'], employmentType: ['FULL_TIME', 7] })),
+    )
+    expect(p.skills).toEqual(['a', 'b', 'c'])
+    expect(p.employmentType).toEqual(['FULL_TIME'])
+    expect(p.issues).toEqual([
+      { field: 'employmentType', code: 'FIELD_INVALID' },
+      { field: 'skills', code: 'FIELD_INVALID' },
+      { field: 'skills', code: 'FIELD_INVALID' },
+    ])
+    const loc = one(
+      ld(
+        posting({
+          jobLocation: [
+            { address: { addressLocality: 'Kyiv', addressRegion: 5 } },
+            { address: 'Lviv' },
+            { address: 9 },
+          ],
+        }),
+      ),
+    )
+    expect(loc.jobLocations).toEqual(['Kyiv', 'Lviv'])
+    expect(loc.issues).toEqual([
+      { field: 'jobLocation.addressRegion', code: 'FIELD_INVALID' },
+      { field: 'jobLocation', code: 'FIELD_INVALID' },
+    ])
+  })
+
+  it('a too-long list element is flagged once, as too long, not also as invalid', () => {
+    const p = one(ld(posting({ skills: ['z'.repeat(11), 'ok'] })), { maxFieldChars: 10 })
+    expect(p.issues).toEqual([{ field: 'skills', code: 'FIELD_TOO_LONG' }])
+  })
+
+  it('pins the unterminated-quote shortcut: the value runs to the next quote or, failing that, the next ">"', () => {
+    const body = posting({ identifier: 'U' })
+    // The quote closes at the next `"`, so `type=` is swallowed into data-x's value: not ld+json.
+    const swallowed = run(`<script data-x="abc type="application/ld+json">${body}</script>`)
+    expect(swallowed.postings).toEqual([])
+    expect(swallowed.failures).toEqual({})
+    expect(swallowed.scanned.jsonLdScripts).toBe(0)
+    // No later quote exists: the value is read as bare text up to whitespace, so a following
+    // `type` attribute still counts and the tag still ends at the first `>`.
+    const bare = run(`<script data-x="abc type=application/ld+json>[]</script>`)
+    expect(bare.scanned).toMatchObject({ jsonLdScripts: 1, parsedScripts: 1 })
+    expect(bare.failures).toEqual({})
+    // A leading ld+json type is kept when a later quote never closes.
+    expect(run(`<script type="application/ld+json" data-x="abc>[]</script>`).scanned).toMatchObject(
+      {
+        jsonLdScripts: 1,
+        parsedScripts: 1,
+      },
+    )
+    // A quote that never closes and no `>` before EOF is an unterminated open tag, counted.
+    expect(run(`<script type="application/ld+json" data-x="abc`).failures).toEqual({
+      UNTERMINATED_OPEN_TAG: 1,
+    })
+    expect(run(`<script data-x="abc type=application/ld+json`).failures).toEqual({
+      UNTERMINATED_OPEN_TAG: 1,
+    })
   })
 
   it('list items that are too long are flagged under their field', () => {
