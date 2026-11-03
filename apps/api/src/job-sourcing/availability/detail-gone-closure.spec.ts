@@ -49,12 +49,15 @@ function scripted({ closed = true, owners = [OPP_A] as string[] } = {}) {
         return Promise.resolve({
           rows: owners.map((id, i) => ({ opportunity_id: id, revision: 7 + i })),
         })
-      if (r.sql.includes('UPDATE job_dirty_work')) return Promise.resolve({ rows: [{ status: 'DONE' }] })
+      if (r.sql.includes('UPDATE job_dirty_work'))
+        return Promise.resolve({ rows: [{ status: 'DONE' }] })
       return Promise.resolve({ rows: [{ id: DW }] })
     },
   }
   const enqueues = () =>
-    seen.filter((s) => s.sql.includes('INSERT INTO job_dirty_work')).map((s) => s.params.slice(0, 4))
+    seen
+      .filter((s) => s.sql.includes('INSERT INTO job_dirty_work'))
+      .map((s) => s.params.slice(0, 4))
   return { tx, seen, enqueues }
 }
 
@@ -112,7 +115,9 @@ describe('closeRecordByDetailGone', () => {
     const { httpStatus: _h, adapterVersion: _a, ...common } = goneEvidence
     await expect(
       closeRecordByDetailGone(s.tx, RECORD, { ...common, kind: 'WINDOW_DROPPED' }),
-    ).rejects.toThrow(new RangeError('closeRecordByDetailGone: only DETAIL_GONE evidence closes here'))
+    ).rejects.toThrow(
+      new RangeError('closeRecordByDetailGone: only DETAIL_GONE evidence closes here'),
+    )
     expect(s.seen).toHaveLength(0)
   })
 })
@@ -215,7 +220,10 @@ describe('detailTailPortFactory (the dark flag)', () => {
     const factory = detailTailPortFactory(true)
     expect(factory).not.toBe(createDetailTailPort)
     // An uncontracted board reaches `fail` through the real base port (its failDirty SQL runs).
-    await factory({ ...deps, db: { ...deps.db, execute: s.tx.execute } as unknown as MeterDb }).recordGone(row)
+    await factory({
+      ...deps,
+      db: { ...deps.db, execute: s.tx.execute } as unknown as MeterDb,
+    }).recordGone(row)
     expect(s.seen.some((q) => q.sql.includes('UPDATE job_source_records'))).toBe(false)
     expect(s.seen.some((q) => q.params.includes(DETAIL_GONE_UNCONTRACTED))).toBe(true)
   })

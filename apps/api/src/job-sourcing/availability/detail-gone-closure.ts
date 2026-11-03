@@ -23,7 +23,11 @@
  * 14-day re-fetch lacks its freshness anchor (CR-M-3). Both ride with #10; do not enable this flag
  * before #10 lands.
  */
-import { type AvailabilityEvidence, type JobSourceType, availabilityEvidenceSchema } from '@crm/shared'
+import {
+  type AvailabilityEvidence,
+  type JobSourceType,
+  availabilityEvidenceSchema,
+} from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { AVAILABILITY_REASON_PREFIX, completeDirty } from '../ownership/dirty-work.store'
 import {
