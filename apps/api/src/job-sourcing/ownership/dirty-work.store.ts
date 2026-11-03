@@ -53,6 +53,8 @@ export const LEASE_EXPIRED = 'LEASE_EXPIRED'
  * same record version a no-op: the detail is fetched once.
  */
 export const DETAIL_FETCH = 'DETAIL_FETCH'
+/** `DETAIL_FETCH` as an inline SQL literal: a module constant of [A-Z_] only, never user input. */
+const DETAIL_FETCH_LITERAL = sql.raw(`'${DETAIL_FETCH}'`)
 /** `ck_job_dirty_work_reason_bounded`. */
 const REASON_MAX = 100
 
@@ -283,7 +285,9 @@ export const dirtyWorkStatements = {
              )})
              -- Redundant for both partitions, but it lets the planner match the partial index
              -- idx_job_dirty_work_pending_generic, whose predicate is exactly this (CR-M-1).
-             AND reason <> ${DETAIL_FETCH}
+             -- A LITERAL, not a bound parameter (CR-M-4): a parameter matches the index only in
+             -- a custom plan; a prepared statement's generic plan could not prove the implication.
+             AND reason <> ${DETAIL_FETCH_LITERAL}
              AND ${dirtyConsumerPredicate(consumer)}
            ORDER BY created_at, id
            LIMIT ${batchSize}

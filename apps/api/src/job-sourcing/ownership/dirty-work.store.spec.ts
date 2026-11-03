@@ -217,8 +217,9 @@ describe('claimDirtyBatch', () => {
       .join(' ')
       .replace(/\s+/g, ' ')
   // CR-M-1: `reason <> DETAIL_FETCH` first (the partial index's predicate), then the partition.
+  // CR-M-4: that conjunct is an inline literal, so it carries no bound parameter.
   const MATCH_SQL = (n: number) =>
-    `AND reason <> $${n} AND NOT ((reason = $${n + 1}) OR (starts_with(reason, $${n + 2}) OR starts_with(reason, $${n + 3}) OR reason IN ($${n + 4}, $${n + 5}, $${n + 6}))) ORDER BY`
+    `AND reason <> 'DETAIL_FETCH' AND NOT ((reason = $${n}) OR (starts_with(reason, $${n + 1}) OR starts_with(reason, $${n + 2}) OR reason IN ($${n + 3}, $${n + 4}, $${n + 5}))) ORDER BY`
 
   it('defaults to a batch of 200 and a five-minute lease, SKIP LOCKED', async () => {
     const { tx, seen } = scripted()
@@ -235,7 +236,6 @@ describe('claimDirtyBatch', () => {
       'SENIOR',
       'EXCLUSION',
       'PROJECT_CLIENT',
-      DETAIL_FETCH,
       DETAIL_FETCH,
       ...AVAIL,
       200,
@@ -259,7 +259,6 @@ describe('claimDirtyBatch', () => {
       'EXCLUSION',
       'PROJECT_CLIENT',
       DETAIL_FETCH,
-      DETAIL_FETCH,
       ...AVAIL,
       1000,
       'w',
@@ -273,15 +272,7 @@ describe('claimDirtyBatch', () => {
     expect(seen[0]!.sql).toContain('AND entity_kind IN ($1)')
     // CR-M-1: the DETAIL_FETCH exclusion rides on every match claim, whatever the kinds.
     expect(flat(seen[0]!.sql)).toContain(`AND entity_kind IN ($1) ${MATCH_SQL(2)}`)
-    expect(seen[0]!.params).toEqual([
-      'OPPORTUNITY',
-      DETAIL_FETCH,
-      DETAIL_FETCH,
-      ...AVAIL,
-      200,
-      'w',
-      300_000,
-    ])
+    expect(seen[0]!.params).toEqual(['OPPORTUNITY', DETAIL_FETCH, ...AVAIL, 200, 'w', 300_000])
   })
 
   it('S-P1: the availability consumer claims only the availability partition', async () => {
@@ -289,10 +280,10 @@ describe('claimDirtyBatch', () => {
     await claimDirtyBatch(tx, { owner: 'w', consumer: 'AVAILABILITY', kinds: ['OPPORTUNITY'] })
     // CR-M-1: the redundant DETAIL_FETCH exclusion is there for the partial index here too.
     expect(flat(seen[0]!.sql)).toContain(
-      'AND entity_kind IN ($1) AND reason <> $2 AND (starts_with(reason, $3) OR starts_with(reason, $4) OR reason IN ($5, $6, $7)) ORDER BY',
+      "AND entity_kind IN ($1) AND reason <> 'DETAIL_FETCH' AND (starts_with(reason, $2) OR starts_with(reason, $3) OR reason IN ($4, $5, $6)) ORDER BY",
     )
     expect(seen[0]!.sql).not.toContain('NOT (')
-    expect(seen[0]!.params).toEqual(['OPPORTUNITY', DETAIL_FETCH, ...AVAIL, 200, 'w', 300_000])
+    expect(seen[0]!.params).toEqual(['OPPORTUNITY', ...AVAIL, 200, 'w', 300_000])
   })
 
   it.each([
