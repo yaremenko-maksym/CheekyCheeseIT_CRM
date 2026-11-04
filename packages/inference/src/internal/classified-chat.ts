@@ -199,7 +199,6 @@ function classifyFailure(
     case 404:
       if (namesModel(opts.model, r.text)) return { ok: false, code: 'RETIRED' }
       break
-    case 498: // Groq flex tier at capacity
     case 503:
       return { ok: false, code: 'BUSY' }
   }

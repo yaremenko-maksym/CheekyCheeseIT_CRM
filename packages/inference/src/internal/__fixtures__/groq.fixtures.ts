@@ -143,7 +143,7 @@ export const GROQ_FIXTURES: ProviderFixture[] = [
     name: '498 flex tier at capacity',
     status: 498,
     body: groqError(),
-    expected: { ok: false, code: 'BUSY' },
+    expected: { ok: false, code: 'TRANSPORT', responded: true },
   },
   {
     name: '503 overloaded',
