@@ -226,6 +226,7 @@ then.
 | Groq per-day token 429 marker; gone-model status and body (`llama-3.1-8b-instant`); `error.type` values          | same smoke, redacted                                                     | yes          |
 | Gemini free-tier RPM, TPM and RPD per model (D5's numbers, `PROBE_CAP`)                                          | the owner reads AI Studio's rate-limit page (login)                      | yes          |
 | Groq free-plan limits                                                                                            | the owner reads the free organisation's limits page                      | yes          |
+| Groq's daily reset time (config assumes midnight UTC, §5.1)                                                      | the owner reads the same limits page                                     | yes          |
 | Whether Groq's no-training clause covers free-plan use                                                           | Groq support or Legal                                                    | yes (asks)   |
 | `avx512f` on the VPS (vLLM on CPU)                                                                               | `grep -o avx512f /proc/cpuinfo \| head -1`, Master over the D9 ssh alias | no           |
 | Ollama's `response_format` type and enforcement, prompt logging, disconnect; llama.cpp disconnect                | MP-04 on the pinned version                                              | no           |
@@ -333,6 +334,8 @@ touching the router if a second replica appears. Owner decision D4 (A2), narrowe
     `provider`, `model`, `aliveStreak` (an integer, schema-bounded to `[0, N]`, clamped on write) and `lastProbeDay`
     (the UTC day of the last probe that counted). The managed-list file stores only the ordered ids; it carries **no**
     promotion flag that the reader would trust (§3.4);
+  - **busy records** (§3.4 verdicts) live in the same file, per probed Gemini model, listed or new: `provider`, `model`,
+    `busyDays` (an integer, schema-bounded to `[0, 3]`, clamped on write) and `lastProbeDay`;
   - **provider records**: the persisted `AUTH` / `CREDIT` bits and `lastStartupRefreshAt` (SR-M-11), and the own-cap count per
     provider day, written through **before** the request is sent.
 - **Single writer.** Only the extraction worker writes, and inside it one serialised writer (a promise queue) owns each
@@ -410,7 +413,8 @@ only provider the daily refresh chat-probes**, and that path has not run anywher
 Three layers, adopted from VCF in this order of authority:
 
 **1. Request-time retirement (immediate).** A response classified `RETIRED` (`retiredAnswer`: status 404 and a body
-naming a model or an endpoint, §5.1) marks the provider and model retired through the
+naming a model or an endpoint; or, for Gemini, a 2xx re-routed to another version or variant, §5.1) marks the provider and
+model retired through the
 `RouteStatePort` (persisted, §3.2). The current call moves to the next model at once; every later call skips the model
 until the next successful refresh.
 
@@ -618,8 +622,8 @@ filter then skips Groq for such a page instead of cooling it down on every call.
 
 **Durations from headers.** `retry-after` is non-negative integer seconds; `retryDelay` and `x-ratelimit-reset-*` are
 parsed as durations; a non-finite, negative or unparsable value counts as absent. Every derived pause is clamped to 24 h
-and to the provider's reset. The reset is fixed in config, never read from a header: midnight Pacific for Gemini, midnight
-UTC for Groq.
+and to the provider's reset. The reset is fixed in config, never read from a header: midnight Pacific for Gemini (documented);
+midnight UTC for Groq, an **unverified config assumption** until the owner reads it (§2.3).
 
 **Own-cap unit rules** (the `OwnCapPort`, §3.1). One unit is **one HTTP request** to a hosted provider, reserved
 immediately before the request is sent. A `BUSY` re-try on the same model and the one correction retry of
@@ -630,7 +634,8 @@ for this call (no request is sent). After the response, by code:
 | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
 | `OK`, `INVALID_OUTPUT`, `REFUSED`, `BUSY`, `SPENT_DAY` | **committed** — the provider counted the request                                                         |
 | `TIMEOUT`                                              | **committed** — the request may have been counted                                                        |
-| `AUTH`, `CREDIT`, `RETIRED`                            | **released** — refused before any work; these codes disable the model or provider, so they cannot repeat |
+| `AUTH`, `CREDIT`, `RETIRED` after a 404                | **released** — refused before any work; these codes disable the model or provider, so they cannot repeat |
+| `RETIRED` after a Gemini re-route (a 2xx)              | **committed** — the provider did the work, and its answer is used                                        |
 | `TRANSPORT` with no response (connection never made)   | **released**                                                                                             |
 | `TRANSPORT` with a response                            | **committed**                                                                                            |
 
@@ -944,8 +949,8 @@ D1–D3, D9 and D10 are answered, so nothing here is blocked on them. D8 blocks 
 Model tier per `model-routing.md`. Every code task: Coder in its own worktree, code-reviewer, **security-reviewer**
 (keys, external send), mutation gate on the changed scope.
 
-Order: 5.4c-0 → 5.4c-1 → 5.4c-2 → 5.4c-6 → 5.4c-7 (MP-04, gate) → 5.4c-8 (install). 5.4c-2b follows 5.4c-2; 5.4c-W and
-5.4c-3 follow 5.4c-6, and 5.4c-4 follows 5.4c-W. 5.4c-5 comes last. The small dose precedes the measurement because MP-04 and
+Order: 5.4c-0 → 5.4c-1 → 5.4c-2 → 5.4c-6 → 5.4c-W → 5.4c-3 and 5.4c-4 → 5.4c-8 (install) → 5.4c-5. 5.4c-7 (MP-04,
+the gate of 5.4c-8) runs after 5.4c-6, alongside 5.4c-W; 5.4c-2b follows 5.4c-2 and precedes 5.4c-5. The small dose precedes the measurement because MP-04 and
 MP-03 must measure what production will run.
 
 | Task                                                                                                                                   | Agent · model                                                                                                                                                | Depends on                                                      | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
