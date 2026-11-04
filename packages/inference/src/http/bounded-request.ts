@@ -14,13 +14,19 @@ export type FetchLike = (
   status: number
   body: ReadableStream<Uint8Array> | null
   text: () => Promise<string>
+  headers?: HeaderReader
 }>
+
+/** The one method of the platform `Headers` the classifier reads. */
+export type HeaderReader = { get(name: string): string | null }
 
 export type BoundedResult =
   | { kind: 'ok'; status: number; text: string }
-  | { kind: 'rate_limited'; status: number }
-  | { kind: 'timeout' }
-  | { kind: 'transport'; status?: number; text?: string }
+  | { kind: 'rate_limited'; status: number; text?: string; headers?: HeaderReader }
+  /** `aborted` marks the caller's `signal`, never the timer (SR-L-38): an abort is not a timeout. */
+  | { kind: 'timeout'; aborted?: true }
+  /** `tooLarge` marks a 2xx whose body exceeded `maxBytes`. */
+  | { kind: 'transport'; status?: number; text?: string; tooLarge?: true }
 
 export interface BoundedRequestOptions {
   url: string
@@ -30,14 +36,24 @@ export interface BoundedRequestOptions {
   timeoutMs: number
   maxBytes: number
   allowLoopbackHttp?: boolean
-  fetchImpl?: FetchLike
+  /** On a 429, read the bounded body and keep the headers instead of discarding them. */
+  readRateLimitDetails?: boolean
+  signal?: AbortSignal | undefined
+  fetchImpl?: FetchLike | undefined
 }
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 
+/** The container name of the CRM's own model runtime on the worker's private network (ADR §3.3). */
+export const LOCAL_MODEL_RUNTIME_HOST = 'crm-model-runtime'
+
 type BodyRead = { kind: 'text'; text: string } | { kind: 'too_large' } | { kind: 'aborted' }
 
-function isUrlAllowed(rawUrl: string, allowLoopbackHttp: boolean): boolean {
+function isUrlAllowed(
+  rawUrl: string,
+  allowLoopbackHttp: boolean,
+  allowLocalRuntimeHttp: boolean,
+): boolean {
   let parsed: URL
   try {
     parsed = new URL(rawUrl)
@@ -45,7 +61,9 @@ function isUrlAllowed(rawUrl: string, allowLoopbackHttp: boolean): boolean {
     return false
   }
   if (parsed.protocol === 'https:') return true
-  return parsed.protocol === 'http:' && allowLoopbackHttp && LOOPBACK_HOSTS.has(parsed.hostname)
+  if (parsed.protocol !== 'http:') return false
+  if (allowLocalRuntimeHttp && parsed.hostname === LOCAL_MODEL_RUNTIME_HOST) return true
+  return (allowLoopbackHttp || allowLocalRuntimeHttp) && LOOPBACK_HOSTS.has(parsed.hostname)
 }
 
 /** Reads the body, counting bytes; cancels the stream as soon as `maxBytes` is exceeded. */
@@ -63,16 +81,17 @@ async function readBounded(
   }
 
   const reader = body.getReader()
-  const aborted = new Promise<'aborted'>((resolve) => {
-    if (signal.aborted) resolve('aborted')
-    else signal.addEventListener('abort', () => resolve('aborted'), { once: true })
+  // Resolves to null on abort; a read step is never null.
+  const aborted = new Promise<null>((resolve) => {
+    if (signal.aborted) resolve(null)
+    else signal.addEventListener('abort', () => resolve(null))
   })
   const decoder = new TextDecoder()
   let received = 0
   let text = ''
   for (;;) {
     const step = await Promise.race([reader.read(), aborted])
-    if (step === 'aborted') {
+    if (step === null) {
       await reader.cancel().catch(() => undefined)
       return { kind: 'aborted' }
     }
@@ -87,12 +106,38 @@ async function readBounded(
   return { kind: 'text', text: text + decoder.decode() }
 }
 
-export async function boundedRequest(opts: BoundedRequestOptions): Promise<BoundedResult> {
-  if (!isUrlAllowed(opts.url, opts.allowLoopbackHttp === true)) return { kind: 'transport' }
+/** Public entry: HTTPS, or plain HTTP to loopback behind `allowLoopbackHttp`. Nothing else. */
+export function boundedRequest(opts: BoundedRequestOptions): Promise<BoundedResult> {
+  return request(opts, false)
+}
 
+/**
+ * Package-internal entry for the router's local leaf only (ADR §3.3): additionally allows plain
+ * HTTP to loopback or the one constant runtime host. Not re-exported from the package index, and
+ * there is no option to reach this from `boundedRequest` (SR-M-64).
+ */
+export function boundedRequestToLocalRuntime(opts: BoundedRequestOptions): Promise<BoundedResult> {
+  return request(opts, true)
+}
+
+async function request(
+  opts: BoundedRequestOptions,
+  allowLocalRuntimeHttp: boolean,
+): Promise<BoundedResult> {
+  if (!isUrlAllowed(opts.url, opts.allowLoopbackHttp === true, allowLocalRuntimeHttp)) {
+    return { kind: 'transport' }
+  }
+  const { signal } = opts
+  if (signal?.aborted === true) return { kind: 'timeout', aborted: true }
+
+  // Called through a wrapper, never detached from the global object.
   const fetchImpl: FetchLike = opts.fetchImpl ?? ((url, init) => fetch(url, init))
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs)
+  const onAbort = (): void => controller.abort()
+  signal?.addEventListener('abort', onAbort)
+  const stopped = (): BoundedResult =>
+    signal?.aborted === true ? { kind: 'timeout', aborted: true } : { kind: 'timeout' }
   try {
     const response = await fetchImpl(opts.url, {
       ...(opts.method !== undefined && { method: opts.method }),
@@ -104,23 +149,32 @@ export async function boundedRequest(opts: BoundedRequestOptions): Promise<Bound
     })
     const { status } = response
 
-    if (status === 429) {
+    if (status === 429 && opts.readRateLimitDetails !== true) {
       await response.body?.cancel().catch(() => undefined)
       return { kind: 'rate_limited', status }
     }
 
     const read = await readBounded(response, opts.maxBytes, controller.signal)
-    if (read.kind === 'aborted') return { kind: 'timeout' }
+    if (read.kind === 'aborted') return stopped()
+    if (status === 429) {
+      return {
+        kind: 'rate_limited',
+        status,
+        ...(read.kind === 'text' && { text: read.text }),
+        ...(response.headers !== undefined && { headers: response.headers }),
+      }
+    }
     if (status < 200 || status >= 300) {
       return read.kind === 'text'
         ? { kind: 'transport', status, text: read.text }
         : { kind: 'transport', status }
     }
-    if (read.kind === 'too_large') return { kind: 'transport', status }
+    if (read.kind === 'too_large') return { kind: 'transport', status, tooLarge: true }
     return { kind: 'ok', status, text: read.text }
   } catch {
-    return controller.signal.aborted ? { kind: 'timeout' } : { kind: 'transport' }
+    return controller.signal.aborted ? stopped() : { kind: 'transport' }
   } finally {
     clearTimeout(timer)
+    signal?.removeEventListener('abort', onAbort)
   }
 }

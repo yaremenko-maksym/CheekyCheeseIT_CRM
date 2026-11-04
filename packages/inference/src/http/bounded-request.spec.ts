@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   boundedRequest,
+  boundedRequestToLocalRuntime,
   DEFAULT_MAX_BYTES,
   DEFAULT_TIMEOUT_MS,
+  LOCAL_MODEL_RUNTIME_HOST,
   type FetchLike,
 } from './bounded-request'
 
@@ -141,7 +143,7 @@ describe('boundedRequest', () => {
       body: streamOf(['x'.repeat(2000)]),
       text: async () => '',
     })
-    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toStrictEqual({
       kind: 'transport',
       status: 500,
     })
@@ -181,6 +183,341 @@ describe('boundedRequest', () => {
     expect(seen?.headers).toEqual({ a: 'b' })
     expect(seen?.body).toBe('{}')
     expect(seen?.signal).toBeInstanceOf(AbortSignal)
+  })
+})
+
+const hangingFetch: FetchLike = (_u, init) =>
+  new Promise((_res, rej) =>
+    init?.signal?.addEventListener('abort', () => rej(new DOMException('x', 'AbortError'))),
+  )
+
+describe('boundedRequest caller signal (SR-L-38: an abort is not a timeout)', () => {
+  it('cancels a request in flight and reports aborted, not a plain timeout', async () => {
+    const ctrl = new AbortController()
+    let seen: AbortSignal | undefined
+    const f: FetchLike = (u, init) => {
+      seen = init?.signal
+      queueMicrotask(() => ctrl.abort())
+      return hangingFetch(u, init)
+    }
+    expect(await boundedRequest({ ...base, signal: ctrl.signal, fetchImpl: f })).toEqual({
+      kind: 'timeout',
+      aborted: true,
+    })
+    expect(seen?.aborted).toBe(true)
+  })
+
+  it('sends nothing when the signal is already aborted', async () => {
+    let called = false
+    const f: FetchLike = async () => {
+      called = true
+      return { status: 200, body: null, text: async () => 'x' }
+    }
+    const ctrl = new AbortController()
+    ctrl.abort()
+    expect(await boundedRequest({ ...base, signal: ctrl.signal, fetchImpl: f })).toEqual({
+      kind: 'timeout',
+      aborted: true,
+    })
+    expect(called).toBe(false)
+  })
+
+  it('reports an abort during the body read as aborted', async () => {
+    const ctrl = new AbortController()
+    const f: FetchLike = async () => ({
+      status: 200,
+      body: new ReadableStream<Uint8Array>({
+        start() {
+          queueMicrotask(() => ctrl.abort())
+        },
+      }),
+      text: async () => '',
+    })
+    expect(await boundedRequest({ ...base, signal: ctrl.signal, fetchImpl: f })).toEqual({
+      kind: 'timeout',
+      aborted: true,
+    })
+  })
+
+  it('keeps the own timer a plain timeout while the caller signal stays open', async () => {
+    const ctrl = new AbortController()
+    expect(
+      await boundedRequest({ ...base, timeoutMs: 5, signal: ctrl.signal, fetchImpl: hangingFetch }),
+    ).toEqual({ kind: 'timeout' })
+  })
+
+  it('detaches its listener from the caller signal once settled', async () => {
+    const ctrl = new AbortController()
+    const remove = vi.spyOn(ctrl.signal, 'removeEventListener')
+    expect((await boundedRequest({ ...base, signal: ctrl.signal, fetchImpl: okFetch })).kind).toBe(
+      'ok',
+    )
+    expect(remove).toHaveBeenCalledTimes(1)
+    expect(remove.mock.calls[0]?.[0]).toBe('abort')
+  })
+})
+
+describe('boundedRequest rate-limit details and oversize 2xx', () => {
+  const headers = { get: (n: string) => (n === 'retry-after' ? '7' : null) }
+
+  it('keeps the bounded 429 body and the headers only when asked', async () => {
+    const f: FetchLike = async () => ({ status: 429, body: null, text: async () => '{}', headers })
+    expect(
+      await boundedRequest({ ...base, readRateLimitDetails: true, fetchImpl: f }),
+    ).toStrictEqual({ kind: 'rate_limited', status: 429, text: '{}', headers })
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toStrictEqual({
+      kind: 'rate_limited',
+      status: 429,
+    })
+  })
+
+  it('drops an oversize 429 body and absent headers', async () => {
+    const f: FetchLike = async () => ({
+      status: 429,
+      body: streamOf(['x'.repeat(2000)]),
+      text: async () => '',
+    })
+    expect(
+      await boundedRequest({ ...base, readRateLimitDetails: true, fetchImpl: f }),
+    ).toStrictEqual({ kind: 'rate_limited', status: 429 })
+  })
+
+  it('marks an oversize 2xx body as tooLarge', async () => {
+    const f: FetchLike = async () => ({
+      status: 200,
+      body: streamOf(['x'.repeat(2000)]),
+      text: async () => '',
+    })
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toStrictEqual({
+      kind: 'transport',
+      status: 200,
+      tooLarge: true,
+    })
+  })
+})
+
+describe('boundedRequest local runtime plain HTTP (ADR §3.3)', () => {
+  const run = async (url: string, opts: { local?: boolean; loopback?: boolean } = {}) =>
+    (
+      await (opts.local === true ? boundedRequestToLocalRuntime : boundedRequest)({
+        ...base,
+        url,
+        ...(opts.loopback === true && { allowLoopbackHttp: true }),
+        fetchImpl: okFetch,
+      })
+    ).kind
+
+  it('public boundedRequest never reaches the runtime host, even with a stray flag (SR-M-64)', async () => {
+    const fetchImpl = vi.fn(okFetch)
+    const url = 'http://crm-model-runtime/x'
+    expect(await boundedRequest({ ...base, url, fetchImpl })).toEqual({ kind: 'transport' })
+    const stray = { ...base, url, fetchImpl, allowLocalRuntimeHttp: true } as never
+    expect(await boundedRequest(stray)).toEqual({ kind: 'transport' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('public boundedRequest ignores a stray flag for loopback too (SR-M-64)', async () => {
+    const fetchImpl = vi.fn(okFetch)
+    const stray = { ...base, url: 'http://localhost/x', fetchImpl, allowLocalRuntimeHttp: true }
+    expect(await boundedRequest(stray as never)).toEqual({ kind: 'transport' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('names one constant host', () => {
+    expect(LOCAL_MODEL_RUNTIME_HOST).toBe('crm-model-runtime')
+  })
+
+  it('reaches only loopback or the constant host over HTTP', async () => {
+    for (const url of [
+      'http://crm-model-runtime:11434/v1/x',
+      'http://localhost:11434/x',
+      'http://127.0.0.1:8080/x',
+      'http://[::1]:8080/x',
+    ]) {
+      expect(await run(url, { local: true })).toBe('ok')
+    }
+  })
+
+  it('refuses private, link-local, IPv4-mapped and foreign hosts over HTTP', async () => {
+    for (const url of [
+      'http://10.0.0.5/x',
+      'http://192.168.1.2/x',
+      'http://172.16.0.1/x',
+      'http://169.254.169.254/latest',
+      'http://[fe80::1]/x',
+      'http://[::ffff:127.0.0.1]/x',
+      'http://127.0.0.2/x',
+      'http://crm-model-runtime.example.com/x',
+      'http://api.test/x',
+    ]) {
+      expect(await run(url, { local: true })).toBe('transport')
+    }
+  })
+
+  it('does not widen allowLoopbackHttp to the constant host', async () => {
+    expect(await run('http://crm-model-runtime:11434/x', { loopback: true })).toBe('transport')
+    expect(await run('http://crm-model-runtime:11434/x')).toBe('transport')
+  })
+})
+
+describe('boundedRequest body bounds and stream edges', () => {
+  const fixed =
+    (status: number, text: string): FetchLike =>
+    async () => ({
+      status,
+      body: null,
+      text: async () => text,
+    })
+
+  it('accepts a non-streamed body of exactly maxBytes and flags one byte more', async () => {
+    expect(await boundedRequest({ ...base, maxBytes: 4, fetchImpl: fixed(200, 'abcd') })).toEqual({
+      kind: 'ok',
+      status: 200,
+      text: 'abcd',
+    })
+    expect(
+      await boundedRequest({ ...base, maxBytes: 4, fetchImpl: fixed(200, 'abcde') }),
+    ).toStrictEqual({ kind: 'transport', status: 200, tooLarge: true })
+  })
+
+  it('accepts a streamed body of exactly maxBytes', async () => {
+    const f: FetchLike = async () => ({
+      status: 200,
+      body: streamOf(['ab', 'cd']),
+      text: async () => '',
+    })
+    expect((await boundedRequest({ ...base, maxBytes: 4, fetchImpl: f })).kind).toBe('ok')
+  })
+
+  it('decodes a multi-byte character split across chunks', async () => {
+    const bytes = new TextEncoder().encode('é')
+    let i = 0
+    const f: FetchLike = async () => ({
+      status: 200,
+      body: new ReadableStream<Uint8Array>({
+        pull(c) {
+          if (i < bytes.length) c.enqueue(bytes.slice(i, ++i))
+          else c.close()
+        },
+      }),
+      text: async () => '',
+    })
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({
+      kind: 'ok',
+      status: 200,
+      text: 'é',
+    })
+  })
+
+  it('keeps a streamed error body as text', async () => {
+    const f: FetchLike = async () => ({
+      status: 500,
+      body: streamOf(['oops']),
+      text: async () => '',
+    })
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({
+      kind: 'transport',
+      status: 500,
+      text: 'oops',
+    })
+  })
+
+  it('treats 1xx and 300 as failure statuses', async () => {
+    for (const status of [199, 300]) {
+      expect((await boundedRequest({ ...base, fetchImpl: fixed(status, 'x') })).kind).toBe(
+        'transport',
+      )
+    }
+  })
+
+  it('reads chunks that arrive later', async () => {
+    const f: FetchLike = async () => ({
+      status: 200,
+      body: new ReadableStream<Uint8Array>({
+        async pull(c) {
+          await new Promise((r) => setTimeout(r, 1))
+          c.enqueue(new TextEncoder().encode('late'))
+          c.close()
+        },
+      }),
+      text: async () => '',
+    })
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({
+      kind: 'ok',
+      status: 200,
+      text: 'late',
+    })
+  })
+
+  it('stops and cancels a body that ignores the abort and never ends', async () => {
+    let cancelled = false
+    const f: FetchLike = async () => ({
+      status: 200,
+      body: new ReadableStream<Uint8Array>({
+        cancel() {
+          cancelled = true
+        },
+      }),
+      text: async () => '',
+    })
+    expect(await boundedRequest({ ...base, timeoutMs: 5, fetchImpl: f })).toEqual({
+      kind: 'timeout',
+    })
+    expect(cancelled).toBe(true)
+  })
+
+  it('stops reading when the timer fired before the response arrived', async () => {
+    const f: FetchLike = () =>
+      new Promise((resolve) =>
+        setTimeout(
+          () =>
+            resolve({ status: 200, body: new ReadableStream<Uint8Array>(), text: async () => '' }),
+          20,
+        ),
+      )
+    expect(await boundedRequest({ ...base, timeoutMs: 5, fetchImpl: f })).toEqual({
+      kind: 'timeout',
+    })
+  })
+
+  it('sends only signal and redirect when no method, headers or body are given', async () => {
+    let seen: Parameters<FetchLike>[1]
+    const f: FetchLike = async (_u, init) => {
+      seen = init
+      return { status: 200, body: null, text: async () => '' }
+    }
+    await boundedRequest({ ...base, fetchImpl: f })
+    expect(Object.keys(seen ?? {}).sort()).toEqual(['redirect', 'signal'])
+  })
+
+  it('refuses non-HTTP schemes to the constant host and loopback whatever the flags', async () => {
+    for (const url of ['ftp://crm-model-runtime/x', 'ftp://localhost/x', 'ws://127.0.0.1/x']) {
+      const r = await boundedRequestToLocalRuntime({
+        ...base,
+        url,
+        allowLoopbackHttp: true,
+        fetchImpl: okFetch,
+      })
+      expect(r.kind).toBe('transport')
+    }
+  })
+})
+
+describe('boundedRequest default transport (CO-L-6)', () => {
+  it('calls the global fetch through a wrapper with the url and init', async () => {
+    const calls: unknown[][] = []
+    vi.stubGlobal('fetch', async (...args: unknown[]) => {
+      calls.push(args)
+      return { status: 200, body: null, text: async () => 'g' }
+    })
+    try {
+      expect(await boundedRequest(base)).toEqual({ kind: 'ok', status: 200, text: 'g' })
+      expect(calls).toHaveLength(1)
+      expect(calls[0]?.[0]).toBe(base.url)
+      expect((calls[0]?.[1] as { redirect?: string }).redirect).toBe('error')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
 

@@ -40,9 +40,13 @@ export type ChatCompletionOptions = {
   fetchImpl?: FetchLike
 }
 
-/** One OpenAI-compatible chat/completions call through the bounded transport. Never throws. */
-export async function sendChatCompletion(opts: ChatCompletionOptions): Promise<ChatCallResult> {
-  const messages = [
+/** The bounded system + user (+ correction) messages every chat call sends. */
+export function buildChatMessages(opts: {
+  instruction?: string
+  input: string
+  correction?: string
+}): { role: string; content: string }[] {
+  return [
     {
       role: 'system',
       content: (opts.instruction ?? DEFAULT_EXTRACTION_INSTRUCTION).slice(
@@ -55,8 +59,27 @@ export async function sendChatCompletion(opts: ChatCompletionOptions): Promise<C
       ? [{ role: 'user', content: `Your previous answer was rejected. ${opts.correction}` }]
       : []),
   ]
+}
+
+/** `JSON.parse`, with `null` for text that is not JSON (every caller refuses a `null` document). */
+export function parseJsonOrNull(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+/** `<baseUrl>/chat/completions`, trailing slashes of the base collapsed. */
+export function chatCompletionsUrl(baseUrl: string): string {
+  return `${baseUrl.replace(/\/+$/, '')}/chat/completions`
+}
+
+/** One OpenAI-compatible chat/completions call through the bounded transport. Never throws. */
+export async function sendChatCompletion(opts: ChatCompletionOptions): Promise<ChatCallResult> {
+  const messages = buildChatMessages(opts)
   const result = await boundedRequest({
-    url: `${opts.baseUrl.replace(/\/+$/, '')}/chat/completions`,
+    url: chatCompletionsUrl(opts.baseUrl),
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -70,8 +93,8 @@ export async function sendChatCompletion(opts: ChatCompletionOptions): Promise<C
     }),
     timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxBytes: DEFAULT_MAX_BYTES,
-    ...(opts.allowLoopbackHttp !== undefined && { allowLoopbackHttp: opts.allowLoopbackHttp }),
-    ...(opts.fetchImpl !== undefined && { fetchImpl: opts.fetchImpl }),
+    allowLoopbackHttp: opts.allowLoopbackHttp === true,
+    fetchImpl: opts.fetchImpl,
   })
   switch (result.kind) {
     case 'rate_limited':
@@ -87,13 +110,7 @@ export async function sendChatCompletion(opts: ChatCompletionOptions): Promise<C
             : 'PROVIDER_ERROR',
       }
     case 'ok': {
-      let json: unknown
-      try {
-        json = JSON.parse(result.text)
-      } catch {
-        return { ok: false, code: 'PROVIDER_ERROR' }
-      }
-      const env = envelopeSchema.safeParse(json)
+      const env = envelopeSchema.safeParse(parseJsonOrNull(result.text))
       if (!env.success) return { ok: false, code: 'PROVIDER_ERROR' }
       const totalTokens = env.data.usage?.total_tokens
       return {
