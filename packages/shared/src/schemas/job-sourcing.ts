@@ -1737,13 +1737,13 @@ export const jobQueueActivitySchema = z.enum(['OPENED', 'NOT_OPENED'])
  * A multi-select query parameter: a comma-separated list of enum members,
  * de-duplicated. An empty or unknown member is a 400, never "no restriction".
  */
-const csvEnumListSchema = <const V extends readonly [string, ...string[]]>(values: V) =>
+const csvEnumListSchema = <E extends z.ZodType<string, string>>(member: E) =>
   z
     .string()
     // Every source type, comma-joined, is 396 characters today.
     .max(600)
     .transform((s) => [...new Set(s.split(',').map((v) => v.trim()))])
-    .pipe(z.array(z.enum(values)))
+    .pipe(z.array(member))
 
 /**
  * GET `/job-queue`. `teamId` absent = the HR's first active team in stable
@@ -1756,10 +1756,10 @@ export const jobQueueListQuerySchema = z
     teamId: z.string().uuid().optional(),
     tab: jobQueueTabSchema.default('NEW'),
     search: z.string().trim().min(1).max(200).optional(),
-    source: csvEnumListSchema(jobSourceTypeSchema.options).optional(),
-    eligibility: csvEnumListSchema(jobQueueEligibilitySchema.options).optional(),
-    availability: csvEnumListSchema(jobAvailabilitySchema.options).optional(),
-    activity: csvEnumListSchema(jobQueueActivitySchema.options).optional(),
+    source: csvEnumListSchema(jobSourceTypeSchema).optional(),
+    eligibility: csvEnumListSchema(jobQueueEligibilitySchema).optional(),
+    availability: csvEnumListSchema(jobAvailabilitySchema).optional(),
+    activity: csvEnumListSchema(jobQueueActivitySchema).optional(),
     seniorId: z.string().uuid().optional(),
     cursor: z.string().min(1).max(300).optional(),
     limit: z.coerce.number().int().min(1).max(50).default(20),
