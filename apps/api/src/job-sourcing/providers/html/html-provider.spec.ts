@@ -2041,6 +2041,24 @@ describe('one egress: admitted and paced before anything is reserved (CR-M-2, CR
       return { w, p }
     }
 
+    it('a wait that ends before the deadline lets the request go, and leaves no timer behind', async () => {
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+      const w = world({
+        routes: twoItems(),
+        robots: () => allowed(5),
+        deadline: new Date(NOW.getTime() + 10_000),
+      })
+      const { p } = provider(w, { hostGate: new InMemoryHostGate() })
+      const running = p.collectHtml(config(), w.ctx)
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(w.sent).toEqual([page1, detailUrl('a')])
+      await vi.advanceTimersByTimeAsync(5_000)
+      const r = await running
+      expect(w.sent).toEqual([page1, detailUrl('a'), detailUrl('b')])
+      expect(r.detail).toMatchObject({ fetched: 2, stop: null })
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
     it('a listing page whose wait reaches the deadline is a DEADLINE refusal, nothing reserved', async () => {
       const { w, p } = slowHost({
         [page1]: { bodyText: listing([item('a', 'https://o.example/a')], 'c2') },

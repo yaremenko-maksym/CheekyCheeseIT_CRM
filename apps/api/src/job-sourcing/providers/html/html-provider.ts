@@ -970,7 +970,7 @@ export abstract class HtmlProvider<
     // gate is a decision, and an unavailable model a configuration state (retrying it re-fetches
     // for nothing), so both reach all; budget, a failure and a partial pass leave the rest owed.
     const remainingIds = 'remainingIds' in outcome ? outcome.remainingIds : []
-    const owed = new Set(outcome.kind === 'MODEL_UNAVAILABLE' ? [] : remainingIds)
+    const owed = outcome.kind === 'MODEL_UNAVAILABLE' ? new Set<string>() : new Set(remainingIds)
     const reached = new Set([...candidates.keys()].filter((id) => !owed.has(id)))
     if (outcome.kind !== 'EXTRACTED' && outcome.kind !== 'PARTIAL') {
       return {
