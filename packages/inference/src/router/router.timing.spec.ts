@@ -112,6 +112,15 @@ describe('router stopping (§5.5): budgets and the ceiling', () => {
     expect(Date.now() - started).toBeLessThan(100 + 200 + 1_000)
   })
 
+  it('a hosted TIMEOUT keeps its own-cap unit spent (the request may have been counted)', async () => {
+    const cap = countingCap()
+    const f = scriptedFetch((s) => (s.host === hostOf.local ? GOOD : 'hang'))
+    const d = deps(f.fetchImpl, { ...realSleep, ownCap: cap })
+    await createRouter(config([{ ...GROQ, timeoutMs: 50 }, LOCAL]), d).run(REQ)
+    expect(cap.reserved).toEqual(['groq'])
+    expect(cap.released).toEqual([])
+  })
+
   it('the adapter maps an abort it can never receive to TIMEOUT and passes results through', async () => {
     const { createRouterExtractionAdapter } = await import('./router')
     const f = scriptedFetch(() => GOOD)
