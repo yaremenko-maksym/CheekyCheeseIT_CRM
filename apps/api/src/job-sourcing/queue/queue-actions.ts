@@ -25,7 +25,7 @@ export const scopeTeamId = (scope: WriteScope): string | null =>
 /**
  * What a submit does about the (opportunity, senior) row it found.
  *
- *   INSERT   no row, or (see REPLACE) nothing the actor may know about;
+ *   INSERT   no row;
  *   UPDATE   the actor's own scope's cancelled row, at the version the client named;
  *   REPLACE  ANOTHER scope's cancelled row: DELETE + INSERT, so the actor gets a new id and version
  *            1 and cannot infer that the row existed (owner decision A3);
