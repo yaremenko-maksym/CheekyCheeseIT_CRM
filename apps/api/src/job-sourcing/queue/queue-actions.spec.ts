@@ -26,7 +26,6 @@ const STUDIO: WriteScope = { kind: 'STUDIO' }
 const row = (over: Partial<ExistingSubmission> = {}): ExistingSubmission => ({
   id: ROW,
   state: 'TAKEN',
-  scopeKind: 'TEAM',
   teamId: TEAM_A,
   version: 3,
   ...over,
@@ -70,7 +69,7 @@ describe('decideSubmit', () => {
       })
     })
     it('treats a STUDIO row as the STUDIO scope own', () => {
-      const studioRow = row({ scopeKind: 'STUDIO', teamId: null, state: 'RELEASED' })
+      const studioRow = row({ teamId: null, state: 'RELEASED' })
       expect(decideSubmit(studioRow, STUDIO, 3)).toEqual({ kind: 'UPDATE', id: ROW, version: 3 })
     })
   })
@@ -94,9 +93,9 @@ describe('decideSubmit', () => {
     })
     it('a team row is foreign to STUDIO and a STUDIO row is foreign to a team', () => {
       expect(decideSubmit(row(), STUDIO, undefined)).toEqual({ kind: 'ELSEWHERE' })
-      expect(
-        decideSubmit(row({ scopeKind: 'STUDIO', teamId: null }), teamScope(TEAM_A), undefined),
-      ).toEqual({ kind: 'ELSEWHERE' })
+      expect(decideSubmit(row({ teamId: null }), teamScope(TEAM_A), undefined)).toEqual({
+        kind: 'ELSEWHERE',
+      })
     })
   })
 })
@@ -134,6 +133,7 @@ describe('parseActionReplay', () => {
   it('is null for a redacted reason, a non-string and a wrong shape', () => {
     expect(parseActionReplay('[redacted]')).toBeNull()
     expect(parseActionReplay(null)).toBeNull()
+    expect(parseActionReplay(undefined)).toBeNull()
     expect(parseActionReplay('{"seniorId":"not-an-id","fp":"x"}')).toBeNull()
     expect(parseActionReplay('{"nofp":true}')).toBeNull()
   })

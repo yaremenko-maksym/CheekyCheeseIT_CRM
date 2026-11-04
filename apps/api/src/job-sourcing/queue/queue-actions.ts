@@ -11,7 +11,7 @@ import type { JobQueueScope } from './queue-scope'
 export interface ExistingSubmission {
   readonly id: string
   readonly state: 'TAKEN' | 'RELEASED'
-  readonly scopeKind: 'TEAM' | 'STUDIO'
+  /** NULL for a STUDIO row: `ck_job_queue_assignments_scope_shape` ties the two together. */
   readonly teamId: string | null
   readonly version: number
 }
@@ -48,14 +48,13 @@ export function decideSubmit(
   scope: WriteScope,
   expectedVersion: number | undefined,
 ): SubmitDecision {
-  const own =
-    existing !== null && existing.scopeKind === scope.kind && existing.teamId === scopeTeamId(scope)
-  if (existing !== null && !own) {
+  if (existing === null) {
+    return expectedVersion === undefined ? { kind: 'INSERT' } : { kind: 'STALE' }
+  }
+  if (existing.teamId !== scopeTeamId(scope)) {
     if (existing.state === 'TAKEN') return { kind: 'ELSEWHERE' }
     return expectedVersion === undefined ? { kind: 'REPLACE', id: existing.id } : { kind: 'STALE' }
   }
-  if (existing === null)
-    return expectedVersion === undefined ? { kind: 'INSERT' } : { kind: 'STALE' }
   if (existing.state === 'TAKEN' || existing.version !== expectedVersion) return { kind: 'STALE' }
   return { kind: 'UPDATE', id: existing.id, version: existing.version }
 }
@@ -103,12 +102,11 @@ export type ActionReplay = z.infer<typeof actionReplaySchema>
  * caller answers `JOB_QUEUE_IDEMPOTENCY_CONFLICT`, never a guess.
  */
 export function parseActionReplay(reason: unknown): ActionReplay | null {
-  if (typeof reason !== 'string') return null
   let parsed: unknown
   try {
-    parsed = JSON.parse(reason)
+    parsed = JSON.parse(reason as string)
   } catch {
-    return null
+    // Not JSON: `parsed` stays undefined, and the schema below refuses it.
   }
   const result = actionReplaySchema.safeParse(parsed)
   return result.success ? result.data : null

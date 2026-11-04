@@ -57,7 +57,7 @@ const PATTERNS = {
   rosterUsers: /SELECT u\.id, u\.tech_stack/,
   rosterManual: /FROM job_exclusion_filters/,
   rosterProjects: /FROM projects/,
-  existing: /SELECT id, state, scope_kind, team_id, version FROM job_queue_assignments/,
+  existing: /SELECT id, state, team_id, version FROM job_queue_assignments/,
   duplicates: /SELECT a\.opportunity_id FROM job_queue_assignments a/,
   remove: /DELETE FROM job_queue_assignments/,
   insert: /INSERT INTO job_queue_assignments/,
@@ -315,6 +315,7 @@ describe('submit — refused before any write', () => {
     noWrites(h.hits)
     const seniorCall = h.calls.find((c) => PATTERNS.senior.test(c.text))
     expect(seniorCall?.params).toEqual([SENIOR, TEAM_A])
+    expect(seniorCall?.text).toContain('tm.team_id = ')
     for (const clause of [
       'tm.left_at IS NULL',
       "u.role = 'SENIOR'",
@@ -360,6 +361,21 @@ describe('submit — refused before any write', () => {
     expect(unnamed.param('insert')).toHaveLength(5)
   })
 
+  it('reads the revision and company of the target, wherever it sorts in the set', async () => {
+    const lowerCopy = {
+      ...COPY_ROW,
+      id: '00000000-0000-4000-8000-000000000001',
+      revision: 99,
+      employer_name: 'Other',
+    }
+    const h = harness({
+      lockSet: [lowerCopy, COPY_ROW],
+      rosterManual: [exclusion(SENIOR, 'Other')],
+    })
+    await expect(h.svc.submit(HR, OPP, submitBody())).resolves.toBeDefined()
+    expect(h.param('insert')[0]).toBe(OPP)
+  })
+
   it('a stale opportunity revision is the generic conflict', async () => {
     const h = harness()
     await expectStale(h.svc.submit(HR, OPP, submitBody({ expectedOpportunityRevision: 3 })))
@@ -372,7 +388,6 @@ describe('submit — an existing row (owner decision A3)', () => {
   const foreign = (state: 'TAKEN' | 'RELEASED') => ({
     id: SUB,
     state,
-    scope_kind: 'TEAM',
     team_id: TEAM_B,
     version: 7,
   })
@@ -434,6 +449,17 @@ describe('submit — an existing row (owner decision A3)', () => {
     expect(h.param('log').slice(5, 7)).toEqual([2, 3])
     expect(h.hits).not.toContain('remove')
     expect(h.hits).not.toContain('insert')
+  })
+
+  it('a STUDIO cancelled row is the STUDIO scope own: UPDATE; a STUDIO live row is its own conflict', async () => {
+    const studioRow = { id: SUB, team_id: null, version: 2 }
+    const reopen = harness({ existing: [{ ...studioRow, state: 'RELEASED' }] }, STUDIO_SCOPE)
+    await reopen.svc.submit(ADMIN, OPP, submitBody({ expectedVersion: 2 }))
+    expect(reopen.hits).toContain('reopen')
+    expect(reopen.hits).not.toContain('remove')
+    const live = harness({ existing: [{ ...studioRow, state: 'TAKEN' }] }, STUDIO_SCOPE)
+    const r = await refusal(live.svc.submit(ADMIN, OPP, submitBody()))
+    expect(r.body).not.toHaveProperty('submittedElsewhere')
   })
 
   it('the UPDATE clears the release fields and takes the new actor', async () => {
@@ -507,6 +533,7 @@ describe('submit — possible duplicates', () => {
     expect(call?.text).toContain("a.state = 'TAKEN'")
     expect(call?.text).toContain('a.team_id = ')
     expect(call?.text).toContain('EXISTS (SELECT 1 FROM job_opportunity_matches')
+    expect(call?.text).toContain('m.opportunity_id = a.opportunity_id')
   })
 
   it('bounds the preview at five and still counts them all', async () => {
@@ -537,7 +564,7 @@ describe('submit — possible duplicates', () => {
   it('the existing-row answer comes before the duplicates answer', async () => {
     const h = harness({
       lockSet: copies(1),
-      existing: [{ id: SUB, state: 'TAKEN', scope_kind: 'TEAM', team_id: TEAM_A, version: 1 }],
+      existing: [{ id: SUB, state: 'TAKEN', team_id: TEAM_A, version: 1 }],
     })
     await expectStale(h.svc.submit(HR, OPP, submitBody()))
     expect(h.hits).not.toContain('duplicates')
@@ -587,6 +614,12 @@ describe('submit — a retry', () => {
     expect(h.hits).toEqual(['lockSet', 'earlier', 'name'])
     expect(h.param('earlier')).toEqual([HR_ID, KEY])
     expect(h.param('name')).toEqual([OTHER_HR])
+  })
+
+  it('a name that cannot be read is null, never a failed retry', async () => {
+    const h = harness({ earlier: earlier(), name: [] })
+    const res = await h.svc.submit(HR, OPP, submitBody())
+    expect(res.submission.submittedByName).toBeNull()
   })
 
   it('the same key with another payload is the idempotency conflict', async () => {
@@ -680,6 +713,7 @@ describe('cancelSubmission', () => {
     const h = harness(answers)
     await h.svc.cancelSubmission(HR, OPP, SUB, body)
     expect(h.param('cancelRead')).toEqual([SUB, OPP, TEAM_A])
+    expect(h.calls.find((c) => PATTERNS.cancelRead.test(c.text))?.text).toContain('a.team_id = ')
   })
 
   it('never calls assertVisible: a hidden opportunity can still have its record corrected', async () => {
@@ -855,6 +889,21 @@ describe('dismiss', () => {
     await expectNotFound(harness().svc.dismiss(HR, 'nope', body))
   })
 
+  it('a named version is part of the request identity on a retry', async () => {
+    const fp = requestFingerprint(['DISMISSED', OPP, 'TEAM', TEAM_A, 'SPAM', 2])
+    const h = harness({
+      earlier: [
+        {
+          reason: JSON.stringify({ fp, dismissReason: 'SPAM' }),
+          after_version: 3,
+          created_at: new Date(T1),
+        },
+      ],
+    })
+    const res = await h.svc.dismiss(HR, OPP, { ...body, expectedVersion: 2 })
+    expect(res.version).toBe(3)
+  })
+
   it('a retry answers from the log; another payload conflicts', async () => {
     const earlier = [
       {
@@ -933,7 +982,9 @@ describe('undo', () => {
     await expectNotFound(h.svc.undo(HR, OPP, { ...body, scope: 'STUDIO' }))
     expect(h.hits).toEqual([])
     await expectNotFound(harness({}, { kind: 'NONE' }).svc.undo(HR, OPP, body))
-    await expectNotFound(harness().svc.undo(HR, 'nope', body))
+    const malformed = harness()
+    await expectNotFound(malformed.svc.undo(HR, 'nope', body))
+    expect(malformed.transaction).not.toHaveBeenCalled()
   })
 
   it('a retry answers from the log with hidden false', async () => {

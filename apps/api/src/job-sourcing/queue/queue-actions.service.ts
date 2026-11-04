@@ -275,7 +275,8 @@ export class JobQueueActionsService {
       await this.lockActor(tx, user, scope)
       await this.scopes.assertVisible(scope, opportunity, tx)
       const existing = await this.existingDismissal(tx, opportunity, scope)
-      const decision = decideDismiss(existing?.version ?? null, request.expectedVersion)
+      const currentVersion = existing?.version ?? null
+      const decision = decideDismiss(currentVersion, request.expectedVersion)
       if (decision === 'STALE') throw versionConflict()
       const { rows } = await tx.execute(
         decision === 'INSERT'
@@ -290,7 +291,7 @@ export class JobQueueActionsService {
                        version = version + 1, updated_at = now()
                  WHERE opportunity_id = ${opportunity}::uuid AND scope_kind = ${scope.kind}
                    AND team_id IS NOT DISTINCT FROM ${scopeTeamId(scope)}::uuid
-                   AND version = ${existing?.version ?? null}
+                   AND version = ${currentVersion}
              RETURNING version`,
       )
       const after = rows[0]
@@ -301,7 +302,7 @@ export class JobQueueActionsService {
         opportunity,
         actorId: user.id,
         scope,
-        before: existing?.version ?? 0,
+        before: currentVersion ?? 0,
         after: version,
         key: request.idempotencyKey,
         replay: { fp: fingerprint, dismissReason: request.reason },
@@ -559,11 +560,11 @@ export class JobQueueActionsService {
       ),
     )
     if (actor.rows.length === 0) throw notFound()
-    if (user.role === 'ADMIN' || scope.kind === 'STUDIO') return
+    if (user.role === 'ADMIN') return
     const membership = await this.scopes.policy(() =>
       tx.execute(
         sql`SELECT id FROM team_members
-             WHERE team_id = ${scope.teamId}::uuid AND user_id = ${user.id}::uuid
+             WHERE team_id = ${scopeTeamId(scope)}::uuid AND user_id = ${user.id}::uuid
                AND left_at IS NULL
                FOR SHARE`,
       ),
@@ -598,8 +599,10 @@ export class JobQueueActionsService {
     )
     if (member.rows.length === 0) throw notFound()
     const { exclusions } = await this.scopes.policy(() => loadRoster(tx))
+    // Stryker disable next-line StringLiteral: equivalent — another fallback could only match an exclusion spelled exactly like it, and an unnamed employer has no such name
+    const companyName = target.employerName ?? ''
     const stopListed = findMatchingExclusion(
-      { companyName: target.employerName ?? '', title: target.title },
+      { companyName, title: target.title },
       exclusions.filter((e) => e.seniorId === seniorId),
     )
     if (stopListed !== null) throw notFound()
@@ -611,7 +614,7 @@ export class JobQueueActionsService {
     seniorId: string,
   ): Promise<ExistingSubmission | null> {
     const { rows } = await tx.execute(
-      sql`SELECT id, state, scope_kind, team_id, version FROM job_queue_assignments
+      sql`SELECT id, state, team_id, version FROM job_queue_assignments
            WHERE opportunity_id = ${opportunity}::uuid AND senior_id = ${seniorId}::uuid`,
     )
     const row = rows[0]
@@ -619,7 +622,6 @@ export class JobQueueActionsService {
     return {
       id: String(row['id']),
       state: row['state'] as ExistingSubmission['state'],
-      scopeKind: row['scope_kind'] as ExistingSubmission['scopeKind'],
       teamId: row['team_id'] === null ? null : String(row['team_id']),
       version: Number(row['version']),
     }
