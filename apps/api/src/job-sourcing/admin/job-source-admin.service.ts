@@ -1,4 +1,10 @@
-import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common'
+import {
+  ForbiddenException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import type {
   CreateJobSourceNoteDto,
   ExcludedJobSourceDto,
@@ -8,11 +14,14 @@ import type {
   JobSourceExclusionReason,
   JobSourceOperationalRowDto,
   JobSourceRunDto,
+  JobSourceSwitchResultDto,
   JobSourceTimelineEventDto,
   ResetJobSourceFailuresDto,
   SessionUser,
+  SetJobSourceEnabledDto,
 } from '@crm/shared'
 import { and, desc, eq, gte, inArray, max, sql } from 'drizzle-orm'
+import { apiError } from '../../common/api-error'
 import { DatabaseService } from '../../database/database.service'
 // Schema tables through the barrel (never the individual modules): the ordered-import
 // `public` circular-init trap documented in job-source-health.service.ts.
@@ -32,7 +41,8 @@ const DETAIL_EVENT_LIMIT = 100
  *
  * The ONLY write is T3's `JobRunLedger.resetFailures`: the counter, the cooldown, the due time and
  * the `RESET_FAILURES` audit entry all live there, appended in SQL (SR-L-25), so this service never
- * does its own read-modify-write of `admin_state_history`. The listing is read only.
+ * does its own read-modify-write of `admin_state_history`. The listing is read only. r5 Task 6.5
+ * adds the second ledger write, `JobRunLedger.setEnabled` (the source switch), on the same terms.
  *
  * RBAC: the controller carries `@Roles('ADMIN')`, and every method here re-checks the role, because
  * `RolesGuard` is a no-op on a handler without `@Roles` (security-review "no-op RolesGuard").
@@ -74,6 +84,39 @@ export class JobSourceAdminService {
       reason: body.reason,
     })
     if (!found) throw new NotFoundException('Job source not found')
+  }
+
+  /**
+   * r5 Task 6.5: the ADMIN source switch. The ledger's `setEnabled` does the whole change in one
+   * transaction (the flag, the audit entry, the fencing of in-flight runs on disable); this maps
+   * its outcome onto the typed error codes. Enable refusals are 409: the request is well formed,
+   * the source's state forbids it.
+   */
+  async setEnabled(
+    sourceId: string,
+    body: SetJobSourceEnabledDto,
+    actor: SessionUser,
+  ): Promise<JobSourceSwitchResultDto> {
+    this.assertAdmin(actor)
+    const id = sourceId.toLowerCase()
+    const outcome = await this.ledger.setEnabled({
+      sourceId: id,
+      actor: actor.id,
+      enabled: body.enabled,
+    })
+    if (outcome.kind === 'NOT_FOUND') throw apiError('JOB_SOURCE_NOT_FOUND', HttpStatus.NOT_FOUND)
+    if (outcome.kind === 'REFUSED') {
+      throw apiError(
+        outcome.reason === 'AUTH_PAUSED' ? 'JOB_SOURCE_AUTH_PAUSED' : 'JOB_SOURCE_NOT_READY',
+        HttpStatus.CONFLICT,
+      )
+    }
+    return {
+      id,
+      enabled: body.enabled,
+      changed: outcome.changed,
+      cancelledRuns: outcome.cancelledRuns,
+    }
   }
 
   /**
