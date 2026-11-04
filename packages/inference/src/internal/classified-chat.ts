@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import {
   boundedRequest,
+  boundedRequestToLocalRuntime,
   DEFAULT_MAX_BYTES,
   DEFAULT_TIMEOUT_MS,
   type BoundedResult,
@@ -258,7 +259,9 @@ export async function sendClassifiedChatCompletion(
   if (opts.apiKey !== undefined && URL.canParse(url) && new URL(url).protocol === 'http:') {
     return { ok: false, code: 'TRANSPORT', responded: false }
   }
-  const result = await boundedRequest({
+  // Only the local leaf may reach the runtime host over plain HTTP (SR-M-64).
+  const send = local ? boundedRequestToLocalRuntime : boundedRequest
+  const result = await send({
     url,
     method: 'POST',
     headers: {
@@ -275,7 +278,6 @@ export async function sendClassifiedChatCompletion(
     timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxBytes: DEFAULT_MAX_BYTES,
     readRateLimitDetails: true,
-    allowLocalRuntimeHttp: local,
     signal: opts.signal,
     fetchImpl: opts.fetchImpl,
   })

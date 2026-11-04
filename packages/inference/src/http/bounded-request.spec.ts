@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   boundedRequest,
+  boundedRequestToLocalRuntime,
   DEFAULT_MAX_BYTES,
   DEFAULT_TIMEOUT_MS,
   LOCAL_MODEL_RUNTIME_HOST,
@@ -298,14 +299,29 @@ describe('boundedRequest rate-limit details and oversize 2xx', () => {
 describe('boundedRequest local runtime plain HTTP (ADR §3.3)', () => {
   const run = async (url: string, opts: { local?: boolean; loopback?: boolean } = {}) =>
     (
-      await boundedRequest({
+      await (opts.local === true ? boundedRequestToLocalRuntime : boundedRequest)({
         ...base,
         url,
-        ...(opts.local === true && { allowLocalRuntimeHttp: true }),
         ...(opts.loopback === true && { allowLoopbackHttp: true }),
         fetchImpl: okFetch,
       })
     ).kind
+
+  it('public boundedRequest never reaches the runtime host, even with a stray flag (SR-M-64)', async () => {
+    const fetchImpl = vi.fn(okFetch)
+    const url = 'http://crm-model-runtime/x'
+    expect(await boundedRequest({ ...base, url, fetchImpl })).toEqual({ kind: 'transport' })
+    const stray = { ...base, url, fetchImpl, allowLocalRuntimeHttp: true } as never
+    expect(await boundedRequest(stray)).toEqual({ kind: 'transport' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('public boundedRequest ignores a stray flag for loopback too (SR-M-64)', async () => {
+    const fetchImpl = vi.fn(okFetch)
+    const stray = { ...base, url: 'http://localhost/x', fetchImpl, allowLocalRuntimeHttp: true }
+    expect(await boundedRequest(stray as never)).toEqual({ kind: 'transport' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
 
   it('names one constant host', () => {
     expect(LOCAL_MODEL_RUNTIME_HOST).toBe('crm-model-runtime')
@@ -476,10 +492,9 @@ describe('boundedRequest body bounds and stream edges', () => {
 
   it('refuses non-HTTP schemes to the constant host and loopback whatever the flags', async () => {
     for (const url of ['ftp://crm-model-runtime/x', 'ftp://localhost/x', 'ws://127.0.0.1/x']) {
-      const r = await boundedRequest({
+      const r = await boundedRequestToLocalRuntime({
         ...base,
         url,
-        allowLocalRuntimeHttp: true,
         allowLoopbackHttp: true,
         fetchImpl: okFetch,
       })

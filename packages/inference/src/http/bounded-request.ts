@@ -36,11 +36,6 @@ export interface BoundedRequestOptions {
   timeoutMs: number
   maxBytes: number
   allowLoopbackHttp?: boolean
-  /**
-   * Plain HTTP to loopback or the one package-constant local runtime host. Set only by the
-   * router's local leaf; `allowLoopbackHttp` (and so `LOCAL_MODEL_URL`) is not widened.
-   */
-  allowLocalRuntimeHttp?: boolean
   /** On a 429, read the bounded body and keep the headers instead of discarding them. */
   readRateLimitDetails?: boolean
   signal?: AbortSignal | undefined
@@ -111,10 +106,25 @@ async function readBounded(
   return { kind: 'text', text: text + decoder.decode() }
 }
 
-export async function boundedRequest(opts: BoundedRequestOptions): Promise<BoundedResult> {
-  if (
-    !isUrlAllowed(opts.url, opts.allowLoopbackHttp === true, opts.allowLocalRuntimeHttp === true)
-  ) {
+/** Public entry: HTTPS, or plain HTTP to loopback behind `allowLoopbackHttp`. Nothing else. */
+export function boundedRequest(opts: BoundedRequestOptions): Promise<BoundedResult> {
+  return request(opts, false)
+}
+
+/**
+ * Package-internal entry for the router's local leaf only (ADR §3.3): additionally allows plain
+ * HTTP to loopback or the one constant runtime host. Not re-exported from the package index, and
+ * there is no option to reach this from `boundedRequest` (SR-M-64).
+ */
+export function boundedRequestToLocalRuntime(opts: BoundedRequestOptions): Promise<BoundedResult> {
+  return request(opts, true)
+}
+
+async function request(
+  opts: BoundedRequestOptions,
+  allowLocalRuntimeHttp: boolean,
+): Promise<BoundedResult> {
+  if (!isUrlAllowed(opts.url, opts.allowLoopbackHttp === true, allowLocalRuntimeHttp)) {
     return { kind: 'transport' }
   }
   const { signal } = opts
