@@ -351,6 +351,32 @@ describe('router cascade: BUSY (§5.1)', () => {
     ])
   })
 
+  it('two cool-downs at once: the expired one is tried again, the active one still blocks (CR-M-6)', async () => {
+    let now = NOON
+    let hosted = 0
+    const f = scriptedFetch((s) => {
+      if (s.host === hostOf.local) return GOOD
+      hosted++
+      if (hosted === 1) return busy({ 'retry-after': '20' }) // 120b cools for 20 s
+      if (hosted === 2) return busy({ 'retry-after': '40' }) // 20b cools for 40 s
+      return answer('nope') // 120b, tried again, gives no valid answer
+    })
+    const d = deps(f.fetchImpl, { now: () => now })
+    const router = createRouter(config([GROQ, LOCAL]), d)
+    await router.run(REQ)
+    now += 20_000
+    await router.run(REQ)
+    expect(f.sent.filter((s) => s.host === hostOf.groq).map((s) => s.model)).toEqual([
+      'openai/gpt-oss-120b',
+      'openai/gpt-oss-20b',
+      'openai/gpt-oss-120b',
+      'openai/gpt-oss-120b',
+    ])
+    now += 20_000
+    await router.run(REQ)
+    expect(f.sent.filter((s) => s.host === hostOf.groq).at(-1)?.model).toBe('openai/gpt-oss-20b')
+  })
+
   it('a cool-down ends at the provider day turn', async () => {
     let now = Date.parse('2026-11-04T23:59:00Z')
     const f = scriptedFetch((s, n) => (n === 1 ? busy({ 'retry-after': '3600' }) : GOOD))

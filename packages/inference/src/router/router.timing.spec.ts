@@ -245,9 +245,20 @@ describe('router stopping (§5.5 item 5): one local request in flight', () => {
     expect(pendingLocalQueues()).toBe(0)
   })
 
+  it('loopback spellings and the container name share one queue (SR-L-71)', async () => {
+    const f = scriptedFetch((): Reply => ({ ...(GOOD as Exclude<Reply, string>), delayMs: 30 }))
+    const urls = ['http://127.0.0.1:11434/v1', 'http://localhost:11434/v1', 'http://[::1]:11434/v1']
+    const routers = [LOCAL.baseUrl, ...urls].map((baseUrl) =>
+      createRouter(config([{ ...LOCAL, baseUrl }]), deps(f.fetchImpl, realSleep)),
+    )
+    const results = await Promise.all(routers.map((r) => r.run(REQ)))
+    expect(results.every((r) => r.ok)).toBe(true)
+    expect(f.stats.peakInFlight).toBe(1)
+  })
+
   it('routers on two runtimes do not queue behind each other', async () => {
     const f = scriptedFetch((): Reply => ({ ...(GOOD as Exclude<Reply, string>), delayMs: 30 }))
-    const other = { ...LOCAL, baseUrl: 'http://127.0.0.1:11434/v1' }
+    const other = { ...LOCAL, baseUrl: 'https://10.0.0.5/v1' }
     const a = createRouter(config([LOCAL]), deps(f.fetchImpl, realSleep))
     const b = createRouter(config([other]), deps(f.fetchImpl, realSleep))
     await Promise.all([a.run(REQ), b.run(REQ)])

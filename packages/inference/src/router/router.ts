@@ -13,6 +13,7 @@ import { runExtraction } from '../internal/extraction-pipeline'
 import { createStrictSchema, type JsonSchema } from '../internal/strict-schema'
 import {
   HOSTED_BASE_URLS,
+  localRuntimeKey,
   routerConfigSchema,
   type HostedProvider,
   type HostedRouteConfig,
@@ -201,21 +202,20 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
   // Process memory (§3.1): rotation, minimum gaps, busy cool-downs, loud-once.
   let rotation = 0
   const nextFreeAt = new Map<HostedProvider, number>()
-  const coolUntil = new Map<string, { until: number; day: string }>()
+  const coolUntil = new Map<string, { p: HostedProvider; until: number; day: string }>()
   const announced = new Set<string>()
-  const runtime = new URL(local.baseUrl).origin
+  const runtime = localRuntimeKey(local.baseUrl)
 
   const coolKey = (p: HostedProvider, model: string): string => `${p}\u0000${model}`
+  /** The map holds only live cool-downs (SR-L-70); one never outlives the provider's reset (§5.1). */
   const coolingDown = (p: HostedProvider, model: string): boolean => {
-    const c = coolUntil.get(coolKey(p, model))
-    // A cool-down never outlives the provider's reset (§5.1 durations).
-    return c !== undefined && c.day === providerDay(p, now()) && now() < c.until
+    for (const [key, c] of coolUntil) {
+      if (now() >= c.until || c.day !== providerDay(c.p, now())) coolUntil.delete(key)
+    }
+    return coolUntil.has(coolKey(p, model))
   }
   const coolDown = (p: HostedProvider, model: string, ms: number): void => {
-    // SR-L-70: bounds memory only; `coolingDown` already ignores an expired entry, so no call can see it.
-    // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent mutants (memory-only)
-    for (const [key, c] of coolUntil) if (now() >= c.until) coolUntil.delete(key)
-    coolUntil.set(coolKey(p, model), { until: now() + ms, day: providerDay(p, now()) })
+    coolUntil.set(coolKey(p, model), { p, until: now() + ms, day: providerDay(p, now()) })
   }
   const disable = (p: HostedProvider, code: 'AUTH' | 'CREDIT'): void => {
     if (announced.has(`${p}:${code}`)) return
@@ -280,7 +280,9 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
 
     /**
      * Waits for port writes no longer than the hosted budget (SR-L-70). Every port applies its change
-     * to memory before it writes, so a slow store delays nothing but its own durability.
+     * to memory before it writes, so a slow store delays nothing but its own durability. Residual
+     * window, accepted to keep the ceiling: a write still pending when the process exits is lost, so
+     * the own cap restarts low by that much; the provider's own limit (`SPENT_DAY`) is the backstop.
      */
     async function withinBudget<R>(work: Promise<R>): Promise<R | undefined> {
       const stop = new AbortController()

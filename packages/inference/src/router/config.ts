@@ -52,6 +52,16 @@ export function isAllowedRouterLocalModelUrl(raw: string): boolean {
   return url.protocol === 'https:' && (named || isPrivateIpv4(host) || isUniqueLocalIpv6(host))
 }
 
+/**
+ * The single-flight key of a local runtime (SR-L-71): every loopback spelling and the runtime
+ * container name are one runtime, whatever the scheme or port; a private address is its origin.
+ */
+export function localRuntimeKey(baseUrl: string): string {
+  const url = new URL(baseUrl)
+  const named = LOOPBACK_HOSTS.has(url.hostname) || url.hostname === LOCAL_MODEL_RUNTIME_HOST
+  return named ? 'local-runtime' : url.origin
+}
+
 const STRUCTURED_OUTPUT = z.enum(['json_schema', 'json_object', 'none'])
 const positiveInt = z.number().int().positive()
 

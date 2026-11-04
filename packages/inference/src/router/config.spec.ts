@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   HOSTED_BASE_URLS,
+  localRuntimeKey,
   isAllowedRouterLocalModelUrl,
   ownCapOf,
   routerCallCeilingMs,
@@ -163,6 +164,24 @@ describe('isAllowedRouterLocalModelUrl (ADR §3.3)', () => {
     ['not a URL', 'localhost:11434'],
   ])('refuses %s', (_label, url) => {
     expect(isAllowedRouterLocalModelUrl(url)).toBe(false)
+  })
+})
+
+describe('localRuntimeKey (SR-L-71)', () => {
+  it.each([
+    'http://localhost:11434/v1',
+    'http://127.0.0.1:11434/v1',
+    'http://[::1]:11434/v1',
+    'http://crm-model-runtime:11434/v1',
+    'https://localhost/v1',
+    'http://LOCALHOST:8080',
+  ])('%s is the one local runtime', (url) => {
+    expect(localRuntimeKey(url)).toBe('local-runtime')
+  })
+
+  it('a private address is its own origin', () => {
+    expect(localRuntimeKey('https://10.0.0.5:8443/v1')).toBe('https://10.0.0.5:8443')
+    expect(localRuntimeKey('https://10.0.0.6/v1')).toBe('https://10.0.0.6')
   })
 })
 

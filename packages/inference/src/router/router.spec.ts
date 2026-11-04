@@ -363,6 +363,40 @@ describe('router: store writes are awaited inside the hosted budget (SR-L-70)', 
     expect(byHost(f.sent)).toEqual([hostOf.groq])
   })
 
+  it('a token write outliving the budget: the call returns, memory already counts it, the write still lands (CR-L)', async () => {
+    const mem = createMemoryRouteStatePort()
+    const held: (() => void)[] = []
+    let landed = 0
+    const routeState: RouteStatePort = {
+      snapshot: mem.snapshot,
+      update: (change) => {
+        void mem.update(change)
+        // the reservation writes at once; every later write waits for the test to let it land
+        if (mem.snapshot().providers[0]?.ownCap?.tokens === 0) return Promise.resolve(true)
+        return new Promise((resolve) =>
+          held.push(() => {
+            landed++
+            resolve(true)
+          }),
+        )
+      },
+    }
+    const ownCap = createOwnCapPort({ state: routeState, now: () => NOON })
+    const f = scriptedFetch(() => GOOD)
+    const d = deps(f.fetchImpl, { routeState, ownCap, now: () => NOON })
+    const r = await createRouter(config([GROQ, LOCAL], { hostedBudgetMs: 20 }), d).run(REQ)
+    expect(r).toMatchObject({ ok: true, usage: { totalTokens: 10 } })
+    expect(byHost(f.sent)).toEqual([hostOf.groq])
+    expect(mem.snapshot().providers[0]?.ownCap).toEqual({
+      day: '2026-11-04',
+      requests: 1,
+      tokens: 10,
+    })
+    expect(landed).toBe(0)
+    held.forEach((land) => land())
+    expect(landed).toBe(1)
+  })
+
   it('the budget timer is cancelled once a write finished: no timer outlives the call', async () => {
     const timers = () => process.getActiveResourcesInfo().filter((r) => r === 'Timeout').length
     const f = scriptedFetch(() => GOOD)
