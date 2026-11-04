@@ -6735,3 +6735,40 @@ team's scope. Today it resolves (visible); after the fix it is a 404. Run this o
 integration spec only, never on the live `crm_db`: seeding writes rows.
 
 Sources: PR #1255 spec review round 2.
+
+## 351. Queue read service: generation publish cost grows with the opportunity table, and MP-13 is unmeasured at MP-07 size (2026-11-04)
+
+**Behaviour now.** A first-page request that finds no servable generation publishes one: it ranks every listable
+opportunity (a lateral aggregate over match rows, then a global sort) and keeps the top 5000 entries. Cost grows with
+the number of listable opportunities, not with the retained 5000, and runs in the request path under the scope's
+advisory lock. Measured before the merge with main: 50,000 opportunities, publish plus first page 3.3 s, unselective
+page 83 ms, selective tab 164 ms (the budgets are assumptions; the plan names none). The same page and tally queries
+also evaluate the per-row lateral joins over all retained entries on every page. The plan's MP-13 asks for
+`EXPLAIN ANALYZE` of list, card and count on MP-07-sized data; no such run exists.
+
+**Candidate fixes.** Pre-filter candidates before ranking (a bounded candidate window per scope, or a persisted
+rank that the recompute maintains); publish from a background refresh instead of the request; narrow the lateral
+joins to the page's rows after the keyset cut.
+
+**Verify.** Run the MP-13 integration spec at MP-07 size on a scratch DB (never the live `crm_db`) and compare the
+three numbers above; re-run after any candidate fix.
+
+Sources: PR #1262 reviews (CR-M-1, SPEC-M-1, panel).
+
+## 352. Queue cursor and generation policy: two low-severity gaps noted by the security review of Task 6.2 (2026-11-04)
+
+**Behaviour now.** (a) The generation policy signature, which binds a cursor to its generation, does not include the
+studio-wide keyword-exclusion version. After a studio keyword change, an already served generation keeps its order
+until it expires; visibility is re-checked on every read, so nothing leaks, only the order is stale on the
+triage-grant path. (b) Rotating `SESSION_SECRET` makes every outstanding cursor fail the signature check and answer
+400 malformed, not the 409 refresh-required a client knows how to recover from.
+
+**Candidate fixes.** (a) Add the inputs version to the signature. (b) Key-id the cursor and accept the previous key
+for one TTL, or map a signature failure on a well-formed cursor to refresh-required (weigh against the
+tampering signal).
+
+**Verify.** (a) Change a global keyword exclusion, then request page 2 with a cursor from before the change: today it
+is served; after the fix it is a 409. (b) Sign a cursor with one secret, resolve with another: today 400. Scratch DB
+or integration spec only.
+
+Sources: PR #1262 security review (notes).
