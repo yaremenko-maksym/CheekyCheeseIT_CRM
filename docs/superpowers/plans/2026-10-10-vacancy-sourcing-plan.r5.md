@@ -1087,8 +1087,9 @@ name; another team sees only `{ submittedElsewhere: true }`. UNIQUE(opportunity,
 promoted as written (no double application at the employer). What remains before promoting the staged DDL is the
 re-measure in its header (the table is empty on production).
 
-The key is shared, so a shared senior's second submission hits the same row. This follows from "teams are invisible to
-each other":
+**Implementer's reading (not an owner decision).** Only option (a) above is the owner's decision. The rest of this
+block is how the implementer applies it together with "teams are invisible to each other"; it may be revised in
+review without asking the owner again. The key is shared, so a shared senior's second submission hits the same row:
 
 - **Team B on A's LIVE submission:** B gets the marker and a conflict with no foreign id, timestamps, version, submitter
   or team, in any response or error. The marker is for a live submission only.

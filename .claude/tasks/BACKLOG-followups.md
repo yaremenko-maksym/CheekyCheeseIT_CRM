@@ -6694,9 +6694,42 @@ the sweep reaches them (`reconcileOnce` treats them as stale under the
 `RECONCILE:EVAL:` reason, draining 2,000 per 6-hour tick through the shared MATCH queue); until then a grant keeps
 them hidden. Read `SELECT count(*) FROM job_opportunities` before promoting, to size that backlog.
 
-**Verify.** `SELECT count(*) FROM job_opportunities WHERE (evaluated_revision IS DISTINCT FROM revision OR
-evaluated_inputs_version IS NULL) AND availability IN ('OPEN', 'UNKNOWN')` falls towards zero after promotion with
-the flag on. The queue-scope integration spec's SR-M-1 / SR-M-2 cases assert the 404s.
+**Verify.** The sweep's backlog is every OPEN or UNKNOWN opportunity whose recorded revision differs from its
+revision, or whose recorded inputs version differs from the LIVE digest (`opportunityInputsVersion` of the current
+studio-wide exclusions). A non-NULL stale digest is part of it, so a count of NULL / revision-mismatch rows alone
+reads 0 right after a keyword change or a rule deploy while the backlog is not drained. Count against the live
+digest instead, with `$1` = the live digest (what `JobQueueScopeService.resolve` puts on a TEAM scope as
+`inputsVersion`):
+
+```sql
+SELECT count(*) FROM job_opportunities
+ WHERE availability IN ('OPEN', 'UNKNOWN')
+   AND (evaluated_revision IS DISTINCT FROM revision OR evaluated_inputs_version IS DISTINCT FROM $1);
+```
+
+Without the digest at hand, group instead: `SELECT evaluated_inputs_version, count(*) FROM job_opportunities WHERE
+availability IN ('OPEN', 'UNKNOWN') GROUP BY 1`. Each value is one generation of inputs, NULL included; the backlog is
+drained when only one non-NULL value remains and the revision-mismatch count is 0. Either count falls towards zero
+after promotion with the flag on. The queue-scope integration spec's SR-M-1 / SR-M-2 cases assert the 404s.
 
 Sources: PR #1253 review (SR-M-2, SR-M-4, SPEC-M-4, CR-M-3); PR #1255 security review (SR-M-1, SR-M-2, SR-L-1);
 coder blocker analysis; owner decisions 2026-11-04.
+
+## 350. Queue visibility: an opportunity evaluated OPEN before its posting's expiry stays visible after the expiry passes (2026-11-04)
+
+**Behaviour now.** Layer 1 classifies freshness against the clock at evaluation time, so a posting whose expiry
+date is still ahead is evaluated OPEN. When that date passes, nothing changes the opportunity's revision, its
+recorded inputs version or its availability, and those are all the triage-grant branch of queue visibility and the
+match reconciliation sweep key on. The item stays OPEN and visible to a team holding a grant until something else
+bumps the revision or the availability worker marks it EXPIRED. This predates PR #1255: the earlier per-row check
+behaved the same.
+
+**Candidate fixes.** (a) Record the earliest expiry the verdict relied on next to the evaluation record, and require
+it to be in the future in the grant branch, so the predicate fails closed at the expiry. (b) Re-evaluate on a schedule:
+have the sweep treat an OPEN opportunity whose expiry has passed since its evaluation as unevaluated.
+
+**Verify.** Seed an opportunity evaluated OPEN at its current revision and the live inputs version, whose posting
+expiry is in the past and whose availability is still OPEN; grant it to a team and call `assertVisible` with that
+team's scope. Today it resolves (visible); after the fix it is a 404.
+
+Sources: PR #1255 spec review round 2.
