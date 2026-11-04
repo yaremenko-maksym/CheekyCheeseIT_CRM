@@ -332,6 +332,26 @@ describe('JobQueueService.list', () => {
   })
 })
 
+describe('JobQueueService without a cursor key', () => {
+  it.each([
+    ['no ConfigService at all', undefined],
+    ['an empty secret', { get: () => '' } as unknown as ConfigService<Env, true>],
+  ])('%s: no cursor is honoured, whatever it was signed with', async (_label, config) => {
+    const h = harness(teamScope)
+    const svc = new JobQueueService(
+      { db: { execute: h.execute } } as unknown as DatabaseService,
+      h.scopes as unknown as JobQueueScopeService,
+      config,
+    )
+    const forged = signCursor({ t: 'L', g: GEN, k: 0, s: 's', e: FAR }, '')
+    expect(await refusal(svc.list(user, query({ cursor: forged })))).toEqual({
+      status: 503,
+      code: 'JOB_QUEUE_POLICY_UNAVAILABLE',
+    })
+    expect(h.execute).not.toHaveBeenCalled()
+  })
+})
+
 describe('toListItem', () => {
   it('clips text to the wire bounds rather than failing the whole page', () => {
     const item = toListItem(

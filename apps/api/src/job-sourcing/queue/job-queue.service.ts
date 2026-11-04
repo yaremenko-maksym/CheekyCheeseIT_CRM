@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable } from '@nestjs/common'
+import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import {
   DESCRIPTION_MD_MAX,
@@ -169,11 +169,14 @@ export class JobQueueService {
   constructor(
     @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(JobQueueScopeService) private readonly scopes: JobQueueScopeService,
-    @Inject(ConfigService) private readonly config: ConfigService<Env, true>,
+    @Optional() @Inject(ConfigService) private readonly config?: ConfigService<Env, true>,
   ) {}
 
+  /** Optional only for the module-wiring specs, as in the crons: with no key, no cursor is issued or honoured. */
   private get secret(): string {
-    return this.config.get('SESSION_SECRET', { infer: true })
+    const secret = this.config?.get('SESSION_SECRET', { infer: true })
+    if (!secret) throw apiError('JOB_QUEUE_POLICY_UNAVAILABLE', HttpStatus.SERVICE_UNAVAILABLE)
+    return secret
   }
 
   async list(user: SessionUser, query: JobQueueListQuery): Promise<JobQueueListResponseDto> {
