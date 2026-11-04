@@ -1737,6 +1737,7 @@ export const jobQueueActivitySchema = z.enum(['OPENED', 'NOT_OPENED'])
  * A multi-select query parameter: a comma-separated list of enum members,
  * de-duplicated. An empty or unknown member is a 400, never "no restriction".
  */
+// Stryker disable next-line ArrowFunction: this helper runs only at module import (schema construction), before any test's per-test coverage window opens, so the vitest runner cannot activate the mutant inside a test (the static-mutant blind spot documented in interviews.ts). Replacing it with `() => undefined` makes `.optional()` throw at import, failing every test file; the multi-select behaviour is pinned by job-sourcing-queue-api.spec.ts.
 const csvEnumListSchema = <E extends z.ZodType<string, string>>(member: E) =>
   z
     .string()
@@ -1835,11 +1836,32 @@ export const jobQueueSubmissionSchema = z
     submittedByName: z.string().max(255).nullable(),
   })
   .strict()
-  // Two explicit branches (CR-M-1 of #1015), never an equality of two booleans.
-  .refine((s) => (s.state === 'RELEASED' ? s.cancelledAt !== null : s.cancelledAt === null), {
-    message: 'a cancelled submission records when, and only a cancelled one does',
-    path: ['cancelledAt'],
-  })
+  // One explicit case per state: a state added later has no case, returns
+  // undefined and is refused, instead of silently passing as "not cancelled".
+  .refine(
+    (s) => {
+      switch (s.state) {
+        case 'TAKEN':
+          return s.cancelledAt === null
+        case 'RELEASED':
+          return s.cancelledAt !== null
+      }
+    },
+    {
+      message: 'a cancelled submission records when, and only a cancelled one does',
+      path: ['cancelledAt'],
+    },
+  )
+
+/**
+ * Another team's live submission of a SHARED senior (owner decision A3, option
+ * (a) — pending): a bare marker, NEVER the submission object. No id, no
+ * timestamps, no version, no name, no team. Phase 6's real-DB spec must assert
+ * each of those fields is absent from the card JSON, not merely unparsed.
+ */
+export const jobQueueForeignSubmissionSchema = z
+  .object({ submittedElsewhere: z.literal(true) })
+  .strict()
 
 /** One of the viewer's own seniors on the card. */
 export const jobQueueCardSeniorSchema = z
@@ -1849,7 +1871,8 @@ export const jobQueueCardSeniorSchema = z
     /** «Збіг неточний»: match confidence, not availability. */
     matchApproximate: z.boolean(),
     matchedKeywords: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(200),
-    submission: jobQueueSubmissionSchema.nullable(),
+    /** Own scope: the full row. Another team's (shared senior only): the bare marker. */
+    submission: z.union([jobQueueSubmissionSchema, jobQueueForeignSubmissionSchema]).nullable(),
   })
   .strict()
 
@@ -1904,7 +1927,11 @@ export const jobQueueSubmitRequestSchema = z
   })
   .strict()
 
-/** DELETE-like POST `/job-queue/:id/submissions/:submissionId/cancel`. */
+/**
+ * POST `/job-queue/:id/submissions/:submissionId/cancel` — own team's recruiter or ADMIN.
+ * A `submissionId` that does not exist, belongs to another opportunity or to another team
+ * answers `JOB_OPPORTUNITY_NOT_FOUND` (404) — the same as a missing one; no distinct code.
+ */
 export const jobQueueCancelSubmissionRequestSchema = z
   .object({
     teamId: z.string().uuid().optional(),
@@ -2074,6 +2101,7 @@ export type JobQueueScopeQuery = z.infer<typeof jobQueueScopeQuerySchema>
 export type JobQueueListItemDto = z.infer<typeof jobQueueListItemSchema>
 export type JobQueueListResponseDto = z.infer<typeof jobQueueListResponseSchema>
 export type JobQueueSubmissionDto = z.infer<typeof jobQueueSubmissionSchema>
+export type JobQueueForeignSubmissionDto = z.infer<typeof jobQueueForeignSubmissionSchema>
 export type JobQueueCardSeniorDto = z.infer<typeof jobQueueCardSeniorSchema>
 export type JobQueueSeniorsContinuationDto = z.infer<typeof jobQueueSeniorsContinuationSchema>
 export type JobQueueSourcesContinuationDto = z.infer<typeof jobQueueSourcesContinuationSchema>

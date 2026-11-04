@@ -42,7 +42,9 @@
  *     target must be eligible" obligation is void; no path writes `REASSIGNED`;
  *   - no team ever learns of another team's activity: a foreign submission,
  *     dismissal or click is indistinguishable from none (no taken state, no
- *     count, no name);
+ *     count, no name) — with ONE exception pending the owner's A3 decision: a
+ *     senior shared by several teams (see the PROMOTION GATE on
+ *     `jobQueueAssignments`);
  *   - SR-L-3: an EXPIRED published generation is never served
  *     (`expires_at <= now()` means refresh-required, even while it is still
  *     the PUBLISHED row of its scope);
@@ -216,6 +218,15 @@ const TRIAGE_KINDS = sql.raw(
  * outlive a recompute, so it names the senior directly (RESTRICT, like every
  * actor column here) and carries the same (opportunity, senior) key the match
  * row is keyed on, which is what lets a read join the two.
+ *
+ * PROMOTION GATE (owner decision A3, open): a senior may belong to several
+ * teams, so UNIQUE(opportunity, senior) lets team B learn of team A's
+ * submission through a 23505 and re-submit A's cancelled row. Under option
+ * (a) "a submission is a fact about the senior" this key stands and B sees
+ * only a bare "submitted elsewhere" marker; under option (b) "per team" the
+ * key becomes (opportunity, senior, team) with `team_id` NOT NULL for team
+ * rows. The staged DDL must not be promoted, nor the submit path shipped,
+ * before the owner answers (see the staged file's header).
  *
  * `assignee_id` is now the ACTOR who logged the submission, never shown
  * outside that actor's team. The `reassigned_*` triple is DEAD: ADMIN reassign

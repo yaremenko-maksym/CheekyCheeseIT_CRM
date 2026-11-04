@@ -171,6 +171,9 @@ sends the next reader to ask it again.
 
 - **No global "taken" state.** An opportunity another team worked on must look, to this actor, exactly like one
   nobody touched — not greyed, badged or labelled. The only activity ever shown is the actor's own team's.
+  **Exception pending the owner (A3, raised by Phase 6 T0):** a senior who belongs to several teams — see Task 6.3
+  "Open decision"; under the recommended option another team's submission of that senior shows only as a bare
+  "submitted elsewhere" marker, and the staged per-senior DDL is not promoted until this is decided.
 - **A submission is a per-senior fact** on one opportunity; several of a team's seniors may be submitted to it
   independently. It hangs off the existing per-senior match row (`job_opportunity_matches`, already keyed on
   opportunity × senior and versioned).
@@ -1028,7 +1031,10 @@ triage marks the system's uncertainty and is not a lock.
 any form: no taken badge, no count, no name, no distinct error. A foreign submission, dismissal or click is
 indistinguishable from none. In particular a 409 never reveals that a _foreign_ row exists: a conflict is reported
 only against rows inside the actor's own scope, and an opportunity outside the scope is the same
-`JOB_OPPORTUNITY_NOT_FOUND` 404 as a missing one.
+`JOB_OPPORTUNITY_NOT_FOUND` 404 as a missing one. **One exception, pending the owner (see "Open decision" below):** a
+senior who belongs to several teams. Under option (a) another team's live submission of that senior is shown as the
+bare marker `jobQueueForeignSubmissionSchema` (`{ submittedElsewhere: true }`) — never its id, timestamps, version,
+submitter or team.
 
 **Who may do what.**
 
@@ -1062,17 +1068,28 @@ two unmerged copies cannot both pass without confirmation.
 
 **Routes this changes in Task 6.4.** `POST /job-queue/:id/take` becomes `POST /job-queue/:id/submissions`
 (`jobQueueSubmitRequestSchema`); `release` becomes `POST /job-queue/:id/submissions/:submissionId/cancel`
-(`jobQueueCancelSubmissionRequestSchema`; own team's recruiter or ADMIN); **`reassign` is removed**. Throttles stay as
-in the table. Legacy `job_posting_signals` stays untouched; new indexes only via staged forward DDL.
+(`jobQueueCancelSubmissionRequestSchema`; own team's recruiter or ADMIN); **`reassign` is removed**. A
+`submissionId` that does not exist, belongs to another opportunity or to another team answers
+`JOB_OPPORTUNITY_NOT_FOUND` (404), the same as a missing one — no distinct code. Throttles stay as in the table. Legacy
+`job_posting_signals` stays untouched; new indexes only via staged forward DDL.
 
-**Open decision (A3, raised by T0 — blocks only the submit/cancel visibility branch, not the schema).** `team_members`
-allows one senior in **several** teams. With UNIQUE(opportunity, senior), a senior shared by teams A and B and
-submitted by A would make B's attempt fail on the constraint — which itself discloses A's activity. Either (a) a
-submission is a fact about the senior and is shown to every team the senior is an active member of (B sees "submitted"
-without who; no double application at the employer), or (b) the key becomes per team as well and two teams may submit
-the same senior (no disclosure, but a double application). Recommendation: **(a)**, because a double application harms
-the senior at the employer and the shared senior is common knowledge to both teams. Until the owner answers, Task 6.3
-must not ship the submit path.
+**Another team's submission on the card (option (a) only).** The card's per-senior `submission` is either the full
+`jobQueueSubmissionSchema` row — only for a submission inside the viewer's scope — or the bare marker
+`jobQueueForeignSubmissionSchema` (`{ submittedElsewhere: true }`) for another team's live submission of a shared
+senior. Never the foreign row itself. The Task 6.4 real-DB spec asserts on the raw card JSON that each of `id`,
+`submittedAt`, `cancelledAt`, `version`, `submittedByName`, `teamId` is ABSENT from a foreign marker (absence, not
+merely "did not parse").
+
+**Open decision (A3, raised by T0 — a PROMOTION GATE for the staged DDL, not only for the submit path).**
+`team_members` allows one senior in **several** teams. With UNIQUE(opportunity, senior), a senior shared by teams A and
+B and submitted by A would make B's attempt fail on the constraint — which itself discloses A's activity — and B could
+re-submit (UPDATE) A's cancelled row. Either (a) a submission is a fact about the senior and is shown to every team the
+senior is an active member of as the bare marker above (no double application at the employer; the key stands), or (b)
+submissions are per team — the key changes to UNIQUE(opportunity, senior, team) and `team_id` must become NOT NULL for
+team rows, so the staged file is rewritten before promotion (no disclosure, but a double application).
+Recommendation: **(a)**, because a double application harms the senior at the employer and the shared senior is common
+knowledge to both teams. Until the owner answers, the staged DDL is not promoted and Task 6.3 does not ship the submit
+path (the gate is restated in the staged file's header and in `schema/job-queue.ts`).
 
 - [ ] Real-DB tests: two seniors submitted to one opportunity both succeed; the same senior twice — one wins, the
       other is a version / unique conflict without foreign identity; repeated key; lost-response retry; audit failure

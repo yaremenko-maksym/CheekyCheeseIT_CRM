@@ -1,3 +1,5 @@
+/* `ok` and `no` below call `expect` internally; teach the rule about them rather than disabling it. */
+/* eslint vitest/expect-expect: ["error", { assertFunctionNames: ["expect", "ok", "no"] }] */
 import { describe, expect, it } from 'vitest'
 import type { z } from 'zod'
 import {
@@ -27,6 +29,8 @@ import {
   jobQueueTabSchema,
   jobQueueUndoRequestSchema,
   jobSourceTypeSchema,
+  jobQueueForeignSubmissionSchema,
+  DESCRIPTION_MD_MAX,
 } from './job-sourcing'
 
 /**
@@ -42,6 +46,17 @@ const U3 = '77777777-8888-4999-8aaa-bbbbbbbbbbbb'
 const NOW = '2026-11-04T12:00:00.000Z'
 const LATER = '2026-11-04T13:00:00.000Z'
 const URL = 'https://jobs.dou.ua/companies/acme/vacancies/1/'
+
+type Parseable = { safeParse: (value: unknown) => { success: boolean } }
+
+/** A deep copy of `value` with `{ [field]: <uuid> }` added to the object at `path`. */
+function injectAt(value: unknown, path: ReadonlyArray<string | number>, field: string): unknown {
+  const copy = structuredClone(value) as Record<string | number, unknown>
+  let target = copy
+  for (const key of path) target = target[key] as Record<string | number, unknown>
+  target[field] = U3
+  return copy
+}
 
 const listItem = {
   opportunityId: U1,
@@ -360,6 +375,120 @@ describe('request shapes', () => {
   })
 })
 
+describe('requests refuse an unknown key (CR-M-1)', () => {
+  it.each([
+    [
+      'submit',
+      jobQueueSubmitRequestSchema,
+      { seniorId: U2, idempotencyKey: U3, expectedOpportunityRevision: 1 },
+    ],
+    ['cancel', jobQueueCancelSubmissionRequestSchema, { idempotencyKey: U1, expectedVersion: 1 }],
+    [
+      'dismiss',
+      jobQueueDismissRequestSchema,
+      { scope: 'TEAM', reason: 'SPAM', idempotencyKey: U1 },
+    ],
+    ['undo', jobQueueUndoRequestSchema, { scope: 'TEAM', idempotencyKey: U1, expectedVersion: 1 }],
+    ['opened', jobQueueOpenedRequestSchema, { sourceRecordId: U2 }],
+    ['list query', jobQueueListQuerySchema, {}],
+    ['scope query', jobQueueScopeQuerySchema, {}],
+  ] as const)('%s', (_name, schema: Parseable, body) => {
+    expect(schema.safeParse(body).success, 'the clean body must parse').toBe(true)
+    expect(schema.safeParse({ ...body, assigneeId: U3 }).success).toBe(false)
+  })
+})
+
+describe('field bounds, both sides of each limit (CR-M-2)', () => {
+  const s = (n: number) => 'x'.repeat(n)
+  const ok = (schema: Parseable, value: unknown) =>
+    expect(schema.safeParse(value).success).toBe(true)
+  const no = (schema: Parseable, value: unknown) =>
+    expect(schema.safeParse(value).success).toBe(false)
+
+  it('multi-select raw list: 600 accepted, 601 refused', () => {
+    // 599 characters of members + one trailing space (trimmed) = exactly 600.
+    ok(jobQueueListQuerySchema, { source: 'DOU_RSS,'.repeat(74) + 'DOU_RSS ' })
+    no(jobQueueListQuerySchema, { source: 'DOU_RSS,'.repeat(75) + 'S' })
+  })
+
+  it('cursor (query) and nextCursor (every page): short and 300 accepted, 301 refused', () => {
+    for (const cursor of ['cc', s(300)]) ok(jobQueueListQuerySchema, { cursor })
+    no(jobQueueListQuerySchema, { cursor: s(301) })
+    for (const cursor of ['cc', s(300)]) ok(jobQueueScopeQuerySchema, { cursor })
+    no(jobQueueScopeQuerySchema, { cursor: s(301) })
+    const page = { items: [], counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 } }
+    for (const [schema, base] of [
+      [jobQueueListResponseSchema, page],
+      [jobQueueSeniorsContinuationSchema, card.seniors],
+      [jobQueueSourcesContinuationSchema, card.sources],
+    ] as const) {
+      ok(schema, { ...base, nextCursor: 'c' })
+      ok(schema, { ...base, nextCursor: s(300) })
+      no(schema, { ...base, nextCursor: s(301) })
+    }
+  })
+
+  it('title 500, companyName 255, location 500 on a list row', () => {
+    ok(jobQueueListItemSchema, { ...listItem, title: s(500) })
+    no(jobQueueListItemSchema, { ...listItem, title: s(501) })
+    ok(jobQueueListItemSchema, { ...listItem, companyName: s(255) })
+    no(jobQueueListItemSchema, { ...listItem, companyName: s(256) })
+    ok(jobQueueListItemSchema, { ...listItem, location: 'Kyiv' })
+    ok(jobQueueListItemSchema, { ...listItem, location: s(500) })
+    no(jobQueueListItemSchema, { ...listItem, location: s(501) })
+  })
+
+  it('matchedKeywords: 200 items accepted, 201 refused', () => {
+    const kw = (n: number) => ({
+      ...senior,
+      matchedKeywords: Array.from({ length: n }, () => 'ts'),
+    })
+    ok(jobQueueCardSeniorSchema, kw(200))
+    no(jobQueueCardSeniorSchema, kw(201))
+  })
+
+  it('descriptionMd: the limit accepted, one more refused', () => {
+    ok(jobQueueCardResponseSchema, { ...card, descriptionMd: s(DESCRIPTION_MD_MAX) })
+    no(jobQueueCardResponseSchema, { ...card, descriptionMd: s(DESCRIPTION_MD_MAX + 1) })
+    expect(DESCRIPTION_MD_MAX).toBe(50000)
+  })
+})
+
+describe("another team's submission is a bare marker (SR-M-2)", () => {
+  const withSubmission = (submission: unknown) => ({ ...senior, submission })
+
+  it('accepts exactly { submittedElsewhere: true }', () => {
+    expect(jobQueueForeignSubmissionSchema.parse({ submittedElsewhere: true })).toEqual({
+      submittedElsewhere: true,
+    })
+    expect(
+      jobQueueCardSeniorSchema.safeParse(withSubmission({ submittedElsewhere: true })).success,
+    ).toBe(true)
+    expect(jobQueueCardSeniorSchema.safeParse(withSubmission(null)).success).toBe(true)
+  })
+
+  it('refuses a false marker and any field of the foreign row riding along', () => {
+    expect(jobQueueForeignSubmissionSchema.safeParse({ submittedElsewhere: false }).success).toBe(
+      false,
+    )
+    expect(jobQueueForeignSubmissionSchema.safeParse({}).success).toBe(false)
+    for (const field of [
+      'id',
+      'submittedAt',
+      'cancelledAt',
+      'version',
+      'submittedByName',
+      'seniorId',
+    ]) {
+      const leaky = {
+        submittedElsewhere: true,
+        [field]: (submitted as Record<string, unknown>)[field],
+      }
+      expect(jobQueueCardSeniorSchema.safeParse(withSubmission(leaky)).success, field).toBe(false)
+    }
+  })
+})
+
 // ---------------------------------------------------------------------------
 // AC4 — no response shape can carry another team's identity
 // ---------------------------------------------------------------------------
@@ -383,6 +512,8 @@ function keysOf(schema: z.core.$ZodType, seen = new Set<unknown>()): string[] {
       return child(def['innerType'])
     case 'pipe':
       return [...child(def['in']), ...child(def['out'])]
+    case 'union':
+      return (def['options'] as unknown[]).flatMap(child)
     default:
       return []
   }
@@ -400,6 +531,7 @@ const RESPONSES = {
   jobQueueDismissalResponseSchema,
   jobQueuePossibleDuplicateConflictSchema,
   jobQueueRecomputeResponseSchema,
+  jobQueueForeignSubmissionSchema,
 }
 
 /** Names that would identify another team or its people. */
@@ -414,6 +546,7 @@ describe('AC4: no response shape carries foreign identity', () => {
         'items',
         'submission',
         'submittedByName',
+        'submittedElsewhere',
         'primarySource',
         'url',
       ]),
@@ -428,43 +561,93 @@ describe('AC4: no response shape carries foreign identity', () => {
     },
   )
 
-  it('a server that adds a foreign field anyway is refused at the client (every object is strict)', () => {
-    const leaks = { takenByName: 'Other HR', assigneeId: U3, teamId: U3, actorId: U3 }
-    for (const [field, value] of Object.entries(leaks)) {
-      const leak = { [field]: value }
-      expect(jobQueueListItemSchema.safeParse({ ...listItem, ...leak }).success, field).toBe(false)
-      expect(jobQueueCardResponseSchema.safeParse({ ...card, ...leak }).success, field).toBe(false)
-      expect(jobQueueCardSeniorSchema.safeParse({ ...senior, ...leak }).success, field).toBe(false)
-      expect(jobQueueSubmissionSchema.safeParse({ ...submitted, ...leak }).success, field).toBe(
-        false,
-      )
-      expect(
-        jobQueueCardResponseSchema.safeParse({
-          ...card,
-          sources: { ...card.sources, items: [{ ...card.sources.items[0], ...leak }] },
-        }).success,
-        field,
-      ).toBe(false)
-      expect(
-        jobQueueCardResponseSchema.safeParse({
-          ...card,
-          possibleDuplicates: {
-            ...card.possibleDuplicates,
-            items: [{ ...card.possibleDuplicates.items[0], ...leak }],
-          },
-        }).success,
-        field,
-      ).toBe(false)
-      expect(
-        jobQueueListResponseSchema.safeParse({
-          items: [],
-          nextCursor: null,
-          counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0, ...leak },
-        }).success,
-        field,
-      ).toBe(false)
-    }
-  })
+  /**
+   * CR-M-1. Every object a response can contain, each named by its path inside a valid
+   * sample: the sample parses, and the same sample with ONE foreign key added at that
+   * path is refused. Removing `.strict()` from any of these objects fails its row.
+   */
+  const page = { items: [listItem], nextCursor: null, counts: { NEW: 1, SUBMITTED: 0, HIDDEN: 0 } }
+  const conflict = {
+    code: 'JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED',
+    possibleDuplicates: card.possibleDuplicates,
+  }
+  const dismissal = { opportunityId: U1, scope: 'TEAM', reason: 'SPAM', hidden: true, version: 2 }
+  const RESPONSE_SITES: ReadonlyArray<
+    [string, Parseable, unknown, ReadonlyArray<string | number>]
+  > = [
+    ['list item', jobQueueListItemSchema, listItem, []],
+    ['list item > primarySource', jobQueueListItemSchema, listItem, ['primarySource']],
+    ['list page', jobQueueListResponseSchema, page, []],
+    ['list page > counts', jobQueueListResponseSchema, page, ['counts']],
+    ['list page > items[0]', jobQueueListResponseSchema, page, ['items', 0]],
+    [
+      'list page > items[0] > primarySource',
+      jobQueueListResponseSchema,
+      page,
+      ['items', 0, 'primarySource'],
+    ],
+    ['card', jobQueueCardResponseSchema, card, []],
+    ['card > primarySource', jobQueueCardResponseSchema, card, ['primarySource']],
+    ['card > seniors', jobQueueCardResponseSchema, card, ['seniors']],
+    ['card > seniors > items[0]', jobQueueCardResponseSchema, card, ['seniors', 'items', 0]],
+    [
+      'card > seniors > items[0] > submission',
+      jobQueueCardResponseSchema,
+      card,
+      ['seniors', 'items', 0, 'submission'],
+    ],
+    ['card > sources', jobQueueCardResponseSchema, card, ['sources']],
+    ['card > sources > items[0]', jobQueueCardResponseSchema, card, ['sources', 'items', 0]],
+    ['card > possibleDuplicates', jobQueueCardResponseSchema, card, ['possibleDuplicates']],
+    [
+      'card > possibleDuplicates > items[0]',
+      jobQueueCardResponseSchema,
+      card,
+      ['possibleDuplicates', 'items', 0],
+    ],
+    ['seniors continuation', jobQueueSeniorsContinuationSchema, card.seniors, []],
+    ['sources continuation', jobQueueSourcesContinuationSchema, card.sources, []],
+    ['card senior (own submission)', jobQueueCardSeniorSchema, senior, ['submission']],
+    [
+      'card senior (foreign marker)',
+      jobQueueCardSeniorSchema,
+      { ...senior, submission: { submittedElsewhere: true } },
+      ['submission'],
+    ],
+    ['submission', jobQueueSubmissionSchema, submitted, []],
+    ['submission response', jobQueueSubmissionResponseSchema, { submission: submitted }, []],
+    [
+      'submission response > submission',
+      jobQueueSubmissionResponseSchema,
+      { submission: submitted },
+      ['submission'],
+    ],
+    ['dismissal response', jobQueueDismissalResponseSchema, dismissal, []],
+    ['recompute response', jobQueueRecomputeResponseSchema, { runId: U1 }, []],
+    ['duplicate conflict', jobQueuePossibleDuplicateConflictSchema, conflict, []],
+    [
+      'duplicate conflict > preview',
+      jobQueuePossibleDuplicateConflictSchema,
+      conflict,
+      ['possibleDuplicates'],
+    ],
+    [
+      'duplicate conflict > preview > items[0]',
+      jobQueuePossibleDuplicateConflictSchema,
+      conflict,
+      ['possibleDuplicates', 'items', 0],
+    ],
+  ]
+
+  it.each(RESPONSE_SITES)(
+    '%s: a foreign field added by the server is refused at the client',
+    (_site, schema, sample, path) => {
+      expect(schema.safeParse(sample).success, 'the clean sample must parse').toBe(true)
+      for (const field of ['takenByName', 'assigneeId', 'teamId', 'actorId']) {
+        expect(schema.safeParse(injectAt(sample, path, field)).success, field).toBe(false)
+      }
+    },
+  )
 
   it('there is no "taken" tab or status: foreign activity has no representation at all', () => {
     expect(jobQueueTabSchema.safeParse('IN_PROGRESS').success).toBe(false)

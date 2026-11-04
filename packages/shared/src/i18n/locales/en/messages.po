@@ -3120,7 +3120,7 @@ msgstr "Access could not be checked. Try again later."
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED"
-msgstr "This senior is already submitted to a similar job. Review it and confirm the submission."
+msgstr "This senior has already been submitted to a similar job. Review it and confirm to log the submission."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts

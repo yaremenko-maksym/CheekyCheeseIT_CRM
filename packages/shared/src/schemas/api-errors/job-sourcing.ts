@@ -60,7 +60,8 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
   },
   JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED: /* i18n */ {
     id: 'api-error.JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED',
-    message: 'Цього сеньйора вже подано на схожу вакансію. Перевірте й підтвердьте подачу.',
+    message:
+      'Цього сеньйора вже подано на схожу вакансію. Перевірте її й підтвердьте запис подачі.',
   },
   JOB_QUEUE_REFRESH_REQUIRED: /* i18n */ {
     id: 'api-error.JOB_QUEUE_REFRESH_REQUIRED',
@@ -90,7 +91,7 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
   JOB_SOURCE_RECORD_ALREADY_LINKED: 'This source record is already linked to a job',
   JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED: 'This job cannot be assigned to the team for triage',
   JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED:
-    'This senior is already submitted to a similar job. Review it and confirm the submission.',
+    'This senior has already been submitted to a similar job. Review it and confirm to log the submission.',
   JOB_QUEUE_REFRESH_REQUIRED: 'The list is out of date. Refresh it.',
   JOB_QUEUE_CURSOR_MALFORMED: 'This page of the list could not be opened. Refresh the list.',
   JOB_QUEUE_VERSION_CONFLICT: 'The data has changed. Refresh the card and try again.',

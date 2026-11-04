@@ -1315,6 +1315,9 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         PART_7_MIGRATION,
         PART_8_MIGRATION,
         PART_9_MIGRATION,
+        // PART_10/11 add standalone indexes only, which this comparison does not read;
+        // PART_12 adds a column, an FK and a UNIQUE, which it does.
+        PART_12_MIGRATION,
       ])
       beforeMigration = await readCatalog(client, MIGRATION_SCHEMA)
       await applyParts(client, [PART_3_MIGRATION])

@@ -3120,7 +3120,7 @@ msgstr "Не вдалося перевірити доступ. Спробуйт�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED"
-msgstr "Цього сеньйора вже подано на схожу вакансію. Перевірте й підтвердьте подачу."
+msgstr "Цього сеньйора вже подано на схожу вакансію. Перевірте її й підтвердьте запис подачі."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
