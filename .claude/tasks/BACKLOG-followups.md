@@ -6772,3 +6772,22 @@ is served; after the fix it is a 409. (b) Sign a cursor with one secret, resolve
 or integration spec only.
 
 Sources: PR #1262 security review (notes).
+
+## 353. Queue suppression is only a row in the append-only action log, which the retention purge would remove (2026-11-04)
+
+**Behaviour now.** Suppressing an opportunity (ADMIN, `POST /job-queue/:id/suppress`) writes one `SUPPRESSED` row to
+`job_queue_actions`, and every team read and write excludes an opportunity that carries such a row. Nothing else
+records the suppression. The retention purge function for that log, shipped inert and not yet activated, deletes rows
+of every kind after two years. When it is activated, a suppressed opportunity silently becomes visible again to every
+team. The plan states that suppression records are kept for the contract term plus three years, which two years does
+not satisfy. There is also no un-suppress route, so a suppression is otherwise permanent.
+
+**Candidate fixes.** (a) Exclude `SUPPRESSED` rows from the purge function (a staged DDL change; promoting it is
+owner-only). (b) Persist suppression in a table the purge never touches and read that instead of the log. Either way,
+decide whether an un-suppress action is wanted.
+
+**Verify.** On a scratch DB (never the live `crm_db`), seed a `SUPPRESSED` row older than the retention window, run the
+purge function, then call `assertVisible` with a granted team's scope: today it resolves (visible); after the fix it
+is a 404.
+
+Sources: PR #1263 security review (SR-L-1) and panel review.

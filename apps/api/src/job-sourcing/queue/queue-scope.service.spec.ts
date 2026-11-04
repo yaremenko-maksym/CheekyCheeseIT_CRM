@@ -376,10 +376,21 @@ describe('JobQueueScopeService.assertVisible', () => {
     const { svc, compiled } = harness([{ visible: 1 }])
     await expect(svc.assertVisible(teamAScope, OPP)).resolves.toBeUndefined()
     const q = compiled(0)
-    expect(q.text).toContain('FROM job_opportunities o WHERE o.id = $1::uuid AND (EXISTS')
+    expect(q.text).toContain('FROM job_opportunities o WHERE o.id = $1::uuid AND ((EXISTS')
     expect(q.text).toContain('job_opportunity_team_triage g')
     expect(q.params[0]).toBe(OPP)
     expect(q.params).toContain(TEAM_A)
+  })
+
+  it('r5 Task 6.4: the check refuses a suppressed opportunity, bound to the same id', async () => {
+    const { svc, compiled } = harness([{ visible: 1 }])
+    await svc.assertVisible(teamAScope, OPP)
+    const q = compiled(0)
+    const n = q.params.length
+    expect(q.text.replace(/\s+/g, ' ')).toContain(
+      `AND NOT EXISTS (SELECT 1 FROM job_queue_actions sup WHERE sup.opportunity_id = $${n}::uuid AND sup.kind = 'SUPPRESSED'))`,
+    )
+    expect(q.params[n - 1]).toBe(OPP)
   })
 
   it('an uppercase opportunity id is queried in canonical lowercase', async () => {

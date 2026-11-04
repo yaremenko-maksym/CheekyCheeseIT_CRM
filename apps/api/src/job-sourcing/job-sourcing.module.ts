@@ -15,6 +15,7 @@ import { JobMatchReconciliationCronService } from './job-match-reconciliation.cr
 import { JobQueueActionRetentionCronService } from './job-queue-action-retention.cron'
 import { JobQueueGenerationRetentionCronService } from './job-queue-generation-retention.cron'
 import { JobSourcingController } from './job-sourcing.controller'
+import { JobQueueController } from './queue/job-queue.controller'
 import { JobQueueActionsService } from './queue/queue-actions.service'
 import { JobQueueService } from './queue/job-queue.service'
 import { JobQueueScopeService } from './queue/queue-scope.service'
@@ -63,7 +64,12 @@ import { JobRunLedger } from './ownership/job-run-ledger'
  */
 @Module({
   imports: [DatabaseModule, AuthModule, NotificationsModule],
-  controllers: [JobSourcingController, JobSourceAdminController, JobSourceSwitchController],
+  controllers: [
+    JobSourcingController,
+    JobSourceAdminController,
+    JobSourceSwitchController,
+    JobQueueController,
+  ],
   providers: [
     JobSourcingService,
     JobSourceAdminService,

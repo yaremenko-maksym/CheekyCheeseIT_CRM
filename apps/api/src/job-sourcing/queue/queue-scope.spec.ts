@@ -46,10 +46,10 @@ describe('isJobQueueRole', () => {
 
 describe('listableOpportunityPredicate', () => {
   const id = sql`o.id`
-  it('STUDIO: refuses only an EXCLUDED verdict at the current revision', () => {
+  it('STUDIO: refuses an EXCLUDED verdict at the current revision and a suppressed opportunity', () => {
     const { sql: text, params } = render(listableOpportunityPredicate(STUDIO_SCOPE, id))
     expect(flat(text)).toBe(
-      `NOT EXISTS (SELECT 1 FROM job_opportunities xo WHERE xo.id = o.id AND xo.evaluated_revision = xo.revision AND xo.evaluation_verdict = 'EXCLUDED')`,
+      `(NOT EXISTS (SELECT 1 FROM job_opportunities xo WHERE xo.id = o.id AND xo.evaluated_revision = xo.revision AND xo.evaluation_verdict = 'EXCLUDED') AND NOT EXISTS (SELECT 1 FROM job_queue_actions sup WHERE sup.opportunity_id = o.id AND sup.kind = 'SUPPRESSED'))`,
     )
     expect(params).toEqual([])
   })
@@ -137,6 +137,16 @@ describe('visibleOpportunityPredicate', () => {
       TEAM_A,
     ])
     expect(MATCH_RULE_VERSION).toBe('eval.1+l1.1')
+  })
+
+  it('TEAM: either branch, and never a suppressed opportunity (r5 Task 6.4)', () => {
+    const text = flat(render(visibleOpportunityPredicate(teamA, id)).sql)
+    expect(text.startsWith('((EXISTS (SELECT 1 FROM job_opportunity_matches m')).toBe(true)
+    expect(
+      text.endsWith(
+        `)) AND NOT EXISTS (SELECT 1 FROM job_queue_actions sup WHERE sup.opportunity_id = 'x'::uuid AND sup.kind = 'SUPPRESSED'))`,
+      ),
+    ).toBe(true)
   })
 
   it('TEAM with no live senior versions binds an empty list (the LEAD branch grants nothing)', () => {

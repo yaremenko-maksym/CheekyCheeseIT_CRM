@@ -113,7 +113,8 @@ const liveTeam = (alias: string, teamId: string) =>
  *          opportunity-level (`opportunityVerdict`): a per-senior stop-list is
  *          `SCOPED_RESTRICTIONS` and does not hide the opportunity from the team, owner A1g. The
  *          grant itself is revision-independent: the schema states no revision rule for it.
- * A TRIAGE / unknown-stack verdict alone grants nothing (data quality, not a grant).
+ * A TRIAGE / unknown-stack verdict alone grants nothing (data quality, not a grant). Neither branch
+ * shows an opportunity an ADMIN has SUPPRESSED (`notSuppressed`, r5 Task 6.4).
  *
  * NOT IN THIS PREDICATE — standing triage subscriptions (`job_team_triage_subscriptions`). A
  * subscription is keyed on a role family, and `job_opportunities` stores none: layer 1 computes
@@ -123,7 +124,8 @@ const liveTeam = (alias: string, teamId: string) =>
  * and an unrevoked, unexpired subscription (r5 Task 6.1 "carried from Task 1.2"). Until then a
  * subscription makes nothing visible.
  *
- * STUDIO: every opportunity (ADMIN studio triage). NONE: nothing.
+ * STUDIO: every opportunity (ADMIN studio triage), a suppressed one included, so an ADMIN still
+ * opens it by id. NONE: nothing.
  */
 export function visibleOpportunityPredicate(scope: JobQueueScope, opportunityId: SQL): SQL {
   if (scope.kind === 'STUDIO') return sql`TRUE`
@@ -135,7 +137,7 @@ export function visibleOpportunityPredicate(scope: JobQueueScope, opportunityId:
       exclusion: v.exclusion,
     })),
   )
-  return sql`(EXISTS (SELECT 1 FROM job_opportunity_matches m
+  return sql`((EXISTS (SELECT 1 FROM job_opportunity_matches m
                         JOIN job_opportunities mo ON mo.id = m.opportunity_id
                         JOIN users u ON u.id = m.senior_id
                         JOIN team_members tm ON tm.user_id = u.id
@@ -161,22 +163,36 @@ export function visibleOpportunityPredicate(scope: JobQueueScope, opportunityId:
                          AND gop.evaluated_revision = gop.revision
                          AND gop.evaluation_verdict = 'OPEN'
                          AND gop.evaluated_inputs_version = ${scope.inputsVersion}
-                         AND ${liveTeam('gt', scope.teamId)}))`
+                         AND ${liveTeam('gt', scope.teamId)}))
+           AND ${notSuppressed(opportunityId)})`
 }
+
+/**
+ * r5 Task 6.4 — an ADMIN's SUPPRESSED action row takes the opportunity down for every TEAM scope:
+ * list, card, continuations, duplicates, publish and every write that checks visibility. The action
+ * row is the whole record (no entity holds suppression state), and the log is append-only, so a
+ * suppression stays until the action retention purges its row; there is no un-suppress. Binds no
+ * parameter, so it leaves the numbering of the predicate it is appended to unchanged.
+ */
+const notSuppressed = (opportunityId: SQL): SQL =>
+  sql`NOT EXISTS (SELECT 1 FROM job_queue_actions sup
+                   WHERE sup.opportunity_id = ${opportunityId} AND sup.kind = 'SUPPRESSED')`
 
 /**
  * May the opportunity appear as a row of a LIST (Task 6.2)? TEAM: exactly when it is visible.
  * STUDIO: everything except an opportunity whose latest evaluation at its CURRENT revision excluded
- * it for everyone («EXCLUDED is never listed»); an ADMIN can still open it by id, and one not yet
- * evaluated at this revision stays listed, as triage. Lives here so the verdict columns are read
+ * it for everyone («EXCLUDED is never listed») and one an ADMIN has SUPPRESSED (a takedown is not
+ * listed either, r5 Task 6.4); an ADMIN still opens both by id, and one not yet evaluated at this
+ * revision stays listed, as triage. Lives here so the verdict columns are read
  * in this file only. NONE: nothing.
  */
 export function listableOpportunityPredicate(scope: JobQueueScope, opportunityId: SQL): SQL {
   if (scope.kind !== 'STUDIO') return visibleOpportunityPredicate(scope, opportunityId)
-  return sql`NOT EXISTS (SELECT 1 FROM job_opportunities xo
+  return sql`(NOT EXISTS (SELECT 1 FROM job_opportunities xo
                           WHERE xo.id = ${opportunityId}
                             AND xo.evaluated_revision = xo.revision
-                            AND xo.evaluation_verdict = 'EXCLUDED')`
+                            AND xo.evaluation_verdict = 'EXCLUDED')
+             AND ${notSuppressed(opportunityId)})`
 }
 
 /**

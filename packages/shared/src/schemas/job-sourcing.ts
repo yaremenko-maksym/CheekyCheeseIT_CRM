@@ -2064,6 +2064,14 @@ export const jobQueueOpenedRequestSchema = z
   })
   .strict()
 
+/**
+ * POST `/job-queue/:id/suppress` (ADMIN, studio-wide; 204). Takes the opportunity down for every
+ * team scope. A retry with the same key is answered from the log and writes nothing.
+ */
+export const jobQueueSuppressRequestSchema = z
+  .object({ idempotencyKey: z.string().uuid() })
+  .strict()
+
 /** POST `/job-queue/recompute` (ADMIN) — enqueued, never inline; 202 + the run id. */
 export const jobQueueRecomputeResponseSchema = z.object({ runId: z.string().uuid() }).strict()
 
@@ -2187,4 +2195,5 @@ export type JobQueueDismissRequestDto = z.infer<typeof jobQueueDismissRequestSch
 export type JobQueueUndoRequestDto = z.infer<typeof jobQueueUndoRequestSchema>
 export type JobQueueDismissalResponseDto = z.infer<typeof jobQueueDismissalResponseSchema>
 export type JobQueueOpenedRequestDto = z.infer<typeof jobQueueOpenedRequestSchema>
+export type JobQueueSuppressRequestDto = z.infer<typeof jobQueueSuppressRequestSchema>
 export type JobQueueRecomputeResponseDto = z.infer<typeof jobQueueRecomputeResponseSchema>

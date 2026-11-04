@@ -26,6 +26,7 @@ import {
   jobQueueSubmissionResponseSchema,
   jobQueueSubmissionSchema,
   jobQueueSubmitRequestSchema,
+  jobQueueSuppressRequestSchema,
   jobQueueTabSchema,
   jobQueueUndoRequestSchema,
   jobSourceTypeSchema,
@@ -378,6 +379,16 @@ describe('request shapes', () => {
     expect(jobQueueUndoRequestSchema.safeParse({ ...body, scope: undefined }).success).toBe(false)
   })
 
+  it('suppress: a UUID idempotency key, nothing else', () => {
+    expect(jobQueueSuppressRequestSchema.parse({ idempotencyKey: U1 })).toEqual({
+      idempotencyKey: U1,
+    })
+    expect(jobQueueSuppressRequestSchema.safeParse({}).success).toBe(false)
+    expect(jobQueueSuppressRequestSchema.safeParse({ idempotencyKey: 'not-a-uuid' }).success).toBe(
+      false,
+    )
+  })
+
   it('opened: the clicked source record', () => {
     expect(jobQueueOpenedRequestSchema.parse({ sourceRecordId: U2 })).toEqual({
       sourceRecordId: U2,
@@ -401,6 +412,7 @@ describe('requests refuse an unknown key (CR-M-1)', () => {
     ],
     ['undo', jobQueueUndoRequestSchema, { scope: 'TEAM', idempotencyKey: U1, expectedVersion: 1 }],
     ['opened', jobQueueOpenedRequestSchema, { sourceRecordId: U2 }],
+    ['suppress', jobQueueSuppressRequestSchema, { idempotencyKey: U1 }],
     ['list query', jobQueueListQuerySchema, {}],
     ['scope query', jobQueueScopeQuerySchema, {}],
   ] as const)('%s', (_name, schema: Parseable, body) => {
