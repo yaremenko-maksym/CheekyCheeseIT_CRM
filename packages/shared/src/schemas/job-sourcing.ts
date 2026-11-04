@@ -962,6 +962,8 @@ const jobQueueAssignmentFields = z.object({
   reassignedBy: z.string().uuid().nullable(),
   reassignedFromId: z.string().uuid().nullable(),
   updatedAt: z.string().datetime(),
+  /** The senior this submission is for (`senior_id`, staged 2026-11-04 per-senior DDL). */
+  seniorId: z.string().uuid(),
 })
 
 /** `ck_job_queue_assignments_release_pair`, the half both shapes carry. */
@@ -1704,6 +1706,272 @@ export const jobDirtyWorkItemSchema = jobDirtyWorkItemFields
   .superRefine(refineDirtyWorkTermination)
 
 // ---------------------------------------------------------------------------
+// Queue HR API (r5 Phase 6, T0) — the `/job-queue` wire contracts
+// ---------------------------------------------------------------------------
+//
+// Built against the owner's queue model of 2026-10-18 (plan r5 §4 "Queue
+// model"): a submission is PER SENIOR, there is no global "taken" state, and
+// no team may learn anything about another team's activity. So, by
+// construction, NO response shape below has a field for another team's
+// identity — no assignee, actor, claimer team, "taken by", foreign count or
+// foreign name. Every response object is `.strict()`, so a field added by
+// mistake on the server is refused at the client's `.parse()` instead of
+// leaking silently. The one name carried (`submittedByName`) is a same-team
+// recruiter's, on a submission row the server only returns inside the
+// viewer's own scope (Phase-6 service obligation).
+//
+// The legacy phase-1 shapes above (`jobQueueStatusSchema`,
+// `jobQueueItemSchema`, `jobQueueListSchema`, `jobQueueQuerySchema`,
+// `dismissJobQueueItemSchema`) are unchanged and still parse (extend-in-place).
+
+/** The three tabs: «Нові» · «Подані» · «Приховані». Beside the legacy `jobQueueStatusSchema`. */
+export const jobQueueTabSchema = z.enum(['NEW', 'SUBMITTED', 'HIDDEN'])
+
+/** «Тип збігу»: a stack match, or an item that needs review. EXCLUDED is never listed. */
+export const jobQueueEligibilitySchema = z.enum(['LEAD', 'TRIAGE'])
+
+/** The viewer's OWN team's activity on an opportunity. Never another team's. */
+export const jobQueueActivitySchema = z.enum(['OPENED', 'NOT_OPENED'])
+
+/**
+ * A multi-select query parameter: a comma-separated list of enum members,
+ * de-duplicated. An empty or unknown member is a 400, never "no restriction".
+ */
+const csvEnumListSchema = <const V extends readonly [string, ...string[]]>(values: V) =>
+  z
+    .string()
+    // Every source type, comma-joined, is 396 characters today.
+    .max(600)
+    .transform((s) => [...new Set(s.split(',').map((v) => v.trim()))])
+    .pipe(z.array(z.enum(values)))
+
+/**
+ * GET `/job-queue`. `teamId` absent = the HR's first active team in stable
+ * order, or the STUDIO scope for an ADMIN; when present it must be a team the
+ * actor belongs to (Phase-6 obligation — a schema cannot see membership).
+ * `seniorId` must be one of the scope's own seniors, else the result is empty.
+ */
+export const jobQueueListQuerySchema = z
+  .object({
+    teamId: z.string().uuid().optional(),
+    tab: jobQueueTabSchema.default('NEW'),
+    search: z.string().trim().min(1).max(200).optional(),
+    source: csvEnumListSchema(jobSourceTypeSchema.options).optional(),
+    eligibility: csvEnumListSchema(jobQueueEligibilitySchema.options).optional(),
+    availability: csvEnumListSchema(jobAvailabilitySchema.options).optional(),
+    activity: csvEnumListSchema(jobQueueActivitySchema.options).optional(),
+    seniorId: z.string().uuid().optional(),
+    cursor: z.string().min(1).max(300).optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+  })
+  .strict()
+
+/** GET `/job-queue/:id[/sources|/seniors]`: the scope and, for a continuation, its cursor. */
+export const jobQueueScopeQuerySchema = z
+  .object({
+    teamId: z.string().uuid().optional(),
+    cursor: z.string().min(1).max(300).optional(),
+  })
+  .strict()
+
+const jobQueuePrimarySourceSchema = z
+  .object({
+    sourceRecordId: z.string().uuid(),
+    sourceType: jobSourceTypeSchema,
+    url: externalHttpsUrlSchema,
+  })
+  .strict()
+
+/**
+ * One list row. Every count is the VIEWER'S scope only (HR: own team; ADMIN:
+ * studio). `stopListedSeniorCount` is how many of those seniors excluded the
+ * opportunity — a count, never who (r5 §4).
+ */
+export const jobQueueListItemSchema = z
+  .object({
+    opportunityId: z.string().uuid(),
+    revision: intColumnPositiveSchema,
+    title: z.string().max(500),
+    companyName: z.string().max(255).nullable(),
+    location: z.string().max(500).nullable(),
+    primarySource: jobQueuePrimarySourceSchema,
+    alsoSeenOnCount: countSchema,
+    availability: jobAvailabilitySchema,
+    eligibility: jobQueueEligibilitySchema,
+    matchedSeniorCount: countSchema,
+    submittedSeniorCount: countSchema,
+    stopListedSeniorCount: countSchema,
+    openedByTeam: z.boolean(),
+    hidden: z.boolean(),
+    publishedAt: z.string().datetime().nullable(),
+    firstSeenAt: z.string().datetime(),
+  })
+  .strict()
+
+/** The list page. Tab counts are the authorized totals of the scope, not narrowed by filters. */
+export const jobQueueListResponseSchema = z
+  .object({
+    items: z.array(jobQueueListItemSchema).max(50),
+    nextCursor: z.string().max(300).nullable(),
+    counts: z.object({ NEW: countSchema, SUBMITTED: countSchema, HIDDEN: countSchema }).strict(),
+  })
+  .strict()
+
+/**
+ * A submission as the viewer's scope sees it. `TAKEN` = submitted, `RELEASED`
+ * = cancelled (the row is kept; a re-submission is a versioned UPDATE).
+ * `submittedByName` is a same-team recruiter, or null when the server does not
+ * disclose it.
+ */
+export const jobQueueSubmissionSchema = z
+  .object({
+    id: z.string().uuid(),
+    opportunityId: z.string().uuid(),
+    seniorId: z.string().uuid(),
+    state: jobQueueAssignmentStateSchema,
+    submittedAt: z.string().datetime(),
+    cancelledAt: z.string().datetime().nullable(),
+    version: intColumnPositiveSchema,
+    submittedByName: z.string().max(255).nullable(),
+  })
+  .strict()
+  // Two explicit branches (CR-M-1 of #1015), never an equality of two booleans.
+  .refine((s) => (s.state === 'RELEASED' ? s.cancelledAt !== null : s.cancelledAt === null), {
+    message: 'a cancelled submission records when, and only a cancelled one does',
+    path: ['cancelledAt'],
+  })
+
+/** One of the viewer's own seniors on the card. */
+export const jobQueueCardSeniorSchema = z
+  .object({
+    seniorId: z.string().uuid(),
+    displayName: z.string().max(255),
+    /** «Збіг неточний»: match confidence, not availability. */
+    matchApproximate: z.boolean(),
+    matchedKeywords: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(200),
+    submission: jobQueueSubmissionSchema.nullable(),
+  })
+  .strict()
+
+/** GET `/job-queue/:id/seniors` — and the card's preview (≤ 200, then continue). */
+export const jobQueueSeniorsContinuationSchema = z
+  .object({
+    items: z.array(jobQueueCardSeniorSchema).max(200),
+    totalCount: countSchema,
+    nextCursor: z.string().max(300).nullable(),
+  })
+  .strict()
+
+/** GET `/job-queue/:id/sources` — and the card's preview (≤ 20, then continue). */
+export const jobQueueSourcesContinuationSchema = z
+  .object({
+    items: z.array(jobQueueSourceItemSchema.strict()).max(20),
+    totalCount: countSchema,
+    nextCursor: z.string().max(300).nullable(),
+  })
+  .strict()
+
+/** The duplicates preview, strict down to each item. */
+const jobQueueDuplicatesPreviewSchema = jobPossibleDuplicatesPreviewSchema
+  .extend({ items: z.array(jobPossibleDuplicateSchema.strict()).max(5) })
+  .strict()
+
+/** GET `/job-queue/:id` — the latest canonical facts, authorized for the viewer. */
+export const jobQueueCardResponseSchema = jobQueueListItemSchema
+  .extend({
+    // SECURITY: UNTRUSTED 3rd-party markdown; sanitized on render (no raw HTML).
+    descriptionMd: z.string().max(DESCRIPTION_MD_MAX),
+    /** The opportunity changed after the list was built — informational only. */
+    newerThanList: z.boolean(),
+    seniors: jobQueueSeniorsContinuationSchema,
+    sources: jobQueueSourcesContinuationSchema,
+    possibleDuplicates: jobQueueDuplicatesPreviewSchema.nullable(),
+  })
+  .strict()
+
+/** POST `/job-queue/:id/submissions` — log ONE senior as submitted (it sends nothing). */
+export const jobQueueSubmitRequestSchema = z
+  .object({
+    teamId: z.string().uuid().optional(),
+    seniorId: z.string().uuid(),
+    /** Client-generated; a retry with the same key returns the earlier success. */
+    idempotencyKey: z.string().uuid(),
+    expectedOpportunityRevision: intColumnPositiveSchema,
+    /** The submission's version when re-submitting a cancelled one; absent for a first one. */
+    expectedVersion: intColumnPositiveSchema.optional(),
+    /** Required `true` once the server answered `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED`. */
+    confirmPossibleDuplicate: z.boolean().default(false),
+  })
+  .strict()
+
+/** DELETE-like POST `/job-queue/:id/submissions/:submissionId/cancel`. */
+export const jobQueueCancelSubmissionRequestSchema = z
+  .object({
+    teamId: z.string().uuid().optional(),
+    idempotencyKey: z.string().uuid(),
+    expectedVersion: intColumnPositiveSchema,
+  })
+  .strict()
+
+export const jobQueueSubmissionResponseSchema = z
+  .object({ submission: jobQueueSubmissionSchema })
+  .strict()
+
+/** The 409 body of `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED`: the viewer-authorized duplicates only. */
+export const jobQueuePossibleDuplicateConflictSchema = z
+  .object({
+    code: z.literal('JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED'),
+    possibleDuplicates: jobQueueDuplicatesPreviewSchema,
+  })
+  .strict()
+
+/** STUDIO = whole studio, ADMIN only. TEAM = the request's own team. */
+export const jobQueueDismissScopeSchema = jobQueueScopeKindSchema
+
+/** POST `/job-queue/:id/dismiss`. The reason is a fixed choice — no free text. */
+export const jobQueueDismissRequestSchema = z
+  .object({
+    teamId: z.string().uuid().optional(),
+    scope: jobQueueDismissScopeSchema,
+    reason: jobQueueDismissReasonSchema,
+    idempotencyKey: z.string().uuid(),
+    /** The dismissal's version on a re-dismiss; absent for a first one. */
+    expectedVersion: intColumnPositiveSchema.optional(),
+  })
+  .strict()
+
+/** POST `/job-queue/:id/undo` — undoes the dismissal in exactly this scope. */
+export const jobQueueUndoRequestSchema = z
+  .object({
+    teamId: z.string().uuid().optional(),
+    scope: jobQueueDismissScopeSchema,
+    idempotencyKey: z.string().uuid(),
+    expectedVersion: intColumnPositiveSchema,
+  })
+  .strict()
+
+export const jobQueueDismissalResponseSchema = z
+  .object({
+    opportunityId: z.string().uuid(),
+    scope: jobQueueDismissScopeSchema,
+    reason: jobQueueDismissReasonSchema,
+    hidden: z.boolean(),
+    version: intColumnPositiveSchema,
+  })
+  .strict()
+
+/** POST `/job-queue/:id/opened` — click telemetry; 204, never blocks navigation. */
+export const jobQueueOpenedRequestSchema = z
+  .object({
+    teamId: z.string().uuid().optional(),
+    sourceRecordId: z.string().uuid(),
+  })
+  .strict()
+
+/** POST `/job-queue/recompute` (ADMIN) — enqueued, never inline; 202 + the run id. */
+export const jobQueueRecomputeResponseSchema = z.object({ runId: z.string().uuid() }).strict()
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -1798,3 +2066,28 @@ export type JobCollectionAttemptDto = z.infer<typeof jobCollectionAttemptSchema>
 export type JobDirtyWorkItemDto = z.infer<typeof jobDirtyWorkItemSchema>
 export type JobSourceHealthDto = z.infer<typeof jobSourceHealthSchema>
 export type JobDirtyWorkItemWorkerDto = z.infer<typeof jobDirtyWorkItemWorkerSchema>
+export type JobQueueTab = z.infer<typeof jobQueueTabSchema>
+export type JobQueueEligibility = z.infer<typeof jobQueueEligibilitySchema>
+export type JobQueueActivity = z.infer<typeof jobQueueActivitySchema>
+export type JobQueueListQuery = z.infer<typeof jobQueueListQuerySchema>
+export type JobQueueScopeQuery = z.infer<typeof jobQueueScopeQuerySchema>
+export type JobQueueListItemDto = z.infer<typeof jobQueueListItemSchema>
+export type JobQueueListResponseDto = z.infer<typeof jobQueueListResponseSchema>
+export type JobQueueSubmissionDto = z.infer<typeof jobQueueSubmissionSchema>
+export type JobQueueCardSeniorDto = z.infer<typeof jobQueueCardSeniorSchema>
+export type JobQueueSeniorsContinuationDto = z.infer<typeof jobQueueSeniorsContinuationSchema>
+export type JobQueueSourcesContinuationDto = z.infer<typeof jobQueueSourcesContinuationSchema>
+export type JobQueueCardResponseDto = z.infer<typeof jobQueueCardResponseSchema>
+export type JobQueueSubmitRequestDto = z.infer<typeof jobQueueSubmitRequestSchema>
+export type JobQueueCancelSubmissionRequestDto = z.infer<
+  typeof jobQueueCancelSubmissionRequestSchema
+>
+export type JobQueueSubmissionResponseDto = z.infer<typeof jobQueueSubmissionResponseSchema>
+export type JobQueuePossibleDuplicateConflictDto = z.infer<
+  typeof jobQueuePossibleDuplicateConflictSchema
+>
+export type JobQueueDismissRequestDto = z.infer<typeof jobQueueDismissRequestSchema>
+export type JobQueueUndoRequestDto = z.infer<typeof jobQueueUndoRequestSchema>
+export type JobQueueDismissalResponseDto = z.infer<typeof jobQueueDismissalResponseSchema>
+export type JobQueueOpenedRequestDto = z.infer<typeof jobQueueOpenedRequestSchema>
+export type JobQueueRecomputeResponseDto = z.infer<typeof jobQueueRecomputeResponseSchema>

@@ -3104,6 +3104,36 @@ msgstr "Зовнішню вакансію не знайдено"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_CURSOR_MALFORMED"
+msgstr "Не вдалося відкрити цю сторінку списку. Оновіть список."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_IDEMPOTENCY_CONFLICT"
+msgstr "Цей запит уже виконано з іншими даними. Оновіть картку й повторіть."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_POLICY_UNAVAILABLE"
+msgstr "Не вдалося перевірити доступ. Спробуйте пізніше."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED"
+msgstr "Цього сеньйора вже подано на схожу вакансію. Перевірте й підтвердьте подачу."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_REFRESH_REQUIRED"
+msgstr "Список застарів. Оновіть його."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_VERSION_CONFLICT"
+msgstr "Дані змінилися. Оновіть картку й повторіть."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_SOURCE_RECORD_ALREADY_LINKED"
 msgstr "Запис джерела вже прив’язано до вакансії"
 
