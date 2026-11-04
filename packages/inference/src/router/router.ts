@@ -393,13 +393,12 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
 
     // ---- hand-back and floor (§5.2 items 5-6) ----
     if (aborted()) return finish({ ok: false, code: 'ABORTED' }, false)
-    if (hostedRoutes.length > 0) {
-      emit({
-        type: 'FELL_TO_LOCAL',
-        plan: candidates.length > 0 ? 'full-then-small' : 'small',
-        reasons,
-      })
-    }
+    // Every fall is an event, a local-only config included: the consumer counts floor falls (§5.3).
+    emit({
+      type: 'FELL_TO_LOCAL',
+      plan: candidates.length > 0 ? 'full-then-small' : 'small',
+      reasons,
+    })
     const floorDeadline = now() + cfg.floorBudgetMs
     const floor = await runExtraction({
       schema,
