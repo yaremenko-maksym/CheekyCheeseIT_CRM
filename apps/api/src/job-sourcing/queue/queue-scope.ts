@@ -104,6 +104,11 @@ const liveTeam = (alias: string, teamId: string) =>
  *          `evaluate`'s two OPPORTUNITY-subject stages; a per-senior stop-list is
  *          `SCOPED_RESTRICTIONS` and does not hide the opportunity from the team, owner A1g). A
  *          grant is revision-independent: the schema states no revision rule for it.
+ *          OPEN (SR-M-2, owner decision pending): the exclusion rows are written by the async
+ *          recompute, and an evaluation that excludes nobody writes no row, so between a revision
+ *          bump and its recompute — or for good when the roster is empty — a now-restricted
+ *          opportunity still shows through a grant. No persisted "evaluated at this revision"
+ *          marker exists to close it; see `.claude/tasks/task-vacancy-6-1-sr-m-2.blocked.md`.
  * A TRIAGE / unknown-stack verdict alone grants nothing (data quality, not a grant).
  *
  * NOT IN THIS PREDICATE — standing triage subscriptions (`job_team_triage_subscriptions`). A

@@ -205,6 +205,14 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
     await match('oppGrantSeniorStopList', 'senA', 'EXCLUDED', {
       evidence: { stage: 'SCOPED_RESTRICTIONS', reasons: [] },
     })
+    // SR-M-2 gap fixtures: a grant made at revision 1, the opportunity bumped to 2, and only a
+    // revision-1 LEAD row (the recompute for revision 2 has not run yet).
+    await mkOpp('oppGrantBumped', 2)
+    await grant('oppGrantBumped', 'teamA', '1 day')
+    await match('oppGrantBumped', 'senA', 'LEAD', { revision: 1 })
+    // ...and a granted opportunity no roster senior was ever evaluated against (no row at all).
+    await mkOpp('oppGrantNoRows')
+    await grant('oppGrantNoRows', 'teamA', '1 day')
     await mkOpp('oppUnmatched')
     await mkOpp('oppLive')
     await match('oppLive', 'senLive', 'LEAD')
@@ -375,6 +383,19 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
       const a = await resolve('hrA', 'HR')
       await expect(visible(a, 'oppGrantOldExclusion')).resolves.toBeUndefined()
       await expect(visible(a, 'oppGrantSeniorStopList')).resolves.toBeUndefined()
+    })
+
+    /**
+     * SR-M-2 — OPEN GAP, PINNED, NOT FIXED: no persisted marker says "evaluated at the current
+     * revision" (an evaluation with no excluded senior and no LEAD writes no row), so a grant still
+     * shows an opportunity whose current revision has not been evaluated yet, and one with no rows
+     * at all. Decision pending: `.claude/tasks/task-vacancy-6-1-sr-m-2.blocked.md`. When it is
+     * decided, flip these two expectations to 404.
+     */
+    it('SR-M-2 gap: a grant still shows a bumped, not-yet-recomputed item and a no-rows item', async () => {
+      const a = await resolve('hrA', 'HR')
+      await expect(visible(a, 'oppGrantBumped')).resolves.toBeUndefined()
+      await expect(visible(a, 'oppGrantNoRows')).resolves.toBeUndefined()
     })
 
     it('NONE sees nothing', async () => {
