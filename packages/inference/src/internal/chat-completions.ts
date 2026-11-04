@@ -48,7 +48,7 @@ export function buildChatMessages(opts: {
   instruction?: string | undefined
   input: string
   correction?: string | undefined
-}):{ role: string; content: string }[] {
+}): { role: string; content: string }[] {
   return [
     {
       role: 'system',
