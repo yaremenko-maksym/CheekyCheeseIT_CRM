@@ -302,13 +302,14 @@ describe('router cascade: BUSY (§5.1)', () => {
   it('a retry-after longer than the backoff cools the model down without waiting, until it elapses', async () => {
     let now = NOON
     const f = scriptedFetch((s, n) =>
-      s.model === 'openai/gpt-oss-120b' && n === 1 ? busy({ 'retry-after': '60' }) : GOOD,
+      s.model === 'openai/gpt-oss-120b' && n === 1 ? busy({ 'retry-after': '20' }) : GOOD,
     )
     const d = deps(f.fetchImpl, { now: () => now })
+    // 20 s is above the 9 s backoff and inside the 60 s budget: a cool-down, never a wait.
     const router = createRouter(config([GROQ, LOCAL]), d)
     await router.run(REQ)
     await router.run(REQ)
-    now += 60_000
+    now += 20_000
     await router.run(REQ)
     expect(d.sleeps).toEqual([])
     expect(f.sent.map((s) => s.model)).toEqual([

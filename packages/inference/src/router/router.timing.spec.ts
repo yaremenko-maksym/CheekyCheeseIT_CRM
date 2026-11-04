@@ -88,6 +88,9 @@ describe('router stopping (§5.5): abort', () => {
     expect(r).toEqual({ ok: false, code: 'ABORTED' })
     expect(f.sent).toHaveLength(0)
     expect(ofType(d.events, 'FELL_TO_LOCAL')).toEqual([])
+    expect(ofType(d.events, 'CALL')).toEqual([
+      { type: 'CALL', code: 'ABORTED', floorAnswered: false, latencyMs: expect.any(Number) },
+    ])
   })
 
   it('an abort while queued behind another local request sends nothing', async () => {

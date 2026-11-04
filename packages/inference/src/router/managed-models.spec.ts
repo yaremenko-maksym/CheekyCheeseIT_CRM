@@ -56,6 +56,11 @@ describe('managedModels reader (ADR §3.4)', () => {
     ['an id outside the family', doc({ groq: ['llama-3.1-8b-instant'] })],
     ['a hostile id', doc({ gemini: ['../../x'] })],
     ['a Groq id under Gemini', doc({ gemini: ['openai/gpt-oss-20b'] })],
+    ['one bad id among good ones', doc({ groq: ['openai/gpt-oss-20b', 'openai/gpt-oss-7b'] })],
+    [
+      'a bad provider list beside a good one',
+      doc({ groq: ['openai/gpt-oss-20b'], gemini: ['gemini-x'] }),
+    ],
     ['a provider outside the allowlist', doc({ openrouter: ['x'] })],
     ['a promotion flag', JSON.stringify({ version: 1, providers: {}, promoted: ['x'] })],
     [
