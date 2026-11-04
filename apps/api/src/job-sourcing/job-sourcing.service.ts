@@ -16,7 +16,6 @@ import type {
   JobCollectionResultDto,
   JobCollectionRunDto,
   JobExclusionDto,
-  JobHealthState,
   JobMeterUnit,
   JobSourceDto,
   JobSourceTriggerMode,
@@ -30,6 +29,7 @@ import type {
 import {
   budgetState,
   canonicalStackKeywords,
+  jobHealthStateSchema,
   normalizeCompanyName,
   resolveBudget,
   spendBudget,
@@ -1432,7 +1432,8 @@ export class JobSourcingService {
         hostPauseReason: fact?.hostPauseReason ?? null,
         costUnit: fact?.costUnit ?? null,
         resumeCheckpoint: fact?.resumeCheckpoint ?? false,
-        healthState: (health.get(row.id)?.toState ?? null) as JobHealthState | null,
+        // A drifted DB value maps to null rather than failing the whole list's response schema.
+        healthState: jobHealthStateSchema.safeParse(health.get(row.id)?.toState).data ?? null,
       }
     })
   }

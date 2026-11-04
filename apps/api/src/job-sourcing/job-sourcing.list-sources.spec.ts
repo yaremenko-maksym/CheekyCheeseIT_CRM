@@ -48,14 +48,14 @@ function harness(
   transitions: { sourceId: string; toState: string | null; reasonCode: string | null }[] = [],
 ) {
   const execute = vi.fn(async (_q: SQL) => ({ rows: facts }))
-  const selectDistinctOn = vi.fn(() => ({
-    from: () => ({ where: () => ({ orderBy: async () => transitions }) }),
-  }))
+  const healthWhere = vi.fn((_w: SQL) => ({ orderBy: async () => transitions }))
+  const selectDistinctOn = vi.fn(() => ({ from: () => ({ where: healthWhere }) }))
   const db = { db: { select: () => ({ from: async () => rows }), execute, selectDistinctOn } }
   return {
     service: new JobSourcingService(db as never, {} as never, new JobSourceRegistry([])),
     execute,
     selectDistinctOn,
+    healthParams: () => dialect.sqlToQuery(healthWhere.mock.calls[0]![0]).params,
   }
 }
 
@@ -117,6 +117,29 @@ describe('listSources — Task 6.5 operational fields', () => {
       costUnit: null,
       resumeCheckpoint: false,
     })
+  })
+
+  it('asks the health query for exactly the listed source ids', async () => {
+    const h = harness([ROW, { ...ROW, id: OTHER }], [])
+    await h.service.listSources(ADMIN)
+    expect(h.healthParams()).toEqual([ID, OTHER, 'TRANSITION'])
+  })
+
+  it('an unknown stored health state maps to null and the list still parses (CR-M-1)', async () => {
+    const h = harness(
+      [ROW, { ...ROW, id: OTHER }],
+      [],
+      [
+        { sourceId: ID, toState: 'MELTED', reasonCode: null },
+        { sourceId: OTHER, toState: 'HEALTHY', reasonCode: null },
+      ],
+    )
+    const items = await h.service.listSources(ADMIN)
+    expect(items.map((i) => [i.id, i.healthState])).toEqual([
+      [ID, null],
+      [OTHER, 'HEALTHY'],
+    ])
+    expect(jobSourceListSchema.safeParse({ items }).success).toBe(true)
   })
 
   it('no sources: an empty list, and no fact or health query', async () => {
