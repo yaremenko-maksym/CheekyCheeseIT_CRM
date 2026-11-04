@@ -221,6 +221,31 @@ describe('boundedFetchText', () => {
 const redirect = (status: number, location: string | null) =>
   new Response('', { status, headers: location === null ? {} : { location } })
 
+describe('boundedFetchText — followRedirects: false (r5 5.5a SR-M-1)', () => {
+  it.each([301, 302, 303, 307, 308])(
+    'answers a %i as SourceHttpStatusError without fetching the Location',
+    async (status) => {
+      const f = vi.fn().mockResolvedValueOnce(redirect(status, '/elsewhere'))
+      vi.stubGlobal('fetch', f)
+      const error = await boundedFetchText('https://api.example.test/x', {
+        allowedHosts: hosts,
+        minGapMs: 0,
+        followRedirects: false,
+      }).catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(SourceHttpStatusError)
+      expect(error).toMatchObject({ host: 'api.example.test', status })
+      expect(f).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it('transportOptionsFor passes followRedirects only when it is false', () => {
+    expect(transportOptionsFor({ url: 'https://a.test/' })).toEqual({})
+    expect(transportOptionsFor({ url: 'https://a.test/', followRedirects: false })).toEqual({
+      followRedirects: false,
+    })
+  })
+})
+
 describe('boundedFetchText — manual redirects (SR-H-1 / CR-M-1)', () => {
   const two = ['api.example.test', 'cdn.example.test']
 
