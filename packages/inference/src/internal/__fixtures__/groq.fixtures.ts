@@ -30,7 +30,9 @@ export const GROQ_FIXTURES: ProviderFixture[] = [
   {
     name: '403 Google envelope is foreign on Groq',
     status: 403,
-    body: JSON.stringify({ error: { code: 403, message: BODY_MARKER, status: 'PERMISSION_DENIED' } }),
+    body: JSON.stringify({
+      error: { code: 403, message: BODY_MARKER, status: 'PERMISSION_DENIED' },
+    }),
     expected: { ok: false, code: 'TRANSPORT', responded: true },
   },
   {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   boundedRequest,
   DEFAULT_MAX_BYTES,
@@ -247,16 +247,12 @@ describe('boundedRequest caller signal (SR-L-38: an abort is not a timeout)', ()
 
   it('detaches its listener from the caller signal once settled', async () => {
     const ctrl = new AbortController()
-    const removed: string[] = []
-    const remove = ctrl.signal.removeEventListener.bind(ctrl.signal)
-    ctrl.signal.removeEventListener = (type: string, l: EventListenerOrEventListenerObject) => {
-      removed.push(type)
-      remove(type, l)
-    }
+    const remove = vi.spyOn(ctrl.signal, 'removeEventListener')
     expect((await boundedRequest({ ...base, signal: ctrl.signal, fetchImpl: okFetch })).kind).toBe(
       'ok',
     )
-    expect(removed).toEqual(['abort'])
+    expect(remove).toHaveBeenCalledTimes(1)
+    expect(remove.mock.calls[0]?.[0]).toBe('abort')
   })
 })
 

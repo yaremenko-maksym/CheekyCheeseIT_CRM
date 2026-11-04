@@ -29,9 +29,7 @@ export type ClassifiedChatCode = (typeof CLASSIFIED_CHAT_CODES)[number]
 export type ChatProvider = 'gemini' | 'groq' | 'local'
 
 export type StructuredOutput =
-  | { mode: 'json_schema'; schema: JsonSchema }
-  | { mode: 'json_object' }
-  | { mode: 'none' }
+  { mode: 'json_schema'; schema: JsonSchema } | { mode: 'json_object' } | { mode: 'none' }
 
 export type ClassifiedChatResult =
   | { ok: true; code: 'OK'; text: string; totalTokens?: number }

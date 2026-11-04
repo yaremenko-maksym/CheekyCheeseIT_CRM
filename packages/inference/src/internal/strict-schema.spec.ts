@@ -108,9 +108,9 @@ describe('createStrictSchema — golden strict form (ADR 5.4c-1)', () => {
   it('never carries maxLength anywhere, while Zod still enforces the bound', () => {
     const strict = createStrictSchema(posting)
     expect(JSON.stringify(strict.jsonSchema)).not.toContain('maxLength')
-    expect(
-      strict.replySchema.safeParse({ title: 'x'.repeat(201), salary: null }).success,
-    ).toBe(false)
+    expect(strict.replySchema.safeParse({ title: 'x'.repeat(201), salary: null }).success).toBe(
+      false,
+    )
   })
 })
 
