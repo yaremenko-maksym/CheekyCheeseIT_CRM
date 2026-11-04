@@ -14,6 +14,7 @@ import { JobAvailabilityReconciliationCronService } from './job-availability-rec
 import { JobMatchReconciliationCronService } from './job-match-reconciliation.cron'
 import { JobQueueActionRetentionCronService } from './job-queue-action-retention.cron'
 import { JobSourcingController } from './job-sourcing.controller'
+import { JobQueueScopeService } from './queue/queue-scope.service'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { JobSourceHealthService } from './health/job-source-health.service'
 import { SourceHealthAlertService } from './health/source-health-alert.service'
@@ -70,6 +71,8 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     SourceHealthAlertService,
     SourceHealthWeeklyReportCron,
     JobQueueActionRetentionCronService,
+    // r5 Task 6.1: the queue scope (ADMIN studio / HR one active team); read by Tasks 6.2-6.4.
+    JobQueueScopeService,
     // r5 Task 4.6 S4b: periodic reconciliation + drain of the recompute worker; flag default OFF.
     JobMatchReconciliationCronService,
     // r5 Task 4.6 S8d: periodic availability reconciliation drain; flag default OFF, ships dark.

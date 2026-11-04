@@ -6653,3 +6653,33 @@ unconfirmed-board or listed-this-run GONE into a retryable failure, so `DetailTa
 its outcome. Verify: a tail over one uncontracted GONE reports `gone: 0, failed: 1`.
 
 Sources: S8g coder report; U10 Master hand-off message (freshness anchor and scope-aware `account()` ride with the flip); PR #1249 review (SR-M-1, CR-M-1, CR-L).
+
+## 349. Task 6.1 SR-M-2: the triage-grant branch of queue visibility fails open between a revision bump and the recompute (2026-11-04)
+
+**Behaviour.** `visibleOpportunityPredicate` (job-sourcing queue scope) shows a granted opportunity to a team
+unless it is CLOSED/EXPIRED or an opportunity-level EXCLUDED match row exists at the opportunity's CURRENT
+revision. Those rows are written by the async recompute after a revision bump, and a plain mismatch or an empty
+roster writes no row at all. So an opportunity that became restricted stays visible to a team holding an
+unexpired ADMIN grant (a) between the bump and the recompute, and (b) indefinitely when the roster is empty. The
+LEAD branch does not have this gap (it requires a current-revision LEAD row with live versions).
+
+**Why it is open.** Nothing persisted says "this opportunity was evaluated at revision N", so the safe reading
+cannot be written today. It is an owner decision (A2), and it does not block 6.1: nothing calls
+`JobQueueScopeService` yet. An integration case in the queue-scope spec pins the current behaviour and must flip
+to 404 when the gap is closed.
+
+**Options.** (1, recommended) store the opportunity-level verdict and evaluated revision on `job_opportunities`,
+written by `installMatches` in the same transaction as the match rows; the grant branch then requires the
+evaluated revision to equal the current one and the verdict not to be EXCLUDED (schema change plus a staged
+forward DDL, promotion owner-only, backfill by recompute). (2) require the grant's own revision to equal the
+current revision (no schema change; grants lapse on every source change and the empty-roster gap stays).
+(3) the owner accepts the current behaviour.
+
+**Gate.** No task may inject `JobQueueScopeService` (Tasks 6.2, 6.3, 6.4: the first caller is the first
+exposure) before the owner decides; wiring it in earlier reopens this as HIGH on that PR. The plan carries the
+same precondition on Task 6.4.
+
+**Verify.** After the decision: the pinned "SR-M-2 gap" case in the queue-scope integration spec asserts a
+404 (or the owner's acceptance is written here), and `grep` shows the service injected only after that.
+
+Sources: PR #1253 review (SR-M-2, SR-M-4, SPEC-M-4, CR-M-3); coder blocker analysis.
