@@ -1,4 +1,4 @@
-import { ForbiddenException, HttpStatus, Injectable, Logger } from '@nestjs/common'
+import { ForbiddenException, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { apiError } from '../../common/api-error'
@@ -33,7 +33,7 @@ import {
 export class JobQueueScopeService {
   private readonly logger = new Logger(JobQueueScopeService.name)
 
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async resolve(user: SessionUser, requestedTeamId?: string): Promise<JobQueueScope> {
     if (!isJobQueueRole(user.role)) throw new ForbiddenException()

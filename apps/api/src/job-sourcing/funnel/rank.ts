@@ -12,7 +12,7 @@
  */
 
 const MS_PER_DAY = 86_400_000
-const MAX_SCORE = 1000
+export const MAX_SCORE = 1000
 
 export interface RankConfig {
   freshnessWeight: number

@@ -20,14 +20,20 @@ import {
  * of one scope are coalesced by a transaction-scoped advisory lock: the second waits, finds the row
  * the first committed and serves it (the partial UNIQUEs remain the database's own backstop).
  */
-export const GENERATION_TTL_MS = 15 * 60 * 1000
-
-/** shortcut: only the top of the order is retained; no viewer pages this far. Raise it if MP-13 data says otherwise. */
-export const GENERATION_MAX_ENTRIES = 5000
+/**
+ * The numeric policy of a generation, in one place. Both are pending owner confirmation (SPEC-M-2):
+ * the plan reserves expiry durations for owner policy, and the cap decides what a viewer can reach.
+ *
+ * shortcut: `maxEntries` retains only the top of the order and the list says so (`capped`). Raise it
+ * if MP-13 data says otherwise.
+ */
+export const GENERATION_POLICY = { ttlMs: 15 * 60 * 1000, maxEntries: 5000 } as const
 
 export interface GenerationRow extends GenerationHead {
   readonly id: string
   readonly policySignature: string
+  readonly ruleVersion: string
+  readonly evaluatedAt: Date
 }
 
 /** Generations of exactly this scope. A STUDIO scope must not pick up a team's. */
@@ -36,16 +42,20 @@ const ofScope = (scope: JobQueueScope): SQL =>
     ? sql`scope_kind = 'TEAM' AND team_id = ${scope.teamId}::uuid`
     : sql`scope_kind = 'STUDIO'`
 
+const instant = (v: unknown): Date => (v instanceof Date ? v : new Date(String(v)))
+
 const toGeneration = (r: Record<string, unknown>): GenerationRow => ({
   id: String(r['id']),
   scopeKind: r['scope_kind'] as GenerationRow['scopeKind'],
   teamId: r['team_id'] == null ? null : String(r['team_id']),
   status: r['status'] as GenerationRow['status'],
-  expiresAt: r['expires_at'] instanceof Date ? r['expires_at'] : new Date(String(r['expires_at'])),
+  expiresAt: instant(r['expires_at']),
   policySignature: String(r['policy_signature']),
+  ruleVersion: String(r['rule_version']),
+  evaluatedAt: instant(r['evaluated_at']),
 })
 
-const COLUMNS = sql`id, scope_kind, team_id, status, expires_at, policy_signature`
+const COLUMNS = sql`id, scope_kind, team_id, status, expires_at, policy_signature, rule_version, evaluated_at`
 
 export async function generationById(db: SqlExecutor, id: string): Promise<GenerationRow | null> {
   const { rows } = await db.execute(
@@ -100,7 +110,7 @@ async function publish(
   signature: string,
   now: Date,
 ): Promise<GenerationRow> {
-  const expiresAt = new Date(now.getTime() + GENERATION_TTL_MS)
+  const expiresAt = new Date(now.getTime() + GENERATION_POLICY.ttlMs)
   const teamId = scope.kind === 'TEAM' ? scope.teamId : null
   const { rows } = await tx.execute(
     sql`INSERT INTO job_queue_generations
@@ -122,7 +132,7 @@ async function publish(
                  CROSS JOIN LATERAL (${rankSelect(versions)}) rank
                  WHERE ${listableOpportunityPredicate(scope, sql`o.id`)}
                  ORDER BY rank.score DESC, o.first_seen_at DESC, o.id DESC
-                 LIMIT ${GENERATION_MAX_ENTRIES}) c`,
+                 LIMIT ${GENERATION_POLICY.maxEntries}) c`,
   )
   // A cursor of a superseded generation answers refresh-required with or without its row, so the
   // old row is purged here: nothing else collects them, and the Task 1.3 triggers allow exactly
@@ -147,5 +157,26 @@ async function publish(
     status: 'PUBLISHED',
     expiresAt,
     policySignature: signature,
+    ruleVersion: MATCH_RULE_VERSION,
+    evaluatedAt: now,
   }
+}
+
+/**
+ * Retention (MP-13): an expired generation serves nobody, yet only the next publication of its scope
+ * would remove it, so an idle scope's row stayed for good and held its team undeletable. Invalidate
+ * first, because the Task 1.3 trigger refuses any other DELETE; entries go by cascade. A crash between
+ * the two statements leaves only INVALIDATED rows, which the next run deletes. Returns the rows deleted.
+ */
+export async function purgeExpiredGenerations(db: SqlExecutor, now: Date): Promise<number> {
+  const at = now.toISOString()
+  await db.execute(
+    sql`UPDATE job_queue_generations
+           SET status = 'INVALIDATED', invalidated_at = ${at}::timestamptz
+         WHERE status = 'PUBLISHED' AND expires_at <= ${at}::timestamptz`,
+  )
+  const { rows } = await db.execute(
+    sql`DELETE FROM job_queue_generations WHERE status = 'INVALIDATED' RETURNING id`,
+  )
+  return rows.length
 }

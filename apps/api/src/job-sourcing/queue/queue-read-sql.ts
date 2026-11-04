@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { JobQueueListQuery } from '@crm/shared'
 import { type SQL, sql } from 'drizzle-orm'
-import { RANK_DEFAULTS } from '../funnel/rank'
+import { MAX_SCORE, RANK_DEFAULTS } from '../funnel/rank'
 import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
 import {
   type JobQueueScope,
@@ -44,12 +44,14 @@ export const liveVersionRows = (versions: readonly LiveSeniorVersion[]): SQL =>
  * The scope's integer rank: `evaluate` persists a score per senior only (the TEAM and STUDIO
  * projections are dropped by `matchRows`), so it is derived here as the best senior's score plus
  * the same match term `rankScore` uses for the seniors beyond the first. No LEAD ranks 0, after
- * every LEAD of comparable age. Only the scope's own seniors can move it.
+ * every LEAD of comparable age. Only the scope's own seniors can move it. Clamped to the range
+ * `rankScore` documents.
  */
 export const rankSelect = (versions: readonly LiveSeniorVersion[]): SQL =>
-  sql`SELECT (COALESCE(max((m.evidence->>'score')::int), 0)
+  sql`SELECT LEAST((COALESCE(max((m.evidence->>'score')::int), 0)
               + ${RANK_DEFAULTS.matchWeight}::int
-                * GREATEST(LEAST(count(*), ${RANK_DEFAULTS.matchCap}::int) - 1, 0))::int AS score
+                * GREATEST(LEAST(count(*), ${RANK_DEFAULTS.matchCap}::int) - 1, 0))::int,
+              ${MAX_SCORE}::int) AS score
        ${liveVersionRows(versions)} AND m.outcome = 'LEAD'`
 
 /** The dismissal that hides a row in THIS scope: STUDIO's own, not any team's "not for us". */
@@ -226,6 +228,7 @@ export function listFilters(
     filters.push(sql`EXISTS (SELECT 1 FROM job_opportunity_sources fs
                                JOIN job_source_records fr ON fr.id = fs.source_record_id
                               WHERE fs.opportunity_id = o.id AND fs.unlinked_at IS NULL
+                                AND fr.source_url IS NOT NULL
                                 AND ${textIn(sql`fr.source_type::text`, query.source)})`)
   }
   if (query.eligibility !== undefined) filters.push(textIn(sql`d.eligibility`, query.eligibility))

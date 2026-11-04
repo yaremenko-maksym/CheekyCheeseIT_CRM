@@ -13,6 +13,7 @@ import { DouRssProvider } from './dou.provider'
 import { JobAvailabilityReconciliationCronService } from './job-availability-reconciliation.cron'
 import { JobMatchReconciliationCronService } from './job-match-reconciliation.cron'
 import { JobQueueActionRetentionCronService } from './job-queue-action-retention.cron'
+import { JobQueueGenerationRetentionCronService } from './job-queue-generation-retention.cron'
 import { JobSourcingController } from './job-sourcing.controller'
 import { JobQueueService } from './queue/job-queue.service'
 import { JobQueueScopeService } from './queue/queue-scope.service'
@@ -72,6 +73,8 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     SourceHealthAlertService,
     SourceHealthWeeklyReportCron,
     JobQueueActionRetentionCronService,
+    // r5 Task 6.2 (MP-13): removes expired queue generations; flag default OFF.
+    JobQueueGenerationRetentionCronService,
     // r5 Task 6.1: the queue scope (ADMIN studio / HR one active team); read by Tasks 6.2-6.4.
     JobQueueScopeService,
     // r5 Task 6.2: the queue's list and card reads; the Task 6.4 controller calls them.

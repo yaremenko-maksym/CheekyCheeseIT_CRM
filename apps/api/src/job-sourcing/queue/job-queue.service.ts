@@ -18,6 +18,7 @@ import type { z } from 'zod'
 import { apiError } from '../../common/api-error'
 import type { Env } from '../../config/env'
 import { DatabaseService } from '../../database/database.service'
+import type { SqlExecutor } from '../scheduling/host-state'
 import {
   assertCursorCurrent,
   parseCursor,
@@ -25,7 +26,7 @@ import {
   requestSignature,
   signCursor,
 } from './queue-cursor'
-import { currentGeneration, GENERATION_TTL_MS, generationById } from './queue-generation'
+import { currentGeneration, GENERATION_POLICY, generationById } from './queue-generation'
 import {
   cardRow,
   duplicateRows,
@@ -61,6 +62,7 @@ const EMPTY_LIST: JobQueueListResponseDto = {
   items: [],
   nextCursor: null,
   counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
+  generation: null,
 }
 
 const iso = (v: unknown): string => (v instanceof Date ? v : new Date(String(v))).toISOString()
@@ -189,60 +191,39 @@ export class JobQueueService {
     const now = new Date()
     if (cursor !== null) assertCursorCurrent(cursor, signature, now)
 
-    const generation = await this.scopes.policy(() =>
-      cursor === null
-        ? currentGeneration(this.database, scope, versions, policy, now)
-        : generationById(this.database.db, cursor.g),
-    )
-    // A generation superseded, expired or purged since the cursor was issued, or never this scope's.
-    if (generation === null || !isGenerationServable(scope, generation, now)) {
-      throw refreshRequired()
-    }
-
-    const frame = sql`FROM job_queue_generation_entries e
-                      JOIN job_opportunities o ON o.id = e.opportunity_id
-                      ${queueRowJoins(scope, versions)}
-                     WHERE e.generation_id = ${generation.id}::uuid
-                       AND ${listableOpportunityPredicate(scope, sql`o.id`)}`
-    const counts = await this.scopes.policy(() =>
-      this.database.db.execute(
-        sql`SELECT count(*) FILTER (WHERE d.tab = 'NEW') AS new,
-                   count(*) FILTER (WHERE d.tab = 'SUBMITTED') AS submitted,
-                   count(*) FILTER (WHERE d.tab = 'HIDDEN') AS hidden
-            ${frame}`,
+    // Publishing writes, so it stays outside the read snapshot below.
+    const generationId =
+      cursor?.g ??
+      (
+        await this.scopes.policy(() =>
+          currentGeneration(this.database, scope, versions, policy, now),
+        )
+      ).id
+    // One snapshot: a publish that commits between these statements purges the generation for the
+    // next request, never halfway through this one (a 200 with an empty page and zero counts).
+    const read = await this.scopes.policy(() =>
+      this.database.db.transaction(
+        (tx) => readPage(tx, scope, versions, generationId, query, cursor?.k ?? -1, now),
+        { isolationLevel: 'repeatable read', accessMode: 'read only' },
       ),
     )
-    const tally = counts.rows[0] as Row
-    const response: JobQueueListResponseDto = {
-      ...EMPTY_LIST,
+    // A generation superseded, expired or purged since it was chosen, or never this scope's.
+    if (read === null) throw refreshRequired()
+
+    const { generation, tally, rows } = read
+    const page = rows.slice(0, query.limit)
+    return jobQueueListResponseSchema.parse({
+      items: page.map(toListItem),
       counts: {
         NEW: count(tally['new']),
         SUBMITTED: count(tally['submitted']),
         HIDDEN: count(tally['hidden']),
       },
-    }
-    // A senior outside the scope: empty, not an error that would confirm who exists.
-    const senior = query.seniorId?.toLowerCase()
-    if (senior !== undefined && !versions.some((v) => v.seniorId === senior)) {
-      return jobQueueListResponseSchema.parse(response)
-    }
-
-    const filters = listFilters(query, versions)
-    const after = cursor === null ? -1 : cursor.k
-    const { rows } = await this.scopes.policy(() =>
-      this.database.db.execute(
-        sql`SELECT ${QUEUE_ROW_COLUMNS}, e.order_key
-            ${frame}
-               AND e.order_key > ${after}
-               AND ${sql.join(filters, sql` AND `)}
-             ORDER BY e.order_key
-             LIMIT ${query.limit + 1}`,
-      ),
-    )
-    const page = rows.slice(0, query.limit)
-    return jobQueueListResponseSchema.parse({
-      ...response,
-      items: page.map(toListItem),
+      generation: {
+        ruleVersion: generation.ruleVersion,
+        evaluatedAt: generation.evaluatedAt.toISOString(),
+        capped: tally['capped'] === true,
+      },
       nextCursor:
         rows.length > query.limit
           ? signCursor(
@@ -336,7 +317,7 @@ export class JobQueueService {
   }
 
   private continuationCursor(kind: 'SRC' | 'SEN', id: string, key: string, signature: string) {
-    const e = Math.floor((Date.now() + GENERATION_TTL_MS) / 1000)
+    const e = Math.floor((Date.now() + GENERATION_POLICY.ttlMs) / 1000)
     return signCursor({ t: kind, g: id, k: key, s: signature, e }, this.secret)
   }
 
@@ -404,6 +385,49 @@ export class JobQueueService {
       totalCount: count(first['total']),
     }
   }
+}
+
+/** Lookup, counts and page of one list request: run in ONE snapshot. Null: not servable to this scope. */
+async function readPage(
+  tx: SqlExecutor,
+  scope: JobQueueScope,
+  versions: readonly LiveSeniorVersion[],
+  generationId: string,
+  query: JobQueueListQuery,
+  after: number,
+  now: Date,
+) {
+  const generation = await generationById(tx, generationId)
+  if (generation === null || !isGenerationServable(scope, generation, now)) return null
+  const frame = sql`FROM job_queue_generation_entries e
+                    JOIN job_opportunities o ON o.id = e.opportunity_id
+                    ${queueRowJoins(scope, versions)}
+                   WHERE e.generation_id = ${generation.id}::uuid
+                     AND ${listableOpportunityPredicate(scope, sql`o.id`)}`
+  const counts = await tx.execute(
+    sql`SELECT count(*) FILTER (WHERE d.tab = 'NEW') AS new,
+               count(*) FILTER (WHERE d.tab = 'SUBMITTED') AS submitted,
+               count(*) FILTER (WHERE d.tab = 'HIDDEN') AS hidden,
+               EXISTS (SELECT 1 FROM job_queue_generation_entries top
+                        WHERE top.generation_id = ${generation.id}::uuid
+                          AND top.order_key = ${GENERATION_POLICY.maxEntries - 1}) AS capped
+        ${frame}`,
+  )
+  const tally = counts.rows[0] as Row
+  // A senior outside the scope: empty, not an error that would confirm who exists.
+  const senior = query.seniorId?.toLowerCase()
+  if (senior !== undefined && !versions.some((v) => v.seniorId === senior)) {
+    return { generation, tally, rows: [] as Row[] }
+  }
+  const { rows } = await tx.execute(
+    sql`SELECT ${QUEUE_ROW_COLUMNS}, e.order_key
+        ${frame}
+           AND e.order_key > ${after}
+           AND ${sql.join(listFilters(query, versions), sql` AND `)}
+         ORDER BY e.order_key
+         LIMIT ${query.limit + 1}`,
+  )
+  return { generation, tally, rows: rows as Row[] }
 }
 
 const continuationSignature = (

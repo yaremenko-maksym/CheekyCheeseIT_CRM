@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, hkdfSync, timingSafeEqual } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { z } from 'zod'
 import { apiError } from '../../common/api-error'
@@ -44,8 +44,14 @@ export type ListCursor = z.infer<typeof listCursor>
 export type ContinuationCursor = z.infer<typeof continuationCursor>
 export type QueueCursor = z.infer<typeof cursorSchema>
 
+const DOMAIN = 'job-queue-cursor.v1'
+
+/** Derived, so this key shares nothing with any other use of the secret (SR-L-1). */
+const cursorKey = (secret: string): Buffer =>
+  Buffer.from(hkdfSync('sha256', secret, Buffer.alloc(0), DOMAIN, 32))
+
 const mac = (body: string, secret: string): Buffer =>
-  createHmac('sha256', secret).update(`job-queue-cursor.v1.${body}`).digest()
+  createHmac('sha256', cursorKey(secret)).update(`${DOMAIN}.${body}`).digest()
 
 export function signCursor(payload: QueueCursor, secret: string): string {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
