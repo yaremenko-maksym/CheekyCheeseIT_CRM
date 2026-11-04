@@ -103,6 +103,15 @@ describe('routerConfigSchema', () => {
     expect(ok(base([{ ...local, apiKey: '', baseUrl: 'https://10.0.0.5/v1' }]))).toBe(false)
   })
 
+  it.each(['', 'https://u:KEY_MARKER@[x', 'gsk_LIVEKEY_pasted_here'])(
+    'a key with an unparsable local URL %j is refused without throwing (SR-H-65)',
+    (baseUrl) => {
+      const r = routerConfigSchema.safeParse(base([{ ...local, apiKey: 'k', baseUrl }]))
+      expect(r.success).toBe(false)
+      expect(JSON.stringify(r.error?.issues)).not.toContain('KEY_MARKER')
+    },
+  )
+
   it('refuses a config whose local URL is refused', () => {
     expect(ok(base([{ ...local, baseUrl: 'http://169.254.169.254/v1' }]))).toBe(false)
   })

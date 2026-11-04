@@ -148,7 +148,12 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     emit({ type: 'CONFIG_REFUSED' })
     return refused
   }
-  const parsed = routerConfigSchema.safeParse(rawConfig)
+  let parsed: ReturnType<typeof routerConfigSchema.safeParse>
+  try {
+    parsed = routerConfigSchema.safeParse(rawConfig)
+  } catch {
+    return refuse() // a throwing refine must not carry the raw config out (SR-H-65)
+  }
   if (!parsed.success) return refuse()
   const cfg: RouterConfig = parsed.data
   const hostedRoutes = cfg.routes.filter((r): r is HostedRouteConfig => r.provider !== 'local')

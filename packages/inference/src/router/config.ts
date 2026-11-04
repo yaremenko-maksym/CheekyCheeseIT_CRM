@@ -89,7 +89,13 @@ const localRouteSchema = z
   })
   .strict()
   // A key over plain HTTP is a config error (SR-L-63), refused here rather than on every call.
-  .refine((r) => r.apiKey === undefined || new URL(r.baseUrl).protocol === 'https:')
+  // Total (SR-H-65): Zod still runs this after `baseUrl` failed, and a throwing `new URL()` escapes
+  // `safeParse` with the raw value in the error.
+  .refine(
+    (r) =>
+      r.apiKey === undefined ||
+      (URL.canParse(r.baseUrl) && new URL(r.baseUrl).protocol === 'https:'),
+  )
 export const routerConfigSchema = z
   .object({
     /** Own-cap limits are frozen under this version (D5). */

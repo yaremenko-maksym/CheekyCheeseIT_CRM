@@ -168,6 +168,30 @@ describe('router: refused configs send nothing', () => {
     expect(d.events).toEqual([{ type: 'CONFIG_REFUSED' }])
   })
 
+  it('a config read that throws is refused, and no event carries the thrown text (SR-H-65)', async () => {
+    const f = scriptedFetch(() => GOOD)
+    const d = deps(f.fetchImpl)
+    const hostile = {
+      ...config([LOCAL]),
+      get routes(): never {
+        throw new TypeError('https://u:SENTINEL_URL@[x')
+      },
+    }
+    const router = createRouter(hostile, d)
+    expect(await router.run(REQ)).toEqual({ ok: false, code: 'NOT_CONFIGURED' })
+    expect(f.sent).toHaveLength(0)
+    expect(d.events).toEqual([{ type: 'CONFIG_REFUSED' }])
+  })
+
+  it('a key with an unparsable local URL builds a refused router (SR-H-65)', async () => {
+    const f = scriptedFetch(() => GOOD)
+    const d = deps(f.fetchImpl)
+    const cfg = config([{ ...LOCAL, apiKey: 'k', baseUrl: 'https://u:SENTINEL_URL@[x' }])
+    expect(await createRouter(cfg, d).run(REQ)).toEqual({ ok: false, code: 'NOT_CONFIGURED' })
+    expect(JSON.stringify(d.events)).not.toContain('SENTINEL_URL')
+    expect(d.events).toEqual([{ type: 'CONFIG_REFUSED' }])
+  })
+
   it('a missing onEvent consumer refuses the router', async () => {
     const f = scriptedFetch(() => GOOD)
     const d = deps(f.fetchImpl, { onEvent: undefined as never })
