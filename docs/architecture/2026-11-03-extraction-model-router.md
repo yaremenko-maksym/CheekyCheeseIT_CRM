@@ -33,7 +33,8 @@ tier may train on or human-review prompts are accepted; OpenRouter is not in the
 10. Gemini's 403 has four documented causes, all about the key or project: a 403 carrying the provider's documented error
     envelope is `AUTH`, never `REFUSED`; any other 403 is `TRANSPORT` (§5.1).
 11. An error body is parsed whole (capped at 2 MiB), not cut at 2 000 characters, which broke real Google errors; over the
-    cap means no marker; the envelope check is for 403 only; `RETIRED` matches the requested id as a whole token (§5.1).
+    cap means no marker; each rule reads one fixed field (Gemini 429: `error.details[]`; 403: `error.status`, never `details`); `RETIRED` matches
+    the requested id as a whole token (§5.1).
 
 ## Context
 
@@ -603,9 +604,12 @@ Classification uses the HTTP status first, then the **whole** error body, parsed
 **documented structured error fields** are read, plus its rate-limit headers — never the page text, never a free-text
 regex over the body. A prefix cut is not used: a real Google error with three quota violations, pretty-printed, runs
 past 2 000 characters and would stop parsing. The body is already capped at 2 MiB by `boundedRequest`; a body over the
-cap or not parsable is read as having no marker, so a 429 is `BUSY`, never `SPENT_DAY`, and a 403 is `TRANSPORT`, never
-`AUTH`. The envelope requirement (`error.status` and its `details`) belongs to the 403 rule only; a 429 reads its marker
-from the parsed body without it. The body is discarded after classification.
+cap or not parsable is read as having no marker: a 429 is `BUSY`, never `SPENT_DAY`; a 403 is `TRANSPORT`, never `AUTH`;
+a 404 is `TRANSPORT`, never `RETIRED`. Each rule reads one fixed place, never anywhere in the body, because a provider body
+can echo request content: a Gemini 429's per-day marker only from `error.details[]` (from the first element's when the
+compat endpoint wraps the envelope in a list; Groq's comes from headers); the 403 rule only Gemini's `error.status` or
+the shape of Groq's `error` object, never `details`; the 404 rule only `error.message`. The body is
+discarded after classification.
 
 | Internal code      | Signal (fixtures from 5.4c-0's error table)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Router action                                                                                                                                                                                                                                                                                                                   | Ledger                                                                                                               |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
