@@ -1,0 +1,407 @@
+import { HttpStatus, Inject, Injectable } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
+import {
+  DESCRIPTION_MD_MAX,
+  type JobQueueCardResponseDto,
+  jobQueueCardResponseSchema,
+  type JobQueueListItemDto,
+  type JobQueueListQuery,
+  type JobQueueListResponseDto,
+  jobQueueListResponseSchema,
+  type JobQueueScopeQuery,
+  jobQueueSeniorsContinuationSchema,
+  jobQueueSourcesContinuationSchema,
+  type SessionUser,
+} from '@crm/shared'
+import { sql } from 'drizzle-orm'
+import type { z } from 'zod'
+import { apiError } from '../../common/api-error'
+import type { Env } from '../../config/env'
+import { DatabaseService } from '../../database/database.service'
+import {
+  assertCursorCurrent,
+  parseCursor,
+  refreshRequired,
+  requestSignature,
+  signCursor,
+} from './queue-cursor'
+import { currentGeneration, generationById } from './queue-generation'
+import {
+  cardRow,
+  duplicateRows,
+  filterIdentity,
+  listFilters,
+  policySignature,
+  QUEUE_ROW_COLUMNS,
+  queueRowJoins,
+  seniorRows,
+  seniorTotal,
+  sourceRows,
+  sourceTotal,
+} from './queue-read-sql'
+import {
+  canonicalUuid,
+  isGenerationServable,
+  type JobQueueScope,
+  listableOpportunityPredicate,
+  type LiveSeniorVersion,
+} from './queue-scope'
+import { JobQueueScopeService } from './queue-scope.service'
+
+/** Wire bounds (`jobQueueCardResponseSchema`): the previews are this long, then continue. */
+export const SENIOR_PREVIEW_MAX = 200
+export const SOURCE_PREVIEW_MAX = 20
+const DUPLICATE_PREVIEW_MAX = 5
+const CONTINUATION_TTL_MS = 15 * 60 * 1000
+
+type Row = Record<string, unknown>
+type SeniorsPage = z.infer<typeof jobQueueSeniorsContinuationSchema>
+type SourcesPage = z.infer<typeof jobQueueSourcesContinuationSchema>
+
+const EMPTY_LIST: JobQueueListResponseDto = {
+  items: [],
+  nextCursor: null,
+  counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
+}
+
+const iso = (v: unknown): string => (v instanceof Date ? v : new Date(String(v))).toISOString()
+const isoOrNull = (v: unknown): string | null => (v == null ? null : iso(v))
+const clipped = (v: unknown, max: number): string | null =>
+  v == null ? null : String(v).slice(0, max)
+
+/** `count(*)` arrives as text from the driver. */
+const count = (v: unknown): number => Number(v)
+
+export function toListItem(r: Row): JobQueueListItemDto {
+  return {
+    opportunityId: String(r['id']),
+    revision: Number(r['revision']),
+    title: String(r['title']).slice(0, 500),
+    companyName: clipped(r['employer_name'], 255),
+    location: clipped(r['location'], 500),
+    primarySource: {
+      sourceRecordId: String(r['source_record_id']),
+      sourceType: r['source_type'] as JobQueueListItemDto['primarySource']['sourceType'],
+      url: String(r['source_url']),
+    },
+    alsoSeenOnCount: Math.max(count(r['source_total']) - 1, 0),
+    availability: r['availability'] as JobQueueListItemDto['availability'],
+    eligibility: r['eligibility'] as JobQueueListItemDto['eligibility'],
+    matchedSeniorCount: count(r['matched']),
+    submittedSeniorCount: count(r['submitted']),
+    stopListedSeniorCount: count(r['stop_listed']),
+    openedByTeam: r['opened'] === true,
+    hidden: r['hidden'] === true,
+    publishedAt: isoOrNull(r['published_at']),
+    firstSeenAt: iso(r['first_seen_at']),
+  }
+}
+
+/**
+ * The keywords of a senior's own `TECH_MATCH` reason (`keyword:STRENGTH`). A match is approximate
+ * unless it holds a CORE keyword: a TRIAGE row has none, an OPTIONAL-only one is a weak signal.
+ */
+export function matchFacts(evidence: unknown): { keywords: string[]; approximate: boolean } {
+  const reasons = (evidence as { reasons?: unknown } | null)?.reasons
+  const items = Array.isArray(reasons)
+    ? reasons
+        .filter((r: { code?: unknown }) => r?.code === 'TECH_MATCH')
+        .flatMap((r: { evidence?: unknown }) => (Array.isArray(r.evidence) ? r.evidence : []))
+        .map(String)
+    : []
+  return {
+    keywords: items.map((k) => k.slice(0, k.lastIndexOf(':'))).slice(0, 200),
+    approximate: !items.some((k) => k.endsWith(':CORE')),
+  }
+}
+
+/**
+ * The card's `submission`, from the SQL that never selects a foreign row's columns (`seniorRows`):
+ * own row in full; another team's LIVE submission of this shared senior is the bare marker (owner A3
+ * option (a)); a cancelled foreign one is indistinguishable from none.
+ */
+export function toSubmission(r: Row): SeniorsPage['items'][number]['submission'] {
+  if (r['submission_id'] != null) {
+    return {
+      id: String(r['submission_id']),
+      opportunityId: String(r['opportunity_id']),
+      seniorId: String(r['senior_id']),
+      state: r['submission_state'] as 'TAKEN' | 'RELEASED',
+      submittedAt: iso(r['taken_at']),
+      cancelledAt: isoOrNull(r['released_at']),
+      version: Number(r['submission_version']),
+      submittedByName: clipped(r['submitted_by_name'], 255),
+    }
+  }
+  return r['submitted_elsewhere'] === true ? { submittedElsewhere: true } : null
+}
+
+const toSenior = (r: Row): SeniorsPage['items'][number] => {
+  const facts = matchFacts(r['evidence'])
+  return {
+    seniorId: String(r['senior_id']),
+    displayName: String(r['display_name']).slice(0, 255),
+    matchApproximate: facts.approximate,
+    matchedKeywords: facts.keywords,
+    submission: toSubmission(r),
+  }
+}
+
+const toSource = (r: Row): SourcesPage['items'][number] => ({
+  sourceRecordId: String(r['source_record_id']),
+  sourceType: r['source_type'] as SourcesPage['items'][number]['sourceType'],
+  url: String(r['source_url']),
+  linkedAt: iso(r['linked_at']),
+})
+
+/**
+ * r5 Task 6.2 — the queue's list and card. Every public method resolves the scope for THIS request
+ * (never cached, SR-L-2), so RBAC holds here and not only on the Task 6.4 controller decorator.
+ * Visibility comes only from `queue-scope.ts`; `queue-read-sql.ts` documents how each field is scoped.
+ *
+ * Counts deliberately differ from a full recount: they are the entries of the served generation that
+ * are STILL authorized, in their CURRENT workflow state (so a submission or a revoked grant shows at
+ * once), and an opportunity that first appeared after the generation counts only from the next one,
+ * just as it pages only from then. They are not narrowed by filters.
+ */
+@Injectable()
+export class JobQueueService {
+  constructor(
+    private readonly database: DatabaseService,
+    private readonly scopes: JobQueueScopeService,
+    @Inject(ConfigService) private readonly config: ConfigService<Env, true>,
+  ) {}
+
+  private get secret(): string {
+    return this.config.get('SESSION_SECRET', { infer: true })
+  }
+
+  async list(user: SessionUser, query: JobQueueListQuery): Promise<JobQueueListResponseDto> {
+    const scope = await this.scopes.resolve(user, query.teamId)
+    // Checked before any data SQL, and answered the same for a NONE scope.
+    const cursor = query.cursor === undefined ? null : parseCursor(query.cursor, 'L', this.secret)
+    if (scope.kind === 'NONE') return EMPTY_LIST
+    const versions = await this.scopes.liveVersions(scope)
+    const policy = policySignature(scope, versions)
+    const signature = requestSignature([user.id, policy, ...filterIdentity(query)])
+    const now = new Date()
+    if (cursor !== null) assertCursorCurrent(cursor, signature, now)
+
+    const generation = await this.scopes.policy(() =>
+      cursor === null
+        ? currentGeneration(this.database, scope, versions, policy, now)
+        : generationById(this.database.db, cursor.g),
+    )
+    // A generation superseded, expired or purged since the cursor was issued, or never this scope's.
+    if (generation === null || !isGenerationServable(scope, generation, now)) {
+      throw refreshRequired()
+    }
+
+    const frame = sql`FROM job_queue_generation_entries e
+                      JOIN job_opportunities o ON o.id = e.opportunity_id
+                      ${queueRowJoins(scope, versions)}
+                     WHERE e.generation_id = ${generation.id}::uuid
+                       AND ${listableOpportunityPredicate(scope, sql`o.id`)}`
+    const counts = await this.scopes.policy(() =>
+      this.database.db.execute(
+        sql`SELECT count(*) FILTER (WHERE d.tab = 'NEW') AS new,
+                   count(*) FILTER (WHERE d.tab = 'SUBMITTED') AS submitted,
+                   count(*) FILTER (WHERE d.tab = 'HIDDEN') AS hidden
+            ${frame}`,
+      ),
+    )
+    const tally = counts.rows[0] as Row
+    const response: JobQueueListResponseDto = {
+      ...EMPTY_LIST,
+      counts: {
+        NEW: count(tally['new']),
+        SUBMITTED: count(tally['submitted']),
+        HIDDEN: count(tally['hidden']),
+      },
+    }
+    // A senior outside the scope: empty, not an error that would confirm who exists.
+    const senior = query.seniorId?.toLowerCase()
+    if (senior !== undefined && !versions.some((v) => v.seniorId === senior)) {
+      return jobQueueListResponseSchema.parse(response)
+    }
+
+    const filters = listFilters(query, versions)
+    const after = cursor === null ? -1 : cursor.k
+    const { rows } = await this.scopes.policy(() =>
+      this.database.db.execute(
+        sql`SELECT ${QUEUE_ROW_COLUMNS}, e.order_key
+            ${frame}
+               AND e.order_key > ${after}
+               AND ${sql.join(filters, sql` AND `)}
+             ORDER BY e.order_key
+             LIMIT ${query.limit + 1}`,
+      ),
+    )
+    const page = rows.slice(0, query.limit)
+    const last = page[page.length - 1]
+    return jobQueueListResponseSchema.parse({
+      ...response,
+      items: page.map(toListItem),
+      nextCursor:
+        rows.length > query.limit && last !== undefined
+          ? signCursor(
+              {
+                t: 'L',
+                g: generation.id,
+                k: Number(last['order_key']),
+                s: signature,
+                e: Math.floor(generation.expiresAt.getTime() / 1000),
+              },
+              this.secret,
+            )
+          : null,
+    })
+  }
+
+  /** The latest canonical facts of one visible opportunity. A miss of any kind is the same 404. */
+  async card(
+    user: SessionUser,
+    opportunityId: string,
+    query: Pick<JobQueueScopeQuery, 'teamId'> = {},
+  ): Promise<JobQueueCardResponseDto> {
+    const scope = await this.scopes.resolve(user, query.teamId)
+    await this.scopes.assertVisible(scope, opportunityId)
+    const id = canonicalUuid(opportunityId) as string
+    const versions = await this.scopes.liveVersions(scope)
+    const signature = continuationSignature(user, scope, versions, id)
+    const facts = await this.scopes.policy(async () => {
+      const { rows } = await this.database.db.execute(cardRow(scope, versions, id))
+      const row = rows[0]
+      if (row === undefined) return null
+      return {
+        row,
+        seniors: await this.seniorsPage(scope, versions, id, signature, undefined),
+        sources: await this.sourcesPage(id, signature, undefined),
+        possibleDuplicates: await this.duplicates(scope, id),
+      }
+    })
+    // Visible a moment ago, or without any active source link: the same answer as a miss.
+    if (facts === null) throw notFound()
+    const { row, ...parts } = facts
+    return jobQueueCardResponseSchema.parse({
+      ...toListItem(row),
+      descriptionMd: String(row['description'] ?? '').slice(0, DESCRIPTION_MD_MAX),
+      newerThanList: row['newer_than_list'] === true,
+      ...parts,
+    })
+  }
+
+  /** GET `/job-queue/:id/seniors`: the viewer's own matched seniors beyond the card's preview. */
+  async seniors(
+    user: SessionUser,
+    opportunityId: string,
+    query: JobQueueScopeQuery,
+  ): Promise<SeniorsPage> {
+    const c = await this.continuation(user, opportunityId, query, 'SEN')
+    return jobQueueSeniorsContinuationSchema.parse(
+      await this.scopes.policy(() =>
+        this.seniorsPage(c.scope, c.versions, c.id, c.signature, c.after),
+      ),
+    )
+  }
+
+  /** GET `/job-queue/:id/sources`: the opportunity's active source links beyond the preview. */
+  async sources(
+    user: SessionUser,
+    opportunityId: string,
+    query: JobQueueScopeQuery,
+  ): Promise<SourcesPage> {
+    const c = await this.continuation(user, opportunityId, query, 'SRC')
+    return jobQueueSourcesContinuationSchema.parse(
+      await this.scopes.policy(() => this.sourcesPage(c.id, c.signature, c.after)),
+    )
+  }
+
+  /** Role, then cursor integrity, then visibility, then the cursor's fit: refusals stay in that order. */
+  private async continuation(
+    user: SessionUser,
+    opportunityId: string,
+    query: JobQueueScopeQuery,
+    kind: 'SRC' | 'SEN',
+  ) {
+    const scope = await this.scopes.resolve(user, query.teamId)
+    const cursor = query.cursor === undefined ? null : parseCursor(query.cursor, kind, this.secret)
+    await this.scopes.assertVisible(scope, opportunityId)
+    const id = canonicalUuid(opportunityId) as string
+    const versions = await this.scopes.liveVersions(scope)
+    const signature = continuationSignature(user, scope, versions, id)
+    if (cursor !== null) assertCursorCurrent(cursor, signature, new Date())
+    return { scope, id, versions, signature, after: cursor?.k }
+  }
+
+  private continuationCursor(kind: 'SRC' | 'SEN', id: string, key: string, signature: string) {
+    const e = Math.floor((Date.now() + CONTINUATION_TTL_MS) / 1000)
+    return signCursor({ t: kind, g: id, k: key, s: signature, e }, this.secret)
+  }
+
+  private async seniorsPage(
+    scope: JobQueueScope,
+    versions: readonly LiveSeniorVersion[],
+    id: string,
+    signature: string,
+    after: string | undefined,
+  ): Promise<SeniorsPage> {
+    const { rows } = await this.database.db.execute(
+      seniorRows(scope, versions, id, after, SENIOR_PREVIEW_MAX + 1),
+    )
+    const total = await this.database.db.execute(seniorTotal(versions, id))
+    const page = rows.slice(0, SENIOR_PREVIEW_MAX)
+    const last = page[page.length - 1]
+    return {
+      items: page.map(toSenior),
+      totalCount: count((total.rows[0] as Row)['total']),
+      nextCursor:
+        rows.length > SENIOR_PREVIEW_MAX && last !== undefined
+          ? this.continuationCursor('SEN', id, String(last['senior_id']), signature)
+          : null,
+    }
+  }
+
+  private async sourcesPage(
+    id: string,
+    signature: string,
+    after: string | undefined,
+  ): Promise<SourcesPage> {
+    const { rows } = await this.database.db.execute(sourceRows(id, after, SOURCE_PREVIEW_MAX + 1))
+    const total = await this.database.db.execute(sourceTotal(id))
+    const page = rows.slice(0, SOURCE_PREVIEW_MAX)
+    const last = page[page.length - 1]
+    return {
+      items: page.map(toSource),
+      totalCount: count((total.rows[0] as Row)['total']),
+      nextCursor:
+        rows.length > SOURCE_PREVIEW_MAX && last !== undefined
+          ? this.continuationCursor('SRC', id, String(last['source_record_id']), signature)
+          : null,
+    }
+  }
+
+  /** Only duplicates THIS scope may see, in the total as well: a foreign copy is no copy. */
+  private async duplicates(scope: JobQueueScope, id: string) {
+    const { rows } = await this.database.db.execute(duplicateRows(scope, id, DUPLICATE_PREVIEW_MAX))
+    const first = rows[0]
+    if (first === undefined) return null
+    return {
+      items: rows.map((r) => ({
+        opportunityId: String(r['id']),
+        title: String(r['title']).slice(0, 500),
+        companyName: clipped(r['employer_name'], 255),
+      })),
+      totalCount: count(first['total']),
+    }
+  }
+}
+
+const continuationSignature = (
+  user: SessionUser,
+  scope: JobQueueScope,
+  versions: readonly LiveSeniorVersion[],
+  opportunityId: string,
+): string => requestSignature([user.id, policySignature(scope, versions), opportunityId])
+
+const notFound = () => apiError('JOB_OPPORTUNITY_NOT_FOUND', HttpStatus.NOT_FOUND)
