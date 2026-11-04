@@ -58,6 +58,8 @@ export interface BoundedFetchOptions {
    * the throw propagates out of `boundedFetchText` before the next `fetch`.
    */
   onHop?: () => void
+  /** `false`: a redirect is answered as `SourceHttpStatusError(<3xx>)` instead of being followed. */
+  followRedirects?: false
 }
 
 /**
@@ -67,12 +69,13 @@ export interface BoundedFetchOptions {
  */
 export function transportOptionsFor(
   request: FetchRequest,
-): Pick<BoundedFetchOptions, 'method' | 'headers' | 'body' | 'maxBytes'> {
+): Pick<BoundedFetchOptions, 'method' | 'headers' | 'body' | 'maxBytes' | 'followRedirects'> {
   return {
     ...(request.method !== undefined && { method: request.method }),
     ...(request.headers !== undefined && { headers: { ...request.headers } }),
     ...(request.body !== undefined && { body: request.body }),
     ...(request.maxBytes !== undefined && { maxBytes: request.maxBytes }),
+    ...(request.followRedirects === false && { followRedirects: false as const }),
   }
 }
 
@@ -207,6 +210,7 @@ export async function boundedFetchText(url: string, opts: BoundedFetchOptions): 
 
       if (REDIRECT_STATUSES.has(response.status)) {
         await response.body?.cancel()
+        if (opts.followRedirects === false) throw new SourceHttpStatusError(host, response.status)
         if (hop >= MAX_REDIRECTS) throw new Error(`${host} too many redirects`)
         const location = response.headers.get('location')
         if (!location) throw new Error(`${host} redirect without location`)
