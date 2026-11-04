@@ -3104,6 +3104,36 @@ msgstr "External job not found"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_CURSOR_MALFORMED"
+msgstr "This page of the list could not be opened. Refresh the list."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_IDEMPOTENCY_CONFLICT"
+msgstr "This request was already made with different data. Refresh the card and try again."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_POLICY_UNAVAILABLE"
+msgstr "Access could not be checked. Try again later."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED"
+msgstr "This senior has already been submitted to a similar job. Review it and confirm to log the submission."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_REFRESH_REQUIRED"
+msgstr "The list is out of date. Refresh it."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_VERSION_CONFLICT"
+msgstr "The data has changed. Refresh the card and try again."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_SOURCE_AUTH_PAUSED"
 msgstr "The source is paused because the provider refused access: clear the pause first, then switch it on"
 

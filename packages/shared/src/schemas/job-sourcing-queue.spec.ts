@@ -161,6 +161,7 @@ const taken = {
   reassignedBy: null,
   reassignedFromId: null,
   updatedAt: NOW,
+  seniorId: U2,
 }
 const released = {
   ...taken,
@@ -182,6 +183,12 @@ describe('jobQueueAssignmentWorkerSchema — the server-internal claim row', () 
     expect(jobQueueAssignmentWorkerSchema.parse(released)).toEqual(released)
     // An ADMIN claims under the STUDIO scope.
     expect(jobQueueAssignmentWorkerSchema.safeParse({ ...taken, scope: STUDIO }).success).toBe(true)
+  })
+
+  it('names the senior of the submission (senior_id NOT NULL, per-senior DDL)', () => {
+    const { seniorId: _omitted, ...withoutSenior } = taken
+    refusedAt(jobQueueAssignmentWorkerSchema, withoutSenior, ['seniorId'])
+    refusedAt(jobQueueAssignmentWorkerSchema, { ...taken, seniorId: 'not-a-uuid' }, ['seniorId'])
   })
 
   it('refuses every half-set release combination', () => {

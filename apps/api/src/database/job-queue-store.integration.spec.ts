@@ -313,11 +313,18 @@ async function newSourceRecord(): Promise<string> {
   return rows[0].id as string
 }
 
+/**
+ * The senior every fixture submission is for (`senior_id` NOT NULL since the staged
+ * 2026-11-04 per-senior DDL). Created in `beforeAll`; inlined as a literal uuid so the
+ * positional parameters of the existing statements stay unchanged.
+ */
+let senior: string
+
 /** A valid TEAM claim; the caller overrides one column at a time. */
 async function claim(opportunityId: string, teamId: string, assigneeId: string) {
   const { rows } = await q(
-    `INSERT INTO job_queue_assignments (opportunity_id, scope_kind, team_id, assignee_id)
-     VALUES ($1, 'TEAM', $2, $3) RETURNING *`,
+    `INSERT INTO job_queue_assignments (senior_id, opportunity_id, scope_kind, team_id, assignee_id)
+     VALUES ('${senior}', $1, 'TEAM', $2, $3) RETURNING *`,
     [opportunityId, teamId, assigneeId],
   )
   return rows[0] as Record<string, unknown>
@@ -371,6 +378,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
     admin = await newUser('ADMIN')
     hr = await newUser('HR')
     hrOther = await newUser('HR')
+    senior = await newUser('SENIOR')
     teamA = await newTeam()
     teamB = await newTeam()
   })
@@ -459,25 +467,51 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
 
     it('accepts an ADMIN claim in STUDIO scope (no team)', async () => {
       const { rows } = await q(
-        `INSERT INTO job_queue_assignments (opportunity_id, scope_kind, team_id, assignee_id)
-         VALUES ($1, 'STUDIO', NULL, $2) RETURNING scope_kind, team_id`,
+        `INSERT INTO job_queue_assignments (senior_id, opportunity_id, scope_kind, team_id, assignee_id)
+         VALUES ('${senior}', $1, 'STUDIO', NULL, $2) RETURNING scope_kind, team_id`,
         [await newOpportunity(), admin],
       )
       expect(rows).toEqual([{ scope_kind: 'STUDIO', team_id: null }])
     })
 
-    it('is studio-wide: a second claim on the opportunity is refused, whatever the team', async () => {
+    it('is per senior: two seniors on one opportunity coexist, whatever the team (T0 AC3)', async () => {
+      const opp = await newOpportunity()
+      const otherSenior = await newUser('SENIOR')
+      await claim(opp, teamA, hr)
+      await q(
+        `INSERT INTO job_queue_assignments (senior_id, opportunity_id, scope_kind, team_id, assignee_id)
+         VALUES ($1, $2, 'TEAM', $3, $4)`,
+        [otherSenior, opp, teamB, hrOther],
+      )
+      const { rows } = await q(
+        `SELECT senior_id FROM job_queue_assignments WHERE opportunity_id = $1 ORDER BY senior_id`,
+        [opp],
+      )
+      expect(rows.map((r) => r.senior_id)).toEqual([senior, otherSenior].sort())
+    })
+
+    it('is per senior: the same senior twice on one opportunity is refused, whatever the team (T0 AC3)', async () => {
       const opp = await newOpportunity()
       await claim(opp, teamA, hr)
       const dup = await rejected(
-        `INSERT INTO job_queue_assignments (opportunity_id, scope_kind, team_id, assignee_id)
-         VALUES ($1, 'TEAM', $2, $3)`,
+        `INSERT INTO job_queue_assignments (senior_id, opportunity_id, scope_kind, team_id, assignee_id)
+         VALUES ('${senior}', $1, 'TEAM', $2, $3)`,
         [opp, teamB, hrOther],
       )
       expect(dup).toEqual({
         code: UNIQUE_VIOLATION,
-        constraint: 'uq_job_queue_assignments_opportunity',
+        constraint: 'uq_job_queue_assignments_opportunity_senior',
       })
+    })
+
+    it('refuses an unknown senior (FK to users)', async () => {
+      expect(
+        await rejected(
+          `INSERT INTO job_queue_assignments (senior_id, opportunity_id, scope_kind, team_id, assignee_id)
+           VALUES ($1, $2, 'TEAM', $3, $4)`,
+          [randomUUID(), await newOpportunity(), teamA, hr],
+        ),
+      ).toEqual({ code: FK_VIOLATION, constraint: 'fk_job_queue_assignments_senior' })
     })
 
     it('refuses a scope whose team does not match its kind, both ways', async () => {
@@ -486,8 +520,8 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
         ['STUDIO', 'teamA'],
       ] as const) {
         const r = await rejected(
-          `INSERT INTO job_queue_assignments (opportunity_id, scope_kind, team_id, assignee_id)
-           VALUES ($1, $2, $3, $4)`,
+          `INSERT INTO job_queue_assignments (senior_id, opportunity_id, scope_kind, team_id, assignee_id)
+           VALUES ('${senior}', $1, $2, $3, $4)`,
           [await newOpportunity(), kind, team === null ? null : teamA, hr],
         )
         expect(r).toEqual({
@@ -511,8 +545,8 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
       ] as const) {
         const r = await rejected(
           `INSERT INTO job_queue_assignments
-             (opportunity_id, scope_kind, team_id, assignee_id, state, released_at, released_by, release_reason)
-           VALUES ($1, 'TEAM', $2, $3, $4, $5, $6, $7)`,
+             (senior_id, opportunity_id, scope_kind, team_id, assignee_id, state, released_at, released_by, release_reason)
+           VALUES ('${senior}', $1, 'TEAM', $2, $3, $4, $5, $6, $7)`,
           [opp, teamA, hr, ...half],
         )
         expect(r, JSON.stringify(half)).toEqual({
@@ -524,8 +558,8 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
       for (const reason of ['went on leave', null]) {
         await q(
           `INSERT INTO job_queue_assignments
-             (opportunity_id, scope_kind, team_id, assignee_id, state, released_at, released_by, release_reason)
-           VALUES ($1, 'TEAM', $2, $3, 'RELEASED', now(), $4, $5)`,
+             (senior_id, opportunity_id, scope_kind, team_id, assignee_id, state, released_at, released_by, release_reason)
+           VALUES ('${senior}', $1, 'TEAM', $2, $3, 'RELEASED', now(), $4, $5)`,
           [await newOpportunity(), teamA, hr, admin, reason],
         )
       }
@@ -535,8 +569,8 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
       for (const reason of ['   ', 'r'.repeat(501)]) {
         const r = await rejected(
           `INSERT INTO job_queue_assignments
-             (opportunity_id, scope_kind, team_id, assignee_id, state, released_at, released_by, release_reason)
-           VALUES ($1, 'TEAM', $2, $3, 'RELEASED', now(), $4, $5)`,
+             (senior_id, opportunity_id, scope_kind, team_id, assignee_id, state, released_at, released_by, release_reason)
+           VALUES ('${senior}', $1, 'TEAM', $2, $3, 'RELEASED', now(), $4, $5)`,
           [await newOpportunity(), teamA, hr, admin, reason],
         )
         expect(r).toEqual({
@@ -546,14 +580,14 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
       }
       await q(
         `INSERT INTO job_queue_assignments
-           (opportunity_id, scope_kind, team_id, assignee_id, state, released_at, released_by, release_reason)
-         VALUES ($1, 'TEAM', $2, $3, 'RELEASED', now(), $4, $5)`,
+           (senior_id, opportunity_id, scope_kind, team_id, assignee_id, state, released_at, released_by, release_reason)
+         VALUES ('${senior}', $1, 'TEAM', $2, $3, 'RELEASED', now(), $4, $5)`,
         [await newOpportunity(), teamA, hr, admin, 'r'.repeat(500)],
       )
     })
 
     it('keeps the reassignment triple whole', async () => {
-      const cols = `(opportunity_id, scope_kind, team_id, assignee_id, reassigned_at, reassigned_by, reassigned_from_id)`
+      const cols = `(senior_id, opportunity_id, scope_kind, team_id, assignee_id, reassigned_at, reassigned_by, reassigned_from_id)`
       const now = new Date()
       for (const triple of [
         [now, null, null],
@@ -564,7 +598,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
         [now, null, hrOther],
       ] as const) {
         const r = await rejected(
-          `INSERT INTO job_queue_assignments ${cols} VALUES ($1, 'TEAM', $2, $3, $4, $5, $6)`,
+          `INSERT INTO job_queue_assignments ${cols} VALUES ('${senior}', $1, 'TEAM', $2, $3, $4, $5, $6)`,
           [await newOpportunity(), teamA, hr, ...triple],
         )
         expect(r, JSON.stringify(triple)).toEqual({
@@ -573,7 +607,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
         })
       }
       await q(
-        `INSERT INTO job_queue_assignments ${cols} VALUES ($1, 'TEAM', $2, $3, now(), $4, $5)`,
+        `INSERT INTO job_queue_assignments ${cols} VALUES ('${senior}', $1, 'TEAM', $2, $3, now(), $4, $5)`,
         [await newOpportunity(), teamA, hr, admin, hrOther],
       )
     })
@@ -581,31 +615,31 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
     it('refuses version 0, an unknown state, an unknown opportunity and an unknown team', async () => {
       expect(
         await rejected(
-          `INSERT INTO job_queue_assignments (opportunity_id, scope_kind, team_id, assignee_id, version)
-           VALUES ($1, 'TEAM', $2, $3, 0)`,
+          `INSERT INTO job_queue_assignments (senior_id, opportunity_id, scope_kind, team_id, assignee_id, version)
+           VALUES ('${senior}', $1, 'TEAM', $2, $3, 0)`,
           [await newOpportunity(), teamA, hr],
         ),
       ).toEqual({ code: CHECK_VIOLATION, constraint: 'ck_job_queue_assignments_version_positive' })
       expect(
         (
           await rejected(
-            `INSERT INTO job_queue_assignments (opportunity_id, scope_kind, team_id, assignee_id, state)
-             VALUES ($1, 'TEAM', $2, $3, 'CLAIMED')`,
+            `INSERT INTO job_queue_assignments (senior_id, opportunity_id, scope_kind, team_id, assignee_id, state)
+             VALUES ('${senior}', $1, 'TEAM', $2, $3, 'CLAIMED')`,
             [await newOpportunity(), teamA, hr],
           )
         ).code,
       ).toBe(INVALID_TEXT)
       expect(
         await rejected(
-          `INSERT INTO job_queue_assignments (opportunity_id, scope_kind, team_id, assignee_id)
-           VALUES ($1, 'TEAM', $2, $3)`,
+          `INSERT INTO job_queue_assignments (senior_id, opportunity_id, scope_kind, team_id, assignee_id)
+           VALUES ('${senior}', $1, 'TEAM', $2, $3)`,
           [randomUUID(), teamA, hr],
         ),
       ).toEqual({ code: FK_VIOLATION, constraint: 'fk_job_queue_assignments_opportunity' })
       expect(
         await rejected(
-          `INSERT INTO job_queue_assignments (opportunity_id, scope_kind, team_id, assignee_id)
-           VALUES ($1, 'TEAM', $2, $3)`,
+          `INSERT INTO job_queue_assignments (senior_id, opportunity_id, scope_kind, team_id, assignee_id)
+           VALUES ('${senior}', $1, 'TEAM', $2, $3)`,
           [await newOpportunity(), randomUUID(), hr],
         ),
       ).toEqual({ code: FK_VIOLATION, constraint: 'fk_job_queue_assignments_team' })
@@ -1603,22 +1637,22 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
   // -------------------------------------------------------------------------
 
   describe('real-DB concurrency (AC8)', () => {
-    it('two HRs racing the first claim: exactly one holds the opportunity', async () => {
+    it('two HRs racing the first submission of one senior: exactly one is recorded', async () => {
       const opp = await newOpportunity()
       const a = await pool.connect()
       const b = await pool.connect()
       try {
         await a.query('BEGIN')
         await b.query('BEGIN')
-        const insert = `INSERT INTO job_queue_assignments (opportunity_id, scope_kind, team_id, assignee_id)
-                        VALUES ($1, 'TEAM', $2, $3)`
+        const insert = `INSERT INTO job_queue_assignments (senior_id, opportunity_id, scope_kind, team_id, assignee_id)
+                        VALUES ('${senior}', $1, 'TEAM', $2, $3)`
         await a.query(insert, [opp, teamA, hr])
         // B blocks on the unique index until A resolves; start it unawaited.
         const bInsert = rejectedOn(b, insert, [opp, teamB, hrOther])
         await a.query('COMMIT')
         expect(await bInsert).toEqual({
           code: UNIQUE_VIOLATION,
-          constraint: 'uq_job_queue_assignments_opportunity',
+          constraint: 'uq_job_queue_assignments_opportunity_senior',
         })
         await b.query('ROLLBACK')
         const { rows } = await q(
@@ -1636,8 +1670,8 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
       const opp = await newOpportunity()
       await q(
         `INSERT INTO job_queue_assignments
-           (opportunity_id, scope_kind, team_id, assignee_id, state, released_at, released_by)
-         VALUES ($1, 'TEAM', $2, $3, 'RELEASED', now(), $4)`,
+           (senior_id, opportunity_id, scope_kind, team_id, assignee_id, state, released_at, released_by)
+         VALUES ('${senior}', $1, 'TEAM', $2, $3, 'RELEASED', now(), $4)`,
         [opp, teamA, hr, admin],
       )
       const retake = `UPDATE job_queue_assignments

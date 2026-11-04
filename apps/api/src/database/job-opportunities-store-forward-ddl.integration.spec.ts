@@ -180,6 +180,14 @@ const PART_11_INDEXES = [
   'idx_job_dirty_work_pending_match',
   'idx_job_dirty_work_pending_availability',
 ] as const
+/**
+ * PART_12 — r5 Phase 6 T0 (STAGED/DARK): `job_queue_assignments` becomes a per-senior
+ * submission — `senior_id` + its FK, UNIQUE(opportunity_id) replaced by
+ * UNIQUE(opportunity_id, senior_id). Declared in Drizzle (`job-queue.ts`, `senior_id` LAST so
+ * the column rank matches an `ADD COLUMN`); production gets it ONLY through this file. Applied
+ * after PART_11, as the deploy would. Adds no standalone index (the UNIQUE replaces one).
+ */
+const PART_12_MIGRATION = '2026-11-04_job_queue_submissions_per_senior.sql'
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
 const SCHEMA = 'ddl_job_opportunities_store'
 /** Its own schema, so the migration path cannot disturb the fresh-path comparison. */
@@ -650,6 +658,7 @@ const applyBothParts = (client: PoolClient): Promise<void> =>
     PART_9_MIGRATION,
     PART_10_MIGRATION,
     PART_11_MIGRATION,
+    PART_12_MIGRATION,
   ])
 const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 
@@ -1306,6 +1315,9 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         PART_7_MIGRATION,
         PART_8_MIGRATION,
         PART_9_MIGRATION,
+        // PART_10/11 add standalone indexes only, which this comparison does not read;
+        // PART_12 adds a column, an FK and a UNIQUE, which it does.
+        PART_12_MIGRATION,
       ])
       beforeMigration = await readCatalog(client, MIGRATION_SCHEMA)
       await applyParts(client, [PART_3_MIGRATION])

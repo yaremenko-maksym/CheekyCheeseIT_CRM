@@ -155,6 +155,8 @@ describe('job_queue_assignments (AC1)', () => {
       'reassigned_from_id',
       'created_at',
       'updated_at',
+      // LAST: the staged 2026-11-04 forward DDL adds it with ADD COLUMN (rank must match).
+      'senior_id',
     ])
   })
 
@@ -166,7 +168,7 @@ describe('job_queue_assignments (AC1)', () => {
     expect(col(t, 'version').getSQLType()).toBe('integer')
     expect(col(t, 'taken_at').notNull).toBe(true)
     expect(col(t, 'taken_at').hasDefault).toBe(true)
-    for (const c of ['assignee_id', 'scope_kind', 'opportunity_id'])
+    for (const c of ['assignee_id', 'scope_kind', 'opportunity_id', 'senior_id'])
       expect(col(t, c).notNull).toBe(true)
     for (const c of [
       'team_id',
@@ -180,8 +182,12 @@ describe('job_queue_assignments (AC1)', () => {
       expect(col(t, c).notNull).toBe(false)
   })
 
-  it('is a studio-wide claim: UNIQUE(opportunity) alone', () => {
-    expect(uniqueCols(t, 'uq_job_queue_assignments_opportunity')).toEqual(['opportunity_id'])
+  it('is a per-senior submission: UNIQUE(opportunity, senior); the global claim is gone', () => {
+    expect(uniqueCols(t, 'uq_job_queue_assignments_opportunity_senior')).toEqual([
+      'opportunity_id',
+      'senior_id',
+    ])
+    expect(() => uniqueCols(t, 'uq_job_queue_assignments_opportunity')).toThrow()
   })
 
   it('references the opportunity (cascade), the team and every actor (restrict)', () => {
@@ -199,6 +205,7 @@ describe('job_queue_assignments (AC1)', () => {
     })
     for (const [fk, c] of [
       ['fk_job_queue_assignments_assignee', 'assignee_id'],
+      ['fk_job_queue_assignments_senior', 'senior_id'],
       ['fk_job_queue_assignments_released_by', 'released_by'],
       ['fk_job_queue_assignments_reassigned_by', 'reassigned_by'],
       ['fk_job_queue_assignments_reassigned_from', 'reassigned_from_id'],
