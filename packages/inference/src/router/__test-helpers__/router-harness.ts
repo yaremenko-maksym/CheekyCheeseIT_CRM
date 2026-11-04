@@ -70,7 +70,12 @@ export const answer = (
 ): Reply => ({
   status: 200,
   body: JSON.stringify({
-    choices: [{ message: { content: typeof content === 'string' ? content : JSON.stringify(content) }, finish_reason: finish }],
+    choices: [
+      {
+        message: { content: typeof content === 'string' ? content : JSON.stringify(content) },
+        finish_reason: finish,
+      },
+    ],
     usage: { total_tokens: 10 },
     ...extra,
   }),
@@ -107,7 +112,8 @@ export function scriptedFetch(script: (s: Sent, n: number) => Reply) {
       if (reply === 'hang') {
         await new Promise((_resolve, reject) => {
           const signal = init?.signal
-          const stop = (): void => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+          const stop = (): void =>
+            reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
           if (signal?.aborted === true) stop()
           signal?.addEventListener('abort', stop)
         })
@@ -129,7 +135,9 @@ export function scriptedFetch(script: (s: Sent, n: number) => Reply) {
 }
 
 /** An `OwnCapPort` that grants everything and counts reservations and releases per provider. */
-export function countingCap(grant = true): OwnCapPort & { reserved: string[]; released: string[]; tokens: number } {
+export function countingCap(
+  grant = true,
+): OwnCapPort & { reserved: string[]; released: string[]; tokens: number } {
   const cap = {
     reserved: [] as string[],
     released: [] as string[],
@@ -150,7 +158,8 @@ export function countingCap(grant = true): OwnCapPort & { reserved: string[]; re
 
 export function deps(
   fetchImpl: FetchLike,
-  extra: Partial<RouterDeps> = {},
+  /** `undefined` removes a default (no own cap; the router's real sleep). */
+  extra: { [K in keyof RouterDeps]?: RouterDeps[K] | undefined } = {},
 ): RouterDeps & { events: RouterEvent[]; routeState: RouteStatePort; sleeps: number[] } {
   const events: RouterEvent[] = []
   const sleeps: number[] = []
@@ -168,4 +177,8 @@ export function deps(
   } as RouterDeps & { events: RouterEvent[]; routeState: RouteStatePort; sleeps: number[] }
 }
 
-export const hostOf = { groq: 'api.groq.com', gemini: 'generativelanguage.googleapis.com', local: 'crm-model-runtime' }
+export const hostOf = {
+  groq: 'api.groq.com',
+  gemini: 'generativelanguage.googleapis.com',
+  local: 'crm-model-runtime',
+}

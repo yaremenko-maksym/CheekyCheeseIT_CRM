@@ -89,17 +89,25 @@ describe('router stopping (§5.5): budgets and the ceiling', () => {
     const f = scriptedFetch((s) => (s.host === hostOf.local ? GOOD : 'hang'))
     const d = deps(f.fetchImpl, realSleep)
     const started = Date.now()
-    const r = await createRouter(config([GROQ, LOCAL], { hostedBudgetMs: 100, floorBudgetMs: 5_000 }), d).run(REQ)
+    const r = await createRouter(
+      config([GROQ, LOCAL], { hostedBudgetMs: 100, floorBudgetMs: 5_000 }),
+      d,
+    ).run(REQ)
     expect(r).toMatchObject({ ok: true })
     expect(Date.now() - started).toBeLessThan(2_000)
-    expect(ofType(d.events, 'FELL_TO_LOCAL')[0]?.reasons).toEqual([{ route: 'groq', code: 'TIMEOUT' }])
+    expect(ofType(d.events, 'FELL_TO_LOCAL')[0]?.reasons).toEqual([
+      { route: 'groq', code: 'TIMEOUT' },
+    ])
   })
 
   it('the ceiling holds with every request hanging: the floor ends in TIMEOUT', async () => {
     const f = scriptedFetch(() => 'hang')
     const local = { ...LOCAL, timeoutMs: 200 }
     const started = Date.now()
-    const r = await createRouter(config([GROQ, local], { hostedBudgetMs: 100, floorBudgetMs: 200 }), deps(f.fetchImpl, realSleep)).run(REQ)
+    const r = await createRouter(
+      config([GROQ, local], { hostedBudgetMs: 100, floorBudgetMs: 200 }),
+      deps(f.fetchImpl, realSleep),
+    ).run(REQ)
     expect(r).toEqual({ ok: false, code: 'TIMEOUT' })
     expect(Date.now() - started).toBeLessThan(100 + 200 + 1_000)
   })
@@ -126,7 +134,10 @@ describe('router stopping (§5.5 item 5): one local request in flight', () => {
     let n = 0
     const f = scriptedFetch((): Reply => (++n === 1 ? 'hang' : GOOD))
     const local = { ...LOCAL, timeoutMs: 150 }
-    const router = createRouter(config([local], { floorBudgetMs: 2_000 }), deps(f.fetchImpl, realSleep))
+    const router = createRouter(
+      config([local], { floorBudgetMs: 2_000 }),
+      deps(f.fetchImpl, realSleep),
+    )
     void router.run(REQ) // abandoned by its caller, still running
     await wait(10)
     const r = await router.run(REQ)

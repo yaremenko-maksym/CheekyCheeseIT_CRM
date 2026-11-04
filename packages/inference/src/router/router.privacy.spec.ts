@@ -22,7 +22,8 @@ import { fakeFs } from './__test-helpers__/fake-fs'
 
 const REPLY_MARKER = 'REPLY-MARKER-3b8c'
 const MARKERS = [KEY_MARKER, TEXT_MARKER, PROVIDER_BODY_MARKER, REPLY_MARKER, 'Bearer']
-const body = (extra: object = {}) => JSON.stringify({ error: { message: PROVIDER_BODY_MARKER, type: 'x', ...extra } })
+const body = (extra: object = {}) =>
+  JSON.stringify({ error: { message: PROVIDER_BODY_MARKER, type: 'x', ...extra } })
 
 /** Every failure shape a provider can send, each body carrying the provider marker. */
 const FAILURES: Reply[] = [
@@ -119,10 +120,28 @@ describe('router privacy (AC5, ADR §3.3, §4 item 2)', () => {
   })
 
   it('every event field is a code, an id, a count or a timing', async () => {
-    const f = scriptedFetch((s, n) => (n === 1 ? { status: 404, body: body({ code: 'model_not_found' }) } : s.host === hostOf.local ? GOOD : { status: 401, body: body() }))
+    const f = scriptedFetch((s, n) =>
+      n === 1
+        ? { status: 404, body: body({ code: 'model_not_found' }) }
+        : s.host === hostOf.local
+          ? GOOD
+          : { status: 401, body: body() },
+    )
     const d = deps(f.fetchImpl)
     await createRouter(config([GROQ, GEMINI, LOCAL]), d).run(REQ)
-    const allowed = new Set(['type', 'route', 'model', 'servedModel', 'code', 'inputChars', 'latencyMs', 'totalTokens', 'plan', 'reasons', 'floorAnswered'])
+    const allowed = new Set([
+      'type',
+      'route',
+      'model',
+      'servedModel',
+      'code',
+      'inputChars',
+      'latencyMs',
+      'totalTokens',
+      'plan',
+      'reasons',
+      'floorAnswered',
+    ])
     const keys = new Set(d.events.flatMap((e: RouterEvent) => Object.keys(e)))
     expect([...keys].filter((k) => !allowed.has(k))).toEqual([])
     expect(new Set(d.events.map((e) => e.type))).toEqual(

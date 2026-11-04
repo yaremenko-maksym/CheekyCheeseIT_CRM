@@ -25,7 +25,6 @@ import {
 const PATH = '/data/route-state.json'
 /** 2026-11-04T12:00Z: the same calendar day in UTC and Pacific. */
 const NOON = Date.parse('2026-11-04T12:00:00Z')
-const at = (iso: string) => () => Date.parse(iso)
 
 const doc = (s: Partial<RouteState>) => JSON.stringify({ ...EMPTY_ROUTE_STATE, ...s })
 
