@@ -9,6 +9,7 @@ import cookie from '@fastify/cookie'
 import { DESCRIPTION_MD_MAX, type SessionUser } from '@crm/shared'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { JwtAuthGuard } from '../../auth/jwt.guard'
+import type { Env } from '../../config/env'
 import {
   type CrmAppSession,
   openCrmAppSession,
@@ -73,10 +74,24 @@ class TestDatabaseModule {}
   controllers: [JobQueueController],
   providers: [
     Reflector,
-    JobQueueScopeService,
-    JobQueueService,
-    JobQueueActionsService,
-    { provide: ConfigService, useValue: { get: () => SECRET } },
+    // Every service by an explicit factory, as the sibling RBAC specs do: the vitest/esbuild env
+    // emits no `design:paramtypes`, so nothing here may rest on constructor reflection.
+    { provide: JobQueueScopeService, useFactory: () => new JobQueueScopeService() },
+    {
+      provide: JobQueueService,
+      useFactory: (db: DatabaseService, scopes: JobQueueScopeService) =>
+        new JobQueueService(db, scopes, { get: () => SECRET } as unknown as ConfigService<
+          Env,
+          true
+        >),
+      inject: [DatabaseService, JobQueueScopeService],
+    },
+    {
+      provide: JobQueueActionsService,
+      useFactory: (db: DatabaseService, scopes: JobQueueScopeService) =>
+        new JobQueueActionsService(db, scopes),
+      inject: [DatabaseService, JobQueueScopeService],
+    },
     // JwtAuthGuard as APP_GUARD, as AppModule does. RolesGuard is NOT global: the controller's own
     // `@UseGuards(RolesGuard)` is what is under test.
     {
@@ -231,7 +246,14 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     session = await openCrmAppSession({ appPoolMax: 4 })
     const probe = await sqlq(`SELECT current_database() AS db`)
     if (probe.rows[0].db === 'crm_db') throw new Error('refusing the live database')
-    dbSvcRef = session.databaseService
+    // A plain object, as the sibling RBAC specs use: `session.databaseService` is a real
+    // `DatabaseService` instance, so Nest would run its `onModuleInit` (which reads a ConfigService
+    // it was never given, CI round 1) and its `onModuleDestroy` (which ends a pool it never opened).
+    // The pool stays the session's, closed by `session.close()`.
+    dbSvcRef = {
+      pool: session.pool,
+      db: session.databaseService.db,
+    } as unknown as DatabaseService
 
     await mkUser('admin', 'ADMIN')
     for (const hr of ['hrA', 'hrB', 'hrNone', 'hrE']) await mkUser(hr, 'HR')

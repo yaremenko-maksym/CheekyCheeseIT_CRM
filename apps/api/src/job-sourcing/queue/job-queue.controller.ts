@@ -10,7 +10,6 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common'
-import { Throttle } from '@nestjs/throttler'
 import {
   jobQueueCancelSubmissionRequestSchema,
   jobQueueCardResponseSchema,
@@ -31,14 +30,28 @@ import {
 import { CurrentUser } from '../../auth/current-user.decorator'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { RolesGuard } from '../../common/guards/roles.guard'
+import { RelaxableThrottle } from '../../config/throttle-decorators'
 import { JobQueueService } from './job-queue.service'
 import { JobQueueActionsService } from './queue-actions.service'
 
 /** The card takes only the scope: a cursor belongs to a continuation, so on the card it is a 400. */
 const cardQuerySchema = jobQueueScopeQuerySchema.pick({ teamId: true })
 
-const PER_MINUTE = 60_000
-const perMinute = (limit: number) => Throttle({ default: { limit, ttl: PER_MINUTE } })
+/**
+ * Production caps per minute (`RelaxableThrottle`: the window is its default 60 s, and only a
+ * non-production `THROTTLE_RELAXED` may raise a cap, never lower it). Reasons: the class comment.
+ */
+export const JOB_QUEUE_THROTTLE = {
+  LIST: 30,
+  CARD: 120,
+  CONTINUATION: 60,
+  SUBMIT: 30,
+  CANCEL: 30,
+  DISMISS: 60,
+  UNDO: 60,
+  OPENED: 120,
+  SUPPRESS: 30,
+} as const
 
 /**
  * r5 Task 6.4 — the `/job-queue` routes over `JobQueueService` (Task 6.2) and
@@ -56,7 +69,8 @@ const perMinute = (limit: number) => Throttle({ default: { limit, ttl: PER_MINUT
  * schema BEFORE a service is called, so bad input is a 400 (`ZodExceptionFilter`), and every answer
  * is parsed again on the way out.
  *
- * THROTTLES, on top of the global `UserAwareThrottlerGuard`. The writes follow the plan's table
+ * THROTTLES, on top of the global `UserAwareThrottlerGuard`, through `RelaxableThrottle` (the
+ * project's single throttle mechanism, so CI E2E may relax them outside production). The writes follow the plan's table
  * (submit / cancel / suppress 30, dismiss / undo 60, opened 120 per minute). The reads are chosen
  * here: the LIST is the tightest read, 30 per minute, because a list request without a cursor may
  * PUBLISH a generation (an INSERT of up to `GENERATION_POLICY.maxEntries` ranked entries) when its
@@ -77,7 +91,7 @@ export class JobQueueController {
 
   @Get()
   @Roles('ADMIN', 'HR')
-  @perMinute(30)
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.LIST)
   async list(@Query() query: unknown, @CurrentUser() user: SessionUser) {
     const parsed = jobQueueListQuerySchema.parse(query)
     return jobQueueListResponseSchema.parse(await this.queue.list(user, parsed))
@@ -85,7 +99,7 @@ export class JobQueueController {
 
   @Get(':id')
   @Roles('ADMIN', 'HR')
-  @perMinute(120)
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.CARD)
   async card(
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: unknown,
@@ -97,7 +111,7 @@ export class JobQueueController {
 
   @Get(':id/sources')
   @Roles('ADMIN', 'HR')
-  @perMinute(60)
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.CONTINUATION)
   async sources(
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: unknown,
@@ -109,7 +123,7 @@ export class JobQueueController {
 
   @Get(':id/seniors')
   @Roles('ADMIN', 'HR')
-  @perMinute(60)
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.CONTINUATION)
   async seniors(
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: unknown,
@@ -122,7 +136,7 @@ export class JobQueueController {
   /** «Записати подачу»: records one senior as submitted. It sends nothing to anyone. */
   @Post(':id/submissions')
   @Roles('ADMIN', 'HR')
-  @perMinute(30)
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.SUBMIT)
   async submit(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: unknown,
@@ -134,7 +148,7 @@ export class JobQueueController {
 
   @Post(':id/submissions/:submissionId/cancel')
   @Roles('ADMIN', 'HR')
-  @perMinute(30)
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.CANCEL)
   @HttpCode(200)
   async cancel(
     @Param('id', ParseUUIDPipe) id: string,
@@ -150,7 +164,7 @@ export class JobQueueController {
 
   @Post(':id/dismiss')
   @Roles('ADMIN', 'HR')
-  @perMinute(60)
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.DISMISS)
   @HttpCode(200)
   async dismiss(
     @Param('id', ParseUUIDPipe) id: string,
@@ -163,7 +177,7 @@ export class JobQueueController {
 
   @Post(':id/undo')
   @Roles('ADMIN', 'HR')
-  @perMinute(60)
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.UNDO)
   @HttpCode(200)
   async undo(
     @Param('id', ParseUUIDPipe) id: string,
@@ -177,7 +191,7 @@ export class JobQueueController {
   /** Click telemetry: 204, and the client never waits on it to navigate. */
   @Post(':id/opened')
   @Roles('ADMIN', 'HR')
-  @perMinute(120)
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.OPENED)
   @HttpCode(204)
   async opened(
     @Param('id', ParseUUIDPipe) id: string,
@@ -191,7 +205,7 @@ export class JobQueueController {
   /** ADMIN only: takes the opportunity down for every team scope (`visibleOpportunityPredicate`). */
   @Post(':id/suppress')
   @Roles('ADMIN')
-  @perMinute(30)
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.SUPPRESS)
   @HttpCode(204)
   async suppress(
     @Param('id', ParseUUIDPipe) id: string,

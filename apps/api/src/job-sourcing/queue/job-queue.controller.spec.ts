@@ -104,6 +104,8 @@ function harness() {
 const proto = JobQueueController.prototype
 type Handler = keyof typeof proto & string
 const handler = (name: Handler) => proto[name] as unknown as object
+const throttle = (h: object, kind: 'LIMIT' | 'TTL'): unknown =>
+  (Reflect.getMetadata(`THROTTLER:${kind}default`, h) as () => number)()
 
 describe('JobQueueController — routing and gates', () => {
   it('is mounted at /job-queue behind RolesGuard', () => {
@@ -135,9 +137,22 @@ describe('JobQueueController — routing and gates', () => {
     expect(Reflect.getMetadata(METHOD_METADATA, h)).toBe(method)
     expect(Reflect.getMetadata(PATH_METADATA, h)).toBe(path)
     expect(Reflect.getMetadata(ROLES_KEY, h)).toEqual(roles)
-    expect(Reflect.getMetadata('THROTTLER:LIMITdefault', h)).toBe(limit)
-    expect(Reflect.getMetadata('THROTTLER:TTLdefault', h)).toBe(60_000)
+    // `RelaxableThrottle` stores resolvers, read per request: unrelaxed, the production cap.
+    vi.stubEnv('THROTTLE_RELAXED', '')
+    expect(throttle(h, 'LIMIT')).toBe(limit)
+    expect(throttle(h, 'TTL')).toBe(60_000)
+    vi.unstubAllEnvs()
     expect(Reflect.getMetadata(HTTP_CODE_METADATA, h)).toBe(code)
+  })
+
+  it('every cap is the RelaxableThrottle one: raised only when relaxed outside production', () => {
+    vi.stubEnv('NODE_ENV', 'test')
+    vi.stubEnv('THROTTLE_RELAXED', 'true')
+    vi.stubEnv('THROTTLER_LIMIT', '1000')
+    expect(throttle(handler('list'), 'LIMIT')).toBe(1000)
+    vi.stubEnv('NODE_ENV', 'production')
+    expect(throttle(handler('list'), 'LIMIT')).toBe(30)
+    vi.unstubAllEnvs()
   })
 
   it.each([
