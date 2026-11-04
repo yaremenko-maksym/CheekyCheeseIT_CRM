@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { ForbiddenException, HttpException } from '@nestjs/common'
-import type { SessionUser } from '@crm/shared'
+import type { JobExclusionDto, SessionUser } from '@crm/shared'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   type CrmAppSession,
@@ -12,6 +12,7 @@ import {
   installMatches,
   loadRoster,
   MATCH_RULE_VERSION,
+  opportunityInputsVersion,
   type RosterInputs,
   type SeniorVersions,
 } from '../runtime/recompute-inputs'
@@ -51,8 +52,13 @@ interface MatchOpts {
 }
 
 let session: CrmAppSession
-let service: JobQueueScopeService
+let service: {
+  resolve(user: SessionUser, teamId?: string): Promise<JobQueueScope>
+  assertVisible(scope: JobQueueScope, opportunityId: string): Promise<void>
+}
 let live: ReadonlyMap<string, SeniorVersions>
+/** The studio-wide exclusions at setup: what the live inputs version is computed from. */
+let studio: readonly JobExclusionDto[] = []
 const ids: Record<string, string> = {}
 const userIds: string[] = []
 const teamIds: string[] = []
@@ -63,7 +69,11 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
     session = await openCrmAppSession({ appPoolMax: 2 })
     const probe = await session.admin.query(`SELECT current_database() AS db`)
     if (probe.rows[0].db === 'crm_db') throw new Error('refusing the live database')
-    service = new JobQueueScopeService(session.databaseService)
+    const real = new JobQueueScopeService()
+    service = {
+      resolve: (u, teamId) => real.resolve(u, teamId, session.databaseService.db),
+      assertVisible: (scope, id) => real.assertVisible(scope, id, session.databaseService.db),
+    }
     const q = (text: string, params: unknown[]) => session.admin.query(text, params)
 
     const mkUser = async (key: string, role: SessionUser['role'], archived = false) => {
@@ -136,8 +146,10 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
     /** What `installMatches` records, stamped directly; the writer itself is in the SR-M-2 cases. */
     const evaluated = (opp: string, revision: number, verdict: 'OPEN' | 'EXCLUDED') =>
       q(
-        `UPDATE job_opportunities SET evaluated_revision = $2, evaluation_verdict = $3 WHERE id = $1`,
-        [ids[opp], revision, verdict],
+        `UPDATE job_opportunities
+            SET evaluated_revision = $2, evaluation_verdict = $3, evaluated_inputs_version = $4
+          WHERE id = $1`,
+        [ids[opp], revision, verdict, opportunityInputsVersion(studio)],
       )
 
     await mkUser('admin', 'ADMIN')
@@ -163,7 +175,9 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
     await join('teamArchived', 'hrNone')
 
     // The live versions, after the roster is final, from the same helper the worker uses.
-    live = (await loadRoster(session.databaseService.db)).versions
+    const roster = await loadRoster(session.databaseService.db)
+    live = roster.versions
+    studio = roster.exclusions.filter((e) => e.seniorId === null)
 
     await mkOpp('oppA')
     await match('oppA', 'senA', 'LEAD')
@@ -298,6 +312,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
           profile: live.get(seniorId)?.profile,
           exclusion: live.get(seniorId)?.exclusion,
         })),
+        inputsVersion: opportunityInputsVersion(studio),
       })
     })
 
@@ -417,12 +432,13 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
 
     describe('SR-M-2: a grant shows only what was evaluated OPEN at the current revision', () => {
       const db = () => session.databaseService.db
-      const emptyRoster: RosterInputs = {
+      // No senior, but the live studio exclusions: what an empty production roster would load.
+      const emptyRoster = (): RosterInputs => ({
         rosterSeniorIds: [],
         profiles: [],
-        exclusions: [],
+        exclusions: studio,
         versions: new Map(),
-      }
+      })
       const audit = { noTeamAccess: [], ignoredExclusionIds: [] }
       const base = {
         recordKey: 'k',
@@ -471,13 +487,13 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
       it('after a bump the item is a 404 until its recompute, then visible', async () => {
         const a = await resolve('hrA', 'HR')
         const opp = 'oppGrantRecomputed'
-        await installMatches(db(), ids[opp] as string, 1, open(opp), emptyRoster)
+        await installMatches(db(), ids[opp] as string, 1, open(opp), emptyRoster())
         await expect(visible(a, opp)).resolves.toBeUndefined()
         await session.admin.query(`UPDATE job_opportunities SET revision = 2 WHERE id = $1`, [
           ids[opp],
         ])
         await expectNotFound(visible(a, opp))
-        await installMatches(db(), ids[opp] as string, 2, open(opp), emptyRoster)
+        await installMatches(db(), ids[opp] as string, 2, open(opp), emptyRoster())
         await expect(visible(a, opp)).resolves.toBeUndefined()
       })
 
@@ -488,7 +504,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
         await expectNotFound(visible(a, openOpp))
         await expectNotFound(visible(a, excludedOpp))
         expect(
-          await installMatches(db(), ids[openOpp] as string, 1, open(openOpp), emptyRoster),
+          await installMatches(db(), ids[openOpp] as string, 1, open(openOpp), emptyRoster()),
         ).toBe(0)
         expect(
           await installMatches(
@@ -496,11 +512,64 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
             ids[excludedOpp] as string,
             1,
             excludedGlobally(excludedOpp),
-            emptyRoster,
+            emptyRoster(),
           ),
         ).toBe(0)
         await expect(visible(a, openOpp)).resolves.toBeUndefined()
         await expectNotFound(visible(a, excludedOpp))
+      })
+
+      it('SR-M-1: a studio keyword added after evaluation hides a zero-row granted item at once; its recompute shows it again', async () => {
+        const opp = 'oppGrantEmptyOpen'
+        await expect(visible(await resolve('hrA', 'HR'), opp)).resolves.toBeUndefined()
+        const { rows } = await session.admin.query(
+          `INSERT INTO job_exclusion_filters (senior_id, kind, value, normalized_value)
+           VALUES (NULL, 'KEYWORD', $1, $1) RETURNING id`,
+          [`qscope-kw-${TAG}`],
+        )
+        try {
+          // No recompute has run: the recorded inputs version is the old one, so a fresh scope hides it.
+          await expectNotFound(visible(await resolve('hrA', 'HR'), opp))
+          const now = await loadRoster(db())
+          expect(await installMatches(db(), ids[opp] as string, 1, open(opp), now)).toBe(0)
+          const { rows: record } = await session.admin.query(
+            `SELECT evaluated_inputs_version FROM job_opportunities WHERE id = $1`,
+            [ids[opp]],
+          )
+          expect(record).toEqual([
+            { evaluated_inputs_version: opportunityInputsVersion(now.exclusions) },
+          ])
+          expect(record[0].evaluated_inputs_version).not.toBe(opportunityInputsVersion(studio))
+          await expect(visible(await resolve('hrA', 'HR'), opp)).resolves.toBeUndefined()
+        } finally {
+          await session.admin.query(`DELETE FROM job_exclusion_filters WHERE id = $1`, [rows[0].id])
+          await installMatches(db(), ids[opp] as string, 1, open(opp), emptyRoster())
+        }
+      })
+
+      it('SR-M-1: a match rule deploy hides a granted item until it is evaluated at the new rule version', async () => {
+        const opp = 'oppGrant'
+        const a = await resolve('hrA', 'HR')
+        expect(a.kind).toBe('TEAM')
+        const deployed = {
+          ...(a as Extract<JobQueueScope, { kind: 'TEAM' }>),
+          inputsVersion: opportunityInputsVersion(studio, 'eval.2+l1.1'),
+        }
+        await expect(visible(a, opp)).resolves.toBeUndefined()
+        await expectNotFound(visible(deployed, opp))
+        // What a recompute after the deploy records; the old rule's scope then no longer sees it.
+        const stamp = (version: string) =>
+          session.admin.query(
+            `UPDATE job_opportunities SET evaluated_inputs_version = $2 WHERE id = $1`,
+            [ids[opp], version],
+          )
+        try {
+          await stamp(deployed.inputsVersion)
+          await expect(visible(deployed, opp)).resolves.toBeUndefined()
+          await expectNotFound(visible(a, opp))
+        } finally {
+          await stamp(opportunityInputsVersion(studio))
+        }
       })
     })
 

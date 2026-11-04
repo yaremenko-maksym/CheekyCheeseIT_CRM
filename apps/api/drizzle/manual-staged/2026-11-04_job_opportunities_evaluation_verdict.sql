@@ -5,23 +5,31 @@
 -- WHAT THIS FILE DOES
 -- -------------------
 --   Gives `job_opportunities` the persisted statement "this opportunity was evaluated at revision
---   N, and the opportunity-level result was V" (owner decision 2026-11-04, option 1):
+--   N against inputs version D, and the opportunity-level result was V" (owner decisions
+--   2026-11-04: option 1, then the inputs version for SR-M-1):
 --     1. creates the enum `job_opportunity_verdict` ('OPEN', 'EXCLUDED');
---     2. adds `evaluated_revision integer` and `evaluation_verdict job_opportunity_verdict`, both
---        NULLABLE with NO default: NULL means "never evaluated";
---     3. adds `ck_job_opportunities_evaluation_pair`: the two are NULL together or set together.
+--     2. adds `evaluated_revision integer`, `evaluation_verdict job_opportunity_verdict` and
+--        `evaluated_inputs_version text`, all NULLABLE with NO default: NULL means "never evaluated";
+--     3. adds `ck_job_opportunities_evaluation_pair`: the three are NULL together or set together.
 --
 -- WHY. The triage-grant branch of queue visibility must not show an opportunity that became
 -- restricted between a revision bump and its recompute, or for good with an empty roster (the match
--- rows are per senior, and an empty roster writes none). `installMatches` writes both columns in the
--- transaction of the match rows; `visibleOpportunityPredicate` requires evaluated_revision = revision
--- AND evaluation_verdict = 'OPEN', so a NULL fails closed.
+-- rows are per senior, and an empty roster writes none). `installMatches` writes all three columns
+-- in the transaction of the match rows; `visibleOpportunityPredicate` requires evaluated_revision =
+-- revision, evaluation_verdict = 'OPEN' AND evaluated_inputs_version = the live digest of the rule
+-- version and the studio-wide keyword exclusions, so a NULL fails closed.
 --
--- BACKFILL: NONE HERE. Existing rows stay NULL, so a granted opportunity stays HIDDEN from its team
--- until its next recompute (STUDIO and the LEAD branch do not read these columns). The recompute is
--- triggered by the match reconciliation sweep (`reconcileOnce`), which treats a NULL or older
--- evaluated_revision on an OPEN or UNKNOWN opportunity as stale under its own `RECONCILE:EVAL:` dirty
--- reason, even when the match rows are fresh or a DONE row already exists. CLOSED and EXPIRED rows
+-- THE COST, STATED PLAINLY. Any change to a studio-wide keyword exclusion, and any deploy that
+-- changes the match rule version, hides EVERY granted opportunity at once, until its recompute
+-- lands at the new digest. The sweep re-enqueues them under `RECONCILE:EVAL:`, at most 2,000 per
+-- 6-hour tick, so N granted-or-not opportunities take up to N / 2,000 ticks to show again.
+--
+-- BACKFILL: NONE HERE. After promotion EVERY existing row is NULL, so every granted opportunity is
+-- HIDDEN from its team until its recompute (STUDIO and the LEAD branch do not read these columns).
+-- The recompute is triggered by the match reconciliation sweep (`reconcileOnce`), which treats an
+-- OPEN or UNKNOWN opportunity whose evaluated_revision differs from its revision, or whose
+-- evaluated_inputs_version differs from the live digest, as stale under its own `RECONCILE:EVAL:`
+-- dirty reason, even when the match rows are fresh or a DONE row already exists. CLOSED and EXPIRED rows
 -- stay NULL: a grant hides them anyway, and a reopen bumps the revision and enqueues a recompute.
 -- That needs JOB_MATCH_RECONCILIATION_ENABLED=true, and it drains at most 2,000 opportunities per
 -- 6-hour tick, so N opportunities take about N / 2,000 ticks.
@@ -63,6 +71,7 @@
 -- ROLLBACK (by hand, one transaction; first turn JOB_MATCH_RECONCILIATION_ENABLED off, or revert the
 -- code, since the sweep and `installMatches` name these columns):
 --   ALTER TABLE "job_opportunities" DROP CONSTRAINT IF EXISTS "ck_job_opportunities_evaluation_pair";
+--   ALTER TABLE "job_opportunities" DROP COLUMN IF EXISTS "evaluated_inputs_version";
 --   ALTER TABLE "job_opportunities" DROP COLUMN IF EXISTS "evaluation_verdict";
 --   ALTER TABLE "job_opportunities" DROP COLUMN IF EXISTS "evaluated_revision";
 --   DROP TYPE IF EXISTS "job_opportunity_verdict";
@@ -79,6 +88,7 @@ END $$;
 
 ALTER TABLE "job_opportunities" ADD COLUMN IF NOT EXISTS "evaluated_revision" integer;
 ALTER TABLE "job_opportunities" ADD COLUMN IF NOT EXISTS "evaluation_verdict" "job_opportunity_verdict";
+ALTER TABLE "job_opportunities" ADD COLUMN IF NOT EXISTS "evaluated_inputs_version" text;
 
 DO $$
 BEGIN
@@ -86,7 +96,8 @@ BEGIN
                   WHERE conrelid = 'job_opportunities'::regclass
                     AND conname = 'ck_job_opportunities_evaluation_pair') THEN
     ALTER TABLE "job_opportunities" ADD CONSTRAINT "ck_job_opportunities_evaluation_pair"
-      CHECK (("job_opportunities"."evaluated_revision" IS NULL) = ("job_opportunities"."evaluation_verdict" IS NULL));
+      CHECK (("job_opportunities"."evaluated_revision" IS NULL) = ("job_opportunities"."evaluation_verdict" IS NULL)
+             AND ("job_opportunities"."evaluated_revision" IS NULL) = ("job_opportunities"."evaluated_inputs_version" IS NULL));
   END IF;
 END $$;
 
@@ -114,11 +125,17 @@ BEGIN
                     AND a.atttypid = 'job_opportunity_verdict'::regtype AND NOT a.attnotnull AND NOT a.atthasdef) THEN
     problems := problems || 'column evaluation_verdict is missing or not a nullable job_opportunity_verdict without a default'::text;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_attribute a
+                  WHERE a.attrelid = 'job_opportunities'::regclass
+                    AND a.attname = 'evaluated_inputs_version' AND NOT a.attisdropped
+                    AND a.atttypid = 'text'::regtype AND NOT a.attnotnull AND NOT a.atthasdef) THEN
+    problems := problems || 'column evaluated_inputs_version is missing or not a nullable text without a default'::text;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint
                   WHERE conrelid = 'job_opportunities'::regclass
                     AND conname = 'ck_job_opportunities_evaluation_pair'
                     AND contype = 'c' AND convalidated
-                    AND pg_get_constraintdef(oid) = 'CHECK (((evaluated_revision IS NULL) = (evaluation_verdict IS NULL)))') THEN
+                    AND pg_get_constraintdef(oid) = 'CHECK ((((evaluated_revision IS NULL) = (evaluation_verdict IS NULL)) AND ((evaluated_revision IS NULL) = (evaluated_inputs_version IS NULL))))') THEN
     problems := problems || 'CHECK ck_job_opportunities_evaluation_pair is missing, not validated or not exactly the intended definition'::text;
   END IF;
   IF cardinality(problems) > 0 THEN

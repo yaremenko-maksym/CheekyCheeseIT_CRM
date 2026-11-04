@@ -1,4 +1,4 @@
-import { findMatchingExclusion } from '../filtering'
+import { findMatchingExclusion, type FilterablePosting } from '../filtering'
 import { classifyLayer1, RULE_VERSION, type Dimension, type Layer1Result } from './layer1'
 import { rankScore } from './rank'
 import {
@@ -226,6 +226,19 @@ function projectScope(scope: Scope, ctx: ProjectionContext): ScopeProjection | n
   }
 }
 
+/**
+ * What an exclusion is matched against. The queue's submit check reads it from here too, so the
+ * two cannot disagree on the source type and URL that the DOU slug alias is derived from.
+ */
+export function exclusionPosting(revision: CanonicalRevision): FilterablePosting {
+  return {
+    companyName: revision.companyName,
+    title: revision.fields.title,
+    sourceType: revision.sourceType,
+    url: revision.url,
+  }
+}
+
 export function evaluate(input: EvaluateInput): EvaluationResult {
   const { recordKey } = input
   const code = !isValidDate(input.evaluationTime)
@@ -281,12 +294,7 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
   }
 
   const exclusions = inCanonicalOrder(input.exclusions)
-  const posting = {
-    companyName: revision.companyName,
-    title: revision.fields.title,
-    sourceType: revision.sourceType,
-    url: revision.url,
-  }
+  const posting = exclusionPosting(revision)
 
   // 3. Studio-wide restrictions. Global COMPANY entries are unused by decision A1g (see tech-match).
   enter('GLOBAL_RESTRICTIONS')

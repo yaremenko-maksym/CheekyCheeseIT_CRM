@@ -114,13 +114,44 @@ export async function loadRoster(db: SqlExecutor): Promise<RosterInputs> {
   // itself, so its verdict must still see them when there is nobody to match.
   const roster = sql`(SELECT jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb)::uuid)`
   const { rows: manual } = await db.execute(
-    sql`SELECT id, senior_id, kind, value, normalized_value, created_at FROM job_exclusion_filters
+    sql`SELECT ${MANUAL_EXCLUSION_COLUMNS} FROM job_exclusion_filters
          WHERE senior_id IS NULL OR senior_id IN ${roster} ORDER BY id`,
   )
   const { rows: owned } = await db.execute(
-    sql`SELECT senior_id, name, company_name, archived_at FROM projects
+    sql`SELECT ${EXCLUSION_PROJECT_COLUMNS} FROM projects
          WHERE senior_id IN ${roster} ORDER BY id`,
   )
+  const exclusions = toExclusions(manual, owned)
+  return {
+    rosterSeniorIds: ids,
+    profiles,
+    exclusions,
+    versions: rosterVersions(profiles, exclusions),
+  }
+}
+
+/**
+ * One senior's own exclusions, without reading the roster: manual rows and the ones derived from
+ * their projects, through the mapping `loadRoster` uses. Studio-wide rows are not included.
+ */
+export async function loadSeniorExclusions(
+  db: SqlExecutor,
+  seniorId: string,
+): Promise<JobExclusionDto[]> {
+  const { rows: manual } = await db.execute(
+    sql`SELECT ${MANUAL_EXCLUSION_COLUMNS} FROM job_exclusion_filters
+         WHERE senior_id = ${seniorId}::uuid`,
+  )
+  const { rows: owned } = await db.execute(
+    sql`SELECT ${EXCLUSION_PROJECT_COLUMNS} FROM projects WHERE senior_id = ${seniorId}::uuid`,
+  )
+  return toExclusions(manual, owned)
+}
+
+const MANUAL_EXCLUSION_COLUMNS = sql.raw('id, senior_id, kind, value, normalized_value, created_at')
+const EXCLUSION_PROJECT_COLUMNS = sql.raw('senior_id, name, company_name, archived_at')
+
+function toExclusions(manual: readonly Row[], owned: readonly Row[]): JobExclusionDto[] {
   // One pass over the projects, grouped by senior: O(seniors + projects), not their product.
   const projectsOf = new Map<string, SeniorProjectRow[]>()
   for (const p of owned) {
@@ -147,13 +178,7 @@ export async function loadRoster(db: SqlExecutor): Promise<RosterInputs> {
       createdAt: instant(r['created_at']),
     }),
   )
-  const exclusions = [...stored, ...derived]
-  return {
-    rosterSeniorIds: ids,
-    profiles,
-    exclusions,
-    versions: rosterVersions(profiles, exclusions),
-  }
+  return [...stored, ...derived]
 }
 
 /** A timestamp as the driver returns it (a `Date`, or text when its parser is overridden). */
@@ -422,6 +447,25 @@ export function opportunityVerdict(result: Evaluated | Excluded): OpportunityVer
 const digest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 32)
 
+/**
+ * The version of what the opportunity-level verdict reads besides the revision (SR-M-1, owner
+ * decision 2026-11-04): the rule versions of CLASSIFICATION and GLOBAL_RESTRICTIONS, and the
+ * values of the studio-wide KEYWORD exclusions, the only ones that stage matches (it reads
+ * `value`; global COMPANY entries are unused, A1g). Order-insensitive. Nothing per senior:
+ * SCOPED_RESTRICTIONS never decides the verdict (`opportunityVerdict`).
+ * `ruleVersion` is a parameter only so a test can model a rule deploy.
+ */
+export function opportunityInputsVersion(
+  exclusions: readonly JobExclusionDto[],
+  ruleVersion: string = MATCH_RULE_VERSION,
+): string {
+  const keywords = exclusions
+    .filter((e) => e.scope === 'GLOBAL' && e.kind === 'KEYWORD')
+    .map((e) => e.value)
+    .sort()
+  return digest([ruleVersion, keywords])
+}
+
 /** A senior's profile version: the stack and teams the verdict rests on. */
 export function profileVersion(p: SeniorTechProfile): string {
   return digest([[...p.techStack].sort(), [...p.teamIds].sort()])
@@ -490,7 +534,8 @@ export function rosterVersions(
 /**
  * Replace the opportunity's matches with the verdict for `revision`, inside the caller's
  * transaction (which holds the opportunity and has checked `revision` is current), and record on
- * the opportunity that `revision` was evaluated and with what opportunity-level result. That record
+ * the opportunity that `revision` was evaluated, against which inputs (`opportunityInputsVersion`
+ * of this roster's exclusions, SR-M-1) and with what opportunity-level result. That record
  * is written even when there are no rows (a plain mismatch, an empty roster): it is what the queue's
  * grant branch reads (SR-M-2). Neither the upsert nor the delete ever touches a NEWER revision, and
  * the record is written only for the opportunity's current revision: under the caller's row lock
@@ -532,7 +577,8 @@ export async function installMatches(
   await tx.execute(
     sql`UPDATE job_opportunities
            SET evaluated_revision = ${revision},
-               evaluation_verdict = ${opportunityVerdict(result)}::job_opportunity_verdict
+               evaluation_verdict = ${opportunityVerdict(result)}::job_opportunity_verdict,
+               evaluated_inputs_version = ${opportunityInputsVersion(roster.exclusions)}
          WHERE id = ${opportunityId}::uuid AND revision = ${revision}`,
   )
   if (rows.length === 0) return 0

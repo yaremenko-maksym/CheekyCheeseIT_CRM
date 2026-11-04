@@ -31,7 +31,13 @@ const NOW = new Date('2026-11-04T12:00:00.000Z')
 const LATER = new Date('2026-11-04T12:10:00.000Z')
 
 const versions: LiveSeniorVersion[] = [{ seniorId: SEN, profile: 'p', exclusion: 'e' }]
-const teamScope: JobQueueScope = { kind: 'TEAM', teamId: TEAM, seniorIds: [SEN], versions }
+const teamScope: JobQueueScope = {
+  kind: 'TEAM',
+  teamId: TEAM,
+  seniorIds: [SEN],
+  versions,
+  inputsVersion: 'inputs-1',
+}
 const user = { id: ACTOR, role: 'HR', email: 'x@example.test' } as SessionUser
 const query = (over: Partial<JobQueueListQuery> = {}): JobQueueListQuery => ({
   tab: 'NEW',
@@ -68,7 +74,7 @@ function harness(scope: JobQueueScope, ...answers: Rows[]) {
     const q = new PgDialect().sqlToQuery((execute.mock.calls[call] as [SQL])[0])
     return { text: q.sql.replace(/\s+/g, ' '), params: q.params }
   }
-  return { svc, execute, scopes, compiled, get, transaction }
+  return { svc, execute, scopes, compiled, get, transaction, db }
 }
 
 async function refusal(p: Promise<unknown>): Promise<{ status: number; code: string }> {
@@ -178,7 +184,7 @@ describe('JobQueueService.list', () => {
   it('resolves the scope of this request from the requested team', async () => {
     const h = harness({ kind: 'NONE' })
     await h.svc.list(user, query({ teamId: OTHER_TEAM }))
-    expect(h.scopes.resolve).toHaveBeenCalledWith(user, OTHER_TEAM)
+    expect(h.scopes.resolve).toHaveBeenCalledWith(user, OTHER_TEAM, h.db)
   })
 
   it('a forged cursor is a 400 before any query, in a NONE scope too', async () => {
@@ -382,7 +388,7 @@ describe('JobQueueService.list', () => {
       throw new Error('connection lost')
     })
     const database = { db: { execute } } as unknown as DatabaseService
-    const scopes = new JobQueueScopeService(database)
+    const scopes = new JobQueueScopeService()
     vi.spyOn(scopes, 'resolve').mockResolvedValue(teamScope)
     const config = { get: () => SECRET } as unknown as ConfigService<Env, true>
     const svc = new JobQueueService(database, scopes, config)
@@ -606,8 +612,8 @@ describe('JobQueueService.card', () => {
       [{ id: SRC, title: 'Engineer', employer_name: null, total: '6' }],
     )
     const card = await h.svc.card(user, OPP, { teamId: TEAM })
-    expect(h.scopes.resolve).toHaveBeenCalledWith(user, TEAM)
-    expect(h.scopes.assertVisible).toHaveBeenCalledWith(teamScope, OPP)
+    expect(h.scopes.resolve).toHaveBeenCalledWith(user, TEAM, h.db)
+    expect(h.scopes.assertVisible).toHaveBeenCalledWith(teamScope, OPP, h.db)
     expect(card).toEqual({
       ...ITEM,
       descriptionMd: '# Role',
@@ -731,8 +737,8 @@ describe('JobQueueService continuations', () => {
   it('seniors: no cursor is the first page, in this scope', async () => {
     const h = harness(teamScope, [seniorDbRow()], [{ total: '1' }])
     const page = await h.svc.seniors(user, OPP, { teamId: TEAM })
-    expect(h.scopes.resolve).toHaveBeenCalledWith(user, TEAM)
-    expect(h.scopes.assertVisible).toHaveBeenCalledWith(teamScope, OPP)
+    expect(h.scopes.resolve).toHaveBeenCalledWith(user, TEAM, h.db)
+    expect(h.scopes.assertVisible).toHaveBeenCalledWith(teamScope, OPP, h.db)
     expect(page.items.map((s) => s.seniorId)).toEqual([SEN])
     expect(page.totalCount).toBe(1)
     expect(h.compiled(0).text).not.toContain('ms.senior_id > $')

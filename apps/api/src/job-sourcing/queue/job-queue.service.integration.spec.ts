@@ -16,7 +16,12 @@ import {
   openCrmAppSession,
 } from '../../database/__test-helpers__/crm-app-session'
 import { hasDatabaseUrl } from '../../test/require-real-db'
-import { loadRoster, MATCH_RULE_VERSION, type SeniorVersions } from '../runtime/recompute-inputs'
+import {
+  loadRoster,
+  MATCH_RULE_VERSION,
+  opportunityInputsVersion,
+  type SeniorVersions,
+} from '../runtime/recompute-inputs'
 import { JobQueueService } from './job-queue.service'
 import { parseCursor, signCursor } from './queue-cursor'
 import { purgeExpiredGenerations } from './queue-generation'
@@ -177,11 +182,15 @@ const stopListed = (opp: string, senior: string) =>
  * THE ONE HELPER FOR THE EVALUATED STATE. An owner decision may add a column to this area: only this
  * helper would change, and the service reads the state through the predicates in `queue-scope.ts`.
  */
-const evaluated = (opp: string, verdict: 'OPEN' | 'EXCLUDED') =>
-  sqlq(
-    `UPDATE job_opportunities SET evaluated_revision = revision, evaluation_verdict = $2 WHERE id = $1`,
-    [id(opp), verdict],
+const evaluated = async (opp: string, verdict: 'OPEN' | 'EXCLUDED') => {
+  const { exclusions } = await loadRoster(session.databaseService.db)
+  await sqlq(
+    `UPDATE job_opportunities
+        SET evaluated_revision = revision, evaluation_verdict = $2, evaluated_inputs_version = $3
+      WHERE id = $1`,
+    [id(opp), verdict, opportunityInputsVersion(exclusions)],
   )
+}
 const grant = (opp: string, team: string) =>
   sqlq(
     `INSERT INTO job_opportunity_team_triage
@@ -288,7 +297,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
     session = await openCrmAppSession({ appPoolMax: 4 })
     const probe = await sqlq(`SELECT current_database() AS db`)
     if (probe.rows[0].db === 'crm_db') throw new Error('refusing the live database')
-    const scopes = new JobQueueScopeService(session.databaseService)
+    const scopes = new JobQueueScopeService()
     service = new JobQueueService(session.databaseService, scopes, config)
 
     await mkUser('admin', 'ADMIN')
@@ -981,6 +990,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
           items: [],
           nextCursor: null,
           counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
+          generation: null,
         },
       )
     })

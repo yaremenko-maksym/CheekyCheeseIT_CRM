@@ -181,11 +181,11 @@ export class JobQueueService {
   }
 
   async list(user: SessionUser, query: JobQueueListQuery): Promise<JobQueueListResponseDto> {
-    const scope = await this.scopes.resolve(user, query.teamId)
+    const scope = await this.scopes.resolve(user, query.teamId, this.database.db)
     // Checked before any data SQL, and answered the same for a NONE scope.
     const cursor = query.cursor === undefined ? null : parseCursor(query.cursor, 'L', this.secret)
     if (scope.kind === 'NONE') return EMPTY_LIST
-    const versions = await this.scopes.liveVersions(scope)
+    const versions = await this.scopes.liveVersions(scope, this.database.db)
     const policy = policySignature(scope, versions)
     const signature = requestSignature([user.id, policy, ...filterIdentity(query)])
     const now = new Date()
@@ -246,10 +246,10 @@ export class JobQueueService {
     opportunityId: string,
     query: Pick<JobQueueScopeQuery, 'teamId'> = {},
   ): Promise<JobQueueCardResponseDto> {
-    const scope = await this.scopes.resolve(user, query.teamId)
-    await this.scopes.assertVisible(scope, opportunityId)
+    const scope = await this.scopes.resolve(user, query.teamId, this.database.db)
+    await this.scopes.assertVisible(scope, opportunityId, this.database.db)
     const id = canonicalUuid(opportunityId) as string
-    const versions = await this.scopes.liveVersions(scope)
+    const versions = await this.scopes.liveVersions(scope, this.database.db)
     const signature = continuationSignature(user, scope, versions, id)
     const facts = await this.scopes.policy(async () => {
       const { rows } = await this.database.db.execute(cardRow(scope, versions, id))
@@ -306,11 +306,11 @@ export class JobQueueService {
     query: JobQueueScopeQuery,
     kind: 'SRC' | 'SEN',
   ) {
-    const scope = await this.scopes.resolve(user, query.teamId)
+    const scope = await this.scopes.resolve(user, query.teamId, this.database.db)
     const cursor = query.cursor === undefined ? null : parseCursor(query.cursor, kind, this.secret)
-    await this.scopes.assertVisible(scope, opportunityId)
+    await this.scopes.assertVisible(scope, opportunityId, this.database.db)
     const id = canonicalUuid(opportunityId) as string
-    const versions = await this.scopes.liveVersions(scope)
+    const versions = await this.scopes.liveVersions(scope, this.database.db)
     const signature = continuationSignature(user, scope, versions, id)
     if (cursor !== null) assertCursorCurrent(cursor, signature, new Date())
     return { scope, id, versions, signature, after: cursor?.k }

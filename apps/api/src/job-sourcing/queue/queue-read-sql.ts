@@ -6,6 +6,7 @@ import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
 import {
   type JobQueueScope,
   type LiveSeniorVersion,
+  possibleDuplicateJoin,
   scopedTeamRowPredicate,
   visibleOpportunityPredicate,
 } from './queue-scope'
@@ -188,15 +189,13 @@ export const sourceRows = (id: string, after: string | undefined, limit: number)
        LIMIT ${limit}`
 
 /**
- * The possible-duplicate set: other opportunities with the same candidate key (employer + title),
- * the pair identity resolution compares and deliberately does not merge on. A NULL employer key
- * compares unknown, so an opportunity without one has no duplicates. `total` counts visible ones only.
+ * The possible-duplicate set (`possibleDuplicateJoin`, the one definition Task 6.3 shares), minus the
+ * opportunity itself. `total` counts visible ones only.
  */
 export const duplicateRows = (scope: JobQueueScope, id: string, limit: number): SQL =>
   sql`SELECT dup.id, dup.title, dup.employer_name, count(*) OVER () AS total
         FROM job_opportunities o
-        JOIN job_opportunities dup
-          ON dup.employer_key = o.employer_key AND dup.title_key = o.title_key AND dup.id <> o.id
+        JOIN job_opportunities dup ON ${possibleDuplicateJoin('o', 'dup')} AND dup.id <> o.id
        WHERE o.id = ${id}::uuid
          AND ${visibleOpportunityPredicate(scope, sql`dup.id`)}
        ORDER BY dup.id

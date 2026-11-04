@@ -296,6 +296,11 @@ export const jobOpportunities = pgTable(
     evaluatedRevision: integer('evaluated_revision'),
     /** The opportunity-level result at `evaluatedRevision`; a per-senior stop-list is not one. */
     evaluationVerdict: jobOpportunityVerdictEnum('evaluation_verdict'),
+    /**
+     * SR-M-1: the digest of the inputs the verdict read besides the revision
+     * (`opportunityInputsVersion`). A grant shows the item only while it equals the live digest.
+     */
+    evaluatedInputsVersion: text('evaluated_inputs_version'),
   },
   (t) => [
     // Deliberately NO unique company/title constraint: two real openings can
@@ -313,7 +318,7 @@ export const jobOpportunities = pgTable(
     check('ck_job_opportunities_application_url_https', httpsUrlOrNull(t.applicationUrl)),
     check(
       'ck_job_opportunities_evaluation_pair',
-      sql`(${t.evaluatedRevision} IS NULL) = (${t.evaluationVerdict} IS NULL)`,
+      sql`(${t.evaluatedRevision} IS NULL) = (${t.evaluationVerdict} IS NULL) AND (${t.evaluatedRevision} IS NULL) = (${t.evaluatedInputsVersion} IS NULL)`,
     ),
   ],
 )

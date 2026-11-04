@@ -102,7 +102,7 @@ describe.skipIf(!hasDatabaseUrl())(`MP-13 at ${OPPORTUNITIES} opportunities`, ()
     session = await openCrmAppSession({ appPoolMax: 4 })
     const probe = await sqlq(`SELECT current_database() AS db`)
     if (probe.rows[0].db === 'crm_db') throw new Error('refusing the live database')
-    scopes = new JobQueueScopeService(session.databaseService)
+    scopes = new JobQueueScopeService()
     service = new JobQueueService(session.databaseService, scopes, config)
 
     const team = await sqlq(`INSERT INTO teams (name, type) VALUES ($1, 'SENIOR') RETURNING id`, [
@@ -276,8 +276,8 @@ describe.skipIf(!hasDatabaseUrl())(`MP-13 at ${OPPORTUNITIES} opportunities`, ()
   })
 
   it('a card reads one opportunity by key, within budget', async () => {
-    const scope: JobQueueScope = await scopes.resolve(hr, teamId)
-    const versions = await scopes.liveVersions(scope)
+    const scope: JobQueueScope = await scopes.resolve(hr, teamId, session.databaseService.db)
+    const versions = await scopes.liveVersions(scope, session.databaseService.db)
     const { rows } = await sqlq(
       `SELECT e.opportunity_id FROM job_queue_generation_entries e
          JOIN job_queue_generations g ON g.id = e.generation_id

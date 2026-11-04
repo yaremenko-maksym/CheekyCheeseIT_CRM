@@ -3,8 +3,8 @@ import type { SessionUser } from '@crm/shared'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { DatabaseService } from '../../database/database.service'
 import { exclusionVersion, profileVersion } from '../runtime/recompute-inputs'
+import type { SqlExecutor } from '../scheduling/host-state'
 import { type JobQueueScope, NONE_SCOPE, STUDIO_SCOPE } from './queue-scope'
 import { describeFailure, JobQueueScopeService } from './queue-scope.service'
 
@@ -23,6 +23,19 @@ const user = (role: SessionUser['role'], id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaa
 
 type Rows = Array<Record<string, unknown>>
 
+/** The service with its required executor defaulted to one scripted `execute`. */
+function bound(execute: unknown) {
+  const pool = { execute } as unknown as SqlExecutor
+  const real = new JobQueueScopeService()
+  return {
+    resolve: (u: SessionUser, teamId?: string, db: SqlExecutor = pool) =>
+      real.resolve(u, teamId, db),
+    assertVisible: (scope: JobQueueScope, id: string, db: SqlExecutor = pool) =>
+      real.assertVisible(scope, id, db),
+    liveVersions: (scope: JobQueueScope, db: SqlExecutor = pool) => real.liveVersions(scope, db),
+  }
+}
+
 function harness(...answers: Array<Rows | Error>) {
   const execute = vi.fn(async () => {
     const next = answers.shift()
@@ -30,7 +43,7 @@ function harness(...answers: Array<Rows | Error>) {
     if (next instanceof Error) throw next
     return { rows: next }
   })
-  const svc = new JobQueueScopeService({ db: { execute } } as unknown as DatabaseService)
+  const svc = bound(execute)
   const compiled = (call: number) => {
     const arg = (execute.mock.calls[call] as unknown as [SQL])[0]
     const q = new PgDialect().sqlToQuery(arg)
@@ -45,7 +58,7 @@ function noQueryHarness() {
     expect.fail('no query may run for a malformed id')
   })
   return {
-    svc: new JobQueueScopeService({ db: { execute } } as unknown as DatabaseService),
+    svc: bound(execute),
     execute,
   }
 }
@@ -72,6 +85,8 @@ const teamAScope: JobQueueScope = {
   teamId: TEAM_A,
   seniorIds: [SEN_1],
   versions: [SEN_1_VERSIONS],
+  // opportunityInputsVersion of no studio keyword at MATCH_RULE_VERSION 'eval.1+l1.1' (SR-M-1).
+  inputsVersion: 'd17b306752496d748fc03a559dc4b784',
 }
 
 async function expectCode(p: Promise<unknown>, status: number, code: string): Promise<void> {
@@ -192,9 +207,28 @@ describe('JobQueueScopeService.resolve', () => {
       teamId: TEAM_A,
       seniorIds: [],
       versions: [],
+      inputsVersion: 'd17b306752496d748fc03a559dc4b784',
     })
     // The team lookup, then loadRoster's three reads: it no longer stops early on an empty roster.
     expect(execute).toHaveBeenCalledTimes(4)
+  })
+
+  it('SR-M-1: the scope carries the live inputs version of the studio keywords, even with no senior', async () => {
+    const studioPhp = {
+      id: 'x1',
+      senior_id: null,
+      kind: 'KEYWORD',
+      value: 'php',
+      normalized_value: 'php',
+      created_at: '2026-01-01T00:00:00.000Z',
+    }
+    const { svc } = harness([{ id: TEAM_A }], [], [studioPhp], [])
+    await expect(svc.resolve(user('HR'), TEAM_A)).resolves.toMatchObject({
+      kind: 'TEAM',
+      seniorIds: [],
+      // opportunityInputsVersion of the keyword 'php' at MATCH_RULE_VERSION 'eval.1+l1.1'.
+      inputsVersion: '3c8e35dd4ec830658915a6ef7b6bb6c0',
+    })
   })
 
   it('HR naming a foreign team is NONE (not 403/404), and no roster is read', async () => {
@@ -224,10 +258,19 @@ describe('JobQueueScopeService.resolve', () => {
     expect(log).toHaveBeenLastCalledWith('queue policy evaluation failed: TypeError')
   })
 
+  it('a deadlock passes through unlogged, for the writer to rerun: it says nothing about policy', async () => {
+    const log = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    const deadlock = Object.assign(new Error('Failed query'), {
+      cause: Object.assign(new Error('deadlock detected'), { code: '40P01' }),
+    })
+    await expect(harness(deadlock).svc.resolve(user('HR'))).rejects.toBe(deadlock)
+    expect(log).not.toHaveBeenCalled()
+  })
+
   it('a non-Error rejection is still logged (its type only) and answered 503', async () => {
     const log = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
     const execute = vi.fn(async () => Promise.reject('boom'))
-    const svc = new JobQueueScopeService({ db: { execute } } as unknown as DatabaseService)
+    const svc = bound(execute)
     await expectCode(svc.resolve(user('HR')), 503, 'JOB_QUEUE_POLICY_UNAVAILABLE')
     expect(log).toHaveBeenCalledWith('queue policy evaluation failed: string')
   })
@@ -359,5 +402,34 @@ describe('JobQueueScopeService.assertVisible', () => {
       'JOB_QUEUE_POLICY_UNAVAILABLE',
     )
     expect(log).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('JobQueueScopeService read inside a write transaction (r5 Task 6.3)', () => {
+  it('resolve runs every query on the executor it is given, none on the pool', async () => {
+    const { svc, execute: pool } = noQueryHarness()
+    const answers: Rows[] = [[{ id: TEAM_A }], ...ROSTER]
+    const tx = { execute: vi.fn(async () => ({ rows: answers.shift() ?? [] })) }
+    const scope = await svc.resolve(user('ADMIN'), TEAM_A, tx)
+    expect(scope).toMatchObject({ kind: 'TEAM', teamId: TEAM_A, seniorIds: [SEN_1] })
+    expect(tx.execute).toHaveBeenCalledTimes(4)
+    expect(pool).not.toHaveBeenCalled()
+  })
+
+  it('resolve for an HR reads the active teams on that executor too', async () => {
+    const { svc, execute: pool } = noQueryHarness()
+    const answers: Rows[] = [[{ id: TEAM_A }], ...ROSTER]
+    const tx = { execute: vi.fn(async () => ({ rows: answers.shift() ?? [] })) }
+    await svc.resolve(user('HR'), undefined, tx)
+    expect(tx.execute).toHaveBeenCalledTimes(4)
+    expect(pool).not.toHaveBeenCalled()
+  })
+
+  it('assertVisible asks the executor it is given', async () => {
+    const { svc, execute: pool } = noQueryHarness()
+    const tx = { execute: vi.fn(async () => ({ rows: [{ visible: 1 }] })) }
+    await svc.assertVisible(STUDIO_SCOPE, OPP, tx)
+    expect(tx.execute).toHaveBeenCalledTimes(1)
+    expect(pool).not.toHaveBeenCalled()
   })
 })

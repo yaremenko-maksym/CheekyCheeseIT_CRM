@@ -18,7 +18,13 @@ const NEW_GEN = '66666666-6666-4666-8666-666666666666'
 const SEN = '33333333-3333-4333-8333-333333333333'
 const NOW = new Date('2026-11-04T12:00:00.000Z')
 const versions: LiveSeniorVersion[] = [{ seniorId: SEN, profile: 'p', exclusion: 'e' }]
-const team: JobQueueScope = { kind: 'TEAM', teamId: TEAM, seniorIds: [SEN], versions }
+const team: JobQueueScope = {
+  kind: 'TEAM',
+  teamId: TEAM,
+  seniorIds: [SEN],
+  versions,
+  inputsVersion: 'inputs-1',
+}
 const studio: JobQueueScope = { kind: 'STUDIO' }
 
 type Rows = Array<Record<string, unknown>>

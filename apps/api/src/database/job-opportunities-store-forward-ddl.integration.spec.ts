@@ -189,8 +189,9 @@ const PART_11_INDEXES = [
  */
 const PART_12_MIGRATION = '2026-11-04_job_queue_submissions_per_senior.sql'
 /**
- * PART_13 — r5 Task 6.1 SR-M-2 (STAGED/DARK): `job_opportunities` gains `evaluated_revision`,
- * `evaluation_verdict` (the new enum `job_opportunity_verdict`) and their pair CHECK. Declared in
+ * PART_13 — r5 Task 6.1 SR-M-1/2 (STAGED/DARK): `job_opportunities` gains `evaluated_revision`,
+ * `evaluation_verdict` (the new enum `job_opportunity_verdict`), `evaluated_inputs_version` and
+ * their all-or-none CHECK. Declared in
  * Drizzle last, so the column rank matches an `ADD COLUMN`; production gets them ONLY through this
  * file. Applied after PART_12, as the deploy would. Adds no standalone index.
  */
@@ -1325,8 +1326,8 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         PART_8_MIGRATION,
         PART_9_MIGRATION,
         // PART_10/11 add standalone indexes only, which this comparison does not read;
-        // PART_12 adds a column, an FK and a UNIQUE, which it does; PART_13 an enum, two columns
-        // and a CHECK.
+        // PART_12 adds a column, an FK and a UNIQUE, which it does; PART_13 an enum, three
+        // columns and a CHECK.
         PART_12_MIGRATION,
         PART_13_MIGRATION,
       ])

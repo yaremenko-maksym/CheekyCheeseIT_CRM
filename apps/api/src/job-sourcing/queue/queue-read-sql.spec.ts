@@ -26,7 +26,13 @@ const TEAM_2 = '22222222-2222-4222-8222-222222222222'
 const SEN = '33333333-3333-4333-8333-333333333333'
 const OPP = '44444444-4444-4444-8444-444444444444'
 const versions: LiveSeniorVersion[] = [{ seniorId: SEN, profile: 'p', exclusion: 'e' }]
-const team: JobQueueScope = { kind: 'TEAM', teamId: TEAM, seniorIds: [SEN], versions }
+const team: JobQueueScope = {
+  kind: 'TEAM',
+  teamId: TEAM,
+  seniorIds: [SEN],
+  versions,
+  inputsVersion: 'inputs-1',
+}
 const studio: JobQueueScope = { kind: 'STUDIO' }
 const render = (q: SQL) => {
   const r = new PgDialect().sqlToQuery(q)
@@ -257,8 +263,9 @@ describe('field scoping — what each read binds', () => {
 
   it('duplicates are filtered by visibility in this scope, per duplicate', () => {
     const { text, params } = render(duplicateRows(team, OPP, 5))
-    expect(text).toContain('dup.employer_key = o.employer_key AND dup.title_key = o.title_key')
-    expect(text).toContain('dup.id <> o.id')
+    expect(text).toContain(
+      'JOIN job_opportunities dup ON (dup.id = o.id OR (o.employer_key IS NOT NULL AND dup.employer_key = o.employer_key AND dup.title_key = o.title_key)) AND dup.id <> o.id',
+    )
     expect(text).toContain('m.opportunity_id = dup.id')
     expect(params).toEqual(expect.arrayContaining([OPP, TEAM, 5]))
   })

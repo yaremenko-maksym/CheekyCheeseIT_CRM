@@ -59,7 +59,7 @@ async function touchedObjects(schema: string) {
     `SELECT column_name, udt_name, is_nullable, column_default
        FROM information_schema.columns
       WHERE table_schema = $1 AND table_name = $2
-        AND column_name IN ('evaluated_revision', 'evaluation_verdict')
+        AND column_name IN ('evaluated_revision', 'evaluation_verdict', 'evaluated_inputs_version')
       ORDER BY column_name`,
     [schema, TABLE],
   )
@@ -108,10 +108,16 @@ describe.skipIf(!hasDatabaseUrl())('SR-M-2 staged DDL: opportunity evaluation re
     }
   })
 
-  it('leaves exactly what db:push declares (enum, two nullable columns, the pair CHECK)', async () => {
+  it('leaves exactly what db:push declares (enum, three nullable columns, the CHECK)', async () => {
     const ours = await touchedObjects(SCHEMA)
     expect(ours.labels).toEqual([{ label: 'OPEN' }, { label: 'EXCLUDED' }])
     expect(ours.columns).toEqual([
+      {
+        column_name: 'evaluated_inputs_version',
+        udt_name: 'text',
+        is_nullable: 'YES',
+        column_default: null,
+      },
       {
         column_name: 'evaluated_revision',
         udt_name: 'int4',
@@ -130,7 +136,7 @@ describe.skipIf(!hasDatabaseUrl())('SR-M-2 staged DDL: opportunity evaluation re
         name: CHECK_NAME,
         type: 'c',
         validated: true,
-        def: 'CHECK (((evaluated_revision IS NULL) = (evaluation_verdict IS NULL)))',
+        def: 'CHECK ((((evaluated_revision IS NULL) = (evaluation_verdict IS NULL)) AND ((evaluated_revision IS NULL) = (evaluated_inputs_version IS NULL))))',
       },
     ])
     expect(ours).toEqual(await touchedObjects('public'))
@@ -138,9 +144,29 @@ describe.skipIf(!hasDatabaseUrl())('SR-M-2 staged DDL: opportunity evaluation re
 
   it('an existing row stays NULL: no backfill', async () => {
     const { rows } = await client.query(
-      `SELECT evaluated_revision, evaluation_verdict FROM ${SCHEMA}.${TABLE}`,
+      `SELECT evaluated_revision, evaluation_verdict, evaluated_inputs_version FROM ${SCHEMA}.${TABLE}`,
     )
-    expect(rows).toEqual([{ evaluated_revision: null, evaluation_verdict: null }])
+    expect(rows).toEqual([
+      { evaluated_revision: null, evaluation_verdict: null, evaluated_inputs_version: null },
+    ])
+  })
+
+  it('the CHECK refuses a partial evaluation record: all three set or none', async () => {
+    const bad = [`1, 'OPEN', NULL`, `1, NULL, 'd'`, `NULL, 'OPEN', 'd'`, `NULL, NULL, 'd'`]
+    for (const values of bad) {
+      await expect(
+        client.query(
+          `INSERT INTO ${SCHEMA}.${TABLE} (evaluated_revision, evaluation_verdict, evaluated_inputs_version)
+           VALUES (${values})`,
+        ),
+      ).rejects.toThrow(/ck_job_opportunities_evaluation_pair/)
+    }
+    const { rowCount } = await client.query(
+      `INSERT INTO ${SCHEMA}.${TABLE} (evaluated_revision, evaluation_verdict, evaluated_inputs_version)
+       VALUES (1, 'OPEN', 'd')`,
+    )
+    expect(rowCount).toBe(1)
+    await client.query(`DELETE FROM ${SCHEMA}.${TABLE} WHERE evaluated_revision IS NOT NULL`)
   })
 
   it('the second apply succeeds and changes nothing', async () => {
