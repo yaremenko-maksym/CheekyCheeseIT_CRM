@@ -39,6 +39,11 @@ describe('package index public surface (SPEC-M-1)', () => {
     'providerDay',
     'promptFits',
     'BUSY_BACKOFF_MS',
+    'sendClassifiedChat',
+    'pendingLocalQueues',
+    'STATE_READ_FLAGS',
+    'STATE_WRITE_FLAGS',
+    'MAX_REPORTED_TOKENS',
   ])('keeps the router internal %s off the public surface', (name) => {
     expect(Object.keys(pkg)).not.toContain(name)
   })

@@ -28,26 +28,24 @@ import {
   EMPTY_ROUTE_STATE,
 } from './state'
 
+import { GEMINI_FIXTURES, GEMINI_MODEL } from '../internal/__fixtures__/gemini.fixtures'
+import { GROQ_FIXTURES, GROQ_MODEL } from '../internal/__fixtures__/groq.fixtures'
+import { BODY_MARKER, type ProviderFixture } from '../internal/__fixtures__/provider-fixture'
+
 const NOON = Date.parse('2026-11-04T12:00:00Z')
 const TODAY = '2026-11-04'
 const FAIL: Reply = { status: 500, body: '' }
 const groqError = (type = 'invalid_request_error') =>
   JSON.stringify({ error: { message: 'BODY', type } })
-const geminiPerDay: Reply = {
-  status: 429,
-  body: JSON.stringify({
-    error: {
-      code: 429,
-      status: 'RESOURCE_EXHAUSTED',
-      details: [
-        {
-          '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
-          violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }],
-        },
-      ],
-    },
-  }),
-}
+/** A 5.4c-1 provider fixture as a scripted reply: the router sees the cited provider formats. */
+const fromFixture = (fx: ProviderFixture): Reply => ({
+  status: fx.status,
+  body: fx.body,
+  ...(fx.headers !== undefined && { headers: fx.headers }),
+})
+const fixture = (list: ProviderFixture[], name: string): ProviderFixture =>
+  list.find((f) => f.name === name)!
+const geminiPerDay = fromFixture(fixture(GEMINI_FIXTURES, '429 per-day quota id'))
 const notFound = (model: string): Reply => ({
   status: 404,
   body: JSON.stringify({ error: { message: `The model ${model} does not exist`, code: 'x' } }),
@@ -56,6 +54,39 @@ const sentTo = (sent: { host: string; model: string }[]) => sent.map((s) => `${s
 const ofType = <K extends RouterEvent['type']>(events: RouterEvent[], type: K) =>
   events.filter((e): e is Extract<RouterEvent, { type: K }> => e.type === type)
 const at = (ms: number) => () => ms
+
+/** Codes whose own-cap unit is given back (§5.1 unit table). */
+const RELEASING = new Set(['AUTH', 'CREDIT', 'RETIRED'])
+
+describe.each([
+  ['groq', GROQ_FIXTURES, GROQ, GROQ_MODEL],
+  ['gemini', GEMINI_FIXTURES, GEMINI, GEMINI_MODEL],
+] as const)(
+  'router over the %s provider fixtures (§5.1, SPEC-L-3)',
+  (p, fixtures, route, model) => {
+    it.each(fixtures.filter((fx) => !fx.expected.ok).map((fx) => [fx.name, fx] as const))(
+      '%s: attempt code, HTTP status and unit',
+      async (_name, fx) => {
+        const cap = countingCap()
+        let n = 0
+        const f = scriptedFetch((s) =>
+          s.host === hostOf.local ? GOOD : ++n === 1 ? fromFixture(fx) : FAIL,
+        )
+        const d = deps(f.fetchImpl, { ownCap: cap, now: at(NOON) })
+        const r = await createRouter(config([{ ...route, models: [model] }, LOCAL]), d).run(REQ)
+        expect(r).toMatchObject({ ok: true })
+        expect(ofType(d.events, 'ATTEMPT')[0]).toMatchObject({
+          route: p,
+          model,
+          code: fx.expected.code,
+          status: fx.status,
+        })
+        expect(cap.released).toHaveLength(RELEASING.has(fx.expected.code) ? 1 : 0)
+        expect(JSON.stringify(d.events)).not.toContain(BODY_MARKER)
+      },
+    )
+  },
+)
 
 describe('router cascade: per-code actions (§5.1)', () => {
   it('SPENT_DAY (Groq remaining-requests 0) spends the model, tries the next model, and skips it on the next call', async () => {

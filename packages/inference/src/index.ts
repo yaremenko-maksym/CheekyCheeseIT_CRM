@@ -40,6 +40,7 @@ export {
   createOwnCapPort,
   type RouteStatePort,
   type OwnCapPort,
+  type OwnCapUnit,
   type StateEvent,
   type FreeLimit,
 } from './router/state'
