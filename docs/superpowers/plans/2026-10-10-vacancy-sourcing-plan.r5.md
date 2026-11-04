@@ -1130,9 +1130,10 @@ Explicit `@Inject`, `@UseGuards(RolesGuard)` + `@Roles`, parsed request/response
 top of the global `UserAwareThrottlerGuard`; error codes from `api-errors/job-sourcing.ts`.
 
 **Precondition (backlog entry 349 / Task 6.1 SR-M-2):** the decision on the triage-grant visibility gap is taken
-(owner, 2026-11-04, option 1) and implemented, with a residual window under owner decision (the entry's known limits):
-a grant shows an opportunity only when it was evaluated OPEN at its
-current revision, and never-evaluated fails closed. Tasks 6.2, 6.3 and 6.4 may now inject `JobQueueScopeService`. What
+(owner, 2026-11-04, option 1, then the inputs version for SR-M-1) and closed in code: a grant shows an opportunity
+only when it was evaluated OPEN at its current revision against the LIVE inputs version (the match rule version and
+the studio-wide keyword exclusions), and never-evaluated fails closed. The cost is stated in the entry: a studio
+keyword change or a rule deploy hides every granted item until its recompute. Tasks 6.2, 6.3 and 6.4 may now inject `JobQueueScopeService`. What
 remains is an owner step: promote the staged DDL `manual-staged/2026-11-04_job_opportunities_evaluation_verdict.sql`
 before the queue is exposed (and before `JOB_MATCH_RECONCILIATION_ENABLED` is on with this code; its header gives the
 order and the backfill). Until the recompute reaches an existing opportunity, a grant keeps it hidden.

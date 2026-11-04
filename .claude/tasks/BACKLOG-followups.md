@@ -6654,43 +6654,49 @@ its outcome. Verify: a tail over one uncontracted GONE reports `gone: 0, failed:
 
 Sources: S8g coder report; U10 Master hand-off message (freshness anchor and scope-aware `account()` ride with the flip); PR #1249 review (SR-M-1, CR-M-1, CR-L).
 
-## 349. Task 6.1 SR-M-2: the triage-grant branch of queue visibility failed open between a revision bump and the recompute (2026-11-04) — decided; residual window under owner decision; owner step remains
+## 349. Task 6.1 SR-M-2: the triage-grant branch of queue visibility failed open between a revision bump and the recompute (2026-11-04) — decided and closed in code (SR-M-1, SR-M-2, SR-L-1); owner step remains
 
-**Decision (owner, 2026-11-04): option 1.** `job_opportunities` carries `evaluated_revision` and
-`evaluation_verdict` (OPEN / EXCLUDED, the CLASSIFICATION and GLOBAL_RESTRICTIONS stages only; NULL = never
-evaluated). `installMatches` writes them in the transaction of the match rows, including when there are no rows
-(an empty roster, a plain mismatch), and never over a newer revision. `loadRoster` reads studio-wide exclusions
-with an empty roster too, so the verdict sees them.
+**Decision (owner, 2026-11-04): option 1, then the inputs version.** `job_opportunities` carries
+`evaluated_revision`, `evaluation_verdict` (OPEN / EXCLUDED, the CLASSIFICATION and GLOBAL_RESTRICTIONS stages
+only) and `evaluated_inputs_version` (`opportunityInputsVersion`: the digest of `MATCH_RULE_VERSION` and the sorted
+values of the studio-wide KEYWORD exclusions, the only inputs those stages read besides the revision). All three
+are NULL together (never evaluated) or set together. `installMatches` writes them in the transaction of the match
+rows, including when there are no rows, and only for the opportunity's current revision. `loadRoster` reads
+studio-wide exclusions with an empty roster too.
 
-**Behaviour now.** A grant shows an opportunity only when it is not CLOSED/EXPIRED and was evaluated OPEN at its
-current revision. Between a revision bump and the recompute it is a 404; never evaluated is a 404 (fails closed);
-an empty roster no longer leaves it open. A per-senior stop-list does not hide it from the team (owner A1g). The
-LEAD branch is unchanged.
+**Behaviour now.** A grant shows an opportunity only when it is not CLOSED/EXPIRED, was evaluated OPEN at its
+current revision, and its recorded inputs version equals the live one (`JobQueueScopeService.resolve` puts it on
+the TEAM scope). A revision bump, a studio-wide keyword exclusion change or a match rule deploy hides it at once,
+before any recompute; never evaluated is hidden. `reconcileOnce` treats an OPEN/UNKNOWN opportunity whose recorded
+revision or inputs version differs from the live one as unevaluated, under a `RECONCILE:EVAL:` lineage keyed on the
+live inputs version, so a zero-row opportunity is re-enqueued after a rule or exclusion change, whatever the roster.
+A per-senior stop-list does not hide it from the team (owner A1g). The LEAD branch is unchanged.
 
 **Consequence.** `JobQueueScopeService` may be injected (Tasks 6.2, 6.3, 6.4).
 
-**Known limits.** The verdict compares no input version, so it can outlive its inputs without a revision bump:
+**Closed limits.** (1) a studio-wide keyword exclusion no longer leaves a granted item visible until the queue
+drains; (2) a rule-version bump no longer leaves a zero-row OPEN verdict in place; (3) an empty roster no longer
+hides an exclusion written outside the hooked services from the sweep. Verify: the queue-scope integration spec's
+SR-M-1 cases (keyword added after evaluation = 404 before any recompute; scope at another rule version = 404) and
+the convergence spec's inputs-change case.
 
-1. A new studio-wide KEYWORD exclusion does not bump the revision. A granted opportunity it now restricts stays
-   visible until the match queue reaches it, and for good while `JOB_MATCH_RECONCILIATION_ENABLED` is off. Owner
-   decision open: close it at read time, or accept the window. Verify: add such an exclusion with the flag off and
-   `assertVisible` for a team holding a grant still resolves.
-2. A `MATCH_RULE_VERSION` bump leaves a zero-row OPEN verdict in place: `reconcileReason` is identical before and
-   after, so the DONE row suppresses the sweep. Ends at the next revision or roster change, or the grant's expiry.
-   Owner decision open with limit 1. Verify: after a rule bump, `reconcileOnce` on a zero-row opportunity with a DONE
-   row reports it skipped.
-3. With an empty roster, an exclusion written outside the hooked services (hand-run SQL) is not picked up by the
-   sweep, because the roster digest is constant. Hooked writes still fan out. Verify: `markExclusionDirty` is still
-   called by every code path that writes `job_exclusion_filters`.
+**Remaining known costs.** Any studio-wide keyword exclusion change and any deploy that changes the match rule
+version hides EVERY granted opportunity until its recompute lands, at most 2,000 per 6-hour tick through the shared
+MATCH queue, and only while `JOB_MATCH_RECONCILIATION_ENABLED` is on. Two keyword rows with the same value count
+twice in the digest (a spare recompute, never a wrong answer). Per-senior inputs are deliberately outside the digest
+(the LEAD branch checks them per row).
 
 **Owner still has to do.** Promote the staged DDL `2026-11-04_job_opportunities_evaluation_verdict.sql`: before the
 queue is exposed, and before `JOB_MATCH_RECONCILIATION_ENABLED` is true on a build carrying this code (with the flag
-on and the columns absent, the sweep fails with 42703 every tick and matches stop being recomputed). Existing OPEN
-and UNKNOWN rows stay NULL until the sweep reaches them (`reconcileOnce` treats them as stale under the
+on and the columns absent, the sweep fails with 42703 every tick and matches stop being recomputed). After
+promotion EVERY existing row is NULL, so every granted opportunity is hidden; OPEN and UNKNOWN rows stay NULL until
+the sweep reaches them (`reconcileOnce` treats them as stale under the
 `RECONCILE:EVAL:` reason, draining 2,000 per 6-hour tick through the shared MATCH queue); until then a grant keeps
 them hidden. Read `SELECT count(*) FROM job_opportunities` before promoting, to size that backlog.
 
-**Verify.** `SELECT count(*) FROM job_opportunities WHERE evaluated_revision IS DISTINCT FROM revision AND availability
-IN ('OPEN', 'UNKNOWN')` falls towards zero after promotion with the flag on. The queue-scope integration spec's SR-M-2 cases assert the 404s.
+**Verify.** `SELECT count(*) FROM job_opportunities WHERE (evaluated_revision IS DISTINCT FROM revision OR
+evaluated_inputs_version IS NULL) AND availability IN ('OPEN', 'UNKNOWN')` falls towards zero after promotion with
+the flag on. The queue-scope integration spec's SR-M-1 / SR-M-2 cases assert the 404s.
 
-Sources: PR #1253 review (SR-M-2, SR-M-4, SPEC-M-4, CR-M-3); coder blocker analysis; owner decision 2026-11-04.
+Sources: PR #1253 review (SR-M-2, SR-M-4, SPEC-M-4, CR-M-3); PR #1255 security review (SR-M-1, SR-M-2, SR-L-1);
+coder blocker analysis; owner decisions 2026-11-04.
