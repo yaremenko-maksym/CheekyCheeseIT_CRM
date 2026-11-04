@@ -530,10 +530,10 @@ describe('router cascade: budget, gap and PROMPT_TOO_LARGE', () => {
     ])
   })
 
-  it('a floor whose budget is gone sends nothing and times out', async () => {
+  it('a floor whose budget is exactly spent sends nothing more and times out', async () => {
     let now = NOON
     const f = scriptedFetch(() => {
-      now += 200_000
+      now += 150_000
       return answer('nope')
     })
     const r = await createRouter(
@@ -542,5 +542,133 @@ describe('router cascade: budget, gap and PROMPT_TOO_LARGE', () => {
     ).run(REQ)
     expect(r).toEqual({ ok: false, code: 'TIMEOUT' })
     expect(f.sent).toHaveLength(1)
+  })
+
+  it('a gap that ends exactly at the hosted deadline sends nothing', async () => {
+    const f = scriptedFetch((s) => (s.host === hostOf.local ? GOOD : FAIL))
+    const d = deps(f.fetchImpl, { now: at(NOON) })
+    const router = createRouter(
+      config([{ ...GROQ, minGapMs: 3000 }, LOCAL], { hostedBudgetMs: 3000 }),
+      d,
+    )
+    await router.run(REQ)
+    await router.run(REQ)
+    expect(d.sleeps).toEqual([])
+    expect(f.sent.filter((s) => s.host === hostOf.groq)).toHaveLength(1)
+  })
+
+  it('a spent hosted budget is reported per route as BUDGET', async () => {
+    let now = NOON
+    const f = scriptedFetch((s) => {
+      now += 61_000
+      return s.host === hostOf.local ? GOOD : FAIL
+    })
+    const d = deps(f.fetchImpl, { now: () => now })
+    await createRouter(config([GROQ, GEMINI, LOCAL]), d).run(REQ)
+    expect(ofType(d.events, 'FELL_TO_LOCAL')[0]?.reasons).toEqual([
+      { route: 'groq', code: 'TRANSPORT' },
+      { route: 'gemini', code: 'BUDGET' },
+    ])
+  })
+})
+
+describe('router events: exact payloads', () => {
+  it('ATTEMPT and CALL carry exact latencies and tokens', async () => {
+    let now = NOON
+    const f = scriptedFetch(() => {
+      now += 100
+      return GOOD
+    })
+    const d = deps(f.fetchImpl, { now: () => now })
+    await createRouter(config([GROQ, LOCAL]), d).run(REQ)
+    expect(d.events).toStrictEqual([
+      {
+        type: 'ATTEMPT',
+        route: 'groq',
+        model: 'openai/gpt-oss-120b',
+        code: 'OK',
+        inputChars: REQ.input.length,
+        latencyMs: 100,
+        totalTokens: 10,
+      },
+      { type: 'CALL', code: 'OK', floorAnswered: false, latencyMs: 100 },
+    ])
+  })
+
+  it('an answer without usage leaves usage, tokens and the cap untouched', async () => {
+    const noUsage: Reply = {
+      status: 200,
+      body: JSON.stringify({
+        choices: [{ message: { content: '{"title":"x"}' }, finish_reason: 'stop' }],
+      }),
+    }
+    const cap = countingCap()
+    const f = scriptedFetch(() => noUsage)
+    const d = deps(f.fetchImpl, { ownCap: cap })
+    const r = await createRouter(config([GROQ, LOCAL]), d).run(REQ)
+    expect(r).toStrictEqual({ ok: true, data: { title: 'x' } })
+    expect(cap.tokens).toBe(0)
+    expect(Object.keys(ofType(d.events, 'ATTEMPT')[0]!)).not.toContain('totalTokens')
+  })
+
+  it('a floor answer and a floor failure are reported as such, with the local route', async () => {
+    const ok = scriptedFetch(() => GOOD)
+    const d1 = deps(ok.fetchImpl, { now: at(NOON) })
+    await createRouter(config([LOCAL]), d1).run(REQ)
+    expect(ofType(d1.events, 'ATTEMPT')).toStrictEqual([
+      {
+        type: 'ATTEMPT',
+        route: 'local',
+        model: 'qwen2.5:3b',
+        code: 'OK',
+        inputChars: REQ.input.length,
+        latencyMs: 0,
+        totalTokens: 10,
+      },
+    ])
+    const bad = scriptedFetch(() => FAIL)
+    const d2 = deps(bad.fetchImpl, { now: at(NOON) })
+    await createRouter(config([LOCAL]), d2).run(REQ)
+    expect(ofType(d2.events, 'CALL')).toStrictEqual([
+      { type: 'CALL', code: 'PROVIDER_ERROR', floorAnswered: false, latencyMs: 0 },
+    ])
+  })
+
+  it('a route whose every model is spent or retired is NO_MODEL and the plan is small', async () => {
+    const routeState = createMemoryRouteStatePort(
+      markRetired(
+        'groq',
+        'openai/gpt-oss-20b',
+        NOON,
+      )(markSpent('groq', 'openai/gpt-oss-120b', TODAY)(EMPTY_ROUTE_STATE)),
+    )
+    const f = scriptedFetch(() => GOOD)
+    const d = deps(f.fetchImpl, { routeState, now: at(NOON) })
+    await createRouter(config([GROQ, LOCAL]), d).run(REQ)
+    expect(f.sent.map((s) => s.host)).toEqual([hostOf.local])
+    expect(ofType(d.events, 'FELL_TO_LOCAL')).toEqual([
+      { type: 'FELL_TO_LOCAL', plan: 'small', reasons: [{ route: 'groq', code: 'NO_MODEL' }] },
+    ])
+  })
+
+  it('a retired model that is not spent is still skipped', async () => {
+    const routeState = createMemoryRouteStatePort(
+      markRetired('groq', 'openai/gpt-oss-120b', NOON)(EMPTY_ROUTE_STATE),
+    )
+    const f = scriptedFetch(() => GOOD)
+    await createRouter(config([GROQ, LOCAL]), deps(f.fetchImpl, { routeState })).run(REQ)
+    expect(f.sent.map((s) => s.model)).toEqual(['openai/gpt-oss-20b'])
+  })
+
+  it('the hosted request carries the caller instruction and, on retry, the correction', async () => {
+    const f = scriptedFetch((_s, n) => (n === 1 ? answer('nope') : GOOD))
+    await createRouter(config([GROQ, LOCAL]), deps(f.fetchImpl)).run({
+      ...REQ,
+      instruction: 'fixed instruction',
+    })
+    const messages = f.sent.map((s) => s.body.messages as { role: string; content: string }[])
+    expect(messages[0]![0]).toEqual({ role: 'system', content: 'fixed instruction' })
+    expect(messages[0]).toHaveLength(2)
+    expect(messages[1]![2]!.content).toMatch(/^Your previous answer was rejected\. /)
   })
 })

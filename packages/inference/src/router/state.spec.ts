@@ -293,7 +293,8 @@ describe('pure state changes', () => {
   })
 
   it('lists are capped by dropping the oldest entries', () => {
-    const dayOf = (i: number) => new Date(Date.UTC(2026, 0, 1) + i * 86_400_000).toISOString().slice(0, 10)
+    const dayOf = (i: number) =>
+      new Date(Date.UTC(2026, 0, 1) + i * 86_400_000).toISOString().slice(0, 10)
     let s = EMPTY_ROUTE_STATE
     for (let i = 0; i < MAX_STATE_ENTRIES + 2; i++)
       s = markSpent('groq', 'openai/gpt-oss-20b', dayOf(i))(s)

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  answer,
   config,
   countingCap,
   deps,
@@ -74,6 +75,43 @@ describe('router stopping (§5.5): abort', () => {
     expect(cap.released).toEqual(['groq'])
   })
 
+  it('an abort during a step that sends nothing ends the call without the floor', async () => {
+    const c = new AbortController()
+    const cap = countingCap()
+    cap.reserve = async () => {
+      c.abort()
+      return false
+    }
+    const f = scriptedFetch(() => GOOD)
+    const d = deps(f.fetchImpl, { ...realSleep, ownCap: cap })
+    const r = await createRouter(config([GROQ, LOCAL]), d).run(REQ, c.signal)
+    expect(r).toEqual({ ok: false, code: 'ABORTED' })
+    expect(f.sent).toHaveLength(0)
+    expect(ofType(d.events, 'FELL_TO_LOCAL')).toEqual([])
+  })
+
+  it('an abort while queued behind another local request sends nothing', async () => {
+    const f = scriptedFetch((): Reply => ({ ...(GOOD as Exclude<Reply, string>), delayMs: 100 }))
+    const router = createRouter(config([LOCAL]), deps(f.fetchImpl, realSleep))
+    const first = router.run(REQ)
+    const second = await router.run(REQ, abortAfter(20))
+    expect(second).toEqual({ ok: false, code: 'ABORTED' })
+    expect(await first).toMatchObject({ ok: true })
+    expect(f.sent).toHaveLength(1)
+  })
+
+  it('the minimum gap is slept for real without a signal', async () => {
+    const f = scriptedFetch(() => GOOD)
+    const router = createRouter(
+      config([{ ...GROQ, minGapMs: 60 }, LOCAL]),
+      deps(f.fetchImpl, realSleep),
+    )
+    await router.run(REQ)
+    const started = Date.now()
+    expect(await router.run(REQ)).toMatchObject({ ok: true })
+    expect(Date.now() - started).toBeGreaterThanOrEqual(40)
+  })
+
   it('an abort cancels the floor request in flight', async () => {
     const f = scriptedFetch(() => 'hang')
     const d = deps(f.fetchImpl, realSleep)
@@ -110,6 +148,21 @@ describe('router stopping (§5.5): budgets and the ceiling', () => {
     ).run(REQ)
     expect(r).toEqual({ ok: false, code: 'TIMEOUT' })
     expect(Date.now() - started).toBeLessThan(100 + 200 + 1_000)
+  })
+
+  it('a floor retry gets only what is left of the floor budget, not a whole timeout', async () => {
+    let n = 0
+    const f = scriptedFetch((): Reply =>
+      ++n === 1 ? { ...(answer('nope') as Exclude<Reply, string>), delayMs: 600 } : 'hang',
+    )
+    const local = { ...LOCAL, timeoutMs: 1_000 }
+    const started = Date.now()
+    const r = await createRouter(
+      config([local], { floorBudgetMs: 1_000 }),
+      deps(f.fetchImpl, realSleep),
+    ).run(REQ)
+    expect(r).toEqual({ ok: false, code: 'TIMEOUT' })
+    expect(Date.now() - started).toBeLessThan(1_400)
   })
 
   it('a hosted TIMEOUT keeps its own-cap unit spent (the request may have been counted)', async () => {

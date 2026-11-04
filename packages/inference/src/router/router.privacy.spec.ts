@@ -96,7 +96,12 @@ describe('router privacy (AC5, ADR §3.3, §4 item 2)', () => {
     const r = await createRouter(config([GROQ, LOCAL]), d).run(REQ)
     expect(r).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
     assertClean('events', d.events)
-    expect(d.events.at(-1)).toMatchObject({ type: 'CALL', code: 'PROVIDER_ERROR' })
+    expect(d.events.at(-1)).toEqual({
+      type: 'CALL',
+      code: 'PROVIDER_ERROR',
+      floorAnswered: false,
+      latencyMs: 0,
+    })
   })
 
   it('a refused config leaks nothing, a key in it included', async () => {
