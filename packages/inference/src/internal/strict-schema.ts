@@ -7,8 +7,9 @@ function isObject(v: unknown): v is JsonSchema {
   return typeof v === 'object' && v !== null
 }
 
-function requiredOf(node: JsonSchema): readonly unknown[] {
-  return Array.isArray(node.required) ? node.required : []
+/** `required` of a Zod-rendered node: an array of names, or absent (an empty set). */
+function requiredOf(node: JsonSchema): ReadonlySet<unknown> {
+  return new Set(node.required as unknown[] | undefined)
 }
 
 /**
@@ -32,7 +33,7 @@ function toStrict(node: JsonSchema): JsonSchema {
     out.properties = Object.fromEntries(
       Object.entries(node.properties).map(([name, child]) => {
         const strict = toStrict(child as JsonSchema)
-        return [name, required.includes(name) ? strict : { anyOf: [strict, { type: 'null' }] }]
+        return [name, required.has(name) ? strict : { anyOf: [strict, { type: 'null' }] }]
       }),
     )
     out.required = Object.keys(node.properties)
@@ -60,7 +61,7 @@ function nullsToAbsent(schemaNode: JsonSchema, value: unknown): unknown {
   const required = requiredOf(node)
   const out: JsonSchema = {}
   for (const [key, v] of Object.entries(value)) {
-    if (v === null && !required.includes(key)) continue
+    if (v === null && !required.has(key)) continue
     const child = properties[key]
     out[key] = isObject(child) ? nullsToAbsent(child, v) : v
   }

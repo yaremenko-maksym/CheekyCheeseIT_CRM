@@ -61,6 +61,16 @@ export function buildChatMessages(opts: {
   ]
 }
 
+/** `JSON.parse`, with `undefined` for text that is not JSON (no JSON text parses to `undefined`). */
+export function parseJsonOrUndefined(text: string): unknown {
+  try {
+    return JSON.parse(text)
+    // Stryker disable next-line BlockStatement: equivalent — an emptied catch also returns undefined.
+  } catch {
+    return undefined
+  }
+}
+
 /** `<baseUrl>/chat/completions`, trailing slashes of the base collapsed. */
 export function chatCompletionsUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, '')}/chat/completions`
@@ -84,8 +94,8 @@ export async function sendChatCompletion(opts: ChatCompletionOptions): Promise<C
     }),
     timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxBytes: DEFAULT_MAX_BYTES,
-    ...(opts.allowLoopbackHttp !== undefined && { allowLoopbackHttp: opts.allowLoopbackHttp }),
-    ...(opts.fetchImpl !== undefined && { fetchImpl: opts.fetchImpl }),
+    allowLoopbackHttp: opts.allowLoopbackHttp === true,
+    fetchImpl: opts.fetchImpl,
   })
   switch (result.kind) {
     case 'rate_limited':
@@ -101,13 +111,7 @@ export async function sendChatCompletion(opts: ChatCompletionOptions): Promise<C
             : 'PROVIDER_ERROR',
       }
     case 'ok': {
-      let json: unknown
-      try {
-        json = JSON.parse(result.text)
-      } catch {
-        return { ok: false, code: 'PROVIDER_ERROR' }
-      }
-      const env = envelopeSchema.safeParse(json)
+      const env = envelopeSchema.safeParse(parseJsonOrUndefined(result.text))
       if (!env.success) return { ok: false, code: 'PROVIDER_ERROR' }
       const totalTokens = env.data.usage?.total_tokens
       return {

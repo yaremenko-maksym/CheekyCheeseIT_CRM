@@ -49,6 +49,23 @@ export const GEMINI_FIXTURES: ProviderFixture[] = [
     expected: { ok: false, code: 'SPENT_DAY' },
   },
   {
+    name: '429 per-day as the second violation of one QuotaFailure',
+    status: 429,
+    body: tooManyRequests([
+      {
+        '@type': QUOTA_FAILURE,
+        violations: [{ quotaId: PER_MINUTE }, { quotaId: PER_DAY }],
+      },
+    ]),
+    expected: { ok: false, code: 'SPENT_DAY' },
+  },
+  {
+    name: '429 retryDelay with two fractional digits',
+    status: 429,
+    body: tooManyRequests([retry('1.25s')]),
+    expected: { ok: false, code: 'BUSY', retryAfterMs: 1250 },
+  },
+  {
     name: '429 per-minute quota id with retryDelay',
     status: 429,
     body: tooManyRequests([quota(PER_MINUTE), retry('55s')]),

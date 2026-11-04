@@ -43,8 +43,8 @@ export interface BoundedRequestOptions {
   allowLocalRuntimeHttp?: boolean
   /** On a 429, read the bounded body and keep the headers instead of discarding them. */
   readRateLimitDetails?: boolean
-  signal?: AbortSignal
-  fetchImpl?: FetchLike
+  signal?: AbortSignal | undefined
+  fetchImpl?: FetchLike | undefined
 }
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
@@ -86,16 +86,17 @@ async function readBounded(
   }
 
   const reader = body.getReader()
-  const aborted = new Promise<'aborted'>((resolve) => {
-    if (signal.aborted) resolve('aborted')
-    else signal.addEventListener('abort', () => resolve('aborted'), { once: true })
+  // Resolves to null on abort; a read step is never null.
+  const aborted = new Promise<null>((resolve) => {
+    if (signal.aborted) resolve(null)
+    else signal.addEventListener('abort', () => resolve(null))
   })
   const decoder = new TextDecoder()
   let received = 0
   let text = ''
   for (;;) {
     const step = await Promise.race([reader.read(), aborted])
-    if (step === 'aborted') {
+    if (step === null) {
       await reader.cancel().catch(() => undefined)
       return { kind: 'aborted' }
     }
@@ -119,7 +120,7 @@ export async function boundedRequest(opts: BoundedRequestOptions): Promise<Bound
   const { signal } = opts
   if (signal?.aborted === true) return { kind: 'timeout', aborted: true }
 
-  const fetchImpl: FetchLike = opts.fetchImpl ?? ((url, init) => fetch(url, init))
+  const fetchImpl: FetchLike = opts.fetchImpl ?? fetch
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs)
   const onAbort = (): void => controller.abort()

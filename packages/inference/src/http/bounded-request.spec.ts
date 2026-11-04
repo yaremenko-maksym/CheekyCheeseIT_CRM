@@ -344,6 +344,146 @@ describe('boundedRequest local runtime plain HTTP (ADR §3.3)', () => {
   })
 })
 
+describe('boundedRequest body bounds and stream edges', () => {
+  const fixed =
+    (status: number, text: string): FetchLike =>
+    async () => ({
+      status,
+      body: null,
+      text: async () => text,
+    })
+
+  it('accepts a non-streamed body of exactly maxBytes and flags one byte more', async () => {
+    expect(await boundedRequest({ ...base, maxBytes: 4, fetchImpl: fixed(200, 'abcd') })).toEqual({
+      kind: 'ok',
+      status: 200,
+      text: 'abcd',
+    })
+    expect(
+      await boundedRequest({ ...base, maxBytes: 4, fetchImpl: fixed(200, 'abcde') }),
+    ).toStrictEqual({ kind: 'transport', status: 200, tooLarge: true })
+  })
+
+  it('accepts a streamed body of exactly maxBytes', async () => {
+    const f: FetchLike = async () => ({
+      status: 200,
+      body: streamOf(['ab', 'cd']),
+      text: async () => '',
+    })
+    expect((await boundedRequest({ ...base, maxBytes: 4, fetchImpl: f })).kind).toBe('ok')
+  })
+
+  it('decodes a multi-byte character split across chunks', async () => {
+    const bytes = new TextEncoder().encode('é')
+    let i = 0
+    const f: FetchLike = async () => ({
+      status: 200,
+      body: new ReadableStream<Uint8Array>({
+        pull(c) {
+          if (i < bytes.length) c.enqueue(bytes.slice(i, ++i))
+          else c.close()
+        },
+      }),
+      text: async () => '',
+    })
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({
+      kind: 'ok',
+      status: 200,
+      text: 'é',
+    })
+  })
+
+  it('keeps a streamed error body as text', async () => {
+    const f: FetchLike = async () => ({
+      status: 500,
+      body: streamOf(['oops']),
+      text: async () => '',
+    })
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({
+      kind: 'transport',
+      status: 500,
+      text: 'oops',
+    })
+  })
+
+  it('treats 300 as a failure status', async () => {
+    expect((await boundedRequest({ ...base, fetchImpl: fixed(300, 'x') })).kind).toBe('transport')
+  })
+
+  it('reads chunks that arrive later', async () => {
+    const f: FetchLike = async () => ({
+      status: 200,
+      body: new ReadableStream<Uint8Array>({
+        async pull(c) {
+          await new Promise((r) => setTimeout(r, 1))
+          c.enqueue(new TextEncoder().encode('late'))
+          c.close()
+        },
+      }),
+      text: async () => '',
+    })
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({
+      kind: 'ok',
+      status: 200,
+      text: 'late',
+    })
+  })
+
+  it('stops and cancels a body that ignores the abort and never ends', async () => {
+    let cancelled = false
+    const f: FetchLike = async () => ({
+      status: 200,
+      body: new ReadableStream<Uint8Array>({
+        cancel() {
+          cancelled = true
+        },
+      }),
+      text: async () => '',
+    })
+    expect(await boundedRequest({ ...base, timeoutMs: 5, fetchImpl: f })).toEqual({
+      kind: 'timeout',
+    })
+    expect(cancelled).toBe(true)
+  })
+
+  it('stops reading when the timer fired before the response arrived', async () => {
+    const f: FetchLike = () =>
+      new Promise((resolve) =>
+        setTimeout(
+          () =>
+            resolve({ status: 200, body: new ReadableStream<Uint8Array>(), text: async () => '' }),
+          20,
+        ),
+      )
+    expect(await boundedRequest({ ...base, timeoutMs: 5, fetchImpl: f })).toEqual({
+      kind: 'timeout',
+    })
+  })
+
+  it('sends only signal and redirect when no method, headers or body are given', async () => {
+    let seen: Parameters<FetchLike>[1]
+    const f: FetchLike = async (_u, init) => {
+      seen = init
+      return { status: 200, body: null, text: async () => '' }
+    }
+    await boundedRequest({ ...base, fetchImpl: f })
+    expect(Object.keys(seen ?? {}).sort()).toEqual(['redirect', 'signal'])
+  })
+
+  it('refuses non-HTTP schemes to the constant host and loopback whatever the flags', async () => {
+    for (const url of ['ftp://crm-model-runtime/x', 'ftp://localhost/x', 'ws://127.0.0.1/x']) {
+      const r = await boundedRequest({
+        ...base,
+        url,
+        allowLocalRuntimeHttp: true,
+        allowLoopbackHttp: true,
+        fetchImpl: okFetch,
+      })
+      expect(r.kind).toBe('transport')
+    }
+  })
+})
+
 describe('boundedRequest redirects (SR-M-1)', () => {
   it('passes redirect: error to fetch', async () => {
     let seen: string | undefined

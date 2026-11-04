@@ -6,7 +6,7 @@ import {
   type BoundedResult,
   type FetchLike,
 } from '../http/bounded-request'
-import { buildChatMessages, chatCompletionsUrl } from './chat-completions'
+import { buildChatMessages, chatCompletionsUrl, parseJsonOrUndefined } from './chat-completions'
 import { parseGeminiModelId } from './model-id'
 import type { JsonSchema } from './strict-schema'
 
@@ -54,8 +54,8 @@ export type ClassifiedChatOptions = {
   maxTokens: number
   structuredOutput: StructuredOutput
   timeoutMs?: number
-  signal?: AbortSignal
-  fetchImpl?: FetchLike
+  signal?: AbortSignal | undefined
+  fetchImpl?: FetchLike | undefined
 }
 
 /** Error bodies are read only this far, and only through documented structured fields (ADR §5.1). */
@@ -97,12 +97,8 @@ const notFoundEnvelope = z.object({
  * Gemini's compat layer may wrap the envelope in a list (UNVERIFIED shape, 5.4c-0 §7).
  */
 function errorJson(text: string | undefined): unknown {
-  try {
-    const json: unknown = JSON.parse(String(text).slice(0, MAX_ERROR_SCAN_CHARS))
-    return Array.isArray(json) ? json[0] : json
-  } catch {
-    return undefined
-  }
+  const json = parseJsonOrUndefined(String(text).slice(0, MAX_ERROR_SCAN_CHARS))
+  return Array.isArray(json) ? json[0] : json
 }
 
 function toPauseMs(seconds: number): number | undefined {
@@ -144,8 +140,8 @@ function classifyRateLimit(
   if (provider === 'gemini') {
     const details = googleDetails(r.text)
     if (details?.some(isPerDayQuota) === true) return { ok: false, code: 'SPENT_DAY' }
-    const delay = details?.map((d) => retryInfo.safeParse(d)).find((d) => d.success)
-    return busy(parseDuration(delay?.data?.retryDelay))
+    const delay = details?.find((d) => retryInfo.safeParse(d).success)
+    return busy(parseDuration(retryInfo.safeParse(delay).data?.retryDelay))
   }
   // Groq: the request headers always mean per day (documented); only an exact `0` spends the day.
   if (provider === 'groq' && r.headers?.get('x-ratelimit-remaining-requests') === '0') {
@@ -208,13 +204,7 @@ function reroutedTo(opts: ClassifiedChatOptions, served: string | undefined): st
 }
 
 function classifyAnswer(opts: ClassifiedChatOptions, text: string): ClassifiedChatResult {
-  let json: unknown
-  try {
-    json = JSON.parse(text)
-  } catch {
-    return { ok: false, code: 'TRANSPORT', responded: true }
-  }
-  const env = answerSchema.safeParse(json)
+  const env = answerSchema.safeParse(parseJsonOrUndefined(text))
   if (!env.success) return { ok: false, code: 'TRANSPORT', responded: true }
   const choice = env.data.choices[0]!
   if (choice.finish_reason === 'content_filter') return { ok: false, code: 'REFUSED' }
@@ -231,19 +221,15 @@ function classifyAnswer(opts: ClassifiedChatOptions, text: string): ClassifiedCh
 }
 
 function responseFormat(so: StructuredOutput): object {
-  switch (so.mode) {
-    case 'json_schema':
-      return {
-        response_format: {
-          type: 'json_schema',
-          json_schema: { name: 'extraction', strict: true, schema: so.schema },
-        },
-      }
-    case 'json_object':
-      return { response_format: { type: 'json_object' } }
-    case 'none':
-      return {}
+  if (so.mode === 'json_schema') {
+    return {
+      response_format: {
+        type: 'json_schema',
+        json_schema: { name: 'extraction', strict: true, schema: so.schema },
+      },
+    }
   }
+  return so.mode === 'json_object' ? { response_format: { type: 'json_object' } } : {}
 }
 
 /**
@@ -271,9 +257,9 @@ export async function sendClassifiedChatCompletion(
     timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxBytes: DEFAULT_MAX_BYTES,
     readRateLimitDetails: true,
-    ...(local && { allowLocalRuntimeHttp: true }),
-    ...(opts.signal !== undefined && { signal: opts.signal }),
-    ...(opts.fetchImpl !== undefined && { fetchImpl: opts.fetchImpl }),
+    allowLocalRuntimeHttp: local,
+    signal: opts.signal,
+    fetchImpl: opts.fetchImpl,
   })
   switch (result.kind) {
     case 'timeout':

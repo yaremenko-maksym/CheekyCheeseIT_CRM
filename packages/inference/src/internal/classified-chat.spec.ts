@@ -14,7 +14,12 @@ import { GROQ_FIXTURES, GROQ_MODEL } from './__fixtures__/groq.fixtures'
 
 const KEY_MARKER = 'sk-KEY-MARKER-91c2'
 
-type Sent = { url: string; headers: Record<string, string>; body: Record<string, unknown> }
+type Sent = {
+  url: string
+  method: string | undefined
+  headers: Record<string, string>
+  body: Record<string, unknown>
+}
 
 function fakeFetch(
   status: number,
@@ -25,6 +30,7 @@ function fakeFetch(
   const fetchImpl: FetchLike = async (url, init) => {
     sent.push({
       url,
+      method: init?.method,
       headers: init?.headers ?? {},
       body: JSON.parse(init?.body ?? '{}') as Record<string, unknown>,
     })
@@ -340,6 +346,7 @@ describe('the request (one builder for every route)', () => {
     )
     expect(sent).toHaveLength(1)
     expect(sent[0]!.url).toBe('https://api.groq.com/openai/v1/chat/completions')
+    expect(sent[0]!.method).toBe('POST')
     expect(sent[0]!.headers).toStrictEqual({
       'Content-Type': 'application/json',
       Authorization: `Bearer ${KEY_MARKER}`,
@@ -402,6 +409,27 @@ describe('the request (one builder for every route)', () => {
     const { sent } = await run(HOSTED.gemini, 200, answer('{}'))
     expect(sent[0]!.url).not.toContain(KEY_MARKER)
     expect(JSON.stringify(sent[0]!.body)).not.toContain(KEY_MARKER)
+  })
+})
+
+describe('provider-specific signals stay with their provider', () => {
+  it('the Groq day header and error object mean nothing on the local route', async () => {
+    const day = await run(LOCAL, 429, '{}', { 'x-ratelimit-remaining-requests': '0' })
+    expect(day.result).toStrictEqual({ ok: false, code: 'BUSY' })
+    const forbidden = await run(
+      LOCAL,
+      403,
+      JSON.stringify({ error: { message: BODY_MARKER, type: 'invalid_request_error' } }),
+    )
+    expect(forbidden.result).toStrictEqual({ ok: false, code: 'TRANSPORT', responded: true })
+  })
+
+  it('a 429 without any headers object is BUSY', async () => {
+    const fetchImpl: FetchLike = async () => ({ status: 429, body: null, text: async () => '' })
+    expect(await sendClassifiedChatCompletion({ ...HOSTED.groq, fetchImpl })).toStrictEqual({
+      ok: false,
+      code: 'BUSY',
+    })
   })
 })
 
