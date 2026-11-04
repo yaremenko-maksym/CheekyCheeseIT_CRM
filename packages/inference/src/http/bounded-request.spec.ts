@@ -3,6 +3,7 @@ import {
   boundedRequest,
   DEFAULT_MAX_BYTES,
   DEFAULT_TIMEOUT_MS,
+  LOCAL_MODEL_RUNTIME_HOST,
   type FetchLike,
 } from './bounded-request'
 
@@ -181,6 +182,169 @@ describe('boundedRequest', () => {
     expect(seen?.headers).toEqual({ a: 'b' })
     expect(seen?.body).toBe('{}')
     expect(seen?.signal).toBeInstanceOf(AbortSignal)
+  })
+})
+
+const hangingFetch: FetchLike = (_u, init) =>
+  new Promise((_res, rej) =>
+    init?.signal?.addEventListener('abort', () => rej(new DOMException('x', 'AbortError'))),
+  )
+
+describe('boundedRequest caller signal (SR-L-38: an abort is not a timeout)', () => {
+  it('cancels a request in flight and reports aborted, not a plain timeout', async () => {
+    const ctrl = new AbortController()
+    let seen: AbortSignal | undefined
+    const f: FetchLike = (u, init) => {
+      seen = init?.signal
+      queueMicrotask(() => ctrl.abort())
+      return hangingFetch(u, init)
+    }
+    expect(await boundedRequest({ ...base, signal: ctrl.signal, fetchImpl: f })).toEqual({
+      kind: 'timeout',
+      aborted: true,
+    })
+    expect(seen?.aborted).toBe(true)
+  })
+
+  it('sends nothing when the signal is already aborted', async () => {
+    let called = false
+    const f: FetchLike = async () => {
+      called = true
+      return { status: 200, body: null, text: async () => 'x' }
+    }
+    const ctrl = new AbortController()
+    ctrl.abort()
+    expect(await boundedRequest({ ...base, signal: ctrl.signal, fetchImpl: f })).toEqual({
+      kind: 'timeout',
+      aborted: true,
+    })
+    expect(called).toBe(false)
+  })
+
+  it('reports an abort during the body read as aborted', async () => {
+    const ctrl = new AbortController()
+    const f: FetchLike = async () => ({
+      status: 200,
+      body: new ReadableStream<Uint8Array>({
+        start() {
+          queueMicrotask(() => ctrl.abort())
+        },
+      }),
+      text: async () => '',
+    })
+    expect(await boundedRequest({ ...base, signal: ctrl.signal, fetchImpl: f })).toEqual({
+      kind: 'timeout',
+      aborted: true,
+    })
+  })
+
+  it('keeps the own timer a plain timeout while the caller signal stays open', async () => {
+    const ctrl = new AbortController()
+    expect(
+      await boundedRequest({ ...base, timeoutMs: 5, signal: ctrl.signal, fetchImpl: hangingFetch }),
+    ).toEqual({ kind: 'timeout' })
+  })
+
+  it('detaches its listener from the caller signal once settled', async () => {
+    const ctrl = new AbortController()
+    const removed: string[] = []
+    const remove = ctrl.signal.removeEventListener.bind(ctrl.signal)
+    ctrl.signal.removeEventListener = (type: string, l: EventListenerOrEventListenerObject) => {
+      removed.push(type)
+      remove(type, l)
+    }
+    expect((await boundedRequest({ ...base, signal: ctrl.signal, fetchImpl: okFetch })).kind).toBe(
+      'ok',
+    )
+    expect(removed).toEqual(['abort'])
+  })
+})
+
+describe('boundedRequest rate-limit details and oversize 2xx', () => {
+  const headers = { get: (n: string) => (n === 'retry-after' ? '7' : null) }
+
+  it('keeps the bounded 429 body and the headers only when asked', async () => {
+    const f: FetchLike = async () => ({ status: 429, body: null, text: async () => '{}', headers })
+    expect(
+      await boundedRequest({ ...base, readRateLimitDetails: true, fetchImpl: f }),
+    ).toStrictEqual({ kind: 'rate_limited', status: 429, text: '{}', headers })
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toStrictEqual({
+      kind: 'rate_limited',
+      status: 429,
+    })
+  })
+
+  it('drops an oversize 429 body and absent headers', async () => {
+    const f: FetchLike = async () => ({
+      status: 429,
+      body: streamOf(['x'.repeat(2000)]),
+      text: async () => '',
+    })
+    expect(
+      await boundedRequest({ ...base, readRateLimitDetails: true, fetchImpl: f }),
+    ).toStrictEqual({ kind: 'rate_limited', status: 429 })
+  })
+
+  it('marks an oversize 2xx body as tooLarge', async () => {
+    const f: FetchLike = async () => ({
+      status: 200,
+      body: streamOf(['x'.repeat(2000)]),
+      text: async () => '',
+    })
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toStrictEqual({
+      kind: 'transport',
+      status: 200,
+      tooLarge: true,
+    })
+  })
+})
+
+describe('boundedRequest local runtime plain HTTP (ADR §3.3)', () => {
+  const run = async (url: string, opts: { local?: boolean; loopback?: boolean } = {}) =>
+    (
+      await boundedRequest({
+        ...base,
+        url,
+        ...(opts.local === true && { allowLocalRuntimeHttp: true }),
+        ...(opts.loopback === true && { allowLoopbackHttp: true }),
+        fetchImpl: okFetch,
+      })
+    ).kind
+
+  it('names one constant host', () => {
+    expect(LOCAL_MODEL_RUNTIME_HOST).toBe('crm-model-runtime')
+  })
+
+  it('reaches only loopback or the constant host over HTTP', async () => {
+    for (const url of [
+      'http://crm-model-runtime:11434/v1/x',
+      'http://localhost:11434/x',
+      'http://127.0.0.1:8080/x',
+      'http://[::1]:8080/x',
+    ]) {
+      expect(await run(url, { local: true })).toBe('ok')
+    }
+  })
+
+  it('refuses private, link-local, IPv4-mapped and foreign hosts over HTTP', async () => {
+    for (const url of [
+      'http://10.0.0.5/x',
+      'http://192.168.1.2/x',
+      'http://172.16.0.1/x',
+      'http://169.254.169.254/latest',
+      'http://[fe80::1]/x',
+      'http://[::ffff:127.0.0.1]/x',
+      'http://127.0.0.2/x',
+      'http://crm-model-runtime.example.com/x',
+      'http://api.test/x',
+    ]) {
+      expect(await run(url, { local: true })).toBe('transport')
+    }
+  })
+
+  it('does not widen allowLoopbackHttp to the constant host', async () => {
+    expect(await run('http://crm-model-runtime:11434/x', { loopback: true })).toBe('transport')
+    expect(await run('http://crm-model-runtime:11434/x')).toBe('transport')
   })
 })
 
