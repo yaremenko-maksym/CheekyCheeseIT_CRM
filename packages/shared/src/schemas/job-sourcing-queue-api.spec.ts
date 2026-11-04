@@ -58,6 +58,11 @@ function injectAt(value: unknown, path: ReadonlyArray<string | number>, field: s
   return copy
 }
 
+const generationFacts = {
+  ruleVersion: 'eval.1+l1.1',
+  evaluatedAt: '2026-11-04T12:00:00.000Z',
+  capped: false,
+}
 const listItem = {
   opportunityId: U1,
   revision: 3,
@@ -243,8 +248,13 @@ describe('response shapes round-trip', () => {
       items: [listItem],
       nextCursor: null,
       counts: { NEW: 3, SUBMITTED: 1, HIDDEN: 0 },
+      generation: generationFacts,
     }
     expect(jobQueueListResponseSchema.parse(page)).toEqual(page)
+    expect(jobQueueListResponseSchema.parse({ ...page, generation: null }).generation).toBeNull()
+    expect(jobQueueListResponseSchema.safeParse({ ...page, generation: undefined }).success).toBe(
+      false,
+    )
     expect(jobQueueCardResponseSchema.parse(card)).toEqual(card)
     expect(
       jobQueueCardResponseSchema.parse({ ...card, possibleDuplicates: null }).possibleDuplicates,
@@ -267,6 +277,7 @@ describe('response shapes round-trip', () => {
       items: Array.from({ length: n }, () => listItem),
       nextCursor: null,
       counts: { NEW: n, SUBMITTED: 0, HIDDEN: 0 },
+      generation: null,
     })
     expect(jobQueueListResponseSchema.safeParse(page(50)).success).toBe(true)
     expect(jobQueueListResponseSchema.safeParse(page(51)).success).toBe(false)
@@ -416,7 +427,17 @@ describe('field bounds, both sides of each limit (CR-M-2)', () => {
     no(jobQueueListQuerySchema, { cursor: s(301) })
     for (const cursor of ['cc', s(300)]) ok(jobQueueScopeQuerySchema, { cursor })
     no(jobQueueScopeQuerySchema, { cursor: s(301) })
-    const page = { items: [], counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 } }
+    const page = { items: [], counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 }, generation: null }
+    const facts = (over: Record<string, unknown>) => ({
+      ...page,
+      nextCursor: null,
+      generation: { ...generationFacts, ...over },
+    })
+    ok(jobQueueListResponseSchema, facts({ ruleVersion: s(100) }))
+    no(jobQueueListResponseSchema, facts({ ruleVersion: s(101) }))
+    no(jobQueueListResponseSchema, facts({ ruleVersion: '' }))
+    no(jobQueueListResponseSchema, facts({ evaluatedAt: 'yesterday' }))
+    no(jobQueueListResponseSchema, facts({ capped: 'false' }))
     for (const [schema, base] of [
       [jobQueueListResponseSchema, page],
       [jobQueueSeniorsContinuationSchema, card.seniors],
@@ -566,7 +587,12 @@ describe('AC4: no response shape carries foreign identity', () => {
    * sample: the sample parses, and the same sample with ONE foreign key added at that
    * path is refused. Removing `.strict()` from any of these objects fails its row.
    */
-  const page = { items: [listItem], nextCursor: null, counts: { NEW: 1, SUBMITTED: 0, HIDDEN: 0 } }
+  const page = {
+    items: [listItem],
+    nextCursor: null,
+    counts: { NEW: 1, SUBMITTED: 0, HIDDEN: 0 },
+    generation: generationFacts,
+  }
   const conflict = {
     code: 'JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED',
     possibleDuplicates: card.possibleDuplicates,
@@ -579,6 +605,7 @@ describe('AC4: no response shape carries foreign identity', () => {
     ['list item > primarySource', jobQueueListItemSchema, listItem, ['primarySource']],
     ['list page', jobQueueListResponseSchema, page, []],
     ['list page > counts', jobQueueListResponseSchema, page, ['counts']],
+    ['list page > generation', jobQueueListResponseSchema, page, ['generation']],
     ['list page > items[0]', jobQueueListResponseSchema, page, ['items', 0]],
     [
       'list page > items[0] > primarySource',

@@ -128,6 +128,22 @@ export class JobQueueScopeService {
   }
 
   /**
+   * The live input versions a read in `scope` compares match rows against: a TEAM scope's own (from
+   * its `resolve`, no query); STUDIO's are every roster senior's, read here because `resolve` needs
+   * no roster for an ADMIN. Never crosses a request, as the scope itself does not.
+   */
+  async liveVersions(scope: JobQueueScope, db: SqlExecutor): Promise<readonly LiveSeniorVersion[]> {
+    if (scope.kind === 'TEAM') return scope.versions
+    if (scope.kind === 'NONE') return []
+    const roster = await this.policy(() => loadRoster(db))
+    return [...roster.versions].map(([seniorId, v]) => ({
+      seniorId,
+      profile: v.profile,
+      exclusion: v.exclusion,
+    }))
+  }
+
+  /**
    * Runs a policy read; a failure is `JOB_QUEUE_POLICY_UNAVAILABLE`, never a default answer. A
    * deadlock is not an answer about the policy: it passes through, for the writer's one rerun.
    */

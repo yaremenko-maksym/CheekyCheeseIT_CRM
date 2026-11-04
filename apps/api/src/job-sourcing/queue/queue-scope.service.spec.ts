@@ -32,6 +32,7 @@ function bound(execute: unknown) {
       real.resolve(u, teamId, db),
     assertVisible: (scope: JobQueueScope, id: string, db: SqlExecutor = pool) =>
       real.assertVisible(scope, id, db),
+    liveVersions: (scope: JobQueueScope, db: SqlExecutor = pool) => real.liveVersions(scope, db),
   }
 }
 
@@ -97,6 +98,34 @@ async function expectCode(p: Promise<unknown>, status: number, code: string): Pr
   expect((e as HttpException).getStatus()).toBe(status)
   expect(((e as HttpException).getResponse() as { code: string }).code).toBe(code)
 }
+
+describe('JobQueueScopeService.liveVersions', () => {
+  it('a TEAM scope answers from its own resolve, with no query', async () => {
+    const { svc, execute } = harness()
+    await expect(svc.liveVersions(teamAScope)).resolves.toEqual([SEN_1_VERSIONS])
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('a NONE scope has none, with no query', async () => {
+    const { svc, execute } = harness()
+    await expect(svc.liveVersions(NONE_SCOPE)).resolves.toEqual([])
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('STUDIO reads every roster senior', async () => {
+    const { svc, execute } = harness(...ROSTER)
+    const versions = await svc.liveVersions(STUDIO_SCOPE)
+    expect(versions.map((v) => v.seniorId)).toEqual([SEN_1, SEN_2])
+    expect(versions[0]).toEqual(SEN_1_VERSIONS)
+    expect(execute).toHaveBeenCalledTimes(3)
+  })
+
+  it('STUDIO fails closed when the roster cannot be read', async () => {
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    const { svc } = harness(new Error('connection lost'))
+    await expectCode(svc.liveVersions(STUDIO_SCOPE), 503, 'JOB_QUEUE_POLICY_UNAVAILABLE')
+  })
+})
 
 afterEach(() => {
   vi.restoreAllMocks()

@@ -165,6 +165,21 @@ export function visibleOpportunityPredicate(scope: JobQueueScope, opportunityId:
 }
 
 /**
+ * May the opportunity appear as a row of a LIST (Task 6.2)? TEAM: exactly when it is visible.
+ * STUDIO: everything except an opportunity whose latest evaluation at its CURRENT revision excluded
+ * it for everyone («EXCLUDED is never listed»); an ADMIN can still open it by id, and one not yet
+ * evaluated at this revision stays listed, as triage. Lives here so the verdict columns are read
+ * in this file only. NONE: nothing.
+ */
+export function listableOpportunityPredicate(scope: JobQueueScope, opportunityId: SQL): SQL {
+  if (scope.kind !== 'STUDIO') return visibleOpportunityPredicate(scope, opportunityId)
+  return sql`NOT EXISTS (SELECT 1 FROM job_opportunities xo
+                          WHERE xo.id = ${opportunityId}
+                            AND xo.evaluated_revision = xo.revision
+                            AND xo.evaluation_verdict = 'EXCLUDED')`
+}
+
+/**
  * The SQL predicate for a TEAM-carrying row of the queue store (assignments, dismissals,
  * actions, generations): an HR reads only their team's rows, an ADMIN in STUDIO may span teams,
  * an ADMIN who named a team reads that team's, NONE reads nothing. Pass the row's `team_id` (or

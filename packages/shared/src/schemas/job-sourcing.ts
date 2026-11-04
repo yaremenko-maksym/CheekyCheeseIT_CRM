@@ -1861,12 +1861,29 @@ export const jobQueueListItemSchema = z
   })
   .strict()
 
-/** The list page. Tab counts are the authorized totals of the scope, not narrowed by filters. */
+/**
+ * The facts of the generation a page was read from: the rule and the moment its order was evaluated
+ * (r5 Task 6.2). `capped` means it reached its entry cap, so a lower-ranked opportunity may be missing
+ * from this list and from its counts.
+ */
+export const jobQueueGenerationFactsSchema = z
+  .object({
+    ruleVersion: z.string().min(1).max(100),
+    evaluatedAt: z.string().datetime(),
+    capped: z.boolean(),
+  })
+  .strict()
+
+/**
+ * The list page. Tab counts are the authorized totals of the scope, not narrowed by filters.
+ * `generation` is null only for a scope with no queue, which reads no generation at all.
+ */
 export const jobQueueListResponseSchema = z
   .object({
     items: z.array(jobQueueListItemSchema).max(50),
     nextCursor: z.string().max(300).nullable(),
     counts: z.object({ NEW: countSchema, SUBMITTED: countSchema, HIDDEN: countSchema }).strict(),
+    generation: jobQueueGenerationFactsSchema.nullable(),
   })
   .strict()
 

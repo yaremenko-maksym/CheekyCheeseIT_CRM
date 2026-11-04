@@ -187,6 +187,13 @@ const envSchema = z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
 
+    // JOB_QUEUE_GENERATION_PURGE_ENABLED: switch for the daily purge of expired queue generations
+    //   (r5 Task 6.2, MP-13 retention). **Default false**: r5 Task 1.4 keeps new-store cleanup
+    //   disabled until the owner freezes the durations, so the owner flips it.
+    JOB_QUEUE_GENERATION_PURGE_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
+      .default(false),
+
     // JOB_DETAIL_GONE_CLOSURE_ENABLED: switch for the 404/410 detail-closure path (r5 Task 4.6
     //   S8g): a tested-contract board's (Greenhouse only) detail GONE closes the record with
     //   DETAIL_GONE evidence and enqueues its opportunities for the availability consumer; any other
