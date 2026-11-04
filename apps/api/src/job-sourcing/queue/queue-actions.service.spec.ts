@@ -419,6 +419,15 @@ describe('submit — refused before any write', () => {
     const h = harness()
     await h.svc.submit(HR, OPP, submitBody())
     expect(h.param('canonical')).toContain(OPP)
+    const texts = h.calls.map((c) => c.text)
+    expect(texts).toContainEqual(
+      expect.stringContaining(
+        'SELECT id, senior_id, kind, value, normalized_value, created_at FROM job_exclusion_filters',
+      ),
+    )
+    expect(texts).toContainEqual(
+      expect.stringContaining('SELECT senior_id, name, company_name, archived_at FROM projects'),
+    )
     for (const statement of ['ownManual', 'ownProjects'] as const) {
       expect(h.param(statement)).toEqual([SENIOR])
       const text = h.calls.find((c) => PATTERNS[statement].test(c.text))?.text
@@ -605,6 +614,16 @@ describe('submit — possible duplicates', () => {
       },
     })
     noWrites(h.hits)
+  })
+
+  it('the preview names the employer of a copy that has one', async () => {
+    const set = copies(2)
+    const h = harness({ lockSet: set, duplicates: [{ opportunity_id: set[2]?.id }] })
+    const r = await refusal(h.svc.submit(HR, OPP, submitBody()))
+    expect(r.body['possibleDuplicates']).toEqual({
+      items: [{ opportunityId: set[2]?.id, title: 'Copy 1', companyName: 'Acme' }],
+      totalCount: 1,
+    })
   })
 
   it('asks about the other copies only, for this senior, in the scope', async () => {
