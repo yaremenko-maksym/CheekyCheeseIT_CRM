@@ -13,7 +13,7 @@ import {
   scriptedFetch,
   type Reply,
 } from './__test-helpers__/router-harness'
-import { createRouter, type RouterEvent } from './router'
+import { createRouter, createRouterExtractionAdapter, type RouterEvent } from './router'
 
 const byHost = (sent: { host: string }[]) => sent.map((s) => s.host)
 const ofType = <K extends RouterEvent['type']>(events: RouterEvent[], type: K) =>
@@ -140,6 +140,20 @@ describe('router: answers and the floor', () => {
       }),
     ).run(REQ)
     expect(f.sent[0]!.model).toBe('openai/gpt-oss-20b')
+  })
+})
+
+describe('router: the ExtractionPort adapter', () => {
+  it('passes a router result through unchanged', async () => {
+    const f = scriptedFetch(() => GOOD)
+    const port = createRouterExtractionAdapter(config([LOCAL]), deps(f.fetchImpl))
+    expect(await port.extract(REQ)).toEqual({
+      ok: true,
+      data: { title: 'Engineer' },
+      usage: { totalTokens: 10 },
+    })
+    const refused = createRouterExtractionAdapter(config([]), deps(f.fetchImpl))
+    expect(await refused.extract(REQ)).toEqual({ ok: false, code: 'NOT_CONFIGURED' })
   })
 })
 

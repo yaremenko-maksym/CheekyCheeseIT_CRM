@@ -141,6 +141,7 @@ describe('router privacy (AC5, ADR §3.3, §4 item 2)', () => {
       'servedModel',
       'code',
       'inputChars',
+      'status',
       'latencyMs',
       'totalTokens',
       'plan',

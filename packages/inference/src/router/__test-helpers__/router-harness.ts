@@ -2,7 +2,13 @@ import { z } from 'zod'
 import type { FetchLike } from '../../http/bounded-request'
 import type { RouterConfigInput } from '../config'
 import type { RouterDeps, RouterEvent } from '../router'
-import { createMemoryRouteStatePort, type OwnCapPort, type RouteStatePort } from '../state'
+import {
+  createMemoryRouteStatePort,
+  type FreeLimit,
+  type OwnCapPort,
+  type OwnCapUnit,
+  type RouteStatePort,
+} from '../state'
 
 /** Seeded markers: none may ever appear in an event, a result or an error (AC5). */
 export const KEY_MARKER = 'sk-KEY-MARKER-91c2'
@@ -135,16 +141,21 @@ export function scriptedFetch(script: (s: Sent, n: number) => Reply) {
 }
 
 /** An `OwnCapPort` that grants everything and counts reservations and releases per provider. */
-export function countingCap(
-  grant = true,
-): OwnCapPort & { reserved: string[]; released: string[]; tokens: number } {
+export function countingCap(grant = true): OwnCapPort & {
+  reserved: string[]
+  released: string[]
+  limits: FreeLimit[]
+  tokens: number
+} {
   const cap = {
     reserved: [] as string[],
     released: [] as string[],
+    limits: [] as FreeLimit[],
     tokens: 0,
-    async reserve(p: string) {
+    async reserve(p: string, limit: FreeLimit): Promise<OwnCapUnit | null> {
       cap.reserved.push(p)
-      return grant
+      cap.limits.push(limit)
+      return grant ? { day: 'test-day' } : null
     },
     async release(p: string) {
       cap.released.push(p)

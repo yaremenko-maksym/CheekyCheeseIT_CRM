@@ -130,9 +130,9 @@ describe('router cascade: per-code actions (§5.1)', () => {
     const fs = fakeFs()
     const path = '/data/route-state.json'
     const f = scriptedFetch((s) => (s.model === 'openai/gpt-oss-120b' ? notFound(s.model) : GOOD))
-    const first = await createFileRouteStatePort({ path, fs, now: at(NOON) })
+    const first = await createFileRouteStatePort({ path, fs, now: at(NOON), onEvent: () => {} })
     await createRouter(config([GROQ, LOCAL]), deps(f.fetchImpl, { routeState: first })).run(REQ)
-    const reloaded = await createFileRouteStatePort({ path, fs, now: at(NOON) })
+    const reloaded = await createFileRouteStatePort({ path, fs, now: at(NOON), onEvent: () => {} })
     const f2 = scriptedFetch(() => GOOD)
     await createRouter(config([GROQ, LOCAL]), deps(f2.fetchImpl, { routeState: reloaded })).run(REQ)
     expect(f2.sent.map((s) => s.model)).toEqual(['openai/gpt-oss-20b'])
@@ -450,16 +450,20 @@ describe('router cascade: own-cap units (§5.1 unit table)', () => {
     expect(cap.tokens).toBe(10)
   })
 
-  it('with the real OwnCapPort the cap holds at 50 % of the free limit across calls', async () => {
+  it('every reservation carries the route config free limit', async () => {
+    const cap = countingCap()
+    const f = scriptedFetch((_s, n) => (n === 1 ? answer('nope') : GOOD))
+    const tokens = { ...GEMINI, freeLimit: { requestsPerDay: 1000, tokensPerDay: 250_000 } }
+    await createRouter(config([tokens, LOCAL]), deps(f.fetchImpl, { ownCap: cap })).run(REQ)
+    expect(cap.limits).toEqual([tokens.freeLimit, tokens.freeLimit])
+  })
+
+  it('the cap is 50 % of the config free limit, the only limit source (CR-M-2)', async () => {
     const routeState = createMemoryRouteStatePort()
-    const ownCap = createOwnCapPort({
-      state: routeState,
-      limits: { groq: { requestsPerDay: 4 } },
-      now: at(NOON),
-    })
+    const ownCap = createOwnCapPort({ state: routeState, now: at(NOON) })
     const f = scriptedFetch(() => GOOD)
     const router = createRouter(
-      config([GROQ, LOCAL]),
+      config([{ ...GROQ, freeLimit: { requestsPerDay: 4 } }, LOCAL]),
       deps(f.fetchImpl, { routeState, ownCap, now: at(NOON) }),
     )
     for (let i = 0; i < 4; i++) await router.run(REQ)
@@ -469,6 +473,33 @@ describe('router cascade: own-cap units (§5.1 unit table)', () => {
 })
 
 describe('router cascade: budget, gap and PROMPT_TOO_LARGE', () => {
+  it('two overlapping calls claim separate gap slots before sending (CR-M-3)', async () => {
+    const f = scriptedFetch((): Reply => ({ ...(GOOD as Exclude<Reply, string>), delayMs: 10 }))
+    const d = deps(f.fetchImpl, { now: at(NOON) })
+    const router = createRouter(config([{ ...GROQ, minGapMs: 3000 }, LOCAL]), d)
+    await Promise.all([router.run(REQ), router.run(REQ)])
+    expect(d.sleeps).toEqual([3000])
+    expect(f.sent.filter((s) => s.host === hostOf.groq)).toHaveLength(2)
+  })
+
+  it('a gap slot at or past the hosted deadline is BUDGET and gives the unit back', async () => {
+    const cap = countingCap()
+    const f = scriptedFetch(() => GOOD)
+    const d = deps(f.fetchImpl, { now: at(NOON), ownCap: cap })
+    const router = createRouter(
+      config([{ ...GROQ, minGapMs: 5000 }, LOCAL], { hostedBudgetMs: 5000 }),
+      d,
+    )
+    await router.run(REQ)
+    await router.run(REQ)
+    expect(cap.reserved).toEqual(['groq', 'groq'])
+    expect(cap.released).toEqual(['groq'])
+    expect(ofType(d.events, 'FELL_TO_LOCAL')[0]?.reasons).toEqual([
+      { route: 'groq', code: 'BUDGET' },
+    ])
+    expect(d.sleeps).toEqual([])
+  })
+
   it('the minimum gap is waited out between two requests to one provider', async () => {
     const f = scriptedFetch(() => GOOD)
     const d = deps(f.fetchImpl, { now: at(NOON) })
@@ -590,6 +621,7 @@ describe('router events: exact payloads', () => {
         code: 'OK',
         inputChars: REQ.input.length,
         latencyMs: 100,
+        status: 200,
         totalTokens: 10,
       },
       { type: 'CALL', code: 'OK', floorAnswered: false, latencyMs: 100 },
@@ -612,6 +644,20 @@ describe('router events: exact payloads', () => {
     expect(Object.keys(ofType(d.events, 'ATTEMPT')[0]!)).not.toContain('totalTokens')
   })
 
+  it('a refusal carries its HTTP status and no tokens; a lost connection carries neither (SPEC-M-2)', async () => {
+    const f = scriptedFetch((s, n) =>
+      n === 1 ? { status: 401, body: '{}' } : s.host === hostOf.local ? 'network' : GOOD,
+    )
+    const d = deps(f.fetchImpl, { now: at(NOON) })
+    await createRouter(config([GROQ, LOCAL]), d).run(REQ)
+    const attempts = ofType(d.events, 'ATTEMPT')
+    expect(attempts.map((e) => [e.route, e.code, e.status, e.totalTokens])).toEqual([
+      ['groq', 'AUTH', 401, undefined],
+      ['local', 'TRANSPORT', undefined, undefined],
+    ])
+    expect(Object.keys(attempts[1]!)).not.toContain('status')
+  })
+
   it('a floor answer and a floor failure are reported as such, with the local route', async () => {
     const ok = scriptedFetch(() => GOOD)
     const d1 = deps(ok.fetchImpl, { now: at(NOON) })
@@ -624,6 +670,7 @@ describe('router events: exact payloads', () => {
         code: 'OK',
         inputChars: REQ.input.length,
         latencyMs: 0,
+        status: 200,
         totalTokens: 10,
       },
     ])

@@ -12,7 +12,13 @@ import {
   scriptedFetch,
   type Reply,
 } from './__test-helpers__/router-harness'
-import { createRouter, type RouterEvent } from './router'
+import {
+  createRouter,
+  createRouterExtractionAdapter,
+  pendingLocalQueues,
+  type RouterEvent,
+} from './router'
+import { createOwnCapPort, EMPTY_ROUTE_STATE, type RouteStatePort } from './state'
 
 /** Real timers and the real abortable sleep: these specs measure wall time in tens of milliseconds. */
 const realSleep = { sleep: undefined }
@@ -38,7 +44,7 @@ describe('router stopping (§5.5): abort', () => {
     ])
   })
 
-  it('an abort cancels a hosted request in flight, sends nothing more and spends no cap', async () => {
+  it('an abort cancels a hosted request in flight, sends nothing more and keeps its unit spent (CR-M-1)', async () => {
     const cap = countingCap()
     const f = scriptedFetch(() => 'hang')
     const d = deps(f.fetchImpl, { ...realSleep, ownCap: cap })
@@ -47,7 +53,7 @@ describe('router stopping (§5.5): abort', () => {
     await wait(50)
     expect(f.sent.map((s) => s.host)).toEqual([hostOf.groq])
     expect(cap.reserved).toEqual(['groq'])
-    expect(cap.released).toEqual(['groq'])
+    expect(cap.released).toEqual([])
     expect(ofType(d.events, 'ATTEMPT').map((e) => e.code)).toEqual(['ABORTED'])
   })
 
@@ -80,7 +86,7 @@ describe('router stopping (§5.5): abort', () => {
     const cap = countingCap()
     cap.reserve = async () => {
       c.abort()
-      return false
+      return null
     }
     const f = scriptedFetch(() => GOOD)
     const d = deps(f.fetchImpl, { ...realSleep, ownCap: cap })
@@ -122,6 +128,46 @@ describe('router stopping (§5.5): abort', () => {
     expect(r).toEqual({ ok: false, code: 'ABORTED' })
     await wait(50)
     expect(f.sent).toHaveLength(1)
+  })
+})
+
+/** A state store that applies every change to memory and never finishes writing it. */
+function stuckStore(): RouteStatePort {
+  let s = EMPTY_ROUTE_STATE
+  return {
+    snapshot: () => s,
+    update: (change) => {
+      s = change(s)
+      return new Promise<boolean>(() => undefined)
+    },
+  }
+}
+
+describe('router stopping (§5.5): store writes inside the hosted budget (SR-L-70)', () => {
+  it('a reservation stuck in the store ends the route as BUDGET within the hosted budget', async () => {
+    const routeState = stuckStore()
+    const ownCap = createOwnCapPort({ state: routeState, now: Date.now })
+    const f = scriptedFetch(() => GOOD)
+    const d = deps(f.fetchImpl, { ...realSleep, routeState, ownCap })
+    const started = Date.now()
+    const r = await createRouter(config([GROQ, LOCAL], { hostedBudgetMs: 100 }), d).run(REQ)
+    expect(r).toMatchObject({ ok: true })
+    expect(Date.now() - started).toBeLessThan(1_000)
+    expect(f.sent.map((s) => s.host)).toEqual([hostOf.local])
+    expect(ofType(d.events, 'FELL_TO_LOCAL')[0]?.reasons).toEqual([
+      { route: 'groq', code: 'BUDGET' },
+    ])
+  })
+
+  it('a ledger write stuck in the store does not hold the call past the hosted budget', async () => {
+    const routeState = stuckStore()
+    const f = scriptedFetch((s) => (s.host === hostOf.local ? GOOD : { status: 401, body: '{}' }))
+    const d = deps(f.fetchImpl, { ...realSleep, routeState })
+    const started = Date.now()
+    const r = await createRouter(config([GROQ, LOCAL], { hostedBudgetMs: 100 }), d).run(REQ)
+    expect(r).toMatchObject({ ok: true })
+    expect(Date.now() - started).toBeLessThan(1_000)
+    expect(routeState.snapshot().providers).toEqual([{ provider: 'groq', auth: true }])
   })
 })
 
@@ -176,13 +222,6 @@ describe('router stopping (§5.5): budgets and the ceiling', () => {
     expect(cap.reserved).toEqual(['groq'])
     expect(cap.released).toEqual([])
   })
-
-  it('the adapter maps an abort it can never receive to TIMEOUT and passes results through', async () => {
-    const { createRouterExtractionAdapter } = await import('./router')
-    const f = scriptedFetch(() => GOOD)
-    const port = createRouterExtractionAdapter(config([LOCAL]), deps(f.fetchImpl, realSleep))
-    expect(await port.extract(REQ)).toMatchObject({ ok: true, data: { title: 'Engineer' } })
-  })
 })
 
 describe('router stopping (§5.5 item 5): one local request in flight', () => {
@@ -193,6 +232,26 @@ describe('router stopping (§5.5 item 5): one local request in flight', () => {
     expect(results.every((r) => r.ok)).toBe(true)
     expect(f.stats.peakLocalInFlight).toBe(1)
     expect(f.sent).toHaveLength(3)
+  })
+
+  it('two routers on one runtime share the queue; the queue empties after (SR-L-70)', async () => {
+    const f = scriptedFetch((): Reply => ({ ...(GOOD as Exclude<Reply, string>), delayMs: 30 }))
+    const a = createRouterExtractionAdapter(config([LOCAL]), deps(f.fetchImpl, realSleep))
+    const b = createRouterExtractionAdapter(config([LOCAL]), deps(f.fetchImpl, realSleep))
+    const results = await Promise.all([a.extract(REQ), b.extract(REQ), a.extract(REQ)])
+    expect(results.every((r) => r.ok)).toBe(true)
+    expect(f.stats.peakLocalInFlight).toBe(1)
+    await wait(0)
+    expect(pendingLocalQueues()).toBe(0)
+  })
+
+  it('routers on two runtimes do not queue behind each other', async () => {
+    const f = scriptedFetch((): Reply => ({ ...(GOOD as Exclude<Reply, string>), delayMs: 30 }))
+    const other = { ...LOCAL, baseUrl: 'http://127.0.0.1:11434/v1' }
+    const a = createRouter(config([LOCAL]), deps(f.fetchImpl, realSleep))
+    const b = createRouter(config([other]), deps(f.fetchImpl, realSleep))
+    await Promise.all([a.run(REQ), b.run(REQ)])
+    expect(f.stats.peakInFlight).toBe(2)
   })
 
   it('an abandoned call still holds the local leaf until its request settles', async () => {

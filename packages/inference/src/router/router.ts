@@ -4,9 +4,9 @@ import type { InferenceErrorCode } from '../contracts/errors'
 import type { ExtractionPort, ExtractionRequest, ExtractionResult } from '../contracts/extraction'
 import type { FetchLike } from '../http/bounded-request'
 import {
-  sendClassifiedChatCompletion,
+  sendClassifiedChat,
   type ClassifiedChatCode,
-  type ClassifiedChatResult,
+  type ClassifiedChatOutcome,
   type StructuredOutput,
 } from '../internal/classified-chat'
 import { runExtraction } from '../internal/extraction-pipeline'
@@ -33,6 +33,7 @@ import {
   providerDay,
   providerRecord,
   type OwnCapPort,
+  type OwnCapUnit,
   type RouteStatePort,
 } from './state'
 
@@ -57,6 +58,9 @@ export type RouterEvent =
       code: AttemptCode
       inputChars: number
       latencyMs: number
+      /** The HTTP status, when a response arrived (§6.2). */
+      status?: number
+      /** The provider's own token count, the only cost the free tiers report (§6.2). */
       totalTokens?: number
     }
   | { type: 'RETIRED'; route: HostedProvider; model: string; servedModel?: string }
@@ -101,13 +105,42 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
   )
 }
 
-type Step = { ok: true; text: string } | { ok: false; code: AttemptCode }
-type Leaf = Extract<ClassifiedChatResult, { ok: false }>
+type Step = { ok: true; text: string } | { ok: false; code: AttemptCode; retryAfterMs?: number }
 
-/** Codes after which the request's own-cap unit is given back (§5.1 unit table). */
-function releasesUnit(r: Leaf): boolean {
+/**
+ * Whether the request's own-cap unit is given back (§5.1 unit table). An abort gives it back only
+ * when nothing was sent: one cancelled in flight is a `TIMEOUT` to the provider, which may have
+ * counted it, and `TIMEOUT` is committed.
+ */
+function releasesUnit({ result: r, sent }: ClassifiedChatOutcome): boolean {
+  if (r.ok) return false
   if (r.code === 'TRANSPORT') return !r.responded
-  return r.code === 'AUTH' || r.code === 'CREDIT' || r.code === 'RETIRED' || r.code === 'ABORTED'
+  if (r.code === 'ABORTED') return !sent
+  return r.code === 'AUTH' || r.code === 'CREDIT' || r.code === 'RETIRED'
+}
+
+/**
+ * One local request in flight per runtime across every router in the process (§5.5 item 5): two
+ * adapters, or a later preflight going through a router, queue behind each other.
+ */
+const localTails = new Map<string, Promise<void>>()
+
+/** The number of runtimes with queued local work; empty once every request settled (tests). */
+export function pendingLocalQueues(): number {
+  return localTails.size
+}
+
+function serialLocal<R>(runtime: string, fn: () => Promise<R>): Promise<R> {
+  const run = (localTails.get(runtime) ?? Promise.resolve()).then(fn)
+  const tail = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  localTails.set(runtime, tail)
+  void tail.then(() => {
+    if (localTails.get(runtime) === tail) localTails.delete(runtime)
+  })
+  return run
 }
 
 /** Leaving a route: these codes concern the provider or this input, not one model (§5.1). */
@@ -170,7 +203,7 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
   const nextFreeAt = new Map<HostedProvider, number>()
   const coolUntil = new Map<string, { until: number; day: string }>()
   const announced = new Set<string>()
-  let localTail: Promise<unknown> = Promise.resolve()
+  const runtime = new URL(local.baseUrl).origin
 
   const coolKey = (p: HostedProvider, model: string): string => `${p}\u0000${model}`
   const coolingDown = (p: HostedProvider, model: string): boolean => {
@@ -178,17 +211,14 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     // A cool-down never outlives the provider's reset (§5.1 durations).
     return c !== undefined && c.day === providerDay(p, now()) && now() < c.until
   }
+  const coolDown = (p: HostedProvider, model: string, ms: number): void => {
+    for (const [key, c] of coolUntil) if (now() >= c.until) coolUntil.delete(key) // SR-L-70
+    coolUntil.set(coolKey(p, model), { until: now() + ms, day: providerDay(p, now()) })
+  }
   const disable = (p: HostedProvider, code: 'AUTH' | 'CREDIT'): void => {
     if (announced.has(`${p}:${code}`)) return
     announced.add(`${p}:${code}`)
     emit({ type: 'PROVIDER_DISABLED', route: p, code })
-  }
-
-  /** One local request at a time, abandoned calls included (§5.5 item 5). */
-  function serialLocal<R>(fn: () => Promise<R>): Promise<R> {
-    const run = localTail.then(fn)
-    localTail = run.catch(() => undefined)
-    return run
   }
 
   async function run<T>(req: ExtractionRequest<T>, signal?: AbortSignal): Promise<RouterResult<T>> {
@@ -231,8 +261,9 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       model: string,
       code: AttemptCode,
       t0: number,
-      tokens?: number,
-    ): void =>
+      outcome?: ClassifiedChatOutcome,
+    ): void => {
+      const tokens = outcome?.result.ok === true ? outcome.result.totalTokens : undefined
       emit({
         type: 'ATTEMPT',
         route,
@@ -240,38 +271,60 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
         code,
         inputChars,
         latencyMs: now() - t0,
+        ...(outcome?.status !== undefined && { status: outcome.status }),
         ...(tokens !== undefined && { totalTokens: tokens }),
       })
+    }
 
-    /** Applies the persisted and in-memory effects of one hosted answer (§5.1 router action and ledger). */
-    async function settle(
+    /**
+     * Waits for port writes no longer than the hosted budget (SR-L-70). Every port applies its change
+     * to memory before it writes, so a slow store delays nothing but its own durability.
+     */
+    async function withinBudget<R>(work: Promise<R>): Promise<R | undefined> {
+      const stop = new AbortController()
+      const timer = wait(Math.max(0, hostedDeadline - now()), undefined, {
+        signal: stop.signal,
+      }).then(
+        () => undefined,
+        () => undefined,
+      )
+      try {
+        return await Promise.race([work, timer])
+      } finally {
+        stop.abort()
+      }
+    }
+
+    /**
+     * Applies the persisted and in-memory effects of one hosted answer (§5.1 router action and
+     * ledger). Every change is started at once, so each reaches memory before any write is awaited.
+     */
+    function settle(
       route: HostedRouteConfig,
       model: string,
-      r: ClassifiedChatResult,
-    ): Promise<void> {
+      outcome: ClassifiedChatOutcome,
+      unit: OwnCapUnit,
+    ): Promise<unknown> {
       const p = route.provider
-      if (r.ok) {
-        if (r.totalTokens !== undefined) await ownCap.addTokens(p, r.totalTokens)
-        if (r.code === 'RETIRED') {
-          await state.update(markRetired(p, model, now()))
-          emit({ type: 'RETIRED', route: p, model, servedModel: r.servedModel })
-        }
-        return
-      }
-      if (releasesUnit(r)) await ownCap.release(p)
-      if (r.code === 'SPENT_DAY') await state.update(markSpent(p, model, providerDay(p, now())))
+      const r = outcome.result
+      const writes: Promise<unknown>[] = []
+      if (r.ok && r.totalTokens !== undefined) writes.push(ownCap.addTokens(p, r.totalTokens))
+      if (releasesUnit(outcome)) writes.push(ownCap.release(p, unit))
+      if (r.code === 'SPENT_DAY')
+        writes.push(state.update(markSpent(p, model, providerDay(p, now()))))
       if (r.code === 'RETIRED') {
-        await state.update(markRetired(p, model, now()))
-        emit({ type: 'RETIRED', route: p, model })
+        writes.push(state.update(markRetired(p, model, now())))
+        emit({ type: 'RETIRED', route: p, model, ...(r.ok && { servedModel: r.servedModel }) })
       }
       if (r.code === 'AUTH') {
-        await state.update(markAuth(p))
+        writes.push(state.update(markAuth(p)))
         disable(p, 'AUTH')
       }
       if (r.code === 'CREDIT') {
-        await state.update(markCredit(p, providerDay(p, now())))
+        writes.push(state.update(markCredit(p, providerDay(p, now()))))
         disable(p, 'CREDIT')
       }
+      return Promise.all(writes)
     }
 
     /** One hosted HTTP request (§5.2 item 4): budget, own-cap unit, minimum gap, send, classify. */
@@ -282,19 +335,21 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     ): Promise<Step> {
       const p = route.provider
       if (now() >= hostedDeadline) return { ok: false, code: 'BUDGET' }
-      if (!(await ownCap.reserve(p))) return { ok: false, code: 'CAP' }
-      const gap = (nextFreeAt.get(p) ?? 0) - now()
-      if (gap > 0) {
-        if (now() + gap >= hostedDeadline) {
-          await ownCap.release(p)
-          return { ok: false, code: 'BUDGET' }
-        }
-        await sleep(gap, signal)
+      const unit = await withinBudget(ownCap.reserve(p, route.freeLimit))
+      if (unit === undefined) return { ok: false, code: 'BUDGET' } // a store slower than the budget
+      if (unit === null) return { ok: false, code: 'CAP' }
+      // The gap slot is claimed before any wait, so overlapping calls are spaced too (CR-M-3).
+      const slot = Math.max(now(), nextFreeAt.get(p) ?? 0)
+      if (slot >= hostedDeadline) {
+        await withinBudget(ownCap.release(p, unit))
+        return { ok: false, code: 'BUDGET' }
       }
-      // An aborted signal never reaches the network: `boundedRequest` refuses it before fetching,
-      // the leaf answers ABORTED and `settle` gives the unit back.
+      nextFreeAt.set(p, slot + route.minGapMs)
+      if (slot > now()) await sleep(slot - now(), signal)
+      // An aborted signal never reaches the network: the leaf refuses it before fetching and reports
+      // it as not sent, so `settle` gives the unit back.
       const t0 = now()
-      const r = await sendClassifiedChatCompletion({
+      const outcome = await sendClassifiedChat({
         provider: p,
         baseUrl: HOSTED_BASE_URLS[p],
         model,
@@ -308,9 +363,9 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
         signal,
         fetchImpl: deps.fetchImpl,
       })
-      nextFreeAt.set(p, now() + route.minGapMs)
-      await settle(route, model, r)
-      attempted(p, model, r.code, t0, r.ok ? r.totalTokens : undefined)
+      await withinBudget(settle(route, model, outcome, unit))
+      const r = outcome.result
+      attempted(p, model, r.code, t0, outcome)
       if (!r.ok) return r
       addTokens(r.totalTokens)
       return { ok: true, text: r.text }
@@ -327,14 +382,13 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
         for (;;) {
           const r = await sendHosted(route, model, correction)
           if (r.ok || r.code !== 'BUSY') return r
-          const leaf = r as Step & { retryAfterMs?: number }
-          const pause = leaf.retryAfterMs ?? BUSY_BACKOFF_MS
+          const pause = r.retryAfterMs ?? BUSY_BACKOFF_MS
           if (!waited && pause <= BUSY_BACKOFF_MS && now() + pause < hostedDeadline) {
             waited = true
             await sleep(pause, signal)
             continue
           }
-          coolUntil.set(coolKey(p, model), { until: now() + pause, day: providerDay(p, now()) })
+          coolDown(p, model, pause)
           return r
         }
       }
@@ -401,11 +455,11 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
           return { ok: false, code: 'PROMPT_TOO_LARGE' }
         }
         // An abort while queued is refused by `boundedRequest` before any fetch, as on hosted routes.
-        return serialLocal(async (): Promise<Step> => {
+        return serialLocal(runtime, async (): Promise<Step> => {
           const remaining = floorDeadline - now()
           if (remaining <= 0) return { ok: false, code: 'TIMEOUT' }
           const t0 = now()
-          const r = await sendClassifiedChatCompletion({
+          const outcome = await sendClassifiedChat({
             provider: 'local',
             baseUrl: local.baseUrl,
             model: local.model,
@@ -419,7 +473,8 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
             signal,
             fetchImpl: deps.fetchImpl,
           })
-          attempted('local', local.model, r.code, t0, r.ok ? r.totalTokens : undefined)
+          const r = outcome.result
+          attempted('local', local.model, r.code, t0, outcome)
           if (!r.ok) return r
           addTokens(r.totalTokens)
           return { ok: true, text: r.text }
