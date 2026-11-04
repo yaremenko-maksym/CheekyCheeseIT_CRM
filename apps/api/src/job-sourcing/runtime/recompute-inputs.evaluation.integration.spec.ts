@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { JobExclusionDto } from '@crm/shared'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
@@ -144,6 +145,36 @@ describe.skipIf(!hasDatabaseUrl())('installMatches: the evaluation record (SR-M-
       [o],
     )
     expect(rows).toEqual([{ senior_id: senior, opportunity_revision: 5, outcome: 'EXCLUDED' }])
+  })
+
+  it('SR-M-1: the record carries the inputs version of its roster; a stale install leaves it', async () => {
+    const o = await opportunity('inputs', 5)
+    const studioPhp: JobExclusionDto = {
+      id: 'x1',
+      scope: 'GLOBAL',
+      seniorId: null,
+      kind: 'KEYWORD',
+      value: 'php',
+      normalizedValue: 'php',
+      origin: 'MANUAL',
+      sourceLabel: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    }
+    const inputs = async () => {
+      const { rows } = await session.admin.query(
+        `SELECT evaluated_inputs_version FROM job_opportunities WHERE id = $1`,
+        [o],
+      )
+      return rows[0]?.evaluated_inputs_version as string | null
+    }
+    await installMatches(db, o, 5, open, empty)
+    // opportunityInputsVersion of no studio keyword at MATCH_RULE_VERSION 'eval.1+l1.1'.
+    expect(await inputs()).toBe('d17b306752496d748fc03a559dc4b784')
+    await installMatches(db, o, 4, open, { ...empty, exclusions: [studioPhp] })
+    expect(await inputs()).toBe('d17b306752496d748fc03a559dc4b784')
+    await installMatches(db, o, 5, open, { ...empty, exclusions: [studioPhp] })
+    // ...and of the keyword 'php'.
+    expect(await inputs()).toBe('3c8e35dd4ec830658915a6ef7b6bb6c0')
   })
 
   it('a stale install onto a NULL record records nothing (SPEC-L-1)', async () => {

@@ -247,7 +247,7 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
       // A plain DONE row exists, the rows are fresh: without the EVAL lineage nothing would run.
       await session.admin.query(
-        `UPDATE job_opportunities SET evaluated_revision = NULL, evaluation_verdict = NULL WHERE id = $1`,
+        `UPDATE job_opportunities SET evaluated_revision = NULL, evaluation_verdict = NULL, evaluated_inputs_version = NULL WHERE id = $1`,
         [o],
       )
       expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
@@ -265,7 +265,8 @@ describe.skipIf(!hasDatabaseUrl())(
       const set = (availability: string) =>
         session.admin.query(
           `UPDATE job_opportunities
-              SET availability = $2, evaluated_revision = NULL, evaluation_verdict = NULL
+              SET availability = $2, evaluated_revision = NULL, evaluation_verdict = NULL,
+                  evaluated_inputs_version = NULL
             WHERE id = $1`,
           [o, availability],
         )
@@ -279,6 +280,36 @@ describe.skipIf(!hasDatabaseUrl())(
       await set('UNKNOWN')
       expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 0, skipped: 1 })
       await runMine() // leaves nothing pending for the next case
+    }, 60_000)
+
+    it('SR-M-2 / SR-L-1: a studio keyword change re-enqueues a converged zero-row opportunity under a new EVAL lineage', async () => {
+      const o = await opportunity('inputs-change', true)
+      await sweep(o)
+      await runMine()
+      // Converged: the plain lineage is DONE and the record is at the live inputs version.
+      expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 0, skipped: 1 })
+      const recorded = async () => {
+        const { rows } = await session.admin.query(
+          `SELECT evaluated_inputs_version FROM job_opportunities WHERE id = $1`,
+          [o],
+        )
+        return rows[0]?.evaluated_inputs_version as string
+      }
+      const before = await recorded()
+      const { rows } = await session.admin.query(
+        `INSERT INTO job_exclusion_filters (senior_id, kind, value, normalized_value)
+         VALUES (NULL, 'KEYWORD', $1, $1) RETURNING id`,
+        [`${PREFIX}-kw-${TAG}`],
+      )
+      try {
+        expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
+        expect((await dirtyOf(o)).at(-1)?.reason).toMatch(/^RECONCILE:EVAL:[0-9a-f]{16}:/)
+        await runMine()
+        expect(await recorded()).not.toBe(before)
+        expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 0, skipped: 1 })
+      } finally {
+        await session.admin.query(`DELETE FROM job_exclusion_filters WHERE id = $1`, [rows[0].id])
+      }
     }, 60_000)
 
     it('SR-M-2: a real recompute of a closed posting records EXCLUDED with its rows, in one transaction', async () => {
