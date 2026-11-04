@@ -4,7 +4,10 @@ import { AuthModule } from '../auth/auth.module'
 import type { Env } from '../config/env'
 import { DatabaseModule } from '../database/database.module'
 import { DatabaseService } from '../database/database.service'
-import { JobSourceAdminController } from './admin/job-source-admin.controller'
+import {
+  JobSourceAdminController,
+  JobSourceSwitchController,
+} from './admin/job-source-admin.controller'
 import { JobSourceAdminService } from './admin/job-source-admin.service'
 import { DouRssProvider } from './dou.provider'
 import { JobAvailabilityReconciliationCronService } from './job-availability-reconciliation.cron'
@@ -56,7 +59,7 @@ import { JobRunLedger } from './ownership/job-run-ledger'
  */
 @Module({
   imports: [DatabaseModule, AuthModule, NotificationsModule],
-  controllers: [JobSourcingController, JobSourceAdminController],
+  controllers: [JobSourcingController, JobSourceAdminController, JobSourceSwitchController],
   providers: [
     JobSourcingService,
     JobSourceAdminService,

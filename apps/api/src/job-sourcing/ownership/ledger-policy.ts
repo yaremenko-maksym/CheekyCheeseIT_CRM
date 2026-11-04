@@ -79,6 +79,29 @@ export function claimGate(input: GateInput): ClaimRefusal | null {
   return null
 }
 
+/** r5 Task 6.5: why an ADMIN `enabled = true` is refused. */
+export type EnableRefusal = 'NOT_READY' | 'AUTH_PAUSED'
+
+/** A1k: the `last_error_code` of a provider's access refusal (auth / entitlement / policy). */
+export const AUTH_PAUSE_CODE = 'ACCESS_POLICY'
+
+/**
+ * r5 Task 6.5: switching a source on never grants readiness and never clears an access refusal
+ * (A1k: the provider refused us, which a retry cannot fix). The stored readiness and the claim
+ * gate (`claimGate`, manual) must both pass; `ACCESS_POLICY` stays until an ADMIN
+ * `resetFailures`, the explicit audited action. Ordinary failures are left to backoff/cooldown.
+ */
+export function enableRefusal(input: {
+  readonly storedReadiness: string
+  readonly gate: ClaimRefusal | null
+  /** The raw `last_error_code` cell; only an exact `ACCESS_POLICY` pauses. */
+  readonly lastErrorCode: unknown
+}): EnableRefusal | null {
+  if (input.storedReadiness === 'BLOCKED' || input.gate !== null) return 'NOT_READY'
+  if (input.lastErrorCode === AUTH_PAUSE_CODE) return 'AUTH_PAUSED'
+  return null
+}
+
 export { MAX_SLOWDOWN_LEVEL }
 
 /** The endings that slow a source down (ADR section 4): the provider is struggling, not refusing. */

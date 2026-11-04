@@ -21,7 +21,7 @@ import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ZodExceptionFilter } from '../../zod-exception.filter'
 import { JobSourceRegistry } from '../registry/job-source-registry'
 import { createProductionLedger } from '../runtime/production-worker'
-import { JobSourceAdminController } from './job-source-admin.controller'
+import { JobSourceAdminController, JobSourceSwitchController } from './job-source-admin.controller'
 import { JobSourceAdminService } from './job-source-admin.service'
 
 /**
@@ -67,7 +67,8 @@ class TestDatabaseModule {}
     TestDatabaseModule,
     JwtModule.register({ secret: JWT_SECRET, signOptions: { expiresIn: '1h' } }),
   ],
-  controllers: [JobSourceAdminController],
+  // r5 Task 6.5: the switch controller (`PATCH /job-sourcing/sources/:id`) behind the same chain.
+  controllers: [JobSourceAdminController, JobSourceSwitchController],
   providers: [
     Reflector,
     { provide: JobSourceRegistry, useValue: specRegistry(['REMOTIVE_API']) },
@@ -126,7 +127,7 @@ describe.skipIf(!hasDatabaseUrl())('T9 admin endpoints — real-controller RBAC'
   const signFor = (u: SessionUser) => jwt.sign({ id: u.id, email: u.email, role: u.role })
 
   const request = async (
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'PATCH',
     url: string,
     as: SessionUser,
     payload?: unknown,
@@ -437,6 +438,113 @@ describe.skipIf(!hasDatabaseUrl())('T9 admin endpoints — real-controller RBAC'
       const rows = await noteRows(capped)
       expect(rows).toHaveLength(2)
       expect(rows.map((r) => r.note).sort()).toEqual(['provider outage', 'second'])
+    })
+  })
+
+  // ---- r5 Task 6.5: PATCH /job-sourcing/sources/:id (the ADMIN source switch) --------------
+
+  describe('Task 6.5: the source switch through the real guard chain', () => {
+    let switchable: string
+    const switchUrl = (id: string) => `/api/job-sourcing/sources/${id}`
+    const switchRow = async () => {
+      const [row] = await dbSvcRef.db
+        .select({ enabled: jobSources.enabled, history: jobSources.adminStateHistory })
+        .from(jobSources)
+        .where(eq(jobSources.id, switchable))
+      return row
+    }
+
+    beforeAll(async () => {
+      const [row] = await dbSvcRef.db
+        .insert(jobSources)
+        .values({ type: 'REMOTIVE_API', config: { t65switch: randomUUID() }, enabled: true })
+        .returning({ id: jobSources.id })
+      switchable = row?.id ?? ''
+    })
+
+    afterAll(async () => {
+      if (switchable) await dbSvcRef.db.delete(jobSources).where(eq(jobSources.id, switchable))
+    })
+
+    for (const p of NON_ADMIN) {
+      it(`${p.role}: PATCH → 403 from the guard, and nothing is written`, async () => {
+        expect(await request('PATCH', switchUrl(switchable), p, { enabled: false })).toEqual({
+          status: 403,
+          code: GUARD_REFUSAL_CODE,
+        })
+        expect(await switchRow()).toEqual({ enabled: true, history: [] })
+      })
+
+      it(`${p.role}: the SERVICE BODY refuses too (not only the guard)`, async () => {
+        await expect(service.setEnabled(switchable, { enabled: false }, p)).rejects.toBeInstanceOf(
+          ForbiddenException,
+        )
+        expect(await switchRow()).toEqual({ enabled: true, history: [] })
+      })
+    }
+
+    it('without a session: PATCH → 401, nothing written', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: switchUrl(switchable),
+        payload: { enabled: false },
+      })
+      expect(res.statusCode).toBe(401)
+      expect(await switchRow()).toEqual({ enabled: true, history: [] })
+    })
+
+    it.each([
+      ['no body', undefined],
+      ['an empty object', {}],
+      ['a string boolean', { enabled: 'false' }],
+      ['an extra config key', { enabled: false, config: { url: 'https://evil.test' } }],
+      ['an extra quota key', { enabled: false, budgetUsed: 0 }],
+    ])('ADMIN, %s → 400, nothing written', async (_label, payload) => {
+      expect((await request('PATCH', switchUrl(switchable), ADMIN, payload)).status).toBe(400)
+      expect(await switchRow()).toEqual({ enabled: true, history: [] })
+    })
+
+    it('ADMIN, a malformed UUID → 400', async () => {
+      expect(
+        (await request('PATCH', switchUrl('not-a-uuid'), ADMIN, { enabled: false })).status,
+      ).toBe(400)
+    })
+
+    it('ADMIN, an unknown source → 404 JOB_SOURCE_NOT_FOUND', async () => {
+      expect(await request('PATCH', switchUrl(randomUUID()), ADMIN, { enabled: false })).toEqual({
+        status: 404,
+        code: 'JOB_SOURCE_NOT_FOUND',
+      })
+    })
+
+    it('ADMIN disable → 200, one DISABLED entry naming the ADMIN', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: switchUrl(switchable),
+        cookies: { jwt: signFor(ADMIN) },
+        payload: { enabled: false },
+      })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body)).toEqual({
+        id: switchable,
+        enabled: false,
+        changed: true,
+        cancelledRuns: 0,
+      })
+      const row = await switchRow()
+      expect(row?.enabled).toBe(false)
+      expect(row?.history).toEqual([expect.objectContaining({ kind: 'DISABLED', actor: ADMIN.id })])
+    })
+
+    it('ADMIN enable of a source the ledger cannot run → 409 JOB_SOURCE_NOT_READY, stays off', async () => {
+      // No manifest id: the production catalog holds no entry for it, so the claim gate refuses.
+      expect(await request('PATCH', switchUrl(switchable), ADMIN, { enabled: true })).toEqual({
+        status: 409,
+        code: 'JOB_SOURCE_NOT_READY',
+      })
+      const row = await switchRow()
+      expect(row?.enabled).toBe(false)
+      expect(row?.history).toHaveLength(1)
     })
   })
 })

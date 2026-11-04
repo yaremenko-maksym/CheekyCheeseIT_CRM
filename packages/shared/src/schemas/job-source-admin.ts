@@ -1,5 +1,9 @@
 import { z } from 'zod'
-import { jobCollectionOutcomeSchema, jobSourceTypeSchema } from './job-sourcing'
+import {
+  jobCollectionOutcomeSchema,
+  jobHealthStateSchema,
+  jobSourceTypeSchema,
+} from './job-sourcing'
 
 /**
  * ADMIN controls over the run ledger (r5 Task 2.5 T9; ADR
@@ -19,6 +23,23 @@ export const resetJobSourceFailuresSchema = z
     reason: z.string().trim().min(1).max(JOB_SOURCE_RESET_REASON_MAX),
   })
   .strict()
+
+/**
+ * r5 Task 6.5: body of `PATCH /job-sourcing/sources/:id`. The switch is the ONLY thing the
+ * endpoint changes: no config, endpoint, quota or readiness key is accepted (`.strict()`).
+ */
+export const setJobSourceEnabledSchema = z.object({ enabled: z.boolean() }).strict()
+
+/**
+ * The PATCH answer. `changed` is false when the source already had the requested value (no audit
+ * entry is written then); `cancelledRuns` counts the in-flight runs a disable ended and fenced.
+ */
+export const jobSourceSwitchResultSchema = z.object({
+  id: z.string().uuid(),
+  enabled: z.boolean(),
+  changed: z.boolean(),
+  cancelledRuns: z.number().int().nonnegative(),
+})
 
 /**
  * Why a source is listed; one source may carry several.
@@ -54,6 +75,8 @@ export const excludedJobSourceListSchema = z.object({
 })
 
 export type ResetJobSourceFailuresDto = z.infer<typeof resetJobSourceFailuresSchema>
+export type SetJobSourceEnabledDto = z.infer<typeof setJobSourceEnabledSchema>
+export type JobSourceSwitchResultDto = z.infer<typeof jobSourceSwitchResultSchema>
 export type JobSourceExclusionReason = z.infer<typeof jobSourceExclusionReasonSchema>
 export type ExcludedJobSourceDto = z.infer<typeof excludedJobSourceSchema>
 export type ExcludedJobSourceListDto = z.infer<typeof excludedJobSourceListSchema>
@@ -73,17 +96,9 @@ export type ExcludedJobSourceListDto = z.infer<typeof excludedJobSourceListSchem
 // the api controller spec.
 // ---------------------------------------------------------------------------
 
-/** The eight health states (ADR section 10). */
-export const jobHealthStateSchema = z.enum([
-  'BLOCKED',
-  'CAPPED',
-  'PAUSED',
-  'FAILING',
-  'EMPTY',
-  'DEGRADED',
-  'SILENT',
-  'HEALTHY',
-])
+// The eight health states (`jobHealthStateSchema`) moved to job-sourcing.ts in r5 Task 6.5, so
+// `jobSourceSchema` can carry the current state without a circular import; same export name
+// through the barrel.
 
 /** The eleven detector reasons (ADR section 10). */
 export const jobHealthReasonSchema = z.enum([
