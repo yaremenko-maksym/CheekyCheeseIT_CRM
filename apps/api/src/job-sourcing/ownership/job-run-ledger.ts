@@ -27,12 +27,15 @@ import { type SqlExecutor, claimHostSlot } from '../scheduling/host-state'
 import type { LedgerCatalog } from './ledger-catalog'
 import { type LegacyClaimInput, claimLegacy, isLegacyKind } from './legacy-run-claim'
 import {
+  AUTH_PAUSE_CODE,
   type ClaimRefusal,
+  type EnableRefusal,
   type LedgerOptions,
   type ManualRefusal,
   type RunEndOutcome,
   backoffMs,
   claimGate,
+  enableRefusal,
   endingEffect,
   isSweepable,
   manualTermRefusal,
@@ -135,6 +138,12 @@ export type ManualClaim =
   | { readonly kind: 'CLAIMED'; readonly run: ClaimedRun }
   | { readonly kind: 'REFUSED'; readonly reason: ManualRefusal }
 
+/** r5 Task 6.5: what `setEnabled` did. `changed: false` = the source already had the value. */
+export type SwitchOutcome =
+  | { readonly kind: 'NOT_FOUND' }
+  | { readonly kind: 'REFUSED'; readonly reason: EnableRefusal }
+  | { readonly kind: 'SWITCHED'; readonly changed: boolean; readonly cancelledRuns: number }
+
 export type CycleInput =
   | { readonly trigger: 'SCHEDULED'; readonly triggerKey: string }
   | { readonly trigger: 'MANUAL'; readonly triggerKey: string; readonly actor: string }
@@ -228,9 +237,10 @@ const HOST_IDLE =
 /**
  * The checkpoint "Crash resume" hands a new run: the latest run's (greatest epoch among those
  * `before` admits), if it has the same config version, did not succeed and did not end
- * `CURSOR_CYCLE` -- else `{}`. One expression for the claim and for `endRun`'s "a page was saved".
+ * `CURSOR_CYCLE` -- else `{}`. One expression for the claim and for `endRun`'s "a page was saved"
+ * (and, r5 Task 6.5, for the source list's `resumeCheckpoint` flag).
  */
-const inheritedCheckpoint = (sourceId: SQL, configVersion: SQL, before: SQL): SQL =>
+export const inheritedCheckpoint = (sourceId: SQL, configVersion: SQL, before: SQL): SQL =>
   sql`COALESCE((SELECT CASE WHEN l.config_version = ${configVersion} AND l.outcome <> 'SUCCEEDED'
                          AND l.error_code IS DISTINCT FROM 'CURSOR_CYCLE' THEN l.checkpoint END
               FROM job_collection_runs l WHERE l.source_id = ${sourceId} AND ${before}
@@ -1003,6 +1013,10 @@ export class JobRunLedger {
    * `RESET_FAILURES` entry appended to `admin_state_history` IN SQL (`|| jsonb_build_array(…)`),
    * never read-modify-write, so a concurrent admin-state toggle's append survives. RBAC is the
    * caller's (T9). False for an unknown source.
+   *
+   * r5 Task 6.5: the reset is also THE explicit audited action that resolves an access pause
+   * (A1k): an `ACCESS_POLICY` `last_error_code` is cleared, and the entry names it as
+   * `clearedErrorCode` (absent otherwise, so an ordinary reset's entry keeps its old shape).
    */
   async resetFailures(input: {
     readonly sourceId: string
@@ -1021,15 +1035,125 @@ export class JobRunLedger {
         tx.execute(
           sql`UPDATE job_sources
                  SET consecutive_failures = 0, cooldown_until = NULL, next_attempt_at = clock_timestamp(),
-                     admin_state_history = admin_state_history || jsonb_build_array(jsonb_build_object(
+                     last_error_code = CASE WHEN last_error_code = ${AUTH_PAUSE_CODE}::text THEN NULL
+                                            ELSE last_error_code END,
+                     admin_state_history = admin_state_history || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
                        'kind', 'RESET_FAILURES', 'actor', ${input.actor}::text, 'at', clock_timestamp(),
-                       'reason', ${reason}::text)),
+                       'reason', ${reason}::text,
+                       'clearedErrorCode', CASE WHEN last_error_code = ${AUTH_PAUSE_CODE}::text THEN last_error_code END))),
                      updated_at = clock_timestamp()
                WHERE id = ${input.sourceId}::uuid RETURNING 1 AS ok`,
         ),
       READ_COMMITTED,
     )
     return rows.length === 1
+  }
+
+  /**
+   * r5 Task 6.5: the ADMIN source switch, ONE transaction on the locked source row. The switch
+   * moves `enabled` and appends ONE `ENABLED` / `DISABLED` entry to `admin_state_history` in SQL
+   * (like `resetFailures`, never read-modify-write); a no-op (already that value) writes nothing.
+   *
+   *  - Enable never touches the quota, the failure counter, the cooldown, the due time, the
+   *    reasons or the readiness: it is refused `NOT_READY` unless the stored readiness and the
+   *    manual claim gate both pass (a LEGACY source has no gate), and `AUTH_PAUSED` while an
+   *    `ACCESS_POLICY` refusal stands (only `resetFailures` clears it).
+   *  - Disable ends every STARTED run of the source `CANCELLED` / `CANCELLED` (the shutdown
+   *    ending, NEUTRAL: no failure, no backoff), settling its reservations as `finish` does, so
+   *    the owner is fenced: its heartbeat, `assertOwned` and `finish` all see a run that is no
+   *    longer STARTED. Queued work cannot start: every claim path refuses a disabled source.
+   *    `job_sources`' scheduling columns are left alone, so a later enable resumes where it was.
+   *
+   * RBAC is the caller's (T9 service).
+   */
+  async setEnabled(input: {
+    readonly sourceId: string
+    readonly actor: string
+    readonly enabled: boolean
+  }): Promise<SwitchOutcome> {
+    if (!UUID.test(input.sourceId) || !UUID.test(input.actor)) {
+      throw new RangeError('setEnabled: invalid id')
+    }
+    if (typeof input.enabled !== 'boolean') throw new RangeError('setEnabled: enabled is a boolean')
+    return this.db.transaction(async (tx): Promise<SwitchOutcome> => {
+      const { rows } = await tx.execute(
+        sql`SELECT job_sources.type, job_sources.manifest_id, job_sources.enabled,
+                   job_sources.readiness::text AS readiness, job_sources.last_error_code,
+                   ${METER_KEY} AS meter_key, clock_timestamp() AS db_now
+              FROM job_sources WHERE job_sources.id = ${input.sourceId}::uuid FOR UPDATE OF job_sources`,
+      )
+      const row = rows[0]
+      if (row === undefined) return { kind: 'NOT_FOUND' }
+      if (row['enabled'] === input.enabled) {
+        return { kind: 'SWITCHED', changed: false, cancelledRuns: 0 }
+      }
+      if (input.enabled) {
+        const refusal = enableRefusal({
+          storedReadiness: String(row['readiness']),
+          gate: this.enableGate(row),
+          lastErrorCode: row['last_error_code'],
+        })
+        if (refusal !== null) return { kind: 'REFUSED', reason: refusal }
+      }
+      const kind = input.enabled ? 'ENABLED' : 'DISABLED'
+      await tx.execute(
+        sql`UPDATE job_sources
+               SET enabled = ${input.enabled},
+                   admin_state_history = admin_state_history || jsonb_build_array(jsonb_build_object(
+                     'kind', ${kind}::text, 'actor', ${input.actor}::text, 'at', clock_timestamp())),
+                   updated_at = clock_timestamp()
+             WHERE id = ${input.sourceId}::uuid`,
+      )
+      const cancelledRuns = input.enabled ? 0 : await this.cancelRunsOf(tx, input.sourceId)
+      return { kind: 'SWITCHED', changed: true, cancelledRuns }
+    }, READ_COMMITTED)
+  }
+
+  /** The manual claim gate on the locked row; null for a LEGACY source (it has no gate). */
+  private enableGate(row: Row): ClaimRefusal | null {
+    const adapter = this.registry.get(row['type'] as JobSourceType)
+    if (isLegacyKind(adapter)) return null
+    const manifestId = row['manifest_id']
+    const meterKey = row['meter_key']
+    const dbNow = instant(row['db_now'])
+    if (dbNow === null) throw new Error('setEnabled: the database clock was unreadable')
+    return claimGate({
+      adapter,
+      entry: typeof manifestId === 'string' ? this.catalog.entry(manifestId) : undefined,
+      dbNow,
+      meterKey: typeof meterKey === 'string' ? meterKey : null,
+      scheduled: false,
+    })
+  }
+
+  /**
+   * End every STARTED run of the (locked) source `CANCELLED`, in the table's lock order: the
+   * account's meters, the run row, then its reservations (`settleRunReservations`).
+   */
+  private async cancelRunsOf(tx: DrizzleTx, sourceId: string): Promise<number> {
+    const { rows } = await tx.execute(
+      sql`SELECT id, account_key FROM job_collection_runs
+           WHERE source_id = ${sourceId}::uuid AND outcome = 'STARTED' ORDER BY id`,
+    )
+    let cancelled = 0
+    for (const r of rows) {
+      const runId = String(r['id'])
+      const meters = await lockAccountMeters(tx, String(r['account_key']))
+      const { rows: locked } = await tx.execute(
+        sql`SELECT id FROM job_collection_runs WHERE id = ${runId}::uuid AND outcome = 'STARTED' FOR UPDATE`,
+      )
+      if (locked.length === 0) continue
+      await settleRunReservations(tx, runId, meters)
+      await tx.execute(
+        sql`UPDATE job_collection_runs
+               SET outcome = 'CANCELLED', error_code = 'CANCELLED',
+                   error_message = 'the source was disabled by an admin',
+                   ended_at = clock_timestamp(), updated_at = clock_timestamp()
+             WHERE id = ${runId}::uuid`,
+      )
+      cancelled += 1
+    }
+    return cancelled
   }
 }
 

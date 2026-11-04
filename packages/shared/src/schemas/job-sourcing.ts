@@ -419,6 +419,23 @@ export const jobSourceBudgetSchema = z.object({
   resetsAt: z.string().datetime().nullable(),
 })
 
+/**
+ * The eight health states (ADR section 10; source-fetch-strategy U7). Declared HERE (r5 Task 6.5)
+ * so `jobSourceSchema` below can carry the current state: job-source-admin.ts imports this module,
+ * so the reverse import would be circular. The vocabulary mirrors `HEALTH_STATE_VALUES` in
+ * apps/api/src/database/schema/job-health.ts (held to it by job-source-health-schema.spec.ts).
+ */
+export const jobHealthStateSchema = z.enum([
+  'BLOCKED',
+  'CAPPED',
+  'PAUSED',
+  'FAILING',
+  'EMPTY',
+  'DEGRADED',
+  'SILENT',
+  'HEALTHY',
+])
+
 export const jobSourceSchema = z.object({
   id: z.string().uuid(),
   type: jobSourceTypeSchema,
@@ -431,6 +448,41 @@ export const jobSourceSchema = z.object({
   // until U9 drops it on the owner's separate word.
   disabledReason: z.string().max(500).nullable(),
   budget: jobSourceBudgetSchema,
+
+  // r5 Task 6.5 — ADDITIVE operational facts, every one optional so an older server's answer and
+  // an older client's fixture (`SourceBudgetPanel`) still parse. Read off existing columns only:
+  // `enabled`, the admin state and readiness are three separate states (pause ≠ disable, A1k).
+  // `z.lazy`: these schemas are declared further down this module (a `const` read here at module
+  // init would be in its temporal dead zone); the lazy reads them at parse time.
+  readiness: z.lazy(() => jobSourceReadinessSchema).optional(),
+  readinessReason: z.string().max(500).nullable().optional(),
+  adminState: z.lazy(() => jobSourceAdminStateSchema).optional(),
+  lastAttemptAt: z.string().datetime().nullable().optional(),
+  lastSuccessAt: z.string().datetime().nullable().optional(),
+  /** Last attempt that returned at least one record (a SUCCEEDED attempt may return none). */
+  lastNonemptyAt: z.string().datetime().nullable().optional(),
+  nextAttemptAt: z.string().datetime().nullable().optional(),
+  cooldownUntil: z.string().datetime().nullable().optional(),
+  consecutiveFailures: z.number().int().nonnegative().optional(),
+  lastErrorCode: z
+    .lazy(() => jobErrorCodeSchema)
+    .nullable()
+    .optional(),
+  /** The host's ban pause while it is in force (`job_source_hosts`), else null. */
+  hostPausedUntil: z.string().datetime().nullable().optional(),
+  hostPauseReason: z
+    .lazy(() => jobErrorCodeSchema)
+    .nullable()
+    .optional(),
+  /** The unit of the account meter the source bills against; null without a meter. */
+  costUnit: z
+    .lazy(() => jobMeterUnitSchema)
+    .nullable()
+    .optional(),
+  /** True when the next run would resume from a stored checkpoint ("Crash resume"). */
+  resumeCheckpoint: z.boolean().optional(),
+  /** The current health state (the latest TRANSITION's `to_state`); null when none recorded. */
+  healthState: jobHealthStateSchema.nullable().optional(),
 })
 
 export const jobSourceListSchema = z.object({

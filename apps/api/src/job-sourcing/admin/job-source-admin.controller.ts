@@ -6,6 +6,7 @@ import {
   Inject,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common'
@@ -15,8 +16,10 @@ import {
   excludedJobSourceListSchema,
   jobSourceDetailSchema,
   jobSourceOperationalListSchema,
+  jobSourceSwitchResultSchema,
   resetJobSourceFailuresSchema,
   type SessionUser,
+  setJobSourceEnabledSchema,
 } from '@crm/shared'
 import { CurrentUser } from '../../auth/current-user.decorator'
 import { Roles } from '../../common/decorators/roles.decorator'
@@ -98,5 +101,33 @@ export class JobSourceAdminController {
   ): Promise<void> {
     const dto = resetJobSourceFailuresSchema.parse(body)
     await this.service.resetFailures(id, dto, user)
+  }
+}
+
+/**
+ * r5 Task 6.5 (C-10): `PATCH /job-sourcing/sources/:id` `{ enabled }` — the ADMIN source switch,
+ * at the path the plan fixes (beside `GET /job-sourcing/sources`). Its own class so the
+ * `job-sourcing/admin` prefix above and JobSourcingController's constructor both stay untouched.
+ *
+ * Same two gates as above: `@Roles('ADMIN')` + the service's role check. The body is strict: the
+ * switch is the only thing it can change (no config, endpoint, quota or readiness key).
+ * Throttled 30/min: a toggle is cheap, but each one appends an audit entry.
+ */
+@UseGuards(RolesGuard)
+@Controller('job-sourcing')
+export class JobSourceSwitchController {
+  // Explicit @Inject: the vitest/esbuild test env emits no `design:paramtypes`.
+  constructor(@Inject(JobSourceAdminService) private readonly service: JobSourceAdminService) {}
+
+  @Patch('sources/:id')
+  @Roles('ADMIN')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  async setEnabled(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const dto = setJobSourceEnabledSchema.parse(body)
+    return jobSourceSwitchResultSchema.parse(await this.service.setEnabled(id, dto, user))
   }
 }

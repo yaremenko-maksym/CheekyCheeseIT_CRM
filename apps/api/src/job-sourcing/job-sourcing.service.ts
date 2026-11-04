@@ -16,6 +16,7 @@ import type {
   JobCollectionResultDto,
   JobCollectionRunDto,
   JobExclusionDto,
+  JobMeterUnit,
   JobSourceDto,
   JobSourceTriggerMode,
   JobSourceType,
@@ -28,6 +29,7 @@ import type {
 import {
   budgetState,
   canonicalStackKeywords,
+  jobHealthStateSchema,
   normalizeCompanyName,
   resolveBudget,
   spendBudget,
@@ -67,7 +69,8 @@ import { productionLedgerCatalog } from './runtime/production-catalog'
 import { JobSourceRegistry } from './registry/job-source-registry'
 import { type TypeFilter, sourceAcceptsTrigger, typePassesFilter } from './scheduling/due-policy'
 import { resolveRegistry } from './registry/production-registry'
-import { JobRunLedger, type RunEnding } from './ownership/job-run-ledger'
+import { JobRunLedger, type RunEnding, inheritedCheckpoint } from './ownership/job-run-ledger'
+import { latestHealthTransitions } from './health/latest-transitions'
 import {
   type BridgeRun,
   type RosterSenior,
@@ -1386,8 +1389,16 @@ export class JobSourcingService {
   async listSources(actor: SessionUser, now: Date = new Date()): Promise<JobSourceDto[]> {
     this.assertCanManageSources(actor)
     const rows = await this.db.db.select().from(jobSources)
+    if (rows.length === 0) return []
+    const facts = await this.sourceOperationalFacts()
+    // The same latest-TRANSITION read the ADMIN source page uses, so both show one state.
+    const health = await latestHealthTransitions(
+      this.db.db,
+      rows.map((r) => r.id),
+    )
     return rows.map((row) => {
       const budget = resolveBudget(this.budgetStateOf(row), now)
+      const fact = facts.get(row.id)
       return {
         id: row.id,
         type: row.type,
@@ -1406,8 +1417,69 @@ export class JobSourcingService {
           remaining: budget.remaining,
           resetsAt: budget.resetsAt?.toISOString() ?? null,
         },
+        // r5 Task 6.5: the operational facts the ADMIN switch panel shows (additive DTO fields).
+        readiness: row.readiness,
+        readinessReason: row.readinessReason,
+        adminState: row.adminState,
+        lastAttemptAt: row.lastAttemptAt?.toISOString() ?? null,
+        lastSuccessAt: row.lastSuccessAt?.toISOString() ?? null,
+        lastNonemptyAt: row.lastNonemptyAt?.toISOString() ?? null,
+        nextAttemptAt: row.nextAttemptAt?.toISOString() ?? null,
+        cooldownUntil: row.cooldownUntil?.toISOString() ?? null,
+        consecutiveFailures: row.consecutiveFailures,
+        lastErrorCode: row.lastErrorCode,
+        hostPausedUntil: fact?.hostPausedUntil ?? null,
+        hostPauseReason: fact?.hostPauseReason ?? null,
+        costUnit: fact?.costUnit ?? null,
+        resumeCheckpoint: fact?.resumeCheckpoint ?? false,
+        // A drifted DB value maps to null rather than failing the whole list's response schema.
+        healthState: jobHealthStateSchema.safeParse(health.get(row.id)?.toState).data ?? null,
       }
     })
+  }
+
+  /**
+   * r5 Task 6.5: per source, the facts that live off the row — its host's ban pause while in
+   * force, its meter's unit, and whether the next run would resume from a stored checkpoint: the
+   * ledger's own `inheritedCheckpoint` (the "Crash resume" rule) is not `{}`. One query; instants
+   * as epoch ms (driver parsing of timestamptz is not relied on).
+   */
+  private async sourceOperationalFacts(): Promise<
+    Map<
+      string,
+      {
+        hostPausedUntil: string | null
+        hostPauseReason: string | null
+        costUnit: JobMeterUnit | null
+        resumeCheckpoint: boolean
+      }
+    >
+  > {
+    const { rows } = await this.db.db.execute(sql`
+      SELECT s.id,
+             CASE WHEN h.paused_until > clock_timestamp()
+                  THEN (extract(epoch FROM h.paused_until) * 1000)::float8 END AS paused_until_ms,
+             CASE WHEN h.paused_until > clock_timestamp() THEN h.pause_reason END AS pause_reason,
+             m.unit::text AS cost_unit,
+             ${inheritedCheckpoint(sql`s.id`, sql`s.config_version`, sql`true`)} <> '{}'::jsonb
+               AS resume_checkpoint
+        FROM job_sources s
+        LEFT JOIN job_source_hosts h ON h.host_key = s.host_key
+        LEFT JOIN job_account_meters m ON m.id = s.account_meter_id`)
+    return new Map(
+      rows.map((r) => [
+        String(r['id']),
+        {
+          hostPausedUntil:
+            typeof r['paused_until_ms'] === 'number'
+              ? new Date(r['paused_until_ms']).toISOString()
+              : null,
+          hostPauseReason: typeof r['pause_reason'] === 'string' ? r['pause_reason'] : null,
+          costUnit: typeof r['cost_unit'] === 'string' ? (r['cost_unit'] as JobMeterUnit) : null,
+          resumeCheckpoint: r['resume_checkpoint'] === true,
+        },
+      ]),
+    )
   }
 
   /** Exposed for the integration test's setup path. */
