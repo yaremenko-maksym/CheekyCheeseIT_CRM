@@ -1181,6 +1181,21 @@ order and the backfill). Until the recompute reaches an existing opportunity, a 
 | POST / DELETE | `/job-queue/team-triage-subscriptions[/:id]` | ADMIN; audited; 30/min                                                                                                      |
 | POST          | `/job-queue/recompute`                       | ADMIN; enqueue; 202 + run ID; 6/min                                                                                         |
 
+**Added by Task 6.3 review (Master, 2026-11-04).**
+
+- `POST /job-queue/:id/suppress`: ADMIN only, 30/min, takes the wire schema this task adds in `@crm/shared` (the
+  service currently takes a local `JobQueueSuppressRequest`); the idempotency key is a validated UUID.
+- **Suppression must have a read effect, stated as an acceptance criterion, not left to the list service:** once an
+  opportunity carries a SUPPRESSED row it is absent from every TEAM list, card, sources and seniors continuation
+  (a 404 on direct reads), while ADMIN still opens it by id. Without a visibility term the suppress route would ship
+  as a takedown that takes nothing down (fail-open). The RBAC spec seeds a suppressed opportunity and reads it as a
+  granted team.
+- Every `:id` and `:teamId` goes through `ParseUUIDPipe` (or `z.uuid()` in the DTO); query strings are parsed by a
+  schema with `.parse`, never read raw; a missing or invalid session is a 401 from the guard chain, not from the
+  service body.
+- Dismissals with reason `SPAM` or `DEAD_LINK` schedule no verification (no primitive for source verification
+  exists yet); the plan keeps that deferred, and the Phase 7 copy must not promise a re-check.
+
 Every request carries the validated `teamId` (ADMIN = studio scope). Recompute is enqueued, never inline. Guard
 matrix on a real DB with real guards (pattern: `job-sourcing-rbac.integration.spec.ts`): ADMIN valid; own HR
 visible+authorized; foreign/no-team HR 404; other roles 403; no token 401; version conflict 409; cursor 400 or
