@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm'
 import { apiError } from '../../common/api-error'
 import { DatabaseService } from '../../database/database.service'
 import { loadRoster } from '../runtime/recompute-inputs'
+import type { SqlExecutor } from '../scheduling/host-state'
 import {
   canonicalUuid,
   isJobQueueRole,
@@ -28,6 +29,9 @@ import {
  * `JOB_QUEUE_POLICY_UNAVAILABLE` (503) — never a default scope and never "visible" — and the
  * failure is logged as error classes and the SQLSTATE code only (`describeFailure`), never a
  * message: a query error's message carries the SQL and its parameters.
+ *
+ * WRITES (r5 Task 6.3) pass their transaction as `db`, so a scope and a visibility answer are read
+ * inside the write they authorize, never carried in from before it.
  */
 @Injectable()
 export class JobQueueScopeService {
@@ -35,7 +39,11 @@ export class JobQueueScopeService {
 
   constructor(private readonly database: DatabaseService) {}
 
-  async resolve(user: SessionUser, requestedTeamId?: string): Promise<JobQueueScope> {
+  async resolve(
+    user: SessionUser,
+    requestedTeamId?: string,
+    db: SqlExecutor = this.database.db,
+  ): Promise<JobQueueScope> {
     if (!isJobQueueRole(user.role)) throw new ForbiddenException()
     if (requestedTeamId === undefined && user.role === 'ADMIN') return STUDIO_SCOPE
     const requested = requestedTeamId === undefined ? undefined : canonicalUuid(requestedTeamId)
@@ -43,11 +51,11 @@ export class JobQueueScopeService {
     return this.policy(async () => {
       const allowed =
         user.role === 'ADMIN'
-          ? await this.liveTeamIds(requested as string)
-          : await this.activeTeamIdsOf(user.id)
+          ? await this.liveTeamIds(db, requested as string)
+          : await this.activeTeamIdsOf(db, user.id)
       const teamId = selectScopeTeam(requested, allowed)
       if (teamId === null) return NONE_SCOPE
-      const versions = await this.liveSeniorVersions(teamId)
+      const versions = await this.liveSeniorVersions(db, teamId)
       return { kind: 'TEAM', teamId, seniorIds: versions.map((v) => v.seniorId), versions }
     })
   }
@@ -57,12 +65,16 @@ export class JobQueueScopeService {
    * one answer for "does not exist", "not yours" and "not an id", so a viewer cannot probe
    * another team's queue. NONE and a malformed id answer without a query.
    */
-  async assertVisible(scope: JobQueueScope, opportunityId: string): Promise<void> {
+  async assertVisible(
+    scope: JobQueueScope,
+    opportunityId: string,
+    db: SqlExecutor = this.database.db,
+  ): Promise<void> {
     const canonical = canonicalUuid(opportunityId)
     if (scope.kind === 'NONE' || canonical === null) throw notFound()
     const rows = await this.policy(async () => {
       const id = sql`${canonical}::uuid`
-      const result = await this.database.db.execute(
+      const result = await db.execute(
         sql`SELECT 1 AS visible FROM job_opportunities o
              WHERE o.id = ${id} AND ${visibleOpportunityPredicate(scope, id)}`,
       )
@@ -72,8 +84,8 @@ export class JobQueueScopeService {
   }
 
   /** An HR's active teams: membership not left, team not archived, SENIOR-type, stable order. */
-  private async activeTeamIdsOf(userId: string): Promise<string[]> {
-    const { rows } = await this.database.db.execute(
+  private async activeTeamIdsOf(db: SqlExecutor, userId: string): Promise<string[]> {
+    const { rows } = await db.execute(
       sql`SELECT t.id, t.created_at FROM team_members tm
             JOIN teams t ON t.id = tm.team_id
            WHERE tm.user_id = ${userId}::uuid AND tm.left_at IS NULL
@@ -85,8 +97,8 @@ export class JobQueueScopeService {
   }
 
   /** The team an ADMIN named, if it is live (not archived, SENIOR-type); else nothing. */
-  private async liveTeamIds(teamId: string): Promise<string[]> {
-    const { rows } = await this.database.db.execute(
+  private async liveTeamIds(db: SqlExecutor, teamId: string): Promise<string[]> {
+    const { rows } = await db.execute(
       sql`SELECT t.id FROM teams t
            WHERE t.id = ${teamId}::uuid AND t.archived_at IS NULL AND t.type = 'SENIOR'`,
     )
@@ -98,8 +110,8 @@ export class JobQueueScopeService {
    * versions, from the same `loadRoster` / `rosterVersions` the recompute worker stamps match rows
    * with — so a row is visible only while it still describes the live roster (SR-M-2).
    */
-  private async liveSeniorVersions(teamId: string): Promise<LiveSeniorVersion[]> {
-    const roster = await loadRoster(this.database.db)
+  private async liveSeniorVersions(db: SqlExecutor, teamId: string): Promise<LiveSeniorVersion[]> {
+    const roster = await loadRoster(db)
     const inTeam = new Set(
       roster.profiles.filter((p) => p.teamIds.includes(teamId)).map((p) => p.seniorId),
     )
@@ -109,7 +121,8 @@ export class JobQueueScopeService {
       .map(([seniorId, v]) => ({ seniorId, profile: v.profile, exclusion: v.exclusion }))
   }
 
-  private async policy<T>(fn: () => Promise<T>): Promise<T> {
+  /** Runs a policy read; a failure is `JOB_QUEUE_POLICY_UNAVAILABLE`, never a default answer. */
+  async policy<T>(fn: () => Promise<T>): Promise<T> {
     try {
       return await fn()
     } catch (err: unknown) {
