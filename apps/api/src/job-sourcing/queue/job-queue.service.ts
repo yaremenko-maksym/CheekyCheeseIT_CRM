@@ -58,12 +58,13 @@ type Row = Record<string, unknown>
 type SeniorsPage = z.infer<typeof jobQueueSeniorsContinuationSchema>
 type SourcesPage = z.infer<typeof jobQueueSourcesContinuationSchema>
 
-const EMPTY_LIST: JobQueueListResponseDto = {
+/** A fresh object per call: a shared one could be mutated by one caller and leak to the next. */
+const emptyList = (): JobQueueListResponseDto => ({
   items: [],
   nextCursor: null,
   counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
   generation: null,
-}
+})
 
 const iso = (v: unknown): string => (v instanceof Date ? v : new Date(String(v))).toISOString()
 const isoOrNull = (v: unknown): string | null => (v == null ? null : iso(v))
@@ -111,7 +112,10 @@ export function matchFacts(evidence: unknown): { keywords: string[]; approximate
         .map(String)
     : []
   return {
-    keywords: items.map((k) => k.slice(0, k.lastIndexOf(':'))).slice(0, 200),
+    // No `:STRENGTH` suffix: the whole string is the keyword.
+    keywords: items
+      .map((k) => (k.includes(':') ? k.slice(0, k.lastIndexOf(':')) : k))
+      .slice(0, 200),
     approximate: !items.some((k) => k.endsWith(':CORE')),
   }
 }
@@ -184,7 +188,7 @@ export class JobQueueService {
     const scope = await this.scopes.resolve(user, query.teamId, this.database.db)
     // Checked before any data SQL, and answered the same for a NONE scope.
     const cursor = query.cursor === undefined ? null : parseCursor(query.cursor, 'L', this.secret)
-    if (scope.kind === 'NONE') return EMPTY_LIST
+    if (scope.kind === 'NONE') return emptyList()
     const versions = await this.scopes.liveVersions(scope, this.database.db)
     const policy = policySignature(scope, versions)
     const signature = requestSignature([user.id, policy, ...filterIdentity(query)])

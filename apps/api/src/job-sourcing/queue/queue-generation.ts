@@ -21,8 +21,8 @@ import {
  * the first committed and serves it (the partial UNIQUEs remain the database's own backstop).
  */
 /**
- * The numeric policy of a generation, in one place. Both are pending owner confirmation (SPEC-M-2):
- * the plan reserves expiry durations for owner policy, and the cap decides what a viewer can reach.
+ * The numeric policy of a generation, in one place: a 15-minute TTL and a 5000-entry cap. The plan
+ * reserves expiry durations for owner policy; the owner approved both values on 2026-11-04 (Q2).
  *
  * shortcut: `maxEntries` retains only the top of the order and the list says so (`capped`). Raise it
  * if MP-13 data says otherwise.

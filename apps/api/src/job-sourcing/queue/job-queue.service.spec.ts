@@ -163,6 +163,17 @@ afterEach(() => {
 })
 
 describe('JobQueueService.list', () => {
+  it('each NONE answer is its own object, never one shared instance (PN-2)', async () => {
+    const h = harness({ kind: 'NONE' })
+    const first = await h.svc.list(user, query())
+    const second = await h.svc.list(user, query())
+    expect(second).not.toBe(first)
+    expect(second.items).not.toBe(first.items)
+    expect(second.counts).not.toBe(first.counts)
+    first.counts.NEW = 9
+    expect((await h.svc.list(user, query())).counts.NEW).toBe(0)
+  })
+
   it('a NONE scope is an empty list and runs no query', async () => {
     const h = harness({ kind: 'NONE' })
     await expect(h.svc.list(user, query())).resolves.toEqual({
@@ -484,6 +495,11 @@ describe('matchFacts', () => {
       ],
     }
     expect(matchFacts(evidence)).toEqual({ keywords: ['Go', 'c:sharp'], approximate: false })
+  })
+
+  it('an evidence item without a strength suffix is the whole keyword (PN-1)', () => {
+    const evidence = { reasons: [{ code: 'TECH_MATCH', evidence: ['Rust', 'Go:CORE'] }] }
+    expect(matchFacts(evidence)).toEqual({ keywords: ['Rust', 'Go'], approximate: false })
   })
   it('an OPTIONAL-only match is approximate', () => {
     const evidence = { reasons: [{ code: 'TECH_MATCH', evidence: ['Go:OPTIONAL'] }] }
