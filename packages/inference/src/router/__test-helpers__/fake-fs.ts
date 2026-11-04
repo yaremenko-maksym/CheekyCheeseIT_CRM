@@ -27,7 +27,7 @@ export function fakeFs(initial: Record<string, string> = {}): FakeFs {
     async readFile(path) {
       const text = fs.files.get(path)
       if (text === undefined) throw errno('ENOENT')
-      return text
+      return new TextEncoder().encode(text)
     },
     async open(path, flags, mode) {
       fs.calls.push(`open ${path} ${flags}`)

@@ -2,7 +2,8 @@ import { promises as nodeFs } from 'node:fs'
 import { z } from 'zod'
 import { isValidProviderModelId } from '../internal/model-id'
 import type { HostedProvider } from './config'
-import { parseJson, readStateText, type StateEvent, type StateFs } from './state'
+import { parseJsonOrNull } from '../internal/chat-completions'
+import { readStateText, type StateEvent, type StateFs } from './state'
 
 /** The managed list keeps at most `TARGET` ids per provider (ADR §3.4, VCF: 5). */
 export const MANAGED_LIST_TARGET = 5
@@ -50,7 +51,7 @@ export function createFileManagedModels(opts: {
       opts.onEvent?.({ type: 'STATE_RESET', store: 'managed-list', reason: read.kind })
       return fallback
     }
-    const parsed = managedListSchema.safeParse(parseJson(read.text))
+    const parsed = managedListSchema.safeParse(parseJsonOrNull(read.text))
     if (!parsed.success) {
       opts.onEvent?.({ type: 'STATE_RESET', store: 'managed-list', reason: 'invalid' })
       return fallback

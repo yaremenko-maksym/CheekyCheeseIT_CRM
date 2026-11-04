@@ -85,6 +85,18 @@ describe('file RouteStatePort: reading (§3.2, SR-M-6)', () => {
     ['corrupt JSON', '{"version":1,'],
     ['JSON that is not an object', '[]'],
     [
+      'a day with a prefix',
+      doc({ spent: [{ provider: 'groq', model: 'openai/gpt-oss-20b', day: 'x2026-11-04' }] }),
+    ],
+    [
+      'a day with a suffix',
+      doc({ spent: [{ provider: 'groq', model: 'openai/gpt-oss-20b', day: '2026-11-04x' }] }),
+    ],
+    [
+      'a model of the other provider',
+      doc({ spent: [{ provider: 'gemini', model: 'openai/gpt-oss-20b', day: '2026-11-04' }] }),
+    ],
+    [
       'a provider outside the allowlist',
       doc({ spent: [{ provider: 'openrouter', model: 'x', day: '2026-11-04' } as never] }),
     ],
@@ -281,14 +293,18 @@ describe('pure state changes', () => {
   })
 
   it('lists are capped by dropping the oldest entries', () => {
+    const dayOf = (i: number) => new Date(Date.UTC(2026, 0, 1) + i * 86_400_000).toISOString().slice(0, 10)
     let s = EMPTY_ROUTE_STATE
     for (let i = 0; i < MAX_STATE_ENTRIES + 2; i++)
-      s = markSpent(
-        'groq',
-        'openai/gpt-oss-20b',
-        `2026-01-${String((i % 28) + 1).padStart(2, '0')}`,
-      )(s)
-    expect(s.spent.length).toBeLessThanOrEqual(MAX_STATE_ENTRIES)
+      s = markSpent('groq', 'openai/gpt-oss-20b', dayOf(i))(s)
+    expect(s.spent).toHaveLength(MAX_STATE_ENTRIES)
+    expect(s.spent[0]?.day).toBe(dayOf(2))
+    expect(s.spent.at(-1)?.day).toBe(dayOf(MAX_STATE_ENTRIES + 1))
+    let r = EMPTY_ROUTE_STATE
+    for (let i = 0; i < MAX_STATE_ENTRIES + 1; i++)
+      r = markRetired('gemini', `gemini-${i}.0-flash`, NOON)(r)
+    expect(r.retired).toHaveLength(MAX_STATE_ENTRIES)
+    expect(r.retired[0]?.model).toBe('gemini-1.0-flash')
   })
 })
 

@@ -1,6 +1,7 @@
 import { promises as nodeFs } from 'node:fs'
 import { dirname } from 'node:path'
 import { z } from 'zod'
+import { parseJsonOrNull } from '../internal/chat-completions'
 import { isValidProviderModelId } from '../internal/model-id'
 import { HOSTED_PROVIDERS, ownCapOf, type HostedProvider } from './config'
 
@@ -93,7 +94,7 @@ export function createMemoryRouteStatePort(
 /** The slice of `fs.promises` the file adapters use; a fake replaces it in tests. */
 export type StateFs = {
   stat(path: string): Promise<{ size: number }>
-  readFile(path: string, encoding: 'utf8'): Promise<string>
+  readFile(path: string): Promise<Uint8Array>
   open(
     path: string,
     flags: string,
@@ -120,20 +121,11 @@ type ReadOutcome =
 export async function readStateText(fs: StateFs, path: string): Promise<ReadOutcome> {
   try {
     if ((await fs.stat(path)).size > MAX_STATE_BYTES) return { kind: 'oversized' }
-    return { kind: 'text', text: await fs.readFile(path, 'utf8') }
+    return { kind: 'text', text: new TextDecoder().decode(await fs.readFile(path)) }
   } catch (err) {
     return (err as { code?: unknown }).code === 'ENOENT'
       ? { kind: 'missing' }
       : { kind: 'unreadable' }
-  }
-}
-
-/** JSON or `undefined`; data, never code: the value is only ever handed to a Zod schema. */
-export function parseJson(text: string): unknown {
-  try {
-    return JSON.parse(text)
-  } catch {
-    return undefined
   }
 }
 
@@ -173,7 +165,8 @@ export async function createFileRouteStatePort(opts: StateFileOptions): Promise<
   let state = EMPTY_ROUTE_STATE
   const read = await readStateText(fs, opts.path)
   if (read.kind === 'text') {
-    const parsed = routeStateSchema.safeParse(parseJson(read.text))
+    // Data, never code: the JSON is only ever handed to the schema.
+    const parsed = routeStateSchema.safeParse(parseJsonOrNull(read.text))
     if (parsed.success) state = prune(parsed.data, opts.now())
     else emit({ type: 'STATE_RESET', store: 'route-state', reason: 'invalid' })
   } else if (read.kind !== 'missing') {
@@ -216,7 +209,7 @@ export function providerRecord(s: RouteState, p: HostedProvider): ProviderRecord
 /** `AUTH` persists until its proof (5.4c-2b); `CREDIT` until the provider day turns. */
 export function isProviderBlocked(s: RouteState, p: HostedProvider, today: string): boolean {
   const r = providerRecord(s, p)
-  return r.auth || (r.creditDay !== undefined && r.creditDay >= today)
+  return r.auth || (r.creditDay ?? '') >= today
 }
 
 function withProvider(

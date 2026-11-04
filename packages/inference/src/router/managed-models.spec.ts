@@ -55,6 +55,7 @@ describe('managedModels reader (ADR §3.4)', () => {
     ['corrupt JSON', '{'],
     ['an id outside the family', doc({ groq: ['llama-3.1-8b-instant'] })],
     ['a hostile id', doc({ gemini: ['../../x'] })],
+    ['a Groq id under Gemini', doc({ gemini: ['openai/gpt-oss-20b'] })],
     ['a provider outside the allowlist', doc({ openrouter: ['x'] })],
     ['a promotion flag', JSON.stringify({ version: 1, providers: {}, promoted: ['x'] })],
     [
@@ -66,6 +67,14 @@ describe('managedModels reader (ADR §3.4)', () => {
     const { read, events } = reader(text)
     expect(await read('groq', PINNED)).toBe(PINNED)
     expect(events).toEqual([{ type: 'STATE_RESET', store: 'managed-list', reason: 'invalid' }])
+  })
+
+  it('without an onEvent consumer a bad file still serves the fallback', async () => {
+    const fs = fakeFs({ [PATH]: '{' })
+    const read = createFileManagedModels({ path: PATH, fs })
+    expect(await read('groq', PINNED)).toBe(PINNED)
+    fs.statError = 'EACCES'
+    expect(await read('groq', PINNED)).toBe(PINNED)
   })
 
   it('an oversized file serves the fallback', async () => {

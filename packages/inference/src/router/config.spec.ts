@@ -66,6 +66,9 @@ describe('routerConfigSchema', () => {
   it('refuses a hosted model id outside the provider family, and an invalid local model id', () => {
     expect(ok(base([{ ...groq, models: ['llama-3.1-8b-instant'] }, local]))).toBe(false)
     expect(ok(base([{ ...groq, models: [] }, local]))).toBe(false)
+    expect(
+      ok(base([{ ...groq, models: ['openai/gpt-oss-20b', 'llama-3.1-8b-instant'] }, local])),
+    ).toBe(false)
     expect(ok(base([{ ...local, model: '../etc/passwd' }]))).toBe(false)
   })
 
@@ -96,6 +99,8 @@ describe('routerConfigSchema', () => {
   it('refuses a local key over plain HTTP and accepts it over https', () => {
     expect(ok(base([{ ...local, apiKey: 'k' }]))).toBe(false)
     expect(ok(base([{ ...local, apiKey: 'k', baseUrl: 'https://10.0.0.5/v1' }]))).toBe(true)
+    expect(ok(base([{ ...local, apiKey: 'key-123', baseUrl: 'https://10.0.0.5/v1' }]))).toBe(true)
+    expect(ok(base([{ ...local, apiKey: '', baseUrl: 'https://10.0.0.5/v1' }]))).toBe(false)
   })
 
   it('refuses a config whose local URL is refused', () => {
@@ -138,6 +143,12 @@ describe('isAllowedRouterLocalModelUrl (ADR §3.3)', () => {
     ['11.x is not private', 'https://11.0.0.1/v1'],
     ['a fe00 v6 is not unique-local', 'https://[fe00::1]/v1'],
     ['a short fc hextet is not fc00::/7', 'https://[fc::1]/v1'],
+    ['a password without a username', 'https://:pw@10.0.0.1/v1'],
+    ['a name that starts like a private address', 'https://10.evil.com/v1'],
+    ['a private address followed by a domain', 'https://10.0.0.1.evil.com/v1'],
+    ['a 16-31 second octet outside 172', 'https://11.16.0.1/v1'],
+    ['a 168 second octet outside 192', 'https://193.168.0.1/v1'],
+    ['an unparsable string', '::not-a-url'],
     ['a container-like name', 'http://crm-model-runtime.evil/v1'],
     ['another scheme', 'ftp://localhost/v1'],
     ['not a URL', 'localhost:11434'],
@@ -188,6 +199,7 @@ describe('model id validation', () => {
   it('applies the provider family pattern to hosted providers', () => {
     expect(isValidProviderModelId('groq', 'openai/gpt-oss-120b')).toBe(true)
     expect(isValidProviderModelId('groq', 'openai/gpt-oss-20b-preview')).toBe(false)
+    expect(isValidProviderModelId('groq', 'xopenai/gpt-oss-20b')).toBe(false)
     expect(isValidProviderModelId('gemini', 'gemini-2.5-flash')).toBe(true)
     expect(isValidProviderModelId('gemini', 'models/gemini-2.5-flash')).toBe(false)
     expect(isValidProviderModelId('local', 'qwen2.5:3b')).toBe(true)

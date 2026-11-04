@@ -1,3 +1,4 @@
+import { isIPv4 } from 'node:net'
 import { z } from 'zod'
 import { LOCAL_MODEL_RUNTIME_HOST } from '../http/bounded-request'
 import { isValidModelId, isValidProviderModelId } from '../internal/model-id'
@@ -25,16 +26,15 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 
 /** RFC 1918 IPv4 (the WHATWG parser has already normalised every numeric form to dotted quad). */
 function isPrivateIpv4(host: string): boolean {
-  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(host)
-  if (m === null) return false
-  const a = Number(m[1])
-  const b = Number(m[2])
-  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
+  if (!isIPv4(host)) return false
+  const [a, b] = host.split('.').map(Number)
+  return a === 10 || (a === 172 && b! >= 16 && b! <= 31) || (a === 192 && b === 168)
 }
 
 /** fc00::/7 — the first hextet, unabbreviated after normalisation, is `fcXX` or `fdXX`. */
 function isUniqueLocalIpv6(host: string): boolean {
-  return /^\[f[cd][0-9a-f]{2}:/i.test(host)
+  // Unanchored on purpose: `[` occurs only at the start of a WHATWG hostname.
+  return /\[f[cd][0-9a-f]{2}:/i.test(host)
 }
 
 /**
@@ -73,16 +73,14 @@ const hostedRouteSchema = z
       .strict(),
   })
   .strict()
-  .refine((r) => r.models.every((m) => isValidProviderModelId(r.provider, m)), {
-    message: 'model id outside the provider family',
-    path: ['models'],
-  })
+  // Every model id in the provider's family; issues carry no detail, a config holds a key.
+  .refine((r) => r.models.every((m) => isValidProviderModelId(r.provider, m)))
 
 const localRouteSchema = z
   .object({
     provider: z.literal('local'),
-    baseUrl: z.string().refine(isAllowedRouterLocalModelUrl, 'ROUTER_LOCAL_MODEL_URL refused'),
-    model: z.string().refine(isValidModelId, 'invalid model id'),
+    baseUrl: z.string().refine(isAllowedRouterLocalModelUrl),
+    model: z.string().refine(isValidModelId),
     apiKey: z.string().min(1).optional(),
     contextTokens: positiveInt,
     structuredOutput: STRUCTURED_OUTPUT,
@@ -91,11 +89,7 @@ const localRouteSchema = z
   })
   .strict()
   // A key over plain HTTP is a config error (SR-L-63), refused here rather than on every call.
-  .refine((r) => r.apiKey === undefined || new URL(r.baseUrl).protocol === 'https:', {
-    message: 'a local key needs https',
-    path: ['apiKey'],
-  })
-
+  .refine((r) => r.apiKey === undefined || new URL(r.baseUrl).protocol === 'https:')
 export const routerConfigSchema = z
   .object({
     /** Own-cap limits are frozen under this version (D5). */
@@ -108,25 +102,12 @@ export const routerConfigSchema = z
       .max(3),
   })
   .strict()
-  .superRefine((cfg, ctx) => {
-    const last = cfg.routes.at(-1)
-    const locals = cfg.routes.filter((r) => r.provider === 'local')
-    if (last?.provider !== 'local' || locals.length !== 1) {
-      ctx.addIssue({ code: 'custom', message: 'exactly one local route, last', path: ['routes'] })
-    }
-    const hosted = cfg.routes.map((r) => r.provider).filter((p) => p !== 'local')
-    if (new Set(hosted).size !== hosted.length) {
-      ctx.addIssue({ code: 'custom', message: 'a hosted provider listed twice', path: ['routes'] })
-    }
-    // The floor must be able to give its request a whole timeout (§5.5 item 2).
-    if (last?.provider === 'local' && cfg.floorBudgetMs < last.timeoutMs) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'floor budget below one request',
-        path: ['floorBudgetMs'],
-      })
-    }
-  })
+  // Every provider once and the local route last: exactly one local route, always the floor.
+  .refine((cfg) => new Set(cfg.routes.map((r) => r.provider)).size === cfg.routes.length)
+  // Zod runs these even when `routes` already failed (empty): `at(-1)` may be undefined.
+  .refine((cfg) => cfg.routes.at(-1)?.provider === 'local')
+  // The floor must be able to give its request a whole timeout (§5.5 item 2).
+  .refine((cfg) => cfg.floorBudgetMs >= (cfg.routes.at(-1)?.timeoutMs ?? 0))
 
 export type RouterConfig = z.infer<typeof routerConfigSchema>
 export type RouterConfigInput = z.input<typeof routerConfigSchema>
