@@ -39,6 +39,7 @@ import {
   jobIdentityKindEnum,
   jobOpportunityLinkDecisionEnum,
   jobOpportunityMatchOutcomeEnum,
+  jobOpportunityVerdictEnum,
   jobSeniorityEnum,
   jobSourceTypeEnum,
 } from './enums'
@@ -287,6 +288,19 @@ export const jobOpportunities = pgTable(
     lastObservedAt: timestamp('last_observed_at', { withTimezone: true }).defaultNow().notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    /**
+     * SR-M-2: the revision the recompute last evaluated, written with `evaluationVerdict` and the
+     * match rows in one transaction (`installMatches`). NULL = never evaluated. Production gets both
+     * columns ONLY through the staged forward DDL; declared last so the rank matches an ADD COLUMN.
+     */
+    evaluatedRevision: integer('evaluated_revision'),
+    /** The opportunity-level result at `evaluatedRevision`; a per-senior stop-list is not one. */
+    evaluationVerdict: jobOpportunityVerdictEnum('evaluation_verdict'),
+    /**
+     * SR-M-1: the digest of the inputs the verdict read besides the revision
+     * (`opportunityInputsVersion`). A grant shows the item only while it equals the live digest.
+     */
+    evaluatedInputsVersion: text('evaluated_inputs_version'),
   },
   (t) => [
     // Deliberately NO unique company/title constraint: two real openings can
@@ -302,6 +316,10 @@ export const jobOpportunities = pgTable(
       sql`NOT ${t.employerVerified} OR ${t.employerKey} IS NOT NULL`,
     ),
     check('ck_job_opportunities_application_url_https', httpsUrlOrNull(t.applicationUrl)),
+    check(
+      'ck_job_opportunities_evaluation_pair',
+      sql`(${t.evaluatedRevision} IS NULL) = (${t.evaluationVerdict} IS NULL) AND (${t.evaluatedRevision} IS NULL) = (${t.evaluatedInputsVersion} IS NULL)`,
+    ),
   ],
 )
 

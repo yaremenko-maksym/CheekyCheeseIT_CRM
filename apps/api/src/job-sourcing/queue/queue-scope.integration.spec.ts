@@ -1,13 +1,21 @@
 import { randomUUID } from 'node:crypto'
 import { ForbiddenException, HttpException } from '@nestjs/common'
-import type { SessionUser } from '@crm/shared'
+import type { JobExclusionDto, SessionUser } from '@crm/shared'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   type CrmAppSession,
   openCrmAppSession,
 } from '../../database/__test-helpers__/crm-app-session'
 import { hasDatabaseUrl } from '../../test/require-real-db'
-import { loadRoster, MATCH_RULE_VERSION, type SeniorVersions } from '../runtime/recompute-inputs'
+import type { Evaluated, Excluded } from '../funnel/evaluate'
+import {
+  installMatches,
+  loadRoster,
+  MATCH_RULE_VERSION,
+  opportunityInputsVersion,
+  type RosterInputs,
+  type SeniorVersions,
+} from '../runtime/recompute-inputs'
 import { type JobQueueScope, NONE_SCOPE, STUDIO_SCOPE } from './queue-scope'
 import { JobQueueScopeService } from './queue-scope.service'
 
@@ -46,6 +54,8 @@ interface MatchOpts {
 let session: CrmAppSession
 let service: JobQueueScopeService
 let live: ReadonlyMap<string, SeniorVersions>
+/** The studio-wide exclusions at setup: what the live inputs version is computed from. */
+let studio: readonly JobExclusionDto[] = []
 const ids: Record<string, string> = {}
 const userIds: string[] = []
 const teamIds: string[] = []
@@ -126,6 +136,14 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
          VALUES ($1, $2, $3, 1, 1, now() + $4::interval, $5)`,
         [ids[opp], ids[team], ids['admin'], expires, revoked ? new Date() : null],
       )
+    /** What `installMatches` records, stamped directly; the writer itself is in the SR-M-2 cases. */
+    const evaluated = (opp: string, revision: number, verdict: 'OPEN' | 'EXCLUDED') =>
+      q(
+        `UPDATE job_opportunities
+            SET evaluated_revision = $2, evaluation_verdict = $3, evaluated_inputs_version = $4
+          WHERE id = $1`,
+        [ids[opp], revision, verdict, opportunityInputsVersion(studio)],
+      )
 
     await mkUser('admin', 'ADMIN')
     for (const hr of ['hrA', 'hrB', 'hrNone', 'hrMulti', 'hrGone']) await mkUser(hr, 'HR')
@@ -150,7 +168,9 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
     await join('teamArchived', 'hrNone')
 
     // The live versions, after the roster is final, from the same helper the worker uses.
-    live = (await loadRoster(session.databaseService.db)).versions
+    const roster = await loadRoster(session.databaseService.db)
+    live = roster.versions
+    studio = roster.exclusions.filter((e) => e.seniorId === null)
 
     await mkOpp('oppA')
     await match('oppA', 'senA', 'LEAD')
@@ -174,27 +194,36 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
     await match('oppLeftSenior', 'senLeft', 'LEAD')
     await mkOpp('oppGrant')
     await grant('oppGrant', 'teamA', '1 day')
+    await evaluated('oppGrant', 1, 'OPEN')
     await mkOpp('oppGrantExpired')
     await grant('oppGrantExpired', 'teamA', '-1 minute')
+    await evaluated('oppGrantExpired', 1, 'OPEN')
     await mkOpp('oppGrantRevoked')
     await grant('oppGrantRevoked', 'teamA', '1 day', true)
+    await evaluated('oppGrantRevoked', 1, 'OPEN')
+    // Evaluated OPEN on purpose: the availability condition alone must hide these two.
     await mkOpp('oppGrantClosed', 1, 'CLOSED')
     await grant('oppGrantClosed', 'teamA', '1 day')
+    await evaluated('oppGrantClosed', 1, 'OPEN')
     await mkOpp('oppGrantExpiredPosting', 1, 'EXPIRED')
     await grant('oppGrantExpiredPosting', 'teamA', '1 day')
+    await evaluated('oppGrantExpiredPosting', 1, 'OPEN')
     await mkOpp('oppGrantGlobalExcluded')
     await grant('oppGrantGlobalExcluded', 'teamA', '1 day')
+    await evaluated('oppGrantGlobalExcluded', 1, 'EXCLUDED')
     await match('oppGrantGlobalExcluded', 'senB', 'EXCLUDED', {
       evidence: { stage: 'GLOBAL_RESTRICTIONS', reasons: [] },
     })
     await mkOpp('oppGrantLayer1Rejected')
     await grant('oppGrantLayer1Rejected', 'teamA', '1 day')
+    await evaluated('oppGrantLayer1Rejected', 1, 'EXCLUDED')
     await match('oppGrantLayer1Rejected', 'senA', 'EXCLUDED', {
       evidence: { stage: 'CLASSIFICATION', reasons: [] },
     })
     // A global exclusion at an OLD revision no longer applies to the current one.
     await mkOpp('oppGrantOldExclusion', 2)
     await grant('oppGrantOldExclusion', 'teamA', '1 day')
+    await evaluated('oppGrantOldExclusion', 2, 'OPEN')
     await match('oppGrantOldExclusion', 'senA', 'EXCLUDED', {
       revision: 1,
       evidence: { stage: 'GLOBAL_RESTRICTIONS', reasons: [] },
@@ -202,17 +231,24 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
     // A per-senior stop-list (A1g) does not hide the opportunity from the team.
     await mkOpp('oppGrantSeniorStopList')
     await grant('oppGrantSeniorStopList', 'teamA', '1 day')
+    await evaluated('oppGrantSeniorStopList', 1, 'OPEN')
     await match('oppGrantSeniorStopList', 'senA', 'EXCLUDED', {
       evidence: { stage: 'SCOPED_RESTRICTIONS', reasons: [] },
     })
-    // SR-M-2 gap fixtures: a grant made at revision 1, the opportunity bumped to 2, and only a
-    // revision-1 LEAD row (the recompute for revision 2 has not run yet).
+    // SR-M-2: a grant made at revision 1, the opportunity bumped to 2, evaluated only at 1, with
+    // a revision-1 LEAD row: the recompute for revision 2 has not run yet.
     await mkOpp('oppGrantBumped', 2)
     await grant('oppGrantBumped', 'teamA', '1 day')
+    await evaluated('oppGrantBumped', 1, 'OPEN')
     await match('oppGrantBumped', 'senA', 'LEAD', { revision: 1 })
-    // ...and a granted opportunity no roster senior was ever evaluated against (no row at all).
+    // ...and a granted opportunity never evaluated (no row at all, no verdict).
     await mkOpp('oppGrantNoRows')
     await grant('oppGrantNoRows', 'teamA', '1 day')
+    // SR-M-2 through the real writer, with an empty roster and a revision bump.
+    for (const opp of ['oppGrantEmptyOpen', 'oppGrantEmptyExcluded', 'oppGrantRecomputed']) {
+      await mkOpp(opp)
+      await grant(opp, 'teamA', '1 day')
+    }
     await mkOpp('oppUnmatched')
     await mkOpp('oppLive')
     await match('oppLive', 'senLive', 'LEAD')
@@ -220,6 +256,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
     await match('oppGoneLead', 'senGone', 'LEAD')
     await mkOpp('oppGoneGrant')
     await grant('oppGoneGrant', 'teamGone', '1 day')
+    await evaluated('oppGoneGrant', 1, 'OPEN')
   })
 
   afterAll(async () => {
@@ -268,6 +305,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
           profile: live.get(seniorId)?.profile,
           exclusion: live.get(seniorId)?.exclusion,
         })),
+        inputsVersion: opportunityInputsVersion(studio),
       })
     })
 
@@ -385,20 +423,147 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
       await expect(visible(a, 'oppGrantSeniorStopList')).resolves.toBeUndefined()
     })
 
-    /**
-     * DELIBERATE PIN OF KNOWN-OPEN, UNWANTED BEHAVIOUR — NOT A SPEC OF WHAT IS RIGHT. No persisted
-     * marker says "evaluated at the current revision" (an evaluation with no excluded senior and no
-     * LEAD writes no row), so a grant still shows an opportunity whose current revision has not
-     * been evaluated yet, and one with no rows at all. Durable record: the SR-M-2 entry in
-     * `.claude/tasks/BACKLOG-followups.md` (grant branch fails open between a revision bump and
-     * the recompute; owner decision pending; Tasks 6.2/6.3/6.4 must not inject
-     * `JobQueueScopeService` before it). The SR-M-2 fix MUST flip both expectations below to
-     * `expectNotFound`; this case exists so that fix cannot land without touching it.
-     */
-    it('PINNED OPEN (SR-M-2): flip to expectNotFound with the fix — a grant still shows a bumped, not-yet-recomputed item and a no-rows item', async () => {
-      const a = await resolve('hrA', 'HR')
-      await expect(visible(a, 'oppGrantBumped')).resolves.toBeUndefined()
-      await expect(visible(a, 'oppGrantNoRows')).resolves.toBeUndefined()
+    describe('SR-M-2: a grant shows only what was evaluated OPEN at the current revision', () => {
+      const db = () => session.databaseService.db
+      // No senior, but the live studio exclusions: what an empty production roster would load.
+      const emptyRoster = (): RosterInputs => ({
+        rosterSeniorIds: [],
+        profiles: [],
+        exclusions: studio,
+        versions: new Map(),
+      })
+      const audit = { noTeamAccess: [], ignoredExclusionIds: [] }
+      const base = {
+        recordKey: 'k',
+        revisionId: '1',
+        evaluatedAt: '2026-11-04T10:00:00.000Z',
+        trace: [],
+      }
+      const open = (opp: string) =>
+        ({
+          ...base,
+          kind: 'EVALUATED',
+          opportunityId: ids[opp],
+          status: 'NO_MATCH',
+          layer1: {},
+          projections: [],
+          audit: { ...audit, excluded: [] },
+        }) as unknown as Evaluated
+      const excludedGlobally = (opp: string): Excluded => ({
+        ...base,
+        kind: 'EXCLUDED',
+        opportunityId: ids[opp] as string,
+        reasons: [],
+        audit: {
+          ...audit,
+          excluded: [
+            { subject: 'OPPORTUNITY', stage: 'GLOBAL_RESTRICTIONS', reasons: [], inputs: {} },
+          ],
+        },
+      })
+
+      it('evaluated OPEN at the current revision is visible; evaluated EXCLUDED is a 404', async () => {
+        const a = await resolve('hrA', 'HR')
+        await expect(visible(a, 'oppGrant')).resolves.toBeUndefined()
+        await expectNotFound(visible(a, 'oppGrantGlobalExcluded'))
+        await expectNotFound(visible(a, 'oppGrantLayer1Rejected'))
+      })
+
+      it('never evaluated is a 404', async () => {
+        await expectNotFound(visible(await resolve('hrA', 'HR'), 'oppGrantNoRows'))
+      })
+
+      it('a bumped revision is a 404 even with an OPEN verdict at the old one', async () => {
+        await expectNotFound(visible(await resolve('hrA', 'HR'), 'oppGrantBumped'))
+      })
+
+      it('after a bump the item is a 404 until its recompute, then visible', async () => {
+        const a = await resolve('hrA', 'HR')
+        const opp = 'oppGrantRecomputed'
+        await installMatches(db(), ids[opp] as string, 1, open(opp), emptyRoster())
+        await expect(visible(a, opp)).resolves.toBeUndefined()
+        await session.admin.query(`UPDATE job_opportunities SET revision = 2 WHERE id = $1`, [
+          ids[opp],
+        ])
+        await expectNotFound(visible(a, opp))
+        await installMatches(db(), ids[opp] as string, 2, open(opp), emptyRoster())
+        await expect(visible(a, opp)).resolves.toBeUndefined()
+      })
+
+      it('an empty roster writes no rows and the verdict still decides: OPEN visible, EXCLUDED 404', async () => {
+        const a = await resolve('hrA', 'HR')
+        const openOpp = 'oppGrantEmptyOpen'
+        const excludedOpp = 'oppGrantEmptyExcluded'
+        await expectNotFound(visible(a, openOpp))
+        await expectNotFound(visible(a, excludedOpp))
+        expect(
+          await installMatches(db(), ids[openOpp] as string, 1, open(openOpp), emptyRoster()),
+        ).toBe(0)
+        expect(
+          await installMatches(
+            db(),
+            ids[excludedOpp] as string,
+            1,
+            excludedGlobally(excludedOpp),
+            emptyRoster(),
+          ),
+        ).toBe(0)
+        await expect(visible(a, openOpp)).resolves.toBeUndefined()
+        await expectNotFound(visible(a, excludedOpp))
+      })
+
+      it('SR-M-1: a studio keyword added after evaluation hides a zero-row granted item at once; its recompute shows it again', async () => {
+        const opp = 'oppGrantEmptyOpen'
+        await expect(visible(await resolve('hrA', 'HR'), opp)).resolves.toBeUndefined()
+        const { rows } = await session.admin.query(
+          `INSERT INTO job_exclusion_filters (senior_id, kind, value, normalized_value)
+           VALUES (NULL, 'KEYWORD', $1, $1) RETURNING id`,
+          [`qscope-kw-${TAG}`],
+        )
+        try {
+          // No recompute has run: the recorded inputs version is the old one, so a fresh scope hides it.
+          await expectNotFound(visible(await resolve('hrA', 'HR'), opp))
+          const now = await loadRoster(db())
+          expect(await installMatches(db(), ids[opp] as string, 1, open(opp), now)).toBe(0)
+          const { rows: record } = await session.admin.query(
+            `SELECT evaluated_inputs_version FROM job_opportunities WHERE id = $1`,
+            [ids[opp]],
+          )
+          expect(record).toEqual([
+            { evaluated_inputs_version: opportunityInputsVersion(now.exclusions) },
+          ])
+          expect(record[0].evaluated_inputs_version).not.toBe(opportunityInputsVersion(studio))
+          await expect(visible(await resolve('hrA', 'HR'), opp)).resolves.toBeUndefined()
+        } finally {
+          await session.admin.query(`DELETE FROM job_exclusion_filters WHERE id = $1`, [rows[0].id])
+          await installMatches(db(), ids[opp] as string, 1, open(opp), emptyRoster())
+        }
+      })
+
+      it('SR-M-1: a match rule deploy hides a granted item until it is evaluated at the new rule version', async () => {
+        const opp = 'oppGrant'
+        const a = await resolve('hrA', 'HR')
+        expect(a.kind).toBe('TEAM')
+        const deployed = {
+          ...(a as Extract<JobQueueScope, { kind: 'TEAM' }>),
+          inputsVersion: opportunityInputsVersion(studio, 'eval.2+l1.1'),
+        }
+        await expect(visible(a, opp)).resolves.toBeUndefined()
+        await expectNotFound(visible(deployed, opp))
+        // What a recompute after the deploy records; the old rule's scope then no longer sees it.
+        const stamp = (version: string) =>
+          session.admin.query(
+            `UPDATE job_opportunities SET evaluated_inputs_version = $2 WHERE id = $1`,
+            [ids[opp], version],
+          )
+        try {
+          await stamp(deployed.inputsVersion)
+          await expect(visible(deployed, opp)).resolves.toBeUndefined()
+          await expectNotFound(visible(a, opp))
+        } finally {
+          await stamp(opportunityInputsVersion(studio))
+        }
+      })
     })
 
     it('NONE sees nothing', async () => {

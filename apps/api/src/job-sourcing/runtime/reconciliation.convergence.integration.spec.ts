@@ -19,6 +19,7 @@ import { hasDatabaseUrl } from '../../test/require-real-db'
 import {
   AVAILABILITY_REASON_PREFIX,
   claimDirtyBatch,
+  enqueueDirty,
   recoverExpiredDirty,
 } from '../ownership/dirty-work.store'
 import { JobRunLedger } from '../ownership/job-run-ledger'
@@ -237,6 +238,110 @@ describe.skipIf(!hasDatabaseUrl())(
         skipped: 1,
       })
       expect((await dirtyOf(o)).length).toBe(1)
+    }, 60_000)
+
+    it('SR-M-2: an opportunity with fresh rows and no evaluation record (the staged-DDL backfill) is recomputed once', async () => {
+      const o = await opportunity('backfill')
+      await makeStale(o)
+      await sweep(o)
+      expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+      // A plain DONE row exists, the rows are fresh: without the EVAL lineage nothing would run.
+      await session.admin.query(
+        `UPDATE job_opportunities SET evaluated_revision = NULL, evaluation_verdict = NULL, evaluated_inputs_version = NULL WHERE id = $1`,
+        [o],
+      )
+      expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
+      expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+      const { rows } = await session.admin.query(
+        `SELECT revision, evaluated_revision, evaluation_verdict FROM job_opportunities WHERE id = $1`,
+        [o],
+      )
+      expect(rows[0]).toEqual({ revision: 1, evaluated_revision: 1, evaluation_verdict: 'OPEN' })
+      expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 0, enqueued: 0, skipped: 0 })
+    }, 60_000)
+
+    it('SR-M-2: an unevaluated revision is stale only while availability is OPEN or UNKNOWN', async () => {
+      const o = await opportunity('availability')
+      const set = (availability: string) =>
+        session.admin.query(
+          `UPDATE job_opportunities
+              SET availability = $2, evaluated_revision = NULL, evaluation_verdict = NULL,
+                  evaluated_inputs_version = NULL
+            WHERE id = $1`,
+          [o, availability],
+        )
+      for (const closedLabel of ['CLOSED', 'EXPIRED']) {
+        await set(closedLabel)
+        expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 0, enqueued: 0 })
+      }
+      await set('OPEN')
+      expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 1 })
+      // The row OPEN enqueued is still in flight, so UNKNOWN counts as stale without a second row.
+      await set('UNKNOWN')
+      expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 0, skipped: 1 })
+      await runMine() // leaves nothing pending for the next case
+    }, 60_000)
+
+    it('SR-M-2 / SR-L-1: a studio keyword change re-enqueues a converged zero-row opportunity under a new EVAL lineage', async () => {
+      const o = await opportunity('inputs-change', true)
+      await sweep(o)
+      await runMine()
+      // Converged: the plain lineage is DONE and the record is at the live inputs version.
+      expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 0, skipped: 1 })
+      const recorded = async () => {
+        const { rows } = await session.admin.query(
+          `SELECT evaluated_inputs_version FROM job_opportunities WHERE id = $1`,
+          [o],
+        )
+        return rows[0]?.evaluated_inputs_version as string
+      }
+      const before = await recorded()
+      const { rows } = await session.admin.query(
+        `INSERT INTO job_exclusion_filters (senior_id, kind, value, normalized_value)
+         VALUES (NULL, 'KEYWORD', $1, $1) RETURNING id`,
+        [`${PREFIX}-kw-${TAG}`],
+      )
+      try {
+        expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
+        expect((await dirtyOf(o)).at(-1)?.reason).toMatch(/^RECONCILE:EVAL:[0-9a-f]{16}:/)
+        await runMine()
+        expect(await recorded()).not.toBe(before)
+        // Evaluated now, but the studio keyword also changed every senior's exclusion version, so
+        // the roster digest of the PLAIN lineage is new and has no DONE: one more row, not EVAL.
+        expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
+        expect((await dirtyOf(o)).at(-1)?.reason).toMatch(/^RECONCILE:[0-9a-f]{16}:[0-9a-f]{16}$/)
+        await runMine()
+        // Both lineages are DONE for these inputs: converged, nothing more is enqueued.
+        expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 0, skipped: 1 })
+        expect(await sweep(o, T0 + 5 * PERIOD_MS)).toMatchObject({ enqueued: 0, skipped: 1 })
+      } finally {
+        await session.admin.query(`DELETE FROM job_exclusion_filters WHERE id = $1`, [rows[0].id])
+      }
+    }, 60_000)
+
+    it('SR-M-2: a real recompute of a closed posting records EXCLUDED with its rows, in one transaction', async () => {
+      const o = await opportunity('excluded-verdict')
+      await session.admin.query(
+        `UPDATE job_opportunities SET availability = 'CLOSED', revision = 2 WHERE id = $1`,
+        [o],
+      )
+      await enqueueDirty(db, 'OPPORTUNITY', o, 2, 'SR-M-2-SPEC')
+      expect(await runMine()).toMatchObject({ failed: 0 })
+      const { rows } = await session.admin.query(
+        `SELECT revision, evaluated_revision, evaluation_verdict FROM job_opportunities WHERE id = $1`,
+        [o],
+      )
+      expect(rows[0]).toEqual({
+        revision: 2,
+        evaluated_revision: 2,
+        evaluation_verdict: 'EXCLUDED',
+      })
+      const { rows: mine } = await session.admin.query(
+        `SELECT opportunity_revision, outcome FROM job_opportunity_matches
+          WHERE opportunity_id = $1 AND senior_id = $2`,
+        [o, senior],
+      )
+      expect(mine).toEqual([{ opportunity_revision: 2, outcome: 'EXCLUDED' }])
     }, 60_000)
 
     it('CR-M-4 / SR-M-3: an always-failing opportunity is retried up to the cap, then no more; a new revision resets it', async () => {

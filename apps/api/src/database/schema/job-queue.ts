@@ -42,7 +42,7 @@
  *     target must be eligible" obligation is void; no path writes `REASSIGNED`;
  *   - no team ever learns of another team's activity: a foreign submission,
  *     dismissal or click is indistinguishable from none (no taken state, no
- *     count, no name) — with ONE exception pending the owner's A3 decision: a
+ *     count, no name) — with ONE exception, owner decision A3 (2026-11-04): a
  *     senior shared by several teams (see the PROMOTION GATE on
  *     `jobQueueAssignments`);
  *   - SR-L-3: an EXPIRED published generation is never served
@@ -206,7 +206,7 @@ const TRIAGE_KINDS = sql.raw(
  * seniors (of one team or of several) may be submitted to one opportunity
  * independently, and two concurrent first submissions of the SAME senior both
  * INSERT and one gets 23505. The row is kept on cancel (`RELEASED`), so a
- * re-submission is an UPDATE. The schema supplies the `version` column; that a
+ * re-submission by the same team is an UPDATE. The schema supplies the `version` column; that a
  * re-submission NAMES the expected version in its WHERE clause (the thing
  * that serializes two re-submissions) is a Phase-6 obligation, as is bumping
  * `version` on every mutation.
@@ -219,14 +219,13 @@ const TRIAGE_KINDS = sql.raw(
  * actor column here) and carries the same (opportunity, senior) key the match
  * row is keyed on, which is what lets a read join the two.
  *
- * PROMOTION GATE (owner decision A3, open): a senior may belong to several
- * teams, so UNIQUE(opportunity, senior) lets team B learn of team A's
- * submission through a 23505 and re-submit A's cancelled row. Under option
- * (a) "a submission is a fact about the senior" this key stands and B sees
- * only a bare "submitted elsewhere" marker; under option (b) "per team" the
- * key becomes (opportunity, senior, team) with `team_id` NOT NULL for team
- * rows. The staged DDL must not be promoted, nor the submit path shipped,
- * before the owner answers (see the staged file's header).
+ * PROMOTION GATE (owner decision A3, answered 2026-11-04, option (a)): a senior
+ * may belong to several teams, and a submission is a fact about the senior: it
+ * is shown to every team the senior belongs to, without a name, and another
+ * team sees only `{ submittedElsewhere: true }`. UNIQUE(opportunity, senior)
+ * stands and the submit path is unblocked. What remains before promoting the
+ * staged DDL is re-measuring that this table is empty on production (see the
+ * staged file's header).
  *
  * `assignee_id` is now the ACTOR who logged the submission, never shown
  * outside that actor's team. The `reassigned_*` triple is DEAD: ADMIN reassign
@@ -243,10 +242,16 @@ const TRIAGE_KINDS = sql.raw(
  * submission's `senior_id` must be an active, non-archived SENIOR member of
  * that team, re-checked inside the write transaction (a CHECK cannot see
  * membership); a recruiter cancels only their own team's submission, an ADMIN
- * any; a read never discloses another team's submission in ANY form — no
+ * any; a read never discloses another team's submission in any form — no
  * "already taken" state, no count, no name: foreign activity is
  * indistinguishable from none (`jobQueueAssignmentSchema` carries no actor and
- * no team for that reason); the submit transaction locks the target and its
+ * no team for that reason) — with the ONE A3 exception: another team's LIVE
+ * submission of a senior shared by both teams shows as the bare
+ * `{ submittedElsewhere: true }`. A cancelled foreign submission shows nothing
+ * at all. A re-submission by the row's own team is the versioned UPDATE above;
+ * by another team it is a DELETE plus an INSERT in one transaction, so that
+ * team gets a new id and version 1 (`job_queue_actions` has no FK to this
+ * table, so the audit survives); the submit transaction locks the target and its
  * possible-duplicate set in sorted id order.
  */
 export const jobQueueAssignments = pgTable(

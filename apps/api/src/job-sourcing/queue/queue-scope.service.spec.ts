@@ -72,6 +72,8 @@ const teamAScope: JobQueueScope = {
   teamId: TEAM_A,
   seniorIds: [SEN_1],
   versions: [SEN_1_VERSIONS],
+  // opportunityInputsVersion of no studio keyword at MATCH_RULE_VERSION 'eval.1+l1.1' (SR-M-1).
+  inputsVersion: 'd17b306752496d748fc03a559dc4b784',
 }
 
 async function expectCode(p: Promise<unknown>, status: number, code: string): Promise<void> {
@@ -157,15 +159,35 @@ describe('JobQueueScopeService.resolve', () => {
     await expect(svc.resolve(user('HR'), TEAM_A.toUpperCase())).resolves.toEqual(teamAScope)
   })
 
-  it('a team with no matchable senior has empty seniors and versions (roster read stops early)', async () => {
-    const { svc, execute } = harness([{ id: TEAM_A }], [])
+  it('a team with no matchable senior has empty seniors and versions', async () => {
+    const { svc, execute } = harness([{ id: TEAM_A }], [], [], [])
     await expect(svc.resolve(user('HR'), TEAM_A)).resolves.toEqual({
       kind: 'TEAM',
       teamId: TEAM_A,
       seniorIds: [],
       versions: [],
+      inputsVersion: 'd17b306752496d748fc03a559dc4b784',
     })
-    expect(execute).toHaveBeenCalledTimes(2)
+    // The team lookup, then loadRoster's three reads: it no longer stops early on an empty roster.
+    expect(execute).toHaveBeenCalledTimes(4)
+  })
+
+  it('SR-M-1: the scope carries the live inputs version of the studio keywords, even with no senior', async () => {
+    const studioPhp = {
+      id: 'x1',
+      senior_id: null,
+      kind: 'KEYWORD',
+      value: 'php',
+      normalized_value: 'php',
+      created_at: '2026-01-01T00:00:00.000Z',
+    }
+    const { svc } = harness([{ id: TEAM_A }], [], [studioPhp], [])
+    await expect(svc.resolve(user('HR'), TEAM_A)).resolves.toMatchObject({
+      kind: 'TEAM',
+      seniorIds: [],
+      // opportunityInputsVersion of the keyword 'php' at MATCH_RULE_VERSION 'eval.1+l1.1'.
+      inputsVersion: '3c8e35dd4ec830658915a6ef7b6bb6c0',
+    })
   })
 
   it('HR naming a foreign team is NONE (not 403/404), and no roster is read', async () => {
@@ -257,6 +279,18 @@ describe('describeFailure', () => {
     // both absent / not strings
     [new Error('x', { cause: { code: 57 } }), 'Error'],
     [Object.assign(new Error('x'), { code: 23505 }), 'Error'],
+    // SR-L-6: only a SQLSTATE / errno shape is logged, a free-text `code` is not
+    [Object.assign(new Error('x'), { code: 'ECONNRESET' }), 'Error, code ECONNRESET'],
+    [Object.assign(new Error('x'), { code: 'ERR_TLS_CERT_01' }), 'Error, code ERR_TLS_CERT_01'],
+    [Object.assign(new Error('x'), { code: 'A'.repeat(32) }), `Error, code ${'A'.repeat(32)}`],
+    [Object.assign(new Error('x'), { code: 'A'.repeat(33) }), 'Error'],
+    [Object.assign(new Error('x'), { code: '' }), 'Error'],
+    [Object.assign(new Error('x'), { code: 'secret@example.test' }), 'Error'],
+    [Object.assign(new Error('x'), { code: 'lowercase' }), 'Error'],
+    [Object.assign(new Error('x'), { code: ' 23505' }), 'Error'],
+    [Object.assign(new Error('x'), { code: '23505 ' }), 'Error'],
+    [Object.assign(new Error('x'), { code: '23505\nparams: secret' }), 'Error'],
+    [new Error('x', { cause: { code: 'params: secret' } }), 'Error'],
     [new Error('x', { cause: null }), 'Error'],
     [new Error('x', { cause: 'text' }), 'Error'],
     [42, 'number'],

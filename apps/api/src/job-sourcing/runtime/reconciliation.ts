@@ -2,7 +2,12 @@ import { createHash } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { dirtyConsumerOf, enqueueDirty } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
-import { MATCH_RULE_VERSION, type SeniorVersions, loadRoster } from './recompute-inputs'
+import {
+  MATCH_RULE_VERSION,
+  type SeniorVersions,
+  loadRoster,
+  opportunityInputsVersion,
+} from './recompute-inputs'
 
 /**
  * Periodic full reconciliation of job matches (r5 Task 4.6 S4b).
@@ -46,6 +51,17 @@ import { MATCH_RULE_VERSION, type SeniorVersions, loadRoster } from './recompute
  * for it for ever. Once the lineage holds `RECONCILE_MAX_FAILED_PERIODS` FAILED/DEFERRED rows the
  * sweep stops and reports the opportunity as gave-up. The cap resets by itself: a new revision is a
  * new `target_version`, and a roster or stored-state change is a new reason digest.
+ *
+ * UNEVALUATED (SR-M-1, SR-M-2). An opportunity whose `evaluated_revision` is not its current
+ * revision, or whose `evaluated_inputs_version` is not the live `opportunityInputsVersion`, is stale
+ * too, even when its rows are fresh, under its own `RECONCILE:EVAL:` lineage keyed on the live inputs
+ * version: a DONE row from before the column existed, or from before a rule or studio exclusion
+ * change, must not suppress it. So a zero-row opportunity is re-enqueued after such a change, and
+ * an empty roster no longer hides a studio exclusion written outside the hooked services (SR-L-1).
+ * This is also the backfill of the staged DDL (every existing row starts NULL) and the repair of a
+ * revision bump whose producer row was lost. Only an
+ * OPEN or UNKNOWN opportunity counts: a grant hides CLOSED / EXPIRED from availability alone, and a
+ * reopen bumps the revision and enqueues its own recompute, so this shortens the backfill.
  *
  * The cron also runs `recoverExpiredDirty` first, so a crashed worker's expired lease becomes
  * PENDING (or FAILED, then retried as above) instead of staying CLAIMED for good.
@@ -200,16 +216,22 @@ export function isStale(
   })
 }
 
-/** The dirty reason: live roster digest + the stored fingerprint (see IDEMPOTENCE above). */
+/**
+ * The dirty reason: live roster digest + the stored fingerprint (see IDEMPOTENCE above). With
+ * `liveInputs` (the opportunity is unevaluated) it is the `RECONCILE:EVAL:` lineage, keyed also on
+ * the live `opportunityInputsVersion`, so a rule or exclusion change starts a new lineage.
+ */
 export function reconcileReason(
   live: ReadonlyMap<string, SeniorVersions>,
   matches: readonly StoredMatch[],
+  liveInputs: string | null = null,
 ): string {
   const roster = digest([...live].map(([id, v]) => `${id}|${v.profile}|${v.exclusion}`).sort())
   const stored = digest(
     matches.map((m) => `${m.seniorId}|${m.profile}|${m.exclusion}|${m.rule}`).sort(),
   )
-  return `RECONCILE:${roster}:${stored}`
+  const lineage = liveInputs === null ? '' : `EVAL:${digest(liveInputs)}:`
+  return `RECONCILE:${lineage}${roster}:${stored}`
 }
 
 /**
@@ -225,7 +247,9 @@ export async function reconcileOnce(
   const maxPages = options.maxPages ?? RECONCILE_MAX_PAGES
   // Stryker disable next-line StringLiteral: the message text only; the throw itself is asserted.
   if (!Number.isSafeInteger(pageSize) || pageSize < 1) throw new RangeError('pageSize must be >= 1')
-  const live = (await loadRoster(db)).versions
+  const roster = await loadRoster(db)
+  const live = roster.versions
+  const inputs = opportunityInputsVersion(roster.exclusions)
   let cursor = options.cursor ?? NIL_UUID
   let scanned = 0
   let stale = 0
@@ -243,6 +267,9 @@ export async function reconcileOnce(
   while (pages < maxPages) {
     const { rows } = await db.execute(
       sql`SELECT o.id, o.revision,
+                 ((o.evaluated_revision IS DISTINCT FROM o.revision
+                   OR o.evaluated_inputs_version IS DISTINCT FROM ${inputs})
+                  AND o.availability IN ('OPEN', 'UNKNOWN')) AS unevaluated,
                  COALESCE((SELECT jsonb_agg(jsonb_build_array(m.senior_id, m.senior_profile_version,
                                                               m.exclusion_version, m.rule_version))
                              FROM job_opportunity_matches m WHERE m.opportunity_id = o.id), '[]'::jsonb) AS matches,
@@ -258,9 +285,10 @@ export async function reconcileOnce(
       let verdict: { reason: string | null; gaveUp: boolean } | null = null
       try {
         const matches = parseMatches(row['matches'])
-        if (isStale(matches, live)) {
+        const unevaluated = row['unevaluated'] === true
+        if (unevaluated || isStale(matches, live)) {
           const dirty = parseDirty(row['dirty'])
-          const base = reconcileReason(live, matches)
+          const base = reconcileReason(live, matches, unevaluated ? inputs : null)
           verdict = { reason: enqueueReason(dirty, base, now()), gaveUp: hasGivenUp(dirty, base) }
         }
       } catch {

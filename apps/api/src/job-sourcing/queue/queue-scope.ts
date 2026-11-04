@@ -34,6 +34,11 @@ export type JobQueueScope =
        * match row grants visibility only when its stored versions equal these (SR-M-2).
        */
       readonly versions: readonly LiveSeniorVersion[]
+      /**
+       * The LIVE `opportunityInputsVersion` (rule version + studio-wide keyword exclusions). A
+       * grant shows an opportunity only while its recorded inputs version equals this (SR-M-1).
+       */
+      readonly inputsVersion: string
     }
   | { readonly kind: 'NONE' }
 
@@ -99,20 +104,15 @@ const liveTeam = (alias: string, teamId: string) =>
  *          `resolve`; a senior with no live version row grants nothing), for a senior who is
  *          right now an active, non-archived SENIOR member of the team; or
  *   GRANT  an unrevoked, unexpired explicit triage grant for the team, on an opportunity that is
- *          not CLOSED / EXPIRED and carries no opportunity-level exclusion at its current revision
- *          (an EXCLUDED row whose evidence stage is `CLASSIFICATION` or `GLOBAL_RESTRICTIONS` —
- *          `evaluate`'s two OPPORTUNITY-subject stages; a per-senior stop-list is
- *          `SCOPED_RESTRICTIONS` and does not hide the opportunity from the team, owner A1g). A
- *          grant is revision-independent: the schema states no revision rule for it.
- *          OPEN (SR-M-2, owner decision pending): the exclusion rows are written by the async
- *          recompute, and an evaluation that excludes nobody writes no row, so between a revision
- *          bump and its recompute — or for good when the roster is empty — a now-restricted
- *          opportunity still shows through a grant. No persisted "evaluated at this revision"
- *          marker exists to close it. Durable record: the SR-M-2 entry in
- *          `.claude/tasks/BACKLOG-followups.md` (grant branch fails open between a revision bump
- *          and the recompute; owner decision pending; Tasks 6.2/6.3/6.4 must not inject
- *          `JobQueueScopeService` before it). The fix must flip the integration case titled
- *          "PINNED OPEN (SR-M-2)" to a 404.
+ *          not CLOSED / EXPIRED and was evaluated OPEN at its CURRENT revision against the LIVE
+ *          inputs (SR-M-1 / SR-M-2, owner decisions 2026-11-04). `evaluated_revision`,
+ *          `evaluation_verdict` and `evaluated_inputs_version` are written by `installMatches`
+ *          with the match rows, including when there are no rows. A revision bump, a studio-wide
+ *          keyword exclusion change or a rule deploy hides the item at once, until its recompute
+ *          at the new inputs; NULL (never evaluated) hides it: this fails closed. The verdict is
+ *          opportunity-level (`opportunityVerdict`): a per-senior stop-list is
+ *          `SCOPED_RESTRICTIONS` and does not hide the opportunity from the team, owner A1g. The
+ *          grant itself is revision-independent: the schema states no revision rule for it.
  * A TRIAGE / unknown-stack verdict alone grants nothing (data quality, not a grant).
  *
  * NOT IN THIS PREDICATE — standing triage subscriptions (`job_team_triage_subscriptions`). A
@@ -158,12 +158,9 @@ export function visibleOpportunityPredicate(scope: JobQueueScope, opportunityId:
                          AND g.revoked_at IS NULL
                          AND g.expires_at > clock_timestamp()
                          AND gop.availability NOT IN ('CLOSED', 'EXPIRED')
-                         AND NOT EXISTS (SELECT 1 FROM job_opportunity_matches x
-                                          WHERE x.opportunity_id = gop.id
-                                            AND x.opportunity_revision = gop.revision
-                                            AND x.outcome = 'EXCLUDED'
-                                            AND x.evidence->>'stage'
-                                                IN ('CLASSIFICATION', 'GLOBAL_RESTRICTIONS'))
+                         AND gop.evaluated_revision = gop.revision
+                         AND gop.evaluation_verdict = 'OPEN'
+                         AND gop.evaluated_inputs_version = ${scope.inputsVersion}
                          AND ${liveTeam('gt', scope.teamId)}))`
 }
 

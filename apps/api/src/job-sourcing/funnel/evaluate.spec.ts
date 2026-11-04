@@ -17,6 +17,8 @@ import type { Layer1Input } from './layer1'
 import { rankScore } from './rank'
 import type { SeniorTechProfile } from './tech-match'
 
+import { opportunityVerdict } from '../runtime/recompute-inputs'
+
 /* fixtures */
 import type { JobExclusionDto } from '@crm/shared'
 
@@ -125,6 +127,47 @@ const cExcluded = () =>
     value: 'Acme',
     normalizedValue: 'acme',
   })
+
+describe('the opportunity-level verdict with an empty roster (SR-M-2)', () => {
+  const noRoster = { rosterSeniorIds: [], profiles: [] }
+  const verdictOf = (over: Partial<EvaluateInput>) =>
+    opportunityVerdict(evaluate(input({ ...noRoster, ...over })) as Evaluated | Excluded)
+
+  it('a plain posting evaluates without a per-senior loop: OPEN', () => {
+    expect(evaluate(input(noRoster)).kind).toBe('EVALUATED')
+    expect(verdictOf({})).toBe('OPEN')
+  })
+
+  it('a studio-wide exclusion excludes it', () => {
+    const exclusions = [exclusion({ value: 'java', normalizedValue: 'java' })]
+    expect(evaluate(input({ ...noRoster, exclusions })).kind).toBe('EXCLUDED')
+    expect(verdictOf({ exclusions })).toBe('EXCLUDED')
+  })
+
+  it('a closed posting excludes it', () => {
+    expect(verdictOf({ revision: javaRevision({ availability: 'CLOSED' }) })).toBe('EXCLUDED')
+  })
+
+  it('every senior stop-listed is NOT opportunity-level (owner A1g), though `kind` is EXCLUDED', () => {
+    const r = evaluate(
+      input({
+        rosterSeniorIds: [SENIOR_A],
+        profiles: [profile(SENIOR_A, ['java'], [TEAM_1])],
+        exclusions: [
+          exclusion({
+            scope: 'SENIOR',
+            seniorId: SENIOR_A,
+            kind: 'COMPANY',
+            value: 'Acme',
+            normalizedValue: 'acme',
+          }),
+        ],
+      }),
+    ) as Excluded
+    expect(r.kind).toBe('EXCLUDED')
+    expect(opportunityVerdict(r)).toBe('OPEN')
+  })
+})
 
 describe('evaluate: stage order (AC 1)', () => {
   it('traces every stage in order for a LEAD, each with a rule version', () => {

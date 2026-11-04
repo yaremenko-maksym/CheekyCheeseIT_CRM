@@ -270,6 +270,14 @@ describe('job_opportunities', () => {
       ]),
     )
   })
+  it('SR-M-1/2: the evaluated revision, verdict and inputs version are nullable, without a default, declared last', () => {
+    const evaluation = ['evaluated_revision', 'evaluation_verdict', 'evaluated_inputs_version']
+    expect(names(jobOpportunities).slice(-3)).toEqual(evaluation)
+    for (const name of evaluation) {
+      expect(col(jobOpportunities, name).notNull).toBe(false)
+      expect(col(jobOpportunities, name).hasDefault).toBe(false)
+    }
+  })
   it('employer is nullable (no employer invented from a slug) and unverified by default', () => {
     expect(col(jobOpportunities, 'employer_name').notNull).toBe(false)
     expect(col(jobOpportunities, 'employer_key').notNull).toBe(false)

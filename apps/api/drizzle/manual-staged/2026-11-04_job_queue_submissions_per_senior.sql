@@ -36,21 +36,15 @@
 -- Production DDL ships staged. It is DARK: `manual-staged/` is never applied in prod (deploy.yml
 -- refuses a file out of manual-staged/). Promotion and deploy wiring are an OWNER-ONLY later step.
 --
--- PROMOTION GATE — DO NOT PROMOTE UNTIL BOTH HOLD
--- -----------------------------------------------
---   1. OWNER DECISION (A3, open): `team_members` lets one senior belong to SEVERAL teams. With
---      UNIQUE(opportunity_id, senior_id), team B submitting a senior that team A already submitted
---      gets 23505 — which itself discloses A's activity — and B could re-submit (UPDATE) A's
---      cancelled row. The owner must choose:
---        (a) a submission is a fact about the SENIOR, shown to every team the senior is an active
---            member of (as a bare "submitted elsewhere" marker, never A's row) — this key stands;
---        (b) per-team submissions — the KEY CHANGES to UNIQUE(opportunity_id, senior_id, team_id)
---            and `team_id` must become NOT NULL for team rows (a STUDIO row has none), i.e. this
---            file is rewritten before promotion, not after.
---      Until the owner answers, this file must not be promoted and Phase 6 must not ship the
---      submit path.
---   2. `SELECT count(*) FROM job_queue_assignments` = 0 on production, re-measured immediately
---      before the apply.
+-- PROMOTION GATE
+-- --------------
+--   1. OWNER DECISION A3: ANSWERED 2026-11-04, option (a). `team_members` lets one senior belong to
+--      SEVERAL teams. A submission is a fact about the SENIOR: it is shown to every team the senior
+--      belongs to, without a name; another team sees only `{ submittedElsewhere: true }`, never the
+--      foreign row. UNIQUE(opportunity_id, senior_id) stands, so this file is promoted as written.
+--      The submit path is unblocked by this decision.
+--   2. STILL REQUIRED: `SELECT count(*) FROM job_queue_assignments` = 0 on production, re-measured
+--      immediately before the apply.
 --
 -- APPLY WITH `psql -v ON_ERROR_STOP=1 --single-transaction -f <this file>`: `SET LOCAL
 -- lock_timeout` only binds inside a transaction, and the closing check is all-or-nothing only if

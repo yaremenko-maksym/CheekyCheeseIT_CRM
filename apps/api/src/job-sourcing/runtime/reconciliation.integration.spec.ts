@@ -9,7 +9,7 @@ import {
 import * as schema from '../../database/schema'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import type { SqlExecutor } from '../scheduling/host-state'
-import { MATCH_RULE_VERSION, loadRoster } from './recompute-inputs'
+import { MATCH_RULE_VERSION, loadRoster, opportunityInputsVersion } from './recompute-inputs'
 import { reconcileOnce } from './reconciliation'
 
 /**
@@ -98,13 +98,22 @@ describe.skipIf(!hasDatabaseUrl())('match reconciliation against Postgres (Task 
       team,
       senior,
     ])
-    const live = (await loadRoster(db)).versions.get(senior)
+    const roster = await loadRoster(db)
+    const live = roster.versions.get(senior)
     if (live === undefined) throw new Error('the spec senior is not in the roster')
     mine.fresh = await opportunity('fresh')
     mine.stale = await opportunity('stale')
     mine.none = await opportunity('none')
     mine.old = await opportunity('old', `now() - interval '40 days'`)
     await match(mine.fresh, live.profile, live.exclusion)
+    // Fresh also means evaluated at its current revision against the live inputs (SR-M-1/2); the
+    // others stale either way.
+    await session.admin.query(
+      `UPDATE job_opportunities
+          SET evaluated_revision = 1, evaluation_verdict = 'OPEN', evaluated_inputs_version = $2
+        WHERE id = $1`,
+      [mine.fresh, opportunityInputsVersion(roster.exclusions)],
+    )
     await match(mine.stale, 'OLD-PROFILE', live.exclusion)
     await match(mine.old, live.profile, 'OLD-EXCLUSION')
   })
