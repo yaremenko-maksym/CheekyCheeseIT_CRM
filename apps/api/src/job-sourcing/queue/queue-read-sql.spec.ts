@@ -85,8 +85,8 @@ describe('listFilters', () => {
 describe('filterIdentity', () => {
   it('ignores list order and id case, and not much else', () => {
     expect(
-      filterIdentity(query({ source: ['DOU_RSS', 'ASHBY'], seniorId: SEN.toUpperCase() })),
-    ).toEqual(filterIdentity(query({ source: ['ASHBY', 'DOU_RSS'], seniorId: SEN })))
+      filterIdentity(query({ source: ['DOU_RSS', 'REMOTEOK_API'], seniorId: SEN.toUpperCase() })),
+    ).toEqual(filterIdentity(query({ source: ['REMOTEOK_API', 'DOU_RSS'], seniorId: SEN })))
   })
   it('holds every filter, with the absent ones explicit', () => {
     expect(filterIdentity(query())).toEqual(['NEW', null, [], [], [], [], null])
@@ -95,7 +95,7 @@ describe('filterIdentity', () => {
         query({
           tab: 'HIDDEN',
           search: 's',
-          source: ['ASHBY'],
+          source: ['REMOTEOK_API'],
           eligibility: ['TRIAGE', 'LEAD'],
           availability: ['OPEN', 'CLOSED'],
           activity: ['OPENED', 'NOT_OPENED'],
@@ -105,7 +105,7 @@ describe('filterIdentity', () => {
     ).toEqual([
       'HIDDEN',
       's',
-      ['ASHBY'],
+      ['REMOTEOK_API'],
       ['LEAD', 'TRIAGE'],
       ['CLOSED', 'OPEN'],
       ['NOT_OPENED', 'OPENED'],

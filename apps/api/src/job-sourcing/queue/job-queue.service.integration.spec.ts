@@ -28,8 +28,7 @@ import { JobQueueScopeService } from './queue-scope.service'
  * dismissals, clicks and a much higher score sit on the same opportunities team A reads, and each
  * case asserts they are absent from the RAW JSON, counts included, not merely unparsed.
  *
- * STUDIO CASES NEVER PAGE: a STUDIO signature digests the whole roster, and a sibling spec adding a
- * senior mid-run would refresh a studio cursor. They stay on one page, filtered by this run's TAG.
+ * STUDIO cases stay on one page, filtered by this run's TAG: a STUDIO generation spans the database.
  */
 const TAG = `qsvc${randomUUID().slice(0, 8)}`
 const SECRET = 'integration-secret-integration-secret'
@@ -115,7 +114,9 @@ function match(opp: string, senior: string, outcome: string, evidence: Record<st
     `INSERT INTO job_opportunity_matches
        (opportunity_id, senior_id, opportunity_revision, senior_profile_version,
         exclusion_version, rule_version, outcome, evidence)
-     SELECT $1, $2, o.revision, $3, $4, $5, $6, $7 FROM job_opportunities o WHERE o.id = $1`,
+     SELECT $1::uuid, $2::uuid, o.revision, $3::text, $4::text, $5::text,
+            $6::job_opportunity_match_outcome, $7::jsonb
+       FROM job_opportunities o WHERE o.id = $1::uuid`,
     [
       id(opp),
       id(senior),
@@ -240,7 +241,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
          INSERT INTO users (email, display_name, role, tech_stack)
          SELECT $1 || '-big' || g || '@example.test', $1 || ' big ' || g, 'SENIOR', ARRAY['Go']
            FROM generate_series(1, 205) g RETURNING id)
-       INSERT INTO team_members (team_id, user_id) SELECT $2, id FROM made`,
+       INSERT INTO team_members (team_id, user_id) SELECT $2::uuid, id FROM made`,
       [TAG, id('teamBig')],
     )
     live = (await loadRoster(session.databaseService.db)).versions
@@ -279,6 +280,15 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
         [`${TAG}%`],
       )
       await sqlq(`DELETE FROM job_queue_generations WHERE team_id IN (${teams})`, [`${TAG}%`])
+      // Files run one at a time, and only one STUDIO generation may be PUBLISHED in the database:
+      // the schema spec publishes its own, so this run must not leave one behind.
+      await sqlq(
+        `UPDATE job_queue_generations SET status = 'INVALIDATED', invalidated_at = now()
+          WHERE scope_kind = 'STUDIO' AND status = 'PUBLISHED'`,
+      )
+      await sqlq(
+        `DELETE FROM job_queue_generations WHERE scope_kind = 'STUDIO' AND status = 'INVALIDATED'`,
+      )
       const opps = `SELECT id FROM job_opportunities WHERE title LIKE $1`
       await sqlq(`DELETE FROM job_queue_assignments WHERE opportunity_id IN (${opps})`, [`${TAG}%`])
       await sqlq(`DELETE FROM job_opportunity_sources WHERE opportunity_id IN (${opps})`, [
@@ -594,16 +604,18 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       const paged = await service.list(hrA(), q({ limit: 1 }))
       expect(paged.nextCursor).not.toBeNull()
       const [old] = await publishedOf('teamA')
-      await sqlq(
-        `UPDATE job_queue_generations SET evaluated_at = now() - interval '2 hours', expires_at = now() - interval '1 hour'
-          WHERE id = $1`,
-        [old],
-      )
-      expect(await refusal(service.list(hrA(), q({ limit: 1, cursor: paged.nextCursor })))).toEqual(
-        REFRESH,
-      )
-      await service.list(hrA(), q())
+      // `expires_at` is frozen by the Task 1.3 trigger, so the clock moves instead of the row.
+      vi.useFakeTimers({ now: Date.now() + 16 * 60 * 1000, toFake: ['Date'] })
+      try {
+        expect(
+          await refusal(service.list(hrA(), q({ limit: 1, cursor: paged.nextCursor }))),
+        ).toEqual(REFRESH)
+        await service.list(hrA(), q())
+      } finally {
+        vi.useRealTimers()
+      }
       const [fresh] = await publishedOf('teamA')
+      expect(fresh).toBeDefined()
       expect(fresh).not.toBe(old)
     })
   })
