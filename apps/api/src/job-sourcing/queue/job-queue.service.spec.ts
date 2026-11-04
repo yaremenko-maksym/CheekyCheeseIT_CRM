@@ -138,9 +138,9 @@ const listSignature = (q: JobQueueListQuery, actor = ACTOR) =>
 const FAR = Math.floor(new Date('2026-11-04T12:15:00.000Z').getTime() / 1000)
 const listCursor = (q: JobQueueListQuery, over: Partial<QueueCursor> = {}) =>
   signCursor({ t: 'L', g: GEN, k: 7, s: listSignature(q), e: FAR, ...over } as QueueCursor, SECRET)
-const continuationSig = requestSignature([ACTOR, policySignature(teamScope, versions), OPP])
+const continuationSig = () => requestSignature([ACTOR, policySignature(teamScope, versions), OPP])
 const seekCursor = (t: 'SRC' | 'SEN', over: Partial<QueueCursor> = {}) =>
-  signCursor({ t, g: OPP, k: SEN, s: continuationSig, e: FAR, ...over } as QueueCursor, SECRET)
+  signCursor({ t, g: OPP, k: SEN, s: continuationSig(), e: FAR, ...over } as QueueCursor, SECRET)
 
 beforeEach(() => {
   vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
@@ -640,14 +640,14 @@ describe('JobQueueService.card', () => {
       t: 'SEN',
       g: OPP,
       k: uuidOf(199),
-      s: continuationSig,
+      s: continuationSig(),
       e,
     })
     expect(parseCursor(card.sources.nextCursor as string, 'SRC', SECRET)).toEqual({
       t: 'SRC',
       g: OPP,
       k: uuidOf(19),
-      s: continuationSig,
+      s: continuationSig(),
       e,
     })
   })

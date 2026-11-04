@@ -126,16 +126,16 @@ describe('filterIdentity', () => {
 })
 
 describe('policySignature', () => {
-  const base = policySignature(team, versions)
+  const base = () => policySignature(team, versions)
   it('is a hex digest the generation column can hold', () => {
-    expect(base).toMatch(/^[0-9a-f]{64}$/)
+    expect(base()).toMatch(/^[0-9a-f]{64}$/)
   })
   it('is the sha-256 of the kind, the team, the rule version and the versions', () => {
     const json = JSON.stringify(['TEAM', TEAM, MATCH_RULE_VERSION, versions])
     expect(policySignature(team, versions)).toBe(createHash('sha256').update(json).digest('hex'))
   })
   it('is stable for the same inputs', () => {
-    expect(policySignature({ ...team }, [...versions])).toBe(base)
+    expect(policySignature({ ...team }, [...versions])).toBe(base())
   })
   it.each([
     ['another team', { ...team, teamId: TEAM_2 } as JobQueueScope, versions],
@@ -144,7 +144,7 @@ describe('policySignature', () => {
     ['another exclusion version', team, [{ ...versions[0], exclusion: 'e2' }]],
     ['a roster without the senior', team, []],
   ])('changes with %s', (_label, scope, v) => {
-    expect(policySignature(scope, v as LiveSeniorVersion[])).not.toBe(base)
+    expect(policySignature(scope, v as LiveSeniorVersion[])).not.toBe(base())
   })
 })
 
