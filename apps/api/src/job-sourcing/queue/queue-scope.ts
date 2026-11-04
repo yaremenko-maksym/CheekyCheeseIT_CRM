@@ -108,7 +108,11 @@ const liveTeam = (alias: string, teamId: string) =>
  *          recompute, and an evaluation that excludes nobody writes no row, so between a revision
  *          bump and its recompute — or for good when the roster is empty — a now-restricted
  *          opportunity still shows through a grant. No persisted "evaluated at this revision"
- *          marker exists to close it; see `.claude/tasks/task-vacancy-6-1-sr-m-2.blocked.md`.
+ *          marker exists to close it. Durable record: the SR-M-2 entry in
+ *          `.claude/tasks/BACKLOG-followups.md` (grant branch fails open between a revision bump
+ *          and the recompute; owner decision pending; Tasks 6.2/6.3/6.4 must not inject
+ *          `JobQueueScopeService` before it). The fix must flip the integration case titled
+ *          "PINNED OPEN (SR-M-2)" to a 404.
  * A TRIAGE / unknown-stack verdict alone grants nothing (data quality, not a grant).
  *
  * NOT IN THIS PREDICATE — standing triage subscriptions (`job_team_triage_subscriptions`). A

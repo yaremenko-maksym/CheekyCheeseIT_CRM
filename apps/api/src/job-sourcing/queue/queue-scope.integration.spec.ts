@@ -386,13 +386,16 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
     })
 
     /**
-     * SR-M-2 — OPEN GAP, PINNED, NOT FIXED: no persisted marker says "evaluated at the current
-     * revision" (an evaluation with no excluded senior and no LEAD writes no row), so a grant still
-     * shows an opportunity whose current revision has not been evaluated yet, and one with no rows
-     * at all. Decision pending: `.claude/tasks/task-vacancy-6-1-sr-m-2.blocked.md`. When it is
-     * decided, flip these two expectations to 404.
+     * DELIBERATE PIN OF KNOWN-OPEN, UNWANTED BEHAVIOUR — NOT A SPEC OF WHAT IS RIGHT. No persisted
+     * marker says "evaluated at the current revision" (an evaluation with no excluded senior and no
+     * LEAD writes no row), so a grant still shows an opportunity whose current revision has not
+     * been evaluated yet, and one with no rows at all. Durable record: the SR-M-2 entry in
+     * `.claude/tasks/BACKLOG-followups.md` (grant branch fails open between a revision bump and
+     * the recompute; owner decision pending; Tasks 6.2/6.3/6.4 must not inject
+     * `JobQueueScopeService` before it). The SR-M-2 fix MUST flip both expectations below to
+     * `expectNotFound`; this case exists so that fix cannot land without touching it.
      */
-    it('SR-M-2 gap: a grant still shows a bumped, not-yet-recomputed item and a no-rows item', async () => {
+    it('PINNED OPEN (SR-M-2): flip to expectNotFound with the fix — a grant still shows a bumped, not-yet-recomputed item and a no-rows item', async () => {
       const a = await resolve('hrA', 'HR')
       await expect(visible(a, 'oppGrantBumped')).resolves.toBeUndefined()
       await expect(visible(a, 'oppGrantNoRows')).resolves.toBeUndefined()
