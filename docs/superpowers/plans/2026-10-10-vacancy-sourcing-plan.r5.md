@@ -1206,7 +1206,9 @@ order and the backfill). Until the recompute reaches an existing opportunity, a 
   opportunity carries a SUPPRESSED row it is absent from every TEAM list, card, sources and seniors continuation
   (a 404 on direct reads), while ADMIN still opens it by id. Without a visibility term the suppress route would ship
   as a takedown that takes nothing down (fail-open). The RBAC spec seeds a suppressed opportunity and reads it as a
-  granted team.
+  granted team. The same term must cover the write paths: Task 6.3 does not have it (`visibleOpportunityPredicate`
+  has no suppression term and the actions service never reads a SUPPRESSED row), so this task adds it, and submit,
+  dismiss and opened on a suppressed opportunity are 404 for TEAM scopes; the RBAC spec asserts each.
 - Every `:id` and `:teamId` goes through `ParseUUIDPipe` (or `z.uuid()` in the DTO); query strings are parsed by a
   schema with `.parse`, never read raw; a missing or invalid session is a 401 from the guard chain, not from the
   service body.
