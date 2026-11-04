@@ -1,4 +1,4 @@
-import { promises as nodeFs } from 'node:fs'
+import { constants, promises as nodeFs } from 'node:fs'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 import { parseJsonOrNull } from '../internal/chat-completions'
@@ -21,12 +21,15 @@ const retiredEntry = z
   .object({ provider, model: z.string(), code: z.literal('RETIRED'), at: z.iso.datetime() })
   .strict()
   .refine(validModel)
+type SpentEntry = z.infer<typeof spentEntry>
+type RetiredEntry = z.infer<typeof retiredEntry>
 
-const routeStateSchema = z
+/** The document as loaded: list entries are checked one by one, so one bad entry drops only itself. */
+const routeStateDocument = z
   .object({
     version: z.literal(1),
-    spent: z.array(spentEntry).max(MAX_STATE_ENTRIES),
-    retired: z.array(retiredEntry).max(MAX_STATE_ENTRIES),
+    spent: z.array(z.unknown()).max(MAX_STATE_ENTRIES),
+    retired: z.array(z.unknown()).max(MAX_STATE_ENTRIES),
     providers: z
       .array(
         z
@@ -49,8 +52,21 @@ const routeStateSchema = z
   })
   .strict()
 
-export type RouteState = z.infer<typeof routeStateSchema>
-export type ProviderRecord = RouteState['providers'][number]
+export type ProviderRecord = z.infer<typeof routeStateDocument>['providers'][number]
+export type RouteState = {
+  version: 1
+  spent: SpentEntry[]
+  retired: RetiredEntry[]
+  providers: ProviderRecord[]
+}
+
+/** Keeps the entries `schema` accepts; the count of the others is reported, never their content. */
+function validEntries<T>(list: unknown[], schema: z.ZodType<T>): T[] {
+  return list.flatMap((e) => {
+    const r = schema.safeParse(e)
+    return r.success ? [r.data] : []
+  })
+}
 
 export const EMPTY_ROUTE_STATE: RouteState = { version: 1, spent: [], retired: [], providers: [] }
 
@@ -66,6 +82,8 @@ export type StateEvent =
       store: 'route-state' | 'managed-list'
       reason: 'invalid' | 'oversized' | 'unreadable'
     }
+  /** Entries that failed validation were dropped; the rest of the file was kept (§3.2). */
+  | { type: 'STATE_ENTRIES_DROPPED'; store: 'route-state'; count: number }
   | { type: 'STATE_WRITE_FAILED'; store: 'route-state' }
 
 /**
@@ -91,48 +109,78 @@ export function createMemoryRouteStatePort(
   }
 }
 
-/** The slice of `fs.promises` the file adapters use; a fake replaces it in tests. */
+/** The slice of a `fs.promises` file handle the file adapters use. */
+export type StateFileHandle = {
+  stat(): Promise<{ size: number }>
+  read(
+    buffer: Uint8Array,
+    offset: number,
+    length: number,
+    position: number,
+  ): Promise<{ bytesRead: number }>
+  writeFile(data: string): Promise<void>
+  sync(): Promise<void>
+  close(): Promise<void>
+}
+
+/** The slice of `fs.promises` the file adapters use; `node:fs` satisfies it, a fake replaces it in tests. */
 export type StateFs = {
-  stat(path: string): Promise<{ size: number }>
-  readFile(path: string): Promise<Uint8Array>
-  open(
-    path: string,
-    flags: string,
-    mode?: number,
-  ): Promise<{
-    writeFile(data: string): Promise<void>
-    sync(): Promise<void>
-    close(): Promise<void>
-  }>
+  open(path: string, flags: number, mode?: number): Promise<StateFileHandle>
   rename(from: string, to: string): Promise<void>
 }
+
+/** A symlink planted at the state path or its temp file is never followed (SR-L-67); Windows has no flag. */
+const NO_FOLLOW = constants.O_NOFOLLOW ?? 0
+export const STATE_READ_FLAGS = constants.O_RDONLY | NO_FOLLOW
+export const STATE_WRITE_FLAGS =
+  constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | NO_FOLLOW
 
 export type StateFileOptions = {
   path: string
   now: () => number
   fs?: StateFs
-  onEvent?: (e: StateEvent) => void
+  /** Mandatory (ADR §3.2, §5.3): a reset or a failed write is never silent. */
+  onEvent: (e: StateEvent) => void
 }
 
 type ReadOutcome =
   { kind: 'missing' } | { kind: 'text'; text: string } | { kind: 'oversized' | 'unreadable' }
 
-/** Reads a state file as text, the byte ceiling checked before the read. */
+const errnoOf = (err: unknown): unknown => (err as { code?: unknown } | null)?.code
+
+/**
+ * Reads a state file as text through one handle: the size is checked on the open file and at
+ * most `MAX_STATE_BYTES + 1` bytes are ever read, so a file that grows after the check is still refused.
+ */
 export async function readStateText(fs: StateFs, path: string): Promise<ReadOutcome> {
+  let file: StateFileHandle
   try {
-    if ((await fs.stat(path)).size > MAX_STATE_BYTES) return { kind: 'oversized' }
-    return { kind: 'text', text: new TextDecoder().decode(await fs.readFile(path)) }
+    file = await fs.open(path, STATE_READ_FLAGS)
   } catch (err) {
-    return (err as { code?: unknown }).code === 'ENOENT'
-      ? { kind: 'missing' }
-      : { kind: 'unreadable' }
+    return errnoOf(err) === 'ENOENT' ? { kind: 'missing' } : { kind: 'unreadable' }
+  }
+  try {
+    if ((await file.stat()).size > MAX_STATE_BYTES) return { kind: 'oversized' }
+    const buf = new Uint8Array(MAX_STATE_BYTES + 1)
+    let total = 0
+    for (;;) {
+      const { bytesRead } = await file.read(buf, total, buf.length - total, total)
+      if (bytesRead === 0) break
+      total += bytesRead
+      if (total > MAX_STATE_BYTES) return { kind: 'oversized' }
+    }
+    return { kind: 'text', text: new TextDecoder().decode(buf.subarray(0, total)) }
+  } catch {
+    return { kind: 'unreadable' }
+  } finally {
+    await file.close().catch(() => undefined)
   }
 }
 
 /** Durable atomic replace: a `0600` temp file in the same directory, fsync, rename, fsync the directory. */
 async function writeAtomic(fs: StateFs, path: string, data: string): Promise<void> {
   const tmp = `${path}.tmp`
-  const file = await fs.open(tmp, 'w', 0o600)
+  const file = await fs.open(tmp, STATE_WRITE_FLAGS, 0o600)
   try {
     await file.writeFile(data)
     await file.sync()
@@ -141,7 +189,7 @@ async function writeAtomic(fs: StateFs, path: string, data: string): Promise<voi
   }
   await fs.rename(tmp, path)
   try {
-    const dir = await fs.open(dirname(path), 'r')
+    const dir = await fs.open(dirname(path), constants.O_RDONLY)
     await dir.sync().finally(() => dir.close())
   } catch {
     // shortcut: a directory cannot be opened for fsync on Windows; the rename is already durable on the
@@ -160,15 +208,23 @@ function prune(s: RouteState, nowMs: number): RouteState {
  * document after every change, so two concurrent changes cannot lose each other.
  */
 export async function createFileRouteStatePort(opts: StateFileOptions): Promise<RouteStatePort> {
-  const fs = opts.fs ?? (nodeFs as unknown as StateFs)
-  const emit = (e: StateEvent): void => opts.onEvent?.(e)
+  const fs: StateFs = opts.fs ?? nodeFs
+  const emit = opts.onEvent
   let state = EMPTY_ROUTE_STATE
   const read = await readStateText(fs, opts.path)
   if (read.kind === 'text') {
     // Data, never code: the JSON is only ever handed to the schema.
-    const parsed = routeStateSchema.safeParse(parseJsonOrNull(read.text))
-    if (parsed.success) state = prune(parsed.data, opts.now())
-    else emit({ type: 'STATE_RESET', store: 'route-state', reason: 'invalid' })
+    const parsed = routeStateDocument.safeParse(parseJsonOrNull(read.text))
+    if (parsed.success) {
+      const doc = parsed.data
+      const spent = validEntries(doc.spent, spentEntry)
+      const retired = validEntries(doc.retired, retiredEntry)
+      const dropped = doc.spent.length - spent.length + doc.retired.length - retired.length
+      if (dropped > 0) emit({ type: 'STATE_ENTRIES_DROPPED', store: 'route-state', count: dropped })
+      state = prune({ ...doc, spent, retired }, opts.now())
+    } else {
+      emit({ type: 'STATE_RESET', store: 'route-state', reason: 'invalid' })
+    }
   } else if (read.kind !== 'missing') {
     emit({ type: 'STATE_RESET', store: 'route-state', reason: read.kind })
   }
@@ -262,15 +318,22 @@ export const markCredit =
 
 export type FreeLimit = { requestsPerDay: number; tokensPerDay?: number | undefined }
 
+/** A reserved unit, dated by the provider day it was counted on. */
+export type OwnCapUnit = { readonly day: string }
+
 /**
  * Own daily caps per provider (ADR §3.1, §5.1 unit rules, D5). One unit is one HTTP request,
- * reserved and written through before it is sent; tokens are added after an answer.
+ * reserved and written through before it is sent; tokens are added after an answer. The limit
+ * comes with every reservation from the router's own config, so the cap has one source.
  */
 export interface OwnCapPort {
-  /** `false`: the cap is reached or the write-through failed; no request may be sent. */
-  reserve(p: HostedProvider): Promise<boolean>
-  /** Gives back a unit the provider refused before doing any work (AUTH, CREDIT, RETIRED 404, no response, abort). */
-  release(p: HostedProvider): Promise<void>
+  /** `null`: the cap is reached or the write-through failed; no request may be sent. */
+  reserve(p: HostedProvider, limit: FreeLimit): Promise<OwnCapUnit | null>
+  /**
+   * Gives back a unit the provider refused before doing any work (AUTH, CREDIT, RETIRED 404, no
+   * response, an abort before sending). A unit of a day that has since turned is not given back.
+   */
+  release(p: HostedProvider, unit: OwnCapUnit): Promise<void>
   addTokens(p: HostedProvider, tokens: number): Promise<void>
 }
 
@@ -283,36 +346,40 @@ function current(r: ProviderRecord, today: string): OwnCapRecord {
     : { day: today, requests: 0, tokens: 0 }
 }
 
+/** A token count as the file can hold it: a safe non-negative integer (SR-M-66). */
+function tokenSum(total: number, add: number): number {
+  const clean = Number.isFinite(add) ? Math.max(0, Math.floor(add)) : 0
+  return Math.min(Number.MAX_SAFE_INTEGER, total + clean)
+}
+
 /**
  * The `OwnCapPort` over a `RouteStatePort` (file-backed in the worker). The cap is
- * `OWN_CAP_SHARE` of the configured free limit, never above it; a provider without a configured
- * limit has a cap of zero.
+ * `OWN_CAP_SHARE` of the free limit the router passes from its config, never above it.
  */
-export function createOwnCapPort(opts: {
-  state: RouteStatePort
-  limits: Partial<Record<HostedProvider, FreeLimit>>
-  now: () => number
-}): OwnCapPort {
+export function createOwnCapPort(opts: { state: RouteStatePort; now: () => number }): OwnCapPort {
+  const today = (p: HostedProvider) => providerDay(p, opts.now())
+  const counting = (p: HostedProvider) =>
+    current(providerRecord(opts.state.snapshot(), p), today(p))
   const change = (p: HostedProvider, fn: (c: OwnCapRecord) => OwnCapRecord) =>
     opts.state.update((s) =>
-      withProvider(s, p, (r) => ({ ...r, ownCap: fn(current(r, providerDay(p, opts.now()))) })),
+      withProvider(s, p, (r) => ({ ...r, ownCap: fn(current(r, today(p))) })),
     )
   return {
-    async reserve(p) {
-      const limit = opts.limits[p]
-      const c = current(providerRecord(opts.state.snapshot(), p), providerDay(p, opts.now()))
+    async reserve(p, limit) {
+      const c = counting(p)
       const tokensFull =
-        limit?.tokensPerDay !== undefined && c.tokens >= ownCapOf(limit.tokensPerDay)
-      if (limit === undefined || c.requests >= ownCapOf(limit.requestsPerDay) || tokensFull)
-        return false
-      return change(p, (r) => ({ ...r, requests: r.requests + 1 }))
+        limit.tokensPerDay !== undefined && c.tokens >= ownCapOf(limit.tokensPerDay)
+      if (c.requests >= ownCapOf(limit.requestsPerDay) || tokensFull) return null
+      const written = await change(p, (r) => ({ ...r, requests: r.requests + 1 }))
+      return written ? { day: c.day } : null
     },
-    async release(p) {
-      // After a day rollover the reserved unit belongs to a closed day: nothing to give back today.
+    async release(p, unit) {
+      // The day turned since the reservation: the unit belongs to a closed day (SR-L-68).
+      if (counting(p).day !== unit.day) return
       await change(p, (r) => ({ ...r, requests: Math.max(0, r.requests - 1) }))
     },
     async addTokens(p, tokens) {
-      await change(p, (r) => ({ ...r, tokens: r.tokens + Math.max(0, Math.floor(tokens)) }))
+      await change(p, (r) => ({ ...r, tokens: tokenSum(r.tokens, tokens) }))
     },
   }
 }

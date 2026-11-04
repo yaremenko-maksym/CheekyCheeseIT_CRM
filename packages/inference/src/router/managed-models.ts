@@ -42,19 +42,20 @@ export const pinnedModelsOnly: ManagedModels = async (_p, fallback) => fallback
 export function createFileManagedModels(opts: {
   path: string
   fs?: StateFs
-  onEvent?: (e: StateEvent) => void
+  /** Mandatory (ADR §3.2, §5.3): a rejected file is never silent. */
+  onEvent: (e: StateEvent) => void
 }): ManagedModels {
-  const fs = opts.fs ?? (nodeFs as unknown as StateFs)
+  const fs: StateFs = opts.fs ?? nodeFs
   return async (p, fallback) => {
     const read = await readStateText(fs, opts.path)
     if (read.kind === 'missing') return fallback
     if (read.kind !== 'text') {
-      opts.onEvent?.({ type: 'STATE_RESET', store: 'managed-list', reason: read.kind })
+      opts.onEvent({ type: 'STATE_RESET', store: 'managed-list', reason: read.kind })
       return fallback
     }
     const parsed = managedListSchema.safeParse(parseJsonOrNull(read.text))
     if (!parsed.success) {
-      opts.onEvent?.({ type: 'STATE_RESET', store: 'managed-list', reason: 'invalid' })
+      opts.onEvent({ type: 'STATE_RESET', store: 'managed-list', reason: 'invalid' })
       return fallback
     }
     const list = parsed.data.providers[p]

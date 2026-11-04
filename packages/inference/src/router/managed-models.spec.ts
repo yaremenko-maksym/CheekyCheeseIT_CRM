@@ -74,14 +74,6 @@ describe('managedModels reader (ADR §3.4)', () => {
     expect(events).toEqual([{ type: 'STATE_RESET', store: 'managed-list', reason: 'invalid' }])
   })
 
-  it('without an onEvent consumer a bad file still serves the fallback', async () => {
-    const fs = fakeFs({ [PATH]: '{' })
-    const read = createFileManagedModels({ path: PATH, fs })
-    expect(await read('groq', PINNED)).toBe(PINNED)
-    fs.statError = 'EACCES'
-    expect(await read('groq', PINNED)).toBe(PINNED)
-  })
-
   it('an oversized file serves the fallback', async () => {
     const { read, events } = reader(doc({}) + ' '.repeat(MAX_STATE_BYTES))
     expect(await read('groq', PINNED)).toBe(PINNED)
@@ -90,7 +82,7 @@ describe('managedModels reader (ADR §3.4)', () => {
 
   it('an unreadable file serves the fallback', async () => {
     const { read, events, fs } = reader(doc({}))
-    fs.statError = 'EACCES'
+    fs.openError = 'EACCES'
     expect(await read('groq', PINNED)).toBe(PINNED)
     expect(events).toEqual([{ type: 'STATE_RESET', store: 'managed-list', reason: 'unreadable' }])
   })

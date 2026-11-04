@@ -1,3 +1,4 @@
+import { constants } from 'node:fs'
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -18,6 +19,8 @@ import {
   MAX_STATE_BYTES,
   MAX_STATE_ENTRIES,
   providerDay,
+  STATE_READ_FLAGS,
+  STATE_WRITE_FLAGS,
   type RouteState,
   type StateEvent,
 } from './state'
@@ -84,49 +87,20 @@ describe('file RouteStatePort: reading (§3.2, SR-M-6)', () => {
   it.each([
     ['corrupt JSON', '{"version":1,'],
     ['JSON that is not an object', '[]'],
+    ['a foreign field', JSON.stringify({ ...EMPTY_ROUTE_STATE, reason: 'body text' })],
     [
-      'a day with a prefix',
-      doc({ spent: [{ provider: 'groq', model: 'openai/gpt-oss-20b', day: 'x2026-11-04' }] }),
-    ],
-    [
-      'a day with a suffix',
-      doc({ spent: [{ provider: 'groq', model: 'openai/gpt-oss-20b', day: '2026-11-04x' }] }),
-    ],
-    [
-      'a model of the other provider',
-      doc({ spent: [{ provider: 'gemini', model: 'openai/gpt-oss-20b', day: '2026-11-04' }] }),
-    ],
-    [
-      'a provider outside the allowlist',
-      doc({ spent: [{ provider: 'openrouter', model: 'x', day: '2026-11-04' } as never] }),
-    ],
-    [
-      'an invalid model id',
-      doc({ spent: [{ provider: 'groq', model: '../../etc/passwd', day: '2026-11-04' }] }),
-    ],
-    [
-      'a model outside the family',
-      doc({ spent: [{ provider: 'groq', model: 'llama-3.1-8b-instant', day: '2026-11-04' }] }),
-    ],
-    [
-      'an unknown code',
+      'an unsafe own-cap token count',
       doc({
-        retired: [
+        providers: [
           {
             provider: 'groq',
-            model: 'openai/gpt-oss-20b',
-            code: 'GONE',
-            at: '2026-11-04T00:00:00Z',
-          } as never,
+            auth: true,
+            ownCap: { day: '2026-11-04', requests: 1, tokens: 2 ** 53 },
+          },
         ],
       }),
     ],
-    ['a joined provider:model string', doc({ retired: ['groq:openai/gpt-oss-20b' as never] })],
-    ['a foreign field', JSON.stringify({ ...EMPTY_ROUTE_STATE, reason: 'body text' })],
-    [
-      'a bad day',
-      doc({ spent: [{ provider: 'groq', model: 'openai/gpt-oss-20b', day: 'today' }] }),
-    ],
+    ['a list that is not an array', JSON.stringify({ ...EMPTY_ROUTE_STATE, spent: {} })],
     [
       'too many entries',
       doc({
@@ -143,12 +117,163 @@ describe('file RouteStatePort: reading (§3.2, SR-M-6)', () => {
     expect(events).toEqual([{ type: 'STATE_RESET', store: 'route-state', reason: 'invalid' }])
   })
 
+  const GOOD_SPENT = { provider: 'groq' as const, model: 'openai/gpt-oss-120b', day: '2026-11-04' }
+  const GOOD_RETIRED = {
+    provider: 'gemini' as const,
+    model: 'gemini-2.0-flash',
+    code: 'RETIRED' as const,
+    at: '2026-11-01T00:00:00Z',
+  }
+  const PROVIDERS = [
+    { provider: 'groq' as const, auth: true },
+    { provider: 'gemini' as const, auth: false, creditDay: '2026-11-04' },
+  ]
+
+  it.each([
+    ['a day with a prefix', { spent: [{ ...GOOD_SPENT, day: 'x2026-11-04' }] }],
+    ['a day with a suffix', { spent: [{ ...GOOD_SPENT, day: '2026-11-04x' }] }],
+    ['a bad day', { spent: [{ ...GOOD_SPENT, day: 'today' }] }],
+    ['a model of the other provider', { spent: [{ ...GOOD_SPENT, provider: 'gemini' }] }],
+    ['a provider outside the allowlist', { spent: [{ ...GOOD_SPENT, provider: 'openrouter' }] }],
+    ['an invalid model id', { spent: [{ ...GOOD_SPENT, model: '../../etc/passwd' }] }],
+    ['a model outside the family', { spent: [{ ...GOOD_SPENT, model: 'llama-3.1-8b-instant' }] }],
+    ['an unknown code', { retired: [{ ...GOOD_RETIRED, code: 'GONE' }] }],
+    ['a joined provider:model string', { retired: ['groq:openai/gpt-oss-20b'] }],
+    ['a foreign field in an entry', { retired: [{ ...GOOD_RETIRED, note: 'body text' }] }],
+  ])(
+    'drops only the entry with %s, keeps the rest and says so (SR-L-69)',
+    async (_label, bad: { spent?: unknown[]; retired?: unknown[] }) => {
+      const text = JSON.stringify({
+        version: 1,
+        spent: [GOOD_SPENT, ...(bad.spent ?? [])],
+        retired: [...(bad.retired ?? []), GOOD_RETIRED],
+        providers: PROVIDERS,
+      })
+      const { port, events } = await load(text)
+      expect(port.snapshot()).toEqual({
+        version: 1,
+        spent: [GOOD_SPENT],
+        retired: [GOOD_RETIRED],
+        providers: PROVIDERS,
+      })
+      expect(events).toEqual([{ type: 'STATE_ENTRIES_DROPPED', store: 'route-state', count: 1 }])
+      expect(JSON.stringify(events)).not.toContain('passwd')
+    },
+  )
+
+  it('counts every dropped entry across both lists', async () => {
+    const text = doc({
+      spent: [
+        { ...GOOD_SPENT, model: 'x/../y' },
+        { ...GOOD_SPENT, day: 'today' },
+      ],
+      retired: [{ ...GOOD_RETIRED, at: 'yesterday' }],
+    })
+    const { port, events } = await load(text)
+    expect(port.snapshot()).toEqual(EMPTY_ROUTE_STATE)
+    expect(events).toEqual([{ type: 'STATE_ENTRIES_DROPPED', store: 'route-state', count: 3 }])
+  })
+
   it('an oversized file is rejected before it is read', async () => {
     const big = doc({}) + ' '.repeat(MAX_STATE_BYTES)
-    const { port, events } = await load(big)
+    const { fs, port, events } = await load(big)
     expect(port.snapshot()).toEqual(EMPTY_ROUTE_STATE)
     expect(events).toEqual([{ type: 'STATE_RESET', store: 'route-state', reason: 'oversized' }])
+    expect(fs.maxReadLength).toBe(0)
+    expect(fs.calls).toEqual([`open ${PATH} r`, `close ${PATH}`])
   })
+
+  it('a file that grows past the ceiling after the size check is refused, reading at most one byte over (SR-L-67)', async () => {
+    const fs = fakeFs({ [PATH]: doc({}) + ' '.repeat(3 * MAX_STATE_BYTES) })
+    fs.statSize = 10
+    const events: StateEvent[] = []
+    const port = await createFileRouteStatePort({
+      path: PATH,
+      fs,
+      now: () => NOON,
+      onEvent: (e) => events.push(e),
+    })
+    expect(port.snapshot()).toEqual(EMPTY_ROUTE_STATE)
+    expect(events).toEqual([{ type: 'STATE_RESET', store: 'route-state', reason: 'oversized' }])
+    expect(fs.maxReadLength).toBe(MAX_STATE_BYTES + 1)
+  })
+
+  it('a file delivered in short reads is assembled whole', async () => {
+    const fs = fakeFs({ [PATH]: doc({ retired: [] }) })
+    const chunked: typeof fs.open = async (path, flags, mode) => {
+      const h = await fs.open(path, flags, mode)
+      return { ...h, read: (b, o, l, p) => h.read(b, o, Math.min(l, 3), p) }
+    }
+    const events: StateEvent[] = []
+    const port = await createFileRouteStatePort({
+      path: PATH,
+      fs: { ...fs, open: chunked },
+      now: () => NOON,
+      onEvent: (e) => events.push(e),
+    })
+    expect(port.snapshot()).toEqual(EMPTY_ROUTE_STATE)
+    expect(events).toEqual([])
+  })
+
+  it('a read that fails after open is unreadable, and the handle is closed', async () => {
+    const fs = fakeFs({ [PATH]: doc({}) })
+    const failing: typeof fs.open = async (path, flags, mode) => {
+      const h = await fs.open(path, flags, mode)
+      return { ...h, read: async () => Promise.reject(new Error('EIO')) }
+    }
+    const events: StateEvent[] = []
+    await createFileRouteStatePort({
+      path: PATH,
+      fs: { ...fs, open: failing },
+      now: () => NOON,
+      onEvent: (e) => events.push(e),
+    })
+    expect(events).toEqual([{ type: 'STATE_RESET', store: 'route-state', reason: 'unreadable' }])
+    expect(fs.calls).toContain(`close ${PATH}`)
+  })
+
+  it('opens the state file for reading without following a symlink', async () => {
+    const fs = fakeFs({ [PATH]: doc({}) })
+    const flags: number[] = []
+    const spy: typeof fs.open = (path, f, mode) => {
+      flags.push(f)
+      return fs.open(path, f, mode)
+    }
+    await createFileRouteStatePort({
+      path: PATH,
+      fs: { ...fs, open: spy },
+      now: () => NOON,
+      onEvent: () => {},
+    })
+    expect(flags).toEqual([STATE_READ_FLAGS])
+    expect(STATE_READ_FLAGS & constants.O_WRONLY).toBe(0)
+    expect(STATE_WRITE_FLAGS & constants.O_WRONLY).toBe(constants.O_WRONLY)
+    expect(STATE_WRITE_FLAGS & constants.O_CREAT).toBe(constants.O_CREAT)
+    expect(STATE_WRITE_FLAGS & constants.O_TRUNC).toBe(constants.O_TRUNC)
+  })
+
+  it.skipIf(constants.O_NOFOLLOW === undefined)(
+    'a symlink at the state path or the temp path is refused, not followed (SR-L-67)',
+    async () => {
+      expect(STATE_READ_FLAGS & constants.O_NOFOLLOW!).toBe(constants.O_NOFOLLOW)
+      expect(STATE_WRITE_FLAGS & constants.O_NOFOLLOW!).toBe(constants.O_NOFOLLOW)
+      const fs = fakeFs({ [PATH]: doc({}) })
+      fs.symlinks.add(PATH)
+      fs.symlinks.add(`${PATH}.tmp`)
+      const events: StateEvent[] = []
+      const port = await createFileRouteStatePort({
+        path: PATH,
+        fs,
+        now: () => NOON,
+        onEvent: (e) => events.push(e),
+      })
+      expect(await port.update(markAuth('groq'))).toBe(false)
+      expect(events).toEqual([
+        { type: 'STATE_RESET', store: 'route-state', reason: 'unreadable' },
+        { type: 'STATE_WRITE_FAILED', store: 'route-state' },
+      ])
+    },
+  )
 
   it('a file of exactly the ceiling is read', async () => {
     const text = doc({})
@@ -158,7 +283,7 @@ describe('file RouteStatePort: reading (§3.2, SR-M-6)', () => {
 
   it('an unreadable file is empty state with an event', async () => {
     const fs = fakeFs({ [PATH]: doc({}) })
-    fs.statError = 'EACCES'
+    fs.openError = 'EACCES'
     const events: StateEvent[] = []
     const port = await createFileRouteStatePort({
       path: PATH,
@@ -184,6 +309,8 @@ describe('file RouteStatePort: reading (§3.2, SR-M-6)', () => {
 describe('file RouteStatePort: writing', () => {
   it('writes through by durable atomic replace: 0600 temp, fsync, rename, directory fsync', async () => {
     const { fs, port } = await load(undefined)
+    expect(fs.calls).toEqual([`open ${PATH} r`])
+    fs.calls.length = 0
     expect(await port.update(markAuth('groq'))).toBe(true)
     expect(fs.calls).toEqual([
       `open ${PATH}.tmp w`,
@@ -234,6 +361,7 @@ describe('file RouteStatePort: writing', () => {
       path: PATH,
       fs,
       now: () => NOON + 86_400_000 * 3,
+      onEvent: () => {},
     })
     expect(isRetired(reloaded.snapshot(), 'gemini', 'gemini-2.0-flash')).toBe(true)
   })
@@ -242,7 +370,7 @@ describe('file RouteStatePort: writing', () => {
     const dir = await mkdtemp(join(tmpdir(), 'route-state-'))
     try {
       const path = join(dir, 'state.json')
-      const port = await createFileRouteStatePort({ path, now: () => NOON })
+      const port = await createFileRouteStatePort({ path, now: () => NOON, onEvent: () => {} })
       await port.update(markAuth('groq'))
       expect((await stat(path)).mode & 0o777).toBe(0o600)
     } finally {
@@ -254,12 +382,12 @@ describe('file RouteStatePort: writing', () => {
     const dir = await mkdtemp(join(tmpdir(), 'route-state-'))
     try {
       const path = join(dir, 'state.json')
-      const port = await createFileRouteStatePort({ path, now: () => NOON })
+      const port = await createFileRouteStatePort({ path, now: () => NOON, onEvent: () => {} })
       expect(await port.update(markSpent('groq', 'openai/gpt-oss-20b', '2026-11-04'))).toBe(true)
       expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({
         spent: [{ day: '2026-11-04' }],
       })
-      const again = await createFileRouteStatePort({ path, now: () => NOON })
+      const again = await createFileRouteStatePort({ path, now: () => NOON, onEvent: () => {} })
       expect(isSpent(again.snapshot(), 'groq', 'openai/gpt-oss-20b', '2026-11-04')).toBe(true)
     } finally {
       await rm(dir, { recursive: true })
@@ -310,143 +438,154 @@ describe('pure state changes', () => {
 })
 
 describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
-  const make = (
-    limits = { groq: { requestsPerDay: 4 } },
-    now = () => NOON,
-    state = createMemoryRouteStatePort(),
-  ) => ({
-    cap: createOwnCapPort({ state, limits, now }),
+  const L4 = { requestsPerDay: 4 }
+  const make = (now = () => NOON, state = createMemoryRouteStatePort()) => ({
+    cap: createOwnCapPort({ state, now }),
     state,
   })
+  const ownCap = (s: RouteState, p: 'groq' | 'gemini' = 'groq') =>
+    s.providers.find((r) => r.provider === p)?.ownCap
 
   it('grants exactly 50 % of the free request limit, then refuses', async () => {
     const { cap } = make()
-    expect(await cap.reserve('groq')).toBe(true)
-    expect(await cap.reserve('groq')).toBe(true)
-    expect(await cap.reserve('groq')).toBe(false)
+    expect(await cap.reserve('groq', L4)).toEqual({ day: '2026-11-04' })
+    expect(await cap.reserve('groq', L4)).toEqual({ day: '2026-11-04' })
+    expect(await cap.reserve('groq', L4)).toBeNull()
   })
 
   it('an odd free limit rounds the cap down', async () => {
-    const { cap } = make({ groq: { requestsPerDay: 3 } })
-    expect(await cap.reserve('groq')).toBe(true)
-    expect(await cap.reserve('groq')).toBe(false)
+    const { cap } = make()
+    expect(await cap.reserve('groq', { requestsPerDay: 3 })).not.toBeNull()
+    expect(await cap.reserve('groq', { requestsPerDay: 3 })).toBeNull()
   })
 
-  it('a provider without a configured limit has a cap of zero', async () => {
+  it('counts each provider separately', async () => {
     const { cap } = make()
-    expect(await cap.reserve('gemini')).toBe(false)
+    await cap.reserve('groq', { requestsPerDay: 2 })
+    expect(await cap.reserve('groq', { requestsPerDay: 2 })).toBeNull()
+    expect(await cap.reserve('gemini', { requestsPerDay: 2 })).not.toBeNull()
   })
 
   it('concurrent reservations never exceed the cap', async () => {
-    const { cap, state } = make({ groq: { requestsPerDay: 6 } })
-    const granted = await Promise.all(Array.from({ length: 8 }, () => cap.reserve('groq')))
-    expect(granted.filter(Boolean)).toHaveLength(3)
-    expect(state.snapshot().providers[0]?.ownCap?.requests).toBe(3)
+    const { cap, state } = make()
+    const granted = await Promise.all(
+      Array.from({ length: 8 }, () => cap.reserve('groq', { requestsPerDay: 6 })),
+    )
+    expect(granted.filter((u) => u !== null)).toHaveLength(3)
+    expect(ownCap(state.snapshot())?.requests).toBe(3)
   })
 
   it('release gives a unit back', async () => {
     const { cap } = make()
-    await cap.reserve('groq')
-    await cap.reserve('groq')
-    await cap.release('groq')
-    expect(await cap.reserve('groq')).toBe(true)
-    expect(await cap.reserve('groq')).toBe(false)
+    const unit = (await cap.reserve('groq', L4))!
+    await cap.reserve('groq', L4)
+    await cap.release('groq', unit)
+    expect(await cap.reserve('groq', L4)).not.toBeNull()
+    expect(await cap.reserve('groq', L4)).toBeNull()
   })
 
   it('release never drives the count below zero', async () => {
     const { cap, state } = make()
-    await cap.release('groq')
-    expect(state.snapshot().providers[0]?.ownCap?.requests).toBe(0)
+    await cap.release('groq', { day: '2026-11-04' })
+    expect(ownCap(state.snapshot())?.requests).toBe(0)
   })
 
   it('the token cap is 50 % of the free token limit', async () => {
-    const { cap } = make({ groq: { requestsPerDay: 100, tokensPerDay: 1000 } } as never)
-    expect(await cap.reserve('groq')).toBe(true)
+    const { cap } = make()
+    const limit = { requestsPerDay: 100, tokensPerDay: 1000 }
+    expect(await cap.reserve('groq', limit)).not.toBeNull()
     await cap.addTokens('groq', 499.9)
-    expect(await cap.reserve('groq')).toBe(true)
+    expect(await cap.reserve('groq', limit)).not.toBeNull()
     await cap.addTokens('groq', 1)
-    expect(await cap.reserve('groq')).toBe(false)
+    expect(await cap.reserve('groq', limit)).toBeNull()
   })
 
-  it('negative token counts add nothing', async () => {
-    const { cap, state } = make()
-    await cap.addTokens('groq', -50)
-    expect(state.snapshot().providers[0]?.ownCap?.tokens).toBe(0)
+  it.each([-50, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'a token count of %s adds nothing',
+    async (n) => {
+      const { cap, state } = make()
+      await cap.addTokens('groq', 5)
+      await cap.addTokens('groq', n)
+      expect(ownCap(state.snapshot())?.tokens).toBe(5)
+    },
+  )
+
+  it('a token sum is clamped to a safe integer and the file still loads after a restart (SR-M-66)', async () => {
+    const fs = fakeFs()
+    const events: StateEvent[] = []
+    const opts = { path: PATH, fs, now: () => NOON, onEvent: (e: StateEvent) => events.push(e) }
+    const state = await createFileRouteStatePort(opts)
+    const cap = createOwnCapPort({ state, now: () => NOON })
+    await state.update(markAuth('groq'))
+    await cap.addTokens('groq', 2 ** 53)
+    await cap.addTokens('groq', 2 ** 53)
+    expect(ownCap(state.snapshot())?.tokens).toBe(Number.MAX_SAFE_INTEGER)
+    const reloaded = await createFileRouteStatePort(opts)
+    expect(events).toEqual([])
+    expect(ownCap(reloaded.snapshot())?.tokens).toBe(Number.MAX_SAFE_INTEGER)
+    expect(isProviderBlocked(reloaded.snapshot(), 'groq', '2026-11-04')).toBe(true)
   })
 
   it('the count resets on the provider day rollover', async () => {
     let now = Date.parse('2026-11-04T23:59:00Z')
-    const { cap } = make(undefined, () => now)
-    await cap.reserve('groq')
-    await cap.reserve('groq')
-    expect(await cap.reserve('groq')).toBe(false)
+    const { cap } = make(() => now)
+    await cap.reserve('groq', L4)
+    await cap.reserve('groq', L4)
+    expect(await cap.reserve('groq', L4)).toBeNull()
     now = Date.parse('2026-11-05T00:00:01Z')
-    expect(await cap.reserve('groq')).toBe(true)
+    expect(await cap.reserve('groq', L4)).toEqual({ day: '2026-11-05' })
   })
 
-  it('a release after the rollover does not reopen the closed day', async () => {
-    let now = Date.parse('2026-11-04T23:59:00Z')
-    const { cap, state } = make(undefined, () => now)
-    await cap.reserve('groq')
-    now = Date.parse('2026-11-05T00:00:01Z')
-    await cap.release('groq')
-    expect(state.snapshot().providers[0]?.ownCap).toEqual({
-      day: '2026-11-05',
-      requests: 0,
-      tokens: 0,
-    })
-  })
+  it.each([
+    ['groq', '2026-11-04T23:59:00Z', '2026-11-05T00:00:01Z', '2026-11-05'],
+    ['gemini', '2026-11-05T07:59:00Z', '2026-11-05T08:00:01Z', '2026-11-05'],
+  ] as const)(
+    '%s: a unit reserved before midnight and released after it leaves the new day alone (SR-L-68)',
+    async (p, before, after, newDay) => {
+      let now = Date.parse(before)
+      const { cap, state } = make(() => now)
+      const limit = { requestsPerDay: 2 }
+      const late = (await cap.reserve(p, limit))! // a call in flight across midnight
+      now = Date.parse(after)
+      const fresh = await cap.reserve(p, limit) // a concurrent call on the new day
+      expect(fresh).toEqual({ day: newDay })
+      await cap.release(p, late)
+      expect(ownCap(state.snapshot(), p)).toEqual({ day: newDay, requests: 1, tokens: 0 })
+      expect(await cap.reserve(p, limit)).toBeNull()
+      await cap.release(p, fresh!)
+      expect(ownCap(state.snapshot(), p)?.requests).toBe(0)
+    },
+  )
 
   it('a clock that goes back keeps the later day counting (no reset by skew)', async () => {
     let now = Date.parse('2026-11-05T01:00:00Z')
-    const { cap } = make(undefined, () => now)
-    await cap.reserve('groq')
-    await cap.reserve('groq')
+    const { cap } = make(() => now)
+    await cap.reserve('groq', L4)
+    const unit = await cap.reserve('groq', L4)
     now = Date.parse('2026-11-04T22:00:00Z')
-    expect(await cap.reserve('groq')).toBe(false)
-  })
-
-  it('Gemini counts by the Pacific day', async () => {
-    let now = Date.parse('2026-11-05T07:00:00Z') // still 2026-11-04 in Pacific
-    const { cap } = make({ gemini: { requestsPerDay: 2 } } as never, () => now)
-    expect(await cap.reserve('gemini')).toBe(true)
-    expect(await cap.reserve('gemini')).toBe(false)
-    now = Date.parse('2026-11-05T09:00:00Z')
-    expect(await cap.reserve('gemini')).toBe(true)
+    expect(await cap.reserve('groq', L4)).toBeNull()
+    expect(unit).toEqual({ day: '2026-11-05' })
   })
 
   it('a failed write-through refuses the request', async () => {
     const fs = fakeFs()
-    const state = await createFileRouteStatePort({ path: PATH, fs, now: () => NOON })
-    const cap = createOwnCapPort({
-      state,
-      limits: { groq: { requestsPerDay: 10 } },
-      now: () => NOON,
-    })
+    const opts = { path: PATH, fs, now: () => NOON, onEvent: () => {} }
+    const cap = createOwnCapPort({ state: await createFileRouteStatePort(opts), now: () => NOON })
     fs.failAt = 'rename'
-    expect(await cap.reserve('groq')).toBe(false)
+    expect(await cap.reserve('groq', { requestsPerDay: 10 })).toBeNull()
     fs.failAt = undefined
-    expect(await cap.reserve('groq')).toBe(true)
+    expect(await cap.reserve('groq', { requestsPerDay: 10 })).not.toBeNull()
   })
 
   it('the count is written before the reservation resolves and survives a restart', async () => {
     const fs = fakeFs()
-    const state = await createFileRouteStatePort({ path: PATH, fs, now: () => NOON })
-    const cap = createOwnCapPort({
-      state,
-      limits: { groq: { requestsPerDay: 2 } },
-      now: () => NOON,
-    })
-    await cap.reserve('groq')
+    const opts = { path: PATH, fs, now: () => NOON, onEvent: () => {} }
+    const cap = createOwnCapPort({ state: await createFileRouteStatePort(opts), now: () => NOON })
+    await cap.reserve('groq', { requestsPerDay: 2 })
     expect(JSON.parse(fs.files.get(PATH)!)).toMatchObject({
       providers: [{ ownCap: { requests: 1 } }],
     })
-    const reloaded = await createFileRouteStatePort({ path: PATH, fs, now: () => NOON })
-    const cap2 = createOwnCapPort({
-      state: reloaded,
-      limits: { groq: { requestsPerDay: 2 } },
-      now: () => NOON,
-    })
-    expect(await cap2.reserve('groq')).toBe(false)
+    const cap2 = createOwnCapPort({ state: await createFileRouteStatePort(opts), now: () => NOON })
+    expect(await cap2.reserve('groq', { requestsPerDay: 2 })).toBeNull()
   })
 })
