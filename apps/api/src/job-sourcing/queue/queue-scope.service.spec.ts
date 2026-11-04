@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseService } from '../../database/database.service'
 import { exclusionVersion, profileVersion } from '../runtime/recompute-inputs'
 import { type JobQueueScope, NONE_SCOPE, STUDIO_SCOPE } from './queue-scope'
-import { JobQueueScopeService } from './queue-scope.service'
+import { describeFailure, JobQueueScopeService } from './queue-scope.service'
 
 /**
  * Unit double for the mutation gate (it cannot run `*.integration.spec.ts`): the DB is a scripted
@@ -186,21 +186,63 @@ describe('JobQueueScopeService.resolve', () => {
       503,
       'JOB_QUEUE_POLICY_UNAVAILABLE',
     )
-    expect(log).toHaveBeenCalledWith('queue policy evaluation failed: Error: db down')
+    expect(log).toHaveBeenCalledWith('queue policy evaluation failed: Error')
     await expectCode(
       harness([{ id: TEAM_A }], new TypeError('roster gone')).svc.resolve(user('ADMIN'), TEAM_A),
       503,
       'JOB_QUEUE_POLICY_UNAVAILABLE',
     )
-    expect(log).toHaveBeenLastCalledWith('queue policy evaluation failed: TypeError: roster gone')
+    expect(log).toHaveBeenLastCalledWith('queue policy evaluation failed: TypeError')
   })
 
-  it('a non-Error rejection is still logged and answered 503', async () => {
+  it('a non-Error rejection is still logged (its type only) and answered 503', async () => {
     const log = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
     const execute = vi.fn(async () => Promise.reject('boom'))
     const svc = new JobQueueScopeService({ db: { execute } } as unknown as DatabaseService)
     await expectCode(svc.resolve(user('HR')), 503, 'JOB_QUEUE_POLICY_UNAVAILABLE')
-    expect(log).toHaveBeenCalledWith('queue policy evaluation failed: Error: boom')
+    expect(log).toHaveBeenCalledWith('queue policy evaluation failed: string')
+  })
+
+  it('a drizzle query error logs classes and SQLSTATE, never its SQL / params message (SR-L-3)', async () => {
+    const log = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    const failure = new DrizzleQueryError(
+      `Failed query: SELECT t.id FROM teams t WHERE t.id = $1\nparams: ${TEAM_A},${SEN_1}`,
+      Object.assign(new DatabaseError('invalid input syntax for type uuid'), { code: '22P02' }),
+    )
+    await expectCode(
+      harness([{ id: TEAM_A }], failure).svc.resolve(user('HR'), TEAM_A),
+      503,
+      'JOB_QUEUE_POLICY_UNAVAILABLE',
+    )
+    expect(log).toHaveBeenCalledWith(
+      'queue policy evaluation failed: DrizzleQueryError, cause DatabaseError, code 22P02',
+    )
+    const line = String(log.mock.calls[0]?.[0])
+    expect(line).not.toContain('params:')
+    expect(line).not.toContain(TEAM_A)
+    expect(line).not.toContain(SEN_1)
+  })
+})
+
+class DrizzleQueryError extends Error {
+  constructor(message: string, cause: unknown) {
+    super(message, { cause })
+  }
+}
+class DatabaseError extends Error {}
+
+describe('describeFailure', () => {
+  it.each([
+    [new Error('secret'), 'Error'],
+    [new Error('x', { cause: new TypeError('y') }), 'Error, cause TypeError'],
+    [new Error('x', { cause: { code: '57P01' } }), 'Error, code 57P01'],
+    [new Error('x', { cause: { code: 57 } }), 'Error'],
+    [new Error('x', { cause: null }), 'Error'],
+    [new Error('x', { cause: 'text' }), 'Error'],
+    [42, 'number'],
+    [undefined, 'undefined'],
+  ])('%#: %s -> %j', (err, expected) => {
+    expect(describeFailure(err)).toBe(expected)
   })
 })
 

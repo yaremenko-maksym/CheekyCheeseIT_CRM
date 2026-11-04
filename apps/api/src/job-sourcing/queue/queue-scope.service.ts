@@ -26,7 +26,8 @@ import {
  *
  * POLICY UNAVAILABLE: if the roster or visibility query fails, the answer is
  * `JOB_QUEUE_POLICY_UNAVAILABLE` (503) — never a default scope and never "visible" — and the
- * failure is logged (error class and message only).
+ * failure is logged as error classes and the SQLSTATE code only (`describeFailure`), never a
+ * message: a query error's message carries the SQL and its parameters.
  */
 @Injectable()
 export class JobQueueScopeService {
@@ -112,11 +113,25 @@ export class JobQueueScopeService {
     try {
       return await fn()
     } catch (err: unknown) {
-      const e = err instanceof Error ? err : new Error(String(err))
-      this.logger.error(`queue policy evaluation failed: ${e.name}: ${e.message}`)
+      this.logger.error(`queue policy evaluation failed: ${describeFailure(err)}`)
       throw apiError('JOB_QUEUE_POLICY_UNAVAILABLE', HttpStatus.SERVICE_UNAVAILABLE)
     }
   }
+}
+
+/**
+ * The error's class, plus its cause's class and SQLSTATE `code` when present — NEVER a message
+ * (SR-L-3): drizzle's `DrizzleQueryError` message is `Failed query: <sql>\nparams: <params>`, and
+ * those params are team, senior and user ids and version hashes.
+ */
+export function describeFailure(err: unknown): string {
+  if (!(err instanceof Error)) return typeof err
+  const cause: unknown = err.cause
+  const parts = [err.constructor.name]
+  if (cause instanceof Error) parts.push(`cause ${cause.constructor.name}`)
+  const code = (cause as { code?: unknown } | null | undefined)?.code
+  if (typeof code === 'string') parts.push(`code ${code}`)
+  return parts.join(', ')
 }
 
 const notFound = () => apiError('JOB_OPPORTUNITY_NOT_FOUND', HttpStatus.NOT_FOUND)
