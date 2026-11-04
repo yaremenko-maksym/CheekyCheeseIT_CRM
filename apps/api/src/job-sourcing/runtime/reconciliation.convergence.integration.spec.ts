@@ -306,7 +306,14 @@ describe.skipIf(!hasDatabaseUrl())(
         expect((await dirtyOf(o)).at(-1)?.reason).toMatch(/^RECONCILE:EVAL:[0-9a-f]{16}:/)
         await runMine()
         expect(await recorded()).not.toBe(before)
+        // Evaluated now, but the studio keyword also changed every senior's exclusion version, so
+        // the roster digest of the PLAIN lineage is new and has no DONE: one more row, not EVAL.
+        expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
+        expect((await dirtyOf(o)).at(-1)?.reason).toMatch(/^RECONCILE:[0-9a-f]{16}:[0-9a-f]{16}$/)
+        await runMine()
+        // Both lineages are DONE for these inputs: converged, nothing more is enqueued.
         expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 0, skipped: 1 })
+        expect(await sweep(o, T0 + 5 * PERIOD_MS)).toMatchObject({ enqueued: 0, skipped: 1 })
       } finally {
         await session.admin.query(`DELETE FROM job_exclusion_filters WHERE id = $1`, [rows[0].id])
       }
