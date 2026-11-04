@@ -54,7 +54,8 @@ function harness(scope: JobQueueScope, ...answers: Rows[]) {
     policy: vi.fn(<T>(fn: () => Promise<T>) => fn()),
   }
   const db = { execute, transaction: <T>(fn: (tx: unknown) => Promise<T>) => fn({ execute }) }
-  const config = { get: () => SECRET } as unknown as ConfigService<Env, true>
+  const get = vi.fn(() => SECRET)
+  const config = { get } as unknown as ConfigService<Env, true>
   const svc = new JobQueueService(
     { db } as unknown as DatabaseService,
     scopes as unknown as JobQueueScopeService,
@@ -64,7 +65,7 @@ function harness(scope: JobQueueScope, ...answers: Rows[]) {
     const q = new PgDialect().sqlToQuery((execute.mock.calls[call] as [SQL])[0])
     return { text: q.sql.replace(/\s+/g, ' '), params: q.params }
   }
-  return { svc, execute, scopes, compiled }
+  return { svc, execute, scopes, compiled, get }
 }
 
 async function refusal(p: Promise<unknown>): Promise<{ status: number; code: string }> {
@@ -219,6 +220,9 @@ describe('JobQueueService.list', () => {
     await h.svc.list(user, query())
     for (const call of [1, 2]) {
       expect(h.compiled(call).text).toContain('FROM job_opportunity_team_triage g')
+      expect(h.compiled(call).text).toContain(
+        `WHERE m.opportunity_id = o.id AND m.outcome = 'LEAD'`,
+      )
       expect(h.compiled(call).params).toContain(TEAM)
       expect(h.compiled(call).text).toContain('e.generation_id = $')
     }
@@ -306,7 +310,10 @@ describe('JobQueueService.list', () => {
 
   it('filtering by one of the scope seniors reads the page, whatever the id case', async () => {
     const upper = 'ABCDEFAB-ABCD-4ABC-8ABC-ABCDEFABCDEF'
-    const live = [{ seniorId: upper.toLowerCase(), profile: 'p', exclusion: 'e' }]
+    const live = [
+      { seniorId: SEN, profile: 'p', exclusion: 'e' },
+      { seniorId: upper.toLowerCase(), profile: 'p', exclusion: 'e' },
+    ]
     const head = generationRow({ policy_signature: policySignature(teamScope, live) })
     const h = harness(teamScope, [head], [tally], [])
     h.scopes.liveVersions.mockResolvedValue(live)
@@ -333,6 +340,12 @@ describe('JobQueueService.list', () => {
 })
 
 describe('JobQueueService without a cursor key', () => {
+  it('the key is the configured session secret', async () => {
+    const h = harness(teamScope)
+    await refusal(h.svc.list(user, query({ cursor: 'forged' })))
+    expect(h.get).toHaveBeenCalledWith('SESSION_SECRET', { infer: true })
+  })
+
   it.each([
     ['no ConfigService at all', undefined],
     ['an empty secret', { get: () => '' } as unknown as ConfigService<Env, true>],
@@ -381,6 +394,24 @@ describe('toListItem', () => {
       openedByTeam: false,
       hidden: true,
     })
+  })
+})
+
+describe('card text bounds', () => {
+  it('clips a senior name and a duplicate title and company to the wire bounds', async () => {
+    const h = harness(
+      teamScope,
+      [cardDbRow()],
+      [seniorDbRow({ display_name: 'n'.repeat(256) })],
+      [{ total: '1' }],
+      [],
+      [{ total: '0' }],
+      [{ id: SRC, title: 't'.repeat(501), employer_name: 'c'.repeat(256), total: '1' }],
+    )
+    const card = await h.svc.card(user, OPP)
+    expect(card.seniors.items[0]?.displayName).toHaveLength(255)
+    expect(card.possibleDuplicates?.items[0]?.title).toHaveLength(500)
+    expect(card.possibleDuplicates?.items[0]?.companyName).toHaveLength(255)
   })
 })
 

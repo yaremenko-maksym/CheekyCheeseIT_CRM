@@ -8,6 +8,7 @@ import {
   isGenerationServable,
   isJobQueueRole,
   type JobQueueScope,
+  listableOpportunityPredicate,
   NONE_SCOPE,
   scopedTeamRowPredicate,
   selectScopeTeam,
@@ -38,6 +39,23 @@ describe('isJobQueueRole', () => {
     ['DROP', false],
   ])('%s -> %s', (role, expected) => {
     expect(isJobQueueRole(role)).toBe(expected)
+  })
+})
+
+describe('listableOpportunityPredicate', () => {
+  const id = sql`o.id`
+  it('STUDIO: refuses only an EXCLUDED verdict at the current revision', () => {
+    const { sql: text, params } = render(listableOpportunityPredicate(STUDIO_SCOPE, id))
+    expect(flat(text)).toBe(
+      `NOT EXISTS (SELECT 1 FROM job_opportunities xo WHERE xo.id = o.id AND xo.evaluated_revision = xo.revision AND xo.evaluation_verdict = 'EXCLUDED')`,
+    )
+    expect(params).toEqual([])
+  })
+  it('TEAM and NONE: exactly the visibility predicate', () => {
+    expect(render(listableOpportunityPredicate(teamA, id))).toEqual(
+      render(visibleOpportunityPredicate(teamA, id)),
+    )
+    expect(render(listableOpportunityPredicate(NONE_SCOPE, id)).sql).toBe('FALSE')
   })
 })
 

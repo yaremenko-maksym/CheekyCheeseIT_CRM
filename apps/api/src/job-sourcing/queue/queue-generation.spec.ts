@@ -56,16 +56,24 @@ describe('generation constants', () => {
 
 describe('generationById', () => {
   it('maps a row, whichever way the driver spells the instant', async () => {
-    const h = harness([row({ expires_at: '2026-11-04T12:05:00.000Z' })])
+    const h = harness([row({ expires_at: '2026-11-04T12:05:00.123Z' })])
     await expect(generationById(h.database.db, GEN)).resolves.toEqual({
       id: GEN,
       scopeKind: 'TEAM',
       teamId: TEAM,
       status: 'PUBLISHED',
-      expiresAt: new Date('2026-11-04T12:05:00.000Z'),
+      expiresAt: new Date('2026-11-04T12:05:00.123Z'),
       policySignature: 'sig',
     })
     expect(h.compiled(0).params).toEqual([GEN])
+  })
+  it('a driver Date is kept to the millisecond, and every column is selected', async () => {
+    const exact = new Date('2026-11-04T12:05:00.456Z')
+    const h = harness([row({ expires_at: exact })])
+    await expect(generationById(h.database.db, GEN)).resolves.toMatchObject({ expiresAt: exact })
+    expect(h.compiled(0).text).toBe(
+      'SELECT id, scope_kind, team_id, status, expires_at, policy_signature FROM job_queue_generations WHERE id = $1::uuid',
+    )
   })
   it('keeps a studio generation team-less', async () => {
     const h = harness([row({ scope_kind: 'STUDIO', team_id: null })])
@@ -145,6 +153,7 @@ describe('currentGeneration', () => {
     expect(entries.params).toContain(NEW_GEN)
     expect(entries.params).toContain(GENERATION_MAX_ENTRIES)
     expect(entries.text).toContain('FROM job_opportunity_team_triage g')
+    expect(entries.text).toContain(`WHERE m.opportunity_id = o.id AND m.outcome = 'LEAD'`)
     expect(h.compiled(5).text).toContain(`SET status = 'INVALIDATED'`)
     expect(h.compiled(5).params).toEqual([NOW.toISOString(), TEAM])
     expect(h.compiled(6).text).toContain(`SET status = 'PUBLISHED'`)

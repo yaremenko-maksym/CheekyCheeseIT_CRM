@@ -60,18 +60,17 @@ export function parseCursor<K extends QueueCursor['t']>(
   kind: K,
   secret: string,
 ): Extract<QueueCursor, { t: K }> {
-  const [body, signature, ...rest] = token.split('.')
-  if (body === undefined || signature === undefined || rest.length > 0) throw malformed()
-  const given = Buffer.from(signature, 'base64url')
-  const expected = mac(body, secret)
-  // `timingSafeEqual` throws on a length mismatch; Buffer decoding is lenient, so also compare the text.
+  const [body, signature, ...rest] = token.split('.') as [string, string?, ...string[]]
+  if (signature === undefined || rest.length > 0) throw malformed()
+  // Compared as text: base64 decoding is lenient, so two spellings can decode to one MAC.
+  const given = Buffer.from(signature)
+  const expected = Buffer.from(mac(body, secret).toString('base64url'))
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) throw malformed()
-  if (signature !== expected.toString('base64url')) throw malformed()
   let decoded: unknown
   try {
     decoded = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'))
   } catch {
-    throw malformed()
+    // Not JSON: `decoded` stays undefined, which the schema below refuses.
   }
   const parsed = cursorSchema.safeParse(decoded)
   if (!parsed.success || parsed.data.t !== kind) throw malformed()

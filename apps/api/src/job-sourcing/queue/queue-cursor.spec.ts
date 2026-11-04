@@ -81,6 +81,12 @@ describe('signCursor / parseCursor', () => {
     expect(codeOf(() => parseCursor(token, 'L', SECRET))).toEqual(MALFORMED)
   })
 
+  it('refuses a genuine cursor with an extra part', () => {
+    expect(codeOf(() => parseCursor(`${signCursor(LIST, SECRET)}.x`, 'L', SECRET))).toEqual(
+      MALFORMED,
+    )
+  })
+
   it('refuses a validly signed body that is not JSON', () => {
     const token = signRaw(Buffer.from('not json').toString('base64url'))
     expect(codeOf(() => parseCursor(token, 'L', SECRET))).toEqual(MALFORMED)

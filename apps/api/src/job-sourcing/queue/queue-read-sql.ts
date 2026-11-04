@@ -261,6 +261,7 @@ export function policySignature(
   scope: JobQueueScope,
   versions: readonly LiveSeniorVersion[],
 ): string {
+  // Stryker disable next-line ConditionalExpression: equivalent — without a teamId the value is undefined, which JSON.stringify writes as null in an array, the same text as the other branch
   const team = scope.kind === 'TEAM' ? scope.teamId : null
   return createHash('sha256')
     .update(JSON.stringify([scope.kind, team, MATCH_RULE_VERSION, versions]))

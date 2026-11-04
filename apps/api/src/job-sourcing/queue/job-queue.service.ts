@@ -241,17 +241,16 @@ export class JobQueueService {
       ),
     )
     const page = rows.slice(0, query.limit)
-    const last = page[page.length - 1]
     return jobQueueListResponseSchema.parse({
       ...response,
       items: page.map(toListItem),
       nextCursor:
-        rows.length > query.limit && last !== undefined
+        rows.length > query.limit
           ? signCursor(
               {
                 t: 'L',
                 g: generation.id,
-                k: Number(last['order_key']),
+                k: Number((page[page.length - 1] as Row)['order_key']),
                 s: signature,
                 e: Math.floor(generation.expiresAt.getTime() / 1000),
               },
@@ -354,13 +353,17 @@ export class JobQueueService {
     )
     const total = await this.database.db.execute(seniorTotal(versions, id))
     const page = rows.slice(0, SENIOR_PREVIEW_MAX)
-    const last = page[page.length - 1]
     return {
       items: page.map(toSenior),
       totalCount: count((total.rows[0] as Row)['total']),
       nextCursor:
-        rows.length > SENIOR_PREVIEW_MAX && last !== undefined
-          ? this.continuationCursor('SEN', id, String(last['senior_id']), signature)
+        rows.length > SENIOR_PREVIEW_MAX
+          ? this.continuationCursor(
+              'SEN',
+              id,
+              String((page[page.length - 1] as Row)['senior_id']),
+              signature,
+            )
           : null,
     }
   }
@@ -373,13 +376,17 @@ export class JobQueueService {
     const { rows } = await this.database.db.execute(sourceRows(id, after, SOURCE_PREVIEW_MAX + 1))
     const total = await this.database.db.execute(sourceTotal(id))
     const page = rows.slice(0, SOURCE_PREVIEW_MAX)
-    const last = page[page.length - 1]
     return {
       items: page.map(toSource),
       totalCount: count((total.rows[0] as Row)['total']),
       nextCursor:
-        rows.length > SOURCE_PREVIEW_MAX && last !== undefined
-          ? this.continuationCursor('SRC', id, String(last['source_record_id']), signature)
+        rows.length > SOURCE_PREVIEW_MAX
+          ? this.continuationCursor(
+              'SRC',
+              id,
+              String((page[page.length - 1] as Row)['source_record_id']),
+              signature,
+            )
           : null,
     }
   }

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { JobQueueListQuery } from '@crm/shared'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
@@ -16,6 +17,7 @@ import {
   sourceRows,
   sourceTotal,
 } from './queue-read-sql'
+import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
 import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
 
 /** What each fragment binds; that the SQL works on real rows is the integration spec's job. */
@@ -88,6 +90,10 @@ describe('filterIdentity', () => {
       filterIdentity(query({ source: ['DOU_RSS', 'REMOTEOK_API'], seniorId: SEN.toUpperCase() })),
     ).toEqual(filterIdentity(query({ source: ['REMOTEOK_API', 'DOU_RSS'], seniorId: SEN })))
   })
+  it('stores a senior id in its canonical lowercase', () => {
+    const upper = 'ABCDEFAB-ABCD-4ABC-8ABC-ABCDEFABCDEF'
+    expect(filterIdentity(query({ seniorId: upper }))[6]).toBe(upper.toLowerCase())
+  })
   it('holds every filter, with the absent ones explicit', () => {
     expect(filterIdentity(query())).toEqual(['NEW', null, [], [], [], [], null])
     expect(
@@ -124,6 +130,10 @@ describe('policySignature', () => {
   it('is a hex digest the generation column can hold', () => {
     expect(base).toMatch(/^[0-9a-f]{64}$/)
   })
+  it('is the sha-256 of the kind, the team, the rule version and the versions', () => {
+    const json = JSON.stringify(['TEAM', TEAM, MATCH_RULE_VERSION, versions])
+    expect(base).toBe(createHash('sha256').update(json).digest('hex'))
+  })
   it('is stable for the same inputs', () => {
     expect(policySignature({ ...team }, [...versions])).toBe(base)
   })
@@ -151,7 +161,7 @@ describe('field scoping — what each read binds', () => {
 
   it('workflow rows of a TEAM scope name that team: submissions, dismissals, opens', () => {
     const { text } = render(queueRowJoins(team, versions))
-    for (const column of ['a.team_id = $', 'd.team_id = $', 'qa.team_id = $']) {
+    for (const column of ['AND a.team_id = $', 'AND d.team_id = $', 'AND qa.team_id = $']) {
       expect(text).toContain(column)
     }
     expect(text).toContain(`qa.kind = 'OPENED'`)
@@ -175,7 +185,8 @@ describe('field scoping — what each read binds', () => {
   it('a card row is re-checked for visibility and uses this scope for the newer-than check', () => {
     const { text, params } = render(cardRow(team, versions, OPP))
     expect(text).toContain('FROM job_opportunity_team_triage g')
-    expect(text).toContain('g.team_id = $')
+    expect(text).toContain('::job_queue_scope_kind AND g.team_id = $')
+    expect(text).toContain(`WHERE m.opportunity_id = o.id AND m.outcome = 'LEAD'`)
     expect(text).toContain('b.text AS description')
     expect(params).toEqual(expect.arrayContaining([OPP, TEAM, 'TEAM']))
   })
