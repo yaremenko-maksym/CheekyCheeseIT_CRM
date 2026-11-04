@@ -62,6 +62,9 @@ export type ClassifiedChatOptions = {
 /** Every pause derived from a header or an error body is clamped to this. */
 export const MAX_PAUSE_MS = 24 * 60 * 60 * 1000
 
+/** The largest `usage.total_tokens` believed from a provider; far above any free-tier day. */
+export const MAX_REPORTED_TOKENS = 10_000_000
+
 const QUOTA_FAILURE = 'type.googleapis.com/google.rpc.QuotaFailure'
 const RETRY_INFO = 'type.googleapis.com/google.rpc.RetryInfo'
 
@@ -75,7 +78,18 @@ const answerSchema = z.object({
       }),
     )
     .min(1),
-  usage: z.object({ total_tokens: z.number().optional() }).optional(),
+  // Provider-controlled (SR-M-66): out of range or not an integer counts as absent, never as a number.
+  usage: z
+    .object({
+      total_tokens: z
+        .number()
+        .int()
+        .nonnegative()
+        .max(MAX_REPORTED_TOKENS)
+        .optional()
+        .catch(undefined),
+    })
+    .optional(),
 })
 
 /** Gemini 403: the documented envelope with `error.status: PERMISSION_DENIED`. */
@@ -247,17 +261,37 @@ function responseFormat(so: StructuredOutput): object {
 }
 
 /**
+ * A classified result with what the router meters (ADR §5.1, §6.2): whether a request was handed to
+ * `fetch` at all (an abort before that spends nothing) and the HTTP status when one arrived.
+ */
+export type ClassifiedChatOutcome = {
+  result: ClassifiedChatResult
+  sent: boolean
+  status?: number
+}
+
+/**
  * The one request builder and classifier for every router chat request (ADR §3.3, §5.1).
  * Never throws; never returns a key, a header value or body text.
  */
 export async function sendClassifiedChatCompletion(
   opts: ClassifiedChatOptions,
 ): Promise<ClassifiedChatResult> {
+  return (await sendClassifiedChat(opts)).result
+}
+
+/** `sendClassifiedChatCompletion` with the send flag and the HTTP status, for the router's events. */
+export async function sendClassifiedChat(
+  opts: ClassifiedChatOptions,
+): Promise<ClassifiedChatOutcome> {
   const local = opts.provider === 'local'
   const url = chatCompletionsUrl(opts.baseUrl)
   // A key over plain HTTP is a config error (SR-L-63): refused before anything is sent.
   if (opts.apiKey !== undefined && URL.canParse(url) && new URL(url).protocol === 'http:') {
-    return { ok: false, code: 'TRANSPORT', responded: false }
+    return { result: { ok: false, code: 'TRANSPORT', responded: false }, sent: false }
+  }
+  if (opts.signal?.aborted === true) {
+    return { result: { ok: false, code: 'ABORTED' }, sent: false }
   }
   // Only the local leaf may reach the runtime host over plain HTTP (SR-M-64).
   const send = local ? boundedRequestToLocalRuntime : boundedRequest
@@ -281,6 +315,11 @@ export async function sendClassifiedChatCompletion(
     signal: opts.signal,
     fetchImpl: opts.fetchImpl,
   })
+  const status = 'status' in result && result.status !== undefined ? { status: result.status } : {}
+  return { result: classify(opts, result), sent: true, ...status }
+}
+
+function classify(opts: ClassifiedChatOptions, result: BoundedResult): ClassifiedChatResult {
   switch (result.kind) {
     case 'timeout':
       return { ok: false, code: result.aborted === true ? 'ABORTED' : 'TIMEOUT' }
