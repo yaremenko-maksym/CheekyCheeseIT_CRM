@@ -1113,6 +1113,12 @@ path (the gate is restated in the staged file's header and in `schema/job-queue.
 Explicit `@Inject`, `@UseGuards(RolesGuard)` + `@Roles`, parsed request/response schemas, `@Throttle` per route on
 top of the global `UserAwareThrottlerGuard`; error codes from `api-errors/job-sourcing.ts`.
 
+**Precondition (owner decision pending, backlog entry 349 / Task 6.1 SR-M-2):** the triage-grant visibility gap
+(a grant still shows an opportunity between a revision bump and its recompute, and indefinitely with an empty
+roster) is decided by the owner (options 1/2/3 in the entry), and the pinned SR-M-2 case in the queue-scope
+integration spec is flipped to a 404, or the owner's acceptance is written in the entry. Tasks 6.2 and 6.3 must not
+inject `JobQueueScopeService` before that decision either: the first caller is the first exposure.
+
 | Method        | Endpoint                                     | Contract / limit                                                                                                            |
 | ------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | GET           | `/job-queue`                                 | scope/filter/status/cursor; default 20 / max 50                                                                             |
