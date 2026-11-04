@@ -1,11 +1,14 @@
-import { ForbiddenException, HttpStatus, Injectable } from '@nestjs/common'
+import { ForbiddenException, HttpStatus, Injectable, Logger } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { apiError } from '../../common/api-error'
 import { DatabaseService } from '../../database/database.service'
+import { loadRoster } from '../runtime/recompute-inputs'
 import {
+  canonicalUuid,
   isJobQueueRole,
   type JobQueueScope,
+  type LiveSeniorVersion,
   NONE_SCOPE,
   selectScopeTeam,
   STUDIO_SCOPE,
@@ -18,36 +21,46 @@ import {
  * Task 6.4's controller calls `resolve` on every request, and Task 6.2 / 6.3 read through
  * `visibleOpportunityPredicate` / `assertVisible` for the same scope.
  *
- * FAIL CLOSED: if the roster or visibility query fails, the answer is
- * `JOB_QUEUE_POLICY_UNAVAILABLE` (503) — never a default scope and never "visible".
+ * A malformed id never reaches a `::uuid` cast: it is a plain miss (404 / NONE) decided before
+ * any query, so it cannot surface as a 503.
+ *
+ * POLICY UNAVAILABLE: if the roster or visibility query fails, the answer is
+ * `JOB_QUEUE_POLICY_UNAVAILABLE` (503) — never a default scope and never "visible" — and the
+ * failure is logged (error class and message only).
  */
 @Injectable()
 export class JobQueueScopeService {
+  private readonly logger = new Logger(JobQueueScopeService.name)
+
   constructor(private readonly database: DatabaseService) {}
 
   async resolve(user: SessionUser, requestedTeamId?: string): Promise<JobQueueScope> {
     if (!isJobQueueRole(user.role)) throw new ForbiddenException()
-    if (user.role === 'ADMIN' && requestedTeamId === undefined) return STUDIO_SCOPE
-    return this.failClosed(async () => {
+    if (requestedTeamId === undefined && user.role === 'ADMIN') return STUDIO_SCOPE
+    const requested = requestedTeamId === undefined ? undefined : canonicalUuid(requestedTeamId)
+    if (requested === null) return NONE_SCOPE
+    return this.policy(async () => {
       const allowed =
         user.role === 'ADMIN'
-          ? await this.liveTeamIds(requestedTeamId as string)
+          ? await this.liveTeamIds(requested as string)
           : await this.activeTeamIdsOf(user.id)
-      const teamId = selectScopeTeam(requestedTeamId, allowed)
+      const teamId = selectScopeTeam(requested, allowed)
       if (teamId === null) return NONE_SCOPE
-      return { kind: 'TEAM', teamId, seniorIds: await this.teamSeniorIds(teamId) }
+      const versions = await this.liveSeniorVersions(teamId)
+      return { kind: 'TEAM', teamId, seniorIds: versions.map((v) => v.seniorId), versions }
     })
   }
 
   /**
    * 404 `JOB_OPPORTUNITY_NOT_FOUND` unless the opportunity exists AND is visible in `scope` —
-   * one answer for "does not exist" and "not yours", so a viewer cannot probe another team's
-   * queue. NONE answers without a query.
+   * one answer for "does not exist", "not yours" and "not an id", so a viewer cannot probe
+   * another team's queue. NONE and a malformed id answer without a query.
    */
   async assertVisible(scope: JobQueueScope, opportunityId: string): Promise<void> {
-    if (scope.kind === 'NONE') throw notFound()
-    const rows = await this.failClosed(async () => {
-      const id = sql`${opportunityId}::uuid`
+    const canonical = canonicalUuid(opportunityId)
+    if (scope.kind === 'NONE' || canonical === null) throw notFound()
+    const rows = await this.policy(async () => {
+      const id = sql`${canonical}::uuid`
       const result = await this.database.db.execute(
         sql`SELECT 1 AS visible FROM job_opportunities o
              WHERE o.id = ${id} AND ${visibleOpportunityPredicate(scope, id)}`,
@@ -79,22 +92,28 @@ export class JobQueueScopeService {
     return rows.map((r) => String(r['id']))
   }
 
-  /** The team's active, non-archived SENIOR members, sorted by id. */
-  private async teamSeniorIds(teamId: string): Promise<string[]> {
-    const { rows } = await this.database.db.execute(
-      sql`SELECT DISTINCT u.id FROM team_members tm
-            JOIN users u ON u.id = tm.user_id
-           WHERE tm.team_id = ${teamId}::uuid AND tm.left_at IS NULL
-             AND u.role = 'SENIOR' AND u.archived_at IS NULL
-           ORDER BY u.id`,
+  /**
+   * The team's matchable seniors (active, non-archived SENIOR, in the team) with their LIVE input
+   * versions, from the same `loadRoster` / `rosterVersions` the recompute worker stamps match rows
+   * with — so a row is visible only while it still describes the live roster (SR-M-2).
+   */
+  private async liveSeniorVersions(teamId: string): Promise<LiveSeniorVersion[]> {
+    const roster = await loadRoster(this.database.db)
+    const inTeam = new Set(
+      roster.profiles.filter((p) => p.teamIds.includes(teamId)).map((p) => p.seniorId),
     )
-    return rows.map((r) => String(r['id']))
+    // `versions` follows the roster order (by senior id); a senior without a row grants nothing.
+    return [...roster.versions]
+      .filter(([seniorId]) => inTeam.has(seniorId))
+      .map(([seniorId, v]) => ({ seniorId, profile: v.profile, exclusion: v.exclusion }))
   }
 
-  private async failClosed<T>(fn: () => Promise<T>): Promise<T> {
+  private async policy<T>(fn: () => Promise<T>): Promise<T> {
     try {
       return await fn()
-    } catch {
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err))
+      this.logger.error(`queue policy evaluation failed: ${e.name}: ${e.message}`)
       throw apiError('JOB_QUEUE_POLICY_UNAVAILABLE', HttpStatus.SERVICE_UNAVAILABLE)
     }
   }
