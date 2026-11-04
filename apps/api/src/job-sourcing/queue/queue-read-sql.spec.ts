@@ -132,7 +132,7 @@ describe('policySignature', () => {
   })
   it('is the sha-256 of the kind, the team, the rule version and the versions', () => {
     const json = JSON.stringify(['TEAM', TEAM, MATCH_RULE_VERSION, versions])
-    expect(base).toBe(createHash('sha256').update(json).digest('hex'))
+    expect(policySignature(team, versions)).toBe(createHash('sha256').update(json).digest('hex'))
   })
   it('is stable for the same inputs', () => {
     expect(policySignature({ ...team }, [...versions])).toBe(base)

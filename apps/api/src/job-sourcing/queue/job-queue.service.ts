@@ -25,7 +25,7 @@ import {
   requestSignature,
   signCursor,
 } from './queue-cursor'
-import { currentGeneration, generationById } from './queue-generation'
+import { currentGeneration, GENERATION_TTL_MS, generationById } from './queue-generation'
 import {
   cardRow,
   duplicateRows,
@@ -52,7 +52,6 @@ import { JobQueueScopeService } from './queue-scope.service'
 export const SENIOR_PREVIEW_MAX = 200
 export const SOURCE_PREVIEW_MAX = 20
 const DUPLICATE_PREVIEW_MAX = 5
-const CONTINUATION_TTL_MS = 15 * 60 * 1000
 
 type Row = Record<string, unknown>
 type SeniorsPage = z.infer<typeof jobQueueSeniorsContinuationSchema>
@@ -337,7 +336,7 @@ export class JobQueueService {
   }
 
   private continuationCursor(kind: 'SRC' | 'SEN', id: string, key: string, signature: string) {
-    const e = Math.floor((Date.now() + CONTINUATION_TTL_MS) / 1000)
+    const e = Math.floor((Date.now() + GENERATION_TTL_MS) / 1000)
     return signCursor({ t: kind, g: id, k: key, s: signature, e }, this.secret)
   }
 
