@@ -12,6 +12,25 @@ function requiredOf(node: JsonSchema): ReadonlySet<unknown> {
   return new Set(node.required as unknown[] | undefined)
 }
 
+/** Constructs the strict form cannot express; a schema using one is refused at creation (CR-M-2). */
+const REFUSED_KEYWORDS = new Set([
+  'allOf',
+  'oneOf',
+  '$ref',
+  '$defs',
+  'prefixItems',
+  'patternProperties',
+])
+
+function refuse(what: string): never {
+  throw new Error(`createStrictSchema: ${what} cannot be rendered in the strict form`)
+}
+
+/** A branch that describes an object or an array (as opposed to a primitive or null). */
+function isShaped(branch: JsonSchema): boolean {
+  return isObject(branch.properties) || isObject(branch.items)
+}
+
 /**
  * The strict form every route receives (ADR 5.4c-1): every property in `required`,
  * `additionalProperties: false` on every object, an optional property as a union with `null`,
@@ -21,6 +40,13 @@ function toStrict(node: JsonSchema): JsonSchema {
   const out: JsonSchema = {}
   for (const [key, value] of Object.entries(node)) {
     if (key === 'maxLength' || key === '$schema') continue
+    if (REFUSED_KEYWORDS.has(key)) refuse(`"${key}"`)
+    if (key === 'additionalProperties' && typeof value !== 'boolean') {
+      refuse('a schema-valued additionalProperties (record or loose object)')
+    }
+    if (key === 'anyOf' && (value as JsonSchema[]).filter(isShaped).length > 1) {
+      refuse('a union of several object or array shapes')
+    }
     out[key] =
       key === 'items'
         ? toStrict(value as JsonSchema)
@@ -42,7 +68,7 @@ function toStrict(node: JsonSchema): JsonSchema {
   return out
 }
 
-/** The `anyOf` branch (a nullable object or array) that describes `value`'s shape. */
+/** The one shaped `anyOf` branch (creation refuses unions of several shapes) for `value`. */
 function branchFor(node: JsonSchema, value: unknown): JsonSchema {
   if (!Array.isArray(node.anyOf)) return node
   const key = Array.isArray(value) ? 'items' : 'properties'
@@ -59,7 +85,8 @@ function nullsToAbsent(schemaNode: JsonSchema, value: unknown): unknown {
   }
   if (!isObject(value) || !isObject(properties)) return value
   const required = requiredOf(node)
-  const out: JsonSchema = {}
+  // No prototype: a model-sent `__proto__` key stays an own key and is never a prototype (SR-L-62).
+  const out = Object.create(null) as JsonSchema
   for (const [key, v] of Object.entries(value)) {
     if (v === null && !required.has(key)) continue
     const child = properties[key]

@@ -16,7 +16,7 @@ const posting = z.object({
 const nested = z.object({
   opt: z.object({ a: z.string().optional() }).nullable(),
   list: z.array(z.object({ b: z.number().optional() })).nullable(),
-  loose: z.looseObject({ c: z.string() }),
+  inner: z.object({ c: z.string() }),
   meta: z.unknown(),
 })
 
@@ -63,7 +63,7 @@ describe('createStrictSchema — golden strict form (ADR 5.4c-1)', () => {
     })
   })
 
-  it('renders nullable objects and arrays, a loose object and an untyped field', () => {
+  it('renders nullable objects and arrays, a plain object and an untyped field', () => {
     expect(createStrictSchema(nested).jsonSchema).toStrictEqual({
       type: 'object',
       properties: {
@@ -92,7 +92,7 @@ describe('createStrictSchema — golden strict form (ADR 5.4c-1)', () => {
             NULL,
           ],
         },
-        loose: {
+        inner: {
           type: 'object',
           properties: { c: { type: 'string' } },
           required: ['c'],
@@ -100,7 +100,7 @@ describe('createStrictSchema — golden strict form (ADR 5.4c-1)', () => {
         },
         meta: {},
       },
-      required: ['opt', 'list', 'loose', 'meta'],
+      required: ['opt', 'list', 'inner', 'meta'],
       additionalProperties: false,
     })
   })
@@ -157,13 +157,13 @@ describe('createStrictSchema — null means "not found"', () => {
     const r = createStrictSchema(nested).replySchema.parse({
       opt: { a: null },
       list: [{ b: null }, { b: 2 }],
-      loose: { c: 'x', extra: 1 },
+      inner: { c: 'x', extra: 1 },
       meta: [{ k: null }],
     })
     expect(r).toStrictEqual({
       opt: {},
       list: [{}, { b: 2 }],
-      loose: { c: 'x', extra: 1 },
+      inner: { c: 'x' },
       meta: [{ k: null }],
     })
   })
@@ -172,10 +172,10 @@ describe('createStrictSchema — null means "not found"', () => {
     const r = createStrictSchema(nested).replySchema.parse({
       opt: null,
       list: null,
-      loose: { c: 'x' },
+      inner: { c: 'x' },
       meta: { k: null },
     })
-    expect(r).toStrictEqual({ opt: null, list: null, loose: { c: 'x' }, meta: { k: null } })
+    expect(r).toStrictEqual({ opt: null, list: null, inner: { c: 'x' }, meta: { k: null } })
   })
 
   it('leaves keys the schema does not describe to the caller schema', () => {
@@ -209,5 +209,69 @@ describe('createStrictSchema — null means "not found"', () => {
     expect(createStrictSchema(allOptional).replySchema.parse({ a: null, b: 1 })).toStrictEqual({
       b: 1,
     })
+  })
+})
+
+describe('createStrictSchema — refuses what it cannot make strict (CR-M-2)', () => {
+  const Tree: z.ZodType = z.object({
+    n: z.string(),
+    get c() {
+      return z.array(Tree).optional()
+    },
+  })
+
+  it.each([
+    ['a record', z.object({ r: z.record(z.string(), z.number()) }), /additionalProperties/],
+    ['a loose object', z.looseObject({ c: z.string() }), /additionalProperties/],
+    ['a tuple', z.object({ t: z.tuple([z.string(), z.number()]) }), /"prefixItems"/],
+    ['a recursive schema', Tree, /"\$ref"/],
+    [
+      'a discriminated union',
+      z.discriminatedUnion('k', [z.object({ k: z.literal('a') }), z.object({ k: z.literal('b') })]),
+      /"oneOf"/,
+    ],
+    [
+      'a union of two object shapes',
+      z.object({ u: z.union([z.object({ a: z.string() }), z.object({ b: z.string() })]) }),
+      /several object or array shapes/,
+    ],
+    [
+      'a union of an array and an object',
+      z.object({ u: z.union([z.array(z.string()), z.object({ b: z.string() })]) }),
+      /several object or array shapes/,
+    ],
+    ['allOf', z.object({ a: z.string() }).meta({ allOf: [] }), /"allOf"/],
+    ['$defs', z.object({ a: z.string() }).meta({ $defs: {} }), /"\$defs"/],
+    [
+      'patternProperties',
+      z.object({ a: z.string() }).meta({ patternProperties: {} }),
+      /"patternProperties"/,
+    ],
+  ])('%s', (_name, schema: z.ZodType, message: RegExp) => {
+    expect(() => createStrictSchema(schema)).toThrow(message)
+    expect(() => createStrictSchema(schema)).toThrow(
+      /^createStrictSchema: .+ cannot be rendered in the strict form$/,
+    )
+  })
+
+  it('keeps a nullable object, a nullable array and a primitive-or-object union', () => {
+    expect(() =>
+      createStrictSchema(
+        z.object({
+          o: z.object({ a: z.string() }).nullable().optional(),
+          l: z.array(z.string()).nullable(),
+          u: z.union([z.string(), z.object({ a: z.string() })]),
+        }),
+      ),
+    ).not.toThrow()
+  })
+})
+
+describe('createStrictSchema — a model-sent __proto__ key (SR-L-62)', () => {
+  it('never becomes the prototype of the mapped answer', () => {
+    const schema = z.object({ a: z.string(), p: z.boolean().optional() })
+    const sent: unknown = JSON.parse('{"a":"x","__proto__":{"p":true}}')
+    expect(createStrictSchema(schema).replySchema.parse(sent)).toStrictEqual({ a: 'x' })
+    expect(({} as Record<string, unknown>).p).toBeUndefined()
   })
 })
