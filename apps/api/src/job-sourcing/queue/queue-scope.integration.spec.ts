@@ -7,15 +7,17 @@ import {
   openCrmAppSession,
 } from '../../database/__test-helpers__/crm-app-session'
 import { hasDatabaseUrl } from '../../test/require-real-db'
-import { type JobQueueScope, STUDIO_SCOPE } from './queue-scope'
+import { loadRoster, MATCH_RULE_VERSION, type SeniorVersions } from '../runtime/recompute-inputs'
+import { type JobQueueScope, NONE_SCOPE, STUDIO_SCOPE } from './queue-scope'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /**
  * r5 Task 6.1 — queue visibility against a real Postgres, as the API role (`crm_app`). A mocked
  * E2E cannot prove a backend scope (the #110/#157 lesson). Fixtures are written directly (users,
- * teams, opportunities, per-senior matches, triage grants) so every row of the matrix is explicit:
- * ADMIN, own HR, foreign HR, no-team HR, archived / left member, other roles, stale revision,
- * EXCLUDED, live / expired / revoked grant, live roster change after the scope was resolved.
+ * teams, opportunities, per-senior matches, triage grants). Match rows carry the LIVE versions
+ * the recompute worker would stamp (`loadRoster` / `rosterVersions`, `MATCH_RULE_VERSION`), so a
+ * visible row is visible for the right reason, and each stale variant differs in exactly one
+ * version — the matrix fails if the staleness gap (PANEL-DS-1) returns.
  */
 const TAG = randomUUID().slice(0, 8)
 const user = (id: string, role: SessionUser['role']): SessionUser =>
@@ -33,8 +35,17 @@ async function expectNotFound(p: Promise<unknown>): Promise<void> {
   )
 }
 
+interface MatchOpts {
+  revision?: number
+  profile?: string
+  exclusion?: string
+  rule?: string
+  evidence?: Record<string, unknown>
+}
+
 let session: CrmAppSession
 let service: JobQueueScopeService
+let live: ReadonlyMap<string, SeniorVersions>
 const ids: Record<string, string> = {}
 const userIds: string[] = []
 const teamIds: string[] = []
@@ -50,9 +61,15 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
 
     const mkUser = async (key: string, role: SessionUser['role'], archived = false) => {
       const { rows } = await q(
-        `INSERT INTO users (email, display_name, role, archived_at)
-         VALUES ($1, $2, $3, $4) RETURNING id`,
-        [`qscope-${key}-${TAG}@example.test`, `qscope ${key}`, role, archived ? new Date() : null],
+        `INSERT INTO users (email, display_name, role, tech_stack, archived_at)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [
+          `qscope-${key}-${TAG}@example.test`,
+          `qscope ${key}`,
+          role,
+          ['Go'],
+          archived ? new Date() : null,
+        ],
       )
       ids[key] = rows[0].id as string
       userIds.push(ids[key])
@@ -72,22 +89,35 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
         ids[member],
         left ? new Date() : null,
       ])
-    const mkOpp = async (key: string, revision = 1) => {
+    const mkOpp = async (key: string, revision = 1, availability = 'OPEN') => {
       const { rows } = await q(
-        `INSERT INTO job_opportunities (title, title_key, revision) VALUES ($1, $1, $2) RETURNING id`,
-        [`qscope ${key} ${TAG}`, revision],
+        `INSERT INTO job_opportunities (title, title_key, revision, availability)
+         VALUES ($1, $1, $2, $3) RETURNING id`,
+        [`qscope ${key} ${TAG}`, revision, availability],
       )
       ids[key] = rows[0].id as string
       oppIds.push(ids[key])
     }
-    const match = (opp: string, senior: string, outcome: string, revision = 1) =>
-      q(
+    const match = (opp: string, senior: string, outcome: string, o: MatchOpts = {}) => {
+      // A senior outside the live roster (archived / left) has no live version: stamp a dummy.
+      const v = live.get(ids[senior] as string) ?? { profile: 'none', exclusion: 'none' }
+      return q(
         `INSERT INTO job_opportunity_matches
            (opportunity_id, senior_id, opportunity_revision, senior_profile_version,
-            exclusion_version, rule_version, outcome)
-         VALUES ($1, $2, $3, 'v', 'v', 'v', $4)`,
-        [ids[opp], ids[senior], revision, outcome],
+            exclusion_version, rule_version, outcome, evidence)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          ids[opp],
+          ids[senior],
+          o.revision ?? 1,
+          o.profile ?? v.profile,
+          o.exclusion ?? v.exclusion,
+          o.rule ?? MATCH_RULE_VERSION,
+          outcome,
+          JSON.stringify(o.evidence ?? {}),
+        ],
       )
+    }
     const grant = (opp: string, team: string, expires: string, revoked = false) =>
       q(
         `INSERT INTO job_opportunity_team_triage
@@ -98,19 +128,14 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
       )
 
     await mkUser('admin', 'ADMIN')
-    await mkUser('hrA', 'HR')
-    await mkUser('hrB', 'HR')
-    await mkUser('hrNone', 'HR')
-    await mkUser('hrMulti', 'HR')
-    await mkUser('senA', 'SENIOR')
-    await mkUser('senB', 'SENIOR')
+    for (const hr of ['hrA', 'hrB', 'hrNone', 'hrMulti', 'hrGone']) await mkUser(hr, 'HR')
+    for (const s of ['senA', 'senB', 'senLeft', 'senLive', 'senGone']) await mkUser(s, 'SENIOR')
     await mkUser('senArchived', 'SENIOR', true)
-    await mkUser('senLeft', 'SENIOR')
-    await mkUser('senLive', 'SENIOR')
     await mkUser('junA', 'JUNIOR')
 
     await mkTeam('teamA', '2020-01-01T00:00:00Z')
     await mkTeam('teamB', '2020-01-02T00:00:00Z')
+    await mkTeam('teamGone', '2020-01-03T00:00:00Z')
     // Older than A, but archived / DROP-type: never a queue scope, never the default.
     await mkTeam('teamArchived', '2019-01-01T00:00:00Z', 'SENIOR', true)
     await mkTeam('teamDrop', '2019-01-02T00:00:00Z', 'DROP')
@@ -118,17 +143,29 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
     for (const m of ['hrA', 'senA', 'senArchived', 'senLive', 'junA']) await join('teamA', m)
     await join('teamA', 'senLeft', true)
     for (const m of ['hrB', 'senB']) await join('teamB', m)
+    for (const m of ['hrGone', 'senGone']) await join('teamGone', m)
     for (const t of ['teamB', 'teamA', 'teamArchived', 'teamDrop']) await join(t, 'hrMulti')
     // hrNone: a membership that was left, and one in an archived team — no active team.
     await join('teamB', 'hrNone', true)
     await join('teamArchived', 'hrNone')
 
+    // The live versions, after the roster is final, from the same helper the worker uses.
+    live = (await loadRoster(session.databaseService.db)).versions
+
     await mkOpp('oppA')
     await match('oppA', 'senA', 'LEAD')
     await mkOpp('oppB')
     await match('oppB', 'senB', 'LEAD')
-    await mkOpp('oppStale', 2)
-    await match('oppStale', 'senA', 'LEAD', 1)
+    await mkOpp('oppStaleRevision', 2)
+    await match('oppStaleRevision', 'senA', 'LEAD', { revision: 1 })
+    await mkOpp('oppStaleProfile')
+    await match('oppStaleProfile', 'senA', 'LEAD', { profile: 'stale-profile' })
+    await mkOpp('oppStaleExclusion')
+    await match('oppStaleExclusion', 'senA', 'LEAD', { exclusion: 'stale-exclusion' })
+    await mkOpp('oppStaleRule')
+    await match('oppStaleRule', 'senA', 'LEAD', { rule: 'eval.0+l1.0' })
+    await mkOpp('oppTriage')
+    await match('oppTriage', 'senA', 'TRIAGE')
     await mkOpp('oppExcluded')
     await match('oppExcluded', 'senA', 'EXCLUDED')
     await mkOpp('oppArchivedSenior')
@@ -141,9 +178,40 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
     await grant('oppGrantExpired', 'teamA', '-1 minute')
     await mkOpp('oppGrantRevoked')
     await grant('oppGrantRevoked', 'teamA', '1 day', true)
+    await mkOpp('oppGrantClosed', 1, 'CLOSED')
+    await grant('oppGrantClosed', 'teamA', '1 day')
+    await mkOpp('oppGrantExpiredPosting', 1, 'EXPIRED')
+    await grant('oppGrantExpiredPosting', 'teamA', '1 day')
+    await mkOpp('oppGrantGlobalExcluded')
+    await grant('oppGrantGlobalExcluded', 'teamA', '1 day')
+    await match('oppGrantGlobalExcluded', 'senB', 'EXCLUDED', {
+      evidence: { stage: 'GLOBAL_RESTRICTIONS', reasons: [] },
+    })
+    await mkOpp('oppGrantLayer1Rejected')
+    await grant('oppGrantLayer1Rejected', 'teamA', '1 day')
+    await match('oppGrantLayer1Rejected', 'senA', 'EXCLUDED', {
+      evidence: { stage: 'CLASSIFICATION', reasons: [] },
+    })
+    // A global exclusion at an OLD revision no longer applies to the current one.
+    await mkOpp('oppGrantOldExclusion', 2)
+    await grant('oppGrantOldExclusion', 'teamA', '1 day')
+    await match('oppGrantOldExclusion', 'senA', 'EXCLUDED', {
+      revision: 1,
+      evidence: { stage: 'GLOBAL_RESTRICTIONS', reasons: [] },
+    })
+    // A per-senior stop-list (A1g) does not hide the opportunity from the team.
+    await mkOpp('oppGrantSeniorStopList')
+    await grant('oppGrantSeniorStopList', 'teamA', '1 day')
+    await match('oppGrantSeniorStopList', 'senA', 'EXCLUDED', {
+      evidence: { stage: 'SCOPED_RESTRICTIONS', reasons: [] },
+    })
     await mkOpp('oppUnmatched')
     await mkOpp('oppLive')
     await match('oppLive', 'senLive', 'LEAD')
+    await mkOpp('oppGoneLead')
+    await match('oppGoneLead', 'senGone', 'LEAD')
+    await mkOpp('oppGoneGrant')
+    await grant('oppGoneGrant', 'teamGone', '1 day')
   })
 
   afterAll(async () => {
@@ -153,6 +221,10 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
       await session.admin.query(`DELETE FROM job_opportunities WHERE id = ANY($1::uuid[])`, [
         oppIds,
       ])
+      await session.admin.query(
+        `DELETE FROM job_exclusion_filters WHERE senior_id = ANY($1::uuid[])`,
+        [userIds],
+      )
       await session.admin.query(`DELETE FROM team_members WHERE team_id = ANY($1::uuid[])`, [
         teamIds,
       ])
@@ -168,29 +240,57 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
       user(ids[key] as string, role),
       teamKey === undefined ? undefined : ids[teamKey],
     )
+  const visible = (scope: JobQueueScope, opp: string) =>
+    service.assertVisible(scope, ids[opp] as string)
 
   describe('resolve', () => {
     it('ADMIN without a team is STUDIO', async () => {
       await expect(resolve('admin', 'ADMIN')).resolves.toEqual(STUDIO_SCOPE)
     })
 
-    it('ADMIN naming team A gets it, with only its live SENIOR members (sorted)', async () => {
-      const expected = [ids['senA'], ids['senLive']].sort()
-      await expect(resolve('admin', 'ADMIN', 'teamA')).resolves.toEqual({
+    it('ADMIN naming team A gets it, with only its live SENIOR members and their live versions', async () => {
+      const scope = await resolve('admin', 'ADMIN', 'teamA')
+      const seniors = [ids['senA'], ids['senLive']].sort() as string[]
+      expect(scope).toEqual({
         kind: 'TEAM',
         teamId: ids['teamA'],
-        seniorIds: expected,
+        seniorIds: seniors,
+        versions: seniors.map((seniorId) => ({
+          seniorId,
+          profile: live.get(seniorId)?.profile,
+          exclusion: live.get(seniorId)?.exclusion,
+        })),
       })
     })
 
+    it('an uppercase team id is the same team (HR and ADMIN)', async () => {
+      const upper = (ids['teamA'] as string).toUpperCase()
+      expect(await service.resolve(user(ids['admin'] as string, 'ADMIN'), upper)).toMatchObject({
+        kind: 'TEAM',
+        teamId: ids['teamA'],
+      })
+      expect(await service.resolve(user(ids['hrA'] as string, 'HR'), upper)).toMatchObject({
+        kind: 'TEAM',
+        teamId: ids['teamA'],
+      })
+    })
+
+    it('a malformed team id is NONE, not a 503 (PANEL-GLM-5)', async () => {
+      await expect(service.resolve(user(ids['admin'] as string, 'ADMIN'), 'nope')).resolves.toEqual(
+        NONE_SCOPE,
+      )
+      await expect(service.resolve(user(ids['hrA'] as string, 'HR'), 'nope')).resolves.toEqual(
+        NONE_SCOPE,
+      )
+    })
+
     it('ADMIN naming an archived or DROP team is NONE', async () => {
-      await expect(resolve('admin', 'ADMIN', 'teamArchived')).resolves.toEqual({ kind: 'NONE' })
-      await expect(resolve('admin', 'ADMIN', 'teamDrop')).resolves.toEqual({ kind: 'NONE' })
+      await expect(resolve('admin', 'ADMIN', 'teamArchived')).resolves.toEqual(NONE_SCOPE)
+      await expect(resolve('admin', 'ADMIN', 'teamDrop')).resolves.toEqual(NONE_SCOPE)
     })
 
     it('own HR defaults to their team; seniors exclude archived, left and non-SENIOR members', async () => {
-      const scope = await resolve('hrA', 'HR')
-      expect(scope).toEqual({
+      expect(await resolve('hrA', 'HR')).toMatchObject({
         kind: 'TEAM',
         teamId: ids['teamA'],
         seniorIds: [ids['senA'], ids['senLive']].sort(),
@@ -204,15 +304,15 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
         teamId: ids['teamB'],
         seniorIds: [ids['senB']],
       })
-      await expect(resolve('hrMulti', 'HR', 'teamArchived')).resolves.toEqual({ kind: 'NONE' })
+      await expect(resolve('hrMulti', 'HR', 'teamArchived')).resolves.toEqual(NONE_SCOPE)
     })
 
     it('foreign HR naming team A is NONE', async () => {
-      await expect(resolve('hrB', 'HR', 'teamA')).resolves.toEqual({ kind: 'NONE' })
+      await expect(resolve('hrB', 'HR', 'teamA')).resolves.toEqual(NONE_SCOPE)
     })
 
     it('HR with only left / archived memberships is NONE', async () => {
-      await expect(resolve('hrNone', 'HR')).resolves.toEqual({ kind: 'NONE' })
+      await expect(resolve('hrNone', 'HR')).resolves.toEqual(NONE_SCOPE)
     })
 
     it.each(['SENIOR', 'JUNIOR', 'ACCOUNTANT', 'DROP'] as const)('%s is a 403', async (role) => {
@@ -221,20 +321,21 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
   })
 
   describe('assertVisible', () => {
-    const visible = (scope: JobQueueScope, opp: string) =>
-      service.assertVisible(scope, ids[opp] as string)
-
     it('STUDIO sees every existing opportunity, including unmatched triage', async () => {
       for (const opp of ['oppA', 'oppB', 'oppUnmatched', 'oppExcluded']) {
         await expect(visible(STUDIO_SCOPE, opp)).resolves.toBeUndefined()
       }
     })
 
-    it('STUDIO: a non-existent opportunity is the same 404', async () => {
+    it('a non-existent or malformed opportunity id is the same 404 (STUDIO and TEAM)', async () => {
       await expectNotFound(service.assertVisible(STUDIO_SCOPE, randomUUID()))
+      await expectNotFound(service.assertVisible(STUDIO_SCOPE, 'not-a-uuid'))
+      const a = await resolve('hrA', 'HR')
+      await expectNotFound(service.assertVisible(a, randomUUID()))
+      await expectNotFound(service.assertVisible(a, 'not-a-uuid'))
     })
 
-    it('team A sees its LEAD and its live grant; team B sees neither', async () => {
+    it('team A sees its live-version LEAD and its live grant; team B sees neither', async () => {
       const a = await resolve('hrA', 'HR')
       const b = await resolve('hrB', 'HR')
       await expect(visible(a, 'oppA')).resolves.toBeUndefined()
@@ -245,31 +346,65 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
       await expectNotFound(visible(a, 'oppB'))
     })
 
-    it('team A does not see stale, EXCLUDED, archived-senior, left-senior or unmatched items', async () => {
-      const a = await resolve('hrA', 'HR')
-      for (const opp of [
-        'oppStale',
-        'oppExcluded',
-        'oppArchivedSenior',
-        'oppLeftSenior',
-        'oppUnmatched',
-      ]) {
-        await expectNotFound(visible(a, opp))
-      }
+    it.each([
+      'oppStaleRevision',
+      'oppStaleProfile',
+      'oppStaleExclusion',
+      'oppStaleRule',
+      'oppTriage',
+      'oppExcluded',
+      'oppArchivedSenior',
+      'oppLeftSenior',
+      'oppUnmatched',
+    ])('team A does not see %s', async (opp) => {
+      await expectNotFound(visible(await resolve('hrA', 'HR'), opp))
     })
 
-    it('an expired or revoked grant grants nothing', async () => {
-      const a = await resolve('hrA', 'HR')
-      await expectNotFound(visible(a, 'oppGrantExpired'))
-      await expectNotFound(visible(a, 'oppGrantRevoked'))
+    it.each([
+      'oppGrantExpired',
+      'oppGrantRevoked',
+      'oppGrantClosed',
+      'oppGrantExpiredPosting',
+      'oppGrantGlobalExcluded',
+      'oppGrantLayer1Rejected',
+    ])('a grant does not expose %s', async (opp) => {
+      await expectNotFound(visible(await resolve('hrA', 'HR'), opp))
     })
 
-    it('NONE sees nothing, and a non-existent id in a TEAM scope is the same 404', async () => {
+    it('a grant still exposes an item with an old-revision or per-senior exclusion', async () => {
+      const a = await resolve('hrA', 'HR')
+      await expect(visible(a, 'oppGrantOldExclusion')).resolves.toBeUndefined()
+      await expect(visible(a, 'oppGrantSeniorStopList')).resolves.toBeUndefined()
+    })
+
+    it('NONE sees nothing', async () => {
       await expectNotFound(visible(await resolve('hrNone', 'HR'), 'oppA'))
-      await expectNotFound(service.assertVisible(await resolve('hrA', 'HR'), randomUUID()))
+    })
+  })
+
+  describe('live changes after resolve', () => {
+    it('a new exclusion stales the senior: a fresh scope no longer sees the LEAD', async () => {
+      await expect(visible(await resolve('hrA', 'HR'), 'oppA')).resolves.toBeUndefined()
+      await session.admin.query(
+        `INSERT INTO job_exclusion_filters (senior_id, kind, value, normalized_value)
+         VALUES ($1, 'COMPANY', $2, $2)`,
+        [ids['senA'], `qscope-co-${TAG}`],
+      )
+      await expectNotFound(visible(await resolve('hrA', 'HR'), 'oppA'))
     })
 
-    it('a roster change after resolve wins: the cached scope grants nothing', async () => {
+    it('an archived team shows nothing, even with a live LEAD and a live grant', async () => {
+      const gone = await resolve('hrGone', 'HR')
+      await expect(visible(gone, 'oppGoneLead')).resolves.toBeUndefined()
+      await expect(visible(gone, 'oppGoneGrant')).resolves.toBeUndefined()
+      await session.admin.query(`UPDATE teams SET archived_at = now() WHERE id = $1`, [
+        ids['teamGone'],
+      ])
+      await expectNotFound(visible(gone, 'oppGoneLead'))
+      await expectNotFound(visible(gone, 'oppGoneGrant'))
+    })
+
+    it('a roster change after resolve wins: the per-request scope grants nothing', async () => {
       const a = await resolve('hrA', 'HR')
       await expect(visible(a, 'oppLive')).resolves.toBeUndefined()
       await session.admin.query(
