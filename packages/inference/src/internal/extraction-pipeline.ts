@@ -26,7 +26,7 @@ export function extractJsonObject(text: string): string | null {
   return null
 }
 
-const MAX_CORRECTION_CHARS = 500
+export const MAX_CORRECTION_CHARS = 500
 const SAFE_PATH_SEGMENT = /^[A-Za-z0-9_]{1,32}$/
 
 /**

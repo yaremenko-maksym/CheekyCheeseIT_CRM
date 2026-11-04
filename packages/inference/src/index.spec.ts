@@ -14,6 +14,40 @@ describe('package index public surface (SPEC-M-1)', () => {
     expect(Object.keys(pkg)).not.toContain('boundedRequestToLocalRuntime')
   })
 
+  it('exposes exactly the router names the wiring needs (5.4c-2)', () => {
+    const router = [
+      'routerConfigSchema',
+      'routerCallCeilingMs',
+      'isAllowedRouterLocalModelUrl',
+      'routerInputCeilingChars',
+      'createRouterExtractionAdapter',
+      'createFileRouteStatePort',
+      'createOwnCapPort',
+      'createFileManagedModels',
+    ]
+    expect(Object.keys(pkg)).toEqual(expect.arrayContaining(router))
+  })
+
+  it.each([
+    'createRouter',
+    'sendClassifiedChatCompletion',
+    'createStrictSchema',
+    'HOSTED_BASE_URLS',
+    'createMemoryRouteStatePort',
+    'markRetired',
+    'markAuth',
+    'providerDay',
+    'promptFits',
+    'BUSY_BACKOFF_MS',
+    'sendClassifiedChat',
+    'pendingLocalQueues',
+    'STATE_READ_FLAGS',
+    'STATE_WRITE_FLAGS',
+    'MAX_REPORTED_TOKENS',
+  ])('keeps the router internal %s off the public surface', (name) => {
+    expect(Object.keys(pkg)).not.toContain(name)
+  })
+
   it('public BoundedRequestOptions has no local-runtime flag (type-level, SR-M-64)', () => {
     const opts: pkg.BoundedRequestOptions = {
       url: 'https://api.test/x',

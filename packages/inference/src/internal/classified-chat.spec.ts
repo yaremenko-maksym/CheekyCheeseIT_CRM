@@ -3,6 +3,8 @@ import type { FetchLike } from '../http/bounded-request'
 import {
   CLASSIFIED_CHAT_CODES,
   MAX_PAUSE_MS,
+  MAX_REPORTED_TOKENS,
+  sendClassifiedChat,
   sendClassifiedChatCompletion,
   type ClassifiedChatOptions,
   type ClassifiedChatResult,
@@ -334,6 +336,84 @@ describe('transport, timeout and abort', () => {
       await sendClassifiedChatCompletion({ ...HOSTED.groq, signal: ctrl.signal, fetchImpl }),
     ).toStrictEqual({ ok: false, code: 'ABORTED' })
     expect(calls).toBe(1)
+  })
+
+  it('reports whether the request was sent: an abort before fetch was not, one in flight was', async () => {
+    const ctrl = new AbortController()
+    const fetchImpl: FetchLike = (u, init) => {
+      queueMicrotask(() => ctrl.abort())
+      return hanging(u, init)
+    }
+    const inFlight = await sendClassifiedChat({ ...HOSTED.groq, signal: ctrl.signal, fetchImpl })
+    expect(inFlight).toStrictEqual({ result: { ok: false, code: 'ABORTED' }, sent: true })
+    const before = await sendClassifiedChat({ ...HOSTED.groq, signal: ctrl.signal, fetchImpl })
+    expect(before).toStrictEqual({ result: { ok: false, code: 'ABORTED' }, sent: false })
+  })
+})
+
+describe('sendClassifiedChat: send flag and HTTP status (ADR §6.2)', () => {
+  it('carries the status of an answer and of a refusal', async () => {
+    const ok = fakeFetch(200, answer('{"a":1}'))
+    expect(await sendClassifiedChat({ ...HOSTED.groq, fetchImpl: ok.fetchImpl })).toStrictEqual({
+      result: { ok: true, code: 'OK', text: '{"a":1}' },
+      sent: true,
+      status: 200,
+    })
+    const busy = fakeFetch(429, '{}', { 'retry-after': '2' })
+    expect(await sendClassifiedChat({ ...HOSTED.groq, fetchImpl: busy.fetchImpl })).toStrictEqual({
+      result: { ok: false, code: 'BUSY', retryAfterMs: 2000 },
+      sent: true,
+      status: 429,
+    })
+    const denied = fakeFetch(401, '{}')
+    expect((await sendClassifiedChat({ ...HOSTED.groq, fetchImpl: denied.fetchImpl })).status).toBe(
+      401,
+    )
+  })
+
+  it('has no status when nothing answered, and a key over plain HTTP is never sent', async () => {
+    const throwing: FetchLike = async () => {
+      throw new Error('reset')
+    }
+    expect(await sendClassifiedChat({ ...LOCAL, fetchImpl: throwing })).toStrictEqual({
+      result: { ok: false, code: 'TRANSPORT', responded: false },
+      sent: true,
+    })
+    const f = fakeFetch(200, answer('{"a":1}'))
+    expect(
+      await sendClassifiedChat({ ...LOCAL, apiKey: 'k', fetchImpl: f.fetchImpl }),
+    ).toStrictEqual({ result: { ok: false, code: 'TRANSPORT', responded: false }, sent: false })
+    expect(f.sent).toHaveLength(0)
+  })
+})
+
+describe('usage.total_tokens is bounded (SR-M-66)', () => {
+  it.each([2 ** 53, 1e300, -1, 1.5, MAX_REPORTED_TOKENS + 1, '7'])(
+    '%s counts as absent and the answer is still used',
+    async (total) => {
+      const { result } = await run(
+        HOSTED.groq,
+        200,
+        answer('{"a":1}', { usage: { total_tokens: total } }),
+      )
+      expect(result).toStrictEqual({ ok: true, code: 'OK', text: '{"a":1}' })
+    },
+  )
+
+  it('the maximum and zero are believed', async () => {
+    const max = await run(
+      HOSTED.groq,
+      200,
+      answer('{"a":1}', { usage: { total_tokens: MAX_REPORTED_TOKENS } }),
+    )
+    expect(max.result).toStrictEqual({
+      ok: true,
+      code: 'OK',
+      text: '{"a":1}',
+      totalTokens: MAX_REPORTED_TOKENS,
+    })
+    const zero = await run(HOSTED.groq, 200, answer('{"a":1}', { usage: { total_tokens: 0 } }))
+    expect(zero.result).toStrictEqual({ ok: true, code: 'OK', text: '{"a":1}', totalTokens: 0 })
   })
 })
 

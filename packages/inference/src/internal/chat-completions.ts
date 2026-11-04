@@ -40,11 +40,14 @@ export type ChatCompletionOptions = {
   fetchImpl?: FetchLike
 }
 
+/** Prefixed to a correction hint; counted in the router's fit check (ADR §5.1 `PROMPT_TOO_LARGE`). */
+export const CORRECTION_PREFIX = 'Your previous answer was rejected. '
+
 /** The bounded system + user (+ correction) messages every chat call sends. */
 export function buildChatMessages(opts: {
-  instruction?: string
+  instruction?: string | undefined
   input: string
-  correction?: string
+  correction?: string | undefined
 }): { role: string; content: string }[] {
   return [
     {
@@ -56,7 +59,7 @@ export function buildChatMessages(opts: {
     },
     { role: 'user', content: opts.input.slice(0, MAX_EXTRACTION_INPUT_CHARS) },
     ...(opts.correction !== undefined
-      ? [{ role: 'user', content: `Your previous answer was rejected. ${opts.correction}` }]
+      ? [{ role: 'user', content: `${CORRECTION_PREFIX}${opts.correction}` }]
       : []),
   ]
 }
