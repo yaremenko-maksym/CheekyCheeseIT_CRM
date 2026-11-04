@@ -216,20 +216,21 @@ Each is a fact, not a decision; the research task settles it before code.
 
 | State                                                                                                      | Lifetime                                                                                                   | Where                                                                                                                                                                                                                                                                                                                                               | Why                                                                                                                                                                      |
 | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Provider API keys (`GEMINI_API_KEY`, `GROQ_API_KEY`, existing `OPENROUTER_API_KEY`; local `LOCAL_MODEL_*`) | process                                                                                                    | **Optional env keys in the API env schema, read only by the extraction worker.** Absent key → that route does not exist (VCF: "a provider without a key simply does not take part"). Never in the router config schema's persisted form, a manifest, the DB, a build layer, a report, a log or an error message. Never named `CLOUDFLARE_*` (C-21). | Task 5.2 rule; existing `buildInferenceConfig` pattern (a provider block exists only when its key is present)                                                            |
+| Provider API keys (`GEMINI_API_KEY`, `GROQ_API_KEY`; local `LOCAL_MODEL_*`; the router never reads the existing `OPENROUTER_API_KEY`) | process                                                                                                    | **Optional env keys in the API env schema, read only by the extraction worker.** Absent key → that route does not exist (VCF: "a provider without a key simply does not take part"). Never in the router config schema's persisted form, a manifest, the DB, a build layer, a report, a log or an error message. Never named `CLOUDFLARE_*` (C-21). | Task 5.2 rule; existing `buildInferenceConfig` pattern (a provider block exists only when its key is present)                                                            |
 | Per-provider minimum gap (`nextFreeAt`)                                                                    | seconds                                                                                                    | **Process memory**, inside the leaf                                                                                                                                                                                                                                                                                                                 | Per-minute limits are per key; one process holds the key                                                                                                                 |
 | Rotation counter                                                                                           | process                                                                                                    | **Process memory**                                                                                                                                                                                                                                                                                                                                  | VCF's design; losing it on restart costs nothing                                                                                                                         |
 | **Own caps** — our calls per provider per provider-day                                                     | provider day                                                                                               | **Postgres, the existing `job_account_meters`** (unit `MODEL_CALL`, window `DAY`, one account key per provider such as `groq:extraction`), reached through the 5.4b `ModelBudgetPort`'s DB adapter, held by the caller; the router asks an `OwnCapPort` the caller injects                                                                          | The meter table already has an atomic spend guard, frozen limits by policy version and an account-key CHECK that refuses anything resembling a credential. No new table. |
 | **Spent** — "the provider said: no more today" for a model                                                 | until the provider's reset (UTC; Pacific for Gemini)                                                       | **Worker state file**, write-through behind a `RouteStatePort` (§3.2)                                                                                                                                                                                                                                                                               | Survives restarts without a DB credential                                                                                                                                |
 | **Retired** — "the provider said: this model is gone" (`retiredAnswer`)                                    | until the next successful daily refresh (§3.4) — **not** cleared by a restart                              | **Worker state file**, same port                                                                                                                                                                                                                                                                                                                    | Owner decision D6: retirement must hold across restarts until the fresh probe, the authority, clears it                                                                  |
-| **Provider-level bits** — `AUTH`, `CREDIT`, `FLAG_REJECTED`                                                | `CREDIT` until the limit's reset; `AUTH` and `FLAG_REJECTED` until that provider's next successful refresh | **Worker state file**, same port                                                                                                                                                                                                                                                                                                                    | REV-L-10: a restart or a crash loop no longer re-spends a refused request                                                                                                |
+| **Provider-level bits** — `AUTH`, `CREDIT`                                                                 | `CREDIT` until the limit's reset; `AUTH` until the proof of §3.2                                           | **Worker state file**, same port                                                                                                                                                                                                                                                                                                                    | REV-L-10: a restart or a crash loop no longer re-spends a refused request                                                                                                |
 | **Managed model list** — the self-healed ordered model ids per provider                                    | until the next successful refresh of that provider                                                         | **Worker managed-list file** (§3.4), read with the pinned list as fallback                                                                                                                                                                                                                                                                          | Owner decision D6                                                                                                                                                        |
 | Usage / cost per call                                                                                      | permanent (metering)                                                                                       | Reported through `onEvent` and the caller's meter commit — never stored by the package                                                                                                                                                                                                                                                              | §6.2                                                                                                                                                                     |
 
 **The `OwnCapPort` and the shared 20-call cycle budget are different things.** 5.4b reserves one slot of the
 cross-provider cycle budget per extraction; the own cap is a per-provider daily ceiling consulted per **attempt**,
-before a request is spent on a provider. A router call that cascades across three providers uses one cycle slot and
-one own-cap unit per HTTP request it sends, retries included (unit rules: §5.1).
+before a request is spent on a provider. A router call that cascades across both hosted providers uses one cycle slot
+and one own-cap unit per HTTP request it sends, retries included (unit rules: §5.1). A small dose stays inside that one
+slot, however many field groups it asks (§5.4).
 
 ### 3.2 Route state (spent, retired, provider bits): where it persists
 
@@ -254,7 +255,7 @@ touching the router if a second replica appears. Owner decision D4 (A2), narrowe
   event says so.
 - **Schema, strictly bounded** (SR-M-6):
   - every entry has **structured fields** `provider` and `model` — never one joined `provider:model` string, because
-    model ids themselves contain `:` (`…:free`); log lines may print the pair, the file never parses it back;
+    a model id may itself contain `:`; log lines may print the pair, the file never parses it back;
   - `provider` is an enum of the checked-in provider allowlist; `model` must pass the **same** model-id validation as
     the refresh (§3.4), so a hand-edited or corrupted file cannot smuggle in an id the refresh would have refused;
   - `code` is an enum of the internal codes, `status` an integer 100–599, timestamps ISO strings, the provider day a
@@ -266,8 +267,7 @@ touching the router if a second replica appears. Owner decision D4 (A2), narrowe
     `provider`, `model`, `aliveStreak` (an integer, schema-bounded to `[0, N]`, clamped on write) and `lastProbeDay`
     (the UTC day of the last probe that counted). The managed-list file stores only the ordered ids; it carries **no**
     promotion flag that the reader would trust (§3.4);
-  - **provider records**: the persisted `AUTH` / `CREDIT` / `FLAG_REJECTED` bits with the model the bit was recorded
-    against, and `lastStartupRefreshAt` (SR-M-11).
+  - **provider records**: the persisted `AUTH` / `CREDIT` bits and `lastStartupRefreshAt` (SR-M-11).
 - **Single writer.** Only the extraction worker writes, and inside it one serialised writer (a promise queue) owns each
   file: every change is applied to the in-memory state and the whole document is written from it, so two concurrent
   changes cannot lose each other. A second worker replica is out of scope for files (D4: Postgres then).
@@ -280,19 +280,18 @@ touching the router if a second replica appears. Owner decision D4 (A2), narrowe
   are otherwise adopted).
 - **Pruning**: spent entries of past provider days are dropped on load.
 
-**The restart caveat, reduced (REV-L-10, SR-M-7, SR-M-11).** `AUTH`, `CREDIT` and the provider-wide `FLAG_REJECTED`
-bit persist, so a restart or a crash loop does not re-send a refused request. What clears each bit is narrow, because
-the wrong proof would re-open a refused route:
+**The restart caveat, reduced (REV-L-10, SR-M-7, SR-M-11).** `AUTH` and `CREDIT` persist, so a restart or a crash loop
+does not re-send a refused request. What clears each bit is narrow, because the wrong proof would re-open a refused
+route:
 
-| Bit                             | Cleared only by                                                                                                                                                                                                                                                                            | Not cleared by                                                                                             |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `AUTH`                          | a **keyed chat probe** to that provider that returns 2xx (the fixed probe prompt, the shared request builder) — this applies to Groq too, which otherwise is not chat-probed                                                                                                               | a successful catalogue or listing fetch: OpenRouter's catalogue is public and proves nothing about the key |
-| `FLAG_REJECTED` (provider-wide) | a probe of the **same kind** as the rejected request — a chat completion built by the shared builder with the full production privacy fields — to the **model the bit was recorded against** (or, if that model has since been retired, the provider's current first model), returning 2xx | a probe of any other model, a catalogue fetch, or a probe that lacks any production field                  |
-| `CREDIT`                        | the limit's reset                                                                                                                                                                                                                                                                          | a refresh                                                                                                  |
+| Bit      | Cleared only by                                                                                                                                                                   | Not cleared by                                                                             |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `AUTH`   | a **keyed chat probe** to that provider that returns 2xx (the fixed probe prompt, the shared request builder) — this applies to Groq too, which the daily refresh does not probe | a successful listing fetch: a listing that answers proves nothing about a chat call        |
+| `CREDIT` | the limit's reset                                                                                                                                                                 | a refresh                                                                                  |
 
-**Start-up refresh.** At worker start, every provider carrying a persisted `AUTH` or `FLAG_REJECTED` bit gets an
-on-demand refresh of that provider alone, under the same rules and constraints as the daily one, so a rotated key or a
-fixed flag is picked up at the next start rather than up to a day later. It is **rate-limited by a persisted
+**Start-up refresh.** At worker start, every provider carrying a persisted `AUTH` bit gets an on-demand refresh of that
+provider alone, under the same rules and constraints as the daily one, so a rotated key is picked up at the next start
+rather than up to a day later. It is **rate-limited by a persisted
 per-provider `lastStartupRefreshAt`**: if the last start-up refresh of that provider is less than **1 hour** old, the
 start skips it, so a crash loop sends at most one start-up refresh per provider per hour regardless of the restart
 policy. The own-cap unit is still released for these codes (§5.1), and start-up probes count against the own caps like
@@ -313,12 +312,10 @@ any probe.
 - **Keys never appear in** `onEvent` payloads, thrown or returned values, internal codes or notes; a 5.4c-1/5.4c-2 test
   seeds a marker key and asserts it is absent from every event and result.
 - **One request builder for every hosted chat request** (SR-H-2). Production calls, refresh probes and chain-check
-  probes all go through the same builder, which always sets the provider's privacy fields: for OpenRouter
-  `provider.data_collection: "deny"` (and `zdr` once confirmed) **plus** `provider.ignore` listing every upstream
-  provider that policy excludes (D2), so an excluded upstream can never serve the request whatever the model id says. A
-  route for which the builder cannot produce its mandatory privacy fields is **disabled**, never sent without them. A
-  test asserts the fields on production, probe and chain-check bodies alike.
-- **Catalogue and listing fetches** (SR-M-8) follow the same transport rules: fixed HTTPS URLs that are package
+  probes all go through the same builder, so a probe can never differ from production in anything but its prompt. Gemini
+  and Groq carry no mandatory privacy field in the first version (§4 item 3). A test asserts identical non-prompt fields
+  on production, probe and chain-check bodies.
+- **Listing fetches** (SR-M-8) follow the same transport rules: fixed HTTPS URLs that are package
   constants (no id, query or user value interpolated); `boundedRequest` with its size cap and `redirect: 'error'`; the
   key in a header only (for Gemini the API-key header, **never** a `key=` query parameter); the body parsed by a Zod
   schema that caps the number of entries read (entries beyond the cap are ignored and counted) and the length of every
@@ -329,74 +326,74 @@ any probe.
 **Owner decision, 2026-11-03:** the available-model list **must self-heal** after a model dies, by the VCF mechanism.
 This replaces the first edition's "pinned, alert only, never rewrite". It amends the plan's "pinned
 model/provider/runtime config" for hosted model ids: what stays pinned is the **provider allowlist**, the hosts, the
-privacy flags, the local runtime and a **fallback model list** per provider; the hosted model ids in use become managed
-data. (Master records the amendment in the plan.)
+local runtime and model digest (§8; the local model is never self-healed) and a **fallback model list** per hosted
+provider; the hosted model ids in use become managed data. (Master records the amendment in the plan.)
+
+**With two hosted providers (D3)** the mechanism holds, with one change in what backs it: VCF's chat-probed refresh runs
+on OpenRouter, its Groq path is listing-only, and it has no Gemini refresh at all. In the CRM, **Gemini is therefore the
+only provider the daily refresh chat-probes**, and that path has not run anywhere yet.
 
 Three layers, adopted from VCF in this order of authority:
 
 **1. Request-time retirement (immediate).** A response classified `RETIRED` (`retiredAnswer`: status 404 and a body
-naming a model or an endpoint, checked after `FLAG_REJECTED`, §5.1) marks `<provider>:<model>` retired through the
+naming a model or an endpoint, §5.1) marks the provider and model retired through the
 `RouteStatePort` (persisted, §3.2). The current call moves to the next model at once; every later call skips the model
 until the next successful refresh.
 
 **2. Daily refresh (repair).** A daily job in the extraction worker's existing scheduler — no new infrastructure, run
 some time before the collection window so a fresh list is in place — rebuilds each provider's list:
 
-| Provider   | Source of candidates                                                                                                                                                                                                                                                                                                                                                                                                                      | Probe                                                                                                                                                        |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| OpenRouter | the models catalogue, **free entries only**: prompt and completion price 0 **and** a plain or `:free` id form (price 0 alone is not trusted — a catalogue can list a router or a promotional price; the own caps and OpenRouter's USD key limit of Task 5.2 remain the backstop)                                                                                                                                                          | yes: the current list first, then the largest-context new candidates, at most `PROBE_CAP` (VCF: 10, under a ~50/day free limit), with a pause between probes |
-| Groq       | the models listing, **active** entries with their context (`pickGroqModels`: keep current ids still listed, add at most one largest-context chat model; non-chat ids such as speech, guard or TTS models excluded). **CRM restriction (SR-H-1):** because Groq additions are never chat-probed, an addition must also match a **checked-in Groq model-family pattern** (the families 5.4c-0 and MP-03 vetted); anything else is not added | no chat probe — availability comes from the listing (VCF: its problem is rate limits, not staleness)                                                         |
-| Gemini     | the models listing (VCF has no Gemini refresh; this is the CRM's addition, its listing shape settled by 5.4c-0)                                                                                                                                                                                                                                                                                                                           | as OpenRouter, within `PROBE_CAP`                                                                                                                            |
+| Provider | Source of candidates | Probe |
+| --- | --- | --- |
+| Groq | the models listing, **active** entries with their context (`pickGroqModels`: keep current ids still listed, add at most one largest-context chat model; non-chat ids such as speech, guard or TTS models excluded). **CRM restriction (SR-H-1):** because Groq additions are never chat-probed, an addition must also match a **checked-in Groq model-family pattern** (the families 5.4c-0 and MP-03 vetted); anything else is not added | no chat probe — availability comes from the listing (VCF: its problem is rate limits, not staleness) |
+| Gemini | the models listing, restricted to what a free key may call (VCF has no Gemini refresh; this is the CRM's addition, the listing shape and the free-key rule settled by 5.4c-0) | yes: the current list first, then the largest-context new candidates, at most `PROBE_CAP`, with a pause between probes. VCF's value of 10 was sized for another provider's daily limit; the CRM's comes from Gemini's published limit (5.4c-0), small enough that probes do not eat the day's allowance |
 
-- **Verdicts** (`classifyModelStatus`, adopted as-is, plus two CRM codes): 2xx ⇒ `alive`; 404 ⇒ `dead`; 429/503 ⇒
-  `transient` (kept — busy is not rotten); timeout, network error or any other status ⇒ `unknown`, **never** `dead`.
-  CRM additions: a probe answered `FLAG_REJECTED` ⇒ **that model** is **ineligible** (dropped like `dead`, because it
-  cannot serve under our privacy flags). A probe's `FLAG_REJECTED` is a **per-model verdict only** and never sets the
-  provider-wide bit (SR-M-4); the provider-wide bit of §5.1 comes only from production requests, so one odd catalogue
-  entry cannot disable a route. `AUTH` on the catalogue fetch or a probe ⇒ that provider's refresh **fails** and its
-  previous list is kept.
-- **Selection — VCF's `pickLiveModels` with a CRM ordering change (SR-H-1).** Drop `dead` / ineligible and every model
-  under `MIN_MANAGED_CONTEXT` (VCF: 16 000 tokens; the CRM sets it to at least the local chunk size, so every managed
-  model fits every chunk); keep `TARGET` (VCF: 5). VCF ranks by status then context, which would put a brand-new,
-  unreviewed, large-context candidate **first** for all vacancy text. The CRM instead:
-  - keeps **existing** entries in their current order (dropping the dead / ineligible), and **appends** new candidates
-    at the **tail**, below every existing entry, ranked among themselves by status then context;
+- **Verdicts** (`classifyModelStatus`, adopted as-is): 2xx ⇒ `alive`; 404 ⇒ `dead`; 429/503 ⇒ `transient` (kept — busy is not
+  rotten); timeout, network error or any other status ⇒ `unknown`, **never** `dead`. CRM addition: `AUTH` on the listing fetch
+  or a probe ⇒ that provider's refresh **fails** and its previous list is kept.
+- **Selection — VCF's `pickLiveModels` with a CRM ordering change (SR-H-1).** Drop `dead` and every model under
+  `MIN_MANAGED_CONTEXT` (VCF: 16 000 tokens; the CRM sets it to at least the local chunk size, so every managed model fits
+  every chunk); keep `TARGET` (VCF: 5). VCF ranks by status then context, which would put a brand-new, unreviewed,
+  large-context candidate **first** for all vacancy text. The CRM instead:
+  - keeps **existing** entries in their current order (dropping the dead), and **appends** new candidates at the
+    **tail**, below every existing entry, ranked among themselves by status then context;
   - **promotes** a new entry above older ones only after it has been `alive` on N consecutive **probe days** (N = 3
     proposed, a package constant). The streak is the probation record in the route-state file (§3.2), bounded to
     `[0, N]`. Rules (SR-M-9):
     - a **probe day** is a UTC day on which that model was actually probed; the streak increments by one on an `alive`
       probe day only if `lastProbeDay` is an earlier day (a second probe on the same day counts once), and resets to 0
-      on a `transient`, `unknown` or ineligible probe day;
+      on a `transient` or `unknown` probe day;
     - a **no-probe day** — the model was not reached under `PROBE_CAP`, the provider was skipped (cap refusal, `AUTH`,
-      fetch failure, policy) or the job did not run — neither increments nor resets the streak;
+      fetch failure) or the job did not run — neither increments nor resets the streak;
     - the reader **recomputes** promotion, never trusts it: an entry is ordered as promoted only if it is in the pinned
       fallback list or its probation record shows `aliveStreak == N`; an entry without a valid record is on probation.
       A promotion emits an event naming provider and model, so it is visible;
-    - **Groq is never chat-probed**, so a Groq addition never earns a streak: it stays on probation (tail) until a
-      human adds it to the pinned fallback list by a reviewed change;
+    - **the daily refresh never chat-probes Groq**, so a Groq addition never earns a streak: it stays on probation (tail)
+      until a human adds it to the pinned fallback list by a reviewed change. Only a Gemini entry can be promoted by the
+      refresh; the weekly chain check earns no streak;
     - until promotion an entry serves only when every older model of that provider failed (see Consequences: in
       practice that is routine on free tiers);
   - uses an **effective context** of `min(provider-reported context, the route's configured context window)` for every
     filter and ranking — a provider-reported number is untrusted input and can never widen what the route accepts.
-- **Never wipe.** If the catalogue fetch fails, or nothing survives, that provider's managed list is **left untouched**
+- **Never wipe.** If the listing fetch fails, or nothing survives, that provider's managed list is **left untouched**
   and the provider counts as failed.
 - **Retirement reset, per provider (SR-M-5).** VCF clears every retirement only when every provider refreshed; one
   failing provider would then block every other provider's recovery. The CRM clears a provider's retired entries on
-  **that provider's own** successful refresh (its `AUTH` / `FLAG_REJECTED` bits clear only by the narrower proofs of
-  the §3.2 table, never by the refresh's success alone) — the fresh probe of that
-  provider is the authority (VCF: "one still really gone costs one request tomorrow, then is retired again"). A provider
-  that is not configured (no key) or is excluded by policy is **skipped**, not counted as failed.
+  **that provider's own** successful refresh (its `AUTH` bit clears only by the narrower proof of the §3.2 table, never
+  by the refresh's success alone) — the fresh probe of that provider is the authority (VCF: "one still really gone costs
+  one request tomorrow, then is retired again"); for Groq the fresh listing is, as in VCF. A provider that is not
+  configured (no key) is **skipped**, not counted as failed.
 - **Independent providers**: one failing never blocks another. The job's result is **failed** if any provider failed
   (VCF: exit 1), which raises a health event; the log lists provider, model ids and verdicts only — never a key, never a
   probe or provider body.
 
 **3. Weekly chain check (secondary signal).** VCF's `checkModelChain` is kept as a separate, cheaper check: one minimal
-probe of every model currently in use, with the same verdict rules. Any `dead` entry raises the durable health flag
-`MODEL_LIST_STALE`; a run with no dead entry clears it, and so does a successful daily refresh that has removed every
-entry the flag named (the repair heals the signal). It alerts; it never edits a list — repair is layer 2's job. Its
-probes obey **every** constraint below exactly as the refresh probes do (SR-M-3): the fixed synthetic prompt, the shared
-request builder with the privacy fields, the provider allowlist and D1–D3 permission, the own caps, the transport rules
-of §3.3; and they carry the same tests (§6.1).
+probe of every hosted model currently in use, Groq's included, with the same verdict rules. Any `dead` entry raises the
+durable health flag `MODEL_LIST_STALE`; a run with no dead entry clears it, and so does a successful daily refresh that
+has removed every entry the flag named (the repair heals the signal). It alerts; it never edits a list — repair is layer
+2's job. Its probes obey **every** constraint below exactly as the refresh probes do (SR-M-3): the fixed synthetic
+prompt, the shared request builder, the provider allowlist, the own caps, the transport rules of §3.3; and they carry
+the same tests (§6.1).
 
 **The managed list is read** per provider through a `managedModels(provider, fallback)` reader: the managed-list file's
 entry for that provider if it is valid and non-empty, else the **pinned fallback list** from the package config. A
@@ -406,25 +403,15 @@ missing, empty or invalid file therefore degrades to the first edition's behavio
 
 - **Probes carry only a fixed synthetic prompt** — a package constant in VCF's form ("reply only with JSON
   `{"ok":true}`") — never vacancy text, never a page, never anything read from the DB. A test asserts the probe request
-  body equals the constant plus the route's flags.
-- **Probes are built by the shared request builder** (§3.3): `data_collection: deny`, `zdr` when confirmed, and the
-  `provider.ignore` list of excluded upstreams — exactly the production fields. A candidate that cannot serve under them
-  answers `FLAG_REJECTED` and is never added. The refresh therefore cannot widen the privacy surface that D2 and D3 set.
-- **Providers come only from the checked-in provider allowlist** (`gemini`, `groq`, `openrouter`), and only those that
-  are configured (key present) and permitted by D1–D3 (a provider that D2 excludes for every source is not refreshed).
-  A catalogue cannot introduce a provider. **D2 through OpenRouter (SR-H-2):** a model id names the model's **author**,
-  not the **endpoint** that serves it, so filtering ids by prefix does not keep an excluded upstream out. The guarantee
-  is the `provider.ignore` list in every request (production and probe alike) plus `data_collection: deny`; the id
-  filter is kept only as a second, cosmetic layer.
+  body equals the constant plus the route's fixed fields.
+- **Probes are built by the shared request builder** (§3.3).
+- **Providers come only from the checked-in provider allowlist** (`gemini`, `groq`), and only those that are configured
+  (key present). A listing cannot introduce a provider.
 - **Model ids are untrusted input** from a hosted listing: each is validated **before** it is probed, stored or logged;
   a failing id is dropped and counted. Ids are only ever sent as the JSON `model` field, never placed into a URL or a
   path. The pattern (SR-H-1):
   - common to all providers: letters, digits and `. _ - /` and at most one `:`, bounded length (128), no leading `/`,
     no `..`, no whitespace or control characters, no URL scheme;
-  - **OpenRouter**: exactly `<author>/<model>` or `<author>/<model>:free` — any other `:` suffix is refused, which
-    excludes the routing and tool variants (`:online` forwards the prompt to a web search, `:extended`, `:nitro`,
-    `:floor`, `:thinking` and any future suffix by default), and the routers themselves (`openrouter/auto` and every id
-    whose author is `openrouter`) are explicitly denied;
   - **Groq**: the checked-in family pattern of the table above;
   - **Gemini**: a pattern set by 5.4c-0 from the listing's documented id form.
 - **Probes count against the own caps** (`OwnCapPort`, unit rules of §5.1): a provider whose cap cannot reserve a probe
@@ -432,8 +419,23 @@ missing, empty or invalid file therefore degrades to the first edition's behavio
 - **Rollback of self-heal alone**: deleting the managed-list file returns every provider to its pinned fallback;
   disabling the job stops repairs while request-time retirement still works.
 
-**Confidence: HIGH** for the mechanism (VCF runs it daily); **MED** for the Gemini listing (not in VCF, 5.4c-0
-confirms the shape).
+**Confidence: HIGH** for the mechanism and the Groq path (VCF runs them daily); **MED** for the Gemini path (a chat-probed
+refresh, the listing shape and the free-key rule are not in VCF; 5.4c-0 confirms them).
+
+### 3.5 Deferred with OpenRouter (owner decision D3)
+
+OpenRouter is not a router route in this version. The following exist only for it and are **not built**: the provider id
+`openrouter` on a route; its public catalogue handling and free-only price filter; its id grammar (`:free` suffixes,
+denied routers and routing suffixes); `provider.data_collection` and `zdr` on router requests; the `provider.ignore`
+upstream list; the internal code `FLAG_REJECTED` with its persisted bit, clearing proof and per-model probe verdict.
+
+It can be added later as a new provider row. At that point the `deny` question is **re-decided by the owner** (whether to
+keep `data_collection: "deny"` if it empties the free pool), and the reviewed specification of the items above is restored
+from this ADR's edition of 2026-11-03 (PR #1242 at `273d399a`) and reviewed again. The same restoration applies if 5.4c-0
+finds a per-request privacy parameter on Gemini or Groq that the owner wants sent: a flag a provider can refuse needs
+`FLAG_REJECTED` back.
+
+The existing `openrouter` value of `extraction.provider`, its adapter and its `data_collection: deny` are unchanged.
 
 ---
 
@@ -447,45 +449,45 @@ These hold for the local route too; none of them depends on which route answers.
 2. **The router logs and stores no text.** Not the input, not the model output, not a provider error body (it can echo
    the prompt). Events and notes carry route, model, internal code, HTTP status, counts and timings only. This is
    stricter than VCF.
-3. **Provider flags where the provider supports them:** OpenRouter `provider.data_collection: "deny"` on every request
-   (already sent today) and `zdr` once research confirms the parameter. **Groq and Gemini: no per-request privacy flag
-   is assumed** — if 5.4c-0 finds none, their privacy rests entirely on their published terms and on the per-source,
-   per-provider decision D2; the ADR does not pretend a flag protects them. A provider that refuses a flag we send, or
-   reports that no endpoint satisfies it, yields `FLAG_REJECTED` (§5.1): its route is disabled loudly until its next successful refresh and
-   is never retried without the flag.
+3. **No per-request privacy flag is assumed.** Gemini and Groq: if 5.4c-0 finds none, their privacy rests entirely on their
+   published terms, which the owner has accepted (§4.1, §4.2); the ADR does not pretend a flag protects them. A flag
+   found by 5.4c-0 is reported to the owner, and sending one brings back the refusal handling of §3.5.
 4. **Free tiers may log prompts or train on them.** Even after contact stripping, the text is a third party's published
-   page. Whether it may go to such a provider is a question of source terms and provider terms, not of code.
+   page. The owner has accepted that for every source the gates admit; the risk is stated once, in §4.1.
 5. **Egress** only to the pinned provider hosts (Task 5.2: "egress allowed to the provider host only"), widened per
    added provider.
 
-### 4.1 Which source classes may use hosted routes at all — owner decision D1 (A3)
+### 4.1 Which sources may use hosted routes — owner decision D1 (decided 2026-11-04)
 
-| Option                                                     | Meaning                                                                                                                                                                                                           | Cost                                                                     |
-| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| **H0 — local only for everyone**                           | Hosted routes off; the router degenerates to the floor                                                                                                                                                            | Slowest; no third-party exposure                                         |
-| **H1 — hosted for every source not marked `ai-input=no`**  | Widest acceleration                                                                                                                                                                                               | `unspecified` sources and sources whose terms restrict reuse also go out |
-| **H2 — hosted only for allowlisted sources (recommended)** | A per-source policy flag `hostedModelsAllowed`, default **false**; a source is added only after its terms are read (Legal) and its robots `Content-Signal` is not `ai-input=no`; everything else extracts locally | One review per source; the default is the safe one                       |
+**Decided: every source for which the model can do the task may use the hosted routes.** "Can do the task" means the
+call reaches the port at all: the record needs a field that deterministic extraction did not produce (Task 5.5, stage C)
+and the gates of item 1 above admit it. This replaces the recommended per-source allowlist with default local-only;
+there is no per-source flag, no provider set per source, and reading a source's terms is no longer a precondition per
+source.
 
-Recommendation **H2**: the default is "local", matching "everything works on local by default"; acceleration is
-granted source by source, and a wrong grant is reversed by one flag.
+**Never weakened:** `ai-input=no` blocks **all** routes, the local one included; `unspecified` follows the explicit
+policy argument; contacts are stripped before any route. These run before the port (item 1), so no router configuration
+can bypass them.
 
-### 4.2 Providers whose free terms allow training or human review — owner decision D2 (A3)
+**The residual risk, accepted by the owner on 2026-11-04.** The text of third-party pages, after contact stripping, is
+sent to free-tier providers that may retain it, train on it and have humans review it. Stripping removes the listed
+contact shapes and nothing else, so names and other personal details written in prose can go out with the text. No
+source's terms are read before its text is sent, so a source whose terms restrict such reuse is sent all the same unless
+its signal says `ai-input=no`. Text once sent cannot be recalled; removing a key stops further sending only.
 
-If research confirms that a provider's free tier may use prompts for training or human review (believed true of the
-Gemini API's unpaid tier), the options are: exclude it from extraction; include it only for allowlisted sources whose
-terms Legal has cleared for that use; or include it everywhere hosted is allowed. **Recommendation:** include it only
-for sources Legal clears for that use, otherwise exclude it — the owner chose Gemini for its capacity. Mechanically the
-source policy carries a second field, `trainingProvidersAllowed` (default **false**); the caller removes every provider
-that research marks as training- or review-permitting from the `hostedProviders` list it passes to `extractionFor`
-unless that field is true (§2.1). The exclusion is therefore per source **and** per provider, enforced before the
-router is reached.
+### 4.2 Providers whose free terms allow training or human review — owner decision D2 (decided 2026-11-04)
 
-### 4.3 OpenRouter `data_collection: deny` vs the free pool — owner decision D3 (A3)
+**Decided: yes.** Such providers may receive vacancy text after stripping, whether or not research confirms the belief
+about the Gemini API's unpaid tier. No field or filter gates this: the per-source training flag of the earlier edition
+is removed, and the caller passes no provider list. What remains of the Legal read in 5.4c-0 is one informational note
+on each provider's free-tier data terms, with a source and an expiry date. It feeds **no gate**; it keeps the accepted
+risk of §4.1 accurate, and a material change in those terms goes back to the owner.
 
-The current adapter already sends `deny`. If research shows `deny` leaves no usable `:free` endpoint, the choice is:
-keep `deny` (OpenRouter then only serves paid models under the USD limit of Task 5.2, or none) or drop it for free
-models (training allowed on our prompts). **Recommendation:** keep `deny`. The router then falls to Groq / Gemini /
-local; losing an accelerator is cheaper than reversing a privacy default.
+### 4.3 OpenRouter — owner decision D3 (decided 2026-11-04)
+
+**Decided: OpenRouter is not enabled in this version.** The first router version has Gemini, Groq and the local floor,
+which narrows the owner's decision of 2026-10-18. The question of keeping `data_collection: "deny"` against an empty
+free pool is moot for now and is re-decided if OpenRouter is added (§3.5).
 
 ---
 
@@ -501,15 +503,15 @@ over a whole body. The body is discarded after classification.
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `OK`             | 2xx, envelope valid, output passes Zod after at most one correction retry (`runExtraction`)                                                                                                                                                                       | return                                                                                                                                        | own cap committed                                                                                                                                                                                                                                                        |
 | `BUSY`           | 429 without a per-day marker; 503                                                                                                                                                                                                                                 | wait out a short bounded backoff on the same model (VCF Gemini: 9 s, 25 s) **only if** the call deadline allows; then next model / next route | none                                                                                                                                                                                                                                                                     |
-| `SPENT_DAY`      | 429 with a per-day marker (Groq per-day token/request limits, OpenRouter free-models-per-day, Gemini per-day quota id)                                                                                                                                            | next model / next route                                                                                                                       | model spent until the provider's reset                                                                                                                                                                                                                                   |
-| `CREDIT`         | 402 / insufficient credit or key limit reached (OpenRouter USD limit of Task 5.2)                                                                                                                                                                                 | next route                                                                                                                                    | whole provider spent until the limit's reset; a loud event (limit pause)                                                                                                                                                                                                 |
+| `SPENT_DAY`      | 429 with a per-day marker (Groq per-day token/request limits, Gemini per-day quota id) | next model / next route | model spent until the provider's reset |
+| `CREDIT`         | 402 / insufficient credit, if a provider returns it on a free key (5.4c-0 pins it; a provider that never does has no fixture for it) | next route | whole provider spent until the limit's reset; a loud event (limit pause) |
 | `RETIRED`        | 404 naming the model or an endpoint (`retiredAnswer`; a bare 404 is `TRANSPORT`, so a wrong base URL never retires everything)                                                                                                                                    | next model                                                                                                                                    | model retired (persisted) until the next successful refresh (§3.4)                                                                                                                                                                                                       |
 | `AUTH`           | 401; a 403 **only** when the provider's documented structured error field marks it as a key or permission error (the field and its values are pinned by 5.4c-0 fixtures)                                                                                          | next route                                                                                                                                    | whole provider disabled for the process; loud event — a key problem is never read as "spent"                                                                                                                                                                             |
-| `FLAG_REJECTED`  | the provider refuses a privacy parameter we send, or reports that no endpoint satisfies it (OpenRouter's "no endpoints matching your data policy" shape — classified **before** `RETIRED`, so it never retires a model); the documented field is pinned by 5.4c-0 | next route; **never** retried without the flag                                                                                                | on a **production** request: provider route disabled (persisted, §3.2) until that provider's next successful refresh, including the start-up refresh; loud event once per process. On a **probe**: that model only is ineligible, the provider bit is never set (SR-M-4) |
 | `REFUSED`        | a safety block or content filter (OpenAI-compatible `finish_reason: content_filter`; Gemini block reason); **any other 403** — an input-triggered moderation refusal must not disable a provider                                                                  | next route; **not** retried on the same provider                                                                                              | none (it is about this input, not the model)                                                                                                                                                                                                                             |
-| `INVALID_OUTPUT` | non-JSON, fenced, schema-invalid after the one correction retry, over 2 MiB                                                                                                                                                                                       | next model (VCF `answerFits`: an answer that would fail later is passed over now)                                                             | none                                                                                                                                                                                                                                                                     |
+| `INVALID_OUTPUT` | empty content, non-JSON, fenced, schema-invalid after the one correction retry, over 2 MiB | next model (VCF `answerFits`: an answer that would fail later is passed over now); at the floor, a failed answer (§5.3). An empty answer is never "nothing found" | none |
 | `TIMEOUT`        | per-attempt timeout                                                                                                                                                                                                                                               | next route                                                                                                                                    | none; own cap unit stays spent (the request may have been billed)                                                                                                                                                                                                        |
-| `TRANSPORT`      | network error, other 4xx/5xx, envelope invalid                                                                                                                                                                                                                    | next route                                                                                                                                    | none                                                                                                                                                                                                                                                                     |
+| `TRANSPORT`      | network error, other 4xx/5xx, envelope invalid | next route | none |
+| `PROMPT_TOO_LARGE` | **local route only, before any request is sent:** the estimated prompt plus the answer reserve exceeds the route's window (VCF `promptFits`) | the floor fails with the public `PROVIDER_ERROR` and an event; **never sent, so the runtime can never truncate it** | none; the chunker should have prevented it, so an occurrence is a defect signal |
 
 The literal word "quota" (or any other word) in the **page** never changes a classification: the page is input, not a
 provider response. A 5.4b test already pins this at the port boundary; 5.4c repeats it at the leaf.
@@ -523,7 +525,7 @@ for this call (no request is sent). After the response, by code:
 | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
 | `OK`, `INVALID_OUTPUT`, `REFUSED`, `BUSY`, `SPENT_DAY` | **committed** — the provider counted the request                                                         |
 | `TIMEOUT`                                              | **committed as uncertain** (the meter's `uncertain` column) — the request may have been billed           |
-| `AUTH`, `CREDIT`, `FLAG_REJECTED`, `RETIRED`           | **released** — refused before any work; these codes disable the model or provider, so they cannot repeat |
+| `AUTH`, `CREDIT`, `RETIRED`                            | **released** — refused before any work; these codes disable the model or provider, so they cannot repeat |
 | `TRANSPORT` with no response (connection never made)   | **released**                                                                                             |
 | `TRANSPORT` with a response                            | **committed**                                                                                            |
 
@@ -533,10 +535,10 @@ The local floor reserves no own-cap unit; the 5.4b cycle slot covers the whole c
 
 Per `extract` call:
 
-1. **Deadline.** Start a whole-call deadline. Reserve **twice** the local route's per-request timeout out of it — the
-   floor's first request plus its one correction retry (`runExtraction`) — so the hosted cascade may only use what is
-   left and the floor is never starved (VCF summed per-request timeouts until `boundExecutor` existed). The config
-   schema refuses a whole-call deadline shorter than that reserve.
+1. **Deadline.** The whole-call deadline is the hosted cascade's budget (config) **plus** the floor's reserve, computed per
+   call: the local per-request timeout × 2 (the first request and its one correction retry, `runExtraction`) × the number
+   of field groups asked (§5.4). The hosted cascade may only use its budget, so the floor is never starved (VCF summed
+   per-request timeouts until `boundExecutor` existed), and the sum is the wall-clock ceiling of one logical call.
 2. **Candidates.** Hosted routes that have a key, at least one model not spent / retired, are not disabled, and whose
    context window fits the input (fit filter). The input is already sized to the local window by the caller, so the
    floor always fits.
@@ -546,9 +548,9 @@ Per `extract` call:
 4. **Per attempt.** Ask the `OwnCapPort` for one unit of this provider's day; refused ⇒ skip the provider without a
    request. Wait out the provider's minimum gap (VCF: 3 s for OpenAI-compatible providers, 7 s for Gemini). Send with
    the provider's privacy flags and structured-output mode. Classify (§5.1).
-5. **Floor.** Every hosted candidate exhausted, filtered or refused ⇒ the local route, with no own cap and no gap, under
-   its own reserved time (first request and correction retry). Emit `FELL_TO_LOCAL` with the list of `(route, code)`
-   that led there.
+5. **Hand-back and floor.** Every hosted candidate exhausted, filtered or refused ⇒ `SMALL_DOSE_NEEDED`, and the small dose
+   runs on the local route, with no own cap and no gap, under its own reserved time (§5.4). Each group's prompt passes the
+   fit check first (`PROMPT_TOO_LARGE`, §5.1). Emit `FELL_TO_LOCAL` with the list of `(route, code)` that led there.
 6. **Result.** The first `OK` wins. If the floor also fails, the public code is the floor's (`TIMEOUT`,
    `INVALID_OUTPUT` or `PROVIDER_ERROR`); `NOT_CONFIGURED` only when not even the floor is configured.
 
@@ -567,18 +569,58 @@ Own-cap values sit **below** each provider's published free limit, so the provid
 - **Preflight** (VCF pattern, adopted as-is): before a collection cycle that will use model extraction, one trivial call
   to the local route; 4 attempts at 10 / 30 / 60 s gaps. No answer ⇒ the model stage of that cycle does not start, no
   record is marked as extracted or "nothing found", and a durable health signal "model unreachable" is raised (the
-  r5 job-sourcing health surface is the candidate home; 5.4c-4 confirms it). The deterministic HTTP/JSON-LD stages
+  r5 job-sourcing health surface is the candidate home; 5.4c-4 confirms it). The signal clears **only** when a later call reaches
+  the model, never by age (VCF `MODEL_DOWN_FRESH_HOURS`: after a while only the wording changes). The attempts' spacing is what lets a
+  model reloading after a restart come back, so MP-04's measured cold load must fit inside it. The deterministic HTTP/JSON-LD stages
   still run — the VCF rule "a check written for one step must not cost the others".
 - A floor failure on a record returns the 5.4b outcome `MODEL_UNAVAILABLE` / `EXTRACTOR_FAILED` with the remaining IDs;
   the record stays due, never closed.
-- `AUTH`, `CREDIT` and `FLAG_REJECTED` raise a loud event once per process, not per call.
+- `AUTH` and `CREDIT` raise a loud event once per process, not per call.
 
-### 5.4 Small-dose decomposition (conditional)
+### 5.4 Small dose: mandatory on the local route
 
-If MP-03 shows the local model cannot answer the full extraction schema reliably on a chunk that fits its window, the
-VCF hand-back pattern applies: the router returns an internal "small dose needed" result instead of sending the full
-schema to the local model, and the caller asks the local model a field-group decomposition read by code. **Not built
-until MP-03 shows the need** (task 5.4c-6).
+**Owner correction, 2026-11-04: built unconditionally, as part of the local route (task 5.4c-6). MP-03 tunes it; it does
+not gate it.** The earlier edition built this only if MP-03 showed the need; that left the floor free to fail on every
+prompt until someone measured it. A full structured request to a small model is the failure this exists to prevent, and
+in VCF it is what used to come back empty.
+
+**Plan, by the routes that can answer** (VCF `dosePlanFor`): at least one hosted candidate ⇒ `full-then-small`; no hosted
+candidate (no keys, all spent) ⇒ `small` directly. Hosted routes always receive the full shape; **the local route never
+does**, unless the field-group table is deliberately one group (below).
+
+**Hand-back** (VCF `SmallDoseNeeded`, `callDosed`, `pinnedLocal`). VCF throws across the executor; `@crm/inference` never
+throws, so the cascade ends with an **internal** `SMALL_DOSE_NEEDED` result naming why the hosted routes gave up, and a
+dose runner in the router answers it, every request pinned to the local route. It never leaves the package; the public
+result is unchanged.
+
+**Field groups, read by code** (VCF `DosedCall`):
+
+- `ExtractionRequest` gains an optional, additive `smallDose`: an ordered list of field groups, each with a name, a short
+  instruction and a strict sub-schema of a few related fields, plus a pure `merge(parts)` that assembles the full result
+  in code. Existing consumers are unaffected. `HtmlStructurer` (5.4b) always supplies it, and a test asserts that; a
+  request with no `smallDose` declares that its own schema is already small enough, which only a deliberately small
+  schema may do.
+- Each group is one `runExtraction` on the same chunk: strict `json_schema`, parse, one correction retry, Zod. The merged
+  result is validated again by the full schema, and the 5.4a result guard runs after it, as for any other answer.
+- Hosted routes never see a group; a group failure never goes back up the cascade.
+- The table lives beside the extraction schema (5.4c-6 draws it from the 5.4b schema). A group with no missing field is
+  not asked: what code already holds is not put to a model (Task 5.5, stage C; VCF `pickPayoffLine` and the skipped
+  `planBeats` are the same discipline).
+
+**A failed group is a failed call** (VCF: "this module never turns a failed call into an answer"). Any group that ends in
+`TIMEOUT`, `TRANSPORT` or `INVALID_OUTPUT` fails the whole floor answer with the floor's public code, and the record stays
+due. A model answering `null` for a nullable field is an answer; a group that did not answer is never recorded as nulls,
+so "the model did not run" can never read as "the page does not say".
+
+**What MP-03 tunes:** the group boundaries and count, each group's wording, and whether a candidate holds larger groups.
+One group holding the whole schema is a legal table, so if MP-03 shows the chosen model answers the full schema reliably,
+the tuning is a one-line reviewed change and no code path changes. There is no off switch: the hand-back and the runner
+remain.
+
+**Cost, stated:** each group re-sends the chunk, so one record costs the local model as many prompt evaluations as there
+are groups. MP-04 measures that wall time; it is the main reason the table is tuned. The 5.4b cycle slot covers the whole
+call, groups included, and the plan's "local = calls + CPU time" budget is held by the whole-call ceiling of §5.2 and
+the per-group events of §6.2.
 
 ---
 
