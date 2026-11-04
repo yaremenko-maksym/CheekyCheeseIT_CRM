@@ -37,6 +37,7 @@ const TEAM_SCOPE: JobQueueScope = {
   teamId: TEAM_A,
   seniorIds: [SENIOR],
   versions: [],
+  inputsVersion: 'inputs-v1',
 }
 const STUDIO_SCOPE: JobQueueScope = { kind: 'STUDIO' }
 

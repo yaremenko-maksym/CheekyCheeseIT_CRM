@@ -3,7 +3,7 @@ import type { SessionUser } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { apiError } from '../../common/api-error'
 import { isDeadlock } from '../../database/pg-errors'
-import { loadRoster } from '../runtime/recompute-inputs'
+import { loadRoster, opportunityInputsVersion } from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
   canonicalUuid,
@@ -54,8 +54,14 @@ export class JobQueueScopeService {
           : await this.activeTeamIdsOf(db, user.id)
       const teamId = selectScopeTeam(requested, allowed)
       if (teamId === null) return NONE_SCOPE
-      const versions = await this.liveSeniorVersions(db, teamId)
-      return { kind: 'TEAM', teamId, seniorIds: versions.map((v) => v.seniorId), versions }
+      const { versions, inputsVersion } = await this.liveInputs(db, teamId)
+      return {
+        kind: 'TEAM',
+        teamId,
+        seniorIds: versions.map((v) => v.seniorId),
+        versions,
+        inputsVersion,
+      }
     })
   }
 
@@ -103,17 +109,22 @@ export class JobQueueScopeService {
   /**
    * The team's matchable seniors (active, non-archived SENIOR, in the team) with their LIVE input
    * versions, from the same `loadRoster` / `rosterVersions` the recompute worker stamps match rows
-   * with — so a row is visible only while it still describes the live roster (SR-M-2).
+   * with — so a row is visible only while it still describes the live roster (SR-M-2) — and the
+   * live opportunity inputs version from the same load, for the grant branch (SR-M-1).
    */
-  private async liveSeniorVersions(db: SqlExecutor, teamId: string): Promise<LiveSeniorVersion[]> {
+  private async liveInputs(
+    db: SqlExecutor,
+    teamId: string,
+  ): Promise<{ versions: LiveSeniorVersion[]; inputsVersion: string }> {
     const roster = await loadRoster(db)
     const inTeam = new Set(
       roster.profiles.filter((p) => p.teamIds.includes(teamId)).map((p) => p.seniorId),
     )
     // `versions` follows the roster order (by senior id); a senior without a row grants nothing.
-    return [...roster.versions]
+    const versions = [...roster.versions]
       .filter(([seniorId]) => inTeam.has(seniorId))
       .map(([seniorId, v]) => ({ seniorId, profile: v.profile, exclusion: v.exclusion }))
+    return { versions, inputsVersion: opportunityInputsVersion(roster.exclusions) }
   }
 
   /**

@@ -9,6 +9,7 @@ import {
   isJobQueueRole,
   type JobQueueScope,
   NONE_SCOPE,
+  possibleDuplicateJoin,
   scopedTeamRowPredicate,
   selectScopeTeam,
   STUDIO_SCOPE,
@@ -24,6 +25,7 @@ const teamA: JobQueueScope = {
   teamId: TEAM_A,
   seniorIds: [SEN_1],
   versions: [{ seniorId: SEN_1, profile: 'p1', exclusion: 'e1' }],
+  inputsVersion: 'inputs-1',
 }
 const render = (q: ReturnType<typeof sql>) => new PgDialect().sqlToQuery(q)
 const flat = (s: string) => s.replace(/\s+/g, ' ')
@@ -94,12 +96,14 @@ describe('visibleOpportunityPredicate', () => {
     expect(text).toContain('g.expires_at > clock_timestamp()')
     expect(text).toContain("gop.availability NOT IN ('CLOSED', 'EXPIRED')")
     // SR-M-2: `= 'OPEN'` and `=` are false on NULL, so never evaluated fails closed.
+    // SR-M-1: and only while the recorded inputs version is the LIVE one (NULL never equals it).
     expect(text).toContain(
-      "AND gop.evaluated_revision = gop.revision AND gop.evaluation_verdict = 'OPEN'",
+      "AND gop.evaluated_revision = gop.revision AND gop.evaluation_verdict = 'OPEN' AND gop.evaluated_inputs_version = $6 AND",
     )
+    expect(render(visibleOpportunityPredicate(teamA, id)).params[5]).toBe('inputs-1')
     expect(text).not.toContain('job_opportunity_matches x')
     expect(text).toContain(
-      "EXISTS (SELECT 1 FROM teams gt WHERE gt.id = $6::uuid AND gt.archived_at IS NULL AND gt.type = 'SENIOR')",
+      "EXISTS (SELECT 1 FROM teams gt WHERE gt.id = $7::uuid AND gt.archived_at IS NULL AND gt.type = 'SENIOR')",
     )
   })
 
@@ -111,6 +115,7 @@ describe('visibleOpportunityPredicate', () => {
       TEAM_A,
       TEAM_A,
       TEAM_A,
+      'inputs-1',
       TEAM_A,
     ])
     expect(MATCH_RULE_VERSION).toBe('eval.1+l1.1')
@@ -135,6 +140,16 @@ describe('canonicalUuid', () => {
       expect(canonicalUuid(value)).toBeNull()
     },
   )
+})
+
+describe('possibleDuplicateJoin', () => {
+  it('is the target itself, or the same candidate key of a known employer, binding nothing', () => {
+    const q = render(possibleDuplicateJoin('t', 'd'))
+    expect(flat(q.sql).trim()).toBe(
+      '(d.id = t.id OR (t.employer_key IS NOT NULL AND d.employer_key = t.employer_key AND d.title_key = t.title_key))',
+    )
+    expect(q.params).toEqual([])
+  })
 })
 
 describe('scopedTeamRowPredicate', () => {

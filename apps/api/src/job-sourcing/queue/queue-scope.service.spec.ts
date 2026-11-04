@@ -84,6 +84,8 @@ const teamAScope: JobQueueScope = {
   teamId: TEAM_A,
   seniorIds: [SEN_1],
   versions: [SEN_1_VERSIONS],
+  // opportunityInputsVersion of no studio keyword at MATCH_RULE_VERSION 'eval.1+l1.1' (SR-M-1).
+  inputsVersion: 'd17b306752496d748fc03a559dc4b784',
 }
 
 async function expectCode(p: Promise<unknown>, status: number, code: string): Promise<void> {
@@ -176,9 +178,28 @@ describe('JobQueueScopeService.resolve', () => {
       teamId: TEAM_A,
       seniorIds: [],
       versions: [],
+      inputsVersion: 'd17b306752496d748fc03a559dc4b784',
     })
     // The team lookup, then loadRoster's three reads: it no longer stops early on an empty roster.
     expect(execute).toHaveBeenCalledTimes(4)
+  })
+
+  it('SR-M-1: the scope carries the live inputs version of the studio keywords, even with no senior', async () => {
+    const studioPhp = {
+      id: 'x1',
+      senior_id: null,
+      kind: 'KEYWORD',
+      value: 'php',
+      normalized_value: 'php',
+      created_at: '2026-01-01T00:00:00.000Z',
+    }
+    const { svc } = harness([{ id: TEAM_A }], [], [studioPhp], [])
+    await expect(svc.resolve(user('HR'), TEAM_A)).resolves.toMatchObject({
+      kind: 'TEAM',
+      seniorIds: [],
+      // opportunityInputsVersion of the keyword 'php' at MATCH_RULE_VERSION 'eval.1+l1.1'.
+      inputsVersion: '3c8e35dd4ec830658915a6ef7b6bb6c0',
+    })
   })
 
   it('HR naming a foreign team is NONE (not 403/404), and no roster is read', async () => {

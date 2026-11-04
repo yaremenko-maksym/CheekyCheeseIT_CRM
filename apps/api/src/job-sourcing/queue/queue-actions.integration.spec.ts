@@ -9,7 +9,11 @@ import {
   sqlstateOfRejection,
 } from '../../database/__test-helpers__/crm-app-session'
 import { hasDatabaseUrl } from '../../test/require-real-db'
-import { loadRoster, MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
+import {
+  loadRoster,
+  MATCH_RULE_VERSION,
+  opportunityInputsVersion,
+} from '../runtime/recompute-inputs'
 import { JobQueueActionsService } from './queue-actions.service'
 import { JobQueueScopeService } from './queue-scope.service'
 
@@ -84,12 +88,15 @@ async function lead(opp: string, senior: string): Promise<void> {
  * The one place fixtures state an evaluated opportunity: an owner decision may add a column to this
  * area, and only this helper then changes. Visibility itself is read through the predicate.
  */
-const markEvaluatedOpen = (opp: string) =>
-  q(
-    `UPDATE job_opportunities SET evaluated_revision = revision, evaluation_verdict = 'OPEN'
+const markEvaluatedOpen = async (opp: string) => {
+  const { exclusions } = await loadRoster(session.databaseService.db)
+  await q(
+    `UPDATE job_opportunities
+        SET evaluated_revision = revision, evaluation_verdict = 'OPEN', evaluated_inputs_version = $2
       WHERE id = $1`,
-    [opp],
+    [opp, opportunityInputsVersion(exclusions)],
   )
+}
 
 async function triageGrant(opp: string, team: string): Promise<void> {
   await markEvaluatedOpen(opp)

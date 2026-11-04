@@ -33,7 +33,12 @@ import {
   scopeTeamId,
   type WriteScope,
 } from './queue-actions'
-import { canonicalUuid, scopedTeamRowPredicate, visibleOpportunityPredicate } from './queue-scope'
+import {
+  canonicalUuid,
+  possibleDuplicateJoin,
+  scopedTeamRowPredicate,
+  visibleOpportunityPredicate,
+} from './queue-scope'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /** The duplicates preview's bound (`jobQueueDuplicatesPreviewSchema`). */
@@ -487,10 +492,8 @@ export class JobQueueActionsService {
   }
 
   /**
-   * The target and its possible-duplicate set, locked in sorted id order. No relation stores
-   * "possible duplicate": the set is the opportunities sharing the resolver's candidate key
-   * (`idx_job_opportunities_candidate_key`: employer key + title key), which an unknown employer
-   * does not have. A row the scope cannot see may be locked here, but no answer carries its content:
+   * The target and its possible-duplicate set (`possibleDuplicateJoin`), locked in sorted id
+   * order. A row the scope cannot see may be locked here, but no answer carries its content:
    * only the target's answer and the visible, own-scope conflict below are returned. What such a
    * lock can expose is its wait: a caller may be slowed by a write on a copy it cannot see.
    */
@@ -498,10 +501,7 @@ export class JobQueueActionsService {
     const { rows } = await tx.execute(
       sql`SELECT d.id, d.revision, d.title, d.employer_name
             FROM job_opportunities t
-            JOIN job_opportunities d
-              ON d.id = t.id
-              OR (t.employer_key IS NOT NULL AND d.employer_key = t.employer_key
-                  AND d.title_key = t.title_key)
+            JOIN job_opportunities d ON ${possibleDuplicateJoin('t', 'd')}
            WHERE t.id = ${opportunity}::uuid
            ORDER BY d.id
              FOR NO KEY UPDATE OF d`,

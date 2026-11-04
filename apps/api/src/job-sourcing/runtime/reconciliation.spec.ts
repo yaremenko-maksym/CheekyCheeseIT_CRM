@@ -10,6 +10,8 @@ vi.mock('../ownership/dirty-work.store', async (orig) => ({
 vi.mock('./recompute-inputs', () => ({
   MATCH_RULE_VERSION: 'RULE-1',
   loadRoster: (...a: unknown[]) => roster(...a),
+  // A transparent stand-in: the real digest has its own table in recompute-inputs.spec.ts.
+  opportunityInputsVersion: (exclusions: unknown) => `INPUTS:${JSON.stringify(exclusions)}`,
 }))
 
 import {
@@ -58,7 +60,7 @@ beforeEach(() => {
   enqueue.mockReset()
   enqueue.mockResolvedValue({ inserted: true })
   roster.mockReset()
-  roster.mockResolvedValue({ versions: live })
+  roster.mockResolvedValue({ versions: live, exclusions: [] })
 })
 
 describe('isStale', () => {
@@ -121,18 +123,30 @@ describe('reconcileOnce', () => {
       dbOf([{ ...opp(1, fresh, 3, [['DONE', base]]), unevaluated: true }]),
     )
     expect(r).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
+    // sha256('"INPUTS:[]"') starts 39cea72b0d161084: the live inputs version keys the lineage.
     expect(enqueue.mock.calls[0]?.slice(1)).toEqual([
       'OPPORTUNITY',
       id(1),
       3,
-      base.replace('RECONCILE:', 'RECONCILE:EVAL:'),
+      base.replace('RECONCILE:', 'RECONCILE:EVAL:39cea72b0d161084:'),
     ])
+  })
+
+  it('SR-M-1: a change of the live inputs version starts a new EVAL lineage', async () => {
+    const fresh = [tuple(m(S1, 'p1', 'e1'))]
+    const before = reconcileReason(live, [m(S1, 'p1', 'e1')], 'INPUTS:[]')
+    roster.mockResolvedValue({ versions: live, exclusions: ['x'] })
+    const r = await reconcileOnce(
+      dbOf([{ ...opp(1, fresh, 3, [['DONE', before]]), unevaluated: true }]),
+    )
+    expect(r).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
+    expect(enqueue.mock.calls[0]?.[4]).toBe(before.replace('39cea72b0d161084', 'dcd627b3568912b9'))
   })
 
   it('SR-M-2: a DONE row of the EVAL lineage ends it; evaluated rows stay fresh', async () => {
     const fresh = [tuple(m(S1, 'p1', 'e1'))]
-    const evalReason = reconcileReason(live, [m(S1, 'p1', 'e1')], true)
-    expect(evalReason).toMatch(/^RECONCILE:EVAL:[0-9a-f]{16}:[0-9a-f]{16}$/)
+    const evalReason = reconcileReason(live, [m(S1, 'p1', 'e1')], 'INPUTS:[]')
+    expect(evalReason).toMatch(/^RECONCILE:EVAL:39cea72b0d161084:[0-9a-f]{16}:[0-9a-f]{16}$/)
     const r = await reconcileOnce(
       dbOf([
         { ...opp(1, fresh, 3, [['DONE', evalReason]]), unevaluated: true },
@@ -143,13 +157,15 @@ describe('reconcileOnce', () => {
     expect(enqueue).not.toHaveBeenCalled()
   })
 
-  it('the page query asks for the unevaluated state of the current revision', async () => {
+  it('the page query asks for the unevaluated state of the current revision and live inputs', async () => {
+    roster.mockResolvedValue({ versions: live, exclusions: ['x'] })
     const db = dbOf([])
     await reconcileOnce(db)
     const q = new PgDialect().sqlToQuery(db.execute.mock.calls[0]?.[0] as never)
     expect(q.sql.replace(/\s+/g, ' ')).toContain(
-      "(o.evaluated_revision IS DISTINCT FROM o.revision AND o.availability IN ('OPEN', 'UNKNOWN')) AS unevaluated",
+      "((o.evaluated_revision IS DISTINCT FROM o.revision OR o.evaluated_inputs_version IS DISTINCT FROM $1) AND o.availability IN ('OPEN', 'UNKNOWN')) AS unevaluated",
     )
+    expect(q.params[0]).toBe('INPUTS:["x"]')
   })
 
   it('AC3: an already-present row (inserted:false) is not counted as enqueued', async () => {
@@ -193,7 +209,7 @@ describe('reconcileOnce', () => {
     enqueue.mockRejectedValueOnce(new Error('connection lost'))
     await expect(reconcileOnce(dbOf([opp(1), opp(2)]))).rejects.toThrow('connection lost')
     const down = { execute: vi.fn().mockRejectedValue(new Error('db down')) }
-    roster.mockResolvedValue({ versions: live })
+    roster.mockResolvedValue({ versions: live, exclusions: [] })
     await expect(reconcileOnce(down)).rejects.toThrow('db down')
   })
 
@@ -209,7 +225,7 @@ describe('the page query', () => {
     const db = dbOf([])
     await reconcileOnce(db, { pageSize: 7 })
     const q = rendered(db.execute.mock.calls[0]?.[0])
-    expect(q.params).toEqual(['00000000-0000-0000-0000-000000000000', 7])
+    expect(q.params).toEqual(['INPUTS:[]', '00000000-0000-0000-0000-000000000000', 7])
     expect(q.sql).toContain('FROM job_opportunities o')
     expect(q.sql).toContain('job_opportunity_matches')
     expect(q.sql).toContain('ORDER BY o.id')
@@ -218,8 +234,8 @@ describe('the page query', () => {
   it('resumes after the given cursor, then after the last id of each page', async () => {
     const db = dbOf([opp(1), opp(2)], [])
     await reconcileOnce(db, { pageSize: 2, cursor: id(99) })
-    expect(rendered(db.execute.mock.calls[0]?.[0]).params).toEqual([id(99), 2])
-    expect(rendered(db.execute.mock.calls[1]?.[0]).params).toEqual([id(2), 2])
+    expect(rendered(db.execute.mock.calls[0]?.[0]).params).toEqual(['INPUTS:[]', id(99), 2])
+    expect(rendered(db.execute.mock.calls[1]?.[0]).params).toEqual(['INPUTS:[]', id(2), 2])
   })
 
   it('adds no id filter by default and scopes to onlyIds when given', async () => {
@@ -227,12 +243,13 @@ describe('the page query', () => {
     await reconcileOnce(all)
     const unscoped = rendered(all.execute.mock.calls[0]?.[0]).sql
     expect(unscoped).not.toContain('jsonb_array_elements_text')
-    expect(unscoped).toContain('WHERE o.id > $1::uuid  ORDER BY o.id LIMIT $2')
+    expect(unscoped).toContain('WHERE o.id > $2::uuid  ORDER BY o.id LIMIT $3')
     const scoped = dbOf([])
     await reconcileOnce(scoped, { onlyIds: [id(5), id(6)] })
     const q = rendered(scoped.execute.mock.calls[0]?.[0])
-    expect(q.sql).toContain('o.id IN (SELECT jsonb_array_elements_text($2::jsonb)::uuid)')
+    expect(q.sql).toContain('o.id IN (SELECT jsonb_array_elements_text($3::jsonb)::uuid)')
     expect(q.params).toEqual([
+      'INPUTS:[]',
       '00000000-0000-0000-0000-000000000000',
       JSON.stringify([id(5), id(6)]),
       200,
@@ -274,6 +291,10 @@ describe('reconcileReason pinned value', () => {
   it('is the first 16 hex chars of sha256 over the sorted JSON (literals computed outside the code)', () => {
     // sha256('[]') starts 4f53cda18c2baa0c; the roster half is sha256 of the sorted key list.
     expect(reconcileReason(live, [])).toBe('RECONCILE:5c0bf4154b6695e7:4f53cda18c2baa0c')
+    // sha256('"INPUTS:[]"') starts 39cea72b0d161084.
+    expect(reconcileReason(live, [], 'INPUTS:[]')).toBe(
+      'RECONCILE:EVAL:39cea72b0d161084:5c0bf4154b6695e7:4f53cda18c2baa0c',
+    )
   })
 })
 

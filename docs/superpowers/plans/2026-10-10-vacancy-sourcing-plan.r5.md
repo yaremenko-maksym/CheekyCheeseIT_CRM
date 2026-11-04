@@ -1087,8 +1087,9 @@ name; another team sees only `{ submittedElsewhere: true }`. UNIQUE(opportunity,
 promoted as written (no double application at the employer). What remains before promoting the staged DDL is the
 re-measure in its header (the table is empty on production).
 
-The key is shared, so a shared senior's second submission hits the same row. This follows from "teams are invisible to
-each other":
+**Implementer's reading (not an owner decision).** Only option (a) above is the owner's decision. The rest of this
+block is how the implementer applies it together with "teams are invisible to each other"; it may be revised in
+review without asking the owner again. The key is shared, so a shared senior's second submission hits the same row:
 
 - **Team B on A's LIVE submission:** B gets the marker and a conflict with no foreign id, timestamps, version, submitter
   or team, in any response or error. The marker is for a live submission only.
@@ -1159,9 +1160,10 @@ Explicit `@Inject`, `@UseGuards(RolesGuard)` + `@Roles`, parsed request/response
 top of the global `UserAwareThrottlerGuard`; error codes from `api-errors/job-sourcing.ts`.
 
 **Precondition (backlog entry 349 / Task 6.1 SR-M-2):** the decision on the triage-grant visibility gap is taken
-(owner, 2026-11-04, option 1) and implemented, with a residual window under owner decision (the entry's known limits):
-a grant shows an opportunity only when it was evaluated OPEN at its
-current revision, and never-evaluated fails closed. Tasks 6.2, 6.3 and 6.4 may now inject `JobQueueScopeService`. What
+(owner, 2026-11-04, option 1, then the inputs version for SR-M-1) and closed in code: a grant shows an opportunity
+only when it was evaluated OPEN at its current revision against the LIVE inputs version (the match rule version and
+the studio-wide keyword exclusions), and never-evaluated fails closed. The cost is stated in the entry: a studio
+keyword change or a rule deploy hides every granted item until its recompute. Tasks 6.2, 6.3 and 6.4 may now inject `JobQueueScopeService`. What
 remains is an owner step: promote the staged DDL `manual-staged/2026-11-04_job_opportunities_evaluation_verdict.sql`
 before the queue is exposed (and before `JOB_MATCH_RECONCILIATION_ENABLED` is on with this code; its header gives the
 order and the backfill). Until the recompute reaches an existing opportunity, a grant keeps it hidden.

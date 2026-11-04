@@ -34,6 +34,11 @@ export type JobQueueScope =
        * match row grants visibility only when its stored versions equal these (SR-M-2).
        */
       readonly versions: readonly LiveSeniorVersion[]
+      /**
+       * The LIVE `opportunityInputsVersion` (rule version + studio-wide keyword exclusions). A
+       * grant shows an opportunity only while its recorded inputs version equals this (SR-M-1).
+       */
+      readonly inputsVersion: string
     }
   | { readonly kind: 'NONE' }
 
@@ -99,19 +104,15 @@ const liveTeam = (alias: string, teamId: string) =>
  *          `resolve`; a senior with no live version row grants nothing), for a senior who is
  *          right now an active, non-archived SENIOR member of the team; or
  *   GRANT  an unrevoked, unexpired explicit triage grant for the team, on an opportunity that is
- *          not CLOSED / EXPIRED and was evaluated OPEN at its CURRENT revision (SR-M-2, owner
- *          decision 2026-11-04). `evaluated_revision` / `evaluation_verdict` are written by
- *          `installMatches` with the match rows, including when there are no rows, so a revision
- *          bump hides the item until its recompute, and NULL (never evaluated) hides it: this
- *          fails closed. The verdict is opportunity-level (`opportunityVerdict`): a per-senior
- *          stop-list is `SCOPED_RESTRICTIONS` and does not hide the opportunity from the team, owner
- *          A1g. The grant itself is revision-independent: the schema states no revision rule for it.
- *          KNOWN LIMITS (backlog entry on SR-M-2, residual window under owner decision): the verdict
- *          compares no input version, so it can outlive what it was computed from without a revision
- *          bump. A new studio-wide exclusion still shows a granted item until the queue drains (for
- *          good while the match reconciliation is off); a rule-version bump leaves a zero-row OPEN
- *          until the next revision or roster change; with an empty roster, an exclusion written
- *          outside the hooked services is not picked up by the sweep at all.
+ *          not CLOSED / EXPIRED and was evaluated OPEN at its CURRENT revision against the LIVE
+ *          inputs (SR-M-1 / SR-M-2, owner decisions 2026-11-04). `evaluated_revision`,
+ *          `evaluation_verdict` and `evaluated_inputs_version` are written by `installMatches`
+ *          with the match rows, including when there are no rows. A revision bump, a studio-wide
+ *          keyword exclusion change or a rule deploy hides the item at once, until its recompute
+ *          at the new inputs; NULL (never evaluated) hides it: this fails closed. The verdict is
+ *          opportunity-level (`opportunityVerdict`): a per-senior stop-list is
+ *          `SCOPED_RESTRICTIONS` and does not hide the opportunity from the team, owner A1g. The
+ *          grant itself is revision-independent: the schema states no revision rule for it.
  * A TRIAGE / unknown-stack verdict alone grants nothing (data quality, not a grant).
  *
  * NOT IN THIS PREDICATE — standing triage subscriptions (`job_team_triage_subscriptions`). A
@@ -159,6 +160,7 @@ export function visibleOpportunityPredicate(scope: JobQueueScope, opportunityId:
                          AND gop.availability NOT IN ('CLOSED', 'EXPIRED')
                          AND gop.evaluated_revision = gop.revision
                          AND gop.evaluation_verdict = 'OPEN'
+                         AND gop.evaluated_inputs_version = ${scope.inputsVersion}
                          AND ${liveTeam('gt', scope.teamId)}))`
 }
 
@@ -172,6 +174,21 @@ export function scopedTeamRowPredicate(scope: JobQueueScope, teamIdColumn: SQL):
   if (scope.kind === 'STUDIO') return sql`TRUE`
   if (scope.kind === 'NONE') return sql`FALSE`
   return sql`${teamIdColumn} = ${scope.teamId}::uuid`
+}
+
+/**
+ * The possible-duplicate set as a join condition between two `job_opportunities` aliases: the
+ * copy is the target itself, or shares the resolver's candidate key (employer key + title key,
+ * `idx_job_opportunities_candidate_key`), which an unknown employer does not have. No relation
+ * stores "possible duplicate", so every reader of the set uses this one definition. The aliases
+ * are SQL identifiers written by the caller, never input.
+ */
+export function possibleDuplicateJoin(targetAlias: string, copyAlias: string): SQL {
+  const t = sql.raw(targetAlias)
+  const d = sql.raw(copyAlias)
+  return sql`(${d}.id = ${t}.id
+              OR (${t}.employer_key IS NOT NULL AND ${d}.employer_key = ${t}.employer_key
+                  AND ${d}.title_key = ${t}.title_key))`
 }
 
 export interface GenerationHead {
