@@ -2,27 +2,38 @@
 
 ## Status
 
-**Proposed** — 2026-11-03. Code starts only after the owner approves this ADR and answers the A3 decisions in
-§7. Task: r5 Task 5.4c (plan `docs/superpowers/plans/2026-10-10-vacancy-sourcing-plan.r5.md`, Task 5.4 amendment of
-2026-11-03 and §"Model split — owner decision, 2026-10-18").
+**Proposed** — 2026-11-03, amended 2026-11-04. Code starts only after the owner approves this ADR. Task: r5 Task 5.4c
+(plan `docs/superpowers/plans/2026-10-10-vacancy-sourcing-plan.r5.md`, Task 5.4 amendment of 2026-11-03 and §"Model
+split — owner decision, 2026-10-18").
+
+**Amendment, 2026-11-04 (owner corrections, relayed by Master).** (1) The CRM installs **its own** lightweight local
+model; VCF's model and hardware are not adopted, only the strategy that keeps a small model answering (§8). (2) Small
+dose is **unconditional**: built as part of the local route; MP-03 tunes it, it does not gate it (§5.4). (3) Owner
+decisions D1–D3 are recorded (§4.1–§4.3): hosted routes for every source the model can serve; providers whose free
+tier may train on or human-review prompts are accepted; OpenRouter is not in the first router version.
 
 ## Context
 
-The owner decided on 2026-10-18 that vacancy extraction runs on **Gemini, Groq, OpenRouter and the local model**: a
+The owner decided on 2026-10-18 that vacancy extraction runs on Gemini, Groq, OpenRouter and the local model: a
 router over free hosted models with prompt dosing, so that no provider starts refusing, over a local baseline.
 Everything must work on the local model alone; the free hosted models are an accelerator. Generation (Cloudflare
-Workers AI) is out of scope for r5.
+Workers AI) is out of scope for r5. **Owner decision D3 (2026-11-04) narrows that list for the first router version:
+Gemini, Groq and the local floor.** OpenRouter can be added later (§3.5).
 
 The owner already runs such a chain in his own project, **VideoContentFactory** (VCF; read-only for this ADR, read at
 its state of 2026-11-03). Today `@crm/inference` offers one extraction route, chosen by `INFERENCE_EXTRACTION_PROVIDER`
 (`local` | `openrouter`), behind `ExtractionPort` (`extract({ input, schema, instruction }) → { ok, data, usage? } |
 { ok: false, code: InferenceErrorCode }`). The HTML path (Tasks 5.4a/5.4b) composes privacy guards and a shared
-budget around that port; the router must slot in **behind the same port** so 5.4b does not change.
+budget around that port; the router must slot in **behind the same port**, so 5.4b changes by one additive thing only:
+it supplies the field groups of the small dose (§5.4).
 
 Forces:
 
 - **Privacy.** Page text leaves the host. Contact stripping and the `ai-input=no` gate already run before the port
-  (5.4a/5.4b); free hosted tiers may log or train on prompts.
+  (5.4a/5.4b); free hosted tiers may log or train on prompts, which the owner has accepted (§4.1, §4.2).
+- **A small model fails unless it is dosed.** The local floor is a lightweight model on a CPU host shared with the CRM
+  (§8.2). Sent a large structured request, such a model comes back empty or wrong on every prompt; asked what it can
+  answer, it answers.
 - **Free tiers churn.** Models are renamed, retired, rate-limited per minute and capped per day; the error texts
   differ per provider.
 - **"Slow, never a silent failure."** A chain that runs dry must fall to local and say so; a local failure must stop
@@ -34,18 +45,26 @@ Forces:
 ## Decision (summary)
 
 1. **Copy-adapt** VCF's routing patterns into `@crm/inference` behind the unchanged `ExtractionPort` (§2, HIGH).
-2. A third extraction provider value, `router`: hosted routes from a checked-in provider allowlist (Gemini, Groq,
-   OpenRouter) in front of a **required** local floor; rotation, fit filter, own caps, spent/retired skipping, a
-   whole-call deadline that reserves the floor's time (§2.1, §5.2, HIGH).
+2. A third extraction provider value, `router`: hosted routes from a checked-in provider allowlist (Gemini, Groq) in
+   front of a **required** local floor; rotation, fit filter, own caps, spent/retired skipping, a whole-call deadline
+   that reserves the floor's time (§2.1, §5.2, HIGH).
 3. Keys only as optional worker env keys; own caps on the existing `job_account_meters`; spent/retired/provider state
    in a worker state file behind a port (§3.2, HIGH for the port, MED for the file).
 4. **Self-healing model lists** (owner decision D6): request-time retirement, a daily refresh of each provider's
    managed list from its catalogue with probes on a fixed synthetic prompt, a pinned fallback list, a weekly
    `MODEL_LIST_STALE` check — adopted from VCF (§3.4, HIGH).
-5. Privacy guards stay in front of the router; the router stores and logs no text; which sources and which providers may
-   receive text is the owner's (D1–D3, A3) — the recommended default is local-only per source (§4).
+5. Privacy guards stay in front of the router; the router stores and logs no text. Owner decisions D1–D3 (2026-11-04):
+   every source the model can serve may use the hosted routes, training-permitting free tiers included, and the
+   accepted risk is stated once in §4.1. `ai-input=no`, the `unspecified` policy and contact stripping are not weakened
+   (§4, decided).
 6. Classification by status and bounded structured error fields, never page text; every fall to local is an event;
    preflight before a model-using cycle (§5, HIGH).
+7. **The CRM's own local model:** a lightweight text model chosen by criteria and picked by MP-04, in its own pinned
+   container, installed on production only by the owner; if none passes, the owner chooses another host or deterministic
+   HTML with model extraction disabled (§8, HIGH for the criteria, **no model named**).
+8. **The local route is dosed, always:** hand-back and field-group small dose, refusal of a prompt that does not fit,
+   preflight and a wall-clock ceiling are mandatory behaviour, not options (§5.4, §8.4, HIGH for the pattern, MED for
+   the field groups until MP-03 tunes them).
 
 ---
 
@@ -90,9 +109,9 @@ The owner's phrase "prompt dosing, so a provider does not start refusing" theref
 adopts both under explicit names:
 
 - **Pacing** — gap, own caps, spent/retired ledgers, rotation. Keeps hosted providers below their refusal threshold.
-- **Dosing** — the input (and, if MP-03 shows it is needed, the schema) sized per route: every chunk the caller sends
-  fits the **local** route's window, so the floor can always answer; a route that cannot take a chunk is dropped by the
-  fit filter, never fed a truncated prompt.
+- **Dosing** — the input **and the schema** sized per route: every chunk the caller sends fits the **local** route's
+  window, a route that cannot take a chunk is dropped by the fit filter and never fed a truncated prompt, and the local
+  route is asked in field groups rather than the full schema (§5.4).
 
 ### 1.3 What is not portable
 
@@ -109,12 +128,14 @@ adopts both under explicit names:
   the route supports it, local Zod validation always, and no code-fence fallback.
 - **The Claude CLI executor, images, the WSL gateway resolution, Ollama's native API, the env-supplied model lists and
   the providers that need a card** (VCF already rejects Cerebras and Together; the CRM does not add them either).
+- **VCF's local models and its GPU** (§8.1).
 
 ---
 
 ## 2. How to adopt it: three options
 
-All three keep `ExtractionPort` unchanged, so 5.4b and every future consumer are untouched.
+All three keep `ExtractionPort`'s result unchanged and its request additively extended (`smallDose`, §5.4), so every
+existing consumer is untouched.
 
 ### Option A — copy-adapt the patterns into `@crm/inference` (recommended)
 
@@ -154,14 +175,14 @@ later fix in VCF can be found and carried over by hand).
 
 | Element          | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Config           | `extraction.provider` gains a third value, `router` (additive; `local` and `openrouter` keep their exact behaviour). The `router` block lists **routes** in priority order. Each route has a provider id (`gemini`, `groq`, `openrouter`, `local`), its API key (hosted only), a **pinned fallback** model list (the managed list of §3.4 supersedes it while valid), its context window, its structured-output capability (`json_schema` / `json_object` / none), its minimum call gap and `rotate`. The local route is required and always last; the schema refuses a router config without it.                                                                                           |
+| Config           | `extraction.provider` gains a third value, `router` (additive; `local` and `openrouter` keep their exact behaviour, and `openrouter` is not a router route, D3). The `router` block lists **routes** in priority order. Each route has a provider id (`gemini`, `groq`, `local`), its API key (hosted only), a **pinned fallback** model list (the managed list of §3.4 supersedes it while valid), its context window, its structured-output capability (`json_schema` / `json_object` / none), its minimum call gap and `rotate`. The local route is required and always last; the schema refuses a router config without it. Both hosted routes rotate by default: VCF's `rotate: false` on Gemini reserved its allowance for other work, and in the CRM extraction is the only consumer. |
 | Hosts            | Package constants, as today (no base-URL env); the local route keeps its env URL.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Route leaf       | One OpenAI-compatible leaf for every provider, built on `sendChatCompletion` widened to return an **internal classified failure** (§5) instead of collapsing everything into `PROVIDER_ERROR`. Gemini uses its OpenAI-compatible endpoint if research confirms strict-schema support there (§2.3); otherwise a small native leaf with the same contract.                                                                                                                                                                                                                                                                                                                                    |
-| Router           | `createRouterExtractionAdapter(config, deps)` returns an `ExtractionPort`. Per call: fit filter → rotation among rotatable hosted routes → cascade through hosted routes → local floor. A whole-call deadline caps the sum of per-attempt timeouts (VCF's `boundExecutor` lesson).                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Router           | `createRouterExtractionAdapter(config, deps)` returns an `ExtractionPort`. Per call: fit filter → rotation among rotatable hosted routes → cascade through hosted routes (full shape) → hand-back → local floor (small dose, §5.4). A whole-call deadline caps the sum of per-attempt timeouts (VCF's `boundExecutor` lesson).                                                                                                                                                                                                                                                                                                                                                                 |
 | Deps (seams)     | `fetchImpl`, `now`, `sleep`, a `RouteStatePort` (§3.2), an optional `OwnCapPort` (§3.1) and `onEvent` (§6.2).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Public result    | Unchanged: `{ ok: true, data, usage? }` or `{ ok: false, code: InferenceErrorCode }`. Internal codes never leave the package, exactly as `MODEL_UNAVAILABLE` does not today.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | Input ceiling    | An exported pure helper returns the largest input the configured **local** route accepts; the 5.4b chunker sizes chunks to it, so the floor can always answer (§1.2, dosing).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Ports per policy | `InferenceClient` keeps `extraction` (the full chain) and gains `extractionFor({ hostedProviders })`, which returns an `ExtractionPort` over the same router restricted to the listed hosted providers, the floor always included; an empty list is local-only. One port instance per distinct provider set, built once and reused, so pacing and ledger state stay shared. The request type stays unchanged — it carries no source identity — so the **caller** derives the provider set from the source's policy (§4.1, §4.2): `hostedModelsAllowed` false ⇒ empty; true ⇒ every configured provider minus those D2 excludes for that source. Additive; existing consumers see no change. |
+| One port         | `InferenceClient` keeps a single `extraction` port over the whole chain. There is no per-source provider set: under D1 and D2 every call that reaches the port may use every configured route. The gate in front of the port decides whether a call happens at all (§4).                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 The existing `InferenceModelResolverService` (OpenRouter, cheapest model under guardrails, chosen at runtime) stays as
 it is for `provider: openrouter`. Under `router` the models come from each provider's self-healing managed list with a
@@ -181,9 +202,11 @@ Each is a fact, not a decision; the research task settles it before code.
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
 | Gemini exposes an OpenAI-compatible chat-completions endpoint that accepts `response_format` with a JSON schema                                                                                   | MED                                                       |
 | Groq accepts strict `json_schema` on the free models it lists, and marks per-day 429s in a structured error field                                                                                 | MED                                                       |
-| OpenRouter's `provider.data_collection: "deny"` (already sent by the current adapter) and `zdr` leave few or no `:free` endpoints                                                                 | MED — VCF does not send `deny` and runs on `:free` models |
+| How Gemini's model listing separates what a free key may call, and what a free key receives when it calls anything else (VCF has no Gemini refresh; the free-only filter it used elsewhere does not carry over) | LOW                                                       |
 | The free tiers' current per-minute and per-day limits                                                                                                                                             | LOW — they change monthly                                 |
-| Each provider's free-tier data terms: prompt retention, training use, human review. The Gemini API terms for unpaid use are believed to allow use for product improvement, including human review | LOW-MED — **legal-relevant**, §4                          |
+| Each provider's free-tier data terms: prompt retention, training use, human review. The Gemini API terms for unpaid use are believed to allow use for product improvement, including human review. Recorded for the owner; no gate reads it (§4.2) | LOW-MED                                                   |
+| For each candidate runtime of §8.3, on its pinned version: whether it enforces a JSON schema through its OpenAI-compatible endpoint, and how the context window is set there (a per-request parameter of a native API may not exist on that endpoint) | LOW                                                       |
+| The licence of each candidate model of §8.3 at its pinned digest                                                                                                                                  | LOW                                                       |
 
 ---
 
