@@ -49,7 +49,7 @@ export function config(routes: unknown[], extra: object = {}): RouterConfigInput
 }
 
 export type Reply =
-  | { status: number; body: string; headers?: Record<string, string> }
+  | { status: number; body: string; headers?: Record<string, string>; delayMs?: number }
   /** Never answers; rejects as an abort when the request's signal fires. */
   | 'hang'
   /** The connection is never made. */
@@ -113,6 +113,7 @@ export function scriptedFetch(script: (s: Sent, n: number) => Reply) {
         })
       }
       const r = reply as Exclude<Reply, 'hang' | 'network'>
+      if (r.delayMs !== undefined) await new Promise((resolve) => setTimeout(resolve, r.delayMs))
       return {
         status: r.status,
         body: null,

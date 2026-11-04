@@ -438,7 +438,14 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     return finish({ ok: false, code: floorCode(floor.code) } as RouterResult<T>, false)
   }
 
-  return { run }
+  return {
+    // A throwing port adapter (a custom state or cap store) must not escape: the router never throws.
+    run: (req, signal) =>
+      run(req, signal).catch(() => {
+        emit({ type: 'CALL', code: 'PROVIDER_ERROR', floorAnswered: false, latencyMs: 0 })
+        return { ok: false, code: 'PROVIDER_ERROR' }
+      }),
+  }
 }
 
 /**
