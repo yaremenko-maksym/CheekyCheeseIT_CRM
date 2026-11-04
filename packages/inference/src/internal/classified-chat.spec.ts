@@ -481,6 +481,15 @@ describe('error bodies are parsed whole, up to the transport cap (CR-M-1)', () =
     expect((await run(HOSTED.gemini, 429, body)).result).toStrictEqual({ ok: false, code: 'BUSY' })
   })
 
+  it('a 404 naming the model over the 2 MiB cap is TRANSPORT, never RETIRED', async () => {
+    const body = overCap({ error: { code: 'model_not_found', message: GROQ_MODEL } })
+    expect((await run(HOSTED.groq, 404, body)).result).toStrictEqual({
+      ok: false,
+      code: 'TRANSPORT',
+      responded: true,
+    })
+  })
+
   it('a PERMISSION_DENIED 403 over the 2 MiB cap is TRANSPORT, never AUTH', async () => {
     const body = overCap({ error: { code: 403, status: 'PERMISSION_DENIED' } })
     expect((await run(HOSTED.gemini, 403, body)).result).toStrictEqual({

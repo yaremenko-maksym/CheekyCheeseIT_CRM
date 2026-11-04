@@ -163,4 +163,26 @@ export const GROQ_FIXTURES: ProviderFixture[] = [
     body: groqError(),
     expected: { ok: false, code: 'CREDIT' },
   },
+  // SR-M-64: the per-day signal is the header only; the body is never read for it.
+  {
+    name: '429 remaining-requests 0 in the body, not the header, is not a marker',
+    status: 429,
+    body: JSON.stringify({
+      error: { message: 'x-ratelimit-remaining-requests: 0', type: 'requests_per_day' },
+      'x-ratelimit-remaining-requests': '0',
+    }),
+    expected: { ok: false, code: 'BUSY' },
+  },
+  {
+    name: '404 model id in error.type retires nothing',
+    status: 404,
+    body: JSON.stringify({ error: { message: BODY_MARKER, type: GROQ_MODEL } }),
+    expected: { ok: false, code: 'TRANSPORT', responded: true },
+  },
+  {
+    name: '404 unparsable (truncated) body naming the model retires nothing',
+    status: 404,
+    body: `{"error":{"message":"The model ${GROQ_MODEL} does not exist"`,
+    expected: { ok: false, code: 'TRANSPORT', responded: true },
+  },
 ]

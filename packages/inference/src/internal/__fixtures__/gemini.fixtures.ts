@@ -218,4 +218,107 @@ export const GEMINI_FIXTURES: ProviderFixture[] = [
     body: JSON.stringify(envelope(503, 'UNAVAILABLE')),
     expected: { ok: false, code: 'BUSY' },
   },
+  // SR-M-64: a body can echo request content, so a marker counts only in its one designated field.
+  ...(
+    [
+      ['in error.message', { error: { message: PER_DAY, status: 'RESOURCE_EXHAUSTED' } }],
+      ['in error.status', { error: { status: PER_DAY } }],
+      ['at the top level', { quotaId: PER_DAY, error: {} }],
+      [
+        'in quotaMetric',
+        {
+          error: {
+            details: [
+              {
+                '@type': QUOTA_FAILURE,
+                violations: [{ quotaMetric: PER_DAY, quotaId: PER_MINUTE }],
+              },
+            ],
+          },
+        },
+      ],
+      [
+        'in a non-QuotaFailure detail',
+        { error: { details: [{ '@type': RETRY_INFO, quotaId: PER_DAY, retryDelay: 'x' }] } },
+      ],
+      [
+        'in a Help link',
+        {
+          error: {
+            details: [
+              { '@type': 'type.googleapis.com/google.rpc.Help', links: [{ description: PER_DAY }] },
+            ],
+          },
+        },
+      ],
+      ['in a QuotaFailure outside error.details', { details: [quota(PER_DAY)], error: {} }],
+    ] as const
+  ).map(([where, body]): ProviderFixture => ({
+    name: `429 per-day marker ${where} is not a marker`,
+    status: 429,
+    body: JSON.stringify(body),
+    expected: { ok: false, code: 'BUSY' },
+  })),
+  ...(
+    [
+      ['at the top level', { retryDelay: '55s', error: { details: [quota(PER_MINUTE)] } }],
+      ['in error', { error: { retryDelay: '55s', details: [quota(PER_MINUTE)] } }],
+      ['in a QuotaFailure', { error: { details: [{ ...quota(PER_MINUTE), retryDelay: '55s' }] } }],
+      ['in a RetryInfo outside error.details', { details: [retry('55s')], error: {} }],
+    ] as const
+  ).map(([where, body]): ProviderFixture => ({
+    name: `429 retryDelay ${where} is not a pause`,
+    status: 429,
+    body: JSON.stringify(body),
+    expected: { ok: false, code: 'BUSY' },
+  })),
+  {
+    name: '429 per-day envelope as the second list element is not read',
+    status: 429,
+    body: JSON.stringify([
+      { note: BODY_MARKER },
+      envelope(429, 'RESOURCE_EXHAUSTED', [quota(PER_DAY)]),
+    ]),
+    expected: { ok: false, code: 'BUSY' },
+  },
+  ...(
+    [
+      [
+        'in error.message',
+        { error: { code: 403, message: 'PERMISSION_DENIED', status: 'FORBIDDEN' } },
+      ],
+      [
+        'in error.details',
+        {
+          error: {
+            code: 403,
+            status: 'UNKNOWN',
+            details: [{ reason: 'PERMISSION_DENIED', status: 'PERMISSION_DENIED' }],
+          },
+        },
+      ],
+      ['at the top level', { status: 'PERMISSION_DENIED', error: { code: 403 } }],
+      ['as a nested error', { error: { error: { status: 'PERMISSION_DENIED' } } }],
+    ] as const
+  ).map(([where, body]): ProviderFixture => ({
+    name: `403 PERMISSION_DENIED ${where} is not AUTH`,
+    status: 403,
+    body: JSON.stringify(body),
+    expected: { ok: false, code: 'TRANSPORT', responded: true },
+  })),
+  ...(
+    [
+      ['in error.status', { error: { code: 404, status: GEMINI_MODEL } }],
+      [
+        'in error.details',
+        { error: { code: 404, details: [{ message: GEMINI_MODEL, code: 'model_not_found' }] } },
+      ],
+      ['at the top level', { message: GEMINI_MODEL, code: 'model_not_found', error: {} }],
+    ] as const
+  ).map(([where, body]): ProviderFixture => ({
+    name: `404 model id or model_not_found ${where} retires nothing`,
+    status: 404,
+    body: JSON.stringify(body),
+    expected: { ok: false, code: 'TRANSPORT', responded: true },
+  })),
 ]
