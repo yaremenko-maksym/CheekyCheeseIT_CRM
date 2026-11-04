@@ -142,7 +142,7 @@ describe('boundedRequest', () => {
       body: streamOf(['x'.repeat(2000)]),
       text: async () => '',
     })
-    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toStrictEqual({
       kind: 'transport',
       status: 500,
     })
@@ -406,8 +406,12 @@ describe('boundedRequest body bounds and stream edges', () => {
     })
   })
 
-  it('treats 300 as a failure status', async () => {
-    expect((await boundedRequest({ ...base, fetchImpl: fixed(300, 'x') })).kind).toBe('transport')
+  it('treats 1xx and 300 as failure statuses', async () => {
+    for (const status of [199, 300]) {
+      expect((await boundedRequest({ ...base, fetchImpl: fixed(status, 'x') })).kind).toBe(
+        'transport',
+      )
+    }
   })
 
   it('reads chunks that arrive later', async () => {

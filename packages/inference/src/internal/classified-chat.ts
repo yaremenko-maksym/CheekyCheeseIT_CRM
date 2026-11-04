@@ -6,7 +6,7 @@ import {
   type BoundedResult,
   type FetchLike,
 } from '../http/bounded-request'
-import { buildChatMessages, chatCompletionsUrl, parseJsonOrUndefined } from './chat-completions'
+import { buildChatMessages, chatCompletionsUrl, parseJsonOrNull } from './chat-completions'
 import { parseGeminiModelId } from './model-id'
 import type { JsonSchema } from './strict-schema'
 
@@ -97,7 +97,7 @@ const notFoundEnvelope = z.object({
  * Gemini's compat layer may wrap the envelope in a list (UNVERIFIED shape, 5.4c-0 §7).
  */
 function errorJson(text: string | undefined): unknown {
-  const json = parseJsonOrUndefined(String(text).slice(0, MAX_ERROR_SCAN_CHARS))
+  const json = parseJsonOrNull(String(text).slice(0, MAX_ERROR_SCAN_CHARS))
   return Array.isArray(json) ? json[0] : json
 }
 
@@ -204,7 +204,7 @@ function reroutedTo(opts: ClassifiedChatOptions, served: string | undefined): st
 }
 
 function classifyAnswer(opts: ClassifiedChatOptions, text: string): ClassifiedChatResult {
-  const env = answerSchema.safeParse(parseJsonOrUndefined(text))
+  const env = answerSchema.safeParse(parseJsonOrNull(text))
   if (!env.success) return { ok: false, code: 'TRANSPORT', responded: true }
   const choice = env.data.choices[0]!
   if (choice.finish_reason === 'content_filter') return { ok: false, code: 'REFUSED' }

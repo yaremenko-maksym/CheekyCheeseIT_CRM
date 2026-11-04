@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { FetchLike } from '../http/bounded-request'
-import { sendChatCompletion, type ChatCompletionOptions } from './chat-completions'
+import { parseJsonOrNull, sendChatCompletion, type ChatCompletionOptions } from './chat-completions'
+
+describe('parseJsonOrNull', () => {
+  it('parses JSON and turns anything else into null', () => {
+    expect(parseJsonOrNull('{"a":1}')).toStrictEqual({ a: 1 })
+    expect(parseJsonOrNull('not json')).toBeNull()
+  })
+})
 
 type Seen = { url: string; method?: string; headers?: Record<string, string>; body: unknown }
 

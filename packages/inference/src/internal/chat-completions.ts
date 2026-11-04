@@ -61,13 +61,12 @@ export function buildChatMessages(opts: {
   ]
 }
 
-/** `JSON.parse`, with `undefined` for text that is not JSON (no JSON text parses to `undefined`). */
-export function parseJsonOrUndefined(text: string): unknown {
+/** `JSON.parse`, with `null` for text that is not JSON (every caller refuses a `null` document). */
+export function parseJsonOrNull(text: string): unknown {
   try {
     return JSON.parse(text)
-    // Stryker disable next-line BlockStatement: equivalent — an emptied catch also returns undefined.
   } catch {
-    return undefined
+    return null
   }
 }
 
@@ -111,7 +110,7 @@ export async function sendChatCompletion(opts: ChatCompletionOptions): Promise<C
             : 'PROVIDER_ERROR',
       }
     case 'ok': {
-      const env = envelopeSchema.safeParse(parseJsonOrUndefined(result.text))
+      const env = envelopeSchema.safeParse(parseJsonOrNull(result.text))
       if (!env.success) return { ok: false, code: 'PROVIDER_ERROR' }
       const totalTokens = env.data.usage?.total_tokens
       return {
