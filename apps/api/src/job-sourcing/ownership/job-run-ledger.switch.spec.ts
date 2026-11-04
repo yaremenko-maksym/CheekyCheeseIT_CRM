@@ -57,7 +57,7 @@ function harness(script: Script, catalog = readyCatalog()) {
     return { rows: [{ ok: 1 }] }
   })
   const transaction = vi.fn(
-    async (cb: (tx: { execute: typeof execute }) => unknown, opts?: unknown) => cb({ execute }),
+    async (cb: (tx: { execute: typeof execute }) => unknown, _opts?: unknown) => cb({ execute }),
   )
   const ledger = new JobRunLedger(
     { execute, transaction } as unknown as MeterDb,
