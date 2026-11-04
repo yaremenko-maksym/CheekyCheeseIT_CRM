@@ -13,17 +13,19 @@ const day = z.string().regex(DAY)
 const provider = z.enum(HOSTED_PROVIDERS)
 
 /** Structured `provider` and `model`, never one joined string; the model passes the refresh's validation. */
-const modelEntry = <S extends z.ZodRawShape>(extra: S) =>
-  z
-    .object({ provider, model: z.string(), ...extra })
-    .strict()
-    .refine((e) => isValidProviderModelId(e.provider, e.model))
+const validModel = (e: { provider: HostedProvider; model: string }): boolean =>
+  isValidProviderModelId(e.provider, e.model)
+const spentEntry = z.object({ provider, model: z.string(), day }).strict().refine(validModel)
+const retiredEntry = z
+  .object({ provider, model: z.string(), code: z.literal('RETIRED'), at: z.iso.datetime() })
+  .strict()
+  .refine(validModel)
 
 const routeStateSchema = z
   .object({
     version: z.literal(1),
-    spent: z.array(modelEntry({ day })).max(MAX_STATE_ENTRIES),
-    retired: z.array(modelEntry({ code: z.literal('RETIRED'), at: z.iso.datetime() })).max(MAX_STATE_ENTRIES),
+    spent: z.array(spentEntry).max(MAX_STATE_ENTRIES),
+    retired: z.array(retiredEntry).max(MAX_STATE_ENTRIES),
     providers: z
       .array(
         z
@@ -32,7 +34,11 @@ const routeStateSchema = z
             auth: z.boolean(),
             creditDay: day.optional(),
             ownCap: z
-              .object({ day, requests: z.number().int().nonnegative(), tokens: z.number().int().nonnegative() })
+              .object({
+                day,
+                requests: z.number().int().nonnegative(),
+                tokens: z.number().int().nonnegative(),
+              })
               .strict()
               .optional(),
           })
@@ -54,7 +60,11 @@ export function providerDay(p: HostedProvider, nowMs: number): string {
 }
 
 export type StateEvent =
-  | { type: 'STATE_RESET'; store: 'route-state' | 'managed-list'; reason: 'invalid' | 'oversized' | 'unreadable' }
+  | {
+      type: 'STATE_RESET'
+      store: 'route-state' | 'managed-list'
+      reason: 'invalid' | 'oversized' | 'unreadable'
+    }
   | { type: 'STATE_WRITE_FAILED'; store: 'route-state' }
 
 /**
@@ -67,7 +77,9 @@ export interface RouteStatePort {
   update(change: (s: RouteState) => RouteState): Promise<boolean>
 }
 
-export function createMemoryRouteStatePort(initial: RouteState = EMPTY_ROUTE_STATE): RouteStatePort {
+export function createMemoryRouteStatePort(
+  initial: RouteState = EMPTY_ROUTE_STATE,
+): RouteStatePort {
   let state = initial
   return {
     snapshot: () => state,
@@ -86,7 +98,11 @@ export type StateFs = {
     path: string,
     flags: string,
     mode?: number,
-  ): Promise<{ writeFile(data: string): Promise<void>; sync(): Promise<void>; close(): Promise<void> }>
+  ): Promise<{
+    writeFile(data: string): Promise<void>
+    sync(): Promise<void>
+    close(): Promise<void>
+  }>
   rename(from: string, to: string): Promise<void>
 }
 
@@ -97,7 +113,8 @@ export type StateFileOptions = {
   onEvent?: (e: StateEvent) => void
 }
 
-type ReadOutcome = { kind: 'missing' } | { kind: 'text'; text: string } | { kind: 'oversized' | 'unreadable' }
+type ReadOutcome =
+  { kind: 'missing' } | { kind: 'text'; text: string } | { kind: 'oversized' | 'unreadable' }
 
 /** Reads a state file as text, the byte ceiling checked before the read. */
 export async function readStateText(fs: StateFs, path: string): Promise<ReadOutcome> {
@@ -105,7 +122,9 @@ export async function readStateText(fs: StateFs, path: string): Promise<ReadOutc
     if ((await fs.stat(path)).size > MAX_STATE_BYTES) return { kind: 'oversized' }
     return { kind: 'text', text: await fs.readFile(path, 'utf8') }
   } catch (err) {
-    return (err as { code?: unknown }).code === 'ENOENT' ? { kind: 'missing' } : { kind: 'unreadable' }
+    return (err as { code?: unknown }).code === 'ENOENT'
+      ? { kind: 'missing' }
+      : { kind: 'unreadable' }
   }
 }
 
@@ -200,8 +219,15 @@ export function isProviderBlocked(s: RouteState, p: HostedProvider, today: strin
   return r.auth || (r.creditDay !== undefined && r.creditDay >= today)
 }
 
-function withProvider(s: RouteState, p: HostedProvider, change: (r: ProviderRecord) => ProviderRecord): RouteState {
-  return { ...s, providers: [...s.providers.filter((r) => r.provider !== p), change(providerRecord(s, p))] }
+function withProvider(
+  s: RouteState,
+  p: HostedProvider,
+  change: (r: ProviderRecord) => ProviderRecord,
+): RouteState {
+  return {
+    ...s,
+    providers: [...s.providers.filter((r) => r.provider !== p), change(providerRecord(s, p))],
+  }
 }
 
 /** Drops the oldest entries past the cap, so a long-lived file never becomes invalid by growth. */
@@ -212,7 +238,9 @@ function capped<T>(list: T[]): T[] {
 export const markSpent =
   (p: HostedProvider, model: string, today: string) =>
   (s: RouteState): RouteState =>
-    isSpent(s, p, model, today) ? s : { ...s, spent: capped([...s.spent, { provider: p, model, day: today }]) }
+    isSpent(s, p, model, today)
+      ? s
+      : { ...s, spent: capped([...s.spent, { provider: p, model, day: today }]) }
 
 export const markRetired =
   (p: HostedProvider, model: string, nowMs: number) =>
@@ -257,7 +285,9 @@ type OwnCapRecord = NonNullable<ProviderRecord['ownCap']>
 
 /** The record counting today; a record dated after today (clock skew back) keeps counting. */
 function current(r: ProviderRecord, today: string): OwnCapRecord {
-  return r.ownCap !== undefined && r.ownCap.day >= today ? r.ownCap : { day: today, requests: 0, tokens: 0 }
+  return r.ownCap !== undefined && r.ownCap.day >= today
+    ? r.ownCap
+    : { day: today, requests: 0, tokens: 0 }
 }
 
 /**
@@ -278,8 +308,10 @@ export function createOwnCapPort(opts: {
     async reserve(p) {
       const limit = opts.limits[p]
       const c = current(providerRecord(opts.state.snapshot(), p), providerDay(p, opts.now()))
-      const tokensFull = limit?.tokensPerDay !== undefined && c.tokens >= ownCapOf(limit.tokensPerDay)
-      if (limit === undefined || c.requests >= ownCapOf(limit.requestsPerDay) || tokensFull) return false
+      const tokensFull =
+        limit?.tokensPerDay !== undefined && c.tokens >= ownCapOf(limit.tokensPerDay)
+      if (limit === undefined || c.requests >= ownCapOf(limit.requestsPerDay) || tokensFull)
+        return false
       return change(p, (r) => ({ ...r, requests: r.requests + 1 }))
     },
     async release(p) {

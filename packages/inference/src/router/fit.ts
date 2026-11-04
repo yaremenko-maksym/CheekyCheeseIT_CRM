@@ -24,7 +24,10 @@ export function estimateTokens(chars: number): number {
 export type FitWindow = { contextTokens: number; maxAnswerTokens: number }
 
 function instructionChars(instruction: string | undefined): number {
-  return Math.min((instruction ?? DEFAULT_EXTRACTION_INSTRUCTION).length, MAX_EXTRACTION_INSTRUCTION_CHARS)
+  return Math.min(
+    (instruction ?? DEFAULT_EXTRACTION_INSTRUCTION).length,
+    MAX_EXTRACTION_INSTRUCTION_CHARS,
+  )
 }
 
 /**
@@ -32,10 +35,19 @@ function instructionChars(instruction: string | undefined): number {
  * prompt, the answer reserve and the correction reserve. The correction is reserved on the first
  * request too, so a request that fits never overflows on its retry.
  */
-export function promptFits(route: FitWindow, instruction: string | undefined, inputChars: number): boolean {
+export function promptFits(
+  route: FitWindow,
+  instruction: string | undefined,
+  inputChars: number,
+): boolean {
   const promptChars =
-    instructionChars(instruction) + Math.min(inputChars, MAX_EXTRACTION_INPUT_CHARS) + CORRECTION_RESERVE_CHARS
-  return estimateTokens(promptChars) + MESSAGE_OVERHEAD_TOKENS + route.maxAnswerTokens <= route.contextTokens
+    instructionChars(instruction) +
+    Math.min(inputChars, MAX_EXTRACTION_INPUT_CHARS) +
+    CORRECTION_RESERVE_CHARS
+  return (
+    estimateTokens(promptChars) + MESSAGE_OVERHEAD_TOKENS + route.maxAnswerTokens <=
+    route.contextTokens
+  )
 }
 
 /**

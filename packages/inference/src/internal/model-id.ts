@@ -30,7 +30,7 @@ export function isValidProviderModelId(provider: 'gemini' | 'groq' | 'local', id
   return isValidModelId(id)
 }
 
-export type GeminiModelId ={ id: string; version: string; variant: string }
+export type GeminiModelId = { id: string; version: string; variant: string }
 
 /** A provider-supplied Gemini id, `models/` prefix stripped, validated by the family pattern; else null. */
 export function parseGeminiModelId(raw: string): GeminiModelId | null {

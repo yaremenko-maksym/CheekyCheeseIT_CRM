@@ -17,12 +17,17 @@ const ids = (p: HostedProvider) =>
 const managedListSchema = z
   .object({
     version: z.literal(1),
-    providers: z.object({ gemini: ids('gemini').optional(), groq: ids('groq').optional() }).strict(),
+    providers: z
+      .object({ gemini: ids('gemini').optional(), groq: ids('groq').optional() })
+      .strict(),
   })
   .strict()
 
 /** `managedModels(provider, fallback)`: the managed entry if valid and non-empty, else the pinned list. */
-export type ManagedModels = (p: HostedProvider, fallback: readonly string[]) => Promise<readonly string[]>
+export type ManagedModels = (
+  p: HostedProvider,
+  fallback: readonly string[],
+) => Promise<readonly string[]>
 
 /** No managed-list file: every provider serves its pinned fallback (the first edition's behaviour). */
 export const pinnedModelsOnly: ManagedModels = async (_p, fallback) => fallback

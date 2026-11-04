@@ -5,7 +5,7 @@ export type FakeFs = StateFs & {
   modes: Map<string, number>
   calls: string[]
   /** Throw at this step of the next write: 'open' | 'write' | 'rename'. */
-  failAt?: 'open' | 'write' | 'rename'
+  failAt?: 'open' | 'write' | 'rename' | undefined
   /** Errno code `stat` throws for the state path (ENOENT is implied by a missing file). */
   statError?: string
 }

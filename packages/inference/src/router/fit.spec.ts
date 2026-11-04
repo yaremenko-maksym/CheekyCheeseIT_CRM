@@ -35,7 +35,9 @@ describe('fit (ADR §5.1 PROMPT_TOO_LARGE, §2.1 input ceiling)', () => {
 
   it('a longer instruction lowers the ceiling by its length', () => {
     const instruction = 'x'.repeat(1000)
-    expect(routerInputCeilingChars(route, instruction)).toBe(3464 * 2 - 1000 - CORRECTION_RESERVE_CHARS)
+    expect(routerInputCeilingChars(route, instruction)).toBe(
+      3464 * 2 - 1000 - CORRECTION_RESERVE_CHARS,
+    )
     expect(promptFits(route, instruction, routerInputCeilingChars(route, instruction))).toBe(true)
   })
 

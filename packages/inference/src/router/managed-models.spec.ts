@@ -9,7 +9,11 @@ const PINNED = ['openai/gpt-oss-20b'] as const
 function reader(text?: string) {
   const fs = fakeFs(text === undefined ? {} : { [PATH]: text })
   const events: StateEvent[] = []
-  return { read: createFileManagedModels({ path: PATH, fs, onEvent: (e) => events.push(e) }), events, fs }
+  return {
+    read: createFileManagedModels({ path: PATH, fs, onEvent: (e) => events.push(e) }),
+    events,
+    fs,
+  }
 }
 
 const doc = (providers: object) => JSON.stringify({ version: 1, providers })
@@ -26,7 +30,9 @@ describe('managedModels reader (ADR §3.4)', () => {
   })
 
   it('serves a valid managed entry in its stored order', async () => {
-    const { read } = reader(doc({ groq: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'], gemini: ['gemini-2.5-flash'] }))
+    const { read } = reader(
+      doc({ groq: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'], gemini: ['gemini-2.5-flash'] }),
+    )
     expect(await read('groq', PINNED)).toEqual(['openai/gpt-oss-120b', 'openai/gpt-oss-20b'])
     expect(await read('gemini', ['gemini-2.0-flash'])).toEqual(['gemini-2.5-flash'])
   })
@@ -51,7 +57,10 @@ describe('managedModels reader (ADR §3.4)', () => {
     ['a hostile id', doc({ gemini: ['../../x'] })],
     ['a provider outside the allowlist', doc({ openrouter: ['x'] })],
     ['a promotion flag', JSON.stringify({ version: 1, providers: {}, promoted: ['x'] })],
-    ['too many ids', doc({ groq: Array.from({ length: MANAGED_LIST_TARGET + 1 }, () => 'openai/gpt-oss-20b') })],
+    [
+      'too many ids',
+      doc({ groq: Array.from({ length: MANAGED_LIST_TARGET + 1 }, () => 'openai/gpt-oss-20b') }),
+    ],
     ['a wrong version', JSON.stringify({ version: 2, providers: {} })],
   ])('rejects the whole file with %s: fallback and STATE_RESET', async (_label, text) => {
     const { read, events } = reader(text)

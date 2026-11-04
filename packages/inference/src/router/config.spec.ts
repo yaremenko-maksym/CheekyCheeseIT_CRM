@@ -30,7 +30,13 @@ const groq = {
   freeLimit: { requestsPerDay: 1000 },
 }
 const base = (routes: unknown[], extra: object = {}): RouterConfigInput =>
-  ({ policyVersion: 'p1', hostedBudgetMs: 60_000, floorBudgetMs: 120_000, routes, ...extra }) as RouterConfigInput
+  ({
+    policyVersion: 'p1',
+    hostedBudgetMs: 60_000,
+    floorBudgetMs: 120_000,
+    routes,
+    ...extra,
+  }) as RouterConfigInput
 
 const ok = (cfg: unknown) => routerConfigSchema.safeParse(cfg).success
 
@@ -157,9 +163,12 @@ describe('ceiling, own cap and constants', () => {
 })
 
 describe('model id validation', () => {
-  it.each(['qwen2.5:3b', 'hf.co/org/model:Q4_K_M', 'gemma-3-4b', 'a'.repeat(128)])('accepts %s', (id) => {
-    expect(isValidModelId(id)).toBe(true)
-  })
+  it.each(['qwen2.5:3b', 'hf.co/org/model:Q4_K_M', 'gemma-3-4b', 'a'.repeat(128)])(
+    'accepts %s',
+    (id) => {
+      expect(isValidModelId(id)).toBe(true)
+    },
+  )
 
   it.each([
     '',

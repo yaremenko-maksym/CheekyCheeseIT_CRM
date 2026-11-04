@@ -68,7 +68,9 @@ const hostedRouteSchema = z
     timeoutMs: positiveInt.max(MAX_HOSTED_BUDGET_MS),
     maxAnswerTokens: positiveInt,
     /** The provider's published free limit; the own cap is `OWN_CAP_SHARE` of it (D5). */
-    freeLimit: z.object({ requestsPerDay: positiveInt, tokensPerDay: positiveInt.optional() }).strict(),
+    freeLimit: z
+      .object({ requestsPerDay: positiveInt, tokensPerDay: positiveInt.optional() })
+      .strict(),
   })
   .strict()
   .refine((r) => r.models.every((m) => isValidProviderModelId(r.provider, m)), {
@@ -100,7 +102,10 @@ export const routerConfigSchema = z
     policyVersion: z.string().min(1).max(64),
     hostedBudgetMs: z.number().int().nonnegative().max(MAX_HOSTED_BUDGET_MS),
     floorBudgetMs: positiveInt.max(MAX_FLOOR_BUDGET_MS),
-    routes: z.array(z.union([hostedRouteSchema, localRouteSchema])).min(1).max(3),
+    routes: z
+      .array(z.union([hostedRouteSchema, localRouteSchema]))
+      .min(1)
+      .max(3),
   })
   .strict()
   .superRefine((cfg, ctx) => {
@@ -115,7 +120,11 @@ export const routerConfigSchema = z
     }
     // The floor must be able to give its request a whole timeout (§5.5 item 2).
     if (last?.provider === 'local' && cfg.floorBudgetMs < last.timeoutMs) {
-      ctx.addIssue({ code: 'custom', message: 'floor budget below one request', path: ['floorBudgetMs'] })
+      ctx.addIssue({
+        code: 'custom',
+        message: 'floor budget below one request',
+        path: ['floorBudgetMs'],
+      })
     }
   })
 
@@ -125,7 +134,9 @@ export type HostedRouteConfig = z.infer<typeof hostedRouteSchema>
 export type LocalRouteConfig = z.infer<typeof localRouteSchema>
 
 /** The router call's absolute ceiling: the hosted budget plus the floor's (§5.5 item 2). */
-export function routerCallCeilingMs(config: Pick<RouterConfig, 'hostedBudgetMs' | 'floorBudgetMs'>): number {
+export function routerCallCeilingMs(
+  config: Pick<RouterConfig, 'hostedBudgetMs' | 'floorBudgetMs'>,
+): number {
   return config.hostedBudgetMs + config.floorBudgetMs
 }
 
