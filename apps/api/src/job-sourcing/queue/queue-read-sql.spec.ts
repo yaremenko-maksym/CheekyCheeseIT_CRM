@@ -60,7 +60,7 @@ describe('listFilters', () => {
   it('source looks at the active links only', () => {
     const f = render(listFilters(query({ source: ['DOU_RSS'] }), versions)[1] as SQL)
     expect(f.text).toContain('fs.unlinked_at IS NULL')
-    expect(f.text).toContain('fr.source_type::text IN')
+    expect(f.text).toContain('fr.source_url IS NOT NULL AND fr.source_type::text IN')
     expect(f.params).toEqual(['["DOU_RSS"]'])
   })
 
@@ -180,6 +180,38 @@ describe('field scoping — what each read binds', () => {
     expect(text).toContain(`m.outcome = 'LEAD'`)
     expect(params).toContain(JSON.stringify([{ senior_id: SEN, profile: 'p', exclusion: 'e' }]))
     expect(params).toEqual(expect.arrayContaining([10]))
+  })
+
+  it('the rank is clamped to the 1000 ceiling rankScore documents', () => {
+    const { text, params } = render(rankSelect(versions))
+    expect(text).toContain('SELECT LEAST((COALESCE(max(')
+    expect(text).toMatch(/- 1, 0\)\)::int, \$\d+::int\) AS score/)
+    expect(params).toEqual(expect.arrayContaining([1000]))
+  })
+
+  it('a match counts only at the current revision, under the current rule (SR-L-2)', () => {
+    const { text, params } = render(rankSelect(versions))
+    expect(text).toContain('m.opportunity_id = o.id AND m.opportunity_revision = o.revision')
+    expect(text).toContain(
+      'm.senior_profile_version = v.profile AND m.exclusion_version = v.exclusion',
+    )
+    expect(text).toContain('AND m.rule_version = $')
+    expect(params).toContain(MATCH_RULE_VERSION)
+  })
+
+  it('the primary source has a URL and is the first active link (SR-L-2)', () => {
+    const { text } = render(queueRowJoins(team, versions))
+    expect(text).toContain(
+      'WHERE s.opportunity_id = o.id AND s.unlinked_at IS NULL AND r.source_url IS NOT NULL ORDER BY s.linked_at, s.source_record_id LIMIT 1',
+    )
+  })
+
+  it('the foreign-submission marker is correlated to this senior on this opportunity (SR-M-1)', () => {
+    const { text } = render(seniorRows(team, versions, OPP, undefined, 201))
+    expect(text).toContain(
+      "FROM job_queue_assignments f WHERE f.opportunity_id = o.id AND f.senior_id = ms.senior_id AND f.state = 'TAKEN' AND (f.team_id = $",
+    )
+    expect(text).toContain(') IS NOT TRUE ) AS submitted_elsewhere')
   })
 
   it('a card row is re-checked for visibility and uses this scope for the newer-than check', () => {

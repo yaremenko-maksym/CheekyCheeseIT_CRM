@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto'
+import { createHmac, hkdfSync } from 'node:crypto'
 import type { HttpException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import {
@@ -29,13 +29,29 @@ function codeOf(fn: () => unknown): { status: number; code: string } {
 const MALFORMED = { status: 400, code: 'JOB_QUEUE_CURSOR_MALFORMED' }
 const REFRESH = { status: 409, code: 'JOB_QUEUE_REFRESH_REQUIRED' }
 
+const CURSOR_KEY = Buffer.from(
+  hkdfSync('sha256', SECRET, Buffer.alloc(0), 'job-queue-cursor.v1', 32),
+)
+
 /** A correctly signed token around an arbitrary body: only the shape check can refuse it. */
 const signRaw = (body: string) =>
-  `${body}.${createHmac('sha256', SECRET).update(`job-queue-cursor.v1.${body}`).digest('base64url')}`
+  `${body}.${createHmac('sha256', CURSOR_KEY).update(`job-queue-cursor.v1.${body}`).digest('base64url')}`
 const signedJson = (payload: unknown) =>
   signRaw(Buffer.from(JSON.stringify(payload)).toString('base64url'))
 
 describe('signCursor / parseCursor', () => {
+  it('the MAC is keyed by HKDF-SHA256 of the secret, never by the secret itself (SR-L-1)', () => {
+    // Computed apart from this code: HKDF(sha256, secret, empty salt, 'job-queue-cursor.v1', 32), then
+    // HMAC-SHA256 of 'job-queue-cursor.v1.<body>'.
+    const body = Buffer.from(JSON.stringify(LIST)).toString('base64url')
+    expect(CURSOR_KEY.toString('hex')).toBe(
+      'a6747d04ae2f3dc716f2734c20e46c6ac90450e48e41c178b4d5fcb46799fe1c',
+    )
+    expect(signCursor(LIST, SECRET)).toBe(signRaw(body))
+    const direct = createHmac('sha256', SECRET).update(`job-queue-cursor.v1.${body}`)
+    expect(signCursor(LIST, SECRET)).not.toBe(`${body}.${direct.digest('base64url')}`)
+  })
+
   it('round-trips a list cursor and a continuation cursor', () => {
     expect(parseCursor(signCursor(LIST, SECRET), 'L', SECRET)).toEqual(LIST)
     expect(parseCursor(signCursor(SOURCES, SECRET), 'SRC', SECRET)).toEqual(SOURCES)

@@ -5,9 +5,9 @@ import type { DatabaseService } from '../../database/database.service'
 import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
 import {
   currentGeneration,
-  GENERATION_MAX_ENTRIES,
-  GENERATION_TTL_MS,
+  GENERATION_POLICY,
   generationById,
+  purgeExpiredGenerations,
 } from './queue-generation'
 import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
 
@@ -43,20 +43,23 @@ const row = (over: Record<string, unknown> = {}) => ({
   status: 'PUBLISHED',
   expires_at: new Date('2026-11-04T12:05:00.000Z'),
   policy_signature: 'sig',
+  rule_version: 'rule-1',
+  evaluated_at: new Date('2026-11-04T11:50:00.000Z'),
   ...over,
 })
 const EXPIRES = new Date(NOW.getTime() + 15 * 60 * 1000)
 
 describe('generation constants', () => {
   it('lives 15 minutes and retains the top 5000', () => {
-    expect(GENERATION_TTL_MS).toBe(900_000)
-    expect(GENERATION_MAX_ENTRIES).toBe(5000)
+    expect(GENERATION_POLICY).toEqual({ ttlMs: 900_000, maxEntries: 5000 })
   })
 })
 
 describe('generationById', () => {
   it('maps a row, whichever way the driver spells the instant', async () => {
-    const h = harness([row({ expires_at: '2026-11-04T12:05:00.123Z' })])
+    const h = harness([
+      row({ expires_at: '2026-11-04T12:05:00.123Z', evaluated_at: '2026-11-04T11:50:00.789Z' }),
+    ])
     await expect(generationById(h.database.db, GEN)).resolves.toEqual({
       id: GEN,
       scopeKind: 'TEAM',
@@ -64,6 +67,8 @@ describe('generationById', () => {
       status: 'PUBLISHED',
       expiresAt: new Date('2026-11-04T12:05:00.123Z'),
       policySignature: 'sig',
+      ruleVersion: 'rule-1',
+      evaluatedAt: new Date('2026-11-04T11:50:00.789Z'),
     })
     expect(h.compiled(0).params).toEqual([GEN])
   })
@@ -72,7 +77,7 @@ describe('generationById', () => {
     const h = harness([row({ expires_at: exact })])
     await expect(generationById(h.database.db, GEN)).resolves.toMatchObject({ expiresAt: exact })
     expect(h.compiled(0).text).toBe(
-      'SELECT id, scope_kind, team_id, status, expires_at, policy_signature FROM job_queue_generations WHERE id = $1::uuid',
+      'SELECT id, scope_kind, team_id, status, expires_at, policy_signature, rule_version, evaluated_at FROM job_queue_generations WHERE id = $1::uuid',
     )
   })
   it('keeps a studio generation team-less', async () => {
@@ -128,6 +133,8 @@ describe('currentGeneration', () => {
       status: 'PUBLISHED',
       expiresAt: EXPIRES,
       policySignature: 'sig',
+      ruleVersion: MATCH_RULE_VERSION,
+      evaluatedAt: NOW,
     })
     expect(h.transaction).toHaveBeenCalledTimes(1)
     expect(h.execute).toHaveBeenCalledTimes(8)
@@ -151,7 +158,7 @@ describe('currentGeneration', () => {
     expect(entries.text).toContain('INSERT INTO job_queue_generation_entries')
     expect(entries.text).toContain('ORDER BY c.score DESC, c.first_seen_at DESC, c.id DESC')
     expect(entries.params).toContain(NEW_GEN)
-    expect(entries.params).toContain(GENERATION_MAX_ENTRIES)
+    expect(entries.params).toContain(5000)
     expect(entries.text).toContain('FROM job_opportunity_team_triage g')
     expect(entries.text).toContain(`WHERE m.opportunity_id = o.id AND m.outcome = 'LEAD'`)
     expect(h.compiled(5).text).toContain(`SET status = 'INVALIDATED'`)
@@ -189,5 +196,20 @@ describe('currentGeneration', () => {
       id: NEW_GEN,
     })
     expect(h.execute).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('purgeExpiredGenerations', () => {
+  it('invalidates what has expired, then deletes the invalidated, and counts the deleted', async () => {
+    const h = harness([], [{ id: GEN }, { id: NEW_GEN }])
+    await expect(purgeExpiredGenerations(h.database.db, NOW)).resolves.toBe(2)
+    expect(h.compiled(0).text).toBe(
+      `UPDATE job_queue_generations SET status = 'INVALIDATED', invalidated_at = $1::timestamptz WHERE status = 'PUBLISHED' AND expires_at <= $2::timestamptz`,
+    )
+    expect(h.compiled(0).params).toEqual([NOW.toISOString(), NOW.toISOString()])
+    expect(h.compiled(1).text).toBe(
+      `DELETE FROM job_queue_generations WHERE status = 'INVALIDATED' RETURNING id`,
+    )
+    expect(h.execute).toHaveBeenCalledTimes(2)
   })
 })

@@ -53,7 +53,10 @@ function harness(scope: JobQueueScope, ...answers: Rows[]) {
     liveVersions: vi.fn(async () => versions),
     policy: vi.fn(<T>(fn: () => Promise<T>) => fn()),
   }
-  const db = { execute, transaction: <T>(fn: (tx: unknown) => Promise<T>) => fn({ execute }) }
+  const transaction = vi.fn(<T>(fn: (tx: unknown) => Promise<T>, _config?: unknown) =>
+    fn({ execute }),
+  )
+  const db = { execute, transaction }
   const get = vi.fn(() => SECRET)
   const config = { get } as unknown as ConfigService<Env, true>
   const svc = new JobQueueService(
@@ -65,7 +68,7 @@ function harness(scope: JobQueueScope, ...answers: Rows[]) {
     const q = new PgDialect().sqlToQuery((execute.mock.calls[call] as [SQL])[0])
     return { text: q.sql.replace(/\s+/g, ' '), params: q.params }
   }
-  return { svc, execute, scopes, compiled, get }
+  return { svc, execute, scopes, compiled, get, transaction }
 }
 
 async function refusal(p: Promise<unknown>): Promise<{ status: number; code: string }> {
@@ -88,9 +91,12 @@ const generationRow = (over: Record<string, unknown> = {}) => ({
   status: 'PUBLISHED',
   expires_at: new Date('2026-11-04T12:15:00.000Z'),
   policy_signature: policySignature(teamScope, versions),
+  rule_version: 'eval.1+l1.1',
+  evaluated_at: new Date('2026-11-04T11:50:00.000Z'),
   ...over,
 })
-const tally = { new: '3', submitted: '1', hidden: '2' }
+const tally = { new: '3', submitted: '1', hidden: '2', capped: false }
+const FACTS = { ruleVersion: 'eval.1+l1.1', evaluatedAt: '2026-11-04T11:50:00.000Z', capped: false }
 const dbRow = (over: Record<string, unknown> = {}) => ({
   id: OPP,
   revision: 2,
@@ -157,6 +163,7 @@ describe('JobQueueService.list', () => {
       items: [],
       nextCursor: null,
       counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
+      generation: null,
     })
     expect(h.execute).not.toHaveBeenCalled()
   })
@@ -184,12 +191,14 @@ describe('JobQueueService.list', () => {
     const h = harness(
       teamScope,
       [generationRow()],
+      [generationRow()],
       [tally],
       [dbRow(), dbRow({ order_key: 8 }), dbRow({ order_key: 9 })],
     )
     const res = await h.svc.list(user, query())
     expect(res.items).toEqual([ITEM, ITEM])
     expect(res.counts).toEqual({ NEW: 3, SUBMITTED: 1, HIDDEN: 2 })
+    expect(res.generation).toEqual(FACTS)
     expect(parseCursor(res.nextCursor as string, 'L', SECRET)).toEqual({
       t: 'L',
       g: GEN,
@@ -197,7 +206,7 @@ describe('JobQueueService.list', () => {
       s: listSignature(query()),
       e: FAR,
     })
-    const page = h.compiled(2)
+    const page = h.compiled(3)
     expect(page.text).toContain('e.order_key > $')
     expect(page.text).toContain('ORDER BY e.order_key LIMIT $')
     expect(page.params).toContain(-1)
@@ -207,18 +216,18 @@ describe('JobQueueService.list', () => {
 
   it('counts come before the filters are applied and the page after them', async () => {
     const q = query({ search: 'zzz' })
-    const h = harness(teamScope, [generationRow()], [tally], [])
+    const h = harness(teamScope, [generationRow()], [generationRow()], [tally], [])
     await h.svc.list(user, q)
-    expect(h.compiled(1).params).not.toContain('%zzz%')
-    expect(h.compiled(2).params).toContain('%zzz%')
-    expect(h.compiled(2).text).toContain(' AND d.tab = $')
-    expect(h.compiled(2).text).toContain(' AND (o.title ILIKE')
+    expect(h.compiled(2).params).not.toContain('%zzz%')
+    expect(h.compiled(3).params).toContain('%zzz%')
+    expect(h.compiled(3).text).toContain(' AND d.tab = $')
+    expect(h.compiled(3).text).toContain(' AND (o.title ILIKE')
   })
 
   it('both reads re-apply the listable predicate for this scope', async () => {
-    const h = harness(teamScope, [generationRow()], [tally], [])
+    const h = harness(teamScope, [generationRow()], [generationRow()], [tally], [])
     await h.svc.list(user, query())
-    for (const call of [1, 2]) {
+    for (const call of [2, 3]) {
       expect(h.compiled(call).text).toContain('FROM job_opportunity_team_triage g')
       expect(h.compiled(call).text).toContain(
         `WHERE m.opportunity_id = o.id AND m.outcome = 'LEAD'`,
@@ -226,22 +235,66 @@ describe('JobQueueService.list', () => {
       expect(h.compiled(call).params).toContain(TEAM)
       expect(h.compiled(call).text).toContain('e.generation_id = $')
     }
-    expect(h.compiled(1).text).toContain(`count(*) FILTER (WHERE d.tab = 'SUBMITTED') AS submitted`)
-    expect(h.compiled(1).text).toContain(`count(*) FILTER (WHERE d.tab = 'HIDDEN') AS hidden`)
-    expect(h.compiled(1).text).toContain(`count(*) FILTER (WHERE d.tab = 'NEW') AS new`)
-    expect(h.compiled(2).text).toContain('o.id, o.revision, o.title')
+    expect(h.compiled(2).text).toContain(`count(*) FILTER (WHERE d.tab = 'SUBMITTED') AS submitted`)
+    expect(h.compiled(2).text).toContain(`count(*) FILTER (WHERE d.tab = 'HIDDEN') AS hidden`)
+    expect(h.compiled(2).text).toContain(`count(*) FILTER (WHERE d.tab = 'NEW') AS new`)
+    expect(h.compiled(3).text).toContain('o.id, o.revision, o.title')
   })
 
   it('a page exactly at the limit has no next cursor', async () => {
-    const h = harness(teamScope, [generationRow()], [tally], [dbRow(), dbRow()])
+    const h = harness(teamScope, [generationRow()], [generationRow()], [tally], [dbRow(), dbRow()])
     const res = await h.svc.list(user, query())
     expect(res.items).toHaveLength(2)
     expect(res.nextCursor).toBeNull()
   })
 
   it('an empty page has no next cursor', async () => {
-    const h = harness(teamScope, [generationRow()], [tally], [])
+    const h = harness(teamScope, [generationRow()], [generationRow()], [tally], [])
     await expect(h.svc.list(user, query())).resolves.toMatchObject({ items: [], nextCursor: null })
+  })
+
+  it('lookup, counts and page share one read-only REPEATABLE READ snapshot; publishing stays out', async () => {
+    const q = query()
+    const h = harness(teamScope, [generationRow()], [tally], [])
+    await h.svc.list(user, { ...q, cursor: listCursor(q) })
+    expect(h.transaction).toHaveBeenCalledTimes(1)
+    expect(h.transaction.mock.calls[0]?.[1]).toEqual({
+      isolationLevel: 'repeatable read',
+      accessMode: 'read only',
+    })
+  })
+
+  it('a generation purged after it was chosen is a refresh, never a 200 with an empty page', async () => {
+    const h = harness(teamScope, [generationRow()], [])
+    expect(await refusal(h.svc.list(user, query()))).toEqual(REFRESH)
+    expect(h.execute).toHaveBeenCalledTimes(2)
+    expect(h.compiled(1).text).toContain('FROM job_queue_generations WHERE id = $')
+    expect(h.compiled(1).params).toEqual([GEN])
+  })
+
+  it('reports reaching the entry cap: the last retained key, exact booleans only', async () => {
+    const h = harness(
+      teamScope,
+      [generationRow()],
+      [generationRow()],
+      [{ ...tally, capped: true }],
+      [],
+    )
+    const res = await h.svc.list(user, query())
+    expect(res.generation).toEqual({ ...FACTS, capped: true })
+    expect(h.compiled(2).text).toContain(
+      'EXISTS (SELECT 1 FROM job_queue_generation_entries top WHERE top.generation_id = $',
+    )
+    expect(h.compiled(2).text).toContain('AND top.order_key = $')
+    expect(h.compiled(2).params).toContain(4999)
+    const other = harness(
+      teamScope,
+      [generationRow()],
+      [generationRow()],
+      [{ ...tally, capped: 'true' }],
+      [],
+    )
+    expect((await other.svc.list(user, query())).generation?.capped).toBe(false)
   })
 
   it('a cursor resumes after its key, on its generation, and publishes nothing', async () => {
@@ -299,13 +352,14 @@ describe('JobQueueService.list', () => {
   })
 
   it('filtering by a senior outside the scope is an empty page with the scope totals', async () => {
-    const h = harness(teamScope, [generationRow()], [tally])
+    const h = harness(teamScope, [generationRow()], [generationRow()], [tally])
     await expect(h.svc.list(user, query({ seniorId: OTHER_TEAM }))).resolves.toEqual({
       items: [],
       nextCursor: null,
       counts: { NEW: 3, SUBMITTED: 1, HIDDEN: 2 },
+      generation: FACTS,
     })
-    expect(h.execute).toHaveBeenCalledTimes(2)
+    expect(h.execute).toHaveBeenCalledTimes(3)
   })
 
   it('filtering by one of the scope seniors reads the page, whatever the id case', async () => {
@@ -315,11 +369,11 @@ describe('JobQueueService.list', () => {
       { seniorId: upper.toLowerCase(), profile: 'p', exclusion: 'e' },
     ]
     const head = generationRow({ policy_signature: policySignature(teamScope, live) })
-    const h = harness(teamScope, [head], [tally], [])
+    const h = harness(teamScope, [head], [head], [tally], [])
     h.scopes.liveVersions.mockResolvedValue(live)
     await h.svc.list(user, query({ seniorId: upper }))
-    expect(h.execute).toHaveBeenCalledTimes(3)
-    expect(h.compiled(2).params).toContain(upper.toLowerCase())
+    expect(h.execute).toHaveBeenCalledTimes(4)
+    expect(h.compiled(3).params).toContain(upper.toLowerCase())
   })
 
   it('a query failure inside the policy wrapper is the 503, never a default answer', async () => {
