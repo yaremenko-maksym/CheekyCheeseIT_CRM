@@ -9,6 +9,7 @@ import {
   isJobQueueRole,
   type JobQueueScope,
   NONE_SCOPE,
+  possibleDuplicateJoin,
   scopedTeamRowPredicate,
   selectScopeTeam,
   STUDIO_SCOPE,
@@ -139,6 +140,16 @@ describe('canonicalUuid', () => {
       expect(canonicalUuid(value)).toBeNull()
     },
   )
+})
+
+describe('possibleDuplicateJoin', () => {
+  it('is the target itself, or the same candidate key of a known employer, binding nothing', () => {
+    const q = render(possibleDuplicateJoin('t', 'd'))
+    expect(flat(q.sql).trim()).toBe(
+      '(d.id = t.id OR (t.employer_key IS NOT NULL AND d.employer_key = t.employer_key AND d.title_key = t.title_key))',
+    )
+    expect(q.params).toEqual([])
+  })
 })
 
 describe('scopedTeamRowPredicate', () => {

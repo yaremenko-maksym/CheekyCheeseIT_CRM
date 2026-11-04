@@ -176,6 +176,21 @@ export function scopedTeamRowPredicate(scope: JobQueueScope, teamIdColumn: SQL):
   return sql`${teamIdColumn} = ${scope.teamId}::uuid`
 }
 
+/**
+ * The possible-duplicate set as a join condition between two `job_opportunities` aliases: the
+ * copy is the target itself, or shares the resolver's candidate key (employer key + title key,
+ * `idx_job_opportunities_candidate_key`), which an unknown employer does not have. No relation
+ * stores "possible duplicate", so every reader of the set uses this one definition. The aliases
+ * are SQL identifiers written by the caller, never input.
+ */
+export function possibleDuplicateJoin(targetAlias: string, copyAlias: string): SQL {
+  const t = sql.raw(targetAlias)
+  const d = sql.raw(copyAlias)
+  return sql`(${d}.id = ${t}.id
+              OR (${t}.employer_key IS NOT NULL AND ${d}.employer_key = ${t}.employer_key
+                  AND ${d}.title_key = ${t}.title_key))`
+}
+
 export interface GenerationHead {
   readonly scopeKind: 'TEAM' | 'STUDIO'
   readonly teamId: string | null

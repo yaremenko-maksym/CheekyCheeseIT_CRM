@@ -6707,10 +6707,11 @@ SELECT count(*) FROM job_opportunities
    AND (evaluated_revision IS DISTINCT FROM revision OR evaluated_inputs_version IS DISTINCT FROM $1);
 ```
 
-Without the digest at hand, group instead: `SELECT evaluated_inputs_version, count(*) FROM job_opportunities WHERE
-availability IN ('OPEN', 'UNKNOWN') GROUP BY 1`. Each value is one generation of inputs, NULL included; the backlog is
-drained when only one non-NULL value remains and the revision-mismatch count is 0. Either count falls towards zero
-after promotion with the flag on. The queue-scope integration spec's SR-M-1 / SR-M-2 cases assert the 404s.
+Do not use a digest-free fallback. Grouping by `evaluated_inputs_version` cannot tell the live digest from a stale
+one: right after a keyword change or a rule deploy, every row still carries the one old digest, the
+revision-mismatch count is 0, and the grouping looks drained while nothing is. Read the live digest first, then run
+the count above. The count falls towards zero after promotion with the flag on, while the sweep drains the backlog.
+The queue-scope integration spec's SR-M-1 / SR-M-2 cases assert the 404s.
 
 Sources: PR #1253 review (SR-M-2, SR-M-4, SPEC-M-4, CR-M-3); PR #1255 security review (SR-M-1, SR-M-2, SR-L-1);
 coder blocker analysis; owner decisions 2026-11-04.
@@ -6730,6 +6731,7 @@ have the sweep treat an OPEN opportunity whose expiry has passed since its evalu
 
 **Verify.** Seed an opportunity evaluated OPEN at its current revision and the live inputs version, whose posting
 expiry is in the past and whose availability is still OPEN; grant it to a team and call `assertVisible` with that
-team's scope. Today it resolves (visible); after the fix it is a 404.
+team's scope. Today it resolves (visible); after the fix it is a 404. Run this on a scratch DB or in an
+integration spec only, never on the live `crm_db`: seeding writes rows.
 
 Sources: PR #1255 spec review round 2.

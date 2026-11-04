@@ -308,6 +308,9 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(await recorded()).not.toBe(before)
         // Evaluated now, but the studio keyword also changed every senior's exclusion version, so
         // the roster digest of the PLAIN lineage is new and has no DONE: one more row, not EVAL.
+        // That holds only with a non-empty roster: with no senior the roster digest does not move
+        // and this sweep would enqueue nothing. The seeded senior is that roster.
+        expect((await loadRoster(db)).rosterSeniorIds).toContain(senior)
         expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
         expect((await dirtyOf(o)).at(-1)?.reason).toMatch(/^RECONCILE:[0-9a-f]{16}:[0-9a-f]{16}$/)
         await runMine()
