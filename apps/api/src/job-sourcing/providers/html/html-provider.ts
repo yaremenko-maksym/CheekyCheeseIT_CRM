@@ -236,6 +236,9 @@ interface Admitted {
 type Admission = Admitted | { readonly refused: 'POLICY' | 'BYTE_BUDGET'; readonly reason: string }
 
 /** Detail stops after which the model stage does not run: the run is out of time or permission. */
+/** The longest delay `setTimeout` honours (2^31 - 1 ms, ~24.8 days). */
+const MAX_TIMER_MS = 2 ** 31 - 1
+
 /** When an owed item is due again after its 1st and 2nd missed model pass; the 3rd settles it. */
 const MODEL_BACKOFF_MS: readonly number[] = [6 * 60 * 60 * 1000, 24 * 60 * 60 * 1000]
 
@@ -456,7 +459,12 @@ export abstract class HtmlProvider<
   ): Promise<'CANCELLED' | 'DEADLINE' | null> {
     const { ctx } = attempt
     const deadline = new AbortController()
-    const timer = setTimeout(() => deadline.abort(), ctx.deadline.getTime() - ctx.now().getTime())
+    // Capped at the timer's range: a longer delay overflows to 1 ms, a false DEADLINE. A negative
+    // one needs no floor, Node already runs it at 1 ms (the deadline has passed).
+    const timer = setTimeout(
+      () => deadline.abort(),
+      Math.min(ctx.deadline.getTime() - ctx.now().getTime(), MAX_TIMER_MS),
+    )
     try {
       await this.deps.hostGate.acquire(
         admitted.url.origin,

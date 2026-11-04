@@ -2041,6 +2041,24 @@ describe('one egress: admitted and paced before anything is reserved (CR-M-2, CR
       return { w, p }
     }
 
+    it('a deadline beyond the timer range (> 24.8 days) does not overflow into a false DEADLINE', async () => {
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+      const warn = vi.spyOn(process, 'emitWarning')
+      const w = world({
+        routes: twoItems(),
+        robots: () => allowed(5),
+        deadline: new Date(NOW.getTime() + 30 * 24 * 60 * 60 * 1000),
+      })
+      const { p } = provider(w, { hostGate: new InMemoryHostGate() })
+      const running = p.collectHtml(config(), w.ctx)
+      await vi.advanceTimersByTimeAsync(10_000)
+      const r = await running
+      expect(w.sent).toEqual([page1, detailUrl('a'), detailUrl('b')])
+      expect(r.detail).toMatchObject({ fetched: 2, stop: null })
+      expect(warn.mock.calls.filter((c) => String(c[1]).includes('TimeoutOverflow'))).toEqual([])
+      warn.mockRestore()
+    })
+
     it('a wait that ends before the deadline lets the request go, and leaves no timer behind', async () => {
       vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
       const w = world({
