@@ -48,15 +48,17 @@ interface Call {
 
 /** Named statements of the service: the first matching pattern answers. */
 const PATTERNS = {
+  // First: `loadOpportunity` joins tables other patterns name.
+  canonical: /b\.text AS description/,
   lockSet: /FROM job_opportunities t JOIN job_opportunities d/,
   lockTarget: /SELECT id FROM job_opportunities WHERE id = /,
   earlier: /SELECT reason, after_version, created_at FROM job_queue_actions/,
   actor: /SELECT id FROM users/,
   membership: /SELECT id FROM team_members/,
   senior: /SELECT tm\.team_id FROM team_members tm/,
-  rosterUsers: /SELECT u\.id, u\.tech_stack/,
-  rosterManual: /FROM job_exclusion_filters/,
-  rosterProjects: /FROM projects/,
+  team: /SELECT id FROM teams/,
+  ownManual: /FROM job_exclusion_filters/,
+  ownProjects: /FROM projects/,
   existing: /SELECT id, state, team_id, version FROM job_queue_assignments/,
   duplicates: /SELECT a\.opportunity_id FROM job_queue_assignments a/,
   remove: /DELETE FROM job_queue_assignments/,
@@ -82,16 +84,38 @@ const COPY_ROW = {
   employer_name: 'Acme',
 }
 
+/** What `loadOpportunity` reads; the exclusion check takes its posting from this row. */
+const CANONICAL_ROW = {
+  id: OPP,
+  revision: 4,
+  title: 'Go Developer',
+  employer_name: 'Acme',
+  location: null,
+  stack_keywords: [],
+  application_url: null,
+  availability: 'OPEN',
+  first_seen_at: new Date(T1),
+  description: null,
+  normalized: null,
+  evidence: null,
+  source_type: 'DJINNI',
+  source_url: 'https://djinni.test/jobs/1',
+  on_demand_missing: [],
+  on_demand_stale: [],
+  grants: [],
+}
+
 const DEFAULTS: Partial<Record<Statement, Rows>> = {
+  canonical: [CANONICAL_ROW],
+  team: [{ id: TEAM_A }],
   lockSet: [COPY_ROW],
   lockTarget: [{ id: OPP }],
   earlier: [],
   actor: [{ id: HR_ID }],
   membership: [{ id: 'm' }],
   senior: [{ team_id: TEAM_A }],
-  rosterUsers: [],
-  rosterManual: [],
-  rosterProjects: [],
+  ownManual: [],
+  ownProjects: [],
   existing: [],
   duplicates: [],
   remove: [],
@@ -191,13 +215,14 @@ describe('submit — a first submission', () => {
     expect(h.transaction).toHaveBeenCalledTimes(1)
     expect(h.hits).toEqual([
       'lockSet',
-      'earlier',
       'actor',
+      'team',
       'membership',
+      'earlier',
       'senior',
-      'rosterUsers',
-      'rosterManual',
-      'rosterProjects',
+      'canonical',
+      'ownManual',
+      'ownProjects',
       'existing',
       'insert',
       'log',
@@ -231,8 +256,6 @@ describe('submit — a first submission', () => {
     expect(JSON.parse(reason as string)).toEqual({
       fp: SUBMIT_FP,
       submissionId: NEW_SUB,
-      seniorId: SENIOR,
-      assigneeId: HR_ID,
       submittedAt: T1,
     })
   })
@@ -242,6 +265,7 @@ describe('submit — a first submission', () => {
     await h.svc.submit(ADMIN, OPP, submitBody())
     expect(h.param('insert')).toEqual([OPP, SENIOR, 'STUDIO', null, ADMIN_ID])
     expect(h.hits).not.toContain('membership')
+    expect(h.hits).not.toContain('team')
     expect(h.param('log').slice(3, 5)).toEqual(['STUDIO', null])
   })
 
@@ -249,6 +273,7 @@ describe('submit — a first submission', () => {
     const h = harness()
     await h.svc.submit(ADMIN, OPP, submitBody())
     expect(h.hits).not.toContain('membership')
+    expect(h.hits).toContain('team')
     expect(h.param('insert')[2]).toBe('TEAM')
   })
 
@@ -260,6 +285,16 @@ describe('submit — a first submission', () => {
     const actorSql = h.calls.find((c) => PATTERNS.actor.test(c.text))?.text
     expect(actorSql).toContain('archived_at IS NULL')
     expect(actorSql).toContain('FOR SHARE')
+  })
+
+  it('locks the live scope team for share, so an archival cannot commit under the write', async () => {
+    const h = harness()
+    await h.svc.submit(HR, OPP, submitBody())
+    expect(h.param('team')).toEqual([TEAM_A])
+    const text = h.calls.find((c) => PATTERNS.team.test(c.text))?.text
+    expect(text).toContain('archived_at IS NULL')
+    expect(text).toContain("type = 'SENIOR'")
+    expect(text).toContain('FOR SHARE')
   })
 })
 
@@ -295,6 +330,13 @@ describe('submit — refused before any write', () => {
     noWrites(h.hits)
   })
 
+  it('a team archived since the scope was resolved is a 404', async () => {
+    const h = harness({ team: [] })
+    await expectNotFound(h.svc.submit(HR, OPP, submitBody()))
+    expect(h.hits).not.toContain('membership')
+    noWrites(h.hits)
+  })
+
   it('an HR who has left the team is a 404', async () => {
     const h = harness({ membership: [] })
     await expectNotFound(h.svc.submit(HR, OPP, submitBody()))
@@ -322,7 +364,7 @@ describe('submit — refused before any write', () => {
       'u.archived_at IS NULL',
       't.archived_at IS NULL',
       "t.type = 'SENIOR'",
-      'FOR SHARE OF tm, u',
+      'FOR SHARE OF tm, u, t',
     ]) {
       expect(seniorCall?.text).toContain(clause)
     }
@@ -338,24 +380,67 @@ describe('submit — refused before any write', () => {
   })
 
   it('a senior who stop-listed the company is a 404', async () => {
-    const h = harness({ rosterManual: [exclusion(SENIOR, 'Acme')] })
+    const h = harness({ ownManual: [exclusion(SENIOR, 'Acme')] })
     await expectNotFound(h.svc.submit(HR, OPP, submitBody()))
     noWrites(h.hits)
   })
 
-  it('another senior stop-list and a studio-wide exclusion do not refuse', async () => {
+  it('a company on a project of the senior is a 404', async () => {
     const h = harness({
-      rosterManual: [exclusion(TEAM_B, 'Acme'), exclusion(null, 'Acme')],
+      ownProjects: [{ senior_id: SENIOR, name: 'P', company_name: 'Acme', archived_at: null }],
     })
-    await expect(h.svc.submit(HR, OPP, submitBody())).resolves.toBeDefined()
+    await expectNotFound(h.svc.submit(HR, OPP, submitBody()))
+    noWrites(h.hits)
+  })
+
+  it('a stop-list entry matching only the DOU URL slug is a 404, as in the funnel', async () => {
+    const answers = {
+      canonical: [
+        {
+          ...CANONICAL_ROW,
+          employer_name: 'Trading Name LLC',
+          source_type: 'DOU_RSS',
+          source_url: 'https://jobs.dou.ua/companies/slugonly/vacancies/1/',
+        },
+      ],
+      ownManual: [exclusion(SENIOR, 'slugonly')],
+    }
+    const h = harness(answers)
+    await expectNotFound(h.svc.submit(HR, OPP, submitBody()))
+    noWrites(h.hits)
+    const otherSource = harness({
+      ...answers,
+      canonical: [{ ...answers.canonical[0], source_type: 'DJINNI' }],
+    })
+    await expect(otherSource.svc.submit(HR, OPP, submitBody())).resolves.toBeDefined()
+  })
+
+  it('asks for this senior only, and the posting of this opportunity', async () => {
+    const h = harness()
+    await h.svc.submit(HR, OPP, submitBody())
+    expect(h.param('canonical')).toContain(OPP)
+    for (const statement of ['ownManual', 'ownProjects'] as const) {
+      expect(h.param(statement)).toEqual([SENIOR])
+      const text = h.calls.find((c) => PATTERNS[statement].test(c.text))?.text
+      expect(text).toContain('WHERE senior_id = ')
+      expect(text).not.toContain('IS NULL')
+    }
+    expect(h.calls.filter((c) => c.text.includes('tech_stack'))).toEqual([])
+  })
+
+  it('an opportunity the posting read no longer finds is a 404', async () => {
+    const h = harness({ canonical: [] })
+    await expectNotFound(h.svc.submit(HR, OPP, submitBody()))
+    expect(h.hits).not.toContain('ownManual')
+    noWrites(h.hits)
   })
 
   it('a stop-list keyword matches the title; an unnamed employer matches nothing else', async () => {
-    const keyword = harness({ rosterManual: [exclusion(SENIOR, 'Developer', 'KEYWORD')] })
+    const keyword = harness({ ownManual: [exclusion(SENIOR, 'Developer', 'KEYWORD')] })
     await expectNotFound(keyword.svc.submit(HR, OPP, submitBody()))
     const unnamed = harness({
-      lockSet: [{ ...COPY_ROW, employer_name: null }],
-      rosterManual: [exclusion(SENIOR, 'Acme')],
+      canonical: [{ ...CANONICAL_ROW, employer_name: null }],
+      ownManual: [exclusion(SENIOR, 'Acme')],
     })
     await expect(unnamed.svc.submit(HR, OPP, submitBody())).resolves.toBeDefined()
     expect(unnamed.param('insert')).toHaveLength(5)
@@ -370,7 +455,7 @@ describe('submit — refused before any write', () => {
     }
     const h = harness({
       lockSet: [lowerCopy, COPY_ROW],
-      rosterManual: [exclusion(SENIOR, 'Other')],
+      ownManual: [exclusion(SENIOR, 'Other')],
     })
     await expect(h.svc.submit(HR, OPP, submitBody())).resolves.toBeDefined()
     expect(h.param('insert')[0]).toBe(OPP)
@@ -586,8 +671,6 @@ describe('submit — a retry', () => {
       reason: JSON.stringify({
         fp: SUBMIT_FP,
         submissionId: SUB,
-        seniorId: SENIOR,
-        assigneeId: OTHER_HR,
         submittedAt: T1,
         ...over,
       }),
@@ -611,9 +694,10 @@ describe('submit — a retry', () => {
         submittedByName: 'Rita Recruiter',
       },
     })
-    expect(h.hits).toEqual(['lockSet', 'earlier', 'name'])
+    expect(h.hits).toEqual(['lockSet', 'actor', 'team', 'membership', 'earlier', 'name'])
     expect(h.param('earlier')).toEqual([HR_ID, KEY])
-    expect(h.param('name')).toEqual([OTHER_HR])
+    // Neither the senior nor the assignee is in the log: the request and the actor give them.
+    expect(h.param('name')).toEqual([HR_ID])
   })
 
   it('a name that cannot be read is null, never a failed retry', async () => {
@@ -688,10 +772,11 @@ describe('cancelSubmission', () => {
     })
     expect(h.hits).toEqual([
       'lockTarget',
-      'earlier',
       'actor',
+      'team',
       'membership',
       'cancelRead',
+      'earlier',
       'cancelWrite',
       'log',
       'name',
@@ -703,8 +788,6 @@ describe('cancelSubmission', () => {
     expect(JSON.parse(logged[8] as string)).toEqual({
       fp: FP,
       submissionId: SUB,
-      seniorId: SENIOR,
-      assigneeId: OTHER_HR,
       submittedAt: T1,
     })
   })
@@ -760,36 +843,49 @@ describe('cancelSubmission', () => {
 
   it('a retry answers the earlier cancellation from the log', async () => {
     const h = harness({
+      cancelRead: [{ ...live, state: 'RELEASED', version: 3 }],
       earlier: [
         {
-          reason: JSON.stringify({
-            fp: FP,
-            submissionId: SUB,
-            seniorId: SENIOR,
-            assigneeId: OTHER_HR,
-            submittedAt: T1,
-          }),
+          reason: JSON.stringify({ fp: FP, submissionId: SUB, submittedAt: T1 }),
           after_version: 3,
           created_at: new Date(T2),
         },
       ],
     })
     const res = await h.svc.cancelSubmission(HR, OPP, SUB, body)
-    expect(res.submission).toMatchObject({ state: 'RELEASED', cancelledAt: T2, version: 3 })
-    expect(h.hits).toEqual(['lockTarget', 'earlier', 'name'])
+    expect(res.submission).toEqual({
+      id: SUB,
+      opportunityId: OPP,
+      seniorId: SENIOR,
+      state: 'RELEASED',
+      submittedAt: T1,
+      cancelledAt: T2,
+      version: 3,
+      submittedByName: 'Rita Recruiter',
+    })
+    expect(h.param('name')).toEqual([OTHER_HR])
+    expect(h.hits).toEqual([
+      'lockTarget',
+      'actor',
+      'team',
+      'membership',
+      'cancelRead',
+      'earlier',
+      'name',
+    ])
   })
 
   it('the same key on another submission or version is the idempotency conflict', async () => {
     const earlier = [
       { reason: JSON.stringify({ fp: FP }), after_version: 3, created_at: new Date(T2) },
     ]
-    const other = harness({ earlier })
+    const other = harness({ earlier, cancelRead: [live] })
     await expectCode(
       other.svc.cancelSubmission(HR, OPP, NEW_SUB, body),
       409,
       'JOB_QUEUE_IDEMPOTENCY_CONFLICT',
     )
-    const version = harness({ earlier })
+    const version = harness({ earlier, cancelRead: [live] })
     await expectCode(
       version.svc.cancelSubmission(HR, OPP, SUB, { ...body, expectedVersion: 1 }),
       409,
@@ -818,9 +914,10 @@ describe('dismiss', () => {
     })
     expect(h.hits).toEqual([
       'lockTarget',
-      'earlier',
       'actor',
+      'team',
       'membership',
+      'earlier',
       'dismissal',
       'dismissInsert',
       'log',
@@ -920,7 +1017,7 @@ describe('dismiss', () => {
       hidden: true,
       version: 4,
     })
-    expect(h.hits).toEqual(['lockTarget', 'earlier'])
+    expect(h.hits).toEqual(['lockTarget', 'actor', 'team', 'membership', 'earlier'])
     await expectCode(
       harness({ earlier }).svc.dismiss(HR, OPP, { ...body, reason: 'DEAD_LINK' }),
       409,
@@ -946,10 +1043,11 @@ describe('undo', () => {
     })
     expect(h.hits).toEqual([
       'lockTarget',
-      'earlier',
       'actor',
+      'team',
       'membership',
       'dismissal',
+      'earlier',
       'undoWrite',
       'log',
     ])
@@ -989,6 +1087,7 @@ describe('undo', () => {
 
   it('a retry answers from the log with hidden false', async () => {
     const h = harness({
+      dismissal: [{ ...live[0], version: 3, undone_at: new Date(T1) }],
       earlier: [
         {
           reason: JSON.stringify({ fp: FP, dismissReason: 'NOT_RELEVANT' }),
@@ -998,7 +1097,7 @@ describe('undo', () => {
       ],
     })
     expect(await h.svc.undo(HR, OPP, body)).toMatchObject({ hidden: false, version: 3 })
-    expect(h.hits).toEqual(['lockTarget', 'earlier'])
+    expect(h.hits).toEqual(['lockTarget', 'actor', 'team', 'membership', 'dismissal', 'earlier'])
   })
 })
 
@@ -1008,7 +1107,7 @@ describe('opened', () => {
   it('records the click once per actor, opportunity and source record', async () => {
     const h = harness()
     await h.svc.opened(HR, OPP, body)
-    expect(h.hits).toEqual(['link', 'opened'])
+    expect(h.hits).toEqual(['actor', 'team', 'membership', 'link', 'opened'])
     expect(h.param('link')).toEqual([OPP, SOURCE])
     expect(h.param('opened')).toEqual([
       OPP,
@@ -1027,14 +1126,23 @@ describe('opened', () => {
     const h = harness({ link: [] })
     await expectNotFound(h.svc.opened(HR, OPP, body))
     expect(h.hits).not.toContain('opened')
-    expect(h.calls[0]?.text).toContain('unlinked_at IS NULL')
+    expect(h.calls.find((c) => PATTERNS.link.test(c.text))?.text).toContain('unlinked_at IS NULL')
+  })
+
+  it('an actor no longer live is a 404, before the visibility answer', async () => {
+    for (const answers of [{ actor: [] }, { team: [] }, { membership: [] }]) {
+      const h = harness(answers)
+      await expectNotFound(h.svc.opened(HR, OPP, body))
+      expect(h.scopes.assertVisible).not.toHaveBeenCalled()
+      expect(h.hits).not.toContain('opened')
+    }
   })
 
   it('a visibility miss, NONE and bad ids are refused', async () => {
     const h = harness()
     h.scopes.assertVisible.mockRejectedValueOnce(new HttpException({ code: 'X' }, 404))
     await expect(h.svc.opened(HR, OPP, body)).rejects.toBeInstanceOf(HttpException)
-    expect(h.hits).toEqual([])
+    expect(h.hits).toEqual(['actor', 'team', 'membership'])
     await expectNotFound(harness({}, { kind: 'NONE' }).svc.opened(HR, OPP, body))
     await expectNotFound(harness().svc.opened(HR, 'nope', body))
     await expectNotFound(harness().svc.opened(HR, OPP, { sourceRecordId: 'nope' }))
@@ -1048,7 +1156,7 @@ describe('suppress', () => {
   it('an ADMIN writes a versionless STUDIO action, and asks the live role', async () => {
     const h = harness({}, STUDIO_SCOPE)
     await h.svc.suppress(ADMIN, OPP, body)
-    expect(h.hits).toEqual(['lockTarget', 'earlier', 'actor', 'log'])
+    expect(h.hits).toEqual(['lockTarget', 'actor', 'earlier', 'log'])
     expect(h.scopes.resolve).toHaveBeenCalledWith(ADMIN, undefined, h.tx)
     expect(h.param('log')).toEqual([
       'SUPPRESSED',
@@ -1083,9 +1191,111 @@ describe('suppress', () => {
     ]
     const h = harness({ earlier }, STUDIO_SCOPE)
     await h.svc.suppress(ADMIN, OPP, body)
-    expect(h.hits).toEqual(['lockTarget', 'earlier'])
+    expect(h.hits).toEqual(['lockTarget', 'actor', 'earlier'])
     const other = harness({ earlier, lockTarget: [{ id: COPY }] }, STUDIO_SCOPE)
     await expectCode(other.svc.suppress(ADMIN, COPY, body), 409, 'JOB_QUEUE_IDEMPOTENCY_CONFLICT')
+  })
+})
+
+describe('suppress — the idempotency key is validated', () => {
+  it('a key that is not a UUID is refused before any transaction', async () => {
+    const h = harness({}, STUDIO_SCOPE)
+    await expect(h.svc.suppress(ADMIN, OPP, { idempotencyKey: 'not-a-uuid' })).rejects.toThrow(
+      /uuid/i,
+    )
+    expect(h.transaction).not.toHaveBeenCalled()
+  })
+})
+
+describe('a reused key is no existence oracle', () => {
+  const usedElsewhere = [
+    {
+      reason: JSON.stringify({ fp: 'another request' }),
+      after_version: 1,
+      created_at: new Date(T1),
+    },
+  ]
+  const dismissBody = { scope: 'TEAM' as const, reason: 'SPAM' as const, idempotencyKey: KEY }
+  const undoBody = { scope: 'TEAM' as const, idempotencyKey: KEY, expectedVersion: 2 }
+  const cancelBody = { idempotencyKey: KEY, expectedVersion: 2 }
+  const live = [
+    { senior_id: SENIOR, assignee_id: HR_ID, state: 'TAKEN', version: 2, taken_at: new Date(T1) },
+  ]
+  const hiddenFromScope = () => {
+    const h = harness({ earlier: usedElsewhere })
+    h.scopes.assertVisible.mockRejectedValueOnce(
+      new HttpException({ code: 'JOB_OPPORTUNITY_NOT_FOUND' }, 404),
+    )
+    return h
+  }
+
+  it('submit: hidden and missing answer alike, the key unread', async () => {
+    const hidden = hiddenFromScope()
+    await expectNotFound(hidden.svc.submit(HR, OPP, submitBody()))
+    expect(hidden.hits).not.toContain('earlier')
+    const missing = harness({ earlier: usedElsewhere, lockSet: [] })
+    await expectNotFound(missing.svc.submit(HR, OPP, submitBody()))
+    expect(missing.hits).not.toContain('earlier')
+  })
+
+  it('dismiss: hidden and missing answer alike, the key unread', async () => {
+    const hidden = hiddenFromScope()
+    await expectNotFound(hidden.svc.dismiss(HR, OPP, dismissBody))
+    expect(hidden.hits).not.toContain('earlier')
+    const missing = harness({ earlier: usedElsewhere, lockTarget: [] })
+    await expectNotFound(missing.svc.dismiss(HR, OPP, dismissBody))
+    expect(missing.hits).not.toContain('earlier')
+  })
+
+  it('cancel: no row in the scope answers 404, the key unread', async () => {
+    const h = harness({ earlier: usedElsewhere, cancelRead: [] })
+    await expectNotFound(h.svc.cancelSubmission(HR, OPP, SUB, cancelBody))
+    expect(h.hits).not.toContain('earlier')
+  })
+
+  it('undo: no dismissal in the scope answers 404, the key unread', async () => {
+    const h = harness({ earlier: usedElsewhere, dismissal: [] })
+    await expectNotFound(h.svc.undo(HR, OPP, undoBody))
+    expect(h.hits).not.toContain('earlier')
+  })
+
+  it('an actor no longer live is a 404 on all four, the key unread', async () => {
+    const answers = { earlier: usedElsewhere, actor: [], cancelRead: live }
+    const attempts: Array<(h: ReturnType<typeof harness>) => Promise<unknown>> = [
+      (h) => h.svc.submit(HR, OPP, submitBody()),
+      (h) => h.svc.dismiss(HR, OPP, dismissBody),
+      (h) => h.svc.cancelSubmission(HR, OPP, SUB, cancelBody),
+      (h) => h.svc.undo(HR, OPP, undoBody),
+    ]
+    for (const attempt of attempts) {
+      const h = harness(answers)
+      await expectNotFound(attempt(h))
+      expect(h.hits).not.toContain('earlier')
+    }
+  })
+
+  it('suppress: a demoted ADMIN does not reach the key', async () => {
+    const h = harness({ earlier: usedElsewhere, actor: [] }, STUDIO_SCOPE)
+    await expectNotFound(h.svc.suppress(ADMIN, OPP, { idempotencyKey: KEY }))
+    expect(h.hits).not.toContain('earlier')
+  })
+})
+
+describe('the locks the statements take', () => {
+  it('a replacement deletes only a cancelled row', async () => {
+    const h = harness({
+      existing: [{ id: SUB, state: 'RELEASED', team_id: TEAM_B, version: 2 }],
+    })
+    await h.svc.submit(HR, OPP, submitBody())
+    expect(h.calls.find((c) => PATTERNS.remove.test(c.text))?.text).toContain("state = 'RELEASED'")
+  })
+
+  it('a single target is locked FOR NO KEY UPDATE', async () => {
+    const h = harness()
+    await h.svc.dismiss(HR, OPP, { scope: 'TEAM', reason: 'SPAM', idempotencyKey: KEY })
+    expect(h.calls.find((c) => PATTERNS.lockTarget.test(c.text))?.text).toContain(
+      'FOR NO KEY UPDATE',
+    )
   })
 })
 
@@ -1099,13 +1309,7 @@ describe('the transaction boundary', () => {
     const h = harness()
     const earlier = [
       {
-        reason: JSON.stringify({
-          fp: SUBMIT_FP,
-          submissionId: SUB,
-          seniorId: SENIOR,
-          assigneeId: HR_ID,
-          submittedAt: T1,
-        }),
+        reason: JSON.stringify({ fp: SUBMIT_FP, submissionId: SUB, submittedAt: T1 }),
         after_version: 1,
         created_at: new Date(T1),
       },
@@ -1117,6 +1321,66 @@ describe('the transaction boundary', () => {
     h.transaction.mockImplementationOnce(retry.transaction)
     const res = await h.svc.submit(HR, OPP, submitBody())
     expect(res.submission.id).toBe(SUB)
+    expect(h.transaction).toHaveBeenCalledTimes(2)
+  })
+
+  const deadlock = () =>
+    Object.assign(new Error('Failed query'), {
+      cause: Object.assign(new Error('deadlock detected'), { code: '40P01' }),
+    })
+
+  it('a deadlock victim is run once more, and the rerun answers', async () => {
+    const h = harness()
+    h.transaction.mockImplementationOnce(async () => {
+      throw deadlock()
+    })
+    const res = await h.svc.submit(HR, OPP, submitBody())
+    expect(res.submission.id).toBe(NEW_SUB)
+    expect(h.transaction).toHaveBeenCalledTimes(2)
+  })
+
+  it('opened is a write like the others: a deadlock victim is run once more', async () => {
+    const h = harness()
+    h.transaction.mockImplementationOnce(async () => {
+      throw deadlock()
+    })
+    await h.svc.opened(HR, OPP, { sourceRecordId: SOURCE })
+    expect(h.transaction).toHaveBeenCalledTimes(2)
+    expect(h.hits).toContain('opened')
+  })
+
+  it('there is one rerun: a second failure of either kind is the error itself', async () => {
+    for (const failure of [
+      deadlock,
+      () => uniqueViolation('uq_job_queue_actions_actor_idempotency'),
+    ]) {
+      const h = harness()
+      const second = failure()
+      h.transaction
+        .mockImplementationOnce(async () => {
+          throw failure()
+        })
+        .mockImplementationOnce(async () => {
+          throw second
+        })
+        .mockImplementationOnce(async () => {
+          throw new Error('a third attempt')
+        })
+      await expect(h.svc.submit(HR, OPP, submitBody())).rejects.toBe(second)
+      expect(h.transaction).toHaveBeenCalledTimes(2)
+    }
+  })
+
+  it('a rerun is mapped like the first attempt: its lost race is the generic conflict', async () => {
+    const h = harness()
+    h.transaction
+      .mockImplementationOnce(async () => {
+        throw deadlock()
+      })
+      .mockImplementationOnce(async () => {
+        throw uniqueViolation('uq_job_queue_assignments_opportunity_senior')
+      })
+    await expectStale(h.svc.submit(HR, OPP, submitBody()))
     expect(h.transaction).toHaveBeenCalledTimes(2)
   })
 

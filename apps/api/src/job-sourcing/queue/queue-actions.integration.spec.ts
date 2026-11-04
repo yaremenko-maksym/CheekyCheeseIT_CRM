@@ -145,10 +145,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueActionsService against Postgres (Tas
     session = await openCrmAppSession({ appPoolMax: 6 })
     const probe = await session.admin.query(`SELECT current_database() AS db`)
     if (probe.rows[0].db === 'crm_db') throw new Error('refusing the live database')
-    actions = new JobQueueActionsService(
-      session.databaseService,
-      new JobQueueScopeService(session.databaseService),
-    )
+    actions = new JobQueueActionsService(session.databaseService, new JobQueueScopeService())
 
     await mkUser('admin', 'ADMIN')
     for (const hr of ['hrA', 'hrB', 'hrNone', 'hrLeaving']) await mkUser(hr, 'HR')
@@ -164,11 +161,19 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueActionsService against Postgres (Tas
       'senArchived',
       'senStop',
       'senMid',
+      'senTeamMid',
+      'senSlug',
+      'senShared5',
+      'senShared6',
+      'senShared7',
     ]) {
       await mkUser(s, 'SENIOR')
     }
+    await mkUser('hrTeamMid', 'HR')
     await mkTeam('teamA')
     await mkTeam('teamB')
+    await mkTeam('teamMid')
+    for (const m of ['hrTeamMid', 'senTeamMid']) await join('teamMid', m)
     for (const m of [
       'hrA',
       'hrLeaving',
@@ -178,11 +183,20 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueActionsService against Postgres (Tas
       'senArchived',
       'senStop',
       'senMid',
+      'senSlug',
     ]) {
       await join('teamA', m)
     }
     for (const m of ['hrB', 'senB']) await join('teamB', m)
-    for (const s of ['senShared', 'senShared2', 'senShared3', 'senShared4']) {
+    for (const s of [
+      'senShared',
+      'senShared2',
+      'senShared3',
+      'senShared4',
+      'senShared5',
+      'senShared6',
+      'senShared7',
+    ]) {
       await join('teamA', s)
       await join('teamB', s)
     }
@@ -211,6 +225,15 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueActionsService against Postgres (Tas
       await q(
         `DELETE FROM job_opportunity_sources WHERE opportunity_id IN
            (SELECT id FROM job_opportunities WHERE title LIKE $1)`,
+        emails,
+      )
+      await q(
+        `UPDATE job_source_records SET latest_revision_id = NULL WHERE namespace LIKE $1`,
+        emails,
+      )
+      await q(
+        `DELETE FROM job_source_record_revisions WHERE source_record_id IN
+           (SELECT id FROM job_source_records WHERE namespace LIKE $1)`,
         emails,
       )
       await q(`DELETE FROM job_source_records WHERE namespace LIKE $1`, emails)
@@ -288,6 +311,39 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueActionsService against Postgres (Tas
         expectedVersion: 1,
       })
       expect(await actions.submit(SESSION.hrA, opp, body)).toEqual(first)
+    })
+
+    it('a retry whose target has since become invisible gets the 404: it fails closed', async () => {
+      const opp = await mkOpp()
+      await lead(opp, 'senA')
+      const body = submitBody('senA')
+      await actions.submit(SESSION.hrA, opp, body)
+      await q(`UPDATE job_opportunities SET revision = revision + 1 WHERE id = $1`, [opp])
+      await expectNotFound(actions.submit(SESSION.hrA, opp, body))
+      expect(await actionRows(opp)).toHaveLength(1)
+    })
+
+    it('the log names no person: the reason holds no senior and no assignee', async () => {
+      const opp = await mkOpp()
+      await lead(opp, 'senA')
+      const { submission } = await actions.submit(SESSION.hrA, opp, submitBody('senA'))
+      await actions.cancelSubmission(SESSION.hrA, opp, submission.id, {
+        idempotencyKey: randomUUID(),
+        expectedVersion: 1,
+      })
+      const { rows } = await q(`SELECT reason FROM job_queue_actions WHERE opportunity_id = $1`, [
+        opp,
+      ])
+      expect(rows).toHaveLength(2)
+      for (const { reason } of rows) {
+        expect(Object.keys(JSON.parse(reason as string)).sort()).toEqual([
+          'fp',
+          'submissionId',
+          'submittedAt',
+        ])
+        expect(reason).not.toContain(id('senA'))
+        expect(reason).not.toContain(id('hrA'))
+      }
     })
 
     it('the same key with another payload is the idempotency conflict, on any opportunity', async () => {
@@ -465,27 +521,94 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueActionsService against Postgres (Tas
       expect(await submissionRows(opp)).toHaveLength(0)
     })
 
-    /** A concurrent writer commits a change while the submit is parked on its row lock. */
+    it('a stop-list entry matching only the DOU URL slug is the same 404, as in the funnel', async () => {
+      const opp = await mkOpp()
+      await lead(opp, 'senA')
+      const slug = `slugonly${TAG.replace('-', '')}`
+      const { rows } = await q(
+        `INSERT INTO job_source_records
+           (source_type, namespace, identity_kind, identity_key, source_url)
+         VALUES ('DOU_RSS', $1, 'NATIVE_ID', $2, $3) RETURNING id`,
+        [`${TAG}-ns`, randomUUID(), `https://jobs.dou.ua/companies/${slug}/vacancies/1/`],
+      )
+      const record = rows[0].id as string
+      const revision = await q(
+        `INSERT INTO job_source_record_revisions
+           (source_record_id, adapter_version, normalizer_version, content_hash, normalized,
+            original_identity)
+         VALUES ($1, 'v1', 'v1', $2, '{}'::jsonb, '{}'::jsonb) RETURNING id`,
+        [record, randomUUID().replaceAll('-', '').padEnd(64, '0')],
+      )
+      await q(`UPDATE job_source_records SET latest_revision_id = $2 WHERE id = $1`, [
+        record,
+        revision.rows[0].id,
+      ])
+      await q(
+        `INSERT INTO job_opportunity_sources (source_record_id, opportunity_id, rule_version)
+         VALUES ($1, $2, '1')`,
+        [record, opp],
+      )
+      // The opportunity's own employer is another name: only the URL's slug can match.
+      await q(
+        `INSERT INTO job_exclusion_filters (senior_id, kind, value, normalized_value)
+         VALUES ($1, 'COMPANY', $2, $2)`,
+        [id('senSlug'), slug],
+      )
+      await expectNotFound(actions.submit(SESSION.hrA, opp, submitBody('senSlug')))
+      expect(await submissionRows(opp)).toHaveLength(0)
+    })
+
+    it('another senior stop-list does not refuse this senior', async () => {
+      const opp = await mkOpp()
+      await lead(opp, 'senA')
+      const employer = `${TAG} Employer`
+      await q(
+        `INSERT INTO job_exclusion_filters (senior_id, kind, value, normalized_value)
+         VALUES ($1, 'COMPANY', $2, $3) ON CONFLICT DO NOTHING`,
+        [id('senStop'), employer, employer.toLowerCase()],
+      )
+      await expect(actions.submit(SESSION.hrA, opp, submitBody('senA2'))).resolves.toBeDefined()
+    })
+
+    /**
+     * A concurrent writer holds a change until the attempt is proved to be queued behind it, then
+     * commits. The proof is the database's own: a backend whose blockers include the holder's pid.
+     */
     async function underConcurrentChange(
       change: (client: PoolClient) => Promise<unknown>,
       attempt: () => Promise<unknown>,
     ): Promise<void> {
       const client = await session.admin.connect()
+      let pending: Promise<unknown> | undefined
       try {
         await client.query('BEGIN')
+        const holder = await client.query('SELECT pg_backend_pid() AS pid')
         await change(client)
-        const pending = expectNotFound(attempt())
-        // If the attempt has not reached the lock yet it reads the committed change instead, and
-        // the answer is the same: this cannot turn flaky, only weaker.
-        await new Promise((resolve) => setTimeout(resolve, 300))
+        pending = expectNotFound(attempt())
+        await untilQueuedBehind(Number(holder.rows[0].pid))
         await client.query('COMMIT')
         await pending
       } catch (err) {
         await client.query('ROLLBACK')
+        await pending?.catch(() => undefined)
         throw err
       } finally {
         client.release()
       }
+    }
+
+    /** Bounded: an attempt that never queues is a failure of the test, not a silent pass. */
+    async function untilQueuedBehind(holderPid: number): Promise<void> {
+      const deadline = Date.now() + 10_000
+      while (Date.now() < deadline) {
+        const { rows } = await q(
+          `SELECT 1 FROM pg_stat_activity WHERE $1::int = ANY(pg_blocking_pids(pid))`,
+          [holderPid],
+        )
+        if (rows.length > 0) return
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      throw new Error('no backend queued behind the held lock within 10s')
     }
 
     it('membership mid-mutation: a senior leaving while the submit waits is refused', async () => {
@@ -515,6 +638,33 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueActionsService against Postgres (Tas
         () => actions.submit(actor, opp, submitBody('senA')),
       )
       expect(await submissionRows(opp)).toHaveLength(0)
+    })
+
+    it('team mid-mutation: an archival while the submit waits is refused', async () => {
+      const opp = await mkOpp()
+      await lead(opp, 'senTeamMid')
+      const actor = user(id('hrTeamMid'), 'HR')
+      await underConcurrentChange(
+        (c) => c.query(`UPDATE teams SET archived_at = now() WHERE id = $1`, [id('teamMid')]),
+        () => actions.submit(actor, opp, submitBody('senTeamMid')),
+      )
+      expect(await submissionRows(opp)).toHaveLength(0)
+    })
+
+    it('a posting close while the submit waits on the set lock is refused, and writes nothing', async () => {
+      const opp = await mkOpp()
+      await lead(opp, 'senA')
+      await underConcurrentChange(
+        (c) =>
+          c.query(
+            `UPDATE job_opportunities SET availability = 'CLOSED', revision = revision + 1
+              WHERE id = $1`,
+            [opp],
+          ),
+        () => actions.submit(SESSION.hrA, opp, submitBody('senA')),
+      )
+      expect(await submissionRows(opp)).toHaveLength(0)
+      expect(await actionRows(opp)).toHaveLength(0)
     })
 
     it('a session role the database no longer holds is refused', async () => {
@@ -642,6 +792,132 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueActionsService against Postgres (Tas
       expect(replay).toEqual(a)
       expect(JSON.stringify(replay)).not.toContain(b.submission.id)
       expect((await submissionRows(opp))[0].id).toBe(b.submission.id)
+    })
+  })
+
+  describe('owner decision A3: a takeover racing the team it takes over from', () => {
+    const marker = (result: PromiseSettledResult<unknown>) => {
+      expect(result.status).toBe('rejected')
+      const failure = (result as PromiseRejectedResult).reason as HttpException
+      expect(failure.getStatus()).toBe(409)
+      expect(failure.getResponse()).toMatchObject({ submittedElsewhere: true })
+    }
+
+    it('takeover against A re-submitting its cancelled row: one wins, the other has the marker', async () => {
+      const opp = await mkOpp()
+      await lead(opp, 'senShared5')
+      const a = await actions.submit(SESSION.hrA, opp, submitBody('senShared5'))
+      await actions.cancelSubmission(SESSION.hrA, opp, a.submission.id, {
+        idempotencyKey: randomUUID(),
+        expectedVersion: 1,
+      })
+      const [byB, byA] = await Promise.allSettled([
+        actions.submit(SESSION.hrB, opp, submitBody('senShared5')),
+        actions.submit(SESSION.hrA, opp, submitBody('senShared5', { expectedVersion: 2 })),
+      ])
+      const rows = await submissionRows(opp)
+      expect(rows).toHaveLength(1)
+      expect([byB.status, byA.status].sort()).toEqual(['fulfilled', 'rejected'])
+      marker(byB.status === 'fulfilled' ? byA : byB)
+      expect(rows[0]).toMatchObject(
+        byB.status === 'fulfilled'
+          ? { state: 'TAKEN', team_id: id('teamB'), version: 1 }
+          : { state: 'TAKEN', team_id: id('teamA'), version: 3, id: a.submission.id },
+      )
+    })
+
+    it('takeover against A cancelling: the cancel holds, and the row is the winner of the order', async () => {
+      const opp = await mkOpp()
+      await lead(opp, 'senShared6')
+      const a = await actions.submit(SESSION.hrA, opp, submitBody('senShared6'))
+      const [cancel, byB] = await Promise.allSettled([
+        actions.cancelSubmission(SESSION.hrA, opp, a.submission.id, {
+          idempotencyKey: randomUUID(),
+          expectedVersion: 1,
+        }),
+        actions.submit(SESSION.hrB, opp, submitBody('senShared6')),
+      ])
+      expect(cancel.status).toBe('fulfilled')
+      const rows = await submissionRows(opp)
+      expect(rows).toHaveLength(1)
+      ;[byB].filter((b) => b.status === 'rejected').forEach(marker)
+      expect(rows[0]).toMatchObject(
+        byB.status === 'fulfilled'
+          ? { team_id: id('teamB'), state: 'TAKEN' }
+          : { team_id: id('teamA'), state: 'RELEASED' },
+      )
+    })
+
+    it('A retrying its cancel after the takeover is a 404: the row it names is gone', async () => {
+      const opp = await mkOpp()
+      await lead(opp, 'senShared7')
+      const a = await actions.submit(SESSION.hrA, opp, submitBody('senShared7'))
+      const cancel = { idempotencyKey: randomUUID(), expectedVersion: 1 }
+      await actions.cancelSubmission(SESSION.hrA, opp, a.submission.id, cancel)
+      const b = await actions.submit(SESSION.hrB, opp, submitBody('senShared7'))
+      await expectNotFound(actions.cancelSubmission(SESSION.hrA, opp, a.submission.id, cancel))
+      expect((await submissionRows(opp))[0].id).toBe(b.submission.id)
+    })
+  })
+
+  describe('a reused key is no existence oracle: hidden and missing answer alike', () => {
+    async function usedKeyAndHiddenTarget() {
+      const opp = await mkOpp()
+      await lead(opp, 'senA')
+      const hidden = await mkOpp()
+      await lead(hidden, 'senB')
+      return { opp, hidden, key: randomUUID() }
+    }
+
+    it('submit', async () => {
+      const { opp, hidden, key } = await usedKeyAndHiddenTarget()
+      const body = submitBody('senA', { idempotencyKey: key })
+      await actions.submit(SESSION.hrA, opp, body)
+      const a = await refusal(actions.submit(SESSION.hrA, hidden, body))
+      const b = await refusal(actions.submit(SESSION.hrA, randomUUID(), body))
+      expect(a.status).toBe(404)
+      expect(a.raw).toBe(b.raw)
+    })
+
+    it('dismiss', async () => {
+      const { opp, hidden, key } = await usedKeyAndHiddenTarget()
+      const body = { scope: 'TEAM' as const, reason: 'SPAM' as const, idempotencyKey: key }
+      await actions.dismiss(SESSION.hrA, opp, body)
+      const a = await refusal(actions.dismiss(SESSION.hrA, hidden, body))
+      const b = await refusal(actions.dismiss(SESSION.hrA, randomUUID(), body))
+      expect(a.status).toBe(404)
+      expect(a.raw).toBe(b.raw)
+    })
+
+    it('cancel', async () => {
+      const { opp, hidden, key } = await usedKeyAndHiddenTarget()
+      const own = await actions.submit(SESSION.hrA, opp, submitBody('senA'))
+      const foreign = await actions.submit(SESSION.hrB, hidden, submitBody('senB'))
+      const body = { idempotencyKey: key, expectedVersion: 1 }
+      await actions.cancelSubmission(SESSION.hrA, opp, own.submission.id, body)
+      const a = await refusal(
+        actions.cancelSubmission(SESSION.hrA, hidden, foreign.submission.id, body),
+      )
+      const b = await refusal(actions.cancelSubmission(SESSION.hrA, hidden, randomUUID(), body))
+      const c = await refusal(
+        actions.cancelSubmission(SESSION.hrA, randomUUID(), randomUUID(), body),
+      )
+      expect(a.status).toBe(404)
+      expect(a.raw).toBe(b.raw)
+      expect(a.raw).toBe(c.raw)
+    })
+
+    it('undo', async () => {
+      const { opp, hidden, key } = await usedKeyAndHiddenTarget()
+      const dismissal = { scope: 'TEAM' as const, reason: 'SPAM' as const }
+      await actions.dismiss(SESSION.hrA, opp, { ...dismissal, idempotencyKey: randomUUID() })
+      await actions.dismiss(SESSION.hrB, hidden, { ...dismissal, idempotencyKey: randomUUID() })
+      const body = { scope: 'TEAM' as const, idempotencyKey: key, expectedVersion: 1 }
+      await actions.undo(SESSION.hrA, opp, body)
+      const a = await refusal(actions.undo(SESSION.hrA, hidden, body))
+      const b = await refusal(actions.undo(SESSION.hrA, randomUUID(), body))
+      expect(a.status).toBe(404)
+      expect(a.raw).toBe(b.raw)
     })
   })
 
@@ -916,6 +1192,15 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueActionsService against Postgres (Tas
       const log = await actionRows(opp)
       expect(log.map((r) => r.kind)).toEqual(['OPENED', 'OPENED'])
       expect(log.every((r) => r.before_version === null && r.after_version === null)).toBe(true)
+    })
+
+    it('an actor the database no longer holds in that role is a 404, and logs nothing', async () => {
+      const opp = await mkOpp()
+      await lead(opp, 'senA')
+      const record = await sourceRecord(opp)
+      const stale = user(id('hrA'), 'ADMIN')
+      await expectNotFound(actions.opened(stale, opp, { sourceRecordId: record }))
+      expect(await actionRows(opp)).toHaveLength(0)
     })
 
     it('another team click is its own signal; another team opportunity is a 404', async () => {

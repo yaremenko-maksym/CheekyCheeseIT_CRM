@@ -2,7 +2,7 @@ import { ForbiddenException, HttpStatus, Injectable, Logger } from '@nestjs/comm
 import type { SessionUser } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { apiError } from '../../common/api-error'
-import { DatabaseService } from '../../database/database.service'
+import { isDeadlock } from '../../database/pg-errors'
 import { loadRoster } from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
@@ -30,19 +30,18 @@ import {
  * failure is logged as error classes and the SQLSTATE code only (`describeFailure`), never a
  * message: a query error's message carries the SQL and its parameters.
  *
- * WRITES (r5 Task 6.3) pass their transaction as `db`, so a scope and a visibility answer are read
- * inside the write they authorize, never carried in from before it.
+ * THE EXECUTOR IS A REQUIRED PARAMETER: a write passes its transaction (r5 Task 6.3), so a scope and
+ * a visibility answer are read inside the write they authorize; a forgotten argument cannot silently
+ * read outside it.
  */
 @Injectable()
 export class JobQueueScopeService {
   private readonly logger = new Logger(JobQueueScopeService.name)
 
-  constructor(private readonly database: DatabaseService) {}
-
   async resolve(
     user: SessionUser,
-    requestedTeamId?: string,
-    db: SqlExecutor = this.database.db,
+    requestedTeamId: string | undefined,
+    db: SqlExecutor,
   ): Promise<JobQueueScope> {
     if (!isJobQueueRole(user.role)) throw new ForbiddenException()
     if (requestedTeamId === undefined && user.role === 'ADMIN') return STUDIO_SCOPE
@@ -65,11 +64,7 @@ export class JobQueueScopeService {
    * one answer for "does not exist", "not yours" and "not an id", so a viewer cannot probe
    * another team's queue. NONE and a malformed id answer without a query.
    */
-  async assertVisible(
-    scope: JobQueueScope,
-    opportunityId: string,
-    db: SqlExecutor = this.database.db,
-  ): Promise<void> {
+  async assertVisible(scope: JobQueueScope, opportunityId: string, db: SqlExecutor): Promise<void> {
     const canonical = canonicalUuid(opportunityId)
     if (scope.kind === 'NONE' || canonical === null) throw notFound()
     const rows = await this.policy(async () => {
@@ -121,11 +116,15 @@ export class JobQueueScopeService {
       .map(([seniorId, v]) => ({ seniorId, profile: v.profile, exclusion: v.exclusion }))
   }
 
-  /** Runs a policy read; a failure is `JOB_QUEUE_POLICY_UNAVAILABLE`, never a default answer. */
+  /**
+   * Runs a policy read; a failure is `JOB_QUEUE_POLICY_UNAVAILABLE`, never a default answer. A
+   * deadlock is not an answer about the policy: it passes through, for the writer's one rerun.
+   */
   async policy<T>(fn: () => Promise<T>): Promise<T> {
     try {
       return await fn()
     } catch (err: unknown) {
+      if (isDeadlock(err)) throw err
       this.logger.error(`queue policy evaluation failed: ${describeFailure(err)}`)
       throw apiError('JOB_QUEUE_POLICY_UNAVAILABLE', HttpStatus.SERVICE_UNAVAILABLE)
     }

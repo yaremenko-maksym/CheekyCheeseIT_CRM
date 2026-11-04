@@ -125,16 +125,16 @@ describe('requestFingerprint', () => {
 
 describe('parseActionReplay', () => {
   it('reads what the writer stored', () => {
-    expect(parseActionReplay(`{"fp":"x","seniorId":"${SENIOR}"}`)).toEqual({
+    expect(parseActionReplay(`{"fp":"x","submissionId":"${SENIOR}"}`)).toEqual({
       fp: 'x',
-      seniorId: SENIOR,
+      submissionId: SENIOR,
     })
   })
   it('is null for a redacted reason, a non-string and a wrong shape', () => {
     expect(parseActionReplay('[redacted]')).toBeNull()
     expect(parseActionReplay(null)).toBeNull()
     expect(parseActionReplay(undefined)).toBeNull()
-    expect(parseActionReplay('{"seniorId":"not-an-id","fp":"x"}')).toBeNull()
+    expect(parseActionReplay('{"submissionId":"not-an-id","fp":"x"}')).toBeNull()
     expect(parseActionReplay('{"nofp":true}')).toBeNull()
   })
 })

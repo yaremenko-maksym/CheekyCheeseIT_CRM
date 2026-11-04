@@ -114,13 +114,44 @@ export async function loadRoster(db: SqlExecutor): Promise<RosterInputs> {
   // itself, so its verdict must still see them when there is nobody to match.
   const roster = sql`(SELECT jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb)::uuid)`
   const { rows: manual } = await db.execute(
-    sql`SELECT id, senior_id, kind, value, normalized_value, created_at FROM job_exclusion_filters
+    sql`SELECT ${MANUAL_EXCLUSION_COLUMNS} FROM job_exclusion_filters
          WHERE senior_id IS NULL OR senior_id IN ${roster} ORDER BY id`,
   )
   const { rows: owned } = await db.execute(
-    sql`SELECT senior_id, name, company_name, archived_at FROM projects
+    sql`SELECT ${EXCLUSION_PROJECT_COLUMNS} FROM projects
          WHERE senior_id IN ${roster} ORDER BY id`,
   )
+  const exclusions = toExclusions(manual, owned)
+  return {
+    rosterSeniorIds: ids,
+    profiles,
+    exclusions,
+    versions: rosterVersions(profiles, exclusions),
+  }
+}
+
+/**
+ * One senior's own exclusions, without reading the roster: manual rows and the ones derived from
+ * their projects, through the mapping `loadRoster` uses. Studio-wide rows are not included.
+ */
+export async function loadSeniorExclusions(
+  db: SqlExecutor,
+  seniorId: string,
+): Promise<JobExclusionDto[]> {
+  const { rows: manual } = await db.execute(
+    sql`SELECT ${MANUAL_EXCLUSION_COLUMNS} FROM job_exclusion_filters
+         WHERE senior_id = ${seniorId}::uuid`,
+  )
+  const { rows: owned } = await db.execute(
+    sql`SELECT ${EXCLUSION_PROJECT_COLUMNS} FROM projects WHERE senior_id = ${seniorId}::uuid`,
+  )
+  return toExclusions(manual, owned)
+}
+
+const MANUAL_EXCLUSION_COLUMNS = sql.raw('id, senior_id, kind, value, normalized_value, created_at')
+const EXCLUSION_PROJECT_COLUMNS = sql.raw('senior_id, name, company_name, archived_at')
+
+function toExclusions(manual: readonly Row[], owned: readonly Row[]): JobExclusionDto[] {
   // One pass over the projects, grouped by senior: O(seniors + projects), not their product.
   const projectsOf = new Map<string, SeniorProjectRow[]>()
   for (const p of owned) {
@@ -147,13 +178,7 @@ export async function loadRoster(db: SqlExecutor): Promise<RosterInputs> {
       createdAt: instant(r['created_at']),
     }),
   )
-  const exclusions = [...stored, ...derived]
-  return {
-    rosterSeniorIds: ids,
-    profiles,
-    exclusions,
-    versions: rosterVersions(profiles, exclusions),
-  }
+  return [...stored, ...derived]
 }
 
 /** A timestamp as the driver returns it (a `Date`, or text when its parser is overridden). */

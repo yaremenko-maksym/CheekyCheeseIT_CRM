@@ -51,7 +51,10 @@ interface MatchOpts {
 }
 
 let session: CrmAppSession
-let service: JobQueueScopeService
+let service: {
+  resolve(user: SessionUser, teamId?: string): Promise<JobQueueScope>
+  assertVisible(scope: JobQueueScope, opportunityId: string): Promise<void>
+}
 let live: ReadonlyMap<string, SeniorVersions>
 const ids: Record<string, string> = {}
 const userIds: string[] = []
@@ -63,7 +66,11 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
     session = await openCrmAppSession({ appPoolMax: 2 })
     const probe = await session.admin.query(`SELECT current_database() AS db`)
     if (probe.rows[0].db === 'crm_db') throw new Error('refusing the live database')
-    service = new JobQueueScopeService(session.databaseService)
+    const real = new JobQueueScopeService()
+    service = {
+      resolve: (u, teamId) => real.resolve(u, teamId, session.databaseService.db),
+      assertVisible: (scope, id) => real.assertVisible(scope, id, session.databaseService.db),
+    }
     const q = (text: string, params: unknown[]) => session.admin.query(text, params)
 
     const mkUser = async (key: string, role: SessionUser['role'], archived = false) => {

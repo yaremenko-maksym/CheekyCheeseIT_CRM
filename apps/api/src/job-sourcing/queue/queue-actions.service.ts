@@ -14,11 +14,13 @@ import {
   type SessionUser,
 } from '@crm/shared'
 import { sql } from 'drizzle-orm'
+import { z } from 'zod'
 import { apiError } from '../../common/api-error'
 import { DatabaseService } from '../../database/database.service'
-import { uniqueViolationConstraint } from '../../database/pg-errors'
+import { isDeadlock, uniqueViolationConstraint } from '../../database/pg-errors'
 import { findMatchingExclusion } from '../filtering'
-import { loadRoster } from '../runtime/recompute-inputs'
+import { exclusionPosting } from '../funnel/evaluate'
+import { loadOpportunity, loadSeniorExclusions } from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
   type ActionReplay,
@@ -46,6 +48,8 @@ export interface JobQueueSuppressRequest {
   readonly idempotencyKey: string
 }
 
+const suppressRequestSchema = z.object({ idempotencyKey: z.string().uuid() })
+
 const notFound = () => apiError('JOB_OPPORTUNITY_NOT_FOUND', HttpStatus.NOT_FOUND)
 const versionConflict = () => apiError('JOB_QUEUE_VERSION_CONFLICT', HttpStatus.CONFLICT)
 const idempotencyConflict = () => apiError('JOB_QUEUE_IDEMPOTENCY_CONFLICT', HttpStatus.CONFLICT)
@@ -64,16 +68,20 @@ function submittedElsewhere(): HttpException {
  * r5 Task 6.3 — the queue's writes. The button records a submission and sends nothing to anyone:
  * nothing here has an outward side effect.
  *
- * Every write is one transaction, in this order (the plan's):
+ * Every write is one transaction, in this order:
  *   1. the scope, resolved INSIDE the transaction (`JobQueueScopeService.resolve`, never cached);
  *   2. the opportunity rows locked, in sorted id order (`FOR NO KEY UPDATE`: mutually exclusive
  *      between writers, and it does not block the FK checks of other tables' inserts);
- *   3. the idempotency key: a retry answers from the log. After the locks, so a concurrent retry
- *      of one key on one opportunity waits and finds the first one's row;
- *   4. the actor's live role and membership, `FOR SHARE`: a demotion, an archival or a leave either
- *      committed first (this statement sees it and refuses) or waits for this commit;
- *   5. the visibility check and the action's own policy;
- *   6. the versioned write and its `job_queue_actions` row, so an audit failure rolls it back.
+ *   3. the actor's live role, the scope's team and the actor's membership, `FOR SHARE`: a demotion,
+ *      an archival or a leave either committed first (the statement sees it and refuses) or waits
+ *      for this commit;
+ *   4. the target: visible in the scope, or for cancel and undo a row inside the scope;
+ *   5. the idempotency key: a retry answers from the log. After the locks, so a concurrent retry
+ *      of one key on one opportunity waits and finds the first one's row; and after step 4, so a
+ *      key is no existence oracle: a hidden target and a missing one answer the same 404 whatever
+ *      the key, and a retry whose target has since become invisible gets that 404 too (fail closed);
+ *   6. the action's own policy;
+ *   7. the versioned write and its `job_queue_actions` row, so an audit failure rolls it back.
  *
  * WHY CANCEL AND UNDO DO NOT CALL `assertVisible`, and only they: they correct a record the actor's
  * own scope wrote, and reveal nothing the scope does not already hold. An opportunity stops being
@@ -105,6 +113,8 @@ export class JobQueueActionsService {
       const copies = await this.lockDuplicateSet(tx, opportunity)
       const target = copies.find((c) => c.id === opportunity)
       if (target === undefined) throw notFound()
+      await this.lockActor(tx, user, scope)
+      await this.scopes.assertVisible(scope, opportunity, tx)
       const fingerprint = requestFingerprint([
         'TAKEN',
         opportunity,
@@ -116,11 +126,11 @@ export class JobQueueActionsService {
         request.confirmPossibleDuplicate,
       ])
       const earlier = await this.earlierAction(tx, user.id, request.idempotencyKey, fingerprint)
-      if (earlier !== null) return this.submissionAnswer(tx, opportunity, earlier, 'TAKEN')
+      if (earlier !== null) {
+        return this.submissionAnswer(tx, opportunity, earlier, 'TAKEN', seniorId, user.id)
+      }
 
-      await this.lockActor(tx, user, scope)
-      await this.scopes.assertVisible(scope, opportunity, tx)
-      await this.assertSeniorEligible(tx, scope, seniorId, target)
+      await this.assertSeniorEligible(tx, scope, seniorId, opportunity)
       if (target.revision !== request.expectedOpportunityRevision) throw versionConflict()
 
       const decision = decideSubmit(
@@ -153,13 +163,7 @@ export class JobQueueActionsService {
         before,
         after: row.version,
         key: request.idempotencyKey,
-        replay: {
-          fp: fingerprint,
-          submissionId: row.id,
-          seniorId,
-          assigneeId: user.id,
-          submittedAt: row.takenAt,
-        },
+        replay: { fp: fingerprint, submissionId: row.id, submittedAt: row.takenAt },
       })
       return jobQueueSubmissionResponseSchema.parse({
         submission: {
@@ -188,17 +192,6 @@ export class JobQueueActionsService {
     return this.write(async (tx) => {
       const scope = await this.writeScope(user, request.teamId, tx)
       await this.lockTarget(tx, opportunity)
-      const fingerprint = requestFingerprint([
-        'RELEASED',
-        opportunity,
-        scope.kind,
-        scopeTeamId(scope),
-        submission,
-        request.expectedVersion,
-      ])
-      const earlier = await this.earlierAction(tx, user.id, request.idempotencyKey, fingerprint)
-      if (earlier !== null) return this.submissionAnswer(tx, opportunity, earlier, 'RELEASED')
-
       await this.lockActor(tx, user, scope)
       const { rows } = await tx.execute(
         sql`SELECT a.senior_id, a.assignee_id, a.state, a.version, a.taken_at
@@ -208,6 +201,21 @@ export class JobQueueActionsService {
       )
       const row = rows[0]
       if (row === undefined) throw notFound()
+      const assigneeId = String(row['assignee_id'])
+      const seniorId = String(row['senior_id'])
+      const fingerprint = requestFingerprint([
+        'RELEASED',
+        opportunity,
+        scope.kind,
+        scopeTeamId(scope),
+        submission,
+        request.expectedVersion,
+      ])
+      const earlier = await this.earlierAction(tx, user.id, request.idempotencyKey, fingerprint)
+      if (earlier !== null) {
+        return this.submissionAnswer(tx, opportunity, earlier, 'RELEASED', seniorId, assigneeId)
+      }
+
       if (row['state'] !== 'TAKEN' || row['version'] !== request.expectedVersion) {
         throw versionConflict()
       }
@@ -221,8 +229,6 @@ export class JobQueueActionsService {
       )
       const after = updated.rows[0]
       if (after === undefined) throw versionConflict()
-      const assigneeId = String(row['assignee_id'])
-      const seniorId = String(row['senior_id'])
       const submittedAt = isoInstant(row['taken_at'])
       await this.logAction(tx, {
         kind: 'RELEASED',
@@ -232,7 +238,7 @@ export class JobQueueActionsService {
         before: request.expectedVersion,
         after: Number(after['version']),
         key: request.idempotencyKey,
-        replay: { fp: fingerprint, submissionId: submission, seniorId, assigneeId, submittedAt },
+        replay: { fp: fingerprint, submissionId: submission, submittedAt },
       })
       return jobQueueSubmissionResponseSchema.parse({
         submission: {
@@ -261,6 +267,8 @@ export class JobQueueActionsService {
       // An HR never resolves to STUDIO, so a STUDIO dismissal is ADMIN-only by this comparison.
       if (scope.kind !== request.scope) throw notFound()
       await this.lockTarget(tx, opportunity)
+      await this.lockActor(tx, user, scope)
+      await this.scopes.assertVisible(scope, opportunity, tx)
       const fingerprint = requestFingerprint([
         'DISMISSED',
         opportunity,
@@ -272,8 +280,6 @@ export class JobQueueActionsService {
       const earlier = await this.earlierAction(tx, user.id, request.idempotencyKey, fingerprint)
       if (earlier !== null) return dismissalAnswer(opportunity, scope, earlier, true)
 
-      await this.lockActor(tx, user, scope)
-      await this.scopes.assertVisible(scope, opportunity, tx)
       const existing = await this.existingDismissal(tx, opportunity, scope)
       const currentVersion = existing?.version ?? null
       const decision = decideDismiss(currentVersion, request.expectedVersion)
@@ -328,6 +334,9 @@ export class JobQueueActionsService {
       const scope = await this.writeScope(user, request.teamId, tx)
       if (scope.kind !== request.scope) throw notFound()
       await this.lockTarget(tx, opportunity)
+      await this.lockActor(tx, user, scope)
+      const existing = await this.existingDismissal(tx, opportunity, scope)
+      if (existing === null) throw notFound()
       const fingerprint = requestFingerprint([
         'UNDONE',
         opportunity,
@@ -338,9 +347,6 @@ export class JobQueueActionsService {
       const earlier = await this.earlierAction(tx, user.id, request.idempotencyKey, fingerprint)
       if (earlier !== null) return dismissalAnswer(opportunity, scope, earlier, false)
 
-      await this.lockActor(tx, user, scope)
-      const existing = await this.existingDismissal(tx, opportunity, scope)
-      if (existing === null) throw notFound()
       if (existing.undone || existing.version !== request.expectedVersion) throw versionConflict()
       const { rows } = await tx.execute(
         sql`UPDATE job_queue_dismissals
@@ -377,7 +383,8 @@ export class JobQueueActionsService {
   /**
    * Idempotent click telemetry per actor + opportunity + source record (the partial UNIQUE
    * `uq_job_queue_actions_opened_once`). No opportunity lock: it moves no state and must not queue
-   * behind a submission. The source record must be a live link of this opportunity.
+   * behind a submission. The actor is checked live, like every write, and the source record must be
+   * a live link of this opportunity.
    */
   async opened(
     user: SessionUser,
@@ -387,8 +394,9 @@ export class JobQueueActionsService {
     const opportunity = canonicalUuid(opportunityId)
     const sourceRecord = canonicalUuid(request.sourceRecordId)
     if (opportunity === null || sourceRecord === null) throw notFound()
-    await this.database.db.transaction(async (tx) => {
+    await this.write(async (tx) => {
       const scope = await this.writeScope(user, request.teamId, tx)
+      await this.lockActor(tx, user, scope)
       await this.scopes.assertVisible(scope, opportunity, tx)
       const link = await this.scopes.policy(() =>
         tx.execute(
@@ -420,14 +428,15 @@ export class JobQueueActionsService {
   ): Promise<void> {
     const opportunity = canonicalUuid(opportunityId)
     if (opportunity === null) throw notFound()
+    const { idempotencyKey } = suppressRequestSchema.parse(request)
     await this.write(async (tx) => {
       const scope = await this.scopes.resolve(user, undefined, tx)
       if (scope.kind !== 'STUDIO') throw new ForbiddenException()
       await this.lockTarget(tx, opportunity)
-      const fingerprint = requestFingerprint(['SUPPRESSED', opportunity])
-      const earlier = await this.earlierAction(tx, user.id, request.idempotencyKey, fingerprint)
-      if (earlier !== null) return
       await this.lockActor(tx, user, scope)
+      const fingerprint = requestFingerprint(['SUPPRESSED', opportunity])
+      const earlier = await this.earlierAction(tx, user.id, idempotencyKey, fingerprint)
+      if (earlier !== null) return
       await this.logAction(tx, {
         kind: 'SUPPRESSED',
         opportunity,
@@ -435,28 +444,31 @@ export class JobQueueActionsService {
         scope,
         before: null,
         after: null,
-        key: request.idempotencyKey,
+        key: idempotencyKey,
         replay: { fp: fingerprint },
       })
     })
   }
 
   /**
-   * One transaction, and the two unique violations the locks do not make impossible. The same key
-   * used concurrently on ANOTHER opportunity shares no lock: its 23505 rolled this attempt back, so
-   * running it again answers from the log (the replay or the idempotency conflict). A submission or
-   * dismissal violation is a lost race on a key the locks should have serialized: the generic
-   * conflict, which names no row. Anything else is not anticipated and stays an error.
+   * One transaction, and what the locks do not make impossible. The same key used concurrently on
+   * ANOTHER opportunity shares no lock: its 23505 rolled this attempt back, so one rerun answers
+   * from the log (the replay or the idempotency conflict). Lock order is not global (a sibling write
+   * can hold a user row this one waits for), so a deadlock victim gets the same one rerun: its
+   * transaction rolled back whole, so nothing is applied twice. A submission or dismissal violation
+   * is a lost race on a key the locks should have serialized: the generic conflict, which names no
+   * row. Anything else, a second deadlock included, is not anticipated and stays an error.
    */
-  private async write<T>(body: (tx: SqlExecutor) => Promise<T>): Promise<T> {
-    const run = () => this.database.db.transaction((tx) => body(tx))
+  private async write<T>(body: (tx: SqlExecutor) => Promise<T>, mayRerun = true): Promise<T> {
     try {
-      return await run()
+      return await this.database.db.transaction((tx) => body(tx))
     } catch (err: unknown) {
       const constraint = uniqueViolationConstraint(err)
-      if (constraint === IDEMPOTENCY_CONSTRAINT) return run()
       if (constraint === SUBMISSION_CONSTRAINT || constraint === DISMISSAL_CONSTRAINT) {
         throw versionConflict()
+      }
+      if (mayRerun && (constraint === IDEMPOTENCY_CONSTRAINT || isDeadlock(err))) {
+        return this.write(body, false)
       }
       throw err
     }
@@ -476,8 +488,9 @@ export class JobQueueActionsService {
    * The target and its possible-duplicate set, locked in sorted id order. No relation stores
    * "possible duplicate": the set is the opportunities sharing the resolver's candidate key
    * (`idx_job_opportunities_candidate_key`: employer key + title key), which an unknown employer
-   * does not have. Locking a row the scope cannot see discloses nothing: only the target's answer
-   * and the visible, own-scope conflict below are ever returned.
+   * does not have. A row the scope cannot see may be locked here, but no answer carries its content:
+   * only the target's answer and the visible, own-scope conflict below are returned. What such a
+   * lock can expose is its wait: a caller may be slowed by a write on a copy it cannot see.
    */
   private async lockDuplicateSet(tx: SqlExecutor, opportunity: string): Promise<LockedCopy[]> {
     const { rows } = await tx.execute(
@@ -528,29 +541,39 @@ export class JobQueueActionsService {
     }
   }
 
-  /** The earlier success itself, from the log: never the current row, which may be another team's. */
+  /**
+   * The earlier success from the log (its id, instant and version): never read from the current row
+   * of the opportunity and senior, which may be another team's. The senior and assignee come from
+   * the caller, who took them from the verified request or from the in-scope row the key's id names.
+   */
   private async submissionAnswer(
     tx: SqlExecutor,
     opportunity: string,
     earlier: EarlierAction,
     state: 'TAKEN' | 'RELEASED',
+    seniorId: string,
+    assigneeId: string,
   ): Promise<JobQueueSubmissionResponseDto> {
     const { replay } = earlier
     return jobQueueSubmissionResponseSchema.parse({
       submission: {
         id: replay.submissionId,
         opportunityId: opportunity,
-        seniorId: replay.seniorId,
+        seniorId,
         state,
         submittedAt: replay.submittedAt,
         cancelledAt: state === 'RELEASED' ? earlier.createdAt : null,
         version: earlier.version,
-        submittedByName: await this.nameOf(tx, replay.assigneeId as string),
+        submittedByName: await this.nameOf(tx, assigneeId),
       },
     })
   }
 
-  /** The actor as the database has them NOW: same role, not archived, still in the team (an HR). */
+  /**
+   * The actor as the database has them NOW, and the scope's team: same role, not archived, the team
+   * live and not archived, still a member (an HR). All `FOR SHARE`, so none of it can change under
+   * the write.
+   */
   private async lockActor(tx: SqlExecutor, user: SessionUser, scope: WriteScope): Promise<void> {
     const actor = await this.scopes.policy(() =>
       tx.execute(
@@ -560,6 +583,16 @@ export class JobQueueActionsService {
       ),
     )
     if (actor.rows.length === 0) throw notFound()
+    if (scope.kind === 'TEAM') {
+      const team = await this.scopes.policy(() =>
+        tx.execute(
+          sql`SELECT id FROM teams
+               WHERE id = ${scope.teamId}::uuid AND archived_at IS NULL AND type = 'SENIOR'
+                 FOR SHARE`,
+        ),
+      )
+      if (team.rows.length === 0) throw notFound()
+    }
     if (user.role === 'ADMIN') return
     const membership = await this.scopes.policy(() =>
       tx.execute(
@@ -574,15 +607,16 @@ export class JobQueueActionsService {
 
   /**
    * An active, non-archived SENIOR member of the scope's team (ADMIN in STUDIO: of any live team),
-   * locked `FOR SHARE` so a leave or an archival cannot pass this check and commit under the write;
-   * and who has not stop-listed the opportunity (their own entries; a studio-wide exclusion is the
-   * opportunity's verdict, and triage may be submitted).
+   * with membership, user and team locked `FOR SHARE`, so a leave or an archival of any of them
+   * cannot pass this check and commit under the write; and who has not stop-listed the opportunity.
+   * Their own entries, matched on the funnel's posting (so the DOU slug alias counts) and through its
+   * row mapping; a studio-wide exclusion is the opportunity's verdict, and triage may be submitted.
    */
   private async assertSeniorEligible(
     tx: SqlExecutor,
     scope: WriteScope,
     seniorId: string,
-    target: LockedCopy,
+    opportunity: string,
   ): Promise<void> {
     const member = await this.scopes.policy(() =>
       tx.execute(
@@ -594,17 +628,14 @@ export class JobQueueActionsService {
                AND t.archived_at IS NULL AND t.type = 'SENIOR'
                AND ${scopedTeamRowPredicate(scope, sql`tm.team_id`)}
              ORDER BY tm.team_id
-               FOR SHARE OF tm, u`,
+               FOR SHARE OF tm, u, t`,
       ),
     )
     if (member.rows.length === 0) throw notFound()
-    const { exclusions } = await this.scopes.policy(() => loadRoster(tx))
-    // Stryker disable next-line StringLiteral: equivalent — another fallback could only match an exclusion spelled exactly like it, and an unnamed employer has no such name
-    const companyName = target.employerName ?? ''
-    const stopListed = findMatchingExclusion(
-      { companyName, title: target.title },
-      exclusions.filter((e) => e.seniorId === seniorId),
-    )
+    const loaded = await this.scopes.policy(() => loadOpportunity(tx, opportunity))
+    if (loaded === null) throw notFound()
+    const own = await this.scopes.policy(() => loadSeniorExclusions(tx, seniorId))
+    const stopListed = findMatchingExclusion(exclusionPosting(loaded.canonical), own)
     if (stopListed !== null) throw notFound()
   }
 

@@ -80,17 +80,15 @@ export function requestFingerprint(parts: ReadonlyArray<string | number | boolea
 }
 
 /**
- * What an action row's `reason` carries (ids and a digest, no free text and no name, so the
- * writer's "sanitized" obligation holds): the request's digest and what a retry must answer.
- * The log has no column for a senior or a submission (`subject_user_id` is REASSIGNED-only by CHECK
- * and the log has no FK to the assignments), so without this a retry could not be answered from the
- * log, and reading the assignment instead could return another team's replacement row (A3).
+ * What an action row's `reason` carries: the request's digest and the non-personal part of a retry's
+ * answer, no free text and no person. A retry takes the senior from its digest-verified request (a
+ * cancel: from the in-scope row its id names) and the assignee from the actor or that row. The log
+ * has no FK to the assignments, and the row's own version and timestamps may have moved on, so the
+ * submission id and instant of the earlier success are kept here.
  */
 const actionReplaySchema = z.object({
   fp: z.string(),
   submissionId: z.string().uuid().optional(),
-  seniorId: z.string().uuid().optional(),
-  assigneeId: z.string().uuid().optional(),
   submittedAt: z.string().datetime().optional(),
   dismissReason: z.string().optional(),
 })

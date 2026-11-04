@@ -1124,6 +1124,35 @@ each other":
       may carry no version, because its target has none. Each mutation writes its `job_queue_actions` row in the same
       transaction. The submit transaction locks the target and its possible-duplicate set in sorted id order.
 
+**Known limits and consequences of this task as implemented.**
+
+- **A closed posting and an ADMIN in STUDIO.** The STUDIO scope sees every opportunity, so an ADMIN can log a submission
+  on a posting that closed, or whose verdict is stale. An HR in a team scope cannot: a close bumps the revision, which
+  hides the opportunity from the team until its recompute. Nothing in the submit path checks availability separately.
+- **Deadlocks.** Lock order is not global across every statement the write takes. A deadlock victim's transaction
+  rolled back whole, so `JobQueueActionsService.write` runs it once more. A second deadlock on that rerun stays an
+  error (a 500). `JobQueueScopeService.policy` lets a deadlock pass through instead of answering
+  `JOB_QUEUE_POLICY_UNAVAILABLE`, so a deadlock met on a policy read reaches that rerun.
+- **What DELETE + INSERT costs team A** (decision A3, B's re-submission over A's cancelled row). A's row, with its id,
+  version and cancellation fields, no longer exists. A retry of A's own cancel then finds no row in its scope and
+  answers the 404, not the earlier success. A's re-submission meets B's live row as the marker. A's history survives in
+  `job_queue_actions` by kind, team, actor and versions; the log names no senior (the `reason` JSON carries a digest, the
+  submission id and an instant), so the rows of A's cancelled submission can no longer be tied to a senior from the log
+  alone.
+- **A retry is authorized before it is answered.** All four versioned actions check the actor and the target before
+  reading the idempotency key, so a key is no existence oracle. The consequence: a lost-response retry whose target has
+  since become invisible to the scope answers the same 404, not the earlier success (fail closed). The name on a
+  replayed cancel is the row's current assignee, which a later re-submission by the same team may have changed.
+- **Deferred: "Spam / dead-link reports … only schedule a verification".** The opened and dismiss paths record the
+  action and schedule nothing, because no primitive can schedule a verification of one source copy today. What is
+  missing: (1) a consumer in every source mode: `enqueueDirty` with `DETAIL_FETCH` is drained only by the detail tail of
+  a run (`claimDetailFetchForSource`), which exists only for ON_DEMAND sources, and no source is flipped to that mode;
+  (2) a re-enqueue path: the dirty-work unique key on entity, version and reason swallows a request at an already
+  settled version; the `AVAILABILITY:*` consumers reconcile from database state and fetch nothing; (3) a wire contract:
+  no request schema carries a report on a source copy, and it is undecided whether the signal is a dismiss reason
+  (`SPAM`, `DEAD_LINK`) or a report on the clicked copy. Needs its own task once a consumer exists. Verify: search for
+  a consumer of `DETAIL_FETCH` outside a source run.
+
 ### Task 6.4: `/job-queue` controller + RBAC integration spec (new)
 
 Explicit `@Inject`, `@UseGuards(RolesGuard)` + `@Roles`, parsed request/response schemas, `@Throttle` per route on
