@@ -113,6 +113,43 @@ describe('reconcileOnce', () => {
     expect(String(enqueue.mock.calls[0]?.[4])).toMatch(/^RECONCILE:/)
   })
 
+  it('SR-M-2: fresh rows with an unevaluated revision are stale, under their own EVAL lineage', async () => {
+    const fresh = [tuple(m(S1, 'p1', 'e1'))]
+    const base = reconcileReason(live, [m(S1, 'p1', 'e1')])
+    // The legacy DONE of the plain lineage (pre-DDL) must not suppress the evaluation.
+    const r = await reconcileOnce(
+      dbOf([{ ...opp(1, fresh, 3, [['DONE', base]]), unevaluated: true }]),
+    )
+    expect(r).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
+    expect(enqueue.mock.calls[0]?.slice(1)).toEqual([
+      'OPPORTUNITY',
+      id(1),
+      3,
+      base.replace('RECONCILE:', 'RECONCILE:EVAL:'),
+    ])
+  })
+
+  it('SR-M-2: a DONE row of the EVAL lineage ends it; evaluated rows stay fresh', async () => {
+    const fresh = [tuple(m(S1, 'p1', 'e1'))]
+    const evalReason = reconcileReason(live, [m(S1, 'p1', 'e1')], true)
+    expect(evalReason).toMatch(/^RECONCILE:EVAL:[0-9a-f]{16}:[0-9a-f]{16}$/)
+    const r = await reconcileOnce(
+      dbOf([
+        { ...opp(1, fresh, 3, [['DONE', evalReason]]), unevaluated: true },
+        { ...opp(2, fresh), unevaluated: false },
+      ]),
+    )
+    expect(r).toMatchObject({ scanned: 2, stale: 1, enqueued: 0, skipped: 1 })
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('the page query asks for the unevaluated state of the current revision', async () => {
+    const db = dbOf([])
+    await reconcileOnce(db)
+    const q = new PgDialect().sqlToQuery(db.execute.mock.calls[0]?.[0] as never)
+    expect(q.sql).toContain('o.evaluated_revision IS DISTINCT FROM o.revision AS unevaluated')
+  })
+
   it('AC3: an already-present row (inserted:false) is not counted as enqueued', async () => {
     enqueue.mockResolvedValue({ inserted: false })
     const r = await reconcileOnce(dbOf([opp(1)]))

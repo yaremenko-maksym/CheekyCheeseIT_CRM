@@ -86,16 +86,18 @@ describe('visibleOpportunityPredicate', () => {
     )
   })
 
-  it('TEAM grant branch: live grant, open opportunity, no opportunity-level exclusion, live team', () => {
+  it('TEAM grant branch: live grant, open opportunity, evaluated OPEN at its current revision, live team', () => {
     const text = flat(render(visibleOpportunityPredicate(teamA, id)).sql)
     expect(text).toContain('OR EXISTS (SELECT 1 FROM job_opportunity_team_triage g')
     expect(text).toContain('g.team_id = $5::uuid')
     expect(text).toContain('g.revoked_at IS NULL')
     expect(text).toContain('g.expires_at > clock_timestamp()')
     expect(text).toContain("gop.availability NOT IN ('CLOSED', 'EXPIRED')")
+    // SR-M-2: `= 'OPEN'` and `=` are false on NULL, so never evaluated fails closed.
     expect(text).toContain(
-      "AND NOT EXISTS (SELECT 1 FROM job_opportunity_matches x WHERE x.opportunity_id = gop.id AND x.opportunity_revision = gop.revision AND x.outcome = 'EXCLUDED' AND x.evidence->>'stage' IN ('CLASSIFICATION', 'GLOBAL_RESTRICTIONS'))",
+      "AND gop.evaluated_revision = gop.revision AND gop.evaluation_verdict = 'OPEN'",
     )
+    expect(text).not.toContain('job_opportunity_matches x')
     expect(text).toContain(
       "EXISTS (SELECT 1 FROM teams gt WHERE gt.id = $6::uuid AND gt.archived_at IS NULL AND gt.type = 'SENIOR')",
     )

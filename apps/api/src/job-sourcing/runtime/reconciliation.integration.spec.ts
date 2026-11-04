@@ -105,6 +105,11 @@ describe.skipIf(!hasDatabaseUrl())('match reconciliation against Postgres (Task 
     mine.none = await opportunity('none')
     mine.old = await opportunity('old', `now() - interval '40 days'`)
     await match(mine.fresh, live.profile, live.exclusion)
+    // Fresh also means evaluated at its current revision (SR-M-2); the others stale either way.
+    await session.admin.query(
+      `UPDATE job_opportunities SET evaluated_revision = 1, evaluation_verdict = 'OPEN' WHERE id = $1`,
+      [mine.fresh],
+    )
     await match(mine.stale, 'OLD-PROFILE', live.exclusion)
     await match(mine.old, live.profile, 'OLD-EXCLUSION')
   })

@@ -188,6 +188,13 @@ const PART_11_INDEXES = [
  * after PART_11, as the deploy would. Adds no standalone index (the UNIQUE replaces one).
  */
 const PART_12_MIGRATION = '2026-11-04_job_queue_submissions_per_senior.sql'
+/**
+ * PART_13 — r5 Task 6.1 SR-M-2 (STAGED/DARK): `job_opportunities` gains `evaluated_revision`,
+ * `evaluation_verdict` (the new enum `job_opportunity_verdict`) and their pair CHECK. Declared in
+ * Drizzle last, so the column rank matches an `ADD COLUMN`; production gets them ONLY through this
+ * file. Applied after PART_12, as the deploy would. Adds no standalone index.
+ */
+const PART_13_MIGRATION = '2026-11-04_job_opportunities_evaluation_verdict.sql'
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
 const SCHEMA = 'ddl_job_opportunities_store'
 /** Its own schema, so the migration path cannot disturb the fresh-path comparison. */
@@ -241,9 +248,10 @@ const PRE_STORE_JOB_SOURCES_CONSTRAINTS = ['job_sources_pkey', 'uq_job_sources_t
 const PRE_STORE_JOB_SOURCES_INDEXES = ['job_sources_pkey', 'uq_job_sources_type_config']
 
 /**
- * The `job_*` enum types that predate this store. `enums.ts` declares 27 in total; these
- * 8 are older, which is what leaves the 19 the forward DDL creates. (That arithmetic is
- * also the correct explanation of the "~27" figure in the original task brief.)
+ * The `job_*` enum types that predate this store. `enums.ts` declares 28 in total; these
+ * 8 are older, which is what leaves the 20 the forward DDL creates (19 in PART_1, one in
+ * PART_13). (The arithmetic also explains the "~27" figure in the original task brief,
+ * written before PART_13.)
  */
 const PRE_STORE_ENUMS = [
   'job_exclusion_kind',
@@ -257,7 +265,7 @@ const PRE_STORE_ENUMS = [
 ]
 
 /** Tripwires on the DERIVED expectation — they fail if the reference side shifts. */
-const EXPECTED = { tables: 19, enums: 19, jobSourcesColumns: 20, indexes: 44 } as const
+const EXPECTED = { tables: 19, enums: 20, jobSourcesColumns: 20, indexes: 44 } as const
 /**
  * The standalone indexes beyond part 2's 44: T1's two (PART_5), T8's one (PART_6), SR-M-4's one
  * (PART_8), SR-H-2's one (PART_9), CR-M-4's one (PART_10) and backlog 347's two (PART_11).
@@ -659,6 +667,7 @@ const applyBothParts = (client: PoolClient): Promise<void> =>
     PART_10_MIGRATION,
     PART_11_MIGRATION,
     PART_12_MIGRATION,
+    PART_13_MIGRATION,
   ])
 const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 
@@ -1316,8 +1325,10 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         PART_8_MIGRATION,
         PART_9_MIGRATION,
         // PART_10/11 add standalone indexes only, which this comparison does not read;
-        // PART_12 adds a column, an FK and a UNIQUE, which it does.
+        // PART_12 adds a column, an FK and a UNIQUE, which it does; PART_13 an enum, two columns
+        // and a CHECK.
         PART_12_MIGRATION,
+        PART_13_MIGRATION,
       ])
       beforeMigration = await readCatalog(client, MIGRATION_SCHEMA)
       await applyParts(client, [PART_3_MIGRATION])

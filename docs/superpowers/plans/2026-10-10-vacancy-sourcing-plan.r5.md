@@ -171,9 +171,9 @@ sends the next reader to ask it again.
 
 - **No global "taken" state.** An opportunity another team worked on must look, to this actor, exactly like one
   nobody touched — not greyed, badged or labelled. The only activity ever shown is the actor's own team's.
-  **Exception pending the owner (A3, raised by Phase 6 T0):** a senior who belongs to several teams — see Task 6.3
-  "Open decision"; under the recommended option another team's submission of that senior shows only as a bare
-  "submitted elsewhere" marker, and the staged per-senior DDL is not promoted until this is decided.
+  **One exception, owner decision A3 (2026-11-04), option (a):** a senior who belongs to several teams. A submission
+  is a fact about the senior: it is shown to every team the senior belongs to, without a name, and another team sees
+  only `{ submittedElsewhere: true }`. UNIQUE(opportunity, senior) stays — see Task 6.3 "Decision".
 - **A submission is a per-senior fact** on one opportunity; several of a team's seniors may be submitted to it
   independently. It hangs off the existing per-senior match row (`job_opportunity_matches`, already keyed on
   opportunity × senior and versioned).
@@ -1031,10 +1031,10 @@ triage marks the system's uncertainty and is not a lock.
 any form: no taken badge, no count, no name, no distinct error. A foreign submission, dismissal or click is
 indistinguishable from none. In particular a 409 never reveals that a _foreign_ row exists: a conflict is reported
 only against rows inside the actor's own scope, and an opportunity outside the scope is the same
-`JOB_OPPORTUNITY_NOT_FOUND` 404 as a missing one. **One exception, pending the owner (see "Open decision" below):** a
-senior who belongs to several teams. Under option (a) another team's live submission of that senior is shown as the
-bare marker `jobQueueForeignSubmissionSchema` (`{ submittedElsewhere: true }`) — never its id, timestamps, version,
-submitter or team.
+`JOB_OPPORTUNITY_NOT_FOUND` 404 as a missing one. **One exception, owner decision A3 (see "Decision" below):** a
+senior who belongs to several teams. Another team's live submission of that senior is shown as the bare marker
+`jobQueueForeignSubmissionSchema` (`{ submittedElsewhere: true }`) — never its id, timestamps, version, submitter or
+team.
 
 **Who may do what.**
 
@@ -1073,23 +1073,20 @@ two unmerged copies cannot both pass without confirmation.
 `JOB_OPPORTUNITY_NOT_FOUND` (404), the same as a missing one — no distinct code. Throttles stay as in the table. Legacy
 `job_posting_signals` stays untouched; new indexes only via staged forward DDL.
 
-**Another team's submission on the card (option (a) only).** The card's per-senior `submission` is either the full
+**Another team's submission on the card.** The card's per-senior `submission` is either the full
 `jobQueueSubmissionSchema` row — only for a submission inside the viewer's scope — or the bare marker
 `jobQueueForeignSubmissionSchema` (`{ submittedElsewhere: true }`) for another team's live submission of a shared
 senior. Never the foreign row itself. The Task 6.4 real-DB spec asserts on the raw card JSON that each of `id`,
 `submittedAt`, `cancelledAt`, `version`, `submittedByName`, `teamId` is ABSENT from a foreign marker (absence, not
 merely "did not parse").
 
-**Open decision (A3, raised by T0 — a PROMOTION GATE for the staged DDL, not only for the submit path).**
-`team_members` allows one senior in **several** teams. With UNIQUE(opportunity, senior), a senior shared by teams A and
-B and submitted by A would make B's attempt fail on the constraint — which itself discloses A's activity — and B could
-re-submit (UPDATE) A's cancelled row. Either (a) a submission is a fact about the senior and is shown to every team the
-senior is an active member of as the bare marker above (no double application at the employer; the key stands), or (b)
-submissions are per team — the key changes to UNIQUE(opportunity, senior, team) and `team_id` must become NOT NULL for
-team rows, so the staged file is rewritten before promotion (no disclosure, but a double application).
-Recommendation: **(a)**, because a double application harms the senior at the employer and the shared senior is common
-knowledge to both teams. Until the owner answers, the staged DDL is not promoted and Task 6.3 does not ship the submit
-path (the gate is restated in the staged file's header and in `schema/job-queue.ts`).
+**Decision (A3, owner, 2026-11-04): option (a); the submit path is unblocked.** `team_members` allows one senior in
+**several** teams. A submission is a fact about the senior: it is shown to every team the senior belongs to, without a
+name; another team sees only `{ submittedElsewhere: true }`. UNIQUE(opportunity, senior) stays, so the staged file is
+promoted as written (no double application at the employer). Because the key is shared, a shared senior's second
+submission hits the same row: team B's attempt on A's live submission and B's re-submission of A's cancelled row must
+disclose nothing beyond the marker (no foreign id, timestamps, version, submitter or team, in any response or error).
+What remains before promoting the staged DDL is the re-measure in its header (the table is empty on production).
 
 - [ ] Real-DB tests: two seniors submitted to one opportunity both succeed; the same senior twice — one wins, the
       other is a version / unique conflict without foreign identity; repeated key; lost-response retry; audit failure
@@ -1113,11 +1110,12 @@ path (the gate is restated in the staged file's header and in `schema/job-queue.
 Explicit `@Inject`, `@UseGuards(RolesGuard)` + `@Roles`, parsed request/response schemas, `@Throttle` per route on
 top of the global `UserAwareThrottlerGuard`; error codes from `api-errors/job-sourcing.ts`.
 
-**Precondition (owner decision pending, backlog entry 349 / Task 6.1 SR-M-2):** the triage-grant visibility gap
-(a grant still shows an opportunity between a revision bump and its recompute, and indefinitely with an empty
-roster) is decided by the owner (options 1/2/3 in the entry), and the pinned SR-M-2 case in the queue-scope
-integration spec is flipped to a 404, or the owner's acceptance is written in the entry. Tasks 6.2 and 6.3 must not
-inject `JobQueueScopeService` before that decision either: the first caller is the first exposure.
+**Precondition (backlog entry 349 / Task 6.1 SR-M-2):** the decision on the triage-grant visibility gap is taken
+(owner, 2026-11-04, option 1) and closed in code: a grant shows an opportunity only when it was evaluated OPEN at its
+current revision, and never-evaluated fails closed. Tasks 6.2, 6.3 and 6.4 may now inject `JobQueueScopeService`. What
+remains is an owner step: promote the staged DDL `manual-staged/2026-11-04_job_opportunities_evaluation_verdict.sql`
+before the queue is exposed (and before `JOB_MATCH_RECONCILIATION_ENABLED` is on with this code; its header gives the
+order and the backfill). Until the recompute reaches an existing opportunity, a grant keeps it hidden.
 
 | Method        | Endpoint                                     | Contract / limit                                                                                                            |
 | ------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |

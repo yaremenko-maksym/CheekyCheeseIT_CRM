@@ -366,6 +366,9 @@ export const jobOpportunityMatchOutcomeEnum = pgEnum('job_opportunity_match_outc
   'EXCLUDED',
 ])
 
+/** The opportunity-level result of one evaluation (the CLASSIFICATION / GLOBAL_RESTRICTIONS stages). */
+export const jobOpportunityVerdictEnum = pgEnum('job_opportunity_verdict', ['OPEN', 'EXCLUDED'])
+
 export const jobOpportunityLinkDecisionEnum = pgEnum('job_opportunity_link_decision', [
   'AUTO',
   'CONFIRMED',

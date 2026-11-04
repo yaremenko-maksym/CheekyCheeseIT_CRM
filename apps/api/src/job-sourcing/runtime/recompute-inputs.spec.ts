@@ -15,6 +15,7 @@ import {
   loadOpportunity,
   loadRoster,
   matchRows,
+  opportunityVerdict,
   profileVersion,
   rosterVersions,
 } from './recompute-inputs'
@@ -98,6 +99,48 @@ const evaluated = (
     trace: [],
     audit: { excluded, noTeamAccess: [], ignoredExclusionIds: [] },
   }) as unknown as Evaluated
+
+const excludedBy = (
+  subject: string,
+  stage: Excluded['audit']['excluded'][number]['stage'],
+): Excluded => ({
+  kind: 'EXCLUDED',
+  recordKey: 'k',
+  opportunityId: OPP,
+  revisionId: '1',
+  evaluatedAt: '2026-10-26T10:00:00.000Z',
+  reasons: [reason],
+  trace: [],
+  audit: {
+    excluded: [{ subject, stage, reasons: [reason], inputs: {} }],
+    noTeamAccess: [],
+    ignoredExclusionIds: [],
+  },
+})
+
+describe('opportunityVerdict (SR-M-2)', () => {
+  it.each([
+    [
+      'a layer-1 reject or a closed posting',
+      excludedBy('OPPORTUNITY', 'CLASSIFICATION'),
+      'EXCLUDED',
+    ],
+    ['a studio-wide exclusion', excludedBy('OPPORTUNITY', 'GLOBAL_RESTRICTIONS'), 'EXCLUDED'],
+    // Owner A1g: `kind` is EXCLUDED here, yet the team still sees the opportunity.
+    ['every senior stop-listed', excludedBy(`SENIOR:${A}`, 'SCOPED_RESTRICTIONS'), 'OPEN'],
+    ['a plain evaluation', evaluated([]), 'OPEN'],
+    [
+      'an evaluation with one senior stop-listed',
+      evaluated(
+        [projection(`SENIOR:${B}`, 'LEAD')],
+        [{ subject: `SENIOR:${A}`, stage: 'SCOPED_RESTRICTIONS', reasons: [reason], inputs: {} }],
+      ),
+      'OPEN',
+    ],
+  ] as const)('%s -> %s', (_name, result, expected) => {
+    expect(opportunityVerdict(result)).toBe(expected)
+  })
+})
 
 describe('matchRows', () => {
   it('LEAD per matched senior scope; studio and team projections are not per-senior rows', () => {
@@ -300,7 +343,7 @@ describe('loadRoster', () => {
     { id: B, tech_stack: null, team_ids: ['t1'] },
   ]
 
-  it('an empty roster reads no exclusions', async () => {
+  it('an empty roster has no seniors and no versions', async () => {
     const { tx, statements } = recording()
     expect(await loadRoster(tx)).toEqual({
       rosterSeniorIds: [],
@@ -308,9 +351,31 @@ describe('loadRoster', () => {
       exclusions: [],
       versions: new Map(),
     })
-    expect(statements).toHaveLength(1)
     expect(statements[0]?.sql).toMatch(/u\.role = 'SENIOR' AND u\.archived_at IS NULL/)
     expect(statements[0]?.sql).toMatch(/tm\.left_at IS NULL/)
+  })
+
+  it('SR-M-2: an empty roster still loads the studio-wide exclusions, or its verdict would miss them', async () => {
+    const { tx } = recording((q) =>
+      /FROM job_exclusion_filters/.test(q.sql)
+        ? [
+            {
+              id: 'g1',
+              senior_id: null,
+              kind: 'KEYWORD',
+              value: 'crypto',
+              normalized_value: 'crypto',
+              created_at: new Date('2026-02-03T04:05:06.789Z'),
+            },
+          ]
+        : [],
+    )
+    const r = await loadRoster(tx)
+    expect(r.rosterSeniorIds).toEqual([])
+    expect(r.versions).toEqual(new Map())
+    expect(r.exclusions).toMatchObject([
+      { id: 'g1', scope: 'GLOBAL', seniorId: null, kind: 'KEYWORD', normalizedValue: 'crypto' },
+    ])
   })
 
   it('profiles with sorted teams; stored and project-derived exclusions of the roster only', async () => {
@@ -665,7 +730,8 @@ describe('installMatches', () => {
   it('replaces the rows at this revision and never touches a newer revision', async () => {
     const { tx, statements } = recording()
     expect(await installMatches(tx, OPP, 4, result, withExclusions)).toBe(1)
-    const [del, ins] = statements
+    const [del, record, ins] = statements
+    expect(record?.params).toEqual([4, 'OPEN', OPP, 4])
     expect(del?.sql).toMatch(/DELETE FROM job_opportunity_matches/)
     expect(del?.sql).toMatch(/opportunity_revision <= \$2/)
     expect(del?.params.slice(0, 2)).toEqual([OPP, 4])
@@ -706,11 +772,38 @@ describe('installMatches', () => {
     expect(statements).toEqual([])
   })
 
-  it('no row to install: only the delete runs', async () => {
+  it('no row to install: the delete and the evaluation record run, no upsert', async () => {
     const { tx, statements } = recording()
     expect(await installMatches(tx, OPP, 1, evaluated([]), roster)).toBe(0)
-    expect(statements).toHaveLength(1)
+    expect(statements).toHaveLength(2)
     expect(statements[0]?.params[2]).toBe('[]')
+    expect(statements[1]?.sql).toMatch(/UPDATE job_opportunities/)
+    expect(statements[1]?.params).toEqual([1, 'OPEN', OPP, 1])
+  })
+
+  it('SR-M-2: the evaluation record never overwrites a newer revision', async () => {
+    const { tx, statements } = recording()
+    await installMatches(tx, OPP, 7, evaluated([]), roster)
+    const update = statements[1]?.sql.replace(/\s+/g, ' ')
+    expect(update).toContain(
+      'UPDATE job_opportunities SET evaluated_revision = $1, evaluation_verdict = $2::job_opportunity_verdict',
+    )
+    expect(update).toContain(
+      'WHERE id = $3::uuid AND (evaluated_revision IS NULL OR evaluated_revision <= $4)',
+    )
+  })
+
+  it('SR-M-2: an opportunity-level exclusion is recorded as EXCLUDED, with an empty roster too', async () => {
+    const { tx, statements } = recording()
+    const bare: RosterInputs = {
+      rosterSeniorIds: [],
+      profiles: [],
+      exclusions: [],
+      versions: new Map(),
+    }
+    const verdict = excludedBy('OPPORTUNITY', 'GLOBAL_RESTRICTIONS')
+    expect(await installMatches(tx, OPP, 2, verdict, bare)).toBe(0)
+    expect(statements[1]?.params).toEqual([2, 'EXCLUDED', OPP, 2])
   })
 
   it('the rule version names both stages', () => {

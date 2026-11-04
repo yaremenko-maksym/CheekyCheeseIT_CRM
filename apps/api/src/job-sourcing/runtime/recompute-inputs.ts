@@ -110,8 +110,8 @@ export async function loadRoster(db: SqlExecutor): Promise<RosterInputs> {
     techStack: strings(r['tech_stack']),
   }))
   const ids = profiles.map((p) => p.seniorId)
-  if (ids.length === 0)
-    return { rosterSeniorIds: [], profiles, exclusions: [], versions: new Map() }
+  // No early return on an empty roster (SR-M-2): studio-wide exclusions apply to the opportunity
+  // itself, so its verdict must still see them when there is nobody to match.
   const roster = sql`(SELECT jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb)::uuid)`
   const { rows: manual } = await db.execute(
     sql`SELECT id, senior_id, kind, value, normalized_value, created_at FROM job_exclusion_filters
@@ -406,6 +406,19 @@ export function matchRows(result: Evaluated | Excluded, roster: RosterInputs): M
   return [...rows.keys()].sort().map((id) => rows.get(id) as MatchRow)
 }
 
+export type OpportunityVerdict = 'OPEN' | 'EXCLUDED'
+
+/**
+ * The opportunity-level result of a verdict (SR-M-2): EXCLUDED only by a non-senior audit entry, the
+ * same test `matchRows` applies, i.e. `evaluate`'s OPPORTUNITY-subject CLASSIFICATION and
+ * GLOBAL_RESTRICTIONS stages. Every senior being stop-listed is NOT one (`kind` is EXCLUDED then, but
+ * the opportunity stays OPEN for a team, owner A1g), and neither stage reads the roster, so the
+ * result is the same with an empty one.
+ */
+export function opportunityVerdict(result: Evaluated | Excluded): OpportunityVerdict {
+  return result.audit.excluded.some((e) => !e.subject.startsWith(SENIOR)) ? 'EXCLUDED' : 'OPEN'
+}
+
 const digest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 32)
 
@@ -476,8 +489,11 @@ export function rosterVersions(
 
 /**
  * Replace the opportunity's matches with the verdict for `revision`, inside the caller's
- * transaction (which holds the opportunity and has checked `revision` is current). Neither the
- * upsert nor the delete ever touches a row of a NEWER revision.
+ * transaction (which holds the opportunity and has checked `revision` is current), and record on
+ * the opportunity that `revision` was evaluated and with what opportunity-level result. That record
+ * is written even when there are no rows (a plain mismatch, an empty roster): it is what the queue's
+ * grant branch reads (SR-M-2). Neither the upsert, the delete nor the record ever touches a NEWER
+ * revision.
  *
  * STALENESS (SR-M-2): since S5 a senior's stack / role / archive / team change, an exclusion and a
  * project client change enqueue a recompute of every opportunity in the write's own transaction
@@ -511,6 +527,13 @@ export async function installMatches(
     sql`DELETE FROM job_opportunity_matches
          WHERE opportunity_id = ${opportunityId}::uuid AND opportunity_revision <= ${revision}
            AND senior_id NOT IN (SELECT (x->>'senior_id')::uuid FROM jsonb_array_elements(${json}::jsonb) x)`,
+  )
+  await tx.execute(
+    sql`UPDATE job_opportunities
+           SET evaluated_revision = ${revision},
+               evaluation_verdict = ${opportunityVerdict(result)}::job_opportunity_verdict
+         WHERE id = ${opportunityId}::uuid
+           AND (evaluated_revision IS NULL OR evaluated_revision <= ${revision})`,
   )
   if (rows.length === 0) return 0
   const upsert: SQL = sql`

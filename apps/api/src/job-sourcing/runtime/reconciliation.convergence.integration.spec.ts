@@ -239,6 +239,27 @@ describe.skipIf(!hasDatabaseUrl())(
       expect((await dirtyOf(o)).length).toBe(1)
     }, 60_000)
 
+    it('SR-M-2: an opportunity with fresh rows and no evaluation record (the staged-DDL backfill) is recomputed once', async () => {
+      const o = await opportunity('backfill')
+      await makeStale(o)
+      await sweep(o)
+      expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+      // A plain DONE row exists, the rows are fresh: without the EVAL lineage nothing would run.
+      await session.admin.query(
+        `UPDATE job_opportunities SET evaluated_revision = NULL, evaluation_verdict = NULL WHERE id = $1`,
+        [o],
+      )
+      expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
+      expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+      const { rows } = await session.admin.query(
+        `SELECT revision, evaluated_revision, evaluation_verdict FROM job_opportunities WHERE id = $1`,
+        [o],
+      )
+      expect(rows[0].evaluated_revision).toBe(rows[0].revision)
+      expect(rows[0].evaluation_verdict).toBe('OPEN')
+      expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 0, enqueued: 0, skipped: 0 })
+    }, 60_000)
+
     it('CR-M-4 / SR-M-3: an always-failing opportunity is retried up to the cap, then no more; a new revision resets it', async () => {
       const o = await opportunity('poison')
       await makeStale(o)

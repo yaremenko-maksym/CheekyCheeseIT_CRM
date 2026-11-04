@@ -47,6 +47,11 @@ import { MATCH_RULE_VERSION, type SeniorVersions, loadRoster } from './recompute
  * sweep stops and reports the opportunity as gave-up. The cap resets by itself: a new revision is a
  * new `target_version`, and a roster or stored-state change is a new reason digest.
  *
+ * UNEVALUATED (SR-M-2). An opportunity whose `evaluated_revision` is not its current revision is
+ * stale too, even when its rows are fresh, under its own `RECONCILE:EVAL:` lineage: a DONE row from
+ * before the column existed must not suppress it. This is the backfill of the staged DDL (every
+ * existing row starts NULL) and the repair of a revision bump whose producer row was lost.
+ *
  * The cron also runs `recoverExpiredDirty` first, so a crashed worker's expired lease becomes
  * PENDING (or FAILED, then retried as above) instead of staying CLAIMED for good.
  *
@@ -204,12 +209,13 @@ export function isStale(
 export function reconcileReason(
   live: ReadonlyMap<string, SeniorVersions>,
   matches: readonly StoredMatch[],
+  unevaluated = false,
 ): string {
   const roster = digest([...live].map(([id, v]) => `${id}|${v.profile}|${v.exclusion}`).sort())
   const stored = digest(
     matches.map((m) => `${m.seniorId}|${m.profile}|${m.exclusion}|${m.rule}`).sort(),
   )
-  return `RECONCILE:${roster}:${stored}`
+  return `RECONCILE:${unevaluated ? 'EVAL:' : ''}${roster}:${stored}`
 }
 
 /**
@@ -243,6 +249,7 @@ export async function reconcileOnce(
   while (pages < maxPages) {
     const { rows } = await db.execute(
       sql`SELECT o.id, o.revision,
+                 o.evaluated_revision IS DISTINCT FROM o.revision AS unevaluated,
                  COALESCE((SELECT jsonb_agg(jsonb_build_array(m.senior_id, m.senior_profile_version,
                                                               m.exclusion_version, m.rule_version))
                              FROM job_opportunity_matches m WHERE m.opportunity_id = o.id), '[]'::jsonb) AS matches,
@@ -258,9 +265,10 @@ export async function reconcileOnce(
       let verdict: { reason: string | null; gaveUp: boolean } | null = null
       try {
         const matches = parseMatches(row['matches'])
-        if (isStale(matches, live)) {
+        const unevaluated = row['unevaluated'] === true
+        if (unevaluated || isStale(matches, live)) {
           const dirty = parseDirty(row['dirty'])
-          const base = reconcileReason(live, matches)
+          const base = reconcileReason(live, matches, unevaluated)
           verdict = { reason: enqueueReason(dirty, base, now()), gaveUp: hasGivenUp(dirty, base) }
         }
       } catch {

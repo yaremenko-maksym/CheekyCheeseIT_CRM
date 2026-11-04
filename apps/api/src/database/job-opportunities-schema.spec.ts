@@ -270,6 +270,13 @@ describe('job_opportunities', () => {
       ]),
     )
   })
+  it('SR-M-2: the evaluated revision and verdict are nullable, without a default, declared last', () => {
+    expect(names(jobOpportunities).slice(-2)).toEqual(['evaluated_revision', 'evaluation_verdict'])
+    for (const name of ['evaluated_revision', 'evaluation_verdict']) {
+      expect(col(jobOpportunities, name).notNull).toBe(false)
+      expect(col(jobOpportunities, name).hasDefault).toBe(false)
+    }
+  })
   it('employer is nullable (no employer invented from a slug) and unverified by default', () => {
     expect(col(jobOpportunities, 'employer_name').notNull).toBe(false)
     expect(col(jobOpportunities, 'employer_key').notNull).toBe(false)

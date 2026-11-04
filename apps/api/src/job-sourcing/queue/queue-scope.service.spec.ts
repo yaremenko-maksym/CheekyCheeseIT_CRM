@@ -157,15 +157,14 @@ describe('JobQueueScopeService.resolve', () => {
     await expect(svc.resolve(user('HR'), TEAM_A.toUpperCase())).resolves.toEqual(teamAScope)
   })
 
-  it('a team with no matchable senior has empty seniors and versions (roster read stops early)', async () => {
-    const { svc, execute } = harness([{ id: TEAM_A }], [])
+  it('a team with no matchable senior has empty seniors and versions', async () => {
+    const { svc } = harness([{ id: TEAM_A }], [], [], [])
     await expect(svc.resolve(user('HR'), TEAM_A)).resolves.toEqual({
       kind: 'TEAM',
       teamId: TEAM_A,
       seniorIds: [],
       versions: [],
     })
-    expect(execute).toHaveBeenCalledTimes(2)
   })
 
   it('HR naming a foreign team is NONE (not 403/404), and no roster is read', async () => {
@@ -257,6 +256,18 @@ describe('describeFailure', () => {
     // both absent / not strings
     [new Error('x', { cause: { code: 57 } }), 'Error'],
     [Object.assign(new Error('x'), { code: 23505 }), 'Error'],
+    // SR-L-6: only a SQLSTATE / errno shape is logged, a free-text `code` is not
+    [Object.assign(new Error('x'), { code: 'ECONNRESET' }), 'Error, code ECONNRESET'],
+    [Object.assign(new Error('x'), { code: 'ERR_TLS_CERT_01' }), 'Error, code ERR_TLS_CERT_01'],
+    [Object.assign(new Error('x'), { code: 'A'.repeat(32) }), `Error, code ${'A'.repeat(32)}`],
+    [Object.assign(new Error('x'), { code: 'A'.repeat(33) }), 'Error'],
+    [Object.assign(new Error('x'), { code: '' }), 'Error'],
+    [Object.assign(new Error('x'), { code: 'secret@example.test' }), 'Error'],
+    [Object.assign(new Error('x'), { code: 'lowercase' }), 'Error'],
+    [Object.assign(new Error('x'), { code: ' 23505' }), 'Error'],
+    [Object.assign(new Error('x'), { code: '23505 ' }), 'Error'],
+    [Object.assign(new Error('x'), { code: '23505\nparams: secret' }), 'Error'],
+    [new Error('x', { cause: { code: 'params: secret' } }), 'Error'],
     [new Error('x', { cause: null }), 'Error'],
     [new Error('x', { cause: 'text' }), 'Error'],
     [42, 'number'],
