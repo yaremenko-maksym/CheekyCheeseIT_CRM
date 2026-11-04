@@ -215,7 +215,7 @@ describe('JobQueueScopeService.resolve', () => {
       'JOB_QUEUE_POLICY_UNAVAILABLE',
     )
     expect(log).toHaveBeenCalledWith(
-      'queue policy evaluation failed: DrizzleQueryError, cause DatabaseError, code 22P02',
+      'queue policy evaluation failed: DrizzleQueryError, cause DatabaseError, cause code 22P02',
     )
     const line = String(log.mock.calls[0]?.[0])
     expect(line).not.toContain('params:')
@@ -235,8 +235,28 @@ describe('describeFailure', () => {
   it.each([
     [new Error('secret'), 'Error'],
     [new Error('x', { cause: new TypeError('y') }), 'Error, cause TypeError'],
-    [new Error('x', { cause: { code: '57P01' } }), 'Error, code 57P01'],
+    // wrapper with a cause code (drizzle over pg); the SQL / params message never appears
+    [
+      new DrizzleQueryError(
+        'Failed query: x\nparams: secret',
+        Object.assign(new DatabaseError('m'), { code: '22P02' }),
+      ),
+      'DrizzleQueryError, cause DatabaseError, cause code 22P02',
+    ],
+    [new Error('x', { cause: { code: '57P01' } }), 'Error, cause code 57P01'],
+    // raw pg error with its own code (SR-L-5)
+    [
+      Object.assign(new DatabaseError('duplicate key value (secret)'), { code: '23505' }),
+      'DatabaseError, code 23505',
+    ],
+    // own code and cause code both present
+    [
+      Object.assign(new Error('x', { cause: { code: '40001' } }), { code: '08006' }),
+      'Error, code 08006, cause code 40001',
+    ],
+    // both absent / not strings
     [new Error('x', { cause: { code: 57 } }), 'Error'],
+    [Object.assign(new Error('x'), { code: 23505 }), 'Error'],
     [new Error('x', { cause: null }), 'Error'],
     [new Error('x', { cause: 'text' }), 'Error'],
     [42, 'number'],

@@ -120,7 +120,8 @@ export class JobQueueScopeService {
 }
 
 /**
- * The error's class, plus its cause's class and SQLSTATE `code` when present — NEVER a message
+ * The error's class and string SQLSTATE `code` (a raw pg `DatabaseError` carries it on itself,
+ * SR-L-5), plus its cause's class and `code` when present (drizzle's wrapper) — NEVER a message
  * (SR-L-3): drizzle's `DrizzleQueryError` message is `Failed query: <sql>\nparams: <params>`, and
  * those params are team, senior and user ids and version hashes.
  */
@@ -128,10 +129,17 @@ export function describeFailure(err: unknown): string {
   if (!(err instanceof Error)) return typeof err
   const cause: unknown = err.cause
   const parts = [err.constructor.name]
+  const own = sqlState(err)
+  if (own !== null) parts.push(`code ${own}`)
   if (cause instanceof Error) parts.push(`cause ${cause.constructor.name}`)
-  const code = (cause as { code?: unknown } | null | undefined)?.code
-  if (typeof code === 'string') parts.push(`code ${code}`)
+  const inner = sqlState(cause)
+  if (inner !== null) parts.push(`cause code ${inner}`)
   return parts.join(', ')
+}
+
+const sqlState = (value: unknown): string | null => {
+  const code = (value as { code?: unknown } | null | undefined)?.code
+  return typeof code === 'string' ? code : null
 }
 
 const notFound = () => apiError('JOB_OPPORTUNITY_NOT_FOUND', HttpStatus.NOT_FOUND)
