@@ -180,6 +180,7 @@ describe('InMemoryEnrichmentState', () => {
       parserVersion: 'p1',
       policyVersion: 1,
       modelPending: false,
+      modelAttempts: 0,
     }
     await state.put('k', record)
     expect(await state.get('k')).toBe(record)

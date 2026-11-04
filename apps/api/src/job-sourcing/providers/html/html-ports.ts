@@ -24,8 +24,8 @@ export function hostGapMs(crawlDelaySeconds: number | null): number {
 export interface HostGatePort {
   /**
    * Resolves when a request to `origin` may leave: at least `minGapMs` after the previous one was
-   * let go (start-to-start). Rejects with the signal's reason when `signal` aborts during the wait,
-   * so a cancelled run never sits out a long Crawl-delay.
+   * let go (start-to-start). Rejects with the signal's reason when `signal` aborts during the wait;
+   * the provider's signal aborts on a cancel and at the run deadline, so no Crawl-delay outlasts it.
    */
   acquire(origin: string, minGapMs: number, signal?: AbortSignal): Promise<void>
 }
@@ -97,6 +97,8 @@ export interface EnrichmentRecord {
    * a throw). Such an item is reparsed and offered to the model again even when unchanged.
    */
   readonly modelPending: boolean
+  /** Model passes missed in a row while owed; capped, so a failing model is not retried forever. */
+  readonly modelAttempts: number
 }
 
 export interface EnrichmentStatePort {

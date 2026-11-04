@@ -236,6 +236,9 @@ interface Admitted {
 type Admission = Admitted | { readonly refused: 'POLICY' | 'BYTE_BUDGET'; readonly reason: string }
 
 /** Detail stops after which the model stage does not run: the run is out of time or permission. */
+/** When an owed item is due again after its 1st and 2nd missed model pass; the 3rd settles it. */
+const MODEL_BACKOFF_MS: readonly number[] = [6 * 60 * 60 * 1000, 24 * 60 * 60 * 1000]
+
 const RUN_ENDING_STOPS: ReadonlySet<DetailStop | null> = new Set([
   'CANCELLED',
   'DEADLINE',
@@ -443,12 +446,29 @@ export abstract class HtmlProvider<
     return { url: checked.url, robots }
   }
 
-  private pace(attempt: Attempt, admitted: Admitted): Promise<void> {
-    return this.deps.hostGate.acquire(
-      admitted.url.origin,
-      hostGapMs(admitted.robots.crawlDelaySeconds),
-      attempt.ctx.signal,
-    )
+  /**
+   * Waits out the host gap, but never past the run: the wait ends on a cancel AND at the deadline,
+   * since a Crawl-delay may be up to a day. Null when the request may leave, else why it may not.
+   */
+  private async pace(
+    attempt: Attempt,
+    admitted: Admitted,
+  ): Promise<'CANCELLED' | 'DEADLINE' | null> {
+    const { ctx } = attempt
+    const deadline = new AbortController()
+    const timer = setTimeout(() => deadline.abort(), ctx.deadline.getTime() - ctx.now().getTime())
+    try {
+      await this.deps.hostGate.acquire(
+        admitted.url.origin,
+        hostGapMs(admitted.robots.crawlDelaySeconds),
+        AbortSignal.any([ctx.signal, deadline.signal]),
+      )
+      return null
+    } catch {
+      return deadline.signal.aborted ? 'DEADLINE' : 'CANCELLED'
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   private async transmit(attempt: Attempt, request: FetchRequest): Promise<FetchedText> {
@@ -476,12 +496,8 @@ export abstract class HtmlProvider<
         message: `html request refused: ${admitted.reason}`,
       }
     }
-    try {
-      await this.pace(attempt, admitted)
-    } catch {
-      return { code: 'CANCELLED', message: 'html request refused: CANCELLED' }
-    }
-    return null
+    const paced = await this.pace(attempt, admitted)
+    return paced === null ? null : { code: paced, message: `html request refused: ${paced}` }
   }
 
   /** A run-ending error: it propagates (detail-tail contract) instead of failing one item. */
@@ -701,10 +717,10 @@ export abstract class HtmlProvider<
           continue
         }
         admitted = true
-        try {
-          await this.pace(attempt, admission)
-        } catch {
-          stop = 'CANCELLED'
+        // The gap may have used up the run: asked again before anything is reserved.
+        stop =
+          (await this.pace(attempt, admission)) ?? this.detailStopBefore(attempt, sent, ctx.now())
+        if (stop !== null) {
           remainingIds.push(item.id)
           continue
         }
@@ -734,6 +750,7 @@ export abstract class HtmlProvider<
           contentHash: null,
           validator: null,
           modelPending: false,
+          modelAttempts: 0,
         })
         if ('failure' in result) {
           await this.deps.enrichment.put(key, failure(result.failure))
@@ -760,6 +777,8 @@ export abstract class HtmlProvider<
           contentHash: hash,
           validator,
           modelPending,
+          // Missed model passes count on only while the item stays owed.
+          modelAttempts: current?.modelPending === true ? current.modelAttempts : 0,
         })
         if (unchanged) {
           await this.deps.enrichment.put(key, succeeded(false))
@@ -948,9 +967,11 @@ export abstract class HtmlProvider<
     }
 
     // Reached: every record the structurer did not hand back as remaining. A skip by the AI-input
-    // gate is a decision, so it reaches all; budget, outage and a partial pass leave the rest owed.
+    // gate is a decision, and an unavailable model a configuration state (retrying it re-fetches
+    // for nothing), so both reach all; budget, a failure and a partial pass leave the rest owed.
     const remainingIds = 'remainingIds' in outcome ? outcome.remainingIds : []
-    const reached = new Set([...candidates.keys()].filter((id) => !remainingIds.includes(id)))
+    const owed = new Set(outcome.kind === 'MODEL_UNAVAILABLE' ? [] : remainingIds)
+    const reached = new Set([...candidates.keys()].filter((id) => !owed.has(id)))
     if (outcome.kind !== 'EXTRACTED' && outcome.kind !== 'PARTIAL') {
       return {
         report: {
@@ -1016,18 +1037,27 @@ export abstract class HtmlProvider<
     }
   }
 
-  /** The items the model stage reached no longer owe it a pass: due again at the revisit pace. */
+  /**
+   * Settles every owed item after a model pass. Reached: no longer owed, due at the revisit pace.
+   * Missed: owed again after a backoff (6 h, then 24 h); the third miss gives up until the content
+   * changes, so a model that keeps failing never drives a refetch every few hours forever.
+   */
   private async settleModelPending(
     candidates: Map<string, ModelCandidate>,
     reached: ReadonlySet<string>,
   ): Promise<void> {
     for (const [id, { key, record }] of candidates) {
-      if (!record.modelPending || !reached.has(id)) continue
+      if (!record.modelPending) continue
+      const misses = reached.has(id) ? 0 : record.modelAttempts + 1
+      const backoff = MODEL_BACKOFF_MS[misses - 1]
       try {
         await this.deps.enrichment.put(key, {
           ...record,
-          modelPending: false,
-          nextDueAt: new Date(record.lastAttemptAt.getTime() + this.limits.revisitAfterMs),
+          modelPending: backoff !== undefined,
+          modelAttempts: misses,
+          nextDueAt: new Date(
+            record.lastAttemptAt.getTime() + (backoff ?? this.limits.revisitAfterMs),
+          ),
         })
       } catch {
         // Left pending: the item is offered to the model again, which costs a pass, loses nothing.

@@ -894,7 +894,16 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
 
     // The binding's own admission (robots, host policy, pacing), asked BEFORE anything is reserved:
     // a request refused here never touches the meter. Absent for every binding but the HTML base.
-    const refusal = await spec.beforeSend?.(pageRequest.request)
+    // An admission may WAIT (the HTML host gap), outlasting the two checks above: they are asked
+    // again after it, so a page past its deadline is never reserved.
+    const refusal =
+      spec.beforeSend &&
+      ((await spec.beforeSend(pageRequest.request)) ??
+        (ctx.signal.aborted
+          ? { code: 'CANCELLED' as const, message: 'the run was cancelled before this page' }
+          : ctx.now().getTime() >= ctx.deadline.getTime()
+            ? { code: 'DEADLINE' as const, message: 'the attempt deadline passed before this page' }
+            : null))
     if (refusal) {
       stop = refusal.code === 'CANCELLED' ? 'CANCELLED' : 'ERROR'
       requests.push(

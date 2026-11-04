@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   SourceBlockedError,
   SourceHttpStatusError,
@@ -1017,6 +1017,7 @@ describe('AC5 enrichment state: reuse, invalidation, resume, failures', () => {
       parserVersion: 'p1',
       policyVersion: 1,
       modelPending: false,
+      modelAttempts: 0,
     })
   })
 
@@ -1240,6 +1241,7 @@ describe('AC5 enrichment state: reuse, invalidation, resume, failures', () => {
       parserVersion: 'p1',
       policyVersion: 1,
       modelPending: false,
+      modelAttempts: 0,
     })
     const recB = await enrichment.get(JSON.stringify(['THEHUB_HTML', 'board', 'b']))
     expect(recB?.error).toBe('HTTP_404')
@@ -1282,6 +1284,7 @@ describe('AC5 enrichment state: reuse, invalidation, resume, failures', () => {
       parserVersion: 'p1',
       policyVersion: 1,
       modelPending: false,
+      modelAttempts: 0,
     })
     const w = world({
       routes: { [page1]: { bodyText: listing([item('a')]) }, [detailUrl('a')]: { bodyText: body } },
@@ -2002,8 +2005,10 @@ describe('one egress: admitted and paced before anything is reserved (CR-M-2, CR
     expect(r.detail.checkpoint).toEqual({ reason: 'CANCELLED', remainingIds: ['a', 'b'] })
   })
 
-  it('passes the run signal to the host gate on both paths', async () => {
+  it('hands the host gate a signal that aborts with the run, on both paths', async () => {
+    const controller = new AbortController()
     const w = world({ routes: twoItems() })
+    w.ctx.signal = controller.signal
     const signals: (AbortSignal | undefined)[] = []
     const { p } = provider(w, {
       hostGate: {
@@ -2013,8 +2018,110 @@ describe('one egress: admitted and paced before anything is reserved (CR-M-2, CR
       },
     })
     await p.collectHtml(config(), w.ctx)
-    expect(signals).toEqual([w.ctx.signal, w.ctx.signal, w.ctx.signal])
+    expect(signals).toHaveLength(3)
+    expect(signals.map((s) => s?.aborted)).toEqual([false, false, false])
+    controller.abort()
+    expect(signals.map((s) => s?.aborted)).toEqual([true, true, true])
   })
+
+  describe('the host gap never outlasts the run deadline (SR-M-3, SR-L-6)', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    /** A day-long Crawl-delay from page 2 / the first detail on, a 10 s deadline, a real gate. */
+    function slowHost(routes: Record<string, Reply>) {
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+      const w = world({
+        routes,
+        robots: () => allowed(86_400),
+        deadline: new Date(NOW.getTime() + 10_000),
+      })
+      const { p } = provider(w, { hostGate: new InMemoryHostGate() })
+      return { w, p }
+    }
+
+    it('a listing page whose wait reaches the deadline is a DEADLINE refusal, nothing reserved', async () => {
+      const { w, p } = slowHost({
+        [page1]: { bodyText: listing([item('a', 'https://o.example/a')], 'c2') },
+      })
+      const running = p.collectHtml(config(), w.ctx)
+      await vi.advanceTimersByTimeAsync(10_000)
+      const r = await running
+      expect(w.sent).toEqual([page1])
+      expect(w.reserved).toEqual([1])
+      expect(r.batch.requests[1]?.error).toEqual({
+        code: 'DEADLINE',
+        message: 'html request refused: DEADLINE',
+      })
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it('a detail whose wait reaches the deadline stops the stage DEADLINE, nothing reserved', async () => {
+      const { w, p } = slowHost(twoItems())
+      const running = p.collectHtml(config(), w.ctx)
+      await vi.advanceTimersByTimeAsync(10_000)
+      const r = await running
+      expect(w.sent).toEqual([page1])
+      expect(w.reserved).toEqual([1])
+      expect(r.detail.checkpoint).toEqual({ reason: 'DEADLINE', remainingIds: ['a', 'b'] })
+      expect(vi.getTimerCount()).toBe(0)
+    })
+  })
+
+  it('a deadline passed DURING a completed host wait stops before the reservation (SR-L-6)', async () => {
+    let now = NOW
+    const w = world({ routes: twoItems() })
+    w.ctx.deadline = new Date(NOW.getTime() + 10)
+    w.ctx.now = () => now
+    let calls = 0
+    const { p } = provider(w, {
+      hostGate: {
+        async acquire() {
+          calls += 1
+          if (calls === 2) now = new Date(NOW.getTime() + 10)
+        },
+      },
+    })
+    const r = await p.collectHtml(config(), w.ctx)
+    expect(w.sent).toEqual([page1])
+    expect(w.reserved).toEqual([1])
+    expect(r.detail.checkpoint).toEqual({ reason: 'DEADLINE', remainingIds: ['a', 'b'] })
+  })
+
+  it.each([
+    ['a deadline', 'DEADLINE', 'the attempt deadline passed before this page', 'PARTIAL'],
+    ['a cancel', 'CANCELLED', 'the run was cancelled before this page', 'CANCELLED'],
+  ] as const)(
+    '%s reached during a completed listing wait refuses the page before reserving (SR-L-6)',
+    async (_n, code, message, outcome) => {
+      const page2 = `${BASE}/list?page=2&after=c2`
+      const controller = new AbortController()
+      let now = NOW
+      const w = world({
+        routes: { [page1]: { bodyText: listing([item('a', 'https://o.example/a')], 'c2') } },
+      })
+      w.ctx.signal = controller.signal
+      w.ctx.deadline = new Date(NOW.getTime() + 10)
+      w.ctx.now = () => now
+      let calls = 0
+      const { p } = provider(w, {
+        hostGate: {
+          async acquire() {
+            calls += 1
+            if (calls !== 2) return
+            if (code === 'DEADLINE') now = new Date(NOW.getTime() + 10)
+            else controller.abort()
+          },
+        },
+      })
+      const r = await p.collectHtml(config(), w.ctx)
+      expect(w.sent).toEqual([page1])
+      expect(w.reserved).toEqual([1])
+      expect(r.batch.requests[1]).toMatchObject({ url: page2, error: { code, message } })
+      expect(r.batch.outcome).toBe(outcome)
+    },
+  )
 
   it('a robots port that throws refuses the request: preflight is a policy block', async () => {
     const w = world({ routes: twoItems() })
@@ -2151,6 +2258,79 @@ describe('the model stage owes a pass until it reaches an item (CR-M-1)', () => 
     }).p.collectHtml(config(), w.ctx)
     expect((await enrichment.get(key('a')))?.modelPending).toBe(true)
     expect((await enrichment.get(key('b')))?.modelPending).toBe(true)
+  })
+
+  it('a model that keeps throwing is retried at 6 h, then 24 h, then given up (SR-M-4)', async () => {
+    const enrichment = new InMemoryEnrichmentState()
+    const s = fakeStructurer(new Error('boom'))
+    const H = 60 * 60 * 1000
+    const one = (body: HtmlDetailFields) => ({
+      [page1]: { bodyText: listing([item('a')]) },
+      [detailUrl('a')]: { bodyText: detail(body) },
+    })
+    const run = async (at: number, body: HtmlDetailFields = {}) => {
+      const w = world({ routes: one(body), now: new Date(NOW.getTime() + at) })
+      await provider(w, { enrichment, model: { structurer: s, policy } }).p.collectHtml(
+        config(),
+        w.ctx,
+      )
+      return w.sent.length - 1
+    }
+    expect(await run(0)).toBe(1)
+    expect(await enrichment.get(key('a'))).toMatchObject({
+      modelPending: true,
+      modelAttempts: 1,
+      nextDueAt: new Date(NOW.getTime() + 6 * H),
+    })
+    expect(await run(6 * H - 1)).toBe(0)
+    expect(await run(6 * H)).toBe(1)
+    expect(await enrichment.get(key('a'))).toMatchObject({
+      modelPending: true,
+      modelAttempts: 2,
+      nextDueAt: new Date(NOW.getTime() + 30 * H),
+    })
+    expect(await run(30 * H)).toBe(1)
+    expect(await enrichment.get(key('a'))).toMatchObject({
+      modelPending: false,
+      modelAttempts: 3,
+      nextDueAt: new Date(NOW.getTime() + 102 * H),
+    })
+    expect(s.calls).toHaveLength(3)
+    // Given up: the revisit finds the same content unchanged and the model is not asked again.
+    expect(await run(102 * H)).toBe(1)
+    expect(s.calls).toHaveLength(3)
+    // New content is owed a fresh round of passes.
+    expect(await run(174 * H, { title: 'changed' })).toBe(1)
+    expect(s.calls).toHaveLength(4)
+    expect(await enrichment.get(key('a'))).toMatchObject({ modelPending: true, modelAttempts: 1 })
+  })
+
+  it('an unavailable model is a configuration state: nothing stays owed (SR-M-4)', async () => {
+    const enrichment = new InMemoryEnrichmentState()
+    const s = fakeStructurer({
+      kind: 'MODEL_UNAVAILABLE',
+      code: 'NOT_CONFIGURED',
+      remainingIds: ['a', 'b'],
+      perRecordIssues: [],
+    } as StructurerOutcome)
+    const first = world({ routes: twoItems() })
+    const r = await provider(first, { enrichment, model: { structurer: s, policy } }).p.collectHtml(
+      config(),
+      first.ctx,
+    )
+    expect(r.model.remainingIds).toEqual(['a', 'b'])
+    expect(await enrichment.get(key('a'))).toMatchObject({
+      modelPending: false,
+      modelAttempts: 0,
+      nextDueAt: new Date(NOW.getTime() + 72 * 60 * 60 * 1000),
+    })
+    const second = world({ routes: twoItems(), now: new Date(NOW.getTime() + 6 * 60 * 60 * 1000) })
+    await provider(second, { enrichment, model: { structurer: s, policy } }).p.collectHtml(
+      config(),
+      second.ctx,
+    )
+    expect(second.sent).toEqual([page1])
+    expect(s.calls).toHaveLength(1)
   })
 
   it('without a model nothing is pending', async () => {
