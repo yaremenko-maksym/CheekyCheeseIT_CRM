@@ -10,11 +10,11 @@ import {
   type JobQueueOpenedRequestDto,
   type JobQueueSubmissionResponseDto,
   type JobQueueSubmitRequestDto,
+  type JobQueueSuppressRequestDto,
   type JobQueueUndoRequestDto,
   type SessionUser,
 } from '@crm/shared'
 import { sql } from 'drizzle-orm'
-import { z } from 'zod'
 import { apiError } from '../../common/api-error'
 import { DatabaseService } from '../../database/database.service'
 import { isDeadlock, uniqueViolationConstraint } from '../../database/pg-errors'
@@ -47,13 +47,6 @@ const DUPLICATES_PREVIEW_MAX = 5
 const IDEMPOTENCY_CONSTRAINT = 'uq_job_queue_actions_actor_idempotency'
 const SUBMISSION_CONSTRAINT = 'uq_job_queue_assignments_opportunity_senior'
 const DISMISSAL_CONSTRAINT = 'uq_job_queue_dismissals_opportunity_scope'
-
-/** r5 Task 6.3 has no wire contract for suppress yet: Task 6.4 adds its route and schema. */
-export interface JobQueueSuppressRequest {
-  readonly idempotencyKey: string
-}
-
-const suppressRequestSchema = z.object({ idempotencyKey: z.string().uuid() })
 
 const notFound = () => apiError('JOB_OPPORTUNITY_NOT_FOUND', HttpStatus.NOT_FOUND)
 const versionConflict = () => apiError('JOB_QUEUE_VERSION_CONFLICT', HttpStatus.CONFLICT)
@@ -93,7 +86,9 @@ function submittedElsewhere(): HttpException {
  * visible on every revision bump until its recompute, and for good once its only matching senior
  * has left; with the check, a team could then never correct "logged by mistake". They still need a
  * live scope, a live actor and a row inside the scope (`scopedTeamRowPredicate`), and anything else
- * is the same 404.
+ * is the same 404. The same holds after an ADMIN's suppression (r5 Task 6.4): a team may still
+ * cancel its own submission or undo its own dismissal on a suppressed opportunity, because the
+ * answer carries only that team's own row and the opportunity stays absent from every read.
  *
  * WHY A STOP-LISTED OR INELIGIBLE SENIOR IS A 404: HR sees how many seniors excluded an opportunity,
  * not who (plan §4). The shared 404 hides the reason, not the senior: HR names the senior in the
@@ -426,16 +421,17 @@ export class JobQueueActionsService {
 
   /**
    * ADMIN-only. No entity holds suppression state (the schema's `ck_job_queue_actions_versions`
-   * lets SUPPRESSED carry no version for that reason), so the action row IS the record.
+   * lets SUPPRESSED carry no version for that reason), so the action row IS the record, and
+   * `visibleOpportunityPredicate` reads it: every TEAM read and write that checks visibility stops
+   * seeing the opportunity. The request is the wire schema the route has already parsed.
    */
   async suppress(
     user: SessionUser,
     opportunityId: string,
-    request: JobQueueSuppressRequest,
+    { idempotencyKey }: JobQueueSuppressRequestDto,
   ): Promise<void> {
     const opportunity = canonicalUuid(opportunityId)
     if (opportunity === null) throw notFound()
-    const { idempotencyKey } = suppressRequestSchema.parse(request)
     await this.write(async (tx) => {
       const scope = await this.scopes.resolve(user, undefined, tx)
       if (scope.kind !== 'STUDIO') throw new ForbiddenException()

@@ -1230,16 +1230,6 @@ describe('suppress', () => {
   })
 })
 
-describe('suppress — the idempotency key is validated', () => {
-  it('a key that is not a UUID is refused before any transaction', async () => {
-    const h = harness({}, STUDIO_SCOPE)
-    await expect(h.svc.suppress(ADMIN, OPP, { idempotencyKey: 'not-a-uuid' })).rejects.toThrow(
-      /uuid/i,
-    )
-    expect(h.transaction).not.toHaveBeenCalled()
-  })
-})
-
 describe('a reused key is no existence oracle', () => {
   const usedElsewhere = [
     {
