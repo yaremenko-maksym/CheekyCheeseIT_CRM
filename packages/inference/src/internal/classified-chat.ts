@@ -58,8 +58,6 @@ export type ClassifiedChatOptions = {
   fetchImpl?: FetchLike | undefined
 }
 
-/** Error bodies are read only this far, and only through documented structured fields (ADR §5.1). */
-export const MAX_ERROR_SCAN_CHARS = 2000
 /** Every pause derived from a header or an error body is clamped to this. */
 export const MAX_PAUSE_MS = 24 * 60 * 60 * 1000
 
@@ -67,7 +65,7 @@ const QUOTA_FAILURE = 'type.googleapis.com/google.rpc.QuotaFailure'
 const RETRY_INFO = 'type.googleapis.com/google.rpc.RetryInfo'
 
 const answerSchema = z.object({
-  model: z.string().optional(),
+  model: z.string().nullish(),
   choices: z
     .array(
       z.object({
@@ -79,9 +77,10 @@ const answerSchema = z.object({
   usage: z.object({ total_tokens: z.number().optional() }).optional(),
 })
 
-const googleEnvelope = z.object({
-  error: z.object({ status: z.string(), details: z.array(z.unknown()).optional() }),
-})
+/** Gemini 403: the documented envelope with `error.status: PERMISSION_DENIED`. */
+const permissionDenied = z.object({ error: z.object({ status: z.literal('PERMISSION_DENIED') }) })
+/** Gemini 429: only `error.details[]` is read; status and details may be missing. */
+const quotaEnvelope = z.object({ error: z.object({ details: z.array(z.unknown()).optional() }) })
 const quotaFailure = z.object({
   '@type': z.literal(QUOTA_FAILURE),
   violations: z.array(z.object({ quotaId: z.string() })),
@@ -93,12 +92,30 @@ const notFoundEnvelope = z.object({
 })
 
 /**
- * A bounded slice of an error body as JSON (an absent body reads as the unparsable "undefined");
- * Gemini's compat layer may wrap the envelope in a list (UNVERIFIED shape, 5.4c-0 §7).
+ * An error body as JSON, or null when it is absent (over `boundedRequest`'s 2 MiB cap) or not JSON.
+ * The whole body is parsed (the transport cap bounds the work); only named structured fields are
+ * read afterwards, never the text.
  */
+const errorBody = z.string().transform(parseJsonOrNull).catch(null)
+
+/** Gemini's compat layer may wrap the envelope in a list (UNVERIFIED shape, 5.4c-0 §7). */
 function errorJson(text: string | undefined): unknown {
-  const json = parseJsonOrNull(String(text).slice(0, MAX_ERROR_SCAN_CHARS))
+  const json = errorBody.parse(text)
   return Array.isArray(json) ? json[0] : json
+}
+
+/** Characters that can continue a model id; anything else bounds it as a whole token. */
+const ID_CHAR = /[A-Za-z0-9._-]/
+
+/** `id` occurs in `message` as a whole token, not as the prefix of a longer id. */
+function namesWholeId(message: string, id: string): boolean {
+  if (id === '') return false
+  for (let i = message.indexOf(id); i !== -1; i = message.indexOf(id, i + 1)) {
+    const before = message.charAt(i - 1)
+    const after = message.charAt(i + id.length)
+    if (!ID_CHAR.test(before) && !ID_CHAR.test(after)) return true
+  }
+  return false
 }
 
 function toPauseMs(seconds: number): number | undefined {
@@ -118,7 +135,7 @@ function parseDuration(value: string | undefined): number | undefined {
 
 /** `error.details[]` of a Google error envelope, if the body is one. */
 function googleDetails(text: string | undefined): unknown[] | undefined {
-  const env = googleEnvelope.safeParse(errorJson(text))
+  const env = quotaEnvelope.safeParse(errorJson(text))
   return env.success ? env.data.error.details : undefined
 }
 
@@ -153,10 +170,7 @@ function classifyRateLimit(
 /** A 403 is AUTH only with the provider's documented envelope; page text can never disable a provider. */
 function isAuthEnvelope(provider: ChatProvider, text: string | undefined): boolean {
   const json = errorJson(text)
-  if (provider === 'gemini') {
-    const env = googleEnvelope.safeParse(json)
-    return env.success && env.data.error.status === 'PERMISSION_DENIED'
-  }
+  if (provider === 'gemini') return permissionDenied.safeParse(json).success
   return provider === 'groq' && groqEnvelope.safeParse(json).success
 }
 
@@ -165,7 +179,7 @@ function namesModel(model: string, text: string | undefined): boolean {
   const env = notFoundEnvelope.safeParse(errorJson(text))
   if (!env.success) return false
   const { code, message } = env.data.error
-  return code === 'model_not_found' || (message?.includes(model) ?? false)
+  return code === 'model_not_found' || (message !== undefined && namesWholeId(message, model))
 }
 
 function classifyFailure(
@@ -193,8 +207,8 @@ function classifyFailure(
 }
 
 /** Gemini routes a deprecated id to a successor: a different version or variant retires the request. */
-function reroutedTo(opts: ClassifiedChatOptions, served: string | undefined): string | null {
-  if (opts.provider !== 'gemini' || served === undefined) return null
+function reroutedTo(opts: ClassifiedChatOptions, served: string | null | undefined): string | null {
+  if (opts.provider !== 'gemini' || typeof served !== 'string') return null
   const requested = parseGeminiModelId(opts.model)
   const actual = parseGeminiModelId(served)
   if (requested === null || actual === null) return null
@@ -240,8 +254,13 @@ export async function sendClassifiedChatCompletion(
   opts: ClassifiedChatOptions,
 ): Promise<ClassifiedChatResult> {
   const local = opts.provider === 'local'
+  const url = chatCompletionsUrl(opts.baseUrl)
+  // A key over plain HTTP is a config error (SR-L-63): refused before anything is sent.
+  if (opts.apiKey !== undefined && URL.canParse(url) && new URL(url).protocol === 'http:') {
+    return { ok: false, code: 'TRANSPORT', responded: false }
+  }
   const result = await boundedRequest({
-    url: chatCompletionsUrl(opts.baseUrl),
+    url,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

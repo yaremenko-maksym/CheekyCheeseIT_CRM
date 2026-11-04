@@ -120,7 +120,8 @@ export async function boundedRequest(opts: BoundedRequestOptions): Promise<Bound
   const { signal } = opts
   if (signal?.aborted === true) return { kind: 'timeout', aborted: true }
 
-  const fetchImpl: FetchLike = opts.fetchImpl ?? fetch
+  // Called through a wrapper, never detached from the global object.
+  const fetchImpl: FetchLike = opts.fetchImpl ?? ((url, init) => fetch(url, init))
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs)
   const onAbort = (): void => controller.abort()

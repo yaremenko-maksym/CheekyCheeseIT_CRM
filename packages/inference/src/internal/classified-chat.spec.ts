@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import type { FetchLike } from '../http/bounded-request'
 import {
   CLASSIFIED_CHAT_CODES,
-  MAX_ERROR_SCAN_CHARS,
   MAX_PAUSE_MS,
   sendClassifiedChatCompletion,
   type ClassifiedChatOptions,
@@ -90,19 +89,13 @@ async function run(
   return { result: await sendClassifiedChatCompletion({ ...opts, fetchImpl }), sent }
 }
 
-const reached = new Set<string>()
-const record = (r: ClassifiedChatResult): ClassifiedChatResult => {
-  reached.add(r.code)
-  return r
-}
-
 describe.each([
   ['groq', GROQ_FIXTURES],
   ['gemini', GEMINI_FIXTURES],
 ] as const)('%s fixtures (ADR §5.1)', (provider, fixtures: ProviderFixture[]) => {
   it.each(fixtures.map((f) => [f.name, f] as const))('%s', async (_name, f) => {
     const { result } = await run(HOSTED[provider], f.status, f.body, f.headers)
-    expect(record(result)).toStrictEqual(f.expected)
+    expect(result).toStrictEqual(f.expected)
     const printed = JSON.stringify(result)
     expect(printed).not.toContain(KEY_MARKER)
     expect(printed).not.toContain(BODY_MARKER)
@@ -114,7 +107,7 @@ describe('classified answers', () => {
 
   it('OK with the content and the token count', async () => {
     const { result } = await run(groq, 200, answer('{"a":1}', { usage: { total_tokens: 42 } }))
-    expect(record(result)).toStrictEqual({ ok: true, code: 'OK', text: '{"a":1}', totalTokens: 42 })
+    expect(result).toStrictEqual({ ok: true, code: 'OK', text: '{"a":1}', totalTokens: 42 })
   })
 
   it('OK without usage carries no token field', async () => {
@@ -124,12 +117,12 @@ describe('classified answers', () => {
 
   it('finish_reason length is INVALID_OUTPUT even with content', async () => {
     const { result } = await run(groq, 200, answer('{"a":', {}, 'length'))
-    expect(record(result)).toStrictEqual({ ok: false, code: 'INVALID_OUTPUT' })
+    expect(result).toStrictEqual({ ok: false, code: 'INVALID_OUTPUT' })
   })
 
   it('finish_reason content_filter is REFUSED, not a provider failure', async () => {
     const { result } = await run(groq, 200, answer('{"a":1}', {}, 'content_filter'))
-    expect(record(result)).toStrictEqual({ ok: false, code: 'REFUSED' })
+    expect(result).toStrictEqual({ ok: false, code: 'REFUSED' })
   })
 
   it.each([
@@ -209,7 +202,7 @@ describe('Gemini re-route detection (ADR §5.1 RETIRED)', () => {
     ['models/ prefixed successor', 'models/gemini-2.6-pro', 'gemini-2.6-pro'],
   ])('%s retires the requested id and keeps the answer', async (_n, model, id) => {
     const { result } = await run(gemini, 200, served(model))
-    expect(record(result)).toStrictEqual({
+    expect(result).toStrictEqual({
       ok: true,
       code: 'RETIRED',
       text: '{"a":1}',
@@ -243,6 +236,14 @@ describe('Gemini re-route detection (ADR §5.1 RETIRED)', () => {
 
   it('a missing response model retires nothing', async () => {
     expect((await run(gemini, 200, answer('{"a":1}'))).result.code).toBe('OK')
+  })
+
+  it('a null response model keeps a good answer (CO-L-5)', async () => {
+    expect((await run(gemini, 200, served(null))).result).toStrictEqual({
+      ok: true,
+      code: 'OK',
+      text: '{"a":1}',
+    })
   })
 
   it('a requested id outside the family pattern is never compared', async () => {
@@ -316,7 +317,7 @@ describe('transport, timeout and abort', () => {
       signal: ctrl.signal,
       fetchImpl: hanging,
     })
-    expect(record(r)).toStrictEqual({ ok: false, code: 'TIMEOUT' })
+    expect(r).toStrictEqual({ ok: false, code: 'TIMEOUT' })
   })
 
   it('an abort cancels the request in flight and is ABORTED, not TIMEOUT', async () => {
@@ -328,7 +329,7 @@ describe('transport, timeout and abort', () => {
       return hanging(u, init)
     }
     const r = await sendClassifiedChatCompletion({ ...HOSTED.groq, signal: ctrl.signal, fetchImpl })
-    expect(record(r)).toStrictEqual({ ok: false, code: 'ABORTED' })
+    expect(r).toStrictEqual({ ok: false, code: 'ABORTED' })
     expect(
       await sendClassifiedChatCompletion({ ...HOSTED.groq, signal: ctrl.signal, fetchImpl }),
     ).toStrictEqual({ ok: false, code: 'ABORTED' })
@@ -433,13 +434,121 @@ describe('provider-specific signals stay with their provider', () => {
   })
 })
 
+describe('whole-token model match on a 404 message (SR-M-61)', () => {
+  const notFound = (message: string) =>
+    JSON.stringify({ error: { message, type: 'invalid_request_error' } })
+
+  it.each([
+    ['m-1', 'model m-1 not found', 'RETIRED'],
+    ['m-1', 'm-1', 'RETIRED'],
+    ['m-1', 'models/m-1: gone', 'RETIRED'],
+    ['m-1', '`m-1`', 'RETIRED'],
+    ['m-1', 'm-1x and m-1 gone', 'RETIRED'],
+    ...['X', 'x', '9', '.', '_', '-'].flatMap((c) => [
+      ['m-1', `model m-1${c} gone`, 'TRANSPORT'],
+      ['m-1', `model ${c}m-1 gone`, 'TRANSPORT'],
+    ]),
+    ['gemini-2.5-flash', 'models/gemini-2.5-flash-lite is not found', 'TRANSPORT'],
+    ['', 'model  not  found ()', 'TRANSPORT'],
+  ])('requested %j, message %j -> %s', async (model, message, code) => {
+    const { result } = await run({ ...HOSTED.groq, model }, 404, notFound(message))
+    expect(result.code).toBe(code)
+  })
+})
+
+describe('error bodies are parsed whole, up to the transport cap (CR-M-1)', () => {
+  const overCap = (json: object): string => {
+    const text = JSON.stringify({ pad: 'x'.repeat(2 * 1024 * 1024), ...json })
+    return text
+  }
+
+  it('the long pretty-printed fixture is over the old 2000-character cut', () => {
+    const f = GEMINI_FIXTURES.find((x) => x.name.includes('pretty-printed'))
+    expect(f?.body.length).toBeGreaterThan(2000)
+  })
+
+  it('a per-day 429 over the 2 MiB cap is BUSY, never SPENT_DAY', async () => {
+    const body = overCap({
+      error: {
+        details: [
+          {
+            '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+            violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }],
+          },
+        ],
+      },
+    })
+    expect((await run(HOSTED.gemini, 429, body)).result).toStrictEqual({ ok: false, code: 'BUSY' })
+  })
+
+  it('a PERMISSION_DENIED 403 over the 2 MiB cap is TRANSPORT, never AUTH', async () => {
+    const body = overCap({ error: { code: 403, status: 'PERMISSION_DENIED' } })
+    expect((await run(HOSTED.gemini, 403, body)).result).toStrictEqual({
+      ok: false,
+      code: 'TRANSPORT',
+      responded: true,
+    })
+  })
+})
+
+describe('a key never travels over plain HTTP (SR-L-63)', () => {
+  it.each([
+    'http://crm-model-runtime:11434/v1',
+    'HTTP://127.0.0.1:8080/v1',
+    ' http://localhost/v1',
+  ])('the local route refuses a key with %j and sends nothing', async (baseUrl) => {
+    const { result, sent } = await run({ ...LOCAL, baseUrl, apiKey: KEY_MARKER }, 200, answer('{}'))
+    expect(result).toStrictEqual({ ok: false, code: 'TRANSPORT', responded: false })
+    expect(sent).toHaveLength(0)
+  })
+
+  it('an unparsable base URL with a key is refused without throwing', async () => {
+    const { result, sent } = await run(
+      { ...LOCAL, baseUrl: 'not a url', apiKey: KEY_MARKER },
+      200,
+      answer('{}'),
+    )
+    expect(result).toStrictEqual({ ok: false, code: 'TRANSPORT', responded: false })
+    expect(sent).toHaveLength(0)
+  })
+
+  it('a local route over HTTPS may carry a key', async () => {
+    const { result, sent } = await run(
+      { ...LOCAL, baseUrl: 'https://crm-model-runtime/v1', apiKey: KEY_MARKER },
+      200,
+      answer('{"a":1}'),
+    )
+    expect(result.code).toBe('OK')
+    expect(sent[0]!.headers.Authorization).toBe(`Bearer ${KEY_MARKER}`)
+  })
+})
+
 describe('constants and coverage (AC1)', () => {
-  it('pins the scan bound and the pause clamp', () => {
-    expect(MAX_ERROR_SCAN_CHARS).toBe(2000)
+  it('pins the pause clamp', () => {
     expect(MAX_PAUSE_MS).toBe(86_400_000)
   })
 
-  it('every internal code was reached by a fixture or case above', () => {
-    expect([...reached].sort()).toStrictEqual([...CLASSIFIED_CHAT_CODES].sort())
+  it('every internal code is reached by a case of its own (self-contained)', async () => {
+    const groq = HOSTED.groq
+    const hanging: FetchLike = (_u, init) =>
+      new Promise((_res, rej) =>
+        init?.signal?.addEventListener('abort', () => rej(new DOMException('x', 'AbortError'))),
+      )
+    const aborted = new AbortController()
+    aborted.abort()
+    const results = await Promise.all([
+      run(groq, 200, answer('{}')).then((x) => x.result),
+      run(groq, 503, '').then((x) => x.result),
+      run(groq, 429, '', { 'x-ratelimit-remaining-requests': '0' }).then((x) => x.result),
+      run(groq, 402, '').then((x) => x.result),
+      run(groq, 404, JSON.stringify({ error: { code: 'model_not_found' } })).then((x) => x.result),
+      run(groq, 401, '').then((x) => x.result),
+      run(groq, 200, answer('{}', {}, 'content_filter')).then((x) => x.result),
+      run(groq, 200, answer('{}', {}, 'length')).then((x) => x.result),
+      sendClassifiedChatCompletion({ ...groq, timeoutMs: 1, fetchImpl: hanging }),
+      run(groq, 500, '').then((x) => x.result),
+      sendClassifiedChatCompletion({ ...groq, signal: aborted.signal, fetchImpl: hanging }),
+    ])
+    expect(results.map((r) => r.code)).toStrictEqual([...CLASSIFIED_CHAT_CODES])
   })
 })

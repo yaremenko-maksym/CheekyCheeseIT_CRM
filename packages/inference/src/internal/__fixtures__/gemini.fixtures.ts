@@ -153,9 +153,49 @@ export const GEMINI_FIXTURES: ProviderFixture[] = [
     expected: { ok: false, code: 'TRANSPORT', responded: true },
   },
   {
-    name: '403 envelope past the bounded read is not read',
+    name: '403 envelope after 2000 characters of other fields (whole body parsed)',
     status: 403,
     body: JSON.stringify({ pad: 'x'.repeat(2000), ...envelope(403, 'PERMISSION_DENIED') }),
+    expected: { ok: false, code: 'AUTH' },
+  },
+  {
+    name: '429 pretty-printed with three violations, longer than 2000 characters (CR-M-1)',
+    status: 429,
+    body: JSON.stringify(
+      envelope(429, 'RESOURCE_EXHAUSTED', [
+        quota(PER_MINUTE),
+        quota('GenerateRequestsPerMinutePerProjectPerModel-FreeTier'),
+        quota('GenerateContentInputTokensPerModelPerMinute-FreeTier-2'),
+        {
+          '@type': 'type.googleapis.com/google.rpc.Help',
+          links: [
+            { description: '<redacted>', url: 'https://ai.google.dev/gemini-api/docs/rate-limits' },
+          ],
+        },
+        quota(PER_DAY),
+        retry('55s'),
+      ]),
+      null,
+      2,
+    ),
+    expected: { ok: false, code: 'SPENT_DAY' },
+  },
+  {
+    name: '429 per-day without error.status',
+    status: 429,
+    body: JSON.stringify({ error: { details: [quota(PER_DAY)] } }),
+    expected: { ok: false, code: 'SPENT_DAY' },
+  },
+  {
+    name: '404 naming a longer id that starts with the requested one retires nothing',
+    status: 404,
+    body: JSON.stringify({
+      error: {
+        code: 404,
+        message: `models/${GEMINI_MODEL}-lite is not found`,
+        status: 'NOT_FOUND',
+      },
+    }),
     expected: { ok: false, code: 'TRANSPORT', responded: true },
   },
   {

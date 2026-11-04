@@ -488,6 +488,24 @@ describe('boundedRequest body bounds and stream edges', () => {
   })
 })
 
+describe('boundedRequest default transport (CO-L-6)', () => {
+  it('calls the global fetch through a wrapper with the url and init', async () => {
+    const calls: unknown[][] = []
+    vi.stubGlobal('fetch', async (...args: unknown[]) => {
+      calls.push(args)
+      return { status: 200, body: null, text: async () => 'g' }
+    })
+    try {
+      expect(await boundedRequest(base)).toEqual({ kind: 'ok', status: 200, text: 'g' })
+      expect(calls).toHaveLength(1)
+      expect(calls[0]?.[0]).toBe(base.url)
+      expect((calls[0]?.[1] as { redirect?: string }).redirect).toBe('error')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})
+
 describe('boundedRequest redirects (SR-M-1)', () => {
   it('passes redirect: error to fetch', async () => {
     let seen: string | undefined
