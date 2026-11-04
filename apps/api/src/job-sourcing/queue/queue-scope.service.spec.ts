@@ -333,3 +333,32 @@ describe('JobQueueScopeService.assertVisible', () => {
     expect(log).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('JobQueueScopeService read inside a write transaction (r5 Task 6.3)', () => {
+  it('resolve runs every query on the executor it is given, none on the pool', async () => {
+    const { svc, execute: pool } = noQueryHarness()
+    const answers: Rows[] = [[{ id: TEAM_A }], ...ROSTER]
+    const tx = { execute: vi.fn(async () => ({ rows: answers.shift() ?? [] })) }
+    const scope = await svc.resolve(user('ADMIN'), TEAM_A, tx)
+    expect(scope).toMatchObject({ kind: 'TEAM', teamId: TEAM_A, seniorIds: [SEN_1] })
+    expect(tx.execute).toHaveBeenCalledTimes(4)
+    expect(pool).not.toHaveBeenCalled()
+  })
+
+  it('resolve for an HR reads the active teams on that executor too', async () => {
+    const { svc, execute: pool } = noQueryHarness()
+    const answers: Rows[] = [[{ id: TEAM_A }], ...ROSTER]
+    const tx = { execute: vi.fn(async () => ({ rows: answers.shift() ?? [] })) }
+    await svc.resolve(user('HR'), undefined, tx)
+    expect(tx.execute).toHaveBeenCalledTimes(4)
+    expect(pool).not.toHaveBeenCalled()
+  })
+
+  it('assertVisible asks the executor it is given', async () => {
+    const { svc, execute: pool } = noQueryHarness()
+    const tx = { execute: vi.fn(async () => ({ rows: [{ visible: 1 }] })) }
+    await svc.assertVisible(STUDIO_SCOPE, OPP, tx)
+    expect(tx.execute).toHaveBeenCalledTimes(1)
+    expect(pool).not.toHaveBeenCalled()
+  })
+})
