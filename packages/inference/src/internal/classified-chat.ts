@@ -315,8 +315,8 @@ export async function sendClassifiedChat(
     signal: opts.signal,
     fetchImpl: opts.fetchImpl,
   })
-  const status = 'status' in result && result.status !== undefined ? { status: result.status } : {}
-  return { result: classify(opts, result), sent: true, ...status }
+  const { status } = result as { status?: number }
+  return { result: classify(opts, result), sent: true, ...(status !== undefined && { status }) }
 }
 
 function classify(opts: ClassifiedChatOptions, result: BoundedResult): ClassifiedChatResult {

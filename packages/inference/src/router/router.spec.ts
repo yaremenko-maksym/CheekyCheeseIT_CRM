@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import {
   answer,
   config,
+  countingCap,
   deps,
   GEMINI,
   GOOD,
@@ -13,8 +14,16 @@ import {
   scriptedFetch,
   type Reply,
 } from './__test-helpers__/router-harness'
-import { createRouter, createRouterExtractionAdapter, type RouterEvent } from './router'
+import type { FetchLike } from '../http/bounded-request'
+import {
+  createRouter,
+  createRouterExtractionAdapter,
+  pendingLocalQueues,
+  type RouterEvent,
+} from './router'
+import { createMemoryRouteStatePort, createOwnCapPort, type RouteStatePort } from './state'
 
+const NOON = Date.parse('2026-11-04T12:00:00Z')
 const byHost = (sent: { host: string }[]) => sent.map((s) => s.host)
 const ofType = <K extends RouterEvent['type']>(events: RouterEvent[], type: K) =>
   events.filter((e): e is Extract<RouterEvent, { type: K }> => e.type === type)
@@ -294,5 +303,86 @@ describe('router: rotation and fit filter (§5.2)', () => {
       instruction,
     })
     expect(byHost(f.sent)).toEqual([hostOf.groq])
+  })
+})
+
+describe('router: one local request in flight per runtime, across routers (SR-L-70)', () => {
+  it('a call arriving after the first settled still queues behind the second, and the queue empties', async () => {
+    const pending: (() => void)[] = []
+    let sent = 0
+    const fetchImpl: FetchLike = async () => {
+      sent++
+      await new Promise<void>((resolve) => pending.push(resolve))
+      return {
+        status: 200,
+        body: null,
+        text: async () => (GOOD as { body: string }).body,
+        headers: { get: () => null },
+      }
+    }
+    const a = createRouter(config([LOCAL]), deps(fetchImpl))
+    const b = createRouterExtractionAdapter(config([LOCAL]), deps(fetchImpl))
+    const first = a.run(REQ)
+    const second = b.extract(REQ)
+    await vi.waitFor(() => expect(sent).toBe(1))
+    pending.shift()!()
+    await first
+    await vi.waitFor(() => expect(sent).toBe(2))
+    const third = a.run(REQ)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(sent).toBe(2)
+    pending.shift()!()
+    await second
+    await vi.waitFor(() => expect(sent).toBe(3))
+    pending.shift()!()
+    expect(await third).toMatchObject({ ok: true })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(pendingLocalQueues()).toBe(0)
+  })
+})
+
+describe('router: store writes are awaited inside the hosted budget (SR-L-70)', () => {
+  /** A store that applies a change at once and finishes its write after `ms` of real time. */
+  const slowStore = (ms: number): RouteStatePort => {
+    const mem = createMemoryRouteStatePort()
+    return {
+      snapshot: mem.snapshot,
+      update: (change) => {
+        void mem.update(change)
+        return new Promise((resolve) => setTimeout(() => resolve(true), ms))
+      },
+    }
+  }
+
+  it('a store slower than nothing but faster than the budget is waited for: the hosted answer is used', async () => {
+    const routeState = slowStore(5)
+    const ownCap = createOwnCapPort({ state: routeState, now: () => NOON })
+    const f = scriptedFetch(() => GOOD)
+    const d = deps(f.fetchImpl, { routeState, ownCap, now: () => NOON })
+    expect(await createRouter(config([GROQ, LOCAL]), d).run(REQ)).toMatchObject({ ok: true })
+    expect(byHost(f.sent)).toEqual([hostOf.groq])
+  })
+
+  it('the budget timer is cancelled once a write finished: no timer outlives the call', async () => {
+    const timers = () => process.getActiveResourcesInfo().filter((r) => r === 'Timeout').length
+    const f = scriptedFetch(() => GOOD)
+    const d = deps(f.fetchImpl, { now: () => NOON })
+    const router = createRouter(config([GROQ, LOCAL]), d)
+    const before = timers()
+    await router.run(REQ)
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(timers()).toBe(before)
+  })
+
+  it('a hosted budget of zero reserves nothing and sends nothing hosted', async () => {
+    const cap = countingCap()
+    const f = scriptedFetch(() => GOOD)
+    const d = deps(f.fetchImpl, { ownCap: cap, now: () => NOON })
+    await createRouter(config([GROQ, LOCAL], { hostedBudgetMs: 0 }), d).run(REQ)
+    expect(cap.reserved).toEqual([])
+    expect(byHost(f.sent)).toEqual([hostOf.local])
+    expect(ofType(d.events, 'FELL_TO_LOCAL')[0]?.reasons).toEqual([
+      { route: 'groq', code: 'BUDGET' },
+    ])
   })
 })

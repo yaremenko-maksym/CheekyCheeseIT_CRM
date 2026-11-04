@@ -212,7 +212,9 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     return c !== undefined && c.day === providerDay(p, now()) && now() < c.until
   }
   const coolDown = (p: HostedProvider, model: string, ms: number): void => {
-    for (const [key, c] of coolUntil) if (now() >= c.until) coolUntil.delete(key) // SR-L-70
+    // SR-L-70: bounds memory only; `coolingDown` already ignores an expired entry, so no call can see it.
+    // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent mutants (memory-only)
+    for (const [key, c] of coolUntil) if (now() >= c.until) coolUntil.delete(key)
     coolUntil.set(coolKey(p, model), { until: now() + ms, day: providerDay(p, now()) })
   }
   const disable = (p: HostedProvider, code: 'AUTH' | 'CREDIT'): void => {
@@ -307,6 +309,7 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     ): Promise<unknown> {
       const p = route.provider
       const r = outcome.result
+      // Stryker disable next-line ArrayDeclaration: equivalent mutant, `Promise.all` ignores the values
       const writes: Promise<unknown>[] = []
       if (r.ok && r.totalTokens !== undefined) writes.push(ownCap.addTokens(p, r.totalTokens))
       if (releasesUnit(outcome)) writes.push(ownCap.release(p, unit))

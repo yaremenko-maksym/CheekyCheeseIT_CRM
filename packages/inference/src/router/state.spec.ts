@@ -18,6 +18,7 @@ import {
   markSpent,
   MAX_STATE_BYTES,
   MAX_STATE_ENTRIES,
+  noFollowFlag,
   providerDay,
   STATE_READ_FLAGS,
   STATE_WRITE_FLAGS,
@@ -279,6 +280,23 @@ describe('file RouteStatePort: reading (§3.2, SR-M-6)', () => {
     const text = doc({})
     const { events } = await load(text + ' '.repeat(MAX_STATE_BYTES - text.length))
     expect(events).toEqual([])
+  })
+
+  it('the no-follow flag is the platform constant, or nothing where the platform has none', () => {
+    expect(noFollowFlag({ O_NOFOLLOW: 0x20000 })).toBe(0x20000)
+    expect(noFollowFlag({})).toBe(0)
+  })
+
+  it('an open that rejects with a non-error value is unreadable, not a crash', async () => {
+    const fs = fakeFs({ [PATH]: doc({}) })
+    const events: StateEvent[] = []
+    await createFileRouteStatePort({
+      path: PATH,
+      fs: { ...fs, open: () => Promise.reject(null) },
+      now: () => NOON,
+      onEvent: (e) => events.push(e),
+    })
+    expect(events).toEqual([{ type: 'STATE_RESET', store: 'route-state', reason: 'unreadable' }])
   })
 
   it('an unreadable file is empty state with an event', async () => {

@@ -130,7 +130,10 @@ export type StateFs = {
 }
 
 /** A symlink planted at the state path or its temp file is never followed (SR-L-67); Windows has no flag. */
-const NO_FOLLOW = constants.O_NOFOLLOW ?? 0
+export function noFollowFlag(c: { O_NOFOLLOW?: number | undefined }): number {
+  return c.O_NOFOLLOW ?? 0
+}
+const NO_FOLLOW = noFollowFlag(constants)
 export const STATE_READ_FLAGS = constants.O_RDONLY | NO_FOLLOW
 export const STATE_WRITE_FLAGS =
   constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | NO_FOLLOW
@@ -368,6 +371,7 @@ export function createOwnCapPort(opts: { state: RouteStatePort; now: () => numbe
     async reserve(p, limit) {
       const c = counting(p)
       const tokensFull =
+        // Stryker disable next-line ConditionalExpression: equivalent mutant, without the guard `tokens >= NaN` is false
         limit.tokensPerDay !== undefined && c.tokens >= ownCapOf(limit.tokensPerDay)
       if (c.requests >= ownCapOf(limit.requestsPerDay) || tokensFull) return null
       const written = await change(p, (r) => ({ ...r, requests: r.requests + 1 }))
