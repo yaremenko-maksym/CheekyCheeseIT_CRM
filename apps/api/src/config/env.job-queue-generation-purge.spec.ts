@@ -31,5 +31,7 @@ describe('JOB_QUEUE_GENERATION_PURGE_ENABLED (r5 Task 6.2, MP-13)', () => {
     expect(flag('TRUE')).toBe(true)
     expect(flag('false')).toBe(false)
     expect(flag('1')).toBe(false)
+    expect(flag(true)).toBe(true)
+    expect(flag(false)).toBe(false)
   })
 })
