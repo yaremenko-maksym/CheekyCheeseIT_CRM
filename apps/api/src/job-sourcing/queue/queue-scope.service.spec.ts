@@ -158,13 +158,15 @@ describe('JobQueueScopeService.resolve', () => {
   })
 
   it('a team with no matchable senior has empty seniors and versions', async () => {
-    const { svc } = harness([{ id: TEAM_A }], [], [], [])
+    const { svc, execute } = harness([{ id: TEAM_A }], [], [], [])
     await expect(svc.resolve(user('HR'), TEAM_A)).resolves.toEqual({
       kind: 'TEAM',
       teamId: TEAM_A,
       seniorIds: [],
       versions: [],
     })
+    // The team lookup, then loadRoster's three reads: it no longer stops early on an empty roster.
+    expect(execute).toHaveBeenCalledTimes(4)
   })
 
   it('HR naming a foreign team is NONE (not 403/404), and no roster is read', async () => {

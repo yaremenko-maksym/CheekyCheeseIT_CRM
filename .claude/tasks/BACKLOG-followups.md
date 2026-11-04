@@ -6654,7 +6654,7 @@ its outcome. Verify: a tail over one uncontracted GONE reports `gone: 0, failed:
 
 Sources: S8g coder report; U10 Master hand-off message (freshness anchor and scope-aware `account()` ride with the flip); PR #1249 review (SR-M-1, CR-M-1, CR-L).
 
-## 349. Task 6.1 SR-M-2: the triage-grant branch of queue visibility failed open between a revision bump and the recompute (2026-11-04) — DECIDED AND CLOSED IN CODE; owner step remains
+## 349. Task 6.1 SR-M-2: the triage-grant branch of queue visibility failed open between a revision bump and the recompute (2026-11-04) — decided; residual window under owner decision; owner step remains
 
 **Decision (owner, 2026-11-04): option 1.** `job_opportunities` carries `evaluated_revision` and
 `evaluation_verdict` (OPEN / EXCLUDED, the CLASSIFICATION and GLOBAL_RESTRICTIONS stages only; NULL = never
@@ -6669,13 +6669,28 @@ LEAD branch is unchanged.
 
 **Consequence.** `JobQueueScopeService` may be injected (Tasks 6.2, 6.3, 6.4).
 
+**Known limits.** The verdict compares no input version, so it can outlive its inputs without a revision bump:
+
+1. A new studio-wide KEYWORD exclusion does not bump the revision. A granted opportunity it now restricts stays
+   visible until the match queue reaches it, and for good while `JOB_MATCH_RECONCILIATION_ENABLED` is off. Owner
+   decision open: close it at read time, or accept the window. Verify: add such an exclusion with the flag off and
+   `assertVisible` for a team holding a grant still resolves.
+2. A `MATCH_RULE_VERSION` bump leaves a zero-row OPEN verdict in place: `reconcileReason` is identical before and
+   after, so the DONE row suppresses the sweep. Ends at the next revision or roster change, or the grant's expiry.
+   Owner decision open with limit 1. Verify: after a rule bump, `reconcileOnce` on a zero-row opportunity with a DONE
+   row reports it skipped.
+3. With an empty roster, an exclusion written outside the hooked services (hand-run SQL) is not picked up by the
+   sweep, because the roster digest is constant. Hooked writes still fan out. Verify: `markExclusionDirty` is still
+   called by every code path that writes `job_exclusion_filters`.
+
 **Owner still has to do.** Promote the staged DDL `2026-11-04_job_opportunities_evaluation_verdict.sql`: before the
 queue is exposed, and before `JOB_MATCH_RECONCILIATION_ENABLED` is true on a build carrying this code (with the flag
-on and the columns absent, the sweep fails with 42703 every tick and matches stop being recomputed). Existing rows
-stay NULL until the sweep reaches them (`reconcileOnce` treats them as stale under the `RECONCILE:EVAL:` reason,
-draining 2,000 per 6-hour tick); until then a grant keeps them hidden.
+on and the columns absent, the sweep fails with 42703 every tick and matches stop being recomputed). Existing OPEN
+and UNKNOWN rows stay NULL until the sweep reaches them (`reconcileOnce` treats them as stale under the
+`RECONCILE:EVAL:` reason, draining 2,000 per 6-hour tick through the shared MATCH queue); until then a grant keeps
+them hidden. Read `SELECT count(*) FROM job_opportunities` before promoting, to size that backlog.
 
-**Verify.** `SELECT count(*) FROM job_opportunities WHERE evaluated_revision IS DISTINCT FROM revision` falls towards
-zero after promotion with the flag on. The queue-scope integration spec's SR-M-2 cases assert the 404s.
+**Verify.** `SELECT count(*) FROM job_opportunities WHERE evaluated_revision IS DISTINCT FROM revision AND availability
+IN ('OPEN', 'UNKNOWN')` falls towards zero after promotion with the flag on. The queue-scope integration spec's SR-M-2 cases assert the 404s.
 
 Sources: PR #1253 review (SR-M-2, SR-M-4, SPEC-M-4, CR-M-3); coder blocker analysis; owner decision 2026-11-04.

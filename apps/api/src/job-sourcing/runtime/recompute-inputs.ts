@@ -492,8 +492,9 @@ export function rosterVersions(
  * transaction (which holds the opportunity and has checked `revision` is current), and record on
  * the opportunity that `revision` was evaluated and with what opportunity-level result. That record
  * is written even when there are no rows (a plain mismatch, an empty roster): it is what the queue's
- * grant branch reads (SR-M-2). Neither the upsert, the delete nor the record ever touches a NEWER
- * revision.
+ * grant branch reads (SR-M-2). Neither the upsert nor the delete ever touches a NEWER revision, and
+ * the record is written only for the opportunity's current revision: under the caller's row lock
+ * the two are equal, so a stale call records nothing, even onto a NULL record.
  *
  * STALENESS (SR-M-2): since S5 a senior's stack / role / archive / team change, an exclusion and a
  * project client change enqueue a recompute of every opportunity in the write's own transaction
@@ -532,8 +533,7 @@ export async function installMatches(
     sql`UPDATE job_opportunities
            SET evaluated_revision = ${revision},
                evaluation_verdict = ${opportunityVerdict(result)}::job_opportunity_verdict
-         WHERE id = ${opportunityId}::uuid
-           AND (evaluated_revision IS NULL OR evaluated_revision <= ${revision})`,
+         WHERE id = ${opportunityId}::uuid AND revision = ${revision}`,
   )
   if (rows.length === 0) return 0
   const upsert: SQL = sql`

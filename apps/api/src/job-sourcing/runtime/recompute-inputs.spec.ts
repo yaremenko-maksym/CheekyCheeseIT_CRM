@@ -781,16 +781,13 @@ describe('installMatches', () => {
     expect(statements[1]?.params).toEqual([1, 'OPEN', OPP, 1])
   })
 
-  it('SR-M-2: the evaluation record never overwrites a newer revision', async () => {
+  it('SR-M-2: the evaluation record is written only for the current revision', async () => {
     const { tx, statements } = recording()
     await installMatches(tx, OPP, 7, evaluated([]), roster)
-    const update = statements[1]?.sql.replace(/\s+/g, ' ')
-    expect(update).toContain(
-      'UPDATE job_opportunities SET evaluated_revision = $1, evaluation_verdict = $2::job_opportunity_verdict',
+    expect(statements[1]?.sql.replace(/\s+/g, ' ')).toBe(
+      'UPDATE job_opportunities SET evaluated_revision = $1, evaluation_verdict = $2::job_opportunity_verdict WHERE id = $3::uuid AND revision = $4',
     )
-    expect(update).toContain(
-      'WHERE id = $3::uuid AND (evaluated_revision IS NULL OR evaluated_revision <= $4)',
-    )
+    expect(statements[1]?.params).toEqual([7, 'OPEN', OPP, 7])
   })
 
   it('SR-M-2: an opportunity-level exclusion is recorded as EXCLUDED, with an empty roster too', async () => {

@@ -147,7 +147,9 @@ describe('reconcileOnce', () => {
     const db = dbOf([])
     await reconcileOnce(db)
     const q = new PgDialect().sqlToQuery(db.execute.mock.calls[0]?.[0] as never)
-    expect(q.sql).toContain('o.evaluated_revision IS DISTINCT FROM o.revision AS unevaluated')
+    expect(q.sql.replace(/\s+/g, ' ')).toContain(
+      "(o.evaluated_revision IS DISTINCT FROM o.revision AND o.availability IN ('OPEN', 'UNKNOWN')) AS unevaluated",
+    )
   })
 
   it('AC3: an already-present row (inserted:false) is not counted as enqueued', async () => {

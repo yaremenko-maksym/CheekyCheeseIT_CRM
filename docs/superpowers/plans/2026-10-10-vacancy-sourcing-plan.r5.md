@@ -1024,7 +1024,8 @@ preview ≤ 200 with independent continuation/totals; bounded indexed filters (M
 submission" records, it sends nothing. Several seniors — of one team or of several — may be submitted to the same
 opportunity independently; the same senior twice is refused by `uq_job_queue_assignments_opportunity_senior`. There is
 **no global taken state and no reassign**. The table keeps its name; `state = TAKEN` means submitted, `RELEASED` means
-cancelled (the row is kept, a re-submission is a versioned UPDATE of it). Submitting to a triage item is allowed —
+cancelled (the row is kept; a re-submission by the same team is a versioned UPDATE of it, by another team see
+"Decision" below). Submitting to a triage item is allowed —
 triage marks the system's uncertainty and is not a lock.
 
 **Invisibility between teams (the rule every path below obeys).** A team never learns of another team's activity, in
@@ -1083,10 +1084,23 @@ merely "did not parse").
 **Decision (A3, owner, 2026-11-04): option (a); the submit path is unblocked.** `team_members` allows one senior in
 **several** teams. A submission is a fact about the senior: it is shown to every team the senior belongs to, without a
 name; another team sees only `{ submittedElsewhere: true }`. UNIQUE(opportunity, senior) stays, so the staged file is
-promoted as written (no double application at the employer). Because the key is shared, a shared senior's second
-submission hits the same row: team B's attempt on A's live submission and B's re-submission of A's cancelled row must
-disclose nothing beyond the marker (no foreign id, timestamps, version, submitter or team, in any response or error).
-What remains before promoting the staged DDL is the re-measure in its header (the table is empty on production).
+promoted as written (no double application at the employer). What remains before promoting the staged DDL is the
+re-measure in its header (the table is empty on production).
+
+The key is shared, so a shared senior's second submission hits the same row. This follows from "teams are invisible to
+each other":
+
+- **Team B on A's LIVE submission:** B gets the marker and a conflict with no foreign id, timestamps, version, submitter
+  or team, in any response or error. The marker is for a live submission only.
+- **A's CANCELLED submission, for B:** indistinguishable from none. No marker, nothing at all, on the list, the card,
+  counts or errors.
+- **B's re-submission over A's cancelled row:** B must get a row with a **new id and version 1**, so it cannot infer
+  that A's row existed. In the submit transaction: DELETE A's cancelled row, then INSERT B's. Delete is what applies:
+  `job_queue_actions` carries no FK to `job_queue_assignments` (it references the opportunity, source record,
+  subscription, actor and teams), the table is class A so `crm_app` holds DELETE, and it has no append-only trigger. A's
+  history survives in `job_queue_actions`. B's action row is logged as a first submission of version 1, and it is
+  never linked to A's. "Foreign" means the cancelled row's scope and team differ from the request's; the same team's
+  re-submission stays the versioned UPDATE. Afterwards A sees B's live submission as the marker.
 
 - [ ] Real-DB tests: two seniors submitted to one opportunity both succeed; the same senior twice — one wins, the
       other is a version / unique conflict without foreign identity; repeated key; lost-response retry; audit failure
@@ -1094,7 +1108,12 @@ What remains before promoting the staged DDL is the re-measure in its header (th
       senior who left the team or was archived is refused; team dismissal isolation; ADMIN suppress; cancel by a
       foreign team's HR is the same 404 as a missing submission; two-copy click signals; two concurrent submissions of
       one senior to unmerged copies → exactly one succeeds without confirmation; negative paths leave no partial
-      writes; a foreign team's submission changes nothing in this team's list, card, counts or errors.
+      writes; a foreign team's submission changes nothing in this team's list, card, counts or errors, except the A3
+      marker on a shared senior's live submission (raw JSON holds only `{ submittedElsewhere: true }`); A's CANCELLED
+      submission of a shared senior: B's raw list, card, count and error JSON is byte-identical to no submission at
+      all, with no marker and none of A's id, timestamps, version, submitter or team; B's re-submission over A's
+      cancelled row: B gets a new id and version 1, and B's raw response and error JSON holds none of A's id,
+      timestamps, version, submitter or team, while A's action rows survive.
 - [ ] **Carried from Task 1.2 — who may write**, as amended by T0 (the header comment of
       `apps/api/src/database/schema/job-queue.ts`). A STUDIO-scoped row is written only by an ADMIN; a TEAM-scoped row
       only by an ADMIN or an HR who is a current active member of that team, re-checked inside the write transaction.
@@ -1111,7 +1130,8 @@ Explicit `@Inject`, `@UseGuards(RolesGuard)` + `@Roles`, parsed request/response
 top of the global `UserAwareThrottlerGuard`; error codes from `api-errors/job-sourcing.ts`.
 
 **Precondition (backlog entry 349 / Task 6.1 SR-M-2):** the decision on the triage-grant visibility gap is taken
-(owner, 2026-11-04, option 1) and closed in code: a grant shows an opportunity only when it was evaluated OPEN at its
+(owner, 2026-11-04, option 1) and implemented, with a residual window under owner decision (the entry's known limits):
+a grant shows an opportunity only when it was evaluated OPEN at its
 current revision, and never-evaluated fails closed. Tasks 6.2, 6.3 and 6.4 may now inject `JobQueueScopeService`. What
 remains is an owner step: promote the staged DDL `manual-staged/2026-11-04_job_opportunities_evaluation_verdict.sql`
 before the queue is exposed (and before `JOB_MATCH_RECONCILIATION_ENABLED` is on with this code; its header gives the

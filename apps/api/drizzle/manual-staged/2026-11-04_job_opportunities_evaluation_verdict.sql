@@ -20,9 +20,15 @@
 -- BACKFILL: NONE HERE. Existing rows stay NULL, so a granted opportunity stays HIDDEN from its team
 -- until its next recompute (STUDIO and the LEAD branch do not read these columns). The recompute is
 -- triggered by the match reconciliation sweep (`reconcileOnce`), which treats a NULL or older
--- evaluated_revision as stale under its own `RECONCILE:EVAL:` dirty reason, even when the match rows
--- are fresh or a DONE row already exists. That needs JOB_MATCH_RECONCILIATION_ENABLED=true, and it
--- drains at most 2,000 opportunities per 6-hour tick, so N opportunities take about N / 2,000 ticks.
+-- evaluated_revision on an OPEN or UNKNOWN opportunity as stale under its own `RECONCILE:EVAL:` dirty
+-- reason, even when the match rows are fresh or a DONE row already exists. CLOSED and EXPIRED rows
+-- stay NULL: a grant hides them anyway, and a reopen bumps the revision and enqueues a recompute.
+-- That needs JOB_MATCH_RECONCILIATION_ENABLED=true, and it drains at most 2,000 opportunities per
+-- 6-hour tick, so N opportunities take about N / 2,000 ticks.
+--
+-- SIZE IT FIRST (owner step): read `SELECT count(*) FROM job_opportunities` before promoting. The
+-- backfill shares the one MATCH FIFO at 2,000 per 6-hour tick, so revision recomputes and exclusion
+-- fan-outs queue behind it: about 12.5 days at 100,000 opportunities.
 --
 -- ORDER (owner step): apply this file BEFORE JOB_MATCH_RECONCILIATION_ENABLED is true on a build
 -- carrying this code. With the flag on and the columns absent, the sweep's SELECT fails with 42703,

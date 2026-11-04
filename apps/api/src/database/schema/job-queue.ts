@@ -206,7 +206,7 @@ const TRIAGE_KINDS = sql.raw(
  * seniors (of one team or of several) may be submitted to one opportunity
  * independently, and two concurrent first submissions of the SAME senior both
  * INSERT and one gets 23505. The row is kept on cancel (`RELEASED`), so a
- * re-submission is an UPDATE. The schema supplies the `version` column; that a
+ * re-submission by the same team is an UPDATE. The schema supplies the `version` column; that a
  * re-submission NAMES the expected version in its WHERE clause (the thing
  * that serializes two re-submissions) is a Phase-6 obligation, as is bumping
  * `version` on every mutation.
@@ -242,10 +242,16 @@ const TRIAGE_KINDS = sql.raw(
  * submission's `senior_id` must be an active, non-archived SENIOR member of
  * that team, re-checked inside the write transaction (a CHECK cannot see
  * membership); a recruiter cancels only their own team's submission, an ADMIN
- * any; a read never discloses another team's submission in ANY form — no
+ * any; a read never discloses another team's submission in any form — no
  * "already taken" state, no count, no name: foreign activity is
  * indistinguishable from none (`jobQueueAssignmentSchema` carries no actor and
- * no team for that reason); the submit transaction locks the target and its
+ * no team for that reason) — with the ONE A3 exception: another team's LIVE
+ * submission of a senior shared by both teams shows as the bare
+ * `{ submittedElsewhere: true }`. A cancelled foreign submission shows nothing
+ * at all. A re-submission by the row's own team is the versioned UPDATE above;
+ * by another team it is a DELETE plus an INSERT in one transaction, so that
+ * team gets a new id and version 1 (`job_queue_actions` has no FK to this
+ * table, so the audit survives); the submit transaction locks the target and its
  * possible-duplicate set in sorted id order.
  */
 export const jobQueueAssignments = pgTable(

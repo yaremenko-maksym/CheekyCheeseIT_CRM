@@ -106,6 +106,12 @@ const liveTeam = (alias: string, teamId: string) =>
  *          fails closed. The verdict is opportunity-level (`opportunityVerdict`): a per-senior
  *          stop-list is `SCOPED_RESTRICTIONS` and does not hide the opportunity from the team, owner
  *          A1g. The grant itself is revision-independent: the schema states no revision rule for it.
+ *          KNOWN LIMITS (backlog entry on SR-M-2, residual window under owner decision): the verdict
+ *          compares no input version, so it can outlive what it was computed from without a revision
+ *          bump. A new studio-wide exclusion still shows a granted item until the queue drains (for
+ *          good while the match reconciliation is off); a rule-version bump leaves a zero-row OPEN
+ *          until the next revision or roster change; with an empty roster, an exclusion written
+ *          outside the hooked services is not picked up by the sweep at all.
  * A TRIAGE / unknown-stack verdict alone grants nothing (data quality, not a grant).
  *
  * NOT IN THIS PREDICATE — standing triage subscriptions (`job_team_triage_subscriptions`). A

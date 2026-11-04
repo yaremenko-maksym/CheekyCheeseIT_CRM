@@ -55,6 +55,16 @@ const excluded: Excluded = {
   },
 }
 
+function oneSenior(): RosterInputs {
+  const profiles = [{ seniorId: senior, teamIds: ['t'], techStack: ['Go'] }]
+  return {
+    rosterSeniorIds: [senior],
+    profiles,
+    exclusions: [],
+    versions: rosterVersions(profiles, []),
+  }
+}
+
 async function opportunity(label: string, revision = 1): Promise<string> {
   const { rows } = await session.admin.query(
     `INSERT INTO job_opportunities (title, title_key, revision) VALUES ($1, $1, $2) RETURNING id`,
@@ -125,9 +135,21 @@ describe.skipIf(!hasDatabaseUrl())('installMatches: the evaluation record (SR-M-
 
   it('a stale install changes neither the record nor the rows of the newer revision', async () => {
     const o = await opportunity('stale', 5)
-    await installMatches(db, o, 5, excluded, empty)
-    await installMatches(db, o, 4, open, empty)
+    await installMatches(db, o, 5, excluded, oneSenior())
+    await installMatches(db, o, 4, open, oneSenior())
     expect(await recorded(o)).toEqual({ evaluated_revision: 5, evaluation_verdict: 'EXCLUDED' })
+    const { rows } = await session.admin.query(
+      `SELECT senior_id, opportunity_revision, outcome FROM job_opportunity_matches
+        WHERE opportunity_id = $1`,
+      [o],
+    )
+    expect(rows).toEqual([{ senior_id: senior, opportunity_revision: 5, outcome: 'EXCLUDED' }])
+  })
+
+  it('a stale install onto a NULL record records nothing (SPEC-L-1)', async () => {
+    const o = await opportunity('stale-null', 5)
+    expect(await installMatches(db, o, 4, open, empty)).toBe(0)
+    expect(await recorded(o)).toEqual({ evaluated_revision: null, evaluation_verdict: null })
   })
 
   it('a re-evaluation of the SAME revision overwrites the verdict (an exclusion was lifted)', async () => {
@@ -138,21 +160,16 @@ describe.skipIf(!hasDatabaseUrl())('installMatches: the evaluation record (SR-M-
   })
 
   it('a newer revision overwrites an older record', async () => {
-    const o = await opportunity('newer', 2)
+    const o = await opportunity('newer')
     await installMatches(db, o, 1, excluded, empty)
+    await session.admin.query(`UPDATE job_opportunities SET revision = 2 WHERE id = $1`, [o])
     await installMatches(db, o, 2, open, empty)
     expect(await recorded(o)).toEqual({ evaluated_revision: 2, evaluation_verdict: 'OPEN' })
   })
 
   it('the record and the rows commit or roll back together', async () => {
     const o = await opportunity('atomic')
-    const profiles = [{ seniorId: senior, teamIds: ['t'], techStack: ['Go'] }]
-    const roster: RosterInputs = {
-      rosterSeniorIds: [senior],
-      profiles,
-      exclusions: [],
-      versions: rosterVersions(profiles, []),
-    }
+    const roster = oneSenior()
     let installed = -1
     await db
       .transaction(async (tx) => {

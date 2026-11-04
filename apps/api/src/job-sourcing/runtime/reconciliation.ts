@@ -50,7 +50,9 @@ import { MATCH_RULE_VERSION, type SeniorVersions, loadRoster } from './recompute
  * UNEVALUATED (SR-M-2). An opportunity whose `evaluated_revision` is not its current revision is
  * stale too, even when its rows are fresh, under its own `RECONCILE:EVAL:` lineage: a DONE row from
  * before the column existed must not suppress it. This is the backfill of the staged DDL (every
- * existing row starts NULL) and the repair of a revision bump whose producer row was lost.
+ * existing row starts NULL) and the repair of a revision bump whose producer row was lost. Only an
+ * OPEN or UNKNOWN opportunity counts: a grant hides CLOSED / EXPIRED from availability alone, and a
+ * reopen bumps the revision and enqueues its own recompute, so this shortens the backfill.
  *
  * The cron also runs `recoverExpiredDirty` first, so a crashed worker's expired lease becomes
  * PENDING (or FAILED, then retried as above) instead of staying CLAIMED for good.
@@ -249,7 +251,8 @@ export async function reconcileOnce(
   while (pages < maxPages) {
     const { rows } = await db.execute(
       sql`SELECT o.id, o.revision,
-                 o.evaluated_revision IS DISTINCT FROM o.revision AS unevaluated,
+                 (o.evaluated_revision IS DISTINCT FROM o.revision
+                  AND o.availability IN ('OPEN', 'UNKNOWN')) AS unevaluated,
                  COALESCE((SELECT jsonb_agg(jsonb_build_array(m.senior_id, m.senior_profile_version,
                                                               m.exclusion_version, m.rule_version))
                              FROM job_opportunity_matches m WHERE m.opportunity_id = o.id), '[]'::jsonb) AS matches,
