@@ -109,7 +109,24 @@ export class JobQueueScopeService {
       .map(([seniorId, v]) => ({ seniorId, profile: v.profile, exclusion: v.exclusion }))
   }
 
-  private async policy<T>(fn: () => Promise<T>): Promise<T> {
+  /**
+   * The live input versions a read in `scope` compares match rows against: a TEAM scope's own (from
+   * its `resolve`, no query); STUDIO's are every roster senior's, read here because `resolve` needs
+   * no roster for an ADMIN. Never crosses a request, as the scope itself does not.
+   */
+  async liveVersions(scope: JobQueueScope): Promise<readonly LiveSeniorVersion[]> {
+    if (scope.kind === 'TEAM') return scope.versions
+    if (scope.kind === 'NONE') return []
+    const roster = await this.policy(() => loadRoster(this.database.db))
+    return [...roster.versions].map(([seniorId, v]) => ({
+      seniorId,
+      profile: v.profile,
+      exclusion: v.exclusion,
+    }))
+  }
+
+  /** Runs a read that evaluates the policy: a failure is the 503, never a default answer. */
+  async policy<T>(fn: () => Promise<T>): Promise<T> {
     try {
       return await fn()
     } catch (err: unknown) {
