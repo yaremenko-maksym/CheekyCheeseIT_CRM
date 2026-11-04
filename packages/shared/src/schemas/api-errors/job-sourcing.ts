@@ -89,6 +89,7 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
   JOB_QUEUE_POLICY_UNAVAILABLE: /* i18n */ {
     id: 'api-error.JOB_QUEUE_POLICY_UNAVAILABLE',
     message: 'Не вдалося перевірити доступ. Спробуйте пізніше.',
+  },
   JOB_SOURCE_NOT_FOUND: /* i18n */ {
     id: 'api-error.JOB_SOURCE_NOT_FOUND',
     message: 'Джерело вакансій не знайдено',
