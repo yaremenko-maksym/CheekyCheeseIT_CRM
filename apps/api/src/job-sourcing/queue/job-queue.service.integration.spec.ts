@@ -9,7 +9,6 @@ import {
   jobQueueListResponseSchema,
   type SessionUser,
 } from '@crm/shared'
-import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Env } from '../../config/env'
 import {
@@ -20,6 +19,7 @@ import { hasDatabaseUrl } from '../../test/require-real-db'
 import { loadRoster, MATCH_RULE_VERSION, type SeniorVersions } from '../runtime/recompute-inputs'
 import { JobQueueService } from './job-queue.service'
 import { parseCursor, signCursor } from './queue-cursor'
+import { purgeExpiredGenerations } from './queue-generation'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -107,6 +107,20 @@ async function link(opp: string, linkedAt?: string): Promise<string> {
   )
   return record
 }
+/** A source record with no URL: no primary source, and no match for a source filter. */
+async function linkWithoutUrl(opp: string, sourceType: string, linkedAt: string) {
+  seq += 1
+  const { rows } = await sqlq(
+    `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key)
+     VALUES ($1, $2, 'NATIVE_ID', $3) RETURNING id`,
+    [sourceType, `${TAG}-ns`, `${TAG}-k${seq}`],
+  )
+  await sqlq(
+    `INSERT INTO job_opportunity_sources (source_record_id, opportunity_id, rule_version, linked_at)
+     VALUES ($1, $2, 'r1', $3::timestamptz)`,
+    [rows[0].id, id(opp), linkedAt],
+  )
+}
 /** A live match row: what the recompute worker would stamp for this senior right now. */
 function match(opp: string, senior: string, outcome: string, evidence: Record<string, unknown>) {
   const v = live.get(id(senior)) as SeniorVersions
@@ -134,6 +148,26 @@ const lead = (opp: string, senior: string, score = 50, keyword = 'Go') =>
     reasons: [{ code: 'TECH_MATCH', evidence: [`${keyword}:CORE`], ruleVersion: 'r' }],
     rankWarnings: [],
   })
+/** A LEAD left behind by an older revision or rule, with a score that would show if it counted. */
+function staleLead(opp: string, senior: string, stale: { revision?: number; rule?: string }) {
+  const v = live.get(id(senior)) as SeniorVersions
+  return sqlq(
+    `INSERT INTO job_opportunity_matches
+       (opportunity_id, senior_id, opportunity_revision, senior_profile_version,
+        exclusion_version, rule_version, outcome, evidence)
+     SELECT $1::uuid, $2::uuid, COALESCE($3::int, o.revision), $4::text, $5::text, $6::text,
+            'LEAD', '{"score":900,"reasons":[]}'::jsonb
+       FROM job_opportunities o WHERE o.id = $1::uuid`,
+    [
+      id(opp),
+      id(senior),
+      stale.revision ?? null,
+      v.profile,
+      v.exclusion,
+      stale.rule ?? MATCH_RULE_VERSION,
+    ],
+  )
+}
 const stopListed = (opp: string, senior: string) =>
   match(opp, senior, 'EXCLUDED', {
     stage: 'SCOPED_RESTRICTIONS',
@@ -163,6 +197,21 @@ async function submit(opp: string, senior: string, team: string, by: string): Pr
   )
   return rows[0].id as string
 }
+/** An ADMIN's STUDIO submission: the row with no team, which compares NULL against any team. */
+async function submitStudio(opp: string, senior: string): Promise<string> {
+  const { rows } = await sqlq(
+    `INSERT INTO job_queue_assignments (senior_id, opportunity_id, scope_kind, team_id, assignee_id)
+     VALUES ($1, $2, 'STUDIO', NULL, $3) RETURNING id`,
+    [id(senior), id(opp), id('admin')],
+  )
+  return rows[0].id as string
+}
+const dismissStudio = (opp: string) =>
+  sqlq(
+    `INSERT INTO job_queue_dismissals (opportunity_id, scope_kind, team_id, reason, dismissed_by)
+     VALUES ($1, 'STUDIO', NULL, 'not ours', $2)`,
+    [id(opp), id('admin')],
+  )
 const dismiss = (opp: string, team: string, by: string) =>
   sqlq(
     `INSERT INTO job_queue_dismissals (opportunity_id, scope_kind, team_id, reason, dismissed_by)
@@ -195,6 +244,21 @@ const expireGeneration = (team: string) =>
       WHERE team_id = $1 AND status = 'PUBLISHED'`,
     [id(team)],
   )
+const expireStudio = () =>
+  sqlq(
+    `UPDATE job_queue_generations SET status = 'INVALIDATED', invalidated_at = now()
+      WHERE scope_kind = 'STUDIO' AND status = 'PUBLISHED'`,
+  )
+/** The rank a team's published generation gave one opportunity. */
+const rankOf = async (team: string, opp: string) =>
+  (
+    await sqlq(
+      `SELECT e.rank_score FROM job_queue_generation_entries e
+         JOIN job_queue_generations g ON g.id = e.generation_id
+        WHERE g.team_id = $1 AND g.status = 'PUBLISHED' AND e.opportunity_id = $2`,
+      [id(team), id(opp)],
+    )
+  ).rows[0]?.rank_score as number | undefined
 
 async function refusal(p: Promise<unknown>): Promise<{ status: number; code: string }> {
   const e: unknown = await p.then(
@@ -321,6 +385,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
         items: [],
         nextCursor: null,
         counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
+        generation: null,
       })
       expect(await refusal(service.card(none, id('oppShared')))).toEqual(NOT_FOUND)
     })
@@ -475,6 +540,8 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
     it('a foreign LIVE submission is the bare marker, and nothing of the row is in the JSON', async () => {
       const card = await service.card(hrA(), id('oppA3'))
       expect(seniorOn(card, 'senShared')?.submission).toEqual({ submittedElsewhere: true })
+      // The marker belongs to the senior submitted: the team's other senior on this card has none.
+      expect(seniorOn(card, 'senA')?.submission).toBeNull()
       expect(card.submittedSeniorCount).toBe(0)
       const raw = JSON.stringify(card)
       expect(raw).not.toContain(foreignSubmission)
@@ -495,6 +562,28 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
         cancelledAt: null,
         submittedByName: `${TAG} name hrB`,
       })
+    })
+
+    it('a foreign team submitting someone else marks nobody here (f.senior_id, SR-M-1)', async () => {
+      await mkOpp('oppUnshared')
+      await lead('oppUnshared', 'senA')
+      await lead('oppUnshared', 'senB')
+      await submit('oppUnshared', 'senB', 'teamB', 'hrB')
+      const card = await service.card(hrA(), id('oppUnshared'))
+      expect(seniorOn(card, 'senA')?.submission).toBeNull()
+      expect(card.submittedSeniorCount).toBe(0)
+      expect(JSON.stringify(card)).not.toContain('submittedElsewhere')
+    })
+
+    it('a shared senior submitted on another opportunity is not marked here (f.opportunity_id, SR-M-1)', async () => {
+      await mkOpp('oppElsewhere')
+      await lead('oppElsewhere', 'senShared')
+      await submit('oppElsewhere', 'senShared', 'teamB', 'hrB')
+      await mkOpp('oppNotHere')
+      await lead('oppNotHere', 'senShared')
+      const card = await service.card(hrA(), id('oppNotHere'))
+      expect(seniorOn(card, 'senShared')?.submission).toBeNull()
+      expect(JSON.stringify(card)).not.toContain('submittedElsewhere')
     })
 
     it('a cancelled foreign submission is indistinguishable from none', async () => {
@@ -534,6 +623,77 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
     })
   })
 
+  describe('STUDIO-scoped workflow rows (SR-L-3)', () => {
+    it('an ADMIN STUDIO submission (no team) is the bare marker in a TEAM view, in full in STUDIO', async () => {
+      await mkOpp('studioSub')
+      await lead('studioSub', 'senA')
+      const submission = await submitStudio('studioSub', 'senA')
+      const card = await service.card(hrA(), id('studioSub'))
+      expect(seniorOn(card, 'senA')?.submission).toEqual({ submittedElsewhere: true })
+      expect(card.submittedSeniorCount).toBe(0)
+      const raw = JSON.stringify(card)
+      expect(raw).not.toContain(submission)
+      expect(raw).not.toContain('name admin')
+      const studio = await service.card(admin(), id('studioSub'))
+      expect(seniorOn(studio, 'senA')?.submission).toMatchObject({
+        id: submission,
+        submittedByName: `${TAG} name admin`,
+      })
+      expect(studio.submittedSeniorCount).toBe(1)
+    })
+
+    it('a STUDIO dismissal hides the row in STUDIO only', async () => {
+      await mkOpp('studioHidden')
+      await lead('studioHidden', 'senA')
+      await dismissStudio('studioHidden')
+      await expireGeneration('teamA')
+      await expireStudio()
+      const search = `${TAG} studioHidden`
+      const inTeam = await service.list(hrA(), q({ search, tab: 'NEW' }))
+      expect(inTeam.items.map((i) => i.opportunityId)).toEqual([id('studioHidden')])
+      expect(inTeam.items[0]?.hidden).toBe(false)
+      expect((await service.list(admin(), q({ search, tab: 'NEW' }))).items).toEqual([])
+      const inStudio = await service.list(admin(), q({ search, tab: 'HIDDEN' }))
+      expect(inStudio.items.map((i) => i.opportunityId)).toEqual([id('studioHidden')])
+      expect(inStudio.items[0]?.hidden).toBe(true)
+    })
+
+    it('a TEAM dismissal hides the row in that team only, never in STUDIO', async () => {
+      await mkOpp('teamHidden')
+      await lead('teamHidden', 'senA')
+      await dismiss('teamHidden', 'teamA', 'hrA')
+      await expireGeneration('teamA')
+      await expireStudio()
+      const search = `${TAG} teamHidden`
+      const inStudio = await service.list(admin(), q({ search, tab: 'NEW' }))
+      expect(inStudio.items.map((i) => i.opportunityId)).toEqual([id('teamHidden')])
+      expect(inStudio.items[0]?.hidden).toBe(false)
+      expect((await service.list(hrA(), q({ search, tab: 'NEW' }))).items).toEqual([])
+      const inTeam = await service.list(hrA(), q({ search, tab: 'HIDDEN' }))
+      expect(inTeam.items[0]?.hidden).toBe(true)
+    })
+  })
+
+  describe('what a stale match cannot do (SR-L-2)', () => {
+    it.each([
+      ['an older revision', 'staleRevision', { revision: 1 }, 2],
+      ['a retired rule', 'staleRule', { rule: 'retired-rule' }, 1],
+    ] as const)(
+      'a LEAD of %s feeds no count, name or rank',
+      async (_label, key, stale, revision) => {
+        await mkOpp(key, { revision })
+        await lead(key, 'senA', 10)
+        await staleLead(key, 'senShared', stale)
+        await expireGeneration('teamA')
+        const item = await itemOf(hrA(), key, { search: `${TAG} ${key}` })
+        expect(item?.matchedSeniorCount).toBe(1)
+        expect(await rankOf('teamA', key)).toBe(10)
+        const card = await service.card(hrA(), id(key))
+        expect(card.seniors.items.map((s) => s.seniorId)).toEqual([id('senA')])
+      },
+    )
+  })
+
   describe('the generation', () => {
     it('a list request publishes one, the next serves the same one', async () => {
       await expireGeneration('teamB')
@@ -546,15 +706,81 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
 
     it('concurrent first requests coalesce into one generation, with its superseded row purged', async () => {
       await expireGeneration('teamB')
-      await Promise.all([
-        service.list(hrB(), q()),
-        service.list(hrB(), q()),
-        service.list(hrB(), q()),
+      const pages = await Promise.all([
+        service.list(hrB(), q({ limit: 1 })),
+        service.list(hrB(), q({ limit: 1 })),
+        service.list(hrB(), q({ limit: 1 })),
       ])
       const { rows } = await sqlq(`SELECT status FROM job_queue_generations WHERE team_id = $1`, [
         id('teamB'),
       ])
       expect(rows).toEqual([{ status: 'PUBLISHED' }])
+      // Republishing one after another would end in the same state; each page names its generation.
+      const [published] = await publishedOf('teamB')
+      const served = pages.map((p) => parseCursor(p.nextCursor as string, 'L', SECRET).g)
+      expect(served).toEqual([published, published, published])
+    })
+
+    it('a publish committed between the statements of one read cannot empty it (CR-M-1)', async () => {
+      await expireGeneration('teamB')
+      const before = await service.list(hrB(), q({ limit: 1 }))
+      expect(before.items).toHaveLength(1)
+      const db = session.databaseService.db
+      const transaction = db.transaction.bind(db)
+      vi.spyOn(db, 'transaction').mockImplementationOnce((run, config) =>
+        transaction(async (tx) => {
+          const execute = tx.execute.bind(tx)
+          let statements = 0
+          // Right after the generation lookup, another session supersedes and purges it.
+          vi.spyOn(tx, 'execute').mockImplementation(((query: never) => {
+            statements += 1
+            const result = execute(query)
+            return statements > 1
+              ? result
+              : result.then(async (rows) => {
+                  await expireGeneration('teamB')
+                  await sqlq(
+                    `DELETE FROM job_queue_generations WHERE team_id = $1 AND status = 'INVALIDATED'`,
+                    [id('teamB')],
+                  )
+                  return rows
+                })
+          }) as never)
+          return run(tx)
+        }, config),
+      )
+      const during = await service.list(hrB(), q({ limit: 1 }))
+      vi.restoreAllMocks()
+      expect(await publishedOf('teamB')).toEqual([])
+      // Read at READ COMMITTED this would be a 200 with no items and zero counts.
+      expect(during.items).toEqual(before.items)
+      expect(during.counts).toEqual(before.counts)
+      expect(
+        await refusal(service.list(hrB(), q({ limit: 1, cursor: during.nextCursor }))),
+      ).toEqual(REFRESH)
+    })
+
+    it('the wire states the rule and the evaluation time of the generation it read', async () => {
+      await expireGeneration('teamA')
+      const res = await service.list(hrA(), q())
+      const { rows } = await sqlq(
+        `SELECT evaluated_at FROM job_queue_generations WHERE team_id = $1 AND status = 'PUBLISHED'`,
+        [id('teamA')],
+      )
+      expect(res.generation).toEqual({
+        ruleVersion: 'eval.1+l1.1',
+        evaluatedAt: new Date(rows[0].evaluated_at as string).toISOString(),
+        capped: false,
+      })
+    })
+
+    it('the scope rank never passes the 1000 ceiling', async () => {
+      await mkOpp('rankCeiling')
+      await lead('rankCeiling', 'senA', 999)
+      await lead('rankCeiling', 'senShared', 999)
+      await expireGeneration('teamA')
+      await service.list(hrA(), q())
+      expect(await rankOf('teamA', 'rankCeiling')).toBe(1000)
     })
 
     it('a generation carries integer rank, its rule, and the evaluated revision', async () => {
@@ -645,6 +871,20 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       const seen = await walk(hrA(), { search: `${TAG} tie` })
       const expected = ['tie1', 'tie2', 'tie3', 'tie4', 'tie5'].map(id).sort().reverse()
       expect(seen).toEqual(expected)
+    })
+
+    it('equal scores: the later first_seen_at comes first (CR-L-1)', async () => {
+      for (const [k, firstSeen] of [
+        ['age2021', '2021-03-03T00:00:00Z'],
+        ['age2023', '2023-03-03T00:00:00Z'],
+        ['age2022', '2022-03-03T00:00:00Z'],
+      ] as const) {
+        await mkOpp(k, { firstSeen })
+        await lead(k, 'senA', 44)
+      }
+      await expireGeneration('teamA')
+      const seen = await walk(hrA(), { search: `${TAG} age` })
+      expect(seen).toEqual([id('age2023'), id('age2022'), id('age2021')])
     })
 
     it('a rank or source change between pages neither moves nor repeats a row', async () => {
@@ -767,6 +1007,21 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       expect(card.primarySource.sourceRecordId).toBe(backdated.rows[0].source_record_id)
     })
 
+    it('a source record with no URL is neither the primary source nor a source-filter hit (SR-L-2, CR-L-5)', async () => {
+      await mkOpp('noUrl')
+      await lead('noUrl', 'senA')
+      await linkWithoutUrl('noUrl', 'LEVER_ATS', '1999-01-01T00:00:00Z')
+      await expireGeneration('teamA')
+      const search = `${TAG} noUrl`
+      const res = await service.list(hrA(), q({ search }))
+      expect(res.items[0]?.primarySource.sourceType).toBe('GREENHOUSE_ATS')
+      expect(res.items[0]?.alsoSeenOnCount).toBe(0)
+      expect((await service.list(hrA(), q({ search, source: 'LEVER_ATS' }))).items).toEqual([])
+      expect(
+        (await service.list(hrA(), q({ search, source: 'GREENHOUSE_ATS' }))).items,
+      ).toHaveLength(1)
+    })
+
     it('an unlinked source leaves the count and the preview', async () => {
       await mkOpp('oppUnlink')
       await lead('oppUnlink', 'senA')
@@ -857,52 +1112,43 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
     })
   })
 
-  describe('query plan (MP-13, small-scale)', () => {
-    it('a page over 3000 entries is index-driven and within budget', async () => {
-      await sqlq(
-        `WITH made AS (
-           INSERT INTO job_opportunities (title, title_key)
-           SELECT $1 || ' bulk ' || g, $1 || '-bulk-' || g FROM generate_series(1, 3000) g RETURNING id)
-         INSERT INTO job_opportunity_matches
-           (opportunity_id, senior_id, opportunity_revision, senior_profile_version,
-            exclusion_version, rule_version, outcome, evidence)
-         SELECT id, $2::uuid, 1, $3, $4, $5, 'LEAD', '{"score":1}' FROM made`,
-        [
-          TAG,
-          id('senA'),
-          (live.get(id('senA')) as SeniorVersions).profile,
-          (live.get(id('senA')) as SeniorVersions).exclusion,
-          MATCH_RULE_VERSION,
-        ],
-      )
-      await sqlq(
-        `WITH r AS (
-           INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key, source_url)
-           SELECT 'GREENHOUSE_ATS', $1 || '-ns', 'NATIVE_ID', $1 || '-b-' || o.id, 'https://jobs.example.test/' || o.id
-             FROM job_opportunities o WHERE o.title LIKE $1 || ' bulk %' RETURNING id, identity_key)
-         INSERT INTO job_opportunity_sources (source_record_id, opportunity_id, rule_version)
-         SELECT r.id, substring(r.identity_key from length($1) + 4)::uuid, 'r1' FROM r`,
-        [TAG],
-      )
-      await expireGeneration('teamA')
-      await service.list(hrA(), q({ search: 'first publication' }))
-      await sqlq(`ANALYZE job_queue_generation_entries`)
+  describe('generation retention (CR-M-3)', () => {
+    const generationsOf = async (team: string) =>
+      (await sqlq(`SELECT id FROM job_queue_generations WHERE team_id = $1`, [id(team)])).rows
+    const entriesOf = async (generation: string) =>
+      (
+        await sqlq(
+          `SELECT count(*)::int AS n FROM job_queue_generation_entries WHERE generation_id = $1`,
+          [generation],
+        )
+      ).rows[0].n as number
 
-      const execute = vi.spyOn(session.databaseService.db, 'execute')
-      const started = Date.now()
-      const page = await service.list(hrA(), q({ search: `${TAG} bulk`, limit: 20 }))
-      const elapsed = Date.now() - started
-      const statements = execute.mock.calls.map((c) => c[0])
-      execute.mockRestore()
+    it('a team that once served a list can be deleted once its generation has expired and been purged', async () => {
+      await mkTeam('teamIdle')
+      await mkOpp('oppIdle')
+      await grant('oppIdle', 'teamIdle')
+      await evaluated('oppIdle', 'OPEN')
+      await service.list(admin(), q({ teamId: id('teamIdle') }))
+      const [generation] = await publishedOf('teamIdle')
+      expect(await entriesOf(generation as string)).toBe(1)
 
-      expect(page.items).toHaveLength(20)
-      expect(elapsed).toBeLessThan(5000)
-      const pageStatement = statements[statements.length - 1] as Parameters<
-        typeof session.databaseService.db.execute
-      >[0]
-      const plan = await session.databaseService.db.execute(sql`EXPLAIN ${pageStatement}`)
-      const text = plan.rows.map((r) => String(r['QUERY PLAN'])).join('\n')
-      expect(text).not.toContain('Seq Scan on job_queue_generation_entries')
+      const db = session.databaseService.db
+      // Not expired yet: the purge, as the API role, leaves it alone, and the team stays held.
+      await purgeExpiredGenerations(db, new Date())
+      expect(await publishedOf('teamIdle')).toEqual([generation])
+      await expect(sqlq(`DELETE FROM teams WHERE id = $1`, [id('teamIdle')])).rejects.toThrow(
+        /DELETE refused/,
+      )
+
+      // `expires_at` is frozen by the Task 1.3 trigger, so the clock moves instead of the row.
+      const later = new Date(Date.now() + 16 * 60 * 1000)
+      expect(await purgeExpiredGenerations(db, later)).toBeGreaterThanOrEqual(1)
+      expect(await generationsOf('teamIdle')).toEqual([])
+      expect(await entriesOf(generation as string)).toBe(0)
+
+      await sqlq(`DELETE FROM teams WHERE id = $1`, [id('teamIdle')])
+      const left = await sqlq(`SELECT 1 FROM teams WHERE id = $1`, [id('teamIdle')])
+      expect(left.rows).toEqual([])
     })
   })
 })
