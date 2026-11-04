@@ -45,10 +45,10 @@ export const CORRECTION_PREFIX = 'Your previous answer was rejected. '
 
 /** The bounded system + user (+ correction) messages every chat call sends. */
 export function buildChatMessages(opts: {
-  instruction?: string
+  instruction?: string | undefined
   input: string
-  correction?: string
-}): { role: string; content: string }[] {
+  correction?: string | undefined
+}):{ role: string; content: string }[] {
   return [
     {
       role: 'system',

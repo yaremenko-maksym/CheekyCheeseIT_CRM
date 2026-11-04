@@ -48,10 +48,10 @@ export type ClassifiedChatOptions = {
   provider: ChatProvider
   baseUrl: string
   model: string
-  apiKey?: string
-  instruction?: string
+  apiKey?: string | undefined
+  instruction?: string | undefined
   input: string
-  correction?: string
+  correction?: string | undefined
   maxTokens: number
   structuredOutput: StructuredOutput
   timeoutMs?: number

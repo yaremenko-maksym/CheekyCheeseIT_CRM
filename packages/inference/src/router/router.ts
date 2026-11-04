@@ -1,3 +1,4 @@
+import { setTimeout as wait } from 'node:timers/promises'
 import type { z } from 'zod'
 import type { InferenceErrorCode } from '../contracts/errors'
 import type { ExtractionPort, ExtractionRequest, ExtractionResult } from '../contracts/extraction'
@@ -92,17 +93,12 @@ export type Router = {
   run<T>(req: ExtractionRequest<T>, signal?: AbortSignal): Promise<RouterResult<T>>
 }
 
+/** Resolves after `ms`, or at once when `signal` aborts (the platform timer rejects; that is a wake-up). */
 function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal?.aborted === true) return resolve()
-    const done = (): void => {
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', done)
-      resolve()
-    }
-    const timer = setTimeout(done, ms)
-    signal?.addEventListener('abort', done)
-  })
+  return wait(ms, undefined, { signal } as { signal: AbortSignal }).then(
+    () => undefined,
+    () => undefined,
+  )
 }
 
 type Step = { ok: true; text: string } | { ok: false; code: AttemptCode }
@@ -148,15 +144,15 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       // a throwing consumer must not break the call; the consumer's own test guards it (5.4c-3)
     }
   }
-  const parsed = routerConfigSchema.safeParse(rawConfig)
-  const hostedRoutes = parsed.success
-    ? parsed.data.routes.filter((r): r is HostedRouteConfig => r.provider !== 'local')
-    : []
-  if (!parsed.success || (hostedRoutes.length > 0 && deps.ownCap === undefined)) {
+  const refuse = (): Router => {
     emit({ type: 'CONFIG_REFUSED' })
     return refused
   }
+  const parsed = routerConfigSchema.safeParse(rawConfig)
+  if (!parsed.success) return refuse()
   const cfg: RouterConfig = parsed.data
+  const hostedRoutes = cfg.routes.filter((r): r is HostedRouteConfig => r.provider !== 'local')
+  if (hostedRoutes.length > 0 && deps.ownCap === undefined) return refuse()
   const local = cfg.routes.at(-1) as LocalRouteConfig
   const ownCap = deps.ownCap as OwnCapPort
   const now = deps.now ?? Date.now
@@ -192,8 +188,6 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
 
   async function run<T>(req: ExtractionRequest<T>, signal?: AbortSignal): Promise<RouterResult<T>> {
     const start = now()
-    // A function, not a narrowed property: the signal can abort across every await below.
-    const aborted = (): boolean => signal?.aborted === true
     const hostedDeadline = start + cfg.hostedBudgetMs
     const inputChars = req.input.length
     let rendered: { jsonSchema: JsonSchema; replySchema: z.ZodType<T> } | null
@@ -282,7 +276,6 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       correction?: string,
     ): Promise<Step> {
       const p = route.provider
-      if (aborted()) return { ok: false, code: 'ABORTED' }
       if (now() >= hostedDeadline) return { ok: false, code: 'BUDGET' }
       if (!(await ownCap.reserve(p))) return { ok: false, code: 'CAP' }
       const gap = (nextFreeAt.get(p) ?? 0) - now()
@@ -292,20 +285,18 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
           return { ok: false, code: 'BUDGET' }
         }
         await sleep(gap, signal)
-        if (aborted()) {
-          await ownCap.release(p)
-          return { ok: false, code: 'ABORTED' }
-        }
       }
+      // An aborted signal never reaches the network: `boundedRequest` refuses it before fetching,
+      // the leaf answers ABORTED and `settle` gives the unit back.
       const t0 = now()
       const r = await sendClassifiedChatCompletion({
         provider: p,
         baseUrl: HOSTED_BASE_URLS[p],
         model,
         apiKey: route.apiKey,
-        ...(req.instruction !== undefined && { instruction: req.instruction }),
+        instruction: req.instruction,
         input: req.input,
-        ...(correction !== undefined && { correction }),
+        correction,
         maxTokens: route.maxAnswerTokens,
         structuredOutput: structured(route.structuredOutput),
         timeoutMs: Math.max(1, Math.min(route.timeoutMs, hostedDeadline - now())),
@@ -371,18 +362,14 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
 
     // ---- rotation (§5.2 item 3) ----
     const rotatable = candidates.filter((c) => c.route.rotate)
-    const first = rotatable.length > 0 ? rotatable[rotation++ % rotatable.length] : undefined
+    // No rotatable candidate: the index is NaN and `first` is undefined.
+    const first = rotatable[rotation++ % rotatable.length]
     const order =
       first === undefined ? candidates : [first, ...candidates.filter((c) => c !== first)]
 
     // ---- hosted cascade ----
     for (const { route, models } of order) {
       for (const model of models) {
-        // Re-checked per model: an earlier attempt of this call may have spent or retired it.
-        const snap = state.snapshot()
-        const today = providerDay(route.provider, now())
-        if (isSpent(snap, route.provider, model, today) || isRetired(snap, route.provider, model))
-          continue
         const r = await tryModel(route, model)
         if (r.ok) return finish(success(r.data), false)
         if (r.code === 'ABORTED') return finish(r as RouterResult<T>, false)
@@ -392,7 +379,8 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     }
 
     // ---- hand-back and floor (§5.2 items 5-6) ----
-    if (aborted()) return finish({ ok: false, code: 'ABORTED' }, false)
+    // An abort during a step that sends nothing (a cap refusal, a state write) ends here, not on the floor.
+    if (signal?.aborted === true) return finish({ ok: false, code: 'ABORTED' }, false)
     // Every fall is an event, a local-only config included: the consumer counts floor falls (§5.3).
     emit({
       type: 'FELL_TO_LOCAL',
@@ -403,13 +391,12 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     const floor = await runExtraction({
       schema,
       call: async (correction?: string): Promise<Step> => {
-        if (aborted()) return { ok: false, code: 'ABORTED' }
         if (!promptFits(local, req.instruction, inputChars)) {
           attempted('local', local.model, 'PROMPT_TOO_LARGE', now())
           return { ok: false, code: 'PROMPT_TOO_LARGE' }
         }
+        // An abort while queued is refused by `boundedRequest` before any fetch, as on hosted routes.
         return serialLocal(async (): Promise<Step> => {
-          if (aborted()) return { ok: false, code: 'ABORTED' }
           const remaining = floorDeadline - now()
           if (remaining <= 0) return { ok: false, code: 'TIMEOUT' }
           const t0 = now()
@@ -417,10 +404,10 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
             provider: 'local',
             baseUrl: local.baseUrl,
             model: local.model,
-            ...(local.apiKey !== undefined && { apiKey: local.apiKey }),
-            ...(req.instruction !== undefined && { instruction: req.instruction }),
+            apiKey: local.apiKey,
+            instruction: req.instruction,
             input: req.input,
-            ...(correction !== undefined && { correction }),
+            correction,
             maxTokens: local.maxAnswerTokens,
             structuredOutput: structured(local.structuredOutput),
             timeoutMs: Math.min(local.timeoutMs, remaining),
@@ -450,17 +437,14 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
 
 /**
  * The `router` extraction provider: an `ExtractionPort` over `createRouter` (ADR §2.1). The public
- * result type is unchanged; internal codes never leave the package. The port takes no signal
- * until 5.4c-6, so an abort cannot reach it; it would surface as `TIMEOUT`.
+ * result type is unchanged; internal codes never leave the package. The port passes no signal
+ * (5.4c-6 adds it to `ExtractionRequest`), so `ABORTED` cannot occur here.
  */
 export function createRouterExtractionAdapter(config: unknown, deps: RouterDeps): ExtractionPort {
   const router = createRouter(config, deps)
   return {
-    async extract<T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>> {
-      const r = await router.run(req)
-      return !r.ok && r.code === 'ABORTED'
-        ? { ok: false, code: 'TIMEOUT' }
-        : (r as ExtractionResult<T>)
+    extract<T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>> {
+      return router.run(req) as Promise<ExtractionResult<T>>
     },
   }
 }
