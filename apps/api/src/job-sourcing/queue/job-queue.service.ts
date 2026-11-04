@@ -167,8 +167,8 @@ const toSource = (r: Row): SourcesPage['items'][number] => ({
 @Injectable()
 export class JobQueueService {
   constructor(
-    private readonly database: DatabaseService,
-    private readonly scopes: JobQueueScopeService,
+    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(JobQueueScopeService) private readonly scopes: JobQueueScopeService,
     @Inject(ConfigService) private readonly config: ConfigService<Env, true>,
   ) {}
 
