@@ -9,6 +9,7 @@ import cookie from '@fastify/cookie'
 import { DESCRIPTION_MD_MAX, type SessionUser } from '@crm/shared'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { JwtAuthGuard } from '../../auth/jwt.guard'
+import { RolesGuard } from '../../common/guards/roles.guard'
 import type { Env } from '../../config/env'
 import {
   type CrmAppSession,
@@ -278,7 +279,14 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
 
     const moduleRef = await Test.createTestingModule({
       imports: [JobQueueRbacTestModule],
-    }).compile()
+    })
+      // As the sibling RBAC specs do: the controller's own `@UseGuards(RolesGuard)` instantiates
+      // the class through the injector, which leaves its `reflector` undefined in this test env
+      // (no `design:paramtypes`) and answers every authenticated request with a 500 (CI round 2).
+      // A properly constructed real guard keeps the decorator, and its role sets, under test.
+      .overrideGuard(RolesGuard)
+      .useValue(new RolesGuard(new Reflector()))
+      .compile()
     app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
     await app.register(cookie, { secret: 'job-queue-rbac-cookie-secret' })
     app.setGlobalPrefix('api')

@@ -7,7 +7,7 @@ import {
   ROUTE_ARGS_METADATA,
 } from '@nestjs/common/constants'
 import type { SessionUser } from '@crm/shared'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ZodError } from 'zod'
 import { ROLES_KEY } from '../../common/decorators/roles.decorator'
 import { RolesGuard } from '../../common/guards/roles.guard'
@@ -108,6 +108,11 @@ const throttle = (h: object, kind: 'LIMIT' | 'TTL'): unknown =>
   (Reflect.getMetadata(`THROTTLER:${kind}default`, h) as () => number)()
 
 describe('JobQueueController — routing and gates', () => {
+  // In a hook, not the test body: a failing assertion must not leak a stubbed env into later tests.
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it('is mounted at /job-queue behind RolesGuard', () => {
     expect(Reflect.getMetadata(PATH_METADATA, JobQueueController)).toBe('job-queue')
     expect(Reflect.getMetadata(GUARDS_METADATA, JobQueueController)).toEqual([RolesGuard])
@@ -141,7 +146,6 @@ describe('JobQueueController — routing and gates', () => {
     vi.stubEnv('THROTTLE_RELAXED', '')
     expect(throttle(h, 'LIMIT')).toBe(limit)
     expect(throttle(h, 'TTL')).toBe(60_000)
-    vi.unstubAllEnvs()
     expect(Reflect.getMetadata(HTTP_CODE_METADATA, h)).toBe(code)
   })
 
@@ -152,7 +156,6 @@ describe('JobQueueController — routing and gates', () => {
     expect(throttle(handler('list'), 'LIMIT')).toBe(1000)
     vi.stubEnv('NODE_ENV', 'production')
     expect(throttle(handler('list'), 'LIMIT')).toBe(30)
-    vi.unstubAllEnvs()
   })
 
   it.each([
