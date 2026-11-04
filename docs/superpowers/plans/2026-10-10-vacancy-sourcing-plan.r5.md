@@ -1008,41 +1008,88 @@ preview ≤ 200 with independent continuation/totals; bounded indexed filters (M
       revocation before LIMIT; no-team HR/triage; scoped counts; > 20 links / > 200 seniors; no list description;
       latest card update; query-plan benchmark.
 
-### Task 6.3: Actions — take, dismiss, undo, opened, release/reassign/suppress
+### Task 6.3: Actions — submit (per senior), cancel, dismiss, undo, opened, suppress
 
-> **⚠ Superseded in part by the owner's queue-model decision of 2026-10-18 — read §4 «Queue model» first.** The
-> "studio-wide claim" below, the «вже взято» state, the single take per opportunity, and ADMIN **reassign** no longer
-> hold. A submission is per senior, several seniors may be submitted to one opportunity independently, and no team may
-> learn anything about another team's activity. The idempotency, version, lock-ordering, audit-in-the-same-transaction
-> and possible-duplicate rules below **still apply**, re-keyed to the per-senior submission. Rewrite this task against
-> §4 before implementing it; do not build the text below as written.
+> **Rewritten 2026-11-04 (Phase 6 T0) against §4 «Queue model».** The earlier text — a studio-wide claim, the «вже
+> взято» state, one take per opportunity, ADMIN release/reassign — is withdrawn (it stays in git history only). The
+> schema it needs is the staged forward DDL `manual-staged/2026-11-04_job_queue_submissions_per_senior.sql`
+> (`job_queue_assignments.senior_id`, UNIQUE(opportunity, senior)); the wire contracts are the `jobQueue*` request /
+> response schemas of the "Queue HR API" section of `packages/shared/src/schemas/job-sourcing.ts`; the error codes
+> are the `JOB_QUEUE_*` entries of `api-errors/job-sourcing.ts`.
 
-Studio-wide claim; UI `queueStatus` = IN_PROGRESS if assigned, else DISMISSED in the actor's team/STUDIO scope, else
-NEW. HR dismisses own team view; suppression/release/reassign ADMIN-only; spam/dead-link reports reference the clicked
-source copy and schedule verification only. Transaction: session/team/policy checks → lock/conditional update of
-assignment/revision/version → audit with unique idempotency key → commit; policy version bumps on membership/
-exclusion writes; stale access rejected/retried; retries by the same key return the previous success; unrelated claim
-409 exposes only authorized identity. `confirmPossibleDuplicate: true` required when a possible duplicate is claimed,
-else 409 `POSSIBLE_DUPLICATE_CLAIMED` with the authorized summary; the take transaction locks the target and its
-duplicate set's `job_opportunities` rows in sorted ID order (or advisory locks) and re-checks claims. Dismiss/undo
-need expected version and scope; `markOpened` is idempotent click telemetry per actor+opportunity+source record,
-never blocking navigation; legacy `job_posting_signals` untouched; new indexes via forward migration.
+**The model.** A submission records that ONE senior was submitted to ONE opportunity: «Записати подачу» / "Log
+submission" records, it sends nothing. Several seniors — of one team or of several — may be submitted to the same
+opportunity independently; the same senior twice is refused by `uq_job_queue_assignments_opportunity_senior`. There is
+**no global taken state and no reassign**. The table keeps its name; `state = TAKEN` means submitted, `RELEASED` means
+cancelled (the row is kept, a re-submission is a versioned UPDATE of it). Submitting to a triage item is allowed —
+triage marks the system's uncertainty and is not a lock.
 
-- [ ] Real-DB tests: simultaneous claims; repeated key; lost-response retry; audit failure rolls back; take/dismiss/
-      undo/close races; permission change mid-mutation; team dismissal isolation; ADMIN suppress/release/reassign;
-      split conflicts; two-copy click signals; no leaks; negative paths leave no partial writes; two concurrent takes
-      of unmerged copies → exactly one succeeds without confirmation.
+**Invisibility between teams (the rule every path below obeys).** A team never learns of another team's activity, in
+any form: no taken badge, no count, no name, no distinct error. A foreign submission, dismissal or click is
+indistinguishable from none. In particular a 409 never reveals that a _foreign_ row exists: a conflict is reported
+only against rows inside the actor's own scope, and an opportunity outside the scope is the same
+`JOB_OPPORTUNITY_NOT_FOUND` 404 as a missing one.
 
-- [ ] **Carried from Task 1.2 — who may write** (the header comment of `apps/api/src/database/schema/job-queue.ts`). A STUDIO-scoped row is written only by an ADMIN; a
-      TEAM-scoped row only by an ADMIN or an HR who is a current active member of that team, re-checked inside the
-      write transaction. A STUDIO dismissal is ADMIN-only; a TEAM dismissal only for a team the actor currently belongs
-      to. Release, reassign, suppress, triage grant, and subscription create and revoke are ADMIN-only. A reassignment's
-      **target** must be an active, non-archived HR or ADMIN who may see that opportunity.
-- [ ] **Carried from Task 1.2 — how writes happen.** Every assignment mutation bumps its `version`; a re-dismiss
+**Who may do what.**
+
+- **Submit:** an ADMIN (STUDIO scope) or an HR who is a current active member of the request's team, for a senior who
+  is an active, non-archived SENIOR member of that team (ADMIN: of any team) and who has not stop-listed the
+  opportunity's company. Membership, archival and the stop-list are re-checked inside the write transaction, never
+  taken from a cached projection.
+- **Cancel a submission:** a recruiter of the submission's own team, or any ADMIN. A recorded fact, not an erasure —
+  the action log keeps both rows.
+- **Dismiss / undo:** HR in their own team's scope; STUDIO scope is ADMIN-only. The reason is the fixed
+  `jobQueueDismissReasonSchema` choice — no free text.
+- **Suppress, triage grant/revoke, triage subscription create/revoke:** ADMIN-only (unchanged).
+- **Opened:** any actor who may see the opportunity; idempotent click telemetry per actor + opportunity + source
+  record, never blocking navigation. Spam / dead-link reports reference the clicked source copy and only schedule a
+  verification.
+
+**The write transaction (kept from the withdrawn text, re-keyed to the senior).** Session / team / policy checks →
+lock the target opportunity **and its possible-duplicate set's `job_opportunities` rows in sorted id order** (or
+advisory locks in the same order) → conditional INSERT, or UPDATE matching the expected `version` → bump `version` →
+write the `job_queue_actions` row in the **same transaction**, with `actor_id` the authenticated actor, the scope the
+request was authorized in, and a unique per-actor idempotency key → commit. A retry with the same key returns the
+earlier success; the same key with a different payload is `JOB_QUEUE_IDEMPOTENCY_CONFLICT`. A stale expected version
+is `JOB_QUEUE_VERSION_CONFLICT` (409, generic text, no foreign identity). Policy versions bump on membership /
+exclusion writes; a policy that cannot be evaluated fails closed with `JOB_QUEUE_POLICY_UNAVAILABLE`.
+
+**Possible duplicates, per senior.** When the same senior already holds a live submission **within the actor's own
+scope** on an opportunity in the target's possible-duplicate set, the submit needs `confirmPossibleDuplicate: true`;
+otherwise 409 `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED` with `jobQueuePossibleDuplicateConflictSchema` (the authorized
+duplicates preview only). The check runs after the sorted-order locks, so two concurrent submissions of one senior to
+two unmerged copies cannot both pass without confirmation.
+
+**Routes this changes in Task 6.4.** `POST /job-queue/:id/take` becomes `POST /job-queue/:id/submissions`
+(`jobQueueSubmitRequestSchema`); `release` becomes `POST /job-queue/:id/submissions/:submissionId/cancel`
+(`jobQueueCancelSubmissionRequestSchema`; own team's recruiter or ADMIN); **`reassign` is removed**. Throttles stay as
+in the table. Legacy `job_posting_signals` stays untouched; new indexes only via staged forward DDL.
+
+**Open decision (A3, raised by T0 — blocks only the submit/cancel visibility branch, not the schema).** `team_members`
+allows one senior in **several** teams. With UNIQUE(opportunity, senior), a senior shared by teams A and B and
+submitted by A would make B's attempt fail on the constraint — which itself discloses A's activity. Either (a) a
+submission is a fact about the senior and is shown to every team the senior is an active member of (B sees "submitted"
+without who; no double application at the employer), or (b) the key becomes per team as well and two teams may submit
+the same senior (no disclosure, but a double application). Recommendation: **(a)**, because a double application harms
+the senior at the employer and the shared senior is common knowledge to both teams. Until the owner answers, Task 6.3
+must not ship the submit path.
+
+- [ ] Real-DB tests: two seniors submitted to one opportunity both succeed; the same senior twice — one wins, the
+      other is a version / unique conflict without foreign identity; repeated key; lost-response retry; audit failure
+      rolls back; submit / cancel / dismiss / undo / close races; permission or membership change mid-mutation; a
+      senior who left the team or was archived is refused; team dismissal isolation; ADMIN suppress; cancel by a
+      foreign team's HR is the same 404 as a missing submission; two-copy click signals; two concurrent submissions of
+      one senior to unmerged copies → exactly one succeeds without confirmation; negative paths leave no partial
+      writes; a foreign team's submission changes nothing in this team's list, card, counts or errors.
+- [ ] **Carried from Task 1.2 — who may write**, as amended by T0 (the header comment of
+      `apps/api/src/database/schema/job-queue.ts`). A STUDIO-scoped row is written only by an ADMIN; a TEAM-scoped row
+      only by an ADMIN or an HR who is a current active member of that team, re-checked inside the write transaction.
+      Suppress, triage grant and subscription create / revoke are ADMIN-only. The former reassignment-target
+      obligation is void (reassign dropped).
+- [ ] **Carried from Task 1.2 — how writes happen.** Every submission mutation bumps its `version`; a re-dismiss
       UPDATE matches the expected `version`; a subscription revoke matches `subscription_version`; a SUPPRESSED action
       may carry no version, because its target has none. Each mutation writes its `job_queue_actions` row in the same
-      transaction, with `actor_id` the authenticated actor and the scope the one the request was authorized in. The
-      take transaction locks the target and its possible-duplicate set in sorted id order.
+      transaction. The submit transaction locks the target and its possible-duplicate set in sorted id order.
 
 ### Task 6.4: `/job-queue` controller + RBAC integration spec (new)
 
