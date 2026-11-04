@@ -18,7 +18,7 @@ import {
   markSpent,
   MAX_STATE_BYTES,
   MAX_STATE_ENTRIES,
-  noFollowFlag,
+  platformFlag,
   providerDay,
   STATE_READ_FLAGS,
   STATE_WRITE_FLAGS,
@@ -250,17 +250,20 @@ describe('file RouteStatePort: reading (§3.2, SR-M-6)', () => {
     expect(STATE_READ_FLAGS & constants.O_WRONLY).toBe(0)
     expect(STATE_WRITE_FLAGS & constants.O_WRONLY).toBe(constants.O_WRONLY)
     expect(STATE_WRITE_FLAGS & constants.O_CREAT).toBe(constants.O_CREAT)
-    expect(STATE_WRITE_FLAGS & constants.O_TRUNC).toBe(constants.O_TRUNC)
+    expect(STATE_WRITE_FLAGS & constants.O_EXCL).toBe(constants.O_EXCL)
+    expect(STATE_WRITE_FLAGS & constants.O_TRUNC).toBe(0)
+    expect(STATE_READ_FLAGS & platformFlag(constants.O_NONBLOCK)).toBe(
+      platformFlag(constants.O_NONBLOCK),
+    )
   })
 
   it.skipIf(constants.O_NOFOLLOW === undefined)(
-    'a symlink at the state path or the temp path is refused, not followed (SR-L-67)',
+    'a symlink at the state path is refused, not followed, and the write replaces the link itself (SR-L-67)',
     async () => {
       expect(STATE_READ_FLAGS & constants.O_NOFOLLOW!).toBe(constants.O_NOFOLLOW)
       expect(STATE_WRITE_FLAGS & constants.O_NOFOLLOW!).toBe(constants.O_NOFOLLOW)
       const fs = fakeFs({ [PATH]: doc({}) })
       fs.symlinks.add(PATH)
-      fs.symlinks.add(`${PATH}.tmp`)
       const events: StateEvent[] = []
       const port = await createFileRouteStatePort({
         path: PATH,
@@ -268,11 +271,8 @@ describe('file RouteStatePort: reading (§3.2, SR-M-6)', () => {
         now: () => NOON,
         onEvent: (e) => events.push(e),
       })
-      expect(await port.update(markAuth('groq'))).toBe(false)
-      expect(events).toEqual([
-        { type: 'STATE_RESET', store: 'route-state', reason: 'unreadable' },
-        { type: 'STATE_WRITE_FAILED', store: 'route-state' },
-      ])
+      expect(await port.update(markAuth('groq'))).toBe(true)
+      expect(events).toEqual([{ type: 'STATE_RESET', store: 'route-state', reason: 'unreadable' }])
     },
   )
 
@@ -282,9 +282,25 @@ describe('file RouteStatePort: reading (§3.2, SR-M-6)', () => {
     expect(events).toEqual([])
   })
 
-  it('the no-follow flag is the platform constant, or nothing where the platform has none', () => {
-    expect(noFollowFlag({ O_NOFOLLOW: 0x20000 })).toBe(0x20000)
-    expect(noFollowFlag({})).toBe(0)
+  it('a platform flag is its constant, or no bit where the platform has none', () => {
+    expect(platformFlag(0x20000)).toBe(0x20000)
+    expect(platformFlag(undefined)).toBe(0)
+  })
+
+  it('a FIFO or another non-regular file at the state path is unreadable and never read (SR-L-73)', async () => {
+    const fs = fakeFs({ [PATH]: doc({}) })
+    fs.specials.add(PATH)
+    const events: StateEvent[] = []
+    const port = await createFileRouteStatePort({
+      path: PATH,
+      fs,
+      now: () => NOON,
+      onEvent: (e) => events.push(e),
+    })
+    expect(port.snapshot()).toEqual(EMPTY_ROUTE_STATE)
+    expect(events).toEqual([{ type: 'STATE_RESET', store: 'route-state', reason: 'unreadable' }])
+    expect(fs.maxReadLength).toBe(0)
+    expect(fs.calls).toEqual([`open ${PATH} r`, `close ${PATH}`])
   })
 
   it('an open that rejects with a non-error value is unreadable, not a crash', async () => {
@@ -331,19 +347,50 @@ describe('file RouteStatePort: writing', () => {
     fs.calls.length = 0
     expect(await port.update(markAuth('groq'))).toBe(true)
     expect(fs.calls).toEqual([
-      `open ${PATH}.tmp w`,
-      `write ${PATH}.tmp`,
-      `sync ${PATH}.tmp`,
-      `close ${PATH}.tmp`,
-      `rename ${PATH}.tmp ${PATH}`,
+      `open ${PATH}.<rand>.tmp w`,
+      `write ${PATH}.<rand>.tmp`,
+      `sync ${PATH}.<rand>.tmp`,
+      `close ${PATH}.<rand>.tmp`,
+      `rename ${PATH}.<rand>.tmp ${PATH}`,
       'open /data r',
       'sync /data',
       'close /data',
     ])
-    expect(fs.modes.get(`${PATH}.tmp`)).toBe(0o600)
+    expect(fs.modes.get(fs.tempNames[0]!)).toBe(0o600)
+    expect(fs.files.has(fs.tempNames[0]!)).toBe(false)
     expect(JSON.parse(fs.files.get(PATH)!)).toMatchObject({
       providers: [{ provider: 'groq', auth: true }],
     })
+  })
+
+  it('every write uses a fresh random temp name; a file at the old fixed temp path is untouched (SR-L-72)', async () => {
+    const linked = 'a hard link to something else'
+    const { fs, port } = await load(undefined)
+    fs.files.set(`${PATH}.tmp`, linked)
+    await port.update(markAuth('groq'))
+    await port.update(markCredit('groq', '2026-11-04'))
+    expect(fs.files.get(`${PATH}.tmp`)).toBe(linked)
+    const [first, second] = fs.tempNames
+    expect(first).toMatch(/^\/data\/route-state\.json\.[0-9a-f-]{36}\.tmp$/)
+    expect(second).not.toBe(first)
+  })
+
+  it('a temp name that already exists is never opened over: the write fails, the file stays (SR-L-72)', async () => {
+    const planted = 'planted'
+    const { fs, events } = await load(undefined)
+    const plant: typeof fs.open = (path, flags, mode) => {
+      fs.files.set(path, planted)
+      return fs.open(path, flags, mode)
+    }
+    const raced = await createFileRouteStatePort({
+      path: PATH,
+      fs: { ...fs, open: plant },
+      now: () => NOON,
+      onEvent: (e) => events.push(e),
+    })
+    expect(await raced.update(markAuth('groq'))).toBe(false)
+    expect(fs.files.get(fs.tempNames.at(-1)!)).toBe(planted)
+    expect(events).toContainEqual({ type: 'STATE_WRITE_FAILED', store: 'route-state' })
   })
 
   it('two concurrent changes both survive (single serialised writer)', async () => {
@@ -365,6 +412,7 @@ describe('file RouteStatePort: writing', () => {
       fs.failAt = step
       expect(await port.update(markCredit('groq', '2026-11-04'))).toBe(false)
       expect(fs.files.get(PATH)).toBe(before)
+      expect([...fs.files.keys()]).toEqual([PATH]) // no temp file left behind
       expect(events).toEqual([{ type: 'STATE_WRITE_FAILED', store: 'route-state' }])
       expect(isProviderBlocked(port.snapshot(), 'groq', '2026-11-04')).toBe(true)
       fs.failAt = undefined

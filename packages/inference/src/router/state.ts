@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { constants, promises as nodeFs } from 'node:fs'
 import { dirname } from 'node:path'
 import { z } from 'zod'
@@ -111,7 +112,7 @@ export function createMemoryRouteStatePort(
 
 /** The slice of a `fs.promises` file handle the file adapters use. */
 export type StateFileHandle = {
-  stat(): Promise<{ size: number }>
+  stat(): Promise<{ size: number; isFile(): boolean }>
   read(
     buffer: Uint8Array,
     offset: number,
@@ -127,16 +128,21 @@ export type StateFileHandle = {
 export type StateFs = {
   open(path: string, flags: number, mode?: number): Promise<StateFileHandle>
   rename(from: string, to: string): Promise<void>
+  unlink(path: string): Promise<void>
 }
 
-/** A symlink planted at the state path or its temp file is never followed (SR-L-67); Windows has no flag. */
-export function noFollowFlag(c: { O_NOFOLLOW?: number | undefined }): number {
-  return c.O_NOFOLLOW ?? 0
+/** A flag this platform may lack (Windows has neither `O_NOFOLLOW` nor `O_NONBLOCK`): absent is no bit. */
+export function platformFlag(flag: number | undefined): number {
+  return flag ?? 0
 }
-const NO_FOLLOW = noFollowFlag(constants)
-export const STATE_READ_FLAGS = constants.O_RDONLY | NO_FOLLOW
+/**
+ * Read: a planted symlink is refused (SR-L-67) and a planted FIFO cannot block the open (SR-L-73).
+ * Write: a fresh temp file only, never an existing one or a link to it (SR-L-72).
+ */
+export const STATE_READ_FLAGS =
+  constants.O_RDONLY | platformFlag(constants.O_NOFOLLOW) | platformFlag(constants.O_NONBLOCK)
 export const STATE_WRITE_FLAGS =
-  constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | NO_FOLLOW
+  constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | platformFlag(constants.O_NOFOLLOW)
 
 export type StateFileOptions = {
   path: string
@@ -163,7 +169,9 @@ export async function readStateText(fs: StateFs, path: string): Promise<ReadOutc
     return errnoOf(err) === 'ENOENT' ? { kind: 'missing' } : { kind: 'unreadable' }
   }
   try {
-    if ((await file.stat()).size > MAX_STATE_BYTES) return { kind: 'oversized' }
+    const info = await file.stat()
+    if (!info.isFile()) return { kind: 'unreadable' } // a FIFO, a device or a directory (SR-L-73)
+    if (info.size > MAX_STATE_BYTES) return { kind: 'oversized' }
     const buf = new Uint8Array(MAX_STATE_BYTES + 1)
     let total = 0
     for (;;) {
@@ -180,17 +188,25 @@ export async function readStateText(fs: StateFs, path: string): Promise<ReadOutc
   }
 }
 
-/** Durable atomic replace: a `0600` temp file in the same directory, fsync, rename, fsync the directory. */
+/**
+ * Durable atomic replace: a new `0600` temp file under a random name in the same directory, fsync,
+ * rename, fsync the directory. A failed write removes its own temp file.
+ */
 async function writeAtomic(fs: StateFs, path: string, data: string): Promise<void> {
-  const tmp = `${path}.tmp`
+  const tmp = `${path}.${randomUUID()}.tmp`
   const file = await fs.open(tmp, STATE_WRITE_FLAGS, 0o600)
   try {
-    await file.writeFile(data)
-    await file.sync()
-  } finally {
-    await file.close()
+    try {
+      await file.writeFile(data)
+      await file.sync()
+    } finally {
+      await file.close()
+    }
+    await fs.rename(tmp, path)
+  } catch (err) {
+    await fs.unlink(tmp).catch(() => undefined)
+    throw err
   }
-  await fs.rename(tmp, path)
   try {
     const dir = await fs.open(dirname(path), constants.O_RDONLY)
     await dir.sync().finally(() => dir.close())
@@ -370,9 +386,7 @@ export function createOwnCapPort(opts: { state: RouteStatePort; now: () => numbe
   return {
     async reserve(p, limit) {
       const c = counting(p)
-      const tokensFull =
-        // Stryker disable next-line ConditionalExpression: equivalent mutant, without the guard `tokens >= NaN` is false
-        limit.tokensPerDay !== undefined && c.tokens >= ownCapOf(limit.tokensPerDay)
+      const tokensFull = c.tokens >= ownCapOf(limit.tokensPerDay ?? Number.POSITIVE_INFINITY)
       if (c.requests >= ownCapOf(limit.requestsPerDay) || tokensFull) return null
       const written = await change(p, (r) => ({ ...r, requests: r.requests + 1 }))
       return written ? { day: c.day } : null
