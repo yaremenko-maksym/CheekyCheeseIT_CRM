@@ -1004,6 +1004,9 @@ evaluation time; removals allowed, additions/moves only on refresh; counts refle
 view (documented difference). Card = latest canonical facts + newer-than-list warning + bounded `possibleDuplicates`.
 Cursor encodes generation/scope-filter signature/last key with expiry and integrity (or opaque server token),
 validated before SQL; expired → stable refresh-required error; malformed → 400; scope mismatch grants nothing.
+The possible-duplicate set (the card's `possibleDuplicates`) is `possibleDuplicateJoin` from
+`apps/api/src/job-sourcing/queue/queue-scope.ts`, the same join the Task 6.3 submit locks; it is imported, not
+redefined.
 Default 20 / max 50, limit+1 with authorized predicate, no descriptions in lists; source preview ≤ 20 and senior
 preview ≤ 200 with independent continuation/totals; bounded indexed filters (MP-13).
 
@@ -1144,6 +1147,15 @@ review without asking the owner again. The key is shared, so a shared senior's s
   reading the idempotency key, so a key is no existence oracle. The consequence: a lost-response retry whose target has
   since become invisible to the scope answers the same 404, not the earlier success (fail closed). The name on a
   replayed cancel is the row's current assignee, which a later re-submission by the same team may have changed.
+- **A submit replay answers from the log.** The submission id and instant come from the earlier action row, by design,
+  never from the current row. If another team's re-submission has since replaced that row (DELETE + INSERT above),
+  the replayed id no longer exists, and a later read or cancel by that id is a 404.
+- **The marker is the same for every caller.** An ADMIN in STUDIO submitting a senior who holds another team's live
+  submission gets the same bare `{ submittedElsewhere: true }` conflict an HR gets (decision A3, option (a)): the body
+  is built from the generic conflict and carries no row, for any role.
+- **A re-dismiss may change the reason of a live dismissal.** A dismiss naming the current `expectedVersion` updates
+  the scope's dismissal whether it is live or undone: the reason and dismisser are replaced, the undo pair is
+  cleared and the version is bumped. This is how a team corrects a reason; a stale version is the generic conflict.
 - **Deferred: "Spam / dead-link reports … only schedule a verification".** The opened and dismiss paths record the
   action and schedule nothing, because no primitive can schedule a verification of one source copy today. What is
   missing: (1) a consumer in every source mode: `enqueueDirty` with `DETAIL_FETCH` is drained only by the detail tail of
@@ -1168,23 +1180,28 @@ remains is an owner step: promote the staged DDL `manual-staged/2026-11-04_job_o
 before the queue is exposed (and before `JOB_MATCH_RECONCILIATION_ENABLED` is on with this code; its header gives the
 order and the backfill). Until the recompute reaches an existing opportunity, a grant keeps it hidden.
 
-| Method        | Endpoint                                     | Contract / limit                                                                                                            |
-| ------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| GET           | `/job-queue`                                 | scope/filter/status/cursor; default 20 / max 50                                                                             |
-| GET           | `/job-queue/:id`                             | `ParseUUIDPipe`; authorized latest card                                                                                     |
-| GET           | `/job-queue/:id/sources` · `/seniors`        | authorized continuations with totals                                                                                        |
-| POST / DELETE | `/job-queue/:id/team-triage[/:teamId]`       | ADMIN; expected revision/policy/grant version; audited; 30/min                                                              |
-| POST          | `/job-queue/:id/take`                        | idempotency key + expected revision/version + optional `confirmPossibleDuplicate`; 409 `POSSIBLE_DUPLICATE_CLAIMED`; 30/min |
-| POST          | `/job-queue/:id/dismiss` · `/undo`           | scope/reason/expectedVersion; 60/min                                                                                        |
-| POST          | `/job-queue/:id/opened`                      | source-record ID; 204; 120/min                                                                                              |
-| POST          | `/job-queue/:id/release` · `/reassign`       | ADMIN; audited; 30/min                                                                                                      |
-| POST / DELETE | `/job-queue/team-triage-subscriptions[/:id]` | ADMIN; audited; 30/min                                                                                                      |
-| POST          | `/job-queue/recompute`                       | ADMIN; enqueue; 202 + run ID; 6/min                                                                                         |
+| Method        | Endpoint                                          | Contract / limit                                                                                                                                                       |
+| ------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET           | `/job-queue`                                      | scope/filter/status/cursor; default 20 / max 50                                                                                                                        |
+| GET           | `/job-queue/:id`                                  | `ParseUUIDPipe`; authorized latest card                                                                                                                                |
+| GET           | `/job-queue/:id/sources` · `/seniors`             | authorized continuations with totals                                                                                                                                   |
+| POST / DELETE | `/job-queue/:id/team-triage[/:teamId]`            | ADMIN; expected revision/policy/grant version; audited; 30/min                                                                                                         |
+| POST          | `/job-queue/:id/submissions`                      | `jobQueueSubmitRequestSchema`: the senior, idempotency key + expected revision/version + optional `confirmPossibleDuplicate`; 409 `POSSIBLE_DUPLICATE_CLAIMED`; 30/min |
+| POST          | `/job-queue/:id/submissions/:submissionId/cancel` | `jobQueueCancelSubmissionRequestSchema`; own team's recruiter or ADMIN; 30/min                                                                                         |
+| POST          | `/job-queue/:id/dismiss` · `/undo`                | scope/reason/expectedVersion; 60/min                                                                                                                                   |
+| POST          | `/job-queue/:id/opened`                           | source-record ID; 204; 120/min                                                                                                                                         |
+| POST / DELETE | `/job-queue/team-triage-subscriptions[/:id]`      | ADMIN; audited; 30/min                                                                                                                                                 |
+| POST          | `/job-queue/recompute`                            | ADMIN; enqueue; 202 + run ID; 6/min                                                                                                                                    |
 
 **Added by Task 6.3 review (Master, 2026-11-04).**
 
 - `POST /job-queue/:id/suppress`: ADMIN only, 30/min, takes the wire schema this task adds in `@crm/shared` (the
-  service currently takes a local `JobQueueSuppressRequest`); the idempotency key is a validated UUID.
+  service currently takes a local `JobQueueSuppressRequest`); the idempotency key is a validated UUID. The route
+  parses the request with that wire schema before the service is called, so a bad key is a 400 and never reaches the
+  service's own `.parse` (whose raw `ZodError` would otherwise surface as a 500). With the wire schema in place, the
+  local `JobQueueSuppressRequest` type and the service's inline `suppressRequestSchema` are deleted.
+- There is no release or reassign route: submissions are per senior, and a submission is cancelled by its own team or
+  an ADMIN through the cancel route above. The resume rules are unchanged.
 - **Suppression must have a read effect, stated as an acceptance criterion, not left to the list service:** once an
   opportunity carries a SUPPRESSED row it is absent from every TEAM list, card, sources and seniors continuation
   (a 404 on direct reads), while ADMIN still opens it by id. Without a visibility term the suppress route would ship
@@ -1206,8 +1223,7 @@ audit kinds TRIAGE\_\*; subscriptions same pattern; invalidation marks generatio
       skipped); card JSON exposes no foreign identity, secrets, raw HTML or unbounded payload; empty authorized list is 200.
 
 - [ ] **RBAC integration cases for the Task 1.2 obligations above**, against the real database: a cross-team read
-      refused; a STUDIO write by HR refused; a TEAM dismissal by a non-member refused; reassignment to an ineligible
-      target refused; an expired generation not served; an expired or revoked subscription granting nothing; a triage
+      refused; a STUDIO write by HR refused; a TEAM dismissal by a non-member refused; an expired generation not served; an expired or revoked subscription granting nothing; a triage
       subscription never surfacing an opportunity whose employer is unverified.
 
 ### Task 6.5: ADMIN — source switch and extended source DTO (new endpoint — C-10)

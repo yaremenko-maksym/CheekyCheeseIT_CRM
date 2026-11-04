@@ -966,6 +966,19 @@ describe('dismiss', () => {
     expect(admin.hits).toEqual([])
   })
 
+  it('a live dismissal re-dismissed at its version takes the new reason and actor', async () => {
+    const h = harness({ dismissal: [{ version: 1, reason: 'SPAM', undone_at: null }] })
+    const res = await h.svc.dismiss(HR, OPP, { ...body, reason: 'DEAD_LINK', expectedVersion: 1 })
+    expect(res).toEqual({
+      opportunityId: OPP,
+      scope: 'TEAM',
+      reason: 'DEAD_LINK',
+      hidden: true,
+      version: 3,
+    })
+    expect(h.param('redismiss')).toEqual(['DEAD_LINK', HR_ID, OPP, 'TEAM', TEAM_A, 1])
+  })
+
   it('a re-dismiss matches the expected version and clears the undo pair', async () => {
     const h = harness({
       dismissal: [{ version: 2, reason: 'DEAD_LINK', undone_at: new Date(T1) }],

@@ -111,6 +111,10 @@ describe('decideDismiss', () => {
     expect(decideDismiss(2, 1)).toBe('STALE')
     expect(decideDismiss(2, undefined)).toBe('STALE')
   })
+  it('a live dismissal re-dismissed at its version is an UPDATE: how a reason is corrected', () => {
+    // Liveness is not an input: a live row and an undone row at version 1 decide alike.
+    expect(decideDismiss(1, 1)).toBe('UPDATE')
+  })
 })
 
 describe('requestFingerprint', () => {

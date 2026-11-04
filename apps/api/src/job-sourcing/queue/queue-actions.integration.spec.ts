@@ -1231,6 +1231,28 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueActionsService against Postgres (Tas
       await expectNotFound(actions.opened(SESSION.hrA, opp, { sourceRecordId: record }))
       expect(await actionRows(opp)).toHaveLength(0)
     })
+
+    it('a source record that was unlinked from the opportunity is the same 404, and logs nothing', async () => {
+      const opp = await mkOpp()
+      await lead(opp, 'senA')
+      const record = await sourceRecord(opp)
+      await q(
+        `UPDATE job_opportunity_sources SET unlinked_at = now(), unlink_reason = 'split'
+          WHERE opportunity_id = $1 AND source_record_id = $2`,
+        [opp, record],
+      )
+      const unlinked = await refusal(actions.opened(SESSION.hrA, opp, { sourceRecordId: record }))
+      expect(unlinked.status).toBe(404)
+      expect(JSON.parse(unlinked.raw)).toMatchObject({
+        statusCode: 404,
+        code: 'JOB_OPPORTUNITY_NOT_FOUND',
+      })
+      const missing = await refusal(
+        actions.opened(SESSION.hrA, opp, { sourceRecordId: randomUUID() }),
+      )
+      expect(unlinked.raw).toBe(missing.raw)
+      expect(await actionRows(opp)).toHaveLength(0)
+    })
   })
 
   describe('suppress', () => {
