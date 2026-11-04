@@ -91,7 +91,9 @@ function submittedElsewhere(): HttpException {
  * is the same 404.
  *
  * WHY A STOP-LISTED OR INELIGIBLE SENIOR IS A 404: HR sees how many seniors excluded an opportunity,
- * not who (plan §4), so a distinct answer here would name the senior.
+ * not who (plan §4). The shared 404 hides the reason, not the senior: HR names the senior in the
+ * request, so comparing the answers for its team's seniors still shows which of them cannot be
+ * submitted. It cannot tell a stop-list from a lost eligibility, or a missing posting.
  */
 @Injectable()
 export class JobQueueActionsService {
