@@ -49,8 +49,7 @@ export function selectScopeTeam(
   allowedTeamIds: readonly string[],
 ): string | null {
   const teamId = requestedTeamId ?? allowedTeamIds[0]
-  if (teamId === undefined || !allowedTeamIds.includes(teamId)) return null
-  return teamId
+  return allowedTeamIds.find((allowed) => allowed === teamId) ?? null
 }
 
 /**
@@ -115,6 +114,7 @@ export function isGenerationServable(
   if (generation.status !== 'PUBLISHED') return false
   if (generation.expiresAt.getTime() <= now.getTime()) return false
   if (scope.kind === 'STUDIO') return generation.scopeKind === 'STUDIO'
+  // Stryker disable next-line ConditionalExpression,StringLiteral: equivalent — a NONE scope has no teamId, so the TEAM comparison below is already false for it; the line narrows the type and states the rule
   if (scope.kind === 'NONE') return false
   return generation.scopeKind === 'TEAM' && generation.teamId === scope.teamId
 }
