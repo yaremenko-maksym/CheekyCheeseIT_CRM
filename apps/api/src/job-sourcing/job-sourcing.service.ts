@@ -16,6 +16,7 @@ import type {
   JobCollectionResultDto,
   JobCollectionRunDto,
   JobExclusionDto,
+  JobHealthState,
   JobMeterUnit,
   JobSourceDto,
   JobSourceTriggerMode,
@@ -68,7 +69,8 @@ import { productionLedgerCatalog } from './runtime/production-catalog'
 import { JobSourceRegistry } from './registry/job-source-registry'
 import { type TypeFilter, sourceAcceptsTrigger, typePassesFilter } from './scheduling/due-policy'
 import { resolveRegistry } from './registry/production-registry'
-import { JobRunLedger, type RunEnding } from './ownership/job-run-ledger'
+import { JobRunLedger, type RunEnding, inheritedCheckpoint } from './ownership/job-run-ledger'
+import { latestHealthTransitions } from './health/latest-transitions'
 import {
   type BridgeRun,
   type RosterSenior,
@@ -1387,7 +1389,13 @@ export class JobSourcingService {
   async listSources(actor: SessionUser, now: Date = new Date()): Promise<JobSourceDto[]> {
     this.assertCanManageSources(actor)
     const rows = await this.db.db.select().from(jobSources)
+    if (rows.length === 0) return []
     const facts = await this.sourceOperationalFacts()
+    // The same latest-TRANSITION read the ADMIN source page uses, so both show one state.
+    const health = await latestHealthTransitions(
+      this.db.db,
+      rows.map((r) => r.id),
+    )
     return rows.map((row) => {
       const budget = resolveBudget(this.budgetStateOf(row), now)
       const fact = facts.get(row.id)
@@ -1424,16 +1432,16 @@ export class JobSourcingService {
         hostPauseReason: fact?.hostPauseReason ?? null,
         costUnit: fact?.costUnit ?? null,
         resumeCheckpoint: fact?.resumeCheckpoint ?? false,
+        healthState: (health.get(row.id)?.toState ?? null) as JobHealthState | null,
       }
     })
   }
 
   /**
    * r5 Task 6.5: per source, the facts that live off the row — its host's ban pause while in
-   * force, its meter's unit, and whether the next run would resume from a stored checkpoint (the
-   * ledger's "Crash resume" rule: the latest run, same config version, not SUCCEEDED, not
-   * CURSOR_CYCLE, a non-empty checkpoint). One query; instants as epoch ms (driver parsing of
-   * timestamptz is not relied on).
+   * force, its meter's unit, and whether the next run would resume from a stored checkpoint: the
+   * ledger's own `inheritedCheckpoint` (the "Crash resume" rule) is not `{}`. One query; instants
+   * as epoch ms (driver parsing of timestamptz is not relied on).
    */
   private async sourceOperationalFacts(): Promise<
     Map<
@@ -1452,11 +1460,8 @@ export class JobSourcingService {
                   THEN (extract(epoch FROM h.paused_until) * 1000)::float8 END AS paused_until_ms,
              CASE WHEN h.paused_until > clock_timestamp() THEN h.pause_reason END AS pause_reason,
              m.unit::text AS cost_unit,
-             COALESCE((SELECT l.config_version = s.config_version AND l.outcome <> 'SUCCEEDED'
-                              AND l.error_code IS DISTINCT FROM 'CURSOR_CYCLE'
-                              AND l.checkpoint <> '{}'::jsonb
-                         FROM job_collection_runs l WHERE l.source_id = s.id
-                        ORDER BY l.fencing_epoch DESC LIMIT 1), false) AS resume_checkpoint
+             ${inheritedCheckpoint(sql`s.id`, sql`s.config_version`, sql`true`)} <> '{}'::jsonb
+               AS resume_checkpoint
         FROM job_sources s
         LEFT JOIN job_source_hosts h ON h.host_key = s.host_key
         LEFT JOIN job_account_meters m ON m.id = s.account_meter_id`)

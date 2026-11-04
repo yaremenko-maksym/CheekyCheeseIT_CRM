@@ -419,6 +419,23 @@ export const jobSourceBudgetSchema = z.object({
   resetsAt: z.string().datetime().nullable(),
 })
 
+/**
+ * The eight health states (ADR section 10; source-fetch-strategy U7). Declared HERE (r5 Task 6.5)
+ * so `jobSourceSchema` below can carry the current state: job-source-admin.ts imports this module,
+ * so the reverse import would be circular. The vocabulary mirrors `HEALTH_STATE_VALUES` in
+ * apps/api/src/database/schema/job-health.ts (held to it by job-source-health-schema.spec.ts).
+ */
+export const jobHealthStateSchema = z.enum([
+  'BLOCKED',
+  'CAPPED',
+  'PAUSED',
+  'FAILING',
+  'EMPTY',
+  'DEGRADED',
+  'SILENT',
+  'HEALTHY',
+])
+
 export const jobSourceSchema = z.object({
   id: z.string().uuid(),
   type: jobSourceTypeSchema,
@@ -464,6 +481,8 @@ export const jobSourceSchema = z.object({
     .optional(),
   /** True when the next run would resume from a stored checkpoint ("Crash resume"). */
   resumeCheckpoint: z.boolean().optional(),
+  /** The current health state (the latest TRANSITION's `to_state`); null when none recorded. */
+  healthState: jobHealthStateSchema.nullable().optional(),
 })
 
 export const jobSourceListSchema = z.object({

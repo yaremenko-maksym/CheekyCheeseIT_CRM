@@ -26,6 +26,7 @@ import { DatabaseService } from '../../database/database.service'
 // Schema tables through the barrel (never the individual modules): the ordered-import
 // `public` circular-init trap documented in job-source-health.service.ts.
 import { jobCollectionRuns, jobSourceHealthEvents, jobSources, users } from '../../database/schema'
+import { type LatestTransition, latestHealthTransitions } from '../health/latest-transitions'
 import { JobRunLedger } from '../ownership/job-run-ledger'
 import { CLAIM_REFUSALS, nextAttemptAt } from '../ownership/ledger-policy'
 import { MAX_CONSECUTIVE_FAILURES } from '../scheduling/due-policy'
@@ -364,25 +365,11 @@ export class JobSourceAdminService {
     })
   }
 
-  /** The latest TRANSITION per source, in one bounded query (the `(source_id, at desc)` index). */
+  /** The latest TRANSITION per source (shared with the source list, r5 Task 6.5). */
   private async latestTransitions(
     sourceIds: readonly string[],
-  ): Promise<Map<string, { toState: string | null; reasonCode: string | null }>> {
-    const rows = await this.database.db
-      .selectDistinctOn([jobSourceHealthEvents.sourceId], {
-        sourceId: jobSourceHealthEvents.sourceId,
-        toState: jobSourceHealthEvents.toState,
-        reasonCode: jobSourceHealthEvents.reasonCode,
-      })
-      .from(jobSourceHealthEvents)
-      .where(
-        and(
-          inArray(jobSourceHealthEvents.sourceId, [...sourceIds]),
-          eq(jobSourceHealthEvents.kind, 'TRANSITION'),
-        ),
-      )
-      .orderBy(jobSourceHealthEvents.sourceId, desc(jobSourceHealthEvents.at))
-    return new Map(rows.map((r) => [r.sourceId, { toState: r.toState, reasonCode: r.reasonCode }]))
+  ): Promise<Map<string, LatestTransition>> {
+    return latestHealthTransitions(this.database.db, sourceIds)
   }
 
   private rowOf(

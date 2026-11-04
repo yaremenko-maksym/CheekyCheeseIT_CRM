@@ -227,6 +227,42 @@ describe('setEnabled — enable', () => {
     ).toBe('SWITCHED')
   })
 
+  it('MUT-1: a non-string meter key cell is no meter (null), so a quota-declared entry refuses', async () => {
+    const catalog = new SpecCatalog()
+    catalog.add(MANIFEST, { quotaDeclared: true })
+    const h = harness({ source: source({ meter_key: 42 }) }, catalog)
+    expect(await h.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: true })).toEqual({
+      kind: 'REFUSED',
+      reason: 'NOT_READY',
+    })
+  })
+
+  it('MUT-1: a non-string manifest id is never looked up in the catalog', async () => {
+    const catalog = readyCatalog()
+    const lookup = vi.spyOn(catalog, 'entry')
+    const h = harness({ source: source({ manifest_id: 42 }) }, catalog)
+    expect(await h.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: true })).toEqual({
+      kind: 'REFUSED',
+      reason: 'NOT_READY',
+    })
+    expect(lookup).not.toHaveBeenCalled()
+  })
+
+  it('a string manifest id is looked up by its exact value', async () => {
+    const catalog = readyCatalog()
+    const lookup = vi.spyOn(catalog, 'entry')
+    const h = harness({ source: source() }, catalog)
+    await h.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: true })
+    expect(lookup).toHaveBeenCalledWith(MANIFEST)
+  })
+
+  it('MUT-1: a non-string error-code cell never pauses', async () => {
+    const h = harness({ source: source({ last_error_code: 42 }) })
+    expect(
+      (await h.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: true })).kind,
+    ).toBe('SWITCHED')
+  })
+
   it('an unscheduled (null-profile) entry may still be switched on: the gate is the manual one', async () => {
     const catalog = new SpecCatalog()
     catalog.add(MANIFEST, { fetchProfile: null })

@@ -53,11 +53,13 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
   },
   JOB_SOURCE_NOT_READY: /* i18n */ {
     id: 'api-error.JOB_SOURCE_NOT_READY',
-    message: 'Джерело ще не готове до роботи, тому його не можна ввімкнути',
+    message:
+      'Джерело ще не готове: завершіть налаштування (перевірка готовності, підключення, лічильник квоти), потім увімкніть його',
   },
   JOB_SOURCE_AUTH_PAUSED: /* i18n */ {
     id: 'api-error.JOB_SOURCE_AUTH_PAUSED',
-    message: 'Джерело призупинено через відмову в доступі: спершу скиньте помилки',
+    message:
+      'Джерело призупинено, бо провайдер відмовив у доступі: спершу зніміть паузу, потім увімкніть його',
   },
 }
 
@@ -66,7 +68,9 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
   JOB_SOURCE_RECORD_NOT_FOUND: 'Source record not found',
   JOB_SOURCE_RECORD_ALREADY_LINKED: 'This source record is already linked to a job',
   JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED: 'This job cannot be assigned to the team for triage',
-  JOB_SOURCE_NOT_FOUND: 'Job source not found',
-  JOB_SOURCE_NOT_READY: 'The source is not ready yet, so it cannot be switched on',
-  JOB_SOURCE_AUTH_PAUSED: 'The source is paused after an access refusal: reset its failures first',
+  JOB_SOURCE_NOT_FOUND: 'The source was not found',
+  JOB_SOURCE_NOT_READY:
+    'The source is not ready yet: finish its setup (readiness check, connection, quota meter), then switch it on',
+  JOB_SOURCE_AUTH_PAUSED:
+    'The source is paused because the provider refused access: clear the pause first, then switch it on',
 }

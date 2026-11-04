@@ -275,5 +275,105 @@ describe.skipIf(!hasDatabaseUrl())('the ADMIN source switch against Postgres, as
       })
       expect(await fx.runs(s)).toEqual([])
     })
+
+    it('CR-M-1: settles the run`s reservations exactly like finish, once', async () => {
+      const meterId = await fx.meter(fx.accountKey('switch-settle'), 100)
+      const s = await kit.reporting({ accountMeterId: meterId })
+      const run = await kit.claimOne(s)
+      const meter = ledger.meterFor(run, { REQUEST: 'DAY' })
+      const unsent = (await meter.reserve('REQUEST', 3))!
+      const sent = (await meter.reserve('REQUEST', 5))!
+      await meter.markSent(sent)
+      expect(await fx.counters(meterId)).toEqual({ used: 0, reserved: 8, uncertain: 0 })
+
+      expect((await ledger.setEnabled({ sourceId: s, actor, enabled: false })).kind).toBe(
+        'SWITCHED',
+      )
+
+      // RESERVED -> RELEASED (provably unsent), SENT -> USED at the full amount: finish's rule.
+      const settled = new Map((await fx.reservations(run.runId)).map((r) => [r.id, r]))
+      expect(settled.get(unsent.id)).toMatchObject({ status: 'RELEASED', used_amount: 0 })
+      expect(settled.get(sent.id)).toMatchObject({ status: 'USED', used_amount: 5 })
+      expect(await fx.counters(meterId)).toEqual({ used: 5, reserved: 0, uncertain: 0 })
+
+      // No second settlement: the sweep finds nothing open, the counters do not move again.
+      expect(await ledger.sweepOrphanReservations()).toBe(0)
+      expect(await fx.counters(meterId)).toEqual({ used: 5, reserved: 0, uncertain: 0 })
+      // And the fenced owner cannot reserve again.
+      await expect(meter.reserve('REQUEST', 1)).rejects.toMatchObject({ code: 'RUN_FENCED' })
+    })
+  })
+
+  describe('CR-M-2: the source row lock serializes the switch against the worker and itself', () => {
+    it('disable racing the worker`s finish: exactly one wins, the run is ended once', async () => {
+      const meterId = await fx.meter(fx.accountKey('switch-race'), 100)
+      const s = await kit.reporting({ accountMeterId: meterId })
+      const run = await kit.claimOne(s)
+      const meter = ledger.meterFor(run, { REQUEST: 'DAY' })
+      const r = (await meter.reserve('REQUEST', 4))!
+      await meter.markSent(r)
+
+      const [finished, switched] = await Promise.allSettled([
+        ledger.finish(handleOf(run), { outcome: 'SUCCEEDED', errorCode: null }),
+        ledger.setEnabled({ sourceId: s, actor, enabled: false }),
+      ])
+      expect(switched.status).toBe('fulfilled')
+      const cancelled =
+        switched.status === 'fulfilled' && switched.value.kind === 'SWITCHED'
+          ? switched.value.cancelledRuns
+          : -1
+      const [ended] = await fx.runs(s)
+      const observed = {
+        finish:
+          finished.status === 'fulfilled'
+            ? 'DONE'
+            : finished.reason instanceof RunFencedError
+              ? 'FENCED'
+              : 'OTHER',
+        cancelled,
+        outcome: ended?.outcome,
+      }
+      // Either the worker locked the source first (its finish stands, the switch found no live
+      // run), or the switch did (the worker is fenced, the run is CANCELLED). Nothing in between.
+      expect([
+        { finish: 'DONE', cancelled: 0, outcome: 'SUCCEEDED' },
+        { finish: 'FENCED', cancelled: 1, outcome: 'CANCELLED' },
+      ]).toContainEqual(observed)
+      // Whoever won, the sent reservation is counted exactly once.
+      expect(await fx.counters(meterId)).toEqual({ used: 4, reserved: 0, uncertain: 0 })
+      expect((await state(s)).enabled).toBe(false)
+    })
+
+    it('two concurrent identical toggles: one changes and audits, the other is a no-op', async () => {
+      const s = await kit.reporting({ enabled: true })
+      const outcomes = await Promise.all([
+        ledger.setEnabled({ sourceId: s, actor, enabled: false }),
+        ledger.setEnabled({ sourceId: s, actor, enabled: false }),
+      ])
+      expect(outcomes.map((o) => (o.kind === 'SWITCHED' ? o.changed : null)).sort()).toEqual([
+        false,
+        true,
+      ])
+      const row = await state(s)
+      expect(row.enabled).toBe(false)
+      expect(row.admin_state_history.map((e) => e.kind)).toEqual(['DISABLED'])
+    })
+
+    it('concurrent opposite toggles: the final flag matches the last audit entry', async () => {
+      const s = await kit.reporting({ enabled: true })
+      await Promise.all([
+        ledger.setEnabled({ sourceId: s, actor, enabled: false }),
+        ledger.setEnabled({ sourceId: s, actor, enabled: true }),
+      ])
+      const row = await state(s)
+      const observed = { enabled: row.enabled, kinds: row.admin_state_history.map((e) => e.kind) }
+      // Exactly two serial orders exist; the flag and the audit trail always tell the same story.
+      expect([
+        // enable first (a no-op on an enabled source), then disable
+        { enabled: false, kinds: ['DISABLED'] },
+        // disable first, then enable
+        { enabled: true, kinds: ['DISABLED', 'ENABLED'] },
+      ]).toContainEqual(observed)
+    })
   })
 })

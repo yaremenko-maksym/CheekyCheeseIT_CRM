@@ -46,6 +46,7 @@ const EXTENDED = {
   hostPauseReason: 'HTTP_403',
   costUnit: 'REQUEST',
   resumeCheckpoint: true,
+  healthState: 'FAILING',
 }
 
 describe('setJobSourceEnabledSchema — the PATCH body', () => {
@@ -112,6 +113,7 @@ describe('jobSourceSchema — additive Task 6.5 fields', () => {
       hostPausedUntil: null,
       hostPauseReason: null,
       costUnit: null,
+      healthState: null,
     }
     expect(jobSourceSchema.parse(nulls)).toEqual(nulls)
   })
@@ -128,6 +130,7 @@ describe('jobSourceSchema — additive Task 6.5 fields', () => {
     ['a free-text host pause reason', { hostPauseReason: 'the provider said no' }],
     ['an unknown cost unit', { costUnit: 'TOKEN' }],
     ['a non-boolean checkpoint flag', { resumeCheckpoint: 'yes' }],
+    ['an unknown health state', { healthState: 'BROKEN' }],
   ])('refuses %s', (_label, over) => {
     expect(jobSourceSchema.safeParse({ ...OLD_DTO, ...over }).success).toBe(false)
   })

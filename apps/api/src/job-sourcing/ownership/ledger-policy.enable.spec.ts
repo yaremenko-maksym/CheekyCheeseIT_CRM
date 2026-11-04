@@ -27,6 +27,10 @@ describe('enableRefusal', () => {
     expect(enableRefusal({ ...READY, lastErrorCode: 'ACCESS_POLICY' })).toBe('AUTH_PAUSED')
   })
 
+  it('a non-string error cell is not an access pause', () => {
+    expect(enableRefusal({ ...READY, lastErrorCode: 42 })).toBeNull()
+  })
+
   it('readiness is reported before the access pause', () => {
     expect(
       enableRefusal({ storedReadiness: 'BLOCKED', gate: null, lastErrorCode: 'ACCESS_POLICY' }),

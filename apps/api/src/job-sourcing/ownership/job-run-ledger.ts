@@ -237,9 +237,10 @@ const HOST_IDLE =
 /**
  * The checkpoint "Crash resume" hands a new run: the latest run's (greatest epoch among those
  * `before` admits), if it has the same config version, did not succeed and did not end
- * `CURSOR_CYCLE` -- else `{}`. One expression for the claim and for `endRun`'s "a page was saved".
+ * `CURSOR_CYCLE` -- else `{}`. One expression for the claim and for `endRun`'s "a page was saved"
+ * (and, r5 Task 6.5, for the source list's `resumeCheckpoint` flag).
  */
-const inheritedCheckpoint = (sourceId: SQL, configVersion: SQL, before: SQL): SQL =>
+export const inheritedCheckpoint = (sourceId: SQL, configVersion: SQL, before: SQL): SQL =>
   sql`COALESCE((SELECT CASE WHEN l.config_version = ${configVersion} AND l.outcome <> 'SUCCEEDED'
                          AND l.error_code IS DISTINCT FROM 'CURSOR_CYCLE' THEN l.checkpoint END
               FROM job_collection_runs l WHERE l.source_id = ${sourceId} AND ${before}
@@ -1087,11 +1088,10 @@ export class JobRunLedger {
         return { kind: 'SWITCHED', changed: false, cancelledRuns: 0 }
       }
       if (input.enabled) {
-        const lastErrorCode = row['last_error_code']
         const refusal = enableRefusal({
           storedReadiness: String(row['readiness']),
           gate: this.enableGate(row),
-          lastErrorCode: typeof lastErrorCode === 'string' ? lastErrorCode : null,
+          lastErrorCode: row['last_error_code'],
         })
         if (refusal !== null) return { kind: 'REFUSED', reason: refusal }
       }
@@ -1114,13 +1114,14 @@ export class JobRunLedger {
     const adapter = this.registry.get(row['type'] as JobSourceType)
     if (isLegacyKind(adapter)) return null
     const manifestId = row['manifest_id']
+    const meterKey = row['meter_key']
     const dbNow = instant(row['db_now'])
     if (dbNow === null) throw new Error('setEnabled: the database clock was unreadable')
     return claimGate({
       adapter,
       entry: typeof manifestId === 'string' ? this.catalog.entry(manifestId) : undefined,
       dbNow,
-      meterKey: typeof row['meter_key'] === 'string' ? row['meter_key'] : null,
+      meterKey: typeof meterKey === 'string' ? meterKey : null,
       scheduled: false,
     })
   }

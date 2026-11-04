@@ -94,7 +94,8 @@ export const AUTH_PAUSE_CODE = 'ACCESS_POLICY'
 export function enableRefusal(input: {
   readonly storedReadiness: string
   readonly gate: ClaimRefusal | null
-  readonly lastErrorCode: string | null
+  /** The raw `last_error_code` cell; only an exact `ACCESS_POLICY` pauses. */
+  readonly lastErrorCode: unknown
 }): EnableRefusal | null {
   if (input.storedReadiness === 'BLOCKED' || input.gate !== null) return 'NOT_READY'
   if (input.lastErrorCode === AUTH_PAUSE_CODE) return 'AUTH_PAUSED'

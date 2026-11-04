@@ -42,12 +42,20 @@ const ROW = {
   lastErrorCode: 'ACCESS_POLICY',
 }
 
-function harness(rows: Record<string, unknown>[], facts: Record<string, unknown>[]) {
+function harness(
+  rows: Record<string, unknown>[],
+  facts: Record<string, unknown>[],
+  transitions: { sourceId: string; toState: string | null; reasonCode: string | null }[] = [],
+) {
   const execute = vi.fn(async (_q: SQL) => ({ rows: facts }))
-  const db = { db: { select: () => ({ from: async () => rows }), execute } }
+  const selectDistinctOn = vi.fn(() => ({
+    from: () => ({ where: () => ({ orderBy: async () => transitions }) }),
+  }))
+  const db = { db: { select: () => ({ from: async () => rows }), execute, selectDistinctOn } }
   return {
     service: new JobSourcingService(db as never, {} as never, new JobSourceRegistry([])),
     execute,
+    selectDistinctOn,
   }
 }
 
@@ -64,6 +72,7 @@ describe('listSources — Task 6.5 operational fields', () => {
           resume_checkpoint: true,
         },
       ],
+      [{ sourceId: ID, toState: 'FAILING', reasonCode: 'ACCESS_CHANGED' }],
     )
     const [item] = await h.service.listSources(ADMIN, new Date('2026-11-01T09:00:00.000Z'))
     expect(item).toMatchObject({
@@ -83,8 +92,38 @@ describe('listSources — Task 6.5 operational fields', () => {
       hostPauseReason: 'HTTP_403',
       costUnit: 'REQUEST',
       resumeCheckpoint: true,
+      healthState: 'FAILING',
     })
     expect(jobSourceListSchema.parse({ items: [item] }).items[0]).toEqual(item)
+  })
+
+  it('a non-string fact cell maps to null, never through (MUT-1)', async () => {
+    const h = harness(
+      [ROW],
+      [
+        {
+          id: ID,
+          paused_until_ms: '1',
+          pause_reason: 403,
+          cost_unit: 7,
+          resume_checkpoint: 'true',
+        },
+      ],
+    )
+    const [item] = await h.service.listSources(ADMIN)
+    expect(item).toMatchObject({
+      hostPausedUntil: null,
+      hostPauseReason: null,
+      costUnit: null,
+      resumeCheckpoint: false,
+    })
+  })
+
+  it('no sources: an empty list, and no fact or health query', async () => {
+    const h = harness([], [])
+    expect(await h.service.listSources(ADMIN)).toEqual([])
+    expect(h.execute).not.toHaveBeenCalled()
+    expect(h.selectDistinctOn).not.toHaveBeenCalled()
   })
 
   it('NULL columns and a source without facts map to null / false', async () => {
@@ -120,6 +159,7 @@ describe('listSources — Task 6.5 operational fields', () => {
         hostPauseReason: null,
         costUnit: null,
         resumeCheckpoint: false,
+        healthState: null,
       })
     }
     expect(items[0]).toMatchObject({
@@ -141,10 +181,11 @@ describe('listSources — Task 6.5 operational fields', () => {
     expect(sql).toContain('CASE WHEN h.paused_until > clock_timestamp()')
     expect(sql).toContain('LEFT JOIN job_source_hosts h ON h.host_key = s.host_key')
     expect(sql).toContain('LEFT JOIN job_account_meters m ON m.id = s.account_meter_id')
-    expect(sql).toContain("l.config_version = s.config_version AND l.outcome <> 'SUCCEEDED'")
-    expect(sql).toContain("l.error_code IS DISTINCT FROM 'CURSOR_CYCLE'")
-    expect(sql).toContain("l.checkpoint <> '{}'::jsonb")
-    expect(sql).toContain('ORDER BY l.fencing_epoch DESC LIMIT 1')
+    // The ledger's own `inheritedCheckpoint` (CR-L-1), bound to the listed row, compared with `{}`.
+    expect(sql).toContain('CASE WHEN l.config_version = s.config_version')
+    expect(sql).toContain('WHERE l.source_id = s.id AND true')
+    expect(sql).toContain("'{}'::jsonb) <> '{}'::jsonb")
+    expect(sql).toContain('AS resume_checkpoint')
   })
 
   it('a non-ADMIN is refused before any query', async () => {

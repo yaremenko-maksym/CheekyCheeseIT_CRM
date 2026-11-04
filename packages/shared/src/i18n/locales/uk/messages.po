@@ -3105,7 +3105,7 @@ msgstr "Зовнішню вакансію не знайдено"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_SOURCE_AUTH_PAUSED"
-msgstr "Джерело призупинено через відмову в доступі: спершу скиньте помилки"
+msgstr "Джерело призупинено, бо провайдер відмовив у доступі: спершу зніміть паузу, потім увімкніть його"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
@@ -3115,7 +3115,7 @@ msgstr "Джерело вакансій не знайдено"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_SOURCE_NOT_READY"
-msgstr "Джерело ще не готове до роботи, тому його не можна ввімкнути"
+msgstr "Джерело ще не готове: завершіть налаштування (перевірка готовності, підключення, лічильник квоти), потім увімкніть його"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts

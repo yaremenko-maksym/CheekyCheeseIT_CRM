@@ -1,5 +1,9 @@
 import { z } from 'zod'
-import { jobCollectionOutcomeSchema, jobSourceTypeSchema } from './job-sourcing'
+import {
+  jobCollectionOutcomeSchema,
+  jobHealthStateSchema,
+  jobSourceTypeSchema,
+} from './job-sourcing'
 
 /**
  * ADMIN controls over the run ledger (r5 Task 2.5 T9; ADR
@@ -92,17 +96,9 @@ export type ExcludedJobSourceListDto = z.infer<typeof excludedJobSourceListSchem
 // the api controller spec.
 // ---------------------------------------------------------------------------
 
-/** The eight health states (ADR section 10). */
-export const jobHealthStateSchema = z.enum([
-  'BLOCKED',
-  'CAPPED',
-  'PAUSED',
-  'FAILING',
-  'EMPTY',
-  'DEGRADED',
-  'SILENT',
-  'HEALTHY',
-])
+// The eight health states (`jobHealthStateSchema`) moved to job-sourcing.ts in r5 Task 6.5, so
+// `jobSourceSchema` can carry the current state without a circular import; same export name
+// through the barrel.
 
 /** The eleven detector reasons (ADR section 10). */
 export const jobHealthReasonSchema = z.enum([
