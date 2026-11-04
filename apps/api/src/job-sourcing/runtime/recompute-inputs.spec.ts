@@ -15,6 +15,7 @@ import {
   loadOpportunity,
   loadRoster,
   matchRows,
+  opportunityInputsVersion,
   opportunityVerdict,
   profileVersion,
   rosterVersions,
@@ -139,6 +140,47 @@ describe('opportunityVerdict (SR-M-2)', () => {
     ],
   ] as const)('%s -> %s', (_name, result, expected) => {
     expect(opportunityVerdict(result)).toBe(expected)
+  })
+})
+
+describe('opportunityInputsVersion (SR-M-1)', () => {
+  const go = exclusion({ id: 'g', value: 'go', normalizedValue: 'go' })
+  const php = exclusion({ id: 'p', value: 'php', normalizedValue: 'php' })
+
+  it('digests the rule version and the sorted studio-wide keyword values', () => {
+    expect(opportunityInputsVersion([php, go], 'r1')).toBe('c2e635c2c7e37c32a0f7b6676ff0ca7a')
+    expect(opportunityInputsVersion([], 'r1')).toBe('296b49602fda0198ee1b3edb72d438ee')
+  })
+
+  it('is order-independent', () => {
+    expect(opportunityInputsVersion([go, php], 'r1')).toBe('c2e635c2c7e37c32a0f7b6676ff0ca7a')
+  })
+
+  it('changes with the rule version', () => {
+    expect(opportunityInputsVersion([php, go], 'r2')).toBe('a710babd2de7a9cfc13eccb203c39508')
+  })
+
+  it('defaults to MATCH_RULE_VERSION', () => {
+    expect(opportunityInputsVersion([go])).toBe(opportunityInputsVersion([go], MATCH_RULE_VERSION))
+    expect(opportunityInputsVersion([go])).not.toBe(opportunityInputsVersion([go], 'r1'))
+  })
+
+  it.each<[string, JobExclusionDto]>([
+    ['a senior-scoped keyword', exclusion({ scope: 'SENIOR', seniorId: 's1', value: 'rust' })],
+    ['a studio-wide COMPANY entry (unused, A1g)', exclusion({ kind: 'COMPANY', value: 'Acme' })],
+  ])('ignores %s', (_, other) => {
+    expect(opportunityInputsVersion([php, go, other], 'r1')).toBe(
+      'c2e635c2c7e37c32a0f7b6676ff0ca7a',
+    )
+  })
+
+  it('reads the value the stage matches, not the id or the normalised form', () => {
+    const renamed = exclusion({ id: 'other', value: 'go', normalizedValue: 'GO!' })
+    expect(opportunityInputsVersion([php, renamed], 'r1')).toBe('c2e635c2c7e37c32a0f7b6676ff0ca7a')
+    const changed = exclusion({ id: 'g', value: 'golang', normalizedValue: 'go' })
+    expect(opportunityInputsVersion([php, changed], 'r1')).not.toBe(
+      'c2e635c2c7e37c32a0f7b6676ff0ca7a',
+    )
   })
 })
 
@@ -731,7 +773,8 @@ describe('installMatches', () => {
     const { tx, statements } = recording()
     expect(await installMatches(tx, OPP, 4, result, withExclusions)).toBe(1)
     const [del, record, ins] = statements
-    expect(record?.params).toEqual([4, 'OPEN', OPP, 4])
+    // The studio keyword 'php' at MATCH_RULE_VERSION 'eval.1+l1.1' (SR-M-1).
+    expect(record?.params).toEqual([4, 'OPEN', '3c8e35dd4ec830658915a6ef7b6bb6c0', OPP, 4])
     expect(del?.sql).toMatch(/DELETE FROM job_opportunity_matches/)
     expect(del?.sql).toMatch(/opportunity_revision <= \$2/)
     expect(del?.params.slice(0, 2)).toEqual([OPP, 4])
@@ -778,16 +821,23 @@ describe('installMatches', () => {
     expect(statements).toHaveLength(2)
     expect(statements[0]?.params[2]).toBe('[]')
     expect(statements[1]?.sql).toMatch(/UPDATE job_opportunities/)
-    expect(statements[1]?.params).toEqual([1, 'OPEN', OPP, 1])
+    expect(statements[1]?.params).toEqual([1, 'OPEN', 'd17b306752496d748fc03a559dc4b784', OPP, 1])
   })
 
-  it('SR-M-2: the evaluation record is written only for the current revision', async () => {
+  it('SR-M-1/2: the evaluation record carries the inputs version, only for the current revision', async () => {
     const { tx, statements } = recording()
     await installMatches(tx, OPP, 7, evaluated([]), roster)
     expect(statements[1]?.sql.replace(/\s+/g, ' ')).toBe(
-      'UPDATE job_opportunities SET evaluated_revision = $1, evaluation_verdict = $2::job_opportunity_verdict WHERE id = $3::uuid AND revision = $4',
+      'UPDATE job_opportunities SET evaluated_revision = $1, evaluation_verdict = $2::job_opportunity_verdict, evaluated_inputs_version = $3 WHERE id = $4::uuid AND revision = $5',
     )
-    expect(statements[1]?.params).toEqual([7, 'OPEN', OPP, 7])
+    expect(statements[1]?.params).toEqual([7, 'OPEN', 'd17b306752496d748fc03a559dc4b784', OPP, 7])
+  })
+
+  it('SR-M-1: the inputs version is the one of the roster the verdict was computed with', async () => {
+    const { tx, statements } = recording()
+    await installMatches(tx, OPP, 7, evaluated([]), rosterWith([exclusion({})]))
+    expect(statements[1]?.params[2]).toBe(opportunityInputsVersion([exclusion({})]))
+    expect(statements[1]?.params[2]).not.toBe(opportunityInputsVersion([]))
   })
 
   it('SR-M-2: an opportunity-level exclusion is recorded as EXCLUDED, with an empty roster too', async () => {
@@ -800,7 +850,13 @@ describe('installMatches', () => {
     }
     const verdict = excludedBy('OPPORTUNITY', 'GLOBAL_RESTRICTIONS')
     expect(await installMatches(tx, OPP, 2, verdict, bare)).toBe(0)
-    expect(statements[1]?.params).toEqual([2, 'EXCLUDED', OPP, 2])
+    expect(statements[1]?.params).toEqual([
+      2,
+      'EXCLUDED',
+      'd17b306752496d748fc03a559dc4b784',
+      OPP,
+      2,
+    ])
   })
 
   it('the rule version names both stages', () => {

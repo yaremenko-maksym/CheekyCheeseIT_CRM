@@ -270,9 +270,10 @@ describe('job_opportunities', () => {
       ]),
     )
   })
-  it('SR-M-2: the evaluated revision and verdict are nullable, without a default, declared last', () => {
-    expect(names(jobOpportunities).slice(-2)).toEqual(['evaluated_revision', 'evaluation_verdict'])
-    for (const name of ['evaluated_revision', 'evaluation_verdict']) {
+  it('SR-M-1/2: the evaluated revision, verdict and inputs version are nullable, without a default, declared last', () => {
+    const evaluation = ['evaluated_revision', 'evaluation_verdict', 'evaluated_inputs_version']
+    expect(names(jobOpportunities).slice(-3)).toEqual(evaluation)
+    for (const name of evaluation) {
       expect(col(jobOpportunities, name).notNull).toBe(false)
       expect(col(jobOpportunities, name).hasDefault).toBe(false)
     }

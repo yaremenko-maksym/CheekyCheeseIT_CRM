@@ -422,6 +422,25 @@ export function opportunityVerdict(result: Evaluated | Excluded): OpportunityVer
 const digest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 32)
 
+/**
+ * The version of what the opportunity-level verdict reads besides the revision (SR-M-1, owner
+ * decision 2026-11-04): the rule versions of CLASSIFICATION and GLOBAL_RESTRICTIONS, and the
+ * values of the studio-wide KEYWORD exclusions, the only ones that stage matches (it reads
+ * `value`; global COMPANY entries are unused, A1g). Order-insensitive. Nothing per senior:
+ * SCOPED_RESTRICTIONS never decides the verdict (`opportunityVerdict`).
+ * `ruleVersion` is a parameter only so a test can model a rule deploy.
+ */
+export function opportunityInputsVersion(
+  exclusions: readonly JobExclusionDto[],
+  ruleVersion: string = MATCH_RULE_VERSION,
+): string {
+  const keywords = exclusions
+    .filter((e) => e.scope === 'GLOBAL' && e.kind === 'KEYWORD')
+    .map((e) => e.value)
+    .sort()
+  return digest([ruleVersion, keywords])
+}
+
 /** A senior's profile version: the stack and teams the verdict rests on. */
 export function profileVersion(p: SeniorTechProfile): string {
   return digest([[...p.techStack].sort(), [...p.teamIds].sort()])
@@ -490,7 +509,8 @@ export function rosterVersions(
 /**
  * Replace the opportunity's matches with the verdict for `revision`, inside the caller's
  * transaction (which holds the opportunity and has checked `revision` is current), and record on
- * the opportunity that `revision` was evaluated and with what opportunity-level result. That record
+ * the opportunity that `revision` was evaluated, against which inputs (`opportunityInputsVersion`
+ * of this roster's exclusions, SR-M-1) and with what opportunity-level result. That record
  * is written even when there are no rows (a plain mismatch, an empty roster): it is what the queue's
  * grant branch reads (SR-M-2). Neither the upsert nor the delete ever touches a NEWER revision, and
  * the record is written only for the opportunity's current revision: under the caller's row lock
@@ -532,7 +552,8 @@ export async function installMatches(
   await tx.execute(
     sql`UPDATE job_opportunities
            SET evaluated_revision = ${revision},
-               evaluation_verdict = ${opportunityVerdict(result)}::job_opportunity_verdict
+               evaluation_verdict = ${opportunityVerdict(result)}::job_opportunity_verdict,
+               evaluated_inputs_version = ${opportunityInputsVersion(roster.exclusions)}
          WHERE id = ${opportunityId}::uuid AND revision = ${revision}`,
   )
   if (rows.length === 0) return 0
