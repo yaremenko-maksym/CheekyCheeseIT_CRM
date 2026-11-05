@@ -43,6 +43,7 @@ import {
   jobSeniorityEnum,
   jobSourceTypeEnum,
 } from './enums'
+import { JOB_SHORT_TEXT_MAX } from './job-patterns'
 import { jobSources } from './job-sourcing'
 import { teams, users } from './users'
 
@@ -301,6 +302,13 @@ export const jobOpportunities = pgTable(
      * (`opportunityInputsVersion`). A grant shows the item only while it equals the live digest.
      */
     evaluatedInputsVersion: text('evaluated_inputs_version'),
+    /**
+     * r5 Task 6.4c: layer 1's role family at `evaluatedRevision` (`opportunityRoleFamily`), written
+     * with the evaluation record; NULL = never evaluated or UNKNOWN. A triage subscription matches
+     * it by equality, so NULL never matches. Bounded like the subscription's `role_family`.
+     * Production gets it ONLY through the staged forward DDL; declared last (ADD COLUMN rank).
+     */
+    roleFamily: text('role_family'),
   },
   (t) => [
     // Deliberately NO unique company/title constraint: two real openings can
@@ -319,6 +327,10 @@ export const jobOpportunities = pgTable(
     check(
       'ck_job_opportunities_evaluation_pair',
       sql`(${t.evaluatedRevision} IS NULL) = (${t.evaluationVerdict} IS NULL) AND (${t.evaluatedRevision} IS NULL) = (${t.evaluatedInputsVersion} IS NULL)`,
+    ),
+    check(
+      'ck_job_opportunities_role_family_bounded',
+      sql`${t.roleFamily} IS NULL OR (${t.roleFamily} ~ '[^[:space:]]' AND length(${t.roleFamily}) <= ${sql.raw(String(JOB_SHORT_TEXT_MAX))})`,
     ),
   ],
 )

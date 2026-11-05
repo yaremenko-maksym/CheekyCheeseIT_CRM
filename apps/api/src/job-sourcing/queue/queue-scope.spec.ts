@@ -135,8 +135,18 @@ describe('visibleOpportunityPredicate', () => {
       TEAM_A,
       'inputs-1',
       TEAM_A,
+      TEAM_A,
+      'inputs-1',
+      TEAM_A,
     ])
     expect(MATCH_RULE_VERSION).toBe('eval.1+l1.1')
+  })
+
+  it('TEAM subscription branch (r5 Task 6.4c): live subscription of the team, same role family, source filter, verified employer, OPEN at live inputs, live team', () => {
+    const text = flat(render(visibleOpportunityPredicate(teamA, id)).sql)
+    expect(text).toContain(
+      "OR EXISTS (SELECT 1 FROM job_opportunities sop JOIN job_team_triage_subscriptions s ON s.role_family = sop.role_family WHERE sop.id = 'x'::uuid AND s.team_id = $8::uuid AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp() AND (cardinality(s.source_types) = 0 OR EXISTS (SELECT 1 FROM job_opportunity_sources sl JOIN job_source_records sr ON sr.id = sl.source_record_id WHERE sl.opportunity_id = sop.id AND sl.unlinked_at IS NULL AND sr.source_type = ANY (s.source_types))) AND sop.employer_verified = true AND sop.availability NOT IN ('CLOSED', 'EXPIRED') AND sop.evaluated_revision = sop.revision AND sop.evaluation_verdict = 'OPEN' AND sop.evaluated_inputs_version = $9 AND EXISTS (SELECT 1 FROM teams st WHERE st.id = $10::uuid AND st.archived_at IS NULL AND st.type = 'SENIOR')))",
+    )
   })
 
   it('TEAM: either branch, and never a suppressed opportunity (r5 Task 6.4)', () => {

@@ -97,8 +97,8 @@ const liveTeam = (alias: string, teamId: string) =>
  * The SQL predicate "the opportunity whose id is `opportunityId` is visible in `scope`" — the one
  * place list, card and action reads take their visibility from (Task 6.2 / 6.3).
  *
- * TEAM — the team itself must be live (not archived, SENIOR-type), re-checked here in BOTH
- * branches, and then either:
+ * TEAM — the team itself must be live (not archived, SENIOR-type), re-checked here in EVERY
+ * branch, and then one of:
  *   LEAD   a LEAD match at the opportunity's CURRENT revision, whose `senior_profile_version`,
  *          `exclusion_version` and `rule_version` equal the senior's LIVE versions (passed in from
  *          `resolve`; a senior with no live version row grants nothing), for a senior who is
@@ -113,16 +113,16 @@ const liveTeam = (alias: string, teamId: string) =>
  *          opportunity-level (`opportunityVerdict`): a per-senior stop-list is
  *          `SCOPED_RESTRICTIONS` and does not hide the opportunity from the team, owner A1g. The
  *          grant itself is revision-independent: the schema states no revision rule for it.
- * A TRIAGE / unknown-stack verdict alone grants nothing (data quality, not a grant). Neither branch
+ *   SUBSCRIPTION  an unrevoked, unexpired standing triage subscription of the team
+ *          (`job_team_triage_subscriptions`, r5 Task 6.4c) whose `role_family` equals the
+ *          opportunity's persisted layer-1 `role_family` (NULL — never evaluated or UNKNOWN —
+ *          never matches) and whose `source_types`, when not empty, contain the type of an ACTIVE
+ *          linked source record; on an opportunity whose employer is VERIFIED (an unverifiable item
+ *          reaches a team only through an explicit grant, r5 Task 1.2 SR-L-2) and that passes the
+ *          grant branch's availability and OPEN-at-current-revision-and-live-inputs rule. The
+ *          role family is written with that evaluation record, so it is the current revision's.
+ * A TRIAGE / unknown-stack verdict alone grants nothing (data quality, not a grant). No branch
  * shows an opportunity an ADMIN has SUPPRESSED (`notSuppressed`, r5 Task 6.4).
- *
- * NOT IN THIS PREDICATE — standing triage subscriptions (`job_team_triage_subscriptions`). A
- * subscription is keyed on a role family, and `job_opportunities` stores none: layer 1 computes
- * `roleFamily` during evaluation and does not persist it. Follow-up: persist the layer-1 role
- * family on `job_opportunities` (the recompute install, r5 Task 4.6 store), then add the
- * subscription branch here with `employer_verified = true`, a matching role family / source type,
- * and an unrevoked, unexpired subscription (r5 Task 6.1 "carried from Task 1.2"). Until then a
- * subscription makes nothing visible.
  *
  * STUDIO: every opportunity (ADMIN studio triage), a suppressed one included, so an ADMIN still
  * opens it by id. NONE: nothing.
@@ -163,7 +163,25 @@ export function visibleOpportunityPredicate(scope: JobQueueScope, opportunityId:
                          AND gop.evaluated_revision = gop.revision
                          AND gop.evaluation_verdict = 'OPEN'
                          AND gop.evaluated_inputs_version = ${scope.inputsVersion}
-                         AND ${liveTeam('gt', scope.teamId)}))
+                         AND ${liveTeam('gt', scope.teamId)})
+           OR EXISTS (SELECT 1 FROM job_opportunities sop
+                        JOIN job_team_triage_subscriptions s ON s.role_family = sop.role_family
+                       WHERE sop.id = ${opportunityId}
+                         AND s.team_id = ${scope.teamId}::uuid
+                         AND s.revoked_at IS NULL
+                         AND s.expires_at > clock_timestamp()
+                         AND (cardinality(s.source_types) = 0
+                              OR EXISTS (SELECT 1 FROM job_opportunity_sources sl
+                                           JOIN job_source_records sr ON sr.id = sl.source_record_id
+                                          WHERE sl.opportunity_id = sop.id
+                                            AND sl.unlinked_at IS NULL
+                                            AND sr.source_type = ANY (s.source_types)))
+                         AND sop.employer_verified = true
+                         AND sop.availability NOT IN ('CLOSED', 'EXPIRED')
+                         AND sop.evaluated_revision = sop.revision
+                         AND sop.evaluation_verdict = 'OPEN'
+                         AND sop.evaluated_inputs_version = ${scope.inputsVersion}
+                         AND ${liveTeam('st', scope.teamId)}))
            AND ${notSuppressed(opportunityId)})`
 }
 

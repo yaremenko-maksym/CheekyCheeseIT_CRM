@@ -4,8 +4,10 @@ import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 import type { Evaluated, Excluded, ScopeProjection } from '../funnel/evaluate'
+import type { RoleFamily } from '../funnel/layer1'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
+  EVALUATION_RECORD_VERSION,
   MATCH_RULE_VERSION,
   RecomputePoisonError,
   type RosterInputs,
@@ -16,6 +18,7 @@ import {
   loadRoster,
   matchRows,
   opportunityInputsVersion,
+  opportunityRoleFamily,
   opportunityVerdict,
   profileVersion,
   rosterVersions,
@@ -87,6 +90,7 @@ const projection = (scope: string, status: 'LEAD' | 'TRIAGE'): ScopeProjection =
 const evaluated = (
   projections: ScopeProjection[],
   excluded: Evaluated['audit']['excluded'] = [],
+  roleFamily: RoleFamily = 'SOFTWARE',
 ): Evaluated =>
   ({
     kind: 'EVALUATED',
@@ -95,7 +99,7 @@ const evaluated = (
     revisionId: '1',
     evaluatedAt: '2026-10-26T10:00:00.000Z',
     status: 'LEAD',
-    layer1: {},
+    layer1: { roleFamily: { value: roleFamily } },
     projections,
     trace: [],
     audit: { excluded, noTeamAccess: [], ignoredExclusionIds: [] },
@@ -104,12 +108,14 @@ const evaluated = (
 const excludedBy = (
   subject: string,
   stage: Excluded['audit']['excluded'][number]['stage'],
+  roleFamily: RoleFamily = 'DATA',
 ): Excluded => ({
   kind: 'EXCLUDED',
   recordKey: 'k',
   opportunityId: OPP,
   revisionId: '1',
   evaluatedAt: '2026-10-26T10:00:00.000Z',
+  roleFamily,
   reasons: [reason],
   trace: [],
   audit: {
@@ -160,8 +166,11 @@ describe('opportunityInputsVersion (SR-M-1)', () => {
     expect(opportunityInputsVersion([php, go], 'r2')).toBe('a710babd2de7a9cfc13eccb203c39508')
   })
 
-  it('defaults to MATCH_RULE_VERSION', () => {
-    expect(opportunityInputsVersion([go])).toBe(opportunityInputsVersion([go], MATCH_RULE_VERSION))
+  it('defaults to MATCH_RULE_VERSION plus the evaluation record version', () => {
+    expect(opportunityInputsVersion([go])).toBe(opportunityInputsVersion([go], 'eval.1+l1.1+rf.1'))
+    expect(opportunityInputsVersion([go])).not.toBe(
+      opportunityInputsVersion([go], MATCH_RULE_VERSION),
+    )
     expect(opportunityInputsVersion([go])).not.toBe(opportunityInputsVersion([go], 'r1'))
   })
 
@@ -254,6 +263,7 @@ describe('matchRows', () => {
       opportunityId: OPP,
       revisionId: '1',
       evaluatedAt: '2026-10-26T10:00:00.000Z',
+      roleFamily: 'SOFTWARE',
       reasons: [reason],
       trace: [],
       audit: {
@@ -773,8 +783,15 @@ describe('installMatches', () => {
     const { tx, statements } = recording()
     expect(await installMatches(tx, OPP, 4, result, withExclusions)).toBe(1)
     const [del, record, ins] = statements
-    // The studio keyword 'php' at MATCH_RULE_VERSION 'eval.1+l1.1' (SR-M-1).
-    expect(record?.params).toEqual([4, 'OPEN', '3c8e35dd4ec830658915a6ef7b6bb6c0', OPP, 4])
+    // The studio keyword 'php' at 'eval.1+l1.1+rf.1' (SR-M-1), and layer 1's role family.
+    expect(record?.params).toEqual([
+      4,
+      'OPEN',
+      '0084349d198f553e703a4845aa55b3bc',
+      'SOFTWARE',
+      OPP,
+      4,
+    ])
     expect(del?.sql).toMatch(/DELETE FROM job_opportunity_matches/)
     expect(del?.sql).toMatch(/opportunity_revision <= \$2/)
     expect(del?.params.slice(0, 2)).toEqual([OPP, 4])
@@ -821,16 +838,30 @@ describe('installMatches', () => {
     expect(statements).toHaveLength(2)
     expect(statements[0]?.params[2]).toBe('[]')
     expect(statements[1]?.sql).toMatch(/UPDATE job_opportunities/)
-    expect(statements[1]?.params).toEqual([1, 'OPEN', 'd17b306752496d748fc03a559dc4b784', OPP, 1])
+    expect(statements[1]?.params).toEqual([
+      1,
+      'OPEN',
+      'f790107665e925d6184be224a6f29cf7',
+      'SOFTWARE',
+      OPP,
+      1,
+    ])
   })
 
   it('SR-M-1/2: the evaluation record carries the inputs version, only for the current revision', async () => {
     const { tx, statements } = recording()
     await installMatches(tx, OPP, 7, evaluated([]), roster)
     expect(statements[1]?.sql.replace(/\s+/g, ' ')).toBe(
-      'UPDATE job_opportunities SET evaluated_revision = $1, evaluation_verdict = $2::job_opportunity_verdict, evaluated_inputs_version = $3 WHERE id = $4::uuid AND revision = $5',
+      'UPDATE job_opportunities SET evaluated_revision = $1, evaluation_verdict = $2::job_opportunity_verdict, evaluated_inputs_version = $3, role_family = $4 WHERE id = $5::uuid AND revision = $6',
     )
-    expect(statements[1]?.params).toEqual([7, 'OPEN', 'd17b306752496d748fc03a559dc4b784', OPP, 7])
+    expect(statements[1]?.params).toEqual([
+      7,
+      'OPEN',
+      'f790107665e925d6184be224a6f29cf7',
+      'SOFTWARE',
+      OPP,
+      7,
+    ])
   })
 
   it('SR-M-1: the inputs version is the one of the roster the verdict was computed with', async () => {
@@ -853,13 +884,50 @@ describe('installMatches', () => {
     expect(statements[1]?.params).toEqual([
       2,
       'EXCLUDED',
-      'd17b306752496d748fc03a559dc4b784',
+      'f790107665e925d6184be224a6f29cf7',
+      'DATA',
       OPP,
       2,
     ])
   })
 
+  it('an UNKNOWN role family is recorded as NULL, so no subscription can match it', async () => {
+    const { tx, statements } = recording()
+    await installMatches(tx, OPP, 3, evaluated([], [], 'UNKNOWN'), roster)
+    expect(statements[1]?.params).toEqual([
+      3,
+      'OPEN',
+      'f790107665e925d6184be224a6f29cf7',
+      null,
+      OPP,
+      3,
+    ])
+  })
+
   it('the rule version names both stages', () => {
     expect(MATCH_RULE_VERSION).toBe('eval.1+l1.1')
+  })
+
+  it('the evaluation record version names the role-family record format', () => {
+    expect(EVALUATION_RECORD_VERSION).toBe('rf.1')
+  })
+})
+
+describe('opportunityRoleFamily (r5 Task 6.4c)', () => {
+  it('reads an evaluated verdict from layer 1', () => {
+    expect(opportunityRoleFamily(evaluated([], [], 'DEVOPS'))).toBe('DEVOPS')
+  })
+
+  it('reads an opportunity-level exclusion from its own field', () => {
+    expect(opportunityRoleFamily(excludedBy('OPPORTUNITY', 'CLASSIFICATION', 'QA'))).toBe('QA')
+  })
+
+  it('fails closed: UNKNOWN is null on both kinds', () => {
+    expect(opportunityRoleFamily(evaluated([], [], 'UNKNOWN'))).toBeNull()
+    expect(opportunityRoleFamily(excludedBy('OPPORTUNITY', 'CLASSIFICATION', 'UNKNOWN'))).toBeNull()
+  })
+
+  it('keeps OTHER, a classified family', () => {
+    expect(opportunityRoleFamily(evaluated([], [], 'OTHER'))).toBe('OTHER')
   })
 })

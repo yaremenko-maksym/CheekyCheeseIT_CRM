@@ -270,13 +270,24 @@ describe('job_opportunities', () => {
       ]),
     )
   })
-  it('SR-M-1/2: the evaluated revision, verdict and inputs version are nullable, without a default, declared last', () => {
+  it('SR-M-1/2: the evaluated revision, verdict and inputs version are nullable, without a default, declared before role_family', () => {
     const evaluation = ['evaluated_revision', 'evaluation_verdict', 'evaluated_inputs_version']
-    expect(names(jobOpportunities).slice(-3)).toEqual(evaluation)
+    expect(names(jobOpportunities).slice(-4, -1)).toEqual(evaluation)
     for (const name of evaluation) {
       expect(col(jobOpportunities, name).notNull).toBe(false)
       expect(col(jobOpportunities, name).hasDefault).toBe(false)
     }
+  })
+  it('Task 6.4c: role_family is declared last, nullable, without a default, and bounded', () => {
+    expect(names(jobOpportunities).at(-1)).toBe('role_family')
+    expect(col(jobOpportunities, 'role_family').notNull).toBe(false)
+    expect(col(jobOpportunities, 'role_family').hasDefault).toBe(false)
+    const c = getTableConfig(jobOpportunities).checks.find(
+      (x) => x.name === 'ck_job_opportunities_role_family_bounded',
+    )
+    expect(render(c?.value)).toBe(
+      `"job_opportunities"."role_family" IS NULL OR ("job_opportunities"."role_family" ~ '[^[:space:]]' AND length("job_opportunities"."role_family") <= 100)`,
+    )
   })
   it('employer is nullable (no employer invented from a slug) and unverified by default', () => {
     expect(col(jobOpportunities, 'employer_name').notNull).toBe(false)
