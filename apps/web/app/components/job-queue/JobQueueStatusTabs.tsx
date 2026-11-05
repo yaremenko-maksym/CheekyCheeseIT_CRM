@@ -1,0 +1,48 @@
+import { msg } from '@lingui/core/macro'
+import { useLingui } from '@lingui/react'
+import type { MessageDescriptor } from '@lingui/core'
+import { jobQueueTabSchema, type JobQueueTab, type JobQueueListResponseDto } from '@crm/shared'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+
+const TAB_LABEL: Record<JobQueueTab, MessageDescriptor> = {
+  NEW: msg`Нові`,
+  SUBMITTED: msg`Подані`,
+  HIDDEN: msg`Приховані`,
+}
+
+/** Spec §4.1: a count above 999 reads «999+» so the three equal columns never overflow at 320 px. */
+function formatCount(n: number): string {
+  return n > 999 ? '999+' : String(n)
+}
+
+export function JobQueueStatusTabs({
+  value,
+  counts,
+  onChange,
+}: {
+  value: JobQueueTab
+  /** `null` before the first page arrives — labels only, never a fake 0. */
+  counts: JobQueueListResponseDto['counts'] | null
+  onChange: (tab: JobQueueTab) => void
+}) {
+  const { i18n } = useLingui()
+  return (
+    <Tabs value={value} onValueChange={(v) => onChange(jobQueueTabSchema.parse(v))}>
+      <TabsList className="grid h-auto w-full grid-cols-3">
+        {jobQueueTabSchema.options.map((tab) => (
+          <TabsTrigger
+            key={tab}
+            value={tab}
+            data-testid={`job-queue-tab-${tab}`}
+            className="min-h-11 min-w-0 flex-col gap-0.5 px-2 min-[560px]:flex-row min-[560px]:gap-2"
+          >
+            <span className="truncate">{i18n._(TAB_LABEL[tab])}</span>
+            {counts && (
+              <span className="tabular-nums text-muted-foreground">{formatCount(counts[tab])}</span>
+            )}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
+  )
+}
