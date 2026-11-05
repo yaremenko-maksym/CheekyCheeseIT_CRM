@@ -277,7 +277,9 @@ export async function reconcileOnce(
                              FROM job_dirty_work w
                             WHERE w.entity_kind = 'OPPORTUNITY' AND w.entity_id = o.id
                               AND w.target_version = o.revision), '[]'::jsonb) AS dirty
-            FROM job_opportunities o WHERE o.id > ${cursor}::uuid ${only} ORDER BY o.id LIMIT ${pageSize}`,
+            FROM job_opportunities o
+           -- A manual card is never match-evaluated (r5 Phase 6, SR-M-1).
+           WHERE o.manual_team_id IS NULL AND o.id > ${cursor}::uuid ${only} ORDER BY o.id LIMIT ${pageSize}`,
     )
     pages += 1
     for (const row of rows) {

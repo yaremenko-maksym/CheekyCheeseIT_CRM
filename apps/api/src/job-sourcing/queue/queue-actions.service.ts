@@ -209,8 +209,9 @@ export class JobQueueActionsService {
    *
    * The card is owned by the team (`manual_team_id`): only that team sees it (the MANUAL branch of
    * `visibleOpportunityPredicate`). It has no source record and no match row, and every match
-   * evaluation path skips it (the recompute enqueue, the roster fan-out, the evaluation worker's
-   * `loadOpportunity`): only its own team ever works on it.
+   * evaluation path skips it (the recompute enqueue, the roster fan-out, the reconciliation sweep,
+   * and the evaluation worker, which completes such work unevaluated); `openOpportunity` grants no
+   * match-based access to it either: only its own team ever works on it.
    * The role re-check behind the controller's `@Roles` is `resolve`'s: a role outside ADMIN / HR is
    * a 403 there. The scope must be TEAM: an HR outside the team, like an unknown or archived team,
    * is the 404.

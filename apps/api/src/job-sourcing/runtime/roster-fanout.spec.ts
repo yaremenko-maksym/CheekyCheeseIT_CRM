@@ -122,6 +122,8 @@ describe('fanOutDirty', () => {
     expect(inserts).toEqual([]) // no per-opportunity statement, no continuation
     const sql = page()!.sql.replace(/\s+/g, ' ')
     expect(sql).toContain("o.availability IN ('OPEN', 'UNKNOWN')")
+    // SR-M-1: a manual card (r5 Phase 6) is never fanned out to match evaluation.
+    expect(sql).toContain('::uuid AND o.manual_team_id IS NULL AND (o.availability')
     expect(sql).toContain("a.opportunity_id = o.id AND a.state = 'TAKEN'")
     // S-P1: only a pending MATCH-partition row dedupes; an availability/detail row does not.
     expect(sql).toContain(

@@ -55,6 +55,8 @@ export class JobQueueRecomputeService {
                    ${`${RECOMPUTE_REASON_PREFIX}${runId}`}, ${runId}::uuid
               FROM job_opportunities o
              WHERE o.availability IN ('OPEN', 'UNKNOWN')
+               -- A manual card is never match-evaluated (r5 Phase 6, SR-M-1).
+               AND o.manual_team_id IS NULL
                AND NOT EXISTS (
                  SELECT 1 FROM job_dirty_work w
                   WHERE w.entity_kind = 'OPPORTUNITY' AND w.entity_id = o.id

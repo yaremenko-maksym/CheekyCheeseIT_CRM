@@ -274,10 +274,14 @@ function recomputeOpportunity(
     const { rows } = await tx.execute(
       // NO KEY UPDATE (CR-M-4): conflicts with the canonical store's FOR UPDATE and with another
       // worker, but not with the FOR KEY SHARE an FK insert (source link, triage grant) takes.
-      sql`SELECT revision FROM job_opportunities WHERE id = ${work.entityId}::uuid FOR NO KEY UPDATE`,
+      sql`SELECT revision, manual_team_id IS NOT NULL AS manual
+            FROM job_opportunities WHERE id = ${work.entityId}::uuid FOR NO KEY UPDATE`,
     )
     // Missing or moved on: nothing to compute, the store records ENTITY_MISSING / VERSION_STALE.
     if (Number(rows[0]?.['revision']) !== work.targetVersion) return completeDirty(tx, work)
+    // A manual card (r5 Phase 6) is never match-evaluated: no match row may grant another team
+    // visibility of it (SR-M-1). Work that reached it anyway completes without evaluation.
+    if (rows[0]?.['manual'] === true) return completeDirty(tx, work)
     // Locked above at the target revision, so it exists.
     const loaded = (await loadOpportunity(tx, work.entityId, onDemandTypes)) as LoadedOpportunity
     const roster = await loadRoster(tx)

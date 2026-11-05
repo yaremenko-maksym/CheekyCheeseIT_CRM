@@ -696,7 +696,8 @@ export class JobSourcingService {
     // revision, must NOT grant visibility. The join mirrors `findEligibleSeniorIds` (active,
     // non-archived SENIOR, in an active team) and requires the match to be at the opportunity's
     // CURRENT revision — the same "relevant to a senior of the viewer's team" scope `listSuggestions`
-    // enforces, so open and list never diverge.
+    // enforces, so open and list never diverge. A manual card (`manual_team_id`, r5 Phase 6) is
+    // never opened through a match: only its owner team sees it, through the queue (SR-M-1).
     const { rows } = await this.db.db.execute(
       sql`SELECT DISTINCT m.senior_id
             FROM job_opportunity_matches m
@@ -705,6 +706,7 @@ export class JobSourcingService {
            WHERE m.opportunity_id = ${opportunityId}::uuid
              AND m.outcome IN ('LEAD', 'TRIAGE')
              AND m.opportunity_revision = o.revision
+             AND o.manual_team_id IS NULL
              AND u.role = 'SENIOR' AND u.archived_at IS NULL
              AND EXISTS (SELECT 1 FROM team_members tm
                           WHERE tm.user_id = u.id AND tm.left_at IS NULL)`,
