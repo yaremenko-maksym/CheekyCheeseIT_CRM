@@ -272,7 +272,7 @@ describe('router cascade: per-code actions (§5.1)', () => {
       s.host === hostOf.groq ? answer({ title: 'x' }, {}, 'length') : FAIL,
     )
     const r = await createRouter(config([GROQ, LOCAL]), deps(f.fetchImpl)).run(REQ)
-    expect(r).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+    expect(r).toEqual({ ok: false, code: 'PROVIDER_ERROR', usage: { localMs: 0 } })
   })
 
   it('the word quota in the input changes nothing: a markerless 429 stays BUSY', async () => {
@@ -629,7 +629,7 @@ describe('router cascade: budget, gap and PROMPT_TOO_LARGE', () => {
       config([LOCAL], { floorBudgetMs: 150_000 }),
       deps(f.fetchImpl, { now: () => now }),
     ).run(REQ)
-    expect(r).toEqual({ ok: false, code: 'TIMEOUT' })
+    expect(r).toEqual({ ok: false, code: 'TIMEOUT', usage: { localMs: 150_000 } })
     expect(f.sent).toHaveLength(1)
   })
 

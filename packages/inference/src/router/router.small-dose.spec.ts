@@ -193,7 +193,7 @@ describe('small dose: the hand-back (§5.4)', () => {
       {
         type: 'FELL_TO_LOCAL',
         plan: 'full-then-small',
-        reasons: [{ route: 'groq', code: 'SERVER' }],
+        reasons: [{ route: 'groq', code: 'TRANSPORT' }],
       },
     ])
     expect(JSON.stringify([r, d.events])).not.toContain(internalCode)
