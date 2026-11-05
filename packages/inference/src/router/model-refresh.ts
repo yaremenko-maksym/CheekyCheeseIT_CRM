@@ -277,13 +277,12 @@ async function refreshProvider(
       list: next,
       held: day.held,
       probation: written ? day.probation : withheldPromotions(day.probation, day.promotedNow),
-      busy: day.busy,
       today,
     })
     recorded = await deps.state.update(
       setModelRecords(
         kept(rested.probation),
-        kept(rested.busy),
+        kept(day.busy),
         rested.held.filter((r) => known.has(r.model)),
       ),
     )

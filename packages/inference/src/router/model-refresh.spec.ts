@@ -1381,19 +1381,34 @@ describe('a candidate that never answers alive gives up its probe slot (CR2-M-1)
     expect(streakOf(w, X)).toBe(0)
   })
 
-  it('stamps a rested id once, drops its records, and keeps every other stamp', async () => {
+  it('stamps a rested id, drops its records, and keeps every other stamp', async () => {
     const day = THIRTY_FIRST
     const other = { provider: 'gemini' as const, model: Y, day }
-    const w = world(FIVE, [X, Y], DEAD, {
-      probation: [{ provider: 'gemini', model: X, aliveStreak: 2, lastProbeDay: '2026-11-01' }],
-      busy: [{ provider: 'gemini', model: X, busyDays: 2, lastProbeDay: '2026-11-01' }],
-      busyDead: [other],
-    })
+    const w = world(
+      FIVE,
+      [X, Y],
+      { status: 503, body: '{}' },
+      {
+        probation: [{ provider: 'gemini', model: X, aliveStreak: 2, lastProbeDay: '2026-11-01' }],
+        busy: [{ provider: 'gemini', model: X, busyDays: 2, lastProbeDay: '2026-11-01' }],
+        busyDead: [other],
+      },
+    )
     await runOn(w, [day])
     const s = w.state.snapshot()
     expect(s.busyDead).toEqual([other, { provider: 'gemini', model: X, day }])
     expect(s.probation?.map((r) => r.model)).not.toContain(X)
     expect(s.busy?.map((r) => r.model)).not.toContain(X)
+  })
+
+  it('a held id re-probed to no avail keeps exactly one stamp', async () => {
+    const day = THIRTY_FIRST
+    const w = world([a, b, c, d], [X], DEAD, {
+      busyDead: [{ provider: 'gemini', model: X, day: '2026-10-01' }],
+    })
+    await runOn(w, [day])
+    expect(probesOf(w, X)).toBe(1)
+    expect(w.state.snapshot().busyDead).toEqual([{ provider: 'gemini', model: X, day }])
   })
 
   it('a non-alive candidate that fits a short list joins it and rests nowhere', async () => {
