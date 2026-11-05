@@ -218,7 +218,8 @@ export function JobQueueList(props: JobQueueListProps) {
               </span>
             )}
           </p>
-          {props.hasNextPage && props.isFetchNextPageError && (
+          {/* a retry keeps the query's error flag until it settles; the loading line replaces the alert */}
+          {props.hasNextPage && props.isFetchNextPageError && !props.isFetchingNextPage && (
             <div
               data-testid="job-queue-append-error"
               role="alert"

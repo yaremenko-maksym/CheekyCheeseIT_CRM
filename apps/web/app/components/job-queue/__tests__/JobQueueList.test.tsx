@@ -176,6 +176,13 @@ describe('JobQueueList', () => {
     expect(props.onLoadMore).toHaveBeenCalledTimes(1)
   })
 
+  it('drops the append error while the retry is in flight', () => {
+    renderList({ hasNextPage: true, isFetchNextPageError: true, isFetchingNextPage: true })
+    expect(screen.queryByTestId('job-queue-append-error')).toBeNull()
+    expect(screen.queryByText('Не вдалося завантажити ще')).toBeNull()
+    expect(screen.getByTestId('job-queue-appending')).toHaveTextContent('Завантажуємо ще…')
+  })
+
   it('shows no foot while a refresh is required: retrying a dead cursor cannot succeed', () => {
     renderList({ hasNextPage: true, isFetchNextPageError: true, refreshRequired: true })
     expect(screen.getByTestId(`job-queue-row-${A.opportunityId}`)).toBeInTheDocument()

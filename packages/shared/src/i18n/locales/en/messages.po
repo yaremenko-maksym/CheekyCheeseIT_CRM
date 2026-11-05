@@ -8902,7 +8902,7 @@ msgstr "The contract data — name, email and payout details — is set by an ad
 
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 msgid "Тут будуть вакансії, на які ваша команда подала сеньйорів."
-msgstr "Vacancies where your team has submitted a senior will show up here."
+msgstr "Vacancies where your team has submitted seniors will show up here."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "USDT партнера"
