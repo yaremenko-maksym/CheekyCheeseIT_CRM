@@ -70,9 +70,9 @@ export function JobQueuePage() {
   let body
   if (user.role === 'ADMIN') {
     body = <QueueBody scope={{ actorId: user.id, role: 'ADMIN', teamId: null }} search={search} />
-  } else if (teams === null && teamsFailed) {
+  } else if (teams === null) {
     // without the team list there is no scope to load: offer a retry, not an endless skeleton
-    body = (
+    body = teamsFailed ? (
       <StateBlock
         testId="job-queue-error"
         role="alert"
@@ -90,9 +90,7 @@ export function JobQueuePage() {
           <Trans>Спробувати ще раз</Trans>
         </Button>
       </StateBlock>
-    )
-  } else if (teams === null) {
-    body = (
+    ) : (
       <Skeleton
         data-testid="job-queue-loading"
         role="status"
