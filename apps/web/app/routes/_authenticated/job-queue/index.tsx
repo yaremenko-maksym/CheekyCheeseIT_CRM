@@ -186,6 +186,7 @@ function QueueBody({
           />
           <Input
             type="search"
+            enterKeyHint="search"
             data-testid="job-queue-search"
             aria-label={t`Пошук за назвою або компанією`}
             placeholder={t`Назва або компанія`}
@@ -202,7 +203,7 @@ function QueueBody({
                 setDraftSearch('')
                 go({ ...search, search: undefined })
               }}
-              className="absolute right-0 top-0 flex size-11 items-center justify-center text-muted-foreground hover:text-foreground"
+              className="absolute right-0 top-0 flex size-11 items-center justify-center text-muted-foreground rounded-md hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X aria-hidden="true" className="size-4" />
             </button>
