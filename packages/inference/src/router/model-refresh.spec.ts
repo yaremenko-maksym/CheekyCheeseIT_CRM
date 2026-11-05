@@ -373,6 +373,215 @@ describe('promotion only after N consecutive alive days (SR-M-9)', () => {
     expect(streakOf(w, NEW)).toBe(1)
     expect(w.fileText()).toBe(managed)
   })
+
+  describe('a promotion counts only once the list moved (CR-M-1)', () => {
+    const FILLING = DAYS.slice(0, PROMOTION_STREAK - 1)
+    const FILL_DAY = DAYS[PROMOTION_STREAK - 1]!
+    const RETRY_DAY = DAYS[PROMOTION_STREAK]!
+    const LATER = 'gemini-4.0-flash'
+    const onProbation = {
+      ...EMPTY_ROUTE_STATE,
+      probation: [
+        {
+          provider: 'gemini' as const,
+          model: NEW,
+          aliveStreak: PROMOTION_STREAK - 1,
+          lastProbeDay: '2026-11-03',
+        },
+      ],
+    }
+    const withLater = geminiListing([
+      [G1, BIG],
+      [G2, BIG],
+      [NEW, BIG],
+      [LATER, BIG],
+    ])
+    const managed = managedDoc({ gemini: [G1, G2, NEW] })
+
+    it('a failed write on the filling day is reported, and the next alive day retries it', async () => {
+      const w = refreshWorld({ routes: GEMINI_ONLY, listing: { gemini: WITH_NEW } })
+      await runOn(w, FILLING)
+      const onDisk = w.fileText()
+      w.fs.failAt = 'rename'
+      w.clock.ms = noonOf(FILL_DAY)
+      const r = await runDailyModelRefresh(w.deps)
+      expect(r.ok).toBe(false)
+      expect(r.providers[0]).toEqual({ provider: 'gemini', outcome: 'failed', reason: 'WRITE' })
+      expect(w.storeEvents).toContainEqual({ type: 'STATE_WRITE_FAILED', store: 'managed-list' })
+      expect(w.ofType('MODEL_REFRESH_FAILED')).toEqual([
+        { type: 'MODEL_REFRESH_FAILED', job: 'daily' },
+      ])
+      expect(w.state.snapshot().failedJobs).toEqual(['daily'])
+      expect(w.ofType('MODEL_PROMOTED')).toEqual([])
+      expect(w.fileText()).toBe(onDisk)
+      expect(streakOf(w, NEW)).toBe(PROMOTION_STREAK - 1)
+
+      w.fs.failAt = undefined
+      await runOn(w, [RETRY_DAY])
+      expect(w.fileList('gemini')).toEqual([NEW, G1, G2])
+      expect(w.ofType('MODEL_PROMOTED')).toEqual([
+        { type: 'MODEL_PROMOTED', provider: 'gemini', model: NEW },
+      ])
+      expect(streakOf(w, NEW)).toBe(PROMOTION_STREAK)
+      expect(w.state.snapshot().failedJobs).toEqual([])
+    })
+
+    it('a re-run on the failed day earns nothing: the retry waits for the next probe day', async () => {
+      const w = refreshWorld({ routes: GEMINI_ONLY, listing: { gemini: WITH_NEW } })
+      await runOn(w, FILLING)
+      w.fs.failAt = 'rename'
+      await runOn(w, [FILL_DAY])
+      w.fs.failAt = undefined
+      await runOn(w, [FILL_DAY])
+      expect(w.fileList('gemini')).toEqual([G1, G2, NEW])
+      expect(w.ofType('MODEL_PROMOTED')).toEqual([])
+    })
+
+    it('a full list still takes the candidate whose filling day failed to write', async () => {
+      const [x, y, z] = ['gemini-5.0-flash', 'gemini-6.0-flash', 'gemini-7.0-flash'] as const
+      const full = [G1, G2, x, y, z]
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        listing: { gemini: geminiListing([...full, NEW].map((id) => [id, BIG])) },
+        managed: managedDoc({ gemini: full }),
+        state: {
+          ...EMPTY_ROUTE_STATE,
+          probation: [x, y, z].map((model) => ({
+            provider: 'gemini' as const,
+            model,
+            aliveStreak: PROMOTION_STREAK,
+            lastProbeDay: '2026-11-03',
+          })),
+        },
+      })
+      await runOn(w, FILLING)
+      expect(w.fileList('gemini')).toEqual(full)
+      w.fs.failAt = 'rename'
+      await runOn(w, [FILL_DAY])
+      w.fs.failAt = undefined
+      await runOn(w, [RETRY_DAY])
+      expect(w.fileList('gemini')).toEqual([NEW, G1, G2, x, y])
+      expect(w.ofType('MODEL_PROMOTED')).toEqual([
+        { type: 'MODEL_PROMOTED', provider: 'gemini', model: NEW },
+      ])
+    })
+
+    it('a run the cap stopped after the filling probe holds the promotion back', async () => {
+      const cap = limitedCap(4)
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        cap,
+        managed,
+        state: onProbation,
+        listing: { gemini: withLater },
+      })
+      const r = await runDailyModelRefresh(w.deps)
+      expect(w.chatModels()).toEqual([G1, G2, NEW])
+      expect(r.providers[0]).toEqual({ provider: 'gemini', outcome: 'skipped', reason: 'CAP' })
+      expect(streakOf(w, NEW)).toBe(PROMOTION_STREAK - 1)
+      expect(w.ofType('MODEL_PROMOTED')).toEqual([])
+      expect(w.fileText()).toBe(managed)
+
+      cap.reserve = countingCap().reserve
+      w.clock.ms = NOON + 86_400_000
+      await runDailyModelRefresh(w.deps)
+      expect(w.fileList('gemini')?.[0]).toBe(NEW)
+      expect(w.ofType('MODEL_PROMOTED')).toHaveLength(1)
+    })
+
+    it('a run AUTH stopped after the filling probe holds the promotion back', async () => {
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        managed,
+        state: onProbation,
+        listing: { gemini: withLater },
+        chat: (s) => (s.model === LATER ? { status: 401, body: 'x' } : ALIVE),
+      })
+      const r = await runDailyModelRefresh(w.deps)
+      expect(r.providers[0]).toEqual({ provider: 'gemini', outcome: 'failed', reason: 'AUTH' })
+      expect(streakOf(w, NEW)).toBe(PROMOTION_STREAK - 1)
+      expect(w.ofType('MODEL_PROMOTED')).toEqual([])
+      expect(w.fileText()).toBe(managed)
+
+      w.net.chat = () => ALIVE
+      w.clock.ms = NOON + 86_400_000
+      await runDailyModelRefresh(w.deps)
+      expect(w.fileList('gemini')?.[0]).toBe(NEW)
+      expect(w.ofType('MODEL_PROMOTED')).toHaveLength(1)
+    })
+
+    /** Lets every state write through but the `nth` (1-based), which the store refuses. */
+    const refusingUpdate = (w: ReturnType<typeof refreshWorld>, nth: number) => {
+      let n = 0
+      return {
+        ...w.deps,
+        state: {
+          snapshot: w.state.snapshot,
+          update: async (change: Parameters<typeof w.state.update>[0]) => {
+            n += 1
+            return n === nth ? false : w.state.update(change)
+          },
+        },
+      }
+    }
+
+    it('a refused record write reports the provider failed, never done', async () => {
+      const w = refreshWorld({ routes: GEMINI_ONLY, listing: { gemini: WITH_NEW } })
+      const r = await runDailyModelRefresh(refusingUpdate(w, 1))
+      expect(r.ok).toBe(false)
+      expect(r.providers[0]).toEqual({ provider: 'gemini', outcome: 'failed', reason: 'WRITE' })
+      expect(w.state.snapshot().failedJobs).toEqual(['daily'])
+      expect(w.ofType('MODEL_REFRESH_FAILED')).toHaveLength(1)
+    })
+
+    it('a refused clearing of the retirements reports the provider failed, never done', async () => {
+      const retired = markRetired('gemini', G2, NOON)(EMPTY_ROUTE_STATE)
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        listing: { gemini: WITH_NEW },
+        state: retired,
+      })
+      const r = await runDailyModelRefresh(refusingUpdate(w, 2))
+      expect(r.providers[0]).toEqual({ provider: 'gemini', outcome: 'failed', reason: 'WRITE' })
+      expect(w.state.snapshot().providers).toEqual(retired.providers)
+    })
+
+    it('a refused clearing on Groq, which keeps no records, reports the provider failed', async () => {
+      const w = refreshWorld({ routes: GROQ_ONLY })
+      const r = await runDailyModelRefresh(refusingUpdate(w, 1))
+      expect(r.providers[1]).toEqual({ provider: 'groq', outcome: 'failed', reason: 'WRITE' })
+    })
+
+    it('a refused record write after a moved list still says the list moved', async () => {
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        managed,
+        state: onProbation,
+        listing: { gemini: WITH_NEW },
+      })
+      await runDailyModelRefresh(refusingUpdate(w, 1))
+      expect(w.fileList('gemini')).toEqual([NEW, G1, G2])
+      expect(w.ofType('MODEL_PROMOTED')).toHaveLength(1)
+    })
+
+    it('a promotion the pick left out of the list announces nothing', async () => {
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        managed,
+        state: onProbation,
+        listing: {
+          gemini: geminiListing([
+            [G1, BIG],
+            [G2, BIG],
+            [NEW, MIN_MANAGED_CONTEXT - 1],
+          ]),
+        },
+      })
+      await runDailyModelRefresh(w.deps)
+      expect(w.fileList('gemini')).toEqual([G1, G2])
+      expect(w.ofType('MODEL_PROMOTED')).toEqual([])
+    })
+  })
 })
 
 describe('Groq additions', () => {

@@ -9,6 +9,7 @@ import {
   nextProbation,
   pickGroqModels,
   pickLiveModels,
+  withheldPromotions,
   type ModelFacts,
 } from './model-picks'
 import {
@@ -22,6 +23,28 @@ import {
 const DAY1 = '2026-11-01'
 const DAY2 = '2026-11-02'
 const DAY3 = '2026-11-03'
+
+describe('withheldPromotions (CR-M-1)', () => {
+  const full = (model: string): ProbationEntry => ({
+    provider: 'gemini',
+    model,
+    aliveStreak: PROMOTION_STREAK,
+    lastProbeDay: DAY3,
+  })
+
+  it('leaves a promotion one alive day short, keeping the probe day stamped', () => {
+    expect(withheldPromotions([full('a'), full('b')], new Set(['b']))).toEqual([
+      full('a'),
+      { ...full('b'), aliveStreak: PROMOTION_STREAK - 1 },
+    ])
+  })
+
+  it('lets a same-day re-run earn nothing, and the next day fill the streak again', () => {
+    const [held] = withheldPromotions([full('a')], new Set(['a']))
+    expect(nextProbation(held, 'a', 'alive', DAY3).aliveStreak).toBe(PROMOTION_STREAK - 1)
+    expect(nextProbation(held, 'a', 'alive', '2026-11-04').aliveStreak).toBe(PROMOTION_STREAK)
+  })
+})
 
 const probation = (model: string, aliveStreak: number, lastProbeDay = DAY1): ProbationEntry => ({
   provider: 'gemini',

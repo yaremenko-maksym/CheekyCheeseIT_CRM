@@ -142,6 +142,19 @@ export function applyProbeDay(args: {
   return { probation, busy, held, verdicts, promotedNow }
 }
 
+/**
+ * A promotion counts once the list moved. A run that did not write it keeps the streak one alive
+ * day short with the day still stamped, so the next probe day is the transition again (CR-M-1).
+ */
+export function withheldPromotions(
+  probation: readonly ProbationEntry[],
+  promotedNow: ReadonlySet<string>,
+): ProbationEntry[] {
+  return probation.map((r) =>
+    promotedNow.has(r.model) ? { ...r, aliveStreak: PROMOTION_STREAK - 1 } : r,
+  )
+}
+
 export type ModelFacts = {
   /** `undefined`: not probed in this run. */
   verdict?: ModelVerdict | undefined

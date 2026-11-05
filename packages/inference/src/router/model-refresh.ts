@@ -21,6 +21,7 @@ import {
   type ModelFacts,
   type ModelVerdict,
   type ProbeAnswer,
+  withheldPromotions,
 } from './model-picks'
 import { releasesUnit } from './router'
 import {
@@ -170,7 +171,8 @@ function geminiCandidates(
 
 /**
  * One provider's refresh (§3.4 layer 2). A failed listing, `AUTH`, a cap refusal or an empty result
- * leaves the list file untouched. Probes already made still record their probe day.
+ * leaves the list file untouched. Probes already made still record their probe day, but a promotion
+ * counts only once the list moved. A refused state write fails the provider, never `done`.
  */
 async function refreshProvider(
   route: HostedRouteConfig,
@@ -257,6 +259,8 @@ async function refreshProvider(
     })
   }
   const next = stopped === null ? pick() : current
+  const written = stopped === null && next.length > 0 && (await deps.writeManagedList(p, next))
+  let recorded = true
   if (p === 'gemini') {
     const known = new Set([...next, ...listing.models.map((m) => m.id)])
     // shortcut: at the cap a list entry's record beats a mere candidate's, so five non-pinned entries
@@ -265,9 +269,9 @@ async function refreshProvider(
       ...records.filter((r) => known.has(r.model) && !next.includes(r.model)),
       ...records.filter((r) => next.includes(r.model)),
     ]
-    await deps.state.update(
+    recorded = await deps.state.update(
       setModelRecords(
-        kept(day.probation),
+        kept(written ? day.probation : withheldPromotions(day.probation, day.promotedNow)),
         kept(day.busy),
         day.held.filter((r) => known.has(r.model)),
       ),
@@ -276,20 +280,23 @@ async function refreshProvider(
   if (stopped === 'capped') return skipped(p, 'CAP')
   if (stopped === 'auth') return failed(p, 'AUTH')
   if (next.length === 0) return failed(p, 'NOTHING_SURVIVED')
-  if (!(await deps.writeManagedList(p, next))) return failed(p, 'WRITE')
+  if (!written) return failed(p, 'WRITE')
 
-  // The fresh list is the authority: the provider's retirements restart from it (SR-M-5), and a
-  // stale entry the refresh removed has nothing left to warn about.
-  await deps.state.update((s) =>
-    setStaleModels(
-      p,
-      staleModelsOf(s, p).filter((m) => next.includes(m)),
-    )(clearRetired(p)(s)),
-  )
+  // The file moved whatever the records do next, so this is said even if they are refused below.
   for (const model of day.promotedNow) {
     if (next.includes(model)) deps.onEvent({ type: 'MODEL_PROMOTED', provider: p, model })
   }
-  return { provider: p, outcome: 'done' }
+  // The fresh list is the authority: the provider's retirements restart from it (SR-M-5), and a
+  // stale entry the refresh removed has nothing left to warn about.
+  const cleared =
+    recorded &&
+    (await deps.state.update((s) =>
+      setStaleModels(
+        p,
+        staleModelsOf(s, p).filter((m) => next.includes(m)),
+      )(clearRetired(p)(s)),
+    ))
+  return cleared ? { provider: p, outcome: 'done' } : failed(p, 'WRITE')
 }
 
 /** The allowlist drives the loop, so a config or a listing cannot introduce a provider. */
