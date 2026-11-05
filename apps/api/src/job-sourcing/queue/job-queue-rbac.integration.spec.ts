@@ -447,6 +447,17 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     ['POST', `/${id('oppOnlyA')}/opened`, { sourceRecordId: records['oppOnlyA'] }],
     ['POST', `/${id('oppOnlyA')}/suppress`, { idempotencyKey: randomUUID() }],
     ['POST', '/recompute', undefined],
+    [
+      'POST',
+      '/manual',
+      {
+        title: `${TAG} guard`,
+        companyName: 'Acme Inc',
+        descriptionMd: `${TAG} guard`,
+        idempotencyKey: randomUUID(),
+        submission: { teamId: id('teamA'), seniorId: id('senA'), resumeId: randomUUID() },
+      },
+    ],
   ]
 
   describe('the guard chain', () => {
@@ -569,6 +580,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(Object.keys(card.json).sort()).toEqual(
         [
           'alsoSeenOnCount',
+          'applicationUrl',
           'availability',
           'companyName',
           'descriptionMd',
@@ -1034,6 +1046,192 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
         `${RECOMPUTE_REASON_PREFIX}${second}`,
         `${RECOMPUTE_REASON_PREFIX}${second}`,
       ])
+    })
+  })
+
+  /**
+   * r5 Phase 6 — POST /job-queue/manual: a card for a vacancy found outside the sources, created
+   * with its one submission (senior + existing resume) in ONE transaction. Placed AFTER the
+   * recompute cases, whose per-opportunity counts would otherwise include these cards. Teams M and
+   * M2 are fresh, so the first list request of team M publishes a generation that holds its card.
+   */
+  describe('manual card (r5 Phase 6)', () => {
+    const resumes: Record<string, string> = {}
+    const titleOf = (n: string) => `${TAG} manual ${n}`
+    const body = (n: string, team: string, senior: string, resume: string) => ({
+      title: titleOf(n),
+      companyName: 'Acme Inc',
+      applicationUrl: 'https://jobs.example.test/manual',
+      descriptionMd: `${TAG} manual description ${n}`,
+      idempotencyKey: randomUUID(),
+      submission: { teamId: id(team), seniorId: id(senior), resumeId: resume },
+    })
+    const cards = async (n: string) =>
+      (
+        await sqlq(`SELECT id, manual_team_id FROM job_opportunities WHERE title = $1`, [
+          titleOf(n),
+        ])
+      ).rows as Array<{ id: string; manual_team_id: string }>
+    const blobs = async (n: string) =>
+      (
+        await sqlq(`SELECT sha256 FROM job_text_blobs WHERE text = $1`, [
+          `${TAG} manual description ${n}`,
+        ])
+      ).rows
+    const mkResume = async (senior: string, status: string) => {
+      const { rows } = await sqlq(
+        `INSERT INTO senior_resumes (user_id, status) VALUES ($1, $2) RETURNING id`,
+        [id(senior), status],
+      )
+      resumes[senior] = rows[0].id as string
+    }
+
+    beforeAll(async () => {
+      for (const t of ['teamM', 'teamM2']) await mkTeam(t)
+      for (const hr of ['hrM', 'hrM2']) await mkUser(hr, 'HR')
+      for (const s of ['senM', 'senM2', 'senArch', 'senQ']) await mkUser(s, 'SENIOR')
+      await mkUser('junM', 'JUNIOR')
+      for (const m of ['hrM', 'senM', 'senArch', 'senQ', 'junM']) await join('teamM', m)
+      for (const m of ['hrM2', 'senM2']) await join('teamM2', m)
+      await mkResume('senM', 'READY')
+      await mkResume('senM2', 'READY')
+      await mkResume('senArch', 'READY')
+      await mkResume('senQ', 'QUEUED')
+      await sqlq(`UPDATE users SET archived_at = now() WHERE id = $1`, [id('senArch')])
+    })
+
+    it('HR of the team: 201, one card of its team, one live submission, the resume audited', async () => {
+      const a = await post('/manual', 'hrM', body('hr', 'teamM', 'senM', resumes['senM'] as string))
+      expect(a.status).toBe(201)
+      const [card] = await cards('hr')
+      expect(card?.manual_team_id).toBe(id('teamM'))
+      const submission = a.json['submission'] as Record<string, unknown>
+      expect(submission['opportunityId']).toBe(card?.id)
+      expect(submission['seniorId']).toBe(id('senM'))
+      expect(submission['state']).toBe('TAKEN')
+      expect(submission['version']).toBe(1)
+      expect(submission['cancelledAt']).toBeNull()
+      expect(submission['submittedByName']).toBe(`${TAG} name hrM`)
+      ids['cardHr'] = card?.id as string
+      const assigned = await sqlq(
+        `SELECT senior_id, team_id, assignee_id, state FROM job_queue_assignments
+          WHERE opportunity_id = $1`,
+        [id('cardHr')],
+      )
+      expect(assigned.rows).toEqual([
+        { senior_id: id('senM'), team_id: id('teamM'), assignee_id: id('hrM'), state: 'TAKEN' },
+      ])
+      const audit = await sqlq(
+        `SELECT kind, actor_id, team_id, before_version, after_version,
+                (reason::jsonb)->>'resumeId' AS resume
+           FROM job_queue_actions WHERE opportunity_id = $1`,
+        [id('cardHr')],
+      )
+      expect(audit.rows).toEqual([
+        {
+          kind: 'TAKEN',
+          actor_id: id('hrM'),
+          team_id: id('teamM'),
+          before_version: 0,
+          after_version: 1,
+          resume: resumes['senM'],
+        },
+      ])
+    })
+
+    it('a retry with the same key answers the same submission and writes nothing more', async () => {
+      const request = body('retry', 'teamM', 'senM', resumes['senM'] as string)
+      const first = await post('/manual', 'hrM', request)
+      const again = await post('/manual', 'hrM', request)
+      expect(first.status).toBe(201)
+      expect(again.status).toBe(201)
+      expect(again.json).toEqual(first.json)
+      expect(await cards('retry')).toHaveLength(1)
+    })
+
+    it('ADMIN: 201 for the team it names', async () => {
+      const a = await post(
+        '/manual',
+        'admin',
+        body('admin', 'teamM2', 'senM2', resumes['senM2'] as string),
+      )
+      expect(a.status).toBe(201)
+      const [card] = await cards('admin')
+      expect(card?.manual_team_id).toBe(id('teamM2'))
+      expect((a.json['submission'] as Record<string, unknown>)['seniorId']).toBe(id('senM2'))
+    })
+
+    it('HR for a team it is not in: the scope 404, and no card', async () => {
+      const a = await post(
+        '/manual',
+        'hrM',
+        body('foreignTeam', 'teamM2', 'senM2', resumes['senM2'] as string),
+      )
+      expect(a.status).toBe(404)
+      expect(a.json['code']).toBe(NOT_FOUND)
+      expect(await cards('foreignTeam')).toEqual([])
+    })
+
+    it.each([
+      ['a senior of another team', 'senM2', 'senM'],
+      ['an archived senior', 'senArch', 'senArch'],
+      ['a member who is not a SENIOR', 'junM', 'senM'],
+    ])('%s: 422 JOB_QUEUE_SENIOR_INELIGIBLE, the card rolled back', async (_, senior, owner) => {
+      const n = `senior-${senior}`
+      const a = await post('/manual', 'hrM', body(n, 'teamM', senior, resumes[owner] as string))
+      expect(a.status).toBe(422)
+      expect(a.json['code']).toBe('JOB_QUEUE_SENIOR_INELIGIBLE')
+      expect(await cards(n)).toEqual([])
+      expect(await blobs(n)).toEqual([])
+    })
+
+    it.each([
+      ['an unknown resume', () => randomUUID()],
+      ["another senior's resume", () => resumes['senM2'] as string],
+    ])('%s: 422 JOB_QUEUE_RESUME_UNUSABLE, the card rolled back', async (label, resume) => {
+      const n = `resume-${label.length}`
+      const a = await post('/manual', 'hrM', body(n, 'teamM', 'senM', resume()))
+      expect(a.status).toBe(422)
+      expect(a.json['code']).toBe('JOB_QUEUE_RESUME_UNUSABLE')
+      expect(await cards(n)).toEqual([])
+      expect(await blobs(n)).toEqual([])
+    })
+
+    it('a resume that is not READY: 422 JOB_QUEUE_RESUME_UNUSABLE, the card rolled back', async () => {
+      const a = await post(
+        '/manual',
+        'hrM',
+        body('queued', 'teamM', 'senQ', resumes['senQ'] as string),
+      )
+      expect(a.status).toBe(422)
+      expect(a.json['code']).toBe('JOB_QUEUE_RESUME_UNUSABLE')
+      expect(await cards('queued')).toEqual([])
+    })
+
+    it('no submission, or a submission without a resume: 400 before the service, nothing written', async () => {
+      const full = body('noSubmission', 'teamM', 'senM', resumes['senM'] as string)
+      const { submission, ...withoutSubmission } = full
+      expect((await post('/manual', 'hrM', withoutSubmission)).status).toBe(400)
+      const { resumeId: _, ...withoutResume } = submission
+      expect((await post('/manual', 'hrM', { ...full, submission: withoutResume })).status).toBe(
+        400,
+      )
+      expect(await cards('noSubmission')).toEqual([])
+    })
+
+    it("the card is its team's only: carded and listed for team M, a 404 and absent for team M2", async () => {
+      const own = await get(`/${id('cardHr')}`, 'hrM')
+      expect(own.status).toBe(200)
+      expect(own.json['title']).toBe(titleOf('hr'))
+      expect(own.json['companyName']).toBe('Acme Inc')
+      expect(own.json['applicationUrl']).toBe('https://jobs.example.test/manual')
+      expect(own.json['primarySource']).toBeNull()
+      expect(await inAnyTab('hrM', 'cardHr')).toBe(true)
+      const foreign = await get(`/${id('cardHr')}`, 'hrM2')
+      expect(foreign.status).toBe(404)
+      expect(foreign.json['code']).toBe(NOT_FOUND)
+      expect(await inAnyTab('hrM2', 'cardHr')).toBe(false)
+      expect(await inAnyTab('hrA', 'cardHr')).toBe(false)
     })
   })
 })

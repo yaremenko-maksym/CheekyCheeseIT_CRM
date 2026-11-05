@@ -1014,7 +1014,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
         `SELECT source_record_id FROM job_opportunity_sources WHERE opportunity_id = $1 ORDER BY linked_at LIMIT 1`,
         [id('oppShared')],
       )
-      expect(card.primarySource.sourceRecordId).toBe(backdated.rows[0].source_record_id)
+      expect(card.primarySource?.sourceRecordId).toBe(backdated.rows[0].source_record_id)
     })
 
     it('a source record with no URL is neither the primary source nor a source-filter hit (SR-L-2, CR-L-5)', async () => {
@@ -1024,7 +1024,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       await expireGeneration('teamA')
       const search = `${TAG} noUrl`
       const res = await service.list(hrA(), q({ search }))
-      expect(res.items[0]?.primarySource.sourceType).toBe('GREENHOUSE_ATS')
+      expect(res.items[0]?.primarySource?.sourceType).toBe('GREENHOUSE_ATS')
       expect(res.items[0]?.alsoSeenOnCount).toBe(0)
       expect((await service.list(hrA(), q({ search, source: 'LEVER_ATS' }))).items).toEqual([])
       expect(
