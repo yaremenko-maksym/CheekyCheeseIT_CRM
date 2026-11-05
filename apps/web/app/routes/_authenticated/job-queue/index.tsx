@@ -27,6 +27,7 @@ import { JobQueueStatusTabs } from '@/components/job-queue/JobQueueStatusTabs'
 import { JobQueueList } from '@/components/job-queue/JobQueueList'
 import { TeamSwitcher } from '@/components/job-queue/TeamSwitcher'
 import {
+  JobQueueAppliedFilters,
   JobQueueFilters,
   appliedFilterCount,
   type JobQueueFilterValue,
@@ -118,21 +119,28 @@ function QueueBody({
 }) {
   const { t } = useLingui()
   const navigate = useNavigate()
-  const filters: JobQueueFilterValue & { search?: string } = compact({
-    search: search.search,
+  const filterValue: JobQueueFilterValue = compact({
     source: search.source,
     eligibility: search.eligibility,
     availability: search.availability,
   })
+  const filters = compact({ ...filterValue, search: search.search })
   const queue = useJobQueue(scope, search.tab, filters)
+  // the box shows the applied search and follows the URL (team switch, back / forward)
   const [draftSearch, setDraftSearch] = useState(search.search ?? '')
+  const [appliedSearch, setAppliedSearch] = useState(search.search)
+  if (appliedSearch !== search.search) {
+    setAppliedSearch(search.search)
+    setDraftSearch(search.search ?? '')
+  }
 
   const go = (next: Partial<QueueSearch>) =>
     void navigate({ to: '/job-queue', search: compact(next) })
   const base = { tab: search.tab, teamId: search.teamId }
-  const filtered = !!search.search || appliedFilterCount(filters) > 0
   const page = queue.data?.pages[0]
   const items = queue.data?.pages.flatMap((p) => p.items)
+  const clearSearch = () => go({ ...search, search: undefined })
+  const resetFilters = () => go({ ...base, search: search.search })
 
   function onSearchSubmit(e: FormEvent) {
     e.preventDefault()
@@ -148,11 +156,8 @@ function QueueBody({
         className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 text-sm min-[560px]:flex-row min-[560px]:items-center"
       >
         <RefreshCw aria-hidden="true" className="size-4 shrink-0" />
-        <p className="min-w-0 flex-1">
-          <span className="font-medium">
-            <Trans>Список змінився</Trans>
-          </span>{' '}
-          <Trans>З’явилися оновлення.</Trans>
+        <p className="min-w-0 flex-1 font-medium">
+          <Trans>Список змінився</Trans>
         </p>
         <Button variant="outline" className="min-h-11" onClick={() => void queue.restart()}>
           <Trans>Показати оновлений список</Trans>
@@ -166,7 +171,10 @@ function QueueBody({
         className="flex items-start gap-2 rounded-lg border border-dashed p-3 text-sm text-muted-foreground"
       >
         <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-        <Trans>Список може бути неповним: показано лише найрелевантніші вакансії.</Trans>
+        <Trans>
+          Список може бути неповним: показано лише найрелевантніші вакансії. Уточніть пошук або
+          фільтри, щоб побачити решту.
+        </Trans>
       </p>
     )
   }
@@ -199,10 +207,7 @@ function QueueBody({
             <button
               type="button"
               aria-label={t`Очистити пошук`}
-              onClick={() => {
-                setDraftSearch('')
-                go({ ...search, search: undefined })
-              }}
+              onClick={clearSearch}
               className="absolute right-0 top-0 flex size-11 items-center justify-center text-muted-foreground rounded-md hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X aria-hidden="true" className="size-4" />
@@ -210,11 +215,7 @@ function QueueBody({
           )}
         </form>
         <JobQueueFilters
-          value={compact({
-            source: search.source,
-            eligibility: search.eligibility,
-            availability: search.availability,
-          })}
+          value={filterValue}
           onApply={(next) =>
             go({
               ...base,
@@ -226,6 +227,8 @@ function QueueBody({
           }
         />
       </div>
+
+      <JobQueueAppliedFilters value={filterValue} onReset={resetFilters} />
 
       <JobQueueStatusTabs
         value={search.tab}
@@ -245,27 +248,31 @@ function QueueBody({
             <Trans>Немає доступу до цієї черги</Trans>
           </p>
           <p className="text-sm text-muted-foreground">
-            <Trans>Можливо, вас вивели з команди. Оновіть сторінку.</Trans>
+            <Trans>
+              Можливо, вас вивели з команди. Оновіть сторінку або зверніться до адміністратора.
+            </Trans>
           </p>
         </div>
       ) : queue.refreshRequired && !items ? null : (
         <JobQueueList
           items={items}
-          status={queue.status}
+          // a failed next page / refetch keeps `data` but flips `status` to 'error' (Query v5):
+          // loaded rows stay on screen and the foot shows the append error instead
+          status={items ? 'success' : queue.status}
           tab={search.tab}
           role={scope.role}
           total={page?.counts[search.tab] ?? 0}
-          filtered={filtered}
+          hasSearch={!!search.search}
+          hasFilters={appliedFilterCount(filterValue) > 0}
           hasNextPage={queue.hasNextPage}
           isFetchingNextPage={queue.isFetchingNextPage}
           isFetchNextPageError={queue.isFetchNextPageError}
+          refreshRequired={queue.refreshRequired}
           onLoadMore={() => void queue.fetchNextPage()}
           onRetry={() => void queue.refetch()}
           onOpen={(card) => go({ ...search, card })}
-          onResetFilters={() => {
-            setDraftSearch('')
-            go(base)
-          }}
+          onResetFilters={resetFilters}
+          onClearSearch={clearSearch}
         />
       )}
     </div>

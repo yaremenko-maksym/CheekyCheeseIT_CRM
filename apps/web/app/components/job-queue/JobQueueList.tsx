@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { MessageDescriptor } from '@lingui/core'
@@ -14,15 +14,19 @@ export interface JobQueueListProps {
   role: 'ADMIN' | 'HR'
   /** The authorized count of the current tab (server `counts[tab]`). */
   total: number
-  /** A search or filter is applied — an empty page then means "nothing matched", not "empty queue". */
-  filtered: boolean
+  /** A search / filter group is applied — an empty page then means "nothing matched", not "empty queue". */
+  hasSearch: boolean
+  hasFilters: boolean
   hasNextPage: boolean
   isFetchingNextPage: boolean
   isFetchNextPageError: boolean
+  /** The cursor is dead: the page's refresh notice is the only way on, so the foot offers nothing. */
+  refreshRequired: boolean
   onLoadMore: () => void
   onRetry: () => void
   onOpen: (opportunityId: string) => void
   onResetFilters: () => void
+  onClearSearch: () => void
 }
 
 const EMPTY: Record<JobQueueTab, { title: MessageDescriptor; body: MessageDescriptor }> = {
@@ -32,7 +36,7 @@ const EMPTY: Record<JobQueueTab, { title: MessageDescriptor; body: MessageDescri
   },
   SUBMITTED: {
     title: msg`Ваша команда ще нікого не подала`,
-    body: msg`Тут з’являться вакансії, на які подано сеньйорів вашої команди.`,
+    body: msg`Тут будуть вакансії, на які ваша команда подала сеньйорів.`,
   },
   HIDDEN: {
     title: msg`Немає прихованих вакансій`,
@@ -69,6 +73,47 @@ function StateBlock({
 export function JobQueueList(props: JobQueueListProps) {
   const { i18n } = useLingui()
   const { items, status, tab } = props
+  const listRef = useRef<HTMLUListElement>(null)
+  // set by a button / keyboard append: the index of the first row to focus once it arrives
+  const focusFrom = useRef<number | null>(null)
+  const loadMore = useRef(props.onLoadMore)
+  const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null)
+
+  // "Завантажено ще N" only for a real append: same first row, longer list. A replaced list resets it.
+  const first = items?.[0]?.opportunityId
+  const length = items?.length ?? 0
+  const [seen, setSeen] = useState({ first, length, added: null as number | null })
+  if (seen.first !== first || seen.length !== length) {
+    const appended = seen.first === first && seen.length > 0 && length > seen.length
+    setSeen({ first, length, added: appended ? length - seen.length : null })
+  }
+
+  useEffect(() => {
+    loadMore.current = props.onLoadMore
+  })
+
+  useEffect(() => {
+    if (!sentinel || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) loadMore.current()
+      },
+      { rootMargin: '400px' },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [sentinel])
+
+  useEffect(() => {
+    const from = focusFrom.current
+    if (from === null) return
+    if (props.isFetchNextPageError) {
+      focusFrom.current = null
+    } else if (length > from) {
+      focusFrom.current = null
+      listRef.current?.children[from]?.querySelector('button')?.focus()
+    }
+  }, [length, props.isFetchNextPageError])
 
   if (status === 'pending') {
     return (
@@ -96,15 +141,24 @@ export function JobQueueList(props: JobQueueListProps) {
   }
 
   if (items.length === 0) {
-    return props.filtered ? (
+    return props.hasSearch || props.hasFilters ? (
       <StateBlock
         testId="job-queue-filtered-empty"
         title={<Trans>Нічого не знайдено</Trans>}
         body={<Trans>Змініть пошук або фільтри.</Trans>}
       >
-        <Button variant="outline" className="min-h-11" onClick={props.onResetFilters}>
-          <Trans>Скинути фільтри</Trans>
-        </Button>
+        <div className="flex flex-wrap justify-center gap-2">
+          {props.hasSearch && (
+            <Button variant="outline" className="min-h-11" onClick={props.onClearSearch}>
+              <Trans>Очистити пошук</Trans>
+            </Button>
+          )}
+          {props.hasFilters && (
+            <Button variant="outline" className="min-h-11" onClick={props.onResetFilters}>
+              <Trans>Скинути фільтри</Trans>
+            </Button>
+          )}
+        </div>
       </StateBlock>
     ) : (
       <StateBlock
@@ -117,9 +171,16 @@ export function JobQueueList(props: JobQueueListProps) {
 
   const shown = items.length
   const total = props.total
+  const added = seen.added
+  const armed = props.hasNextPage && !props.isFetchingNextPage && !props.isFetchNextPageError
+  const onButton = () => {
+    focusFrom.current = shown
+    props.onLoadMore()
+  }
   return (
     <div className="flex flex-col gap-3">
       <ul
+        ref={listRef}
         data-testid="job-queue-list"
         className="flex flex-col gap-2 min-[560px]:gap-0 min-[560px]:rounded-lg min-[560px]:border"
       >
@@ -129,54 +190,69 @@ export function JobQueueList(props: JobQueueListProps) {
           </li>
         ))}
       </ul>
-      <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
-        <p data-testid="job-queue-live" aria-live="polite" className="tabular-nums">
-          {props.hasNextPage ? (
-            <span data-testid="job-queue-shown">
-              <Trans>
-                Показано {shown} із {total}
-              </Trans>
-            </span>
-          ) : (
-            <span data-testid="job-queue-end">
-              <Trans>Усі вакансії показано: {shown}</Trans>
-            </span>
-          )}
-        </p>
-        {props.hasNextPage && props.isFetchNextPageError && (
-          <div
-            data-testid="job-queue-append-error"
-            role="alert"
-            className="flex flex-col items-center gap-1 text-center"
-          >
-            <p className="font-medium text-foreground">
-              <Trans>Не вдалося завантажити ще</Trans>
-            </p>
-            <p>
-              <Trans>Уже завантажені вакансії залишаються на екрані.</Trans>
-            </p>
-          </div>
-        )}
-        {props.hasNextPage &&
-          (props.isFetchingNextPage ? (
-            <p data-testid="job-queue-appending">
-              <Trans>Завантажуємо ще…</Trans>
-            </p>
-          ) : (
-            <Button
-              data-testid="job-queue-load-more"
-              variant="outline"
-              className="min-h-11 w-full min-[560px]:w-auto"
-              onClick={props.onLoadMore}
+      {!props.refreshRequired && (
+        <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
+          {armed && <div ref={setSentinel} data-testid="job-queue-sentinel" aria-hidden="true" />}
+          <p data-testid="job-queue-live" aria-live="polite" className="tabular-nums">
+            {props.hasNextPage ? (
+              <span data-testid="job-queue-shown">
+                {added === null ? (
+                  <Trans>
+                    Показано {shown} із {total}
+                  </Trans>
+                ) : (
+                  <Trans>
+                    Завантажено ще {added}. Показано {shown} із {total}
+                  </Trans>
+                )}
+              </span>
+            ) : (
+              <span data-testid="job-queue-end">
+                {added === null ? (
+                  <Trans>Усі вакансії показано: {shown}</Trans>
+                ) : (
+                  <Trans>
+                    Завантажено ще {added}. Усі вакансії показано: {shown}
+                  </Trans>
+                )}
+              </span>
+            )}
+          </p>
+          {props.hasNextPage && props.isFetchNextPageError && (
+            <div
+              data-testid="job-queue-append-error"
+              role="alert"
+              className="flex flex-col items-center gap-1 text-center"
             >
-              {props.isFetchNextPageError ? (
-                <Trans>Спробувати ще</Trans>
-              ) : (
-                <Trans>Показати ще</Trans>
-              )}
-            </Button>
-          ))}
-      </div>
+              <p className="font-medium text-foreground">
+                <Trans>Не вдалося завантажити ще</Trans>
+              </p>
+              <p>
+                <Trans>Уже завантажені вакансії залишаються на екрані.</Trans>
+              </p>
+            </div>
+          )}
+          {props.hasNextPage &&
+            (props.isFetchingNextPage ? (
+              <p data-testid="job-queue-appending" role="status">
+                <Trans>Завантажуємо ще…</Trans>
+              </p>
+            ) : (
+              <Button
+                data-testid="job-queue-load-more"
+                variant="outline"
+                className="min-h-11 w-full min-[560px]:w-auto"
+                onClick={onButton}
+              >
+                {props.isFetchNextPageError ? (
+                  <Trans>Спробувати ще раз</Trans>
+                ) : (
+                  <Trans>Показати ще</Trans>
+                )}
+              </Button>
+            ))}
+        </div>
+      )}
     </div>
   )
 }

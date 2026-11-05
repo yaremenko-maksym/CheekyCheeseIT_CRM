@@ -2,11 +2,47 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
-import { JobQueueFilters } from '../JobQueueFilters'
+import { JobQueueAppliedFilters, JobQueueFilters, appliedFilterCount } from '../JobQueueFilters'
+
+describe('appliedFilterCount', () => {
+  it.each([
+    [{}, 0],
+    [{ source: [] }, 0],
+    [{ source: ['DOU_RSS', 'LEVER_ATS', 'REMOTEOK_API'] }, 1],
+    [{ eligibility: ['LEAD'] }, 1],
+    [{ availability: ['OPEN', 'CLOSED'] }, 1],
+    [{ source: ['DOU_RSS'], eligibility: ['LEAD'], availability: ['OPEN'] }, 3],
+  ] as const)('%j counts %i groups', (value, expected) => {
+    expect(appliedFilterCount(value)).toBe(expected)
+  })
+})
 
 describe('JobQueueFilters', () => {
   beforeEach(async () => {
     await loadCatalog('uk')
+  })
+
+  it('summarizes the applied groups in source · eligibility · availability order', async () => {
+    const onReset = vi.fn()
+    render(
+      <JobQueueAppliedFilters
+        value={{ availability: ['OPEN', 'CLOSED'], eligibility: ['TRIAGE'], source: ['DOU_RSS'] }}
+        onReset={onReset}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    expect(screen.getByTestId('job-queue-applied')).toHaveTextContent(
+      'Застосовано: DOU · Потребує розгляду · Відкрита, Закрита',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Скинути фільтри' }))
+    expect(onReset).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders no summary while nothing is applied', () => {
+    render(<JobQueueAppliedFilters value={{ source: [] }} onReset={vi.fn()} />, {
+      wrapper: I18nTestProvider,
+    })
+    expect(screen.queryByTestId('job-queue-applied')).toBeNull()
   })
 
   it('applies the picked selection only on «Застосувати»', async () => {
@@ -51,7 +87,8 @@ describe('JobQueueFilters', () => {
       />,
       { wrapper: I18nTestProvider },
     )
-    expect(screen.getByTestId('job-queue-filters-button')).toHaveTextContent('Фільтри3')
+    // the badge counts groups (eligibility + availability), not options
+    expect(screen.getByTestId('job-queue-filters-button')).toHaveTextContent('Фільтри2')
     await user.click(screen.getByTestId('job-queue-filters-button'))
     await user.click(screen.getByTestId('job-queue-filters-clear'))
     expect(screen.getByRole('checkbox', { name: 'Потребує розгляду' })).not.toBeChecked()

@@ -30,11 +30,41 @@ const AVAILABILITY_LABEL: Record<'OPEN' | 'UNKNOWN' | 'CLOSED' | 'EXPIRED', Mess
   EXPIRED: msg`Прострочена`,
 }
 
+/** The number of filter groups in use — the badge counts groups, not options (spec §4.1a). */
 export function appliedFilterCount(value: JobQueueFilterValue): number {
+  return [value.source, value.eligibility, value.availability].filter((g) => g?.length).length
+}
+
+/** «Застосовано: DOU, Djinni · Відкрита» + a reset, shown only while a filter group is applied. */
+export function JobQueueAppliedFilters({
+  value,
+  onReset,
+}: {
+  value: JobQueueFilterValue
+  onReset: () => void
+}) {
+  const { i18n } = useLingui()
+  const summary = [
+    value.source?.map(sourceLabel),
+    value.eligibility?.map((o) => i18n._(ELIGIBILITY_LABEL[o])),
+    value.availability?.map((o) => i18n._(AVAILABILITY_LABEL[o])),
+  ]
+    .filter((g) => g?.length)
+    .map((g) => g!.join(', '))
+    .join(' · ')
+  if (!summary) return null
   return (
-    (value.source?.length ?? 0) +
-    (value.eligibility?.length ?? 0) +
-    (value.availability?.length ?? 0)
+    <div
+      data-testid="job-queue-applied"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground"
+    >
+      <p className="min-w-0 break-words">
+        <Trans>Застосовано: {summary}</Trans>
+      </p>
+      <Button variant="link" className="min-h-11 px-0" onClick={onReset}>
+        <Trans>Скинути фільтри</Trans>
+      </Button>
+    </div>
   )
 }
 
@@ -116,9 +146,16 @@ export function JobQueueFilters({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <Button data-testid="job-queue-filters-button" variant="outline" className="min-h-11 gap-2">
+        <Button
+          data-testid="job-queue-filters-button"
+          variant="outline"
+          className="min-h-11 min-w-11 gap-2 self-start px-0 min-[560px]:px-4"
+        >
           <SlidersHorizontal aria-hidden="true" className="size-4" />
-          <Trans>Фільтри</Trans>
+          {/* below 560 px an icon-only 44x44 button; the label stays for screen readers */}
+          <span className="sr-only min-[560px]:not-sr-only">
+            <Trans>Фільтри</Trans>
+          </span>
           {applied > 0 && (
             <span className="rounded-full bg-primary px-1.5 text-xs tabular-nums text-primary-foreground">
               {applied}
