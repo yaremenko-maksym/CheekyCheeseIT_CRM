@@ -277,15 +277,18 @@ function useQueueWrite<V, R>(
   const intentOf = (vars: V) =>
     JSON.stringify([scope.actorId, scope.role, scope.teamId, vars ?? null])
 
-  return useMutation<R, unknown, V>({
+  return useMutation<R, unknown, V, { intent: string }>({
+    // Captured at the start: the scope may change while the write is in flight.
+    onMutate: (vars) => ({ intent: intentOf(vars) }),
     mutationFn: (vars) => {
       const intent = intentOf(vars)
       const key = keys.current.get(intent) ?? crypto.randomUUID()
       keys.current.set(intent, key)
       return send(vars, key)
     },
-    onSettled: (_data, error, vars) => {
-      if (isDefinitiveAnswer(error)) keys.current.delete(intentOf(vars))
+    onSettled: (_data, error, vars, context) => {
+      // Stryker disable next-line ConditionalExpression: `context` is undefined only when onMutate throws, and JSON.stringify of plain variables does not; the definitive/non-definitive split is pinned by the replay tests
+      if (context && isDefinitiveAnswer(error)) keys.current.delete(context.intent)
       if (cardId && getApiErrorCode(error) === 'JOB_OPPORTUNITY_NOT_FOUND') {
         queryClient.removeQueries({ queryKey: jobQueueCardQueryKey(scope, cardId(vars)) })
       }

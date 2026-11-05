@@ -211,6 +211,35 @@ describe('useSubmitJobQueueSenior', () => {
     expect(keyOf(post.mock.calls[2])).toBe(keyOf(post.mock.calls[0]))
   })
 
+  it('drops the key of the scope the write started under when the team switches mid-flight', async () => {
+    let refuse: (reason: unknown) => void = () => {}
+    post
+      .mockRejectedValueOnce(coded(500, 'TRANSIENT'))
+      .mockReturnValueOnce(new Promise((_, reject) => (refuse = reject)))
+      .mockResolvedValueOnce({ data: { submission } })
+    const { result, rerender } = renderHook(({ s }) => useSubmitJobQueueSenior(s), {
+      wrapper,
+      initialProps: { s: scope },
+    })
+
+    await act(() => result.current.mutateAsync(vars).catch(() => undefined))
+    let inFlight: Promise<unknown> = Promise.resolve()
+    act(() => {
+      inFlight = result.current.mutateAsync(vars).catch(() => undefined)
+    })
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2))
+    rerender({ s: { ...scope, teamId: OTHER_TEAM } })
+    await act(async () => {
+      refuse(coded(409, 'JOB_QUEUE_REVISION_CONFLICT'))
+      await inFlight
+    })
+    rerender({ s: scope })
+    await act(() => result.current.mutateAsync(vars))
+
+    expect(keyOf(post.mock.calls[1])).toBe(keyOf(post.mock.calls[0]))
+    expect(keyOf(post.mock.calls[2])).not.toBe(keyOf(post.mock.calls[0]))
+  })
+
   it('encodes the ids into the path', async () => {
     post.mockResolvedValueOnce({ data: { submission } })
     const { result } = renderHook(() => useCancelJobQueueSubmission(scope), { wrapper })
