@@ -415,10 +415,24 @@ describe('manual card request (POST /job-queue/manual)', () => {
   }
 
   it('parses the minimal body; the application URL is optional', () => {
-    expect(jobQueueManualCardRequestSchema.parse(body)).toEqual(body)
+    expect(jobQueueManualCardRequestSchema.parse(body)).toEqual({
+      ...body,
+      confirmPossibleDuplicate: false,
+    })
     expect(
       jobQueueManualCardRequestSchema.parse({ ...body, applicationUrl: URL }).applicationUrl,
     ).toBe(URL)
+  })
+
+  it('carries the possible-duplicate confirmation like a submit; a non-boolean is refused', () => {
+    expect(
+      jobQueueManualCardRequestSchema.parse({ ...body, confirmPossibleDuplicate: true })
+        .confirmPossibleDuplicate,
+    ).toBe(true)
+    expect(
+      jobQueueManualCardRequestSchema.safeParse({ ...body, confirmPossibleDuplicate: 'yes' })
+        .success,
+    ).toBe(false)
   })
 
   it('trims title and company name', () => {

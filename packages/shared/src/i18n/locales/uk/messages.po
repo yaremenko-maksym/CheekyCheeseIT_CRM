@@ -3114,6 +3114,11 @@ msgstr "Цей запит уже виконано з іншими даними. 
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_MANUAL_DUPLICATE"
+msgstr "Вакансія з цим посиланням уже є в системі. Нову картку не створено."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_POLICY_UNAVAILABLE"
 msgstr "Не вдалося перевірити доступ. Спробуйте пізніше."
 

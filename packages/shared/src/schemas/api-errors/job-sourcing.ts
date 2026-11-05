@@ -28,6 +28,9 @@ export const JOB_SOURCING_ERROR_CODES = [
   // r5 Phase 6 manual card (`POST /job-queue/manual`), both 422.
   'JOB_QUEUE_SENIOR_INELIGIBLE',
   'JOB_QUEUE_RESUME_UNUSABLE',
+  // r5 Phase 6 manual card, 409: an opportunity with this application link already exists. Generic:
+  // it names no team and no card.
+  'JOB_QUEUE_MANUAL_DUPLICATE',
   // r5 Task 6.5: the ADMIN source switch (`PATCH /job-sourcing/sources/:id`).
   'JOB_SOURCE_NOT_FOUND',
   'JOB_SOURCE_NOT_READY',
@@ -48,6 +51,7 @@ export const JOB_SOURCING_ERROR_PARAMS = {
   JOB_QUEUE_POLICY_UNAVAILABLE: [],
   JOB_QUEUE_SENIOR_INELIGIBLE: [],
   JOB_QUEUE_RESUME_UNUSABLE: [],
+  JOB_QUEUE_MANUAL_DUPLICATE: [],
   JOB_SOURCE_NOT_FOUND: [],
   JOB_SOURCE_NOT_READY: [],
   JOB_SOURCE_AUTH_PAUSED: [],
@@ -103,6 +107,10 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
     id: 'api-error.JOB_QUEUE_RESUME_UNUSABLE',
     message: 'Це резюме не можна використати для цього сеньйора. Оберіть інше.',
   },
+  JOB_QUEUE_MANUAL_DUPLICATE: /* i18n */ {
+    id: 'api-error.JOB_QUEUE_MANUAL_DUPLICATE',
+    message: 'Вакансія з цим посиланням уже є в системі. Нову картку не створено.',
+  },
   JOB_SOURCE_NOT_FOUND: /* i18n */ {
     id: 'api-error.JOB_SOURCE_NOT_FOUND',
     message: 'Джерело вакансій не знайдено',
@@ -134,6 +142,7 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
   JOB_QUEUE_POLICY_UNAVAILABLE: 'Access could not be checked. Try again later.',
   JOB_QUEUE_SENIOR_INELIGIBLE: 'This senior cannot be submitted to this job from this team.',
   JOB_QUEUE_RESUME_UNUSABLE: 'This resume cannot be used for this senior. Choose another one.',
+  JOB_QUEUE_MANUAL_DUPLICATE: 'A job with this link already exists. No new card was created.',
   JOB_SOURCE_NOT_FOUND: 'The source was not found',
   JOB_SOURCE_NOT_READY:
     'The source is not ready yet: finish its setup (readiness check, connection, quota meter), then switch it on',

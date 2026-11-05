@@ -2027,7 +2027,9 @@ export const jobQueueSubmissionResponseSchema = z
  * `resumeId` are required here: a body without them is a 400 before any route logic runs.
  * `resumeId` names an existing CRM resume of that senior; this route never uploads one.
  * The answer is `jobQueueSubmissionResponseSchema` (201); `submission.opportunityId` is the
- * new card.
+ * new card. An `applicationUrl` some opportunity already carries is `JOB_QUEUE_MANUAL_DUPLICATE`
+ * (409); the senior's live submission to a possible duplicate in the actor's scope is
+ * `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED` (409) until `confirmPossibleDuplicate` is `true`.
  */
 export const jobQueueManualCardRequestSchema = z
   .object({
@@ -2044,6 +2046,8 @@ export const jobQueueManualCardRequestSchema = z
         resumeId: z.string().uuid(),
       })
       .strict(),
+    /** Required `true` once the server answered `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED`. */
+    confirmPossibleDuplicate: z.boolean().default(false),
   })
   .strict()
 
