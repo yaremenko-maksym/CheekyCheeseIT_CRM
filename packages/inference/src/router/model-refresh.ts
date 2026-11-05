@@ -228,7 +228,9 @@ async function refreshProvider(
       listing.models.map((m) => [
         m.id,
         {
-          context: m.context === undefined ? 0 : effectiveContext(m.context, route.contextTokens),
+          // A missing or garbage limit is unknown, not small: it must not remove a current model.
+          context:
+            m.context === undefined ? undefined : effectiveContext(m.context, route.contextTokens),
         },
       ]),
     )
