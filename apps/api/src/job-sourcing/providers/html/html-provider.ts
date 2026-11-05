@@ -935,7 +935,10 @@ export abstract class HtmlProvider<
     enrichments: Map<string, HtmlEnrichment>,
     candidates: Map<string, ModelCandidate>,
     ctx: CollectionContext,
-  ): Promise<{ report: HtmlModelReport; settlements: ReadonlyMap<string, ModelSettlement> }> {
+  ): Promise<{
+    report: Omit<HtmlModelReport, 'parkedIds'>
+    settlements: ReadonlyMap<string, ModelSettlement>
+  }> {
     const model = this.deps.model
     const ids = [...candidates.keys()]
     if (model === undefined) {
@@ -1043,7 +1046,6 @@ export abstract class HtmlProvider<
         applied,
         falseIdentity,
         remainingIds,
-        parkedIds: [],
       },
       settlements,
     }
@@ -1060,7 +1062,8 @@ export abstract class HtmlProvider<
     const parked: string[] = []
     for (const [id, { key, record }] of candidates) {
       const settlement = settlements.get(id)
-      if (!record.modelPending || settlement === undefined) continue
+      // No settlement only when no model is configured: those candidates were never made pending.
+      if (settlement === undefined) continue
       try {
         await this.deps.enrichment.put(
           key,

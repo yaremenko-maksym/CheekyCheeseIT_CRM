@@ -28,20 +28,17 @@ export function settlementsOf(
     return allOf(ids, 'CLEARED')
   }
   const stop = outcome.kind === 'PARTIAL' ? outcome.stoppedBy : outcome
-  if (stop.kind === 'MODEL_UNAVAILABLE' && stop.code === 'NOT_CONFIGURED') {
-    return allOf(ids, 'CLEARED')
-  }
+  if ('code' in stop && stop.code === 'NOT_CONFIGURED') return allOf(ids, 'CLEARED')
 
-  const remaining = 'remainingIds' in outcome ? outcome.remainingIds : []
-  const owed = new Set(remaining)
+  const owed = new Set('remainingIds' in outcome ? outcome.remainingIds : null)
   const failed = new Set(
     outcome.perRecordIssues.filter(({ failure }) => failure !== null).map(({ id }) => id),
   )
   // Nothing succeeded: a bad runtime or digest answers that way on every record, so none is blamed.
   const anyAnswered = ids.some((id) => !owed.has(id) && !failed.has(id))
   // A stop leaves the record it stopped on first in `remainingIds`.
-  const inFlight =
-    stop.kind === 'EXTRACTOR_FAILED' && stop.code === 'TIMEOUT' ? remaining[0] : undefined
+  const timedOut = stop.kind === 'EXTRACTOR_FAILED' && stop.code === 'TIMEOUT'
+  const inFlight = timedOut && 'remainingIds' in outcome ? outcome.remainingIds[0] : undefined
 
   const of = (id: string): ModelSettlement => {
     if (id === inFlight) return 'TIMED_OUT'

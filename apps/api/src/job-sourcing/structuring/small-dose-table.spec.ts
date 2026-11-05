@@ -142,6 +142,18 @@ describe('smallDoseFor: merge (ADR 5.4)', () => {
     })
   })
 
+  it('the longest answer every group admits still fits the record schema', () => {
+    const quote = 'q'.repeat(2_000)
+    const reply = merged({
+      identity: { postingsOnPage: 1 },
+      place: { location: 'l'.repeat(500), locationQuote: quote, remote: true },
+      terms: { employmentType: 'e'.repeat(100), employmentTypeQuote: quote },
+      description: { description: 'd'.repeat(20_000), descriptionQuote: quote },
+    })
+    expect(only(reply).description).toHaveLength(20_000)
+    expect(only(reply).evidence).toHaveLength(3)
+  })
+
   it('turns every quote into evidence that survives the guard (D10)', () => {
     const reply = merged()
     expect(only(reply).evidence).toEqual([

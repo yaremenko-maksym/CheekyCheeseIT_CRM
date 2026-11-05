@@ -30,12 +30,11 @@ interface FloorGroup extends SmallDoseGroup {
  * instruction is appended to `EXTRACTION_SYSTEM_PROMPT` by the router, never in place of it.
  * `maxAnswerTokens` is a first estimate; MP-03 tunes it.
  */
-const IDENTITY_GROUP: FloorGroup = {
+const IDENTITY_GROUP: SmallDoseGroup = {
   name: 'identity',
   instruction: `${MAIN_POSTING_ONLY} Count the separate job postings on this page.`,
   schema: z.object({ postingsOnPage: z.number().int().min(0).max(MAX_POSTINGS_ON_PAGE) }),
   maxAnswerTokens: 32,
-  fields: [],
 }
 
 const FIELD_GROUPS: readonly FloorGroup[] = [
@@ -108,11 +107,13 @@ export function smallDoseFor(
           }
         }
       }
-      const reply = modelReplySchema.safeParse({
+      // `parse` only applies the record's defaults: no answer a group admits exceeds a record limit
+      // (the longest-answer spec pins it). A drift throws, and the router answers PROVIDER_ERROR.
+      const data = modelReplySchema.parse({
         extractionVersion: FLOOR_EXTRACTION_VERSION,
         records: [{ ...facts, evidence, uncertainty: FLOOR_UNCERTAINTY }],
       })
-      return reply.success ? { ok: true, data: reply.data } : { ok: false }
+      return { ok: true, data }
     },
   }
 }
