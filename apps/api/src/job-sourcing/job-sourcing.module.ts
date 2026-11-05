@@ -17,6 +17,7 @@ import { JobQueueGenerationRetentionCronService } from './job-queue-generation-r
 import { JobSourcingController } from './job-sourcing.controller'
 import { JobQueueController } from './queue/job-queue.controller'
 import { JobQueueActionsService } from './queue/queue-actions.service'
+import { JobQueueRecomputeService } from './queue/queue-recompute.service'
 import { JobQueueService } from './queue/job-queue.service'
 import { JobQueueScopeService } from './queue/queue-scope.service'
 import { NotificationsModule } from '../notifications/notifications.module'
@@ -86,6 +87,8 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     JobQueueScopeService,
     // r5 Task 6.3: the queue's writes (submit, cancel, dismiss, undo, opened, suppress); Task 6.4 calls them.
     JobQueueActionsService,
+    // r5 Task 6.4: POST /job-queue/recompute enqueues a match recompute run (never inline).
+    JobQueueRecomputeService,
     // r5 Task 6.2: the queue's list and card reads; the Task 6.4 controller calls them.
     JobQueueService,
     // r5 Task 4.6 S4b: periodic reconciliation + drain of the recompute worker; flag default OFF.

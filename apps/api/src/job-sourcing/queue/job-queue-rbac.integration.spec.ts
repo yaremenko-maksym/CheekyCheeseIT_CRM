@@ -27,6 +27,11 @@ import {
 import { JobQueueController } from './job-queue.controller'
 import { JobQueueService } from './job-queue.service'
 import { JobQueueActionsService } from './queue-actions.service'
+import {
+  JobQueueRecomputeService,
+  RECOMPUTE_REASON_PREFIX,
+  RECOMPUTE_TRIGGER_PREFIX,
+} from './queue-recompute.service'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -99,6 +104,11 @@ class TestDatabaseModule {}
       useFactory: (db: DatabaseService, scopes: JobQueueScopeService) =>
         new JobQueueActionsService(db, scopes),
       inject: [DatabaseService, JobQueueScopeService],
+    },
+    {
+      provide: JobQueueRecomputeService,
+      useFactory: (db: DatabaseService) => new JobQueueRecomputeService(db),
+      inject: [DatabaseService],
     },
     // JwtAuthGuard as APP_GUARD, as AppModule does. RolesGuard is NOT global: the controller's own
     // `@UseGuards(RolesGuard)` is what is under test.
@@ -276,6 +286,11 @@ const suppressedRows = async (opp: string) =>
       [id(opp)],
     )
   ).rows
+/** Recompute runs (r5 Task 6.4) any TAG user asked for: `requested_by` is the audit of who. */
+const RECOMPUTE_RUNS = `SELECT id FROM job_collection_cycles
+  WHERE trigger = 'MANUAL' AND starts_with(trigger_key, '${RECOMPUTE_TRIGGER_PREFIX}')
+    AND requested_by IN (SELECT id FROM users WHERE email LIKE $1)`
+const recomputeRuns = async () => (await sqlq(RECOMPUTE_RUNS, [`${TAG}%`])).rows
 
 describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.4)', () => {
   beforeAll(async () => {
@@ -391,6 +406,10 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       await sqlq(`DELETE FROM job_team_triage_subscriptions WHERE team_id IN (${teams})`, [
         `${TAG}%`,
       ])
+      // Before users: a recompute run's work restricts its cycle, the cycle its ADMIN (RESTRICT).
+      await sqlq(`DELETE FROM job_dirty_work WHERE cycle_id IN (${RECOMPUTE_RUNS})`, [`${TAG}%`])
+      await sqlq(`DELETE FROM job_dirty_work WHERE reason = $1`, [`${TAG}-busy`])
+      await sqlq(`DELETE FROM job_collection_cycles WHERE id IN (${RECOMPUTE_RUNS})`, [`${TAG}%`])
       await sqlq(`DELETE FROM team_members WHERE team_id IN (${teams})`, [`${TAG}%`])
       await sqlq(`DELETE FROM teams WHERE name LIKE $1`, [`${TAG}%`])
       await sqlq(`DELETE FROM users WHERE email LIKE $1`, [`${TAG}%`])
@@ -427,6 +446,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     ],
     ['POST', `/${id('oppOnlyA')}/opened`, { sourceRecordId: records['oppOnlyA'] }],
     ['POST', `/${id('oppOnlyA')}/suppress`, { idempotencyKey: randomUUID() }],
+    ['POST', '/recompute', undefined],
   ]
 
   describe('the guard chain', () => {
@@ -446,6 +466,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
           expect(a.json['code']).toBe(ROLE_REFUSAL)
         }
         expect(await suppressedRows('oppOnlyA')).toEqual([])
+        expect(await recomputeRuns()).toEqual([])
       },
     )
 
@@ -454,6 +475,13 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(a.status).toBe(403)
       expect(a.json['code']).toBe(ROLE_REFUSAL)
       expect(await suppressedRows('oppOnlyA')).toEqual([])
+    })
+
+    it('recompute is ADMIN only: an HR is the RolesGuard 403 and opens no run', async () => {
+      const a = await post('/recompute', 'hrA')
+      expect(a.status).toBe(403)
+      expect(a.json['code']).toBe(ROLE_REFUSAL)
+      expect(await recomputeRuns()).toEqual([])
     })
   })
 
@@ -883,6 +911,129 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(card.json['opportunityId']).toBe(id('oppSup'))
       expect(await inAnyTab('admin', 'oppSup')).toBe(false)
       expect(await inAnyTab('admin', 'oppOnlyA')).toBe(true)
+    })
+  })
+
+  /**
+   * r5 Task 6.4 — POST /recompute: an ADMIN enqueues a run (202 + run id), nothing runs inline.
+   * LAST in the file, and over its own opportunities: they are made here so no list above sees
+   * them. The run also enqueues every other OPEN / UNKNOWN opportunity in the scratch database, so
+   * every assertion is narrowed to this file's opportunities; afterAll removes the run by cycle.
+   */
+  describe('recompute (ADMIN)', () => {
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    const runRows = async (runId: string) =>
+      (
+        await sqlq(
+          `SELECT entity_id, target_version::int AS target_version, reason, status FROM job_dirty_work
+            WHERE cycle_id = $1 AND entity_id = ANY($2::uuid[]) ORDER BY entity_id`,
+          [runId, ['oppRc', 'oppRcUnknown', 'oppRcClosed', 'oppRcBusy'].map(id)],
+        )
+      ).rows
+    const cycle = async (runId: string) =>
+      (
+        await sqlq(
+          `SELECT trigger, starts_with(trigger_key, $2) AS recompute, requested_by, status
+             FROM job_collection_cycles WHERE id = $1`,
+          [runId, RECOMPUTE_TRIGGER_PREFIX],
+        )
+      ).rows[0]
+    let firstRun = ''
+
+    beforeAll(async () => {
+      // A recompute run left OPEN by an earlier crashed run would be answered instead of a new one:
+      // close every open recompute cycle (cycles only, test DB) so this block starts from none.
+      await sqlq(
+        `UPDATE job_collection_cycles SET status = 'CLOSED', closed_at = clock_timestamp()
+          WHERE trigger = 'MANUAL' AND status = 'OPEN' AND starts_with(trigger_key, $1)`,
+        [RECOMPUTE_TRIGGER_PREFIX],
+      )
+      await mkOpp('oppRc')
+      await mkOpp('oppRcUnknown')
+      await sqlq(`UPDATE job_opportunities SET availability = 'UNKNOWN' WHERE id = $1`, [
+        id('oppRcUnknown'),
+      ])
+      await mkOpp('oppRcClosed')
+      await sqlq(`UPDATE job_opportunities SET availability = 'CLOSED' WHERE id = $1`, [
+        id('oppRcClosed'),
+      ])
+      // A MATCH row already in flight at its revision recomputes it anyway: the run skips it.
+      await mkOpp('oppRcBusy')
+      await sqlq(
+        `INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason)
+         VALUES ('OPPORTUNITY', $1, 1, $2)`,
+        [id('oppRcBusy'), `${TAG}-busy`],
+      )
+    })
+
+    it('202 + a run id: a MANUAL cycle by the ADMIN, one PENDING row per OPEN/UNKNOWN opportunity', async () => {
+      const a = await post('/recompute', 'admin')
+      expect(a.status).toBe(202)
+      expect(Object.keys(a.json)).toEqual(['runId'])
+      firstRun = a.json['runId'] as string
+      expect(firstRun).toMatch(UUID)
+      expect(await cycle(firstRun)).toEqual({
+        trigger: 'MANUAL',
+        recompute: true,
+        requested_by: id('admin'),
+        status: 'OPEN',
+      })
+      const expected = [
+        {
+          entity_id: id('oppRc'),
+          target_version: 1,
+          reason: `${RECOMPUTE_REASON_PREFIX}${firstRun}`,
+          status: 'PENDING',
+        },
+        {
+          entity_id: id('oppRcUnknown'),
+          target_version: 1,
+          reason: `${RECOMPUTE_REASON_PREFIX}${firstRun}`,
+          status: 'PENDING',
+        },
+      ].sort((x, y) => (x.entity_id < y.entity_id ? -1 : 1)) // the uuid order of ORDER BY
+      expect(await runRows(firstRun)).toEqual(expected)
+    })
+
+    it('a repeat while the run has work in flight: the SAME run id, nothing more enqueued', async () => {
+      const before = await sqlq(
+        `SELECT count(*)::int AS n FROM job_dirty_work WHERE cycle_id = $1`,
+        [firstRun],
+      )
+      const a = await post('/recompute', 'admin')
+      expect(a.status).toBe(202)
+      expect(a.json).toEqual({ runId: firstRun })
+      const after = await sqlq(
+        `SELECT count(*)::int AS n FROM job_dirty_work WHERE cycle_id = $1`,
+        [firstRun],
+      )
+      expect(after.rows[0].n).toBe(before.rows[0].n)
+      expect((await recomputeRuns()).length).toBe(1)
+    })
+
+    it('once the run is drained: it is CLOSED and a new run opens at the same revisions', async () => {
+      // Stands in for the worker: every row of the run reaches a terminal state.
+      await sqlq(
+        `UPDATE job_dirty_work SET status = 'DONE', completed_at = now() WHERE cycle_id = $1`,
+        [firstRun],
+      )
+      const a = await post('/recompute', 'admin')
+      expect(a.status).toBe(202)
+      const second = a.json['runId'] as string
+      expect(second).toMatch(UUID)
+      expect(second).not.toBe(firstRun)
+      expect((await cycle(firstRun))?.status).toBe('CLOSED')
+      expect(await cycle(second)).toEqual({
+        trigger: 'MANUAL',
+        recompute: true,
+        requested_by: id('admin'),
+        status: 'OPEN',
+      })
+      // The reason carries the run id, so the same revision is a fresh key, not a conflict.
+      expect((await runRows(second)).map((r: { reason: string }) => r.reason)).toEqual([
+        `${RECOMPUTE_REASON_PREFIX}${second}`,
+        `${RECOMPUTE_REASON_PREFIX}${second}`,
+      ])
     })
   })
 })
