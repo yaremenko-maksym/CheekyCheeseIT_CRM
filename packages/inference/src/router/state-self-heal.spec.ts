@@ -14,6 +14,7 @@ import {
   setJobFailed,
   setModelRecords,
   setStaleModels,
+  staleModelsOf,
   type RouteState,
   type StateEvent,
 } from './state'
@@ -197,6 +198,15 @@ describe('self-heal state changes', () => {
     expect(setStaleModels('gemini', [])(both).modelListStale).toEqual([
       { provider: 'groq', model: 'openai/gpt-oss-20b' },
     ])
+  })
+
+  it('staleModelsOf reads one provider, and nothing from a state with no list', () => {
+    expect(staleModelsOf(EMPTY_ROUTE_STATE, 'gemini')).toEqual([])
+    const both = setStaleModels('groq', ['openai/gpt-oss-20b'])(
+      setStaleModels('gemini', [MODEL])(EMPTY_ROUTE_STATE),
+    )
+    expect(staleModelsOf(both, 'gemini')).toEqual([MODEL])
+    expect(staleModelsOf(both, 'groq')).toEqual(['openai/gpt-oss-20b'])
   })
 
   it('setStaleModels caps the list by dropping the oldest', () => {

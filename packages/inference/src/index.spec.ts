@@ -72,7 +72,9 @@ describe('package index public surface (SPEC-M-1)', () => {
     'markStartupRefresh',
     'setModelRecords',
     'setStaleModels',
+    'staleModelsOf',
     'setJobFailed',
+    'probeAll',
   ])('keeps the router internal %s off the public surface', (name) => {
     expect(Object.keys(pkg)).not.toContain(name)
   })

@@ -401,6 +401,10 @@ export const setModelRecords =
   (probation: ProbationEntry[], busy: BusyEntry[]) =>
   (s: RouteState): RouteState => ({ ...s, probation: capped(probation), busy: capped(busy) })
 
+/** One provider's named stale entries. */
+export const staleModelsOf = (s: RouteState, p: HostedProvider): string[] =>
+  s.modelListStale?.filter((e) => e.provider === p).map((e) => e.model) ?? []
+
 /** Replaces one provider's named stale entries; the other provider's stay. */
 export const setStaleModels =
   (p: HostedProvider, models: readonly string[]) =>

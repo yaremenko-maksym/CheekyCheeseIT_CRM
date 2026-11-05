@@ -9,10 +9,10 @@ export type ModelVerdict = 'alive' | 'dead' | 'transient' | 'unknown'
 
 /** `undefined` is no status at all: a timeout or a network error, never `dead` (§3.4). */
 export function classifyModelStatus(status: number | undefined): ModelVerdict {
-  if (status === undefined) return 'unknown'
-  if (status >= 200 && status < 300) return 'alive'
-  if (status === 404) return 'dead'
-  return status === 429 || status === 503 ? 'transient' : 'unknown'
+  const code = status ?? 0
+  if (code >= 200 && code < 300) return 'alive'
+  if (code === 404) return 'dead'
+  return code === 429 || code === 503 ? 'transient' : 'unknown'
 }
 
 /** A provider-reported number is untrusted: it can never widen what the route accepts (§3.4). */
@@ -72,8 +72,8 @@ export type ProbeAnswer = { model: string; verdict: ModelVerdict; busy429: boole
 export function applyProbeDay(args: {
   answers: readonly ProbeAnswer[]
   pinned: readonly string[]
-  probation: readonly ProbationEntry[]
-  busy: readonly BusyEntry[]
+  probation: readonly ProbationEntry[] | undefined
+  busy: readonly BusyEntry[] | undefined
   today: string
 }): {
   probation: ProbationEntry[]
@@ -81,8 +81,8 @@ export function applyProbeDay(args: {
   verdicts: Map<string, ModelVerdict>
   promotedNow: Set<string>
 } {
-  let probation = [...args.probation]
-  let busy = [...args.busy]
+  let probation = [...(args.probation ?? [])]
+  let busy = [...(args.busy ?? [])]
   const verdicts = new Map<string, ModelVerdict>()
   const promotedNow = new Set<string>()
   for (const { model, verdict, busy429 } of args.answers) {
@@ -101,11 +101,10 @@ export function applyProbeDay(args: {
     if (final === 'dead') {
       probation = rest
     } else if (!args.pinned.includes(model)) {
+      const wasFull = before?.aliveStreak === PROMOTION_STREAK
       const after = nextProbation(before, model, final, args.today)
       probation = [...rest, after]
-      if (after.aliveStreak === PROMOTION_STREAK && before?.aliveStreak !== PROMOTION_STREAK) {
-        promotedNow.add(model)
-      }
+      if (after.aliveStreak === PROMOTION_STREAK && !wasFull) promotedNow.add(model)
     }
   }
   return { probation, busy, verdicts, promotedNow }

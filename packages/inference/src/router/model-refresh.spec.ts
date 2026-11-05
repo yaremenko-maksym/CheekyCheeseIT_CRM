@@ -24,6 +24,7 @@ import {
   type Reply,
 } from './__test-helpers__/router-harness'
 import { MANAGED_LIST_TARGET } from './managed-models'
+import { MIN_MANAGED_CONTEXT } from './model-picks'
 import { runDailyModelRefresh } from './model-refresh'
 import {
   EMPTY_ROUTE_STATE,
@@ -230,6 +231,61 @@ describe('promotion only after N consecutive alive days (SR-M-9)', () => {
     const w = refreshWorld({ routes: GEMINI_ONLY, listing: { gemini: WITH_NEW } })
     await runOn(w, [DAYS[0]!, DAYS[0]!])
     expect(streakOf(w, NEW)).toBe(1)
+  })
+
+  const lastProbedYesterday = (model: string, aliveStreak = PROMOTION_STREAK - 1) => ({
+    provider: 'gemini' as const,
+    model,
+    aliveStreak,
+    lastProbeDay: '2026-11-03',
+  })
+
+  it('says nothing for a model that filled its streak but left the list', async () => {
+    const w = refreshWorld({
+      routes: GEMINI_ONLY,
+      listing: {
+        gemini: geminiListing([
+          [G1, BIG],
+          [NEW, MIN_MANAGED_CONTEXT - 1],
+        ]),
+      },
+      managed: managedDoc({ gemini: [G1, NEW] }),
+      state: { ...EMPTY_ROUTE_STATE, probation: [lastProbedYesterday(NEW)] },
+    })
+    await runDailyModelRefresh(w.deps)
+    expect(w.chatModels()).toEqual([G1, NEW])
+    expect(w.fileList('gemini')).toEqual([G1])
+    expect(w.ofType('MODEL_PROMOTED')).toEqual([])
+  })
+
+  it('a sweep stopped by AUTH keeps the record of an entry the pick would have pushed out', async () => {
+    const [a, b, c, d, e, promoted, last] = [
+      'gemini-4.0-flash',
+      'gemini-5.0-flash',
+      'gemini-6.0-flash',
+      'gemini-7.0-flash',
+      'gemini-8.0-flash',
+      'gemini-9.0-flash',
+      'gemini-10.0-flash',
+    ] as const
+    const current = [a, b, c, d, e]
+    const record = lastProbedYesterday(e, 1)
+    const w = refreshWorld({
+      routes: GEMINI_ONLY,
+      // `e` is no longer listed, so only the unchanged list vouches for its record.
+      listing: {
+        gemini: geminiListing([a, b, c, d, promoted, last].map((id) => [id, BIG])),
+      },
+      managed: managedDoc({ gemini: current }),
+      state: { ...EMPTY_ROUTE_STATE, probation: [record, lastProbedYesterday(promoted)] },
+      hadOkCall: (_p, m) => (current as string[]).includes(m),
+      chat: (s) => (s.model === last ? { status: 401, body: 'x' } : ALIVE),
+    })
+    const r = await runDailyModelRefresh(w.deps)
+    expect(w.chatModels()).toEqual([promoted, last])
+    expect(r.providers[0]).toEqual({ provider: 'gemini', outcome: 'failed', reason: 'AUTH' })
+    expect(w.state.snapshot().probation).toContainEqual(record)
+    expect(w.fileList('gemini')).toEqual(current)
   })
 
   describe('a no-probe day leaves the streak where it was', () => {

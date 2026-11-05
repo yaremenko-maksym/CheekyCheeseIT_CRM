@@ -146,6 +146,32 @@ describe('applyProbeDay', () => {
     expect(r.probation).toEqual([probation('new', 1, DAY2)])
   })
 
+  it('reads a state with no records as empty ones', () => {
+    const r = applyProbeDay({ ...base, answers: [], probation: undefined, busy: undefined })
+    expect(r.probation).toEqual([])
+    expect(r.busy).toEqual([])
+  })
+
+  it("counts a busy day on the model's own record, not on the first one", () => {
+    const r = applyProbeDay({
+      ...base,
+      answers: [{ model: 'b', verdict: 'transient', busy429: true }],
+      busy: [busy('a', BUSY_DEAD_DAYS - 1), busy('b', 1)],
+    })
+    expect(r.busy).toEqual([busy('a', BUSY_DEAD_DAYS - 1), busy('b', 2, DAY2)])
+    expect(r.verdicts.get('b')).toBe('transient')
+  })
+
+  it("counts an alive day on the model's own record, not on the first one", () => {
+    const r = applyProbeDay({
+      ...base,
+      answers: [{ model: 'b', verdict: 'alive', busy429: false }],
+      probation: [probation('a', PROMOTION_STREAK - 1), probation('b', 0)],
+    })
+    expect(r.probation).toEqual([probation('a', PROMOTION_STREAK - 1), probation('b', 1, DAY2)])
+    expect(r.promotedNow.size).toBe(0)
+  })
+
   it('keeps no probation record for a pinned model', () => {
     const r = applyProbeDay({
       ...base,
@@ -252,6 +278,10 @@ describe('pickLiveModels (SR-H-1 order)', () => {
         ]),
       }),
     ).toEqual(['old-small', 'old-big', 'new-huge'])
+  })
+
+  it('does not add a candidate with no facts at all', () => {
+    expect(pick({ candidates: ['never-seen'] })).toEqual([])
   })
 
   it('removes a dead model', () => {
@@ -374,6 +404,9 @@ describe('isPromoted (the reader rule)', () => {
   it('is false for an entry absent from pinned with no record', () => {
     expect(isPromoted('m', ['p'], [probation('other', PROMOTION_STREAK)])).toBe(false)
   })
+  it('is false for a state with no records', () => {
+    expect(isPromoted('m', ['p'], undefined)).toBe(false)
+  })
 })
 
 describe('pickGroqModels (SR-H-1)', () => {
@@ -483,7 +516,17 @@ describe('pickGroqModels (SR-H-1)', () => {
   it('caps the result at the list target', () => {
     const current = ['a', 'b', 'c', 'd', 'e'].map((x) => `openai/gpt-oss-${x}`)
     expect(
-      pick({ current, listing: [...current.map((id) => live(id)), live('openai/gpt-oss-z')] }),
+      pick({ current, listing: [...current.map((id) => live(id)), live('openai/gpt-oss-120b')] }),
     ).toEqual(current)
+    expect(MANAGED_LIST_TARGET).toBe(current.length)
+  })
+
+  it.each<[string, string[]]>([
+    ['first', ['openai/gpt-oss-120b', 'openai/gpt-oss-20b']],
+    ['last', ['openai/gpt-oss-20b', 'openai/gpt-oss-120b']],
+  ])('adds the largest context wherever the listing puts it (%s)', (_label, order) => {
+    const context = (id: string) => (id === 'openai/gpt-oss-120b' ? 32_000 : 16_000)
+    const listing = order.map((id) => live(id, context(id)))
+    expect(pick({ current: [], listing })).toEqual(['openai/gpt-oss-120b'])
   })
 })

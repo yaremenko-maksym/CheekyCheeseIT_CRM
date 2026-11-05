@@ -94,14 +94,17 @@ export async function fetchModelListing(opts: {
     maxBytes: LISTING_MAX_BYTES,
     fetchImpl: opts.fetchImpl,
   })
-  if (r.kind === 'timeout' || r.kind === 'rate_limited') {
-    return { kind: 'failed', noResponse: false }
-  }
+  if (r.kind === 'ok') return readListing(p, r.text)
   if (r.kind === 'transport') {
     if (r.status === 401 || r.status === 403) return { kind: 'auth' }
     return { kind: 'failed', noResponse: r.status === undefined }
   }
-  const raw = entries(p, parseJsonOrNull(r.text))
+  // A timeout or a 429: the provider may have counted the request.
+  return { kind: 'failed', noResponse: false }
+}
+
+function readListing(p: HostedProvider, text: string): ListingResult {
+  const raw = entries(p, parseJsonOrNull(text))
   if (raw === null) return { kind: 'failed', noResponse: false }
   const models: ListedModel[] = []
   let dropped = 0

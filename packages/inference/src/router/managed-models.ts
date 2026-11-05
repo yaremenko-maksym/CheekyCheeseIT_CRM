@@ -46,11 +46,11 @@ export const pinnedModelsOnly: ManagedModels = async (_p, fallback) => fallback
 export function isPromoted(
   model: string,
   pinned: readonly string[],
-  probation: readonly ProbationEntry[],
+  probation: readonly ProbationEntry[] | undefined,
 ): boolean {
   return (
     pinned.includes(model) ||
-    probation.some((r) => r.model === model && r.aliveStreak === PROMOTION_STREAK)
+    probation?.some((r) => r.model === model && r.aliveStreak === PROMOTION_STREAK) === true
   )
 }
 
@@ -70,7 +70,7 @@ export function createFileManagedModels(opts: {
   const fs: StateFs = opts.fs ?? nodeFs
   const ordered = (list: string[], pinned: readonly string[]): readonly string[] => {
     if (opts.state === undefined) return list
-    const probation = opts.state.snapshot().probation ?? []
+    const probation = opts.state.snapshot().probation
     const promoted = (id: string): boolean => isPromoted(id, pinned, probation)
     return [...list.filter(promoted), ...list.filter((id) => !promoted(id))]
   }
@@ -109,6 +109,7 @@ export function createManagedListWriter(opts: {
     if (ids.length === 0) return false
     const read = await readStateText(fs, opts.path)
     const existing =
+      // Stryker disable next-line ConditionalExpression: equivalent for `true`, an absent text parses to null and fails the schema; `false` is covered by the keeps-the-other-provider spec
       read.kind === 'text' ? managedListSchema.safeParse(parseJsonOrNull(read.text)) : null
     const next = managedListSchema.safeParse({
       version: 1,

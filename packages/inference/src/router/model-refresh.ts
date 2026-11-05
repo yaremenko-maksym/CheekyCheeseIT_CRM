@@ -33,6 +33,7 @@ import {
   setJobFailed,
   setModelRecords,
   setStaleModels,
+  staleModelsOf,
   type OwnCapPort,
   type RouteStatePort,
 } from './state'
@@ -137,7 +138,7 @@ async function probeModel(
 
 type Sweep = { answers: ProbeAnswer[]; stopped: 'capped' | 'auth' | null }
 
-async function probeAll(
+export async function probeAll(
   route: HostedRouteConfig,
   models: readonly string[],
   deps: ModelRefreshDeps,
@@ -211,8 +212,8 @@ async function refreshProvider(
   const day = applyProbeDay({
     answers,
     pinned: route.models,
-    probation: after.probation ?? [],
-    busy: after.busy ?? [],
+    probation: after.probation,
+    busy: after.busy,
     today: new Date(nowMs).toISOString().slice(0, 10),
   })
   const pick = (): string[] => {
@@ -262,13 +263,12 @@ async function refreshProvider(
 
   // The fresh list is the authority: the provider's retirements restart from it (SR-M-5), and a
   // stale entry the refresh removed has nothing left to warn about.
-  await deps.state.update((s) => {
-    const named = (s.modelListStale ?? []).filter((e) => e.provider === p).map((e) => e.model)
-    return setStaleModels(
+  await deps.state.update((s) =>
+    setStaleModels(
       p,
-      named.filter((m) => next.includes(m)),
-    )(clearRetired(p)(s))
-  })
+      staleModelsOf(s, p).filter((m) => next.includes(m)),
+    )(clearRetired(p)(s)),
+  )
   for (const model of day.promotedNow) {
     if (next.includes(model)) deps.onEvent({ type: 'MODEL_PROMOTED', provider: p, model })
   }
@@ -323,10 +323,12 @@ export async function runModelChainCheck(deps: ModelRefreshDeps): Promise<ModelR
     const inUse = await deps.managedModels(p, route.models)
     const { answers, stopped } = await probeAll(route, inUse.slice(0, PROBE_CAP), deps)
     const dead = answers.filter((a) => a.verdict === 'dead').map((a) => a.model)
-    await deps.state.update((s) => {
-      const previous = (s.modelListStale ?? []).filter((e) => e.provider === p).map((e) => e.model)
-      return setStaleModels(p, stopped === null ? dead : [...new Set([...previous, ...dead])])(s)
-    })
+    await deps.state.update((s) =>
+      setStaleModels(
+        p,
+        stopped === null ? dead : [...new Set([...staleModelsOf(s, p), ...dead])],
+      )(s),
+    )
     if (dead.length > 0) deps.onEvent({ type: 'MODEL_LIST_STALE', provider: p, models: dead })
     if (stopped === 'capped') return skipped(p, 'CAP')
     return stopped === 'auth' ? failed(p, 'AUTH') : { provider: p, outcome: 'done' }
@@ -346,9 +348,9 @@ export async function runStartupModelRefresh(deps: ModelRefreshDeps): Promise<Mo
     const record = providerRecord(deps.state.snapshot(), p)
     if (!record.auth) return skipped(p, 'NOT_NEEDED')
     const nowMs = deps.now()
-    const last = record.lastStartupRefreshAt
+    // A first refresh has no stamp: NaN compares false.
     // A clock gone back reads as recent: it can only delay a refresh, never repeat one.
-    if (last !== undefined && nowMs - Date.parse(last) < STARTUP_REFRESH_MIN_GAP_MS) {
+    if (nowMs - Date.parse(String(record.lastStartupRefreshAt)) < STARTUP_REFRESH_MIN_GAP_MS) {
       return skipped(p, 'RECENT')
     }
     if (!(await deps.state.update(markStartupRefresh(p, nowMs)))) return skipped(p, 'STATE')

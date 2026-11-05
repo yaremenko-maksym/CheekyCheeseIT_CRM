@@ -64,15 +64,18 @@ describe('the request', () => {
 
   it('refuses a redirect: the request says so and a thrown redirect is a plain failure', async () => {
     let redirect: unknown
+    let method: unknown
     const result = await fetchModelListing({
       provider: 'groq',
       apiKey: KEY_MARKER,
       timeoutMs: 5_000,
       fetchImpl: async (_url, init) => {
         redirect = init?.redirect
+        method = init?.method
         throw new TypeError('unexpected redirect')
       },
     })
+    expect(method).toBe('GET')
     expect(redirect).toBe('error')
     expect(result).toEqual({ kind: 'failed', noResponse: true })
   })

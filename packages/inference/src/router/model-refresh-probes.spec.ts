@@ -30,9 +30,10 @@ import {
   type Reply,
   type Sent,
 } from './__test-helpers__/router-harness'
-import { HOSTED_BASE_URLS, type RouterConfig } from './config'
+import { HOSTED_BASE_URLS, type HostedRouteConfig, type RouterConfig } from './config'
 import {
   MODEL_PROBE_PROMPT,
+  probeAll,
   PROBE_CAP,
   PROBE_MAX_TOKENS,
   PROBE_PAUSE_MS,
@@ -312,6 +313,17 @@ describe('hostile ids from a listing never get anywhere (SR-M-3)', () => {
   })
 })
 
+describe('probeAll', () => {
+  it('an empty sweep answers nothing', async () => {
+    const w = refreshWorld({ routes: GEMINI_ONLY })
+    expect(await probeAll(GEMINI as HostedRouteConfig, [], w.deps)).toEqual({
+      answers: [],
+      stopped: null,
+    })
+    expect(w.sent).toEqual([])
+  })
+})
+
 describe('the AUTH bit (§3.2)', () => {
   it('a daily 2xx probe clears a persisted AUTH of that provider only', async () => {
     const both = markAuth('gemini')(markAuth('groq')(EMPTY_ROUTE_STATE))
@@ -499,6 +511,16 @@ describe('the start-up refresh, the clearing proof (SR-M-7, SR-M-11)', () => {
     await runStartupModelRefresh(w.deps)
     expect(w.chatModels()).toEqual([Q1])
     expect(authOf(w, 'groq')).toBe(false)
+  })
+
+  it('adds no Groq candidate to the start-up probe', async () => {
+    const w = refreshWorld({
+      routes: [{ ...GROQ, models: [Q1] }, LOCAL],
+      state: authOn('groq'),
+      hadOkCall: (_p, m) => m === Q1,
+    })
+    await runStartupModelRefresh(w.deps)
+    expect(w.chats()).toEqual([])
   })
 
   it('a successful listing alone leaves the bit set', async () => {
