@@ -52,7 +52,11 @@ export const EXTRACTION_WORKER_HOST = 'crm-extraction-worker'
 type BodyRead = { kind: 'text'; text: string } | { kind: 'too_large' } | { kind: 'aborted' }
 
 /** `privateHost`: the one constant container host an internal entry may reach over plain HTTP. */
-function isUrlAllowed(rawUrl: string, allowLoopbackHttp: boolean, privateHost: string | null): boolean {
+function isUrlAllowed(
+  rawUrl: string,
+  allowLoopbackHttp: boolean,
+  privateHost: string | null,
+): boolean {
   let parsed: URL
   try {
     parsed = new URL(rawUrl)
@@ -129,7 +133,10 @@ export function boundedRequestToExtractionWorker(
   return request(opts, EXTRACTION_WORKER_HOST)
 }
 
-async function request(opts: BoundedRequestOptions, privateHost: string | null): Promise<BoundedResult> {
+async function request(
+  opts: BoundedRequestOptions,
+  privateHost: string | null,
+): Promise<BoundedResult> {
   if (!isUrlAllowed(opts.url, opts.allowLoopbackHttp === true, privateHost)) {
     return { kind: 'transport' }
   }

@@ -1,7 +1,11 @@
 import { z } from 'zod'
 import { INFERENCE_ERROR_CODES } from '../contracts/errors'
 import type { ExtractionPort, ExtractionRequest, ExtractionResult } from '../contracts/extraction'
-import { boundedRequestToExtractionWorker, DEFAULT_MAX_BYTES, type FetchLike } from '../http/bounded-request'
+import {
+  boundedRequestToExtractionWorker,
+  DEFAULT_MAX_BYTES,
+  type FetchLike,
+} from '../http/bounded-request'
 
 const MAX_REPLY_EVENTS = 100
 
@@ -59,7 +63,9 @@ export type ExtractionWorkerAdapterConfig = {
  * from the same checked-in module. Any refused, failed or malformed call is `PROVIDER_ERROR`; the
  * caller's abort closes the connection and answers `TIMEOUT`, as the router does. Never throws.
  */
-export function createExtractionWorkerAdapter(config: ExtractionWorkerAdapterConfig): ExtractionPort {
+export function createExtractionWorkerAdapter(
+  config: ExtractionWorkerAdapterConfig,
+): ExtractionPort {
   return {
     async extract<T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>> {
       const failed: ExtractionResult<T> = { ok: false, code: 'PROVIDER_ERROR' }

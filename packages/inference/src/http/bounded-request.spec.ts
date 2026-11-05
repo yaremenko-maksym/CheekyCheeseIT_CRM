@@ -319,7 +319,11 @@ describe('boundedRequestToExtractionWorker plain HTTP (ADR §2.4)', () => {
 
   it('refuses any other plain-HTTP host, including the model runtime', async () => {
     const fetchImpl = vi.fn(okFetch)
-    for (const url of ['http://crm-model-runtime/x', 'http://example.test/x', 'ftp://localhost/x']) {
+    for (const url of [
+      'http://crm-model-runtime/x',
+      'http://example.test/x',
+      'ftp://localhost/x',
+    ]) {
       const r = await boundedRequestToExtractionWorker({ ...base, url, fetchImpl })
       expect(r).toEqual({ kind: 'transport' })
     }
