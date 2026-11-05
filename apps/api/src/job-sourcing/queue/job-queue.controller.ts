@@ -17,6 +17,7 @@ import {
   jobQueueDismissRequestSchema,
   jobQueueListQuerySchema,
   jobQueueListResponseSchema,
+  jobQueueManualCardRequestSchema,
   jobQueueOpenedRequestSchema,
   jobQueueRecomputeResponseSchema,
   jobQueueScopeQuerySchema,
@@ -53,6 +54,7 @@ export const JOB_QUEUE_THROTTLE = {
   UNDO: 60,
   OPENED: 120,
   SUPPRESS: 30,
+  MANUAL: 30,
   RECOMPUTE: 6,
 } as const
 
@@ -81,6 +83,9 @@ export const JOB_QUEUE_THROTTLE = {
  * minute is far beyond a person reading. The card and its continuations only read, bounded by their
  * previews: 120 per minute for the card (opening one opportunity after another), 60 for the
  * sources and seniors continuations.
+ * MANUAL (r5 Phase 6) is 30 per minute, like submit: each request is one card and one submission a
+ * person types by hand, and every one writes an opportunity row and a description blob that no
+ * retention job reclaims, so the cap bounds that growth per user without slowing a person.
  */
 @UseGuards(RolesGuard)
 @Controller('job-queue')
@@ -103,6 +108,22 @@ export class JobQueueController {
   @HttpCode(202)
   async recompute(@CurrentUser() user: SessionUser) {
     return jobQueueRecomputeResponseSchema.parse(await this.recomputes.enqueue(user))
+  }
+
+  /**
+   * r5 Phase 6: a manual card for a vacancy found outside the sources, created together with its
+   * one submission (senior + resume) in one transaction; 201 with the submission. One segment, so
+   * no clash with the two-segment `:id` writes.
+   */
+  @Post('manual')
+  @Roles('ADMIN', 'HR')
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.MANUAL)
+  @HttpCode(201)
+  async createManualCard(@Body() body: unknown, @CurrentUser() user: SessionUser) {
+    const request = jobQueueManualCardRequestSchema.parse(body)
+    return jobQueueSubmissionResponseSchema.parse(
+      await this.actions.createManualCard(user, request),
+    )
   }
 
   @Get()

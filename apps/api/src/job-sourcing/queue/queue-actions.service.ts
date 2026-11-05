@@ -195,7 +195,9 @@ export class JobQueueActionsService {
    *
    * The card is owned by the team (`manual_team_id`): only that team sees it (the MANUAL branch of
    * `visibleOpportunityPredicate`). It has no source record and is not enqueued for a recompute.
-   * The scope must be TEAM: an HR outside the team, like an unknown or archived team, is the 404.
+   * The role re-check behind the controller's `@Roles` is `resolve`'s: a role outside ADMIN / HR is
+   * a 403 there. The scope must be TEAM: an HR outside the team, like an unknown or archived team,
+   * is the 404.
    * Unlike `submit`, an ineligible senior or an unusable resume is a 422: the actor creates the card
    * and names both, so the refusal discloses nothing about an existing opportunity.
    */
