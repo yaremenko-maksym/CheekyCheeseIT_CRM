@@ -314,8 +314,11 @@ describe('useJobQueueCard', () => {
     expect(result.current.card.data).toBeUndefined()
     await waitFor(() => expect(client.getQueryState(continuation)).toBeUndefined())
     await waitFor(() => expect(listCalls()).toBe(2))
-    expect(client.getQueryState(jobQueueQueryKey(scope, 'NEW', {}))).toBeDefined()
+    // Let the queue settle: a late refetch loop would push either count past 2.
+    await act(() => new Promise((r) => setTimeout(r, 50)))
+    expect(listCalls()).toBe(2)
     expect(cardCalls()).toBe(2)
+    expect(client.getQueryState(jobQueueQueryKey(scope, 'NEW', {}))).toBeDefined()
   })
 
   it('on 403 hides the card and drops the scope cache no screen observes', async () => {

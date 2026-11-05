@@ -185,6 +185,32 @@ describe('useSubmitJobQueueSenior', () => {
     expect(keyOf(post.mock.calls[1])).not.toBe(keyOf(post.mock.calls[0]))
   })
 
+  it('takes a new key for the same variables under another team, and keeps it per team', async () => {
+    post
+      .mockRejectedValueOnce(coded(500, 'TRANSIENT'))
+      .mockRejectedValueOnce(coded(500, 'TRANSIENT'))
+      .mockResolvedValueOnce({ data: { submission } })
+    const { result, rerender } = renderHook(({ s }) => useSubmitJobQueueSenior(s), {
+      wrapper,
+      initialProps: { s: scope },
+    })
+
+    await act(() => result.current.mutateAsync(vars).catch(() => undefined))
+    rerender({ s: { ...scope, teamId: OTHER_TEAM } })
+    await act(() => result.current.mutateAsync(vars).catch(() => undefined))
+    rerender({ s: scope })
+    await act(() => result.current.mutateAsync(vars))
+
+    expect(post).toHaveBeenNthCalledWith(1, expect.any(String), expect.objectContaining({ teamId: TEAM }))
+    expect(post).toHaveBeenNthCalledWith(
+      2,
+      expect.any(String),
+      expect.objectContaining({ teamId: OTHER_TEAM }),
+    )
+    expect(keyOf(post.mock.calls[1])).not.toBe(keyOf(post.mock.calls[0]))
+    expect(keyOf(post.mock.calls[2])).toBe(keyOf(post.mock.calls[0]))
+  })
+
   it('encodes the ids into the path', async () => {
     post.mockResolvedValueOnce({ data: { submission } })
     const { result } = renderHook(() => useCancelJobQueueSubmission(scope), { wrapper })
@@ -331,6 +357,24 @@ describe('useMarkJobOpened', () => {
     const { result } = renderHook(() => useMarkJobOpened(scope), { wrapper })
     expect(result.current(OPP, SRC)).toBeUndefined()
     expect(post).toHaveBeenCalledWith(`/job-queue/${OPP}/opened`, { teamId: TEAM, sourceRecordId: SRC })
+  })
+
+  it('keeps one function across renders and takes a new one for another team', () => {
+    post.mockResolvedValue({ data: undefined })
+    const { result, rerender } = renderHook(({ s }) => useMarkJobOpened(s), {
+      wrapper,
+      initialProps: { s: scope },
+    })
+    const first = result.current
+    rerender({ s: { ...scope } })
+    expect(result.current).toBe(first)
+    rerender({ s: { ...scope, teamId: OTHER_TEAM } })
+    expect(result.current).not.toBe(first)
+    result.current(OPP, SRC)
+    expect(post).toHaveBeenCalledWith(`/job-queue/${OPP}/opened`, {
+      teamId: OTHER_TEAM,
+      sourceRecordId: SRC,
+    })
   })
 
   it('never throws and never rejects unhandled', async () => {

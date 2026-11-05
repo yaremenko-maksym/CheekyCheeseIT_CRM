@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import {
   useInfiniteQuery,
   useMutation,
@@ -273,15 +273,19 @@ function useQueueWrite<V, R>(
   // Held in a ref: the pending keys are lost on unmount, so a retry from a remounted screen is a new attempt.
   const keys = useRef(new Map<string, string>())
 
+  // The intent includes the scope: the same variables under another team are another write.
+  const intentOf = (vars: V) =>
+    JSON.stringify([scope.actorId, scope.role, scope.teamId, vars ?? null])
+
   return useMutation<R, unknown, V>({
     mutationFn: (vars) => {
-      const intent = JSON.stringify(vars ?? null)
+      const intent = intentOf(vars)
       const key = keys.current.get(intent) ?? crypto.randomUUID()
       keys.current.set(intent, key)
       return send(vars, key)
     },
     onSettled: (_data, error, vars) => {
-      if (isDefinitiveAnswer(error)) keys.current.delete(JSON.stringify(vars ?? null))
+      if (isDefinitiveAnswer(error)) keys.current.delete(intentOf(vars))
       if (cardId && getApiErrorCode(error) === 'JOB_OPPORTUNITY_NOT_FOUND') {
         queryClient.removeQueries({ queryKey: jobQueueCardQueryKey(scope, cardId(vars)) })
       }
@@ -371,11 +375,18 @@ export function useUndoJobQueueDismissal(scope: QueueScopeSignature) {
  * posting synchronously inside the gesture (`openOriginalPosting`).
  */
 export function useMarkJobOpened(scope: QueueScopeSignature) {
-  return (opportunityId: string, sourceRecordId: string): void => {
-    api
-      .post(`/job-queue/${seg(opportunityId)}/opened`, { ...teamParam(scope), sourceRecordId })
-      .catch(() => {})
-  }
+  const { teamId } = scope
+  return useCallback(
+    (opportunityId: string, sourceRecordId: string): void => {
+      api
+        .post(`/job-queue/${seg(opportunityId)}/opened`, {
+          ...(teamId === null ? {} : { teamId }),
+          sourceRecordId,
+        })
+        .catch(() => {})
+    },
+    [teamId],
+  )
 }
 
 /** A card for a vacancy found outside the sources, created with its first submission. */
