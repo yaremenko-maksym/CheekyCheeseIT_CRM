@@ -51,7 +51,10 @@ export function JobQueueStatusTabs({
           </TabsTrigger>
         ))}
       </TabsList>
-      <TabsContent value={value} className="mt-0 flex min-w-0 flex-col gap-4">
+      <TabsContent
+        value={value}
+        className="mt-0 flex min-w-0 flex-col gap-4 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
         {children}
       </TabsContent>
     </Tabs>

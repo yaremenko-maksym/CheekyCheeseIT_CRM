@@ -256,6 +256,33 @@ describe('/job-queue page', () => {
     expect(calls.filter((c) => c.url === '/teams')).toHaveLength(2)
   })
 
+  // CR-M-1: a never-loaded query goes back to `pending` on refetch, so the error block (and its
+  // button) is replaced by the skeleton at once; a disabled/aria-busy button could never render
+  it('replaces the teams error with the loading skeleton while the retry is in flight (CR-M-1)', async () => {
+    let fail = true
+    let release: (v: { data: unknown }) => void = () => {}
+    serve({
+      teamsCall: () =>
+        fail
+          ? Promise.reject(new Error('boom'))
+          : new Promise<{ data: unknown }>((resolve) => {
+              release = resolve
+            }),
+    })
+    renderPage()
+    const error = await screen.findByTestId('job-queue-error')
+    const retry = within(error).getByRole('button', { name: 'Спробувати ще раз' })
+    expect(retry).toBeEnabled()
+    expect(retry).not.toHaveAttribute('aria-busy')
+    fail = false
+    await userEvent.click(retry)
+    expect(await screen.findByTestId('job-queue-loading')).toBeInTheDocument()
+    expect(retry).not.toBeInTheDocument()
+    release({ data: [team(TEAM_A, 'Alpha')] })
+    expect(await screen.findByTestId(`job-queue-row-${ITEM_ID}`)).toBeInTheDocument()
+    expect(screen.queryByTestId('job-queue-error')).toBeNull()
+  })
+
   it('keeps search and the icon-only filter button on one row; only the team switcher stacks (UX-L-5)', async () => {
     serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
     renderPage()

@@ -75,8 +75,8 @@ describe('JobQueueRow', () => {
     const { row } = renderRow({ publishedAt: null })
     expect(row).toHaveTextContent('Дата публікації невідома · вперше побачено позавчора')
     expect(row).not.toHaveTextContent('Опубліковано')
-    // §4.3: the first-seen phrase never wraps apart
-    expect(screen.getByText('вперше побачено позавчора')).toHaveClass('whitespace-nowrap')
+    // §4.3: the first-seen phrase never wraps apart, and the separator wraps with it
+    expect(screen.getByText('· вперше побачено позавчора')).toHaveClass('whitespace-nowrap')
   })
 
   it('sets the title semibold (§4.3)', () => {

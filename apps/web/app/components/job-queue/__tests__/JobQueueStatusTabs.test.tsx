@@ -71,6 +71,14 @@ describe('JobQueueStatusTabs', () => {
     )
     const panel = screen.getByRole('tabpanel')
     expect(panel).toHaveTextContent('queue body')
+    // UX-M-4: the panel is a tab stop, so it needs a visible focus ring
+    expect(panel).toHaveClass(
+      'rounded-lg',
+      'focus-visible:outline-none',
+      'focus-visible:ring-2',
+      'focus-visible:ring-ring',
+      'focus-visible:ring-offset-2',
+    )
     expect(screen.getByTestId('job-queue-tab-SUBMITTED')).toHaveAttribute('aria-controls', panel.id)
     expect(panel).toHaveAttribute(
       'aria-labelledby',

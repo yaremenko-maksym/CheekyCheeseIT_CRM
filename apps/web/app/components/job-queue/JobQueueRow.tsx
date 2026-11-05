@@ -124,9 +124,9 @@ export function JobQueueRow({
             <span className="inline-flex flex-wrap items-center gap-x-1">
               <CalendarOff aria-hidden="true" className="size-3.5 shrink-0" />
               <Trans>Дата публікації невідома</Trans>
-              {' · '}
-              {/* §4.3: «вперше побачено» and its age never wrap apart */}
+              {/* §4.3: «вперше побачено» and its age never wrap apart; the separator wraps with them */}
               <span className="whitespace-nowrap">
+                {' · '}
                 <Trans>вперше побачено {firstSeenAgo}</Trans>
               </span>
             </span>
