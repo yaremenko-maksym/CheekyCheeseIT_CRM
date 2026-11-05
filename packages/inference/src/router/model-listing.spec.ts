@@ -231,6 +231,15 @@ describe('bounds', () => {
     expect(atCap.result).toMatchObject({ kind: 'ok', dropped: 1 })
     expect(overCap.result).toMatchObject({ kind: 'ok', dropped: 1 })
   })
+
+  it('drops and counts a family-shaped Gemini id at the listing cap, over the 128-char limit (SR-M-1)', async () => {
+    // `models/gemini-<digits>-flash`, 256 characters in all: it clears the listing cap and the family
+    // pattern; only the common id limit stops it.
+    const raw = `models/gemini-${'1'.repeat(256 - 'models/gemini--flash'.length)}-flash`
+    expect(raw).toHaveLength(256)
+    const { result } = await list('gemini', gemini([{ name: raw, inputTokenLimit: 1_000_000 }]))
+    expect(result).toEqual({ kind: 'ok', models: [], dropped: 1, beyondCap: 0 })
+  })
 })
 
 describe('a failed listing', () => {

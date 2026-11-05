@@ -107,12 +107,16 @@ function readListing(p: HostedProvider, text: string): ListingResult {
   const raw = entries(p, parseJsonOrNull(text))
   if (raw === null) return { kind: 'failed', noResponse: false }
   const models: ListedModel[] = []
+  const seen = new Set<string>()
   let dropped = 0
   for (const entry of raw.slice(0, LISTING_MAX_ENTRIES)) {
     const model = toModel(p, entry)
     // A repeated id would waste a probe of the day's allowance.
-    if (model === null || models.some((m) => m.id === model.id)) dropped += 1
-    else models.push(model)
+    if (model === null || seen.has(model.id)) dropped += 1
+    else {
+      seen.add(model.id)
+      models.push(model)
+    }
   }
   return {
     kind: 'ok',
