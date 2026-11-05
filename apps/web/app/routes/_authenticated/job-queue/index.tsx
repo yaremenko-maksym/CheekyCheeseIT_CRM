@@ -50,8 +50,10 @@ export const Route = createFileRoute('/_authenticated/job-queue/')({
 })
 
 /** Drops `undefined` keys so the URL (and its equality) carries only what is set. */
-function compact(search: Partial<QueueSearch>): Partial<QueueSearch> {
-  return Object.fromEntries(Object.entries(search).filter(([, v]) => v !== undefined))
+function compact<T extends object>(value: T): { [K in keyof T]?: Exclude<T[K], undefined> } {
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as {
+    [K in keyof T]?: Exclude<T[K], undefined>
+  }
 }
 
 export function JobQueuePage() {

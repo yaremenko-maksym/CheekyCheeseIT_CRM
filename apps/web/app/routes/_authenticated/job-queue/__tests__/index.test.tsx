@@ -73,8 +73,8 @@ function page(over: Partial<JobQueueListResponseDto> = {}): JobQueueListResponse
   }
 }
 
-type Route = { url: string; params?: Record<string, unknown> }
-const calls: Route[] = []
+type Call = { url: string; params?: Record<string, unknown> | undefined }
+const calls: Call[] = []
 
 function serve({
   role = 'HR',

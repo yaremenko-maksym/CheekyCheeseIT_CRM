@@ -36,6 +36,8 @@ export function JobQueueRow({
   const SourceIcon = source ? Rss : PenLine
   const company = item.companyName ?? t`Компанію не вказано`
   const matched = item.matchedSeniorCount
+  // id/values/options triple, not `{ ...MSG, values }`: the spread form crashes `lingui extract`.
+  const matchedMsg = role === 'ADMIN' ? MATCHED_ADMIN : MATCHED_HR
   const submitted = item.submittedSeniorCount
   const alsoSeen = item.alsoSeenOnCount
   const firstSeenAgo = formatRelativeTime(item.firstSeenAt, locale)
@@ -69,7 +71,11 @@ export function JobQueueRow({
         </span>
         {matched > 0 && (
           <span data-testid="job-queue-row-matched" data-slot="matched-count" className="text-sm">
-            {i18n._(role === 'ADMIN' ? MATCHED_ADMIN : MATCHED_HR, { n: matched })}
+            {i18n._(
+              matchedMsg.id,
+              { n: matched },
+              matchedMsg.message === undefined ? undefined : { message: matchedMsg.message },
+            )}
             {tab === 'SUBMITTED' && (
               <span data-testid="job-queue-row-submitted" className="ml-2 text-muted-foreground">
                 <Trans>✓ {submitted} подано</Trans>
