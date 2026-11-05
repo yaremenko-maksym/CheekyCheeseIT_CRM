@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common'
 import {
   jobQueueDismissalResponseSchema,
@@ -7,6 +8,7 @@ import {
   type JobQueueCancelSubmissionRequestDto,
   type JobQueueDismissalResponseDto,
   type JobQueueDismissRequestDto,
+  type JobQueueManualCardRequestDto,
   type JobQueueOpenedRequestDto,
   type JobQueueSubmissionResponseDto,
   type JobQueueSubmitRequestDto,
@@ -20,6 +22,7 @@ import { DatabaseService } from '../../database/database.service'
 import { isDeadlock, uniqueViolationConstraint } from '../../database/pg-errors'
 import { findMatchingExclusion } from '../filtering'
 import { exclusionPosting } from '../funnel/evaluate'
+import { normalizeCompanyName, normalizeTitle } from '../identity/resolver'
 import { loadOpportunity, loadSeniorExclusions } from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
@@ -51,6 +54,9 @@ const DISMISSAL_CONSTRAINT = 'uq_job_queue_dismissals_opportunity_scope'
 const notFound = () => apiError('JOB_OPPORTUNITY_NOT_FOUND', HttpStatus.NOT_FOUND)
 const versionConflict = () => apiError('JOB_QUEUE_VERSION_CONFLICT', HttpStatus.CONFLICT)
 const idempotencyConflict = () => apiError('JOB_QUEUE_IDEMPOTENCY_CONFLICT', HttpStatus.CONFLICT)
+const seniorIneligible = () =>
+  apiError('JOB_QUEUE_SENIOR_INELIGIBLE', HttpStatus.UNPROCESSABLE_ENTITY)
+const resumeUnusable = () => apiError('JOB_QUEUE_RESUME_UNUSABLE', HttpStatus.UNPROCESSABLE_ENTITY)
 
 /**
  * A's LIVE submission of a senior shared with the actor's team (owner decision A3, option (a)): the
@@ -166,6 +172,98 @@ export class JobQueueActionsService {
         after: row.version,
         key: request.idempotencyKey,
         replay: { fp: fingerprint, submissionId: row.id, submittedAt: row.takenAt },
+      })
+      return jobQueueSubmissionResponseSchema.parse({
+        submission: {
+          id: row.id,
+          opportunityId: opportunity,
+          seniorId,
+          state: 'TAKEN',
+          submittedAt: row.takenAt,
+          cancelledAt: null,
+          version: row.version,
+          submittedByName: await this.nameOf(tx, user.id),
+        },
+      })
+    })
+  }
+
+  /**
+   * r5 Phase 6 — POST /job-queue/manual: an HR / ADMIN creates a card for a vacancy found outside
+   * the sources, and the same transaction submits a senior of the named team to it, so a card never
+   * exists without its submission: any refusal below rolls the card back with everything else.
+   *
+   * The card is owned by the team (`manual_team_id`): only that team sees it (the MANUAL branch of
+   * `visibleOpportunityPredicate`). It has no source record and is not enqueued for a recompute.
+   * The scope must be TEAM: an HR outside the team, like an unknown or archived team, is the 404.
+   * Unlike `submit`, an ineligible senior or an unusable resume is a 422: the actor creates the card
+   * and names both, so the refusal discloses nothing about an existing opportunity.
+   */
+  async createManualCard(
+    user: SessionUser,
+    request: JobQueueManualCardRequestDto,
+  ): Promise<JobQueueSubmissionResponseDto> {
+    const teamId = canonicalUuid(request.submission.teamId)
+    const seniorId = canonicalUuid(request.submission.seniorId)
+    const resumeId = canonicalUuid(request.submission.resumeId)
+    if (teamId === null || seniorId === null || resumeId === null) throw notFound()
+    const descriptionSha256 = createHash('sha256').update(request.descriptionMd).digest('hex')
+    const applicationUrl = request.applicationUrl ?? null
+    return this.write(async (tx) => {
+      const scope = await this.writeScope(user, teamId, tx)
+      if (scope.kind !== 'TEAM') throw notFound()
+      await this.lockActor(tx, user, scope)
+      const fingerprint = requestFingerprint([
+        'MANUAL',
+        teamId,
+        seniorId,
+        resumeId,
+        request.title,
+        request.companyName,
+        applicationUrl,
+        descriptionSha256,
+      ])
+      const earlier = await this.earlierAction(tx, user.id, request.idempotencyKey, fingerprint)
+      if (earlier !== null) {
+        await this.scopes.assertVisible(scope, earlier.opportunity, tx)
+        return this.submissionAnswer(tx, earlier.opportunity, earlier, 'TAKEN', seniorId, user.id)
+      }
+
+      await tx.execute(
+        sql`INSERT INTO job_text_blobs (sha256, text)
+            VALUES (${descriptionSha256}, ${request.descriptionMd})
+            ON CONFLICT (sha256) DO NOTHING`,
+      )
+      const card = await tx.execute(
+        sql`INSERT INTO job_opportunities
+              (title, title_key, employer_name, employer_key, application_url,
+               description_sha256, manual_team_id)
+            VALUES (${request.title}, ${normalizeTitle(request.title)}, ${request.companyName},
+                    ${normalizeCompanyName(request.companyName)}, ${applicationUrl},
+                    ${descriptionSha256}, ${teamId}::uuid)
+         RETURNING id`,
+      )
+      const opportunity = String(card.rows[0]?.['id'])
+      await this.assertSeniorEligible(tx, scope, seniorId, opportunity, seniorIneligible)
+      const resume = await this.scopes.policy(() =>
+        tx.execute(
+          sql`SELECT id FROM senior_resumes
+               WHERE id = ${resumeId}::uuid AND user_id = ${seniorId}::uuid AND status = 'READY'
+                 FOR SHARE`,
+        ),
+      )
+      if (resume.rows.length === 0) throw resumeUnusable()
+
+      const row = await this.insertSubmission(tx, opportunity, seniorId, scope, user.id)
+      await this.logAction(tx, {
+        kind: 'TAKEN',
+        opportunity,
+        actorId: user.id,
+        scope,
+        before: 0,
+        after: row.version,
+        key: request.idempotencyKey,
+        replay: { fp: fingerprint, submissionId: row.id, submittedAt: row.takenAt, resumeId },
       })
       return jobQueueSubmissionResponseSchema.parse({
         submission: {
@@ -525,7 +623,7 @@ export class JobQueueActionsService {
     fingerprint: string,
   ): Promise<EarlierAction | null> {
     const { rows } = await tx.execute(
-      sql`SELECT reason, after_version, created_at FROM job_queue_actions
+      sql`SELECT reason, after_version, created_at, opportunity_id FROM job_queue_actions
            WHERE actor_id = ${actorId}::uuid AND idempotency_key = ${key}`,
     )
     const row = rows[0]
@@ -533,6 +631,7 @@ export class JobQueueActionsService {
     const replay = parseActionReplay(row['reason'])
     if (replay === null || replay.fp !== fingerprint) throw idempotencyConflict()
     return {
+      opportunity: String(row['opportunity_id']),
       replay,
       version: Number(row['after_version']),
       createdAt: isoInstant(row['created_at']),
@@ -615,6 +714,7 @@ export class JobQueueActionsService {
     scope: WriteScope,
     seniorId: string,
     opportunity: string,
+    refuse: () => HttpException = notFound,
   ): Promise<void> {
     const member = await this.scopes.policy(() =>
       tx.execute(
@@ -629,12 +729,12 @@ export class JobQueueActionsService {
                FOR SHARE OF tm, u, t`,
       ),
     )
-    if (member.rows.length === 0) throw notFound()
+    if (member.rows.length === 0) throw refuse()
     const loaded = await this.scopes.policy(() => loadOpportunity(tx, opportunity))
-    if (loaded === null) throw notFound()
+    if (loaded === null) throw refuse()
     const own = await this.scopes.policy(() => loadSeniorExclusions(tx, seniorId))
     const stopListed = findMatchingExclusion(exclusionPosting(loaded.canonical), own)
-    if (stopListed !== null) throw notFound()
+    if (stopListed !== null) throw refuse()
   }
 
   private async existingSubmission(
@@ -777,6 +877,8 @@ interface LockedCopy {
 }
 
 interface EarlierAction {
+  /** The opportunity the logged action wrote: a manual card's retry learns its card from here. */
+  readonly opportunity: string
   readonly replay: ActionReplay
   readonly version: number
   readonly createdAt: string

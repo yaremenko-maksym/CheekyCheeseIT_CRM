@@ -26,6 +26,8 @@ const SUB = '60000000-0000-4000-8000-000000000001'
 const NEW_SUB = '60000000-0000-4000-8000-000000000002'
 const KEY = '70000000-0000-4000-8000-000000000001'
 const SOURCE = '80000000-0000-4000-8000-000000000001'
+const CARD = '10000000-0000-4000-8000-0000000000c1'
+const RESUME = 'a0000000-0000-4000-8000-000000000001'
 const T1 = '2026-11-04T10:00:00.000Z'
 const T2 = '2026-11-04T11:00:00.000Z'
 
@@ -53,7 +55,10 @@ const PATTERNS = {
   canonical: /b\.text AS description/,
   lockSet: /FROM job_opportunities t JOIN job_opportunities d/,
   lockTarget: /SELECT id FROM job_opportunities WHERE id = /,
-  earlier: /SELECT reason, after_version, created_at FROM job_queue_actions/,
+  earlier: /SELECT reason, after_version, created_at, opportunity_id FROM job_queue_actions/,
+  blob: /INSERT INTO job_text_blobs/,
+  card: /INSERT INTO job_opportunities/,
+  resume: /FROM senior_resumes/,
   actor: /SELECT id FROM users/,
   membership: /SELECT id FROM team_members/,
   senior: /SELECT tm\.team_id FROM team_members tm/,
@@ -112,6 +117,9 @@ const DEFAULTS: Partial<Record<Statement, Rows>> = {
   lockSet: [COPY_ROW],
   lockTarget: [{ id: OPP }],
   earlier: [],
+  blob: [],
+  card: [{ id: CARD }],
+  resume: [{ id: RESUME }],
   actor: [{ id: HR_ID }],
   membership: [{ id: 'm' }],
   senior: [{ team_id: TEAM_A }],
@@ -1432,5 +1440,261 @@ describe('the transaction boundary', () => {
     const h = harness({ log: auditDown })
     await expect(h.svc.submit(HR, OPP, submitBody())).rejects.toBe(auditDown)
     expect(h.hits).not.toContain('name')
+  })
+})
+
+describe('createManualCard (r5 Phase 6)', () => {
+  const DESCRIPTION = 'We need a Go developer.'
+  const DESCRIPTION_SHA = 'ea19eb119fac6a1ef9a249b7ae62c3c1a69f35c72cba531d73314f0d86e73123'
+  const URL = 'https://acme.test/jobs/1'
+  const manualBody = (over: Record<string, unknown> = {}) => ({
+    title: 'Go Developer (Remote)',
+    companyName: 'Acme, Inc.',
+    applicationUrl: URL,
+    descriptionMd: DESCRIPTION,
+    idempotencyKey: KEY,
+    submission: { teamId: TEAM_A, seniorId: SENIOR, resumeId: RESUME },
+    ...over,
+  })
+  const MANUAL_FP = requestFingerprint([
+    'MANUAL',
+    TEAM_A,
+    SENIOR,
+    RESUME,
+    'Go Developer (Remote)',
+    'Acme, Inc.',
+    URL,
+    DESCRIPTION_SHA,
+  ])
+  const MANUAL_WRITES: Statement[] = ['blob', 'card', 'insert', 'log']
+  const answer = {
+    submission: {
+      id: NEW_SUB,
+      opportunityId: CARD,
+      seniorId: SENIOR,
+      state: 'TAKEN',
+      submittedAt: T1,
+      cancelledAt: null,
+      version: 1,
+      submittedByName: 'Rita Recruiter',
+    },
+  }
+  const expectIneligible = (p: Promise<unknown>) =>
+    expectCode(p, 422, 'JOB_QUEUE_SENIOR_INELIGIBLE')
+  const stopListed = {
+    id: '90000000-0000-4000-8000-000000000001',
+    senior_id: SENIOR,
+    kind: 'COMPANY',
+    value: 'Acme',
+    normalized_value: 'acme',
+    created_at: new Date(T1),
+  }
+
+  it('creates the card and its submission in one transaction, in order', async () => {
+    const h = harness()
+    expect(await h.svc.createManualCard(HR, manualBody())).toEqual(answer)
+    expect(h.transaction).toHaveBeenCalledTimes(1)
+    expect(h.hits).toEqual([
+      'actor',
+      'team',
+      'membership',
+      'earlier',
+      'blob',
+      'card',
+      'senior',
+      'canonical',
+      'ownManual',
+      'ownProjects',
+      'resume',
+      'insert',
+      'log',
+      'name',
+    ])
+    expect(h.scopes.resolve).toHaveBeenCalledWith(HR, TEAM_A, h.tx)
+    expect(h.scopes.assertVisible).not.toHaveBeenCalled()
+  })
+
+  it('stores the description blob by its lowercase hex digest, keeping an existing one', async () => {
+    const h = harness()
+    await h.svc.createManualCard(HR, manualBody())
+    expect(h.param('blob')).toEqual([DESCRIPTION_SHA, DESCRIPTION])
+    expect(h.calls.find((c) => PATTERNS.blob.test(c.text))?.text).toContain(
+      'ON CONFLICT (sha256) DO NOTHING',
+    )
+  })
+
+  it('writes the card with the candidate keys, the description and its owner team', async () => {
+    const h = harness()
+    await h.svc.createManualCard(HR, manualBody())
+    expect(h.param('card')).toEqual([
+      'Go Developer (Remote)',
+      'go developer remote',
+      'Acme, Inc.',
+      'acme inc',
+      URL,
+      DESCRIPTION_SHA,
+      TEAM_A,
+    ])
+  })
+
+  it('a card without an application link stores NULL', async () => {
+    const h = harness()
+    await h.svc.createManualCard(HR, manualBody({ applicationUrl: undefined }))
+    expect(h.param('card')[4]).toBeNull()
+  })
+
+  it('submits the senior to the new card in the team scope, for the actor', async () => {
+    const h = harness()
+    await h.svc.createManualCard(HR, manualBody())
+    expect(h.param('insert')).toEqual([CARD, SENIOR, 'TEAM', TEAM_A, HR_ID])
+  })
+
+  it('logs TAKEN from 0 to 1 on the card, with the resume in the replay', async () => {
+    const h = harness()
+    await h.svc.createManualCard(HR, manualBody())
+    const [kind, opp, actor, scopeKind, team, before, after, key, reason] = h.param('log')
+    expect([kind, opp, actor, scopeKind, team, before, after, key]).toEqual([
+      'TAKEN',
+      CARD,
+      HR_ID,
+      'TEAM',
+      TEAM_A,
+      0,
+      1,
+      KEY,
+    ])
+    expect(JSON.parse(reason as string)).toEqual({
+      fp: MANUAL_FP,
+      submissionId: NEW_SUB,
+      submittedAt: T1,
+      resumeId: RESUME,
+    })
+  })
+
+  it("reads the resume as the senior's own READY one, locked for share", async () => {
+    const h = harness()
+    await h.svc.createManualCard(HR, manualBody())
+    expect(h.param('resume')).toEqual([RESUME, SENIOR])
+    const text = h.calls.find((c) => PATTERNS.resume.test(c.text))?.text
+    expect(text).toContain("status = 'READY'")
+    expect(text).toContain('FOR SHARE')
+  })
+
+  it('canonicalizes the ids before any statement', async () => {
+    const h = harness()
+    await h.svc.createManualCard(
+      HR,
+      manualBody({
+        submission: {
+          teamId: TEAM_A.toUpperCase(),
+          seniorId: SENIOR.toUpperCase(),
+          resumeId: RESUME.toUpperCase(),
+        },
+      }),
+    )
+    expect(h.scopes.resolve).toHaveBeenCalledWith(HR, TEAM_A, h.tx)
+    expect(h.param('resume')).toEqual([RESUME, SENIOR])
+    expect(h.param('insert')[1]).toBe(SENIOR)
+  })
+
+  it('an ADMIN names any live team and needs no membership of it', async () => {
+    const h = harness()
+    await h.svc.createManualCard(ADMIN, manualBody())
+    expect(h.hits).not.toContain('membership')
+    expect(h.param('insert')).toEqual([CARD, SENIOR, 'TEAM', TEAM_A, ADMIN_ID])
+  })
+
+  it('a non-team scope (no membership, or STUDIO) is a 404 before any statement', async () => {
+    for (const scope of [{ kind: 'NONE' }, STUDIO_SCOPE] as JobQueueScope[]) {
+      const h = harness({}, scope)
+      await expectNotFound(h.svc.createManualCard(HR, manualBody()))
+      expect(h.hits).toEqual([])
+    }
+  })
+
+  it('a demoted actor, an archived team or a left HR is a 404 before any write', async () => {
+    for (const answers of [{ actor: [] }, { team: [] }, { membership: [] }]) {
+      const h = harness(answers)
+      await expectNotFound(h.svc.createManualCard(HR, manualBody()))
+      expect(h.hits.filter((x) => MANUAL_WRITES.includes(x))).toEqual([])
+    }
+  })
+
+  it('a senior who is not an active SENIOR member of the team is a 422, and nothing is submitted', async () => {
+    const h = harness({ senior: [] })
+    await expectIneligible(h.svc.createManualCard(HR, manualBody()))
+    expect(h.hits).not.toContain('insert')
+    expect(h.hits).not.toContain('log')
+    const text = h.calls.find((c) => PATTERNS.senior.test(c.text))?.text
+    expect(text).toContain("u.role = 'SENIOR'")
+    expect(text).toContain('u.archived_at IS NULL')
+    expect(h.param('senior')).toEqual([SENIOR, TEAM_A])
+  })
+
+  it('a senior who stop-listed the company is a 422', async () => {
+    const h = harness({ ownManual: [stopListed] })
+    await expectIneligible(h.svc.createManualCard(HR, manualBody()))
+    expect(h.hits).not.toContain('insert')
+  })
+
+  it('a card the transaction cannot read back is a 422, not a submission', async () => {
+    const h = harness({ canonical: [] })
+    await expectIneligible(h.svc.createManualCard(HR, manualBody()))
+    expect(h.hits).not.toContain('insert')
+  })
+
+  it('an unknown, foreign or unfinished resume is a 422, and nothing is submitted', async () => {
+    const h = harness({ resume: [] })
+    await expectCode(h.svc.createManualCard(HR, manualBody()), 422, 'JOB_QUEUE_RESUME_UNUSABLE')
+    expect(h.hits).not.toContain('insert')
+    expect(h.hits).not.toContain('log')
+  })
+
+  it('a failing step propagates, so the card rolls back with the transaction', async () => {
+    const auditDown = new Error('audit failed')
+    const h = harness({ log: auditDown })
+    await expect(h.svc.createManualCard(HR, manualBody())).rejects.toBe(auditDown)
+    expect(h.hits).toContain('card')
+    expect(h.hits).not.toContain('name')
+  })
+
+  it('a retry answers from the log, on the card it names, and creates nothing', async () => {
+    const h = harness({
+      earlier: [
+        {
+          reason: JSON.stringify({
+            fp: MANUAL_FP,
+            submissionId: NEW_SUB,
+            submittedAt: T1,
+            resumeId: RESUME,
+          }),
+          after_version: 1,
+          created_at: new Date(T2),
+          opportunity_id: CARD,
+        },
+      ],
+    })
+    expect(await h.svc.createManualCard(HR, manualBody())).toEqual(answer)
+    expect(h.scopes.assertVisible).toHaveBeenCalledWith(TEAM_SCOPE, CARD, h.tx)
+    expect(h.hits.filter((x) => MANUAL_WRITES.includes(x))).toEqual([])
+  })
+
+  it('a reused key with another request is the idempotency conflict', async () => {
+    const h = harness({
+      earlier: [
+        {
+          reason: JSON.stringify({ fp: MANUAL_FP, submissionId: NEW_SUB, submittedAt: T1 }),
+          after_version: 1,
+          created_at: new Date(T1),
+          opportunity_id: CARD,
+        },
+      ],
+    })
+    await expectCode(
+      h.svc.createManualCard(HR, manualBody({ title: 'Rust Developer' })),
+      409,
+      'JOB_QUEUE_IDEMPOTENCY_CONFLICT',
+    )
+    expect(h.hits.filter((x) => MANUAL_WRITES.includes(x))).toEqual([])
   })
 })

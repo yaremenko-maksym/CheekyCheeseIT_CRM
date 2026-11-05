@@ -91,6 +91,8 @@ const actionReplaySchema = z.object({
   submissionId: z.string().uuid().optional(),
   submittedAt: z.string().datetime().optional(),
   dismissReason: z.string().optional(),
+  /** r5 Phase 6: the resume a manual card's submission carries. */
+  resumeId: z.string().uuid().optional(),
 })
 export type ActionReplay = z.infer<typeof actionReplaySchema>
 
