@@ -112,6 +112,14 @@ describe('extraction-worker adapter — every refused, failed or malformed reply
     ['401 refused', { status: 401, text: '{"error":"UNAUTHORIZED"}' }],
     ['409 version mismatch', { status: 409, text: '{"error":"TABLE_VERSION_MISMATCH"}' }],
     ['500', { status: 500, text: '{"error":"INTERNAL"}' }],
+    [
+      '500 with a well-formed reply body',
+      { ...reply({ ok: true, data: { title: 't' } }), status: 500 },
+    ],
+    [
+      '429 with a well-formed reply body',
+      { ...reply({ ok: true, data: { title: 't' } }), status: 429 },
+    ],
     ['not JSON', { status: 200, text: '{"result":' }],
     ['no result', { status: 200, text: JSON.stringify({ events: [], health: HEALTH }) }],
     ['data fails the caller schema', reply({ ok: true, data: { title: 1 } })],

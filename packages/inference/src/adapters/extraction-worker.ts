@@ -17,33 +17,40 @@ const usageSchema = z
   })
   .strict()
 
-/** The worker's reply, untrusted (ADR §2.4): the data is parsed again with the caller's schema. */
-const replySchema = z
-  .object({
-    result: z.discriminatedUnion('ok', [
-      z
-        .object({ ok: z.literal(true), data: z.unknown(), usage: usageSchema.exactOptional() })
-        .strict(),
-      z
+/**
+ * The worker's reply, untrusted (ADR §2.4): the data is parsed again with the caller's schema.
+ * Built per adapter, not at load: a broken schema then fails its adapter, not the whole module.
+ */
+const buildReplySchema = () =>
+  z
+    .object({
+      result: z.discriminatedUnion('ok', [
+        z
+          .object({ ok: z.literal(true), data: z.unknown(), usage: usageSchema.exactOptional() })
+          .strict(),
+        z
+          .object({
+            ok: z.literal(false),
+            code: z.enum(INFERENCE_ERROR_CODES),
+            usage: z.object({ localMs: z.number().nonnegative() }).strict().exactOptional(),
+          })
+          .strict(),
+      ]),
+      events: z.array(z.looseObject({ type: z.string() })).max(MAX_REPLY_EVENTS),
+      health: z
         .object({
-          ok: z.literal(false),
-          code: z.enum(INFERENCE_ERROR_CODES),
-          usage: z.object({ localMs: z.number().nonnegative() }).strict().exactOptional(),
+          modelListStale: z.boolean(),
+          failedJobs: z.array(z.enum(['daily', 'chain'])),
         })
         .strict(),
-    ]),
-    events: z.array(z.looseObject({ type: z.string() })).max(MAX_REPLY_EVENTS),
-    health: z
-      .object({
-        modelListStale: z.boolean(),
-        failedJobs: z.array(z.enum(['daily', 'chain'])),
-      })
-      .strict(),
-  })
-  .strict()
+    })
+    .strict()
 
 /** What the worker reports besides the answer: its events and the §5.3 health flags. */
-export type ExtractionWorkerReply = Pick<z.infer<typeof replySchema>, 'events' | 'health'>
+export type ExtractionWorkerReply = Pick<
+  z.infer<ReturnType<typeof buildReplySchema>>,
+  'events' | 'health'
+>
 
 export type ExtractionWorkerAdapterConfig = {
   /** The worker on its private network, e.g. `http://crm-extraction-worker:3100`. */
@@ -66,6 +73,7 @@ export type ExtractionWorkerAdapterConfig = {
 export function createExtractionWorkerAdapter(
   config: ExtractionWorkerAdapterConfig,
 ): ExtractionPort {
+  const replySchema = buildReplySchema()
   return {
     async extract<T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>> {
       const failed: ExtractionResult<T> = { ok: false, code: 'PROVIDER_ERROR' }
@@ -79,13 +87,13 @@ export function createExtractionWorkerAdapter(
         signal: req.signal,
         fetchImpl: config.fetchImpl,
       })
-      if (res.kind === 'timeout' && res.aborted === true) return { ok: false, code: 'TIMEOUT' }
+      if (res.kind === 'timeout') return res.aborted ? { ok: false, code: 'TIMEOUT' } : failed
       if (res.kind !== 'ok') return failed
       let body: unknown
       try {
         body = JSON.parse(res.text)
       } catch {
-        return failed
+        // `body` stays undefined, which the reply schema refuses.
       }
       const parsed = replySchema.safeParse(body)
       if (!parsed.success) return failed

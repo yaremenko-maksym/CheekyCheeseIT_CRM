@@ -65,7 +65,7 @@ function isUrlAllowed(
   }
   if (parsed.protocol === 'https:') return true
   if (parsed.protocol !== 'http:') return false
-  if (privateHost !== null && parsed.hostname === privateHost) return true
+  if (parsed.hostname === privateHost) return true
   return (allowLoopbackHttp || privateHost !== null) && LOOPBACK_HOSTS.has(parsed.hostname)
 }
 
