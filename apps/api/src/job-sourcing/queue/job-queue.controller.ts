@@ -18,6 +18,7 @@ import {
   jobQueueListQuerySchema,
   jobQueueListResponseSchema,
   jobQueueOpenedRequestSchema,
+  jobQueueRecomputeResponseSchema,
   jobQueueScopeQuerySchema,
   jobQueueSeniorsContinuationSchema,
   jobQueueSourcesContinuationSchema,
@@ -33,6 +34,7 @@ import { RolesGuard } from '../../common/guards/roles.guard'
 import { RelaxableThrottle } from '../../config/throttle-decorators'
 import { JobQueueService } from './job-queue.service'
 import { JobQueueActionsService } from './queue-actions.service'
+import { JobQueueRecomputeService } from './queue-recompute.service'
 
 /** The card takes only the scope: a cursor belongs to a continuation, so on the card it is a 400. */
 const cardQuerySchema = jobQueueScopeQuerySchema.pick({ teamId: true })
@@ -51,6 +53,7 @@ export const JOB_QUEUE_THROTTLE = {
   UNDO: 60,
   OPENED: 120,
   SUPPRESS: 30,
+  RECOMPUTE: 6,
 } as const
 
 /**
@@ -71,7 +74,7 @@ export const JOB_QUEUE_THROTTLE = {
  *
  * THROTTLES, on top of the global `UserAwareThrottlerGuard`, through `RelaxableThrottle` (the
  * project's single throttle mechanism, so CI E2E may relax them outside production). The writes follow the plan's table
- * (submit / cancel / suppress 30, dismiss / undo 60, opened 120 per minute). The reads are chosen
+ * (submit / cancel / suppress 30, dismiss / undo 60, opened 120, recompute 6 per minute). The reads are chosen
  * here: the LIST is the tightest read, 30 per minute, because a list request without a cursor may
  * PUBLISH a generation (an INSERT of up to `GENERATION_POLICY.maxEntries` ranked entries) when its
  * scope has no live one; infinite scroll pages through the published one by cursor, so 30 pages a
@@ -87,7 +90,20 @@ export class JobQueueController {
   constructor(
     @Inject(JobQueueService) private readonly queue: JobQueueService,
     @Inject(JobQueueActionsService) private readonly actions: JobQueueActionsService,
+    @Inject(JobQueueRecomputeService) private readonly recomputes: JobQueueRecomputeService,
   ) {}
+
+  /**
+   * ADMIN only: enqueues a match recompute and answers 202 with the run id; never runs it inline.
+   * No clash with the `:id` routes: `recompute` is one segment, each of them two.
+   */
+  @Post('recompute')
+  @Roles('ADMIN')
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.RECOMPUTE)
+  @HttpCode(202)
+  async recompute(@CurrentUser() user: SessionUser) {
+    return jobQueueRecomputeResponseSchema.parse(await this.recomputes.enqueue(user))
+  }
 
   @Get()
   @Roles('ADMIN', 'HR')

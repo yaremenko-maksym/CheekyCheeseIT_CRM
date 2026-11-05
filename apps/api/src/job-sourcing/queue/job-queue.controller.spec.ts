@@ -14,6 +14,7 @@ import { RolesGuard } from '../../common/guards/roles.guard'
 import { JobQueueController } from './job-queue.controller'
 import type { JobQueueService } from './job-queue.service'
 import type { JobQueueActionsService } from './queue-actions.service'
+import type { JobQueueRecomputeService } from './queue-recompute.service'
 
 /**
  * r5 Task 6.4 — unit doubles for the `/job-queue` controller (the mutation gate never runs the
@@ -27,6 +28,8 @@ const KEY = '77777777-8888-4999-8aaa-bbbbbbbbbbbb'
 const SENIOR = '88888888-9999-4aaa-8bbb-cccccccccccc'
 const TEAM = '99999999-aaaa-4bbb-8ccc-dddddddddddd'
 const T = '2026-11-04T10:00:00.000Z'
+const RUN = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+const ADMIN = { id: 'a', role: 'ADMIN' } as SessionUser
 
 const LIST = {
   items: [],
@@ -91,13 +94,16 @@ function harness() {
     opened: vi.fn(async () => undefined),
     suppress: vi.fn(async () => undefined),
   }
+  const recomputes = { enqueue: vi.fn(async () => ({ runId: RUN })) }
   return {
     controller: new JobQueueController(
       queue as unknown as JobQueueService,
       actions as unknown as JobQueueActionsService,
+      recomputes as unknown as JobQueueRecomputeService,
     ),
     queue,
     actions,
+    recomputes,
   }
 }
 
@@ -137,6 +143,7 @@ describe('JobQueueController — routing and gates', () => {
     ['undo', RequestMethod.POST, ':id/undo', ['ADMIN', 'HR'], 60, 200],
     ['opened', RequestMethod.POST, ':id/opened', ['ADMIN', 'HR'], 120, 204],
     ['suppress', RequestMethod.POST, ':id/suppress', ['ADMIN'], 30, 204],
+    ['recompute', RequestMethod.POST, 'recompute', ['ADMIN'], 6, 202],
   ] as const)('%s: %s %s, roles %j, %i/min, code %s', (name, method, path, roles, limit, code) => {
     const h = handler(name)
     expect(Reflect.getMetadata(METHOD_METADATA, h)).toBe(method)
@@ -285,6 +292,18 @@ describe('JobQueueController — writes', () => {
     expect(h.actions.opened).toHaveBeenCalledWith(HR, OPP, { sourceRecordId: SUB })
     expect(await h.controller.suppress(OPP, { idempotencyKey: KEY }, HR)).toBeUndefined()
     expect(h.actions.suppress).toHaveBeenCalledWith(HR, OPP, { idempotencyKey: KEY })
+  })
+
+  it('recompute: answers the run id the service enqueued, for the caller', async () => {
+    const h = harness()
+    expect(await h.controller.recompute(ADMIN)).toEqual({ runId: RUN })
+    expect(h.recomputes.enqueue).toHaveBeenCalledWith(ADMIN)
+  })
+
+  it('recompute: a service answer that is not a run id is refused on the way out', async () => {
+    const h = harness()
+    h.recomputes.enqueue.mockResolvedValueOnce({ runId: 'not-a-uuid' })
+    await expect(h.controller.recompute(ADMIN)).rejects.toThrow(ZodError)
   })
 
   it.each([
