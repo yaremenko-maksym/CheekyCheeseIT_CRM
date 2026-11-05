@@ -25,19 +25,19 @@ const URL_FIELDS: ReadonlySet<string> = new Set(['postingUrl', 'applyUrl'])
 /** Absent and `null` both mean "not stated on the page". */
 const fact = (max: number) => z.string().max(max).nullable().default(null)
 
-const EVIDENCE_FIELDS = [
+/** The string facts a reply must quote to keep (D10, ADR §5.4); URLs and `remote` have their own rules. */
+const STRING_FACT_FIELDS = [
   'externalId',
   'title',
   'company',
   'location',
-  'remote',
   'employmentType',
   'salary',
   'description',
   'postedAt',
-  'postingUrl',
-  'applyUrl',
 ] as const
+
+const EVIDENCE_FIELDS = [...STRING_FACT_FIELDS, 'remote', 'postingUrl', 'applyUrl'] as const
 
 /** URL fields are validated separately, per field, so a bad URL never costs the whole record. */
 const recordSchema = z.object({
@@ -64,6 +64,25 @@ const outputSchema = z.object({
   records: z.array(z.unknown()).max(MAX_RECORDS),
 })
 
+/**
+ * What the model port is asked for (ADR §5.4): one record, one page, composed from the guard's own
+ * definitions, so the shape sent and the shape guarded cannot drift. URLs are typed so they render;
+ * whether a URL is real stays the guard's per-field check. A reply off this shape is the port's
+ * `INVALID_OUTPUT` and cascades; the guard stays behind it unchanged.
+ */
+export const modelReplySchema = outputSchema.extend({
+  records: z
+    .array(
+      recordSchema.extend({
+        postingUrl: z.string().nullable().default(null),
+        applyUrl: z.string().nullable().default(null),
+      }),
+    )
+    .max(1),
+})
+
+export type ModelReply = z.output<typeof modelReplySchema>
+
 export type ExtractionRecord = Omit<z.infer<typeof recordSchema>, 'postingUrl' | 'applyUrl'> & {
   postingUrl: string | null
   applyUrl: string | null
@@ -84,6 +103,8 @@ export type ExtractionGuardResult =
       droppedRecords: number
       nulledUrls: number
       droppedEvidence: number
+      /** String facts nulled for having no surviving quote (D10); MP-03 reports the share. */
+      nulledFacts: number
     }
   | { ok: false; reason: 'OUTPUT_TOO_LARGE' | 'NOT_JSON' | 'SCHEMA_INVALID' | 'NO_VALID_RECORD' }
 
@@ -126,6 +147,7 @@ export function guardExtractionResult(raw: string, ctx: ExtractionContext): Extr
   let droppedRecords = 0
   let nulledUrls = 0
   let droppedEvidence = 0
+  let nulledFacts = 0
   for (const candidate of output.data.records) {
     const record = recordSchema.safeParse(candidate)
     if (!record.success) {
@@ -157,7 +179,15 @@ export function guardExtractionResult(raw: string, ctx: ExtractionContext): Extr
       return related && specific && ctx.evidenceText.includes(span.quote)
     })
     droppedEvidence += evidence.length - quoted.length
-    records.push({ ...fields, evidence: quoted })
+    // D10: a string fact is only what a surviving quote proves; the record and its other fields stay.
+    const proved = new Set<string>(quoted.map((span) => span.field))
+    const provedFields = { ...fields }
+    for (const field of STRING_FACT_FIELDS) {
+      if (fields[field] === null || proved.has(field)) continue
+      provedFields[field] = null
+      nulledFacts += 1
+    }
+    records.push({ ...provedFields, evidence: quoted })
   }
 
   if (records.length === 0 && droppedRecords > 0) return { ok: false, reason: 'NO_VALID_RECORD' }
@@ -168,5 +198,6 @@ export function guardExtractionResult(raw: string, ctx: ExtractionContext): Extr
     droppedRecords,
     nulledUrls,
     droppedEvidence,
+    nulledFacts,
   }
 }

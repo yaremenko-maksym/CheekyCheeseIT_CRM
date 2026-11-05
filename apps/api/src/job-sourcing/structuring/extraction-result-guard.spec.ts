@@ -20,7 +20,14 @@ const FULL_RECORD = {
   postedAt: null,
   postingUrl: 'https://jobs.example.com/vacancy/12345?ref=board',
   applyUrl: 'https://apply.example.com/form/12345',
-  evidence: [{ field: 'title', quote: 'Senior Rust Engineer' }],
+  // D10: every string fact above carries a quote, or the guard would null it.
+  evidence: [
+    { field: 'externalId', quote: '12345' },
+    { field: 'title', quote: 'Senior Rust Engineer' },
+    { field: 'company', quote: 'Acme' },
+    { field: 'location', quote: 'Lviv' },
+    { field: 'salary', quote: '6 000 - 7 500 USD' },
+  ],
   uncertainty: 0.1,
 }
 
@@ -167,8 +174,8 @@ describe('guardExtractionResult — evidence spans', () => {
 describe('guardExtractionResult — record isolation', () => {
   it('one invalid record is dropped, the others kept', () => {
     const bad = { ...FULL_RECORD, title: { nested: true } }
-    const result = okResult(output([FULL_RECORD, bad, { ...FULL_RECORD, externalId: '2' }]))
-    expect(result.records.map((r) => r.externalId)).toEqual(['12345', '2'])
+    const result = okResult(output([FULL_RECORD, bad, { ...FULL_RECORD, remote: false }]))
+    expect(result.records.map((r) => r.remote)).toEqual([true, false])
     expect(result.droppedRecords).toBe(1)
   })
 

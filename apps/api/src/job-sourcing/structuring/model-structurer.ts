@@ -1,7 +1,6 @@
 import type { ExtractionPort, ExtractionResult, InferenceErrorCode } from '@crm/inference'
-import { z } from 'zod'
 import { assertModelAllowed, type GateAllowed } from './ai-input-gate'
-import { guardExtractionResult } from './extraction-result-guard'
+import { guardExtractionResult, modelReplySchema, type ModelReply } from './extraction-result-guard'
 import type {
   DiscoveredRecord,
   ExtractorStopCode,
@@ -16,12 +15,10 @@ import type {
 } from './html-structurer.port'
 import type { ModelBudgetPort, ModelUsage } from './model-budget.port'
 import { buildExtractionPrompt } from './prompt-envelope'
+import { smallDoseFor } from './small-dose-table'
 
 /** One call may take this long before it is abandoned and its budget slot released. */
 export const DEFAULT_STRUCTURER_TIMEOUT_MS = 120_000
-
-/** The port only parses JSON; the shape is validated locally by the result guard. */
-const ANY_JSON = z.unknown()
 
 type Attempt =
   | { records: StructuredRecord[]; issue: RecordIssue | null }
@@ -52,8 +49,8 @@ function classify(code: InferenceErrorCode): Attempt {
 type Settled<T> = { value: T } | { stopped: 'TIMEOUT' | 'PORT_THREW' | 'CANCELLED' }
 
 /**
- * Waits for `work` at most `timeoutMs`, or until `signal` aborts. The port takes no signal, so an
- * abandoned call cannot be cancelled at the provider: its late result is ignored.
+ * Waits for `work` at most `timeoutMs`, or until `signal` aborts. The caller aborts the call's own
+ * controller on a stop (ADR §5.5.3); a late result of that call is ignored.
  */
 function settle<T>(
   work: Promise<T>,
@@ -78,8 +75,9 @@ function settle<T>(
 
 /**
  * Started with the call: resolves when the call settles, or `capMs` after it STARTED at the latest.
- * Follow-up: the port takes no AbortSignal and the OpenRouter `onModelUnavailable` refresh hook is
- * unbounded, so only a signal threaded through the port can truly stop a call; this cap is a bound.
+ * 5.4c-6 changed the contract this bounds: the port now receives a signal, so an abandoned call is
+ * told to stop. Telling is not proof, so the route stays held until the call settles, and the cap
+ * remains the bound for a port that ignores the signal. The budget slot stays consumed either way.
  */
 function holdUntilSettled(call: Promise<unknown>, capMs: number): Promise<void> {
   return new Promise((resolve) => {
@@ -182,6 +180,7 @@ export class ModelStructurer implements HtmlStructurer {
           droppedRecords: 0,
           nulledUrls: 0,
           droppedEvidence: 0,
+          nulledFacts: 0,
         })
       } else {
         anySucceeded = true
@@ -208,10 +207,20 @@ export class ModelStructurer implements HtmlStructurer {
     if (reservation === null) {
       return { stop: { kind: 'BUDGET_EXHAUSTED', cause: 'CYCLE_LIMIT' } }
     }
-    let call: Promise<ExtractionResult<unknown>>
+    // One controller per call: the timeout and the cycle's signal both end up aborting it.
+    const controller = new AbortController()
+    const startedAt = Date.now()
+    let call: Promise<ExtractionResult<ModelReply>>
     try {
       call = Promise.resolve(
-        port.extract({ input: prompt.user, instruction: prompt.system, schema: ANY_JSON }),
+        port.extract({
+          input: prompt.user,
+          instruction: prompt.system,
+          // The port checks the shape; the guard stays behind it per record and per URL.
+          schema: modelReplySchema,
+          signal: controller.signal,
+          smallDose: smallDoseFor(record.missing),
+        }),
       )
     } catch {
       // Thrown before any promise existed: no request was sent, the slot goes back.
@@ -227,16 +236,19 @@ export class ModelStructurer implements HtmlStructurer {
     try {
       const settled = await settle(call, this.timeoutMs, signal)
       if ('stopped' in settled) {
+        controller.abort()
+        // Nothing reports the abandoned call's time, so it counts as elapsed (ADR §5.5.6).
+        usage = { localMs: Date.now() - startedAt }
         this.held = hold
         return stopWith(settled.stopped)
       }
       const result = settled.value
+      usage = result.usage
       if (!result.ok) {
         // NOT_CONFIGURED: the adapter had no route or key, so nothing was sent.
         sent = result.code !== 'NOT_CONFIGURED'
         return classify(result.code)
       }
-      usage = result.usage
 
       let raw: string | undefined
       try {
@@ -251,7 +263,7 @@ export class ModelStructurer implements HtmlStructurer {
       })
       if (!guarded.ok) return { failed: guarded.reason }
 
-      const { droppedRecords, nulledUrls, droppedEvidence } = guarded
+      const { droppedRecords, nulledUrls, droppedEvidence, nulledFacts } = guarded
       return {
         records: guarded.records.map((extracted) => ({
           ...extracted,
@@ -260,8 +272,15 @@ export class ModelStructurer implements HtmlStructurer {
           applyUrl: extracted.applyUrl as UntrustedUrl | null,
         })),
         issue:
-          droppedRecords + nulledUrls + droppedEvidence > 0
-            ? { id: record.id, failure: null, droppedRecords, nulledUrls, droppedEvidence }
+          droppedRecords + nulledUrls + droppedEvidence + nulledFacts > 0
+            ? {
+                id: record.id,
+                failure: null,
+                droppedRecords,
+                nulledUrls,
+                droppedEvidence,
+                nulledFacts,
+              }
             : null,
       }
     } finally {

@@ -9,10 +9,11 @@ import {
 import { checkStoredLink } from '../../normalize/url-policy'
 import { isRunFenced } from '../../ownership/run-ownership'
 import type { AiInputSignal, ModelInputPolicy } from '../../structuring/ai-input-gate'
-import type {
-  DiscoveredRecord,
-  HtmlStructurer,
-  StructurerOutcome,
+import {
+  MODEL_FILLABLE_FIELDS,
+  type DiscoveredRecord,
+  type HtmlStructurer,
+  type StructurerOutcome,
 } from '../../structuring/html-structurer.port'
 import type { RobotsCheck } from '../../structuring/robots-policy'
 import { collectPages, type DecodedEnvelope, type PageTarget } from '../api-json.provider'
@@ -90,14 +91,6 @@ export const DEFAULT_HTML_LIMITS: HtmlLimits = {
   revisitAfterMs: 72 * 60 * 60 * 1000,
   retryAfterMs: 6 * 60 * 60 * 1000,
 }
-
-/** The fields Stage C may fill when Stage B left them empty. */
-export const MODEL_FILLABLE_FIELDS = [
-  'description',
-  'location',
-  'employmentType',
-  'remote',
-] as const
 
 export type StageStatus = 'COMPLETE' | 'PARTIAL' | 'FAILED' | 'POLICY_BLOCKED' | 'SKIPPED'
 

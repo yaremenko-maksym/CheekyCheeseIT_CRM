@@ -52,7 +52,11 @@ function modelOutput(records: unknown[]): ExtractionResult<unknown> {
   }
 }
 
-const GOOD = { title: 'Senior Go Engineer', uncertainty: 0.1 }
+const GOOD = {
+  title: 'Senior Go Engineer',
+  uncertainty: 0.1,
+  evidence: [{ field: 'title', quote: 'Senior Go Engineer' }],
+}
 const ok = (): Reply => modelOutput([GOOD])
 
 function request(
@@ -167,7 +171,7 @@ describe('ModelStructurer — what leaves the host', () => {
     expect(secrets).toContain('sk-or-v1-0123456789abcdef0123456789')
     for (const secret of secrets) expect(sent).not.toContain(secret)
     expect(calls[0]?.instruction).toBe(EXTRACTION_SYSTEM_PROMPT)
-    expect(calls[0]?.schema.safeParse({ any: ['json'] }).success).toBe(true)
+    expect(calls[0]?.schema.safeParse({ any: ['json'] }).success).toBe(false)
   })
 
   it('hostile end tags and fake delimiters stay inside the one data block', async () => {
@@ -195,6 +199,7 @@ describe('ModelStructurer — result guard', () => {
         {
           title: 'Senior Go Engineer',
           uncertainty: 0.2,
+          evidence: [{ field: 'title', quote: 'Senior Go Engineer' }],
           // Not in the page and not the verified identity: invented on the same host.
           postingUrl: 'https://jobs.example.com/vacancy/999',
           // The verified identity of record 7: kept although the page does not quote it.
@@ -218,7 +223,14 @@ describe('ModelStructurer — result guard', () => {
         }),
       ],
       perRecordIssues: [
-        { id: '7', failure: null, droppedRecords: 0, nulledUrls: 1, droppedEvidence: 0 },
+        {
+          id: '7',
+          failure: null,
+          droppedRecords: 0,
+          nulledUrls: 1,
+          droppedEvidence: 0,
+          nulledFacts: 0,
+        },
       ],
     })
   })
@@ -230,7 +242,14 @@ describe('ModelStructurer — result guard', () => {
       kind: 'EXTRACTED',
       records: [{ title: 'Senior Go Engineer' }],
       perRecordIssues: [
-        { id: '1', failure: null, droppedRecords: 1, nulledUrls: 0, droppedEvidence: 0 },
+        {
+          id: '1',
+          failure: null,
+          droppedRecords: 1,
+          nulledUrls: 0,
+          droppedEvidence: 0,
+          nulledFacts: 0,
+        },
       ],
     })
   })
@@ -244,7 +263,14 @@ describe('ModelStructurer — result guard', () => {
     const outcome = await structurer.structure(request([rec('1')]))
     expect(outcome).toMatchObject({
       perRecordIssues: [
-        { id: '1', failure: null, droppedRecords: 0, nulledUrls: 0, droppedEvidence: 1 },
+        {
+          id: '1',
+          failure: null,
+          droppedRecords: 0,
+          nulledUrls: 0,
+          droppedEvidence: 1,
+          nulledFacts: 1,
+        },
       ],
     })
   })
@@ -302,7 +328,14 @@ describe('ModelStructurer — result guard', () => {
         code,
         remainingIds: [],
         perRecordIssues: [
-          { id: '1', failure: code, droppedRecords: 0, nulledUrls: 0, droppedEvidence: 0 },
+          {
+            id: '1',
+            failure: code,
+            droppedRecords: 0,
+            nulledUrls: 0,
+            droppedEvidence: 0,
+            nulledFacts: 0,
+          },
         ],
       })
       expect(budget.snapshot()).toEqual({ committed: 1, reserved: 0, totalTokens })
@@ -319,7 +352,14 @@ describe('ModelStructurer — result guard', () => {
       kind: 'EXTRACTED',
       records: [{ sourceId: '2' }],
       perRecordIssues: [
-        { id: '1', failure: 'NOT_JSON', droppedRecords: 0, nulledUrls: 0, droppedEvidence: 0 },
+        {
+          id: '1',
+          failure: 'NOT_JSON',
+          droppedRecords: 0,
+          nulledUrls: 0,
+          droppedEvidence: 0,
+          nulledFacts: 0,
+        },
       ],
     })
   })
@@ -333,13 +373,21 @@ describe('ModelStructurer — result guard', () => {
       code: 'NOT_JSON',
       remainingIds: [],
       perRecordIssues: [
-        { id: '1', failure: 'NOT_JSON', droppedRecords: 0, nulledUrls: 0, droppedEvidence: 0 },
+        {
+          id: '1',
+          failure: 'NOT_JSON',
+          droppedRecords: 0,
+          nulledUrls: 0,
+          droppedEvidence: 0,
+          nulledFacts: 0,
+        },
         {
           id: '2',
           failure: 'SCHEMA_INVALID',
           droppedRecords: 0,
           nulledUrls: 0,
           droppedEvidence: 0,
+          nulledFacts: 0,
         },
       ],
     })
