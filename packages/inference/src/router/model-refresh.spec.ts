@@ -463,6 +463,176 @@ describe('what a probe proves', () => {
     await runOn(w, [DAYS[2]!])
     expect(w.fileList('gemini')).toEqual([G1])
     expect(w.state.snapshot().busy).toEqual([])
+    expect(w.state.snapshot().busyDead).toEqual([
+      { provider: 'gemini', model: G2, day: '2026-11-06' },
+    ])
+  })
+
+  describe('a busy-dead verdict persists (CR-H-1)', () => {
+    /** Consecutive UTC days from 2026-11-04. */
+    const daysFrom = (start: number, count: number): string[] =>
+      Array.from({ length: count }, (_, i) =>
+        new Date(Date.UTC(2026, 10, 4 + start + i)).toISOString().slice(0, 10),
+      )
+    /** Runs one day at a time and collects the file's list after each. */
+    const listsOver = async (w: ReturnType<typeof refreshWorld>, days: readonly string[]) => {
+      const lists: string[][] = []
+      for (const day of days) {
+        await runOn(w, [day])
+        lists.push(w.fileList('gemini') as string[])
+      }
+      return lists
+    }
+
+    it('a model busy every day leaves once and does not flap back, past day 10', async () => {
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        chat: (s) => (s.model === G2 ? busy : ALIVE),
+      })
+      const lists = await listsOver(w, daysFrom(0, 12))
+      expect(lists.slice(0, 2)).toEqual([
+        [G1, G2],
+        [G1, G2],
+      ])
+      for (const list of lists.slice(2)) expect(list).toEqual([G1])
+      expect(await w.deps.managedModels('gemini', GEMINI.models)).toEqual([G1])
+    })
+
+    it('a held model is not probed inside the 7 days, and is on day 7', async () => {
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        chat: (s) => (s.model === G2 ? busy : ALIVE),
+      })
+      await runOn(w, daysFrom(0, 3))
+      const before = w.chatModels().filter((m) => m === G2).length
+      await runOn(w, daysFrom(3, 6))
+      expect(w.chatModels().filter((m) => m === G2)).toHaveLength(before)
+      await runOn(w, daysFrom(9, 1))
+      expect(w.chatModels().filter((m) => m === G2)).toHaveLength(before + 1)
+    })
+
+    it('a re-probe still busy restamps the verdict: the next one is 7 days on', async () => {
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        chat: (s) => (s.model === G2 ? busy : ALIVE),
+      })
+      await runOn(w, daysFrom(0, 10))
+      const before = w.chatModels().filter((m) => m === G2).length
+      expect(w.state.snapshot().busyDead).toEqual([
+        { provider: 'gemini', model: G2, day: daysFrom(9, 1)[0] },
+      ])
+      expect(w.fileList('gemini')).toEqual([G1])
+      await runOn(w, daysFrom(10, 6))
+      expect(w.chatModels().filter((m) => m === G2)).toHaveLength(before)
+      await runOn(w, daysFrom(16, 1))
+      expect(w.chatModels().filter((m) => m === G2)).toHaveLength(before + 1)
+    })
+
+    it('a held candidate recovers on a non-busy alive re-probe, below the existing entries', async () => {
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        listing: { gemini: WITH_NEW },
+        chat: (s) => (s.model === NEW ? busy : ALIVE),
+      })
+      await runOn(w, daysFrom(0, 3))
+      expect(w.fileList('gemini')).toEqual([G1, G2])
+      expect(w.state.snapshot().busyDead?.map((r) => r.model)).toEqual([NEW])
+      w.net.chat = () => ALIVE
+      await runOn(w, daysFrom(3, 6))
+      expect(w.fileList('gemini')).toEqual([G1, G2])
+      await runOn(w, daysFrom(9, 1))
+      expect(w.fileList('gemini')).toEqual([G1, G2, NEW])
+      expect(w.state.snapshot().busyDead).toEqual([])
+      expect(w.state.snapshot().probation).toEqual([
+        { provider: 'gemini', model: NEW, aliveStreak: 0, lastProbeDay: daysFrom(9, 1)[0] },
+      ])
+    })
+
+    it('a held pinned model recovers with no probation record', async () => {
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        chat: (s) => (s.model === G2 ? busy : ALIVE),
+      })
+      await runOn(w, daysFrom(0, 3))
+      w.net.chat = () => ALIVE
+      await runOn(w, daysFrom(3, 7))
+      expect(w.fileList('gemini')).toEqual([G1, G2])
+      expect(w.state.snapshot().busyDead).toEqual([])
+      expect(w.state.snapshot().probation).toEqual([])
+    })
+
+    it('a held candidate gives its slot to the next eligible one on a full list', async () => {
+      const full = ['gemini-5.0-flash', 'gemini-6.0-flash', 'gemini-7.0-flash', G1, G2]
+      const held = 'gemini-9.0-pro'
+      const listed = geminiListing([
+        ...full.map((id): [string, number] => [id, BIG]),
+        [held, BIG],
+        [NEW, BIG],
+      ])
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        listing: { gemini: listed },
+        managed: managedDoc({ gemini: full }),
+        chat: (s) => (s.model === held ? busy : ALIVE),
+      })
+      await runOn(w, daysFrom(0, 3))
+      expect(w.state.snapshot().busyDead?.map((r) => r.model)).toEqual([held])
+      const before = w.chatModels().length
+      await runOn(w, daysFrom(3, 1))
+      expect(w.chatModels().slice(before)).toEqual([...full, NEW])
+    })
+
+    it('a held re-probe waits behind every other candidate', async () => {
+      const full = ['gemini-5.0-flash', 'gemini-6.0-flash', 'gemini-7.0-flash', G1, G2]
+      const held = 'gemini-9.0-pro'
+      const listed = geminiListing([
+        ...full.map((id): [string, number] => [id, BIG]),
+        [held, BIG],
+        [NEW, BIG],
+      ])
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        listing: { gemini: listed },
+        managed: managedDoc({ gemini: full }),
+        state: {
+          ...EMPTY_ROUTE_STATE,
+          busyDead: [{ provider: 'gemini', model: held, day: '2026-10-01' }],
+        },
+      })
+      await runOn(w, [DAYS[0]!])
+      // The reader serves pinned ids first, so this is the probe order of `full`.
+      expect(w.chatModels()).toEqual([G1, G2, ...full.slice(0, 3), NEW])
+      expect(w.state.snapshot().busyDead?.map((r) => r.day)).toEqual(['2026-10-01'])
+    })
+
+    it('a delisted model loses its verdict', async () => {
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        listing: { gemini: WITH_NEW },
+        state: {
+          ...EMPTY_ROUTE_STATE,
+          busyDead: [{ provider: 'gemini', model: 'gemini-9.0-pro', day: DAYS[0]! }],
+        },
+      })
+      await runOn(w, [DAYS[0]!])
+      expect(w.state.snapshot().busyDead).toEqual([])
+    })
+
+    it('a verdict reached on a run the cap stopped still persists', async () => {
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        chat: (s) => (s.model === G1 ? busy : ALIVE),
+        // One unit for the listing, one for G1's probe; the next probe is refused.
+        cap: limitedCap(2),
+        state: {
+          ...EMPTY_ROUTE_STATE,
+          busy: [{ provider: 'gemini', model: G1, busyDays: 2, lastProbeDay: '2026-11-03' }],
+        },
+      })
+      await runOn(w, [DAYS[0]!])
+      expect(w.chatModels()).toEqual([G1])
+      expect(w.state.snapshot().busyDead?.map((r) => r.model)).toEqual([G1])
+    })
   })
 
   it('an answer other than a busy 429 ends the run of busy days', async () => {

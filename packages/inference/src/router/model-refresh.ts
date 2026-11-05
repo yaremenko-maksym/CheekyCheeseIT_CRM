@@ -26,6 +26,8 @@ import { releasesUnit } from './router'
 import {
   clearAuth,
   clearRetired,
+  isBusyDead,
+  isBusyDeadReprobeDue,
   isSpent,
   markStartupRefresh,
   providerDay,
@@ -197,12 +199,19 @@ async function refreshProvider(
     })
   }
 
-  const current = await deps.managedModels(p, route.models)
-  const candidates =
-    p === 'gemini' ? geminiCandidates(listing.models, current, route.contextTokens) : []
   const nowMs = deps.now()
+  const today = new Date(nowMs).toISOString().slice(0, 10)
   const spentDay = providerDay(p, nowMs)
   const before = deps.state.snapshot()
+  // The reader falls back to the pinned list, which may name a held model: a verdict still wins here.
+  const current = (await deps.managedModels(p, route.models)).filter((m) => !isBusyDead(before, m))
+  const listed =
+    p === 'gemini' ? geminiCandidates(listing.models, current, route.contextTokens) : []
+  // A held model's due re-probe waits behind every other candidate, so it cannot take their slot.
+  const candidates = [
+    ...listed.filter((m) => !isBusyDead(before, m)),
+    ...listed.filter((m) => isBusyDeadReprobeDue(before, m, today)),
+  ]
   const due = [...current, ...candidates]
     .filter((m) => !isSpent(before, p, m, spentDay) && deps.hadOkCall?.(p, m) !== true)
     .slice(0, maxProbes)
@@ -214,7 +223,8 @@ async function refreshProvider(
     pinned: route.models,
     probation: after.probation,
     busy: after.busy,
-    today: new Date(nowMs).toISOString().slice(0, 10),
+    held: after.busyDead,
+    today,
   })
   const pick = (): string[] => {
     if (p === 'groq') {
@@ -255,7 +265,13 @@ async function refreshProvider(
       ...records.filter((r) => known.has(r.model) && !next.includes(r.model)),
       ...records.filter((r) => next.includes(r.model)),
     ]
-    await deps.state.update(setModelRecords(kept(day.probation), kept(day.busy)))
+    await deps.state.update(
+      setModelRecords(
+        kept(day.probation),
+        kept(day.busy),
+        day.held.filter((r) => known.has(r.model)),
+      ),
+    )
   }
   if (stopped === 'capped') return skipped(p, 'CAP')
   if (stopped === 'auth') return failed(p, 'AUTH')

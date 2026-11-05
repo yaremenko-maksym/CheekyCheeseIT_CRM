@@ -178,6 +178,37 @@ describe('promotion is recomputed, never read from the file (§3.4, SR-M-9)', ()
   })
 })
 
+describe('a busy-dead verdict keeps a model out of service (CR-H-1)', () => {
+  const OLD = 'gemini-2.5-flash'
+  const NEW = 'gemini-3.0-flash'
+  const read = (list: string[], heldIds: string[]) =>
+    createFileManagedModels({
+      path: PATH,
+      fs: fakeFs({ [PATH]: doc({ gemini: list }) }),
+      state: createMemoryRouteStatePort({
+        ...EMPTY_ROUTE_STATE,
+        busyDead: heldIds.map((model) => ({
+          provider: 'gemini' as const,
+          model,
+          day: '2026-11-04',
+        })),
+      }),
+      onEvent: () => undefined,
+    })('gemini', [OLD])
+
+  it('hides a held entry the list still carries', async () => {
+    expect(await read([OLD, NEW], [NEW])).toEqual([OLD])
+  })
+
+  it('never serves an empty chain: an all-held list falls back to the pinned one', async () => {
+    expect(await read([NEW], [NEW])).toEqual([OLD])
+  })
+
+  it('leaves the list alone when another model is held', async () => {
+    expect(await read([OLD, NEW], ['gemini-9.0-flash'])).toEqual([OLD, NEW])
+  })
+})
+
 describe('the managed-list writer (SR-M-6)', () => {
   const G = 'gemini-2.5-flash'
   const Q = 'openai/gpt-oss-20b'

@@ -4,6 +4,7 @@ import { parseJsonOrNull } from '../internal/chat-completions'
 import { isValidProviderModelId } from '../internal/model-id'
 import type { HostedProvider } from './config'
 import {
+  isBusyDead,
   MANAGED_LIST_TARGET,
   PROMOTION_STREAK,
   readStateText,
@@ -89,8 +90,10 @@ export function createFileManagedModels(opts: {
       opts.onEvent({ type: 'STATE_RESET', store: 'managed-list', reason: 'invalid' })
       return fallback
     }
-    const list = parsed.data.providers[p]
-    return list === undefined || list.length === 0 ? fallback : ordered(list, fallback)
+    // A held model stays out even when the write that would have removed it failed.
+    const held = opts.state.snapshot()
+    const list = (parsed.data.providers[p] ?? []).filter((id) => !isBusyDead(held, id))
+    return list.length === 0 ? fallback : ordered(list, fallback)
   }
 }
 

@@ -1,6 +1,12 @@
 import { GROQ_MODEL_PATTERN } from '../internal/model-id'
 import { MANAGED_LIST_TARGET } from './managed-models'
-import { BUSY_DEAD_DAYS, PROMOTION_STREAK, type BusyEntry, type ProbationEntry } from './state'
+import {
+  BUSY_DEAD_DAYS,
+  PROMOTION_STREAK,
+  type BusyDeadEntry,
+  type BusyEntry,
+  type ProbationEntry,
+} from './state'
 
 /** The floor of a managed model's context window; a model under it cannot take a chunk (§3.4). */
 export const MIN_MANAGED_CONTEXT = 16_000
@@ -65,27 +71,52 @@ export function nextBusy(
 export type ProbeAnswer = { model: string; verdict: ModelVerdict; busy429: boolean }
 
 /**
- * Folds one run's probes into the Gemini records. Three busy days turn a verdict `dead`; a dead
- * model loses both records; a pinned model needs no probation record. `promotedNow` is the
- * transition to a full streak, not its possession.
+ * Folds one run's probes into the Gemini records. Three busy days turn a verdict `dead` and stamp
+ * it; a dead model loses both records; a pinned model needs no probation record. A held model's
+ * re-probe clears the stamp only on an alive answer (back as probation, streak 0); any other answer
+ * restamps it. `promotedNow` is the transition to a full streak, not its possession.
  */
 export function applyProbeDay(args: {
   answers: readonly ProbeAnswer[]
   pinned: readonly string[]
   probation: readonly ProbationEntry[] | undefined
   busy: readonly BusyEntry[] | undefined
+  held: readonly BusyDeadEntry[] | undefined
   today: string
 }): {
   probation: ProbationEntry[]
   busy: BusyEntry[]
+  held: BusyDeadEntry[]
   verdicts: Map<string, ModelVerdict>
   promotedNow: Set<string>
 } {
   let probation = [...(args.probation ?? [])]
   let busy = [...(args.busy ?? [])]
+  let held = [...(args.held ?? [])]
   const verdicts = new Map<string, ModelVerdict>()
   const promotedNow = new Set<string>()
+  const stamp = (model: string): BusyDeadEntry => ({
+    provider: 'gemini',
+    model,
+    day: args.today,
+  })
   for (const { model, verdict, busy429 } of args.answers) {
+    if (held.some((r) => r.model === model)) {
+      held = held.filter((r) => r.model !== model)
+      if (verdict === 'alive') {
+        verdicts.set(model, 'alive')
+        if (!args.pinned.includes(model)) {
+          probation = [
+            ...probation.filter((r) => r.model !== model),
+            { provider: 'gemini', model, aliveStreak: 0, lastProbeDay: args.today },
+          ]
+        }
+      } else {
+        verdicts.set(model, 'dead')
+        held = [...held, stamp(model)]
+      }
+      continue
+    }
     const others = busy.filter((r) => r.model !== model)
     const nowBusy = nextBusy(
       busy.find((r) => r.model === model),
@@ -96,6 +127,7 @@ export function applyProbeDay(args: {
     const final = nowBusy?.busyDays === BUSY_DEAD_DAYS ? 'dead' : verdict
     busy = nowBusy === undefined || final === 'dead' ? others : [...others, nowBusy]
     verdicts.set(model, final)
+    if (nowBusy?.busyDays === BUSY_DEAD_DAYS) held = [...held, stamp(model)]
     const before = probation.find((r) => r.model === model)
     const rest = probation.filter((r) => r.model !== model)
     if (final === 'dead') {
@@ -107,7 +139,7 @@ export function applyProbeDay(args: {
       if (after.aliveStreak === PROMOTION_STREAK && !wasFull) promotedNow.add(model)
     }
   }
-  return { probation, busy, verdicts, promotedNow }
+  return { probation, busy, held, verdicts, promotedNow }
 }
 
 export type ModelFacts = {

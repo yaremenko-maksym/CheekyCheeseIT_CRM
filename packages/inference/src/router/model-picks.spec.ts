@@ -11,7 +11,13 @@ import {
   pickLiveModels,
   type ModelFacts,
 } from './model-picks'
-import { BUSY_DEAD_DAYS, PROMOTION_STREAK, type BusyEntry, type ProbationEntry } from './state'
+import {
+  BUSY_DEAD_DAYS,
+  PROMOTION_STREAK,
+  type BusyDeadEntry,
+  type BusyEntry,
+  type ProbationEntry,
+} from './state'
 
 const DAY1 = '2026-11-01'
 const DAY2 = '2026-11-02'
@@ -29,6 +35,7 @@ const busy = (model: string, busyDays: number, lastProbeDay = DAY1): BusyEntry =
   busyDays,
   lastProbeDay,
 })
+const held = (model: string, day = DAY1): BusyDeadEntry => ({ provider: 'gemini', model, day })
 
 describe('classifyModelStatus', () => {
   it.each([
@@ -116,7 +123,7 @@ describe('nextBusy: consecutive 429 days', () => {
 })
 
 describe('applyProbeDay', () => {
-  const base = { pinned: ['pinned'], probation: [], busy: [], today: DAY2 }
+  const base = { pinned: ['pinned'], probation: [], busy: [], held: [], today: DAY2 }
 
   it('promotes on the third alive day and only on that transition', () => {
     const first = applyProbeDay({
@@ -147,9 +154,16 @@ describe('applyProbeDay', () => {
   })
 
   it('reads a state with no records as empty ones', () => {
-    const r = applyProbeDay({ ...base, answers: [], probation: undefined, busy: undefined })
+    const r = applyProbeDay({
+      ...base,
+      answers: [],
+      probation: undefined,
+      busy: undefined,
+      held: undefined,
+    })
     expect(r.probation).toEqual([])
     expect(r.busy).toEqual([])
+    expect(r.held).toEqual([])
   })
 
   it("counts a busy day on the model's own record, not on the first one", () => {
@@ -205,7 +219,7 @@ describe('applyProbeDay', () => {
     expect(r.verdicts.get('m')).toBe('transient')
   })
 
-  it('turns the third busy day into a dead verdict and drops the records', () => {
+  it('turns the third busy day into a dead verdict, stamps it and drops the records', () => {
     const r = applyProbeDay({
       ...base,
       answers: [{ model: 'm', verdict: 'transient', busy429: true }],
@@ -215,6 +229,62 @@ describe('applyProbeDay', () => {
     expect(r.verdicts.get('m')).toBe('dead')
     expect(r.busy).toEqual([])
     expect(r.probation).toEqual([])
+    expect(r.held).toEqual([held('m', DAY2)])
+  })
+
+  it('a 404 dead verdict is not a busy-dead one: no stamp', () => {
+    const r = applyProbeDay({
+      ...base,
+      answers: [{ model: 'm', verdict: 'dead', busy429: false }],
+    })
+    expect(r.held).toEqual([])
+  })
+
+  it('a held model that answers alive comes back on probation at streak 0, below the rest', () => {
+    const r = applyProbeDay({
+      ...base,
+      answers: [{ model: 'm', verdict: 'alive', busy429: false }],
+      probation: [probation('other', 1)],
+      held: [held('m'), held('still')],
+    })
+    expect(r.verdicts.get('m')).toBe('alive')
+    expect(r.held).toEqual([held('still')])
+    expect(r.probation).toEqual([probation('other', 1), probation('m', 0, DAY2)])
+    expect(r.promotedNow.size).toBe(0)
+  })
+
+  it('a held pinned model that answers alive comes back with no probation record', () => {
+    const r = applyProbeDay({
+      ...base,
+      answers: [{ model: 'pinned', verdict: 'alive', busy429: false }],
+      held: [held('pinned')],
+    })
+    expect(r.verdicts.get('pinned')).toBe('alive')
+    expect(r.held).toEqual([])
+    expect(r.probation).toEqual([])
+  })
+
+  it.each<[string, 'transient' | 'unknown' | 'dead', boolean]>([
+    ['a busy 429', 'transient', true],
+    ['a 503', 'transient', false],
+    ['an unknown answer', 'unknown', false],
+    ['a 404', 'dead', false],
+  ])('a held model that answers %s stays held, restamped today', (_label, verdict, busy429) => {
+    const r = applyProbeDay({
+      ...base,
+      answers: [{ model: 'm', verdict, busy429 }],
+      held: [held('m'), held('other')],
+    })
+    expect(r.verdicts.get('m')).toBe('dead')
+    expect(r.held).toEqual([held('other'), held('m', DAY2)])
+    expect(r.busy).toEqual([])
+    expect(r.probation).toEqual([])
+  })
+
+  it('keeps the stamp of a held model with no probe today', () => {
+    const r = applyProbeDay({ ...base, answers: [], held: [held('m')] })
+    expect(r.held).toEqual([held('m')])
+    expect(r.verdicts.size).toBe(0)
   })
 
   it('never reads a 503 as a busy day: 503 for three days is not dead', () => {
@@ -239,14 +309,20 @@ describe('applyProbeDay', () => {
   it('does not mutate the records it is given', () => {
     const records = [probation('m', 1)]
     const busyRecords = [busy('m', 1)]
+    const heldRecords = [held('h')]
     applyProbeDay({
       ...base,
-      answers: [{ model: 'm', verdict: 'dead', busy429: false }],
+      answers: [
+        { model: 'm', verdict: 'dead', busy429: false },
+        { model: 'h', verdict: 'alive', busy429: false },
+      ],
       probation: records,
       busy: busyRecords,
+      held: heldRecords,
     })
     expect(records).toEqual([probation('m', 1)])
     expect(busyRecords).toEqual([busy('m', 1)])
+    expect(heldRecords).toEqual([held('h')])
   })
 })
 

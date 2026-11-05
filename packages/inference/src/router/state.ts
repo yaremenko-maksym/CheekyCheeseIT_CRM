@@ -29,6 +29,13 @@ type RetiredEntry = z.infer<typeof retiredEntry>
 export const PROMOTION_STREAK = 3
 /** A Gemini model busy on this many consecutive probe days counts as dead (§3.4 verdicts). */
 export const BUSY_DEAD_DAYS = 3
+/** A model held by a busy-dead verdict gets at most one re-probe per this many UTC days. */
+export const BUSY_DEAD_REPROBE_DAYS = 7
+/**
+ * Not `TARGET`: a cap that small would let six always-busy ids starve a good candidate. Dropping the
+ * oldest verdict past it only restarts that model's three-day count.
+ */
+export const MAX_BUSY_DEAD_ENTRIES = 50
 /** The managed list keeps at most `TARGET` ids per provider (ADR §3.4, VCF: 5). */
 export const MANAGED_LIST_TARGET = 5
 
@@ -51,9 +58,14 @@ const busyEntry = z
   })
   .strict()
   .refine(validModel)
+const busyDeadEntry = z
+  .object({ provider: z.literal('gemini'), model: z.string(), day })
+  .strict()
+  .refine(validModel)
 const staleEntry = z.object({ provider, model: z.string() }).strict().refine(validModel)
 export type ProbationEntry = z.infer<typeof probationEntry>
 export type BusyEntry = z.infer<typeof busyEntry>
+export type BusyDeadEntry = z.infer<typeof busyDeadEntry>
 export type StaleEntry = z.infer<typeof staleEntry>
 
 /** The self-heal jobs that report through the state file, with no answer to ride on (§5.3). */
@@ -70,6 +82,7 @@ const routeStateDocument = z
     retired: z.array(z.unknown()).max(MAX_STATE_ENTRIES),
     probation: z.array(probationEntry).max(MANAGED_LIST_TARGET).optional(),
     busy: z.array(busyEntry).max(MANAGED_LIST_TARGET).optional(),
+    busyDead: z.array(busyDeadEntry).max(MAX_BUSY_DEAD_ENTRIES).optional(),
     modelListStale: z.array(staleEntry).max(MAX_STATE_ENTRIES).optional(),
     failedJobs: z
       .array(z.enum(['daily', 'chain']))
@@ -105,6 +118,8 @@ export type RouteState = {
   retired: RetiredEntry[]
   probation?: ProbationEntry[] | undefined
   busy?: BusyEntry[] | undefined
+  /** Held out of the list and of probation slots; `day` is the last probe that kept it held. */
+  busyDead?: BusyDeadEntry[] | undefined
   /** Named entries the last chain check found dead; empty or absent is a clear flag (§3.4 L3). */
   modelListStale?: StaleEntry[] | undefined
   failedJobs?: ModelJob[] | undefined
@@ -334,6 +349,19 @@ export function isRetired(s: RouteState, p: HostedProvider, model: string): bool
   return s.retired.some((e) => e.provider === p && e.model === model)
 }
 
+export function isBusyDead(s: RouteState, model: string): boolean {
+  return s.busyDead?.some((e) => e.model === model) === true
+}
+
+/** A held model's re-probe comes due `BUSY_DEAD_REPROBE_DAYS` UTC days after its stamp. */
+export function isBusyDeadReprobeDue(s: RouteState, model: string, today: string): boolean {
+  const gap = BUSY_DEAD_REPROBE_DAYS * 86_400_000
+  return (
+    s.busyDead?.some((e) => e.model === model && Date.parse(today) - Date.parse(e.day) >= gap) ===
+    true
+  )
+}
+
 export function providerRecord(s: RouteState, p: HostedProvider): ProviderRecord {
   return s.providers.find((r) => r.provider === p) ?? { provider: p, auth: false }
 }
@@ -407,11 +435,12 @@ export const markStartupRefresh =
     withProvider(s, p, (r) => ({ ...r, lastStartupRefreshAt: new Date(nowMs).toISOString() }))
 
 export const setModelRecords =
-  (probation: ProbationEntry[], busy: BusyEntry[]) =>
+  (probation: ProbationEntry[], busy: BusyEntry[], busyDead: BusyDeadEntry[]) =>
   (s: RouteState): RouteState => ({
     ...s,
     probation: probation.slice(-MANAGED_LIST_TARGET),
     busy: busy.slice(-MANAGED_LIST_TARGET),
+    busyDead: busyDead.slice(-MAX_BUSY_DEAD_ENTRIES),
   })
 
 /** One provider's named stale entries. */

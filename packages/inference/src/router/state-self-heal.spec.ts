@@ -2,14 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { fakeFs } from './__test-helpers__/fake-fs'
 import {
   BUSY_DEAD_DAYS,
+  BUSY_DEAD_REPROBE_DAYS,
   clearAuth,
   clearRetired,
   createFileRouteStatePort,
   EMPTY_ROUTE_STATE,
+  isBusyDead,
+  isBusyDeadReprobeDue,
   MANAGED_LIST_TARGET,
   markAuth,
   markRetired,
   markStartupRefresh,
+  MAX_BUSY_DEAD_ENTRIES,
   MAX_STATE_BYTES,
   MAX_STATE_ENTRIES,
   PROMOTION_STREAK,
@@ -54,6 +58,7 @@ const busy = (over: object = {}) => ({
   lastProbeDay: DAY,
   ...over,
 })
+const held = (over: object = {}) => ({ provider: 'gemini', model: MODEL, day: DAY, ...over })
 const stale = (over: object = {}) => ({ provider: 'gemini', model: MODEL, ...over })
 const many = <T>(entry: T, n: number): T[] => Array.from({ length: n }, () => entry)
 
@@ -62,6 +67,7 @@ describe('self-heal records in the route-state file (SR-M-6, SR-M-9)', () => {
     const records = {
       probation: [probation({ aliveStreak: PROMOTION_STREAK })],
       busy: [busy({ busyDays: BUSY_DEAD_DAYS })],
+      busyDead: [held()],
       modelListStale: [stale()],
       failedJobs: ['daily', 'chain'],
       providers: [
@@ -80,6 +86,7 @@ describe('self-heal records in the route-state file (SR-M-6, SR-M-9)', () => {
       MANAGED_LIST_TARGET,
     ],
     ['busy', { busy: many(busy({ busyDays: 0 }), MANAGED_LIST_TARGET) }, MANAGED_LIST_TARGET],
+    ['busyDead', { busyDead: many(held(), MAX_BUSY_DEAD_ENTRIES) }, MAX_BUSY_DEAD_ENTRIES],
     ['modelListStale', { modelListStale: many(stale(), MAX_STATE_ENTRIES) }, MAX_STATE_ENTRIES],
   ])('accepts a zero count and exactly the entry cap in %s', async (key, record, cap) => {
     const { port, events } = await load(doc(record))
@@ -115,6 +122,11 @@ describe('self-heal records in the route-state file (SR-M-6, SR-M-9)', () => {
     ['a bad busy day', { busy: [busy({ lastProbeDay: 'today' })] }],
     ['an unknown busy field', { busy: [busy({ extra: 1 })] }],
     ['too many busy entries', { busy: many(busy(), MANAGED_LIST_TARGET + 1) }],
+    ['a Groq busy-dead verdict', { busyDead: [held({ provider: 'groq' })] }],
+    ['an invalid busy-dead id', { busyDead: [held({ model: '../secret' })] }],
+    ['a bad busy-dead day', { busyDead: [held({ day: 'today' })] }],
+    ['an unknown busy-dead field', { busyDead: [held({ extra: 1 })] }],
+    ['too many busy-dead verdicts', { busyDead: many(held(), MAX_BUSY_DEAD_ENTRIES + 1) }],
     ['a stale provider outside the allowlist', { modelListStale: [stale({ provider: 'x' })] }],
     ['an invalid stale id', { modelListStale: [stale({ model: 'gemini 2.5' })] }],
     ['an unknown stale field', { modelListStale: [stale({ extra: 1 })] }],
@@ -210,6 +222,11 @@ describe('the write ceiling (ADR §3.2, SR-M-2)', () => {
       setModelRecords(
         ids.map((model) => ({ provider: 'gemini', model, aliveStreak: 3, lastProbeDay: DAY })),
         ids.map((model) => ({ provider: 'gemini', model, busyDays: 2, lastProbeDay: DAY })),
+        Array.from({ length: MAX_BUSY_DEAD_ENTRIES }, (_, i) => ({
+          provider: 'gemini',
+          model: longest(i),
+          day: DAY,
+        })),
       ),
     )
     const text = fs.files.get(PATH)!
@@ -217,6 +234,7 @@ describe('the write ceiling (ADR §3.2, SR-M-2)', () => {
     const { port: reloaded, events } = await load(text)
     expect(reloaded.snapshot().probation).toHaveLength(MANAGED_LIST_TARGET)
     expect(reloaded.snapshot().busy).toHaveLength(MANAGED_LIST_TARGET)
+    expect(reloaded.snapshot().busyDead).toHaveLength(MAX_BUSY_DEAD_ENTRIES)
     expect(events).toEqual([])
   })
 })
@@ -245,16 +263,46 @@ describe('self-heal state changes', () => {
     ])
   })
 
-  it('setModelRecords replaces both lists, capped at the target by dropping the oldest', () => {
+  it('setModelRecords replaces every list, capped at its own limit by dropping the oldest', () => {
     const ids = Array.from({ length: MANAGED_LIST_TARGET + 1 }, (_, i) => `gemini-${i}.0-flash`)
     const next = setModelRecords(
       ids.map((model) => ({ provider: 'gemini', model, aliveStreak: 0, lastProbeDay: DAY })),
       ids.map((model) => ({ provider: 'gemini', model, busyDays: 1, lastProbeDay: DAY })),
+      Array.from({ length: MAX_BUSY_DEAD_ENTRIES + 1 }, (_, i) => ({
+        provider: 'gemini',
+        model: `gemini-${i}.0-flash`,
+        day: DAY,
+      })),
     )(EMPTY_ROUTE_STATE)
     expect(next.probation).toHaveLength(MANAGED_LIST_TARGET)
     expect(next.probation?.[0]?.model).toBe('gemini-1.0-flash')
     expect(next.busy).toHaveLength(MANAGED_LIST_TARGET)
     expect(next.busy?.[0]?.model).toBe('gemini-1.0-flash')
+    expect(next.busyDead).toHaveLength(MAX_BUSY_DEAD_ENTRIES)
+    expect(next.busyDead?.[0]?.model).toBe('gemini-1.0-flash')
+  })
+
+  it('isBusyDead reads the verdict of this model only', () => {
+    const s = {
+      ...EMPTY_ROUTE_STATE,
+      busyDead: [{ provider: 'gemini' as const, model: MODEL, day: DAY }],
+    }
+    expect(isBusyDead(s, MODEL)).toBe(true)
+    expect(isBusyDead(s, 'gemini-3.0-flash')).toBe(false)
+    expect(isBusyDead(EMPTY_ROUTE_STATE, MODEL)).toBe(false)
+  })
+
+  it('a re-probe falls due on the seventh UTC day after the stamp, not before', () => {
+    const s = {
+      ...EMPTY_ROUTE_STATE,
+      busyDead: [{ provider: 'gemini' as const, model: MODEL, day: DAY }],
+    }
+    expect(BUSY_DEAD_REPROBE_DAYS).toBe(7)
+    expect(isBusyDeadReprobeDue(s, MODEL, DAY)).toBe(false)
+    expect(isBusyDeadReprobeDue(s, MODEL, '2026-11-10')).toBe(false)
+    expect(isBusyDeadReprobeDue(s, MODEL, '2026-11-11')).toBe(true)
+    expect(isBusyDeadReprobeDue(s, MODEL, '2026-11-12')).toBe(true)
+    expect(isBusyDeadReprobeDue(s, 'gemini-3.0-flash', '2026-11-12')).toBe(false)
   })
 
   it('setStaleModels replaces one provider and keeps the other', () => {
