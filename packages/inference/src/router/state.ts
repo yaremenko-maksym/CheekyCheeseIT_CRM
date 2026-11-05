@@ -25,12 +25,54 @@ const retiredEntry = z
 type SpentEntry = z.infer<typeof spentEntry>
 type RetiredEntry = z.infer<typeof retiredEntry>
 
-/** The document as loaded: list entries are checked one by one, so one bad entry drops only itself. */
+/** `N`: a new model earns its place above older ones after this many alive probe days (§3.4). */
+export const PROMOTION_STREAK = 3
+/** A Gemini model busy on this many consecutive probe days counts as dead (§3.4 verdicts). */
+export const BUSY_DEAD_DAYS = 3
+
+/** Gemini only, as only the Gemini refresh probes: a hand-edited Groq record cannot promote anything. */
+const probationEntry = z
+  .object({
+    provider: z.literal('gemini'),
+    model: z.string(),
+    aliveStreak: z.number().int().min(0).max(PROMOTION_STREAK),
+    lastProbeDay: day,
+  })
+  .strict()
+  .refine(validModel)
+const busyEntry = z
+  .object({
+    provider: z.literal('gemini'),
+    model: z.string(),
+    busyDays: z.number().int().min(0).max(BUSY_DEAD_DAYS),
+    lastProbeDay: day,
+  })
+  .strict()
+  .refine(validModel)
+const staleEntry = z.object({ provider, model: z.string() }).strict().refine(validModel)
+export type ProbationEntry = z.infer<typeof probationEntry>
+export type BusyEntry = z.infer<typeof busyEntry>
+export type StaleEntry = z.infer<typeof staleEntry>
+
+/** The self-heal jobs that report through the state file, with no answer to ride on (§5.3). */
+export type ModelJob = 'daily' | 'chain'
+
+/**
+ * The document as loaded: `spent` and `retired` entries are checked one by one, so one bad entry
+ * drops only itself. The self-heal lists hold promotion evidence, so one bad entry rejects the file.
+ */
 const routeStateDocument = z
   .object({
     version: z.literal(1),
     spent: z.array(z.unknown()).max(MAX_STATE_ENTRIES),
     retired: z.array(z.unknown()).max(MAX_STATE_ENTRIES),
+    probation: z.array(probationEntry).max(MAX_STATE_ENTRIES).optional(),
+    busy: z.array(busyEntry).max(MAX_STATE_ENTRIES).optional(),
+    modelListStale: z.array(staleEntry).max(MAX_STATE_ENTRIES).optional(),
+    failedJobs: z
+      .array(z.enum(['daily', 'chain']))
+      .max(2)
+      .optional(),
     providers: z
       .array(
         z
@@ -38,6 +80,7 @@ const routeStateDocument = z
             provider,
             auth: z.boolean(),
             creditDay: day.optional(),
+            lastStartupRefreshAt: z.iso.datetime().optional(),
             ownCap: z
               .object({
                 day,
@@ -58,6 +101,11 @@ export type RouteState = {
   version: 1
   spent: SpentEntry[]
   retired: RetiredEntry[]
+  probation?: ProbationEntry[] | undefined
+  busy?: BusyEntry[] | undefined
+  /** Named entries the last chain check found dead; empty or absent is a clear flag (§3.4 L3). */
+  modelListStale?: StaleEntry[] | undefined
+  failedJobs?: ModelJob[] | undefined
   providers: ProviderRecord[]
 }
 
@@ -85,7 +133,7 @@ export type StateEvent =
     }
   /** Entries that failed validation were dropped; the rest of the file was kept (§3.2). */
   | { type: 'STATE_ENTRIES_DROPPED'; store: 'route-state'; count: number }
-  | { type: 'STATE_WRITE_FAILED'; store: 'route-state' }
+  | { type: 'STATE_WRITE_FAILED'; store: 'route-state' | 'managed-list' }
 
 /**
  * Spent, retired and provider-level bits (ADR §3.2). `snapshot` is the in-memory read path;
@@ -192,7 +240,7 @@ export async function readStateText(fs: StateFs, path: string): Promise<ReadOutc
  * Durable atomic replace: a new `0600` temp file under a random name in the same directory, fsync,
  * rename, fsync the directory. A failed write removes its own temp file.
  */
-async function writeAtomic(fs: StateFs, path: string, data: string): Promise<void> {
+export async function writeAtomic(fs: StateFs, path: string, data: string): Promise<void> {
   const tmp = `${path}.${randomUUID()}.tmp`
   const file = await fs.open(tmp, STATE_WRITE_FLAGS, 0o600)
   try {
@@ -332,6 +380,44 @@ export const markCredit =
   (p: HostedProvider, today: string) =>
   (s: RouteState): RouteState =>
     withProvider(s, p, (r) => ({ ...r, creditDay: today }))
+
+/** The only way back from `AUTH`: a keyed chat probe answered 2xx (§3.2). */
+export const clearAuth =
+  (p: HostedProvider) =>
+  (s: RouteState): RouteState =>
+    withProvider(s, p, (r) => ({ ...r, auth: false }))
+
+/** A provider's own successful refresh clears its retired entries, and only its own (SR-M-5). */
+export const clearRetired =
+  (p: HostedProvider) =>
+  (s: RouteState): RouteState => ({ ...s, retired: s.retired.filter((e) => e.provider !== p) })
+
+export const markStartupRefresh =
+  (p: HostedProvider, nowMs: number) =>
+  (s: RouteState): RouteState =>
+    withProvider(s, p, (r) => ({ ...r, lastStartupRefreshAt: new Date(nowMs).toISOString() }))
+
+export const setModelRecords =
+  (probation: ProbationEntry[], busy: BusyEntry[]) =>
+  (s: RouteState): RouteState => ({ ...s, probation: capped(probation), busy: capped(busy) })
+
+/** Replaces one provider's named stale entries; the other provider's stay. */
+export const setStaleModels =
+  (p: HostedProvider, models: readonly string[]) =>
+  (s: RouteState): RouteState => ({
+    ...s,
+    modelListStale: capped([
+      ...(s.modelListStale ?? []).filter((e) => e.provider !== p),
+      ...models.map((model) => ({ provider: p, model })),
+    ]),
+  })
+
+export const setJobFailed =
+  (job: ModelJob, failed: boolean) =>
+  (s: RouteState): RouteState => ({
+    ...s,
+    failedJobs: [...(s.failedJobs ?? []).filter((j) => j !== job), ...(failed ? [job] : [])],
+  })
 
 // ---- own caps ----
 
