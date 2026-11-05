@@ -4,7 +4,7 @@
  * The router stub follows interviews/__tests__/index.test.tsx: `Route.useSearch()` answers
  * the test's own search state, `useNavigate()` records the target.
  */
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -19,8 +19,9 @@ vi.mock('@tanstack/react-router', async (orig) => {
   return {
     ...real,
     useNavigate: () => mockNavigate,
-    createFileRoute: (_path: string) => (options: Record<string, unknown>) => ({
+    createFileRoute: (path: string) => (options: Record<string, unknown>) => ({
       options,
+      path,
       useSearch: () => currentSearch,
     }),
   }
@@ -111,7 +112,12 @@ function renderPage() {
     </QueryClientProvider>
   )
   const { rerender } = render(tree(), { wrapper: I18nTestProvider })
-  return { rerender: () => rerender(tree()) }
+  return { qc, rerender: () => rerender(tree()) }
+}
+
+/** Overrides the session served by `serve()`. */
+function signIn(user: { id: string; role: string } | null, isLoading = false) {
+  vi.mocked(useAuth).mockReturnValue({ user, isLoading } as unknown as ReturnType<typeof useAuth>)
 }
 
 const ITEM_2 = '22222222-2222-4222-8222-222222222222'
@@ -399,11 +405,91 @@ describe('/job-queue page', () => {
     expect(await screen.findByTestId('job-queue-error')).toBeInTheDocument()
   })
 
-  it('renders nothing for a role outside ADMIN/HR', async () => {
-    serve({ role: 'SENIOR' as 'HR' })
+  it('retries the first page from the error state', async () => {
+    serve({ queue: () => Promise.reject(apiError(500, 'INTERNAL')) })
     renderPage()
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith({ to: '/', replace: true }))
+    const error = await screen.findByTestId('job-queue-error')
+    expect(queueCalls()).toHaveLength(1)
+    await userEvent.click(within(error).getByRole('button', { name: 'Спробувати ще раз' }))
+    await waitFor(() => expect(queueCalls()).toHaveLength(2))
+    expect(queueCalls()[1]?.params).toEqual({ teamId: TEAM_A, tab: 'NEW', limit: 20 })
+  })
+
+  it.each([
+    ['JUNIOR', '/project'],
+    ['SENIOR', '/'],
+    ['ACCOUNTANT', '/'],
+  ])('renders nothing for %s and sends them home', async (role, home) => {
+    serve()
+    signIn({ id: HR_ID, role })
+    renderPage()
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith({ to: home, replace: true }))
     expect(screen.queryByTestId('job-queue-page')).toBeNull()
+  })
+
+  it('renders nothing for an outside role while the session is still loading', () => {
+    serve()
+    signIn({ id: HR_ID, role: 'JUNIOR' }, true)
+    renderPage()
+    expect(screen.queryByTestId('job-queue-page')).toBeNull()
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  it('renders nothing without a user', () => {
+    serve()
+    signIn(null)
+    renderPage()
+    expect(screen.queryByTestId('job-queue-page')).toBeNull()
+    expect(calls).toHaveLength(0)
+  })
+
+  it('scopes the HR queue query to the HR role and the team', async () => {
+    serve()
+    const { qc } = renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(
+      qc.getQueryCache().findAll({ queryKey: ['job-queue', HR_ID, 'HR', TEAM_A] }),
+    ).not.toEqual([])
+  })
+
+  it('keeps the queue when a later teams refetch fails', async () => {
+    let fail = false
+    serve({
+      teamsCall: () =>
+        fail
+          ? Promise.reject(new Error('boom'))
+          : Promise.resolve({ data: [team(TEAM_A, 'Alpha')] }),
+    })
+    const { qc } = renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    fail = true
+    await act(() => qc.refetchQueries({ queryKey: ['teams'] }))
+    expect(calls.filter((c) => c.url === '/teams')).toHaveLength(2)
+    expect(qc.getQueryState(['teams', { archived: 'active' }])?.status).toBe('error')
+    expect(screen.getByTestId(`job-queue-row-${ITEM_ID}`)).toBeInTheDocument()
+    expect(screen.queryByTestId('job-queue-error')).toBeNull()
+  })
+
+  it('has no partial notice and no crash without generation facts', async () => {
+    serve({ queue: () => Promise.resolve({ data: page({ generation: null }) }) })
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(screen.queryByTestId('job-queue-partial')).toBeNull()
+  })
+
+  it('labels the search box', async () => {
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(searchInput()).toHaveAttribute('aria-label', 'Пошук за назвою або компанією')
+    expect(searchInput()).toHaveAttribute('placeholder', 'Назва або компанія')
+  })
+
+  it('shows the tab count as the total before more pages load', async () => {
+    serve({ queue: twoPages(() => new Promise(() => {})) })
+    renderPage()
+    await screen.findByTestId('job-queue-load-more')
+    expect(screen.getByTestId('job-queue-live')).toHaveTextContent(/^Показано 1 із 7$/)
   })
 
   // CR-H-1: TanStack Query keeps `data` and flips `status` to 'error' when a later page fails.
@@ -560,8 +646,26 @@ describe('/job-queue search params', () => {
 
   it('keeps valid values', () => {
     expect(
-      parse({ tab: 'HIDDEN', search: ' go ', source: ['DOU_RSS'], teamId: TEAM_A, card: ITEM_ID }),
-    ).toEqual({ tab: 'HIDDEN', search: 'go', source: ['DOU_RSS'], teamId: TEAM_A, card: ITEM_ID })
+      parse({
+        tab: 'HIDDEN',
+        search: ' go ',
+        source: ['DOU_RSS', 'LEVER_ATS'],
+        availability: ['OPEN', 'CLOSED'],
+        teamId: TEAM_A,
+        card: ITEM_ID,
+      }),
+    ).toEqual({
+      tab: 'HIDDEN',
+      search: 'go',
+      source: ['DOU_RSS', 'LEVER_ATS'],
+      availability: ['OPEN', 'CLOSED'],
+      teamId: TEAM_A,
+      card: ITEM_ID,
+    })
+  })
+
+  it('is the /_authenticated/job-queue/ file route', () => {
+    expect((Route as unknown as { path: string }).path).toBe('/_authenticated/job-queue/')
   })
 
   it('degrades every bad value to its default', () => {

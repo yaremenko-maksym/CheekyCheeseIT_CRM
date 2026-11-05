@@ -83,7 +83,7 @@ export function JobQueuePage() {
           variant="outline"
           className="min-h-11"
           onClick={() => {
-            bodyRef.current?.focus()
+            bodyRef.current!.focus()
             void refetchTeams()
           }}
         >
@@ -152,7 +152,7 @@ export function JobQueuePage() {
 function QueueBody({
   scope,
   search,
-  teams = [],
+  teams,
 }: {
   scope: QueueScopeSignature & { role: 'ADMIN' | 'HR' }
   search: QueueSearch
@@ -224,11 +224,14 @@ function QueueBody({
     <div className="flex min-w-0 flex-col gap-4">
       {/* below 560 px of content only the team switcher stacks; search + filters keep one row */}
       <div className="flex flex-col gap-2 @min-[560px]:flex-row @min-[560px]:items-center">
-        <TeamSwitcher
-          teams={teams}
-          value={scope.teamId ?? ''}
-          onChange={(teamId) => go({ tab: search.tab, teamId })}
-        />
+        {/* only the HR scope carries a team list, and it always has a team id */}
+        {teams && (
+          <TeamSwitcher
+            teams={teams}
+            value={scope.teamId!}
+            onChange={(teamId) => go({ tab: search.tab, teamId })}
+          />
+        )}
         <div data-testid="job-queue-search-row" className="flex min-w-0 flex-1 items-center gap-2">
           <form role="search" onSubmit={onSearchSubmit} className="relative min-w-0 flex-1">
             <Search
@@ -301,8 +304,9 @@ function QueueBody({
           <JobQueueList
             items={items}
             // a failed next page / refetch keeps `data` but flips `status` to 'error' (Query v5):
-            // loaded rows stay on screen and the foot shows the append error instead
-            status={items ? 'success' : queue.status}
+            // loaded rows stay on screen (the list reads `status` only without rows) and the foot
+            // shows the append error instead
+            status={queue.status}
             tab={search.tab}
             role={scope.role}
             total={page?.counts[search.tab] ?? 0}
