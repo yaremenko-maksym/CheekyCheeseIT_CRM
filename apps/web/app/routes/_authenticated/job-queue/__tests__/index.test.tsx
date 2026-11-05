@@ -1,0 +1,288 @@
+/**
+ * r5 Task 7.2 — the /job-queue page wired to the real data hook (`useJobQueue`) and the real
+ * `useActiveTeams`; only the network (`api.get`), the session and the router are stubbed.
+ * The router stub follows interviews/__tests__/index.test.tsx: `Route.useSearch()` answers
+ * the test's own search state, `useNavigate()` records the target.
+ */
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { JobQueueListResponseDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+const mockNavigate = vi.fn()
+let currentSearch: Record<string, unknown> = { tab: 'NEW' }
+
+vi.mock('@tanstack/react-router', async (orig) => {
+  const real = await orig<typeof import('@tanstack/react-router')>()
+  return {
+    ...real,
+    useNavigate: () => mockNavigate,
+    createFileRoute: (_path: string) => (options: Record<string, unknown>) => ({
+      options,
+      useSearch: () => currentSearch,
+    }),
+  }
+})
+
+vi.mock('@/lib/axios', () => ({ api: { get: vi.fn() } }))
+vi.mock('@/context/auth', () => ({ useAuth: vi.fn() }))
+vi.mock('@/context/onboarding', () => ({ useOnboardingGate: () => ({ isComplete: true }) }))
+
+import { api } from '@/lib/axios'
+import { useAuth } from '@/context/auth'
+import { Route } from '../index'
+
+const HR_ID = '99999999-9999-4999-8999-999999999999'
+const TEAM_A = 'aaaaaaaa-0000-4000-8000-000000000001'
+const TEAM_B = 'bbbbbbbb-0000-4000-8000-000000000002'
+const ITEM_ID = '11111111-1111-4111-8111-111111111111'
+
+function team(id: string, name: string) {
+  return { id, name, archivedAt: null, members: [{ userId: HR_ID, leftAt: null }] }
+}
+
+function page(over: Partial<JobQueueListResponseDto> = {}): JobQueueListResponseDto {
+  return {
+    items: [
+      {
+        opportunityId: ITEM_ID,
+        revision: 1,
+        title: 'Senior Go Engineer',
+        companyName: 'Acme',
+        location: null,
+        primarySource: null,
+        applicationUrl: null,
+        alsoSeenOnCount: 0,
+        availability: 'OPEN',
+        eligibility: 'TRIAGE',
+        matchedSeniorCount: 2,
+        submittedSeniorCount: 0,
+        stopListedSeniorCount: 0,
+        openedByTeam: false,
+        hidden: false,
+        publishedAt: null,
+        firstSeenAt: '2026-11-01T00:00:00.000Z',
+      },
+    ],
+    nextCursor: null,
+    counts: { NEW: 7, SUBMITTED: 2, HIDDEN: 1 },
+    generation: { ruleVersion: 'v1', evaluatedAt: '2026-11-01T00:00:00.000Z', capped: false },
+    ...over,
+  }
+}
+
+type Route = { url: string; params?: Record<string, unknown> }
+const calls: Route[] = []
+
+function serve({
+  role = 'HR',
+  teams = [team(TEAM_A, 'Alpha')],
+  queue = () => Promise.resolve({ data: page() }),
+}: {
+  role?: 'HR' | 'ADMIN'
+  teams?: unknown[]
+  queue?: (params: Record<string, unknown>) => Promise<unknown>
+} = {}) {
+  vi.mocked(useAuth).mockReturnValue({
+    user: { id: HR_ID, role },
+    isLoading: false,
+  } as unknown as ReturnType<typeof useAuth>)
+  vi.mocked(api.get).mockImplementation(((
+    url: string,
+    config?: { params?: Record<string, unknown> },
+  ) => {
+    calls.push({ url, params: config?.params })
+    if (url === '/teams') return Promise.resolve({ data: teams })
+    if (url === '/job-queue') return queue(config?.params ?? {})
+    return Promise.reject(new Error(`unexpected ${url}`))
+  }) as unknown as typeof api.get)
+}
+
+function renderPage() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const Page = Route.options.component as React.ComponentType
+  render(
+    <QueryClientProvider client={qc}>
+      <Page />
+    </QueryClientProvider>,
+    { wrapper: I18nTestProvider },
+  )
+}
+
+function queueCalls() {
+  return calls.filter((c) => c.url === '/job-queue')
+}
+
+function apiError(status: number, code: string) {
+  return Object.assign(new Error(code), {
+    isAxiosError: true,
+    response: { status, data: { statusCode: status, code, message: code } },
+  })
+}
+
+describe('/job-queue page', () => {
+  beforeEach(async () => {
+    calls.length = 0
+    mockNavigate.mockReset()
+    currentSearch = { tab: 'NEW' }
+    vi.mocked(api.get).mockReset()
+    await loadCatalog('uk')
+  })
+
+  it('renders the queue for an HR with one team, scoped to that team', async () => {
+    serve()
+    renderPage()
+    expect(screen.getByTestId('job-queue-page')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Черга зовнішніх вакансій')
+    expect(await screen.findByTestId(`job-queue-row-${ITEM_ID}`)).toHaveTextContent(
+      'Senior Go Engineer',
+    )
+    expect(screen.getByTestId('job-queue-row-triage')).toHaveTextContent('Потребує розгляду')
+    expect(screen.getByTestId('job-queue-tab-NEW')).toHaveTextContent('Нові7')
+    expect(screen.getByTestId('job-queue-tab-SUBMITTED')).toHaveTextContent('Подані2')
+    expect(queueCalls()[0]?.params).toEqual({ teamId: TEAM_A, tab: 'NEW', limit: 20 })
+    expect(screen.queryByTestId('job-queue-team-switcher')).toBeNull()
+  })
+
+  it('asks the server for the tab in the URL', async () => {
+    currentSearch = { tab: 'HIDDEN' }
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(queueCalls()[0]?.params).toMatchObject({ tab: 'HIDDEN' })
+  })
+
+  it('a tab click writes the tab into the URL', async () => {
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    await userEvent.click(screen.getByTestId('job-queue-tab-SUBMITTED'))
+    expect(mockNavigate).toHaveBeenCalledWith({ to: '/job-queue', search: { tab: 'SUBMITTED' } })
+  })
+
+  it('a row click opens the card through the URL', async () => {
+    serve()
+    renderPage()
+    await userEvent.click(await screen.findByTestId(`job-queue-row-${ITEM_ID}`))
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: '/job-queue',
+      search: { tab: 'NEW', card: ITEM_ID },
+    })
+  })
+
+  it('sends the URL filters to the server and shows filtered-empty', async () => {
+    currentSearch = { tab: 'NEW', search: 'go', eligibility: ['TRIAGE'] }
+    serve({ queue: () => Promise.resolve({ data: page({ items: [] }) }) })
+    renderPage()
+    expect(await screen.findByTestId('job-queue-filtered-empty')).toBeInTheDocument()
+    expect(queueCalls()[0]?.params).toMatchObject({ search: 'go', eligibility: 'TRIAGE' })
+    await userEvent.click(screen.getByRole('button', { name: 'Скинути фільтри' }))
+    expect(mockNavigate).toHaveBeenCalledWith({ to: '/job-queue', search: { tab: 'NEW' } })
+  })
+
+  it('an HR without a team sees the no-team state and no queue request is made', async () => {
+    serve({ teams: [] })
+    renderPage()
+    expect(await screen.findByTestId('job-queue-no-team')).toHaveTextContent(
+      'Вам не призначено жодної команди',
+    )
+    expect(queueCalls()).toHaveLength(0)
+  })
+
+  it('an HR with several teams gets a switcher and the URL team is used', async () => {
+    currentSearch = { tab: 'NEW', teamId: TEAM_B }
+    serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
+    renderPage()
+    expect(await screen.findByTestId('job-queue-team-switcher')).toHaveTextContent('Beta')
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(queueCalls()[0]?.params).toMatchObject({ teamId: TEAM_B })
+  })
+
+  it('an unknown URL team falls back to the first team', async () => {
+    currentSearch = { tab: 'NEW', teamId: '00000000-0000-4000-8000-000000000000' }
+    serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(queueCalls()[0]?.params).toMatchObject({ teamId: TEAM_A })
+  })
+
+  it('ADMIN reads the default (studio) scope without a team param and no switcher', async () => {
+    serve({ role: 'ADMIN', teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(queueCalls()[0]?.params).toEqual({ tab: 'NEW', limit: 20 })
+    expect(screen.getByTestId('job-queue-row-matched')).toHaveTextContent(
+      '2 сеньйори мають збіг стеку',
+    )
+    expect(screen.queryByTestId('job-queue-team-switcher')).toBeNull()
+  })
+
+  it('shows the partial notice when the generation hit its cap', async () => {
+    serve({
+      queue: () =>
+        Promise.resolve({
+          data: page({
+            generation: {
+              ruleVersion: 'v1',
+              evaluatedAt: '2026-11-01T00:00:00.000Z',
+              capped: true,
+            },
+          }),
+        }),
+    })
+    renderPage()
+    expect(await screen.findByTestId('job-queue-partial')).toHaveTextContent(
+      'Список може бути неповним',
+    )
+  })
+
+  it('has no partial notice for an uncapped generation', async () => {
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(screen.queryByTestId('job-queue-partial')).toBeNull()
+  })
+
+  it('offers a refresh when the server says the list changed, and restarts on click', async () => {
+    let n = 0
+    serve({
+      queue: () =>
+        n++ === 0
+          ? Promise.reject(apiError(409, 'JOB_QUEUE_REFRESH_REQUIRED'))
+          : Promise.resolve({ data: page() }),
+    })
+    renderPage()
+    const notice = await screen.findByTestId('job-queue-refresh')
+    expect(notice).toHaveAttribute('role', 'status')
+    expect(notice).toHaveTextContent('Список змінився')
+    expect(screen.queryByTestId('job-queue-error')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Показати оновлений список' }))
+    expect(await screen.findByTestId(`job-queue-row-${ITEM_ID}`)).toBeInTheDocument()
+    expect(screen.queryByTestId('job-queue-refresh')).toBeNull()
+  })
+
+  it('drops the rows and explains when access to the scope is lost', async () => {
+    serve({ queue: () => Promise.reject(apiError(403, 'FORBIDDEN')) })
+    renderPage()
+    expect(await screen.findByTestId('job-queue-access-lost')).toHaveTextContent(
+      'Немає доступу до цієї черги',
+    )
+    expect(screen.queryByTestId('job-queue-list')).toBeNull()
+    expect(screen.queryByTestId('job-queue-error')).toBeNull()
+  })
+
+  it('shows the error state on a server failure', async () => {
+    serve({ queue: () => Promise.reject(apiError(500, 'INTERNAL')) })
+    renderPage()
+    expect(await screen.findByTestId('job-queue-error')).toBeInTheDocument()
+  })
+
+  it('renders nothing for a role outside ADMIN/HR', async () => {
+    serve({ role: 'SENIOR' as 'HR' })
+    renderPage()
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith({ to: '/', replace: true }))
+    expect(screen.queryByTestId('job-queue-page')).toBeNull()
+  })
+})
