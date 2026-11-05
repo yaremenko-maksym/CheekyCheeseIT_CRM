@@ -309,8 +309,20 @@ export const jobOpportunities = pgTable(
      * Production gets it ONLY through the staged forward DDL; declared last (ADD COLUMN rank).
      */
     roleFamily: text('role_family'),
+    /**
+     * r5 Phase 6: the team a MANUAL card (POST /job-queue/manual) belongs to; NULL = a sourced
+     * opportunity. Only this team sees the card (`visibleOpportunityPredicate`, MANUAL branch), and
+     * no automatic branch shows a row where it is set. Production gets it ONLY through the staged
+     * forward DDL; declared last (ADD COLUMN rank).
+     */
+    manualTeamId: uuid('manual_team_id'),
   },
   (t) => [
+    foreignKey({
+      name: 'fk_job_opportunities_manual_team',
+      columns: [t.manualTeamId],
+      foreignColumns: [teams.id],
+    }).onDelete('restrict'),
     // Deliberately NO unique company/title constraint: two real openings can
     // share both. These are candidate keys for identity resolution only.
     index('idx_job_opportunities_candidate_key').on(t.employerKey, t.titleKey),
