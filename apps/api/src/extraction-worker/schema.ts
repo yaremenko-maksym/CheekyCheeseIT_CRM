@@ -31,8 +31,10 @@ export function tableVersionOf(m: {
     name: g.name,
     instruction: g.instruction,
     maxAnswerTokens: g.maxAnswerTokens,
+    // Stryker disable next-line StringLiteral: equivalent — zod merges a string result into the node, so '' leaves `{}` exactly as 'any' does; dropping the option is caught
     schema: z.toJSONSchema(g.schema, { unrepresentable: 'any' }),
   }))
+  // Stryker disable next-line StringLiteral: equivalent — see the line above; 'io' is pinned by its own test
   const reply = z.toJSONSchema(m.reply, { unrepresentable: 'any', io: 'input' })
   const doc = JSON.stringify({ prompt: m.prompt, groups, reply })
   return createHash('sha256').update(doc).digest('hex').slice(0, 16)
@@ -96,6 +98,7 @@ export function parseWorkerEnv(env: Readonly<Record<string, string | undefined>>
     return { ok: false, reason: 'SECRET' }
   }
   const rawConfig = env.EXTRACTION_ROUTER_CONFIG
+  // Stryker disable next-line ConditionalExpression: equivalent — JSON.parse(undefined) throws, so parseJson answers null too
   const config = rawConfig === undefined ? null : parseJson(rawConfig)
   if (config === null) return { ok: false, reason: 'ROUTER_CONFIG' }
   const stateFile = env.EXTRACTION_ROUTER_STATE_FILE ?? ''

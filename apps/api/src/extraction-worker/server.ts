@@ -63,6 +63,7 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
 
   app.removeAllContentTypeParsers()
   // Fastify's own default poisoning policy: a `__proto__` or `constructor.prototype` key is an error.
+  // Stryker disable next-line StringLiteral: equivalent — secure-json-parse reads an empty action as its default, 'error'
   const json = app.getDefaultJsonParser('error', 'error')
   // An empty JSON body is "no body": `preflight` takes nothing, `extract` refuses it in its schema.
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) =>
