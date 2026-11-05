@@ -156,7 +156,8 @@ export type GroqListed = { id: string; context?: number | undefined; active?: bo
 /**
  * VCF's `pickGroqModels` with the CRM restriction (SR-H-1): current ids still listed and active,
  * plus at most one addition, the largest-context chat model inside the checked-in family. Groq
- * additions are never chat-probed, so the family pattern is what vouches for them.
+ * additions are never chat-probed, so the family pattern is what vouches for them. A current id with
+ * no reported context stays (only the route window bounds it); an addition must report one.
  */
 export function pickGroqModels(args: {
   current: readonly string[]
@@ -166,11 +167,14 @@ export function pickGroqModels(args: {
 }): string[] {
   const { current, listing, routeWindow, minContext } = args
   const fits = (m: GroqListed): boolean =>
-    m.active === true && effectiveContext(m.context ?? 0, routeWindow) >= minContext
+    m.active === true &&
+    effectiveContext(m.context ?? Number.POSITIVE_INFINITY, routeWindow) >= minContext
   const live = listing.filter(fits)
   const kept = current.filter((id) => live.some((m) => m.id === id))
   const [addition] = live
-    .filter((m) => !current.includes(m.id) && GROQ_MODEL_PATTERN.test(m.id))
-    .sort((a, b) => (b.context ?? 0) - (a.context ?? 0))
+    .filter(
+      (m) => m.context !== undefined && !current.includes(m.id) && GROQ_MODEL_PATTERN.test(m.id),
+    )
+    .sort((a, b) => b.context! - a.context!)
   return [...kept, ...(addition === undefined ? [] : [addition.id])].slice(0, MANAGED_LIST_TARGET)
 }

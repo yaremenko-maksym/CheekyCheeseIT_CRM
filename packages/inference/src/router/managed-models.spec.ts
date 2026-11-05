@@ -23,7 +23,12 @@ function reader(text?: string) {
   const fs = fakeFs(text === undefined ? {} : { [PATH]: text })
   const events: StateEvent[] = []
   return {
-    read: createFileManagedModels({ path: PATH, fs, onEvent: (e) => events.push(e) }),
+    read: createFileManagedModels({
+      path: PATH,
+      fs,
+      state: createMemoryRouteStatePort(EMPTY_ROUTE_STATE),
+      onEvent: (e) => events.push(e),
+    }),
     events,
     fs,
   }
@@ -46,7 +51,11 @@ describe('managedModels reader (ADR §3.4)', () => {
     const { read } = reader(
       doc({ groq: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'], gemini: ['gemini-2.5-flash'] }),
     )
-    expect(await read('groq', PINNED)).toEqual(['openai/gpt-oss-120b', 'openai/gpt-oss-20b'])
+    // Both pinned here, so the promotion order leaves the stored order alone.
+    expect(await read('groq', ['openai/gpt-oss-20b', 'openai/gpt-oss-120b'])).toEqual([
+      'openai/gpt-oss-120b',
+      'openai/gpt-oss-20b',
+    ])
     expect(await read('gemini', ['gemini-2.0-flash'])).toEqual(['gemini-2.5-flash'])
   })
 
@@ -79,6 +88,11 @@ describe('managedModels reader (ADR §3.4)', () => {
     [
       'too many ids',
       doc({ groq: Array.from({ length: MANAGED_LIST_TARGET + 1 }, () => 'openai/gpt-oss-20b') }),
+    ],
+    ['a repeated id', doc({ groq: ['openai/gpt-oss-20b', 'openai/gpt-oss-20b'] })],
+    [
+      'a repeated id beside a good list',
+      doc({ groq: ['openai/gpt-oss-20b'], gemini: ['gemini-2.5-flash', 'gemini-2.5-flash'] }),
     ],
     ['a wrong version', JSON.stringify({ version: 2, providers: {} })],
   ])('rejects the whole file with %s: fallback and STATE_RESET', async (_label, text) => {
@@ -150,10 +164,9 @@ describe('promotion is recomputed, never read from the file (§3.4, SR-M-9)', ()
     ])
   })
 
-  it('without a state port the stored order is served', async () => {
-    const fs = fakeFs({ [PATH]: doc({ gemini: [NEW, OLD] }) })
-    const reader = createFileManagedModels({ path: PATH, fs, onEvent: () => undefined })
-    expect(await reader('gemini', [OLD])).toEqual([NEW, OLD])
+  it('a reader without a state port does not compile: the file order is never trusted', () => {
+    // @ts-expect-error `state` is required (SR-M-3); `tsc --noEmit` fails here when it is optional.
+    createFileManagedModels({ path: PATH, onEvent: () => undefined })
   })
 
   it('isPromoted reads pinned or a full streak of this model, nothing else', () => {
@@ -211,6 +224,7 @@ describe('the managed-list writer (SR-M-6)', () => {
     ['an id outside the family', ['llama-3.1-8b-instant']],
     ['a hostile id', ['../../x']],
     ['too many ids', Array.from({ length: MANAGED_LIST_TARGET + 1 }, () => Q)],
+    ['a repeated id', [Q, Q]],
   ])('never writes %s: the file stays byte-identical', async (_label, ids) => {
     const before = doc({ groq: [Q] })
     const { fs, write } = writer(before)
@@ -223,10 +237,56 @@ describe('the managed-list writer (SR-M-6)', () => {
     const { write } = writer()
     expect(
       await write(
-        'groq',
-        Array.from({ length: MANAGED_LIST_TARGET }, () => Q),
+        'gemini',
+        Array.from({ length: MANAGED_LIST_TARGET }, (_, i) => `gemini-${i}.0-flash`),
       ),
     ).toBe(true)
+  })
+
+  it('says nothing when it creates a file or replaces a readable one', async () => {
+    const created = writer()
+    expect(await created.write('groq', [Q])).toBe(true)
+    expect(created.events).toEqual([])
+    const replaced = writer(doc({ groq: [Q] }))
+    expect(await replaced.write('groq', ['openai/gpt-oss-120b'])).toBe(true)
+    expect(replaced.events).toEqual([])
+  })
+
+  describe('overwriting a file it could not read (SR-L-5)', () => {
+    const NEXT = { version: 1, providers: { groq: [Q] } }
+
+    it('says so for an oversized file, and replaces it', async () => {
+      const { fs, write, events } = writer(doc({}) + ' '.repeat(MAX_STATE_BYTES))
+      expect(await write('groq', [Q])).toBe(true)
+      expect(JSON.parse(fs.files.get(PATH)!)).toEqual(NEXT)
+      expect(events).toEqual([{ type: 'STATE_RESET', store: 'managed-list', reason: 'oversized' }])
+    })
+
+    it('says so for an unreadable file, and replaces it', async () => {
+      const { fs, write, events } = writer(doc({ gemini: [G] }))
+      fs.openError = 'EACCES'
+      expect(await write('groq', [Q])).toBe(true)
+      delete fs.openError
+      expect(JSON.parse(fs.files.get(PATH)!)).toEqual(NEXT)
+      expect(events).toEqual([{ type: 'STATE_RESET', store: 'managed-list', reason: 'unreadable' }])
+    })
+
+    it('says nothing when it refuses the new list: nothing was overwritten', async () => {
+      const before = doc({}) + ' '.repeat(MAX_STATE_BYTES)
+      const { fs, write, events } = writer(before)
+      expect(await write('groq', ['../../x'])).toBe(false)
+      expect(fs.files.get(PATH)).toBe(before)
+      expect(events).toEqual([])
+    })
+
+    it('reports only the failed write when the replacement fails', async () => {
+      const before = doc({}) + ' '.repeat(MAX_STATE_BYTES)
+      const { fs, write, events } = writer(before)
+      fs.failAt = 'rename'
+      expect(await write('groq', [Q])).toBe(false)
+      expect(fs.files.get(PATH)).toBe(before)
+      expect(events).toEqual([{ type: 'STATE_WRITE_FAILED', store: 'managed-list' }])
+    })
   })
 
   it('two concurrent writes both survive', async () => {

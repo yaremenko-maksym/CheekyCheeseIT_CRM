@@ -447,7 +447,7 @@ describe('pickGroqModels (SR-H-1)', () => {
     ).toEqual([])
   })
 
-  it('removes an id under the floor, and one with no reported context', () => {
+  it('removes an id under the floor, and keeps a current one with no reported context', () => {
     expect(
       pick({
         current: ['openai/gpt-oss-a', 'openai/gpt-oss-b'],
@@ -456,7 +456,35 @@ describe('pickGroqModels (SR-H-1)', () => {
           { id: 'openai/gpt-oss-b', active: true },
         ],
       }),
+    ).toEqual(['openai/gpt-oss-b'])
+  })
+
+  it('removes a current id with no reported context once the route window is under the floor', () => {
+    expect(
+      pick({
+        current: ['openai/gpt-oss-a'],
+        listing: [{ id: 'openai/gpt-oss-a', active: true }],
+        routeWindow: MIN_MANAGED_CONTEXT - 1,
+      }),
     ).toEqual([])
+  })
+
+  it('removes an inactive current id with no reported context', () => {
+    expect(
+      pick({
+        current: ['openai/gpt-oss-a'],
+        listing: [{ id: 'openai/gpt-oss-a', active: false }],
+      }),
+    ).toEqual([])
+  })
+
+  it('never adds an id with no reported context', () => {
+    expect(
+      pick({
+        current: ['openai/gpt-oss-a'],
+        listing: [live('openai/gpt-oss-a'), { id: 'openai/gpt-oss-120b', active: true }],
+      }),
+    ).toEqual(['openai/gpt-oss-a'])
   })
 
   it('keeps an id exactly at the floor', () => {

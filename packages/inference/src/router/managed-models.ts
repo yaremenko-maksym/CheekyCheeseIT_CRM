@@ -25,12 +25,16 @@ const managedListSchema = z
     providers: z.object({ gemini: ids, groq: ids }).strict(),
   })
   .strict()
-  // Every id passes its provider's validation, or the whole file is rejected.
+  // Every id passes its provider's validation with no repeats, or the whole file is rejected.
   .refine((doc) =>
     // A parsed JSON key is present only with a value, so every entry here is a list.
-    Object.entries(doc.providers).every(([p, list]) =>
-      (list as string[]).every((id) => isValidProviderModelId(p as HostedProvider, id)),
-    ),
+    Object.entries(doc.providers).every(([p, list]) => {
+      const entries = list as string[]
+      return (
+        new Set(entries).size === entries.length &&
+        entries.every((id) => isValidProviderModelId(p as HostedProvider, id))
+      )
+    }),
   )
 
 /** `managedModels(provider, fallback)`: the managed entry if valid and non-empty, else the pinned list. */
@@ -57,19 +61,18 @@ export function isPromoted(
 /**
  * Reads the managed-list file written by the daily refresh on every call. A missing, empty,
  * invalid or oversized file degrades to the pinned fallback, never to an empty chain; any invalid
- * entry rejects the whole file. With `state`, promotion is recomputed and never read from the
- * file's order: promoted entries serve first, then those on probation, each in file order.
+ * entry rejects the whole file. Promotion is recomputed and never read from the file's order:
+ * promoted entries serve first, then those on probation, each in file order.
  */
 export function createFileManagedModels(opts: {
   path: string
   fs?: StateFs
-  state?: Pick<RouteStatePort, 'snapshot'>
+  state: Pick<RouteStatePort, 'snapshot'>
   /** Mandatory (ADR §3.2, §5.3): a rejected file is never silent. */
   onEvent: (e: StateEvent) => void
 }): ManagedModels {
   const fs: StateFs = opts.fs ?? nodeFs
   const ordered = (list: string[], pinned: readonly string[]): readonly string[] => {
-    if (opts.state === undefined) return list
     const probation = opts.state.snapshot().probation
     const promoted = (id: string): boolean => isPromoted(id, pinned, probation)
     return [...list.filter(promoted), ...list.filter((id) => !promoted(id))]
@@ -118,11 +121,15 @@ export function createManagedListWriter(opts: {
     if (!next.success) return false
     try {
       await writeAtomic(fs, opts.path, JSON.stringify(next.data))
-      return true
     } catch {
       opts.onEvent({ type: 'STATE_WRITE_FAILED', store: 'managed-list' })
       return false
     }
+    // Outside the try: a throwing observer is not a failed write.
+    if (read.kind === 'oversized' || read.kind === 'unreadable') {
+      opts.onEvent({ type: 'STATE_RESET', store: 'managed-list', reason: read.kind })
+    }
+    return true
   }
   let queue: Promise<unknown> = Promise.resolve()
   return (p, ids) => {
