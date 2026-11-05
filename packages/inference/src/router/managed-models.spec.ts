@@ -350,3 +350,43 @@ describe('the managed-list writer (SR-M-6)', () => {
     expect(await write('groq', [Q])).toBe(true)
   })
 })
+
+describe('a throwing observer never poisons the writer (SR-L-20)', () => {
+  const Q = 'openai/gpt-oss-20b'
+  const NEXT = { version: 1, providers: { groq: [Q] } }
+  const writerWith = (text?: string) => {
+    const fs = fakeFs(text === undefined ? {} : { [PATH]: text })
+    const seen: StateEvent[] = []
+    const write = createManagedListWriter({
+      path: PATH,
+      fs,
+      onEvent: (e) => {
+        seen.push(e)
+        throw new Error('observer')
+      },
+    })
+    return { fs, seen, write }
+  }
+
+  it('a failed write resolves false, and a later write lands', async () => {
+    const { fs, seen, write } = writerWith()
+    fs.failAt = 'rename'
+    await expect(write('groq', [Q])).resolves.toBe(false)
+    expect(seen).toEqual([{ type: 'STATE_WRITE_FAILED', store: 'managed-list' }])
+    fs.failAt = undefined
+    await expect(write('groq', [Q])).resolves.toBe(true)
+    expect(JSON.parse(fs.files.get(PATH)!)).toEqual(NEXT)
+  })
+
+  it('a landed write that reports a reset stays true, and a later write lands', async () => {
+    const { fs, seen, write } = writerWith(doc({}) + ' '.repeat(MAX_STATE_BYTES))
+    await expect(write('groq', [Q])).resolves.toBe(true)
+    expect(seen).toEqual([{ type: 'STATE_RESET', store: 'managed-list', reason: 'oversized' }])
+    expect(JSON.parse(fs.files.get(PATH)!)).toEqual(NEXT)
+    await expect(write('groq', ['openai/gpt-oss-120b'])).resolves.toBe(true)
+    expect(JSON.parse(fs.files.get(PATH)!)).toEqual({
+      version: 1,
+      providers: { groq: ['openai/gpt-oss-120b'] },
+    })
+  })
+})

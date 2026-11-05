@@ -18,6 +18,7 @@ import {
   MIN_MANAGED_CONTEXT,
   pickGroqModels,
   pickLiveModels,
+  restNonAlive,
   type ModelFacts,
   type ModelVerdict,
   type ProbeAnswer,
@@ -266,17 +267,24 @@ async function refreshProvider(
   let recorded = true
   if (p === 'gemini') {
     const known = new Set([...next, ...listing.models.map((m) => m.id)])
-    // shortcut: at the cap a list entry's record beats a mere candidate's, so five non-pinned entries
-    // with records leave a candidate none; widen the cap if real lists ever fill with non-pinned ids.
+    // List entries last, so the oldest off-list record goes first at the cap, never the list's.
     const kept = <T extends { model: string }>(records: T[]): T[] => [
       ...records.filter((r) => known.has(r.model) && !next.includes(r.model)),
       ...records.filter((r) => next.includes(r.model)),
     ]
+    const rested = restNonAlive({
+      answers,
+      list: next,
+      held: day.held,
+      probation: written ? day.probation : withheldPromotions(day.probation, day.promotedNow),
+      busy: day.busy,
+      today,
+    })
     recorded = await deps.state.update(
       setModelRecords(
-        kept(written ? day.probation : withheldPromotions(day.probation, day.promotedNow)),
-        kept(day.busy),
-        day.held.filter((r) => known.has(r.model)),
+        kept(rested.probation),
+        kept(rested.busy),
+        rested.held.filter((r) => known.has(r.model)),
       ),
     )
   }

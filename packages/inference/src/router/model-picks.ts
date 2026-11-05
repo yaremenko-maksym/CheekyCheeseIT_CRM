@@ -156,6 +156,39 @@ export function withheldPromotions(
   )
 }
 
+/**
+ * Stamps every model that answered anything but alive and ended the run off the list, and drops its
+ * records: it rests like a held model, so it cannot keep its probe slot from the next candidate
+ * (CR2-M-1). A busy 429 is left to its own three-day count, already bounded, and a list entry stays
+ * probed because it is in use.
+ */
+export function restNonAlive(args: {
+  answers: readonly ProbeAnswer[]
+  list: readonly string[]
+  held: readonly BusyDeadEntry[]
+  probation: readonly ProbationEntry[]
+  busy: readonly BusyEntry[]
+  today: string
+}): { held: BusyDeadEntry[]; probation: ProbationEntry[]; busy: BusyEntry[] } {
+  const resting = new Set(
+    args.answers
+      .filter((a) => a.verdict !== 'alive' && !a.busy429 && !args.list.includes(a.model))
+      .map((a) => a.model),
+  )
+  return {
+    held: [
+      ...args.held.filter((r) => !resting.has(r.model)),
+      ...[...resting].map((model): BusyDeadEntry => ({
+        provider: 'gemini',
+        model,
+        day: args.today,
+      })),
+    ],
+    probation: args.probation.filter((r) => !resting.has(r.model)),
+    busy: args.busy.filter((r) => !resting.has(r.model)),
+  }
+}
+
 export type ModelFacts = {
   /** `undefined`: not probed in this run. */
   verdict?: ModelVerdict | undefined

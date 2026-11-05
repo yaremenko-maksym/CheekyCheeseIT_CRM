@@ -9,11 +9,11 @@ import {
   EMPTY_ROUTE_STATE,
   isBusyDead,
   isBusyDeadReprobeDue,
-  MANAGED_LIST_TARGET,
   markAuth,
   markRetired,
   markStartupRefresh,
   MAX_BUSY_DEAD_ENTRIES,
+  MAX_MODEL_RECORDS,
   MAX_STATE_BYTES,
   MAX_STATE_ENTRIES,
   PROMOTION_STREAK,
@@ -82,10 +82,10 @@ describe('self-heal records in the route-state file (SR-M-6, SR-M-9)', () => {
   it.each<[string, object, number]>([
     [
       'probation',
-      { probation: many(probation({ aliveStreak: 0 }), MANAGED_LIST_TARGET) },
-      MANAGED_LIST_TARGET,
+      { probation: many(probation({ aliveStreak: 0 }), MAX_MODEL_RECORDS) },
+      MAX_MODEL_RECORDS,
     ],
-    ['busy', { busy: many(busy({ busyDays: 0 }), MANAGED_LIST_TARGET) }, MANAGED_LIST_TARGET],
+    ['busy', { busy: many(busy({ busyDays: 0 }), MAX_MODEL_RECORDS) }, MAX_MODEL_RECORDS],
     ['busyDead', { busyDead: many(held(), MAX_BUSY_DEAD_ENTRIES) }, MAX_BUSY_DEAD_ENTRIES],
     ['modelListStale', { modelListStale: many(stale(), MAX_STATE_ENTRIES) }, MAX_STATE_ENTRIES],
   ])('accepts a zero count and exactly the entry cap in %s', async (key, record, cap) => {
@@ -113,7 +113,7 @@ describe('self-heal records in the route-state file (SR-M-6, SR-M-9)', () => {
     ['an invalid probation id', { probation: [probation({ model: '../secret' })] }],
     ['a bad probe day', { probation: [probation({ lastProbeDay: 'today' })] }],
     ['an unknown probation field', { probation: [probation({ promoted: true })] }],
-    ['too many probation entries', { probation: many(probation(), MANAGED_LIST_TARGET + 1) }],
+    ['too many probation entries', { probation: many(probation(), MAX_MODEL_RECORDS + 1) }],
     ['busy days above the rule', { busy: [busy({ busyDays: BUSY_DEAD_DAYS + 1 })] }],
     ['negative busy days', { busy: [busy({ busyDays: -1 })] }],
     ['fractional busy days', { busy: [busy({ busyDays: 0.5 })] }],
@@ -121,7 +121,7 @@ describe('self-heal records in the route-state file (SR-M-6, SR-M-9)', () => {
     ['an invalid busy id', { busy: [busy({ model: 'https://evil.example/x' })] }],
     ['a bad busy day', { busy: [busy({ lastProbeDay: 'today' })] }],
     ['an unknown busy field', { busy: [busy({ extra: 1 })] }],
-    ['too many busy entries', { busy: many(busy(), MANAGED_LIST_TARGET + 1) }],
+    ['too many busy entries', { busy: many(busy(), MAX_MODEL_RECORDS + 1) }],
     ['a Groq busy-dead verdict', { busyDead: [held({ provider: 'groq' })] }],
     ['an invalid busy-dead id', { busyDead: [held({ model: '../secret' })] }],
     ['a bad busy-dead day', { busyDead: [held({ day: 'today' })] }],
@@ -216,7 +216,7 @@ describe('the write ceiling (ADR §3.2, SR-M-2)', () => {
   it('a maximal self-heal document stays under the ceiling and reloads clean', async () => {
     const longest = (i: number): string =>
       `gemini-${String(i).padStart(128 - 'gemini--flash'.length, '9')}-flash`
-    const ids = Array.from({ length: MANAGED_LIST_TARGET }, (_, i) => longest(i))
+    const ids = Array.from({ length: MAX_MODEL_RECORDS }, (_, i) => longest(i))
     const { fs, port } = await load(undefined)
     await port.update(
       setModelRecords(
@@ -232,8 +232,8 @@ describe('the write ceiling (ADR §3.2, SR-M-2)', () => {
     const text = fs.files.get(PATH)!
     expect(Buffer.byteLength(text)).toBeLessThan(MAX_STATE_BYTES)
     const { port: reloaded, events } = await load(text)
-    expect(reloaded.snapshot().probation).toHaveLength(MANAGED_LIST_TARGET)
-    expect(reloaded.snapshot().busy).toHaveLength(MANAGED_LIST_TARGET)
+    expect(reloaded.snapshot().probation).toHaveLength(MAX_MODEL_RECORDS)
+    expect(reloaded.snapshot().busy).toHaveLength(MAX_MODEL_RECORDS)
     expect(reloaded.snapshot().busyDead).toHaveLength(MAX_BUSY_DEAD_ENTRIES)
     expect(events).toEqual([])
   })
@@ -264,7 +264,7 @@ describe('self-heal state changes', () => {
   })
 
   it('setModelRecords replaces every list, capped at its own limit by dropping the oldest', () => {
-    const ids = Array.from({ length: MANAGED_LIST_TARGET + 1 }, (_, i) => `gemini-${i}.0-flash`)
+    const ids = Array.from({ length: MAX_MODEL_RECORDS + 1 }, (_, i) => `gemini-${i}.0-flash`)
     const next = setModelRecords(
       ids.map((model) => ({ provider: 'gemini', model, aliveStreak: 0, lastProbeDay: DAY })),
       ids.map((model) => ({ provider: 'gemini', model, busyDays: 1, lastProbeDay: DAY })),
@@ -274,9 +274,9 @@ describe('self-heal state changes', () => {
         day: DAY,
       })),
     )(EMPTY_ROUTE_STATE)
-    expect(next.probation).toHaveLength(MANAGED_LIST_TARGET)
+    expect(next.probation).toHaveLength(MAX_MODEL_RECORDS)
     expect(next.probation?.[0]?.model).toBe('gemini-1.0-flash')
-    expect(next.busy).toHaveLength(MANAGED_LIST_TARGET)
+    expect(next.busy).toHaveLength(MAX_MODEL_RECORDS)
     expect(next.busy?.[0]?.model).toBe('gemini-1.0-flash')
     expect(next.busyDead).toHaveLength(MAX_BUSY_DEAD_ENTRIES)
     expect(next.busyDead?.[0]?.model).toBe('gemini-1.0-flash')
@@ -341,5 +341,60 @@ describe('self-heal state changes', () => {
     const both = setJobFailed('chain', true)(twice)
     expect(setJobFailed('daily', false)(both).failedJobs).toEqual(['chain'])
     expect(setJobFailed('chain', false)(EMPTY_ROUTE_STATE).failedJobs).toEqual([])
+  })
+})
+
+describe('a throwing observer never decides a write (SR-L-20)', () => {
+  const throwing = (fs: ReturnType<typeof fakeFs>, seen: StateEvent[] = []) =>
+    createFileRouteStatePort({
+      path: PATH,
+      fs,
+      now: () => NOON,
+      onEvent: (e) => {
+        seen.push(e)
+        throw new Error('observer')
+      },
+    })
+  const failedJobs = (fs: ReturnType<typeof fakeFs>) =>
+    (JSON.parse(fs.files.get(PATH)!) as RouteState).failedJobs
+
+  it('loading an invalid file still gives a port', async () => {
+    const seen: StateEvent[] = []
+    const port = await throwing(fakeFs({ [PATH]: 'not json' }), seen)
+    expect(port.snapshot()).toEqual(EMPTY_ROUTE_STATE)
+    expect(seen).toEqual([{ type: 'STATE_RESET', store: 'route-state', reason: 'invalid' }])
+  })
+
+  it('an oversized refusal resolves false instead of throwing, and a later write lands', async () => {
+    const fs = fakeFs()
+    const seen: StateEvent[] = []
+    const port = await throwing(fs, seen)
+    const huge = setModelRecords(
+      [],
+      [],
+      Array.from({ length: MAX_BUSY_DEAD_ENTRIES }, () => ({
+        provider: 'gemini',
+        model: 'x'.repeat(MAX_STATE_BYTES),
+        day: DAY,
+      })),
+    )
+    await expect(port.update(huge)).resolves.toBe(false)
+    expect(seen).toEqual([
+      { type: 'STATE_WRITE_FAILED', store: 'route-state', reason: 'oversized' },
+    ])
+    await expect(port.update(setJobFailed('daily', true))).resolves.toBe(true)
+    expect(failedJobs(fs)).toEqual(['daily'])
+  })
+
+  it('a failed write resolves false, and a later write lands', async () => {
+    const fs = fakeFs()
+    const seen: StateEvent[] = []
+    const port = await throwing(fs, seen)
+    fs.failAt = 'rename'
+    await expect(port.update(setJobFailed('chain', true))).resolves.toBe(false)
+    expect(seen).toEqual([{ type: 'STATE_WRITE_FAILED', store: 'route-state' }])
+    fs.failAt = undefined
+    await expect(port.update(setJobFailed('daily', true))).resolves.toBe(true)
+    expect(failedJobs(fs)).toEqual(['chain', 'daily'])
   })
 })

@@ -33,11 +33,14 @@ export const BUSY_DEAD_DAYS = 3
 export const BUSY_DEAD_REPROBE_DAYS = 7
 /**
  * Not `TARGET`: a cap that small would let six always-busy ids starve a good candidate. Dropping the
- * oldest verdict past it only restarts that model's three-day count.
+ * oldest verdict past it only restarts that model's three-day count. Also rests a candidate that
+ * answered anything but alive and stayed off the list; dropping one of those returns it to the queue.
  */
 export const MAX_BUSY_DEAD_ENTRIES = 50
 /** The managed list keeps at most `TARGET` ids per provider (ADR §3.4, VCF: 5). */
 export const MANAGED_LIST_TARGET = 5
+/** A full list's records plus one, so the candidate being probed can build its streak (CR2-M-2). */
+export const MAX_MODEL_RECORDS = MANAGED_LIST_TARGET + 1
 
 /** Gemini only, as only the Gemini refresh probes: a hand-edited Groq record cannot promote anything. */
 const probationEntry = z
@@ -80,8 +83,8 @@ const routeStateDocument = z
     version: z.literal(1),
     spent: z.array(z.unknown()).max(MAX_STATE_ENTRIES),
     retired: z.array(z.unknown()).max(MAX_STATE_ENTRIES),
-    probation: z.array(probationEntry).max(MANAGED_LIST_TARGET).optional(),
-    busy: z.array(busyEntry).max(MANAGED_LIST_TARGET).optional(),
+    probation: z.array(probationEntry).max(MAX_MODEL_RECORDS).optional(),
+    busy: z.array(busyEntry).max(MAX_MODEL_RECORDS).optional(),
     busyDead: z.array(busyDeadEntry).max(MAX_BUSY_DEAD_ENTRIES).optional(),
     modelListStale: z.array(staleEntry).max(MAX_STATE_ENTRIES).optional(),
     failedJobs: z
@@ -287,6 +290,17 @@ function prune(s: RouteState, nowMs: number): RouteState {
   return { ...s, spent: s.spent.filter((e) => e.day >= providerDay(e.provider, nowMs)) }
 }
 
+/** An observer only watches: the disk decides a write, so a throwing one changes no outcome (SR-L-20). */
+export const quietObserver =
+  (onEvent: (e: StateEvent) => void) =>
+  (e: StateEvent): void => {
+    try {
+      onEvent(e)
+    } catch {
+      // Nothing to tell: the observer is the channel that failed.
+    }
+  }
+
 /**
  * The worker state file behind the `RouteStatePort` (ADR §3.2, D4). An unreadable, invalid or
  * oversized file is empty state and raises `STATE_RESET`; one serialised writer writes the whole
@@ -294,7 +308,7 @@ function prune(s: RouteState, nowMs: number): RouteState {
  */
 export async function createFileRouteStatePort(opts: StateFileOptions): Promise<RouteStatePort> {
   const fs: StateFs = opts.fs ?? nodeFs
-  const emit = opts.onEvent
+  const emit = quietObserver(opts.onEvent)
   let state = EMPTY_ROUTE_STATE
   const read = await readStateText(fs, opts.path)
   if (read.kind === 'text') {
@@ -438,8 +452,8 @@ export const setModelRecords =
   (probation: ProbationEntry[], busy: BusyEntry[], busyDead: BusyDeadEntry[]) =>
   (s: RouteState): RouteState => ({
     ...s,
-    probation: probation.slice(-MANAGED_LIST_TARGET),
-    busy: busy.slice(-MANAGED_LIST_TARGET),
+    probation: probation.slice(-MAX_MODEL_RECORDS),
+    busy: busy.slice(-MAX_MODEL_RECORDS),
     busyDead: busyDead.slice(-MAX_BUSY_DEAD_ENTRIES),
   })
 

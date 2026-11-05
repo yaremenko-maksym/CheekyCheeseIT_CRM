@@ -7,6 +7,7 @@ import {
   isBusyDead,
   MANAGED_LIST_TARGET,
   PROMOTION_STREAK,
+  quietObserver,
   readStateText,
   writeAtomic,
   type ProbationEntry,
@@ -111,6 +112,7 @@ export function createManagedListWriter(opts: {
   onEvent: (e: StateEvent) => void
 }): ManagedListWriter {
   const fs: StateFs = opts.fs ?? nodeFs
+  const emit = quietObserver(opts.onEvent)
   const write = async (p: HostedProvider, ids: readonly string[]): Promise<boolean> => {
     if (ids.length === 0) return false
     const read = await readStateText(fs, opts.path)
@@ -125,19 +127,19 @@ export function createManagedListWriter(opts: {
     try {
       await writeAtomic(fs, opts.path, JSON.stringify(next.data))
     } catch {
-      opts.onEvent({ type: 'STATE_WRITE_FAILED', store: 'managed-list' })
+      emit({ type: 'STATE_WRITE_FAILED', store: 'managed-list' })
       return false
     }
     // Outside the try: a throwing observer is not a failed write.
     if (read.kind === 'oversized' || read.kind === 'unreadable') {
-      opts.onEvent({ type: 'STATE_RESET', store: 'managed-list', reason: read.kind })
+      emit({ type: 'STATE_RESET', store: 'managed-list', reason: read.kind })
     }
     return true
   }
   let queue: Promise<unknown> = Promise.resolve()
   return (p, ids) => {
     const run = queue.then(() => write(p, ids))
-    queue = run
+    queue = run.catch(() => undefined)
     return run
   }
 }
