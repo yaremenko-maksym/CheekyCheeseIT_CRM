@@ -755,7 +755,7 @@ export class JobQueueActionsService {
                AND grant_version = ${request.expectedGrantVersion} AND revoked_at IS NULL
             RETURNING ${GRANT_COLUMNS}`,
       )
-      if (rows[0] === undefined) throw versionConflict()
+      // No row (missing, revoked or newer grant): `grantAnswer` throws the version conflict.
       const grant = grantAnswer(rows[0])
       await this.logTriage(tx, {
         kind: 'TRIAGE_REVOKED',

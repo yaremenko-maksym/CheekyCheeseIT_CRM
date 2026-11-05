@@ -1323,6 +1323,13 @@ async function expectElapsed(promise: Promise<unknown>, expiresAt: string): Prom
   ])
 }
 
+/** `grantRow` as executed, whitespace collapsed: the exact column list, no lock clause. */
+const GRANT_READ =
+  'SELECT id, opportunity_id, team_id, assigned_by, evidence, policy_version, ' +
+  'opportunity_revision, grant_version, expires_at, revoked_at, created_at, ' +
+  '(revoked_at IS NULL AND expires_at > clock_timestamp()) AS live ' +
+  'FROM job_opportunity_team_triage WHERE opportunity_id = $1::uuid AND team_id = $2::uuid'
+
 describe('grantTeamTriage (r5 Task 6.4b)', () => {
   const body = {
     teamId: TEAM_B,
@@ -1412,7 +1419,9 @@ describe('grantTeamTriage (r5 Task 6.4b)', () => {
     )
     expect((await h.svc.grantTeamTriage(ADMIN, OPP, body)).grantVersion).toBe(3)
     expect(h.param('triageLog').slice(5, 7)).toEqual([2, 3])
-    expect(h.calls.find((c) => PATTERNS.grantRead.test(c.text))?.text).toMatch(/FOR UPDATE$/)
+    expect(h.calls.find((c) => PATTERNS.grantRead.test(c.text))?.text).toBe(
+      `${GRANT_READ} FOR UPDATE`,
+    )
   })
 
   it('a live grant, a stale revision and a lost upsert are the version conflict', async () => {
@@ -1476,6 +1485,8 @@ describe('grantTeamTriage (r5 Task 6.4b)', () => {
     const h = harness({ earlier, grantRead: [{ ...GRANT_ROW, live: true }] }, STUDIO_SCOPE)
     expect(await h.svc.grantTeamTriage(ADMIN, OPP, body)).toEqual(GRANT_DTO)
     expect(h.hits).toEqual(['triageTarget', 'actor', 'earlier', 'grantRead'])
+    // A replay reads without a row lock: the exact statement, its column list and no trailing clause.
+    expect(h.calls.find((c) => PATTERNS.grantRead.test(c.text))?.text).toBe(GRANT_READ)
     const other = harness({ earlier }, STUDIO_SCOPE)
     await expectCode(
       other.svc.grantTeamTriage(ADMIN, OPP, { ...body, reason: 'Another reason' }),
@@ -1702,6 +1713,26 @@ describe('subscribeTeamTriage (r5 Task 6.4b)', () => {
     expect(h.hits).toEqual(['actor', 'earlier', 'subRead'])
   })
 
+  it('a retry whose log row names no subscription reads id null and is its own 404', async () => {
+    const earlier = [
+      {
+        reason: JSON.stringify({ fp: FP }),
+        after_version: 1,
+        created_at: new Date(T1),
+        opportunity_id: null,
+        subscription_id: null,
+      },
+    ]
+    const h = harness({ earlier }, STUDIO_SCOPE)
+    await expectCode(
+      h.svc.subscribeTeamTriage(ADMIN, body),
+      404,
+      'JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND',
+    )
+    expect(h.param('subRead')).toEqual([null])
+    expect(h.hits).toEqual(['actor', 'earlier', 'subRead'])
+  })
+
   it('a dead team or a malformed team id is 422 and writes nothing', async () => {
     const dead = harness({ team: [] }, STUDIO_SCOPE)
     await expectCode(
@@ -1739,6 +1770,11 @@ describe('subscribeTeamTriage (r5 Task 6.4b)', () => {
     expect(await h.svc.subscribeTeamTriage(ADMIN, body)).toEqual(SUB_DTO)
     expect(h.hits).toEqual(['actor', 'earlier', 'subRead'])
     expect(h.param('subRead')).toEqual([SUB_ID])
+    expect(h.calls.find((c) => PATTERNS.subRead.test(c.text))?.text).toBe(
+      'SELECT id, team_id, role_family, to_jsonb(source_types) AS source_types, policy_version, ' +
+        'subscription_version, expires_at, revoked_at, created_at ' +
+        'FROM job_team_triage_subscriptions WHERE id = $1::uuid',
+    )
     await expectCode(
       harness({ earlier }, STUDIO_SCOPE).svc.subscribeTeamTriage(ADMIN, {
         ...body,
