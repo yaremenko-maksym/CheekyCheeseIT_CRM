@@ -61,7 +61,19 @@ describe('useActiveTeams', () => {
   it('is null while the request is in flight', () => {
     get.mockReturnValue(new Promise(() => {}))
     const { result } = renderHook(() => useActiveTeams(), { wrapper })
-    expect(result.current).toEqual({ teams: null, isLoading: true })
+    expect(result.current).toMatchObject({ teams: null, isLoading: true, isError: false })
+  })
+
+  it('reports a failed request and refetches on demand (QA-M-2)', async () => {
+    get.mockRejectedValueOnce(new Error('boom'))
+    const { result } = renderHook(() => useActiveTeams(), { wrapper })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.teams).toBeNull()
+    get.mockResolvedValueOnce({ data: [BETA] })
+    await result.current.refetch()
+    await waitFor(() => expect(result.current.teams?.map((t) => t.id)).toEqual(['beta']))
+    expect(result.current.isError).toBe(false)
+    expect(get).toHaveBeenCalledTimes(2)
   })
 
   it('is null and fetches nothing without a user', () => {

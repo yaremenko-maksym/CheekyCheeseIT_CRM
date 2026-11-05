@@ -148,17 +148,25 @@ export function JobQueueFilters({
         <Button
           data-testid="job-queue-filters-button"
           variant="outline"
-          className="min-h-11 min-w-11 gap-2 self-start px-0 min-[560px]:px-4"
+          className="min-h-11 min-w-11 shrink-0 gap-2 self-start px-0 @min-[560px]:px-4"
         >
           <SlidersHorizontal aria-hidden="true" className="size-4" />
-          {/* below 560 px an icon-only 44x44 button; the label stays for screen readers */}
-          <span className="sr-only min-[560px]:not-sr-only">
+          {/* below 560 px of content an icon-only 44x44 button; the label stays for screen readers */}
+          <span className="sr-only @min-[560px]:not-sr-only">
             <Trans>Фільтри</Trans>
           </span>
           {applied > 0 && (
-            <span className="rounded-full bg-primary px-1.5 text-xs tabular-nums text-primary-foreground">
-              {applied}
-            </span>
+            <>
+              <span
+                aria-hidden="true"
+                className="rounded-full bg-primary px-1.5 text-xs tabular-nums text-primary-foreground"
+              >
+                {applied}
+              </span>
+              <span className="sr-only">
+                <Trans>Активних фільтрів: {applied}</Trans>
+              </span>
+            </>
           )}
         </Button>
       </PopoverTrigger>

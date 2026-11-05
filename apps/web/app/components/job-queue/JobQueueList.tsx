@@ -44,7 +44,7 @@ const EMPTY: Record<JobQueueTab, { title: MessageDescriptor; body: MessageDescri
   },
 }
 
-function StateBlock({
+export function StateBlock({
   testId,
   title,
   body,
@@ -104,6 +104,11 @@ export function JobQueueList(props: JobQueueListProps) {
     return () => observer.disconnect()
   }, [sentinel])
 
+  // a replaced list (tab / filter / search switch) cancels a pending «Показати ще» focus
+  useEffect(() => {
+    focusFrom.current = null
+  }, [first])
+
   useEffect(() => {
     const from = focusFrom.current
     if (from === null) return
@@ -118,6 +123,9 @@ export function JobQueueList(props: JobQueueListProps) {
   if (status === 'pending') {
     return (
       <div data-testid="job-queue-loading" aria-busy="true" className="flex flex-col gap-2">
+        <span className="sr-only">
+          <Trans>Завантажуємо чергу…</Trans>
+        </span>
         {[0, 1, 2].map((i) => (
           <Skeleton key={i} className="h-20 w-full" />
         ))}
@@ -182,7 +190,8 @@ export function JobQueueList(props: JobQueueListProps) {
       <ul
         ref={listRef}
         data-testid="job-queue-list"
-        className="flex flex-col gap-2 min-[560px]:gap-0 min-[560px]:rounded-lg min-[560px]:border"
+        // one outer border, clipped so a hovered row stays inside the rounded corners; rows split by dividers
+        className="flex flex-col gap-2 @min-[560px]:gap-0 @min-[560px]:divide-y @min-[560px]:overflow-hidden @min-[560px]:rounded-lg @min-[560px]:border"
       >
         {items.map((item) => (
           <li key={item.opportunityId} className="min-w-0">
@@ -242,7 +251,7 @@ export function JobQueueList(props: JobQueueListProps) {
               <Button
                 data-testid="job-queue-load-more"
                 variant="outline"
-                className="min-h-11 w-full min-[560px]:w-auto"
+                className="min-h-11 w-full @min-[560px]:w-auto"
                 onClick={onButton}
               >
                 {props.isFetchNextPageError ? (

@@ -24,7 +24,7 @@ export function TeamSwitcher({
       <SelectTrigger
         data-testid="job-queue-team-switcher"
         aria-label={t`Команда`}
-        className="min-h-11 w-full min-[560px]:w-auto min-[560px]:min-w-48"
+        className="min-h-11 w-full @min-[560px]:w-auto @min-[560px]:min-w-48"
       >
         <SelectValue />
       </SelectTrigger>

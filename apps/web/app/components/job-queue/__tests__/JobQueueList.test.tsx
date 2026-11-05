@@ -106,8 +106,18 @@ describe('JobQueueList', () => {
 
   it('shows skeletons and no list while the first page loads', () => {
     renderList({ items: undefined, status: 'pending' })
-    expect(screen.getByTestId('job-queue-loading')).toBeInTheDocument()
+    expect(screen.getByTestId('job-queue-loading')).toHaveTextContent('Завантажуємо чергу…')
+    expect(screen.getByText('Завантажуємо чергу…')).toHaveClass('sr-only')
     expect(screen.queryByTestId('job-queue-list')).toBeNull()
+  })
+
+  it('wide list: one clipped border, rows separated by dividers (no doubled last border)', () => {
+    renderList()
+    const list = screen.getByTestId('job-queue-list')
+    expect(list).toHaveClass('@min-[560px]:overflow-hidden', '@min-[560px]:divide-y')
+    expect(screen.getByTestId(`job-queue-row-${B.opportunityId}`)).not.toHaveClass(
+      '@min-[560px]:border-b',
+    )
   })
 
   it('shows the load error with a retry', async () => {
@@ -243,6 +253,14 @@ describe('JobQueueList', () => {
     expect(screen.getByTestId('job-queue-live')).toHaveTextContent(
       'Завантажено ще 1. Показано 3 із 5',
     )
+  })
+
+  it('drops a pending button focus when the list is replaced (tab / filter switch)', async () => {
+    const view = renderList({ hasNextPage: true, total: 5 })
+    await userEvent.click(screen.getByTestId('job-queue-load-more'))
+    view.rerender({ items: [C, A, B], hasNextPage: true, total: 5 })
+    expect(screen.getByTestId(`job-queue-row-${B.opportunityId}`)).not.toHaveFocus()
+    expect(screen.getByTestId('job-queue-load-more')).toHaveFocus()
   })
 
   it('announces only the count before any append, and resets when the list is replaced', () => {

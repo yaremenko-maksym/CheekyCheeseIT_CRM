@@ -62,6 +62,22 @@ describe('JobQueueStatusTabs', () => {
     expect(screen.getByTestId('job-queue-tab-NEW')).toHaveTextContent(/^Нові$/)
   })
 
+  it('wraps its content in the tabpanel the selected tab controls (no dangling aria-controls)', () => {
+    render(
+      <JobQueueStatusTabs value="SUBMITTED" counts={null} onChange={() => {}}>
+        <p>queue body</p>
+      </JobQueueStatusTabs>,
+      { wrapper: I18nTestProvider },
+    )
+    const panel = screen.getByRole('tabpanel')
+    expect(panel).toHaveTextContent('queue body')
+    expect(screen.getByTestId('job-queue-tab-SUBMITTED')).toHaveAttribute('aria-controls', panel.id)
+    expect(panel).toHaveAttribute(
+      'aria-labelledby',
+      screen.getByTestId('job-queue-tab-SUBMITTED').id,
+    )
+  })
+
   it('reports the clicked tab status', async () => {
     const onChange = vi.fn()
     render(

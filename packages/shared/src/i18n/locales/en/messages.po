@@ -1193,6 +1193,10 @@ msgstr "Paste the whole resume text here"
 msgid "Пошук за назвою або компанією"
 msgstr "Search by title or company"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "Дата публікації невідома"
+msgstr "Publication date unknown"
+
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Дата події (необов’язково)"
 msgstr "Event date (optional)"
@@ -3994,6 +3998,7 @@ msgstr "Connection enabled"
 
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Спробувати ще раз"
 msgstr "Try again"
 
@@ -6926,6 +6931,10 @@ msgstr "Connection actions"
 msgid "Закриті ({0})"
 msgstr "Closed ({0})"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "вперше побачено {firstSeenAgo}"
+msgstr "first seen {firstSeenAgo}"
+
 #: apps/web/app/routes/_authenticated/admin/sources.index.tsx
 msgid "Не вдалося завантажити стан джерел."
 msgstr "Could not load source health."
@@ -7088,6 +7097,7 @@ msgid "Активний"
 msgstr "Active"
 
 #: apps/web/app/components/job-queue/JobQueueList.tsx
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Не вдалося завантажити чергу"
 msgstr "Couldn’t load the queue"
 
@@ -7911,10 +7921,6 @@ msgstr "Proposal rejected — the previous share stays. The admin will see the r
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Дошку видалено"
 msgstr "Board removed"
-
-#: apps/web/app/components/job-queue/JobQueueRow.tsx
-msgid "✓ {submitted} подано"
-msgstr "✓ {submitted} submitted"
 
 #: apps/web/app/routes/_authenticated/team/team-detail/components/TeamNotFound.tsx
 msgid "Можливо, у вас немає доступу до цієї команди"
@@ -8974,6 +8980,10 @@ msgstr "Resume deleted (retention period expired)"
 msgid "Не вдалося зберегти зміни — дані залишилися у формі, спробуйте ще раз"
 msgstr "Could not save the changes — the form keeps your data, try again"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
+msgid "Завантажуємо чергу…"
+msgstr "Loading the queue…"
+
 #. placeholder {0}: receiver.pendingCount + receiver.accruedCount
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "{0, plural, one {# у процесі} few {# у процесі} many {# у процесі} other {# у процесі}}"
@@ -9187,6 +9197,10 @@ msgstr "All ({0})"
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Керувати в розділі «Проєкти» →"
 msgstr "Manage in the Projects section →"
+
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "{submitted} подано"
+msgstr "{submitted} submitted"
 
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Поповнення рахунку компанії"
@@ -10661,6 +10675,7 @@ msgid "Немає доступу? Зверніться до адміністра
 msgstr "No access? Contact an admin."
 
 #: apps/web/app/components/job-queue/JobQueueList.tsx
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Спробуйте ще раз."
 msgstr "Try again."
 
@@ -11013,10 +11028,6 @@ msgstr "Could not load the contract variables"
 #: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
 msgid "Зміна ERC-20 адреси для отримання USDT-депозитів"
 msgstr "Changing the ERC-20 address used to receive USDT deposits"
-
-#: apps/web/app/components/job-queue/JobQueueRow.tsx
-msgid "Дата публікації невідома · вперше знайдено {firstSeenAgo}"
-msgstr "Publication date unknown · first seen {firstSeenAgo}"
 
 #: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Буде створено акаунт сеньйора та сформовано команду з вами в ролі HR."
@@ -11747,6 +11758,10 @@ msgstr "No one selected"
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
 msgid "Кваліфікація"
 msgstr "Qualifications"
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Активних фільтрів: {applied}"
+msgstr "Active filters: {applied}"
 
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Транзакції в роботі"

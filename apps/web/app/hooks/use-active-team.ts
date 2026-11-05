@@ -37,7 +37,13 @@ export function useActiveTeam(): {
  * `useActiveTeam`, which takes the first). `teams` is `null` while unknown (no user /
  * still loading). r5 Task 7.2: the job queue lets an HR with several teams switch.
  */
-export function useActiveTeams(): { teams: TeamDto[] | null; isLoading: boolean } {
+export function useActiveTeams(): {
+  teams: TeamDto[] | null
+  isLoading: boolean
+  /** The request failed — `teams` stays `null`; a caller offers `refetch` instead of a skeleton. */
+  isError: boolean
+  refetch: () => Promise<unknown>
+} {
   const { user } = useAuth()
   // Gate: do not call /api/teams while the user is still in the onboarding
   // wizard — OnboardingGuard would 403 non-ADMIN pre-onboarding callers and
@@ -45,7 +51,7 @@ export function useActiveTeams(): { teams: TeamDto[] | null; isLoading: boolean 
   // transparent for them.
   const { isComplete } = useOnboardingGate()
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['teams', { archived: 'active' }],
     queryFn: async () => {
       const res = await api.get<TeamDto[]>('/teams')
@@ -55,7 +61,7 @@ export function useActiveTeams(): { teams: TeamDto[] | null; isLoading: boolean 
     staleTime: 60_000,
   })
 
-  if (!user || isLoading || !data) return { teams: null, isLoading }
+  if (!user || isLoading || !data) return { teams: null, isLoading, isError, refetch }
 
   // Active membership in any non-archived team — `leftAt === null`. Backend
   // already filters out archived teams in the default `findAll` call (no
@@ -65,5 +71,7 @@ export function useActiveTeams(): { teams: TeamDto[] | null; isLoading: boolean 
       (t) => !t.archivedAt && t.members.some((m) => m.userId === user.id && !m.leftAt),
     ),
     isLoading: false,
+    isError,
+    refetch,
   }
 }

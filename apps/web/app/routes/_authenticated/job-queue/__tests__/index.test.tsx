@@ -80,10 +80,12 @@ function serve({
   role = 'HR',
   teams = [team(TEAM_A, 'Alpha')],
   queue = () => Promise.resolve({ data: page() }),
+  teamsCall = () => Promise.resolve({ data: teams }),
 }: {
   role?: 'HR' | 'ADMIN'
   teams?: unknown[]
   queue?: (params: Record<string, unknown>) => Promise<unknown>
+  teamsCall?: () => Promise<unknown>
 } = {}) {
   vi.mocked(useAuth).mockReturnValue({
     user: { id: HR_ID, role },
@@ -94,7 +96,7 @@ function serve({
     config?: { params?: Record<string, unknown> },
   ) => {
     calls.push({ url, params: config?.params })
-    if (url === '/teams') return Promise.resolve({ data: teams })
+    if (url === '/teams') return teamsCall()
     if (url === '/job-queue') return queue(config?.params ?? {})
     return Promise.reject(new Error(`unexpected ${url}`))
   }) as unknown as typeof api.get)
@@ -232,6 +234,47 @@ describe('/job-queue page', () => {
       'Вам не призначено жодної команди',
     )
     expect(queueCalls()).toHaveLength(0)
+  })
+
+  it('an HR whose teams request fails gets an error with a retry, not an endless skeleton (QA-M-2)', async () => {
+    let fail = true
+    serve({
+      teamsCall: () =>
+        fail
+          ? Promise.reject(new Error('boom'))
+          : Promise.resolve({ data: [team(TEAM_A, 'Alpha')] }),
+    })
+    renderPage()
+    const error = await screen.findByTestId('job-queue-error')
+    expect(error).toHaveAttribute('role', 'alert')
+    expect(error).toHaveTextContent('Не вдалося завантажити чергуСпробуйте ще раз.')
+    expect(screen.queryByTestId('job-queue-loading')).toBeNull()
+    expect(queueCalls()).toHaveLength(0)
+    fail = false
+    await userEvent.click(within(error).getByRole('button', { name: 'Спробувати ще раз' }))
+    expect(await screen.findByTestId(`job-queue-row-${ITEM_ID}`)).toBeInTheDocument()
+    expect(calls.filter((c) => c.url === '/teams')).toHaveLength(2)
+  })
+
+  it('keeps search and the icon-only filter button on one row; only the team switcher stacks (UX-L-5)', async () => {
+    serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
+    renderPage()
+    const switcher = await screen.findByTestId('job-queue-team-switcher')
+    const row = screen.getByTestId('job-queue-search-row')
+    expect(row).toContainElement(screen.getByRole('search'))
+    expect(row).toContainElement(screen.getByTestId('job-queue-filters-button'))
+    expect(row).toHaveClass('flex', 'items-center', 'gap-2')
+    expect(row).not.toHaveClass('flex-col')
+    // the switcher is outside that row: it is the only toolbar part that stacks
+    expect(row).not.toContainElement(switcher)
+  })
+
+  it('hides the native search cancel so only the custom clear button shows (UX-M-2)', async () => {
+    serve()
+    renderPage()
+    expect(await screen.findByTestId('job-queue-search')).toHaveClass(
+      '[&::-webkit-search-cancel-button]:appearance-none',
+    )
   })
 
   it('an HR with several teams gets a switcher and the URL team is used', async () => {

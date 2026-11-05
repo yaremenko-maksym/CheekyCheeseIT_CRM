@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { JobQueueListItemDto } from '@crm/shared'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
@@ -73,8 +73,15 @@ describe('JobQueueRow', () => {
 
   it('falls back to first-seen with an unknown-date notice', () => {
     const { row } = renderRow({ publishedAt: null })
-    expect(row).toHaveTextContent('Дата публікації невідома · вперше знайдено позавчора')
+    expect(row).toHaveTextContent('Дата публікації невідома · вперше побачено позавчора')
     expect(row).not.toHaveTextContent('Опубліковано')
+    // §4.3: the first-seen phrase never wraps apart
+    expect(screen.getByText('вперше побачено позавчора')).toHaveClass('whitespace-nowrap')
+  })
+
+  it('sets the title semibold (§4.3)', () => {
+    renderRow()
+    expect(screen.getByText('Senior React Engineer')).toHaveClass('font-semibold')
   })
 
   it('labels a triage item and omits the label for a lead', () => {
@@ -121,12 +128,17 @@ describe('JobQueueRow', () => {
 
   it('shows the submitted companion only on the SUBMITTED tab', () => {
     renderRow({ matchedSeniorCount: 2, submittedSeniorCount: 1 }, { tab: 'SUBMITTED' })
-    expect(screen.getByTestId('job-queue-row-submitted')).toHaveTextContent('✓ 1 подано')
+    const submitted = screen.getByTestId('job-queue-row-submitted')
+    expect(submitted).toHaveTextContent(/^1 подано$/)
+    // the check mark is a decorative icon, not a glyph in the translated string
+    const icon = within(submitted).getByTestId('job-queue-row-submitted-icon')
+    expect(icon.tagName.toLowerCase()).toBe('svg')
+    expect(icon).toHaveAttribute('aria-hidden', 'true')
   })
 
   it('shows the submitted companion with no matched count (manual submission)', () => {
     renderRow({ matchedSeniorCount: 0, submittedSeniorCount: 1 }, { tab: 'SUBMITTED' })
-    expect(screen.getByTestId('job-queue-row-submitted')).toHaveTextContent('✓ 1 подано')
+    expect(screen.getByTestId('job-queue-row-submitted')).toHaveTextContent(/^1 подано$/)
     expect(screen.queryByTestId('job-queue-row-matched')).toBeNull()
   })
 

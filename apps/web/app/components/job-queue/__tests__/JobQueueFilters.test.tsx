@@ -93,7 +93,11 @@ describe('JobQueueFilters', () => {
       { wrapper: I18nTestProvider },
     )
     // the badge counts groups (eligibility + availability), not options
-    expect(screen.getByTestId('job-queue-filters-button')).toHaveTextContent('Фільтри2')
+    // visible: «Фільтри» + «2»; screen readers also hear what the 2 means
+    const button = screen.getByTestId('job-queue-filters-button')
+    expect(button).toHaveTextContent('Фільтри2Активних фільтрів: 2')
+    expect(screen.getByText('2')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByText('Активних фільтрів: 2')).toHaveClass('sr-only')
     await user.click(screen.getByTestId('job-queue-filters-button'))
     await user.click(screen.getByTestId('job-queue-filters-clear'))
     expect(screen.getByRole('checkbox', { name: 'Потребує розгляду' })).not.toBeChecked()

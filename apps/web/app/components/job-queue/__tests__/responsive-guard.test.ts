@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 const COMPONENTS = join(__dirname, '..')
 const PAGE = join(__dirname, '../../../routes/_authenticated/job-queue/index.tsx')
 const FIXED_PX_WIDTH = /\b(?:min-|max-)?w-\[\d+px\]/
+const VIEWPORT_560 = /(^|[\s"'`])min-\[560px\]:/
 
 const files = [
   ...readdirSync(COMPONENTS)
@@ -24,6 +25,23 @@ describe('job-queue responsive guard', () => {
 
   it.each(files)('%s has no fixed-pixel width class', (file) => {
     expect(readFileSync(file, 'utf8')).not.toMatch(FIXED_PX_WIDTH)
+  })
+
+  // §10: the card/list switch follows CONTENT width (container query), not the viewport —
+  // at 768 px with the sidebar the content is ≈512 px and still shows the card stack
+  it.each(files)('%s switches layout on container width, never viewport min-[560px]:', (file) => {
+    expect(readFileSync(file, 'utf8')).not.toMatch(VIEWPORT_560)
+  })
+
+  it('the page wrapper is the query container', () => {
+    expect(readFileSync(PAGE, 'utf8')).toMatch(
+      /data-testid="job-queue-page"\s+className="@container /,
+    )
+  })
+
+  it('the viewport pattern catches a media variant but not a container one', () => {
+    expect('className="flex min-[560px]:flex-row"').toMatch(VIEWPORT_560)
+    expect('className="flex @min-[560px]:flex-row"').not.toMatch(VIEWPORT_560)
   })
 
   it('the pattern itself catches a fixed width', () => {
