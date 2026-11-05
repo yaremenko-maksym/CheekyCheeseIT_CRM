@@ -25,9 +25,10 @@ import {
 } from './__test-helpers__/router-harness'
 import { MANAGED_LIST_TARGET } from './managed-models'
 import { MIN_MANAGED_CONTEXT } from './model-picks'
-import { runDailyModelRefresh } from './model-refresh'
+import { runDailyModelRefresh, runStartupModelRefresh } from './model-refresh'
 import {
   EMPTY_ROUTE_STATE,
+  markAuth,
   markRetired,
   markSpent,
   PROMOTION_STREAK,
@@ -949,15 +950,9 @@ describe('what a probe proves', () => {
   })
 
   it('at the record cap, the records of list entries outlive those of mere candidates', async () => {
-    const [a, b, c, d, e, g, f] = [4, 5, 6, 7, 8, 3, 9].map((n) => `gemini-${n}.0-flash`) as [
-      string,
-      string,
-      string,
-      string,
-      string,
-      string,
-      string,
-    ]
+    const id = (n: number) => `gemini-${n}.0-flash`
+    const [a, b, c, f] = [4, 5, 6, 3].map(id) as [string, string, string, string]
+    const offList = [7, 8, 9, 10, 11, 12, 13, 14].map(id)
     const record = (model: string) => ({
       provider: 'gemini' as const,
       model,
@@ -967,14 +962,20 @@ describe('what a probe proves', () => {
     const w = refreshWorld({
       routes: GEMINI_ONLY,
       managed: managedDoc({ gemini: [G1, G2, a, b, c] }),
-      state: { ...EMPTY_ROUTE_STATE, probation: [a, b, c, d, e, g].map(record) },
+      state: { ...EMPTY_ROUTE_STATE, probation: [a, b, c, ...offList].map(record) },
       // Only `f` is probed, so it lands behind every older record.
       hadOkCall: (_p, m) => m !== f,
-      listing: { gemini: geminiListing([G1, G2, a, b, c, d, e, g, f].map((id) => [id, BIG])) },
+      listing: { gemini: geminiListing([G1, G2, a, b, c, ...offList, f].map((m) => [m, BIG])) },
     })
     await runDailyModelRefresh(w.deps)
     expect(w.fileList('gemini')).toEqual([G1, G2, a, b, c])
-    expect(w.state.snapshot().probation?.map((r) => r.model)).toEqual([e, g, f, a, b, c])
+    expect(w.state.snapshot().probation?.map((r) => r.model)).toEqual([
+      ...offList.slice(1),
+      f,
+      a,
+      b,
+      c,
+    ])
   })
 })
 
@@ -1291,7 +1292,7 @@ describe('a candidate that never answers alive gives up its probe slot (CR2-M-1)
   const THIRTY = Array.from({ length: 30 }, (_, i) =>
     new Date(Date.UTC(2026, 10, 4 + i)).toISOString().slice(0, 10),
   )
-  const THIRTY_FIRST = THIRTY[0] as string
+  const FIRST_DAY = THIRTY[0] as string
   /** One rest of seven UTC days per probe over thirty days, plus the first. */
   const MAX_BLOCKER_PROBES = 5
   const DEAD: Reply = { status: 404, body: '{}' }
@@ -1328,7 +1329,7 @@ describe('a candidate that never answers alive gives up its probe slot (CR2-M-1)
 
   it('two dead ids ahead on a short list: the healthy id joins next day, thirty days hold no waste', async () => {
     const w = world([a, b, c, d], [X, Y], DEAD)
-    await runOn(w, [THIRTY_FIRST])
+    await runOn(w, [FIRST_DAY])
     expect(w.fileList('gemini')).toEqual([a, b, c, d])
     await runOn(w, THIRTY.slice(1, 2))
     expect(w.fileList('gemini')).toEqual([a, b, c, d, HEALTHY])
@@ -1382,7 +1383,7 @@ describe('a candidate that never answers alive gives up its probe slot (CR2-M-1)
   })
 
   it('stamps a rested id, drops its records, and keeps every other stamp', async () => {
-    const day = THIRTY_FIRST
+    const day = FIRST_DAY
     const other = { provider: 'gemini' as const, model: Y, day }
     const w = world(
       FIVE,
@@ -1402,7 +1403,7 @@ describe('a candidate that never answers alive gives up its probe slot (CR2-M-1)
   })
 
   it('a held id re-probed to no avail keeps exactly one stamp', async () => {
-    const day = THIRTY_FIRST
+    const day = FIRST_DAY
     const w = world([a, b, c, d], [X], DEAD, {
       busyDead: [{ provider: 'gemini', model: X, day: '2026-10-01' }],
     })
@@ -1413,14 +1414,14 @@ describe('a candidate that never answers alive gives up its probe slot (CR2-M-1)
 
   it('a non-alive candidate that fits a short list joins it and rests nowhere', async () => {
     const w = world([a, b], [X], { status: 503, body: '{}' })
-    await runOn(w, [THIRTY_FIRST])
+    await runOn(w, [FIRST_DAY])
     expect(w.fileList('gemini')).toContain(X)
     expect(w.state.snapshot().busyDead ?? []).toEqual([])
   })
 
   it('a busy candidate keeps its three-day count, not a rest', async () => {
     const w = world(FIVE, [X], { status: 429, body: '{"error":{"code":429}}' })
-    await runOn(w, [THIRTY_FIRST])
+    await runOn(w, [FIRST_DAY])
     expect(w.state.snapshot().busyDead ?? []).toEqual([])
     expect(w.state.snapshot().busy?.map((r) => r.model)).toContain(X)
   })
@@ -1452,6 +1453,115 @@ describe('the record cap leaves a candidate its streak (CR2-M-2)', () => {
     await runOn(w, days.slice(PROMOTION_STREAK - 1, 30))
     expect(w.fileList('gemini')).toContain(NEW)
     expect(streakOf(w, NEW)).toBe(PROMOTION_STREAK)
-    expect(w.ofType('MODEL_PROMOTED').length).toBeGreaterThan(0)
+    expect(w.ofType('MODEL_PROMOTED').map((e) => e.model)).toEqual([NEW])
+  })
+})
+
+describe('a list that nothing could replace is not rested (CR3-M-1)', () => {
+  const NOT_FOUND: Reply = { status: 404, body: '{}' }
+  const DAY_0 = '2026-11-04'
+  const DAY_1 = '2026-11-05'
+  const allDownOnDay0 = () => {
+    let down = true
+    const w = refreshWorld({
+      routes: GEMINI_ONLY,
+      managed: managedDoc({ gemini: [G1, G2] }),
+      chat: () => (down ? NOT_FOUND : ALIVE),
+    })
+    return { w, recover: () => (down = false) }
+  }
+
+  it('every entry answers 404: both are probed the next day and the job recovers', async () => {
+    const { w, recover } = allDownOnDay0()
+    await runOn(w, [DAY_0])
+    expect(w.fileList('gemini')).toEqual([G1, G2])
+    expect(w.state.snapshot().busyDead ?? []).toEqual([])
+    expect(w.state.snapshot().failedJobs).toEqual(['daily'])
+    recover()
+    await runOn(w, [DAY_1])
+    expect(w.chatModels().slice(2)).toEqual([G1, G2])
+    expect(w.fileList('gemini')).toEqual([G1, G2])
+    expect(w.state.snapshot().failedJobs).toEqual([])
+  })
+
+  it('every entry answers 404: AUTH still clears by the proof probe once the key works', async () => {
+    const { w, recover } = allDownOnDay0()
+    await runOn(w, [DAY_0])
+    await w.state.update(markAuth('gemini'))
+    recover()
+    w.clock.ms = noonOf(DAY_1)
+    await runStartupModelRefresh({ ...w.deps, hadOkCall: () => true })
+    expect(w.chatModels().slice(2)).toEqual([G1])
+    expect(w.state.snapshot().auth ?? []).toEqual([])
+  })
+
+  it('the last entry to answer 404 stays probed although an earlier one rests', async () => {
+    let g1Down = false
+    const w = refreshWorld({
+      routes: GEMINI_ONLY,
+      managed: managedDoc({ gemini: [G1, G2] }),
+      chat: (s) => (s.model === G2 || g1Down ? NOT_FOUND : ALIVE),
+    })
+    await runOn(w, [DAY_0])
+    expect(w.fileList('gemini')).toEqual([G1])
+    g1Down = true
+    await runOn(w, [DAY_1])
+    expect(w.state.snapshot().busyDead?.map((r) => r.model)).toEqual([G2])
+    expect(w.fileList('gemini')).toEqual([G1])
+  })
+
+  it('a candidate that answers 404 beside a downed list still rests', async () => {
+    const w = refreshWorld({
+      routes: GEMINI_ONLY,
+      managed: managedDoc({ gemini: [G1, G2] }),
+      listing: { gemini: WITH_NEW },
+      chat: () => NOT_FOUND,
+    })
+    await runOn(w, [DAY_0])
+    expect(w.state.snapshot().busyDead?.map((r) => r.model)).toEqual([NEW])
+  })
+})
+
+describe('the head of the list stays put once every id is placed (SPEC3-M-1)', () => {
+  const [a, b, c, d, e, X, Y] = [4, 5, 6, 7, 8, 3, 9].map((n) => `gemini-${n}.0-flash`) as [
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+  ]
+  const FIVE = [a, b, c, d, e]
+  const THIRTY = Array.from({ length: 30 }, (_, i) =>
+    new Date(Date.UTC(2026, 10, 4 + i)).toISOString().slice(0, 10),
+  )
+  const fullRecord = (model: string) => ({
+    provider: 'gemini' as const,
+    model,
+    aliveStreak: PROMOTION_STREAK,
+    lastProbeDay: '2026-11-01',
+  })
+
+  it('two new ids, all healthy, thirty days: exactly two promotions, then a stable head', async () => {
+    const w = refreshWorld({
+      routes: GEMINI_ONLY,
+      managed: managedDoc({ gemini: FIVE }),
+      state: { ...EMPTY_ROUTE_STATE, probation: FIVE.map(fullRecord) },
+      listing: { gemini: geminiListing([...FIVE, X, Y].map((id) => [id, BIG])) },
+    })
+    // The head had a real call today, so six probes cover the other four entries and two new ids:
+    // the ADR's bound here is one promotion for each new id, once, and none for an evicted entry.
+    const deps = { ...w.deps, hadOkCall: (_p: string, m: string) => m === w.fileList('gemini')?.[0] }
+    const lists: (readonly string[] | undefined)[] = []
+    for (const day of THIRTY) {
+      w.clock.ms = noonOf(day)
+      await runDailyModelRefresh(deps)
+      lists.push(w.fileList('gemini'))
+    }
+    expect(w.ofType('MODEL_PROMOTED').map((e) => e.model)).toEqual([X, Y])
+    const lastChange = lists.findLastIndex((l, i) => i > 0 && l?.join() !== lists[i - 1]?.join())
+    expect(lastChange).toBe(PROMOTION_STREAK - 1)
+    expect(w.fileList('gemini')).toEqual([X, Y, a, b, c])
   })
 })

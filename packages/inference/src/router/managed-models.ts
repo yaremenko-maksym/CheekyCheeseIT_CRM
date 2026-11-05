@@ -74,6 +74,7 @@ export function createFileManagedModels(opts: {
   onEvent: (e: StateEvent) => void
 }): ManagedModels {
   const fs: StateFs = opts.fs ?? nodeFs
+  const emit = quietObserver(opts.onEvent)
   const ordered = (list: string[], pinned: readonly string[]): readonly string[] => {
     const probation = opts.state.snapshot().probation
     const promoted = (id: string): boolean => isPromoted(id, pinned, probation)
@@ -83,12 +84,12 @@ export function createFileManagedModels(opts: {
     const read = await readStateText(fs, opts.path)
     if (read.kind === 'missing') return fallback
     if (read.kind !== 'text') {
-      opts.onEvent({ type: 'STATE_RESET', store: 'managed-list', reason: read.kind })
+      emit({ type: 'STATE_RESET', store: 'managed-list', reason: read.kind })
       return fallback
     }
     const parsed = managedListSchema.safeParse(parseJsonOrNull(read.text))
     if (!parsed.success) {
-      opts.onEvent({ type: 'STATE_RESET', store: 'managed-list', reason: 'invalid' })
+      emit({ type: 'STATE_RESET', store: 'managed-list', reason: 'invalid' })
       return fallback
     }
     // A held model stays out even when the write that would have removed it failed.

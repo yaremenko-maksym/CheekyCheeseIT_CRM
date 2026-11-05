@@ -351,6 +351,34 @@ describe('the managed-list writer (SR-M-6)', () => {
   })
 })
 
+describe('a throwing observer never poisons the reader (SR3-L-3)', () => {
+  const readerWith = (text: string) => {
+    const seen: StateEvent[] = []
+    const read = createFileManagedModels({
+      path: PATH,
+      fs: fakeFs({ [PATH]: text }),
+      state: createMemoryRouteStatePort(EMPTY_ROUTE_STATE),
+      onEvent: (e) => {
+        seen.push(e)
+        throw new Error('observer')
+      },
+    })
+    return { read, seen }
+  }
+
+  it('an invalid file still falls back to the pinned list', async () => {
+    const { read, seen } = readerWith('{not json')
+    await expect(read('groq', PINNED)).resolves.toBe(PINNED)
+    expect(seen).toEqual([{ type: 'STATE_RESET', store: 'managed-list', reason: 'invalid' }])
+  })
+
+  it('an oversized file still falls back to the pinned list', async () => {
+    const { read, seen } = readerWith(doc({}) + ' '.repeat(MAX_STATE_BYTES))
+    await expect(read('groq', PINNED)).resolves.toBe(PINNED)
+    expect(seen).toEqual([{ type: 'STATE_RESET', store: 'managed-list', reason: 'oversized' }])
+  })
+})
+
 describe('a throwing observer never poisons the writer (SR-L-20)', () => {
   const Q = 'openai/gpt-oss-20b'
   const NEXT = { version: 1, providers: { groq: [Q] } }

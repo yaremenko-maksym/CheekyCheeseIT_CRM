@@ -39,8 +39,15 @@ export const BUSY_DEAD_REPROBE_DAYS = 7
 export const MAX_BUSY_DEAD_ENTRIES = 50
 /** The managed list keeps at most `TARGET` ids per provider (ADR §3.4, VCF: 5). */
 export const MANAGED_LIST_TARGET = 5
-/** A full list's records plus one, so the candidate being probed can build its streak (CR2-M-2). */
-export const MAX_MODEL_RECORDS = MANAGED_LIST_TARGET + 1
+/** The list's `TARGET` plus one, so a full list still probes a new candidate each day. */
+export const PROBE_CAP = MANAGED_LIST_TARGET + 1
+/**
+ * A full list's records plus a whole day's probes. A candidate keeps its streak (CR2-M-2), and an
+ * entry evicted from the list keeps its full streak, so its next alive probe is no new promotion
+ * and it cannot retake the head (SPEC3-M-1).
+ */
+// shortcut: more than PROBE_CAP unprobed off-list records still drop the oldest, widen on a real case
+export const MAX_MODEL_RECORDS = MANAGED_LIST_TARGET + PROBE_CAP
 
 /** Gemini only, as only the Gemini refresh probes: a hand-edited Groq record cannot promote anything. */
 const probationEntry = z

@@ -32,6 +32,7 @@ import {
   isBusyDeadReprobeDue,
   isSpent,
   markStartupRefresh,
+  PROBE_CAP,
   providerDay,
   providerRecord,
   setJobFailed,
@@ -42,8 +43,8 @@ import {
   type RouteStatePort,
 } from './state'
 
-/** The list's `TARGET` plus one, so a full list still probes a new candidate each day. */
-export const PROBE_CAP = 6
+export { PROBE_CAP }
+
 /** At most 10 requests a minute across the sweep, whatever the model's per-minute limit. */
 export const PROBE_PAUSE_MS = 6_000
 export const PROBE_MAX_TOKENS = 16
@@ -274,7 +275,8 @@ async function refreshProvider(
     ]
     const rested = restNonAlive({
       answers,
-      list: next,
+      // Never wipe: an empty `next` is not written, so the file still serves `current` (§3.4).
+      list: next.length === 0 ? current : next,
       held: day.held,
       probation: written ? day.probation : withheldPromotions(day.probation, day.promotedNow),
       today,

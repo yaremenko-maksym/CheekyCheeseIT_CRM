@@ -157,10 +157,13 @@ export function withheldPromotions(
 }
 
 /**
- * Stamps every model that answered anything but alive and ended the run off the list, and drops its
- * probation record (a non-busy answer already ended any busy run): it rests like a held model, so it cannot keep its probe slot from the next candidate
- * (CR2-M-1). A busy 429 is left to its own three-day count, already bounded, and a list entry stays
- * probed because it is in use.
+ * Stamps every model that answered anything but alive and is not in `list`, and drops its probation
+ * record (a non-busy answer already ended any busy run): it rests like a held model, so it cannot
+ * keep its probe slot from the next candidate (CR2-M-1). A busy 429 is left to its own three-day
+ * count, already bounded. `list` is what the file serves after this run: an entry that answered 404
+ * and left the list while another survived rests too, and a transient or unknown one stays on the
+ * list unstamped. When nothing survives the caller passes the unchanged list, so no served entry is
+ * stamped and a proof probe stays possible (CR3-M-1).
  */
 export function restNonAlive(args: {
   answers: readonly ProbeAnswer[]
