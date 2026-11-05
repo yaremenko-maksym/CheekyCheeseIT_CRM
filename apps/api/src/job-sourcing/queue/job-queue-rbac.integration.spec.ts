@@ -1310,7 +1310,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
 
     it('SR-M-1: a live LEAD match of a team-M2 senior opens the card to nobody outside team M', async () => {
       const roster = await loadRoster(session.databaseService.db)
-      const v = roster.get(id('senM2')) as SeniorVersions
+      const v = roster.versions.get(id('senM2')) as SeniorVersions
       const rev = await sqlq(`SELECT revision FROM job_opportunities WHERE id = $1`, [id('cardHr')])
       await sqlq(
         `INSERT INTO job_opportunity_matches
