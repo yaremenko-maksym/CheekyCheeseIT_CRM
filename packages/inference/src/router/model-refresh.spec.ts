@@ -28,6 +28,7 @@ import { MIN_MANAGED_CONTEXT } from './model-picks'
 import { runDailyModelRefresh, runStartupModelRefresh } from './model-refresh'
 import {
   EMPTY_ROUTE_STATE,
+  isProviderBlocked,
   markAuth,
   markRetired,
   markSpent,
@@ -1488,11 +1489,12 @@ describe('a list that nothing could replace is not rested (CR3-M-1)', () => {
     const { w, recover } = allDownOnDay0()
     await runOn(w, [DAY_0])
     await w.state.update(markAuth('gemini'))
+    expect(isProviderBlocked(w.state.snapshot(), 'gemini', DAY_1)).toBe(true)
     recover()
     w.clock.ms = noonOf(DAY_1)
     await runStartupModelRefresh({ ...w.deps, hadOkCall: () => true })
     expect(w.chatModels().slice(2)).toEqual([G1])
-    expect(w.state.snapshot().auth ?? []).toEqual([])
+    expect(isProviderBlocked(w.state.snapshot(), 'gemini', DAY_1)).toBe(false)
   })
 
   it('the last entry to answer 404 stays probed although an earlier one rests', async () => {
@@ -1552,7 +1554,10 @@ describe('the head of the list stays put once every id is placed (SPEC3-M-1)', (
     })
     // The head had a real call today, so six probes cover the other four entries and two new ids:
     // the ADR's bound here is one promotion for each new id, once, and none for an evicted entry.
-    const deps = { ...w.deps, hadOkCall: (_p: string, m: string) => m === w.fileList('gemini')?.[0] }
+    const deps = {
+      ...w.deps,
+      hadOkCall: (_p: string, m: string) => m === w.fileList('gemini')?.[0],
+    }
     const lists: (readonly string[] | undefined)[] = []
     for (const day of THIRTY) {
       w.clock.ms = noonOf(day)
@@ -1560,8 +1565,10 @@ describe('the head of the list stays put once every id is placed (SPEC3-M-1)', (
       lists.push(w.fileList('gemini'))
     }
     expect(w.ofType('MODEL_PROMOTED').map((e) => e.model)).toEqual([X, Y])
-    const lastChange = lists.findLastIndex((l, i) => i > 0 && l?.join() !== lists[i - 1]?.join())
-    expect(lastChange).toBe(PROMOTION_STREAK - 1)
+    const changes = lists.flatMap((l, i) =>
+      i > 0 && l?.join() !== lists[i - 1]?.join() ? [i] : [],
+    )
+    expect(changes).toEqual([PROMOTION_STREAK - 1])
     expect(w.fileList('gemini')).toEqual([X, Y, a, b, c])
   })
 })
