@@ -97,21 +97,22 @@ export function buildExtractionPrompt(
   gate: GateAllowed,
   pageText: string,
   makeNonce: () => string = randomNonce,
+  /** The configured route's input ceiling (ADR 2.1), on the whole user message; framing included. */
+  maxUserChars: number = Number.POSITIVE_INFINITY,
 ): ExtractionPrompt {
   // The type already demands the gate's decision; this also holds for an untyped (cast) caller.
   if (gate !== 'ALLOWED') throw new Error('the ai-input gate did not allow model input')
   // Raw cap BEFORE NFKC (inside stripContacts): one char can expand up to 18x (U+FDFA).
   const rawCut = pageText.length > MAX_RAW_INPUT_CHARS
   const stripped = stripContacts(rawCut ? cutAt(pageText, MAX_RAW_INPUT_CHARS) : pageText)
-  const truncated = rawCut || stripped.text.length > MAX_MODEL_INPUT_CHARS
+  const pageCap = Math.min(MAX_MODEL_INPUT_CHARS, maxUserChars - MAX_FRAMING_CHARS)
+  const truncated = rawCut || stripped.text.length > pageCap
   let text = stripped.text
   const contactsRemoved = { ...stripped.removed }
   if (truncated) {
     // The raw cut may have split a contact (`jane@exa`), which no pattern then matches. It sits at
     // the very end of the stripped text, so that tail is never sent.
-    const limit = rawCut
-      ? Math.min(MAX_MODEL_INPUT_CHARS, stripped.text.length - RAW_CUT_TAIL_DROP)
-      : MAX_MODEL_INPUT_CHARS
+    const limit = rawCut ? Math.min(pageCap, stripped.text.length - RAW_CUT_TAIL_DROP) : pageCap
     // Cutting can turn a non-contact into one (a 22-digit run cut to 12 digits), so strip again.
     // The re-strip can only match at the new end — one match, grown by at most the token length,
     // which the cut leaves room for.

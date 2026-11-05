@@ -1,5 +1,5 @@
 import type { ExtractionPort, ExtractionResult, InferenceErrorCode } from '@crm/inference'
-import { assertModelAllowed, type GateAllowed } from './ai-input-gate'
+import { assertModelAllowed } from './ai-input-gate'
 import { guardExtractionResult, modelReplySchema, type ModelReply } from './extraction-result-guard'
 import type {
   DiscoveredRecord,
@@ -14,7 +14,7 @@ import type {
   UntrustedUrl,
 } from './html-structurer.port'
 import type { ModelBudgetPort, ModelUsage } from './model-budget.port'
-import { buildExtractionPrompt } from './prompt-envelope'
+import { buildExtractionPrompt, type ExtractionPrompt } from './prompt-envelope'
 import { smallDoseFor } from './small-dose-table'
 
 /** One call may take this long before it is abandoned and its budget slot released. */
@@ -24,6 +24,8 @@ type Attempt =
   | { records: StructuredRecord[]; issue: RecordIssue | null }
   | { failed: RecordFailureCode }
   | { stop: StructurerStop }
+
+const NOTHING_LOST = { droppedRecords: 0, nulledUrls: 0, droppedEvidence: 0, nulledFacts: 0 }
 
 const stopWith = (code: ExtractorStopCode): Attempt => ({
   stop: { kind: 'EXTRACTOR_FAILED', code },
@@ -118,6 +120,11 @@ export interface ModelStructurerOptions {
   readonly timeoutMs?: number
   /** After a timeout or an abort, the route stays busy until the call settles or this elapses. */
   readonly abandonedHoldMs?: number
+  /**
+   * The route's input ceiling (`routerInputCeilingChars`): the page is cut so the user message fits
+   * it, for hosted routes too, so evidence is one text per record (ADR 2.1). Unset: the port's cap.
+   */
+  readonly inputCeilingChars?: number
 }
 
 /**
@@ -159,7 +166,14 @@ export class ModelStructurer implements HtmlStructurer {
     let anySucceeded = false
     let firstFailure: RecordFailureCode | null = null
     for (const [index, record] of request.records.entries()) {
-      const attempt = await this.attempt(gate, record, request.signal)
+      const prompt = buildExtractionPrompt(
+        gate,
+        record.text,
+        undefined,
+        this.options.inputCeilingChars,
+      )
+      const cut = prompt.truncated ? { truncated: true as const } : {}
+      const attempt = await this.attempt(prompt, record, request.signal)
       if ('stop' in attempt) {
         const remainingIds = request.records.slice(index).map(({ id }) => id)
         if (index === 0) return { ...attempt.stop, remainingIds, perRecordIssues }
@@ -177,15 +191,16 @@ export class ModelStructurer implements HtmlStructurer {
         perRecordIssues.push({
           id: record.id,
           failure: attempt.failed,
-          droppedRecords: 0,
-          nulledUrls: 0,
-          droppedEvidence: 0,
-          nulledFacts: 0,
+          ...NOTHING_LOST,
+          ...cut,
         })
       } else {
         anySucceeded = true
         records.push(...attempt.records)
-        if (attempt.issue !== null) perRecordIssues.push(attempt.issue)
+        const issue =
+          attempt.issue ??
+          (prompt.truncated ? { id: record.id, failure: null, ...NOTHING_LOST } : null)
+        if (issue !== null) perRecordIssues.push({ ...issue, ...cut })
       }
     }
     // Every record's reply was unusable: the extractor, not the page, failed. The issues name them.
@@ -196,12 +211,11 @@ export class ModelStructurer implements HtmlStructurer {
   }
 
   private async attempt(
-    gate: GateAllowed,
+    prompt: ExtractionPrompt,
     record: DiscoveredRecord,
     signal: AbortSignal | undefined,
   ): Promise<Attempt> {
     if (signal?.aborted === true) return stopWith('CANCELLED')
-    const prompt = buildExtractionPrompt(gate, record.text)
     const { port, budget } = this.options
     const reservation = budget.reserve()
     if (reservation === null) {

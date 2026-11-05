@@ -68,6 +68,8 @@ export interface RecordIssue {
   readonly droppedEvidence: number
   /** String facts nulled for having no surviving quote (D10). */
   readonly nulledFacts: number
+  /** The page was cut to the input ceiling before the call. */
+  readonly truncated?: true
 }
 
 /** Why a run stopped early. Classified from `InferenceErrorCode` only, never from page text. */

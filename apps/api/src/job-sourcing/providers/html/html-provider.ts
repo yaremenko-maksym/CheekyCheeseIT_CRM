@@ -950,22 +950,16 @@ export abstract class HtmlProvider<
         settlements: new Map(),
       }
     }
+    const entries = [...candidates]
     const records: DiscoveredRecord[] = [
-      ...ids.filter((id) => candidates.get(id)?.record.modelOfferLast !== true),
-      ...ids.filter((id) => candidates.get(id)?.record.modelOfferLast === true),
-    ].flatMap((id) => {
-      const c = candidates.get(id)
-      return c === undefined
-        ? []
-        : [
-            {
-              id,
-              url: c.url,
-              text: c.text,
-              missing: MODEL_FILLABLE_FIELDS.filter((f) => c.enrichment.fields[f] === undefined),
-            },
-          ]
-    })
+      ...entries.filter(([, c]) => c.record.modelOfferLast !== true),
+      ...entries.filter(([, c]) => c.record.modelOfferLast === true),
+    ].map(([id, c]) => ({
+      id,
+      url: c.url,
+      text: c.text,
+      missing: MODEL_FILLABLE_FIELDS.filter((f) => c.enrichment.fields[f] === undefined),
+    }))
     let outcome: StructurerOutcome
     try {
       outcome = await model.structurer.structure({
