@@ -23,6 +23,7 @@ import {
   jobSourceRecords,
   jobSourceTypeEnum,
   jobTeamTriageSubscriptions,
+  seniorResumes,
   teams,
   users,
 } from './schema'
@@ -157,7 +158,21 @@ describe('job_queue_assignments (AC1)', () => {
       'updated_at',
       // LAST: the staged 2026-11-04 forward DDL adds it with ADD COLUMN (rank must match).
       'senior_id',
+      // LAST: the staged 2026-11-05 manual-card DDL adds it with ADD COLUMN.
+      'resume_id',
     ])
+  })
+
+  it('records a manual submission resume: nullable, no default, SET NULL on a resume delete', () => {
+    expect(col(t, 'resume_id').getSQLType()).toBe('uuid')
+    expect(col(t, 'resume_id').notNull).toBe(false)
+    expect(col(t, 'resume_id').hasDefault).toBe(false)
+    expect(fkShape(t, 'fk_job_queue_assignments_resume')).toEqual({
+      columns: ['resume_id'],
+      table: seniorResumes,
+      foreign: ['id'],
+      onDelete: 'set null',
+    })
   })
 
   it('defaults a new claim to TAKEN at version 1, now', () => {

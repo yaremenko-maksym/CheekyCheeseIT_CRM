@@ -9,11 +9,11 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  * r5 Phase 6 (STAGED/DARK) — the staged forward DDL
  * `manual-staged/2026-11-05_job_opportunities_manual_team.sql` against a REAL Postgres.
  *
- * Applied TWICE into a scratch schema holding a stub of `job_opportunities` (`teams` resolves to
- * `public` through the search path), one transaction each. What it leaves — the nullable column and
- * its FK — equals what `db:push` declares in `public`; the second apply changes nothing; existing
- * rows stay NULL; it refuses a same-named column of another type and a same-named FK of another
- * shape.
+ * Applied TWICE into a scratch schema holding stubs of `job_opportunities` and
+ * `job_queue_assignments` (`teams` and `senior_resumes` resolve to `public` through the search
+ * path), one transaction each. What it leaves — the two nullable columns and their FKs — equals what
+ * `db:push` declares in `public`; the second apply changes nothing; existing rows stay NULL; it
+ * refuses a same-named column of another type and a same-named FK of another shape.
  *
  * Runs as the MIGRATION OWNER (`session.admin`). NEVER `crm_db`:
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/<scratch> \
@@ -30,6 +30,8 @@ const FILE = join(
 const SCHEMA = 'ddl_job_opportunities_manual_team'
 const TABLE = 'job_opportunities'
 const FK_NAME = 'fk_job_opportunities_manual_team'
+const A_TABLE = 'job_queue_assignments'
+const A_FK = 'fk_job_queue_assignments_resume'
 
 let session: CrmAppSession
 let client: PoolClient
@@ -50,8 +52,11 @@ async function touchedObjects(schema: string) {
   const { rows: columns } = await client.query(
     `SELECT column_name, udt_name, is_nullable, column_default
        FROM information_schema.columns
-      WHERE table_schema = $1 AND table_name = $2 AND column_name = 'manual_team_id'`,
-    [schema, TABLE],
+      WHERE table_schema = $1
+        AND ((table_name = $2 AND column_name = 'manual_team_id')
+          OR (table_name = $3 AND column_name = 'resume_id'))
+      ORDER BY column_name`,
+    [schema, TABLE, A_TABLE],
   )
   const { rows: constraints } = await client.query(
     `SELECT k.conname AS name, k.contype AS type, k.convalidated AS validated,
@@ -59,21 +64,25 @@ async function touchedObjects(schema: string) {
        FROM pg_constraint k
        JOIN pg_class c ON c.oid = k.conrelid
        JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = $1 AND c.relname = $2 AND k.conname = $3`,
-    [schema, TABLE, FK_NAME],
+      WHERE n.nspname = $1
+        AND ((c.relname = $2 AND k.conname = $3) OR (c.relname = $4 AND k.conname = $5))
+      ORDER BY k.conname`,
+    [schema, TABLE, FK_NAME, A_TABLE, A_FK],
   )
   return { columns, constraints }
 }
 
-/** A fresh stub of the production table, as it is before this file. */
+/** Fresh stubs of the production tables, as they are before this file. */
 async function createStub(): Promise<void> {
-  await client.query(`DROP TABLE IF EXISTS ${SCHEMA}.${TABLE}`)
-  await client.query(
-    `CREATE TABLE ${SCHEMA}.${TABLE} (id uuid PRIMARY KEY DEFAULT gen_random_uuid())`,
-  )
+  for (const t of [TABLE, A_TABLE]) {
+    await client.query(`DROP TABLE IF EXISTS ${SCHEMA}.${t}`)
+    await client.query(
+      `CREATE TABLE ${SCHEMA}.${t} (id uuid PRIMARY KEY DEFAULT gen_random_uuid())`,
+    )
+  }
 }
 
-describe.skipIf(!hasDatabaseUrl())('Phase 6 staged DDL: manual card owner team', () => {
+describe.skipIf(!hasDatabaseUrl())('Phase 6 staged DDL: manual card owner team + resume', () => {
   beforeAll(async () => {
     session = await openCrmAppSession()
     client = await session.admin.connect()
@@ -84,6 +93,7 @@ describe.skipIf(!hasDatabaseUrl())('Phase 6 staged DDL: manual card owner team',
     await client.query(`SET search_path = ${SCHEMA}, public`)
     await createStub()
     await client.query(`INSERT INTO ${SCHEMA}.${TABLE} DEFAULT VALUES`)
+    await client.query(`INSERT INTO ${SCHEMA}.${A_TABLE} DEFAULT VALUES`)
     await applyFile()
   }, 120_000)
 
@@ -98,10 +108,11 @@ describe.skipIf(!hasDatabaseUrl())('Phase 6 staged DDL: manual card owner team',
     }
   })
 
-  it('leaves exactly what db:push declares (one nullable uuid column, the RESTRICT FK to teams)', async () => {
+  it('leaves exactly what db:push declares (two nullable uuid columns, their FKs)', async () => {
     const ours = await touchedObjects(SCHEMA)
     expect(ours.columns).toEqual([
       { column_name: 'manual_team_id', udt_name: 'uuid', is_nullable: 'YES', column_default: null },
+      { column_name: 'resume_id', udt_name: 'uuid', is_nullable: 'YES', column_default: null },
     ])
     expect(ours.constraints).toEqual([
       {
@@ -110,13 +121,21 @@ describe.skipIf(!hasDatabaseUrl())('Phase 6 staged DDL: manual card owner team',
         validated: true,
         def: 'FOREIGN KEY (manual_team_id) REFERENCES teams(id) ON DELETE RESTRICT',
       },
+      {
+        name: A_FK,
+        type: 'f',
+        validated: true,
+        def: 'FOREIGN KEY (resume_id) REFERENCES senior_resumes(id) ON DELETE SET NULL',
+      },
     ])
     expect(ours).toEqual(await touchedObjects('public'))
   })
 
-  it('an existing row stays NULL: no backfill here', async () => {
+  it('existing rows stay NULL: no backfill here', async () => {
     const { rows } = await client.query(`SELECT manual_team_id FROM ${SCHEMA}.${TABLE}`)
     expect(rows).toEqual([{ manual_team_id: null }])
+    const { rows: a } = await client.query(`SELECT resume_id FROM ${SCHEMA}.${A_TABLE}`)
+    expect(a).toEqual([{ resume_id: null }])
   })
 
   it('the FK refuses a team that does not exist', async () => {
@@ -125,6 +144,14 @@ describe.skipIf(!hasDatabaseUrl())('Phase 6 staged DDL: manual card owner team',
         `INSERT INTO ${SCHEMA}.${TABLE} (manual_team_id) VALUES ('00000000-0000-4000-8000-000000000000')`,
       ),
     ).rejects.toThrow(/fk_job_opportunities_manual_team/)
+  })
+
+  it('the resume FK refuses a resume that does not exist', async () => {
+    await expect(
+      client.query(
+        `INSERT INTO ${SCHEMA}.${A_TABLE} (resume_id) VALUES ('00000000-0000-4000-8000-000000000000')`,
+      ),
+    ).rejects.toThrow(/fk_job_queue_assignments_resume/)
   })
 
   it('the second apply succeeds and changes nothing', async () => {
@@ -145,6 +172,18 @@ describe.skipIf(!hasDatabaseUrl())('Phase 6 staged DDL: manual card owner team',
     expect(await touchedObjects(SCHEMA)).toEqual(await touchedObjects('public'))
   })
 
+  it('refuses to finish over a same-named resume FK of another shape (RESTRICT)', async () => {
+    await client.query(`ALTER TABLE ${SCHEMA}.${A_TABLE} DROP CONSTRAINT ${A_FK}`)
+    await client.query(
+      `ALTER TABLE ${SCHEMA}.${A_TABLE} ADD CONSTRAINT ${A_FK}
+         FOREIGN KEY (resume_id) REFERENCES senior_resumes(id) ON DELETE RESTRICT`,
+    )
+    await expect(applyFile()).rejects.toThrow(/FK fk_job_queue_assignments_resume is missing/)
+    await client.query(`ALTER TABLE ${SCHEMA}.${A_TABLE} DROP CONSTRAINT ${A_FK}`)
+    await applyFile()
+    expect(await touchedObjects(SCHEMA)).toEqual(await touchedObjects('public'))
+  })
+
   it('refuses to finish over a same-named column of another type', async () => {
     await createStub()
     await client.query(`ALTER TABLE ${SCHEMA}.${TABLE} ADD COLUMN manual_team_id text`)
@@ -152,6 +191,11 @@ describe.skipIf(!hasDatabaseUrl())('Phase 6 staged DDL: manual card owner team',
     // check runs; either refusal rolls the whole apply back.
     await expect(applyFile()).rejects.toThrow(
       /fk_job_opportunities_manual_team|column manual_team_id is missing/,
+    )
+    await createStub()
+    await client.query(`ALTER TABLE ${SCHEMA}.${A_TABLE} ADD COLUMN resume_id text`)
+    await expect(applyFile()).rejects.toThrow(
+      /fk_job_queue_assignments_resume|column resume_id is missing/,
     )
     await createStub()
     await applyFile()

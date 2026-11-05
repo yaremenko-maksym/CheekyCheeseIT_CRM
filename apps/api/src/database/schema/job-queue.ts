@@ -174,6 +174,7 @@ import {
 } from './enums'
 import { jobOpportunities, jobSourceRecords } from './job-opportunities'
 import { JOB_HANDLE_MAX, JOB_SANITIZED_TEXT_MAX, JOB_SHORT_TEXT_MAX } from './job-patterns'
+import { seniorResumes } from './resumes'
 import { teams, users } from './users'
 
 /**
@@ -281,9 +282,21 @@ export const jobQueueAssignments = pgTable(
      * forward-DDL spec compares column ranks with `db:push`.
      */
     seniorId: uuid('senior_id').notNull(),
+    /**
+     * The resume a MANUAL card's submission was made with (POST /job-queue/manual); NULL for an
+     * ordinary submit. Declared LAST: the staged DDL adds it with `ADD COLUMN`.
+     */
+    resumeId: uuid('resume_id'),
   },
   (t) => [
     unique('uq_job_queue_assignments_opportunity_senior').on(t.opportunityId, t.seniorId),
+    // SET NULL, not RESTRICT: a resume delete erases the stored files before the row, so a
+    // RESTRICT would fail it half-done. The submission stays; the audit row keeps the id.
+    foreignKey({
+      name: 'fk_job_queue_assignments_resume',
+      columns: [t.resumeId],
+      foreignColumns: [seniorResumes.id],
+    }).onDelete('set null'),
     // Workflow state derived from the opportunity: it goes with it.
     foreignKey({
       name: 'fk_job_queue_assignments_opportunity',

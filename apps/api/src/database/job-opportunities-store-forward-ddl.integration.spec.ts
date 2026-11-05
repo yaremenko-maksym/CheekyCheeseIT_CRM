@@ -204,8 +204,9 @@ const PART_13_MIGRATION = '2026-11-04_job_opportunities_evaluation_verdict.sql'
 const PART_14_MIGRATION = '2026-11-05_job_opportunities_role_family.sql'
 /**
  * PART_15 — r5 Phase 6 (STAGED/DARK): `job_opportunities` gains `manual_team_id` and its
- * RESTRICT FK to `teams` (the manual card's owner team). Declared in Drizzle last, so the column
- * rank matches an `ADD COLUMN`; production gets it ONLY through this file. Applied after PART_14,
+ * RESTRICT FK to `teams` (the manual card's owner team); `job_queue_assignments` gains
+ * `resume_id` and its SET NULL FK to `senior_resumes`. Each declared in Drizzle last, so the column
+ * rank matches an `ADD COLUMN`; production gets them ONLY through this file. Applied after PART_14,
  * as the deploy would. Adds no index.
  */
 const PART_15_MIGRATION = '2026-11-05_job_opportunities_manual_team.sql'
@@ -721,6 +722,8 @@ async function buildPreStoreStub(client: PoolClient, schema: string): Promise<vo
   // of the comparison.
   await client.query(`CREATE TABLE users (id uuid PRIMARY KEY)`)
   await client.query(`CREATE TABLE teams (id uuid PRIMARY KEY)`)
+  // PART_15's `fk_job_queue_assignments_resume` target.
+  await client.query(`CREATE TABLE senior_resumes (id uuid PRIMARY KEY)`)
   // Empty source tables so PART_9's backfill UPDATE resolves (matches no rows => no-op).
   await client.query(`CREATE TABLE job_run_records (run_id uuid, source_record_id uuid)`)
 
@@ -853,7 +856,14 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     )
     // The stubs are what `buildPreStoreStub` creates to stand in for production.
     expect(tables.rows.map((r: { name: string }) => r.name)).toEqual(
-      [...STORE_TABLES, 'job_sources', 'teams', 'users', 'job_run_records'].sort(),
+      [
+        ...STORE_TABLES,
+        'job_sources',
+        'teams',
+        'users',
+        'senior_resumes',
+        'job_run_records',
+      ].sort(),
     )
 
     const types = await client.query(
