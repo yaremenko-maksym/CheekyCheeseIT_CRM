@@ -8,8 +8,10 @@ import { Test } from '@nestjs/testing'
 import cookie from '@fastify/cookie'
 import { DESCRIPTION_MD_MAX, type SessionUser } from '@crm/shared'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { HttpException } from '@nestjs/common'
 import { JwtAuthGuard } from '../../auth/jwt.guard'
 import { RolesGuard } from '../../common/guards/roles.guard'
+import { HrAccessService } from '../../common/hr-access.service'
 import type { Env } from '../../config/env'
 import {
   type CrmAppSession,
@@ -18,6 +20,8 @@ import {
 import { DatabaseService } from '../../database/database.service'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ZodExceptionFilter } from '../../zod-exception.filter'
+import { JobSourcingService } from '../job-sourcing.service'
+import { JobSourceRegistry } from '../registry/job-source-registry'
 import {
   loadRoster,
   MATCH_RULE_VERSION,
@@ -1058,10 +1062,12 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
   describe('manual card (r5 Phase 6)', () => {
     const resumes: Record<string, string> = {}
     const titleOf = (n: string) => `${TAG} manual ${n}`
+    // A link per card: a second card with one link is the URL-duplicate 409 (SPEC-H-1).
+    const linkOf = (n: string) => `https://jobs.example.test/${TAG}/manual/${n}`
     const body = (n: string, team: string, senior: string, resume: string) => ({
       title: titleOf(n),
       companyName: 'Acme Inc',
-      applicationUrl: 'https://jobs.example.test/manual',
+      applicationUrl: linkOf(n),
       descriptionMd: `${TAG} manual description ${n}`,
       idempotencyKey: randomUUID(),
       submission: { teamId: id(team), seniorId: id(senior), resumeId: resume },
@@ -1114,12 +1120,25 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(submission['submittedByName']).toBe(`${TAG} name hrM`)
       ids['cardHr'] = card?.id as string
       const assigned = await sqlq(
-        `SELECT senior_id, team_id, assignee_id, state FROM job_queue_assignments
+        `SELECT senior_id, team_id, assignee_id, state, resume_id FROM job_queue_assignments
           WHERE opportunity_id = $1`,
         [id('cardHr')],
       )
       expect(assigned.rows).toEqual([
-        { senior_id: id('senM'), team_id: id('teamM'), assignee_id: id('hrM'), state: 'TAKEN' },
+        {
+          senior_id: id('senM'),
+          team_id: id('teamM'),
+          assignee_id: id('hrM'),
+          state: 'TAKEN',
+          resume_id: resumes['senM'],
+        },
+      ])
+      const stored = await sqlq(
+        `SELECT application_url, application_url_key FROM job_opportunities WHERE id = $1`,
+        [id('cardHr')],
+      )
+      expect(stored.rows).toEqual([
+        { application_url: linkOf('hr'), application_url_key: linkOf('hr') },
       ])
       const audit = await sqlq(
         `SELECT kind, actor_id, team_id, before_version, after_version,
@@ -1224,7 +1243,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(own.status).toBe(200)
       expect(own.json['title']).toBe(titleOf('hr'))
       expect(own.json['companyName']).toBe('Acme Inc')
-      expect(own.json['applicationUrl']).toBe('https://jobs.example.test/manual')
+      expect(own.json['applicationUrl']).toBe(linkOf('hr'))
       expect(own.json['primarySource']).toBeNull()
       expect(await inAnyTab('hrM', 'cardHr')).toBe(true)
       const foreign = await get(`/${id('cardHr')}`, 'hrM2')
@@ -1232,6 +1251,102 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(foreign.json['code']).toBe(NOT_FOUND)
       expect(await inAnyTab('hrM2', 'cardHr')).toBe(false)
       expect(await inAnyTab('hrA', 'cardHr')).toBe(false)
+    })
+
+    it('SPEC-H-1: the link of a sourced opportunity is the duplicate 409, and no card', async () => {
+      await mkOpp('srcUrl')
+      const sourced = `https://jobs.example.test/${TAG}/sourced/1`
+      await sqlq(`UPDATE job_opportunities SET application_url = $1 WHERE id = $2`, [
+        sourced,
+        id('srcUrl'),
+      ])
+      const a = await post('/manual', 'hrM', {
+        ...body('srcDup', 'teamM', 'senM', resumes['senM'] as string),
+        applicationUrl: `${sourced}#apply`,
+      })
+      expect(a.status).toBe(409)
+      expect(a.json['code']).toBe('JOB_QUEUE_MANUAL_DUPLICATE')
+      expect(a.raw).not.toContain(id('srcUrl'))
+      expect(await cards('srcDup')).toEqual([])
+      expect(await blobs('srcDup')).toEqual([])
+    })
+
+    it("SPEC-H-1: another team's card under a link variant is the same generic 409, naming nothing", async () => {
+      const a = await post('/manual', 'hrM2', {
+        ...body('crossTeam', 'teamM2', 'senM2', resumes['senM2'] as string),
+        applicationUrl: `https://JOBS.example.test/${TAG}/manual/hr/?utm=x`,
+      })
+      expect(a.status).toBe(409)
+      expect(a.json['code']).toBe('JOB_QUEUE_MANUAL_DUPLICATE')
+      // The generic envelope only: no params, no ids.
+      expect(Object.keys(a.json).sort()).toEqual(['code', 'message', 'statusCode'])
+      expect(a.raw).not.toContain(id('cardHr'))
+      expect(a.raw).not.toContain(id('teamM'))
+      expect(await cards('crossTeam')).toEqual([])
+    })
+
+    it('CR-M-1: a claimed possible duplicate is the 409 preview; a confirmed request is a 201', async () => {
+      const dupBody = () => ({
+        ...body('dupGuard', 'teamM', 'senM', resumes['senM'] as string),
+        title: titleOf('hr'),
+      })
+      const refused = await post('/manual', 'hrM', dupBody())
+      expect(refused.status).toBe(409)
+      expect(refused.json).toMatchObject({
+        code: 'JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED',
+        possibleDuplicates: {
+          items: [{ opportunityId: id('cardHr'), title: titleOf('hr'), companyName: 'Acme Inc' }],
+          totalCount: 1,
+        },
+      })
+      expect(await cards('hr')).toHaveLength(1)
+      const confirmed = await post('/manual', 'hrM', {
+        ...dupBody(),
+        confirmPossibleDuplicate: true,
+      })
+      expect(confirmed.status).toBe(201)
+      expect(await cards('hr')).toHaveLength(2)
+    })
+
+    it('SR-M-1: a live LEAD match of a team-M2 senior opens the card to nobody outside team M', async () => {
+      const roster = await loadRoster(session.databaseService.db)
+      const v = roster.get(id('senM2')) as SeniorVersions
+      const rev = await sqlq(`SELECT revision FROM job_opportunities WHERE id = $1`, [id('cardHr')])
+      await sqlq(
+        `INSERT INTO job_opportunity_matches
+           (opportunity_id, senior_id, opportunity_revision, senior_profile_version,
+            exclusion_version, rule_version, outcome, evidence)
+         VALUES ($1, $2, $3, $4, $5, $6, 'LEAD', $7::jsonb)`,
+        [
+          id('cardHr'),
+          id('senM2'),
+          rev.rows[0].revision,
+          v.profile,
+          v.exclusion,
+          MATCH_RULE_VERSION,
+          JSON.stringify({
+            score: 50,
+            reasons: [{ code: 'TECH_MATCH', evidence: ['Go:CORE'], ruleVersion: 'r' }],
+            rankWarnings: [],
+          }),
+        ],
+      )
+      const card = await get(`/${id('cardHr')}`, 'hrM2')
+      expect(card.status).toBe(404)
+      expect(card.json['code']).toBe(NOT_FOUND)
+      expect(await inAnyTab('hrM2', 'cardHr')).toBe(false)
+      const sourcing = new JobSourcingService(
+        dbSvcRef,
+        new HrAccessService(dbSvcRef),
+        new JobSourceRegistry([]),
+      )
+      for (const who of ['hrM2', 'admin']) {
+        const e: unknown = await sourcing
+          .openOpportunity(id('cardHr'), as(who))
+          .catch((err: unknown) => err)
+        expect(e).toBeInstanceOf(HttpException)
+        expect((e as HttpException).getStatus()).toBe(404)
+      }
     })
   })
 })

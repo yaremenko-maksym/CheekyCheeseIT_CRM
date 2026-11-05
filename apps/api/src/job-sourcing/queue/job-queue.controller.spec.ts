@@ -308,7 +308,20 @@ describe('JobQueueController — writes', () => {
   it('manual card: parses the body and answers the submission for the caller', async () => {
     const h = harness()
     expect(await h.controller.createManualCard(MANUAL, HR)).toEqual(SUBMISSION)
-    expect(h.actions.createManualCard).toHaveBeenCalledWith(HR, MANUAL)
+    // CR-M-1: an unconfirmed request reaches the service as `confirmPossibleDuplicate: false`.
+    expect(h.actions.createManualCard).toHaveBeenCalledWith(HR, {
+      ...MANUAL,
+      confirmPossibleDuplicate: false,
+    })
+  })
+
+  it('manual card: an explicit confirmation reaches the service', async () => {
+    const h = harness()
+    await h.controller.createManualCard({ ...MANUAL, confirmPossibleDuplicate: true }, HR)
+    expect(h.actions.createManualCard).toHaveBeenCalledWith(HR, {
+      ...MANUAL,
+      confirmPossibleDuplicate: true,
+    })
   })
 
   it.each([
