@@ -39,9 +39,7 @@ export const geminiListing = (entries: readonly (readonly [string, number?])[]):
     models: entries.map(([id, limit]) => ({ name: `models/${id}`, inputTokenLimit: limit })),
   }),
 })
-export const groqListing = (
-  entries: readonly (readonly [string, number?, boolean?])[],
-): Reply => ({
+export const groqListing = (entries: readonly (readonly [string, number?, boolean?])[]): Reply => ({
   status: 200,
   body: JSON.stringify({
     data: entries.map(([id, context, active]) => ({

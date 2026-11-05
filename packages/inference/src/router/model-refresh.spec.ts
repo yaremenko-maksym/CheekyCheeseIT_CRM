@@ -496,13 +496,16 @@ describe('never wipe (SR-M-6)', () => {
     ['a garbage body', { status: 200, body: 'nope' }],
   ]
 
-  it.each(failures)('a listing failing with %s leaves the file byte-identical', async (_l, reply) => {
-    const w = refreshWorld({ managed, listing: { gemini: reply, groq: reply } })
-    const r = await runDailyModelRefresh(w.deps)
-    expect(w.fileText()).toBe(managed)
-    expect(w.chats()).toEqual([])
-    expect(r.ok).toBe(false)
-  })
+  it.each(failures)(
+    'a listing failing with %s leaves the file byte-identical',
+    async (_l, reply) => {
+      const w = refreshWorld({ managed, listing: { gemini: reply, groq: reply } })
+      const r = await runDailyModelRefresh(w.deps)
+      expect(w.fileText()).toBe(managed)
+      expect(w.chats()).toEqual([])
+      expect(r.ok).toBe(false)
+    },
+  )
 
   it.each(failures)('a failed listing with %s creates no file either', async (_l, reply) => {
     const w = refreshWorld({ listing: { gemini: reply, groq: reply } })
@@ -633,9 +636,7 @@ describe('per-provider reset (SR-M-5)', () => {
     const w = refreshWorld()
     w.deps.config = {
       ...w.deps.config,
-      routes: w.deps.config.routes.map((r) =>
-        r.provider === 'gemini' ? { ...r, apiKey: '' } : r,
-      ),
+      routes: w.deps.config.routes.map((r) => (r.provider === 'gemini' ? { ...r, apiKey: '' } : r)),
     }
     const r = await runDailyModelRefresh(w.deps)
     expect(r.providers[0]).toEqual({
@@ -659,7 +660,9 @@ describe('per-provider reset (SR-M-5)', () => {
       },
       { type: 'MODEL_REFRESH_PROVIDER', job: 'daily', provider: 'groq', outcome: 'done' },
     ])
-    expect(w.ofType('MODEL_REFRESH_FAILED')).toEqual([{ type: 'MODEL_REFRESH_FAILED', job: 'daily' }])
+    expect(w.ofType('MODEL_REFRESH_FAILED')).toEqual([
+      { type: 'MODEL_REFRESH_FAILED', job: 'daily' },
+    ])
     expect(w.state.snapshot().failedJobs).toEqual(['daily'])
   })
 
@@ -728,10 +731,20 @@ describe('own-cap units (§5.1)', () => {
 
   it.each<[string, Reply, number, number]>([
     ['an alive answer commits and adds its tokens', ALIVE, 0, 10],
-    ['a re-route commits and adds its tokens', answer({ ok: true }, { model: 'gemini-2.6-flash' }), 0, 10],
+    [
+      'a re-route commits and adds its tokens',
+      answer({ ok: true }, { model: 'gemini-2.6-flash' }),
+      0,
+      10,
+    ],
     ['a dropped connection releases', 'network', 1, 0],
     ['a 401 releases', { status: 401, body: 'x' }, 1, 0],
-    ['a 404 naming the model releases', { status: 404, body: `{"error":{"message":"${G1}"}}` }, 1, 0],
+    [
+      'a 404 naming the model releases',
+      { status: 404, body: `{"error":{"message":"${G1}"}}` },
+      1,
+      0,
+    ],
     ['a 429 commits', { status: 429, body: 'x' }, 0, 0],
     [
       'an answer without a usage block commits and adds nothing',
