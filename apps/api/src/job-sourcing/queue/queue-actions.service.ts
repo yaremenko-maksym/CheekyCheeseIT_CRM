@@ -23,6 +23,7 @@ import { isDeadlock, uniqueViolationConstraint } from '../../database/pg-errors'
 import { findMatchingExclusion } from '../filtering'
 import { exclusionPosting } from '../funnel/evaluate'
 import { normalizeCompanyName, normalizeTitle } from '../identity/resolver'
+import { canonicalizePostingUrl } from '../job-source.provider'
 import { loadOpportunity, loadSeniorExclusions } from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
@@ -57,6 +58,19 @@ const idempotencyConflict = () => apiError('JOB_QUEUE_IDEMPOTENCY_CONFLICT', Htt
 const seniorIneligible = () =>
   apiError('JOB_QUEUE_SENIOR_INELIGIBLE', HttpStatus.UNPROCESSABLE_ENTITY)
 const resumeUnusable = () => apiError('JOB_QUEUE_RESUME_UNUSABLE', HttpStatus.UNPROCESSABLE_ENTITY)
+const manualDuplicate = () => apiError('JOB_QUEUE_MANUAL_DUPLICATE', HttpStatus.CONFLICT)
+
+/**
+ * The advisory-lock class of a manual card's application-URL key: two concurrent creates with one
+ * link serialize on it, so the second sees the first card. The second key is `hashtext(urlKey)`.
+ */
+const MANUAL_URL_LOCK_CLASS = 0x6d616e75
+
+function withoutFragment(raw: string): string {
+  const url = new URL(raw)
+  url.hash = ''
+  return url.href
+}
 
 /**
  * A's LIVE submission of a senior shared with the actor's team (owner decision A3, option (a)): the
@@ -194,12 +208,21 @@ export class JobQueueActionsService {
    * exists without its submission: any refusal below rolls the card back with everything else.
    *
    * The card is owned by the team (`manual_team_id`): only that team sees it (the MANUAL branch of
-   * `visibleOpportunityPredicate`). It has no source record and is not enqueued for a recompute.
+   * `visibleOpportunityPredicate`). It has no source record and no match row, and every match
+   * evaluation path skips it (the recompute enqueue, the roster fan-out, the evaluation worker's
+   * `loadOpportunity`): only its own team ever works on it.
    * The role re-check behind the controller's `@Roles` is `resolve`'s: a role outside ADMIN / HR is
    * a 403 there. The scope must be TEAM: an HR outside the team, like an unknown or archived team,
    * is the 404.
    * Unlike `submit`, an ineligible senior or an unusable resume is a 422: the actor creates the card
    * and names both, so the refusal discloses nothing about an existing opportunity.
+   *
+   * Duplicates, two layers. (1) An `applicationUrl` is reduced to the posting dedupe key
+   * (`canonicalizePostingUrl`, stored as `application_url_key`); ANY opportunity, whatever its
+   * visibility, already carrying that key or exactly that link refuses the create with the generic
+   * `JOB_QUEUE_MANUAL_DUPLICATE` (409), which names no team and no card. A card without a link
+   * cannot be checked this way. (2) The senior's live submission to a possible duplicate in the
+   * actor's scope is `submit`'s `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED` until the request confirms.
    */
   async createManualCard(
     user: SessionUser,
@@ -211,6 +234,10 @@ export class JobQueueActionsService {
     if (teamId === null || seniorId === null || resumeId === null) throw notFound()
     const descriptionSha256 = createHash('sha256').update(request.descriptionMd).digest('hex')
     const applicationUrl = request.applicationUrl ?? null
+    // The schema admits https only, which the dedupe key always accepts.
+    const urlKey = canonicalizePostingUrl(applicationUrl)
+    // A sourced row stores its link as the parsed href with the fragment cleared.
+    const urlHref = applicationUrl === null ? null : withoutFragment(applicationUrl)
     return this.write(async (tx) => {
       const scope = await this.writeScope(user, teamId, tx)
       if (scope.kind !== 'TEAM') throw notFound()
@@ -224,11 +251,24 @@ export class JobQueueActionsService {
         request.companyName,
         applicationUrl,
         descriptionSha256,
+        request.confirmPossibleDuplicate,
       ])
       const earlier = await this.earlierAction(tx, user.id, request.idempotencyKey, fingerprint)
       if (earlier !== null) {
         await this.scopes.assertVisible(scope, earlier.opportunity, tx)
         return this.submissionAnswer(tx, earlier.opportunity, earlier, 'TAKEN', seniorId, user.id)
+      }
+
+      if (urlKey !== null) {
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(${MANUAL_URL_LOCK_CLASS}::int, hashtext(${urlKey}))`,
+        )
+        const taken = await tx.execute(
+          sql`SELECT 1 FROM job_opportunities
+               WHERE application_url_key = ${urlKey} OR application_url = ${urlHref}
+               LIMIT 1`,
+        )
+        if (taken.rows.length > 0) throw manualDuplicate()
       }
 
       await tx.execute(
@@ -239,13 +279,14 @@ export class JobQueueActionsService {
       const card = await tx.execute(
         sql`INSERT INTO job_opportunities
               (title, title_key, employer_name, employer_key, application_url,
-               description_sha256, manual_team_id)
+               application_url_key, description_sha256, manual_team_id)
             VALUES (${request.title}, ${normalizeTitle(request.title)}, ${request.companyName},
                     ${normalizeCompanyName(request.companyName)}, ${applicationUrl},
-                    ${descriptionSha256}, ${teamId}::uuid)
+                    ${urlKey}, ${descriptionSha256}, ${teamId}::uuid)
          RETURNING id`,
       )
       const opportunity = String(card.rows[0]?.['id'])
+      const copies = await this.lockDuplicateSet(tx, opportunity)
       await this.assertSeniorEligible(tx, scope, seniorId, opportunity, seniorIneligible)
       const resume = await this.scopes.policy(() =>
         tx.execute(
@@ -255,8 +296,11 @@ export class JobQueueActionsService {
         ),
       )
       if (resume.rows.length === 0) throw resumeUnusable()
+      if (!request.confirmPossibleDuplicate) {
+        await this.assertNoClaimedDuplicate(tx, scope, seniorId, opportunity, copies)
+      }
 
-      const row = await this.insertSubmission(tx, opportunity, seniorId, scope, user.id)
+      const row = await this.insertSubmission(tx, opportunity, seniorId, scope, user.id, resumeId)
       await this.logAction(tx, {
         kind: 'TAKEN',
         opportunity,
@@ -805,12 +849,14 @@ export class JobQueueActionsService {
     seniorId: string,
     scope: WriteScope,
     actorId: string,
+    /** Only the manual card names one; an ordinary submit records NULL. */
+    resumeId: string | null = null,
   ): Promise<WrittenSubmission> {
     const { rows } = await tx.execute(
       sql`INSERT INTO job_queue_assignments
-            (opportunity_id, senior_id, scope_kind, team_id, assignee_id)
+            (opportunity_id, senior_id, scope_kind, team_id, assignee_id, resume_id)
           VALUES (${opportunity}::uuid, ${seniorId}::uuid, ${scope.kind},
-                  ${scopeTeamId(scope)}::uuid, ${actorId}::uuid)
+                  ${scopeTeamId(scope)}::uuid, ${actorId}::uuid, ${resumeId}::uuid)
        RETURNING id, version, taken_at`,
     )
     return writtenSubmission(rows[0])

@@ -57,6 +57,8 @@ const PATTERNS = {
   lockTarget: /SELECT id FROM job_opportunities WHERE id = /,
   earlier: /SELECT reason, after_version, created_at, opportunity_id FROM job_queue_actions/,
   blob: /INSERT INTO job_text_blobs/,
+  urlLock: /pg_advisory_xact_lock/,
+  urlTaken: /SELECT 1 FROM job_opportunities WHERE application_url_key/,
   card: /INSERT INTO job_opportunities/,
   resume: /FROM senior_resumes/,
   actor: /SELECT id FROM users/,
@@ -118,6 +120,8 @@ const DEFAULTS: Partial<Record<Statement, Rows>> = {
   lockTarget: [{ id: OPP }],
   earlier: [],
   blob: [],
+  urlLock: [],
+  urlTaken: [],
   card: [{ id: CARD }],
   resume: [{ id: RESUME }],
   actor: [{ id: HR_ID }],
@@ -245,7 +249,8 @@ describe('submit — a first submission', () => {
   it('stores the row in the request scope, for the authenticated actor', async () => {
     const h = harness()
     await h.svc.submit(HR, OPP, submitBody())
-    expect(h.param('insert')).toEqual([OPP, SENIOR, 'TEAM', TEAM_A, HR_ID])
+    // An ordinary submit names no resume: resume_id is NULL.
+    expect(h.param('insert')).toEqual([OPP, SENIOR, 'TEAM', TEAM_A, HR_ID, null])
   })
 
   it('logs TAKEN from version 0 to 1 with the replay in the reason', async () => {
@@ -272,7 +277,7 @@ describe('submit — a first submission', () => {
   it('an ADMIN in STUDIO writes a STUDIO row with no team and needs no membership', async () => {
     const h = harness({}, STUDIO_SCOPE)
     await h.svc.submit(ADMIN, OPP, submitBody())
-    expect(h.param('insert')).toEqual([OPP, SENIOR, 'STUDIO', null, ADMIN_ID])
+    expect(h.param('insert')).toEqual([OPP, SENIOR, 'STUDIO', null, ADMIN_ID, null])
     expect(h.hits).not.toContain('membership')
     expect(h.hits).not.toContain('team')
     expect(h.param('log').slice(3, 5)).toEqual(['STUDIO', null])
@@ -461,7 +466,7 @@ describe('submit — refused before any write', () => {
       ownManual: [exclusion(SENIOR, 'Acme')],
     })
     await expect(unnamed.svc.submit(HR, OPP, submitBody())).resolves.toBeDefined()
-    expect(unnamed.param('insert')).toHaveLength(5)
+    expect(unnamed.param('insert')).toHaveLength(6)
   })
 
   it('reads the revision and company of the target, wherever it sorts in the set', async () => {
@@ -1454,6 +1459,7 @@ describe('createManualCard (r5 Phase 6)', () => {
     descriptionMd: DESCRIPTION,
     idempotencyKey: KEY,
     submission: { teamId: TEAM_A, seniorId: SENIOR, resumeId: RESUME },
+    confirmPossibleDuplicate: false,
     ...over,
   })
   const MANUAL_FP = requestFingerprint([
@@ -1465,6 +1471,7 @@ describe('createManualCard (r5 Phase 6)', () => {
     'Acme, Inc.',
     URL,
     DESCRIPTION_SHA,
+    false,
   ])
   const MANUAL_WRITES: Statement[] = ['blob', 'card', 'insert', 'log']
   const answer = {
@@ -1499,13 +1506,17 @@ describe('createManualCard (r5 Phase 6)', () => {
       'team',
       'membership',
       'earlier',
+      'urlLock',
+      'urlTaken',
       'blob',
       'card',
+      'lockSet',
       'senior',
       'canonical',
       'ownManual',
       'ownProjects',
       'resume',
+      'duplicates',
       'insert',
       'log',
       'name',
@@ -1532,21 +1543,72 @@ describe('createManualCard (r5 Phase 6)', () => {
       'Acme, Inc.',
       'acme inc',
       URL,
+      URL,
       DESCRIPTION_SHA,
       TEAM_A,
     ])
   })
 
-  it('a card without an application link stores NULL', async () => {
+  it('a card without an application link stores NULL for the link and its key, and is not looked up', async () => {
     const h = harness()
     await h.svc.createManualCard(HR, manualBody({ applicationUrl: undefined }))
     expect(h.param('card')[4]).toBeNull()
+    expect(h.param('card')[5]).toBeNull()
+    expect(h.hits).not.toContain('urlLock')
+    expect(h.hits).not.toContain('urlTaken')
   })
 
-  it('submits the senior to the new card in the team scope, for the actor', async () => {
+  it('serializes on the dedupe key and looks the link up by key or exact href', async () => {
+    const raw = 'https://Jobs.Example.test/x/?utm=1#apply'
+    const h = harness()
+    await h.svc.createManualCard(HR, manualBody({ applicationUrl: raw }))
+    expect(h.param('urlLock')).toEqual([0x6d616e75, 'https://jobs.example.test/x'])
+    expect(h.param('urlTaken')).toEqual([
+      'https://jobs.example.test/x',
+      'https://jobs.example.test/x/?utm=1',
+    ])
+    expect(h.param('card')[5]).toBe('https://jobs.example.test/x')
+  })
+
+  it('a link any opportunity already carries is the generic 409, and nothing is written', async () => {
+    const h = harness({ urlTaken: [{ '?column?': 1 }] })
+    await expectCode(h.svc.createManualCard(HR, manualBody()), 409, 'JOB_QUEUE_MANUAL_DUPLICATE')
+    expect(h.hits.filter((x) => MANUAL_WRITES.includes(x))).toEqual([])
+  })
+
+  it('a possible duplicate the senior already holds is the 409 with its preview, unless confirmed', async () => {
+    const claimed = { duplicates: [{ opportunity_id: OPP }] }
+    const h = harness(claimed)
+    const r = await refusal(h.svc.createManualCard(HR, manualBody()))
+    expect(r.status).toBe(409)
+    expect(r.body).toEqual({
+      code: 'JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED',
+      possibleDuplicates: {
+        items: [{ opportunityId: OPP, title: 'Go Developer', companyName: 'Acme' }],
+        totalCount: 1,
+      },
+    })
+    expect(h.hits).not.toContain('insert')
+
+    const confirmed = harness(claimed)
+    await confirmed.svc.createManualCard(HR, manualBody({ confirmPossibleDuplicate: true }))
+    expect(confirmed.hits).not.toContain('duplicates')
+    expect(confirmed.hits).toContain('insert')
+  })
+
+  it('the duplicate set is read from the new card and locked', async () => {
     const h = harness()
     await h.svc.createManualCard(HR, manualBody())
-    expect(h.param('insert')).toEqual([CARD, SENIOR, 'TEAM', TEAM_A, HR_ID])
+    expect(h.param('lockSet')).toEqual([CARD])
+    expect(h.calls.find((c) => PATTERNS.lockSet.test(c.text))?.text).toContain(
+      'FOR NO KEY UPDATE OF d',
+    )
+  })
+
+  it('submits the senior to the new card in the team scope, for the actor, with the resume', async () => {
+    const h = harness()
+    await h.svc.createManualCard(HR, manualBody())
+    expect(h.param('insert')).toEqual([CARD, SENIOR, 'TEAM', TEAM_A, HR_ID, RESUME])
   })
 
   it('logs TAKEN from 0 to 1 on the card, with the resume in the replay', async () => {
@@ -1601,7 +1663,7 @@ describe('createManualCard (r5 Phase 6)', () => {
     const h = harness()
     await h.svc.createManualCard(ADMIN, manualBody())
     expect(h.hits).not.toContain('membership')
-    expect(h.param('insert')).toEqual([CARD, SENIOR, 'TEAM', TEAM_A, ADMIN_ID])
+    expect(h.param('insert')).toEqual([CARD, SENIOR, 'TEAM', TEAM_A, ADMIN_ID, RESUME])
   })
 
   it('a non-team scope (no membership, or STUDIO) is a 404 before any statement', async () => {
