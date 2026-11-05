@@ -369,6 +369,10 @@ msgstr "Could not change the application status. Try again"
 msgid "дропа"
 msgstr "drop"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "Усі сеньйори зі збігом внесли компанію до стоп-листа"
+msgstr "All matching seniors stop-listed this company"
+
 #: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Джуніор не призначений"
@@ -805,6 +809,10 @@ msgstr "Simulate failure"
 msgid "Крок {0} із {1}"
 msgstr "Step {0} of {1}"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа"
+msgstr "All matching seniors on your team stop-listed this company"
+
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Посилання, рядок {position}"
 msgstr "Link, row {position}"
@@ -1144,10 +1152,6 @@ msgstr "Member / Project"
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Новий користувач"
 msgstr "New user"
-
-#: apps/web/app/components/job-queue/JobQueueRow.tsx
-msgid "Дата публікації невідома · вперше побачено {firstSeenAgo}"
-msgstr "Publication date unknown · first seen {firstSeenAgo}"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "Доходи в роботі"
@@ -3812,10 +3816,6 @@ msgstr "Achievements — one per line"
 msgid "Аналіз скасовано"
 msgstr "Analysis cancelled"
 
-#: apps/web/app/routes/_authenticated/job-queue/index.tsx
-msgid "Список може бути неповним: показано лише найрелевантніші вакансії."
-msgstr "The list may be incomplete: only the most relevant vacancies are shown."
-
 #. placeholder {0}: currentTos.version + 1
 #. placeholder {1}: currentTos.version
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
@@ -3992,6 +3992,7 @@ msgstr "Contract — preview.pdf"
 msgid "Підключення увімкнено"
 msgstr "Connection enabled"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 msgid "Спробувати ще раз"
 msgstr "Try again"
@@ -4290,10 +4291,6 @@ msgstr "Awaiting your decision"
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Вільно"
 msgstr "Relaxed"
-
-#: apps/web/app/routes/_authenticated/job-queue/index.tsx
-msgid "Можливо, вас вивели з команди. Оновіть сторінку."
-msgstr "You may have been removed from the team. Reload the page."
 
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Вкладку можна закрити — розпізнавання триває на сервері, результат з’явиться тут."
@@ -4820,6 +4817,7 @@ msgstr "Marking…"
 msgid "Скасувати редагування"
 msgstr "Cancel editing"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
@@ -5560,6 +5558,10 @@ msgstr "No drop teams available."
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Завантажте резюме (PDF або DOCX) — ми один раз розкладемо його на розділи, а далі ви редагуєте їх тут. Якщо у файлі немає тексту, вставте текст вручну."
 msgstr "Upload a resume (PDF or DOCX) — we split it into sections once, then you edit them here. If the file has no text, paste it in instead."
+
+#: apps/web/app/components/job-queue/JobQueueList.tsx
+msgid "Завантажено ще {added}. Усі вакансії показано: {shown}"
+msgstr "Loaded {added} more. All vacancies shown: {shown}"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 msgid "Передперегляд оновлено"
@@ -7017,6 +7019,10 @@ msgstr "Timestamped notes"
 msgid "Отримувач (партнер)"
 msgstr "Recipient (partner)"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "Роботодавця не вдалося підтвердити"
+msgstr "The employer could not be verified"
+
 #: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
 msgid "Адресу гаманця оновлено"
 msgstr "Wallet address updated"
@@ -7203,10 +7209,6 @@ msgstr "File uploaded, parsing the resume"
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 msgid "Опублікувати нову версію (v{0})?"
 msgstr "Publish a new version (v{0})?"
-
-#: apps/web/app/routes/_authenticated/job-queue/index.tsx
-msgid "З’явилися оновлення."
-msgstr "There are updates."
 
 #: apps/web/app/components/onboarding/TosUpdateBanner.tsx
 msgid "Опубліковано нову версію Умов використання. <0>Читати →</0>"
@@ -7771,6 +7773,10 @@ msgstr "Everything awaiting a decision"
 msgid "На головну"
 msgstr "Go home"
 
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
+msgid "Можливо, вас вивели з команди. Оновіть сторінку або зверніться до адміністратора."
+msgstr "You may have been removed from the team. Reload the page or contact an admin."
+
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 msgid "Склад команди"
@@ -8121,10 +8127,6 @@ msgstr "This month"
 msgid "Підтверджує {drop}"
 msgstr "Awaiting {drop}"
 
-#: apps/web/app/components/job-queue/JobQueueList.tsx
-msgid "Спробувати ще"
-msgstr "Try again"
-
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Дата підпису"
 msgstr "Signature date"
@@ -8197,6 +8199,10 @@ msgstr "Add account"
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 msgid "Спочатку збережіть, щоб оновити перегляд"
 msgstr "Save first to refresh the preview"
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Застосовано: {summary}"
+msgstr "Applied: {summary}"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Не вдалося приєднатися до команди — спробуйте ще раз"
@@ -8894,6 +8900,10 @@ msgstr "Could not reject. Try again"
 msgid "Дані в контракті — ім’я, email і реквізити — задає адміністратор; якщо щось не так, напишіть йому"
 msgstr "The contract data — name, email and payout details — is set by an admin; if something is wrong, message them"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
+msgid "Тут будуть вакансії, на які ваша команда подала сеньйорів."
+msgstr "Vacancies where your team has submitted a senior will show up here."
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "USDT партнера"
 msgstr "Partner's USDT"
@@ -9133,10 +9143,6 @@ msgstr "/ month"
 msgid "Найнято"
 msgstr "Hired"
 
-#: apps/web/app/components/job-queue/JobQueueList.tsx
-msgid "Тут з’являться вакансії, на які подано сеньйорів вашої команди."
-msgstr "Vacancies your team’s seniors were submitted to appear here."
-
 #. placeholder {0}: formatAmount(invoice.amount, invoice.currency)
 #: apps/web/app/components/invoices/invoice-card.tsx
 msgid "Відкрити рахунок {typeLabel} на {0}"
@@ -9217,6 +9223,10 @@ msgstr "Invitation sent to the personal email"
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Завантажити ще раз"
 msgstr "Upload again"
+
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
+msgid "Список може бути неповним: показано лише найрелевантніші вакансії. Уточніть пошук або фільтри, щоб побачити решту."
+msgstr "The list may be incomplete: only the most relevant vacancies are shown. Narrow the search or filters to see the rest."
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Не вдалося завантажити медіа."
@@ -10088,6 +10098,10 @@ msgstr "Status"
 msgid "Баланси вирівняно"
 msgstr "Balances aligned"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
+msgid "Завантажено ще {added}. Показано {shown} із {total}"
+msgstr "Loaded {added} more. Showing {shown} of {total}"
+
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx
 msgid "Назва і опис вакансії для лендингу іншими мовами."
 msgstr "The vacancy’s title and description for the landing page in other languages."
@@ -10137,6 +10151,7 @@ msgstr "Address copied"
 msgid "Не вдалося підтвердити вручну"
 msgstr "Could not confirm manually"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/documents/components/DocumentsToolbar.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Очистити пошук"
@@ -10647,7 +10662,7 @@ msgstr "No access? Contact an admin."
 
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 msgid "Спробуйте ще раз."
-msgstr "Please try again."
+msgstr "Try again."
 
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "+ Зареєструвати"
@@ -10998,6 +11013,10 @@ msgstr "Could not load the contract variables"
 #: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
 msgid "Зміна ERC-20 адреси для отримання USDT-депозитів"
 msgstr "Changing the ERC-20 address used to receive USDT deposits"
+
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "Дата публікації невідома · вперше знайдено {firstSeenAgo}"
+msgstr "Publication date unknown · first seen {firstSeenAgo}"
 
 #: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Буде створено акаунт сеньйора та сформовано команду з вами в ролі HR."

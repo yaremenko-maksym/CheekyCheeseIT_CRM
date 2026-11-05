@@ -369,6 +369,10 @@ msgstr "Не вдалося змінити статус відгуку. Спро
 msgid "дропа"
 msgstr "дропа"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "Усі сеньйори зі збігом внесли компанію до стоп-листа"
+msgstr "Усі сеньйори зі збігом внесли компанію до стоп-листа"
+
 #: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Джуніор не призначений"
@@ -805,6 +809,10 @@ msgstr "Симулювати помилку"
 msgid "Крок {0} із {1}"
 msgstr "Крок {0} із {1}"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа"
+msgstr "Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа"
+
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Посилання, рядок {position}"
 msgstr "Посилання, рядок {position}"
@@ -1144,10 +1152,6 @@ msgstr "Учасник / Проєкт"
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Новий користувач"
 msgstr "Новий користувач"
-
-#: apps/web/app/components/job-queue/JobQueueRow.tsx
-msgid "Дата публікації невідома · вперше побачено {firstSeenAgo}"
-msgstr "Дата публікації невідома · вперше побачено {firstSeenAgo}"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "Доходи в роботі"
@@ -3812,10 +3816,6 @@ msgstr "Досягнення — по одному в рядку"
 msgid "Аналіз скасовано"
 msgstr "Аналіз скасовано"
 
-#: apps/web/app/routes/_authenticated/job-queue/index.tsx
-msgid "Список може бути неповним: показано лише найрелевантніші вакансії."
-msgstr "Список може бути неповним: показано лише найрелевантніші вакансії."
-
 #. placeholder {0}: currentTos.version + 1
 #. placeholder {1}: currentTos.version
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
@@ -3992,6 +3992,7 @@ msgstr "Контракт — попередній перегляд.pdf"
 msgid "Підключення увімкнено"
 msgstr "Підключення увімкнено"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 msgid "Спробувати ще раз"
 msgstr "Спробувати ще раз"
@@ -4290,10 +4291,6 @@ msgstr "Очікує вашого рішення"
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Вільно"
 msgstr "Вільно"
-
-#: apps/web/app/routes/_authenticated/job-queue/index.tsx
-msgid "Можливо, вас вивели з команди. Оновіть сторінку."
-msgstr "Можливо, вас вивели з команди. Оновіть сторінку."
 
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Вкладку можна закрити — розпізнавання триває на сервері, результат з’явиться тут."
@@ -4820,6 +4817,7 @@ msgstr "Позначаємо…"
 msgid "Скасувати редагування"
 msgstr "Скасувати редагування"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
@@ -5560,6 +5558,10 @@ msgstr "Немає доступних команд дропа."
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Завантажте резюме (PDF або DOCX) — ми один раз розкладемо його на розділи, а далі ви редагуєте їх тут. Якщо у файлі немає тексту, вставте текст вручну."
 msgstr "Завантажте резюме (PDF або DOCX) — ми один раз розкладемо його на розділи, а далі ви редагуєте їх тут. Якщо у файлі немає тексту, вставте текст вручну."
+
+#: apps/web/app/components/job-queue/JobQueueList.tsx
+msgid "Завантажено ще {added}. Усі вакансії показано: {shown}"
+msgstr "Завантажено ще {added}. Усі вакансії показано: {shown}"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 msgid "Передперегляд оновлено"
@@ -7017,6 +7019,10 @@ msgstr "Нотатки за часом"
 msgid "Отримувач (партнер)"
 msgstr "Отримувач (партнер)"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "Роботодавця не вдалося підтвердити"
+msgstr "Роботодавця не вдалося підтвердити"
+
 #: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
 msgid "Адресу гаманця оновлено"
 msgstr "Адресу гаманця оновлено"
@@ -7203,10 +7209,6 @@ msgstr "Файл завантажено, розпізнаємо резюме"
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 msgid "Опублікувати нову версію (v{0})?"
 msgstr "Опублікувати нову версію (v{0})?"
-
-#: apps/web/app/routes/_authenticated/job-queue/index.tsx
-msgid "З’явилися оновлення."
-msgstr "З’явилися оновлення."
 
 #: apps/web/app/components/onboarding/TosUpdateBanner.tsx
 msgid "Опубліковано нову версію Умов використання. <0>Читати →</0>"
@@ -7771,6 +7773,10 @@ msgstr "Усе, що чекає рішення"
 msgid "На головну"
 msgstr "На головну"
 
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
+msgid "Можливо, вас вивели з команди. Оновіть сторінку або зверніться до адміністратора."
+msgstr "Можливо, вас вивели з команди. Оновіть сторінку або зверніться до адміністратора."
+
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 msgid "Склад команди"
@@ -8121,10 +8127,6 @@ msgstr "Цей місяць"
 msgid "Підтверджує {drop}"
 msgstr "Підтверджує {drop}"
 
-#: apps/web/app/components/job-queue/JobQueueList.tsx
-msgid "Спробувати ще"
-msgstr "Спробувати ще"
-
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Дата підпису"
 msgstr "Дата підпису"
@@ -8197,6 +8199,10 @@ msgstr "Додати акаунт"
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 msgid "Спочатку збережіть, щоб оновити перегляд"
 msgstr "Спочатку збережіть, щоб оновити перегляд"
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Застосовано: {summary}"
+msgstr "Застосовано: {summary}"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Не вдалося приєднатися до команди — спробуйте ще раз"
@@ -8894,6 +8900,10 @@ msgstr "Не вдалося відхилити. Спробуйте ще раз"
 msgid "Дані в контракті — ім’я, email і реквізити — задає адміністратор; якщо щось не так, напишіть йому"
 msgstr "Дані в контракті — ім’я, email і реквізити — задає адміністратор; якщо щось не так, напишіть йому"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
+msgid "Тут будуть вакансії, на які ваша команда подала сеньйорів."
+msgstr "Тут будуть вакансії, на які ваша команда подала сеньйорів."
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "USDT партнера"
 msgstr "USDT партнера"
@@ -9133,10 +9143,6 @@ msgstr "/ місяць"
 msgid "Найнято"
 msgstr "Найнято"
 
-#: apps/web/app/components/job-queue/JobQueueList.tsx
-msgid "Тут з’являться вакансії, на які подано сеньйорів вашої команди."
-msgstr "Тут з’являться вакансії, на які подано сеньйорів вашої команди."
-
 #. placeholder {0}: formatAmount(invoice.amount, invoice.currency)
 #: apps/web/app/components/invoices/invoice-card.tsx
 msgid "Відкрити рахунок {typeLabel} на {0}"
@@ -9217,6 +9223,10 @@ msgstr "Запрошення надіслано на особисту адрес
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Завантажити ще раз"
 msgstr "Завантажити ще раз"
+
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
+msgid "Список може бути неповним: показано лише найрелевантніші вакансії. Уточніть пошук або фільтри, щоб побачити решту."
+msgstr "Список може бути неповним: показано лише найрелевантніші вакансії. Уточніть пошук або фільтри, щоб побачити решту."
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Не вдалося завантажити медіа."
@@ -10088,6 +10098,10 @@ msgstr "Статус"
 msgid "Баланси вирівняно"
 msgstr "Баланси вирівняно"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
+msgid "Завантажено ще {added}. Показано {shown} із {total}"
+msgstr "Завантажено ще {added}. Показано {shown} із {total}"
+
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx
 msgid "Назва і опис вакансії для лендингу іншими мовами."
 msgstr "Назва і опис вакансії для лендингу іншими мовами."
@@ -10137,6 +10151,7 @@ msgstr "Адресу скопійовано"
 msgid "Не вдалося підтвердити вручну"
 msgstr "Не вдалося підтвердити вручну"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/documents/components/DocumentsToolbar.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Очистити пошук"
@@ -10998,6 +11013,10 @@ msgstr "Не вдалося завантажити змінні контракт
 #: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
 msgid "Зміна ERC-20 адреси для отримання USDT-депозитів"
 msgstr "Зміна ERC-20 адреси для отримання USDT-депозитів"
+
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "Дата публікації невідома · вперше знайдено {firstSeenAgo}"
+msgstr "Дата публікації невідома · вперше знайдено {firstSeenAgo}"
 
 #: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Буде створено акаунт сеньйора та сформовано команду з вами в ролі HR."

@@ -49,8 +49,7 @@ export function JobQueueAppliedFilters({
     value.eligibility?.map((o) => i18n._(ELIGIBILITY_LABEL[o])),
     value.availability?.map((o) => i18n._(AVAILABILITY_LABEL[o])),
   ]
-    .filter((g) => g?.length)
-    .map((g) => g!.join(', '))
+    .flatMap((g) => (g?.length ? [g.join(', ')] : []))
     .join(' · ')
   if (!summary) return null
   return (
@@ -58,7 +57,7 @@ export function JobQueueAppliedFilters({
       data-testid="job-queue-applied"
       className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground"
     >
-      <p className="min-w-0 break-words">
+      <p className="min-w-0 break-words text-pretty">
         <Trans>Застосовано: {summary}</Trans>
       </p>
       <Button variant="link" className="min-h-11 px-0" onClick={onReset}>

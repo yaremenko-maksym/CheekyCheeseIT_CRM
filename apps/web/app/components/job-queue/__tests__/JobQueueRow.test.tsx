@@ -73,7 +73,7 @@ describe('JobQueueRow', () => {
 
   it('falls back to first-seen with an unknown-date notice', () => {
     const { row } = renderRow({ publishedAt: null })
-    expect(row).toHaveTextContent('Дата публікації невідома · вперше побачено позавчора')
+    expect(row).toHaveTextContent('Дата публікації невідома · вперше знайдено позавчора')
     expect(row).not.toHaveTextContent('Опубліковано')
   })
 
@@ -92,30 +92,81 @@ describe('JobQueueRow', () => {
     expect(screen.queryByTestId('job-queue-row-matched')).toBeNull()
   })
 
-  it('pluralizes the HR team-scoped matched count', () => {
-    renderRow({ matchedSeniorCount: 3 })
-    expect(screen.getByTestId('job-queue-row-matched')).toHaveTextContent(
-      '3 сеньйори вашої команди мають збіг стеку',
-    )
+  it.each([
+    [1, '1 сеньйор вашої команди має збіг стеку'],
+    [2, '2 сеньйори вашої команди мають збіг стеку'],
+    [5, '5 сеньйорів вашої команди мають збіг стеку'],
+    [11, '11 сеньйорів вашої команди мають збіг стеку'],
+    [21, '21 сеньйор вашої команди має збіг стеку'],
+    [22, '22 сеньйори вашої команди мають збіг стеку'],
+    [25, '25 сеньйорів вашої команди мають збіг стеку'],
+  ])('HR: %i matched reads «%s»', (n, text) => {
+    renderRow({ matchedSeniorCount: n })
+    expect(screen.getByTestId('job-queue-row-matched')).toHaveTextContent(text)
   })
 
-  it('uses the HR singular form at 1', () => {
-    renderRow({ matchedSeniorCount: 1 })
-    expect(screen.getByTestId('job-queue-row-matched')).toHaveTextContent(
-      '1 сеньйор вашої команди має збіг стеку',
-    )
-  })
-
-  it('uses the studio-wide wording for ADMIN', () => {
-    renderRow({ matchedSeniorCount: 5 }, { role: 'ADMIN' })
-    expect(screen.getByTestId('job-queue-row-matched')).toHaveTextContent(
-      '5 сеньйорів мають збіг стеку',
-    )
+  it.each([
+    [1, '1 сеньйор має збіг стеку'],
+    [2, '2 сеньйори мають збіг стеку'],
+    [5, '5 сеньйорів мають збіг стеку'],
+    [11, '11 сеньйорів мають збіг стеку'],
+    [21, '21 сеньйор має збіг стеку'],
+    [22, '22 сеньйори мають збіг стеку'],
+    [25, '25 сеньйорів мають збіг стеку'],
+  ])('ADMIN: %i matched reads the studio-wide «%s»', (n, text) => {
+    renderRow({ matchedSeniorCount: n }, { role: 'ADMIN' })
+    expect(screen.getByTestId('job-queue-row-matched')).toHaveTextContent(text)
+    expect(screen.getByTestId('job-queue-row-matched')).not.toHaveTextContent('вашої команди')
   })
 
   it('shows the submitted companion only on the SUBMITTED tab', () => {
     renderRow({ matchedSeniorCount: 2, submittedSeniorCount: 1 }, { tab: 'SUBMITTED' })
-    expect(screen.getByTestId('job-queue-row-submitted')).toHaveTextContent('1 подано')
+    expect(screen.getByTestId('job-queue-row-submitted')).toHaveTextContent('✓ 1 подано')
+  })
+
+  it('shows the submitted companion with no matched count (manual submission)', () => {
+    renderRow({ matchedSeniorCount: 0, submittedSeniorCount: 1 }, { tab: 'SUBMITTED' })
+    expect(screen.getByTestId('job-queue-row-submitted')).toHaveTextContent('✓ 1 подано')
+    expect(screen.queryByTestId('job-queue-row-matched')).toBeNull()
+  })
+
+  it('omits the submitted companion at 0 on the SUBMITTED tab', () => {
+    renderRow({ matchedSeniorCount: 2, submittedSeniorCount: 0 }, { tab: 'SUBMITTED' })
+    expect(screen.queryByTestId('job-queue-row-submitted')).toBeNull()
+  })
+
+  it('explains a row whose every matching senior stop-listed the company (HR)', () => {
+    renderRow({ matchedSeniorCount: 0, stopListedSeniorCount: 2 })
+    expect(screen.getByTestId('job-queue-row-stop-listed')).toHaveTextContent(
+      'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа',
+    )
+  })
+
+  it('uses the studio-wide stop-list wording for ADMIN', () => {
+    renderRow({ matchedSeniorCount: 0, stopListedSeniorCount: 1 }, { role: 'ADMIN' })
+    const line = screen.getByTestId('job-queue-row-stop-listed')
+    expect(line).toHaveTextContent('Усі сеньйори зі збігом внесли компанію до стоп-листа')
+    expect(line).not.toHaveTextContent('вашої команди')
+  })
+
+  it.each([
+    ['some seniors still match', { matchedSeniorCount: 1, stopListedSeniorCount: 2 }],
+    ['nobody stop-listed it', { matchedSeniorCount: 0, stopListedSeniorCount: 0 }],
+  ])('has no stop-list line when %s', (_label, over) => {
+    renderRow(over)
+    expect(screen.queryByTestId('job-queue-row-stop-listed')).toBeNull()
+  })
+
+  it('gives a triage row its reason line', () => {
+    renderRow({ eligibility: 'TRIAGE' })
+    expect(screen.getByTestId('job-queue-row-triage-reason')).toHaveTextContent(
+      'Роботодавця не вдалося підтвердити',
+    )
+  })
+
+  it('has no reason line for a lead', () => {
+    renderRow()
+    expect(screen.queryByTestId('job-queue-row-triage-reason')).toBeNull()
   })
 
   it('does not show the submitted companion on the NEW tab', () => {

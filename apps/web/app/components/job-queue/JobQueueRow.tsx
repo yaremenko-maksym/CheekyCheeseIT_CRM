@@ -1,6 +1,6 @@
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { CalendarOff, ChevronRight, CircleHelp, PenLine, Rss } from 'lucide-react'
+import { Ban, CalendarOff, ChevronRight, CircleHelp, PenLine, Rss } from 'lucide-react'
 import { formatRelativeTime, type JobQueueListItemDto, type JobQueueTab } from '@crm/shared'
 import { useLocale } from '@/lib/i18n'
 
@@ -36,9 +36,14 @@ export function JobQueueRow({
   const SourceIcon = source ? Rss : PenLine
   const company = item.companyName ?? t`Компанію не вказано`
   const matched = item.matchedSeniorCount
-  // id/values/options triple, not `{ ...MSG, values }`: the spread form crashes `lingui extract`.
+  // id + values, not `{ ...MSG, values }`: the spread form crashes `lingui extract`.
   const matchedMsg = role === 'ADMIN' ? MATCHED_ADMIN : MATCHED_HR
   const submitted = item.submittedSeniorCount
+  // a separate clause from the matched count: a manual submission can have no stack match (§4.3)
+  const showSubmitted = tab === 'SUBMITTED' && submitted > 0
+  // matched (LEAD) and stop-listed (EXCLUDED at SCOPED_RESTRICTIONS) are disjoint server counts;
+  // the row must not read as "no matches" when every match is stop-listed (§4.6)
+  const stopListedAll = matched === 0 && item.stopListedSeniorCount > 0
   const alsoSeen = item.alsoSeenOnCount
   const firstSeenAgo = formatRelativeTime(item.firstSeenAt, locale)
 
@@ -69,17 +74,35 @@ export function JobQueueRow({
           />
           <span className="truncate">{company}</span>
         </span>
-        {matched > 0 && (
-          <span data-testid="job-queue-row-matched" data-slot="matched-count" className="text-sm">
-            {i18n._(
-              matchedMsg.id,
-              { n: matched },
-              matchedMsg.message === undefined ? undefined : { message: matchedMsg.message },
+        {item.eligibility === 'TRIAGE' && (
+          <span data-testid="job-queue-row-triage-reason" className="text-sm text-muted-foreground">
+            <Trans>Роботодавця не вдалося підтвердити</Trans>
+          </span>
+        )}
+        {(matched > 0 || showSubmitted) && (
+          <span className="flex flex-wrap gap-x-2 text-sm tabular-nums">
+            {matched > 0 && (
+              <span data-testid="job-queue-row-matched" data-slot="matched-count">
+                {i18n._(matchedMsg.id, { n: matched })}
+              </span>
             )}
-            {tab === 'SUBMITTED' && (
-              <span data-testid="job-queue-row-submitted" className="ml-2 text-muted-foreground">
+            {showSubmitted && (
+              <span data-testid="job-queue-row-submitted" className="text-muted-foreground">
                 <Trans>✓ {submitted} подано</Trans>
               </span>
+            )}
+          </span>
+        )}
+        {stopListedAll && (
+          <span
+            data-testid="job-queue-row-stop-listed"
+            className="flex items-start gap-1.5 text-sm text-pretty text-muted-foreground"
+          >
+            <Ban aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+            {role === 'ADMIN' ? (
+              <Trans>Усі сеньйори зі збігом внесли компанію до стоп-листа</Trans>
+            ) : (
+              <Trans>Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа</Trans>
             )}
           </span>
         )}
@@ -91,7 +114,7 @@ export function JobQueueRow({
           ) : (
             <span className="inline-flex items-center gap-1">
               <CalendarOff aria-hidden="true" className="size-3.5 shrink-0" />
-              <Trans>Дата публікації невідома · вперше побачено {firstSeenAgo}</Trans>
+              <Trans>Дата публікації невідома · вперше знайдено {firstSeenAgo}</Trans>
             </span>
           )}
           {alsoSeen > 0 && (
