@@ -49,6 +49,7 @@ const CARD = {
     sourceType: 'GREENHOUSE_ATS',
     url: 'https://jobs.example.test/1',
   },
+  applicationUrl: null,
   alsoSeenOnCount: 0,
   availability: 'OPEN',
   eligibility: 'LEAD',

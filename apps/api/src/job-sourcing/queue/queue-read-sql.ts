@@ -63,9 +63,10 @@ const ownDismissal = (scope: JobQueueScope): SQL =>
                  AND ${scopedTeamRowPredicate(scope, sql`d.team_id`)})`
 
 /**
- * The joins behind one queue row: `stats`, `sub`, `flags`, `src` and the derived `d`. `src` is an
- * INNER lateral: the wire contract requires a primary source, and an opportunity with no active
- * source record has nothing to link to, so it is not a row.
+ * The joins behind one queue row: `stats`, `sub`, `flags`, `src` and the derived `d`. `src` is a
+ * LEFT lateral for one reason: a manual card (`o.manual_team_id`, r5 Phase 6) has no source record
+ * and answers `primarySource: null`. `d` is joined on "has a source OR is manual", so a SOURCED
+ * opportunity with no active source record is still not a row: it has nothing to link to.
  */
 export const queueRowJoins = (
   scope: JobQueueScope,
@@ -85,7 +86,7 @@ export const queueRowJoins = (
            EXISTS (SELECT 1 FROM job_queue_actions qa
                     WHERE qa.opportunity_id = o.id AND qa.kind = 'OPENED'
                       AND ${scopedTeamRowPredicate(scope, sql`qa.team_id`)}) AS opened) flags
-  JOIN LATERAL (
+  LEFT JOIN LATERAL (
     SELECT s.source_record_id, r.source_type, r.source_url,
            count(*) OVER () AS total
       FROM job_opportunity_sources s
@@ -93,18 +94,19 @@ export const queueRowJoins = (
      WHERE s.opportunity_id = o.id AND s.unlinked_at IS NULL AND r.source_url IS NOT NULL
      ORDER BY s.linked_at, s.source_record_id
      LIMIT 1) src ON TRUE
-  CROSS JOIN LATERAL (
+  JOIN LATERAL (
     SELECT CASE WHEN flags.hidden THEN 'HIDDEN'
                 WHEN sub.submitted > 0 THEN 'SUBMITTED'
                 ELSE 'NEW' END AS tab,
            CASE WHEN stats.matched > 0 THEN 'LEAD' ELSE 'TRIAGE' END AS eligibility,
-           CASE WHEN flags.opened THEN 'OPENED' ELSE 'NOT_OPENED' END AS activity) d`
+           CASE WHEN flags.opened THEN 'OPENED' ELSE 'NOT_OPENED' END AS activity) d
+    ON (src.source_record_id IS NOT NULL OR o.manual_team_id IS NOT NULL)`
 
 /** The columns of one queue row, for `queueRowJoins`. No description: lists never carry one. */
 export const QUEUE_ROW_COLUMNS = sql`
   o.id, o.revision, o.title, o.employer_name, o.location, o.availability, o.published_at,
   o.first_seen_at, src.source_record_id, src.source_type, src.source_url, src.total AS source_total,
-  stats.matched, stats.stop_listed, sub.submitted, flags.opened, flags.hidden, d.eligibility`
+  o.application_url, stats.matched, stats.stop_listed, sub.submitted, flags.opened, flags.hidden, d.eligibility`
 
 /** One opportunity's row, with the description and "changed since this scope's list was built". */
 export const cardRow = (

@@ -123,6 +123,9 @@ const liveTeam = (alias: string, teamId: string) =>
  *          reaches a team only through an explicit grant, r5 Task 1.2 SR-L-2) and that passes the
  *          grant branch's availability and OPEN-at-current-revision-and-live-inputs rule. The
  *          role family is written with that evaluation record, so it is the current revision's.
+ *   MANUAL a card an HR / ADMIN created by hand for this team (`manual_team_id`, r5 Phase 6),
+ *          while the team is live. A manual card is its team's ONLY: the three branches above never
+ *          show it to anyone else, even if it is later evaluated or granted.
  * A TRIAGE / unknown-stack verdict alone grants nothing (data quality, not a grant). No branch
  * shows an opportunity an ADMIN has SUPPRESSED (`notSuppressed`, r5 Task 6.4).
  *
@@ -139,7 +142,7 @@ export function visibleOpportunityPredicate(scope: JobQueueScope, opportunityId:
       exclusion: v.exclusion,
     })),
   )
-  return sql`((EXISTS (SELECT 1 FROM job_opportunity_matches m
+  return sql`((((EXISTS (SELECT 1 FROM job_opportunity_matches m
                         JOIN job_opportunities mo ON mo.id = m.opportunity_id
                         JOIN users u ON u.id = m.senior_id
                         JOIN team_members tm ON tm.user_id = u.id
@@ -184,6 +187,13 @@ export function visibleOpportunityPredicate(scope: JobQueueScope, opportunityId:
                          AND sop.evaluation_verdict = 'OPEN'
                          AND sop.evaluated_inputs_version = ${scope.inputsVersion}
                          AND ${liveTeam('st', scope.teamId)}))
+             AND NOT EXISTS (SELECT 1 FROM job_opportunities mn
+                              WHERE mn.id = ${opportunityId}
+                                AND mn.manual_team_id IS NOT NULL))
+           OR EXISTS (SELECT 1 FROM job_opportunities mc
+                       WHERE mc.id = ${opportunityId}
+                         AND mc.manual_team_id = ${scope.teamId}::uuid
+                         AND ${liveTeam('mt', scope.teamId)}))
            AND ${notSuppressed(opportunityId)})`
 }
 

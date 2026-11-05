@@ -212,6 +212,20 @@ describe('field scoping — what each read binds', () => {
     )
   })
 
+  it('a row needs an active source or a manual team; a manual card has no source (Phase 6)', () => {
+    const { text } = render(queueRowJoins(team, versions))
+    expect(text).toContain(
+      'LEFT JOIN LATERAL ( SELECT s.source_record_id, r.source_type, r.source_url,',
+    )
+    expect(text).not.toMatch(/(^|[^T]) JOIN LATERAL \( SELECT s\.source_record_id/)
+    expect(text).toContain(
+      ') d ON (src.source_record_id IS NOT NULL OR o.manual_team_id IS NOT NULL)',
+    )
+    expect(render(cardRow(team, versions, OPP)).text).toContain(
+      'src.total AS source_total, o.application_url,',
+    )
+  })
+
   it('the foreign-submission marker is correlated to this senior on this opportunity (SR-M-1)', () => {
     const { text } = render(seniorRows(team, versions, OPP, undefined, 201))
     expect(text).toContain(
