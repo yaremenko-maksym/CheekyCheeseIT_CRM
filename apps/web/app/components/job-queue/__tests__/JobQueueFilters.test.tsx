@@ -2,17 +2,22 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
-import { JobQueueAppliedFilters, JobQueueFilters, appliedFilterCount } from '../JobQueueFilters'
+import {
+  JobQueueAppliedFilters,
+  JobQueueFilters,
+  appliedFilterCount,
+  type JobQueueFilterValue,
+} from '../JobQueueFilters'
 
 describe('appliedFilterCount', () => {
-  it.each([
+  it.each<[JobQueueFilterValue, number]>([
     [{}, 0],
     [{ source: [] }, 0],
     [{ source: ['DOU_RSS', 'LEVER_ATS', 'REMOTEOK_API'] }, 1],
     [{ eligibility: ['LEAD'] }, 1],
     [{ availability: ['OPEN', 'CLOSED'] }, 1],
     [{ source: ['DOU_RSS'], eligibility: ['LEAD'], availability: ['OPEN'] }, 3],
-  ] as const)('%j counts %i groups', (value, expected) => {
+  ])('%j counts %i groups', (value, expected) => {
     expect(appliedFilterCount(value)).toBe(expected)
   })
 })
