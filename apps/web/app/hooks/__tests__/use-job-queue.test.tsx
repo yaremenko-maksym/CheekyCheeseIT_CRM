@@ -196,6 +196,29 @@ describe('useJobQueue', () => {
     })
   })
 
+  it('restarts only its own list: a longer key and a card of the scope keep their data', async () => {
+    const extra = ['job-queue', ACTOR, 'HR', TEAM, 'list', 'NEW', {}, 'extra']
+    client.setQueryData(extra, { kept: true })
+    client.setQueryData(jobQueueCardQueryKey(scope, OPP), cardBody())
+    get
+      .mockResolvedValueOnce({ data: page(null) })
+      .mockResolvedValueOnce({ data: page(null, [item({ title: 'Fresh' })]) })
+    const { result } = renderHook(() => useJobQueue(scope, 'NEW', {}), { wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    await act(() => result.current.restart())
+    await waitFor(() => expect(result.current.data?.pages[0]?.items[0]?.title).toBe('Fresh'))
+    expect(client.getQueryData(extra)).toEqual({ kept: true })
+    expect(client.getQueryData(jobQueueCardQueryKey(scope, OPP))).toEqual(cardBody())
+  })
+
+  it('does not call an error without an API code refresh-required', async () => {
+    get.mockRejectedValueOnce(new Error('Network Error'))
+    const { result } = renderHook(() => useJobQueue(scope, 'NEW', {}), { wrapper })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.refreshRequired).toBe(false)
+  })
+
   it('treats a malformed cursor as refresh-required too', async () => {
     get.mockRejectedValueOnce(httpError(400, 'JOB_QUEUE_CURSOR_MALFORMED'))
     const { result } = renderHook(() => useJobQueue(scope, 'NEW', {}), { wrapper })
@@ -257,6 +280,23 @@ describe('useJobQueue', () => {
     expect(client.getQueryData(jobQueueCardQueryKey(scope, OPP))).toBeDefined()
     expect(client.getQueryData(['hr', 'summary'])).toEqual({ kept: true })
   })
+
+  it('evicts the previous scope when the same mounted list switches team', async () => {
+    get.mockResolvedValue({ data: page(null) })
+    const { result, rerender } = renderHook(
+      ({ s }: { s: typeof scope | typeof studio }) => useJobQueue(s, 'NEW', {}),
+      { wrapper, initialProps: { s: scope } },
+    )
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    client.setQueryData(jobQueueCardQueryKey(scope, OPP), cardBody())
+
+    rerender({ s: { ...scope, teamId: null } })
+
+    await waitFor(() =>
+      expect(client.getQueryData(['job-queue', ACTOR, 'HR', TEAM, 'card', OPP])).toBeUndefined(),
+    )
+    expect(client.getQueryData(['job-queue', ACTOR, 'HR', TEAM, 'list', 'NEW', {}])).toBeUndefined()
+  })
 })
 
 describe('useJobQueueCard', () => {
@@ -273,6 +313,21 @@ describe('useJobQueueCard', () => {
     expect(get).toHaveBeenCalledWith(`/job-queue/${OPP}`, { params: { teamId: TEAM } })
     expect(result.current.data?.title).toBe('Senior React Engineer')
     expect(result.current.accessLost).toBe(false)
+  })
+
+  it('caches the card under its own id and, on success, leaves the scope lists alone', async () => {
+    const list = ['job-queue', ACTOR, 'HR', TEAM, 'list', 'NEW', {}]
+    client.setQueryData(list, { pages: [page(null)], pageParams: [null] })
+    get.mockResolvedValueOnce({ data: cardBody() })
+    const { result } = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    await act(() => new Promise((r) => setTimeout(r, 50)))
+
+    expect(client.getQueryData(['job-queue', ACTOR, 'HR', TEAM, 'card', OPP])).toMatchObject({
+      title: 'Senior React Engineer',
+    })
+    expect(client.getQueryState(list)?.isInvalidated).toBe(false)
+    expect(client.getQueryData(list)).toEqual({ pages: [page(null)], pageParams: [null] })
   })
 
   it('encodes the id into the path', async () => {

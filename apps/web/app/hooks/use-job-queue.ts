@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import {
+  skipToken,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -70,11 +71,14 @@ export const jobQueueQueryKey = (
   filters: QueueFilters,
 ) => [...jobQueueScopeKey(scope), 'list', tab, filters] as const
 
-export const jobQueueCardQueryKey = (scope: QueueScopeSignature, id: string) =>
+export const jobQueueCardQueryKey = (scope: QueueScopeSignature, id: string | null) =>
   [...jobQueueScopeKey(scope), 'card', id] as const
 
 /** Codes after which the list cannot continue and must restart from its first page. */
-const REFRESH_CODES = new Set(['JOB_QUEUE_REFRESH_REQUIRED', 'JOB_QUEUE_CURSOR_MALFORMED'])
+const REFRESH_CODES = new Set<string | null>([
+  'JOB_QUEUE_REFRESH_REQUIRED',
+  'JOB_QUEUE_CURSOR_MALFORMED',
+])
 
 function teamParam(scope: QueueScopeSignature) {
   return scope.teamId === null ? {} : { teamId: scope.teamId }
@@ -158,7 +162,7 @@ export function useJobQueue(scope: QueueScopeSignature, tab: JobQueueTab, filter
     data: accessLost ? undefined : query.data,
     accessLost,
     /** The generation behind the cursor is gone: offer «Показати оновлений список». */
-    refreshRequired: REFRESH_CODES.has(getApiErrorCode(query.error) ?? ''),
+    refreshRequired: REFRESH_CODES.has(getApiErrorCode(query.error)),
     /** Replaces the list with a fresh first page (no stale pages kept). */
     restart: () => queryClient.resetQueries({ queryKey, exact: true }),
   }
@@ -171,12 +175,16 @@ export function useJobQueue(scope: QueueScopeSignature, tab: JobQueueTab, filter
 export function useJobQueueCard(scope: QueueScopeSignature, id: string | null) {
   const queryClient = useQueryClient()
   const query = useQuery({
-    queryKey: jobQueueCardQueryKey(scope, id ?? ''),
-    queryFn: async () => {
-      const res = await api.get<unknown>(`/job-queue/${seg(id ?? '')}`, { params: teamParam(scope) })
-      return jobQueueCardResponseSchema.parse(res.data)
-    },
-    enabled: id !== null,
+    queryKey: jobQueueCardQueryKey(scope, id),
+    queryFn:
+      id === null
+        ? skipToken
+        : async () => {
+            const res = await api.get<unknown>(`/job-queue/${seg(id)}`, {
+              params: teamParam(scope),
+            })
+            return jobQueueCardResponseSchema.parse(res.data)
+          },
   })
   const accessLost = useAccessLost(scope, query.error)
   const { actorId, role, teamId } = scope
@@ -204,16 +212,18 @@ function useContinuation<T extends { nextCursor: string | null }>(
   parse: (data: unknown) => T,
 ) {
   const query = useInfiniteQuery({
-    queryKey: [...jobQueueCardQueryKey(scope, id ?? ''), part, cursor],
-    initialPageParam: cursor ?? '',
-    queryFn: async ({ pageParam }) => {
-      const res = await api.get<unknown>(`/job-queue/${seg(id ?? '')}/${part}`, {
-        params: { ...teamParam(scope), cursor: pageParam },
-      })
-      return parse(res.data)
-    },
+    queryKey: [...jobQueueCardQueryKey(scope, id), part, cursor],
+    initialPageParam: cursor,
+    queryFn:
+      id === null || cursor === null
+        ? skipToken
+        : async ({ pageParam }) => {
+            const res = await api.get<unknown>(`/job-queue/${seg(id)}/${part}`, {
+              params: { ...teamParam(scope), cursor: pageParam },
+            })
+            return parse(res.data)
+          },
     getNextPageParam: (last) => last.nextCursor,
-    enabled: id !== null && cursor !== null,
   })
   const accessLost = useAccessLost(scope, query.error)
   return { ...query, data: accessLost ? undefined : query.data, accessLost }
@@ -254,8 +264,9 @@ export function getJobQueuePossibleDuplicateConflict(
  */
 function isDefinitiveAnswer(error: unknown) {
   if (error === null) return true
-  const status = getAxiosStatus(error)
-  return status !== undefined && status < 500 && status !== 408 && status !== 429
+  // No response at all is as unsettled as a 5xx.
+  const status = getAxiosStatus(error) ?? 500
+  return status < 500 && status !== 408 && status !== 429
 }
 
 /**
@@ -274,12 +285,11 @@ function useQueueWrite<V, R>(
   const keys = useRef(new Map<string, string>())
 
   // The intent includes the scope: the same variables under another team are another write.
-  const intentOf = (vars: V) =>
-    JSON.stringify([scope.actorId, scope.role, scope.teamId, vars ?? null])
+  const intentOf = (vars: V) => JSON.stringify([scope.actorId, scope.role, scope.teamId, vars])
 
-  return useMutation<R, unknown, V, { intent: string }>({
+  return useMutation<R, unknown, V, { intent: string; scope: QueueScopeSignature }>({
     // Captured at the start: the scope may change while the write is in flight.
-    onMutate: (vars) => ({ intent: intentOf(vars) }),
+    onMutate: (vars) => ({ intent: intentOf(vars), scope }),
     mutationFn: (vars) => {
       const intent = intentOf(vars)
       const key = keys.current.get(intent) ?? crypto.randomUUID()
@@ -287,12 +297,13 @@ function useQueueWrite<V, R>(
       return send(vars, key)
     },
     onSettled: (_data, error, vars, context) => {
-      // Stryker disable next-line ConditionalExpression: `context` is undefined only when onMutate throws, and JSON.stringify of plain variables does not; the definitive/non-definitive split is pinned by the replay tests
-      if (context && isDefinitiveAnswer(error)) keys.current.delete(context.intent)
+      // `context` is undefined only when onMutate throws, and JSON.stringify of plain variables does not.
+      const started = context!
+      if (isDefinitiveAnswer(error)) keys.current.delete(started.intent)
       if (cardId && getApiErrorCode(error) === 'JOB_OPPORTUNITY_NOT_FOUND') {
-        queryClient.removeQueries({ queryKey: jobQueueCardQueryKey(scope, cardId(vars)) })
+        queryClient.removeQueries({ queryKey: jobQueueCardQueryKey(started.scope, cardId(vars)) })
       }
-      void queryClient.invalidateQueries({ queryKey: jobQueueScopeKey(scope) })
+      void queryClient.invalidateQueries({ queryKey: jobQueueScopeKey(started.scope) })
     },
   })
 }

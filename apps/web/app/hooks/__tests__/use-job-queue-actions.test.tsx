@@ -211,6 +211,23 @@ describe('useSubmitJobQueueSenior', () => {
     expect(keyOf(post.mock.calls[2])).toBe(keyOf(post.mock.calls[0]))
   })
 
+  it('takes a new key for other variables, even while a pending key is kept', async () => {
+    post
+      .mockRejectedValueOnce(coded(500, 'TRANSIENT'))
+      .mockResolvedValueOnce({ data: { submission } })
+    const { result } = renderHook(() => useSubmitJobQueueSenior(scope), { wrapper })
+
+    await act(() => result.current.mutateAsync(vars).catch(() => undefined))
+    await act(() => result.current.mutateAsync({ ...vars, expectedOpportunityRevision: 4 }))
+
+    expect(post).toHaveBeenNthCalledWith(
+      2,
+      expect.any(String),
+      expect.objectContaining({ expectedOpportunityRevision: 4 }),
+    )
+    expect(keyOf(post.mock.calls[1])).not.toBe(keyOf(post.mock.calls[0]))
+  })
+
   it('drops the key of the scope the write started under when the team switches mid-flight', async () => {
     let refuse: (reason: unknown) => void = () => {}
     post
@@ -296,6 +313,40 @@ describe('useSubmitJobQueueSenior', () => {
 
     expect(client.getQueryData(jobQueueCardQueryKey(scope, OPP))).toBeUndefined()
     expect(client.getQueryState(jobQueueQueryKey(scope, 'NEW', {}))?.isInvalidated).toBe(true)
+  })
+
+  it('settles a 404 against the team the write started under, not the one switched to mid-flight', async () => {
+    const teamCard = ['job-queue', ACTOR, 'HR', TEAM, 'card', OPP]
+    const teamList = ['job-queue', ACTOR, 'HR', TEAM, 'list', 'NEW', {}]
+    const otherCard = ['job-queue', ACTOR, 'HR', OTHER_TEAM, 'card', OPP]
+    const otherList = ['job-queue', ACTOR, 'HR', OTHER_TEAM, 'list', 'NEW', {}]
+    client.setQueryData(teamCard, { title: 'x' })
+    client.setQueryData(teamList, { pages: [], pageParams: [] })
+    client.setQueryData(otherCard, { title: 'y' })
+    client.setQueryData(otherList, { pages: [], pageParams: [] })
+    let refuse: (reason: unknown) => void = () => {}
+    post.mockReturnValueOnce(new Promise((_, reject) => (refuse = reject)))
+    const { result, rerender } = renderHook(({ s }) => useSubmitJobQueueSenior(s), {
+      wrapper,
+      initialProps: { s: scope },
+    })
+
+    let inFlight: Promise<unknown> = Promise.resolve()
+    act(() => {
+      inFlight = result.current.mutateAsync(vars).catch(() => undefined)
+    })
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    rerender({ s: { ...scope, teamId: OTHER_TEAM } })
+    await act(async () => {
+      refuse(coded(404, 'JOB_OPPORTUNITY_NOT_FOUND'))
+      await inFlight
+    })
+
+    expect(client.getQueryData(teamCard)).toBeUndefined()
+    expect(client.getQueryState(teamList)?.isInvalidated).toBe(true)
+    expect(client.getQueryData(otherCard)).toEqual({ title: 'y' })
+    expect(client.getQueryState(otherCard)?.isInvalidated).toBe(false)
+    expect(client.getQueryState(otherList)?.isInvalidated).toBe(false)
   })
 
   it('keeps the card on a version conflict (it is refetched, not dropped)', async () => {
