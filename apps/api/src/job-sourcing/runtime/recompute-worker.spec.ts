@@ -546,7 +546,8 @@ describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
     ['is gone', null],
   ])('an opportunity that %s is completed under the lock, without evaluating', async (_n, rev) => {
     const { db, did } = recordingDb(world({ lockRevision: rev }))
-    await createRecomputeSteps(db).process(work(1), batchAt())
+    // A gone row (zero lock rows) completes, it never throws on the missing row.
+    expect(await createRecomputeSteps(db).process(work(1), batchAt())).toBe('DONE')
     expect(evaluate).not.toHaveBeenCalled()
     expect(did(/FROM job_opportunities o/)).toEqual([])
     expect(did(/FROM users u/)).toEqual([])

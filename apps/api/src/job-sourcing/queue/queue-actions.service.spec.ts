@@ -3,6 +3,7 @@ import type { SessionUser } from '@crm/shared'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
+import { ZodError } from 'zod'
 import type { DatabaseService } from '../../database/database.service'
 import { requestFingerprint } from './queue-actions'
 import { JobQueueActionsService } from './queue-actions.service'
@@ -1568,6 +1569,38 @@ describe('createManualCard (r5 Phase 6)', () => {
       'https://jobs.example.test/x/?utm=1',
     ])
     expect(h.param('card')[5]).toBe('https://jobs.example.test/x')
+  })
+
+  it('CR-M-3: the lock hashes the key; the lookup matches the key OR the exact link, one row', async () => {
+    const h = harness()
+    await h.svc.createManualCard(HR, manualBody())
+    const text = (s: Statement) => h.calls.find((c) => PATTERNS[s].test(c.text))?.text
+    expect(text('urlLock')).toBe('SELECT pg_advisory_xact_lock($1::int, hashtext($2))')
+    expect(text('urlTaken')).toBe(
+      'SELECT 1 FROM job_opportunities WHERE application_url_key = $1 OR application_url = $2 LIMIT 1',
+    )
+  })
+
+  it.each([
+    ['team', { teamId: 'not-a-uuid', seniorId: SENIOR, resumeId: RESUME }],
+    ['senior', { teamId: TEAM_A, seniorId: 'not-a-uuid', resumeId: RESUME }],
+    ['resume', { teamId: TEAM_A, seniorId: SENIOR, resumeId: 'not-a-uuid' }],
+  ])(
+    'only the %s id malformed: a 404 before any transaction or statement',
+    async (_n, submission) => {
+      const h = harness()
+      await expectNotFound(h.svc.createManualCard(HR, manualBody({ submission })))
+      expect(h.transaction).not.toHaveBeenCalled()
+      expect(h.hits).toEqual([])
+    },
+  )
+
+  it('a card INSERT that returns no row is not dereferenced: the response schema refuses it', async () => {
+    // A plain INSERT ... RETURNING always yields its row; this pins the guarded read only:
+    // no TypeError, the id reads as "undefined" and the answer's uuid check fails loud.
+    const h = harness({ card: [] })
+    await expect(h.svc.createManualCard(HR, manualBody())).rejects.toBeInstanceOf(ZodError)
+    expect(h.param('lockSet')).toEqual(['undefined'])
   })
 
   it('a link any opportunity already carries is the generic 409, and nothing is written', async () => {

@@ -277,11 +277,14 @@ function recomputeOpportunity(
       sql`SELECT revision, manual_team_id IS NOT NULL AS manual
             FROM job_opportunities WHERE id = ${work.entityId}::uuid FOR NO KEY UPDATE`,
     )
+    const row = rows[0]
     // Missing or moved on: nothing to compute, the store records ENTITY_MISSING / VERSION_STALE.
-    if (Number(rows[0]?.['revision']) !== work.targetVersion) return completeDirty(tx, work)
+    if (row === undefined || Number(row['revision']) !== work.targetVersion) {
+      return completeDirty(tx, work)
+    }
     // A manual card (r5 Phase 6) is never match-evaluated: no match row may grant another team
     // visibility of it (SR-M-1). Work that reached it anyway completes without evaluation.
-    if (rows[0]?.['manual'] === true) return completeDirty(tx, work)
+    if (row['manual'] === true) return completeDirty(tx, work)
     // Locked above at the target revision, so it exists.
     const loaded = (await loadOpportunity(tx, work.entityId, onDemandTypes)) as LoadedOpportunity
     const roster = await loadRoster(tx)
