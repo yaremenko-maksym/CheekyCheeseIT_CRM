@@ -4,7 +4,6 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
-  type QueryClient,
   type QueryKey,
 } from '@tanstack/react-query'
 import {
@@ -42,7 +41,8 @@ import { getApiErrorCode, getAxiosStatus } from '@/lib/axios-utils'
  * per team, so a cache filled under one account, role or team can never answer for another. The
  * `'job-queue'` prefix is NOT in `PERSISTED_KEY_PREFIXES` (`__root.tsx`): the queue names the
  * seniors a team pitches, which has no business in IndexedDB on a shared laptop. Logout already
- * clears the whole client (`use-logout.ts`); a scope change evicts the other scopes (`useJobQueue`).
+ * clears the whole client (`apps/web/app/lib/use-logout.ts`); a scope change evicts the other scopes
+ * (`useJobQueue`); a read answered 403/404 drops the scope's cached data (`useAccessLost`).
  *
  * Every response is `.parse()`d against its `@crm/shared` schema (strict objects, https-only URLs).
  * The hooks show no text: callers map `getApiErrorCode(error)` to localized copy (Task 7.4).
@@ -95,9 +95,30 @@ function sameScope(key: QueryKey, scope: QueueScopeSignature) {
   return own.every((part, i) => key[i] === part)
 }
 
-/** Drops every cached queue page and card (all scopes). */
-export function clearJobQueueCaches(queryClient: QueryClient) {
-  queryClient.removeQueries({ queryKey: ['job-queue'] })
+/** A path segment from an id: never lets a value change the route. */
+const seg = encodeURIComponent
+
+/**
+ * A read answered 403 or 404: the actor lost access (missing and unauthorized look alike by
+ * design). Returns `true` so the caller hides its data, and drops every cached entry of the scope
+ * that no screen is observing. Active entries (the caller's own among them) are left to their own
+ * hooks: removing or invalidating them would refetch, hit 403 again and ping-pong between observers.
+ */
+function useAccessLost(scope: QueueScopeSignature, error: unknown) {
+  const queryClient = useQueryClient()
+  const status = getAxiosStatus(error)
+  const lost = status === 403 || status === 404
+  const { actorId, role, teamId } = scope
+
+  useEffect(() => {
+    if (!lost) return
+    queryClient.removeQueries({
+      queryKey: jobQueueScopeKey({ actorId, role, teamId }),
+      predicate: (q) => !q.isActive(),
+    })
+  }, [lost, queryClient, actorId, role, teamId])
+
+  return lost
 }
 
 /** The list, one page of 20 per `nextCursor`. A scope change evicts every other scope's cache. */
@@ -130,9 +151,12 @@ export function useJobQueue(scope: QueueScopeSignature, tab: JobQueueTab, filter
     },
     getNextPageParam: (last) => last.nextCursor,
   })
+  const accessLost = useAccessLost(scope, query.error)
 
   return {
     ...query,
+    data: accessLost ? undefined : query.data,
+    accessLost,
     /** The generation behind the cursor is gone: offer «Показати оновлений список». */
     refreshRequired: REFRESH_CODES.has(getApiErrorCode(query.error) ?? ''),
     /** Replaces the list with a fresh first page (no stale pages kept). */
@@ -141,31 +165,31 @@ export function useJobQueue(scope: QueueScopeSignature, tab: JobQueueTab, filter
 }
 
 /**
- * One card. `notFound` (404 — missing OR no longer authorized, indistinguishable by design) hides
- * the last data so no stale name stays on screen, and refreshes the scope's lists.
+ * One card. `accessLost` (403/404) hides the last data so no stale name stays on screen, drops the
+ * card's cached continuations (`useAccessLost`) and refreshes the scope's lists.
  */
 export function useJobQueueCard(scope: QueueScopeSignature, id: string | null) {
   const queryClient = useQueryClient()
   const query = useQuery({
     queryKey: jobQueueCardQueryKey(scope, id ?? ''),
     queryFn: async () => {
-      const res = await api.get<unknown>(`/job-queue/${id}`, { params: teamParam(scope) })
+      const res = await api.get<unknown>(`/job-queue/${seg(id ?? '')}`, { params: teamParam(scope) })
       return jobQueueCardResponseSchema.parse(res.data)
     },
     enabled: id !== null,
   })
-  const notFound = getApiErrorCode(query.error) === 'JOB_OPPORTUNITY_NOT_FOUND'
+  const accessLost = useAccessLost(scope, query.error)
   const { actorId, role, teamId } = scope
 
   useEffect(() => {
-    if (notFound) {
+    if (accessLost) {
       void queryClient.invalidateQueries({
         queryKey: [...jobQueueScopeKey({ actorId, role, teamId }), 'list'],
       })
     }
-  }, [notFound, queryClient, actorId, role, teamId])
+  }, [accessLost, queryClient, actorId, role, teamId])
 
-  return { ...query, data: notFound ? undefined : query.data, notFound }
+  return { ...query, data: accessLost ? undefined : query.data, accessLost }
 }
 
 /**
@@ -179,11 +203,11 @@ function useContinuation<T extends { nextCursor: string | null }>(
   part: 'seniors' | 'sources',
   parse: (data: unknown) => T,
 ) {
-  return useInfiniteQuery({
+  const query = useInfiniteQuery({
     queryKey: [...jobQueueCardQueryKey(scope, id ?? ''), part, cursor],
     initialPageParam: cursor ?? '',
     queryFn: async ({ pageParam }) => {
-      const res = await api.get<unknown>(`/job-queue/${id}/${part}`, {
+      const res = await api.get<unknown>(`/job-queue/${seg(id ?? '')}/${part}`, {
         params: { ...teamParam(scope), cursor: pageParam },
       })
       return parse(res.data)
@@ -191,6 +215,8 @@ function useContinuation<T extends { nextCursor: string | null }>(
     getNextPageParam: (last) => last.nextCursor,
     enabled: id !== null && cursor !== null,
   })
+  const accessLost = useAccessLost(scope, query.error)
+  return { ...query, data: accessLost ? undefined : query.data, accessLost }
 }
 
 export function useJobQueueSeniors(
@@ -223,10 +249,20 @@ export function getJobQueuePossibleDuplicateConflict(
 }
 
 /**
+ * Whether the server's answer settles the intent. 2xx and 4xx do (a retry must be a NEW attempt);
+ * 5xx, 408, 429 and no response do not: the write may have landed, so the retry replays the key.
+ */
+function isDefinitiveAnswer(error: unknown) {
+  if (error === null) return true
+  const status = getAxiosStatus(error)
+  return status !== undefined && status < 500 && status !== 408 && status !== 429
+}
+
+/**
  * Every queue write. The idempotency key belongs to the INTENT (the variables): it is kept while
- * an attempt got no answer (a lost response — the retry must replay the same key and receive the
- * earlier success), and dropped once the server answered. Settling always refreshes the scope; a
- * 404 also evicts that card so a revoked one cannot show its last data.
+ * an attempt got no definitive answer (the retry must replay the same key and receive the earlier
+ * outcome), and dropped once it did. Settling always refreshes the scope; a 404 also evicts that
+ * card so a revoked one cannot show its last data.
  */
 function useQueueWrite<V, R>(
   scope: QueueScopeSignature,
@@ -234,6 +270,7 @@ function useQueueWrite<V, R>(
   cardId?: (vars: V) => string,
 ) {
   const queryClient = useQueryClient()
+  // Held in a ref: the pending keys are lost on unmount, so a retry from a remounted screen is a new attempt.
   const keys = useRef(new Map<string, string>())
 
   return useMutation<R, unknown, V>({
@@ -244,8 +281,7 @@ function useQueueWrite<V, R>(
       return send(vars, key)
     },
     onSettled: (_data, error, vars) => {
-      const answered = error === null || getAxiosStatus(error) !== undefined
-      if (answered) keys.current.delete(JSON.stringify(vars ?? null))
+      if (isDefinitiveAnswer(error)) keys.current.delete(JSON.stringify(vars ?? null))
       if (cardId && getApiErrorCode(error) === 'JOB_OPPORTUNITY_NOT_FOUND') {
         queryClient.removeQueries({ queryKey: jobQueueCardQueryKey(scope, cardId(vars)) })
       }
@@ -269,7 +305,7 @@ export function useSubmitJobQueueSenior(scope: QueueScopeSignature) {
       },
       idempotencyKey,
     ) => {
-      const res = await api.post<unknown>(`/job-queue/${opportunityId}/submissions`, {
+      const res = await api.post<unknown>(`/job-queue/${seg(opportunityId)}/submissions`, {
         ...teamParam(scope),
         ...body,
         idempotencyKey,
@@ -290,7 +326,7 @@ export function useCancelJobQueueSubmission(scope: QueueScopeSignature) {
       idempotencyKey,
     ) => {
       const res = await api.post<unknown>(
-        `/job-queue/${opportunityId}/submissions/${submissionId}/cancel`,
+        `/job-queue/${seg(opportunityId)}/submissions/${seg(submissionId)}/cancel`,
         { ...teamParam(scope), ...body, idempotencyKey },
       )
       return jobQueueSubmissionResponseSchema.parse(res.data)
@@ -304,7 +340,7 @@ export function useDismissJobQueueItem(scope: QueueScopeSignature) {
   return useQueueWrite(
     scope,
     async ({ opportunityId, ...body }: OnCard<JobQueueDismissRequestDto>, idempotencyKey) => {
-      const res = await api.post<unknown>(`/job-queue/${opportunityId}/dismiss`, {
+      const res = await api.post<unknown>(`/job-queue/${seg(opportunityId)}/dismiss`, {
         ...teamParam(scope),
         ...body,
         idempotencyKey,
@@ -319,7 +355,7 @@ export function useUndoJobQueueDismissal(scope: QueueScopeSignature) {
   return useQueueWrite(
     scope,
     async ({ opportunityId, ...body }: OnCard<JobQueueUndoRequestDto>, idempotencyKey) => {
-      const res = await api.post<unknown>(`/job-queue/${opportunityId}/undo`, {
+      const res = await api.post<unknown>(`/job-queue/${seg(opportunityId)}/undo`, {
         ...teamParam(scope),
         ...body,
         idempotencyKey,
@@ -337,7 +373,7 @@ export function useUndoJobQueueDismissal(scope: QueueScopeSignature) {
 export function useMarkJobOpened(scope: QueueScopeSignature) {
   return (opportunityId: string, sourceRecordId: string): void => {
     api
-      .post(`/job-queue/${opportunityId}/opened`, { ...teamParam(scope), sourceRecordId })
+      .post(`/job-queue/${seg(opportunityId)}/opened`, { ...teamParam(scope), sourceRecordId })
       .catch(() => {})
   }
 }
@@ -363,7 +399,7 @@ export function useSuppressJobQueueItem(scope: QueueScopeSignature) {
   return useQueueWrite(
     scope,
     async ({ opportunityId }: { opportunityId: string }, idempotencyKey) => {
-      await api.post(`/job-queue/${opportunityId}/suppress`, { idempotencyKey })
+      await api.post(`/job-queue/${seg(opportunityId)}/suppress`, { idempotencyKey })
     },
     card,
   )
@@ -387,7 +423,7 @@ export function useGrantJobQueueTeamTriage(scope: QueueScopeSignature) {
       },
       idempotencyKey,
     ) => {
-      const res = await api.post<unknown>(`/job-queue/${opportunityId}/team-triage`, {
+      const res = await api.post<unknown>(`/job-queue/${seg(opportunityId)}/team-triage`, {
         ...body,
         idempotencyKey,
       })
@@ -408,7 +444,7 @@ export function useRevokeJobQueueTeamTriage(scope: QueueScopeSignature) {
       },
       idempotencyKey,
     ) => {
-      const res = await api.delete<unknown>(`/job-queue/${opportunityId}/team-triage/${teamId}`, {
+      const res = await api.delete<unknown>(`/job-queue/${seg(opportunityId)}/team-triage/${seg(teamId)}`, {
         data: { ...body, idempotencyKey },
       })
       return jobQueueTeamTriageGrantSchema.parse(res.data)
@@ -441,7 +477,7 @@ export function useUnsubscribeJobQueueTeamTriage(scope: QueueScopeSignature) {
       },
       idempotencyKey,
     ) => {
-      const res = await api.delete<unknown>(`/job-queue/team-triage-subscriptions/${subscriptionId}`, {
+      const res = await api.delete<unknown>(`/job-queue/team-triage-subscriptions/${seg(subscriptionId)}`, {
         data: { ...body, idempotencyKey },
       })
       return jobQueueTeamTriageSubscriptionSchema.parse(res.data)

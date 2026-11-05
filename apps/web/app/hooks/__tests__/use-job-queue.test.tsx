@@ -2,13 +2,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ZodError } from 'zod'
 
 const get = vi.fn()
 vi.mock('@/lib/axios', () => ({ api: { get: (...args: unknown[]) => get(...args) } }))
 
 const {
   JOB_QUEUE_PAGE_LIMIT,
-  clearJobQueueCaches,
   jobQueueCardQueryKey,
   jobQueueQueryKey,
   jobQueueScopeKey,
@@ -27,6 +27,7 @@ const ACTOR = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const OTHER_ACTOR = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const TEAM = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const OPP = '11111111-1111-4111-8111-111111111111'
+const OTHER_OPP = '44444444-4444-4444-8444-444444444444'
 const SRC = '22222222-2222-4222-8222-222222222222'
 
 const scope = { actorId: ACTOR, role: 'HR' as const, teamId: TEAM }
@@ -201,11 +202,26 @@ describe('useJobQueue', () => {
     await waitFor(() => expect(result.current.refreshRequired).toBe(true))
   })
 
-  it('does not call any other error refresh-required', async () => {
+  it('does not call any other error refresh-required or access-lost', async () => {
     get.mockRejectedValueOnce(httpError(409, 'JOB_QUEUE_VERSION_CONFLICT'))
     const { result } = renderHook(() => useJobQueue(scope, 'NEW', {}), { wrapper })
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.refreshRequired).toBe(false)
+    expect(result.current.accessLost).toBe(false)
+  })
+
+  it('on 403 hides the last pages and drops the scope cache no screen observes', async () => {
+    client.setQueryData(jobQueueCardQueryKey(scope, OPP), cardBody())
+    get.mockResolvedValueOnce({ data: page(null) })
+    const { result } = renderHook(() => useJobQueue(scope, 'NEW', {}), { wrapper })
+    await waitFor(() => expect(result.current.data?.pages).toHaveLength(1))
+
+    get.mockRejectedValueOnce(httpError(403, 'FORBIDDEN'))
+    await act(() => result.current.refetch())
+    await waitFor(() => expect(result.current.accessLost).toBe(true))
+    expect(result.current.data).toBeUndefined()
+    await waitFor(() => expect(client.getQueryState(jobQueueCardQueryKey(scope, OPP))).toBeUndefined())
+    expect(client.getQueryState(jobQueueQueryKey(scope, 'NEW', {}))).toBeDefined()
   })
 
   it('starts a filter change from a first page under its own key', async () => {
@@ -241,14 +257,6 @@ describe('useJobQueue', () => {
     expect(client.getQueryData(jobQueueCardQueryKey(scope, OPP))).toBeDefined()
     expect(client.getQueryData(['hr', 'summary'])).toEqual({ kept: true })
   })
-
-  it('clearJobQueueCaches drops every queue entry and nothing else', () => {
-    client.setQueryData(jobQueueCardQueryKey(scope, OPP), cardBody())
-    client.setQueryData(['hr', 'summary'], { kept: true })
-    clearJobQueueCaches(client)
-    expect(client.getQueryData(jobQueueCardQueryKey(scope, OPP))).toBeUndefined()
-    expect(client.getQueryData(['hr', 'summary'])).toEqual({ kept: true })
-  })
 })
 
 describe('useJobQueueCard', () => {
@@ -264,40 +272,76 @@ describe('useJobQueueCard', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(get).toHaveBeenCalledWith(`/job-queue/${OPP}`, { params: { teamId: TEAM } })
     expect(result.current.data?.title).toBe('Senior React Engineer')
-    expect(result.current.notFound).toBe(false)
+    expect(result.current.accessLost).toBe(false)
   })
 
-  it('refuses a card carrying a field outside the contract', async () => {
+  it('encodes the id into the path', async () => {
+    get.mockResolvedValueOnce({ data: cardBody() })
+    renderHook(() => useJobQueueCard(scope, 'a/b?c'), { wrapper })
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/job-queue/a%2Fb%3Fc', { params: { teamId: TEAM } }))
+  })
+
+  it('refuses a card carrying a field outside the contract with a ZodError', async () => {
     get.mockResolvedValueOnce({ data: cardBody({ takenByTeam: 'Other team' }) })
     const { result } = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
     await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.error).toBeInstanceOf(ZodError)
     expect(result.current.data).toBeUndefined()
   })
 
-  it('on a revoked authorization (404) hides the last data and refreshes the lists', async () => {
-    client.setQueryData(jobQueueQueryKey(scope, 'NEW', {}), { pages: [page(null)], pageParams: [null] })
-    get.mockResolvedValueOnce({ data: cardBody() })
-    const { result } = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
-    await waitFor(() => expect(result.current.data?.title).toBe('Senior React Engineer'))
-
-    get.mockRejectedValueOnce(httpError(404, 'JOB_OPPORTUNITY_NOT_FOUND'))
-    await act(() => result.current.refetch())
-    await waitFor(() => expect(result.current.notFound).toBe(true))
-    expect(result.current.data).toBeUndefined()
-    await waitFor(() =>
-      expect(client.getQueryState(jobQueueQueryKey(scope, 'NEW', {}))?.isInvalidated).toBe(true),
+  it('on a revoked authorization (404) hides the card, drops its continuations and refreshes the open list', async () => {
+    const continuation = [...jobQueueCardQueryKey(scope, OPP), 'seniors', 's-200']
+    const listCalls = () => get.mock.calls.filter((c) => c[0] === '/job-queue').length
+    const cardCalls = () => get.mock.calls.filter((c) => c[0] === `/job-queue/${OPP}`).length
+    get.mockImplementation((url: string) =>
+      Promise.resolve({ data: url === '/job-queue' ? page(null) : cardBody() }),
     )
+    const { result } = renderHook(
+      () => ({ list: useJobQueue(scope, 'NEW', {}), card: useJobQueueCard(scope, OPP) }),
+      { wrapper },
+    )
+    await waitFor(() => expect(result.current.card.data?.title).toBe('Senior React Engineer'))
+    await waitFor(() => expect(result.current.list.isSuccess).toBe(true))
+    client.setQueryData(continuation, { pages: [], pageParams: [] })
+
+    get.mockImplementation((url: string) =>
+      url === '/job-queue'
+        ? Promise.resolve({ data: page(null) })
+        : Promise.reject(httpError(404, 'JOB_OPPORTUNITY_NOT_FOUND')),
+    )
+    await act(() => result.current.card.refetch())
+    await waitFor(() => expect(result.current.card.accessLost).toBe(true))
+    expect(result.current.card.data).toBeUndefined()
+    await waitFor(() => expect(client.getQueryState(continuation)).toBeUndefined())
+    await waitFor(() => expect(listCalls()).toBe(2))
+    expect(client.getQueryState(jobQueueQueryKey(scope, 'NEW', {}))).toBeDefined()
+    expect(cardCalls()).toBe(2)
   })
 
-  it('keeps the data on any other error', async () => {
+  it('on 403 hides the card and drops the scope cache no screen observes', async () => {
+    client.setQueryData(jobQueueCardQueryKey(scope, OTHER_OPP), cardBody())
+    client.setQueryData(jobQueueCardQueryKey({ ...scope, actorId: OTHER_ACTOR }, OTHER_OPP), cardBody())
+    get.mockRejectedValueOnce(httpError(403, 'FORBIDDEN'))
+    const { result } = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
+    await waitFor(() => expect(result.current.accessLost).toBe(true))
+    expect(result.current.data).toBeUndefined()
+    await waitFor(() => expect(client.getQueryState(jobQueueCardQueryKey(scope, OTHER_OPP))).toBeUndefined())
+    expect(
+      client.getQueryState(jobQueueCardQueryKey({ ...scope, actorId: OTHER_ACTOR }, OTHER_OPP)),
+    ).toBeDefined()
+  })
+
+  it('keeps the data and the cache on any other error', async () => {
+    client.setQueryData(jobQueueCardQueryKey(scope, OTHER_OPP), cardBody())
     get.mockResolvedValueOnce({ data: cardBody() })
     const { result } = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     get.mockRejectedValueOnce(httpError(503, 'JOB_QUEUE_POLICY_UNAVAILABLE'))
     await act(() => result.current.refetch())
     await waitFor(() => expect(result.current.isError).toBe(true))
-    expect(result.current.notFound).toBe(false)
+    expect(result.current.accessLost).toBe(false)
     expect(result.current.data?.title).toBe('Senior React Engineer')
+    expect(client.getQueryState(jobQueueCardQueryKey(scope, OTHER_OPP))).toBeDefined()
   })
 })
 
@@ -343,7 +387,33 @@ describe('card continuations', () => {
 
   it('live under the card key, so invalidating the card refreshes them', async () => {
     get.mockResolvedValue({ data: { items: [senior(201)], totalCount: 201, nextCursor: null } })
-    renderHook(() => useJobQueueSeniors(scope, OPP, 's-200'), { wrapper })
-    await waitFor(() => expect(get).toHaveBeenCalledTimes(1))
-    expect(client.getQueryData([...jobQueueCardQueryKey(scope, OPP), 'seniors', 's-200'])).toBeDefined()  })
+    const { result } = renderHook(() => useJobQueueSeniors(scope, OPP, 's-200'), { wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(get).toHaveBeenCalledTimes(1)
+
+    await act(() => client.invalidateQueries({ queryKey: jobQueueCardQueryKey(scope, OPP) }))
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2))
+    expect(get).toHaveBeenLastCalledWith(`/job-queue/${OPP}/seniors`, {
+      params: { teamId: TEAM, cursor: 's-200' },
+    })
+  })
+
+  it.each([
+    ['seniors', useJobQueueSeniors],
+    ['sources', useJobQueueSources],
+  ] as const)('%s: on 403 hide the page and drop the scope cache no screen observes', async (_part, hook) => {
+    client.setQueryData(jobQueueCardQueryKey(scope, OTHER_OPP), cardBody())
+    get.mockRejectedValueOnce(httpError(403, 'FORBIDDEN'))
+    const { result } = renderHook(() => hook(scope, OPP, 'c-1'), { wrapper })
+    await waitFor(() => expect(result.current.accessLost).toBe(true))
+    expect(result.current.data).toBeUndefined()
+    await waitFor(() => expect(client.getQueryState(jobQueueCardQueryKey(scope, OTHER_OPP))).toBeUndefined())
+  })
+
+  it('keep a page on a non-access error', async () => {
+    get.mockRejectedValueOnce(httpError(503, 'JOB_QUEUE_POLICY_UNAVAILABLE'))
+    const { result } = renderHook(() => useJobQueueSeniors(scope, OPP, 'c-1'), { wrapper })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.accessLost).toBe(false)
+  })
 })

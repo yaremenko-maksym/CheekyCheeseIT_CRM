@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ZodError } from 'zod'
 
 const post = vi.fn()
 const del = vi.fn()
@@ -157,6 +158,42 @@ describe('useSubmitJobQueueSenior', () => {
     expect(answer.submission.id).toBe(SUBMISSION)
   })
 
+  it.each([500, 504, 408, 429])(
+    'replays the same key after a %i (the write may have landed)',
+    async (status) => {
+      post
+        .mockRejectedValueOnce(coded(status, 'TRANSIENT'))
+        .mockResolvedValueOnce({ data: { submission } })
+      const { result } = renderHook(() => useSubmitJobQueueSenior(scope), { wrapper })
+
+      await act(() => result.current.mutateAsync(vars).catch(() => undefined))
+      await act(() => result.current.mutateAsync(vars))
+
+      expect(keyOf(post.mock.calls[1])).toBe(keyOf(post.mock.calls[0]))
+    },
+  )
+
+  it.each([400, 409, 499])('takes a new key after a %i (a definitive refusal)', async (status) => {
+    post
+      .mockRejectedValueOnce(coded(status, 'REFUSED'))
+      .mockResolvedValueOnce({ data: { submission } })
+    const { result } = renderHook(() => useSubmitJobQueueSenior(scope), { wrapper })
+
+    await act(() => result.current.mutateAsync(vars).catch(() => undefined))
+    await act(() => result.current.mutateAsync(vars))
+
+    expect(keyOf(post.mock.calls[1])).not.toBe(keyOf(post.mock.calls[0]))
+  })
+
+  it('encodes the ids into the path', async () => {
+    post.mockResolvedValueOnce({ data: { submission } })
+    const { result } = renderHook(() => useCancelJobQueueSubmission(scope), { wrapper })
+    await act(() =>
+      result.current.mutateAsync({ opportunityId: 'a/b', submissionId: '../x', expectedVersion: 1 }),
+    )
+    expect(post.mock.calls[0]?.[0]).toBe('/job-queue/a%2Fb/submissions/..%2Fx/cancel')
+  })
+
   it('takes a new key once the server answered, and for a different intent', async () => {
     post
       .mockResolvedValueOnce({ data: { submission } })
@@ -217,10 +254,10 @@ describe('useSubmitJobQueueSenior', () => {
     expect(client.getQueryState(jobQueueCardQueryKey(scope, OPP))?.isInvalidated).toBe(true)
   })
 
-  it('refuses an answer outside the contract', async () => {
+  it('refuses an answer outside the contract with a ZodError', async () => {
     post.mockResolvedValueOnce({ data: { submission: { ...submission, teamName: 'Other' } } })
     const { result } = renderHook(() => useSubmitJobQueueSenior(scope), { wrapper })
-    await expect(act(() => result.current.mutateAsync(vars))).rejects.toThrow()
+    await expect(act(() => result.current.mutateAsync(vars))).rejects.toBeInstanceOf(ZodError)
   })
 })
 
