@@ -79,6 +79,47 @@ const SUBMISSION = {
   },
 }
 const DISMISSAL = { opportunityId: OPP, scope: 'TEAM', reason: 'SPAM', hidden: true, version: 1 }
+const GRANT = {
+  id: RUN,
+  opportunityId: OPP,
+  teamId: TEAM,
+  assignedBy: SENIOR,
+  policyVersion: 2,
+  opportunityRevision: 4,
+  grantVersion: 1,
+  evidence: { reason: 'Fits' },
+  expiresAt: T,
+  revokedAt: null,
+  createdAt: T,
+}
+const SUBSCRIPTION = {
+  id: SUB,
+  teamId: TEAM,
+  roleFamily: 'SOFTWARE',
+  sourceTypes: [],
+  policyVersion: 2,
+  subscriptionVersion: 1,
+  expiresAt: T,
+  revokedAt: null,
+  createdAt: T,
+}
+const GRANT_BODY = {
+  teamId: TEAM,
+  expectedOpportunityRevision: 4,
+  policyVersion: 2,
+  reason: 'Fits',
+  expiresAt: T,
+  idempotencyKey: KEY,
+}
+const SUBSCRIBE_BODY = {
+  teamId: TEAM,
+  roleFamily: 'SOFTWARE',
+  sourceTypes: [],
+  policyVersion: 2,
+  expiresAt: T,
+  reason: 'Backend',
+  idempotencyKey: KEY,
+}
 
 function harness() {
   const queue = {
@@ -95,6 +136,14 @@ function harness() {
     opened: vi.fn(async () => undefined),
     suppress: vi.fn(async () => undefined),
     createManualCard: vi.fn(async () => SUBMISSION),
+    grantTeamTriage: vi.fn(async () => GRANT),
+    revokeTeamTriage: vi.fn(async () => ({ ...GRANT, grantVersion: 2, revokedAt: T })),
+    subscribeTeamTriage: vi.fn(async () => SUBSCRIPTION),
+    unsubscribeTeamTriage: vi.fn(async () => ({
+      ...SUBSCRIPTION,
+      subscriptionVersion: 2,
+      revokedAt: T,
+    })),
   }
   const recomputes = { enqueue: vi.fn(async () => ({ runId: RUN })) }
   return {
@@ -147,6 +196,17 @@ describe('JobQueueController — routing and gates', () => {
     ['suppress', RequestMethod.POST, ':id/suppress', ['ADMIN'], 30, 204],
     ['recompute', RequestMethod.POST, 'recompute', ['ADMIN'], 6, 202],
     ['createManualCard', RequestMethod.POST, 'manual', ['ADMIN', 'HR'], 30, 201],
+    ['grantTeamTriage', RequestMethod.POST, ':id/team-triage', ['ADMIN'], 30, 201],
+    ['revokeTeamTriage', RequestMethod.DELETE, ':id/team-triage/:teamId', ['ADMIN'], 30, 200],
+    ['subscribeTeamTriage', RequestMethod.POST, 'team-triage-subscriptions', ['ADMIN'], 30, 201],
+    [
+      'unsubscribeTeamTriage',
+      RequestMethod.DELETE,
+      'team-triage-subscriptions/:id',
+      ['ADMIN'],
+      30,
+      200,
+    ],
   ] as const)('%s: %s %s, roles %j, %i/min, code %s', (name, method, path, roles, limit, code) => {
     const h = handler(name)
     expect(Reflect.getMetadata(METHOD_METADATA, h)).toBe(method)
@@ -178,6 +238,9 @@ describe('JobQueueController — routing and gates', () => {
     ['undo', ['id']],
     ['opened', ['id']],
     ['suppress', ['id']],
+    ['grantTeamTriage', ['id']],
+    ['revokeTeamTriage', ['id', 'teamId']],
+    ['unsubscribeTeamTriage', ['id']],
   ] as const)('%s: every path id goes through ParseUUIDPipe', (name, params) => {
     const args = Reflect.getMetadata(ROUTE_ARGS_METADATA, JobQueueController, name) as Record<
       string,
@@ -374,5 +437,58 @@ describe('JobQueueController — writes', () => {
     await expect(call).rejects.toThrow(ZodError)
     const service = name === 'cancel' ? h.actions.cancelSubmission : h.actions[name]
     expect(service).not.toHaveBeenCalled()
+  })
+})
+
+describe('JobQueueController — triage writes (r5 Task 6.4b)', () => {
+  it('grant: parses the body and answers the grant for the caller', async () => {
+    const h = harness()
+    expect(await h.controller.grantTeamTriage(OPP, GRANT_BODY, ADMIN)).toEqual(GRANT)
+    expect(h.actions.grantTeamTriage).toHaveBeenCalledWith(ADMIN, OPP, GRANT_BODY)
+  })
+
+  it('revoke: passes both ids and the parsed body', async () => {
+    const h = harness()
+    const body = { expectedGrantVersion: 1, reason: 'Done', idempotencyKey: KEY }
+    expect((await h.controller.revokeTeamTriage(OPP, TEAM, body, ADMIN)).grantVersion).toBe(2)
+    expect(h.actions.revokeTeamTriage).toHaveBeenCalledWith(ADMIN, OPP, TEAM, body)
+  })
+
+  it('subscribe and unsubscribe: parse the body and answer the subscription', async () => {
+    const h = harness()
+    expect(await h.controller.subscribeTeamTriage(SUBSCRIBE_BODY, ADMIN)).toEqual(SUBSCRIPTION)
+    expect(h.actions.subscribeTeamTriage).toHaveBeenCalledWith(ADMIN, SUBSCRIBE_BODY)
+    const body = { expectedSubscriptionVersion: 1, reason: 'Done', idempotencyKey: KEY }
+    expect((await h.controller.unsubscribeTeamTriage(SUB, body, ADMIN)).subscriptionVersion).toBe(2)
+    expect(h.actions.unsubscribeTeamTriage).toHaveBeenCalledWith(ADMIN, SUB, body)
+  })
+
+  it('a grant answer that breaks the response schema is refused on the way out', async () => {
+    const h = harness()
+    h.actions.grantTeamTriage.mockResolvedValueOnce({ ...GRANT, teamId: 'not-a-uuid' })
+    await expect(h.controller.grantTeamTriage(OPP, GRANT_BODY, ADMIN)).rejects.toThrow(ZodError)
+  })
+
+  it.each([
+    ['grant', { ...GRANT_BODY, idempotencyKey: undefined }],
+    ['grant', { ...GRANT_BODY, expectedOpportunityRevision: 0 }],
+    ['grant', { ...GRANT_BODY, opportunityId: OPP }],
+    ['revoke', { expectedGrantVersion: 0, reason: 'Done', idempotencyKey: KEY }],
+    ['subscribe', { ...SUBSCRIBE_BODY, roleFamily: 'UNKNOWN' }],
+    ['subscribe', { ...SUBSCRIBE_BODY, roleFamily: 'software' }],
+    ['unsubscribe', { expectedSubscriptionVersion: 1, reason: 'Done' }],
+  ] as const)('%s: refuses body %j before the service is called', async (name, body) => {
+    const h = harness()
+    const calls = {
+      grant: () => h.controller.grantTeamTriage(OPP, body, ADMIN),
+      revoke: () => h.controller.revokeTeamTriage(OPP, TEAM, body, ADMIN),
+      subscribe: () => h.controller.subscribeTeamTriage(body, ADMIN),
+      unsubscribe: () => h.controller.unsubscribeTeamTriage(SUB, body, ADMIN),
+    }
+    await expect(calls[name]()).rejects.toThrow(ZodError)
+    expect(h.actions.grantTeamTriage).not.toHaveBeenCalled()
+    expect(h.actions.revokeTeamTriage).not.toHaveBeenCalled()
+    expect(h.actions.subscribeTeamTriage).not.toHaveBeenCalled()
+    expect(h.actions.unsubscribeTeamTriage).not.toHaveBeenCalled()
   })
 })
