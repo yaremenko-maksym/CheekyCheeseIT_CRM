@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ZodError } from 'zod'
+import type { QueueScopeSignature } from '../use-job-queue'
 
 const get = vi.fn()
 vi.mock('@/lib/axios', () => ({ api: { get: (...args: unknown[]) => get(...args) } }))
@@ -284,8 +285,8 @@ describe('useJobQueue', () => {
   it('evicts the previous scope when the same mounted list switches team', async () => {
     get.mockResolvedValue({ data: page(null) })
     const { result, rerender } = renderHook(
-      ({ s }: { s: typeof scope | typeof studio }) => useJobQueue(s, 'NEW', {}),
-      { wrapper, initialProps: { s: scope } },
+      ({ s }: { s: QueueScopeSignature }) => useJobQueue(s, 'NEW', {}),
+      { wrapper, initialProps: { s: scope as QueueScopeSignature } },
     )
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     client.setQueryData(jobQueueCardQueryKey(scope, OPP), cardBody())
