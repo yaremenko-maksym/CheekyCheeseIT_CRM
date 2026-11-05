@@ -163,6 +163,20 @@ async function publish(
 }
 
 /**
+ * r5 Task 6.4b — a triage grant or subscription changes what a team may see, and `policySignature`
+ * does not carry either, so the write retires the team's published generation itself: the team's
+ * next read publishes anew. A removal would show at once anyway (entries are re-checked against
+ * visibility); an addition would otherwise wait for the TTL. The next publish deletes the row.
+ */
+export async function invalidateTeamGenerations(db: SqlExecutor, teamId: string): Promise<void> {
+  await db.execute(
+    sql`UPDATE job_queue_generations
+           SET status = 'INVALIDATED', invalidated_at = clock_timestamp()
+         WHERE status = 'PUBLISHED' AND scope_kind = 'TEAM' AND team_id = ${teamId}::uuid`,
+  )
+}
+
+/**
  * Retention (MP-13): an expired generation serves nobody, yet only the next publication of its scope
  * would remove it, so an idle scope's row stayed for good and held its team undeletable. Invalidate
  * first, because the Task 1.3 trigger refuses any other DELETE; entries go by cascade. A crash between

@@ -56,7 +56,18 @@ const PATTERNS = {
   canonical: /b\.text AS description/,
   lockSet: /FROM job_opportunities t JOIN job_opportunities d/,
   lockTarget: /SELECT id FROM job_opportunities WHERE id = /,
-  earlier: /SELECT reason, after_version, created_at, opportunity_id FROM job_queue_actions/,
+  earlier:
+    /SELECT reason, after_version, created_at, opportunity_id, subscription_id FROM job_queue_actions/,
+  triageTarget: /SELECT revision, manual_team_id FROM job_opportunities/,
+  grantRead: /FROM job_opportunity_team_triage WHERE/,
+  grantUpsert: /INSERT INTO job_opportunity_team_triage/,
+  grantRevoke: /UPDATE job_opportunity_team_triage/,
+  subLock: /SELECT team_id FROM job_team_triage_subscriptions/,
+  subRead: /FROM job_team_triage_subscriptions WHERE id/,
+  subInsert: /INSERT INTO job_team_triage_subscriptions/,
+  subRevoke: /UPDATE job_team_triage_subscriptions/,
+  invalidate: /UPDATE job_queue_generations/,
+  triageLog: /INSERT INTO job_queue_actions \(kind, opportunity_id, subscription_id/,
   blob: /INSERT INTO job_text_blobs/,
   urlLock: /pg_advisory_xact_lock/,
   urlTaken: /SELECT 1 FROM job_opportunities WHERE application_url_key/,
@@ -143,6 +154,16 @@ const DEFAULTS: Partial<Record<Statement, Rows>> = {
   opened: [],
   log: [],
   name: [{ display_name: 'Rita Recruiter' }],
+  triageTarget: [{ revision: 4, manual_team_id: null }],
+  grantRead: [],
+  grantUpsert: [],
+  grantRevoke: [],
+  subLock: [{ team_id: TEAM_B }],
+  subRead: [],
+  subInsert: [],
+  subRevoke: [],
+  invalidate: [],
+  triageLog: [],
 }
 
 function harness(
@@ -1241,6 +1262,416 @@ describe('suppress', () => {
     expect(h.hits).toEqual(['lockTarget', 'actor', 'earlier'])
     const other = harness({ earlier, lockTarget: [{ id: COPY }] }, STUDIO_SCOPE)
     await expectCode(other.svc.suppress(ADMIN, COPY, body), 409, 'JOB_QUEUE_IDEMPOTENCY_CONFLICT')
+  })
+})
+
+const GRANT_ID = 'b0000000-0000-4000-8000-000000000001'
+const GRANT_ROW = {
+  id: GRANT_ID,
+  opportunity_id: OPP,
+  team_id: TEAM_B,
+  assigned_by: ADMIN_ID,
+  evidence: { reason: 'Fits the team' },
+  policy_version: 2,
+  opportunity_revision: 4,
+  grant_version: 1,
+  expires_at: new Date(T2),
+  revoked_at: null,
+  created_at: new Date(T1),
+}
+const GRANT_DTO = {
+  id: GRANT_ID,
+  opportunityId: OPP,
+  teamId: TEAM_B,
+  assignedBy: ADMIN_ID,
+  policyVersion: 2,
+  opportunityRevision: 4,
+  grantVersion: 1,
+  evidence: { reason: 'Fits the team' },
+  expiresAt: T2,
+  revokedAt: null,
+  createdAt: T1,
+}
+
+describe('grantTeamTriage (r5 Task 6.4b)', () => {
+  const body = {
+    teamId: TEAM_B,
+    expectedOpportunityRevision: 4,
+    policyVersion: 2,
+    reason: 'Fits the team',
+    expiresAt: T2,
+    idempotencyKey: KEY,
+  }
+  const FP = requestFingerprint(['TRIAGE_GRANTED', OPP, TEAM_B, 4, 2, 'Fits the team', T2])
+  const WRITE_HITS: Statement[] = ['grantUpsert', 'triageLog', 'invalidate']
+  const noTriageWrites = (hits: Statement[]) =>
+    expect(hits.filter((x) => WRITE_HITS.includes(x))).toEqual([])
+
+  it('a first grant writes the row, its audit row and retires the team generation', async () => {
+    const h = harness({ grantUpsert: [GRANT_ROW] }, STUDIO_SCOPE)
+    expect(await h.svc.grantTeamTriage(ADMIN, OPP, body)).toEqual(GRANT_DTO)
+    expect(h.hits).toEqual([
+      'triageTarget',
+      'actor',
+      'earlier',
+      'team',
+      'grantRead',
+      'grantUpsert',
+      'triageLog',
+      'invalidate',
+    ])
+    expect(h.scopes.resolve).toHaveBeenCalledWith(ADMIN, undefined, h.tx)
+    expect(h.param('team')).toEqual([TEAM_B])
+    expect(h.param('grantUpsert')).toEqual([OPP, TEAM_B, ADMIN_ID, 'Fits the team', 2, 4, T2])
+    expect(h.param('triageLog')).toEqual([
+      'TRIAGE_GRANTED',
+      OPP,
+      null,
+      TEAM_B,
+      ADMIN_ID,
+      0,
+      1,
+      KEY,
+      JSON.stringify({ fp: FP }),
+    ])
+    expect(h.param('invalidate')).toEqual([TEAM_B])
+  })
+
+  it('a revoked grant is granted again at the next version', async () => {
+    const h = harness(
+      {
+        grantRead: [{ ...GRANT_ROW, grant_version: 2, revoked_at: new Date(T1), live: false }],
+        grantUpsert: [{ ...GRANT_ROW, grant_version: 3 }],
+      },
+      STUDIO_SCOPE,
+    )
+    expect((await h.svc.grantTeamTriage(ADMIN, OPP, body)).grantVersion).toBe(3)
+    expect(h.param('triageLog').slice(5, 7)).toEqual([2, 3])
+    expect(h.calls.find((c) => PATTERNS.grantRead.test(c.text))?.text).toMatch(/FOR UPDATE$/)
+  })
+
+  it('a live grant, a stale revision and a lost upsert are the version conflict', async () => {
+    const live = harness({ grantRead: [{ ...GRANT_ROW, live: true }] }, STUDIO_SCOPE)
+    await expectStale(live.svc.grantTeamTriage(ADMIN, OPP, body))
+    noTriageWrites(live.hits)
+    const stale = harness({ triageTarget: [{ revision: 5, manual_team_id: null }] }, STUDIO_SCOPE)
+    await expectStale(stale.svc.grantTeamTriage(ADMIN, OPP, body))
+    expect(stale.hits).not.toContain('grantRead')
+    noTriageWrites(stale.hits)
+    await expectStale(harness({}, STUDIO_SCOPE).svc.grantTeamTriage(ADMIN, OPP, body))
+  })
+
+  it('a manual card, a dead team and a malformed team id are not grantable (422)', async () => {
+    const manual = harness(
+      { triageTarget: [{ revision: 4, manual_team_id: TEAM_A }] },
+      STUDIO_SCOPE,
+    )
+    await expectCode(
+      manual.svc.grantTeamTriage(ADMIN, OPP, body),
+      422,
+      'JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED',
+    )
+    noTriageWrites(manual.hits)
+    const dead = harness({ team: [] }, STUDIO_SCOPE)
+    await expectCode(
+      dead.svc.grantTeamTriage(ADMIN, OPP, body),
+      422,
+      'JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED',
+    )
+    noTriageWrites(dead.hits)
+    const malformed = harness({}, STUDIO_SCOPE)
+    await expectCode(
+      malformed.svc.grantTeamTriage(ADMIN, OPP, { ...body, teamId: 'nope' }),
+      422,
+      'JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED',
+    )
+    expect(malformed.hits).toEqual([])
+  })
+
+  it('anyone resolving to a team scope or none is a 403 before any read', async () => {
+    const team = harness()
+    await expect(team.svc.grantTeamTriage(HR, OPP, body)).rejects.toBeInstanceOf(ForbiddenException)
+    expect(team.hits).toEqual([])
+    const none = harness({}, { kind: 'NONE' })
+    await expect(none.svc.grantTeamTriage(HR, OPP, body)).rejects.toBeInstanceOf(ForbiddenException)
+  })
+
+  it('a missing opportunity, a bad id and a demoted ADMIN are 404s', async () => {
+    await expectNotFound(
+      harness({ triageTarget: [] }, STUDIO_SCOPE).svc.grantTeamTriage(ADMIN, OPP, body),
+    )
+    await expectNotFound(harness({}, STUDIO_SCOPE).svc.grantTeamTriage(ADMIN, 'nope', body))
+    await expectNotFound(harness({ actor: [] }, STUDIO_SCOPE).svc.grantTeamTriage(ADMIN, OPP, body))
+  })
+
+  it('a retry answers with the current grant and writes nothing; another body conflicts', async () => {
+    const earlier = [
+      { reason: JSON.stringify({ fp: FP }), after_version: 1, created_at: new Date(T1) },
+    ]
+    const h = harness({ earlier, grantRead: [{ ...GRANT_ROW, live: true }] }, STUDIO_SCOPE)
+    expect(await h.svc.grantTeamTriage(ADMIN, OPP, body)).toEqual(GRANT_DTO)
+    expect(h.hits).toEqual(['triageTarget', 'actor', 'earlier', 'grantRead'])
+    const other = harness({ earlier }, STUDIO_SCOPE)
+    await expectCode(
+      other.svc.grantTeamTriage(ADMIN, OPP, { ...body, reason: 'Another reason' }),
+      409,
+      'JOB_QUEUE_IDEMPOTENCY_CONFLICT',
+    )
+  })
+})
+
+describe('revokeTeamTriage (r5 Task 6.4b)', () => {
+  const body = { expectedGrantVersion: 1, reason: 'No longer relevant', idempotencyKey: KEY }
+  const FP = requestFingerprint(['TRIAGE_REVOKED', OPP, TEAM_B, 1, 'No longer relevant'])
+  const REVOKED = {
+    ...GRANT_ROW,
+    grant_version: 2,
+    revoked_at: new Date(T2),
+    evidence: { reason: 'Fits the team', revokeReason: 'No longer relevant' },
+  }
+
+  it('revokes at the expected version, audits it and retires the team generation', async () => {
+    const h = harness({ grantRevoke: [REVOKED] }, STUDIO_SCOPE)
+    expect(await h.svc.revokeTeamTriage(ADMIN, OPP, TEAM_B, body)).toEqual({
+      ...GRANT_DTO,
+      grantVersion: 2,
+      revokedAt: T2,
+      evidence: { reason: 'Fits the team', revokeReason: 'No longer relevant' },
+    })
+    expect(h.hits).toEqual([
+      'lockTarget',
+      'actor',
+      'earlier',
+      'grantRevoke',
+      'triageLog',
+      'invalidate',
+    ])
+    expect(h.param('grantRevoke')).toEqual(['No longer relevant', OPP, TEAM_B, 1])
+    expect(h.param('triageLog')).toEqual([
+      'TRIAGE_REVOKED',
+      OPP,
+      null,
+      TEAM_B,
+      ADMIN_ID,
+      1,
+      2,
+      KEY,
+      JSON.stringify({ fp: FP }),
+    ])
+    expect(h.param('invalidate')).toEqual([TEAM_B])
+  })
+
+  it('a missing, revoked or newer grant is the version conflict and nothing is logged', async () => {
+    const h = harness({}, STUDIO_SCOPE)
+    await expectStale(h.svc.revokeTeamTriage(ADMIN, OPP, TEAM_B, body))
+    expect(h.hits).not.toContain('triageLog')
+    expect(h.hits).not.toContain('invalidate')
+  })
+
+  it('a team scope is 403; a bad opportunity or team id and a missing opportunity are 404', async () => {
+    const team = harness()
+    await expect(team.svc.revokeTeamTriage(HR, OPP, TEAM_B, body)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    )
+    expect(team.hits).toEqual([])
+    await expectNotFound(harness({}, STUDIO_SCOPE).svc.revokeTeamTriage(ADMIN, 'x', TEAM_B, body))
+    await expectNotFound(harness({}, STUDIO_SCOPE).svc.revokeTeamTriage(ADMIN, OPP, 'x', body))
+    await expectNotFound(
+      harness({ lockTarget: [] }, STUDIO_SCOPE).svc.revokeTeamTriage(ADMIN, OPP, TEAM_B, body),
+    )
+  })
+
+  it('a retry answers with the current grant and writes nothing', async () => {
+    const earlier = [
+      { reason: JSON.stringify({ fp: FP }), after_version: 2, created_at: new Date(T1) },
+    ]
+    const h = harness({ earlier, grantRead: [REVOKED] }, STUDIO_SCOPE)
+    expect((await h.svc.revokeTeamTriage(ADMIN, OPP, TEAM_B, body)).grantVersion).toBe(2)
+    expect(h.hits).toEqual(['lockTarget', 'actor', 'earlier', 'grantRead'])
+  })
+})
+
+const SUB_ID = 'c0000000-0000-4000-8000-000000000001'
+const SUB_ROW = {
+  id: SUB_ID,
+  team_id: TEAM_B,
+  role_family: 'SOFTWARE',
+  source_types: ['DOU_RSS', 'REMOTEOK_API'],
+  policy_version: 2,
+  subscription_version: 1,
+  expires_at: new Date(T2),
+  revoked_at: null,
+  created_at: new Date(T1),
+}
+const SUB_DTO = {
+  id: SUB_ID,
+  teamId: TEAM_B,
+  roleFamily: 'SOFTWARE',
+  sourceTypes: ['DOU_RSS', 'REMOTEOK_API'],
+  policyVersion: 2,
+  subscriptionVersion: 1,
+  expiresAt: T2,
+  revokedAt: null,
+  createdAt: T1,
+}
+
+describe('subscribeTeamTriage (r5 Task 6.4b)', () => {
+  const body = {
+    teamId: TEAM_B,
+    roleFamily: 'SOFTWARE' as const,
+    sourceTypes: ['REMOTEOK_API' as const, 'DOU_RSS' as const, 'REMOTEOK_API' as const],
+    policyVersion: 2,
+    expiresAt: T2,
+    reason: 'Backend team',
+    idempotencyKey: KEY,
+  }
+  const FP = requestFingerprint([
+    'TRIAGE_SUBSCRIBED',
+    TEAM_B,
+    'SOFTWARE',
+    'DOU_RSS,REMOTEOK_API',
+    2,
+    T2,
+    'Backend team',
+  ])
+
+  it('writes the subscription with deduplicated sorted source types and audits it', async () => {
+    const h = harness({ subInsert: [SUB_ROW] }, STUDIO_SCOPE)
+    expect(await h.svc.subscribeTeamTriage(ADMIN, body)).toEqual(SUB_DTO)
+    expect(h.hits).toEqual(['actor', 'earlier', 'team', 'subInsert', 'triageLog', 'invalidate'])
+    expect(h.param('subInsert')).toEqual([
+      TEAM_B,
+      'SOFTWARE',
+      '["DOU_RSS","REMOTEOK_API"]',
+      2,
+      ADMIN_ID,
+      'Backend team',
+      T2,
+    ])
+    expect(h.param('triageLog')).toEqual([
+      'TRIAGE_SUBSCRIBED',
+      null,
+      SUB_ID,
+      TEAM_B,
+      ADMIN_ID,
+      0,
+      1,
+      KEY,
+      JSON.stringify({ fp: FP }),
+    ])
+    expect(h.param('invalidate')).toEqual([TEAM_B])
+  })
+
+  it('a dead team or a malformed team id is 422 and writes nothing', async () => {
+    const dead = harness({ team: [] }, STUDIO_SCOPE)
+    await expectCode(
+      dead.svc.subscribeTeamTriage(ADMIN, body),
+      422,
+      'JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED',
+    )
+    expect(dead.hits).toEqual(['actor', 'earlier', 'team'])
+    const malformed = harness({}, STUDIO_SCOPE)
+    await expectCode(
+      malformed.svc.subscribeTeamTriage(ADMIN, { ...body, teamId: 'nope' }),
+      422,
+      'JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED',
+    )
+    expect(malformed.hits).toEqual([])
+  })
+
+  it('a team scope is 403 before any read', async () => {
+    const team = harness()
+    await expect(team.svc.subscribeTeamTriage(HR, body)).rejects.toBeInstanceOf(ForbiddenException)
+    expect(team.hits).toEqual([])
+  })
+
+  it('a retry answers with the subscription its log row names; another body conflicts', async () => {
+    const earlier = [
+      {
+        reason: JSON.stringify({ fp: FP }),
+        after_version: 1,
+        created_at: new Date(T1),
+        opportunity_id: null,
+        subscription_id: SUB_ID,
+      },
+    ]
+    const h = harness({ earlier, subRead: [SUB_ROW] }, STUDIO_SCOPE)
+    expect(await h.svc.subscribeTeamTriage(ADMIN, body)).toEqual(SUB_DTO)
+    expect(h.hits).toEqual(['actor', 'earlier', 'subRead'])
+    expect(h.param('subRead')).toEqual([SUB_ID])
+    await expectCode(
+      harness({ earlier }, STUDIO_SCOPE).svc.subscribeTeamTriage(ADMIN, {
+        ...body,
+        roleFamily: 'DATA',
+      }),
+      409,
+      'JOB_QUEUE_IDEMPOTENCY_CONFLICT',
+    )
+  })
+})
+
+describe('unsubscribeTeamTriage (r5 Task 6.4b)', () => {
+  const body = { expectedSubscriptionVersion: 1, reason: 'Team reshaped', idempotencyKey: KEY }
+  const FP = requestFingerprint(['TRIAGE_UNSUBSCRIBED', SUB_ID, 1, 'Team reshaped'])
+  const REVOKED = { ...SUB_ROW, subscription_version: 2, revoked_at: new Date(T2) }
+
+  it('revokes at the expected version, audits it and retires its team generation', async () => {
+    const h = harness({ subRevoke: [REVOKED] }, STUDIO_SCOPE)
+    expect(await h.svc.unsubscribeTeamTriage(ADMIN, SUB_ID, body)).toEqual({
+      ...SUB_DTO,
+      subscriptionVersion: 2,
+      revokedAt: T2,
+    })
+    expect(h.hits).toEqual(['subLock', 'actor', 'earlier', 'subRevoke', 'triageLog', 'invalidate'])
+    expect(h.param('subLock')).toEqual([SUB_ID])
+    expect(h.param('subRevoke')).toEqual([ADMIN_ID, 'Team reshaped', SUB_ID, 1])
+    expect(h.param('triageLog')).toEqual([
+      'TRIAGE_UNSUBSCRIBED',
+      null,
+      SUB_ID,
+      TEAM_B,
+      ADMIN_ID,
+      1,
+      2,
+      KEY,
+      JSON.stringify({ fp: FP }),
+    ])
+    expect(h.param('invalidate')).toEqual([TEAM_B])
+  })
+
+  it('a missing subscription or bad id is its own 404; a stale version is 409', async () => {
+    const missing = harness({ subLock: [] }, STUDIO_SCOPE)
+    await expectCode(
+      missing.svc.unsubscribeTeamTriage(ADMIN, SUB_ID, body),
+      404,
+      'JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND',
+    )
+    expect(missing.hits).toEqual(['subLock'])
+    await expectCode(
+      harness({}, STUDIO_SCOPE).svc.unsubscribeTeamTriage(ADMIN, 'nope', body),
+      404,
+      'JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND',
+    )
+    const stale = harness({}, STUDIO_SCOPE)
+    await expectStale(stale.svc.unsubscribeTeamTriage(ADMIN, SUB_ID, body))
+    expect(stale.hits).not.toContain('triageLog')
+  })
+
+  it('a team scope is 403 before any read', async () => {
+    const team = harness()
+    await expect(team.svc.unsubscribeTeamTriage(HR, SUB_ID, body)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    )
+    expect(team.hits).toEqual([])
+  })
+
+  it('a retry answers with the current row and writes nothing', async () => {
+    const earlier = [
+      { reason: JSON.stringify({ fp: FP }), after_version: 2, created_at: new Date(T1) },
+    ]
+    const h = harness({ earlier, subRead: [REVOKED] }, STUDIO_SCOPE)
+    expect((await h.svc.unsubscribeTeamTriage(ADMIN, SUB_ID, body)).subscriptionVersion).toBe(2)
+    expect(h.hits).toEqual(['subLock', 'actor', 'earlier', 'subRead'])
   })
 })
 
