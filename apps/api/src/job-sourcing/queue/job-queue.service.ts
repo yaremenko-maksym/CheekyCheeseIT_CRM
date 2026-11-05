@@ -11,6 +11,7 @@ import {
   type JobQueueScopeQuery,
   jobQueueSeniorsContinuationSchema,
   jobQueueSourcesContinuationSchema,
+  type JobSourceType,
   type SessionUser,
 } from '@crm/shared'
 import { sql } from 'drizzle-orm'
@@ -81,11 +82,16 @@ export function toListItem(r: Row): JobQueueListItemDto {
     title: String(r['title']).slice(0, 500),
     companyName: clipped(r['employer_name'], 255),
     location: clipped(r['location'], 500),
-    primarySource: {
-      sourceRecordId: String(r['source_record_id']),
-      sourceType: r['source_type'] as JobQueueListItemDto['primarySource']['sourceType'],
-      url: String(r['source_url']),
-    },
+    // A manual card (r5 Phase 6) is the only row without a source record.
+    primarySource:
+      r['source_record_id'] == null
+        ? null
+        : {
+            sourceRecordId: String(r['source_record_id']),
+            sourceType: r['source_type'] as JobSourceType,
+            url: String(r['source_url']),
+          },
+    applicationUrl: r['application_url'] == null ? null : String(r['application_url']),
     alsoSeenOnCount: Math.max(count(r['source_total']) - 1, 0),
     availability: r['availability'] as JobQueueListItemDto['availability'],
     eligibility: r['eligibility'] as JobQueueListItemDto['eligibility'],

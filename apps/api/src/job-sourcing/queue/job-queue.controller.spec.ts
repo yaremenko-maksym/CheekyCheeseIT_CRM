@@ -49,6 +49,7 @@ const CARD = {
     sourceType: 'GREENHOUSE_ATS',
     url: 'https://jobs.example.test/1',
   },
+  applicationUrl: null,
   alsoSeenOnCount: 0,
   availability: 'OPEN',
   eligibility: 'LEAD',
@@ -93,6 +94,7 @@ function harness() {
     undo: vi.fn(async () => ({ ...DISMISSAL, hidden: false, version: 2 })),
     opened: vi.fn(async () => undefined),
     suppress: vi.fn(async () => undefined),
+    createManualCard: vi.fn(async () => SUBMISSION),
   }
   const recomputes = { enqueue: vi.fn(async () => ({ runId: RUN })) }
   return {
@@ -144,6 +146,7 @@ describe('JobQueueController — routing and gates', () => {
     ['opened', RequestMethod.POST, ':id/opened', ['ADMIN', 'HR'], 120, 204],
     ['suppress', RequestMethod.POST, ':id/suppress', ['ADMIN'], 30, 204],
     ['recompute', RequestMethod.POST, 'recompute', ['ADMIN'], 6, 202],
+    ['createManualCard', RequestMethod.POST, 'manual', ['ADMIN', 'HR'], 30, 201],
   ] as const)('%s: %s %s, roles %j, %i/min, code %s', (name, method, path, roles, limit, code) => {
     const h = handler(name)
     expect(Reflect.getMetadata(METHOD_METADATA, h)).toBe(method)
@@ -292,6 +295,50 @@ describe('JobQueueController — writes', () => {
     expect(h.actions.opened).toHaveBeenCalledWith(HR, OPP, { sourceRecordId: SUB })
     expect(await h.controller.suppress(OPP, { idempotencyKey: KEY }, HR)).toBeUndefined()
     expect(h.actions.suppress).toHaveBeenCalledWith(HR, OPP, { idempotencyKey: KEY })
+  })
+
+  const MANUAL = {
+    title: 'Go Developer',
+    companyName: 'Acme',
+    descriptionMd: 'We need a Go developer.',
+    idempotencyKey: KEY,
+    submission: { teamId: TEAM, seniorId: SENIOR, resumeId: RUN },
+  }
+
+  it('manual card: parses the body and answers the submission for the caller', async () => {
+    const h = harness()
+    expect(await h.controller.createManualCard(MANUAL, HR)).toEqual(SUBMISSION)
+    // CR-M-1: an unconfirmed request reaches the service as `confirmPossibleDuplicate: false`.
+    expect(h.actions.createManualCard).toHaveBeenCalledWith(HR, {
+      ...MANUAL,
+      confirmPossibleDuplicate: false,
+    })
+  })
+
+  it('manual card: an explicit confirmation reaches the service', async () => {
+    const h = harness()
+    await h.controller.createManualCard({ ...MANUAL, confirmPossibleDuplicate: true }, HR)
+    expect(h.actions.createManualCard).toHaveBeenCalledWith(HR, {
+      ...MANUAL,
+      confirmPossibleDuplicate: true,
+    })
+  })
+
+  it.each([
+    ['no submission', { ...MANUAL, submission: undefined }],
+    [
+      'a submission without a resume',
+      { ...MANUAL, submission: { teamId: TEAM, seniorId: SENIOR } },
+    ],
+    ['an extra submission key', { ...MANUAL, submission: { ...MANUAL.submission, x: 1 } }],
+    ['an empty title', { ...MANUAL, title: '   ' }],
+    ['an over-long company', { ...MANUAL, companyName: 'x'.repeat(256) }],
+    ['a plain-http link', { ...MANUAL, applicationUrl: 'http://acme.test/1' }],
+    ['an unknown key', { ...MANUAL, source: 'DOU' }],
+  ])('manual card: refuses %s before the service is called', async (_name, body) => {
+    const h = harness()
+    await expect(h.controller.createManualCard(body, HR)).rejects.toThrow(ZodError)
+    expect(h.actions.createManualCard).not.toHaveBeenCalled()
   })
 
   it('recompute: answers the run id the service enqueued, for the caller', async () => {

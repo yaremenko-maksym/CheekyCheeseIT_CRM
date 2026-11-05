@@ -388,6 +388,8 @@ interface World {
   opportunity?: Record<string, unknown>
   /** The revision the install transaction's lock reads; null = the opportunity is gone. */
   lockRevision?: number | null
+  /** The lock row's `manual` flag: a manual card (r5 Phase 6). */
+  manual?: boolean
   /** Called on every roster read; throw to fail it. */
   onRoster?: () => void
 }
@@ -398,6 +400,7 @@ const world =
     completes = true,
     opportunity = opportunityRow(),
     lockRevision = 1,
+    manual = false,
     onRoster = () => {},
   }: World): Answer =>
   (q) => {
@@ -419,7 +422,7 @@ const world =
       return seq === null ? [] : [{ observation_seq: seq }]
     if (/FROM job_opportunities o/.test(q.sql)) return [opportunity]
     if (/FROM job_opportunities WHERE id = .* FOR NO KEY UPDATE$/.test(q.sql))
-      return lockRevision === null ? [] : [{ revision: lockRevision }]
+      return lockRevision === null ? [] : [{ revision: lockRevision, manual }]
     if (/FROM users u JOIN team_members/.test(q.sql)) {
       onRoster()
       return [
@@ -543,7 +546,21 @@ describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
     ['is gone', null],
   ])('an opportunity that %s is completed under the lock, without evaluating', async (_n, rev) => {
     const { db, did } = recordingDb(world({ lockRevision: rev }))
-    await createRecomputeSteps(db).process(work(1), batchAt())
+    // A gone row (zero lock rows) completes, it never throws on the missing row.
+    expect(await createRecomputeSteps(db).process(work(1), batchAt())).toBe('DONE')
+    expect(evaluate).not.toHaveBeenCalled()
+    expect(did(/FROM job_opportunities o/)).toEqual([])
+    expect(did(/FROM users u/)).toEqual([])
+    expect(did(/job_opportunity_matches/)).toEqual([])
+    expect(did(/^\s*WITH cur AS/)).toHaveLength(1)
+  })
+
+  it('a manual card (r5 Phase 6, SR-M-1) is completed under the lock, without evaluating', async () => {
+    const { db, did } = recordingDb(world({ manual: true }))
+    expect(await createRecomputeSteps(db).process(work(1), batchAt())).toBe('DONE')
+    expect(did(/FOR NO KEY UPDATE$/)[0]?.sql).toContain(
+      'SELECT revision, manual_team_id IS NOT NULL AS manual',
+    )
     expect(evaluate).not.toHaveBeenCalled()
     expect(did(/FROM job_opportunities o/)).toEqual([])
     expect(did(/FROM users u/)).toEqual([])

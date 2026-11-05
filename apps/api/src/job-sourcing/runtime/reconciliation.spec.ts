@@ -243,7 +243,9 @@ describe('the page query', () => {
     await reconcileOnce(all)
     const unscoped = rendered(all.execute.mock.calls[0]?.[0]).sql
     expect(unscoped).not.toContain('jsonb_array_elements_text')
-    expect(unscoped).toContain('WHERE o.id > $2::uuid  ORDER BY o.id LIMIT $3')
+    expect(unscoped).toContain(
+      'WHERE o.manual_team_id IS NULL AND o.id > $2::uuid  ORDER BY o.id LIMIT $3',
+    )
     const scoped = dbOf([])
     await reconcileOnce(scoped, { onlyIds: [id(5), id(6)] })
     const q = rendered(scoped.execute.mock.calls[0]?.[0])

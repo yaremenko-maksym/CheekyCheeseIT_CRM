@@ -116,6 +116,7 @@ const dbRow = (over: Record<string, unknown> = {}) => ({
   source_type: 'DOU_RSS',
   source_url: 'https://jobs.example.test/1',
   source_total: '3',
+  application_url: null,
   matched: '2',
   stop_listed: '1',
   submitted: '1',
@@ -132,6 +133,7 @@ const ITEM = {
   companyName: 'Acme',
   location: 'Remote',
   primarySource: { sourceRecordId: SRC, sourceType: 'DOU_RSS', url: 'https://jobs.example.test/1' },
+  applicationUrl: null,
   alsoSeenOnCount: 2,
   availability: 'OPEN',
   eligibility: 'LEAD',
@@ -453,6 +455,22 @@ describe('toListItem', () => {
       companyName: null,
       location: null,
       publishedAt: null,
+      alsoSeenOnCount: 0,
+    })
+  })
+  it('a manual card has no primary source and carries its stated application URL', () => {
+    const item = toListItem(
+      dbRow({
+        source_record_id: null,
+        source_type: null,
+        source_url: null,
+        source_total: null,
+        application_url: 'https://careers.example.test/42',
+      }),
+    )
+    expect(item).toMatchObject({
+      primarySource: null,
+      applicationUrl: 'https://careers.example.test/42',
       alsoSeenOnCount: 0,
     })
   })

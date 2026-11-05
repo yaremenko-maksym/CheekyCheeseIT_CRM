@@ -3114,6 +3114,11 @@ msgstr "This request was already made with different data. Refresh the card and 
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_MANUAL_DUPLICATE"
+msgstr "A job with this link already exists. No new card was created."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_POLICY_UNAVAILABLE"
 msgstr "Access could not be checked. Try again later."
 
@@ -3126,6 +3131,16 @@ msgstr "This senior has already been submitted to a similar job. Review it and c
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_REFRESH_REQUIRED"
 msgstr "The list is out of date. Refresh it."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_RESUME_UNUSABLE"
+msgstr "This resume cannot be used for this senior. Choose another one."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_SENIOR_INELIGIBLE"
+msgstr "This senior cannot be submitted to this job from this team. Choose another senior or another team."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts

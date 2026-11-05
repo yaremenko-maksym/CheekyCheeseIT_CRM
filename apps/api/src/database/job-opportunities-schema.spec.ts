@@ -272,14 +272,25 @@ describe('job_opportunities', () => {
   })
   it('SR-M-1/2: the evaluated revision, verdict and inputs version are nullable, without a default, declared before role_family', () => {
     const evaluation = ['evaluated_revision', 'evaluation_verdict', 'evaluated_inputs_version']
-    expect(names(jobOpportunities).slice(-4, -1)).toEqual(evaluation)
+    expect(names(jobOpportunities).slice(-5, -2)).toEqual(evaluation)
     for (const name of evaluation) {
       expect(col(jobOpportunities, name).notNull).toBe(false)
       expect(col(jobOpportunities, name).hasDefault).toBe(false)
     }
   })
-  it('Task 6.4c: role_family is declared last, nullable, without a default, and bounded', () => {
-    expect(names(jobOpportunities).at(-1)).toBe('role_family')
+  it('Phase 6: manual_team_id is declared last, a nullable uuid without a default, FK to teams ON DELETE RESTRICT', () => {
+    expect(names(jobOpportunities).at(-1)).toBe('manual_team_id')
+    expect(col(jobOpportunities, 'manual_team_id').getSQLType()).toBe('uuid')
+    expect(col(jobOpportunities, 'manual_team_id').notNull).toBe(false)
+    expect(col(jobOpportunities, 'manual_team_id').hasDefault).toBe(false)
+    const f = fk(jobOpportunities, 'manual_team_id')
+    expect(f.getName()).toBe('fk_job_opportunities_manual_team')
+    expect(f.onDelete).toBe('restrict')
+    expect(getTableConfig(f.reference().foreignTable).name).toBe('teams')
+    expect(f.reference().foreignColumns.map((c) => c.name)).toEqual(['id'])
+  })
+  it('Task 6.4c: role_family is declared just before manual_team_id, nullable, without a default, and bounded', () => {
+    expect(names(jobOpportunities).at(-2)).toBe('role_family')
     expect(col(jobOpportunities, 'role_family').notNull).toBe(false)
     expect(col(jobOpportunities, 'role_family').hasDefault).toBe(false)
     const c = getTableConfig(jobOpportunities).checks.find(

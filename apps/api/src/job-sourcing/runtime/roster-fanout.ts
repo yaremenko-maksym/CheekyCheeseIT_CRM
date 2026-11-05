@@ -94,6 +94,7 @@ export async function fanOutDirty(
     WITH page AS (
       SELECT o.id, o.revision FROM job_opportunities o
        WHERE o.id > ${after}::uuid
+         AND o.manual_team_id IS NULL
          AND (o.availability IN ('OPEN', 'UNKNOWN')
               OR EXISTS (SELECT 1 FROM job_queue_assignments a
                           WHERE a.opportunity_id = o.id AND a.state = 'TAKEN'))

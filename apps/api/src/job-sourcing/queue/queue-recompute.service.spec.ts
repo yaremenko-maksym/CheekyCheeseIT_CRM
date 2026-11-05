@@ -86,6 +86,8 @@ describe('JobQueueRecomputeService.enqueue', () => {
     // The first two binds are the run's; the rest are the MATCH-partition predicate's own.
     expect(enqueue.params.slice(0, 2)).toEqual([`ADMIN_RECOMPUTE:${NEW_RUN}`, NEW_RUN])
     expect(enqueue.sql).toContain("WHERE o.availability IN ('OPEN', 'UNKNOWN')")
+    // SR-M-1: a manual card (r5 Phase 6) is never enqueued for match evaluation.
+    expect(enqueue.sql).toContain('AND o.manual_team_id IS NULL')
     expect(enqueue.sql).toContain("w.status IN ('PENDING', 'CLAIMED')")
     // The in-flight skip reads only MATCH-partition rows: the predicate is applied to w.reason.
     expect(enqueue.sql).toContain('AND NOT ((w.reason = $3) OR (starts_with(w.reason, $4)')

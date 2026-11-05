@@ -138,8 +138,17 @@ describe('visibleOpportunityPredicate', () => {
       TEAM_A,
       'inputs-1',
       TEAM_A,
+      TEAM_A,
+      TEAM_A,
     ])
     expect(MATCH_RULE_VERSION).toBe('eval.1+l1.1')
+  })
+
+  it("TEAM manual branch (r5 Phase 6): a manual card is its own team's only, while that team is live", () => {
+    const text = flat(render(visibleOpportunityPredicate(teamA, id)).sql)
+    expect(text).toContain(
+      "AND NOT EXISTS (SELECT 1 FROM job_opportunities mn WHERE mn.id = 'x'::uuid AND mn.manual_team_id IS NOT NULL)) OR EXISTS (SELECT 1 FROM job_opportunities mc WHERE mc.id = 'x'::uuid AND mc.manual_team_id = $11::uuid AND EXISTS (SELECT 1 FROM teams mt WHERE mt.id = $12::uuid AND mt.archived_at IS NULL AND mt.type = 'SENIOR')))",
+    )
   })
 
   it('TEAM subscription branch (r5 Task 6.4c): live subscription of the team, same role family, source filter, verified employer, OPEN at live inputs, live team', () => {
@@ -151,7 +160,7 @@ describe('visibleOpportunityPredicate', () => {
 
   it('TEAM: either branch, and never a suppressed opportunity (r5 Task 6.4)', () => {
     const text = flat(render(visibleOpportunityPredicate(teamA, id)).sql)
-    expect(text.startsWith('((EXISTS (SELECT 1 FROM job_opportunity_matches m')).toBe(true)
+    expect(text.startsWith('((((EXISTS (SELECT 1 FROM job_opportunity_matches m')).toBe(true)
     expect(
       text.endsWith(
         `)) AND NOT EXISTS (SELECT 1 FROM job_queue_actions sup WHERE sup.opportunity_id = 'x'::uuid AND sup.kind = 'SUPPRESSED'))`,

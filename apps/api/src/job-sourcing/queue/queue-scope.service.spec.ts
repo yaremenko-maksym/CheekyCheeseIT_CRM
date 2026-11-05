@@ -376,7 +376,7 @@ describe('JobQueueScopeService.assertVisible', () => {
     const { svc, compiled } = harness([{ visible: 1 }])
     await expect(svc.assertVisible(teamAScope, OPP)).resolves.toBeUndefined()
     const q = compiled(0)
-    expect(q.text).toContain('FROM job_opportunities o WHERE o.id = $1::uuid AND ((EXISTS')
+    expect(q.text).toContain('FROM job_opportunities o WHERE o.id = $1::uuid AND ((((EXISTS')
     expect(q.text).toContain('job_opportunity_team_triage g')
     expect(q.params[0]).toBe(OPP)
     expect(q.params).toContain(TEAM_A)

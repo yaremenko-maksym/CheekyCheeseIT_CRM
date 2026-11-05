@@ -3114,6 +3114,11 @@ msgstr "Цей запит уже виконано з іншими даними. 
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_MANUAL_DUPLICATE"
+msgstr "Вакансія з цим посиланням уже є в системі. Нову картку не створено."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_POLICY_UNAVAILABLE"
 msgstr "Не вдалося перевірити доступ. Спробуйте пізніше."
 
@@ -3126,6 +3131,16 @@ msgstr "Цього сеньйора вже подано на схожу вака
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_REFRESH_REQUIRED"
 msgstr "Список застарів. Оновіть його."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_RESUME_UNUSABLE"
+msgstr "Це резюме не можна використати для цього сеньйора. Оберіть інше."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_SENIOR_INELIGIBLE"
+msgstr "Цього сеньйора не можна подати на цю вакансію від цієї команди. Оберіть іншого сеньйора або іншу команду."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
