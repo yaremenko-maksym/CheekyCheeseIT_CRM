@@ -224,4 +224,19 @@ describe('createOpenRouterExtractionAdapter', () => {
       expect(requests).toHaveLength(1)
     })
   })
+
+  it('forwards the request signal: an aborted call sends nothing and ends TIMEOUT (5.4c-6)', async () => {
+    const { impl, requests } = fakeFetch([okReply('{"title":"x"}')])
+    const adapter = createOpenRouterExtractionAdapter({
+      apiKey: 'k',
+      resolveModelId: () => 'free/model',
+      fetchImpl: impl,
+    })
+    const signal = AbortSignal.abort()
+    expect(await adapter.extract({ input: 'x', schema, signal })).toEqual({
+      ok: false,
+      code: 'TIMEOUT',
+    })
+    expect(requests).toHaveLength(0)
+  })
 })

@@ -1,5 +1,6 @@
 import { isIPv4 } from 'node:net'
 import { z } from 'zod'
+import { MAX_SMALL_DOSE_GROUPS } from '../contracts/extraction'
 import { LOCAL_MODEL_RUNTIME_HOST } from '../http/bounded-request'
 import { isValidModelId, isValidProviderModelId } from '../internal/model-id'
 
@@ -14,11 +15,14 @@ export const HOSTED_BASE_URLS: Record<HostedProvider, string> = {
   groq: 'https://api.groq.com/openai/v1',
 }
 
-/** Package maxima of the two budgets (§5.5); their sum is the call's absolute ceiling. */
-export const MAX_HOSTED_BUDGET_MS = 120_000
-export const MAX_FLOOR_BUDGET_MS = 600_000
 /** The local route refuses a timeout of 300 s or more until the leaf streams (§8.4). */
 export const LOCAL_TIMEOUT_LIMIT_MS = 300_000
+/**
+ * Package maxima of the two budgets (§5.5); their sum is the call's absolute ceiling. The floor's holds
+ * a full small-dose table at the longest local timeout the schema accepts.
+ */
+export const MAX_HOSTED_BUDGET_MS = 120_000
+export const MAX_FLOOR_BUDGET_MS = MAX_SMALL_DOSE_GROUPS * LOCAL_TIMEOUT_LIMIT_MS
 /** Own caps sit at 50 % of each provider's configured free limit (owner decision D5). */
 export const OWN_CAP_SHARE = 0.5
 
@@ -122,8 +126,9 @@ export const routerConfigSchema = z
   .refine((cfg) => new Set(cfg.routes.map((r) => r.provider)).size === cfg.routes.length)
   // Zod runs these even when `routes` already failed (empty): `at(-1)` may be undefined.
   .refine((cfg) => cfg.routes.at(-1)?.provider === 'local')
-  // The floor must be able to give its request a whole timeout (§5.5 item 2).
-  .refine((cfg) => cfg.floorBudgetMs >= (cfg.routes.at(-1)?.timeoutMs ?? 0))
+  // The floor must be able to give every group of a full table one whole request (§5.5 item 2);
+  // correction retries take what is left.
+  .refine((cfg) => cfg.floorBudgetMs >= MAX_SMALL_DOSE_GROUPS * (cfg.routes.at(-1)?.timeoutMs ?? 0))
 
 export type RouterConfig = z.infer<typeof routerConfigSchema>
 export type RouterConfigInput = z.input<typeof routerConfigSchema>

@@ -46,6 +46,7 @@ export function createOpenRouterExtractionAdapter(cfg: OpenRouterExtractionConfi
               ...(correction !== undefined && { correction }),
               ...(cfg.timeoutMs !== undefined && { timeoutMs: cfg.timeoutMs }),
               ...(cfg.fetchImpl !== undefined && { fetchImpl: cfg.fetchImpl }),
+              ...(req.signal !== undefined && { signal: req.signal }),
             })
             if (res.ok && res.totalTokens !== undefined) {
               totalTokens = (totalTokens ?? 0) + res.totalTokens
