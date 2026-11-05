@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import type { SmallDose } from '../contracts/extraction'
+import type { SmallDose, SmallDoseGroup } from '../contracts/extraction'
 import {
   answer,
   config,
@@ -198,5 +198,48 @@ describe('small dose: fit on the correction retry (ADR 6.1)', () => {
     })
     expect(r).toMatchObject({ ok: false, code: 'INVALID_OUTPUT' })
     expect(f.sent).toHaveLength(0)
+  })
+})
+
+describe('small dose: the ceiling covers every group at the route sizes (ADR 5.5 item 4)', () => {
+  // The route's own answer is smaller than the second group's: its ceiling alone would overflow it.
+  const route = { ...LOCAL, contextTokens: 4_096, maxAnswerTokens: 600 }
+  const instruction = 'short'
+  const [title, salary] = DOSE.groups as [SmallDoseGroup, SmallDoseGroup]
+  const dose: SmallDose<Page> = {
+    ...DOSE,
+    groups: [title, { ...salary, maxAnswerTokens: 1_200 }],
+  }
+  const ceiling = routerInputCeilingChars(route, instruction, dose.groups)
+
+  const runAt = async (chars: number) => {
+    const f = scriptedFetch(byGroup(TITLE_OK, SALARY_OK))
+    const d = deps(f.fetchImpl)
+    const r = await createRouter(config([route]), d).run({
+      ...REQ,
+      input: 'p'.repeat(chars),
+      instruction,
+      smallDose: dose,
+    })
+    return { r, sent: f.sent, events: JSON.stringify(d.events) }
+  }
+
+  it('a page cut to the ceiling is asked of every group', async () => {
+    const { r, sent, events } = await runAt(ceiling)
+    expect(r.ok).toBe(true)
+    expect(sent).toHaveLength(2)
+    expect(events).not.toContain('PROMPT_TOO_LARGE')
+  })
+
+  it('one character more is refused before anything is sent', async () => {
+    const { r, sent } = await runAt(ceiling + 1)
+    expect(r).toMatchObject({ ok: false, code: 'INVALID_OUTPUT' })
+    expect(sent).toHaveLength(0)
+  })
+
+  it('a page cut to the route ceiling alone would be refused', async () => {
+    const { r, sent } = await runAt(routerInputCeilingChars(route, instruction))
+    expect(r).toMatchObject({ ok: false, code: 'INVALID_OUTPUT' })
+    expect(sent).toHaveLength(0)
   })
 })

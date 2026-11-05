@@ -146,6 +146,10 @@ export class ModelStructurer implements HtmlStructurer {
       'abandonedHoldMs',
       options.abandonedHoldMs ?? DEFAULT_ABANDONED_HOLD_MS,
     )
+    const ceiling = options.inputCeilingChars
+    if (ceiling !== undefined && (!Number.isFinite(ceiling) || ceiling <= 0)) {
+      throw new Error(`inputCeilingChars must be a positive finite number, got ${String(ceiling)}`)
+    }
   }
 
   structure(request: HtmlStructurerRequest): Promise<StructurerOutcome> {

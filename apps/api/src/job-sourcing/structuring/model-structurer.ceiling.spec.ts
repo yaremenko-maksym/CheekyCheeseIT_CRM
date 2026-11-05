@@ -1,9 +1,19 @@
-import type { ExtractionPort, ExtractionRequest, ExtractionResult } from '@crm/inference'
+import {
+  routerInputCeilingChars,
+  type ExtractionPort,
+  type ExtractionRequest,
+  type ExtractionResult,
+} from '@crm/inference'
 import { describe, expect, it } from 'vitest'
 import type { HtmlStructurerRequest, StructurerOutcome } from './html-structurer.port'
 import { InMemoryModelBudget } from './model-budget.port'
 import { ModelStructurer } from './model-structurer'
-import { buildExtractionPrompt, MAX_MODEL_INPUT_CHARS } from './prompt-envelope'
+import {
+  buildExtractionPrompt,
+  EXTRACTION_SYSTEM_PROMPT,
+  MAX_MODEL_INPUT_CHARS,
+} from './prompt-envelope'
+import { smallDoseFor } from './small-dose-table'
 
 const GATE = 'ALLOWED' as Parameters<typeof buildExtractionPrompt>[0]
 const QUOTE = 'Senior Go Engineer'
@@ -76,6 +86,35 @@ describe('buildExtractionPrompt: the input ceiling (ADR 2.1)', () => {
     const prompt = buildExtractionPrompt(GATE, 'TAIL-OF-PAGE', undefined, 1)
     expect(prompt.truncated).toBe(true)
     expect(prompt.user).not.toContain('TAIL-OF-PAGE')
+  })
+})
+
+describe('routerInputCeilingChars over the real small-dose table (ADR 5.5 item 4)', () => {
+  // The route's own answer budget is below the description group's: the case the route alone misses.
+  const window = { contextTokens: 8_192, maxAnswerTokens: 600 }
+
+  it('a page cut to it fits every group of the whole table', () => {
+    const { groups } = smallDoseFor()
+    const ceiling = routerInputCeilingChars(window, EXTRACTION_SYSTEM_PROMPT, groups)
+    expect(ceiling).toBeGreaterThan(0)
+    expect(ceiling).toBeLessThan(routerInputCeilingChars(window, EXTRACTION_SYSTEM_PROMPT))
+    for (const { instruction, maxAnswerTokens } of groups) {
+      const asked = `${EXTRACTION_SYSTEM_PROMPT}\n\n${instruction}`
+      expect(ceiling).toBeLessThanOrEqual(
+        routerInputCeilingChars({ contextTokens: window.contextTokens, maxAnswerTokens }, asked),
+      )
+    }
+  })
+})
+
+describe('ModelStructurer: inputCeilingChars at construction', () => {
+  it.each([0, -1, NaN, Infinity, -Infinity])('%s is refused', (inputCeilingChars) => {
+    expect(() => structurerOver(inputCeilingChars)).toThrow(/inputCeilingChars/)
+  })
+
+  it('a positive ceiling and no ceiling are accepted', () => {
+    expect(() => structurerOver(1)).not.toThrow()
+    expect(() => structurerOver()).not.toThrow()
   })
 })
 

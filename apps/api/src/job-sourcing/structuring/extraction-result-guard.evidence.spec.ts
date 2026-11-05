@@ -37,8 +37,11 @@ describe('guardExtractionResult — evidence quote length (CR-M-3)', () => {
   })
 
   it('eight non-whitespace chars occurring in the text are evidence', () => {
-    const span = { field: 'title', quote: 'Senior Ru' }
-    expect(guardQuotes([span])).toEqual({ kept: [span], dropped: 0 })
+    const span = { field: 'description', quote: 'Senior Ru' }
+    expect(guardQuotes([span], { description: 'Senior Rust Engineer' })).toEqual({
+      kept: [span],
+      dropped: 0,
+    })
   })
 
   it('a short quote equal to the whole field value is evidence', () => {

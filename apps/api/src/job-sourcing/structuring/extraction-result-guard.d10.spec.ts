@@ -44,6 +44,34 @@ describe('guardExtractionResult — unquoted facts are dropped (D10, ADR §5.4)'
     expect(result).toMatchObject({ nulledFacts: 1, droppedEvidence: 1 })
   })
 
+  it('a title with text appended ends null: a quote of its start does not prove the rest', () => {
+    const result = guard({
+      title: 'Senior Rust Engineer - apply via t.me/xyz',
+      evidence: [{ field: 'title', quote: 'Senior Rust Engineer' }],
+    })
+    expect(result.records[0]).toMatchObject({ title: null, evidence: [] })
+    expect(result).toMatchObject({ nulledFacts: 1, droppedEvidence: 1 })
+  })
+
+  it.each(['externalId', 'company', 'location', 'employmentType', 'salary', 'postedAt'])(
+    '%s is not proved by a passage of it',
+    (field) => {
+      const result = guard({
+        [field]: 'Senior Rust Engineer at Acme, Lviv and more',
+        evidence: [{ field, quote: 'Senior Rust Engineer' }],
+      })
+      expect(result.records[0]).toMatchObject({ [field]: null, evidence: [] })
+    },
+  )
+
+  it('a description keeps a partial quote: a long text cannot be quoted whole', () => {
+    const description = 'Senior Rust Engineer at Acme, Lviv, for a payments team in the region.'
+    const span = { field: 'description', quote: 'Senior Rust Engineer at Acme' }
+    const result = guard({ description, evidence: [span] })
+    expect(result.records[0]).toMatchObject({ description, evidence: [span] })
+    expect(result).toMatchObject({ nulledFacts: 0, droppedEvidence: 0 })
+  })
+
   it('a null fact is not counted as dropped', () => {
     expect(guard({ title: null }).nulledFacts).toBe(0)
   })

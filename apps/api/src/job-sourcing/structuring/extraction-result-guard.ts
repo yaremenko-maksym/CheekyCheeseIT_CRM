@@ -6,8 +6,8 @@ export const MAX_MODEL_OUTPUT_BYTES = 2 * 1024 * 1024
 const MAX_RECORDS = 100
 /**
  * A quote shorter than this (non-whitespace chars) proves nothing unless it is the whole field.
- * Any quote must also be about its field: it contains the value, or (text fields) is a passage of
- * it; a URL is quoted whole. Booleans, nulls and nulled URLs never have evidence.
+ * Any quote must also be about its field: it contains the whole value, or (the description only)
+ * is a passage of it. Booleans, nulls and nulled URLs never have evidence.
  */
 export const MIN_EVIDENCE_QUOTE_CHARS = 8
 
@@ -19,8 +19,6 @@ function nonWhitespaceLength(text: string): number {
 function normalise(text: string): string {
   return text.toUpperCase().replace(/\s+/g, ' ').trim()
 }
-
-const URL_FIELDS: ReadonlySet<string> = new Set(['postingUrl', 'applyUrl'])
 
 /** Absent and `null` both mean "not stated on the page". */
 const fact = (max: number) => z.string().max(max).nullable().default(null)
@@ -169,10 +167,10 @@ export function guardExtractionResult(raw: string, ctx: ExtractionContext): Extr
       // Only a stated string can be proved: a boolean, a null, a blank or a nulled URL never has evidence.
       if (!stated) return false
       const quote = normalise(span.quote)
-      // The quote names the value; a text field may also be proved by a passage of it (a long
-      // description cannot be quoted whole). A URL must be quoted whole.
+      // The quote names the whole value; only the description may be proved by a passage of it (a
+      // long text cannot be quoted whole). A passage proves nothing of what was appended to a title.
       const related =
-        quote.includes(stated) || (!URL_FIELDS.has(span.field) && stated.includes(quote))
+        quote.includes(stated) || (span.field === 'description' && stated.includes(quote))
       // Long enough to be specific, or exactly the value.
       const specific =
         nonWhitespaceLength(span.quote) >= MIN_EVIDENCE_QUOTE_CHARS || quote === stated
