@@ -514,7 +514,8 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
             ask: sendLocal,
           })
     if (floor.ok) return finish(success(floor.data), true)
-    if (floor.code === 'PROMPT_TOO_LARGE') attempted('local', local.model, 'PROMPT_TOO_LARGE', now())
+    if (floor.code === 'PROMPT_TOO_LARGE')
+      attempted('local', local.model, 'PROMPT_TOO_LARGE', now())
     const code = floorCode(floor.code)
     return finish(
       {

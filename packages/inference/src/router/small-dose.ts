@@ -51,7 +51,9 @@ export async function runSmallDose<T, C extends string>(args: {
     ask: DoseAsk,
     correction?: string,
   ) => Promise<{ ok: true; text: string } | { ok: false; code: C }>
-}): Promise<{ ok: true; data: T } | { ok: false; code: C | 'INVALID_OUTPUT' | 'PROMPT_TOO_LARGE' }> {
+}): Promise<
+  { ok: true; data: T } | { ok: false; code: C | 'INVALID_OUTPUT' | 'PROMPT_TOO_LARGE' }
+> {
   const base = args.instruction ?? DEFAULT_EXTRACTION_INSTRUCTION
   const groups = args.dose.groups.map((group) => ({
     group,

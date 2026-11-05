@@ -83,9 +83,10 @@ describe('small dose: what each route receives (§5.4)', () => {
     const f = scriptedFetch((s) =>
       s.host === hostOf.groq ? HOSTED_DOWN : byGroup(TITLE_OK, SALARY_OK)(s),
     )
-    await createRouter(config([{ ...GROQ, models: ['openai/gpt-oss-120b'] }, LOCAL]), deps(f.fetchImpl)).run(
-      DOSE_REQ,
-    )
+    await createRouter(
+      config([{ ...GROQ, models: ['openai/gpt-oss-120b'] }, LOCAL]),
+      deps(f.fetchImpl),
+    ).run(DOSE_REQ)
     const hosted = f.sent.filter((s) => s.host === hostOf.groq)
     expect(hosted.length).toBeGreaterThan(0)
     for (const s of hosted) {
@@ -296,9 +297,7 @@ describe('small dose: merging (§5.4)', () => {
     const r = await createRouter(config([LOCAL]), deps(f.fetchImpl)).run({
       ...REQ,
       smallDose: {
-        groups: [
-          { name: 'whole', instruction: 'ALL.', schema: REQ.schema, maxAnswerTokens: 333 },
-        ],
+        groups: [{ name: 'whole', instruction: 'ALL.', schema: REQ.schema, maxAnswerTokens: 333 }],
         merge: (parts) => ({ ok: true, data: parts.whole as Page }),
       },
     })
@@ -308,7 +307,9 @@ describe('small dose: merging (§5.4)', () => {
   })
 
   it('an invalid group answer gets its one correction retry, on that group', async () => {
-    const f = scriptedFetch((s, n) => (n === 1 ? answer('not json') : byGroup(TITLE_OK, SALARY_OK)(s)))
+    const f = scriptedFetch((s, n) =>
+      n === 1 ? answer('not json') : byGroup(TITLE_OK, SALARY_OK)(s),
+    )
     const r = await createRouter(config([LOCAL]), deps(f.fetchImpl)).run(DOSE_REQ)
     expect(r).toMatchObject({ ok: true, data: { title: 'Engineer', salary: 100 } })
     expect(f.sent.map(systemOf)).toEqual([
@@ -375,9 +376,10 @@ describe('small dose: a failed group is a failed call (§5.4)', () => {
       t += 60_000 // the first group's answer uses up the 60 s floor budget
       return byGroup(TITLE_OK, SALARY_OK)(s)
     })
-    const r = await createRouter(config([{ ...LOCAL, timeoutMs: 5_000 }]), deps(f.fetchImpl, { now: () => t })).run(
-      DOSE_REQ,
-    )
+    const r = await createRouter(
+      config([{ ...LOCAL, timeoutMs: 5_000 }]),
+      deps(f.fetchImpl, { now: () => t }),
+    ).run(DOSE_REQ)
     expect(r).toMatchObject({ ok: false, code: 'TIMEOUT' })
     expect(f.sent).toHaveLength(1)
   })
@@ -533,10 +535,9 @@ describe('local time in usage (§5.5 item 6)', () => {
 
   it('a floor refused before sending charges nothing', async () => {
     const f = scriptedFetch(() => GOOD)
-    const r = await createRouter(
-      config([{ ...LOCAL, contextTokens: 10 }]),
-      deps(f.fetchImpl),
-    ).run(REQ)
+    const r = await createRouter(config([{ ...LOCAL, contextTokens: 10 }]), deps(f.fetchImpl)).run(
+      REQ,
+    )
     expect(r).toEqual({ ok: false, code: 'INVALID_OUTPUT' })
     expect(f.sent).toHaveLength(0)
   })
