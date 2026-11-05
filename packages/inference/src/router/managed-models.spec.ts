@@ -166,7 +166,7 @@ describe('promotion is recomputed, never read from the file (§3.4, SR-M-9)', ()
 
   it('a reader without a state port does not compile: the file order is never trusted', () => {
     // @ts-expect-error `state` is required (SR-M-3); `tsc --noEmit` fails here when it is optional.
-    createFileManagedModels({ path: PATH, onEvent: () => undefined })
+    expect(createFileManagedModels({ path: PATH, onEvent: () => undefined })).toBeDefined()
   })
 
   it('isPromoted reads pinned or a full streak of this model, nothing else', () => {
