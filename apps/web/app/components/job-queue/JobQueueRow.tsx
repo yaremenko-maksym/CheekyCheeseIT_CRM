@@ -81,7 +81,10 @@ export function JobQueueRow({
           </span>
         )}
         {(matched > 0 || showSubmitted) && (
-          <span className="flex flex-wrap gap-x-2 text-sm tabular-nums">
+          <span
+            data-testid="job-queue-row-counts"
+            className="flex flex-wrap gap-x-2 text-sm tabular-nums"
+          >
             {matched > 0 && (
               <span data-testid="job-queue-row-matched" data-slot="matched-count">
                 {i18n._(matchedMsg.id, { n: matched })}

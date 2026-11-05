@@ -51,8 +51,8 @@ describe('JobQueueStatusTabs', () => {
       />,
       { wrapper: I18nTestProvider },
     )
-    expect(screen.getByTestId('job-queue-tab-NEW')).toHaveTextContent('Нові999+')
-    expect(screen.getByTestId('job-queue-tab-SUBMITTED')).toHaveTextContent('Подані999')
+    expect(screen.getByTestId('job-queue-tab-NEW')).toHaveTextContent(/^Нові999\+$/)
+    expect(screen.getByTestId('job-queue-tab-SUBMITTED')).toHaveTextContent(/^Подані999$/)
   })
 
   it('shows labels only (no count) before the first page arrives', () => {

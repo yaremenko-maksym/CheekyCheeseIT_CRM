@@ -75,17 +75,23 @@ export function JobQueueList(props: JobQueueListProps) {
   const { items, status, tab } = props
   const listRef = useRef<HTMLUListElement>(null)
   // set by a button / keyboard append: the index of the first row to focus once it arrives
-  const focusFrom = useRef<number | null>(null)
+  // (Infinity = nothing pending: no list length ever exceeds it)
+  const focusFrom = useRef(Infinity)
   const loadMore = useRef(props.onLoadMore)
   const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null)
 
   // "Завантажено ще N" only for a real append: same first row, longer list. A replaced list resets it.
   const first = items?.[0]?.opportunityId
   const length = items?.length ?? 0
-  const [seen, setSeen] = useState({ first, length, added: null as number | null })
-  if (seen.first !== first || seen.length !== length) {
-    const appended = seen.first === first && seen.length > 0 && length > seen.length
-    setSeen({ first, length, added: appended ? length - seen.length : null })
+  const [seenFirst, setSeenFirst] = useState(first)
+  const [seenLength, setSeenLength] = useState(length)
+  // rows added by the last append; 0 (or less, for a shrunk list) = nothing to announce
+  const [added, setAdded] = useState(0)
+  if (seenFirst !== first || seenLength !== length) {
+    setSeenFirst(first)
+    setSeenLength(length)
+    // an empty list has no first row, so a first page after it never counts as an append
+    setAdded(seenFirst === first ? length - seenLength : 0)
   }
 
   useEffect(() => {
@@ -106,22 +112,26 @@ export function JobQueueList(props: JobQueueListProps) {
 
   // a replaced list (tab / filter / search switch) cancels a pending «Показати ще» focus
   useEffect(() => {
-    focusFrom.current = null
+    focusFrom.current = Infinity
   }, [first])
 
   useEffect(() => {
     const from = focusFrom.current
-    if (from === null) return
     if (props.isFetchNextPageError) {
-      focusFrom.current = null
+      focusFrom.current = Infinity
     } else if (length > from) {
-      focusFrom.current = null
-      listRef.current?.children[from]?.querySelector('button')?.focus()
+      focusFrom.current = Infinity
+      // a longer list is always rendered, so the list and the row at `from` both exist
+      listRef
+        .current!.querySelectorAll<HTMLButtonElement>(':scope > li > button')
+        .item(from)
+        .focus()
     }
   }, [length, props.isFetchNextPageError])
 
-  if (status === 'pending') {
-    return (
+  // `status` matters only without rows: a failed next page / refetch keeps them on screen
+  if (!items) {
+    return status === 'pending' ? (
       <div data-testid="job-queue-loading" aria-busy="true" className="flex flex-col gap-2">
         <span className="sr-only">
           <Trans>Завантажуємо чергу…</Trans>
@@ -130,11 +140,7 @@ export function JobQueueList(props: JobQueueListProps) {
           <Skeleton key={i} className="h-20 w-full" />
         ))}
       </div>
-    )
-  }
-
-  if (status === 'error' || !items) {
-    return (
+    ) : (
       <StateBlock
         testId="job-queue-error"
         role="alert"
@@ -179,7 +185,6 @@ export function JobQueueList(props: JobQueueListProps) {
 
   const shown = items.length
   const total = props.total
-  const added = seen.added
   const armed = props.hasNextPage && !props.isFetchingNextPage && !props.isFetchNextPageError
   const onButton = () => {
     focusFrom.current = shown
@@ -205,24 +210,24 @@ export function JobQueueList(props: JobQueueListProps) {
           <p data-testid="job-queue-live" aria-live="polite" className="tabular-nums">
             {props.hasNextPage ? (
               <span data-testid="job-queue-shown">
-                {added === null ? (
+                {added > 0 ? (
                   <Trans>
-                    Показано {shown} із {total}
+                    Завантажено ще {added}. Показано {shown} із {total}
                   </Trans>
                 ) : (
                   <Trans>
-                    Завантажено ще {added}. Показано {shown} із {total}
+                    Показано {shown} із {total}
                   </Trans>
                 )}
               </span>
             ) : (
               <span data-testid="job-queue-end">
-                {added === null ? (
-                  <Trans>Усі вакансії показано: {shown}</Trans>
-                ) : (
+                {added > 0 ? (
                   <Trans>
                     Завантажено ще {added}. Усі вакансії показано: {shown}
                   </Trans>
+                ) : (
+                  <Trans>Усі вакансії показано: {shown}</Trans>
                 )}
               </span>
             )}

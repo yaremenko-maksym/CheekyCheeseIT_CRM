@@ -105,6 +105,55 @@ describe('JobQueueFilters', () => {
     expect(onApply).toHaveBeenCalledWith({})
   })
 
+  it('unchecking one value keeps the rest of its group, and «Застосувати» closes the panel', async () => {
+    const onApply = vi.fn()
+    const user = userEvent.setup()
+    render(<JobQueueFilters value={{ availability: ['OPEN', 'CLOSED'] }} onApply={onApply} />, {
+      wrapper: I18nTestProvider,
+    })
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    await user.click(screen.getByRole('checkbox', { name: 'Відкрита' }))
+    await user.click(screen.getByTestId('job-queue-filters-apply'))
+    expect(onApply).toHaveBeenCalledWith({ availability: ['CLOSED'] })
+    expect(screen.queryByTestId('job-queue-filters-panel')).toBeNull()
+  })
+
+  it('discards an unapplied draft when the panel closes', async () => {
+    const onApply = vi.fn()
+    const user = userEvent.setup()
+    render(<JobQueueFilters value={{}} onApply={onApply} />, { wrapper: I18nTestProvider })
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    await user.click(screen.getByRole('checkbox', { name: 'Закрита' }))
+    expect(screen.getByRole('checkbox', { name: 'Закрита' })).toBeChecked()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByTestId('job-queue-filters-panel')).toBeNull()
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    expect(screen.getByRole('checkbox', { name: 'Закрита' })).not.toBeChecked()
+    expect(onApply).not.toHaveBeenCalled()
+  })
+
+  it('scrolls only the long source list', async () => {
+    const user = userEvent.setup()
+    render(<JobQueueFilters value={{}} onApply={vi.fn()} />, { wrapper: I18nTestProvider })
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    const source = screen.getByRole('group', { name: 'Джерело' })
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(source.querySelector('div')).toHaveClass('max-h-48', 'overflow-y-auto')
+    const availability = screen.getByRole('group', { name: 'Статус на джерелі' })
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(availability.querySelector('div')).not.toHaveAttribute('class')
+  })
+
+  it('names the unknown and expired availability values', () => {
+    render(
+      <JobQueueAppliedFilters value={{ availability: ['UNKNOWN', 'EXPIRED'] }} onReset={vi.fn()} />,
+      { wrapper: I18nTestProvider },
+    )
+    expect(screen.getByTestId('job-queue-applied')).toHaveTextContent(
+      /^Застосовано: Невідомо, ПростроченаСкинути фільтри$/,
+    )
+  })
+
   it('shows no count when nothing is applied', () => {
     render(<JobQueueFilters value={{}} onApply={() => {}} />, { wrapper: I18nTestProvider })
     expect(screen.getByTestId('job-queue-filters-button')).toHaveTextContent(/^Фільтри$/)

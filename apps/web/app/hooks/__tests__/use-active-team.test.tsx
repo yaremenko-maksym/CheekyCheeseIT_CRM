@@ -83,6 +83,19 @@ describe('useActiveTeams', () => {
     expect(get).not.toHaveBeenCalled()
   })
 
+  it('is null without a user even when the team list is cached (sign-out)', () => {
+    user = null
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    client.setQueryData(['teams', { archived: 'active' }], [BETA, ALPHA])
+    const { result } = renderHook(() => useActiveTeams(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    })
+    expect(result.current).toMatchObject({ teams: null, isLoading: false, isError: false })
+    expect(get).not.toHaveBeenCalled()
+  })
+
   it('fetches nothing while onboarding is incomplete', () => {
     onboardingComplete = false
     const { result } = renderHook(() => useActiveTeams(), { wrapper })

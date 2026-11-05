@@ -115,7 +115,11 @@ function FilterGroup({
   )
 }
 
-export function JobQueueFilters({
+/**
+ * The panel body. The popover unmounts it on close, so every open starts a fresh draft from the
+ * applied value and an unapplied draft is discarded.
+ */
+function FilterPanel({
   value,
   onApply,
 }: {
@@ -123,14 +127,7 @@ export function JobQueueFilters({
   onApply: (next: JobQueueFilterValue) => void
 }) {
   const { i18n } = useLingui()
-  const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<JobQueueFilterValue>(value)
-  const applied = appliedFilterCount(value)
-
-  function onOpenChange(next: boolean) {
-    if (next) setDraft(value)
-    setOpen(next)
-  }
 
   const row = (group: Group, option: string, label: ReactNode) => (
     <CheckRow
@@ -143,7 +140,53 @@ export function JobQueueFilters({
   )
 
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
+    <>
+      <FilterGroup legend={<Trans>Тип збігу</Trans>}>
+        {jobQueueEligibilitySchema.options.map((o) =>
+          row('eligibility', o, i18n._(ELIGIBILITY_LABEL[o])),
+        )}
+      </FilterGroup>
+      <FilterGroup legend={<Trans>Статус на джерелі</Trans>}>
+        {jobAvailabilitySchema.options.map((o) =>
+          row('availability', o, i18n._(AVAILABILITY_LABEL[o])),
+        )}
+      </FilterGroup>
+      <FilterGroup legend={<Trans>Джерело</Trans>} scroll>
+        {jobSourceTypeSchema.options.map((o) => row('source', o, sourceLabel(o)))}
+      </FilterGroup>
+      <div className="flex gap-2">
+        <Button
+          data-testid="job-queue-filters-clear"
+          variant="ghost"
+          className="min-h-11 flex-1"
+          onClick={() => setDraft({})}
+        >
+          <Trans>Скинути вибір</Trans>
+        </Button>
+        <Button
+          data-testid="job-queue-filters-apply"
+          className="min-h-11 flex-1"
+          onClick={() => onApply(draft)}
+        >
+          <Trans>Застосувати</Trans>
+        </Button>
+      </div>
+    </>
+  )
+}
+
+export function JobQueueFilters({
+  value,
+  onApply,
+}: {
+  value: JobQueueFilterValue
+  onApply: (next: JobQueueFilterValue) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const applied = appliedFilterCount(value)
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           data-testid="job-queue-filters-button"
@@ -175,39 +218,13 @@ export function JobQueueFilters({
         align="end"
         className="flex w-[min(20rem,calc(100vw-2rem))] flex-col gap-4"
       >
-        <FilterGroup legend={<Trans>Тип збігу</Trans>}>
-          {jobQueueEligibilitySchema.options.map((o) =>
-            row('eligibility', o, i18n._(ELIGIBILITY_LABEL[o])),
-          )}
-        </FilterGroup>
-        <FilterGroup legend={<Trans>Статус на джерелі</Trans>}>
-          {jobAvailabilitySchema.options.map((o) =>
-            row('availability', o, i18n._(AVAILABILITY_LABEL[o])),
-          )}
-        </FilterGroup>
-        <FilterGroup legend={<Trans>Джерело</Trans>} scroll>
-          {jobSourceTypeSchema.options.map((o) => row('source', o, sourceLabel(o)))}
-        </FilterGroup>
-        <div className="flex gap-2">
-          <Button
-            data-testid="job-queue-filters-clear"
-            variant="ghost"
-            className="min-h-11 flex-1"
-            onClick={() => setDraft({})}
-          >
-            <Trans>Скинути вибір</Trans>
-          </Button>
-          <Button
-            data-testid="job-queue-filters-apply"
-            className="min-h-11 flex-1"
-            onClick={() => {
-              onApply(draft)
-              setOpen(false)
-            }}
-          >
-            <Trans>Застосувати</Trans>
-          </Button>
-        </div>
+        <FilterPanel
+          value={value}
+          onApply={(next) => {
+            onApply(next)
+            setOpen(false)
+          }}
+        />
       </PopoverContent>
     </Popover>
   )

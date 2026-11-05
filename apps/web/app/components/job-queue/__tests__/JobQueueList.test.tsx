@@ -81,8 +81,13 @@ class FakeObserver {
     return []
   }
   fire(isIntersecting: boolean) {
+    this.fireEach([isIntersecting])
+  }
+  /** One entry per flag, all for the observed sentinel (a batched callback). */
+  fireEach(flags: boolean[]) {
+    const target = this.observed[0]!
     this.cb(
-      this.observed.map((target) => ({ isIntersecting, target }) as IntersectionObserverEntry),
+      flags.map((isIntersecting) => ({ isIntersecting, target }) as IntersectionObserverEntry),
       this as unknown as IntersectionObserver,
     )
   }
@@ -109,6 +114,16 @@ describe('JobQueueList', () => {
     expect(screen.getByTestId('job-queue-loading')).toHaveTextContent('Завантажуємо чергу…')
     expect(screen.getByText('Завантажуємо чергу…')).toHaveClass('sr-only')
     expect(screen.queryByTestId('job-queue-list')).toBeNull()
+    // three placeholder rows
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(screen.getByTestId('job-queue-loading').querySelectorAll('.h-20')).toHaveLength(3)
+    expect(screen.queryByTestId('job-queue-error')).toBeNull()
+  })
+
+  it('keeps the rows on screen when a refetch fails (status reads only without rows)', () => {
+    renderList({ status: 'error' })
+    expect(screen.getByTestId(`job-queue-row-${A.opportunityId}`)).toBeInTheDocument()
+    expect(screen.queryByTestId('job-queue-error')).toBeNull()
   })
 
   it('wide list: one clipped border, rows separated by dividers (no doubled last border)', () => {
@@ -131,12 +146,17 @@ describe('JobQueueList', () => {
   })
 
   it.each([
-    ['NEW', 'У черзі немає нових вакансій'],
-    ['SUBMITTED', 'Ваша команда ще нікого не подала'],
-    ['HIDDEN', 'Немає прихованих вакансій'],
-  ] as const)('shows the %s empty state', (tab, text) => {
+    ['NEW', 'У черзі немає нових вакансій', 'Нові з’являться після наступного оновлення джерел.'],
+    [
+      'SUBMITTED',
+      'Ваша команда ще нікого не подала',
+      'Тут будуть вакансії, на які ваша команда подала сеньйорів.',
+    ],
+    ['HIDDEN', 'Немає прихованих вакансій', 'Приховані вакансії можна повернути звідси.'],
+  ] as const)('shows the %s empty state', (tab, title, body) => {
     renderList({ items: [], tab, total: 0 })
-    expect(screen.getByTestId('job-queue-empty')).toHaveTextContent(text)
+    expect(screen.getByTestId('job-queue-empty')).toHaveTextContent(title)
+    expect(screen.getByText(body)).toHaveClass('text-sm', 'text-muted-foreground')
   })
 
   it('shows filtered-empty with a reset when filters hide everything', async () => {
@@ -165,10 +185,17 @@ describe('JobQueueList', () => {
 
   it('offers «Показати ще» while a next page exists', async () => {
     const props = renderList({ hasNextPage: true, total: 40 })
-    expect(screen.getByTestId('job-queue-shown')).toHaveTextContent('Показано 2 із 40')
+    expect(screen.getByTestId('job-queue-shown')).toHaveTextContent(/^Показано 2 із 40$/)
+    expect(screen.queryByTestId('job-queue-append-error')).toBeNull()
     await userEvent.click(screen.getByTestId('job-queue-load-more'))
     expect(props.onLoadMore).toHaveBeenCalledTimes(1)
     expect(screen.queryByTestId('job-queue-end')).toBeNull()
+  })
+
+  it('shows no append error on the last page', () => {
+    renderList({ hasNextPage: false, isFetchNextPageError: true })
+    expect(screen.queryByTestId('job-queue-append-error')).toBeNull()
+    expect(screen.getByTestId('job-queue-end')).toHaveTextContent(/^Усі вакансії показано: 2$/)
   })
 
   it('shows the appending state instead of the button', () => {
@@ -243,6 +270,42 @@ describe('JobQueueList', () => {
       )
       expect(screen.getByTestId(`job-queue-row-${C.opportunityId}`)).not.toHaveFocus()
     })
+
+    it('loads once when any entry of a batched callback intersects', () => {
+      const props = renderList({ hasNextPage: true, total: 40 })
+      FakeObserver.last!.fireEach([false, true])
+      expect(props.onLoadMore).toHaveBeenCalledTimes(1)
+    })
+
+    it('calls the latest onLoadMore after a rerender', () => {
+      const props = renderList({ hasNextPage: true, total: 40 })
+      const latest = vi.fn()
+      props.rerender({ onLoadMore: latest })
+      FakeObserver.last!.fire(true)
+      expect(latest).toHaveBeenCalledTimes(1)
+      expect(props.onLoadMore).not.toHaveBeenCalled()
+    })
+
+    it('stops observing once the sentinel goes away', () => {
+      const props = renderList({ hasNextPage: true, total: 40 })
+      const observer = FakeObserver.last!
+      expect(observer.observed).toHaveLength(1)
+      props.rerender({ isFetchingNextPage: true })
+      expect(screen.queryByTestId('job-queue-sentinel')).toBeNull()
+      expect(observer.observed).toEqual([])
+    })
+  })
+
+  it('keeps the «Показати ще» button without IntersectionObserver support', async () => {
+    vi.stubGlobal('IntersectionObserver', undefined)
+    try {
+      const props = renderList({ hasNextPage: true, total: 40 })
+      expect(screen.getByTestId('job-queue-sentinel')).toBeInTheDocument()
+      await userEvent.click(screen.getByTestId('job-queue-load-more'))
+      expect(props.onLoadMore).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('after a button append, focuses the first new row and announces the delta', async () => {
@@ -251,8 +314,27 @@ describe('JobQueueList', () => {
     view.rerender({ items: [A, B, C], hasNextPage: true, total: 5 })
     expect(screen.getByTestId(`job-queue-row-${C.opportunityId}`)).toHaveFocus()
     expect(screen.getByTestId('job-queue-live')).toHaveTextContent(
-      'Завантажено ще 1. Показано 3 із 5',
+      /^Завантажено ще 1\. Показано 3 із 5$/,
     )
+  })
+
+  it('focuses the first new row after a retried append that was in flight', async () => {
+    const view = renderList({ hasNextPage: true, isFetchNextPageError: true, total: 5 })
+    await userEvent.click(screen.getByRole('button', { name: 'Спробувати ще раз' }))
+    // the retry is in flight: same rows, no error yet
+    view.rerender({ isFetchNextPageError: false, isFetchingNextPage: true })
+    expect(screen.getByTestId('job-queue-appending')).toBeInTheDocument()
+    view.rerender({ items: [A, B, C], isFetchNextPageError: false, isFetchingNextPage: false })
+    expect(screen.getByTestId(`job-queue-row-${C.opportunityId}`)).toHaveFocus()
+  })
+
+  it('drops a pending button focus when the append fails', async () => {
+    const view = renderList({ hasNextPage: true, total: 5 })
+    await userEvent.click(screen.getByTestId('job-queue-load-more'))
+    view.rerender({ isFetchNextPageError: true })
+    // a later page (e.g. a sentinel load) arrives without a fresh button press
+    view.rerender({ items: [A, B, C], isFetchNextPageError: false })
+    expect(screen.getByTestId(`job-queue-row-${C.opportunityId}`)).not.toHaveFocus()
   })
 
   it('drops a pending button focus when the list is replaced (tab / filter switch)', async () => {
@@ -261,21 +343,46 @@ describe('JobQueueList', () => {
     view.rerender({ items: [C, A, B], hasNextPage: true, total: 5 })
     expect(screen.getByTestId(`job-queue-row-${B.opportunityId}`)).not.toHaveFocus()
     expect(screen.getByTestId('job-queue-load-more')).toHaveFocus()
+    // a longer replaced list is not an append
+    expect(screen.getByTestId('job-queue-live')).toHaveTextContent(/^Показано 3 із 5$/)
   })
 
   it('announces only the count before any append, and resets when the list is replaced', () => {
     const view = renderList({ items: [A, B, C], hasNextPage: true, total: 5 })
-    expect(screen.getByTestId('job-queue-live')).toHaveTextContent('Показано 3 із 5')
-    expect(screen.getByTestId('job-queue-live')).not.toHaveTextContent('Завантажено')
+    expect(screen.getByTestId('job-queue-live')).toHaveTextContent(/^Показано 3 із 5$/)
     view.rerender({ items: [A], hasNextPage: true, total: 5 })
-    expect(screen.getByTestId('job-queue-live')).toHaveTextContent('Показано 1 із 5')
-    expect(screen.getByTestId('job-queue-live')).not.toHaveTextContent('Завантажено')
+    expect(screen.getByTestId('job-queue-live')).toHaveTextContent(/^Показано 1 із 5$/)
+  })
+
+  it('drops the delta when a same-length list replaces an appended one', () => {
+    const view = renderList({ hasNextPage: true, total: 5 })
+    view.rerender({ items: [A, B, C], hasNextPage: true, total: 5 })
+    expect(screen.getByTestId('job-queue-live')).toHaveTextContent(
+      /^Завантажено ще 1\. Показано 3 із 5$/,
+    )
+    view.rerender({ items: [C, B, A], hasNextPage: true, total: 5 })
+    expect(screen.getByTestId('job-queue-live')).toHaveTextContent(/^Показано 3 із 5$/)
+  })
+
+  it('does not count a first page after an empty list as an append', () => {
+    const view = renderList({ items: [], total: 0 })
+    view.rerender({ items: [A, B], total: 2 })
+    expect(screen.getByTestId('job-queue-live')).toHaveTextContent(/^Усі вакансії показано: 2$/)
+  })
+
+  it('announces the delta with the end of the list after the last page', () => {
+    const view = renderList({ hasNextPage: true, total: 3 })
+    view.rerender({ items: [A, B, C], hasNextPage: false, total: 3 })
+    expect(screen.getByTestId('job-queue-end')).toHaveTextContent(
+      /^Завантажено ще 1\. Усі вакансії показано: 3$/,
+    )
   })
 
   it('announces the end of the list', () => {
     renderList()
-    expect(screen.getByTestId('job-queue-end')).toHaveTextContent('Усі вакансії показано: 2')
+    expect(screen.getByTestId('job-queue-end')).toHaveTextContent(/^Усі вакансії показано: 2$/)
     expect(screen.queryByTestId('job-queue-load-more')).toBeNull()
+    expect(screen.queryByTestId('job-queue-append-error')).toBeNull()
   })
 
   it('opens a card through the row', async () => {

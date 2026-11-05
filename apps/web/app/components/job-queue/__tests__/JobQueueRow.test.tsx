@@ -97,6 +97,15 @@ describe('JobQueueRow', () => {
   it('hides the matched count at 0', () => {
     renderRow({ matchedSeniorCount: 0 })
     expect(screen.queryByTestId('job-queue-row-matched')).toBeNull()
+    // no empty counts line either
+    expect(screen.queryByTestId('job-queue-row-counts')).toBeNull()
+  })
+
+  it('wraps a non-zero matched count in the counts line', () => {
+    renderRow({ matchedSeniorCount: 1 })
+    expect(screen.getByTestId('job-queue-row-counts')).toHaveTextContent(
+      /^1 сеньйор вашої команди має збіг стеку$/,
+    )
   })
 
   it.each([
@@ -210,5 +219,9 @@ describe('sourceLabel', () => {
     expect(sourceLabel('WTTJ_HTML')).toBe('WTTJ')
     expect(sourceLabel('GREENHOUSE_ATS')).toBe('GREENHOUSE')
     expect(sourceLabel('HN_HIRING')).toBe('HN')
+  })
+
+  it('strips only a trailing transport suffix', () => {
+    expect(sourceLabel('CUSTOM_API_FEED')).toBe('CUSTOM_API_FEED')
   })
 })
