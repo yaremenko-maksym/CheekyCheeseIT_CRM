@@ -368,7 +368,7 @@ describe('team triage grants and subscriptions', () => {
   it('subscription create: source filter bounded by the provider count (31)', () => {
     const s = {
       teamId: U1,
-      roleFamily: 'backend',
+      roleFamily: 'SOFTWARE',
       sourceTypes: ['DJINNI_RSS'],
       policyVersion: 1,
       expiresAt: NOW,
@@ -401,7 +401,7 @@ describe('team triage grants and subscriptions', () => {
       jobQueueTeamTriageSubscriptionSchema.safeParse({
         id: U1,
         teamId: U2,
-        roleFamily: 'backend',
+        roleFamily: 'SOFTWARE',
         sourceTypes: [],
         policyVersion: 1,
         subscriptionVersion: 1,
@@ -605,26 +605,20 @@ describe('mutation coverage: triage', () => {
       false,
     )
   })
-  it('roleFamily is trimmed, whitespace-only is rejected, and capped at 100', () => {
+  it('roleFamily is an exact layer-1 family: no padding, no blank, no free text (SR-L-2)', () => {
     const s = {
       teamId: U1,
-      roleFamily: 'backend',
+      roleFamily: 'SOFTWARE',
       sourceTypes: [],
       policyVersion: 1,
       expiresAt: NOW,
       reason: 'standing triage',
     }
-    expect(
-      createJobQueueTeamTriageSubscriptionSchema.parse({ ...s, roleFamily: '  backend  ' })
-        .roleFamily,
-    ).toBe('backend')
-    expect(
-      createJobQueueTeamTriageSubscriptionSchema.safeParse({ ...s, roleFamily: '   ' }).success,
-    ).toBe(false)
-    expect(
-      createJobQueueTeamTriageSubscriptionSchema.safeParse({ ...s, roleFamily: 'r'.repeat(100) })
-        .success,
-    ).toBe(true)
+    expect(createJobQueueTeamTriageSubscriptionSchema.parse(s).roleFamily).toBe('SOFTWARE')
+    for (const roleFamily of ['  SOFTWARE  ', '   ', 'r'.repeat(100)])
+      expect(
+        createJobQueueTeamTriageSubscriptionSchema.safeParse({ ...s, roleFamily }).success,
+      ).toBe(false)
   })
   it('grant row round-trips every field and rejects a missing one', () => {
     const row = {
@@ -649,7 +643,7 @@ describe('mutation coverage: triage', () => {
     const row = {
       id: U1,
       teamId: U2,
-      roleFamily: 'backend',
+      roleFamily: 'SOFTWARE',
       sourceTypes: ['DJINNI_RSS'],
       policyVersion: 1,
       subscriptionVersion: 2,
@@ -787,7 +781,7 @@ describe('triage requests refuse unknown keys (R11-M-8)', () => {
   it('createJobQueueTeamTriageSubscriptionSchema', () => {
     const ok = {
       teamId: U1,
-      roleFamily: 'backend',
+      roleFamily: 'SOFTWARE',
       sourceTypes: [],
       policyVersion: 1,
       expiresAt: NOW,

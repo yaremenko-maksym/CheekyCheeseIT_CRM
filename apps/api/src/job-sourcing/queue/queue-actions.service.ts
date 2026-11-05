@@ -5,6 +5,14 @@ import {
   jobQueueDismissReasonSchema,
   jobQueuePossibleDuplicateConflictSchema,
   jobQueueSubmissionResponseSchema,
+  jobQueueTeamTriageGrantSchema,
+  jobQueueTeamTriageSubscriptionSchema,
+  type JobQueueTeamTriageGrantDto,
+  type JobQueueTeamTriageGrantRequest,
+  type JobQueueTeamTriageRevokeRequest,
+  type JobQueueTeamTriageSubscribeRequest,
+  type JobQueueTeamTriageSubscriptionDto,
+  type JobQueueTeamTriageUnsubscribeRequest,
   type JobQueueCancelSubmissionRequestDto,
   type JobQueueDismissalResponseDto,
   type JobQueueDismissRequestDto,
@@ -17,6 +25,7 @@ import {
   type SessionUser,
 } from '@crm/shared'
 import { sql } from 'drizzle-orm'
+import { ZodError } from 'zod'
 import { apiError } from '../../common/api-error'
 import { DatabaseService } from '../../database/database.service'
 import { isDeadlock, uniqueViolationConstraint } from '../../database/pg-errors'
@@ -37,6 +46,7 @@ import {
   scopeTeamId,
   type WriteScope,
 } from './queue-actions'
+import { invalidateTeamGenerations } from './queue-generation'
 import {
   canonicalUuid,
   possibleDuplicateJoin,
@@ -59,12 +69,46 @@ const seniorIneligible = () =>
   apiError('JOB_QUEUE_SENIOR_INELIGIBLE', HttpStatus.UNPROCESSABLE_ENTITY)
 const resumeUnusable = () => apiError('JOB_QUEUE_RESUME_UNUSABLE', HttpStatus.UNPROCESSABLE_ENTITY)
 const manualDuplicate = () => apiError('JOB_QUEUE_MANUAL_DUPLICATE', HttpStatus.CONFLICT)
+const triageNotAllowed = () =>
+  apiError('JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED', HttpStatus.UNPROCESSABLE_ENTITY)
+const subscriptionNotFound = () =>
+  apiError('JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND', HttpStatus.NOT_FOUND)
+
+const GRANT_COLUMNS = sql`id, opportunity_id, team_id, assigned_by, evidence, policy_version,
+  opportunity_revision, grant_version, expires_at, revoked_at, created_at`
+// `to_jsonb`: node-postgres does not parse an enum array, it hands back the literal `{A,B}`.
+const SUBSCRIPTION_COLUMNS = sql`id, team_id, role_family, to_jsonb(source_types) AS source_types,
+  policy_version, subscription_version, expires_at, revoked_at, created_at`
 
 /**
  * The advisory-lock class of a manual card's application-URL key: two concurrent creates with one
  * link serialize on it, so the second sees the first card. The second key is `hashtext(urlKey)`.
  */
 const MANUAL_URL_LOCK_CLASS = 0x6d616e75
+
+/**
+ * The advisory-lock class of a team's triage subscriptions of one role family: two concurrent
+ * subscribes of one rule serialize on it, so the second sees the first and is refused as a
+ * duplicate. `lockLiveTeam`'s `FOR SHARE` alone does not order them. The second key is
+ * `hashtext(team:roleFamily)`.
+ */
+const TRIAGE_SUBSCRIPTION_LOCK_CLASS = 0x74726961
+
+/**
+ * A grant or subscription that is already over would be written dead and show nothing. Refused at
+ * the server's clock as an ordinary validation 400 (`ZodExceptionFilter`); now itself is refused.
+ */
+function refuseElapsed(expiresAt: string): void {
+  if (Date.parse(expiresAt) > Date.now()) return
+  throw new ZodError([
+    {
+      code: 'custom',
+      path: ['expiresAt'],
+      message: 'expiresAt must be in the future',
+      input: expiresAt,
+    },
+  ])
+}
 
 function withoutFragment(raw: string): string {
   const url = new URL(raw)
@@ -599,6 +643,319 @@ export class JobQueueActionsService {
   }
 
   /**
+   * r5 Task 6.4b — POST `/job-queue/:id/team-triage` (ADMIN). Lets one live team see one opportunity
+   * that no match brought it. The grant alone shows nothing: `visibleOpportunityPredicate` still
+   * requires the opportunity to be evaluated OPEN at its current revision and the team's live inputs,
+   * so a grant on an unevaluated item stays invisible (fail closed). A live grant is refused (revoke
+   * first); a revoked or expired one is re-granted in place at the next version. The admin's reason
+   * lives in the grant's `evidence` (the table has no reason column); the log row carries the replay.
+   */
+  async grantTeamTriage(
+    user: SessionUser,
+    opportunityId: string,
+    request: JobQueueTeamTriageGrantRequest,
+  ): Promise<JobQueueTeamTriageGrantDto> {
+    const opportunity = canonicalUuid(opportunityId)
+    const teamId = canonicalUuid(request.teamId)
+    if (opportunity === null) throw notFound()
+    if (teamId === null) throw triageNotAllowed()
+    refuseElapsed(request.expiresAt)
+    return this.write(async (tx) => {
+      const scope = await this.adminScope(user, tx)
+      const { rows } = await tx.execute(
+        sql`SELECT revision, manual_team_id FROM job_opportunities
+             WHERE id = ${opportunity}::uuid FOR NO KEY UPDATE`,
+      )
+      const target = rows[0]
+      if (target === undefined) throw notFound()
+      await this.lockActor(tx, user, scope)
+      const fingerprint = requestFingerprint([
+        'TRIAGE_GRANTED',
+        opportunity,
+        teamId,
+        request.expectedOpportunityRevision,
+        request.policyVersion,
+        request.reason,
+        request.expiresAt,
+      ])
+      const earlier = await this.earlierAction(tx, user.id, request.idempotencyKey, fingerprint)
+      // Intentional: a replay answers the row as it is now (a later revoke shows), never a snapshot.
+      if (earlier !== null) return grantAnswer((await this.grantRow(tx, opportunity, teamId))[0])
+      // A manual card is its own team's only (`visibleOpportunityPredicate`): a grant would show nothing.
+      if (target['manual_team_id'] !== null) throw triageNotAllowed()
+      if (Number(target['revision']) !== request.expectedOpportunityRevision)
+        throw versionConflict()
+      if (!(await this.lockLiveTeam(tx, teamId))) throw triageNotAllowed()
+      const current = (await this.grantRow(tx, opportunity, teamId, true))[0]
+      if (current !== undefined && current['live'] === true) throw versionConflict()
+      const written = await tx.execute(
+        sql`INSERT INTO job_opportunity_team_triage
+              (opportunity_id, team_id, assigned_by, evidence, policy_version, opportunity_revision,
+               expires_at)
+            VALUES (${opportunity}::uuid, ${teamId}::uuid, ${user.id}::uuid,
+                    jsonb_build_object('reason', ${request.reason}::text), ${request.policyVersion},
+                    ${request.expectedOpportunityRevision}, ${request.expiresAt}::timestamptz)
+            ON CONFLICT (opportunity_id, team_id) DO UPDATE
+              SET assigned_by = EXCLUDED.assigned_by, evidence = EXCLUDED.evidence,
+                  policy_version = EXCLUDED.policy_version,
+                  opportunity_revision = EXCLUDED.opportunity_revision,
+                  expires_at = EXCLUDED.expires_at, revoked_at = NULL,
+                  grant_version = job_opportunity_team_triage.grant_version + 1
+            RETURNING ${GRANT_COLUMNS}`,
+      )
+      const grant = grantAnswer(written.rows[0])
+      await this.logTriage(tx, {
+        kind: 'TRIAGE_GRANTED',
+        opportunity,
+        subscription: null,
+        subjectTeamId: teamId,
+        actorId: user.id,
+        before: current === undefined ? 0 : Number(current['grant_version']),
+        after: grant.grantVersion,
+        key: request.idempotencyKey,
+        fingerprint,
+      })
+      return grant
+    })
+  }
+
+  /**
+   * DELETE `/job-queue/:id/team-triage/:teamId` (ADMIN). Revokes the team's grant at the version the
+   * caller saw; a missing, already revoked or newer grant is the generic version conflict. The team
+   * stops seeing the opportunity at once (list entries are re-checked against visibility).
+   */
+  async revokeTeamTriage(
+    user: SessionUser,
+    opportunityId: string,
+    teamIdParam: string,
+    request: JobQueueTeamTriageRevokeRequest,
+  ): Promise<JobQueueTeamTriageGrantDto> {
+    const opportunity = canonicalUuid(opportunityId)
+    const teamId = canonicalUuid(teamIdParam)
+    if (opportunity === null || teamId === null) throw notFound()
+    return this.write(async (tx) => {
+      const scope = await this.adminScope(user, tx)
+      await this.lockTarget(tx, opportunity)
+      await this.lockActor(tx, user, scope)
+      const fingerprint = requestFingerprint([
+        'TRIAGE_REVOKED',
+        opportunity,
+        teamId,
+        request.expectedGrantVersion,
+        request.reason,
+      ])
+      const earlier = await this.earlierAction(tx, user.id, request.idempotencyKey, fingerprint)
+      // Intentional: a replay answers the row as it is now, never a snapshot.
+      if (earlier !== null) return grantAnswer((await this.grantRow(tx, opportunity, teamId))[0])
+      const { rows } = await tx.execute(
+        sql`UPDATE job_opportunity_team_triage
+               SET revoked_at = clock_timestamp(), grant_version = grant_version + 1,
+                   evidence = evidence || jsonb_build_object('revokeReason', ${request.reason}::text)
+             WHERE opportunity_id = ${opportunity}::uuid AND team_id = ${teamId}::uuid
+               AND grant_version = ${request.expectedGrantVersion} AND revoked_at IS NULL
+            RETURNING ${GRANT_COLUMNS}`,
+      )
+      // No row (missing, revoked or newer grant): `grantAnswer` throws the version conflict.
+      const grant = grantAnswer(rows[0])
+      await this.logTriage(tx, {
+        kind: 'TRIAGE_REVOKED',
+        opportunity,
+        subscription: null,
+        subjectTeamId: teamId,
+        actorId: user.id,
+        before: request.expectedGrantVersion,
+        after: grant.grantVersion,
+        key: request.idempotencyKey,
+        fingerprint,
+      })
+      return grant
+    })
+  }
+
+  /**
+   * POST `/job-queue/team-triage-subscriptions` (ADMIN). A standing rule: the team sees every
+   * verified-employer opportunity of this layer-1 role family (from these source types, or all),
+   * once it is evaluated OPEN at its current revision (`visibleOpportunityPredicate`).
+   */
+  async subscribeTeamTriage(
+    user: SessionUser,
+    request: JobQueueTeamTriageSubscribeRequest,
+  ): Promise<JobQueueTeamTriageSubscriptionDto> {
+    const teamId = canonicalUuid(request.teamId)
+    if (teamId === null) throw triageNotAllowed()
+    const sourceTypes = [...new Set(request.sourceTypes)].sort()
+    refuseElapsed(request.expiresAt)
+    return this.write(async (tx) => {
+      const scope = await this.adminScope(user, tx)
+      await this.lockActor(tx, user, scope)
+      const fingerprint = requestFingerprint([
+        'TRIAGE_SUBSCRIBED',
+        teamId,
+        request.roleFamily,
+        sourceTypes.join(','),
+        request.policyVersion,
+        request.expiresAt,
+        request.reason,
+      ])
+      const earlier = await this.earlierAction(tx, user.id, request.idempotencyKey, fingerprint)
+      // Intentional: a replay answers the row as it is now (a later revoke shows), never a snapshot.
+      if (earlier !== null) {
+        return subscriptionAnswer((await this.subscriptionRow(tx, earlier.subscription))[0])
+      }
+      if (!(await this.lockLiveTeam(tx, teamId))) throw triageNotAllowed()
+      const sourceArray = sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(sourceTypes)}::jsonb))::job_source_type[]`
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(${TRIAGE_SUBSCRIPTION_LOCK_CLASS}::int,
+                                         hashtext(${`${teamId}:${request.roleFamily}`}))`,
+      )
+      // One live rule per team, role family and source-type set (sorted, deduped; {} = all sources).
+      const duplicate = await tx.execute(
+        sql`SELECT 1 FROM job_team_triage_subscriptions
+             WHERE team_id = ${teamId}::uuid AND role_family = ${request.roleFamily}
+               AND revoked_at IS NULL AND expires_at > clock_timestamp()
+               AND source_types @> ${sourceArray} AND source_types <@ ${sourceArray}`,
+      )
+      if (duplicate.rows.length > 0) throw versionConflict()
+      const { rows } = await tx.execute(
+        sql`INSERT INTO job_team_triage_subscriptions
+              (team_id, role_family, source_types, policy_version, actor_id, reason, expires_at)
+            VALUES (${teamId}::uuid, ${request.roleFamily}, ${sourceArray},
+                    ${request.policyVersion}, ${user.id}::uuid, ${request.reason},
+                    ${request.expiresAt}::timestamptz)
+            RETURNING ${SUBSCRIPTION_COLUMNS}`,
+      )
+      const subscription = subscriptionAnswer(rows[0])
+      await this.logTriage(tx, {
+        kind: 'TRIAGE_SUBSCRIBED',
+        opportunity: null,
+        subscription: subscription.id,
+        subjectTeamId: teamId,
+        actorId: user.id,
+        before: 0,
+        after: subscription.subscriptionVersion,
+        key: request.idempotencyKey,
+        fingerprint,
+      })
+      return subscription
+    })
+  }
+
+  /** DELETE `/job-queue/team-triage-subscriptions/:id` (ADMIN). Revokes at the version the caller saw. */
+  async unsubscribeTeamTriage(
+    user: SessionUser,
+    subscriptionId: string,
+    request: JobQueueTeamTriageUnsubscribeRequest,
+  ): Promise<JobQueueTeamTriageSubscriptionDto> {
+    const id = canonicalUuid(subscriptionId)
+    if (id === null) throw subscriptionNotFound()
+    return this.write(async (tx) => {
+      const scope = await this.adminScope(user, tx)
+      const locked = await tx.execute(
+        sql`SELECT team_id FROM job_team_triage_subscriptions
+             WHERE id = ${id}::uuid FOR NO KEY UPDATE`,
+      )
+      if (locked.rows[0] === undefined) throw subscriptionNotFound()
+      const teamId = String(locked.rows[0]['team_id'])
+      await this.lockActor(tx, user, scope)
+      const fingerprint = requestFingerprint([
+        'TRIAGE_UNSUBSCRIBED',
+        id,
+        request.expectedSubscriptionVersion,
+        request.reason,
+      ])
+      const earlier = await this.earlierAction(tx, user.id, request.idempotencyKey, fingerprint)
+      // Intentional: a replay answers the row as it is now, never a snapshot.
+      if (earlier !== null) return subscriptionAnswer((await this.subscriptionRow(tx, id))[0])
+      const { rows } = await tx.execute(
+        sql`UPDATE job_team_triage_subscriptions
+               SET revoked_at = clock_timestamp(), revoked_by = ${user.id}::uuid,
+                   revoke_reason = ${request.reason},
+                   subscription_version = subscription_version + 1, updated_at = clock_timestamp()
+             WHERE id = ${id}::uuid AND revoked_at IS NULL
+               AND subscription_version = ${request.expectedSubscriptionVersion}
+            RETURNING ${SUBSCRIPTION_COLUMNS}`,
+      )
+      if (rows[0] === undefined) throw versionConflict()
+      const subscription = subscriptionAnswer(rows[0])
+      await this.logTriage(tx, {
+        kind: 'TRIAGE_UNSUBSCRIBED',
+        opportunity: null,
+        subscription: id,
+        subjectTeamId: teamId,
+        actorId: user.id,
+        before: request.expectedSubscriptionVersion,
+        after: subscription.subscriptionVersion,
+        key: request.idempotencyKey,
+        fingerprint,
+      })
+      return subscription
+    })
+  }
+
+  /** The service's own re-check behind `@Roles('ADMIN')`: only the STUDIO scope writes triage. */
+  private async adminScope(user: SessionUser, tx: SqlExecutor): Promise<WriteScope> {
+    const scope = await this.scopes.resolve(user, undefined, tx)
+    if (scope.kind !== 'STUDIO') throw new ForbiddenException()
+    return scope
+  }
+
+  /** A live SENIOR team, locked `FOR SHARE` so an archival cannot commit under the write. */
+  private async lockLiveTeam(tx: SqlExecutor, teamId: string): Promise<boolean> {
+    const team = await this.scopes.policy(() =>
+      tx.execute(
+        sql`SELECT id FROM teams
+             WHERE id = ${teamId}::uuid AND archived_at IS NULL AND type = 'SENIOR'
+               FOR SHARE`,
+      ),
+    )
+    return team.rows.length > 0
+  }
+
+  private async grantRow(
+    tx: SqlExecutor,
+    opportunity: string,
+    teamId: string,
+    lock = false,
+  ): Promise<Array<Record<string, unknown>>> {
+    const { rows } = await tx.execute(
+      sql`SELECT ${GRANT_COLUMNS},
+                 (revoked_at IS NULL AND expires_at > clock_timestamp()) AS live
+            FROM job_opportunity_team_triage
+           WHERE opportunity_id = ${opportunity}::uuid AND team_id = ${teamId}::uuid
+           ${lock ? sql`FOR UPDATE` : sql``}`,
+    )
+    return rows
+  }
+
+  private async subscriptionRow(
+    tx: SqlExecutor,
+    id: string | null,
+  ): Promise<Array<Record<string, unknown>>> {
+    const { rows } = await tx.execute(
+      sql`SELECT ${SUBSCRIPTION_COLUMNS} FROM job_team_triage_subscriptions WHERE id = ${id}::uuid`,
+    )
+    return rows
+  }
+
+  /**
+   * The TRIAGE_* audit row: STUDIO scope, the team as its subject, and either the opportunity
+   * (grant) or the subscription (subscribe) as its target — the shape `ck_job_queue_actions_target`
+   * and `ck_job_queue_actions_subject_team` require. Append-only like every log row.
+   */
+  private async logTriage(tx: SqlExecutor, action: TriageActionRow): Promise<void> {
+    await tx.execute(
+      sql`INSERT INTO job_queue_actions
+            (kind, opportunity_id, subscription_id, subject_team_id, actor_id, scope_kind,
+             before_version, after_version, idempotency_key, reason)
+          VALUES (${action.kind}, ${action.opportunity}::uuid, ${action.subscription}::uuid,
+                  ${action.subjectTeamId}::uuid, ${action.actorId}::uuid, 'STUDIO',
+                  ${action.before}, ${action.after}, ${action.key},
+                  ${JSON.stringify({ fp: action.fingerprint })})`,
+    )
+    await invalidateTeamGenerations(tx, action.subjectTeamId)
+  }
+
+  /**
    * One transaction, and what the locks do not make impossible. The same key used concurrently on
    * ANOTHER opportunity shares no lock: its 23505 rolled this attempt back, so one rerun answers
    * from the log (the replay or the idempotency conflict). Lock order is not global (a sibling write
@@ -670,7 +1027,8 @@ export class JobQueueActionsService {
     fingerprint: string,
   ): Promise<EarlierAction | null> {
     const { rows } = await tx.execute(
-      sql`SELECT reason, after_version, created_at, opportunity_id FROM job_queue_actions
+      sql`SELECT reason, after_version, created_at, opportunity_id, subscription_id
+            FROM job_queue_actions
            WHERE actor_id = ${actorId}::uuid AND idempotency_key = ${key}`,
     )
     const row = rows[0]
@@ -679,6 +1037,7 @@ export class JobQueueActionsService {
     if (replay === null || replay.fp !== fingerprint) throw idempotencyConflict()
     return {
       opportunity: String(row['opportunity_id']),
+      subscription: row['subscription_id'] == null ? null : String(row['subscription_id']),
       replay,
       version: Number(row['after_version']),
       createdAt: isoInstant(row['created_at']),
@@ -727,16 +1086,7 @@ export class JobQueueActionsService {
       ),
     )
     if (actor.rows.length === 0) throw notFound()
-    if (scope.kind === 'TEAM') {
-      const team = await this.scopes.policy(() =>
-        tx.execute(
-          sql`SELECT id FROM teams
-               WHERE id = ${scope.teamId}::uuid AND archived_at IS NULL AND type = 'SENIOR'
-                 FOR SHARE`,
-        ),
-      )
-      if (team.rows.length === 0) throw notFound()
-    }
+    if (scope.kind === 'TEAM' && !(await this.lockLiveTeam(tx, scope.teamId))) throw notFound()
     if (user.role === 'ADMIN') return
     const membership = await this.scopes.policy(() =>
       tx.execute(
@@ -928,9 +1278,59 @@ interface LockedCopy {
 interface EarlierAction {
   /** The opportunity the logged action wrote: a manual card's retry learns its card from here. */
   readonly opportunity: string
+  /** The subscription a TRIAGE_SUBSCRIBED row wrote: a subscribe retry answers with it. */
+  readonly subscription: string | null
   readonly replay: ActionReplay
   readonly version: number
   readonly createdAt: string
+}
+
+interface TriageActionRow {
+  readonly kind: 'TRIAGE_GRANTED' | 'TRIAGE_REVOKED' | 'TRIAGE_SUBSCRIBED' | 'TRIAGE_UNSUBSCRIBED'
+  readonly opportunity: string | null
+  readonly subscription: string | null
+  readonly subjectTeamId: string
+  readonly actorId: string
+  readonly before: number
+  readonly after: number
+  readonly key: string
+  readonly fingerprint: string
+}
+
+const nullableInstant = (v: unknown): string | null => (v == null ? null : isoInstant(v))
+
+function grantAnswer(row: Record<string, unknown> | undefined): JobQueueTeamTriageGrantDto {
+  if (row === undefined) throw versionConflict()
+  return jobQueueTeamTriageGrantSchema.parse({
+    id: String(row['id']),
+    opportunityId: String(row['opportunity_id']),
+    teamId: String(row['team_id']),
+    assignedBy: String(row['assigned_by']),
+    policyVersion: Number(row['policy_version']),
+    opportunityRevision: Number(row['opportunity_revision']),
+    grantVersion: Number(row['grant_version']),
+    evidence: row['evidence'],
+    expiresAt: isoInstant(row['expires_at']),
+    revokedAt: nullableInstant(row['revoked_at']),
+    createdAt: isoInstant(row['created_at']),
+  })
+}
+
+function subscriptionAnswer(
+  row: Record<string, unknown> | undefined,
+): JobQueueTeamTriageSubscriptionDto {
+  if (row === undefined) throw subscriptionNotFound()
+  return jobQueueTeamTriageSubscriptionSchema.parse({
+    id: String(row['id']),
+    teamId: String(row['team_id']),
+    roleFamily: String(row['role_family']),
+    sourceTypes: row['source_types'],
+    policyVersion: Number(row['policy_version']),
+    subscriptionVersion: Number(row['subscription_version']),
+    expiresAt: isoInstant(row['expires_at']),
+    revokedAt: nullableInstant(row['revoked_at']),
+    createdAt: isoInstant(row['created_at']),
+  })
 }
 
 interface WrittenSubmission {

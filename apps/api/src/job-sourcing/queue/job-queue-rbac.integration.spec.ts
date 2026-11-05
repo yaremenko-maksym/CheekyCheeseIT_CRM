@@ -230,8 +230,9 @@ interface Answer {
   raw: string
   json: Record<string, unknown>
 }
+type Method = 'GET' | 'POST' | 'DELETE'
 async function call(
-  method: 'GET' | 'POST',
+  method: Method,
   url: string,
   who: string | null,
   payload?: unknown,
@@ -254,6 +255,8 @@ async function call(
 }
 const get = (url: string, who: string | null) => call('GET', url, who)
 const post = (url: string, who: string | null, payload?: unknown) => call('POST', url, who, payload)
+const del = (url: string, who: string | null, payload?: unknown) =>
+  call('DELETE', url, who, payload)
 
 const search = `search=${encodeURIComponent(TAG)}&limit=50`
 const listedIds = (a: Answer) =>
@@ -295,6 +298,30 @@ const RECOMPUTE_RUNS = `SELECT id FROM job_collection_cycles
   WHERE trigger = 'MANUAL' AND starts_with(trigger_key, '${RECOMPUTE_TRIGGER_PREFIX}')
     AND requested_by IN (SELECT id FROM users WHERE email LIKE $1)`
 const recomputeRuns = async () => (await sqlq(RECOMPUTE_RUNS, [`${TAG}%`])).rows
+/** r5 Task 6.4b — the append-only audit of every triage write about one team. */
+const triageActions = async (team: string) =>
+  (
+    await sqlq(
+      `SELECT kind::text AS kind, opportunity_id, subscription_id, actor_id, scope_kind::text AS scope_kind,
+              before_version::int AS before_version, after_version::int AS after_version
+         FROM job_queue_actions
+        WHERE subject_team_id = $1 AND kind::text LIKE 'TRIAGE_%'
+        ORDER BY after_version`,
+      [id(team)],
+    )
+  ).rows
+/** Triage grants and API-made subscriptions of TAG teams (the seeded ones carry reason 'qrbac'). */
+const triageRows = async () =>
+  (
+    await sqlq(
+      `SELECT 'grant' AS what FROM job_opportunity_team_triage
+        WHERE team_id IN (SELECT id FROM teams WHERE name LIKE $1)
+       UNION ALL
+       SELECT 'subscription' FROM job_team_triage_subscriptions
+        WHERE team_id IN (SELECT id FROM teams WHERE name LIKE $1) AND reason <> 'qrbac'`,
+      [`${TAG}%`],
+    )
+  ).rows
 
 describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.4)', () => {
   beforeAll(async () => {
@@ -395,6 +422,8 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
         `DELETE FROM job_queue_generations WHERE scope_kind = 'STUDIO' AND status = 'INVALIDATED'`,
       )
       const opps = `SELECT id FROM job_opportunities WHERE title LIKE $1`
+      // Before users: a grant restricts its ADMIN (`assigned_by` RESTRICT).
+      await sqlq(`DELETE FROM job_opportunity_team_triage WHERE team_id IN (${teams})`, [`${TAG}%`])
       await sqlq(`DELETE FROM job_queue_assignments WHERE opportunity_id IN (${opps})`, [`${TAG}%`])
       await sqlq(`DELETE FROM job_queue_dismissals WHERE opportunity_id IN (${opps})`, [`${TAG}%`])
       await sqlq(`DELETE FROM job_opportunity_matches WHERE opportunity_id IN (${opps})`, [
@@ -423,7 +452,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
   })
 
   /** One request per route, with a valid id and a valid body: only the guard can refuse it. */
-  const everyRoute = (): Array<['GET' | 'POST', string, unknown]> => [
+  const everyRoute = (): Array<[Method, string, unknown]> => [
     ['GET', '', undefined],
     ['GET', `/${id('oppOnlyA')}`, undefined],
     ['GET', `/${id('oppOnlyA')}/sources`, undefined],
@@ -462,7 +491,42 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
         submission: { teamId: id('teamA'), seniorId: id('senA'), resumeId: randomUUID() },
       },
     ],
+    ...triageRoutes(),
   ]
+
+  /** r5 Task 6.4b — the four ADMIN triage writes, each with a valid id and body. */
+  const triageRoutes = (): Array<[Method, string, unknown]> => [
+    ['POST', `/${id('oppOnlyA')}/team-triage`, grantBody('teamA')],
+    [
+      'DELETE',
+      `/${id('oppOnlyA')}/team-triage/${id('teamA')}`,
+      { expectedGrantVersion: 1, reason: `${TAG} guard`, idempotencyKey: randomUUID() },
+    ],
+    ['POST', '/team-triage-subscriptions', subscribeBody('teamA', 'SOFTWARE')],
+    [
+      'DELETE',
+      `/team-triage-subscriptions/${randomUUID()}`,
+      { expectedSubscriptionVersion: 1, reason: `${TAG} guard`, idempotencyKey: randomUUID() },
+    ],
+  ]
+  const inADay = () => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  const grantBody = (team: string, revision = 1) => ({
+    teamId: id(team),
+    expectedOpportunityRevision: revision,
+    policyVersion: 1,
+    reason: `${TAG} grant`,
+    expiresAt: inADay(),
+    idempotencyKey: randomUUID(),
+  })
+  const subscribeBody = (team: string, roleFamily: string) => ({
+    teamId: id(team),
+    roleFamily,
+    sourceTypes: ['GREENHOUSE_ATS'],
+    policyVersion: 1,
+    expiresAt: inADay(),
+    reason: `${TAG} subscribe`,
+    idempotencyKey: randomUUID(),
+  })
 
   describe('the guard chain', () => {
     it('no session is a 401 on every route; a forged token too', async () => {
@@ -482,8 +546,20 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
         }
         expect(await suppressedRows('oppOnlyA')).toEqual([])
         expect(await recomputeRuns()).toEqual([])
+        expect(await triageRows()).toEqual([])
+        expect(await triageActions('teamA')).toEqual([])
       },
     )
+
+    it('the triage writes are ADMIN only: an HR is the RolesGuard 403 and writes nothing', async () => {
+      for (const [method, url, body] of triageRoutes()) {
+        const a = await call(method, url, 'hrA', body)
+        expect(a.status, `${method} ${url}`).toBe(403)
+        expect(a.json['code']).toBe(ROLE_REFUSAL)
+      }
+      expect(await triageRows()).toEqual([])
+      expect(await triageActions('teamA')).toEqual([])
+    })
 
     it('suppress is ADMIN only: an HR is the RolesGuard 403 and writes nothing', async () => {
       const a = await post(`/${id('oppOnlyA')}/suppress`, 'hrA', { idempotencyKey: randomUUID() })
@@ -517,6 +593,34 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       'x=1',
     ])('GET ?%s', async (query) => {
       expect((await get(`?${query}`, 'hrA')).status).toBe(400)
+    })
+
+    it('a triage write with a bad path id or body is a 400 for the ADMIN, and writes nothing', async () => {
+      const opp = id('oppOnlyA')
+      const revoke = { expectedGrantVersion: 1, reason: `${TAG} r`, idempotencyKey: randomUUID() }
+      const unsubscribe = {
+        expectedSubscriptionVersion: 1,
+        reason: `${TAG} r`,
+        idempotencyKey: randomUUID(),
+      }
+      const refused: Array<[Method, string, unknown]> = [
+        ['POST', '/nope/team-triage', grantBody('teamA')],
+        ['DELETE', `/nope/team-triage/${id('teamA')}`, revoke],
+        ['DELETE', `/${opp}/team-triage/nope`, revoke],
+        ['DELETE', '/team-triage-subscriptions/nope', unsubscribe],
+        ['POST', `/${opp}/team-triage`, { ...grantBody('teamA'), expectedOpportunityRevision: 0 }],
+        ['POST', `/${opp}/team-triage`, { ...grantBody('teamA'), extra: 1 }],
+        ['DELETE', `/${opp}/team-triage/${id('teamA')}`, { ...revoke, expectedGrantVersion: 0 }],
+        // SR-L-2: only an upper-case layer-1 family, never UNKNOWN.
+        ['POST', '/team-triage-subscriptions', subscribeBody('teamA', 'UNKNOWN')],
+        ['POST', '/team-triage-subscriptions', subscribeBody('teamA', 'software')],
+        ['POST', '/team-triage-subscriptions', { ...subscribeBody('teamA', 'DATA'), reason: '' }],
+      ]
+      for (const [method, url, body] of refused) {
+        expect((await call(method, url, 'admin', body)).status, `${method} ${url}`).toBe(400)
+      }
+      expect(await triageRows()).toEqual([])
+      expect(await triageActions('teamA')).toEqual([])
     })
 
     it('a bad path id or body on a write is a 400, and writes nothing', async () => {
@@ -1347,6 +1451,262 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
         expect(e).toBeInstanceOf(HttpException)
         expect((e as HttpException).getStatus()).toBe(404)
       }
+    })
+  })
+
+  /**
+   * r5 Task 6.4b — the ADMIN triage writes, in order, over their own teams (G: a grant, T: a
+   * subscription) and opportunities, so no list above sees them. The throttle (30/min) is not
+   * mounted here, as for every route of this file: the controller spec asserts its metadata.
+   */
+  describe('triage grants and subscriptions (ADMIN, Task 6.4b)', () => {
+    const VERSION_CONFLICT = 'JOB_QUEUE_VERSION_CONFLICT'
+    const reads = (opp: string) => [`/${id(opp)}`, `/${id(opp)}/sources`, `/${id(opp)}/seniors`]
+    const hiddenFrom = async (who: string, opp: string) => {
+      for (const url of reads(opp)) {
+        const a = await get(url, who)
+        expect(a.status, url).toBe(404)
+        expect(a.json['code']).toBe(NOT_FOUND)
+      }
+    }
+    let granted: ReturnType<typeof grantBody>
+    let subscriptionId = ''
+
+    beforeAll(async () => {
+      await mkUser('hrG', 'HR')
+      await mkUser('hrT', 'HR')
+      await mkTeam('teamG')
+      await mkTeam('teamT')
+      await join('teamG', 'hrG')
+      await join('teamT', 'hrT')
+      // Not evaluated yet: a grant alone must not show it.
+      await mkOpp('oppGrant')
+      await subOpp('oppTriageSub', 'DATA')
+    })
+
+    it('grant: 201 with the grant, one audit row, and the team generation retired', async () => {
+      expect((await get(`?${search}`, 'hrG')).status).toBe(200)
+      expect(await publishedGenerations('teamG')).toHaveLength(1)
+      const body = grantBody('teamG')
+      granted = body
+      const a = await post(`/${id('oppGrant')}/team-triage`, 'admin', body)
+      expect(a.status).toBe(201)
+      expect(a.json).toMatchObject({
+        opportunityId: id('oppGrant'),
+        teamId: id('teamG'),
+        assignedBy: id('admin'),
+        policyVersion: 1,
+        opportunityRevision: 1,
+        grantVersion: 1,
+        evidence: { reason: `${TAG} grant` },
+        expiresAt: body.expiresAt,
+        revokedAt: null,
+      })
+      expect(await publishedGenerations('teamG')).toEqual([])
+      expect(await triageActions('teamG')).toEqual([
+        {
+          kind: 'TRIAGE_GRANTED',
+          opportunity_id: id('oppGrant'),
+          subscription_id: null,
+          actor_id: id('admin'),
+          scope_kind: 'STUDIO',
+          before_version: 0,
+          after_version: 1,
+        },
+      ])
+    })
+
+    it('an unevaluated granted opportunity stays hidden from the team (fails closed)', async () => {
+      // The grant is there and live: only the missing evaluation hides the opportunity.
+      expect(await triageRows()).toEqual([{ what: 'grant' }])
+      await hiddenFrom('hrG', 'oppGrant')
+    })
+
+    it('evaluated OPEN at its revision and the live inputs: the grant shows it to that team only', async () => {
+      await sqlq(
+        `UPDATE job_opportunities
+            SET evaluated_revision = 1, evaluation_verdict = 'OPEN', evaluated_inputs_version = $2
+          WHERE id = $1`,
+        [id('oppGrant'), liveInputs],
+      )
+      expect(await inAnyTab('hrG', 'oppGrant')).toBe(true)
+      for (const url of reads('oppGrant')) expect((await get(url, 'hrG')).status, url).toBe(200)
+      await hiddenFrom('hrA', 'oppGrant')
+      await hiddenFrom('hrT', 'oppGrant')
+    })
+
+    it('a replayed grant answers the same grant; another body under its key is a 409', async () => {
+      const url = `/${id('oppGrant')}/team-triage`
+      const replay = await post(url, 'admin', granted)
+      expect(replay.status).toBe(201)
+      expect(replay.json).toMatchObject({ teamId: id('teamG'), grantVersion: 1, revokedAt: null })
+      const other = await post(url, 'admin', { ...granted, reason: `${TAG} other` })
+      expect(other.status).toBe(409)
+      expect(other.json['code']).toBe('JOB_QUEUE_IDEMPOTENCY_CONFLICT')
+      expect(await triageActions('teamG')).toHaveLength(1)
+    })
+
+    it('stale versions and a live grant are a 409, and write nothing', async () => {
+      const opp = id('oppGrant')
+      const refused = [
+        await post(`/${opp}/team-triage`, 'admin', grantBody('teamG', 2)),
+        await post(`/${opp}/team-triage`, 'admin', grantBody('teamG')),
+        await del(`/${opp}/team-triage/${id('teamG')}`, 'admin', {
+          expectedGrantVersion: 2,
+          reason: `${TAG} stale`,
+          idempotencyKey: randomUUID(),
+        }),
+      ]
+      for (const a of refused) {
+        expect(a.status).toBe(409)
+        expect(a.json['code']).toBe(VERSION_CONFLICT)
+      }
+      expect(await triageActions('teamG')).toHaveLength(1)
+      expect((await get(`/${opp}`, 'hrG')).status).toBe(200)
+    })
+
+    it('an unknown opportunity or subscription is a 404', async () => {
+      const grant = await post(`/${randomUUID()}/team-triage`, 'admin', grantBody('teamG'))
+      expect(grant.status).toBe(404)
+      expect(grant.json['code']).toBe(NOT_FOUND)
+      const revoke = await del(`/${randomUUID()}/team-triage/${id('teamG')}`, 'admin', {
+        expectedGrantVersion: 1,
+        reason: `${TAG} r`,
+        idempotencyKey: randomUUID(),
+      })
+      expect(revoke.status).toBe(404)
+      expect(revoke.json['code']).toBe(NOT_FOUND)
+      const unsubscribe = await del(`/team-triage-subscriptions/${randomUUID()}`, 'admin', {
+        expectedSubscriptionVersion: 1,
+        reason: `${TAG} r`,
+        idempotencyKey: randomUUID(),
+      })
+      expect(unsubscribe.status).toBe(404)
+      expect(unsubscribe.json['code']).toBe('JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND')
+    })
+
+    it('revoke: 200 at the next version, audited, and the team loses the opportunity at once', async () => {
+      const a = await del(`/${id('oppGrant')}/team-triage/${id('teamG')}`, 'admin', {
+        expectedGrantVersion: 1,
+        reason: `${TAG} revoke`,
+        idempotencyKey: randomUUID(),
+      })
+      expect(a.status).toBe(200)
+      expect(a.json).toMatchObject({
+        opportunityId: id('oppGrant'),
+        teamId: id('teamG'),
+        grantVersion: 2,
+        evidence: { reason: `${TAG} grant`, revokeReason: `${TAG} revoke` },
+      })
+      expect(a.json['revokedAt']).toEqual(expect.any(String))
+      expect(
+        (await triageActions('teamG')).map((r) => [r.kind, r.before_version, r.after_version]),
+      ).toEqual([
+        ['TRIAGE_GRANTED', 0, 1],
+        ['TRIAGE_REVOKED', 1, 2],
+      ])
+      await hiddenFrom('hrG', 'oppGrant')
+      expect(await inAnyTab('hrG', 'oppGrant')).toBe(false)
+    })
+
+    it('subscribe: 201, audited by subscription, and the matching family shows to the team', async () => {
+      await hiddenFrom('hrT', 'oppTriageSub')
+      const a = await post('/team-triage-subscriptions', 'admin', subscribeBody('teamT', 'DATA'))
+      expect(a.status).toBe(201)
+      expect(a.json).toMatchObject({
+        teamId: id('teamT'),
+        roleFamily: 'DATA',
+        sourceTypes: ['GREENHOUSE_ATS'],
+        policyVersion: 1,
+        subscriptionVersion: 1,
+        revokedAt: null,
+      })
+      expect(a.json).not.toHaveProperty('actorId')
+      subscriptionId = String(a.json['id'])
+      expect(await triageActions('teamT')).toEqual([
+        {
+          kind: 'TRIAGE_SUBSCRIBED',
+          opportunity_id: null,
+          subscription_id: subscriptionId,
+          actor_id: id('admin'),
+          scope_kind: 'STUDIO',
+          before_version: 0,
+          after_version: 1,
+        },
+      ])
+      expect(await inAnyTab('hrT', 'oppTriageSub')).toBe(true)
+      expect((await get(`/${id('oppTriageSub')}`, 'hrT')).status).toBe(200)
+      await hiddenFrom('hrG', 'oppTriageSub')
+    })
+
+    it('unsubscribe: a stale version is a 409; the current one revokes, audited, and hides it', async () => {
+      const stale = await del(`/team-triage-subscriptions/${subscriptionId}`, 'admin', {
+        expectedSubscriptionVersion: 2,
+        reason: `${TAG} stale`,
+        idempotencyKey: randomUUID(),
+      })
+      expect(stale.status).toBe(409)
+      expect(stale.json['code']).toBe(VERSION_CONFLICT)
+      const a = await del(`/team-triage-subscriptions/${subscriptionId}`, 'admin', {
+        expectedSubscriptionVersion: 1,
+        reason: `${TAG} unsubscribe`,
+        idempotencyKey: randomUUID(),
+      })
+      expect(a.status).toBe(200)
+      expect(a.json).toMatchObject({ id: subscriptionId, subscriptionVersion: 2 })
+      expect(a.json['revokedAt']).toEqual(expect.any(String))
+      expect((await triageActions('teamT')).map((r) => [r.kind, r.subscription_id])).toEqual([
+        ['TRIAGE_SUBSCRIBED', subscriptionId],
+        ['TRIAGE_UNSUBSCRIBED', subscriptionId],
+      ])
+      await hiddenFrom('hrT', 'oppTriageSub')
+      expect(await inAnyTab('hrT', 'oppTriageSub')).toBe(false)
+    })
+
+    it('an expiry already past is a 400 on grant and subscribe and writes nothing (CR-M-1)', async () => {
+      const past = new Date(Date.now() - 60 * 1000).toISOString()
+      const refused = [
+        await post(`/${id('oppGrant')}/team-triage`, 'admin', {
+          ...grantBody('teamG', 1),
+          expiresAt: past,
+        }),
+        await post('/team-triage-subscriptions', 'admin', {
+          ...subscribeBody('teamT', 'DATA'),
+          expiresAt: past,
+        }),
+      ]
+      for (const a of refused) {
+        expect(a.status).toBe(400)
+        expect(a.json['errors']).toEqual([
+          { path: 'expiresAt', message: 'expiresAt must be in the future' },
+        ])
+      }
+      expect(await triageActions('teamG')).toHaveLength(2)
+      expect(await triageActions('teamT')).toHaveLength(2)
+    })
+
+    it('a revoked rule does not block a new one; a second live rule of one set is a 409 (CR-M-3)', async () => {
+      const first = await post(
+        '/team-triage-subscriptions',
+        'admin',
+        subscribeBody('teamT', 'DATA'),
+      )
+      expect(first.status).toBe(201)
+      expect(first.json).toMatchObject({ roleFamily: 'DATA', sourceTypes: ['GREENHOUSE_ATS'] })
+      const twin = await post('/team-triage-subscriptions', 'admin', {
+        ...subscribeBody('teamT', 'DATA'),
+        sourceTypes: ['GREENHOUSE_ATS', 'GREENHOUSE_ATS'],
+      })
+      expect(twin.status).toBe(409)
+      expect(twin.json['code']).toBe(VERSION_CONFLICT)
+      expect(await triageActions('teamT')).toHaveLength(3)
+      const wider = await post('/team-triage-subscriptions', 'admin', {
+        ...subscribeBody('teamT', 'DATA'),
+        sourceTypes: [],
+      })
+      expect(wider.status).toBe(201)
+      expect(wider.json).toMatchObject({ roleFamily: 'DATA', sourceTypes: [] })
+      expect(await triageActions('teamT')).toHaveLength(4)
     })
   })
 })

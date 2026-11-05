@@ -35,6 +35,8 @@ export const JOB_SOURCING_ERROR_CODES = [
   'JOB_SOURCE_NOT_FOUND',
   'JOB_SOURCE_NOT_READY',
   'JOB_SOURCE_AUTH_PAUSED',
+  // r5 Task 6.4b, 404: the ADMIN unsubscribe names a subscription that does not exist.
+  'JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND',
 ] as const
 export type JobSourcingErrorCode = (typeof JOB_SOURCING_ERROR_CODES)[number]
 
@@ -55,6 +57,7 @@ export const JOB_SOURCING_ERROR_PARAMS = {
   JOB_SOURCE_NOT_FOUND: [],
   JOB_SOURCE_NOT_READY: [],
   JOB_SOURCE_AUTH_PAUSED: [],
+  JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND: [],
 } as const satisfies Record<JobSourcingErrorCode, readonly string[]>
 
 export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDescriptor> = {
@@ -126,6 +129,10 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
     message:
       'Джерело призупинено, бо провайдер відмовив у доступі: спершу зніміть паузу, потім увімкніть його',
   },
+  JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND: /* i18n */ {
+    id: 'api-error.JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND',
+    message: 'Підписку на розгляд не знайдено. Оновіть сторінку й повторіть.',
+  },
 }
 
 export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string> = {
@@ -150,4 +157,6 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
     'The source is not ready yet: finish its setup (readiness check, connection, quota meter), then switch it on',
   JOB_SOURCE_AUTH_PAUSED:
     'The source is paused because the provider refused access: clear the pause first, then switch it on',
+  JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND:
+    'Triage subscription not found. Refresh the page and try again.',
 }

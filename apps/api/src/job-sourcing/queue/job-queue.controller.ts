@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Inject,
@@ -26,6 +27,12 @@ import {
   jobQueueSubmissionResponseSchema,
   jobQueueSubmitRequestSchema,
   jobQueueSuppressRequestSchema,
+  jobQueueTeamTriageGrantRequestSchema,
+  jobQueueTeamTriageGrantSchema,
+  jobQueueTeamTriageRevokeRequestSchema,
+  jobQueueTeamTriageSubscribeRequestSchema,
+  jobQueueTeamTriageSubscriptionSchema,
+  jobQueueTeamTriageUnsubscribeRequestSchema,
   jobQueueUndoRequestSchema,
   type SessionUser,
 } from '@crm/shared'
@@ -55,6 +62,8 @@ export const JOB_QUEUE_THROTTLE = {
   OPENED: 120,
   SUPPRESS: 30,
   MANUAL: 30,
+  TRIAGE: 30,
+  SUBSCRIPTION: 30,
   RECOMPUTE: 6,
 } as const
 
@@ -86,6 +95,8 @@ export const JOB_QUEUE_THROTTLE = {
  * MANUAL (r5 Phase 6) is 30 per minute, like submit: each request is one card and one submission a
  * person types by hand, and every one writes an opportunity row and a description blob that no
  * retention job reclaims, so the cap bounds that growth per user without slowing a person.
+ * TRIAGE and SUBSCRIPTION (r5 Task 6.4b) are 30 per minute, like MANUAL: ADMIN-only writes, each one
+ * audited and each retiring a team's published generation, so a person never nears the cap.
  */
 @UseGuards(RolesGuard)
 @Controller('job-queue')
@@ -123,6 +134,37 @@ export class JobQueueController {
     const request = jobQueueManualCardRequestSchema.parse(body)
     return jobQueueSubmissionResponseSchema.parse(
       await this.actions.createManualCard(user, request),
+    )
+  }
+
+  /**
+   * r5 Task 6.4b, ADMIN only: a standing triage subscription for a team (201 with the row). One
+   * segment, so no clash with the two-segment `:id` writes; the service re-checks the STUDIO scope.
+   */
+  @Post('team-triage-subscriptions')
+  @Roles('ADMIN')
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.SUBSCRIPTION)
+  @HttpCode(201)
+  async subscribeTeamTriage(@Body() body: unknown, @CurrentUser() user: SessionUser) {
+    const request = jobQueueTeamTriageSubscribeRequestSchema.parse(body)
+    return jobQueueTeamTriageSubscriptionSchema.parse(
+      await this.actions.subscribeTeamTriage(user, request),
+    )
+  }
+
+  /** ADMIN only: revokes a subscription at the version the caller saw (200 with the row). */
+  @Delete('team-triage-subscriptions/:id')
+  @Roles('ADMIN')
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.SUBSCRIPTION)
+  @HttpCode(200)
+  async unsubscribeTeamTriage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const request = jobQueueTeamTriageUnsubscribeRequestSchema.parse(body)
+    return jobQueueTeamTriageSubscriptionSchema.parse(
+      await this.actions.unsubscribeTeamTriage(user, id, request),
     )
   }
 
@@ -251,5 +293,41 @@ export class JobQueueController {
   ): Promise<void> {
     const request = jobQueueSuppressRequestSchema.parse(body)
     await this.actions.suppress(user, id, request)
+  }
+
+  /**
+   * r5 Task 6.4b, ADMIN only: grants one team triage visibility of one opportunity (201 with the
+   * grant). The team still sees it only once it is evaluated OPEN at its current revision.
+   */
+  @Post(':id/team-triage')
+  @Roles('ADMIN')
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.TRIAGE)
+  @HttpCode(201)
+  async grantTeamTriage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const request = jobQueueTeamTriageGrantRequestSchema.parse(body)
+    return jobQueueTeamTriageGrantSchema.parse(
+      await this.actions.grantTeamTriage(user, id, request),
+    )
+  }
+
+  /** ADMIN only: revokes the team's grant at the version the caller saw (200 with the grant). */
+  @Delete(':id/team-triage/:teamId')
+  @Roles('ADMIN')
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.TRIAGE)
+  @HttpCode(200)
+  async revokeTeamTriage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('teamId', ParseUUIDPipe) teamId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const request = jobQueueTeamTriageRevokeRequestSchema.parse(body)
+    return jobQueueTeamTriageGrantSchema.parse(
+      await this.actions.revokeTeamTriage(user, id, teamId, request),
+    )
   }
 }
