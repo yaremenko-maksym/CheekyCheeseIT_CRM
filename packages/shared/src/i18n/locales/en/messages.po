@@ -3178,6 +3178,11 @@ msgid "api-error.JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED"
 msgstr "This job cannot be assigned to the team for triage"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND"
+msgstr "Triage subscription not found. Refresh the page and try again."
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.JOIN_DROP_TEAM_SENIOR_ONLY"
 msgstr "Only a senior can be added to a drop team"

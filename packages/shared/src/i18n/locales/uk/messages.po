@@ -3178,6 +3178,11 @@ msgid "api-error.JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED"
 msgstr "Не можна призначити цю вакансію на розгляд команді"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND"
+msgstr "Підписку на розгляд не знайдено. Оновіть сторінку й повторіть."
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.JOIN_DROP_TEAM_SENIOR_ONLY"
 msgstr "Приєднати до команди дропа можна лише сеньйора"

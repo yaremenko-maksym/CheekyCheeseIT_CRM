@@ -25,6 +25,12 @@ import {
   createJobQueueTeamTriageGrantSchema,
   revokeJobQueueTeamTriageGrantSchema,
   revokeJobQueueTeamTriageSubscriptionSchema,
+  jobQueueTeamTriageGrantRequestSchema,
+  jobQueueTeamTriageRevokeRequestSchema,
+  jobQueueTeamTriageSubscribeRequestSchema,
+  jobQueueTeamTriageUnsubscribeRequestSchema,
+  jobRoleFamilySchema,
+  jobTriageRoleFamilySchema,
   jobSignalKindSchema,
 } from './job-sourcing'
 
@@ -898,7 +904,7 @@ describe('triage subscription contracts agree with the integer columns', () => {
   const row = {
     id: U1,
     teamId: U2,
-    roleFamily: 'backend',
+    roleFamily: 'SOFTWARE',
     sourceTypes: [],
     policyVersion: 0,
     subscriptionVersion: 1,
@@ -937,7 +943,7 @@ describe('triage subscription contracts agree with the integer columns', () => {
   it('bounds the create request policy version to the column', () => {
     const create = {
       teamId: U2,
-      roleFamily: 'backend',
+      roleFamily: 'SOFTWARE',
       sourceTypes: [],
       policyVersion: PG_INT_MAX,
       expiresAt: LATER,
@@ -989,7 +995,7 @@ const PG_BLANK = [
 describe('request reasons refuse what the column refuses (CR-M-3)', () => {
   const create = {
     teamId: U2,
-    roleFamily: 'backend',
+    roleFamily: 'SOFTWARE',
     sourceTypes: [],
     policyVersion: 1,
     expiresAt: LATER,
@@ -1065,12 +1071,161 @@ describe('request reasons refuse what the column refuses (CR-M-3)', () => {
     ).toBe(false)
   })
 
-  it('applies the same rule to roleFamily, whose column has the same CHECK', () => {
+  it('refuses a blank roleFamily — the layer-1 enum (SR-L-2) admits no blank value', () => {
+    refusedAt(createJobQueueTeamTriageSubscriptionSchema, { ...create, roleFamily: '\u0085' }, [
+      'roleFamily',
+    ])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// r5 Task 6.4b — triage write routes
+// ---------------------------------------------------------------------------
+
+describe('triage subscription role family is a layer-1 family (SR-L-2)', () => {
+  const create = {
+    teamId: U2,
+    roleFamily: 'SOFTWARE',
+    sourceTypes: [],
+    policyVersion: 1,
+    expiresAt: LATER,
+    reason: 'standing triage',
+  }
+
+  it('lists the layer-1 families, UNKNOWN included', () => {
+    expect(jobRoleFamilySchema.options).toEqual([
+      'SOFTWARE',
+      'DEVOPS',
+      'DATA',
+      'QA',
+      'DESIGN',
+      'PRODUCT',
+      'OTHER',
+      'UNKNOWN',
+    ])
+  })
+
+  it('subscribes to every family except UNKNOWN', () => {
+    expect(jobTriageRoleFamilySchema.options).toEqual([
+      'SOFTWARE',
+      'DEVOPS',
+      'DATA',
+      'QA',
+      'DESIGN',
+      'PRODUCT',
+      'OTHER',
+    ])
+    for (const roleFamily of ['SOFTWARE', 'OTHER'])
+      expect(
+        createJobQueueTeamTriageSubscriptionSchema.safeParse({ ...create, roleFamily }).success,
+      ).toBe(true)
+  })
+
+  it('refuses UNKNOWN, a lowercase family and free text', () => {
+    for (const roleFamily of ['UNKNOWN', 'software', 'backend'])
+      refusedAt(createJobQueueTeamTriageSubscriptionSchema, { ...create, roleFamily }, [
+        'roleFamily',
+      ])
+    refusedAt(
+      jobQueueTeamTriageSubscribeRequestSchema,
+      { ...create, roleFamily: 'UNKNOWN', idempotencyKey: U3 },
+      ['roleFamily'],
+    )
+  })
+})
+
+describe('triage write request bodies (r5 Task 6.4b)', () => {
+  const grant = {
+    teamId: U2,
+    expectedOpportunityRevision: 1,
+    policyVersion: 0,
+    reason: 'triage',
+    expiresAt: LATER,
+    idempotencyKey: U3,
+  }
+  const revoke = { expectedGrantVersion: 1, reason: 'done', idempotencyKey: U3 }
+  const subscribe = {
+    teamId: U2,
+    roleFamily: 'DATA',
+    sourceTypes: [],
+    policyVersion: 0,
+    expiresAt: LATER,
+    reason: 'standing triage',
+    idempotencyKey: U3,
+  }
+  const unsubscribe = { expectedSubscriptionVersion: 1, reason: 'done', idempotencyKey: U3 }
+  const cases = [
+    [jobQueueTeamTriageGrantRequestSchema, grant],
+    [jobQueueTeamTriageRevokeRequestSchema, revoke],
+    [jobQueueTeamTriageSubscribeRequestSchema, subscribe],
+    [jobQueueTeamTriageUnsubscribeRequestSchema, unsubscribe],
+  ] as const
+
+  it('accepts each well-formed body and keeps its values', () => {
+    expect(jobQueueTeamTriageGrantRequestSchema.parse(grant)).toEqual(grant)
+    expect(jobQueueTeamTriageRevokeRequestSchema.parse(revoke)).toEqual(revoke)
+    expect(jobQueueTeamTriageSubscribeRequestSchema.parse(subscribe)).toEqual(subscribe)
+    expect(jobQueueTeamTriageUnsubscribeRequestSchema.parse(unsubscribe)).toEqual(unsubscribe)
+  })
+
+  it('requires a UUID idempotency key on every write', () => {
+    for (const [schema, body] of cases) {
+      refusedAt(schema, { ...body, idempotencyKey: 'not-a-uuid' }, ['idempotencyKey'])
+      refusedAt(schema, { ...body, idempotencyKey: undefined }, ['idempotencyKey'])
+    }
+  })
+
+  it('refuses unknown keys — the target ids come from the route, not the body', () => {
     expect(
-      issuesOf(
-        createJobQueueTeamTriageSubscriptionSchema.safeParse({ ...create, roleFamily: '\u0085' }),
-      ),
-    ).toEqual([{ code: 'custom', message: 'must not be blank', path: ['roleFamily'] }])
+      issuesOf(jobQueueTeamTriageGrantRequestSchema.safeParse({ ...grant, opportunityId: U1 })),
+    ).toEqual([
+      { code: 'unrecognized_keys', message: 'Unrecognized key: "opportunityId"', path: [] },
+    ])
+    for (const [schema, body] of cases)
+      expect(schema.safeParse({ ...body, extra: 1 }).success).toBe(false)
+  })
+
+  it('bounds the versions to their integer columns; a revision or version starts at 1', () => {
+    expect(
+      jobQueueTeamTriageGrantRequestSchema.safeParse({
+        ...grant,
+        expectedOpportunityRevision: PG_INT_MAX,
+      }).success,
+    ).toBe(true)
+    refusedAt(jobQueueTeamTriageGrantRequestSchema, { ...grant, expectedOpportunityRevision: 0 }, [
+      'expectedOpportunityRevision',
+    ])
+    refusedAt(
+      jobQueueTeamTriageGrantRequestSchema,
+      { ...grant, expectedOpportunityRevision: PG_INT_MAX + 1 },
+      ['expectedOpportunityRevision'],
+    )
+    refusedAt(jobQueueTeamTriageGrantRequestSchema, { ...grant, policyVersion: -1 }, [
+      'policyVersion',
+    ])
+    refusedAt(jobQueueTeamTriageGrantRequestSchema, { ...grant, policyVersion: PG_INT_MAX + 1 }, [
+      'policyVersion',
+    ])
+    refusedAt(jobQueueTeamTriageRevokeRequestSchema, { ...revoke, expectedGrantVersion: 0 }, [
+      'expectedGrantVersion',
+    ])
+    refusedAt(
+      jobQueueTeamTriageRevokeRequestSchema,
+      { ...revoke, expectedGrantVersion: PG_INT_MAX + 1 },
+      ['expectedGrantVersion'],
+    )
+    refusedAt(
+      jobQueueTeamTriageUnsubscribeRequestSchema,
+      { ...unsubscribe, expectedSubscriptionVersion: 0 },
+      ['expectedSubscriptionVersion'],
+    )
+  })
+
+  it('refuses a blank reason on every write', () => {
+    for (const [schema, body] of cases)
+      expect(issuesOf(schema.safeParse({ ...body, reason: '\u0085' }))).toEqual([
+        { code: 'custom', message: 'must not be blank', path: ['reason'] },
+      ])
   })
 })
 
@@ -1102,7 +1257,7 @@ describe('triage subscription: worker vs public shape (SR-M-6)', () => {
   const row = {
     id: U1,
     teamId: U2,
-    roleFamily: 'backend',
+    roleFamily: 'SOFTWARE',
     sourceTypes: [],
     policyVersion: 0,
     subscriptionVersion: 1,

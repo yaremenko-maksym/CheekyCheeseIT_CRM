@@ -852,10 +852,32 @@ export const jobQueueTeamTriageGrantSchema = z.object({
   createdAt: z.string().datetime(),
 })
 
+/**
+ * The layer-1 classifier's role families (`RoleFamily` in the API funnel).
+ * UNKNOWN is what the classifier says when it cannot tell.
+ */
+export const jobRoleFamilySchema = z.enum([
+  'SOFTWARE',
+  'DEVOPS',
+  'DATA',
+  'QA',
+  'DESIGN',
+  'PRODUCT',
+  'OTHER',
+  'UNKNOWN',
+])
+
+/**
+ * SR-L-2: a triage subscription names a real family. UNKNOWN is refused — a
+ * standing subscription to "the classifier could not tell" would route every
+ * unclassified job to one team.
+ */
+export const jobTriageRoleFamilySchema = jobRoleFamilySchema.exclude(['UNKNOWN'])
+
 export const createJobQueueTeamTriageSubscriptionSchema = z
   .object({
     teamId: z.string().uuid(),
-    roleFamily: requestTextSchema(JOB_SHORT_TEXT_MAX_CHARS),
+    roleFamily: jobTriageRoleFamilySchema,
     /** Empty = every source. Bounded by the number of provider types. */
     sourceTypes: z.array(jobSourceTypeSchema).max(jobSourceTypeSchema.options.length),
     // r5 Task 1.2c: `job_team_triage_subscriptions.policy_version` is an
@@ -2113,6 +2135,43 @@ export const jobQueueSuppressRequestSchema = z
 /** POST `/job-queue/recompute` (ADMIN) — enqueued, never inline; 202 + the run id. */
 export const jobQueueRecomputeResponseSchema = z.object({ runId: z.string().uuid() }).strict()
 
+/*
+ * r5 Task 6.4b — the ADMIN triage writes. The target ids (opportunity, team,
+ * subscription) come from the route; the body carries the expected versions,
+ * the reason and the per-actor idempotency key every queue write carries.
+ */
+
+/** POST `/job-queue/:id/team-triage` (ADMIN; 201 + the grant). */
+export const jobQueueTeamTriageGrantRequestSchema = z
+  .object({
+    teamId: z.string().uuid(),
+    // `job_opportunities.revision` starts at 1, so 0 can never match.
+    expectedOpportunityRevision: intColumnPositiveSchema,
+    policyVersion: intColumnCountSchema,
+    reason: triageReasonSchema,
+    expiresAt: z.string().datetime(),
+    idempotencyKey: z.string().uuid(),
+  })
+  .strict()
+
+/** DELETE `/job-queue/:id/team-triage/:teamId` (ADMIN; 200 + the revoked grant). */
+export const jobQueueTeamTriageRevokeRequestSchema = z
+  .object({
+    expectedGrantVersion: intColumnPositiveSchema,
+    reason: triageReasonSchema,
+    idempotencyKey: z.string().uuid(),
+  })
+  .strict()
+
+/** POST `/job-queue/team-triage-subscriptions` (ADMIN; 201 + the subscription). */
+export const jobQueueTeamTriageSubscribeRequestSchema =
+  createJobQueueTeamTriageSubscriptionSchema.extend({ idempotencyKey: z.string().uuid() })
+
+/** DELETE `/job-queue/team-triage-subscriptions/:id` (ADMIN; 200 + the revoked subscription). */
+export const jobQueueTeamTriageUnsubscribeRequestSchema = revokeJobQueueTeamTriageSubscriptionSchema
+  .omit({ subscriptionId: true })
+  .extend({ idempotencyKey: z.string().uuid() })
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -2175,6 +2234,16 @@ export type RevokeJobQueueTeamTriageSubscriptionDto = z.infer<
 export type JobQueueTeamTriageSubscriptionDto = z.infer<typeof jobQueueTeamTriageSubscriptionSchema>
 export type JobQueueTeamTriageSubscriptionWorkerDto = z.infer<
   typeof jobQueueTeamTriageSubscriptionWorkerSchema
+>
+export type JobRoleFamily = z.infer<typeof jobRoleFamilySchema>
+export type JobTriageRoleFamily = z.infer<typeof jobTriageRoleFamilySchema>
+export type JobQueueTeamTriageGrantRequest = z.infer<typeof jobQueueTeamTriageGrantRequestSchema>
+export type JobQueueTeamTriageRevokeRequest = z.infer<typeof jobQueueTeamTriageRevokeRequestSchema>
+export type JobQueueTeamTriageSubscribeRequest = z.infer<
+  typeof jobQueueTeamTriageSubscribeRequestSchema
+>
+export type JobQueueTeamTriageUnsubscribeRequest = z.infer<
+  typeof jobQueueTeamTriageUnsubscribeRequestSchema
 >
 export type JobQueueScopeKind = z.infer<typeof jobQueueScopeKindSchema>
 export type JobQueueScope = z.infer<typeof jobQueueScopeSchema>
