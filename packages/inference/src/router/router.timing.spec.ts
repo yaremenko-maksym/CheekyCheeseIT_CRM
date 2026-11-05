@@ -177,7 +177,7 @@ describe('router stopping (§5.5): budgets and the ceiling', () => {
     const d = deps(f.fetchImpl, realSleep)
     const started = Date.now()
     const r = await createRouter(
-      config([GROQ, LOCAL], { hostedBudgetMs: 100, floorBudgetMs: 5_000 }),
+      config([GROQ, { ...LOCAL, timeoutMs: 500 }], { hostedBudgetMs: 100, floorBudgetMs: 3_000 }),
       d,
     ).run(REQ)
     expect(r).toMatchObject({ ok: true })
@@ -192,26 +192,31 @@ describe('router stopping (§5.5): budgets and the ceiling', () => {
     const local = { ...LOCAL, timeoutMs: 200 }
     const started = Date.now()
     const r = await createRouter(
-      config([GROQ, local], { hostedBudgetMs: 100, floorBudgetMs: 200 }),
+      config([GROQ, local], { hostedBudgetMs: 100, floorBudgetMs: 1_200 }),
       deps(f.fetchImpl, realSleep),
     ).run(REQ)
-    expect(r).toEqual({ ok: false, code: 'TIMEOUT' })
-    expect(Date.now() - started).toBeLessThan(100 + 200 + 1_000)
+    expect(r).toMatchObject({ ok: false, code: 'TIMEOUT' })
+    expect(Date.now() - started).toBeLessThan(100 + 1_200 + 1_000)
   })
 
   it('a floor retry gets only what is left of the floor budget, not a whole timeout', async () => {
+    // A single request can no longer use up a floor that holds a full table, so the clock leaps
+    // during the first answer: the retry is left 50 ms of a 5 s route timeout.
+    let clock = 0
     let n = 0
-    const f = scriptedFetch((): Reply =>
-      ++n === 1 ? { ...(answer('nope') as Exclude<Reply, string>), delayMs: 600 } : 'hang',
-    )
-    const local = { ...LOCAL, timeoutMs: 1_000 }
+    const f = scriptedFetch((): Reply => {
+      if (++n > 1) return 'hang'
+      clock += 29_950
+      return answer('nope')
+    })
     const started = Date.now()
     const r = await createRouter(
-      config([local], { floorBudgetMs: 1_000 }),
-      deps(f.fetchImpl, realSleep),
+      config([LOCAL], { floorBudgetMs: 30_000 }),
+      deps(f.fetchImpl, { ...realSleep, now: () => clock }),
     ).run(REQ)
-    expect(r).toEqual({ ok: false, code: 'TIMEOUT' })
-    expect(Date.now() - started).toBeLessThan(1_400)
+    expect(r).toMatchObject({ ok: false, code: 'TIMEOUT' })
+    expect(f.sent).toHaveLength(2)
+    expect(Date.now() - started).toBeLessThan(2_000)
   })
 
   it('a hosted TIMEOUT keeps its own-cap unit spent (the request may have been counted)', async () => {

@@ -124,4 +124,19 @@ describe('createLocalExtractionAdapter', () => {
     })
     expect(requests).toHaveLength(2)
   })
+
+  it('forwards the request signal: an aborted call sends nothing and ends TIMEOUT (5.4c-6)', async () => {
+    const { impl, requests } = fakeFetch([okReply('{"title":"x"}')])
+    const adapter = createLocalExtractionAdapter({
+      baseUrl: 'http://localhost:1/v1',
+      model: 'm',
+      fetchImpl: impl,
+    })
+    const signal = AbortSignal.abort()
+    expect(await adapter.extract({ input: 'x', schema, signal })).toEqual({
+      ok: false,
+      code: 'TIMEOUT',
+    })
+    expect(requests).toHaveLength(0)
+  })
 })

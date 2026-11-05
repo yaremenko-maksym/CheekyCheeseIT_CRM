@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { MAX_SMALL_DOSE_GROUPS } from '../contracts/extraction'
 import {
   HOSTED_BASE_URLS,
+  LOCAL_TIMEOUT_LIMIT_MS,
   localRuntimeKey,
   isAllowedRouterLocalModelUrl,
+  MAX_FLOOR_BUDGET_MS,
   ownCapOf,
   routerCallCeilingMs,
   routerConfigSchema,
@@ -34,7 +37,7 @@ const base = (routes: unknown[], extra: object = {}): RouterConfigInput =>
   ({
     policyVersion: 'p1',
     hostedBudgetMs: 60_000,
-    floorBudgetMs: 120_000,
+    floorBudgetMs: 720_000,
     routes,
     ...extra,
   }) as RouterConfigInput
@@ -81,20 +84,26 @@ describe('routerConfigSchema', () => {
   })
 
   it('refuses a local timeout of 300 s or more (§8.4) and accepts one just below', () => {
-    expect(ok(base([{ ...local, timeoutMs: 300_000 }], { floorBudgetMs: 400_000 }))).toBe(false)
-    expect(ok(base([{ ...local, timeoutMs: 299_999 }], { floorBudgetMs: 400_000 }))).toBe(true)
+    expect(ok(base([{ ...local, timeoutMs: 300_000 }], { floorBudgetMs: 1_800_000 }))).toBe(false)
+    expect(ok(base([{ ...local, timeoutMs: 299_999 }], { floorBudgetMs: 1_800_000 }))).toBe(true)
   })
 
-  it('refuses a floor budget that cannot give one request its timeout', () => {
-    expect(ok(base([local], { floorBudgetMs: 119_999 }))).toBe(false)
-    expect(ok(base([local], { floorBudgetMs: 120_000 }))).toBe(true)
+  it('refuses a floor budget that cannot give every group of a full table one request (§5.5 item 2)', () => {
+    const fullTable = MAX_SMALL_DOSE_GROUPS * local.timeoutMs
+    expect(ok(base([local], { floorBudgetMs: fullTable - 1 }))).toBe(false)
+    expect(ok(base([local], { floorBudgetMs: fullTable }))).toBe(true)
+  })
+
+  it('caps the table at six groups and lets the floor maximum hold a full table at the local limit', () => {
+    expect(MAX_SMALL_DOSE_GROUPS).toBe(6)
+    expect(MAX_FLOOR_BUDGET_MS).toBe(MAX_SMALL_DOSE_GROUPS * LOCAL_TIMEOUT_LIMIT_MS)
   })
 
   it('refuses budgets above the package maxima', () => {
     expect(ok(base([local], { hostedBudgetMs: 120_001 }))).toBe(false)
     expect(ok(base([local], { hostedBudgetMs: 120_000 }))).toBe(true)
-    expect(ok(base([local], { floorBudgetMs: 600_001 }))).toBe(false)
-    expect(ok(base([local], { floorBudgetMs: 600_000 }))).toBe(true)
+    expect(ok(base([local], { floorBudgetMs: 1_800_001 }))).toBe(false)
+    expect(ok(base([local], { floorBudgetMs: 1_800_000 }))).toBe(true)
   })
 
   it('refuses a local key over plain HTTP and accepts it over https', () => {

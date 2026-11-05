@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import { fakeFs } from './__test-helpers__/fake-fs'
 import {
   answer,
@@ -31,6 +32,7 @@ import {
 import { GEMINI_FIXTURES, GEMINI_MODEL } from '../internal/__fixtures__/gemini.fixtures'
 import { GROQ_FIXTURES, GROQ_MODEL } from '../internal/__fixtures__/groq.fixtures'
 import { BODY_MARKER, type ProviderFixture } from '../internal/__fixtures__/provider-fixture'
+import { CORRECTION_PREFIX } from '../internal/chat-completions'
 
 const NOON = Date.parse('2026-11-04T12:00:00Z')
 const TODAY = '2026-11-04'
@@ -267,12 +269,31 @@ describe('router cascade: per-code actions (§5.1)', () => {
     ])
   })
 
+  it('a hosted reply with two records is INVALID_OUTPUT and the next route answers', async () => {
+    // The shape of `modelReplySchema` in apps/api: one page, one posting.
+    const schema = z.object({ records: z.array(z.object({ title: z.string() })).max(1) })
+    const record = { title: 'Engineer' }
+    const f = scriptedFetch((s) =>
+      s.host === hostOf.groq
+        ? answer({ records: [record, record] })
+        : answer({ records: [record] }),
+    )
+    const route = { ...GROQ, models: ['openai/gpt-oss-120b'] }
+    const r = await createRouter(config([route, GEMINI, LOCAL]), deps(f.fetchImpl)).run({
+      ...REQ,
+      schema,
+    })
+    expect(r).toMatchObject({ ok: true, data: { records: [record] } })
+    expect(f.sent.map((s) => s.host)).toEqual([hostOf.groq, hostOf.groq, hostOf.gemini])
+    expect(JSON.stringify(f.sent[1]!.body)).toContain(CORRECTION_PREFIX)
+  })
+
   it('finish_reason length is INVALID_OUTPUT, never a partial answer', async () => {
     const f = scriptedFetch((s) =>
       s.host === hostOf.groq ? answer({ title: 'x' }, {}, 'length') : FAIL,
     )
     const r = await createRouter(config([GROQ, LOCAL]), deps(f.fetchImpl)).run(REQ)
-    expect(r).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+    expect(r).toEqual({ ok: false, code: 'PROVIDER_ERROR', usage: { localMs: expect.any(Number) } })
   })
 
   it('the word quota in the input changes nothing: a markerless 429 stays BUSY', async () => {
@@ -629,7 +650,7 @@ describe('router cascade: budget, gap and PROMPT_TOO_LARGE', () => {
       config([LOCAL], { floorBudgetMs: 150_000 }),
       deps(f.fetchImpl, { now: () => now }),
     ).run(REQ)
-    expect(r).toEqual({ ok: false, code: 'TIMEOUT' })
+    expect(r).toEqual({ ok: false, code: 'TIMEOUT', usage: { localMs: 150_000 } })
     expect(f.sent).toHaveLength(1)
   })
 

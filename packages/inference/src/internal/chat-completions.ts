@@ -38,6 +38,8 @@ export type ChatCompletionOptions = {
   /** OpenRouter ZDR: ask the router to route only to providers that do not retain/train on the data. */
   denyDataCollection?: boolean
   fetchImpl?: FetchLike
+  /** Aborting ends the request as `TIMEOUT`; the router sees its own signal first (§5.5 item 3). */
+  signal?: AbortSignal | undefined
 }
 
 /** Prefixed to a correction hint; counted in the router's fit check (ADR §5.1 `PROMPT_TOO_LARGE`). */
@@ -98,6 +100,7 @@ export async function sendChatCompletion(opts: ChatCompletionOptions): Promise<C
     maxBytes: DEFAULT_MAX_BYTES,
     allowLoopbackHttp: opts.allowLoopbackHttp === true,
     fetchImpl: opts.fetchImpl,
+    signal: opts.signal,
   })
   switch (result.kind) {
     case 'rate_limited':

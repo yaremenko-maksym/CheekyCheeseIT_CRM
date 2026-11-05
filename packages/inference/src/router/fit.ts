@@ -1,4 +1,4 @@
-import { MAX_EXTRACTION_INPUT_CHARS } from '../contracts/extraction'
+import { MAX_EXTRACTION_INPUT_CHARS, type SmallDoseGroup } from '../contracts/extraction'
 import {
   CORRECTION_PREFIX,
   DEFAULT_EXTRACTION_INSTRUCTION,
@@ -54,9 +54,32 @@ export function promptFits(
  * The largest page text the configured local route accepts (ADR §2.1 input ceiling), from the
  * route's configured window, never a runtime default; below `MAX_EXTRACTION_INPUT_CHARS`, never
  * negative. Its consumer cuts the page text itself and reports `truncated`.
+ *
+ * The floor asks each small-dose group with its own combined instruction and answer budget, so the
+ * tightest of those can be below the route's own (ADR §5.5 item 4). A consumer that sends a dose
+ * passes the whole table (`smallDoseFor()` with every field): a record's `missing` only drops
+ * groups, so a page cut for the whole table fits any dose of it. A combined instruction over the
+ * send cut is refused at any input; the table's spec pins that it stays under.
  */
-export function routerInputCeilingChars(route: FitWindow, instruction?: string): number {
-  const tokens = route.contextTokens - route.maxAnswerTokens - MESSAGE_OVERHEAD_TOKENS
-  const chars = tokens * CHARS_PER_TOKEN - instructionChars(instruction) - CORRECTION_RESERVE_CHARS
+export function routerInputCeilingChars(
+  route: FitWindow,
+  instruction?: string,
+  smallDoseGroups: readonly Pick<SmallDoseGroup, 'instruction' | 'maxAnswerTokens'>[] = [],
+): number {
+  const base = instruction ?? DEFAULT_EXTRACTION_INSTRUCTION
+  const chars = Math.min(
+    ceilingFor(route, instruction),
+    ...smallDoseGroups.map((group) =>
+      ceilingFor(
+        { contextTokens: route.contextTokens, maxAnswerTokens: group.maxAnswerTokens },
+        `${base}\n\n${group.instruction}`,
+      ),
+    ),
+  )
   return Math.max(0, Math.min(chars, MAX_EXTRACTION_INPUT_CHARS))
+}
+
+function ceilingFor(window: FitWindow, instruction: string | undefined): number {
+  const tokens = window.contextTokens - window.maxAnswerTokens - MESSAGE_OVERHEAD_TOKENS
+  return tokens * CHARS_PER_TOKEN - instructionChars(instruction) - CORRECTION_RESERVE_CHARS
 }

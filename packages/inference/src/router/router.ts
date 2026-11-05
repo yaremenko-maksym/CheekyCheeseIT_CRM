@@ -1,16 +1,18 @@
 import { setTimeout as wait } from 'node:timers/promises'
-import type { z } from 'zod'
 import type { InferenceErrorCode } from '../contracts/errors'
-import type { ExtractionPort, ExtractionRequest, ExtractionResult } from '../contracts/extraction'
+import {
+  MAX_SMALL_DOSE_GROUPS,
+  type ExtractionPort,
+  type ExtractionRequest,
+  type ExtractionResult,
+} from '../contracts/extraction'
 import type { FetchLike } from '../http/bounded-request'
 import {
   sendClassifiedChat,
   type ClassifiedChatCode,
   type ClassifiedChatOutcome,
-  type StructuredOutput,
 } from '../internal/classified-chat'
 import { runExtraction } from '../internal/extraction-pipeline'
-import { createStrictSchema, type JsonSchema } from '../internal/strict-schema'
 import {
   HOSTED_BASE_URLS,
   localRuntimeKey,
@@ -23,6 +25,7 @@ import {
 } from './config'
 import { promptFits } from './fit'
 import { pinnedModelsOnly, type ManagedModels } from './managed-models'
+import { renderSchema, runSmallDose, structuredOutputFor, type DoseAsk } from './small-dose'
 import {
   isProviderBlocked,
   isRetired,
@@ -227,20 +230,11 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     const start = now()
     const hostedDeadline = start + cfg.hostedBudgetMs
     const inputChars = req.input.length
-    let rendered: { jsonSchema: JsonSchema; replySchema: z.ZodType<T> } | null
-    try {
-      rendered = createStrictSchema(req.schema)
-    } catch {
-      rendered = null // a schema JSON Schema cannot express: routes fall back to json_object
-    }
+    const rendered = renderSchema(req.schema)
     const schema = rendered?.replySchema ?? req.schema
-    const structured = (mode: HostedRouteConfig['structuredOutput']): StructuredOutput =>
-      mode === 'json_schema'
-        ? rendered === null
-          ? { mode: 'json_object' }
-          : { mode: 'json_schema', schema: rendered.jsonSchema }
-        : { mode }
     let totalTokens: number | undefined
+    /** Time spent on local requests that were sent, on failure too (§5.5 item 6). */
+    let localMs: number | undefined
     const addTokens = (n: number | undefined): void => {
       if (n !== undefined) totalTokens = (totalTokens ?? 0) + n
     }
@@ -256,7 +250,12 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     const success = (data: T): RouterResult<T> => ({
       ok: true,
       data,
-      ...(totalTokens !== undefined && { usage: { totalTokens } }),
+      ...((totalTokens !== undefined || localMs !== undefined) && {
+        usage: {
+          ...(totalTokens !== undefined && { totalTokens }),
+          ...(localMs !== undefined && { localMs }),
+        },
+      }),
     })
     const attempted = (
       route: RouterProvider,
@@ -276,6 +275,11 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
         ...(outcome?.status !== undefined && { status: outcome.status }),
         ...(tokens !== undefined && { totalTokens: tokens }),
       })
+    }
+
+    // A table over the cap sends nothing anywhere (§5.5 item 1): a table bug, not the record's fault.
+    if (req.smallDose !== undefined && req.smallDose.groups.length > MAX_SMALL_DOSE_GROUPS) {
+      return finish({ ok: false, code: 'PROVIDER_ERROR' }, false)
     }
 
     /**
@@ -363,7 +367,7 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
         input: req.input,
         correction,
         maxTokens: route.maxAnswerTokens,
-        structuredOutput: structured(route.structuredOutput),
+        structuredOutput: structuredOutputFor(rendered, route.structuredOutput),
         timeoutMs: Math.max(1, Math.min(route.timeoutMs, hostedDeadline - now())),
         signal,
         fetchImpl: deps.fetchImpl,
@@ -446,48 +450,84 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     // An abort during a step that sends nothing (a cap refusal, a state write) ends here, not on the floor.
     if (signal?.aborted === true) return finish({ ok: false, code: 'ABORTED' }, false)
     // Every fall is an event, a local-only config included: the consumer counts floor falls (§5.3).
+    // This fall-through is the hand-back of §5.4 (`SMALL_DOSE_NEEDED`): it has no value to leak.
     emit({
       type: 'FELL_TO_LOCAL',
       plan: candidates.length > 0 ? 'full-then-small' : 'small',
       reasons,
     })
     const floorDeadline = now() + cfg.floorBudgetMs
-    const floor = await runExtraction({
-      schema,
-      call: async (correction?: string): Promise<Step> => {
-        if (!promptFits(local, req.instruction, inputChars)) {
-          attempted('local', local.model, 'PROMPT_TOO_LARGE', now())
-          return { ok: false, code: 'PROMPT_TOO_LARGE' }
-        }
-        // An abort while queued is refused by `boundedRequest` before any fetch, as on hosted routes.
-        return serialLocal(runtime, async (): Promise<Step> => {
-          const remaining = floorDeadline - now()
-          if (remaining <= 0) return { ok: false, code: 'TIMEOUT' }
-          const t0 = now()
-          const outcome = await sendClassifiedChat({
-            provider: 'local',
-            baseUrl: local.baseUrl,
-            model: local.model,
-            apiKey: local.apiKey,
-            instruction: req.instruction,
-            input: req.input,
-            correction,
-            maxTokens: local.maxAnswerTokens,
-            structuredOutput: structured(local.structuredOutput),
-            timeoutMs: Math.min(local.timeoutMs, remaining),
-            signal,
-            fetchImpl: deps.fetchImpl,
-          })
-          const r = outcome.result
-          attempted('local', local.model, r.code, t0, outcome)
-          if (!r.ok) return r
-          addTokens(r.totalTokens)
-          return { ok: true, text: r.text }
+    const sendLocal = (ask: DoseAsk, correction?: string): Promise<Step> =>
+      // An abort while queued is refused by `boundedRequest` before any fetch, as on hosted routes.
+      serialLocal(runtime, async (): Promise<Step> => {
+        const remaining = floorDeadline - now()
+        if (remaining <= 0) return { ok: false, code: 'TIMEOUT' }
+        const t0 = now()
+        const outcome = await sendClassifiedChat({
+          provider: 'local',
+          baseUrl: local.baseUrl,
+          model: local.model,
+          apiKey: local.apiKey,
+          instruction: ask.instruction,
+          input: req.input,
+          correction,
+          maxTokens: ask.maxTokens,
+          structuredOutput: ask.structuredOutput,
+          timeoutMs: Math.min(local.timeoutMs, remaining),
+          signal,
+          fetchImpl: deps.fetchImpl,
         })
-      },
-    })
+        // Not gated on `outcome.sent`: config refuses a key over http, so an unsent local request is
+        // always ABORTED, and an aborted call reports no usage.
+        localMs = (localMs ?? 0) + now() - t0
+        const r = outcome.result
+        attempted('local', local.model, r.code, t0, outcome)
+        if (!r.ok) return r
+        addTokens(r.totalTokens)
+        return { ok: true, text: r.text }
+      })
+    const floor =
+      req.smallDose === undefined
+        ? await runExtraction({
+            schema,
+            call: async (correction?: string): Promise<Step> =>
+              promptFits(local, req.instruction, inputChars)
+                ? sendLocal(
+                    {
+                      instruction: req.instruction,
+                      maxTokens: local.maxAnswerTokens,
+                      structuredOutput: structuredOutputFor(rendered, local.structuredOutput),
+                    },
+                    correction,
+                  )
+                : { ok: false, code: 'PROMPT_TOO_LARGE' },
+          })
+        : await runSmallDose({
+            dose: req.smallDose,
+            instruction: req.instruction,
+            schema: req.schema,
+            mode: local.structuredOutput,
+            fits: (instruction, maxAnswerTokens) =>
+              promptFits(
+                { contextTokens: local.contextTokens, maxAnswerTokens },
+                instruction,
+                inputChars,
+              ),
+            ask: sendLocal,
+          })
     if (floor.ok) return finish(success(floor.data), true)
-    return finish({ ok: false, code: floorCode(floor.code) } as RouterResult<T>, false)
+    if (floor.code === 'PROMPT_TOO_LARGE')
+      attempted('local', local.model, 'PROMPT_TOO_LARGE', now())
+    const code = floorCode(floor.code)
+    return finish(
+      {
+        ok: false,
+        code,
+        // An abort is the caller's: it charges the elapsed time itself (§5.5 item 3).
+        ...(localMs !== undefined && code !== 'ABORTED' && { usage: { localMs } }),
+      } as RouterResult<T>,
+      false,
+    )
   }
 
   return {
@@ -501,15 +541,16 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
 }
 
 /**
- * The `router` extraction provider: an `ExtractionPort` over `createRouter` (ADR §2.1). The public
- * result type is unchanged; internal codes never leave the package. The port passes no signal
- * (5.4c-6 adds it to `ExtractionRequest`), so `ABORTED` cannot occur here.
+ * The `router` extraction provider: an `ExtractionPort` over `createRouter` (ADR §2.1). Internal codes
+ * never leave the package: `ABORTED` leaves as `TIMEOUT`, the public code of a call that ran out, and
+ * the caller that aborted has already stopped listening (§5.5 item 3).
  */
 export function createRouterExtractionAdapter(config: unknown, deps: RouterDeps): ExtractionPort {
   const router = createRouter(config, deps)
   return {
-    extract<T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>> {
-      return router.run(req) as Promise<ExtractionResult<T>>
+    async extract<T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>> {
+      const r = await router.run(req, req.signal)
+      return r.ok || r.code !== 'ABORTED' ? r : { ok: false, code: 'TIMEOUT' }
     },
   }
 }

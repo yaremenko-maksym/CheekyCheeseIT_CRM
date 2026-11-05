@@ -83,14 +83,18 @@ describe('router: answers and the floor', () => {
     async (_l, reply, code) => {
       const f = scriptedFetch((s) => (s.host === hostOf.local ? reply : { status: 500, body: '' }))
       const r = await createRouter(config([GROQ, LOCAL]), deps(f.fetchImpl)).run(REQ)
-      expect(r).toEqual({ ok: false, code })
+      expect(r).toEqual({ ok: false, code, usage: { localMs: expect.any(Number) } })
     },
   )
 
   it('a correction retry on the floor is its own request and can succeed', async () => {
     const f = scriptedFetch((_s, n) => (n === 1 ? answer('{"nope":1}') : GOOD))
     const r = await createRouter(config([LOCAL]), deps(f.fetchImpl, { ownCap: undefined })).run(REQ)
-    expect(r).toEqual({ ok: true, data: { title: 'Engineer' }, usage: { totalTokens: 20 } })
+    expect(r).toEqual({
+      ok: true,
+      data: { title: 'Engineer' },
+      usage: { totalTokens: 20, localMs: expect.any(Number) },
+    })
     expect(f.sent).toHaveLength(2)
     expect(JSON.stringify(f.sent[1]!.body.messages)).toContain('Your previous answer was rejected.')
   })
@@ -159,7 +163,7 @@ describe('router: the ExtractionPort adapter', () => {
     expect(await port.extract(REQ)).toEqual({
       ok: true,
       data: { title: 'Engineer' },
-      usage: { totalTokens: 10 },
+      usage: { totalTokens: 10, localMs: expect.any(Number) },
     })
     const refused = createRouterExtractionAdapter(config([]), deps(f.fetchImpl))
     expect(await refused.extract(REQ)).toEqual({ ok: false, code: 'NOT_CONFIGURED' })

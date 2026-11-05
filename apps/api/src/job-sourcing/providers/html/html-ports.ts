@@ -97,8 +97,13 @@ export interface EnrichmentRecord {
    * a throw). Such an item is reparsed and offered to the model again even when unchanged.
    */
   readonly modelPending: boolean
-  /** Model passes missed in a row while owed; capped, so a failing model is not retried forever. */
+  /**
+   * Record-caused model failures in a row while owed; the third parks the item until its content
+   * changes. A failure that is not the record's fault never counts (ADR 5.4).
+   */
   readonly modelAttempts: number
+  /** Timed out in flight while owed: offered last, so one slow page cannot block the rest. */
+  readonly modelOfferLast?: boolean
 }
 
 export interface EnrichmentStatePort {

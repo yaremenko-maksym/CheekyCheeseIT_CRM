@@ -6,8 +6,8 @@ export const MAX_MODEL_OUTPUT_BYTES = 2 * 1024 * 1024
 const MAX_RECORDS = 100
 /**
  * A quote shorter than this (non-whitespace chars) proves nothing unless it is the whole field.
- * Any quote must also be about its field: it contains the value, or (text fields) is a passage of
- * it; a URL is quoted whole. Booleans, nulls and nulled URLs never have evidence.
+ * Any quote must also be about its field: it contains the whole value, or (the description only)
+ * is a passage of it. Booleans, nulls and nulled URLs never have evidence.
  */
 export const MIN_EVIDENCE_QUOTE_CHARS = 8
 
@@ -20,24 +20,22 @@ function normalise(text: string): string {
   return text.toUpperCase().replace(/\s+/g, ' ').trim()
 }
 
-const URL_FIELDS: ReadonlySet<string> = new Set(['postingUrl', 'applyUrl'])
-
 /** Absent and `null` both mean "not stated on the page". */
 const fact = (max: number) => z.string().max(max).nullable().default(null)
 
-const EVIDENCE_FIELDS = [
+/** The string facts a reply must quote to keep (D10, ADR §5.4); URLs and `remote` have their own rules. */
+const STRING_FACT_FIELDS = [
   'externalId',
   'title',
   'company',
   'location',
-  'remote',
   'employmentType',
   'salary',
   'description',
   'postedAt',
-  'postingUrl',
-  'applyUrl',
 ] as const
+
+const EVIDENCE_FIELDS = [...STRING_FACT_FIELDS, 'remote', 'postingUrl', 'applyUrl'] as const
 
 /** URL fields are validated separately, per field, so a bad URL never costs the whole record. */
 const recordSchema = z.object({
@@ -64,6 +62,25 @@ const outputSchema = z.object({
   records: z.array(z.unknown()).max(MAX_RECORDS),
 })
 
+/**
+ * What the model port is asked for (ADR §5.4): one record, one page, composed from the guard's own
+ * definitions, so the shape sent and the shape guarded cannot drift. URLs are typed so they render;
+ * whether a URL is real stays the guard's per-field check. A reply off this shape is the port's
+ * `INVALID_OUTPUT` and cascades; the guard stays behind it unchanged.
+ */
+export const modelReplySchema = outputSchema.extend({
+  records: z
+    .array(
+      recordSchema.extend({
+        postingUrl: z.string().nullable().default(null),
+        applyUrl: z.string().nullable().default(null),
+      }),
+    )
+    .max(1),
+})
+
+export type ModelReply = z.output<typeof modelReplySchema>
+
 export type ExtractionRecord = Omit<z.infer<typeof recordSchema>, 'postingUrl' | 'applyUrl'> & {
   postingUrl: string | null
   applyUrl: string | null
@@ -84,6 +101,8 @@ export type ExtractionGuardResult =
       droppedRecords: number
       nulledUrls: number
       droppedEvidence: number
+      /** String facts nulled for having no surviving quote (D10); MP-03 reports the share. */
+      nulledFacts: number
     }
   | { ok: false; reason: 'OUTPUT_TOO_LARGE' | 'NOT_JSON' | 'SCHEMA_INVALID' | 'NO_VALID_RECORD' }
 
@@ -126,6 +145,7 @@ export function guardExtractionResult(raw: string, ctx: ExtractionContext): Extr
   let droppedRecords = 0
   let nulledUrls = 0
   let droppedEvidence = 0
+  let nulledFacts = 0
   for (const candidate of output.data.records) {
     const record = recordSchema.safeParse(candidate)
     if (!record.success) {
@@ -147,17 +167,25 @@ export function guardExtractionResult(raw: string, ctx: ExtractionContext): Extr
       // Only a stated string can be proved: a boolean, a null, a blank or a nulled URL never has evidence.
       if (!stated) return false
       const quote = normalise(span.quote)
-      // The quote names the value; a text field may also be proved by a passage of it (a long
-      // description cannot be quoted whole). A URL must be quoted whole.
+      // The quote names the whole value; only the description may be proved by a passage of it (a
+      // long text cannot be quoted whole). A passage proves nothing of what was appended to a title.
       const related =
-        quote.includes(stated) || (!URL_FIELDS.has(span.field) && stated.includes(quote))
+        quote.includes(stated) || (span.field === 'description' && stated.includes(quote))
       // Long enough to be specific, or exactly the value.
       const specific =
         nonWhitespaceLength(span.quote) >= MIN_EVIDENCE_QUOTE_CHARS || quote === stated
       return related && specific && ctx.evidenceText.includes(span.quote)
     })
     droppedEvidence += evidence.length - quoted.length
-    records.push({ ...fields, evidence: quoted })
+    // D10: a string fact is only what a surviving quote proves; the record and its other fields stay.
+    const proved = new Set<string>(quoted.map((span) => span.field))
+    const provedFields = { ...fields }
+    for (const field of STRING_FACT_FIELDS) {
+      if (fields[field] === null || proved.has(field)) continue
+      provedFields[field] = null
+      nulledFacts += 1
+    }
+    records.push({ ...provedFields, evidence: quoted })
   }
 
   if (records.length === 0 && droppedRecords > 0) return { ok: false, reason: 'NO_VALID_RECORD' }
@@ -168,5 +196,6 @@ export function guardExtractionResult(raw: string, ctx: ExtractionContext): Extr
     droppedRecords,
     nulledUrls,
     droppedEvidence,
+    nulledFacts,
   }
 }

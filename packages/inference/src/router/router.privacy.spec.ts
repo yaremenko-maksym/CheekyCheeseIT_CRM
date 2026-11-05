@@ -81,7 +81,7 @@ describe('router privacy (AC5, ADR §3.3, §4 item 2)', () => {
       throw new Error(`${KEY_MARKER} ${TEXT_MARKER}`)
     })
     const r = await createRouter(config([GROQ, LOCAL]), d).run(REQ)
-    expect(r).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+    expect(r).toEqual({ ok: false, code: 'PROVIDER_ERROR', usage: { localMs: expect.any(Number) } })
     assertClean('events', d.events)
     expect(f.sent).toHaveLength(0)
   })

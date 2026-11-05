@@ -63,3 +63,60 @@ describe('fit (ADR §5.1 PROMPT_TOO_LARGE, §2.1 input ceiling)', () => {
     expect(promptFits(huge, undefined, MAX_EXTRACTION_INPUT_CHARS * 10)).toBe(true)
   })
 })
+
+describe('the ceiling over a small-dose table (ADR §5.5 item 4)', () => {
+  type Group = { instruction: string; maxAnswerTokens: number }
+  const instruction = 'the envelope'
+  const groupFits = (group: Group, chars: number, base = instruction) =>
+    promptFits(
+      { contextTokens: route.contextTokens, maxAnswerTokens: group.maxAnswerTokens },
+      `${base}\n\n${group.instruction}`,
+      chars,
+    )
+  const SMALL = { instruction: 'a small ask', maxAnswerTokens: 32 }
+  const BIG_ANSWER = { instruction: 'a short ask', maxAnswerTokens: 1_200 }
+  const LONG_ASK = { instruction: 'x'.repeat(3_000), maxAnswerTokens: 32 }
+
+  it.each<[string, Group[]]>([
+    ['the largest answer', [SMALL, BIG_ANSWER]],
+    ['the largest answer, listed first', [BIG_ANSWER, SMALL]],
+    ['the longest instruction', [SMALL, LONG_ASK, BIG_ANSWER]],
+  ])('a page cut to it fits every group, the tightest being %s', (_name, groups) => {
+    const ceiling = routerInputCeilingChars(route, instruction, groups)
+    for (const group of groups) expect(groupFits(group, ceiling)).toBe(true)
+    expect(groups.some((group) => !groupFits(group, ceiling + 1))).toBe(true)
+  })
+
+  it('the route alone would overflow a group with a larger answer', () => {
+    const alone = routerInputCeilingChars(route, instruction)
+    expect(groupFits(BIG_ANSWER, alone)).toBe(false)
+  })
+
+  it('still holds for the route when its own answer is the largest', () => {
+    const wide = { contextTokens: route.contextTokens, maxAnswerTokens: 3_000 }
+    expect(routerInputCeilingChars(wide, instruction, [SMALL])).toBe(
+      routerInputCeilingChars(wide, instruction),
+    )
+  })
+
+  it('no instruction means the default one, in the groups too', () => {
+    const ceiling = routerInputCeilingChars(route, undefined, [BIG_ANSWER])
+    expect(groupFits(BIG_ANSWER, ceiling, DEFAULT_EXTRACTION_INSTRUCTION)).toBe(true)
+    expect(groupFits(BIG_ANSWER, ceiling + 1, DEFAULT_EXTRACTION_INSTRUCTION)).toBe(false)
+  })
+
+  it('an empty table changes nothing', () => {
+    expect(routerInputCeilingChars(route, instruction, [])).toBe(
+      routerInputCeilingChars(route, instruction),
+    )
+  })
+
+  it('never exceeds MAX_EXTRACTION_INPUT_CHARS and never goes negative', () => {
+    const huge = { contextTokens: 1_000_000, maxAnswerTokens: 600 }
+    expect(routerInputCeilingChars(huge, instruction, [BIG_ANSWER])).toBe(
+      MAX_EXTRACTION_INPUT_CHARS,
+    )
+    const tiny = { contextTokens: 1_000, maxAnswerTokens: 10 }
+    expect(routerInputCeilingChars(tiny, instruction, [BIG_ANSWER])).toBe(0)
+  })
+})
