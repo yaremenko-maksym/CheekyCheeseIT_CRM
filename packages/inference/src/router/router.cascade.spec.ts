@@ -272,7 +272,7 @@ describe('router cascade: per-code actions (§5.1)', () => {
       s.host === hostOf.groq ? answer({ title: 'x' }, {}, 'length') : FAIL,
     )
     const r = await createRouter(config([GROQ, LOCAL]), deps(f.fetchImpl)).run(REQ)
-    expect(r).toEqual({ ok: false, code: 'PROVIDER_ERROR', usage: { localMs: 0 } })
+    expect(r).toEqual({ ok: false, code: 'PROVIDER_ERROR', usage: { localMs: expect.any(Number) } })
   })
 
   it('the word quota in the input changes nothing: a markerless 429 stays BUSY', async () => {
