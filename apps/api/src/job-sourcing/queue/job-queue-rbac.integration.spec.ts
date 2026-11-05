@@ -27,7 +27,11 @@ import {
 import { JobQueueController } from './job-queue.controller'
 import { JobQueueService } from './job-queue.service'
 import { JobQueueActionsService } from './queue-actions.service'
-import { JobQueueRecomputeService } from './queue-recompute.service'
+import {
+  JobQueueRecomputeService,
+  RECOMPUTE_REASON_PREFIX,
+  RECOMPUTE_TRIGGER_PREFIX,
+} from './queue-recompute.service'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -284,7 +288,7 @@ const suppressedRows = async (opp: string) =>
   ).rows
 /** Recompute runs (r5 Task 6.4) any TAG user asked for: `requested_by` is the audit of who. */
 const RECOMPUTE_RUNS = `SELECT id FROM job_collection_cycles
-  WHERE trigger = 'MANUAL' AND starts_with(trigger_key, 'RECOMPUTE:')
+  WHERE trigger = 'MANUAL' AND starts_with(trigger_key, '${RECOMPUTE_TRIGGER_PREFIX}')
     AND requested_by IN (SELECT id FROM users WHERE email LIKE $1)`
 const recomputeRuns = async () => (await sqlq(RECOMPUTE_RUNS, [`${TAG}%`])).rows
 
@@ -929,14 +933,21 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     const cycle = async (runId: string) =>
       (
         await sqlq(
-          `SELECT trigger, starts_with(trigger_key, 'RECOMPUTE:') AS recompute, requested_by, status
+          `SELECT trigger, starts_with(trigger_key, $2) AS recompute, requested_by, status
              FROM job_collection_cycles WHERE id = $1`,
-          [runId],
+          [runId, RECOMPUTE_TRIGGER_PREFIX],
         )
       ).rows[0]
     let firstRun = ''
 
     beforeAll(async () => {
+      // A recompute run left OPEN by an earlier crashed run would be answered instead of a new one:
+      // close every open recompute cycle (cycles only, test DB) so this block starts from none.
+      await sqlq(
+        `UPDATE job_collection_cycles SET status = 'CLOSED', closed_at = clock_timestamp()
+          WHERE trigger = 'MANUAL' AND status = 'OPEN' AND starts_with(trigger_key, $1)`,
+        [RECOMPUTE_TRIGGER_PREFIX],
+      )
       await mkOpp('oppRc')
       await mkOpp('oppRcUnknown')
       await sqlq(`UPDATE job_opportunities SET availability = 'UNKNOWN' WHERE id = $1`, [
@@ -971,13 +982,13 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
         {
           entity_id: id('oppRc'),
           target_version: 1,
-          reason: `ADMIN_RECOMPUTE:${firstRun}`,
+          reason: `${RECOMPUTE_REASON_PREFIX}${firstRun}`,
           status: 'PENDING',
         },
         {
           entity_id: id('oppRcUnknown'),
           target_version: 1,
-          reason: `ADMIN_RECOMPUTE:${firstRun}`,
+          reason: `${RECOMPUTE_REASON_PREFIX}${firstRun}`,
           status: 'PENDING',
         },
       ].sort((x, y) => (x.entity_id < y.entity_id ? -1 : 1)) // the uuid order of ORDER BY
@@ -1020,8 +1031,8 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       })
       // The reason carries the run id, so the same revision is a fresh key, not a conflict.
       expect((await runRows(second)).map((r: { reason: string }) => r.reason)).toEqual([
-        `ADMIN_RECOMPUTE:${second}`,
-        `ADMIN_RECOMPUTE:${second}`,
+        `${RECOMPUTE_REASON_PREFIX}${second}`,
+        `${RECOMPUTE_REASON_PREFIX}${second}`,
       ])
     })
   })

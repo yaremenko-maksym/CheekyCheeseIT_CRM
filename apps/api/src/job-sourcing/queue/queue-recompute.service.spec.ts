@@ -87,6 +87,8 @@ describe('JobQueueRecomputeService.enqueue', () => {
     expect(enqueue.params.slice(0, 2)).toEqual([`ADMIN_RECOMPUTE:${NEW_RUN}`, NEW_RUN])
     expect(enqueue.sql).toContain("WHERE o.availability IN ('OPEN', 'UNKNOWN')")
     expect(enqueue.sql).toContain("w.status IN ('PENDING', 'CLAIMED')")
+    // The in-flight skip reads only MATCH-partition rows: the predicate is applied to w.reason.
+    expect(enqueue.sql).toContain('AND NOT ((w.reason = $3) OR (starts_with(w.reason, $4)')
     expect(enqueue.sql).toContain(
       'ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING',
     )

@@ -31,6 +31,14 @@ const RECOMPUTE_LOCK_KEY = 'job_queue:recompute'
 export class JobQueueRecomputeService {
   constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
+  /**
+   * Answers the id of the live run, or of a newly opened one.
+   *
+   * ZERO WORK: when no opportunity is eligible (none OPEN/UNKNOWN, or every one already has a MATCH
+   * row in flight), the new run is CLOSED in the same transaction and its id is STILL returned. A
+   * client polling that id therefore sees a CLOSED cycle with no work items: the run is complete,
+   * not failed.
+   */
   async enqueue(user: SessionUser): Promise<{ runId: string }> {
     // Defense in depth behind the controller's RolesGuard.
     if (user.role !== 'ADMIN') throw new ForbiddenException()
