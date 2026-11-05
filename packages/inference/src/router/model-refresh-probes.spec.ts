@@ -47,7 +47,9 @@ import {
   EMPTY_ROUTE_STATE,
   markAuth,
   markRetired,
+  markSpent,
   markStartupRefresh,
+  providerDay,
   setJobFailed,
   setStaleModels,
   type RouteStatePort,
@@ -513,14 +515,46 @@ describe('the start-up refresh, the clearing proof (SR-M-7, SR-M-11)', () => {
     expect(authOf(w, 'groq')).toBe(false)
   })
 
-  it('adds no Groq candidate to the start-up probe', async () => {
-    const w = refreshWorld({
-      routes: [{ ...GROQ, models: [Q1] }, LOCAL],
-      state: authOn('groq'),
-      hadOkCall: (_p, m) => m === Q1,
+  describe('every model already spent or used still leaves the one proof (SPEC-L-3)', () => {
+    it('a Groq model with an OK call takes the proof, and no candidate is added', async () => {
+      const w = refreshWorld({
+        routes: [{ ...GROQ, models: [Q1] }, LOCAL],
+        state: authOn('groq'),
+        hadOkCall: (_p, m) => m === Q1,
+      })
+      await runStartupModelRefresh(w.deps)
+      expect(w.chatModels()).toEqual([Q1])
+      expect(authOf(w, 'groq')).toBe(false)
     })
-    await runStartupModelRefresh(w.deps)
-    expect(w.chats()).toEqual([])
+
+    it('a Gemini list used in full sends one proof to its first model', async () => {
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        state: authOn('gemini'),
+        hadOkCall: () => true,
+      })
+      await runStartupModelRefresh(w.deps)
+      expect(w.chatModels()).toEqual([G1])
+      expect(authOf(w, 'gemini')).toBe(false)
+    })
+
+    it('a Gemini list spent in full sends one proof to its first model', async () => {
+      const spent = markSpent(
+        'gemini',
+        G2,
+        providerDay('gemini', NOON),
+      )(markSpent('gemini', G1, providerDay('gemini', NOON))(authOn('gemini')))
+      const w = refreshWorld({ routes: GEMINI_ONLY, state: spent })
+      await runStartupModelRefresh(w.deps)
+      expect(w.chatModels()).toEqual([G1])
+      expect(authOf(w, 'gemini')).toBe(false)
+    })
+
+    it('the daily job on a list used in full sends no probe at all', async () => {
+      const w = refreshWorld({ routes: GEMINI_ONLY, hadOkCall: () => true })
+      await runDailyModelRefresh(w.deps)
+      expect(w.chats()).toEqual([])
+    })
   })
 
   it('a successful listing alone leaves the bit set', async () => {

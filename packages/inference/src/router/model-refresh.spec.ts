@@ -350,6 +350,21 @@ describe('promotion only after N consecutive alive days (SR-M-9)', () => {
       await runDailyModelRefresh(w.deps)
       expect(w.chatModels()).toEqual([G1, G2, NEW])
     })
+
+    it('days the job did not run are a gap: the next alive day continues the streak', async () => {
+      const gap = {
+        ...EMPTY_ROUTE_STATE,
+        probation: [
+          { provider: 'gemini' as const, model: NEW, aliveStreak: 1, lastProbeDay: '2026-11-01' },
+        ],
+      }
+      const w = refreshWorld({ ...start, state: gap })
+      await runDailyModelRefresh(w.deps)
+      expect(w.state.snapshot().probation).toEqual([
+        { provider: 'gemini', model: NEW, aliveStreak: 2, lastProbeDay: '2026-11-04' },
+      ])
+      expect(w.ofType('MODEL_PROMOTED')).toEqual([])
+    })
   })
 
   it('a sweep the cap cut short keeps the probe days already made and the file', async () => {

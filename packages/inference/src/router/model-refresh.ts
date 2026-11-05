@@ -178,6 +178,7 @@ async function refreshProvider(
   route: HostedRouteConfig,
   deps: ModelRefreshDeps,
   maxProbes: number,
+  proofProbe: boolean,
 ): Promise<ProviderOutcome> {
   const p = route.provider
   const unit = await deps.ownCap.reserve(p, route.freeLimit)
@@ -214,9 +215,11 @@ async function refreshProvider(
     ...listed.filter((m) => !isBusyDead(before, m)),
     ...listed.filter((m) => isBusyDeadReprobeDue(before, m, today)),
   ]
-  const due = [...current, ...candidates]
-    .filter((m) => !isSpent(before, p, m, spentDay) && deps.hadOkCall?.(p, m) !== true)
-    .slice(0, maxProbes)
+  const eligible = [...current, ...candidates].filter(
+    (m) => !isSpent(before, p, m, spentDay) && deps.hadOkCall?.(p, m) !== true,
+  )
+  // The start-up probe is the only proof that clears `AUTH` (§3.2), so nothing eligible cannot skip it.
+  const due = (eligible.length === 0 && proofProbe ? current : eligible).slice(0, maxProbes)
   const { answers, stopped } = await probeAll(route, due, deps)
 
   const after = deps.state.snapshot()
@@ -330,7 +333,7 @@ async function forEachProvider(
 export async function runDailyModelRefresh(deps: ModelRefreshDeps): Promise<ModelRefreshResult> {
   const result = await forEachProvider(deps, 'daily', (route) =>
     // Groq's availability comes from its listing: its daily job sends no chat.
-    refreshProvider(route, deps, route.provider === 'groq' ? 0 : PROBE_CAP),
+    refreshProvider(route, deps, route.provider === 'groq' ? 0 : PROBE_CAP, false),
   )
   await deps.state.update(setJobFailed('daily', !result.ok))
   return result
@@ -378,7 +381,7 @@ export async function runStartupModelRefresh(deps: ModelRefreshDeps): Promise<Mo
       return skipped(p, 'RECENT')
     }
     if (!(await deps.state.update(markStartupRefresh(p, nowMs)))) return skipped(p, 'STATE')
-    return refreshProvider(route, deps, 1)
+    return refreshProvider(route, deps, 1, true)
   })
   if (!result.ok) await deps.state.update(setJobFailed('daily', true))
   return result

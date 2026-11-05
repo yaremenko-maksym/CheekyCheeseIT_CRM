@@ -9,6 +9,7 @@ import {
 } from './state'
 
 /** The floor of a managed model's context window; a model under it cannot take a chunk (§3.4). */
+// shortcut: fixed floor, tie to local chunk size when 5.4c-6 lands
 export const MIN_MANAGED_CONTEXT = 16_000
 
 export type ModelVerdict = 'alive' | 'dead' | 'transient' | 'unknown'
