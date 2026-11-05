@@ -12,6 +12,12 @@ describe('package index public surface (SPEC-M-1)', () => {
   it('does not expose the internal-only runtime host constant or entry (SR-M-64)', () => {
     expect(Object.keys(pkg)).not.toContain('LOCAL_MODEL_RUNTIME_HOST')
     expect(Object.keys(pkg)).not.toContain('boundedRequestToLocalRuntime')
+    expect(Object.keys(pkg)).not.toContain('EXTRACTION_WORKER_HOST')
+    expect(Object.keys(pkg)).not.toContain('boundedRequestToExtractionWorker')
+  })
+
+  it('exposes the extraction-worker adapter (5.4c-W)', () => {
+    expect(Object.keys(pkg)).toContain('createExtractionWorkerAdapter')
   })
 
   it('exposes exactly the router names the wiring needs (5.4c-2)', () => {

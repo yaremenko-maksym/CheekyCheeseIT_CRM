@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   boundedRequest,
+  boundedRequestToExtractionWorker,
   boundedRequestToLocalRuntime,
   DEFAULT_MAX_BYTES,
   DEFAULT_TIMEOUT_MS,
+  EXTRACTION_WORKER_HOST,
   LOCAL_MODEL_RUNTIME_HOST,
   type FetchLike,
 } from './bounded-request'
@@ -293,6 +295,46 @@ describe('boundedRequest rate-limit details and oversize 2xx', () => {
       status: 200,
       tooLarge: true,
     })
+  })
+})
+
+describe('boundedRequestToExtractionWorker plain HTTP (ADR §2.4)', () => {
+  const kindOf = async (send: typeof boundedRequest, url: string) =>
+    (await send({ ...base, url, fetchImpl: okFetch })).kind
+
+  it('names one constant host', () => {
+    expect(EXTRACTION_WORKER_HOST).toBe('crm-extraction-worker')
+  })
+
+  it('reaches loopback or the worker host over HTTP, and HTTPS', async () => {
+    for (const url of [
+      'http://crm-extraction-worker:3100/extract',
+      'http://localhost:3100/x',
+      'http://127.0.0.1:3100/x',
+      'https://elsewhere.test/x',
+    ]) {
+      expect(await kindOf(boundedRequestToExtractionWorker, url)).toBe('ok')
+    }
+  })
+
+  it('refuses any other plain-HTTP host, including the model runtime', async () => {
+    const fetchImpl = vi.fn(okFetch)
+    for (const url of ['http://crm-model-runtime/x', 'http://example.test/x', 'ftp://localhost/x']) {
+      const r = await boundedRequestToExtractionWorker({ ...base, url, fetchImpl })
+      expect(r).toEqual({ kind: 'transport' })
+    }
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('the public entry and the runtime entry never reach the worker host', async () => {
+    const fetchImpl = vi.fn(okFetch)
+    const url = 'http://crm-extraction-worker:3100/extract'
+    for (const send of [boundedRequest, boundedRequestToLocalRuntime]) {
+      expect(await send({ ...base, url, fetchImpl, allowLoopbackHttp: true })).toEqual({
+        kind: 'transport',
+      })
+    }
+    expect(fetchImpl).not.toHaveBeenCalled()
   })
 })
 

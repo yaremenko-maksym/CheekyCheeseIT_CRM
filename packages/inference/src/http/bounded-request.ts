@@ -46,14 +46,13 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 
 /** The container name of the CRM's own model runtime on the worker's private network (ADR §3.3). */
 export const LOCAL_MODEL_RUNTIME_HOST = 'crm-model-runtime'
+/** The container name of the extraction worker on the API's private network (ADR §2.4). */
+export const EXTRACTION_WORKER_HOST = 'crm-extraction-worker'
 
 type BodyRead = { kind: 'text'; text: string } | { kind: 'too_large' } | { kind: 'aborted' }
 
-function isUrlAllowed(
-  rawUrl: string,
-  allowLoopbackHttp: boolean,
-  allowLocalRuntimeHttp: boolean,
-): boolean {
+/** `privateHost`: the one constant container host an internal entry may reach over plain HTTP. */
+function isUrlAllowed(rawUrl: string, allowLoopbackHttp: boolean, privateHost: string | null): boolean {
   let parsed: URL
   try {
     parsed = new URL(rawUrl)
@@ -62,8 +61,8 @@ function isUrlAllowed(
   }
   if (parsed.protocol === 'https:') return true
   if (parsed.protocol !== 'http:') return false
-  if (allowLocalRuntimeHttp && parsed.hostname === LOCAL_MODEL_RUNTIME_HOST) return true
-  return (allowLoopbackHttp || allowLocalRuntimeHttp) && LOOPBACK_HOSTS.has(parsed.hostname)
+  if (privateHost !== null && parsed.hostname === privateHost) return true
+  return (allowLoopbackHttp || privateHost !== null) && LOOPBACK_HOSTS.has(parsed.hostname)
 }
 
 /** Reads the body, counting bytes; cancels the stream as soon as `maxBytes` is exceeded. */
@@ -108,7 +107,7 @@ async function readBounded(
 
 /** Public entry: HTTPS, or plain HTTP to loopback behind `allowLoopbackHttp`. Nothing else. */
 export function boundedRequest(opts: BoundedRequestOptions): Promise<BoundedResult> {
-  return request(opts, false)
+  return request(opts, null)
 }
 
 /**
@@ -117,14 +116,21 @@ export function boundedRequest(opts: BoundedRequestOptions): Promise<BoundedResu
  * there is no option to reach this from `boundedRequest` (SR-M-64).
  */
 export function boundedRequestToLocalRuntime(opts: BoundedRequestOptions): Promise<BoundedResult> {
-  return request(opts, true)
+  return request(opts, LOCAL_MODEL_RUNTIME_HOST)
 }
 
-async function request(
+/**
+ * Package-internal entry for the extraction-worker adapter only (ADR §2.4): additionally allows
+ * plain HTTP to loopback or the one constant worker host. Not re-exported from the package index.
+ */
+export function boundedRequestToExtractionWorker(
   opts: BoundedRequestOptions,
-  allowLocalRuntimeHttp: boolean,
 ): Promise<BoundedResult> {
-  if (!isUrlAllowed(opts.url, opts.allowLoopbackHttp === true, allowLocalRuntimeHttp)) {
+  return request(opts, EXTRACTION_WORKER_HOST)
+}
+
+async function request(opts: BoundedRequestOptions, privateHost: string | null): Promise<BoundedResult> {
+  if (!isUrlAllowed(opts.url, opts.allowLoopbackHttp === true, privateHost)) {
     return { kind: 'transport' }
   }
   const { signal } = opts
