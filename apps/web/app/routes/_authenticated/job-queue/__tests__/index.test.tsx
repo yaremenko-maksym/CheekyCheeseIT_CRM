@@ -4,7 +4,7 @@
  * The router stub follows interviews/__tests__/index.test.tsx: `Route.useSearch()` answers
  * the test's own search state, `useNavigate()` records the target.
  */
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -103,12 +103,27 @@ function serve({
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const Page = Route.options.component as React.ComponentType
-  render(
+  const tree = () => (
     <QueryClientProvider client={qc}>
       <Page />
-    </QueryClientProvider>,
-    { wrapper: I18nTestProvider },
+    </QueryClientProvider>
   )
+  const { rerender } = render(tree(), { wrapper: I18nTestProvider })
+  return { rerender: () => rerender(tree()) }
+}
+
+const ITEM_2 = '22222222-2222-4222-8222-222222222222'
+
+/** Page 1 (with a cursor) answers; page 2 (`cursor: 'c1'`) answers `second`. */
+function twoPages(second: () => Promise<unknown>, first: Partial<JobQueueListResponseDto> = {}) {
+  return (params: Record<string, unknown>) =>
+    params['cursor'] === 'c1'
+      ? second()
+      : Promise.resolve({ data: page({ nextCursor: 'c1', ...first }) })
+}
+
+function searchInput() {
+  return screen.getByTestId('job-queue-search') as HTMLInputElement
 }
 
 function queueCalls() {
@@ -178,8 +193,36 @@ describe('/job-queue page', () => {
     renderPage()
     expect(await screen.findByTestId('job-queue-filtered-empty')).toBeInTheDocument()
     expect(queueCalls()[0]?.params).toMatchObject({ search: 'go', eligibility: 'TRIAGE' })
-    await userEvent.click(screen.getByRole('button', { name: 'Скинути фільтри' }))
-    expect(mockNavigate).toHaveBeenCalledWith({ to: '/job-queue', search: { tab: 'NEW' } })
+    const empty = within(screen.getByTestId('job-queue-filtered-empty'))
+    await userEvent.click(empty.getByRole('button', { name: 'Скинути фільтри' }))
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      to: '/job-queue',
+      search: { tab: 'NEW', search: 'go' },
+    })
+    await userEvent.click(empty.getByRole('button', { name: 'Очистити пошук' }))
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      to: '/job-queue',
+      search: { tab: 'NEW', eligibility: ['TRIAGE'] },
+    })
+  })
+
+  it('filtered-empty with only a search offers only «Очистити пошук»', async () => {
+    currentSearch = { tab: 'NEW', search: 'go' }
+    serve({ queue: () => Promise.resolve({ data: page({ items: [] }) }) })
+    renderPage()
+    const empty = within(await screen.findByTestId('job-queue-filtered-empty'))
+    expect(empty.getByRole('button', { name: 'Очистити пошук' })).toBeInTheDocument()
+    expect(empty.queryByRole('button', { name: 'Скинути фільтри' })).toBeNull()
+    expect(screen.queryByTestId('job-queue-applied')).toBeNull()
+  })
+
+  it('filtered-empty with only filters offers only «Скинути фільтри»', async () => {
+    currentSearch = { tab: 'NEW', availability: ['OPEN'] }
+    serve({ queue: () => Promise.resolve({ data: page({ items: [] }) }) })
+    renderPage()
+    const empty = within(await screen.findByTestId('job-queue-filtered-empty'))
+    expect(empty.getByRole('button', { name: 'Скинути фільтри' })).toBeInTheDocument()
+    expect(empty.queryByRole('button', { name: 'Очистити пошук' })).toBeNull()
   })
 
   it('an HR without a team sees the no-team state and no queue request is made', async () => {
@@ -284,5 +327,182 @@ describe('/job-queue page', () => {
     renderPage()
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith({ to: '/', replace: true }))
     expect(screen.queryByTestId('job-queue-page')).toBeNull()
+  })
+
+  // CR-H-1: TanStack Query keeps `data` and flips `status` to 'error' when a later page fails.
+  it('a failed next page keeps the loaded rows and shows the append error', async () => {
+    serve({ queue: twoPages(() => Promise.reject(apiError(500, 'INTERNAL'))) })
+    renderPage()
+    await userEvent.click(await screen.findByTestId('job-queue-load-more'))
+    expect(await screen.findByTestId('job-queue-append-error')).toHaveTextContent(
+      'Не вдалося завантажити ще',
+    )
+    expect(screen.getByTestId(`job-queue-row-${ITEM_ID}`)).toBeInTheDocument()
+    expect(screen.queryByTestId('job-queue-error')).toBeNull()
+    expect(screen.getByTestId('job-queue-load-more')).toHaveTextContent('Спробувати ще раз')
+  })
+
+  it('a refresh-required next page keeps the rows, shows the refresh notice over the partial one and offers no retry', async () => {
+    serve({
+      queue: twoPages(() => Promise.reject(apiError(409, 'JOB_QUEUE_REFRESH_REQUIRED')), {
+        generation: { ruleVersion: 'v1', evaluatedAt: '2026-11-01T00:00:00.000Z', capped: true },
+      }),
+    })
+    renderPage()
+    expect(await screen.findByTestId('job-queue-partial')).toBeInTheDocument()
+    await userEvent.click(screen.getByTestId('job-queue-load-more'))
+    expect(await screen.findByTestId('job-queue-refresh')).toHaveTextContent('Список змінився')
+    expect(screen.queryByTestId('job-queue-partial')).toBeNull()
+    expect(screen.getByTestId(`job-queue-row-${ITEM_ID}`)).toBeInTheDocument()
+    expect(screen.queryByTestId('job-queue-error')).toBeNull()
+    expect(screen.queryByTestId('job-queue-append-error')).toBeNull()
+    expect(screen.queryByTestId('job-queue-load-more')).toBeNull()
+  })
+
+  it('a loaded next page is appended and announced', async () => {
+    serve({
+      queue: twoPages(() =>
+        Promise.resolve({
+          data: page({
+            items: [{ ...page().items[0]!, opportunityId: ITEM_2, title: 'Rust Lead' }],
+          }),
+        }),
+      ),
+    })
+    renderPage()
+    await userEvent.click(await screen.findByTestId('job-queue-load-more'))
+    expect(await screen.findByTestId(`job-queue-row-${ITEM_2}`)).toHaveFocus()
+    expect(screen.getByTestId('job-queue-live')).toHaveTextContent('Завантажено ще 1')
+    expect(queueCalls()[1]?.params).toEqual({ teamId: TEAM_A, tab: 'NEW', limit: 20, cursor: 'c1' })
+  })
+
+  // CR-M-2: every URL write, with the exact target.
+  it('a search submit trims the text and keeps tab, team and card', async () => {
+    currentSearch = { tab: 'SUBMITTED', teamId: TEAM_B, card: ITEM_ID }
+    serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    await userEvent.type(searchInput(), '  rust  {Enter}')
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      to: '/job-queue',
+      search: { tab: 'SUBMITTED', teamId: TEAM_B, card: ITEM_ID, search: 'rust' },
+    })
+  })
+
+  it('a blank search submit removes the search from the URL', async () => {
+    currentSearch = { tab: 'NEW', search: 'go' }
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    await userEvent.clear(searchInput())
+    await userEvent.type(searchInput(), '   {Enter}')
+    expect(mockNavigate).toHaveBeenLastCalledWith({ to: '/job-queue', search: { tab: 'NEW' } })
+  })
+
+  it('the clear-search button drops only the search', async () => {
+    currentSearch = { tab: 'NEW', search: 'go', source: ['DOU_RSS'] }
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    await userEvent.click(screen.getByRole('button', { name: 'Очистити пошук' }))
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      to: '/job-queue',
+      search: { tab: 'NEW', source: ['DOU_RSS'] },
+    })
+  })
+
+  it('applying filters keeps tab, team and search and drops the open card', async () => {
+    currentSearch = { tab: 'HIDDEN', teamId: TEAM_B, search: 'go', card: ITEM_ID }
+    serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    await userEvent.click(screen.getByTestId('job-queue-filters-button'))
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Відкрита' }))
+    await userEvent.click(screen.getByTestId('job-queue-filters-apply'))
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      to: '/job-queue',
+      search: { tab: 'HIDDEN', teamId: TEAM_B, search: 'go', availability: ['OPEN'] },
+    })
+  })
+
+  it('switching team keeps the tab and drops search and filters', async () => {
+    currentSearch = { tab: 'SUBMITTED', teamId: TEAM_A, search: 'go', source: ['DOU_RSS'] }
+    serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    await userEvent.click(screen.getByTestId('job-queue-team-switcher'))
+    await userEvent.click(
+      within(await screen.findByRole('listbox')).getByRole('option', { name: 'Beta' }),
+    )
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      to: '/job-queue',
+      search: { tab: 'SUBMITTED', teamId: TEAM_B },
+    })
+  })
+
+  it('shows the applied filters and resets them, keeping the search', async () => {
+    currentSearch = {
+      tab: 'NEW',
+      search: 'go',
+      source: ['DOU_RSS', 'LEVER_ATS'],
+      availability: ['OPEN'],
+    }
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    const applied = screen.getByTestId('job-queue-applied')
+    expect(applied).toHaveTextContent('Застосовано: DOU, LEVER · Відкрита')
+    expect(screen.getByTestId('job-queue-filters-button')).toHaveTextContent('Фільтри2')
+    await userEvent.click(within(applied).getByRole('button', { name: 'Скинути фільтри' }))
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      to: '/job-queue',
+      search: { tab: 'NEW', search: 'go' },
+    })
+  })
+
+  // CR-M-1: the box shows the applied search, also after the URL changes under it.
+  it('the search box follows the URL search', async () => {
+    currentSearch = { tab: 'NEW', search: 'go' }
+    serve()
+    const { rerender } = renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(searchInput()).toHaveValue('go')
+    currentSearch = { tab: 'NEW' }
+    rerender()
+    expect(searchInput()).toHaveValue('')
+    currentSearch = { tab: 'NEW', search: 'rust' }
+    rerender()
+    expect(searchInput()).toHaveValue('rust')
+  })
+})
+
+// CR-M-3: `validateSearch` is the real schema (the stub keeps `options`).
+describe('/job-queue search params', () => {
+  const parse = (raw: Record<string, unknown>) =>
+    (Route.options.validateSearch as { parse: (v: unknown) => unknown }).parse(raw)
+
+  it('keeps valid values', () => {
+    expect(
+      parse({ tab: 'HIDDEN', search: ' go ', source: ['DOU_RSS'], teamId: TEAM_A, card: ITEM_ID }),
+    ).toEqual({ tab: 'HIDDEN', search: 'go', source: ['DOU_RSS'], teamId: TEAM_A, card: ITEM_ID })
+  })
+
+  it('degrades every bad value to its default', () => {
+    expect(
+      parse({
+        tab: 'IN_PROGRESS',
+        search: '   ',
+        source: ['BOGUS'],
+        eligibility: [],
+        availability: 'OPEN',
+        teamId: 'x',
+        card: 'nope',
+      }),
+    ).toEqual({ tab: 'NEW' })
+  })
+
+  it('drops a search longer than 200 characters and defaults a missing tab', () => {
+    expect(parse({ search: 'a'.repeat(201) })).toEqual({ tab: 'NEW' })
+    expect(parse({ search: 'a'.repeat(200) })).toEqual({ tab: 'NEW', search: 'a'.repeat(200) })
   })
 })
