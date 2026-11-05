@@ -65,7 +65,7 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
   const json = app.getDefaultJsonParser('error', 'error')
   // An empty JSON body is "no body": `preflight` takes nothing, `extract` refuses it in its schema.
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) =>
-    body === '' ? done(null, undefined) : json(req, body, done),
+    body === '' ? done(null, undefined) : json(req, body.toString(), done),
   )
 
   // Before the body is read: an unauthenticated caller costs nothing and reaches nothing.
