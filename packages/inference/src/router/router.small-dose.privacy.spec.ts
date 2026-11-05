@@ -131,6 +131,19 @@ describe('small dose privacy (AC5)', () => {
   })
 })
 
+describe('small dose: a merge that refuses (ADR 5.4)', () => {
+  it('is INVALID_OUTPUT even when the whole schema would accept nothing at all', async () => {
+    const f = scriptedFetch(byGroup(TITLE_OK, SALARY_OK))
+    const dose: SmallDose<unknown> = { groups: DOSE.groups, merge: () => ({ ok: false }) }
+    const r = await createRouter(config([LOCAL]), deps(f.fetchImpl)).run({
+      ...REQ,
+      schema: z.unknown(),
+      smallDose: dose,
+    })
+    expect(r).toMatchObject({ ok: false, code: 'INVALID_OUTPUT' })
+  })
+})
+
 describe('small dose: a reply with nothing in it (ADR 6.1)', () => {
   it.each(['', '   '])(
     'an empty answer %j is INVALID_OUTPUT at once: no correction retry, no later group',

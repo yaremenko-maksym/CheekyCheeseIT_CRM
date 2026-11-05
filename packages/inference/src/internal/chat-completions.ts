@@ -39,7 +39,7 @@ export type ChatCompletionOptions = {
   denyDataCollection?: boolean
   fetchImpl?: FetchLike
   /** Aborting ends the request as `TIMEOUT`; the router sees its own signal first (§5.5 item 3). */
-  signal?: AbortSignal
+  signal?: AbortSignal | undefined
 }
 
 /** Prefixed to a correction hint; counted in the router's fit check (ADR §5.1 `PROMPT_TOO_LARGE`). */

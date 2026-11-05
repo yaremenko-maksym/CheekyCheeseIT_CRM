@@ -477,7 +477,9 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
           signal,
           fetchImpl: deps.fetchImpl,
         })
-        if (outcome.sent) localMs = (localMs ?? 0) + now() - t0
+        // Not gated on `outcome.sent`: config refuses a key over http, so an unsent local request is
+        // always ABORTED, and an aborted call reports no usage.
+        localMs = (localMs ?? 0) + now() - t0
         const r = outcome.result
         attempted('local', local.model, r.code, t0, outcome)
         if (!r.ok) return r

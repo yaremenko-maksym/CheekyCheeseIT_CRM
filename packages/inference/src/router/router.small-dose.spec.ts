@@ -542,6 +542,16 @@ describe('local time in usage (§5.5 item 6)', () => {
     expect(f.sent).toHaveLength(0)
   })
 
+  it('a local answer with no reported tokens still reports its time, and only that', async () => {
+    let t = 1_000
+    const f = scriptedFetch(() => {
+      t += 700
+      return answer({ title: 'Engineer' }, { usage: undefined })
+    })
+    const r = await createRouter(config([LOCAL]), deps(f.fetchImpl, { now: () => t })).run(REQ)
+    expect(r).toStrictEqual({ ok: true, data: { title: 'Engineer' }, usage: { localMs: 700 } })
+  })
+
   it('an abort reports no local time: the caller charges the elapsed time itself', async () => {
     const stop = new AbortController()
     const f = scriptedFetch(() => {
