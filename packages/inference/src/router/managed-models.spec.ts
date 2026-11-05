@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import { fakeFs } from './__test-helpers__/fake-fs'
-import { createFileManagedModels, MANAGED_LIST_TARGET, pinnedModelsOnly } from './managed-models'
-import { MAX_STATE_BYTES, type StateEvent } from './state'
+import {
+  createFileManagedModels,
+  createManagedListWriter,
+  isPromoted,
+  MANAGED_LIST_TARGET,
+  pinnedModelsOnly,
+} from './managed-models'
+import {
+  createMemoryRouteStatePort,
+  EMPTY_ROUTE_STATE,
+  MAX_STATE_BYTES,
+  PROMOTION_STREAK,
+  type ProbationEntry,
+  type StateEvent,
+} from './state'
 
 const PATH = '/data/managed-models.json'
 const PINNED = ['openai/gpt-oss-20b'] as const
@@ -85,5 +98,159 @@ describe('managedModels reader (ADR §3.4)', () => {
     fs.openError = 'EACCES'
     expect(await read('groq', PINNED)).toBe(PINNED)
     expect(events).toEqual([{ type: 'STATE_RESET', store: 'managed-list', reason: 'unreadable' }])
+  })
+})
+
+describe('promotion is recomputed, never read from the file (§3.4, SR-M-9)', () => {
+  const OLD = 'gemini-2.5-flash'
+  const NEW = 'gemini-3.0-flash'
+  const entry = (model: string, aliveStreak: number): ProbationEntry => ({
+    provider: 'gemini',
+    model,
+    aliveStreak,
+    lastProbeDay: '2026-11-04',
+  })
+  const read = (list: string[], probation?: ProbationEntry[]) => {
+    const fs = fakeFs({ [PATH]: doc({ gemini: list }) })
+    const state = createMemoryRouteStatePort({
+      ...EMPTY_ROUTE_STATE,
+      ...(probation === undefined ? {} : { probation }),
+    })
+    return createFileManagedModels({ path: PATH, fs, state, onEvent: () => undefined })('gemini', [
+      OLD,
+    ])
+  }
+
+  it('an entry absent from pinned and without a full streak serves below a promoted one', async () => {
+    expect(await read([NEW, OLD], [entry(NEW, PROMOTION_STREAK - 1)])).toEqual([OLD, NEW])
+  })
+
+  it('an entry with no record at all is on probation', async () => {
+    expect(await read([NEW, OLD])).toEqual([OLD, NEW])
+  })
+
+  it('a full streak promotes it, and the file order then holds', async () => {
+    expect(await read([NEW, OLD], [entry(NEW, PROMOTION_STREAK)])).toEqual([NEW, OLD])
+  })
+
+  it('a full streak of another model promotes nothing here', async () => {
+    expect(await read([NEW, OLD], [entry('gemini-9.0-flash', PROMOTION_STREAK)])).toEqual([
+      OLD,
+      NEW,
+    ])
+  })
+
+  it('keeps file order inside each group', async () => {
+    const ids = ['gemini-5.0-flash', 'gemini-6.0-flash', 'gemini-7.0-flash', OLD]
+    expect(await read(ids, [entry('gemini-7.0-flash', PROMOTION_STREAK)])).toEqual([
+      'gemini-7.0-flash',
+      OLD,
+      'gemini-5.0-flash',
+      'gemini-6.0-flash',
+    ])
+  })
+
+  it('without a state port the stored order is served', async () => {
+    const fs = fakeFs({ [PATH]: doc({ gemini: [NEW, OLD] }) })
+    const reader = createFileManagedModels({ path: PATH, fs, onEvent: () => undefined })
+    expect(await reader('gemini', [OLD])).toEqual([NEW, OLD])
+  })
+
+  it('isPromoted reads pinned or a full streak of this model, nothing else', () => {
+    expect(isPromoted(OLD, [OLD], [])).toBe(true)
+    expect(isPromoted(NEW, [OLD], [entry(NEW, PROMOTION_STREAK)])).toBe(true)
+    expect(isPromoted(NEW, [OLD], [entry(NEW, PROMOTION_STREAK - 1)])).toBe(false)
+    expect(isPromoted(NEW, [OLD], [entry(OLD, PROMOTION_STREAK)])).toBe(false)
+    expect(isPromoted(NEW, [OLD], [])).toBe(false)
+  })
+})
+
+describe('the managed-list writer (SR-M-6)', () => {
+  const G = 'gemini-2.5-flash'
+  const Q = 'openai/gpt-oss-20b'
+
+  function writer(text?: string) {
+    const fs = fakeFs(text === undefined ? {} : { [PATH]: text })
+    const events: StateEvent[] = []
+    const write = createManagedListWriter({ path: PATH, fs, onEvent: (e) => events.push(e) })
+    return { fs, events, write }
+  }
+
+  it('creates the file at mode 0600 through a temp file and a rename', async () => {
+    const { fs, write } = writer()
+    expect(await write('groq', [Q])).toBe(true)
+    expect(JSON.parse(fs.files.get(PATH)!)).toEqual({ version: 1, providers: { groq: [Q] } })
+    expect(fs.modes.get(fs.tempNames[0]!)).toBe(0o600)
+    expect(fs.calls.some((c) => c.startsWith('rename '))).toBe(true)
+  })
+
+  it('keeps the list of the other provider', async () => {
+    const { fs, write } = writer(doc({ gemini: [G] }))
+    expect(await write('groq', [Q])).toBe(true)
+    expect(JSON.parse(fs.files.get(PATH)!)).toEqual({
+      version: 1,
+      providers: { gemini: [G], groq: [Q] },
+    })
+  })
+
+  it('an invalid file on disk gives the other provider nothing to keep', async () => {
+    const { fs, write } = writer(doc({ gemini: ['../x'] }))
+    expect(await write('groq', [Q])).toBe(true)
+    expect(JSON.parse(fs.files.get(PATH)!)).toEqual({ version: 1, providers: { groq: [Q] } })
+  })
+
+  it('never writes an empty list: the file stays byte-identical', async () => {
+    const before = doc({ groq: [Q] })
+    const { fs, write } = writer(before)
+    expect(await write('groq', [])).toBe(false)
+    expect(fs.files.get(PATH)).toBe(before)
+    expect(fs.calls).toEqual([])
+  })
+
+  it.each<[string, string[]]>([
+    ['an id outside the family', ['llama-3.1-8b-instant']],
+    ['a hostile id', ['../../x']],
+    ['too many ids', Array.from({ length: MANAGED_LIST_TARGET + 1 }, () => Q)],
+  ])('never writes %s: the file stays byte-identical', async (_label, ids) => {
+    const before = doc({ groq: [Q] })
+    const { fs, write } = writer(before)
+    expect(await write('groq', ids)).toBe(false)
+    expect(fs.files.get(PATH)).toBe(before)
+    expect(fs.tempNames).toEqual([])
+  })
+
+  it('accepts exactly the target number of ids', async () => {
+    const { write } = writer()
+    expect(await write('groq', Array.from({ length: MANAGED_LIST_TARGET }, () => Q))).toBe(true)
+  })
+
+  it('two concurrent writes both survive', async () => {
+    const { fs, write } = writer()
+    const results = await Promise.all([write('groq', [Q]), write('gemini', [G])])
+    expect(results).toEqual([true, true])
+    expect(JSON.parse(fs.files.get(PATH)!)).toEqual({
+      version: 1,
+      providers: { groq: [Q], gemini: [G] },
+    })
+  })
+
+  it.each(['open', 'write', 'rename'] as const)(
+    'a write failing at %s leaves the previous file readable and says so',
+    async (failAt) => {
+      const before = doc({ groq: [Q] })
+      const { fs, write, events } = writer(before)
+      fs.failAt = failAt
+      expect(await write('groq', ['openai/gpt-oss-120b'])).toBe(false)
+      expect(fs.files.get(PATH)).toBe(before)
+      expect(events).toEqual([{ type: 'STATE_WRITE_FAILED', store: 'managed-list' }])
+    },
+  )
+
+  it('the queue goes on after a failed write', async () => {
+    const { fs, write } = writer()
+    fs.failAt = 'rename'
+    expect(await write('groq', [Q])).toBe(false)
+    delete fs.failAt
+    expect(await write('groq', [Q])).toBe(true)
   })
 })
