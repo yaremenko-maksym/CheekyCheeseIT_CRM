@@ -58,7 +58,7 @@ export function limitedCap(units: number): ReturnType<typeof countingCap> {
   const cap = countingCap()
   const reserve = cap.reserve
   let left = units
-  cap.reserve = async (p: string, limit: FreeLimit) => {
+  cap.reserve = async (p: HostedProvider, limit: FreeLimit) => {
     const unit = await reserve(p, limit)
     return left-- > 0 ? unit : null
   }

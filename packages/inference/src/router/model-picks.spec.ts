@@ -255,9 +255,9 @@ describe('pickLiveModels (SR-H-1 order)', () => {
   })
 
   it('removes a dead model', () => {
-    expect(
-      pick({ current: ['a', 'b'], facts: new Map([['a', { verdict: 'dead' }]]) }),
-    ).toEqual(['b'])
+    expect(pick({ current: ['a', 'b'], facts: new Map([['a', { verdict: 'dead' }]]) })).toEqual([
+      'b',
+    ])
   })
 
   it('removes a model under the context floor', () => {

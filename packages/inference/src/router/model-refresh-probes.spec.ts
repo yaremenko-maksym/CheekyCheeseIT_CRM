@@ -30,7 +30,7 @@ import {
   type Reply,
   type Sent,
 } from './__test-helpers__/router-harness'
-import { HOSTED_BASE_URLS } from './config'
+import { HOSTED_BASE_URLS, type RouterConfig } from './config'
 import {
   MODEL_PROBE_PROMPT,
   PROBE_CAP,
@@ -180,9 +180,10 @@ describe('probe hygiene: refresh and chain check alike (SR-M-3)', () => {
 
   it('a provider outside the allowlist is never reached, whatever the config says', async () => {
     const w = refreshWorld({ routes: GROQ_ONLY })
+    const foreign = { ...w.deps.config.routes[0]!, provider: 'openrouter' }
     w.deps.config = {
       ...w.deps.config,
-      routes: [{ ...w.deps.config.routes[0]!, provider: 'openrouter' as 'groq' }],
+      routes: [foreign as unknown as RouterConfig['routes'][number]],
     }
     const r = await runDailyModelRefresh(w.deps)
     expect(w.sent).toEqual([])

@@ -221,7 +221,12 @@ describe('the managed-list writer (SR-M-6)', () => {
 
   it('accepts exactly the target number of ids', async () => {
     const { write } = writer()
-    expect(await write('groq', Array.from({ length: MANAGED_LIST_TARGET }, () => Q))).toBe(true)
+    expect(
+      await write(
+        'groq',
+        Array.from({ length: MANAGED_LIST_TARGET }, () => Q),
+      ),
+    ).toBe(true)
   })
 
   it('two concurrent writes both survive', async () => {

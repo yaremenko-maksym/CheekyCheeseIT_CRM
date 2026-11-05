@@ -89,7 +89,10 @@ describe('reading a listing', () => {
     expect(
       await okModels(
         'groq',
-        groq([groqEntry('openai/gpt-oss-120b'), groqEntry('openai/gpt-oss-20b', { active: false })]),
+        groq([
+          groqEntry('openai/gpt-oss-120b'),
+          groqEntry('openai/gpt-oss-20b', { active: false }),
+        ]),
       ),
     ).toEqual([
       { id: 'openai/gpt-oss-120b', context: 131_072, active: true },
@@ -166,8 +169,11 @@ describe('hostile ids are dropped and counted (AC2)', () => {
       'groq',
       groq([groqEntry('openai/gpt-oss-120b'), groqEntry('openai/gpt-oss-120b')]),
     )
-    expect(result).toMatchObject({ kind: 'ok', dropped: 1 })
-    if (result.kind === 'ok') expect(result.models).toHaveLength(1)
+    expect(result).toMatchObject({
+      kind: 'ok',
+      dropped: 1,
+      models: [{ id: 'openai/gpt-oss-120b' }],
+    })
   })
 
   it('keeps the good entries beside the hostile ones', async () => {

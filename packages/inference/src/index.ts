@@ -44,4 +44,18 @@ export {
   type StateEvent,
   type FreeLimit,
 } from './router/state'
-export { createFileManagedModels, type ManagedModels } from './router/managed-models'
+export {
+  createFileManagedModels,
+  createManagedListWriter,
+  type ManagedListWriter,
+  type ManagedModels,
+} from './router/managed-models'
+// Self-heal jobs (5.4c-2b): the worker schedules them. Listing, probe and picks stay internal.
+export {
+  runDailyModelRefresh,
+  runModelChainCheck,
+  runStartupModelRefresh,
+  type ModelRefreshDeps,
+  type ModelRefreshEvent,
+  type ModelRefreshResult,
+} from './router/model-refresh'
