@@ -101,7 +101,8 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
   },
   JOB_QUEUE_SENIOR_INELIGIBLE: /* i18n */ {
     id: 'api-error.JOB_QUEUE_SENIOR_INELIGIBLE',
-    message: 'Цього сеньйора не можна подати на цю вакансію від цієї команди.',
+    message:
+      'Цього сеньйора не можна подати на цю вакансію від цієї команди. Оберіть іншого сеньйора або іншу команду.',
   },
   JOB_QUEUE_RESUME_UNUSABLE: /* i18n */ {
     id: 'api-error.JOB_QUEUE_RESUME_UNUSABLE',
@@ -140,7 +141,8 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
   JOB_QUEUE_IDEMPOTENCY_CONFLICT:
     'This request was already made with different data. Refresh the card and try again.',
   JOB_QUEUE_POLICY_UNAVAILABLE: 'Access could not be checked. Try again later.',
-  JOB_QUEUE_SENIOR_INELIGIBLE: 'This senior cannot be submitted to this job from this team.',
+  JOB_QUEUE_SENIOR_INELIGIBLE:
+    'This senior cannot be submitted to this job from this team. Choose another senior or another team.',
   JOB_QUEUE_RESUME_UNUSABLE: 'This resume cannot be used for this senior. Choose another one.',
   JOB_QUEUE_MANUAL_DUPLICATE: 'A job with this link already exists. No new card was created.',
   JOB_SOURCE_NOT_FOUND: 'The source was not found',

@@ -3140,7 +3140,7 @@ msgstr "Це резюме не можна використати для цьог
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_SENIOR_INELIGIBLE"
-msgstr "Цього сеньйора не можна подати на цю вакансію від цієї команди."
+msgstr "Цього сеньйора не можна подати на цю вакансію від цієї команди. Оберіть іншого сеньйора або іншу команду."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts

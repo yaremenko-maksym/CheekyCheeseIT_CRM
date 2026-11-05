@@ -3140,7 +3140,7 @@ msgstr "This resume cannot be used for this senior. Choose another one."
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_SENIOR_INELIGIBLE"
-msgstr "This senior cannot be submitted to this job from this team."
+msgstr "This senior cannot be submitted to this job from this team. Choose another senior or another team."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
