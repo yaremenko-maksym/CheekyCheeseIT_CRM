@@ -15,7 +15,7 @@ import {
 } from './schema'
 
 /** The one fixed preflight request: the caller sends nothing, so nothing of its can reach a route. */
-export const PREFLIGHT_INPUT = 'Reply with the JSON object {"ok": true} and nothing else.'
+const PREFLIGHT_INPUT = 'Reply with the JSON object {"ok": true} and nothing else.'
 const PREFLIGHT_INSTRUCTION = 'You are a health check. Answer exactly as asked.'
 const preflightReplySchema = z.object({ ok: z.literal(true) }).strict()
 
@@ -37,7 +37,6 @@ export type ExtractionWorkerOptions = {
   }
 }
 
-const BODY_LIMIT_BYTES = 1024 * 1024
 const digest = (value: string) => createHash('sha256').update(value).digest()
 
 /**
@@ -54,7 +53,8 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
     opts.log({ event: 'ROUTER', ...e })
   })
 
-  const app = Fastify({ logger: false, bodyLimit: BODY_LIMIT_BYTES })
+  // Fastify's defaults are the policy: no logger (AC9) and a 1 MiB body limit.
+  const app = Fastify()
 
   const refuse = (reply: FastifyReply, status: number, error: string) => {
     opts.log({ event: 'REFUSED', status })
@@ -62,6 +62,7 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
   }
 
   app.removeAllContentTypeParsers()
+  // Fastify's own default poisoning policy: a `__proto__` or `constructor.prototype` key is an error.
   const json = app.getDefaultJsonParser('error', 'error')
   // An empty JSON body is "no body": `preflight` takes nothing, `extract` refuses it in its schema.
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) =>
@@ -70,8 +71,10 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
 
   // Before the body is read: an unauthenticated caller costs nothing and reaches nothing.
   app.addHook('onRequest', async (req, reply) => {
-    const given = digest(req.headers.authorization ?? '')
-    if (!timingSafeEqual(given, expected)) return refuse(reply, 401, 'UNAUTHORIZED')
+    const given = req.headers.authorization
+    if (given === undefined || !timingSafeEqual(digest(given), expected)) {
+      return refuse(reply, 401, 'UNAUTHORIZED')
+    }
   })
 
   app.setNotFoundHandler((_req, reply) => refuse(reply, 404, 'NOT_FOUND'))
@@ -79,22 +82,20 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
   app.setErrorHandler((err: { statusCode?: number }, _req, reply) => {
     const status = err.statusCode ?? 500
     if (status === 415) return refuse(reply, 415, 'UNSUPPORTED_MEDIA_TYPE')
-    if (status >= 400 && status < 500) return refuse(reply, 400, 'BAD_REQUEST')
+    if (status < 500) return refuse(reply, 400, 'BAD_REQUEST')
     return refuse(reply, 500, 'INTERNAL')
   })
 
   /** Runs one route call with its own event list and a signal tied to the client connection. */
-  async function call(
+  function call<T>(
     reply: FastifyReply,
     events: WorkerEvent[],
-    run: (signal: AbortSignal) => Promise<void>,
-  ): Promise<WorkerEvent[]> {
+    run: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
     const controller = new AbortController()
-    reply.raw.on('close', () => {
-      if (!reply.raw.writableFinished) controller.abort()
-    })
-    await callEvents.run(events, () => run(controller.signal))
-    return events
+    // After a sent reply the call is over, so the abort is a no-op there.
+    reply.raw.on('close', () => controller.abort())
+    return callEvents.run(events, () => run(controller.signal))
   }
 
   app.post('/extract', async (req, reply) => {
@@ -111,16 +112,15 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
       events.push({ type: 'INPUT_CONTACTS_STRIPPED', count })
       opts.log({ event: 'INPUT_CONTACTS_STRIPPED', count })
     }
-    let result: unknown
-    await call(reply, events, async (signal) => {
-      result = await ports.extract.extract({
+    const result = await call(reply, events, (signal) =>
+      ports.extract.extract({
         input: stripped.text,
         instruction: EXTRACTION_SYSTEM_PROMPT,
         schema: modelReplySchema,
         smallDose: smallDoseFor(),
         signal,
-      })
-    })
+      }),
+    )
     return { result, events, health: healthFlags(opts.routeState.snapshot()) }
   })
 
@@ -128,17 +128,16 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
     if (!preflightBodySchema.safeParse(req.body).success) {
       return refuse(reply, 400, 'BAD_REQUEST')
     }
-    let ok = false
-    const events = await call(reply, [], async (signal) => {
-      const r = await ports.preflight.extract({
+    const events: WorkerEvent[] = []
+    const r = await call(reply, events, (signal) =>
+      ports.preflight.extract({
         input: PREFLIGHT_INPUT,
         instruction: PREFLIGHT_INSTRUCTION,
         schema: preflightReplySchema,
         signal,
-      })
-      ok = r.ok
-    })
-    return { ok, events, health: healthFlags(opts.routeState.snapshot()) }
+      }),
+    )
+    return { ok: r.ok, events, health: healthFlags(opts.routeState.snapshot()) }
   })
 
   return app

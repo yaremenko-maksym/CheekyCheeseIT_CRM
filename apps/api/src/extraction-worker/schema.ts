@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto'
-import { MAX_EXTRACTION_INPUT_CHARS, routerConfigSchema, type RouteStatePort } from '@crm/inference'
+import {
+  MAX_EXTRACTION_INPUT_CHARS,
+  routerConfigSchema,
+  type RouteStatePort,
+  type SmallDoseGroup,
+} from '@crm/inference'
 import { z } from 'zod'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
@@ -17,19 +22,27 @@ const DEFAULT_PORT = 3100
  * `merge` is code and is not hashed; a change to it alone ships with a prompt or table change or
  * not at all.
  */
-export function tableVersionOf(prompt: string): string {
-  const groups = smallDoseFor().groups.map((g) => ({
+export function tableVersionOf(m: {
+  prompt: string
+  groups: readonly SmallDoseGroup[]
+  reply: z.ZodType
+}): string {
+  const groups = m.groups.map((g) => ({
     name: g.name,
     instruction: g.instruction,
     maxAnswerTokens: g.maxAnswerTokens,
     schema: z.toJSONSchema(g.schema, { unrepresentable: 'any' }),
   }))
-  const reply = z.toJSONSchema(modelReplySchema, { unrepresentable: 'any', io: 'input' })
-  const doc = JSON.stringify({ prompt, groups, reply })
+  const reply = z.toJSONSchema(m.reply, { unrepresentable: 'any', io: 'input' })
+  const doc = JSON.stringify({ prompt: m.prompt, groups, reply })
   return createHash('sha256').update(doc).digest('hex').slice(0, 16)
 }
 
-export const EXTRACTION_TABLE_VERSION = tableVersionOf(EXTRACTION_SYSTEM_PROMPT)
+export const EXTRACTION_TABLE_VERSION = tableVersionOf({
+  prompt: EXTRACTION_SYSTEM_PROMPT,
+  groups: smallDoseFor().groups,
+  reply: modelReplySchema,
+})
 
 /** Data only (ADR §2.4): the input and the table version. Nothing else crosses. */
 export const extractBodySchema = z
@@ -64,11 +77,11 @@ export type WorkerEnvResult =
   | { ok: true; env: WorkerEnv }
   | { ok: false; reason: 'SECRET' | 'ROUTER_CONFIG' | 'STATE_FILE' | 'PORT' }
 
-function parseJson(text: string): { ok: true; value: unknown } | { ok: false } {
+function parseJson(text: string): { value: unknown } | null {
   try {
-    return { ok: true, value: JSON.parse(text) as unknown }
+    return { value: JSON.parse(text) as unknown }
   } catch {
-    return { ok: false }
+    return null
   }
 }
 
@@ -78,10 +91,13 @@ function parseJson(text: string): { ok: true; value: unknown } | { ok: false } {
  * builds a router that answers `NOT_CONFIGURED` and sends nothing (§3.3).
  */
 export function parseWorkerEnv(env: Readonly<Record<string, string | undefined>>): WorkerEnvResult {
-  const secret = env.EXTRACTION_WORKER_SECRET ?? ''
-  if (secret.length < MIN_WORKER_SECRET_CHARS) return { ok: false, reason: 'SECRET' }
-  const config = parseJson(env.EXTRACTION_ROUTER_CONFIG ?? '')
-  if (!config.ok) return { ok: false, reason: 'ROUTER_CONFIG' }
+  const secret = env.EXTRACTION_WORKER_SECRET
+  if (secret === undefined || secret.length < MIN_WORKER_SECRET_CHARS) {
+    return { ok: false, reason: 'SECRET' }
+  }
+  const rawConfig = env.EXTRACTION_ROUTER_CONFIG
+  const config = rawConfig === undefined ? null : parseJson(rawConfig)
+  if (config === null) return { ok: false, reason: 'ROUTER_CONFIG' }
   const stateFile = env.EXTRACTION_ROUTER_STATE_FILE ?? ''
   if (stateFile === '') return { ok: false, reason: 'STATE_FILE' }
   const rawPort = env.EXTRACTION_WORKER_PORT ?? String(DEFAULT_PORT)

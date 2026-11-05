@@ -8,7 +8,16 @@ import {
   parseWorkerEnv,
   tableVersionOf,
 } from './schema'
+import { z } from 'zod'
+import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
+import { smallDoseFor } from '../job-sourcing/structuring/small-dose-table'
+
+const MODULE = {
+  prompt: EXTRACTION_SYSTEM_PROMPT,
+  groups: smallDoseFor().groups,
+  reply: modelReplySchema,
+}
 
 const SECRET = 's'.repeat(MIN_WORKER_SECRET_CHARS)
 const BASE = {
@@ -48,9 +57,15 @@ describe('parseWorkerEnv — the worker does not start without its secret', () =
     ['no state file', { ...BASE, EXTRACTION_ROUTER_STATE_FILE: undefined }, 'STATE_FILE'],
     ['port zero', { ...BASE, EXTRACTION_WORKER_PORT: '0' }, 'PORT'],
     ['port not a number', { ...BASE, EXTRACTION_WORKER_PORT: '80a' }, 'PORT'],
+    ['port with a prefix', { ...BASE, EXTRACTION_WORKER_PORT: 'x80' }, 'PORT'],
     ['port too high', { ...BASE, EXTRACTION_WORKER_PORT: '65536' }, 'PORT'],
   ])('%s: refused', (_name, env, reason) => {
     expect(parseWorkerEnv(env)).toEqual({ ok: false, reason })
+  })
+
+  it('port 1 is the lowest accepted', () => {
+    const r = parseWorkerEnv({ ...BASE, EXTRACTION_WORKER_PORT: '1' })
+    expect(r.ok && r.env.port).toBe(1)
   })
 
   it('reads host and port', () => {
@@ -67,11 +82,39 @@ describe('parseWorkerEnv — the worker does not start without its secret', () =
 describe('the table version follows the checked-in extraction module', () => {
   it('is a stable short hex digest of the current module', () => {
     expect(EXTRACTION_TABLE_VERSION).toMatch(/^[0-9a-f]{16}$/)
-    expect(tableVersionOf(EXTRACTION_SYSTEM_PROMPT)).toBe(EXTRACTION_TABLE_VERSION)
+    expect(tableVersionOf(MODULE)).toBe(EXTRACTION_TABLE_VERSION)
   })
 
   it('changes when the prompt changes', () => {
-    expect(tableVersionOf(`${EXTRACTION_SYSTEM_PROMPT} `)).not.toBe(EXTRACTION_TABLE_VERSION)
+    const v = tableVersionOf({ ...MODULE, prompt: `${EXTRACTION_SYSTEM_PROMPT} ` })
+    expect(v).not.toBe(EXTRACTION_TABLE_VERSION)
+  })
+
+  it.each([
+    ['name', { name: 'other' }],
+    ['instruction', { instruction: 'other' }],
+    ['answer budget', { maxAnswerTokens: 7 }],
+    ['schema', { schema: z.object({ other: z.string() }) }],
+  ])('changes when a group %s changes', (_name, change) => {
+    const [first, ...rest] = MODULE.groups
+    const groups = [{ ...first!, ...change }, ...rest]
+    expect(tableVersionOf({ ...MODULE, groups })).not.toBe(EXTRACTION_TABLE_VERSION)
+  })
+
+  it('changes when the reply schema changes', () => {
+    const v = tableVersionOf({ ...MODULE, reply: z.object({ other: z.string() }) })
+    expect(v).not.toBe(EXTRACTION_TABLE_VERSION)
+  })
+
+  it('hashes what the caller sends, not what the parse returns', () => {
+    const toNumber = tableVersionOf({ ...MODULE, reply: z.string().transform(Number) })
+    const toString = tableVersionOf({ ...MODULE, reply: z.number().transform(String) })
+    expect(toNumber).not.toBe(toString)
+  })
+
+  it('a schema JSON Schema cannot express does not stop the worker', () => {
+    const group = { name: 'd', instruction: 'i', maxAnswerTokens: 1, schema: z.date() }
+    expect(() => tableVersionOf({ prompt: 'p', groups: [group], reply: z.date() })).not.toThrow()
   })
 })
 

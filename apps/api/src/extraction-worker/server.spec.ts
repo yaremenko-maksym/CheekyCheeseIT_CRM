@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_TABLE_VERSION, MAX_WORKER_INPUT_CHARS } from './schema'
-import { buildExtractionWorker, PREFLIGHT_INPUT, type WorkerLogLine } from './server'
+import { buildExtractionWorker, type WorkerLogLine } from './server'
 
 const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
 const INPUT_MARKER = 'INPUT-MARKER-page-text'
@@ -115,7 +115,7 @@ describe('extraction worker — refusals reach no route', () => {
     ['wrong secret, other length', { authorization: 'Bearer short' }],
     ['no bearer scheme', { authorization: SECRET }],
   ])('%s: 401 with a fixed body', async (_name, headers) => {
-    const { app, extract } = await setup()
+    const { app, extract, logs } = await setup()
     track(app)
     const res = await app.inject({
       method: 'POST',
@@ -126,6 +126,7 @@ describe('extraction worker — refusals reach no route', () => {
     expect(res.statusCode).toBe(401)
     expect(res.json()).toEqual({ error: 'UNAUTHORIZED' })
     expect(extract.calls).toHaveLength(0)
+    expect(logs).toEqual([{ event: 'REFUSED', status: 401 }])
   })
 
   it('an unauthenticated preflight reaches no route', async () => {
@@ -144,6 +145,14 @@ describe('extraction worker — refusals reach no route', () => {
     ['an over-cap input', body({ input: 'a'.repeat(MAX_WORKER_INPUT_CHARS + 1) })],
     ['a non-object', '[]'],
     ['bad JSON', `{"input": "${INPUT_MARKER}"`],
+    [
+      'a __proto__ key',
+      `{"__proto__":{"x":1},"input":"x","tableVersion":"${EXTRACTION_TABLE_VERSION}"}`,
+    ],
+    [
+      'a constructor.prototype key',
+      `{"constructor":{"prototype":{"x":1}},"input":"x","tableVersion":"${EXTRACTION_TABLE_VERSION}"}`,
+    ],
   ])('%s: 400, zero requests', async (_name, payload) => {
     const { app, extract, logs } = await setup()
     track(app)
@@ -222,6 +231,7 @@ describe('extraction worker — refusals reach no route', () => {
     track(app)
     const res = await app.inject({ method: 'POST', url: '/preflight', headers: auth, payload })
     expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({ error: 'BAD_REQUEST' })
     expect(preflight.calls).toHaveLength(0)
   })
 })
@@ -259,7 +269,7 @@ describe('extraction worker — the request is the worker’s own', () => {
   })
 
   it('replies with the answer, usage, the call’s events and clear health flags', async () => {
-    const { app } = await setup()
+    const { app, logs } = await setup()
     track(app)
     const res = await app.inject({
       method: 'POST',
@@ -272,6 +282,17 @@ describe('extraction worker — the request is the worker’s own', () => {
       events: [{ type: 'CALL', code: 'OK', floorAnswered: false, latencyMs: 5 }],
       health: { modelListStale: false, failedJobs: [] },
     })
+    expect(logs).toEqual([
+      { event: 'ROUTER', type: 'CALL', code: 'OK', floorAnswered: false, latencyMs: 5 },
+    ])
+  })
+
+  it('a router event outside any call is logged, not lost and not thrown', async () => {
+    const { app, extract, logs } = await setup()
+    track(app)
+    const late = { type: 'CALL', code: 'OK', floorAnswered: false, latencyMs: 1 } as const
+    expect(() => extract.onEvent(late)).not.toThrow()
+    expect(logs).toEqual([{ event: 'ROUTER', ...late }])
   })
 
   it('passes a failure code and its usage through', async () => {
@@ -387,7 +408,8 @@ describe('extraction worker — preflight', () => {
     expect(extract.calls).toHaveLength(0)
     expect(preflight.calls).toHaveLength(1)
     const req = preflight.calls[0]!
-    expect(req.input).toBe(PREFLIGHT_INPUT)
+    expect(req.input).toBe('Reply with the JSON object {"ok": true} and nothing else.')
+    expect(req.instruction).toBe('You are a health check. Answer exactly as asked.')
     expect(req.smallDose).toBeUndefined()
     expect(req.schema.safeParse({ ok: true }).success).toBe(true)
     expect(req.schema.safeParse({ ok: true, x: 1 }).success).toBe(false)
