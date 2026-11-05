@@ -7,7 +7,6 @@ import {
   type QueryClient,
   type QueryKey,
 } from '@tanstack/react-query'
-import type { z } from 'zod'
 import {
   jobQueueCardResponseSchema,
   jobQueueDismissalResponseSchema,
@@ -173,12 +172,12 @@ export function useJobQueueCard(scope: QueueScopeSignature, id: string | null) {
  * The continuation of a card preview (seniors past 200, sources past 20), from the preview's own
  * `nextCursor`; disabled while that cursor is `null`. `totalCount` is the server's denominator.
  */
-function useContinuation<S extends z.ZodType>(
+function useContinuation<T extends { nextCursor: string | null }>(
   scope: QueueScopeSignature,
   id: string | null,
   cursor: string | null,
   part: 'seniors' | 'sources',
-  schema: S,
+  parse: (data: unknown) => T,
 ) {
   return useInfiniteQuery({
     queryKey: [...jobQueueCardQueryKey(scope, id ?? ''), part, cursor],
@@ -187,9 +186,9 @@ function useContinuation<S extends z.ZodType>(
       const res = await api.get<unknown>(`/job-queue/${id}/${part}`, {
         params: { ...teamParam(scope), cursor: pageParam },
       })
-      return schema.parse(res.data) as z.output<S>
+      return parse(res.data)
     },
-    getNextPageParam: (last: { nextCursor: string | null }) => last.nextCursor,
+    getNextPageParam: (last) => last.nextCursor,
     enabled: id !== null && cursor !== null,
   })
 }
@@ -199,7 +198,9 @@ export function useJobQueueSeniors(
   id: string | null,
   cursor: string | null,
 ) {
-  return useContinuation(scope, id, cursor, 'seniors', jobQueueSeniorsContinuationSchema)
+  return useContinuation(scope, id, cursor, 'seniors', (d) =>
+    jobQueueSeniorsContinuationSchema.parse(d),
+  )
 }
 
 export function useJobQueueSources(
@@ -207,7 +208,9 @@ export function useJobQueueSources(
   id: string | null,
   cursor: string | null,
 ) {
-  return useContinuation(scope, id, cursor, 'sources', jobQueueSourcesContinuationSchema)
+  return useContinuation(scope, id, cursor, 'sources', (d) =>
+    jobQueueSourcesContinuationSchema.parse(d),
+  )
 }
 
 /** The 409 `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED` body (the duplicates to confirm), else `null`. */
