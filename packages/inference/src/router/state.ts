@@ -29,6 +29,8 @@ type RetiredEntry = z.infer<typeof retiredEntry>
 export const PROMOTION_STREAK = 3
 /** A Gemini model busy on this many consecutive probe days counts as dead (§3.4 verdicts). */
 export const BUSY_DEAD_DAYS = 3
+/** The managed list keeps at most `TARGET` ids per provider (ADR §3.4, VCF: 5). */
+export const MANAGED_LIST_TARGET = 5
 
 /** Gemini only, as only the Gemini refresh probes: a hand-edited Groq record cannot promote anything. */
 const probationEntry = z
@@ -66,8 +68,8 @@ const routeStateDocument = z
     version: z.literal(1),
     spent: z.array(z.unknown()).max(MAX_STATE_ENTRIES),
     retired: z.array(z.unknown()).max(MAX_STATE_ENTRIES),
-    probation: z.array(probationEntry).max(MAX_STATE_ENTRIES).optional(),
-    busy: z.array(busyEntry).max(MAX_STATE_ENTRIES).optional(),
+    probation: z.array(probationEntry).max(MANAGED_LIST_TARGET).optional(),
+    busy: z.array(busyEntry).max(MANAGED_LIST_TARGET).optional(),
     modelListStale: z.array(staleEntry).max(MAX_STATE_ENTRIES).optional(),
     failedJobs: z
       .array(z.enum(['daily', 'chain']))
@@ -133,12 +135,13 @@ export type StateEvent =
     }
   /** Entries that failed validation were dropped; the rest of the file was kept (§3.2). */
   | { type: 'STATE_ENTRIES_DROPPED'; store: 'route-state'; count: number }
-  | { type: 'STATE_WRITE_FAILED'; store: 'route-state' | 'managed-list' }
+  | { type: 'STATE_WRITE_FAILED'; store: 'route-state' | 'managed-list'; reason?: 'oversized' }
 
 /**
  * Spent, retired and provider-level bits (ADR §3.2). `snapshot` is the in-memory read path;
  * `update` applies a change to memory at once and writes the whole document through, resolving
- * `false` when that write failed (the change stays in memory).
+ * `false` when that write failed (the change stays in memory). A change whose document would pass
+ * the byte ceiling is refused whole: no memory change, no write, `false`.
  */
 export interface RouteStatePort {
   snapshot(): RouteState
@@ -299,8 +302,14 @@ export async function createFileRouteStatePort(opts: StateFileOptions): Promise<
   return {
     snapshot: () => state,
     update: (change) => {
-      state = change(state)
-      const doc = JSON.stringify(state)
+      const next = change(state)
+      const doc = JSON.stringify(next)
+      // The reader would reset a file past the ceiling, and lose every record with it.
+      if (Buffer.byteLength(doc) > MAX_STATE_BYTES) {
+        emit({ type: 'STATE_WRITE_FAILED', store: 'route-state', reason: 'oversized' })
+        return Promise.resolve(false)
+      }
+      state = next
       const write = queue.then(() => writeAtomic(fs, opts.path, doc))
       queue = write.catch(() => undefined)
       return write.then(
@@ -399,7 +408,11 @@ export const markStartupRefresh =
 
 export const setModelRecords =
   (probation: ProbationEntry[], busy: BusyEntry[]) =>
-  (s: RouteState): RouteState => ({ ...s, probation: capped(probation), busy: capped(busy) })
+  (s: RouteState): RouteState => ({
+    ...s,
+    probation: probation.slice(-MANAGED_LIST_TARGET),
+    busy: busy.slice(-MANAGED_LIST_TARGET),
+  })
 
 /** One provider's named stale entries. */
 export const staleModelsOf = (s: RouteState, p: HostedProvider): string[] =>

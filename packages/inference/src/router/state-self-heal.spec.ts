@@ -6,9 +6,11 @@ import {
   clearRetired,
   createFileRouteStatePort,
   EMPTY_ROUTE_STATE,
+  MANAGED_LIST_TARGET,
   markAuth,
   markRetired,
   markStartupRefresh,
+  MAX_STATE_BYTES,
   MAX_STATE_ENTRIES,
   PROMOTION_STREAK,
   setJobFailed,
@@ -71,13 +73,17 @@ describe('self-heal records in the route-state file (SR-M-6, SR-M-9)', () => {
     expect(events).toEqual([])
   })
 
-  it.each<[string, object]>([
-    ['probation', { probation: many(probation({ aliveStreak: 0 }), MAX_STATE_ENTRIES) }],
-    ['busy', { busy: many(busy({ busyDays: 0 }), MAX_STATE_ENTRIES) }],
-    ['modelListStale', { modelListStale: many(stale(), MAX_STATE_ENTRIES) }],
-  ])('accepts a zero count and exactly the entry cap in %s', async (key, record) => {
+  it.each<[string, object, number]>([
+    [
+      'probation',
+      { probation: many(probation({ aliveStreak: 0 }), MANAGED_LIST_TARGET) },
+      MANAGED_LIST_TARGET,
+    ],
+    ['busy', { busy: many(busy({ busyDays: 0 }), MANAGED_LIST_TARGET) }, MANAGED_LIST_TARGET],
+    ['modelListStale', { modelListStale: many(stale(), MAX_STATE_ENTRIES) }, MAX_STATE_ENTRIES],
+  ])('accepts a zero count and exactly the entry cap in %s', async (key, record, cap) => {
     const { port, events } = await load(doc(record))
-    expect(port.snapshot()[key as keyof RouteState]).toHaveLength(MAX_STATE_ENTRIES)
+    expect(port.snapshot()[key as keyof RouteState]).toHaveLength(cap)
     expect(events).toEqual([])
   })
 
@@ -100,7 +106,7 @@ describe('self-heal records in the route-state file (SR-M-6, SR-M-9)', () => {
     ['an invalid probation id', { probation: [probation({ model: '../secret' })] }],
     ['a bad probe day', { probation: [probation({ lastProbeDay: 'today' })] }],
     ['an unknown probation field', { probation: [probation({ promoted: true })] }],
-    ['too many probation entries', { probation: many(probation(), MAX_STATE_ENTRIES + 1) }],
+    ['too many probation entries', { probation: many(probation(), MANAGED_LIST_TARGET + 1) }],
     ['busy days above the rule', { busy: [busy({ busyDays: BUSY_DEAD_DAYS + 1 })] }],
     ['negative busy days', { busy: [busy({ busyDays: -1 })] }],
     ['fractional busy days', { busy: [busy({ busyDays: 0.5 })] }],
@@ -108,7 +114,7 @@ describe('self-heal records in the route-state file (SR-M-6, SR-M-9)', () => {
     ['an invalid busy id', { busy: [busy({ model: 'https://evil.example/x' })] }],
     ['a bad busy day', { busy: [busy({ lastProbeDay: 'today' })] }],
     ['an unknown busy field', { busy: [busy({ extra: 1 })] }],
-    ['too many busy entries', { busy: many(busy(), MAX_STATE_ENTRIES + 1) }],
+    ['too many busy entries', { busy: many(busy(), MANAGED_LIST_TARGET + 1) }],
     ['a stale provider outside the allowlist', { modelListStale: [stale({ provider: 'x' })] }],
     ['an invalid stale id', { modelListStale: [stale({ model: 'gemini 2.5' })] }],
     ['an unknown stale field', { modelListStale: [stale({ extra: 1 })] }],
@@ -152,6 +158,69 @@ describe('self-heal records in the route-state file (SR-M-6, SR-M-9)', () => {
   })
 })
 
+describe('the write ceiling (ADR §3.2, SR-M-2)', () => {
+  // The padding stands in for any growth: the ceiling runs before anything reads the document.
+  const padded =
+    (pad: string) =>
+    (s: RouteState): RouteState =>
+      ({ ...s, pad }) as RouteState
+  const fill = (bytes: number): string =>
+    'x'.repeat(bytes - JSON.stringify({ ...EMPTY_ROUTE_STATE, pad: '' }).length)
+
+  it('writes a document of exactly the ceiling', async () => {
+    const { fs, port, events } = await load(undefined)
+    expect(await port.update(padded(fill(MAX_STATE_BYTES)))).toBe(true)
+    expect(Buffer.byteLength(fs.files.get(PATH)!)).toBe(MAX_STATE_BYTES)
+    expect(events).toEqual([])
+  })
+
+  it('refuses one byte more, keeping the file and memory, and says so', async () => {
+    const before = JSON.stringify(EMPTY_ROUTE_STATE)
+    const { fs, port, events } = await load(before)
+    const snapshot = port.snapshot()
+    expect(await port.update(padded(fill(MAX_STATE_BYTES + 1)))).toBe(false)
+    expect(fs.files.get(PATH)).toBe(before)
+    expect(fs.tempNames).toEqual([])
+    expect(port.snapshot()).toBe(snapshot)
+    expect(events).toEqual([
+      { type: 'STATE_WRITE_FAILED', store: 'route-state', reason: 'oversized' },
+    ])
+  })
+
+  it('counts bytes, not characters', async () => {
+    const { fs, port, events } = await load(undefined)
+    expect(await port.update(padded('é'.repeat(MAX_STATE_BYTES / 2)))).toBe(false)
+    expect(fs.files.size).toBe(0)
+    expect(events).toHaveLength(1)
+  })
+
+  it('a refused change does not stop the next one', async () => {
+    const { fs, port } = await load(undefined)
+    await port.update(padded(fill(MAX_STATE_BYTES + 1)))
+    expect(await port.update(setJobFailed('daily', true))).toBe(true)
+    expect((JSON.parse(fs.files.get(PATH)!) as RouteState).failedJobs).toEqual(['daily'])
+  })
+
+  it('a maximal self-heal document stays under the ceiling and reloads clean', async () => {
+    const longest = (i: number): string =>
+      `gemini-${String(i).padStart(128 - 'gemini--flash'.length, '9')}-flash`
+    const ids = Array.from({ length: MANAGED_LIST_TARGET }, (_, i) => longest(i))
+    const { fs, port } = await load(undefined)
+    await port.update(
+      setModelRecords(
+        ids.map((model) => ({ provider: 'gemini', model, aliveStreak: 3, lastProbeDay: DAY })),
+        ids.map((model) => ({ provider: 'gemini', model, busyDays: 2, lastProbeDay: DAY })),
+      ),
+    )
+    const text = fs.files.get(PATH)!
+    expect(Buffer.byteLength(text)).toBeLessThan(MAX_STATE_BYTES)
+    const { port: reloaded, events } = await load(text)
+    expect(reloaded.snapshot().probation).toHaveLength(MANAGED_LIST_TARGET)
+    expect(reloaded.snapshot().busy).toHaveLength(MANAGED_LIST_TARGET)
+    expect(events).toEqual([])
+  })
+})
+
 describe('self-heal state changes', () => {
   it('clearAuth lifts only the named provider, and only the bit', () => {
     const s = markAuth('gemini')(markAuth('groq')(EMPTY_ROUTE_STATE))
@@ -176,15 +245,15 @@ describe('self-heal state changes', () => {
     ])
   })
 
-  it('setModelRecords replaces both lists, capped by dropping the oldest', () => {
-    const ids = Array.from({ length: MAX_STATE_ENTRIES + 1 }, (_, i) => `gemini-${i}.0-flash`)
+  it('setModelRecords replaces both lists, capped at the target by dropping the oldest', () => {
+    const ids = Array.from({ length: MANAGED_LIST_TARGET + 1 }, (_, i) => `gemini-${i}.0-flash`)
     const next = setModelRecords(
       ids.map((model) => ({ provider: 'gemini', model, aliveStreak: 0, lastProbeDay: DAY })),
       ids.map((model) => ({ provider: 'gemini', model, busyDays: 1, lastProbeDay: DAY })),
     )(EMPTY_ROUTE_STATE)
-    expect(next.probation).toHaveLength(MAX_STATE_ENTRIES)
+    expect(next.probation).toHaveLength(MANAGED_LIST_TARGET)
     expect(next.probation?.[0]?.model).toBe('gemini-1.0-flash')
-    expect(next.busy).toHaveLength(MAX_STATE_ENTRIES)
+    expect(next.busy).toHaveLength(MANAGED_LIST_TARGET)
     expect(next.busy?.[0]?.model).toBe('gemini-1.0-flash')
   })
 

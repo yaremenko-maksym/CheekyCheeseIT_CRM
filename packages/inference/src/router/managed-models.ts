@@ -4,6 +4,7 @@ import { parseJsonOrNull } from '../internal/chat-completions'
 import { isValidProviderModelId } from '../internal/model-id'
 import type { HostedProvider } from './config'
 import {
+  MANAGED_LIST_TARGET,
   PROMOTION_STREAK,
   readStateText,
   writeAtomic,
@@ -13,8 +14,7 @@ import {
   type StateFs,
 } from './state'
 
-/** The managed list keeps at most `TARGET` ids per provider (ADR §3.4, VCF: 5). */
-export const MANAGED_LIST_TARGET = 5
+export { MANAGED_LIST_TARGET }
 
 const ids = z.array(z.string()).max(MANAGED_LIST_TARGET).optional()
 

@@ -249,12 +249,13 @@ async function refreshProvider(
   const next = stopped === null ? pick() : current
   if (p === 'gemini') {
     const known = new Set([...next, ...listing.models.map((m) => m.id)])
-    await deps.state.update(
-      setModelRecords(
-        day.probation.filter((r) => known.has(r.model)),
-        day.busy.filter((r) => known.has(r.model)),
-      ),
-    )
+    // shortcut: at the cap a list entry's record beats a mere candidate's, so five non-pinned entries
+    // with records leave a candidate none; widen the cap if real lists ever fill with non-pinned ids.
+    const kept = <T extends { model: string }>(records: T[]): T[] => [
+      ...records.filter((r) => known.has(r.model) && !next.includes(r.model)),
+      ...records.filter((r) => next.includes(r.model)),
+    ]
+    await deps.state.update(setModelRecords(kept(day.probation), kept(day.busy)))
   }
   if (stopped === 'capped') return skipped(p, 'CAP')
   if (stopped === 'auth') return failed(p, 'AUTH')

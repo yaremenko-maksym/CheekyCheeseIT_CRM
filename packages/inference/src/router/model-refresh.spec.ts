@@ -541,6 +541,34 @@ describe('what a probe proves', () => {
     expect(w.state.snapshot().probation).toEqual([record(LISTED)])
     expect(w.state.snapshot().busy).toEqual([busyRecord(LISTED)])
   })
+
+  it('at the record cap, the records of list entries outlive those of mere candidates', async () => {
+    const [a, b, c, d, e, f] = [4, 5, 6, 7, 8, 9].map((n) => `gemini-${n}.0-flash`) as [
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+    ]
+    const record = (model: string) => ({
+      provider: 'gemini' as const,
+      model,
+      aliveStreak: 1,
+      lastProbeDay: '2026-11-01',
+    })
+    const w = refreshWorld({
+      routes: GEMINI_ONLY,
+      managed: managedDoc({ gemini: [G1, G2, a, b, c] }),
+      state: { ...EMPTY_ROUTE_STATE, probation: [a, b, c, d, e].map(record) },
+      // Only `f` is probed, so it lands behind every older record.
+      hadOkCall: (_p, m) => m !== f,
+      listing: { gemini: geminiListing([G1, G2, a, b, c, d, e, f].map((id) => [id, BIG])) },
+    })
+    await runDailyModelRefresh(w.deps)
+    expect(w.fileList('gemini')).toEqual([G1, G2, a, b, c])
+    expect(w.state.snapshot().probation?.map((r) => r.model)).toEqual([e, f, a, b, c])
+  })
 })
 
 describe('never wipe (SR-M-6)', () => {
