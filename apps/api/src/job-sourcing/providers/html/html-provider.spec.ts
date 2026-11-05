@@ -870,6 +870,7 @@ describe('AC4 policy: robots verdicts and the host gap', () => {
         applied: 0,
         falseIdentity: 0,
         remainingIds: [],
+        parkedIds: [],
       })
       expect(r.batch.invalidSamples).toEqual([])
       expect(r.batch.checkpoint).toBeNull()
@@ -1438,6 +1439,7 @@ describe('AC6 Stage C is optional and never closes or fails discovery', () => {
       applied: 0,
       falseIdentity: 0,
       remainingIds: [],
+      parkedIds: [],
     })
   })
 
@@ -1500,6 +1502,7 @@ describe('AC6 Stage C is optional and never closes or fails discovery', () => {
       applied: 1,
       falseIdentity: 1,
       remainingIds: [],
+      parkedIds: [],
     })
     expect(w.sent).not.toContain('https://jobs.example/zzz')
   })
@@ -1576,6 +1579,7 @@ describe('AC6 Stage C is optional and never closes or fails discovery', () => {
       applied: 0,
       falseIdentity: 0,
       remainingIds: remaining,
+      parkedIds: [],
     })
   })
 
@@ -1586,6 +1590,7 @@ describe('AC6 Stage C is optional and never closes or fails discovery', () => {
       perRecordIssues: [],
       records: [modelRecord('a', { employmentType: 'FT' })],
       remainingIds: ['b'],
+      parkedIds: [],
       stoppedBy: { kind: 'BUDGET_EXHAUSTED', cause: 'RATE_LIMITED' },
     })
     const w = world({ routes: twoItems() })
@@ -1598,6 +1603,7 @@ describe('AC6 Stage C is optional and never closes or fails discovery', () => {
       applied: 1,
       falseIdentity: 0,
       remainingIds: ['b'],
+      parkedIds: [],
     })
     expect(r.enrichments.find((e) => e.id === 'a')?.fields).toEqual({ employmentType: 'FT' })
   })
@@ -1615,6 +1621,7 @@ describe('AC6 Stage C is optional and never closes or fails discovery', () => {
       applied: 0,
       falseIdentity: 0,
       remainingIds: [],
+      parkedIds: [],
     })
   })
 })
@@ -2247,7 +2254,7 @@ describe('the model stage owes a pass until it reaches an item (CR-M-1)', () => 
   })
   const key = (id: string) => JSON.stringify(['THEHUB_HTML', 'board', id])
 
-  it('an item the model did not reach stays pending, due at the retry pace, and is offered again', async () => {
+  it('an item the model did not reach stays pending, due at the longest backoff, and is offered again', async () => {
     const enrichment = new InMemoryEnrichmentState()
     const budget = fakeStructurer({
       kind: 'BUDGET_EXHAUSTED',
@@ -2266,10 +2273,10 @@ describe('the model stage owes a pass until it reaches an item (CR-M-1)', () => 
     })
     expect(await enrichment.get(key('b'))).toMatchObject({
       modelPending: true,
-      nextDueAt: new Date(NOW.getTime() + 6 * 60 * 60 * 1000),
+      nextDueAt: new Date(NOW.getTime() + 24 * 60 * 60 * 1000),
     })
 
-    const retryAt = new Date(NOW.getTime() + 6 * 60 * 60 * 1000)
+    const retryAt = new Date(NOW.getTime() + 24 * 60 * 60 * 1000)
     const s = fakeStructurer(extracted(['b']))
     const second = world({ routes: twoItems(), now: retryAt })
     const r = await provider(second, {
@@ -2296,49 +2303,164 @@ describe('the model stage owes a pass until it reaches an item (CR-M-1)', () => 
     expect((await enrichment.get(key('b')))?.modelPending).toBe(true)
   })
 
-  it('a model that keeps throwing is retried at 6 h, then 24 h, then given up (SR-M-4)', async () => {
-    const enrichment = new InMemoryEnrichmentState()
-    const s = fakeStructurer(new Error('boom'))
+  describe('the outcome table across cycles (ADR 5.4)', () => {
     const H = 60 * 60 * 1000
-    const one = (body: HtmlDetailFields) => ({
-      [page1]: { bodyText: listing([item('a')]) },
-      [detailUrl('a')]: { bodyText: detail(body) },
+    const failure = (id: string) => ({
+      id,
+      failure: 'INVALID_OUTPUT' as const,
+      droppedRecords: 0,
+      nulledUrls: 0,
+      droppedEvidence: 0,
+      nulledFacts: 0,
     })
-    const run = async (at: number, body: HtmlDetailFields = {}) => {
-      const w = world({ routes: one(body), now: new Date(NOW.getTime() + at) })
-      await provider(w, { enrichment, model: { structurer: s, policy } }).p.collectHtml(
-        config(),
-        w.ctx,
-      )
-      return w.sent.length - 1
+    const cycles = (
+      enrichment: InMemoryEnrichmentState,
+      structurer: ReturnType<typeof fakeStructurer>,
+    ) => {
+      return async (at: number, others: string[] = [], body: HtmlDetailFields = {}) => {
+        const w = world({
+          routes: {
+            [page1]: { bodyText: listing(['a', ...others].map((id) => item(id))) },
+            [detailUrl('a')]: { bodyText: detail(body) },
+            ...Object.fromEntries(others.map((id) => [detailUrl(id), { bodyText: detail({}) }])),
+          },
+          now: new Date(NOW.getTime() + at),
+        })
+        const r = await provider(w, {
+          enrichment,
+          model: { structurer, policy },
+        }).p.collectHtml(config(), w.ctx)
+        return { r, sent: w.sent.length - 1 }
+      }
     }
-    expect(await run(0)).toBe(1)
-    expect(await enrichment.get(key('a'))).toMatchObject({
-      modelPending: true,
-      modelAttempts: 1,
-      nextDueAt: new Date(NOW.getTime() + 6 * H),
+
+    it('a record-caused failure backs off 6 h, then 24 h, then parks, reported, until the content changes', async () => {
+      const enrichment = new InMemoryEnrichmentState()
+      // 'a' fails, every other record offered answers. A failure counts only beside a success, and
+      // an answered sibling is not offered again, so each cycle needs a new one.
+      const calls: Parameters<HtmlStructurer['structure']>[0][] = []
+      const s = {
+        calls,
+        async structure(request: Parameters<HtmlStructurer['structure']>[0]) {
+          calls.push(request)
+          return {
+            kind: 'EXTRACTED',
+            extractionVersion: 'p1',
+            records: request.records
+              .filter(({ id }) => id !== 'a')
+              .map(({ id }) => modelRecord(id, { location: 'Kyiv' })),
+            perRecordIssues: [failure('a')],
+          } as StructurerOutcome
+        },
+      }
+      const run = cycles(enrichment, s)
+
+      expect((await run(0, ['n1'])).r.model.parkedIds).toEqual([])
+      expect(await enrichment.get(key('a'))).toMatchObject({
+        modelPending: true,
+        modelAttempts: 1,
+        nextDueAt: new Date(NOW.getTime() + 6 * H),
+      })
+      expect((await run(6 * H - 1, ['n1'])).sent).toBe(0)
+      expect((await run(6 * H, ['n2'])).r.model.parkedIds).toEqual([])
+      expect(await enrichment.get(key('a'))).toMatchObject({
+        modelPending: true,
+        modelAttempts: 2,
+        nextDueAt: new Date(NOW.getTime() + 30 * H),
+      })
+      expect((await run(30 * H, ['n3'])).r.model.parkedIds).toEqual(['a'])
+      expect(await enrichment.get(key('a'))).toMatchObject({
+        modelPending: false,
+        modelAttempts: 3,
+        nextDueAt: new Date(NOW.getTime() + 102 * H),
+      })
+      expect(s.calls).toHaveLength(3)
+
+      // Parked: the revisit finds the same content unchanged and the model is not asked again.
+      await run(102 * H, ['n3'])
+      expect(s.calls).toHaveLength(3)
+      // New content is owed a fresh round: the counter starts over.
+      await run(174 * H, ['n4'], { title: 'changed' })
+      expect(s.calls).toHaveLength(4)
+      expect(await enrichment.get(key('a'))).toMatchObject({ modelPending: true, modelAttempts: 1 })
     })
-    expect(await run(6 * H - 1)).toBe(0)
-    expect(await run(6 * H)).toBe(1)
-    expect(await enrichment.get(key('a'))).toMatchObject({
-      modelPending: true,
-      modelAttempts: 2,
-      nextDueAt: new Date(NOW.getTime() + 30 * H),
+
+    it.each([
+      ['a throw', new Error('boom')],
+      [
+        'nothing succeeding (EXTRACTOR_FAILED)',
+        {
+          kind: 'EXTRACTOR_FAILED',
+          code: 'INVALID_OUTPUT',
+          remainingIds: [],
+          perRecordIssues: [failure('a')],
+        },
+      ],
+      [
+        'a stop on TIMEOUT',
+        { kind: 'EXTRACTOR_FAILED', code: 'TIMEOUT', remainingIds: ['a'], perRecordIssues: [] },
+      ],
+      [
+        'an outage',
+        {
+          kind: 'MODEL_UNAVAILABLE',
+          code: 'PROVIDER_ERROR',
+          remainingIds: ['a'],
+          perRecordIssues: [],
+        },
+      ],
+      [
+        'the local-time limit',
+        {
+          kind: 'BUDGET_EXHAUSTED',
+          cause: 'CYCLE_LIMIT',
+          remainingIds: ['a'],
+          perRecordIssues: [],
+        },
+      ],
+    ] as [string, StructurerOutcome | Error][])(
+      'three cycles of %s park nothing and leave modelAttempts unchanged',
+      async (_name, outcome) => {
+        const enrichment = new InMemoryEnrichmentState()
+        const s = fakeStructurer(outcome)
+        const run = cycles(enrichment, s)
+        for (const at of [0, 24 * H, 48 * H]) {
+          const { r } = await run(at)
+          expect(r.model.parkedIds).toEqual([])
+          expect(await enrichment.get(key('a'))).toMatchObject({
+            modelPending: true,
+            modelAttempts: 0,
+            nextDueAt: new Date(NOW.getTime() + at + 24 * H),
+          })
+        }
+        expect(s.calls).toHaveLength(3)
+      },
+    )
+
+    it('a timed-out record is offered last from the next cycle, and stays last while owed', async () => {
+      const enrichment = new InMemoryEnrichmentState()
+      const s = fakeStructurer({
+        kind: 'EXTRACTOR_FAILED',
+        code: 'TIMEOUT',
+        remainingIds: ['a', 'b'],
+        perRecordIssues: [],
+      } as StructurerOutcome)
+      const run = cycles(enrichment, s)
+      await run(0, ['b'])
+      expect(s.calls[0]?.records.map(({ id }) => id)).toEqual(['a', 'b'])
+      expect((await enrichment.get(key('a')))?.modelOfferLast).toBe(true)
+      expect((await enrichment.get(key('b')))?.modelOfferLast).toBe(false)
+      await run(24 * H, ['b'])
+      expect(s.calls[1]?.records.map(({ id }) => id)).toEqual(['b', 'a'])
+      expect((await enrichment.get(key('a')))?.modelOfferLast).toBe(true)
     })
-    expect(await run(30 * H)).toBe(1)
-    expect(await enrichment.get(key('a'))).toMatchObject({
-      modelPending: false,
-      modelAttempts: 3,
-      nextDueAt: new Date(NOW.getTime() + 102 * H),
+
+    it('tells the structurer per record what Stage B left empty', async () => {
+      const s = fakeStructurer(extracted(['a']))
+      const run = cycles(new InMemoryEnrichmentState(), s)
+      await run(0, [], { description: 'From the page.', remote: true })
+      expect(s.calls[0]?.records[0]?.missing).toEqual(['location', 'employmentType'])
     })
-    expect(s.calls).toHaveLength(3)
-    // Given up: the revisit finds the same content unchanged and the model is not asked again.
-    expect(await run(102 * H)).toBe(1)
-    expect(s.calls).toHaveLength(3)
-    // New content is owed a fresh round of passes.
-    expect(await run(174 * H, { title: 'changed' })).toBe(1)
-    expect(s.calls).toHaveLength(4)
-    expect(await enrichment.get(key('a'))).toMatchObject({ modelPending: true, modelAttempts: 1 })
   })
 
   it('an unavailable model is a configuration state: nothing stays owed (SR-M-4)', async () => {

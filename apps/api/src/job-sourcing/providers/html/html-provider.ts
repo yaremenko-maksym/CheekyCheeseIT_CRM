@@ -45,6 +45,7 @@ import {
   hostGapMs,
   type RobotsPort,
 } from './html-ports'
+import { parks, settledRecord, settlementsOf, type ModelSettlement } from './model-settlement'
 import type { HtmlSourceType } from './html-source-types'
 
 /**
@@ -149,6 +150,8 @@ export interface HtmlModelReport {
   /** Records naming an id discovery never produced: dropped. */
   readonly falseIdentity: number
   readonly remainingIds: readonly string[]
+  /** Items whose third record-caused failure this was: not offered again until their content changes. */
+  readonly parkedIds: readonly string[]
 }
 
 export type FieldMethod = 'DETAIL_HTML' | 'MODEL'
@@ -231,9 +234,6 @@ type Admission = Admitted | { readonly refused: 'POLICY' | 'BYTE_BUDGET'; readon
 /** Detail stops after which the model stage does not run: the run is out of time or permission. */
 /** The longest delay `setTimeout` honours (2^31 - 1 ms, ~24.8 days). */
 const MAX_TIMER_MS = 2 ** 31 - 1
-
-/** When an owed item is due again after its 1st and 2nd missed model pass; the 3rd settles it. */
-const MODEL_BACKOFF_MS: readonly number[] = [6 * 60 * 60 * 1000, 24 * 60 * 60 * 1000]
 
 const RUN_ENDING_STOPS: ReadonlySet<DetailStop | null> = new Set([
   'CANCELLED',
@@ -382,13 +382,19 @@ export abstract class HtmlProvider<
     const stageC = RUN_ENDING_STOPS.has(detailStop)
       ? { report: { ...EMPTY_MODEL, status: 'SKIPPED' as const, reason: detailStop } }
       : await this.runModelStage(stageB.enrichments, stageB.modelCandidates, ctx)
-    if ('reached' in stageC) await this.settleModelPending(stageB.modelCandidates, stageC.reached)
+    const modelReport =
+      'settlements' in stageC
+        ? {
+            ...stageC.report,
+            parkedIds: await this.settleModelPending(stageB.modelCandidates, stageC.settlements),
+          }
+        : stageC.report
 
     return {
       batch,
       discovery,
       detail: stageB.report,
-      model: stageC.report,
+      model: modelReport,
       enrichments: [...stageB.enrichments.values()],
       usage: { requests: attempt.requests, bytes: attempt.bytes },
     }
@@ -778,8 +784,11 @@ export abstract class HtmlProvider<
           contentHash: hash,
           validator,
           modelPending,
-          // Missed model passes count on only while the item stays owed.
+          // Record-caused failures count on only while the item stays owed.
           modelAttempts: current?.modelPending === true ? current.modelAttempts : 0,
+          ...(current?.modelPending === true && current.modelOfferLast === true
+            ? { modelOfferLast: true }
+            : {}),
         })
         if (unchanged) {
           await this.deps.enrichment.put(key, succeeded(false))
@@ -926,26 +935,37 @@ export abstract class HtmlProvider<
     enrichments: Map<string, HtmlEnrichment>,
     candidates: Map<string, ModelCandidate>,
     ctx: CollectionContext,
-  ): Promise<{ report: HtmlModelReport; reached: ReadonlySet<string> }> {
+  ): Promise<{ report: HtmlModelReport; settlements: ReadonlyMap<string, ModelSettlement> }> {
     const model = this.deps.model
-    const none = new Set<string>()
+    const ids = [...candidates.keys()]
     if (model === undefined) {
       return {
         report: { ...EMPTY_MODEL, status: 'SKIPPED', reason: 'NOT_CONFIGURED' },
-        reached: none,
+        settlements: new Map(),
       }
     }
     if (candidates.size === 0) {
       return {
         report: { ...EMPTY_MODEL, status: 'SKIPPED', reason: 'NOTHING_TO_FILL' },
-        reached: none,
+        settlements: new Map(),
       }
     }
-    const records: DiscoveredRecord[] = [...candidates].map(([id, c]) => ({
-      id,
-      url: c.url,
-      text: c.text,
-    }))
+    const records: DiscoveredRecord[] = [
+      ...ids.filter((id) => candidates.get(id)?.record.modelOfferLast !== true),
+      ...ids.filter((id) => candidates.get(id)?.record.modelOfferLast === true),
+    ].flatMap((id) => {
+      const c = candidates.get(id)
+      return c === undefined
+        ? []
+        : [
+            {
+              id,
+              url: c.url,
+              text: c.text,
+              missing: MODEL_FILLABLE_FIELDS.filter((f) => c.enrichment.fields[f] === undefined),
+            },
+          ]
+    })
     let outcome: StructurerOutcome
     try {
       outcome = await model.structurer.structure({
@@ -963,16 +983,12 @@ export abstract class HtmlProvider<
           reason: 'PORT_THREW',
           requested: records.length,
         },
-        reached: none,
+        settlements: settlementsOf(null, ids),
       }
     }
 
-    // Reached: every record the structurer did not hand back as remaining. A skip by the AI-input
-    // gate is a decision, and an unavailable model a configuration state (retrying it re-fetches
-    // for nothing), so both reach all; budget, a failure and a partial pass leave the rest owed.
     const remainingIds = 'remainingIds' in outcome ? outcome.remainingIds : []
-    const owed = outcome.kind === 'MODEL_UNAVAILABLE' ? new Set<string>() : new Set(remainingIds)
-    const reached = new Set([...candidates.keys()].filter((id) => !owed.has(id)))
+    const settlements = settlementsOf(outcome, ids)
     if (outcome.kind !== 'EXTRACTED' && outcome.kind !== 'PARTIAL') {
       return {
         report: {
@@ -982,7 +998,7 @@ export abstract class HtmlProvider<
           requested: records.length,
           remainingIds,
         },
-        reached,
+        settlements,
       }
     }
 
@@ -1033,37 +1049,35 @@ export abstract class HtmlProvider<
         applied,
         falseIdentity,
         remainingIds,
+        parkedIds: [],
       },
-      reached,
+      settlements,
     }
   }
 
   /**
-   * Settles every owed item after a model pass. Reached: no longer owed, due at the revisit pace.
-   * Missed: owed again after a backoff (6 h, then 24 h); the third miss gives up until the content
-   * changes, so a model that keeps failing never drives a refetch every few hours forever.
+   * Settles every owed item after a model pass, per the outcome table (ADR 5.4; `model-settlement`).
+   * Returns the items this pass parked, which the report must name.
    */
   private async settleModelPending(
     candidates: Map<string, ModelCandidate>,
-    reached: ReadonlySet<string>,
-  ): Promise<void> {
+    settlements: ReadonlyMap<string, ModelSettlement>,
+  ): Promise<string[]> {
+    const parked: string[] = []
     for (const [id, { key, record }] of candidates) {
-      if (!record.modelPending) continue
-      const misses = reached.has(id) ? 0 : record.modelAttempts + 1
-      const backoff = MODEL_BACKOFF_MS[misses - 1]
+      const settlement = settlements.get(id)
+      if (!record.modelPending || settlement === undefined) continue
       try {
-        await this.deps.enrichment.put(key, {
-          ...record,
-          modelPending: backoff !== undefined,
-          modelAttempts: misses,
-          nextDueAt: new Date(
-            record.lastAttemptAt.getTime() + (backoff ?? this.limits.revisitAfterMs),
-          ),
-        })
+        await this.deps.enrichment.put(
+          key,
+          settledRecord(record, settlement, this.limits.revisitAfterMs),
+        )
+        if (parks(record, settlement)) parked.push(id)
       } catch {
         // Left pending: the item is offered to the model again, which costs a pass, loses nothing.
       }
     }
+    return parked
   }
 }
 
@@ -1085,6 +1099,7 @@ const EMPTY_MODEL: Omit<HtmlModelReport, 'status' | 'reason'> = {
   applied: 0,
   falseIdentity: 0,
   remainingIds: [],
+  parkedIds: [],
 }
 
 /** A link from page text, resolved against the validated base and held to `checkStoredLink`. */
