@@ -15,6 +15,7 @@ import {
   jobQueueListQuerySchema,
   jobQueueListResponseSchema,
   jobQueueListSchema,
+  jobQueueManualCardRequestSchema,
   jobQueueOpenedRequestSchema,
   jobQueuePossibleDuplicateConflictSchema,
   jobQueueQuerySchema,
@@ -71,6 +72,7 @@ const listItem = {
   companyName: 'Acme',
   location: null,
   primarySource: { sourceRecordId: U2, sourceType: 'DOU_RSS', url: URL },
+  applicationUrl: null,
   alsoSeenOnCount: 2,
   availability: 'OPEN',
   eligibility: 'LEAD',
@@ -394,6 +396,103 @@ describe('request shapes', () => {
       sourceRecordId: U2,
     })
     expect(jobQueueOpenedRequestSchema.safeParse({}).success).toBe(false)
+  })
+})
+
+/**
+ * r5 Phase 6 manual card — POST `/job-queue/manual`. A card is never created without one
+ * submission, and a submission never without a resume: both are refused by THIS schema (400),
+ * before any route logic runs.
+ */
+describe('manual card request (POST /job-queue/manual)', () => {
+  const submission = { teamId: U1, seniorId: U2, resumeId: U3 }
+  const body = {
+    title: 'Staff Engineer',
+    companyName: 'Acme',
+    descriptionMd: 'Found on a LinkedIn post.',
+    idempotencyKey: U1,
+    submission,
+  }
+
+  it('parses the minimal body; the application URL is optional', () => {
+    expect(jobQueueManualCardRequestSchema.parse(body)).toEqual(body)
+    expect(
+      jobQueueManualCardRequestSchema.parse({ ...body, applicationUrl: URL }).applicationUrl,
+    ).toBe(URL)
+  })
+
+  it('trims title and company name', () => {
+    const parsed = jobQueueManualCardRequestSchema.parse({
+      ...body,
+      title: '  Staff Engineer ',
+      companyName: ' Acme  ',
+    })
+    expect([parsed.title, parsed.companyName]).toEqual(['Staff Engineer', 'Acme'])
+  })
+
+  it.each([
+    ['no submission', { ...body, submission: undefined }],
+    ['a null submission', { ...body, submission: null }],
+    ['a submission array', { ...body, submission: [submission] }],
+    ['no resume', { ...body, submission: { teamId: U1, seniorId: U2 } }],
+    ['a null resume', { ...body, submission: { ...submission, resumeId: null } }],
+    ['a non-uuid resume', { ...body, submission: { ...submission, resumeId: 'cv.pdf' } }],
+    ['no senior', { ...body, submission: { teamId: U1, resumeId: U3 } }],
+    ['no team', { ...body, submission: { seniorId: U2, resumeId: U3 } }],
+    ['an unknown submission key', { ...body, submission: { ...submission, assigneeId: U3 } }],
+    ['an unknown top-level key', { ...body, teamId: U1 }],
+    ['no idempotency key', { ...body, idempotencyKey: undefined }],
+    ['a non-uuid idempotency key', { ...body, idempotencyKey: 'retry-1' }],
+    ['no title', { ...body, title: undefined }],
+    ['a blank title', { ...body, title: '   ' }],
+    ['no company name', { ...body, companyName: undefined }],
+    ['a blank company name', { ...body, companyName: ' ' }],
+    ['no description', { ...body, descriptionMd: undefined }],
+    ['an empty description', { ...body, descriptionMd: '' }],
+    ['an http URL', { ...body, applicationUrl: 'http://jobs.example.test/1' }],
+    ['a javascript: URL', { ...body, applicationUrl: 'javascript:alert(1)' }],
+    ['a null URL', { ...body, applicationUrl: null }],
+  ])('refuses %s', (_name, bad) => {
+    expect(jobQueueManualCardRequestSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('bounds: title 500, company name 255, URL 2048, description DESCRIPTION_MD_MAX', () => {
+    const s = (n: number) => 'x'.repeat(n)
+    const ok = (over: Record<string, unknown>) =>
+      jobQueueManualCardRequestSchema.safeParse({ ...body, ...over }).success
+    expect([ok({ title: s(500) }), ok({ title: s(501) })]).toEqual([true, false])
+    expect([ok({ companyName: s(255) }), ok({ companyName: s(256) })]).toEqual([true, false])
+    const url = (n: number) => 'https://jobs.example.test/' + s(n - 26)
+    expect([ok({ applicationUrl: url(2048) }), ok({ applicationUrl: url(2049) })]).toEqual([
+      true,
+      false,
+    ])
+    expect([ok({ descriptionMd: s(50000) }), ok({ descriptionMd: s(50001) })]).toEqual([
+      true,
+      false,
+    ])
+  })
+})
+
+describe('a manual card is a list row without a source (r5 Phase 6)', () => {
+  it('accepts a null primary source and a stated application URL', () => {
+    const manual = { ...listItem, primarySource: null, applicationUrl: URL, alsoSeenOnCount: 0 }
+    expect(jobQueueListItemSchema.parse(manual)).toEqual(manual)
+    const manualCard = {
+      ...card,
+      ...manual,
+      sources: { items: [], totalCount: 0, nextCursor: null },
+    }
+    expect(jobQueueCardResponseSchema.parse(manualCard)).toEqual(manualCard)
+  })
+
+  it('refuses a missing application URL key and a non-https one', () => {
+    const { applicationUrl: _omitted, ...withoutUrl } = listItem
+    expect(jobQueueListItemSchema.safeParse(withoutUrl).success).toBe(false)
+    expect(
+      jobQueueListItemSchema.safeParse({ ...listItem, applicationUrl: 'http://a.example/1' })
+        .success,
+    ).toBe(false)
   })
 })
 

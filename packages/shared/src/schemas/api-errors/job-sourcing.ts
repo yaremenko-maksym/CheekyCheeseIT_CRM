@@ -25,6 +25,9 @@ export const JOB_SOURCING_ERROR_CODES = [
   'JOB_QUEUE_VERSION_CONFLICT',
   'JOB_QUEUE_IDEMPOTENCY_CONFLICT',
   'JOB_QUEUE_POLICY_UNAVAILABLE',
+  // r5 Phase 6 manual card (`POST /job-queue/manual`), both 422.
+  'JOB_QUEUE_SENIOR_INELIGIBLE',
+  'JOB_QUEUE_RESUME_UNUSABLE',
   // r5 Task 6.5: the ADMIN source switch (`PATCH /job-sourcing/sources/:id`).
   'JOB_SOURCE_NOT_FOUND',
   'JOB_SOURCE_NOT_READY',
@@ -43,6 +46,8 @@ export const JOB_SOURCING_ERROR_PARAMS = {
   JOB_QUEUE_VERSION_CONFLICT: [],
   JOB_QUEUE_IDEMPOTENCY_CONFLICT: [],
   JOB_QUEUE_POLICY_UNAVAILABLE: [],
+  JOB_QUEUE_SENIOR_INELIGIBLE: [],
+  JOB_QUEUE_RESUME_UNUSABLE: [],
   JOB_SOURCE_NOT_FOUND: [],
   JOB_SOURCE_NOT_READY: [],
   JOB_SOURCE_AUTH_PAUSED: [],
@@ -90,6 +95,14 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
     id: 'api-error.JOB_QUEUE_POLICY_UNAVAILABLE',
     message: 'Не вдалося перевірити доступ. Спробуйте пізніше.',
   },
+  JOB_QUEUE_SENIOR_INELIGIBLE: /* i18n */ {
+    id: 'api-error.JOB_QUEUE_SENIOR_INELIGIBLE',
+    message: 'Цього сеньйора не можна подати на цю вакансію від цієї команди.',
+  },
+  JOB_QUEUE_RESUME_UNUSABLE: /* i18n */ {
+    id: 'api-error.JOB_QUEUE_RESUME_UNUSABLE',
+    message: 'Це резюме не можна використати для цього сеньйора. Оберіть інше.',
+  },
   JOB_SOURCE_NOT_FOUND: /* i18n */ {
     id: 'api-error.JOB_SOURCE_NOT_FOUND',
     message: 'Джерело вакансій не знайдено',
@@ -119,6 +132,8 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
   JOB_QUEUE_IDEMPOTENCY_CONFLICT:
     'This request was already made with different data. Refresh the card and try again.',
   JOB_QUEUE_POLICY_UNAVAILABLE: 'Access could not be checked. Try again later.',
+  JOB_QUEUE_SENIOR_INELIGIBLE: 'This senior cannot be submitted to this job from this team.',
+  JOB_QUEUE_RESUME_UNUSABLE: 'This resume cannot be used for this senior. Choose another one.',
   JOB_SOURCE_NOT_FOUND: 'The source was not found',
   JOB_SOURCE_NOT_READY:
     'The source is not ready yet: finish its setup (readiness check, connection, quota meter), then switch it on',

@@ -1847,7 +1847,14 @@ export const jobQueueListItemSchema = z
     title: z.string().max(500),
     companyName: z.string().max(255).nullable(),
     location: z.string().max(500).nullable(),
-    primarySource: jobQueuePrimarySourceSchema,
+    /**
+     * `null` exactly for a manual card (`POST /job-queue/manual`): a vacancy an HR or ADMIN
+     * entered by hand has no source record. A sourced opportunity with no active source is
+     * not a row at all, so `null` never means "sourced, source gone".
+     */
+    primarySource: jobQueuePrimarySourceSchema.nullable(),
+    /** The employer's application link, when one is known (a manual card's stated URL). */
+    applicationUrl: externalHttpsUrlSchema.nullable(),
     alsoSeenOnCount: countSchema,
     availability: jobAvailabilitySchema,
     eligibility: jobQueueEligibilitySchema,
@@ -2011,6 +2018,33 @@ export const jobQueueCancelSubmissionRequestSchema = z
 
 export const jobQueueSubmissionResponseSchema = z
   .object({ submission: jobQueueSubmissionSchema })
+  .strict()
+
+/**
+ * POST `/job-queue/manual` (ADMIN, HR) — a card for a vacancy found OUTSIDE the automatic
+ * sources, created together with its first submission in ONE transaction. There is no card
+ * without a submission and no submission without a resume, so `submission` and its
+ * `resumeId` are required here: a body without them is a 400 before any route logic runs.
+ * `resumeId` names an existing CRM resume of that senior; this route never uploads one.
+ * The answer is `jobQueueSubmissionResponseSchema` (201); `submission.opportunityId` is the
+ * new card.
+ */
+export const jobQueueManualCardRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(500),
+    companyName: z.string().trim().min(1).max(255),
+    applicationUrl: externalHttpsUrlSchema.optional(),
+    descriptionMd: z.string().min(1).max(DESCRIPTION_MD_MAX),
+    /** Client-generated; a retry with the same key returns the earlier success. */
+    idempotencyKey: z.string().uuid(),
+    submission: z
+      .object({
+        teamId: z.string().uuid(),
+        seniorId: z.string().uuid(),
+        resumeId: z.string().uuid(),
+      })
+      .strict(),
+  })
   .strict()
 
 /** The 409 body of `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED`: the viewer-authorized duplicates only. */
@@ -2184,6 +2218,7 @@ export type JobQueueSeniorsContinuationDto = z.infer<typeof jobQueueSeniorsConti
 export type JobQueueSourcesContinuationDto = z.infer<typeof jobQueueSourcesContinuationSchema>
 export type JobQueueCardResponseDto = z.infer<typeof jobQueueCardResponseSchema>
 export type JobQueueSubmitRequestDto = z.infer<typeof jobQueueSubmitRequestSchema>
+export type JobQueueManualCardRequestDto = z.infer<typeof jobQueueManualCardRequestSchema>
 export type JobQueueCancelSubmissionRequestDto = z.infer<
   typeof jobQueueCancelSubmissionRequestSchema
 >

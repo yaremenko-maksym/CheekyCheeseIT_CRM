@@ -3129,6 +3129,16 @@ msgstr "Список застарів. Оновіть його."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_RESUME_UNUSABLE"
+msgstr "Це резюме не можна використати для цього сеньйора. Оберіть інше."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_SENIOR_INELIGIBLE"
+msgstr "Цього сеньйора не можна подати на цю вакансію від цієї команди."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_VERSION_CONFLICT"
 msgstr "Дані змінилися. Оновіть картку й повторіть."
 

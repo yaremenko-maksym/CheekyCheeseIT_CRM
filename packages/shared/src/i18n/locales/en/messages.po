@@ -3129,6 +3129,16 @@ msgstr "The list is out of date. Refresh it."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_RESUME_UNUSABLE"
+msgstr "This resume cannot be used for this senior. Choose another one."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_SENIOR_INELIGIBLE"
+msgstr "This senior cannot be submitted to this job from this team."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_VERSION_CONFLICT"
 msgstr "The data has changed. Refresh the card and try again."
 
