@@ -25,6 +25,7 @@ import {
   type SessionUser,
 } from '@crm/shared'
 import { sql } from 'drizzle-orm'
+import { ZodError } from 'zod'
 import { apiError } from '../../common/api-error'
 import { DatabaseService } from '../../database/database.service'
 import { isDeadlock, uniqueViolationConstraint } from '../../database/pg-errors'
@@ -84,6 +85,30 @@ const SUBSCRIPTION_COLUMNS = sql`id, team_id, role_family, to_jsonb(source_types
  * link serialize on it, so the second sees the first card. The second key is `hashtext(urlKey)`.
  */
 const MANUAL_URL_LOCK_CLASS = 0x6d616e75
+
+/**
+ * The advisory-lock class of a team's triage subscriptions of one role family: two concurrent
+ * subscribes of one rule serialize on it, so the second sees the first and is refused as a
+ * duplicate. `lockLiveTeam`'s `FOR SHARE` alone does not order them. The second key is
+ * `hashtext(team:roleFamily)`.
+ */
+const TRIAGE_SUBSCRIPTION_LOCK_CLASS = 0x74726961
+
+/**
+ * A grant or subscription that is already over would be written dead and show nothing. Refused at
+ * the server's clock as an ordinary validation 400 (`ZodExceptionFilter`); now itself is refused.
+ */
+function refuseElapsed(expiresAt: string): void {
+  if (Date.parse(expiresAt) > Date.now()) return
+  throw new ZodError([
+    {
+      code: 'custom',
+      path: ['expiresAt'],
+      message: 'expiresAt must be in the future',
+      input: expiresAt,
+    },
+  ])
+}
 
 function withoutFragment(raw: string): string {
   const url = new URL(raw)
@@ -634,6 +659,7 @@ export class JobQueueActionsService {
     const teamId = canonicalUuid(request.teamId)
     if (opportunity === null) throw notFound()
     if (teamId === null) throw triageNotAllowed()
+    refuseElapsed(request.expiresAt)
     return this.write(async (tx) => {
       const scope = await this.adminScope(user, tx)
       const { rows } = await tx.execute(
@@ -653,6 +679,7 @@ export class JobQueueActionsService {
         request.expiresAt,
       ])
       const earlier = await this.earlierAction(tx, user.id, request.idempotencyKey, fingerprint)
+      // Intentional: a replay answers the row as it is now (a later revoke shows), never a snapshot.
       if (earlier !== null) return grantAnswer((await this.grantRow(tx, opportunity, teamId))[0])
       // A manual card is its own team's only (`visibleOpportunityPredicate`): a grant would show nothing.
       if (target['manual_team_id'] !== null) throw triageNotAllowed()
@@ -718,6 +745,7 @@ export class JobQueueActionsService {
         request.reason,
       ])
       const earlier = await this.earlierAction(tx, user.id, request.idempotencyKey, fingerprint)
+      // Intentional: a replay answers the row as it is now, never a snapshot.
       if (earlier !== null) return grantAnswer((await this.grantRow(tx, opportunity, teamId))[0])
       const { rows } = await tx.execute(
         sql`UPDATE job_opportunity_team_triage
@@ -756,6 +784,7 @@ export class JobQueueActionsService {
     const teamId = canonicalUuid(request.teamId)
     if (teamId === null) throw triageNotAllowed()
     const sourceTypes = [...new Set(request.sourceTypes)].sort()
+    refuseElapsed(request.expiresAt)
     return this.write(async (tx) => {
       const scope = await this.adminScope(user, tx)
       await this.lockActor(tx, user, scope)
@@ -769,15 +798,28 @@ export class JobQueueActionsService {
         request.reason,
       ])
       const earlier = await this.earlierAction(tx, user.id, request.idempotencyKey, fingerprint)
+      // Intentional: a replay answers the row as it is now (a later revoke shows), never a snapshot.
       if (earlier !== null) {
         return subscriptionAnswer((await this.subscriptionRow(tx, earlier.subscription))[0])
       }
       if (!(await this.lockLiveTeam(tx, teamId))) throw triageNotAllowed()
+      const sourceArray = sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(sourceTypes)}::jsonb))::job_source_type[]`
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(${TRIAGE_SUBSCRIPTION_LOCK_CLASS}::int,
+                                         hashtext(${`${teamId}:${request.roleFamily}`}))`,
+      )
+      // One live rule per team, role family and source-type set (sorted, deduped; {} = all sources).
+      const duplicate = await tx.execute(
+        sql`SELECT 1 FROM job_team_triage_subscriptions
+             WHERE team_id = ${teamId}::uuid AND role_family = ${request.roleFamily}
+               AND revoked_at IS NULL AND expires_at > clock_timestamp()
+               AND source_types @> ${sourceArray} AND source_types <@ ${sourceArray}`,
+      )
+      if (duplicate.rows.length > 0) throw versionConflict()
       const { rows } = await tx.execute(
         sql`INSERT INTO job_team_triage_subscriptions
               (team_id, role_family, source_types, policy_version, actor_id, reason, expires_at)
-            VALUES (${teamId}::uuid, ${request.roleFamily},
-                    ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(sourceTypes)}::jsonb))::job_source_type[],
+            VALUES (${teamId}::uuid, ${request.roleFamily}, ${sourceArray},
                     ${request.policyVersion}, ${user.id}::uuid, ${request.reason},
                     ${request.expiresAt}::timestamptz)
             RETURNING ${SUBSCRIPTION_COLUMNS}`,
@@ -822,6 +864,7 @@ export class JobQueueActionsService {
         request.reason,
       ])
       const earlier = await this.earlierAction(tx, user.id, request.idempotencyKey, fingerprint)
+      // Intentional: a replay answers the row as it is now, never a snapshot.
       if (earlier !== null) return subscriptionAnswer((await this.subscriptionRow(tx, id))[0])
       const { rows } = await tx.execute(
         sql`UPDATE job_team_triage_subscriptions

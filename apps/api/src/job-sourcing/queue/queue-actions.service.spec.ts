@@ -2,7 +2,7 @@ import { ForbiddenException, HttpException } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ZodError } from 'zod'
 import type { DatabaseService } from '../../database/database.service'
 import { requestFingerprint } from './queue-actions'
@@ -63,13 +63,14 @@ const PATTERNS = {
   grantUpsert: /INSERT INTO job_opportunity_team_triage/,
   grantRevoke: /UPDATE job_opportunity_team_triage/,
   subLock: /SELECT team_id FROM job_team_triage_subscriptions/,
+  subDuplicate: /SELECT 1 FROM job_team_triage_subscriptions/,
   subRead: /FROM job_team_triage_subscriptions WHERE id/,
   subInsert: /INSERT INTO job_team_triage_subscriptions/,
   subRevoke: /UPDATE job_team_triage_subscriptions/,
   invalidate: /UPDATE job_queue_generations/,
   triageLog: /INSERT INTO job_queue_actions \(kind, opportunity_id, subscription_id/,
   blob: /INSERT INTO job_text_blobs/,
-  urlLock: /pg_advisory_xact_lock/,
+  advisoryLock: /pg_advisory_xact_lock/,
   urlTaken: /SELECT 1 FROM job_opportunities WHERE application_url_key/,
   card: /INSERT INTO job_opportunities/,
   resume: /FROM senior_resumes/,
@@ -132,7 +133,7 @@ const DEFAULTS: Partial<Record<Statement, Rows>> = {
   lockTarget: [{ id: OPP }],
   earlier: [],
   blob: [],
-  urlLock: [],
+  advisoryLock: [],
   urlTaken: [],
   card: [{ id: CARD }],
   resume: [{ id: RESUME }],
@@ -159,6 +160,7 @@ const DEFAULTS: Partial<Record<Statement, Rows>> = {
   grantUpsert: [],
   grantRevoke: [],
   subLock: [{ team_id: TEAM_B }],
+  subDuplicate: [],
   subRead: [],
   subInsert: [],
   subRevoke: [],
@@ -1293,6 +1295,34 @@ const GRANT_DTO = {
   createdAt: T1,
 }
 
+/** The server clock for the triage writes: T1, so T2 is an hour ahead whatever today is. */
+const NOW = T1
+const PAST = '2026-11-04T09:59:59.999Z'
+const JUST_AFTER = '2026-11-04T10:00:00.001Z'
+function useServerClock(): void {
+  beforeEach(() => {
+    vi.useFakeTimers({ now: new Date(NOW), toFake: ['Date'] })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+}
+async function expectElapsed(promise: Promise<unknown>, expiresAt: string): Promise<void> {
+  const error = await promise.then(
+    () => null,
+    (e: unknown) => e,
+  )
+  expect(error).toBeInstanceOf(ZodError)
+  expect((error as ZodError).issues).toEqual([
+    {
+      code: 'custom',
+      path: ['expiresAt'],
+      message: 'expiresAt must be in the future',
+      input: expiresAt,
+    },
+  ])
+}
+
 describe('grantTeamTriage (r5 Task 6.4b)', () => {
   const body = {
     teamId: TEAM_B,
@@ -1306,6 +1336,41 @@ describe('grantTeamTriage (r5 Task 6.4b)', () => {
   const WRITE_HITS: Statement[] = ['grantUpsert', 'triageLog', 'invalidate']
   const noTriageWrites = (hits: Statement[]) =>
     expect(hits.filter((x) => WRITE_HITS.includes(x))).toEqual([])
+  useServerClock()
+
+  it('an expiry at or before the server clock is a 400 before any read (CR-M-1)', async () => {
+    for (const expiresAt of [PAST, NOW]) {
+      const h = harness({ grantUpsert: [GRANT_ROW] }, STUDIO_SCOPE)
+      await expectElapsed(h.svc.grantTeamTriage(ADMIN, OPP, { ...body, expiresAt }), expiresAt)
+      expect(h.hits).toEqual([])
+      expect(h.scopes.resolve).not.toHaveBeenCalled()
+    }
+    const future = harness({ grantUpsert: [GRANT_ROW] }, STUDIO_SCOPE)
+    await future.svc.grantTeamTriage(ADMIN, OPP, { ...body, expiresAt: JUST_AFTER })
+    expect(future.param('grantUpsert')).toEqual([
+      OPP,
+      TEAM_B,
+      ADMIN_ID,
+      'Fits the team',
+      2,
+      4,
+      JUST_AFTER,
+    ])
+  })
+
+  it('a retry after a revoke answers the revoked row as it is now (CR-M-2, pinned)', async () => {
+    const earlier = [
+      { reason: JSON.stringify({ fp: FP }), after_version: 1, created_at: new Date(T1) },
+    ]
+    const revoked = { ...GRANT_ROW, grant_version: 2, revoked_at: new Date(T1), live: false }
+    const h = harness({ earlier, grantRead: [revoked] }, STUDIO_SCOPE)
+    expect(await h.svc.grantTeamTriage(ADMIN, OPP, body)).toEqual({
+      ...GRANT_DTO,
+      grantVersion: 2,
+      revokedAt: T1,
+    })
+    expect(h.hits).toEqual(['triageTarget', 'actor', 'earlier', 'grantRead'])
+  })
 
   it('a first grant writes the row, its audit row and retires the team generation', async () => {
     const h = harness({ grantUpsert: [GRANT_ROW] }, STUDIO_SCOPE)
@@ -1486,7 +1551,12 @@ describe('revokeTeamTriage (r5 Task 6.4b)', () => {
       { reason: JSON.stringify({ fp: FP }), after_version: 2, created_at: new Date(T1) },
     ]
     const h = harness({ earlier, grantRead: [REVOKED] }, STUDIO_SCOPE)
-    expect((await h.svc.revokeTeamTriage(ADMIN, OPP, TEAM_B, body)).grantVersion).toBe(2)
+    expect(await h.svc.revokeTeamTriage(ADMIN, OPP, TEAM_B, body)).toEqual({
+      ...GRANT_DTO,
+      grantVersion: 2,
+      revokedAt: T2,
+      evidence: { reason: 'Fits the team', revokeReason: 'No longer relevant' },
+    })
     expect(h.hits).toEqual(['lockTarget', 'actor', 'earlier', 'grantRead'])
   })
 })
@@ -1534,11 +1604,24 @@ describe('subscribeTeamTriage (r5 Task 6.4b)', () => {
     T2,
     'Backend team',
   ])
+  useServerClock()
+  const SORTED = '["DOU_RSS","REMOTEOK_API"]'
 
   it('writes the subscription with deduplicated sorted source types and audits it', async () => {
     const h = harness({ subInsert: [SUB_ROW] }, STUDIO_SCOPE)
     expect(await h.svc.subscribeTeamTriage(ADMIN, body)).toEqual(SUB_DTO)
-    expect(h.hits).toEqual(['actor', 'earlier', 'team', 'subInsert', 'triageLog', 'invalidate'])
+    expect(h.hits).toEqual([
+      'actor',
+      'earlier',
+      'team',
+      'advisoryLock',
+      'subDuplicate',
+      'subInsert',
+      'triageLog',
+      'invalidate',
+    ])
+    expect(h.param('advisoryLock')).toEqual([0x74726961, `${TEAM_B}:SOFTWARE`])
+    expect(h.param('subDuplicate')).toEqual([TEAM_B, 'SOFTWARE', SORTED, SORTED])
     expect(h.param('subInsert')).toEqual([
       TEAM_B,
       'SOFTWARE',
@@ -1560,6 +1643,63 @@ describe('subscribeTeamTriage (r5 Task 6.4b)', () => {
       JSON.stringify({ fp: FP }),
     ])
     expect(h.param('invalidate')).toEqual([TEAM_B])
+  })
+
+  it('a live rule of the same team, family and source set is 409 and writes nothing (CR-M-3)', async () => {
+    const h = harness({ subDuplicate: [{ '?column?': 1 }], subInsert: [SUB_ROW] }, STUDIO_SCOPE)
+    await expectStale(h.svc.subscribeTeamTriage(ADMIN, body))
+    expect(h.hits).toEqual(['actor', 'earlier', 'team', 'advisoryLock', 'subDuplicate'])
+    expect(h.calls.find((c) => PATTERNS.subDuplicate.test(c.text))?.text).toMatch(
+      /revoked_at IS NULL AND expires_at > clock_timestamp\(\) AND source_types @> .* AND source_types <@ /,
+    )
+  })
+
+  it('an empty source set (all sources) is its own rule key (CR-M-3)', async () => {
+    const h = harness({ subInsert: [{ ...SUB_ROW, source_types: [] }] }, STUDIO_SCOPE)
+    expect(
+      (await h.svc.subscribeTeamTriage(ADMIN, { ...body, sourceTypes: [] })).sourceTypes,
+    ).toEqual([])
+    expect(h.param('subDuplicate')).toEqual([TEAM_B, 'SOFTWARE', '[]', '[]'])
+  })
+
+  it('an expiry at or before the server clock is a 400 before any read (CR-M-1)', async () => {
+    for (const expiresAt of [PAST, NOW]) {
+      const h = harness({ subInsert: [SUB_ROW] }, STUDIO_SCOPE)
+      await expectElapsed(h.svc.subscribeTeamTriage(ADMIN, { ...body, expiresAt }), expiresAt)
+      expect(h.hits).toEqual([])
+      expect(h.scopes.resolve).not.toHaveBeenCalled()
+    }
+    const future = harness({ subInsert: [SUB_ROW] }, STUDIO_SCOPE)
+    await future.svc.subscribeTeamTriage(ADMIN, { ...body, expiresAt: JUST_AFTER })
+    expect(future.param('subInsert')).toEqual([
+      TEAM_B,
+      'SOFTWARE',
+      SORTED,
+      2,
+      ADMIN_ID,
+      'Backend team',
+      JUST_AFTER,
+    ])
+  })
+
+  it('a retry after an unsubscribe answers the revoked row as it is now (CR-M-2, pinned)', async () => {
+    const earlier = [
+      {
+        reason: JSON.stringify({ fp: FP }),
+        after_version: 1,
+        created_at: new Date(T1),
+        opportunity_id: null,
+        subscription_id: SUB_ID,
+      },
+    ]
+    const revoked = { ...SUB_ROW, subscription_version: 2, revoked_at: new Date(T1) }
+    const h = harness({ earlier, subRead: [revoked] }, STUDIO_SCOPE)
+    expect(await h.svc.subscribeTeamTriage(ADMIN, body)).toEqual({
+      ...SUB_DTO,
+      subscriptionVersion: 2,
+      revokedAt: T1,
+    })
+    expect(h.hits).toEqual(['actor', 'earlier', 'subRead'])
   })
 
   it('a dead team or a malformed team id is 422 and writes nothing', async () => {
@@ -1670,7 +1810,11 @@ describe('unsubscribeTeamTriage (r5 Task 6.4b)', () => {
       { reason: JSON.stringify({ fp: FP }), after_version: 2, created_at: new Date(T1) },
     ]
     const h = harness({ earlier, subRead: [REVOKED] }, STUDIO_SCOPE)
-    expect((await h.svc.unsubscribeTeamTriage(ADMIN, SUB_ID, body)).subscriptionVersion).toBe(2)
+    expect(await h.svc.unsubscribeTeamTriage(ADMIN, SUB_ID, body)).toEqual({
+      ...SUB_DTO,
+      subscriptionVersion: 2,
+      revokedAt: T2,
+    })
     expect(h.hits).toEqual(['subLock', 'actor', 'earlier', 'subRead'])
   })
 })
@@ -1938,7 +2082,7 @@ describe('createManualCard (r5 Phase 6)', () => {
       'team',
       'membership',
       'earlier',
-      'urlLock',
+      'advisoryLock',
       'urlTaken',
       'blob',
       'card',
@@ -1986,7 +2130,7 @@ describe('createManualCard (r5 Phase 6)', () => {
     await h.svc.createManualCard(HR, manualBody({ applicationUrl: undefined }))
     expect(h.param('card')[4]).toBeNull()
     expect(h.param('card')[5]).toBeNull()
-    expect(h.hits).not.toContain('urlLock')
+    expect(h.hits).not.toContain('advisoryLock')
     expect(h.hits).not.toContain('urlTaken')
   })
 
@@ -1994,7 +2138,7 @@ describe('createManualCard (r5 Phase 6)', () => {
     const raw = 'https://Jobs.Example.test/x/?utm=1#apply'
     const h = harness()
     await h.svc.createManualCard(HR, manualBody({ applicationUrl: raw }))
-    expect(h.param('urlLock')).toEqual([0x6d616e75, 'https://jobs.example.test/x'])
+    expect(h.param('advisoryLock')).toEqual([0x6d616e75, 'https://jobs.example.test/x'])
     expect(h.param('urlTaken')).toEqual([
       'https://jobs.example.test/x',
       'https://jobs.example.test/x/?utm=1',
@@ -2006,7 +2150,7 @@ describe('createManualCard (r5 Phase 6)', () => {
     const h = harness()
     await h.svc.createManualCard(HR, manualBody())
     const text = (s: Statement) => h.calls.find((c) => PATTERNS[s].test(c.text))?.text
-    expect(text('urlLock')).toBe('SELECT pg_advisory_xact_lock($1::int, hashtext($2))')
+    expect(text('advisoryLock')).toBe('SELECT pg_advisory_xact_lock($1::int, hashtext($2))')
     expect(text('urlTaken')).toBe(
       'SELECT 1 FROM job_opportunities WHERE application_url_key = $1 OR application_url = $2 LIMIT 1',
     )

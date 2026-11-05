@@ -1662,5 +1662,51 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       await hiddenFrom('hrT', 'oppTriageSub')
       expect(await inAnyTab('hrT', 'oppTriageSub')).toBe(false)
     })
+
+    it('an expiry already past is a 400 on grant and subscribe and writes nothing (CR-M-1)', async () => {
+      const past = new Date(Date.now() - 60 * 1000).toISOString()
+      const refused = [
+        await post(`/${id('oppGrant')}/team-triage`, 'admin', {
+          ...grantBody('teamG', 1),
+          expiresAt: past,
+        }),
+        await post('/team-triage-subscriptions', 'admin', {
+          ...subscribeBody('teamT', 'DATA'),
+          expiresAt: past,
+        }),
+      ]
+      for (const a of refused) {
+        expect(a.status).toBe(400)
+        expect(a.json['errors']).toEqual([
+          { path: 'expiresAt', message: 'expiresAt must be in the future' },
+        ])
+      }
+      expect(await triageActions('teamG')).toHaveLength(2)
+      expect(await triageActions('teamT')).toHaveLength(2)
+    })
+
+    it('a revoked rule does not block a new one; a second live rule of one set is a 409 (CR-M-3)', async () => {
+      const first = await post(
+        '/team-triage-subscriptions',
+        'admin',
+        subscribeBody('teamT', 'DATA'),
+      )
+      expect(first.status).toBe(201)
+      expect(first.json).toMatchObject({ roleFamily: 'DATA', sourceTypes: ['GREENHOUSE_ATS'] })
+      const twin = await post('/team-triage-subscriptions', 'admin', {
+        ...subscribeBody('teamT', 'DATA'),
+        sourceTypes: ['GREENHOUSE_ATS', 'GREENHOUSE_ATS'],
+      })
+      expect(twin.status).toBe(409)
+      expect(twin.json['code']).toBe(VERSION_CONFLICT)
+      expect(await triageActions('teamT')).toHaveLength(3)
+      const wider = await post('/team-triage-subscriptions', 'admin', {
+        ...subscribeBody('teamT', 'DATA'),
+        sourceTypes: [],
+      })
+      expect(wider.status).toBe(201)
+      expect(wider.json).toMatchObject({ roleFamily: 'DATA', sourceTypes: [] })
+      expect(await triageActions('teamT')).toHaveLength(4)
+    })
   })
 })
