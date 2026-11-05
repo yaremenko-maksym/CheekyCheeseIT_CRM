@@ -316,9 +316,10 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
       )
       recordIds.push(rows[0].id as string)
       await q(
-        `INSERT INTO job_opportunity_sources (source_record_id, opportunity_id, rule_version, unlinked_at)
-         VALUES ($1, $2, 1, $3)`,
-        [rows[0].id, ids[opp], unlinked ? new Date() : null],
+        `INSERT INTO job_opportunity_sources
+           (source_record_id, opportunity_id, rule_version, unlinked_at, unlink_reason)
+         VALUES ($1, $2, 1, $3, $4)`,
+        [rows[0].id, ids[opp], unlinked ? new Date() : null, unlinked ? 'split' : null],
       )
     }
 
