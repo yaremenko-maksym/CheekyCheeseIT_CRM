@@ -735,6 +735,17 @@ describe('what a probe proves', () => {
       expect(w.chatModels().filter((m) => m === G2)).toHaveLength(before + 1)
     })
 
+    it('a pinned fallback that names a held model neither probes nor serves it', async () => {
+      const [day] = daysFrom(0, 1) as [string]
+      const w = refreshWorld({
+        routes: GEMINI_ONLY,
+        state: { ...EMPTY_ROUTE_STATE, busyDead: [{ provider: 'gemini', model: G1, day }] },
+      })
+      await runOn(w, [day])
+      expect(w.chatModels()).not.toContain(G1)
+      expect(w.fileList('gemini')).toEqual([G2])
+    })
+
     it('a re-probe still busy restamps the verdict: the next one is 7 days on', async () => {
       const w = refreshWorld({
         routes: GEMINI_ONLY,

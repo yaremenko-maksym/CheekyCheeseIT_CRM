@@ -550,6 +550,14 @@ describe('the start-up refresh, the clearing proof (SR-M-7, SR-M-11)', () => {
       expect(authOf(w, 'gemini')).toBe(false)
     })
 
+    it('a spent first model hands the proof to the next eligible one', async () => {
+      const spent = markSpent('gemini', G1, providerDay('gemini', NOON))(authOn('gemini'))
+      const w = refreshWorld({ routes: GEMINI_ONLY, state: spent })
+      await runStartupModelRefresh(w.deps)
+      expect(w.chatModels()).toEqual([G2])
+      expect(authOf(w, 'gemini')).toBe(false)
+    })
+
     it('the daily job on a list used in full sends no probe at all', async () => {
       const w = refreshWorld({ routes: GEMINI_ONLY, hadOkCall: () => true })
       await runDailyModelRefresh(w.deps)

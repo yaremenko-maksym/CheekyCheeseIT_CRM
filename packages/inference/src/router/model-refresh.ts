@@ -262,7 +262,7 @@ async function refreshProvider(
     })
   }
   const next = stopped === null ? pick() : current
-  const written = stopped === null && next.length > 0 && (await deps.writeManagedList(p, next))
+  const written = stopped === null && (await deps.writeManagedList(p, next))
   let recorded = true
   if (p === 'gemini') {
     const known = new Set([...next, ...listing.models.map((m) => m.id)])

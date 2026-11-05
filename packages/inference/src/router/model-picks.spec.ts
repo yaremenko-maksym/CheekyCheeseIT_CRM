@@ -304,6 +304,26 @@ describe('applyProbeDay', () => {
     expect(r.probation).toEqual([])
   })
 
+  it('a verdict on one model leaves another model answering the same day untouched', () => {
+    const r = applyProbeDay({
+      ...base,
+      answers: [{ model: 'm', verdict: 'alive', busy429: false }],
+      held: [held('other')],
+    })
+    expect(r.held).toEqual([held('other')])
+    expect(r.probation).toEqual([probation('m', 1, DAY2)])
+  })
+
+  it('a held model recovering over a stale record keeps one record, at streak 0', () => {
+    const r = applyProbeDay({
+      ...base,
+      answers: [{ model: 'm', verdict: 'alive', busy429: false }],
+      probation: [probation('m', 2), probation('other', 1)],
+      held: [held('m')],
+    })
+    expect(r.probation).toEqual([probation('other', 1), probation('m', 0, DAY2)])
+  })
+
   it('keeps the stamp of a held model with no probe today', () => {
     const r = applyProbeDay({ ...base, answers: [], held: [held('m')] })
     expect(r.held).toEqual([held('m')])
