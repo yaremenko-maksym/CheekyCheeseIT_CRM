@@ -327,6 +327,8 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     await subOpp('oppSubUnverified', 'SOFTWARE', false)
     await subOpp('oppSubForeign', 'DEVOPS')
     await subOpp('oppSubNullFamily', null)
+    // Visible to team S through the SOFTWARE subscription until the ADMIN suppresses it below.
+    await subOpp('oppSubSuppressed', 'SOFTWARE')
 
     const moduleRef = await Test.createTestingModule({
       imports: [JobQueueRbacTestModule],
@@ -691,7 +693,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     it("the subscribing team's HR: exactly the live match is listed and carded", async () => {
       const list = await get(`?${search}`, 'hrS')
       expect(list.status).toBe(200)
-      expect(listedIds(list)).toEqual([id('oppSubLive')])
+      expect(listedIds(list).sort()).toEqual([id('oppSubLive'), id('oppSubSuppressed')].sort())
       for (const opp of hidden) expect(list.raw, opp).not.toContain(id(opp))
       const card = await get(`/${id('oppSubLive')}`, 'hrS')
       expect(card.status).toBe(200)
@@ -737,6 +739,20 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       for (const opp of ['oppSubLive', ...hidden]) {
         expect((await get(`/${id(opp)}`, 'admin')).status, opp).toBe(200)
       }
+    })
+
+    it('an ADMIN suppression takes a subscription-only item off the list and the card', async () => {
+      const opp = id('oppSubSuppressed')
+      expect((await get(`/${opp}`, 'hrS')).status).toBe(200)
+      const suppressed = await post(`/${opp}/suppress`, 'admin', { idempotencyKey: randomUUID() })
+      expect(suppressed.status).toBe(204)
+      const list = await get(`?${search}`, 'hrS')
+      expect(list.status).toBe(200)
+      expect(listedIds(list)).toEqual([id('oppSubLive')])
+      expect(list.raw).not.toContain(opp)
+      const card = await get(`/${opp}`, 'hrS')
+      expect(card.status).toBe(404)
+      expect(card.json['code']).toBe(NOT_FOUND)
     })
   })
 

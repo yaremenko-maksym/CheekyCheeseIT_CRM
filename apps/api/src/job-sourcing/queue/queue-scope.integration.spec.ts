@@ -346,6 +346,8 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
     await subOpp('oppSubSourceUnlinked', 'DESIGN')
     await linkSource('oppSubSourceUnlinked', 'HIMALAYAS_API', true)
     await subOpp('oppSubSourceNone', 'DESIGN')
+    // Visible only through team A's SOFTWARE subscription until the test suppresses it.
+    await subOpp('oppSubSuppressed', 'SOFTWARE')
     // Verified and subscribed, but never evaluated: the real writer decides it below.
     await mkOpp('oppSubRecomputed')
     await q(
@@ -357,6 +359,17 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
   afterAll(async () => {
     if (session === undefined) return
     try {
+      // The suppression row is append-only: only its owner can clean it, as the RBAC spec does.
+      await session.admin.query(
+        `ALTER TABLE job_queue_actions DISABLE TRIGGER trg_job_queue_actions_append_only`,
+      )
+      await session.admin.query(
+        `DELETE FROM job_queue_actions WHERE opportunity_id = ANY($1::uuid[])`,
+        [oppIds],
+      )
+      await session.admin.query(
+        `ALTER TABLE job_queue_actions ENABLE ALWAYS TRIGGER trg_job_queue_actions_append_only`,
+      )
       // Source links RESTRICT both the opportunity and the record, so they go first.
       await session.admin.query(
         `DELETE FROM job_opportunity_sources WHERE opportunity_id = ANY($1::uuid[])`,
@@ -706,6 +719,19 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
         await expectNotFound(visible(a, 'oppSubSourceMiss'))
         await expectNotFound(visible(a, 'oppSubSourceUnlinked'))
         await expectNotFound(visible(a, 'oppSubSourceNone'))
+      })
+
+      it('an ADMIN suppression hides an item visible only through a subscription', async () => {
+        const a = await resolve('hrA', 'HR')
+        await expect(visible(a, 'oppSubSuppressed')).resolves.toBeUndefined()
+        await session.admin.query(
+          `INSERT INTO job_queue_actions
+             (kind, opportunity_id, actor_id, scope_kind, idempotency_key, reason)
+           VALUES ('SUPPRESSED', $1, $2, 'STUDIO', $3, 'qscope suppress')`,
+          [ids['oppSubSuppressed'], ids['admin'], `qscope-suppress-${TAG}`],
+        )
+        await expectNotFound(visible(a, 'oppSubSuppressed'))
+        await expect(visible(STUDIO_SCOPE, 'oppSubSuppressed')).resolves.toBeUndefined()
       })
 
       it('a stale inputs version hides a subscribed item, like a grant', async () => {

@@ -117,7 +117,9 @@ const liveTeam = (alias: string, teamId: string) =>
  *          (`job_team_triage_subscriptions`, r5 Task 6.4c) whose `role_family` equals the
  *          opportunity's persisted layer-1 `role_family` (NULL — never evaluated or UNKNOWN —
  *          never matches) and whose `source_types`, when not empty, contain the type of an ACTIVE
- *          linked source record; on an opportunity whose employer is VERIFIED (an unverifiable item
+ *          linked source record (ACTIVE = the link's `unlinked_at IS NULL` only: the contract keys
+ *          on the live link, and source or record activity upstream is deliberately not part of
+ *          it); on an opportunity whose employer is VERIFIED (an unverifiable item
  *          reaches a team only through an explicit grant, r5 Task 1.2 SR-L-2) and that passes the
  *          grant branch's availability and OPEN-at-current-revision-and-live-inputs rule. The
  *          role family is written with that evaluation record, so it is the current revision's.
