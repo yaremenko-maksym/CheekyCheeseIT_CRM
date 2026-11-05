@@ -42,7 +42,7 @@ const open = {
   ...common,
   kind: 'EVALUATED',
   status: 'NO_MATCH',
-  layer1: {},
+  layer1: { roleFamily: { value: 'SOFTWARE' } },
   projections: [],
   audit: { ...audit, excluded: [] },
 } as unknown as Evaluated
@@ -50,6 +50,7 @@ const excluded: Excluded = {
   ...common,
   kind: 'EXCLUDED',
   reasons: [],
+  roleFamily: 'SOFTWARE',
   audit: {
     ...audit,
     excluded: [{ subject: 'OPPORTUNITY', stage: 'CLASSIFICATION', reasons: [], inputs: {} }],
@@ -168,13 +169,28 @@ describe.skipIf(!hasDatabaseUrl())('installMatches: the evaluation record (SR-M-
       return rows[0]?.evaluated_inputs_version as string | null
     }
     await installMatches(db, o, 5, open, empty)
-    // opportunityInputsVersion of no studio keyword at MATCH_RULE_VERSION 'eval.1+l1.1'.
-    expect(await inputs()).toBe('d17b306752496d748fc03a559dc4b784')
+    // opportunityInputsVersion of no studio keyword at rule version 'eval.1+l1.1+rf.1'.
+    expect(await inputs()).toBe('f790107665e925d6184be224a6f29cf7')
     await installMatches(db, o, 4, open, { ...empty, exclusions: [studioPhp] })
-    expect(await inputs()).toBe('d17b306752496d748fc03a559dc4b784')
+    expect(await inputs()).toBe('f790107665e925d6184be224a6f29cf7')
     await installMatches(db, o, 5, open, { ...empty, exclusions: [studioPhp] })
     // ...and of the keyword 'php'.
-    expect(await inputs()).toBe('3c8e35dd4ec830658915a6ef7b6bb6c0')
+    expect(await inputs()).toBe('0084349d198f553e703a4845aa55b3bc')
+  })
+
+  it('the record carries the role family of either verdict; UNKNOWN is stored as NULL', async () => {
+    const roleFamily = async (id: string) =>
+      (await session.admin.query(`SELECT role_family FROM job_opportunities WHERE id = $1`, [id]))
+        .rows[0]?.role_family as string | null
+    const a = await opportunity('rf-open')
+    const b = await opportunity('rf-excluded')
+    const c = await opportunity('rf-unknown')
+    await installMatches(db, a, 1, open, empty)
+    await installMatches(db, b, 1, excluded, empty)
+    await installMatches(db, c, 1, { ...excluded, roleFamily: 'UNKNOWN' }, empty)
+    expect(await roleFamily(a)).toBe('SOFTWARE')
+    expect(await roleFamily(b)).toBe('SOFTWARE')
+    expect(await roleFamily(c)).toBeNull()
   })
 
   it('a stale install onto a NULL record records nothing (SPEC-L-1)', async () => {

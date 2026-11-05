@@ -1,5 +1,5 @@
 import type { JobExclusionDto } from '@crm/shared'
-import type { Layer1Input, Layer1Result } from './layer1'
+import type { Layer1Input, Layer1Result, RoleFamily } from './layer1'
 import type { FirstSeenKind, RankWarning } from './rank'
 import type { SeniorTechProfile, TechMatchView, TechMatchReadinessIssue } from './tech-match'
 
@@ -131,6 +131,11 @@ export interface Excluded extends Base {
   opportunityId: string
   revisionId: string
   evaluatedAt: string
+  /**
+   * Layer 1's role family, computed before any exclusion. Carried because an all-seniors
+   * stop-list is EXCLUDED here yet OPEN for a team, and a triage subscription keys on it.
+   */
+  roleFamily: RoleFamily
   reasons: Reason[]
   trace: TraceEntry[]
   audit: EvaluationAudit

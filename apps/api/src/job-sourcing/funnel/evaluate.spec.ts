@@ -166,6 +166,17 @@ describe('the opportunity-level verdict with an empty roster (SR-M-2)', () => {
     ) as Excluded
     expect(r.kind).toBe('EXCLUDED')
     expect(opportunityVerdict(r)).toBe('OPEN')
+    // A subscription keys on it, and this verdict is OPEN for a team.
+    expect(r.roleFamily).toBe('SOFTWARE')
+  })
+
+  it('an opportunity-level exclusion still carries the layer-1 role family', () => {
+    const exclusions = [exclusion({ value: 'java', normalizedValue: 'java' })]
+    expect(excluded(evaluate(input({ ...noRoster, exclusions }))).roleFamily).toBe('SOFTWARE')
+    const closed = evaluate(
+      input({ ...noRoster, revision: javaRevision({ availability: 'CLOSED' }) }),
+    )
+    expect(excluded(closed).roleFamily).toBe('SOFTWARE')
   })
 })
 

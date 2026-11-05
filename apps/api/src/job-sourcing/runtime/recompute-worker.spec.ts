@@ -622,6 +622,7 @@ describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
     it('enqueues nothing when the opportunity is not wanted (EXCLUDED), even with a record missing detail', async () => {
       evaluate.mockReturnValueOnce({
         kind: 'EXCLUDED',
+        roleFamily: 'SOFTWARE',
         audit: { excluded: [] },
       } as unknown as ReturnType<typeof funnel.evaluate>)
       const { db, did } = recordingDb(withMissing())
@@ -632,6 +633,7 @@ describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
     it('enqueues nothing when EVALUATED has no projection (no senior wanted it)', async () => {
       evaluate.mockReturnValueOnce({
         kind: 'EVALUATED',
+        layer1: { roleFamily: { value: 'SOFTWARE' } },
         projections: [],
         audit: { excluded: [] },
       } as unknown as ReturnType<typeof funnel.evaluate>)
@@ -679,6 +681,7 @@ describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
     it('a stale record is not enqueued when the opportunity is not wanted (EXCLUDED)', async () => {
       evaluate.mockReturnValueOnce({
         kind: 'EXCLUDED',
+        roleFamily: 'SOFTWARE',
         audit: { excluded: [] },
       } as unknown as ReturnType<typeof funnel.evaluate>)
       const { db, did } = recordingDb(

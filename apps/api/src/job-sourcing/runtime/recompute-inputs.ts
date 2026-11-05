@@ -444,6 +444,25 @@ export function opportunityVerdict(result: Evaluated | Excluded): OpportunityVer
   return result.audit.excluded.some((e) => !e.subject.startsWith(SENIOR)) ? 'EXCLUDED' : 'OPEN'
 }
 
+/**
+ * The role family the evaluation record persists (`job_opportunities.role_family`), from layer 1.
+ * UNKNOWN is stored as NULL: an unclassified role is no family, and the triage-subscription branch
+ * of queue visibility never matches NULL (fails closed).
+ */
+export function opportunityRoleFamily(result: Evaluated | Excluded): string | null {
+  const family = result.kind === 'EVALUATED' ? result.layer1.roleFamily.value : result.roleFamily
+  return family === 'UNKNOWN' ? null : family
+}
+
+/**
+ * The record-format part of `opportunityInputsVersion`'s default rule version. Bumping it makes
+ * every stored `evaluated_inputs_version` stale at once, so the reconciliation sweep
+ * re-evaluates every OPEN / UNKNOWN opportunity under a fresh `RECONCILE:EVAL:` lineage and
+ * `installMatches` rewrites the whole record: this is how a new record column is backfilled.
+ * `rf.1`: the record gained `role_family` (r5 Task 6.4c).
+ */
+export const EVALUATION_RECORD_VERSION = 'rf.1'
+
 const digest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 32)
 
@@ -453,11 +472,12 @@ const digest = (value: unknown) =>
  * values of the studio-wide KEYWORD exclusions, the only ones that stage matches (it reads
  * `value`; global COMPANY entries are unused, A1g). Order-insensitive. Nothing per senior:
  * SCOPED_RESTRICTIONS never decides the verdict (`opportunityVerdict`).
- * `ruleVersion` is a parameter only so a test can model a rule deploy.
+ * `ruleVersion` is a parameter only so a test can model a rule deploy. Its default also carries
+ * `EVALUATION_RECORD_VERSION`, so a record-format change re-evaluates everything once.
  */
 export function opportunityInputsVersion(
   exclusions: readonly JobExclusionDto[],
-  ruleVersion: string = MATCH_RULE_VERSION,
+  ruleVersion: string = `${MATCH_RULE_VERSION}+${EVALUATION_RECORD_VERSION}`,
 ): string {
   const keywords = exclusions
     .filter((e) => e.scope === 'GLOBAL' && e.kind === 'KEYWORD')
@@ -535,7 +555,8 @@ export function rosterVersions(
  * Replace the opportunity's matches with the verdict for `revision`, inside the caller's
  * transaction (which holds the opportunity and has checked `revision` is current), and record on
  * the opportunity that `revision` was evaluated, against which inputs (`opportunityInputsVersion`
- * of this roster's exclusions, SR-M-1) and with what opportunity-level result. That record
+ * of this roster's exclusions, SR-M-1), with what opportunity-level result and with which layer-1
+ * role family (`opportunityRoleFamily`, read by the subscription branch). That record
  * is written even when there are no rows (a plain mismatch, an empty roster): it is what the queue's
  * grant branch reads (SR-M-2). Neither the upsert nor the delete ever touches a NEWER revision, and
  * the record is written only for the opportunity's current revision: under the caller's row lock
@@ -578,7 +599,8 @@ export async function installMatches(
     sql`UPDATE job_opportunities
            SET evaluated_revision = ${revision},
                evaluation_verdict = ${opportunityVerdict(result)}::job_opportunity_verdict,
-               evaluated_inputs_version = ${opportunityInputsVersion(roster.exclusions)}
+               evaluated_inputs_version = ${opportunityInputsVersion(roster.exclusions)},
+               role_family = ${opportunityRoleFamily(result)}
          WHERE id = ${opportunityId}::uuid AND revision = ${revision}`,
   )
   if (rows.length === 0) return 0

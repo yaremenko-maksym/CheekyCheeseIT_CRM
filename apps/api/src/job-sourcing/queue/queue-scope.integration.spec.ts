@@ -8,6 +8,7 @@ import {
 } from '../../database/__test-helpers__/crm-app-session'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import type { Evaluated, Excluded } from '../funnel/evaluate'
+import type { RoleFamily } from '../funnel/layer1'
 import {
   installMatches,
   loadRoster,
@@ -63,6 +64,7 @@ const ids: Record<string, string> = {}
 const userIds: string[] = []
 const teamIds: string[] = []
 const oppIds: string[] = []
+const recordIds: string[] = []
 
 describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 6.1)', () => {
   beforeAll(async () => {
@@ -264,11 +266,124 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
     await mkOpp('oppGoneGrant')
     await grant('oppGoneGrant', 'teamGone', '1 day')
     await evaluated('oppGoneGrant', 1, 'OPEN')
+
+    // Task 6.4c — triage subscriptions. Each family is used by exactly one subscription, so every
+    // hidden opportunity below differs from the visible `oppSub` in exactly one condition.
+    const subscribe = (
+      team: string,
+      roleFamily: string,
+      expires: string,
+      o: { revoked?: boolean; sourceTypes?: string[] } = {},
+    ) =>
+      q(
+        `INSERT INTO job_team_triage_subscriptions
+           (team_id, role_family, source_types, policy_version, actor_id, reason, expires_at,
+            revoked_at, revoked_by, revoke_reason)
+         VALUES ($1, $2, $3::job_source_type[], 1, $4, 'qscope', now() + $5::interval,
+                 $6, $7, $8)`,
+        [
+          ids[team],
+          roleFamily,
+          o.sourceTypes ?? [],
+          ids['admin'],
+          expires,
+          o.revoked ? new Date() : null,
+          o.revoked ? ids['admin'] : null,
+          o.revoked ? 'qscope revoked' : null,
+        ],
+      )
+    /** A verified-employer opportunity, evaluated OPEN at its revision, with a persisted family. */
+    const subOpp = async (
+      key: string,
+      roleFamily: string | null,
+      o: { verified?: boolean; verdict?: 'OPEN' | 'EXCLUDED'; availability?: string } = {},
+    ) => {
+      await mkOpp(key, 1, o.availability ?? 'OPEN')
+      await evaluated(key, 1, o.verdict ?? 'OPEN')
+      const verified = o.verified ?? true
+      await q(
+        `UPDATE job_opportunities
+            SET role_family = $2, employer_verified = $3, employer_key = $4
+          WHERE id = $1`,
+        [ids[key], roleFamily, verified, verified ? `qscope-employer-${TAG}` : null],
+      )
+    }
+    const linkSource = async (opp: string, sourceType: string, unlinked = false) => {
+      const { rows } = await q(
+        `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key)
+         VALUES ($1, $2, 'NATIVE_ID', $3) RETURNING id`,
+        [sourceType, `qscope-${TAG}`, `qscope-${opp}-${sourceType}-${TAG}`],
+      )
+      recordIds.push(rows[0].id as string)
+      await q(
+        `INSERT INTO job_opportunity_sources
+           (source_record_id, opportunity_id, rule_version, unlinked_at, unlink_reason)
+         VALUES ($1, $2, 1, $3, $4)`,
+        [rows[0].id, ids[opp], unlinked ? new Date() : null, unlinked ? 'split' : null],
+      )
+    }
+
+    await subscribe('teamA', 'SOFTWARE', '1 day')
+    await subscribe('teamA', 'DATA', '-1 minute')
+    await subscribe('teamA', 'QA', '1 day', { revoked: true })
+    await subscribe('teamB', 'DEVOPS', '1 day')
+    await subscribe('teamA', 'DESIGN', '1 day', { sourceTypes: ['HIMALAYAS_API'] })
+    await subOpp('oppSub', 'SOFTWARE')
+    await subOpp('oppSubExpired', 'DATA')
+    await subOpp('oppSubRevoked', 'QA')
+    await subOpp('oppSubUnverified', 'SOFTWARE', { verified: false })
+    await subOpp('oppSubForeign', 'DEVOPS')
+    await subOpp('oppSubNullFamily', null)
+    await subOpp('oppSubUnsubscribedFamily', 'PRODUCT')
+    await subOpp('oppSubExcluded', 'SOFTWARE', { verdict: 'EXCLUDED' })
+    await subOpp('oppSubClosed', 'SOFTWARE', { availability: 'CLOSED' })
+    await subOpp('oppSubBumped', 'SOFTWARE')
+    await q(`UPDATE job_opportunities SET revision = 2 WHERE id = $1`, [ids['oppSubBumped']])
+    await subOpp('oppSubSourceMatch', 'DESIGN')
+    await linkSource('oppSubSourceMatch', 'GREENHOUSE_ATS')
+    await linkSource('oppSubSourceMatch', 'HIMALAYAS_API')
+    await subOpp('oppSubSourceMiss', 'DESIGN')
+    await linkSource('oppSubSourceMiss', 'GREENHOUSE_ATS')
+    await subOpp('oppSubSourceUnlinked', 'DESIGN')
+    await linkSource('oppSubSourceUnlinked', 'HIMALAYAS_API', true)
+    await subOpp('oppSubSourceNone', 'DESIGN')
+    // Visible only through team A's SOFTWARE subscription until the test suppresses it.
+    await subOpp('oppSubSuppressed', 'SOFTWARE')
+    // Verified and subscribed, but never evaluated: the real writer decides it below.
+    await mkOpp('oppSubRecomputed')
+    await q(
+      `UPDATE job_opportunities SET employer_verified = true, employer_key = $2 WHERE id = $1`,
+      [ids['oppSubRecomputed'], `qscope-employer-${TAG}`],
+    )
   })
 
   afterAll(async () => {
     if (session === undefined) return
     try {
+      // The suppression row is append-only: only its owner can clean it, as the RBAC spec does.
+      await session.admin.query(
+        `ALTER TABLE job_queue_actions DISABLE TRIGGER trg_job_queue_actions_append_only`,
+      )
+      await session.admin.query(
+        `DELETE FROM job_queue_actions WHERE opportunity_id = ANY($1::uuid[])`,
+        [oppIds],
+      )
+      await session.admin.query(
+        `ALTER TABLE job_queue_actions ENABLE ALWAYS TRIGGER trg_job_queue_actions_append_only`,
+      )
+      // Source links RESTRICT both the opportunity and the record, so they go first.
+      await session.admin.query(
+        `DELETE FROM job_opportunity_sources WHERE opportunity_id = ANY($1::uuid[])`,
+        [oppIds],
+      )
+      await session.admin.query(`DELETE FROM job_source_records WHERE id = ANY($1::uuid[])`, [
+        recordIds,
+      ])
+      // Subscriptions RESTRICT their actor (the admin) and cascade only from the team.
+      await session.admin.query(
+        `DELETE FROM job_team_triage_subscriptions WHERE team_id = ANY($1::uuid[])`,
+        [teamIds],
+      )
       // Matches and grants cascade from the opportunity; grants RESTRICT the admin, so opps first.
       await session.admin.query(`DELETE FROM job_opportunities WHERE id = ANY($1::uuid[])`, [
         oppIds,
@@ -446,13 +561,14 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
         evaluatedAt: '2026-11-04T10:00:00.000Z',
         trace: [],
       }
-      const open = (opp: string) =>
+      // UNKNOWN records a NULL role family, so no subscription branch interferes with these cases.
+      const open = (opp: string, roleFamily: RoleFamily = 'UNKNOWN') =>
         ({
           ...base,
           kind: 'EVALUATED',
           opportunityId: ids[opp],
           status: 'NO_MATCH',
-          layer1: {},
+          layer1: { roleFamily: { value: roleFamily } },
           projections: [],
           audit: { ...audit, excluded: [] },
         }) as unknown as Evaluated
@@ -460,6 +576,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
         ...base,
         kind: 'EXCLUDED',
         opportunityId: ids[opp] as string,
+        roleFamily: 'UNKNOWN',
         reasons: [],
         audit: {
           ...audit,
@@ -570,6 +687,97 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
         } finally {
           await stamp(opportunityInputsVersion(studio))
         }
+      })
+    })
+
+    describe('Task 6.4c: a triage subscription shows a live, verified, OPEN family match', () => {
+      it('team A sees the opportunity of its live subscription; team B does not', async () => {
+        await expect(visible(await resolve('hrA', 'HR'), 'oppSub')).resolves.toBeUndefined()
+        await expectNotFound(visible(await resolve('hrB', 'HR'), 'oppSub'))
+      })
+
+      it('another team’s subscription shows nothing to team A, and its own team sees it', async () => {
+        await expectNotFound(visible(await resolve('hrA', 'HR'), 'oppSubForeign'))
+        await expect(visible(await resolve('hrB', 'HR'), 'oppSubForeign')).resolves.toBeUndefined()
+      })
+
+      it.each([
+        ['oppSubExpired', 'an expired subscription'],
+        ['oppSubRevoked', 'a revoked subscription'],
+        ['oppSubUnverified', 'an unverified employer'],
+        ['oppSubNullFamily', 'a NULL role family (fail closed)'],
+        ['oppSubUnsubscribedFamily', 'a family no subscription names'],
+        ['oppSubExcluded', 'an EXCLUDED verdict'],
+        ['oppSubClosed', 'a CLOSED posting'],
+        ['oppSubBumped', 'a verdict at an old revision'],
+      ])('%s is a 404: %s', async (opp) => {
+        await expectNotFound(visible(await resolve('hrA', 'HR'), opp))
+      })
+
+      it('a source filter admits an opportunity with an ACTIVE link of a listed type only', async () => {
+        const a = await resolve('hrA', 'HR')
+        await expect(visible(a, 'oppSubSourceMatch')).resolves.toBeUndefined()
+        await expectNotFound(visible(a, 'oppSubSourceMiss'))
+        await expectNotFound(visible(a, 'oppSubSourceUnlinked'))
+        await expectNotFound(visible(a, 'oppSubSourceNone'))
+      })
+
+      it('an ADMIN suppression hides an item visible only through a subscription', async () => {
+        const a = await resolve('hrA', 'HR')
+        await expect(visible(a, 'oppSubSuppressed')).resolves.toBeUndefined()
+        await session.admin.query(
+          `INSERT INTO job_queue_actions
+             (kind, opportunity_id, actor_id, scope_kind, idempotency_key, reason)
+           VALUES ('SUPPRESSED', $1, $2, 'STUDIO', $3, 'qscope suppress')`,
+          [ids['oppSubSuppressed'], ids['admin'], `qscope-suppress-${TAG}`],
+        )
+        await expectNotFound(visible(a, 'oppSubSuppressed'))
+        await expect(visible(STUDIO_SCOPE, 'oppSubSuppressed')).resolves.toBeUndefined()
+      })
+
+      it('a stale inputs version hides a subscribed item, like a grant', async () => {
+        const a = await resolve('hrA', 'HR')
+        const deployed = {
+          ...(a as Extract<JobQueueScope, { kind: 'TEAM' }>),
+          inputsVersion: opportunityInputsVersion(studio, 'eval.2+l1.1+rf.1'),
+        }
+        await expect(visible(a, 'oppSub')).resolves.toBeUndefined()
+        await expectNotFound(visible(deployed, 'oppSub'))
+      })
+
+      it('the real writer persists the family: 404 before, visible after, 404 once it is UNKNOWN', async () => {
+        const opp = 'oppSubRecomputed'
+        const db = session.databaseService.db
+        const roster: RosterInputs = {
+          rosterSeniorIds: [],
+          profiles: [],
+          exclusions: studio,
+          versions: new Map(),
+        }
+        const verdict = (roleFamily: RoleFamily) =>
+          ({
+            kind: 'EVALUATED',
+            recordKey: 'k',
+            opportunityId: ids[opp],
+            revisionId: '1',
+            evaluatedAt: '2026-11-05T10:00:00.000Z',
+            status: 'NO_MATCH',
+            layer1: { roleFamily: { value: roleFamily } },
+            projections: [],
+            trace: [],
+            audit: { excluded: [], noTeamAccess: [], ignoredExclusionIds: [] },
+          }) as unknown as Evaluated
+        const a = await resolve('hrA', 'HR')
+        await expectNotFound(visible(a, opp))
+        await installMatches(db, ids[opp] as string, 1, verdict('SOFTWARE'), roster)
+        const { rows } = await session.admin.query(
+          `SELECT role_family FROM job_opportunities WHERE id = $1`,
+          [ids[opp]],
+        )
+        expect(rows).toEqual([{ role_family: 'SOFTWARE' }])
+        await expect(visible(a, opp)).resolves.toBeUndefined()
+        await installMatches(db, ids[opp] as string, 1, verdict('UNKNOWN'), roster)
+        await expectNotFound(visible(a, opp))
       })
     })
 

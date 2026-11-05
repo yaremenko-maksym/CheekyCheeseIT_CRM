@@ -18,7 +18,12 @@ import {
 import { DatabaseService } from '../../database/database.service'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ZodExceptionFilter } from '../../zod-exception.filter'
-import { loadRoster, MATCH_RULE_VERSION, type SeniorVersions } from '../runtime/recompute-inputs'
+import {
+  loadRoster,
+  MATCH_RULE_VERSION,
+  opportunityInputsVersion,
+  type SeniorVersions,
+} from '../runtime/recompute-inputs'
 import { JobQueueController } from './job-queue.controller'
 import { JobQueueService } from './job-queue.service'
 import { JobQueueActionsService } from './queue-actions.service'
@@ -56,6 +61,8 @@ let dbSvcRef: DatabaseService
 let app: NestFastifyApplication
 let jwt: JwtService
 let live: ReadonlyMap<string, SeniorVersions>
+/** The live inputs version a TEAM scope requires of an evaluation record (studio exclusions). */
+let liveInputs: string
 let seq = 0
 
 const sqlq = (text: string, params: unknown[] = []) => session.admin.query(text, params)
@@ -175,6 +182,34 @@ function lead(opp: string, senior: string) {
     ],
   )
 }
+/** A standing triage subscription of a team (r5 Task 6.4c), actor ADMIN. */
+const subscribe = (team: string, roleFamily: string, expires: string, revoked = false) =>
+  sqlq(
+    `INSERT INTO job_team_triage_subscriptions
+       (team_id, role_family, policy_version, actor_id, reason, expires_at,
+        revoked_at, revoked_by, revoke_reason)
+     VALUES ($1, $2, 1, $3, 'qrbac', now() + $4::interval, $5, $6, $7)`,
+    [
+      id(team),
+      roleFamily,
+      id('admin'),
+      expires,
+      revoked ? new Date() : null,
+      revoked ? id('admin') : null,
+      revoked ? 'qrbac revoked' : null,
+    ],
+  )
+/** An OPEN opportunity evaluated OPEN at the live inputs, with a persisted family and no LEAD. */
+async function subOpp(key: string, roleFamily: string | null, verified = true) {
+  await mkOpp(key)
+  await sqlq(
+    `UPDATE job_opportunities
+        SET evaluated_revision = 1, evaluation_verdict = 'OPEN', evaluated_inputs_version = $2,
+            role_family = $3, employer_verified = $4, employer_key = $5
+      WHERE id = $1`,
+    [id(key), liveInputs, roleFamily, verified, verified ? `${TAG}-emp-${key}` : null],
+  )
+}
 
 interface Answer {
   status: number
@@ -257,15 +292,19 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     } as unknown as DatabaseService
 
     await mkUser('admin', 'ADMIN')
-    for (const hr of ['hrA', 'hrB', 'hrNone', 'hrE']) await mkUser(hr, 'HR')
+    for (const hr of ['hrA', 'hrB', 'hrNone', 'hrE', 'hrS', 'hrS2']) await mkUser(hr, 'HR')
     for (const s of ['senA', 'senB', 'senShared']) await mkUser(s, 'SENIOR')
     await mkUser('jun', 'JUNIOR')
     await mkUser('acc', 'ACCOUNTANT')
-    for (const t of ['teamA', 'teamB', 'teamE']) await mkTeam(t)
+    for (const t of ['teamA', 'teamB', 'teamE', 'teamS', 'teamS2']) await mkTeam(t)
     for (const m of ['hrA', 'senA', 'senShared']) await join('teamA', m)
     for (const m of ['hrB', 'senB', 'senShared']) await join('teamB', m)
     await join('teamE', 'hrE')
-    live = (await loadRoster(session.databaseService.db)).versions
+    await join('teamS', 'hrS')
+    await join('teamS2', 'hrS2')
+    const roster = await loadRoster(session.databaseService.db)
+    live = roster.versions
+    liveInputs = opportunityInputsVersion(roster.exclusions.filter((e) => e.seniorId === null))
 
     await mkOpp('oppOnlyA', { description: `${TAG} ${'d'.repeat(DESCRIPTION_MD_MAX + 100)}` })
     await lead('oppOnlyA', 'senA')
@@ -276,6 +315,20 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     await lead('oppSup', 'senA')
     await mkOpp('oppDupHost', { dup: true })
     await lead('oppDupHost', 'senA')
+    // Task 6.4c — subscriptions live on their own teams (S, S2), so team A's exact list stays as
+    // it is. Each hidden opportunity differs from `oppSubLive` in exactly one condition.
+    await subscribe('teamS', 'SOFTWARE', '1 day')
+    await subscribe('teamS', 'DATA', '-1 minute')
+    await subscribe('teamS', 'QA', '1 day', true)
+    await subscribe('teamS2', 'DEVOPS', '1 day')
+    await subOpp('oppSubLive', 'SOFTWARE')
+    await subOpp('oppSubExpired', 'DATA')
+    await subOpp('oppSubRevoked', 'QA')
+    await subOpp('oppSubUnverified', 'SOFTWARE', false)
+    await subOpp('oppSubForeign', 'DEVOPS')
+    await subOpp('oppSubNullFamily', null)
+    // Visible to team S through the SOFTWARE subscription until the ADMIN suppresses it below.
+    await subOpp('oppSubSuppressed', 'SOFTWARE')
 
     const moduleRef = await Test.createTestingModule({
       imports: [JobQueueRbacTestModule],
@@ -334,6 +387,10 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       await sqlq(`DELETE FROM job_opportunities WHERE title LIKE $1`, [`${TAG}%`])
       await sqlq(`DELETE FROM job_source_records WHERE namespace = $1`, [`${TAG}-ns`])
       await sqlq(`DELETE FROM job_text_blobs WHERE text LIKE $1`, [`${TAG}%`])
+      // Before users and teams: a subscription restricts its ADMIN actor.
+      await sqlq(`DELETE FROM job_team_triage_subscriptions WHERE team_id IN (${teams})`, [
+        `${TAG}%`,
+      ])
       await sqlq(`DELETE FROM team_members WHERE team_id IN (${teams})`, [`${TAG}%`])
       await sqlq(`DELETE FROM teams WHERE name LIKE $1`, [`${TAG}%`])
       await sqlq(`DELETE FROM users WHERE email LIKE $1`, [`${TAG}%`])
@@ -621,6 +678,81 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       )
       expect(next.status).toBe(409)
       expect(next.json['code']).toBe('JOB_QUEUE_REFRESH_REQUIRED')
+    })
+  })
+
+  describe('Task 6.4c: a triage subscription shows only a live, verified family match to its team', () => {
+    const hidden = [
+      'oppSubExpired',
+      'oppSubRevoked',
+      'oppSubUnverified',
+      'oppSubForeign',
+      'oppSubNullFamily',
+    ]
+
+    it("the subscribing team's HR: exactly the live match is listed and carded", async () => {
+      const list = await get(`?${search}`, 'hrS')
+      expect(list.status).toBe(200)
+      expect(listedIds(list).sort()).toEqual([id('oppSubLive'), id('oppSubSuppressed')].sort())
+      for (const opp of hidden) expect(list.raw, opp).not.toContain(id(opp))
+      const card = await get(`/${id('oppSubLive')}`, 'hrS')
+      expect(card.status).toBe(200)
+      expect(card.json['opportunityId']).toBe(id('oppSubLive'))
+    })
+
+    it.each(hidden)(
+      '%s: absent from every tab and the same 404 as a missing opportunity on every read',
+      async (opp) => {
+        expect(await inAnyTab('hrS', opp)).toBe(false)
+        for (const url of [`/${id(opp)}`, `/${id(opp)}/sources`, `/${id(opp)}/seniors`]) {
+          const a = await get(url, 'hrS')
+          expect(a.status, url).toBe(404)
+          expect(a.json['code']).toBe(NOT_FOUND)
+        }
+      },
+    )
+
+    it("another team's subscription shows its match to that team only", async () => {
+      const foreign = await get(`?${search}`, 'hrS2')
+      expect(foreign.status).toBe(200)
+      expect(listedIds(foreign)).toEqual([id('oppSubForeign')])
+      expect(foreign.raw).not.toContain(id('oppSubLive'))
+      expect((await get(`/${id('oppSubForeign')}`, 'hrS2')).status).toBe(200)
+      const live404 = await get(`/${id('oppSubLive')}`, 'hrS2')
+      expect(live404.status).toBe(404)
+      expect(live404.json['code']).toBe(NOT_FOUND)
+    })
+
+    it('a team with no subscription sees neither, and ?teamId of the subscriber is a 404', async () => {
+      for (const who of ['hrA', 'hrB', 'hrNone']) {
+        const list = await get(`?${search}`, who)
+        expect(list.raw, who).not.toContain(id('oppSubLive'))
+        expect(list.raw, who).not.toContain(id('oppSubForeign'))
+        expect((await get(`/${id('oppSubLive')}`, who)).status, who).toBe(404)
+      }
+      const viaTeam = await get(`/${id('oppSubLive')}?teamId=${id('teamS')}`, 'hrA')
+      expect(viaTeam.status).toBe(404)
+      expect(viaTeam.json['code']).toBe(NOT_FOUND)
+    })
+
+    it('ADMIN (studio) still sees every one of them', async () => {
+      for (const opp of ['oppSubLive', ...hidden]) {
+        expect((await get(`/${id(opp)}`, 'admin')).status, opp).toBe(200)
+      }
+    })
+
+    it('an ADMIN suppression takes a subscription-only item off the list and the card', async () => {
+      const opp = id('oppSubSuppressed')
+      expect((await get(`/${opp}`, 'hrS')).status).toBe(200)
+      const suppressed = await post(`/${opp}/suppress`, 'admin', { idempotencyKey: randomUUID() })
+      expect(suppressed.status).toBe(204)
+      const list = await get(`?${search}`, 'hrS')
+      expect(list.status).toBe(200)
+      expect(listedIds(list)).toEqual([id('oppSubLive')])
+      expect(list.raw).not.toContain(opp)
+      const card = await get(`/${opp}`, 'hrS')
+      expect(card.status).toBe(404)
+      expect(card.json['code']).toBe(NOT_FOUND)
     })
   })
 

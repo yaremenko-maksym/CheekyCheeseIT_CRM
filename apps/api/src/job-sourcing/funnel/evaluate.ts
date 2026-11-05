@@ -103,7 +103,7 @@ function layer1Rejections(layer1: Layer1Result): Reason[] {
 }
 
 function excludedBy(
-  base: Pick<Excluded, 'recordKey' | 'opportunityId' | 'revisionId' | 'evaluatedAt'>,
+  base: Pick<Excluded, 'recordKey' | 'opportunityId' | 'revisionId' | 'evaluatedAt' | 'roleFamily'>,
   trace: TraceEntry[],
   entry: ExcludedEntry,
   audit: Omit<EvaluationAudit, 'excluded'> = { noTeamAccess: [], ignoredExclusionIds: [] },
@@ -265,6 +265,7 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
     evaluationTime: input.evaluationTime,
   })
   enter('CLASSIFICATION', layer1.ruleVersion)
+  const excludedBase = { ...base, roleFamily: layer1.roleFamily.value }
   const hard = [
     ...(CLOSED.has(revision.availability)
       ? [reason('AVAILABILITY_CLOSED', [`availability=${revision.availability}`])]
@@ -272,7 +273,7 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
     ...layer1Rejections(layer1),
   ]
   if (hard.length > 0) {
-    return excludedBy(base, trace, {
+    return excludedBy(excludedBase, trace, {
       subject: 'OPPORTUNITY',
       stage: 'CLASSIFICATION',
       reasons: hard,
@@ -303,7 +304,7 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
     exclusions.filter((e) => e.scope === 'GLOBAL' && e.kind === 'KEYWORD'),
   )
   if (globalHit) {
-    return excludedBy(base, trace, {
+    return excludedBy(excludedBase, trace, {
       subject: 'OPPORTUNITY',
       stage: 'GLOBAL_RESTRICTIONS',
       reasons: [reason('GLOBAL_EXCLUSION', [`${globalHit.kind}:${globalHit.value}`])],
@@ -357,7 +358,7 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
   if (tech.matchableSeniorIds.length === 0 && excludedSeniors.length > 0) {
     return {
       kind: 'EXCLUDED',
-      ...base,
+      ...excludedBase,
       reasons: excludedSeniors.flatMap((e) => e.reasons),
       trace,
       audit,

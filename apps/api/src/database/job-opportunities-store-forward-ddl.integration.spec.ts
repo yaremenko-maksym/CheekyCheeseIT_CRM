@@ -196,6 +196,12 @@ const PART_12_MIGRATION = '2026-11-04_job_queue_submissions_per_senior.sql'
  * file. Applied after PART_12, as the deploy would. Adds no standalone index.
  */
 const PART_13_MIGRATION = '2026-11-04_job_opportunities_evaluation_verdict.sql'
+/**
+ * PART_14 — r5 Task 6.4c (STAGED/DARK): `job_opportunities` gains `role_family` and its
+ * bounded CHECK. Declared in Drizzle last, so the column rank matches an `ADD COLUMN`; production
+ * gets it ONLY through this file. Applied after PART_13, as the deploy would. Adds no index.
+ */
+const PART_14_MIGRATION = '2026-11-05_job_opportunities_role_family.sql'
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
 const SCHEMA = 'ddl_job_opportunities_store'
 /** Its own schema, so the migration path cannot disturb the fresh-path comparison. */
@@ -669,6 +675,7 @@ const applyBothParts = (client: PoolClient): Promise<void> =>
     PART_11_MIGRATION,
     PART_12_MIGRATION,
     PART_13_MIGRATION,
+    PART_14_MIGRATION,
   ])
 const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 
@@ -1327,9 +1334,10 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         PART_9_MIGRATION,
         // PART_10/11 add standalone indexes only, which this comparison does not read;
         // PART_12 adds a column, an FK and a UNIQUE, which it does; PART_13 an enum, three
-        // columns and a CHECK.
+        // columns and a CHECK; PART_14 a column and a CHECK.
         PART_12_MIGRATION,
         PART_13_MIGRATION,
+        PART_14_MIGRATION,
       ])
       beforeMigration = await readCatalog(client, MIGRATION_SCHEMA)
       await applyParts(client, [PART_3_MIGRATION])
