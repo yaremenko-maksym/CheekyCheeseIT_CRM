@@ -4,7 +4,7 @@
  * the HR team switcher and the refresh / partial / access-lost notices. Opening a row writes
  * `?card=<id>`; the card itself is Task 7.3. Layout and copy: docs/design/vacancy-queue.md.
  */
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { AlertTriangle, RefreshCw, Search, X } from 'lucide-react'
@@ -62,6 +62,8 @@ export function JobQueuePage() {
   const { user } = useAuth()
   const { teams, isError: teamsFailed, refetch: refetchTeams } = useActiveTeams()
   const search = Route.useSearch()
+  // the retry button unmounts on click (error block becomes the skeleton): park focus here
+  const bodyRef = useRef<HTMLDivElement>(null)
 
   if (denied || !user || (user.role !== 'ADMIN' && user.role !== 'HR')) return null
 
@@ -77,13 +79,31 @@ export function JobQueuePage() {
         title={<Trans>Не вдалося завантажити чергу</Trans>}
         body={<Trans>Спробуйте ще раз.</Trans>}
       >
-        <Button variant="outline" className="min-h-11" onClick={() => void refetchTeams()}>
+        <Button
+          variant="outline"
+          className="min-h-11"
+          onClick={() => {
+            bodyRef.current?.focus()
+            void refetchTeams()
+          }}
+        >
           <Trans>Спробувати ще раз</Trans>
         </Button>
       </StateBlock>
     )
   } else if (teams === null) {
-    body = <Skeleton data-testid="job-queue-loading" className="h-40 w-full" />
+    body = (
+      <Skeleton
+        data-testid="job-queue-loading"
+        role="status"
+        aria-busy="true"
+        className="h-40 w-full"
+      >
+        <span className="sr-only">
+          <Trans>Завантажуємо чергу…</Trans>
+        </span>
+      </Skeleton>
+    )
   } else if (teams.length === 0) {
     body = (
       <div
@@ -117,7 +137,14 @@ export function JobQueuePage() {
       <h1 className="text-xl font-semibold tracking-tight">
         <Trans>Черга зовнішніх вакансій</Trans>
       </h1>
-      {body}
+      <div
+        ref={bodyRef}
+        tabIndex={-1}
+        data-testid="job-queue-body"
+        className="flex min-w-0 flex-col gap-4 outline-none"
+      >
+        {body}
+      </div>
     </div>
   )
 }

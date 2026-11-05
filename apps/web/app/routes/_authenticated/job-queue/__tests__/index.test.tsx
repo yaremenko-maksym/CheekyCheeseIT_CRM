@@ -276,8 +276,15 @@ describe('/job-queue page', () => {
     expect(retry).not.toHaveAttribute('aria-busy')
     fail = false
     await userEvent.click(retry)
-    expect(await screen.findByTestId('job-queue-loading')).toBeInTheDocument()
+    const loading = await screen.findByTestId('job-queue-loading')
     expect(retry).not.toBeInTheDocument()
+    // UX-M-6: the unmounted button hands focus to the page body, not to <body>
+    expect(screen.getByTestId('job-queue-body')).toHaveFocus()
+    expect(screen.getByTestId('job-queue-body')).toHaveAttribute('tabindex', '-1')
+    // UX-L-9: the teams skeleton announces itself
+    expect(loading).toHaveAttribute('role', 'status')
+    expect(loading).toHaveAttribute('aria-busy', 'true')
+    expect(loading).toHaveTextContent('Завантажуємо чергу…')
     release({ data: [team(TEAM_A, 'Alpha')] })
     expect(await screen.findByTestId(`job-queue-row-${ITEM_ID}`)).toBeInTheDocument()
     expect(screen.queryByTestId('job-queue-error')).toBeNull()

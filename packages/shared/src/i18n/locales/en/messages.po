@@ -8981,6 +8981,7 @@ msgid "Не вдалося зберегти зміни — дані залиши
 msgstr "Could not save the changes — the form keeps your data, try again"
 
 #: apps/web/app/components/job-queue/JobQueueList.tsx
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Завантажуємо чергу…"
 msgstr "Loading the queue…"
 

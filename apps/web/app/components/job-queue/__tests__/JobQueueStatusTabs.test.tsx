@@ -78,6 +78,7 @@ describe('JobQueueStatusTabs', () => {
       'focus-visible:ring-2',
       'focus-visible:ring-ring',
       'focus-visible:ring-offset-2',
+      'focus-visible:ring-offset-background',
     )
     expect(screen.getByTestId('job-queue-tab-SUBMITTED')).toHaveAttribute('aria-controls', panel.id)
     expect(panel).toHaveAttribute(

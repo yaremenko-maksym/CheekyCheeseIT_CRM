@@ -8981,6 +8981,7 @@ msgid "Не вдалося зберегти зміни — дані залиши
 msgstr "Не вдалося зберегти зміни — дані залишилися у формі, спробуйте ще раз"
 
 #: apps/web/app/components/job-queue/JobQueueList.tsx
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Завантажуємо чергу…"
 msgstr "Завантажуємо чергу…"
 
