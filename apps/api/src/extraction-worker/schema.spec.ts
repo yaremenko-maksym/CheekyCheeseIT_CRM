@@ -1,8 +1,10 @@
+import { routerConfigSchema } from '@crm/inference'
 import { describe, expect, it } from 'vitest'
 import {
   EXTRACTION_TABLE_VERSION,
   MIN_WORKER_SECRET_CHARS,
   healthFlags,
+  localOnlyRouterConfig,
   parseWorkerEnv,
   tableVersionOf,
 } from './schema'
@@ -86,5 +88,52 @@ describe('healthFlags', () => {
         failedJobs: ['daily', 'chain'],
       }),
     ).toEqual({ modelListStale: true, failedJobs: ['daily', 'chain'] })
+  })
+})
+
+describe('localOnlyRouterConfig — the preflight reaches the local route only (ADR §5.3)', () => {
+  const local = {
+    provider: 'local',
+    baseUrl: 'http://crm-model-runtime:11434',
+    model: 'qwen2.5:3b',
+    contextTokens: 8192,
+    structuredOutput: 'json_schema',
+    timeoutMs: 1000,
+    maxAnswerTokens: 512,
+  }
+  const hosted = {
+    provider: 'groq',
+    apiKey: 'KEY-MARKER',
+    models: ['openai/gpt-oss-20b'],
+    contextTokens: 8192,
+    structuredOutput: 'json_object',
+    minGapMs: 0,
+    timeoutMs: 1000,
+    maxAnswerTokens: 512,
+    freeLimit: { requestsPerDay: 100 },
+  }
+  const config = {
+    policyVersion: 'p1',
+    hostedBudgetMs: 5000,
+    floorBudgetMs: 60_000,
+    routes: [hosted, local],
+  }
+
+  it('keeps the local route alone, with no hosted budget, and the router accepts it', () => {
+    expect(routerConfigSchema.safeParse(config).success).toBe(true)
+    const r = localOnlyRouterConfig(config)
+    expect(r).toEqual({
+      policyVersion: 'p1',
+      hostedBudgetMs: 0,
+      floorBudgetMs: 60_000,
+      routes: [local],
+    })
+    expect(JSON.stringify(r)).not.toContain('KEY-MARKER')
+    expect(routerConfigSchema.safeParse(r).success).toBe(true)
+  })
+
+  it('a config the router refuses is handed on as is, so the preflight is refused too', () => {
+    const bad = { ...config, routes: [] }
+    expect(localOnlyRouterConfig(bad)).toBe(bad)
   })
 })

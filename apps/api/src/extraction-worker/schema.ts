@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { MAX_EXTRACTION_INPUT_CHARS, type RouteStatePort } from '@crm/inference'
+import { MAX_EXTRACTION_INPUT_CHARS, routerConfigSchema, type RouteStatePort } from '@crm/inference'
 import { z } from 'zod'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
@@ -97,4 +97,15 @@ export function parseWorkerEnv(env: Readonly<Record<string, string | undefined>>
       port,
     },
   }
+}
+
+/**
+ * The preflight's router (ADR §5.3): one trivial call to the local route, never a hosted one. A
+ * config the router refuses is handed on unchanged, so the preflight router refuses it too.
+ */
+export function localOnlyRouterConfig(raw: unknown): unknown {
+  const parsed = routerConfigSchema.safeParse(raw)
+  if (!parsed.success) return raw
+  const routes = parsed.data.routes.filter((r) => r.provider === 'local')
+  return { ...parsed.data, hostedBudgetMs: 0, routes }
 }
