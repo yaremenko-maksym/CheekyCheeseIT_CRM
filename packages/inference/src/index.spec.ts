@@ -28,6 +28,16 @@ describe('package index public surface (SPEC-M-1)', () => {
     expect(Object.keys(pkg)).toEqual(expect.arrayContaining(router))
   })
 
+  it('exposes exactly the self-heal names the worker needs (5.4c-2b)', () => {
+    const selfHeal = [
+      'createManagedListWriter',
+      'runDailyModelRefresh',
+      'runModelChainCheck',
+      'runStartupModelRefresh',
+    ]
+    expect(Object.keys(pkg)).toEqual(expect.arrayContaining(selfHeal))
+  })
+
   it.each([
     'createRouter',
     'sendClassifiedChatCompletion',
@@ -44,6 +54,27 @@ describe('package index public surface (SPEC-M-1)', () => {
     'STATE_READ_FLAGS',
     'STATE_WRITE_FLAGS',
     'MAX_REPORTED_TOKENS',
+    'fetchModelListing',
+    'MODEL_LISTING_URLS',
+    'LISTING_MAX_ENTRIES',
+    'MODEL_PROBE_PROMPT',
+    'PROBE_CAP',
+    'PROBE_PAUSE_MS',
+    'PROBE_MAX_TOKENS',
+    'STARTUP_REFRESH_MIN_GAP_MS',
+    'classifyModelStatus',
+    'isPromoted',
+    'pinnedModelsOnly',
+    'MANAGED_LIST_TARGET',
+    'MIN_MANAGED_CONTEXT',
+    'clearAuth',
+    'clearRetired',
+    'markStartupRefresh',
+    'setModelRecords',
+    'setStaleModels',
+    'staleModelsOf',
+    'setJobFailed',
+    'probeAll',
   ])('keeps the router internal %s off the public surface', (name) => {
     expect(Object.keys(pkg)).not.toContain(name)
   })

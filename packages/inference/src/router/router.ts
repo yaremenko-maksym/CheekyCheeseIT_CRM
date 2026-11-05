@@ -113,7 +113,7 @@ type Step = { ok: true; text: string } | { ok: false; code: AttemptCode; retryAf
  * when nothing was sent: one cancelled in flight is a `TIMEOUT` to the provider, which may have
  * counted it, and `TIMEOUT` is committed.
  */
-function releasesUnit({ result: r, sent }: ClassifiedChatOutcome): boolean {
+export function releasesUnit({ result: r, sent }: ClassifiedChatOutcome): boolean {
   if (r.ok) return false
   if (r.code === 'TRANSPORT') return !r.responded
   if (r.code === 'ABORTED') return !sent

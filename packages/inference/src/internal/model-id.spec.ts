@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseGeminiModelId } from './model-id'
+import { isValidProviderModelId, parseGeminiModelId } from './model-id'
 
 describe('parseGeminiModelId (ADR §3.4 Gemini family pattern)', () => {
   it.each([
@@ -42,5 +42,23 @@ describe('parseGeminiModelId (ADR §3.4 Gemini family pattern)', () => {
     '',
   ])('refuses %j', (id) => {
     expect(parseGeminiModelId(id)).toBeNull()
+  })
+
+  // `gemini-` + digits + `-flash`: the family pattern has no upper bound on the version digits.
+  const geminiOfLength = (length: number): string =>
+    `gemini-${'1'.repeat(length - 'gemini--flash'.length)}-flash`
+
+  it('holds a family id to the common 128-character limit (SR-M-1)', () => {
+    const atLimit = geminiOfLength(128)
+    expect(atLimit).toHaveLength(128)
+    expect(parseGeminiModelId(atLimit)?.id).toBe(atLimit)
+    expect(parseGeminiModelId(geminiOfLength(129))).toBeNull()
+    expect(parseGeminiModelId(`models/${atLimit}`)?.id).toBe(atLimit)
+    expect(parseGeminiModelId(`models/${geminiOfLength(129)}`)).toBeNull()
+  })
+
+  it('applies the same limit when a stored id is validated (SR-M-1)', () => {
+    expect(isValidProviderModelId('gemini', geminiOfLength(128))).toBe(true)
+    expect(isValidProviderModelId('gemini', geminiOfLength(129))).toBe(false)
   })
 })
