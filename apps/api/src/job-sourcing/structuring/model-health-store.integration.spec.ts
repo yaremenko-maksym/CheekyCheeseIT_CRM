@@ -7,6 +7,7 @@ import {
 } from '../../database/__test-helpers__/crm-app-session'
 import * as schema from '../../database/schema'
 import { hasDatabaseUrl } from '../../test/require-real-db'
+import { MODEL_HEALTH_WRITE_TIMEOUT_MS } from './model-health'
 import { createDrizzleModelHealthStore } from './model-health-store'
 
 /**
@@ -107,5 +108,50 @@ describe.skipIf(!hasDatabaseUrl())('createDrizzleModelHealthStore', () => {
     await store.raiseFlag('HOSTED_ROUTES_DEAD')
     await store.clearFlag('HOSTED_ROUTES_DEAD')
     expect(await store.claimEmissions(CYCLE_1)).toEqual([])
+  })
+
+  describe('a write blocked by a lock held from another connection', () => {
+    const DAY = '2026-11-06'
+    const bothRows = async () => [await db.select().from(flags), await db.select().from(counters)]
+
+    it.each<[string, () => Promise<unknown>]>([
+      [
+        'addRouteCounts',
+        () => store.addRouteCounts([{ day: DAY, route: 'local', code: 'X', count: 1 }]),
+      ],
+      ['raiseFlag', () => store.raiseFlag('HOSTED_ROUTES_DEAD')],
+      ['clearFlag', () => store.clearFlag('HOSTED_ROUTES_DEAD')],
+      ['claimEmissions', () => store.claimEmissions(CYCLE_1)],
+    ])(
+      '%s is cancelled by the server before the client wait ends, and leaves the row as it was',
+      async (_name, blockedWrite) => {
+        await store.raiseFlag('HOSTED_ROUTES_DEAD')
+        await store.addRouteCounts([{ day: DAY, route: 'local', code: 'X', count: 1 }])
+        const before = await bothRows()
+
+        const holder = await session.admin.connect()
+        let outcome: unknown
+        let elapsedMs: number
+        try {
+          await holder.query('BEGIN')
+          await holder.query('SELECT * FROM job_model_health_flags FOR UPDATE')
+          await holder.query('SELECT * FROM job_model_route_daily FOR UPDATE')
+          const startedAt = Date.now()
+          outcome = await blockedWrite().then(
+            () => 'settled',
+            (error: unknown) => error,
+          )
+          elapsedMs = Date.now() - startedAt
+        } finally {
+          await holder.query('ROLLBACK')
+          holder.release()
+        }
+
+        expect(outcome).toBeInstanceOf(Error)
+        expect(elapsedMs).toBeLessThan(MODEL_HEALTH_WRITE_TIMEOUT_MS)
+        expect(await bothRows()).toEqual(before)
+      },
+      15_000,
+    )
   })
 })

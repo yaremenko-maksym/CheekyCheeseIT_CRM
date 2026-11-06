@@ -398,14 +398,32 @@ describe('HOSTED_ROUTES_DEAD (AC7, ADR §5.3 (b))', () => {
       expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
     })
 
-    it.each([[null], [{ route: 'groq' }], ['FIT']])(
-      'a malformed reason %j is evidence',
-      async (reason) => {
-        const s = setUp({ extract: { events: [{ type: 'FELL_TO_LOCAL', reasons: [reason] }] } })
+    it.each([
+      [null],
+      [{ route: 'groq' }],
+      ['FIT'],
+      [{ code: 'FIT' }],
+      [{ route: 'nobody', code: 'FIT' }],
+    ])('a malformed reason %j is evidence', async (reason) => {
+      const s = setUp({ extract: { events: [{ type: 'FELL_TO_LOCAL', reasons: [reason] }] } })
+      await runCycle(s)
+      expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
+    })
+
+    it.each([['FIT'], [{}], [null], [0]])(
+      'reasons present but not an array (%j) is evidence',
+      async (reasons) => {
+        const s = setUp({ extract: { events: [{ type: 'FELL_TO_LOCAL', reasons }] } })
         await runCycle(s)
         expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
       },
     )
+
+    it('a fall with no reasons at all says nothing about the hosted routes', async () => {
+      const s = setUp({ extract: { events: [{ type: 'FELL_TO_LOCAL' }] } })
+      await runCycle(s)
+      expect(s.raised()).toEqual([])
+    })
   })
 
   describe('a hosted model that moved answers with RETIRED', () => {

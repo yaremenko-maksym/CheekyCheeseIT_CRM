@@ -40,7 +40,10 @@ const answeredRetiredSchema = z.looseObject({
   servedModel: z.string().min(1),
 })
 // A page too big for a route asked that route nothing, so it says nothing about the route.
-const didNotFitSchema = z.looseObject({ code: z.literal('FIT' satisfies SkipCode) })
+const didNotFitSchema = z.looseObject({
+  route: z.enum(HOSTED_PROVIDERS),
+  code: z.literal('FIT' satisfies SkipCode),
+})
 
 export type ModelHealthCycle = {
   /** Health only: the preflight runs a local-only config, so its own `FELL_TO_LOCAL` is no fall. */
@@ -63,6 +66,8 @@ export function createModelHealth(deps: { store: ModelHealthStore; log: ModelHea
 
   const safely = async <T>(op: string, write: () => Promise<T>): Promise<T | undefined> => {
     try {
+      // A write still queued for a pool connection when the wait ends can run later, so the line
+      // below means "not confirmed"; a stale flag is repaired by that flag's next write.
       return await boundedWrite(write(), MODEL_HEALTH_WRITE_TIMEOUT_MS)
     } catch {
       log.error(`MODEL_HEALTH_WRITE_FAILED op=${op}`)
@@ -94,8 +99,9 @@ export function createModelHealth(deps: { store: ModelHealthStore; log: ModelHea
           // A local-only config names no hosted route, and has none to call dead. A malformed
           // reason is evidence: only a well-formed fit reason is known to have asked nothing.
           if (
-            Array.isArray(event.reasons) &&
-            event.reasons.some((reason) => !didNotFitSchema.safeParse(reason).success)
+            event.reasons !== undefined &&
+            (!Array.isArray(event.reasons) ||
+              event.reasons.some((reason) => !didNotFitSchema.safeParse(reason).success))
           ) {
             hostedSeen = true
           }
