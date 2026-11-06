@@ -213,8 +213,9 @@ export const likePattern = (search: string): string =>
 /**
  * The list's WHERE conditions beyond visibility: the tab and the filters, each a predicate over the
  * retained entries of the generation (no per-filter generation). Availability and eligibility read
- * the current row; `seniorId` must already be known to belong to the scope. Filtering by a senior
- * hides their stop-listed opportunities, as the owner decided (r5 §4): an EXCLUDED row is no match.
+ * the current row; `seniorIds` is an OR, and joining `versions` drops an id outside the scope.
+ * Filtering by a senior hides their stop-listed opportunities, as the owner decided (r5 §4): an
+ * EXCLUDED row is no match.
  */
 export function listFilters(
   query: JobQueueListQuery,
@@ -237,15 +238,15 @@ export function listFilters(
     filters.push(textIn(sql`o.availability::text`, query.availability))
   }
   if (query.activity !== undefined) filters.push(textIn(sql`d.activity`, query.activity))
-  if (query.seniorId !== undefined) {
+  if (query.seniorIds !== undefined) {
     filters.push(sql`EXISTS (SELECT 1 ${liveVersionRows(versions)}
-                               AND m.senior_id = ${query.seniorId.toLowerCase()}::uuid
+                               AND ${textIn(sql`m.senior_id::text`, query.seniorIds)}
                                AND m.outcome IN ('LEAD', 'TRIAGE'))`)
   }
   return filters
 }
 
-/** The filter part of a cursor's signature: list order and spelling must not matter. */
+/** The filter part of a cursor's signature: list order must not matter (the schema fixes spelling). */
 export const filterIdentity = (query: JobQueueListQuery): readonly unknown[] => [
   query.tab,
   query.search ?? null,
@@ -253,7 +254,7 @@ export const filterIdentity = (query: JobQueueListQuery): readonly unknown[] => 
   [...(query.eligibility ?? [])].sort(),
   [...(query.availability ?? [])].sort(),
   [...(query.activity ?? [])].sort(),
-  query.seniorId?.toLowerCase() ?? null,
+  [...(query.seniorIds ?? [])].sort(),
 ]
 
 /**

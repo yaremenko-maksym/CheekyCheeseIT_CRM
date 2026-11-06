@@ -24,6 +24,7 @@ import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
 const TEAM = '11111111-1111-4111-8111-111111111111'
 const TEAM_2 = '22222222-2222-4222-8222-222222222222'
 const SEN = '33333333-3333-4333-8333-333333333333'
+const SEN_2 = '55555555-5555-4555-8555-555555555555'
 const OPP = '44444444-4444-4444-8444-444444444444'
 const versions: LiveSeniorVersion[] = [{ seniorId: SEN, profile: 'p', exclusion: 'e' }]
 const team: JobQueueScope = {
@@ -83,25 +84,29 @@ describe('listFilters', () => {
     expect(f[3]?.params).toEqual(['["OPENED"]'])
   })
 
-  it('a senior filter needs a live match of that senior, never an EXCLUDED row', () => {
-    const f = render(listFilters(query({ seniorId: SEN.toUpperCase() }), versions)[1] as SQL)
+  it('a senior filter needs a live match of ANY listed senior, never an EXCLUDED row', () => {
+    const f = render(listFilters(query({ seniorIds: [SEN, SEN_2] }), versions)[1] as SQL)
     expect(f.text).toContain(`m.outcome IN ('LEAD', 'TRIAGE')`)
-    expect(f.params).toContain(SEN)
+    expect(f.text).toContain('m.senior_id::text IN (SELECT jsonb_array_elements_text(')
+    expect(f.params).toContain(JSON.stringify([SEN, SEN_2]))
   })
 })
 
 describe('filterIdentity', () => {
-  it('ignores list order and id case, and not much else', () => {
+  it('ignores list order, and not much else', () => {
     expect(
-      filterIdentity(query({ source: ['DOU_RSS', 'REMOTEOK_API'], seniorId: SEN.toUpperCase() })),
-    ).toEqual(filterIdentity(query({ source: ['REMOTEOK_API', 'DOU_RSS'], seniorId: SEN })))
+      filterIdentity(query({ source: ['DOU_RSS', 'REMOTEOK_API'], seniorIds: [SEN, SEN_2] })),
+    ).toEqual(
+      filterIdentity(query({ source: ['REMOTEOK_API', 'DOU_RSS'], seniorIds: [SEN_2, SEN] })),
+    )
   })
-  it('stores a senior id in its canonical lowercase', () => {
-    const upper = 'ABCDEFAB-ABCD-4ABC-8ABC-ABCDEFABCDEF'
-    expect(filterIdentity(query({ seniorId: upper }))[6]).toBe(upper.toLowerCase())
+  it('a different set of seniors is a different identity', () => {
+    expect(filterIdentity(query({ seniorIds: [SEN] }))).not.toEqual(
+      filterIdentity(query({ seniorIds: [SEN, SEN_2] })),
+    )
   })
   it('holds every filter, with the absent ones explicit', () => {
-    expect(filterIdentity(query())).toEqual(['NEW', null, [], [], [], [], null])
+    expect(filterIdentity(query())).toEqual(['NEW', null, [], [], [], [], []])
     expect(
       filterIdentity(
         query({
@@ -111,7 +116,7 @@ describe('filterIdentity', () => {
           eligibility: ['TRIAGE', 'LEAD'],
           availability: ['OPEN', 'CLOSED'],
           activity: ['OPENED', 'NOT_OPENED'],
-          seniorId: SEN,
+          seniorIds: [SEN_2, SEN],
         }),
       ),
     ).toEqual([
@@ -121,7 +126,7 @@ describe('filterIdentity', () => {
       ['LEAD', 'TRIAGE'],
       ['CLOSED', 'OPEN'],
       ['NOT_OPENED', 'OPENED'],
-      SEN,
+      [SEN, SEN_2],
     ])
   })
   it('does not reorder the query it was given', () => {

@@ -424,9 +424,9 @@ async function readPage(
         ${frame}`,
   )
   const tally = counts.rows[0] as Row
-  // A senior outside the scope: empty, not an error that would confirm who exists.
-  const senior = query.seniorId?.toLowerCase()
-  if (senior !== undefined && !versions.some((v) => v.seniorId === senior)) {
+  // No senior of the scope left in the filter: empty, not an error that would confirm who exists.
+  const wanted = query.seniorIds
+  if (wanted !== undefined && !versions.some((v) => wanted.includes(v.seniorId))) {
     return { generation, tally, rows: [] as Row[] }
   }
   const { rows } = await tx.execute(
