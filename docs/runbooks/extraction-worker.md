@@ -41,7 +41,7 @@ Put the same value in `.env.extraction-worker` and, for the caller side, in the 
 The image runs as `node`; a fresh named volume is root-owned.
 
 ```bash
-docker compose -f docker-compose.prod.yml --profile extraction run --rm --no-deps \
+docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml --profile extraction run --rm --no-deps \
   --user root --cap-add CHOWN --entrypoint chown extraction-worker \
   node:node /var/lib/extraction-worker
 ```
@@ -59,13 +59,13 @@ Undo: `stop`, then `rm -f extraction-worker`; remove the volume only if you want
 
 ```bash
 # no published port (expect no output)
-docker port "$(docker compose -f docker-compose.prod.yml --profile extraction ps -q extraction-worker)"
+docker port "$(docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml --profile extraction ps -q extraction-worker)"
 
 # unauthenticated call is refused (expect 401/403, not 200), run from the API container
-docker compose -f docker-compose.prod.yml exec api wget -S -qO- --post-data='{}' http://extraction-worker:3100/extract 2>&1 | head -5
+docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml exec api wget -S -qO- --post-data='{}' http://extraction-worker:3100/extract 2>&1 | head -5
 
 # the API container holds no hosted key and no local-model URL (expect "0")
-docker compose -f docker-compose.prod.yml exec api env | grep -c -E '^(ROUTER_API_KEY|ROUTER_LOCAL_MODEL_URL|EXTRACTION_ROUTER_CONFIG)=' || true
+docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml exec api env | grep -c -E '^(ROUTER_API_KEY|ROUTER_LOCAL_MODEL_URL|EXTRACTION_ROUTER_CONFIG)=' || true
 
 # only api and the worker are on the network (expect exactly those two)
 docker network inspect "$(docker network ls -q --filter name=extraction-internal)" \

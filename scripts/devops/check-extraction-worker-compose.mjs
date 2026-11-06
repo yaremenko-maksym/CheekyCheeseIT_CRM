@@ -70,6 +70,9 @@ for (const [name, svc] of Object.entries(services)) {
   if (!MAY_JOIN.has(name) && Object.keys(svc.networks ?? {}).includes(NET)) {
     errors.push(`service ${name} must not join ${NET}`)
   }
+  if (name !== WORKER && svc.network_mode === `service:${WORKER}`) {
+    errors.push(`service ${name} must not share the worker's network namespace`)
+  }
 }
 
 if (errors.length > 0) {
