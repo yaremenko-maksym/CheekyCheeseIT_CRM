@@ -198,7 +198,7 @@ describe('startWorker — what it wires up', () => {
       maxAnswerTokens: 512,
       freeLimit: { requestsPerDay: 100 },
     }
-    const { app } = await started({
+    const { app, out } = await started({
       EXTRACTION_ROUTER_CONFIG: JSON.stringify({
         policyVersion: 'p1',
         hostedBudgetMs: 5000,
@@ -211,11 +211,21 @@ describe('startWorker — what it wires up', () => {
     })
 
     const extract = await post(app, '/extract', {
-      input: 'x',
+      input: 'INPUT-MARKER page text',
       tableVersion: EXTRACTION_TABLE_VERSION,
     })
-    expect(extract.json<{ result: { code: string } }>().result.code).toBe('PROVIDER_ERROR')
+    const reply = extract.json<{ result: { code: string }; events: { type: string }[] }>()
+    expect(reply.result.code).toBe('PROVIDER_ERROR')
     expect(hostnames).toEqual(['api.groq.com', 'crm-model-runtime'])
+    // The wired sink (§5.3): the fall to the floor reaches both the reply and the log.
+    expect(reply.events.map((e) => e.type)).toContain('FELL_TO_LOCAL')
+    const logged = out.map((l) => JSON.parse(l) as { event: string; type?: string })
+    expect(logged).toContainEqual(expect.objectContaining({ event: 'ROUTER', type: 'FELL_TO_LOCAL' }))
+    // The capture (AC7): no key, secret or input text on stdout.
+    for (const marker of ['KEY-MARKER', SECRET, 'INPUT-MARKER']) {
+      expect(out.join('')).not.toContain(marker)
+      expect(extract.body).not.toContain(marker)
+    }
 
     hostnames.length = 0
     const preflight = await post(app, '/preflight', {})
