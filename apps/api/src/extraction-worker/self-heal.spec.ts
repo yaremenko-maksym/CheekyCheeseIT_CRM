@@ -1,3 +1,6 @@
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { ModelRefreshDeps, ModelRefreshResult, RouterEvent } from '@crm/inference'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CHAIN_CHECK_INTERVAL_MS, DAILY_REFRESH_INTERVAL_MS, scheduleSelfHeal } from './self-heal'
@@ -20,10 +23,12 @@ const CONFIG = {
   ],
 }
 
-const attempt = (route: 'gemini' | 'groq' | 'local', model: string, code = 'OK'): RouterEvent =>
+const tmpListPath = () => join(mkdtempSync(join(tmpdir(), 'xw-heal-')), 'managed-models.json')
+
+const attempt =(route: 'gemini' | 'groq' | 'local', model: string, code = 'OK'): RouterEvent =>
   ({ type: 'ATTEMPT', route, model, code, inputChars: 1, latencyMs: 1 }) as RouterEvent
 
-function world(config: unknown = CONFIG, throwing?: string) {
+function world(config: unknown = CONFIG, throwing?: string, listPath = tmpListPath()) {
   const seen: { job: string; deps: ModelRefreshDeps }[] = []
   const job = (name: string) =>
     vi.fn((deps: ModelRefreshDeps) => {
@@ -37,7 +42,7 @@ function world(config: unknown = CONFIG, throwing?: string) {
     state: {} as ModelRefreshDeps['state'],
     ownCap: {} as ModelRefreshDeps['ownCap'],
     managedModels: () => Promise.resolve([]),
-    writeManagedList: () => Promise.resolve(false),
+    listPath,
     log,
     now: () => 0,
     jobs,
@@ -88,9 +93,13 @@ describe('scheduleSelfHeal — the worker owns the §3.4 timers', () => {
     w.heal.record(attempt('gemini', 'gemini-2.5-flash', 'BUSY'))
     w.heal.record(attempt('local', 'gemini-2.5-flash'))
     w.heal.record({ type: 'CONFIG_REFUSED' })
+    // Not an attempt, whatever it carries.
+    w.heal.record({ ...attempt('gemini', 'gemini-2.0-flash'), type: 'SKIP' } as unknown as RouterEvent)
     expect(had('groq', 'openai/gpt-oss-20b')).toBe(true)
     expect(had('gemini', 'openai/gpt-oss-20b')).toBe(false)
     expect(had('gemini', 'gemini-2.5-flash')).toBe(false)
+    expect(had('local', 'gemini-2.5-flash')).toBe(false)
+    expect(had('gemini', 'gemini-2.0-flash')).toBe(false)
     await vi.advanceTimersByTimeAsync(DAILY_REFRESH_INTERVAL_MS)
     // The daily run saw the ledger, then it starts empty for the next day.
     expect(w.seen.find((s) => s.job === 'daily')!.deps.hadOkCall).toBe(had)
@@ -128,6 +137,42 @@ describe('scheduleSelfHeal — the worker owns the §3.4 timers', () => {
       event: 'REFRESH',
       type: 'MODEL_REFRESH_FAILED',
       job: 'startup',
+    })
+    w.heal.stop()
+  })
+
+  it('the jobs pause on a real timer', async () => {
+    const w = world()
+    let done = false
+    void w.seen[0]!.deps.sleep(1000).then(() => {
+      done = true
+    })
+    await vi.advanceTimersByTimeAsync(999)
+    expect(done).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(done).toBe(true)
+    w.heal.stop()
+  })
+
+  it('the jobs write the managed list to the file the worker names', async () => {
+    const listPath = tmpListPath()
+    const w = world(CONFIG, undefined, listPath)
+    expect(await w.seen[0]!.deps.writeManagedList('groq', ['openai/gpt-oss-120b'])).toBe(true)
+    expect(JSON.parse(readFileSync(listPath, 'utf8'))).toMatchObject({
+      providers: { groq: ['openai/gpt-oss-120b'] },
+    })
+    w.heal.stop()
+  })
+
+  it('a failed managed-list write is a STATE line', async () => {
+    const parent = join(mkdtempSync(join(tmpdir(), 'xw-heal-')), 'not-a-dir')
+    writeFileSync(parent, '')
+    const w = world(CONFIG, undefined, join(parent, 'managed-models.json'))
+    expect(await w.seen[0]!.deps.writeManagedList('groq', ['openai/gpt-oss-120b'])).toBe(false)
+    expect(w.log).toHaveBeenCalledWith({
+      event: 'STATE',
+      type: 'STATE_WRITE_FAILED',
+      store: 'managed-list',
     })
     w.heal.stop()
   })

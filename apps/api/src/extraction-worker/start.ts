@@ -2,7 +2,6 @@ import { dirname, join } from 'node:path'
 import {
   createFileManagedModels,
   createFileRouteStatePort,
-  createManagedListWriter,
   createOwnCapPort,
   createRouterExtractionAdapter,
   type StateEvent,
@@ -38,15 +37,15 @@ export async function startWorker(
     proc.stdout.write(`${JSON.stringify(line)}\n`)
   }
   try {
+    const onStateEvent = (e: StateEvent): void => log({ event: 'STATE', ...e })
     const routeState = await createFileRouteStatePort({
       path: env.stateFile,
       now: Date.now,
-      onEvent: (e) => log({ event: 'STATE', ...e }),
+      onEvent: onStateEvent,
     })
     const ownCap = createOwnCapPort({ state: routeState, now: Date.now })
     // The managed-list file lives beside the route-state file, on the same volume (ADR §3.2).
     const listPath = join(dirname(env.stateFile), 'managed-models.json')
-    const onStateEvent = (e: StateEvent): void => log({ event: 'STATE', ...e })
     const managedModels = createFileManagedModels({
       path: listPath,
       state: routeState,
@@ -57,7 +56,7 @@ export async function startWorker(
       state: routeState,
       ownCap,
       managedModels,
-      writeManagedList: createManagedListWriter({ path: listPath, onEvent: onStateEvent }),
+      listPath,
       log,
       now: Date.now,
     })

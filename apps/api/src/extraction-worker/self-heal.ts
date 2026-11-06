@@ -1,4 +1,5 @@
 import {
+  createManagedListWriter,
   routerConfigSchema,
   runDailyModelRefresh,
   runModelChainCheck,
@@ -16,9 +17,11 @@ type Job = (deps: ModelRefreshDeps) => Promise<ModelRefreshResult>
 
 export type SelfHealOptions = Omit<
   ModelRefreshDeps,
-  'config' | 'onEvent' | 'sleep' | 'hadOkCall' | 'fetchImpl'
+  'config' | 'onEvent' | 'sleep' | 'hadOkCall' | 'fetchImpl' | 'writeManagedList'
 > & {
   config: unknown
+  /** The managed-list file; the self-heal jobs are its only writer (ADR §3.2). */
+  listPath: string
   log: (line: WorkerLogLine) => void
   /** The 5.4c-2b jobs; a test passes fakes. */
   jobs?: { startup: Job; daily: Job; chain: Job }
@@ -54,7 +57,10 @@ export function scheduleSelfHeal(opts: SelfHealOptions): {
     state: opts.state,
     ownCap: opts.ownCap,
     managedModels: opts.managedModels,
-    writeManagedList: opts.writeManagedList,
+    writeManagedList: createManagedListWriter({
+      path: opts.listPath,
+      onEvent: (e) => opts.log({ event: 'STATE', ...e }),
+    }),
     // Provider names, model ids, verdicts and codes only (the jobs' own contract).
     onEvent: (e) => opts.log({ event: 'REFRESH', ...e }),
     now: opts.now,
