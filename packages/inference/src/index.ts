@@ -24,6 +24,8 @@ export { extractJsonObject, parseExtraction, runExtraction } from './internal/ex
 export {
   routerConfigSchema,
   routerCallCeilingMs,
+  MAX_HOSTED_BUDGET_MS,
+  MAX_FLOOR_BUDGET_MS,
   isAllowedRouterLocalModelUrl,
   type RouterConfig,
   type RouterConfigInput,
