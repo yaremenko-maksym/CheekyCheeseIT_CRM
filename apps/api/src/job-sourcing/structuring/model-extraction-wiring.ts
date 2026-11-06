@@ -7,11 +7,7 @@ import {
   type ExtractionWorkerAdapterConfig,
 } from '@crm/inference'
 import { z } from 'zod'
-import {
-  EXTRACTION_TABLE_VERSION,
-  MIN_WORKER_SECRET_CHARS,
-  MIN_WORKER_SECRET_DISTINCT_CHARS,
-} from '../../extraction-worker/schema'
+import { EXTRACTION_TABLE_VERSION, isUsableWorkerSecret } from '../../extraction-worker/schema'
 import { HTML_MODEL_CALLS_PER_CYCLE, InMemoryModelBudget } from './model-budget.port'
 import { ModelStructurer } from './model-structurer'
 import { EXTRACTION_SYSTEM_PROMPT } from './prompt-envelope'
@@ -51,10 +47,7 @@ const envSchema = z.object({
       const url = new URL(u)
       return url.username === '' && url.password === ''
     }),
-  EXTRACTION_WORKER_SECRET: z
-    .string()
-    .min(MIN_WORKER_SECRET_CHARS)
-    .refine((s) => new Set(s).size >= MIN_WORKER_SECRET_DISTINCT_CHARS),
+  EXTRACTION_WORKER_SECRET: z.string().refine(isUsableWorkerSecret),
   // The worker's local route window: the page is cut to it before it leaves (§2.1).
   EXTRACTION_LOCAL_CONTEXT_TOKENS: positiveInt,
   EXTRACTION_LOCAL_MAX_ANSWER_TOKENS: positiveInt,
