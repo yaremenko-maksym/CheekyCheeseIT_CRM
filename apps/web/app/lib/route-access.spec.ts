@@ -187,6 +187,17 @@ describe('route-access · navRolesFor (nav sync source-of-truth)', () => {
     expect(navRolesFor('/legend')).toEqual(['JUNIOR'])
     expect(navRolesFor('/users')).toEqual(['ADMIN'])
   })
+
+  // r5 Task 7.2: the external vacancy queue is ADMIN + HR only.
+  it('/job-queue nav roles = ADMIN + HR, and only they may open it (or a sub-path)', () => {
+    expect(navRolesFor('/job-queue')).toEqual(['ADMIN', 'HR'])
+    expect(isRouteAllowed('/job-queue', 'ADMIN')).toBe(true)
+    expect(isRouteAllowed('/job-queue', 'HR')).toBe(true)
+    for (const role of ['SENIOR', 'JUNIOR', 'ACCOUNTANT', 'DROP'] as const) {
+      expect(isRouteAllowed('/job-queue', role)).toBe(false)
+      expect(isRouteAllowed('/job-queue/x', role)).toBe(false)
+    }
+  })
   // Dashboard consolidation: nav-пункт «Дашборд» ведёт на корень /; его роли —
   // отдельная константа DASHBOARD_NAV_ROLES (не route-access запись, т.к. / —
   // fail-open). Пункт виден всем, кроме JUNIOR (у них свой хаб «Мой проект»).

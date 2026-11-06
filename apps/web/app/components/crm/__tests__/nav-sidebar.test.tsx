@@ -309,10 +309,26 @@ describe('NAV_ITEMS — label + route target, per role (MUT-1)', () => {
       ['Адмін', '/admin'],
       ['Статистика', '/stats'],
       ['Вакансії', '/vacancies'],
+      ['Черга зовнішніх вакансій', '/job-queue'],
     ]
     for (const [label, to] of cases) {
       expect(screen.getByRole('link', { name: label })).toHaveAttribute('href', to)
     }
+  })
+
+  it('HR sees «Черга зовнішніх вакансій» → /job-queue', async () => {
+    renderSidebar({ user: { ...seniorUser, role: 'HR' } })
+    await screen.findByRole('navigation')
+    expect(screen.getByRole('link', { name: 'Черга зовнішніх вакансій' })).toHaveAttribute(
+      'href',
+      '/job-queue',
+    )
+  })
+
+  it('SENIOR does not see the external vacancy queue', async () => {
+    renderSidebar({ user: seniorUser })
+    await screen.findByRole('navigation')
+    expect(screen.queryByRole('link', { name: 'Черга зовнішніх вакансій' })).toBeNull()
   })
 
   it('JUNIOR sees Мій проєкт / Легенда, each linking to its own route', async () => {

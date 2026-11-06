@@ -80,6 +80,10 @@ const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: readonly Role[] }> = 
   // управляют ADMIN/HR (backend RolesGuard уже гейтит /api/vacancies так же).
   { prefix: '/vacancies', roles: ['ADMIN', 'HR'] },
 
+  // r5 Task 7.2 — external vacancy queue: HR works it, ADMIN supervises
+  // (backend `/api/job-queue` RolesGuard gates the same two roles).
+  { prefix: '/job-queue', roles: ['ADMIN', 'HR'] },
+
   // Профиль (свой + чужой $userId) — все роли (RBAC видимости решается на backend).
   { prefix: '/profile', roles: ALL_ROLES },
 

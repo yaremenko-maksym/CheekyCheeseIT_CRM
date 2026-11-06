@@ -9,6 +9,7 @@ import {
   DollarSign,
   FileText,
   Home,
+  Inbox,
   KanbanSquare,
   LayoutDashboard,
   Settings,
@@ -118,6 +119,13 @@ const NAV_ITEMS: NavItem[] = [
     icon: UserPlus,
     to: '/vacancies',
     roles: navRolesFor('/vacancies'),
+  },
+  {
+    // r5 Task 7.2. «зовнішніх» keeps it apart from «Вакансії» (our own postings).
+    label: msg`Черга зовнішніх вакансій`,
+    icon: Inbox,
+    to: '/job-queue',
+    roles: navRolesFor('/job-queue'),
   },
   {
     // Профиль last: JUNIOR sees it at position 5 (spec §4.3).

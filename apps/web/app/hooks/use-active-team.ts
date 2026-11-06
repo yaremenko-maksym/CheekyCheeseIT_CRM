@@ -26,6 +26,24 @@ export function useActiveTeam(): {
   isTeamless: boolean
   isLoading: boolean
 } {
+  const { teams, isLoading } = useActiveTeams()
+  if (teams === null) return { team: null, isTeamless: false, isLoading }
+  const active = teams[0] ?? null
+  return { team: active, isTeamless: active === null, isLoading: false }
+}
+
+/**
+ * Every team the current user is actively in (same query and membership rule as
+ * `useActiveTeam`, which takes the first). `teams` is `null` while unknown (no user /
+ * still loading). r5 Task 7.2: the job queue lets an HR with several teams switch.
+ */
+export function useActiveTeams(): {
+  teams: TeamDto[] | null
+  isLoading: boolean
+  /** The request failed — `teams` stays `null`; a caller offers `refetch` instead of a skeleton. */
+  isError: boolean
+  refetch: () => Promise<unknown>
+} {
   const { user } = useAuth()
   // Gate: do not call /api/teams while the user is still in the onboarding
   // wizard — OnboardingGuard would 403 non-ADMIN pre-onboarding callers and
@@ -33,7 +51,7 @@ export function useActiveTeam(): {
   // transparent for them.
   const { isComplete } = useOnboardingGate()
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['teams', { archived: 'active' }],
     queryFn: async () => {
       const res = await api.get<TeamDto[]>('/teams')
@@ -43,20 +61,17 @@ export function useActiveTeam(): {
     staleTime: 60_000,
   })
 
-  if (!user) return { team: null, isTeamless: false, isLoading }
-  if (isLoading || !data) return { team: null, isTeamless: false, isLoading }
+  if (!user || isLoading || !data) return { teams: null, isLoading, isError, refetch }
 
   // Active membership in any non-archived team — `leftAt === null`. Backend
   // already filters out archived teams in the default `findAll` call (no
   // ?archived=true), so any returned team is active.
-  const active =
-    data.find((t) =>
-      !t.archivedAt && t.members.some((m) => m.userId === user.id && !m.leftAt),
-    ) ?? null
-
   return {
-    team: active,
-    isTeamless: active === null,
+    teams: data.filter(
+      (t) => !t.archivedAt && t.members.some((m) => m.userId === user.id && !m.leftAt),
+    ),
     isLoading: false,
+    isError,
+    refetch,
   }
 }
