@@ -62,7 +62,7 @@ Undo: `stop`, then `rm -f extraction-worker`; remove the volume only if you want
 docker port "$(docker compose -f docker-compose.prod.yml --profile extraction ps -q extraction-worker)"
 
 # unauthenticated call is refused (expect 401/403, not 200), run from the API container
-docker compose -f docker-compose.prod.yml exec api wget -S -qO- --post-data='{}' http://extraction-worker:3100/ 2>&1 | head -5
+docker compose -f docker-compose.prod.yml exec api wget -S -qO- --post-data='{}' http://extraction-worker:3100/extract 2>&1 | head -5
 
 # the API container holds no hosted key and no local-model URL (expect "0")
 docker compose -f docker-compose.prod.yml exec api env | grep -c -E '^(ROUTER_API_KEY|ROUTER_LOCAL_MODEL_URL|EXTRACTION_ROUTER_CONFIG)=' || true
@@ -73,3 +73,10 @@ docker network inspect "$(docker network ls -q --filter name=extraction-internal
 ```
 
 The worker's log must show it started (a refusal names the key, never its value). A secret shorter than 32 characters, or with fewer than 8 distinct ones, makes the container exit at once.
+
+## 6. Known interim limits (close before hosted keys, task 5.4c-5)
+
+- **Egress.** The network is `internal: true`, so the worker has no route to hosted providers. Hosted egress must be an allow-listed path added together with the guard (which today requires exactly one network); do not "fix" it by attaching a normal network.
+- **Caller.** Until the collection worker exists, `api` is the caller and joins the internal network. Do not enable the profile with hosted keys before the collection worker replaces `api` as the caller (ADR §2.4).
+- **Caller secret.** `EXTRACTION_WORKER_SECRET` for the caller side is added by the owner by hand; this change does not wire it into `api`.
+- **Env-file separation** (worker never reads `.env.production`, `api` never reads `.env.extraction-worker`) is not machine-checked: `docker compose config` inlines env files, so the resolved config cannot show it. Review compose diffs for it.

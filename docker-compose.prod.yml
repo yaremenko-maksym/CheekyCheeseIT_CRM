@@ -126,6 +126,9 @@ services:
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     command: ['node', 'dist/extraction-worker/main']
+    # The api image's HEALTHCHECK probes :3001; it does not apply to the worker.
+    healthcheck:
+      disable: true
     env_file:
       - path: .env.extraction-worker
         required: false
