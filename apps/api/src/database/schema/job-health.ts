@@ -20,17 +20,24 @@
 import { sql } from 'drizzle-orm'
 import {
   check,
+  date,
   foreignKey,
   index,
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   smallint,
   text,
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core'
-import { JOB_JSONB_TEXT_MAX, JOB_SANITIZED_TEXT_MAX, JOB_SHORT_TEXT_MAX } from './job-patterns'
+import {
+  JOB_ERROR_CODE_PATTERN,
+  JOB_JSONB_TEXT_MAX,
+  JOB_SANITIZED_TEXT_MAX,
+  JOB_SHORT_TEXT_MAX,
+} from './job-patterns'
 import { jobCollectionRuns } from './job-collection'
 import { jobSources } from './job-sourcing'
 import { users } from './users'
@@ -173,3 +180,68 @@ export const jobSourceHealthEvents = pgTable(
 
 export type JobSourceHealthEvent = typeof jobSourceHealthEvents.$inferSelect
 export type NewJobSourceHealthEvent = typeof jobSourceHealthEvents.$inferInsert
+
+/**
+ * The extraction model's health on the collection side (ADR 2026-11-03 §5.3). Neither table above
+ * can host it: this signal is global, not per source. Both hold codes only; the CHECKs make page
+ * text unstorable. Forward DDL: `manual-staged/2026-11-06_job_model_health.sql`.
+ */
+export const MODEL_ROUTE_VALUES = ['gemini', 'groq', 'local'] as const
+
+export const MODEL_HEALTH_FLAG_VALUES = [
+  'MODEL_UNREACHABLE',
+  'HOSTED_ROUTES_DEAD',
+  'MODEL_LIST_STALE',
+  'FAILED_JOB_DAILY',
+  'FAILED_JOB_CHAIN',
+] as const
+
+export type ModelRoute = (typeof MODEL_ROUTE_VALUES)[number]
+export type ModelHealthFlag = (typeof MODEL_HEALTH_FLAG_VALUES)[number]
+
+/** Per-day counts of floor falls and of each hosted provider's codes (§5.3 (a)). */
+export const jobModelRouteDaily = pgTable(
+  'job_model_route_daily',
+  {
+    day: date('day', { mode: 'string' }).notNull(),
+    route: text('route').notNull(),
+    code: text('code').notNull(),
+    count: integer('count').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.day, t.route, t.code] }),
+    check(
+      'ck_job_model_route_daily_route',
+      sql`${t.route} IN (${sql.raw(inList(MODEL_ROUTE_VALUES))})`,
+    ),
+    check(
+      'ck_job_model_route_daily_code_format',
+      sql`${t.code} ~ ${sql.raw(`'${JOB_ERROR_CODE_PATTERN}'`)}`,
+    ),
+    check('ck_job_model_route_daily_count_positive', sql`${t.count} > 0`),
+  ],
+)
+
+/**
+ * One row per flag; raised while `cleared_at` is null. `last_emitted_cycle_id` de-duplicates the
+ * per-cycle re-emission across a restart (§5.3 (c)). It has no FK: a flag outlives its cycles and
+ * must not hold their retention back.
+ */
+export const jobModelHealthFlags = pgTable(
+  'job_model_health_flags',
+  {
+    flag: text('flag').primaryKey(),
+    raisedAt: timestamp('raised_at', { withTimezone: true }).notNull().defaultNow(),
+    clearedAt: timestamp('cleared_at', { withTimezone: true }),
+    lastEmittedCycleId: uuid('last_emitted_cycle_id'),
+  },
+  (t) => [
+    check(
+      'ck_job_model_health_flags_flag',
+      sql`${t.flag} IN (${sql.raw(inList(MODEL_HEALTH_FLAG_VALUES))})`,
+    ),
+  ],
+)
+
+export type JobModelRouteDaily = typeof jobModelRouteDaily.$inferSelect
+export type JobModelHealthFlag = typeof jobModelHealthFlags.$inferSelect
