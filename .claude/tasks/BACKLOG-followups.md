@@ -6980,3 +6980,35 @@ observed yet, so the shape both rest on is an assumption until a live key is use
 **Verify.** `classified-chat.spec.ts` has a list-wrapped 404 case, and the 5.4c-5 smoke notes record the observed body shape.
 
 Source: architect report for PR #1278.
+
+## 366. What the first caller of `prepareCycle` (task 5.5b) must honour (2026-11-06)
+
+Task 5.4c-4 builds the seam and leaves the call site to 5.5b, so four obligations have no caller to enforce them yet.
+
+- **`prepareCycle` can block for about 9.7 minutes.** The worst case is 4 preflight timeouts plus the backoff, with no abort signal.
+  Call it where that wait is acceptable, or add a deadline.
+- **`finish()` must run in a `finally`.** Without it the cycle loses its counters, its hosted evidence and the reply's `health`
+  codes. The next finished cycle repairs the flags; the counts stay lost.
+- **The run's database role needs write grants on both tables.** Privilege class A gives `crm_collector` nothing on
+  `job_model_route_daily` and `job_model_health_flags`. Under that role every health write is refused and absorbed as
+  `MODEL_HEALTH_WRITE_FAILED`, so the signal goes quiet without failing anything. Move the tables to class C if the run uses it, and
+  re-run the grants after the staged DDL.
+- **A refused worker secret looks like a dead model.** It costs the full backoff and raises `MODEL_UNREACHABLE`. The failed attempt
+  logs its HTTP status; there is no separate flag.
+
+**Verify.** The 5.5b call site wraps its work in `try` / `finally` with `finish()`, and an integration test writes both tables under
+the role the run uses.
+
+Source: reviews of PR #1277.
+
+## 367. On Windows the mutation gate does nothing and exits 0 (2026-11-06)
+
+The `isMain` guard in `scripts/devops/mutation-gate.mjs` compares a `file:///C:/...` URL with `file://C:\...`, so the comparison never
+matches on Windows. The script does no work, prints nothing and exits 0. A run there reads as green although nothing was mutated. CI on
+Linux is not affected.
+
+**Candidate fixes.** Compare with `pathToFileURL(process.argv[1]).href`, as Node documents, or refuse loudly when the host is Windows.
+
+**Verify.** On Windows, `node scripts/devops/mutation-gate.mjs` either produces a report or exits non-zero.
+
+Source: coder report for PR #1277, fix round.
