@@ -68,6 +68,25 @@ describe('JobQueueFilters', () => {
     })
   })
 
+  it('caps the panel to the viewport and keeps Apply/Clear outside the scroll region', async () => {
+    const user = userEvent.setup()
+    render(<JobQueueFilters value={{}} onApply={vi.fn()} />, { wrapper: I18nTestProvider })
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    expect(screen.getByTestId('job-queue-filters-panel')).toHaveClass(
+      'max-h-[var(--radix-popover-content-available-height)]',
+      'overflow-hidden',
+    )
+    const body = screen.getByTestId('job-queue-filters-body')
+    const footer = screen.getByTestId('job-queue-filters-footer')
+    expect(body).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto', 'overscroll-contain')
+    expect(footer).toHaveClass('shrink-0')
+    expect(body).toContainElement(screen.getByRole('checkbox', { name: 'DOU' }))
+    for (const id of ['job-queue-filters-apply', 'job-queue-filters-clear']) {
+      expect(footer).toContainElement(screen.getByTestId(id))
+      expect(body).not.toContainElement(screen.getByTestId(id))
+    }
+  })
+
   it('unchecking the last value of a group drops the group', async () => {
     const onApply = vi.fn()
     const user = userEvent.setup()
@@ -132,16 +151,14 @@ describe('JobQueueFilters', () => {
     expect(onApply).not.toHaveBeenCalled()
   })
 
-  it('scrolls only the long source list', async () => {
+  it('has one scroll region: no filter group scrolls on its own', async () => {
     const user = userEvent.setup()
     render(<JobQueueFilters value={{}} onApply={vi.fn()} />, { wrapper: I18nTestProvider })
     await user.click(screen.getByTestId('job-queue-filters-button'))
-    const source = screen.getByRole('group', { name: 'Джерело' })
-    // eslint-disable-next-line testing-library/no-node-access
-    expect(source.querySelector('div')).toHaveClass('max-h-48', 'overflow-y-auto')
-    const availability = screen.getByRole('group', { name: 'Статус на джерелі' })
-    // eslint-disable-next-line testing-library/no-node-access
-    expect(availability.querySelector('div')).not.toHaveAttribute('class')
+    for (const name of ['Джерело', 'Статус на джерелі']) {
+      // eslint-disable-next-line testing-library/no-node-access
+      expect(screen.getByRole('group', { name }).querySelector('div')).not.toHaveAttribute('class')
+    }
   })
 
   it('names the unknown and expired availability values', () => {

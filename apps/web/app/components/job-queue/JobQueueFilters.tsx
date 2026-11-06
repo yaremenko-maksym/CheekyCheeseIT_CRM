@@ -96,21 +96,13 @@ function CheckRow({
   )
 }
 
-function FilterGroup({
-  legend,
-  children,
-  scroll,
-}: {
-  legend: ReactNode
-  children: ReactNode
-  scroll?: boolean
-}) {
+function FilterGroup({ legend, children }: { legend: ReactNode; children: ReactNode }) {
   return (
     <fieldset className="flex flex-col gap-0.5">
       <legend className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {legend}
       </legend>
-      <div className={scroll ? 'max-h-48 overflow-y-auto' : undefined}>{children}</div>
+      <div>{children}</div>
     </fieldset>
   )
 }
@@ -141,20 +133,26 @@ function FilterPanel({
 
   return (
     <>
-      <FilterGroup legend={<Trans>Тип збігу</Trans>}>
-        {jobQueueEligibilitySchema.options.map((o) =>
-          row('eligibility', o, i18n._(ELIGIBILITY_LABEL[o])),
-        )}
-      </FilterGroup>
-      <FilterGroup legend={<Trans>Статус на джерелі</Trans>}>
-        {jobAvailabilitySchema.options.map((o) =>
-          row('availability', o, i18n._(AVAILABILITY_LABEL[o])),
-        )}
-      </FilterGroup>
-      <FilterGroup legend={<Trans>Джерело</Trans>} scroll>
-        {jobSourceTypeSchema.options.map((o) => row('source', o, sourceLabel(o)))}
-      </FilterGroup>
-      <div className="flex gap-2">
+      {/* One scroll region (the list is too long for a phone); the footer stays pinned below it. */}
+      <div
+        data-testid="job-queue-filters-body"
+        className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain"
+      >
+        <FilterGroup legend={<Trans>Тип збігу</Trans>}>
+          {jobQueueEligibilitySchema.options.map((o) =>
+            row('eligibility', o, i18n._(ELIGIBILITY_LABEL[o])),
+          )}
+        </FilterGroup>
+        <FilterGroup legend={<Trans>Статус на джерелі</Trans>}>
+          {jobAvailabilitySchema.options.map((o) =>
+            row('availability', o, i18n._(AVAILABILITY_LABEL[o])),
+          )}
+        </FilterGroup>
+        <FilterGroup legend={<Trans>Джерело</Trans>}>
+          {jobSourceTypeSchema.options.map((o) => row('source', o, sourceLabel(o)))}
+        </FilterGroup>
+      </div>
+      <div data-testid="job-queue-filters-footer" className="flex shrink-0 gap-2">
         <Button
           data-testid="job-queue-filters-clear"
           variant="ghost"
@@ -217,7 +215,7 @@ export function JobQueueFilters({
         data-testid="job-queue-filters-panel"
         align="end"
         collisionPadding={8}
-        className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(20rem,calc(100vw-2rem))] flex-col gap-4 overflow-y-auto"
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(20rem,calc(100vw-2rem))] flex-col gap-4 overflow-hidden"
       >
         <FilterPanel
           value={value}

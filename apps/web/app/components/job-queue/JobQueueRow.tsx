@@ -46,7 +46,9 @@ const SOURCE_NAME: Record<JobSourceType, string> = {
 
 /** Product name of a source type; an unknown code falls back to the raw value. */
 export function sourceLabel(sourceType: string): string {
-  return SOURCE_NAME[sourceType as JobSourceType] ?? sourceType
+  return Object.hasOwn(SOURCE_NAME, sourceType)
+    ? SOURCE_NAME[sourceType as JobSourceType]
+    : sourceType
 }
 
 // Module-level `msg` plurals, not the `plural()` macro (breaks under Stryker, see TxDateField).

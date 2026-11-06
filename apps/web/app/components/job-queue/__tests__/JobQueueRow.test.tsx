@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { jobSourceTypeSchema, type JobQueueListItemDto } from '@crm/shared'
+import { jobSourceTypeSchema, type JobQueueListItemDto, type JobSourceType } from '@crm/shared'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { JobQueueRow, sourceLabel } from '../JobQueueRow'
 
@@ -212,22 +212,57 @@ describe('JobQueueRow', () => {
   })
 })
 
+// Hand-written literals (not derived from the code under test) so a mutated name is caught.
+const EXPECTED_SOURCE_NAME: Record<JobSourceType, string> = {
+  DOU_RSS: 'DOU',
+  REMOTEOK_API: 'RemoteOK',
+  REMOTIVE_API: 'Remotive',
+  HIMALAYAS_API: 'Himalayas',
+  JOBICY_API: 'Jobicy',
+  ARBEITNOW_API: 'Arbeitnow',
+  WORKINGNOMADS_API: 'Working Nomads',
+  JOBGETHER_API: 'Jobgether',
+  HN_HIRING: 'Hacker News: Who is hiring',
+  GREENHOUSE_ATS: 'Greenhouse',
+  LEVER_ATS: 'Lever',
+  ASHBY_ATS: 'Ashby',
+  WORKABLE_ATS: 'Workable',
+  SMARTRECRUITERS_ATS: 'SmartRecruiters',
+  RECRUITEE_ATS: 'Recruitee',
+  PERSONIO_ATS: 'Personio',
+  JOOBLE_API: 'Jooble',
+  JSEARCH_API: 'JSearch',
+  THEIRSTACK_API: 'TheirStack',
+  MUSE_API: 'The Muse',
+  REED_API: 'Reed',
+  DJINNI_RSS: 'Djinni',
+  WWR_RSS: 'We Work Remotely',
+  EUREMOTEJOBS_RSS: 'EU Remote Jobs',
+  JUSTJOIN_HTML: 'Just Join IT',
+  NOFLUFF_HTML: 'No Fluff Jobs',
+  LANDINGJOBS_HTML: 'Landing.jobs',
+  NEXTLEVELJOBS_HTML: 'Next Level Jobs',
+  DICE_HTML: 'Dice',
+  THEHUB_HTML: 'The Hub',
+  WTTJ_HTML: 'Welcome to the Jungle',
+}
+
 describe('sourceLabel', () => {
-  it('maps source types to product names', () => {
-    expect(sourceLabel('DOU_RSS')).toBe('DOU')
-    expect(sourceLabel('REMOTEOK_API')).toBe('RemoteOK')
-    expect(sourceLabel('WWR_RSS')).toBe('We Work Remotely')
-    expect(sourceLabel('WTTJ_HTML')).toBe('Welcome to the Jungle')
-    expect(sourceLabel('GREENHOUSE_ATS')).toBe('Greenhouse')
-    expect(sourceLabel('HN_HIRING')).toBe('Hacker News: Who is hiring')
-    expect(sourceLabel('NOFLUFF_HTML')).toBe('No Fluff Jobs')
+  it('covers exactly the source types of the schema', () => {
+    expect(Object.keys(EXPECTED_SOURCE_NAME).sort()).toEqual(
+      [...jobSourceTypeSchema.options].sort(),
+    )
+    expect(jobSourceTypeSchema.options).toHaveLength(31)
   })
 
-  it('has a human label for every source type (no raw enum code)', () => {
-    for (const o of jobSourceTypeSchema.options) expect(sourceLabel(o)).not.toContain('_')
+  it.each(Object.entries(EXPECTED_SOURCE_NAME))('%s -> %s', (code, name) => {
+    expect(sourceLabel(code)).toBe(name)
   })
 
-  it('strips only a trailing transport suffix', () => {
-    expect(sourceLabel('CUSTOM_API_FEED')).toBe('CUSTOM_API_FEED')
-  })
+  it.each(['toString', 'constructor', '__proto__', 'CUSTOM_API_FEED'])(
+    'unknown code %s falls back to the raw string',
+    (code) => {
+      expect(sourceLabel(code)).toBe(code)
+    },
+  )
 })
