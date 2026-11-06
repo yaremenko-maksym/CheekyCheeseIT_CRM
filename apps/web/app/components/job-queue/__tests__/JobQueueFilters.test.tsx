@@ -275,6 +275,8 @@ describe('JobQueueFilters', () => {
       const user = await open(loaded, {}, onApply)
       const anna = screen.getByRole('checkbox', { name: 'Анна Коваль' })
       expect(screen.getByTestId('job-queue-filters-body')).toContainElement(anna)
+      expect(anna).not.toBeChecked()
+      expect(anna).toBeEnabled()
       await user.click(anna)
       await user.click(screen.getByRole('checkbox', { name: 'Богдан Шевченко' }))
       await user.click(screen.getByTestId('job-queue-filters-apply'))

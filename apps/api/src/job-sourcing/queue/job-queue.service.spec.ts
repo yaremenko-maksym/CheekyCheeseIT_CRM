@@ -437,6 +437,7 @@ describe('JobQueueService.seniorOptions', () => {
     expect(h.scopes.liveVersions).toHaveBeenCalledWith(teamScope, h.db)
     expect(h.scopes.policy).toHaveBeenCalledTimes(1)
     expect(h.compiled(0).params).toEqual([JSON.stringify([SEN]), JOB_QUEUE_SENIOR_OPTIONS_MAX])
+    expect(h.compiled(0).text).toContain('WHERE u.id::text IN (SELECT jsonb_array_elements_text(')
     expect(h.compiled(0).text).toContain('ORDER BY u.display_name, u.id')
   })
 

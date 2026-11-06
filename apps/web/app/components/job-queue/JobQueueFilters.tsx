@@ -143,7 +143,7 @@ function SeniorRows({
   onToggle,
 }: {
   picker: SeniorPicker
-  selected: readonly string[]
+  selected: readonly string[] | undefined
   onToggle: (id: string) => void
 }) {
   if (picker.items) {
@@ -154,9 +154,9 @@ function SeniorRows({
         </p>
       )
     }
-    const atLimit = selected.length >= JOB_QUEUE_SENIOR_FILTER_MAX
+    const atLimit = (selected?.length ?? 0) >= JOB_QUEUE_SENIOR_FILTER_MAX
     return picker.items.map(({ id, name }) => {
-      const checked = selected.includes(id)
+      const checked = selected?.includes(id) ?? false
       return (
         <CheckRow
           key={id}
@@ -235,7 +235,7 @@ function FilterPanel({
           <FilterGroup legend={<Trans>Сеньйори</Trans>}>
             <SeniorRows
               picker={seniors}
-              selected={draft.seniorIds ?? []}
+              selected={draft.seniorIds}
               onToggle={(id) => setDraft((d) => toggle(d, 'seniorIds', id))}
             />
           </FilterGroup>
