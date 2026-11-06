@@ -141,7 +141,7 @@ export function buildModelExtraction(
       inputCeilingChars,
       prepareCycle: async (cycleId) => {
         const cycle = health.beginCycle(cycleId)
-        const reached = await reachModel(adapter(cycle.onPreflightReply), sleep)
+        const reached = await reachModel(adapter(cycle.onPreflightReply), sleep, opts.log)
         await cycle.preflightDone(reached)
         if (!reached) return { kind: 'MODEL_UNREACHABLE' }
         const budget = new InMemoryModelBudget(
@@ -164,11 +164,17 @@ export function buildModelExtraction(
 async function reachModel(
   port: ExtractionWorkerAdapter,
   sleep: (ms: number) => Promise<unknown>,
+  log: ModelHealthLog,
 ): Promise<boolean> {
-  if ((await port.preflight()).reached) return true
-  for (const gap of PREFLIGHT_BACKOFF_MS) {
+  const attempt = async (n: number) => {
+    const { reached, status } = await port.preflight()
+    if (!reached) log.error(`MODEL_PREFLIGHT_FAILED attempt=${n} status=${status ?? 'none'}`)
+    return reached
+  }
+  if (await attempt(1)) return true
+  for (const [i, gap] of PREFLIGHT_BACKOFF_MS.entries()) {
     await sleep(gap)
-    if ((await port.preflight()).reached) return true
+    if (await attempt(i + 2)) return true
   }
   return false
 }

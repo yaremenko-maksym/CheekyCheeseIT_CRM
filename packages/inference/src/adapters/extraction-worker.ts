@@ -75,9 +75,12 @@ export type ExtractionWorkerAdapterConfig = {
   fetchImpl?: FetchLike
 }
 
-/** `extract`, plus the §5.3 preflight: reached or not, with no text. */
+/**
+ * `extract`, plus the §5.3 preflight: reached or not, with no text. A preflight that did not reach
+ * carries the HTTP status when the worker answered at all; a timeout or a dropped connection has none.
+ */
 export type ExtractionWorkerAdapter = ExtractionPort & {
-  preflight(): Promise<{ reached: boolean }>
+  preflight(): Promise<{ reached: boolean; status?: number }>
 }
 
 /**
@@ -115,12 +118,14 @@ export function createExtractionWorkerAdapter(
         maxBytes: DEFAULT_MAX_BYTES,
         fetchImpl: config.fetchImpl,
       })
-      if (res.kind !== 'ok') return { reached: false }
+      const status = res.kind === 'timeout' ? undefined : res.status
+      const failed = status === undefined ? { reached: false } : { reached: false, status }
+      if (res.kind !== 'ok') return failed
       const parsed = preflightReplySchema.safeParse(parseJsonOrNull(res.text))
-      if (!parsed.success) return { reached: false }
+      if (!parsed.success) return failed
       const { ok, events, health } = parsed.data
       report({ events, health })
-      return { reached: ok }
+      return ok ? { reached: true } : failed
     },
     async extract<T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>> {
       const failed: ExtractionResult<T> = { ok: false, code: 'PROVIDER_ERROR' }

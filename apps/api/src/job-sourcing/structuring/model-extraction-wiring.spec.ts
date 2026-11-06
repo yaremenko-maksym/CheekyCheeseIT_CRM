@@ -331,6 +331,69 @@ describe('buildModelExtraction — the collection side talks to the worker only 
   })
 })
 
+describe('a failed preflight attempt logs its number and status, never a body (CR-L-4)', () => {
+  const answering = (status: number) => () =>
+    Promise.resolve(new Response('a body that stays out', { status }))
+
+  function wired(fetchImpl: Parameters<typeof buildModelExtraction>[1]['fetchImpl']) {
+    const errors: string[] = []
+    const r = buildModelExtraction(ENV, {
+      ...OPTS,
+      log: { error: (l) => errors.push(l), warn: () => undefined },
+      fetchImpl,
+      sleep: () => Promise.resolve(),
+    })
+    if (!r.ok || r.wiring === undefined) throw new Error('not wired')
+    return { wiring: r.wiring, errors }
+  }
+
+  it('a 401 on every attempt logs each one with its status', async () => {
+    const { wiring, errors } = wired(answering(401))
+    expect((await wiring.prepareCycle(CYCLE)).kind).toBe('MODEL_UNREACHABLE')
+    expect(errors).toEqual([
+      'MODEL_PREFLIGHT_FAILED attempt=1 status=401',
+      'MODEL_PREFLIGHT_FAILED attempt=2 status=401',
+      'MODEL_PREFLIGHT_FAILED attempt=3 status=401',
+      'MODEL_PREFLIGHT_FAILED attempt=4 status=401',
+    ])
+  })
+
+  it('a timeout has no status to log', async () => {
+    vi.useFakeTimers()
+    const { wiring, errors } = wired(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+        }),
+    )
+    const cycle = wiring.prepareCycle(CYCLE)
+    await vi.advanceTimersByTimeAsync(4 * 120_000)
+    expect((await cycle).kind).toBe('MODEL_UNREACHABLE')
+    expect(errors).toEqual([
+      'MODEL_PREFLIGHT_FAILED attempt=1 status=none',
+      'MODEL_PREFLIGHT_FAILED attempt=2 status=none',
+      'MODEL_PREFLIGHT_FAILED attempt=3 status=none',
+      'MODEL_PREFLIGHT_FAILED attempt=4 status=none',
+    ])
+  })
+
+  it('an attempt that reaches the model logs nothing, and only the failed ones are logged', async () => {
+    const answers = [answering(503), answering(401), preflightOk]
+    const { wiring, errors } = wired(() => answers.shift()!())
+    expect((await wiring.prepareCycle(CYCLE)).kind).toBe('READY')
+    expect(errors).toEqual([
+      'MODEL_PREFLIGHT_FAILED attempt=1 status=503',
+      'MODEL_PREFLIGHT_FAILED attempt=2 status=401',
+    ])
+  })
+
+  it('a model reached on the first attempt logs nothing', async () => {
+    const { wiring, errors } = wired(preflightOk)
+    expect((await wiring.prepareCycle(CYCLE)).kind).toBe('READY')
+    expect(errors).toEqual([])
+  })
+})
+
 describe('the timeout and hold derive from the router call ceiling (AC3, ADR §5.5 item 4)', () => {
   it('ceiling = 120 s hosted + 6 × 300 s floor maxima; timeout adds a margin, the hold a grace', () => {
     expect(WORKER_STRUCTURER_TIMEOUT_MS).toBe(1_920_000 + 10_000)

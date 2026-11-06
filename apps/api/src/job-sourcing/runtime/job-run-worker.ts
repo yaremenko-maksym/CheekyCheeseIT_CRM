@@ -24,6 +24,7 @@ import {
 import type { JobSourceRegistry } from '../registry/job-source-registry'
 import { chunkPage, saveObservationPage } from '../store/source-record.store'
 import type { HostBan } from '../scheduling/host-state'
+import { boundedWrite } from './bounded-write'
 import { ContextRefusedError, type RunControl, buildCollectionContext } from './collection-context'
 import {
   type DetailTailPort,
@@ -158,16 +159,6 @@ export interface WorkerDeps {
 
 /** A thrown value's class name, the only part of a foreign error the worker logs. */
 const nameOf = (e: unknown): string => (e instanceof Error ? e.name : typeof e)
-
-/** `promise`, or a rejection after `ms`; the timer is unref-ed and always cleared. */
-export function boundedWrite<T>(promise: Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error('TimeoutError')), ms)
-    timer.unref()
-  })
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
-}
 
 /** What one run came to. `finished` is false when the ledger refused the ending (fenced). */
 export interface RunReport {

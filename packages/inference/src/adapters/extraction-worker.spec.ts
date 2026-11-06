@@ -297,8 +297,13 @@ describe('extraction-worker adapter — preflight (ADR §5.3)', () => {
     const health = { modelListStale: true, failedJobs: ['chain'] }
     const f = fakeFetch(async () => answer(false, { health }))
     const { port, replies } = setup(f)
-    expect(await port.preflight()).toEqual({ reached: false })
+    expect(await port.preflight()).toEqual({ reached: false, status: 200 })
     expect(replies).toEqual([{ events: [{ type: 'CALL', code: 'OK' }], health }])
+  })
+
+  it.each([401, 403, 429, 500])('a %i is not reached and carries its status', async (status) => {
+    const { port } = setup(fakeFetch(async () => ({ status, text: 'a body that stays out' })))
+    expect(await port.preflight()).toEqual({ reached: false, status })
   })
 
   it.each([
@@ -313,17 +318,17 @@ describe('extraction-worker adapter — preflight (ADR §5.3)', () => {
     ['too many events', answer(true, { events: Array(101).fill({ type: 'X' }) })],
   ])('%s is not reached and records nothing', async (_name, res) => {
     const { port, replies } = setup(fakeFetch(async () => res))
-    expect(await port.preflight()).toEqual({ reached: false })
+    expect(await port.preflight()).toEqual({ reached: false, status: res.status })
     expect(replies).toEqual([])
   })
 
-  it('a transport failure is not reached and never throws', async () => {
+  it('a transport failure has no status, is not reached and never throws', async () => {
     const { port } = setup(
       fakeFetch(async () => {
         throw new Error('ECONNREFUSED')
       }),
     )
-    await expect(port.preflight()).resolves.toEqual({ reached: false })
+    await expect(port.preflight()).resolves.toStrictEqual({ reached: false })
   })
 
   it('a throwing onReply does not change the answer', async () => {
@@ -361,7 +366,7 @@ describe('extraction-worker adapter — preflight (ADR §5.3)', () => {
       await vi.advanceTimersByTimeAsync(119_999)
       expect(f.sent[0]?.init?.signal?.aborted).toBe(false)
       await vi.advanceTimersByTimeAsync(1)
-      await expect(answered).resolves.toEqual({ reached: false })
+      await expect(answered).resolves.toStrictEqual({ reached: false })
       expect(PREFLIGHT_TIMEOUT_MS).toBe(120_000)
     } finally {
       vi.useRealTimers()

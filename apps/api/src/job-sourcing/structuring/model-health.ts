@@ -7,7 +7,7 @@ import {
 import { kyivToday } from '@crm/shared'
 import { z } from 'zod'
 import { MODEL_ROUTE_VALUES, type ModelHealthFlag, type ModelRoute } from '../../database/schema'
-import { boundedWrite } from '../runtime/job-run-worker'
+import { boundedWrite } from '../runtime/bounded-write'
 
 /** A write that never settles must not hold a cycle (`prepareCycle`, `finish`) behind it. */
 export const MODEL_HEALTH_WRITE_TIMEOUT_MS = 5_000
