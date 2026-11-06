@@ -1,4 +1,9 @@
-import { MAX_EXTRACTION_INPUT_CHARS, routerConfigSchema, type RouteStatePort } from '@crm/inference'
+import {
+  HOSTED_PROVIDERS,
+  MAX_EXTRACTION_INPUT_CHARS,
+  routerConfigSchema,
+  type RouteStatePort,
+} from '@crm/inference'
 import { z } from 'zod'
 import { buildRouterConfig, extractionWorkerEnvSchema } from '../inference/build-inference-config'
 import { isUsableWorkerSecret } from './link-contract'
@@ -96,4 +101,15 @@ export function localOnlyRouterConfig(raw: unknown): unknown {
   if (!parsed.success) return raw
   const routes = parsed.data.routes.filter((r) => r.provider === 'local')
   return { ...parsed.data, hostedBudgetMs: 0, routes }
+}
+
+/**
+ * The hosted routes this config ended up with, names only: `routeFromEnv` drops a route whose key is
+ * missing without a word, so a key-name typo shows here. A config the router refuses has none.
+ */
+export function hostedRoutesOf(raw: unknown): { present: string[]; absent: string[] } {
+  const parsed = routerConfigSchema.safeParse(raw)
+  const routes = parsed.success ? parsed.data.routes : []
+  const present = HOSTED_PROVIDERS.filter((p) => routes.some((r) => r.provider === p))
+  return { present, absent: HOSTED_PROVIDERS.filter((p) => !present.includes(p)) }
 }
