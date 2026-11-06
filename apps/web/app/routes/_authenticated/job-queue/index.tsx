@@ -1,6 +1,6 @@
 /**
  * /job-queue — r5 Task 7.2. The external vacancy queue (ADMIN | HR): status tabs with authorized
- * counts, search + bounded filters (URL state, applied explicitly), the list with «load more»,
+ * counts, search + bounded filters (URL state, applied explicitly), the infinite-scroll list,
  * the HR team switcher and the refresh / partial / access-lost notices. Opening a row writes
  * `?card=<id>`; the card itself is Task 7.3. Layout and copy: docs/design/vacancy-queue.md.
  */
@@ -64,12 +64,20 @@ export function JobQueuePage() {
   const search = Route.useSearch()
   // the retry button unmounts on click (error block becomes the skeleton): park focus here
   const bodyRef = useRef<HTMLDivElement>(null)
+  // state, not a ref: the sentinel's observer has to rebuild once the scroller exists
+  const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null)
 
   if (denied || !user || (user.role !== 'ADMIN' && user.role !== 'HR')) return null
 
   let body
   if (user.role === 'ADMIN') {
-    body = <QueueBody scope={{ actorId: user.id, role: 'ADMIN', teamId: null }} search={search} />
+    body = (
+      <QueueBody
+        scope={{ actorId: user.id, role: 'ADMIN', teamId: null }}
+        search={search}
+        scrollRoot={scrollRoot}
+      />
+    )
   } else if (teams === null) {
     // without the team list there is no scope to load: offer a retry, not an endless skeleton
     body = teamsFailed ? (
@@ -123,25 +131,33 @@ export function JobQueuePage() {
         scope={{ actorId: user.id, role: 'HR', teamId }}
         search={search}
         teams={teams.map((t) => ({ id: t.id, name: t.name }))}
+        scrollRoot={scrollRoot}
       />
     )
   }
 
   return (
+    // the authenticated layout's `main` is `overflow-hidden`, so the page scrolls itself
     <div
-      data-testid="job-queue-page"
-      className="@container mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-4 px-4 py-4 sm:px-6"
+      ref={setScrollRoot}
+      data-testid="job-queue-scroll"
+      className="min-h-0 flex-1 overflow-y-auto"
     >
-      <h1 className="text-xl font-semibold tracking-tight">
-        <Trans>Черга зовнішніх вакансій</Trans>
-      </h1>
       <div
-        ref={bodyRef}
-        tabIndex={-1}
-        data-testid="job-queue-body"
-        className="flex min-w-0 flex-col gap-4 outline-none"
+        data-testid="job-queue-page"
+        className="@container mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-4 px-4 py-4 sm:px-6"
       >
-        {body}
+        <h1 className="text-xl font-semibold tracking-tight">
+          <Trans>Черга зовнішніх вакансій</Trans>
+        </h1>
+        <div
+          ref={bodyRef}
+          tabIndex={-1}
+          data-testid="job-queue-body"
+          className="flex min-w-0 flex-col gap-4 outline-none"
+        >
+          {body}
+        </div>
       </div>
     </div>
   )
@@ -151,10 +167,12 @@ function QueueBody({
   scope,
   search,
   teams,
+  scrollRoot,
 }: {
   scope: QueueScopeSignature & { role: 'ADMIN' | 'HR' }
   search: QueueSearch
   teams?: ReadonlyArray<{ id: string; name: string }>
+  scrollRoot: HTMLElement | null
 }) {
   const { t } = useLingui()
   const navigate = useNavigate()
@@ -311,9 +329,11 @@ function QueueBody({
             hasSearch={!!search.search}
             hasFilters={appliedFilterCount(filterValue) > 0}
             hasNextPage={queue.hasNextPage}
+            isFetching={queue.isFetching}
             isFetchingNextPage={queue.isFetchingNextPage}
             isFetchNextPageError={queue.isFetchNextPageError}
             refreshRequired={queue.refreshRequired}
+            scrollRoot={scrollRoot}
             onLoadMore={() => void queue.fetchNextPage()}
             onRetry={() => void queue.refetch()}
             onOpen={(card) => go({ ...search, card })}

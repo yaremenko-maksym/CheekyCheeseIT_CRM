@@ -18,10 +18,14 @@ export interface JobQueueListProps {
   hasSearch: boolean
   hasFilters: boolean
   hasNextPage: boolean
+  /** Any fetch of this query: an append started now would abort a running background refetch. */
+  isFetching: boolean
   isFetchingNextPage: boolean
   isFetchNextPageError: boolean
   /** The cursor is dead: the page's refresh notice is the only way on, so the foot offers nothing. */
   refreshRequired: boolean
+  /** The element that scrolls the list: `rootMargin` applies only against an explicit root. */
+  scrollRoot: HTMLElement | null
   onLoadMore: () => void
   onRetry: () => void
   onOpen: (opportunityId: string) => void
@@ -72,7 +76,7 @@ export function StateBlock({
 
 export function JobQueueList(props: JobQueueListProps) {
   const { i18n } = useLingui()
-  const { items, status, tab } = props
+  const { items, status, tab, scrollRoot } = props
   const listRef = useRef<HTMLUListElement>(null)
   // set by a button / keyboard append: the index of the first row to focus once it arrives
   // (Infinity = nothing pending: no list length ever exceeds it)
@@ -104,13 +108,13 @@ export function JobQueueList(props: JobQueueListProps) {
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) loadMore.current()
       },
-      { rootMargin: '400px' },
+      { root: scrollRoot, rootMargin: '400px' },
     )
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [sentinel])
+  }, [sentinel, scrollRoot])
 
-  // a replaced list (tab / filter / search switch) cancels a pending «Показати ще» focus
+  // a replaced list cancels a pending load-more focus
   useEffect(() => {
     focusFrom.current = Infinity
   }, [first])
@@ -185,7 +189,7 @@ export function JobQueueList(props: JobQueueListProps) {
 
   const shown = items.length
   const total = props.total
-  const armed = props.hasNextPage && !props.isFetchingNextPage && !props.isFetchNextPageError
+  const armed = props.hasNextPage && !props.isFetching && !props.isFetchNextPageError
   const onRetryAppend = () => {
     if (props.isFetchingNextPage) return
     focusFrom.current = shown
@@ -208,7 +212,8 @@ export function JobQueueList(props: JobQueueListProps) {
       {!props.refreshRequired && (
         <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
           {armed && <div ref={setSentinel} data-testid="job-queue-sentinel" aria-hidden="true" />}
-          <p data-testid="job-queue-live" aria-live="polite" className="tabular-nums">
+          {/* remounted per tab: an in-place text change on a tab switch would be read out */}
+          <p key={tab} data-testid="job-queue-live" aria-live="polite" className="tabular-nums">
             {props.hasNextPage ? (
               <span data-testid="job-queue-shown">
                 {added > 0 ? (
@@ -257,9 +262,9 @@ export function JobQueueList(props: JobQueueListProps) {
               It stays mounted while the retry is in flight, so keyboard focus is not dropped. */}
           {props.hasNextPage && props.isFetchNextPageError && (
             <Button
-              data-testid="job-queue-load-more"
+              data-testid="job-queue-retry"
               variant="outline"
-              className="min-h-11 w-full @min-[560px]:w-auto"
+              className="min-h-11 w-full aria-disabled:pointer-events-none aria-disabled:opacity-50 @min-[560px]:w-auto"
               aria-disabled={props.isFetchingNextPage}
               onClick={onRetryAppend}
             >

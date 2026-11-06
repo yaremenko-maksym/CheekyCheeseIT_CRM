@@ -146,15 +146,25 @@ function apiError(status: number, code: string) {
 }
 
 /** jsdom has no IntersectionObserver: a stub whose sentinel comes into view only on `scrollToEnd()`. */
-const observers: Array<{ cb: IntersectionObserverCallback; live: boolean }> = []
+const observers: Array<{
+  cb: IntersectionObserverCallback
+  live: boolean
+  root: IntersectionObserverInit['root']
+}> = []
 class StubObserver {
-  private readonly entry: { cb: IntersectionObserverCallback; live: boolean }
-  constructor(cb: IntersectionObserverCallback) {
-    this.entry = { cb, live: false }
+  /** What the initial callback reports: is the sentinel already in view when it mounts? */
+  static inView = false
+  private readonly entry: (typeof observers)[number]
+  constructor(cb: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+    this.entry = { cb, live: false, root: options?.root }
     observers.push(this.entry)
   }
   observe() {
     this.entry.live = true
+    this.entry.cb(
+      [{ isIntersecting: StubObserver.inView } as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    )
   }
   disconnect() {
     this.entry.live = false
@@ -176,6 +186,7 @@ describe('/job-queue page', () => {
 
   beforeEach(async () => {
     observers.length = 0
+    StubObserver.inView = false
     vi.stubGlobal('IntersectionObserver', StubObserver)
     calls.length = 0
     mockNavigate.mockReset()
@@ -519,8 +530,68 @@ describe('/job-queue page', () => {
     serve({ queue: twoPages(() => new Promise(() => {})) })
     renderPage()
     await screen.findByTestId('job-queue-sentinel')
-    expect(screen.queryByTestId('job-queue-load-more')).toBeNull()
+    expect(screen.queryByTestId('job-queue-retry')).toBeNull()
     expect(screen.getByTestId('job-queue-live')).toHaveTextContent(/^Показано 1 із 7$/)
+  })
+
+  // `main` in the authenticated layout is `overflow-hidden`: without this box the page cannot scroll.
+  it.each([
+    ['the list', () => serve(), `job-queue-row-${ITEM_ID}`],
+    ['the no-team state', () => serve({ teams: [] }), 'job-queue-no-team'],
+    [
+      'the failed team list',
+      () => serve({ teamsCall: () => Promise.reject(apiError(500, 'INTERNAL')) }),
+      'job-queue-error',
+    ],
+  ])('wraps %s in the page scroller', async (_label, arrange, testId) => {
+    arrange()
+    renderPage()
+    await screen.findByTestId(testId)
+    const scroller = screen.getByTestId('job-queue-scroll')
+    expect(scroller).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto')
+    expect(scroller).toContainElement(screen.getByTestId('job-queue-page'))
+  })
+
+  it('observes the sentinel against the page scroller', async () => {
+    serve({ queue: twoPages(() => new Promise(() => {})) })
+    renderPage()
+    await screen.findByTestId('job-queue-sentinel')
+    const live = observers.filter((o) => o.live)
+    expect(live).toHaveLength(1)
+    expect(live[0]!.root).toBe(screen.getByTestId('job-queue-scroll'))
+  })
+
+  it('a short first page already in view loads the next page without a scroll', async () => {
+    StubObserver.inView = true
+    serve({ queue: twoPages(() => new Promise(() => {})) })
+    renderPage()
+    await screen.findByTestId('job-queue-appending')
+    expect(queueCalls().map((c) => c.params?.['cursor'])).toEqual([undefined, 'c1'])
+  })
+
+  it('does not arm the sentinel during a background refetch', async () => {
+    const answer = { data: page({ nextCursor: 'c1' }) }
+    let settle = () => {}
+    let firstPages = 0
+    serve({
+      queue: () => {
+        firstPages += 1
+        return firstPages === 1
+          ? Promise.resolve(answer)
+          : new Promise((resolve) => {
+              settle = () => resolve(answer)
+            })
+      },
+    })
+    const { qc } = renderPage()
+    await screen.findByTestId('job-queue-sentinel')
+    act(() => {
+      void qc.invalidateQueries({ queryKey: ['job-queue'] })
+    })
+    await waitFor(() => expect(screen.queryByTestId('job-queue-sentinel')).toBeNull())
+    expect(firstPages).toBe(2)
+    act(() => settle())
+    expect(await screen.findByTestId('job-queue-sentinel')).toBeInTheDocument()
   })
 
   // CR-H-1: TanStack Query keeps `data` and flips `status` to 'error' when a later page fails.
@@ -534,7 +605,7 @@ describe('/job-queue page', () => {
     )
     expect(screen.getByTestId(`job-queue-row-${ITEM_ID}`)).toBeInTheDocument()
     expect(screen.queryByTestId('job-queue-error')).toBeNull()
-    expect(screen.getByTestId('job-queue-load-more')).toHaveTextContent('Спробувати ще раз')
+    expect(screen.getByTestId('job-queue-retry')).toHaveTextContent('Спробувати ще раз')
     // no auto-retry loop: the sentinel is gone until the user retries
     expect(screen.queryByTestId('job-queue-sentinel')).toBeNull()
     await scrollToEnd()
@@ -556,7 +627,7 @@ describe('/job-queue page', () => {
     expect(screen.getByTestId(`job-queue-row-${ITEM_ID}`)).toBeInTheDocument()
     expect(screen.queryByTestId('job-queue-error')).toBeNull()
     expect(screen.queryByTestId('job-queue-append-error')).toBeNull()
-    expect(screen.queryByTestId('job-queue-load-more')).toBeNull()
+    expect(screen.queryByTestId('job-queue-retry')).toBeNull()
   })
 
   it('a loaded next page is appended and announced', async () => {
