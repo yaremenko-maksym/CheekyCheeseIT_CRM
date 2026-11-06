@@ -1,10 +1,14 @@
+import { dirname, join } from 'node:path'
 import {
+  createFileManagedModels,
   createFileRouteStatePort,
   createOwnCapPort,
   createRouterExtractionAdapter,
+  type StateEvent,
 } from '@crm/inference'
 import type { FastifyInstance } from 'fastify'
 import { localOnlyRouterConfig, parseWorkerEnv } from './schema'
+import { scheduleSelfHeal } from './self-heal'
 import { buildExtractionWorker, type WorkerLogLine } from './server'
 
 export type WorkerProcess = {
@@ -33,23 +37,52 @@ export async function startWorker(
     proc.stdout.write(`${JSON.stringify(line)}\n`)
   }
   try {
+    const onStateEvent = (e: StateEvent): void => log({ event: 'STATE', ...e })
     const routeState = await createFileRouteStatePort({
       path: env.stateFile,
       now: Date.now,
-      onEvent: (e) => log({ event: 'STATE', ...e }),
+      onEvent: onStateEvent,
     })
     const ownCap = createOwnCapPort({ state: routeState, now: Date.now })
+    // The managed-list file lives beside the route-state file, on the same volume (ADR §3.2).
+    const listPath = join(dirname(env.stateFile), 'managed-models.json')
+    const managedModels = createFileManagedModels({
+      path: listPath,
+      state: routeState,
+      onEvent: onStateEvent,
+    })
+    const heal = scheduleSelfHeal({
+      config: env.routerConfig,
+      state: routeState,
+      ownCap,
+      managedModels,
+      listPath,
+      log,
+      now: Date.now,
+    })
     const app = buildExtractionWorker({
       secret: env.secret,
       routeState,
       log,
       buildPorts: (onEvent) => ({
-        extract: createRouterExtractionAdapter(env.routerConfig, { onEvent, routeState, ownCap }),
+        extract: createRouterExtractionAdapter(env.routerConfig, {
+          onEvent: (e) => {
+            heal.record(e)
+            onEvent(e)
+          },
+          routeState,
+          ownCap,
+          managedModels,
+        }),
         preflight: createRouterExtractionAdapter(localOnlyRouterConfig(env.routerConfig), {
           onEvent,
           routeState,
         }),
       }),
+    })
+    app.addHook('onClose', (_app, done) => {
+      heal.stop()
+      done()
     })
     await app.listen({ host: env.host, port: env.port })
     log({ event: 'LISTENING', port: env.port })

@@ -4,11 +4,9 @@ import {
   EXTRACTION_TABLE_VERSION,
   MIN_WORKER_SECRET_CHARS,
   MIN_WORKER_SECRET_DISTINCT_CHARS,
-  healthFlags,
-  localOnlyRouterConfig,
-  parseWorkerEnv,
   tableVersionOf,
-} from './schema'
+} from './link-contract'
+import { healthFlags, localOnlyRouterConfig, parseWorkerEnv } from './schema'
 import { z } from 'zod'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
@@ -23,6 +21,7 @@ const MODULE = {
 // Exactly the minimum on both axes: 32 characters, 8 distinct.
 const SECRET = 'abcdefgh'.repeat(4)
 const BASE = {
+  INFERENCE_EXTRACTION_PROVIDER: 'router',
   EXTRACTION_WORKER_SECRET: SECRET,
   EXTRACTION_ROUTER_CONFIG: '{"routes":[]}',
   EXTRACTION_ROUTER_STATE_FILE: '/state/route-state.json',
@@ -66,6 +65,46 @@ describe('parseWorkerEnv — the worker does not start without its secret', () =
     ['port too high', { ...BASE, EXTRACTION_WORKER_PORT: '65536' }, 'PORT'],
   ])('%s: refused', (_name, env, reason) => {
     expect(parseWorkerEnv(env)).toEqual({ ok: false, reason })
+  })
+
+  it.each([
+    ['no provider selector', { ...BASE, INFERENCE_EXTRACTION_PROVIDER: undefined }, 'PROVIDER'],
+    ['the local selector', { ...BASE, INFERENCE_EXTRACTION_PROVIDER: 'local' }, 'PROVIDER'],
+    [
+      'the openrouter selector',
+      { ...BASE, INFERENCE_EXTRACTION_PROVIDER: 'openrouter' },
+      'PROVIDER',
+    ],
+    ['an empty hosted key', { ...BASE, GROQ_API_KEY: '' }, 'ROUTER_ENV'],
+    ['a refused local URL', { ...BASE, ROUTER_LOCAL_MODEL_URL: 'http://10.0.0.9' }, 'ROUTER_ENV'],
+  ])('%s: refused by key, the value never echoed', (_name, env, reason) => {
+    const r = parseWorkerEnv(env)
+    expect(r).toEqual({ ok: false, reason })
+    expect(JSON.stringify(r)).not.toContain('10.0.0.9')
+  })
+
+  it('the router config takes its keys and local URL from env, never from the JSON', () => {
+    const params = {
+      policyVersion: 'v1',
+      routes: [
+        { provider: 'groq', models: ['openai/gpt-oss-20b'], apiKey: 'JSON-KEY' },
+        { provider: 'local', baseUrl: 'http://evil.example' },
+      ],
+    }
+    const r = parseWorkerEnv({
+      ...BASE,
+      EXTRACTION_ROUTER_CONFIG: JSON.stringify(params),
+      GROQ_API_KEY: 'Q-ENV-KEY',
+      ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
+      LOCAL_MODEL_NAME: 'qwen3:8b',
+    })
+    expect(r.ok && r.env.routerConfig).toEqual({
+      policyVersion: 'v1',
+      routes: [
+        { provider: 'groq', models: ['openai/gpt-oss-20b'], apiKey: 'Q-ENV-KEY' },
+        { provider: 'local', baseUrl: 'http://crm-model-runtime:11434', model: 'qwen3:8b' },
+      ],
+    })
   })
 
   it('port 1 is the lowest accepted', () => {

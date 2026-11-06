@@ -1,6 +1,16 @@
 import { z } from 'zod'
 
 /**
+ * The extraction worker's own keys (ADR §2.4): the API process never holds them, so its boot
+ * refuses them. Empty is unset (the `.env.example` template carries the router URL blank).
+ */
+export const WORKER_ONLY_ENV_KEYS = [
+  'GEMINI_API_KEY',
+  'GROQ_API_KEY',
+  'ROUTER_LOCAL_MODEL_URL',
+] as const
+
+/**
  * Default stack-match threshold (task-vacancy-matching AC4). Deliberately
  * forgiving: collapsing a vacancy the senior would have wanted costs more than
  * showing one they skip past.
@@ -388,6 +398,7 @@ const envSchema = z
       .optional(),
     LOCAL_MODEL_KEY: z.string().min(1).optional(),
     LOCAL_MODEL_NAME: z.string().min(1).optional(),
+    // `router` is the extraction worker's selector, never the API's (ADR §2.4).
     INFERENCE_EXTRACTION_PROVIDER: z.enum(['local', 'openrouter']).optional(),
 
     // Vacancy-sourcing quota providers (r5 Task 3.5). All optional, no default: an absent OR
@@ -604,6 +615,12 @@ export function validateEnv(config: Record<string, unknown>): Env {
     throw new Error(
       'Invalid environment variables:\n  FRONTEND_URL: required in production (no default allowed)',
     )
+  }
+  // The key's name only, never its value.
+  const workerOnly = WORKER_ONLY_ENV_KEYS.filter((k) => config[k] !== undefined && config[k] !== '')
+  if (workerOnly.length > 0) {
+    const issues = workerOnly.map((k) => `  ${k}: worker-only key, not allowed in the API env`)
+    throw new Error(`Invalid environment variables:\n${issues.join('\n')}`)
   }
   const result = envSchema.safeParse(config)
   if (!result.success) {
