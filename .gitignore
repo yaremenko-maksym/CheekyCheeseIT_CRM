@@ -158,3 +158,4 @@ services/signal-plus/**/__pycache__/
 services/signal-plus/**/*.pyc
 services/signal-plus/.pytest_cache/
 services/signal-plus/*.egg-info/
+.env.extraction-worker
