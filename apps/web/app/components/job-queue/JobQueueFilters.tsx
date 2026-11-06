@@ -55,7 +55,7 @@ export function JobQueueAppliedFilters({
 }: {
   value: JobQueueFilterValue
   /** Names for the applied seniors; an id without a name is left out, never shown raw. */
-  seniors?: ReadonlyArray<SeniorOption>
+  seniors?: ReadonlyArray<SeniorOption> | undefined
   onReset: () => void
 }) {
   const { i18n } = useLingui()
@@ -189,7 +189,7 @@ function FilterPanel({
   onApply,
 }: {
   value: JobQueueFilterValue
-  seniors?: SeniorPicker
+  seniors?: SeniorPicker | undefined
   onApply: (next: JobQueueFilterValue) => void
 }) {
   const { i18n } = useLingui()
@@ -262,7 +262,7 @@ export function JobQueueFilters({
   onApply,
 }: {
   value: JobQueueFilterValue
-  seniors?: SeniorPicker
+  seniors?: SeniorPicker | undefined
   onApply: (next: JobQueueFilterValue) => void
 }) {
   const [open, setOpen] = useState(false)
