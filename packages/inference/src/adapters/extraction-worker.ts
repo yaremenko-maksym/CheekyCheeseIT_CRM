@@ -6,6 +6,7 @@ import {
   DEFAULT_MAX_BYTES,
   type FetchLike,
 } from '../http/bounded-request'
+import { parseJsonOrNull } from '../internal/chat-completions'
 
 const MAX_REPLY_EVENTS = 100
 /** One preflight attempt (ADR §5.3). Its own bound: a trivial call never needs `extract`'s ceiling. */
@@ -79,15 +80,6 @@ export type ExtractionWorkerAdapter = ExtractionPort & {
   preflight(): Promise<{ reached: boolean }>
 }
 
-/** Undefined on malformed text, which every reply schema refuses. */
-function parseJson(text: string): unknown {
-  try {
-    return JSON.parse(text)
-  } catch {
-    return undefined
-  }
-}
-
 /**
  * The collection side's `ExtractionPort` (ADR §2.4): sends the input and the table version only.
  * The caller's instruction, schema and small dose never cross; the worker builds its own request
@@ -124,7 +116,7 @@ export function createExtractionWorkerAdapter(
         fetchImpl: config.fetchImpl,
       })
       if (res.kind !== 'ok') return { reached: false }
-      const parsed = preflightReplySchema.safeParse(parseJson(res.text))
+      const parsed = preflightReplySchema.safeParse(parseJsonOrNull(res.text))
       if (!parsed.success) return { reached: false }
       const { ok, events, health } = parsed.data
       report({ events, health })
@@ -144,7 +136,7 @@ export function createExtractionWorkerAdapter(
       })
       if (res.kind === 'timeout') return res.aborted ? { ok: false, code: 'TIMEOUT' } : failed
       if (res.kind !== 'ok') return failed
-      const parsed = replySchema.safeParse(parseJson(res.text))
+      const parsed = replySchema.safeParse(parseJsonOrNull(res.text))
       if (!parsed.success) return failed
       const { result, events, health } = parsed.data
       report({ events, health })

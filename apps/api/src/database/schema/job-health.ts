@@ -230,7 +230,7 @@ export const jobModelRouteDaily = pgTable(
 export const jobModelHealthFlags = pgTable(
   'job_model_health_flags',
   {
-    flag: text('flag').primaryKey(),
+    flag: text('flag').$type<ModelHealthFlag>().primaryKey(),
     raisedAt: timestamp('raised_at', { withTimezone: true }).notNull().defaultNow(),
     clearedAt: timestamp('cleared_at', { withTimezone: true }),
     lastEmittedCycleId: uuid('last_emitted_cycle_id'),

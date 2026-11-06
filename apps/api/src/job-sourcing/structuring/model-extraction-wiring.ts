@@ -124,7 +124,7 @@ export function buildModelExtraction(
       onReply,
       ...(opts.fetchImpl && { fetchImpl: opts.fetchImpl }),
     })
-  const sleep = opts.sleep ?? ((ms: number) => delay(ms))
+  const sleep = opts.sleep ?? delay
   const health = createModelHealth({ store: opts.store, log: opts.log })
   const inputCeilingChars = routerInputCeilingChars(
     {

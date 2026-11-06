@@ -1,10 +1,6 @@
 import { and, eq, isNull, ne, or, sql } from 'drizzle-orm'
 import type { DatabaseService } from '../../database/database.service'
-import {
-  jobModelHealthFlags,
-  jobModelRouteDaily,
-  type ModelHealthFlag,
-} from '../../database/schema'
+import { jobModelHealthFlags, jobModelRouteDaily } from '../../database/schema'
 import type { ModelHealthStore } from './model-health'
 
 /** The §5.3 tables behind the handler's port. Staged: nothing constructs this until task 5.5b. */
@@ -51,7 +47,7 @@ export function createDrizzleModelHealthStore(db: DatabaseService['db']): ModelH
           ),
         )
         .returning({ flag: flags.flag })
-      return rows.map((r) => r.flag as ModelHealthFlag)
+      return rows.map((r) => r.flag)
     },
   }
 }

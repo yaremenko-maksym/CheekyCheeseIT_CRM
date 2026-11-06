@@ -19,6 +19,9 @@ import { createDrizzleModelHealthStore } from './model-health-store'
  *     pnpm --filter @crm/api exec vitest run model-health-store.integration
  */
 const { jobModelHealthFlags: flags, jobModelRouteDaily: counters } = schema
+// `last_emitted_cycle_id` is a uuid column.
+const CYCLE_1 = '00000000-0000-4000-8000-000000000001'
+const CYCLE_2 = '00000000-0000-4000-8000-000000000002'
 
 describe.skipIf(!hasDatabaseUrl())('createDrizzleModelHealthStore', () => {
   let session: CrmAppSession
@@ -37,7 +40,6 @@ describe.skipIf(!hasDatabaseUrl())('createDrizzleModelHealthStore', () => {
   }, 120_000)
 
   beforeEach(async () => {
-    // crm_app holds no DELETE (class A), so the fixture's owner connection clears the rows.
     await session.admin.query('DELETE FROM job_model_route_daily WHERE true')
     await session.admin.query('DELETE FROM job_model_health_flags WHERE true')
   })
@@ -93,17 +95,17 @@ describe.skipIf(!hasDatabaseUrl())('createDrizzleModelHealthStore', () => {
 
   it('a raised flag is claimed once per cycle, also across a restart; the next cycle claims it again', async () => {
     await store.raiseFlag('HOSTED_ROUTES_DEAD')
-    expect(await store.claimEmissions('cycle-1')).toEqual(['HOSTED_ROUTES_DEAD'])
-    expect(await store.claimEmissions('cycle-1')).toEqual([])
+    expect(await store.claimEmissions(CYCLE_1)).toEqual(['HOSTED_ROUTES_DEAD'])
+    expect(await store.claimEmissions(CYCLE_1)).toEqual([])
 
     const restarted = createDrizzleModelHealthStore(db)
-    expect(await restarted.claimEmissions('cycle-1')).toEqual([])
-    expect(await restarted.claimEmissions('cycle-2')).toEqual(['HOSTED_ROUTES_DEAD'])
+    expect(await restarted.claimEmissions(CYCLE_1)).toEqual([])
+    expect(await restarted.claimEmissions(CYCLE_2)).toEqual(['HOSTED_ROUTES_DEAD'])
   })
 
   it('a cleared flag is not claimed', async () => {
     await store.raiseFlag('HOSTED_ROUTES_DEAD')
     await store.clearFlag('HOSTED_ROUTES_DEAD')
-    expect(await store.claimEmissions('cycle-1')).toEqual([])
+    expect(await store.claimEmissions(CYCLE_1)).toEqual([])
   })
 })

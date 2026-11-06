@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import type { PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type CrmAppSession, openCrmAppSession } from './__test-helpers__/crm-app-session'
-import { PRIVILEGE_CLASSES, ROLES } from './privileges/privilege-classes'
+import { ALL_TABLE_PRIVILEGES, PRIVILEGE_CLASSES, ROLES } from './privileges/privilege-classes'
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
@@ -126,16 +126,17 @@ describe.skipIf(!hasDatabaseUrl())(
       expect([await catalogOf(SCHEMA, COUNTERS), await catalogOf(SCHEMA, FLAGS)]).toEqual(before)
     })
 
-    it.each([COUNTERS, FLAGS])('%s is class A: crm_app may not DELETE', async (table) => {
-      expect(PRIVILEGE_CLASSES.A).toContain(table)
-      const { rows } = await session.admin.query(
-        `SELECT p, has_table_privilege($1, 'public.' || $2, p) AS held
-         FROM unnest(ARRAY['SELECT','INSERT','UPDATE']) p`,
-        [ROLES.app, table],
-      )
-      expect(rows.every((r) => r['held'] === true)).toBe(true)
-      expect(rows).toHaveLength(3)
-    })
+    it.each([COUNTERS, FLAGS])(
+      '%s is class A: the shipped grants give crm_app exactly the class privileges',
+      async (table) => {
+        expect(PRIVILEGE_CLASSES.A).toContain(table)
+        const { rows } = await session.admin.query(
+          `SELECT p FROM unnest($3::text[]) p WHERE has_table_privilege($1, 'public.' || $2, p)`,
+          [ROLES.app, table, ALL_TABLE_PRIVILEGES],
+        )
+        expect(rows.map((r) => r['p']).sort()).toEqual(['DELETE', 'INSERT', 'SELECT', 'UPDATE'])
+      },
+    )
 
     it('as crm_app a counter row inserts; page text in a code or a route is refused', async () => {
       const insert = (route: string, code: string) =>

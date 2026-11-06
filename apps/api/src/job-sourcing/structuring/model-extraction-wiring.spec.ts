@@ -79,13 +79,13 @@ function fakeWorker(reply: object = REPLY) {
   const fetchImpl = vi.fn(
     (
       url: string,
-      init: { headers?: Record<string, string>; body?: string; signal?: AbortSignal },
+      init?: { headers?: Record<string, string>; body?: string; signal?: AbortSignal },
     ) => {
       if (url.endsWith('/preflight')) {
         preflights.push(url)
         return preflightOk()
       }
-      calls.push({ url, headers: init.headers ?? {}, body: JSON.parse(init.body ?? 'null') })
+      calls.push({ url, headers: init?.headers ?? {}, body: JSON.parse(init?.body ?? 'null') })
       return Promise.resolve(new Response(JSON.stringify(reply), { status: 200 }))
     },
   )
@@ -340,11 +340,12 @@ describe('the timeout and hold derive from the router call ceiling (AC3, ADR §5
 
   it('the structurer gives up at its timeout, not before: the router answers first', async () => {
     const signals: AbortSignal[] = []
-    const fetchImpl = (url: string, init: { signal?: AbortSignal }) => {
+    const fetchImpl = (url: string, init?: { signal?: AbortSignal }) => {
       if (url.endsWith('/preflight')) return preflightOk()
-      signals.push(init.signal!)
+      const signal = init!.signal!
+      signals.push(signal)
       return new Promise<Response>((_resolve, reject) => {
-        init.signal!.addEventListener('abort', () => reject(new Error('aborted')))
+        signal.addEventListener('abort', () => reject(new Error('aborted')))
       })
     }
     const r = buildModelExtraction(ENV, { ...OPTS, fetchImpl })
