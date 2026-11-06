@@ -4,7 +4,7 @@
  * the HR team switcher and the refresh / partial / access-lost notices. Opening a row writes
  * `?card=<id>`; the card itself is Task 7.3. Layout and copy: docs/design/vacancy-queue.md.
  */
-import { useRef, useState, type FormEvent } from 'react'
+import { useId, useRef, useState, type FormEvent } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { AlertTriangle, RefreshCw, Search, X } from 'lucide-react'
@@ -66,8 +66,16 @@ export function JobQueuePage() {
   const bodyRef = useRef<HTMLDivElement>(null)
   // state, not a ref: the sentinel's observer has to rebuild once the scroller exists
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null)
+  const headingId = useId()
 
   if (denied || !user || (user.role !== 'ADMIN' && user.role !== 'HR')) return null
+
+  // the foot's refresh button unmounts on click, and the list it closed is replaced from the top
+  const returnToTop = () => {
+    bodyRef.current!.focus()
+    // after the focus, whose own scroll-into-view this overrides
+    scrollRoot!.scrollTop = 0
+  }
 
   let body
   if (user.role === 'ADMIN') {
@@ -76,6 +84,7 @@ export function JobQueuePage() {
         scope={{ actorId: user.id, role: 'ADMIN', teamId: null }}
         search={search}
         scrollRoot={scrollRoot}
+        onReturnToTop={returnToTop}
       />
     )
   } else if (teams === null) {
@@ -132,6 +141,7 @@ export function JobQueuePage() {
         search={search}
         teams={teams.map((t) => ({ id: t.id, name: t.name }))}
         scrollRoot={scrollRoot}
+        onReturnToTop={returnToTop}
       />
     )
   }
@@ -141,13 +151,17 @@ export function JobQueuePage() {
     <div
       ref={setScrollRoot}
       data-testid="job-queue-scroll"
-      className="min-h-0 flex-1 overflow-y-auto"
+      // the only scroller on the page: focusable, or scroll keys do nothing until a row has focus
+      tabIndex={0}
+      role="region"
+      aria-labelledby={headingId}
+      className="min-h-0 flex-1 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       <div
         data-testid="job-queue-page"
         className="@container mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-4 px-4 py-4 sm:px-6"
       >
-        <h1 className="text-xl font-semibold tracking-tight">
+        <h1 id={headingId} className="text-xl font-semibold tracking-tight">
           <Trans>Черга зовнішніх вакансій</Trans>
         </h1>
         <div
@@ -168,11 +182,13 @@ function QueueBody({
   search,
   teams,
   scrollRoot,
+  onReturnToTop,
 }: {
   scope: QueueScopeSignature & { role: 'ADMIN' | 'HR' }
   search: QueueSearch
   teams?: ReadonlyArray<{ id: string; name: string }>
   scrollRoot: HTMLElement | null
+  onReturnToTop: () => void
 }) {
   const { t } = useLingui()
   const navigate = useNavigate()
@@ -336,6 +352,10 @@ function QueueBody({
             scrollRoot={scrollRoot}
             onLoadMore={() => void queue.fetchNextPage()}
             onRetry={() => void queue.refetch()}
+            onRestart={() => {
+              onReturnToTop()
+              void queue.restart()
+            }}
             onOpen={(card) => go({ ...search, card })}
             onResetFilters={resetFilters}
             onClearSearch={clearSearch}

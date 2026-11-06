@@ -47,6 +47,7 @@ function renderList(over: Partial<JobQueueListProps> = {}) {
     refreshRequired: false,
     onLoadMore: vi.fn(),
     onRetry: vi.fn(),
+    onRestart: vi.fn(),
     onOpen: vi.fn(),
     onResetFilters: vi.fn(),
     onClearSearch: vi.fn(),
@@ -237,13 +238,36 @@ describe('JobQueueList', () => {
     expect(screen.getByTestId('job-queue-appending')).toHaveTextContent('Завантажуємо ще…')
   })
 
-  it('shows no foot while a refresh is required: retrying a dead cursor cannot succeed', () => {
-    renderList({ hasNextPage: true, isFetchNextPageError: true, refreshRequired: true })
+  it('the foot offers the restart while a refresh is required: retrying a dead cursor cannot succeed', async () => {
+    const props = renderList({
+      hasNextPage: true,
+      isFetchNextPageError: true,
+      refreshRequired: true,
+    })
     expect(screen.getByTestId(`job-queue-row-${A.opportunityId}`)).toBeInTheDocument()
+    expect(screen.getByText('Список змінився')).toBeInTheDocument()
+    expect(screen.queryByTestId('job-queue-live')).toBeNull()
     expect(screen.queryByTestId('job-queue-retry')).toBeNull()
     expect(screen.queryByTestId('job-queue-append-error')).toBeNull()
-    expect(screen.queryByTestId('job-queue-end')).toBeNull()
     expect(screen.queryByTestId('job-queue-sentinel')).toBeNull()
+    // the page's notice above the list is the one that announces
+    expect(screen.queryByRole('status')).toBeNull()
+    const restart = screen.getByRole('button', { name: 'Показати оновлений список' })
+    expect(restart).toHaveAttribute('data-testid', 'job-queue-refresh-foot')
+    expect(restart).toHaveClass('min-h-11', 'w-full', '@min-[560px]:w-auto')
+    await userEvent.click(restart)
+    expect(props.onRestart).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers no restart in the foot while the cursor is alive', () => {
+    renderList({ hasNextPage: true, total: 40 })
+    expect(screen.queryByTestId('job-queue-refresh-foot')).toBeNull()
+    expect(screen.queryByText('Список змінився')).toBeNull()
+  })
+
+  it('centres the foot line, which wraps at 320', () => {
+    renderList()
+    expect(screen.getByTestId('job-queue-live')).toHaveClass('text-center')
   })
 
   describe('infinite scroll (spec §4.4)', () => {

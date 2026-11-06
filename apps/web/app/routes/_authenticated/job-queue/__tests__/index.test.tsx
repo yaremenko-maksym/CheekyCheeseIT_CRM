@@ -630,6 +630,42 @@ describe('/job-queue page', () => {
     expect(screen.queryByTestId('job-queue-retry')).toBeNull()
   })
 
+  it('the foot refresh returns to the top of the list and parks focus on its body', async () => {
+    serve({
+      queue: twoPages(() => Promise.reject(apiError(409, 'JOB_QUEUE_REFRESH_REQUIRED'))),
+    })
+    renderPage()
+    await screen.findByTestId('job-queue-sentinel')
+    await scrollToEnd()
+    const foot = await screen.findByTestId('job-queue-refresh-foot')
+    const scroller = screen.getByTestId('job-queue-scroll')
+    scroller.scrollTop = 2400
+    const before = queueCalls().length
+    await userEvent.click(foot)
+    expect(scroller.scrollTop).toBe(0)
+    expect(screen.getByTestId('job-queue-body')).toHaveFocus()
+    await waitFor(() => expect(queueCalls().length).toBeGreaterThan(before))
+    expect(await screen.findByTestId(`job-queue-row-${ITEM_ID}`)).toBeInTheDocument()
+    expect(screen.queryByTestId('job-queue-refresh-foot')).toBeNull()
+    expect(screen.queryByTestId('job-queue-refresh')).toBeNull()
+  })
+
+  it('the scroller is a focusable region named by the page heading, without taking focus on load', async () => {
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    const scroller = screen.getByTestId('job-queue-scroll')
+    expect(scroller).toHaveAttribute('tabindex', '0')
+    expect(screen.getByRole('region', { name: 'Черга зовнішніх вакансій' })).toBe(scroller)
+    // inset: the layout's `main` is `overflow-hidden` and would clip an outer ring
+    expect(scroller).toHaveClass(
+      'focus-visible:ring-2',
+      'focus-visible:ring-inset',
+      'focus-visible:ring-ring',
+    )
+    expect(scroller).not.toHaveFocus()
+  })
+
   it('a loaded next page is appended and announced', async () => {
     serve({
       queue: twoPages(() =>

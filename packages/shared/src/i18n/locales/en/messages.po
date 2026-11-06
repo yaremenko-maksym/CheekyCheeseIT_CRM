@@ -1213,6 +1213,7 @@ msgstr "No events yet."
 msgid "Рівень"
 msgstr "Level"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Показати оновлений список"
 msgstr "Show the updated list"
@@ -8109,6 +8110,7 @@ msgstr "No payouts yet"
 msgid "Media token замінено"
 msgstr "Media token replaced"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Список змінився"
 msgstr "The list has changed"

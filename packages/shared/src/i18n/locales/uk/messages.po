@@ -1213,6 +1213,7 @@ msgstr "Подій ще немає."
 msgid "Рівень"
 msgstr "Рівень"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Показати оновлений список"
 msgstr "Показати оновлений список"
@@ -8109,6 +8110,7 @@ msgstr "Виплат ще не було"
 msgid "Media token замінено"
 msgstr "Media token замінено"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Список змінився"
 msgstr "Список змінився"

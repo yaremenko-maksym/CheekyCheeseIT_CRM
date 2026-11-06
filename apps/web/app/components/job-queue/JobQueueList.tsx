@@ -22,12 +22,13 @@ export interface JobQueueListProps {
   isFetching: boolean
   isFetchingNextPage: boolean
   isFetchNextPageError: boolean
-  /** The cursor is dead: the page's refresh notice is the only way on, so the foot offers nothing. */
+  /** The cursor is dead: the foot swaps its count, sentinel and retry for the restart, because the page's notice is out of view after a long scroll. */
   refreshRequired: boolean
   /** The element that scrolls the list: `rootMargin` applies only against an explicit root. */
   scrollRoot: HTMLElement | null
   onLoadMore: () => void
   onRetry: () => void
+  onRestart: () => void
   onOpen: (opportunityId: string) => void
   onResetFilters: () => void
   onClearSearch: () => void
@@ -78,7 +79,7 @@ export function JobQueueList(props: JobQueueListProps) {
   const { i18n } = useLingui()
   const { items, status, tab, scrollRoot } = props
   const listRef = useRef<HTMLUListElement>(null)
-  // set by a button / keyboard append: the index of the first row to focus once it arrives
+  // set only by the retry after a failed append: the index of the first row to focus once it arrives
   // (Infinity = nothing pending: no list length ever exceeds it)
   const focusFrom = useRef(Infinity)
   const loadMore = useRef(props.onLoadMore)
@@ -213,7 +214,12 @@ export function JobQueueList(props: JobQueueListProps) {
         <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
           {armed && <div ref={setSentinel} data-testid="job-queue-sentinel" aria-hidden="true" />}
           {/* remounted per tab: an in-place text change on a tab switch would be read out */}
-          <p key={tab} data-testid="job-queue-live" aria-live="polite" className="tabular-nums">
+          <p
+            key={tab}
+            data-testid="job-queue-live"
+            aria-live="polite"
+            className="text-center tabular-nums"
+          >
             {props.hasNextPage ? (
               <span data-testid="job-queue-shown">
                 {added > 0 ? (
@@ -271,6 +277,21 @@ export function JobQueueList(props: JobQueueListProps) {
               <Trans>Спробувати ще раз</Trans>
             </Button>
           )}
+        </div>
+      )}
+      {props.refreshRequired && (
+        <div className="flex flex-col items-center gap-2 text-sm">
+          <p className="text-center font-medium">
+            <Trans>Список змінився</Trans>
+          </p>
+          <Button
+            data-testid="job-queue-refresh-foot"
+            variant="outline"
+            className="min-h-11 w-full @min-[560px]:w-auto"
+            onClick={props.onRestart}
+          >
+            <Trans>Показати оновлений список</Trans>
+          </Button>
         </div>
       )}
     </div>
