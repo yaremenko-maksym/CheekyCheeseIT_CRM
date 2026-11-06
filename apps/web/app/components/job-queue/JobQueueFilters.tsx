@@ -216,7 +216,8 @@ export function JobQueueFilters({
       <PopoverContent
         data-testid="job-queue-filters-panel"
         align="end"
-        className="flex w-[min(20rem,calc(100vw-2rem))] flex-col gap-4"
+        collisionPadding={8}
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(20rem,calc(100vw-2rem))] flex-col gap-4 overflow-y-auto"
       >
         <FilterPanel
           value={value}

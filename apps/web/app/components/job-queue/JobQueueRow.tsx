@@ -1,16 +1,52 @@
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { Ban, CalendarOff, Check, ChevronRight, CircleHelp, PenLine, Rss } from 'lucide-react'
-import { formatRelativeTime, type JobQueueListItemDto, type JobQueueTab } from '@crm/shared'
+import {
+  formatRelativeTime,
+  type JobQueueListItemDto,
+  type JobQueueTab,
+  type JobSourceType,
+} from '@crm/shared'
 import { useLocale } from '@/lib/i18n'
 
-/**
- * Brand part of a source type (`DOU_RSS` → `DOU`). shortcut: the web app has no source
- * display-name map yet (the admin health panel shows the raw enum); replace with one
- * when product names are curated.
- */
+/* Product names, deliberately not translated. */
+const SOURCE_NAME: Record<JobSourceType, string> = {
+  DOU_RSS: 'DOU',
+  REMOTEOK_API: 'RemoteOK',
+  REMOTIVE_API: 'Remotive',
+  HIMALAYAS_API: 'Himalayas',
+  JOBICY_API: 'Jobicy',
+  ARBEITNOW_API: 'Arbeitnow',
+  WORKINGNOMADS_API: 'Working Nomads',
+  JOBGETHER_API: 'Jobgether',
+  HN_HIRING: 'Hacker News: Who is hiring',
+  GREENHOUSE_ATS: 'Greenhouse',
+  LEVER_ATS: 'Lever',
+  ASHBY_ATS: 'Ashby',
+  WORKABLE_ATS: 'Workable',
+  SMARTRECRUITERS_ATS: 'SmartRecruiters',
+  RECRUITEE_ATS: 'Recruitee',
+  PERSONIO_ATS: 'Personio',
+  JOOBLE_API: 'Jooble',
+  JSEARCH_API: 'JSearch',
+  THEIRSTACK_API: 'TheirStack',
+  MUSE_API: 'The Muse',
+  REED_API: 'Reed',
+  DJINNI_RSS: 'Djinni',
+  WWR_RSS: 'We Work Remotely',
+  EUREMOTEJOBS_RSS: 'EU Remote Jobs',
+  JUSTJOIN_HTML: 'Just Join IT',
+  NOFLUFF_HTML: 'No Fluff Jobs',
+  LANDINGJOBS_HTML: 'Landing.jobs',
+  NEXTLEVELJOBS_HTML: 'Next Level Jobs',
+  DICE_HTML: 'Dice',
+  THEHUB_HTML: 'The Hub',
+  WTTJ_HTML: 'Welcome to the Jungle',
+}
+
+/** Product name of a source type; an unknown code falls back to the raw value. */
 export function sourceLabel(sourceType: string): string {
-  return sourceType.replace(/_(RSS|API|ATS|HTML|HIRING)$/, '')
+  return SOURCE_NAME[sourceType as JobSourceType] ?? sourceType
 }
 
 // Module-level `msg` plurals, not the `plural()` macro (breaks under Stryker, see TxDateField).

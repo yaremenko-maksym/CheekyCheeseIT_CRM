@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { JobQueueListItemDto } from '@crm/shared'
+import { jobSourceTypeSchema, type JobQueueListItemDto } from '@crm/shared'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { JobQueueRow, sourceLabel } from '../JobQueueRow'
 
@@ -213,12 +213,18 @@ describe('JobQueueRow', () => {
 })
 
 describe('sourceLabel', () => {
-  it('drops the transport suffix and keeps the brand', () => {
+  it('maps source types to product names', () => {
     expect(sourceLabel('DOU_RSS')).toBe('DOU')
-    expect(sourceLabel('REMOTEOK_API')).toBe('REMOTEOK')
-    expect(sourceLabel('WTTJ_HTML')).toBe('WTTJ')
-    expect(sourceLabel('GREENHOUSE_ATS')).toBe('GREENHOUSE')
-    expect(sourceLabel('HN_HIRING')).toBe('HN')
+    expect(sourceLabel('REMOTEOK_API')).toBe('RemoteOK')
+    expect(sourceLabel('WWR_RSS')).toBe('We Work Remotely')
+    expect(sourceLabel('WTTJ_HTML')).toBe('Welcome to the Jungle')
+    expect(sourceLabel('GREENHOUSE_ATS')).toBe('Greenhouse')
+    expect(sourceLabel('HN_HIRING')).toBe('Hacker News: Who is hiring')
+    expect(sourceLabel('NOFLUFF_HTML')).toBe('No Fluff Jobs')
+  })
+
+  it('has a human label for every source type (no raw enum code)', () => {
+    for (const o of jobSourceTypeSchema.options) expect(sourceLabel(o)).not.toContain('_')
   })
 
   it('strips only a trailing transport suffix', () => {
