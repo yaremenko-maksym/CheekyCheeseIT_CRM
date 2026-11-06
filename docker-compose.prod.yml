@@ -118,7 +118,7 @@ services:
   # as `api`, worker entrypoint. Not started by a plain `up`; the owner enables
   # it (docs/runbooks/extraction-worker.md). Own env file, never .env.production.
   # NO `ports:` (SR-L-4) and only the internal network: guarded by
-  # scripts/devops/check-extraction-worker-compose.sh.
+  # scripts/devops/check-extraction-worker-compose.mjs.
   extraction-worker:
     profiles: ['extraction']
     build:
