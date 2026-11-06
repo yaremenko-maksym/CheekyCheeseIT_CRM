@@ -47,7 +47,7 @@ assert_red "network losing internal: true is refused" --contains "must be intern
 SHARENS="$(mutate sharens '/^  nginx:/,/^# ── Volumes/ { /^    networks:$/,/^      - frontend$/d; /^  nginx:/a\
     network_mode: "service:extraction-worker"
 }')"
-assert_red "a service sharing the worker's network namespace is refused" --contains "network" -- guard "$SHARENS"
+assert_red "a service sharing the worker's network namespace is refused" --contains "share the worker's network namespace" -- guard "$SHARENS"
 
 NOPROFILE="$(mutate noprofile "/^    profiles: \['extraction'\]\$/d")"
 assert_red "worker losing its opt-in profile is refused" --contains "opt-in" -- guard "$NOPROFILE"
