@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   EXTRACTION_TABLE_VERSION,
   MIN_WORKER_SECRET_CHARS,
+  MIN_WORKER_SECRET_DISTINCT_CHARS,
   healthFlags,
   localOnlyRouterConfig,
   parseWorkerEnv,
@@ -19,7 +20,8 @@ const MODULE = {
   reply: modelReplySchema,
 }
 
-const SECRET = 's'.repeat(MIN_WORKER_SECRET_CHARS)
+// Exactly the minimum on both axes: 32 characters, 8 distinct.
+const SECRET = 'abcdefgh'.repeat(4)
 const BASE = {
   EXTRACTION_WORKER_SECRET: SECRET,
   EXTRACTION_ROUTER_CONFIG: '{"routes":[]}',
@@ -31,13 +33,16 @@ describe('parseWorkerEnv — the worker does not start without its secret', () =
     ['missing', { ...BASE, EXTRACTION_WORKER_SECRET: undefined }],
     ['empty', { ...BASE, EXTRACTION_WORKER_SECRET: '' }],
     ['one short', { ...BASE, EXTRACTION_WORKER_SECRET: SECRET.slice(1) }],
+    ['one repeated character', { ...BASE, EXTRACTION_WORKER_SECRET: 's'.repeat(64) }],
+    ['seven distinct characters', { ...BASE, EXTRACTION_WORKER_SECRET: 'abcdefg'.repeat(9) }],
   ])('secret %s: refused, the value never echoed', (_name, env) => {
     const r = parseWorkerEnv(env)
     expect(r).toEqual({ ok: false, reason: 'SECRET' })
   })
 
-  it('a secret at the minimum length is accepted; defaults apply', () => {
+  it('a secret at the minimum length and variety is accepted; defaults apply', () => {
     expect(MIN_WORKER_SECRET_CHARS).toBe(32)
+    expect(MIN_WORKER_SECRET_DISTINCT_CHARS).toBe(8)
     const r = parseWorkerEnv(BASE)
     expect(r).toEqual({
       ok: true,

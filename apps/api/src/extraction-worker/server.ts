@@ -96,6 +96,8 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
     const controller = new AbortController()
     // After a sent reply the call is over, so the abort is a no-op there.
     reply.raw.on('close', () => controller.abort())
+    // 'close' fires once: a client gone during the body read, check or strip never fires it here.
+    if (reply.raw.destroyed) controller.abort()
     return callEvents.run(events, () => run(controller.signal))
   }
 

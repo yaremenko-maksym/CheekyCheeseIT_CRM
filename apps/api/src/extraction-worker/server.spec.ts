@@ -1,5 +1,6 @@
+import { once } from 'node:events'
 import { mkdtempSync, writeFileSync } from 'node:fs'
-import { request as httpRequest } from 'node:http'
+import { request as httpRequest, type ClientRequest } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -511,5 +512,38 @@ describe('extraction worker — a closed connection aborts the route call', () =
     client.destroy()
     await aborted
     expect(seen?.aborted).toBe(true)
+  })
+
+  it('a client gone before the route call starts: the signal is already aborted', async () => {
+    let abortedAtEntry: boolean | undefined
+    let release!: () => void
+    const reached = new Promise<void>((r) => (release = r))
+    const extract = fakePort(async (req) => {
+      abortedAtEntry = req.signal?.aborted
+      release()
+      return { ok: false, code: 'TIMEOUT' }
+    })
+    const { app } = await setup({ extract })
+    track(app)
+    let client!: ClientRequest
+    // Holds the request after its body was read until the connection is gone: the check/strip window.
+    app.addHook('preHandler', async (_req, reply) => {
+      const closed = once(reply.raw, 'close')
+      client.destroy()
+      await closed
+    })
+    await app.listen({ host: '127.0.0.1', port: 0 })
+    const { port } = app.server.address() as AddressInfo
+    client = httpRequest({
+      host: '127.0.0.1',
+      port,
+      method: 'POST',
+      path: '/extract',
+      headers: auth,
+    })
+    client.on('error', () => undefined)
+    client.end(body())
+    await reached
+    expect(abortedAtEntry).toBe(true)
   })
 })

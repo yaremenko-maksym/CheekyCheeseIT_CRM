@@ -67,8 +67,11 @@ export type ExtractionWorkerAdapterConfig = {
 /**
  * The collection side's `ExtractionPort` (ADR §2.4): sends the input and the table version only.
  * The caller's instruction, schema and small dose never cross; the worker builds its own request
- * from the same checked-in module. Any refused, failed or malformed call is `PROVIDER_ERROR`; the
- * caller's abort closes the connection and answers `TIMEOUT`, as the router does. Never throws.
+ * from the same checked-in module. Any refused, failed or malformed call is `PROVIDER_ERROR`. A
+ * failure code the router delivered passes through, because §5.4 decides the record by it; only
+ * `RATE_LIMITED`, which §5.4 has no row for, becomes `PROVIDER_ERROR`. The caller's abort closes the
+ * connection and answers `TIMEOUT`, as the router does. Events and health are recorded as soon as
+ * the reply envelope parses, whatever the answer turns out to be. Never throws.
  */
 export function createExtractionWorkerAdapter(
   config: ExtractionWorkerAdapterConfig,
@@ -98,18 +101,18 @@ export function createExtractionWorkerAdapter(
       const parsed = replySchema.safeParse(body)
       if (!parsed.success) return failed
       const { result, events, health } = parsed.data
-      let answer: ExtractionResult<T> = result.ok ? failed : result
-      if (result.ok) {
-        const data = req.schema.safeParse(result.data)
-        if (!data.success) return failed
-        answer = { ok: true, data: data.data, ...(result.usage && { usage: result.usage }) }
-      }
       try {
         config.onReply({ events, health })
       } catch {
         // The sink's failure is the caller's to observe; it never turns an answer into a throw.
       }
-      return answer
+      if (!result.ok) {
+        // §5.4 has no row for RATE_LIMITED and the router never answers it publicly.
+        return result.code === 'RATE_LIMITED' ? { ...result, code: 'PROVIDER_ERROR' } : result
+      }
+      const data = req.schema.safeParse(result.data)
+      if (!data.success) return failed
+      return { ok: true, data: data.data, ...(result.usage && { usage: result.usage }) }
     },
   }
 }

@@ -12,6 +12,8 @@ import { smallDoseFor } from '../job-sourcing/structuring/small-dose-table'
 
 /** The worker refuses to start with a shorter `EXTRACTION_WORKER_SECRET` (ADR §2.4). */
 export const MIN_WORKER_SECRET_CHARS = 32
+/** Fewer distinct characters than this is a placeholder, whatever its length. */
+export const MIN_WORKER_SECRET_DISTINCT_CHARS = 8
 /** The delimited user message from `buildExtractionPrompt`, bounded by the port's own input cap. */
 export const MAX_WORKER_INPUT_CHARS = MAX_EXTRACTION_INPUT_CHARS
 const DEFAULT_PORT = 3100
@@ -94,7 +96,11 @@ function parseJson(text: string): { value: unknown } | null {
  */
 export function parseWorkerEnv(env: Readonly<Record<string, string | undefined>>): WorkerEnvResult {
   const secret = env.EXTRACTION_WORKER_SECRET
-  if (secret === undefined || secret.length < MIN_WORKER_SECRET_CHARS) {
+  if (
+    secret === undefined ||
+    secret.length < MIN_WORKER_SECRET_CHARS ||
+    new Set(secret).size < MIN_WORKER_SECRET_DISTINCT_CHARS
+  ) {
     return { ok: false, reason: 'SECRET' }
   }
   const rawConfig = env.EXTRACTION_ROUTER_CONFIG

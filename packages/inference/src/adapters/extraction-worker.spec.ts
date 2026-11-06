@@ -91,10 +91,38 @@ describe('extraction-worker adapter — what crosses', () => {
     expect(replies).toHaveLength(1)
   })
 
-  it('a worker failure code without usage passes through bare', async () => {
-    const { port } = setup(fakeFetch(async () => reply({ ok: false, code: 'RATE_LIMITED' })))
-    expect(await port.extract(request())).toEqual({ ok: false, code: 'RATE_LIMITED' })
+  // ADR §5.4: each of these decides what happens to the record, so none may be flattened.
+  it.each(['NOT_CONFIGURED', 'PROVIDER_ERROR', 'INVALID_OUTPUT', 'TIMEOUT'])(
+    'a worker failure code %s passes through bare',
+    async (code) => {
+      const { port } = setup(fakeFetch(async () => reply({ ok: false, code })))
+      expect(await port.extract(request())).toEqual({ ok: false, code })
+    },
+  )
+
+  it('RATE_LIMITED, which §5.4 has no row for, is PROVIDER_ERROR and keeps its usage', async () => {
+    const { port, replies } = setup(
+      fakeFetch(async () => reply({ ok: false, code: 'RATE_LIMITED', usage: { localMs: 4 } })),
+    )
+    expect(await port.extract(request())).toEqual({
+      ok: false,
+      code: 'PROVIDER_ERROR',
+      usage: { localMs: 4 },
+    })
+    expect(replies).toHaveLength(1)
   })
+
+  it.each([
+    ['fails the caller schema', { title: 1 }],
+    ['has a foreign key', { title: 't', x: 1 }],
+  ])(
+    'data that %s is PROVIDER_ERROR, its events and health still recorded',
+    async (_name, data) => {
+      const { port, replies } = setup(fakeFetch(async () => reply({ ok: true, data })))
+      expect(await port.extract(request())).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+      expect(replies).toEqual([{ events: [{ type: 'CALL', code: 'OK' }], health: HEALTH }])
+    },
+  )
 
   it('raised health flags reach the caller', async () => {
     const health = { modelListStale: true, failedJobs: ['daily', 'chain'] }
@@ -122,8 +150,6 @@ describe('extraction-worker adapter — every refused, failed or malformed reply
     ],
     ['not JSON', { status: 200, text: '{"result":' }],
     ['no result', { status: 200, text: JSON.stringify({ events: [], health: HEALTH }) }],
-    ['data fails the caller schema', reply({ ok: true, data: { title: 1 } })],
-    ['data has a foreign key', reply({ ok: true, data: { title: 't', x: 1 } })],
     ['negative usage', reply({ ok: true, data: { title: 't' }, usage: { totalTokens: -1 } })],
     ['foreign usage key', reply({ ok: true, data: { title: 't' }, usage: { cost: 1 } })],
     ['unknown failure code', reply({ ok: false, code: 'SOMETHING' })],
