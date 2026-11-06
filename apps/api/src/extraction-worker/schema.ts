@@ -39,9 +39,12 @@ export function tableVersionOf(m: {
   // Stryker disable next-line StringLiteral: equivalent — see the line above; 'io' is pinned by its own test
   const reply = z.toJSONSchema(m.reply, { unrepresentable: 'any', io: 'input' })
   const doc = JSON.stringify({ prompt: m.prompt, groups, reply })
-  return createHash('sha256').update(doc).digest('hex').slice(0, 16)
+  // Stryker disable next-line StringLiteral: false survivor — '' throws "Digest method not supported" at module load, the spec file fails to collect, which the runner does not count as a kill
+  const hash = createHash('sha256')
+  return hash.update(doc).digest('hex').slice(0, 16)
 }
 
+// Stryker disable next-line ObjectLiteral: false survivor — {} throws at module load (m.groups is undefined), the spec file fails to collect, which the runner does not count as a kill
 export const EXTRACTION_TABLE_VERSION = tableVersionOf({
   prompt: EXTRACTION_SYSTEM_PROMPT,
   groups: smallDoseFor().groups,

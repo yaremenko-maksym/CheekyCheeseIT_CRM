@@ -1,11 +1,14 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { createServer, type AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import type { FastifyInstance } from 'fastify'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { EXTRACTION_TABLE_VERSION } from './schema'
 import { startWorker } from './start'
 
 const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
+const BEARER = { authorization: `Bearer ${SECRET}` }
 
 /** A port that was free a moment ago; `holder` keeps it taken for the failed-listen case. */
 async function takePort(): Promise<{ port: number; release(): Promise<void> }> {
@@ -106,5 +109,105 @@ describe('startWorker — a good env listens', () => {
     } finally {
       await taken.release()
     }
+  })
+})
+
+describe('startWorker — what it wires up', () => {
+  const stateFileWith = (text: string) => {
+    const path = join(mkdtempSync(join(tmpdir(), 'xw-start-')), 'state.json')
+    writeFileSync(path, text)
+    return path
+  }
+
+  const started = async (env: Record<string, string | undefined>) => {
+    const fake = fakeProcess()
+    const app = await startWorker(envOn(await freePort(), env), fake.proc)
+    open.push(app!)
+    return { app: app!, out: fake.out }
+  }
+
+  const post = (app: FastifyInstance, url: string, payload: object) =>
+    app.inject({ method: 'POST', url, headers: BEARER, payload })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('reads the state file the env names, and /extract answers from the configured routes', async () => {
+    const { app } = await started({
+      EXTRACTION_ROUTER_STATE_FILE: stateFileWith(
+        JSON.stringify({
+          version: 1,
+          spent: [],
+          retired: [],
+          providers: [],
+          modelListStale: [{ provider: 'groq', model: 'openai/gpt-oss-20b' }],
+        }),
+      ),
+    })
+    const res = await post(app, '/extract', { input: 'x', tableVersion: EXTRACTION_TABLE_VERSION })
+    expect(res.statusCode).toBe(200)
+    const body = res.json<{ result: { code: string }; health: { modelListStale: boolean } }>()
+    expect(body.result.code).toBe('NOT_CONFIGURED')
+    expect(body.health.modelListStale).toBe(true)
+  })
+
+  it('a corrupt state file is reported on stdout as a STATE line', async () => {
+    const { out } = await started({ EXTRACTION_ROUTER_STATE_FILE: stateFileWith('{ not json') })
+    expect(out.map((l) => JSON.parse(l) as unknown)).toContainEqual({
+      event: 'STATE',
+      type: 'STATE_RESET',
+      store: 'route-state',
+      reason: 'invalid',
+    })
+  })
+
+  it('/extract spends the own cap on the hosted route, then the floor; /preflight is local only', async () => {
+    const hostnames: string[] = []
+    // The router's bounded request goes through the global fetch: nothing leaves this process.
+    vi.stubGlobal('fetch', (url: string) => {
+      hostnames.push(new URL(url).hostname)
+      return Promise.resolve(new Response('{}', { status: 500 }))
+    })
+    const local = {
+      provider: 'local',
+      baseUrl: 'http://crm-model-runtime:11434',
+      model: 'qwen2.5:3b',
+      contextTokens: 8192,
+      structuredOutput: 'json_schema',
+      timeoutMs: 1000,
+      maxAnswerTokens: 512,
+    }
+    const hosted = {
+      provider: 'groq',
+      apiKey: 'KEY-MARKER',
+      models: ['openai/gpt-oss-20b'],
+      contextTokens: 8192,
+      structuredOutput: 'json_object',
+      minGapMs: 0,
+      timeoutMs: 1000,
+      maxAnswerTokens: 512,
+      freeLimit: { requestsPerDay: 100 },
+    }
+    const { app } = await started({
+      EXTRACTION_ROUTER_CONFIG: JSON.stringify({
+        policyVersion: 'p1',
+        hostedBudgetMs: 5000,
+        floorBudgetMs: 60_000,
+        routes: [hosted, local],
+      }),
+    })
+
+    const extract = await post(app, '/extract', {
+      input: 'x',
+      tableVersion: EXTRACTION_TABLE_VERSION,
+    })
+    expect(extract.json<{ result: { code: string } }>().result.code).toBe('PROVIDER_ERROR')
+    expect(hostnames).toEqual(['api.groq.com', 'crm-model-runtime'])
+
+    hostnames.length = 0
+    const preflight = await post(app, '/preflight', {})
+    expect(preflight.json<{ ok: boolean }>().ok).toBe(false)
+    expect(hostnames).toEqual(['crm-model-runtime'])
   })
 })
