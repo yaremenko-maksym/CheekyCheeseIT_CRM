@@ -39,6 +39,8 @@ const AVAILABILITY_LABEL: Record<'OPEN' | 'UNKNOWN' | 'CLOSED' | 'EXPIRED', Mess
   CLOSED: msg`Закрита`,
   EXPIRED: msg`Прострочена`,
 }
+// Module-level `msg` plural, not the `plural()` macro (breaks under Stryker, see TxDateField).
+const SENIOR_COUNT = msg`{n, plural, one {# сеньйор} few {# сеньйори} many {# сеньйорів} other {# сеньйора}}`
 
 /** The number of filter groups in use — the badge counts groups, not options (spec §4.1a). */
 export function appliedFilterCount(value: JobQueueFilterValue): number {
@@ -54,16 +56,20 @@ export function JobQueueAppliedFilters({
   onReset,
 }: {
   value: JobQueueFilterValue
-  /** Names for the applied seniors; an id without a name is left out, never shown raw. */
+  /** Names for the applied seniors; one missing name turns them into a count, never a raw id. */
   seniors?: ReadonlyArray<SeniorOption> | undefined
   onReset: () => void
 }) {
   const { i18n } = useLingui()
+  const seniorIds = value.seniorIds ?? []
+  const seniorNames = seniorIds.flatMap((id) => seniors?.find((s) => s.id === id)?.name || [])
   const summary = [
     value.source?.map(sourceLabel),
     value.eligibility?.map((o) => i18n._(ELIGIBILITY_LABEL[o])),
     value.availability?.map((o) => i18n._(AVAILABILITY_LABEL[o])),
-    value.seniorIds?.flatMap((id) => seniors?.find((s) => s.id === id)?.name || []),
+    seniorNames.length === seniorIds.length
+      ? seniorNames
+      : [i18n._(SENIOR_COUNT.id, { n: seniorIds.length })],
   ]
     .flatMap((g) => (g?.length ? [g.join(', ')] : []))
     .join(' · ')

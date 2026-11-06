@@ -1723,6 +1723,10 @@ msgstr "In active stages"
 msgid "Періодичність:"
 msgstr "Cadence:"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "{n, plural, one {# сеньйор} few {# сеньйори} many {# сеньйорів} other {# сеньйора}}"
+msgstr "{n, plural, one {# senior} other {# seniors}}"
+
 #: apps/web/app/routes/_authenticated/documents/components/DocumentsToolbar.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Пошук за назвою…"

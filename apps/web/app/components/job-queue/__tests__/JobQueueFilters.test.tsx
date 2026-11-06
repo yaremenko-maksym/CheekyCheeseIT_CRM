@@ -210,7 +210,7 @@ describe('JobQueueFilters', () => {
     it('summarizes the seniors by name, last, and never shows an id', () => {
       render(
         <JobQueueAppliedFilters
-          value={{ seniorIds: [SENIOR_B, UNKNOWN_SENIOR, SENIOR_A], source: ['DOU_RSS'] }}
+          value={{ seniorIds: [SENIOR_B, SENIOR_A], source: ['DOU_RSS'] }}
           seniors={OPTIONS}
           onReset={vi.fn()}
         />,
@@ -221,11 +221,48 @@ describe('JobQueueFilters', () => {
       )
     })
 
-    it('leaves the seniors out of the summary while their names are unknown', () => {
-      render(<JobQueueAppliedFilters value={{ seniorIds: [SENIOR_A] }} onReset={vi.fn()} />, {
+    it.each([
+      [[SENIOR_A], '1 сеньйор'],
+      [[SENIOR_A, SENIOR_B], '2 сеньйори'],
+      [[SENIOR_A, SENIOR_B, UNKNOWN_SENIOR, 'd', 'e'], '5 сеньйорів'],
+    ])('without a picker answer, %j count as «%s»; the reset stays', async (seniorIds, count) => {
+      const onReset = vi.fn()
+      render(<JobQueueAppliedFilters value={{ seniorIds }} onReset={onReset} />, {
         wrapper: I18nTestProvider,
       })
-      expect(screen.queryByTestId('job-queue-applied')).toBeNull()
+      expect(screen.getByTestId('job-queue-applied')).toHaveTextContent(
+        new RegExp(`^Застосовано: ${count}Скинути фільтри$`),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Скинути фільтри' }))
+      expect(onReset).toHaveBeenCalledOnce()
+    })
+
+    it('counts every senior as soon as one name is missing, and never shows an id', () => {
+      render(
+        <JobQueueAppliedFilters
+          value={{ seniorIds: [SENIOR_B, UNKNOWN_SENIOR], source: ['DOU_RSS'] }}
+          seniors={OPTIONS}
+          onReset={vi.fn()}
+        />,
+        { wrapper: I18nTestProvider },
+      )
+      expect(screen.getByTestId('job-queue-applied')).toHaveTextContent(
+        /^Застосовано: DOU · 2 сеньйориСкинути фільтри$/,
+      )
+    })
+
+    it('counts a senior whose display name is empty', () => {
+      render(
+        <JobQueueAppliedFilters
+          value={{ seniorIds: [SENIOR_A] }}
+          seniors={[{ id: SENIOR_A, name: '' }]}
+          onReset={vi.fn()}
+        />,
+        { wrapper: I18nTestProvider },
+      )
+      expect(screen.getByTestId('job-queue-applied')).toHaveTextContent(
+        /^Застосовано: 1 сеньйорСкинути фільтри$/,
+      )
     })
 
     it('renders no section without a picker', async () => {
