@@ -33,6 +33,7 @@ import {
   jobSourceTypeSchema,
   jobQueueForeignSubmissionSchema,
   DESCRIPTION_MD_MAX,
+  JOB_QUEUE_ROW_KEYWORDS_MAX,
 } from './job-sourcing'
 
 /**
@@ -76,6 +77,8 @@ const listItem = {
   alsoSeenOnCount: 2,
   availability: 'OPEN',
   eligibility: 'LEAD',
+  seniority: 'SENIOR',
+  matchedKeywords: ['react', 'typescript'],
   matchedSeniorCount: 4,
   submittedSeniorCount: 1,
   stopListedSeniorCount: 1,
@@ -582,6 +585,25 @@ describe('field bounds, both sides of each limit (CR-M-2)', () => {
     ok(jobQueueListItemSchema, { ...listItem, location: 'Kyiv' })
     ok(jobQueueListItemSchema, { ...listItem, location: s(500) })
     no(jobQueueListItemSchema, { ...listItem, location: s(501) })
+  })
+
+  it('a list row carries a known seniority: UNKNOWN included, a funnel-only level refused', () => {
+    for (const seniority of ['MIDDLE', 'SENIOR', 'LEAD', 'UNKNOWN']) {
+      ok(jobQueueListItemSchema, { ...listItem, seniority })
+    }
+    no(jobQueueListItemSchema, { ...listItem, seniority: 'JUNIOR' })
+    no(jobQueueListItemSchema, { ...listItem, seniority: undefined })
+  })
+
+  it('a list row bounds matchedKeywords: 20 items of 100 chars, and requires the field', () => {
+    const keywords = (n: number) => Array.from({ length: n }, () => 'ts')
+    ok(jobQueueListItemSchema, { ...listItem, matchedKeywords: [] })
+    ok(jobQueueListItemSchema, { ...listItem, matchedKeywords: keywords(20) })
+    no(jobQueueListItemSchema, { ...listItem, matchedKeywords: keywords(21) })
+    ok(jobQueueListItemSchema, { ...listItem, matchedKeywords: [s(100)] })
+    no(jobQueueListItemSchema, { ...listItem, matchedKeywords: [s(101)] })
+    no(jobQueueListItemSchema, { ...listItem, matchedKeywords: undefined })
+    expect(JOB_QUEUE_ROW_KEYWORDS_MAX).toBe(20)
   })
 
   it('matchedKeywords: 200 items accepted, 201 refused', () => {

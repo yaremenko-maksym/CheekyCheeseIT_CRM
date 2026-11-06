@@ -23,6 +23,8 @@ function item(over: Partial<JobQueueListItemDto> = {}): JobQueueListItemDto {
     alsoSeenOnCount: 0,
     availability: 'OPEN',
     eligibility: 'LEAD',
+    seniority: 'UNKNOWN',
+    matchedKeywords: [],
     matchedSeniorCount: 0,
     submittedSeniorCount: 0,
     stopListedSeniorCount: 0,
@@ -63,6 +65,76 @@ describe('JobQueueRow', () => {
     expect(screen.getByTestId('job-queue-row-source')).toHaveAccessibleName('Джерело: DOU')
     await userEvent.click(row)
     expect(onOpen).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111')
+  })
+
+  describe('seniority and stack chips', () => {
+    it('shows no seniority badge for UNKNOWN', () => {
+      renderRow({ seniority: 'UNKNOWN' })
+      expect(screen.queryByTestId('job-queue-row-seniority')).not.toBeInTheDocument()
+    })
+
+    it.each([
+      ['MIDDLE', 'Мідл'],
+      ['SENIOR', 'Сеньйор'],
+      ['LEAD', 'Лід'],
+    ] as const)('labels %s as %s', (seniority, label) => {
+      renderRow({ seniority })
+      expect(screen.getByTestId('job-queue-row-seniority')).toHaveTextContent(label)
+    })
+
+    it('shows no chips for 0 keywords', () => {
+      renderRow({ matchedKeywords: [] })
+      expect(screen.queryByTestId('job-queue-row-keywords')).not.toBeInTheDocument()
+    })
+
+    it('shows 3 keywords without an overflow chip', () => {
+      renderRow({ matchedKeywords: ['go', 'react', 'sql'] })
+      const chips = within(screen.getByTestId('job-queue-row-keywords'))
+      expect(chips.getAllByTestId('job-queue-row-keyword').map((c) => c.textContent)).toEqual([
+        'go',
+        'react',
+        'sql',
+      ])
+      expect(chips.queryByTestId('job-queue-row-keywords-more')).not.toBeInTheDocument()
+    })
+
+    it('shows the first 3 of 7 keywords and +4', () => {
+      renderRow({ matchedKeywords: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] })
+      const chips = within(screen.getByTestId('job-queue-row-keywords'))
+      expect(chips.getAllByTestId('job-queue-row-keyword').map((c) => c.textContent)).toEqual([
+        'a',
+        'b',
+        'c',
+      ])
+      expect(chips.getByTestId('job-queue-row-keywords-more')).toHaveTextContent('+4')
+    })
+
+    it('shows a 4th keyword as +1', () => {
+      renderRow({ matchedKeywords: ['a', 'b', 'c', 'd'] })
+      expect(screen.getByTestId('job-queue-row-keywords-more')).toHaveTextContent('+1')
+    })
+
+    it('truncates a long keyword inside its chip and keeps it readable by title', () => {
+      const long = 'k'.repeat(100)
+      renderRow({ matchedKeywords: [long] })
+      const chip = screen.getByTestId('job-queue-row-keyword')
+      expect(chip).toHaveClass('truncate', 'max-w-full')
+      expect(chip).toHaveAttribute('title', long)
+    })
+
+    it('renders chips as text, not as markup', () => {
+      renderRow({ matchedKeywords: ['<img src=x>'] })
+      expect(screen.getByTestId('job-queue-row-keyword').textContent).toBe('<img src=x>')
+      expect(screen.queryByRole('img', { name: '' })).not.toBeInTheDocument()
+    })
+
+    it('keeps chips inside the row button with no nested interactive element', () => {
+      const { row } = renderRow({ seniority: 'LEAD', matchedKeywords: ['a', 'b', 'c', 'd'] })
+      expect(row).toContainElement(screen.getByTestId('job-queue-row-keywords-more'))
+      expect(within(row).queryAllByRole('button')).toEqual([])
+      expect(screen.getByTestId('job-queue-row-seniority').tagName).toBe('SPAN')
+      expect(screen.getByTestId('job-queue-row-keywords').tagName).toBe('SPAN')
+    })
   })
 
   it('shows publication age when the date is known', () => {

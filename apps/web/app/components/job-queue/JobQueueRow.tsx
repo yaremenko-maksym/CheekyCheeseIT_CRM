@@ -1,3 +1,4 @@
+import type { MessageDescriptor } from '@lingui/core'
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { Ban, CalendarOff, Check, ChevronRight, CircleHelp, PenLine, Rss } from 'lucide-react'
@@ -5,6 +6,7 @@ import {
   formatRelativeTime,
   type JobQueueListItemDto,
   type JobQueueTab,
+  type JobSeniorityLevel,
   type JobSourceType,
 } from '@crm/shared'
 import { useLocale } from '@/lib/i18n'
@@ -55,6 +57,17 @@ export function sourceLabel(sourceType: string): string {
 const MATCHED_HR = msg`{n, plural, one {# сеньйор вашої команди має збіг стеку} few {# сеньйори вашої команди мають збіг стеку} many {# сеньйорів вашої команди мають збіг стеку} other {# сеньйора вашої команди мають збіг стеку}}`
 const MATCHED_ADMIN = msg`{n, plural, one {# сеньйор має збіг стеку} few {# сеньйори мають збіг стеку} many {# сеньйорів мають збіг стеку} other {# сеньйора мають збіг стеку}}`
 
+/* UNKNOWN has no label: an unclassified role shows no badge rather than a noise chip. */
+const SENIORITY_LABEL: Record<JobSeniorityLevel, MessageDescriptor | null> = {
+  MIDDLE: msg`Мідл`,
+  SENIOR: msg`Сеньйор`,
+  LEAD: msg`Лід`,
+  UNKNOWN: null,
+}
+const ROW_KEYWORDS_SHOWN = 3
+// spans, not <Badge>: Badge renders a <div>, invalid inside the row's <button>
+const CHIP = 'rounded-md border px-1.5 py-0.5 text-xs'
+
 export function JobQueueRow({
   item,
   tab,
@@ -84,6 +97,9 @@ export function JobQueueRow({
   const stopListedAll = matched === 0 && item.stopListedSeniorCount > 0
   const alsoSeen = item.alsoSeenOnCount
   const firstSeenAgo = formatRelativeTime(item.firstSeenAt, locale)
+  const seniorityLabel = SENIORITY_LABEL[item.seniority]
+  const keywords = item.matchedKeywords
+  const moreKeywords = keywords.length - ROW_KEYWORDS_SHOWN
 
   return (
     <button
@@ -113,6 +129,40 @@ export function JobQueueRow({
           />
           <span className="truncate">{company}</span>
         </span>
+        {(seniorityLabel || keywords.length > 0) && (
+          <span className="flex min-w-0 flex-wrap items-center gap-1">
+            {seniorityLabel && (
+              <span data-testid="job-queue-row-seniority" className={`${CHIP} font-medium`}>
+                {i18n._(seniorityLabel)}
+              </span>
+            )}
+            {keywords.length > 0 && (
+              <span
+                data-testid="job-queue-row-keywords"
+                className="flex min-w-0 flex-wrap items-center gap-1"
+              >
+                {keywords.slice(0, ROW_KEYWORDS_SHOWN).map((keyword) => (
+                  <span
+                    key={keyword}
+                    data-testid="job-queue-row-keyword"
+                    title={keyword}
+                    className={`${CHIP} max-w-full truncate text-muted-foreground`}
+                  >
+                    {keyword}
+                  </span>
+                ))}
+                {moreKeywords > 0 && (
+                  <span
+                    data-testid="job-queue-row-keywords-more"
+                    className={`${CHIP} text-muted-foreground tabular-nums`}
+                  >
+                    <Trans>+{moreKeywords}</Trans>
+                  </span>
+                )}
+              </span>
+            )}
+          </span>
+        )}
         {item.eligibility === 'TRIAGE' && (
           <span data-testid="job-queue-row-triage-reason" className="text-sm text-muted-foreground">
             <Trans>Роботодавця не вдалося підтвердити</Trans>

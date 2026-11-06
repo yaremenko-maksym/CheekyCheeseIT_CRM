@@ -17,6 +17,8 @@ function item(id: string, title: string): JobQueueListItemDto {
     alsoSeenOnCount: 0,
     availability: 'OPEN',
     eligibility: 'LEAD',
+    seniority: 'UNKNOWN',
+    matchedKeywords: [],
     matchedSeniorCount: 0,
     submittedSeniorCount: 0,
     stopListedSeniorCount: 0,

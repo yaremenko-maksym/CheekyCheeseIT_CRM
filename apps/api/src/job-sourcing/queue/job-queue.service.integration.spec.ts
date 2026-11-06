@@ -452,6 +452,32 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       expect((await itemOf(admin(), 'oppShared'))?.matchedSeniorCount).toBe(3)
     })
 
+    it('row keywords and seniority: the own seniors only, ADMIN studio-wide', async () => {
+      const own = await itemOf(hrA(), 'oppShared')
+      expect(own?.matchedKeywords).toEqual(['KeywordA', 'KeywordShared'])
+      expect(own?.seniority).toBe('UNKNOWN')
+      expect((await itemOf(hrB(), 'oppShared'))?.matchedKeywords).toEqual([
+        'KeywordForeign',
+        'KeywordShared',
+      ])
+      expect((await itemOf(admin(), 'oppShared'))?.matchedKeywords).toEqual([
+        'KeywordA',
+        'KeywordForeign',
+        'KeywordShared',
+      ])
+      expect((await itemOf(hrA(), 'oppGrant'))?.matchedKeywords).toEqual([])
+    })
+
+    it('row seniority is the stored column', async () => {
+      await mkOpp('oppLeadRole')
+      await sqlq(`UPDATE job_opportunities SET seniority = 'LEAD' WHERE id = $1`, [
+        id('oppLeadRole'),
+      ])
+      await lead('oppLeadRole', 'senA')
+      await expireGeneration('teamA')
+      expect((await itemOf(hrA(), 'oppLeadRole'))?.seniority).toBe('LEAD')
+    })
+
     it('foreign submission, dismissal and click on a shared row: as if none, in counts too', async () => {
       await mkOpp('oppWorked')
       await lead('oppWorked', 'senA')
