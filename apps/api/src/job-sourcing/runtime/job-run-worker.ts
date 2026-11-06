@@ -160,7 +160,7 @@ export interface WorkerDeps {
 const nameOf = (e: unknown): string => (e instanceof Error ? e.name : typeof e)
 
 /** `promise`, or a rejection after `ms`; the timer is unref-ed and always cleared. */
-export function boundedWrite(promise: Promise<unknown>, ms: number): Promise<unknown> {
+export function boundedWrite<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error('TimeoutError')), ms)

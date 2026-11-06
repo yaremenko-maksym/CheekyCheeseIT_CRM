@@ -33,6 +33,7 @@ export {
 } from './router/config'
 export { routerInputCeilingChars } from './router/fit'
 export {
+  ATTEMPT_CODES,
   createRouterExtractionAdapter,
   type RouterDeps,
   type RouterEvent,

@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { HtmlStructurerRequest } from './html-structurer.port'
-import type { ModelHealthStore, RouteCount } from './model-health'
+import {
+  createModelHealth,
+  MODEL_HEALTH_WRITE_TIMEOUT_MS,
+  type ModelHealthStore,
+  type RouteCount,
+} from './model-health'
 import { buildModelExtraction, PREFLIGHT_BACKOFF_MS } from './model-extraction-wiring'
 
 /**
@@ -235,10 +240,48 @@ describe('MODEL_UNREACHABLE clears only when a later preflight reaches the model
 
 describe('the counter (AC7, AC8: SR-M-3 from PR #1275)', () => {
   it('a floor fall in a real reply reaches the counter store', async () => {
-    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-06T23:59:00Z') })
     const s = setUp({ extract: { events: [fell([{ route: 'gemini', code: 'BUSY' }])] } })
     await runCycle(s)
-    expect(s.counts.get('2026-11-06/local/FELL_TO_LOCAL')).toBe(1)
+    expect([...s.counts.entries()].map(([k, v]) => [k.slice(11), v])).toEqual([
+      ['local/FELL_TO_LOCAL', 1],
+    ])
+  })
+
+  it('the day is the Kyiv day: 22:30 UTC on the 6th is already the 7th', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-06T22:30:00Z') })
+    const s = setUp({ extract: { events: [attempt('groq', 'BUSY')] } })
+    await runCycle(s)
+    expect([...s.counts.keys()]).toEqual(['2026-11-07/groq/BUSY'])
+  })
+
+  it('a cycle with nothing to count writes no counts', async () => {
+    const memory = memoryStore()
+    const addRouteCounts = vi.spyOn(memory.store, 'addRouteCounts')
+    await runCycle(setUp({ store: memory.store }))
+    expect(addRouteCounts).not.toHaveBeenCalled()
+  })
+
+  it('an event of any other type is neither counted nor refused', async () => {
+    const s = setUp({
+      extract: { events: [{ type: 'CALL', code: 'OK', floorAnswered: false, latencyMs: 1 }] },
+    })
+    await runCycle(s)
+    expect(s.counts.size).toBe(0)
+    expect(s.errors).toEqual([])
+  })
+
+  it('a code the router never sends is refused, even in the DB format, so it stores nothing', async () => {
+    const s = setUp({ extract: { events: [attempt('groq', 'JOHN_DOE_380671234567')] } })
+    await runCycle(s)
+    expect(s.counts.size).toBe(0)
+    expect(s.errors).toEqual(['MODEL_REPLY_EVENT_REFUSED type=ATTEMPT'])
+  })
+
+  it('a code only the router itself decides is on the closed list too', async () => {
+    const s = setUp({ extract: { events: [attempt('groq', 'CAP')] } })
+    await runCycle(s)
+    expect([...s.counts.keys()].map((k) => k.slice(11))).toEqual(['groq/CAP'])
+    expect(s.errors).toEqual([])
   })
 
   it('each hosted attempt code counts, per route and per code, summed over the cycle', async () => {
@@ -308,6 +351,102 @@ describe('HOSTED_ROUTES_DEAD (AC7, ADR §5.3 (b))', () => {
     const s = setUp({ extract: dead })
     await runCycle(s)
     expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
+  })
+
+  it('raised by a hosted failure code alone, with no fall in the reply', async () => {
+    const s = setUp({ extract: { events: [attempt('gemini', 'BUSY')] } })
+    await runCycle(s)
+    expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
+  })
+
+  describe('a fall only because the page did not fit asked no hosted route', () => {
+    const onlyFit = {
+      events: [
+        fell([
+          { route: 'gemini', code: 'FIT' },
+          { route: 'groq', code: 'FIT' },
+        ]),
+      ],
+    }
+
+    it('does not raise it, and the fall is still counted', async () => {
+      const s = setUp({ extract: onlyFit })
+      await runCycle(s)
+      expect(s.raised()).toEqual([])
+      expect([...s.counts.keys()].map((k) => k.slice(11))).toEqual(['local/FELL_TO_LOCAL'])
+    })
+
+    it('does not clear it either', async () => {
+      const memory = memoryStore()
+      await runCycle(setUp({ extract: dead, store: memory.store }))
+      await runCycle(setUp({ extract: onlyFit, store: memory.store }), CYCLE_B)
+      expect(memory.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
+    })
+
+    it('one other reason beside the fit raises it', async () => {
+      const s = setUp({
+        extract: {
+          events: [
+            fell([
+              { route: 'gemini', code: 'FIT' },
+              { route: 'groq', code: 'NO_MODEL' },
+            ]),
+          ],
+        },
+      })
+      await runCycle(s)
+      expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
+    })
+
+    it.each([[null], [{ route: 'groq' }], ['FIT']])(
+      'a malformed reason %j is evidence',
+      async (reason) => {
+        const s = setUp({ extract: { events: [{ type: 'FELL_TO_LOCAL', reasons: [reason] }] } })
+        await runCycle(s)
+        expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
+      },
+    )
+  })
+
+  describe('a hosted model that moved answers with RETIRED', () => {
+    const retired = (extra: object = {}) => ({
+      type: 'RETIRED',
+      route: 'gemini',
+      model: 'old-model',
+      ...extra,
+    })
+    const answered = {
+      events: [attempt('gemini', 'RETIRED'), retired({ servedModel: 'new-model' })],
+    }
+
+    it('a 2xx that names the served model is a hosted answer: not raised', async () => {
+      const s = setUp({ extract: answered })
+      await runCycle(s)
+      expect(s.raised()).toEqual([])
+    })
+
+    it('a 2xx that names the served model clears it', async () => {
+      const memory = memoryStore()
+      await runCycle(setUp({ extract: dead, store: memory.store }))
+      await runCycle(setUp({ extract: answered, store: memory.store }), CYCLE_B)
+      expect(memory.raised()).toEqual([])
+    })
+
+    it('the 404 shape alone raises it, and is no refusal', async () => {
+      const s = setUp({ extract: { events: [attempt('gemini', 'RETIRED'), retired()] } })
+      await runCycle(s)
+      expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
+      expect(s.errors).toEqual([])
+    })
+
+    it.each([
+      ['an empty served model', { servedModel: '' }],
+      ['a route that is not hosted', { route: 'local', servedModel: 'new-model' }],
+    ])('%s is no answer', async (_name, extra) => {
+      const s = setUp({ extract: { events: [attempt('gemini', 'RETIRED'), retired(extra)] } })
+      await runCycle(s)
+      expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
+    })
   })
 
   it('raised when every hosted route was skipped without a call', async () => {
@@ -416,6 +555,12 @@ describe('re-emission while raised (AC7, ADR §5.3 (c))', () => {
     await after.wiring.prepareCycle(CYCLE_B)
     expect(emitted(after.warns)).toEqual([])
   })
+
+  it('a failed claim emits nothing', async () => {
+    const s = setUp({ preflight: [false], store: rejecting('down') })
+    await s.wiring.prepareCycle(CYCLE_A)
+    expect(emitted(s.warns)).toEqual([])
+  })
 })
 
 describe('PROVIDER_DISABLED is loud once per process (AC7)', () => {
@@ -439,7 +584,11 @@ describe('PROVIDER_DISABLED is loud once per process (AC7)', () => {
       },
     })
     await runCycle(s)
-    expect(s.errors).toHaveLength(3)
+    expect(s.errors).toEqual([
+      'MODEL_PROVIDER_DISABLED route=gemini code=AUTH',
+      'MODEL_PROVIDER_DISABLED route=groq code=AUTH',
+      'MODEL_PROVIDER_DISABLED route=gemini code=CREDIT',
+    ])
   })
 
   it('a route or code outside the fixed list is refused, not printed', async () => {
@@ -524,5 +673,31 @@ describe('a failed health write never changes an extraction result (AC9)', () =>
     const s = setUp({ store })
     await expect(s.wiring.prepareCycle(CYCLE_A)).resolves.toMatchObject({ kind: 'READY' })
     expect(s.errors).toEqual(['MODEL_HEALTH_WRITE_FAILED op=CLAIM_EMISSIONS'])
+  })
+
+  it('a write that never settles is bounded at 5 s, logged, and finish still resolves', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const never = () => new Promise<never>(() => undefined)
+    const logs = recordingLog()
+    const store: ModelHealthStore = {
+      addRouteCounts: never,
+      raiseFlag: never,
+      clearFlag: never,
+      claimEmissions: never,
+    }
+    const cycle = createModelHealth({ store, log: logs.log }).beginCycle(CYCLE_A)
+    cycle.onReply({ events: [attempt('groq', 'BUSY')], health: NO_HEALTH })
+    const finished = cycle.finish()
+
+    expect(MODEL_HEALTH_WRITE_TIMEOUT_MS).toBe(5_000)
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect(logs.errors).toEqual([])
+    await vi.advanceTimersByTimeAsync(1)
+    expect(logs.errors).toEqual(['MODEL_HEALTH_WRITE_FAILED op=ADD_ROUTE_COUNTS'])
+
+    await vi.advanceTimersByTimeAsync(5 * 5_000)
+    await expect(finished).resolves.toBeUndefined()
+    expect(logs.errors.at(-1)).toBe('MODEL_HEALTH_WRITE_FAILED op=CLAIM_EMISSIONS')
+    expect(vi.getTimerCount()).toBe(0)
   })
 })

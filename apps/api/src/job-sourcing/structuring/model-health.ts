@@ -1,7 +1,16 @@
-import { HOSTED_PROVIDERS, type ExtractionWorkerReply } from '@crm/inference'
+import {
+  ATTEMPT_CODES,
+  HOSTED_PROVIDERS,
+  type ExtractionWorkerReply,
+  type SkipCode,
+} from '@crm/inference'
+import { kyivToday } from '@crm/shared'
 import { z } from 'zod'
 import { MODEL_ROUTE_VALUES, type ModelHealthFlag, type ModelRoute } from '../../database/schema'
-import { JOB_ERROR_CODE_PATTERN } from '../../database/schema/job-patterns'
+import { boundedWrite } from '../runtime/job-run-worker'
+
+/** A write that never settles must not hold a cycle (`prepareCycle`, `finish`) behind it. */
+export const MODEL_HEALTH_WRITE_TIMEOUT_MS = 5_000
 
 export type RouteCount = { day: string; route: ModelRoute; code: string; count: number }
 
@@ -19,12 +28,19 @@ export type ModelHealthLog = { error(line: string): void; warn(line: string): vo
 // The reply is untrusted (ADR §2.4): nothing reaches a counter or a log line unchecked.
 const attemptSchema = z.looseObject({
   route: z.enum(MODEL_ROUTE_VALUES),
-  code: z.string().regex(new RegExp(JOB_ERROR_CODE_PATTERN)),
+  code: z.enum(ATTEMPT_CODES),
 })
 const disabledSchema = z.looseObject({
   route: z.enum(HOSTED_PROVIDERS),
   code: z.enum(['AUTH', 'CREDIT']),
 })
+// The router sends `servedModel` only on a 2xx RETIRED; its 404 shape has none and is no refusal.
+const answeredRetiredSchema = z.looseObject({
+  route: z.enum(HOSTED_PROVIDERS),
+  servedModel: z.string().min(1),
+})
+// A page too big for a route asked that route nothing, so it says nothing about the route.
+const didNotFitSchema = z.looseObject({ code: z.literal('FIT' satisfies SkipCode) })
 
 export type ModelHealthCycle = {
   /** Health only: the preflight runs a local-only config, so its own `FELL_TO_LOCAL` is no fall. */
@@ -47,7 +63,7 @@ export function createModelHealth(deps: { store: ModelHealthStore; log: ModelHea
 
   const safely = async <T>(op: string, write: () => Promise<T>): Promise<T | undefined> => {
     try {
-      return await write()
+      return await boundedWrite(write(), MODEL_HEALTH_WRITE_TIMEOUT_MS)
     } catch {
       log.error(`MODEL_HEALTH_WRITE_FAILED op=${op}`)
       return undefined
@@ -75,8 +91,14 @@ export function createModelHealth(deps: { store: ModelHealthStore; log: ModelHea
       const onEvent = (event: ExtractionWorkerReply['events'][number]) => {
         if (event.type === 'FELL_TO_LOCAL') {
           count('local', 'FELL_TO_LOCAL')
-          // A local-only config names no hosted route, and has none to call dead.
-          if (Array.isArray(event.reasons) && event.reasons.length > 0) hostedSeen = true
+          // A local-only config names no hosted route, and has none to call dead. A malformed
+          // reason is evidence: only a well-formed fit reason is known to have asked nothing.
+          if (
+            Array.isArray(event.reasons) &&
+            event.reasons.some((reason) => !didNotFitSchema.safeParse(reason).success)
+          ) {
+            hostedSeen = true
+          }
         } else if (event.type === 'ATTEMPT') {
           const attempt = attemptSchema.safeParse(event)
           if (!attempt.success) {
@@ -87,6 +109,8 @@ export function createModelHealth(deps: { store: ModelHealthStore; log: ModelHea
             // An aborted call says nothing about the route (ADR §5.5 item 3).
             if (attempt.data.code !== 'ABORTED') hostedSeen = true
           }
+        } else if (event.type === 'RETIRED') {
+          if (answeredRetiredSchema.safeParse(event).success) hostedOk = true
         } else if (event.type === 'PROVIDER_DISABLED') {
           const disabled = disabledSchema.safeParse(event)
           if (!disabled.success) {
@@ -127,10 +151,13 @@ export function createModelHealth(deps: { store: ModelHealthStore; log: ModelHea
           await emit()
         },
         finish: async () => {
-          // shortcut: counters are written here, not per reply, so a crashed cycle loses its own
-          // counts and a reply landing after finish() (an abandoned call) is not counted; upgrade to
-          // a write per reply if a decision ever rests on the exact count.
-          const day = new Date().toISOString().slice(0, 10)
+          // shortcut: the counters, the hosted evidence and the replies' health codes are written
+          // only here. A cycle that never calls finish() loses all three: the next finished cycle
+          // repairs the flags, the counts stay lost. A reply landing after finish() (an abandoned
+          // call) is not counted, and a failed addRouteCounts write loses that cycle's counts (best
+          // effort, by decision). Upgrade to a write per reply if a decision ever rests on the
+          // exact count.
+          const day = kyivToday()
           const rows = [...counts.values()].map((row) => ({ day, ...row }))
           counts.clear()
           if (rows.length > 0) await safely('ADD_ROUTE_COUNTS', () => store.addRouteCounts(rows))

@@ -109,7 +109,8 @@ export function localOnlyRouterConfig(raw: unknown): unknown {
  */
 export function hostedRoutesOf(raw: unknown): { present: string[]; absent: string[] } {
   const parsed = routerConfigSchema.safeParse(raw)
-  const routes = parsed.success ? parsed.data.routes : []
-  const present = HOSTED_PROVIDERS.filter((p) => routes.some((r) => r.provider === p))
+  const present = HOSTED_PROVIDERS.filter(
+    (p) => parsed.success && parsed.data.routes.some((r) => r.provider === p),
+  )
   return { present, absent: HOSTED_PROVIDERS.filter((p) => !present.includes(p)) }
 }

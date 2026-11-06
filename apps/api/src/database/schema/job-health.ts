@@ -183,8 +183,9 @@ export type NewJobSourceHealthEvent = typeof jobSourceHealthEvents.$inferInsert
 
 /**
  * The extraction model's health on the collection side (ADR 2026-11-03 §5.3). Neither table above
- * can host it: this signal is global, not per source. Both hold codes only; the CHECKs make page
- * text unstorable. Forward DDL: `manual-staged/2026-11-06_job_model_health.sql`.
+ * can host it: this signal is global, not per source. Both are meant for codes only. The CHECKs hold
+ * the format, which an upper-snake string can still pass; the closed list of codes is the handler's
+ * (`attemptSchema`). Forward DDL: `manual-staged/2026-11-06_job_model_health.sql`.
  */
 export const MODEL_ROUTE_VALUES = ['gemini', 'groq', 'local'] as const
 

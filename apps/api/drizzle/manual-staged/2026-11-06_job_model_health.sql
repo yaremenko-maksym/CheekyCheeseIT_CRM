@@ -3,8 +3,9 @@
 -- WHAT THIS FILE DOES
 --   Creates job_model_route_daily (per-day counts of floor falls and of each hosted provider's
 --   codes) and job_model_health_flags (MODEL_UNREACHABLE, HOSTED_ROUTES_DEAD and the worker's health
---   codes, raised while cleared_at is null). Both hold codes only: the CHECKs make page text
---   unstorable. Re-runnable.
+--   codes, raised while cleared_at is null). Both are meant for codes only. The CHECKs hold the
+--   format, which an upper-snake string can still pass; the closed list of codes is the handler's.
+--   Re-runnable.
 --
 -- PRIVILEGE CLASS
 --   Class A: crm_app upserts counters and flips flags, so SELECT+INSERT+UPDATE+DELETE; the collector
@@ -37,7 +38,8 @@ CREATE TABLE IF NOT EXISTS job_model_health_flags (
   CONSTRAINT "ck_job_model_health_flags_flag" CHECK ("job_model_health_flags"."flag" IN ('MODEL_UNREACHABLE', 'HOSTED_ROUTES_DEAD', 'MODEL_LIST_STALE', 'FAILED_JOB_DAILY', 'FAILED_JOB_CHAIN'))
 );
 
--- A re-run over a half-built or drifted table must fail loudly, not report success.
+-- A re-run fails loudly if a named CHECK below is missing or not validated. It does not compare
+-- columns or a CHECK's definition: other drift in an existing table passes this block.
 DO $$
 DECLARE
   problems text[] := '{}';
