@@ -232,4 +232,56 @@ describe('startWorker — what it wires up', () => {
     expect(preflight.json<{ ok: boolean }>().ok).toBe(false)
     expect(hostnames).toEqual(['crm-model-runtime'])
   })
+
+  it('the hosted route reads the managed-list file beside the state file (ADR §3.4)', async () => {
+    const models: unknown[] = []
+    vi.stubGlobal('fetch', (url: string, init?: { body?: string }) => {
+      if (new URL(url).hostname === 'api.groq.com') {
+        models.push((JSON.parse(init?.body ?? '{}') as { model?: unknown }).model)
+      }
+      return Promise.resolve(new Response('{}', { status: 500 }))
+    })
+    const dir = mkdtempSync(join(tmpdir(), 'xw-start-'))
+    writeFileSync(
+      join(dir, 'managed-models.json'),
+      JSON.stringify({ version: 1, providers: { groq: ['openai/gpt-oss-120b'] } }),
+    )
+    const { app, out } = await started({
+      EXTRACTION_ROUTER_STATE_FILE: join(dir, 'state.json'),
+      EXTRACTION_ROUTER_CONFIG: JSON.stringify({
+        policyVersion: 'p1',
+        hostedBudgetMs: 5000,
+        floorBudgetMs: 60_000,
+        routes: [
+          {
+            provider: 'groq',
+            models: ['openai/gpt-oss-20b'],
+            contextTokens: 8192,
+            structuredOutput: 'json_object',
+            minGapMs: 0,
+            timeoutMs: 1000,
+            maxAnswerTokens: 512,
+            freeLimit: { requestsPerDay: 100 },
+          },
+          {
+            provider: 'local',
+            contextTokens: 8192,
+            structuredOutput: 'json_schema',
+            timeoutMs: 1000,
+            maxAnswerTokens: 512,
+          },
+        ],
+      }),
+      GROQ_API_KEY: 'KEY-MARKER',
+      ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
+      LOCAL_MODEL_NAME: 'qwen2.5:3b',
+    })
+    await post(app, '/extract', { input: 'x', tableVersion: EXTRACTION_TABLE_VERSION })
+    expect(models[0]).toBe('openai/gpt-oss-120b')
+    // The start-up refresh ran with the state: no persisted AUTH, so nothing to clear.
+    const logged = out.map((l) => JSON.parse(l) as Record<string, unknown>)
+    expect(logged).toContainEqual(
+      expect.objectContaining({ event: 'REFRESH', job: 'startup', provider: 'groq' }),
+    )
+  })
 })
