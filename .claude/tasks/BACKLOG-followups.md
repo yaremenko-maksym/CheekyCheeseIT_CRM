@@ -6985,8 +6985,8 @@ Source: architect report for PR #1278.
 
 Task 5.4c-4 builds the seam and leaves the call site to 5.5b, so four obligations have no caller to enforce them yet.
 
-- **`prepareCycle` can block for about 9.7 minutes.** The worst case is 4 preflight timeouts plus the backoff, with no abort signal.
-  Call it where that wait is acceptable, or add a deadline.
+- **`prepareCycle` can block for about 10 minutes.** The worst case is 4 preflight timeouts, the backoff and the bounded health
+  writes, with no abort signal; `finish()` can add up to 30 s more. Call it where that wait is acceptable, or add a deadline.
 - **`finish()` must run in a `finally`.** Without it the cycle loses its counters, its hosted evidence and the reply's `health`
   codes. The next finished cycle repairs the flags; the counts stay lost.
 - **The run's database role needs write grants on both tables.** Privilege class A gives `crm_collector` nothing on
@@ -7000,15 +7000,3 @@ Task 5.4c-4 builds the seam and leaves the call site to 5.5b, so four obligation
 the role the run uses.
 
 Source: reviews of PR #1277.
-
-## 367. On Windows the mutation gate does nothing and exits 0 (2026-11-06)
-
-The `isMain` guard in `scripts/devops/mutation-gate.mjs` compares a `file:///C:/...` URL with `file://C:\...`, so the comparison never
-matches on Windows. The script does no work, prints nothing and exits 0. A run there reads as green although nothing was mutated. CI on
-Linux is not affected.
-
-**Candidate fixes.** Compare with `pathToFileURL(process.argv[1]).href`, as Node documents, or refuse loudly when the host is Windows.
-
-**Verify.** On Windows, `node scripts/devops/mutation-gate.mjs` either produces a report or exits non-zero.
-
-Source: coder report for PR #1277, fix round.
