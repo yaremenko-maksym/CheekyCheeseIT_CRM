@@ -308,7 +308,43 @@ Classification consequences for 5.4c-1 (facts, not a design): the Gemini per-day
 `details[]` of `@type` `google.rpc.QuotaFailure`, a structured field — if compat carries it. Gemini's 403 has three
 documented causes (free tier unavailable, payment, leaked key) under one status; §5.1 `AUTH` on a 403 needs a
 documented key/permission field, and none beyond `status` is documented, so by §5.1 such a 403 is `REFUSED` unless
-5.4c-5 shows an `ErrorInfo.reason`.
+5.4c-5 shows an `ErrorInfo.reason`. **Superseded:** the ADR's provider-facts amendment (item 10) settled this: a 403 with the
+documented envelope is `AUTH`, any other 403 `TRANSPORT`.
+
+## Limits the merged code enforces (2026-11-06)
+
+**No live probe has been made.** The merged PRs ran on fixtures with no real key, and the 5.4c-5 smoke is still ahead, so this
+section adds no provider finding and every UNVERIFIED row in this document stands. These are the router's own limits and the
+provider fields it reads: what the code does, not what a provider has been seen to do. Symbols are in
+`packages/inference/src/router/` unless named otherwise; verify by grepping the symbol.
+
+| Limit                                     | Value                                         | Symbol                                                             |
+| ----------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------ |
+| Own daily cap                             | 50 % of the configured free limit             | `OWN_CAP_SHARE`, `ownCapOf`                                        |
+| Probes per provider per refresh           | 6, one above the list target of 5             | `PROBE_CAP`, `MANAGED_LIST_TARGET`                                 |
+| Pause between probes                      | 6 s                                           | `PROBE_PAUSE_MS`                                                   |
+| Answer tokens on a probe                  | 16, one fixed prompt                          | `PROBE_MAX_TOKENS`, `MODEL_PROBE_PROMPT`                           |
+| Busy days before `dead` (Gemini)          | 3, then re-probed after 7 days                | `BUSY_DEAD_DAYS`, `BUSY_DEAD_REPROBE_DAYS`                         |
+| Alive days before promotion               | 3                                             | `PROMOTION_STREAK`                                                 |
+| Backoff on a busy model                   | 9 s, once per model per call                  | `BUSY_BACKOFF_MS`                                                  |
+| Hosted budget per call                    | at most 120 s                                 | `MAX_HOSTED_BUDGET_MS`                                             |
+| Local timeout                             | below 300 s; 300 s itself is refused          | `LOCAL_TIMEOUT_LIMIT_MS`                                           |
+| Smallest managed context                  | 16 000 tokens, fixed                          | `MIN_MANAGED_CONTEXT`                                              |
+| Fit estimate                              | 2 characters per token, 32 tokens of overhead | `CHARS_PER_TOKEN`, `MESSAGE_OVERHEAD_TOKENS`                       |
+| Listing read                              | 200 entries, 256-character ids, 512 KiB       | `LISTING_MAX_ENTRIES`, `LISTING_MAX_ID_CHARS`, `LISTING_MAX_BYTES` |
+| Error body parsed                         | 2 MiB; over the cap means no marker           | `internal/classified-chat.ts`                                      |
+| Longest provider-stated pause honoured    | 24 h                                          | `MAX_PAUSE_MS`                                                     |
+| Largest token count believed from a reply | 10 000 000                                    | `MAX_REPORTED_TOKENS`                                              |
+
+**Provider day, as the code reads it** (`providerDay`): America/Los_Angeles for Gemini, UTC for Groq.
+
+**Provider fields the classifier reads**, all by fixture until the smoke: Gemini `error.status` `PERMISSION_DENIED` on a 403
+means `AUTH`; a 429 `quotaId` containing `PerDay` means `SPENT_DAY`; a 503 means `BUSY`. Groq
+`x-ratelimit-remaining-requests: 0` means `SPENT_DAY`; `retry-after` is read as whole seconds. A list-wrapped Gemini error body
+reads its first element only (`errorJson`), an assumed shape with fixtures for 403 and 429 and none for 404.
+
+**Could not be sourced:** real per-model free limits (the code takes them from configuration), a real list-wrapped error, and
+the zero-limit 429 body. All three wait on the 5.4c-5 smoke.
 
 ## What could not be established (summary)
 

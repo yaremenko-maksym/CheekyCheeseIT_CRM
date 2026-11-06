@@ -6791,3 +6791,192 @@ purge function, then call `assertVisible` with a granted team's scope: today it 
 is a 404.
 
 Sources: PR #1263 security review (SR-L-1) and panel review.
+
+## 354. Extraction worker server: no request timeout, no concurrency cap, no close on a failed listen (2026-11-06)
+
+The worker's Fastify server (`buildExtractionWorker`) is created with no options, so `requestTimeout` and
+`connectionTimeout` stay 0 and nothing caps concurrent requests. Only the collection worker shares the network, so a held-open
+request needs a compromised peer. `startWorker` does not call `app.close()` when `listen` fails, but `proc.exit(1)` follows
+at once, so nothing outlives it: low value, recorded to stop the question coming back.
+
+**Candidate fixes.** (a) `Fastify({ requestTimeout: <call ceiling plus a margin> })`. (b) A small in-flight cap answering 503.
+Skip the `app.close()` change unless start-up gains work that needs an orderly stop.
+
+**Verify.** Open a connection to the worker, send half a request and hold it: today it stays open indefinitely; after the fix
+it is closed at the ceiling.
+
+Sources: PR #1273 security review (SR-L-2), plus the `startWorker` note in the same PR.
+
+## 355. Model self-heal: candidates can starve and the state does not report it (2026-11-06)
+
+Four gaps in the daily refresh, all of which lose probe slots rather than data, and nothing reports any of them:
+
+- More than `MAX_BUSY_DEAD_ENTRIES` (50) family-matching blockers can hold out a healthy id: with 60 ids over 150 days the id is
+  never probed while the held record stays at 50.
+- An alive off-list id keeps a spare slot: with five listed entries and two new ids, the first promotes, the evicted entry takes
+  the sixth slot on every day of a 30-day run, and the second new id gets no probes. It depends on listing order.
+- A one-day 404 on a listed entry, while another survives, keeps it out for seven days. A spec pins this on purpose.
+- More than `PROBE_CAP` unprobed off-list records lose the oldest at the `MAX_MODEL_RECORDS` cap, which restarts its count (the
+  `shortcut:` comment on the constant).
+
+**Candidate fixes.** A day-derived offset when scanning candidates; one next-day retry after a single 404; an event when a run
+ends with eligible candidates it never probed.
+
+**Verify.** Drive `refreshProvider` over a fake clock with a listing of 60 always-busy family ids plus one healthy id, placed
+last, for 150 days: today the healthy id receives no probe; after a fix it does.
+
+Sources: PR #1266 reviewers' session reports (CR3-L-3, SR3-L-1, SR3-L-2, CR3-L-1, SPEC3-L-1), round-4 notes. These ids are not on GitHub.
+
+## 356. Route-state and managed-list edge cases under hostile or failing storage (2026-11-06)
+
+- A transient `unreadable` read (`EMFILE`, `EIO`) lets the managed-list writer overwrite the file and lose the other provider's
+  list. It degrades to pinned ids with an event and heals at the next refresh.
+- At the byte ceiling a refused `markSpent` is not held in memory, a refused `addTokens` undercounts, and `reserve` returns null,
+  which stops hosted calls until the state shrinks. It needs a hostile or oversized state file.
+- The `day` schema accepts impossible and far-future stamps (`9999-99-99`, `2999-01-01`), so a held model is never re-probed
+  while listed. It needs write access to the `0600` file.
+- Every listed id held: the start-up refresh has nothing to probe and fails with `NOTHING_SURVIVED`; the `AUTH` bit stays until a
+  due re-probe. This fails closed and has no spec.
+- A listed entry with no reported context can stay stamped forever: `geminiCandidates` needs a reported context at the floor, so
+  its re-probe never comes due.
+- Directory `fsync` failure is swallowed on every platform (pre-existing).
+- `pickGroqModels` ranks by raw reported context, harmless while the family has two models.
+
+**Candidate fixes.** Refuse the write on `unreadable`; validate `day` as a real date no later than tomorrow; add the all-held spec;
+let a listed id with no reported context come due.
+
+**Verify.** In `state.spec.ts` / `managed-models.spec.ts` style with a fake fs: make the read fail once with `EIO`, run a refresh
+for one provider, and check the other provider's list is still in the file. Today it is gone. Load a state file with a `busyDead`
+day of `2999-01-01`: today it is accepted.
+
+Sources: PR #1266 reviewers' session reports (SR-L-1, SR-L-2, SR-L-21, SR-L-22, SR-L-23, SR-L-24, SPEC-L-10, CR3-L-2). These ids are not on GitHub.
+
+## 357. `MIN_MANAGED_CONTEXT` is not tied to the local chunk size (2026-11-06)
+
+The ADR's guarantee is that every managed model fits every chunk. `MIN_MANAGED_CONTEXT` is a fixed 16 000 tokens, its `shortcut:`
+comment waits on 5.4c-6, which has landed, and no code derives or checks the relation. Raising the local chunk size above what
+16 000 tokens holds breaks the guarantee with no signal; the fit filter then moves such a chunk past that model at request time.
+
+**Candidate fixes.** Assert the relation at router configuration time, or derive the floor from the local route's window.
+
+**Verify.** Configure a local route whose window exceeds the floor: today the configuration is accepted with no event.
+
+Sources: PR #1266 reviewers' session reports (SPEC-L-12, SPEC-M-3). These ids are not on GitHub.
+
+## 358. Small-dose and budget accounting: low-severity gaps (2026-11-06)
+
+- `InMemoryModelBudget` has no local-time limit until MP-04 freezes one (`buildModelExtraction` derives the input ceiling; the
+  time limit stays unset on purpose).
+- A page failing as the only candidate is never blamed and never parks: it is retried every 24 h, one call a day.
+- An abandoned call, or a structurer timeout during the hosted part, charges all elapsed time as `localMs`, the ADR's literal
+  rule. This can end the budget early.
+- An aborted call waiting in `serialLocal` is not woken; it is refused only after the request ahead finishes, up to one local
+  timeout later.
+- Only the router reports `localMs`; with the legacy `provider: local` the limit never fills.
+- The `place` group's instruction asks for a quote on every value, but the schema has no `remoteQuote`. Harmless.
+
+**Candidate fixes.** Pass the frozen limit at MP-04; split the charge by the part that was running; race the `serialLocal` wait
+against the signal.
+
+**Verify.** Abort a call queued behind a slow local request in a `router.spec.ts`-style test: today it settles only when the
+slow request does; after the fix it settles at once.
+
+Sources: PR #1271 reviewers' session reports (SR-L-1, SR-L-3, SR-L-4, CR-L-1, CR-L-3, CR-L-4, CR-L-5). These ids are not on GitHub.
+
+## 359. CI runs neither the tests nor a mutation gate for `@crm/inference` (2026-11-06)
+
+The unit step of `ci.yml` filters `@crm/shared`, `@crm/api`, `@crm/web` and `@crm/landing`, and the Mutation Gate matrix lists
+`@crm/shared`, `@crm/api` and `@crm/web`. Typecheck and lint do cover `@crm/inference`, so the whole router and its specs can
+break on a PR with every check green.
+
+**Candidate fixes.** Add `--filter @crm/inference` to the unit step and the package to the matrix. DevOps zone.
+
+**Verify.** `grep -n 'crm/inference' .github/workflows/ci.yml` shows the package in the test step and the matrix; a PR with a
+failing inference spec turns the required check red.
+
+Sources: PR #1266 spec review (SPEC-L-13), restated on PR #1273.
+
+## 360. `mutation-gate.mjs` is a false green on Windows (2026-11-06)
+
+The script's main guard compares `import.meta.url` with `` `file://${process.argv[1]}` ``. On Windows these are `file:///C:/...` and
+`C:\...`, never equal, so the main function never runs and the process exits 0 with no report. CI on Linux is unaffected; a local
+Windows run reads as a pass.
+
+**Candidate fixes.** Compare through `url.pathToFileURL(process.argv[1]).href`. DevOps zone.
+
+**Verify.** On Windows run the script against a package and check that the JSON report exists. Today none is written and the exit
+code is 0.
+
+Sources: PR #1273 notes; confirmed by reading the guard.
+
+## 361. Extraction worker env: stale key name, and two refusals the runbook does not state (2026-11-06)
+
+- `.env.example` still carries `ROUTER_API_KEY=`, and the `docs/runbooks/extraction-worker.md` separation check greps for that
+  name, while the code reads `GEMINI_API_KEY` and `GROQ_API_KEY`. So the check cannot see the real keys in the API's env.
+- An empty `GEMINI_API_KEY=` or `GROQ_API_KEY=` fails `extractionWorkerEnvSchema` (`z.string().min(1).optional()`), so the whole
+  worker refuses to start with `ROUTER_ENV`. An absent key only drops that route.
+- The API's `validateEnv` refuses non-empty `WORKER_ONLY_ENV_KEYS`. The runbook says the worker has its own `0600` env file but
+  not that a shared file would stop the API.
+
+**Candidate fixes.** (DevOps zone) replace the stale name in `.env.example` and the check. Add both refusals to the runbook.
+
+**Verify.** `grep -nw ROUTER_API_KEY .env.example docs/runbooks/extraction-worker.md` finds nothing; the runbook names `ROUTER_ENV` and
+the API's refusal.
+
+Sources: PR #1275 review and notes.
+
+## 362. W-ops: compose guard limits and env-file separation (2026-11-06)
+
+- Env-file separation stays unchecked by a machine: resolved compose inlines env files, so it cannot tell where a key came from.
+  Accepted and recorded in the runbook.
+- `scripts/devops/check-extraction-worker-compose.mjs` can collide on a basename and truncates stderr. Neither shows today, since
+  it is called with fixed, distinct files.
+- The guard needs `docker compose` on the CI runner.
+- Merging W-ops recreates `api` once at the next deploy, as it joins the new network. Informational, stated in the PR body.
+
+**Candidate fixes.** Compare full paths and keep the whole stderr, if the guard gains a caller with arbitrary files.
+
+**Verify.** Call the guard with two files of the same basename in different directories: today their results collide.
+
+Sources: PR #1274 security review (SR-M-1, accepted) and council notes.
+
+## 363. Weaker pins: `validateEnv` Stryker survivors, and dynamic `import()` past the boundary pin (2026-11-06)
+
+- **Possible surviving mutants in `validateEnv`.** The only source is a coder's working note in a session transcript (the
+  `FRONTEND_URL` block, plus the `local` and `openrouter` literals); the PR body claims zero survivors on the new code. So this is
+  unconfirmed, and pre-existing if real.
+- **The boundary pin reads static imports only.** `extraction-boundary.spec.ts` matches `from '...extraction-worker/...'` clauses, so
+  a dynamic `import()` or `require()` passes. None exists in `apps/api/src`, and the key-name scan is a second layer; the reviewer
+  accepted it with no finding.
+- `heal.record` in `start.ts` has no dedicated test.
+
+**Candidate fixes.** Run Stryker on `apps/api/src/config/env.ts` and close what survives; extend the pin's pattern to `import(` and
+`require(`.
+
+**Verify.** The Stryker JSON report for `env.ts` names its survivors. Add a dynamic `import()` of a worker module in a scratch
+checkout: today the boundary spec stays green.
+
+Sources: PR #1275 review and notes; session transcript for the survivors.
+
+## 364. `xml-limits.spec.ts` wall-clock bound flakes under pre-push load (2026-11-06)
+
+The 2 MiB run of processing instructions test asserts `elapsedMs` below `MAX_XML_WALL_CLOCK_MS * 4` (1000 ms). During one WSL pre-push
+run it measured 1064 ms and failed the push; another push of the same code in the same session and a retry both passed. Nothing in
+the parser changed, so this reads as load on the machine, not a limit breach, but that is one observation and not a measurement.
+
+**Candidate fixes.** Assert the deadline the parser enforces rather than elapsed wall clock, or run the timed cases in isolation.
+
+**Verify.** Run `xml-limits.spec.ts` repeatedly while the full API suite runs alongside and count failures of that case.
+
+Source: WSL pre-push log for PR #1278.
+
+## 365. The list-wrapped Gemini 404 is correct by code only, and the real error shape is unverified (2026-11-06)
+
+`errorJson` unwraps list bodies. A list-wrapped 403 has a fixture; a list-wrapped 404 does not. No real Gemini error body has been
+observed yet, so the shape both rest on is an assumption until a live key is used.
+
+**Candidate fixes.** Add the 404 fixture, and capture real bodies in the 5.4c-5 smoke.
+
+**Verify.** `classified-chat.spec.ts` has a list-wrapped 404 case, and the 5.4c-5 smoke notes record the observed body shape.
+
+Source: architect report for PR #1278.
