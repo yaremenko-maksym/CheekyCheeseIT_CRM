@@ -328,7 +328,7 @@ provider fields it reads: what the code does, not what a provider has been seen 
 | Alive days before promotion               | 3                                             | `PROMOTION_STREAK`                                                 |
 | Backoff on a busy model                   | 9 s, once per model per call                  | `BUSY_BACKOFF_MS`                                                  |
 | Hosted budget per call                    | at most 120 s                                 | `MAX_HOSTED_BUDGET_MS`                                             |
-| Local timeout                             | at most 300 s                                 | `LOCAL_TIMEOUT_LIMIT_MS`                                           |
+| Local timeout                             | below 300 s; 300 s itself is refused          | `LOCAL_TIMEOUT_LIMIT_MS`                                           |
 | Smallest managed context                  | 16 000 tokens, fixed                          | `MIN_MANAGED_CONTEXT`                                              |
 | Fit estimate                              | 2 characters per token, 32 tokens of overhead | `CHARS_PER_TOKEN`, `MESSAGE_OVERHEAD_TOKENS`                       |
 | Listing read                              | 200 entries, 256-character ids, 512 KiB       | `LISTING_MAX_ENTRIES`, `LISTING_MAX_ID_CHARS`, `LISTING_MAX_BYTES` |

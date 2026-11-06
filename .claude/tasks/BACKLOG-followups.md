@@ -6957,3 +6957,26 @@ Sources: PR #1274 security review (SR-M-1, accepted) and council notes.
 checkout: today the boundary spec stays green.
 
 Sources: PR #1275 review and notes; session transcript for the survivors.
+
+## 364. `xml-limits.spec.ts` wall-clock bound flakes under pre-push load (2026-11-06)
+
+The 2 MiB run of processing instructions test asserts `elapsedMs` below `MAX_XML_WALL_CLOCK_MS * 4` (1000 ms). During one WSL pre-push
+run it measured 1064 ms and failed the push; another push of the same code in the same session and a retry both passed. Nothing in
+the parser changed, so this reads as load on the machine, not a limit breach, but that is one observation and not a measurement.
+
+**Candidate fixes.** Assert the deadline the parser enforces rather than elapsed wall clock, or run the timed cases in isolation.
+
+**Verify.** Run `xml-limits.spec.ts` repeatedly while the full API suite runs alongside and count failures of that case.
+
+Source: WSL pre-push log for PR #1278.
+
+## 365. The list-wrapped Gemini 404 is correct by code only, and the real error shape is unverified (2026-11-06)
+
+`errorJson` unwraps list bodies. A list-wrapped 403 has a fixture; a list-wrapped 404 does not. No real Gemini error body has been
+observed yet, so the shape both rest on is an assumption until a live key is used.
+
+**Candidate fixes.** Add the 404 fixture, and capture real bodies in the 5.4c-5 smoke.
+
+**Verify.** `classified-chat.spec.ts` has a list-wrapped 404 case, and the 5.4c-5 smoke notes record the observed body shape.
+
+Source: architect report for PR #1278.
