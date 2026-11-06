@@ -22,6 +22,7 @@ import {
   jobQueueOpenedRequestSchema,
   jobQueueRecomputeResponseSchema,
   jobQueueScopeQuerySchema,
+  jobQueueSeniorOptionsResponseSchema,
   jobQueueSeniorsContinuationSchema,
   jobQueueSourcesContinuationSchema,
   jobQueueSubmissionResponseSchema,
@@ -91,7 +92,8 @@ export const JOB_QUEUE_THROTTLE = {
  * scope has no live one; infinite scroll pages through the published one by cursor, so 30 pages a
  * minute is far beyond a person reading. The card and its continuations only read, bounded by their
  * previews: 120 per minute for the card (opening one opportunity after another), 60 for the
- * sources and seniors continuations.
+ * sources and seniors continuations and for the filter's senior picker (one bounded read per scope,
+ * cached by the client).
  * MANUAL (r5 Phase 6) is 30 per minute, like submit: each request is one card and one submission a
  * person types by hand, and every one writes an opportunity row and a description blob that no
  * retention job reclaims, so the cap bounds that growth per user without slowing a person.
@@ -174,6 +176,15 @@ export class JobQueueController {
   async list(@Query() query: unknown, @CurrentUser() user: SessionUser) {
     const parsed = jobQueueListQuerySchema.parse(query)
     return jobQueueListResponseSchema.parse(await this.queue.list(user, parsed))
+  }
+
+  /** Declared before `:id`, which would otherwise answer a 400 on the literal segment. */
+  @Get('seniors')
+  @Roles('ADMIN', 'HR')
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.CONTINUATION)
+  async seniorOptions(@Query() query: unknown, @CurrentUser() user: SessionUser) {
+    const parsed = cardQuerySchema.parse(query)
+    return jobQueueSeniorOptionsResponseSchema.parse(await this.queue.seniorOptions(user, parsed))
   }
 
   @Get(':id')

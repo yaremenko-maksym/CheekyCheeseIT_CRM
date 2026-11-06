@@ -206,6 +206,14 @@ export const duplicateRows = (scope: JobQueueScope, id: string, limit: number): 
 const textIn = (expression: SQL, values: readonly string[]): SQL =>
   sql`${expression} IN (SELECT jsonb_array_elements_text(${JSON.stringify(values)}::jsonb))`
 
+/** The list filter's picker: id and display name only, of seniors the scope already resolved. */
+export const seniorOptionRows = (seniorIds: readonly string[], limit: number): SQL =>
+  sql`SELECT u.id, u.display_name
+        FROM users u
+       WHERE ${textIn(sql`u.id::text`, seniorIds)}
+       ORDER BY u.display_name, u.id
+       LIMIT ${limit}`
+
 /** `%`, `_` and `\` from a viewer's search are literal characters, not patterns. */
 export const likePattern = (search: string): string =>
   `%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`

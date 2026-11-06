@@ -9,6 +9,8 @@ import {
   type JobQueueListResponseDto,
   jobQueueListResponseSchema,
   type JobQueueScopeQuery,
+  JOB_QUEUE_SENIOR_OPTIONS_MAX,
+  type JobQueueSeniorOptionsResponseDto,
   jobQueueSeniorsContinuationSchema,
   jobQueueSourcesContinuationSchema,
   type JobSourceType,
@@ -36,6 +38,7 @@ import {
   policySignature,
   QUEUE_ROW_COLUMNS,
   queueRowJoins,
+  seniorOptionRows,
   seniorRows,
   seniorTotal,
   sourceRows,
@@ -281,6 +284,30 @@ export class JobQueueService {
       newerThanList: row['newer_than_list'] === true,
       ...parts,
     })
+  }
+
+  /** GET `/job-queue/seniors`: the list filter's picker, only the seniors of the viewer's own scope. */
+  async seniorOptions(
+    user: SessionUser,
+    query: Pick<JobQueueScopeQuery, 'teamId'>,
+  ): Promise<JobQueueSeniorOptionsResponseDto> {
+    const scope = await this.scopes.resolve(user, query.teamId, this.database.db)
+    const versions = await this.scopes.liveVersions(scope, this.database.db)
+    if (versions.length === 0) return { items: [] }
+    const { rows } = await this.scopes.policy(() =>
+      this.database.db.execute(
+        seniorOptionRows(
+          versions.map((v) => v.seniorId),
+          JOB_QUEUE_SENIOR_OPTIONS_MAX,
+        ),
+      ),
+    )
+    return {
+      items: (rows as Row[]).map((row) => ({
+        id: String(row['id']),
+        name: String(row['display_name']).slice(0, 255),
+      })),
+    }
   }
 
   /** GET `/job-queue/:id/seniors`: the viewer's own matched seniors beyond the card's preview. */
