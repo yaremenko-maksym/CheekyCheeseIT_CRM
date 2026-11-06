@@ -935,6 +935,11 @@ page text, classify exhaustion.
 
 ### Task 5.5: `HtmlProvider` base (HTTP-first; optional browser/model ports)
 
+> **Note, 2026-11-06 (task 5.5b).** The `buildModelExtraction` call site and the use of `prepareCycle` belong to task 5.5b, the
+> first HTML model provider. `HtmlProvider` is abstract with no concrete subclass, so nothing in production calls the extraction
+> wiring until 5.5b lands. `prepareCycle` arrives with 5.4c-4. ADR `docs/architecture/2026-11-03-extraction-model-router.md`,
+> §7.2 delivery state.
+
 Stage A: bounded deterministic discovery of IDs/URLs/pagination; Stage B: due detail fetches under policy/robots/
 quotas with validators/hashes and persistent enrichment state; Stage C: model only for fields not deterministically
 recoverable. Explicit coverage/method/evidence per stage; incomplete enrichment never falsifies discovery or closes
