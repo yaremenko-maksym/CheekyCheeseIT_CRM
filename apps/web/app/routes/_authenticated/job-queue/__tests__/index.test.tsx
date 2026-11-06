@@ -614,7 +614,7 @@ describe('/job-queue page', () => {
     renderPage()
     await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
     const applied = screen.getByTestId('job-queue-applied')
-    expect(applied).toHaveTextContent('Застосовано: DOU, LEVER · Відкрита')
+    expect(applied).toHaveTextContent('Застосовано: DOU, Lever · Відкрита')
     expect(screen.getByTestId('job-queue-filters-button')).toHaveTextContent('Фільтри2')
     await userEvent.click(within(applied).getByRole('button', { name: 'Скинути фільтри' }))
     expect(mockNavigate).toHaveBeenLastCalledWith({
