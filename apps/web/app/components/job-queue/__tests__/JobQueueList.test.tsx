@@ -55,6 +55,7 @@ function renderList(over: Partial<JobQueueListProps> = {}) {
     ...props,
     rerender: (next: Partial<JobQueueListProps>) =>
       view.rerender(<JobQueueList {...props} {...next} />),
+    unmount: view.unmount,
   }
 }
 
@@ -183,12 +184,12 @@ describe('JobQueueList', () => {
     expect(screen.getByRole('button', { name: 'Скинути фільтри' })).toBeInTheDocument()
   })
 
-  it('offers «Показати ще» while a next page exists', async () => {
-    const props = renderList({ hasNextPage: true, total: 40 })
+  it('shows the count and no manual button while a next page exists (the sentinel loads it)', () => {
+    renderList({ hasNextPage: true, total: 40 })
     expect(screen.getByTestId('job-queue-shown')).toHaveTextContent(/^Показано 2 із 40$/)
     expect(screen.queryByTestId('job-queue-append-error')).toBeNull()
-    await userEvent.click(screen.getByTestId('job-queue-load-more'))
-    expect(props.onLoadMore).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('job-queue-load-more')).toBeNull()
+    expect(screen.queryByRole('button', { name: /ще/ })).toBeNull()
     expect(screen.queryByTestId('job-queue-end')).toBeNull()
   })
 
@@ -247,8 +248,8 @@ describe('JobQueueList', () => {
       expect(props.onLoadMore).not.toHaveBeenCalled()
       FakeObserver.last!.fire(true)
       expect(props.onLoadMore).toHaveBeenCalledTimes(1)
-      // the button stays as the keyboard / screen-reader path
-      expect(screen.getByTestId('job-queue-load-more')).toHaveTextContent('Показати ще')
+      // no manual button outside the error state
+      expect(screen.queryByTestId('job-queue-load-more')).toBeNull()
     })
 
     it.each([
@@ -286,6 +287,14 @@ describe('JobQueueList', () => {
       expect(props.onLoadMore).not.toHaveBeenCalled()
     })
 
+    it('disconnects the observer on unmount', () => {
+      const view = renderList({ hasNextPage: true, total: 40 })
+      const observer = FakeObserver.last!
+      expect(observer.observed).toHaveLength(1)
+      view.unmount()
+      expect(observer.observed).toEqual([])
+    })
+
     it('stops observing once the sentinel goes away', () => {
       const props = renderList({ hasNextPage: true, total: 40 })
       const observer = FakeObserver.last!
@@ -296,22 +305,33 @@ describe('JobQueueList', () => {
     })
   })
 
-  it('keeps the «Показати ще» button without IntersectionObserver support', async () => {
+  it('renders without IntersectionObserver support and offers no button', () => {
     vi.stubGlobal('IntersectionObserver', undefined)
     try {
-      const props = renderList({ hasNextPage: true, total: 40 })
+      renderList({ hasNextPage: true, total: 40 })
       expect(screen.getByTestId('job-queue-sentinel')).toBeInTheDocument()
-      await userEvent.click(screen.getByTestId('job-queue-load-more'))
-      expect(props.onLoadMore).toHaveBeenCalledTimes(1)
+      expect(screen.queryByTestId('job-queue-load-more')).toBeNull()
     } finally {
       vi.unstubAllGlobals()
     }
   })
 
+  it('ignores a click on the retry button while the retry is in flight and keeps it mounted', async () => {
+    const props = renderList({
+      hasNextPage: true,
+      isFetchNextPageError: true,
+      isFetchingNextPage: true,
+    })
+    const retry = screen.getByTestId('job-queue-load-more')
+    expect(retry).toHaveAttribute('aria-disabled', 'true')
+    await userEvent.click(retry)
+    expect(props.onLoadMore).not.toHaveBeenCalled()
+  })
+
   it('after a button append, focuses the first new row and announces the delta', async () => {
-    const view = renderList({ hasNextPage: true, total: 5 })
+    const view = renderList({ hasNextPage: true, isFetchNextPageError: true, total: 5 })
     await userEvent.click(screen.getByTestId('job-queue-load-more'))
-    view.rerender({ items: [A, B, C], hasNextPage: true, total: 5 })
+    view.rerender({ items: [A, B, C], isFetchNextPageError: false, total: 5 })
     expect(screen.getByTestId(`job-queue-row-${C.opportunityId}`)).toHaveFocus()
     expect(screen.getByTestId('job-queue-live')).toHaveTextContent(
       /^Завантажено ще 1\. Показано 3 із 5$/,
@@ -329,16 +349,17 @@ describe('JobQueueList', () => {
   })
 
   it('drops a pending button focus when the append fails', async () => {
-    const view = renderList({ hasNextPage: true, total: 5 })
+    const view = renderList({ hasNextPage: true, isFetchNextPageError: true, total: 5 })
     await userEvent.click(screen.getByTestId('job-queue-load-more'))
-    view.rerender({ isFetchNextPageError: true })
-    // a later page (e.g. a sentinel load) arrives without a fresh button press
+    view.rerender({ isFetchingNextPage: true })
+    view.rerender({ isFetchingNextPage: false })
+    // the retry failed again; a later page (e.g. a sentinel load) arrives without a fresh press
     view.rerender({ items: [A, B, C], isFetchNextPageError: false })
     expect(screen.getByTestId(`job-queue-row-${C.opportunityId}`)).not.toHaveFocus()
   })
 
   it('drops a pending button focus when the list is replaced (tab / filter switch)', async () => {
-    const view = renderList({ hasNextPage: true, total: 5 })
+    const view = renderList({ hasNextPage: true, isFetchNextPageError: true, total: 5 })
     await userEvent.click(screen.getByTestId('job-queue-load-more'))
     view.rerender({ items: [C, A, B], hasNextPage: true, total: 5 })
     expect(screen.getByTestId(`job-queue-row-${B.opportunityId}`)).not.toHaveFocus()

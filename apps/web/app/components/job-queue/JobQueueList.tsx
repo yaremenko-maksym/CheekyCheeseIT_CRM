@@ -117,7 +117,7 @@ export function JobQueueList(props: JobQueueListProps) {
 
   useEffect(() => {
     const from = focusFrom.current
-    if (props.isFetchNextPageError) {
+    if (props.isFetchNextPageError && !props.isFetchingNextPage) {
       focusFrom.current = Infinity
     } else if (length > from) {
       focusFrom.current = Infinity
@@ -127,7 +127,7 @@ export function JobQueueList(props: JobQueueListProps) {
         .item(from)
         .focus()
     }
-  }, [length, props.isFetchNextPageError])
+  }, [length, props.isFetchNextPageError, props.isFetchingNextPage])
 
   // `status` matters only without rows: a failed next page / refetch keeps them on screen
   if (!items) {
@@ -186,7 +186,8 @@ export function JobQueueList(props: JobQueueListProps) {
   const shown = items.length
   const total = props.total
   const armed = props.hasNextPage && !props.isFetchingNextPage && !props.isFetchNextPageError
-  const onButton = () => {
+  const onRetryAppend = () => {
+    if (props.isFetchingNextPage) return
     focusFrom.current = shown
     props.onLoadMore()
   }
@@ -247,25 +248,24 @@ export function JobQueueList(props: JobQueueListProps) {
               </p>
             </div>
           )}
-          {props.hasNextPage &&
-            (props.isFetchingNextPage ? (
-              <p data-testid="job-queue-appending" role="status">
-                <Trans>Завантажуємо ще…</Trans>
-              </p>
-            ) : (
-              <Button
-                data-testid="job-queue-load-more"
-                variant="outline"
-                className="min-h-11 w-full @min-[560px]:w-auto"
-                onClick={onButton}
-              >
-                {props.isFetchNextPageError ? (
-                  <Trans>Спробувати ще раз</Trans>
-                ) : (
-                  <Trans>Показати ще</Trans>
-                )}
-              </Button>
-            ))}
+          {props.hasNextPage && props.isFetchingNextPage && (
+            <p data-testid="job-queue-appending" role="status">
+              <Trans>Завантажуємо ще…</Trans>
+            </p>
+          )}
+          {/* the only manual control: a retry after a failed append (the sentinel never retries by itself).
+              It stays mounted while the retry is in flight, so keyboard focus is not dropped. */}
+          {props.hasNextPage && props.isFetchNextPageError && (
+            <Button
+              data-testid="job-queue-load-more"
+              variant="outline"
+              className="min-h-11 w-full @min-[560px]:w-auto"
+              aria-disabled={props.isFetchingNextPage}
+              onClick={onRetryAppend}
+            >
+              <Trans>Спробувати ще раз</Trans>
+            </Button>
+          )}
         </div>
       )}
     </div>

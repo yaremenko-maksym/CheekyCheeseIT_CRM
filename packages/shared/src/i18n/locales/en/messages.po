@@ -4699,10 +4699,6 @@ msgstr "Ascending"
 msgid "Почніть вводити: React, Node.js…"
 msgstr "Start typing: React, Node.js…"
 
-#: apps/web/app/components/job-queue/JobQueueList.tsx
-msgid "Показати ще"
-msgstr "Show more"
-
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Переглянутий"
 msgstr "Viewed"
