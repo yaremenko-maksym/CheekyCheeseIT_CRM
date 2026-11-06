@@ -55,6 +55,7 @@ export type RouterEnv = Omit<ExtractionWorkerEnv, 'INFERENCE_EXTRACTION_PROVIDER
 const HOSTED_KEY_ENV = { gemini: 'GEMINI_API_KEY', groq: 'GROQ_API_KEY' } as const
 
 function isRecord(v: unknown): v is Record<string, unknown> {
+  // Stryker disable next-line ConditionalExpression: equivalent — a JSON string or number passed as a record has no `provider` or `routes`, so it is handed on unchanged either way
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 

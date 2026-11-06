@@ -217,6 +217,11 @@ describe('buildRouterConfig', () => {
   it('hands an unknown provider and a malformed config on unchanged, for the router to refuse', () => {
     const odd = { ...PARAMS, routes: [{ provider: 'openrouter', apiKey: 'K' }] }
     expect(buildRouterConfig(odd, FULL_ENV)).toEqual(odd)
+    // A route that is not an object is not read; a null one is no route, like an absent env.
+    expect(buildRouterConfig({ ...PARAMS, routes: [null, 'x', 7] }, FULL_ENV)).toEqual({
+      ...PARAMS,
+      routes: ['x', 7],
+    })
     for (const raw of [null, 'x', 1, [], { routes: 'x' }, { policyVersion: 'v1' }]) {
       expect(buildRouterConfig(raw, FULL_ENV)).toEqual(raw)
     }
