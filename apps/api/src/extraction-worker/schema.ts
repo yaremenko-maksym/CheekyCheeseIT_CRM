@@ -6,6 +6,8 @@ import {
   type SmallDoseGroup,
 } from '@crm/inference'
 import { z } from 'zod'
+import { extractionWorkerEnvSchema } from '../config/env'
+import { buildRouterConfig } from '../inference/build-inference-config'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
 import { smallDoseFor } from '../job-sourcing/structuring/small-dose-table'
@@ -82,7 +84,10 @@ export type WorkerEnv = {
 
 export type WorkerEnvResult =
   | { ok: true; env: WorkerEnv }
-  | { ok: false; reason: 'SECRET' | 'ROUTER_CONFIG' | 'STATE_FILE' | 'PORT' }
+  | {
+      ok: false
+      reason: 'SECRET' | 'PROVIDER' | 'ROUTER_ENV' | 'ROUTER_CONFIG' | 'STATE_FILE' | 'PORT'
+    }
 
 function parseJson(text: string): { value: unknown } | null {
   try {
@@ -94,8 +99,9 @@ function parseJson(text: string): { value: unknown } | null {
 
 /**
  * The worker's own env (its owner-created `0600` file, never `.env.production`). A refusal names
- * the key, never its value. The router config is handed to the router as is; a config it refuses
- * builds a router that answers `NOT_CONFIGURED` and sends nothing (§3.3).
+ * the key, never its value. `EXTRACTION_ROUTER_CONFIG` holds the non-secret route parameters; the
+ * keys and the local URL come from env (`buildRouterConfig`). A config the router refuses builds a
+ * router that answers `NOT_CONFIGURED` and sends nothing (§3.3).
  */
 export function parseWorkerEnv(env: Readonly<Record<string, string | undefined>>): WorkerEnvResult {
   const secret = env.EXTRACTION_WORKER_SECRET
@@ -106,6 +112,10 @@ export function parseWorkerEnv(env: Readonly<Record<string, string | undefined>>
   ) {
     return { ok: false, reason: 'SECRET' }
   }
+  // The worker runs the router and nothing else; another selector is an operator error.
+  if (env.INFERENCE_EXTRACTION_PROVIDER !== 'router') return { ok: false, reason: 'PROVIDER' }
+  const routerEnv = extractionWorkerEnvSchema.safeParse(env)
+  if (!routerEnv.success) return { ok: false, reason: 'ROUTER_ENV' }
   const rawConfig = env.EXTRACTION_ROUTER_CONFIG
   // Stryker disable next-line ConditionalExpression: equivalent — JSON.parse(undefined) throws, so parseJson answers null too
   const config = rawConfig === undefined ? null : parseJson(rawConfig)
@@ -119,7 +129,7 @@ export function parseWorkerEnv(env: Readonly<Record<string, string | undefined>>
     ok: true,
     env: {
       secret,
-      routerConfig: config.value,
+      routerConfig: buildRouterConfig(config.value, routerEnv.data),
       stateFile,
       host: env.EXTRACTION_WORKER_HOST ?? '0.0.0.0',
       port,

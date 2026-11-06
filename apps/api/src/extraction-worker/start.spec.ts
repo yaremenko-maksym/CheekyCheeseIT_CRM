@@ -45,6 +45,7 @@ function fakeProcess() {
 }
 
 const envOn = (port: number, extra: Record<string, string | undefined> = {}) => ({
+  INFERENCE_EXTRACTION_PROVIDER: 'router',
   EXTRACTION_WORKER_SECRET: SECRET,
   EXTRACTION_ROUTER_CONFIG: '{"routes":[]}',
   EXTRACTION_ROUTER_STATE_FILE: join(mkdtempSync(join(tmpdir(), 'xw-start-')), 'state.json'),
@@ -78,6 +79,16 @@ describe('startWorker — a bad secret means exit 1 and no listener', () => {
     expect(fake.exits).toEqual([1])
     expect(fake.err).toEqual(['extraction-worker: refusing to start, bad SECRET\n'])
     expect(fake.out).toEqual([])
+    expect(await listening(port)).toBe('REFUSED')
+  })
+
+  it('a selector other than router is exit 1 by key, no listener', async () => {
+    const port = await freePort()
+    const fake = fakeProcess()
+    const env = envOn(port, { INFERENCE_EXTRACTION_PROVIDER: 'openrouter' })
+    expect(await startWorker(env, fake.proc)).toBeUndefined()
+    expect(fake.exits).toEqual([1])
+    expect(fake.err).toEqual(['extraction-worker: refusing to start, bad PROVIDER\n'])
     expect(await listening(port)).toBe('REFUSED')
   })
 })
@@ -169,10 +180,9 @@ describe('startWorker — what it wires up', () => {
       hostnames.push(new URL(url).hostname)
       return Promise.resolve(new Response('{}', { status: 500 }))
     })
+    // Route parameters only: the key, the local URL and the local model come from env (ADR §2.4).
     const local = {
       provider: 'local',
-      baseUrl: 'http://crm-model-runtime:11434',
-      model: 'qwen2.5:3b',
       contextTokens: 8192,
       structuredOutput: 'json_schema',
       timeoutMs: 1000,
@@ -180,7 +190,6 @@ describe('startWorker — what it wires up', () => {
     }
     const hosted = {
       provider: 'groq',
-      apiKey: 'KEY-MARKER',
       models: ['openai/gpt-oss-20b'],
       contextTokens: 8192,
       structuredOutput: 'json_object',
@@ -196,6 +205,9 @@ describe('startWorker — what it wires up', () => {
         floorBudgetMs: 60_000,
         routes: [hosted, local],
       }),
+      GROQ_API_KEY: 'KEY-MARKER',
+      ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
+      LOCAL_MODEL_NAME: 'qwen2.5:3b',
     })
 
     const extract = await post(app, '/extract', {
