@@ -130,7 +130,10 @@ export function JobQueueRow({
           <span className="truncate">{company}</span>
         </span>
         {(seniorityLabel || keywords.length > 0) && (
-          <span className="flex min-w-0 flex-wrap items-center gap-1">
+          <span
+            data-testid="job-queue-row-chips"
+            className="flex min-w-0 flex-wrap items-center gap-1"
+          >
             {seniorityLabel && (
               <span data-testid="job-queue-row-seniority" className={`${CHIP} font-medium`}>
                 {i18n._(seniorityLabel)}

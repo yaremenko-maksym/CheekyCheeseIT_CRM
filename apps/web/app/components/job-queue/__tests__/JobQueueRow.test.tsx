@@ -82,9 +82,31 @@ describe('JobQueueRow', () => {
       expect(screen.getByTestId('job-queue-row-seniority')).toHaveTextContent(label)
     })
 
-    it('shows no chips for 0 keywords', () => {
-      renderRow({ matchedKeywords: [] })
+    it('renders no chip line at all with no badge and 0 keywords', () => {
+      renderRow({ seniority: 'UNKNOWN', matchedKeywords: [] })
+      expect(screen.queryByTestId('job-queue-row-chips')).not.toBeInTheDocument()
+    })
+
+    it('shows the badge without a keyword group for 0 keywords', () => {
+      renderRow({ seniority: 'LEAD', matchedKeywords: [] })
+      expect(screen.getByTestId('job-queue-row-chips')).toBeInTheDocument()
       expect(screen.queryByTestId('job-queue-row-keywords')).not.toBeInTheDocument()
+    })
+
+    it('shows the chip line for keywords without a badge', () => {
+      renderRow({ seniority: 'UNKNOWN', matchedKeywords: ['go'] })
+      expect(screen.getByTestId('job-queue-row-chips')).toContainElement(
+        screen.getByTestId('job-queue-row-keyword'),
+      )
+    })
+
+    it('styles the badge and the overflow as chips', () => {
+      renderRow({ seniority: 'LEAD', matchedKeywords: ['a', 'b', 'c', 'd'] })
+      expect(screen.getByTestId('job-queue-row-seniority')).toHaveClass('rounded-md', 'font-medium')
+      expect(screen.getByTestId('job-queue-row-keywords-more')).toHaveClass(
+        'rounded-md',
+        'tabular-nums',
+      )
     })
 
     it('shows 3 keywords without an overflow chip', () => {
