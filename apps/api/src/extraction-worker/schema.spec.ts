@@ -72,7 +72,11 @@ describe('parseWorkerEnv — the worker does not start without its secret', () =
   it.each([
     ['no provider selector', { ...BASE, INFERENCE_EXTRACTION_PROVIDER: undefined }, 'PROVIDER'],
     ['the local selector', { ...BASE, INFERENCE_EXTRACTION_PROVIDER: 'local' }, 'PROVIDER'],
-    ['the openrouter selector', { ...BASE, INFERENCE_EXTRACTION_PROVIDER: 'openrouter' }, 'PROVIDER'],
+    [
+      'the openrouter selector',
+      { ...BASE, INFERENCE_EXTRACTION_PROVIDER: 'openrouter' },
+      'PROVIDER',
+    ],
     ['an empty hosted key', { ...BASE, GROQ_API_KEY: '' }, 'ROUTER_ENV'],
     ['a refused local URL', { ...BASE, ROUTER_LOCAL_MODEL_URL: 'http://10.0.0.9' }, 'ROUTER_ENV'],
   ])('%s: refused by key, the value never echoed', (_name, env, reason) => {

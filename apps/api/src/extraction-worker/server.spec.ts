@@ -481,7 +481,12 @@ describe('extraction worker — the mandatory event sink (ADR §5.3)', () => {
     })
     const { app, logs } = await setup({ extract })
     track(app)
-    const res = await app.inject({ method: 'POST', url: '/extract', headers: auth, payload: body() })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/extract',
+      headers: auth,
+      payload: body(),
+    })
     const replied = res.json<{ events: RouterEvent[] }>().events
     for (const e of events) {
       expect(replied).toContainEqual(e)

@@ -49,7 +49,10 @@ const REPLY = {
 function fakeWorker(reply: object = REPLY) {
   const calls: { url: string; headers: Record<string, string>; body: unknown }[] = []
   const fetchImpl = vi.fn(
-    (url: string, init: { headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => {
+    (
+      url: string,
+      init: { headers?: Record<string, string>; body?: string; signal?: AbortSignal },
+    ) => {
       calls.push({ url, headers: init.headers ?? {}, body: JSON.parse(init.body ?? 'null') })
       return Promise.resolve(new Response(JSON.stringify(reply), { status: 200 }))
     },
@@ -73,9 +76,9 @@ describe('buildModelExtraction — unset means no model (AC2)', () => {
       ok: true,
       wiring: undefined,
     })
-    expect([...read].every((k) => (MODEL_EXTRACTION_ENV_KEYS as readonly string[]).includes(k))).toBe(
-      true,
-    )
+    expect(
+      [...read].every((k) => (MODEL_EXTRACTION_ENV_KEYS as readonly string[]).includes(k)),
+    ).toBe(true)
   })
 
   it('a full config reads its own keys only, never a hosted key or the router URL (AC1)', () => {
@@ -87,22 +90,82 @@ describe('buildModelExtraction — unset means no model (AC2)', () => {
 
 describe('buildModelExtraction — a partial or bad config is refused by key, never by value', () => {
   it.each([
-    ['the URL alone', { EXTRACTION_WORKER_URL: ENV.EXTRACTION_WORKER_URL }, 'EXTRACTION_WORKER_SECRET'],
+    [
+      'the URL alone',
+      { EXTRACTION_WORKER_URL: ENV.EXTRACTION_WORKER_URL },
+      'EXTRACTION_WORKER_SECRET',
+    ],
     ['the secret alone', { EXTRACTION_WORKER_SECRET: SECRET }, 'EXTRACTION_WORKER_URL'],
-    ['a non-http URL', { ...ENV, EXTRACTION_WORKER_URL: 'ftp://crm-extraction-worker' }, 'EXTRACTION_WORKER_URL'],
-    ['a scheme ending in http', { ...ENV, EXTRACTION_WORKER_URL: 'xhttp://crm-extraction-worker' }, 'EXTRACTION_WORKER_URL'],
-    ['a scheme starting with http', { ...ENV, EXTRACTION_WORKER_URL: 'httpx://crm-extraction-worker' }, 'EXTRACTION_WORKER_URL'],
-    ['credentials in the URL', { ...ENV, EXTRACTION_WORKER_URL: 'http://u:p@crm-extraction-worker' }, 'EXTRACTION_WORKER_URL'],
-    ['a user in the URL', { ...ENV, EXTRACTION_WORKER_URL: 'http://u@crm-extraction-worker' }, 'EXTRACTION_WORKER_URL'],
-    ['a password in the URL', { ...ENV, EXTRACTION_WORKER_URL: 'http://:p@crm-extraction-worker' }, 'EXTRACTION_WORKER_URL'],
-    ['a context window in exponent form', { ...ENV, EXTRACTION_LOCAL_CONTEXT_TOKENS: '1e4' }, 'EXTRACTION_LOCAL_CONTEXT_TOKENS'],
-    ['a context window in hex', { ...ENV, EXTRACTION_LOCAL_CONTEXT_TOKENS: '0x2000' }, 'EXTRACTION_LOCAL_CONTEXT_TOKENS'],
-    ['a short secret', { ...ENV, EXTRACTION_WORKER_SECRET: 'abcdefgh' }, 'EXTRACTION_WORKER_SECRET'],
-    ['a one-letter secret', { ...ENV, EXTRACTION_WORKER_SECRET: 's'.repeat(64) }, 'EXTRACTION_WORKER_SECRET'],
-    ['no context window', { ...ENV, EXTRACTION_LOCAL_CONTEXT_TOKENS: undefined }, 'EXTRACTION_LOCAL_CONTEXT_TOKENS'],
-    ['a context window not a number', { ...ENV, EXTRACTION_LOCAL_CONTEXT_TOKENS: '8k' }, 'EXTRACTION_LOCAL_CONTEXT_TOKENS'],
-    ['no answer budget', { ...ENV, EXTRACTION_LOCAL_MAX_ANSWER_TOKENS: '0' }, 'EXTRACTION_LOCAL_MAX_ANSWER_TOKENS'],
-    ['a negative local limit', { ...ENV, EXTRACTION_CYCLE_LOCAL_MS_LIMIT: '-1' }, 'EXTRACTION_CYCLE_LOCAL_MS_LIMIT'],
+    [
+      'a non-http URL',
+      { ...ENV, EXTRACTION_WORKER_URL: 'ftp://crm-extraction-worker' },
+      'EXTRACTION_WORKER_URL',
+    ],
+    [
+      'a scheme ending in http',
+      { ...ENV, EXTRACTION_WORKER_URL: 'xhttp://crm-extraction-worker' },
+      'EXTRACTION_WORKER_URL',
+    ],
+    [
+      'a scheme starting with http',
+      { ...ENV, EXTRACTION_WORKER_URL: 'httpx://crm-extraction-worker' },
+      'EXTRACTION_WORKER_URL',
+    ],
+    [
+      'credentials in the URL',
+      { ...ENV, EXTRACTION_WORKER_URL: 'http://u:p@crm-extraction-worker' },
+      'EXTRACTION_WORKER_URL',
+    ],
+    [
+      'a user in the URL',
+      { ...ENV, EXTRACTION_WORKER_URL: 'http://u@crm-extraction-worker' },
+      'EXTRACTION_WORKER_URL',
+    ],
+    [
+      'a password in the URL',
+      { ...ENV, EXTRACTION_WORKER_URL: 'http://:p@crm-extraction-worker' },
+      'EXTRACTION_WORKER_URL',
+    ],
+    [
+      'a context window in exponent form',
+      { ...ENV, EXTRACTION_LOCAL_CONTEXT_TOKENS: '1e4' },
+      'EXTRACTION_LOCAL_CONTEXT_TOKENS',
+    ],
+    [
+      'a context window in hex',
+      { ...ENV, EXTRACTION_LOCAL_CONTEXT_TOKENS: '0x2000' },
+      'EXTRACTION_LOCAL_CONTEXT_TOKENS',
+    ],
+    [
+      'a short secret',
+      { ...ENV, EXTRACTION_WORKER_SECRET: 'abcdefgh' },
+      'EXTRACTION_WORKER_SECRET',
+    ],
+    [
+      'a one-letter secret',
+      { ...ENV, EXTRACTION_WORKER_SECRET: 's'.repeat(64) },
+      'EXTRACTION_WORKER_SECRET',
+    ],
+    [
+      'no context window',
+      { ...ENV, EXTRACTION_LOCAL_CONTEXT_TOKENS: undefined },
+      'EXTRACTION_LOCAL_CONTEXT_TOKENS',
+    ],
+    [
+      'a context window not a number',
+      { ...ENV, EXTRACTION_LOCAL_CONTEXT_TOKENS: '8k' },
+      'EXTRACTION_LOCAL_CONTEXT_TOKENS',
+    ],
+    [
+      'no answer budget',
+      { ...ENV, EXTRACTION_LOCAL_MAX_ANSWER_TOKENS: '0' },
+      'EXTRACTION_LOCAL_MAX_ANSWER_TOKENS',
+    ],
+    [
+      'a negative local limit',
+      { ...ENV, EXTRACTION_CYCLE_LOCAL_MS_LIMIT: '-1' },
+      'EXTRACTION_CYCLE_LOCAL_MS_LIMIT',
+    ],
   ])('%s', (_name, env, key) => {
     const r = buildModelExtraction(env, { onReply: () => undefined })
     expect(r).toEqual({ ok: false, keys: expect.arrayContaining([key]) as unknown })

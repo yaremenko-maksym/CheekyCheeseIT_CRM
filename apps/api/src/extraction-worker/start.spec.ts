@@ -220,7 +220,9 @@ describe('startWorker — what it wires up', () => {
     // The wired sink (§5.3): the fall to the floor reaches both the reply and the log.
     expect(reply.events.map((e) => e.type)).toContain('FELL_TO_LOCAL')
     const logged = out.map((l) => JSON.parse(l) as { event: string; type?: string })
-    expect(logged).toContainEqual(expect.objectContaining({ event: 'ROUTER', type: 'FELL_TO_LOCAL' }))
+    expect(logged).toContainEqual(
+      expect.objectContaining({ event: 'ROUTER', type: 'FELL_TO_LOCAL' }),
+    )
     // The capture (AC7): no key, secret or input text on stdout.
     for (const marker of ['KEY-MARKER', SECRET, 'INPUT-MARKER']) {
       expect(out.join('')).not.toContain(marker)

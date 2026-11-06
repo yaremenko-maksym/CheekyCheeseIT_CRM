@@ -25,7 +25,7 @@ const CONFIG = {
 
 const tmpListPath = () => join(mkdtempSync(join(tmpdir(), 'xw-heal-')), 'managed-models.json')
 
-const attempt =(route: 'gemini' | 'groq' | 'local', model: string, code = 'OK'): RouterEvent =>
+const attempt = (route: 'gemini' | 'groq' | 'local', model: string, code = 'OK'): RouterEvent =>
   ({ type: 'ATTEMPT', route, model, code, inputChars: 1, latencyMs: 1 }) as RouterEvent
 
 function world(config: unknown = CONFIG, throwing?: string, listPath = tmpListPath()) {
@@ -94,7 +94,10 @@ describe('scheduleSelfHeal — the worker owns the §3.4 timers', () => {
     w.heal.record(attempt('local', 'gemini-2.5-flash'))
     w.heal.record({ type: 'CONFIG_REFUSED' })
     // Not an attempt, whatever it carries.
-    w.heal.record({ ...attempt('gemini', 'gemini-2.0-flash'), type: 'SKIP' } as unknown as RouterEvent)
+    w.heal.record({
+      ...attempt('gemini', 'gemini-2.0-flash'),
+      type: 'SKIP',
+    } as unknown as RouterEvent)
     expect(had('groq', 'openai/gpt-oss-20b')).toBe(true)
     expect(had('gemini', 'openai/gpt-oss-20b')).toBe(false)
     expect(had('gemini', 'gemini-2.5-flash')).toBe(false)

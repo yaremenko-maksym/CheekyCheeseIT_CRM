@@ -41,12 +41,10 @@ export const MODEL_EXTRACTION_ENV_KEYS = [
 const positiveInt = z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().positive())
 
 const envSchema = z.object({
-  EXTRACTION_WORKER_URL: z
-    .url({ protocol: /^https?$/ })
-    .refine((u) => {
-      const url = new URL(u)
-      return url.username === '' && url.password === ''
-    }),
+  EXTRACTION_WORKER_URL: z.url({ protocol: /^https?$/ }).refine((u) => {
+    const url = new URL(u)
+    return url.username === '' && url.password === ''
+  }),
   EXTRACTION_WORKER_SECRET: z.string().refine(isUsableWorkerSecret),
   // The worker's local route window: the page is cut to it before it leaves (§2.1).
   EXTRACTION_LOCAL_CONTEXT_TOKENS: positiveInt,
@@ -62,8 +60,7 @@ export type ModelExtractionWiring = {
 }
 
 export type ModelExtractionResult =
-  | { ok: true; wiring: ModelExtractionWiring | undefined }
-  | { ok: false; keys: string[] }
+  { ok: true; wiring: ModelExtractionWiring | undefined } | { ok: false; keys: string[] }
 
 /**
  * The collection side's model (ADR §2.4): a `ModelStructurer` over the extraction worker. No worker
