@@ -7,7 +7,10 @@ import {
   type ExtractionWorkerAdapterConfig,
 } from '@crm/inference'
 import { z } from 'zod'
-import { EXTRACTION_TABLE_VERSION, isUsableWorkerSecret } from '../../extraction-worker/schema'
+import {
+  EXTRACTION_TABLE_VERSION,
+  isUsableWorkerSecret,
+} from '../../extraction-worker/link-contract'
 import { HTML_MODEL_CALLS_PER_CYCLE, InMemoryModelBudget } from './model-budget.port'
 import { ModelStructurer } from './model-structurer'
 import { EXTRACTION_SYSTEM_PROMPT } from './prompt-envelope'

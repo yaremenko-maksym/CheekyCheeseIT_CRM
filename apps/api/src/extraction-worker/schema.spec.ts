@@ -4,11 +4,9 @@ import {
   EXTRACTION_TABLE_VERSION,
   MIN_WORKER_SECRET_CHARS,
   MIN_WORKER_SECRET_DISTINCT_CHARS,
-  healthFlags,
-  localOnlyRouterConfig,
-  parseWorkerEnv,
   tableVersionOf,
-} from './schema'
+} from './link-contract'
+import { healthFlags, localOnlyRouterConfig, parseWorkerEnv } from './schema'
 import { z } from 'zod'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'

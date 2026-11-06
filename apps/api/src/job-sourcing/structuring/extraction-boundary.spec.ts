@@ -35,6 +35,27 @@ describe('extraction boundary (5.4c-3)', () => {
     ])
   })
 
+  it('only the worker and its config builder name the worker env parsers (SR-M-2)', () => {
+    // build-inference-config holds the worker env schema and the router config builder.
+    const users = filesMatching(/\b(parseWorkerEnv|buildRouterConfig|extractionWorkerEnvSchema)\b/)
+    expect(users.filter((f) => !f.startsWith('extraction-worker/'))).toEqual([
+      'inference/build-inference-config.ts',
+    ])
+  })
+
+  it('outside the worker, only the link contract is imported from it (SR-M-2)', () => {
+    const imports = sources(SRC)
+      .filter((f) => !relative(SRC, f).startsWith('extraction-worker'))
+      .flatMap((f) =>
+        [...readFileSync(f, 'utf8').matchAll(/from '[./]*\/extraction-worker\/([\w-]+)'/g)].map(
+          (m) => `${relative(SRC, f).split(sep).join('/')} -> ${m[1]}`,
+        ),
+      )
+    expect(imports).toEqual([
+      'job-sourcing/structuring/model-extraction-wiring.ts -> link-contract',
+    ])
+  })
+
   it('ModelStructurer is the only consumer of the extraction port outside the worker (AC6)', () => {
     const consumers = filesMatching(/\bExtractionPort\b/)
     expect(consumers.filter((f) => !f.startsWith('extraction-worker/'))).toEqual([

@@ -4,8 +4,28 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { EXTRACTION_TABLE_VERSION } from './schema'
+import type { RouterEvent } from '@crm/inference'
+import { EXTRACTION_TABLE_VERSION } from './link-contract'
 import { startWorker } from './start'
+
+/** The real self-heal, with its ledger input observed (CR-M-3). */
+const healed = vi.hoisted(() => ({ recorded: [] as unknown[] }))
+vi.mock('./self-heal', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./self-heal')>()
+  return {
+    ...actual,
+    scheduleSelfHeal: (opts: Parameters<typeof actual.scheduleSelfHeal>[0]) => {
+      const heal = actual.scheduleSelfHeal(opts)
+      return {
+        ...heal,
+        record: (e: RouterEvent) => {
+          healed.recorded.push(e)
+          heal.record(e)
+        },
+      }
+    },
+  }
+})
 
 const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
 const BEARER = { authorization: `Bearer ${SECRET}` }
@@ -230,9 +250,55 @@ describe('startWorker — what it wires up', () => {
     }
 
     hostnames.length = 0
+    healed.recorded.length = 0
     const preflight = await post(app, '/preflight', {})
     expect(preflight.json<{ ok: boolean }>().ok).toBe(false)
     expect(hostnames).toEqual(['crm-model-runtime'])
+    // The preflight is not a production call: it never feeds the OK ledger.
+    expect(healed.recorded).toEqual([])
+  })
+
+  it('every /extract router event feeds the self-heal OK ledger (CR-M-3, SPEC-M-1)', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve(new Response('{}', { status: 500 })))
+    healed.recorded.length = 0
+    const { app } = await started({
+      EXTRACTION_ROUTER_CONFIG: JSON.stringify({
+        policyVersion: 'p1',
+        hostedBudgetMs: 5000,
+        floorBudgetMs: 60_000,
+        routes: [
+          {
+            provider: 'groq',
+            models: ['openai/gpt-oss-20b'],
+            contextTokens: 8192,
+            structuredOutput: 'json_object',
+            minGapMs: 0,
+            timeoutMs: 1000,
+            maxAnswerTokens: 512,
+            freeLimit: { requestsPerDay: 100 },
+          },
+          {
+            provider: 'local',
+            contextTokens: 8192,
+            structuredOutput: 'json_schema',
+            timeoutMs: 1000,
+            maxAnswerTokens: 512,
+          },
+        ],
+      }),
+      GROQ_API_KEY: 'KEY-MARKER',
+      ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
+      LOCAL_MODEL_NAME: 'qwen2.5:3b',
+    })
+    const extract = await post(app, '/extract', {
+      input: 'x',
+      tableVersion: EXTRACTION_TABLE_VERSION,
+    })
+    const events = extract.json<{ events: unknown[] }>().events
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'ATTEMPT', route: 'groq', model: 'openai/gpt-oss-20b' }),
+    )
+    expect(healed.recorded).toEqual(events)
   })
 
   it('the hosted route reads the managed-list file beside the state file (ADR §3.4)', async () => {

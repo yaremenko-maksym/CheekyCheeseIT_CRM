@@ -37,11 +37,13 @@ export function scheduleSelfHeal(opts: SelfHealOptions): {
   record(e: RouterEvent): void
   stop(): void
 } {
-  const okCalls = new Set<string>()
+  // Each OK call's sequence number, so a clear removes only what a run saw.
+  const okCalls = new Map<string, number>()
+  let seq = 0
   const key = (p: string, model: string): string => `${p}\n${model}`
   const record = (e: RouterEvent): void => {
     if (e.type === 'ATTEMPT' && e.code === 'OK' && e.route !== 'local') {
-      okCalls.add(key(e.route, e.model))
+      okCalls.set(key(e.route, e.model), ++seq)
     }
   }
   const config = routerConfigSchema.safeParse(opts.config)
@@ -74,8 +76,13 @@ export function scheduleSelfHeal(opts: SelfHealOptions): {
     )
   }
   run('startup')
-  // The ledger covers one day: cleared only after a daily run that saw it finished.
-  const daily = setInterval(() => run('daily', () => okCalls.clear()), DAILY_REFRESH_INTERVAL_MS)
+  // The ledger covers one day: after a daily run finishes, the calls it saw go; later ones stay.
+  const daily = setInterval(() => {
+    const seen = seq
+    run('daily', () => {
+      for (const [k, s] of okCalls) if (s <= seen) okCalls.delete(k)
+    })
+  }, DAILY_REFRESH_INTERVAL_MS)
   const chain = setInterval(() => run('chain'), CHAIN_CHECK_INTERVAL_MS)
   daily.unref()
   chain.unref()

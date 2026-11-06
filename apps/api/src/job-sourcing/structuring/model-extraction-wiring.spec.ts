@@ -1,6 +1,6 @@
 import { routerInputCeilingChars } from '@crm/inference'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { EXTRACTION_TABLE_VERSION } from '../../extraction-worker/schema'
+import { EXTRACTION_TABLE_VERSION } from '../../extraction-worker/link-contract'
 import type { HtmlStructurerRequest } from './html-structurer.port'
 import { ModelStructurer } from './model-structurer'
 import {
@@ -218,6 +218,24 @@ describe('buildModelExtraction — the collection side talks to the worker only 
     const r2 = open.budget.reserve()!
     open.budget.commit(r2, { localMs: 10_000_000 })
     expect(open.budget.reserve()).not.toBeNull()
+  })
+
+  it('the worker-reported local time reaches the limit: the next page sends no call (SPEC-M-1)', async () => {
+    const spent = {
+      ...REPLY,
+      result: { ok: false, code: 'PROVIDER_ERROR', usage: { localMs: 1000 } },
+    }
+    const limited = wired({ ...ENV, EXTRACTION_CYCLE_LOCAL_MS_LIMIT: '1000' }, spent)
+    const cycle = limited.wiring.forCycle()
+    await cycle.structurer.structure(request('Senior Go Engineer, Kyiv'))
+    await cycle.structurer.structure(request('Middle QA Engineer, Lviv'))
+    expect(limited.calls).toHaveLength(1)
+
+    const open = wired(ENV, spent)
+    const openCycle = open.wiring.forCycle()
+    await openCycle.structurer.structure(request('Senior Go Engineer, Kyiv'))
+    await openCycle.structurer.structure(request('Middle QA Engineer, Lviv'))
+    expect(open.calls).toHaveLength(2)
   })
 
   it('the input ceiling is the configured window with the small-dose table (third argument)', () => {

@@ -110,6 +110,23 @@ describe('scheduleSelfHeal — the worker owns the §3.4 timers', () => {
     w.heal.stop()
   })
 
+  it('an OK call recorded while the daily run is in flight survives its clear (CR-M-2)', async () => {
+    const w = world()
+    let finish: (r: ModelRefreshResult) => void = () => undefined
+    w.jobs.daily.mockImplementationOnce(() => new Promise((r) => (finish = r)))
+    w.heal.record(attempt('groq', 'openai/gpt-oss-20b'))
+    await vi.advanceTimersByTimeAsync(DAILY_REFRESH_INTERVAL_MS)
+    w.heal.record(attempt('gemini', 'gemini-2.5-flash'))
+    w.heal.record(attempt('groq', 'openai/gpt-oss-20b'))
+    finish(DONE)
+    await vi.advanceTimersByTimeAsync(0)
+    const had = w.seen[0]!.deps.hadOkCall!
+    expect(had('gemini', 'gemini-2.5-flash')).toBe(true)
+    // Seen before the run and again during it: the later call is the one that counts.
+    expect(had('groq', 'openai/gpt-oss-20b')).toBe(true)
+    w.heal.stop()
+  })
+
   it('a failed run before the clear keeps the ledger: no OK call is forgotten', async () => {
     const w = world()
     w.jobs.daily.mockImplementationOnce(() => Promise.reject(new Error('KEY-MARKER')))

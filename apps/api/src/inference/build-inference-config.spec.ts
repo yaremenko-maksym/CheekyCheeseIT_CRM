@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { routerConfigSchema } from '@crm/inference'
-import { extractionWorkerEnvSchema, validateEnv } from '../config/env'
-import { buildInferenceConfig, buildRouterConfig } from './build-inference-config'
+import { validateEnv, WORKER_ONLY_ENV_KEYS } from '../config/env'
+import {
+  buildInferenceConfig,
+  buildRouterConfig,
+  extractionWorkerEnvSchema,
+} from './build-inference-config'
 import { EXTRACTION_MODEL_GUARDRAILS } from './extraction-guardrails'
 
 const BASE_DEV = {
@@ -71,18 +75,44 @@ describe('inference env keys', () => {
     )
   })
 
-  it('accepts the router selector and the worker-only router keys', () => {
-    const env = validateEnv({
-      ...BASE_DEV,
-      INFERENCE_EXTRACTION_PROVIDER: 'router',
-      GEMINI_API_KEY: 'g-key',
-      GROQ_API_KEY: 'q-key',
-      ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
-    })
-    expect(env.INFERENCE_EXTRACTION_PROVIDER).toBe('router')
-    expect(env.GEMINI_API_KEY).toBe('g-key')
-    expect(env.GROQ_API_KEY).toBe('q-key')
-    expect(env.ROUTER_LOCAL_MODEL_URL).toBe('http://crm-model-runtime:11434')
+  it('the router selector is the worker’s alone: the API refuses it', () => {
+    expect(() => validateEnv({ ...BASE_DEV, INFERENCE_EXTRACTION_PROVIDER: 'router' })).toThrow(
+      /INFERENCE_EXTRACTION_PROVIDER/,
+    )
+  })
+
+  it.each(WORKER_ONLY_ENV_KEYS)('the API refuses to boot with %s, naming the key only', (key) => {
+    const value = 'http://VALUE-MARKER.example/x'
+    let message = ''
+    try {
+      validateEnv({ ...BASE_DEV, [key]: value })
+    } catch (e) {
+      message = (e as Error).message
+    }
+    expect(message).toBe(
+      `Invalid environment variables:\n  ${key}: worker-only key, not allowed in the API env`,
+    )
+  })
+
+  it('names every worker-only key that is set, and nothing else', () => {
+    expect(() =>
+      validateEnv({ ...BASE_DEV, GEMINI_API_KEY: 'g', GROQ_API_KEY: 'q', LOCAL_MODEL_NAME: 'm' }),
+    ).toThrow(
+      'Invalid environment variables:\n  GEMINI_API_KEY: worker-only key, not allowed in the API env\n  GROQ_API_KEY: worker-only key, not allowed in the API env',
+    )
+  })
+
+  it('an empty worker-only key is unset (the .env.example template carries one)', () => {
+    const env = validateEnv({ ...BASE_DEV, ROUTER_LOCAL_MODEL_URL: '', GEMINI_API_KEY: '' })
+    expect(Object.keys(env).filter((k) => WORKER_ONLY_ENV_KEYS.includes(k as never))).toEqual([])
+  })
+
+  it('the worker-only keys are the hosted keys and the router URL', () => {
+    expect(WORKER_ONLY_ENV_KEYS).toEqual([
+      'GEMINI_API_KEY',
+      'GROQ_API_KEY',
+      'ROUTER_LOCAL_MODEL_URL',
+    ])
   })
 
   it('keeps the LOCAL_MODEL_URL refine narrow: the runtime container name is refused there', () => {
@@ -90,28 +120,16 @@ describe('inference env keys', () => {
       validateEnv({ ...BASE_DEV, LOCAL_MODEL_URL: 'http://crm-model-runtime:11434' }),
     ).toThrow(/LOCAL_MODEL_URL must be/)
   })
-
-  it('refuses a link-local ROUTER_LOCAL_MODEL_URL by key, never echoing the value', () => {
-    let message = ''
-    try {
-      validateEnv({ ...BASE_DEV, ROUTER_LOCAL_MODEL_URL: 'http://169.254.169.254/latest' })
-    } catch (e) {
-      message = (e as Error).message
-    }
-    expect(message).toMatch(/ROUTER_LOCAL_MODEL_URL: ROUTER_LOCAL_MODEL_URL must be/)
-    expect(message).not.toContain('169.254')
-  })
-
-  it('refuses an empty hosted key', () => {
-    expect(() => validateEnv({ ...BASE_DEV, GEMINI_API_KEY: '' })).toThrow(/GEMINI_API_KEY/)
-    expect(() => validateEnv({ ...BASE_DEV, GROQ_API_KEY: '' })).toThrow(/GROQ_API_KEY/)
-  })
 })
 
 describe('extractionWorkerEnvSchema', () => {
+  it('refuses an empty hosted key', () => {
+    expect(extractionWorkerEnvSchema.safeParse({ GEMINI_API_KEY: '' }).success).toBe(false)
+    expect(extractionWorkerEnvSchema.safeParse({ GROQ_API_KEY: '' }).success).toBe(false)
+  })
+
   it('parses the worker keys alone, without the API env', () => {
     const r = extractionWorkerEnvSchema.safeParse({
-      INFERENCE_EXTRACTION_PROVIDER: 'router',
       GROQ_API_KEY: 'q-key',
       ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
       LOCAL_MODEL_NAME: 'qwen3:8b',

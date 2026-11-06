@@ -1,5 +1,6 @@
-import type { InferenceConfig } from '@crm/inference'
-import type { Env, ExtractionWorkerEnv } from '../config/env'
+import { isAllowedRouterLocalModelUrl, type InferenceConfig } from '@crm/inference'
+import { z } from 'zod'
+import type { Env } from '../config/env'
 import { EXTRACTION_MODEL_GUARDRAILS } from './extraction-guardrails'
 
 export type InferenceEnv = Partial<
@@ -50,7 +51,22 @@ export function buildInferenceConfig(env: InferenceEnv): InferenceConfig {
   return cfg
 }
 
-export type RouterEnv = Omit<ExtractionWorkerEnv, 'INFERENCE_EXTRACTION_PROVIDER'>
+/**
+ * The extraction worker's model keys (ADR §2.4, §3.3), parsed by the worker alone: the API's env
+ * refuses the hosted keys and `ROUTER_LOCAL_MODEL_URL` (a source scan pins who names them).
+ * `LOCAL_MODEL_KEY` and `LOCAL_MODEL_NAME` mean the same in both processes.
+ */
+export const extractionWorkerEnvSchema = z.object({
+  LOCAL_MODEL_KEY: z.string().min(1).optional(),
+  LOCAL_MODEL_NAME: z.string().min(1).optional(),
+  GEMINI_API_KEY: z.string().min(1).optional(),
+  GROQ_API_KEY: z.string().min(1).optional(),
+  // Its own key: `LOCAL_MODEL_URL` and its refine stay as narrow as they were (§3.3). No message:
+  // the worker answers a refusal by reason only, never by text.
+  ROUTER_LOCAL_MODEL_URL: z.string().refine(isAllowedRouterLocalModelUrl).optional(),
+})
+
+export type RouterEnv = z.infer<typeof extractionWorkerEnvSchema>
 
 const HOSTED_KEY_ENV = { gemini: 'GEMINI_API_KEY', groq: 'GROQ_API_KEY' } as const
 

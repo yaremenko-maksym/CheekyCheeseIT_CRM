@@ -15,7 +15,8 @@ import {
 import { afterEach, describe, expect, it } from 'vitest'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
-import { EXTRACTION_TABLE_VERSION, MAX_WORKER_INPUT_CHARS } from './schema'
+import { EXTRACTION_TABLE_VERSION } from './link-contract'
+import { MAX_WORKER_INPUT_CHARS } from './schema'
 import { buildExtractionWorker, type WorkerLogLine } from './server'
 
 const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
