@@ -96,7 +96,7 @@ export function buildModelExtraction(
     tableVersion: EXTRACTION_TABLE_VERSION,
     timeoutMs: WORKER_ADAPTER_TIMEOUT_MS,
     onReply: opts.onReply,
-    fetchImpl: opts.fetchImpl,
+    ...(opts.fetchImpl && { fetchImpl: opts.fetchImpl }),
   })
   const inputCeilingChars = routerInputCeilingChars(
     {
