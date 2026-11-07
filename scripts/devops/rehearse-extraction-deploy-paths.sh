@@ -257,6 +257,11 @@ docker exec "$(ecid extraction-worker)" node -e "
 docker logs "$(ecid crm-model-runtime)" 2>&1 | grep -qF "$MARKER" && fail "G. the runtime logged the prompt"
 record "G. a prompt carrying a marker: absent from the runtime log"
 record "G. runtime log lines after all requests: $(docker logs "$(ecid crm-model-runtime)" 2>&1 | wc -l)"
+# A fact, not a gate: whether the host itself reaches the runtime by its address on the internal
+# network. The MP-04 harness runs on the host and depends on it.
+rt_ip="$(docker inspect -f '{{with index .NetworkSettings.Networks "crm-extraction_runtime"}}{{.IPAddress}}{{end}}' "$(ecid crm-model-runtime)")"
+out="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$rt_ip:8080/health" || echo unreachable)"
+record "G. host -> runtime at $rt_ip on the internal network: $out"
 
 # ── H. Undo (the runbook's steps) ───────────────────────────────────────────
 log "H. Undo"
