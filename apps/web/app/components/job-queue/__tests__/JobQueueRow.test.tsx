@@ -304,6 +304,57 @@ describe('JobQueueRow', () => {
     expect(screen.getByTestId('job-queue-row-source')).toHaveAccessibleName('Додано вручну')
     expect(row).toHaveTextContent('Компанію не вказано')
   })
+
+  describe('two-column layout structure (§4.3 ≥720px)', () => {
+    it('has both layout wrappers job-queue-row-main and job-queue-row-meta', () => {
+      renderRow()
+      expect(screen.getByTestId('job-queue-row-main')).toBeInTheDocument()
+      expect(screen.getByTestId('job-queue-row-meta')).toBeInTheDocument()
+    })
+
+    it('meta column carries the 230px width class', () => {
+      renderRow()
+      expect(screen.getByTestId('job-queue-row-meta')).toHaveClass('@min-[720px]:w-[14.375rem]')
+    })
+
+    it('meta column carries the shrink-0 class', () => {
+      renderRow()
+      expect(screen.getByTestId('job-queue-row-meta')).toHaveClass('@min-[720px]:shrink-0')
+    })
+
+    it('matched count sits inside meta, not in main', () => {
+      renderRow({ matchedSeniorCount: 2 })
+      expect(
+        within(screen.getByTestId('job-queue-row-meta')).getByTestId('job-queue-row-counts'),
+      ).toBeInTheDocument()
+      expect(
+        within(screen.getByTestId('job-queue-row-main')).queryByTestId('job-queue-row-counts'),
+      ).not.toBeInTheDocument()
+    })
+
+    it('also-seen sits inside meta', () => {
+      renderRow({ alsoSeenOnCount: 3 })
+      expect(
+        within(screen.getByTestId('job-queue-row-meta')).getByTestId('job-queue-row-also-seen'),
+      ).toBeInTheDocument()
+    })
+
+    it('publication age carries the order-first class for wide layouts', () => {
+      renderRow()
+      expect(screen.getByTestId('job-queue-row-age')).toHaveClass('@min-[720px]:order-first')
+    })
+
+    it('DOM order inside meta: counts precedes age, age precedes also-seen', () => {
+      renderRow({ matchedSeniorCount: 1, alsoSeenOnCount: 1 })
+      const meta = screen.getByTestId('job-queue-row-meta')
+      const counts = within(meta).getByTestId('job-queue-row-counts')
+      const age = within(meta).getByTestId('job-queue-row-age')
+      const alsoSeen = within(meta).getByTestId('job-queue-row-also-seen')
+      // Node.DOCUMENT_POSITION_FOLLOWING = 4: the argument follows the caller in the DOM
+      expect(counts.compareDocumentPosition(age) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(age.compareDocumentPosition(alsoSeen) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+  })
 })
 
 // Hand-written literals (not derived from the code under test) so a mutated name is caught.
