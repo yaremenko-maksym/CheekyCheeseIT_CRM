@@ -11,6 +11,9 @@ Each agent has its own `lessons.md` — accumulated lessons from past tasks.
 ├── autotest/lessons.md
 ├── reviewer/lessons.md
 ├── devops/lessons.md
+├── legal/lessons.md
+├── manual-qa/lessons.md
+├── ui-ux-designer/lessons.md
 └── pm/lessons.md       (orchestrator lessons; PM role merged into Master 2026-10-05; NO archive files)
 ```
 
@@ -24,7 +27,7 @@ Each agent reads its own `lessons.md` at startup — it is part of the mandatory
 
 **Trigger-based** (User answer #5 — skill-driven via `anthropic-skills:consolidate-memory`):
 
-After each **merged PR** PM MUST:
+After each **merged PR** Master MUST:
 
 1. Append 1-3 lessons to `.claude/agents/memory/<agent>/lessons.md` of the corresponding agent (the one who did the main work).
 2. Consolidate when reaching the threshold (`lessons.md` ≥ **20 lines** OR after a batch of merged PRs): dedup / simplify / extract patterns → promote-and-prune (**without an archive**):
@@ -33,7 +36,7 @@ After each **merged PR** PM MUST:
 - **P1** → consolidate into `rules/common/<topic>.md` (if cross-agent) or `<agent>.md` (if agent-specific).
 - **The rest (one-off / absorbed by a promote)** → **delete** (do not archive; history is in git).
 
-> This is a separate PM operation over the in-repo `lessons.md`, NOT the skill `anthropic-skills:consolidate-memory` (that one dedups the personal user memory `~/.claude`).
+> This is a separate Master operation over the in-repo `lessons.md`, NOT the skill `anthropic-skills:consolidate-memory` (that one dedups the personal user memory `~/.claude`).
 
 This is the "levelling-up" of a lesson: a personal case → a general rule → an enforced rule.
 

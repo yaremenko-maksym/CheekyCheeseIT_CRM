@@ -174,7 +174,7 @@ mcp__eslint__lint-files: {filePaths: ["apps/api/src/<file>", "apps/web/app/<file
 
 **Architecture:**
 
-- [ ] New tables via a Drizzle schema + migration (`apps/api/drizzle/migrations/`)
+- [ ] New tables via a Drizzle schema + migration (`apps/api/drizzle/manual*/`)
 - [ ] Frontend requests via TanStack Query, not fetch / axios directly
 - [ ] Forms via TanStack Form, not useState/useRef controlled
 - [ ] Routing — TanStack Router file-based, the update of `routeTree.gen.ts` correct

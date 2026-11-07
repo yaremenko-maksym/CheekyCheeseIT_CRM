@@ -36,7 +36,7 @@ SENIOR enters a transaction (PENDING)
 
 - **NBU rates** — a daily cron, currency rates from the NBU API
 - **Etherscan** — verification of crypto transactions by hash (read-only)
-- **PDF invoice** — generation via pdfkit
+- **PDF invoice** — generation via pdf-lib
 
 ## Endpoints (key)
 
