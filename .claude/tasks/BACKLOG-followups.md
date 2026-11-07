@@ -7019,3 +7019,148 @@ a small dedicated pool for the health store.
 wait or never commits afterwards.
 
 Source: review panel and security review of PR #1277.
+
+---
+
+## 368. Finance reads load whole `transactions` into memory (2026-11-07, human-planned)
+
+`getAdminBalance`, `getSeniorBalance` and `getTotalEarned` in `BalanceService`, `TransactionsService.findAll`, and
+`SummaryService.getSummary` with `computeDropAggregate` load all matching rows and aggregate in JS. `computeDropAggregate`
+is O(drops × transactions). Cost grows with total history, on every balance or summary read.
+
+**Why not automatic.** The aggregates carry money rules (ledger terms, holding and debt formulas), so moving them to SQL
+needs a characterization suite first and a security review.
+
+**Verify.** Log the query's row count for a summary read on a database with years of history, or read the query in each
+function for a missing `where` or aggregate.
+
+Source: gardener audit 2026-11-07.
+
+## 369. Missing indexes on finance and membership tables (2026-11-07, human-planned)
+
+`payout_requests.senior_id` has no index, so the owner filter in `findPayoutRequests` is a sequential scan (CR-M-1 on
+PR #1284). `team_members` and `project_members` have only a primary key on `id`, and they are filtered by team, project and
+user. `transactions` already has many partial and unique indexes, so check it query by query before adding more.
+
+**Fix.** An additive migration through the normal path, with a security review. Take the column list from `EXPLAIN` on
+real queries.
+
+**Verify.** `SELECT indexname FROM pg_indexes WHERE tablename = 'payout_requests'` lists no index on `senior_id`.
+
+Source: gardener audit 2026-11-07, code review of PR #1284.
+
+## 370. Quadratic and per-row loops outside finance (2026-11-07, human-planned)
+
+`teams.findAll` calls `mapTeam` per team over the full project list that `fetchAllProjects` returned, so the work is
+O(teams × projects). Projects use `seniorIds.includes` inside a loop. The interview move runs one update per row.
+
+**Verify.** Read the three call paths, or count queries for one call in an integration test.
+
+Source: gardener audit 2026-11-07, review panel of PR #1285.
+
+## 371. Controller defense in depth: `ParseUUIDPipe` and `@Roles` (2026-11-07)
+
+Some finance and team routes check the role only in the controller or service body, and some id params lack
+`ParseUUIDPipe`. The audit's three "RBAC hole" candidates were checked and are **not** holes: each has an assert. The
+remaining cost is that a malformed id reaches Postgres and returns a 500 instead of a 400.
+
+**Verify.** Send a non-UUID id to such a route and observe the status.
+
+Source: gardener audit 2026-11-07.
+
+## 372. Mutation job runs three legs on every push to `main` (2026-11-07)
+
+The mutation job in `ci.yml` runs its package legs on a push to `main`, where the changed-file set is already merged and
+reviewed. This adds minutes to each post-merge run.
+
+**Verify.** `gh run list --branch main --workflow ci.yml`, then read the mutation job duration.
+
+Source: gardener audit 2026-11-07.
+
+## 373. Russian error text remains in resumes and contact (2026-11-07)
+
+API error fallbacks must be English, but `ContactService`, `ResumesController` and `ResumeAiService` still throw or return
+Russian messages. `EXCLUDED_DIRS` in `check-no-russian-letters.mjs` keeps `contact`, `resumes`, `contracts` and
+`job-sourcing` out of the guard that would catch it. Move them to error codes, then shrink the list as a ratchet. These
+messages may reach users, so the fix needs catalog strings in `uk` and `en`.
+
+**Verify.** Grep for Cyrillic on `Exception(` and `message:` lines in those modules, and read `EXCLUDED_DIRS`.
+
+Source: gardener audit 2026-11-07.
+
+## 374. `AuthModule` `forwardRef` and repeated `ScheduleModule.forRoot` (2026-11-07)
+
+`AuthModule` depends on a `forwardRef` cycle, and `ScheduleModule.forRoot` is registered in more than one module. Neither
+fails today. Both make the module graph harder to change.
+
+**Verify.** Grep `forwardRef` in `AuthModule` and `ScheduleModule.forRoot` across `apps/api/src`.
+
+Source: gardener audit 2026-11-07.
+
+## 375. `toUsd` has three diverged copies, and two safe merges remain (2026-11-07)
+
+The three web `toUsd` copies (`amount-currency-input`, `user-dialog/validation`, `finance/constants`) have different
+bodies, so merging them changes behaviour for at least one caller and needs a choice of the correct version. It is money.
+
+`parseInlineBold` in the contract and ToS PDF code differs only by a comment, and `isZodErrorCode` in the API filter differs
+from the shared and web copies only by a type annotation. Those two can merge without a behaviour change.
+
+**Verify.** Grep the three symbols and diff the bodies.
+
+Source: gardener audit 2026-11-07, review panel of PR #1285.
+
+## 376. `DocumentsListSection` still sorts with `DEFAULT_LOCALE` (2026-11-07)
+
+The TODO next to `sortDocuments` waits for a `useLocale()` hook, and that hook now exists in `apps/web/app/lib/i18n.ts`.
+So `en` viewers still get `uk` collation with no remaining reason.
+
+**Verify.** Read the TODO, then grep `export function useLocale`.
+
+Source: gardener audit 2026-11-07.
+
+## 377. Comments and messages that name removed things (2026-11-07)
+
+These mention agents, files or functions that no longer exist: the refusal message in `pre-agent-dispatch-isolation.sh`
+(pm snippets), `post-edit-write-coder-progress.sh`, `check-no-skip-hooks.yml` (CLAUDE-coder), `e2e-watchdog.yml`,
+`labels-sync.yml`, `invoices.service.ts` (pm brief), `payout.ts` (`PaymentChannelService`), `users-access.service.ts`
+(`juniorCanViewLegend`), `scripts/pm/wakeup-prompts` (`pm-state.json`). Hooks and workflows need their own zone owner, so
+this is not one edit.
+
+**Verify.** Grep each name in the file, then grep the same name for a definition.
+
+Source: gardener audit 2026-11-07.
+
+## 378. Unpin `ubuntu-24.04` after a Playwright bump (2026-11-07)
+
+PR #1281 pinned the `e2e` and `lighthouse` jobs to `ubuntu-24.04`, because Playwright 1.59 cannot install chromium on the
+image `ubuntu-latest` moved to. When bumping Playwright: confirm that the new version installs there, unpin, add the
+runner image to the browser cache key (CR-M-3 on #1281), and fix the stale wording in `install-playwright-system-deps.sh`
+(CR-L-1 on #1281).
+
+**Verify.** Grep `ubuntu-24.04` in `.github/workflows`, and read the resolved Playwright version in `pnpm-lock.yaml`.
+
+Source: PR #1281.
+
+## 379. Gardener giants list is stale (2026-11-07, human-planned)
+
+The gardener prompt names `transactions.service.ts`, `schema.ts` and `users.service.ts` as giants to leave for a person.
+`transactions.service.ts` is now under the 800-line limit, and `schema.ts` is a barrel over `database/schema/`.
+`users.service.ts` is still over. Nineteen production files in total exceed the limit. Most are the job-sourcing and resume
+clusters, deliberately left until after rollout. The ones outside those clusters need a seam chosen by a person
+(`decomposing-large-code`), because they sit on finance and RBAC paths: `company-account.service.ts`,
+`payout-settlement.service.ts`, `users.service.ts`. `generate-privilege-sql.ts` is outside the clusters too.
+
+**Verify.** List tracked `.ts` and `.tsx` files over 800 lines, excluding specs and generated files.
+
+Source: gardener audit 2026-11-07, review panel of PR #1285.
+
+## 380. Invite and notification mailer warn lines are not pinned against the provider body (2026-11-07)
+
+`ContactService` has a spec that fails if the raw Resend error reaches a log or telemetry sink. The invite mailer and
+`NotificationEmailCron` assertions use a message with no body or a substring match, so reverting either to the raw message
+stays green. Add a body that quotes an address, and assert `not.toContain` on it. The header comment in the manual migration
+for `notification_emails` also still names the invite mailer as the home of `safeErrorReason`, which is cosmetic.
+
+**Verify.** Replace `safeErrorReason(err)` with `err.message` in either mailer, run its spec, and observe that it stays green.
+
+Source: security review of PR #1287.
