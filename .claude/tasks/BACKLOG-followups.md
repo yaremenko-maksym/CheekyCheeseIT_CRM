@@ -7000,3 +7000,22 @@ Task 5.4c-4 builds the seam and leaves the call site to 5.5b, so four obligation
 the role the run uses.
 
 Source: reviews of PR #1277.
+
+## 367. A model-health write queued for a pool connection can run after the wait ended (2026-11-07)
+
+The pool built in `DatabaseService` sets neither `connectionTimeoutMillis` nor `query_timeout`. The server-side
+`statement_timeout` of the model-health store starts only once a connection is checked out, and `boundedWrite` stops
+waiting without cancelling. So on a saturated pool a health write can sit in the queue past the client wait, the cycle
+logs `MODEL_HEALTH_WRITE_FAILED`, and the write commits later.
+
+The harm is ordering: a late `clearFlag` landing after the next cycle's `raiseFlag` clears a live flag until that flag's
+next write. Counters are unaffected beyond a late increment. No caller exists until task 5.5b, so nothing can hit this
+today.
+
+**Fix options.** A connection timeout on the shared pool (touches every query in the API, so it needs its own review), or
+a small dedicated pool for the health store.
+
+**Verify.** Saturate the pool in an integration test, call a store write and assert that it either rejects by the client
+wait or never commits afterwards.
+
+Source: review panel and security review of PR #1277.
