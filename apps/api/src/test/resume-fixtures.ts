@@ -338,6 +338,13 @@ export function buildDocxRawBody(body: string): Buffer {
  * conversion routinely produces, and it is the shape that made a tag budget
  * untenable.
  *
+ * MEASURED, and the marginal figure is the one that matters: a one-page
+ * document is 9 616 tags and 100 KB, and each further page adds 9 600 tags —
+ * the extra 16 are the wrapper parts, paid once. (At 1 800 characters a page it
+ * is 14 416 and 150 KB.) So a twenty-page CV carries ~192 000 tags, and against
+ * the 120 000-tag budget of the previous round twelve pages (115 216) was the
+ * largest accepted while thirteen was refused.
+ *
  * A CV whose text is formatted per character, at `pages` pages. Accepted by the
  * size budgets; this fixture guards the regression where a tag budget rejected it.
  */
