@@ -92,6 +92,13 @@ describe('PayoutRequestReadService.findPayoutRequests', () => {
     }
   })
 
+  it('fails closed for a role this list does not know: nothing returned, no query', async () => {
+    const { svc, findMany } = makeService(rows)
+    const unknownRole = 'FUTURE_ROLE' as unknown as SessionUser['role']
+    expect(await svc.findPayoutRequests(user(unknownRole, 'future-id'))).toEqual([])
+    expect(findMany).not.toHaveBeenCalled()
+  })
+
   it('maps fields and serialises dates', async () => {
     const { svc } = makeService([row('r1', 'senior-id')])
     expect(await svc.findPayoutRequests(user('ADMIN'))).toEqual([
