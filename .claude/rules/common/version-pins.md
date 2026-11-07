@@ -1,6 +1,18 @@
+---
+paths:
+  - '**/package.json'
+  - 'pnpm-lock.yaml'
+  - 'pnpm-workspace.yaml'
+  - '.nvmrc'
+  - '.node-version'
+  - 'docker-compose*.yml'
+  - '**/Dockerfile*'
+  - '.github/workflows/**'
+---
+
 # Rule: Version pins (canonical)
 
-**Status:** Always-on
+**Status:** Path-scoped (loads with package manifests, the lockfile, Node pins, Docker files, workflows). `pnpm add` or a bump through Bash triggers no load: read this file by hand first.
 **Applies to:** All agents and contributors
 
 > Rationale: `docs/architecture/rules-rationale/version-pins.md`

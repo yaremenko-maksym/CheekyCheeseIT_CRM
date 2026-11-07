@@ -889,4 +889,32 @@ assert_red "ЛОВУШКА: хук со сломанным bash тоже даё�
   --not-contains "decision" \
   -- hook_at "$(hook_with_broken_bash "$WS")" "pnpm --filter @crm/api dev"
 
+# ── Windows payloads ──────────────────────────────────────────────────────────
+# The harness reports cwd with backslashes on Windows, and the CONTEXT regex
+# looks for .claude/worktrees/ with slashes: before the hook normalised cwd, the
+# guard exited 0 for every agent on that OS.
+WIN_WT='C:\Users\dev\CheekyCheeseIT_CRM\.claude\worktrees\agent-guard-test'
+
+assert_red "Windows payload: launch against the live DB from a backslash worktree cwd" \
+  --contains '"decision": "block"' \
+  -- h "DATABASE_URL=$LIVE_DB API_PORT=3011 pnpm --filter @crm/api dev" "$WIN_WT"
+
+assert_red "Windows payload: launch with an inherited DATABASE_URL" \
+  --contains '"decision": "block"' \
+  -- h "pnpm --filter @crm/api dev" "$WIN_WT"
+
+assert_launch_green "Windows payload: pinned safe values pass" \
+  -- h "DATABASE_URL=$SAFE_DB API_PORT=3011 pnpm --filter @crm/api dev" "$WIN_WT"
+
+assert_green "Windows payload: a checkout outside worktrees is not gated" \
+  -- h "pnpm --filter @crm/api dev" 'C:\Users\dev\CheekyCheeseIT_CRM'
+
+assert_red "Windows payload: BROKEN analyzer in a backslash worktree cwd still blocks" \
+  --contains "DEGRADED MODE" \
+  -- hook_at "$BROKEN" "pnpm --filter @crm/api dev" "$WIN_WT"
+
+assert_red "Windows payload: cd into a backslash worktree path from the main checkout" \
+  --contains '"decision": "block"' \
+  -- h "cd '$WIN_WT' && pnpm --filter @crm/api dev" 'C:\Users\dev\CheekyCheeseIT_CRM'
+
 guard_test_summary "test-pre-bash-live-db-guard.sh"

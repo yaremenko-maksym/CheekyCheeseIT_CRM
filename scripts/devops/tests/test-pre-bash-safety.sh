@@ -394,4 +394,45 @@ for sh in bash sh dash zsh ksh; do
   done
 done
 
+# ── Windows payloads ──────────────────────────────────────────────────────────
+# On Windows C:/x is an absolute path. dangerous_rm_target read it as relative
+# (no leading slash), so `rm -rf C:/` was allowed. Refused on the text of the
+# command, so this decides the same way on a Linux runner.
+assert_red "Windows: rm -rf C:/" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "rm -rf C:/"
+
+assert_red "Windows: rm -rf c:/Users/dev" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "rm -rf c:/Users/dev"
+
+assert_red "Windows: rm -rf C:/* behind &&" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "cd /tmp && rm -rf 'C:/*'"
+
+assert_green "a relative name with a colon is not a drive letter" \
+  -- h "rm -rf a:b/cache"
+
+# Quoting keeps backslashes, so these reach the hook as C:\x, not as C:x.
+assert_red "Windows: rm -rf 'C:\\' (quoted backslash root)" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "rm -rf 'C:\\'"
+
+assert_red "Windows: rm -rf 'C:\\Users\\dev' (quoted backslash path)" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "rm -rf 'C:\Users\dev'"
+
+assert_red "Windows: rm -rf '\\\\server\\share' (UNC path)" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "rm -rf '\\\\server\share'"
+
+assert_green "a relative name with a backslash is not an absolute path" \
+  -- h "rm -rf 'a\b'"
+
 guard_test_summary "test-pre-bash-safety.sh"

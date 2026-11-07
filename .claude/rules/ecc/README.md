@@ -1,3 +1,8 @@
+---
+paths:
+  - '.claude/rules/ecc/**'
+---
+
 # ECC Rules (local curated copy)
 
 Curated subset of the ECC rules pack, imported 2026-06-03 and **pruned 2026-06-11**

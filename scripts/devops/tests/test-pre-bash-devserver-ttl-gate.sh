@@ -681,4 +681,30 @@ assert_red "PR #485: собранный API, окружение целиком �
   --contains '"decision": "block"' \
   -- h "node apps/api/dist/main.js"
 
+# ── Windows payloads ──────────────────────────────────────────────────────────
+# The harness reports cwd with backslashes on Windows, and the CONTEXT regex
+# looks for .claude/worktrees/ with slashes: before the hook normalised cwd, the
+# gate exited 0 for every agent on that OS.
+WIN_WT='C:\Users\dev\CheekyCheeseIT_CRM\.claude\worktrees\agent-guard-test'
+
+assert_red "Windows payload: bare pnpm dev in a backslash worktree cwd" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:devserver-ttl-gate] BLOCK" \
+  -- h "pnpm --filter @crm/api dev" "$WIN_WT"
+
+assert_green "Windows payload: the wrapped launch passes" \
+  -- h "$TTL --ttl 7200 -- pnpm --filter @crm/api dev" "$WIN_WT"
+
+assert_green "Windows payload: a checkout outside worktrees is not gated" \
+  -- h "pnpm --filter @crm/api dev" 'C:\Users\dev\CheekyCheeseIT_CRM'
+
+assert_red "Windows payload: BROKEN analyzer in a backslash worktree cwd still blocks" \
+  --contains "DEGRADED MODE" \
+  -- hook_at "$BROKEN" "pnpm --filter @crm/api dev" "$WIN_WT"
+
+assert_red "Windows payload: cd into a backslash worktree path from the main checkout" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:devserver-ttl-gate] BLOCK" \
+  -- h "cd '$WIN_WT' && pnpm --filter @crm/api dev" 'C:\Users\dev\CheekyCheeseIT_CRM'
+
 guard_test_summary "test-pre-bash-devserver-ttl-gate.sh"

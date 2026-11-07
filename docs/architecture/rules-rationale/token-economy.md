@@ -190,8 +190,9 @@ digit: 30,000 digits took 45 s, a regression the round-8 regex did not have); th
 digit run (or `{name}`) once before looking for an operator, and the test pins a 30k digit run and `{` plus
 digits in front of an exec form (refused in well under 2 s) and floods of `{`, `&`, `<`, `>` and `1 ` pairs.
 
-**Still not verified:** end-to-end ordering inside a live Claude Code session — the existing hooks carry
-owner-machine absolute paths and cannot run in the cloud container. Smoke-test on the owner machine: `git push` with a bad `ac_verified` must still be
+**Still not verified:** end-to-end ordering inside a live Claude Code session — when this was written the
+hooks carried owner-machine absolute paths and could not run in the cloud container (since the cache audit
+of 2026-11-07 they resolve through `$CLAUDE_PROJECT_DIR`). Smoke-test on the owner machine: `git push` with a bad `ac_verified` must still be
 refused. The code of the four tools was not audited line by line; privacy claims (RTK telemetry off
 by default, Context Mode local-only) are from their READMEs.
 
@@ -211,6 +212,30 @@ that runs shell `code` through cmdscan and refuses other languages touching `crm
 **Zone note (CR-M-4).** `scripts/devops/install-rtk.sh`, `.caveman.json`, the hooks and the agent
 prompts were written from a Master session on explicit owner instruction (2026-10-24/25), outside the
 usual Architect / DevOps zones; recorded here as an owner decision, not a precedent.
+
+## Cache audit 2026-11-07
+
+The instructions attachment measured 118.5K chars, about 30K tokens, and it is paid per session, per
+subagent and per compaction. A trivial `claude -p` call on haiku measured 84,367 tokens in a clean
+worktree before this change and 69,942 in the same worktree with it applied (input + cache creation +
+cache read).
+
+**What moved, and why.** Path-scoped: `version-pins.md`, `doc-durability.md`, `rules/ecc/README.md`: each
+matters only when its files are touched. On-demand, through `claudeMdExcludes` in `.claude/settings.json`:
+`model-routing.md`, `orchestration-routing.md`, `light-track.md`, `phase-boundaries.md`,
+`review-findings-transfer.md`. These are Master decisions or event-triggered procedures, and every subagent
+was paying for them on every request. The files stay where they are, so references do not churn. A coder
+reads task files, so `.claude/tasks/**` was rejected as a trigger.
+
+**This overrides an older invariant.** Master-only rules now leave the always-on layer, against "no mechanism
+leaves the always-on layer". The risk is the one that invariant guarded: a rule outside the injected layer can
+go unread. The mitigation is pointers with explicit triggers in `CLAUDE.md` § Session minimum, which every
+session and subagent loads, plus a one-line pointer in each agent prompt that handles findings. The known gaps
+are `pnpm add` through Bash and an issue or PR body: neither touches a matching path, so both rely on the
+pointer alone.
+
+**Left alone on purpose.** The `skills-invocation.md` table (owner decision: the full trigger source),
+`mcp-first.md`, hook-backed rules, table padding, and `omitClaudeMd` on reviewers.
 
 ## Condition to reopen (removal / bump)
 

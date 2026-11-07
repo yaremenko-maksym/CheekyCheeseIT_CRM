@@ -158,7 +158,11 @@ HOME_SAFE = ("~/Downloads", "$HOME/Downloads", "${HOME}/Downloads")
 
 
 def dangerous_rm_target(tok):
-    t = tok.rstrip("/") or "/"
+    # Windows: C:/x and a quoted C:\x are the same absolute path as /c/x, not a
+    # relative one; \\server\x is absolute too. A plain a\b stays a relative name.
+    t = tok.replace(chr(92), "/") if re.match(r"^([A-Za-z]:|\\)", tok) else tok
+    t = re.sub(r"^([A-Za-z]):(?=/|$)", lambda m: "/" + m.group(1).lower(), t)
+    t = t.rstrip("/") or "/"
     if t in ("/", "/*", "/.", "~", "$HOME", "${HOME}"):
         return True
     for safe in HOME_SAFE:
