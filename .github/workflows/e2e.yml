@@ -17,7 +17,8 @@ concurrency:
 jobs:
   e2e:
     name: E2E Tests
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.59 cannot install chromium on ubuntu-26.04 (now ubuntu-latest). Unpin after a Playwright bump passes there.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: write
