@@ -430,6 +430,27 @@ describe('/job-queue page', () => {
     expect(screen.queryByTestId('job-queue-refresh')).toBeNull()
   })
 
+  it("the refresh notice includes «З'явилися оновлення.» (CR-L-4)", async () => {
+    serve({ queue: () => Promise.reject(apiError(409, 'JOB_QUEUE_REFRESH_REQUIRED')) })
+    renderPage()
+    const notice = await screen.findByTestId('job-queue-refresh')
+    expect(notice).toHaveTextContent("З'явилися оновлення.")
+  })
+
+  it('the refresh notice button parks focus on the list body (CR-L-4)', async () => {
+    let n = 0
+    serve({
+      queue: () =>
+        n++ === 0
+          ? Promise.reject(apiError(409, 'JOB_QUEUE_REFRESH_REQUIRED'))
+          : Promise.resolve({ data: page() }),
+    })
+    renderPage()
+    await screen.findByTestId('job-queue-refresh')
+    await userEvent.click(screen.getByRole('button', { name: 'Показати оновлений список' }))
+    expect(screen.getByTestId('job-queue-body')).toHaveFocus()
+  })
+
   it('drops the rows and explains when access to the scope is lost', async () => {
     serve({ queue: () => Promise.reject(apiError(403, 'FORBIDDEN')) })
     renderPage()

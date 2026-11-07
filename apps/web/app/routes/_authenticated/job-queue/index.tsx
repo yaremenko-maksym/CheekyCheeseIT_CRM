@@ -220,6 +220,11 @@ function QueueBody({
     go({ ...search, search: draftSearch.trim() || undefined })
   }
 
+  const onRestart = () => {
+    onReturnToTop()
+    void queue.restart()
+  }
+
   let notice = null
   if (queue.refreshRequired) {
     notice = (
@@ -229,10 +234,15 @@ function QueueBody({
         className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 text-sm @min-[560px]:flex-row @min-[560px]:items-center"
       >
         <RefreshCw aria-hidden="true" className="size-4 shrink-0" />
-        <p className="min-w-0 flex-1 font-medium">
-          <Trans>Список змінився</Trans>
-        </p>
-        <Button variant="outline" className="min-h-11" onClick={() => void queue.restart()}>
+        <div className="min-w-0 flex-1">
+          <p className="font-medium">
+            <Trans>Список змінився</Trans>
+          </p>
+          <p className="text-muted-foreground">
+            <Trans>З'явилися оновлення.</Trans>
+          </p>
+        </div>
+        <Button variant="outline" className="min-h-11" onClick={onRestart}>
           <Trans>Показати оновлений список</Trans>
         </Button>
       </div>
@@ -352,10 +362,7 @@ function QueueBody({
             scrollRoot={scrollRoot}
             onLoadMore={() => void queue.fetchNextPage()}
             onRetry={() => void queue.refetch()}
-            onRestart={() => {
-              onReturnToTop()
-              void queue.restart()
-            }}
+            onRestart={onRestart}
             onOpen={(card) => go({ ...search, card })}
             onResetFilters={resetFilters}
             onClearSearch={clearSearch}

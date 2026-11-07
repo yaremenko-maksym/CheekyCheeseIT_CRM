@@ -115,7 +115,7 @@ export function JobQueueList(props: JobQueueListProps) {
     return () => observer.disconnect()
   }, [sentinel, scrollRoot])
 
-  // a replaced list cancels a pending load-more focus
+  // a replaced list cancels a pending retry focus
   useEffect(() => {
     focusFrom.current = Infinity
   }, [first])

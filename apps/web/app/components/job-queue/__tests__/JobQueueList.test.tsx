@@ -358,6 +358,23 @@ describe('JobQueueList', () => {
       expect(props.onLoadMore).not.toHaveBeenCalled()
     })
 
+    it('keeps the sentinel armed after a background-refetch error; disarms it after an append error (CR-L-5)', () => {
+      FakeObserver.inView = true
+      // background refetch settled with an error but not an append error — sentinel stays armed
+      const view = renderList({
+        hasNextPage: true,
+        total: 40,
+        isFetching: false,
+        isFetchNextPageError: false,
+      })
+      expect(screen.getByTestId('job-queue-sentinel')).toBeInTheDocument()
+      expect(view.onLoadMore).toHaveBeenCalledTimes(1)
+      // append error — sentinel disarms (no retry storm via scrolling)
+      view.rerender({ isFetchNextPageError: true })
+      expect(screen.queryByTestId('job-queue-sentinel')).toBeNull()
+      expect(view.onLoadMore).toHaveBeenCalledTimes(1)
+    })
+
     it('disconnects the observer on unmount', () => {
       const view = renderList({ hasNextPage: true, total: 40 })
       const observer = FakeObserver.last!

@@ -199,9 +199,9 @@ appears from 560 px.
 
 ### 4.4 Infinite scroll (owner addendum §1) — keyset pagination unchanged
 
-**Decision.** Further pages load by scrolling; there is no load-more button (owner decision, 2026-11-06). **Open with the
-owner:** whether to keep an always-visible button as well. The behaviour below is the current decision and the working
-default until the owner closes that question.
+**Decision.** Further pages load by scrolling; there is no load-more button (owner decision, 2026-11-06). Owner decision
+2026-11-07: no always-visible button; the button appears only on an error. A screen-reader check that finds a problem
+brings it back.
 
 **Mechanism.** An `IntersectionObserver` sentinel (`job-queue-sentinel`; root = the page scroller `job-queue-scroll`,
 `rootMargin` 400 px) requests the next page by `nextCursor`. The sentinel is mounted only while a next page exists, no
@@ -209,7 +209,7 @@ query fetch is running and there is no append error, so an in-flight request can
 retried by scrolling.
 
 **The foot** is a centered column of quiet muted text under the list. It is not a fixed slot: its height follows its state
-(one line when idle; taller when appending; tallest with the error and the retry button), and it is not rendered at all
+(one line when idle; taller when appending; tallest with the error and the retry button), and it shows the refresh prompt
 when a refresh is required. Rows already on screen keep their position when a page is appended.
 
 | State                               | Foot                                                                                                                                                                                                                                                                                                             | `job-queue-live` (polite)                                                          | Notes                                                                                                                                                                                                                          |

@@ -1216,7 +1216,7 @@ msgstr "Level"
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Показати оновлений список"
-msgstr "Show the updated list"
+msgstr "Show updated list"
 
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 msgid "Нові з’являться після наступного оновлення джерел."
@@ -10552,6 +10552,10 @@ msgstr "{0, plural, one {# income entry} other {# income entries}}"
 #: apps/web/app/components/user-profile/admin-actions/AdminNoteDialog.tsx
 msgid "Нотатка (макс. 2000 символів)"
 msgstr "Note (max 2000 characters)"
+
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
+msgid "З'явилися оновлення."
+msgstr "Updates are available."
 
 #: apps/web/app/hooks/use-legend.ts
 msgid "Не вдалося додати запис. Спробуйте ще раз"
