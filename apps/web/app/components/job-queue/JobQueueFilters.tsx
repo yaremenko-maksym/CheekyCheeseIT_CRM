@@ -4,6 +4,7 @@ import { Trans, useLingui } from '@lingui/react/macro'
 import type { MessageDescriptor } from '@lingui/core'
 import { SlidersHorizontal } from 'lucide-react'
 import {
+  JOB_QUEUE_SENIOR_FILTER_MAX,
   jobAvailabilitySchema,
   jobQueueEligibilitySchema,
   jobSourceTypeSchema,
@@ -11,13 +12,22 @@ import {
 } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Skeleton } from '@/components/ui/skeleton'
 import { sourceLabel } from './JobQueueRow'
 
 /** The bounded multi-select filters of the list; tabs carry the submission axis (spec §4.1a). */
 export type JobQueueFilterValue = Partial<
-  Pick<JobQueueListQuery, 'source' | 'eligibility' | 'availability'>
+  Pick<JobQueueListQuery, 'source' | 'eligibility' | 'availability' | 'seniorIds'>
 >
 type Group = keyof JobQueueFilterValue
+
+type SeniorOption = { id: string; name: string }
+/** The picker's load state: `items` is absent until the first answer, and survives a failed refetch. */
+type SeniorPicker = {
+  items: ReadonlyArray<SeniorOption> | undefined
+  isError: boolean
+  onRetry: () => void
+}
 
 const ELIGIBILITY_LABEL: Record<'LEAD' | 'TRIAGE', MessageDescriptor> = {
   LEAD: msg`Збіг за стеком`,
@@ -29,25 +39,37 @@ const AVAILABILITY_LABEL: Record<'OPEN' | 'UNKNOWN' | 'CLOSED' | 'EXPIRED', Mess
   CLOSED: msg`Закрита`,
   EXPIRED: msg`Прострочена`,
 }
+// Module-level `msg` plural, not the `plural()` macro (breaks under Stryker, see TxDateField).
+const SENIOR_COUNT = msg`{n, plural, one {# сеньйор} few {# сеньйори} many {# сеньйорів} other {# сеньйора}}`
 
 /** The number of filter groups in use — the badge counts groups, not options (spec §4.1a). */
 export function appliedFilterCount(value: JobQueueFilterValue): number {
-  return [value.source, value.eligibility, value.availability].filter((g) => g?.length).length
+  return [value.source, value.eligibility, value.availability, value.seniorIds].filter(
+    (g) => g?.length,
+  ).length
 }
 
 /** «Застосовано: DOU, Djinni · Відкрита» + a reset, shown only while a filter group is applied. */
 export function JobQueueAppliedFilters({
   value,
+  seniors,
   onReset,
 }: {
   value: JobQueueFilterValue
+  /** Names for the applied seniors; one missing name turns them into a count, never a raw id. */
+  seniors?: ReadonlyArray<SeniorOption> | undefined
   onReset: () => void
 }) {
   const { i18n } = useLingui()
+  const seniorIds = value.seniorIds ?? []
+  const seniorNames = seniorIds.flatMap((id) => seniors?.find((s) => s.id === id)?.name || [])
   const summary = [
     value.source?.map(sourceLabel),
     value.eligibility?.map((o) => i18n._(ELIGIBILITY_LABEL[o])),
     value.availability?.map((o) => i18n._(AVAILABILITY_LABEL[o])),
+    seniorNames.length === seniorIds.length
+      ? seniorNames
+      : [i18n._(SENIOR_COUNT.id, { n: seniorIds.length })],
   ]
     .flatMap((g) => (g?.length ? [g.join(', ')] : []))
     .join(' · ')
@@ -77,21 +99,28 @@ function toggle(draft: JobQueueFilterValue, group: Group, option: string): JobQu
 function CheckRow({
   checked,
   onChange,
+  title,
+  disabled,
   children,
 }: {
   checked: boolean
   onChange: () => void
+  title?: string
+  disabled?: boolean
   children: ReactNode
 }) {
   return (
-    <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 text-sm hover:bg-muted/50">
+    <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 text-sm hover:bg-muted/50 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50">
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={onChange}
-        className="size-4 accent-primary"
+        className="size-4 shrink-0 accent-primary"
       />
-      <span className="min-w-0 truncate">{children}</span>
+      <span title={title} className="min-w-0 truncate">
+        {children}
+      </span>
     </label>
   )
 }
@@ -107,15 +136,66 @@ function FilterGroup({ legend, children }: { legend: ReactNode; children: ReactN
   )
 }
 
+/** Rows win over the error: a failed refetch keeps the list the recruiter is already using. */
+function SeniorRows({
+  picker,
+  selected,
+  onToggle,
+}: {
+  picker: SeniorPicker
+  selected: readonly string[] | undefined
+  onToggle: (id: string) => void
+}) {
+  if (picker.items) {
+    if (picker.items.length === 0) {
+      return (
+        <p className="px-2 py-3 text-sm text-muted-foreground">
+          <Trans>Немає сеньйорів</Trans>
+        </p>
+      )
+    }
+    const atLimit = (selected?.length ?? 0) >= JOB_QUEUE_SENIOR_FILTER_MAX
+    return picker.items.map(({ id, name }) => {
+      const checked = selected?.includes(id) ?? false
+      return (
+        <CheckRow
+          key={id}
+          checked={checked}
+          title={name}
+          disabled={atLimit && !checked}
+          onChange={() => onToggle(id)}
+        >
+          {name}
+        </CheckRow>
+      )
+    })
+  }
+  if (picker.isError) {
+    return (
+      <div role="alert" className="flex flex-col items-start gap-1 px-2 text-sm">
+        <p className="text-pretty text-muted-foreground">
+          <Trans>Не вдалося завантажити сеньйорів</Trans>
+        </p>
+        <Button variant="outline" className="min-h-11" onClick={picker.onRetry}>
+          <Trans>Спробувати ще раз</Trans>
+        </Button>
+      </div>
+    )
+  }
+  return <Skeleton data-testid="job-queue-filters-seniors-loading" className="h-11 w-full" />
+}
+
 /**
  * The panel body. The popover unmounts it on close, so every open starts a fresh draft from the
  * applied value and an unapplied draft is discarded.
  */
 function FilterPanel({
   value,
+  seniors,
   onApply,
 }: {
   value: JobQueueFilterValue
+  seniors?: SeniorPicker | undefined
   onApply: (next: JobQueueFilterValue) => void
 }) {
   const { i18n } = useLingui()
@@ -151,6 +231,15 @@ function FilterPanel({
         <FilterGroup legend={<Trans>Джерело</Trans>}>
           {jobSourceTypeSchema.options.map((o) => row('source', o, sourceLabel(o)))}
         </FilterGroup>
+        {seniors && (
+          <FilterGroup legend={<Trans>Сеньйори</Trans>}>
+            <SeniorRows
+              picker={seniors}
+              selected={draft.seniorIds}
+              onToggle={(id) => setDraft((d) => toggle(d, 'seniorIds', id))}
+            />
+          </FilterGroup>
+        )}
       </div>
       <div data-testid="job-queue-filters-footer" className="flex shrink-0 gap-2">
         <Button
@@ -175,9 +264,11 @@ function FilterPanel({
 
 export function JobQueueFilters({
   value,
+  seniors,
   onApply,
 }: {
   value: JobQueueFilterValue
+  seniors?: SeniorPicker | undefined
   onApply: (next: JobQueueFilterValue) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -219,6 +310,7 @@ export function JobQueueFilters({
       >
         <FilterPanel
           value={value}
+          seniors={seniors}
           onApply={(next) => {
             onApply(next)
             setOpen(false)

@@ -490,11 +490,11 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
     })
 
     it('filtering by a senior: a stop-listed row goes (owner: intended), a foreign senior is empty', async () => {
-      const mine = await service.list(hrA(), q({ seniorId: id('senShared') }))
+      const mine = await service.list(hrA(), q({ seniorIds: id('senShared') }))
       const listed = mine.items.map((i) => i.opportunityId)
       expect(listed).toContain(id('oppShared'))
       expect(listed).not.toContain(id('oppStop'))
-      const foreign = await service.list(hrA(), q({ seniorId: id('senB') }))
+      const foreign = await service.list(hrA(), q({ seniorIds: id('senB') }))
       expect(foreign.items).toEqual([])
       expect(foreign.counts).toEqual(mine.counts)
     })

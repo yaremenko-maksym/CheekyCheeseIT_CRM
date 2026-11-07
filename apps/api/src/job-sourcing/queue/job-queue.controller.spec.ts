@@ -127,6 +127,9 @@ function harness() {
     card: vi.fn(async () => CARD),
     sources: vi.fn(async () => PAGE),
     seniors: vi.fn(async () => PAGE),
+    seniorOptions: vi.fn(async (): Promise<unknown> => ({
+      items: [{ id: OPP, name: 'A Senior' }],
+    })),
   }
   const actions = {
     submit: vi.fn(async () => SUBMISSION),
@@ -181,6 +184,7 @@ describe('JobQueueController — routing and gates', () => {
     ['card', RequestMethod.GET, ':id', ['ADMIN', 'HR'], 120, undefined],
     ['sources', RequestMethod.GET, ':id/sources', ['ADMIN', 'HR'], 60, undefined],
     ['seniors', RequestMethod.GET, ':id/seniors', ['ADMIN', 'HR'], 60, undefined],
+    ['seniorOptions', RequestMethod.GET, 'seniors', ['ADMIN', 'HR'], 60, undefined],
     ['submit', RequestMethod.POST, ':id/submissions', ['ADMIN', 'HR'], 30, undefined],
     [
       'cancel',
@@ -280,6 +284,31 @@ describe('JobQueueController — reads', () => {
     const h = harness()
     await expect(h.controller.list(query, HR)).rejects.toThrow(ZodError)
     expect(h.queue.list).not.toHaveBeenCalled()
+  })
+
+  it('seniorOptions: passes the caller and the team, and answers the items', async () => {
+    const h = harness()
+    expect(await h.controller.seniorOptions({ teamId: TEAM }, HR)).toEqual({
+      items: [{ id: OPP, name: 'A Senior' }],
+    })
+    expect(h.queue.seniorOptions).toHaveBeenCalledWith(HR, { teamId: TEAM })
+  })
+
+  it.each([{ cursor: 'abc' }, { teamId: 'nope' }, { other: '1' }])(
+    'seniorOptions: refuses query %j before the service is called',
+    async (query) => {
+      const h = harness()
+      await expect(h.controller.seniorOptions(query, HR)).rejects.toThrow(ZodError)
+      expect(h.queue.seniorOptions).not.toHaveBeenCalled()
+    },
+  )
+
+  it('seniorOptions: a field beyond id and name never leaves the API', async () => {
+    const h = harness()
+    h.queue.seniorOptions.mockResolvedValue({
+      items: [{ id: OPP, name: 'A Senior', email: 'x@example.com' }],
+    })
+    await expect(h.controller.seniorOptions({}, HR)).rejects.toThrow(ZodError)
   })
 
   it('card: passes the id, the caller and the team', async () => {

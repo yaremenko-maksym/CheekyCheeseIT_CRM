@@ -21,6 +21,7 @@ import {
   jobQueueQuerySchema,
   jobQueueRecomputeResponseSchema,
   jobQueueScopeQuerySchema,
+  jobQueueSeniorOptionsResponseSchema,
   jobQueueSeniorsContinuationSchema,
   jobQueueSourcesContinuationSchema,
   jobQueueStatusSchema,
@@ -33,6 +34,8 @@ import {
   jobSourceTypeSchema,
   jobQueueForeignSubmissionSchema,
   DESCRIPTION_MD_MAX,
+  JOB_QUEUE_SENIOR_FILTER_MAX,
+  JOB_QUEUE_SENIOR_OPTIONS_MAX,
 } from './job-sourcing'
 
 /**
@@ -224,10 +227,50 @@ describe('jobQueueListQuerySchema — GET /job-queue', () => {
     expect(jobQueueListQuerySchema.safeParse({ search: 'a'.repeat(201) }).success).toBe(false)
   })
 
-  it('takes the scope, tab, senior and cursor, and refuses anything else', () => {
+  it('parses the senior filter as a trimmed, lower-cased, de-duplicated uuid list', () => {
+    expect(jobQueueListQuerySchema.parse({ seniorIds: U1 }).seniorIds).toEqual([U1])
     expect(
-      jobQueueListQuerySchema.parse({ teamId: U1, tab: 'HIDDEN', seniorId: U2, cursor: 'c' }),
-    ).toEqual({ teamId: U1, tab: 'HIDDEN', seniorId: U2, cursor: 'c', limit: 20 })
+      jobQueueListQuerySchema.parse({ seniorIds: `${U1}, ${U2},${U1},${U2.toUpperCase()}` })
+        .seniorIds,
+    ).toEqual([U1, U2])
+  })
+
+  it('refuses an empty, malformed or old-style senior filter (400, never "no restriction")', () => {
+    for (const bad of [
+      { seniorIds: '' },
+      { seniorIds: `${U1},` },
+      { seniorIds: 'not-a-uuid' },
+      { seniorIds: `${U1},not-a-uuid` },
+      { seniorId: U1 },
+    ]) {
+      expect(jobQueueListQuerySchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false)
+    }
+  })
+
+  it('bounds the senior filter by count: the limit accepted, one more refused', () => {
+    const ids = (n: number) =>
+      Array.from({ length: n }, (_, i) => U1.slice(0, -4) + String(i).padStart(4, '0'))
+    expect(JOB_QUEUE_SENIOR_FILTER_MAX).toBe(50)
+    expect(jobQueueListQuerySchema.parse({ seniorIds: ids(50).join(',') }).seniorIds).toHaveLength(
+      50,
+    )
+    const over = jobQueueListQuerySchema.safeParse({ seniorIds: ids(51).join(',') })
+    expect(over.error?.issues.map((i) => i.code)).toEqual(['too_big'])
+  })
+
+  it('bounds the senior filter by raw length, before any member is read', () => {
+    // 50 canonical ids and their 49 commas are exactly 1849 characters.
+    const atLimit = `${U1},`.repeat(49) + U1
+    expect(atLimit).toHaveLength(1849)
+    expect(jobQueueListQuerySchema.parse({ seniorIds: atLimit }).seniorIds).toEqual([U1])
+    const long = jobQueueListQuerySchema.safeParse({ seniorIds: atLimit + ' ' })
+    expect(long.error?.issues.map((i) => i.code)).toEqual(['too_big'])
+  })
+
+  it('takes the scope, tab, seniors and cursor, and refuses anything else', () => {
+    expect(
+      jobQueueListQuerySchema.parse({ teamId: U1, tab: 'HIDDEN', seniorIds: U2, cursor: 'c' }),
+    ).toEqual({ teamId: U1, tab: 'HIDDEN', seniorIds: [U2], cursor: 'c', limit: 20 })
     expect(jobQueueListQuerySchema.safeParse({ tab: 'IN_PROGRESS' }).success).toBe(false)
     expect(jobQueueListQuerySchema.safeParse({ teamId: 'team-a' }).success).toBe(false)
     expect(jobQueueListQuerySchema.safeParse({ cursor: '' }).success).toBe(false)
@@ -534,6 +577,38 @@ describe('requests refuse an unknown key (CR-M-1)', () => {
   })
 })
 
+describe('jobQueueSeniorOptionsResponseSchema — GET /job-queue/seniors', () => {
+  const option = { id: U1, name: 'Olena K.' }
+
+  it('carries the id and the display name, and nothing else', () => {
+    expect(jobQueueSeniorOptionsResponseSchema.parse({ items: [option] })).toEqual({
+      items: [option],
+    })
+    expect(jobQueueSeniorOptionsResponseSchema.parse({ items: [] })).toEqual({ items: [] })
+    for (const field of ['email', 'teamId', 'role', 'profile']) {
+      const leaky = { items: [{ ...option, [field]: 'x' }] }
+      expect(jobQueueSeniorOptionsResponseSchema.safeParse(leaky).success, field).toBe(false)
+    }
+    expect(jobQueueSeniorOptionsResponseSchema.safeParse({ items: [], extra: 1 }).success).toBe(
+      false,
+    )
+  })
+
+  it('refuses a non-uuid id; bounds the name at 255', () => {
+    const parse = (o: object) => jobQueueSeniorOptionsResponseSchema.safeParse({ items: [o] })
+    expect(parse({ ...option, id: 'senior-1' }).success).toBe(false)
+    expect(parse({ ...option, name: 'x'.repeat(255) }).success).toBe(true)
+    expect(parse({ ...option, name: 'x'.repeat(256) }).success).toBe(false)
+  })
+
+  it('bounds the list: the limit accepted, one more refused', () => {
+    const items = (n: number) => Array.from({ length: n }, () => option)
+    expect(JOB_QUEUE_SENIOR_OPTIONS_MAX).toBe(200)
+    expect(jobQueueSeniorOptionsResponseSchema.safeParse({ items: items(200) }).success).toBe(true)
+    expect(jobQueueSeniorOptionsResponseSchema.safeParse({ items: items(201) }).success).toBe(false)
+  })
+})
+
 describe('field bounds, both sides of each limit (CR-M-2)', () => {
   const s = (n: number) => 'x'.repeat(n)
   const ok = (schema: Parseable, value: unknown) =>
@@ -670,6 +745,7 @@ const RESPONSES = {
   jobQueueListItemSchema,
   jobQueueCardResponseSchema,
   jobQueueCardSeniorSchema,
+  jobQueueSeniorOptionsResponseSchema,
   jobQueueSeniorsContinuationSchema,
   jobQueueSourcesContinuationSchema,
   jobQueueSubmissionSchema,

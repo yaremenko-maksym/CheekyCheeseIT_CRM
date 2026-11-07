@@ -13,6 +13,7 @@ import {
   jobQueueListResponseSchema,
   jobQueuePossibleDuplicateConflictSchema,
   jobQueueRecomputeResponseSchema,
+  jobQueueSeniorOptionsResponseSchema,
   jobQueueSeniorsContinuationSchema,
   jobQueueSourcesContinuationSchema,
   jobQueueSubmissionResponseSchema,
@@ -57,7 +58,10 @@ export interface QueueScopeSignature {
 }
 
 export type QueueFilters = Partial<
-  Pick<JobQueueListQuery, 'search' | 'source' | 'eligibility' | 'availability' | 'activity' | 'seniorId'>
+  Pick<
+    JobQueueListQuery,
+    'search' | 'source' | 'eligibility' | 'availability' | 'activity' | 'seniorIds'
+  >
 >
 
 export const JOB_QUEUE_PAGE_LIMIT = 20
@@ -247,6 +251,17 @@ export function useJobQueueSources(
   return useContinuation(scope, id, cursor, 'sources', (d) =>
     jobQueueSourcesContinuationSchema.parse(d),
   )
+}
+
+/** The list filter's picker: the seniors of the scope, cached under the scope's key. */
+export function useJobQueueSeniorOptions(scope: QueueScopeSignature) {
+  return useQuery({
+    queryKey: [...jobQueueScopeKey(scope), 'senior-options'],
+    queryFn: async () => {
+      const res = await api.get<unknown>('/job-queue/seniors', { params: teamParam(scope) })
+      return jobQueueSeniorOptionsResponseSchema.parse(res.data)
+    },
+  })
 }
 
 /** The 409 `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED` body (the duplicates to confirm), else `null`. */

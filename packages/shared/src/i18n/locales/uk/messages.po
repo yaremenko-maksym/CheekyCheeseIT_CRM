@@ -1723,6 +1723,10 @@ msgstr "В активних стадіях"
 msgid "Періодичність:"
 msgstr "Періодичність:"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "{n, plural, one {# сеньйор} few {# сеньйори} many {# сеньйорів} other {# сеньйора}}"
+msgstr "{n, plural, one {# сеньйор} few {# сеньйори} many {# сеньйорів} other {# сеньйора}}"
+
 #: apps/web/app/routes/_authenticated/documents/components/DocumentsToolbar.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Пошук за назвою…"
@@ -3684,6 +3688,10 @@ msgstr "Хто перевірив"
 msgid "Вибрати файл"
 msgstr "Вибрати файл"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Сеньйори"
+msgstr "Сеньйори"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
@@ -3996,6 +4004,7 @@ msgstr "Контракт — попередній перегляд.pdf"
 msgid "Підключення увімкнено"
 msgstr "Підключення увімкнено"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
@@ -5596,6 +5605,10 @@ msgstr "Черн. ({0})"
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "ФОП / гіг-контракт / USDT"
 msgstr "ФОП / гіг-контракт / USDT"
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Немає сеньйорів"
+msgstr "Немає сеньйорів"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
@@ -12060,6 +12073,10 @@ msgstr "Відправник"
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Вакансія «{0}» буде видалена назавжди. Цю дію не можна скасувати."
 msgstr "Вакансія «{0}» буде видалена назавжди. Цю дію не можна скасувати."
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Не вдалося завантажити сеньйорів"
+msgstr "Не вдалося завантажити сеньйорів"
 
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Дохід за останній місяць"

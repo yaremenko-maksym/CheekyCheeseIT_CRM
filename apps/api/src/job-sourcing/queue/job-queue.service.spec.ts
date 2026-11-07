@@ -1,6 +1,6 @@
 import { ForbiddenException, HttpException, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import type { JobQueueListQuery, SessionUser } from '@crm/shared'
+import { JOB_QUEUE_SENIOR_OPTIONS_MAX, type JobQueueListQuery, type SessionUser } from '@crm/shared'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -372,7 +372,7 @@ describe('JobQueueService.list', () => {
 
   it('filtering by a senior outside the scope is an empty page with the scope totals', async () => {
     const h = harness(teamScope, [generationRow()], [generationRow()], [tally])
-    await expect(h.svc.list(user, query({ seniorId: OTHER_TEAM }))).resolves.toEqual({
+    await expect(h.svc.list(user, query({ seniorIds: [OTHER_TEAM] }))).resolves.toEqual({
       items: [],
       nextCursor: null,
       counts: { NEW: 3, SUBMITTED: 1, HIDDEN: 2 },
@@ -381,18 +381,26 @@ describe('JobQueueService.list', () => {
     expect(h.execute).toHaveBeenCalledTimes(3)
   })
 
-  it('filtering by one of the scope seniors reads the page, whatever the id case', async () => {
-    const upper = 'ABCDEFAB-ABCD-4ABC-8ABC-ABCDEFABCDEF'
+  it('a mix of a foreign senior and a scope senior reads the page', async () => {
+    const other = 'abcdefab-abcd-4abc-8abc-abcdefabcdef'
     const live = [
       { seniorId: SEN, profile: 'p', exclusion: 'e' },
-      { seniorId: upper.toLowerCase(), profile: 'p', exclusion: 'e' },
+      { seniorId: other, profile: 'p', exclusion: 'e' },
     ]
     const head = generationRow({ policy_signature: policySignature(teamScope, live) })
     const h = harness(teamScope, [head], [head], [tally], [])
     h.scopes.liveVersions.mockResolvedValue(live)
-    await h.svc.list(user, query({ seniorId: upper }))
+    await h.svc.list(user, query({ seniorIds: [OTHER_TEAM, other] }))
     expect(h.execute).toHaveBeenCalledTimes(4)
-    expect(h.compiled(3).params).toContain(upper.toLowerCase())
+    expect(JSON.stringify(h.compiled(3).params)).toContain(other)
+  })
+
+  it('no senior filter reads the page even with an empty roster', async () => {
+    const head = generationRow({ policy_signature: policySignature(teamScope, []) })
+    const h = harness(teamScope, [head], [head], [tally], [])
+    h.scopes.liveVersions.mockResolvedValue([])
+    await h.svc.list(user, query())
+    expect(h.execute).toHaveBeenCalledTimes(4)
   })
 
   it('a query failure inside the policy wrapper is the 503, never a default answer', async () => {
@@ -406,6 +414,53 @@ describe('JobQueueService.list', () => {
     const config = { get: () => SECRET } as unknown as ConfigService<Env, true>
     const svc = new JobQueueService(database, scopes, config)
     expect(await refusal(svc.list(user, query()))).toEqual({
+      status: 503,
+      code: 'JOB_QUEUE_POLICY_UNAVAILABLE',
+    })
+  })
+})
+
+describe('JobQueueService.seniorOptions', () => {
+  it('an empty roster answers no items and never reads the users', async () => {
+    const h = harness({ kind: 'NONE' } as JobQueueScope)
+    h.scopes.liveVersions.mockResolvedValue([])
+    await expect(h.svc.seniorOptions(user, {})).resolves.toEqual({ items: [] })
+    expect(h.execute).not.toHaveBeenCalled()
+  })
+
+  it('reads only the scope seniors, bounded, inside the policy wrapper', async () => {
+    const h = harness(teamScope, [{ id: SEN, display_name: 'A Senior', email: 'x@example.com' }])
+    await expect(h.svc.seniorOptions(user, { teamId: TEAM })).resolves.toEqual({
+      items: [{ id: SEN, name: 'A Senior' }],
+    })
+    expect(h.scopes.resolve).toHaveBeenCalledWith(user, TEAM, h.db)
+    expect(h.scopes.liveVersions).toHaveBeenCalledWith(teamScope, h.db)
+    expect(h.scopes.policy).toHaveBeenCalledTimes(1)
+    expect(h.compiled(0).params).toEqual([JSON.stringify([SEN]), JOB_QUEUE_SENIOR_OPTIONS_MAX])
+    expect(h.compiled(0).text).toContain('WHERE u.id::text IN (SELECT jsonb_array_elements_text(')
+    expect(h.compiled(0).text).toContain('ORDER BY u.display_name, u.id')
+  })
+
+  it('clips a name to the wire bound', async () => {
+    const h = harness(teamScope, [{ id: SEN, display_name: 'n'.repeat(300) }])
+    const { items } = await h.svc.seniorOptions(user, {})
+    expect(items[0]?.name).toBe('n'.repeat(255))
+  })
+
+  it('a read failure is the 503, never an empty picker', async () => {
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    const execute = vi.fn(async () => {
+      throw new Error('connection lost')
+    })
+    const database = { db: { execute } } as unknown as DatabaseService
+    const scopes = new JobQueueScopeService()
+    vi.spyOn(scopes, 'resolve').mockResolvedValue(teamScope)
+    vi.spyOn(scopes, 'liveVersions').mockResolvedValue([
+      { seniorId: SEN, profile: 'p', exclusion: 'e' },
+    ])
+    const config = { get: () => SECRET } as unknown as ConfigService<Env, true>
+    const svc = new JobQueueService(database, scopes, config)
+    expect(await refusal(svc.seniorOptions(user, {}))).toEqual({
       status: 503,
       code: 'JOB_QUEUE_POLICY_UNAVAILABLE',
     })

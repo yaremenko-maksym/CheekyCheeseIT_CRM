@@ -1723,6 +1723,10 @@ msgstr "In active stages"
 msgid "Періодичність:"
 msgstr "Cadence:"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "{n, plural, one {# сеньйор} few {# сеньйори} many {# сеньйорів} other {# сеньйора}}"
+msgstr "{n, plural, one {# senior} other {# seniors}}"
+
 #: apps/web/app/routes/_authenticated/documents/components/DocumentsToolbar.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Пошук за назвою…"
@@ -3684,6 +3688,10 @@ msgstr "Reviewed by"
 msgid "Вибрати файл"
 msgstr "Choose a file"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Сеньйори"
+msgstr "Seniors"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
@@ -3996,6 +4004,7 @@ msgstr "Contract — preview.pdf"
 msgid "Підключення увімкнено"
 msgstr "Connection enabled"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
@@ -5596,6 +5605,10 @@ msgstr "Draft ({0})"
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "ФОП / гіг-контракт / USDT"
 msgstr "FOP / gig contract / USDT"
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Немає сеньйорів"
+msgstr "No seniors"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
@@ -12060,6 +12073,10 @@ msgstr "Sender"
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Вакансія «{0}» буде видалена назавжди. Цю дію не можна скасувати."
 msgstr "The vacancy “{0}” will be deleted permanently. This action cannot be undone."
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Не вдалося завантажити сеньйорів"
+msgstr "Couldn’t load the seniors"
 
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Дохід за останній місяць"

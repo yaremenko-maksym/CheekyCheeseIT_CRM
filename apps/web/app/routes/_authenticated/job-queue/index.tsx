@@ -10,6 +10,7 @@ import { Trans, useLingui } from '@lingui/react/macro'
 import { AlertTriangle, RefreshCw, Search, X } from 'lucide-react'
 import { z } from 'zod'
 import {
+  JOB_QUEUE_SENIOR_FILTER_MAX,
   jobAvailabilitySchema,
   jobQueueEligibilitySchema,
   jobQueueTabSchema,
@@ -19,7 +20,11 @@ import {
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { useActiveTeams } from '@/hooks/use-active-team'
-import { useJobQueue, type QueueScopeSignature } from '@/hooks/use-job-queue'
+import {
+  useJobQueue,
+  useJobQueueSeniorOptions,
+  type QueueScopeSignature,
+} from '@/hooks/use-job-queue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -40,6 +45,12 @@ const searchSchema = z.object({
   source: z.array(jobSourceTypeSchema).min(1).optional().catch(undefined),
   eligibility: z.array(jobQueueEligibilitySchema).min(1).optional().catch(undefined),
   availability: z.array(jobAvailabilitySchema).min(1).optional().catch(undefined),
+  seniorIds: z
+    .array(z.string().uuid())
+    .min(1)
+    .max(JOB_QUEUE_SENIOR_FILTER_MAX)
+    .optional()
+    .catch(undefined),
   teamId: z.string().uuid().optional().catch(undefined),
   card: z.string().uuid().optional().catch(undefined),
 })
@@ -162,9 +173,11 @@ function QueueBody({
     source: search.source,
     eligibility: search.eligibility,
     availability: search.availability,
+    seniorIds: search.seniorIds,
   })
   const filters = compact({ ...filterValue, search: search.search })
   const queue = useJobQueue(scope, search.tab, filters)
+  const seniorOptions = useJobQueueSeniorOptions(scope)
   // the box shows the applied search and follows the URL (team switch, back / forward)
   const [draftSearch, setDraftSearch] = useState(search.search ?? '')
   const [appliedSearch, setAppliedSearch] = useState(search.search)
@@ -261,6 +274,11 @@ function QueueBody({
           </form>
           <JobQueueFilters
             value={filterValue}
+            seniors={{
+              items: seniorOptions.data?.items,
+              isError: seniorOptions.isError,
+              onRetry: () => void seniorOptions.refetch(),
+            }}
             onApply={(next) =>
               go({
                 ...base,
@@ -268,13 +286,18 @@ function QueueBody({
                 source: next.source,
                 eligibility: next.eligibility,
                 availability: next.availability,
+                seniorIds: next.seniorIds,
               })
             }
           />
         </div>
       </div>
 
-      <JobQueueAppliedFilters value={filterValue} onReset={resetFilters} />
+      <JobQueueAppliedFilters
+        value={filterValue}
+        seniors={seniorOptions.data?.items}
+        onReset={resetFilters}
+      />
 
       <JobQueueStatusTabs
         value={search.tab}

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import {
@@ -9,6 +9,15 @@ import {
   type JobQueueFilterValue,
 } from '../JobQueueFilters'
 
+const SENIOR_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const SENIOR_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+const UNKNOWN_SENIOR = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const OPTIONS = [
+  { id: SENIOR_A, name: 'Анна Коваль' },
+  { id: SENIOR_B, name: 'Богдан Шевченко' },
+]
+const loaded = { items: OPTIONS, isError: false, onRetry: () => {} }
+
 describe('appliedFilterCount', () => {
   it.each<[JobQueueFilterValue, number]>([
     [{}, 0],
@@ -17,6 +26,12 @@ describe('appliedFilterCount', () => {
     [{ eligibility: ['LEAD'] }, 1],
     [{ availability: ['OPEN', 'CLOSED'] }, 1],
     [{ source: ['DOU_RSS'], eligibility: ['LEAD'], availability: ['OPEN'] }, 3],
+    [{ seniorIds: [] }, 0],
+    [{ seniorIds: [SENIOR_A, SENIOR_B] }, 1],
+    [
+      { source: ['DOU_RSS'], eligibility: ['LEAD'], availability: ['OPEN'], seniorIds: [SENIOR_A] },
+      4,
+    ],
   ])('%j counts %i groups', (value, expected) => {
     expect(appliedFilterCount(value)).toBe(expected)
   })
@@ -153,9 +168,11 @@ describe('JobQueueFilters', () => {
 
   it('has one scroll region: no filter group scrolls on its own', async () => {
     const user = userEvent.setup()
-    render(<JobQueueFilters value={{}} onApply={vi.fn()} />, { wrapper: I18nTestProvider })
+    render(<JobQueueFilters value={{}} onApply={vi.fn()} seniors={loaded} />, {
+      wrapper: I18nTestProvider,
+    })
     await user.click(screen.getByTestId('job-queue-filters-button'))
-    for (const name of ['Джерело', 'Статус на джерелі']) {
+    for (const name of ['Джерело', 'Статус на джерелі', 'Сеньйори']) {
       // eslint-disable-next-line testing-library/no-node-access
       expect(screen.getByRole('group', { name }).querySelector('div')).not.toHaveAttribute('class')
     }
@@ -174,5 +191,176 @@ describe('JobQueueFilters', () => {
   it('shows no count when nothing is applied', () => {
     render(<JobQueueFilters value={{}} onApply={() => {}} />, { wrapper: I18nTestProvider })
     expect(screen.getByTestId('job-queue-filters-button')).toHaveTextContent(/^Фільтри$/)
+  })
+
+  describe('«Сеньйори»', () => {
+    const open = async (
+      seniors: Parameters<typeof JobQueueFilters>[0]['seniors'],
+      value: JobQueueFilterValue = {},
+      onApply: (next: JobQueueFilterValue) => void = vi.fn(),
+    ) => {
+      const user = userEvent.setup()
+      render(<JobQueueFilters value={value} onApply={onApply} seniors={seniors} />, {
+        wrapper: I18nTestProvider,
+      })
+      await user.click(screen.getByTestId('job-queue-filters-button'))
+      return user
+    }
+
+    it('summarizes the seniors by name, last, and never shows an id', () => {
+      render(
+        <JobQueueAppliedFilters
+          value={{ seniorIds: [SENIOR_B, SENIOR_A], source: ['DOU_RSS'] }}
+          seniors={OPTIONS}
+          onReset={vi.fn()}
+        />,
+        { wrapper: I18nTestProvider },
+      )
+      expect(screen.getByTestId('job-queue-applied')).toHaveTextContent(
+        /^Застосовано: DOU · Богдан Шевченко, Анна КовальСкинути фільтри$/,
+      )
+    })
+
+    it.each([
+      [[SENIOR_A], '1 сеньйор'],
+      [[SENIOR_A, SENIOR_B], '2 сеньйори'],
+      [[SENIOR_A, SENIOR_B, UNKNOWN_SENIOR, 'd', 'e'], '5 сеньйорів'],
+    ])('without a picker answer, %j count as «%s»; the reset stays', async (seniorIds, count) => {
+      const onReset = vi.fn()
+      render(<JobQueueAppliedFilters value={{ seniorIds }} onReset={onReset} />, {
+        wrapper: I18nTestProvider,
+      })
+      expect(screen.getByTestId('job-queue-applied')).toHaveTextContent(
+        new RegExp(`^Застосовано: ${count}Скинути фільтри$`),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Скинути фільтри' }))
+      expect(onReset).toHaveBeenCalledOnce()
+    })
+
+    it('counts every senior as soon as one name is missing, and never shows an id', () => {
+      render(
+        <JobQueueAppliedFilters
+          value={{ seniorIds: [SENIOR_B, UNKNOWN_SENIOR], source: ['DOU_RSS'] }}
+          seniors={OPTIONS}
+          onReset={vi.fn()}
+        />,
+        { wrapper: I18nTestProvider },
+      )
+      expect(screen.getByTestId('job-queue-applied')).toHaveTextContent(
+        /^Застосовано: DOU · 2 сеньйориСкинути фільтри$/,
+      )
+    })
+
+    it('counts a senior whose display name is empty', () => {
+      render(
+        <JobQueueAppliedFilters
+          value={{ seniorIds: [SENIOR_A] }}
+          seniors={[{ id: SENIOR_A, name: '' }]}
+          onReset={vi.fn()}
+        />,
+        { wrapper: I18nTestProvider },
+      )
+      expect(screen.getByTestId('job-queue-applied')).toHaveTextContent(
+        /^Застосовано: 1 сеньйорСкинути фільтри$/,
+      )
+    })
+
+    it('renders no section without a picker', async () => {
+      await open(undefined)
+      expect(screen.queryByRole('group', { name: 'Сеньйори' })).toBeNull()
+    })
+
+    it('lists the seniors in the scroll region and applies the picked ids', async () => {
+      const onApply = vi.fn()
+      const user = await open(loaded, {}, onApply)
+      const anna = screen.getByRole('checkbox', { name: 'Анна Коваль' })
+      expect(screen.getByTestId('job-queue-filters-body')).toContainElement(anna)
+      expect(anna).not.toBeChecked()
+      expect(anna).toBeEnabled()
+      await user.click(anna)
+      await user.click(screen.getByRole('checkbox', { name: 'Богдан Шевченко' }))
+      await user.click(screen.getByTestId('job-queue-filters-apply'))
+      expect(onApply).toHaveBeenCalledWith({ seniorIds: [SENIOR_A, SENIOR_B] })
+    })
+
+    it('a row keeps a 44 px target and exposes the truncated name as a title', async () => {
+      await open(loaded)
+      const name = screen.getByTitle('Анна Коваль')
+      expect(name).toHaveClass('min-w-0', 'truncate')
+      // eslint-disable-next-line testing-library/no-node-access
+      expect(name.closest('label')).toHaveClass('min-h-11')
+    })
+
+    it('reopens with the applied seniors checked and «Скинути вибір» clears them', async () => {
+      const onApply = vi.fn()
+      const user = await open(loaded, { seniorIds: [SENIOR_A] }, onApply)
+      expect(screen.getByRole('checkbox', { name: 'Анна Коваль' })).toBeChecked()
+      expect(screen.getByRole('checkbox', { name: 'Богдан Шевченко' })).not.toBeChecked()
+      await user.click(screen.getByTestId('job-queue-filters-clear'))
+      expect(screen.getByRole('checkbox', { name: 'Анна Коваль' })).not.toBeChecked()
+      await user.click(screen.getByTestId('job-queue-filters-apply'))
+      expect(onApply).toHaveBeenCalledWith({})
+    })
+
+    it('a failed load shows an inline error with a retry, and the panel keeps working', async () => {
+      const onApply = vi.fn()
+      const onRetry = vi.fn()
+      const user = await open({ items: undefined, isError: true, onRetry }, {}, onApply)
+      const group = screen.getByRole('group', { name: 'Сеньйори' })
+      expect(within(group).getByRole('alert')).toHaveTextContent('Не вдалося завантажити сеньйорів')
+      await user.click(within(group).getByRole('button', { name: 'Спробувати ще раз' }))
+      expect(onRetry).toHaveBeenCalledTimes(1)
+      await user.click(screen.getByRole('checkbox', { name: 'DOU' }))
+      await user.click(screen.getByTestId('job-queue-filters-apply'))
+      expect(onApply).toHaveBeenCalledWith({ source: ['DOU_RSS'] })
+    })
+
+    it('keeps the loaded rows when only a refetch failed', async () => {
+      await open({ items: OPTIONS, isError: true, onRetry: vi.fn() })
+      expect(screen.getByRole('checkbox', { name: 'Анна Коваль' })).toBeInTheDocument()
+      expect(screen.queryByRole('alert')).toBeNull()
+    })
+
+    it('shows a placeholder and no rows while the picker loads', async () => {
+      await open({ items: undefined, isError: false, onRetry: vi.fn() })
+      const group = screen.getByRole('group', { name: 'Сеньйори' })
+      expect(within(group).getByTestId('job-queue-filters-seniors-loading')).toBeInTheDocument()
+      expect(within(group).queryByRole('checkbox')).toBeNull()
+      expect(within(group).queryByRole('alert')).toBeNull()
+    })
+
+    it('says so when the scope has no seniors', async () => {
+      await open({ items: [], isError: false, onRetry: vi.fn() })
+      expect(screen.getByRole('group', { name: 'Сеньйори' })).toHaveTextContent('Немає сеньйорів')
+    })
+
+    it('disables only the unchecked rows at the API limit of 50', async () => {
+      const many = Array.from({ length: 51 }, (_, i) => ({
+        id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        name: `Сеньйор ${i}`,
+      }))
+      const user = await open(
+        { items: many, isError: false, onRetry: vi.fn() },
+        { seniorIds: many.slice(0, 50).map((s) => s.id) },
+      )
+      const last = screen.getByRole('checkbox', { name: 'Сеньйор 50' })
+      const first = screen.getByRole('checkbox', { name: 'Сеньйор 0' })
+      expect(last).toBeDisabled()
+      expect(first).toBeEnabled()
+      await user.click(first)
+      expect(last).toBeEnabled()
+    })
+
+    it('keeps 49 selected rows from disabling the rest', async () => {
+      const many = Array.from({ length: 50 }, (_, i) => ({
+        id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        name: `Сеньйор ${i}`,
+      }))
+      await open(
+        { items: many, isError: false, onRetry: vi.fn() },
+        { seniorIds: many.slice(0, 49).map((s) => s.id) },
+      )
+      expect(screen.getByRole('checkbox', { name: 'Сеньйор 49' })).toBeEnabled()
+    })
   })
 })
