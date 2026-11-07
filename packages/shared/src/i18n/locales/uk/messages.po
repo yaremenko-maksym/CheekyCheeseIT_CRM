@@ -7217,6 +7217,10 @@ msgstr "Файл завантажено, розпізнаємо резюме"
 msgid "Опублікувати нову версію (v{0})?"
 msgstr "Опублікувати нову версію (v{0})?"
 
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
+msgid "З’явилися оновлення."
+msgstr "З’явилися оновлення."
+
 #: apps/web/app/components/onboarding/TosUpdateBanner.tsx
 msgid "Опубліковано нову версію Умов використання. <0>Читати →</0>"
 msgstr "Опубліковано нову версію Умов використання. <0>Читати →</0>"
@@ -10552,10 +10556,6 @@ msgstr "{0, plural, one {# дохід} few {# доходи} many {# доході
 #: apps/web/app/components/user-profile/admin-actions/AdminNoteDialog.tsx
 msgid "Нотатка (макс. 2000 символів)"
 msgstr "Нотатка (макс. 2000 символів)"
-
-#: apps/web/app/routes/_authenticated/job-queue/index.tsx
-msgid "З’явилися оновлення."
-msgstr "З’явилися оновлення."
 
 #: apps/web/app/hooks/use-legend.ts
 msgid "Не вдалося додати запис. Спробуйте ще раз"

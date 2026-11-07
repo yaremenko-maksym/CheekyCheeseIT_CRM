@@ -7217,6 +7217,10 @@ msgstr "File uploaded, parsing the resume"
 msgid "Опублікувати нову версію (v{0})?"
 msgstr "Publish a new version (v{0})?"
 
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
+msgid "З’явилися оновлення."
+msgstr "Updates are available."
+
 #: apps/web/app/components/onboarding/TosUpdateBanner.tsx
 msgid "Опубліковано нову версію Умов використання. <0>Читати →</0>"
 msgstr "A new version of the Terms of Service was published. <0>Read →</0>"
@@ -10552,10 +10556,6 @@ msgstr "{0, plural, one {# income entry} other {# income entries}}"
 #: apps/web/app/components/user-profile/admin-actions/AdminNoteDialog.tsx
 msgid "Нотатка (макс. 2000 символів)"
 msgstr "Note (max 2000 characters)"
-
-#: apps/web/app/routes/_authenticated/job-queue/index.tsx
-msgid "З’явилися оновлення."
-msgstr "Updates are available."
 
 #: apps/web/app/hooks/use-legend.ts
 msgid "Не вдалося додати запис. Спробуйте ще раз"
