@@ -225,14 +225,6 @@ describe('JobQueueList', () => {
     expect(props.onLoadMore).not.toHaveBeenCalled()
   })
 
-  it('a background refetch does not disable the retry, as before', () => {
-    const props = renderList({ hasNextPage: true, isFetchNextPageError: true, isFetching: true })
-    const retry = screen.getByTestId('job-queue-retry')
-    expect(retry).toHaveAttribute('aria-disabled', 'false')
-    fireEvent.click(retry)
-    expect(props.onLoadMore).toHaveBeenCalledTimes(1)
-  })
-
   it.each([
     ['search', { hasSearch: true }],
     ['filters', { hasFilters: true }],
@@ -251,10 +243,11 @@ describe('JobQueueList', () => {
     expect(screen.getByTestId('job-queue-end')).toHaveTextContent(/^Усі вакансії показано: 2$/)
   })
 
-  it('shows the appending state instead of the retry button', () => {
-    renderList({ hasNextPage: true, isFetchingNextPage: true })
+  it('shows the appending state above the load-more button, disabled', () => {
+    renderList({ hasNextPage: true, isFetching: true, isFetchingNextPage: true })
     expect(screen.getByTestId('job-queue-appending')).toHaveTextContent('Завантажуємо ще…')
     expect(screen.getByTestId('job-queue-appending')).toHaveAttribute('role', 'status')
+    expect(screen.getByTestId('job-queue-load-more')).toHaveAttribute('aria-disabled', 'true')
     expect(screen.queryByTestId('job-queue-retry')).toBeNull()
   })
 
@@ -333,7 +326,7 @@ describe('JobQueueList', () => {
       expect(props.onLoadMore).not.toHaveBeenCalled()
       FakeObserver.last!.fire(true)
       expect(props.onLoadMore).toHaveBeenCalledTimes(1)
-      // no manual button outside the error state
+      expect(screen.getByTestId('job-queue-load-more')).toBeInTheDocument()
       expect(screen.queryByTestId('job-queue-retry')).toBeNull()
     })
 
@@ -452,6 +445,7 @@ describe('JobQueueList', () => {
     const props = renderList({
       hasNextPage: true,
       isFetchNextPageError: true,
+      isFetching: true,
       isFetchingNextPage: true,
     })
     const retry = screen.getByTestId('job-queue-retry')
@@ -638,6 +632,59 @@ describe('JobQueueList', () => {
       it('a rerender with the button still mounted keeps focus on it', () => {
         appended().rerender({ items: [A, B, C], hasNextPage: true, isFetching: true, total: 5 })
         expect(foot()).toHaveFocus()
+      })
+    })
+
+    it('a null active element is not read as the absent button holding focus', () => {
+      const view = renderList({ items: [A], hasNextPage: false, total: 5 })
+      const active = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(null)
+      view.rerender({ items: [A, B], hasNextPage: false, total: 5 })
+      active.mockRestore()
+      expect(rowB()).not.toHaveFocus()
+    })
+
+    describe('with focus on the refresh button (CR-L-15)', () => {
+      const refreshing = () => {
+        const view = renderList({ hasNextPage: true, refreshRequired: true, total: 5 })
+        focus(screen.getByTestId('job-queue-refresh-foot'))
+        return view
+      }
+
+      it('a refetch that clears refresh-required moves focus to the load-more button', () => {
+        refreshing().rerender({ hasNextPage: true, refreshRequired: false, total: 5 })
+        expect(screen.queryByTestId('job-queue-refresh-foot')).toBeNull()
+        expect(foot()).toHaveFocus()
+      })
+
+      it('with no next page left, focus moves to the last row', () => {
+        refreshing().rerender({ hasNextPage: false, refreshRequired: false, total: 2 })
+        expect(rowB()).toHaveFocus()
+      })
+
+      it('a list emptied under the button leaves focus on the body', () => {
+        refreshing().rerender({ items: [], hasNextPage: false, refreshRequired: false, total: 0 })
+        expect(screen.getByTestId('job-queue-empty')).toBeInTheDocument()
+        expect(document.body).toHaveFocus()
+      })
+
+      it('a rerender with the button still mounted keeps focus on it', () => {
+        refreshing().rerender({
+          hasNextPage: true,
+          refreshRequired: true,
+          isFetching: true,
+          total: 5,
+        })
+        expect(screen.getByTestId('job-queue-refresh-foot')).toHaveFocus()
+      })
+
+      it('an append hands focus to the first new row', () => {
+        refreshing().rerender({
+          items: [A, B, C],
+          hasNextPage: true,
+          refreshRequired: false,
+          total: 5,
+        })
+        expect(rowC()).toHaveFocus()
       })
     })
   })

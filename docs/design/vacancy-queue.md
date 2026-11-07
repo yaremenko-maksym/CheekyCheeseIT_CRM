@@ -225,10 +225,13 @@ when a refresh is required. Rows already on screen keep their position when a pa
 | Retry running                       | The alert gives way to «Завантажуємо ще…»; the button stays mounted with `aria-disabled` (opacity .5, no pointer events), and a further Enter is ignored                                                                                                                                                         | Unchanged                                                                                                                         | Staying mounted keeps keyboard focus on the button. A failed retry brings the alert back with focus still on the button                                                                                                                                             |
 | Cursor expired («refresh-required») | «Список змінився» and the outline button «Показати оновлений список». No count, no sentinel, no retry                                                                                                                                                                                                            | Not rendered                                                                                                                      | Retrying cannot succeed, so none is offered. This state is met by scrolling, with the prompt (§4.5) out of view, so the foot carries the same action. Activating it returns to the top of the list with focus on the list body                                      |
 
-**Focus and announcement.** A sentinel append never moves focus (it would steal it mid-scroll). When a page arrives while the
+**Focus and announcement.** An append moves focus only when a foot button holds it; otherwise focus stays where it is, so a
+scroll-driven append cannot steal it mid-scroll. When a page arrives while the
 foot button holds focus, focus moves to the **first newly added row**, including on the last page, where the button unmounts in
-the same commit. A user who moved focus elsewhere first keeps it there. A failure leaves focus on the button. If the button
-unmounts with no new rows, focus moves to «Показати оновлений список» on refresh-required, otherwise to the last row. Each append is announced once in
+the same commit. A user who moved focus elsewhere first keeps it there. A failure leaves focus on the button. If «Показати ще»
+unmounts with no new rows, focus moves to «Показати оновлений список» on refresh-required, otherwise to the last row. If
+«Показати оновлений список» unmounts with no new rows, focus moves to «Показати ще» when a next page exists, otherwise to the
+last row. Each append is announced once in
 `job-queue-live`, for example «Завантажено ще 20. Показано 40 із 87»; the region remounts per tab, so a tab change does not
 read out the previous tab's count. Row order and `aria-posinset` are not used: the rows are interactive controls, so the
 WAI-ARIA **feed** pattern (reading-article model, custom Page Down contract) was considered and rejected in favour of a plain
@@ -564,7 +567,7 @@ Under `prefers-reduced-motion`: pulse and spinner stop, dialog and sheet use opa
 | Many stack chips                              | 4 + «+K» on the row; all in the card                                                                                                                                             |
 | ≥20 sources / ≥200 seniors                    | Bounded previews with «Показати ще (N)» continuation and independent totals                                                                                                      |
 | Closed at source                              | Status chip + blocking note; submits disabled (`card-closed-320`)                                                                                                                |
-| Appending / end / append error                | §4.4 (`list-appending-*`, `list-end-*`, `list-appenderr-*` pre-date the 2026-11-06 decision)                                                                                     |
+| Appending / end / append error                | §4.4 wins on the foot; §15 lists where `list-appending-*`, `list-end-*`, `list-appenderr-*` differ                                                                               |
 | First-load error                              | `list-error-*` with «Спробувати ще раз»                                                                                                                                          |
 | Partial source health                         | `list-partial-320`                                                                                                                                                               |
 | Generation invalidated                        | `list-refresh-320`                                                                                                                                                               |
@@ -595,9 +598,13 @@ Under `prefers-reduced-motion`: pulse and spinner stop, dialog and sheet use opa
 - States: `list-{empty,loading,error}-*`, `list-{appending,end,appenderr}-*`, `list-{refresh,partial,noteam,wip,hidden,multiteam}-320`,
   `list-admin-*`, `card-*` (default 320/768/1440, submitting, dup, dupconfirm, stoplist-all, triage, zero-matches, unknown-date,
   updated, stale, closed, long-title, hide-menu, admin-menu, hidden-toast, admin-teams), `sources-*`, `dialogs-*`.
-- **The list's foot in these assets pre-dates the 2026-11-06 decision.** `design.html`, the `design*.png` list frames and the
-  `list-{appending,end,appenderr}-*` frames (with `list-appenderr-320-en`) still show the «Показати ще» button and the fixed
-  foot slot. §4.4 is the reference for the foot; everything else in those frames still applies.
+- **The list's foot in these assets differs from §4.4, which is the reference for the foot.** `design.html` and all the frames
+  below draw one fixed foot slot; §4.4's foot follows its state in height. `design*.png` list frames: a ghost full-width
+  «Показати ще» above the count; §4.4 has an outline button below it, auto width from 560 px. `list-appending-*`: a spinner,
+  ghost rows and no button; §4.4 has a text line and keeps the button mounted with `aria-disabled`. `list-end-*`: a dashed
+  hairline; §4.4 has none. `list-appenderr-*` (with `list-appenderr-320-en`): a red bordered note with an icon, and the retry
+  inside it; §4.4 has plain text with no destructive colour. No frame shows a button where §4.4 has none. Everything else in
+  those frames still applies.
 
 **For the coder:** build with **our** components and tokens per this spec; `design.html` is a visual reference — do **not**
 copy its markup. Where the HTML and this document differ, this document wins (the HTML uses plain divs, a simplified switch,

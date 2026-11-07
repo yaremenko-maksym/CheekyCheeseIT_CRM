@@ -82,8 +82,11 @@ export function JobQueueList(props: JobQueueListProps) {
   const foot = useRef<HTMLButtonElement>(null)
   const refreshFoot = useRef<HTMLButtonElement>(null)
   // read before the commit: a removal blurs with no event (React suppresses them during commit),
-  // and a window switch leaves activeElement on the button
-  const footFocused = document.activeElement === foot.current
+  // and a window switch leaves activeElement on the button. `contains` so a null activeElement
+  // does not match an unmounted button's null ref.
+  const footFocused =
+    foot.current?.contains(document.activeElement) ||
+    refreshFoot.current?.contains(document.activeElement)
   const loadMore = useRef(props.onLoadMore)
   const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null)
 
@@ -132,6 +135,7 @@ export function JobQueueList(props: JobQueueListProps) {
   useEffect(() => {
     if (footFocused && document.activeElement === document.body) {
       ;(
+        foot.current ??
         refreshFoot.current ??
         listRef.current?.querySelector<HTMLButtonElement>(':scope > li:last-child > button')
       )?.focus()
@@ -197,8 +201,6 @@ export function JobQueueList(props: JobQueueListProps) {
   const armed = props.hasNextPage && !props.isFetching && !props.isFetchNextPageError
   // the count of all the tab's vacancies is not the count of what a search or filter matched
   const scoped = props.hasSearch || props.hasFilters
-  // an append started now would abort a running refetch; a retry keeps its narrower guard
-  const footBusy = props.isFetchNextPageError ? props.isFetchingNextPage : props.isFetching
   return (
     <div className="flex flex-col gap-3">
       <ul
@@ -284,9 +286,10 @@ export function JobQueueList(props: JobQueueListProps) {
               data-testid={props.isFetchNextPageError ? 'job-queue-retry' : 'job-queue-load-more'}
               variant="outline"
               className="min-h-11 w-full text-foreground aria-disabled:pointer-events-none aria-disabled:opacity-50 @min-[560px]:w-auto"
-              aria-disabled={footBusy}
+              aria-disabled={props.isFetching}
               onClick={(e) => {
-                if (footBusy) return
+                // an append started now would abort a running refetch
+                if (props.isFetching) return
                 e.currentTarget.focus() // Safari does not focus a clicked button
                 props.onLoadMore()
               }}
