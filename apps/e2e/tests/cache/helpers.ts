@@ -7,7 +7,7 @@
  * - SW activation must be confirmed with waitForSWActive before cache assertions.
  * - Real API (loginViaApi) required for anti-stale and NetworkFirst tests.
  */
-import type { Page, Response } from '@playwright/test'
+import type { Page } from '@playwright/test'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -39,9 +39,6 @@ export const REAL_API_BASE = process.env['E2E_REAL_API_BASE'] ?? 'http://localho
 
 /** Dev seed admin email (mirrors apps/api/src/database/seed.ts). */
 export const SEED_ADMIN_EMAIL = 'yaremenkomaksym99@gmail.com'
-
-/** Dev seed senior email used for cache tests that require a non-admin role. */
-export const SEED_SENIOR_EMAIL = 'oleksiy.kovalenko@cheekycheese.dev'
 
 // ---------------------------------------------------------------------------
 // SW activation
@@ -91,39 +88,10 @@ export async function getCacheEntries(page: Page, cacheName: string): Promise<st
 }
 
 /**
- * Check if a given URL substring is present in a cache store.
- *
- * Uses `expect.poll` pattern — caller should wrap in `expect.poll` for
- * async assertions. This function itself is synchronous in return but
- * page.evaluate is always async.
- */
-export async function isCached(
-  page: Page,
-  urlSubstring: string,
-  cacheName: string = CACHE_NAMES.api,
-): Promise<boolean> {
-  const entries = await getCacheEntries(page, cacheName)
-  return entries.some((url) => url.includes(urlSubstring))
-}
-
-/**
  * Get all cache store names currently present in the browser.
  */
 export async function getAllCacheNames(page: Page): Promise<string[]> {
   return page.evaluate(() => caches.keys())
-}
-
-// ---------------------------------------------------------------------------
-// Response helper
-// ---------------------------------------------------------------------------
-
-/**
- * Check whether a Playwright Response was served by the Service Worker.
- *
- * Wraps `response.fromServiceWorker()` for readability.
- */
-export function isFromServiceWorker(response: Response): boolean {
-  return response.fromServiceWorker()
 }
 
 // ---------------------------------------------------------------------------

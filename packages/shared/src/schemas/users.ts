@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import type { Role } from '../types/roles'
 import { currencyEnumSchema, paymentMethodSchema } from './payment-requisites'
 import { tabKeySchema, actionKeySchema } from './view-permissions'
 import { withSalaryFloor } from './money'
@@ -640,23 +639,3 @@ export type AdminUpdateUserDto = z.infer<typeof adminUpdateUserSchema>
 export type UserWithPermissionsResponse = z.infer<typeof userWithPermissionsResponseSchema>
 export type CreateDropDto = z.infer<typeof createDropSchema>
 export type RejoinTeamDto = z.infer<typeof rejoinTeamSchema>
-
-/**
- * Returns whether a given field should be displayed for a user with the given role.
- * Used in both frontend rendering and backend field-filtering to enforce per-role rules.
- */
-export function shouldShowField(role: Role, field: 'salary' | 'share' | 'techStack'): boolean {
-  switch (field) {
-    case 'salary':
-      // JUNIOR, HR, ACCOUNTANT have a fixed monthly salary; SENIOR/ADMIN/DROP use share-based income
-      return role === 'JUNIOR' || role === 'HR' || role === 'ACCOUNTANT'
-    case 'share':
-      // SENIOR, ADMIN and DROP see their share percentage; others don't have one
-      return role === 'SENIOR' || role === 'ADMIN' || role === 'DROP'
-    case 'techStack':
-      // All roles surface a tech stack — soft-skills for HR/ACCOUNTANT, dev stack for others
-      return true
-    default:
-      return false
-  }
-}
