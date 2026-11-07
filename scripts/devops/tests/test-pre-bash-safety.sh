@@ -492,6 +492,19 @@ for cmd in "bash.exe scripts/devops/dev-ttl.sh -- rm -rf /etc" \
     -- h "$cmd"
 done
 
+# A spelled name earns no trust: every position is judged, also behind an inert command.
+for cmd in "ls.bat rm -rf /etc" "echo.cmd rm -rf /etc" "ls.exe rm -rf /etc" "git.exe rm -rf /etc"; do
+  assert_red "Windows: $cmd" \
+    --contains '"decision": "block"' \
+    -- h "$cmd"
+done
+
+assert_green "Windows: git.exe status stays allowed" \
+  -- h "git.exe status"
+
+assert_green "Windows: pnpm.cmd --version stays allowed" \
+  -- h "pnpm.cmd --version"
+
 # env.exe stays unread as a wrapper, so every position is judged. Unwrapping it would
 # hand -S its one-token value and leave the rest of the command unread.
 assert_red "Windows: env.exe -S rm -rf /etc" \

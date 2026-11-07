@@ -508,7 +508,12 @@ def _plausible_command_word(name):
 
 def _command_name(word):
     """Basename of a command word. Git Bash on Windows runs git.exe and pnpm.cmd
-    as git and pnpm, so a predicate must see one name for both."""
+    as git and pnpm, so a predicate must see one name for both.
+
+    Only readings() uses this. To _unwrap and _build_segment a spelled name stays
+    unknown, so the segment is uncertain and every position is judged. Reading it as
+    the real command there would also grant that command's trust: `export.exe` as a
+    pin, `bash.exe` as an unwrap, `ls.exe` as inert."""
     return re.sub(r"\.(exe|cmd|bat)$", "", os.path.basename(word), flags=re.I)
 
 
@@ -1175,9 +1180,6 @@ def _unwrap(tokens, assigns):
         tokens = _strip_keywords(tokens)
         if not tokens:
             break
-        # Exact names only. A wrapper or interpreter spelled env.exe or bash.exe stays
-        # unknown here and _build_segment marks it uncertain, so readings() judges every
-        # position. Unwrapping it would hide `bash.exe dev-ttl.sh rm -rf /etc -- ls`.
         base = os.path.basename(tokens[0])
         # `bash scripts/devops/dev-ttl.sh -- pnpm dev` is our own wrapper run THROUGH an
         # interpreter: the interpreter executes the script file, which then runs the
@@ -1651,7 +1653,7 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
         return empty, nested, {}
 
     word = toks[0]
-    name = _command_name(word)
+    name = os.path.basename(word)
     argv = toks[1:]
     dynamic = SUBST_MARKER in word or "$" in word
 
@@ -1708,8 +1710,6 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
         why = "the command word is computed (a substitution or a variable)"
     elif inexact:
         why = "wrapper `%s` has no unambiguous argument grammar" % inexact
-    elif name in INTERPRETERS and os.path.basename(word) != name:
-        why = "interpreter spelled `%s`: every position is judged" % os.path.basename(word)
     elif not _plausible_command_word(name):
         why = "command word `%s` does not look like a command name" % name
     elif name not in UNDERSTOOD and not _pkg_readonly_query(name, argv):

@@ -514,8 +514,16 @@ assert_red "bash.exe + dev-ttl.sh без закрепления — отказ" 
 assert_red "bash.exe + dev-ttl.sh с закреплением — отказ" \
   --contains '"decision": "block"' \
   -- h "DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011 $w"
+# export.exe is not the builtin: it fails, and the launch keeps the inherited environment.
+assert_green "a real export pins a launch behind dev-ttl.sh" \
+  -- h "export DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011; scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev"
+for e in export.exe export.cmd export.bat; do
+  assert_red "$e pins nothing" \
+    --contains '"decision": "block"' \
+    -- h "$e DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011; scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev"
+done
 
-# ═══SR-M-18 - a comment is not a command ═════════════════════════════════════
+# ═══ SR-M-18 - a comment is not a command ═════════════════════════════════════
 # A line that begins with # was a segment whose command word was `#`, and the words after
 # it were judged as a launch: a full refusal for a comment.
 assert_not_a_launch "строка-комментарий с запуском внутри" -- h '# pnpm --filter @crm/api dev'

@@ -123,6 +123,10 @@ assert_red_signal "instance 5 shape: named-object read, stderr discarded, into g
   --contains "SWALLOWED-COUNT" --contains "nothing was read" \
   -- run_hook "$G show \$REV:apps/x.ts 2>/dev/null | grep -c foo"
 
+assert_red_signal "an earlier git.exe does not take the place of the git that read nothing" \
+  --contains "SWALLOWED-COUNT" \
+  -- run_hook "git.exe status; $G show \$REV:apps/x.ts 2>/dev/null | grep -c foo"
+
 # CR-M-2: the form this project actively teaches, because agents work in
 # worktrees. It was silent until `-C` stopped being read as the subcommand.
 assert_red_signal "git -C <dir> show (the form this repo teaches) is NOT missed" \
