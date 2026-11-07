@@ -1182,7 +1182,8 @@ jobs:
 
   e2e:
     name: E2E (${{ matrix.shard.name }})
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.59 cannot install chromium on ubuntu-26.04 (now ubuntu-latest). Unpin after a Playwright bump passes there.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     strategy:
