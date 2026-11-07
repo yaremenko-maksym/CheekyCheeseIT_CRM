@@ -6996,6 +6996,8 @@ Task 5.4c-4 builds the seam and leaves the call site to 5.5b, so four obligation
 - **A refused worker secret looks like a dead model.** It costs the full backoff and raises `MODEL_UNREACHABLE`. The failed attempt
   logs its HTTP status; there is no separate flag.
 
+The first caller also inherits the open write-ordering gap of item 367.
+
 **Verify.** The 5.5b call site wraps its work in `try` / `finally` with `finish()`, and an integration test writes both tables under
 the role the run uses.
 
@@ -7015,8 +7017,10 @@ today.
 **Fix options.** A connection timeout on the shared pool (touches every query in the API, so it needs its own review), or
 a small dedicated pool for the health store.
 
-**Verify.** Saturate the pool in an integration test, call a store write and assert that it either rejects by the client
-wait or never commits afterwards.
+**Verify.** Saturate the pool in an integration test and assert that a health write whose wait ended never commits
+afterwards. Drive it through the handler from `createModelHealth`: the store has no client wait of its own, because
+`boundedWrite` sits in that handler. A direct store write can only reject by a pool checkout timeout, which exists once
+one of the fixes above lands.
 
 Source: review panel and security review of PR #1277.
 
