@@ -41,7 +41,7 @@ The product ships in **`uk` (default) and `en`** through Lingui catalogs. Catalo
 - All visible text in `apps/web` (headings, buttons, toasts, empty states, `aria-label`, `title`, `placeholder`)
 - Emails and in-app notifications — by the recipient's locale
 - Invoice PDFs — by the recipient's locale
-- API error texts — codes live in `packages/shared/src/schemas/api-errors.ts`; the displayed text
+- API error texts — codes live in `packages/shared/src/schemas/api-errors/`; the displayed text
   comes from the client-side catalog. The fallback `message` in the error envelope stays **English**
   (for logs and clients without a catalog)
 

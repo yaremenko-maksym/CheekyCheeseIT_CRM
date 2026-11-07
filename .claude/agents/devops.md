@@ -392,7 +392,7 @@ ECC sub-agents — _augmentation_ for build / harness tuning. DevOps remains the
 
 ## Reference (on-demand)
 
-- [`RULES.md`](RULES.md) — version pins (§7), git hygiene, skills, secrets
+- [`RULES.md`](../RULES.md) — version pins (§7), git hygiene, skills, secrets
 - [`project-state.md`](project-state.md) — tech stack, the current CI/CD pipeline (§11)
 - [`contracts.md`](contracts.md) — labels lifecycle (§2)
 - [`memory/devops/lessons.md`](memory/devops/lessons.md) — accumulated lessons
