@@ -366,6 +366,7 @@ describe('JobQueueList', () => {
         total: 40,
         isFetching: false,
         isFetchNextPageError: false,
+        status: 'error',
       })
       expect(screen.getByTestId('job-queue-sentinel')).toBeInTheDocument()
       expect(view.onLoadMore).toHaveBeenCalledTimes(1)
