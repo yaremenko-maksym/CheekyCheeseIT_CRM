@@ -162,7 +162,7 @@ Versions — see `RULES.md` §7.
 - Files (documents, photos) — AWS S3 with compression:
   - `sharp` for images
   - `pdf-lib` for PDF
-- A USDT wallet is mandatory for JUNIOR/SENIOR.
+- A USDT wallet is mandatory for SENIOR and ADMIN (USDT-only roles). Other roles may use `BANK_UAH_FOP`.
 - Changing the wallet — with a confirmation (security).
 
 ---

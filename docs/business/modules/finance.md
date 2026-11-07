@@ -8,7 +8,7 @@
 SENIOR enters a transaction (PENDING)
 → ACCOUNTANT validates (VALIDATED)
 → SENIOR clicks "Pay" (PENDING_PAYMENT)
-→ SENIOR pays 74% via a smart contract (Phase 8)
+→ SENIOR pays 74% via the company account in USDT (Phase 8, smart contracts cancelled)
   ├── JUNIOR: a fixed amount (from project_finance_settings)
   └── The remainder: 50% ADMIN + 50% partner
 → SENIOR keeps 26% → status PAID

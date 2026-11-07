@@ -85,8 +85,8 @@ Examples of **bad** lessons (do not write):
 1. **One lesson = one line.** Do not spread it over a paragraph.
 2. **Concreteness.** "Layout regression because of X" is better than "be careful with layout".
 3. **Applicability.** The lesson should help the next agent in a similar situation.
-4. **Limit.** The active `lessons.md` ≤ 20 lines. Reached it — PM consolidates (promote-and-prune, see "When to write").
+4. **Limit.** The active `lessons.md` ≤ 20 lines. Reached it — Master consolidates (promote-and-prune, see "When to write").
 
 ## Where this file used to live
 
-The old version (before the 2026-06-02 refactor) described threshold-based rotation (30 lines). It did not work — lessons were under-recorded (see `architect-audit.md` §4.5). The new version is trigger-based + skill-driven (PM invokes the skill after a merged PR at the 20-line threshold).
+The old version (before the 2026-06-02 refactor) described threshold-based rotation (30 lines). It did not work — lessons were under-recorded (see `architect-audit.md` §4.5). The new version is trigger-based + skill-driven (Master invokes the skill after a merged PR at the 20-line threshold).
