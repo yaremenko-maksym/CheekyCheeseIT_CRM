@@ -264,7 +264,7 @@ export function JobQueueList(props: JobQueueListProps) {
               <Trans>Завантажуємо ще…</Trans>
             </p>
           )}
-          {/* the only manual control: a retry after a failed append (the sentinel never retries by itself).
+          {/* the only manual control: a retry after a failed append (the sentinel stays unmounted until a refetch clears the error).
               It stays mounted while the retry is in flight, so keyboard focus is not dropped. */}
           {props.hasNextPage && props.isFetchNextPageError && (
             <Button

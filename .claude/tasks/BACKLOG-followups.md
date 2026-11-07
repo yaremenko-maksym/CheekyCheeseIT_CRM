@@ -7171,6 +7171,7 @@ Source: security review of PR #1287.
 
 - A retry answered with refresh-required unmounts the focused retry button; the foot's restart button takes no focus, so focus falls to `body` (CR-L-3 of #1276).
 - A retry answered with an empty last page drops focus and leaves `focusFrom` pending, so a later refetch can move focus unprompted. A rare race (CR-L-8 of #1276).
+- The queue's first-load retry button unmounts on click and parks focus nowhere, so focus falls to `body`; only the team-list retry parks it on the list body (CR-L-11 of #1276).
 - After a successful first-load retry, focus lands on a generic wrapper (QA-L-3 of #1272). That wrapper may be read with the stale error text, because focus moves before the re-render (UX-L-11 of #1272).
 - `aria-busy` sits on the status skeleton, which is removed rather than updated, so the loading line is probably never announced (UX-L-10 of #1272).
 - The foot shrinks 24 px when a retry starts, and `scrollTop` clamps (UX-L-2 of #1276).

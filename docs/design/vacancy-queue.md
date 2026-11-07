@@ -207,7 +207,8 @@ brings it back.
 `rootMargin` 400 px) requests the next page by `nextCursor`. The sentinel is mounted only while a next page exists, no
 query fetch is running and there is no append error, so an in-flight request cannot be doubled and a failed one is not
 retried by scrolling. One exception: a refetch (an invalidation) clears the append error even when it fails, so the sentinel
-arms again when it settles and scrolling can then retry that page.
+arms again when it settles. Its new observer reports at once, so that page is retried immediately if the foot is within
+400 px of the view, and otherwise on the next scroll.
 
 **The foot** is a centered column of quiet muted text under the list. It is not a fixed slot: its height follows its state
 (one line when idle; taller when appending; tallest with the error and the retry button), and it shows the refresh prompt

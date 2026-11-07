@@ -62,7 +62,7 @@ export function JobQueuePage() {
   const { user } = useAuth()
   const { teams, isError: teamsFailed, refetch: refetchTeams } = useActiveTeams()
   const search = Route.useSearch()
-  // these buttons unmount on click, so focus parks here: the first-load retry (error block becomes
+  // these buttons unmount on click, so focus parks here: the team-list retry (error block becomes
   // the skeleton) and the two refresh buttons (returnToTop)
   const bodyRef = useRef<HTMLDivElement>(null)
   // state, not a ref: the sentinel's observer has to rebuild once the scroller exists
