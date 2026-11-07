@@ -38,8 +38,3 @@ services:
     # Override the build: directive from docker-compose.prod.yml.
     image: ghcr.io/yaremenko-maksym/cheekycheeseit-crm-nginx:${IMAGE_TAG:-main}
     build: !reset null
-
-  # Same image as api; the worker entrypoint comes from docker-compose.prod.yml.
-  extraction-worker:
-    image: ghcr.io/yaremenko-maksym/cheekycheeseit-crm-api:${IMAGE_TAG:-main}
-    build: !reset null

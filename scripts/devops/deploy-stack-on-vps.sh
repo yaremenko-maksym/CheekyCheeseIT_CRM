@@ -2549,6 +2549,32 @@ docker compose \
   --env-file .env.production \
   up -d --remove-orphans
 
+# >>> extraction-entry-attach
+# The opt-in extraction worker runs in its own compose project, which this
+# script never names (ADR 2026-11-03 §8.6). It owns the internal network
+# below; `api` is its caller (§2.4). A recreated `api` loses a runtime
+# attachment, so re-attach it after every `up`. Soft by design: no network
+# means extraction is not installed, and any failure here is a warning,
+# never a failed deploy. Rehearsed by scripts/devops/rehearse-extraction-deploy-paths.sh.
+EXTRACTION_ENTRY_NETWORK=crm-extraction-entry
+if docker network inspect "$EXTRACTION_ENTRY_NETWORK" >/dev/null 2>&1; then
+  api_cid="$(docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml \
+    --env-file .env.production ps -q api 2>/dev/null || true)"
+  if [ -z "$api_cid" ]; then
+    echo "::warning::extraction entry: no api container to attach"
+  elif docker inspect -f '{{json .NetworkSettings.Networks}}' "$api_cid" 2>/dev/null \
+      | grep -q "\"$EXTRACTION_ENTRY_NETWORK\""; then
+    echo "==> extraction entry: api already attached"
+  elif docker network connect "$EXTRACTION_ENTRY_NETWORK" "$api_cid"; then
+    echo "==> extraction entry: api attached"
+  else
+    echo "::warning::extraction entry: attaching api failed; extraction calls fail until attached"
+  fi
+else
+  echo "==> extraction entry: network absent, nothing to attach"
+fi
+# <<< extraction-entry-attach
+
 # Multipart salary activation removes the unique index the PREVIOUS
 # API image needs as its ON CONFLICT arbiter. Starting a container
 # only proves it was launched, not that the new API can actually

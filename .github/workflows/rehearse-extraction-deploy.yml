@@ -1,0 +1,66 @@
+# rehearse-extraction-deploy.yml - both deploy paths of deploy-stack-on-vps.sh, run for real on a
+# disposable GitHub-hosted runner with the separate extraction project up (ADR 2026-11-03 §8.6).
+#
+# No production host, no production credential, no repository secret: GITHUB_TOKEN reads the
+# repository's own images, every other value is generated and thrown away with the runner.
+# Runs when a file it rehearses changes. Not a required check.
+name: Rehearse extraction deploy paths
+
+on:
+  pull_request:
+    paths:
+      - docker-compose.prod.yml
+      - docker-compose.ghcr.yml
+      - docker-compose.extraction.yml
+      - scripts/devops/deploy-stack-on-vps.sh
+      - scripts/devops/rehearse-extraction-deploy-paths.sh
+      - .github/workflows/rehearse-extraction-deploy.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: rehearse-extraction-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  rehearse:
+    name: Rehearse extraction deploy paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # llama.cpp server image (index digest of ghcr.io/ggml-org/llama.cpp:server, read 2026-11-07).
+      RUNTIME_IMAGE_SHA256: 6d581c788abba2dfa23ff78dba37ea0abfc7d838c49bcc98f4be2103df9772b3
+      # A 1.2 MB test model (ggml-org), only to prove the plumbing; digest from the Hub's LFS oid.
+      MODEL_URL: https://huggingface.co/ggml-org/models-moved/resolve/main/tinyllamas/stories260K.gguf
+      MODEL_FILE: stories260K.gguf
+      MODEL_SHA256: 270cba1bd5109f42d03350f60406024560464db173c0e387d91f0426d3bd256d
+      # The compose files production runs before this change.
+      OLD_COMPOSE_REF: 67b791f8
+      API_IMAGE: ghcr.io/yaremenko-maksym/cheekycheeseit-crm-api:main
+      NGINX_IMAGE: ghcr.io/yaremenko-maksym/cheekycheeseit-crm-nginx:main
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Pull the images
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker pull -q "$API_IMAGE"
+          docker pull -q "$NGINX_IMAGE"
+          docker pull -q "ghcr.io/ggml-org/llama.cpp@sha256:$RUNTIME_IMAGE_SHA256"
+          docker images --digests | grep -E 'cheekycheeseit|llama' || true
+
+      - name: Rehearse
+        run: bash scripts/devops/rehearse-extraction-deploy-paths.sh
+
+      - name: Containers and networks at the end
+        if: always()
+        run: |
+          docker ps -a --format '{{.ID}} {{.Names}} {{.Status}}'
+          docker network ls

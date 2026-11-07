@@ -105,51 +105,11 @@ services:
         max-size: '10m'
         max-file: '5'
     # No ports exposed to host — nginx connects via internal Docker network.
-    # extraction-internal: the caller side of the extraction worker (ADR
-    # 2026-11-03 §2.4). The API stands in for the collection worker until it
-    # exists; no other service may join that network.
+    # The extraction worker and the local model live in their own project, which this
+    # file must not name (docker-compose.extraction.yml, ADR 2026-11-03 §8.6).
     networks:
       - backend
       - frontend
-      - extraction-internal
-
-  # ── Extraction worker (opt-in: profile `extraction`) ──────────────────────
-  # ADR docs/architecture/2026-11-03-extraction-model-router.md §2.4. Same image
-  # as `api`, worker entrypoint. Not started by a plain `up`; the owner enables
-  # it (docs/runbooks/extraction-worker.md). Own env file, never .env.production.
-  # NO `ports:` (SR-L-4) and only the internal network: guarded by
-  # scripts/devops/check-extraction-worker-compose.mjs.
-  extraction-worker:
-    profiles: ['extraction']
-    build:
-      context: .
-      dockerfile: apps/api/Dockerfile
-    restart: unless-stopped
-    command: ['node', 'dist/extraction-worker/main']
-    # The api image's HEALTHCHECK probes :3001; it does not apply to the worker.
-    healthcheck:
-      disable: true
-    env_file:
-      - path: .env.extraction-worker
-        required: false
-    environment:
-      NODE_ENV: production
-      EXTRACTION_WORKER_HOST: 0.0.0.0
-      EXTRACTION_WORKER_PORT: '3100'
-      EXTRACTION_ROUTER_STATE_FILE: /var/lib/extraction-worker/router-state.json
-    volumes:
-      - extraction_worker_state:/var/lib/extraction-worker
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    logging:
-      driver: json-file
-      options:
-        max-size: '10m'
-        max-file: '5'
-    networks:
-      - extraction-internal
 
   # ── nginx (reverse-proxy + static SPA server) ─────────────────────────────
   nginx:
@@ -218,8 +178,6 @@ volumes:
     driver: local
   redis_data:
     driver: local
-  extraction_worker_state:
-    driver: local
 
 # ── Networks ──────────────────────────────────────────────────────────────
 # security review (PR #437 follow-up, MED-4, 2026-07-27): both networks now
@@ -249,8 +207,3 @@ networks:
     ipam:
       config:
         - subnet: 172.30.1.0/24
-  # extraction-internal: the API (caller) and the extraction worker only.
-  # `internal: true` = no route out of the network, no host publishing.
-  extraction-internal:
-    driver: bridge
-    internal: true
