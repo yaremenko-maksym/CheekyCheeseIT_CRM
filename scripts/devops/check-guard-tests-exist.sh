@@ -330,6 +330,7 @@ PY
 
   while IFS="$(printf '\t')" read -r kind hook_name; do
     [ -n "$kind" ] || continue
+    hook_name=${hook_name%$'\r'} # python on Windows ends each printed line with CRLF
 
     if [ "$kind" = "unresolved" ]; then
       HOOK_FAIL=$((HOOK_FAIL + 1))

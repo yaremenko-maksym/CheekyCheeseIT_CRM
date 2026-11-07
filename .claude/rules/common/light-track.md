@@ -1,6 +1,6 @@
 # Rule: Light track (master session) vs full track (Master orchestration)
 
-**Status:** Always-on
+**Status:** On-demand (not auto-loaded: listed in `claudeMdExcludes`, `.claude/settings.json`). Master reads it before a direct edit.
 **Applies to:** USER sessions (Master). Agents (Coder/AutoTest/DevOps/...) work only on the full track (Master orchestration: task file → dispatch → PR → review).
 
 > Rationale: `docs/architecture/rules-rationale/light-track.md`

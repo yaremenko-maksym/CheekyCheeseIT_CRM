@@ -60,8 +60,18 @@ print(ti.get('file_path') or ti.get('notebook_path') or '')
 # Fast exit: no file path.
 [ -z "$FILE_PATH" ] && exit 0
 
+# Windows: the payload says C:\x while Git Bash $PWD says /c/x. Compare one form.
+FILE_PATH=${FILE_PATH//\\//}
+if [[ "$FILE_PATH" =~ ^([A-Za-z]):(/.*)$ ]]; then
+  FILE_PATH="/$(printf '%s' "${BASH_REMATCH[1]}" | tr 'A-Z' 'a-z')${BASH_REMATCH[2]}"
+elif [[ "$FILE_PATH" =~ ^[A-Za-z]:(.+)$ ]]; then
+  # C:apps/x is relative to the cwd on drive C, so judge it as apps/x.
+  FILE_PATH="${BASH_REMATCH[1]}"
+fi
+
 # Fast exit: file path is not in production zones.
-if ! echo "$FILE_PATH" | grep -qE '(^|/)(apps|packages)/'; then
+# Case-insensitive: Windows and macOS accept Apps/x as the same path as apps/x.
+if ! echo "$FILE_PATH" | grep -qiE '(^|/)(apps|packages)/'; then
   exit 0
 fi
 
@@ -81,8 +91,8 @@ if echo "$PWD" | grep -q '/\.claude/worktrees/'; then
   WT_ABS=$(echo "$PWD" | sed -E 's#(.*/\.claude/worktrees/[^/]+).*#\1#')
   case "$FILE_PATH" in
     /*)
-      NORM=$(python3 -c "import os,sys; print(os.path.normpath(sys.argv[1]))" "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
-      if echo "$NORM" | grep -qE '(^|/)(apps|packages)/' && [ -n "$WT_ABS" ] && [[ "$NORM" != "$WT_ABS"/* ]]; then
+      NORM=$(printf '%s' "$FILE_PATH" | python3 -c "import posixpath,sys; print(posixpath.normpath(sys.stdin.read()))" 2>/dev/null || echo "$FILE_PATH")
+      if echo "$NORM" | grep -qiE '(^|/)(apps|packages)/' && [ -n "$WT_ABS" ] && [[ "$NORM" != "$WT_ABS"/* ]]; then
         python3 -c "
 import json, sys
 file_path, wt = sys.argv[1], sys.argv[2]

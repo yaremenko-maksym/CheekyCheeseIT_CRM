@@ -149,7 +149,7 @@ ledger_case() {
 bash_case() {
   local expect="$1" cwd="$2" cmd="$3" label="$4"
   local payload rc
-  payload=$(CWD="$cwd" CMD="$cmd" python3 -c '
+  payload=$(MSYS2_ENV_CONV_EXCL='*' CWD="$cwd" CMD="$cmd" python3 -c '
 import json, os
 print(json.dumps({
     "hook_event_name": "PreToolUse",
@@ -168,7 +168,7 @@ print(json.dumps({
 scratch_case() {
   local expect="$1" agent="$2" cwd="$3" cmd="$4" label="$5"
   local payload rc
-  payload=$(CWD="$cwd" CMD="$cmd" AID="$agent" python3 -c '
+  payload=$(MSYS2_ENV_CONV_EXCL='*' CWD="$cwd" CMD="$cmd" AID="$agent" python3 -c '
 import json, os
 print(json.dumps({
     "hook_event_name": "PreToolUse",

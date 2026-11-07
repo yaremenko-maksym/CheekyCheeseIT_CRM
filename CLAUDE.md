@@ -21,7 +21,8 @@ CRM for recruiting workspaces (outsource/outstaffing company: AI, EdTech, E-Comm
 - **Project language** (domain glossary; a term from `_Avoid_` = a review finding) → `CONTEXT.md` (root)
 - Phases and status, RBAC matrix, business rules, migrations, schemas, auth, tech gotchas → `.claude/agents/project-state.md`
 - Cross-agent rules — entry point (TOC) → `.claude/RULES.md`
-- Specific rules: MCP-first, git-policy, zone-of-write, versions, language, skills triggers → `.claude/rules/common/*.md` (auto-loaded)
+- Specific rules: MCP-first, git-policy, zone-of-write, language, skills triggers → `.claude/rules/common/*.md` (auto-loaded, except the path-scoped and on-demand ones listed in Session minimum)
+- Long-lived records (backlog, ADR, lessons, issue and PR bodies) describe behaviour and symbols, never line numbers → `.claude/rules/common/doc-durability.md` (read it before writing an issue or PR body)
 - **Why a rule says what it says** (incidents, precedents, rejected alternatives) → `docs/architecture/rules-rationale/<rule>.md` (NOT auto-loaded — read on demand)
 - Light vs full development track → `.claude/rules/common/light-track.md`
 - **How much human a decision needs** (A1 decide yourself / A2 accumulate / A3 stop) → `.claude/rules/common/autonomy-levels.md` + `.claude/skills/decision-frontier/`
@@ -95,12 +96,20 @@ snapshot in an always-loaded file goes stale silently.
 
 Auto-loaded from `.claude/rules/common/` — here only a reminder that they exist: MCP-first ·
 git-policy (no `--no-verify`, explicit `git add`, `ac_verified:`) · language-policy (English in repo +
-agent output, Russian only owner-chat) · zone-of-write · skills triggers · version-pins · light-track
-· autonomy-levels (gather facts yourself, decide the reversible yourself on the record) ·
-phase-boundaries · model-routing (which tier for which task) · orchestration-routing (degree of
-parallelism). Loaded only when UI files are touched: design-gate (any UI → designer-in-the-loop) ·
-responsive-design (mobile/tablet/laptop/large — hard gate) · design-fidelity-review
-(mockup↔localhost on all screens — gate before merge).
+agent output, Russian only owner-chat) · zone-of-write · skills triggers · autonomy-levels (gather
+facts yourself, decide the reversible yourself on the record). Loaded only when UI files are touched:
+design-gate (any UI → designer-in-the-loop) · responsive-design (mobile/tablet/laptop/large — hard
+gate) · design-fidelity-review (mockup↔localhost on all screens — gate before merge). Loaded only when
+matching files are touched: version-pins (read it by hand before `pnpm add` or a bump through Bash) ·
+doc-durability (read it by hand before an issue or PR body).
+
+**Not auto-loaded: read the file in `.claude/rules/common/` when its trigger fires.**
+
+- Master, before the first dispatch of a session: `model-routing.md` + `orchestration-routing.md`
+- Any agent choosing a model tier: `model-routing.md`
+- Master, before a direct edit: `light-track.md`
+- Anyone writing, transferring or fixing review findings: `review-findings-transfer.md`
+- Anyone reaching the end of a phase: `phase-boundaries.md`
 
 Beyond the rules: E2E locally before pushing code (docs-only diff is exempt — see light-track);
 merging a PR — **only** on an explicit confirmation from USER in the chat.

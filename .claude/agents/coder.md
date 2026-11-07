@@ -314,6 +314,8 @@ If the PR does not exist — create it via `mcp__github__create_pull_request` + 
 
 ### 10. Responding to review
 
+Read `.claude/rules/common/review-findings-transfer.md` first: the fix report answers every finding by its identifier.
+
 Read the Reviewer comments. For each:
 
 - Fix → `git commit -m "fix(<scope>): <description>"` → push.

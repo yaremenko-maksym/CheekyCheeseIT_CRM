@@ -46,7 +46,8 @@ OTHER="$FAKE_REPO/.claude/worktrees/agent-OTHER"
 run_hook() {
   local cwd="$1" cmd="$2"
   local json
-  json=$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":sys.argv[2]}}))' "$cwd" "$cmd")
+  # The exclusion stops Git Bash rewriting /fake/x in argv, so the payload holds the path as given.
+  json=$(MSYS2_ARG_CONV_EXCL='*' python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":sys.argv[2]}}))' "$cwd" "$cmd")
   printf '%s' "$json" | bash "$HOOK"
 }
 
@@ -243,7 +244,7 @@ fi
 run_hook_as() {
   local agent="$1" cwd="$2" cmd="$3"
   local json
-  json=$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":sys.argv[1],"agent_id":sys.argv[2],"tool_input":{"command":sys.argv[3]}}))' "$cwd" "$agent" "$cmd")
+  json=$(MSYS2_ARG_CONV_EXCL='*' python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":sys.argv[1],"agent_id":sys.argv[2],"tool_input":{"command":sys.argv[3]}}))' "$cwd" "$agent" "$cmd")
   printf '%s' "$json" | CROSS_AGENT_WORKTREE_OWNERS="$OWNERS_LEDGER" bash "$HOOK"
 }
 
@@ -299,5 +300,99 @@ assert_red "an opaque target is still unattributable from a scratchpad cwd -> BL
 assert_green "the full cross-agent smoke (both hooks, both directions) passes" \
   --contains "failed: 0" \
   -- bash "$SMOKE"
+
+# ── Windows payloads ──────────────────────────────────────────────────────────
+# Windows spells one path as C:\x in the harness cwd and as C:/x or /c/x in a
+# typed command. Before the hook compared one form, the cwd missed the CONTEXT
+# regex and every refusal above exited 0 on that OS.
+WIN_MINE='C:\x\CheekyCheeseIT_CRM\.claude\worktrees\agent-MINE'
+WIN_OTHER_FWD='C:/x/CheekyCheeseIT_CRM/.claude/worktrees/agent-OTHER'
+WIN_MINE_FWD='C:/x/CheekyCheeseIT_CRM/.claude/worktrees/agent-MINE'
+
+assert_red "Windows payload: pkill -f from a backslash worktree cwd -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook "$WIN_MINE" 'pkill -f "apps/api/dist/main"'
+
+assert_red "Windows payload: removing another worktree spelled C:/x -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains 'WORKTREE-REMOVE' \
+  -- run_hook "$WIN_MINE" "git worktree remove --force $WIN_OTHER_FWD"
+
+assert_red "Windows payload: removing another worktree spelled /c/x -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains 'WORKTREE-REMOVE' \
+  -- run_hook "$WIN_MINE" "git worktree remove --force /c/x/CheekyCheeseIT_CRM/.claude/worktrees/agent-OTHER"
+
+assert_red "Windows payload: writing into the shared checkout spelled C:/x -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook "$WIN_MINE" "echo hack > C:/x/CheekyCheeseIT_CRM/apps/web/src/x.ts"
+
+assert_green "Windows payload: removing MY OWN worktree spelled C:/x passes" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$WIN_MINE" "git worktree remove $WIN_MINE_FWD"
+
+assert_green "Windows payload: removing MY OWN worktree spelled /c/x passes" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$WIN_MINE" "git worktree remove /c/x/CheekyCheeseIT_CRM/.claude/worktrees/agent-MINE"
+
+assert_green "Windows payload: reading another worktree is not gated" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$WIN_MINE" "cat $WIN_OTHER_FWD/README.md"
+
+assert_red "a quoted redirect into the shared checkout -> BLOCK" \
+  --contains 'SHARED-CHECKOUT' \
+  -- run_hook "$WIN_MINE" "echo hack > '/c/x/CheekyCheeseIT_CRM/apps/web/src/x.ts'"
+
+assert_red "Windows payload: a quoted backslash redirect into the shared checkout -> BLOCK" \
+  --contains 'SHARED-CHECKOUT' \
+  -- run_hook "$WIN_MINE" "echo hack > 'C:\x\CheekyCheeseIT_CRM\apps\web\src\x.ts'"
+
+assert_red "a case variant of the shared checkout path -> BLOCK" \
+  --contains 'SHARED-CHECKOUT' \
+  -- run_hook "$WIN_MINE" "echo hack > c:/X/cheekycheeseit_crm/apps/web/src/x.ts"
+
+assert_red "Windows payload: mutating another worktree spelled with backslashes -> BLOCK" \
+  --contains 'FOREIGN-WORKTREE' \
+  -- run_hook "$WIN_MINE" "rm -rf 'C:\x\CheekyCheeseIT_CRM\.claude\worktrees\agent-OTHER\src'"
+
+assert_green "Windows payload: a quoted backslash redirect into MY OWN worktree passes" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$WIN_MINE" "echo ok > '$WIN_MINE\x.txt'"
+
+# C:../x is relative to the cwd on drive C. Real git removes the sibling worktree.
+assert_red "Windows payload: drive-relative removal of a sibling worktree -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains 'WORKTREE-REMOVE' \
+  -- run_hook "$WIN_MINE" "git worktree remove C:../agent-OTHER"
+
+assert_red "Windows payload: git.exe worktree prune -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook "$WIN_MINE" "git.exe worktree prune"
+
+assert_red "Windows payload: taskkill by image name -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook "$WIN_MINE" "taskkill //F //IM node.exe"
+
+assert_red "Windows payload: taskkill with dash flags -> BLOCK" \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook "$WIN_MINE" "taskkill -f -im node.exe"
+
+assert_red "Windows payload: taskkill with the colon form of /IM -> BLOCK" \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook "$WIN_MINE" "taskkill //f //im:node.exe"
+
+assert_red "Windows payload: taskkill by a name filter -> BLOCK" \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook "$WIN_MINE" "taskkill //F //FI \"IMAGENAME eq node.exe\""
+
+assert_red "Windows payload: pkill behind a wrapper spelled env.exe -> BLOCK" \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook "$WIN_MINE" "env.exe pkill -f node"
+
+assert_green "Windows payload: taskkill of one PID passes" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$WIN_MINE" "taskkill //F //PID 1234"
 
 guard_test_summary "test-pre-bash-cross-agent-blast.sh"

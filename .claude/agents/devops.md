@@ -134,6 +134,8 @@ The label `ai-review-ready` for the Reviewer.
 
 ### 6. Responding to review
 
+Read `.claude/rules/common/review-findings-transfer.md` first: the fix report answers every finding by its identifier.
+
 Read the comments. For each:
 
 - Fix → `git commit -m "fix(infra): <description>"` → push.

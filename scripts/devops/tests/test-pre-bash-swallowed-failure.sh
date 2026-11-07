@@ -34,7 +34,7 @@
 # mutation, not by reading the hook. The measured matrix:
 #
 #   MUTATION                              CASES IT REDDENS
-#   M0 note written to stderr instead     all 10 firing cases  <- the delivery pin
+#   M0 note written to stderr instead     all 11 firing cases  <- the delivery pin
 #      of hookSpecificOutput/stdout
 #   M1 is_reader/is_counter forced true   the 3 [PREDICATE] cases
 #   M2 pre-filter deleted                 NOTHING
@@ -122,6 +122,10 @@ assert_red_signal "instance 5 shape: named-object read, stderr discarded, into g
   --contains "RC=0" --contains "STDERR-EMPTY" --contains "DELIVERED:" \
   --contains "SWALLOWED-COUNT" --contains "nothing was read" \
   -- run_hook "$G show \$REV:apps/x.ts 2>/dev/null | grep -c foo"
+
+assert_red_signal "an earlier git.exe does not take the place of the git that read nothing" \
+  --contains "DELIVERED:" --contains "SWALLOWED-COUNT" \
+  -- run_hook "git.exe status; $G show \$REV:apps/x.ts 2>/dev/null | grep -c foo"
 
 # CR-M-2: the form this project actively teaches, because agents work in
 # worktrees. It was silent until `-C` stopped being read as the subcommand.
