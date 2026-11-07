@@ -96,8 +96,22 @@ const DROP: SessionUser = {
   displayName: 'Pay Drop',
   role: 'DROP',
 }
+const JUNIOR: SessionUser = {
+  ...SENIOR,
+  id: 'ca110000-0000-4000-aa00-000000000006',
+  email: 'pay-junior@test.spec',
+  displayName: 'Pay Junior',
+  role: 'JUNIOR',
+}
+const HR: SessionUser = {
+  ...SENIOR,
+  id: 'ca110000-0000-4000-aa00-000000000007',
+  email: 'pay-hr@test.spec',
+  displayName: 'Pay HR',
+  role: 'HR',
+}
 
-const ALL = [SENIOR, SENIOR2, ADMIN, ACCOUNTANT, DROP]
+const ALL = [SENIOR, SENIOR2, ADMIN, ACCOUNTANT, DROP, JUNIOR, HR]
 const TEST_USER_IDS = ALL.map((u) => u.id)
 const ACCOUNT_ID = 'ca110000-0000-4000-cc00-000000000001'
 
@@ -563,6 +577,38 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(asSenior.find((r) => r.id === requestId)?.txFromAddress).toBeNull()
       const asAdmin = await svc.findPayoutRequests(ADMIN)
       expect(asAdmin.find((r) => r.id === requestId)?.txFromAddress).toBe(EXCHANGE_WALLET)
+    })
+
+    // findPayoutRequests is the only gate on GET /payout-requests: the route has no @Roles.
+    it('RBAC: the list returns the exact id set per role, with two owners in the table', async () => {
+      const [seniorRow, dropRow] = await dbSvc.db
+        .insert(payoutRequests)
+        .values(
+          [SENIOR, DROP].map((owner) => ({
+            seniorId: owner.id,
+            incomeAmount: '1000',
+            payableAmount: '740',
+            contractAddress: WALLET,
+          })),
+        )
+        .returning({ id: payoutRequests.id })
+      const seniorId = seniorRow!.id
+      const dropId = dropRow!.id
+      const idsSeenBy = async (viewer: SessionUser) =>
+        (await svc.findPayoutRequests(viewer)).map((r) => r.id)
+
+      expect(await idsSeenBy(SENIOR)).toEqual([seniorId])
+      expect(await idsSeenBy(DROP)).toEqual([dropId])
+      expect(await idsSeenBy(JUNIOR)).toEqual([])
+      expect(await idsSeenBy(HR)).toEqual([])
+
+      // These two read the whole table, so a shared scratch DB adds rows no suite here owns.
+      for (const viewer of [ADMIN, ACCOUNTANT]) {
+        const ownedBySuite = (await svc.findPayoutRequests(viewer))
+          .filter((r) => TEST_USER_IDS.includes(r.seniorId))
+          .map((r) => r.id)
+        expect(ownedBySuite.sort()).toEqual([seniorId, dropId].sort())
+      }
     })
 
     // ── AC6: idempotency — re-confirm of a PAID payout throws, no double credit ──
