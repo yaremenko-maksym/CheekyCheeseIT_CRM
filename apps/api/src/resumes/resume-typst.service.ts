@@ -646,11 +646,6 @@ export function loadDefaultTemplate(): string {
   return defaultTemplateCache
 }
 
-/** @internal */
-export function _clearDefaultTemplateCacheForTesting(): void {
-  defaultTemplateCache = null
-}
-
 /**
  * `JSON.stringify` with keys in sorted order at every level.
  *
