@@ -515,13 +515,23 @@ assert_red "bash.exe + dev-ttl.sh с закреплением — отказ" \
   --contains '"decision": "block"' \
   -- h "DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011 $w"
 # export.exe is not the builtin: it fails, and the launch keeps the inherited environment.
-assert_green "a real export pins a launch behind dev-ttl.sh" \
+assert_launch_green "a real export pins a launch behind dev-ttl.sh" \
   -- h "export DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011; scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev"
 for e in export.exe export.cmd export.bat; do
   assert_red "$e pins nothing" \
     --contains '"decision": "block"' \
     -- h "$e DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011; scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev"
 done
+
+# SR-H-6: only the first launch in a segment is judged. An argument spelled pnpm.cmd must
+# not take the place of the launch after it, and no platform has to run it for this.
+PIN="DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011"
+TTL="scripts/devops/dev-ttl.sh --"
+for t in "env DATABASE_URL=$LIVE_DB tsx watch x.ts pnpm.cmd dev vite"          "env DATABASE_URL=$LIVE_DB pnpm.cmd dev vite"          "env -u DATABASE_URL pnpm.cmd dev vite"          "tsx watch x.ts pnpm.cmd dev vite"          "pnpm.cmd dev vite"; do
+  assert_red "pnpm.cmd does not displace the launch: $t"     --contains "is not the launcher the analyzer resolved"     -- h "$PIN $TTL pnpm exec $t"
+done
+assert_red "pnpm.cmd does not displace the launch with the wrong port"   --contains '"decision": "block"'   -- h "DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa $TTL pnpm exec pnpm.cmd --port 3011 dev pnpm dev"
+assert_red "pnpm.cmd as the only launch is still refused behind a pin"   --contains '"decision": "block"'   -- h "$PIN $TTL pnpm.cmd --filter @crm/api dev"
 
 # ═══ SR-M-18 - a comment is not a command ═════════════════════════════════════
 # A line that begins with # was a segment whose command word was `#`, and the words after

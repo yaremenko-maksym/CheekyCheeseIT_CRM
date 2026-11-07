@@ -1781,7 +1781,7 @@ def _expand_token(tok, code=False):
     return out
 
 
-def readings(seg, code=False):
+def readings(seg, code=False, spelled=True):
     """Every "the real command might start HERE" reading of an uncertain segment.
 
     This is the answer to "what do we do about a parse we cannot trust". Not a
@@ -1794,6 +1794,8 @@ def readings(seg, code=False):
     Confident segments never go through here: `grep -n vite` is understood, so
     its `vite` argument is an argument. That is the whole difference between
     this and the substring rule it replaces.
+
+    `spelled=False` leaves `git.exe` unread as `git`; launches() needs that.
     """
     if seg.confident and not code:
         return []
@@ -1802,7 +1804,7 @@ def readings(seg, code=False):
         toks.extend(_expand_token(tok, code))
     out = []
     for i, word in enumerate(toks):
-        base = _command_name(word)
+        base = _command_name(word) if spelled else os.path.basename(word)
         if not _plausible_command_word(base):
             continue
         # EVERY position is read — the window bounds only how far each reading
@@ -2220,11 +2222,14 @@ def launches(scan_result):
     `.env` are the ones the caller must judge (the TTL gate asks whether the
     LAUNCHING segment was wrapped; the live-db guard asks what environment the
     LAUNCHING segment gets).
+
+    Only the first hit in a segment is judged, so a reading of a spelled name comes
+    last. An argument `pnpm.cmd` must not take the place of the launch after it.
     """
     out = []
     alt_raws = set(sg.raw for sg in getattr(scan_result, "alt_only", ()))
     for seg in scan_result.segments:
-        for cand in candidates(seg):
+        for cand in [seg] + readings(seg, spelled=False) + readings(seg):
             label = is_dev_server_launch(cand)
             if label:
                 if not seg.confident:
