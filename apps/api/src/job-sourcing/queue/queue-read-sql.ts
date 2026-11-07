@@ -75,7 +75,8 @@ export const queueRowJoins = (
   CROSS JOIN LATERAL (
     SELECT count(*) FILTER (WHERE m.outcome = 'LEAD') AS matched,
            count(*) FILTER (WHERE m.outcome = 'EXCLUDED'
-                              AND m.evidence->>'stage' = 'SCOPED_RESTRICTIONS') AS stop_listed
+                              AND m.evidence->>'stage' = 'SCOPED_RESTRICTIONS') AS stop_listed,
+           jsonb_agg(m.evidence) FILTER (WHERE m.outcome = 'LEAD') AS matched_evidence
     ${liveVersionRows(versions)}) stats
   CROSS JOIN LATERAL (
     SELECT count(*) AS submitted FROM job_queue_assignments a
@@ -106,7 +107,8 @@ export const queueRowJoins = (
 export const QUEUE_ROW_COLUMNS = sql`
   o.id, o.revision, o.title, o.employer_name, o.location, o.availability, o.published_at,
   o.first_seen_at, src.source_record_id, src.source_type, src.source_url, src.total AS source_total,
-  o.application_url, stats.matched, stats.stop_listed, sub.submitted, flags.opened, flags.hidden, d.eligibility`
+  o.application_url, o.seniority, stats.matched, stats.stop_listed, stats.matched_evidence,
+  sub.submitted, flags.opened, flags.hidden, d.eligibility`
 
 /** One opportunity's row, with the description and "changed since this scope's list was built". */
 export const cardRow = (

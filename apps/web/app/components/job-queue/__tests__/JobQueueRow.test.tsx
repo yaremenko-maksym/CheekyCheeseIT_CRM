@@ -23,6 +23,8 @@ function item(over: Partial<JobQueueListItemDto> = {}): JobQueueListItemDto {
     alsoSeenOnCount: 0,
     availability: 'OPEN',
     eligibility: 'LEAD',
+    seniority: 'UNKNOWN',
+    matchedKeywords: [],
     matchedSeniorCount: 0,
     submittedSeniorCount: 0,
     stopListedSeniorCount: 0,
@@ -63,6 +65,98 @@ describe('JobQueueRow', () => {
     expect(screen.getByTestId('job-queue-row-source')).toHaveAccessibleName('Джерело: DOU')
     await userEvent.click(row)
     expect(onOpen).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111')
+  })
+
+  describe('seniority and stack chips', () => {
+    it('shows no seniority badge for UNKNOWN', () => {
+      renderRow({ seniority: 'UNKNOWN' })
+      expect(screen.queryByTestId('job-queue-row-seniority')).not.toBeInTheDocument()
+    })
+
+    it.each([
+      ['MIDDLE', 'Мідл'],
+      ['SENIOR', 'Сеньйор'],
+      ['LEAD', 'Лід'],
+    ] as const)('labels %s as %s', (seniority, label) => {
+      renderRow({ seniority })
+      expect(screen.getByTestId('job-queue-row-seniority')).toHaveTextContent(label)
+    })
+
+    it('renders no chip line at all with no badge and 0 keywords', () => {
+      renderRow({ seniority: 'UNKNOWN', matchedKeywords: [] })
+      expect(screen.queryByTestId('job-queue-row-chips')).not.toBeInTheDocument()
+    })
+
+    it('shows the badge without a keyword group for 0 keywords', () => {
+      renderRow({ seniority: 'LEAD', matchedKeywords: [] })
+      expect(screen.getByTestId('job-queue-row-chips')).toBeInTheDocument()
+      expect(screen.queryByTestId('job-queue-row-keywords')).not.toBeInTheDocument()
+    })
+
+    it('shows the chip line for keywords without a badge', () => {
+      renderRow({ seniority: 'UNKNOWN', matchedKeywords: ['go'] })
+      expect(screen.getByTestId('job-queue-row-chips')).toContainElement(
+        screen.getByTestId('job-queue-row-keyword'),
+      )
+    })
+
+    it('styles the badge and the overflow as chips', () => {
+      renderRow({ seniority: 'LEAD', matchedKeywords: ['a', 'b', 'c', 'd'] })
+      expect(screen.getByTestId('job-queue-row-seniority')).toHaveClass('rounded-md', 'font-medium')
+      expect(screen.getByTestId('job-queue-row-keywords-more')).toHaveClass(
+        'rounded-md',
+        'tabular-nums',
+      )
+    })
+
+    it('shows 3 keywords without an overflow chip', () => {
+      renderRow({ matchedKeywords: ['go', 'react', 'sql'] })
+      const chips = within(screen.getByTestId('job-queue-row-keywords'))
+      expect(chips.getAllByTestId('job-queue-row-keyword').map((c) => c.textContent)).toEqual([
+        'go',
+        'react',
+        'sql',
+      ])
+      expect(chips.queryByTestId('job-queue-row-keywords-more')).not.toBeInTheDocument()
+    })
+
+    it('shows the first 3 of 7 keywords and +4', () => {
+      renderRow({ matchedKeywords: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] })
+      const chips = within(screen.getByTestId('job-queue-row-keywords'))
+      expect(chips.getAllByTestId('job-queue-row-keyword').map((c) => c.textContent)).toEqual([
+        'a',
+        'b',
+        'c',
+      ])
+      expect(chips.getByTestId('job-queue-row-keywords-more')).toHaveTextContent('+4')
+    })
+
+    it('shows a 4th keyword as +1', () => {
+      renderRow({ matchedKeywords: ['a', 'b', 'c', 'd'] })
+      expect(screen.getByTestId('job-queue-row-keywords-more')).toHaveTextContent('+1')
+    })
+
+    it('truncates a long keyword inside its chip and keeps it readable by title', () => {
+      const long = 'k'.repeat(100)
+      renderRow({ matchedKeywords: [long] })
+      const chip = screen.getByTestId('job-queue-row-keyword')
+      expect(chip).toHaveClass('truncate', 'max-w-full')
+      expect(chip).toHaveAttribute('title', long)
+    })
+
+    it('renders chips as text, not as markup', () => {
+      renderRow({ matchedKeywords: ['<img src=x>'] })
+      expect(screen.getByTestId('job-queue-row-keyword').textContent).toBe('<img src=x>')
+      expect(screen.queryByRole('img', { name: '' })).not.toBeInTheDocument()
+    })
+
+    it('keeps chips inside the row button with no nested interactive element', () => {
+      const { row } = renderRow({ seniority: 'LEAD', matchedKeywords: ['a', 'b', 'c', 'd'] })
+      expect(row).toContainElement(screen.getByTestId('job-queue-row-keywords-more'))
+      expect(within(row).queryAllByRole('button')).toEqual([])
+      expect(screen.getByTestId('job-queue-row-seniority').tagName).toBe('SPAN')
+      expect(screen.getByTestId('job-queue-row-keywords').tagName).toBe('SPAN')
+    })
   })
 
   it('shows publication age when the date is known', () => {
@@ -209,6 +303,57 @@ describe('JobQueueRow', () => {
     const { row } = renderRow({ primarySource: null, companyName: null })
     expect(screen.getByTestId('job-queue-row-source')).toHaveAccessibleName('Додано вручну')
     expect(row).toHaveTextContent('Компанію не вказано')
+  })
+
+  describe('two-column layout structure (§4.3 ≥720px)', () => {
+    it('has both layout wrappers job-queue-row-main and job-queue-row-meta', () => {
+      renderRow()
+      expect(screen.getByTestId('job-queue-row-main')).toBeInTheDocument()
+      expect(screen.getByTestId('job-queue-row-meta')).toBeInTheDocument()
+    })
+
+    it('meta column carries the 230px width class', () => {
+      renderRow()
+      expect(screen.getByTestId('job-queue-row-meta')).toHaveClass('@min-[720px]:w-[14.375rem]')
+    })
+
+    it('meta column carries the shrink-0 class', () => {
+      renderRow()
+      expect(screen.getByTestId('job-queue-row-meta')).toHaveClass('@min-[720px]:shrink-0')
+    })
+
+    it('matched count sits inside meta, not in main', () => {
+      renderRow({ matchedSeniorCount: 2 })
+      expect(
+        within(screen.getByTestId('job-queue-row-meta')).getByTestId('job-queue-row-counts'),
+      ).toBeInTheDocument()
+      expect(
+        within(screen.getByTestId('job-queue-row-main')).queryByTestId('job-queue-row-counts'),
+      ).not.toBeInTheDocument()
+    })
+
+    it('also-seen sits inside meta', () => {
+      renderRow({ alsoSeenOnCount: 3 })
+      expect(
+        within(screen.getByTestId('job-queue-row-meta')).getByTestId('job-queue-row-also-seen'),
+      ).toBeInTheDocument()
+    })
+
+    it('publication age carries the order-first class for wide layouts', () => {
+      renderRow()
+      expect(screen.getByTestId('job-queue-row-age')).toHaveClass('@min-[720px]:order-first')
+    })
+
+    it('DOM order inside meta: counts precedes age, age precedes also-seen', () => {
+      renderRow({ matchedSeniorCount: 1, alsoSeenOnCount: 1 })
+      const meta = screen.getByTestId('job-queue-row-meta')
+      const counts = within(meta).getByTestId('job-queue-row-counts')
+      const age = within(meta).getByTestId('job-queue-row-age')
+      const alsoSeen = within(meta).getByTestId('job-queue-row-also-seen')
+      // Node.DOCUMENT_POSITION_FOLLOWING = 4: the argument follows the caller in the DOM
+      expect(counts.compareDocumentPosition(age) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(age.compareDocumentPosition(alsoSeen) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
   })
 })
 

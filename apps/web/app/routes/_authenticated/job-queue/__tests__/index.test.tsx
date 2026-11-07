@@ -58,6 +58,8 @@ function page(over: Partial<JobQueueListResponseDto> = {}): JobQueueListResponse
         alsoSeenOnCount: 0,
         availability: 'OPEN',
         eligibility: 'TRIAGE',
+        seniority: 'UNKNOWN',
+        matchedKeywords: [],
         matchedSeniorCount: 2,
         submittedSeniorCount: 0,
         stopListedSeniorCount: 0,

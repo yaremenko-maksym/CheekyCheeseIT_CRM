@@ -2,6 +2,7 @@ import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import {
   DESCRIPTION_MD_MAX,
+  JOB_QUEUE_ROW_KEYWORDS_MAX,
   type JobQueueCardResponseDto,
   jobQueueCardResponseSchema,
   type JobQueueListItemDto,
@@ -12,6 +13,7 @@ import {
   jobQueueSeniorsContinuationSchema,
   jobQueueSourcesContinuationSchema,
   type JobSourceType,
+  MAX_STACK_KEYWORD_CHARS,
   type SessionUser,
 } from '@crm/shared'
 import { sql } from 'drizzle-orm'
@@ -95,6 +97,8 @@ export function toListItem(r: Row): JobQueueListItemDto {
     alsoSeenOnCount: Math.max(count(r['source_total']) - 1, 0),
     availability: r['availability'] as JobQueueListItemDto['availability'],
     eligibility: r['eligibility'] as JobQueueListItemDto['eligibility'],
+    seniority: r['seniority'] as JobQueueListItemDto['seniority'],
+    matchedKeywords: rowKeywords(r['matched_evidence']),
     matchedSeniorCount: count(r['matched']),
     submittedSeniorCount: count(r['submitted']),
     stopListedSeniorCount: count(r['stop_listed']),
@@ -124,6 +128,15 @@ export function matchFacts(evidence: unknown): { keywords: string[]; approximate
       .slice(0, 200),
     approximate: !items.some((k) => k.endsWith(':CORE')),
   }
+}
+
+/** The union over the scope's LEAD seniors, never attributed. Sorted: the cap keeps a stable set. */
+function rowKeywords(evidence: unknown): string[] {
+  if (!Array.isArray(evidence)) return []
+  const keywords = evidence.flatMap((e) =>
+    matchFacts(e).keywords.map((k) => k.slice(0, MAX_STACK_KEYWORD_CHARS)),
+  )
+  return [...new Set(keywords)].sort().slice(0, JOB_QUEUE_ROW_KEYWORDS_MAX)
 }
 
 /**

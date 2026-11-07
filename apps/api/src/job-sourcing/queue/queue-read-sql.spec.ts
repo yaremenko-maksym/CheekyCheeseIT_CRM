@@ -10,6 +10,7 @@ import {
   likePattern,
   listFilters,
   policySignature,
+  QUEUE_ROW_COLUMNS,
   rankSelect,
   queueRowJoins,
   seniorRows,
@@ -163,6 +164,16 @@ describe('field scoping — what each read binds', () => {
     expect(joins.text).toContain('m.senior_profile_version = v.profile')
     expect(joins.text).toContain('m.exclusion_version = v.exclusion')
     expect(joins.text).toContain(`m.evidence->>'stage' = 'SCOPED_RESTRICTIONS'`)
+  })
+
+  it('the row keyword evidence is LEAD rows of the same scope versions, and is selected', () => {
+    const { text } = render(queueRowJoins(team, versions))
+    expect(text).toContain(
+      `jsonb_agg(m.evidence) FILTER (WHERE m.outcome = 'LEAD') AS matched_evidence`,
+    )
+    const columns = render(QUEUE_ROW_COLUMNS).text
+    expect(columns).toContain('stats.matched_evidence')
+    expect(columns).toContain('o.seniority')
   })
 
   it('workflow rows of a TEAM scope name that team: submissions, dismissals, opens', () => {
