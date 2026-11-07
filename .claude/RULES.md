@@ -214,7 +214,7 @@ See the full list with rationale + forbidden overrides: **[`.claude/rules/common
 | `project-state.md`                          | All                     | ~25 KB | Phases, migrations, RBAC, tech stack                          |
 | `contracts.md`                              | Master, Coder, Reviewer | ~32 KB | Master-direct-dispatch contracts + labels + verdict semantics |
 | `coder.md`                                  | Coder                   | ~28 KB | Golden rules + workflow + recovery                            |
-| `code-reviewer.md` + `security-reviewer.md` | Reviewer                | ~25 KB | Workflow + security + write-then-post                         |
+| `code-reviewer.md` + `security-reviewer.md` | Reviewer                | ~50 KB | Workflow + security + write-then-post                         |
 | `autotest.md`                               | AutoTest                | ~18 KB | 4 modes + AC-first + anti-patterns                            |
 | `devops.md`                                 | DevOps                  | ~20 KB | Workflow + CI pipeline + secrets                              |
 | `architect.md`                              | Architect               | ~12 KB | ADR / agent-infra workflow + zone-of-write                    |

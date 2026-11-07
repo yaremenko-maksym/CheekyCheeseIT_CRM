@@ -169,7 +169,7 @@ Versions — see `RULES.md` §7.
 
 ## 5. Drizzle migrations (0000–0009 applied)
 
-> ⚠ **Fact (2026-06-11):** the baseline is **squashed** → `0000_purple_runaways` (all core tables) + `0001_employee_contracts`, `0002`–`0003` (contracts/onboarding), `0004_contract_templates_remove_version`, `0005`, `0006_employee_contracts_custom_values`, `0007_cleanup_orphan_senior_payout_requests`, `0008_quick_mac_gargan`, `0009_legends_per_project`. The table below — is **pre-squash historical** (the names/numbering do NOT correspond to the files in `apps/api/drizzle/migrations/`; the `schema.ts` comments about "migration 0007–0013" — are also historical).
+> ⚠ **Fact (2026-06-11):** the baseline is **squashed** → `0000_purple_runaways` (all core tables) + `0001_employee_contracts`, `0002`–`0003` (contracts/onboarding), `0004_contract_templates_remove_version`, `0005`, `0006_employee_contracts_custom_values`, `0007_cleanup_orphan_senior_payout_requests`, `0008_quick_mac_gargan`, `0009_legends_per_project`. The table below — is **pre-squash historical** (the names/numbering do NOT correspond to anything on disk: those migration files are gone, and `apps/api/drizzle/` now holds only `manual*/`; the `schema.ts` comments about "migration 0007–0013" — are also historical).
 
 | Migration                    | What                                                                                                                                                                       |
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
