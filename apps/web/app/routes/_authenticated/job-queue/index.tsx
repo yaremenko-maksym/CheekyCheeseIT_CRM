@@ -62,7 +62,8 @@ export function JobQueuePage() {
   const { user } = useAuth()
   const { teams, isError: teamsFailed, refetch: refetchTeams } = useActiveTeams()
   const search = Route.useSearch()
-  // the retry button unmounts on click (error block becomes the skeleton): park focus here
+  // these buttons unmount on click, so focus parks here: the first-load retry (error block becomes
+  // the skeleton) and the two refresh buttons (returnToTop)
   const bodyRef = useRef<HTMLDivElement>(null)
   // state, not a ref: the sentinel's observer has to rebuild once the scroller exists
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null)
@@ -70,7 +71,7 @@ export function JobQueuePage() {
 
   if (denied || !user || (user.role !== 'ADMIN' && user.role !== 'HR')) return null
 
-  // the foot's refresh button unmounts on click, and the list it closed is replaced from the top
+  // the refresh buttons (list foot and top notice) unmount on click, and the list is replaced from the top
   const returnToTop = () => {
     bodyRef.current!.focus()
     // after the focus, whose own scroll-into-view this overrides
@@ -231,7 +232,7 @@ function QueueBody({
       <div
         data-testid="job-queue-refresh"
         role="status"
-        className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 text-sm @min-[560px]:flex-row @min-[560px]:items-center"
+        className="flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm @min-[560px]:flex-row @min-[560px]:items-center"
       >
         <RefreshCw aria-hidden="true" className="size-4 shrink-0" />
         <div className="min-w-0 flex-1">

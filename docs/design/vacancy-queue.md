@@ -206,7 +206,8 @@ brings it back.
 **Mechanism.** An `IntersectionObserver` sentinel (`job-queue-sentinel`; root = the page scroller `job-queue-scroll`,
 `rootMargin` 400 px) requests the next page by `nextCursor`. The sentinel is mounted only while a next page exists, no
 query fetch is running and there is no append error, so an in-flight request cannot be doubled and a failed one is not
-retried by scrolling.
+retried by scrolling. One exception: a refetch (an invalidation) clears the append error even when it fails, so the sentinel
+arms again when it settles and scrolling can then retry that page.
 
 **The foot** is a centered column of quiet muted text under the list. It is not a fixed slot: its height follows its state
 (one line when idle; taller when appending; tallest with the error and the retry button), and it shows the refresh prompt
@@ -228,8 +229,8 @@ moves focus, to the **first newly added row**, because the button that held it u
 read out the previous tab's count. Row order and `aria-posinset` are not used: the rows are interactive controls, so the
 WAI-ARIA **feed** pattern (reading-article model, custom Page Down contract) was considered and rejected in favour of a plain
 list + live region + ordinary keyboard scrolling and Tab. Reduced motion: the foot has no spinner; the first-load
-skeleton pulse must stop under `prefers-reduced-motion`. **Known gap:** the shared `Skeleton` keeps pulsing; open as UX-L-4 on
-PR #1276.
+skeleton pulse must stop under `prefers-reduced-motion`. **Known gaps,** both tracked in backlog item 354: the shared
+`Skeleton` keeps pulsing; a retry answered with refresh-required unmounts the retry button, and focus falls to `body`.
 
 ### 4.5 Notices above the list
 
@@ -527,7 +528,7 @@ essential lives in a tooltip), `sonner` toast, `StickyPageHeader`/`PageHeader`. 
   has `aria-expanded`.
 - **Keyboard:** no behaviour requires a pointer. The page scroller `job-queue-scroll` is the sentinel's root, and pages load
   through keyboard scrolling or Tab:
-  - Tab goes through the toolbar and the active tab, then the tab panel (a stop with a visible focus ring), then every row.
+  - Tab stops on the page scroller first, then goes through the toolbar and the active tab, then the tab panel (a stop with a visible focus ring), then every row.
     Tabbing through the rows keeps the focused row in view and loads every page, so every row is reachable with Tab alone.
   - PageUp/PageDown, the arrow keys, Space, Home and End scroll once focus is on the tab panel or on a row (Space activates a
     row, so it scrolls from the panel only), and that scrolling fires the sentinel. Focus stays where it is while the view moves.
