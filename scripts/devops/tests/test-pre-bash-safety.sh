@@ -468,4 +468,24 @@ assert_red "rm -rf ~/Downloads/../.ssh climbs out of Downloads" \
   --contains '"decision": "block"' \
   -- h "rm -rf ~/Downloads/../.ssh"
 
+assert_red "Windows: a backslash .. climbs out of /tmp" \
+  --contains '"decision": "block"' \
+  -- h "rm -rf '/tmp/x\..\..\c\Windows'"
+
+assert_red "Windows: a backslash .. climbs out of ~/Downloads" \
+  --contains '"decision": "block"' \
+  -- h "rm -rf '~/Downloads\..\.ssh'"
+
+assert_green "a backslash inside a safe root stays inside it" \
+  -- h "rm -rf '/tmp/a\b'"
+
+# bash.exe must unwrap the TTL wrapper as bash does, or the command after -- goes unread.
+assert_red "Windows: bash.exe dev-ttl.sh -- rm -rf /etc" \
+  --contains '"decision": "block"' \
+  -- h "bash.exe scripts/devops/dev-ttl.sh -- rm -rf /etc"
+
+assert_red "Windows: sh.exe dev-ttl.sh -- git push --force" \
+  --contains '"decision": "block"' \
+  -- h "sh.exe scripts/devops/dev-ttl.sh -- git push --force origin main"
+
 guard_test_summary "test-pre-bash-safety.sh"

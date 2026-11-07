@@ -383,6 +383,10 @@ assert_red "Windows payload: taskkill with the colon form of /IM -> BLOCK" \
   --contains 'BROADCAST-KILL' \
   -- run_hook "$WIN_MINE" "taskkill //f //im:node.exe"
 
+assert_red "Windows payload: taskkill by a name filter -> BLOCK" \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook "$WIN_MINE" "taskkill //F //FI \"IMAGENAME eq node.exe\""
+
 assert_red "Windows payload: pkill behind a wrapper spelled env.exe -> BLOCK" \
   --contains 'BROADCAST-KILL' \
   -- run_hook "$WIN_MINE" "env.exe pkill -f node"

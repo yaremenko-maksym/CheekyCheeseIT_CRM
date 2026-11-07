@@ -1175,7 +1175,7 @@ def _unwrap(tokens, assigns):
         tokens = _strip_keywords(tokens)
         if not tokens:
             break
-        base = os.path.basename(tokens[0])
+        base = _command_name(tokens[0])
         # `bash scripts/devops/dev-ttl.sh -- pnpm dev` is our own wrapper run THROUGH an
         # interpreter: the interpreter executes the script file, which then runs the
         # command after `--`. Unwrapped here the segment was `bash`, never a launch,

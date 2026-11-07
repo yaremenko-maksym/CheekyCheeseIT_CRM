@@ -493,6 +493,7 @@ done
 # `bash scripts/devops/dev-ttl.sh -- <launch>` was allowed with NO pin while the same
 # command without `bash` was refused: the 2026-08-05 shape through a side door.
 for w in 'bash scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev' \
+         'bash.exe scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev' \
          'sh scripts/devops/dev-ttl.sh --ttl 60 -- vite --port 3010' \
          'bash -x scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev' \
          'zsh scripts/devops/dev-ttl.sh -- pnpm -r dev' \

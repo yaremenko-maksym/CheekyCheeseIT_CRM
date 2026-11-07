@@ -472,9 +472,9 @@ def resolve(tok):
 
 # ---- predicate 1: broadcast process kill (backlog 72 / PR #547) -------------
 for name, args in toks:
-    # taskkill /IM is the Windows pkill. /PID names one process, so it stays allowed.
+    # taskkill /IM and /FI are the Windows pkill. /PID names one process, so it stays allowed.
     if name in ("pkill", "killall") or (
-        name == "taskkill" and any(re.match(r"^[/-]+im(:|$)", a, re.I) for a in args)
+        name == "taskkill" and any(re.match(r"^[/-]+(im|fi)(:|$)", a, re.I) for a in args)
     ):
         reasons.append(
             "BROADCAST-KILL|`%s` бьёт по шаблону/имени и гасит процессы ЛЮБОГО "
