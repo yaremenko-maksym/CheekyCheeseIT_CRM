@@ -4,6 +4,8 @@
  * obligation merge are pinned through the facade in transactions.rbac-f1-f2.spec.ts.
  */
 import { ForbiddenException } from '@nestjs/common'
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
@@ -39,8 +41,13 @@ function row(id: string, seniorId: string, seniorName: string | null = 'Owner Na
   }
 }
 
+const compiled = (where: SQL) => new PgDialect().sqlToQuery(where)
+
 function makeService(rows: ReturnType<typeof row>[]) {
-  const findMany = vi.fn(async () => rows)
+  // Honours the compiled owner filter, so a dropped `where` shows up as foreign rows.
+  const findMany = vi.fn(async (arg: { where?: SQL; orderBy: unknown[]; with: unknown }) =>
+    arg.where ? rows.filter((r) => r.seniorId === compiled(arg.where!).params[0]) : rows,
+  )
   const findFirst = vi.fn(async () => rows[0] ?? null)
   const pendingFindMany = vi.fn(async () => [])
   const db = {
@@ -57,25 +64,39 @@ function makeService(rows: ReturnType<typeof row>[]) {
 describe('PayoutRequestReadService.findPayoutRequests', () => {
   const rows = [row('r1', 'senior-id'), row('r2', 'other-id')]
 
-  it('ADMIN and ACCOUNTANT see every request', async () => {
+  it('ADMIN and ACCOUNTANT see every request, through an unfiltered query', async () => {
     for (const role of ['ADMIN', 'ACCOUNTANT'] as const) {
-      const { svc } = makeService(rows)
+      const { svc, findMany } = makeService(rows)
       expect((await svc.findPayoutRequests(user(role))).map((r) => r.id)).toEqual(['r1', 'r2'])
+      expect(findMany.mock.calls[0]![0].where).toBeUndefined()
     }
   })
 
-  it('SENIOR and DROP see only their own requests', async () => {
-    const { svc } = makeService(rows)
-    expect((await svc.findPayoutRequests(user('SENIOR'))).map((r) => r.id)).toEqual(['r1'])
-    const { svc: svc2 } = makeService([row('r1', 'drop-id'), row('r2', 'x')])
-    expect((await svc2.findPayoutRequests(user('DROP'))).map((r) => r.id)).toEqual(['r1'])
+  it('SENIOR and DROP are scoped to their own requests in SQL', async () => {
+    for (const role of ['SENIOR', 'DROP'] as const) {
+      const id = `${role.toLowerCase()}-id`
+      const { svc, findMany } = makeService([row('r1', id), row('r2', 'other-id')])
+      expect((await svc.findPayoutRequests(user(role))).map((r) => r.id)).toEqual(['r1'])
+      expect(compiled(findMany.mock.calls[0]![0].where!)).toMatchObject({
+        sql: '"payout_requests"."senior_id" = $1',
+        params: [id],
+      })
+    }
   })
 
-  it('JUNIOR and HR see nothing', async () => {
+  it('JUNIOR and HR see nothing and never reach the database', async () => {
     for (const role of ['JUNIOR', 'HR'] as const) {
-      const { svc } = makeService(rows)
+      const { svc, findMany } = makeService(rows)
       expect(await svc.findPayoutRequests(user(role))).toEqual([])
+      expect(findMany).not.toHaveBeenCalled()
     }
+  })
+
+  it('fails closed for a role this list does not know: nothing returned, no query', async () => {
+    const { svc, findMany } = makeService(rows)
+    const unknownRole = 'FUTURE_ROLE' as unknown as SessionUser['role']
+    expect(await svc.findPayoutRequests(user(unknownRole, 'future-id'))).toEqual([])
+    expect(findMany).not.toHaveBeenCalled()
   })
 
   it('maps fields and serialises dates', async () => {
@@ -116,12 +137,14 @@ describe('PayoutRequestReadService.findPayoutRequests', () => {
 })
 
 describe('PayoutRequestReadService query shape', () => {
-  it('list: newest-first ordering and only the senior display name', async () => {
-    const { svc, findMany } = makeService([])
-    await svc.findPayoutRequests(user('ADMIN'))
-    const arg = findMany.mock.calls[0]![0] as { orderBy: unknown[]; with: unknown }
-    expect(arg.orderBy).toHaveLength(1)
-    expect(arg.with).toEqual({ senior: { columns: { displayName: true } } })
+  it('list: newest-first ordering and only the senior display name, scoped or not', async () => {
+    for (const role of ['ADMIN', 'SENIOR'] as const) {
+      const { svc, findMany } = makeService([])
+      await svc.findPayoutRequests(user(role))
+      const arg = findMany.mock.calls[0]![0]
+      expect(arg.orderBy).toHaveLength(1)
+      expect(arg.with).toEqual({ senior: { columns: { displayName: true } } })
+    }
   })
 
   it('detail: loads only the columns the masking layer needs', async () => {

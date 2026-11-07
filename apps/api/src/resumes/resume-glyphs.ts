@@ -96,11 +96,6 @@ export function resumeFontCoverage(): Set<number> {
   return coverageCache
 }
 
-/** Test seam — the font files never change at runtime. @internal */
-export function _clearGlyphCoverageCacheForTesting(): void {
-  coverageCache = null
-}
-
 /**
  * Codepoints in `text` that the resume fonts cannot draw.
  *

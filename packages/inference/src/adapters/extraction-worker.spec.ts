@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { ExtractionRequest } from '../contracts/extraction'
 import type { FetchLike } from '../http/bounded-request'
-import { createExtractionWorkerAdapter, type ExtractionWorkerReply } from './extraction-worker'
+import {
+  createExtractionWorkerAdapter,
+  PREFLIGHT_TIMEOUT_MS,
+  type ExtractionWorkerReply,
+} from './extraction-worker'
 
 const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
 const schema = z.object({ title: z.string() }).strict()
@@ -265,5 +269,107 @@ describe('extraction-worker adapter — the abort signal closes the connection',
     const r = await port.extract(request({ signal: AbortSignal.abort() }))
     expect(r).toEqual({ ok: false, code: 'TIMEOUT' })
     expect(f.sent).toHaveLength(0)
+  })
+})
+
+describe('extraction-worker adapter — preflight (ADR §5.3)', () => {
+  const answer = (ok: unknown, extra: object = {}) => ({
+    status: 200,
+    text: JSON.stringify({ ok, events: [{ type: 'CALL', code: 'OK' }], health: HEALTH, ...extra }),
+  })
+
+  it('posts no body to /preflight with the same auth, and reports reached', async () => {
+    const f = fakeFetch(async () => answer(true))
+    const { port } = setup(f)
+    expect(await port.preflight()).toEqual({ reached: true })
+    expect(f.sent).toHaveLength(1)
+    const sent = f.sent[0]!
+    expect(sent.url).toBe('http://crm-extraction-worker:3100/preflight')
+    expect(sent.init?.method).toBe('POST')
+    expect(sent.init?.headers).toEqual({
+      authorization: `Bearer ${SECRET}`,
+      'content-type': 'application/json',
+    })
+    expect(sent.init?.body).toBeUndefined()
+  })
+
+  it('hands its events and health to onReply, whatever the model answered', async () => {
+    const health = { modelListStale: true, failedJobs: ['chain'] }
+    const f = fakeFetch(async () => answer(false, { health }))
+    const { port, replies } = setup(f)
+    expect(await port.preflight()).toEqual({ reached: false, status: 200 })
+    expect(replies).toEqual([{ events: [{ type: 'CALL', code: 'OK' }], health }])
+  })
+
+  it.each([401, 403, 429, 500])('a %i is not reached and carries its status', async (status) => {
+    const { port } = setup(fakeFetch(async () => ({ status, text: 'a body that stays out' })))
+    expect(await port.preflight()).toEqual({ reached: false, status })
+  })
+
+  it.each([
+    [
+      'a worker error',
+      { status: 500, text: JSON.stringify({ ok: true, events: [], health: HEALTH }) },
+    ],
+    ['a non-JSON body', { status: 200, text: 'not json' }],
+    ['an extract-shaped reply', reply({ ok: true, data: {} })],
+    ['a non-boolean ok', answer('true')],
+    ['a foreign field', answer(true, { text: 'page' })],
+    ['too many events', answer(true, { events: Array(101).fill({ type: 'X' }) })],
+  ])('%s is not reached and records nothing', async (_name, res) => {
+    const { port, replies } = setup(fakeFetch(async () => res))
+    expect(await port.preflight()).toEqual({ reached: false, status: res.status })
+    expect(replies).toEqual([])
+  })
+
+  it('a transport failure has no status, is not reached and never throws', async () => {
+    const { port } = setup(
+      fakeFetch(async () => {
+        throw new Error('ECONNREFUSED')
+      }),
+    )
+    await expect(port.preflight()).resolves.toStrictEqual({ reached: false })
+  })
+
+  it('a throwing onReply does not change the answer', async () => {
+    const port = createExtractionWorkerAdapter({
+      baseUrl: 'http://crm-extraction-worker:3100',
+      secret: SECRET,
+      tableVersion: 'tv-1',
+      timeoutMs: 1000,
+      onReply: () => {
+        throw new Error('sink')
+      },
+      fetchImpl: fakeFetch(async () => answer(true)),
+    })
+    await expect(port.preflight()).resolves.toEqual({ reached: true })
+  })
+
+  it('runs on its own bounded timeout of two minutes, not the extract one', async () => {
+    vi.useFakeTimers()
+    try {
+      const f = fakeFetch(
+        (s) =>
+          new Promise((_resolve, reject) => {
+            s.init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+          }),
+      )
+      const port = createExtractionWorkerAdapter({
+        baseUrl: 'http://crm-extraction-worker:3100',
+        secret: SECRET,
+        tableVersion: 'tv-1',
+        timeoutMs: 3_600_000,
+        onReply: () => undefined,
+        fetchImpl: f,
+      })
+      const answered = port.preflight()
+      await vi.advanceTimersByTimeAsync(119_999)
+      expect(f.sent[0]?.init?.signal?.aborted).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      await expect(answered).resolves.toStrictEqual({ reached: false })
+      expect(PREFLIGHT_TIMEOUT_MS).toBe(120_000)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

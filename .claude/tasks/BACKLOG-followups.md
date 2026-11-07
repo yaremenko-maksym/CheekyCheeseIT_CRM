@@ -6980,3 +6980,42 @@ observed yet, so the shape both rest on is an assumption until a live key is use
 **Verify.** `classified-chat.spec.ts` has a list-wrapped 404 case, and the 5.4c-5 smoke notes record the observed body shape.
 
 Source: architect report for PR #1278.
+
+## 366. What the first caller of `prepareCycle` (task 5.5b) must honour (2026-11-06)
+
+Task 5.4c-4 builds the seam and leaves the call site to 5.5b, so four obligations have no caller to enforce them yet.
+
+- **`prepareCycle` can block for about 10 minutes.** The worst case is 4 preflight timeouts, the backoff and the bounded health
+  writes, with no abort signal; `finish()` can add up to 30 s more. Call it where that wait is acceptable, or add a deadline.
+- **`finish()` must run in a `finally`.** Without it the cycle loses its counters, its hosted evidence and the reply's `health`
+  codes. The next finished cycle repairs the flags; the counts stay lost.
+- **The run's database role needs write grants on both tables.** Privilege class A gives `crm_collector` nothing on
+  `job_model_route_daily` and `job_model_health_flags`. Under that role every health write is refused and absorbed as
+  `MODEL_HEALTH_WRITE_FAILED`, so the signal goes quiet without failing anything. Move the tables to class C if the run uses it, and
+  re-run the grants after the staged DDL.
+- **A refused worker secret looks like a dead model.** It costs the full backoff and raises `MODEL_UNREACHABLE`. The failed attempt
+  logs its HTTP status; there is no separate flag.
+
+**Verify.** The 5.5b call site wraps its work in `try` / `finally` with `finish()`, and an integration test writes both tables under
+the role the run uses.
+
+Source: reviews of PR #1277.
+
+## 367. A model-health write queued for a pool connection can run after the wait ended (2026-11-07)
+
+The pool built in `DatabaseService` sets neither `connectionTimeoutMillis` nor `query_timeout`. The server-side
+`statement_timeout` of the model-health store starts only once a connection is checked out, and `boundedWrite` stops
+waiting without cancelling. So on a saturated pool a health write can sit in the queue past the client wait, the cycle
+logs `MODEL_HEALTH_WRITE_FAILED`, and the write commits later.
+
+The harm is ordering: a late `clearFlag` landing after the next cycle's `raiseFlag` clears a live flag until that flag's
+next write. Counters are unaffected beyond a late increment. No caller exists until task 5.5b, so nothing can hit this
+today.
+
+**Fix options.** A connection timeout on the shared pool (touches every query in the API, so it needs its own review), or
+a small dedicated pool for the health store.
+
+**Verify.** Saturate the pool in an integration test, call a store write and assert that it either rejects by the client
+wait or never commits afterwards.
+
+Source: review panel and security review of PR #1277.
