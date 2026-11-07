@@ -6,7 +6,7 @@ import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/seg
 import { Archive, Plus, Search, Send, Users } from 'lucide-react'
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { z } from 'zod'
-import type { ProjectDto, TeamDto } from '@crm/shared'
+import type { TeamDto } from '@crm/shared'
 import { compareNames } from '@crm/shared'
 import { Plural, Trans, useLingui } from '@lingui/react/macro'
 import { cn } from '@/lib/utils'
@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { fetchProjects } from './team-detail/api'
 import { HrCreateSeniorDialog } from './team-list/components/HrCreateSeniorDialog'
 
 const teamSearchSchema = z.object({
@@ -51,11 +52,6 @@ const item = {
 
 async function fetchTeams(archivedQuery: '' | 'true' | 'all' = ''): Promise<TeamDto[]> {
   const res = await api.get<TeamDto[]>(`/teams${archivedQuery ? `?archived=${archivedQuery}` : ''}`)
-  return res.data
-}
-
-async function fetchProjects(): Promise<ProjectDto[]> {
-  const res = await api.get<ProjectDto[]>('/projects')
   return res.data
 }
 

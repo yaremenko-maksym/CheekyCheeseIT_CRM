@@ -12,6 +12,7 @@
  */
 import {
   BadGatewayException,
+  Logger,
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common'
@@ -227,5 +228,27 @@ describe('ContactService.submit()', () => {
     expect(call.route).toBe('/api/public/contact')
     expect(JSON.stringify(call)).not.toContain(VALID_FIELDS.email)
     expect(JSON.stringify(call)).not.toContain(VALID_FIELDS.name)
+  })
+
+  it('keeps the provider body snippet out of both the attempt log and telemetry', async () => {
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    try {
+      h = makeHarness({
+        sendImpl: async () => {
+          throw new Error('Resend API HTTP 422: {"message":"Invalid `to`: rejected@example.com"}')
+        },
+      })
+      await expect(h.svc.submit(VALID_FIELDS, '1.2.3.4')).rejects.toThrow(BadGatewayException)
+
+      expect(warnSpy.mock.calls.map(([message]) => message)).toEqual([
+        'submit(): Resend send attempt 1/2 failed: Resend API HTTP 422',
+        'submit(): Resend send attempt 2/2 failed: Resend API HTTP 422',
+      ])
+      expect(h.telemetry.recordError.mock.calls[0]![0].meta).toEqual({
+        reason: 'Resend API HTTP 422',
+      })
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 })

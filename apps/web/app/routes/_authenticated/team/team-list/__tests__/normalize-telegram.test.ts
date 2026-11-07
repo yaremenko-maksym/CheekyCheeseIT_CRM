@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeTelegram } from '../normalize-telegram'
+import { normalizeTelegram } from '@/components/users/constants'
 
 describe('normalizeTelegram', () => {
   it('prefixes a bare handle with @', () => {
