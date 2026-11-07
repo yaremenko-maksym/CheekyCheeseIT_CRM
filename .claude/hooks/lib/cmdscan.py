@@ -1175,14 +1175,18 @@ def _unwrap(tokens, assigns):
         tokens = _strip_keywords(tokens)
         if not tokens:
             break
-        base = _command_name(tokens[0])
+        base = os.path.basename(tokens[0])
+        # Only interpreters read through _command_name here. A wrapper spelled env.exe stays
+        # unknown, so readings() judges every position; unwrapping it would let `env.exe -S
+        # rm -rf /etc` reach the one-token -S handling below and hide the command.
+        shell = _command_name(tokens[0])
         # `bash scripts/devops/dev-ttl.sh -- pnpm dev` is our own wrapper run THROUGH an
         # interpreter: the interpreter executes the script file, which then runs the
         # command after `--`. Unwrapped here the segment was `bash`, never a launch,
         # so it got no pin at all while the same command without `bash` was refused
         # (SR-H-15, the 2026-08-05 shape). The interpreter is recorded as a wrapper, so
         # a caller that models only env and dev-ttl.sh refuses it by name.
-        if base in ("bash", "sh", "zsh", "dash", "ksh") and len(tokens) > 1:
+        if shell in ("bash", "sh", "zsh", "dash", "ksh") and len(tokens) > 1:
             # Scan FORWARD for the wrapper token instead of enumerating the interpreter
             # flags that may precede it (-o pipefail, --norc, --, +x, -O extglob,
             # --rcfile F ...). A taxonomy of shell flags is the same re-implementation
@@ -1205,7 +1209,7 @@ def _unwrap(tokens, assigns):
                 # dev-ttl.sh), no code flag's payload goes with it: sweep the WHOLE
                 # interpreter token list first, before and after the token alike.
                 nested_code.extend(_interpreter_code_payloads(tokens[1:]))
-                wrappers.append(base)
+                wrappers.append(shell)
                 tokens = tokens[j:]
                 continue
         if base == "rtk":

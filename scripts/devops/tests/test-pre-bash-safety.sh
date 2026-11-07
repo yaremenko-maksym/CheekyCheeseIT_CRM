@@ -474,7 +474,7 @@ assert_red "Windows: a backslash .. climbs out of /tmp" \
 
 assert_red "Windows: a backslash .. climbs out of ~/Downloads" \
   --contains '"decision": "block"' \
-  -- h "rm -rf '~/Downloads\..\.ssh'"
+  -- h "rm -rf '~/Downloads/x\..\..\.ssh'"
 
 assert_green "a backslash inside a safe root stays inside it" \
   -- h "rm -rf '/tmp/a\b'"
@@ -487,5 +487,15 @@ assert_red "Windows: bash.exe dev-ttl.sh -- rm -rf /etc" \
 assert_red "Windows: sh.exe dev-ttl.sh -- git push --force" \
   --contains '"decision": "block"' \
   -- h "sh.exe scripts/devops/dev-ttl.sh -- git push --force origin main"
+
+# env.exe stays unread as a wrapper, so every position is judged. Unwrapping it would
+# hand -S its one-token value and leave the rest of the command unread.
+assert_red "Windows: env.exe -S rm -rf /etc" \
+  --contains '"decision": "block"' \
+  -- h "env.exe -S rm -rf /etc"
+
+assert_red "Windows: env.exe -S git push --force" \
+  --contains '"decision": "block"' \
+  -- h "env.exe -S git push --force origin main"
 
 guard_test_summary "test-pre-bash-safety.sh"
