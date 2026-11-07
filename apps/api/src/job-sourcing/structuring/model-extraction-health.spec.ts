@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { HtmlStructurerRequest } from './html-structurer.port'
 import {
   createModelHealth,
+  MODEL_HEALTH_SERVER_TIMEOUT_MS,
   MODEL_HEALTH_WRITE_TIMEOUT_MS,
   type ModelHealthStore,
   type RouteCount,
@@ -708,6 +709,7 @@ describe('a failed health write never changes an extraction result (AC9)', () =>
     const finished = cycle.finish()
 
     expect(MODEL_HEALTH_WRITE_TIMEOUT_MS).toBe(5_000)
+    expect(MODEL_HEALTH_SERVER_TIMEOUT_MS).toBe(3_000)
     await vi.advanceTimersByTimeAsync(4_999)
     expect(logs.errors).toEqual([])
     await vi.advanceTimersByTimeAsync(1)

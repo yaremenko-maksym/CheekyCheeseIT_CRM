@@ -11,6 +11,8 @@ import { boundedWrite } from '../runtime/bounded-write'
 
 /** A write that never settles must not hold a cycle (`prepareCycle`, `finish`) behind it. */
 export const MODEL_HEALTH_WRITE_TIMEOUT_MS = 5_000
+/** Below the client wait: the server cancels a write before the client stops waiting for it. */
+export const MODEL_HEALTH_SERVER_TIMEOUT_MS = MODEL_HEALTH_WRITE_TIMEOUT_MS - 2_000
 
 export type RouteCount = { day: string; route: ModelRoute; code: string; count: number }
 
@@ -67,7 +69,8 @@ export function createModelHealth(deps: { store: ModelHealthStore; log: ModelHea
   const safely = async <T>(op: string, write: () => Promise<T>): Promise<T | undefined> => {
     try {
       // A write still queued for a pool connection when the wait ends can run later, so the line
-      // below means "not confirmed"; a stale flag is repaired by that flag's next write.
+      // below means "not confirmed"; a stale flag is repaired by that flag's next write. A late
+      // claim marks flags emitted with no log line: that cycle's emission is lost, the next re-emits.
       return await boundedWrite(write(), MODEL_HEALTH_WRITE_TIMEOUT_MS)
     } catch {
       log.error(`MODEL_HEALTH_WRITE_FAILED op=${op}`)

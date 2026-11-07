@@ -4,6 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import {
   type CrmAppSession,
   openCrmAppSession,
+  sqlstateOfRejection,
 } from '../../database/__test-helpers__/crm-app-session'
 import * as schema from '../../database/schema'
 import { hasDatabaseUrl } from '../../test/require-real-db'
@@ -130,24 +131,25 @@ describe.skipIf(!hasDatabaseUrl())('createDrizzleModelHealthStore', () => {
         const before = await bothRows()
 
         const holder = await session.admin.connect()
-        let outcome: unknown
+        let sqlstate: string | null
         let elapsedMs: number
         try {
           await holder.query('BEGIN')
           await holder.query('SELECT * FROM job_model_health_flags FOR UPDATE')
           await holder.query('SELECT * FROM job_model_route_daily FOR UPDATE')
           const startedAt = Date.now()
-          outcome = await blockedWrite().then(
-            () => 'settled',
-            (error: unknown) => error,
-          )
+          sqlstate = await sqlstateOfRejection(blockedWrite)
           elapsedMs = Date.now() - startedAt
         } finally {
-          await holder.query('ROLLBACK')
-          holder.release()
+          try {
+            await holder.query('ROLLBACK')
+          } finally {
+            holder.release()
+          }
         }
 
-        expect(outcome).toBeInstanceOf(Error)
+        // 57014 is a statement_timeout cancel; any other failure says nothing about the bound.
+        expect(sqlstate).toBe('57014')
         expect(elapsedMs).toBeLessThan(MODEL_HEALTH_WRITE_TIMEOUT_MS)
         expect(await bothRows()).toEqual(before)
       },

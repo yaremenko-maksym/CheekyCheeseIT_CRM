@@ -1,12 +1,9 @@
 import { and, eq, isNull, ne, or, sql } from 'drizzle-orm'
 import type { DatabaseService } from '../../database/database.service'
 import { jobModelHealthFlags, jobModelRouteDaily } from '../../database/schema'
-import type { ModelHealthStore } from './model-health'
+import { MODEL_HEALTH_SERVER_TIMEOUT_MS, type ModelHealthStore } from './model-health'
 
 type Tx = Parameters<Parameters<DatabaseService['db']['transaction']>[0]>[0]
-
-// Below MODEL_HEALTH_WRITE_TIMEOUT_MS: the server cancels a write before the client stops waiting.
-const SERVER_WRITE_TIMEOUT = '4000ms'
 
 /** The §5.3 tables behind the handler's port. Staged: nothing constructs this until task 5.5b. */
 export function createDrizzleModelHealthStore(db: DatabaseService['db']): ModelHealthStore {
@@ -14,7 +11,7 @@ export function createDrizzleModelHealthStore(db: DatabaseService['db']): ModelH
   const write = <T>(work: (tx: Tx) => Promise<T>) =>
     db.transaction(async (tx) => {
       await tx.execute(
-        sql`SELECT set_config('statement_timeout', ${SERVER_WRITE_TIMEOUT}, true), set_config('lock_timeout', ${SERVER_WRITE_TIMEOUT}, true)`,
+        sql`SELECT set_config('statement_timeout', ${`${MODEL_HEALTH_SERVER_TIMEOUT_MS}ms`}, true)`,
       )
       return work(tx)
     })
