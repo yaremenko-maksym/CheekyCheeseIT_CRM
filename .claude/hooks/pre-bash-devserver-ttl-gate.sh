@@ -113,13 +113,13 @@ _spec.loader.exec_module(cmdscan)
 
 data = json.load(sys.stdin)
 cmd = (data.get("tool_input") or {}).get("command") or ""
-cwd = data.get("cwd") or ""
+cwd = (data.get("cwd") or "").replace("\\", "/")  # Windows payloads use backslashes
 if not cmd:
     sys.exit(0)
 
 # Enforce only in agent worktree / claude scratchpad context.
 CONTEXT = re.compile(r"\.claude/worktrees/|/tmp/claude-")
-if not CONTEXT.search(cmd) and not CONTEXT.search(cwd):
+if not CONTEXT.search(cmd.replace("\\", "/")) and not CONTEXT.search(cwd):
     sys.exit(0)
 
 scan = cmdscan.scan(cmd)
@@ -210,7 +210,7 @@ LEGACY='(^|[/[:space:]])nest(\.js)?[[:space:]]+start|(^|[/[:space:]])vite([[:spa
 # boundaries still hold on the raw stdin (see the sibling hook for the full note).
 FLAT=$(printf '%s' "$INPUT" | tr '"{},' '    ')
 if echo "$FLAT" | grep -qE "$LEGACY" &&
-  echo "$FLAT" | grep -qE '\.claude/worktrees/|/tmp/claude-' &&
+  echo "$FLAT" | grep -qE '\.claude[/\\]+worktrees[/\\]|/tmp/claude-' &&
   ! echo "$FLAT" | grep -q 'dev-ttl\.sh'; then
   printf '%s\n' '{"decision":"block","reason":"⚠️ DEGRADED MODE devserver-ttl-gate: the command analyzer did not run (see INTERNAL ERROR on stderr), so the old coarse word-substring rule was applied. This may be a FALSE POSITIVE. Fix .claude/hooks/lib/cmdscan.py instead of bypassing the hook."}'
   echo "[pre:bash:devserver-ttl-gate] BLOCK (degraded fallback, coarse substring rule)" >&2

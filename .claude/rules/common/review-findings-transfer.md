@@ -1,6 +1,6 @@
 # Rule: Transferring review findings into the task — by identifier, with a report on each
 
-**Status:** Always-on (procedural gate; observability — identifier reconciliation, see below)
+**Status:** On-demand (not auto-loaded: listed in `claudeMdExcludes`, `.claude/settings.json`). Read it when writing, transferring or fixing review findings. Procedural gate; observability — identifier reconciliation, see below.
 **Applies to:** code-reviewer, security-reviewer, spec-reviewer, copy-reviewer, ui-ux-designer (Mode B), manual-qa — all number; Master / orchestrator transfer; Coder / any executor of a fix task reports
 
 > Rationale: `docs/architecture/rules-rationale/review-findings-transfer.md`

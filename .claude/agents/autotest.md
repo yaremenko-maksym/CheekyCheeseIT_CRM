@@ -241,6 +241,8 @@ If `target_branch` is specified in the prompt — work in that branch. If not �
 
 ## MODE 3: Master Task-Driven
 
+When the task carries review findings, read `.claude/rules/common/review-findings-transfer.md` first: the report answers every finding by its identifier.
+
 Master passes `task_file` in the prompt. Read it → understand which module → write E2E for the described AC → commit + push (the branch from task_file or target_branch from the prompt).
 
 ---

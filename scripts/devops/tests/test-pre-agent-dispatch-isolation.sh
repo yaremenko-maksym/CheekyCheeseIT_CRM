@@ -69,6 +69,10 @@ assert_red "a shared absolute work dir handed in the prompt -> BLOCK (PR #493)" 
   --contains '"decision": "block"' \
   -- run_hook '{"subagent_type":"code-reviewer","prompt":"работай в /tmp/rev493"}'
 
+assert_red "a shared work dir spelled with Windows backslashes -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook '{"subagent_type":"code-reviewer","prompt":"work in C:\\Users\\m\\rev493"}'
+
 # ── silence ───────────────────────────────────────────────────────────────────
 # Read-only agents must NOT be forced to pay for a worktree they never write to
 # (AC6). A gate that taxes correct behaviour gets routed around.

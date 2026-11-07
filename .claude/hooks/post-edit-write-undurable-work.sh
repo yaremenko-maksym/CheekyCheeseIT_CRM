@@ -79,6 +79,7 @@ except Exception:
     print("")
 ' 2>/dev/null || true)
 [ -z "$CWD" ] && CWD="$PWD"
+CWD=${CWD//\\//} # Windows payloads use backslashes
 
 # 1. Agent workspace only.
 case "$CWD" in

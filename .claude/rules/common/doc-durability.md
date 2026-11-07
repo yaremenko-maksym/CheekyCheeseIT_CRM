@@ -1,6 +1,14 @@
+---
+paths:
+  - '.claude/tasks/BACKLOG-followups.md'
+  - '.out-of-scope/**'
+  - 'docs/architecture/**'
+  - '.claude/agents/memory/**/lessons.md'
+---
+
 # Rule: A long-lived record describes behaviour, not coordinates
 
-**Status:** Always-on
+**Status:** Path-scoped (loads with the backlog, `.out-of-scope/`, `docs/architecture/**`, lessons files). An issue or PR body triggers no load: read this file by hand first (pointer in `CLAUDE.md`).
 **Applies to:** Everyone who writes to the backlog, `.out-of-scope/`, an ADR, `memory/*/lessons.md`, the body of a closed issue.
 
 > Rationale: `docs/architecture/rules-rationale/doc-durability.md`
