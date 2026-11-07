@@ -18,8 +18,8 @@ export function sleep(ms: number): Promise<void> {
  *
  * `ResendMailerService.send` throws an `Error` with the text `Resend API HTTP
  * <status>: <piece of body>`, and for a rejected address this piece quotes the address itself —
- * that is, exactly the data this project writes neither to the journal
- * nor to the database. We keep the status (it shows "bad request" versus "provider
+ * that is, exactly the data this project keeps out of logs, telemetry and
+ * `last_error` columns. We keep the status (it shows "bad request" versus "provider
  * is down"); in other cases — the error class name.
  *
  * Never returns anything from `.message` itself beyond the extracted status.
