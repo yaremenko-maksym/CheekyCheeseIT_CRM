@@ -497,11 +497,11 @@ describe('JobQueueList', () => {
     })
 
     it('hands off on the last page, where the button unmounts in the same commit', () => {
-      const view = renderList({ hasNextPage: true, isFetching: true, total: 3 })
+      const view = renderList({ items: [A], hasNextPage: true, isFetching: true, total: 3 })
       focus(foot())
       view.rerender({ items: [A, B, C], hasNextPage: false, total: 3 })
       expect(screen.queryByTestId('job-queue-load-more')).toBeNull()
-      expect(rowC()).toHaveFocus()
+      expect(rowB()).toHaveFocus()
     })
 
     it('a click on a browser that does not focus buttons still hands off', () => {
@@ -520,7 +520,8 @@ describe('JobQueueList', () => {
       expect(rowB()).toHaveFocus()
     })
 
-    it('a blur with no destination does not cancel the handoff (the window lost focus)', () => {
+    // a window switch fires the blur but leaves activeElement on the button
+    it('a window switch while fetching does not cancel the handoff', () => {
       const view = renderList({ hasNextPage: true, isFetching: true, total: 5 })
       focus(foot())
       fireEvent.blur(foot(), { relatedTarget: null })
@@ -528,13 +529,20 @@ describe('JobQueueList', () => {
       expect(rowC()).toHaveFocus()
     })
 
-    it('a click on the page background cancels the handoff at the next commit', () => {
-      const view = renderList({ hasNextPage: true, total: 5 })
+    it('a click on the page background cancels the handoff, with no commit before the page', () => {
+      const view = renderList({ hasNextPage: true, isFetching: true, total: 5 })
       focus(foot())
       act(() => foot().blur())
-      view.rerender({ hasNextPage: true, isFetching: true, total: 5 })
       view.rerender({ items: [A, B, C], hasNextPage: true, total: 5 })
-      expect(rowC()).not.toHaveFocus()
+      expect(document.body).toHaveFocus()
+    })
+
+    it('a click on the page background leaves focus alone when the last page removes the button', () => {
+      const view = renderList({ hasNextPage: true, isFetching: true, total: 3 })
+      focus(foot())
+      act(() => foot().blur())
+      view.rerender({ items: [A, B, C], hasNextPage: false, total: 3 })
+      expect(document.body).toHaveFocus()
     })
 
     it('does not move focus when no button held it (a sentinel append)', () => {
@@ -571,13 +579,66 @@ describe('JobQueueList', () => {
       expect(screen.getByTestId(`job-queue-row-${D.opportunityId}`)).toHaveFocus()
     })
 
-    it('a button removed without a new page cancels the handoff (refresh required)', () => {
-      const view = renderList({ hasNextPage: true, total: 5 })
+    it('refresh-required moves focus from the removed button to the refresh button', () => {
+      const view = renderList({ hasNextPage: true, isFetching: true, total: 5 })
       focus(foot())
       view.rerender({ hasNextPage: true, refreshRequired: true, total: 5 })
       expect(screen.queryByTestId('job-queue-load-more')).toBeNull()
-      view.rerender({ items: [A, B, C], hasNextPage: true, total: 5 })
-      expect(rowC()).not.toHaveFocus()
+      expect(screen.getByTestId('job-queue-refresh-foot')).toHaveFocus()
+    })
+
+    it('refresh-required leaves focus alone when the button did not hold it', () => {
+      const view = renderList({ hasNextPage: true, total: 5 })
+      focus(rowB())
+      view.rerender({ hasNextPage: true, refreshRequired: true, total: 5 })
+      expect(rowB()).toHaveFocus()
+    })
+
+    it('an end with no new rows moves focus from the removed button to the last row', () => {
+      const view = renderList({ hasNextPage: true, isFetching: true, total: 2 })
+      focus(foot())
+      view.rerender({ hasNextPage: false, total: 2 })
+      expect(rowB()).toHaveFocus()
+    })
+
+    it('a list emptied under the button leaves focus on the body', () => {
+      const view = renderList({ hasNextPage: true, isFetching: true, total: 2 })
+      focus(foot())
+      view.rerender({ items: [], hasNextPage: false, total: 0 })
+      expect(screen.getByTestId('job-queue-empty')).toBeInTheDocument()
+      expect(document.body).toHaveFocus()
+    })
+
+    // `added` stays positive after an append, and must not send focus back to that page's first row
+    describe('after an append, with focus back on the button', () => {
+      const appended = () => {
+        const view = renderList({ items: [A], hasNextPage: true, total: 5 })
+        focus(foot())
+        view.rerender({ items: [A, B, C], hasNextPage: true, total: 5 })
+        expect(rowB()).toHaveFocus()
+        focus(foot())
+        return view
+      }
+
+      it('refresh-required moves focus to the refresh button', () => {
+        appended().rerender({
+          items: [A, B, C],
+          hasNextPage: true,
+          refreshRequired: true,
+          total: 5,
+        })
+        expect(screen.getByTestId('job-queue-refresh-foot')).toHaveFocus()
+      })
+
+      it('an end with no new rows moves focus to the last row', () => {
+        appended().rerender({ items: [A, B, C], hasNextPage: false, total: 3 })
+        expect(rowC()).toHaveFocus()
+      })
+
+      it('a rerender with the button still mounted keeps focus on it', () => {
+        appended().rerender({ items: [A, B, C], hasNextPage: true, isFetching: true, total: 5 })
+        expect(foot()).toHaveFocus()
+      })
     })
   })
 

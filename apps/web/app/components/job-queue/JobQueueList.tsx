@@ -80,8 +80,10 @@ export function JobQueueList(props: JobQueueListProps) {
   const { items, status, tab, scrollRoot } = props
   const listRef = useRef<HTMLUListElement>(null)
   const foot = useRef<HTMLButtonElement>(null)
-  // truthy while the foot button holds focus: the next appended page takes it over
-  const footHeld = useRef<boolean | null>(null)
+  const refreshFoot = useRef<HTMLButtonElement>(null)
+  // read before the commit: a removal blurs with no event (React suppresses them during commit),
+  // and a window switch leaves activeElement on the button
+  const footFocused = document.activeElement === foot.current
   const loadMore = useRef(props.onLoadMore)
   const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null)
 
@@ -115,9 +117,10 @@ export function JobQueueList(props: JobQueueListProps) {
     return () => observer.disconnect()
   }, [sentinel, scrollRoot])
 
-  // `added` is positive only for a real append, so the list and the first new row both exist
+  // `added` is positive only for a real append, so the list and the first new row both exist.
+  // Keyed on the append: `added` outlives it and must not fire again when the button refocuses.
   useEffect(() => {
-    if (footHeld.current && added > 0) {
+    if (footFocused && added > 0) {
       listRef
         .current!.querySelectorAll<HTMLButtonElement>(':scope > li > button')
         .item(length - added)
@@ -125,10 +128,14 @@ export function JobQueueList(props: JobQueueListProps) {
     }
   }, [length, added])
 
-  // after the handoff above, which still needs the record when the last page removes the button:
-  // focus elsewhere, or a button gone with no page, leaves nothing pending
+  // after the handoff above: focus on `body` here means the button went with no page to take over
   useEffect(() => {
-    if (document.activeElement !== foot.current) footHeld.current = false
+    if (footFocused && document.activeElement === document.body) {
+      ;(
+        refreshFoot.current ??
+        listRef.current?.querySelector<HTMLButtonElement>(':scope > li:last-child > button')
+      )?.focus()
+    }
   })
 
   // `status` matters only without rows: a failed next page / refetch keeps them on screen
@@ -278,13 +285,6 @@ export function JobQueueList(props: JobQueueListProps) {
               variant="outline"
               className="min-h-11 w-full text-foreground aria-disabled:pointer-events-none aria-disabled:opacity-50 @min-[560px]:w-auto"
               aria-disabled={footBusy}
-              onFocus={() => {
-                footHeld.current = true
-              }}
-              onBlur={(e) => {
-                // a removal or a window switch blurs with no destination: neither is the user moving on
-                if (e.relatedTarget) footHeld.current = false
-              }}
               onClick={(e) => {
                 if (footBusy) return
                 e.currentTarget.focus() // Safari does not focus a clicked button
@@ -306,6 +306,7 @@ export function JobQueueList(props: JobQueueListProps) {
             <Trans>Список змінився</Trans>
           </p>
           <Button
+            ref={refreshFoot}
             data-testid="job-queue-refresh-foot"
             variant="outline"
             className="min-h-11 w-full @min-[560px]:w-auto"

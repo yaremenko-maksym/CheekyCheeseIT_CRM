@@ -227,13 +227,14 @@ when a refresh is required. Rows already on screen keep their position when a pa
 
 **Focus and announcement.** A sentinel append never moves focus (it would steal it mid-scroll). When a page arrives while the
 foot button holds focus, focus moves to the **first newly added row**, including on the last page, where the button unmounts in
-the same commit. A user who moved focus elsewhere first keeps it there. A failure leaves focus on the button. Each append is announced once in
+the same commit. A user who moved focus elsewhere first keeps it there. A failure leaves focus on the button. If the button
+unmounts with no new rows, focus moves to «Показати оновлений список» on refresh-required, otherwise to the last row. Each append is announced once in
 `job-queue-live`, for example «Завантажено ще 20. Показано 40 із 87»; the region remounts per tab, so a tab change does not
 read out the previous tab's count. Row order and `aria-posinset` are not used: the rows are interactive controls, so the
 WAI-ARIA **feed** pattern (reading-article model, custom Page Down contract) was considered and rejected in favour of a plain
 list + live region + ordinary keyboard scrolling and Tab. Reduced motion: the foot has no spinner; the first-load
-skeleton pulse must stop under `prefers-reduced-motion`. **Known gaps,** both tracked in backlog item 381: the shared
-`Skeleton` keeps pulsing; a retry answered with refresh-required unmounts the retry button, and focus falls to `body`.
+skeleton pulse must stop under `prefers-reduced-motion`. **Known gap,** tracked in backlog item 381: the shared
+`Skeleton` keeps pulsing.
 
 ### 4.5 Notices above the list
 
