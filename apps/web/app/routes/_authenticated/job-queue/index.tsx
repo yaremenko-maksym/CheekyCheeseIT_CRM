@@ -232,7 +232,7 @@ function QueueBody({
       <div
         data-testid="job-queue-refresh"
         role="status"
-        className="flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm @min-[560px]:flex-row @min-[560px]:items-center"
+        className="flex flex-col gap-2 rounded-lg border border-yellow-muted/40 bg-yellow-subtle p-3 text-sm @min-[560px]:flex-row @min-[560px]:items-center"
       >
         <RefreshCw aria-hidden="true" className="size-4 shrink-0" />
         <div className="min-w-0 flex-1">

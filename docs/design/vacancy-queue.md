@@ -229,7 +229,7 @@ moves focus, to the **first newly added row**, because the button that held it u
 read out the previous tab's count. Row order and `aria-posinset` are not used: the rows are interactive controls, so the
 WAI-ARIA **feed** pattern (reading-article model, custom Page Down contract) was considered and rejected in favour of a plain
 list + live region + ordinary keyboard scrolling and Tab. Reduced motion: the foot has no spinner; the first-load
-skeleton pulse must stop under `prefers-reduced-motion`. **Known gaps,** both tracked in backlog item 354: the shared
+skeleton pulse must stop under `prefers-reduced-motion`. **Known gaps,** both tracked in backlog item 381: the shared
 `Skeleton` keeps pulsing; a retry answered with refresh-required unmounts the retry button, and focus falls to `body`.
 
 ### 4.5 Notices above the list
