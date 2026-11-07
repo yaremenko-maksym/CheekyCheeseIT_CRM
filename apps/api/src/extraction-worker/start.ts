@@ -7,7 +7,7 @@ import {
   type StateEvent,
 } from '@crm/inference'
 import type { FastifyInstance } from 'fastify'
-import { localOnlyRouterConfig, parseWorkerEnv } from './schema'
+import { hostedRoutesOf, localOnlyRouterConfig, parseWorkerEnv } from './schema'
 import { scheduleSelfHeal } from './self-heal'
 import { buildExtractionWorker, type WorkerLogLine } from './server'
 
@@ -85,6 +85,7 @@ export async function startWorker(
       done()
     })
     await app.listen({ host: env.host, port: env.port })
+    log({ event: 'HOSTED_ROUTES', ...hostedRoutesOf(env.routerConfig) })
     log({ event: 'LISTENING', port: env.port })
     return app
   } catch {

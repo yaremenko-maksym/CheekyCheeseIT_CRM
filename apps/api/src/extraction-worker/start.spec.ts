@@ -193,6 +193,64 @@ describe('startWorker — what it wires up', () => {
     })
   })
 
+  describe('one start line names the hosted routes present and absent (AC12)', () => {
+    const groq = {
+      provider: 'groq',
+      models: ['openai/gpt-oss-20b'],
+      contextTokens: 8192,
+      structuredOutput: 'json_object',
+      minGapMs: 0,
+      timeoutMs: 1000,
+      maxAnswerTokens: 512,
+      freeLimit: { requestsPerDay: 100 },
+    }
+    const local = {
+      provider: 'local',
+      contextTokens: 8192,
+      structuredOutput: 'json_schema',
+      timeoutMs: 1000,
+      maxAnswerTokens: 512,
+    }
+    const env = {
+      EXTRACTION_ROUTER_CONFIG: JSON.stringify({
+        policyVersion: 'p1',
+        hostedBudgetMs: 5000,
+        floorBudgetMs: 60_000,
+        routes: [groq, local],
+      }),
+      ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
+      LOCAL_MODEL_NAME: 'qwen2.5:3b',
+    }
+    const routeLines = (out: string[]) =>
+      out.map((l) => JSON.parse(l) as { event: string }).filter((l) => l.event === 'HOSTED_ROUTES')
+
+    it('the key is there: the route is present, the unconfigured one absent, and no value is logged', async () => {
+      const { out } = await started({ ...env, GROQ_API_KEY: 'KEY-MARKER' })
+      expect(routeLines(out)).toEqual([
+        { event: 'HOSTED_ROUTES', present: ['groq'], absent: ['gemini'] },
+      ])
+      expect(out.join('')).not.toContain('KEY-MARKER')
+      expect(out.join('')).not.toContain('crm-model-runtime')
+    })
+
+    it('a typo in the key name drops the route: the line shows it absent', async () => {
+      const { out } = await started({ ...env, GROQ_API_KEYS: 'KEY-MARKER' })
+      expect(routeLines(out)).toEqual([
+        { event: 'HOSTED_ROUTES', present: [], absent: ['gemini', 'groq'] },
+      ])
+    })
+
+    it('a config the router refuses has no route present, even one it names', async () => {
+      const { out } = await started({
+        EXTRACTION_ROUTER_CONFIG: JSON.stringify({ routes: [{ provider: 'groq' }] }),
+        GROQ_API_KEY: 'KEY-MARKER',
+      })
+      expect(routeLines(out)).toEqual([
+        { event: 'HOSTED_ROUTES', present: [], absent: ['gemini', 'groq'] },
+      ])
+    })
+  })
+
   it('/extract spends the own cap on the hosted route, then the floor; /preflight is local only', async () => {
     const hostnames: string[] = []
     // The router's bounded request goes through the global fetch: nothing leaves this process.
