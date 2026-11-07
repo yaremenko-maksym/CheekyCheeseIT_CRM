@@ -1,10 +1,11 @@
 /**
  * Retry helpers shared by the Resend-backed mailers.
  *
- * `safeErrorReason` and `sleep` were byte-identical private copies in
- * `ContactService`, `PersonalEmailInviteMailerService`, and
- * `NotificationEmailCron`. Extracted here once a third caller appeared, so the
- * PII rule below has exactly one implementation to audit.
+ * Before extraction `PersonalEmailInviteMailerService` held private copies of
+ * both helpers, `ContactService` of `sleep` only, and `NotificationEmailCron` of
+ * `safeErrorReason` only. The contact form logged the raw provider message and
+ * now adopts `safeErrorReason` too, so the PII rule below has exactly one
+ * implementation to audit.
  */
 
 /** Backoff between send attempts: resolve after `ms` milliseconds. */
