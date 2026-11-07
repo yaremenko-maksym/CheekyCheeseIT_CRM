@@ -7051,12 +7051,12 @@ Source: gardener audit 2026-11-07, code review of PR #1284.
 
 ## 370. Quadratic and per-row loops outside finance (2026-11-07, human-planned)
 
-Teams `fetchAllProjects` is O(teams × projects). Projects use `seniorIds.includes` inside a loop. The interview move
-runs one update per row.
+`teams.findAll` calls `mapTeam` per team over the full project list that `fetchAllProjects` returned, so the work is
+O(teams × projects). Projects use `seniorIds.includes` inside a loop. The interview move runs one update per row.
 
-**Verify.** Read the three functions, or count queries for one call in an integration test.
+**Verify.** Read the three call paths, or count queries for one call in an integration test.
 
-Source: gardener audit 2026-11-07.
+Source: gardener audit 2026-11-07, review panel of PR #1285.
 
 ## 371. Controller defense in depth: `ParseUUIDPipe` and `@Roles` (2026-11-07)
 
@@ -7097,14 +7097,17 @@ fails today. Both make the module graph harder to change.
 
 Source: gardener audit 2026-11-07.
 
-## 375. Helper copies that diverged and need a decision before merging (2026-11-07)
+## 375. `toUsd` has three diverged copies, and two safe merges remain (2026-11-07)
 
-`toUsd`, `parseInlineBold` and the API's `isZodErrorCode` exist in several versions that are **not** identical. Merging
-them changes behaviour for at least one caller, so each needs a choice of the correct version. `toUsd` is money.
+The three web `toUsd` copies (`amount-currency-input`, `user-dialog/validation`, `finance/constants`) have different
+bodies, so merging them changes behaviour for at least one caller and needs a choice of the correct version. It is money.
+
+`parseInlineBold` in the contract and ToS PDF code differs only by a comment, and `isZodErrorCode` in the API filter differs
+from the shared and web copies only by a type annotation. Those two can merge without a behaviour change.
 
 **Verify.** Grep the three symbols and diff the bodies.
 
-Source: gardener audit 2026-11-07.
+Source: gardener audit 2026-11-07, review panel of PR #1285.
 
 ## 376. `DocumentsListSection` still sorts with `DEFAULT_LOCALE` (2026-11-07)
 
@@ -7134,20 +7137,22 @@ image `ubuntu-latest` moved to. When bumping Playwright: confirm that the new ve
 runner image to the browser cache key (CR-M-3 on #1281), and fix the stale wording in `install-playwright-system-deps.sh`
 (CR-L-1 on #1281).
 
-**Verify.** Grep `ubuntu-24.04` in `.github/workflows`, and read the Playwright version in `apps/e2e/package.json`.
+**Verify.** Grep `ubuntu-24.04` in `.github/workflows`, and read the resolved Playwright version in `pnpm-lock.yaml`.
 
 Source: PR #1281.
 
-## 379. Gardener giants list is stale, one giant remains (2026-11-07, human-planned)
+## 379. Gardener giants list is stale (2026-11-07, human-planned)
 
 The gardener prompt names `transactions.service.ts`, `schema.ts` and `users.service.ts` as giants to leave for a person.
-Today only `users.service.ts` is over the 800-line limit (827). `transactions.service.ts` is 735, and `schema.ts` is a
-26-line barrel over `database/schema/`. `users.service.ts` needs a seam chosen by a person (`decomposing-large-code`). The
-files above it in size are the job-sourcing cluster, deliberately left until after that feature's rollout.
+`transactions.service.ts` is now under the 800-line limit, and `schema.ts` is a barrel over `database/schema/`.
+`users.service.ts` is still over. Nineteen production files in total exceed the limit. Most are the job-sourcing and resume
+clusters, deliberately left until after rollout. The ones outside those clusters need a seam chosen by a person
+(`decomposing-large-code`), because they sit on finance and RBAC paths: `company-account.service.ts`,
+`payout-settlement.service.ts`, `users.service.ts`. `generate-privilege-sql.ts` is outside the clusters too.
 
-**Verify.** `wc -l` on the three files.
+**Verify.** List tracked `.ts` and `.tsx` files over 800 lines, excluding specs and generated files.
 
-Source: gardener audit 2026-11-07.
+Source: gardener audit 2026-11-07, review panel of PR #1285.
 
 ## 380. Invite and notification mailer warn lines are not pinned against the provider body (2026-11-07)
 
