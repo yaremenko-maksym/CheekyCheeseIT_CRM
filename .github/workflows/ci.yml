@@ -968,10 +968,11 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@v3
         with:
+          predicate-quantifier: 'every'
           filters: |
             code:
               - '!docs/**'
-              - '!**.md'
+              - '!**/*.md'
               - '!.github/CODEOWNERS'
 
       - name: Resolve run scope
