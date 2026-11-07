@@ -71,8 +71,7 @@ docker-compose up -d                           # Postgres + Redis locally
 
 **Master (USER session) — the orchestrator.** Dispatches agents locally via the `Agent` tool
 (`isolation=worktree` for writers) and runs orchestration itself. There is no separate PM agent
-(removed 2026-10-05; details — `contracts.md`). The agent GHA workflows in
-`.github/workflows/archive/` are stale, do not use them.
+(removed 2026-10-05; details — `contracts.md`).
 
 - Master (USER session) — orchestrator: decomposition into task files (`.claude/tasks/`) → dispatch in waves → monitoring → aggregate verdict → label gating → User Testing; agent infrastructure; light track
 - Coder / AutoTest / DevOps — implementation / E2E specs / CI-CD, each in its own zone-of-write
