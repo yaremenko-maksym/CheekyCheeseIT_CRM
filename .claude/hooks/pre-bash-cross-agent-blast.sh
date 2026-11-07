@@ -220,7 +220,7 @@ fi
 
 # Cheap pre-filter: if none of the three trigger words appear anywhere, leave.
 # Case-insensitive: Windows and macOS accept any case for the same path.
-echo "$CMD" | grep -qiE 'pkill|killall|worktree|\.claude/worktrees/|CheekyCheeseIT_CRM' || exit 0
+echo "$CMD" | grep -qiE 'pkill|killall|taskkill|worktree|\.claude/worktrees/|CheekyCheeseIT_CRM' || exit 0
 
 # NOTE: this `python3 -c '...'` is SINGLE-quoted, so an apostrophe anywhere
 # inside it — including in a comment — closes the string and the hook dies at
@@ -237,7 +237,14 @@ def to_posix(p):
     """Windows spells one path as C:/x and /c/x, so compare one form. Paths here
     are compared as strings: posixpath, because os.path on Windows yields backslashes."""
     p = p.replace(chr(92), "/")
-    return re.sub(r"^([A-Za-z]):(?=/|$)", lambda m: "/" + m.group(1).lower(), p)
+    p = re.sub(r"^([A-Za-z]):(?=/|$)", lambda m: "/" + m.group(1).lower(), p)
+    # Drive-relative C:../x is relative to the cwd, so judge it as ../x.
+    return re.sub(r"^[A-Za-z]:", "", p)
+
+
+def cmd_name(word):
+    """Git Bash on Windows runs git.exe and pnpm.cmd as git and pnpm."""
+    return re.sub(r"\.(exe|cmd|bat)$", "", os.path.basename(word), flags=re.I)
 
 
 cmd = sys.stdin.read()
@@ -398,9 +405,9 @@ def first_token(seg):
             re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", parts[0]) or parts[0] in KEYWORDS
         ):
             parts.pop(0)
-        if not parts or os.path.basename(parts[0]) not in WRAPPERS:
+        if not parts or cmd_name(parts[0]) not in WRAPPERS:
             break
-        wrapper = os.path.basename(parts.pop(0))
+        wrapper = cmd_name(parts.pop(0))
         while parts and parts[0].startswith("-"):
             flag = parts.pop(0)
             if flag in VALUE_FLAGS and parts:
@@ -441,7 +448,7 @@ def first_token(seg):
 
     if not parts:
         return "", []
-    return os.path.basename(parts[0]), parts[1:]
+    return cmd_name(parts[0]), parts[1:]
 
 
 toks = [first_token(s) for s in segments]
@@ -465,7 +472,10 @@ def resolve(tok):
 
 # ---- predicate 1: broadcast process kill (backlog 72 / PR #547) -------------
 for name, args in toks:
-    if name in ("pkill", "killall"):
+    # taskkill /IM is the Windows pkill. /PID names one process, so it stays allowed.
+    if name in ("pkill", "killall") or (
+        name == "taskkill" and any(re.match(r"^[/-]+im(:|$)", a, re.I) for a in args)
+    ):
         reasons.append(
             "BROADCAST-KILL|`%s` бьёт по шаблону/имени и гасит процессы ЛЮБОГО "
             "агента, не только твои. Именно так PR #547 дважды убил dev-API "
@@ -623,7 +633,7 @@ def is_mutating(name, args):
             return True
         for i, a in enumerate(args):
             if a in ("-exec", "-execdir", "-ok") and i + 1 < len(args):
-                if os.path.basename(args[i + 1]) in MUTATORS:
+                if cmd_name(args[i + 1]) in MUTATORS:
                     return True
     if name == "git":
         for a in args:

@@ -106,6 +106,7 @@ doc-durability (read it by hand before an issue or PR body).
 **Not auto-loaded: read the file in `.claude/rules/common/` when its trigger fires.**
 
 - Master, before the first dispatch of a session: `model-routing.md` + `orchestration-routing.md`
+- Any agent choosing a model tier: `model-routing.md`
 - Master, before a direct edit: `light-track.md`
 - Anyone writing, transferring or fixing review findings: `review-findings-transfer.md`
 - Anyone reaching the end of a phase: `phase-boundaries.md`

@@ -102,7 +102,7 @@ if key in WRITERS and not isolation and not cwd_override:
 # Shared measurement directory handed down in the prompt (backlog 27 / PR #493).
 # Narrow on purpose: requires an ABSOLUTE path whose last segment looks like a
 # per-PR scratch dir. "PR для review: #493" has no path and is not matched.
-shared = re.findall(r"(/(?:tmp|Users|private)/(?:\S*?/)?(?:rev|review|pr)[-_]?\d+)\b", prompt, re.I)
+shared = re.findall(r"(/(?:tmp|Users|private)/(?:\S*?/)?(?:rev|review|pr)[-_]?\d+)\b", prompt.replace(chr(92), "/"), re.I)
 if shared:
     reasons.append(
         "SHARED-WORKDIR|в промпте задан общий рабочий каталог по абсолютному "

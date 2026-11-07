@@ -154,26 +154,30 @@ def candidates(seg):
 
 # ── predicate 1+2: rm -rf on root / home paths ───────────────────────────────
 SAFE_ROOTS = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/")
-HOME_SAFE = ("~/Downloads", "$HOME/Downloads", "${HOME}/Downloads")
+HOME_SAFE = ("~/Downloads", "$HOME/Downloads", "${HOME}/Downloads",
+             "$USERPROFILE/Downloads", "${USERPROFILE}/Downloads")
 
 
 def dangerous_rm_target(tok):
     # Windows: C:/x and a quoted C:\x are the same absolute path as /c/x, not a
-    # relative one; \\server\x is absolute too. A plain a\b stays a relative name.
-    t = tok.replace(chr(92), "/") if re.match(r"^([A-Za-z]:|\\)", tok) else tok
+    # relative one; \\server\x is absolute too, and "$USERPROFILE\x" is a home path.
+    # A plain a\b stays a relative name.
+    t = tok.replace(chr(92), "/") if re.match(r"^([A-Za-z]:|\\|\$)", tok) else tok
     t = re.sub(r"^([A-Za-z]):(?=/|$)", lambda m: "/" + m.group(1).lower(), t)
     t = t.rstrip("/") or "/"
-    if t in ("/", "/*", "/.", "~", "$HOME", "${HOME}"):
+    if t in ("/", "/*", "/.", "~", "$HOME", "${HOME}", "$USERPROFILE", "${USERPROFILE}"):
         return True
+    # A .. segment can climb out of a safe root, so it never counts as safe.
+    climbs = ".." in t.split("/")
     for safe in HOME_SAFE:
-        if t == safe or t.startswith(safe + "/"):
+        if not climbs and (t == safe or t.startswith(safe + "/")):
             return False
-    if t.startswith("~/") or t.startswith("$HOME/") or t.startswith("${HOME}/"):
+    if t.startswith(("~/", "$HOME/", "${HOME}/", "$USERPROFILE/", "${USERPROFILE}/")):
         return True
     if not t.startswith("/"):
         return False
     for root in SAFE_ROOTS:
-        if (t + "/").startswith(root):
+        if not climbs and (t + "/").startswith(root):
             return False
     return True
 

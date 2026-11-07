@@ -13,7 +13,8 @@
     "**/.claude/rules/common/review-findings-transfer.md"
   ],
   "permissions": {
-    "allow": ["*"]
+    "allow": ["*"],
+    "deny": ["PowerShell"]
   },
   "hooks": {
     "PostToolUse": [

@@ -435,4 +435,37 @@ assert_red "Windows: rm -rf '\\\\server\\share' (UNC path)" \
 assert_green "a relative name with a backslash is not an absolute path" \
   -- h "rm -rf 'a\b'"
 
+# Git Bash runs git.exe and rm.exe as git and rm, so the suffix must not hide them.
+assert_red "Windows: git.exe force push to main" \
+  --contains '"decision": "block"' \
+  -- h "git.exe push --force origin main"
+
+assert_red "Windows: rm.exe -rf on an absolute path" \
+  --contains '"decision": "block"' \
+  -- h "rm.exe -rf 'C:\Windows'"
+
+assert_red "Windows: rm -rf \$USERPROFILE" \
+  --contains '"decision": "block"' \
+  -- h "rm -rf \"\$USERPROFILE\""
+
+assert_red "Windows: rm -rf \$USERPROFILE/x" \
+  --contains '"decision": "block"' \
+  -- h "rm -rf \"\$USERPROFILE/x\""
+
+assert_red "Windows: rm -rf \$USERPROFILE with a backslash" \
+  --contains '"decision": "block"' \
+  -- h "rm -rf \"\$USERPROFILE\\x\""
+
+assert_green "Windows: rm -rf \$USERPROFILE/Downloads/x passes, as under \$HOME" \
+  -- h "rm -rf \"\$USERPROFILE/Downloads/x\""
+
+# A .. segment climbs out of a safe root.
+assert_red "rm -rf /tmp/../etc climbs out of /tmp" \
+  --contains '"decision": "block"' \
+  -- h "rm -rf /tmp/../etc"
+
+assert_red "rm -rf ~/Downloads/../.ssh climbs out of Downloads" \
+  --contains '"decision": "block"' \
+  -- h "rm -rf ~/Downloads/../.ssh"
+
 guard_test_summary "test-pre-bash-safety.sh"

@@ -506,6 +506,12 @@ def _plausible_command_word(name):
     return bool(COMMAND_WORD_RE.match(name))
 
 
+def _command_name(word):
+    """Basename of a command word. Git Bash on Windows runs git.exe and pnpm.cmd
+    as git and pnpm, so a predicate must see one name for both."""
+    return re.sub(r"\.(exe|cmd|bat)$", "", os.path.basename(word), flags=re.I)
+
+
 class Segment:
     __slots__ = (
         "name", "argv", "payload", "wrappers", "dynamic", "raw", "depth",
@@ -1642,7 +1648,7 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
         return empty, nested, {}
 
     word = toks[0]
-    name = os.path.basename(word)
+    name = _command_name(word)
     argv = toks[1:]
     dynamic = SUBST_MARKER in word or "$" in word
 
@@ -1791,7 +1797,7 @@ def readings(seg, code=False):
         toks.extend(_expand_token(tok, code))
     out = []
     for i, word in enumerate(toks):
-        base = os.path.basename(word)
+        base = _command_name(word)
         if not _plausible_command_word(base):
             continue
         # EVERY position is read — the window bounds only how far each reading

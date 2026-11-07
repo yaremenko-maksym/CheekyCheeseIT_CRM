@@ -360,4 +360,35 @@ assert_green "Windows payload: a quoted backslash redirect into MY OWN worktree 
   --not-contains '"decision": "block"' \
   -- run_hook "$WIN_MINE" "echo ok > '$WIN_MINE\x.txt'"
 
+# C:../x is relative to the cwd on drive C. Real git removes the sibling worktree.
+assert_red "Windows payload: drive-relative removal of a sibling worktree -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains 'WORKTREE-REMOVE' \
+  -- run_hook "$WIN_MINE" "git worktree remove C:../agent-OTHER"
+
+assert_red "Windows payload: git.exe worktree prune -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook "$WIN_MINE" "git.exe worktree prune"
+
+assert_red "Windows payload: taskkill by image name -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook "$WIN_MINE" "taskkill //F //IM node.exe"
+
+assert_red "Windows payload: taskkill with dash flags -> BLOCK" \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook "$WIN_MINE" "taskkill -f -im node.exe"
+
+assert_red "Windows payload: taskkill with the colon form of /IM -> BLOCK" \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook "$WIN_MINE" "taskkill //f //im:node.exe"
+
+assert_red "Windows payload: pkill behind a wrapper spelled env.exe -> BLOCK" \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook "$WIN_MINE" "env.exe pkill -f node"
+
+assert_green "Windows payload: taskkill of one PID passes" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$WIN_MINE" "taskkill //F //PID 1234"
+
 guard_test_summary "test-pre-bash-cross-agent-blast.sh"
