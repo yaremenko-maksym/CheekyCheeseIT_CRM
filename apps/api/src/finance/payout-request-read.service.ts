@@ -16,30 +16,27 @@ export class PayoutRequestReadService {
   constructor(private readonly db: DatabaseService) {}
 
   async findPayoutRequests(currentUser: SessionUser) {
-    const all = await this.db.db.query.payoutRequests.findMany({
+    // These roles never owned payout requests.
+    if (currentUser.role === 'JUNIOR' || currentUser.role === 'HR') return []
+
+    const scoped = await this.db.db.query.payoutRequests.findMany({
+      // Drop role - phase 2 (backlog AC4): DROP sees only their OWN
+      // payout requests. In drop-project flows `payoutRequests.seniorId`
+      // points at the DROP user (the column is reused as "owner of the
+      // payout" — see `payPayoutRequest` header comment around the
+      // `req.seniorId === currentUser.id` check). Same filter shape as
+      // SENIOR.
+      where:
+        currentUser.role === 'SENIOR' || currentUser.role === 'DROP'
+          ? eq(payoutRequests.seniorId, currentUser.id)
+          : undefined,
       orderBy: [desc(payoutRequests.createdAt)],
       with: {
         senior: { columns: { displayName: true } },
       },
     })
 
-    const filtered =
-      currentUser.role === 'SENIOR'
-        ? all.filter((r) => r.seniorId === currentUser.id)
-        : currentUser.role === 'DROP'
-          ? // Drop role - phase 2 (backlog AC4): DROP sees only their OWN
-            // payout requests. In drop-project flows `payoutRequests.seniorId`
-            // points at the DROP user (the column is reused as "owner of the
-            // payout" — see `payPayoutRequest` header comment around the
-            // `req.seniorId === currentUser.id` check). Same filter shape as
-            // SENIOR.
-            all.filter((r) => r.seniorId === currentUser.id)
-          : currentUser.role === 'JUNIOR' || currentUser.role === 'HR'
-            ? // Same idea — these roles never owned payout requests.
-              []
-            : all
-
-    return filtered.map((r) => ({
+    return scoped.map((r) => ({
       id: r.id,
       seniorId: r.seniorId,
       seniorName:

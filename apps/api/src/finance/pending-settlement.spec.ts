@@ -550,6 +550,13 @@ function makeService(initial: Partial<MockState> = {}) {
           if (admin) return admin
           return undefined
         }),
+        // `denormalise`'s batched name lookup.
+        findMany: vi.fn(async (args: unknown) => {
+          const values = collectStringValues(args)
+          return [state.senior, state.drop, ...state.admins].filter(
+            (u) => u !== null && values.includes(u.id),
+          )
+        }),
       },
     },
   }
