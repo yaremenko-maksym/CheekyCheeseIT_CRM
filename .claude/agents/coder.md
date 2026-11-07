@@ -411,7 +411,7 @@ Master will read it on the next wake-up.
 
 ## Reference (on-demand)
 
-- [`RULES.md`](RULES.md) — MCP, git, skills, version pins, zone-of-write, lessons
+- [`RULES.md`](../RULES.md) — MCP, git, skills, version pins, zone-of-write, lessons
 - [`project-state.md`](project-state.md) — phases, migrations, RBAC, shared schemas, gotchas
 - [`contracts.md`](contracts.md) — the PR review flow, labels lifecycle
 - [`memory/coder/lessons.md`](memory/coder/lessons.md) — accumulated lessons
