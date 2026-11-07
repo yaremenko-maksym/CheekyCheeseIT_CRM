@@ -7148,3 +7148,14 @@ files above it in size are the job-sourcing cluster, deliberately left until aft
 **Verify.** `wc -l` on the three files.
 
 Source: gardener audit 2026-11-07.
+
+## 380. Invite and notification mailer warn lines are not pinned against the provider body (2026-11-07)
+
+`ContactService` has a spec that fails if the raw Resend error reaches a log or telemetry sink. The invite mailer and
+`NotificationEmailCron` assertions use a message with no body or a substring match, so reverting either to the raw message
+stays green. Add a body that quotes an address, and assert `not.toContain` on it. The header comment in the manual migration
+for `notification_emails` also still names the invite mailer as the home of `safeErrorReason`, which is cosmetic.
+
+**Verify.** Replace `safeErrorReason(err)` with `err.message` in either mailer, run its spec, and observe that it stays green.
+
+Source: security review of PR #1287.
