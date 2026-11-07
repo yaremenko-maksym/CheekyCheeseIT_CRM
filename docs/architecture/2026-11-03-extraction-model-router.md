@@ -745,8 +745,8 @@ Own-cap values sit **below** each provider's published free limit, so the provid
   route and a non-empty `servedModel`: the route served the request, under a different model. The 404 `RETIRED` shape is
   not an answer. Evidence is a hosted attempt that was not aborted, a disabled provider, or a fall with any reason other
   than a well-formed `FIT` skip, malformed reasons and a non-array `reasons` included: a page too big for a route asked that route nothing. A
-  cycle with no evidence (a local-only config, only aborted calls, only `FIT` falls or falls with no `reasons` field,
-  only `PROVIDER_DISABLED` events refused as malformed) leaves the flag unchanged (the answer and evidence rules come from task 5.4c-4, PR #1277); (c) re-emits the flag once per collection cycle while it stays raised, so it cannot be seen once and
+  cycle with no evidence (a local-only config, only aborted calls, only `FIT` falls or falls with an empty or absent `reasons`,
+  only `ATTEMPT` or `PROVIDER_DISABLED` events refused as malformed, a lone 404 `RETIRED`) leaves the flag unchanged (the answer and evidence rules come from task 5.4c-4, PR #1277); (c) re-emits the flag once per collection cycle while it stays raised, so it cannot be seen once and
   forgotten. A 5.4c-3 test fails the wiring if the handler is missing or swallows `FELL_TO_LOCAL`.
 - **Preflight** (VCF pattern, adopted as-is): before a collection cycle that will use model extraction, one trivial call
   to the local route; 4 attempts at 10 / 30 / 60 s gaps. No answer ⇒ the model stage of that cycle does not start, no
@@ -1041,17 +1041,18 @@ MP-03 must measure what production will run.
 | **5.4c-7** MP-04: local model measurement (gate of 5.4c-8)                                                                             | **DevOps** · sonnet for the container definition, the guards and the harness; **where the replay runs and who runs it: D9**                                  | 5.4c-0, 5.4c-6, MP-05 baseline                                  | **Makes a merged model service unable to start on production without the owner (§8.6):** a separate compose file and project, a CI assertion, the rehearsal of the deploy paths. Container definition per Task 5.2 and §8.3, limited to the production host's budget, thresholds frozen in the task file before the run. For each candidate on the MP-03 labelled set through the production pipeline with the small dose, on synthetic or seed data only (D9): tokens/s, wall time per record, peak RAM, CPU, cold load, CRM p95 with and without, estimate against reported prompt tokens, reasoning output, whether a disconnect stops generation, plus the MP-03 local-phase metrics (§6.2). **Output: the pick with its digest, licence and limits, the frozen floor budget and cycle limit, or "none passes", which goes to D8.** Tunes the §5.4 table with MP-03                                                                                                                       |
 | **5.4c-8** Provision and install the local model                                                                                       | DevOps · sonnet prepares; **the owner runs it on the production server (A3: prod)**                                                                          | 5.4c-7 passing, 5.4c-W, 5.4c-3, 5.4c-4, the owner's explicit go | Runbook section for the owner-run start of the opt-in project (§8.6): pinned image and weights by digest with verification, limits, the extraction worker's persistent volume, the two workers' own `0600` env files (§2.4) with a generated `EXTRACTION_WORKER_SECRET`; on the host, the checks of §8.3 (outbound attempt fails, no published port, marker prompt absent from the container log), **neither the API container nor the collection worker is on the runtime network, and neither env holds hosted keys or `ROUTER_LOCAL_MODEL_URL`; the §2.4 network holds only the two workers with no published port, the API env lacks the secret, and an unauthenticated call is refused**, the window set server-wide and checked with the head marker, and a preflight (§8.4); the owner-run VPS smoke of §8.2 (D9); the undo of §8.6. Then `INFERENCE_EXTRACTION_PROVIDER=router` in the worker with no hosted key: local-only and working. **No agent runs a production step unasked** |
 
-**Delivery state, 2026-11-06.**
+**Delivery state, 2026-11-07.**
 
-- Merged: 5.4c-1 (#1259), 5.4c-2 (#1264), 5.4c-2b (#1266), 5.4c-6 (#1271), 5.4c-W (#1273), W-ops (#1274), 5.4c-3 (#1275).
-  5.4c-4 is in progress.
+- Merged: 5.4c-1 (#1259), 5.4c-2 (#1264), 5.4c-2b (#1266), 5.4c-6 (#1271), 5.4c-W (#1273), W-ops (#1274), 5.4c-3 (#1275),
+  5.4c-4 (#1277).
 - **The durable home of the §5.3 signals is new tables (5.4c-4).** `job_source_health_events` is per source, with a `NOT NULL`
   foreign key to a source, and a route-level signal has no source; `job_account_meters` is one counter per account, unit and
   window, with no flag concept. The task file names `job_model_route_daily` and `job_model_health_flags`; the migration decides
   the final names.
 - **The `buildModelExtraction` call site and the use of `prepareCycle` belong to task 5.5b, the first HTML model provider.**
   `HtmlProvider` is abstract with no concrete subclass, so nothing in production calls the wiring until then. `prepareCycle`
-  itself arrives with 5.4c-4, replacing `forCycle`.
+  itself arrived with 5.4c-4, replacing `forCycle`. The 5.5b task file must cite backlog items 366 and 367, the obligations
+  that first caller inherits.
 
 MP-03 itself stays the plan's measurement. Its local phase runs with 5.4c-7 and on the same set; its hosted phase runs
 once keys exist for the measurement and before 5.4c-5 (§6.2). MP-03 still gates hosted enablement and picks hosted
