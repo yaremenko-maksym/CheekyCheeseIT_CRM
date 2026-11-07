@@ -34,7 +34,8 @@ permissions:
 jobs:
   lighthouse:
     name: Lighthouse (${{ matrix.profile }})
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.59 cannot install chromium on ubuntu-26.04 (now ubuntu-latest). Unpin after a Playwright bump passes there.
+    runs-on: ubuntu-24.04
     # 15 (was 10): numberOfRuns 3 -> 5 adds ~1.5-2 min per leg (observed total
     # ~3 min at 3 runs incl. install+build); headroom for slow shared runners.
     timeout-minutes: 15
