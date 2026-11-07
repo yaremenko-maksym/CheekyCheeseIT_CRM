@@ -48,16 +48,13 @@ import { DatabaseService } from '../database/database.service'
 import { users } from '../database/schema'
 import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
 import { TurnstileService } from '../vacancies/turnstile.service'
+import { sleep } from './mailer-retry.util'
 import { ResendMailerService, type SendEmailInput } from './resend-mailer.service'
 
 /** "2 попытки с бэкоффом" (task §Ретрай) — first send + ONE retry. */
 const MAX_SEND_ATTEMPTS = 2
 /** Backoff before the single retry attempt. */
 const RETRY_BACKOFF_MS = 500
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
 
 @Injectable()
 export class ContactService {

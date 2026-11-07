@@ -36,7 +36,7 @@ import { toast } from 'sonner'
 import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 import { seniorTechStackError } from '@/components/users/user-dialog/validation'
 import { focusFirstInvalid } from '@/lib/focus-first-invalid'
-import { normalizeTelegram } from '../normalize-telegram'
+import { normalizeTelegram } from '@/components/users/constants'
 
 type UserOption = {
   id: string
