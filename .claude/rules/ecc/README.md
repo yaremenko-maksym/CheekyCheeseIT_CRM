@@ -19,6 +19,11 @@ not apply here.
 - `web/` — frontend patterns, performance budgets, design quality, security headers,
   testing priorities. Path-scoped to `apps/web/**` (testing also `apps/e2e/**`).
 
+## Removed 2026-11-07
+
+`typescript/hooks` (generic harness advice, same reason as `common/hooks` below; it extended that
+removed file and contradicted `eslint-mcp-first.md`).
+
 ## Removed 2026-06-11 (conflicted with project policy or stale)
 
 `common/git-workflow` (contradicted git-policy.md commit format), `common/development-workflow`
