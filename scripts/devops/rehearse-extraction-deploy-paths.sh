@@ -260,11 +260,9 @@ record "G. runtime log lines after all requests: $(docker logs "$(ecid crm-model
 
 # ── H. Undo (the runbook's steps) ───────────────────────────────────────────
 log "H. Undo"
-if ext down >down-attached.log 2>&1; then
-  record "H. project down with api still attached: succeeded"
-else
-  record "H. project down with api still attached: refused ($(grep -m1 -io 'active endpoints' down-attached.log || head -c 120 down-attached.log))"
-fi
+if ext down >down-attached.log 2>&1; then st=0; else st=$?; fi
+cat down-attached.log
+record "H. project down with api still attached: exit $st, entry network left behind: $(docker network inspect "$ENTRY_NET" >/dev/null 2>&1 && echo yes || echo no)"
 docker network disconnect "$ENTRY_NET" "$(cid api)" 2>/dev/null || true
 ext down
 docker volume rm crm-extraction_model_weights
