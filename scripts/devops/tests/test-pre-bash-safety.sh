@@ -479,14 +479,18 @@ assert_red "Windows: a backslash .. climbs out of ~/Downloads" \
 assert_green "a backslash inside a safe root stays inside it" \
   -- h "rm -rf '/tmp/a\b'"
 
-# bash.exe must unwrap the TTL wrapper as bash does, or the command after -- goes unread.
-assert_red "Windows: bash.exe dev-ttl.sh -- rm -rf /etc" \
-  --contains '"decision": "block"' \
-  -- h "bash.exe scripts/devops/dev-ttl.sh -- rm -rf /etc"
-
-assert_red "Windows: sh.exe dev-ttl.sh -- git push --force" \
-  --contains '"decision": "block"' \
-  -- h "sh.exe scripts/devops/dev-ttl.sh -- git push --force origin main"
+# bash.exe is not unwrapped, so every position is judged. Unwrapped, the parser would read
+# only what follows `--`, and dev-ttl.sh would still run the command in front of it.
+for cmd in "bash.exe scripts/devops/dev-ttl.sh -- rm -rf /etc" \
+           "sh.exe scripts/devops/dev-ttl.sh -- git push --force origin main" \
+           "bash.exe scripts/devops/dev-ttl.sh rm -rf /etc -- ls" \
+           "bash.exe scripts/devops/dev-ttl.sh --ttl 5 rm -rf /etc -- ls" \
+           "sh.exe scripts/devops/dev-ttl.sh git push --force origin main -- ls" \
+           "bash.exe scripts/devops/dev-ttl.sh -- env -S rm -rf /etc"; do
+  assert_red "Windows: $cmd" \
+    --contains '"decision": "block"' \
+    -- h "$cmd"
+done
 
 # env.exe stays unread as a wrapper, so every position is judged. Unwrapping it would
 # hand -S its one-token value and leave the rest of the command unread.

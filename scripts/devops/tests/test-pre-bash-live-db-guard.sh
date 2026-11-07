@@ -493,7 +493,6 @@ done
 # `bash scripts/devops/dev-ttl.sh -- <launch>` was allowed with NO pin while the same
 # command without `bash` was refused: the 2026-08-05 shape through a side door.
 for w in 'bash scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev' \
-         'bash.exe scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev' \
          'sh scripts/devops/dev-ttl.sh --ttl 60 -- vite --port 3010' \
          'bash -x scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev' \
          'zsh scripts/devops/dev-ttl.sh -- pnpm -r dev' \
@@ -506,8 +505,17 @@ for w in 'bash scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev' \
     --contains "wrapper the hook does not model" \
     -- h "DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011 $w"
 done
+# bash.exe is not unwrapped, so it carries no wrapper name; it is still refused, pinned or not.
+w='bash.exe scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev'
+assert_green "распознан как запуск: $w" -- recognised "$w"
+assert_red "bash.exe + dev-ttl.sh без закрепления — отказ" \
+  --contains '"decision": "block"' \
+  -- h "$w"
+assert_red "bash.exe + dev-ttl.sh с закреплением — отказ" \
+  --contains '"decision": "block"' \
+  -- h "DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011 $w"
 
-# ═══ SR-M-18 - a comment is not a command ═════════════════════════════════════
+# ═══SR-M-18 - a comment is not a command ═════════════════════════════════════
 # A line that begins with # was a segment whose command word was `#`, and the words after
 # it were judged as a launch: a full refusal for a comment.
 assert_not_a_launch "строка-комментарий с запуском внутри" -- h '# pnpm --filter @crm/api dev'

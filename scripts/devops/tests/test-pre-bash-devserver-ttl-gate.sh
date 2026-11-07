@@ -227,8 +227,12 @@ for flags in '-o pipefail' '--norc' '--' '+x' '-O extglob' '--rcfile /tmp/rc'; d
   assert_green "ТТЛ-гейт: настоящая обёртка за флагами интерпретатора проходит: bash $flags" \
     -- h "bash $flags $TTL -- pnpm --filter @crm/api dev"
 done
-assert_green "ТТЛ-гейт: обёртка за bash.exe проходит, как за bash" \
+assert_red "ТТЛ-гейт: bash.exe не разворачивается, запуск за ним судится как голый" \
+  --contains '"decision": "block"' \
   -- h "bash.exe $TTL -- pnpm --filter @crm/api dev"
+assert_red "ТТЛ-гейт: запуск перед -- за bash.exe судится как голый" \
+  --contains '"decision": "block"' \
+  -- h "bash.exe $TTL pnpm --filter @crm/api dev -- ls"
 assert_red "ТТЛ-гейт: payload за bash.exe -c — голый запуск" \
   --contains '"decision": "block"' \
   -- h "bash.exe -c 'pnpm --filter @crm/api dev' dev-ttl.sh"
