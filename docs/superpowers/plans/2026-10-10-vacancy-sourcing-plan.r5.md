@@ -195,8 +195,9 @@ sends the next reader to ask it again.
 - **Filters:** search, source, eligibility, availability, activity, and **for a specific senior** (the actor's own
   team's seniors only). Filters on engagement form and on salary were considered and **dropped**: the funnel already
   enforces remote and the $3500 floor. The engagement form and the "salary unknown" flag **stay visible on the card**.
-- **List paging:** infinite scroll, keeping a focusable load-more path for keyboard and screen-reader users. The
-  keyset pagination underneath is unchanged.
+- **List paging:** infinite scroll. Owner decision 2026-11-07: no always-visible load-more button; the button appears
+  only on an error (a screen-reader check that finds a problem brings it back). The keyset pagination underneath is
+  unchanged.
 - **Design (Task 0.1): approved** by the owner.
 
 ### Model split — owner decision, 2026-10-18
