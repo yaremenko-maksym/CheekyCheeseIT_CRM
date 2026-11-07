@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { JobQueueListItemDto } from '@crm/shared'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
@@ -193,13 +193,56 @@ describe('JobQueueList', () => {
     expect(screen.getByRole('button', { name: 'Скинути фільтри' })).toBeInTheDocument()
   })
 
-  it('shows the count and no manual button while a next page exists (the sentinel loads it)', () => {
+  it('shows the count and «Показати ще» while a next page exists', () => {
     renderList({ hasNextPage: true, total: 40 })
     expect(screen.getByTestId('job-queue-shown')).toHaveTextContent(/^Показано 2 із 40$/)
     expect(screen.queryByTestId('job-queue-append-error')).toBeNull()
     expect(screen.queryByTestId('job-queue-retry')).toBeNull()
-    expect(screen.queryByRole('button', { name: /ще/ })).toBeNull()
+    const more = screen.getByRole('button', { name: 'Показати ще' })
+    expect(more).toHaveAttribute('data-testid', 'job-queue-load-more')
+    expect(more).toHaveAttribute('aria-disabled', 'false')
+    expect(more).toHaveClass('min-h-11', 'w-full', '@min-[560px]:w-auto', 'text-foreground')
     expect(screen.queryByTestId('job-queue-end')).toBeNull()
+  })
+
+  it('offers no foot button when no next page exists', () => {
+    renderList({ hasNextPage: false })
+    expect(screen.queryByTestId('job-queue-load-more')).toBeNull()
+    expect(screen.queryByTestId('job-queue-retry')).toBeNull()
+  })
+
+  it('«Показати ще» loads the next page', async () => {
+    const props = renderList({ hasNextPage: true, total: 40 })
+    await userEvent.click(screen.getByTestId('job-queue-load-more'))
+    expect(props.onLoadMore).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores «Показати ще» during any fetch: an append would abort a background refetch', async () => {
+    const props = renderList({ hasNextPage: true, isFetching: true })
+    const more = screen.getByTestId('job-queue-load-more')
+    expect(more).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(more)
+    expect(props.onLoadMore).not.toHaveBeenCalled()
+  })
+
+  it('a background refetch does not disable the retry, as before', () => {
+    const props = renderList({ hasNextPage: true, isFetchNextPageError: true, isFetching: true })
+    const retry = screen.getByTestId('job-queue-retry')
+    expect(retry).toHaveAttribute('aria-disabled', 'false')
+    fireEvent.click(retry)
+    expect(props.onLoadMore).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['search', { hasSearch: true }],
+    ['filters', { hasFilters: true }],
+  ])('drops the unfiltered total from the count under %s', (_label, over) => {
+    const view = renderList({ hasNextPage: true, total: 40, ...over })
+    expect(screen.getByTestId('job-queue-shown')).toHaveTextContent(/^Показано 2$/)
+    view.rerender({ items: [A, B, C], hasNextPage: true, total: 40, ...over })
+    expect(screen.getByTestId('job-queue-shown')).toHaveTextContent(
+      /^Завантажено ще 1\. Показано 3$/,
+    )
   })
 
   it('shows no append error on the last page', () => {
@@ -267,7 +310,7 @@ describe('JobQueueList', () => {
 
   it('centres the foot line, which wraps at 320', () => {
     renderList()
-    expect(screen.getByTestId('job-queue-live')).toHaveClass('text-center')
+    expect(screen.getByTestId('job-queue-live')).toHaveClass('text-center', 'text-balance')
   })
 
   describe('infinite scroll (spec §4.4)', () => {
@@ -394,12 +437,12 @@ describe('JobQueueList', () => {
     })
   })
 
-  it('renders without IntersectionObserver support and offers no button', () => {
+  it('renders without IntersectionObserver support and still offers the button', () => {
     vi.stubGlobal('IntersectionObserver', undefined)
     try {
       renderList({ hasNextPage: true, total: 40 })
       expect(screen.getByTestId('job-queue-sentinel')).toBeInTheDocument()
-      expect(screen.queryByTestId('job-queue-retry')).toBeNull()
+      expect(screen.getByTestId('job-queue-load-more')).toBeInTheDocument()
     } finally {
       vi.unstubAllGlobals()
     }
@@ -439,24 +482,103 @@ describe('JobQueueList', () => {
     expect(screen.getByTestId(`job-queue-row-${C.opportunityId}`)).toHaveFocus()
   })
 
-  it('drops a pending button focus when the append fails', async () => {
-    const view = renderList({ hasNextPage: true, isFetchNextPageError: true, total: 5 })
-    await userEvent.click(screen.getByTestId('job-queue-retry'))
-    view.rerender({ isFetchingNextPage: true })
-    view.rerender({ isFetchingNextPage: false })
-    // the retry failed again; a later page (e.g. a sentinel load) arrives without a fresh press
-    view.rerender({ items: [A, B, C], isFetchNextPageError: false })
-    expect(screen.getByTestId(`job-queue-row-${C.opportunityId}`)).not.toHaveFocus()
-  })
+  describe('foot button focus (QA-M-1)', () => {
+    const foot = () => screen.getByTestId('job-queue-load-more')
+    const focus = (el: HTMLElement) => act(() => el.focus())
+    const rowC = () => screen.getByTestId(`job-queue-row-${C.opportunityId}`)
+    const rowB = () => screen.getByTestId(`job-queue-row-${B.opportunityId}`)
+    const D = item('dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'Delta role')
 
-  it('drops a pending button focus when the list is replaced (tab / filter switch)', async () => {
-    const view = renderList({ hasNextPage: true, isFetchNextPageError: true, total: 5 })
-    await userEvent.click(screen.getByTestId('job-queue-retry'))
-    view.rerender({ items: [C, A, B], hasNextPage: true, total: 5 })
-    expect(screen.getByTestId(`job-queue-row-${B.opportunityId}`)).not.toHaveFocus()
-    expect(screen.getByTestId('job-queue-retry')).toHaveFocus()
-    // a longer replaced list is not an append
-    expect(screen.getByTestId('job-queue-live')).toHaveTextContent(/^Показано 3 із 5$/)
+    it('Tab landing on the button hands off to the first new row when the page arrives', () => {
+      const view = renderList({ hasNextPage: true, isFetching: true, total: 5 })
+      focus(foot())
+      view.rerender({ items: [A, B, C], hasNextPage: true, total: 5 })
+      expect(rowC()).toHaveFocus()
+    })
+
+    it('hands off on the last page, where the button unmounts in the same commit', () => {
+      const view = renderList({ hasNextPage: true, isFetching: true, total: 3 })
+      focus(foot())
+      view.rerender({ items: [A, B, C], hasNextPage: false, total: 3 })
+      expect(screen.queryByTestId('job-queue-load-more')).toBeNull()
+      expect(rowC()).toHaveFocus()
+    })
+
+    it('a click on a browser that does not focus buttons still hands off', () => {
+      const view = renderList({ hasNextPage: true, total: 5 })
+      fireEvent.click(foot())
+      expect(foot()).toHaveFocus()
+      view.rerender({ items: [A, B, C], hasNextPage: true, total: 5 })
+      expect(rowC()).toHaveFocus()
+    })
+
+    it('does not steal focus from a user who moved on before the page arrived', () => {
+      const view = renderList({ hasNextPage: true, isFetching: true, total: 5 })
+      focus(foot())
+      focus(rowB())
+      view.rerender({ items: [A, B, C], hasNextPage: true, total: 5 })
+      expect(rowB()).toHaveFocus()
+    })
+
+    it('a blur with no destination does not cancel the handoff (the window lost focus)', () => {
+      const view = renderList({ hasNextPage: true, isFetching: true, total: 5 })
+      focus(foot())
+      fireEvent.blur(foot(), { relatedTarget: null })
+      view.rerender({ items: [A, B, C], hasNextPage: true, total: 5 })
+      expect(rowC()).toHaveFocus()
+    })
+
+    it('a click on the page background cancels the handoff at the next commit', () => {
+      const view = renderList({ hasNextPage: true, total: 5 })
+      focus(foot())
+      act(() => foot().blur())
+      view.rerender({ hasNextPage: true, isFetching: true, total: 5 })
+      view.rerender({ items: [A, B, C], hasNextPage: true, total: 5 })
+      expect(rowC()).not.toHaveFocus()
+    })
+
+    it('does not move focus when no button held it (a sentinel append)', () => {
+      const view = renderList({ hasNextPage: true, total: 5 })
+      view.rerender({ items: [A, B, C], hasNextPage: true, total: 5 })
+      expect(rowC()).not.toHaveFocus()
+    })
+
+    it('a failure keeps focus on the button, which becomes the retry', () => {
+      const view = renderList({ hasNextPage: true, isFetching: true, total: 5 })
+      focus(foot())
+      view.rerender({ hasNextPage: true, isFetchNextPageError: true, total: 5 })
+      expect(screen.getByTestId('job-queue-retry')).toHaveFocus()
+      expect(screen.getByTestId('job-queue-retry')).toHaveTextContent('Спробувати ще раз')
+    })
+
+    it('hands off after a failure when a later page arrives with focus still on the button', async () => {
+      const view = renderList({ hasNextPage: true, isFetchNextPageError: true, total: 5 })
+      await userEvent.click(screen.getByTestId('job-queue-retry'))
+      view.rerender({ isFetchingNextPage: true })
+      view.rerender({ isFetchingNextPage: false })
+      view.rerender({ items: [A, B, C], isFetchNextPageError: false })
+      expect(rowC()).toHaveFocus()
+    })
+
+    it('a replaced list is not an append: the button keeps focus, and the next append hands off', async () => {
+      const view = renderList({ hasNextPage: true, total: 5 })
+      await userEvent.click(foot())
+      view.rerender({ items: [C, A, B], hasNextPage: true, total: 5 })
+      expect(foot()).toHaveFocus()
+      // a longer replaced list is not an append
+      expect(screen.getByTestId('job-queue-live')).toHaveTextContent(/^Показано 3 із 5$/)
+      view.rerender({ items: [C, A, B, D], hasNextPage: true, total: 5 })
+      expect(screen.getByTestId(`job-queue-row-${D.opportunityId}`)).toHaveFocus()
+    })
+
+    it('a button removed without a new page cancels the handoff (refresh required)', () => {
+      const view = renderList({ hasNextPage: true, total: 5 })
+      focus(foot())
+      view.rerender({ hasNextPage: true, refreshRequired: true, total: 5 })
+      expect(screen.queryByTestId('job-queue-load-more')).toBeNull()
+      view.rerender({ items: [A, B, C], hasNextPage: true, total: 5 })
+      expect(rowC()).not.toHaveFocus()
+    })
   })
 
   it('remounts the live region on a tab change instead of re-announcing in place', () => {

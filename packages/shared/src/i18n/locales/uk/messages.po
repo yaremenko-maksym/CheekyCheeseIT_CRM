@@ -813,6 +813,10 @@ msgstr "Крок {0} із {1}"
 msgid "Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа"
 msgstr "Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
+msgid "Завантажено ще {added}. Показано {shown}"
+msgstr "Завантажено ще {added}. Показано {shown}"
+
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Посилання, рядок {position}"
 msgstr "Посилання, рядок {position}"
@@ -4698,6 +4702,10 @@ msgstr "За зростанням"
 #: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Почніть вводити: React, Node.js…"
 msgstr "Почніть вводити: React, Node.js…"
+
+#: apps/web/app/components/job-queue/JobQueueList.tsx
+msgid "Показати ще"
+msgstr "Показати ще"
 
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Переглянутий"
@@ -9924,6 +9932,10 @@ msgstr "{projectsCount, plural, one {# проєкт} few {# проєкти} many
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Успішно"
 msgstr "Успішно"
+
+#: apps/web/app/components/job-queue/JobQueueList.tsx
+msgid "Показано {shown}"
+msgstr "Показано {shown}"
 
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx

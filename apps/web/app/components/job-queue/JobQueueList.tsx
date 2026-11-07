@@ -79,9 +79,9 @@ export function JobQueueList(props: JobQueueListProps) {
   const { i18n } = useLingui()
   const { items, status, tab, scrollRoot } = props
   const listRef = useRef<HTMLUListElement>(null)
-  // set only by the retry after a failed append: the index of the first row to focus once it arrives
-  // (Infinity = nothing pending: no list length ever exceeds it)
-  const focusFrom = useRef(Infinity)
+  const foot = useRef<HTMLButtonElement>(null)
+  // truthy while the foot button holds focus: the next appended page takes it over
+  const footHeld = useRef<boolean | null>(null)
   const loadMore = useRef(props.onLoadMore)
   const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null)
 
@@ -115,24 +115,21 @@ export function JobQueueList(props: JobQueueListProps) {
     return () => observer.disconnect()
   }, [sentinel, scrollRoot])
 
-  // a replaced list cancels a pending retry focus
+  // `added` is positive only for a real append, so the list and the first new row both exist
   useEffect(() => {
-    focusFrom.current = Infinity
-  }, [first])
-
-  useEffect(() => {
-    const from = focusFrom.current
-    if (props.isFetchNextPageError && !props.isFetchingNextPage) {
-      focusFrom.current = Infinity
-    } else if (length > from) {
-      focusFrom.current = Infinity
-      // a longer list is always rendered, so the list and the row at `from` both exist
+    if (footHeld.current && added > 0) {
       listRef
         .current!.querySelectorAll<HTMLButtonElement>(':scope > li > button')
-        .item(from)
+        .item(length - added)
         .focus()
     }
-  }, [length, props.isFetchNextPageError, props.isFetchingNextPage])
+  }, [length, added])
+
+  // after the handoff above, which still needs the record when the last page removes the button:
+  // focus elsewhere, or a button gone with no page, leaves nothing pending
+  useEffect(() => {
+    if (document.activeElement !== foot.current) footHeld.current = false
+  })
 
   // `status` matters only without rows: a failed next page / refetch keeps them on screen
   if (!items) {
@@ -191,11 +188,10 @@ export function JobQueueList(props: JobQueueListProps) {
   const shown = items.length
   const total = props.total
   const armed = props.hasNextPage && !props.isFetching && !props.isFetchNextPageError
-  const onRetryAppend = () => {
-    if (props.isFetchingNextPage) return
-    focusFrom.current = shown
-    props.onLoadMore()
-  }
+  // the count of all the tab's vacancies is not the count of what a search or filter matched
+  const scoped = props.hasSearch || props.hasFilters
+  // an append started now would abort a running refetch; a retry keeps its narrower guard
+  const footBusy = props.isFetchNextPageError ? props.isFetchingNextPage : props.isFetching
   return (
     <div className="flex flex-col gap-3">
       <ul
@@ -218,11 +214,19 @@ export function JobQueueList(props: JobQueueListProps) {
             key={tab}
             data-testid="job-queue-live"
             aria-live="polite"
-            className="text-center tabular-nums"
+            className="text-center text-balance tabular-nums"
           >
             {props.hasNextPage ? (
               <span data-testid="job-queue-shown">
-                {added > 0 ? (
+                {scoped ? (
+                  added > 0 ? (
+                    <Trans>
+                      Завантажено ще {added}. Показано {shown}
+                    </Trans>
+                  ) : (
+                    <Trans>Показано {shown}</Trans>
+                  )
+                ) : added > 0 ? (
                   <Trans>
                     Завантажено ще {added}. Показано {shown} із {total}
                   </Trans>
@@ -264,17 +268,34 @@ export function JobQueueList(props: JobQueueListProps) {
               <Trans>Завантажуємо ще…</Trans>
             </p>
           )}
-          {/* the only manual control: a retry after a failed append (the sentinel stays unmounted until a refetch clears the error).
-              It stays mounted while the retry is in flight, so keyboard focus is not dropped. */}
-          {props.hasNextPage && props.isFetchNextPageError && (
+          {/* a focus stop past the last row: without it Tab falls to `body` when it outruns the fetch.
+              Becomes the retry after a failed append (the sentinel stays unmounted until a refetch clears the error).
+              It stays mounted while a fetch is in flight, so keyboard focus is not dropped. */}
+          {props.hasNextPage && (
             <Button
-              data-testid="job-queue-retry"
+              ref={foot}
+              data-testid={props.isFetchNextPageError ? 'job-queue-retry' : 'job-queue-load-more'}
               variant="outline"
-              className="min-h-11 w-full aria-disabled:pointer-events-none aria-disabled:opacity-50 @min-[560px]:w-auto"
-              aria-disabled={props.isFetchingNextPage}
-              onClick={onRetryAppend}
+              className="min-h-11 w-full text-foreground aria-disabled:pointer-events-none aria-disabled:opacity-50 @min-[560px]:w-auto"
+              aria-disabled={footBusy}
+              onFocus={() => {
+                footHeld.current = true
+              }}
+              onBlur={(e) => {
+                // a removal or a window switch blurs with no destination: neither is the user moving on
+                if (e.relatedTarget) footHeld.current = false
+              }}
+              onClick={(e) => {
+                if (footBusy) return
+                e.currentTarget.focus() // Safari does not focus a clicked button
+                props.onLoadMore()
+              }}
             >
-              <Trans>Спробувати ще раз</Trans>
+              {props.isFetchNextPageError ? (
+                <Trans>Спробувати ще раз</Trans>
+              ) : (
+                <Trans>Показати ще</Trans>
+              )}
             </Button>
           )}
         </div>

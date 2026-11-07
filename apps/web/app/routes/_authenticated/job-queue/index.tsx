@@ -234,16 +234,22 @@ function QueueBody({
         role="status"
         className="flex flex-col gap-2 rounded-lg border border-yellow-muted/40 bg-yellow-subtle p-3 text-sm @min-[560px]:flex-row @min-[560px]:items-center"
       >
-        <RefreshCw aria-hidden="true" className="size-4 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <p className="font-medium">
-            <Trans>Список змінився</Trans>
-          </p>
-          <p className="text-muted-foreground">
-            <Trans>З’явилися оновлення.</Trans>
-          </p>
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <RefreshCw aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
+          <div className="min-w-0">
+            <p className="font-medium">
+              <Trans>Список змінився</Trans>
+            </p>
+            <p className="text-foreground/70">
+              <Trans>З’явилися оновлення.</Trans>
+            </p>
+          </div>
         </div>
-        <Button variant="outline" className="min-h-11" onClick={onRestart}>
+        <Button
+          variant="outline"
+          className="min-h-11 border-yellow-muted/40 bg-background"
+          onClick={onRestart}
+        >
           <Trans>Показати оновлений список</Trans>
         </Button>
       </div>

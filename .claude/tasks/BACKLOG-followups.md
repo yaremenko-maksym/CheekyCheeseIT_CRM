@@ -7252,3 +7252,13 @@ Sources: PR #1272, PR #1276 and PR #1283 push logs.
 **Verify.** `VITEST_MAX_WORKERS=4 pnpm --filter @crm/web test` five times on a loaded machine, then list which of these fail.
 
 Sources: pre-push logs of PR #1276, PR #1282 and PR #1283.
+
+## 386. Native scrollbars render white in the dark theme (2026-11-07)
+
+**Symptoms.** On Windows Chromium, native scrollbars are white on dark pages. The `.dark` rule does not set `color-scheme: dark`. This is app-wide and not caused by the job queue, whose scroller only exposes it.
+
+**Candidate fixes.** Set `color-scheme: dark` in the `.dark` rule.
+
+**Verify.** On any page, read `getComputedStyle(document.documentElement).colorScheme`. It is `normal` while this is open.
+
+Sources: PR #1276 design review, UX-L-9.

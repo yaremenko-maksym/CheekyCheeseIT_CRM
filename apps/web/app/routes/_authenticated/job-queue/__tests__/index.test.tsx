@@ -435,6 +435,17 @@ describe('/job-queue page', () => {
     renderPage()
     const notice = await screen.findByTestId('job-queue-refresh')
     expect(notice).toHaveTextContent('З’явилися оновлення.')
+    expect(screen.getByText('З’явилися оновлення.')).toHaveClass('text-foreground/70')
+    expect(screen.getByRole('button', { name: 'Показати оновлений список' })).toHaveClass(
+      'border-yellow-muted/40',
+      'bg-background',
+    )
+    // the icon sits with the text, so the narrow stack holds two items: that group and the button
+    // eslint-disable-next-line testing-library/no-node-access -- an aria-hidden icon has no role or name to query by
+    const icon = notice.querySelector('svg')
+    expect(icon).toHaveClass('text-primary')
+    // eslint-disable-next-line testing-library/no-node-access -- the assertion is about the icon's own wrapper
+    expect(icon?.parentElement).toHaveClass('flex-1', 'items-start')
   })
 
   it('the refresh notice button parks focus on the list body (CR-L-4)', async () => {
