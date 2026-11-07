@@ -239,7 +239,7 @@ function QueueBody({
             <Trans>Список змінився</Trans>
           </p>
           <p className="text-muted-foreground">
-            <Trans>З'явилися оновлення.</Trans>
+            <Trans>З’явилися оновлення.</Trans>
           </p>
         </div>
         <Button variant="outline" className="min-h-11" onClick={onRestart}>

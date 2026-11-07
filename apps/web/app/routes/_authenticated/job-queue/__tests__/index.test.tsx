@@ -430,11 +430,11 @@ describe('/job-queue page', () => {
     expect(screen.queryByTestId('job-queue-refresh')).toBeNull()
   })
 
-  it("the refresh notice includes «З'явилися оновлення.» (CR-L-4)", async () => {
+  it('the refresh notice includes «З’явилися оновлення.» (CR-L-4)', async () => {
     serve({ queue: () => Promise.reject(apiError(409, 'JOB_QUEUE_REFRESH_REQUIRED')) })
     renderPage()
     const notice = await screen.findByTestId('job-queue-refresh')
-    expect(notice).toHaveTextContent("З'явилися оновлення.")
+    expect(notice).toHaveTextContent('З’явилися оновлення.')
   })
 
   it('the refresh notice button parks focus on the list body (CR-L-4)', async () => {

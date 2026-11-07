@@ -10554,7 +10554,7 @@ msgid "Нотатка (макс. 2000 символів)"
 msgstr "Note (max 2000 characters)"
 
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
-msgid "З'явилися оновлення."
+msgid "З’явилися оновлення."
 msgstr "Updates are available."
 
 #: apps/web/app/hooks/use-legend.ts
