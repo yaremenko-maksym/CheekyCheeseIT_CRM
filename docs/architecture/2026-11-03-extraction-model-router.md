@@ -744,9 +744,9 @@ Own-cap values sit **below** each provider's published free limit, so the provid
   **none** answered, cleared by the first answer. An answer is a hosted `OK`, or a 2xx `RETIRED` that names a hosted
   route and a non-empty `servedModel`: the route served the request, under a different model. The 404 `RETIRED` shape is
   not an answer. Evidence is a hosted attempt that was not aborted, a disabled provider, or a fall with any reason other
-  than a well-formed `FIT` skip, malformed reasons included: a page too big for a route asked that route nothing. A
-  cycle with no evidence (a local-only config, only aborted calls, only `FIT` falls) leaves the flag unchanged (the
-  answer and evidence rules come from task 5.4c-4, PR #1277); (c) re-emits the flag once per collection cycle while it stays raised, so it cannot be seen once and
+  than a well-formed `FIT` skip, malformed reasons and a non-array `reasons` included: a page too big for a route asked that route nothing. A
+  cycle with no evidence (a local-only config, only aborted calls, only `FIT` falls or falls with no `reasons` field,
+  only `PROVIDER_DISABLED` events refused as malformed) leaves the flag unchanged (the answer and evidence rules come from task 5.4c-4, PR #1277); (c) re-emits the flag once per collection cycle while it stays raised, so it cannot be seen once and
   forgotten. A 5.4c-3 test fails the wiring if the handler is missing or swallows `FELL_TO_LOCAL`.
 - **Preflight** (VCF pattern, adopted as-is): before a collection cycle that will use model extraction, one trivial call
   to the local route; 4 attempts at 10 / 30 / 60 s gaps. No answer ⇒ the model stage of that cycle does not start, no
