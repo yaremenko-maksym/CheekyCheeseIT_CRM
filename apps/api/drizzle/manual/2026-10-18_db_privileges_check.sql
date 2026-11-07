@@ -68,6 +68,8 @@ BEGIN
     ('job_collection_runs', 'A', false),
     ('job_dirty_work', 'A', false),
     ('job_exclusion_filters', 'A', false),
+    ('job_model_health_flags', 'A', true),
+    ('job_model_route_daily', 'A', true),
     ('job_opportunities', 'A', false),
     ('job_opportunity_identity_tokens', 'A', false),
     ('job_opportunity_matches', 'A', false),
@@ -192,6 +194,8 @@ BEGIN
     ('job_collection_runs', 'A', false),
     ('job_dirty_work', 'A', false),
     ('job_exclusion_filters', 'A', false),
+    ('job_model_health_flags', 'A', true),
+    ('job_model_route_daily', 'A', true),
     ('job_opportunities', 'A', false),
     ('job_opportunity_identity_tokens', 'A', false),
     ('job_opportunity_matches', 'A', false),
@@ -485,6 +489,8 @@ BEGIN
     ('job_collection_runs', 'A', false),
     ('job_dirty_work', 'A', false),
     ('job_exclusion_filters', 'A', false),
+    ('job_model_health_flags', 'A', true),
+    ('job_model_route_daily', 'A', true),
     ('job_opportunities', 'A', false),
     ('job_opportunity_identity_tokens', 'A', false),
     ('job_opportunity_matches', 'A', false),
@@ -690,6 +696,8 @@ BEGIN
     ('job_collection_runs', 'A', false),
     ('job_dirty_work', 'A', false),
     ('job_exclusion_filters', 'A', false),
+    ('job_model_health_flags', 'A', true),
+    ('job_model_route_daily', 'A', true),
     ('job_opportunities', 'A', false),
     ('job_opportunity_identity_tokens', 'A', false),
     ('job_opportunity_matches', 'A', false),
@@ -1115,7 +1123,7 @@ $check$;
 DO $ok$
 BEGIN
   RAISE NOTICE 'db-privileges check passed: % relations classified, roles %, %, %',
-    84, 'crm_app', 'crm_collector', 'crm_retention_owner';
+    86, 'crm_app', 'crm_collector', 'crm_retention_owner';
 END
 $ok$;
 

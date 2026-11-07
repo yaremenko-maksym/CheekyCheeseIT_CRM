@@ -48,16 +48,13 @@ import { DatabaseService } from '../database/database.service'
 import { users } from '../database/schema'
 import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
 import { TurnstileService } from '../vacancies/turnstile.service'
+import { safeErrorReason, sleep } from './mailer-retry.util'
 import { ResendMailerService, type SendEmailInput } from './resend-mailer.service'
 
 /** "2 попытки с бэкоффом" (task §Ретрай) — first send + ONE retry. */
 const MAX_SEND_ATTEMPTS = 2
 /** Backoff before the single retry attempt. */
 const RETRY_BACKOFF_MS = 500
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
 
 @Injectable()
 export class ContactService {
@@ -182,9 +179,7 @@ export class ContactService {
       } catch (err) {
         lastError = err
         this.logger.warn(
-          `submit(): Resend send attempt ${attempt}/${MAX_SEND_ATTEMPTS} failed: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
+          `submit(): Resend send attempt ${attempt}/${MAX_SEND_ATTEMPTS} failed: ${safeErrorReason(err)}`,
         )
         if (attempt < MAX_SEND_ATTEMPTS) {
           await sleep(RETRY_BACKOFF_MS)
@@ -193,12 +188,12 @@ export class ContactService {
     }
 
     // PII note: never log the visitor's name/email/message — only the
-    // Resend failure reason (non-PII) and the fixed route string.
+    // body-free failure reason from `safeErrorReason` and the fixed route string.
     await this.telemetry.recordError({
       source: 'API',
       message: 'Contact form email delivery failed after retries',
       route: '/api/public/contact',
-      meta: { reason: lastError instanceof Error ? lastError.message : String(lastError) },
+      meta: { reason: safeErrorReason(lastError) },
     })
 
     throw new BadGatewayException(

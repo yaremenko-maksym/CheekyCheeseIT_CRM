@@ -24,6 +24,9 @@ describe('package index public surface (SPEC-M-1)', () => {
     const router = [
       'routerConfigSchema',
       'routerCallCeilingMs',
+      // The collection side derives its timeout from the maxima: it never sees the worker's config.
+      'MAX_HOSTED_BUDGET_MS',
+      'MAX_FLOOR_BUDGET_MS',
       'isAllowedRouterLocalModelUrl',
       'routerInputCeilingChars',
       'createRouterExtractionAdapter',

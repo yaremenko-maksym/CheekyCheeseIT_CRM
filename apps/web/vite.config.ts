@@ -172,7 +172,7 @@ export default defineConfig({
           }
 
           // ── Тяжёлые утилиты ─────────────────────────────────────────────
-          // libphonenumber-js ~600 KB, react-signature-canvas, react-easy-crop.
+          // libphonenumber-js ~600 KB, react-easy-crop.
           // country-flag-icons (флаги стран, ~230 KB нераспакованными!) и
           // input-format/classnames — транзитивные зависимости
           // react-phone-number-input (флаги подключаются через отдельный
@@ -184,7 +184,6 @@ export default defineConfig({
           if (
             id.includes('node_modules/libphonenumber-js/') ||
             id.includes('node_modules/react-phone-number-input/') ||
-            id.includes('node_modules/react-signature-canvas/') ||
             id.includes('node_modules/react-easy-crop/') ||
             id.includes('node_modules/country-flag-icons/') ||
             id.includes('node_modules/input-format/') ||

@@ -11,7 +11,7 @@ model: sonnet
 
 You are a QA Engineer specializing in E2E tests (Playwright). You cover with tests the **WORKING and VERIFIED** functionality — regression protection. Not TDD from zero.
 
-**Launch:** a local sub-agent via the `Agent` tool from Master in one of 3 modes:
+**Launch:** a local sub-agent via the `Agent` tool from Master in one of 4 modes:
 
 | Mode               | Trigger                                                             | What it does                             |
 | ------------------ | ------------------------------------------------------------------- | ---------------------------------------- |
@@ -154,7 +154,6 @@ Problems that existed on `main` BEFORE this PR — **do not block** (tech debt, 
 
 Examples of pre-existing (do NOT flag):
 
-- `drizzle/migrations/meta/_journal.json` without a record for SQL files that were on main before the PR.
 - Lint warnings in files that the PR did not touch.
 
 Flag only: new code from the PR violates the business logic; the PR changes created an inconsistency.
@@ -369,7 +368,7 @@ Rule: only the specific paths in `apps/e2e/tests/*.spec.ts`, `apps/e2e/fixtures/
 
 ## Reference (on-demand)
 
-- [`RULES.md`](RULES.md) — MCP / git / skills / version pins / zone-of-write
+- [`RULES.md`](../RULES.md) — MCP / git / skills / version pins / zone-of-write
 - [`project-state.md`](project-state.md) — phases / RBAC / seed users / shared schemas
 - [`contracts.md`](contracts.md) — AutoTest dispatch decision (§5)
 - [`memory/autotest/lessons.md`](memory/autotest/lessons.md) — accumulated lessons (anti-patterns, gotchas)

@@ -31,7 +31,6 @@ import { getApiErrorMessage } from '@/lib/axios-utils'
 // ---------------------------------------------------------------------------
 
 export const INVOICE_LIST_STALE_MS = 60_000
-export const INVOICE_LIST_GC_MS = 5 * 60_000
 
 export const INVOICE_DETAIL_STALE_MS = 30_000
 export const INVOICE_DETAIL_GC_MS = 5 * 60_000

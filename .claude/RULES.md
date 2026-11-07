@@ -176,8 +176,6 @@ Phase 4 (see `docs/architecture/2026-06-03-phase4-deliverable.md`) lifted 51 sub
 
 ## 7. Version pins — `.claude/rules/common/version-pins.md`
 
-**Summary:** Node 22 LTS, pnpm 7.32.4, Vite ^6.4 (NOT 7.x), TanStack Router `1.170.15` + plugin `1.168.18` (peer-matched EXACT pair, the numbers do NOT match), Tailwind v4, NestJS 11, Fastify ^5.8.5 via pnpm.overrides, Zod v4, PostgreSQL 16-alpine, Redis 7-alpine.
-
 **Forbidden overrides:** `@tanstack/router-*` in pnpm.overrides, Vite 7.x, Node major change without a DevOps task.
 
 See the full list with rationale + forbidden overrides: **[`.claude/rules/common/version-pins.md`](rules/common/version-pins.md)**.
@@ -210,17 +208,17 @@ See the full list with rationale + forbidden overrides: **[`.claude/rules/common
 
 | Doc                                         | For whom                | Size   | What's inside                                                 |
 | ------------------------------------------- | ----------------------- | ------ | ------------------------------------------------------------- |
-| `RULES.md` (this file)                      | All                     | ~5 KB  | TOC + summary + links to .claude/rules/common/                |
+| `RULES.md` (this file)                      | All                     | ~23 KB | TOC + summary + links to .claude/rules/common/                |
 | `.claude/rules/common/*.md`                 | **Auto-loaded**         | varies | Per-topic mechanism (MCP / git / skills / ...) — see §0       |
 | `docs/architecture/rules-rationale/*.md`    | On-demand               | varies | Why each rule says what it says — see §0                      |
-| `project-state.md`                          | All                     | ~7 KB  | Phases, migrations, RBAC, tech stack                          |
-| `contracts.md`                              | Master, Coder, Reviewer | ~6 KB  | Master-direct-dispatch contracts + labels + verdict semantics |
-| `coder.md`                                  | Coder                   | ~11 KB | Golden rules + workflow + recovery                            |
-| `code-reviewer.md` + `security-reviewer.md` | Reviewer                | ~10 KB | Workflow + security + write-then-post                         |
-| `autotest.md`                               | AutoTest                | ~10 KB | 3 modes + AC-first + anti-patterns                            |
-| `devops.md`                                 | DevOps                  | ~9 KB  | Workflow + CI pipeline + secrets                              |
+| `project-state.md`                          | All                     | ~25 KB | Phases, migrations, RBAC, tech stack                          |
+| `contracts.md`                              | Master, Coder, Reviewer | ~32 KB | Master-direct-dispatch contracts + labels + verdict semantics |
+| `coder.md`                                  | Coder                   | ~28 KB | Golden rules + workflow + recovery                            |
+| `code-reviewer.md` + `security-reviewer.md` | Reviewer                | ~50 KB | Workflow + security + write-then-post                         |
+| `autotest.md`                               | AutoTest                | ~18 KB | 4 modes + AC-first + anti-patterns                            |
+| `devops.md`                                 | DevOps                  | ~20 KB | Workflow + CI pipeline + secrets                              |
 | `architect.md`                              | Architect               | ~12 KB | ADR / agent-infra workflow + zone-of-write                    |
-| `legal.md`                                  | Legal                   | ~17 KB | 4 modes A/B/C/D + UA jurisdictional                           |
+| `legal.md`                                  | Legal                   | ~20 KB | 4 modes A/B/C/D + UA jurisdictional                           |
 | `memory/<agent>/lessons.md`                 | Each agent              | varies | Accumulated lessons (Phase 4: skills primary)                 |
 | `.claude/skills/<name>/SKILL.md`            | All (via Skill)         | varies | Invocable knowledge primitives (Phase 4 lift)                 |
 

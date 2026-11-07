@@ -15,7 +15,8 @@ import {
 import { afterEach, describe, expect, it } from 'vitest'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
-import { EXTRACTION_TABLE_VERSION, MAX_WORKER_INPUT_CHARS } from './schema'
+import { EXTRACTION_TABLE_VERSION } from './link-contract'
+import { MAX_WORKER_INPUT_CHARS } from './schema'
 import { buildExtractionWorker, type WorkerLogLine } from './server'
 
 const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
@@ -447,6 +448,52 @@ describe('extraction worker — a thrown route never leaks', () => {
     expect(res.json()).toEqual({ error: 'INTERNAL' })
     expect(JSON.stringify(logs)).not.toContain(SECRET)
     expect(JSON.stringify(logs)).not.toContain(INPUT_MARKER)
+  })
+})
+
+/** One of every router event kind: a new kind fails typecheck here until the sink test covers it. */
+const EVERY_EVENT: Record<RouterEvent['type'], RouterEvent> = {
+  CONFIG_REFUSED: { type: 'CONFIG_REFUSED' },
+  ATTEMPT: {
+    type: 'ATTEMPT',
+    route: 'groq',
+    model: 'openai/gpt-oss-20b',
+    code: 'RATE_LIMITED',
+    inputChars: 120,
+    latencyMs: 40,
+    status: 429,
+  },
+  RETIRED: { type: 'RETIRED', route: 'gemini', model: 'gemini-2.0-flash' },
+  PROVIDER_DISABLED: { type: 'PROVIDER_DISABLED', route: 'groq', code: 'AUTH' },
+  FELL_TO_LOCAL: {
+    type: 'FELL_TO_LOCAL',
+    plan: 'full-then-small',
+    reasons: [{ route: 'groq', code: 'RATE_LIMITED' }],
+  },
+  CALL: { type: 'CALL', code: 'OK', floorAnswered: true, latencyMs: 90 },
+}
+
+describe('extraction worker — the mandatory event sink (ADR §5.3)', () => {
+  it('every router event kind reaches the log and the reply; FELL_TO_LOCAL is not swallowed', async () => {
+    const events = Object.values(EVERY_EVENT)
+    const extract = fakePort(async () => {
+      for (const e of events) extract.onEvent(e)
+      return { ok: true, data: OK_REPLY, usage: { totalTokens: 7 } }
+    })
+    const { app, logs } = await setup({ extract })
+    track(app)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/extract',
+      headers: auth,
+      payload: body(),
+    })
+    const replied = res.json<{ events: RouterEvent[] }>().events
+    for (const e of events) {
+      expect(replied).toContainEqual(e)
+      expect(logs).toContainEqual({ event: 'ROUTER', ...e })
+    }
+    expect(replied.map((e) => e.type)).toContain('FELL_TO_LOCAL')
   })
 })
 

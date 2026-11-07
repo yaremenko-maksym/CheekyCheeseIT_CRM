@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClaimedRun } from '../ownership/job-run-ledger'
-import { JobRunWorker, type RunReport, boundedWrite } from './job-run-worker'
+import { boundedWrite } from './bounded-write'
+import { JobRunWorker, type RunReport } from './job-run-worker'
 
 /**
  * r5 Task 2.5 T5 — `startDue` (the claim awaited, the runs not), `runDue` over it, `activeRuns`.

@@ -490,8 +490,8 @@ describe('PersonalEmailInviteMailerService.sendInvite — retry policy (2 attemp
     })
     await expect(svc.sendInvite(INPUT)).resolves.toBe(true)
     expect(mailer.send).toHaveBeenCalledTimes(2)
-    // Kills: sleep()'s body emptied (BlockStatement, line ~49 — setTimeout
-    // never invoked at all) AND every `if (attempt < MAX_SEND_ATTEMPTS)`
+    // Kills: sleep()'s body emptied (BlockStatement in `contact/mailer-retry.util.ts`
+    // — setTimeout never invoked at all) AND every `if (attempt < MAX_SEND_ATTEMPTS)`
     // mutant that would make this EITHER 0 (condition flipped to false /
     // body emptied) OR observably wrong under the `attempt >= …` inversion
     // (which skips the sleep on the FIRST failed attempt specifically —

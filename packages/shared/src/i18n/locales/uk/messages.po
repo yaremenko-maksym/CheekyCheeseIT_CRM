@@ -3659,7 +3659,6 @@ msgstr "Робоча адреса має відрізнятися від осо�
 msgid "Вакансію створено"
 msgstr "Вакансію створено"
 
-#: apps/web/app/components/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
@@ -4949,7 +4948,6 @@ msgstr "Архівувати команду"
 msgid "Новий пароль"
 msgstr "Новий пароль"
 
-#: apps/web/app/components/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/users/UserRow.tsx
 #: apps/web/app/components/users/UserRow.tsx
@@ -7480,7 +7478,6 @@ msgstr "Навчальний заклад"
 msgid "Видалити {tag}"
 msgstr "Видалити {tag}"
 
-#: apps/web/app/components/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx

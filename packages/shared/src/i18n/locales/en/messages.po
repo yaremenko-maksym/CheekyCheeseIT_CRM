@@ -3659,7 +3659,6 @@ msgstr "The work email must be different from the personal email"
 msgid "Вакансію створено"
 msgstr "Vacancy created"
 
-#: apps/web/app/components/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
@@ -4949,7 +4948,6 @@ msgstr "Archive team"
 msgid "Новий пароль"
 msgstr "New password"
 
-#: apps/web/app/components/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/users/UserRow.tsx
 #: apps/web/app/components/users/UserRow.tsx
@@ -7480,7 +7478,6 @@ msgstr "Institution"
 msgid "Видалити {tag}"
 msgstr "Remove {tag}"
 
-#: apps/web/app/components/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx

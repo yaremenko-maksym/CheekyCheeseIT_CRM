@@ -895,6 +895,10 @@ capacity limit; nothing raises a limit or buys hardware automatically.
 
 ### Task 5.3: Discovery client and `RobotsPolicy`
 
+> **Split 2026-11-03.** **5.3a** `RobotsPolicy` + `Content-Signal` (pure, fixtures, no network) is free; **5.3b** the
+> engine client waits on Task 5.1. Likewise **5.7a** (pure JSON-LD extractor, synthetic fixtures) is separate from
+> **5.7b** (Djinni detail wiring: robots, authentic fixtures, owner "go", employer-withheld backlog item).
+
 - [ ] Reviewed REP parser or complete RFC 9309 fixtures (group merging, encoding, longest match/Allow tie, wildcards,
       unreachable handling, bounded size/cache); `Crawl-delay` honoured; `Content-Signal` parsed and `ai-input` exposed
       to the model gate (format open); 24 h cache max; fail closed on unreachable/5xx; 401/403 pause.
@@ -906,6 +910,13 @@ capacity limit; nothing raises a limit or buys hardware automatically.
       private-IP denial on redirects/subresources, missing metadata.
 
 ### Task 5.4: `HtmlStructurer` port + `OpenAiCompatibleStructurer` adapter
+
+> **Amended 2026-11-03 (owner decision of 2026-10-18 + repo state).** The model call goes through the existing
+> `@crm/inference` `ExtractionPort` (PR #1008), not a new OpenAI-compatible client; the adapter is a thin layer over it.
+> The route is the owner's chain (router over free hosted models with prompt dosing, local baseline), whose code is
+> adopted from the owner's VideoContentFactory project through its own ADR — until then `@crm/inference` offers a single
+> route (`local` or `openrouter`). Split for delivery: **5.4a** pure guards (contact stripping, `ai-input` gate, prompt
+> envelope, result guard), **5.4b** port + adapter + shared-budget port (fake in tests), **5.4c** router (after its ADR).
 
 Extract one discovered job/detail or a bounded chunk with known IDs/URLs (never an inventory from listing markdown);
 schema with nullable fields, evidence spans/revision IDs, uncertainty, extraction version; model-supplied URLs must
@@ -924,6 +935,11 @@ page text, classify exhaustion.
       pinned model/provider/runtime config. MP-03 gates enablement.
 
 ### Task 5.5: `HtmlProvider` base (HTTP-first; optional browser/model ports)
+
+> **Note, 2026-11-06 (task 5.5b).** The `buildModelExtraction` call site and the use of `prepareCycle` belong to task 5.5b, the
+> first HTML model provider. `HtmlProvider` is abstract with no concrete subclass, so nothing in production calls the extraction
+> wiring until 5.5b lands. `prepareCycle` arrives with 5.4c-4. ADR `docs/architecture/2026-11-03-extraction-model-router.md`,
+> §7.2 delivery state.
 
 Stage A: bounded deterministic discovery of IDs/URLs/pagination; Stage B: due detail fetches under policy/robots/
 quotas with validators/hashes and persistent enrichment state; Stage C: model only for fields not deterministically
