@@ -564,4 +564,29 @@ assert_green "SR-L-11: the main checkout with its hatch writing its own apps/x.t
   -- run_hook "$LW_MAIN" "Write" "$LW_MAIN/apps/x.ts"
 rm -f "$LW_MAIN/.claude/.allow-direct-edits"
 
+# Follow-up review of d5a97f53a: a case-insensitive filesystem (macOS APFS)
+# makes `.Allow-Direct-Edits` the same file as the hatch.
+assert_red "SR-L-11: a case variant of the escape-hatch file name -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "ESCAPE-HATCH" \
+  -- run_hook "$LW_A" "Write" "$LW_MAIN/.claude/.Allow-Direct-Edits"
+
+# Follow-up review of d5a97f53a: the hatch lookup used git, which skips a
+# corrupted nested `.git` and lands on a parent checkout that has a hatch.
+run_hook_with_corrupt_nested_head() {
+  local saved
+  saved="$(cat "$LW_MAIN/vendor/nested/.git/HEAD")"
+  printf 'garbage\n' >"$LW_MAIN/vendor/nested/.git/HEAD"
+  touch "$LW_MAIN/.claude/.allow-direct-edits"
+  run_hook "$@"
+  local rc=$?
+  rm -f "$LW_MAIN/.claude/.allow-direct-edits"
+  printf '%s\n' "$saved" >"$LW_MAIN/vendor/nested/.git/HEAD"
+  return $rc
+}
+assert_red "SR-L-11: a parent's hatch does not cover a nested checkout with a corrupted .git -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_with_corrupt_nested_head "$LW_MAIN" "Write" "$LW_MAIN/vendor/nested/apps/x.ts"
+
 guard_test_summary "test-pre-edit-write-zone-of-write.sh"

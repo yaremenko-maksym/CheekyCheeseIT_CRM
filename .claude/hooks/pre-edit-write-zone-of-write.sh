@@ -47,8 +47,9 @@
 #      nearest existing directory and that toplevel (SR-L-10: git skips a
 #      corrupted `<inner>/.git` and climbs to the outer worktree).
 #   4. Escape hatch file `<target-toplevel>/.claude/.allow-direct-edits`
-#      (gitignored; owner opt-out for emergency edits). Judged on the TARGET's
-#      checkout (git from the target's nearest existing directory), never on
+#      (gitignored; owner opt-out for emergency edits; a regular file, not a
+#      symlink). Judged on the TARGET's checkout — the nearest directory above
+#      the target holding a `.git` entry, found by lstat, not git — never on
 #      the cwd's (SR-L-11).
 #
 # Remaining allows, exactly: a non-edit tool; an empty file_path; a target
@@ -122,7 +123,10 @@ RESOLVED=$(python3 -c 'import os,sys; sys.stdout.buffer.write(os.path.realpath(o
 # SR-L-11: the escape-hatch file is created by the owner in a shell, never by a
 # tool call (a Write of it would turn the gate off for the next edit). Raw and
 # resolved basenames, so neither a symlink nor a failed resolve slips past.
-if [ "${FILE_PATH##*/}" = ".allow-direct-edits" ] || [ "${RESOLVED##*/}" = ".allow-direct-edits" ]; then
+# Case-insensitive: on macOS APFS `.Allow-Direct-Edits` IS the hatch file.
+HATCH_RAW=$(printf '%s' "${FILE_PATH##*/}" | LC_ALL=C tr 'A-Z' 'a-z')
+HATCH_RES=$(printf '%s' "${RESOLVED##*/}" | LC_ALL=C tr 'A-Z' 'a-z')
+if [ "$HATCH_RAW" = ".allow-direct-edits" ] || [ "$HATCH_RES" = ".allow-direct-edits" ]; then
   python3 -c "
 import json, sys
 reason = f'''🚫 ESCAPE-HATCH BLOCK (SR-L-11): {sys.argv[1]} is the zone-of-write escape-hatch file.
@@ -233,15 +237,19 @@ print(json.dumps({'decision': 'block', 'reason': reason}))
 esac
 
 # Allow #4: escape hatch file, judged on the TARGET's checkout (SR-L-11): a
-# hatch in the cwd's repo says nothing about another checkout. Empty RESOLVED
-# (python failed) means no hatch: fail closed.
+# hatch in the cwd's repo says nothing about another checkout. The checkout is
+# the NEAREST directory above the target holding a `.git` entry (lstat, no git:
+# git skips a corrupted nested `.git` and climbs to a parent that has a hatch).
+# Empty RESOLVED (python failed) means no hatch: fail closed.
 TARGET_ROOT=""
 if [ -n "$RESOLVED" ]; then
   TARGET_DIR=$RESOLVED
   while [ ! -d "$TARGET_DIR" ] && [ "$TARGET_DIR" != "/" ]; do TARGET_DIR=$(dirname "$TARGET_DIR"); done
-  TARGET_ROOT=$(git -C "$TARGET_DIR" rev-parse --show-toplevel 2>/dev/null || true)
+  while [ "$TARGET_DIR" != "/" ] && [ ! -e "$TARGET_DIR/.git" ] && [ ! -L "$TARGET_DIR/.git" ]; do TARGET_DIR=$(dirname "$TARGET_DIR"); done
+  [ "$TARGET_DIR" != "/" ] && TARGET_ROOT=$TARGET_DIR
 fi
-if [ -n "$TARGET_ROOT" ] && [ -f "$TARGET_ROOT/.claude/.allow-direct-edits" ]; then
+HATCH="$TARGET_ROOT/.claude/.allow-direct-edits"
+if [ -n "$TARGET_ROOT" ] && [ -f "$HATCH" ] && [ ! -L "$HATCH" ]; then
   exit 0
 fi
 
