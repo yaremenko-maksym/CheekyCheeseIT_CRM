@@ -7168,3 +7168,101 @@ for `notification_emails` also still names the invite mailer as the home of `saf
 **Verify.** Replace `safeErrorReason(err)` with `err.message` in either mailer, run its spec, and observe that it stays green.
 
 Source: security review of PR #1287.
+
+## 381. Queue infinite scroll: open focus, motion and screen-reader gaps (2026-11-07)
+
+**Symptoms.**
+
+- A retry answered with refresh-required unmounts the focused retry button; the foot's restart button takes no focus, so focus falls to `body` (CR-L-3 of #1276).
+- A retry answered with an empty last page drops focus and leaves `focusFrom` pending, so a later refetch can move focus unprompted. A rare race (CR-L-8 of #1276).
+- The queue's first-load retry button unmounts on click and parks focus nowhere, so focus falls to `body`; only the team-list retry parks it on the list body (CR-L-11 of #1276).
+- After a successful first-load retry, focus lands on a generic wrapper (QA-L-3 of #1272). That wrapper may be read with the stale error text, because focus moves before the re-render (UX-L-11 of #1272).
+- `aria-busy` sits on the status skeleton, which is removed rather than updated, so the loading line is probably never announced (UX-L-10 of #1272).
+- The foot shrinks 24 px when a retry starts, and `scrollTop` clamps (UX-L-2 of #1276).
+- The shared `Skeleton` keeps pulsing under `prefers-reduced-motion` on every screen (UX-L-4 of #1276). Candidate fix: `motion-reduce:animate-none` on `Skeleton`.
+- No real screen-reader pass of infinite scroll has been done. The owner decision of 2026-11-07 brings back an always-visible button if such a pass finds a problem.
+
+**Candidate fixes.** Give the restart button focus when a retry resolves to refresh-required; clear `focusFrom` when an append adds no rows; keep one status region mounted and change only its text.
+
+**Verify.** On `/job-queue`, make the retry request answer with an expired cursor and then with an empty page, and read `document.activeElement` after each. Run with reduced motion and inspect the `Skeleton` animation. Do a VoiceOver or NVDA pass through a whole append.
+
+Sources: PR #1272 and PR #1276 reviews.
+
+## 382. Queue list: deferred design and copy items from the Task 7.2 reviews (2026-11-07)
+
+**Symptoms.**
+
+- ADMIN has no indicator or control for the studio scope, so rows appear with no statement of whose they are (QA-L-2, SPEC-L-2 of #1272).
+- Filters stay a popover at every width; the spec's bottom sheet below 560 px is not built (SPEC-M-2 of #1272). The owner decision of 2026-11-07 keeps the popover and returns to this after QA at 320 px.
+- The filters footer has no divider or background above it (suggestion: `border-t pt-3`), and the list has no scroll fade, so a half-cut row is the only cue that more rows follow.
+- The source on a row is only an icon with an `aria-label`, with no visible name. The icon is generic rather than the spec's 20 px source chip (SPEC-L-3 of #1272).
+- The source `aria-label` has a double colon, «Джерело: Hacker News: Who is hiring», and a truncating filter checkbox label has no `title`.
+- Optional copy: a hidden-tab empty state that says how a vacancy gets hidden (COPY-L-3 of #1272). The en "stop-listed" is slightly jargon (COPY-L-6 of #1272). COPY-L-4 of #1272 asked for no action and is recorded here so it is not re-raised.
+- The sidebar label «Черга зовнішніх вакан…» clips without an ellipsis, the search placeholder clips at 320 px, and the brand link is under 44 px at 320 and 375 px. This is shell work (UX-L-6 of #1276).
+- Row fidelity: `JobQueueRow` lacks matched tokens in the **hit** style and also-seen source names (the remainder of the owner carve-out on #1276; the seniority and chips half of SPEC-M-1 of #1272 is in PR #1283). Decide at the start of Task 7.3 to build or to drop them from the spec. In the same edit, fix the spec's `totalAlsoSeenOnCount`, because the schema field is `alsoSeenOnCount`.
+- QA never exercised HR with real row data, because the seed gave HR an empty list.
+
+**Candidate fixes.** Each item stands alone. The row decision is the only one tied to a task.
+
+**Verify.** Open `/job-queue` as ADMIN and as HR with seeded grants at 320 px and 1440 px, and read each item above on screen.
+
+Sources: PR #1272 and PR #1276 reviews.
+
+## 383. Queue row and senior filter: gaps from the 7.2c and 7.2d follow-ups (2026-11-07)
+
+**Symptoms.**
+
+- `job_opportunities.seniority` has no writer, so the row's seniority badge stays hidden until one exists. The owner chose a separate task for the writer.
+- At content width 720 px and above, `@min-[720px]:order-first` shows age above counts while DOM and screen-reader order stays counts then age. Accepted as LOW: the facts are independent, the row is one button, and keyboard order is unaffected.
+- The senior filter picker lists 200 seniors alphabetically, so a senior past the cap cannot be picked. An id already in the URL still filters.
+
+**Candidate fixes.** Add a writer in the ingestion path. Move to a searched picker if a real team or studio can exceed the cap.
+
+**Verify.** `SELECT count(*) FROM job_opportunities WHERE seniority IS NOT NULL` returns 0 until a writer exists. Compare the largest senior count per team and per studio against the cap.
+
+Sources: PR #1282 and PR #1283.
+
+## 384. Local tooling on Windows: gates that do not run, or run differently (2026-11-07)
+
+**Symptoms.**
+
+- `@crm/api` specs do not work on Windows, so any push touching `apps/api` cannot pass the pre-push hook from a Windows checkout. The working route is a WSL clone.
+- `mutation-gate.mjs` on Windows: the false green is item 360. With a preload around it, the Node pin also fails with `could not start /c/nvm4w/nodejs/node: spawn /c/nvm4w/nodejs/node ENOENT`.
+- Bash's default `node` here is v25.4.0, against the Node 22 pin.
+- `isGitWorktree` in the web Vitest config returns false when the main checkout has no `node_modules`, so a t3 worktree gets `testTimeout` 15000 instead of 30000 and no fork limit. This also forced a 60 s timeout on `test-quality-rules.spec.ts`, whose comment still says "under CPU load" (SPEC-L-2 of #1276).
+- `poolOptions.forks.maxForks` in that config may be ignored by Vitest 4 (unverified).
+- A worktree without the generated, gitignored `routeTree.gen.ts` fails the pre-push typecheck with misleading errors: TS2307 on `./routeTree.gen`, and TS7053 in `login.tsx`.
+- The pre-push hook does not run the catalog gate, so a text edit passes the hook and then fails CI with `Run 'pnpm i18n:extract' and commit the updated .po catalogs`.
+- WSL load average stays near 27 while the CPU is 92% idle, so load average is not a usable signal on this VM. Cause unproven.
+- A haiku coder died three times on this repo with "the context refilled too quickly after compaction". Sonnet completed the same work.
+- After a Docker restart, containers named `crm-ux1276` may remain from a wedged daemon.
+
+**Candidate fixes.** Resolve `isGitWorktree` from `git rev-parse --git-common-dir`. Generate the route tree before typecheck. Add `i18n:extract` plus a diff check to the hook, scoped to diffs that touch visible text.
+
+**Verify.** From a t3 worktree, print the resolved `testTimeout`. Delete `routeTree.gen.ts` and run the hook. Run `docker ps -a --filter name=crm-ux1276`.
+
+Sources: PR #1272, PR #1276 and PR #1283 push logs.
+
+## 385. Web and API specs that fail under load but pass alone (2026-11-07)
+
+**Symptoms.** Each of these failed during a full run on a loaded machine and passes alone. No branch involved touched them:
+
+- Web finance specs, with `findBy*` or element-not-found timeouts: `cascade-impact-panel` (including CP-24 with 4 workers), `paid-salary-amount-edit`, `PaySalaryDialog.paid-amount`, `DropFinancePage`, `TransactionRow.settle-senior`, `AdminEditTransactionDialog.followups`, `CreateTransactionDialog.sections`, `SettleSeniorPayoutDialog`.
+- `JobQueueRow` spec, `renders title, company and source as one button that opens the card`, in Windows runs. Cause unproven.
+- `app.module.container.spec.ts` (hook timeout), once. `xml-limits.spec.ts` is item 364.
+
+**Candidate fixes.** Raise `findBy*` timeouts only where a cause is shown.
+
+**Verify.** `VITEST_MAX_WORKERS=4 pnpm --filter @crm/web test` five times on a loaded machine, then list which of these fail.
+
+Sources: pre-push logs of PR #1276, PR #1282 and PR #1283.
+
+## 386. Native scrollbars render white in the dark theme (2026-11-07)
+
+**Symptoms.** On Windows Chromium, native scrollbars are white on dark pages. The `.dark` rule does not set `color-scheme: dark`. This is app-wide and not caused by the job queue, whose scroller only exposes it.
+
+**Candidate fixes.** Set `color-scheme: dark` in the `.dark` rule.
+
+**Verify.** On any page, read `getComputedStyle(document.documentElement).colorScheme`. It is `normal` while this is open.
+
+Sources: PR #1276 design review, UX-L-9.

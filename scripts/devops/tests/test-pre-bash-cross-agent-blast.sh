@@ -451,6 +451,12 @@ assert_red "T3 worktree: mutating the shared checkout, which only git can name" 
 assert_green "T3 worktree: a path that merely looks like the checkout" \
   --not-contains '"decision": "block"' \
   -- run_hook "$T3_WT" "rm -rf $T3_CHECKOUT-other/apps/x"
+# #1297 SR-M-1 class: an inherited GIT_DIR must not steer git to another repository.
+git init -q "$T3_WS/decoy" >/dev/null 2>&1
+run_hook_with_git_dir() { GIT_DIR="$T3_WS/decoy/.git" run_hook "$@"; }
+assert_red "T3 worktree: an inherited GIT_DIR does not hide the shared checkout" \
+  --contains 'SHARED-CHECKOUT' \
+  -- run_hook_with_git_dir "$T3_WT" "rm -rf $T3_CHECKOUT/apps/x"
 rm -rf "$T3_WS"
 
 # ── no analyzer: refused, not waved through ─────────────────────────────────
@@ -463,5 +469,13 @@ assert_green "analyzer crash: exit 2 with INTERNAL ERROR" \
   --contains "INTERNAL ERROR" \
   -- exits_2 hook_at "$BROKEN_DIR/hook.sh" "pkill -f node" "/x/.claude/worktrees/a"
 rm -rf "$BROKEN_DIR"
+
+# ── an unreadable command is refused, not read as "no command" (#1297 SR-L-4 class) ──
+assert_green "lone surrogate in the command: exit 2 with INTERNAL ERROR, not waved through" \
+  --contains "INTERNAL ERROR" \
+  -- exits_2 hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":"pkill -f node \\ud800"}}'
+assert_green "an empty command still passes" \
+  --not-contains "INTERNAL ERROR" \
+  -- hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":""}}'
 
 guard_test_summary "test-pre-bash-cross-agent-blast.sh"

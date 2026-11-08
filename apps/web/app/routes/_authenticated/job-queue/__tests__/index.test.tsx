@@ -6,7 +6,7 @@
  */
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { JobQueueListResponseDto } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
@@ -145,8 +145,49 @@ function apiError(status: number, code: string) {
   })
 }
 
+/** jsdom has no IntersectionObserver: a stub whose sentinel comes into view only on `scrollToEnd()`. */
+const observers: Array<{
+  cb: IntersectionObserverCallback
+  live: boolean
+  root: IntersectionObserverInit['root']
+}> = []
+class StubObserver {
+  /** What the initial callback reports: is the sentinel already in view when it mounts? */
+  static inView = false
+  private readonly entry: (typeof observers)[number]
+  constructor(cb: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+    this.entry = { cb, live: false, root: options?.root }
+    observers.push(this.entry)
+  }
+  observe() {
+    this.entry.live = true
+    this.entry.cb(
+      [{ isIntersecting: StubObserver.inView } as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    )
+  }
+  disconnect() {
+    this.entry.live = false
+  }
+}
+
+async function scrollToEnd() {
+  await act(async () => {
+    for (const o of observers.filter((x) => x.live)) {
+      o.cb([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver)
+    }
+  })
+}
+
 describe('/job-queue page', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   beforeEach(async () => {
+    observers.length = 0
+    StubObserver.inView = false
+    vi.stubGlobal('IntersectionObserver', StubObserver)
     calls.length = 0
     mockNavigate.mockReset()
     currentSearch = { tab: 'NEW' }
@@ -389,6 +430,38 @@ describe('/job-queue page', () => {
     expect(screen.queryByTestId('job-queue-refresh')).toBeNull()
   })
 
+  it('the refresh notice includes «З’явилися оновлення.» (CR-L-4)', async () => {
+    serve({ queue: () => Promise.reject(apiError(409, 'JOB_QUEUE_REFRESH_REQUIRED')) })
+    renderPage()
+    const notice = await screen.findByTestId('job-queue-refresh')
+    expect(notice).toHaveTextContent('З’явилися оновлення.')
+    expect(screen.getByText('З’явилися оновлення.')).toHaveClass('text-foreground/70')
+    expect(screen.getByRole('button', { name: 'Показати оновлений список' })).toHaveClass(
+      'border-yellow-muted/40',
+      'bg-background',
+    )
+    // the icon sits with the text, so the narrow stack holds two items: that group and the button
+    // eslint-disable-next-line testing-library/no-node-access -- an aria-hidden icon has no role or name to query by
+    const icon = notice.querySelector('svg')
+    expect(icon).toHaveClass('text-primary')
+    // eslint-disable-next-line testing-library/no-node-access -- the assertion is about the icon's own wrapper
+    expect(icon?.parentElement).toHaveClass('flex-1', 'items-start')
+  })
+
+  it('the refresh notice button parks focus on the list body (CR-L-4)', async () => {
+    let n = 0
+    serve({
+      queue: () =>
+        n++ === 0
+          ? Promise.reject(apiError(409, 'JOB_QUEUE_REFRESH_REQUIRED'))
+          : Promise.resolve({ data: page() }),
+    })
+    renderPage()
+    await screen.findByTestId('job-queue-refresh')
+    await userEvent.click(screen.getByRole('button', { name: 'Показати оновлений список' }))
+    expect(screen.getByTestId('job-queue-body')).toHaveFocus()
+  })
+
   it('drops the rows and explains when access to the scope is lost', async () => {
     serve({ queue: () => Promise.reject(apiError(403, 'FORBIDDEN')) })
     renderPage()
@@ -488,21 +561,87 @@ describe('/job-queue page', () => {
   it('shows the tab count as the total before more pages load', async () => {
     serve({ queue: twoPages(() => new Promise(() => {})) })
     renderPage()
-    await screen.findByTestId('job-queue-load-more')
+    await screen.findByTestId('job-queue-sentinel')
+    expect(screen.queryByTestId('job-queue-retry')).toBeNull()
     expect(screen.getByTestId('job-queue-live')).toHaveTextContent(/^Показано 1 із 7$/)
+  })
+
+  // `main` in the authenticated layout is `overflow-hidden`: without this box the page cannot scroll.
+  it.each([
+    ['the list', () => serve(), `job-queue-row-${ITEM_ID}`],
+    ['the no-team state', () => serve({ teams: [] }), 'job-queue-no-team'],
+    [
+      'the failed team list',
+      () => serve({ teamsCall: () => Promise.reject(apiError(500, 'INTERNAL')) }),
+      'job-queue-error',
+    ],
+  ])('wraps %s in the page scroller', async (_label, arrange, testId) => {
+    arrange()
+    renderPage()
+    await screen.findByTestId(testId)
+    const scroller = screen.getByTestId('job-queue-scroll')
+    expect(scroller).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto')
+    expect(scroller).toContainElement(screen.getByTestId('job-queue-page'))
+  })
+
+  it('observes the sentinel against the page scroller', async () => {
+    serve({ queue: twoPages(() => new Promise(() => {})) })
+    renderPage()
+    await screen.findByTestId('job-queue-sentinel')
+    const live = observers.filter((o) => o.live)
+    expect(live).toHaveLength(1)
+    expect(live[0]!.root).toBe(screen.getByTestId('job-queue-scroll'))
+  })
+
+  it('a short first page already in view loads the next page without a scroll', async () => {
+    StubObserver.inView = true
+    serve({ queue: twoPages(() => new Promise(() => {})) })
+    renderPage()
+    await screen.findByTestId('job-queue-appending')
+    expect(queueCalls().map((c) => c.params?.['cursor'])).toEqual([undefined, 'c1'])
+  })
+
+  it('does not arm the sentinel during a background refetch', async () => {
+    const answer = { data: page({ nextCursor: 'c1' }) }
+    let settle = () => {}
+    let firstPages = 0
+    serve({
+      queue: () => {
+        firstPages += 1
+        return firstPages === 1
+          ? Promise.resolve(answer)
+          : new Promise((resolve) => {
+              settle = () => resolve(answer)
+            })
+      },
+    })
+    const { qc } = renderPage()
+    await screen.findByTestId('job-queue-sentinel')
+    act(() => {
+      void qc.invalidateQueries({ queryKey: ['job-queue'] })
+    })
+    await waitFor(() => expect(screen.queryByTestId('job-queue-sentinel')).toBeNull())
+    expect(firstPages).toBe(2)
+    act(() => settle())
+    expect(await screen.findByTestId('job-queue-sentinel')).toBeInTheDocument()
   })
 
   // CR-H-1: TanStack Query keeps `data` and flips `status` to 'error' when a later page fails.
   it('a failed next page keeps the loaded rows and shows the append error', async () => {
     serve({ queue: twoPages(() => Promise.reject(apiError(500, 'INTERNAL'))) })
     renderPage()
-    await userEvent.click(await screen.findByTestId('job-queue-load-more'))
+    await screen.findByTestId('job-queue-sentinel')
+    await scrollToEnd()
     expect(await screen.findByTestId('job-queue-append-error')).toHaveTextContent(
       'Не вдалося завантажити ще',
     )
     expect(screen.getByTestId(`job-queue-row-${ITEM_ID}`)).toBeInTheDocument()
     expect(screen.queryByTestId('job-queue-error')).toBeNull()
-    expect(screen.getByTestId('job-queue-load-more')).toHaveTextContent('Спробувати ще раз')
+    expect(screen.getByTestId('job-queue-retry')).toHaveTextContent('Спробувати ще раз')
+    // no auto-retry loop: the sentinel is gone until the user retries
+    expect(screen.queryByTestId('job-queue-sentinel')).toBeNull()
+    await scrollToEnd()
+    expect(queueCalls()).toHaveLength(2)
   })
 
   it('a refresh-required next page keeps the rows, shows the refresh notice over the partial one and offers no retry', async () => {
@@ -513,13 +652,50 @@ describe('/job-queue page', () => {
     })
     renderPage()
     expect(await screen.findByTestId('job-queue-partial')).toBeInTheDocument()
-    await userEvent.click(screen.getByTestId('job-queue-load-more'))
+    await screen.findByTestId('job-queue-sentinel')
+    await scrollToEnd()
     expect(await screen.findByTestId('job-queue-refresh')).toHaveTextContent('Список змінився')
     expect(screen.queryByTestId('job-queue-partial')).toBeNull()
     expect(screen.getByTestId(`job-queue-row-${ITEM_ID}`)).toBeInTheDocument()
     expect(screen.queryByTestId('job-queue-error')).toBeNull()
     expect(screen.queryByTestId('job-queue-append-error')).toBeNull()
-    expect(screen.queryByTestId('job-queue-load-more')).toBeNull()
+    expect(screen.queryByTestId('job-queue-retry')).toBeNull()
+  })
+
+  it('the foot refresh returns to the top of the list and parks focus on its body', async () => {
+    serve({
+      queue: twoPages(() => Promise.reject(apiError(409, 'JOB_QUEUE_REFRESH_REQUIRED'))),
+    })
+    renderPage()
+    await screen.findByTestId('job-queue-sentinel')
+    await scrollToEnd()
+    const foot = await screen.findByTestId('job-queue-refresh-foot')
+    const scroller = screen.getByTestId('job-queue-scroll')
+    scroller.scrollTop = 2400
+    const before = queueCalls().length
+    await userEvent.click(foot)
+    expect(scroller.scrollTop).toBe(0)
+    expect(screen.getByTestId('job-queue-body')).toHaveFocus()
+    await waitFor(() => expect(queueCalls().length).toBeGreaterThan(before))
+    expect(await screen.findByTestId(`job-queue-row-${ITEM_ID}`)).toBeInTheDocument()
+    expect(screen.queryByTestId('job-queue-refresh-foot')).toBeNull()
+    expect(screen.queryByTestId('job-queue-refresh')).toBeNull()
+  })
+
+  it('the scroller is a focusable region named by the page heading, without taking focus on load', async () => {
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    const scroller = screen.getByTestId('job-queue-scroll')
+    expect(scroller).toHaveAttribute('tabindex', '0')
+    expect(screen.getByRole('region', { name: 'Черга зовнішніх вакансій' })).toBe(scroller)
+    // inset: the layout's `main` is `overflow-hidden` and would clip an outer ring
+    expect(scroller).toHaveClass(
+      'focus-visible:ring-2',
+      'focus-visible:ring-inset',
+      'focus-visible:ring-ring',
+    )
+    expect(scroller).not.toHaveFocus()
   })
 
   it('a loaded next page is appended and announced', async () => {
@@ -533,8 +709,10 @@ describe('/job-queue page', () => {
       ),
     })
     renderPage()
-    await userEvent.click(await screen.findByTestId('job-queue-load-more'))
-    expect(await screen.findByTestId(`job-queue-row-${ITEM_2}`)).toHaveFocus()
+    await screen.findByTestId('job-queue-sentinel')
+    await scrollToEnd()
+    // a scroll append never steals focus
+    expect(await screen.findByTestId(`job-queue-row-${ITEM_2}`)).not.toHaveFocus()
     expect(screen.getByTestId('job-queue-live')).toHaveTextContent('Завантажено ще 1')
     expect(queueCalls()[1]?.params).toEqual({ teamId: TEAM_A, tab: 'NEW', limit: 20, cursor: 'c1' })
   })

@@ -100,7 +100,6 @@ const envSchema = z
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
     API_PORT: z.coerce.number().default(3001),
     DATABASE_URL: z.string().min(1),
-    REDIS_URL: z.string().min(1),
     GOOGLE_CLIENT_ID: z.string().min(1),
     GOOGLE_CLIENT_SECRET: z.string().min(1),
     GOOGLE_CALLBACK_URL: z.string().min(1),

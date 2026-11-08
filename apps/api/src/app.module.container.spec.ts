@@ -318,7 +318,6 @@ describe('AppModule — the real DI container resolves (backlog #42, #504 regres
     // own `pnpm test` run inherits — and `??=` would leave that empty string
     // untouched, failing `DATABASE_URL: Too small`.
     process.env['DATABASE_URL'] ||= 'postgresql://test:test@localhost:5432/test'
-    process.env['REDIS_URL'] ||= 'redis://localhost:6379'
     process.env['GOOGLE_CLIENT_ID'] ||= 'test-google-client-id'
     process.env['GOOGLE_CLIENT_SECRET'] ||= 'test-google-client-secret'
     process.env['GOOGLE_CALLBACK_URL'] ||= 'http://localhost:3001/api/auth/google/callback'

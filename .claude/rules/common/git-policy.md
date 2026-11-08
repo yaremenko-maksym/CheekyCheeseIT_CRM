@@ -40,30 +40,15 @@ vision: ✓ /team, /team/$teamId    # ONLY for UI tasks — affected routes
 - If some are not done — list the done ones + a comment: `ac_verified: 1,2,4 (3,5 — blocked, see .blocked.md)`
 - If the task has no UI — omit the `vision:` line, `ac_verified:` is mandatory.
 
-## Pre-push AC gate
+## Pre-push gates
 
-Claude PreToolUse:Bash hook `.claude/hooks/pre-bash-coder-push-gate.sh` (id
-`pre:bash:coder-push-gate`) blocks `git push` if the last commit **on any branch** does not contain an
-`ac_verified:` line. Do not bypass — finish the AC.
-
-**The gate closes everything but three exceptions:** `main` / `master` (not a work branch), and
-`architect/*` and `legal/*` (their tasks have no AC list in the task file). The cost of each exception
-is spelled out in the hook's header — read it **before** adding a fourth.
-
-A branch that honestly has nothing to verify (screenshots, notes) has two answers, both an assertion
-rather than a bypass: `wip:` in the commit subject, or `ac_verified: n/a (<why>)`.
-
-Test: `scripts/devops/tests/test-pre-bash-coder-push-gate.sh` (28 cases, by execution).
-
-## Prettier pre-push gate (catch formatting BEFORE push)
-
-Claude PreToolUse:Bash hook `.claude/hooks/pre-bash-prettier-gate.sh` (id `pre:bash:prettier-gate`)
-blocks `git push` if the files changed vs `origin/main` (`ts/tsx/js/jsx/json/md/yml`) did not pass
-`prettier --check` — a local mirror of the CI gate `check-no-skip-hooks.yml`.
-
-It resolves prettier worktree-safe (local `.bin` → MAIN-repo `.bin` via git-common-dir → `pnpm exec`);
-if prettier is unreachable — **fail-loud BLOCK** with the instruction `pnpm install`, not a silent
-skip. On a block it prints the exact fix command `prettier --write <files>`.
+`git push` is blocked when the last commit on the branch has no `ac_verified:` line
+(`pre:bash:coder-push-gate`; exceptions `main` / `master`, `architect/*`, `legal/*`), and when the
+files changed vs `origin/main` fail `prettier --check` (`pre:bash:prettier-gate`; it prints the fix
+command `prettier --write <files>`). Do not bypass — finish the AC. A branch that honestly has
+nothing to verify (screenshots, notes) has two answers, both an assertion rather than a bypass:
+`wip:` in the commit subject, or `ac_verified: n/a (<why>)`. Gate internals and tests:
+`.claude/rules/common/hook-gates.md`.
 
 ## WIP commits & chunking
 

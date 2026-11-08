@@ -1024,4 +1024,9 @@ assert_green "broken analyzer + harmless read: exit 2 (exit 1 does not block)" \
   --contains "Refused" \
   -- exits_2 hook_at "$BROKEN" "grep -rn 'pnpm dev' .claude/rules"
 
+# #1297 SR-L-6 class: under a UTF-8 locale, macOS tr and grep fail on an invalid byte,
+# so the fast path used to read "no launch word" and exit 0 before the analyzer ran.
+assert_green "a raw invalid byte in the payload does not skip the fast path" \
+  -- exits_2 hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":"\xff pnpm --filter @crm/api dev"}}'
+
 guard_test_summary "test-pre-bash-live-db-guard.sh"

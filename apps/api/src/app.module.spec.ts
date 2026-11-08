@@ -85,7 +85,6 @@ describe.skipIf(SKIP_LOCAL_PERF)(
       // legitimate reason any of these would ever be intentionally empty, so
       // this cannot silently swallow a real ambient value either.
       process.env['DATABASE_URL'] ||= 'postgresql://test:test@localhost:5432/test'
-      process.env['REDIS_URL'] ||= 'redis://localhost:6379'
       process.env['GOOGLE_CLIENT_ID'] ||= 'test-google-client-id'
       process.env['GOOGLE_CLIENT_SECRET'] ||= 'test-google-client-secret'
       process.env['GOOGLE_CALLBACK_URL'] ||= 'http://localhost:3001/api/auth/google/callback'

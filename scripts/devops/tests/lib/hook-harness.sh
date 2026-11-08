@@ -56,6 +56,12 @@ hook_without_python() {
   return "$rc"
 }
 
+# Feeds hook $1 the bytes of printf FORMAT $2 under a UTF-8 locale, so a payload can
+# carry a raw invalid byte (\xff) or a lone-surrogate JSON escape (\\ud800).
+hook_raw() {
+  printf "$2" | LC_ALL=C.UTF-8 bash "$1"
+}
+
 # Copies a hook into a scratch dir next to a DELIBERATELY BROKEN lib/cmdscan.py,
 # so the "my analyzer died" branch can be exercised for real instead of read.
 # Echoes the path of the copy.

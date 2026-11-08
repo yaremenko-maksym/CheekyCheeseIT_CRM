@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Сверяет каталог project-local скиллов в rules/common/skills-invocation.md
+// Reconciles the project-local skill catalog in .claude/skills/README.md
 // с тем, что реально лежит в .claude/skills/.
 //
 // Зачем. 2026-07-28: mandatory-триггер предписывал `superpowers:security-review`,
@@ -12,13 +12,13 @@
 //   1. каждый каталог .claude/skills/<name>/ имеет SKILL.md;
 //   2. frontmatter несёт `name`, и он совпадает с именем каталога;
 //   3. frontmatter несёт непустой `when_to_use`;
-//   4. каждый скилл с диска присутствует в каталоге skills-invocation.md;
+//   4. every skill on disk is present in the catalog in .claude/skills/README.md;
 //   5. каждая строка каталога соответствует существующему скиллу.
 //
 // Область. Ссылки вида `<pack>:<skill>` (`superpowers:brainstorming`) НЕ
 // проверяются: у CI-раннера нет ~/.claude/plugins оператора, поэтому проверить
 // их машинно невозможно. Для них остаётся процедурная сверка, описанная в
-// skills-invocation.md §«Reconcile this table on every plugin update»; история
+// .claude/skills/README.md (reconcile procedure); история
 // инцидента 2026-07-28 — docs/architecture/rules-rationale/skills-invocation.md.
 //
 // Использование:
@@ -29,7 +29,7 @@ import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const SKILLS_DIR = '.claude/skills'
-const REGISTRY = '.claude/rules/common/skills-invocation.md'
+const REGISTRY = '.claude/skills/README.md'
 const SECTION = 'Project-local skills'
 
 const listOnly = process.argv.includes('--list')
