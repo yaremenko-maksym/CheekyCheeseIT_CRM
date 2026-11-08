@@ -138,7 +138,12 @@ function rowKeywords(evidence: unknown): string[] {
   const keywords = evidence.flatMap((e) =>
     matchFacts(e).keywords.map((k) => k.slice(0, MAX_STACK_KEYWORD_CHARS)),
   )
-  return [...new Set(keywords)].sort().slice(0, JOB_QUEUE_ROW_KEYWORDS_MAX)
+  // Case-insensitive, so `aws` is not dropped after every capitalised keyword at the cap (UX-LOW-1);
+  // the code-unit sort first makes ties (`React`/`react`) come out in one order: the second sort is stable.
+  return [...new Set(keywords)]
+    .sort()
+    .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
+    .slice(0, JOB_QUEUE_ROW_KEYWORDS_MAX)
 }
 
 /**

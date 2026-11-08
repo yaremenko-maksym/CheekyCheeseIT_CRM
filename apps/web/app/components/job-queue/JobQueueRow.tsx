@@ -108,7 +108,7 @@ export function JobQueueRow({
       type="button"
       data-testid={`job-queue-row-${item.opportunityId}`}
       onClick={() => onOpen(item.opportunityId)}
-      className="flex min-h-11 w-full min-w-0 items-start gap-3 rounded-lg border bg-card p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring @min-[560px]:rounded-none @min-[560px]:border-0 @min-[560px]:bg-transparent"
+      className="relative flex min-h-11 w-full min-w-0 items-start gap-3 rounded-lg border bg-card p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring @min-[560px]:rounded-none @min-[560px]:border-0 @min-[560px]:bg-transparent"
     >
       <span className="flex min-w-0 flex-1 flex-col gap-1 @min-[720px]:contents">
         <span

@@ -531,6 +531,19 @@ describe('toListItem', () => {
       expect(expected).toHaveLength(JOB_QUEUE_ROW_KEYWORDS_MAX)
     })
 
+    it('sorts case-insensitively, so the cap keeps the alphabetically-first keywords (UX-LOW-1)', () => {
+      expect(
+        keywordsOf([tech('TypeScript:CORE', 'aws:CORE', 'React:CORE', 'Node.js:CORE')]),
+      ).toEqual(['aws', 'Node.js', 'React', 'TypeScript'])
+      const upper = Array.from({ length: JOB_QUEUE_ROW_KEYWORDS_MAX }, (_, i) => `K${i}:CORE`)
+      expect(keywordsOf([tech(...upper, 'aws:CORE')])[0]).toBe('aws')
+    })
+
+    it('orders two keywords that differ only by case the same way on every read', () => {
+      expect(keywordsOf([tech('react:CORE', 'React:CORE')])).toEqual(['React', 'react'])
+      expect(keywordsOf([tech('React:CORE', 'react:CORE')])).toEqual(['React', 'react'])
+    })
+
     it('drops a keyword that is only a strength suffix, before the union (SO-2)', () => {
       expect(keywordsOf([tech(':CORE', 'go:CORE'), tech('', ':OPTIONAL')])).toEqual(['go'])
     })

@@ -208,6 +208,11 @@ describe('JobQueueRow', () => {
       expect(screen.getByTestId('job-queue-row-seniority').tagName).toBe('SPAN')
       expect(screen.getByTestId('job-queue-row-keywords').tagName).toBe('SPAN')
     })
+
+    it('positions the row, so the sr-only overflow text is contained by it, not the page (QA-MED-1)', () => {
+      const { row } = renderRow({ matchedKeywords: ['a', 'b', 'c', 'd', 'e'] })
+      expect(row).toHaveClass('relative')
+    })
   })
 
   it('shows publication age when the date is known', () => {
