@@ -711,17 +711,27 @@ if mutating or redirect_targets:
         for n, a in toks:
             if is_mutating(n, a):
                 cand += [x for x in a if not x.startswith("-")]
+        def braces(s):
+            # bash brace expansion, so `{..,x}/t3-y` and `..{/t3-y,}` are judged as each word it makes.
+            m = re.search(r"\{([^{}]*,[^{}]*)\}", s)
+            if not m:
+                return [s]
+            return [y for alt in m.group(1).split(",")
+                    for y in braces(s[:m.start()] + alt + s[m.end():])][:64]
         up = []
         for c in cand:
-            p = to_posix(os.path.expandvars(os.path.expanduser(c) if c.startswith("~") else c))
+          for w in braces(c):
+            # `~+` is $PWD and `~-` is $OLDPWD; expanduser leaves both alone.
+            w = re.sub(r"^~\+(?=/|$)", cwd, re.sub(r"^~-(?=/|$)", "$OLDPWD", w))
+            p = to_posix(os.path.expandvars(os.path.expanduser(w) if w.startswith("~") else w))
             # A glob or an unknown variable (`../*`, `$X/y`) is judged by the directory
-            # of its literal prefix; with no literal prefix it is not judged here.
-            g = re.search(r"[*?\[{$\x60]", p)
+            # of its literal prefix; with no literal prefix, by the current directory.
+            g = re.search(r"[*?\[$\x60]", p)
             if g:
-                p = p[:g.start()] if p[:g.start()].endswith("/") else posixpath.dirname(p[:g.start()])
-                if not p:
-                    continue
-            p = posixpath.normpath(posixpath.join(cwd, p)).lower().rstrip("/")
+                pre = p[:g.start()]
+                # `..$X` is `..` itself when X is empty.
+                p = pre if pre.endswith("/") or posixpath.basename(pre) in (".", "..") else posixpath.dirname(pre)
+            p = posixpath.normpath(posixpath.join(cwd, p or ".")).lower().rstrip("/")
             mine = own_wt.lower().rstrip("/")
             if mine.startswith(p + "/") or (
                     (p + "/").startswith(posixpath.dirname(mine) + "/")

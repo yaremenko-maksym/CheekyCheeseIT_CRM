@@ -418,7 +418,9 @@ assert_green "T3 worktree: mutating my own worktree" \
 for c in "rm -rf /Users/dev/.t3/worktrees/crm/" "rm -rf /Users/dev/.t3/worktrees/crm" \
          "rm -rf /Users/dev/.t3/worktrees" "rm -rf .." "rm -rf ../../" \
          "rm -rf ../*" "rm -rf /Users/dev/.t3/worktrees/c*" "rm -rf ../{a,b}" "rm -rf /*" \
-         "rm -rf ../t3-xyz" "rm -rf /Users/dev/.t3/worktrees/crm/t3-xyz/src"; do
+         "rm -rf ../t3-xyz" "rm -rf /Users/dev/.t3/worktrees/crm/t3-xyz/src" \
+         "rm -rf {../*,x}" "touch {..,y}/t3-xyz" "rm -rf ..{/t3-xyz,}" "rm -rf .{.,}/t3-xyz" \
+         "rm -rf ~+/../t3-xyz" "chmod -R 000 ..\$X"; do
   assert_red "T3 worktree: $c" --contains 'FOREIGN-WORKTREE' -- run_hook "$T3_MINE" "$c"
 done
 for c in "rm -rf 'C:\Users\dev\.t3\worktrees\crm'" "rm -rf C:/Users/dev/.t3/worktrees/"; do
@@ -428,7 +430,7 @@ for c in "rm -rf 'C:\Users\dev\.t3\worktrees\crm'" "rm -rf C:/Users/dev/.t3/work
 done
 assert_green "T3 worktree: a sibling directory inside my worktree" \
   --not-contains '"decision": "block"' \
-  -- run_hook "$T3_MINE" "rm -rf ./build ../t3-abc/dist ./build/* dist/*.map"
+  -- run_hook "$T3_MINE" "rm -rf ./build ../t3-abc/dist ./build/* dist/*.map ./{a,b}/x ~+/tmp \$X"
 assert_green "T3 worktree: killing one PID" \
   --not-contains '"decision": "block"' \
   -- run_hook "$T3_MINE" "kill 1234"

@@ -708,3 +708,7 @@ block	db,ttl	rtk bypass -v 'pnpm dev'
 block	db,ttl	rtk summary 'echo ok && pnpm dev'
 allow	all	rtk bypass 'echo hello world'
 allow	all	rtk test 'pnpm --filter @crm/api test'
+# SR-H-25 (2026-11-08): in $'...' bash reads \' as a quote, not the end of the string.
+block	safety	echo $'\' '; rm -rf /etc #'
+block	safety	echo $'\' #'; rm -rf /etc #'
+block	db,ttl	echo $'\' '; pnpm dev #'

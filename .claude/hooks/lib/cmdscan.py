@@ -1000,6 +1000,54 @@ def _brace_stands_alone(text, i):
 # The decision is made from the text itself: count the run of backslashes before the
 # previous character; an odd run means that character is escaped.
 _STRIP_COMMENTS = True
+_ANSI_ALT = False
+
+
+def _ansi_c_alt(text):
+    """bash reads `$'...'` with backslash escapes, so `\\'` does not close it; every
+    other reader here closes it there (SR-H-25: `echo $'\\' '; rm -rf /etc #'` hid the
+    rm). Returns the text with each `$'...'` re-spelled in plain quoting, or None
+    when no `$'...'` holds a backslash (then both readings agree)."""
+    if "$'" not in text:
+        return None
+    out = []
+    i, n, q, hit = 0, len(text), None, False
+    while i < n:
+        ch = text[i]
+        if q == "'":
+            q = None if ch == "'" else q
+            out.append(ch)
+            i += 1
+        elif ch == "\\" and i + 1 < n:
+            out.append(text[i:i + 2])
+            i += 2
+        elif q == '"':
+            q = None if ch == '"' else q
+            out.append(ch)
+            i += 1
+        elif text.startswith("$'", i):
+            j, val = i + 2, []
+            while j < n and text[j] != "'":
+                if text[j] == "\\" and j + 1 < n:
+                    hit = True
+                    nx = text[j + 1]
+                    val.append(nx if nx in "'\"\\?" else "\\" + nx)
+                    j += 2
+                else:
+                    val.append(text[j])
+                    j += 1
+            out.append(shlex.quote("".join(val)))
+            i = j + 1
+        elif ch == "#" and _STRIP_COMMENTS and _starts_word(text, i):
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+            out.append(text[i:j])
+            i = j
+        else:
+            q = ch if ch in "'\"" else q
+            out.append(ch)
+            i += 1
+    return "".join(out) if hit else None
 
 
 def _starts_word(text, i):
@@ -1949,7 +1997,7 @@ def candidates(seg, code=False):
 
 
 def scan(command_line, depth=0, env=None):
-    global _STRIP_COMMENTS
+    global _STRIP_COMMENTS, _ANSI_ALT
     command_line = command_line or ""
     spans = _heredoc_literal_spans(command_line)
     text, inners = _extract_substitutions(command_line, spans)
@@ -2038,6 +2086,23 @@ def scan(command_line, depth=0, env=None):
                  if sg.raw not in have and not sg.raw.lstrip().startswith("#")]
         result.alt_only = extra
         result.segments = list(result.segments) + extra
+        if alt.code_view != result.code_view:
+            result.code_view = result.code_view + "\n" + alt.code_view
+        result.degraded = result.degraded or alt.degraded
+        result.truncated = result.truncated or alt.truncated
+    ansi = None if _ANSI_ALT else _ansi_c_alt(command_line)
+    if ansi is not None:
+        # SR-H-25: bash's reading of `$'...'` is merged like the comment-keeping one
+        # above, so it can add segments to judge and never removes one.
+        _ANSI_ALT = True
+        try:
+            alt = scan(ansi, depth, env)
+        finally:
+            _ANSI_ALT = False
+        have = set(sg.raw for sg in result.segments)
+        result.segments = list(result.segments) + [
+            sg for sg in alt.segments
+            if sg.raw not in have and not sg.raw.lstrip().startswith("#")]
         if alt.code_view != result.code_view:
             result.code_view = result.code_view + "\n" + alt.code_view
         result.degraded = result.degraded or alt.degraded
