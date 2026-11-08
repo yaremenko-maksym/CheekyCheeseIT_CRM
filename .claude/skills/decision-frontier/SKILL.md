@@ -89,6 +89,37 @@ A question that survived to the brief but is obtainable by `grep`/`gh`/`psql` is
 
 This is cheaper than it seems: the owner answers with a delay, and one extra question costs hours.
 
+## The decision-brief contract
+
+> Moved verbatim from `rules/common/autonomy-levels.md` (2026-11-08); that rule points here.
+
+One batch per phase, readable on a phone.
+
+```
+🟠 Decisions from you — <N> pcs · <task-id> · PR #<N>
+Everything else on the task is finished and waits only on this.
+Still running: <neighbouring tasks>
+
+❓ 1 — <question title in one line>
+   <context: 2-3 lines, jargon unfolded, numbers concrete>
+➡️ I recommend: <answer> — <why, one line>
+🔓 Reversible · ⏱ silence until <date time> → I take the recommendation, record it
+   in "Assumptions", rollback = <rollback cost>
+
+❓ 2 — <...>
+➡️ I recommend: <...>
+🔒 Irreversible (<why>). Without an answer I do not move.
+```
+
+Format rules:
+
+- **A recommendation is always present.** A question without a recommendation offloads work onto the owner.
+- **One question — one idea.** A compound question gets a compound answer that then nobody can interpret.
+- **Jargon unfolded** per `CONTEXT.md`: the brief is read by someone who was not in the session.
+- **Not a single fact.** Before sending, go through the list: if a command answers the question — the
+  question is deleted and the answer obtained.
+- **A deadline only on A2.** A3 has no auto-acceptance by definition.
+
 ## Anti-patterns
 
 - **A flat list instead of a tree.** Gives a false "everything is blocked": in reality one
@@ -102,7 +133,7 @@ This is cheaper than it seems: the owner answers with a delay, and one extra que
 
 ## Related
 
-- `rules/common/autonomy-levels.md` — the canon of levels and the decision brief format.
+- `rules/common/autonomy-levels.md` — the canon of levels; the brief format is §"The decision-brief contract" above.
 - `rules/common/phase-boundaries.md` — when to send the accumulated brief.
 - `rules/common/live-db-access.md` — reading the live DB is allowed, writing is not.
 - `CONTEXT.md` — the vocabulary that unpacks jargon in the questions.

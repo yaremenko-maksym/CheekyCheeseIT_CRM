@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Сверяет каталог project-local скиллов в rules/common/skills-invocation.md
+// Reconciles the project-local skill catalog in .claude/skills/README.md
 // с тем, что реально лежит в .claude/skills/.
 //
 // Зачем. 2026-07-28: mandatory-триггер предписывал `superpowers:security-review`,
@@ -29,7 +29,7 @@ import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const SKILLS_DIR = '.claude/skills'
-const REGISTRY = '.claude/rules/common/skills-invocation.md'
+const REGISTRY = '.claude/skills/README.md'
 const SECTION = 'Project-local skills'
 
 const listOnly = process.argv.includes('--list')

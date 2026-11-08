@@ -29,12 +29,14 @@ recorded way. Index and reading guidance: `docs/architecture/rules-rationale/REA
 `design-fidelity-review.md`, `responsive-design.md` (`apps/web/**`, `apps/landing/**`),
 `eslint-mcp-first.md` (`**/*.ts(x)`), `mutation-gate-integration-specs.md` (`**/*.spec.ts(x)`),
 `version-pins.md` (manifests, lockfile, Node pins, Docker files, workflows), `doc-durability.md`
-(backlog, `.out-of-scope/`, `docs/architecture/**`, lessons).
+(backlog, `.out-of-scope/`, `docs/architecture/**`, lessons), `graphify.md` (`.sql`, `.sh`, `.json`,
+`graphify-out/**`), `hook-gates.md` (`.claude/hooks/**`, `.claude/settings*.json`, hook tests).
 
 **On-demand (NOT auto-loaded, excluded by `claudeMdExcludes` in `.claude/settings.json`), read when the
 trigger fires:** `model-routing.md` + `orchestration-routing.md` (Master, before the first dispatch of a
 session), `light-track.md` (Master, before a direct edit), `review-findings-transfer.md` (writing,
-transferring or fixing review findings), `phase-boundaries.md` (end of a phase). Triggers are repeated
+transferring or fixing review findings), `phase-boundaries.md` (end of a phase), `zone-of-write.md` (writing a file the task does not name,
+dispatching or accepting a write-agent, reviewing a diff for zone violations). Triggers are repeated
 in `CLAUDE.md` § Session minimum, which every session and subagent loads.
 
 ---
