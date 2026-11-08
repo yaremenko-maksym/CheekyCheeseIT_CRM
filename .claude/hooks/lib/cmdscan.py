@@ -551,9 +551,13 @@ class Segment:
 
 
 class Scan:
-    __slots__ = ("segments", "assigns", "code_view", "degraded", "truncated", "alt_only")
+    __slots__ = ("segments", "assigns", "code_view", "degraded", "truncated", "alt_only",
+                 "plain_view")
 
     def __init__(self, segments, assigns, code_view, degraded, truncated=False):
+        # code_view of the comment-stripping reading alone (`_starts_word` decides
+        # what a comment is); code_view also gets the comment-keeping reading.
+        self.plain_view = code_view
         # Segments that ONLY the comment-free reading produced (top-level scan only);
         # they are already merged into `segments`. Kept separately so a test can ask
         # "did the comment stripper get this right on its own?" - a union that masks the
@@ -1329,10 +1333,11 @@ def _unwrap(tokens, assigns):
                 tokens.pop(0)
             elif "--" in tokens:
                 # Earlier versions read only what follows the first `--`. That reading
-                # stays, so its assignments still reach the env that is judged, and
-                # the words in front of the `--` are judged as code of their own.
+                # stays, so its assignments still reach the env that is judged. The
+                # script runs all of it, `--` included, so that whole argv is judged
+                # as code of its own too.
                 k = tokens.index("--")
-                nested_code.append(" ".join(shlex.quote(t) for t in tokens[:k]))
+                nested_code.append(" ".join(shlex.quote(t) for t in tokens))
                 tokens = tokens[k + 1:]
             elif tokens[:1] == ["--ttl"]:
                 # The script exits on a TTL that is not a number; judge every word anyway.

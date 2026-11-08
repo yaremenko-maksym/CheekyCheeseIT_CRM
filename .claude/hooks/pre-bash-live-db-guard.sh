@@ -528,8 +528,8 @@ def judge(seg):
     UNDOES = ("unset", "enable", "declare", "typeset", "local", "read", "mapfile", "readarray",
               "getopts", "wait", "trap", "eval", "source", ".", "printf")
     # A `#` that starts a word opens a comment; its words are not statements.
-    plain_view = re.sub(r"(?:^|(?<=\s))#[^\n]*", " ", scan.code_view)
-    plain_view = re.sub(r"[<>]\s*&", " ", plain_view)
+    # cmdscan decides that on the raw text (code_view has lost quotes and `\`).
+    plain_view = re.sub(r"[<>]\s*&", " ", scan.plain_view)
     from_export = [v for v in PINNED if v in env and not literal_inline(v)]
     # declare/typeset +x and export -n un-export a name; any of them on the line counts.
     undone = any(s.name in UNDOES or (s.name and not PLAIN_WORD.match(s.name))

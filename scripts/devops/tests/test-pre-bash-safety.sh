@@ -360,6 +360,11 @@ assert_red "SR-H-24: sh -c <rm -rf /etc> x dev-ttl.sh" \
   --contains "[pre:bash:safety] BLOCK" \
   -- h "sh -c 'rm -rf /etc' x dev-ttl.sh"
 
+# CR-M-3: dev-ttl.sh runs its whole argv, a later `--` included.
+for c in "scripts/devops/dev-ttl.sh rm -rf -- /etc" "scripts/devops/dev-ttl.sh --ttl 5 rm -rf -- /etc"; do
+  assert_red "CR-M-3: $c" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+
 assert_red "SR-H-24: объединённая короткая группа -ec" \
   --contains "[pre:bash:safety] BLOCK" \
   -- h "bash -ec \"psql -c '$DROP'\" x dev-ttl.sh"

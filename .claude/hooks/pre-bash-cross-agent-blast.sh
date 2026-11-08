@@ -713,14 +713,24 @@ if mutating or redirect_targets:
                 cand += [x for x in a if not x.startswith("-")]
         up = []
         for c in cand:
-            p = to_posix(os.path.expanduser(c) if c.startswith("~") else c)
+            p = to_posix(os.path.expandvars(os.path.expanduser(c) if c.startswith("~") else c))
+            # A glob or an unknown variable (`../*`, `$X/y`) is judged by the directory
+            # of its literal prefix; with no literal prefix it is not judged here.
+            g = re.search(r"[*?\[{$\x60]", p)
+            if g:
+                p = p[:g.start()] if p[:g.start()].endswith("/") else posixpath.dirname(p[:g.start()])
+                if not p:
+                    continue
             p = posixpath.normpath(posixpath.join(cwd, p)).lower().rstrip("/")
-            if own_wt.lower().startswith(p + "/"):
+            mine = own_wt.lower().rstrip("/")
+            if mine.startswith(p + "/") or (
+                    (p + "/").startswith(posixpath.dirname(mine) + "/")
+                    and p != mine and not p.startswith(mine + "/")):
                 up.append(c)
         if up:
             reasons.append(
-                "FOREIGN-WORKTREE|команда мутирует каталог над твоим T3-worktree "
-                "(%s), а в нём лежат worktree других агентов. Твой — %s."
+                "FOREIGN-WORKTREE|the command changes a directory above or next to "
+                "your T3 worktree (%s), where the worktrees of other agents are. Yours: %s."
                 % (", ".join(sorted(set(up))[:3]), own_wt)
             )
 

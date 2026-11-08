@@ -969,6 +969,8 @@ for l in "pnpm --filter @crm/api dev" "pnpm dev" "vite --port 3010" "node apps/a
   assert_red "SR-H-7: ${l}" --contains '"decision": "block"' \
     -- h "$PIN3 scripts/devops/dev-ttl.sh --ttl 5 --ttl 6 -- DATABASE_URL=$LIVE_DB $l"
 done
+assert_red "SR-M-21: the script runs node -- apps/api/dist/main as one command" \
+  --contains '"decision": "block"' -- h "scripts/devops/dev-ttl.sh node -- apps/api/dist/main"
 assert_launch_green "one --ttl N before the -- stays allowed" \
   -- h "$PIN3 scripts/devops/dev-ttl.sh --ttl 5 -- $RUN"
 
@@ -987,7 +989,10 @@ for c in "false && export $EX; $RUN" "true || export $EX; $RUN" "if false; then 
          "export $EX; \`echo unset\` DATABASE_URL; $RUN" "export $EX; X=unset; \$X DATABASE_URL; $RUN" \
          "export $EX; trap 'unset DATABASE_URL' DEBUG; $RUN" "export $EX; mapfile -t DATABASE_URL < /tmp/l; $RUN" \
          "export $EX; readarray DATABASE_URL < /tmp/l; $RUN" "export $EX; getopts a: DATABASE_URL -a; $RUN" \
-         "export $EX; wait -p DATABASE_URL; $RUN" "export $EX; read DATABASE_URL < /tmp/l; $RUN"; do
+         "export $EX; wait -p DATABASE_URL; $RUN" "export $EX; read DATABASE_URL < /tmp/l; $RUN" \
+         "false \\ #&& export $EX; $RUN" "false ' '#&& export $EX; $RUN" "false \"\"#|| export $EX; $RUN" \
+         "echo ''#; false && export $EX; $RUN" "echo x\\ #; false && export $EX; $RUN" \
+         "echo 'x'#b; (export $EX); $RUN"; do
   assert_red "SR-M-13: ${c:0:110}" --contains "only through an export" -- h "$c"
 done
 for c in "export $EX; $RUN" "export $EX; $RUN 2>&1" "export $EX; $RUN >/tmp/x.log 2>&1" \
