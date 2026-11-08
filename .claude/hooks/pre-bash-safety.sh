@@ -353,21 +353,35 @@ def unread_shell(word):
 
 
 BARE_CMD = re.compile(r"cmd(\.(exe|cmd|bat|com))?", re.I)
+CMD_FILE = re.compile(r"cmd\.(exe|cmd|bat|com)", re.I)
+COMSPEC = re.compile(r"(?<!\w)(\$\{?COMSPEC\}?|%COMSPEC%)(?!\w)", re.I)
 REDIRECT = re.compile(r"^\d*[<>]")
 
 
-def bare_cmd_word(seg):
-    # True when the segment holds `cmd` / `cmd.exe` as a bare word, not `./cmd` or
-    # `cmd/server`: the directory name has a path separator, the launch has none.
+def seg_words(seg):
     for tok in [seg.name] + list(seg.argv):
         for word in cmdscan._expand_token(tok, True):
-            if BARE_CMD.fullmatch(re.sub(r"^[^\w./\\]+|[^\w./\\]+$", "", word)):
-                return True
+            yield word
+
+
+def bare_cmd_word(seg):
+    # True when the segment holds `cmd` / `cmd.exe` as a bare word, or a cmd.exe file
+    # in any directory (CR-M-6), not `./cmd` or `cmd/server`: a directory has no extension.
+    for word in seg_words(seg):
+        word = re.sub(r"^[^\w./\\]+|[^\w./\\]+$", "", word)
+        if BARE_CMD.fullmatch(word) or CMD_FILE.fullmatch(re.split(r"[/\\]", word)[-1]):
+            return True
     return False
 
 
 for seg in scan.segments:
     if blocked:
+        break
+    # `$COMSPEC` names cmd.exe and nothing else, but a variable is never a reading: refuse
+    # it anywhere in a segment the analyzer did not understand (CR-M-6). `echo $COMSPEC`
+    # is understood, so it is never judged here.
+    if not seg.confident and any(COMSPEC.search(w) for w in seg_words(seg)):
+        blocked.append("`$COMSPEC` runs a shell whose syntax no gate reads")
         break
     bare_cmd = bare_cmd_word(seg)
     for cand in candidates(seg):
@@ -385,6 +399,8 @@ for seg in scan.segments:
             # or as a bare word with no next word, which runs its stdin (SO-M-1: a pipe
             # into `winpty cmd`, `winpty cmd < x.bat`). cmdscan records no segment input,
             # so a redirect token counts as no word.
+            # shortcut: an unknown wrapper + `cmd` + a plain word + piped stdin is allowed
+            # (cmd ignores the word and runs stdin), upgrade when cmdscan records segment stdin.
             hit = nxt[:1] in ("-", "/") or (bare_cmd and (not nxt or bool(REDIRECT.match(nxt))))
         if hit:
             blocked.append("`%s` runs a shell whose syntax no gate reads" % cand.name)

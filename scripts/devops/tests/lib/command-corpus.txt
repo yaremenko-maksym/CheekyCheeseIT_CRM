@@ -755,3 +755,16 @@ block	safety	npx concurrently pnpm add powershell
 # SO-M-1 of #1294: a bare `cmd` with no next word runs its stdin (a pipe or a < redirect).
 block	safety	echo del x | winpty cmd
 block	safety	winpty cmd < x.bat
+# CR-M-6 / SR-M-5 of #1294: a full path to cmd.exe, or $COMSPEC, is cmd too.
+block	safety	echo del x | winpty /c/Windows/System32/cmd.exe
+block	safety	echo del x | winpty C:/Windows/System32/cmd.exe
+block	safety	echo del x | winpty "C:\Windows\System32\cmd.exe"
+block	safety	winpty /c/Windows/System32/cmd.exe < x.bat
+block	safety	echo del x | winpty "$COMSPEC"
+# SR-M-6 of #1294: winpty is a wrapper, so the command after it is the segment command.
+block	safety	echo del x | winpty cmd foo
+block	safety	echo del x | winpty cmd.exe foo
+block	safety	winpty cmd foo < x.bat
+# KNOWN LIMIT (#1294): an unknown wrapper + cmd + a plain word + piped stdin stays allowed
+# until cmdscan records segment stdin.
+allow	safety	echo del x | unknown-tool cmd foo

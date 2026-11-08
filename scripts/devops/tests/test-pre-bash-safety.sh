@@ -580,9 +580,23 @@ assert_green "cmd as a directory name is not a launch: go run ./cmd" -- h "go ru
 for c in 'echo del x | winpty cmd' 'winpty cmd < x.bat' 'winpty cmd <<< "del x"' 'echo del x | winpty cmd.exe'; do
   assert_red "cmd reading its stdin: $c" --contains "no gate reads" -- h "$c"
 done
-for c in "go build ./cmd/server" "ls cmd" "echo cmd" "git commit -m 'cmd'"; do
+for c in "go build ./cmd/server" "ls cmd" "echo cmd" "git commit -m 'cmd'" "unknown-tool ./cmd" \
+         "echo \$COMSPEC"; do
   assert_green "cmd named, not run: $c" -- h "$c"
 done
+# CR-M-6 / SR-M-5 (#1294): a full path to cmd.exe, or $COMSPEC, is cmd too.
+# SR-M-6: winpty is a wrapper, so the command after it is the segment command.
+for c in 'echo del x | winpty /c/Windows/System32/cmd.exe' 'echo del x | winpty C:/Windows/System32/cmd.exe' \
+         'echo del x | winpty "C:\Windows\System32\cmd.exe"' 'winpty /c/Windows/System32/cmd.exe < x.bat' \
+         'echo del x | winpty "$COMSPEC"' 'echo del x | unknown-tool /c/Windows/System32/cmd.exe' \
+         'echo del x | winpty cmd foo' 'echo del x | winpty cmd.exe foo' 'winpty cmd foo < x.bat' \
+         'winpty -Xallow-non-tty -- cmd foo'; do
+  assert_red "cmd by path, COMSPEC or behind winpty: $c" --contains "no gate reads" -- h "$c"
+done
+# Known limit (shortcut in predicate 7): an unknown wrapper + cmd + a plain word + piped stdin
+# is allowed until cmdscan records segment stdin. Pinned so a change is seen.
+assert_green "known limit, unknown wrapper + cmd + word + stdin: echo del x | unknown-tool cmd foo" \
+  -- h 'echo del x | unknown-tool cmd foo'
 # CR-M-4 (#1294): a decoy install in one quoted argument must not exempt a launch in the
 # next one, or past a `;` inside a -c string, and a flat `concurrently` runs every word.
 # So there is no install exemption at all.
