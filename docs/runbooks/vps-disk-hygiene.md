@@ -14,10 +14,10 @@ Every deploy pulls fresh `api` and `nginx` images tagged by git SHA. Nobody remo
   checks have passed): `docker image prune -af --filter "until=168h"` — removes unused images
   older than 7 days. The last week's images stay around for a fast rollback. Active images and
   volumes are not touched. The `until` filter counts by image **creation** time.
-- **Container logs:** `docker-compose.prod.yml` (postgres, redis, api, nginx) and
+- **Container logs:** `docker-compose.prod.yml` (postgres, api, nginx) and
   `services/signal-plus/docker-compose.yml` — `json-file`, `max-size: 10m`, `max-file: 5`
   (up to 50 MB per service). Applied when a container is recreated on deploy, without restarting the daemon.
-  `redis` and `postgres` got the limit on 2026-10-04, the rest earlier.
+  `postgres` got the limit on 2026-10-04, the rest earlier.
 
 ## Symptom
 
@@ -45,10 +45,11 @@ Check the result: `df -h /` and `docker system df`.
 
 ## What NOT to touch
 
-- **Volumes.** `postgres_data` is Postgres data, `redis_data`, `signal_data` are the state
-  of Redis and the signal-cli binding. Do not run `docker volume prune`, `docker system prune --volumes`,
+- **Volumes.** `postgres_data` is Postgres data, `signal_data` is the signal-cli binding.
+  `redis_data` may remain on the host after Redis was removed (PR #1300); it holds nothing in use and the owner removes it by hand.
+  Do not run `docker volume prune`, `docker system prune --volumes`,
   `docker compose down -v`.
-- **Images of running containers** (crm-nginx, crm-api, crm-postgres, crm-redis, signal-plus) —
+- **Images of running containers** (crm-nginx, crm-api, crm-postgres, signal-plus) —
   Docker will not remove them anyway, but do not force `docker rmi -f`.
 - **`/etc/docker/daemon.json`.** Any change requires restarting the daemon = downtime
   for the whole stack. Log limits are set in compose, not in the daemon — intentionally.

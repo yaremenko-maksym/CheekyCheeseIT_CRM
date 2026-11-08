@@ -13,8 +13,7 @@ User → Cloudflare (DNS/TLS/CDN/DDoS) → Hetzner VPS (CX33)
                                           └── app.cheekycheese.tech → CRM SPA
                                                        │
                                                  api (NestJS :3001, internal)
-                                                 ├── postgres:5432 (internal)
-                                                 └── redis:6379   (internal)
+                                                 └── postgres:5432 (internal)
 
 Documents: Cloudflare R2
 ```
@@ -22,7 +21,6 @@ Documents: Cloudflare R2
 | Service    | Image                                                     | Reachable from outside       |
 | ---------- | --------------------------------------------------------- | ---------------------------- |
 | `postgres` | postgres:16-alpine                                        | no (only inside Docker)      |
-| `redis`    | redis:7-alpine                                            | no (only inside Docker)      |
 | `api`      | `ghcr.io/yaremenko-maksym/cheekycheeseit-crm-api:<tag>`   | no (only through nginx /api) |
 | `nginx`    | `ghcr.io/yaremenko-maksym/cheekycheeseit-crm-nginx:<tag>` | 80, 443                      |
 

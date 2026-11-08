@@ -2,13 +2,13 @@
 
 CRM system for reverse-recruiting workspace — multi-agent driven development.
 
-**Stack:** Turborepo · React + Vite SPA + TanStack Router/Query/Form · NestJS 11 + Fastify · Drizzle ORM + PostgreSQL · Redis · Tailwind v4 + shadcn/ui · Playwright E2E
+**Stack:** Turborepo · React + Vite SPA + TanStack Router/Query/Form · NestJS 11 + Fastify · Drizzle ORM + PostgreSQL · Tailwind v4 + shadcn/ui · Playwright E2E
 
 ## Prerequisites
 
 - Node 22 LTS (see `.claude/rules/common/version-pins.md`)
 - pnpm 7.32.4 (`npm install -g pnpm@7.32.4`)
-- Docker (for Postgres + Redis)
+- Docker (for Postgres)
 
 ## Setup
 
@@ -16,7 +16,7 @@ CRM system for reverse-recruiting workspace — multi-agent driven development.
 pnpm install
 cp apps/api/.env.example apps/api/.env   # fill in secrets
 cp apps/web/.env.example apps/web/.env
-docker compose up -d                     # start Postgres + Redis
+docker compose up -d                     # start Postgres
 pnpm --filter @crm/api db:push           # sync schema (push-based, no migrations)
 pnpm --filter @crm/api db:seed           # seed initial data
 ```

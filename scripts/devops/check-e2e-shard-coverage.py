@@ -70,7 +70,7 @@ EXCLUDED_DIRS: set[str] = set()
 # nobody could see it because nothing ran it.
 #
 # A path -> reason mapping, not a bare set, so a new exemption must say WHY:
-#   "tests/some.spec.ts": "needs a Redis flush the shared CI stack cannot give it (<link>)",
+#   "tests/some.spec.ts": "needs a dedicated database the shared CI stack cannot give it (<link>)",
 # A reason must be a real, checkable justification. It is rejected (guard goes RED) when
 # it is shorter than MIN_REASON_CHARS or when it merely defers the work — "later", "todo",
 # "tbd", "someday", "eventually", "for now", "debt", "not gated", "migrate" — because

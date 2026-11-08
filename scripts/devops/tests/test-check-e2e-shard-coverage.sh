@@ -178,7 +178,7 @@ assert_green "spec covered by a directory-prefix shard token (tests/crm)" \
 
 ALLOWLISTED_ROOT="$(make_case allowlisted "$NO_MENTION_YML" "tests/needs-own-stack.spec.ts" "tests/some-other.spec.ts")"
 exempt_in_guard "$ALLOWLISTED_ROOT" "tests/needs-own-stack.spec.ts" \
-  "needs a dedicated Redis flush the shared CI stack cannot give it (see runbook)"
+  "needs a dedicated database the shared CI stack cannot give it (see runbook)"
 assert_green "a KNOWN_UNSHARDED spec WITH a real reason stays green with no ci.yml mention" \
   --contains "OK: All spec files" \
   --contains "Known unsharded:     1" \
@@ -217,7 +217,7 @@ assert_red "shard files: names a spec that does not exist on disk -> red (revers
 
 EMPTY_DIR_ROOT="$(make_case empty-dir-prefix "$EMPTY_DIR_PREFIX_YML" "tests/needs-own-stack.spec.ts")"
 exempt_in_guard "$EMPTY_DIR_ROOT" "tests/needs-own-stack.spec.ts" \
-  "needs a dedicated Redis flush the shared CI stack cannot give it (see runbook)"
+  "needs a dedicated database the shared CI stack cannot give it (see runbook)"
 assert_green "directory-prefix token matching zero files is not treated as a ghost" \
   --contains "OK: All spec files" \
   -- run_guard "$EMPTY_DIR_ROOT"
