@@ -136,6 +136,26 @@ describe('JobQueueRow', () => {
       expect(screen.getByTestId('job-queue-row-keywords-more')).toHaveTextContent('+1')
     })
 
+    it.each([
+      [1, 'ще 1 ключове слово'],
+      [4, 'ще 4 ключові слова'],
+      [5, 'ще 5 ключових слів'],
+      [21, 'ще 21 ключове слово'],
+    ])('names +%i to a screen reader as "%s", not as the bare count (SO-3)', (more, name) => {
+      const { row } = renderRow({
+        matchedKeywords: Array.from({ length: 3 + more }, (_, i) => `k${i}`),
+      })
+      expect(row).toHaveAccessibleName(expect.stringContaining(name))
+      expect(row).not.toHaveAccessibleName(expect.stringContaining(`+${more}`))
+    })
+
+    it('names the overflow in English under the en catalog (SO-3)', async () => {
+      await loadCatalog('en')
+      const { row } = renderRow({ matchedKeywords: ['a', 'b', 'c', 'd', 'e'] })
+      expect(row).toHaveAccessibleName(expect.stringContaining('2 more keywords'))
+      expect(screen.getByTestId('job-queue-row-keywords-more')).toHaveTextContent('+2')
+    })
+
     it('truncates a long keyword inside its chip and keeps it readable by title', () => {
       const long = 'k'.repeat(100)
       renderRow({ matchedKeywords: [long] })

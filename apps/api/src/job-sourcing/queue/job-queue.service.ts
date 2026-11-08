@@ -36,7 +36,7 @@ import {
   filterIdentity,
   listFilters,
   policySignature,
-  QUEUE_ROW_COLUMNS,
+  queueRowColumns,
   queueRowJoins,
   seniorRows,
   seniorTotal,
@@ -125,6 +125,8 @@ export function matchFacts(evidence: unknown): { keywords: string[]; approximate
     // No `:STRENGTH` suffix: the whole string is the keyword.
     keywords: items
       .map((k) => (k.includes(':') ? k.slice(0, k.lastIndexOf(':')) : k))
+      // `":CORE"` names no keyword: it would render as an empty chip.
+      .filter((k) => k !== '')
       .slice(0, 200),
     approximate: !items.some((k) => k.endsWith(':CORE')),
   }
@@ -443,7 +445,7 @@ async function readPage(
     return { generation, tally, rows: [] as Row[] }
   }
   const { rows } = await tx.execute(
-    sql`SELECT ${QUEUE_ROW_COLUMNS}, e.order_key
+    sql`SELECT ${queueRowColumns(versions)}, e.order_key
         ${frame}
            AND e.order_key > ${after}
            AND ${sql.join(listFilters(query, versions), sql` AND `)}

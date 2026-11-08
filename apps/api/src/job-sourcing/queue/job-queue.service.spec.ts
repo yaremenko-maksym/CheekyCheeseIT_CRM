@@ -531,6 +531,10 @@ describe('toListItem', () => {
       expect(expected).toHaveLength(JOB_QUEUE_ROW_KEYWORDS_MAX)
     })
 
+    it('drops a keyword that is only a strength suffix, before the union (SO-2)', () => {
+      expect(keywordsOf([tech(':CORE', 'go:CORE'), tech('', ':OPTIONAL')])).toEqual(['go'])
+    })
+
     it('clips an overlong keyword rather than failing the whole page', () => {
       const [only, ...rest] = keywordsOf([tech(`${'x'.repeat(MAX_STACK_KEYWORD_CHARS + 1)}:CORE`)])
       expect(rest).toEqual([])
@@ -596,6 +600,14 @@ describe('matchFacts', () => {
       ],
     }
     expect(matchFacts(evidence).keywords).toHaveLength(200)
+  })
+  it('drops an empty keyword before the cap, so it never takes a slot (SO-2)', () => {
+    const named = Array.from({ length: 200 }, (_, i) => `k${i}:CORE`)
+    const evidence = { reasons: [{ code: 'TECH_MATCH', evidence: [':CORE', '', ...named] }] }
+    const { keywords } = matchFacts(evidence)
+    expect(keywords).toHaveLength(200)
+    expect(keywords).not.toContain('')
+    expect(keywords[0]).toBe('k0')
   })
 })
 

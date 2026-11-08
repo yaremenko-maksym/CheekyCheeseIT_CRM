@@ -56,6 +56,7 @@ export function sourceLabel(sourceType: string): string {
 // Module-level `msg` plurals, not the `plural()` macro (breaks under Stryker, see TxDateField).
 const MATCHED_HR = msg`{n, plural, one {# сеньйор вашої команди має збіг стеку} few {# сеньйори вашої команди мають збіг стеку} many {# сеньйорів вашої команди мають збіг стеку} other {# сеньйора вашої команди мають збіг стеку}}`
 const MATCHED_ADMIN = msg`{n, plural, one {# сеньйор має збіг стеку} few {# сеньйори мають збіг стеку} many {# сеньйорів мають збіг стеку} other {# сеньйора мають збіг стеку}}`
+const MORE_KEYWORDS = msg`{n, plural, one {ще # ключове слово} few {ще # ключові слова} many {ще # ключових слів} other {ще # ключового слова}}`
 
 /* UNKNOWN has no label: an unclassified role shows no badge rather than a noise chip. */
 const SENIORITY_LABEL: Record<JobSeniorityLevel, MessageDescriptor | null> = {
@@ -163,7 +164,13 @@ export function JobQueueRow({
                       data-testid="job-queue-row-keywords-more"
                       className={`${CHIP} text-muted-foreground tabular-nums`}
                     >
-                      <Trans>+{moreKeywords}</Trans>
+                      {/* "+3" alone tells a screen reader nothing: it hears the sr-only phrase */}
+                      <span aria-hidden="true">
+                        <Trans>+{moreKeywords}</Trans>
+                      </span>
+                      <span className="sr-only">
+                        {i18n._(MORE_KEYWORDS.id, { n: moreKeywords })}
+                      </span>
                     </span>
                   )}
                 </span>

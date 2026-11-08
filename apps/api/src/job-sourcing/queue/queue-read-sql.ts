@@ -75,8 +75,7 @@ export const queueRowJoins = (
   CROSS JOIN LATERAL (
     SELECT count(*) FILTER (WHERE m.outcome = 'LEAD') AS matched,
            count(*) FILTER (WHERE m.outcome = 'EXCLUDED'
-                              AND m.evidence->>'stage' = 'SCOPED_RESTRICTIONS') AS stop_listed,
-           jsonb_agg(m.evidence) FILTER (WHERE m.outcome = 'LEAD') AS matched_evidence
+                              AND m.evidence->>'stage' = 'SCOPED_RESTRICTIONS') AS stop_listed
     ${liveVersionRows(versions)}) stats
   CROSS JOIN LATERAL (
     SELECT count(*) AS submitted FROM job_queue_assignments a
@@ -103,11 +102,22 @@ export const queueRowJoins = (
            CASE WHEN flags.opened THEN 'OPENED' ELSE 'NOT_OPENED' END AS activity) d
     ON (src.source_record_id IS NOT NULL OR o.manual_team_id IS NOT NULL)`
 
+/**
+ * Per LEAD senior, only the `TECH_MATCH` reasons `matchFacts` reads, never the whole evidence blob.
+ * `strict` + silent mirrors `matchFacts`: a non-array `reasons` yields no reason, not an error. A
+ * select-list subquery, not a `queueRowJoins` lateral, so the tab counts never compute it and a
+ * page computes it only for the rows it returns.
+ */
+const matchedEvidence = (versions: readonly LiveSeniorVersion[]): SQL =>
+  sql`(SELECT jsonb_agg(jsonb_build_object('reasons', jsonb_path_query_array(m.evidence,
+            'strict $.reasons[*] ? (@.code == "TECH_MATCH")', '{}', true)))
+       ${liveVersionRows(versions)} AND m.outcome = 'LEAD') AS matched_evidence`
+
 /** The columns of one queue row, for `queueRowJoins`. No description: lists never carry one. */
-export const QUEUE_ROW_COLUMNS = sql`
+export const queueRowColumns = (versions: readonly LiveSeniorVersion[]): SQL => sql`
   o.id, o.revision, o.title, o.employer_name, o.location, o.availability, o.published_at,
   o.first_seen_at, src.source_record_id, src.source_type, src.source_url, src.total AS source_total,
-  o.application_url, o.seniority, stats.matched, stats.stop_listed, stats.matched_evidence,
+  o.application_url, o.seniority, stats.matched, stats.stop_listed, ${matchedEvidence(versions)},
   sub.submitted, flags.opened, flags.hidden, d.eligibility`
 
 /** One opportunity's row, with the description and "changed since this scope's list was built". */
@@ -116,7 +126,7 @@ export const cardRow = (
   versions: readonly LiveSeniorVersion[],
   id: string,
 ): SQL =>
-  sql`SELECT ${QUEUE_ROW_COLUMNS}, b.text AS description,
+  sql`SELECT ${queueRowColumns(versions)}, b.text AS description,
              (listed.opportunity_revision IS NOT NULL
               AND listed.opportunity_revision < o.revision) AS newer_than_list
         FROM job_opportunities o

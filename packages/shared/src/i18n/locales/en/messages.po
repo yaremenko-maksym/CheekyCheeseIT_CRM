@@ -6045,6 +6045,10 @@ msgstr "Team"
 msgid "Видалити відгук"
 msgstr "Delete application"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "{n, plural, one {ще # ключове слово} few {ще # ключові слова} many {ще # ключових слів} other {ще # ключового слова}}"
+msgstr "{n, plural, one {# more keyword} other {# more keywords}}"
+
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
 msgid "Виберіть сеньйора"
 msgstr "Select a senior"
