@@ -185,6 +185,123 @@ never a silent failure"; §5.4 (the small dose); the local phase of §6.2; the t
   answer. A worker that is down is retried by the next cycle.
 - **`READY` is advisory.** Limits can run out mid-cycle; H.2 covers that.
 
+#### H.4 The extraction worker stays (HIGH)
+
+- **Why it stays.** Its reason never depended on the local runtime. A process that parses hostile pages must not hold the
+  provider keys and a DB role at once (§2.4, option c). Folding the router into the API would put three provider keys
+  next to the DB credentials, in the process that fetches third-party HTML. Hosted-only does not change that threat; it
+  adds a third key. The worker keeps holding the keys and the state files, and no DB credential.
+- **What goes.** The runtime network and the runtime container. `ROUTER_LOCAL_MODEL_URL`, `LOCAL_MODEL_KEY` and
+  `LOCAL_MODEL_NAME` leave `extractionWorkerEnvSchema`. The small-dose groups leave `EXTRACTION_TABLE_VERSION`, which
+  becomes a version of the schema and prompt only.
+- **What is added.** `extractionWorkerEnvSchema` and `HOSTED_KEY_ENV` gain `openrouter: 'OPENROUTER_API_KEY'`.
+  `routeFromEnv` still drops a route whose key is absent, so the worker starts with whichever keys the owner has entered.
+  Today that is OpenRouter alone: no Gemini or Groq key exists yet.
+- **What stays.** The dedicated internal network, `EXTRACTION_WORKER_SECRET` with `isUsableWorkerSecret`, the data-only
+  strict schema, the second `stripContacts` and the 0600 env file. The worker never reads `.env.production`.
+- **Collection-side env.** `MODEL_EXTRACTION_ENV_KEYS` drops `EXTRACTION_CYCLE_LOCAL_MS_LIMIT`, because the local time
+  budget of §5.5 item 6 is gone. It renames `EXTRACTION_LOCAL_CONTEXT_TOKENS` and `EXTRACTION_LOCAL_MAX_ANSWER_TOKENS` to
+  `EXTRACTION_INPUT_CONTEXT_TOKENS` and `EXTRACTION_INPUT_MAX_ANSWER_TOKENS`.
+- **Where the input ceiling comes from (MED).** Operations set those two keys to the **smallest** configured hosted window,
+  so every route fits every input. `routerInputCeilingChars` loses its small-dose parameter. Drift between the two sides is
+  safe: a prompt too large for one route is `FIT` on that route, and the cascade moves on (§5.2). It turns into a failure
+  only when it fits no route, and then it is `PROVIDER_ERROR`, never `LIMITS_EXHAUSTED`. MP-03 reports the share of inputs
+  that were cut.
+- **Placement.** The memory budget of the model was the reason for a separate compose project. Whether the worker now
+  joins the main deploy compose is DevOps's call in 5.4c-5. The internal network and the secret are not optional either
+  way.
+- **The key moves (owner action).** `OPENROUTER_API_KEY` goes into the worker's 0600 env file. The API's own env keeps it
+  only while an API-side consumer remains. Today those are `build-inference-config.ts` (the single-route `openrouter`
+  provider), `inference.module.ts` and `inference-model-resolver.service.ts`, and `deploy.yml` writes the key into the API
+  env. Removing it there is a separate DevOps step once `INFERENCE_EXTRACTION_PROVIDER=router` is live, and only after a
+  grep confirms no API reader is left.
+
+#### H.5 OpenRouter: the free-only guard
+
+Specified in §3.5, rewritten by this amendment from "deferred" to "built". In short:
+
+- only `:free` ids are requested;
+- every catalogue price is 0;
+- the `openrouter` author and every other suffix are denied;
+- the request sends `max_price` 0 and `require_parameters`;
+- the limits are 1000 a day and about 20 a minute;
+- `SPENT_DAY`, `CREDIT` and `FLAG_REJECTED` are classified;
+- the key's USD `limit` of $0 is the backstop.
+
+A paid model is unreachable by four independent checks (§3.5).
+
+#### H.6 The small dose is retired (HIGH)
+
+- **Why it existed.** A 1.5B-class local model could not answer the full schema, so §5.4 split the ask into field groups
+  and merged the answers. Hosted routes always got the full shape (§5.4, "hosted: full shape").
+- **Why it does not carry over.** Each group re-sends the whole input. So a six-group dose costs up to six requests and
+  six times the input tokens of one full call, against 1000 requests a day and about 20 a minute. It does not help a
+  hosted context limit, because the input, not the schema, is what fills the window. Its only beneficiary was the
+  withdrawn model.
+- **What survives.**
+  - the D10 guard: a field without a surviving quote becomes null, on every route;
+  - `modelReplySchema` with its evidence spans;
+  - the strict-schema rendering every route uses: `renderSchema` and `structuredOutputFor` move out of `small-dose.ts`;
+  - the per-record `missing` list, which still narrows what the deterministic stage leaves to the model.
+- **What goes.** `runSmallDose`, `DoseAsk`, the `SmallDose` type, `ExtractionRequest.smallDose`, `MAX_SMALL_DOSE_GROUPS`,
+  `small-dose-table.ts` (`smallDoseFor`, `FLOOR_UNCERTAINTY`), the hand-back, `PROMPT_TOO_LARGE` (a local-only code), the
+  `localMs` usage field and the local cycle time budget.
+
+#### H.7 Limits and resets per provider (MED until the 5.4c-5 smoke)
+
+| Provider   | Free limit fed to `freeLimit`                                            | Own cap (D5, 50 %) | Pacing (`minGapMs`)       | Reset assumed                  |
+| ---------- | ------------------------------------------------------------------------ | ------------------ | ------------------------- | ------------------------------ |
+| Gemini     | per model, from `2026-11-04-extraction-provider-facts.md`                | half of it         | per provider-facts        | midnight Pacific (documented)  |
+| Groq       | per model, from the same file                                            | half of it         | per provider-facts        | UNVERIFIED; the smoke records it |
+| OpenRouter | 1000 requests a day for `:free` once ≥ $10 of credits were bought        | 500                | 3000 ms (~20 a minute)    | UNVERIFIED; the smoke records it |
+
+Own caps stay per provider and per policy version (D5). A reset time is used only by the health flag's message and by
+operators. No code path waits on it, so an error here delays a retry by one cycle at most.
+
+#### H.8 How the message reaches HR and ADMIN
+
+- **The text** (Lingui; in this module the `uk` text is the source message and `en` is its catalog entry):
+  - uk: «Пошук вакансій тимчасово недоступний: ліміти AI-моделей на зараз вичерпано. Спробуйте пізніше.»
+  - en: "Vacancy sourcing is temporarily unavailable: AI model limits are exhausted for now. Try again later."
+
+  The copy-reviewer reviews both. The owner's suggested wording is the starting point, not frozen text.
+- **One API field, derived from the flag.** The read model is "is `MODEL_LIMITS_EXHAUSTED` raised and not cleared". It is
+  exposed as `sourcingNotice: 'AI_LIMITS_EXHAUSTED' | null` in two strict response schemas in `@crm/shared`:
+  - `jobQueueListResponseSchema`, the HR, SENIOR and ADMIN queue, served by `JobQueueService.list`;
+  - `jobSourceOperationalListSchema`, ADMIN `GET /job-sourcing/admin/sources/health`, served by
+    `JobSourceAdminController`.
+
+  Both schemas are strict, so the field is added to the schema, never passed through. It is a closed enum, so further
+  notices are new values, not new fields. It carries no provider name, count or time: no RBAC-relevant data reaches the
+  HR view.
+- **Where it shows.**
+  - **Queue** (`/job-queue`, the existing notice pattern with `AlertTriangle` and `<Trans>`, test id
+    `job-queue-ai-limits`). It is a separate block above the list, outside the `if / else if` chain, so it can stand beside
+    the "partial list" notice. It sits in a live region with `role="status"`.
+  - **ADMIN sources** (`/admin/sources`): the same text as a banner over the health table.
+- **Synchronous refusal.** `JOB_SOURCING_ERROR_CODES` gains `JOB_SOURCING_AI_LIMITS_EXHAUSTED`, with the same localized
+  text in the client catalog and an English fallback `message`. It is used when ADMIN `POST /job-sourcing/collect` finds
+  readiness `LIMITS_EXHAUSTED`. The run still executes its deterministic stages and reports the model stage as a failure
+  entry with that code; the 503 stays reserved for "nothing succeeded".
+- **Where it lands now, and where later.** Nothing in production calls the model wiring until task 5.5b, the first HTML
+  model provider (§7.2, delivery state). Until then the flag is never raised, the field is always `null` and both views
+  show nothing. The code ships with tests that raise the flag through the store. The message goes live when 5.5b wires
+  `prepareCycle`. Later, the HR queue's empty state is the natural second place, when a queue stays empty because the
+  model stage was skipped; it is a follow-up, not part of H-3.
+
+#### H.9 What is not decided here
+
+- **OD-1, `provider.data_collection` on the OpenRouter route** (owner, A2, open). The 2026-11-08 probe found that `deny`
+  gives `nvidia/nemotron-3.5-super-vl:free` a 404 ("No endpoints found matching your data policy (Free model training)").
+  `dots-studio/dots-3-note-preview:free` and `xingchen-agi/xing4.0-29b-a4b:free` answer 200 with `deny`. The two Gemma models
+  answer 429 either way. **Recommendation: `allow`.** It is consistent with D2, which accepts free terms that allow
+  training, because only public vacancy text with contacts stripped (5.4a) leaves the host. It keeps the largest
+  JSON-capable model in the pool. The code makes it one required config value (§3.5), so the answer is a config change,
+  not a code change.
+- **OD-2, `provider.ignore` contents** (A1, taken by the architect and recorded here; the owner may override).
+  **Decided: empty.** Its old content came from the
+  D2 exclusion that no longer exists. The field stays in the request builder, so a later entry is a config value.
+
 ## Context
 
 The owner decided on 2026-10-18 that vacancy extraction runs on Gemini, Groq, OpenRouter and the local model: a
