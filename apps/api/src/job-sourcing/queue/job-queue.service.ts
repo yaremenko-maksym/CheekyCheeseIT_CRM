@@ -298,6 +298,7 @@ export class JobQueueService {
       this.database.db.execute(
         seniorOptionRows(
           versions.map((v) => v.seniorId),
+          scope.kind === 'TEAM' ? scope.teamId : null,
           JOB_QUEUE_SENIOR_OPTIONS_MAX,
         ),
       ),
@@ -306,6 +307,7 @@ export class JobQueueService {
       items: (rows as Row[]).map((row) => ({
         id: String(row['id']),
         name: String(row['display_name']).slice(0, 255),
+        teamName: String(row['team_name']),
       })),
     }
   }

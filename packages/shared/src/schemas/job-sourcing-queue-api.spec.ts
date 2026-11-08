@@ -578,9 +578,9 @@ describe('requests refuse an unknown key (CR-M-1)', () => {
 })
 
 describe('jobQueueSeniorOptionsResponseSchema — GET /job-queue/seniors', () => {
-  const option = { id: U1, name: 'Olena K.' }
+  const option = { id: U1, name: 'Olena K.', teamName: 'Team Alpha' }
 
-  it('carries the id and the display name, and nothing else', () => {
+  it('carries the id, the display name and the team name, and nothing else', () => {
     expect(jobQueueSeniorOptionsResponseSchema.parse({ items: [option] })).toEqual({
       items: [option],
     })
@@ -594,11 +594,14 @@ describe('jobQueueSeniorOptionsResponseSchema — GET /job-queue/seniors', () =>
     )
   })
 
-  it('refuses a non-uuid id; bounds the name at 255', () => {
+  it('refuses a non-uuid id; bounds the name and the team name at 255', () => {
     const parse = (o: object) => jobQueueSeniorOptionsResponseSchema.safeParse({ items: [o] })
     expect(parse({ ...option, id: 'senior-1' }).success).toBe(false)
     expect(parse({ ...option, name: 'x'.repeat(255) }).success).toBe(true)
     expect(parse({ ...option, name: 'x'.repeat(256) }).success).toBe(false)
+    expect(parse({ ...option, teamName: 'x'.repeat(255) }).success).toBe(true)
+    expect(parse({ ...option, teamName: 'x'.repeat(256) }).success).toBe(false)
+    expect(parse({ id: U1, name: 'Olena K.' }).success).toBe(false)
   })
 
   it('bounds the list: the limit accepted, one more refused', () => {
@@ -760,6 +763,16 @@ const RESPONSES = {
 const FOREIGN_IDENTITY =
   /assignee|actor|claim|taken|dismissedBy|undoneBy|releasedBy|reassign|teamId|teamName/i
 
+/**
+ * Fields that match FOREIGN_IDENTITY by name but only ever name the VIEWER's own team. The senior
+ * picker's `teamName`: a TEAM scope (every HR) reads only its own team's name (the SQL pins the
+ * membership to the scope team; the RBAC integration spec asserts it), and only STUDIO, which is
+ * ADMIN-only and sees every team anyway, names any other.
+ */
+const OWN_TEAM_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  jobQueueSeniorOptionsResponseSchema: ['teamName'],
+}
+
 describe('AC4: no response shape carries foreign identity', () => {
   it('the walker sees nested keys (positive control)', () => {
     expect(keysOf(jobQueueCardResponseSchema)).toEqual(
@@ -777,11 +790,18 @@ describe('AC4: no response shape carries foreign identity', () => {
 
   it.each(Object.entries(RESPONSES))(
     '%s has no field naming another team or its actors',
-    (_name, schema) => {
-      const offending = keysOf(schema).filter((k) => FOREIGN_IDENTITY.test(k))
+    (name, schema) => {
+      const offending = keysOf(schema).filter(
+        (k) => FOREIGN_IDENTITY.test(k) && !OWN_TEAM_FIELDS[name]?.includes(k),
+      )
       expect(offending).toEqual([])
     },
   )
+
+  it('the own-team exemption is exactly the picker team name, and nothing else', () => {
+    expect(OWN_TEAM_FIELDS).toEqual({ jobQueueSeniorOptionsResponseSchema: ['teamName'] })
+    expect(keysOf(jobQueueSeniorOptionsResponseSchema)).toContain('teamName')
+  })
 
   /**
    * CR-M-1. Every object a response can contain, each named by its path inside a valid

@@ -206,12 +206,34 @@ export const duplicateRows = (scope: JobQueueScope, id: string, limit: number): 
 const textIn = (expression: SQL, values: readonly string[]): SQL =>
   sql`${expression} IN (SELECT jsonb_array_elements_text(${JSON.stringify(values)}::jsonb))`
 
-/** The list filter's picker: id and display name only, of seniors the scope already resolved. */
-export const seniorOptionRows = (seniorIds: readonly string[], limit: number): SQL =>
-  sql`SELECT u.id, u.display_name
+/**
+ * `column IN (the ids)` with the ids as ONE bound jsonb parameter, cast to uuid on the parameter
+ * side so the column's own uuid index serves the lookup. Every caller passes canonical uuids: the
+ * shared list schema validates `seniorIds`, and the scope's senior ids are read from `users.id`.
+ */
+const uuidIn = (column: SQL, ids: readonly string[]): SQL =>
+  sql`${column} IN (SELECT x::uuid FROM jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb) x)`
+
+/**
+ * The list filter's picker: id, display name and one team name, of seniors the scope already
+ * resolved. A TEAM scope names its own team; STUDIO names the senior's first live membership,
+ * preferring a live SENIOR team, alphabetically. Ordered by team, then name, for the grouping.
+ */
+export const seniorOptionRows = (
+  seniorIds: readonly string[],
+  teamId: string | null,
+  limit: number,
+): SQL =>
+  sql`SELECT u.id, u.display_name, t.name AS team_name
         FROM users u
-       WHERE ${textIn(sql`u.id::text`, seniorIds)}
-       ORDER BY u.display_name, u.id
+        JOIN LATERAL (
+          SELECT t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id
+           WHERE tm.user_id = u.id AND tm.left_at IS NULL
+                 ${teamId === null ? sql`` : sql`AND tm.team_id = ${teamId}::uuid`}
+           ORDER BY t.archived_at IS NOT NULL, t.type <> 'SENIOR', t.name, t.id
+           LIMIT 1) t ON TRUE
+       WHERE ${uuidIn(sql`u.id`, seniorIds)}
+       ORDER BY t.name, u.display_name, u.id
        LIMIT ${limit}`
 
 /** `%`, `_` and `\` from a viewer's search are literal characters, not patterns. */
@@ -248,7 +270,7 @@ export function listFilters(
   if (query.activity !== undefined) filters.push(textIn(sql`d.activity`, query.activity))
   if (query.seniorIds !== undefined) {
     filters.push(sql`EXISTS (SELECT 1 ${liveVersionRows(versions)}
-                               AND ${textIn(sql`m.senior_id::text`, query.seniorIds)}
+                               AND ${uuidIn(sql`m.senior_id`, query.seniorIds)}
                                AND m.outcome IN ('LEAD', 'TRIAGE'))`)
   }
   return filters

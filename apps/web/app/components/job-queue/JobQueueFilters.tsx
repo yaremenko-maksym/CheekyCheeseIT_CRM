@@ -5,6 +5,7 @@ import type { MessageDescriptor } from '@lingui/core'
 import { SlidersHorizontal } from 'lucide-react'
 import {
   JOB_QUEUE_SENIOR_FILTER_MAX,
+  JOB_QUEUE_SENIOR_OPTIONS_MAX,
   jobAvailabilitySchema,
   jobQueueEligibilitySchema,
   jobSourceTypeSchema,
@@ -21,7 +22,7 @@ export type JobQueueFilterValue = Partial<
 >
 type Group = keyof JobQueueFilterValue
 
-type SeniorOption = { id: string; name: string }
+type SeniorOption = { id: string; name: string; teamName: string }
 /** The picker's load state: `items` is absent until the first answer, and survives a failed refetch. */
 type SeniorPicker = {
   items: ReadonlyArray<SeniorOption> | undefined
@@ -41,6 +42,9 @@ const AVAILABILITY_LABEL: Record<'OPEN' | 'UNKNOWN' | 'CLOSED' | 'EXPIRED', Mess
 }
 // Module-level `msg` plural, not the `plural()` macro (breaks under Stryker, see TxDateField).
 const SENIOR_COUNT = msg`{n, plural, one {# сеньйор} few {# сеньйори} many {# сеньйорів} other {# сеньйора}}`
+// The summary names the chosen seniors after a prefix (spec §4.1a): one is «Сеньйор:», more «Сеньйори:».
+const SENIOR_ONE = msg`Сеньйор: {names}`
+const SENIOR_MANY = msg`Сеньйори: {names}`
 
 /** The number of filter groups in use — the badge counts groups, not options (spec §4.1a). */
 export function appliedFilterCount(value: JobQueueFilterValue): number {
@@ -63,13 +67,18 @@ export function JobQueueAppliedFilters({
   const { i18n } = useLingui()
   const seniorIds = value.seniorIds ?? []
   const seniorNames = seniorIds.flatMap((id) => seniors?.find((s) => s.id === id)?.name || [])
+  const named = seniorIds.length === 1 ? SENIOR_ONE : SENIOR_MANY
   const summary = [
     value.source?.map(sourceLabel),
     value.eligibility?.map((o) => i18n._(ELIGIBILITY_LABEL[o])),
     value.availability?.map((o) => i18n._(AVAILABILITY_LABEL[o])),
-    seniorNames.length === seniorIds.length
-      ? seniorNames
-      : [i18n._(SENIOR_COUNT.id, { n: seniorIds.length })],
+    seniorIds.length === 0
+      ? []
+      : [
+          seniorNames.length === seniorIds.length
+            ? i18n._(named.id, { names: seniorNames.join(', ') })
+            : i18n._(SENIOR_COUNT.id, { n: seniorIds.length }),
+        ],
   ]
     .flatMap((g) => (g?.length ? [g.join(', ')] : []))
     .join(' · ')
@@ -136,6 +145,13 @@ function FilterGroup({ legend, children }: { legend: ReactNode; children: ReactN
   )
 }
 
+/** The options by team, in the server's order (team, then name): the order the groups show in. */
+function byTeam(items: ReadonlyArray<SeniorOption>): Array<[string, SeniorOption[]]> {
+  const teams = new Map<string, SeniorOption[]>()
+  for (const item of items) teams.set(item.teamName, [...(teams.get(item.teamName) ?? []), item])
+  return [...teams]
+}
+
 /** Rows win over the error: a failed refetch keeps the list the recruiter is already using. */
 function SeniorRows({
   picker,
@@ -155,7 +171,7 @@ function SeniorRows({
       )
     }
     const atLimit = (selected?.length ?? 0) >= JOB_QUEUE_SENIOR_FILTER_MAX
-    return picker.items.map(({ id, name }) => {
+    const check = ({ id, name }: SeniorOption) => {
       const checked = selected?.includes(id) ?? false
       return (
         <CheckRow
@@ -168,7 +184,35 @@ function SeniorRows({
           {name}
         </CheckRow>
       )
-    })
+    }
+    const teams = byTeam(picker.items)
+    const max = JOB_QUEUE_SENIOR_OPTIONS_MAX
+    return (
+      <>
+        {/* One team (every HR) is a flat list; the studio (ADMIN) gets a heading per team. */}
+        {teams.length === 1
+          ? picker.items.map(check)
+          : teams.map(([team, rows]) => (
+              <div key={team} role="group" aria-label={team}>
+                <p
+                  aria-hidden
+                  className="truncate px-2 pt-2 text-xs font-medium text-muted-foreground"
+                >
+                  {team}
+                </p>
+                {rows.map(check)}
+              </div>
+            ))}
+        {picker.items.length >= max && (
+          <p
+            data-testid="job-queue-filters-seniors-truncated"
+            className="px-2 pt-1 text-xs text-muted-foreground"
+          >
+            <Trans>Показано перших {max} сеньйорів</Trans>
+          </p>
+        )}
+      </>
+    )
   }
   if (picker.isError) {
     return (
@@ -232,7 +276,7 @@ function FilterPanel({
           {jobSourceTypeSchema.options.map((o) => row('source', o, sourceLabel(o)))}
         </FilterGroup>
         {seniors && (
-          <FilterGroup legend={<Trans>Сеньйори</Trans>}>
+          <FilterGroup legend={<Trans>Підходить сеньйору</Trans>}>
             <SeniorRows
               picker={seniors}
               selected={draft.seniorIds}

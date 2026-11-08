@@ -117,6 +117,10 @@ msgstr "Delete vacancy"
 msgid "Назва використовується лише для розрізнення підключень у CRM."
 msgstr "The name is only used to tell connections apart in the CRM."
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Підходить сеньйору"
+msgstr "Matches senior"
+
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Перемістити місце роботи {position} вгору"
 msgstr "Move job {position} up"
@@ -3691,10 +3695,6 @@ msgstr "Reviewed by"
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Вибрати файл"
 msgstr "Choose a file"
-
-#: apps/web/app/components/job-queue/JobQueueFilters.tsx
-msgid "Сеньйори"
-msgstr "Seniors"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
@@ -9556,6 +9556,10 @@ msgstr "Media token copied"
 msgid "Неприпустимий формат"
 msgstr "Invalid format"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Сеньйор: {names}"
+msgstr "Senior: {names}"
+
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 msgid "(необов’язково)"
@@ -11226,6 +11230,10 @@ msgstr "Add the first entry"
 msgid "Сталася помилка. Спробуйте ще раз."
 msgstr "Something went wrong. Try again."
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Сеньйори: {names}"
+msgstr "Seniors: {names}"
+
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
 msgid "Максимум не може бути меншим за мінімум"
 msgstr "Maximum cannot be less than minimum"
@@ -11451,6 +11459,10 @@ msgstr "No projects available"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/SalaryFields.tsx
 msgid "Виберіть…"
 msgstr "Select…"
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Показано перших {max} сеньйорів"
+msgstr "Showing the first {max} seniors"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."

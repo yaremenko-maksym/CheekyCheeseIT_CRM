@@ -21,6 +21,7 @@ import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { useActiveTeams } from '@/hooks/use-active-team'
 import {
+  canonicalSeniorIds,
   useJobQueue,
   useJobQueueSeniorOptions,
   type QueueScopeSignature,
@@ -45,10 +46,12 @@ const searchSchema = z.object({
   source: z.array(jobSourceTypeSchema).min(1).optional().catch(undefined),
   eligibility: z.array(jobQueueEligibilitySchema).min(1).optional().catch(undefined),
   availability: z.array(jobAvailabilitySchema).min(1).optional().catch(undefined),
+  // canonical before the bound: a duplicate or a different case never counts toward the limit
   seniorIds: z
     .array(z.string().uuid())
     .min(1)
-    .max(JOB_QUEUE_SENIOR_FILTER_MAX)
+    .transform(canonicalSeniorIds)
+    .pipe(z.array(z.string()).max(JOB_QUEUE_SENIOR_FILTER_MAX))
     .optional()
     .catch(undefined),
   teamId: z.string().uuid().optional().catch(undefined),

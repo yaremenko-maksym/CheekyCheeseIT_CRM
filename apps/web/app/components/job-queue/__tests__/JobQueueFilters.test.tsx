@@ -13,8 +13,8 @@ const SENIOR_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const SENIOR_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const UNKNOWN_SENIOR = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const OPTIONS = [
-  { id: SENIOR_A, name: 'Анна Коваль' },
-  { id: SENIOR_B, name: 'Богдан Шевченко' },
+  { id: SENIOR_A, name: 'Анна Коваль', teamName: 'Команда А' },
+  { id: SENIOR_B, name: 'Богдан Шевченко', teamName: 'Команда А' },
 ]
 const loaded = { items: OPTIONS, isError: false, onRetry: () => {} }
 
@@ -172,7 +172,7 @@ describe('JobQueueFilters', () => {
       wrapper: I18nTestProvider,
     })
     await user.click(screen.getByTestId('job-queue-filters-button'))
-    for (const name of ['Джерело', 'Статус на джерелі', 'Сеньйори']) {
+    for (const name of ['Джерело', 'Статус на джерелі', 'Підходить сеньйору']) {
       // eslint-disable-next-line testing-library/no-node-access
       expect(screen.getByRole('group', { name }).querySelector('div')).not.toHaveAttribute('class')
     }
@@ -193,7 +193,7 @@ describe('JobQueueFilters', () => {
     expect(screen.getByTestId('job-queue-filters-button')).toHaveTextContent(/^Фільтри$/)
   })
 
-  describe('«Сеньйори»', () => {
+  describe('«Підходить сеньйору»', () => {
     const open = async (
       seniors: Parameters<typeof JobQueueFilters>[0]['seniors'],
       value: JobQueueFilterValue = {},
@@ -217,8 +217,68 @@ describe('JobQueueFilters', () => {
         { wrapper: I18nTestProvider },
       )
       expect(screen.getByTestId('job-queue-applied')).toHaveTextContent(
-        /^Застосовано: DOU · Богдан Шевченко, Анна КовальСкинути фільтри$/,
+        /^Застосовано: DOU · Сеньйори: Богдан Шевченко, Анна КовальСкинути фільтри$/,
       )
+    })
+
+    it('prefixes one named senior with the singular «Сеньйор:»', () => {
+      render(
+        <JobQueueAppliedFilters
+          value={{ seniorIds: [SENIOR_A] }}
+          seniors={OPTIONS}
+          onReset={vi.fn()}
+        />,
+        { wrapper: I18nTestProvider },
+      )
+      expect(screen.getByTestId('job-queue-applied')).toHaveTextContent(
+        /^Застосовано: Сеньйор: Анна КовальСкинути фільтри$/,
+      )
+    })
+
+    it('keeps one team (every HR) a flat list without a team heading', async () => {
+      await open(loaded)
+      const group = screen.getByRole('group', { name: 'Підходить сеньйору' })
+      expect(within(group).queryByRole('group', { name: 'Команда А' })).toBeNull()
+      expect(group).not.toHaveTextContent('Команда А')
+    })
+
+    it('groups the studio (ADMIN) by team, in the server order', async () => {
+      const studio = [
+        { id: SENIOR_A, name: 'Анна Коваль', teamName: 'Альфа' },
+        { id: UNKNOWN_SENIOR, name: 'Віра Бондар', teamName: 'Альфа' },
+        { id: SENIOR_B, name: 'Богдан Шевченко', teamName: 'Бета' },
+      ]
+      await open({ items: studio, isError: false, onRetry: vi.fn() })
+      const alpha = screen.getByRole('group', { name: 'Альфа' })
+      const beta = screen.getByRole('group', { name: 'Бета' })
+      expect(within(alpha).getAllByRole('checkbox')).toHaveLength(2)
+      expect(within(alpha).getByRole('checkbox', { name: 'Анна Коваль' })).toBeInTheDocument()
+      expect(within(alpha).getByRole('checkbox', { name: 'Віра Бондар' })).toBeInTheDocument()
+      expect(within(beta).getAllByRole('checkbox')).toHaveLength(1)
+      expect(within(beta).getByRole('checkbox', { name: 'Богдан Шевченко' })).toBeInTheDocument()
+      expect(alpha.compareDocumentPosition(beta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    const options = (length: number) => ({
+      items: Array.from({ length }, (_, i) => ({
+        id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        name: `Сеньйор ${i}`,
+        teamName: 'Команда А',
+      })),
+      isError: false,
+      onRetry: vi.fn(),
+    })
+
+    it('says only the first 200 seniors show when the picker reaches its cap (CR-L-2)', async () => {
+      await open(options(200))
+      expect(screen.getByTestId('job-queue-filters-seniors-truncated')).toHaveTextContent(
+        'Показано перших 200 сеньйорів',
+      )
+    })
+
+    it('shows no cap note below 200 seniors', async () => {
+      await open(options(199))
+      expect(screen.queryByTestId('job-queue-filters-seniors-truncated')).toBeNull()
     })
 
     it.each([
@@ -255,7 +315,7 @@ describe('JobQueueFilters', () => {
       render(
         <JobQueueAppliedFilters
           value={{ seniorIds: [SENIOR_A] }}
-          seniors={[{ id: SENIOR_A, name: '' }]}
+          seniors={[{ id: SENIOR_A, name: '', teamName: 'Команда А' }]}
           onReset={vi.fn()}
         />,
         { wrapper: I18nTestProvider },
@@ -267,7 +327,7 @@ describe('JobQueueFilters', () => {
 
     it('renders no section without a picker', async () => {
       await open(undefined)
-      expect(screen.queryByRole('group', { name: 'Сеньйори' })).toBeNull()
+      expect(screen.queryByRole('group', { name: 'Підходить сеньйору' })).toBeNull()
     })
 
     it('lists the seniors in the scroll region and applies the picked ids', async () => {
@@ -306,7 +366,7 @@ describe('JobQueueFilters', () => {
       const onApply = vi.fn()
       const onRetry = vi.fn()
       const user = await open({ items: undefined, isError: true, onRetry }, {}, onApply)
-      const group = screen.getByRole('group', { name: 'Сеньйори' })
+      const group = screen.getByRole('group', { name: 'Підходить сеньйору' })
       expect(within(group).getByRole('alert')).toHaveTextContent('Не вдалося завантажити сеньйорів')
       await user.click(within(group).getByRole('button', { name: 'Спробувати ще раз' }))
       expect(onRetry).toHaveBeenCalledTimes(1)
@@ -323,7 +383,7 @@ describe('JobQueueFilters', () => {
 
     it('shows a placeholder and no rows while the picker loads', async () => {
       await open({ items: undefined, isError: false, onRetry: vi.fn() })
-      const group = screen.getByRole('group', { name: 'Сеньйори' })
+      const group = screen.getByRole('group', { name: 'Підходить сеньйору' })
       expect(within(group).getByTestId('job-queue-filters-seniors-loading')).toBeInTheDocument()
       expect(within(group).queryByRole('checkbox')).toBeNull()
       expect(within(group).queryByRole('alert')).toBeNull()
@@ -331,13 +391,16 @@ describe('JobQueueFilters', () => {
 
     it('says so when the scope has no seniors', async () => {
       await open({ items: [], isError: false, onRetry: vi.fn() })
-      expect(screen.getByRole('group', { name: 'Сеньйори' })).toHaveTextContent('Немає сеньйорів')
+      expect(screen.getByRole('group', { name: 'Підходить сеньйору' })).toHaveTextContent(
+        'Немає сеньйорів',
+      )
     })
 
     it('disables only the unchecked rows at the API limit of 50', async () => {
       const many = Array.from({ length: 51 }, (_, i) => ({
         id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
         name: `Сеньйор ${i}`,
+        teamName: 'Команда А',
       }))
       const user = await open(
         { items: many, isError: false, onRetry: vi.fn() },
@@ -355,6 +418,7 @@ describe('JobQueueFilters', () => {
       const many = Array.from({ length: 50 }, (_, i) => ({
         id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
         name: `Сеньйор ${i}`,
+        teamName: 'Команда А',
       }))
       await open(
         { items: many, isError: false, onRetry: vi.fn() },

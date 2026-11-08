@@ -754,16 +754,18 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(other.json['code']).toBe('JOB_QUEUE_REFRESH_REQUIRED')
     })
 
-    it('the picker gives an HR exactly the seniors of the own team, and nothing but id and name', async () => {
+    it('the picker gives an HR exactly the seniors of the own team, and nothing but id, name and own team', async () => {
       const own = await get('/seniors', 'hrA')
       expect(own.status).toBe(200)
       expect(own.json).toEqual({
         items: [
-          { id: id('senA'), name: name('senA') },
-          { id: id('senShared'), name: name('senShared') },
+          { id: id('senA'), name: name('senA'), teamName: `${TAG}-teamA` },
+          { id: id('senShared'), name: name('senShared'), teamName: `${TAG}-teamA` },
         ],
       })
       expect(own.raw).not.toContain('@example.test')
+      // senShared is also on teamB: an HR of teamA never reads that other team's name
+      expect(own.raw).not.toContain(`${TAG}-teamB`)
     })
 
     it('the picker is empty for a foreign team, no team, and a team without seniors', async () => {
@@ -781,17 +783,27 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     it('the picker gives an ADMIN the studio without a team, and exactly a team with one', async () => {
       const studio = await get('/seniors', 'admin')
       expect(studio.status).toBe(200)
+      // STUDIO groups each senior under one team: a shared senior under the first by name
       expect(studio.json['items']).toEqual(
         expect.arrayContaining(
-          ['senA', 'senB', 'senShared'].map((s) => ({ id: id(s), name: name(s) })),
+          [
+            ['senA', 'teamA'],
+            ['senB', 'teamB'],
+            ['senShared', 'teamA'],
+          ].map(([s, t]) => ({
+            id: id(s as string),
+            name: name(s as string),
+            teamName: `${TAG}-${t}`,
+          })),
         ),
       )
+      expect(studio.raw).not.toContain('@example.test')
       const team = await get(`/seniors?teamId=${id('teamB')}`, 'admin')
       expect(team.status).toBe(200)
       expect(team.json).toEqual({
         items: [
-          { id: id('senB'), name: name('senB') },
-          { id: id('senShared'), name: name('senShared') },
+          { id: id('senB'), name: name('senB'), teamName: `${TAG}-teamB` },
+          { id: id('senShared'), name: name('senShared'), teamName: `${TAG}-teamB` },
         ],
       })
     })

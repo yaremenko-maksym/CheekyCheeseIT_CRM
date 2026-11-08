@@ -429,16 +429,34 @@ describe('JobQueueService.seniorOptions', () => {
   })
 
   it('reads only the scope seniors, bounded, inside the policy wrapper', async () => {
-    const h = harness(teamScope, [{ id: SEN, display_name: 'A Senior', email: 'x@example.com' }])
+    const h = harness(teamScope, [
+      { id: SEN, display_name: 'A Senior', team_name: 'Alpha', email: 'x@example.com' },
+    ])
     await expect(h.svc.seniorOptions(user, { teamId: TEAM })).resolves.toEqual({
-      items: [{ id: SEN, name: 'A Senior' }],
+      items: [{ id: SEN, name: 'A Senior', teamName: 'Alpha' }],
     })
     expect(h.scopes.resolve).toHaveBeenCalledWith(user, TEAM, h.db)
     expect(h.scopes.liveVersions).toHaveBeenCalledWith(teamScope, h.db)
     expect(h.scopes.policy).toHaveBeenCalledTimes(1)
+    // a TEAM scope names its own team, between the ids and the bound
+    expect(h.compiled(0).params).toEqual([
+      TEAM,
+      JSON.stringify([SEN]),
+      JOB_QUEUE_SENIOR_OPTIONS_MAX,
+    ])
+    expect(h.compiled(0).text).toContain('WHERE u.id IN (SELECT x::uuid FROM')
+    expect(h.compiled(0).text).toContain('ORDER BY t.name, u.display_name, u.id')
+  })
+
+  it('STUDIO names no team: any live membership may name the group', async () => {
+    const h = harness({ kind: 'STUDIO' } as JobQueueScope, [
+      { id: SEN, display_name: 'A Senior', team_name: 'Beta' },
+    ])
+    await expect(h.svc.seniorOptions(user, {})).resolves.toEqual({
+      items: [{ id: SEN, name: 'A Senior', teamName: 'Beta' }],
+    })
     expect(h.compiled(0).params).toEqual([JSON.stringify([SEN]), JOB_QUEUE_SENIOR_OPTIONS_MAX])
-    expect(h.compiled(0).text).toContain('WHERE u.id::text IN (SELECT jsonb_array_elements_text(')
-    expect(h.compiled(0).text).toContain('ORDER BY u.display_name, u.id')
+    expect(h.compiled(0).text).not.toContain('tm.team_id =')
   })
 
   it('clips a name to the wire bound', async () => {

@@ -1979,11 +1979,22 @@ export const jobQueueForeignSubmissionSchema = z
 /** How many seniors the list filter's picker offers. */
 export const JOB_QUEUE_SENIOR_OPTIONS_MAX = 200
 
-/** GET `/job-queue/seniors`: the seniors of the viewer's resolved scope, and only who they are. */
+/**
+ * GET `/job-queue/seniors`: the seniors of the viewer's resolved scope, and only who they are and
+ * which team the picker groups them under (`teams.name`, varchar 255).
+ */
 export const jobQueueSeniorOptionsResponseSchema = z
   .object({
     items: z
-      .array(z.object({ id: z.string().uuid(), name: z.string().max(255) }).strict())
+      .array(
+        z
+          .object({
+            id: z.string().uuid(),
+            name: z.string().max(255),
+            teamName: z.string().max(255),
+          })
+          .strict(),
+      )
       .max(JOB_QUEUE_SENIOR_OPTIONS_MAX),
   })
   .strict()

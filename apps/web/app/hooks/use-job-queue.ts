@@ -69,11 +69,23 @@ export const JOB_QUEUE_PAGE_LIMIT = 20
 export const jobQueueScopeKey = (scope: QueueScopeSignature) =>
   ['job-queue', scope.actorId, scope.role, scope.teamId ?? 'default'] as const
 
+/** One spelling of a senior set: lower-cased, de-duplicated, sorted (URL, picker and cache agree). */
+export const canonicalSeniorIds = (ids: readonly string[]): string[] =>
+  [...new Set(ids.map((id) => id.toLowerCase()))].sort()
+
 export const jobQueueQueryKey = (
   scope: QueueScopeSignature,
   tab: JobQueueTab,
   filters: QueueFilters,
-) => [...jobQueueScopeKey(scope), 'list', tab, filters] as const
+) =>
+  [
+    ...jobQueueScopeKey(scope),
+    'list',
+    tab,
+    filters.seniorIds === undefined
+      ? filters
+      : { ...filters, seniorIds: canonicalSeniorIds(filters.seniorIds) },
+  ] as const
 
 export const jobQueueCardQueryKey = (scope: QueueScopeSignature, id: string | null) =>
   [...jobQueueScopeKey(scope), 'card', id] as const

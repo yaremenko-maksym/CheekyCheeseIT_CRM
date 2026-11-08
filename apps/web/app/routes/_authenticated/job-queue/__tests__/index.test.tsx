@@ -77,8 +77,8 @@ function page(over: Partial<JobQueueListResponseDto> = {}): JobQueueListResponse
 const SENIOR_A = '55555555-5555-4555-8555-555555555555'
 const SENIOR_B = '66666666-6666-4666-8666-666666666666'
 const SENIOR_OPTIONS = [
-  { id: SENIOR_A, name: 'Анна Коваль' },
-  { id: SENIOR_B, name: 'Богдан Шевченко' },
+  { id: SENIOR_A, name: 'Анна Коваль', teamName: 'Команда А' },
+  { id: SENIOR_B, name: 'Богдан Шевченко', teamName: 'Команда А' },
 ]
 
 type Call = { url: string; params?: Record<string, unknown> | undefined }
@@ -845,7 +845,7 @@ describe('/job-queue page', () => {
       seniorIds: '66666666-6666-4666-8666-666666666666,55555555-5555-4555-8555-555555555555',
     })
     const applied = await screen.findByTestId('job-queue-applied')
-    expect(applied).toHaveTextContent('Застосовано: Богдан Шевченко, Анна Коваль')
+    expect(applied).toHaveTextContent('Застосовано: Сеньйори: Богдан Шевченко, Анна Коваль')
     expect(applied).not.toHaveTextContent(SENIOR_A)
     expect(screen.getByTestId('job-queue-filters-button')).toHaveTextContent('Фільтри1')
   })
@@ -868,7 +868,7 @@ describe('/job-queue page', () => {
     renderPage()
     await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
     await userEvent.click(screen.getByTestId('job-queue-filters-button'))
-    const group = await screen.findByRole('group', { name: 'Сеньйори' })
+    const group = await screen.findByRole('group', { name: 'Підходить сеньйору' })
     expect(await within(group).findByRole('alert')).toHaveTextContent(
       'Не вдалося завантажити сеньйорів',
     )
@@ -890,7 +890,7 @@ describe('/job-queue page', () => {
     renderPage()
     await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
     await userEvent.click(screen.getByTestId('job-queue-filters-button'))
-    const group = await screen.findByRole('group', { name: 'Сеньйори' })
+    const group = await screen.findByRole('group', { name: 'Підходить сеньйору' })
     await within(group).findByRole('alert')
     await userEvent.click(within(group).getByRole('button', { name: 'Спробувати ще раз' }))
     expect(await within(group).findByRole('checkbox', { name: 'Анна Коваль' })).toBeInTheDocument()
@@ -964,6 +964,20 @@ describe('/job-queue search params', () => {
     expect(parse({ seniorIds: [] })).toEqual({ tab: 'NEW' })
     expect(parse({ seniorIds: ids(51) })).toEqual({ tab: 'NEW' })
     expect(parse({ seniorIds: ids(50) })).toEqual({ tab: 'NEW', seniorIds: ids(50) })
+  })
+
+  it('canonicalises the seniors: lower-cased, de-duplicated, sorted (CR-L-1)', () => {
+    const ids = (n: number) =>
+      Array.from({ length: n }, (_, i) => `0000000a-0000-4000-8000-${String(i).padStart(12, '0')}`)
+    expect(parse({ seniorIds: [SENIOR_B, SENIOR_A.toUpperCase(), SENIOR_A] })).toEqual({
+      tab: 'NEW',
+      seniorIds: [SENIOR_A, SENIOR_B].sort(),
+    })
+    // a repeat does not count toward the limit: 50 distinct ids, sent twice and upper-cased
+    expect(parse({ seniorIds: [...ids(50), ...ids(50).map((s) => s.toUpperCase())] })).toEqual({
+      tab: 'NEW',
+      seniorIds: ids(50),
+    })
   })
 
   it('drops a search longer than 200 characters and defaults a missing tab', () => {
