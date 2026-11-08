@@ -356,6 +356,8 @@ BARE_CMD = re.compile(r"cmd(\.(exe|cmd|bat|com))?", re.I)
 CMD_FILE = re.compile(r"cmd\.(exe|cmd|bat|com)", re.I)
 COMSPEC = re.compile(r"(?<!\w)(\$\{?COMSPEC\}?|%COMSPEC%)(?!\w)", re.I)
 REDIRECT = re.compile(r"^\d*[<>]")
+# An absolute or drive path: `/c/Windows/System32/cmd`, `C:\Windows\System32\cmd` (AUTO-SR-3).
+ABS_PATH = re.compile(r"^(/|[A-Za-z]:[/\\]|\\\\)")
 
 
 def seg_words(seg):
@@ -366,10 +368,13 @@ def seg_words(seg):
 
 def bare_cmd_word(seg):
     # True when the segment holds `cmd` / `cmd.exe` as a bare word, or a cmd.exe file
-    # in any directory (CR-M-6), not `./cmd` or `cmd/server`: a directory has no extension.
+    # in any directory (CR-M-6), or an absolute path ending in cmd (AUTO-SR-3), not the
+    # relative `./cmd` or `cmd/server`: a project directory is relative and has no extension.
     for word in seg_words(seg):
         word = re.sub(r"^[^\w./\\]+|[^\w./\\]+$", "", word)
-        if BARE_CMD.fullmatch(word) or CMD_FILE.fullmatch(re.split(r"[/\\]", word)[-1]):
+        last = re.split(r"[/\\]", word)[-1]
+        if (BARE_CMD.fullmatch(word) or CMD_FILE.fullmatch(last)
+                or (ABS_PATH.match(word) and BARE_CMD.fullmatch(last))):
             return True
     return False
 
@@ -383,6 +388,21 @@ for seg in scan.segments:
     if not seg.confident and any(COMSPEC.search(w) for w in seg_words(seg)):
         blocked.append("`$COMSPEC` runs a shell whose syntax no gate reads")
         break
+    # AUTO-SR-4: a command word that is a bare variable or substitution (`$x`, `${!v}`,
+    # `"$(printenv COMSPEC)"`) resolves to nothing readable. With nothing after it, or a
+    # redirect next, it may be a shell reading its stdin; a variable assigned in the same
+    # line (`x=$COMSPEC; ... | $x foo`) is judged by its value.
+    # shortcut: such a word WITH a plain argument (`${!v} foo`, `"$(printenv COMSPEC)" foo`)
+    # is allowed, upgrade when cmdscan records segment stdin. Deliberate obfuscation.
+    # A truncated scan is refused below with its own reason; do not mask it.
+    if seg.dynamic and not scan.truncated and not re.search(r"[/\\]", seg.name):
+        nxt0 = seg.argv[0] if seg.argv else ""
+        value = scan.assigns.get(re.sub(r"^\$\{?|\}$", "", seg.name), "")
+        named = COMSPEC.search(value) or unread_shell(value) in UNREAD_SHELLS
+        if named or not nxt0 or REDIRECT.match(nxt0):
+            blocked.append("`%s` is a command word the hook cannot resolve; it may run a shell "
+                           "whose syntax no gate reads" % seg.name)
+            break
     bare_cmd = bare_cmd_word(seg)
     for cand in candidates(seg):
         shell = unread_shell(cand.name)

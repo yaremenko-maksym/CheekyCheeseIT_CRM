@@ -765,6 +765,18 @@ block	safety	echo del x | winpty "$COMSPEC"
 block	safety	echo del x | winpty cmd foo
 block	safety	echo del x | winpty cmd.exe foo
 block	safety	winpty cmd foo < x.bat
+# AUTO-SR-3 of #1294: an absolute or drive path ending in bare cmd is cmd.
+block	safety	echo del x | unknown-tool /c/Windows/System32/cmd
+block	safety	echo del x | winpty C:/Windows/System32/cmd
+# AUTO-SR-4 of #1294: an unresolvable command word with nothing after it, or a variable
+# assigned to $COMSPEC in the same line.
+block	safety	x=$COMSPEC; echo del x | $x
+block	safety	x=$COMSPEC; echo del x | $x foo
+block	safety	echo del x | "$(printenv COMSPEC)"
+block	safety	echo del x | ${!v}
 # KNOWN LIMIT (#1294): an unknown wrapper + cmd + a plain word + piped stdin stays allowed
-# until cmdscan records segment stdin.
+# until cmdscan records segment stdin. So does an unresolvable command word with a plain
+# argument (deliberate obfuscation).
 allow	safety	echo del x | unknown-tool cmd foo
+allow	safety	echo del x | ${!v} foo
+allow	safety	echo del x | "$(printenv COMSPEC)" foo

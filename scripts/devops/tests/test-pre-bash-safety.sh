@@ -590,13 +590,23 @@ for c in 'echo del x | winpty /c/Windows/System32/cmd.exe' 'echo del x | winpty 
          'echo del x | winpty "C:\Windows\System32\cmd.exe"' 'winpty /c/Windows/System32/cmd.exe < x.bat' \
          'echo del x | winpty "$COMSPEC"' 'echo del x | unknown-tool /c/Windows/System32/cmd.exe' \
          'echo del x | winpty cmd foo' 'echo del x | winpty cmd.exe foo' 'winpty cmd foo < x.bat' \
-         'winpty -Xallow-non-tty -- cmd foo'; do
+         'winpty -Xallow-non-tty -- cmd foo' \
+         'echo del x | unknown-tool /c/Windows/System32/cmd' 'echo del x | winpty C:/Windows/System32/cmd' \
+         'x=$COMSPEC; echo del x | $x' 'x=$COMSPEC; echo del x | $x foo' \
+         'echo del x | "$(printenv COMSPEC)"' 'echo del x | ${!v}' '"$SH" < x.bat'; do
   assert_red "cmd by path, COMSPEC or behind winpty: $c" --contains "no gate reads" -- h "$c"
 done
 # Known limit (shortcut in predicate 7): an unknown wrapper + cmd + a plain word + piped stdin
 # is allowed until cmdscan records segment stdin. Pinned so a change is seen.
 assert_green "known limit, unknown wrapper + cmd + word + stdin: echo del x | unknown-tool cmd foo" \
   -- h 'echo del x | unknown-tool cmd foo'
+# Known limit (AUTO-SR-4 shortcut): an unresolvable command word WITH a plain argument.
+for c in 'echo del x | ${!v} foo' 'echo del x | "$(printenv COMSPEC)" foo'; do
+  assert_green "known limit, unresolvable command word + word: $c" -- h "$c"
+done
+for c in 'go run /abs/proj/cmd/server' '"$PNPM" install' '$EDITOR file.txt'; do
+  assert_green "not a cmd launch: $c" -- h "$c"
+done
 # CR-M-4 (#1294): a decoy install in one quoted argument must not exempt a launch in the
 # next one, or past a `;` inside a -c string, and a flat `concurrently` runs every word.
 # So there is no install exemption at all.
