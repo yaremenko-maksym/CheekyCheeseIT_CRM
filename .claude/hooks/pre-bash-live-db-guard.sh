@@ -107,13 +107,13 @@
 #   - Fast-exit 0 outside agent worktree / claude scratchpad context — the
 #     owner's own main-checkout session is legitimate and untouched.
 #   - exit 2 + JSON decision body on block.
-#   - exit 1 + `INTERNAL ERROR` on stderr when the ANALYZER itself fails:
-#     a broken hook must never be mistaken for a hook that refused. Both used
-#     to be "non-zero exit"; a bash syntax error still exits 2 exactly like a
-#     verdict, so the distinguishing mark is the contract: a real verdict ALWAYS
-#     carries a {"decision":"block"} body on stdout. If the analyzer dies while
-#     the coarse test says a launcher is present, the fallback still blocks —
-#     but labels itself DEGRADED MODE, so nobody debugs the wrong thing.
+#   - exit 2 + `INTERNAL ERROR` on stderr when the ANALYZER itself fails: a
+#     command nobody read is not a command that was cleared, and exit 1 would
+#     not block. A broken hook must still never be mistaken for a verdict on the
+#     merits, so the mark is on the output: stderr says INTERNAL ERROR, and the
+#     only block body it can print is the coarse fallback, which runs when the
+#     coarse test says a launcher is present and labels itself DEGRADED MODE,
+#     so nobody debugs the wrong thing.
 #   - CI runners never see this file at all (hooks are a local Claude Code
 #     mechanism; GitHub Actions does not invoke .claude/hooks/**).
 #

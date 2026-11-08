@@ -380,6 +380,10 @@ run_hook_raw_payload() {
 assert_red "SR-L-4: payload with \\ud800 in file_path -> BLOCK" \
   --contains '"decision": "block"' \
   -- run_hook_raw_payload "$MAIN_REPO" '{"tool_name":"Write","tool_input":{"file_path":"apps/api/\ud800.ts"}}'
+# Round 3 of #1294: a payload that is not JSON names no tool, and used to exit 0 as "not a write".
+assert_green "unparseable payload: exit 2, not waved through as a non-write" \
+  --contains "not valid JSON" \
+  -- exits_2 run_hook_raw_payload "$MAIN_REPO" '{"tool_name":"Edit","tool_input":{"file_path":"apps/api/x"'
 
 # SR-L-5: lexical normalization before realpath stops symlink + '..' escaping a linked worktree.
 mkdir -p "$LW_A/d1/d2" "$LW_A/main/apps/api/src"

@@ -82,6 +82,14 @@ if [ -z "$TOOL_NAME" ] && ! python3 -c '' 2>/dev/null &&
   exit 2
 fi
 
+# python3 runs but the payload is not JSON: it names no tool, so "not a write" would be a
+# guess. Refuse (round 3 of #1294: an unterminated payload naming apps/ used to exit 0).
+if [ -z "$TOOL_NAME" ] && ! printf '%s' "$INPUT" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null &&
+  python3 -c '' 2>/dev/null; then
+  echo "[pre:edit-write:zone-of-write] Refused: the hook payload is not valid JSON, so the write it describes was not checked." >&2
+  exit 2
+fi
+
 # Fast exit: not a target tool.
 case "$TOOL_NAME" in
   Edit|Write|MultiEdit|NotebookEdit) ;;

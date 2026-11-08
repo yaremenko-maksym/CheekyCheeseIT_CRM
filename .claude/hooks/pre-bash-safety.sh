@@ -356,10 +356,12 @@ for seg in scan.segments:
         break
     for cand in candidates(seg):
         shell = unread_shell(cand.name)
-        # `cmd` is also a common directory name (`go run ./cmd`), so as an argument it
-        # counts only with a flag after it; powershell and pwsh name nothing else.
-        if shell in UNREAD_SHELLS and (cand is seg or shell != "cmd"
-                                       or (cand.argv and cand.argv[0][:1] in ("-", "/"))):
+        # As an argument the word is often a name, not a launch: `go run ./cmd`,
+        # `pnpm add powershell`, `brew install pwsh`. So an argument reading counts only
+        # with a flag after it, or (powershell, pwsh) a script file after it.
+        nxt = cand.argv[0] if cand.argv else ""
+        if shell in UNREAD_SHELLS and (cand is seg or nxt[:1] in ("-", "/")
+                                       or (shell != "cmd" and nxt.lower().endswith(".ps1"))):
             blocked.append("`%s` runs a shell whose syntax no gate reads" % cand.name)
             break
 

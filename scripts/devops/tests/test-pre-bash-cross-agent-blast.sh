@@ -499,5 +499,14 @@ done
 for c in $'echo "$(echo "\'")"; pk\\\nill -f node' $'echo ${x:- #};p\\\nkill -f node'; do
   assert_red "naive-join reading: ${c//$'\n'/<NL>}" --contains 'BROADCAST-KILL' -- run_hook "$MINE" "$c"
 done
+# Round 3 of #1294: bash runs `$'pkill'` as pkill, and dev-ttl.sh runs what follows `--`.
+for c in "\$'pkill' -f node" "\$'killall' node" "scripts/devops/dev-ttl.sh -- pkill -f node" \
+         "scripts/devops/dev-ttl.sh --ttl 60 -- pkill -f node" "dev-ttl.sh --ttl=60 -- killall node"; do
+  assert_red "wrapped broadcast kill: $c" --contains 'BROADCAST-KILL' -- run_hook "$MINE" "$c"
+done
+assert_green "dev-ttl.sh around a harmless command" -- run_hook "$MINE" "scripts/devops/dev-ttl.sh --ttl 60 -- ls"
+# Round 3 of #1294: the naive join must not swallow the line that ends a quoted heredoc.
+assert_green "naive-join reading: a quoted heredoc body ending in a backslash" \
+  -- run_hook "$MINE" $'cat > note.md <<\'EOF\'\nrun `pkill -f node` and\nline \\\nEOF'
 
 guard_test_summary "test-pre-bash-cross-agent-blast.sh"

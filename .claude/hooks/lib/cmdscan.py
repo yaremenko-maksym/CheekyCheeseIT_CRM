@@ -1013,7 +1013,8 @@ def _ansi_c_alt(text):
     """bash reads `$'...'` with backslash escapes, so `\\'` does not close it; every
     other reader here closes it there (SR-H-25: `echo $'\\' '; rm -rf /etc #'` hid the
     rm). Returns the text with each `$'...'` re-spelled in plain quoting, or None
-    when no `$'...'` holds a backslash (then both readings agree)."""
+    when there is no `$'...'`. Decoded even with no backslash inside: the other
+    readers keep the `$`, so `pnpm $'dev'` read as `pnpm $dev` (round 3 of #1294)."""
     if "$'" not in text:
         return None
     out = []
@@ -1032,10 +1033,9 @@ def _ansi_c_alt(text):
             out.append(ch)
             i += 1
         elif text.startswith("$'", i):
-            j, val = i + 2, []
+            j, val, hit = i + 2, [], True
             while j < n and text[j] != "'":
                 if text[j] == "\\" and j + 1 < n:
-                    hit = True
                     nx = text[j + 1]
                     val.append(nx if nx in "'\"\\?" else "\\" + nx)
                     j += 2
@@ -1068,6 +1068,37 @@ def _starts_word(text, i):
     if backslashes % 2 == 1:
         return False  # prev is escaped: an escaped space / newline / operator is not a boundary
     return prev in " \t\n;&|()"
+
+
+def _joined_word_start(out):
+    """`_starts_word` for the position after `out`, reading only its last chunk (CR-M-2,
+    #1294: joining `out` on every `#` was quadratic). An escape is appended as one
+    two-character chunk, so a chunk `\\x` means the previous character is escaped."""
+    last = next((c for c in reversed(out) if c), "")
+    if not last:
+        return True
+    if len(last) == 2 and last[0] == "\\":
+        return False
+    return last[-1] in " \t\n;&|()"
+
+
+def _naive_join(text):
+    """Every backslash-newline removed, with no lexing - except one followed by the
+    delimiter line of a quoted heredoc. bash does not join inside a quoted heredoc body,
+    and removing that pair swallows the line that ends the body, so the body text (a
+    backticked `pnpm dev` in a note) turned into code (round 3 of #1294). An unquoted
+    delimiter is still joined: there bash joins too."""
+    delims = set(m.group(2) or m.group(3) for m in re.finditer(
+        r"<<-?[ \t]*(?:(['\"])([^'\"\n]+)\1|\\([^\s;&|<>()]+))", text))
+    if not delims:
+        return text.replace("\\\n", "")
+    parts = text.split("\\\n")
+    out = [parts[0]]
+    for part in parts[1:]:
+        first = part.split("\n", 1)[0]
+        out.append("\\\n" if first.lstrip("\t") in delims else "")
+        out.append(part)
+    return "".join(out)
 
 
 def join_continuations(text):
@@ -1119,7 +1150,7 @@ def join_continuations(text):
             continue
         if ch in "'\"":
             quote = ch
-        elif ch == "#" and _STRIP_COMMENTS and _starts_word("".join(out) + ch, len("".join(out))):
+        elif ch == "#" and _STRIP_COMMENTS and _joined_word_start(out):
             # Decided on the JOINED text: `ls \<newline>#x` is `ls #x`, a comment.
             eol = text.find("\n", i)
             eol = n if eol < 0 else eol
@@ -2196,7 +2227,7 @@ def scan(command_line, depth=0, env=None):
         # like the two readings below: it can add segments, never remove one.
         _NAIVE_JOIN = True
         try:
-            _merge(result, scan(original.replace("\\\n", ""), 0, env))
+            _merge(result, scan(_naive_join(original), 0, env))
         finally:
             _NAIVE_JOIN = False
     ansi = None if _ANSI_ALT else _ansi_c_alt(command_line)

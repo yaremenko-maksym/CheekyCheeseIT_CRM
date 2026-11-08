@@ -561,7 +561,8 @@ for c in 'powershell -c "Remove-Item x"' 'PowerShell.exe -Command x' 'pwsh -c x'
   assert_red "unread shell: $c" --contains "no gate reads" -- h "$c"
 done
 for c in "git commit -m 'use powershell -c x'" "echo powershell -c x" "gh pr create --body 'run cmd /c dir'" \
-         "grep -rn powershell .claude" "ls cmd" "cat cmd/main.go" "go run ./cmd" "go build ./cmd/server"; do
+         "grep -rn powershell .claude" "ls cmd" "cat cmd/main.go" "go run ./cmd" "go build ./cmd/server" \
+         "pnpm add powershell" "brew install powershell" "brew install --cask pwsh" "npm i pwsh"; do
   assert_green "naming a shell does not run it: $c" -- h "$c"
 done
 

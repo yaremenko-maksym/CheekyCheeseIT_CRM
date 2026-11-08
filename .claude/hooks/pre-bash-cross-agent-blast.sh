@@ -279,8 +279,8 @@ cmd = cmdscan.join_continuations(raw_cmd)
 # second reading too, with every backslash-newline removed and nothing lexed: every
 # predicate below works per segment or per match, so appending it can only add work.
 if "\\\n" in raw_cmd:
-    cmd += "\n" + raw_cmd.replace("\\\n", "")
-cwd =to_posix(os.environ.get("CWD", ""))
+    cmd += "\n" + cmdscan._naive_join(raw_cmd)
+cwd = to_posix(os.environ.get("CWD", ""))
 agent_id = os.environ.get("AGENT_ID", "").strip()
 
 # ---- identity: which worktree am I? -----------------------------------------
@@ -429,7 +429,8 @@ segments = re.split(r"(?:\|\||&&|[;\n|&])", cmd)
 # `find <other worktree> | xargs rm` was a real, reproduced miss (CR-M-1 on
 # PR #553). Unwrapping is safe for the false-positive budget because a
 # predicate still additionally requires a foreign path to be referenced.
-WRAPPERS = {"xargs", "sudo", "env", "nice", "nohup", "command", "stdbuf", "timeout", "rtk"}
+# dev-ttl.sh is the project TTL wrapper: `dev-ttl.sh [--ttl N] -- <command>` (round 3 of #1294).
+WRAPPERS = {"xargs", "sudo", "env", "nice", "nohup", "command", "stdbuf", "timeout", "rtk", "dev-ttl.sh"}
 RTK_EXEC = {"bypass", "proxy", "err", "test", "run", "summary"}
 # Wrapper flags that consume the NEXT token as their value.
 VALUE_FLAGS = {"-I", "-i", "-n", "-P", "-d", "-E", "-s", "-L", "-a", "-u", "-p"}
@@ -447,6 +448,8 @@ def first_token(seg):
     if not seg:
         return "", []
     seg = seg.lstrip("(){ \t")
+    # bash runs ANSI-C quoted `$(q)pkill(q)` as pkill; shlex leaves `$pkill` (round 3 of #1294).
+    seg = cmdscan._ansi_c_alt(seg) or seg
     try:
         parts = shlex.split(seg, comments=True)
     except ValueError:
@@ -461,6 +464,14 @@ def first_token(seg):
         if not parts or cmd_name(parts[0]) not in WRAPPERS:
             break
         wrapper = cmd_name(parts.pop(0))
+        if wrapper == "dev-ttl.sh":
+            if parts and parts[0] == "--ttl":
+                parts = parts[2:]
+            elif parts and parts[0].startswith("--ttl="):
+                parts.pop(0)
+            if parts and parts[0] == "--":
+                parts.pop(0)
+            continue
         while parts and parts[0].startswith("-"):
             flag = parts.pop(0)
             if flag in VALUE_FLAGS and parts:
@@ -747,8 +758,7 @@ if mutating or redirect_targets:
             return [y for alt in m.group(1).split(",")
                     for y in braces(s[:m.start()] + alt + s[m.end():])][:64]
         up = []
-        for c in cand:
-          for w in braces(c):
+        for c, w in [(c, y) for c in cand for y in braces(c)]:
             # `~+` is $PWD and `~-` is $OLDPWD; expanduser leaves both alone.
             w = re.sub(r"^~\+(?=/|$)", cwd, re.sub(r"^~-(?=/|$)", "$OLDPWD", w))
             p = to_posix(os.path.expandvars(os.path.expanduser(w) if w.startswith("~") else w))

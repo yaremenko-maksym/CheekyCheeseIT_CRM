@@ -766,5 +766,13 @@ assert_red "here-string, not heredoc: the launch on the next line" \
 # naive-join reading still sees the launch.
 assert_red "naive-join reading: a continuation after nested quotes" \
   --contains '"decision": "block"' -- h $'echo "$(echo "\'")"; pnpm --filter @crm/api d\\\nev'
+# Round 3 of #1294: the naive join must not swallow the line that ends a quoted heredoc,
+# or the body (a backticked `pnpm dev` in a note) is read as code.
+assert_green "naive-join reading: a quoted heredoc body ending in a backslash" \
+  -- h $'cat > note.md <<\'EOF\'\nuse `pnpm dev` and\nline \\\nEOF'
+# Round 3 of #1294: bash decodes $'...' with or without a backslash in it.
+for c in "pnpm --filter @crm/api \$'dev'" "\$'vite' --port 3000" "\$'pnpm' --filter @crm/api dev"; do
+  assert_red "ANSI-C quoting without a backslash: $c" --contains '"decision": "block"' -- h "$c"
+done
 
 guard_test_summary "test-pre-bash-devserver-ttl-gate.sh"
