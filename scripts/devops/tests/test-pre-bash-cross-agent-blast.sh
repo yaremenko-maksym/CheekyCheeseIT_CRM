@@ -489,4 +489,15 @@ for c in "p''kill -f node" 'p""kill -f node' "kill'all' node"; do
   assert_red "quote-spliced: $c" --contains 'BROADCAST-KILL' -- run_hook "$MINE" "$c"
 done
 
+# F1, round 2 of #1294: `<<<` is a here-string; the line after it runs.
+for c in $'cat <<<x\npkill -f node' $'cat <<<x\npk\\\nill -f node'; do
+  assert_red "here-string, not heredoc: ${c//$'\n'/<NL>}" --contains 'BROADCAST-KILL' -- run_hook "$MINE" "$c"
+done
+# F2/F3, round 2 of #1294: the joiner tracks quotes one level deep and reads `${x:- #}` as a
+# comment (bash does not), so it leaves these continuations unjoined. Only the second
+# reading, with every backslash-newline removed, sees the pkill.
+for c in $'echo "$(echo "\'")"; pk\\\nill -f node' $'echo ${x:- #};p\\\nkill -f node'; do
+  assert_red "naive-join reading: ${c//$'\n'/<NL>}" --contains 'BROADCAST-KILL' -- run_hook "$MINE" "$c"
+done
+
 guard_test_summary "test-pre-bash-cross-agent-blast.sh"

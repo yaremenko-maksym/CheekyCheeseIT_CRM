@@ -272,7 +272,14 @@ def cmd_name(word):
     return re.sub(r"\.(exe|cmd|bat)$", "", os.path.basename(word), flags=re.I)
 
 
-cmd = cmdscan.join_continuations(sys.stdin.read())
+raw_cmd = sys.stdin.read()
+cmd = cmdscan.join_continuations(raw_cmd)
+# The joiner is a lexer of its own (quotes one level deep, its own comment rule), so a
+# slip in it hides a command split by a continuation (F2/F3, round 2 of #1294). Judge a
+# second reading too, with every backslash-newline removed and nothing lexed: every
+# predicate below works per segment or per match, so appending it can only add work.
+if "\\\n" in raw_cmd:
+    cmd += "\n" + raw_cmd.replace("\\\n", "")
 cwd =to_posix(os.environ.get("CWD", ""))
 agent_id = os.environ.get("AGENT_ID", "").strip()
 

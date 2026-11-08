@@ -759,4 +759,12 @@ assert_green "broken analyzer + harmless read: exit 2 (exit 1 does not block)" \
 assert_green "a raw invalid byte in the payload does not skip the fast path" \
   -- exits_2 hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":"\xff pnpm --filter @crm/api dev"}}'
 
+# F1, round 2 of #1294: `<<<` is a here-string; the line after it is a launch.
+assert_red "here-string, not heredoc: the launch on the next line" \
+  --contains '"decision": "block"' -- h $'cat <<<x\npnpm --filter @crm/api dev'
+# F2, round 2 of #1294: a `'` inside `"$(…)"` leaves the joiner in a quote; the
+# naive-join reading still sees the launch.
+assert_red "naive-join reading: a continuation after nested quotes" \
+  --contains '"decision": "block"' -- h $'echo "$(echo "\'")"; pnpm --filter @crm/api d\\\nev'
+
 guard_test_summary "test-pre-bash-devserver-ttl-gate.sh"

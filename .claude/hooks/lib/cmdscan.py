@@ -587,7 +587,12 @@ def _heredoc_opener(text, i):
     is expanded by the shell, so a substitution written in one really does run
     and must keep being read as code.
     """
-    if not text.startswith("<<", i) or text.startswith("<<<", i):
+    # `<<<` is a here-string, not a heredoc. A caller walking the text one character
+    # at a time reaches its SECOND `<` too, where `<<x` looks like an opener, and every
+    # following line was then swallowed as "heredoc body" and never read (F1, round 2
+    # of #1294: `cat <<<x` + newline + `rm -rf /etc` was allowed, on main as well).
+    if (not text.startswith("<<", i) or text.startswith("<<<", i)
+            or (i > 0 and text[i - 1] == "<")):
         return None
     rest = text[i:]
     m = HEREDOC_RE.match(rest)
@@ -1001,6 +1006,7 @@ def _brace_stands_alone(text, i):
 # previous character; an odd run means that character is escaped.
 _STRIP_COMMENTS = True
 _ANSI_ALT = False
+_NAIVE_JOIN = False
 
 
 def _ansi_c_alt(text):
@@ -1075,9 +1081,15 @@ def join_continuations(text):
     runs), and inside the body of a heredoc whose delimiter is quoted. An unquoted
     heredoc body is joined too, including the line that would be the delimiter.
 
-    shortcut: quotes are tracked one level deep (a `'` inside `"$(…)"` is read as
-    literal) and an opener split by a continuation is not seen as an opener;
-    upgrade to a real lexer if a corpus row shows either one hiding a command.
+    Known approximations: quotes are tracked one level deep (`"$(echo "'")"` leaves
+    it inside a `'` span), the comment rule is `_starts_word`'s (`${x:- #}` reads as
+    a comment; bash does not), and an opener split by a continuation is not seen as
+    an opener. None of them can hide a command: scan() and the cross-agent-blast
+    analyzer also judge a second reading with every backslash-newline removed and
+    nothing lexed, and refuse if either reading does (F2/F3, round 2 of #1294).
+    The residual is a command that BOTH readings miss: one that needs the
+    continuation kept somewhere (single quotes, a quoted heredoc body, a comment)
+    and removed elsewhere in the same command, and that this lexer also misreads.
     """
     if "\\\n" not in text:
         return text
@@ -2082,7 +2094,8 @@ def candidates(seg, code=False):
 
 
 def scan(command_line, depth=0, env=None):
-    global _STRIP_COMMENTS, _ANSI_ALT
+    global _STRIP_COMMENTS, _ANSI_ALT, _NAIVE_JOIN
+    original = command_line or ""
     command_line = join_continuations(command_line or "")
     spans = _heredoc_literal_spans(command_line)
     text, inners = _extract_substitutions(command_line, spans)
@@ -2175,6 +2188,17 @@ def scan(command_line, depth=0, env=None):
             result.code_view = result.code_view + "\n" + alt.code_view
         result.degraded = result.degraded or alt.degraded
         result.truncated = result.truncated or alt.truncated
+    if depth == 0 and not _NAIVE_JOIN and _STRIP_COMMENTS and not _ANSI_ALT and "\\\n" in original:
+        # F2/F3, round 2 of #1294: join_continuations() is a lexer of its own (quotes one
+        # level deep, its own idea of where a comment starts), and any slip in it hides a
+        # command split by a continuation. So a SECOND reading removes every
+        # backslash-newline with no lexing at all, and both readings are judged. Merged
+        # like the two readings below: it can add segments, never remove one.
+        _NAIVE_JOIN = True
+        try:
+            _merge(result, scan(original.replace("\\\n", ""), 0, env))
+        finally:
+            _NAIVE_JOIN = False
     ansi = None if _ANSI_ALT else _ansi_c_alt(command_line)
     if ansi is not None:
         # SR-H-25: bash's reading of `$'...'` is merged like the comment-keeping one
@@ -2184,15 +2208,20 @@ def scan(command_line, depth=0, env=None):
             alt = scan(ansi, depth, env)
         finally:
             _ANSI_ALT = False
-        have = set(sg.raw for sg in result.segments)
-        result.segments = list(result.segments) + [
-            sg for sg in alt.segments
-            if sg.raw not in have and not sg.raw.lstrip().startswith("#")]
-        if alt.code_view != result.code_view:
-            result.code_view = result.code_view + "\n" + alt.code_view
-        result.degraded = result.degraded or alt.degraded
-        result.truncated = result.truncated or alt.truncated
+        _merge(result, alt)
     return result
+
+
+def _merge(result, alt):
+    """Add the segments only `alt` has; a segment that merely begins with "#" is a comment."""
+    have = set(sg.raw for sg in result.segments)
+    result.segments = list(result.segments) + [
+        sg for sg in alt.segments
+        if sg.raw not in have and not sg.raw.lstrip().startswith("#")]
+    if alt.code_view != result.code_view:
+        result.code_view = result.code_view + "\n" + alt.code_view
+    result.degraded = result.degraded or alt.degraded
+    result.truncated = result.truncated or alt.truncated
 
 
 # ── the shared "is this a dev-server launch" predicate ────────────────────────

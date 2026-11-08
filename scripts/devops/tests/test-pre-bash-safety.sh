@@ -578,6 +578,20 @@ for c in $'echo \'r\\\nm -rf /etc\'' $'ls # r\\\nm -rf /tmp/x'; do
   assert_green "no continuation there: ${c//$'\n'/<NL>}" -- h "$c"
 done
 
+# F1, round 2 of #1294: `<<<` is a here-string, not a heredoc. Its second `<` read as
+# `<<x` swallowed every following line as a heredoc body (on main as well).
+for c in $'cat <<<x\nrm -rf /etc' $'cat <<<x\nr\\\nm -rf /etc' $'cat <<<\'x\'\nr\\\nm -rf /etc'; do
+  assert_red "here-string, not heredoc: ${c//$'\n'/<NL>}" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+assert_green "a here-string on its own" -- h $'cat <<<x\nls'
+# F2/F3, round 2 of #1294: the joiner's quote and comment lexing is approximate, so a
+# second reading with every backslash-newline removed is judged too. Each case below
+# is missed by the joiner alone: a `'` inside `"$(…)"`, and `#` inside `${x:- #}` (the
+# second is also caught by the comment-free reading).
+for c in $'echo "$(echo "\'")"; r\\\nm -rf /etc' $'echo ${x:- #};r\\\nm -rf /etc'; do
+  assert_red "naive-join reading: ${c//$'\n'/<NL>}" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+
 # ── no analyzer: refused, not waved through ─────────────────────────────────
 assert_green "broken analyzer + harmless command: exit 2 (exit 1 does not block)" \
   --contains "Refused" \
