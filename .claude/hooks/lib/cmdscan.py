@@ -1082,25 +1082,6 @@ def _joined_word_start(out):
     return last[-1] in " \t\n;&|()"
 
 
-def _naive_join(text):
-    """Every backslash-newline removed, with no lexing - except one followed by the
-    delimiter line of a quoted heredoc. bash does not join inside a quoted heredoc body,
-    and removing that pair swallows the line that ends the body, so the body text (a
-    backticked `pnpm dev` in a note) turned into code (round 3 of #1294). An unquoted
-    delimiter is still joined: there bash joins too."""
-    delims = set(m.group(2) or m.group(3) for m in re.finditer(
-        r"<<-?[ \t]*(?:(['\"])([^'\"\n]+)\1|\\([^\s;&|<>()]+))", text))
-    if not delims:
-        return text.replace("\\\n", "")
-    parts = text.split("\\\n")
-    out = [parts[0]]
-    for part in parts[1:]:
-        first = part.split("\n", 1)[0]
-        out.append("\\\n" if first.lstrip("\t") in delims else "")
-        out.append(part)
-    return "".join(out)
-
-
 def join_continuations(text):
     """Remove every backslash-newline the shell removes, before anything splits the text.
 
@@ -2227,7 +2208,7 @@ def scan(command_line, depth=0, env=None):
         # like the two readings below: it can add segments, never remove one.
         _NAIVE_JOIN = True
         try:
-            _merge(result, scan(_naive_join(original), 0, env))
+            _merge(result, scan(original.replace("\\\n", ""), 0, env))
         finally:
             _NAIVE_JOIN = False
     ansi = None if _ANSI_ALT else _ansi_c_alt(command_line)

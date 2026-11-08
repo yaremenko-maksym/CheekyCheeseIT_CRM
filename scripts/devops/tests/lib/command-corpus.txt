@@ -729,10 +729,10 @@ allow	safety	cat <<<x<NL>ls
 # F2/F3, round 2 of #1294: the joiner's own lexing misses these; the naive-join reading does not.
 block	safety	echo "$(echo "'")"; r\<NL>m -rf /etc
 block	db,ttl	echo "$(echo "'")"; pnpm --filter @crm/api d\<NL>ev
-# Round 3 of #1294: $'...' is decoded even with no backslash; the naive join keeps the
-# backslash-newline before a quoted heredoc delimiter, so the body stays text.
+# Round 3 of #1294: $'...' is decoded even with no backslash. The heredoc-note row is a
+# KNOWN FALSE REFUSAL (accepted LOW, fails closed): the naive-join reading reads the body as code.
 block	db,ttl	pnpm --filter @crm/api $'dev'
 block	db,ttl	$'vite' --port 3000
-allow	db,ttl	cat > note.md <<'EOF'<NL>use `pnpm dev` and<NL>line \<NL>EOF
+block	db,ttl	cat > note.md <<'EOF'<NL>use `pnpm dev` and<NL>line \<NL>EOF
 allow	safety	pnpm add powershell
 allow	safety	brew install pwsh
