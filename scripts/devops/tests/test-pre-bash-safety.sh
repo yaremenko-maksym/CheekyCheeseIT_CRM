@@ -576,6 +576,13 @@ for c in 'winpty powershell Remove-Item -Recurse -Force C:/x' 'echo Remove-Item 
   assert_red "unread shell, any next word: $c" --contains "no gate reads" -- h "$c"
 done
 assert_green "cmd as a directory name is not a launch: go run ./cmd" -- h "go run ./cmd"
+# SO-M-1 (#1294): a bare `cmd` with no next word runs its stdin, fed by a pipe or a redirect.
+for c in 'echo del x | winpty cmd' 'winpty cmd < x.bat' 'winpty cmd <<< "del x"' 'echo del x | winpty cmd.exe'; do
+  assert_red "cmd reading its stdin: $c" --contains "no gate reads" -- h "$c"
+done
+for c in "go build ./cmd/server" "ls cmd" "echo cmd" "git commit -m 'cmd'"; do
+  assert_green "cmd named, not run: $c" -- h "$c"
+done
 # CR-M-4 (#1294): a decoy install in one quoted argument must not exempt a launch in the
 # next one, or past a `;` inside a -c string, and a flat `concurrently` runs every word.
 # So there is no install exemption at all.

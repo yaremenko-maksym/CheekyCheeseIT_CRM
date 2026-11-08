@@ -62,13 +62,14 @@
 #                              {"decision":"block","reason":"..."} to stdout for
 #                              legacy compatibility with Claude Code's JSON
 #                              control-flow path.
-#   - exit 1 + `INTERNAL ERROR` on stderr → the analyzer itself failed. This is
-#     NOT a verdict. It matters because a hook that dies on a syntax error also
-#     exits non-zero (bash exits 2 — indistinguishable from a block by exit code
-#     alone), so the contract is: a real verdict ALWAYS carries the decision JSON
-#     on stdout, and an analyzer failure ALWAYS says INTERNAL ERROR on stderr.
-#     If the analyzer dies while the old coarse test still sees something
-#     catastrophic, the fallback blocks anyway — labelled DEGRADED MODE.
+#   - exit 2 + `INTERNAL ERROR` on stderr, no decision body → the analyzer itself
+#     failed. This is NOT a verdict, but the command is still refused, because
+#     nobody read it. The exit code alone cannot tell this from a block (a hook
+#     that dies on a syntax error exits 2 too), so the contract is: a real verdict
+#     ALWAYS carries the decision JSON on stdout, and an analyzer failure ALWAYS
+#     says INTERNAL ERROR on stderr. If the old coarse test still sees something
+#     catastrophic, the fallback also prints a decision body labelled DEGRADED MODE
+#     (still exit 2, still INTERNAL ERROR on stderr).
 #
 # Specific predicates implemented (each decided on the executed command):
 #   1. `rm -r[f]` whose target is a root-level path (`/`, `/*`, `/etc`, ...),
@@ -351,9 +352,24 @@ def unread_shell(word):
     return re.sub(r"\.(exe|cmd|bat|com)$", "", re.split(r"[/\\]", word)[-1], flags=re.I).lower()
 
 
+BARE_CMD = re.compile(r"cmd(\.(exe|cmd|bat|com))?", re.I)
+REDIRECT = re.compile(r"^\d*[<>]")
+
+
+def bare_cmd_word(seg):
+    # True when the segment holds `cmd` / `cmd.exe` as a bare word, not `./cmd` or
+    # `cmd/server`: the directory name has a path separator, the launch has none.
+    for tok in [seg.name] + list(seg.argv):
+        for word in cmdscan._expand_token(tok, True):
+            if BARE_CMD.fullmatch(re.sub(r"^[^\w./\\]+|[^\w./\\]+$", "", word)):
+                return True
+    return False
+
+
 for seg in scan.segments:
     if blocked:
         break
+    bare_cmd = bare_cmd_word(seg)
     for cand in candidates(seg):
         shell = unread_shell(cand.name)
         if shell not in UNREAD_SHELLS:
@@ -365,8 +381,11 @@ for seg in scan.segments:
             # exemption: an install (`pnpm add pwsh`) is a known false refusal, run by hand.
             hit = True
         else:
-            # `cmd` is a common directory name (`go run ./cmd`): only with a flag after it.
-            hit = nxt[:1] in ("-", "/")
+            # `cmd` is a common directory name (`go run ./cmd`): only with a flag after it,
+            # or as a bare word with no next word, which runs its stdin (SO-M-1: a pipe
+            # into `winpty cmd`, `winpty cmd < x.bat`). cmdscan records no segment input,
+            # so a redirect token counts as no word.
+            hit = nxt[:1] in ("-", "/") or (bare_cmd and (not nxt or bool(REDIRECT.match(nxt))))
         if hit:
             blocked.append("`%s` runs a shell whose syntax no gate reads" % cand.name)
             break

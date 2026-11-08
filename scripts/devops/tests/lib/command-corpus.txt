@@ -738,7 +738,7 @@ block	db,ttl	cat > note.md <<'EOF'<NL>use `pnpm dev` and<NL>line \<NL>EOF
 block	safety	pnpm add powershell
 block	safety	brew install pwsh
 # CR-M-1 / SR-M-4 of #1294: a powershell/pwsh reading needs no flag after it (5.1 runs a
-# plain word as -Command, piped stdin runs with no argument). Install arguments stay allowed.
+# plain word as -Command, piped stdin runs with no argument). Installs are refused too (accepted false refusal, above).
 block	safety	winpty powershell Remove-Item -Recurse -Force C:/x
 block	safety	echo Remove-Item -Recurse C:/x | winpty pwsh
 block	safety	python3 -c "import os; os.system('powershell Remove-Item -Recurse -Force C:/Users/x')"
@@ -752,3 +752,6 @@ block	safety	concurrently "pnpm add pwsh" "pwsh -c Remove-Item"
 block	safety	npx concurrently "pnpm add powershell" "powershell Remove-Item -Recurse C:/x"
 block	safety	parallel ::: "pnpm add powershell" "powershell Remove-Item x"
 block	safety	npx concurrently pnpm add powershell
+# SO-M-1 of #1294: a bare `cmd` with no next word runs its stdin (a pipe or a < redirect).
+block	safety	echo del x | winpty cmd
+block	safety	winpty cmd < x.bat
