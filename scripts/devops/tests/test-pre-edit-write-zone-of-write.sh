@@ -512,4 +512,56 @@ assert_green "SO-M-1: a linked worktree with CLAUDE_AGENT_ID=coder writing its o
   --not-contains "BLOCK" \
   -- run_hook_as_coder "$LW_A" "Write" "$LW_A/apps/api/src/x.ts"
 
+# ── security review of PR #1297 on b3ab7229d: SR-L-10, SR-L-11 ────────────────
+# SR-L-10: git's discovery skips a corrupted `.git` directory and keeps climbing.
+# A main-style checkout INSIDE a linked worktree, with its `.git/HEAD` overwritten
+# (allowed: not under apps/), made git on the target side resolve to the outer
+# worktree, so the toplevel comparison passed.
+INNER_MAIN="$LW_A/inner-main"
+mkdir -p "$INNER_MAIN/apps/web"
+git -C "$INNER_MAIN" init -q -b main >/dev/null 2>&1
+run_hook_with_corrupt_inner_head() {
+  local saved
+  saved="$(cat "$INNER_MAIN/.git/HEAD")"
+  printf 'garbage\n' >"$INNER_MAIN/.git/HEAD"
+  run_hook "$@"
+  local rc=$?
+  printf '%s\n' "$saved" >"$INNER_MAIN/.git/HEAD"
+  return $rc
+}
+assert_red "SR-L-10: a corrupted .git/HEAD in a checkout inside a linked worktree -> FM-2 BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook_with_corrupt_inner_head "$LW_A" "Write" "$INNER_MAIN/apps/web/x.ts"
+
+assert_green "SR-L-10: a write deep inside the worktree in a new subdirectory -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_A" "Write" "$LW_A/apps/api/src/brand/new/deep/dir/x.ts"
+
+# SR-L-11 (a): the escape-hatch file itself is never created by Edit/Write.
+assert_red "SR-L-11: Write of the escape-hatch file from the main checkout -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "ESCAPE-HATCH" \
+  -- run_hook "$LW_MAIN" "Write" "$LW_MAIN/.claude/.allow-direct-edits"
+
+assert_red "SR-L-11: Write of main's escape-hatch file from a linked worktree -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "ESCAPE-HATCH" \
+  -- run_hook "$LW_A" "Write" "$LW_MAIN/.claude/.allow-direct-edits"
+
+# SR-L-11 (b): the hatch is judged on the TARGET's checkout, not on the cwd's.
+mkdir -p "$TMP_WS/clone/.claude"
+touch "$TMP_WS/clone/.claude/.allow-direct-edits"
+assert_red "SR-L-11: a /tmp clone with its own hatch writing into another checkout's apps -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$TMP_WS/clone" "Write" "$LW_MAIN/apps/api/src/main.ts"
+rm -f "$TMP_WS/clone/.claude/.allow-direct-edits"
+
+touch "$LW_MAIN/.claude/.allow-direct-edits"
+assert_green "SR-L-11: the main checkout with its hatch writing its own apps/x.ts -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_MAIN" "Write" "$LW_MAIN/apps/x.ts"
+rm -f "$LW_MAIN/.claude/.allow-direct-edits"
+
 guard_test_summary "test-pre-edit-write-zone-of-write.sh"

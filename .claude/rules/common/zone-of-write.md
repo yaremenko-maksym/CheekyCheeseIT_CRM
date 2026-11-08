@@ -85,9 +85,11 @@ Each entry below is one zone row: **may** / **may NOT**.
 judged on the raw path and on the resolved one (`~`, `..`, symlinks of the existing prefix). A session
 whose cwd is a linked git worktree (its `.git` is a file, no `core.worktree`; inherited `GIT_*`
 variables are ignored) may write only a target whose own checkout is that same worktree (FM-2; a
-linked worktree nested inside it is a different tree). A main-checkout session is not allowed into
-any linked worktree. No cwd-, branch- or env-based allow remains; the only other allow is the
-gitignored `.claude/.allow-direct-edits` escape hatch.
+linked worktree nested inside it is a different tree, and so is any directory holding a `.git` entry
+between the target and the toplevel). A main-checkout session is not allowed into any linked
+worktree. No cwd-, branch- or env-based allow remains; the only other allow is the gitignored
+`.claude/.allow-direct-edits` escape hatch, judged on the **target's** checkout. No tool call may
+create or edit that file (any zone); the owner creates it by hand in a shell.
 
 ### Worktree caveat
 

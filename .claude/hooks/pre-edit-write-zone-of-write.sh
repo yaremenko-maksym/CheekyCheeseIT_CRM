@@ -43,8 +43,19 @@
 #      main (SR-L-9); real /tmp agent worktrees are linked and covered by #0.
 #   3. (removed 2026-11-08) `$CLAUDE_AGENT_ID == "coder"`. Also target-blind
 #      (SO-M-1), and the runtime never set it (empirical finding above).
-#   4. Escape hatch file `<repo>/.claude/.allow-direct-edits` (gitignored;
-#      user-explicit opt-out for emergency edits).
+#      Also, no `.git` entry (lstat, not git) may sit between the target's
+#      nearest existing directory and that toplevel (SR-L-10: git skips a
+#      corrupted `<inner>/.git` and climbs to the outer worktree).
+#   4. Escape hatch file `<target-toplevel>/.claude/.allow-direct-edits`
+#      (gitignored; owner opt-out for emergency edits). Judged on the TARGET's
+#      checkout (git from the target's nearest existing directory), never on
+#      the cwd's (SR-L-11).
+#
+# Remaining allows, exactly: a non-edit tool; an empty file_path; a target
+# outside apps/** and packages/** (raw and resolved); #0; #4. Never allowed,
+# whatever the zone: an Edit/Write/MultiEdit/NotebookEdit of a file named
+# `.allow-direct-edits` (raw or resolved basename) — the owner creates it by
+# hand in a shell (SR-L-11).
 #
 # Default: deny (fail-closed). Better to surface a false-positive block
 # (easy to unblock via escape hatch) than to silently allow a stray edit
@@ -107,6 +118,22 @@ fi
 # Raw bytes out (surrogateescape): print() raises on a non-UTF-8 byte (F4). An
 # empty RESOLVED means python failed: do not fast-exit, run the checks (fail closed).
 RESOLVED=$(python3 -c 'import os,sys; sys.stdout.buffer.write(os.path.realpath(os.path.normpath(os.path.join(sys.argv[1], os.path.expanduser(sys.argv[2])))).encode("utf-8", "surrogateescape"))' "$PWD" "$FILE_PATH" 2>/dev/null || true)
+
+# SR-L-11: the escape-hatch file is created by the owner in a shell, never by a
+# tool call (a Write of it would turn the gate off for the next edit). Raw and
+# resolved basenames, so neither a symlink nor a failed resolve slips past.
+if [ "${FILE_PATH##*/}" = ".allow-direct-edits" ] || [ "${RESOLVED##*/}" = ".allow-direct-edits" ]; then
+  python3 -c "
+import json, sys
+reason = f'''🚫 ESCAPE-HATCH BLOCK (SR-L-11): {sys.argv[1]} is the zone-of-write escape-hatch file.
+
+Agents never create or edit it. Only the owner creates it, by hand in a shell: touch <checkout>/.claude/.allow-direct-edits'''
+print(json.dumps({'decision': 'block', 'reason': reason}))
+" "$FILE_PATH" 2>/dev/null
+  echo "[pre:edit-write:zone-of-write] ESCAPE-HATCH BLOCK target=$FILE_PATH" >&2
+  exit 2
+fi
+
 if [ -n "$RESOLVED" ] && ! printf '%s\n%s\n' "$FILE_PATH" "$RESOLVED" | LC_ALL=C grep -qiE '(^|/)(apps|packages)/'; then
   exit 0
 fi
@@ -162,13 +189,27 @@ def checkout(path):
 def inside(p, root):
     return p == root or p.startswith(root + os.sep)
 
+def nested_git(p, root):
+    """SR-L-10: git skips a corrupted `.git` and keeps climbing, so look without
+    git: any `.git` entry (lstat) between p's nearest existing dir and root
+    (excluded) means p belongs to another checkout."""
+    d = p
+    while not os.path.isdir(d):
+        d = os.path.dirname(d)
+    while inside(d, root) and d != root:
+        if os.path.lexists(os.path.join(d, '.git')):
+            return True
+        d = os.path.dirname(d)
+    return False
+
 real_cwd = os.path.realpath(cwd)
 t = os.path.realpath(os.path.normpath(os.path.join(real_cwd, os.path.expanduser(target))))
 c = checkout(real_cwd)
 if c and c[1]:
     # SR-L-7/8: a prefix check is not enough; the target must be in THIS checkout.
     tc = checkout(t)
-    print('ALLOW' if inside(t, c[0]) and tc and tc[0] == c[0] else 'FM2 ' + c[0])
+    ok = inside(t, c[0]) and tc and tc[0] == c[0] and not nested_git(t, c[0])
+    print('ALLOW' if ok else 'FM2 ' + c[0])
 else:
     print('NONE')
 PY
@@ -191,9 +232,16 @@ print(json.dumps({'decision': 'block', 'reason': reason}))
     ;;
 esac
 
-# Allow #4: escape hatch file.
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/.claude/.allow-direct-edits" ]; then
+# Allow #4: escape hatch file, judged on the TARGET's checkout (SR-L-11): a
+# hatch in the cwd's repo says nothing about another checkout. Empty RESOLVED
+# (python failed) means no hatch: fail closed.
+TARGET_ROOT=""
+if [ -n "$RESOLVED" ]; then
+  TARGET_DIR=$RESOLVED
+  while [ ! -d "$TARGET_DIR" ] && [ "$TARGET_DIR" != "/" ]; do TARGET_DIR=$(dirname "$TARGET_DIR"); done
+  TARGET_ROOT=$(git -C "$TARGET_DIR" rev-parse --show-toplevel 2>/dev/null || true)
+fi
+if [ -n "$TARGET_ROOT" ] && [ -f "$TARGET_ROOT/.claude/.allow-direct-edits" ]; then
   exit 0
 fi
 
