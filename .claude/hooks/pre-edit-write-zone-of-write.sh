@@ -60,12 +60,27 @@ case "$TOOL_NAME" in
   *) exit 0 ;;
 esac
 
-FILE_PATH=$(echo "$INPUT" | python3 -c "
+FILE_PATH_ERR=0
+FILE_PATH=$(printf '%s' "$INPUT" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 ti = d.get('tool_input', {})
-print(ti.get('file_path') or ti.get('notebook_path') or '')
-" 2>/dev/null || true)
+p = ti.get('file_path') or ti.get('notebook_path') or ''
+sys.stdout.buffer.write(p.encode('utf-8', 'surrogateescape'))
+" 2>/dev/null) || FILE_PATH_ERR=$?
+
+if [ "$FILE_PATH_ERR" -ne 0 ]; then
+  python3 -c "
+import json, sys
+tool = sys.argv[1]
+reason = f'''🚫 UNPARSABLE PATH BLOCK (SR-L-4): cannot extract a valid file_path from {tool} payload.
+
+Failed-closed: when Edit/Write/MultiEdit/NotebookEdit targets an unparsable path (e.g. invalid surrogate encoding), the edit is blocked to protect production zones.'''
+print(json.dumps({'decision': 'block', 'reason': reason}))
+" "$TOOL_NAME" 2>/dev/null
+  echo "[pre:edit-write:zone-of-write] BLOCK unparsable file_path tool=$TOOL_NAME" >&2
+  exit 2
+fi
 
 # Fast exit: no file path.
 [ -z "$FILE_PATH" ] && exit 0
@@ -80,9 +95,9 @@ elif [[ "$FILE_PATH" =~ ^[A-Za-z]:(.+)$ ]]; then
 fi
 
 # Fast exit: file path is not in production zones — judged on the raw path AND
-# on the resolved one (~, cwd, `..`, symlinks of the existing prefix; SR-L-1).
+# on the resolved one (~, cwd, `..`, symlinks of the existing prefix; SR-L-1, SR-L-5).
 # Case-insensitive: Windows and macOS accept Apps/x as the same path as apps/x.
-RESOLVED=$(python3 -c 'import os,sys; print(os.path.realpath(os.path.join(sys.argv[1], os.path.expanduser(sys.argv[2]))))' "$PWD" "$FILE_PATH" 2>/dev/null || true)
+RESOLVED=$(python3 -c 'import os,sys; print(os.path.realpath(os.path.normpath(os.path.join(sys.argv[1], os.path.expanduser(sys.argv[2])))))' "$PWD" "$FILE_PATH" 2>/dev/null || true)
 if ! printf '%s\n%s\n' "$FILE_PATH" "$RESOLVED" | grep -qiE '(^|/)(apps|packages)/'; then
   exit 0
 fi
@@ -172,7 +187,7 @@ def inside(p, root):
     return p == root or p.startswith(root + os.sep)
 
 real_cwd = os.path.realpath(cwd)
-t = os.path.realpath(os.path.join(real_cwd, os.path.expanduser(target)))
+t = os.path.realpath(os.path.normpath(os.path.join(real_cwd, os.path.expanduser(target))))
 c = checkout(real_cwd)
 if c and c[1]:
     print('ALLOW' if inside(t, c[0]) else 'FM2 ' + c[0])

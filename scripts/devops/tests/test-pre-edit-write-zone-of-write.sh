@@ -356,4 +356,21 @@ assert_red "SR-L-2: a ~/ path from a linked worktree resolves to HOME, outside i
   --contains "WORKTREE" \
   -- run_hook_with_home "$WS/home" "$LW_A" "Edit" "~/apps/api/x.ts"
 
+# SR-L-4: payload with lone surrogate in file_path must fail closed (exit 2), not allow.
+run_hook_raw_payload() {
+  local cwd="$1" payload="$2"
+  (cd "$cwd" && printf '%s' "$payload" | bash "$HOOK")
+}
+assert_red "SR-L-4: payload with \\ud800 in file_path -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook_raw_payload "$MAIN_REPO" '{"tool_name":"Write","tool_input":{"file_path":"apps/api/\ud800.ts"}}'
+
+# SR-L-5: lexical normalization before realpath stops symlink + '..' escaping a linked worktree.
+mkdir -p "$LW_A/d1/d2" "$LW_A/main/apps/api/src"
+ln -s "$LW_A/d1/d2" "$LW_A/sym_deep"
+assert_red "SR-L-5: symlink + '..' resolving physically into wt but lexically outside -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$LW_A" "Edit" "sym_deep/../../main/apps/api/src/main.ts"
+
 guard_test_summary "test-pre-edit-write-zone-of-write.sh"

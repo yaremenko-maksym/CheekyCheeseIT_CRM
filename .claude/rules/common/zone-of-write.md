@@ -93,9 +93,11 @@ In a worktree the block is lifted — the Coder _technically_ can overwrite anyt
 
 ### Verify MAIN is clean after each Coder (MANDATORY)
 
-The zone hook refuses a worktree session that writes into MAIN; only the legacy `/tmp` + agent-branch
-heuristic (allow #2) still lets such a write through, and Bash is not gated at all. So Master MUST,
-after EACH finished Coder, verify that the MAIN checkout is clean:
+The zone hook refuses a worktree session that writes into MAIN; allow #2 (`/tmp` heuristic),
+allow #3 (`CLAUDE_AGENT_ID=coder`, currently dead), the #4 escape hatch, and a plain non-linked
+directory under `.claude/worktrees/` (legacy allow #1) can still let a write into main through;
+Bash writes are not gated by this hook at all. So Master MUST, after EACH finished Coder, verify
+that the MAIN checkout is clean:
 
 ```bash
 git -C <main-repo> status --porcelain apps/ packages/   # empty = OK; lines present = contamination, roll back
