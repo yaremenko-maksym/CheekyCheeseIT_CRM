@@ -6045,6 +6045,10 @@ msgstr "Команда"
 msgid "Видалити відгук"
 msgstr "Видалити відгук"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "{n, plural, one {ще # ключове слово} few {ще # ключові слова} many {ще # ключових слів} other {ще # ключового слова}}"
+msgstr "{n, plural, one {ще # ключове слово} few {ще # ключові слова} many {ще # ключових слів} other {ще # ключового слова}}"
+
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
 msgid "Виберіть сеньйора"
 msgstr "Виберіть сеньйора"
@@ -7088,6 +7092,10 @@ msgstr "Пропозицію скасовано — діє {percent}%"
 msgid "Попередня сторінка"
 msgstr "Попередня сторінка"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "+{moreKeywords}"
+msgstr "+{moreKeywords}"
+
 #: apps/web/app/routes/_authenticated/admin/contracts.index.tsx
 msgid "Шаблони договорів для кожної ролі. Натисніть «Редагувати», щоб змінити текст."
 msgstr "Шаблони договорів для кожної ролі. Натисніть «Редагувати», щоб змінити текст."
@@ -7226,6 +7234,10 @@ msgstr "Опублікувати нову версію (v{0})?"
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "З’явилися оновлення."
 msgstr "З’явилися оновлення."
+
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "Мідл"
+msgstr "Мідл"
 
 #: apps/web/app/components/onboarding/TosUpdateBanner.tsx
 msgid "Опубліковано нову версію Умов використання. <0>Читати →</0>"
@@ -11372,6 +11384,10 @@ msgstr "Підсумкова виплата буде в USDT — конверт�
 msgid "Прив'язування…"
 msgstr "Прив'язування…"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "Лід"
+msgstr "Лід"
+
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 msgid "Статус на джерелі"
 msgstr "Статус на джерелі"
@@ -12281,6 +12297,7 @@ msgstr "Найкращий місяць"
 msgid "Редагувати вакансію"
 msgstr "Редагувати вакансію"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
 #: apps/web/app/components/projects/ProjectRow.tsx
 #: apps/web/app/components/ui/role-select.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx

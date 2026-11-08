@@ -10,6 +10,7 @@ import {
   likePattern,
   listFilters,
   policySignature,
+  queueRowColumns,
   rankSelect,
   queueRowJoins,
   seniorRows,
@@ -163,6 +164,27 @@ describe('field scoping — what each read binds', () => {
     expect(joins.text).toContain('m.senior_profile_version = v.profile')
     expect(joins.text).toContain('m.exclusion_version = v.exclusion')
     expect(joins.text).toContain(`m.evidence->>'stage' = 'SCOPED_RESTRICTIONS'`)
+  })
+
+  it('the row keyword evidence is the TECH_MATCH reasons of LEAD rows of the scope versions', () => {
+    const columns = render(queueRowColumns(versions))
+    expect(columns.params).toContain(
+      JSON.stringify([{ senior_id: SEN, profile: 'p', exclusion: 'e' }]),
+    )
+    expect(columns.text).toContain(
+      `(SELECT jsonb_agg(jsonb_build_object('reasons', jsonb_path_query_array(m.evidence, 'strict $.reasons[*] ? (@.code == "TECH_MATCH")', '{}', true))) FROM job_opportunity_matches m`,
+    )
+    expect(columns.text).toContain(
+      `m.rule_version = $2 AND m.outcome = 'LEAD') AS matched_evidence`,
+    )
+    expect(columns.text).toContain('o.seniority')
+    expect(render(cardRow(team, versions, OPP)).text).toContain(') AS matched_evidence')
+  })
+
+  it('the tab counts never aggregate evidence: the joins carry no blob (SO-1)', () => {
+    const { text } = render(queueRowJoins(team, versions))
+    expect(text).not.toContain('jsonb_agg')
+    expect(text).not.toContain('matched_evidence')
   })
 
   it('workflow rows of a TEAM scope name that team: submissions, dismissals, opens', () => {

@@ -2,6 +2,7 @@ import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import {
   DESCRIPTION_MD_MAX,
+  JOB_QUEUE_ROW_KEYWORDS_MAX,
   type JobQueueCardResponseDto,
   jobQueueCardResponseSchema,
   type JobQueueListItemDto,
@@ -12,6 +13,7 @@ import {
   jobQueueSeniorsContinuationSchema,
   jobQueueSourcesContinuationSchema,
   type JobSourceType,
+  MAX_STACK_KEYWORD_CHARS,
   type SessionUser,
 } from '@crm/shared'
 import { sql } from 'drizzle-orm'
@@ -34,7 +36,7 @@ import {
   filterIdentity,
   listFilters,
   policySignature,
-  QUEUE_ROW_COLUMNS,
+  queueRowColumns,
   queueRowJoins,
   seniorRows,
   seniorTotal,
@@ -95,6 +97,8 @@ export function toListItem(r: Row): JobQueueListItemDto {
     alsoSeenOnCount: Math.max(count(r['source_total']) - 1, 0),
     availability: r['availability'] as JobQueueListItemDto['availability'],
     eligibility: r['eligibility'] as JobQueueListItemDto['eligibility'],
+    seniority: r['seniority'] as JobQueueListItemDto['seniority'],
+    matchedKeywords: rowKeywords(r['matched_evidence']),
     matchedSeniorCount: count(r['matched']),
     submittedSeniorCount: count(r['submitted']),
     stopListedSeniorCount: count(r['stop_listed']),
@@ -121,9 +125,25 @@ export function matchFacts(evidence: unknown): { keywords: string[]; approximate
     // No `:STRENGTH` suffix: the whole string is the keyword.
     keywords: items
       .map((k) => (k.includes(':') ? k.slice(0, k.lastIndexOf(':')) : k))
+      // `":CORE"` names no keyword: it would render as an empty chip.
+      .filter((k) => k !== '')
       .slice(0, 200),
     approximate: !items.some((k) => k.endsWith(':CORE')),
   }
+}
+
+/** The union over the scope's LEAD seniors, never attributed. Sorted: the cap keeps a stable set. */
+function rowKeywords(evidence: unknown): string[] {
+  if (!Array.isArray(evidence)) return []
+  const keywords = evidence.flatMap((e) =>
+    matchFacts(e).keywords.map((k) => k.slice(0, MAX_STACK_KEYWORD_CHARS)),
+  )
+  // Case-insensitive, so `aws` is not dropped after every capitalised keyword at the cap (UX-LOW-1);
+  // the code-unit sort first makes ties (`React`/`react`) come out in one order: the second sort is stable.
+  return [...new Set(keywords)]
+    .sort()
+    .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
+    .slice(0, JOB_QUEUE_ROW_KEYWORDS_MAX)
 }
 
 /**
@@ -430,7 +450,7 @@ async function readPage(
     return { generation, tally, rows: [] as Row[] }
   }
   const { rows } = await tx.execute(
-    sql`SELECT ${QUEUE_ROW_COLUMNS}, e.order_key
+    sql`SELECT ${queueRowColumns(versions)}, e.order_key
         ${frame}
            AND e.order_key > ${after}
            AND ${sql.join(listFilters(query, versions), sql` AND `)}

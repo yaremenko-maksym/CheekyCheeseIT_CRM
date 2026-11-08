@@ -6045,6 +6045,10 @@ msgstr "Team"
 msgid "Видалити відгук"
 msgstr "Delete application"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "{n, plural, one {ще # ключове слово} few {ще # ключові слова} many {ще # ключових слів} other {ще # ключового слова}}"
+msgstr "{n, plural, one {# more keyword} other {# more keywords}}"
+
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
 msgid "Виберіть сеньйора"
 msgstr "Select a senior"
@@ -7088,6 +7092,10 @@ msgstr "Proposal cancelled — {percent}% is now in effect"
 msgid "Попередня сторінка"
 msgstr "Previous page"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "+{moreKeywords}"
+msgstr "+{moreKeywords}"
+
 #: apps/web/app/routes/_authenticated/admin/contracts.index.tsx
 msgid "Шаблони договорів для кожної ролі. Натисніть «Редагувати», щоб змінити текст."
 msgstr "Contract templates for each role. Click “Edit” to change the text."
@@ -7226,6 +7234,10 @@ msgstr "Publish a new version (v{0})?"
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "З’явилися оновлення."
 msgstr "Updates are available."
+
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "Мідл"
+msgstr "Mid-level"
 
 #: apps/web/app/components/onboarding/TosUpdateBanner.tsx
 msgid "Опубліковано нову версію Умов використання. <0>Читати →</0>"
@@ -11372,6 +11384,10 @@ msgstr "The final payout will be in USDT — converted at the NBU rate at the ti
 msgid "Прив'язування…"
 msgstr "Linking…"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "Лід"
+msgstr "Lead"
+
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 msgid "Статус на джерелі"
 msgstr "Status on source"
@@ -12281,6 +12297,7 @@ msgstr "Best month"
 msgid "Редагувати вакансію"
 msgstr "Edit vacancy"
 
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
 #: apps/web/app/components/projects/ProjectRow.tsx
 #: apps/web/app/components/ui/role-select.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
