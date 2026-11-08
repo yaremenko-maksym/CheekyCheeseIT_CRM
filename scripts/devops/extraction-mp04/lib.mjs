@@ -313,7 +313,7 @@ export function summary(candidates) {
   const lines = ['MP-04 / MP-03 candidates']
   for (const c of candidates) {
     lines.push(
-      `${c.pass ? 'PASS' : 'FAIL'}  ${c.candidate}${c.error ? `  (harness error: ${c.error})` : ''}`,
+      `${c.pass ? 'PASS' : 'FAIL'}  ${c.candidate}${c.error ? `  (harness error: ${c.error})` : ''}${c.aborted ? `  (aborted: ${c.aborted})` : ''}`,
     )
     for (const r of c.rows ?? []) {
       if (!r.pass)

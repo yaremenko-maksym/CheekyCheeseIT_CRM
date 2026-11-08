@@ -355,6 +355,8 @@ async function measure(a, cand, closers) {
   if (events.some((e) => e.type === 'CONFIG_REFUSED'))
     throw new Error('the router refused the candidate config')
 
+  // the RAM-only watch may have fired during the tap and router setup: keep its reason
+  if (stop.signal.aborted) return abortedEarly()
   const loaded = crmProbe(a['crm-url'], interval, () => watch.check())
   // Under load the full rule replaces the RAM-only one (no reason yet, or we returned above).
   watch = abortWatch({

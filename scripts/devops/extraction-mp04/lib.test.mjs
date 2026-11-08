@@ -1,4 +1,4 @@
-// node --test scripts/devops/extraction-mp04/
+// node --test scripts/devops/extraction-mp04/lib.test.mjs
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
@@ -121,6 +121,46 @@ test('ramWatch: low host RAM alone stops and ends once; enough RAM or none measu
     const n = fires ? 1 : 0
     assert.deepEqual(calls, { stop: n, end: n }, String(host))
     assert.equal(Boolean(w.reason), fires, String(host))
+  }
+})
+
+test('tap: a target off the runtime origin gets 400 and is never forwarded', async () => {
+  let hits = 0
+  const upstream = http.createServer((req, res) => {
+    hits += 1
+    res.end('{}')
+  })
+  await new Promise((ok) => upstream.listen(0, '127.0.0.1', ok))
+  const current = { tag: {}, inFlight: 0 }
+  const tap = await startTap(`http://127.0.0.1:${upstream.address().port}`, current)
+  // http.request sends `path` verbatim, which fetch cannot do
+  const send = (path) =>
+    new Promise((ok, no) => {
+      const r = http.request({ host: '127.0.0.1', port: tap.port, method: 'POST', path }, (res) => {
+        res.resume()
+        res.on('end', () => ok(res.statusCode))
+      })
+      r.on('error', no)
+      r.end('{}')
+    })
+  try {
+    for (const path of [
+      '//evil.example/x',
+      'http://evil.example/x',
+      '/\\evil.example/x',
+      `http://127.0.0.1:${upstream.address().port}@evil.example/x`,
+    ]) {
+      assert.equal(await send(path), 400, path)
+    }
+    assert.equal(hits, 0)
+    assert.equal(tap.requests.length, 0)
+    assert.equal(await send('/v1/models'), 200, 'a plain path still goes through')
+    assert.equal(hits, 1)
+  } finally {
+    tap.server.closeAllConnections()
+    tap.server.close()
+    upstream.closeAllConnections()
+    upstream.close()
   }
 })
 
@@ -248,6 +288,15 @@ test('evaluate: an unmeasured value fails its row', () => {
       k,
     )
   }
+})
+
+test('summary: an aborted candidate names the abort reason', () => {
+  const text = summary([
+    { candidate: 'a', pass: false, aborted: 'host available RAM 700 MiB < 800 MiB', rows: [] },
+    { candidate: 'b', pass: false, rows: [] },
+  ])
+  assert.match(text, /^FAIL {2}a {2}\(aborted: host available RAM 700 MiB < 800 MiB\)$/m)
+  assert.match(text, /^FAIL {2}b$/m)
 })
 
 test('summary: none passes, and passes by name', () => {

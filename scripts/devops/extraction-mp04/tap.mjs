@@ -15,10 +15,23 @@ const MESSAGE_OVERHEAD_TOKENS = 32
  */
 export function startTap(upstream, current) {
   const requests = []
+  const origin = new URL(upstream).origin
   const server = http.createServer((req, res) => {
     // a client or runtime that drops the socket must not crash the harness without a report
     req.on('error', () => {})
     res.on('error', () => {})
+    // Only paths on the runtime: `//host/x`, `/\host/x` or an absolute URL would make this an open proxy.
+    let target = null
+    try {
+      if (/^\/(?![/\\])/.test(req.url)) target = new URL(req.url, upstream)
+    } catch {
+      // unparseable: refused below
+    }
+    if (target?.origin !== origin) {
+      req.resume()
+      res.writeHead(400).end()
+      return
+    }
     const chunks = []
     req.on('data', (c) => chunks.push(c))
     req.on('end', () => {
@@ -52,7 +65,7 @@ export function startTap(upstream, current) {
         else res.destroy()
       }
       const up = http.request(
-        new URL(req.url, upstream),
+        target,
         {
           method: req.method,
           headers: { 'content-type': req.headers['content-type'] ?? 'application/json' },

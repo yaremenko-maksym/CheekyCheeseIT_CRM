@@ -140,7 +140,8 @@ docker exec crm-api-1 wget -S -qO- --post-data='{}' http://extraction-worker:310
 # By address, not by name: a name-resolution error proves nothing about routing.
 RT_IP="$(docker inspect -f '{{with index .NetworkSettings.Networks "crm-extraction_runtime"}}{{.IPAddress}}{{end}}' "$($EXT ps -q crm-model-runtime)")"
 # an empty address makes net.connect fall back to localhost, which is refused and looks like a pass
-[ -n "$RT_IP" ] || { echo "FAIL: no runtime IP"; exit 1; }
+# (no `exit`, which would close a pasted-into SSH session); on FAIL, do not trust the checks below
+: "${RT_IP:?FAIL: no runtime IP}"
 TCP='const [h,p]=process.argv.slice(1);const s=require("net").connect({host:h,port:+p,timeout:5000});s.on("connect",()=>{console.log("CONNECTED");s.destroy()});s.on("timeout",()=>{console.log("ETIMEDOUT");s.destroy()});s.on("error",e=>console.log(e.code))'
 
 # positive control: the worker reaches the runtime (expect CONNECTED; anything else voids the checks below)
