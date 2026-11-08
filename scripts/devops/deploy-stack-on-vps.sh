@@ -125,16 +125,16 @@ fi
 # Start of the deploy window for the 42501 log scan at the end of Step 3 (below).
 DEPLOY_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# ── Step 1: ensure postgres + redis are up (persistent — usually already running) ──
+# ── Step 1: ensure postgres is up (persistent — usually already running) ──
 # api and nginx are started AFTER DDL is applied (see Step 3).
 #
 # Инцидент 2026-07-31: этот шаг положил прод. Когда compose решает
-# ПЕРЕСОЗДАТЬ postgres/redis (менялись compose-файлы или
+# ПЕРЕСОЗДАТЬ postgres (менялись compose-файлы или
 # .env.production — а они переписываются каждым деплоем), он гасит
 # их и пересоздаёт сеть `crm_backend`. Но `api` этой командой не
 # управляется (стартует позже, на Step 3) и остаётся подключённым к
 # сети → `network crm_backend has active endpoints (crm-api-1)` →
-# шаг падает, ОСТАВИВ postgres и redis лежать. `/api/health` при
+# шаг падает, ОСТАВИВ postgres лежать. `/api/health` при
 # этом отвечает 200 (в базу не ходит), а всё остальное — 500.
 # Следующий прогон падал уже иначе (`container ... is not connected
 # to the network`), потому что состояние стека рассогласовано.
@@ -143,16 +143,16 @@ DEPLOY_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # неудаче — сбрасываем стек целиком и поднимаем заново.
 #
 # !!! `down` — БЕЗ `-v` / `--volumes`. Это не стилистика: том
-# `postgres_data` (и `redis_data`) объявлен именованным
+# `postgres_data` объявлен именованным
 # в `docker-compose.prod.yml`, поэтому `down` сносит только
 # контейнеры и сети, а данные переживают. Добавление `-v` сюда
 # УНИЧТОЖИТ БОЕВУЮ БАЗУ. Никогда не добавлять.
-echo "==> Ensuring postgres and redis are up"
+echo "==> Ensuring postgres is up"
 if ! docker compose \
   -f docker-compose.prod.yml \
   -f docker-compose.ghcr.yml \
   --env-file .env.production \
-  up -d postgres redis; then
+  up -d postgres; then
   echo "::warning::compose up failed — вероятно рассогласованная сеть crm_backend (см. инцидент 2026-07-31). Сбрасываю стек: контейнеры и сети пересоздаются, именованные тома НЕ трогаются."
   docker compose \
     -f docker-compose.prod.yml \
@@ -163,7 +163,7 @@ if ! docker compose \
     -f docker-compose.prod.yml \
     -f docker-compose.ghcr.yml \
     --env-file .env.production \
-    up -d postgres redis
+    up -d postgres
 fi
 
 echo "==> Waiting for postgres to be healthy"
@@ -3060,7 +3060,7 @@ echo "==> database privileges catalog check (final) passed"
 #
 # `-a --filter until=168h` removes every image NOT used by any container
 # (running or stopped) whose CREATION time is older than 7 days. Consequences:
-#   - active images (crm api/nginx/postgres/redis, signal-plus) are never touched —
+#   - active images (crm api/nginx/postgres, signal-plus) are never touched —
 #     Docker refuses to remove an image that a container references;
 #   - volumes are untouched (`image prune` never deletes volumes);
 #   - the last 7 days of SHA-tagged images stay for a fast rollback; older ones

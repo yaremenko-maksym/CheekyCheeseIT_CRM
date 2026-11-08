@@ -8,7 +8,6 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXTENSION_REPO="${MEETING_RECORDER_EXTENSION_REPO:-$REPO_ROOT/../chrome-recording-transcription-extension}"
 SCRATCH_DB="crm_meeting_recorder_r0"
 DATABASE_URL="postgresql://crm_user:password@127.0.0.1:5432/$SCRATCH_DB"
-REDIS_URL="redis://127.0.0.1:6379"
 API_PORT="${R0_API_PORT:-3011}"
 CRM_PUBLIC_ORIGIN="${R0_CRM_PUBLIC_ORIGIN:-https://127.0.0.1:3443}"
 
@@ -49,7 +48,7 @@ fi
 node -e 'new URL(process.argv[1])' "$R2_UPLOAD_ORIGIN"
 
 cd "$REPO_ROOT"
-docker compose up -d postgres redis >/dev/null
+docker compose up -d postgres >/dev/null
 
 # The API imports @crm/shared through the package's built dist output. A branch
 # checkout can leave that output stale even when node_modules is already present,
@@ -78,7 +77,6 @@ echo "==> Starting isolated CRM API on :$API_PORT"
 env \
   NODE_ENV=development \
   DATABASE_URL="$DATABASE_URL" \
-  REDIS_URL="$REDIS_URL" \
   API_PORT="$API_PORT" \
   FRONTEND_URL="$CRM_PUBLIC_ORIGIN" \
   MEETING_RECORDER_MEDIA_S3_ENDPOINT="$MEDIA_ENDPOINT" \

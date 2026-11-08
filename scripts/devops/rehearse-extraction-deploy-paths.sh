@@ -44,7 +44,7 @@ record() { echo "$*"; printf -- '- %s\n' "$*" >> "$SUMMARY"; }
 # ── The deploy script's own commands ────────────────────────────────────────
 # Copied verbatim from deploy-stack-on-vps.sh; asserted present there, so a drift fails this run.
 DEPLOY_SCRIPT="$REPO/scripts/devops/deploy-stack-on-vps.sh"
-for cmd in 'up -d postgres redis' 'down --remove-orphans' 'up -d --remove-orphans'; do
+for cmd in 'up -d postgres' 'down --remove-orphans' 'up -d --remove-orphans'; do
   grep -qF -- "$cmd" "$DEPLOY_SCRIPT" || fail "deploy script no longer runs '$cmd': update this rehearsal"
 done
 sed -n '/^# >>> extraction-entry-attach$/,/^# <<< extraction-entry-attach$/p' "$DEPLOY_SCRIPT" > attach-block.sh
@@ -54,13 +54,13 @@ main() { docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml --
 ext() { docker compose -f docker-compose.extraction.yml --env-file .env.extraction-pins "$@"; }
 attach() { bash -euo pipefail attach-block.sh; }
 deploy_normal() {
-  main up -d postgres redis
+  main up -d postgres
   main up -d --remove-orphans
   attach
 }
 deploy_reset() {
   main down --remove-orphans
-  main up -d postgres redis
+  main up -d postgres
   main up -d --remove-orphans
   attach
 }
@@ -74,7 +74,6 @@ umask 077
 cat > .env.production <<EOF
 POSTGRES_PASSWORD=$PGPW
 DATABASE_URL=postgresql://crm_user:$PGPW@postgres:5432/crm_db
-REDIS_URL=redis://redis:6379
 GOOGLE_CLIENT_ID=rehearsal.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=$(secret)
 GOOGLE_CALLBACK_URL=https://app.cheekycheese.tech/api/auth/google/callback
@@ -179,7 +178,7 @@ assert_extraction_intact() {
 log "A. Old compose files ($OLD_COMPOSE_REF), then the first deploy with the new ones"
 git -C "$REPO" show "$OLD_COMPOSE_REF:docker-compose.prod.yml" > docker-compose.prod.yml
 git -C "$REPO" show "$OLD_COMPOSE_REF:docker-compose.ghcr.yml" > docker-compose.ghcr.yml
-main up -d postgres redis
+main up -d postgres
 main up -d --remove-orphans
 main_healthy
 OLD_API="$(cid api)"

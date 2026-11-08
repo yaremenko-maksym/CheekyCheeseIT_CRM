@@ -63,7 +63,6 @@ comments** — link here.
 ### Infra
 
 - **PostgreSQL:** 16-alpine (Docker Compose).
-- **Redis:** 7-alpine (Docker Compose).
 
 ### i18n
 

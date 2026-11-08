@@ -202,9 +202,6 @@ services:
       POSTGRES_USER: crm_user
       POSTGRES_PASSWORD: password
     ports: ['5432:5432']
-  redis:
-    image: redis:7-alpine
-    ports: ['6379:6379']
 ```
 
 ### 6.7. CI env vars
@@ -212,7 +209,6 @@ services:
 ```
 NODE_ENV=test
 DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_db
-REDIS_URL=redis://localhost:6379
 API_PORT=3001
 JWT_SECRET=ci-jwt-secret-at-least-32-chars-long
 SESSION_SECRET=ci-session-secret-32-chars-minimum-x

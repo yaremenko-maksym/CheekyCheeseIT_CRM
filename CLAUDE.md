@@ -43,8 +43,8 @@ CRM for recruiting workspaces (outsource/outstaffing company: AI, EdTech, E-Comm
 ## Stack (summary)
 
 Turborepo + pnpm · **web:** React + Vite SPA (NOT TanStack Start) + TanStack Router/Query/Form +
-Tailwind v4 + shadcn/ui + Framer Motion · **api:** NestJS 11 + Fastify + Drizzle ORM (PostgreSQL) +
-Redis · **validation:** Zod v4, all API through `.parse()`, types from `@crm/shared` ·
+Tailwind v4 + shadcn/ui + Framer Motion · **api:** NestJS 11 + Fastify + Drizzle ORM (PostgreSQL) ·
+**validation:** Zod v4, all API through `.parse()`, types from `@crm/shared` ·
 **tests:** Vitest (unit) + Playwright (E2E).
 
 Exact versions, EXACT pins (the TanStack pair!) and forbidden overrides —
@@ -65,7 +65,7 @@ packages/shared # Zod schemas + types (Single Source of Truth)
 pnpm dev | build | typecheck | test            # all packages (turbo)
 pnpm --filter @crm/web|@crm/api|@crm/e2e <cmd> # a single package
 pnpm --filter @crm/api db:push | db:seed       # Drizzle: schema sync (push) / seed
-docker-compose up -d                           # Postgres + Redis locally
+docker-compose up -d                           # Postgres locally
 ```
 
 ## Multi-agent team
