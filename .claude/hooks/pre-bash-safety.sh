@@ -362,15 +362,37 @@ def is_ps_word(tok):
     return cmdscan._plausible_command_word(name) and unread_shell(name) in PS_SHELLS
 
 
-def ps_only_installed(arg_reads):
+# A package name (`pwsh`, `@scope/pkg@1.2`) or a flag (`--cask`, `-D`) of an install.
+INSTALL_WORD = re.compile(r"^(@?[A-Za-z0-9][A-Za-z0-9@/._+:~^=-]*|--?[A-Za-z][A-Za-z0-9-]*(=[A-Za-z0-9@/._:~^-]*)?)$")
+# A word that holds more than one shell word. Readings split it, so its pieces
+# could be read as one install argv while they belong to another command (CR-M-4).
+NOT_FLAT = re.compile(r"[\s;&|]")
+
+
+def install_words(argv):
+    # The install own arguments: after the verb, up to the first word that is not
+    # a package name or a flag. A reading is a window over the whole segment.
+    out = []
+    for tok in argv[1:]:
+        if not INSTALL_WORD.match(tok):
+            break
+        out.append(tok)
+    return out
+
+
+def ps_only_installed(seg, arg_reads):
     # True when every powershell/pwsh argument reading is a package name handed to ONE
     # install (`pnpm add powershell`, `brew install --cask pwsh`). Counting, not
     # matching by name: each install argument is also a reading, so equal counts mean
     # no reading is left over as a launch (`wrap powershell x pnpm add powershell`).
+    # Only for a flat segment: a quoted `"pnpm add pwsh" "pwsh -c x"` is two commands
+    # to concurrently / parallel / bash -c, and its pieces must not count as one argv.
+    if any(NOT_FLAT.search(tok) for tok in [seg.name] + list(seg.argv)):
+        return False
     want = sum(1 for r in arg_reads[1:] if unread_shell(r.name) in PS_SHELLS)
     for pm in arg_reads:
         verbs = PM_INSTALL.get(unread_shell(pm.name), ())
-        if pm.argv and pm.argv[0] in verbs and sum(map(is_ps_word, pm.argv[1:])) == want:
+        if pm.argv and pm.argv[0] in verbs and sum(map(is_ps_word, install_words(pm.argv))) == want:
             return True
     return False
 
@@ -383,7 +405,7 @@ for seg in scan.segments:
     # again (brew is code-capable, so `brew install pwsh` is re-read); any other is code.
     arg_reads = cmdscan.candidates(seg)
     arg_keys = {(r.name, tuple(r.argv)) for r in arg_reads}
-    installed = ps_only_installed(arg_reads)
+    installed = ps_only_installed(seg, arg_reads)
     for cand in candidates(seg):
         shell = unread_shell(cand.name)
         if shell not in UNREAD_SHELLS:

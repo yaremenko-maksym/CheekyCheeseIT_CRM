@@ -580,6 +580,18 @@ done
 for c in "pnpm add powershell" "brew install pwsh" "go run ./cmd" "winpty pnpm add powershell"; do
   assert_green "a package name is not a launch: $c" -- h "$c"
 done
+# CR-M-4 (#1294): a decoy install in one quoted argument must not exempt a launch in the
+# next one, or past a `;` inside a -c string. The exemption needs a flat segment and
+# counts only the install own argv.
+for c in 'winpty bash -c "pnpm add powershell; powershell x"' \
+         'concurrently "pnpm add pwsh" "pwsh -c Remove-Item"' \
+         'npx concurrently "pnpm add powershell" "powershell Remove-Item -Recurse C:/x"' \
+         'parallel ::: "pnpm add powershell" "powershell Remove-Item x"'; do
+  assert_red "decoy install, quoted launch: $c" --contains "no gate reads" -- h "$c"
+done
+for c in "env pnpm add powershell" "yarn add powershell pwsh"; do
+  assert_green "a flat install argv is not a launch: $c" -- h "$c"
+done
 
 # SR-M-1 (#1294): a backslash-newline is a line continuation, so the shell joins the word.
 for c in $'r\\\nm -rf /etc' $'rm -rf \\\n/etc' $'git push --force \\\norigin main'; do

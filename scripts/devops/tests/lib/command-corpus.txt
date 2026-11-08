@@ -745,3 +745,8 @@ block	safety	node -e "require('child_process').execSync('powershell Remove-Item 
 block	safety	python3 -c "import os; os.system('echo Remove-Item C:/x | powershell')"
 block	safety	python3 -c "import os; os.system('pwsh ./do-it')"
 block	safety	unknown-wrapper powershell Remove-Item x pnpm add powershell
+# CR-M-4 of #1294: a decoy install in a quoted argument does not exempt a launch beside it.
+block	safety	winpty bash -c "pnpm add powershell; powershell x"
+block	safety	concurrently "pnpm add pwsh" "pwsh -c Remove-Item"
+block	safety	npx concurrently "pnpm add powershell" "powershell Remove-Item -Recurse C:/x"
+block	safety	parallel ::: "pnpm add powershell" "powershell Remove-Item x"
