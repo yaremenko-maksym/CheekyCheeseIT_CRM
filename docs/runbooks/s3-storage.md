@@ -15,7 +15,7 @@ The code works through `@aws-sdk/client-s3` against both (the only difference is
 ## Local development
 
 ```bash
-# Bring up RustFS alongside postgres/redis
+# Bring up RustFS alongside postgres
 docker-compose up -d s3
 
 # The `crm-documents` bucket is created automatically by the one-shot init container `s3-bootstrap`
@@ -95,7 +95,7 @@ Add to `Settings → Secrets and variables → Actions` (Repository secrets). Th
 | `AWS_ACCESS_KEY_ID`     | R2 API token **Access Key ID**                  |
 | `AWS_SECRET_ACCESS_KEY` | R2 API token **Secret Access Key**              |
 
-> `S3_USE_SSE` is **not needed** in the secrets — `deploy.yml` hardcodes `S3_USE_SSE=false` (R2 does not accept the SSE-S3 header). **Dev secrets are NOT needed** — CI has dummy creds (`crmdevaccesskey`/`crmdevsecretkey`) with the RustFS service alongside postgres/redis.
+> `S3_USE_SSE` is **not needed** in the secrets — `deploy.yml` hardcodes `S3_USE_SSE=false` (R2 does not accept the SSE-S3 header). **Dev secrets are NOT needed** — CI has dummy creds (`crmdevaccesskey`/`crmdevsecretkey`) with the RustFS service alongside postgres.
 
 ## ⚠️ Production env vars (CRITICAL)
 
