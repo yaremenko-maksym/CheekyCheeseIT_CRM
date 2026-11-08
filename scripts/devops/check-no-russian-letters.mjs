@@ -142,7 +142,7 @@ const AGENT_EXCEPTIONS = new Map([
   ['pre-bash-mutation-gate.sh', 2],
   ['pre-bash-prettier-gate.sh', 18],
   ['pre-bash-unbounded-wait.sh', 32],
-  ['pre-edit-write-zone-of-write.sh', 14],
+  ['pre-edit-write-zone-of-write.sh', 9],
   ['tests/cross-agent-hooks-smoke.sh', 3],
 ])
 
