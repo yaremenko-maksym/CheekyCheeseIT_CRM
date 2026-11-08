@@ -24,8 +24,9 @@
 #   production zone gating):
 #
 # Allow conditions (any one):
-#   0. cwd is itself inside a linked git worktree (git-dir != git-common-dir
-#      AND `<toplevel>/.git` is a regular file) and the realpath-resolved
+#   0. cwd is itself inside a linked git worktree (git-dir is
+#      `<git-common-dir>/worktrees/<name>`, `<toplevel>/.git` is a regular
+#      file, no core.worktree) and the realpath-resolved
 #      target is inside THAT worktree (else FM-2 refusal). Covers T3
 #      worktrees. A main-checkout session writing into a linked worktree is
 #      NOT allowed here; it falls through to #1-#4.
@@ -133,6 +134,8 @@ fi
 # a non-isolated reviewer would otherwise edit a live coder's tree).
 # "Linked" also needs `<toplevel>/.git` to be a regular FILE (SR-M-2): Write can
 # plant `<main>/.git/commondir`, but cannot turn the `.git` directory into a file.
+# git-dir must be `<common>/worktrees/<name>`, and core.worktree must be unset
+# (a per-worktree core.worktree widens the toplevel to a parent over main).
 # realpath resolves `..` and symlinks of the existing prefix (a new file is
 # judged by its nearest existing parent). Any failure prints nothing and falls
 # through to the old rules, which end in a refusal.
@@ -155,8 +158,15 @@ def checkout(path):
     lines = r.stdout.splitlines()
     if r.returncode != 0 or len(lines) != 3 or not all(lines):
         return None
+    # core.worktree (set via a Write into the gitdir) can move the toplevel to a parent dir.
+    cw = subprocess.run(['git', '-C', d, 'config', '--get', 'core.worktree'],
+                        capture_output=True, text=True, timeout=5)
+    if cw.returncode != 1:
+        return None
     top, git_dir, common_dir = (os.path.realpath(x) for x in lines)
-    return top, git_dir != common_dir and os.path.isfile(os.path.join(top, '.git'))
+    linked = (os.path.dirname(git_dir) == os.path.join(common_dir, 'worktrees')
+              and os.path.isfile(os.path.join(top, '.git')))
+    return top, linked
 
 def inside(p, root):
     return p == root or p.startswith(root + os.sep)

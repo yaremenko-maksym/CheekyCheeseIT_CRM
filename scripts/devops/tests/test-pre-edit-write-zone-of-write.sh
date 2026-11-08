@@ -313,6 +313,24 @@ assert_red "SR-M-2: a forged .git/commondir in the main checkout is not a linked
   --contains "PRODUCTION-EDIT BLOCK" \
   -- run_hook_with_forged_commondir "$LW_MAIN" "Edit" "$LW_MAIN/apps/api/src/main.ts"
 
+# SR-M-2 follow-up: a per-worktree core.worktree (writable via Write in the
+# gitdir) moves --show-toplevel to a parent directory that holds a forged `.git`
+# FILE, widening a linked worktree over the main checkout.
+run_hook_with_widened_worktree() {
+  git -C "$LW_A" config extensions.worktreeConfig true
+  git -C "$LW_A" config --worktree core.worktree "$WS/lw"
+  printf 'gitdir: %s\n' "$LW_MAIN/.git/worktrees/t3-aaaa" >"$WS/lw/.git"
+  run_hook "$@"
+  local rc=$?
+  git -C "$LW_A" config --worktree --unset core.worktree
+  git -C "$LW_A" config --unset extensions.worktreeConfig
+  rm -f "$WS/lw/.git"
+  return $rc
+}
+assert_red "SR-M-2: a per-worktree core.worktree cannot widen a linked worktree over main" \
+  --contains '"decision": "block"' \
+  -- run_hook_with_widened_worktree "$LW_A" "Edit" "$LW_MAIN/apps/api/src/main.ts"
+
 # SR-L-1: the production-zone check must see the RESOLVED target, not only the raw string.
 ln -s "$LW_MAIN/apps" "$LW_A/lnk"
 assert_red "SR-L-1: a symlink with no apps/ in its raw path, from a linked worktree into main -> BLOCK" \

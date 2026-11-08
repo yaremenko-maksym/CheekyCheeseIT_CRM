@@ -83,9 +83,9 @@ Each entry below is one zone row: **may** / **may NOT**.
 `.claude/hooks/pre-edit-write-zone-of-write.sh` (id `pre:edit-write:zone-of-write`) refuses `Edit` /
 `Write` / `MultiEdit` / `NotebookEdit` in `apps/**` / `packages/**` of the MAIN checkout. The zone is
 judged on the raw path and on the resolved one (`~`, `..`, symlinks of the existing prefix). A session
-whose cwd is a linked git worktree (its `.git` is a file; inherited `GIT_*` variables are ignored) may
-write only a target that resolves inside that worktree (FM-2). A main-checkout session is not allowed
-into any linked worktree.
+whose cwd is a linked git worktree (its `.git` is a file, no `core.worktree`; inherited `GIT_*`
+variables are ignored) may write only a target that resolves inside that worktree (FM-2). A
+main-checkout session is not allowed into any linked worktree.
 
 ### Worktree caveat
 
