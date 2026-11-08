@@ -968,10 +968,11 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@v3
         with:
+          predicate-quantifier: 'every'
           filters: |
             code:
               - '!docs/**'
-              - '!**.md'
+              - '!**/*.md'
               - '!.github/CODEOWNERS'
 
       - name: Resolve run scope
@@ -1182,7 +1183,8 @@ jobs:
 
   e2e:
     name: E2E (${{ matrix.shard.name }})
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.59 cannot install chromium on ubuntu-26.04 (now ubuntu-latest). Unpin after a Playwright bump passes there.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     strategy:

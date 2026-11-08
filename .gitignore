@@ -159,3 +159,5 @@ services/signal-plus/**/*.pyc
 services/signal-plus/.pytest_cache/
 services/signal-plus/*.egg-info/
 .env.extraction-worker
+# Extraction project pins: host-local, one per candidate; the template is in .env.example.
+.env.extraction-pins

@@ -107,4 +107,4 @@ UA-specific crypto / virtual assets / AML knowledge for CRM Phase 8 (Smart Contr
   - `legal-escalation-patterns` (hard refuse zone handling)
 - Related agent docs:
   - `.claude/agents/legal.md` Mode A + Mode B
-  - `.claude/agents/legal-escalation-zones.md` (if existing)
+  - `.claude/knowledge/legal/cross-cutting/escalation-zones.md`

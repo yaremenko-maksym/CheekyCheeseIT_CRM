@@ -45,6 +45,7 @@ import { renderEmailLayout } from '../common/email-layout'
 import { emphasize, escapeHtml } from '../common/escape-html'
 import type { Env } from '../config/env'
 import { ResendMailerService } from '../contact/resend-mailer.service'
+import { safeErrorReason, sleep } from '../contact/mailer-retry.util'
 import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
 
 /** Mirrors ContactService.MAX_SEND_ATTEMPTS — "2 попытки с бэкоффом". */
@@ -62,10 +63,6 @@ export interface SendInviteInput {
    * caller that forgets it fails typecheck instead of shipping the admin's or a default language.
    */
   locale: Locale
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 @Injectable()
@@ -188,7 +185,8 @@ export class PersonalEmailInviteMailerService {
         lastError = err
         // LOW-3 (security-review PR #623 round 4): `err.message` can echo
         // back Resend's own response body, which sometimes quotes the
-        // rejected recipient address — see `safeErrorReason`'s doc below.
+        // rejected recipient address — see `safeErrorReason`'s doc in
+        // `../contact/mailer-retry.util`.
         // The per-attempt WARN line is exactly the same leak channel as the
         // telemetry record two catches down, just to a different sink.
         this.logger.warn(
@@ -216,25 +214,4 @@ export class PersonalEmailInviteMailerService {
     // Deliberately swallowed — see module doc for why this must not throw.
     return false
   }
-}
-
-/**
- * LOW-3 (security-review PR #623 round 4): `ResendMailerService.send`
- * throws a plain `Error` whose `.message` is `Resend API HTTP <status>: <body
- * snippet>` (`resend-mailer.service.ts`) — the body snippet is Resend's OWN
- * error text, which for a malformed/rejected recipient sometimes quotes that
- * address back. Neither log sink in this file is allowed to carry PII
- * (module doc, mirroring `ContactService`), so this extracts ONLY the
- * `HTTP <status>` prefix when the message has that shape — useful enough to
- * tell "bad request" from "provider down" apart in the digest — and falls
- * back to the error's constructor name (e.g. `TypeError` for a network
- * failure) otherwise. Never returns anything from `.message` itself.
- */
-function safeErrorReason(err: unknown): string {
-  if (err instanceof Error) {
-    const statusMatch = /^Resend API HTTP (\d+)/.exec(err.message)
-    if (statusMatch) return `Resend API HTTP ${statusMatch[1]}`
-    return err.constructor.name
-  }
-  return 'unknown'
 }

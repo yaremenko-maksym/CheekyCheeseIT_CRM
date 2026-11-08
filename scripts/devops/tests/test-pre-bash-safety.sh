@@ -394,4 +394,125 @@ for sh in bash sh dash zsh ksh; do
   done
 done
 
+# ── Windows payloads ──────────────────────────────────────────────────────────
+# On Windows C:/x is an absolute path. dangerous_rm_target read it as relative
+# (no leading slash), so `rm -rf C:/` was allowed. Refused on the text of the
+# command, so this decides the same way on a Linux runner.
+assert_red "Windows: rm -rf C:/" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "rm -rf C:/"
+
+assert_red "Windows: rm -rf c:/Users/dev" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "rm -rf c:/Users/dev"
+
+assert_red "Windows: rm -rf C:/* behind &&" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "cd /tmp && rm -rf 'C:/*'"
+
+assert_green "a relative name with a colon is not a drive letter" \
+  -- h "rm -rf a:b/cache"
+
+# Quoting keeps backslashes, so these reach the hook as C:\x, not as C:x.
+assert_red "Windows: rm -rf 'C:\\' (quoted backslash root)" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "rm -rf 'C:\\'"
+
+assert_red "Windows: rm -rf 'C:\\Users\\dev' (quoted backslash path)" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "rm -rf 'C:\Users\dev'"
+
+assert_red "Windows: rm -rf '\\\\server\\share' (UNC path)" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "rm -rf '\\\\server\share'"
+
+assert_green "a relative name with a backslash is not an absolute path" \
+  -- h "rm -rf 'a\b'"
+
+# Git Bash runs git.exe and rm.exe as git and rm, so the suffix must not hide them.
+assert_red "Windows: git.exe force push to main" \
+  --contains '"decision": "block"' \
+  -- h "git.exe push --force origin main"
+
+assert_red "Windows: rm.exe -rf on an absolute path" \
+  --contains '"decision": "block"' \
+  -- h "rm.exe -rf 'C:\Windows'"
+
+assert_red "Windows: rm -rf \$USERPROFILE" \
+  --contains '"decision": "block"' \
+  -- h "rm -rf \"\$USERPROFILE\""
+
+assert_red "Windows: rm -rf \$USERPROFILE/x" \
+  --contains '"decision": "block"' \
+  -- h "rm -rf \"\$USERPROFILE/x\""
+
+assert_red "Windows: rm -rf \$USERPROFILE with a backslash" \
+  --contains '"decision": "block"' \
+  -- h "rm -rf \"\$USERPROFILE\\x\""
+
+assert_green "Windows: rm -rf \$USERPROFILE/Downloads/x passes, as under \$HOME" \
+  -- h "rm -rf \"\$USERPROFILE/Downloads/x\""
+
+# A .. segment climbs out of a safe root.
+assert_red "rm -rf /tmp/../etc climbs out of /tmp" \
+  --contains '"decision": "block"' \
+  -- h "rm -rf /tmp/../etc"
+
+assert_red "rm -rf ~/Downloads/../.ssh climbs out of Downloads" \
+  --contains '"decision": "block"' \
+  -- h "rm -rf ~/Downloads/../.ssh"
+
+assert_red "Windows: a backslash .. climbs out of /tmp" \
+  --contains '"decision": "block"' \
+  -- h "rm -rf '/tmp/x\..\..\c\Windows'"
+
+assert_red "Windows: a backslash .. climbs out of ~/Downloads" \
+  --contains '"decision": "block"' \
+  -- h "rm -rf '~/Downloads/x\..\..\.ssh'"
+
+assert_green "a backslash inside a safe root stays inside it" \
+  -- h "rm -rf '/tmp/a\b'"
+
+# bash.exe is not unwrapped, so every position is judged. Unwrapped, the parser would read
+# only what follows `--`, and dev-ttl.sh would still run the command in front of it.
+for cmd in "bash.exe scripts/devops/dev-ttl.sh -- rm -rf /etc" \
+           "sh.exe scripts/devops/dev-ttl.sh -- git push --force origin main" \
+           "bash.exe scripts/devops/dev-ttl.sh rm -rf /etc -- ls" \
+           "bash.exe scripts/devops/dev-ttl.sh --ttl 5 rm -rf /etc -- ls" \
+           "sh.exe scripts/devops/dev-ttl.sh git push --force origin main -- ls" \
+           "bash.exe scripts/devops/dev-ttl.sh -- env -S rm -rf /etc"; do
+  assert_red "Windows: $cmd" \
+    --contains '"decision": "block"' \
+    -- h "$cmd"
+done
+
+# A spelled name earns no trust: every position is judged, also behind an inert command.
+for cmd in "ls.bat rm -rf /etc" "echo.cmd rm -rf /etc" "ls.exe rm -rf /etc" "git.exe rm -rf /etc"; do
+  assert_red "Windows: $cmd" \
+    --contains '"decision": "block"' \
+    -- h "$cmd"
+done
+
+assert_green "Windows: git.exe status stays allowed" \
+  -- h "git.exe status"
+
+assert_green "Windows: pnpm.cmd --version stays allowed" \
+  -- h "pnpm.cmd --version"
+
+# env.exe stays unread as a wrapper, so every position is judged. Unwrapping it would
+# hand -S its one-token value and leave the rest of the command unread.
+assert_red "Windows: env.exe -S rm -rf /etc" \
+  --contains '"decision": "block"' \
+  -- h "env.exe -S rm -rf /etc"
+
+assert_red "Windows: env.exe -S git push --force" \
+  --contains '"decision": "block"' \
+  -- h "env.exe -S git push --force origin main"
+
 guard_test_summary "test-pre-bash-safety.sh"

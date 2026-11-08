@@ -70,7 +70,8 @@ mkdir -p "$WT_ROOT/apps/web" "$OTHER_WT/apps/web"
 run_hook() {
   local cwd="$1" tool="$2" path="$3"
   local json
-  json=$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","tool_name":sys.argv[1],"tool_input":{"file_path":sys.argv[2]}}))' "$tool" "$path")
+  # The exclusion stops Git Bash rewriting /tmp/x in argv, so the payload holds the path as given.
+  json=$(MSYS2_ARG_CONV_EXCL='*' python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","tool_name":sys.argv[1],"tool_input":{"file_path":sys.argv[2]}}))' "$tool" "$path")
   (cd "$cwd" && printf '%s' "$json" | bash "$HOOK")
 }
 
@@ -145,5 +146,54 @@ rm -f "$MAIN_REPO/.claude/.allow-direct-edits"
 assert_red "removing the escape hatch restores the refusal" \
   --contains '"decision": "block"' \
   -- run_hook "$MAIN_REPO" "Edit" "apps/web/app/routes/x.tsx"
+
+# ── Windows payloads ──────────────────────────────────────────────────────────
+# Claude Code on Windows reports C:\x while Git Bash $PWD says /c/x. Before the
+# hook compared one form, a backslash path missed the apps|packages grep and
+# exited 0: the whole gate failed open. These paths are plain strings, so the
+# cases decide the same way on a Linux runner and on Windows.
+assert_red "Windows payload: main-session Edit of a backslash apps/ path -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$MAIN_REPO" "Edit" 'C:\x\apps\web\y.ts'
+
+assert_red "Windows payload: main-session Write of a C:/ packages/ path -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$MAIN_REPO" "Write" 'C:/x/packages/shared/y.ts'
+
+assert_red "Windows payload: a drive-relative C:apps/ path -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$MAIN_REPO" "Edit" 'C:apps/web/y.ts'
+
+assert_red "a case variant of the production zone -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$MAIN_REPO" "Edit" 'C:\x\Apps\web\y.ts'
+
+assert_green "Windows payload: a backslash path outside the production zones is a no-op" \
+  --not-contains "BLOCK" \
+  -- run_hook "$MAIN_REPO" "Edit" 'C:\x\docs\architecture\adr.md'
+
+# The stderr line is asserted because it prints the normalised target: the
+# JSON body goes through python argv, which Git Bash rewrites back to C:/x.
+assert_red "Windows payload: FM-2, worktree agent writing C:\\x into another tree -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  --contains "target=/c/x/apps/web/y.ts" \
+  -- run_hook "$WT_ROOT" "Edit" 'C:\x\apps\web\y.ts'
+
+WT_PWD="$(cd "$WT_ROOT" && pwd)"
+WT_BACKSLASH="$(printf '%s' "$WT_PWD" | tr '/' '\\')"
+
+assert_green "Windows payload: own worktree spelled with backslashes is not a false FM-2" \
+  --not-contains "BLOCK" \
+  -- run_hook "$WT_ROOT" "Edit" "$WT_BACKSLASH\\apps\\web\\app\\x.tsx"
+
+assert_red "Windows payload: a backslash '..' escape is normalised, not trusted -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$WT_ROOT" "Edit" "$WT_BACKSLASH\\..\\agent-OTHER\\apps\\web\\app\\x.tsx"
 
 guard_test_summary "test-pre-edit-write-zone-of-write.sh"

@@ -1,6 +1,6 @@
 # Rule: Phase boundaries — what to do with context between phases
 
-**Status:** Always-on
+**Status:** On-demand (not auto-loaded: listed in `claudeMdExcludes`, `.claude/settings.json`). Whoever reaches the end of a phase reads it then.
 **Applies to:** All agents and the Master session. The decision is made **at the phase boundary**, not mid-work.
 
 > Rationale: `docs/architecture/rules-rationale/phase-boundaries.md`

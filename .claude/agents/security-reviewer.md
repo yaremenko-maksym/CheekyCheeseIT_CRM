@@ -130,7 +130,7 @@ mcp__github__get_pull_request_files → the list of files
 Read apps/api/src/auth/auth.controller.ts (full file)
 Read apps/api/src/finance/transactions.service.ts (full file)
 Read packages/shared/src/schemas/finance.ts
-Read apps/api/src/auth/jwt.strategy.ts (full file — auth flow context)
+Read apps/api/src/auth/jwt.guard.ts (full file — auth flow context)
 ... and so on
 ```
 
@@ -363,7 +363,7 @@ After the review — **return the result to Master** with a short summary:
 
 ## Reference (on-demand)
 
-- [`RULES.md`](RULES.md) — MCP / git / skills / version pins / zone-of-write
+- [`RULES.md`](../RULES.md) — MCP / git / skills / version pins / zone-of-write
 - [`project-state.md`](project-state.md) — RBAC matrix / shared schemas / DB tables
 - [`contracts.md`](contracts.md) — Reviewer verdict semantics (§4) + labels lifecycle (§1)
 - [`memory/reviewer/lessons.md`](memory/reviewer/lessons.md) — accumulated lessons (legacy shared with code-reviewer until the Phase 4 split)

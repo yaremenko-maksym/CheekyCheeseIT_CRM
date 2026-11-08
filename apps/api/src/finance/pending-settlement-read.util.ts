@@ -10,7 +10,7 @@
  * them pre-transaction — passing a transaction handle here would change that.
  */
 import { HttpStatus } from '@nestjs/common'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { PendingSettlementItemDto } from '@crm/shared'
 import { apiError } from '../common/api-error'
@@ -166,35 +166,47 @@ export async function denormalise(
     createdAt: Date
   }>,
 ): Promise<PendingSettlementItemDto[]> {
-  const result: PendingSettlementItemDto[] = []
-  for (const row of rows) {
-    const [senior, debtor, source] = await Promise.all([
-      db.query.users.findFirst({ where: eq(users.id, row.creditorUserId) }),
-      row.debtorUserId
-        ? db.query.users.findFirst({ where: eq(users.id, row.debtorUserId) })
-        : Promise.resolve(undefined),
-      db.query.transactions.findFirst({
-        where: eq(transactions.id, row.sourceTransactionId),
-      }),
-    ])
-    const project = source?.projectId
-      ? await db.query.projects.findFirst({ where: eq(projects.id, source.projectId) })
-      : undefined
+  if (rows.length === 0) return []
 
-    result.push({
+  // shortcut: inArray binds one param per id and Postgres caps a statement at 65535,
+  // chunk these lookups if pending obligations ever approach that many.
+  const userIds = rows
+    .flatMap((row) => [row.creditorUserId, row.debtorUserId])
+    .filter((id): id is string => !!id)
+  const [userRows, sourceRows] = await Promise.all([
+    db.query.users.findMany({ where: inArray(users.id, [...new Set(userIds)]) }),
+    db.query.transactions.findMany({
+      where: inArray(transactions.id, [...new Set(rows.map((row) => row.sourceTransactionId))]),
+    }),
+  ])
+  const projectIds = sourceRows.map((source) => source.projectId).filter((id): id is string => !!id)
+
+  // Keys admit null so a null debtor / project id is a plain miss, same as a missing row.
+  const nameByUserId = new Map<string | null, string>(userRows.map((u) => [u.id, u.displayName]))
+  const projectIdBySourceId = new Map(sourceRows.map((s) => [s.id, s.projectId]))
+  const projectById = new Map<string | null | undefined, { id: string; name: string }>()
+  if (projectIds.length > 0) {
+    const projectRows = await db.query.projects.findMany({
+      where: inArray(projects.id, [...new Set(projectIds)]),
+    })
+    for (const p of projectRows) projectById.set(p.id, p)
+  }
+
+  return rows.map((row) => {
+    const project = projectById.get(projectIdBySourceId.get(row.sourceTransactionId))
+    return {
       obligationId: row.id,
       sourceTransactionId: row.sourceTransactionId,
       debtorType: row.debtorType,
       debtorUserId: row.debtorUserId,
-      debtorName: debtor?.displayName ?? null,
+      debtorName: nameByUserId.get(row.debtorUserId) ?? null,
       seniorId: row.creditorUserId,
-      seniorName: senior?.displayName ?? '—',
+      seniorName: nameByUserId.get(row.creditorUserId) ?? '—',
       projectId: project?.id ?? null,
       projectName: project?.name ?? null,
       amount: row.amount,
       currency: row.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
       createdAt: row.createdAt.toISOString(),
-    })
-  }
-  return result
+    }
+  })
 }

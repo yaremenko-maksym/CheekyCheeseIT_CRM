@@ -1,6 +1,6 @@
 # Rule: Orchestration routing — agent vs workflow vs light-track
 
-**Status:** Always-on (enforcement **procedural** — orchestrator judgment, NOT a blocking hook)
+**Status:** On-demand (not auto-loaded: listed in `claudeMdExcludes`, `.claude/settings.json`). Master reads it before the first dispatch of a session. Enforcement **procedural** — orchestrator judgment, NOT a blocking hook.
 **Applies to:** Master (USER session) — the one who makes the launch decision. Executor agents do not run this tree.
 
 > Rationale: `docs/architecture/rules-rationale/orchestration-routing.md`

@@ -24,12 +24,10 @@ import type {
   PaySalaryDto,
   AdminUpdateTransactionDto,
   ConfirmPayoutDto,
-  BalanceDto,
   SettleObligationResponseDto,
   SettleSeniorPayoutDto,
   CompanyAccountDto,
   CompanyDepositDto,
-  DepositStatusDto,
   CreateCompanyDepositDto,
   CreateDividendDto,
   UpdateWalletDto,
@@ -148,8 +146,6 @@ export const financeApi = {
     api.patch<TransactionDto>(`/transactions/${id}/restore`, { reason }).then((r) => r.data),
 
   // Payout requests
-  getPayoutRequests: () => api.get<PayoutRequestDto[]>('/payout-requests').then((r) => r.data),
-
   getPayoutRequest: (id: string) =>
     api.get<PayoutRequestDto>(`/payout-requests/${id}`).then((r) => r.data),
 
@@ -183,33 +179,6 @@ export const financeApi = {
       })
       .then((r) => incomeComplianceOverviewSchema.parse(r.data)),
 
-  // NBU exchange rate (date = YYYYMMDD, optional)
-  getExchangeRate: (date?: string) =>
-    api
-      .get<{
-        usdUah: string
-        usdtUah: string
-        eurUah: string
-        date: string
-      }>('/finance/exchange-rate', { ...(date !== undefined && { params: { date } }) })
-      .then((r) => r.data),
-
-  // Phase 4 balances (BalanceService — runs alongside legacy getSummary).
-  // TOV balance endpoint removed in the refactor — see
-  // task-drop-phase4-refactor-remove-tov.md AC3, AC5.
-  getAdminBalance: (adminId: string, currency?: string) =>
-    api
-      .get<BalanceDto>(`/balances/admin/${adminId}`, {
-        ...(currency !== undefined && { params: { currency } }),
-      })
-      .then((r) => r.data),
-  getSeniorBalance: (seniorId: string, currency?: string) =>
-    api
-      .get<BalanceDto>(`/balances/senior/${seniorId}`, {
-        ...(currency !== undefined && { params: { currency } }),
-      })
-      .then((r) => r.data),
-
   // task-senior-settle-in-tx-row. Senior IOUs from drop-projects are owed by the
   // company and paid directly from the SENIOR_PENDING_PAYOUT row in the
   // transactions list (no dedicated card). The row knows the SENIOR_PENDING_PAYOUT
@@ -239,9 +208,6 @@ export const companyAccountApi = {
 
   submitDeposit: (data: CreateCompanyDepositDto) =>
     api.post<CompanyDepositDto>('/company-account/deposits', data).then((r) => r.data),
-
-  getDepositStatus: (id: string) =>
-    api.get<DepositStatusDto>(`/company-account/deposits/${id}/status`).then((r) => r.data),
 
   createDividend: (data: CreateDividendDto) =>
     api

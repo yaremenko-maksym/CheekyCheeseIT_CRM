@@ -1,3 +1,8 @@
+---
+paths:
+  - '.claude/rules/ecc/**'
+---
+
 # ECC Rules (local curated copy)
 
 Curated subset of the ECC rules pack, imported 2026-06-03 and **pruned 2026-06-11**
@@ -18,6 +23,11 @@ not apply here.
 - `typescript/` — TS idioms. Path-scoped to `*.ts/tsx/js/jsx`.
 - `web/` — frontend patterns, performance budgets, design quality, security headers,
   testing priorities. Path-scoped to `apps/web/**` (testing also `apps/e2e/**`).
+
+## Removed 2026-11-07
+
+`typescript/hooks` (generic harness advice, same reason as `common/hooks` below; it extended that
+removed file and contradicted `eslint-mcp-first.md`).
 
 ## Removed 2026-06-11 (conflicted with project policy or stale)
 

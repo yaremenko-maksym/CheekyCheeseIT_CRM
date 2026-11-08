@@ -47,7 +47,8 @@ async function lintAs(code: string, asPath: string) {
 const rulesFired = (messages: Awaited<ReturnType<typeof lintAs>>) =>
   new Set(messages.filter((m) => m.severity === 2).map((m) => m.ruleId))
 
-describe('test-quality lint rules', () => {
+// first test pays the cold ESLint config load; under CPU load it exceeds the 15s default
+describe('test-quality lint rules', { timeout: 60_000 }, () => {
   describe('the real 2026-08-07 vacuum test (portal blindness)', () => {
     const vacuumSource = readFileSync(
       resolve(here, 'fixtures/2026-08-07-JobSuggestionDialog.vacuum.tsx.txt'),

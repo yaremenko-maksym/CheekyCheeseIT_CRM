@@ -16,30 +16,26 @@ export class PayoutRequestReadService {
   constructor(private readonly db: DatabaseService) {}
 
   async findPayoutRequests(currentUser: SessionUser) {
-    const all = await this.db.db.query.payoutRequests.findMany({
+    // Allowlist: a role not named here reads nothing and issues no query.
+    const isPrivileged = currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
+    const isOwnerScoped = currentUser.role === 'SENIOR' || currentUser.role === 'DROP'
+    if (!isPrivileged && !isOwnerScoped) return []
+
+    const scoped = await this.db.db.query.payoutRequests.findMany({
+      // Drop role - phase 2 (backlog AC4): DROP sees only their OWN
+      // payout requests. In drop-project flows `payoutRequests.seniorId`
+      // points at the DROP user (the column is reused as "owner of the
+      // payout" — see `payPayoutRequest` header comment around the
+      // `req.seniorId === currentUser.id` check). Same filter shape as
+      // SENIOR.
+      where: isPrivileged ? undefined : eq(payoutRequests.seniorId, currentUser.id),
       orderBy: [desc(payoutRequests.createdAt)],
       with: {
         senior: { columns: { displayName: true } },
       },
     })
 
-    const filtered =
-      currentUser.role === 'SENIOR'
-        ? all.filter((r) => r.seniorId === currentUser.id)
-        : currentUser.role === 'DROP'
-          ? // Drop role - phase 2 (backlog AC4): DROP sees only their OWN
-            // payout requests. In drop-project flows `payoutRequests.seniorId`
-            // points at the DROP user (the column is reused as "owner of the
-            // payout" — see `payPayoutRequest` header comment around the
-            // `req.seniorId === currentUser.id` check). Same filter shape as
-            // SENIOR.
-            all.filter((r) => r.seniorId === currentUser.id)
-          : currentUser.role === 'JUNIOR' || currentUser.role === 'HR'
-            ? // Same idea — these roles never owned payout requests.
-              []
-            : all
-
-    return filtered.map((r) => ({
+    return scoped.map((r) => ({
       id: r.id,
       seniorId: r.seniorId,
       seniorName:
@@ -52,8 +48,7 @@ export class PayoutRequestReadService {
       // AUDIT field — ADMIN/ACCOUNTANT only. Masked to null for the payout's
       // own SENIOR/DROP (they gain nothing from it and it would leak other
       // parties' wallet addresses into a non-privileged surface).
-      txFromAddress:
-        currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT' ? r.txFromAddress : null,
+      txFromAddress: isPrivileged ? r.txFromAddress : null,
       status: r.status,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),

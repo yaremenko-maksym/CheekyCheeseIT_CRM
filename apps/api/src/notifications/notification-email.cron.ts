@@ -31,6 +31,7 @@ import { dbErrorLogSuffix, safeErrorStack } from '../database/pg-errors'
 import { isActionRequiredNotificationType } from '@crm/shared'
 import type { Env } from '../config/env'
 import { ResendMailerService } from '../contact/resend-mailer.service'
+import { safeErrorReason } from '../contact/mailer-retry.util'
 import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
 import { stripCrlf } from '../common/strip-crlf'
 import { renderNotificationEmail, type NotificationEmailSource } from './notification-email-copy'
@@ -324,28 +325,4 @@ export class NotificationEmailCronService {
   private logSkip(id: string, reason: SkipReason): void {
     this.logger.warn(`Email skipped (${reason}) [id=${id}]`)
   }
-}
-
-/**
- * The reason for failure WITHOUT the provider's response body.
- *
- * `ResendMailerService.send` throws an `Error` with the text `Resend API HTTP
- * <status>: <piece of body>`, and for a rejected address this piece quotes the address itself —
- * that is, exactly the data this project writes neither to the journal
- * nor to the database. We keep the status (it shows "bad request" versus "provider
- * is down"); in other cases — the error class name.
- *
- * The same device and the same reason as in
- * `personal-email-invite-mailer.service.ts` (LOW-3, security-review PR #623).
- * Copied, not extracted: there it is a private detail of one service, and a shared
- * helper for two callers would tie invitation mail to notification mail
- * for the sake of eight lines. When a third appears — extract it.
- */
-function safeErrorReason(err: unknown): string {
-  if (err instanceof Error) {
-    const statusMatch = /^Resend API HTTP (\d+)/.exec(err.message)
-    if (statusMatch) return `Resend API HTTP ${statusMatch[1]}`
-    return err.constructor.name
-  }
-  return 'unknown'
 }

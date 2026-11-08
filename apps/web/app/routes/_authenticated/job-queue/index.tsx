@@ -1,10 +1,10 @@
 /**
  * /job-queue — r5 Task 7.2. The external vacancy queue (ADMIN | HR): status tabs with authorized
- * counts, search + bounded filters (URL state, applied explicitly), the list with «load more»,
+ * counts, search + bounded filters (URL state, applied explicitly), the infinite-scroll list,
  * the HR team switcher and the refresh / partial / access-lost notices. Opening a row writes
  * `?card=<id>`; the card itself is Task 7.3. Layout and copy: docs/design/vacancy-queue.md.
  */
-import { useRef, useState, type FormEvent } from 'react'
+import { useId, useRef, useState, type FormEvent } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { AlertTriangle, RefreshCw, Search, X } from 'lucide-react'
@@ -73,14 +73,32 @@ export function JobQueuePage() {
   const { user } = useAuth()
   const { teams, isError: teamsFailed, refetch: refetchTeams } = useActiveTeams()
   const search = Route.useSearch()
-  // the retry button unmounts on click (error block becomes the skeleton): park focus here
+  // these buttons unmount on click, so focus parks here: the team-list retry (error block becomes
+  // the skeleton) and the two refresh buttons (returnToTop)
   const bodyRef = useRef<HTMLDivElement>(null)
+  // state, not a ref: the sentinel's observer has to rebuild once the scroller exists
+  const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null)
+  const headingId = useId()
 
   if (denied || !user || (user.role !== 'ADMIN' && user.role !== 'HR')) return null
 
+  // the refresh buttons (list foot and top notice) unmount on click, and the list is replaced from the top
+  const returnToTop = () => {
+    bodyRef.current!.focus()
+    // after the focus, whose own scroll-into-view this overrides
+    scrollRoot!.scrollTop = 0
+  }
+
   let body
   if (user.role === 'ADMIN') {
-    body = <QueueBody scope={{ actorId: user.id, role: 'ADMIN', teamId: null }} search={search} />
+    body = (
+      <QueueBody
+        scope={{ actorId: user.id, role: 'ADMIN', teamId: null }}
+        search={search}
+        scrollRoot={scrollRoot}
+        onReturnToTop={returnToTop}
+      />
+    )
   } else if (teams === null) {
     // without the team list there is no scope to load: offer a retry, not an endless skeleton
     body = teamsFailed ? (
@@ -134,25 +152,38 @@ export function JobQueuePage() {
         scope={{ actorId: user.id, role: 'HR', teamId }}
         search={search}
         teams={teams.map((t) => ({ id: t.id, name: t.name }))}
+        scrollRoot={scrollRoot}
+        onReturnToTop={returnToTop}
       />
     )
   }
 
   return (
+    // the authenticated layout's `main` is `overflow-hidden`, so the page scrolls itself
     <div
-      data-testid="job-queue-page"
-      className="@container mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-4 px-4 py-4 sm:px-6"
+      ref={setScrollRoot}
+      data-testid="job-queue-scroll"
+      // the only scroller on the page: focusable, or scroll keys do nothing until a row has focus
+      tabIndex={0}
+      role="region"
+      aria-labelledby={headingId}
+      className="min-h-0 flex-1 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
-      <h1 className="text-xl font-semibold tracking-tight">
-        <Trans>Черга зовнішніх вакансій</Trans>
-      </h1>
       <div
-        ref={bodyRef}
-        tabIndex={-1}
-        data-testid="job-queue-body"
-        className="flex min-w-0 flex-col gap-4 outline-none"
+        data-testid="job-queue-page"
+        className="@container mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-4 px-4 py-4 sm:px-6"
       >
-        {body}
+        <h1 id={headingId} className="text-xl font-semibold tracking-tight">
+          <Trans>Черга зовнішніх вакансій</Trans>
+        </h1>
+        <div
+          ref={bodyRef}
+          tabIndex={-1}
+          data-testid="job-queue-body"
+          className="flex min-w-0 flex-col gap-4 outline-none"
+        >
+          {body}
+        </div>
       </div>
     </div>
   )
@@ -162,10 +193,14 @@ function QueueBody({
   scope,
   search,
   teams,
+  scrollRoot,
+  onReturnToTop,
 }: {
   scope: QueueScopeSignature & { role: 'ADMIN' | 'HR' }
   search: QueueSearch
   teams?: ReadonlyArray<{ id: string; name: string }>
+  scrollRoot: HTMLElement | null
+  onReturnToTop: () => void
 }) {
   const { t } = useLingui()
   const navigate = useNavigate()
@@ -199,19 +234,35 @@ function QueueBody({
     go({ ...search, search: draftSearch.trim() || undefined })
   }
 
+  const onRestart = () => {
+    onReturnToTop()
+    void queue.restart()
+  }
+
   let notice = null
   if (queue.refreshRequired) {
     notice = (
       <div
         data-testid="job-queue-refresh"
         role="status"
-        className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 text-sm @min-[560px]:flex-row @min-[560px]:items-center"
+        className="flex flex-col gap-2 rounded-lg border border-yellow-muted/40 bg-yellow-subtle p-3 text-sm @min-[560px]:flex-row @min-[560px]:items-center"
       >
-        <RefreshCw aria-hidden="true" className="size-4 shrink-0" />
-        <p className="min-w-0 flex-1 font-medium">
-          <Trans>Список змінився</Trans>
-        </p>
-        <Button variant="outline" className="min-h-11" onClick={() => void queue.restart()}>
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <RefreshCw aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
+          <div className="min-w-0">
+            <p className="font-medium">
+              <Trans>Список змінився</Trans>
+            </p>
+            <p className="text-foreground/70">
+              <Trans>З’явилися оновлення.</Trans>
+            </p>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          className="min-h-11 border-yellow-muted/40 bg-background"
+          onClick={onRestart}
+        >
           <Trans>Показати оновлений список</Trans>
         </Button>
       </div>
@@ -334,11 +385,14 @@ function QueueBody({
             hasSearch={!!search.search}
             hasFilters={appliedFilterCount(filterValue) > 0}
             hasNextPage={queue.hasNextPage}
+            isFetching={queue.isFetching}
             isFetchingNextPage={queue.isFetchingNextPage}
             isFetchNextPageError={queue.isFetchNextPageError}
             refreshRequired={queue.refreshRequired}
+            scrollRoot={scrollRoot}
             onLoadMore={() => void queue.fetchNextPage()}
             onRetry={() => void queue.refetch()}
+            onRestart={onRestart}
             onOpen={(card) => go({ ...search, card })}
             onResetFilters={resetFilters}
             onClearSearch={clearSearch}

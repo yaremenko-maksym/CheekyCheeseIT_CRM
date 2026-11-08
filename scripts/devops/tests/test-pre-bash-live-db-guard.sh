@@ -505,6 +505,33 @@ for w in 'bash scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev' \
     --contains "wrapper the hook does not model" \
     -- h "DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011 $w"
 done
+# bash.exe is not unwrapped, so it carries no wrapper name; it is still refused, pinned or not.
+w='bash.exe scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev'
+assert_green "распознан как запуск: $w" -- recognised "$w"
+assert_red "bash.exe + dev-ttl.sh без закрепления — отказ" \
+  --contains '"decision": "block"' \
+  -- h "$w"
+assert_red "bash.exe + dev-ttl.sh с закреплением — отказ" \
+  --contains '"decision": "block"' \
+  -- h "DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011 $w"
+# export.exe is not the builtin: it fails, and the launch keeps the inherited environment.
+assert_launch_green "a real export pins a launch behind dev-ttl.sh" \
+  -- h "export DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011; scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev"
+for e in export.exe export.cmd export.bat; do
+  assert_red "$e pins nothing" \
+    --contains '"decision": "block"' \
+    -- h "$e DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011; scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev"
+done
+
+# SR-H-6: only the first launch in a segment is judged. An argument spelled pnpm.cmd must
+# not take the place of the launch after it, and no platform has to run it for this.
+PIN="DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011"
+TTL="scripts/devops/dev-ttl.sh --"
+for t in "env DATABASE_URL=$LIVE_DB tsx watch x.ts pnpm.cmd dev vite"          "env DATABASE_URL=$LIVE_DB pnpm.cmd dev vite"          "env -u DATABASE_URL pnpm.cmd dev vite"          "tsx watch x.ts pnpm.cmd dev vite"          "pnpm.cmd dev vite"; do
+  assert_red "pnpm.cmd does not displace the launch: $t"     --contains "is not the launcher the analyzer resolved"     -- h "$PIN $TTL pnpm exec $t"
+done
+assert_red "pnpm.cmd does not displace the launch with the wrong port"   --contains '"decision": "block"'   -- h "DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa $TTL pnpm exec pnpm.cmd --port 3011 dev pnpm dev"
+assert_red "pnpm.cmd as the only launch is still refused behind a pin"   --contains '"decision": "block"'   -- h "$PIN $TTL pnpm.cmd --filter @crm/api dev"
 
 # ═══ SR-M-18 - a comment is not a command ═════════════════════════════════════
 # A line that begins with # was a segment whose command word was `#`, and the words after
@@ -888,5 +915,33 @@ assert_red "ЛОВУШКА: хук со сломанным bash тоже даё�
   --contains "syntax error" \
   --not-contains "decision" \
   -- hook_at "$(hook_with_broken_bash "$WS")" "pnpm --filter @crm/api dev"
+
+# ── Windows payloads ──────────────────────────────────────────────────────────
+# The harness reports cwd with backslashes on Windows, and the CONTEXT regex
+# looks for .claude/worktrees/ with slashes: before the hook normalised cwd, the
+# guard exited 0 for every agent on that OS.
+WIN_WT='C:\Users\dev\CheekyCheeseIT_CRM\.claude\worktrees\agent-guard-test'
+
+assert_red "Windows payload: launch against the live DB from a backslash worktree cwd" \
+  --contains '"decision": "block"' \
+  -- h "DATABASE_URL=$LIVE_DB API_PORT=3011 pnpm --filter @crm/api dev" "$WIN_WT"
+
+assert_red "Windows payload: launch with an inherited DATABASE_URL" \
+  --contains '"decision": "block"' \
+  -- h "pnpm --filter @crm/api dev" "$WIN_WT"
+
+assert_launch_green "Windows payload: pinned safe values pass" \
+  -- h "DATABASE_URL=$SAFE_DB API_PORT=3011 pnpm --filter @crm/api dev" "$WIN_WT"
+
+assert_green "Windows payload: a checkout outside worktrees is not gated" \
+  -- h "pnpm --filter @crm/api dev" 'C:\Users\dev\CheekyCheeseIT_CRM'
+
+assert_red "Windows payload: BROKEN analyzer in a backslash worktree cwd still blocks" \
+  --contains "DEGRADED MODE" \
+  -- hook_at "$BROKEN" "pnpm --filter @crm/api dev" "$WIN_WT"
+
+assert_red "Windows payload: cd into a backslash worktree path from the main checkout" \
+  --contains '"decision": "block"' \
+  -- h "cd '$WIN_WT' && pnpm --filter @crm/api dev" 'C:\Users\dev\CheekyCheeseIT_CRM'
 
 guard_test_summary "test-pre-bash-live-db-guard.sh"

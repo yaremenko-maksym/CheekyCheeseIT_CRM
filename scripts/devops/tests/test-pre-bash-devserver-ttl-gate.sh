@@ -227,6 +227,15 @@ for flags in '-o pipefail' '--norc' '--' '+x' '-O extglob' '--rcfile /tmp/rc'; d
   assert_green "ТТЛ-гейт: настоящая обёртка за флагами интерпретатора проходит: bash $flags" \
     -- h "bash $flags $TTL -- pnpm --filter @crm/api dev"
 done
+assert_red "ТТЛ-гейт: bash.exe не разворачивается, запуск за ним судится как голый" \
+  --contains '"decision": "block"' \
+  -- h "bash.exe $TTL -- pnpm --filter @crm/api dev"
+assert_red "ТТЛ-гейт: запуск перед -- за bash.exe судится как голый" \
+  --contains '"decision": "block"' \
+  -- h "bash.exe $TTL pnpm --filter @crm/api dev -- ls"
+assert_red "ТТЛ-гейт: payload за bash.exe -c — голый запуск" \
+  --contains '"decision": "block"' \
+  -- h "bash.exe -c 'pnpm --filter @crm/api dev' dev-ttl.sh"
 
 # ── SR-H-24, the FAMILY (this hook's consumer view) ─────────────────────────────
 # A code flag's payload is never discarded, wherever the flag sits in the interpreter's option
@@ -680,5 +689,31 @@ assert_red "PR #485: запуск без inline порта" \
 assert_red "PR #485: собранный API, окружение целиком унаследовано" \
   --contains '"decision": "block"' \
   -- h "node apps/api/dist/main.js"
+
+# ── Windows payloads ──────────────────────────────────────────────────────────
+# The harness reports cwd with backslashes on Windows, and the CONTEXT regex
+# looks for .claude/worktrees/ with slashes: before the hook normalised cwd, the
+# gate exited 0 for every agent on that OS.
+WIN_WT='C:\Users\dev\CheekyCheeseIT_CRM\.claude\worktrees\agent-guard-test'
+
+assert_red "Windows payload: bare pnpm dev in a backslash worktree cwd" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:devserver-ttl-gate] BLOCK" \
+  -- h "pnpm --filter @crm/api dev" "$WIN_WT"
+
+assert_green "Windows payload: the wrapped launch passes" \
+  -- h "$TTL --ttl 7200 -- pnpm --filter @crm/api dev" "$WIN_WT"
+
+assert_green "Windows payload: a checkout outside worktrees is not gated" \
+  -- h "pnpm --filter @crm/api dev" 'C:\Users\dev\CheekyCheeseIT_CRM'
+
+assert_red "Windows payload: BROKEN analyzer in a backslash worktree cwd still blocks" \
+  --contains "DEGRADED MODE" \
+  -- hook_at "$BROKEN" "pnpm --filter @crm/api dev" "$WIN_WT"
+
+assert_red "Windows payload: cd into a backslash worktree path from the main checkout" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:devserver-ttl-gate] BLOCK" \
+  -- h "cd '$WIN_WT' && pnpm --filter @crm/api dev" 'C:\Users\dev\CheekyCheeseIT_CRM'
 
 guard_test_summary "test-pre-bash-devserver-ttl-gate.sh"

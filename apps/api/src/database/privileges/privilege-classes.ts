@@ -197,6 +197,10 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'job_collection_runs',
     'job_dirty_work',
     'job_exclusion_filters',
+    // Extraction model health (ADR 2026-11-03 §5.3): upserted counters and flipped flags, so not
+    // A-log. Staged until the collection-run call site; see STAGED_RELATIONS.
+    'job_model_health_flags',
+    'job_model_route_daily',
     'job_opportunities',
     // Task 4.5: canonical identity tokens; the API's record store claims them. Promoted to manual/ (Task 4.6 S0).
     'job_opportunity_identity_tokens',
@@ -366,7 +370,8 @@ export const MANUAL_DDL_RELATIONS: Record<string, { file: string | null; why: st
 
 /**
  * Tables the Drizzle schema DECLARES whose forward DDL is still STAGED in
- * `drizzle/manual-staged/`. Today: `job_source_health_events` (source-fetch-strategy U4).
+ * `drizzle/manual-staged/`. Today: `job_source_health_events` (source-fetch-strategy U4),
+ * `job_model_route_daily` and `job_model_health_flags` (extraction model router, task 5.4c-4).
  * (`job_source_record_inventory_misses` (Task 4.6 S8a) and `job_bridge_deliveries` (Task 4.6 S6b) were promoted to `drizzle/manual/` by slice S6f. The
  * record-store tables were promoted to `drizzle/manual/` by Task 4.6 S0. The tx_date Kyiv-day
  * backfill is not staged: it
@@ -395,6 +400,9 @@ export const STAGED_RELATIONS: Record<string, { file: string }> = {
   job_source_health_events: {
     file: 'drizzle/manual-staged/2026-10-31_job_source_health_events.sql',
   },
+  // Extraction model health (ADR 2026-11-03 §5.3): staged until the collection-run call site.
+  job_model_route_daily: { file: 'drizzle/manual-staged/2026-11-06_job_model_health.sql' },
+  job_model_health_flags: { file: 'drizzle/manual-staged/2026-11-06_job_model_health.sql' },
 }
 
 /**

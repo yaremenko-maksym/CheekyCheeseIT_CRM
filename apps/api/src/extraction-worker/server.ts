@@ -7,12 +7,8 @@ import { stripContacts } from '../job-sourcing/structuring/contact-strip'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
 import { smallDoseFor } from '../job-sourcing/structuring/small-dose-table'
-import {
-  EXTRACTION_TABLE_VERSION,
-  extractBodySchema,
-  healthFlags,
-  preflightBodySchema,
-} from './schema'
+import { EXTRACTION_TABLE_VERSION } from './link-contract'
+import { extractBodySchema, healthFlags, preflightBodySchema } from './schema'
 
 /** The one fixed preflight request: the caller sends nothing, so nothing of its can reach a route. */
 const PREFLIGHT_INPUT = 'Reply with the JSON object {"ok": true} and nothing else.'

@@ -813,6 +813,10 @@ msgstr "Step {0} of {1}"
 msgid "Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа"
 msgstr "All matching seniors on your team stop-listed this company"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
+msgid "Завантажено ще {added}. Показано {shown}"
+msgstr "Loaded {added} more. Showing {shown}"
+
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Посилання, рядок {position}"
 msgstr "Link, row {position}"
@@ -1213,9 +1217,10 @@ msgstr "No events yet."
 msgid "Рівень"
 msgstr "Level"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Показати оновлений список"
-msgstr "Show the updated list"
+msgstr "Show updated list"
 
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 msgid "Нові з’являться після наступного оновлення джерел."
@@ -3662,7 +3667,6 @@ msgstr "The work email must be different from the personal email"
 msgid "Вакансію створено"
 msgstr "Vacancy created"
 
-#: apps/web/app/components/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
@@ -4961,7 +4965,6 @@ msgstr "Archive team"
 msgid "Новий пароль"
 msgstr "New password"
 
-#: apps/web/app/components/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/users/UserRow.tsx
 #: apps/web/app/components/users/UserRow.tsx
@@ -7233,6 +7236,10 @@ msgstr "File uploaded, parsing the resume"
 msgid "Опублікувати нову версію (v{0})?"
 msgstr "Publish a new version (v{0})?"
 
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
+msgid "З’явилися оновлення."
+msgstr "Updates are available."
+
 #: apps/web/app/components/onboarding/TosUpdateBanner.tsx
 msgid "Опубліковано нову версію Умов використання. <0>Читати →</0>"
 msgstr "A new version of the Terms of Service was published. <0>Read →</0>"
@@ -7492,7 +7499,6 @@ msgstr "Institution"
 msgid "Видалити {tag}"
 msgstr "Remove {tag}"
 
-#: apps/web/app/components/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
@@ -8126,6 +8132,7 @@ msgstr "No payouts yet"
 msgid "Media token замінено"
 msgstr "Media token replaced"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Список змінився"
 msgstr "The list has changed"
@@ -9938,6 +9945,10 @@ msgstr "{projectsCount, plural, one {# project} other {# projects}}"
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Успішно"
 msgstr "Succeeded"
+
+#: apps/web/app/components/job-queue/JobQueueList.tsx
+msgid "Показано {shown}"
+msgstr "Showing {shown}"
 
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
