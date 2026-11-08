@@ -44,7 +44,6 @@ describe('AppModule evaluation — a garbage GIT_COMMIT must not crash boot (SR-
     // unset), which the pre-push hook's full `pnpm test` run inherits into
     // every worker's env.
     process.env['DATABASE_URL'] ||= 'postgresql://test:test@localhost:5432/test'
-    process.env['REDIS_URL'] ||= 'redis://localhost:6379'
     process.env['GOOGLE_CLIENT_ID'] ||= 'test-google-client-id'
     process.env['GOOGLE_CLIENT_SECRET'] ||= 'test-google-client-secret'
     process.env['GOOGLE_CALLBACK_URL'] ||= 'http://localhost:3001/api/auth/google/callback'

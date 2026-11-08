@@ -5,7 +5,6 @@ import { validateEnv } from './env'
 const BASE_DEV = {
   NODE_ENV: 'development',
   DATABASE_URL: 'postgres://user:pass@localhost:5432/crm',
-  REDIS_URL: 'redis://localhost:6379',
   GOOGLE_CLIENT_ID: 'google-client-id',
   GOOGLE_CLIENT_SECRET: 'google-client-secret',
   GOOGLE_CALLBACK_URL: 'http://localhost:3001/api/auth/google/callback',
