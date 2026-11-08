@@ -25,7 +25,6 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_ci
-      REDIS_URL: redis://localhost:6379
       JWT_SECRET: ${{ secrets.JWT_SECRET || 'ci-jwt-secret-32-chars-minimum-xxxxx' }}
       GOOGLE_CLIENT_ID: test-client-id
       GOOGLE_CLIENT_SECRET: test-client-secret
@@ -62,14 +61,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-      redis:
-        image: redis:7-alpine
-        ports: ['6379:6379']
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
       # S3-стенд (RustFS) поднимается через `docker run` в шаге ниже, а не
       # `services:` — бакет нужно забутстрапить сразу после старта сервера,
       # это делаем в том же шаге (см. "Start S3 stand + bucket").

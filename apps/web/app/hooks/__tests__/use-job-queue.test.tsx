@@ -47,6 +47,8 @@ const item = (over: Record<string, unknown> = {}) => ({
   alsoSeenOnCount: 0,
   availability: 'OPEN',
   eligibility: 'LEAD',
+  seniority: 'UNKNOWN',
+  matchedKeywords: [],
   matchedSeniorCount: 2,
   submittedSeniorCount: 0,
   stopListedSeniorCount: 0,

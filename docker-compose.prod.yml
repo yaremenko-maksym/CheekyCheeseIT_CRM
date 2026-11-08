@@ -8,7 +8,6 @@
 #
 # Services:
 #   postgres  — PostgreSQL 16 database (persistent volume)
-#   redis     — Redis 7 cache/session store
 #   api       — NestJS 11 API (apps/api)
 #   nginx     — Combined reverse-proxy + static server (Landing + CRM)
 #
@@ -46,30 +45,6 @@ services:
     networks:
       - backend
 
-  # ── Cache / Sessions ──────────────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: redis-server --save 60 1 --loglevel warning
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
-    # Bounded log growth — same cap as api/nginx below (incident 2026-10-04:
-    # disk hygiene; see docs/runbooks/vps-disk-hygiene.md). Applies on the next
-    # container recreate, no Docker daemon restart needed.
-    logging:
-      driver: json-file
-      options:
-        max-size: '10m'
-        max-file: '5'
-    networks:
-      - backend
-
   # ── API (NestJS) ──────────────────────────────────────────────────────────
   api:
     build:
@@ -84,8 +59,6 @@ services:
       API_PORT: '3001'
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3001/api/health || exit 1']
@@ -176,8 +149,6 @@ services:
 volumes:
   postgres_data:
     driver: local
-  redis_data:
-    driver: local
 
 # ── Networks ──────────────────────────────────────────────────────────────
 # security review (PR #437 follow-up, MED-4, 2026-07-27): both networks now
@@ -195,7 +166,7 @@ volumes:
 # nginx/cloudflare-ips.txt's LOCAL_TRUSTED covers exactly 172.30.0.0/23
 # (both subnets below), nothing broader.
 networks:
-  # backend: api, postgres, redis (not exposed to nginx directly except api).
+  # backend: api, postgres (not exposed to nginx directly except api).
   backend:
     driver: bridge
     ipam:

@@ -26,7 +26,7 @@
 # apps/**, which is out of DevOps zone): it runs the exact CI sequence with
 # the SAME throttler override CI already carries, end to end, against a
 # SCRATCH database — never the developer's live `crm_db` (see the DATABASE_URL
-# / REDIS_URL requirement below; this script refuses to run against the
+# requirement below; this script refuses to run against the
 # docker-compose default database unless SEED_CONFIRM_LIVE_DB_NAME=crm_db is
 # set — task-ci-db-rename-and-dbpush-guard, AC8: the SAME exact-name
 # confirmation env var the db:push/db:seed calls below already enforce on
@@ -37,11 +37,10 @@
 #
 # Usage:
 #   DATABASE_URL=postgresql://crm_user:password@localhost:5544/crm_db_scratch \
-#   REDIS_URL=redis://localhost:6389 \
 #     scripts/devops/run-landing-e2e-local.sh
 #
 # Required env:
-#   DATABASE_URL, REDIS_URL — MUST point at scratch instances (see above).
+#   DATABASE_URL — MUST point at scratch instances (see above).
 #
 # Optional env:
 #   API_PORT               (default 3001 — apps/landing's preview proxy default)
@@ -66,8 +65,8 @@ set -m
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-if [ -z "${DATABASE_URL:-}" ] || [ -z "${REDIS_URL:-}" ]; then
-  echo "run-landing-e2e-local: DATABASE_URL and REDIS_URL are required (scratch instances — see this script's header)." >&2
+if [ -z "${DATABASE_URL:-}" ]; then
+  echo "run-landing-e2e-local: DATABASE_URL is required (scratch instances — see this script's header)." >&2
   exit 64
 fi
 
@@ -190,7 +189,6 @@ pnpm --filter @crm/api db:seed || exit 1
 # :3002 is the value that is actually true for what THIS script starts.
 echo "==> Starting API on :$API_PORT (THROTTLER_LIMIT=$THROTTLER_LIMIT, THROTTLE_RELAXED=true — same as ci.yml's landing shard)"
 DATABASE_URL="$DATABASE_URL" \
-  REDIS_URL="$REDIS_URL" \
   API_PORT="$API_PORT" \
   NODE_ENV="${NODE_ENV:-development}" \
   THROTTLER_LIMIT="$THROTTLER_LIMIT" \

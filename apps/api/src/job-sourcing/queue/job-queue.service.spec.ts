@@ -1,6 +1,12 @@
 import { ForbiddenException, HttpException, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { JOB_QUEUE_SENIOR_OPTIONS_MAX, type JobQueueListQuery, type SessionUser } from '@crm/shared'
+import {
+  JOB_QUEUE_ROW_KEYWORDS_MAX,
+  JOB_QUEUE_SENIOR_OPTIONS_MAX,
+  type JobQueueListQuery,
+  MAX_STACK_KEYWORD_CHARS,
+  type SessionUser,
+} from '@crm/shared'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -124,6 +130,13 @@ const dbRow = (over: Record<string, unknown> = {}) => ({
   opened: true,
   hidden: false,
   eligibility: 'LEAD',
+  seniority: 'SENIOR',
+  matched_evidence: [
+    {
+      score: 50,
+      reasons: [{ code: 'TECH_MATCH', evidence: ['react:CORE', 'go:OPTIONAL'], ruleVersion: 'r' }],
+    },
+  ],
   order_key: 7,
   ...over,
 })
@@ -138,6 +151,8 @@ const ITEM = {
   alsoSeenOnCount: 2,
   availability: 'OPEN',
   eligibility: 'LEAD',
+  seniority: 'SENIOR',
+  matchedKeywords: ['go', 'react'],
   matchedSeniorCount: 2,
   submittedSeniorCount: 1,
   stopListedSeniorCount: 1,
@@ -565,6 +580,62 @@ describe('toListItem', () => {
       hidden: true,
     })
   })
+
+  it('carries the stored seniority as it is, UNKNOWN included', () => {
+    expect(toListItem(dbRow({ seniority: 'LEAD' })).seniority).toBe('LEAD')
+    expect(toListItem(dbRow({ seniority: 'UNKNOWN' })).seniority).toBe('UNKNOWN')
+  })
+
+  describe('matchedKeywords', () => {
+    const tech = (...keywords: string[]) => ({
+      reasons: [{ code: 'TECH_MATCH', evidence: keywords, ruleVersion: 'r' }],
+    })
+    const keywordsOf = (matched_evidence: unknown) =>
+      toListItem(dbRow({ matched_evidence })).matchedKeywords
+
+    it('is the sorted union over the seniors, strength dropped, no one named', () => {
+      expect(
+        keywordsOf([tech('react:CORE', 'go:OPTIONAL'), tech('go:CORE', 'aws:OPTIONAL')]),
+      ).toEqual(['aws', 'go', 'react'])
+    })
+
+    it('is empty with no matched senior: a NULL aggregate, a non-array, a match without tech', () => {
+      expect(keywordsOf(null)).toEqual([])
+      expect(keywordsOf('react:CORE')).toEqual([])
+      expect(keywordsOf([{ reasons: [{ code: 'SOFT', evidence: ['x:CORE'] }] }])).toEqual([])
+    })
+
+    it('stops at the wire cap, keeping the same keywords on every read', () => {
+      const names = Array.from({ length: 25 }, (_, i) => `k${String(i).padStart(2, '0')}:CORE`)
+      const expected = names.slice(0, JOB_QUEUE_ROW_KEYWORDS_MAX).map((k) => k.slice(0, 3))
+      expect(keywordsOf([tech(...names)])).toEqual(expected)
+      expect(keywordsOf([tech(...[...names].reverse())])).toEqual(expected)
+      expect(expected).toHaveLength(JOB_QUEUE_ROW_KEYWORDS_MAX)
+    })
+
+    it('sorts case-insensitively, so the cap keeps the alphabetically-first keywords (UX-LOW-1)', () => {
+      expect(
+        keywordsOf([tech('TypeScript:CORE', 'aws:CORE', 'React:CORE', 'Node.js:CORE')]),
+      ).toEqual(['aws', 'Node.js', 'React', 'TypeScript'])
+      const upper = Array.from({ length: JOB_QUEUE_ROW_KEYWORDS_MAX }, (_, i) => `K${i}:CORE`)
+      expect(keywordsOf([tech(...upper, 'aws:CORE')])[0]).toBe('aws')
+    })
+
+    it('orders two keywords that differ only by case the same way on every read', () => {
+      expect(keywordsOf([tech('react:CORE', 'React:CORE')])).toEqual(['React', 'react'])
+      expect(keywordsOf([tech('React:CORE', 'react:CORE')])).toEqual(['React', 'react'])
+    })
+
+    it('drops a keyword that is only a strength suffix, before the union (SO-2)', () => {
+      expect(keywordsOf([tech(':CORE', 'go:CORE'), tech('', ':OPTIONAL')])).toEqual(['go'])
+    })
+
+    it('clips an overlong keyword rather than failing the whole page', () => {
+      const [only, ...rest] = keywordsOf([tech(`${'x'.repeat(MAX_STACK_KEYWORD_CHARS + 1)}:CORE`)])
+      expect(rest).toEqual([])
+      expect(only).toHaveLength(MAX_STACK_KEYWORD_CHARS)
+    })
+  })
 })
 
 describe('card text bounds', () => {
@@ -624,6 +695,14 @@ describe('matchFacts', () => {
       ],
     }
     expect(matchFacts(evidence).keywords).toHaveLength(200)
+  })
+  it('drops an empty keyword before the cap, so it never takes a slot (SO-2)', () => {
+    const named = Array.from({ length: 200 }, (_, i) => `k${i}:CORE`)
+    const evidence = { reasons: [{ code: 'TECH_MATCH', evidence: [':CORE', '', ...named] }] }
+    const { keywords } = matchFacts(evidence)
+    expect(keywords).toHaveLength(200)
+    expect(keywords).not.toContain('')
+    expect(keywords[0]).toBe('k0')
   })
 })
 

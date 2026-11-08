@@ -15,16 +15,6 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - '127.0.0.1:6379:6379' # loopback only
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
   # S3-compatible object storage for documents (PHASE 6).
   # Dev only. Prod uses Cloudflare R2 (docs/runbooks/s3-storage.md).
   # RustFS is the S3 stand for CI/dev (owner decision 2026-09-24): the

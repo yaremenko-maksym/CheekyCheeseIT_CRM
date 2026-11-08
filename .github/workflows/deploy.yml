@@ -1069,7 +1069,6 @@ jobs:
             printf 'POSTGRES_DB=crm_db\n'                              >> /opt/crm/.env.production
             printf 'POSTGRES_USER=crm_user\n'                          >> /opt/crm/.env.production
             printf 'POSTGRES_PASSWORD=%s\n'       "$POSTGRES_PASSWORD" >> /opt/crm/.env.production
-            printf 'REDIS_URL=redis://redis:6379\n'                    >> /opt/crm/.env.production
             printf 'GOOGLE_CLIENT_ID=%s\n'        "$GOOGLE_CLIENT_ID"  >> /opt/crm/.env.production
             printf 'GOOGLE_CLIENT_SECRET=%s\n'    "$GOOGLE_CLIENT_SECRET" >> /opt/crm/.env.production
             printf 'GOOGLE_CALLBACK_URL=https://app.cheekycheese.tech/api/auth/google/callback\n' >> /opt/crm/.env.production

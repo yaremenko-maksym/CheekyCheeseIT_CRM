@@ -53,31 +53,43 @@ if (typeof window !== 'undefined') {
   })
 }
 
-// Форс-перезагрузка открытых вкладок при редеплое (новый SW берёт управление).
+// Deferred reload of open tabs on redeploy (a new SW takes control).
 //
-// VitePWA (autoUpdate + skipWaiting + clientsClaim) устанавливает новый SW в фоне,
-// но открытая вкладка продолжает работать на старом JS-бандле в памяти.
-// Чтобы пользователь сразу получал свежую версию:
-//   1. controllerchange — стреляет когда новый SW становится контроллером страницы.
-//      Перезагружаем страницу один раз (guard: только если контроллер уже был).
-//   2. registration.update() каждые 60 с — idle-вкладки иначе не узнают о редеплое
-//      (браузер проверяет SW только при навигации или раз в 24 ч).
-//      update() → браузер скачивает новый SW → skipWaiting+clientsClaim →
-//      controllerchange → reload (п.1).
-//
-// Решение форс-reload принято владельцем осознанно: «больших / длинных форм нет».
-// Логика guard'а — в ./lib/sw-reload (покрыта unit-тестами).
+// VitePWA (autoUpdate + skipWaiting + clientsClaim) installs the new SW in the
+// background, but an open tab keeps running the old JS bundle from memory.
+//   1. controllerchange: the new SW became the controller. Mark the reload as
+//      pending (only if a controller existed at load). While the tab is visible
+//      do NOT reload (otherwise the page reloads 2-3 s after opening and mid-use).
+//   2. The reload runs once the tab is hidden: immediately if it is already
+//      hidden when the event fires, otherwise on the next visibilitychange to hidden.
+//   3. registration.update() every 60 s: idle tabs would not learn of a redeploy otherwise.
+// Stale lazy chunks are still caught by vite:preloadError (see above).
+// The guard logic lives in ./lib/sw-reload (covered by unit tests).
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   try {
     const hadControllerAtLoad = navigator.serviceWorker.controller !== null
     let alreadyReloading = false
+    let pendingReload = false
 
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (shouldReloadOnControllerChange({ hadControllerAtLoad, alreadyReloading })) {
+    const flushPendingReload = () => {
+      if (!pendingReload) return
+      if (
+        shouldReloadOnControllerChange({
+          hadControllerAtLoad,
+          alreadyReloading,
+          pageVisible: document.visibilityState === 'visible',
+        })
+      ) {
         alreadyReloading = true
         window.location.reload()
       }
+    }
+
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      pendingReload = true
+      flushPendingReload()
     })
+    document.addEventListener('visibilitychange', flushPendingReload)
 
     // Периодический poll чтобы idle-вкладки замечали редеплой.
     navigator.serviceWorker.ready

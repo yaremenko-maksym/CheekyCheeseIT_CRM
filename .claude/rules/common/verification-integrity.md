@@ -110,15 +110,8 @@ A claim without its assertion is indistinguishable from a claim never checked.
 
 ## The mechanism: `pre:bash:swallowed-failure` (advisory)
 
-Form 1 and the zsh trap are mechanised (evidence and counts: rationale file).
-
-`pre:bash:swallowed-failure` prints one note and **never refuses**:
-
-- **SWALLOWED-COUNT** — a named-object read (`git show` / `cat-file` / `log` / `diff`, `cat`, `head`,
-  `tail`, `jq`) whose stderr is discarded, piped into a counter (`grep -c`/`-q`, `wc -l`/`-w`/`-c`).
-- **ZSH-REVSPEC** — an unbraced `$VAR:` in such a read, reported with or without a discard.
-
-It is advisory by decision: service probes (`curl`, `nc`, `ssh-keyscan`, `pg_isready`) are deliberately not readers, because their producer is expected to fail. Form 2, form 3 and the shape inside an authored script are **not** covered.
+It prints one note (`SWALLOWED-COUNT`, `ZSH-REVSPEC`) and **never refuses**; it covers form 1 and the
+zsh trap in ad-hoc commands only. Predicates and scope: `.claude/rules/common/hook-gates.md`.
 
 ## Related rules
 

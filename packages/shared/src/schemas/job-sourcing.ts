@@ -1872,10 +1872,14 @@ const jobQueuePrimarySourceSchema = z
   })
   .strict()
 
+/** The list row's keyword chips are a summary, not the card's per-senior evidence. */
+export const JOB_QUEUE_ROW_KEYWORDS_MAX = 20
+
 /**
  * One list row. Every count is the VIEWER'S scope only (HR: own team; ADMIN:
  * studio). `stopListedSeniorCount` is how many of those seniors excluded the
- * opportunity — a count, never who (r5 §4).
+ * opportunity — a count, never who (r5 §4). `matchedKeywords` is the union over
+ * the same seniors `matchedSeniorCount` counts, never attributed to one of them.
  */
 export const jobQueueListItemSchema = z
   .object({
@@ -1895,6 +1899,10 @@ export const jobQueueListItemSchema = z
     alsoSeenOnCount: countSchema,
     availability: jobAvailabilitySchema,
     eligibility: jobQueueEligibilitySchema,
+    seniority: jobSeniorityLevelSchema,
+    matchedKeywords: z
+      .array(z.string().max(MAX_STACK_KEYWORD_CHARS))
+      .max(JOB_QUEUE_ROW_KEYWORDS_MAX),
     matchedSeniorCount: countSchema,
     submittedSeniorCount: countSchema,
     stopListedSeniorCount: countSchema,

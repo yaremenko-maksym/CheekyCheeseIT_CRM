@@ -39,34 +39,11 @@ With questions to the owner it is the same. A3 stops the branch depending on the
 whole task, and certainly not neighbouring tasks. An agent that stalled entirely because of one A3
 question violates the rule.
 
-## The decision-brief contract
+## The decision brief
 
-One batch per phase, readable on a phone.
-
-```
-🟠 Decisions from you — <N> pcs · <task-id> · PR #<N>
-Everything else on the task is finished and waits only on this.
-Still running: <neighbouring tasks>
-
-❓ 1 — <question title in one line>
-   <context: 2-3 lines, jargon unfolded, numbers concrete>
-➡️ I recommend: <answer> — <why, one line>
-🔓 Reversible · ⏱ silence until <date time> → I take the recommendation, record it
-   in "Assumptions", rollback = <rollback cost>
-
-❓ 2 — <...>
-➡️ I recommend: <...>
-🔒 Irreversible (<why>). Without an answer I do not move.
-```
-
-Format rules:
-
-- **A recommendation is always present.** A question without a recommendation offloads work onto the owner.
-- **One question — one idea.** A compound question gets a compound answer that then nobody can interpret.
-- **Jargon unfolded** per `CONTEXT.md`: the brief is read by someone who was not in the session.
-- **Not a single fact.** Before sending, go through the list: if a command answers the question — the
-  question is deleted and the answer obtained.
-- **A deadline only on A2.** A3 has no auto-acceptance by definition.
+**Before you write or send a decision brief, read its contract** (template and format rules) in
+`.claude/skills/decision-frontier/SKILL.md` §"The decision-brief contract", or invoke the skill.
+A recommendation is always present, and the brief holds no question a command answers.
 
 ## How we know it is violated
 

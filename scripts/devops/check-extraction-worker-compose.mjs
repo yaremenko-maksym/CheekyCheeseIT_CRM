@@ -30,7 +30,7 @@ const ENTRY = 'entry'
 const ENTRY_NAME = 'crm-extraction-entry'
 const RUNTIME_NET = 'runtime'
 // A new service here starts on the next deploy, on the CRM's RAM. Adding one is a reviewed edit.
-const DEPLOY_SERVICES = ['api', 'nginx', 'postgres', 'redis']
+const DEPLOY_SERVICES = ['api', 'nginx', 'postgres']
 const RUNTIME_MEM_BYTES = 3584 * 1024 * 1024
 const WORKER_MEM_BYTES = 512 * 1024 * 1024
 const PINS = {

@@ -15,7 +15,7 @@ ECC_INSTALL_PROFILE=developer+security-selective
 ECC_INSTALL_LAYOUT=root
   # Reason: install-apply.js targets ./.claude/ which conflicts with existing
   # project .claude/hooks/ + .claude/settings.json. Manual cherry-pick to root
-  # paths (agents/, skills/ecc/, hooks/, rules/ecc/, manifests/, mcp-configs/)
+  # paths (agents/, hooks/, rules/ecc/, manifests/, mcp-configs/; skills/ecc/ removed 2026-11-08 — unused)
   # gives ECC-native layout per ADR Q6=A while preserving existing system.
 
 # Selective additions (per ADR Q4 = Option A, security profile picks)

@@ -53,6 +53,8 @@ const CARD = {
   alsoSeenOnCount: 0,
   availability: 'OPEN',
   eligibility: 'LEAD',
+  seniority: 'SENIOR',
+  matchedKeywords: ['react'],
   matchedSeniorCount: 0,
   submittedSeniorCount: 0,
   stopListedSeniorCount: 0,
