@@ -80,7 +80,7 @@ On a conflict of 1–2 vs an external pattern — document WHY, propose an adapt
 **Allowed:** `docs/architecture/**` · `.claude/agents/**` (frontmatter + golden rules + agent snippets) ·
 `.claude/rules/**` · `.claude/RULES.md` · `.claude/hooks/**` · `.claude/skills/**` ·
 `.claude/settings*.json` (**only** hook registration — not `permissions` / `enabledPlugins` / `env`) ·
-`.github/workflows/**` (additive / process gates) · `scripts/architect/**` · `.claude/tasks/task-architect-*.md` · **narrowly** in the DevOps zone: `scripts/devops/check-guard-tests-exist.sh`, `scripts/devops/tests/test-pre-*.sh` and `scripts/devops/tests/lib/command-corpus.txt` — the meta-guard over the hooks, the tests on them, and the corpus those tests read.
+`.github/workflows/**` (additive / process gates) · `scripts/architect/**` · `.claude/tasks/task-architect-*.md` · **narrowly** in the DevOps zone: `scripts/devops/check-guard-tests-exist.sh`, `scripts/devops/tests/test-pre-*.sh`, `scripts/devops/tests/test-hook-*.sh`, `scripts/devops/tests/lib/hook-harness.sh` and `scripts/devops/tests/lib/command-corpus.txt` — the meta-guard over the hooks, the tests on them, and the corpus those tests read.
 
 > Synchronized with `.claude/rules/common/zone-of-write.md` 2026-08-17 (PR #553, CR-L-1).
 > Before that, the canonical rule file was **narrower and older** than this list (it allowed agent

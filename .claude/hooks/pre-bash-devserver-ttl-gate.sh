@@ -100,10 +100,12 @@ INPUT=$(cat)
 
 # Hot path: a superset of everything the analyzer can block, so a command with
 # none of these words never pays for a python start. Quotes and backslashes are
-# dropped first (`d''ev` runs dev), and a `$` or backtick can build any word.
+# dropped first (`d''ev` runs dev), and a `$`, backtick or backslash goes to the analyzer:
+# the first two can build any word, and a backslash-newline joins one (`d\<newline>ev`,
+# SR-M-1 of #1294) while the JSON escape leaves the n of `\n` behind (`dnev`).
 # LC_ALL=C: under a UTF-8 locale macOS tr and grep fail on an invalid byte (#1297 SR-L-6).
 printf '%s' "$INPUT" | LC_ALL=C tr -d "'\"\\\\" | LC_ALL=C grep -qE 'vite|nest|dev|dist/main|start|preview' \
-  || printf '%s' "$INPUT" | LC_ALL=C grep -q '[$`]' || exit 0
+  || printf '%s' "$INPUT" | LC_ALL=C grep -q '[$`\]' || exit 0
 
 printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
 import importlib.util, json, os, re, sys

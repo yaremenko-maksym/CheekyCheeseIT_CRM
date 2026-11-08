@@ -478,4 +478,15 @@ assert_green "an empty command still passes" \
   --not-contains "INTERNAL ERROR" \
   -- hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":""}}'
 
+# SR-M-1 (#1294): a backslash-newline is a line continuation, so the shell joins the word.
+for c in $'p\\\nkill -f node # worktree' $'p\\\nkill -f node' $'kill\\\nall node'; do
+  assert_red "line continuation: ${c//$'\n'/<NL>}" --contains 'BROADCAST-KILL' -- run_hook "$MINE" "$c"
+done
+assert_green "a comment keeps its backslash-newline" \
+  --not-contains '"decision": "block"' -- run_hook "$MINE" $'ls # p\\\nkill -f node'
+# SR-M-2 (#1294): quotes inside a word do not get past the pre-filter.
+for c in "p''kill -f node" 'p""kill -f node' "kill'all' node"; do
+  assert_red "quote-spliced: $c" --contains 'BROADCAST-KILL' -- run_hook "$MINE" "$c"
+done
+
 guard_test_summary "test-pre-bash-cross-agent-blast.sh"

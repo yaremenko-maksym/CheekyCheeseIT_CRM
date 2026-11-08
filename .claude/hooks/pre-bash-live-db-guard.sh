@@ -153,11 +153,13 @@ INPUT=$(cat)
 # Hot path: if no launcher word occurs anywhere in the payload, nothing below
 # can fire — leave before paying for a python start. Deliberately a SUPERSET of
 # what the analyzer can block (never a second, divergent policy). Quotes and
-# backslashes are dropped first (`d''ev` runs dev), and a `$` or backtick can
-# build any word.
+# backslashes are dropped first (`d''ev` runs dev), and a `$`, backtick or backslash
+# goes to the analyzer: the first two can build any word, and a backslash-newline
+# joins one (`d\<newline>ev`, SR-M-1 of #1294) while the JSON escape leaves the n of
+# `\n` behind (`dnev`).
 # LC_ALL=C: under a UTF-8 locale macOS tr and grep fail on an invalid byte (#1297 SR-L-6).
 printf '%s' "$INPUT" | LC_ALL=C tr -d "'\"\\\\" | LC_ALL=C grep -qE 'vite|nest|dev|dist/main|start|preview' \
-  || printf '%s' "$INPUT" | LC_ALL=C grep -q '[$`]' || exit 0
+  || printf '%s' "$INPUT" | LC_ALL=C grep -q '[$`\]' || exit 0
 
 printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
 import importlib.util, json, os, re, shlex, sys, urllib.parse

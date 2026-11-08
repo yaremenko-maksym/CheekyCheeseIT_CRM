@@ -228,8 +228,16 @@ fi
 # Cheap pre-filter: if none of the three trigger words appear anywhere, leave.
 # Case-insensitive: Windows and macOS accept any case for the same path.
 # A T3 worktree lives outside its checkout, whose name can be anything, so it skips this filter.
+# Quotes and backslashes are dropped first, as the other two fast paths do (`p''kill` runs
+# pkill, SR-M-2 of #1294), and a `$`, backtick or backslash goes to the analyzer: the first
+# two can build any word, a backslash-newline joins one (`p\<newline>kill`, SR-M-1).
+# LC_ALL=C: under a UTF-8 locale macOS tr and grep fail on an invalid byte (#1297 SR-L-6).
 echo "$CWD" | grep -qiE '\.t3/worktrees/' ||
-  echo "$CMD" | grep -qiE 'pkill|killall|taskkill|worktree|\.t3/|\.claude/worktrees/|CheekyCheeseIT_CRM' || exit 0
+  printf '%s' "$CMD" | LC_ALL=C tr -d "'\"\\\\" |
+  LC_ALL=C grep -qiE 'pkill|killall|taskkill|worktree|\.t3/|\.claude/worktrees/|CheekyCheeseIT_CRM' ||
+  printf '%s' "$CMD" | LC_ALL=C grep -q '[$`\]' || exit 0
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # NOTE: this `python3 -c '...'` is SINGLE-quoted, so an apostrophe anywhere
 # inside it — including in a comment — closes the string and the hook dies at
@@ -238,8 +246,16 @@ echo "$CWD" | grep -qiE '\.t3/worktrees/' ||
 # asserts the {"decision":"block"} body. Write "the cwd of the caller", not
 # "the caller's cwd". (The message block further down has the opposite hazard:
 # it is DOUBLE-quoted, so backticks there are command substitution.)
-REASONS=$(printf '%s' "$CMD" | CWD="$CWD" MSYS2_ENV_CONV_EXCL=CWD AGENT_ID="$AGENT_ID" python3 -c '
-import os, posixpath, re, shlex, subprocess, sys
+REASONS=$(printf '%s' "$CMD" | CWD="$CWD" MSYS2_ENV_CONV_EXCL=CWD AGENT_ID="$AGENT_ID" \
+  PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
+import importlib.util, os, posixpath, re, shlex, subprocess, sys
+
+# The shared reading of a line continuation (SR-M-1 of #1294); loaded by absolute path,
+# as pre-bash-safety.sh does. A load failure kills the analyzer, which is refused below.
+_spec = importlib.util.spec_from_file_location(
+    "cmdscan", os.path.join(os.environ["CMDSCAN_LIB"], "cmdscan.py"))
+cmdscan = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(cmdscan)
 
 
 def to_posix(p):
@@ -256,8 +272,8 @@ def cmd_name(word):
     return re.sub(r"\.(exe|cmd|bat)$", "", os.path.basename(word), flags=re.I)
 
 
-cmd = sys.stdin.read()
-cwd = to_posix(os.environ.get("CWD", ""))
+cmd = cmdscan.join_continuations(sys.stdin.read())
+cwd =to_posix(os.environ.get("CWD", ""))
 agent_id = os.environ.get("AGENT_ID", "").strip()
 
 # ---- identity: which worktree am I? -----------------------------------------

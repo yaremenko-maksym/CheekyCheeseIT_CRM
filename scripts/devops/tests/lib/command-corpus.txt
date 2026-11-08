@@ -25,6 +25,8 @@
 #                      corrected rather than quietly rotting.
 #   hooks  = comma list of safety | db | ttl  (db = live-db-guard,
 #            ttl = devserver-ttl-gate), or `all`
+#   <NL> in a command stands for a newline; test-hook-command-corpus.sh decodes it
+#   (a row is one line). compare-hooks-to-ref.sh does not, and reads it literally.
 #
 # The `narrowed` column is the metric the review named: with a BROKEN analyzer
 # `sudo -s rm -rf /etc` was blocked and with a working one it was not — the
@@ -712,3 +714,9 @@ allow	all	rtk test 'pnpm --filter @crm/api test'
 block	safety	echo $'\' '; rm -rf /etc #'
 block	safety	echo $'\' #'; rm -rf /etc #'
 block	db,ttl	echo $'\' '; pnpm dev #'
+# ═══ SR-M-1 of PR #1294: a backslash-newline is a line continuation ══════════
+# bash and zsh join `d\<NL>ev` into `dev`; the hooks read two words, and the fast
+# paths deleted the backslash and kept the n of the JSON escape.
+block	db,ttl	pnpm --filter @crm/api d\<NL>ev
+block	db,ttl	vi\<NL>te --port 3000
+block	safety	r\<NL>m -rf /etc
