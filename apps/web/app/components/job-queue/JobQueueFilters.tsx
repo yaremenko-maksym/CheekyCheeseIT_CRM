@@ -22,7 +22,7 @@ export type JobQueueFilterValue = Partial<
 >
 type Group = keyof JobQueueFilterValue
 
-type SeniorOption = { id: string; name: string; teamName: string }
+type SeniorOption = { id: string; name: string; teamName: string | null }
 /** The picker's load state: `items` is absent until the first answer, and survives a failed refetch. */
 type SeniorPicker = {
   items: ReadonlyArray<SeniorOption> | undefined
@@ -45,6 +45,8 @@ const SENIOR_COUNT = msg`{n, plural, one {# сеньйор} few {# сеньйо�
 // The summary names the chosen seniors after a prefix (spec §4.1a): one is «Сеньйор:», more «Сеньйори:».
 const SENIOR_ONE = msg`Сеньйор: {names}`
 const SENIOR_MANY = msg`Сеньйори: {names}`
+/** The ADMIN picker's last group: seniors with no live team membership. */
+const NO_TEAM = msg`Без команди`
 
 /** The number of filter groups in use — the badge counts groups, not options (spec §4.1a). */
 export function appliedFilterCount(value: JobQueueFilterValue): number {
@@ -145,9 +147,9 @@ function FilterGroup({ legend, children }: { legend: ReactNode; children: ReactN
   )
 }
 
-/** The options by team, in the server's order (team, then name): the order the groups show in. */
-function byTeam(items: ReadonlyArray<SeniorOption>): Array<[string, SeniorOption[]]> {
-  const teams = new Map<string, SeniorOption[]>()
+/** The options by team, in the server's order (team, team-less last, then name): the group order. */
+function byTeam(items: ReadonlyArray<SeniorOption>): Array<[string | null, SeniorOption[]]> {
+  const teams = new Map<string | null, SeniorOption[]>()
   for (const item of items) teams.set(item.teamName, [...(teams.get(item.teamName) ?? []), item])
   return [...teams]
 }
@@ -162,6 +164,7 @@ function SeniorRows({
   selected: readonly string[] | undefined
   onToggle: (id: string) => void
 }) {
+  const { i18n } = useLingui()
   if (picker.items) {
     if (picker.items.length === 0) {
       return (
@@ -192,17 +195,20 @@ function SeniorRows({
         {/* One team (every HR) is a flat list; the studio (ADMIN) gets a heading per team. */}
         {teams.length === 1
           ? picker.items.map(check)
-          : teams.map(([team, rows]) => (
-              <div key={team} role="group" aria-label={team}>
-                <p
-                  aria-hidden
-                  className="truncate px-2 pt-2 text-xs font-medium text-muted-foreground"
-                >
-                  {team}
-                </p>
-                {rows.map(check)}
-              </div>
-            ))}
+          : teams.map(([team, rows]) => {
+              const heading = team ?? i18n._(NO_TEAM.id)
+              return (
+                <div key={team ?? ''} role="group" aria-label={heading}>
+                  <p
+                    aria-hidden
+                    className="truncate px-2 pt-2 text-xs font-medium text-muted-foreground"
+                  >
+                    {heading}
+                  </p>
+                  {rows.map(check)}
+                </div>
+              )
+            })}
         {picker.items.length >= max && (
           <p
             data-testid="job-queue-filters-seniors-truncated"

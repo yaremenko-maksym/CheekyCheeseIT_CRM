@@ -22,6 +22,7 @@ const SECRET = 'unit-test-secret-unit-test-secret'
 const TEAM = '11111111-1111-4111-8111-111111111111'
 const OTHER_TEAM = '22222222-2222-4222-8222-222222222222'
 const SEN = '33333333-3333-4333-8333-333333333333'
+const SEN_2 = '88888888-8888-4888-8888-888888888888'
 const OPP = '44444444-4444-4444-8444-444444444444'
 const GEN = '55555555-5555-4555-8555-555555555555'
 const SRC = '66666666-6666-4666-8666-666666666666'
@@ -445,24 +446,31 @@ describe('JobQueueService.seniorOptions', () => {
       JOB_QUEUE_SENIOR_OPTIONS_MAX,
     ])
     expect(h.compiled(0).text).toContain('WHERE u.id IN (SELECT x::uuid FROM')
-    expect(h.compiled(0).text).toContain('ORDER BY t.name, u.display_name, u.id')
+    expect(h.compiled(0).text).toContain('ORDER BY t.name NULLS LAST, u.display_name, u.id')
   })
 
-  it('STUDIO names no team: any live membership may name the group', async () => {
+  it('STUDIO names no team: any live membership may name the group, none is null (SO2-1)', async () => {
     const h = harness({ kind: 'STUDIO' } as JobQueueScope, [
       { id: SEN, display_name: 'A Senior', team_name: 'Beta' },
+      { id: SEN_2, display_name: 'B Senior', team_name: null },
     ])
     await expect(h.svc.seniorOptions(user, {})).resolves.toEqual({
-      items: [{ id: SEN, name: 'A Senior', teamName: 'Beta' }],
+      items: [
+        { id: SEN, name: 'A Senior', teamName: 'Beta' },
+        { id: SEN_2, name: 'B Senior', teamName: null },
+      ],
     })
     expect(h.compiled(0).params).toEqual([JSON.stringify([SEN]), JOB_QUEUE_SENIOR_OPTIONS_MAX])
     expect(h.compiled(0).text).not.toContain('tm.team_id =')
   })
 
-  it('clips a name to the wire bound', async () => {
-    const h = harness(teamScope, [{ id: SEN, display_name: 'n'.repeat(300) }])
+  it('clips a name and a team name to the wire bound (SO2-2)', async () => {
+    const h = harness(teamScope, [
+      { id: SEN, display_name: 'n'.repeat(300), team_name: 't'.repeat(300) },
+    ])
     const { items } = await h.svc.seniorOptions(user, {})
     expect(items[0]?.name).toBe('n'.repeat(255))
+    expect(items[0]?.teamName).toBe('t'.repeat(255))
   })
 
   it('a read failure is the 503, never an empty picker', async () => {

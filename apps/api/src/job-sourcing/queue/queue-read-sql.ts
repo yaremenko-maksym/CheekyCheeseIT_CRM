@@ -217,7 +217,8 @@ const uuidIn = (column: SQL, ids: readonly string[]): SQL =>
 /**
  * The list filter's picker: id, display name and one team name, of seniors the scope already
  * resolved. A TEAM scope names its own team; STUDIO names the senior's first live membership,
- * preferring a live SENIOR team, alphabetically. Ordered by team, then name, for the grouping.
+ * preferring a live SENIOR team, alphabetically. A senior with no live membership keeps a row with a
+ * null team (STUDIO lists every roster senior). Ordered by team, team-less last, then name.
  */
 export const seniorOptionRows = (
   seniorIds: readonly string[],
@@ -226,14 +227,14 @@ export const seniorOptionRows = (
 ): SQL =>
   sql`SELECT u.id, u.display_name, t.name AS team_name
         FROM users u
-        JOIN LATERAL (
+        LEFT JOIN LATERAL (
           SELECT t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id
            WHERE tm.user_id = u.id AND tm.left_at IS NULL
                  ${teamId === null ? sql`` : sql`AND tm.team_id = ${teamId}::uuid`}
            ORDER BY t.archived_at IS NOT NULL, t.type <> 'SENIOR', t.name, t.id
            LIMIT 1) t ON TRUE
        WHERE ${uuidIn(sql`u.id`, seniorIds)}
-       ORDER BY t.name, u.display_name, u.id
+       ORDER BY t.name NULLS LAST, u.display_name, u.id
        LIMIT ${limit}`
 
 /** `%`, `_` and `\` from a viewer's search are literal characters, not patterns. */

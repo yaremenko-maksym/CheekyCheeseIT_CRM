@@ -36,6 +36,7 @@ import {
   RECOMPUTE_REASON_PREFIX,
   RECOMPUTE_TRIGGER_PREFIX,
 } from './queue-recompute.service'
+import { seniorOptionRows } from './queue-read-sql'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -345,6 +346,10 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     for (const t of ['teamA', 'teamB', 'teamE', 'teamS', 'teamS2']) await mkTeam(t)
     for (const m of ['hrA', 'senA', 'senShared']) await join('teamA', m)
     for (const m of ['hrB', 'senB', 'senShared']) await join('teamB', m)
+    // SO2-1: a senior who left team A, before the roster read, so no live membership remains
+    await mkUser('senLeft', 'SENIOR')
+    await join('teamA', 'senLeft')
+    await sqlq(`UPDATE team_members SET left_at = now() WHERE user_id = $1`, [id('senLeft')])
     await join('teamE', 'hrE')
     await join('teamS', 'hrS')
     await join('teamS2', 'hrS2')
@@ -806,6 +811,23 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
           { id: id('senShared'), name: name('senShared'), teamName: `${TAG}-teamB` },
         ],
       })
+    })
+
+    it('a senior with no live membership keeps a picker row with a null team (SO2-1)', async () => {
+      // The roster joins live memberships, so over HTTP this row exists only when a senior leaves
+      // between the roster read and the picker read; the picker SQL is asserted on the real DB.
+      const { rows } = await session.databaseService.db.execute(
+        seniorOptionRows([id('senLeft'), id('senA')], null, 200),
+      )
+      expect(rows).toEqual([
+        { id: id('senA'), display_name: name('senA'), team_name: `${TAG}-teamA` },
+        { id: id('senLeft'), display_name: name('senLeft'), team_name: null },
+      ])
+      const studio = await get('/seniors', 'admin')
+      expect(studio.status).toBe(200)
+      const listed = (studio.json['items'] as Array<{ id: string }>).map((i) => i.id)
+      expect(listed).not.toContain(id('senLeft'))
+      expect(listed).toContain(id('senA'))
     })
   })
 

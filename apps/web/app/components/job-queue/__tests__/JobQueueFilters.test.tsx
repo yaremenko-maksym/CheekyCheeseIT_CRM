@@ -259,6 +259,20 @@ describe('JobQueueFilters', () => {
       expect(alpha.compareDocumentPosition(beta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     })
 
+    it('puts the seniors with no team in a last group headed «Без команди» (SO2-1)', async () => {
+      const studio = [
+        { id: SENIOR_A, name: 'Анна Коваль', teamName: 'Альфа' },
+        { id: SENIOR_B, name: 'Богдан Шевченко', teamName: null },
+      ]
+      await open({ items: studio, isError: false, onRetry: vi.fn() })
+      const alpha = screen.getByRole('group', { name: 'Альфа' })
+      const none = screen.getByRole('group', { name: 'Без команди' })
+      expect(none).toHaveTextContent(/^Без команди/)
+      expect(within(none).getByRole('checkbox', { name: 'Богдан Шевченко' })).toBeInTheDocument()
+      expect(within(none).getAllByRole('checkbox')).toHaveLength(1)
+      expect(alpha.compareDocumentPosition(none) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
     const options = (length: number) => ({
       items: Array.from({ length }, (_, i) => ({
         id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,

@@ -594,13 +594,15 @@ describe('jobQueueSeniorOptionsResponseSchema — GET /job-queue/seniors', () =>
     )
   })
 
-  it('refuses a non-uuid id; bounds the name and the team name at 255', () => {
+  it('refuses a non-uuid id; bounds the name and the team name at 255; a team may be null', () => {
     const parse = (o: object) => jobQueueSeniorOptionsResponseSchema.safeParse({ items: [o] })
     expect(parse({ ...option, id: 'senior-1' }).success).toBe(false)
     expect(parse({ ...option, name: 'x'.repeat(255) }).success).toBe(true)
     expect(parse({ ...option, name: 'x'.repeat(256) }).success).toBe(false)
     expect(parse({ ...option, teamName: 'x'.repeat(255) }).success).toBe(true)
     expect(parse({ ...option, teamName: 'x'.repeat(256) }).success).toBe(false)
+    // a senior with no live membership (STUDIO only) has no team, never a placeholder string
+    expect(parse({ ...option, teamName: null }).success).toBe(true)
     expect(parse({ id: U1, name: 'Olena K.' }).success).toBe(false)
   })
 

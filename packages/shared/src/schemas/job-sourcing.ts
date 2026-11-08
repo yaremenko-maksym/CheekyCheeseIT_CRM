@@ -1981,7 +1981,8 @@ export const JOB_QUEUE_SENIOR_OPTIONS_MAX = 200
 
 /**
  * GET `/job-queue/seniors`: the seniors of the viewer's resolved scope, and only who they are and
- * which team the picker groups them under (`teams.name`, varchar 255).
+ * which team the picker groups them under (`teams.name`, varchar 255; null for a senior with no live
+ * membership, which only the STUDIO scope can list).
  */
 export const jobQueueSeniorOptionsResponseSchema = z
   .object({
@@ -1991,7 +1992,7 @@ export const jobQueueSeniorOptionsResponseSchema = z
           .object({
             id: z.string().uuid(),
             name: z.string().max(255),
-            teamName: z.string().max(255),
+            teamName: z.string().max(255).nullable(),
           })
           .strict(),
       )

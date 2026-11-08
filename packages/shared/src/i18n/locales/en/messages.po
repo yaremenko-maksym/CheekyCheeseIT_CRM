@@ -10351,6 +10351,10 @@ msgstr "Detach"
 msgid "Мова"
 msgstr "Language"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Без команди"
+msgstr "No team"
+
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Заповніть розділи вручну або спробуйте завантажити файл ще раз."
 msgstr "Fill in the sections by hand or try uploading the file again."

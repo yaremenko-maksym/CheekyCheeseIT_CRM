@@ -307,7 +307,7 @@ export class JobQueueService {
       items: (rows as Row[]).map((row) => ({
         id: String(row['id']),
         name: String(row['display_name']).slice(0, 255),
-        teamName: String(row['team_name']),
+        teamName: row['team_name'] === null ? null : String(row['team_name']).slice(0, 255),
       })),
     }
   }
