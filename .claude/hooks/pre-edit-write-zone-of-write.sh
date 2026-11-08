@@ -28,10 +28,12 @@
 #      `<git-common-dir>/worktrees/<name>`, `<toplevel>/.git` is a regular
 #      file, no core.worktree) and the realpath-resolved
 #      target is inside THAT worktree (else FM-2 refusal). Covers T3
-#      worktrees. A main-checkout session writing into a linked worktree is
-#      NOT allowed here; it falls through to #1-#4.
-#   1. cwd contains `/.claude/worktrees/` (primary path — Coder/AutoTest
-#      subagent worktree; this is how PM dispatches isolated work).
+#      worktrees and Agent `isolation:"worktree"` trees under
+#      `.claude/worktrees/` (both are linked worktrees). A main-checkout session
+#      writing into a linked worktree is NOT allowed here; it falls through to #2-#4.
+#   1. (removed 2026-11-08) the `/.claude/worktrees/` cwd string match. It let a
+#      plain, non-linked directory there write into main via `..`, a symlink, or
+#      a failed check #0 (PR #1297 second opinion F1-F3); #0 covers real ones.
 #   2. cwd starts with /tmp/ AND git branch matches `coder/*|feature/*|
 #      fix/*|infra/*|test/*` (heuristic — manual `git worktree add /tmp/...`
 #      with agent branch naming).
@@ -97,52 +99,20 @@ fi
 # Fast exit: file path is not in production zones — judged on the raw path AND
 # on the resolved one (~, cwd, `..`, symlinks of the existing prefix; SR-L-1, SR-L-5).
 # Case-insensitive: Windows and macOS accept Apps/x as the same path as apps/x.
-RESOLVED=$(python3 -c 'import os,sys; print(os.path.realpath(os.path.normpath(os.path.join(sys.argv[1], os.path.expanduser(sys.argv[2])))))' "$PWD" "$FILE_PATH" 2>/dev/null || true)
-if ! printf '%s\n%s\n' "$FILE_PATH" "$RESOLVED" | grep -qiE '(^|/)(apps|packages)/'; then
+# Raw bytes out (surrogateescape): print() raises on a non-UTF-8 byte (F4). An
+# empty RESOLVED means python failed: do not fast-exit, run the checks (fail closed).
+RESOLVED=$(python3 -c 'import os,sys; sys.stdout.buffer.write(os.path.realpath(os.path.normpath(os.path.join(sys.argv[1], os.path.expanduser(sys.argv[2])))).encode("utf-8", "surrogateescape"))' "$PWD" "$FILE_PATH" 2>/dev/null || true)
+if [ -n "$RESOLVED" ] && ! printf '%s\n%s\n' "$FILE_PATH" "$RESOLVED" | grep -qiE '(^|/)(apps|packages)/'; then
   exit 0
 fi
 
-# FM-2 guard (2026-06-17, ADR 2026-06-16 follow-up #2): a worktree subagent
-# must write ONLY inside its own worktree. The contamination class: an agent
-# whose cwd is a worktree writes to an ABSOLUTE main-repo path
-# (/…/CheekyCheeseIT_CRM/apps/…) — copied from codegraph output or a task-file
-# main-repo path. Allow #1 below checks cwd (where the agent IS) but never the
-# TARGET (where it writes), so it permitted these stray main writes (~5-6×/session,
-# once flipping the user's live :3000 stack). Block when: cwd is a worktree,
-# FILE_PATH is absolute + in apps/packages, but NOT under this worktree root.
-# Note: lexical `..` is normalized first (else "$WT/../other/apps/x" lexically
-# starts with "$WT/" and would slip through). Symlink-based escape is a residual
-# edge (normpath does not resolve symlinks; realpath needs the file to exist,
-# but Write targets may be new) — acceptable vs the observed abs-path class.
-if echo "$PWD" | grep -q '/\.claude/worktrees/'; then
-  WT_ABS=$(echo "$PWD" | sed -E 's#(.*/\.claude/worktrees/[^/]+).*#\1#')
-  case "$FILE_PATH" in
-    /*)
-      NORM=$(printf '%s' "$FILE_PATH" | python3 -c "import posixpath,sys; print(posixpath.normpath(sys.stdin.read()))" 2>/dev/null || echo "$FILE_PATH")
-      if echo "$NORM" | grep -qiE '(^|/)(apps|packages)/' && [ -n "$WT_ABS" ] && [[ "$NORM" != "$WT_ABS"/* ]]; then
-        python3 -c "
-import json, sys
-file_path, wt = sys.argv[1], sys.argv[2]
-reason = f'''🚫 WORKTREE→MAIN CONTAMINATION BLOCK (FM-2): worktree-агент пишет в {file_path},
-который ВНЕ его worktree ({wt}).
-
-Это класс инцидента FM-2: агент скопировал main-repo абсолютный путь (из codegraph /
-task-файла) и пишет в MAIN-чекаут вместо своего worktree. ВСЕ Edit/Write — ВНУТРИ своего worktree.
-
-Исправь путь: замени префикс на {wt}/… (твой worktree). Проверь cwd: `git -C \"{wt}\" status`.'''
-print(json.dumps({'decision': 'block', 'reason': reason}))
-" "$FILE_PATH" "$WT_ABS" 2>/dev/null
-        echo "[pre:edit-write:zone-of-write] FM-2 BLOCK worktree=$WT_ABS target=$FILE_PATH" >&2
-        exit 2
-      fi
-      ;;
-  esac
-fi
-
-# Linked git worktrees (2026-11-08). The string check above knows only
-# /.claude/worktrees/, so a T3 worktree (~/.t3/worktrees/<project>/t3-xxxx) was
-# refused in its OWN tree. The gate protects the MAIN checkout, so it is
-# decided by git (GIT_* stripped above) and by the resolved TARGET:
+# Linked git worktrees (2026-11-08). FM-2 (2026-06-17): a worktree agent writes
+# ONLY inside its own worktree; the incident class is an absolute main-repo path
+# copied from codegraph output or a task file. The old check matched the string
+# /.claude/worktrees/ in $PWD, so a T3 worktree (~/.t3/worktrees/<project>/t3-xxxx)
+# was refused in its OWN tree, and a plain directory there escaped via '..' or a
+# symlink. The gate protects the MAIN checkout, so it is decided by git (GIT_*
+# stripped above) and by the resolved TARGET:
 #   * cwd is a linked worktree -> the target must resolve inside it, else FM-2;
 #   * anything else (main checkout, nested repo, no repo, error) -> fall through.
 # A main-checkout session is never allowed into a linked worktree here (SR-M-3:
@@ -153,7 +123,7 @@ fi
 # (a per-worktree core.worktree widens the toplevel to a parent over main).
 # realpath resolves `..` and symlinks of the existing prefix (a new file is
 # judged by its nearest existing parent). Any failure prints nothing and falls
-# through to the old rules, which end in a refusal.
+# through to allows #2-#4, which end in a refusal (no cwd-string allow remains).
 # SR-L-3 accepted: a symlink swapped between this check and the write (needs Bash) is not caught.
 LW_VERDICT=$(python3 - "$PWD" "$FILE_PATH" <<'PY' 2>/dev/null || true
 import os, subprocess, sys
@@ -212,11 +182,6 @@ print(json.dumps({'decision': 'block', 'reason': reason}))
     exit 2
     ;;
 esac
-
-# Allow #1: subagent worktree cwd (primary path).
-if echo "$PWD" | grep -q '/\.claude/worktrees/'; then
-  exit 0
-fi
 
 # Allow #2: /tmp/ worktree with agent-style branch naming (heuristic per
 # Step 3 — fallback when CLAUDE_AGENT_ID is not propagated by runtime).

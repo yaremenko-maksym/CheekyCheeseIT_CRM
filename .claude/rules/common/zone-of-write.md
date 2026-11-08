@@ -93,10 +93,10 @@ In a worktree the block is lifted — the Coder _technically_ can overwrite anyt
 
 ### Verify MAIN is clean after each Coder (MANDATORY)
 
-The zone hook refuses a worktree session that writes into MAIN; allow #2 (`/tmp` heuristic),
-allow #3 (`CLAUDE_AGENT_ID=coder`, currently dead), the #4 escape hatch, and a plain non-linked
-directory under `.claude/worktrees/` (legacy allow #1) can still let a write into main through;
-Bash writes are not gated by this hook at all. So Master MUST, after EACH finished Coder, verify
+The zone hook refuses a worktree session that writes into MAIN (a plain, non-linked directory
+under `.claude/worktrees/` is no worktree: it is refused like the main checkout); allow #2
+(`/tmp` heuristic), allow #3 (`CLAUDE_AGENT_ID=coder`, currently dead) and the #4 escape hatch can
+still let a write into main through; Bash writes are not gated by this hook at all. So Master MUST, after EACH finished Coder, verify
 that the MAIN checkout is clean:
 
 ```bash

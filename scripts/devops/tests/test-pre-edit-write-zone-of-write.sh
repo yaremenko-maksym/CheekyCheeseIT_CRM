@@ -59,11 +59,18 @@ mkdir -p "$MAIN_REPO"
   git commit -q -m init
 ) >/dev/null 2>&1
 
-# A directory whose path contains /.claude/worktrees/<name>/ — which is the
-# only signal the hook uses to recognise an isolated agent (it greps $PWD; the
-# runtime does not propagate $CLAUDE_AGENT_ID, per the hook's own header).
+# Agent worktrees laid out like the Agent tool's `isolation:"worktree"`:
+# REAL `git worktree add` trees under .claude/worktrees/<name>. The hook
+# recognises them by git (linked worktree), not by the path string; a plain
+# directory under .claude/worktrees/ is no longer an allow (see F1-F3 below).
+# Branch names are not agent-like, so allow #2 cannot decide a case on Linux.
 WT_ROOT="$MAIN_REPO/.claude/worktrees/agent-MINE"
 OTHER_WT="$MAIN_REPO/.claude/worktrees/agent-OTHER"
+(
+  cd "$MAIN_REPO" || exit 1
+  git worktree add -q -b wt-mine "$WT_ROOT"
+  git worktree add -q -b wt-other "$OTHER_WT"
+) >/dev/null 2>&1
 mkdir -p "$WT_ROOT/apps/web" "$OTHER_WT/apps/web"
 
 # $1 = cwd to run from, $2 = tool name, $3 = file_path
@@ -105,9 +112,8 @@ assert_red "MultiEdit is gated the same way as Edit" \
   -- run_hook "$MAIN_REPO" "MultiEdit" "apps/api/src/finance/finance.service.ts"
 
 # ── refusal 2: FM-2, worktree agent writing outside its own worktree ──────────
-# This is the case the cwd check alone could not catch: the agent IS in its
-# worktree (so allow #1 would fire), but the TARGET is an absolute path in
-# somebody else's tree.
+# This is the case a cwd check alone could not catch: the agent IS in its
+# worktree, but the TARGET is an absolute path in somebody else's tree.
 
 assert_red "FM-2: worktree agent writing an absolute path into the MAIN checkout -> BLOCK" \
   --contains '"decision": "block"' \
@@ -372,5 +378,64 @@ assert_red "SR-L-5: symlink + '..' resolving physically into wt but lexically ou
   --contains '"decision": "block"' \
   --contains "WORKTREE" \
   -- run_hook "$LW_A" "Edit" "sym_deep/../../main/apps/api/src/main.ts"
+
+# ── second opinion on PR #1297: the legacy /.claude/worktrees/ string allow ────
+# A PLAIN directory under .claude/worktrees/ (not a linked worktree) used to be
+# allowed by the path string alone (legacy allow #1); the legacy FM-2 beside it
+# checked only absolute paths, lexically. Real agent worktrees are linked, so
+# the string allow is gone: such a cwd is judged like any other session.
+FAKE_WT="$MAIN_REPO/.claude/worktrees/agent-FAKE"
+mkdir -p "$FAKE_WT/apps/web"
+ln -s "$MAIN_REPO/apps" "$FAKE_WT/lnk"
+
+assert_red "F1: plain dir under .claude/worktrees/, relative '..' into MAIN's apps -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$FAKE_WT" "Edit" "../../../apps/web/x.ts"
+
+assert_red "F2: plain dir under .claude/worktrees/, absolute path through a symlink into MAIN -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$FAKE_WT" "Edit" "$FAKE_WT/lnk/web/x.ts"
+
+assert_red "a plain dir under .claude/worktrees/ editing its own apps file is no longer an allow -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$FAKE_WT" "Edit" "apps/web/x.ts"
+
+# F3: when the linked-worktree check cannot decide (no repo, or its python
+# crashes), the hook must end in the refusal, not in the string allow.
+NOREPO_WT="$WS/norepo/.claude/worktrees/agent-X"
+mkdir -p "$NOREPO_WT/apps/web"
+assert_red "F3: cwd under .claude/worktrees/ that is not a git repo at all -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$NOREPO_WT" "Edit" "apps/web/x.ts"
+
+# A `git` that prints non-UTF-8 makes the check's python raise (text=True decode),
+# so LW_VERDICT is empty — the real failure mode, from a REAL linked worktree.
+GIT_STUB="$WS/git-stub"
+mkdir -p "$GIT_STUB"
+printf '#!/bin/sh\nprintf "\\377\\376\\n\\377\\n\\377\\n"\n' >"$GIT_STUB/git"
+chmod +x "$GIT_STUB/git"
+run_hook_with_broken_git() { PATH="$GIT_STUB:$PATH" run_hook "$@"; }
+assert_red "F3: the linked-worktree check crashing in an agent worktree fails closed -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_with_broken_git "$WT_ROOT" "Edit" "apps/web/x.ts"
+
+# F4: a surrogate-escaped (non-UTF-8 byte) path made print() raise, RESOLVED was
+# empty, and the raw path (no apps/ in it) fast-exited the hook. print() raises
+# only with a strict stdout: UTF-8 mode off and a non-C UTF-8 locale (a dev shell
+# exporting PYTHONUTF8=1 hides it), so the case pins both.
+run_hook_strict_stdout() { PYTHONUTF8=0 LC_ALL=en_US.UTF-8 run_hook_raw_payload "$@"; }
+assert_red "F4: a non-UTF-8 byte in a relative path from inside main's apps/ -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_strict_stdout "$MAIN_REPO/apps/web" '{"tool_name":"Edit","tool_input":{"file_path":"src\udcff.ts"}}'
+
+assert_green "F4: the same byte outside the production zones is still a no-op" \
+  --not-contains "BLOCK" \
+  -- run_hook_strict_stdout "$MAIN_REPO" '{"tool_name":"Edit","tool_input":{"file_path":"docs/\udcff.md"}}'
 
 guard_test_summary "test-pre-edit-write-zone-of-write.sh"
