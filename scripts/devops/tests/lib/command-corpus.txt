@@ -733,6 +733,6 @@ block	db,ttl	echo "$(echo "'")"; pnpm --filter @crm/api d\<NL>ev
 # backslash-newline before a quoted heredoc delimiter, so the body stays text.
 block	db,ttl	pnpm --filter @crm/api $'dev'
 block	db,ttl	$'vite' --port 3000
-narrowed	db,ttl	cat > note.md <<'EOF'<NL>use `pnpm dev` and<NL>line \<NL>EOF
+allow	db,ttl	cat > note.md <<'EOF'<NL>use `pnpm dev` and<NL>line \<NL>EOF
 allow	safety	pnpm add powershell
 allow	safety	brew install pwsh
