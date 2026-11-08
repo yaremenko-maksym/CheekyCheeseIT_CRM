@@ -496,6 +496,20 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       }
     })
 
+    it('the senior filter picks rows, never the row keywords; a foreign id adds nothing', async () => {
+      const unfiltered = await itemOf(hrB(), 'oppShared')
+      const byShared = await itemOf(hrB(), 'oppShared', { seniorIds: id('senShared') })
+      const withForeign = await itemOf(hrB(), 'oppShared', {
+        seniorIds: `${id('senShared')},${id('senA')}`,
+      })
+      expect(unfiltered?.matchedKeywords).toEqual(['KeywordForeign', 'KeywordShared'])
+      for (const filtered of [byShared, withForeign]) {
+        expect(filtered?.matchedKeywords).toEqual(unfiltered?.matchedKeywords)
+        expect(filtered?.seniority).toBe(unfiltered?.seniority)
+      }
+      expect(JSON.stringify(withForeign)).not.toContain('KeywordA')
+    })
+
     it('row seniority is the stored column', async () => {
       await mkOpp('oppLeadRole')
       await sqlq(`UPDATE job_opportunities SET seniority = 'LEAD' WHERE id = $1`, [

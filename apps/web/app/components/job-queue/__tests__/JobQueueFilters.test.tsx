@@ -64,7 +64,7 @@ describe('JobQueueFilters', () => {
     })
     const row = screen.getByTestId('job-queue-applied')
     expect(row).not.toHaveClass('flex-wrap')
-    expect(row).toHaveClass('flex', 'items-start', 'justify-between')
+    expect(row).toHaveClass('flex', 'items-baseline', 'justify-between')
     expect(screen.getByText(/Застосовано/)).toHaveClass('min-w-0', 'flex-1', 'break-words')
     expect(screen.getByRole('button', { name: 'Скинути фільтри' })).toHaveClass(
       'shrink-0',
