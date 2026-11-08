@@ -361,8 +361,13 @@ describe('JobQueueFilters', () => {
       await open(loaded)
       const name = screen.getByTitle('Анна Коваль')
       expect(name).toHaveClass('min-w-0', 'truncate')
-      // eslint-disable-next-line testing-library/no-node-access
+      // eslint-disable-next-line testing-library/no-node-access -- the row label has no role query of its own
       expect(name.closest('label')).toHaveClass('min-h-11')
+    })
+
+    it('the group fieldset can shrink, so a long name truncates instead of scrolling sideways', async () => {
+      await open(loaded)
+      expect(screen.getByRole('group', { name: 'Підходить сеньйору' })).toHaveClass('min-w-0')
     })
 
     it('reopens with the applied seniors checked and «Скинути вибір» clears them', async () => {

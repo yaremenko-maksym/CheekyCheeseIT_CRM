@@ -119,7 +119,7 @@ msgstr "The name is only used to tell connections apart in the CRM."
 
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 msgid "Підходить сеньйору"
-msgstr "Matches senior"
+msgstr "Matching senior"
 
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Перемістити місце роботи {position} вгору"

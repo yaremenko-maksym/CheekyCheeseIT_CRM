@@ -138,7 +138,7 @@ function CheckRow({
 
 function FilterGroup({ legend, children }: { legend: ReactNode; children: ReactNode }) {
   return (
-    <fieldset className="flex flex-col gap-0.5">
+    <fieldset className="flex min-w-0 flex-col gap-0.5">
       <legend className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {legend}
       </legend>

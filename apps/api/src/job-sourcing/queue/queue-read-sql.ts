@@ -217,8 +217,9 @@ const uuidIn = (column: SQL, ids: readonly string[]): SQL =>
 /**
  * The list filter's picker: id, display name and one team name, of seniors the scope already
  * resolved. A TEAM scope names its own team; STUDIO names the senior's first live membership,
- * preferring a live SENIOR team, alphabetically. A senior with no live membership keeps a row with a
- * null team (STUDIO lists every roster senior). Ordered by team, team-less last, then name.
+ * preferring a live SENIOR team, alphabetically. The scope lists only seniors with a live
+ * membership, so a null team appears only when a membership ends between scope resolution and this
+ * query; the row is kept rather than dropped. Ordered by team, team-less last, then name.
  */
 export const seniorOptionRows = (
   seniorIds: readonly string[],
