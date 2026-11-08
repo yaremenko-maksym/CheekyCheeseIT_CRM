@@ -1,6 +1,6 @@
 # Rule: Zone-of-write contract per agent
 
-**Status:** Always-on (enforced by hook + Reviewer)
+**Status:** Not auto-loaded (`claudeMdExcludes`); read it before writing outside your usual paths. Enforced by hook + Reviewer.
 **Applies to:** All write-agents (Coder, AutoTest, DevOps, Architect, ui-ux-designer, manual-qa, legal) + Master (orchestrator). `code-reviewer` / `security-reviewer` — read-only to code.
 
 > Rationale: `docs/architecture/rules-rationale/zone-of-write.md`

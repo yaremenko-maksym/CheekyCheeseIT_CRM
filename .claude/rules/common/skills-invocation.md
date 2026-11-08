@@ -47,6 +47,12 @@ Each entry reads `trigger → skill · agents it applies to`.
 - A design question is not settled on paper (how it looks / how it behaves) → `prototype` · Coder, ui-ux-designer
 - The answer lies OUTSIDE the repository (a library / someone's API / a spec / a law) → `external-research` · All
 - You write or clean a rule / an agent prompt / a SKILL.md / CLAUDE.md → `writing-for-agents` · Architect, Master
+- UI work: WCAG 2.2 AA — ARIA / focus / contrast / target size → `accessibility` · ui-ux-designer, Coder
+- UI polish pass (radius / tabular-nums / motion / hit areas) → `make-interfaces-feel-better` · ui-ux-designer (Mode D), Coder
+- Visual audit (Mode B / C), AI-slop detection → `design-system` · ui-ux-designer
+- Pre-feature design direction (Mode A) → `frontend-design-direction` · ui-ux-designer
+- Driving Claude Design for a UI task / handoff artifact (design-gate Tier 1/2) → `claude-design-workflow` · Master, ui-ux-designer
+- Read-only breadth-first audit of ≥3 independent modules → `codebase-audit` · Master
 
 ## Project-local skills catalog
 

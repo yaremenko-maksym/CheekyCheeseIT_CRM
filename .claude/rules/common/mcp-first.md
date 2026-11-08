@@ -42,7 +42,7 @@ Never use Bash where a suitable MCP exists.
 ## graphify alongside codegraph
 
 `.sql` / `.sh` / `.json` questions go to the graphify CLI (codegraph indexes none of them); `.yaml`
-stays codegraph; `.md` goes to neither tool (`Read` / `Grep`). **Before you run any `graphify`
+stays codegraph; `.md` goes to neither tool (`Read` / `Grep`). Hard bans, always: `graphify extract` only with `--code-only`; never `--no-gitignore` or `--postgres`; never `graphify label`; `cluster-only` only with `--no-label`. **Before you run any `graphify`
 command or register an MCP server, read `.claude/rules/common/graphify.md`**: it lists the flags
 and subcommands that are forbidden. It also auto-loads when you open a `.sql`, `.sh` or `.json` file.
 

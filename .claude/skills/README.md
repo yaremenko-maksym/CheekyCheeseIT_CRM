@@ -50,7 +50,7 @@ ls "$(find ~/.claude/plugins -maxdepth 6 -type d -path '*superpowers*' -name ski
 # what lies project-local
 ls .claude/skills/
 # all skill references in working files
-grep -rn '`[a-z-]*:\?[a-z-]*`' .claude/rules/common/skills-invocation.md
+grep -rn '`[a-z-]*:\?[a-z-]*`' .claude/rules/common/skills-invocation.md .claude/skills/README.md
 ```
 
 Reconcile line by line. Two catches (details: `docs/architecture/rules-rationale/skills-invocation.md`): the built-in `security-review` is a slash command, not a skill — `Skill('security-review')` resolves to the project-local one; `simplify` is a real bundled skill, so it stays prefix-less.

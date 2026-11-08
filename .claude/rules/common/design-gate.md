@@ -93,7 +93,7 @@ a run over all screens), and then this block is removed along with it.
 
 - `.claude/rules/common/zone-of-write.md` — `apps/web/**` = Coder/Designer zone; artifacts in `docs/design/**`.
 - `.claude/rules/common/light-track.md` — UI cosmetics (Tier 3) is allowed on the light track, but the conformance check is mandatory.
-- `.claude/rules/common/skills-invocation.md` — trigger → `claude-design-workflow` skill.
+- `.claude/skills/README.md` — trigger → `claude-design-workflow` skill.
 - `.claude/rules/common/responsive-design.md` — adaptive on 4 device classes (hard gate); Mode B audits ALL classes, generation requests frames for all.
 - `.claude/rules/common/design-fidelity-review.md` — post-impl fidelity-diff mockup↔localhost on all classes = mandatory gate before merge (this file — the gate BEFORE code, fidelity-review — AFTER).
 
