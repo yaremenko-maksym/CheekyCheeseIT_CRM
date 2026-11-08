@@ -58,6 +58,21 @@ describe('JobQueueFilters', () => {
     expect(onReset).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps the reset inline: the row does not wrap, the summary wraps, the reset holds its size', () => {
+    render(<JobQueueAppliedFilters value={{ source: ['DOU_RSS'] }} onReset={vi.fn()} />, {
+      wrapper: I18nTestProvider,
+    })
+    const row = screen.getByTestId('job-queue-applied')
+    expect(row).not.toHaveClass('flex-wrap')
+    expect(row).toHaveClass('flex', 'items-start', 'justify-between')
+    expect(screen.getByText(/Застосовано/)).toHaveClass('min-w-0', 'flex-1', 'break-words')
+    expect(screen.getByRole('button', { name: 'Скинути фільтри' })).toHaveClass(
+      'shrink-0',
+      'whitespace-nowrap',
+      'min-h-11',
+    )
+  })
+
   it('renders no summary while nothing is applied', () => {
     render(<JobQueueAppliedFilters value={{ source: [] }} onReset={vi.fn()} />, {
       wrapper: I18nTestProvider,
@@ -406,6 +421,26 @@ describe('JobQueueFilters', () => {
       expect(within(group).getByTestId('job-queue-filters-seniors-loading')).toBeInTheDocument()
       expect(within(group).queryByRole('checkbox')).toBeNull()
       expect(within(group).queryByRole('alert')).toBeNull()
+    })
+
+    it('marks the senior group busy only while the picker loads', async () => {
+      await open({ items: undefined, isError: false, onRetry: vi.fn() })
+      expect(screen.getByRole('group', { name: 'Підходить сеньйору' })).toHaveAttribute(
+        'aria-busy',
+        'true',
+      )
+      expect(screen.getByRole('group', { name: 'Тип збігу' })).not.toHaveAttribute('aria-busy')
+    })
+
+    it.each([
+      ['loaded with items', { items: OPTIONS, isError: false, onRetry: vi.fn() }],
+      ['loaded empty', { items: [], isError: false, onRetry: vi.fn() }],
+      ['failed', { items: undefined, isError: true, onRetry: vi.fn() }],
+    ])('does not mark the senior group busy when %s', async (_state, picker) => {
+      await open(picker)
+      expect(screen.getByRole('group', { name: 'Підходить сеньйору' })).not.toHaveAttribute(
+        'aria-busy',
+      )
     })
 
     it('says so when the scope has no seniors', async () => {

@@ -88,12 +88,12 @@ export function JobQueueAppliedFilters({
   return (
     <div
       data-testid="job-queue-applied"
-      className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground"
+      className="flex items-start justify-between gap-x-3 text-sm text-muted-foreground"
     >
-      <p className="min-w-0 break-words text-pretty">
+      <p className="min-w-0 flex-1 break-words text-pretty">
         <Trans>Застосовано: {summary}</Trans>
       </p>
-      <Button variant="link" className="min-h-11 px-0" onClick={onReset}>
+      <Button variant="link" className="min-h-11 shrink-0 whitespace-nowrap px-0" onClick={onReset}>
         <Trans>Скинути фільтри</Trans>
       </Button>
     </div>
@@ -136,9 +136,17 @@ function CheckRow({
   )
 }
 
-function FilterGroup({ legend, children }: { legend: ReactNode; children: ReactNode }) {
+function FilterGroup({
+  legend,
+  busy,
+  children,
+}: {
+  legend: ReactNode
+  busy?: boolean
+  children: ReactNode
+}) {
   return (
-    <fieldset className="flex min-w-0 flex-col gap-0.5">
+    <fieldset aria-busy={busy ? true : undefined} className="flex min-w-0 flex-col gap-0.5">
       <legend className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {legend}
       </legend>
@@ -282,7 +290,10 @@ function FilterPanel({
           {jobSourceTypeSchema.options.map((o) => row('source', o, sourceLabel(o)))}
         </FilterGroup>
         {seniors && (
-          <FilterGroup legend={<Trans>Підходить сеньйору</Trans>}>
+          <FilterGroup
+            legend={<Trans>Підходить сеньйору</Trans>}
+            busy={!seniors.items && !seniors.isError}
+          >
             <SeniorRows
               picker={seniors}
               selected={draft.seniorIds}
