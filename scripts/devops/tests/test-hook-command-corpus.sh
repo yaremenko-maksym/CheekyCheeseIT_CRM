@@ -214,15 +214,17 @@ while IFS=$'\t' read -r expect hooks cmd <&3; do
     "" | \#*) continue ;;
   esac
   [ -n "${cmd:-}" ] || continue
+  row=$cmd # the encoded row: what DECLARED holds and what the report prints
+  cmd=${cmd//<NL>/$'\n'} # decoded as in the main loop; undecoded, `<NL>` reads as redirects
   for key in $ALL_HOOKS; do
     METRIC_PAIRS=$((METRIC_PAIRS + 1))
     file="$(hook_file "$key")"
     [ "$(verdict_rc "$REPO_ROOT/.claude/hooks/$file" "$cmd")" = "2" ] && continue
     coarse_refuses "$(broken_hook "$key")" "$cmd" || continue
     METRIC_STRICTER=$((METRIC_STRICTER + 1))
-    if ! printf '%s\t%s\n' "$key" "$cmd" | grep -Fxqf - "$DECLARED"; then
+    if ! printf '%s\t%s\n' "$key" "$row" | grep -Fxqf - "$DECLARED"; then
       METRIC_UNDECLARED=$((METRIC_UNDECLARED + 1))
-      METRIC_LIST="${METRIC_LIST}  [$key] $cmd
+      METRIC_LIST="${METRIC_LIST}  [$key] $row
 "
     fi
   done
