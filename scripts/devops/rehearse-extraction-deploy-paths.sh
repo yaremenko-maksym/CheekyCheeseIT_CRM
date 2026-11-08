@@ -263,6 +263,30 @@ rt_ip="$(docker inspect -f '{{with index .NetworkSettings.Networks "crm-extracti
 out="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$rt_ip:8080/health" || echo unreachable)"
 record "G. host -> runtime at $rt_ip on the internal network: $out"
 
+# ── G2. MP-04 harness smoke: wiring against the real api build, a few pages ─
+# The tiny model cannot pass the table, so the expected verdict is FAIL (exit 1) with a report;
+# exit 0 or exit 2 (harness error) fails the rehearsal. Not a model measurement.
+if [ "$out" = 200 ]; then
+  log "G2. MP-04 harness smoke"
+  docker create --name mp04-app "$(docker inspect -f '{{.Config.Image}}' "$(ecid extraction-worker)")" >/dev/null
+  docker cp -q mp04-app:/app mp04-app
+  docker rm mp04-app >/dev/null
+  api_ip="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{$v.IPAddress}}{{"\n"}}{{end}}' "$(cid api)" | grep -v "^$ENTRY_NET " | awk 'NF==2 {print $2; exit}')"
+  cat > mp04-candidate.json <<EOF
+{"name":"stories260K-smoke","repo":"ggml-org/models-moved","file":"$MODEL_FILE","sha256":"$MODEL_SHA256","repoCommit":"main","licence":null,
+ "routerConfig":{"policyVersion":"rehearsal","hostedBudgetMs":0,"floorBudgetMs":360000,"routes":[{"provider":"local","baseUrl":"http://crm-model-runtime:8080/v1","model":"rehearsal-model","contextTokens":$RUNTIME_CTX,"structuredOutput":"json_schema","timeoutMs":60000,"maxAnswerTokens":64}]}}
+EOF
+  if node "$REPO/scripts/devops/extraction-mp04/mp04.mjs" --candidate mp04-candidate.json --api-dist mp04-app \
+    --runtime-url "http://$rt_ip:8080" --crm-url "http://$api_ip:3001/api/health" \
+    --baseline-s 10 --fixtures 4 --out-dir mp04-out; then st=0; else st=$?; fi
+  [ -s mp04-out/report.json ] || fail "G2. the harness wrote no report (exit $st)"
+  [ "$st" = 1 ] || fail "G2. the harness exited $st, expected 1 (a FAIL verdict with a report)"
+  record "G2. MP-04 harness smoke: exit 1 with a report; $(node -e "const c=require('./mp04-out/report.json').candidates[0]; console.log('requests', c.requests.total, 'answered', c.requests.answered, 'cold load ms', c.coldLoadMs, 'records', c.mp03.records)")"
+  docker exec "$(ecid extraction-worker)" true || fail "G2. the worker is gone after the runtime restart"
+else
+  record "G2. MP-04 harness smoke: not run (the host does not reach the runtime network)"
+fi
+
 # ── H. Undo (the runbook's steps) ───────────────────────────────────────────
 log "H. Undo"
 if ext down >down-attached.log 2>&1; then st=0; else st=$?; fi

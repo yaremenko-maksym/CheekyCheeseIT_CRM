@@ -7,31 +7,68 @@ import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { buildFixtures } from './fixtures.mjs'
-import { abortReason, estimateShares, evaluate, fieldCorrect, percentile, probeStats, scoreMp03, summary, THRESHOLDS } from './lib.mjs'
+import {
+  abortReason,
+  estimateShares,
+  evaluate,
+  fieldCorrect,
+  percentile,
+  probeStats,
+  scoreMp03,
+  summary,
+  THRESHOLDS,
+} from './lib.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
 test('percentile: nearest rank, null on no samples', () => {
   assert.equal(percentile([], 95), null)
   assert.equal(percentile([5, 1, 3, 2, 4], 50), 3)
-  assert.equal(percentile(Array.from({ length: 100 }, (_, i) => i + 1), 95), 95)
+  assert.equal(
+    percentile(
+      Array.from({ length: 100 }, (_, i) => i + 1),
+      95,
+    ),
+    95,
+  )
 })
 
 test('abortReason: 5xx, low host RAM, rolling p95 over 2 x baseline', () => {
   const ok = Array.from({ length: 20 }, () => ({ ms: 100, status: 200 }))
   assert.equal(abortReason({ baselineP95: 100, recent: ok, hostAvailableBytes: 2e9 }), null)
-  assert.match(abortReason({ baselineP95: 100, recent: [...ok, { ms: 90, status: 503 }], hostAvailableBytes: null }), /503/)
-  assert.match(abortReason({ baselineP95: 100, recent: ok, hostAvailableBytes: 700 * 1048576 }), /800 MiB/)
+  assert.match(
+    abortReason({
+      baselineP95: 100,
+      recent: [...ok, { ms: 90, status: 503 }],
+      hostAvailableBytes: null,
+    }),
+    /503/,
+  )
+  assert.match(
+    abortReason({ baselineP95: 100, recent: ok, hostAvailableBytes: 700 * 1048576 }),
+    /800 MiB/,
+  )
   const slow = Array.from({ length: 20 }, () => ({ ms: 201, status: 200 }))
-  assert.match(abortReason({ baselineP95: 100, recent: slow, hostAvailableBytes: null }), /rolling p95/)
+  assert.match(
+    abortReason({ baselineP95: 100, recent: slow, hostAvailableBytes: null }),
+    /rolling p95/,
+  )
   // fewer samples than the window: no rolling verdict yet
-  assert.equal(abortReason({ baselineP95: 100, recent: slow.slice(0, 5), hostAvailableBytes: null }), null)
+  assert.equal(
+    abortReason({ baselineP95: 100, recent: slow.slice(0, 5), hostAvailableBytes: null }),
+    null,
+  )
 })
 
 function passing() {
   const probe = probeStats(Array.from({ length: 100 }, () => ({ ms: 100, status: 200 })))
   return {
-    limits: { memory: THRESHOLDS.runtimeMemoryBytes, memorySwap: THRESHOLDS.runtimeMemoryBytes, nanoCpus: 2e9, pidsLimit: 128 },
+    limits: {
+      memory: THRESHOLDS.runtimeMemoryBytes,
+      memorySwap: THRESHOLDS.runtimeMemoryBytes,
+      nanoCpus: 2e9,
+      pidsLimit: 128,
+    },
     oomKills: 0,
     restarts: 0,
     crm: { baseline: probe, loaded: probe },
@@ -82,12 +119,20 @@ test('evaluate: an unmeasured value fails its row', () => {
     m[k] = null
     const r = evaluate(m)
     assert.equal(r.pass, false, k)
-    assert.ok(r.rows.some((x) => !x.pass && x.value === 'not measured'), k)
+    assert.ok(
+      r.rows.some((x) => !x.pass && x.value === 'not measured'),
+      k,
+    )
   }
 })
 
 test('summary: none passes, and passes by name', () => {
-  assert.match(summary([{ candidate: 'a', pass: false, rows: [{ name: 'x', pass: false, value: 1, limit: '0' }] }]), /none passes/)
+  assert.match(
+    summary([
+      { candidate: 'a', pass: false, rows: [{ name: 'x', pass: false, value: 1, limit: '0' }] },
+    ]),
+    /none passes/,
+  )
   assert.match(summary([{ candidate: 'a', pass: true, rows: [] }]), /passes: a/)
 })
 
@@ -96,7 +141,10 @@ test('fieldCorrect and scoreMp03', () => {
   assert.equal(fieldCorrect('location', 'Kyiv', `Kyiv ${'x'.repeat(40)}`), false)
   assert.equal(fieldCorrect('salary', null, null), true)
   assert.equal(fieldCorrect('remote', false, null), false)
-  assert.equal(fieldCorrect('applyUrl', 'https://a.example/apply/1', 'https://a.example/apply/1/'), true)
+  assert.equal(
+    fieldCorrect('applyUrl', 'https://a.example/apply/1', 'https://a.example/apply/1/'),
+    true,
+  )
   const fx = buildFixtures()[0]
   const perfect = {
     ...Object.fromEntries(Object.entries(fx.expected).filter(([k]) => k !== 'descriptionIncludes')),
@@ -137,12 +185,18 @@ test('fixtures: 50, 25 per language, the layouts, ground truth on the page', () 
     assert.ok(f.url.includes('.example/'), f.id)
     for (const [k, v] of Object.entries(f.expected)) {
       if (k === 'remote' || v === null || k === 'postingUrl') continue
-      for (const s of k === 'descriptionIncludes' ? v : [v]) assert.ok(f.text.includes(s), `${f.id}: ${k} not on the page`)
+      for (const s of k === 'descriptionIncludes' ? v : [v])
+        assert.ok(f.text.includes(s), `${f.id}: ${k} not on the page`)
     }
-    if (f.layout === 'prefilled') assert.deepEqual(Object.keys(f.expected).sort(), f.missing.map((m) => (m === 'description' ? 'descriptionIncludes' : m)).sort())
+    if (f.layout === 'prefilled')
+      assert.deepEqual(
+        Object.keys(f.expected).sort(),
+        f.missing.map((m) => (m === 'description' ? 'descriptionIncludes' : m)).sort(),
+      )
     if (f.layout === 'sidebar') {
       const tail = f.text.slice(f.text.lastIndexOf('\n\n'))
-      for (const k of ['company', 'location', 'salary']) assert.ok(!tail.includes(f.expected[k]), `${f.id}: neighbour shares ${k}`)
+      for (const k of ['company', 'location', 'salary'])
+        assert.ok(!tail.includes(f.expected[k]), `${f.id}: neighbour shares ${k}`)
     }
   }
 })
@@ -157,7 +211,19 @@ test('mp04.mjs: no exit 0 without a report', () => {
   writeFileSync(cand, JSON.stringify({ name: 'broken', routerConfig: {} }))
   const r = spawnSync(
     process.execPath,
-    [cli, '--candidate', cand, '--api-dist', join(out, 'nope'), '--runtime-url', 'http://127.0.0.1:9', '--crm-url', 'http://127.0.0.1:9/', '--out-dir', out],
+    [
+      cli,
+      '--candidate',
+      cand,
+      '--api-dist',
+      join(out, 'nope'),
+      '--runtime-url',
+      'http://127.0.0.1:9',
+      '--crm-url',
+      'http://127.0.0.1:9/',
+      '--out-dir',
+      out,
+    ],
     { encoding: 'utf8' },
   )
   assert.equal(r.status, 2)

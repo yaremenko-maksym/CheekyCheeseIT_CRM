@@ -98,7 +98,8 @@ const services = extraction.services ?? {}
 const netsOf = (svc) => Object.keys(svc?.networks ?? {}).sort()
 
 // ── The separate project ────────────────────────────────────────────────────
-if (extraction.name !== PROJECT) errors.push(`the project must be named ${PROJECT} (found: ${extraction.name})`)
+if (extraction.name !== PROJECT)
+  errors.push(`the project must be named ${PROJECT} (found: ${extraction.name})`)
 
 function checkHardened(name, svc, memBytes) {
   if ((svc.ports ?? []).length > 0) errors.push(`${name} must not publish ports (SR-L-4)`)
@@ -111,7 +112,8 @@ function checkHardened(name, svc, memBytes) {
   if (!(svc.cap_drop ?? []).includes('ALL')) errors.push(`${name} must drop all capabilities`)
   if ((svc.cap_add ?? []).length > 0) errors.push(`${name} must not add capabilities`)
   if (Number(svc.mem_limit) !== memBytes) errors.push(`${name} mem_limit must be ${memBytes} bytes`)
-  if (Number(svc.memswap_limit) !== memBytes) errors.push(`${name} memswap_limit must equal mem_limit`)
+  if (Number(svc.memswap_limit) !== memBytes)
+    errors.push(`${name} memswap_limit must equal mem_limit`)
 }
 
 const worker = services[WORKER]
@@ -121,9 +123,12 @@ if (!worker) {
   checkHardened(WORKER, worker, WORKER_MEM_BYTES)
   if (Number(worker.cpus) !== 0.5) errors.push(`${WORKER} cpus must be 0.5`)
   if (netsOf(worker).join() !== [ENTRY, RUNTIME_NET].join()) {
-    errors.push(`${WORKER} must be on ${ENTRY} and ${RUNTIME_NET} only (found: ${netsOf(worker).join(', ') || 'none'})`)
+    errors.push(
+      `${WORKER} must be on ${ENTRY} and ${RUNTIME_NET} only (found: ${netsOf(worker).join(', ') || 'none'})`,
+    )
   }
-  if ((worker.profiles ?? []).length > 0) errors.push(`${WORKER} must not hide behind a profile in its own project`)
+  if ((worker.profiles ?? []).length > 0)
+    errors.push(`${WORKER} must not hide behind a profile in its own project`)
 }
 
 const runtime = services[RUNTIME]
@@ -134,13 +139,22 @@ if (!runtime) {
   if (Number(runtime.cpus) !== 2) errors.push(`${RUNTIME} cpus must be 2`)
   if (Number(runtime.pids_limit) !== 128) errors.push(`${RUNTIME} pids_limit must be 128`)
   if (netsOf(runtime).join() !== RUNTIME_NET) {
-    errors.push(`${RUNTIME} must be on ${RUNTIME_NET} only (found: ${netsOf(runtime).join(', ') || 'none'})`)
+    errors.push(
+      `${RUNTIME} must be on ${RUNTIME_NET} only (found: ${netsOf(runtime).join(', ') || 'none'})`,
+    )
   }
-  if (!/@sha256:[0-9a-f]{64}$/.test(runtime.image ?? '')) errors.push(`${RUNTIME} image must be pinned by sha256`)
+  if (!/@sha256:[0-9a-f]{64}$/.test(runtime.image ?? ''))
+    errors.push(`${RUNTIME} image must be pinned by sha256`)
   const user = String(runtime.user ?? '').split(':')[0]
   if (user === '' || user === '0' || user === 'root') errors.push(`${RUNTIME} must run non-root`)
   const start = [...(runtime.entrypoint ?? []), ...(runtime.command ?? [])].join(' ')
-  for (const flag of ['sha256sum -c', '--log-disable', '--ctx-size', '--threads 2', '--parallel 1']) {
+  for (const flag of [
+    'sha256sum -c',
+    '--log-disable',
+    '--ctx-size',
+    '--threads 2',
+    '--parallel 1',
+  ]) {
     if (!start.includes(flag)) errors.push(`${RUNTIME} start command must carry "${flag}"`)
   }
   if ((runtime.volumes ?? []).some((v) => v.target === '/models' && v.read_only !== true)) {
@@ -149,17 +163,21 @@ if (!runtime) {
 }
 
 for (const key of [ENTRY, RUNTIME_NET]) {
-  if (extraction.networks?.[key]?.internal !== true) errors.push(`network ${key} must be internal: true`)
+  if (extraction.networks?.[key]?.internal !== true)
+    errors.push(`network ${key} must be internal: true`)
 }
-if (extraction.networks?.[ENTRY]?.name !== ENTRY_NAME) errors.push(`network ${ENTRY} must keep the name ${ENTRY_NAME}`)
+if (extraction.networks?.[ENTRY]?.name !== ENTRY_NAME)
+  errors.push(`network ${ENTRY} must keep the name ${ENTRY_NAME}`)
 for (const [key, net] of Object.entries(extraction.networks ?? {})) {
-  if (net.external) errors.push(`network ${key} must not be external: the project owns its networks`)
+  if (net.external)
+    errors.push(`network ${key} must not be external: the project owns its networks`)
 }
 
 const MAY_JOIN = { [ENTRY]: [WORKER], [RUNTIME_NET]: [WORKER, RUNTIME] }
 for (const [name, svc] of Object.entries(services)) {
   for (const [net, allowed] of Object.entries(MAY_JOIN)) {
-    if (netsOf(svc).includes(net) && !allowed.includes(name)) errors.push(`service ${name} must not join ${net}`)
+    if (netsOf(svc).includes(net) && !allowed.includes(name))
+      errors.push(`service ${name} must not join ${net}`)
   }
   if (typeof svc.network_mode === 'string' && svc.network_mode.startsWith('service:')) {
     errors.push(`service ${name} must not share another service's network namespace`)
@@ -186,15 +204,22 @@ for (const pin of Object.keys(PINS)) {
 
 // ── The composed deploy configuration ───────────────────────────────────────
 const deployed = Object.keys(deploy.services ?? {}).sort()
-if (deployed.length === 0) errors.push('the composed deploy configuration has no services: nothing was checked')
+if (deployed.length === 0)
+  errors.push('the composed deploy configuration has no services: nothing was checked')
 for (const name of deployed) {
   if (!DEPLOY_SERVICES.includes(name)) {
-    errors.push(`the deploy configuration gained service ${name}: a merged service starts on the next deploy (ADR §8.6)`)
+    errors.push(
+      `the deploy configuration gained service ${name}: a merged service starts on the next deploy (ADR §8.6)`,
+    )
   }
 }
 for (const [key, net] of Object.entries(deploy.networks ?? {})) {
-  if (net.external) errors.push(`the deploy configuration must not use external network ${key}: a missing one fails its up`)
-  if (String(net.name ?? key).includes('extraction')) errors.push(`the deploy configuration must not declare network ${key}`)
+  if (net.external)
+    errors.push(
+      `the deploy configuration must not use external network ${key}: a missing one fails its up`,
+    )
+  if (String(net.name ?? key).includes('extraction'))
+    errors.push(`the deploy configuration must not declare network ${key}`)
 }
 
 // ── The deploy paths must not name the file or the project ──────────────────

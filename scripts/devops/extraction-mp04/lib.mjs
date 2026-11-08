@@ -85,7 +85,9 @@ const fold = (s) =>
 export function fieldCorrect(field, expected, actual) {
   if (field === 'remote') return actual === expected
   if (field === 'descriptionIncludes') {
-    return typeof actual === 'string' && expected.every((phrase) => fold(actual).includes(fold(phrase)))
+    return (
+      typeof actual === 'string' && expected.every((phrase) => fold(actual).includes(fold(phrase)))
+    )
   }
   if (expected === null) return actual === null || actual === undefined
   if (typeof actual !== 'string') return false
@@ -142,7 +144,10 @@ export function estimateShares(requests) {
     const rows = requests.filter((r) => r.lang === lang && Number.isInteger(r.promptTokens))
     out[lang] = {
       requests: rows.length,
-      share: rows.length === 0 ? null : rows.filter((r) => r.estimate >= r.promptTokens).length / rows.length,
+      share:
+        rows.length === 0
+          ? null
+          : rows.filter((r) => r.estimate >= r.promptTokens).length / rows.length,
       worstShortfall: rows.reduce((m, r) => Math.max(m, r.promptTokens - r.estimate), 0),
     }
   }
@@ -150,7 +155,12 @@ export function estimateShares(requests) {
 }
 
 function row(name, value, limit, pass) {
-  return { name, value: value ?? 'not measured', limit, pass: value !== null && value !== undefined && pass }
+  return {
+    name,
+    value: value ?? 'not measured',
+    limit,
+    pass: value !== null && value !== undefined && pass,
+  }
 }
 
 /** The pass table for one candidate. Every row must pass; an unmeasured row fails. */
@@ -177,11 +187,31 @@ export function evaluate(m) {
       b.p95 !== null && l.p95 <= Math.max(1.25 * b.p95, b.p95 + 50),
     ),
     row('CRM p99 (ms)', l.p99, `<= 1.5 x ${b.p99}`, b.p99 !== null && l.p99 <= 1.5 * b.p99),
-    row('CRM 5xx', l.count > 0 ? b.status5xx + l.status5xx : null, '0', b.status5xx + l.status5xx === 0),
-    row('wall time per record p95 (ms)', m.recordWallP95Ms, `<= ${T.recordWallP95Ms}`, m.recordWallP95Ms <= T.recordWallP95Ms),
-    row('per-request timeout (ms)', m.requestTimeoutMs, `< ${T.requestTimeoutBelowMs}`, m.requestTimeoutMs < T.requestTimeoutBelowMs),
+    row(
+      'CRM 5xx',
+      l.count > 0 ? b.status5xx + l.status5xx : null,
+      '0',
+      b.status5xx + l.status5xx === 0,
+    ),
+    row(
+      'wall time per record p95 (ms)',
+      m.recordWallP95Ms,
+      `<= ${T.recordWallP95Ms}`,
+      m.recordWallP95Ms <= T.recordWallP95Ms,
+    ),
+    row(
+      'per-request timeout (ms)',
+      m.requestTimeoutMs,
+      `< ${T.requestTimeoutBelowMs}`,
+      m.requestTimeoutMs < T.requestTimeoutBelowMs,
+    ),
     row('cold load (ms)', m.coldLoadMs, `<= ${T.coldLoadMs}`, m.coldLoadMs <= T.coldLoadMs),
-    row('CPU idle after a client abort (ms)', m.cpuIdleAfterAbortMs, `<= ${T.cpuIdleAfterAbortMs}`, m.cpuIdleAfterAbortMs <= T.cpuIdleAfterAbortMs),
+    row(
+      'CPU idle after a client abort (ms)',
+      m.cpuIdleAfterAbortMs,
+      `<= ${T.cpuIdleAfterAbortMs}`,
+      m.cpuIdleAfterAbortMs <= T.cpuIdleAfterAbortMs,
+    ),
     ...['uk', 'en'].map((lang) =>
       row(
         `token estimate >= reported prompt tokens (${lang})`,
@@ -190,10 +220,30 @@ export function evaluate(m) {
         m.estimate[lang].share >= T.tokenEstimateShare,
       ),
     ),
-    row('empty answers', m.emptyAnswerRate, `<= ${T.emptyAnswerRate}`, m.emptyAnswerRate <= T.emptyAnswerRate),
-    row('MP-03 schema-valid', m.mp03.schemaValidRate, `>= ${T.schemaValidRate}`, m.mp03.schemaValidRate >= T.schemaValidRate),
-    row('MP-03 invented URLs', m.mp03.inventedUrls.length, `${T.inventedUrls}`, m.mp03.inventedUrls.length === T.inventedUrls),
-    row('MP-03 field accuracy', m.mp03.fieldAccuracy, `>= ${T.fieldAccuracy}`, m.mp03.fieldAccuracy >= T.fieldAccuracy),
+    row(
+      'empty answers',
+      m.emptyAnswerRate,
+      `<= ${T.emptyAnswerRate}`,
+      m.emptyAnswerRate <= T.emptyAnswerRate,
+    ),
+    row(
+      'MP-03 schema-valid',
+      m.mp03.schemaValidRate,
+      `>= ${T.schemaValidRate}`,
+      m.mp03.schemaValidRate >= T.schemaValidRate,
+    ),
+    row(
+      'MP-03 invented URLs',
+      m.mp03.inventedUrls.length,
+      `${T.inventedUrls}`,
+      m.mp03.inventedUrls.length === T.inventedUrls,
+    ),
+    row(
+      'MP-03 field accuracy',
+      m.mp03.fieldAccuracy,
+      `>= ${T.fieldAccuracy}`,
+      m.mp03.fieldAccuracy >= T.fieldAccuracy,
+    ),
     row(
       'licence read at the pinned digest',
       m.licence ? `${m.licence.verdict} (${m.licence.url})` : null,
@@ -213,9 +263,14 @@ export function evaluate(m) {
 export function summary(candidates) {
   const lines = ['MP-04 / MP-03 candidates']
   for (const c of candidates) {
-    lines.push(`${c.pass ? 'PASS' : 'FAIL'}  ${c.candidate}${c.error ? `  (harness error: ${c.error})` : ''}`)
+    lines.push(
+      `${c.pass ? 'PASS' : 'FAIL'}  ${c.candidate}${c.error ? `  (harness error: ${c.error})` : ''}`,
+    )
     for (const r of c.rows ?? []) {
-      if (!r.pass) lines.push(`        x ${r.name}: ${typeof r.value === 'number' ? +r.value.toFixed(3) : r.value} (limit ${r.limit})`)
+      if (!r.pass)
+        lines.push(
+          `        x ${r.name}: ${typeof r.value === 'number' ? +r.value.toFixed(3) : r.value} (limit ${r.limit})`,
+        )
     }
   }
   const passing = candidates.filter((c) => c.pass).map((c) => c.candidate)

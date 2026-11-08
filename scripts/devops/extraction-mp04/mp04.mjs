@@ -21,7 +21,15 @@ import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { buildFixtures } from './fixtures.mjs'
-import { abortReason, estimateShares, evaluate, percentile, probeStats, scoreMp03, summary } from './lib.mjs'
+import {
+  abortReason,
+  estimateShares,
+  evaluate,
+  percentile,
+  probeStats,
+  scoreMp03,
+  summary,
+} from './lib.mjs'
 
 const DEFAULTS = {
   'runtime-container': 'crm-extraction-crm-model-runtime-1',
@@ -46,7 +54,8 @@ process.on('exit', () => {
 function args(argv) {
   const out = { ...DEFAULTS }
   for (let i = 0; i < argv.length; i += 2) {
-    if (!argv[i].startsWith('--') || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`)
+    if (!argv[i].startsWith('--') || argv[i + 1] === undefined)
+      throw new Error(`bad argument ${argv[i]}`)
     out[argv[i].slice(2)] = argv[i + 1]
   }
   for (const k of ['candidate', 'api-dist', 'runtime-url', 'crm-url', 'out-dir']) {
@@ -60,8 +69,10 @@ function args(argv) {
 
 function loadCandidate(path) {
   const c = JSON.parse(readFileSync(path, 'utf8'))
-  if (typeof c.name !== 'string' || !/^[\w.-]{1,64}$/.test(c.name)) throw new Error('candidate.name: [\\w.-]{1,64}')
-  if (typeof c.routerConfig !== 'object' || c.routerConfig === null) throw new Error('candidate.routerConfig missing')
+  if (typeof c.name !== 'string' || !/^[\w.-]{1,64}$/.test(c.name))
+    throw new Error('candidate.name: [\\w.-]{1,64}')
+  if (typeof c.routerConfig !== 'object' || c.routerConfig === null)
+    throw new Error('candidate.routerConfig missing')
   return c
 }
 
@@ -69,7 +80,10 @@ const docker = (...a) => execFileSync('docker', a, { encoding: 'utf8' }).trim()
 const inspect = (ct, fmt) => docker('inspect', '-f', fmt, ct)
 
 function runtimeState(ct) {
-  const [restarts, oom, started] = inspect(ct, '{{.RestartCount}} {{.State.OOMKilled}} {{.State.StartedAt}}').split(' ')
+  const [restarts, oom, started] = inspect(
+    ct,
+    '{{.RestartCount}} {{.State.OOMKilled}} {{.State.StartedAt}}',
+  ).split(' ')
   return { restarts: Number(restarts), oomKilled: oom === 'true', started }
 }
 
@@ -88,7 +102,9 @@ function bytes(s) {
 /** `docker stats` as a stream: memory and CPU samples of the runtime, about one per second. */
 function statsSampler(ct) {
   const samples = []
-  const child = spawn('docker', ['stats', '--format', '{{json .}}', ct], { stdio: ['ignore', 'pipe', 'inherit'] })
+  const child = spawn('docker', ['stats', '--format', '{{json .}}', ct], {
+    stdio: ['ignore', 'pipe', 'inherit'],
+  })
   let buf = ''
   child.stdout.on('data', (d) => {
     buf += d.toString()
@@ -98,7 +114,11 @@ function statsSampler(ct) {
       const json = /\{.*\}/.exec(line)?.[0]
       if (!json) continue
       const s = JSON.parse(json)
-      samples.push({ t: Date.now(), mem: bytes(s.MemUsage.split('/')[0]), cpu: Number.parseFloat(s.CPUPerc) })
+      samples.push({
+        t: Date.now(),
+        mem: bytes(s.MemUsage.split('/')[0]),
+        cpu: Number.parseFloat(s.CPUPerc),
+      })
     }
   })
   return { samples, stop: () => child.kill() }
@@ -128,7 +148,11 @@ function crmProbe(url, intervalMs, onSample) {
       const t0 = performance.now()
       let status = 0
       try {
-        const r = await fetch(url, { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
+        const r = await fetch(url, {
+          method: 'GET',
+          redirect: 'manual',
+          signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+        })
         status = r.status
         await r.arrayBuffer()
       } catch {
@@ -157,41 +181,54 @@ function startTap(upstream, current) {
       const row = { ...current.tag, path: req.url, t0: Date.now(), aborted: false }
       try {
         const sent = JSON.parse(body.toString('utf8'))
-        const chars = (sent.messages ?? []).reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0)
+        const chars = (sent.messages ?? []).reduce(
+          (n, m) => n + (typeof m.content === 'string' ? m.content.length : 0),
+          0,
+        )
         row.estimate = Math.ceil(chars / CHARS_PER_TOKEN) + MESSAGE_OVERHEAD_TOKENS
       } catch {
         // not a chat request
       }
       requests.push(row)
       current.inFlight += 1
-      const up = http.request(new URL(req.url, upstream), { method: req.method, headers: { 'content-type': req.headers['content-type'] ?? 'application/json' } }, (ur) => {
-        const out = []
-        ur.on('data', (c) => out.push(c))
-        ur.on('end', () => {
-          current.inFlight -= 1
-          const text = Buffer.concat(out)
-          row.ms = Date.now() - row.t0
-          row.status = ur.statusCode
-          try {
-            const j = JSON.parse(text.toString('utf8'))
-            const msg = j.choices?.[0]?.message ?? {}
-            const content = typeof msg.content === 'string' ? msg.content : ''
-            const think = /<think>[\s\S]*?<\/think>/g
-            row.promptTokens = j.usage?.prompt_tokens
-            row.completionTokens = j.usage?.completion_tokens
-            row.promptPerSecond = j.timings?.prompt_per_second
-            row.predictedPerSecond = j.timings?.predicted_per_second
-            row.reasoningChars = (msg.reasoning_content?.length ?? 0) + (content.match(think) ?? []).join('').length
-            row.empty = content.replace(think, '').trim() === ''
-          } catch {
-            // a non-JSON answer stays counts-free
-          }
-          if (!res.destroyed) {
-            res.writeHead(ur.statusCode, { 'content-type': ur.headers['content-type'] ?? 'application/json' })
-            res.end(text)
-          }
-        })
-      })
+      const up = http.request(
+        new URL(req.url, upstream),
+        {
+          method: req.method,
+          headers: { 'content-type': req.headers['content-type'] ?? 'application/json' },
+        },
+        (ur) => {
+          const out = []
+          ur.on('data', (c) => out.push(c))
+          ur.on('end', () => {
+            current.inFlight -= 1
+            const text = Buffer.concat(out)
+            row.ms = Date.now() - row.t0
+            row.status = ur.statusCode
+            try {
+              const j = JSON.parse(text.toString('utf8'))
+              const msg = j.choices?.[0]?.message ?? {}
+              const content = typeof msg.content === 'string' ? msg.content : ''
+              const think = /<think>[\s\S]*?<\/think>/g
+              row.promptTokens = j.usage?.prompt_tokens
+              row.completionTokens = j.usage?.completion_tokens
+              row.promptPerSecond = j.timings?.prompt_per_second
+              row.predictedPerSecond = j.timings?.predicted_per_second
+              row.reasoningChars =
+                (msg.reasoning_content?.length ?? 0) + (content.match(think) ?? []).join('').length
+              row.empty = content.replace(think, '').trim() === ''
+            } catch {
+              // a non-JSON answer stays counts-free
+            }
+            if (!res.destroyed) {
+              res.writeHead(ur.statusCode, {
+                'content-type': ur.headers['content-type'] ?? 'application/json',
+              })
+              res.end(text)
+            }
+          })
+        },
+      )
       up.on('error', () => {
         current.inFlight = Math.max(0, current.inFlight - 1)
         if (!res.headersSent && !res.destroyed) res.writeHead(502).end()
@@ -205,14 +242,20 @@ function startTap(upstream, current) {
       up.end(body)
     })
   })
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ server, requests, port: server.address().port })))
+  return new Promise((ok) =>
+    server.listen(0, '127.0.0.1', () => ok({ server, requests, port: server.address().port })),
+  )
 }
 
 function mergeReports(outDir) {
   const candidates = readdirSync(outDir)
     .filter((f) => f.startsWith('candidate-') && f.endsWith('.json'))
     .map((f) => JSON.parse(readFileSync(join(outDir, f), 'utf8')))
-  const report = { generatedAt: new Date().toISOString(), candidates, nonePasses: !candidates.some((c) => c.pass) }
+  const report = {
+    generatedAt: new Date().toISOString(),
+    candidates,
+    nonePasses: !candidates.some((c) => c.pass),
+  }
   writeFileSync(join(outDir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`)
   writeFileSync(join(outDir, 'summary.txt'), `${summary(candidates)}\n`)
   return report
@@ -221,13 +264,18 @@ function mergeReports(outDir) {
 /** The only place an exit status is set: after the report is on disk and reads back. */
 function finish(outDir, result) {
   mkdirSync(outDir, { recursive: true })
-  writeFileSync(join(outDir, `candidate-${result.candidate}.json`), `${JSON.stringify(result, null, 2)}\n`)
+  writeFileSync(
+    join(outDir, `candidate-${result.candidate}.json`),
+    `${JSON.stringify(result, null, 2)}\n`,
+  )
   mergeReports(outDir)
   const back = JSON.parse(readFileSync(join(outDir, 'report.json'), 'utf8'))
   const mine = back.candidates.find((c) => c.candidate === result.candidate)
   if (!mine) throw new Error('the report does not carry this candidate')
   reportVerified = true
-  process.stdout.write(`${readFileSync(join(outDir, 'summary.txt'), 'utf8')}report: ${resolve(outDir, 'report.json')}\n`)
+  process.stdout.write(
+    `${readFileSync(join(outDir, 'summary.txt'), 'utf8')}report: ${resolve(outDir, 'report.json')}\n`,
+  )
   process.exitCode = mine.error ? 2 : mine.pass ? 0 : 1
 }
 
@@ -244,8 +292,20 @@ async function run(a, cand) {
   const { EXTRACTION_TABLE_VERSION } = dist('extraction-worker/link-contract.js')
 
   const ct = a['runtime-container']
-  const m = { candidate: cand.name, repo: cand.repo, file: cand.file, sha256: cand.sha256, repoCommit: cand.repoCommit, licence: cand.licence ?? null }
-  m.limits = JSON.parse(inspect(ct, '{"memory":{{.HostConfig.Memory}},"memorySwap":{{.HostConfig.MemorySwap}},"nanoCpus":{{.HostConfig.NanoCpus}},"pidsLimit":{{.HostConfig.PidsLimit}}}'))
+  const m = {
+    candidate: cand.name,
+    repo: cand.repo,
+    file: cand.file,
+    sha256: cand.sha256,
+    repoCommit: cand.repoCommit,
+    licence: cand.licence ?? null,
+  }
+  m.limits = JSON.parse(
+    inspect(
+      ct,
+      '{"memory":{{.HostConfig.Memory}},"memorySwap":{{.HostConfig.MemorySwap}},"nanoCpus":{{.HostConfig.NanoCpus}},"pidsLimit":{{.HostConfig.PidsLimit}}}',
+    ),
+  )
   m.runtimeImage = inspect(ct, '{{.Config.Image}}')
 
   // Cold load: a restart reloads the weights from the volume (the page cache may still hold them).
@@ -275,8 +335,15 @@ async function run(a, cand) {
   const events = []
   const routeStatePath = join(a['out-dir'], `.route-state-${cand.name}.json`)
   rmSync(routeStatePath, { force: true })
-  const routeState = await inf.createFileRouteStatePort({ path: routeStatePath, now: Date.now, onEvent: () => {} })
-  const port = inf.createRouterExtractionAdapter(config, { onEvent: (e) => events.push(e), routeState })
+  const routeState = await inf.createFileRouteStatePort({
+    path: routeStatePath,
+    now: Date.now,
+    onEvent: () => {},
+  })
+  const port = inf.createRouterExtractionAdapter(config, {
+    onEvent: (e) => events.push(e),
+    routeState,
+  })
   const ceilingMs = inf.routerCallCeilingMs(config) + 10_000
   const structurer = new ModelStructurer({
     port,
@@ -289,12 +356,17 @@ async function run(a, cand) {
       smallDoseFor().groups,
     ),
   })
-  if (events.some((e) => e.type === 'CONFIG_REFUSED')) throw new Error('the router refused the candidate config')
+  if (events.some((e) => e.type === 'CONFIG_REFUSED'))
+    throw new Error('the router refused the candidate config')
 
   const stop = new AbortController()
   const loaded = crmProbe(a['crm-url'], interval, () => {
     if (m.aborted) return
-    const reason = abortReason({ baselineP95: base.p95, recent: loaded.samples, hostAvailableBytes: hostMem.at(-1) ?? null })
+    const reason = abortReason({
+      baselineP95: base.p95,
+      recent: loaded.samples,
+      hostAvailableBytes: hostMem.at(-1) ?? null,
+    })
     if (reason) {
       m.aborted = reason
       stop.abort()
@@ -305,7 +377,9 @@ async function run(a, cand) {
     structurer.structure({
       aiInput: 'yes',
       policy: { onUnspecified: 'allow' },
-      records: [{ id: fx.id, url: fx.url, text: fx.text, ...(fx.missing && { missing: fx.missing }) }],
+      records: [
+        { id: fx.id, url: fx.url, text: fx.text, ...(fx.missing && { missing: fx.missing }) },
+      ],
       extractionVersion: EXTRACTION_TABLE_VERSION,
       signal,
     })
@@ -320,7 +394,12 @@ async function run(a, cand) {
     walls.push(Date.now() - t0)
     const record = out.records?.find((r) => r.sourceId === fx.id) ?? null
     const issue = out.perRecordIssues?.find((i) => i.id === fx.id)
-    results.push({ fixture: fx, record, schemaValid: record !== null && (issue?.failure ?? null) === null, outcome: out.kind })
+    results.push({
+      fixture: fx,
+      record,
+      schemaValid: record !== null && (issue?.failure ?? null) === null,
+      outcome: out.kind,
+    })
   }
 
   // Disconnect: abort a long call while the runtime works on it, then time until the CPU is idle.
@@ -343,7 +422,9 @@ async function run(a, cand) {
       idleAt = stats.samples.find((s) => s.t > abortedAt && s.cpu < IDLE_CPU_PERCENT)?.t ?? null
     }
     m.cpuIdleAfterAbortMs = busy && idleAt !== null ? idleAt - abortedAt : null
-    m.disconnectNote = busy ? 'aborted while a runtime request was in flight' : 'no runtime request was in flight: not measured'
+    m.disconnectNote = busy
+      ? 'aborted while a runtime request was in flight'
+      : 'no runtime request was in flight: not measured'
   }
 
   await loaded.stop()
@@ -359,23 +440,37 @@ async function run(a, cand) {
   m.oomKills = after.oomKilled ? 1 : 0
   m.peakRuntimeMemBytes = stats.samples.reduce((x, s) => Math.max(x, s.mem ?? 0), 0) || null
   m.peakRuntimeCpuPercent = stats.samples.reduce((x, s) => Math.max(x, s.cpu || 0), 0) || null
-  m.minHostAvailableBytes = hostMem.filter((x) => x !== null).reduce((x, y) => Math.min(x, y), Infinity)
+  m.minHostAvailableBytes = hostMem
+    .filter((x) => x !== null)
+    .reduce((x, y) => Math.min(x, y), Infinity)
   if (!Number.isFinite(m.minHostAvailableBytes)) m.minHostAvailableBytes = null
   m.recordWallP50Ms = percentile(walls, 50)
   m.recordWallP95Ms = percentile(walls, 95)
-  m.requests = { total: chat.length, answered: answered.length, non200: chat.filter((r) => r.status !== 200 && !r.aborted).length }
-  m.tokensPerSecond = { predictedMedian: median('predictedPerSecond'), promptMedian: median('promptPerSecond') }
+  m.requests = {
+    total: chat.length,
+    answered: answered.length,
+    non200: chat.filter((r) => r.status !== 200 && !r.aborted).length,
+  }
+  m.tokensPerSecond = {
+    predictedMedian: median('predictedPerSecond'),
+    promptMedian: median('promptPerSecond'),
+  }
   m.reasoning = {
     requestsWithReasoning: answered.filter((r) => r.reasoningChars > 0).length,
     reasoningChars: answered.reduce((n, r) => n + (r.reasoningChars ?? 0), 0),
     completionTokensMedian: median('completionTokens'),
   }
-  m.emptyAnswerRate = answered.length === 0 ? null : answered.filter((r) => r.empty).length / answered.length
+  m.emptyAnswerRate =
+    answered.length === 0 ? null : answered.filter((r) => r.empty).length / answered.length
   m.estimate = estimateShares(answered)
   m.crm = { baseline: base, loaded: probeStats(loaded.samples) }
   const mp03 = scoreMp03(results)
   m.mp03 = mp03
-  m.outcomes = results.map((r) => ({ id: r.fixture.id, outcome: r.outcome, schemaValid: r.schemaValid }))
+  m.outcomes = results.map((r) => ({
+    id: r.fixture.id,
+    outcome: r.outcome,
+    schemaValid: r.schemaValid,
+  }))
   m.routerCalls = events.filter((e) => e.type === 'CALL').map((e) => e.code)
   const verdict = evaluate(m)
   return { ...m, ...verdict }

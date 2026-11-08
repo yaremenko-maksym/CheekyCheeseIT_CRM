@@ -24,7 +24,7 @@ Neither project's compose file names the other. The extraction project owns `crm
 Limits of this design:
 
 - **An `api` recreated outside the deploy script** (by hand, by a rollback to a revision older than this change) is not attached. Attach it by hand: `docker network connect crm-extraction-entry crm-api-1`.
-- **The extraction project's own `down`** cannot remove `crm-extraction-entry` while `api` is attached. Disconnect first (see Undo).
+- **The extraction project's own `down`** exits 0 while `api` is attached, but leaves `crm-extraction-entry` behind (rehearsal, phase H). Disconnect first (see Undo).
 - **A deploy does not update the worker.** Its image tag is the pin `EXTRACTION_WORKER_IMAGE_TAG`. When `api` and the worker run different images, the worker refuses a request whose table version differs; move the pin and recreate the worker.
 
 Guard: `scripts/devops/check-extraction-worker-compose.mjs` (run by `scripts/devops/tests/run-guard-tests.sh`) fails if the composed deploy configuration gains a service, an extraction network or an external network, if the deploy script or `deploy.yml` names this file or project, or if the extraction file loses any property above.
@@ -144,9 +144,36 @@ docker compose -f docker-compose.extraction.yml --env-file .env.extraction-pins 
 docker volume rm crm-extraction_model_weights
 ```
 
-`down` without `-v`: the worker's state volume stays. Never add `-v` here. Without the disconnect, `down` cannot remove the entry network while `api` is on it.
+`down` without `-v`: the worker's state volume stays. Never add `-v` here. Without the disconnect, `down` still exits 0 but leaves the entry network on the host with `api` on it; check with `docker network inspect crm-extraction-entry` (expect "No such network").
 
 **Left behind after undo:** the volume `crm-extraction_worker_state`, the files `docker-compose.extraction.yml`, `.env.extraction-pins` and `.env.extraction-worker`, and the pulled runtime image. Remove the image with `docker image rm ghcr.io/ggml-org/llama.cpp@sha256:<digest>` if you want the disk back. The next deploy finds no entry network and attaches nothing. Any preflight against the worker then fails loudly, as ADR §8.6 requires.
+
+## MP-04 / MP-03: measuring a candidate model
+
+`scripts/devops/extraction-mp04/mp04.mjs` measures one candidate against the frozen pass table (ADR §8.3/§8.4). It feeds the 50 synthetic pages of `fixtures.mjs` through `ModelStructurer.structure` over a local-only router port, the same path the worker takes. A loopback tap between the router and the runtime reads the runtime's reported prompt tokens, speed and reasoning output; it keeps counts only, never page text or replies. The candidates and their pins are in `scripts/devops/extraction-mp04/candidates.md`.
+
+**Where to run it.** On a disposable host with the extraction project up and the candidate's pins in `.env.extraction-pins`; production replay is an owner step (A3). The harness restarts the runtime once (cold load) and needs `docker` and Node 22 on the host. The host must reach the runtime on its internal network: the rehearsal records this as "host -> runtime" (a GitHub-hosted runner does).
+
+```bash
+# 1. the api build the worker runs (dist/ + node_modules/), copied out of the worker's image
+docker create --name mp04-app "$(docker inspect -f '{{.Config.Image}}' crm-extraction-extraction-worker-1)"
+docker cp -q mp04-app:/app ./mp04-app && docker rm mp04-app
+# 2. the runtime's address on its internal network
+RT_IP="$(docker inspect -f '{{with index .NetworkSettings.Networks "crm-extraction_runtime"}}{{.IPAddress}}{{end}}' crm-extraction-crm-model-runtime-1)"
+# 3. one run per candidate, into one output directory
+node scripts/devops/extraction-mp04/mp04.mjs --candidate cand.json --api-dist ./mp04-app \
+  --runtime-url "http://$RT_IP:8080" --crm-url https://<the CRM host>/api/health --out-dir ./mp04-out
+```
+
+`cand.json` carries `name`, `repo`, `file`, `sha256`, `repoCommit`, `licence` (`{ url, verdict }`, the licence as read at the pinned commit) and `routerConfig` (the worker's `EXTRACTION_ROUTER_CONFIG`; any hosted route is dropped, the local `baseUrl` is replaced by the tap).
+
+**The CRM probe** sends unauthenticated GETs to `--crm-url`, one at a time, at most one per `--probe-interval-ms` (default 500, floor 200). First a baseline with the runtime idle (`--baseline-s`, default 60), then the same probe during the run.
+
+**The abort rule** stops the run at once on any probe 5xx, a rolling p95 (last 20 probes) above 2 x the baseline p95, or host available RAM below 800 MiB. A stopped run fails. Never relax a threshold to make a candidate pass.
+
+**Reading the result.** `mp04-out/summary.txt` is one screen: a PASS/FAIL line per candidate, its failing rows, then `passes: ...` or `none passes`. `mp04-out/report.json` has every measured value per candidate. Exit status: 0 = the report is written and this candidate passes; 1 = written, it fails; 2 = harness error. A harness error still writes a report naming the error. An unmeasured value fails its row.
+
+The rehearsal runs the harness against the 1.2 MB test model on four pages as a wiring smoke ("G2"); its expected verdict is FAIL. It is not a measurement of any candidate.
 
 ## Known interim limits (close before hosted keys, task 5.4c-5)
 
