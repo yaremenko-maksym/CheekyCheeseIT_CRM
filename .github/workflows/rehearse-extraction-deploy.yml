@@ -58,8 +58,9 @@ jobs:
       - name: Pull the images
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_ACTOR: ${{ github.actor }}
         run: |
-          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
           docker pull -q "$API_IMAGE"
           docker pull -q "$NGINX_IMAGE"
           docker pull -q "ghcr.io/ggml-org/llama.cpp@sha256:$RUNTIME_IMAGE_SHA256"

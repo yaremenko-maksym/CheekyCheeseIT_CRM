@@ -2558,9 +2558,16 @@ docker compose \
 # never a failed deploy. Rehearsed by scripts/devops/rehearse-extraction-deploy-paths.sh.
 EXTRACTION_ENTRY_NETWORK=crm-extraction-entry
 if docker network inspect "$EXTRACTION_ENTRY_NETWORK" >/dev/null 2>&1; then
+  # Only the network the extraction project created: internal, with its project label.
+  # A same-named network from anywhere else is not joined.
+  entry_props="$(docker network inspect -f '{{.Internal}} {{index .Labels "com.docker.compose.project"}}' \
+    "$EXTRACTION_ENTRY_NETWORK" 2>/dev/null || true)"
   api_cid="$(docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml \
     --env-file .env.production ps -q api 2>/dev/null || true)"
-  if [ -z "$api_cid" ]; then
+  # The project name, derived: this script never spells the project out (the isolation guard).
+  if [ "$entry_props" != "true ${EXTRACTION_ENTRY_NETWORK%-entry}" ]; then
+    echo "::warning::extraction entry: $EXTRACTION_ENTRY_NETWORK is not the extraction project's internal network ($entry_props); not attaching"
+  elif [ -z "$api_cid" ]; then
     echo "::warning::extraction entry: no api container to attach"
   elif docker inspect -f '{{json .NetworkSettings.Networks}}' "$api_cid" 2>/dev/null \
       | grep -q "\"$EXTRACTION_ENTRY_NETWORK\""; then

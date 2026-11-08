@@ -146,6 +146,14 @@ probe() {
       body: '$method' === 'POST' ? '{}' : undefined, signal: AbortSignal.timeout(10000) })
       .then((r) => console.log('status=' + r.status), (e) => console.log('error=' + (e.cause?.code || e.name)))"
 }
+# node inside a container: one TCP connect, prints "connected" or the error code.
+tcp() {
+  docker exec "$1" node -e "
+    const s = require('net').connect({ host: '$2', port: $3, timeout: 5000 })
+    s.on('connect', () => { console.log('connected'); s.destroy() })
+    s.on('timeout', () => { console.log('error=ETIMEDOUT'); s.destroy() })
+    s.on('error', (e) => console.log('error=' + e.code))"
+}
 fingerprint() { docker inspect -f '{{.Id}} restarts={{.RestartCount}} started={{.State.StartedAt}}' "$1"; }
 
 RUNTIME_BASE=""
@@ -194,6 +202,17 @@ echo "$out" | grep -q "network absent" || fail "B. attach block did not report t
 deploy_reset
 main_healthy
 record "B. both paths with the project absent: main healthy, attach was a no-op"
+
+# A same-named network the project did not create is not joined: neither a plain one, nor an
+# internal one without the project label.
+for kind in plain internal; do
+  if [ "$kind" = internal ]; then docker network create --internal "$ENTRY_NET" >/dev/null; else docker network create "$ENTRY_NET" >/dev/null; fi
+  out="$(attach)"; echo "$out"
+  echo "$out" | grep -q "not the extraction project's internal network" || fail "B. attach did not refuse a $kind foreign $ENTRY_NET"
+  [ -z "$(docker network inspect -f '{{range .Containers}}{{.Name}} {{end}}' "$ENTRY_NET" | tr -d ' ')" ] || fail "B. api joined a $kind foreign $ENTRY_NET"
+  docker network rm "$ENTRY_NET" >/dev/null
+  record "B. a $kind $ENTRY_NET without the project label: attach warned, api not joined"
+done
 
 # ── C. Install the project (the runbook's steps) ────────────────────────────
 log "C. Provision weights, prepare the state volume, start the project"
@@ -245,12 +264,21 @@ echo "$out" | grep -q "already attached" || fail "F. a second attach did not see
 
 # ── G. What must not be reachable ───────────────────────────────────────────
 log "G. Isolation negatives"
+# By address, not by name: a name-resolution error proves nothing about routing.
+rt_ip="$(docker inspect -f '{{with index .NetworkSettings.Networks "crm-extraction_runtime"}}{{.IPAddress}}{{end}}' "$(ecid crm-model-runtime)")"
+[ -n "$rt_ip" ] || fail "G. the runtime has no address on crm-extraction_runtime"
 out="$(probe "$(cid api)" http://crm-model-runtime:8080/health)"
-[ "${out#error=}" != "$out" ] || fail "G. api reached the runtime ($out)"
-record "G. api -> runtime: $out (refused, as it must be)"
-out="$(docker exec "$(ecid crm-model-runtime)" sh -c 'curl -s -o /dev/null --max-time 5 https://example.com && echo reached || echo blocked')"
-[ "$out" = blocked ] || fail "G. the runtime reached the internet"
-record "G. runtime -> internet: $out"
+record "G. api -> runtime by name: $out (a fact, not the gate)"
+out="$(tcp "$(cid api)" "$rt_ip" 8080)"
+[ "${out#error=}" != "$out" ] || fail "G. api connected to the runtime at $rt_ip:8080 ($out)"
+record "G. api -> runtime at $rt_ip:8080: $out (no connection, as it must be)"
+out="$(tcp "$(ecid extraction-worker)" 1.1.1.1 443)"
+[ "${out#error=}" != "$out" ] || fail "G. the worker connected to 1.1.1.1:443 ($out)"
+record "G. worker -> 1.1.1.1:443: $out"
+# curl exit 7 (no connection) or 28 (timeout) only: 127 would mean curl is missing, not blocked.
+out="$(docker exec "$(ecid crm-model-runtime)" sh -c 'curl -sk -o /dev/null --max-time 5 https://1.1.1.1/; echo "curl exit $?"')"
+case "$out" in "curl exit 7" | "curl exit 28") ;; *) fail "G. the runtime -> 1.1.1.1:443 check did not show a blocked connection ($out)" ;; esac
+record "G. runtime -> 1.1.1.1:443: $out"
 members="$(docker network inspect -f '{{range .Containers}}{{.Name}} {{end}}' "$ENTRY_NET")"
 record "G. $ENTRY_NET members: $members"
 for m in $members; do
@@ -272,7 +300,6 @@ record "G. a prompt carrying a marker: $out, absent from the runtime log"
 record "G. runtime log lines after all requests: $(docker logs "$(ecid crm-model-runtime)" 2>&1 | wc -l)"
 # A fact, not a gate: whether the host itself reaches the runtime by its address on the internal
 # network. The MP-04 harness runs on the host and depends on it.
-rt_ip="$(docker inspect -f '{{with index .NetworkSettings.Networks "crm-extraction_runtime"}}{{.IPAddress}}{{end}}' "$(ecid crm-model-runtime)")"
 out="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$rt_ip:8080/health" || echo unreachable)"
 record "G. host -> runtime at $rt_ip on the internal network: $out"
 
@@ -298,7 +325,8 @@ EOF
   record "G2. MP-04 harness smoke: exit 1 with a report; $(node -e "const c=require('./mp04-out/report.json').candidates[0]; console.log('requests', c.requests.total, 'answered', c.requests.answered, 'cold load ms', c.coldLoadMs, 'records', c.mp03.records)")"
   docker exec "$(ecid extraction-worker)" true || fail "G2. the worker is gone after the runtime restart"
 else
-  record "G2. MP-04 harness smoke: not run (the host does not reach the runtime network)"
+  # The harness depends on this path; a skipped smoke is not a pass.
+  fail "G2. MP-04 harness smoke cannot run: the host does not reach the runtime network ($out)"
 fi
 
 # ── H. Undo (the runbook's steps) ───────────────────────────────────────────

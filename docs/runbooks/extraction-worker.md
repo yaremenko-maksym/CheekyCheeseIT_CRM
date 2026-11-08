@@ -15,7 +15,7 @@
 
 ### How `api` reaches the worker
 
-Neither project's compose file names the other. The extraction project owns `crm-extraction-entry`. The deploy script, right after its `up -d --remove-orphans`, attaches the `api` container to that network with `docker network connect` when the network exists, and does nothing when it does not. A failed attach is a warning, never a failed deploy. So:
+Neither project's compose file names the other. The extraction project owns `crm-extraction-entry`. The deploy script, right after its `up -d --remove-orphans`, attaches the `api` container to that network with `docker network connect` when the network exists, and does nothing when it does not. It attaches only to the network this project created: `internal` and labelled `com.docker.compose.project=crm-extraction`. A same-named network without both gets a warning and no attach. A failed attach is a warning, never a failed deploy. So:
 
 - a deploy's `down --remove-orphans` (the network-reset path) only meets containers of its own project on its own networks;
 - the main stack starts whether or not the extraction project exists;
@@ -36,7 +36,15 @@ Rehearsal: `.github/workflows/rehearse-extraction-deploy.yml` runs both deploy p
 
 - **`api` is recreated once**, because it leaves the old `extraction-internal` network. That is the normal recreate of every deploy with a new image.
 - **The old network `crm_extraction-internal` stays on the host**, unused: `up` does not remove networks. Remove it when you like: `docker network rm crm_extraction-internal`.
-- **The old volume `crm_extraction_worker_state`** exists only if the worker was ever created under the old file. It is unused from now on and holds router state only. Keep it or remove it with `docker volume rm crm_extraction_worker_state`; the new worker uses `crm-extraction_worker_state`.
+- **The old volume `crm_extraction_worker_state` is orphaned.** It exists only if the worker was ever created under the old file (project `crm`). The new project uses `crm-extraction_worker_state`, a different volume, so nothing reads the old one again. It holds router state only (no secret, no CRM data). Check whether it exists: `docker volume ls --filter name=crm_extraction_worker_state`. Then choose, owner-run, before step 7 of Install:
+  - **Start fresh** (the default): do nothing now; the new worker starts with empty router state.
+  - **Copy once**: after step 6 and before step 7, with the worker not running:
+    ```bash
+    docker run --rm -v crm_extraction_worker_state:/from:ro -v crm-extraction_worker_state:/to \
+      --entrypoint sh ghcr.io/yaremenko-maksym/cheekycheeseit-crm-api:<EXTRACTION_WORKER_IMAGE_TAG> \
+      -c 'cp -a /from/. /to/'
+    ```
+  - **Remove the old volume** once you no longer want it (either choice): `docker volume rm crm_extraction_worker_state`. It refuses while any container uses it, which is a safe check.
 
 ## Install (replay on production)
 
@@ -129,8 +137,16 @@ docker port "$($EXT ps -q extraction-worker)"
 # an unauthenticated call is refused (expect 401), run from the API container
 docker exec crm-api-1 wget -S -qO- --post-data='{}' http://extraction-worker:3100/extract 2>&1 | head -3
 
-# api cannot reach the runtime (expect a name-resolution error)
-docker exec crm-api-1 wget -qO- -T 5 http://crm-model-runtime:8080/health 2>&1 | head -1
+# By address, not by name: a name-resolution error proves nothing about routing.
+RT_IP="$(docker inspect -f '{{with index .NetworkSettings.Networks "crm-extraction_runtime"}}{{.IPAddress}}{{end}}' "$($EXT ps -q crm-model-runtime)")"
+echo "$RT_IP"                # expect an address; empty means the check below is meaningless
+TCP='const [h,p]=process.argv.slice(1);const s=require("net").connect({host:h,port:+p,timeout:5000});s.on("connect",()=>{console.log("CONNECTED");s.destroy()});s.on("timeout",()=>{console.log("ETIMEDOUT");s.destroy()});s.on("error",e=>console.log(e.code))'
+
+# api cannot connect to the runtime's address (expect an error code, never CONNECTED)
+docker exec crm-api-1 node -e "$TCP" "$RT_IP" 8080
+# neither the worker nor the runtime gets out (expect an error code, never CONNECTED; curl exit 7 or 28)
+docker exec "$($EXT ps -q extraction-worker)" node -e "$TCP" 1.1.1.1 443
+docker exec "$($EXT ps -q crm-model-runtime)" sh -c 'curl -sk -o /dev/null --max-time 5 https://1.1.1.1/; echo "curl exit $?"'
 
 # only api and the worker on the entry network
 docker network inspect crm-extraction-entry --format '{{range .Containers}}{{.Name}} {{end}}'
