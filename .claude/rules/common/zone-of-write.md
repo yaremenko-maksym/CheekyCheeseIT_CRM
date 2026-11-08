@@ -88,7 +88,8 @@ variables are ignored) may write only a target whose own checkout is that same w
 linked worktree nested inside it is a different tree, and so is any directory holding a `.git` entry
 between the target and the toplevel). A main-checkout session is not allowed into any linked
 worktree. No cwd-, branch- or env-based allow remains; the only other allow is the gitignored
-`.claude/.allow-direct-edits` escape hatch, judged on the **target's** checkout. No tool call may
+`.claude/.allow-direct-edits` escape hatch, judged on the **target's** checkout and honoured only for
+a session whose cwd is in that same checkout (nearest `.git` entry, found without git). No tool call may
 create or edit that file (any zone); the owner creates it by hand in a shell.
 
 ### Worktree caveat

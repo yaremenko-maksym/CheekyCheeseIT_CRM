@@ -610,4 +610,68 @@ assert_red "SR-L-11: a parent's hatch does not cover a nested checkout with a co
   --contains "PRODUCTION-EDIT BLOCK" \
   -- run_hook_with_corrupt_nested_head "$LW_MAIN" "Write" "$LW_MAIN/vendor/nested/apps/x.ts"
 
+# SR-L-12 (security review of a14518d3e): a linked worktree corrupts its own
+# `.git` file with a plain Write (outside apps/** and packages/**, so allowed).
+# git then sees no checkout at the cwd, the linked-worktree check gives no
+# verdict, and the hatch looked up on the TARGET (main) let the write into main.
+# The hatch counts only when the cwd's checkout root (nearest `.git` entry,
+# lstat, no git) is the target's.
+LW_C="$WS/lw/t3/worktrees/crm/t3-cccc"
+git -C "$LW_MAIN" worktree add -q -b wt-cccc "$LW_C" >/dev/null 2>&1
+mkdir -p "$LW_C/apps/web"
+run_hook_with_corrupt_own_git_file() {
+  local saved
+  saved="$(cat "$LW_C/.git")"
+  printf 'garbage\n' >"$LW_C/.git"
+  touch "$LW_MAIN/.claude/.allow-direct-edits"
+  run_hook "$@"
+  local rc=$?
+  rm -f "$LW_MAIN/.claude/.allow-direct-edits"
+  printf '%s\n' "$saved" >"$LW_C/.git"
+  return $rc
+}
+assert_red "SR-L-12: a linked worktree with a corrupted .git file writing main's apps/x.ts under main's hatch -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_with_corrupt_own_git_file "$LW_C" "Write" "$LW_MAIN/apps/x.ts"
+
+mkdir -p "$LW_MAIN/docs"
+touch "$LW_MAIN/.claude/.allow-direct-edits"
+assert_green "SR-L-12: the main checkout with its own hatch writing its own apps/x.ts -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_MAIN" "Write" "$LW_MAIN/apps/x.ts"
+assert_green "SR-L-12: a cwd in a main subdirectory with main's hatch writing main's apps/x.ts -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_MAIN/docs" "Write" "$LW_MAIN/apps/x.ts"
+rm -f "$LW_MAIN/.claude/.allow-direct-edits"
+
+# Code review of a14518d3e: identity branch. A hard link to the hatch under a
+# name that does NOT fold to `.allow-direct-edits`, so only samefile catches it.
+run_hook_with_hatch_hardlink() {
+  touch "$LW_MAIN/.claude/.allow-direct-edits"
+  ln "$LW_MAIN/.claude/.allow-direct-edits" "$LW_MAIN/.claude/hatch-hardlink"
+  run_hook "$@"
+  local rc=$?
+  rm -f "$LW_MAIN/.claude/.allow-direct-edits" "$LW_MAIN/.claude/hatch-hardlink"
+  return $rc
+}
+assert_red "SR-L-11: Write of a hard link to the existing hatch under another name -> BLOCK (identity)" \
+  --contains '"decision": "block"' \
+  --contains "ESCAPE-HATCH" \
+  -- run_hook_with_hatch_hardlink "$LW_MAIN" "Write" "$LW_MAIN/.claude/hatch-hardlink"
+
+# Code review of a14518d3e: the hatch must be a regular file, not a symlink.
+run_hook_with_symlinked_hatch() {
+  printf 'x\n' >"$WS/hatch-target"
+  ln -s "$WS/hatch-target" "$LW_MAIN/.claude/.allow-direct-edits"
+  run_hook "$@"
+  local rc=$?
+  rm -f "$LW_MAIN/.claude/.allow-direct-edits" "$WS/hatch-target"
+  return $rc
+}
+assert_red "SR-L-11: a symlinked hatch does not open main's apps/x.ts -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_with_symlinked_hatch "$LW_MAIN" "Write" "$LW_MAIN/apps/x.ts"
+
 guard_test_summary "test-pre-edit-write-zone-of-write.sh"

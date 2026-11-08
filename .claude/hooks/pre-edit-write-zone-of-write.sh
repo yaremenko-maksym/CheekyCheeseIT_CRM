@@ -50,7 +50,9 @@
 #      (gitignored; owner opt-out for emergency edits; a regular file, not a
 #      symlink). Judged on the TARGET's checkout — the nearest directory above
 #      the target holding a `.git` entry, found by lstat, not git — never on
-#      the cwd's (SR-L-11).
+#      the cwd's (SR-L-11). And it counts only when realpath(cwd) has the SAME
+#      checkout root by that walk (SR-L-12: a linked worktree that corrupted its
+#      own `.git` file must not borrow main's hatch).
 #
 # Remaining allows, exactly: a non-edit tool; an empty file_path; a target
 # outside apps/** and packages/** (raw and resolved); #0; #4. Never allowed,
@@ -254,15 +256,24 @@ esac
 # the NEAREST directory above the target holding a `.git` entry (lstat, no git:
 # git skips a corrupted nested `.git` and climbs to a parent that has a hatch).
 # Empty RESOLVED (python failed) means no hatch: fail closed.
+# SR-L-12: the cwd's checkout root, found the same way from realpath(cwd), must
+# equal the target's. Else a linked worktree that corrupted its own `.git` (git
+# then sees no checkout, so the check above gives no verdict) used main's hatch.
+checkout_root() {
+  local d=$1
+  while [ ! -d "$d" ] && [ "$d" != "/" ]; do d=$(dirname "$d"); done
+  while [ "$d" != "/" ] && [ ! -e "$d/.git" ] && [ ! -L "$d/.git" ]; do d=$(dirname "$d"); done
+  [ "$d" != "/" ] && printf '%s' "$d"
+}
 TARGET_ROOT=""
+CWD_ROOT=""
 if [ -n "$RESOLVED" ]; then
-  TARGET_DIR=$RESOLVED
-  while [ ! -d "$TARGET_DIR" ] && [ "$TARGET_DIR" != "/" ]; do TARGET_DIR=$(dirname "$TARGET_DIR"); done
-  while [ "$TARGET_DIR" != "/" ] && [ ! -e "$TARGET_DIR/.git" ] && [ ! -L "$TARGET_DIR/.git" ]; do TARGET_DIR=$(dirname "$TARGET_DIR"); done
-  [ "$TARGET_DIR" != "/" ] && TARGET_ROOT=$TARGET_DIR
+  TARGET_ROOT=$(checkout_root "$RESOLVED")
+  REAL_CWD=$(python3 -c 'import os,sys; sys.stdout.buffer.write(os.path.realpath(sys.argv[1]).encode("utf-8", "surrogateescape"))' "$PWD" 2>/dev/null || true)
+  [ -n "$REAL_CWD" ] && CWD_ROOT=$(checkout_root "$REAL_CWD")
 fi
 HATCH="$TARGET_ROOT/.claude/.allow-direct-edits"
-if [ -n "$TARGET_ROOT" ] && [ -f "$HATCH" ] && [ ! -L "$HATCH" ]; then
+if [ -n "$TARGET_ROOT" ] && [ "$CWD_ROOT" = "$TARGET_ROOT" ] && [ -f "$HATCH" ] && [ ! -L "$HATCH" ]; then
   exit 0
 fi
 
