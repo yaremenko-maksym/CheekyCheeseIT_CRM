@@ -53,6 +53,13 @@ Each entry reads `trigger → skill · agents it applies to`.
 - Pre-feature design direction (Mode A) → `frontend-design-direction` · ui-ux-designer
 - Driving Claude Design for a UI task / handoff artifact (design-gate Tier 1/2) → `claude-design-workflow` · Master, ui-ux-designer
 - Read-only breadth-first audit of ≥3 independent modules → `codebase-audit` · Master
+- You write or edit a Playwright `.spec.ts` (strict mode / Radix / retries / testids) → `playwright-patterns` · Coder, AutoTest
+- You formulate a Verdict / post a review → `code-review-discipline` · code-reviewer, security-reviewer
+- Long-running op / MCP call > 5s / silent termination / cross-session wait → `dev-flow-resilience` · Coder, Reviewer, Master
+- Legal mode A / B / C on FOP / Diia City / CFC / banking caps → `ua-tax-compliance` · Legal
+- Legal mode A / B on USDT / VASP / AML → `ua-crypto-compliance` · Legal
+- Legal mode A / B on IT contract review (SENIOR / client) → `ua-it-contract` · Legal
+- Legal escalation: when to involve an external lawyer → `legal-escalation-patterns` · Legal
 
 ## Project-local skills catalog
 
