@@ -24,10 +24,11 @@
 #   production zone gating):
 #
 # Allow conditions (any one):
-#   0. the target resolves inside a linked git worktree (git-dir !=
-#      git-common-dir) — and, when cwd itself is a linked worktree, inside
-#      THAT worktree (else FM-2 refusal). Covers T3 worktrees and Master
-#      light-track edits made from the main checkout into a worktree.
+#   0. cwd is itself inside a linked git worktree (git-dir != git-common-dir
+#      AND `<toplevel>/.git` is a regular file) and the realpath-resolved
+#      target is inside THAT worktree (else FM-2 refusal). Covers T3
+#      worktrees. A main-checkout session writing into a linked worktree is
+#      NOT allowed here; it falls through to #1-#4.
 #   1. cwd contains `/.claude/worktrees/` (primary path — Coder/AutoTest
 #      subagent worktree; this is how PM dispatches isolated work).
 #   2. cwd starts with /tmp/ AND git branch matches `coder/*|feature/*|
@@ -43,6 +44,10 @@
 # from PM/Architect/Legal sessions.
 
 set -u
+
+# SR-M-1: an inherited GIT_DIR / GIT_COMMON_DIR / GIT_WORK_TREE would steer every
+# git call below (and make the main checkout look linked). Judge by cwd only.
+for _v in $(compgen -e); do [[ $_v == GIT_* ]] && unset "$_v"; done
 
 INPUT=$(cat)
 
@@ -73,9 +78,11 @@ elif [[ "$FILE_PATH" =~ ^[A-Za-z]:(.+)$ ]]; then
   FILE_PATH="${BASH_REMATCH[1]}"
 fi
 
-# Fast exit: file path is not in production zones.
+# Fast exit: file path is not in production zones — judged on the raw path AND
+# on the resolved one (~, cwd, `..`, symlinks of the existing prefix; SR-L-1).
 # Case-insensitive: Windows and macOS accept Apps/x as the same path as apps/x.
-if ! echo "$FILE_PATH" | grep -qiE '(^|/)(apps|packages)/'; then
+RESOLVED=$(python3 -c 'import os,sys; print(os.path.realpath(os.path.join(sys.argv[1], os.path.expanduser(sys.argv[2]))))' "$PWD" "$FILE_PATH" 2>/dev/null || true)
+if ! printf '%s\n%s\n' "$FILE_PATH" "$RESOLVED" | grep -qiE '(^|/)(apps|packages)/'; then
   exit 0
 fi
 
@@ -118,15 +125,18 @@ fi
 
 # Linked git worktrees (2026-11-08). The string check above knows only
 # /.claude/worktrees/, so a T3 worktree (~/.t3/worktrees/<project>/t3-xxxx) was
-# refused in its OWN tree, and a main-checkout session was refused when its
-# target lay inside a linked worktree. The gate protects the MAIN checkout, so
-# it is decided by git and by the resolved TARGET:
+# refused in its OWN tree. The gate protects the MAIN checkout, so it is
+# decided by git (GIT_* stripped above) and by the resolved TARGET:
 #   * cwd is a linked worktree -> the target must resolve inside it, else FM-2;
-#   * otherwise, a target that resolves inside a linked worktree -> allow;
 #   * anything else (main checkout, nested repo, no repo, error) -> fall through.
+# A main-checkout session is never allowed into a linked worktree here (SR-M-3:
+# a non-isolated reviewer would otherwise edit a live coder's tree).
+# "Linked" also needs `<toplevel>/.git` to be a regular FILE (SR-M-2): Write can
+# plant `<main>/.git/commondir`, but cannot turn the `.git` directory into a file.
 # realpath resolves `..` and symlinks of the existing prefix (a new file is
 # judged by its nearest existing parent). Any failure prints nothing and falls
 # through to the old rules, which end in a refusal.
+# SR-L-3 accepted: a symlink swapped between this check and the write (needs Bash) is not caught.
 LW_VERDICT=$(python3 - "$PWD" "$FILE_PATH" <<'PY' 2>/dev/null || true
 import os, subprocess, sys
 cwd, target = sys.argv[1], sys.argv[2]
@@ -146,19 +156,18 @@ def checkout(path):
     if r.returncode != 0 or len(lines) != 3 or not all(lines):
         return None
     top, git_dir, common_dir = (os.path.realpath(x) for x in lines)
-    return top, git_dir != common_dir
+    return top, git_dir != common_dir and os.path.isfile(os.path.join(top, '.git'))
 
 def inside(p, root):
     return p == root or p.startswith(root + os.sep)
 
 real_cwd = os.path.realpath(cwd)
-t = os.path.realpath(os.path.join(real_cwd, target))
+t = os.path.realpath(os.path.join(real_cwd, os.path.expanduser(target)))
 c = checkout(real_cwd)
 if c and c[1]:
     print('ALLOW' if inside(t, c[0]) else 'FM2 ' + c[0])
 else:
-    tc = checkout(t)
-    print('ALLOW' if tc and tc[1] and inside(t, tc[0]) else 'NONE')
+    print('NONE')
 PY
 )
 case "$LW_VERDICT" in

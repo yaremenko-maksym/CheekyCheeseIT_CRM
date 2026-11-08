@@ -47,7 +47,7 @@ Each entry below is one zone row: **may** / **may NOT**.
 
 - may: `.claude/tasks/`, `.claude/briefs/`, `docs/business/` (when resolving blockers), `.claude/agents/memory/<agent>/lessons.md` (append), `scripts/pm/**`
 - may NOT: `apps/**`, `packages/**`, `apps/e2e/**`, `.github/workflows/**`, `.claude/agents/<X>.md` (except memory)
-- exception: a light-track edit (`light-track.md`) of `apps/**` / `packages/**`, made inside a linked git worktree
+- exception: a light-track edit (`light-track.md`) of `apps/**` / `packages/**`, made from a session whose cwd is a linked git worktree, into that same worktree
 
 **Architect**
 
@@ -81,9 +81,11 @@ Each entry below is one zone row: **may** / **may NOT**.
 ### Active hook
 
 `.claude/hooks/pre-edit-write-zone-of-write.sh` (id `pre:edit-write:zone-of-write`) refuses `Edit` /
-`Write` / `MultiEdit` / `NotebookEdit` in `apps/**` / `packages/**` of the MAIN checkout. It allows a
-target that resolves (after `..` and symlinks) inside a linked git worktree, from any cwd; a session
-whose cwd is a linked worktree may write only inside that worktree (FM-2).
+`Write` / `MultiEdit` / `NotebookEdit` in `apps/**` / `packages/**` of the MAIN checkout. The zone is
+judged on the raw path and on the resolved one (`~`, `..`, symlinks of the existing prefix). A session
+whose cwd is a linked git worktree (its `.git` is a file; inherited `GIT_*` variables are ignored) may
+write only a target that resolves inside that worktree (FM-2). A main-checkout session is not allowed
+into any linked worktree.
 
 ### Worktree caveat
 
@@ -91,8 +93,9 @@ In a worktree the block is lifted — the Coder _technically_ can overwrite anyt
 
 ### Verify MAIN is clean after each Coder (MANDATORY)
 
-The zone hook does NOT catch a Coder that writes into MAIN by an absolute path, so Master MUST, after EACH finished
-Coder, verify that the MAIN checkout is clean:
+The zone hook refuses a worktree session that writes into MAIN; only the legacy `/tmp` + agent-branch
+heuristic (allow #2) still lets such a write through, and Bash is not gated at all. So Master MUST,
+after EACH finished Coder, verify that the MAIN checkout is clean:
 
 ```bash
 git -C <main-repo> status --porcelain apps/ packages/   # empty = OK; lines present = contamination, roll back

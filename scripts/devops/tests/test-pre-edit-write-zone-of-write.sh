@@ -240,8 +240,9 @@ assert_green "linked worktree writing a NEW file in a new directory of its own t
   --not-contains "BLOCK" \
   -- run_hook "$LW_A" "Write" "$LW_A/packages/new-pkg/src/index.ts"
 
-assert_green "main-checkout session editing a file inside a linked worktree -> allow" \
-  --not-contains "BLOCK" \
+assert_red "SR-M-3: main-checkout session editing a file inside a linked worktree -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
   -- run_hook "$LW_MAIN" "Edit" "$LW_A/apps/api/src/main.ts"
 
 assert_green "linked worktree editing a non-production path -> allow" \
@@ -287,5 +288,54 @@ assert_red "a nested independent repo is a main checkout, not a worktree -> BLOC
   --contains '"decision": "block"' \
   --contains "PRODUCTION-EDIT BLOCK" \
   -- run_hook "$LW_MAIN" "Write" "$LW_MAIN/vendor/nested/apps/x.ts"
+
+# ── security review of PR #1297: forged git state must not become an allow ─────
+# SR-M-1: an inherited GIT_DIR pointing at a worktree's gitdir made the main
+# checkout look linked (git-dir != common-dir, toplevel = cwd).
+run_hook_with_git_dir() { GIT_DIR="$1" run_hook "${@:2}"; }
+assert_red "SR-M-1: inherited GIT_DIR cannot make the main checkout look like a linked worktree" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_with_git_dir "$LW_MAIN/.git/worktrees/t3-aaaa" "$LW_MAIN" "Edit" "$LW_MAIN/apps/api/src/main.ts"
+
+# SR-M-2: Write can plant <main>/.git/commondir (no apps/ in that path), after
+# which git reports a common dir != git dir for the MAIN checkout.
+run_hook_with_forged_commondir() {
+  mkdir -p "$WS/fake-common/objects" "$WS/fake-common/refs"
+  printf '%s\n' "$WS/fake-common" >"$LW_MAIN/.git/commondir"
+  run_hook "$@"
+  local rc=$?
+  rm -f "$LW_MAIN/.git/commondir"
+  return $rc
+}
+assert_red "SR-M-2: a forged .git/commondir in the main checkout is not a linked worktree" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_with_forged_commondir "$LW_MAIN" "Edit" "$LW_MAIN/apps/api/src/main.ts"
+
+# SR-L-1: the production-zone check must see the RESOLVED target, not only the raw string.
+ln -s "$LW_MAIN/apps" "$LW_A/lnk"
+assert_red "SR-L-1: a symlink with no apps/ in its raw path, from a linked worktree into main -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$LW_A" "Edit" "lnk/api/src/main.ts"
+
+assert_red "SR-L-1: the same symlink, from the main checkout -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$LW_MAIN" "Edit" "$LW_A/lnk/api/src/main.ts"
+
+assert_red "SR-L-1: a relative path from a cwd inside main's apps/ -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$LW_MAIN/apps/api" "Edit" "src/main.ts"
+
+# SR-L-2: a raw ~/ path is the home directory, not a directory named ~ in the worktree.
+run_hook_with_home() { HOME="$1" run_hook "${@:2}"; }
+mkdir -p "$WS/home"
+assert_red "SR-L-2: a ~/ path from a linked worktree resolves to HOME, outside it -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook_with_home "$WS/home" "$LW_A" "Edit" "~/apps/api/x.ts"
 
 guard_test_summary "test-pre-edit-write-zone-of-write.sh"

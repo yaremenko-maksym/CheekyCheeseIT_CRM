@@ -30,7 +30,7 @@ creep onto the security surface.
 
 ## Light-track mechanics
 
-1. Work in a linked git worktree (`.claude/worktrees/*`, a T3 worktree — a zone-hook allow path) or the escape hatch
+1. Work from a session whose cwd is a linked git worktree (`.claude/worktrees/*`, a T3 worktree — a zone-hook allow path for that worktree only) or the escape hatch
    `.claude/.allow-direct-edits` (gitignored) for emergencies.
 2. Changed `.ts`/`.tsx` → `mcp__eslint__lint-files` + `pnpm typecheck` before commit.
 3. If the diff has code — `pnpm --filter @crm/e2e test` locally before push.
