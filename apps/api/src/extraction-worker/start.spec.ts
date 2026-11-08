@@ -4,8 +4,28 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { EXTRACTION_TABLE_VERSION } from './schema'
+import type { RouterEvent } from '@crm/inference'
+import { EXTRACTION_TABLE_VERSION } from './link-contract'
 import { startWorker } from './start'
+
+/** The real self-heal, with its ledger input observed (CR-M-3). */
+const healed = vi.hoisted(() => ({ recorded: [] as unknown[] }))
+vi.mock('./self-heal', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./self-heal')>()
+  return {
+    ...actual,
+    scheduleSelfHeal: (opts: Parameters<typeof actual.scheduleSelfHeal>[0]) => {
+      const heal = actual.scheduleSelfHeal(opts)
+      return {
+        ...heal,
+        record: (e: RouterEvent) => {
+          healed.recorded.push(e)
+          heal.record(e)
+        },
+      }
+    },
+  }
+})
 
 const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
 const BEARER = { authorization: `Bearer ${SECRET}` }
@@ -45,6 +65,7 @@ function fakeProcess() {
 }
 
 const envOn = (port: number, extra: Record<string, string | undefined> = {}) => ({
+  INFERENCE_EXTRACTION_PROVIDER: 'router',
   EXTRACTION_WORKER_SECRET: SECRET,
   EXTRACTION_ROUTER_CONFIG: '{"routes":[]}',
   EXTRACTION_ROUTER_STATE_FILE: join(mkdtempSync(join(tmpdir(), 'xw-start-')), 'state.json'),
@@ -78,6 +99,16 @@ describe('startWorker — a bad secret means exit 1 and no listener', () => {
     expect(fake.exits).toEqual([1])
     expect(fake.err).toEqual(['extraction-worker: refusing to start, bad SECRET\n'])
     expect(fake.out).toEqual([])
+    expect(await listening(port)).toBe('REFUSED')
+  })
+
+  it('a selector other than router is exit 1 by key, no listener', async () => {
+    const port = await freePort()
+    const fake = fakeProcess()
+    const env = envOn(port, { INFERENCE_EXTRACTION_PROVIDER: 'openrouter' })
+    expect(await startWorker(env, fake.proc)).toBeUndefined()
+    expect(fake.exits).toEqual([1])
+    expect(fake.err).toEqual(['extraction-worker: refusing to start, bad PROVIDER\n'])
     expect(await listening(port)).toBe('REFUSED')
   })
 })
@@ -162,25 +193,9 @@ describe('startWorker — what it wires up', () => {
     })
   })
 
-  it('/extract spends the own cap on the hosted route, then the floor; /preflight is local only', async () => {
-    const hostnames: string[] = []
-    // The router's bounded request goes through the global fetch: nothing leaves this process.
-    vi.stubGlobal('fetch', (url: string) => {
-      hostnames.push(new URL(url).hostname)
-      return Promise.resolve(new Response('{}', { status: 500 }))
-    })
-    const local = {
-      provider: 'local',
-      baseUrl: 'http://crm-model-runtime:11434',
-      model: 'qwen2.5:3b',
-      contextTokens: 8192,
-      structuredOutput: 'json_schema',
-      timeoutMs: 1000,
-      maxAnswerTokens: 512,
-    }
-    const hosted = {
+  describe('one start line names the hosted routes present and absent (AC12)', () => {
+    const groq = {
       provider: 'groq',
-      apiKey: 'KEY-MARKER',
       models: ['openai/gpt-oss-20b'],
       contextTokens: 8192,
       structuredOutput: 'json_object',
@@ -189,25 +204,210 @@ describe('startWorker — what it wires up', () => {
       maxAnswerTokens: 512,
       freeLimit: { requestsPerDay: 100 },
     }
-    const { app } = await started({
+    const local = {
+      provider: 'local',
+      contextTokens: 8192,
+      structuredOutput: 'json_schema',
+      timeoutMs: 1000,
+      maxAnswerTokens: 512,
+    }
+    const env = {
+      EXTRACTION_ROUTER_CONFIG: JSON.stringify({
+        policyVersion: 'p1',
+        hostedBudgetMs: 5000,
+        floorBudgetMs: 60_000,
+        routes: [groq, local],
+      }),
+      ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
+      LOCAL_MODEL_NAME: 'qwen2.5:3b',
+    }
+    const routeLines = (out: string[]) =>
+      out.map((l) => JSON.parse(l) as { event: string }).filter((l) => l.event === 'HOSTED_ROUTES')
+
+    it('the key is there: the route is present, the unconfigured one absent, and no value is logged', async () => {
+      const { out } = await started({ ...env, GROQ_API_KEY: 'KEY-MARKER' })
+      expect(routeLines(out)).toEqual([
+        { event: 'HOSTED_ROUTES', present: ['groq'], absent: ['gemini'] },
+      ])
+      expect(out.join('')).not.toContain('KEY-MARKER')
+      expect(out.join('')).not.toContain('crm-model-runtime')
+    })
+
+    it('a typo in the key name drops the route: the line shows it absent', async () => {
+      const { out } = await started({ ...env, GROQ_API_KEYS: 'KEY-MARKER' })
+      expect(routeLines(out)).toEqual([
+        { event: 'HOSTED_ROUTES', present: [], absent: ['gemini', 'groq'] },
+      ])
+    })
+
+    it('a config the router refuses has no route present, even one it names', async () => {
+      const { out } = await started({
+        EXTRACTION_ROUTER_CONFIG: JSON.stringify({ routes: [{ provider: 'groq' }] }),
+        GROQ_API_KEY: 'KEY-MARKER',
+      })
+      expect(routeLines(out)).toEqual([
+        { event: 'HOSTED_ROUTES', present: [], absent: ['gemini', 'groq'] },
+      ])
+    })
+  })
+
+  it('/extract spends the own cap on the hosted route, then the floor; /preflight is local only', async () => {
+    const hostnames: string[] = []
+    // The router's bounded request goes through the global fetch: nothing leaves this process.
+    vi.stubGlobal('fetch', (url: string) => {
+      hostnames.push(new URL(url).hostname)
+      return Promise.resolve(new Response('{}', { status: 500 }))
+    })
+    // Route parameters only: the key, the local URL and the local model come from env (ADR §2.4).
+    const local = {
+      provider: 'local',
+      contextTokens: 8192,
+      structuredOutput: 'json_schema',
+      timeoutMs: 1000,
+      maxAnswerTokens: 512,
+    }
+    const hosted = {
+      provider: 'groq',
+      models: ['openai/gpt-oss-20b'],
+      contextTokens: 8192,
+      structuredOutput: 'json_object',
+      minGapMs: 0,
+      timeoutMs: 1000,
+      maxAnswerTokens: 512,
+      freeLimit: { requestsPerDay: 100 },
+    }
+    const { app, out } = await started({
       EXTRACTION_ROUTER_CONFIG: JSON.stringify({
         policyVersion: 'p1',
         hostedBudgetMs: 5000,
         floorBudgetMs: 60_000,
         routes: [hosted, local],
       }),
+      GROQ_API_KEY: 'KEY-MARKER',
+      ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
+      LOCAL_MODEL_NAME: 'qwen2.5:3b',
     })
 
+    const extract = await post(app, '/extract', {
+      input: 'INPUT-MARKER page text',
+      tableVersion: EXTRACTION_TABLE_VERSION,
+    })
+    const reply = extract.json<{ result: { code: string }; events: { type: string }[] }>()
+    expect(reply.result.code).toBe('PROVIDER_ERROR')
+    expect(hostnames).toEqual(['api.groq.com', 'crm-model-runtime'])
+    // The wired sink (§5.3): the fall to the floor reaches both the reply and the log.
+    expect(reply.events.map((e) => e.type)).toContain('FELL_TO_LOCAL')
+    const logged = out.map((l) => JSON.parse(l) as { event: string; type?: string })
+    expect(logged).toContainEqual(
+      expect.objectContaining({ event: 'ROUTER', type: 'FELL_TO_LOCAL' }),
+    )
+    // The capture (AC7): no key, secret or input text on stdout.
+    for (const marker of ['KEY-MARKER', SECRET, 'INPUT-MARKER']) {
+      expect(out.join('')).not.toContain(marker)
+      expect(extract.body).not.toContain(marker)
+    }
+
+    hostnames.length = 0
+    healed.recorded.length = 0
+    const preflight = await post(app, '/preflight', {})
+    expect(preflight.json<{ ok: boolean }>().ok).toBe(false)
+    expect(hostnames).toEqual(['crm-model-runtime'])
+    // The preflight is not a production call: it never feeds the OK ledger.
+    expect(healed.recorded).toEqual([])
+  })
+
+  it('every /extract router event feeds the self-heal OK ledger (CR-M-3, SPEC-M-1)', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve(new Response('{}', { status: 500 })))
+    healed.recorded.length = 0
+    const { app } = await started({
+      EXTRACTION_ROUTER_CONFIG: JSON.stringify({
+        policyVersion: 'p1',
+        hostedBudgetMs: 5000,
+        floorBudgetMs: 60_000,
+        routes: [
+          {
+            provider: 'groq',
+            models: ['openai/gpt-oss-20b'],
+            contextTokens: 8192,
+            structuredOutput: 'json_object',
+            minGapMs: 0,
+            timeoutMs: 1000,
+            maxAnswerTokens: 512,
+            freeLimit: { requestsPerDay: 100 },
+          },
+          {
+            provider: 'local',
+            contextTokens: 8192,
+            structuredOutput: 'json_schema',
+            timeoutMs: 1000,
+            maxAnswerTokens: 512,
+          },
+        ],
+      }),
+      GROQ_API_KEY: 'KEY-MARKER',
+      ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
+      LOCAL_MODEL_NAME: 'qwen2.5:3b',
+    })
     const extract = await post(app, '/extract', {
       input: 'x',
       tableVersion: EXTRACTION_TABLE_VERSION,
     })
-    expect(extract.json<{ result: { code: string } }>().result.code).toBe('PROVIDER_ERROR')
-    expect(hostnames).toEqual(['api.groq.com', 'crm-model-runtime'])
+    const events = extract.json<{ events: unknown[] }>().events
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'ATTEMPT', route: 'groq', model: 'openai/gpt-oss-20b' }),
+    )
+    expect(healed.recorded).toEqual(events)
+  })
 
-    hostnames.length = 0
-    const preflight = await post(app, '/preflight', {})
-    expect(preflight.json<{ ok: boolean }>().ok).toBe(false)
-    expect(hostnames).toEqual(['crm-model-runtime'])
+  it('the hosted route reads the managed-list file beside the state file (ADR §3.4)', async () => {
+    const models: unknown[] = []
+    vi.stubGlobal('fetch', (url: string, init?: { body?: string }) => {
+      if (new URL(url).hostname === 'api.groq.com') {
+        models.push((JSON.parse(init?.body ?? '{}') as { model?: unknown }).model)
+      }
+      return Promise.resolve(new Response('{}', { status: 500 }))
+    })
+    const dir = mkdtempSync(join(tmpdir(), 'xw-start-'))
+    writeFileSync(
+      join(dir, 'managed-models.json'),
+      JSON.stringify({ version: 1, providers: { groq: ['openai/gpt-oss-120b'] } }),
+    )
+    const { app, out } = await started({
+      EXTRACTION_ROUTER_STATE_FILE: join(dir, 'state.json'),
+      EXTRACTION_ROUTER_CONFIG: JSON.stringify({
+        policyVersion: 'p1',
+        hostedBudgetMs: 5000,
+        floorBudgetMs: 60_000,
+        routes: [
+          {
+            provider: 'groq',
+            models: ['openai/gpt-oss-20b'],
+            contextTokens: 8192,
+            structuredOutput: 'json_object',
+            minGapMs: 0,
+            timeoutMs: 1000,
+            maxAnswerTokens: 512,
+            freeLimit: { requestsPerDay: 100 },
+          },
+          {
+            provider: 'local',
+            contextTokens: 8192,
+            structuredOutput: 'json_schema',
+            timeoutMs: 1000,
+            maxAnswerTokens: 512,
+          },
+        ],
+      }),
+      GROQ_API_KEY: 'KEY-MARKER',
+      ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
+      LOCAL_MODEL_NAME: 'qwen2.5:3b',
+    })
+    await post(app, '/extract', { input: 'x', tableVersion: EXTRACTION_TABLE_VERSION })
+    expect(models[0]).toBe('openai/gpt-oss-120b')
+    // The start-up refresh ran with the state: no persisted AUTH, so nothing to clear.
+    const logged = out.map((l) => JSON.parse(l) as Record<string, unknown>)
+    expect(logged).toContainEqual(
+      expect.objectContaining({ event: 'REFRESH', job: 'startup', provider: 'groq' }),
+    )
   })
 })

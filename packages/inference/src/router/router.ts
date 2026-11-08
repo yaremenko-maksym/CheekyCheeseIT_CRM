@@ -8,8 +8,8 @@ import {
 } from '../contracts/extraction'
 import type { FetchLike } from '../http/bounded-request'
 import {
+  CLASSIFIED_CHAT_CODES,
   sendClassifiedChat,
-  type ClassifiedChatCode,
   type ClassifiedChatOutcome,
 } from '../internal/classified-chat'
 import { runExtraction } from '../internal/extraction-pipeline'
@@ -45,7 +45,13 @@ import {
 export const BUSY_BACKOFF_MS = 9_000
 
 /** Why an attempt ended: a leaf code, or a stop decided before any request was sent. */
-export type AttemptCode = ClassifiedChatCode | 'PROMPT_TOO_LARGE' | 'CAP' | 'BUDGET'
+export const ATTEMPT_CODES = [
+  ...CLASSIFIED_CHAT_CODES,
+  'PROMPT_TOO_LARGE',
+  'CAP',
+  'BUDGET',
+] as const
+export type AttemptCode = (typeof ATTEMPT_CODES)[number]
 /** Why a hosted route was not tried at all. */
 export type SkipCode = 'AUTH' | 'CREDIT' | 'FIT' | 'NO_MODEL'
 

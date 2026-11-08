@@ -16,17 +16,11 @@ interface Call {
   where: unknown
 }
 
-function makeDb(rows: {
-  obligation?: unknown
-  tx?: unknown
-  project?: unknown
-  users?: Record<string, unknown>
-}) {
+function makeDb(rows: { obligation?: unknown; tx?: unknown; project?: unknown }) {
   const calls = {
     obligation: [] as Call[],
     tx: [] as Call[],
     project: [] as Call[],
-    user: [] as Call[],
   }
   const db = {
     query: {
@@ -38,13 +32,6 @@ function makeDb(rows: {
       },
       projects: {
         findFirst: vi.fn(async (a: Call) => (calls.project.push(a), rows.project)),
-      },
-      users: {
-        findFirst: vi.fn(async (a: Call) => {
-          calls.user.push(a)
-          const id = compiled(a.where).params[0] as string
-          return rows.users?.[id]
-        }),
       },
     },
   }
@@ -148,22 +135,48 @@ describe('denormalise', () => {
     ...over,
   })
 
+  /** A filter-honouring double: returns only rows whose id is in the compiled `inArray`, in store order. */
+  function makeBatchDb(store: {
+    users?: Array<{ id: string; displayName: string }>
+    txs?: Array<{ id: string; projectId: string | null }>
+    projects?: Array<{ id: string; name: string }>
+  }) {
+    const table = <T extends { id: string }>(stored: T[] = []) =>
+      vi.fn(async ({ where }: Call) => {
+        const ids = compiled(where).params
+        return stored.filter((r) => ids.includes(r.id))
+      })
+    const users = table(store.users)
+    const txs = table(store.txs)
+    const projects = table(store.projects)
+    const db = {
+      query: {
+        users: { findMany: users },
+        transactions: { findMany: txs },
+        projects: { findMany: projects },
+      },
+    } as unknown as Db
+    return { db, users, txs, projects }
+  }
+
+  const argOf = (fn: ReturnType<typeof vi.fn>) => compiled((fn.mock.calls[0]![0] as Call).where)
+
   it('joins senior / debtor / project names and ISO-formats createdAt', async () => {
-    const { db, calls } = makeDb({
-      users: { 'u-sen': { displayName: 'Senior' }, 'u-deb': { displayName: 'Debtor' } },
-      tx: { projectId: 'p-1' },
-      project: { id: 'p-1', name: 'Proj' },
+    const { db, users, txs, projects } = makeBatchDb({
+      users: [
+        { id: 'u-sen', displayName: 'Senior' },
+        { id: 'u-deb', displayName: 'Debtor' },
+      ],
+      txs: [{ id: 'tx-1', projectId: 'p-1' }],
+      projects: [{ id: 'p-1', name: 'Proj' }],
     })
     const out = await denormalise(db, [row({ debtorType: 'DROP', debtorUserId: 'u-deb' })])
-    expect(compiled(calls.tx[0]!.where)).toMatchObject({
-      sql: '"transactions"."id" = $1',
-      params: ['tx-1'],
+    expect(argOf(users)).toMatchObject({
+      sql: '"users"."id" in ($1, $2)',
+      params: ['u-sen', 'u-deb'],
     })
-    expect(compiled(calls.project[0]!.where)).toMatchObject({
-      sql: '"projects"."id" = $1',
-      params: ['p-1'],
-    })
-    expect(calls.user.map((c) => compiled(c.where).params[0])).toEqual(['u-sen', 'u-deb'])
+    expect(argOf(txs)).toMatchObject({ sql: '"transactions"."id" in ($1)', params: ['tx-1'] })
+    expect(argOf(projects)).toMatchObject({ sql: '"projects"."id" in ($1)', params: ['p-1'] })
     expect(out).toEqual([
       {
         obligationId: 'ob-1',
@@ -182,23 +195,109 @@ describe('denormalise', () => {
     ])
   })
 
-  it('falls back: no debtor user, missing senior → "—", no source project → nulls', async () => {
-    const { db, calls } = makeDb({ users: {}, tx: undefined })
+  it('issues one query per table regardless of row count, with de-duplicated ids', async () => {
+    const { db, users, txs, projects } = makeBatchDb({
+      users: [
+        { id: 'u-sen', displayName: 'Senior' },
+        { id: 'u-deb', displayName: 'Debtor' },
+      ],
+      txs: [
+        { id: 'tx-1', projectId: 'p-1' },
+        { id: 'tx-2', projectId: 'p-1' },
+      ],
+      projects: [{ id: 'p-1', name: 'Proj' }],
+    })
+    await denormalise(db, [
+      row({ id: 'a', debtorUserId: 'u-deb' }),
+      row({ id: 'b', debtorUserId: 'u-deb', sourceTransactionId: 'tx-2' }),
+      row({ id: 'c', sourceTransactionId: 'tx-2' }),
+    ])
+    expect(users).toHaveBeenCalledTimes(1)
+    expect(txs).toHaveBeenCalledTimes(1)
+    expect(projects).toHaveBeenCalledTimes(1)
+    expect(argOf(users).params).toEqual(['u-sen', 'u-deb'])
+    expect(argOf(txs).params).toEqual(['tx-1', 'tx-2'])
+    expect(argOf(projects).params).toEqual(['p-1'])
+  })
+
+  it('never binds a null debtor id into the users query', async () => {
+    const { db, users } = makeBatchDb({ users: [{ id: 'u-sen', displayName: 'Senior' }] })
+    const out = await denormalise(db, [row()])
+    expect(argOf(users).params).toEqual(['u-sen'])
+    expect(out[0]).toMatchObject({ debtorUserId: null, debtorName: null, seniorName: 'Senior' })
+  })
+
+  it('falls back when the creditor and debtor users are missing, keeping the raw ids', async () => {
+    const { db } = makeBatchDb({ txs: [{ id: 'tx-1', projectId: null }] })
+    const out = await denormalise(db, [row({ debtorType: 'DROP', debtorUserId: 'u-gone' })])
+    expect(out[0]).toMatchObject({
+      seniorId: 'u-sen',
+      seniorName: '—',
+      debtorUserId: 'u-gone',
+      debtorName: null,
+    })
+  })
+
+  it('yields null project fields and skips the projects query when the source tx is missing', async () => {
+    const { db, projects } = makeBatchDb({ users: [{ id: 'u-sen', displayName: 'Senior' }] })
     const out = await denormalise(db, [row()])
     expect(out[0]).toMatchObject({
-      debtorName: null,
-      seniorName: '—',
+      sourceTransactionId: 'tx-1',
       projectId: null,
       projectName: null,
     })
-    expect(calls.user).toHaveLength(1)
-    expect(calls.project).toHaveLength(0)
+    expect(projects).not.toHaveBeenCalled()
   })
 
-  it('returns [] for no rows and preserves row order', async () => {
-    const { db } = makeDb({ users: {} })
+  it('skips the projects query when no source tx has a projectId', async () => {
+    const { db, projects } = makeBatchDb({ txs: [{ id: 'tx-1', projectId: null }] })
+    const out = await denormalise(db, [row()])
+    expect(out[0]).toMatchObject({ projectId: null, projectName: null })
+    expect(projects).not.toHaveBeenCalled()
+  })
+
+  it('yields null project fields when the project row is missing', async () => {
+    const { db, projects } = makeBatchDb({ txs: [{ id: 'tx-1', projectId: 'p-gone' }] })
+    const out = await denormalise(db, [row()])
+    expect(out[0]).toMatchObject({ projectId: null, projectName: null })
+    expect(argOf(projects).params).toEqual(['p-gone'])
+  })
+
+  it('returns [] and issues no query for no rows', async () => {
+    const { db, users, txs, projects } = makeBatchDb({})
     expect(await denormalise(db, [])).toEqual([])
-    const out = await denormalise(db, [row({ id: 'a' }), row({ id: 'b' })])
-    expect(out.map((r) => r.obligationId)).toEqual(['a', 'b'])
+    expect(users).not.toHaveBeenCalled()
+    expect(txs).not.toHaveBeenCalled()
+    expect(projects).not.toHaveBeenCalled()
+  })
+
+  it('keeps input order and per-row attribution when the database returns another order', async () => {
+    const { db } = makeBatchDb({
+      users: [
+        { id: 'u-2', displayName: 'Second' },
+        { id: 'u-1', displayName: 'First' },
+      ],
+      txs: [
+        { id: 'tx-3', projectId: null },
+        { id: 'tx-2', projectId: 'p-2' },
+        { id: 'tx-1', projectId: 'p-1' },
+      ],
+      projects: [
+        { id: 'p-2', name: 'Two' },
+        { id: 'p-1', name: 'One' },
+      ],
+    })
+    const out = await denormalise(db, [
+      row({ id: 'a', creditorUserId: 'u-1', debtorUserId: 'u-2', sourceTransactionId: 'tx-1' }),
+      row({ id: 'b', creditorUserId: 'u-2', debtorUserId: 'u-1', sourceTransactionId: 'tx-2' }),
+      row({ id: 'c', creditorUserId: 'u-1', sourceTransactionId: 'tx-3' }),
+    ])
+    expect(
+      out.map((r) => [r.obligationId, r.seniorName, r.debtorName, r.projectId, r.projectName]),
+    ).toEqual([
+      ['a', 'First', 'Second', 'p-1', 'One'],
+      ['b', 'Second', 'First', 'p-2', 'Two'],
+      ['c', 'First', null, null, null],
+    ])
   })
 })

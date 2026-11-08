@@ -11,6 +11,9 @@ Each agent has its own `lessons.md` — accumulated lessons from past tasks.
 ├── autotest/lessons.md
 ├── reviewer/lessons.md
 ├── devops/lessons.md
+├── legal/lessons.md
+├── manual-qa/lessons.md
+├── ui-ux-designer/lessons.md
 └── pm/lessons.md       (orchestrator lessons; PM role merged into Master 2026-10-05; NO archive files)
 ```
 
@@ -24,7 +27,7 @@ Each agent reads its own `lessons.md` at startup — it is part of the mandatory
 
 **Trigger-based** (User answer #5 — skill-driven via `anthropic-skills:consolidate-memory`):
 
-After each **merged PR** PM MUST:
+After each **merged PR** Master MUST:
 
 1. Append 1-3 lessons to `.claude/agents/memory/<agent>/lessons.md` of the corresponding agent (the one who did the main work).
 2. Consolidate when reaching the threshold (`lessons.md` ≥ **20 lines** OR after a batch of merged PRs): dedup / simplify / extract patterns → promote-and-prune (**without an archive**):
@@ -33,7 +36,7 @@ After each **merged PR** PM MUST:
 - **P1** → consolidate into `rules/common/<topic>.md` (if cross-agent) or `<agent>.md` (if agent-specific).
 - **The rest (one-off / absorbed by a promote)** → **delete** (do not archive; history is in git).
 
-> This is a separate PM operation over the in-repo `lessons.md`, NOT the skill `anthropic-skills:consolidate-memory` (that one dedups the personal user memory `~/.claude`).
+> This is a separate Master operation over the in-repo `lessons.md`, NOT the skill `anthropic-skills:consolidate-memory` (that one dedups the personal user memory `~/.claude`).
 
 This is the "levelling-up" of a lesson: a personal case → a general rule → an enforced rule.
 
@@ -82,8 +85,8 @@ Examples of **bad** lessons (do not write):
 1. **One lesson = one line.** Do not spread it over a paragraph.
 2. **Concreteness.** "Layout regression because of X" is better than "be careful with layout".
 3. **Applicability.** The lesson should help the next agent in a similar situation.
-4. **Limit.** The active `lessons.md` ≤ 20 lines. Reached it — PM consolidates (promote-and-prune, see "When to write").
+4. **Limit.** The active `lessons.md` ≤ 20 lines. Reached it — Master consolidates (promote-and-prune, see "When to write").
 
 ## Where this file used to live
 
-The old version (before the 2026-06-02 refactor) described threshold-based rotation (30 lines). It did not work — lessons were under-recorded (see `architect-audit.md` §4.5). The new version is trigger-based + skill-driven (PM invokes the skill after a merged PR at the 20-line threshold).
+The old version (before the 2026-06-02 refactor) described threshold-based rotation (30 lines). It did not work — lessons were under-recorded (see `architect-audit.md` §4.5). The new version is trigger-based + skill-driven (Master invokes the skill after a merged PR at the 20-line threshold).

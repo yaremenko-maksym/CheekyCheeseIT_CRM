@@ -37,6 +37,43 @@ tier may train on or human-review prompts are accepted; OpenRouter is not in the
     `error.status`, never `details`); `RETIRED` takes `error.code` `model_not_found` or the requested id in `error.message`
     as a whole token (§5.1).
 
+**Amendment, 2026-11-06 (what shipped; A1, by the architect; source: the merged code of 5.4c-1, 5.4c-2, 5.4c-2b, 5.4c-6,
+5.4c-W, W-ops and 5.4c-3).** No owner decision changes. Where this ADR and the code disagreed, the code is what shipped and
+the sections are corrected in place; the shipped limits are listed in
+`docs/architecture/2026-11-04-extraction-provider-facts.md`.
+
+1. **`busyDead` is a new state record (§3.2, §3.4).** A Gemini model dropped for three busy days is stamped with its day.
+   The refresh keeps it off the list and out of the candidates until `isBusyDeadReprobeDue`, seven days later. The record
+   cap is `MAX_BUSY_DEAD_ENTRIES` (50), keeping the newest: dropping the oldest returns that id to the queue and restarts its
+   count. A smaller cap would let six always-busy ids starve a good candidate.
+2. **A re-probe settles the stamp (§3.4).** A held model that answers alive loses the stamp and starts probation at streak 0;
+   any other answer stamps it again, with verdict `dead`.
+3. **The rest of the non-alive candidates rest too (§3.4).** `restNonAlive` stamps every model that answered non-alive,
+   apart from a busy 429 (the three-day count owns it), when it is not on the list the run serves. Its probation record goes.
+   A listed entry answering 404 that leaves while another entry survives rests as well; a transient or unknown entry still
+   on the list stays unstamped. When nothing survives, the file keeps its list and nothing listed rests.
+4. **`MIN_MANAGED_CONTEXT` is a fixed 16 000 (§3.4).** The relation to the local chunk size is intended, not enforced: nothing
+   derives or checks it, and the `shortcut:` comment on the constant still waits on 5.4c-6, which has landed.
+5. **Pinned ids have no eviction protection (§3.4).** A promotion at a full list pushes the tail entry off, pinned or not.
+   A pinned id gets no probation record, so it cannot re-promote through the refresh and returns only as a tail candidate;
+   the reader treats it as promoted while listed.
+6. **Record cap 11 (§3.2).** `MAX_MODEL_RECORDS` is `MANAGED_LIST_TARGET` (5) plus `PROBE_CAP` (6), for probation and busy
+   records per provider. Off-list records go first; the `shortcut:` comment on the constant records that more than `PROBE_CAP`
+   unprobed off-list records still lose the oldest, restarting its promotion or busy count.
+7. **The worker secret has a floor on both ends (§2.4).** At least `MIN_WORKER_SECRET_CHARS` (32) characters and
+   `MIN_WORKER_SECRET_DISTINCT_CHARS` (8) distinct ones; `isUsableWorkerSecret` is the single rule.
+8. **The extraction-worker adapter keeps error codes apart (§2.4).** A caller's abort stays `TIMEOUT`; the adapter's own timer,
+   a non-2xx reply, a transport failure, a malformed envelope and data failing the caller's schema are `PROVIDER_ERROR`. A code
+   the worker sends passes unchanged for `NOT_CONFIGURED`, `PROVIDER_ERROR`, `INVALID_OUTPUT` and `TIMEOUT`; `RATE_LIMITED`
+   becomes `PROVIDER_ERROR`.
+9. **State-file rejection is per record for the spent and retired lists (§6.1, SPEC-L-2 of 5.4c-2b).** See §6.1.
+10. **Only the busy 429 counts toward `dead` (§6.1, SPEC-L-1 of 5.4c-2b).** A 503 is `transient` and ends a run; §3.4 and §6.1 now
+    say so.
+11. **The start-up refresh can send no probe (§3.2, SPEC-L-10 and SR-L-24 of 5.4c-2b).** When every id on the list is held,
+    no candidate is eligible, the outcome is failed with `NOTHING_SURVIVED`, and the `AUTH` bit stays until a due re-probe. This
+    fails closed; the seven-day rule stays.
+12. **The §5.3 signals get new tables, and the 5.5b task owns the first call site (§7.2).**
+
 ## Context
 
 The owner decided on 2026-10-18 that vacancy extraction runs on Gemini, Groq, OpenRouter and the local model: a
@@ -252,7 +289,8 @@ Designed twice (SR-H-46):
 - **Network.** A dedicated internal network holding only the two workers, separate from the runtime network, with no published
   port. The collection worker never joins the runtime network; the browser container never joins this one.
 - **Authentication.** Every call carries `EXTRACTION_WORKER_SECRET`, held only by these two workers and compared in constant
-  time. A missing or wrong secret is refused and reaches no route; a worker without one does not start. Both workers read
+  time. A missing or wrong secret is refused and reaches no route; a worker without one does not start. One rule binds both
+  ends, `isUsableWorkerSecret`: at least 32 characters, at least 8 of them distinct. Both workers read
   their own owner-created `0600` env files, never `.env.production`: the API loads that file through `env_file`, and the
   `write-env` deploy job writes it.
 - **Data only, strict schema.** `extract` takes the bounded delimited input from `buildExtractionPrompt` and a table version;
@@ -264,8 +302,10 @@ Designed twice (SR-H-46):
 - **Second strip.** The extraction worker passes the input through `stripContacts` before any route. On an honest call that
   changes nothing; a non-zero count raises an event, with no text.
 - **Reply.** Answer, `usage`, events and health flags (§5.3), recorded on the DB side. The collection side keeps treating the
-  reply as untrusted, and the guard stays there. Closing the connection is the abort. The adapter maps any refused or failed
-  call to `PROVIDER_ERROR`, which §5.4 keeps owed.
+  reply as untrusted, and the guard stays there. Closing the connection is the abort. The adapter keeps a caller's abort as
+  `TIMEOUT`. Its own timer, a non-2xx reply, a transport failure, a malformed envelope and data failing the caller's schema are
+  `PROVIDER_ERROR`. §5.4 keeps a record owed on both. A code the worker sends passes unchanged, except `RATE_LIMITED`, which
+  becomes `PROVIDER_ERROR`.
 
 **If the collection worker itself is compromised (code execution), this much holds and this much does not:**
 
@@ -331,9 +371,10 @@ touching the router if a second replica appears. Owner decision D4 (A2), narrowe
     the refresh (§3.4), so a hand-edited or corrupted file cannot smuggle in an id the refresh would have refused;
   - `code` is an enum of the internal codes, `status` an integer 100–599, timestamps ISO strings, the provider day a
     `YYYY-MM-DD` string;
-  - an **entry cap** per file (spent and retired: a few hundred; the managed list: `TARGET` per provider; probation
-    records: `TARGET` per provider) and a byte ceiling checked **before** parsing (tens of KiB); over either ⇒ treated
-    as invalid;
+  - an **entry cap** per file (spent and retired: 300; the managed list: `TARGET` per provider; probation and busy records:
+    `MAX_MODEL_RECORDS`, 11 per provider; `busyDead`: 50) and a byte ceiling checked **before** parsing (64 KiB); over either ⇒
+    treated as invalid. A change that would pass the ceiling is refused: no memory change, no write, `STATE_WRITE_FAILED` with
+    reason `oversized`;
   - **probation records** (SR-M-9) live in the **route-state file**, not in the managed-list file: per new model,
     `provider`, `model`, `aliveStreak` (an integer, schema-bounded to `[0, N]`, clamped on write) and `lastProbeDay`
     (the UTC day of the last probe that counted). The managed-list file stores only the ordered ids; it carries **no**
@@ -366,7 +407,9 @@ route:
 **Start-up refresh.** At worker start, every provider carrying a persisted `AUTH` bit gets an on-demand refresh of that
 provider alone, under the constraints of the daily one, so a rotated key is picked up at the next start rather than up to
 a day later. It differs from the daily job in one way: it **sends exactly one fixed-prompt chat probe** to that provider,
-Groq included, because that probe is the only proof that clears the bit. It is **rate-limited by a persisted
+Groq included, because that probe is the only proof that clears the bit. The one case with no probe: every id on the list is
+held as `busyDead`, so there is nothing to probe, the outcome is failed with `NOTHING_SURVIVED`, and the bit stays until a due
+re-probe. It is **rate-limited by a persisted
 per-provider `lastStartupRefreshAt`**: if the last start-up refresh of that provider is less than **1 hour** old, the
 start skips it, so a crash loop sends at most one start-up refresh per provider per hour regardless of the restart
 policy. The own-cap unit is still released for these codes (§5.1), and start-up probes count against the own caps like
@@ -438,10 +481,23 @@ some time before the collection window so a fresh list is in place — rebuilds 
   A model already `SPENT_DAY` today, or with an `OK` call since the last refresh, is not probed: a no-probe day, which
   neither increments nor resets the count. The count lives per provider and model in the route-state file (§3.2), for listed
   models and candidates alike, bounded to `[0, 3]`. One redacted call in the 5.4c-5 smoke confirms the shape; if the body
-  marks the zero limit in a structured field, 5.4c-1 classifies it at request time instead.
+  marks the zero limit in a structured field, 5.4c-1 classifies it at request time instead. Only that busy 429 counts: a 503 is
+  `transient` and ends the run, as does any other answer.
+- **`busyDead` hold.** The third busy day stamps the model in the `busyDead` record (`applyProbeDay`), and its busy and probation
+  records go. A stamped model stays off the list and out of the candidates; seven days later `isBusyDeadReprobeDue` makes it a
+  candidate behind the unheld ones. Alive clears the stamp and starts probation at streak 0; anything else stamps it again. The
+  record holds the newest 50 (`MAX_BUSY_DEAD_ENTRIES`); dropping the oldest returns it to the queue and restarts its count.
+- **The rest of the non-alive candidates.** `restNonAlive` stamps every model that answered non-alive, other than a busy 429, and
+  is not on the list the run serves, and removes its probation record, so a candidate that keeps failing gives its probe slot
+  away. A listed entry answering 404 that leaves while another survives rests too. A transient or unknown entry still listed
+  stays unstamped. When nothing survives, the caller passes the unchanged list, so nothing listed rests.
 - **Selection — VCF's `pickLiveModels` with a CRM ordering change (SR-H-1).** Drop `dead` and every model under
-  `MIN_MANAGED_CONTEXT` (VCF: 16 000 tokens; the CRM sets it to at least the local chunk size, so every managed model fits
-  every chunk); keep `TARGET` (VCF: 5). VCF ranks by status then context, which would put a brand-new, unreviewed,
+  `MIN_MANAGED_CONTEXT` (a fixed 16 000 tokens, VCF's value). The intent is at least the local chunk size, so every managed model
+  fits every chunk, but nothing derives or checks that relation: the `shortcut:` comment on the constant waits on 5.4c-6, which has
+  landed, and a local chunk size above the floor would break the guarantee silently. Keep `TARGET` (VCF: 5). A promotion at a
+  full list pushes the tail entry off with no protection for a pinned id: a pinned id has no probation record, so it cannot
+  re-promote through the refresh and returns only as a tail candidate; while listed, the reader orders it as promoted. An evicted
+  non-pinned entry keeps its full-streak record, so its next alive probe is no new promotion and cannot retake the head. VCF ranks by status then context, which would put a brand-new, unreviewed,
   large-context candidate **first** for all vacancy text. The CRM instead:
   - keeps **existing** entries in their current order (dropping the dead), and **appends** new candidates at the
     **tail**, below every existing entry, ranked among themselves by status then context;
@@ -684,8 +740,13 @@ Own-cap values sit **below** each provider's published free limit, so the provid
   **mandatory**, not optional. The wiring (5.4c-3) must supply an `onEvent` handler; the router config schema has
   no "no events" mode. That handler: (a) increments a durable per-day counter of floor falls and of each hosted
   provider's codes (the existing metering/health surface, no text); (b) raises a durable health flag "hosted routes
-  dead" when a cycle ran with at least one hosted provider configured and **none** answered `OK`, cleared by the first
-  hosted `OK`; (c) re-emits the flag once per collection cycle while it stays raised, so it cannot be seen once and
+  dead" when a cycle ran with at least one hosted provider configured, produced evidence about a hosted route, and
+  **none** answered, cleared by the first answer. An answer is a hosted `OK`, or a 2xx `RETIRED` that names a hosted
+  route and a non-empty `servedModel`: the route served the request, under a different model. The 404 `RETIRED` shape is
+  not an answer. Evidence is a hosted attempt that was not aborted, a disabled provider, or a fall with any reason other
+  than a well-formed `FIT` skip, malformed reasons and a non-array `reasons` included: a page too big for a route asked that route nothing. A
+  cycle with no evidence (a local-only config, only aborted calls, only `FIT` falls or falls with an empty or absent `reasons`,
+  only `ATTEMPT` or `PROVIDER_DISABLED` events refused as malformed, a lone 404 `RETIRED`) leaves the flag unchanged (the answer and evidence rules come from task 5.4c-4, PR #1277); (c) re-emits the flag once per collection cycle while it stays raised, so it cannot be seen once and
   forgotten. A 5.4c-3 test fails the wiring if the handler is missing or swallows `FELL_TO_LOCAL`.
 - **Preflight** (VCF pattern, adopted as-is): before a collection cycle that will use model extraction, one trivial call
   to the local route; 4 attempts at 10 / 30 / 60 s gaps. No answer ⇒ the model stage of that cycle does not start, no
@@ -882,7 +943,7 @@ with vacancy text included, while the next record started. **So the 5.4b hold ch
   - **Pure pick functions** over fixture listings: `classifyModelStatus` per status (404 dead; 429/503 transient;
     timeout and other statuses unknown, never dead); `pickLiveModels` ranking, context floor and `TARGET`; `pickGroqModels`
     (keeps listed current ids, drops inactive, adds at most one large-context chat model, never a non-chat id); the
-    Gemini family pattern; three consecutive `transient` probe days drop a Gemini model as `dead`.
+    Gemini family pattern; three consecutive busy-429 probe days drop a Gemini model as `dead`, and a 503 does not count.
   - **Model-id validation** with hostile ids: path traversal, a URL, whitespace and newlines, control and non-ASCII
     characters, over-long ids, a leading `/`, a second `:` — each dropped and counted, never probed, stored or logged
     raw. Groq: an id outside the checked-in family pattern is never added. Gemini: an id outside its pattern is dropped.
@@ -900,12 +961,14 @@ with vacancy text included, while the next record started. **So the 5.4b hold ch
     cap refusal skips the provider with no request.
   - **Listing fetch (SR-M-8)**: the URL is a constant; the key is in a header and absent from the URL; a redirect is
     refused; an over-size body and an over-count entry list are bounded, not parsed whole.
-  - **State files (SR-M-6)**: a hand-edited file with a provider outside the allowlist, an invalid model id, an unknown
-    code, too many entries or too many bytes is rejected whole; two concurrent changes both survive (single writer);
+  - **State files (SR-M-6)**: too many entries or too many bytes reject the file whole. A bad entry in the spent or retired
+    list is dropped alone and counted (`STATE_ENTRIES_DROPPED`), so one hand-edited line does not cost the rest. A bad probation,
+    busy or `busyDead` record resets the whole route-state file (`STATE_RESET`, reason `invalid`), and a bad managed-list entry
+    rejects that file whole. Two concurrent changes both survive (single writer);
     the written file has mode `0600`; a write interrupted between temp file and rename (fake fs) leaves the previous
     file readable.
   - **Start-up refresh (SR-M-7, SR-M-11)**: a persisted `AUTH` bit triggers a refresh of that provider at start, which sends
-    exactly one chat probe, to Groq too; a successful listing fetch alone leaves the bit set, a 2xx probe clears it; a second
+    exactly one chat probe, to Groq too, unless every listed id is held as `busyDead` (§3.2); a successful listing fetch alone leaves the bit set, a 2xx probe clears it; a second
     start within 1 hour of the persisted `lastStartupRefreshAt` sends no request (crash-loop bound, fake clock).
   - **No secret or body in output**: a seeded marker key and a marker provider body are absent from every log line and
     event.
@@ -977,6 +1040,19 @@ MP-03 must measure what production will run.
 | **5.4c-6** Small dose and call control                                                                                                 | coder · **opus**, high (cross-package contract: `ExtractionRequest`, `ModelStructurer`, `ModelBudgetPort`, `buildExtractionPrompt`, `guardExtractionResult`) | 5.4c-2, 5.4b                                                    | §5.4 and §5.5, unconditional, the outcome table included, and the D10 guard change with its test (§6.1). **This changes the 5.4b hold and contract** (§5.5). **MP-03 tunes the table and does not gate it**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | **5.4c-7** MP-04: local model measurement (gate of 5.4c-8)                                                                             | **DevOps** · sonnet for the container definition, the guards and the harness; **where the replay runs and who runs it: D9**                                  | 5.4c-0, 5.4c-6, MP-05 baseline                                  | **Makes a merged model service unable to start on production without the owner (§8.6):** a separate compose file and project, a CI assertion, the rehearsal of the deploy paths. Container definition per Task 5.2 and §8.3, limited to the production host's budget, thresholds frozen in the task file before the run. For each candidate on the MP-03 labelled set through the production pipeline with the small dose, on synthetic or seed data only (D9): tokens/s, wall time per record, peak RAM, CPU, cold load, CRM p95 with and without, estimate against reported prompt tokens, reasoning output, whether a disconnect stops generation, plus the MP-03 local-phase metrics (§6.2). **Output: the pick with its digest, licence and limits, the frozen floor budget and cycle limit, or "none passes", which goes to D8.** Tunes the §5.4 table with MP-03                                                                                                                       |
 | **5.4c-8** Provision and install the local model                                                                                       | DevOps · sonnet prepares; **the owner runs it on the production server (A3: prod)**                                                                          | 5.4c-7 passing, 5.4c-W, 5.4c-3, 5.4c-4, the owner's explicit go | Runbook section for the owner-run start of the opt-in project (§8.6): pinned image and weights by digest with verification, limits, the extraction worker's persistent volume, the two workers' own `0600` env files (§2.4) with a generated `EXTRACTION_WORKER_SECRET`; on the host, the checks of §8.3 (outbound attempt fails, no published port, marker prompt absent from the container log), **neither the API container nor the collection worker is on the runtime network, and neither env holds hosted keys or `ROUTER_LOCAL_MODEL_URL`; the §2.4 network holds only the two workers with no published port, the API env lacks the secret, and an unauthenticated call is refused**, the window set server-wide and checked with the head marker, and a preflight (§8.4); the owner-run VPS smoke of §8.2 (D9); the undo of §8.6. Then `INFERENCE_EXTRACTION_PROVIDER=router` in the worker with no hosted key: local-only and working. **No agent runs a production step unasked** |
+
+**Delivery state, 2026-11-07.**
+
+- Merged: 5.4c-1 (#1259), 5.4c-2 (#1264), 5.4c-2b (#1266), 5.4c-6 (#1271), 5.4c-W (#1273), W-ops (#1274), 5.4c-3 (#1275),
+  5.4c-4 (#1277).
+- **The durable home of the §5.3 signals is new tables (5.4c-4).** `job_source_health_events` is per source, with a `NOT NULL`
+  foreign key to a source, and a route-level signal has no source; `job_account_meters` is one counter per account, unit and
+  window, with no flag concept. The task file names `job_model_route_daily` and `job_model_health_flags`; the migration decides
+  the final names.
+- **The `buildModelExtraction` call site and the use of `prepareCycle` belong to task 5.5b, the first HTML model provider.**
+  `HtmlProvider` is abstract with no concrete subclass, so nothing in production calls the wiring until then. `prepareCycle`
+  itself arrived with 5.4c-4, replacing `forCycle`. The 5.5b task file must cite backlog items 366 and 367, the obligations
+  that first caller inherits.
 
 MP-03 itself stays the plan's measurement. Its local phase runs with 5.4c-7 and on the same set; its hosted phase runs
 once keys exist for the measurement and before 5.4c-5 (§6.2). MP-03 still gates hosted enablement and picks hosted

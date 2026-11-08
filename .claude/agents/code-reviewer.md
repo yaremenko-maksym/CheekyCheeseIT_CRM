@@ -174,7 +174,7 @@ mcp__eslint__lint-files: {filePaths: ["apps/api/src/<file>", "apps/web/app/<file
 
 **Architecture:**
 
-- [ ] New tables via a Drizzle schema + migration (`apps/api/drizzle/migrations/`)
+- [ ] New tables via a Drizzle schema + migration (`apps/api/drizzle/manual*/`)
 - [ ] Frontend requests via TanStack Query, not fetch / axios directly
 - [ ] Forms via TanStack Form, not useState/useRef controlled
 - [ ] Routing — TanStack Router file-based, the update of `routeTree.gen.ts` correct
@@ -360,7 +360,7 @@ After the review — **return the result to Master** with a short summary:
 
 ## Reference (on-demand)
 
-- [`RULES.md`](RULES.md) — MCP / git / skills / version pins / zone-of-write
+- [`RULES.md`](../RULES.md) — MCP / git / skills / version pins / zone-of-write
 - [`project-state.md`](project-state.md) — phases / migrations / RBAC / shared schemas / DB tables / version pins
 - [`contracts.md`](contracts.md) — Reviewer verdict semantics (§4) + labels lifecycle (§1)
 - [`memory/reviewer/lessons.md`](memory/reviewer/lessons.md) — accumulated lessons (legacy shared with security-reviewer until the Phase 4 split)

@@ -6791,3 +6791,478 @@ purge function, then call `assertVisible` with a granted team's scope: today it 
 is a 404.
 
 Sources: PR #1263 security review (SR-L-1) and panel review.
+
+## 354. Extraction worker server: no request timeout, no concurrency cap, no close on a failed listen (2026-11-06)
+
+The worker's Fastify server (`buildExtractionWorker`) is created with no options, so `requestTimeout` and
+`connectionTimeout` stay 0 and nothing caps concurrent requests. Only the collection worker shares the network, so a held-open
+request needs a compromised peer. `startWorker` does not call `app.close()` when `listen` fails, but `proc.exit(1)` follows
+at once, so nothing outlives it: low value, recorded to stop the question coming back.
+
+**Candidate fixes.** (a) `Fastify({ requestTimeout: <call ceiling plus a margin> })`. (b) A small in-flight cap answering 503.
+Skip the `app.close()` change unless start-up gains work that needs an orderly stop.
+
+**Verify.** Open a connection to the worker, send half a request and hold it: today it stays open indefinitely; after the fix
+it is closed at the ceiling.
+
+Sources: PR #1273 security review (SR-L-2), plus the `startWorker` note in the same PR.
+
+## 355. Model self-heal: candidates can starve and the state does not report it (2026-11-06)
+
+Four gaps in the daily refresh, all of which lose probe slots rather than data, and nothing reports any of them:
+
+- More than `MAX_BUSY_DEAD_ENTRIES` (50) family-matching blockers can hold out a healthy id: with 60 ids over 150 days the id is
+  never probed while the held record stays at 50.
+- An alive off-list id keeps a spare slot: with five listed entries and two new ids, the first promotes, the evicted entry takes
+  the sixth slot on every day of a 30-day run, and the second new id gets no probes. It depends on listing order.
+- A one-day 404 on a listed entry, while another survives, keeps it out for seven days. A spec pins this on purpose.
+- More than `PROBE_CAP` unprobed off-list records lose the oldest at the `MAX_MODEL_RECORDS` cap, which restarts its count (the
+  `shortcut:` comment on the constant).
+
+**Candidate fixes.** A day-derived offset when scanning candidates; one next-day retry after a single 404; an event when a run
+ends with eligible candidates it never probed.
+
+**Verify.** Drive `refreshProvider` over a fake clock with a listing of 60 always-busy family ids plus one healthy id, placed
+last, for 150 days: today the healthy id receives no probe; after a fix it does.
+
+Sources: PR #1266 reviewers' session reports (CR3-L-3, SR3-L-1, SR3-L-2, CR3-L-1, SPEC3-L-1), round-4 notes. These ids are not on GitHub.
+
+## 356. Route-state and managed-list edge cases under hostile or failing storage (2026-11-06)
+
+- A transient `unreadable` read (`EMFILE`, `EIO`) lets the managed-list writer overwrite the file and lose the other provider's
+  list. It degrades to pinned ids with an event and heals at the next refresh.
+- At the byte ceiling a refused `markSpent` is not held in memory, a refused `addTokens` undercounts, and `reserve` returns null,
+  which stops hosted calls until the state shrinks. It needs a hostile or oversized state file.
+- The `day` schema accepts impossible and far-future stamps (`9999-99-99`, `2999-01-01`), so a held model is never re-probed
+  while listed. It needs write access to the `0600` file.
+- Every listed id held: the start-up refresh has nothing to probe and fails with `NOTHING_SURVIVED`; the `AUTH` bit stays until a
+  due re-probe. This fails closed and has no spec.
+- A listed entry with no reported context can stay stamped forever: `geminiCandidates` needs a reported context at the floor, so
+  its re-probe never comes due.
+- Directory `fsync` failure is swallowed on every platform (pre-existing).
+- `pickGroqModels` ranks by raw reported context, harmless while the family has two models.
+
+**Candidate fixes.** Refuse the write on `unreadable`; validate `day` as a real date no later than tomorrow; add the all-held spec;
+let a listed id with no reported context come due.
+
+**Verify.** In `state.spec.ts` / `managed-models.spec.ts` style with a fake fs: make the read fail once with `EIO`, run a refresh
+for one provider, and check the other provider's list is still in the file. Today it is gone. Load a state file with a `busyDead`
+day of `2999-01-01`: today it is accepted.
+
+Sources: PR #1266 reviewers' session reports (SR-L-1, SR-L-2, SR-L-21, SR-L-22, SR-L-23, SR-L-24, SPEC-L-10, CR3-L-2). These ids are not on GitHub.
+
+## 357. `MIN_MANAGED_CONTEXT` is not tied to the local chunk size (2026-11-06)
+
+The ADR's guarantee is that every managed model fits every chunk. `MIN_MANAGED_CONTEXT` is a fixed 16 000 tokens, its `shortcut:`
+comment waits on 5.4c-6, which has landed, and no code derives or checks the relation. Raising the local chunk size above what
+16 000 tokens holds breaks the guarantee with no signal; the fit filter then moves such a chunk past that model at request time.
+
+**Candidate fixes.** Assert the relation at router configuration time, or derive the floor from the local route's window.
+
+**Verify.** Configure a local route whose window exceeds the floor: today the configuration is accepted with no event.
+
+Sources: PR #1266 reviewers' session reports (SPEC-L-12, SPEC-M-3). These ids are not on GitHub.
+
+## 358. Small-dose and budget accounting: low-severity gaps (2026-11-06)
+
+- `InMemoryModelBudget` has no local-time limit until MP-04 freezes one (`buildModelExtraction` derives the input ceiling; the
+  time limit stays unset on purpose).
+- A page failing as the only candidate is never blamed and never parks: it is retried every 24 h, one call a day.
+- An abandoned call, or a structurer timeout during the hosted part, charges all elapsed time as `localMs`, the ADR's literal
+  rule. This can end the budget early.
+- An aborted call waiting in `serialLocal` is not woken; it is refused only after the request ahead finishes, up to one local
+  timeout later.
+- Only the router reports `localMs`; with the legacy `provider: local` the limit never fills.
+- The `place` group's instruction asks for a quote on every value, but the schema has no `remoteQuote`. Harmless.
+
+**Candidate fixes.** Pass the frozen limit at MP-04; split the charge by the part that was running; race the `serialLocal` wait
+against the signal.
+
+**Verify.** Abort a call queued behind a slow local request in a `router.spec.ts`-style test: today it settles only when the
+slow request does; after the fix it settles at once.
+
+Sources: PR #1271 reviewers' session reports (SR-L-1, SR-L-3, SR-L-4, CR-L-1, CR-L-3, CR-L-4, CR-L-5). These ids are not on GitHub.
+
+## 359. CI runs neither the tests nor a mutation gate for `@crm/inference` (2026-11-06)
+
+The unit step of `ci.yml` filters `@crm/shared`, `@crm/api`, `@crm/web` and `@crm/landing`, and the Mutation Gate matrix lists
+`@crm/shared`, `@crm/api` and `@crm/web`. Typecheck and lint do cover `@crm/inference`, so the whole router and its specs can
+break on a PR with every check green.
+
+**Candidate fixes.** Add `--filter @crm/inference` to the unit step and the package to the matrix. DevOps zone.
+
+**Verify.** `grep -n 'crm/inference' .github/workflows/ci.yml` shows the package in the test step and the matrix; a PR with a
+failing inference spec turns the required check red.
+
+Sources: PR #1266 spec review (SPEC-L-13), restated on PR #1273.
+
+## 360. `mutation-gate.mjs` is a false green on Windows (2026-11-06)
+
+The script's main guard compares `import.meta.url` with `` `file://${process.argv[1]}` ``. On Windows these are `file:///C:/...` and
+`C:\...`, never equal, so the main function never runs and the process exits 0 with no report. CI on Linux is unaffected; a local
+Windows run reads as a pass.
+
+**Candidate fixes.** Compare through `url.pathToFileURL(process.argv[1]).href`. DevOps zone.
+
+**Verify.** On Windows run the script against a package and check that the JSON report exists. Today none is written and the exit
+code is 0.
+
+Sources: PR #1273 notes; confirmed by reading the guard.
+
+## 361. Extraction worker env: stale key name, and two refusals the runbook does not state (2026-11-06)
+
+- `.env.example` still carries `ROUTER_API_KEY=`, and the `docs/runbooks/extraction-worker.md` separation check greps for that
+  name, while the code reads `GEMINI_API_KEY` and `GROQ_API_KEY`. So the check cannot see the real keys in the API's env.
+- An empty `GEMINI_API_KEY=` or `GROQ_API_KEY=` fails `extractionWorkerEnvSchema` (`z.string().min(1).optional()`), so the whole
+  worker refuses to start with `ROUTER_ENV`. An absent key only drops that route.
+- The API's `validateEnv` refuses non-empty `WORKER_ONLY_ENV_KEYS`. The runbook says the worker has its own `0600` env file but
+  not that a shared file would stop the API.
+
+**Candidate fixes.** (DevOps zone) replace the stale name in `.env.example` and the check. Add both refusals to the runbook.
+
+**Verify.** `grep -nw ROUTER_API_KEY .env.example docs/runbooks/extraction-worker.md` finds nothing; the runbook names `ROUTER_ENV` and
+the API's refusal.
+
+Sources: PR #1275 review and notes.
+
+## 362. W-ops: compose guard limits and env-file separation (2026-11-06)
+
+- Env-file separation stays unchecked by a machine: resolved compose inlines env files, so it cannot tell where a key came from.
+  Accepted and recorded in the runbook.
+- `scripts/devops/check-extraction-worker-compose.mjs` can collide on a basename and truncates stderr. Neither shows today, since
+  it is called with fixed, distinct files.
+- The guard needs `docker compose` on the CI runner.
+- Merging W-ops recreates `api` once at the next deploy, as it joins the new network. Informational, stated in the PR body.
+
+**Candidate fixes.** Compare full paths and keep the whole stderr, if the guard gains a caller with arbitrary files.
+
+**Verify.** Call the guard with two files of the same basename in different directories: today their results collide.
+
+Sources: PR #1274 security review (SR-M-1, accepted) and council notes.
+
+## 363. Weaker pins: `validateEnv` Stryker survivors, and dynamic `import()` past the boundary pin (2026-11-06)
+
+- **Possible surviving mutants in `validateEnv`.** The only source is a coder's working note in a session transcript (the
+  `FRONTEND_URL` block, plus the `local` and `openrouter` literals); the PR body claims zero survivors on the new code. So this is
+  unconfirmed, and pre-existing if real.
+- **The boundary pin reads static imports only.** `extraction-boundary.spec.ts` matches `from '...extraction-worker/...'` clauses, so
+  a dynamic `import()` or `require()` passes. None exists in `apps/api/src`, and the key-name scan is a second layer; the reviewer
+  accepted it with no finding.
+- `heal.record` in `start.ts` has no dedicated test.
+
+**Candidate fixes.** Run Stryker on `apps/api/src/config/env.ts` and close what survives; extend the pin's pattern to `import(` and
+`require(`.
+
+**Verify.** The Stryker JSON report for `env.ts` names its survivors. Add a dynamic `import()` of a worker module in a scratch
+checkout: today the boundary spec stays green.
+
+Sources: PR #1275 review and notes; session transcript for the survivors.
+
+## 364. `xml-limits.spec.ts` wall-clock bound flakes under pre-push load (2026-11-06)
+
+The 2 MiB run of processing instructions test asserts `elapsedMs` below `MAX_XML_WALL_CLOCK_MS * 4` (1000 ms). During one WSL pre-push
+run it measured 1064 ms and failed the push; another push of the same code in the same session and a retry both passed. Nothing in
+the parser changed, so this reads as load on the machine, not a limit breach, but that is one observation and not a measurement.
+
+**Candidate fixes.** Assert the deadline the parser enforces rather than elapsed wall clock, or run the timed cases in isolation.
+
+**Verify.** Run `xml-limits.spec.ts` repeatedly while the full API suite runs alongside and count failures of that case.
+
+Source: WSL pre-push log for PR #1278.
+
+## 365. The list-wrapped Gemini 404 is correct by code only, and the real error shape is unverified (2026-11-06)
+
+`errorJson` unwraps list bodies. A list-wrapped 403 has a fixture; a list-wrapped 404 does not. No real Gemini error body has been
+observed yet, so the shape both rest on is an assumption until a live key is used.
+
+**Candidate fixes.** Add the 404 fixture, and capture real bodies in the 5.4c-5 smoke.
+
+**Verify.** `classified-chat.spec.ts` has a list-wrapped 404 case, and the 5.4c-5 smoke notes record the observed body shape.
+
+Source: architect report for PR #1278.
+
+## 366. What the first caller of `prepareCycle` (task 5.5b) must honour (2026-11-06)
+
+Task 5.4c-4 builds the seam and leaves the call site to 5.5b, so four obligations have no caller to enforce them yet.
+
+- **`prepareCycle` can block for about 10 minutes.** The worst case is 4 preflight timeouts, the backoff and the bounded health
+  writes, with no abort signal; `finish()` can add up to 30 s more. Call it where that wait is acceptable, or add a deadline.
+- **`finish()` must run in a `finally`.** Without it the cycle loses its counters, its hosted evidence and the reply's `health`
+  codes. The next finished cycle repairs the flags; the counts stay lost.
+- **The run's database role needs write grants on both tables.** Privilege class A gives `crm_collector` nothing on
+  `job_model_route_daily` and `job_model_health_flags`. Under that role every health write is refused and absorbed as
+  `MODEL_HEALTH_WRITE_FAILED`, so the signal goes quiet without failing anything. Move the tables to class C if the run uses it, and
+  re-run the grants after the staged DDL.
+- **A refused worker secret looks like a dead model.** It costs the full backoff and raises `MODEL_UNREACHABLE`. The failed attempt
+  logs its HTTP status; there is no separate flag.
+
+The first caller also inherits the open write-ordering gap of item 367.
+
+**Verify.** The 5.5b call site wraps its work in `try` / `finally` with `finish()`, and an integration test writes both tables under
+the role the run uses.
+
+Source: reviews of PR #1277.
+
+## 367. A model-health write queued for a pool connection can run after the wait ended (2026-11-07)
+
+The pool built in `DatabaseService` sets neither `connectionTimeoutMillis` nor `query_timeout`. The server-side
+`statement_timeout` of the model-health store starts only once a connection is checked out, and `boundedWrite` stops
+waiting without cancelling. So on a saturated pool a health write can sit in the queue past the client wait, the cycle
+logs `MODEL_HEALTH_WRITE_FAILED`, and the write commits later.
+
+The harm is ordering: a late `clearFlag` landing after the next cycle's `raiseFlag` clears a live flag until that flag's
+next write. Counters are unaffected beyond a late increment. No caller exists until task 5.5b, so nothing can hit this
+today.
+
+**Fix options.** A connection timeout on the shared pool (touches every query in the API, so it needs its own review), or
+a small dedicated pool for the health store.
+
+**Verify.** Saturate the pool in an integration test and assert that a health write whose wait ended never commits
+afterwards. Drive it through the handler from `createModelHealth`: the store has no client wait of its own, because
+`boundedWrite` sits in that handler. A direct store write can only reject by a pool checkout timeout, which exists once
+one of the fixes above lands.
+
+Source: review panel and security review of PR #1277.
+
+---
+
+## 368. Finance reads load whole `transactions` into memory (2026-11-07, human-planned)
+
+`getAdminBalance`, `getSeniorBalance` and `getTotalEarned` in `BalanceService`, `TransactionsService.findAll`, and
+`SummaryService.getSummary` with `computeDropAggregate` load all matching rows and aggregate in JS. `computeDropAggregate`
+is O(drops × transactions). Cost grows with total history, on every balance or summary read.
+
+**Why not automatic.** The aggregates carry money rules (ledger terms, holding and debt formulas), so moving them to SQL
+needs a characterization suite first and a security review.
+
+**Verify.** Log the query's row count for a summary read on a database with years of history, or read the query in each
+function for a missing `where` or aggregate.
+
+Source: gardener audit 2026-11-07.
+
+## 369. Missing indexes on finance and membership tables (2026-11-07, human-planned)
+
+`payout_requests.senior_id` has no index, so the owner filter in `findPayoutRequests` is a sequential scan (CR-M-1 on
+PR #1284). `team_members` and `project_members` have only a primary key on `id`, and they are filtered by team, project and
+user. `transactions` already has many partial and unique indexes, so check it query by query before adding more.
+
+**Fix.** An additive migration through the normal path, with a security review. Take the column list from `EXPLAIN` on
+real queries.
+
+**Verify.** `SELECT indexname FROM pg_indexes WHERE tablename = 'payout_requests'` lists no index on `senior_id`.
+
+Source: gardener audit 2026-11-07, code review of PR #1284.
+
+## 370. Quadratic and per-row loops outside finance (2026-11-07, human-planned)
+
+`teams.findAll` calls `mapTeam` per team over the full project list that `fetchAllProjects` returned, so the work is
+O(teams × projects). Projects use `seniorIds.includes` inside a loop. The interview move runs one update per row.
+
+**Verify.** Read the three call paths, or count queries for one call in an integration test.
+
+Source: gardener audit 2026-11-07, review panel of PR #1285.
+
+## 371. Controller defense in depth: `ParseUUIDPipe` and `@Roles` (2026-11-07)
+
+Some finance and team routes check the role only in the controller or service body, and some id params lack
+`ParseUUIDPipe`. The audit's three "RBAC hole" candidates were checked and are **not** holes: each has an assert. The
+remaining cost is that a malformed id reaches Postgres and returns a 500 instead of a 400.
+
+**Verify.** Send a non-UUID id to such a route and observe the status.
+
+Source: gardener audit 2026-11-07.
+
+## 372. Mutation job runs three legs on every push to `main` (2026-11-07)
+
+The mutation job in `ci.yml` runs its package legs on a push to `main`, where the changed-file set is already merged and
+reviewed. This adds minutes to each post-merge run.
+
+**Verify.** `gh run list --branch main --workflow ci.yml`, then read the mutation job duration.
+
+Source: gardener audit 2026-11-07.
+
+## 373. Russian error text remains in resumes and contact (2026-11-07)
+
+API error fallbacks must be English, but `ContactService`, `ResumesController` and `ResumeAiService` still throw or return
+Russian messages. `EXCLUDED_DIRS` in `check-no-russian-letters.mjs` keeps `contact`, `resumes`, `contracts` and
+`job-sourcing` out of the guard that would catch it. Move them to error codes, then shrink the list as a ratchet. These
+messages may reach users, so the fix needs catalog strings in `uk` and `en`.
+
+**Verify.** Grep for Cyrillic on `Exception(` and `message:` lines in those modules, and read `EXCLUDED_DIRS`.
+
+Source: gardener audit 2026-11-07.
+
+## 374. `AuthModule` `forwardRef` and repeated `ScheduleModule.forRoot` (2026-11-07)
+
+`AuthModule` depends on a `forwardRef` cycle, and `ScheduleModule.forRoot` is registered in more than one module. Neither
+fails today. Both make the module graph harder to change.
+
+**Verify.** Grep `forwardRef` in `AuthModule` and `ScheduleModule.forRoot` across `apps/api/src`.
+
+Source: gardener audit 2026-11-07.
+
+## 375. `toUsd` has three diverged copies, and two safe merges remain (2026-11-07)
+
+The three web `toUsd` copies (`amount-currency-input`, `user-dialog/validation`, `finance/constants`) have different
+bodies, so merging them changes behaviour for at least one caller and needs a choice of the correct version. It is money.
+
+`parseInlineBold` in the contract and ToS PDF code differs only by a comment, and `isZodErrorCode` in the API filter differs
+from the shared and web copies only by a type annotation. Those two can merge without a behaviour change.
+
+**Verify.** Grep the three symbols and diff the bodies.
+
+Source: gardener audit 2026-11-07, review panel of PR #1285.
+
+## 376. `DocumentsListSection` still sorts with `DEFAULT_LOCALE` (2026-11-07)
+
+The TODO next to `sortDocuments` waits for a `useLocale()` hook, and that hook now exists in `apps/web/app/lib/i18n.ts`.
+So `en` viewers still get `uk` collation with no remaining reason.
+
+**Verify.** Read the TODO, then grep `export function useLocale`.
+
+Source: gardener audit 2026-11-07.
+
+## 377. Comments and messages that name removed things (2026-11-07)
+
+These mention agents, files or functions that no longer exist: the refusal message in `pre-agent-dispatch-isolation.sh`
+(pm snippets), `post-edit-write-coder-progress.sh`, `check-no-skip-hooks.yml` (CLAUDE-coder), `e2e-watchdog.yml`,
+`labels-sync.yml`, `invoices.service.ts` (pm brief), `payout.ts` (`PaymentChannelService`), `users-access.service.ts`
+(`juniorCanViewLegend`), `scripts/pm/wakeup-prompts` (`pm-state.json`). Hooks and workflows need their own zone owner, so
+this is not one edit.
+
+**Verify.** Grep each name in the file, then grep the same name for a definition.
+
+Source: gardener audit 2026-11-07.
+
+## 378. Unpin `ubuntu-24.04` after a Playwright bump (2026-11-07)
+
+PR #1281 pinned the `e2e` and `lighthouse` jobs to `ubuntu-24.04`, because Playwright 1.59 cannot install chromium on the
+image `ubuntu-latest` moved to. When bumping Playwright: confirm that the new version installs there, unpin, add the
+runner image to the browser cache key (CR-M-3 on #1281), and fix the stale wording in `install-playwright-system-deps.sh`
+(CR-L-1 on #1281).
+
+**Verify.** Grep `ubuntu-24.04` in `.github/workflows`, and read the resolved Playwright version in `pnpm-lock.yaml`.
+
+Source: PR #1281.
+
+## 379. Gardener giants list is stale (2026-11-07, human-planned)
+
+The gardener prompt names `transactions.service.ts`, `schema.ts` and `users.service.ts` as giants to leave for a person.
+`transactions.service.ts` is now under the 800-line limit, and `schema.ts` is a barrel over `database/schema/`.
+`users.service.ts` is still over. Nineteen production files in total exceed the limit. Most are the job-sourcing and resume
+clusters, deliberately left until after rollout. The ones outside those clusters need a seam chosen by a person
+(`decomposing-large-code`), because they sit on finance and RBAC paths: `company-account.service.ts`,
+`payout-settlement.service.ts`, `users.service.ts`. `generate-privilege-sql.ts` is outside the clusters too.
+
+**Verify.** List tracked `.ts` and `.tsx` files over 800 lines, excluding specs and generated files.
+
+Source: gardener audit 2026-11-07, review panel of PR #1285.
+
+## 380. Invite and notification mailer warn lines are not pinned against the provider body (2026-11-07)
+
+`ContactService` has a spec that fails if the raw Resend error reaches a log or telemetry sink. The invite mailer and
+`NotificationEmailCron` assertions use a message with no body or a substring match, so reverting either to the raw message
+stays green. Add a body that quotes an address, and assert `not.toContain` on it. The header comment in the manual migration
+for `notification_emails` also still names the invite mailer as the home of `safeErrorReason`, which is cosmetic.
+
+**Verify.** Replace `safeErrorReason(err)` with `err.message` in either mailer, run its spec, and observe that it stays green.
+
+Source: security review of PR #1287.
+
+## 381. Queue infinite scroll: open focus, motion and screen-reader gaps (2026-11-07)
+
+**Symptoms.**
+
+- A retry answered with refresh-required unmounts the focused retry button; the foot's restart button takes no focus, so focus falls to `body` (CR-L-3 of #1276).
+- A retry answered with an empty last page drops focus and leaves `focusFrom` pending, so a later refetch can move focus unprompted. A rare race (CR-L-8 of #1276).
+- The queue's first-load retry button unmounts on click and parks focus nowhere, so focus falls to `body`; only the team-list retry parks it on the list body (CR-L-11 of #1276).
+- After a successful first-load retry, focus lands on a generic wrapper (QA-L-3 of #1272). That wrapper may be read with the stale error text, because focus moves before the re-render (UX-L-11 of #1272).
+- `aria-busy` sits on the status skeleton, which is removed rather than updated, so the loading line is probably never announced (UX-L-10 of #1272).
+- The foot shrinks 24 px when a retry starts, and `scrollTop` clamps (UX-L-2 of #1276).
+- The shared `Skeleton` keeps pulsing under `prefers-reduced-motion` on every screen (UX-L-4 of #1276). Candidate fix: `motion-reduce:animate-none` on `Skeleton`.
+- No real screen-reader pass of infinite scroll has been done. The owner decision of 2026-11-07 brings back an always-visible button if such a pass finds a problem.
+
+**Candidate fixes.** Give the restart button focus when a retry resolves to refresh-required; clear `focusFrom` when an append adds no rows; keep one status region mounted and change only its text.
+
+**Verify.** On `/job-queue`, make the retry request answer with an expired cursor and then with an empty page, and read `document.activeElement` after each. Run with reduced motion and inspect the `Skeleton` animation. Do a VoiceOver or NVDA pass through a whole append.
+
+Sources: PR #1272 and PR #1276 reviews.
+
+## 382. Queue list: deferred design and copy items from the Task 7.2 reviews (2026-11-07)
+
+**Symptoms.**
+
+- ADMIN has no indicator or control for the studio scope, so rows appear with no statement of whose they are (QA-L-2, SPEC-L-2 of #1272).
+- Filters stay a popover at every width; the spec's bottom sheet below 560 px is not built (SPEC-M-2 of #1272). The owner decision of 2026-11-07 keeps the popover and returns to this after QA at 320 px.
+- The filters footer has no divider or background above it (suggestion: `border-t pt-3`), and the list has no scroll fade, so a half-cut row is the only cue that more rows follow.
+- The source on a row is only an icon with an `aria-label`, with no visible name. The icon is generic rather than the spec's 20 px source chip (SPEC-L-3 of #1272).
+- The source `aria-label` has a double colon, «Джерело: Hacker News: Who is hiring», and a truncating filter checkbox label has no `title`.
+- Optional copy: a hidden-tab empty state that says how a vacancy gets hidden (COPY-L-3 of #1272). The en "stop-listed" is slightly jargon (COPY-L-6 of #1272). COPY-L-4 of #1272 asked for no action and is recorded here so it is not re-raised.
+- The sidebar label «Черга зовнішніх вакан…» clips without an ellipsis, the search placeholder clips at 320 px, and the brand link is under 44 px at 320 and 375 px. This is shell work (UX-L-6 of #1276).
+- Row fidelity: `JobQueueRow` lacks matched tokens in the **hit** style and also-seen source names (the remainder of the owner carve-out on #1276; the seniority and chips half of SPEC-M-1 of #1272 is in PR #1283). Decide at the start of Task 7.3 to build or to drop them from the spec. In the same edit, fix the spec's `totalAlsoSeenOnCount`, because the schema field is `alsoSeenOnCount`.
+- QA never exercised HR with real row data, because the seed gave HR an empty list.
+
+**Candidate fixes.** Each item stands alone. The row decision is the only one tied to a task.
+
+**Verify.** Open `/job-queue` as ADMIN and as HR with seeded grants at 320 px and 1440 px, and read each item above on screen.
+
+Sources: PR #1272 and PR #1276 reviews.
+
+## 383. Queue row and senior filter: gaps from the 7.2c and 7.2d follow-ups (2026-11-07)
+
+**Symptoms.**
+
+- `job_opportunities.seniority` has no writer, so the row's seniority badge stays hidden until one exists. The owner chose a separate task for the writer.
+- At content width 720 px and above, `@min-[720px]:order-first` shows age above counts while DOM and screen-reader order stays counts then age. Accepted as LOW: the facts are independent, the row is one button, and keyboard order is unaffected.
+- The senior filter picker lists 200 seniors alphabetically, so a senior past the cap cannot be picked. An id already in the URL still filters.
+
+**Candidate fixes.** Add a writer in the ingestion path. Move to a searched picker if a real team or studio can exceed the cap.
+
+**Verify.** `SELECT count(*) FROM job_opportunities WHERE seniority IS NOT NULL` returns 0 until a writer exists. Compare the largest senior count per team and per studio against the cap.
+
+Sources: PR #1282 and PR #1283.
+
+## 384. Local tooling on Windows: gates that do not run, or run differently (2026-11-07)
+
+**Symptoms.**
+
+- `@crm/api` specs do not work on Windows, so any push touching `apps/api` cannot pass the pre-push hook from a Windows checkout. The working route is a WSL clone.
+- `mutation-gate.mjs` on Windows: the false green is item 360. With a preload around it, the Node pin also fails with `could not start /c/nvm4w/nodejs/node: spawn /c/nvm4w/nodejs/node ENOENT`.
+- Bash's default `node` here is v25.4.0, against the Node 22 pin.
+- `isGitWorktree` in the web Vitest config returns false when the main checkout has no `node_modules`, so a t3 worktree gets `testTimeout` 15000 instead of 30000 and no fork limit. This also forced a 60 s timeout on `test-quality-rules.spec.ts`, whose comment still says "under CPU load" (SPEC-L-2 of #1276).
+- `poolOptions.forks.maxForks` in that config may be ignored by Vitest 4 (unverified).
+- A worktree without the generated, gitignored `routeTree.gen.ts` fails the pre-push typecheck with misleading errors: TS2307 on `./routeTree.gen`, and TS7053 in `login.tsx`.
+- The pre-push hook does not run the catalog gate, so a text edit passes the hook and then fails CI with `Run 'pnpm i18n:extract' and commit the updated .po catalogs`.
+- WSL load average stays near 27 while the CPU is 92% idle, so load average is not a usable signal on this VM. Cause unproven.
+- A haiku coder died three times on this repo with "the context refilled too quickly after compaction". Sonnet completed the same work.
+- After a Docker restart, containers named `crm-ux1276` may remain from a wedged daemon.
+
+**Candidate fixes.** Resolve `isGitWorktree` from `git rev-parse --git-common-dir`. Generate the route tree before typecheck. Add `i18n:extract` plus a diff check to the hook, scoped to diffs that touch visible text.
+
+**Verify.** From a t3 worktree, print the resolved `testTimeout`. Delete `routeTree.gen.ts` and run the hook. Run `docker ps -a --filter name=crm-ux1276`.
+
+Sources: PR #1272, PR #1276 and PR #1283 push logs.
+
+## 385. Web and API specs that fail under load but pass alone (2026-11-07)
+
+**Symptoms.** Each of these failed during a full run on a loaded machine and passes alone. No branch involved touched them:
+
+- Web finance specs, with `findBy*` or element-not-found timeouts: `cascade-impact-panel` (including CP-24 with 4 workers), `paid-salary-amount-edit`, `PaySalaryDialog.paid-amount`, `DropFinancePage`, `TransactionRow.settle-senior`, `AdminEditTransactionDialog.followups`, `CreateTransactionDialog.sections`, `SettleSeniorPayoutDialog`.
+- `JobQueueRow` spec, `renders title, company and source as one button that opens the card`, in Windows runs. Cause unproven.
+- `app.module.container.spec.ts` (hook timeout), once. `xml-limits.spec.ts` is item 364.
+
+**Candidate fixes.** Raise `findBy*` timeouts only where a cause is shown.
+
+**Verify.** `VITEST_MAX_WORKERS=4 pnpm --filter @crm/web test` five times on a loaded machine, then list which of these fail.
+
+Sources: pre-push logs of PR #1276, PR #1282 and PR #1283.
+
+## 386. Native scrollbars render white in the dark theme (2026-11-07)
+
+**Symptoms.** On Windows Chromium, native scrollbars are white on dark pages. The `.dark` rule does not set `color-scheme: dark`. This is app-wide and not caused by the job queue, whose scroller only exposes it.
+
+**Candidate fixes.** Set `color-scheme: dark` in the `.dark` rule.
+
+**Verify.** On any page, read `getComputedStyle(document.documentElement).colorScheme`. It is `normal` while this is open.
+
+Sources: PR #1276 design review, UX-L-9.

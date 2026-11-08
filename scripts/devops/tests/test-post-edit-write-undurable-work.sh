@@ -134,6 +134,25 @@ assert_green "a path that is not a git repository at all -> silent" \
 
 assert_green "no cwd in the payload and no worktree in \$PWD -> silent" \
   --not-contains "UNDURABLE WORK" \
-  -- bash -c 'printf "{}" | bash "$0"' "$HOOK"
+  -- bash -c 'cd "$1" && printf "{}" | bash "$0"' "$HOOK" "$OUTSIDE"
+
+# ── Windows payloads ──────────────────────────────────────────────────────────
+# The harness reports cwd with backslashes on Windows, and the first predicate
+# looks for /.claude/worktrees/ with slashes: before the hook normalised cwd, it
+# stayed silent for every agent on that OS. JSON needs each backslash doubled.
+json_backslash() { printf '%s' "$1" | tr '/' '\\' | sed 's/\\/\\\\/g'; }
+
+assert_red "Windows payload: backslash cwd, 231 uncommitted lines -> demand commit+push" \
+  --contains "UNDURABLE WORK" \
+  --contains "push -u origin agent/big" \
+  -- run_hook "$(json_backslash "$WS_BIG")"
+
+assert_green "Windows payload: backslash cwd under the threshold -> silent" \
+  --not-contains "UNDURABLE WORK" \
+  -- run_hook "$(json_backslash "$WS_SMALL")"
+
+assert_green "Windows payload: backslash cwd outside .claude/worktrees -> never fires" \
+  --not-contains "UNDURABLE WORK" \
+  -- run_hook "$(json_backslash "$OUTSIDE")"
 
 guard_test_summary "test-post-edit-write-undurable-work.sh"

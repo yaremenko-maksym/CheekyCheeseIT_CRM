@@ -106,6 +106,8 @@ Applies to every task you run, on top of the rules above:
 
 ## Output format
 
+Number your findings and close with the control line: read `.claude/rules/common/review-findings-transfer.md` before reviewing.
+
 The first line of the PR comment — the verdict, so that Master sees it without reading:
 
 ```

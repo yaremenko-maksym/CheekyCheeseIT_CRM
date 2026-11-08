@@ -18,12 +18,17 @@ export interface JobQueueListProps {
   hasSearch: boolean
   hasFilters: boolean
   hasNextPage: boolean
+  /** Any fetch of this query: an append started now would abort a running background refetch. */
+  isFetching: boolean
   isFetchingNextPage: boolean
   isFetchNextPageError: boolean
-  /** The cursor is dead: the page's refresh notice is the only way on, so the foot offers nothing. */
+  /** The cursor is dead: the foot swaps its count, sentinel and retry for the restart, because the page's notice is out of view after a long scroll. */
   refreshRequired: boolean
+  /** The element that scrolls the list: `rootMargin` applies only against an explicit root. */
+  scrollRoot: HTMLElement | null
   onLoadMore: () => void
   onRetry: () => void
+  onRestart: () => void
   onOpen: (opportunityId: string) => void
   onResetFilters: () => void
   onClearSearch: () => void
@@ -72,11 +77,16 @@ export function StateBlock({
 
 export function JobQueueList(props: JobQueueListProps) {
   const { i18n } = useLingui()
-  const { items, status, tab } = props
+  const { items, status, tab, scrollRoot } = props
   const listRef = useRef<HTMLUListElement>(null)
-  // set by a button / keyboard append: the index of the first row to focus once it arrives
-  // (Infinity = nothing pending: no list length ever exceeds it)
-  const focusFrom = useRef(Infinity)
+  const foot = useRef<HTMLButtonElement>(null)
+  const refreshFoot = useRef<HTMLButtonElement>(null)
+  // read before the commit: a removal blurs with no event (React suppresses them during commit),
+  // and a window switch leaves activeElement on the button. `contains` so a null activeElement
+  // does not match an unmounted button's null ref.
+  const footFocused =
+    foot.current?.contains(document.activeElement) ||
+    refreshFoot.current?.contains(document.activeElement)
   const loadMore = useRef(props.onLoadMore)
   const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null)
 
@@ -104,30 +114,33 @@ export function JobQueueList(props: JobQueueListProps) {
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) loadMore.current()
       },
-      { rootMargin: '400px' },
+      { root: scrollRoot, rootMargin: '400px' },
     )
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [sentinel])
+  }, [sentinel, scrollRoot])
 
-  // a replaced list (tab / filter / search switch) cancels a pending «Показати ще» focus
+  // `added` is positive only for a real append, so the list and the first new row both exist.
+  // Keyed on the append: `added` outlives it and must not fire again when the button refocuses.
   useEffect(() => {
-    focusFrom.current = Infinity
-  }, [first])
-
-  useEffect(() => {
-    const from = focusFrom.current
-    if (props.isFetchNextPageError) {
-      focusFrom.current = Infinity
-    } else if (length > from) {
-      focusFrom.current = Infinity
-      // a longer list is always rendered, so the list and the row at `from` both exist
+    if (footFocused && added > 0) {
       listRef
         .current!.querySelectorAll<HTMLButtonElement>(':scope > li > button')
-        .item(from)
+        .item(length - added)
         .focus()
     }
-  }, [length, props.isFetchNextPageError])
+  }, [length, added])
+
+  // after the handoff above: focus on `body` here means the button went with no page to take over
+  useEffect(() => {
+    if (footFocused && document.activeElement === document.body) {
+      ;(
+        foot.current ??
+        refreshFoot.current ??
+        listRef.current?.querySelector<HTMLButtonElement>(':scope > li:last-child > button')
+      )?.focus()
+    }
+  })
 
   // `status` matters only without rows: a failed next page / refetch keeps them on screen
   if (!items) {
@@ -185,11 +198,9 @@ export function JobQueueList(props: JobQueueListProps) {
 
   const shown = items.length
   const total = props.total
-  const armed = props.hasNextPage && !props.isFetchingNextPage && !props.isFetchNextPageError
-  const onButton = () => {
-    focusFrom.current = shown
-    props.onLoadMore()
-  }
+  const armed = props.hasNextPage && !props.isFetching && !props.isFetchNextPageError
+  // the count of all the tab's vacancies is not the count of what a search or filter matched
+  const scoped = props.hasSearch || props.hasFilters
   return (
     <div className="flex flex-col gap-3">
       <ul
@@ -207,10 +218,24 @@ export function JobQueueList(props: JobQueueListProps) {
       {!props.refreshRequired && (
         <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
           {armed && <div ref={setSentinel} data-testid="job-queue-sentinel" aria-hidden="true" />}
-          <p data-testid="job-queue-live" aria-live="polite" className="tabular-nums">
+          {/* remounted per tab: an in-place text change on a tab switch would be read out */}
+          <p
+            key={tab}
+            data-testid="job-queue-live"
+            aria-live="polite"
+            className="text-center text-balance tabular-nums"
+          >
             {props.hasNextPage ? (
               <span data-testid="job-queue-shown">
-                {added > 0 ? (
+                {scoped ? (
+                  added > 0 ? (
+                    <Trans>
+                      Завантажено ще {added}. Показано {shown}
+                    </Trans>
+                  ) : (
+                    <Trans>Показано {shown}</Trans>
+                  )
+                ) : added > 0 ? (
                   <Trans>
                     Завантажено ще {added}. Показано {shown} із {total}
                   </Trans>
@@ -247,25 +272,51 @@ export function JobQueueList(props: JobQueueListProps) {
               </p>
             </div>
           )}
-          {props.hasNextPage &&
-            (props.isFetchingNextPage ? (
-              <p data-testid="job-queue-appending" role="status">
-                <Trans>Завантажуємо ще…</Trans>
-              </p>
-            ) : (
-              <Button
-                data-testid="job-queue-load-more"
-                variant="outline"
-                className="min-h-11 w-full @min-[560px]:w-auto"
-                onClick={onButton}
-              >
-                {props.isFetchNextPageError ? (
-                  <Trans>Спробувати ще раз</Trans>
-                ) : (
-                  <Trans>Показати ще</Trans>
-                )}
-              </Button>
-            ))}
+          {props.hasNextPage && props.isFetchingNextPage && (
+            <p data-testid="job-queue-appending" role="status">
+              <Trans>Завантажуємо ще…</Trans>
+            </p>
+          )}
+          {/* a focus stop past the last row: without it Tab falls to `body` when it outruns the fetch.
+              Becomes the retry after a failed append (the sentinel stays unmounted until a refetch clears the error).
+              It stays mounted while a fetch is in flight, so keyboard focus is not dropped. */}
+          {props.hasNextPage && (
+            <Button
+              ref={foot}
+              data-testid={props.isFetchNextPageError ? 'job-queue-retry' : 'job-queue-load-more'}
+              variant="outline"
+              className="min-h-11 w-full text-foreground aria-disabled:pointer-events-none aria-disabled:opacity-50 @min-[560px]:w-auto"
+              aria-disabled={props.isFetching}
+              onClick={(e) => {
+                // an append started now would abort a running refetch
+                if (props.isFetching) return
+                e.currentTarget.focus() // Safari does not focus a clicked button
+                props.onLoadMore()
+              }}
+            >
+              {props.isFetchNextPageError ? (
+                <Trans>Спробувати ще раз</Trans>
+              ) : (
+                <Trans>Показати ще</Trans>
+              )}
+            </Button>
+          )}
+        </div>
+      )}
+      {props.refreshRequired && (
+        <div className="flex flex-col items-center gap-2 text-sm">
+          <p className="text-center font-medium">
+            <Trans>Список змінився</Trans>
+          </p>
+          <Button
+            ref={refreshFoot}
+            data-testid="job-queue-refresh-foot"
+            variant="outline"
+            className="min-h-11 w-full @min-[560px]:w-auto"
+            onClick={props.onRestart}
+          >
+            <Trans>Показати оновлений список</Trans>
+          </Button>
         </div>
       )}
     </div>

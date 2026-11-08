@@ -214,6 +214,8 @@ After Mode E — Master dispatches the coder (see the `design-gate.md` enforceme
 
 ## Report format (Mode B PR comment)
 
+Number your findings and close with the control line: read `.claude/rules/common/review-findings-transfer.md` before reviewing.
+
 ```markdown
 Design Review: <PASS | POLISH-REQUESTED | BLOCK>
 Commit: <the head sha you looked at>

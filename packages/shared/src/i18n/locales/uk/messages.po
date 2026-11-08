@@ -813,6 +813,10 @@ msgstr "Крок {0} із {1}"
 msgid "Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа"
 msgstr "Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
+msgid "Завантажено ще {added}. Показано {shown}"
+msgstr "Завантажено ще {added}. Показано {shown}"
+
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Посилання, рядок {position}"
 msgstr "Посилання, рядок {position}"
@@ -1213,6 +1217,7 @@ msgstr "Подій ще немає."
 msgid "Рівень"
 msgstr "Рівень"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Показати оновлений список"
 msgstr "Показати оновлений список"
@@ -3658,7 +3663,6 @@ msgstr "Робоча адреса має відрізнятися від осо�
 msgid "Вакансію створено"
 msgstr "Вакансію створено"
 
-#: apps/web/app/components/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
@@ -4952,7 +4956,6 @@ msgstr "Архівувати команду"
 msgid "Новий пароль"
 msgstr "Новий пароль"
 
-#: apps/web/app/components/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/users/UserRow.tsx
 #: apps/web/app/components/users/UserRow.tsx
@@ -7224,6 +7227,10 @@ msgstr "Файл завантажено, розпізнаємо резюме"
 msgid "Опублікувати нову версію (v{0})?"
 msgstr "Опублікувати нову версію (v{0})?"
 
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
+msgid "З’явилися оновлення."
+msgstr "З’явилися оновлення."
+
 #: apps/web/app/components/job-queue/JobQueueRow.tsx
 msgid "Мідл"
 msgstr "Мідл"
@@ -7487,7 +7494,6 @@ msgstr "Навчальний заклад"
 msgid "Видалити {tag}"
 msgstr "Видалити {tag}"
 
-#: apps/web/app/components/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
@@ -8121,6 +8127,7 @@ msgstr "Виплат ще не було"
 msgid "Media token замінено"
 msgstr "Media token замінено"
 
+#: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Список змінився"
 msgstr "Список змінився"
@@ -9933,6 +9940,10 @@ msgstr "{projectsCount, plural, one {# проєкт} few {# проєкти} many
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Успішно"
 msgstr "Успішно"
+
+#: apps/web/app/components/job-queue/JobQueueList.tsx
+msgid "Показано {shown}"
+msgstr "Показано {shown}"
 
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx

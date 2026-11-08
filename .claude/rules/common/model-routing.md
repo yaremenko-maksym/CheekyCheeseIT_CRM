@@ -1,6 +1,6 @@
 # Rule: Model routing — the minimally sufficient model
 
-**Status:** Always-on
+**Status:** On-demand (not auto-loaded: listed in `claudeMdExcludes`, `.claude/settings.json`). Master reads it before the first dispatch of a session; any other agent reads it before choosing a model tier.
 **Applies to:** Master (dispatch via `Agent()`), all agents, USER sessions
 
 > Rationale: `docs/architecture/rules-rationale/model-routing.md`

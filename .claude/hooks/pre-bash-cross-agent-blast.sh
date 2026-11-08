@@ -198,6 +198,7 @@ print(cur if isinstance(cur, str) else '')
 CMD=$(read_field 'tool_input.command')
 CWD=$(read_field 'cwd')
 AGENT_ID=$(read_field 'agent_id')
+CWD=${CWD//\\//} # Windows payloads use backslashes
 
 [ -z "$CMD" ] && exit 0
 
@@ -218,7 +219,8 @@ if ! echo "$CWD" | grep -qE "$CONTEXT" && [ -z "$AGENT_ID" ]; then
 fi
 
 # Cheap pre-filter: if none of the three trigger words appear anywhere, leave.
-echo "$CMD" | grep -qE 'pkill|killall|worktree|\.claude/worktrees/|CheekyCheeseIT_CRM' || exit 0
+# Case-insensitive: Windows and macOS accept any case for the same path.
+echo "$CMD" | grep -qiE 'pkill|killall|taskkill|worktree|\.claude/worktrees/|CheekyCheeseIT_CRM' || exit 0
 
 # NOTE: this `python3 -c '...'` is SINGLE-quoted, so an apostrophe anywhere
 # inside it — including in a comment — closes the string and the hook dies at
@@ -227,11 +229,26 @@ echo "$CMD" | grep -qE 'pkill|killall|worktree|\.claude/worktrees/|CheekyCheeseI
 # asserts the {"decision":"block"} body. Write "the cwd of the caller", not
 # "the caller's cwd". (The message block further down has the opposite hazard:
 # it is DOUBLE-quoted, so backticks there are command substitution.)
-REASONS=$(printf '%s' "$CMD" | CWD="$CWD" AGENT_ID="$AGENT_ID" python3 -c '
-import os, re, shlex, sys
+REASONS=$(printf '%s' "$CMD" | CWD="$CWD" MSYS2_ENV_CONV_EXCL=CWD AGENT_ID="$AGENT_ID" python3 -c '
+import os, posixpath, re, shlex, sys
+
+
+def to_posix(p):
+    """Windows spells one path as C:/x and /c/x, so compare one form. Paths here
+    are compared as strings: posixpath, because os.path on Windows yields backslashes."""
+    p = p.replace(chr(92), "/")
+    p = re.sub(r"^([A-Za-z]):(?=/|$)", lambda m: "/" + m.group(1).lower(), p)
+    # Drive-relative C:../x is relative to the cwd, so judge it as ../x.
+    return re.sub(r"^[A-Za-z]:", "", p)
+
+
+def cmd_name(word):
+    """Git Bash on Windows runs git.exe and pnpm.cmd as git and pnpm."""
+    return re.sub(r"\.(exe|cmd|bat)$", "", os.path.basename(word), flags=re.I)
+
 
 cmd = sys.stdin.read()
-cwd = os.environ.get("CWD", "")
+cwd = to_posix(os.environ.get("CWD", ""))
 agent_id = os.environ.get("AGENT_ID", "").strip()
 
 # ---- identity: which worktree am I? -----------------------------------------
@@ -388,9 +405,9 @@ def first_token(seg):
             re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", parts[0]) or parts[0] in KEYWORDS
         ):
             parts.pop(0)
-        if not parts or os.path.basename(parts[0]) not in WRAPPERS:
+        if not parts or cmd_name(parts[0]) not in WRAPPERS:
             break
-        wrapper = os.path.basename(parts.pop(0))
+        wrapper = cmd_name(parts.pop(0))
         while parts and parts[0].startswith("-"):
             flag = parts.pop(0)
             if flag in VALUE_FLAGS and parts:
@@ -431,7 +448,7 @@ def first_token(seg):
 
     if not parts:
         return "", []
-    return os.path.basename(parts[0]), parts[1:]
+    return cmd_name(parts[0]), parts[1:]
 
 
 toks = [first_token(s) for s in segments]
@@ -448,14 +465,17 @@ NONLITERAL = re.compile(r"[$`*?\[]")
 
 def resolve(tok):
     """Absolute path for a LITERAL token. Caller must reject non-literals first."""
-    t = os.path.expanduser(tok)
+    t = to_posix(os.path.expanduser(tok))
     if not t.startswith("/"):
-        t = os.path.join(cwd, t)
-    return os.path.normpath(t).rstrip("/")
+        t = posixpath.join(cwd, t)
+    return posixpath.normpath(t).rstrip("/")
 
 # ---- predicate 1: broadcast process kill (backlog 72 / PR #547) -------------
 for name, args in toks:
-    if name in ("pkill", "killall"):
+    # taskkill /IM and /FI are the Windows pkill. /PID names one process, so it stays allowed.
+    if name in ("pkill", "killall") or (
+        name == "taskkill" and any(re.match(r"^[/-]+(im|fi)(:|$)", a, re.I) for a in args)
+    ):
         reasons.append(
             "BROADCAST-KILL|`%s` бьёт по шаблону/имени и гасит процессы ЛЮБОГО "
             "агента, не только твои. Именно так PR #547 дважды убил dev-API "
@@ -528,10 +548,10 @@ for name, args in toks:
         for a in args[args.index("worktree") + 1:]:
             if a == "add" or NONLITERAL.search(a):
                 continue
-            t = os.path.expanduser(a)
+            t = to_posix(os.path.expanduser(a))
             if not t.startswith("/"):
                 continue
-            cand = tmp_norm(os.path.normpath(t).rstrip("/"))
+            cand = tmp_norm(posixpath.normpath(t).rstrip("/"))
             if not own_scratch or not cand.startswith(own_scratch + "/"):
                 continue
             if os.path.exists(cand):
@@ -613,7 +633,7 @@ def is_mutating(name, args):
             return True
         for i, a in enumerate(args):
             if a in ("-exec", "-execdir", "-ok") and i + 1 < len(args):
-                if os.path.basename(args[i + 1]) in MUTATORS:
+                if cmd_name(args[i + 1]) in MUTATORS:
                     return True
     if name == "git":
         for a in args:
@@ -628,7 +648,7 @@ mutating = any(is_mutating(n, a) for n, a in toks)
 redirect_targets = re.findall(r">>?\s*([^\s;|&()]+)", cmd)
 
 if mutating or redirect_targets:
-    referenced = set(re.findall(r"[^\s\"\x27;|&()]*/\.claude/worktrees/([^/\s\"\x27;|&()]+)", cmd))
+    referenced = set(re.findall(r"[^\s\"\x27;|&()]*/\.claude/worktrees/([^/\s\"\x27;|&()]+)", cmd.replace(chr(92), "/")))
     foreign = sorted(s for s in referenced if s != own_seg)
     if foreign:
         reasons.append(
@@ -639,16 +659,17 @@ if mutating or redirect_targets:
         )
     elif repo_root:
         # mutation aimed at the shared checkout itself (not via .claude/worktrees/)
-        cand = [t for t in redirect_targets]
+        # The redirect regex reads raw text, so a quoted target keeps its quotes.
+        cand = [t.strip("\x22\x27") for t in redirect_targets]
         for n, a in toks:
             if is_mutating(n, a):
                 cand += [x for x in a if not x.startswith("-")]
         hits = []
-        for c in cand:
+        for c in map(to_posix, cand):
             if not c.startswith("/"):
                 continue
-            c_norm = os.path.normpath(c)
-            if c_norm.startswith(repo_root + "/") and "/.claude/worktrees/" not in c_norm:
+            c_norm = posixpath.normpath(c)
+            if c_norm.lower().startswith(repo_root.lower() + "/") and "/.claude/worktrees/" not in c_norm:
                 hits.append(c)
         if hits:
             reasons.append(

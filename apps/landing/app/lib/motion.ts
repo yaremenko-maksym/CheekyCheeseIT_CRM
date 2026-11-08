@@ -30,8 +30,6 @@ export const EASE_STANDARD = [0.2, 0.6, 0.2, 1] as const
  */
 export const EASE_SOFT = [0.65, 0, 0.35, 1] as const
 
-export const DUR_REVEAL = 0.7 // section scroll-reveal (unchanged)
-
 /** In-page anchor smooth-scroll (§M.4) — duration unchanged, easing switches to `EASE_SOFT`. */
 export const DUR_SMOOTH_SCROLL = 0.6
 
