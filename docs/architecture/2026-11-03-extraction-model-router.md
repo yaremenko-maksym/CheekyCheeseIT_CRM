@@ -348,6 +348,19 @@ Forces:
 
 ## Decision (summary)
 
+> **Hosted-only since 2026-11-08** (Amendment 2026-11-08). Items 1, 3, 4 and 5 stand. Items 2, 6, 7 and 8 are replaced by
+> 2′, 6′ and 7′ below. The original items are kept unchanged after this note, as the record.
+>
+> - **2′.** The `router` provider runs Gemini, Groq and OpenRouter (free models only, §3.5) from a checked-in allowlist.
+>   It has no local floor. It keeps rotation, the fit filter, own caps and spent/retired skipping, under a whole-call
+>   deadline equal to the hosted budget (H.1, HIGH).
+> - **6′.** Classification stays as in item 6. A call that finds every available route limit-blocked ends
+>   `LIMITS_EXHAUSTED`. The cycle stops its model stage and keeps the records owed. The `MODEL_LIMITS_EXHAUSTED` flag is
+>   raised, and HR and ADMIN see a localized message. The preflight becomes a readiness check that sends nothing (H.2,
+>   H.3, H.8, HIGH).
+> - **7′.** The local model is withdrawn: no local LLM runtime on the server for extraction. The small dose is retired,
+>   and the D10 guard stays (H.6, §8, HIGH).
+
 1. **Copy-adapt** VCF's routing patterns into `@crm/inference` behind `ExtractionPort`, whose result is unchanged (§2, HIGH).
 2. A third extraction provider value, `router`: hosted routes from a checked-in provider allowlist (Gemini, Groq) in
    front of a **required** local floor; rotation, fit filter, own caps, spent/retired skipping, a whole-call deadline
@@ -470,6 +483,11 @@ into a process that logs provider bodies, outside every CRM gate.
 
 ### 2.1 Shape inside `@crm/inference`
 
+> **Superseded in part 2026-11-08 (H.1).** The router has no local route, floor, floor budget or small-dose runner. The
+> provider allowlist is `gemini`, `groq`, `openrouter`. The call ceiling is the hosted budget. Rows below that describe
+> the local route, `serialLocal`, the floor or the dose are the record of the earlier shape. The modules that stay are
+> config, fit, the cascade, state, own caps, the managed lists, the listing, the refresh and the classified leaf.
+
 | Element       | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Config        | `extraction.provider` gains a third value, `router` (additive; `local` and `openrouter` keep their exact behaviour, and `openrouter` is not a router route, D3). The `router` block lists **routes** in priority order. Each route has a provider id (`gemini`, `groq`, `local`), its API key (hosted only), a **pinned fallback** model list (the managed list of §3.4 supersedes it while valid), its context window, its structured-output capability (`json_schema` / `json_object` / none), its minimum call gap and `rotate`. The local route is required and always last; the schema refuses a router config without it. Both hosted routes rotate by default: VCF's `rotate: false` on Gemini reserved its allowance for other work, and in the CRM extraction is the only consumer. |
@@ -515,6 +533,10 @@ then.
 | `gemma-*` id form; licences at the pinned card                                                                   | the listing; MP-04                                                       | no           |
 
 ### 2.4 The extraction worker's entry
+
+> **Amended 2026-11-08 (H.3, H.4).** The worker stays, for the reason given here (keys and a DB role never in one
+> process). Its runtime network and every local env key go. It now holds the OpenRouter key as well. `/preflight` is a
+> readiness check that sends no model request. `LIMITS_EXHAUSTED` passes through the adapter unchanged.
 
 The split puts a network entry in front of the router, with hosted keys and egress behind it and the gates on the far side.
 Designed twice (SR-H-46):
@@ -1020,6 +1042,24 @@ Own-cap values sit **below** each provider's published free limit, so the provid
 
 ### 5.3 "Slow, never a silent failure"
 
+> **Superseded 2026-11-08 by "exhausted, never silent" (H.2, H.3, H.8).** Nothing is slow any more, because there is no
+> floor. Nothing is silent either. A call that finds every available route limit-blocked ends `LIMITS_EXHAUSTED`, raises
+> `MODEL_LIMITS_EXHAUSTED`, and reaches HR and ADMIN as a localized message. A transient failure keeps today's codes and
+> flags. What changes in the text below:
+>
+> - `FELL_TO_LOCAL` is replaced by `EXHAUSTED`. The 5.4c-3 test now fails the wiring if the handler is missing or swallows
+>   `EXHAUSTED`.
+> - **`HOSTED_ROUTES_DEAD` evidence excludes limit codes.** An `EXHAUSTED` reason of `CAP`, `SPENT_DAY` or `CREDIT`, and a
+>   `PROVIDER_DISABLED` event with code `CREDIT`, are evidence for `MODEL_LIMITS_EXHAUSTED`, not for "hosted routes dead".
+>   An `AUTH` disable, a non-aborted transient attempt and the other reasons stay evidence for `HOSTED_ROUTES_DEAD`, exactly
+>   as written. So one cycle never raises both flags for the same cause. Keys that are wrong say "dead"; limits that are
+>   spent say "exhausted".
+> - The preflight paragraph is replaced by the readiness check of H.3: one call that sends no model request, with no
+>   backoff. `MODEL_UNREACHABLE` keeps its "clears only when a later call reaches the worker" rule.
+> - The "floor failure" bullet is gone. A failed call returns the 5.4b outcome its code maps to, or the H.2 stop.
+> - In the accepted limit, "the pinned list and the floor are the safe state" now reads "the pinned list is the safe
+>   state".
+
 - A fall to local is an event, never silence — and an event is only as loud as its consumer, so the consumer is
   **mandatory**, not optional. The wiring (5.4c-3) must supply an `onEvent` handler; the router config schema has
   no "no events" mode. That handler: (a) increments a durable per-day counter of floor falls and of each hosted
@@ -1049,6 +1089,13 @@ Own-cap values sit **below** each provider's published free limit, so the provid
   the safe state.
 
 ### 5.4 Small dose: mandatory on the local route
+
+> **Retired 2026-11-08 (H.6).** The small dose existed only for the local route, which is withdrawn. On hosted routes it
+> would multiply requests against the daily and per-minute free limits and would not help a context limit. What survives
+> of this section is the D10 guard, a field without a surviving quote becomes null on every route, together with the
+> evidence-span reply schema and the strict-schema rendering. The outcome table below still describes how a record that
+> failed extraction is settled. Its local-only rows (hand-back, dose groups, `PROMPT_TOO_LARGE`) no longer occur.
+> The `LIMITS_EXHAUSTED` row is added by H.2: the records stay owed, they are not counted and they are never parked.
 
 **Owner correction, 2026-11-04: built unconditionally, as part of the local route (task 5.4c-6). MP-03 tunes it; it does
 not gate it.** The earlier edition built this only if MP-03 showed the need; that left the floor free to fail on every
@@ -1260,6 +1307,25 @@ with vacancy text included, while the next record started. **So the 5.4b hold ch
   self-heal pick, validation and never-wipe logic: 0 survivors, as for 5.4a/5.4b.
 
 ### 6.2 MP-03 and MP-04 measurement hooks
+
+> **Amended 2026-11-08: MP-03 is hosted-only, and MP-04 is closed.** MP-04 ran and failed (Amendment 2026-11-08 item 1).
+> No later measurement on the production host is planned. The events lose the field-group and "floor answered" fields.
+>
+> MP-03 keeps its pipeline rule: every page goes through `HtmlStructurer.structure`, never a leaf. It runs one phase, a
+> config with one hosted route per provider (`gemini`, `groq`, `openrouter`), on labelled pages the gates admit. It
+> reports:
+>
+> - schema-valid rate and field accuracy per provider and model, uk and en apart;
+> - the D10 dropped-field share;
+> - the share of inputs cut by the input ceiling (H.4);
+> - per-provider `SPENT_DAY` / `BUSY` / `FLAG_REJECTED` counts;
+> - the number of free requests one collection cycle consumes. That last figure checks the 1000-a-day and own-cap
+>   numbers of H.7 against real volume.
+>
+> For OpenRouter, it runs with `dataCollection: allow` (D11). It may run on the OpenRouter key alone while the Gemini and
+> Groq keys do not exist; each provider's row is filled when its key arrives. MP-03 still gates hosted enablement (5.4c-5)
+> and picks the pinned fallback lists. The "local phase" and the floor wording below are the record of the plan before
+> 2026-11-08.
 
 `deps.onEvent(event)` receives, per attempt and per call: route, provider, model, internal code, HTTP status, input
 characters, total tokens, cost when the provider reports it, attempt latency, whole-call latency, the field group when
