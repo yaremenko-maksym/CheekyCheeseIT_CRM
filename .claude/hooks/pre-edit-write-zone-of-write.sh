@@ -24,6 +24,10 @@
 #   production zone gating):
 #
 # Allow conditions (any one):
+#   0. the target resolves inside a linked git worktree (git-dir !=
+#      git-common-dir) — and, when cwd itself is a linked worktree, inside
+#      THAT worktree (else FM-2 refusal). Covers T3 worktrees and Master
+#      light-track edits made from the main checkout into a worktree.
 #   1. cwd contains `/.claude/worktrees/` (primary path — Coder/AutoTest
 #      subagent worktree; this is how PM dispatches isolated work).
 #   2. cwd starts with /tmp/ AND git branch matches `coder/*|feature/*|
@@ -111,6 +115,69 @@ print(json.dumps({'decision': 'block', 'reason': reason}))
       ;;
   esac
 fi
+
+# Linked git worktrees (2026-11-08). The string check above knows only
+# /.claude/worktrees/, so a T3 worktree (~/.t3/worktrees/<project>/t3-xxxx) was
+# refused in its OWN tree, and a main-checkout session was refused when its
+# target lay inside a linked worktree. The gate protects the MAIN checkout, so
+# it is decided by git and by the resolved TARGET:
+#   * cwd is a linked worktree -> the target must resolve inside it, else FM-2;
+#   * otherwise, a target that resolves inside a linked worktree -> allow;
+#   * anything else (main checkout, nested repo, no repo, error) -> fall through.
+# realpath resolves `..` and symlinks of the existing prefix (a new file is
+# judged by its nearest existing parent). Any failure prints nothing and falls
+# through to the old rules, which end in a refusal.
+LW_VERDICT=$(python3 - "$PWD" "$FILE_PATH" <<'PY' 2>/dev/null || true
+import os, subprocess, sys
+cwd, target = sys.argv[1], sys.argv[2]
+
+def checkout(path):
+    """(toplevel, is_linked_worktree) of the git checkout holding path, or None."""
+    d = path
+    while not os.path.isdir(d):
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+    r = subprocess.run(['git', '-C', d, 'rev-parse', '--path-format=absolute',
+                        '--show-toplevel', '--git-dir', '--git-common-dir'],
+                       capture_output=True, text=True, timeout=5)
+    lines = r.stdout.splitlines()
+    if r.returncode != 0 or len(lines) != 3 or not all(lines):
+        return None
+    top, git_dir, common_dir = (os.path.realpath(x) for x in lines)
+    return top, git_dir != common_dir
+
+def inside(p, root):
+    return p == root or p.startswith(root + os.sep)
+
+real_cwd = os.path.realpath(cwd)
+t = os.path.realpath(os.path.join(real_cwd, target))
+c = checkout(real_cwd)
+if c and c[1]:
+    print('ALLOW' if inside(t, c[0]) else 'FM2 ' + c[0])
+else:
+    tc = checkout(t)
+    print('ALLOW' if tc and tc[1] and inside(t, tc[0]) else 'NONE')
+PY
+)
+case "$LW_VERDICT" in
+  ALLOW) exit 0 ;;
+  "FM2 "*)
+    LW_ROOT=${LW_VERDICT#FM2 }
+    python3 -c "
+import json, sys
+file_path, wt = sys.argv[1], sys.argv[2]
+reason = f'''🚫 WORKTREE CONTAMINATION BLOCK (FM-2): this session runs in the linked worktree {wt},
+but the edit target {file_path} resolves OUTSIDE it (another checkout, via an absolute path, '..' or a symlink).
+
+Every Edit/Write goes INSIDE your own worktree. Fix the path: use the {wt}/… prefix. Check: git -C \"{wt}\" status'''
+print(json.dumps({'decision': 'block', 'reason': reason}))
+" "$FILE_PATH" "$LW_ROOT" 2>/dev/null
+    echo "[pre:edit-write:zone-of-write] FM-2 BLOCK worktree=$LW_ROOT target=$FILE_PATH" >&2
+    exit 2
+    ;;
+esac
 
 # Allow #1: subagent worktree cwd (primary path).
 if echo "$PWD" | grep -q '/\.claude/worktrees/'; then

@@ -47,6 +47,7 @@ Each entry below is one zone row: **may** / **may NOT**.
 
 - may: `.claude/tasks/`, `.claude/briefs/`, `docs/business/` (when resolving blockers), `.claude/agents/memory/<agent>/lessons.md` (append), `scripts/pm/**`
 - may NOT: `apps/**`, `packages/**`, `apps/e2e/**`, `.github/workflows/**`, `.claude/agents/<X>.md` (except memory)
+- exception: a light-track edit (`light-track.md`) of `apps/**` / `packages/**`, made inside a linked git worktree
 
 **Architect**
 
@@ -79,9 +80,10 @@ Each entry below is one zone row: **may** / **may NOT**.
 
 ### Active hook
 
-`.claude/hooks/pre-edit-write-zone-of-write.sh` (id `pre:edit-write:zone-of-write`) blocks a Coder
-from the main repo on an attempt to `Edit` / `Write` / `MultiEdit` / `NotebookEdit` in `apps/**` /
-`packages/**` if Master did not allow it.
+`.claude/hooks/pre-edit-write-zone-of-write.sh` (id `pre:edit-write:zone-of-write`) refuses `Edit` /
+`Write` / `MultiEdit` / `NotebookEdit` in `apps/**` / `packages/**` of the MAIN checkout. It allows a
+target that resolves (after `..` and symlinks) inside a linked git worktree, from any cwd; a session
+whose cwd is a linked worktree may write only inside that worktree (FM-2).
 
 ### Worktree caveat
 

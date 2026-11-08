@@ -196,4 +196,96 @@ assert_red "Windows payload: a backslash '..' escape is normalised, not trusted 
   --contains "WORKTREE" \
   -- run_hook "$WT_ROOT" "Edit" "$WT_BACKSLASH\\..\\agent-OTHER\\apps\\web\\app\\x.tsx"
 
+# ── linked git worktrees outside .claude/worktrees/ (2026-11-08) ──────────────
+# The hook used to recognise a worktree only by the string /.claude/worktrees/
+# in $PWD. A T3 `delegate_task isolation:"worktree"` child runs in
+# ~/.t3/worktrees/<project>/t3-xxxx — a real linked worktree — and was refused
+# in its OWN tree; a main-checkout session editing a file inside a linked
+# worktree was refused too, because the hook judged the cwd, not the target.
+# These fixtures are REAL `git worktree add` trees (git-dir != git-common-dir),
+# laid out like T3's, so the decision rests on git, not on a path string.
+# Branch names are deliberately not agent-like, so allow #2 (/tmp + coder/*)
+# cannot be what lets a case through on a Linux runner.
+LW_MAIN="$WS/lw/crm"
+LW_A="$WS/lw/t3/worktrees/crm/t3-aaaa"
+LW_B="$WS/lw/t3/worktrees/crm/t3-bbbb"
+mkdir -p "$LW_MAIN" "$WS/lw/t3/worktrees/crm"
+(
+  cd "$LW_MAIN" || exit 1
+  git init -q -b main
+  git config user.email test@example.invalid
+  git config user.name "guard test"
+  git config commit.gpgsign false
+  mkdir -p apps/api/src .claude
+  echo seed >apps/api/src/main.ts
+  git add apps/api/src/main.ts
+  git commit -q -m init
+  git worktree add -q -b wt-aaaa "$LW_A"
+  git worktree add -q -b wt-bbbb "$LW_B"
+  # A nested, independent repo inside the main checkout: its own main checkout.
+  mkdir -p vendor/nested && git -C vendor/nested init -q -b main
+) >/dev/null 2>&1
+# A symlink that leads out of worktree A into the main checkout's apps/.
+ln -s "$LW_MAIN/apps/api" "$LW_A/apps/link"
+
+assert_green "linked worktree (T3 layout) editing its own apps file, relative path -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_A" "Edit" "apps/api/src/main.ts"
+
+assert_green "linked worktree editing its own apps file, absolute path -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_A" "Edit" "$LW_A/apps/api/src/main.ts"
+
+assert_green "linked worktree writing a NEW file in a new directory of its own tree -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_A" "Write" "$LW_A/packages/new-pkg/src/index.ts"
+
+assert_green "main-checkout session editing a file inside a linked worktree -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_MAIN" "Edit" "$LW_A/apps/api/src/main.ts"
+
+assert_green "linked worktree editing a non-production path -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_A" "Edit" "docs/notes.md"
+
+assert_red "FM-2: linked worktree writing into the MAIN checkout's apps -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$LW_A" "Edit" "$LW_MAIN/apps/api/src/main.ts"
+
+assert_red "FM-2: linked worktree writing into a DIFFERENT linked worktree -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$LW_A" "Edit" "$LW_B/apps/api/src/main.ts"
+
+assert_red "FM-2: an absolute '..' escape from a linked worktree into main -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$LW_A" "Edit" "$LW_A/../../../../crm/apps/api/src/main.ts"
+
+assert_red "FM-2: a relative '..' escape from a linked worktree into main -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$LW_A" "Edit" "../../../../crm/apps/api/src/main.ts"
+
+assert_red "FM-2: a symlink inside a linked worktree that resolves into main -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$LW_A" "Edit" "apps/link/src/main.ts"
+
+assert_red "main-checkout session reaching main through a worktree's symlink -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$LW_MAIN" "Edit" "$LW_A/apps/link/src/main.ts"
+
+assert_red "main-checkout session editing its own apps file without the escape hatch -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$LW_MAIN" "Edit" "apps/api/src/main.ts"
+
+assert_red "a nested independent repo is a main checkout, not a worktree -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$LW_MAIN" "Write" "$LW_MAIN/vendor/nested/apps/x.ts"
+
 guard_test_summary "test-pre-edit-write-zone-of-write.sh"
