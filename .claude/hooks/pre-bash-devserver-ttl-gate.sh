@@ -99,8 +99,10 @@ INPUT=$(cat)
 [ -z "$INPUT" ] && exit 0
 
 # Hot path: a superset of everything the analyzer can block, so a command with
-# none of these words never pays for a python start.
-echo "$INPUT" | grep -qE 'vite|nest|dev|dist/main|start|preview' || exit 0
+# none of these words never pays for a python start. Quotes and backslashes are
+# dropped first (`d''ev` runs dev), and a `$` or backtick can build any word.
+printf '%s' "$INPUT" | tr -d "'\"\\\\" | grep -qE 'vite|nest|dev|dist/main|start|preview' \
+  || printf '%s' "$INPUT" | grep -q '[$`]' || exit 0
 
 printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
 import importlib.util, json, os, re, sys

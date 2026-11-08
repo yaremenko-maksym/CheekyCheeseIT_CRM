@@ -152,8 +152,11 @@ INPUT=$(cat)
 
 # Hot path: if no launcher word occurs anywhere in the payload, nothing below
 # can fire — leave before paying for a python start. Deliberately a SUPERSET of
-# what the analyzer can block (never a second, divergent policy).
-echo "$INPUT" | grep -qE 'vite|nest|dev|dist/main|start|preview' || exit 0
+# what the analyzer can block (never a second, divergent policy). Quotes and
+# backslashes are dropped first (`d''ev` runs dev), and a `$` or backtick can
+# build any word.
+printf '%s' "$INPUT" | tr -d "'\"\\\\" | grep -qE 'vite|nest|dev|dist/main|start|preview' \
+  || printf '%s' "$INPUT" | grep -q '[$`]' || exit 0
 
 printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
 import importlib.util, json, os, re, shlex, sys, urllib.parse
@@ -471,13 +474,13 @@ def judge(seg):
                     i += 1
             elif base == "dev-ttl.sh" and PLAIN_WORD.match(t):
                 i += 1
-                while i < n and toks[i] != "--":
-                    if toks[i] == "--ttl" and i + 1 < n and toks[i + 1].isdigit():
-                        i += 2
-                    elif DEVTTL_TTL.match(toks[i]):
-                        i += 1
-                    else:
-                        return names, ["dev-ttl.sh is followed by %r, which the hook does not understand" % toks[i]]
+                # The script reads one `--ttl N` and nothing else before the `--`.
+                if toks[i:i + 1] == ["--ttl"] and i + 1 < n and toks[i + 1].isdigit():
+                    i += 2
+                elif i < n and DEVTTL_TTL.match(toks[i]):
+                    i += 1
+                if i >= n or toks[i] != "--":
+                    return names, ["dev-ttl.sh is followed by %r, which the hook does not understand" % (toks[i] if i < n else "")]
                 i += 1
             else:
                 break
@@ -517,13 +520,19 @@ def judge(seg):
     # `2>&1` reads `2> & 1`: a `&` right after `<` or `>` is a redirect, not a job.
     # `&>x` reads `& >x` exactly like `export X & >x`, so it stays not plain.
     NOT_PLAIN = re.compile(
-        r"&|\||[(){}]"
+        r"&|\||[(){}`]|\$\("
         r"|\b(?:if|then|elif|else|fi|for|while|until|do|done|case|esac|function|select|coproc)\b"
     )
-    plain_view = re.sub(r"[<>]\s*&", " ", scan.code_view)
+    # Builtins that assign, un-export or defer code; and a command word the shell
+    # computes (`$X DATABASE_URL`), which may be any of them.
+    UNDOES = ("unset", "enable", "declare", "typeset", "local", "read", "mapfile", "readarray",
+              "getopts", "wait", "trap", "eval", "source", ".", "printf")
+    # A `#` that starts a word opens a comment; its words are not statements.
+    plain_view = re.sub(r"(?:^|(?<=\s))#[^\n]*", " ", scan.code_view)
+    plain_view = re.sub(r"[<>]\s*&", " ", plain_view)
     from_export = [v for v in PINNED if v in env and not literal_inline(v)]
     # declare/typeset +x and export -n un-export a name; any of them on the line counts.
-    undone = any(s.name in ("unset", "enable", "declare", "typeset", "local")
+    undone = any(s.name in UNDOES or (s.name and not PLAIN_WORD.match(s.name))
                  or (s.name == "export" and any(a[:1] == "-" and "n" in a for a in s.argv))
                  for s in scan.segments)
     if from_export and (undone or NOT_PLAIN.search(plain_view)):

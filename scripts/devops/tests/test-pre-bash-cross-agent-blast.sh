@@ -414,6 +414,19 @@ assert_red "T3 worktree: mutating another T3 worktree" \
 assert_green "T3 worktree: mutating my own worktree" \
   --not-contains '"decision": "block"' \
   -- run_hook "$T3_MINE" "rm -rf /Users/dev/.t3/worktrees/crm/t3-abc/tmp"
+# SR-M-19: a directory above my T3 worktree holds the worktrees of others.
+for c in "rm -rf /Users/dev/.t3/worktrees/crm/" "rm -rf /Users/dev/.t3/worktrees/crm" \
+         "rm -rf /Users/dev/.t3/worktrees" "rm -rf .." "rm -rf ../../"; do
+  assert_red "T3 worktree: $c" --contains 'FOREIGN-WORKTREE' -- run_hook "$T3_MINE" "$c"
+done
+for c in "rm -rf 'C:\Users\dev\.t3\worktrees\crm'" "rm -rf C:/Users/dev/.t3/worktrees/"; do
+  assert_red "T3 worktree, Windows payload: $c" \
+    --contains 'FOREIGN-WORKTREE' \
+    -- run_hook 'C:\Users\dev\.t3\worktrees\crm\t3-abc' "$c"
+done
+assert_green "T3 worktree: a sibling directory inside my worktree" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$T3_MINE" "rm -rf ./build ../t3-abc/dist"
 assert_green "T3 worktree: killing one PID" \
   --not-contains '"decision": "block"' \
   -- run_hook "$T3_MINE" "kill 1234"

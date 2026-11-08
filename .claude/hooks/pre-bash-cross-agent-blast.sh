@@ -263,6 +263,7 @@ agent_id = os.environ.get("AGENT_ID", "").strip()
 # own_seg — its directory name, the token compared against other paths
 # repo_root — the shared checkout that hosts .claude/worktrees/
 own_wt = own_seg = repo_root = ""
+in_t3 = False
 m = re.match(r"^(?P<root>.*?)/\.claude/worktrees/(?P<seg>[^/]+)", cwd)
 if m:
     repo_root = m.group("root")
@@ -272,6 +273,7 @@ else:
     # A T3 worktree lives outside the checkout, so only git can name that checkout.
     m = re.match(r"^(?P<wt>.*?/\.t3/worktrees/[^/]+/(?P<seg>[^/]+))", cwd, re.I)
     if m:
+        in_t3 = True
         own_wt = m.group("wt")
         own_seg = m.group("seg")
         try:
@@ -701,6 +703,25 @@ if mutating or redirect_targets:
                 "пути (%s), а не твой worktree (%s). Это рецидивирующая "
                 "MAIN-контаминация (zone-of-write.md FM-2)."
                 % (", ".join(sorted(set(hits))[:3]), own_wt)
+            )
+    if in_t3 and not foreign:
+        # T3 keeps every worktree of a project side by side, so a directory above
+        # mine (`rm -rf ~/.t3/worktrees`, `rm -rf ..`) holds the trees of others too.
+        cand = [t.strip("\x22\x27") for t in redirect_targets]
+        for n, a in toks:
+            if is_mutating(n, a):
+                cand += [x for x in a if not x.startswith("-")]
+        up = []
+        for c in cand:
+            p = to_posix(os.path.expanduser(c) if c.startswith("~") else c)
+            p = posixpath.normpath(posixpath.join(cwd, p)).lower().rstrip("/")
+            if own_wt.lower().startswith(p + "/"):
+                up.append(c)
+        if up:
+            reasons.append(
+                "FOREIGN-WORKTREE|команда мутирует каталог над твоим T3-worktree "
+                "(%s), а в нём лежат worktree других агентов. Твой — %s."
+                % (", ".join(sorted(set(up))[:3]), own_wt)
             )
 
 for r in reasons:

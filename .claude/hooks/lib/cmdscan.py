@@ -1321,19 +1321,22 @@ def _unwrap(tokens, assigns):
         if base == "dev-ttl.sh":
             # What the script itself does: an optional `--ttl N`, an optional `--`,
             # and the rest is the command. `dev-ttl.sh rm -rf /etc -- ls` runs rm.
-            if tokens[:1] == ["--ttl"] and not (tokens[1:2] and tokens[1].isdigit()):
-                # The script exits on a TTL that is not a number; judge every word anyway.
-                inexact = inexact or base
-            elif tokens[:1] == ["--ttl"]:
+            if tokens[:1] == ["--ttl"] and tokens[1:2] and tokens[1].isdigit():
                 del tokens[:2]
             elif tokens and tokens[0].startswith("--ttl="):
                 tokens.pop(0)
             if tokens[:1] == ["--"]:
                 tokens.pop(0)
-            elif "--" in tokens and inexact is None:
-                # A later `--` is an argument of the command. Every position stays
-                # judged, so a command behind it is not cleared by the one in front.
-                inexact = base
+            elif "--" in tokens:
+                # Earlier versions read only what follows the first `--`. That reading
+                # stays, so its assignments still reach the env that is judged, and
+                # the words in front of the `--` are judged as code of their own.
+                k = tokens.index("--")
+                nested_code.append(" ".join(shlex.quote(t) for t in tokens[:k]))
+                tokens = tokens[k + 1:]
+            elif tokens[:1] == ["--ttl"]:
+                # The script exits on a TTL that is not a number; judge every word anyway.
+                inexact = inexact or base
             if tokens and re.search(r"\s", tokens[0]):
                 nested_code.append(tokens[0])
             continue

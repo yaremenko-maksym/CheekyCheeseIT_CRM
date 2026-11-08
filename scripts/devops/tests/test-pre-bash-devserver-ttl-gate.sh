@@ -732,6 +732,9 @@ for cwd in '/Users/dev/.t3/worktrees/crm/t3-abc' 'C:\Users\dev\.t3\worktrees\crm
   assert_red "unwrapped launch from $cwd" --contains '"decision": "block"' -- h "pnpm --filter @crm/api dev" "$cwd"
   assert_green "wrapped launch from $cwd" -- h "$TTL -- pnpm --filter @crm/api dev" "$cwd"
 done
+# SR-M-18: quotes inside a word do not get past the fast path.
+assert_red "a quote-spliced launch word" --contains '"decision": "block"' \
+  -- h "pnpm --filter @crm/api d''ev"
 assert_red "launch that names a T3 worktree" \
   --contains '"decision": "block"' \
   -- h "cd /Users/dev/.t3/worktrees/crm/t3-abc && pnpm --filter @crm/api dev" '/Users/dev/elsewhere'

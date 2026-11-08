@@ -964,6 +964,18 @@ assert_red "SR-M-15, the specific reason" \
   -- h "$PIN3 $DT pnpm exec env DATABASE_URL=$LIVE_DB pnpm dev"
 assert_launch_green "a launch with no inner env stays allowed" -- h "$PIN3 $DT $RUN"
 
+# ── SR-H-7: a second --ttl does not hide the live URL behind the -- ─────────
+for l in "pnpm --filter @crm/api dev" "pnpm dev" "vite --port 3010" "node apps/api/dist/main" "nest start"; do
+  assert_red "SR-H-7: ${l}" --contains '"decision": "block"' \
+    -- h "$PIN3 scripts/devops/dev-ttl.sh --ttl 5 --ttl 6 -- DATABASE_URL=$LIVE_DB $l"
+done
+assert_launch_green "one --ttl N before the -- stays allowed" \
+  -- h "$PIN3 scripts/devops/dev-ttl.sh --ttl 5 -- $RUN"
+
+# ── SR-M-18: quotes inside a word do not get past the fast path ─────────────
+assert_red "SR-M-18: a quote-spliced launch word" --contains '"decision": "block"' \
+  -- h "pnpm --filter @crm/api d''ev"
+
 # ── SR-M-13: an export that may never run is not a pin ──────────────────────
 EX="DATABASE_URL=$SAFE_DB API_PORT=3011"
 for c in "false && export $EX; $RUN" "true || export $EX; $RUN" "if false; then export $EX; fi; $RUN" \
@@ -971,11 +983,16 @@ for c in "false && export $EX; $RUN" "true || export $EX; $RUN" "if false; then 
          "for x in; do export $EX; done; $RUN" "export $EX; unset DATABASE_URL; $RUN" \
          "export $EX; export -n DATABASE_URL; $RUN" "export $EX; declare +x DATABASE_URL; $RUN" \
          "export $EX; typeset +x API_PORT; $RUN" "export $EX; export -fn DATABASE_URL; $RUN" "false && export API_PORT=3011; DATABASE_URL=$SAFE_DB $RUN" \
-         "false && \"export\" $EX; $RUN"; do
+         "false && \"export\" $EX; $RUN" \
+         "export $EX; \`echo unset\` DATABASE_URL; $RUN" "export $EX; X=unset; \$X DATABASE_URL; $RUN" \
+         "export $EX; trap 'unset DATABASE_URL' DEBUG; $RUN" "export $EX; mapfile -t DATABASE_URL < /tmp/l; $RUN" \
+         "export $EX; readarray DATABASE_URL < /tmp/l; $RUN" "export $EX; getopts a: DATABASE_URL -a; $RUN" \
+         "export $EX; wait -p DATABASE_URL; $RUN" "export $EX; read DATABASE_URL < /tmp/l; $RUN"; do
   assert_red "SR-M-13: ${c:0:110}" --contains "only through an export" -- h "$c"
 done
 for c in "export $EX; $RUN" "export $EX; $RUN 2>&1" "export $EX; $RUN >/tmp/x.log 2>&1" \
-         "export $EX; echo 'a && b'; $RUN" "cd x && $PIN3 $RUN" "false && export FOO=1; $PIN3 $RUN"; do
+         "export $EX; echo 'a && b'; $RUN" "cd x && $PIN3 $RUN" "false && export FOO=1; $PIN3 $RUN" \
+         "export $EX; $RUN # if it fails (see logs) && retry"; do
   assert_launch_green "the pin does reach the launch: ${c:0:110}" -- h "$c"
 done
 
