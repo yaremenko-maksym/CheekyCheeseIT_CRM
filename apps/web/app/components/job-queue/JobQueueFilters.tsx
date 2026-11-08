@@ -198,7 +198,7 @@ function SeniorRows({
           : teams.map(([team, rows]) => {
               const heading = team ?? i18n._(NO_TEAM.id)
               return (
-                <div key={team ?? ''} role="group" aria-label={heading}>
+                <div key={heading} role="group" aria-label={heading}>
                   <p
                     aria-hidden
                     className="truncate px-2 pt-2 text-xs font-medium text-muted-foreground"
