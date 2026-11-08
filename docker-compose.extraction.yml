@@ -1,0 +1,158 @@
+# ============================================================
+# docker-compose.extraction.yml — the opt-in extraction project (own project name)
+#
+# ADR docs/architecture/2026-11-03-extraction-model-router.md §2.4, §8.3, §8.6.
+# Owner-run: docs/runbooks/extraction-worker.md. No deploy names this file, so a merged
+# change cannot start the runtime on production:
+# scripts/devops/check-extraction-worker-compose.mjs fails CI if one does.
+#
+# Usage (on the host, in the compose directory):
+#   docker compose -f docker-compose.extraction.yml --env-file .env.extraction-pins up -d
+#
+# .env.extraction-pins holds no secret, only the pins below. Every pin is required: an unset
+# one makes compose refuse. The worker's own secrets live in .env.extraction-worker.
+#
+# Networks: this project owns both. `api` (project crm) is attached to `entry` with
+# `docker network connect`, by the deploy script after each `up`, only when the network
+# exists. So neither project's compose file names the other, and a deploy's
+# `down --remove-orphans` has nothing foreign on a network it removes.
+# ============================================================
+
+name: crm-extraction
+
+services:
+  # ── Local model runtime: llama.cpp server, CPU only ───────────────────────
+  # The candidate is a parameter (image digest, weights file, weights digest, window).
+  # Limits are the frozen MP-04 budget (.claude/tasks task r5-5.4c-7).
+  # The name is the host the router allows over plain http (LOCAL_MODEL_RUNTIME_HOST).
+  crm-model-runtime:
+    image: ghcr.io/ggml-org/llama.cpp@sha256:${EXTRACTION_RUNTIME_IMAGE_SHA256:?pin the runtime image digest}
+    # Bounded: a bad digest or an OOM must not loop a multi-GB hash beside the CRM.
+    restart: on-failure:3
+    user: '1000:1000'
+    # Weights are verified on every start. Window, threads and concurrency are server-wide (§8.4).
+    entrypoint:
+      - sh
+      - -ec
+      - |
+        echo "$$EXTRACTION_MODEL_SHA256  /models/$$EXTRACTION_MODEL_FILE" | sha256sum -c -
+        exec /app/llama-server \
+          --model "/models/$$EXTRACTION_MODEL_FILE" \
+          --host 0.0.0.0 --port 8080 \
+          --ctx-size "$$EXTRACTION_RUNTIME_CONTEXT_TOKENS" \
+          --threads 2 --threads-batch 2 --threads-http 2 --parallel 1 \
+          --no-webui --no-slots --log-disable
+    environment:
+      EXTRACTION_MODEL_FILE: ${EXTRACTION_MODEL_FILE:?pin the weights file name}
+      EXTRACTION_MODEL_SHA256: ${EXTRACTION_MODEL_SHA256:?pin the weights digest}
+      EXTRACTION_RUNTIME_CONTEXT_TOKENS: ${EXTRACTION_RUNTIME_CONTEXT_TOKENS:?set the window, equal to the route window}
+    volumes:
+      - model_weights:/models:ro
+    mem_limit: 3584m
+    memswap_limit: 3584m
+    cpus: 2.0
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+    networks:
+      - runtime
+
+  # ── Extraction worker (ADR §2.4): same image as `api`, worker entrypoint ──
+  # A deploy does not touch this service, so its tag is pinned here and moved by the owner.
+  extraction-worker:
+    image: ghcr.io/yaremenko-maksym/cheekycheeseit-crm-api:${EXTRACTION_WORKER_IMAGE_TAG:?pin the worker image tag}
+    restart: unless-stopped
+    command: ['node', 'dist/extraction-worker/main']
+    # The api image's HEALTHCHECK probes :3001; it does not apply to the worker.
+    healthcheck:
+      disable: true
+    env_file:
+      - .env.extraction-worker
+    environment:
+      NODE_ENV: production
+      EXTRACTION_WORKER_HOST: 0.0.0.0
+      EXTRACTION_WORKER_PORT: '3100'
+      EXTRACTION_ROUTER_STATE_FILE: /var/lib/extraction-worker/router-state.json
+    volumes:
+      - worker_state:/var/lib/extraction-worker
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 0.5
+    pids_limit: 64
+    # Writable: the state volume and /tmp only.
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+    networks:
+      - entry
+      - runtime
+
+  # ── One-shot weights download (never starts without --profile provision) ──
+  # Fetches by digest into the runtime's volume; any failure leaves no partial file behind.
+  # Runs as the runtime's user: the runbook chowns the fresh volume to 1000:1000 once, first.
+  weights-fetch:
+    profiles: ['provision']
+    image: ghcr.io/ggml-org/llama.cpp@sha256:${EXTRACTION_RUNTIME_IMAGE_SHA256:?pin the runtime image digest}
+    restart: 'no'
+    user: '1000:1000'
+    entrypoint:
+      - sh
+      - -ec
+      - |
+        trap 'rm -f /models/.partial' EXIT
+        curl -fsSL --proto =https --proto-redir =https --max-time 3600 "$$EXTRACTION_MODEL_URL" -o /models/.partial
+        echo "$$EXTRACTION_MODEL_SHA256  /models/.partial" | sha256sum -c -
+        chmod 0444 /models/.partial
+        mv /models/.partial "/models/$$EXTRACTION_MODEL_FILE"
+    environment:
+      EXTRACTION_MODEL_URL: ${EXTRACTION_MODEL_URL:-}
+      EXTRACTION_MODEL_FILE: ${EXTRACTION_MODEL_FILE:?pin the weights file name}
+      EXTRACTION_MODEL_SHA256: ${EXTRACTION_MODEL_SHA256:?pin the weights digest}
+    volumes:
+      - model_weights:/models
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 32
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - provision
+
+volumes:
+  # Undo removes this one; it never removes worker_state (§8.6).
+  model_weights:
+    driver: local
+  worker_state:
+    driver: local
+
+networks:
+  # The §2.4 entry: the worker and its caller. Fixed name: the deploy attaches `api` by it.
+  entry:
+    name: crm-extraction-entry
+    driver: bridge
+    internal: true
+  # The runtime network: the runtime and the worker only. No route out (§8.3).
+  runtime:
+    driver: bridge
+    internal: true
+  # Outbound, for the one-shot weights download only.
+  provision:
+    driver: bridge
