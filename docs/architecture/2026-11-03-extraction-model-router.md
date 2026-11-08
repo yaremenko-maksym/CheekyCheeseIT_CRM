@@ -7,6 +7,10 @@ answers D7 and accepts the recommendations for D4 and D5. Task: r5 Task 5.4c (pl
 `docs/superpowers/plans/2026-10-10-vacancy-sourcing-plan.r5.md`, Task 5.4 amendment of 2026-11-03 and §"Model split —
 owner decision, 2026-10-18").
 
+**Amended 2026-11-08 — hosted-only (owner decision).** The local model is withdrawn; the router uses free Gemini, Groq
+and OpenRouter models only, and an all-exhausted day shows a localized notice. See "Amendment 2026-11-08 — hosted-only"
+below; it supersedes the parts of the earlier amendments and sections that it names.
+
 **Amendment, 2026-11-04 (owner corrections, relayed by Master).** (1) The CRM installs **its own** lightweight local
 model; VCF's model and hardware are not adopted, only the strategy that keeps a small model answering (§8). (2) Small
 dose is **unconditional**: built as part of the local route; MP-03 tunes it, it does not gate it (§5.4). (3) Owner
@@ -74,6 +78,253 @@ the sections are corrected in place; the shipped limits are listed in
     fails closed; the seven-day rule stays.
 12. **The §5.3 signals get new tables, and the 5.5b task owns the first call site (§7.2).**
 
+### Amendment 2026-11-08 — hosted-only
+
+**Owner decision, 2026-11-08 (A3, taken by the owner; written up by the architect).** This amendment is normative. Where an
+older section of this ADR disagrees with it, this amendment wins, and the older section carries a "Superseded 2026-11-08"
+note pointing here.
+
+1. **The local model is withdrawn.** The server never runs a local LLM runtime for extraction. The measured cause is the
+   MP-04 replay of the one candidate, qwen2.5-1.5b, on the production host. It reached an MP-03 schema-valid rate of 0.68
+   (uk) and 0.32 (en) and a field accuracy of 0.16 and 0.14. After an abort, the CPU stayed busy for 36 s against a
+   10 s limit. The owner stopped the replay. The extraction compose project, the weights volume and the images were
+   removed from production.
+2. **The router uses free hosted models only: Gemini, Groq and OpenRouter.** OpenRouter returns as a route (D3 is
+   superseded, §4.3). The owner bought $10 of OpenRouter credits, which raises the `:free` limit to 1000 requests a day.
+   **Only free models are ever used**, never a paid one (§3.5).
+3. **When every provider, model and limit is exhausted, the user sees a localized error** (uk and en, through Lingui),
+   not a slow fallback and not an empty result (H.2, H.8).
+
+What it supersedes: Decision items 2, 6, 7 and 8; D3, D8 and D9; the local route of §2.1, §2.4, §3.1 and §3.3; §5.3 "slow,
+never a silent failure"; §5.4 (the small dose); the local phase of §6.2; the tasks 5.4c-7 and 5.4c-8; and §8 as a whole
+(withdrawn, kept as the record of the attempt). D1, D2, D4–D7 and D10 stand unchanged. D11 (OpenRouter
+`data_collection: allow`, decided by the owner the same day) is new (H.9).
+
+#### H.1 Router config without a local route (HIGH)
+
+- **Providers.** `HOSTED_PROVIDERS` is `gemini`, `groq`, `openrouter`. `HOSTED_BASE_URLS` gains
+  `openrouter: 'https://openrouter.ai/api/v1'`, a package constant like the other two. `RouterProvider` is `HostedProvider`;
+  the value `local` disappears from the router's types.
+- **Removed:** `localRouteSchema`, `LocalRouteConfig`, `floorBudgetMs`, `MAX_FLOOR_BUDGET_MS`, `LOCAL_TIMEOUT_LIMIT_MS`,
+  `isAllowedRouterLocalModelUrl`, `localRuntimeKey`, `ROUTER_LOCAL_MODEL_URL` and the local single-flight queue.
+- **A stale config fails closed.** `routerConfigSchema` stays `.strict()`, and `local` is not in the provider enum. A config
+  that still carries `floorBudgetMs` or a `local` route is therefore refused (`CONFIG_REFUSED`; the adapter answers
+  `NOT_CONFIGURED`). It is never silently stripped into a different config.
+- **The two local refines and their replacement.**
+  - `routes.at(-1)?.provider === 'local'` has no successor. Routes are tried in config order, as §5.2 already says.
+  - `floorBudgetMs >= MAX_SMALL_DOSE_GROUPS * local.timeoutMs` becomes
+    `hostedBudgetMs >= Math.max(...routes.map((r) => r.timeoutMs))`. The idea is the same: the budget must hold one whole
+    request of the route it protects. It now protects the slowest configured route instead of the floor. The refine stays
+    total, so a failed `routes` (empty) reaches it without throwing.
+  - Unique providers per route list: kept. `routes` stays `.min(1).max(3)`.
+- **`hostedBudgetMs` is positive** (it was non-negative only so that a local-only config could carry 0).
+- **The route schema is a discriminated union on `provider`.** The OpenRouter member has one extra required field,
+  `dataCollection: 'allow' | 'deny'`, with no default (§3.5). It is set to `allow` (owner decision D11, H.9). The Gemini and Groq members refuse it.
+- **The call ceiling is the hosted budget.** `routerCallCeilingMs(config)` returns `config.hostedBudgetMs`. On the
+  collection side, `CALL_CEILING_MS` becomes `MAX_HOSTED_BUDGET_MS` (120 s) instead of 120 s plus six local requests of up to
+  300 s each, and `WORKER_STRUCTURER_TIMEOUT_MS`, `WORKER_ADAPTER_TIMEOUT_MS` and `WORKER_HOLD_MS` shrink with it. §5.5 is
+  unchanged otherwise: one request in flight, a real abort, a coded `TIMEOUT` before the transport's.
+
+#### H.2 The all-exhausted outcome: `LIMITS_EXHAUSTED` (HIGH for the behaviour, MED for the name)
+
+- **A new public code.** `INFERENCE_ERROR_CODES` gains `LIMITS_EXHAUSTED`. The name is cheap to change until it ships.
+- **Definition.** A router call ends `LIMITS_EXHAUSTED` only when all three hold:
+  1. it produced no answer;
+  2. the set of **available** routes is non-empty. A route is available when it is configured, its key is present and its
+     provider is not `AUTH`-disabled;
+  3. every available route ended the call **limit-blocked**: its own cap refused a unit (`CAP`, D5 unchanged); or every
+     model it could try is spent for the provider day (`SPENT_DAY` in this call, or a spent entry in route state); or its
+     provider's `CREDIT` bit is set.
+- **How it differs from a transient failure.** A route that ended `BUSY`, `TIMEOUT`, `TRANSPORT`, `INVALID_OUTPUT`,
+  `REFUSED`, `FIT`, `BUDGET` (the call's own time ran out) or `RETIRED` with nothing left to try is **not** limit-blocked.
+  If any available route ended that way, the call keeps today's codes: `PROVIDER_ERROR`, `INVALID_OUTPUT` when the record
+  caused it, or `TIMEOUT` on an abort. A busy route recovers in minutes; an exhausted one waits hours for its reset. So a
+  mix of one spent and one busy route is transient, and HR never sees "limits exhausted" for a quarter-hour blip. The
+  reverse error is impossible by construction: when every route is limit-blocked, the code is always `LIMITS_EXHAUSTED`.
+- **Neighbouring cases.** Every available route `AUTH`-disabled, or no route available: `PROVIDER_ERROR` plus the existing
+  `HOSTED_ROUTES_DEAD` flag (wrong or revoked keys, an operator problem, not limits). No route configured at all:
+  `NOT_CONFIGURED`.
+- **Router event.** `EXHAUSTED`, carrying the per-route reasons (route, internal code; never text), replaces
+  `FELL_TO_LOCAL`. The `onEvent` callback stays mandatory.
+- **No reset time in the port result.** `ExtractionResult` keeps `{ ok: false, code }`. The user message says "try again
+  later" and needs no time; a reset time would widen a cross-package contract for no reader.
+- **The extraction worker passes the code through unchanged**, like `NOT_CONFIGURED`, `PROVIDER_ERROR`, `INVALID_OUTPUT` and
+  `TIMEOUT` (Amendment 2026-11-06 item 8). The worker's reply envelope schema adds it. The adapter must not fold it into
+  `PROVIDER_ERROR`.
+- **The collection cycle (`ModelStructurer`).** `BY_INFERENCE_CODE` maps `LIMITS_EXHAUSTED` to a new `ModelStop` kind,
+  `LIMITS_EXHAUSTED`, with no cause field. On that stop:
+  - the model stage stops for the rest of the cycle, with no further port call;
+  - the record that met it and every remaining record stay **owed**. They are not counted in `modelAttempts` and are
+    never parked; `settleModelPending` treats them as it treats `BUDGET_EXHAUSTED`. The checkpoint is the existing owed
+    set, so the next cycle retries them;
+  - the deterministic stages run on, and fields they produced are still written.
+- **Why a new kind and not `BUDGET_EXHAUSTED`.** That stop is the CRM's own per-cycle budget (`HTML_MODEL_CALLS_PER_CYCLE`),
+  always clear by the next cycle and invisible to users. **Why not `MODEL_UNAVAILABLE`.** That stop means the config or
+  transport is broken and the owner must act. `LIMITS_EXHAUSTED` is a normal daily state that clears itself at reset, and
+  it is the one the user is told about.
+- **Health flag.** `MODEL_HEALTH_FLAG_VALUES` gains `MODEL_LIMITS_EXHAUSTED`. It is raised on the stop (or by the readiness
+  answer of H.3) and cleared by the first successful call or `READY` readiness of a later cycle. It is emitted once per
+  cycle through the existing `claimEmissions`, at warn level, not error: it is expected under load. `MODEL_ROUTE_VALUES`
+  gains `openrouter` and keeps `local`, so a historical row stays valid. Both are CHECK constraints on
+  `job_model_health_flags` and `job_model_route_daily`, so this is forward DDL in `manual-staged/` (critical path).
+
+#### H.3 Preflight becomes a readiness check that sends nothing (HIGH)
+
+- **What it was.** Up to four attempts, 10 s, 30 s and 60 s apart (`PREFLIGHT_BACKOFF_MS`), each sending the synthetic
+  `PREFLIGHT_INPUT` through `localOnlyRouterConfig`. It existed to wait out the local model's cold load (§5.3, MP-04).
+- **Why not a hosted probe instead.** A probe through the hosted routes would spend a free request on every cycle, from
+  the same daily limit the vacancies need. The daily refresh (§3.4) already probes the model lists.
+- **What it is now.** The worker's `/preflight` reads its own route state (spent entries, `CREDIT` and `AUTH` bits, own-cap
+  counters), sends **no model request**, and answers one of:
+  - `READY`: at least one available route is not limit-blocked;
+  - `LIMITS_EXHAUSTED`: routes are available, and every one is limit-blocked;
+  - `NO_ROUTE`: no route has a key, or every route is `AUTH`-disabled.
+
+  It reads the own-cap counters and reserves no unit.
+
+- **What the collection side does with it.**
+  - `READY`: the model stage runs.
+  - `LIMITS_EXHAUSTED`: the model stage is skipped with the H.2 stop and zero calls.
+  - `NO_ROUTE`, or the worker unreachable: `MODEL_UNREACHABLE`. Its meaning narrows to "the worker or its routes".
+- **One attempt, no backoff.** `PREFLIGHT_BACKOFF_MS` and the multi-attempt loop in `reachModel` go, and so do
+  `PREFLIGHT_INPUT`, `PREFLIGHT_INSTRUCTION` and `localOnlyRouterConfig`. `preflightReplySchema` becomes the three-value
+  answer. A worker that is down is retried by the next cycle.
+- **`READY` is advisory.** Limits can run out mid-cycle; H.2 covers that.
+
+#### H.4 The extraction worker stays (HIGH)
+
+- **Why it stays.** Its reason never depended on the local runtime. A process that parses hostile pages must not hold the
+  provider keys and a DB role at once (§2.4, option c). Folding the router into the API would put three provider keys
+  next to the DB credentials, in the process that fetches third-party HTML. Hosted-only does not change that threat; it
+  adds a third key. The worker keeps holding the keys and the state files, and no DB credential.
+- **What goes.** The runtime network and the runtime container. `ROUTER_LOCAL_MODEL_URL`, `LOCAL_MODEL_KEY` and
+  `LOCAL_MODEL_NAME` leave `extractionWorkerEnvSchema`. The small-dose groups leave `EXTRACTION_TABLE_VERSION`, which
+  becomes a version of the schema and prompt only.
+- **What is added.** `extractionWorkerEnvSchema` and `HOSTED_KEY_ENV` gain `openrouter: 'OPENROUTER_API_KEY'`.
+  `routeFromEnv` still drops a route whose key is absent, so the worker starts with whichever keys the owner has entered.
+  Today that is OpenRouter alone: no Gemini or Groq key exists yet.
+- **What stays.** The dedicated internal network, `EXTRACTION_WORKER_SECRET` with `isUsableWorkerSecret`, the data-only
+  strict schema, the second `stripContacts` and the 0600 env file. The worker never reads `.env.production`.
+- **Collection-side env.** `MODEL_EXTRACTION_ENV_KEYS` drops `EXTRACTION_CYCLE_LOCAL_MS_LIMIT`, because the local time
+  budget of §5.5 item 6 is gone. It renames `EXTRACTION_LOCAL_CONTEXT_TOKENS` and `EXTRACTION_LOCAL_MAX_ANSWER_TOKENS` to
+  `EXTRACTION_INPUT_CONTEXT_TOKENS` and `EXTRACTION_INPUT_MAX_ANSWER_TOKENS`.
+- **Where the input ceiling comes from (MED).** Operations set those two keys to the **smallest** configured hosted window,
+  so every route fits every input. `routerInputCeilingChars` loses its small-dose parameter. Drift between the two sides is
+  safe: a prompt too large for one route is `FIT` on that route, and the cascade moves on (§5.2). It turns into a failure
+  only when it fits no route, and then it is `PROVIDER_ERROR`, never `LIMITS_EXHAUSTED`. MP-03 reports the share of inputs
+  that were cut.
+- **Placement.** The memory budget of the model was the reason for a separate compose project. Whether the worker now
+  joins the main deploy compose is DevOps's call in 5.4c-5. The internal network and the secret are not optional either
+  way.
+- **The key moves (owner action).** `OPENROUTER_API_KEY` goes into the worker's 0600 env file. The API's own env keeps it
+  only while an API-side consumer remains. Today those are `build-inference-config.ts` (the single-route `openrouter`
+  provider), `inference.module.ts` and `inference-model-resolver.service.ts`, and `deploy.yml` writes the key into the API
+  env. Removing it there is a separate DevOps step once `INFERENCE_EXTRACTION_PROVIDER=router` is live, and only after a
+  grep confirms no API reader is left.
+
+#### H.5 OpenRouter: the free-only guard
+
+Specified in §3.5, rewritten by this amendment from "deferred" to "built". In short:
+
+- only `:free` ids are requested;
+- every catalogue price is 0;
+- the `openrouter` author and every other suffix are denied;
+- the request sends `max_price` 0 and `require_parameters`;
+- the limits are 1000 a day and about 20 a minute;
+- `SPENT_DAY`, `CREDIT` and `FLAG_REJECTED` are classified;
+- the key's USD `limit` of $0 is the backstop.
+
+A paid model is unreachable by four independent checks (§3.5).
+
+#### H.6 The small dose is retired (HIGH)
+
+- **Why it existed.** A 1.5B-class local model could not answer the full schema, so §5.4 split the ask into field groups
+  and merged the answers. Hosted routes always got the full shape (§5.4, "hosted: full shape").
+- **Why it does not carry over.** Each group re-sends the whole input. So a six-group dose costs up to six requests and
+  six times the input tokens of one full call, against 1000 requests a day and about 20 a minute. It does not help a
+  hosted context limit, because the input, not the schema, is what fills the window. Its only beneficiary was the
+  withdrawn model.
+- **What survives.**
+  - the D10 guard: a field without a surviving quote becomes null, on every route;
+  - `modelReplySchema` with its evidence spans;
+  - the strict-schema rendering every route uses: `renderSchema` and `structuredOutputFor` move out of `small-dose.ts`;
+  - the per-record `missing` list, which still narrows what the deterministic stage leaves to the model.
+- **What goes.** `runSmallDose`, `DoseAsk`, the `SmallDose` type, `ExtractionRequest.smallDose`, `MAX_SMALL_DOSE_GROUPS`,
+  `small-dose-table.ts` (`smallDoseFor`, `FLOOR_UNCERTAINTY`), the hand-back, `PROMPT_TOO_LARGE` (a local-only code), the
+  `localMs` usage field and the local cycle time budget.
+
+#### H.7 Limits and resets per provider (MED until the 5.4c-5 smoke)
+
+| Provider   | Free limit fed to `freeLimit`                                     | Own cap (D5, 50 %) | Pacing (`minGapMs`)    | Reset assumed                    |
+| ---------- | ----------------------------------------------------------------- | ------------------ | ---------------------- | -------------------------------- |
+| Gemini     | per model, from `2026-11-04-extraction-provider-facts.md`         | half of it         | per provider-facts     | midnight Pacific (documented)    |
+| Groq       | per model, from the same file                                     | half of it         | per provider-facts     | UNVERIFIED; the smoke records it |
+| OpenRouter | 1000 requests a day for `:free` once ≥ $10 of credits were bought | 500                | 3000 ms (~20 a minute) | UNVERIFIED; the smoke records it |
+
+Own caps stay per provider and per policy version (D5). A reset time is used only by the health flag's message and by
+operators. No code path waits on it, so an error here delays a retry by one cycle at most.
+
+#### H.8 How the message reaches HR and ADMIN
+
+- **The text** (Lingui; in this module the `uk` text is the source message and `en` is its catalog entry):
+  - uk: «Пошук вакансій тимчасово недоступний: ліміти AI-моделей на зараз вичерпано. Спробуйте пізніше.»
+  - en: "Vacancy sourcing is temporarily unavailable: AI model limits are exhausted for now. Try again later."
+
+  The copy-reviewer reviews both. The owner's suggested wording is the starting point, not frozen text.
+
+- **One API field, derived from the flag.** The read model is "is `MODEL_LIMITS_EXHAUSTED` raised and not cleared". It is
+  exposed as `sourcingNotice: 'AI_LIMITS_EXHAUSTED' | null` in two strict response schemas in `@crm/shared`:
+  - `jobQueueListResponseSchema`, the HR, SENIOR and ADMIN queue, served by `JobQueueService.list`;
+  - `jobSourceOperationalListSchema`, ADMIN `GET /job-sourcing/admin/sources/health`, served by
+    `JobSourceAdminController`.
+
+  Both schemas are strict, so the field is added to the schema, never passed through. It is a closed enum, so further
+  notices are new values, not new fields. It carries no provider name, count or time: no RBAC-relevant data reaches the
+  HR view.
+
+- **Where it shows.**
+  - **Queue** (`/job-queue`, the existing notice pattern with `AlertTriangle` and `<Trans>`, test id
+    `job-queue-ai-limits`). It is a separate block above the list, outside the `if / else if` chain, so it can stand beside
+    the "partial list" notice. It sits in a live region with `role="status"`.
+  - **ADMIN sources** (`/admin/sources`): the same text as a banner over the health table.
+- **The ADMIN manual run.** `POST /job-sourcing/collect` uses the same concept.
+  - `jobCollectionRunSchema` gains the same `sourcingNotice` field, set when the run's model stage stopped on limits. The
+    deterministic stages still ran.
+  - When nothing succeeded **and** the model stage stopped on limits, the existing 503 carries a new code,
+    `JOB_SOURCING_AI_LIMITS_EXHAUSTED` in `JOB_SOURCING_ERROR_CODES`. It has the same localized text in the client
+    catalog and an English fallback `message`.
+  - Any other "nothing succeeded" keeps today's 503 and code.
+- **Where it lands now, and where later.** Nothing in production calls the model wiring until task 5.5b, the first HTML
+  model provider (§7.2, delivery state). Until then the flag is never raised, the field is always `null` and both views
+  show nothing. The code ships with tests that raise the flag through the store. The message goes live when 5.5b wires
+  `prepareCycle`. Later, the HR queue's empty state is the natural second place, when a queue stays empty because the
+  model stage was skipped; it is a follow-up, not part of H-3.
+
+#### H.9 Two OpenRouter decisions
+
+- **D11, `provider.data_collection` on the OpenRouter route: `allow`** (decided by the owner, 2026-11-08). The owner's
+  words: "let them collect data, we never send personal information to the models anyway".
+  - **The facts it rests on.** The 2026-11-08 probe found that `deny` gives `nvidia/nemotron-3.5-super-vl:free` a 404
+    ("No endpoints found matching your data policy (Free model training)").
+    `dots-studio/dots-3-note-preview:free` and `xingchen-agi/xing4.0-29b-a4b:free` answer 200 with `deny`. The two Gemma
+    models answer 429 either way.
+  - **Rationale.** It is consistent with D2. Only public vacancy text leaves the host, and contact details are stripped
+    before it does.
+  - **What it makes load-bearing.** With `allow`, the contact-stripping guard of 5.4a (`stripContacts`, run on the
+    collection side and again in the extraction worker, §2.4) becomes **the** privacy control for OpenRouter. No
+    provider-side setting stands behind it. So it is **mandatory on every hosted route**: no config value, route or
+    provider can skip it.
+  - **Test obligation.** For each hosted provider (`gemini`, `groq`, `openrouter`), a router-level privacy test sends an
+    input carrying every contact shape `stripContacts` handles. It asserts that the outgoing request body holds none of
+    them, and that no code path reaches a leaf without passing the strip. It runs in the inference privacy specs and the
+    extraction-worker spec, on production, probe and chain-check requests alike (§3.3, one request builder).
+  - **One config value.** `dataCollection` is required on the OpenRouter route, with no default, and is set to `allow`.
+    Changing it is a config change, not a code change. If it is ever set to `deny`, the nemotron model is
+    `FLAG_REJECTED` and the cascade moves on.
+- **OD-2, `provider.ignore` contents** (A1, taken by the architect and recorded here; the owner may override).
+  **Decided: empty.** Its old content came from the
+  D2 exclusion that no longer exists. The field stays in the request builder, so a later entry is a config value.
+
 ## Context
 
 The owner decided on 2026-10-18 that vacancy extraction runs on Gemini, Groq, OpenRouter and the local model: a
@@ -106,6 +357,19 @@ Forces:
   validation of every model output; deterministic tests without keys or network.
 
 ## Decision (summary)
+
+> **Hosted-only since 2026-11-08** (Amendment 2026-11-08). Items 1, 3, 4 and 5 stand. Items 2, 6, 7 and 8 are replaced by
+> 2′, 6′ and 7′ below (7′ replaces both 7 and 8). In item 5, D3 is superseded (§7.1). The original items are kept unchanged after this note, as the record.
+>
+> - **2′.** The `router` provider runs Gemini, Groq and OpenRouter (free models only, §3.5) from a checked-in allowlist.
+>   It has no local floor. It keeps rotation, the fit filter, own caps and spent/retired skipping, under a whole-call
+>   deadline equal to the hosted budget (H.1, HIGH).
+> - **6′.** Classification stays as in item 6. A call that finds every available route limit-blocked ends
+>   `LIMITS_EXHAUSTED`. The cycle stops its model stage and keeps the records owed. The `MODEL_LIMITS_EXHAUSTED` flag is
+>   raised, and HR and ADMIN see a localized message. The preflight becomes a readiness check that sends nothing (H.2,
+>   H.3, H.8, HIGH).
+> - **7′.** The local model is withdrawn: no local LLM runtime on the server for extraction. The small dose is retired,
+>   and the D10 guard stays (H.6, §8, HIGH).
 
 1. **Copy-adapt** VCF's routing patterns into `@crm/inference` behind `ExtractionPort`, whose result is unchanged (§2, HIGH).
 2. A third extraction provider value, `router`: hosted routes from a checked-in provider allowlist (Gemini, Groq) in
@@ -229,17 +493,22 @@ into a process that logs provider bodies, outside every CRM gate.
 
 ### 2.1 Shape inside `@crm/inference`
 
-| Element       | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Config        | `extraction.provider` gains a third value, `router` (additive; `local` and `openrouter` keep their exact behaviour, and `openrouter` is not a router route, D3). The `router` block lists **routes** in priority order. Each route has a provider id (`gemini`, `groq`, `local`), its API key (hosted only), a **pinned fallback** model list (the managed list of §3.4 supersedes it while valid), its context window, its structured-output capability (`json_schema` / `json_object` / none), its minimum call gap and `rotate`. The local route is required and always last; the schema refuses a router config without it. Both hosted routes rotate by default: VCF's `rotate: false` on Gemini reserved its allowance for other work, and in the CRM extraction is the only consumer. |
-| Hosts         | Package constants, as today (no base-URL env); the local route keeps its env URL.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Route leaf    | One OpenAI-compatible leaf for every provider, built on `sendChatCompletion` widened to return an **internal classified failure** (§5) instead of collapsing everything into `PROVIDER_ERROR`. Gemini uses its OpenAI-compatible endpoint, which takes `json_schema` with `strict: true` (5.4c-0; the endpoint is in beta).                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Router        | `createRouterExtractionAdapter(config, deps)` returns an `ExtractionPort`. Per call: fit filter → rotation among rotatable hosted routes → cascade through hosted routes (full shape) → hand-back → local floor (small dose, §5.4). A whole-call deadline caps the sum of per-attempt timeouts (VCF's `boundExecutor` lesson).                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Deps (seams)  | `fetchImpl`, `now`, `sleep`, a `RouteStatePort` (§3.2), an `OwnCapPort` (§3.1) and `onEvent` (§6.2). As with a missing `onEvent` (§5.3), a config with a hosted route and no `OwnCapPort` is refused: an uncapped hosted route is not a state the router can be built in.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Public result | The type stays `{ ok: true, data, usage? }` or `{ ok: false, code: InferenceErrorCode }`, plus an optional `usage` on the failure branch, so a failed floor call is still charged to the cycle's limit (§5.5). Internal codes never leave the package, exactly as `MODEL_UNAVAILABLE` does not today.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Process       | **The router runs only in the extraction worker**, which holds the hosted keys, `ROUTER_LOCAL_MODEL_URL` and the state files, reaches the runtime, and holds **no DB credential** (Task 5.2). It is not the plan's collection worker, which has a DB role, runs `HtmlProvider` and `ModelStructurer`, and keeps gate, strip, budget, result guard and persistence. The one way in is the entry of §2.4. The API process never builds the router.                                                                                                                                                                                                                                                                                                                                             |
-| Input ceiling | An exported pure helper returns the largest page text the configured **local** route accepts, computed from that route's **configured** window — never a runtime default (Ollama's is 4096 tokens, less than one detail page) — reserving the instruction, the longest group's answer and the correction (§5.1). Its consumer is `buildExtractionPrompt`, which takes it as a limit below `MAX_MODEL_INPUT_CHARS`, cuts the page text itself and reports `truncated`. No chunker exists on main and none is added: each record stays one chunk and one port call. Hosted routes receive the same cut text, so evidence is one text per record.                                                                                                                                               |
-| One port      | `InferenceClient` keeps a single `extraction` port over the whole chain. There is no per-source provider set: under D1 and D2 every call that reaches the port may use every configured route. The gate in front of the port decides whether a call happens at all (§4).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+> **Superseded in part 2026-11-08 (H.1).** The router has no local route, floor, floor budget or small-dose runner. The
+> provider allowlist is `gemini`, `groq`, `openrouter`. The call ceiling is the hosted budget. Rows below that describe
+> the local route, `serialLocal`, the floor or the dose are the record of the earlier shape. The modules that stay are
+> config, fit, the cascade, state, own caps, the managed lists, the listing, the refresh and the classified leaf.
+
+| Element       | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Config        | `extraction.provider` gains a third value, `router` (additive; `local` and `openrouter` keep their exact behaviour, and `openrouter` is not a router route, D3). The `router` block lists **routes** in priority order. Each route has a provider id (`gemini`, `groq`, `local`), its API key (hosted only), a **pinned fallback** model list (the managed list of §3.4 supersedes it while valid), its context window, its structured-output capability (`json_schema` / `json_object` / none), its minimum call gap and `rotate`. The local route is required and always last; the schema refuses a router config without it. **Superseded 2026-11-08 (H.1):** the route set is `gemini`, `groq`, `openrouter`, and a config that carries a `local` route is refused. Both hosted routes rotate by default: VCF's `rotate: false` on Gemini reserved its allowance for other work, and in the CRM extraction is the only consumer. |
+| Hosts         | Package constants, as today (no base-URL env); the local route keeps its env URL.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Route leaf    | One OpenAI-compatible leaf for every provider, built on `sendChatCompletion` widened to return an **internal classified failure** (§5) instead of collapsing everything into `PROVIDER_ERROR`. Gemini uses its OpenAI-compatible endpoint, which takes `json_schema` with `strict: true` (5.4c-0; the endpoint is in beta).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Router        | `createRouterExtractionAdapter(config, deps)` returns an `ExtractionPort`. Per call: fit filter → rotation among rotatable hosted routes → cascade through hosted routes (full shape) → hand-back → local floor (small dose, §5.4). A whole-call deadline caps the sum of per-attempt timeouts (VCF's `boundExecutor` lesson).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Deps (seams)  | `fetchImpl`, `now`, `sleep`, a `RouteStatePort` (§3.2), an `OwnCapPort` (§3.1) and `onEvent` (§6.2). As with a missing `onEvent` (§5.3), a config with a hosted route and no `OwnCapPort` is refused: an uncapped hosted route is not a state the router can be built in.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Public result | The type stays `{ ok: true, data, usage? }` or `{ ok: false, code: InferenceErrorCode }`, plus an optional `usage` on the failure branch, so a failed floor call is still charged to the cycle's limit (§5.5). Internal codes never leave the package, exactly as `MODEL_UNAVAILABLE` does not today.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Process       | **The router runs only in the extraction worker**, which holds the hosted keys, `ROUTER_LOCAL_MODEL_URL` and the state files, reaches the runtime, and holds **no DB credential** (Task 5.2). It is not the plan's collection worker, which has a DB role, runs `HtmlProvider` and `ModelStructurer`, and keeps gate, strip, budget, result guard and persistence. The one way in is the entry of §2.4. The API process never builds the router.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Input ceiling | An exported pure helper returns the largest page text the configured **local** route accepts, computed from that route's **configured** window — never a runtime default (Ollama's is 4096 tokens, less than one detail page) — reserving the instruction, the longest group's answer and the correction (§5.1). Its consumer is `buildExtractionPrompt`, which takes it as a limit below `MAX_MODEL_INPUT_CHARS`, cuts the page text itself and reports `truncated`. No chunker exists on main and none is added: each record stays one chunk and one port call. Hosted routes receive the same cut text, so evidence is one text per record.                                                                                                                                                                                                                                                                                       |
+| One port      | `InferenceClient` keeps a single `extraction` port over the whole chain. There is no per-source provider set: under D1 and D2 every call that reaches the port may use every configured route. The gate in front of the port decides whether a call happens at all (§4).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 The existing `InferenceModelResolverService` (OpenRouter, cheapest model under guardrails, chosen at runtime) stays as
 it is for `provider: openrouter`. Under `router` the models come from each provider's self-healing managed list with a
@@ -274,6 +543,10 @@ then.
 | `gemma-*` id form; licences at the pinned card                                                                   | the listing; MP-04                                                       | no           |
 
 ### 2.4 The extraction worker's entry
+
+> **Amended 2026-11-08 (H.3, H.4).** The worker stays, for the reason given here (keys and a DB role never in one
+> process). Its runtime network and every local env key go. It now holds the OpenRouter key as well. `/preflight` is a
+> readiness check that sends no model request. `LIMITS_EXHAUSTED` passes through the adapter unchanged.
 
 The split puts a network entry in front of the router, with hosted keys and egress behind it and the gates on the far side.
 Designed twice (SR-H-46):
@@ -322,6 +595,9 @@ Designed twice (SR-H-46):
 ## 3. Data and secret model
 
 ### 3.1 Where each kind of state lives
+
+> **Amended 2026-11-08 (H.4).** `OPENROUTER_API_KEY` joins the hosted keys the extraction worker reads, and it is
+> forbidden to the router everywhere else. The local URL, model name and key rows no longer apply.
 
 | State                                                                                                                                                                                                                 | Lifetime                                                                      | Where                                                                                                                                                                                                                                                                                                                                               | Why                                                                                                                                                                                                                                                                                                                                              |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -402,9 +678,9 @@ route:
 | Bit      | Cleared only by                                                                                                                                                                  | Not cleared by                                                                      |
 | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | `AUTH`   | a **keyed chat probe** to that provider that returns 2xx (the fixed probe prompt, the shared request builder) — this applies to Groq too, which the daily refresh does not probe | a successful listing fetch: a listing that answers proves nothing about a chat call |
-| `CREDIT` | the limit's reset                                                                                                                                                                | a refresh                                                                           |
+| `CREDIT` | the limit's reset; for OpenRouter, whose prepaid balance never resets, a keyed chat probe that returns 2xx (as `AUTH`)                                                           | a refresh that sends no chat probe                                                  |
 
-**Start-up refresh.** At worker start, every provider carrying a persisted `AUTH` bit gets an on-demand refresh of that
+**Start-up refresh.** At worker start, every provider carrying a persisted `AUTH` bit, or OpenRouter carrying a persisted `CREDIT` bit (§3.5), gets an on-demand refresh of that
 provider alone, under the constraints of the daily one, so a rotated key is picked up at the next start rather than up to
 a day later. It differs from the daily job in one way: it **sends exactly one fixed-prompt chat probe** to that provider,
 Groq included, because that probe is the only proof that clears the bit. The one case with no probe: every id on the list is
@@ -416,6 +692,10 @@ policy. The own-cap unit is still released for these codes (§5.1), and start-up
 any probe.
 
 ### 3.3 Transport and key hygiene
+
+> **Amended 2026-11-08 (H.1).** `ROUTER_LOCAL_MODEL_URL`, the narrow plain-HTTP allowance for the runtime container and the
+> private-address HTTPS case go with the local route. Every route is now a package-constant HTTPS host.
+> `https://openrouter.ai/api/v1` is the third. The one request builder carries the OpenRouter routing fields of §3.5.
 
 - **Hosted hosts** are HTTPS package constants; no env or config can point a hosted route elsewhere.
 - **The local URL** comes from a new env key, `ROUTER_LOCAL_MODEL_URL`, validated when the config is parsed: no
@@ -566,33 +846,77 @@ missing, empty or invalid file therefore degrades to the first edition's behavio
 **Confidence: HIGH** for the mechanism and the Groq path (VCF runs them daily); **MED** for the Gemini path (a chat-probed
 refresh and a pattern standing in for the missing free-tier field are not in VCF).
 
-### 3.5 Deferred with OpenRouter (owner decision D3)
+### 3.5 OpenRouter route: free models only (built — Amendment 2026-11-08; was "deferred", D3)
 
-OpenRouter is not a router route in this version. None of the following is built; it is kept here as the specification
-to restore, reviewed again at that time:
+> **Restored and amended 2026-11-08.** D3 is superseded (§4.3). The specification that was kept here for restoration is
+> now the build spec, narrowed where the facts of 2026-11-08 allow. Confidence: HIGH for the guard's shape, MED for the
+> exact OpenRouter field names and markers until the 5.4c-5 smoke confirms them by fixture.
 
-- **Route:** provider id `openrouter`, reading the existing `OPENROUTER_API_KEY`, which §3.1 otherwise forbids the router.
-- **Candidates:** the public catalogue, free entries only: prompt and completion price 0 **and** a plain or `:free` id
-  (price 0 alone is not trusted). `PROBE_CAP` 10 under a ~50/day limit; Task 5.2's USD key limit as the backstop.
-- **Ids:** exactly `<author>/<model>` or `<author>/<model>:free`. Any other suffix is refused (`:online` forwards the prompt
-  to a web search; also `:extended`, `:nitro`, `:floor`, `:thinking`, any future one). `openrouter/auto` and every id whose
-  author is `openrouter` are denied. Hostile-id and free-filter tests come back with it.
-- **Privacy fields** on production, probe and chain-check requests alike: `provider.data_collection: "deny"`, `zdr` once
-  confirmed, `provider.ignore`. A route whose builder cannot produce them is **disabled**, never sent without them. An id
-  names the author, not the endpoint, so filtering ids does not keep an upstream out; `provider.ignore` does.
-- **`FLAG_REJECTED`:** the provider refuses a privacy parameter or reports no endpoint matches the data policy. Classified
-  **before** `RETIRED`, or it retires good models. Next route, never retried without the flag, own-cap unit released. On a
-  production request: a persisted provider bit, cleared only by a 2xx probe with every production field to the model it was
-  recorded against (or the current first model if that one is retired), start-up refresh included. On a probe: that model
-  is ineligible, and the provider bit is never set.
-- **Classification:** the `SPENT_DAY` free-models-per-day marker and the `CREDIT` signal for the USD key limit.
+- **Route.** Provider id `openrouter`, base URL the package constant `https://openrouter.ai/api/v1`. The key is the
+  existing `OPENROUTER_API_KEY`, read only by the extraction worker (H.4). §3.1 otherwise forbids the router this key.
+- **A paid model can never be selected. Four independent checks**, any one of which is enough to refuse:
+  1. **Id shape.**
+     - A requested id is exactly `<author>/<model>:free`. This narrows the earlier "plain or `:free`": every free entry
+       of the 2026-11-08 catalogue except `openrouter/free` carries the suffix, so nothing usable is lost.
+     - Any other suffix is refused: `:online` forwards the prompt to a web search; also `:extended`, `:nitro`, `:floor`,
+       `:thinking` and any future one.
+     - Every id whose author is `openrouter` is denied (`openrouter/auto`, `openrouter/free`). These are meta-routers
+       that choose the upstream themselves.
+     - The check runs in `isValidProviderModelId('openrouter', id)` on the pinned list, the managed list and every listing
+       entry before it is probed, stored or logged (§3.4).
+  2. **Catalogue price.**
+     - From `GET /api/v1/models`, a candidate needs **every** field of `pricing` to parse as the number 0. A missing,
+       blank or non-numeric price is not free.
+     - The existing `fetchOpenRouterCatalog` reads `pricing.prompt` only; the router's listing reads them all.
+     - A candidate must also list `structured_outputs` in `supported_parameters`. That drops the two Gemma models, which
+       offer `response_format` only. `MIN_MANAGED_CONTEXT` applies as for the other providers.
+  3. **Request fields** on production, probe and chain-check requests alike, from the one request builder (§3.3):
+     - `provider.max_price` with every price 0;
+     - `provider.require_parameters: true`;
+     - `provider.data_collection` from the route's `dataCollection` value (D11: `allow`);
+     - `provider.ignore` from config (OD-2: empty).
 
-**Re-decided by the owner when it is added:** whether to keep `deny` if it empties the free pool, and what `provider.ignore`
-lists, since its contents came from the D2 exclusion that no longer exists. The same restoration applies if 5.4c-0 finds a
-per-request privacy parameter on Gemini or Groq that the owner wants sent: a flag a provider can refuse needs
-`FLAG_REJECTED` back.
+     Never a `models` fallback array, a `route` field or `transforms`: each would let OpenRouter pick a model this guard
+     did not check. A builder that cannot produce these fields disables the route; it never sends without them.
 
-The existing `openrouter` value of `extraction.provider`, its adapter and its `data_collection: deny` are unchanged.
+  4. **The key's USD `limit` is $0** (an owner setting; the key showed `limit: 0` on 2026-11-08). Even if the three checks
+     above failed, a paid request has no spend to draw on. The 5.4c-5 smoke confirms that `:free` calls succeed under a $0
+     limit with a positive credit balance, because the probe's 200s on 2026-11-08 suggest it but do not prove it.
+- **Limits.**
+  - `freeLimit.requestsPerDay` is 1000. That is OpenRouter's `:free` limit once at least $10 of credits were bought; the
+    owner bought exactly $10. So the own cap is 500 (D5).
+  - `minGapMs` is 3000, under the ~20 requests a minute that `:free` models allow.
+  - `PROBE_CAP` stays 10. Probes count against the own cap (§3.4).
+  - A negative credit balance makes OpenRouter answer 402 even on free models. That is `CREDIT` below.
+- **Classification** (§5.1, one table, bounded structured fields, never page text):
+  - **`FLAG_REJECTED`** is classified **before** `RETIRED`, or it retires good models. It covers a 404 whose
+    `error.message` reports that no endpoint matches the data policy, and a 400 that refuses a routing parameter. The
+    call moves to the next route; it is never retried without the flag, and the own-cap unit is released.
+    - On a production request, it sets a persisted provider bit. A 2xx probe clears it, and the probe must carry every
+      production field to the model the bit was recorded against (or the current first model, if that one is retired).
+      The start-up refresh can be that probe.
+    - On a probe, that model becomes ineligible, and the provider bit is never set.
+  - **`SPENT_DAY`**: a 429 whose `error.message` holds the whole token `free-models-per-day`. The model, and with it the
+    provider (the limit is per account, not per model), is spent until the reset.
+  - **`BUSY`** with a cool-down: a 429 with `free-models-per-min`, or an upstream 429 without either marker. One wait,
+    never a loop (§5.2).
+  - **`CREDIT`**: a 402, or the key's limit reached. The provider is off until the bit clears, and the event is loud.
+    A prepaid balance never resets, so for OpenRouter the bit is cleared the way `AUTH` is (§3.2): a keyed chat probe
+    that returns 2xx, at the start-up refresh or the daily one. The owner tops up or raises the key limit; the next
+    probe brings the provider back.
+  - **`AUTH`**: a 401, or a 403 with the documented error envelope.
+  - **`RETIRED`**: a 404 that is not `FLAG_REJECTED` goes to `retiredAnswer` (request-time retirement, §5.1), unchanged.
+- **Egress.** `openrouter.ai` only, listing included.
+- **Tests that come with it** (5.4c-H1):
+  - hostile ids: suffixes, the `openrouter` author, path tricks, case;
+  - the free filter, including a price present as `"0.0000001"`, missing or `null`;
+  - the request-field assertion on all three request kinds;
+  - a disabled route when a field cannot be built;
+  - classification fixtures for each marker above, and a literal "free-models-per-day" in a page-echoing message that
+    must not match outside `error.message`.
+
+The existing single-route `openrouter` value of `extraction.provider`, its adapter and its `data_collection: deny` are
+unchanged. The router does not reuse that adapter, so the D11 `allow` does not leak into it.
 
 ---
 
@@ -647,15 +971,25 @@ risk of §4.1 accurate, and a material change in those terms goes back to the ow
 
 ### 4.3 OpenRouter — owner decision D3 (decided 2026-11-04)
 
-**Decided: OpenRouter is not enabled in this version.** The first router version has Gemini, Groq and the local floor,
-which narrows the owner's decision of 2026-10-18. The question of keeping `data_collection: "deny"` against an empty
-free pool is moot for now and is re-decided if OpenRouter is added (§3.5).
+> **Superseded 2026-11-08 (owner decision; Amendment 2026-11-08).** OpenRouter is a route, free models only (§3.5). The
+> `data_collection` question is answered by D11: `allow`, which makes contact stripping load-bearing on every hosted route
+> (H.9). The text below is the record of the 2026-11-04 decision.
+
+**Decided (2026-11-04, superseded): OpenRouter is not enabled in this version.** The first router version has Gemini,
+Groq and the local floor, which narrows the owner's decision of 2026-10-18. The question of keeping
+`data_collection: "deny"` against an empty free pool is moot for now and is re-decided if OpenRouter is added (§3.5).
 
 ---
 
 ## 5. Failure semantics
 
 ### 5.1 Classification (internal codes; one table for every hosted leaf)
+
+> **Amended 2026-11-08 (H.1, H.6, §3.5).** The table holds for Gemini, Groq and OpenRouter, with three changes.
+>
+> - OpenRouter adds `FLAG_REJECTED`, classified before `RETIRED`, and documents `CREDIT` as a 402 (§3.5).
+> - `PROMPT_TOO_LARGE` and every mention of the local floor are withdrawn with the local route.
+> - `FLAG_REJECTED` releases its own-cap unit.
 
 Classification uses the HTTP status first, then the **whole** error body, parsed as JSON, of which only the provider's
 **documented structured error fields** are read, plus its rate-limit headers — never the page text, never a free-text
@@ -673,7 +1007,7 @@ discarded after classification.
 | `OK`               | 2xx, envelope valid, output passes Zod after at most one correction retry (`runExtraction`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | return                                                                                                                                                                                                                                                                                                                          | own cap committed                                                                                                    |
 | `BUSY`             | 429 without a per-day marker, including Groq's per-day token 429, which has none; 503                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | a short bounded backoff on the same model (VCF Gemini: 9 s, 25 s) **only if** the call deadline allows; a `retry-after` (Groq) or `retryDelay` (Gemini) longer than that puts the model in a **cool-down** until it elapses, in process memory; then next model / next route. At most one wait per model per call, never a loop | none                                                                                                                 |
 | `SPENT_DAY`        | 429 with a per-day marker. Groq: `x-ratelimit-remaining-requests` exactly `0` (the request headers always mean per day, documented). Gemini: a `QuotaFailure` quota id containing `PerDay` (secondary; if the compat body lacks it, the 429 is `BUSY` and the own caps hold)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | next model / next route                                                                                                                                                                                                                                                                                                         | model spent until the provider's reset                                                                               |
-| `CREDIT`           | 402 / insufficient credit. Neither provider documents one (5.4c-0), so there is no fixture yet; the row stays for a provider that does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | next route                                                                                                                                                                                                                                                                                                                      | whole provider spent until the limit's reset; a loud event (limit pause)                                             |
+| `CREDIT`           | 402 / insufficient credit. Gemini and Groq document none (5.4c-0); OpenRouter does (§3.5), and its bit clears by a keyed 2xx probe (§3.2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | next route                                                                                                                                                                                                                                                                                                                      | whole provider spent until the limit's reset (OpenRouter: until the bit clears, §3.2); a loud event (limit pause)    |
 | `RETIRED`          | 404 naming the model or an endpoint (`retiredAnswer`; "naming" means `error.code` is `model_not_found`, or `error.message` holds the requested id as a whole token, bounded by characters outside `[A-Za-z0-9._-]` or the string's ends, and an empty id never matches; a bare 404 is `TRANSPORT`, so a wrong base URL never retires everything). **Gemini re-route:** a 2xx whose response `model`, after stripping `models/`, matches the Gemini family pattern with a **different version or variant capture** than the requested id — Google routes a deprecated id to a successor instead of refusing it. A response id that fails id validation or the pattern (a `-NNN` revision suffix, say) is no signal and retires nothing. UNVERIFIED that compat reports the routed-to id (§2.3); if it does not, pinned ids and the daily refresh are the only repair | after a 404, next model; after a re-route, the answer is used and the event names both ids, the response id only after it passed id validation (§3.4)                                                                                                                                                                           | model retired (persisted) until the next successful refresh (§3.4)                                                   |
 | `AUTH`             | 401; a 403 whose body parses as the provider's **documented error envelope** (Gemini `error.status: PERMISSION_DENIED`; Groq an `error` object with `message` and `type`). Gemini's `PERMISSION_DENIED` has four documented causes, all about the key or project; read as `REFUSED`, a leaked key would be retried on every record. Any other 403 (HTML, empty, foreign JSON — an edge layer reacting to the page) is `TRANSPORT`, so page text can never disable a provider                                                                                                                                                                                                                                                                                                                                                                                        | next route                                                                                                                                                                                                                                                                                                                      | whole provider disabled, **persisted**, until the proof of §3.2; loud event — a key problem is never read as "spent" |
 | `REFUSED`          | a safety block or content filter (OpenAI-compatible `finish_reason: content_filter`; Gemini block reason): an input-triggered refusal must not disable a provider                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | next route; **not** retried on the same provider                                                                                                                                                                                                                                                                                | none (it is about this input, not the model)                                                                         |
@@ -697,18 +1031,23 @@ immediately before the request is sent. A `BUSY` re-try on the same model and th
 `runExtraction` are separate requests and reserve their own units; a unit that cannot be reserved stops that provider
 for this call (no request is sent). After the response, by code:
 
-| Code                                                   | The request's unit                                                                                       |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| `OK`, `INVALID_OUTPUT`, `REFUSED`, `BUSY`, `SPENT_DAY` | **committed** — the provider counted the request                                                         |
-| `TIMEOUT`                                              | **committed** — the request may have been counted                                                        |
-| `AUTH`, `CREDIT`, `RETIRED` after a 404                | **released** — refused before any work; these codes disable the model or provider, so they cannot repeat |
-| `RETIRED` after a Gemini re-route (a 2xx)              | **committed** — the provider did the work, and its answer is used                                        |
-| `TRANSPORT` with no response (connection never made)   | **released**                                                                                             |
-| `TRANSPORT` with a response                            | **committed**                                                                                            |
+| Code                                                     | The request's unit                                                                                       |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `OK`, `INVALID_OUTPUT`, `REFUSED`, `BUSY`, `SPENT_DAY`   | **committed** — the provider counted the request                                                         |
+| `TIMEOUT`                                                | **committed** — the request may have been counted                                                        |
+| `AUTH`, `CREDIT`, `FLAG_REJECTED`, `RETIRED` after a 404 | **released** — refused before any work; these codes disable the model or provider, so they cannot repeat |
+| `RETIRED` after a Gemini re-route (a 2xx)                | **committed** — the provider did the work, and its answer is used                                        |
+| `TRANSPORT` with no response (connection never made)     | **released**                                                                                             |
+| `TRANSPORT` with a response                              | **committed**                                                                                            |
 
 The local floor reserves no own-cap unit; the 5.4b cycle slot covers the whole call, floor included.
 
 ### 5.2 Pacing and dosing, as one algorithm
+
+> **Amended 2026-11-08 (H.1, H.6).** The pacing survives: own caps, minimum gaps, rotation, the fit filter and spent/retired
+> skipping. Everything about the floor does not: there is no `floorBudgetMs`, no hand-back to local, no `FELL_TO_LOCAL`
+> event and no required local route. The whole-call deadline is `hostedBudgetMs` alone, and a call that finds every
+> available route limit-blocked ends `LIMITS_EXHAUSTED` (H.2). The steps below are kept as the record.
 
 Per `extract` call:
 
@@ -735,6 +1074,24 @@ Own-cap values sit **below** each provider's published free limit, so the provid
 `SPENT_DAY` is then the exception that corrects a wrong cap, not the normal stop. Values: D5.
 
 ### 5.3 "Slow, never a silent failure"
+
+> **Superseded 2026-11-08 by "exhausted, never silent" (H.2, H.3, H.8).** Nothing is slow any more, because there is no
+> floor. Nothing is silent either. A call that finds every available route limit-blocked ends `LIMITS_EXHAUSTED`, raises
+> `MODEL_LIMITS_EXHAUSTED`, and reaches HR and ADMIN as a localized message. A transient failure keeps today's codes and
+> flags. What changes in the text below:
+>
+> - `FELL_TO_LOCAL` is replaced by `EXHAUSTED`. The 5.4c-3 test now fails the wiring if the handler is missing or swallows
+>   `EXHAUSTED`.
+> - **`HOSTED_ROUTES_DEAD` evidence excludes limit codes.** An `EXHAUSTED` reason of `CAP`, `SPENT_DAY` or `CREDIT`, and a
+>   `PROVIDER_DISABLED` event with code `CREDIT`, are evidence for `MODEL_LIMITS_EXHAUSTED`, not for "hosted routes dead".
+>   An `AUTH` disable, a non-aborted transient attempt and the other reasons stay evidence for `HOSTED_ROUTES_DEAD`, exactly
+>   as written. So one cycle never raises both flags for the same cause. Keys that are wrong say "dead"; limits that are
+>   spent say "exhausted".
+> - The preflight paragraph is replaced by the readiness check of H.3: one call that sends no model request, with no
+>   backoff. `MODEL_UNREACHABLE` keeps its "clears only when a later call reaches the worker" rule.
+> - The "floor failure" bullet is gone. A failed call returns the 5.4b outcome its code maps to, or the H.2 stop.
+> - In the accepted limit, "the pinned list and the floor are the safe state" now reads "the pinned list is the safe
+>   state".
 
 - A fall to local is an event, never silence — and an event is only as loud as its consumer, so the consumer is
   **mandatory**, not optional. The wiring (5.4c-3) must supply an `onEvent` handler; the router config schema has
@@ -765,6 +1122,13 @@ Own-cap values sit **below** each provider's published free limit, so the provid
   the safe state.
 
 ### 5.4 Small dose: mandatory on the local route
+
+> **Retired 2026-11-08 (H.6).** The small dose existed only for the local route, which is withdrawn. On hosted routes it
+> would multiply requests against the daily and per-minute free limits and would not help a context limit. What survives
+> of this section is the D10 guard, a field without a surviving quote becomes null on every route, together with the
+> evidence-span reply schema and the strict-schema rendering. The outcome table below still describes how a record that
+> failed extraction is settled. Its local-only rows (hand-back, dose groups, `PROMPT_TOO_LARGE`) no longer occur.
+> The `LIMITS_EXHAUSTED` row is added by H.2: the records stay owed, they are not counted and they are never parked.
 
 **Owner correction, 2026-11-04: built unconditionally, as part of the local route (task 5.4c-6). MP-03 tunes it; it does
 not gate it.** The earlier edition built this only if MP-03 showed the need; that left the floor free to fail on every
@@ -852,6 +1216,10 @@ reaches everything, so an outage clears them at once. 5.4c-6 changes that to:
 
 ### 5.5 Stopping a call: a ceiling, an abort, one request in flight
 
+> **Amended 2026-11-08 (H.1, H.6).** The ceiling, the abort and one request in flight per route survive, over
+> `hostedBudgetMs` only. The local request queue, the `floorBudgetMs` term of the ceiling sum and the per-cycle local
+> time budget are withdrawn with the local route.
+
 A floor budget that grows with the group count does not survive the layer above. `ModelStructurer` gives up after
 `DEFAULT_STRUCTURER_TIMEOUT_MS` (120 s), frees the route after `DEFAULT_ABANDONED_HOLD_MS` (250 s, from
 `MAX_REQUESTS_PER_PORT_CALL`), and the port takes no signal. An abandoned router call would keep sending, hosted requests
@@ -883,6 +1251,11 @@ with vacancy text included, while the next record started. **So the 5.4b hold ch
 ## 6. Test strategy and MP-03 hooks
 
 ### 6.1 Without keys, without network
+
+> **Amended 2026-11-08 (H.1, H.6).** Tests of the local floor, its budget and concurrency, and the small dose are not
+> written; the specs that carry them are rewritten by 5.4c-H1. In their place: a `local` route is `CONFIG_REFUSED`, an
+> all-limit-blocked call ends `LIMITS_EXHAUSTED` (5.4c-H2), and the OpenRouter free-only checks and classification
+> (5.4c-H3). The seams below are unchanged.
 
 - **Seam:** the package's existing `fetchImpl` (`FetchLike`), plus injected `now` and `sleep` — the same seams the
   OpenRouter adapter tests use today. No env, no DB.
@@ -977,6 +1350,25 @@ with vacancy text included, while the next record started. **So the 5.4b hold ch
 
 ### 6.2 MP-03 and MP-04 measurement hooks
 
+> **Amended 2026-11-08: MP-03 is hosted-only, and MP-04 is closed.** MP-04 ran and failed (Amendment 2026-11-08 item 1).
+> No later measurement on the production host is planned. The events lose the field-group and "floor answered" fields.
+>
+> MP-03 keeps its pipeline rule: every page goes through `HtmlStructurer.structure`, never a leaf. It runs one phase, a
+> config with one hosted route per provider (`gemini`, `groq`, `openrouter`), on labelled pages the gates admit. It
+> reports:
+>
+> - schema-valid rate and field accuracy per provider and model, uk and en apart;
+> - the D10 dropped-field share;
+> - the share of inputs cut by the input ceiling (H.4);
+> - per-provider `SPENT_DAY` / `BUSY` / `FLAG_REJECTED` counts;
+> - the number of free requests one collection cycle consumes. That last figure checks the 1000-a-day and own-cap
+>   numbers of H.7 against real volume.
+>
+> For OpenRouter, it runs with `dataCollection: allow` (D11). It may run on the OpenRouter key alone while the Gemini and
+> Groq keys do not exist; each provider's row is filled when its key arrives. MP-03 still gates hosted enablement (5.4c-5)
+> and picks the pinned fallback lists. The "local phase" and the floor wording below are the record of the plan before
+> 2026-11-08.
+
 `deps.onEvent(event)` receives, per attempt and per call: route, provider, model, internal code, HTTP status, input
 characters, total tokens, cost when the provider reports it, attempt latency, whole-call latency, the field group when
 the attempt belongs to a small dose, and whether the floor answered. **No text.** The package does not aggregate; the
@@ -1003,27 +1395,59 @@ gates the install (task 5.4c-8).
 
 ### 7.1 Decisions (classified per `autonomy-levels.md`)
 
-| ID      | Question                                                                                                       | Level                                              | Answer or recommendation                                                                                                                                                                                                                                                                                                                                      | Reversible?                                                          |
-| ------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| **D1**  | Which sources may send text to hosted models                                                                   | **Decided by the owner 2026-11-04**                | Every source for which the model can do the task; `ai-input=no`, the `unspecified` policy and contact stripping unchanged; residual risk accepted (§4.1)                                                                                                                                                                                                      | Removing the keys stops sending; text already sent is not recallable |
-| **D2**  | May a provider whose free tier can train on or human-review prompts receive vacancy text                       | **Decided by the owner 2026-11-04**                | Yes, after stripping (§4.2)                                                                                                                                                                                                                                                                                                                                   | Same                                                                 |
-| **D3**  | OpenRouter in the router                                                                                       | **Decided by the owner 2026-11-04**                | Not in this version; `deny` re-decided if it is added (§3.5, §4.3)                                                                                                                                                                                                                                                                                            | Yes — add a provider row later                                       |
-| **D4**  | Which persistent store holds route state and the managed list (memory alone is ruled out by D6)                | **Decided by the owner 2026-11-04** (ADR approval) | Worker state files (write-through, atomic replace) behind the `RouteStatePort`; Postgres adapter only when a second worker replica appears                                                                                                                                                                                                                    | Yes — swap the adapter                                               |
-| **D5**  | Own daily caps per provider                                                                                    | **Decided by the owner 2026-11-04** (ADR approval) | 50 % of each provider's published free limit (5.4c-0 supplies the numbers), frozen as limits in config under a policy version                                                                                                                                                                                                                                 | Yes — a new policy version                                           |
-| **D6**  | Model list after a model dies                                                                                  | **Decided by the owner 2026-11-03**                | **Self-heal** by the VCF mechanism: request-time retirement, daily refresh with a pinned fallback, weekly stale check (§3.4) — replaces "alert only"                                                                                                                                                                                                          | Yes — delete the managed-list file / disable the job                 |
-| **D7**  | Adoption shape                                                                                                 | **Decided by the owner 2026-11-04** (ADR approval) | Option A, copy-adapt into `@crm/inference`                                                                                                                                                                                                                                                                                                                    | Yes — revert the PRs                                                 |
-| **D8**  | If no model passes MP-04 on the VPS: another host, or deterministic HTML with model extraction disabled (§8.5) | **A3, asked only if it happens**                   | Deterministic HTML first, because it spends nothing and loses only what measured coverage can then price; another host once that loss is known                                                                                                                                                                                                                | Yes                                                                  |
-| **D9**  | Where the load replay of MP-04 runs                                                                            | **Decided by the owner 2026-11-04**                | On the VPS, run by Master over the ssh alias (owner-authorized 2026-11-04): the candidate under the container limit (4 vCPU and the RAM left beside the CRM), synthetic data only, stopped if CRM p95 degrades. Alternative path: the owner's own machine under the same limit, synthetic or seed data only, which is indicative of the VPS, not proof (§8.2) | The run is; load already put on production is not                    |
-| **D10** | Fields a model returns without a surviving quote                                                               | **Decided by the owner 2026-11-04**                | Filtered out on every route: the field becomes null, the record and its other fields stay (§5.4). MP-03 still reports the dropped share                                                                                                                                                                                                                       | Yes — one filter                                                     |
+| ID       | Question                                                                                                       | Level                                              | Answer or recommendation                                                                                                                                                                                                                                                                                                                                      | Reversible?                                                          |
+| -------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| **D1**   | Which sources may send text to hosted models                                                                   | **Decided by the owner 2026-11-04**                | Every source for which the model can do the task; `ai-input=no`, the `unspecified` policy and contact stripping unchanged; residual risk accepted (§4.1)                                                                                                                                                                                                      | Removing the keys stops sending; text already sent is not recallable |
+| **D2**   | May a provider whose free tier can train on or human-review prompts receive vacancy text                       | **Decided by the owner 2026-11-04**                | Yes, after stripping (§4.2)                                                                                                                                                                                                                                                                                                                                   | Same                                                                 |
+| **D3**   | OpenRouter in the router                                                                                       | **Decided by the owner 2026-11-04**                | **Superseded 2026-11-08:** OpenRouter is a route, free models only; `data_collection` is D11 (§3.5, §4.3). Original answer: not in this version; `deny` re-decided if it is added                                                                                                                                                                             | Yes — add a provider row later                                       |
+| **D4**   | Which persistent store holds route state and the managed list (memory alone is ruled out by D6)                | **Decided by the owner 2026-11-04** (ADR approval) | Worker state files (write-through, atomic replace) behind the `RouteStatePort`; Postgres adapter only when a second worker replica appears                                                                                                                                                                                                                    | Yes — swap the adapter                                               |
+| **D5**   | Own daily caps per provider                                                                                    | **Decided by the owner 2026-11-04** (ADR approval) | 50 % of each provider's published free limit (5.4c-0 supplies the numbers), frozen as limits in config under a policy version                                                                                                                                                                                                                                 | Yes — a new policy version                                           |
+| **D6**   | Model list after a model dies                                                                                  | **Decided by the owner 2026-11-03**                | **Self-heal** by the VCF mechanism: request-time retirement, daily refresh with a pinned fallback, weekly stale check (§3.4) — replaces "alert only"                                                                                                                                                                                                          | Yes — delete the managed-list file / disable the job                 |
+| **D7**   | Adoption shape                                                                                                 | **Decided by the owner 2026-11-04** (ADR approval) | Option A, copy-adapt into `@crm/inference`                                                                                                                                                                                                                                                                                                                    | Yes — revert the PRs                                                 |
+| **D8**   | If no model passes MP-04 on the VPS: another host, or deterministic HTML with model extraction disabled (§8.5) | **A3, asked only if it happens**                   | Deterministic HTML first, because it spends nothing and loses only what measured coverage can then price; another host once that loss is known                                                                                                                                                                                                                | Yes                                                                  |
+| **D9**   | Where the load replay of MP-04 runs                                                                            | **Decided by the owner 2026-11-04**                | On the VPS, run by Master over the ssh alias (owner-authorized 2026-11-04): the candidate under the container limit (4 vCPU and the RAM left beside the CRM), synthetic data only, stopped if CRM p95 degrades. Alternative path: the owner's own machine under the same limit, synthetic or seed data only, which is indicative of the VPS, not proof (§8.2) | The run is; load already put on production is not                    |
+| **D10**  | Fields a model returns without a surviving quote                                                               | **Decided by the owner 2026-11-04**                | Filtered out on every route: the field becomes null, the record and its other fields stay (§5.4). MP-03 still reports the dropped share                                                                                                                                                                                                                       | Yes — one filter                                                     |
+| **D11**  | OpenRouter `provider.data_collection` (asked again by the restored §3.5)                                       | **Decided by the owner 2026-11-08**                | `allow`: only public vacancy text with contacts stripped leaves the host. It is one required config value (`dataCollection`). Contact stripping becomes the load-bearing privacy control for OpenRouter and is mandatory on every hosted route, with a per-provider test (H.9)                                                                                | Yes — one config value; text already sent is not recallable          |
+| **OD-2** | OpenRouter `provider.ignore` contents                                                                          | **A1, the architect, 2026-11-08**                  | Empty: its old content came from the D2 exclusion that no longer exists (H.9)                                                                                                                                                                                                                                                                                 | Yes — a config value                                                 |
 
-D1–D3, D9 and D10 are answered, so nothing here is blocked on them. D8 blocks only the local model's branch (5.4c-7, 5.4c-8).
+**Amended 2026-11-08.**
+
+- **D3 is superseded.** OpenRouter is a route, free models only (§3.5, §4.3).
+- **D8 and D9 are moot.** The question D8 answered ("no model passes") happened, and the owner's answer is stronger: the
+  local model is withdrawn, not moved to another host. The replay D9 placed is done.
+- D11 and OD-2 are new.
+
+Nothing in this table blocks a task.
+
+Before 2026-11-08 (record): D1–D3, D9 and D10 were answered, so nothing here was blocked on them. D8 blocked only the
+local model's branch (5.4c-7, 5.4c-8).
 
 ### 7.2 Tasks
+
+> **Amended 2026-11-08 (hosted-only).** The table below is kept as the record of the local-model plan; its tagged rows
+> say what changed. The remaining Phase 5 work is these tasks, in this order: **5.4c-H1 → 5.4c-H2 → 5.4c-H3 → 5.4c-H4**,
+> then **MP-03 (hosted-only, §6.2)** after H3, then **5.4c-5 (re-scoped)** after H1–H3 and MP-03. H4 may run in parallel
+> with H3 once H2 is merged; it touches disjoint files.
+>
+> | Task                                                    | Agent · model                                                                                               | Depends on             | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+> | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | **5.4c-H1** Withdraw the local route and the small dose | coder · **opus**, high (cross-package contract: `ExtractionRequest`, `routerConfigSchema`, the worker link) | this ADR amendment     | H.1 and H.6: the local route schema and its helpers leave `routerConfigSchema`; the config refines become hosted-only (total, as H.1 writes them); `routerCallCeilingMs` is the hosted budget; `smallDose` leaves `ExtractionRequest` and the API call sites; `renderSchema` / `structuredOutputFor` move out of the small-dose module before it is deleted; the worker env and `EXTRACTION_TABLE_VERSION` follow H.4. A stale config with a local route fails closed. Tests of §6.1 that exercised the local route are rewritten for hosted routes, not deleted silently |
+> | **5.4c-H2** `LIMITS_EXHAUSTED` end to end               | coder · **opus**, high; **security-reviewer** (DDL on a CHECK constraint)                                   | 5.4c-H1                | H.2 and H.3: the new inference error code and its exact definition, the `EXHAUSTED` router event, the worker pass-through, the `ModelStop` kind and its owed-not-parked accounting, the `MODEL_LIMITS_EXHAUSTED` flag with its once-per-cycle emission, the narrowed `HOSTED_ROUTES_DEAD` evidence, the request-free readiness preflight, and a new manual-staged DDL widening `MODEL_HEALTH_FLAG_VALUES` and `MODEL_ROUTE_VALUES`                                                                                                                                        |
+> | **5.4c-H3** OpenRouter route, free models only          | coder · **opus**, high; **security-reviewer** (external send, key)                                          | 5.4c-H1; after 5.4c-H2 | §3.5 and H.9: the provider in `HOSTED_PROVIDERS` and `HOSTED_BASE_URLS`, the `dataCollection` config value, the four independent free-only checks, the OpenRouter classification (FLAG_REJECTED, SPENT_DAY, BUSY, CREDIT, AUTH), the managed-list refresh filtered by pricing and `structured_outputs`, the worker key env, and the per-provider contact-stripping tests over production, probe and chain-check requests                                                                                                                                                  |
+> | **5.4c-H4** The limits notice in the UI                 | coder · **opus** (cross-zone contract api ↔ shared ↔ web); ui-ux-designer; copy-reviewer (uk/en)            | 5.4c-H2                | H.8: the `sourcingNotice` field on the queue list, the operational sources list and the manual run, the 503 code for a run where nothing succeeded on limits, the queue and admin banners with the owner's uk/en text through Lingui. The field stays `null` in production until 5.5b                                                                                                                                                                                                                                                                                     |
+>
+> **5.4c-5 is re-scoped, not retired:** three keys (Gemini, Groq, OpenRouter) provisioned by the owner into the extraction
+> worker only, the OpenRouter key with a $0 USD limit checked before use; the worker provisioning items moved here from
+> 5.4c-8 (the `0600` env files, a generated `EXTRACTION_WORKER_SECRET`, the §2.4 network holding only the two workers with
+> no published port, the API env without the secret, an unauthenticated call refused); egress to the three provider
+> hosts and their listing endpoints only; the controlled smoke per route, OpenRouter's free-only fixtures included; the
+> hosted keys moved out of the API env and the API deploy path. It no longer depends on 5.4c-8, and "the floor is live
+> before any hosted key exists" no longer applies. **5.4c-7 and 5.4c-8 are retired**; nothing replaces them.
 
 Model tier per `model-routing.md`. Every code task: Coder in its own worktree, code-reviewer, **security-reviewer**
 (keys, external send), mutation gate on the changed scope.
 
-Order: 5.4c-0 → 5.4c-1 → 5.4c-2 → 5.4c-6 → 5.4c-W → 5.4c-3 and 5.4c-4 → 5.4c-8 (install) → 5.4c-5. 5.4c-7 (MP-04,
+Original order (record; superseded by the 2026-11-08 order above): 5.4c-0 → 5.4c-1 → 5.4c-2 → 5.4c-6 → 5.4c-W → 5.4c-3 and 5.4c-4 → 5.4c-8 (install) → 5.4c-5. 5.4c-7 (MP-04,
 the gate of 5.4c-8) runs after 5.4c-6, alongside 5.4c-W; 5.4c-2b follows 5.4c-2 and precedes 5.4c-5. The small dose precedes the measurement because MP-04 and
 MP-03 must measure what production will run.
 
@@ -1036,10 +1460,10 @@ MP-03 must measure what production will run.
 | **5.4c-W** Extraction worker service (**prerequisite**: none exists on main; the prod compose has `postgres`, `redis`, `api`, `nginx`) | **coder · opus** for the entrypoint and the `ExtractionPort` adapter; **DevOps** · sonnet for the service                                                    | 5.4c-6, plan Task 2.5 (the collection side)                     | The process of §2.1 and the entry of §2.4, with health flags carried as §5.3 says. Tests: an unauthenticated call, a foreign field and a version mismatch are each refused with zero requests at any route; a contact in the input reaches a fake route stripped and raises the event; a flag in the state file reaches the next reply                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | **5.4c-3** Wiring                                                                                                                      | coder · **opus**, high                                                                                                                                       | 5.4c-2, 5.4c-6, 5.4c-W                                          | Optional env keys read only by the extraction worker (the `LOCAL_MODEL_URL` refine unchanged), `INFERENCE_EXTRACTION_PROVIDER=router` there, `buildInferenceConfig` mapping, `ModelStructurer` built with `timeoutMs` and `abandonedHoldMs` from `routerCallCeilingMs`, the **mandatory** `onEvent` consumer of §5.3; a test pins `ModelStructurer` as the only consumer of the extraction port in `apps/api`, so a future direct caller cannot skip the guards; no log line carries a key or text                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | **5.4c-4** Preflight + health                                                                                                          | coder · sonnet, medium                                                                                                                                       | 5.4c-W                                                          | Preflight before a model-using cycle; "model unreachable" health signal, cleared only by a later call that reaches the model; deterministic stages unaffected                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| **5.4c-5** Hosted enablement                                                                                                           | DevOps · sonnet + human-only (keys, egress)                                                                                                                  | 5.4c-8, 5.4c-W, MP-03, 5.4c-2b, 5.4c-3                          | Gemini and Groq keys provisioned by the owner into the extraction worker, **each from a free-tier project or account with no billing enabled**: billing brings different cost and data terms from the ones D2 accepted, and removes the hard stop §3.1 relies on; egress allowlist per provider host (listing endpoints included); controlled smoke per route (Task 5.2), which runs the owner's redacted calls of §2.3; Groq's zero data retention if the owner wants it (§4 item 3). The floor is live before any hosted key exists                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| **5.4c-5** Hosted enablement (re-scoped 2026-11-08, see above)                                                                         | DevOps · sonnet + human-only (keys, egress)                                                                                                                  | 5.4c-H1–H4, 5.4c-W, MP-03, 5.4c-2b, 5.4c-3                      | Gemini and Groq keys provisioned by the owner into the extraction worker, **each from a free-tier project or account with no billing enabled**: billing brings different cost and data terms from the ones D2 accepted, and removes the hard stop §3.1 relies on; egress allowlist per provider host (listing endpoints included); controlled smoke per route (Task 5.2), which runs the owner's redacted calls of §2.3; Groq's zero data retention if the owner wants it (§4 item 3). (Record: the floor was to be live before any hosted key existed; withdrawn 2026-11-08.)                                                                                                                                                                                                                                                                                                                                                                                                                |
 | **5.4c-6** Small dose and call control                                                                                                 | coder · **opus**, high (cross-package contract: `ExtractionRequest`, `ModelStructurer`, `ModelBudgetPort`, `buildExtractionPrompt`, `guardExtractionResult`) | 5.4c-2, 5.4b                                                    | §5.4 and §5.5, unconditional, the outcome table included, and the D10 guard change with its test (§6.1). **This changes the 5.4b hold and contract** (§5.5). **MP-03 tunes the table and does not gate it**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| **5.4c-7** MP-04: local model measurement (gate of 5.4c-8)                                                                             | **DevOps** · sonnet for the container definition, the guards and the harness; **where the replay runs and who runs it: D9**                                  | 5.4c-0, 5.4c-6, MP-05 baseline                                  | **Makes a merged model service unable to start on production without the owner (§8.6):** a separate compose file and project, a CI assertion, the rehearsal of the deploy paths. Container definition per Task 5.2 and §8.3, limited to the production host's budget, thresholds frozen in the task file before the run. For each candidate on the MP-03 labelled set through the production pipeline with the small dose, on synthetic or seed data only (D9): tokens/s, wall time per record, peak RAM, CPU, cold load, CRM p95 with and without, estimate against reported prompt tokens, reasoning output, whether a disconnect stops generation, plus the MP-03 local-phase metrics (§6.2). **Output: the pick with its digest, licence and limits, the frozen floor budget and cycle limit, or "none passes", which goes to D8.** Tunes the §5.4 table with MP-03                                                                                                                       |
-| **5.4c-8** Provision and install the local model                                                                                       | DevOps · sonnet prepares; **the owner runs it on the production server (A3: prod)**                                                                          | 5.4c-7 passing, 5.4c-W, 5.4c-3, 5.4c-4, the owner's explicit go | Runbook section for the owner-run start of the opt-in project (§8.6): pinned image and weights by digest with verification, limits, the extraction worker's persistent volume, the two workers' own `0600` env files (§2.4) with a generated `EXTRACTION_WORKER_SECRET`; on the host, the checks of §8.3 (outbound attempt fails, no published port, marker prompt absent from the container log), **neither the API container nor the collection worker is on the runtime network, and neither env holds hosted keys or `ROUTER_LOCAL_MODEL_URL`; the §2.4 network holds only the two workers with no published port, the API env lacks the secret, and an unauthenticated call is refused**, the window set server-wide and checked with the head marker, and a preflight (§8.4); the owner-run VPS smoke of §8.2 (D9); the undo of §8.6. Then `INFERENCE_EXTRACTION_PROVIDER=router` in the worker with no hosted key: local-only and working. **No agent runs a production step unasked** |
+| **5.4c-7** MP-04 (retired 2026-11-08)                                                                                                  | **DevOps** · sonnet for the container definition, the guards and the harness; **where the replay runs and who runs it: D9**                                  | 5.4c-0, 5.4c-6, MP-05 baseline                                  | **Makes a merged model service unable to start on production without the owner (§8.6):** a separate compose file and project, a CI assertion, the rehearsal of the deploy paths. Container definition per Task 5.2 and §8.3, limited to the production host's budget, thresholds frozen in the task file before the run. For each candidate on the MP-03 labelled set through the production pipeline with the small dose, on synthetic or seed data only (D9): tokens/s, wall time per record, peak RAM, CPU, cold load, CRM p95 with and without, estimate against reported prompt tokens, reasoning output, whether a disconnect stops generation, plus the MP-03 local-phase metrics (§6.2). **Output: the pick with its digest, licence and limits, the frozen floor budget and cycle limit, or "none passes", which goes to D8.** Tunes the §5.4 table with MP-03                                                                                                                       |
+| **5.4c-8** Local model install (retired 2026-11-08)                                                                                    | DevOps · sonnet prepares; **the owner runs it on the production server (A3: prod)**                                                                          | 5.4c-7 passing, 5.4c-W, 5.4c-3, 5.4c-4, the owner's explicit go | Runbook section for the owner-run start of the opt-in project (§8.6): pinned image and weights by digest with verification, limits, the extraction worker's persistent volume, the two workers' own `0600` env files (§2.4) with a generated `EXTRACTION_WORKER_SECRET`; on the host, the checks of §8.3 (outbound attempt fails, no published port, marker prompt absent from the container log), **neither the API container nor the collection worker is on the runtime network, and neither env holds hosted keys or `ROUTER_LOCAL_MODEL_URL`; the §2.4 network holds only the two workers with no published port, the API env lacks the secret, and an unauthenticated call is refused**, the window set server-wide and checked with the head marker, and a preflight (§8.4); the owner-run VPS smoke of §8.2 (D9); the undo of §8.6. Then `INFERENCE_EXTRACTION_PROVIDER=router` in the worker with no hosted key: local-only and working. **No agent runs a production step unasked** |
 
 **Delivery state, 2026-11-07.**
 
@@ -1058,9 +1482,17 @@ MP-03 itself stays the plan's measurement. Its local phase runs with 5.4c-7 and 
 once keys exist for the measurement and before 5.4c-5 (§6.2). MP-03 still gates hosted enablement and picks hosted
 candidates; it does not gate the small dose.
 
+> **Amended 2026-11-08.** MP-03 has no local phase and no small dose to tune. It runs hosted-only, per provider, after
+> 5.4c-H3, and still gates 5.4c-5 (§6.2).
+
 ---
 
 ## 8. The CRM's own local model
+
+> **Withdrawn 2026-11-08 (owner decision, Amendment 2026-11-08).** No local LLM runtime runs on the server for
+> extraction, now or later. This section is kept unchanged as the record of the attempt: its selection criteria, host
+> budget and install guards are what a future proposal would have to re-argue, not reuse. D8 and D9 are moot; 5.4c-7 and
+> 5.4c-8 are retired (§7.2). Nothing here is a task.
 
 **Owner correction, 2026-11-04:** "We do not take the model from the factory. The factory's model is an example of using
 a local model so that it does not fail on every prompt. We must install our own lightweight model on the server,
@@ -1202,11 +1634,27 @@ deploy and takes RAM from the CRM. Task 5.4c-7 (DevOps) therefore:
   profiles.
 
 The existing `local` adapter admits a loopback base URL only, and the router's local route has its own URL key and transport
-option (§3.3), so `provider: local` stays as it is, for loopback use.
+option (§3.3), so `provider: local` stays as it is, for loopback use. **Amended 2026-11-08:** that adapter is not deployed for extraction (amendment item 1); it stays in the code only for a loopback development run.
 
 ---
 
 ## Consequences
+
+> **Amended 2026-11-08 (hosted-only).** The bullets below are the record of the local-model plan. What changes:
+>
+> - **Positive.** No model runtime on the CRM host: no memory or CPU taken from the CRM, no install guards, no model
+>   measurement before production. Three free providers instead of two widen the daily capacity; OpenRouter alone adds
+>   1000 free requests per day. The small dose and its table are gone, so a call is one request per route attempt.
+> - **Negative.** There is no floor. A day when every route is limit-blocked is a day with **no model extraction**: the
+>   records stay owed and are retried on a later cycle, and the user sees the owner's localized notice (H.8) instead of
+>   slow results. Extraction now depends entirely on three third parties' free terms, which change without notice.
+> - **Privacy, accepted (D11).** OpenRouter may let its upstream providers keep and train on what it sends. Only public
+>   vacancy text is sent, and only after `stripContacts`. That makes the contact-stripping guard the load-bearing privacy
+>   control on every hosted route; a regression there is a privacy defect, and the per-provider tests of H.9 exist to
+>   catch it.
+> - **Risks.** A free model id that stops being free is caught by four independent checks (§3.5), and the key's $0 limit is
+>   the last one; a pricing field the parser does not know fails closed. Reset times for Groq and OpenRouter are
+>   UNVERIFIED (H.7), so the notice may show longer than needed. D10 still drops a true field the model did not quote.
 
 - **Positive.** The owner's chain arrives behind `ExtractionPort` with an unchanged result type. Local-only is the working
   state from the install; hosted routes are additive. Pacing below the providers' limits makes "refused" the exception.
@@ -1239,6 +1687,19 @@ option (§3.3), so `provider: local` stays as it is, for loopback use.
   defeat `ai-input=no` (§2.4).
 
 ## Rollback
+
+**Amended 2026-11-08 (hosted-only).** These rows apply from 5.4c-H1 on. The table after them is the record of the
+local-model plan; its "Local model" and "Small-dose table" rows are moot, and its runtime rows no longer leave a floor.
+
+| Level                                   | Command / action                                                                                                                                                                                    | Expected state                                                                                         | Verification                                                                                        |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| Runtime, instant — the privacy rollback | Remove `GEMINI_API_KEY`, `GROQ_API_KEY` and `OPENROUTER_API_KEY` from the worker env, restart. Text already sent is not recalled                                                                    | No route is configured: extraction reports `NOT_CONFIGURED`, deterministic stages and the CRM carry on | No request to any provider host in egress logs; router events list no attempt                       |
+| OpenRouter only                         | Remove `OPENROUTER_API_KEY` from the worker env, restart. Or revoke the key in the OpenRouter dashboard (owner action)                                                                              | The chain keeps Gemini and Groq                                                                        | Router events list no `openrouter` attempt; no request to `openrouter.ai`                           |
+| One other provider                      | Remove that provider's key from the worker env                                                                                                                                                      | That route does not exist; the chain keeps the rest                                                    | Router events list no attempt for that provider                                                     |
+| UI notice (5.4c-H4)                     | `git revert` the H4 PR                                                                                                                                                                              | The field and banners are gone; the limits flag still records the state                                | The queue response has no `sourcingNotice`; `pnpm --filter @crm/web typecheck` green                |
+| Code (5.4c-H1..H3)                      | `git revert` the PRs, newest first. Reverting H1 restores a schema that **requires** a local route, so a hosted-only config then fails closed and extraction stops until one exists; no text leaves | `@crm/inference` back to the pre-amendment router                                                      | `pnpm --filter @crm/inference test` and the API inference specs green                               |
+| Health-flag DDL (5.4c-H2)               | Owner-run reverse DDL from the H2 PR body: narrow the CHECK constraints back only after deleting or remapping rows that carry the new values (A3: prod data)                                        | Constraints match the reverted code                                                                    | `SELECT` of the constraint definitions; no row violates them                                        |
+| This amendment                          | `git revert` its squash commit                                                                                                                                                                      | The ADR and plan describe the local-model plan again; no code changes                                  | `grep -c "Amendment 2026-11-08" docs/architecture/2026-11-03-extraction-model-router.md` prints `0` |
 
 | Level                                   | Command / action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Expected state                                                                                    | Verification                                                                                                |
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
@@ -1285,3 +1746,8 @@ option (§3.3), so `provider: local` stays as it is, for loopback use.
   `MODEL_DOWN_FRESH_HOURS`, and the knowledge notes `llm-backends` and `model-call-doses`.
 - Provider and runtime facts: `docs/architecture/2026-11-04-extraction-provider-facts.md` (5.4c-0, read 2026-11-04); what
   it could not settle is listed in §2.3. Nothing in this ADR was fetched from the network.
+- **Amendment 2026-11-08:** the owner's hosted-only decision, the $10 OpenRouter credit purchase (which raises the `:free`
+  limit to 1000 requests per day) and the localized notice text, relayed by Master; the owner's D11 answer on
+  `data_collection`, relayed by Master. The MP-04 result that preceded the decision, and the OpenRouter facts in §3.5 and
+  H.9, are as relayed; OpenRouter's limits, reset time and error bodies stay **UNVERIFIED** until the 5.4c-5 smoke. The
+  code symbols named in H.1–H.8 were read at origin/main `10517861`.
