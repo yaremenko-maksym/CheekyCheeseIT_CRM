@@ -279,7 +279,23 @@ function finish(outDir, result) {
   process.exitCode = mine.error ? 2 : mine.pass ? 0 : 1
 }
 
+/** Every sampler, timer, probe and server `measure` opens is closed here, even when it throws. */
 async function run(a, cand) {
+  const closers = []
+  try {
+    return await measure(a, cand, closers)
+  } finally {
+    for (const close of closers.reverse()) {
+      try {
+        await close()
+      } catch {
+        // already closed by the normal path
+      }
+    }
+  }
+}
+
+async function measure(a, cand, closers) {
   const req = createRequire(join(resolve(a['api-dist']), 'dist', 'main.js'))
   const dist = (p) => req(join(resolve(a['api-dist']), 'dist', p))
   const inf = req('@crm/inference')
@@ -317,15 +333,24 @@ async function run(a, cand) {
   const stats = statsSampler(ct)
   const hostMem = []
   const memTimer = setInterval(() => hostMem.push(hostAvailableBytes()), 2_000)
+  closers.push(
+    () => stats.stop(),
+    () => clearInterval(memTimer),
+  )
   const interval = Math.max(MIN_PROBE_INTERVAL_MS, Number(a['probe-interval-ms']))
 
   const baseline = crmProbe(a['crm-url'], interval)
+  closers.push(() => baseline.stop())
   await sleep(Number(a['baseline-s']) * 1000)
   await baseline.stop()
   const base = probeStats(baseline.samples)
 
   const current = { tag: {}, inFlight: 0 }
   const tap = await startTap(a['runtime-url'], current)
+  closers.push(() => {
+    tap.server.closeAllConnections()
+    tap.server.close()
+  })
   const raw = structuredClone(cand.routerConfig)
   const local = raw.routes?.find((r) => r.provider === 'local')
   if (!local) throw new Error('routerConfig has no local route')
@@ -372,6 +397,7 @@ async function run(a, cand) {
       stop.abort()
     }
   })
+  closers.push(() => loaded.stop())
 
   const structure = (fx, signal) =>
     structurer.structure({

@@ -30,7 +30,7 @@ set -euo pipefail
 REPO="$(git rev-parse --show-toplevel)"
 WORK="${RUNNER_TEMP:-/tmp}/crm"            # directory name crm = project crm, as /opt/crm on the VPS
 SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/null}"
-RUNTIME_CTX=512                           # the tiny rehearsal model; production pins its own window
+RUNTIME_CTX=4096                          # the tiny rehearsal model; large enough for the router's input ceiling (G2); production pins its own window
 ENTRY_NET=crm-extraction-entry
 REGISTRY=ghcr.io/yaremenko-maksym
 
@@ -276,7 +276,8 @@ if [ "$out" = 200 ]; then
 {"name":"stories260K-smoke","repo":"ggml-org/models-moved","file":"$MODEL_FILE","sha256":"$MODEL_SHA256","repoCommit":"main","licence":null,
  "routerConfig":{"policyVersion":"rehearsal","hostedBudgetMs":0,"floorBudgetMs":360000,"routes":[{"provider":"local","baseUrl":"http://crm-model-runtime:8080/v1","model":"rehearsal-model","contextTokens":$RUNTIME_CTX,"structuredOutput":"json_schema","timeoutMs":60000,"maxAnswerTokens":64}]}}
 EOF
-  if node "$REPO/scripts/devops/extraction-mp04/mp04.mjs" --candidate mp04-candidate.json --api-dist mp04-app \
+  # A hung harness fails here in minutes (exit 124), not at the job's timeout.
+  if timeout 900 node "$REPO/scripts/devops/extraction-mp04/mp04.mjs" --candidate mp04-candidate.json --api-dist mp04-app \
     --runtime-url "http://$rt_ip:8080" --crm-url "http://$api_ip:3001/api/health" \
     --baseline-s 10 --fixtures 4 --out-dir mp04-out; then st=0; else st=$?; fi
   [ -s mp04-out/report.json ] || fail "G2. the harness wrote no report (exit $st)"
