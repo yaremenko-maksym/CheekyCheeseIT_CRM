@@ -561,13 +561,11 @@ for c in 'powershell -c "Remove-Item x"' 'PowerShell.exe -Command x' 'pwsh -c x'
   assert_red "unread shell: $c" --contains "no gate reads" -- h "$c"
 done
 for c in "git commit -m 'use powershell -c x'" "echo powershell -c x" "gh pr create --body 'run cmd /c dir'" \
-         "grep -rn powershell .claude" "ls cmd" "cat cmd/main.go" "go run ./cmd" "go build ./cmd/server" \
-         "pnpm add powershell" "brew install powershell" "brew install --cask pwsh" "npm i pwsh"; do
+         "grep -rn powershell .claude" "ls cmd" "cat cmd/main.go" "go run ./cmd" "go build ./cmd/server"; do
   assert_green "naming a shell does not run it: $c" -- h "$c"
 done
 # CR-M-1 / SR-M-4 (#1294): PowerShell 5.1 runs a plain next word as -Command and both shells
-# run piped stdin, so a powershell/pwsh reading needs no flag after it. Only a package name
-# in an install is exempt, and never inside an inline program.
+# run piped stdin, so a powershell/pwsh reading needs no flag after it, wherever it stands.
 for c in 'winpty powershell Remove-Item -Recurse -Force C:/x' 'echo Remove-Item -Recurse C:/x | winpty pwsh' \
          "python3 -c \"import os; os.system('powershell Remove-Item -Recurse -Force C:/Users/x')\"" \
          "node -e \"require('child_process').execSync('powershell Remove-Item -Recurse C:/x')\"" \
@@ -577,20 +575,21 @@ for c in 'winpty powershell Remove-Item -Recurse -Force C:/x' 'echo Remove-Item 
          "python3 -c \"import os; os.system('pnpm add pwsh')\""; do
   assert_red "unread shell, any next word: $c" --contains "no gate reads" -- h "$c"
 done
-for c in "pnpm add powershell" "brew install pwsh" "go run ./cmd" "winpty pnpm add powershell"; do
-  assert_green "a package name is not a launch: $c" -- h "$c"
-done
+assert_green "cmd as a directory name is not a launch: go run ./cmd" -- h "go run ./cmd"
 # CR-M-4 (#1294): a decoy install in one quoted argument must not exempt a launch in the
-# next one, or past a `;` inside a -c string. The exemption needs a flat segment and
-# counts only the install own argv.
+# next one, or past a `;` inside a -c string, and a flat `concurrently` runs every word.
+# So there is no install exemption at all.
 for c in 'winpty bash -c "pnpm add powershell; powershell x"' \
          'concurrently "pnpm add pwsh" "pwsh -c Remove-Item"' \
          'npx concurrently "pnpm add powershell" "powershell Remove-Item -Recurse C:/x"' \
-         'parallel ::: "pnpm add powershell" "powershell Remove-Item x"'; do
-  assert_red "decoy install, quoted launch: $c" --contains "no gate reads" -- h "$c"
+         'parallel ::: "pnpm add powershell" "powershell Remove-Item x"' \
+         'npx concurrently pnpm add powershell'; do
+  assert_red "decoy install, launch beside it: $c" --contains "no gate reads" -- h "$c"
 done
-for c in "env pnpm add powershell" "yarn add powershell pwsh"; do
-  assert_green "a flat install argv is not a launch: $c" -- h "$c"
+# Accepted false refusals: installing PowerShell through a package manager is run by the owner by hand.
+for c in "pnpm add powershell" "brew install powershell" "brew install pwsh" "brew install --cask pwsh" \
+         "env pnpm add powershell" "yarn add powershell pwsh" "winpty pnpm add powershell" "npm i pwsh"; do
+  assert_red "accepted false refusal, install of a shell: $c" --contains "no gate reads" -- h "$c"
 done
 
 # SR-M-1 (#1294): a backslash-newline is a line continuation, so the shell joins the word.

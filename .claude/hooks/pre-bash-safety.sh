@@ -351,76 +351,22 @@ def unread_shell(word):
     return re.sub(r"\.(exe|cmd|bat|com)$", "", re.split(r"[/\\]", word)[-1], flags=re.I).lower()
 
 
-PS_SHELLS = ("powershell", "pwsh")
-PM_INSTALL = {"pnpm": ("add", "install", "i"), "npm": ("add", "install", "i"),
-              "yarn": ("add", "install", "i"), "brew": ("install",), "winget": ("install",),
-              "choco": ("install",), "scoop": ("install",)}
-
-
-def is_ps_word(tok):
-    name = cmdscan._command_name(tok)
-    return cmdscan._plausible_command_word(name) and unread_shell(name) in PS_SHELLS
-
-
-# A package name (`pwsh`, `@scope/pkg@1.2`) or a flag (`--cask`, `-D`) of an install.
-INSTALL_WORD = re.compile(r"^(@?[A-Za-z0-9][A-Za-z0-9@/._+:~^=-]*|--?[A-Za-z][A-Za-z0-9-]*(=[A-Za-z0-9@/._:~^-]*)?)$")
-# A word that holds more than one shell word. Readings split it, so its pieces
-# could be read as one install argv while they belong to another command (CR-M-4).
-NOT_FLAT = re.compile(r"[\s;&|]")
-
-
-def install_words(argv):
-    # The install own arguments: after the verb, up to the first word that is not
-    # a package name or a flag. A reading is a window over the whole segment.
-    out = []
-    for tok in argv[1:]:
-        if not INSTALL_WORD.match(tok):
-            break
-        out.append(tok)
-    return out
-
-
-def ps_only_installed(seg, arg_reads):
-    # True when every powershell/pwsh argument reading is a package name handed to ONE
-    # install (`pnpm add powershell`, `brew install --cask pwsh`). Counting, not
-    # matching by name: each install argument is also a reading, so equal counts mean
-    # no reading is left over as a launch (`wrap powershell x pnpm add powershell`).
-    # Only for a flat segment: a quoted `"pnpm add pwsh" "pwsh -c x"` is two commands
-    # to concurrently / parallel / bash -c, and its pieces must not count as one argv.
-    if any(NOT_FLAT.search(tok) for tok in [seg.name] + list(seg.argv)):
-        return False
-    want = sum(1 for r in arg_reads[1:] if unread_shell(r.name) in PS_SHELLS)
-    for pm in arg_reads:
-        verbs = PM_INSTALL.get(unread_shell(pm.name), ())
-        if pm.argv and pm.argv[0] in verbs and sum(map(is_ps_word, install_words(pm.argv))) == want:
-            return True
-    return False
-
-
 for seg in scan.segments:
     if blocked:
         break
-    # cmdscan.candidates(seg) is the segment and its argument readings. A code reading
-    # (python -c, node -e) with the same name and arguments is one of those tokens read
-    # again (brew is code-capable, so `brew install pwsh` is re-read); any other is code.
-    arg_reads = cmdscan.candidates(seg)
-    arg_keys = {(r.name, tuple(r.argv)) for r in arg_reads}
-    installed = ps_only_installed(seg, arg_reads)
     for cand in candidates(seg):
         shell = unread_shell(cand.name)
         if shell not in UNREAD_SHELLS:
             continue
         nxt = cand.argv[0] if cand.argv else ""
-        if cand is seg:
+        if cand is seg or shell != "cmd":
+            # PowerShell 5.1 runs a plain next word as -Command and both shells run piped
+            # stdin with no argument, so any powershell/pwsh reading is a launch. No
+            # exemption: an install (`pnpm add pwsh`) is a known false refusal, run by hand.
             hit = True
-        elif shell == "cmd":
+        else:
             # `cmd` is a common directory name (`go run ./cmd`): only with a flag after it.
             hit = nxt[:1] in ("-", "/")
-        else:
-            # PowerShell 5.1 runs a plain next word as -Command and both shells run piped
-            # stdin with no argument, so any next word (or none) is a launch. The one
-            # exemption is a package name in an install, and never inside inline code.
-            hit = not installed or (cand.name, tuple(cand.argv)) not in arg_keys
         if hit:
             blocked.append("`%s` runs a shell whose syntax no gate reads" % cand.name)
             break
