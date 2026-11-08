@@ -1407,8 +1407,8 @@ code-reviewer confirms all verdicts.
       update/reopen/retention; generation refresh; backfill/legacy recovery; merge/split and claim-conflict recovery;
       aggregate-only queries.
 - [ ] Reproducible scratch/load/egress/rollback checks with run IDs; capacity and credentials human-only; pinned
-      engine services/digests/persistence/license; model endpoint separation (OpenRouter key rotation + USD limit, or
-      local runtime version + model digest); exhaustion pauses with checkpoints.
+      engine services/digests/persistence/license; model endpoint separation (Gemini, Groq and OpenRouter key rotation
+      and limits; no local runtime, withdrawn 2026-11-08); exhaustion pauses with checkpoints.
 - [ ] v1 alerts: sustained failed/PARTIAL runs, parse-validity collapse, freshness beyond policy, missing heartbeat,
       unreconciled costly requests, isolation errors, growing backlog, exhausted budgets, access-health events
       (challenge, pause, rising 403/429 share per MP-11); thresholds frozen in versioned policy; no "20 % daily
@@ -1475,7 +1475,7 @@ checking new-schema/old-binary and enum compatibility.
 | Deterministic relevance / unknowns / restrictions                                                                                                                                                                                 | 4.1–4.4                                           |
 | Equal-weight rank, no profile matching                                                                                                                                                                                            | 4.3, 6.3                                          |
 | Cron/cadence/reports/quota/recovery                                                                                                                                                                                               | 2.2–2.5, 3.7, 8.1                                 |
-| Main VPS; optional browser; OpenRouter-or-local behind one port                                                                                                                                                                   | 5.1–5.7                                           |
+| Main VPS; optional browser; hosted models only (Gemini, Groq, OpenRouter) behind one port                                                                                                                                         | 5.1–5.7                                           |
 | HR scoped list/card/claim; uk/en; Tier 1; a11y                                                                                                                                                                                    | 0.1, 6.1–6.5, 7.1–7.6                             |
 | Availability / retention / immutable generations                                                                                                                                                                                  | 1.2–1.4, 4.6, 6.2–6.3                             |
 | Shelf life / quality / alerts / rollout / rollback                                                                                                                                                                                | 8.1–8.3                                           |
